@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -527,3 +527,45 @@ test('room-chat keeps two group_relay calls that start at the same seq apart by 
   ])
 })
 
+test('file-download sends a presented file back to the phone', async (t) => {
+  const { call, history, stop } = start()
+  t.after(stop)
+  const dir = mkdtempSync(join(tmpdir(), 'ds-bot-file-'))
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  const path = join(dir, 'report.pdf')
+  writeFileSync(path, Buffer.from('%PDF-1.4 presented'))
+  history['s-file'] = [{ seq: 9, type: 'deliverables/presented', data: { turn: 1, files: [{ path }] } }]
+  const saved = await call('file-download', { sessionId: 's-file', seq: 9, index: 0 })
+  assert.equal(saved.ok, true)
+  assert.equal(saved.value.name, 'report.pdf')
+  assert.equal(saved.value.mime, 'application/pdf')
+  assert.equal(Buffer.from(saved.value.bytes, 'base64').toString(), '%PDF-1.4 presented')
+  const wrong = await call('file-download', { sessionId: 's-file', seq: 10, index: 0 })
+  assert.deepEqual([wrong.ok, wrong.error.code], [false, 'bot/not-found'])
+})
+
+test('file-download sends a file attachment and refuses an unknown one', async (t) => {
+  const { call, ctx, history, stop } = start()
+  t.after(stop)
+  const ref = await ctx.get('attachments').saveFile({ data: Buffer.from('notes for the phone'), name: 'notes.txt' })
+  history['s-att'] = [{ seq: 3, type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'file', attachment: ref }] } }]
+  const saved = await call('file-download', { sessionId: 's-att', attachmentId: ref.attachmentId })
+  assert.equal(saved.ok, true)
+  assert.deepEqual([saved.value.name, saved.value.mime], ['notes.txt', 'text/plain'])
+  assert.equal(Buffer.from(saved.value.bytes, 'base64').toString(), 'notes for the phone')
+  const missing = await call('file-download', { sessionId: 's-att', attachmentId: 'sha256:none' })
+  assert.deepEqual([missing.ok, missing.error.code], [false, 'bot/not-found'])
+})
+
+test('a presented file rides on the closing Bot row so the phone can save it', async (t) => {
+  const { rt, stop } = start()
+  t.after(stop)
+  const events = [
+    { seq: 11, type: 'turn/start', data: { turn: 1 } },
+    { seq: 12, type: 'assistant/message', time: 1, data: { turn: 1, message: { content: [{ type: 'text', text: 'Done, here it is.' }] } } },
+    { seq: 13, type: 'deliverables/presented', time: 2, data: { turn: 1, files: [{ path: '/tmp/reports/quarterly.pdf' }] } },
+  ]
+  const items = rt.displayItems('s-presented', events)
+  const row = items.find(item => item.kind === 'bot')
+  assert.deepEqual(row.files, [{ name: 'quarterly.pdf', seq: 13, index: 0 }])
+})

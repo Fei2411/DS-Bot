@@ -954,6 +954,7 @@ export const JA = {
   "At least {count} characters.": "{count} 文字以上で入力してください。",
   "Replace value": "値を変更",
   "Saving…": "保存中…",
+  "Could not save this file": "このファイルを保存できませんでした",
   "Save": "保存",
   "Allowing…": "許可中…",
   "Allow": "許可",

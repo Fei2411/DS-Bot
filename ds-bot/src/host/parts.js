@@ -1525,6 +1525,9 @@ export function install(rt) {
   const EARLIER_PAGE = 60
   function displayItems(partId, events, session, seedTurn) {
     const hidden = new Set(state.exchangeTurns[partId] ?? [])
+    // Files a turn presented, attached to its closing Bot row so the phone can save
+    // them: the card shows name and type, the save action names seq and index.
+    const presented = []
     // Call ids of the page's group_relay calls; their tool/result events carry the
     // round's replies. A result without its call on the page (the page cut between
     // them) draws nothing rather than guessing.
@@ -1543,6 +1546,11 @@ export function install(rt) {
     for (const event of events) {
       if (event.type === 'turn/start') {
         if (typeof event.data?.turn === 'number' && Number.isInteger(event.data.turn)) turn = event.data.turn
+        continue
+      }
+      if (event.type === 'deliverables/presented') {
+        const files = Array.isArray(event.data?.files) ? event.data.files.filter(file => typeof file?.path === 'string') : []
+        if (files.length > 0) presented.push({ turn: event.data?.turn ?? turn, seq: event.seq, files })
         continue
       }
       if (event.type === 'assistant/message') {
@@ -1633,6 +1641,14 @@ export function install(rt) {
       } else if (source?.kind === SOURCE_KIND && source.handoff !== true && source.deferred !== true && ['request', 'reply', 'report', 'stopped'].includes(source.role)) {
         stamp(event, { kind: 'event', role: source.role, botId: source.senderSessionId ?? null, name: source.senderName ?? null, roomId: source.roomId ?? null, time: event.time })
       }
+    }
+    for (const entry of presented) {
+      const owner = [...items].reverse().find(item => item.turn === entry.turn && (item.kind === 'bot' || item.kind === 'post'))
+      if (owner === undefined) continue
+      owner.files = [
+        ...(owner.files ?? []),
+        ...entry.files.map((file, index) => ({ name: String(file.path).split(/[\\/]/).pop() || 'file', seq: entry.seq, index })),
+      ]
     }
     return items
   }
