@@ -200,23 +200,21 @@ test('a failure the reload left only a settlement notice for shows in its group 
       { type: 'text', text: 'It left no closing message.' },
     ],
   }
+  const revBefore = second.rt.state.revision
   emit(second.ctx, 'gb', 'user/message', notice)
   const rows = () => second.rt.groupRows('r1', 0, second.rt.roomOf('r1').seq)
-  await settle(() => rows().some(row => row.kind === 'helper-failed'))
+  await waitFor(() => second.rt.state.revision > revBefore && rows().some(row => row.kind === 'helper-failed'))
   const shown = rows().filter(row => row.kind === 'helper-failed')
   assert.equal(shown.length, 1)
   assert.equal(shown[0].name, 'Writer')
-  assert.equal(shown[0].text, 'Export the deck: subagent ended (error) without a closing message.')
-  // The group Session is told to open a round at the notice, so the chat draws the row.
-  await waitFor(() => dsh.agentOf('r1').calls.length > 0)
-  const post = dsh.agentOf('r1').calls.at(-1)[1]
-  assert.equal(post.source.failed.code, 'SUBAGENT_FAILED')
-  assert.equal(post.source.quiet, true)
-  assert.equal(post.source.logged, second.rt.roomOf('r1').seq)
-  // The same notice again, and a late lifecycle ending, add no second post or row.
+  assert.equal(shown[0].stopReason, 'error')
+  assert.equal(shown[0].helper, 'Export the deck')
+  assert.equal(shown[0].text, 'Export the deck — subagent ended (error)')
+  assert.equal(dsh.agentOf('r1').calls.length, 0)
+  // The same notice again, and a late lifecycle ending, add no second row or post.
   emit(second.ctx, 'gb', 'user/message', notice)
   emit(second.ctx, 'gb', 'subagent/end', { id: 'child1', stopReason: 'error', runId: 'run-1', provider: 'spawn', local: true })
-  assert.equal(dsh.agentOf('r1').calls.length, 1)
+  assert.equal(dsh.agentOf('r1').calls.length, 0)
   assert.equal(rows().filter(row => row.kind === 'helper-failed').length, 1)
 })
 

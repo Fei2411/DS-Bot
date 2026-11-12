@@ -925,6 +925,18 @@ function useLiveNote(actions, sessionId, id, entry) {
   }, [sessionId, id, key])
 }
 
+function helperFailureReason(reply) {
+  let why
+  switch (reply.stopReason) {
+    case 'max-tokens': why = t('Reached the output limit'); break
+    case 'aborted': why = t('Stopped before finishing'); break
+    case 'refusal': why = t('Declined the task'); break
+    case 'error': why = t('Run failed'); break
+    default: why = reply.stopReason ? `${t('Run failed')} (${reply.stopReason})` : (reply.text || t('Run failed')); break
+  }
+  return reply.helper ? `${reply.helper} (${why})` : why
+}
+
 // One non-message row of a group round: the same event line the live view draws
 // for a reply that is not a member's message or the user's own line. `bot` is the
 // resolved member the reply names.
@@ -934,8 +946,8 @@ function RelayEvent({ reply, bot, sessionId, actions }) {
       t('{name} stopped: {reason}. Switch its model or ask it to go on.', { name: bot.name, reason: failureLabel(reply.code, reply.text) }))
   }
   if (reply.kind === 'helper-failed') {
-    return h('div', { className: 'bt-event bt-event-error', role: 'status', title: reply.text },
-      t("{name}'s background helper did not finish: {reason}. Ask it to go on if it still matters.", { name: bot.name, reason: reply.text }))
+    return h('div', { className: 'bt-event bt-event-error', role: 'status', title: reply.text || undefined },
+      t("{name}'s background helper did not finish: {reason}. Ask it to go on if it still matters.", { name: bot.name, reason: helperFailureReason(reply) }))
   }
   if (reply.kind === 'lookup') {
     return h('div', { className: 'bt-event' },

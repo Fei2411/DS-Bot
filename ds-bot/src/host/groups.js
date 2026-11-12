@@ -308,7 +308,7 @@ export function install(rt) {
     if (record.kind !== 'notice') return { kind: record.kind, ...who, time }
     switch (record.reason) {
       case 'failed': return { kind: 'failed', ...who, code: record.code, ...(record.status ? { status: record.status } : {}), text: record.message ?? record.detail, time }
-      case 'helper-failed': return { kind: 'helper-failed', ...who, text: record.detail, time }
+      case 'helper-failed': return { kind: 'helper-failed', ...who, ...(record.stopReason ? { stopReason: record.stopReason } : {}), ...(record.helper ? { helper: record.helper } : {}), text: record.detail, time }
       case 'missed': return { kind: 'missed', ...who, time }
       case 'admin-passed': return { kind: 'admin-passed', ...who, time }
       case 'paused': return { kind: 'paused', idle: record.idle, ...who, name: bot?.name ?? record.from, count: record.count ?? record.limit, limit: record.limit, names: record.names, time }
@@ -370,20 +370,31 @@ export function install(rt) {
     say(room, { who: 'DS Bot', kind: 'notice', reason: 'failed', names: [member.name], about: member.id, detail: failureLine(failure), code, ...(status ? { status } : {}), message })
   }
 
-  // Reuse the late-failure event so an idle group draws the ledger row without
-  // turning the child's failure into another member message or calling anyone.
-  const noteHelperFailure = async (sessionId, { reason, helper }) => {
+  // A failed background helper appends a structured notice directly to the group's
+  // ledger; the latest open group_relay anchor and room-chat read it on the revision
+  // bump without synthesizing an empty turn or marking the member's own turn failed.
+  const noteHelperFailure = async (sessionId, { stopReason, helper, closing } = {}) => {
+    if (rt.readOnly() !== undefined) return
     const owner = rt.groupOwners.get(sessionId)
     const room = rt.roomOf(owner?.roomId)
     const member = rt.botOf(owner?.botId)
     if (room === undefined || member === undefined || !room.members.includes(member.id)) return
-    const detail = helper ? `${helper}: ${reason}` : reason
-    const line = say(room, { who: 'DS Bot', kind: 'notice', reason: 'helper-failed', names: [member.name], about: member.id, detail })
+    const reason = typeof stopReason === 'string' && stopReason !== '' ? stopReason.slice(0, 40) : 'error'
+    const cleanHelper = typeof helper === 'string' && helper.trim() !== '' ? helper.trim().slice(0, 120) : undefined
+    const cleanClosing = typeof closing === 'string' && closing.trim() !== '' ? closing.replace(/\s+/g, ' ').trim().slice(0, 240) : undefined
+    const summary = `subagent ended (${reason})${cleanClosing ? `: ${cleanClosing}` : ''}`
+    const detail = cleanHelper ? `${cleanHelper} — ${summary}` : summary
+    say(room, {
+      who: 'DS Bot',
+      kind: 'notice',
+      reason: 'helper-failed',
+      names: [member.name],
+      about: member.id,
+      stopReason: reason,
+      ...(cleanHelper ? { helper: cleanHelper } : {}),
+      detail,
+    })
     await rt.save()
-    // The post names the notice's seq: the round it opens starts there, so the chat draws
-    // the notice row too, and the empty post is not written a second time.
-    await postToRoom(room, member, '', { late: true, quiet: true, logged: line?.seq, failed: { code: 'SUBAGENT_FAILED', message: detail } })
-      .catch(error => rt.warn('ds-bot: background helper failure not posted: %s', error))
   }
   rt.subagentFailureNotice = noteHelperFailure
 
