@@ -3,8 +3,8 @@ import test from 'node:test'
 import { CHECKPOINT_PROMPT, DEFAULT_WINDOW, checkpointCount, checkpointTail, checkpointTailNote, checkpointText, linesFor, parseDecision, stewardRequest } from '../src/host/steward.js'
 
 test('the lines follow the model: its window less the room for its reply', () => {
-  assert.deepEqual(linesFor({ window: 500_000, reserve: 0, checkRatio: 0.8 }), { window: 500_000, usable: 500_000, hard: 475_000, check: 400_000 })
-  assert.deepEqual(linesFor({ window: 1_000_000, reserve: 256_000, checkRatio: 0.8 }), { window: 1_000_000, usable: 744_000, hard: 706_800, check: 595_200 })
+  assert.deepEqual(linesFor({ window: 500_000, reserve: 0, checkRatio: 0.8 }), { window: 500_000, usable: 500_000, hard: 475_000, check: 380_000 })
+  assert.deepEqual(linesFor({ window: 1_000_000, reserve: 256_000, checkRatio: 0.8 }), { window: 1_000_000, usable: 744_000, hard: 706_800, check: 380_000 })
   // Another share moves the check line only.
   assert.equal(linesFor({ window: 1_000_000, reserve: 256_000, checkRatio: 0.5 }).check, 372_000)
   assert.equal(linesFor({ window: 1_000_000, reserve: 256_000, checkRatio: 0.5 }).hard, 706_800)
@@ -20,6 +20,19 @@ test('a model without a window counts as the default, and odd settings fall back
   }
   // The check line never passes the hard line.
   assert.equal(linesFor({ window: 100_000, reserve: 0, checkRatio: 0.99 }).check, 95_000)
+
+test('an absolute ceiling keeps a very large window below the cache cliff', () => {
+  // A 1M window at the default share would check at 595K, past the point where a
+  // provider's prefix cache stops helping.
+  assert.equal(linesFor({ window: 1_000_000, reserve: 8_000, checkRatio: 0.8 }).check, 380_000)
+  assert.equal(linesFor({ window: 1_000_000, reserve: 8_000, checkRatio: 0.8, checkTokens: 120_000 }).check, 120_000)
+  // A smaller window is not raised to the ceiling.
+  assert.equal(linesFor({ window: 200_000, reserve: 8_000, checkRatio: 0.8 }).check, 153_600)
+  // A refused ceiling keeps the default one.
+  for (const checkTokens of [0, -1, 1.5, 'x', undefined]) {
+    assert.equal(linesFor({ window: 1_000_000, reserve: 8_000, checkRatio: 0.8, checkTokens }).check, 380_000, String(checkTokens))
+  }
+})
 })
 
 test('the steward\'s answer is read from its JSON, and nothing else counts', () => {
