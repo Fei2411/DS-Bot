@@ -190,7 +190,6 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
   const flat = team?.prefs?.layout === 'flat'
   const width = Math.min(100, Math.max(50, team?.prefs?.width ?? 80))
   const [chatWidth, setChatWidth] = useState(0)
-  const [chatHeight, setChatHeight] = useState(0)
   const [expandedKey, setExpandedKey] = useState<string | null>(null)
   const [menuText, setMenuText] = useState<string | null>(null)
   const [readerText, setReaderText] = useState<string | null>(null)
@@ -233,9 +232,14 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
       }
     })
   }, [onFeed, room, sessionId, refresh, id])
-  // Bubble caps in px — RN cannot parse the CSS min() expression.
-  const botMax = chatWidth === 0 ? 0 : Math.min(chatWidth * width / 100, chatWidth - 40)
-  const userMax = chatWidth * width / 100
+  // Bubble caps in px — RN cannot parse CSS min(). Narrow phone screens ignore the
+  // desktop's wide-window column slider so bubbles do not waste a third of the screen;
+  // group rows reserve 30px (22px avatar + 8px gap) on the left.
+  const narrow = chatWidth < 520
+  const roomOffset = room !== undefined && !flat ? 30 : 0
+  const botSpan = Math.max(0, chatWidth - roomOffset)
+  const botMax = chatWidth === 0 ? 0 : Math.round(Math.min(botSpan * (narrow ? 0.93 : width / 100), botSpan - (narrow ? 8 : 40)))
+  const userMax = Math.round(chatWidth * (narrow ? 0.86 : width / 100))
 
   // Sending: the message shows at once and the composer clears; photos travel one
   // by one, then the message names them. It stays until the chat shows it back.
@@ -309,7 +313,7 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
     const { item } = row
     const skey = item.kind === 'steps' ? row.key : row.key
     return <Item stamp={row.stamp} author={inRoom && item.botId !== undefined ? botsById.get(item.botId) : undefined} admin={inRoom && item.botId !== undefined && item.botId === admin}
-      item={item} p={p} flat={flat} maxWidth={item.kind === 'bot' ? botMax : userMax} inRoom={inRoom} sessionId={sessionId}
+      item={item} p={p} flat={flat} maxWidth={item.kind === 'bot' || item.kind === 'post' ? botMax : userMax} inRoom={inRoom} sessionId={sessionId}
       onLongPress={setMenuText} onOpenFile={openFile} onRetry={retry} open={openSteps[skey]} onToggle={toggleOf(skey)} />
   }, [inRoom, botsById, admin, p, flat, botMax, userMax, sessionId, openFile, retry, openSteps])
 
@@ -319,7 +323,7 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
     <KeyboardAvoidingView behavior="padding" keyboardVerticalOffset={KEYBOARD_GAP - insets.bottom} style={[styles.screen, { backgroundColor: p.main }]}>
       {header}
       {room !== undefined && (room as { goal?: Goal }).goal ? <GoalBar goal={(room as { goal?: Goal }).goal!} p={p} /> : null}
-      <View style={styles.list} onLayout={event => { setChatWidth(event.nativeEvent.layout.width - 24); setChatHeight(event.nativeEvent.layout.height) }}>
+      <View style={styles.list} onLayout={event => setChatWidth(event.nativeEvent.layout.width - 24)}>
         {gone
           ? <Text style={[type.caption, { color: p.ink3, textAlign: 'center', marginTop: 24 }]}>{t('No messages yet')}</Text>
           : page === null && loadError !== null
@@ -361,7 +365,7 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
       {bot?.blocked !== undefined ? <BlockedCard bot={bot} p={p} /> : null}
       {bot !== undefined ? <ComputerCards bot={bot} p={p} /> : null}
       {running && doingBot ? <ActionRow bot={doingBot} doing={doingText} p={p} dark={dark} /> : null}
-      <Dock question={question} sessionId={sessionId} approvals={approvals} secrets={secrets} btw={btw} handoff={browserHold} view={team?.views?.[sessionId]} call={call} p={p} maxHeight={chatHeight === 0 ? undefined : chatHeight * 0.55} expanded={expandedKey} onExpand={setExpandedKey} />
+      <Dock question={question} sessionId={sessionId} approvals={approvals} secrets={secrets} btw={btw} handoff={browserHold} view={team?.views?.[sessionId]} call={call} p={p} expanded={expandedKey} onExpand={setExpandedKey} />
       {fileError ? <Text style={[type.small, { color: p.danger, textAlign: 'center', marginBottom: 4 }]} accessibilityRole="alert">{fileError}</Text> : null}
       {page !== null && loadError !== null ? <Text style={[type.small, { color: p.danger, textAlign: 'center', marginBottom: 4, marginHorizontal: 16 }]} accessibilityRole="alert">{loadError}</Text> : null}
       <Composer name={bot?.name ?? room?.name ?? ''} running={running} canStop={canStop} canAttach={hello?.capabilities?.includes('send-images') === true} onSend={send} onStop={stop} p={p} />
@@ -403,9 +407,9 @@ function stampOf(items: ChatItem[], index: number): string | undefined {
   const item = items[index]
   if (typeof item.time !== 'number') return undefined
   if (item.kind === 'user') return messageClock(item.time)
-  if (item.kind !== 'bot') return undefined
+  if (item.kind !== 'bot' && item.kind !== 'post') return undefined
   const next = items[index + 1]
-  if (next !== undefined && next.kind === 'bot' && (next.name ?? '') === (item.name ?? '')) return undefined
+  if (next !== undefined && (next.kind === 'bot' || next.kind === 'post') && (next.name ?? '') === (item.name ?? '')) return undefined
   return messageClock(item.time)
 }
 
@@ -440,8 +444,8 @@ function GoalBar({ goal, p }: { goal: Goal; p: ReturnType<typeof useTheme>['p'] 
       {stages.length > 0 ? <View style={{ flexDirection: 'row', gap: 3, marginTop: 8 }}>{stages.map((_, i) => <View key={i} style={{ flex: 1, height: 3, borderRadius: 2, backgroundColor: segment(i) }} />)}</View> : null}
       {open ? stages.map((stage, i) => (
         <View key={i} style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
-          <Text style={[type.small, { color: p.ink3, width: 18 }]}>{i + 1}</Text>
-          <Text style={[type.small, { color: stage.status === 'passed' ? p.ink3 : p.ink, flex: 1 }]}>{stage.title ?? ''}</Text>
+          <Text style={[type.small, { color: p.ink3, minWidth: 18, fontVariant: ['tabular-nums'] }]}>{i + 1}</Text>
+          <Text style={[type.small, { color: stage.status === 'passed' ? p.ink3 : p.ink, flex: 1, minWidth: 0 }]}>{stage.title ?? ''}</Text>
           {stage.status === 'passed' ? <Text style={{ color: p.green, fontSize: 13 }}>✓</Text> : null}
         </View>
       )) : null}
