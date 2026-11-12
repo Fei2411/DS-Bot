@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
@@ -1155,8 +1155,9 @@ test('message_bot turns down an empty message', async (t) => {
   assert.deepEqual(await exchanges(), [])
 })
 
-test('a long message between Bots keeps its start in state.json and is read back whole from the Session', async (t) => {
-  const { ctx, agentOf, tool, call, exchanges, home, stop } = await start(team())
+// A message between Bots is in the book of the pair, whole; state.json does not hold it.
+test('a long message between Bots is kept whole in the book of the pair, not in state.json', async (t) => {
+  const { agentOf, tool, call, exchanges, home, stop } = await start(team())
   t.after(stop)
   const long = `${'长'.repeat(15_000)}结尾`
   await tool('message_bot', { to: 'Writer', message: long }, 'a')
@@ -1165,23 +1166,17 @@ test('a long message between Bots keeps its start in state.json and is read back
   const [entry] = await exchanges()
   assert.equal(entry.text.length, 2000)
   assert.equal(entry.length, long.length)
-  assert.equal(entry.sessionId, 'b')
   const file = join(home, 'state.json')
-  for (let at = 0; at < 100 && !readFileSync(file, 'utf8').includes(entry.id); at += 1) await delay(20)
+  await delay(100)
   const saved = readFileSync(file, 'utf8')
-  assert.ok(saved.length < 10_000, `state.json is ${saved.length} characters`)
+  assert.ok(!saved.includes('长'.repeat(100)), 'state.json does not hold the message')
   assert.ok(!saved.includes('\n'), 'state.json is written without indentation')
+  const book = readFileSync(join(home, 'ledger', 'pair-a-b.jsonl'), 'utf8').trim().split('\n').map(row => JSON.parse(row))
+  assert.deepEqual(book.map(record => [record.event ?? record.role, record.id]), [['request', entry.id], ['delivered', entry.id]])
+  assert.equal(book[0].text, long)
 
-  // The dialog reads the whole text back from the Session it was delivered to.
-  agentOf('b').session.seq = 2
-  ctx.sessionController.page = async ({ address }) => ({
-    records: agentOf(address.sessionId).calls.map(([, message], index) => ({ event: { type: 'user/message', seq: index + 1, data: { content: message.content, source: message.source } } })),
-    hasMore: false,
-  })
-  assert.deepEqual((await call('exchange-text', { id: entry.id })).value, { text: long, whole: true })
-  // A Session that cannot be read leaves the start, said to be only that.
-  ctx.sessionController.page = async () => { throw new Error('gone') }
-  assert.deepEqual((await call('exchange-text', { id: entry.id })).value, { text: entry.text, whole: false })
+  // The dialog reads it whole from the book, with no Session to read back.
+  assert.deepEqual((await call('exchange-text', { id: entry.id, a: 'a', b: 'b' })).value, { text: long, whole: true })
 })
 
 test('a team saved with long messages whole keeps only their start after it loads', async (t) => {
@@ -1218,7 +1213,7 @@ test('a message past 20,000 characters goes as a file, which the exchange dialog
   const [entry] = await exchanges()
   assert.equal(entry.length, long.length)
   assert.deepEqual(entry.files, [file.attachment])
-  assert.deepEqual((await call('exchange-text', { id: entry.id })).value, { text: long, whole: true })
+  assert.deepEqual((await call('exchange-text', { id: entry.id, a: entry.from, b: entry.to })).value, { text: long, whole: true })
   assert.deepEqual((await call('file-text', { file: file.attachment })).value, { text: long, whole: true })
 })
 
@@ -1241,4 +1236,32 @@ test('without file storage a message past 20,000 characters is not sent', async 
   // 20,000 characters still go as they are.
   await tool('message_bot', { to: 'Writer', message: 'x'.repeat(20_000) }, 'a')
   assert.equal(agentOf('b').calls.length, 1)
+})
+
+// A request merged with another the recipient had not read goes out under the same id. If
+// the merged text never reaches the recipient, the dialog keeps the text that did.
+test('a merged request that does not go out leaves the delivered text in the dialog', async (t) => {
+  const { ctx, exchanges, stop } = await start(team())
+  t.after(stop)
+  await rt.deliver({ fromId: 'a', toId: 'b', role: 'request', text: 'Draft the plan', exchangeId: 'x-merge' })
+  const flush = ctx.sessions.flush
+  ctx.sessions.flush = async () => { throw new Error('Session is gone') }
+  await assert.rejects(rt.deliver({ fromId: 'a', toId: 'b', role: 'request', text: 'Draft the plan\n\nAnd the budget', exchangeId: 'x-merge', merged: true }), /Session is gone/)
+  ctx.sessions.flush = flush
+  assert.deepEqual((await exchanges()).map(entry => [entry.id, entry.text]), [['x-merge', 'Draft the plan']])
+})
+
+// The book is written before the message goes out: one it cannot keep is not sent.
+test('a message between Bots that the book cannot keep is not sent', { skip: process.platform === 'win32' || process.getuid?.() === 0 }, async (t) => {
+  const { agentOf, tool, exchanges, home, stop } = await start(team())
+  t.after(stop)
+  mkdirSync(join(home, 'ledger'), { recursive: true })
+  chmodSync(join(home, 'ledger'), 0o500)
+  try {
+    await assert.rejects(tool('message_bot', { to: 'Writer', message: 'Hello' }, 'a'))
+    assert.equal(agentOf('b').calls.filter(([kind]) => kind === 'steer' || kind === 'followup').length, 0)
+  } finally {
+    chmodSync(join(home, 'ledger'), 0o700)
+  }
+  assert.deepEqual(await exchanges(), [])
 })
