@@ -16155,6 +16155,22 @@ div:has(> nav [class*="_marks"]){display:none!important}
 .bt-q-inline .bt-q{margin:0;max-width:min(550px,86%);order:0}
 .bt-q-dock{width:100%;display:flex;justify-content:center}
 .bt-q-dock .bt-q{margin:0 auto 8px}
+/* Phones: the conversation flow gets the whole screen instead of the desktop
+   shares. A Bot message may take the width beside its avatar, a card the width of
+   the flow, and long text or a wide block wraps inside it instead of running off
+   the edge. This covers the group's chat flow, not only DS Bot's own panels. */
+@media (max-width:640px){
+.bt-msg,.bt-astack[data-lead]>.bt-msg{max-width:100%}
+.bt-bubble,[data-chat-flow] [class*="_bubble"]{max-width:100%;overflow-wrap:anywhere;word-break:break-word}
+.bt-group-msg,.bt-group-name{max-width:100%}
+[data-chat-flow] :is(pre,table){max-width:100%;overflow-x:auto}
+.bt-q{width:100%;max-width:none;padding:12px 14px;border-radius:16px}
+.bt-q-inline .bt-q,.bt-q-inline .dv-view,.bt-q-inline .dv-q{width:100%;max-width:100%}
+.bt-q .bt-q-opt,.bt-q button,.bt-q-inline .dv-view button,.dv-seg.dv-view-seg button{min-height:44px}
+.bt-q-opt-label,.bt-q-inline .dv-q-label{white-space:normal;overflow-wrap:anywhere}
+.bt-dialog-log{padding-left:12px;padding-right:12px}
+.bt-exchange .bt-dialog-log{padding-left:12px;padding-right:12px}
+}
 [class*="_toBottomSlot"]{justify-content:center!important;padding-right:0!important}
 [data-conversation-scroll] [class*="_toBottomSlot"]{bottom:calc(var(--dsh-composer-height,152px) + 8px)!important}
 [class*="_toBottomSlot"]>button{width:36px!important;height:36px!important;margin-top:-36px!important;background:var(--bt-glass-bg)!important;-webkit-backdrop-filter:blur(16px) saturate(180%)!important;backdrop-filter:blur(16px) saturate(180%)!important;color:var(--bt-ink)!important;box-shadow:var(--bt-glass-shadow)!important;animation:bt-tobottom-in ${SPRING_TAP.duration}ms ${SPRING_TAP.easing},bt-veil-in .16s ease-out;transition:background-color .12s ease,${spring(SPRING_TAP, "scale")}}
