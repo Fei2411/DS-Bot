@@ -691,6 +691,7 @@ export const DE = {
   'Shared to-do': 'Gemeinsame To-dos',
   '{count} open': '{count} offen',
   'No shared to-dos yet. Ask a Bot in this group to add one.': 'Noch keine gemeinsamen To-dos. Bitte einen Bot dieser Gruppe, eins hinzuzufügen.',
+  'Clear completed': 'Erledigte löschen',
   'Rename group': 'Gruppenchat umbenennen',
   'Copy conversation ID': 'Chat-ID kopieren',
   'Hide from sidebar': 'In Seitenleiste ausblenden',

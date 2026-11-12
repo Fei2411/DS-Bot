@@ -691,6 +691,7 @@ export const FR = {
   "Shared to-do": "Tâches partagées",
   "{count} open": "{count} en cours",
   "No shared to-dos yet. Ask a Bot in this group to add one.": "Aucune tâche partagée pour l’instant. Demandez à un Bot de ce groupe d’en ajouter une.",
+  "Clear completed": "Effacer les tâches terminées",
   "Rename group": "Renommer le groupe",
   "Copy conversation ID": "Copier l’ID de la discussion",
   "Hide from sidebar": "Masquer de la barre latérale",

@@ -587,8 +587,8 @@ export function install(rt) {
   }))
 
   // The shared to-do list of a group: open items first, then done ones, each with the
-  // short id the check action takes. Ids are UUIDs, and the first eight characters are
-  // what the list shows; a prefix is accepted when it names exactly one item.
+  // short id the check and remove actions take. Ids are UUIDs, and the first eight
+  // characters are what the list shows; a prefix is accepted when it names exactly one item.
   const todoCount = (room) => {
     const todos = room.todos ?? []
     const open = todos.filter(item => item.done !== true).length
@@ -616,17 +616,17 @@ export function install(rt) {
 
   rt.teamTools.push(defineTool({
     name: 'group_todo',
-    description: 'The shared to-do list of a group chat. Every member reads and changes the same list, and the user sees it in the group\'s details. List it, add one item, or tick an item done or not done. Add only what the user asked to track.',
+    description: 'The shared to-do list of a group chat. Every member reads and changes the same list, and the user sees it in the group\'s details. List it, add one item, tick an item done or not done, remove one item, or clear the completed items. The list holds at most 100 items; when it is full, remove an item or clear completed ones before adding. Nothing is dropped on its own. Add, remove, or clear only what the user asked for.',
     parameters: {
       group: GROUP_REF,
       action: {
         type: 'string',
-        enum: ['list', 'add', 'check'],
+        enum: ['list', 'add', 'check', 'remove', 'clear'],
         required: true,
-        description: '"list" reads the list; "add" adds one item with text; "check" ticks one item by id, or unticks it with done: false',
+        description: '"list" reads the list; "add" adds one item with text; "check" ticks one item by id, or unticks it with done: false; "remove" deletes one item by id; "clear" deletes every completed item',
       },
       text: { type: 'string', description: 'The to-do item, one line, at most 200 characters (action "add")' },
-      id: { type: 'string', description: 'The to-do id from the list, or its first characters (action "check")' },
+      id: { type: 'string', description: 'The to-do id from the list, or its first characters (action "check" or "remove")' },
       done: { type: 'boolean', description: 'true ticks the item, false unticks it; defaults to true (action "check")' },
     },
     output,
@@ -651,7 +651,21 @@ export function install(rt) {
           const { open } = todoCount(room)
           return `${item.done === true ? 'Ticked' : 'Unticked'} "${item.text}" (${open} open).`
         }
-        return 'Use action "list", "add" or "check".'
+        if (action === 'remove') {
+          const found = findTodo(room, args.id)
+          if (found.error) return found.error
+          const item = await rt.removeRoomTodo(room.id, found.todo.id)
+          const { open } = todoCount(room)
+          return `Removed "${item.text}" from the shared to-do list of "${room.name}" (${open} open).`
+        }
+        if (action === 'clear') {
+          const removed = await rt.clearDoneRoomTodos(room.id)
+          const { open } = todoCount(room)
+          if (removed.length === 0) return `No completed to-dos to clear on "${room.name}" (${open} open).`
+          const noun = removed.length === 1 ? 'to-do' : 'to-dos'
+          return `Cleared ${removed.length} completed ${noun} from "${room.name}" (${open} open).`
+        }
+        return 'Use action "list", "add", "check", "remove" or "clear".'
       } catch (failure) {
         return `Could not change the to-do list of "${room.name}": ${failure.message}`
       }

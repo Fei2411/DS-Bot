@@ -831,7 +831,7 @@ export function install(rt) {
     if (clean === '') throw new Error('Write the to-do first.')
     if (clean.length > ROOM_TODO_TEXT_MAX) throw new Error(`Keep a to-do under ${ROOM_TODO_TEXT_MAX} characters.`)
     const todos = room.todos ??= []
-    if (todos.length >= ROOM_TODO_MAX) throw new Error(`The shared to-do list is full (${ROOM_TODO_MAX}).`)
+    if (todos.length >= ROOM_TODO_MAX) throw new Error(`The shared to-do list is full (${ROOM_TODO_MAX}). Remove one or clear the completed items.`)
     const item = { id: randomUUID(), text: clean, done: false, createdAt: Date.now(), ...(by ? { createdBy: by } : {}) }
     todos.push(item)
     await rt.save()
@@ -858,6 +858,33 @@ export function install(rt) {
       await rt.save()
     }
     return item
+  }
+
+  async function removeRoomTodo(id, todoId) {
+    const room = rt.roomOf(id)
+    if (room === undefined) throw new Error('Unknown group chat')
+    const todos = room.todos ?? []
+    const index = todos.findIndex(entry => entry.id === todoId)
+    if (index === -1) throw new Error('That to-do is no longer on the list.')
+    const [item] = todos.splice(index, 1)
+    await rt.save()
+    return item
+  }
+
+  // Open rows stay. A full list is unblocked by dropping the completed ones, or by
+  // removing a single row, and nothing is discarded on its own.
+  async function clearDoneRoomTodos(id) {
+    const room = rt.roomOf(id)
+    if (room === undefined) throw new Error('Unknown group chat')
+    const todos = room.todos ?? []
+    const removed = []
+    let index = 0
+    while (index < todos.length) {
+      if (todos[index].done === true) removed.push(todos.splice(index, 1)[0])
+      else index += 1
+    }
+    if (removed.length > 0) await rt.save()
+    return removed
   }
 
   // The first Main Bot is the sidebar tile. `replace` gives a Main Bot's place to
@@ -981,7 +1008,7 @@ export function install(rt) {
     ensureWorkspace, keepTeamFolder, createSession, createBot, duplicateBot, updateBot, setFlags,
     saveSection, reorderSections, deleteSection,
     roomBusy, autoRoomName, retitleRoom, createRoom, updateRoom, deleteRoom,
-    addRoomTodo, setRoomTodoDone,
+    addRoomTodo, setRoomTodoDone, removeRoomTodo, clearDoneRoomTodos,
     setMain, deleteBot, bootstrap, releaseKickoff, greetingOut, holdKickoffAgain, userWrote, userAnswered,
   })
 }

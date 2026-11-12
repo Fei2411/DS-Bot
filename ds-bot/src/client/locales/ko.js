@@ -691,6 +691,7 @@ export const KO = {
   'Shared to-do': '공유 할 일',
   '{count} open': '미완료 {count}개',
   'No shared to-dos yet. Ask a Bot in this group to add one.': '아직 공유 할 일이 없습니다. 이 그룹의 Bot에게 추가를 요청하세요.',
+  'Clear completed': '완료 항목 지우기',
   'Rename group': '그룹 이름 변경',
   'Copy conversation ID': '대화 ID 복사',
   'Hide from sidebar': '사이드바에서 숨기기',

@@ -180,13 +180,132 @@ test('the list stops at 100 items, and each item stays one short line', async (t
 
   assert.match(await tool('group_todo').execute({ group: 'Video Room', action: 'add', text: 'Last one' }, exec('chief')), /^Added "Last one"/)
   const full = await tool('group_todo').execute({ group: 'Video Room', action: 'add', text: 'One too many' }, exec('chief'))
-  assert.equal(full, 'Could not change the to-do list of "Video Room": The shared to-do list is full (100).')
+  assert.equal(full, 'Could not change the to-do list of "Video Room": The shared to-do list is full (100). Remove one or clear the completed items.')
   assert.equal((await todosOf(call)).length, 100)
 
   const long = await tool('group_todo').execute({ group: 'Video Room', action: 'add', text: 'x'.repeat(201) }, exec('chief'))
   assert.equal(long, 'Could not change the to-do list of "Video Room": Keep a to-do under 200 characters.')
   const empty = await tool('group_todo').execute({ group: 'Video Room', action: 'add', text: '   ' }, exec('chief'))
   assert.equal(empty, 'Could not change the to-do list of "Video Room": Write the to-do first.')
+})
+
+test('remove deletes one item and clear drops only the completed ones', async (t) => {
+  const { call, tool, exec, stop, home } = start({
+    ...baseTeam(),
+    rooms: {
+      r1: {
+        ...baseTeam().rooms.r1,
+        todos: [
+          { id: 'abcdef00-1', text: 'Keep open', done: false, createdAt: 1, createdBy: 'chief' },
+          { id: 'abcdef11-2', text: 'Also open', done: false, createdAt: 2 },
+          { id: 'zzzzzzzz-3', text: 'Done one', done: true, createdAt: 3, doneBy: 'writer' },
+          { id: 'yyyyyyyy-4', text: 'Done two', done: true, createdAt: 4 },
+        ],
+      },
+    },
+  })
+  t.after(stop)
+
+  const ambiguous = await tool('group_todo').execute({ group: 'Video Room', action: 'remove', id: 'abcdef' }, exec('writer'))
+  assert.equal(ambiguous, 'Several to-dos start with "abcdef". Use a longer id.')
+  const missing = await tool('group_todo').execute({ group: 'Video Room', action: 'remove', id: 'deadbeef' }, exec('writer'))
+  assert.equal(missing, 'No to-do with id "deadbeef" on the list.')
+  assert.equal((await todosOf(call)).length, 4)
+
+  const removed = await tool('group_todo').execute({ group: 'Video Room', action: 'remove', id: 'abcdef00' }, exec('writer'))
+  assert.equal(removed, 'Removed "Keep open" from the shared to-do list of "Video Room" (1 open).')
+  let todos = await todosOf(call)
+  assert.deepEqual(todos.map(item => item.text), ['Also open', 'Done one', 'Done two'])
+
+  // Editor is in Video Room, and not in Other Room.
+  const other = await tool('group_todo').execute({ group: 'Other Room', action: 'remove', id: 'abcdef11' }, exec('editor'))
+  assert.match(other, /^No group chat called "Other Room"/)
+
+  const cleared = await tool('group_todo').execute({ group: 'Video Room', action: 'clear' }, exec('editor'))
+  assert.equal(cleared, 'Cleared 2 completed to-dos from "Video Room" (1 open).')
+  todos = await todosOf(call)
+  assert.equal(todos.length, 1)
+  assert.equal(todos[0].text, 'Also open')
+  assert.equal(todos[0].done, false)
+
+  const again = await tool('group_todo').execute({ group: 'Video Room', action: 'clear' }, exec('chief'))
+  assert.equal(again, 'No completed to-dos to clear on "Video Room" (1 open).')
+  assert.equal((await todosOf(call)).length, 1)
+
+  // One completed item uses the singular, and the deletion is what state.json keeps.
+  await tool('group_todo').execute({ group: 'Video Room', action: 'check', id: todos[0].id }, exec('chief'))
+  const one = await tool('group_todo').execute({ group: 'Video Room', action: 'clear' }, exec('chief'))
+  assert.equal(one, 'Cleared 1 completed to-do from "Video Room" (0 open).')
+  assert.equal((await todosOf(call)).length, 0)
+  const saved = readFileSync(join(home, 'state.json'), 'utf8')
+  assert.equal(saved.includes('Keep open'), false)
+  assert.equal(saved.includes('Done one'), false)
+  assert.equal(saved.includes('Also open'), false)
+})
+
+test('a full list accepts another item after one is removed or the completed ones are cleared', async (t) => {
+  const seeded = baseTeam()
+  seeded.rooms.r1.todos = [
+    ...Array.from({ length: 98 }, (_, index) => ({ id: `open-${index}`, text: `Open ${index}`, done: false, createdAt: index })),
+    { id: 'done-aaaaaaaa', text: 'Done A', done: true, createdAt: 98 },
+    { id: 'done-bbbbbbbb', text: 'Done B', done: true, createdAt: 99 },
+  ]
+  const { call, tool, exec, stop } = start(seeded)
+  t.after(stop)
+
+  const full = await tool('group_todo').execute({ group: 'Video Room', action: 'add', text: 'One too many' }, exec('chief'))
+  assert.equal(full, 'Could not change the to-do list of "Video Room": The shared to-do list is full (100). Remove one or clear the completed items.')
+
+  const cleared = await tool('group_todo').execute({ group: 'Video Room', action: 'clear' }, exec('writer'))
+  assert.equal(cleared, 'Cleared 2 completed to-dos from "Video Room" (98 open).')
+  assert.equal((await todosOf(call)).length, 98)
+  assert.match(await tool('group_todo').execute({ group: 'Video Room', action: 'add', text: 'After clear' }, exec('chief')), /^Added "After clear"/)
+
+  // Fill the last open slot, then free one by removing a single row.
+  assert.match(await tool('group_todo').execute({ group: 'Video Room', action: 'add', text: 'Last slot' }, exec('chief')), /^Added "Last slot"/)
+  assert.match(await tool('group_todo').execute({ group: 'Video Room', action: 'add', text: 'Still full' }, exec('chief')), /The shared to-do list is full \(100\)/)
+  const removed = await tool('group_todo').execute({ group: 'Video Room', action: 'remove', id: 'open-0' }, exec('writer'))
+  assert.match(removed, /^Removed "Open 0"/)
+  assert.match(await tool('group_todo').execute({ group: 'Video Room', action: 'add', text: 'After remove' }, exec('chief')), /^Added "After remove"/)
+  const todos = await todosOf(call)
+  assert.equal(todos.length, 100)
+  assert.equal(todos.some(item => item.text === 'Open 0'), false)
+  assert.equal(todos.some(item => item.text === 'After remove'), true)
+})
+
+test('the details endpoint removes one item and clears completed ones', async (t) => {
+  const { call, tool, exec, stop } = start(baseTeam())
+  t.after(stop)
+  await tool('group_todo').execute({ group: 'Video Room', action: 'add', text: 'Keep' }, exec('chief'))
+  await tool('group_todo').execute({ group: 'Video Room', action: 'add', text: 'Drop me' }, exec('writer'))
+  await tool('group_todo').execute({ group: 'Video Room', action: 'add', text: 'Finished' }, exec('editor'))
+  const todos = await todosOf(call)
+  const drop = todos.find(item => item.text === 'Drop me')
+  const finished = todos.find(item => item.text === 'Finished')
+  await call('room-todo', { roomId: 'r1', id: finished.id, done: true })
+
+  const removed = await call('room-todo', { roomId: 'r1', id: drop.id, action: 'remove' })
+  assert.equal(removed.ok, true)
+  assert.equal(removed.value.item.text, 'Drop me')
+  assert.equal(removed.value.todos.some(item => item.id === drop.id), false)
+
+  const unknown = await call('room-todo', { roomId: 'r1', id: drop.id, action: 'remove' })
+  assert.equal(unknown.ok, false)
+  assert.equal(unknown.error.message, 'That to-do is no longer on the list.')
+
+  const cleared = await call('room-todo', { roomId: 'r1', action: 'clear' })
+  assert.equal(cleared.ok, true)
+  assert.equal(cleared.value.removed, 1)
+  assert.deepEqual(cleared.value.todos.map(item => item.text), ['Keep'])
+
+  const none = await call('room-todo', { roomId: 'r1', action: 'clear' })
+  assert.equal(none.ok, true)
+  assert.equal(none.value.removed, 0)
+  assert.deepEqual(none.value.todos.map(item => item.text), ['Keep'])
+
+  const unknownRoom = await call('room-todo', { roomId: 'nope', action: 'clear' })
+  assert.equal(unknownRoom.ok, false)
+  assert.equal(unknownRoom.error.message, 'Unknown group chat')
 })
 
 test('deleting the group deletes its list with the rest of the room', async (t) => {

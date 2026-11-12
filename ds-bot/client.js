@@ -813,6 +813,7 @@ var JA = {
   "Shared to-do": "共有 ToDo",
   "{count} open": "未完了 {count} 件",
   "No shared to-dos yet. Ask a Bot in this group to add one.": "共有 ToDo はまだありません。このグループの Bot に追加を頼んでください。",
+  "Clear completed": "完了済みを消去",
   "Rename group": "グループ名を変更",
   "Copy conversation ID": "会話 ID をコピー",
   "Hide from sidebar": "サイドバーから隠す",
@@ -3088,6 +3089,7 @@ var KO = {
   "Shared to-do": "공유 할 일",
   "{count} open": "미완료 {count}개",
   "No shared to-dos yet. Ask a Bot in this group to add one.": "아직 공유 할 일이 없습니다. 이 그룹의 Bot에게 추가를 요청하세요.",
+  "Clear completed": "완료 항목 지우기",
   "Rename group": "그룹 이름 변경",
   "Copy conversation ID": "대화 ID 복사",
   "Hide from sidebar": "사이드바에서 숨기기",
@@ -5386,6 +5388,7 @@ var ES = {
   "Shared to-do": "Tareas compartidas",
   "{count} open": "{count} pendientes",
   "No shared to-dos yet. Ask a Bot in this group to add one.": "Aún no hay tareas compartidas. Pide a un Bot de este grupo que añada una.",
+  "Clear completed": "Borrar completadas",
   "Rename group": "Renombrar grupo",
   "Copy conversation ID": "Copiar ID de conversación",
   "Hide from sidebar": "Ocultar de la barra lateral",
@@ -7662,6 +7665,7 @@ var FR = {
   "Shared to-do": "Tâches partagées",
   "{count} open": "{count} en cours",
   "No shared to-dos yet. Ask a Bot in this group to add one.": "Aucune tâche partagée pour l’instant. Demandez à un Bot de ce groupe d’en ajouter une.",
+  "Clear completed": "Effacer les tâches terminées",
   "Rename group": "Renommer le groupe",
   "Copy conversation ID": "Copier l’ID de la discussion",
   "Hide from sidebar": "Masquer de la barre latérale",
@@ -9937,6 +9941,7 @@ var DE = {
   "Shared to-do": "Gemeinsame To-dos",
   "{count} open": "{count} offen",
   "No shared to-dos yet. Ask a Bot in this group to add one.": "Noch keine gemeinsamen To-dos. Bitte einen Bot dieser Gruppe, eins hinzuzufügen.",
+  "Clear completed": "Erledigte löschen",
   "Rename group": "Gruppenchat umbenennen",
   "Copy conversation ID": "Chat-ID kopieren",
   "Hide from sidebar": "In Seitenleiste ausblenden",
@@ -12236,6 +12241,7 @@ var ZH = {
   "Shared to-do": "共享待办",
   "{count} open": "{count} 项未完成",
   "No shared to-dos yet. Ask a Bot in this group to add one.": "还没有共享待办。让群里的一个 Bot 加一条。",
+  "Clear completed": "清除已完成",
   "Rename group": "重命名群聊",
   "Copy conversation ID": "复制对话 ID",
   "Hide from sidebar": "从侧栏隐藏",
@@ -13792,6 +13798,8 @@ function teamActions({ call: call2, after, partFor, roster, ui: ui2, live, cards
     setMain: (id, main = true, options = {}) => after(call2("set-main", { id, main, ...options })),
     updateRoom: (id, patch) => after(call2("update-room", { id, ...patch })),
     roomTodoCheck: (roomId, id, done) => after(call2("room-todo", { roomId, id, done })),
+    roomTodoRemove: (roomId, id) => after(call2("room-todo", { roomId, id, action: "remove" })),
+    roomTodoClear: (roomId) => after(call2("room-todo", { roomId, action: "clear" })),
     send: (sessionId, text) => after(call2("send", { sessionId: partFor(sessionId), text })),
     answerQuestion: (sessionId, questionId, answer) => after(call2("answer-question", { sessionId: partFor(sessionId), questionId, answer })),
     dismissQuestion: (sessionId) => after(call2("dismiss-question", { sessionId })),
@@ -28491,22 +28499,45 @@ function GroupPermission({ room: room2, catalog, update }) {
 function GroupTodos({ room: room2, actions }) {
   const todos = [...room2.todos ?? []].sort((a, b) => Number(a.done === true) - Number(b.done === true) || (a.createdAt ?? 0) - (b.createdAt ?? 0));
   const open = todos.filter((item) => item.done !== true).length;
+  const done = todos.length - open;
   return (0, import_react36.createElement)(
     "div",
     { className: "bt-gt" },
-    (0, import_react36.createElement)("div", { className: "bt-section-title" }, t("Shared to-do"), open > 0 ? (0, import_react36.createElement)("span", { className: "bt-note" }, ` ${t("{count} open", { count: open })}`) : null),
+    (0, import_react36.createElement)(
+      "div",
+      { className: "bt-gt-head" },
+      (0, import_react36.createElement)("div", { className: "bt-section-title" }, t("Shared to-do"), open > 0 ? (0, import_react36.createElement)("span", { className: "bt-note" }, ` ${t("{count} open", { count: open })}`) : null),
+      done > 0 ? (0, import_react36.createElement)("button", { type: "button", className: "bt-mini", onClick: () => {
+        void actions.roomTodoClear?.(room2.id).catch(() => {
+        });
+      } }, t("Clear completed")) : null
+    ),
     todos.length === 0 ? (0, import_react36.createElement)("div", { className: "bt-gt-empty" }, t("No shared to-dos yet. Ask a Bot in this group to add one.")) : todos.map((item) => (0, import_react36.createElement)(
-      "label",
+      "div",
       { key: item.id, className: `bt-gt-row${item.done === true ? " is-done" : ""}` },
-      (0, import_react36.createElement)("input", {
-        type: "checkbox",
-        checked: item.done === true,
-        onChange: () => {
-          void actions.roomTodoCheck?.(room2.id, item.id, item.done !== true).catch(() => {
+      (0, import_react36.createElement)(
+        "label",
+        { className: "bt-gt-main" },
+        (0, import_react36.createElement)("input", {
+          type: "checkbox",
+          checked: item.done === true,
+          onChange: () => {
+            void actions.roomTodoCheck?.(room2.id, item.id, item.done !== true).catch(() => {
+            });
+          }
+        }),
+        (0, import_react36.createElement)("span", { className: "bt-gt-text" }, item.text)
+      ),
+      (0, import_react36.createElement)("button", {
+        type: "button",
+        className: "bt-x",
+        "aria-label": t("Delete"),
+        title: t("Delete"),
+        onClick: () => {
+          void actions.roomTodoRemove?.(room2.id, item.id).catch(() => {
           });
         }
-      }),
-      (0, import_react36.createElement)("span", { className: "bt-gt-text" }, item.text)
+      }, "×")
     ))
   );
 }
@@ -28743,10 +28774,15 @@ var GROUP_SETTINGS_CSS = `
 .bt-bs-stack .bt-seg{align-self:stretch}
 .bt-gs-perm .bt-seg button{flex:auto;white-space:nowrap}
 .bt-gt{display:flex;flex-direction:column;gap:4px}
-.bt-gt-row{display:flex;align-items:flex-start;gap:8px;padding:3px 0;cursor:pointer;font-size:13px;line-height:18px;color:var(--bt-ink)}
+.bt-gt-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px}
+.bt-gt-head>.bt-section-title{margin:0}
+.bt-gt-head>.bt-mini{flex:none}
+.bt-gt-row{display:flex;align-items:flex-start;gap:4px;padding:3px 0;font-size:13px;line-height:18px;color:var(--bt-ink)}
+.bt-gt-main{flex:1;display:flex;align-items:flex-start;gap:8px;min-width:0;cursor:pointer}
 .bt-gt-row input{margin:2px 0 0;flex:none;accent-color:var(--bt-accent);cursor:pointer}
 .bt-gt-text{min-width:0;overflow-wrap:anywhere}
 .bt-gt-row.is-done .bt-gt-text{color:var(--bt-ink-3);text-decoration:line-through}
+.bt-gt-row .bt-x{flex:none;margin-top:-3px}
 .bt-gt-empty{font-size:12px;line-height:16px;color:var(--bt-ink-3)}
 @media (prefers-reduced-motion:reduce){.bt-gs-pick{animation:none}}
 `;

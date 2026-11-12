@@ -691,6 +691,7 @@ export const JA = {
   "Shared to-do": "共有 ToDo",
   "{count} open": "未完了 {count} 件",
   "No shared to-dos yet. Ask a Bot in this group to add one.": "共有 ToDo はまだありません。このグループの Bot に追加を頼んでください。",
+  "Clear completed": "完了済みを消去",
   "Rename group": "グループ名を変更",
   "Copy conversation ID": "会話 ID をコピー",
   "Hide from sidebar": "サイドバーから隠す",

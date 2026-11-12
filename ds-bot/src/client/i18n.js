@@ -701,6 +701,7 @@ const ZH = {
   'Shared to-do': '共享待办',
   '{count} open': '{count} 项未完成',
   'No shared to-dos yet. Ask a Bot in this group to add one.': '还没有共享待办。让群里的一个 Bot 加一条。',
+  'Clear completed': '清除已完成',
   'Rename group': '重命名群聊',
   'Copy conversation ID': '复制对话 ID',
   'Hide from sidebar': '从侧栏隐藏',

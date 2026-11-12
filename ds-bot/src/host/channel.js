@@ -391,12 +391,20 @@ export function install(rt) {
           })
           return ok({ room: view().rooms.find(entry => entry.id === room.id), changes })
         }
-        // The user ticks a shared to-do in the group's details; members read and change
-        // the same list with the group_todo tool.
+        // The user ticks, removes, or clears completed shared to-dos in the group's
+        // details; members read and change the same list with the group_todo tool.
         case 'room-todo': {
           await rt.load()
           const room = rt.roomOf(String(body.roomId ?? ''))
           if (room === undefined) return fail('Unknown group chat', 'room/not-found')
+          if (body.action === 'clear') {
+            const removed = await rt.clearDoneRoomTodos(room.id)
+            return ok({ removed: removed.length, todos: room.todos ?? [] })
+          }
+          if (body.action === 'remove') {
+            const item = await rt.removeRoomTodo(room.id, String(body.id ?? ''))
+            return ok({ item, todos: room.todos ?? [] })
+          }
           const item = await rt.setRoomTodoDone(room.id, String(body.id ?? ''), typeof body.done === 'boolean' ? body.done : undefined)
           return ok({ item, todos: room.todos ?? [] })
         }
