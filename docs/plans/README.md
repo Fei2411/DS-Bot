@@ -45,11 +45,13 @@
 | [浏览器插件](2026-10-21-browser-plugins.md) | 全团队一个浏览器后端，每个 Bot 一份 profile；`refs` / `script` / `task` |
 | [电脑操控](2026-11-04-computer-use.md) | 设置里的总开关和 DSH 提供方；每个 Bot 四档（关 / 只看 / 后台操作 / 可以动前台）；按 Bot 记的应用授权；不能碰的应用；应用租约和前台租约；指示器、停止、「电脑」页；接管和交接卡与浏览器共用 |
 | [上下文与记忆](2026-10-09-context-and-memory.md) | 对话分段、上下文管家（压缩还是换段）、交接包、`read_own_chat`；记忆的存放、格式、权限、整理和冻结 |
+| [记忆的四种读法](2026-11-09-memory-layers.md) | 常驻、增量、自动召回、按需；额度、团队常驻层、定期整理、群的持久日志 |
 | [记忆撤销与更改记录](2026-11-01-memory-restore.md) | 记忆窗口「更改记录」列出 `journal.jsonl` 的改动；按记录 id 对单条添加、修改或删除做逆操作撤销 |
 | [Bot 运行配置](2026-10-10-bot-runtime.md) | Agent 预设、每个 Bot 的模型和思考强度、新 Bot 默认模型、工作文件夹、能力（MCP、技能、能力包） |
 | [本地 Agent CLI 作为 Bot](2026-11-04-local-agents.md) | 本地 agent CLI 作为 Bot 的运行方式（英文文档）：运行方式的选择和切换、会话映射、工具桥、审批、记忆、会话管理与徽标 |
 | [头像库](2026-10-23-avatar-library.md) | 可复用的自定义头像库（`bot/avatars/`，按内容去重）与单张容错的批量导入 |
 | [AGENTS.md 维护](2026-10-27-agents-md-upkeep.md) | 从项目工作中审阅持久规则；用户批准后才原子写入 |
+| [消息账本](2026-11-10-message-ledger.md) | 群里的每条消息先写进群的只追加账本，界面、成员、记忆整理、IM 都从账本读；一轮的工具结果只记序号范围，刷新后不丢 |
 | [长消息](2026-10-16-long-messages.md) | state.json 只存开头；超过 2 万字的 Bot 消息转成 DSH 文件；成员和界面怎么读全文 |
 | [桌面应用](2026-10-16-desktop-app.md) | 壳、引擎和界面怎么分；锁定的 DSH 版本、独立的数据位置、首次启动和导入、插件怎么兼容 DSH、安装和更新 |
 | [Linux 桌面包](2026-10-21-linux-app-package.md) | AppImage（自更新）加 deb（Debian/Ubuntu 沙箱兜底），同一轮构建产出 |
@@ -63,5 +65,6 @@
 | [启动页文案](2026-10-29-start-copy.md) | 启动页和壳里系统对话框的字：按页面位置分层，每层一条写法规则；`text.mjs` 一张表、旧键到新键的对照、扫全表的测试 |
 | [IM](2026-11-04-im.md) | 在微信、飞书、钉钉、企业微信、QQ、Telegram、Discord、Slack 里和 Bot 或群说话：IM 机器人绑一个 Bot，群绑 DS Bot 群；只认配对过的账号；回复和卡片发回聊天软件；只有占着团队锁的 dsh 连接 |
 | [手机 App](2026-10-24-mobile-app.md) | iOS 和 Android 远程操控电脑上的 Bot 团队：手机不跑 Agent；扫码配对、端到端加密、电脑只往外连；完整功能，高权限操作要解锁手机 |
+| [移动端客户端 API](2026-10-24-mobile-api.md) | 自己画界面的客户端（手机）用的接口：握手和版本、群聊条目、提醒和补发、头像按引用取、直接改记忆、单个 Bot 的用量 |
 | [Office 文档](2026-10-27-office-documents.md) | Bot 离线处理 .docx/.pptx/.xlsx：应用带的 payload、`office.js` 命令行、office 路由换成带 `office-tools` 的版本 |
 | [连接器](2026-11-04-connectors.md) | 通用连接器引擎、OAuth、网关、邮箱 |

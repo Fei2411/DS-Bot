@@ -26,7 +26,7 @@ import { readStartFrame, writeStartFrame } from './start-frame.mjs'
 import { explainOf, StartWindow } from './start-window.mjs'
 import { langOf } from './start/text.mjs'
 import { createDeferredPrompt } from './update-prompt.mjs'
-import { CAPTION_HEIGHT, cssColor, micaAvailable, nativeThemeSource } from './window-frame.mjs'
+import { CAPTION_HEIGHT, cssColor, frameOptions, framelessOn, keepVibrancy, materialOf, nativeThemeSource } from './window-frame.mjs'
 
 const { rm } = disk.promises
 
@@ -68,8 +68,9 @@ const iconFile = join(assets, process.platform === 'win32' ? 'icon.ico' : 'icon.
 // The tray icon of this platform: Windows takes the .ico, macOS the template and its @2x,
 // Linux the plain png.
 const trayIconFile = () => join(assets, process.platform === 'win32' ? 'tray.ico' : process.platform === 'darwin' ? 'trayTemplate.png' : 'tray.png')
-// Windows 11 draws Mica behind the page; mica.css lets it through the sidebar.
-const mica = micaAvailable(process.platform, release())
+// Windows 11 draws Mica behind the page and macOS its sidebar vibrancy; material.css lets it
+// through the sidebar.
+const material = materialOf(process.platform, release())
 configureIdentity(app)
 if (process.env.DS_BOT_SHELL_DATA) app.setPath('userData', process.env.DS_BOT_SHELL_DATA)
 const frameFile = join(app.getPath('userData'), 'start-frame.json')
@@ -77,7 +78,7 @@ const frameFile = join(app.getPath('userData'), 'start-frame.json')
 // Loaded once the start window is up (loadModules).
 let BotBrowserGuests, partitionOf, BotViews, isBotId, importFromBrowser, listSources, applyCookies, CookieImports, parseCookieFile
 let downloadSaver, chooseLocations, defaultPlaces, lang, pickerLabels, pickRoot, programFolder, saveLocations, teamIn, teamsAt, tx, HostProcess
-let copySessions, findTeam, importTeam, restoreSessions, teamInUse, teamSizes, userDshHome, copyData, copyReason, moveProblem, CHECK_PROFILE, PROFILE, ImportFlow
+let copySessions, findTeam, importTeam, restoreSessions, teamInUse, teamSizes, userDshHome, copyData, copyReason, moveProblem, BUNDLES, CHECK_PROFILE, PROFILE, ImportFlow
 let watchReleases, watchUpdates, RELEASE_PAGE, getDshRuntimeVersion, electronUpdater
 
 let mainWindow
@@ -100,6 +101,9 @@ let failed = false
 let places
 // Which of the places this start made, so that 「换个位置…」 can take them away again.
 let made = { dataDir: false, workspace: false, root: false }
+// A bundle of the app installed into the profile's own dependencies shadows the bundled copy
+// for good (#1305). The card about it is asked once per run, however the start retries.
+let shadowedAsked = false
 // The folder picker of 「换个位置…」 is open, and the root it proposed on the 「会放在…」 card.
 let picking = false
 let proposed
@@ -194,7 +198,7 @@ if (canonical !== undefined) {
     electron: { BrowserWindow, ipcMain, screen, shell: electronShell, clipboard, nativeTheme, systemPreferences },
     // 〔保存日志…〕 on the start window's failure cards.
     saveAs: (win, name) => askPicker(win, { mode: 'save', title: tx('dialog.saveLog'), start: knownFolder('desktop'), name }),
-    page: join(here, 'start', 'start.html'), preload: join(here, 'preload.cjs'), icon: iconFile, mica, devTools: !app.isPackaged,
+    page: join(here, 'start', 'start.html'), preload: join(here, 'preload.cjs'), icon: iconFile, material, devTools: !app.isPackaged,
     css: readFileSync(join(here, 'page-card.css'), 'utf8'),
     // On Windows the locale is known only once the app is ready.
     lang: () => langOf(app.getLocale()), motion: readStartFrame(frameFile).motion,
@@ -206,6 +210,8 @@ if (canonical !== undefined) {
     onClose: () => { app.quit() },
     // 「换个位置…」: a first start picks the place again; a later start moves the data there.
     onPick: () => {
+      // The question about a shadowing plugin copy has to be answered first.
+      if (asked === 'shadowed') return
       // On the import card and the cards of its own picker, the import picks the place itself.
       if (answering !== undefined && ['import', 'importSpace', 'rejected', 'picked'].includes(asked)) { answering('pick'); return }
       (startWindow.kind === 'later' ? moveFromStart() : changePlace()).catch(fail)
@@ -302,7 +308,7 @@ async function loadModules() {
   ;({ copySessions, findTeam, importTeam, restoreSessions, teamInUse, teamSizes, userDshHome } = imports)
   ;({ ImportFlow } = flows)
   ;({ copyData, copyReason, moveProblem } = moves)
-  ;({ CHECK_PROFILE, PROFILE } = profile)
+  ;({ BUNDLES, CHECK_PROFILE, PROFILE } = profile)
   ;({ watchReleases, watchUpdates, RELEASE_PAGE } = updatesModule)
   ;({ getDshRuntimeVersion } = boot)
   electronUpdater = updater.default
@@ -570,7 +576,7 @@ function newHost() {
   return new HostProcess({
     entry: join(here, 'host.mjs'),
     cwd: profileDir(),
-    env: { ...process.env, DSH_HOME: places.dataDir, DS_BOT_PORT: String(port), DS_BOT_APP: '1', DS_BOT_USER_DSH_HOME: userDshHome(), DS_BOT_RUNTIME_DIR: runtimeDir(), ...(places.workspace ? { DS_BOT_WORKSPACE: places.workspace } : {}) },
+    env: { ...process.env, DSH_HOME: places.dataDir, DS_BOT_PORT: String(port), DS_BOT_APP: '1', DS_BOT_USER_DSH_HOME: userDshHome(), DS_BOT_RUNTIME_DIR: runtimeDir(), ...(app.isPackaged && process.platform === 'darwin' ? { DS_BOT_COMPUTER_HELPER_HOME: join(app.getPath('userData'), 'computer-use') } : {}), ...(places.workspace ? { DS_BOT_WORKSPACE: places.workspace } : {}) },
     pnpm: pnpmEntry(),
     onFailure: (error) => { if (mine === attempt) void fail(error) },
     output: hostOutput,
@@ -610,6 +616,21 @@ async function startEngine(mine) {
       if (copied.length > 0) console.log(`DS Bot: copied ${copied.join(', ')}, which the import left out`)
       if (newer.length > 0) console.warn(`DS Bot: this DSH cannot read ${newer.join(', ')}, which the import left out`)
     }, (error) => { console.error('DS Bot: the Sessions the import left out were not copied:', error) })
+  }
+  if (!shadowedAsked) {
+    const { shadowedBundles, removeShadowed } = await import('./profile-shadow.mjs')
+    const shadowed = shadowedBundles(profileDir(), BUNDLES)
+    if (shadowed.length > 0 && mine === attempt) {
+      const names = shadowed.map(({ name, version }) => `${name} ${version}`).join(', ')
+      console.warn(`DS Bot: the profile carries its own ${names}, which shadows the bundled copy`)
+      if (await askCard({ kind: 'shadowed', names }) === 'remove' && mine === attempt) {
+        // A failed removal stops the start with the reason, and the next try asks again.
+        await removeShadowed(profileDir(), shadowed.map(entry => entry.name)).catch((error) => {
+          throw new Error(`Could not remove ${names} from the profile: ${error?.message ?? error}`, { cause: error })
+        })
+      }
+    }
+    shadowedAsked = true
   }
   host = warm?.host ?? newHost()
   host.onMessage(message => {
@@ -1261,25 +1282,24 @@ async function flushDeferredUpdate() {
 // Hidden, on the rect the start window grows into; the start window shows it at the hand-off.
 function createWindow() {
   const dark = nativeTheme.shouldUseDarkColors
-  const win32 = process.platform === 'win32'
+  const frameless = framelessOn(process.platform)
+  const sidebarFill = () => (nativeTheme.shouldUseDarkColors ? '#1b1b1c' : '#f9fafb')
   const win = new BrowserWindow({
     // The window never squeezes the chat: RAIL_WIDTH + MIN_CHAT from ds-bot's
     // src/client/frame-layout.js is the avatar rail plus the smallest chat column.
     ...startWindow.mainBounds(), minWidth: 508, minHeight: 480,
     title: 'DS Bot', show: false, icon: iconFile,
-    backgroundColor: mica ? '#00000000' : dark ? '#1b1b1c' : '#ffffff',
-    // Frameless as in DSH Desktop: the caption buttons overlay the page's band. They keep the
-    // sidebar's colors until the page sends the colors of the surface under them.
-    ...(win32 ? {
-      titleBarStyle: 'hidden',
-      titleBarOverlay: { height: CAPTION_HEIGHT, color: dark ? '#1b1b1c' : '#f9fafb', symbolColor: dark ? '#f9fafb' : '#0f1115' },
-      ...(mica ? { backgroundMaterial: 'mica' } : {}),
-    } : {}),
+    backgroundColor: material ? '#00000000' : dark ? '#1b1b1c' : '#ffffff',
+    // Frameless as in DSH Desktop: the window controls overlay the page's band. On Windows the
+    // caption buttons keep the sidebar's colors until the page sends the colors of the surface
+    // under them.
+    ...frameOptions(process.platform, material, { color: sidebarFill(), symbolColor: dark ? '#f9fafb' : '#0f1115' }),
     webPreferences: {
       preload: join(here, 'preload.cjs'), contextIsolation: true, sandbox: true, webviewTag: true,
-      additionalArguments: [`--ds-bot-origin=${origin}`, ...(win32 ? [`--ds-bot-caption=${String(CAPTION_HEIGHT)}`, ...(mica ? ['--ds-bot-mica'] : [])] : [])],
+      additionalArguments: [`--ds-bot-origin=${origin}`, ...(frameless ? [`--ds-bot-caption=${String(CAPTION_HEIGHT)}`, ...(material ? [`--ds-bot-material=${material}`] : [])] : [])],
     },
   })
+  if (material === 'vibrancy') keepVibrancy(win, sidebarFill)
   mainWindow = win
   startWindow.placeMain(win)
   // No ready-to-show here: the first window shows at the hand-off (start-window.mjs), a window
@@ -1307,16 +1327,17 @@ function createWindow() {
       getPath: name => app.getPath(name),
     }))
   }
-  if (win32) {
-    // Fullscreen hides the caption buttons, and the page drops its band meanwhile. A reload
+  if (frameless) {
+    // Fullscreen hides the window controls, and the page drops its band meanwhile. A reload
     // registers the page's listener again, so the state goes out after every load too.
     const sendFullscreen = () => { if (mainWindow !== undefined) contents.send(IPC.fullscreen, win.isFullScreen()) }
     win.on('enter-full-screen', sendFullscreen)
     win.on('leave-full-screen', sendFullscreen)
     contents.on('did-finish-load', sendFullscreen)
   }
-  if (mica) {
-    const css = readFileSync(join(here, 'mica.css'), 'utf8')
+  for (const [on, file] of [[material !== undefined, 'material.css'], [process.platform === 'darwin', 'macos.css']]) {
+    if (!on) continue
+    const css = readFileSync(join(here, file), 'utf8')
     contents.on('dom-ready', () => { void contents.insertCSS(css) })
   }
   const fonts = readFileSync(join(here, 'fonts.css'), 'utf8')

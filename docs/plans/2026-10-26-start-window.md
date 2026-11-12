@@ -316,7 +316,8 @@
 - 没有警告色（`--bt-warn` 未定）：空间不足、OneDrive 和慢的提示都用中性墨色。
 - 强制颜色（Windows 的对比度主题）：圆环的淡线用 `GrayText`，失败的那段也是（失败靠鲸鱼的姿势和标题）；画满的弧、合上的整圈、弧上的光、水柱和水滴用 `Highlight`。
 - 字体：`-apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei UI", system-ui, sans-serif`；路径和日志用 `ui-monospace, Consolas, monospace`。字号只有 13/18、14/22、15/20（600），数字用等宽数字。
-- macOS 和 Linux：系统标题栏，没有标题带，其余一样。
+- macOS：和 Windows 一样没有系统标题栏，红绿灯在 40 px 标题带里，窗口用 `vibrancy: 'sidebar'`，背景 `#00000000`，页面透明。
+- Linux：系统标题栏，没有标题带，其余一样。
 
 ### 11. 实现
 

@@ -16,7 +16,7 @@ const { JSDOM } = createRequire(join(process.env.DSH_HARNESS ?? join(PLUGIN, '..
 // fixtures retain refs across commits and run their layout effects after each render.
 const { outputFiles } = await build({
   stdin: {
-    contents: "export { SHELL_CSS } from './src/client/styles.js'\nexport { SIDEBAR_CSS, TeamSidebar } from './src/client/sidebar.js'",
+    contents: "export { SHELL_CSS } from './src/client/styles.js'\nexport { SIDEBAR_CSS, TeamSidebar, PluginsButton } from './src/client/sidebar.js'",
     resolveDir: PLUGIN,
   },
   bundle: true, format: 'cjs', platform: 'browser', write: false, logLevel: 'silent',
@@ -42,7 +42,7 @@ const sandbox = {
   window: viewport,
 }
 runInNewContext(outputFiles[0].text, sandbox)
-const { SHELL_CSS, SIDEBAR_CSS, TeamSidebar } = module.exports
+const { SHELL_CSS, SIDEBAR_CSS, TeamSidebar, PluginsButton } = module.exports
 
 function navigationSidebar(wide, { leftDrawer = false } = {}) {
   const calls = []
@@ -466,9 +466,27 @@ test('the rail spaces its icons on the open column\'s rhythm', () => {
   assert.match(bodyOf('.bt-rail'), /(^|;)gap:6px/)
 })
 
-// #452: the Connect plugins button left the footer; what DS Bot puts there is
-// the account menu and the way back from Agent mode.
-test('the Bot footer holds the account and the return button only', () => {
+// The Plugins shortcut calls DSH's plugin page; a host without that navigation
+// face has no page to open, so the button stays out of the foot entirely.
+test('the Plugins shortcut stays out where the host has no plugin navigation', () => {
+  assert.equal(PluginsButton({ actions: {} }), null)
+  assert.equal(PluginsButton({ actions: { hasPlugins: () => false, openPlugins: () => { throw new Error('must not open') } } }), null)
+})
+
+test('the Plugins shortcut opens the plugin manager and names itself', () => {
+  const calls = []
+  const button = PluginsButton({ actions: { hasPlugins: () => true, openPlugins: () => calls.push('open') } })
+  assert.equal(button.type, 'button')
+  assert.equal(button.props['aria-label'], 'Plugins')
+  assert.equal(button.props.title, 'Plugins')
+  button.props.onClick()
+  assert.deepEqual(calls, ['open'])
+})
+
+// The foot of the team column is the sidebar's own `.bt-leftcol-foot`, not the
+// shell's footArea: only the account menu and the Agent-mode return button go
+// through the shell's action slot.
+test('the shell footer action slot holds the account and the return button only', () => {
   const source = readFileSync(new URL('../src/client/index.js', import.meta.url), 'utf8')
   const ids = [...source.matchAll(/shadow\('sidebar\.footer\.action',\s*\{[^}]*?id:\s*['"]([^'"]+)['"]/g)].map(match => match[1])
   assert.deepEqual(ids.sort(), ['bot-account', 'bot-return'])

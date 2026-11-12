@@ -239,6 +239,16 @@ function checkOffice(app) {
   `, 180_000)
 }
 
+// The browser plugins drive the app's own browser through Playwright; without it in the package
+// every browser tool failed before it did anything.
+function checkPlaywright(app) {
+  runInHost(app, 'Playwright', `
+    const { chromium } = createRequire(appRequire.resolve('ds-bot/package.json'))('playwright-core')
+    assert.equal(typeof chromium.connectOverCDP, 'function')
+    console.log('check-packed: the browser plugins find Playwright')
+  `, 30_000)
+}
+
 // Computer use on Windows loads the Cua Driver SDK's DLL by a path that the SDK derives from its
 // own module; a module inside the asar gives a path that Windows' loader cannot open (#1025).
 // The SDK is found the way the provider's import finds it, then asked for its tools.
@@ -361,13 +371,17 @@ function devtools(url, problems) {
   return { opened, call, close: () => { socket.close() } }
 }
 
-// mica.css styles DSH's own page, which can change with a DSH upgrade; every rule must still
-// find an element, on every platform, so the change shows here and not as a broken window.
-function micaRules() {
-  const css = readFileSync(join(root, 'src', 'mica.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//gu, '')
+// material.css and macos.css style DSH's own page, which can change with a DSH upgrade; every
+// rule must still find an element, on every platform, so the change shows here and not as a
+// broken window. The page is not in fullscreen here, so a rule's html:not([data-fullscreen])
+// is dropped before the look. DSH draws its session tree only in the classic Agent view, which
+// the check does not open, so the rules for the tree are not looked for.
+const frameSheets = ['material.css', 'macos.css']
+function frameRules(file) {
+  const css = readFileSync(join(root, 'src', file), 'utf8').replace(/\/\*[\s\S]*?\*\//gu, '')
   return [...css.matchAll(/([^{}]+)\{/gu)].map(([, selectors]) => selectors.split(',')
-    .map(selector => selector.trim().replace(/::(?:before|after)$/u, ''))
-    .filter(selector => selector !== '' && selector !== 'body'))
+    .map(selector => selector.trim().replace(/::(?:before|after)$/u, '').replace(/^html(?::not\(\[data-fullscreen\]\))?\s*/u, ''))
+    .filter(selector => selector !== '' && selector !== 'body' && !selector.includes('_treeBody') && !selector.includes('_scrollRegion')))
     .filter(rule => rule.length > 0)
 }
 
@@ -376,7 +390,7 @@ async function chat(cdp) {
   const until = async (expression, label, ms = 120_000) => {
     const end = Date.now() + ms
     while (Date.now() < end) {
-      if (await evaluate(`Boolean(${expression})`)) return
+      if (await evaluate(`(async () => Boolean(await (${expression})))()`)) return
       await sleep(250)
     }
     throw new Error(`timed out waiting for ${label}`)
@@ -387,8 +401,10 @@ async function chat(cdp) {
   await cdp.call('Runtime.enable')
   await cdp.call('Log.enable')
   await until("document.querySelector('.bt-tile, .bt-row')", 'the team')
-  const stale = await evaluate(`${JSON.stringify(micaRules())}.filter(rule => !rule.some(selector => document.querySelector(selector) !== null)).map(rule => rule.join(', '))`)
-  if (stale.length > 0) throw new Error(`src/mica.css no longer matches DSH's page: ${stale.join(' | ')}`)
+  for (const file of frameSheets) {
+    const stale = await evaluate(`${JSON.stringify(frameRules(file))}.filter(rule => !rule.some(selector => document.querySelector(selector) !== null)).map(rule => rule.join(', '))`)
+    if (stale.length > 0) throw new Error(`src/${file} no longer matches DSH's page: ${stale.join(' | ')}`)
+  }
   await dismissNotice()
   const main = await evaluate("fetch('api/bot', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ endpoint: 'state', payload: {} }) }).then(r => r.json()).then(r => r.value.mainBotId)")
   await evaluate(`document.querySelector(${JSON.stringify(`[data-bot-id="${main}"]`)}).click()`)
@@ -448,16 +464,79 @@ async function chat(cdp) {
   }
   await cdp.call('Input.insertText', { text: 'packaged app check' })
   await until(text('packaged app check'), 'the typed message', 10_000)
+  // DSH's composer drops an Enter while it cannot send: while it is busy, or before it has taken
+  // in the inserted text. Its send button is disabled under the same conditions, so press Enter
+  // once a user could click the button, as a user who sees it greyed out would wait.
+  const send = `(() => {
+    let node = ${box}
+    while (node && !node.querySelector?.('button[aria-busy]')) node = node.parentElement
+    return node?.querySelector('button[aria-busy]') ?? null
+  })()`
+  const composerState = () => evaluate(`(() => {
+    const el = ${box}
+    const button = ${send}
+    return JSON.stringify({
+      active: document.activeElement?.tagName ?? null, editable: document.activeElement?.isContentEditable ?? null,
+      draft: el?.innerText ?? null, send: button === null ? null : { label: button.getAttribute('aria-label'), disabled: button.disabled },
+      tail: document.body.innerText.slice(-300),
+    })
+  })()`)
+  try {
+    await until(`(() => { const button = ${send}; return button !== null && !button.disabled })()`, 'the send button', 30_000)
+  } catch (error) {
+    throw new Error(`${error.message}; composer: ${await composerState()}`)
+  }
   for (const type of ['keyDown', 'keyUp']) await cdp.call('Input.dispatchKeyEvent', { type, key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 })
+  try {
+    await until(`!(${box}?.innerText ?? '').includes('packaged app check')`, 'Enter to send the message', 10_000)
+  } catch (error) {
+    throw new Error(`${error.message}; composer: ${await composerState()}`)
+  }
   // The mock model starts its reply with 收到： and the message.
   try {
     await until(text('收到：packaged app check'), 'the reply')
   } catch (error) {
-    const state = await evaluate("JSON.stringify({ active: document.activeElement?.tagName ?? null, editable: document.activeElement?.isContentEditable ?? null, tail: document.body.innerText.slice(-300) })")
-    throw new Error(`${error.message}; page state: ${state}`)
+    throw new Error(`${error.message}; composer: ${await composerState()}`)
   }
   await sleep(1000)
   console.log(`check-packed: chat ${JSON.stringify(await evaluate('document.body.innerText.slice(-200)'))}`)
+  if (process.platform === 'darwin') await checkComputerHelper(evaluate, until)
+}
+
+async function checkComputerHelper(evaluate, until) {
+  const helperHome = join(work, 'shell', 'computer-use')
+  const call = (endpoint, payload = {}) => `fetch('api/bot', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: ${JSON.stringify(JSON.stringify({ endpoint, payload }))},
+  }).then(r => r.json()).then(r => r.value)`
+  const provider = `${call('state')}.then(state => state.computer.provider)`
+
+  // A file at the copy location forces a real filesystem error without touching the bundle.
+  writeFileSync(helperHome, '')
+  await evaluate(call('computer-set-enabled', { enabled: true }))
+  await until(`${provider}.then(provider => provider.state !== 'loading')`, 'the computer-use provider error')
+  const failure = await evaluate(provider)
+  if (failure.state !== 'error' || !failure.message.startsWith('Could not prepare the macOS computer-use helper:')) {
+    throw new Error(`expected the helper preparation error: ${JSON.stringify(failure)}`)
+  }
+  rmSync(helperHome)
+  const retry = await evaluate(call('computer-provider-retry'))
+  if (retry?.provider?.state !== 'ready') {
+    throw new Error(`the computer-use provider could not retry: ${JSON.stringify(retry?.provider)}`)
+  }
+  console.log('check-packed: retry prepared the computer-use helper outside the app')
+
+  // The hosted macOS 26 Intel runner hangs in IconServices when the DSH helper starts.
+  if (process.arch === 'x64' && process.env.GITHUB_ACTIONS === 'true') {
+    console.log('check-packed: skipping the native permission query on the hosted Intel runner')
+  } else {
+    const status = await evaluate(call('computer-system-status'))
+    if (typeof status?.accessibility !== 'boolean' || !status?.helper?.path?.startsWith(helperHome + '/')) {
+      throw new Error(`the computer-use helper did not answer from outside the app: ${JSON.stringify(status)}`)
+    }
+    console.log(`check-packed: the computer-use helper answers from ${status.helper.path}`)
+  }
+  await evaluate(call('computer-set-enabled', { enabled: false }))
 }
 
 let failed = false
@@ -467,6 +546,7 @@ try {
   checkAsarCopy(packedApp)
   checkSharp(packedApp)
   checkOffice(packedApp)
+  checkPlaywright(packedApp)
   if (process.platform === 'win32') checkComputerUse(packedApp)
   const modelUrl = await startMock()
   const port = await freePort()

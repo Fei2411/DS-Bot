@@ -28,27 +28,50 @@ import { createHash, randomUUID } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, truncateSync, unlinkSync, writeFileSync } from 'node:fs'
 import { appendFile, mkdir, rename, unlink, writeFile } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
-import { BlockAssembler, HarnessError, createUserMessage } from '@deepseek-ai/dsh-llm'
+import { HarnessError, createUserMessage } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { replaceFile } from './files.js'
+import { assembleLlmStream } from './models.js'
 import { inside, pendingPath, read as readPending, record as pendingRecord, relativePath, serialize as serializePending } from './memory-pending.js'
-import { splitRef, unquote } from './text.js'
-import { EMPTY_MAIN, FULL, GONE, DENIED, HEADING, MAIN, MEMORY_LIMITS, NO_MATCH, ROUTED, addLink, cleanEntry, cleanTopic, formatEntry, insertEntry, joinLines, looksSecret, matchEntries, parseAsk, parseMemory, removeLink, splitMeta, squash } from './memory-entries.js'
-import { GROUP_HEADING, GROUP_MEMORY_SOURCE, SUMMARY_SYSTEM, askRequest, askSystem, groupNote, groupSummaryRequest, memoryRules, summaryRequest, teamRule } from './memory-copy.js'
+import { estimateTokens, splitRef, textOf, unquote } from './text.js'
+import { EMPTY_MAIN, GONE, DENIED, HEADING, MAIN, MEMORY_LIMITS, NO_MATCH, ROUTED, addLink, bodySize, cleanDay, cleanEntry, cleanTopic, entryId, fitWindow, formatEntry, insertEntry, isExpired, isPinned, joinLines, looksSecret, matchEntries, newEntryId, parseAsk, parseMemory, promptEntry, TEAM_SHARED, removeLink, splitMeta, squash, topicAbout, WINDOW_SHARE } from './memory-entries.js'
+import { pickRecalled, rankEntries } from './memory-search.js'
+import { GROUP_HEADING, GROUP_MEMORY_SOURCE, MEMORY_RECALL_SOURCE, MEMORY_UPDATE_SOURCE, RECALL_HEADING, RECALL_NOTE, SUMMARY_SYSTEM, UPDATE_HEADING, UPDATE_NOTE, askRequest, askSystem, groupNote, groupSummaryRequest, memoryRules, summaryRequest, teamRule } from './memory-copy.js'
 import { installReview } from './memory-review.js'
+import { installTidy } from './memory-tidy.js'
 import { output } from './tools.js'
 
 export { MEMORY_LIMITS, addLink, cleanEntry, cleanTopic, formatEntry, insertEntry, looksLikeKey, looksSecret, matchEntries, parseAsk, parseMemory, parseReview, removeLink, reviewEntries, splitMeta } from './memory-entries.js'
 export { writtenIn } from './memory-copy.js'
 
+// Where entries go when MEMORY.md is at its size.
+const OVERFLOW = 'earlier'
 const RECALL_MAX = 30
+// A model's window is looked up this often, not on every step.
+const WINDOW_ASK_MS = 10 * 60_000
+// What the first step of a turn may bring along from the topics.
+const AUTO_RECALL_MAX = 5
+const AUTO_RECALL_TEXT_MAX = 3_000
+const AUTO_RECALL_QUERY_MAX = 2_000
+// One memory update message says this much; the rest is left to recall.
+const UPDATE_ROWS_MAX = 20
+const UPDATE_TEXT_MAX = 4_000
+// The changes kept in memory for update messages, and how far back a start reads them.
+const RECENT_ROWS_MAX = 2_000
+const RECENT_TAIL_CHARS = 512 * 1024
 const QUERY_TERMS_MAX = 6
 const SOURCE_READ_MS = 5_000
 const MODEL_TIMEOUT_MS = 120_000
-const SUMMARY_MAX_TOKENS = 2_048
-// A reply cut off at the limit is tried once more with room for reasoning plus
-// the answer; a model that thinks can spend the smaller budget thinking alone.
-const SUMMARY_RETRY_MAX_TOKENS = 8_192
+// A thinking model spends several thousand output tokens before its answer starts. On a
+// 13k-token context one spent a 2,048-token budget on reasoning alone and wrote nothing;
+// given 16,384 it wrote the answer. The first try gets that room, the retry gets more,
+// unless the adapter's default starts lower.
+const SUMMARY_MAX_TOKENS = 16_384
+const SUMMARY_RETRY_MAX_TOKENS = 32_768
+function providerFailure(failure) {
+  const label = [failure?.code, failure?.status].filter(part => part !== undefined && part !== '').join(' ')
+  return new Error(`The provider returned an error${label === '' ? '' : ` (${label})`}: ${failure?.message ?? 'no message'}`)
+}
 const SUMMARY_TEXT_MAX = 8_000
 const ASK_TEXT_MAX = 2_000
 const ASK_CHANGES_MAX = 20
@@ -71,6 +94,8 @@ export function install(rt) {
       archiveBotMemory: async () => {},
       archiveGroupMemory: async () => {},
       memoryEndpoint: async () => { throw new Error('Memory is turned off on this host') },
+      memoryEdit: async () => { throw new Error('Memory is turned off on this host') },
+      memoryAdd: async () => { throw new Error('Memory is turned off on this host') },
       memoryNews: () => ({}),
       memoryReviews: () => 0,
     })
@@ -138,7 +163,7 @@ export function install(rt) {
       return { topic, file, path: join(dir, file), content, ...parseMemory(content) }
     })
   }
-  const limitOf = file => (file.topic === undefined ? MEMORY_LIMITS.main : MEMORY_LIMITS.topic)
+  const mainLimit = scope => state.prefs.memoryLimits?.[scope.kind] ?? MEMORY_LIMITS[scope.kind]
   const fileName = file => (file.topic === undefined ? MAIN : `topic [[${file.topic}]]`)
 
   async function writeText(path, text) {
@@ -229,6 +254,7 @@ export function install(rt) {
     const half = text.slice(cut)
     const line = JSON.stringify(row)
     mkdirSync(dirname(path), { recursive: true })
+    rememberRow(row)
     if (half === '') {
       await appendFile(path, `${line}\n`, 'utf8')
       return true
@@ -245,13 +271,69 @@ export function install(rt) {
     return true
   }
 
+  // Recent changes, for the memory updates a running conversation gets.
+  const recentRows = []
+  const tailsRead = new Set()
+  const rememberRow = (row) => {
+    if (recentRows.some(known => known.id === row.id)) return
+    recentRows.push(row)
+    recentRows.sort((a, b) => String(a.time).localeCompare(String(b.time)))
+    if (recentRows.length > RECENT_ROWS_MAX) recentRows.splice(0, recentRows.length - RECENT_ROWS_MAX)
+  }
+  function readTail(path) {
+    if (tailsRead.has(path)) return
+    tailsRead.add(path)
+    for (const line of readJournal(path).slice(-RECENT_TAIL_CHARS).split('\n')) {
+      try {
+        const row = JSON.parse(line)
+        if (typeof row?.id === 'string' && typeof row.time === 'string') rememberRow(row)
+      } catch { /* a line cut by the tail, or half-written */ }
+    }
+  }
+
+  // Whether anything but a tidy changed a memory after a time.
+  function changedSince(key, time) {
+    readTail(journalPath)
+    const botId = key.startsWith('bot:') ? key.slice(4) : undefined
+    if (botId !== undefined) readTail(journalFor(key, 'read').path)
+    return recentRows.some(row => row.scope === key && (time === undefined || row.time > time) && row.op !== 'tidy' && row.op !== 'tidy-undo')
+  }
+
   // Publishes a change: the files it touches, then the row that goes with it in the
   // change log. A change that cannot be published stays pending: the record is left
   // behind, and the change is finished before memory is read or written again.
+  // A move or tidy can change the resident entries even when its journal row
+  // describes a topic or an entire batch. Record the actual change once here.
+  function mainChanges(scope, steps, row) {
+    const path = join(dirOf(journalScope(scope)), MAIN)
+    const step = steps.findLast(item => item.path === relativePath(root, path))
+    if (step === undefined) return undefined
+    const byId = (content) => {
+      const { lines, entries } = parseMemory(content)
+      return Map.groupBy(entries.map(entry => ({ ...entry, raw: lines[entry.line] })), entryId)
+    }
+    const before = byId(readText(path))
+    const after = byId(step.text)
+    const changes = [...new Set([...before.keys(), ...after.keys()])].flatMap((id) => {
+      // Older entries derive a short id from their text, so several can share one.
+      const added = [...after.get(id) ?? []]
+      const removed = (before.get(id) ?? []).filter((entry) => {
+        const same = added.findIndex(next => next.raw === entry.raw)
+        if (same < 0) return true
+        added.splice(same, 1)
+        return false
+      })
+      return Array.from({ length: Math.max(removed.length, added.length) }, (_, i) => ({ before: removed[i]?.raw, after: added[i]?.raw }))
+    })
+    const [change] = changes
+    if (row.file === MAIN && ['add', 'remove', 'replace'].includes(row.op) && changes.length === 1 && change.before === row.before && change.after === row.after) return undefined
+    return changes
+  }
+
   async function publish({ op, scope, steps, row }) {
     const id = randomUUID()
     const time = new Date().toISOString()
-    const record = pendingRecord({ id, time, op, scope, steps, row })
+    const record = pendingRecord({ id, time, op, scope, steps, row: { ...row, mainChanges: mainChanges(scope, steps, row) } })
     // The record has to be readable back, so its size is checked before the change
     // is accepted: a record that cannot be read would stop the memory for good.
     const text = serializePending(record)
@@ -351,18 +433,72 @@ export function install(rt) {
   // ---------------------------------------------------------------------------
   // Changes. Each runs alone, rereads the files, and returns what changed.
 
-  function checkSize(file, next, label) {
-    const limit = limitOf(file)
+  // Memory never refuses a fact for lack of room. MEMORY.md is what every conversation
+  // reads, so past its size the oldest entries move to a topic, in the same change, and
+  // recall still finds them. A topic is only as long as one recall can read; a full one
+  // continues in `<name>-2`.
+  const bodyOf = lines => bodySize(parseMemory(joinLines(lines)))
+  const sizeNote = (file, scope) => (file.topic === undefined ? `${MAIN}: ${bodySize(file)} of ${mainLimit(scope)} characters` : `${file.file}: ${file.content.length} of ${MEMORY_LIMITS.topic} characters`)
+
+  const overflowName = at => (at === 1 ? OVERFLOW : `${OVERFLOW}-${at}`)
+  function placeMoved(files, moved) {
+    const placed = new Map()
+    let at = 1
+    let size = files.find(file => file.topic === overflowName(at))?.content.length ?? 0
+    for (const line of moved) {
+      while (size > 0 && size + line.length + 1 > MEMORY_LIMITS.topic) {
+        at += 1
+        size = files.find(file => file.topic === overflowName(at))?.content.length ?? 0
+      }
+      placed.set(overflowName(at), [...placed.get(overflowName(at)) ?? [], line])
+      size += line.length + 1
+    }
+    return placed
+  }
+
+  // `keep` is the line this change writes, which is not the one to move.
+  function makeRoom(files, scope, lines, keep) {
+    const main = files[0]
+    const limit = mainLimit(scope)
+    let kept = lines
+    let moved = []
+    let placed = new Map()
+    const linked = () => [...placed.keys()].filter(name => !main.links.includes(name)).reduce((list, name) => addLink(list, name), kept)
     // A file already past its size (edited by hand) may still shrink.
-    if (next.length <= limit || next.length <= file.content.length) return
-    throw Object.assign(new Error(file.topic === undefined
-      ? `${capital(label)}'s MEMORY.md would have ${next.length} of its ${limit} characters. Make room first: move details into a topic (remember with topic, then forget them here), merge entries with replace, or forget what no longer matters.`
-      : `The topic [[${file.topic}]] in ${label} would have ${next.length} of its ${limit} characters. Put the rest in another topic, or forget old entries.`), { code: FULL })
+    const grew = bodyOf(lines) > bodySize(main)
+    while (grew && bodyOf(linked()) > limit) {
+      const entries = parseMemory(joinLines(kept)).entries.filter(entry => kept[entry.line] !== keep && !isPinned(entry))
+      if (entries.length === 0) break
+      const age = entry => (isExpired(entry, today()) ? '' : String(entry.meta.added ?? ''))
+      const oldest = entries.reduce((a, b) => (age(b) < age(a) ? b : a))
+      moved = [...moved, kept[oldest.line]]
+      kept = kept.filter((_line, at) => at !== oldest.line)
+      placed = placeMoved(files, moved)
+    }
+    const steps = [...placed].map(([name, entries]) => {
+      const file = files.find(item => item.topic === name)
+      const base = file === undefined || file.lines.length === 0 ? parseMemory(`# ${name}\n`).lines : file.lines
+      return writeStep(join(dirOf(scope), `${name}.md`), joinLines(entries.reduce(insertEntry, base)))
+    })
+    return { lines: linked(), moved, steps, topics: [...placed.keys()] }
+  }
+  const movedNote = room => (room.moved.length === 0 ? '' : ` MEMORY.md was at its size, so ${room.moved.length === 1 ? 'its oldest entry' : `its ${room.moved.length} oldest entries`} moved to ${room.topics.map(name => `[[${name}]]`).join(', ')}, where recall finds ${room.moved.length === 1 ? 'it' : 'them'}.`)
+  const movedRow = room => (room.moved.length === 0 ? {} : { moved: room.moved, movedTo: room.topics.map(name => `${name}.md`) })
+
+  // The topic an entry goes in. Past the last topic there is none, and the entry goes
+  // to MEMORY.md, which makes room for it.
+  function roomInTopic(files, scope, topic, length) {
+    if (topic === undefined) return undefined
+    for (let at = 1; ; at += 1) {
+      const name = at === 1 ? topic : `${topic}-${at}`
+      const file = files.find(item => item.topic === name)
+      if (file === undefined) return scope.kind !== 'team' && files.length - 1 >= MEMORY_LIMITS.topics ? undefined : name
+      if (file.content.length + length + 1 <= MEMORY_LIMITS.topic) return name
+    }
   }
   const capital = text => text[0].toUpperCase() + text.slice(1)
-  const sizeNote = (file, size) => `${file.file}: ${size} of ${limitOf(file)} characters`
   const allEntries = files => files.flatMap(file => file.entries.map(entry => ({ ...entry, file })))
-  const actorOf = actor => ({ actor: actor.id, actorName: actor.name, ...(actor.auto ? { auto: true } : {}) })
+  const actorOf = actor => ({ actor: actor.id, actorName: actor.name, ...(actor.auto ? { auto: true } : {}), ...(actor.session ? { session: actor.session } : {}) })
 
   // The latest change to a Bot's memory or a group's, by remember, forget, or the
   // memory review; a team change counts for the Bot that made it. The conversation
@@ -376,36 +512,46 @@ export function install(rt) {
     news.set(id, { at: Date.now(), op, text: splitMeta(String(line ?? '').replace(/^- /, '')).text.slice(0, NEWS_TEXT_MAX) })
   }
 
-  function addEntry({ scope, topic, text, meta, actor, label }) {
+  function addEntry(change) {
     return queued(async () => {
       await recoverPending()
-      writable(scope, actor)
-      const files = loadScope(scope)
-      const [same] = matchEntries(allEntries(files), text).filter(entry => squash(entry.text) === squash(text))
-      if (same !== undefined) return { changed: false, file: same.file, message: `Already in ${label} (${fileName(same.file)}): "${same.text}". Nothing changed.` }
-      const main = files[0]
-      let target = topic === undefined ? main : files.find(file => file.topic === topic)
-      const fresh = target === undefined
-      if (fresh) {
-        if (files.length - 1 >= MEMORY_LIMITS.topics) throw Object.assign(new Error(`${capital(label)} already has ${MEMORY_LIMITS.topics} topics, the most it holds. Add to one of them (recall lists them), or forget one.`), { code: FULL })
-        target = { topic, file: `${topic}.md`, path: join(dirOf(scope), `${topic}.md`), content: '', ...parseMemory(`# ${topic}\n`) }
-      }
-      const base = target.lines.length > 0 ? target.lines : parseMemory(target === main ? EMPTY_MAIN : `# ${topic}\n`).lines
-      const line = formatEntry(text, meta)
-      const next = joinLines(insertEntry(base, line))
-      checkSize(target, next, label)
-      let index
-      if (topic !== undefined && !main.links.includes(topic)) {
-        index = joinLines(addLink(main.lines.length > 0 ? main.lines : parseMemory(EMPTY_MAIN).lines, topic))
-        checkSize(main, index, label)
-      }
-      const steps = [writeStep(target.path, next)]
-      if (index !== undefined) steps.push(writeStep(main.path, index))
-      await publish({ op: 'add', scope: scopeKey(scope), steps, row: { op: 'add', scope: scopeKey(scope), file: target.file, ...actorOf(actor), after: line } })
-      noteNews(scope, actor, 'add', line)
-      const where = topic === undefined ? MAIN : fresh ? `the new topic [[${topic}]], linked from MEMORY.md` : `topic [[${topic}]]`
-      return { changed: true, file: target, message: `Saved to ${label}, in ${where} (${sizeNote(target, next.length)}).` }
+      return addEntryNow(change)
     })
+  }
+
+  async function addEntryNow({ scope, topic, text, meta, actor, label, moving = false }) {
+    writable(scope, actor)
+    const files = loadScope(scope)
+    const entries = allEntries(files)
+    const same = entries.find(entry => squash(entry.text) === squash(text))
+    const line = formatEntry(text, { id: meta.id ?? newEntryId(entries), ...meta })
+    if (same !== undefined) {
+      // An exact copy lets a move finish after its destination was saved before a restart.
+      if (moving && (formatEntry(same.text, { id: same.meta.id, ...same.meta }) !== line || (scope.kind === 'team' && same.file.topic === undefined))) {
+        throw new Error('The destination already has this entry with different details.')
+      }
+      return { changed: false, file: same.file, message: `Already in ${label} (${fileName(same.file)}): "${same.text}". Nothing changed.` }
+    }
+    if (moving && entries.some(entry => entryId(entry) === meta.id)) throw new Error('The destination already uses this entry id for another entry.')
+    const main = files[0]
+    const name = roomInTopic(files, scope, topic, line.length)
+    let target = name === undefined ? main : files.find(file => file.topic === name)
+    const fresh = target === undefined
+    if (fresh) target = { topic: name, file: `${name}.md`, path: join(dirOf(scope), `${name}.md`), content: '', ...parseMemory(`# ${name}\n`) }
+    const base = target.lines.length > 0 ? target.lines : parseMemory(target === main ? EMPTY_MAIN : `# ${name}\n`).lines
+    const written = insertEntry(base, line)
+    const mainLines = main.lines.length > 0 ? main.lines : parseMemory(EMPTY_MAIN).lines
+    // What the overflow writes sees this entry, in case the two are the same topic.
+    const seen = target === main ? files : [...files.filter(file => file !== target), { ...target, ...parseMemory(joinLines(written)), content: joinLines(written) }]
+    const room = makeRoom(seen, scope, target === main ? written : name !== undefined && !main.links.includes(name) ? addLink(mainLines, name) : mainLines, target === main ? line : undefined)
+    const steps = target === main
+      ? [writeStep(main.path, joinLines(room.lines))]
+      : [writeStep(target.path, joinLines(written)), ...(room.lines === mainLines ? [] : [writeStep(main.path, joinLines(room.lines))])]
+    await publish({ op: 'add', scope: scopeKey(scope), steps: [...steps, ...room.steps], row: { op: 'add', scope: scopeKey(scope), file: target.file, ...actorOf(actor), after: line, ...movedRow(room) } })
+    noteNews(scope, actor, 'add', line)
+    const where = target === main ? MAIN : fresh ? `the new topic [[${name}]], linked from MEMORY.md` : `topic [[${name}]]`
+    const after = target === main ? room.lines : written
+    return { changed: true, file: target, message: `Saved to ${label}, in ${where} (${sizeNote({ ...target, ...parseMemory(joinLines(after)), content: joinLines(after) }, scope)}).${movedNote(room)}` }
   }
 
   // `topic` narrows where to look; undefined looks in every file of the scope.
@@ -421,25 +567,26 @@ export function install(rt) {
   }
 
   // The entry keeps its place; `topic` only narrows where to look.
-  function replaceEntry({ scope, topic, match, text, meta, actor, label }) {
+  function replaceEntry({ scope, topic, match, text, meta, actor, label, topicOnly = false }) {
     return queued(async () => {
       await recoverPending()
       writable(scope, actor)
-      const old = findOne(loadScope(scope), topic, match, label)
-      const line = formatEntry(text, meta)
+      const files = loadScope(scope)
+      const old = findOne(files, topic, match, label)
+      if (topicOnly && old.file.topic === undefined) throw Object.assign(new Error('Changing a team entry that every conversation reads requires always: true.'), { code: DENIED })
+      const line = formatEntry(text, { id: entryId(old), ...meta, ...(old.meta.pinned === undefined ? {} : { pinned: old.meta.pinned }) })
       const lines = [...old.file.lines]
       const before = lines[old.line]
       lines[old.line] = line
-      const next = joinLines(lines)
-      checkSize(old.file, next, label)
+      const room = old.file.topic === undefined ? makeRoom(files, scope, lines, line) : { lines, moved: [], steps: [], topics: [] }
       await publish({
         op: 'replace',
         scope: scopeKey(scope),
-        steps: [writeStep(old.file.path, next)],
-        row: { op: 'replace', scope: scopeKey(scope), file: old.file.file, ...actorOf(actor), before, after: line },
+        steps: [writeStep(old.file.path, joinLines(room.lines)), ...room.steps],
+        row: { op: 'replace', scope: scopeKey(scope), file: old.file.file, ...actorOf(actor), before, after: line, ...movedRow(room) },
       })
       noteNews(scope, actor, 'replace', line)
-      return { changed: true, file: old.file, message: `Updated in ${label} (${fileName(old.file)}): "${old.text}" is now "${text}".` }
+      return { changed: true, file: old.file, message: `Updated in ${label} (${fileName(old.file)}): "${old.text}" is now "${text}".${movedNote(room)}` }
     })
   }
 
@@ -449,27 +596,31 @@ export function install(rt) {
       writable(scope, actor)
       const files = loadScope(scope)
       const old = findOne(files, topic, match, label)
-      const before = old.file.lines[old.line]
-      const lines = old.file.lines.filter((_line, index) => index !== old.line)
-      // A topic left with nothing but its title goes, and so does its link.
-      const empty = old.file.topic !== undefined && lines.every(line => line.trim() === '' || HEADING.test(line))
-      const steps = []
-      if (empty) {
-        steps.push(removeStep(old.file.path))
-        const main = files[0]
-        if (main.links.includes(old.file.topic)) steps.push(writeStep(main.path, joinLines(removeLink(main.lines, old.file.topic))))
-      } else {
-        steps.push(writeStep(old.file.path, joinLines(lines)))
-      }
-      await publish({
-        op: 'remove',
-        scope: scopeKey(scope),
-        steps,
-        row: { op: 'remove', scope: scopeKey(scope), file: old.file.file, ...actorOf(actor), before, ...(empty ? { removedTopic: true } : {}) },
-      })
-      noteNews(scope, actor, 'remove', before)
-      return { changed: true, file: old.file, message: `Removed from ${label} (${fileName(old.file)}): "${old.text}", all of it, so save again with remember any part that is still true. The change log keeps a copy.${empty ? ` The topic [[${old.file.topic}]] was empty, so it is gone too.` : ''}` }
+      return removeEntryNow({ scope, files, old, actor, label })
     })
+  }
+
+  async function removeEntryNow({ scope, files, old, actor, label }) {
+    const before = old.file.lines[old.line]
+    const lines = old.file.lines.filter((_line, index) => index !== old.line)
+    // A topic left with nothing but its title goes, and so does its link.
+    const empty = old.file.topic !== undefined && lines.every(line => line.trim() === '' || HEADING.test(line))
+    const steps = []
+    if (empty) {
+      steps.push(removeStep(old.file.path))
+      const main = files[0]
+      if (main.links.includes(old.file.topic)) steps.push(writeStep(main.path, joinLines(removeLink(main.lines, old.file.topic))))
+    } else {
+      steps.push(writeStep(old.file.path, joinLines(lines)))
+    }
+    await publish({
+      op: 'remove',
+      scope: scopeKey(scope),
+      steps,
+      row: { op: 'remove', scope: scopeKey(scope), file: old.file.file, ...actorOf(actor), before, ...(empty ? { removedTopic: true } : {}) },
+    })
+    noteNews(scope, actor, 'remove', before)
+    return { changed: true, file: old.file, message: `Removed from ${label} (${fileName(old.file)}): "${old.text}", all of it, so save again with remember any part that is still true. The change log keeps a copy.${empty ? ` The topic [[${old.file.topic}]] was empty, so it is gone too.` : ''}` }
   }
 
   // A deleted Bot's memory moves to the archive, whole.
@@ -520,13 +671,43 @@ export function install(rt) {
   // ---------------------------------------------------------------------------
   // The prompt section, frozen per Session.
 
-  const shownEntries = (file) => {
-    const lines = file.entries.map(entry => formatEntry(entry.text, entry.meta))
-    return lines.length > 0 ? lines : ['(nothing saved yet)']
+  // What a Bot's model leaves room for, from the last time it was asked.
+  const windows = new Map()
+  const windowAsked = new Map()
+  async function noteWindow(bot) {
+    if (Date.now() - (windowAsked.get(bot.id) ?? 0) < WINDOW_ASK_MS) return
+    windowAsked.set(bot.id, Date.now())
+    const info = await modelFor(bot).then(route => ctx.llm.resolveModelInfo(route.provider, route.model)).catch(() => undefined)
+    const size = info?.context?.contextWindow
+    if (typeof size === 'number' && size > 0) windows.set(bot.id, size - (info.defaultMaxTokens ?? 0))
+  }
+  const windowTokens = (bot) => {
+    const usable = windows.get(bot.id)
+    return usable === undefined ? undefined : Math.floor(usable * WINDOW_SHARE)
+  }
+  function shownEntries(file, topics, budget) {
+    const entries = file.entries.filter(entry => !isExpired(entry, today()))
+    const omitted = count => `(${count} more entries are saved here; recall finds them.)`
+    let { shown, left } = fitWindow(entries, budget, estimateTokens)
+    if (left > 0) ({ shown, left } = fitWindow(entries, budget - estimateTokens(omitted(entries.length)), estimateTokens))
+    const lines = shown.map(promptEntry)
+    if (left > 0) lines.push(omitted(left))
+    if (entries.length === 0) lines.push('(nothing saved yet)')
+    let used = lines.reduce((sum, line) => sum + estimateTokens(line), 0)
+    for (const line of topics) {
+      const cost = estimateTokens(line)
+      if (budget !== undefined && used + cost > budget) break
+      lines.push(line)
+      used += cost
+    }
+    return lines
   }
   const topicLine = (scope) => {
-    const names = topicNames(scope)
-    return names.length > 0 ? [`Topics: ${names.map(name => `[[${name}]]`).join(', ')}`] : []
+    const dir = dirOf(scope)
+    return topicNames(scope).map((name) => {
+      const about = scope.kind === 'team' ? '' : topicAbout(parseMemory(readFileSync(join(dir, `${name}.md`), 'utf8')))
+      return `Topic [[${name}]]${about === '' ? '' : `: ${about}`}`
+    })
   }
   // The prompt section reads on its own: it may not throw, or one unreadable memory
   // would fail the whole turn. The unreadable file shows as a line instead of entries.
@@ -539,7 +720,7 @@ export function install(rt) {
       return { text: '', failed: `(this memory could not be read: ${error?.code ?? error?.name ?? 'error'})` }
     }
   }
-  const sectionEntries = read => (read.failed === undefined ? shownEntries(parseMemory(read.text)) : [read.failed])
+  const sectionEntries = (read, topics, bot) => (read.failed === undefined ? shownEntries(parseMemory(read.text), topics, windowTokens(bot)) : [read.failed])
   const sectionTopics = (scope) => {
     try {
       return { lines: topicLine(scope) }
@@ -559,21 +740,19 @@ export function install(rt) {
       teamRule(rt.isMain(bot.id), writesTeam(bot.id), rt.isPrivate(bot.id)),
       '',
       '## Your memory (MEMORY.md)',
-      ...sectionEntries(main),
-      ...ownTopics.lines,
+      ...sectionEntries(main, ownTopics.lines, bot),
       '',
       '## Team memory, shared by every Bot (team/MEMORY.md)',
-      ...sectionEntries(team),
-      ...teamTopics.lines,
+      ...sectionEntries(team, teamTopics.lines, bot),
     ]
     return { text: lines.join('\n'), failed: main.failed !== undefined || team.failed !== undefined || ownTopics.failed === true || teamTopics.failed === true }
   }
-  function groupSection(roomId) {
+  function groupSection(roomId, bot) {
     const group = groupScope(roomId)
     const groupRead = sectionRead(join(dirOf(group), MAIN))
     const groupTopics = sectionTopics(group)
     return {
-      text: [GROUP_HEADING, groupNote(reviewOn), '', ...sectionEntries(groupRead), ...groupTopics.lines].join('\n'),
+      text: [GROUP_HEADING, groupNote(reviewOn), '', ...sectionEntries(groupRead, groupTopics.lines, bot)].join('\n'),
       failed: groupRead.failed !== undefined || groupTopics.failed === true,
     }
   }
@@ -593,6 +772,30 @@ export function install(rt) {
   /** @type {Map<string, string>} */
   const frozen = new Map()
   const snapshotPath = sessionId => join(root, 'snapshots', `${safeId(sessionId)}.md`)
+  // Where a Session's memory stands: the time of its snapshot, then of the last update.
+  const seenPath = sessionId => join(root, 'snapshots', `${safeId(sessionId)}.seen`)
+  const seenTimes = new Map()
+  const seenOf = (sessionId) => {
+    if (seenTimes.has(sessionId)) return seenTimes.get(sessionId)
+    try {
+      const time = readFileSync(seenPath(sessionId), 'utf8').trim()
+      if (time !== '') seenTimes.set(sessionId, time)
+      return time || undefined
+    } catch {
+      return undefined
+    }
+  }
+  const markSeen = (sessionId, time) => {
+    seenTimes.set(sessionId, time)
+    if (rt.readOnly() !== undefined) return
+    try {
+      mkdirSync(dirname(seenPath(sessionId)), { recursive: true })
+      writeFileSync(seenPath(sessionId), time, 'utf8')
+    } catch (error) {
+      rt.warn('ds-bot: memory place for %s not saved: %s', sessionId, error)
+    }
+  }
+
   function sectionFor(sessionId) {
     if (sessionId === undefined) return ''
     const bot = rt.botOf(rt.selfOf(sessionId))
@@ -629,6 +832,7 @@ export function install(rt) {
           mkdirSync(dirname(path), { recursive: true })
           writeFileSync(`${path}.tmp`, text, 'utf8')
           renameSync(`${path}.tmp`, path)
+          markSeen(sessionId, new Date().toISOString())
         } catch (error) {
           rt.warn('ds-bot: memory snapshot for %s not saved: %s', bot.name, error)
         }
@@ -641,7 +845,9 @@ export function install(rt) {
   function renewMemory(sessionId) {
     if (sessionId === undefined) return
     frozen.delete(sessionId)
+    seenTimes.delete(sessionId)
     try { unlinkSync(snapshotPath(sessionId)) } catch { /* none saved */ }
+    try { unlinkSync(seenPath(sessionId)) } catch { /* none saved */ }
   }
 
   ctx.effect(() => ctx.systemPrompt.section({
@@ -662,19 +868,135 @@ export function install(rt) {
     await rt.load()
     const roomId = roomIdOf(agent.id)
     const bot = rt.botOf(rt.selfOf(agent.id))
-    if (roomId === undefined || bot === undefined || !rt.roomOf(roomId)?.members.includes(bot.id)) return decision
-    if (sectionFor(agent.id).includes(GROUP_HEADING) || decision.messages.some(isGroupMemory)) return decision
+    if (bot === undefined) return decision
+    await noteWindow(bot)
+    const member = roomId !== undefined && rt.roomOf(roomId)?.members.includes(bot.id) === true
+    const front = []
+    const snapshot = member ? groupSnapshot(agent, roomId, bot, decision) : undefined
+    if (snapshot !== undefined) front.push(snapshot)
+    const update = memoryUpdate(agent.id, bot, member ? roomId : undefined)
+    if (update !== undefined) front.push(update)
+    const recalled = autoRecall(agent, bot, member ? roomId : undefined, decision)
+    if (recalled !== undefined) front.push(recalled)
+    return front.length === 0 ? decision : { ...decision, messages: [...front, ...decision.messages] }
+  })
+
+  // Topic entries that share enough with what was just said, once per conversation part.
+  // MEMORY.md is in view already. Off when the user turns it off.
+  const isRecalled = message => message?.source?.kind === MEMORY_RECALL_SOURCE
+  const SAID = new Set(['user', 'schedule', 'bot'])
+  function autoRecall(agent, bot, roomId, decision) {
+    if (state.prefs.memoryAutoRecall === false) return undefined
+    const said = decision.messages.findLast(message => message?.role === 'user' && SAID.has(message.source?.kind))
+    const query = said === undefined ? '' : textOf(said.content).slice(0, AUTO_RECALL_QUERY_MAX)
+    if (query.trim() === '') return undefined
+    let history = []
+    try { history = agent.session?.deriveMessages?.() ?? [] } catch { /* nothing to look in */ }
+    const shown = new Set(history.filter(isRecalled).flatMap(message => message.source.ids ?? []))
+    const own = ownScope(bot.id)
+    const scopes = [own, ...(roomId === undefined ? [] : [groupScope(roomId)]), TEAM]
+    let topicEntries
     try {
-      if (agent.session?.deriveMessages?.().some(isGroupMemory)) return decision
+      topicEntries = scopes.flatMap(scope => allEntries(loadScope(scope).slice(1)).map(entry => ({ ...entry, tag: tagOf(scope, bot.id) })))
+    } catch (error) {
+      rt.warn('ds-bot: memory recall for %s not read: %s', bot.name, error?.message ?? error)
+      return undefined
+    }
+    const open = topicEntries.filter(entry => !isExpired(entry, today()) && !shown.has(entryId(entry)))
+    const picked = []
+    let used = 0
+    for (const { entry } of pickRecalled(rankEntries(open, query), AUTO_RECALL_MAX)) {
+      const line = `- (${entry.tag} · ${entry.file.topic}) ${promptEntry(entry).slice(2)}`
+      if (used + line.length > AUTO_RECALL_TEXT_MAX) break
+      used += line.length
+      picked.push({ line, id: entryId(entry) })
+    }
+    if (picked.length === 0) return undefined
+    const text = [RECALL_HEADING, RECALL_NOTE, '', ...picked.map(item => item.line)].join('\n')
+    return createUserMessage({
+      content: [{ type: 'text', text }],
+      source: { kind: MEMORY_RECALL_SOURCE, form: 'snapshot', ids: picked.map(item => item.id), sections: [{ name: MEMORY_RECALL_SOURCE, text }] },
+    })
+  }
+
+  function groupSnapshot(agent, roomId, bot, decision) {
+    if (sectionFor(agent.id).includes(GROUP_HEADING) || decision.messages.some(isGroupMemory)) return undefined
+    try {
+      if (agent.session?.deriveMessages?.().some(isGroupMemory)) return undefined
     } catch { /* no history to look in: the snapshot goes in */ }
-    const group = groupSection(roomId)
-    if (group.failed) return decision
-    const message = createUserMessage({
+    const group = groupSection(roomId, bot)
+    if (group.failed) return undefined
+    return createUserMessage({
       content: [{ type: 'text', text: group.text }],
       source: { kind: GROUP_MEMORY_SOURCE, form: 'snapshot', sections: [{ name: GROUP_MEMORY_SOURCE, text: group.text }] },
     })
-    return { ...decision, messages: [message, ...decision.messages] }
-  })
+  }
+
+  // What changed in the memory a Session has in view since it last looked, as a message
+  // of its own at the end of the conversation: the prompt above stays byte for byte, so
+  // the provider's prefix cache holds. A Session's own writes are not news to it.
+  function memoryUpdate(sessionId, bot, roomId) {
+    const seen = seenOf(sessionId)
+    const now = new Date().toISOString()
+    if (seen === undefined) {
+      markSeen(sessionId, now)
+      return undefined
+    }
+    const own = ownScope(bot.id)
+    const keys = new Set([scopeKey(own), scopeKey(TEAM), ...(roomId === undefined ? [] : [scopeKey(groupScope(roomId))])])
+    try {
+      for (const path of new Set([journalPath, journalFor(scopeKey(own), 'read').path])) readTail(path)
+    } catch (error) {
+      rt.warn('ds-bot: memory update for %s not read: %s', bot.name, error?.message ?? error)
+      return undefined
+    }
+    const changes = recentRows
+      .filter(row => row.time > seen && keys.has(row.scope) && row.session !== sessionId)
+      .flatMap(updateChanges)
+    if (changes.length === 0) return undefined
+    markSeen(sessionId, changes.at(-1).time)
+    const text = updateText(changes, bot)
+    return createUserMessage({
+      content: [{ type: 'text', text }],
+      source: { kind: MEMORY_UPDATE_SOURCE, form: 'snapshot', sections: [{ name: MEMORY_UPDATE_SOURCE, text }] },
+    })
+  }
+
+  const rowEntry = line => splitMeta(String(line ?? '').replace(/^\s*[-*]\s+/, ''))
+  function updateChanges(row) {
+    // Before mainChanges was recorded, plain add, remove and replace rows had
+    // enough information to report their own change.
+    const changes = row.mainChanges ?? (row.file === MAIN && ['add', 'remove', 'replace'].includes(row.op) ? [row] : [])
+    return changes.flatMap((change) => {
+      const before = rowEntry(change.before)
+      const after = rowEntry(change.after)
+      const day = today()
+      const old = isExpired(before, day) ? '' : before.text
+      const next = isExpired(after, day) ? '' : after.text
+      if (old === next) return []
+      const op = old === '' ? 'add' : next === '' ? 'remove' : 'replace'
+      return [{ ...row, op, before: old, after: next }]
+    })
+  }
+
+  function updateText(rows, bot) {
+    const where = row => (row.scope === 'team' ? 'team memory' : row.scope.startsWith('group:') ? 'group memory' : 'your memory')
+    const who = row => (row.actor === 'user' ? 'the user' : row.actor === bot.id ? (row.auto ? 'the memory review' : 'you, elsewhere') : row.actorName)
+    const lines = rows.map((row) => {
+      if (row.op === 'add') return `- Added to ${where(row)} by ${who(row)}: ${row.after}`
+      if (row.op === 'remove') return `- Removed from ${where(row)} by ${who(row)}: ${row.before}`
+      return `- Changed in ${where(row)} by ${who(row)}: "${row.before}" is now "${row.after}"`
+    })
+    const kept = []
+    let used = 0
+    for (const line of lines.slice(-UPDATE_ROWS_MAX).reverse()) {
+      if (used + line.length > UPDATE_TEXT_MAX) break
+      used += line.length
+      kept.unshift(line)
+    }
+    const left = lines.length - kept.length
+    return [UPDATE_HEADING, UPDATE_NOTE, '', ...(left > 0 ? [`(${left} earlier changes are not listed; recall finds what is saved.)`] : []), ...kept].join('\n')
+  }
 
   // ---------------------------------------------------------------------------
   // Tools.
@@ -689,7 +1011,10 @@ export function install(rt) {
   // which read_own_chat opens, or the group and the time.
   async function sourceOf(sessionId) {
     const owner = rt.groupOwners.get(sessionId)
-    if (owner !== undefined) return `group "${rt.roomOf(owner.roomId)?.name ?? '?'}" ${rt.clock(Date.now())}`
+    if (owner !== undefined) {
+      const room = rt.roomOf(owner.roomId)
+      return room === undefined ? 'group ?' : `group "${room.name}" #${room.seq}`
+    }
     const parts = rt.partsOf(rt.selfOf(sessionId))
     const at = parts.findIndex(part => part.sessionId === sessionId)
     const number = at === -1 ? Math.max(parts.length, 1) : at + 1
@@ -753,6 +1078,9 @@ export function install(rt) {
       text: { type: 'string', required: true, description: `The entry: one line of at most ${MEMORY_LIMITS.entry} characters, in the user's language` },
       replace: { type: 'string', description: 'An entry already saved that this one replaces, because the fact changed: its text, or a part only it contains' },
       topic: { type: 'string', description: 'A topic for details not every conversation needs, such as "travel" or "project-x"; omit for MEMORY.md, which every conversation reads' },
+      until: { type: 'string', description: 'The day this stops holding, YYYY-MM-DD, for a temporary arrangement or a plan with an end. After it the entry no longer shows' },
+      pin: { type: 'boolean', description: 'True only when the user says to always keep this. A pinned entry is never moved or changed automatically' },
+      always: { type: 'boolean', description: 'With scope "team": true only when the user says every Bot must always know this, so it goes in what every Bot reads in every conversation. Also required when replacing a team entry that every conversation reads. Other new entries wait where any Bot can find them with recall' },
       scope: SCOPE_WRITE,
     },
     output,
@@ -768,11 +1096,13 @@ export function install(rt) {
       if (error) throw refused(error)
       const replace = String(args.replace ?? '').trim()
       try {
-        const meta = await metaFor(context.caller, context.scope)
+        const until = cleanDay(args.until)
+        const meta = { ...await metaFor(context.caller, context.scope), ...(until === undefined ? {} : { until }), ...(args.pin === true ? { pinned: 'user' } : {}) }
+        const shared = context.scope.kind === 'team' && args.always !== true && topic === undefined ? TEAM_SHARED : args.always === true && context.scope.kind === 'team' ? undefined : topic
         const result = replace === ''
-          ? await addEntry({ ...context, topic, text, meta })
-          : await replaceEntry({ ...context, topic, match: replace, text, meta })
-        const shows = context.scope.kind === 'group' ? 'Every member sees it in its next conversation in this group' : 'It shows in your memory from your next conversation'
+          ? await addEntry({ ...context, topic: shared, text, meta })
+          : await replaceEntry({ ...context, topic, match: replace, text, meta, topicOnly: context.scope.kind === 'team' && args.always !== true })
+        const shows = context.scope.kind === 'group' ? 'The other members see it at their next step in this group' : 'Your other conversations see it at their next step'
         return result.changed ? `${result.message} ${shows}; recall finds it now.` : result.message
       } catch (failure) {
         throw writeFailure(failure)
@@ -811,8 +1141,7 @@ export function install(rt) {
     if (error) return { error }
     if (scope === undefined) return { scopes: roomId === undefined ? [ownScope(botId), TEAM] : [ownScope(botId), groupScope(roomId), TEAM] }
     if (scope.kind === 'bot' && scope.botId !== botId) {
-      const allowed = rt.isMain(botId) || (rt.isPrivate(botId) && rt.botOf(scope.botId)?.private !== true)
-      if (!allowed) return { error: 'Only a Main Bot can read another Bot\'s memory. Ask that Bot with message_bot instead.' }
+      if (rt.isPrivate(scope.botId)) return { error: 'That Bot is private. Ask the user to share what you need.' }
     }
     return { scopes: [scope] }
   }
@@ -824,7 +1153,7 @@ export function install(rt) {
     parameters: {
       query: { type: 'string', description: 'Words to look for, separated by spaces. An entry must have all of them; when none has, those with the most are shown' },
       topic: { type: 'string', description: 'A topic to read whole, as listed with [[topic]]' },
-      scope: { type: 'string', description: 'Omit for yours, the team\'s, and in a group chat the group\'s; "own", "group", "team", or a Bot\'s name (Main Bots; private Bots may read public Bots)' },
+      scope: { type: 'string', description: 'Omit for yours, the team\'s, and in a group chat the group\'s; "own", "group", "team", or a Bot\'s name to read that Bot\'s memory, unless it is private' },
     },
     output,
     async execute(args, exec) {
@@ -842,9 +1171,9 @@ export function install(rt) {
       }
       if (args.topic !== undefined && String(args.topic).trim() !== '') {
         const topic = cleanTopic(args.topic)
-        for (const { label, files } of loaded) {
+        for (const { scope, label, files } of loaded) {
           const file = files.find(item => item.topic === topic)
-          if (file !== undefined) return `Topic [[${topic}]] in ${label} (${sizeNote(file, file.content.length)}):\n${file.content.trim() || '(empty)'}`
+          if (file !== undefined) return `Topic [[${topic}]] in ${label} (${sizeNote(file, scope)}):\n${file.content.trim() || '(empty)'}`
         }
         const known = loaded.flatMap(({ tag, files }) => files.filter(file => file.topic).map(file => `[[${file.topic}]] (${tag})`))
         return `No topic [[${String(args.topic).slice(0, 60)}]] there. Topics: ${known.join(', ') || 'none yet'}.`
@@ -852,10 +1181,10 @@ export function install(rt) {
       const where = (tag, file) => `${tag} · ${file.topic === undefined ? MAIN : `[[${file.topic}]]`}`
       const query = String(args.query ?? '').trim().slice(0, 120)
       if (query === '') {
-        return loaded.map(({ tag, label, files }) => {
+        return loaded.map(({ scope, tag, label, files }) => {
           const [main, ...topics] = files
           return [
-            `${capital(label)}: ${MAIN} has ${main.entries.length} entries (${sizeNote(main, main.content.length)})${topics.length > 0 ? `; topics ${topics.map(file => `[[${file.topic}]] (${file.entries.length})`).join(', ')}` : '; no topics'}.`,
+            `${capital(label)}: ${MAIN} has ${main.entries.length} entries (${sizeNote(main, scope)})${topics.length > 0 ? `; topics ${topics.map(file => `[[${file.topic}]] (${file.entries.length})`).join(', ')}` : '; no topics'}.`,
             ...main.entries.map(entry => `[${where(tag, main)}] ${formatEntry(entry.text, entry.meta).slice(2)}`),
           ].join('\n')
         }).join('\n\n')
@@ -878,7 +1207,8 @@ export function install(rt) {
         return { entry, tag, count: terms.filter(term => hay.includes(term)).length }
       })).filter(hit => hit.count > 0)
       const every = scored.filter(hit => hit.count === terms.length)
-      const hits = (every.length > 0 ? every : scored.sort((a, b) => b.count - a.count)).slice(0, RECALL_MAX)
+      const scores = new Map(rankEntries(scored.map(hit => hit.entry), query).map(hit => [hit.entry, hit.score]))
+      const hits = (every.length > 0 ? every : scored).sort((a, b) => b.count - a.count || (scores.get(b.entry) ?? 0) - (scores.get(a.entry) ?? 0)).slice(0, RECALL_MAX)
       const names = loaded.map(item => item.label)
       const labels = names.length > 2 ? `${names.slice(0, -1).join(', ')}, and ${names.at(-1)}` : names.join(' and ')
       if (hits.length === 0) return `Nothing in ${labels} mentions "${query}". read_own_chat searches what was said.`
@@ -897,8 +1227,9 @@ export function install(rt) {
   const USER = { id: 'user', name: 'user' }
   const languageNow = () => rt.uiLanguage?.() ?? 'the language most entries are written in'
   const panelEntries = (files, scope) => allEntries(files).map(entry => ({
-    scope, topic: entry.file.topic ?? null, text: entry.text,
+    scope, topic: entry.file.topic ?? null, text: entry.text, id: entryId(entry),
     added: entry.meta.added ?? null, by: entry.meta.by ?? null, source: entry.meta.source ?? null,
+    until: entry.meta.until ?? null, pinned: isPinned(entry), expired: isExpired(entry, today()),
   }))
 
   async function modelFor(bot) {
@@ -919,11 +1250,17 @@ export function install(rt) {
     // Thinking counts against the same output budget as the answer, so ask for
     // the least the model offers: 'off' when it has one, else its lowest level.
     const effort = efforts.some(entry => entry.id === 'off') ? 'off' : efforts.at(0)?.id
+    // The adapter's default guides the first request. An explicit retry budget
+    // can exceed that default when a thinking model ran out of room.
+    const first = Math.min(info?.defaultMaxTokens ?? SUMMARY_MAX_TOKENS, SUMMARY_MAX_TOKENS)
+    const retry = first < SUMMARY_MAX_TOKENS ? SUMMARY_MAX_TOKENS : SUMMARY_RETRY_MAX_TOKENS
+    const budgets = [first, retry]
     const messages = [{ role: 'user', content: [{ type: 'text', text }] }]
     if (tag !== undefined) rt.tagUsage?.(messages, tag)
-    for (const maxTokens of [SUMMARY_MAX_TOKENS, SUMMARY_RETRY_MAX_TOKENS]) {
-      const assembler = new BlockAssembler()
-      for await (const chunk of ctx.llm.stream({
+    let lastKind = 'stop'
+    for (let attempt = 0; attempt < budgets.length; attempt += 1) {
+      const maxTokens = budgets[attempt]
+      const callOptions = {
         provider: route.provider,
         model: route.model,
         ...(tag?.sessionId === undefined ? {} : { sessionId: tag.sessionId }),
@@ -932,16 +1269,29 @@ export function install(rt) {
         messages,
         maxTokens,
         signal: AbortSignal.timeout(MODEL_TIMEOUT_MS),
-      })) assembler.push(chunk)
+      }
+      const assembler = await (rt.assembleLlm ? rt.assembleLlm(callOptions) : assembleLlmStream(ctx, callOptions, { backoff: rt.config?.llmRetryBackoff }))
       const finish = assembler.finish
-      if (finish.kind === 'error' || finish.kind === 'aborted') throw new Error(finish.failure?.message ?? finish.kind)
+      // A cancelled call is the caller's decision, not a route that may answer again.
+      if (finish.kind === 'aborted') throw new Error(finish.failure?.message ?? 'aborted')
+      if (finish.kind === 'error') {
+        const failure = finish.failure
+        // A gateway can report empty output as 502. The pi-ai adapter
+        // classifies 5xx as SERVER without preserving the HTTP status.
+        const mayBeEmpty = failure?.code === 'EMPTY_RESPONSE' || failure?.status === 502
+          || (failure?.code === 'SERVER' && failure.status === undefined)
+        if (attempt !== 0 || !mayBeEmpty) throw providerFailure(failure)
+        continue
+      }
       const reply = assembler.blocks().filter(block => block.type === 'text').map(block => block.text).join('\n').trim()
       if (finish.kind !== 'max-tokens' && reply !== '') return reply
-      // A reply cut off at the limit — all of it thinking, or a half-written
-      // answer — is dropped, never used; the retry gives it room once.
-      if (finish.kind !== 'max-tokens' && maxTokens === SUMMARY_MAX_TOKENS) throw new Error('The model wrote nothing')
+      // Drop the incomplete reply and try once with more output room.
+      lastKind = finish.kind
     }
-    throw new Error(`The model's reasoning used up the output budget (${SUMMARY_MAX_TOKENS} and ${SUMMARY_RETRY_MAX_TOKENS} tokens); no complete answer was written`)
+    const where = `${budgets.join(' and ')} output tokens`
+    throw new Error(lastKind === 'max-tokens'
+      ? `The model's answer was cut off at ${where}; no complete answer was written`
+      : `The model wrote nothing within ${where}; no complete answer was written`)
   }
 
   // A served model can still refuse the call (a key without access, say), and
@@ -1033,11 +1383,17 @@ export function install(rt) {
     return {
       ...panelBody(panel),
       entries,
-      sizes: Object.fromEntries(Object.entries(loaded).map(([tag, files]) => [tag, files[0].content.length])),
-      limits: MEMORY_LIMITS,
+      sizes: Object.fromEntries(Object.entries(loaded).map(([tag, files]) => [tag, bodySize(files[0])])),
+      limits: { ...MEMORY_LIMITS, ...Object.fromEntries(Object.entries(panel.scopes).map(([tag, scope]) => [tag, mainLimit(scope)])) },
       summary: entries.length > 0 && saved !== undefined ? { text: saved.text, at: saved.at } : null,
       fresh: entries.length === 0 || saved?.hash === hash,
       summarizing: summarizing.has(panel.id),
+      tidy: tidyView(panel.scopes),
+      keys: Object.fromEntries(Object.entries(panel.scopes).map(([tag, scope]) => [tag, scopeKey(scope)])),
+      places: [
+        ...Object.values(state.bots).map(bot => ({ key: scopeKey(ownScope(bot.id)), kind: 'bot', name: bot.name })),
+        ...Object.values(state.rooms).map(room => ({ key: scopeKey(groupScope(room.id)), kind: 'group', name: room.name })),
+      ],
       error: failed !== undefined && !summarizing.has(panel.id) ? failed.message : null,
     }
   }
@@ -1083,6 +1439,116 @@ export function install(rt) {
     const scope = panel.scopes[body.scope] ?? panel.scopes[panel.group ? 'group' : 'own']
     const topic = body.topic === null || body.topic === undefined ? undefined : cleanTopic(body.topic)
     await removeEntry({ scope, topic, match: String(body.text ?? ''), actor: USER, label: panelLabel(panel, scope) })
+    return await memoryView(panelBody(panel))
+  }
+
+  // The user's own words for one entry, from a window that edits the list in place
+  // (the mobile API): no model call, the same checks as the tools.
+  const userEntry = (raw) => {
+    const text = cleanEntry(raw)
+    const problem = entryProblem(text)
+    if (problem) throw Object.assign(new Error(problem), { code: 'bot/invalid' })
+    return text
+  }
+  const userTopic = raw => (raw === null || raw === undefined || raw === '' ? undefined : cleanTopic(raw))
+  async function memoryEdit(body) {
+    const panel = panelOf(body)
+    const scope = panel.scopes[body.scope] ?? panel.scopes[panel.group ? 'group' : 'own']
+    const text = userEntry(body.next)
+    const meta = { source: 'memory panel', by: 'user', added: today() }
+    await replaceEntry({ scope, topic: userTopic(body.topic), match: String(body.text ?? ''), text, meta, actor: USER, label: panelLabel(panel, scope) })
+    return memoryView(panelBody(panel))
+  }
+  async function memoryAdd(body) {
+    const panel = panelOf(body)
+    const scope = panel.scopes[body.scope] ?? panel.scopes[panel.group ? 'group' : 'own']
+    const text = userEntry(body.text)
+    const meta = { source: 'memory panel', by: 'user', added: today() }
+    await addEntry({ scope, topic: userTopic(body.topic), text, meta, actor: USER, label: panelLabel(panel, scope) })
+    return memoryView(panelBody(panel))
+  }
+
+  // One team entry the user brings in front of every Bot, or sends back to wait in a topic.
+  async function memoryLayer(body) {
+    const panel = panelOf(body)
+    const scope = panel.scopes.team
+    if (scope === undefined) throw new Error('Only team entries have a place to move to')
+    const topic = body.topic === null || body.topic === undefined ? undefined : cleanTopic(body.topic)
+    const label = panelLabel(panel, scope)
+    await queued(async () => {
+      await recoverPending()
+      writable(scope, USER)
+      const files = loadScope(scope)
+      const old = findOne(files, topic, String(body.text ?? ''), label)
+      const always = body.always === true
+      if (always === (old.file.topic === undefined)) return
+      const line = old.file.lines[old.line]
+      const remaining = old.file.lines.filter((_line, at) => at !== old.line)
+      const main = files[0]
+      const steps = []
+      let to = MAIN
+      if (always) {
+        const emptied = remaining.every(item => item.trim() === '' || HEADING.test(item))
+        const mainBase = main.lines.length > 0 ? main.lines : parseMemory(EMPTY_MAIN).lines
+        const put = insertEntry(emptied ? removeLink(mainBase, old.file.topic) : mainBase, line)
+        const seen = files.map(file => (file === old.file ? { ...file, ...parseMemory(joinLines(remaining)), content: joinLines(remaining) } : file))
+        const room = makeRoom(seen, scope, put, line)
+        steps.push(emptied ? removeStep(old.file.path) : writeStep(old.file.path, joinLines(remaining)), writeStep(main.path, joinLines(room.lines)), ...room.steps)
+      } else {
+        const shared = roomInTopic(files, scope, TEAM_SHARED, line.length)
+        to = `${shared}.md`
+        const target = files.find(file => file.topic === shared)
+        const base = target?.lines.length > 0 ? target.lines : parseMemory(`# ${shared}\n`).lines
+        const left = main.links.includes(shared) ? remaining : addLink(remaining, shared)
+        steps.push(writeStep(join(dirOf(scope), to), joinLines(insertEntry(base, line))), writeStep(main.path, joinLines(left)))
+      }
+      await publish({ op: 'move', scope: scopeKey(scope), steps, row: { op: 'move', scope: scopeKey(scope), file: old.file.file, to, ...actorOf(USER), after: line } })
+    })
+    return await memoryView(panelBody(panel))
+  }
+
+  // One entry the user moves to another memory. It goes as it is, with its id, end
+  // date and pin. The new place is written first, so an interruption can leave it in
+  // both places but never in neither. In the team's it waits in a topic, as one from a
+  // review does: what every Bot always reads is a choice of its own.
+  async function memoryMove(body) {
+    const panel = panelOf(body)
+    const from = panel.scopes[body.scope] ?? panel.scopes[panel.group ? 'group' : 'own']
+    const to = journalScope(body.to)
+    if (to === undefined) throw new Error('Choose where to move the entry')
+    if (scopeKey(to) !== scopeKey(from)) {
+      await queued(async () => {
+        await recoverPending()
+        writable(from, USER)
+        const files = loadScope(from)
+        const file = files.find(item => item.topic === (body.topic ?? undefined))
+        const entry = file?.entries.find(item => item.text === body.text)
+        if (entry === undefined) throw noMatch('This entry changed or moved. Reload the memory and try again.')
+        const old = { ...entry, file }
+        await addEntryNow({ scope: to, topic: to.kind === 'team' ? TEAM_SHARED : undefined, text: old.text, meta: { ...old.meta, id: entryId(old) }, actor: USER, label: labelOf(to), moving: true })
+        await removeEntryNow({ scope: from, files, old, actor: USER, label: panelLabel(panel, from) })
+      })
+    }
+    return await memoryView(panelBody(panel))
+  }
+
+  // One entry the user pins, or lets go of. Its text and the rest stay as they are.
+  async function memoryPin(body) {
+    const panel = panelOf(body)
+    const scope = panel.scopes[body.scope] ?? panel.scopes[panel.group ? 'group' : 'own']
+    const topic = body.topic === null || body.topic === undefined ? undefined : cleanTopic(body.topic)
+    const label = panelLabel(panel, scope)
+    await queued(async () => {
+      await recoverPending()
+      writable(scope, USER)
+      const old = findOne(loadScope(scope), topic, String(body.text ?? ''), label)
+      const { pinned: _pinned, ...meta } = old.meta
+      const line = formatEntry(old.text, { ...meta, id: entryId(old), ...(body.pin === true ? { pinned: 'user' } : {}) })
+      const lines = [...old.file.lines]
+      const before = lines[old.line]
+      lines[old.line] = line
+      await publish({ op: 'replace', scope: scopeKey(scope), steps: [writeStep(old.file.path, joinLines(lines))], row: { op: 'replace', scope: scopeKey(scope), file: old.file.file, ...actorOf(USER), before, after: line } })
+    })
     return await memoryView(panelBody(panel))
   }
 
@@ -1254,21 +1720,17 @@ export function install(rt) {
             // The rebuilt topic carries its name into a heading and the Index link:
             // a name that is a saved secret now must not come back either.
             if (secretEntry(topic)) throw new Error(`The topic the change removed cannot be put back: its name looks like a key, token, password, or ID number, which memory never keeps.`)
-            if (files.length - 1 >= MEMORY_LIMITS.topics) throw Object.assign(new Error(`${capital(label)} already has ${MEMORY_LIMITS.topics} topics, the most it holds. Add to one of them (recall lists them), or forget one.`), { code: FULL })
             file = { topic, file: row.file, path: join(dirOf(scope), row.file), content: '', ...parseMemory(`# ${topic}\n`) }
           }
         }
         const lines = file.lines.length > 0 ? file.lines : parseMemory(`# ${file.topic}\n`).lines
-        const next = joinLines(insertEntry(lines, row.before))
-        checkSize(file, next, label)
-        steps.push(writeStep(file.path, next))
+        const put = insertEntry(lines, row.before)
         const main = files[0]
-        if (file.topic !== undefined && !main.links.includes(file.topic)) {
-          const index = joinLines(addLink(main.lines, file.topic))
-          checkSize(main, index, label)
-          steps.push(writeStep(main.path, index))
-        }
-        await publish({ op: 'add', scope: scopeKey(scope), steps, row: { op: 'add', ...base, file: file.file, after: row.before } })
+        const room = makeRoom(files, scope, file === main ? put : file.topic !== undefined && !main.links.includes(file.topic) ? addLink(main.lines, file.topic) : main.lines, file === main ? row.before : undefined)
+        if (file !== main) steps.push(writeStep(file.path, joinLines(put)))
+        if (file === main || room.lines !== main.lines) steps.push(writeStep(main.path, joinLines(room.lines)))
+        steps.push(...room.steps)
+        await publish({ op: 'add', scope: scopeKey(scope), steps, row: { op: 'add', ...base, file: file.file, after: row.before, ...movedRow(room) } })
         return
       }
 
@@ -1297,26 +1759,39 @@ export function install(rt) {
       if (secretEntry(row.after)) throw new Error(`The entry the change wrote cannot be taken out: it looks like a key, token, password, or ID number, which memory never keeps.`)
       const lines = [...target.lines]
       lines[found[0].line] = row.before
-      const next = joinLines(lines)
-      checkSize(target, next, label)
-      await publish({ op: 'replace', scope: scopeKey(scope), steps: [writeStep(target.path, next)], row: { op: 'replace', ...base, before: row.after, after: row.before } })
+      const room = target.topic === undefined ? makeRoom(files, scope, lines, row.before) : { lines, moved: [], steps: [], topics: [] }
+      await publish({ op: 'replace', scope: scopeKey(scope), steps: [writeStep(target.path, joinLines(room.lines)), ...room.steps], row: { op: 'replace', ...base, before: row.after, after: row.before, ...movedRow(room) } })
     })
     return await memoryView(panelBody(panel))
   }
 
-  const { memoryReviews } = installReview(rt, { root, reviewOn, TEAM, ownScope, groupScope, keeperOf, writesTeam, labelOf, fileName, today, writeText, settled, loadScope, addEntry, replaceEntry, removeEntry, entryProblem, secretEntry, botShot, languageNow })
+  const { memoryReviews } = installReview(rt, { root, reviewOn, mainLimit, TEAM, ownScope, groupScope, keeperOf, writesTeam, labelOf, fileName, today, writeText, settled, loadScope, addEntry, replaceEntry, removeEntry, entryProblem, secretEntry, botShot, languageNow })
+
+  const { tidyView, undoTidy, tidyNow } = installTidy(rt, { TEAM, ownScope, groupScope, keeperOf, scopeKey, dirOf, today, queued, recoverPending, writable, settled, loadScope, publish, writeStep, removeStep, writeText, botShot, languageNow, allEntries, entryProblem, USER, changedSince })
+
+  async function memoryTidyUndo(body) {
+    const panel = panelOf(body)
+    const scope = panel.scopes[body.scope]
+    if (scope === undefined) throw new Error('Unknown memory')
+    await undoTidy(scope, String(body.batch ?? ''))
+    return await memoryView(panelBody(panel))
+  }
 
   async function memoryEndpoint(endpoint, body) {
     if (endpoint === 'memory-view') return memoryView(body)
     if (endpoint === 'memory-ask') return memoryAsk(body)
     if (endpoint === 'memory-forget') return memoryForget(body)
+    if (endpoint === 'memory-pin') return memoryPin(body)
+    if (endpoint === 'memory-tidy-undo') return memoryTidyUndo(body)
+    if (endpoint === 'memory-layer') return memoryLayer(body)
+    if (endpoint === 'memory-move') return memoryMove(body)
     if (endpoint === 'memory-history') return memoryHistory(body)
     if (endpoint === 'memory-restore') return memoryRestore(body)
     throw new Error(`Unknown endpoint ${endpoint}`)
   }
 
   Object.assign(rt, {
-    memoryEnabled: true, renewMemory, archiveBotMemory, archiveGroupMemory, memoryEndpoint, memoryReviews,
-    memoryNews: () => Object.fromEntries(news), botShot,
+    memoryEnabled: true, renewMemory, archiveBotMemory, archiveGroupMemory, memoryEndpoint, memoryEdit, memoryAdd, memoryReviews,
+    memoryNews: () => Object.fromEntries(news), botShot, tidyMemoryNow: tidyNow,
   })
 }

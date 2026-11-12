@@ -499,5 +499,7 @@ test('a group conversation cut off with nothing written moves on too', async (t)
   }
   await until(() => host.state().rooms.r1.sessions.b === 's1')
   assert.equal(host.state().rooms.r1.segments.b[0].fallback, 'cutoff')
+  // The old part is archived just after the switch is saved.
+  await until(() => host.archived.length > 0)
   assert.deepEqual(host.archived, [['gb', { stopActivity: true }]])
 })

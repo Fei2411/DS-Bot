@@ -15,6 +15,14 @@ const minutes = since => {
   const count = Math.floor((Date.now() - since) / 60_000)
   return count < 1 ? 'for less than a minute' : `for ${count} min`
 }
+// A card can wait for days.
+const forHowLong = since => {
+  const hours = Math.floor((Date.now() - since) / 3_600_000)
+  if (hours < 1) return minutes(since)
+  if (hours < 24) return `for ${hours} hour${hours === 1 ? '' : 's'}`
+  const days = Math.floor(hours / 24)
+  return `for ${days} day${days === 1 ? '' : 's'}`
+}
 
 export function install(rt) {
   const { ctx, state } = rt
@@ -421,8 +429,9 @@ export function install(rt) {
       lines.push(on.length > 0 ? `waiting for ${on.join(' and ')} to hand back work${forName}` : `about to go on with work${forName}, whose results came back`)
     }
     if (lines.length === 0) lines.push('idle')
-    if (state.questions?.[chat] !== undefined) lines.push('a question card in its own chat waits for the user\'s answer')
-    if (state.views?.[chat] !== undefined) lines.push('a view card in its own chat waits for the user\'s answer')
+    for (const [kind, card] of [['question', state.questions?.[chat]], ['view', state.views?.[chat]]]) {
+      if (card !== undefined) lines.push(`a ${kind} card in its own chat has waited for the user's answer ${forHowLong(card.askedAt)}`)
+    }
     const unread = new Map()
     for (const args of rt.unreadOf?.(chat) ?? []) {
       const name = nameOf(args.fromId)

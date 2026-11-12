@@ -9,6 +9,7 @@ import { dshVersion } from '../diagnostics.js'
 import { LEGACY_EXECUTABLES, LEGACY_NAME } from '../legacy.mjs'
 import { classify, isComputerTool, levelAllows, LEVELS, DRIVER_GLOBAL, DRIVER_REFUSED } from './catalog.js'
 import { createLeases } from './leases.js'
+import { prepareComputerHelper } from './mac-helper.js'
 import { REPLY_KIND } from '../constants.js'
 import { output } from '../tools.js'
 
@@ -34,9 +35,9 @@ const ALLOW_FOREGROUND_MS = 60_000
 const STEPS_KEPT = 50
 // What the Cua Driver reports as done on Windows is not always what the app received.
 const WINDOWS_INPUT_NOTES = [
-  '- On Windows, type_text can lose characters in WinUI and UWP apps such as the current Notepad, even when it reports success. For text fields use set_value, then read the text back.',
+  '- On Windows, type_text can lose characters in WinUI and UWP apps such as the current Notepad, even when it reports success. If the text field supports set_value, use it and read the text back.',
   '- On Windows, key combinations can be refused in older Win32 apps. Use the element action or invoke_menu instead of a shortcut.',
-  '- Element calls need pid and window_id together with element_token.',
+  '- When clicking by element_token, also pass pid and window_id from the same window.',
 ]
 const LEVEL_LABEL = { view: 'view only', background: 'background control', foreground: 'foreground control' }
 
@@ -46,12 +47,13 @@ const LEVEL_LABEL = { view: 'view only', background: 'background control', foreg
 const PROTECTED_IDS = new Set([
   'io.github.fei2411.dsbot',
   'com.deepseek.harness.computer-use',
+  'com.deepseek.harness.computer-use.dev',
   'com.apple.systempreferences',
   'com.apple.settings',
   'com.apple.keychainaccess',
   'com.apple.passwords',
 ])
-const PROTECTED_NAMES = new Set(['ds bot', 'deepseek harness', 'dsh', 'dsh desktop', 'dsh computer use', 'system settings', 'settings', 'keychain access', 'passwords', 'credential manager', 'control panel', LEGACY_NAME])
+const PROTECTED_NAMES = new Set(['ds bot', 'deepseek harness', 'dsh', 'dsh desktop', 'dsh computer use', 'dsh computer use dev', 'system settings', 'settings', 'keychain access', 'passwords', 'credential manager', 'control panel', LEGACY_NAME])
 const PROTECTED_EXES = new Set(['dsbot', 'dsh', 'dsh-desktop', 'dsh-cua-native', 'dsh computer use', 'systemsettings', 'keychain access', 'passwords', 'credentialmanager', 'credwiz', 'control', ...LEGACY_EXECUTABLES])
 
 export function isProtectedApp(app) {
@@ -176,8 +178,16 @@ export function install(rt) {
           return
         }
         const provider = await importPackage(name).catch(error => { throw missing(error, [name]) })
-        if (stopped || !enabled()) return
         const config = process.platform === 'darwin' ? { agentPreset: false } : {}
+        const { DS_BOT_RUNTIME_DIR: runtimeDir, DS_BOT_COMPUTER_HELPER_HOME: home } = process.env
+        if (process.platform === 'darwin' && runtimeDir && home) {
+          try {
+            config.helperPath = await prepareComputerHelper({ runtimeDir, home })
+          } catch (error) {
+            throw new Error(`Could not prepare the macOS computer-use helper: ${String(error?.message ?? error)}`, { cause: error })
+          }
+        }
+        if (stopped || !enabled()) return
         providerFiber = ctx.plugin(provider, config)
         await providerFiber.await?.()
         if (stopped || !enabled()) return
@@ -492,7 +502,7 @@ export function install(rt) {
     for (const waiter of [...cursorWaiters]) waiter.wake()
   }
   // Click-type calls ripple; index and keyboard calls only name their window.
-  const RIPPLE_METHODS = new Set(['click', 'double_click', 'performSecondaryAction', 'drag'])
+  const RIPPLE_METHODS = new Set(['click', 'double_click', 'invoke', 'performAction', 'performSecondaryAction', 'drag'])
   const recordGeo = (sessionId, result) => {
     if (sessionId === undefined || result === null || typeof result !== 'object') return
     if (typeof result.appHandle === 'string') {
@@ -654,18 +664,26 @@ export function install(rt) {
     entry.resolve(['always', 'once', 'deny'].includes(answer) ? answer : 'deny')
     return true
   }
-  // macOS: the provider's own getApp consent reaches us as a user-questions request.
-  // For Bot Sessions DS Bot answers it itself, by the card's rules; anything else
-  // passes to the next answerer. Prepend like approvals.js: DSH's own answerer is
-  // registered first and would hold the request on a card DS Bot never draws.
+  // macOS: the provider's own getApp and system-pointer consent questions reach us as
+  // user-questions requests. For Bot Sessions DS Bot answers them itself, by the Bot's
+  // level and card rules; anything else passes to the next answerer. Prepend like
+  // approvals.js: DSH's own answerer is registered first and would hold the request on
+  // a card DS Bot never draws.
   ctx.on('user-questions/request', async function computerConsent(request, next) {
-    const question = request?.questions?.find(item => item?.id === 'cua-app-access')
+    const pointerQuestion = request?.questions?.find(item => item?.id === 'cua-mouse-control')
+    const question = pointerQuestion ?? request?.questions?.find(item => item?.id === 'cua-app-access')
     const agent = request?.agent
     if (question === undefined || agent === undefined) return next()
     const sessionId = agent.session?.id ?? agent.id
     await rt.load()
     const bot = rt.botOf(rt.selfOf(sessionId))
-    if (bot === undefined || !rt.isBotSession(sessionId) || !enabled()) return next()
+    if (bot === undefined || !rt.isBotSession(sessionId)) return next()
+    if (pointerQuestion !== undefined) {
+      const allowed = enabled() && levelAllows(levelOf(bot), 'foreground')
+      const choice = allowed ? (pointerQuestion.intent?.approve ?? ALLOW_LABEL) : (pointerQuestion.intent?.reject ?? DENY_LABEL)
+      return { answers: [{ id: 'cua-mouse-control', selected: [choice] }] }
+    }
+    if (!enabled()) return next()
     const app = { name: String(question.intent?.subject?.name ?? ''), icon: question.intent?.subject?.icon }
     app.key = appKeyOf(app)
     const deny = () => ({ answers: [{ id: 'cua-app-access', selected: [DENY_LABEL] }] })

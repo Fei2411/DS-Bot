@@ -20,7 +20,8 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
   // `id` opens one Bot (page 'bots') or one group chat (page 'groups').
   const openSettings = (page = 'general', id = null) => { ui.set(state => ({ ...state, settings: { page, id }, menu: null, palette: null, newChat: null })) }
   return {
-    openNewChat: (mode, sectionId = null) => { ui.set(state => ({ ...state, newChat: mode, newChatSection: sectionId ?? null, menu: null, palette: null })) },
+    // The pane starts at the rail's edge, so a floating drawer would stick out from under it.
+    openNewChat: (mode, sectionId = null) => { ui.set(state => ({ ...state, newChat: mode, newChatSection: sectionId ?? null, menu: null, palette: null, leftDrawer: false })) },
     openPalette: (query = '') => { ui.set(state => ({ ...state, palette: { query, token: Date.now() }, newChat: null, menu: null })) },
     // The token keeps a late exit timer from closing a palette opened again since.
     closePalette: (token) => { ui.set(state => (state.palette && (token === undefined || state.palette.token === token) ? { ...state, palette: null } : state)) },
@@ -178,6 +179,10 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     mailRuleSet: payload => after(call('mail-rule-set', payload)),
     mailSendAnswer: (requestId, choice, extra = {}) => after(call('mail-send-answer', { requestId, choice, ...extra })),
     mailSignInCode: payload => after(call('mail-sign-in-code', payload)),
+    phoneSet: settings => after(call('phone-set', settings)),
+    phonePair: () => after(call('phone-pair')),
+    phonePairCancel: () => after(call('phone-pair-cancel')),
+    phoneRemove: id => after(call('phone-remove', { id })),
     imAdd: payload => after(call('im-add', payload)),
     imUpdate: (id, patch) => after(call('im-update', { id, ...patch })),
     imRemove: id => after(call('im-remove', { id })),
@@ -195,15 +200,20 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     scheduleCreate: task => call('schedule-create', task),
     scheduleDelete: (sessionId, id) => call('schedule-delete', { sessionId, id }),
     exchange: (a, b) => call('exchange', { a, b }).catch(() => []),
-    exchangeText: id => call('exchange-text', { id }).catch(() => undefined),
+    exchangeText: (id, a, b) => call('exchange-text', { id, ...(a !== undefined && b !== undefined ? { a, b } : {}) }).catch(() => undefined),
     fileText: file => call('file-text', { file }).catch(() => undefined),
     roomProgress: roomId => call('room-progress', { roomId }).catch(() => []),
+    groupRows: (roomId, from, to, anchor) => call('group-rows', { roomId, from, ...(to === undefined ? {} : { to }), ...(anchor === undefined ? {} : { anchor }) }).catch(() => null),
     earlier: (sessionId, cursor) => call('earlier', { sessionId, cursor: cursor ?? null }),
     // Hours come back in this browser's time zone, so days start at local midnight.
     usage: () => call('usage', { timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }),
     // `summarize` starts a summary when the entries changed; `regenerate` always does.
     memoryView: (id, flags = {}) => call('memory-view', { ...memoryOf(id), ...flags }),
     memoryAsk: (id, text) => call('memory-ask', { ...memoryOf(id), text }),
+    memoryLayer: (id, entry, always) => call('memory-layer', { ...memoryOf(id), topic: entry.topic, text: entry.text, always }),
+    memoryMove: (id, entry, to) => call('memory-move', { ...memoryOf(id), scope: entry.scope, topic: entry.topic, text: entry.text, to }),
+    memoryTidyUndo: (id, scope, batch) => call('memory-tidy-undo', { ...memoryOf(id), scope, batch }),
+    memoryPin: (id, entry, pin) => call('memory-pin', { ...memoryOf(id), scope: entry.scope, topic: entry.topic, text: entry.text, pin }),
     memoryForget: (id, entry) => call('memory-forget', { ...memoryOf(id), scope: entry.scope, topic: entry.topic, text: entry.text }),
     memoryHistory: (id, before) => call('memory-history', { ...memoryOf(id), ...(before === undefined ? {} : { before }) }),
     memoryRestore: (id, rowId) => call('memory-restore', { ...memoryOf(id), id: rowId }),

@@ -6,7 +6,7 @@
 // before its review starts is read in one go.
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { GONE, REVIEW_MEMORY_MAX, ROUTED, cleanEntry, cleanTopic, parseReview, reviewEntries } from './memory-entries.js'
+import { GONE, REVIEW_MEMORY_MAX, ROUTED, TEAM_SHARED, bodySize, cleanDay, cleanEntry, cleanTopic, isPinned, parseReview, reviewEntries } from './memory-entries.js'
 import { REVIEW_CHANGES_MAX, reviewRequest, reviewSystem, writtenIn } from './memory-copy.js'
 import { speakerOf } from '../shared/mentions.js'
 
@@ -22,7 +22,7 @@ const REVIEW_PASSES_MAX = 4
 
 export function installReview(rt, memory) {
   const { ctx, config } = rt
-  const { root, reviewOn, TEAM, ownScope, groupScope, keeperOf, writesTeam, labelOf, fileName, today, writeText, settled, loadScope, addEntry, replaceEntry, removeEntry, entryProblem, secretEntry, botShot, languageNow } = memory
+  const { root, reviewOn, mainLimit, TEAM, ownScope, groupScope, keeperOf, writesTeam, labelOf, fileName, today, writeText, settled, loadScope, addEntry, replaceEntry, removeEntry, entryProblem, secretEntry, botShot, languageNow } = memory
 
   const cursorsPath = join(root, 'reviewed.json')
   /** @type {Record<string, number> | undefined} */
@@ -84,8 +84,6 @@ export function installReview(rt, memory) {
     // replies from many members can push out of the last few.
     const lastUser = log.findLastIndex(line => line.who === 'User' && line.botId === undefined)
     let start = since === undefined ? Math.max(0, Math.min(log.length - REVIEW_FIRST_LINES, lastUser === -1 ? log.length : lastUser)) : log.findIndex(line => line.seq > since)
-    const oldest = room.log?.[0]?.seq
-    if (since !== undefined && oldest !== undefined && oldest > since + 1) rt.warn('ds-bot: %d lines of group "%s" left its log before they were reviewed', oldest - since - 1, room.name)
     if (start === -1) start = log.length
     const line = (entry) => {
       const who = entry.botId === undefined && entry.who === 'User' ? 'user' : 'bot'
@@ -96,7 +94,11 @@ export function installReview(rt, memory) {
       fresh: log.slice(start).map(line),
       earlier: log.slice(Math.max(0, start - REVIEW_CONTEXT_LINES), start).map(line),
       where: `the group chat "${room.name}"`,
-      source: () => `group "${room.name}" ${rt.clock(Date.now())}`,
+      // The user's latest line among those the review read, which read_group_chat opens.
+      source: (lines) => {
+        const said = lines.findLast(item => item.who === 'user') ?? lines.at(-1)
+        return said === undefined ? `group "${room.name}"` : `group "${room.name}" #${said.seq}`
+      },
     }
   }
 
@@ -113,6 +115,25 @@ export function installReview(rt, memory) {
     return { texts: kept, count: kept.length }
   }
 
+  // Where an add goes: the review's own memory, or the audience it names.
+  function routeOf(change, keeper, home, team) {
+    if (home.kind === 'group') return { scope: home }
+    if (change.team === true && team) return { scope: TEAM }
+    if (typeof change.for === 'string' && change.for.trim() !== '') {
+      const bot = rt.findBot(change.for)
+      if (!rt.isMain(keeper.id)) return { scope: home, error: 'only a Main Bot keeps notes for another Bot' }
+      if (bot === undefined) return { scope: home, error: `there is no Bot named "${clip(change.for, 60)}"` }
+      if (rt.isPrivate(bot.id)) return { scope: home, error: 'a private Bot keeps its own memory' }
+      return { scope: ownScope(bot.id) }
+    }
+    if (typeof change.group === 'string' && change.group.trim() !== '') {
+      const room = roomsOf(keeper).find(item => item.name === change.group.trim())
+      return room === undefined ? { scope: home, error: `the keeper is in no group named "${clip(change.group, 60)}"` } : { scope: groupScope(room.id) }
+    }
+    return { scope: home }
+  }
+  const roomsOf = keeper => Object.values(rt.state.rooms).filter(room => room.members.includes(keeper.id))
+
   // `home` is the memory the review keeps what it finds in: the keeper's own, or its
   // group's. `teamWrites` says whether the keeper may also write the team's.
   async function applyReview({ keeper, name, home, numbered, changes, source, teamWrites }) {
@@ -120,18 +141,24 @@ export function installReview(rt, memory) {
     const done = []
     const counts = () => ({ kept: done.length, changed: done.filter(result => result.changed).length })
     let failed
-    for (const change of changes) {
+    // A removal frees room and an edit names an entry as it reads now, so both go
+    // before what is new.
+    const order = change => ({ remove: 0, edit: 1 })[String(change?.op)] ?? 2
+    for (const change of changes.toSorted((a, b) => order(a) - order(b))) {
       // A keeper deleted mid-review keeps no more changes, its team ones included.
       if (rt.botOf(keeper.id) === undefined) return counts()
       // Its role may change mid-review too, so each change asks again.
       const team = teamWrites()
       const op = String(change?.op ?? '')
-      const topic = op === 'add' && change?.topic !== undefined ? cleanTopic(String(change.topic)) : undefined
       const target = numbered[Number(change?.entry) - 1]
-      const scope = op === 'add' ? (change.team === true && team ? TEAM : home) : target?.scope === 'team' ? TEAM : home
+      const route = op === 'add' ? routeOf(change, keeper, home, team) : undefined
+      const scope = op === 'add' ? route.scope : target?.scope === 'team' ? TEAM : home
+      // What the review keeps for the team waits in a topic: it does not get in front of every Bot by itself.
+      const topic = op === 'add' && scope.kind === 'team' ? cleanTopic(String(change?.topic ?? TEAM_SHARED)) : op === 'add' && change?.topic !== undefined ? cleanTopic(String(change.topic)) : undefined
       const label = labelOf(scope, keeper.id)
       const text = cleanEntry(change?.text)
-      const meta = { source, ...(scope.kind === 'team' ? { by: keeper.name } : {}), added: today() }
+      const until = cleanDay(change?.until)
+      const meta = { source, ...(scope.kind === 'team' ? { by: keeper.name } : {}), added: today(), ...(until === undefined ? {} : { until }) }
       // A change memory cannot keep is set aside and said, so what was not saved
       // shows in the diagnostics; the rest of the answer is kept all the same —
       // the same lines read again would meet the same limit. A secret's text is
@@ -140,6 +167,9 @@ export function installReview(rt, memory) {
       const problem = op === 'add' || op === 'edit' ? entryProblem(text) : undefined
       const leftOut =
         op !== 'add' && target === undefined ? `it names entry ${change?.entry}, which is not listed` :
+        op !== 'add' && isPinned(target) ? 'it changes an entry the user pinned' :
+        op !== 'add' && target.scope === 'team' && target.file.topic === undefined ? 'it changes what every Bot always reads, which only the user does' :
+        route?.error !== undefined ? route.error :
         scope.kind === 'team' && !team ? 'it is for the team memory, which the review may not write' :
         badTopic ? `it names the topic "${clip(String(change.topic), 60)}", which cannot be a topic name` :
         problem !== undefined ? (secretEntry(text) ? 'the entry looks like a key, token, password, or ID number, which memory never keeps' : `the entry "${clip(text, 160)}": ${problem}`) :
@@ -174,6 +204,15 @@ export function installReview(rt, memory) {
     if (kept === undefined || kept.id !== now.id) return roomCopy(now)
     const oldest = now.log?.[0]?.seq ?? Infinity
     return { ...roomCopy(now), log: [...kept.log.filter(line => line.seq < oldest), ...now.log ?? []] }
+  }
+
+  // A line that has left the room's log comes from the group's own, whole. So does one
+  // the room's log holds cut.
+  const withKeptLines = (room, kept) => {
+    if (kept.length === 0) return room
+    const bySeq = new Map((room.log ?? []).map(line => [line.seq, line]))
+    for (const line of kept) bySeq.set(line.seq, line)
+    return { ...room, log: [...bySeq.values()].sort((a, b) => a.seq - b.seq) }
   }
 
   // What a Session's turn gives the review: its Bot's own chat, or its group with a
@@ -212,8 +251,11 @@ export function installReview(rt, memory) {
     const live = rt.roomOf(seen.roomId)
     const keeper = live === undefined ? undefined : keeperOf(live)
     if (keeper === undefined) return
-    const room = joinLogs(seen.room, live)
     const since = cursorsNow()[seen.key]
+    const room = withKeptLines(joinLogs(seen.room, live), await rt.groupLinesAfter(live.id, since).catch((error) => {
+      rt.warn('ds-bot: the log of group "%s" could not be read: %s', live.name, error?.message ?? error)
+      return []
+    }))
     const members = live.members.map(id => rt.botOf(id)).filter(Boolean).map(bot => `${bot.name}${live.admin === bot.id ? ' (admin)' : ''}`)
     await reviewBatch({
       key: seen.key, since, batch: groupBatch(room, since),
@@ -250,10 +292,10 @@ export function installReview(rt, memory) {
       const said = read.filter(line => line.who === 'user').map(line => line.text).join('\n')
       const tagged = group ? 'group' : 'own'
       const { numbered, left } = reviewEntries(homeFiles, teamFiles, REVIEW_MEMORY_MAX, said, tagged)
-      const sizes = { home: homeFiles[0].content.length, team: teamFiles[0].content.length }
+      const sizes = { home: bodySize(homeFiles[0]), homeLimit: mainLimit(home), team: bodySize(teamFiles[0]), teamLimit: mainLimit(TEAM) }
       const earlier = batch.earlier.map(line => reviewLine(line.who, line.text, keeper))
       const language = writtenIn(read.filter(line => line.who === 'user').map(line => line.text.replace(/^User: /, '')), languageNow())
-      const reply = await botShot(keeper, reviewSystem({ teamWrites: teamWrites(), group }), reviewRequest({ who, tag: tagged, numbered, left, sizes, where: batch.where, earlier, fresh: fresh.texts, more, language }), tag)
+      const reply = await botShot(keeper, reviewSystem({ teamWrites: teamWrites(), group, routes: !group && rt.isMain(keeper.id), rooms: group || !teamWrites() ? [] : roomsOf(keeper).map(room => room.name) }), reviewRequest({ who, tag: tagged, numbered, left, sizes, where: batch.where, earlier, fresh: fresh.texts, more, language }), tag)
       if (!alive()) return
       const parsed = parseReview(reply)
       // An answer that is no list of changes keeps nothing of the batch; the miss
