@@ -3,7 +3,7 @@
 // lists the saved keys and who may use them. Values only ever travel from these
 // inputs to the host; nothing here reads one back.
 import { createElement as h, useEffect, useId, useRef, useState } from 'react'
-import { CheckIcon, CloseIcon, TrashIcon } from './icons.js'
+import { CheckIcon, CloseIcon, PlusIcon, TrashIcon } from './icons.js'
 import { BotAvatar, BotMark } from './mark.js'
 import { contentText, currentPart } from './text.js'
 import { dateLocale, t } from './i18n.js'
@@ -279,22 +279,22 @@ function AddSecret({ actions, run, onDone }) {
     h('div', { className: 'bt-secret-row-actions' },
       h('span', { className: 'bt-set-hint' }, t('New keys are for all Bots; narrow it down afterwards.')),
       h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: onDone }, t('Cancel')),
-      h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: !ready, onClick: save }, t('Save key'))))
+      h('button', { type: 'button', className: 'bt-send bt-soft-sm', disabled: !ready, onClick: save }, t('Save key'))))
 }
 
 export function SecretsPage({ roster, actions, run, Section }) {
   const [open, setOpen] = useState(null)
   const [adding, setAdding] = useState(false)
   const secrets = roster.secrets ?? []
+  const addBtn = adding ? null : h('button', { type: 'button', className: 'bt-soft bt-soft-sm bt-with-icon', onClick: () => setAdding(true) }, h(PlusIcon), t('Add a key'))
   return [
     h('p', { key: 'about', className: 'bt-secret-about' },
       t('Keys your Bots asked for. Bots never see the values: they use them as '), h('code', null, '$DSH_SECRET_NAME'),
       t(' in their shell, and every value is replaced by '), h('code', null, '[secret:NAME]'), t(' before anything goes to a model.')),
-    h(Section, { key: 'list', title: t('Secrets · {count}', { count: secrets.length }) },
+    h(Section, { key: 'list', title: t('Secrets · {count}', { count: secrets.length }), action: addBtn },
       secrets.length === 0 && !adding ? h('div', { className: 'bt-set-row' }, h('span', { className: 'bt-set-hint' }, t('No keys yet. When a Bot needs one, it shows a card in its chat.'))) : null,
       secrets.map(secret => h(SecretRow, { key: secret.name, secret, roster, actions, run, open: open === secret.name, onToggle: () => setOpen(open === secret.name ? null : secret.name) })),
       adding ? h(AddSecret, { actions, run, onDone: () => setAdding(false) }) : null),
-    adding ? null : h('div', { key: 'add', className: 'bt-actions' }, h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => setAdding(true) }, t('Add a key'))),
   ]
 }
 
@@ -338,13 +338,13 @@ export const SECRET_CSS = `
 .bt-secret-event{display:inline-flex;align-items:center;gap:5px}
 .bt-secret-dock{flex-direction:column;align-items:center}
 .bt-secret-dock .bt-q{max-width:min(550px,calc(100% - 32px))}
-.bt-secret-about{margin:0 0 12px;padding:0 4px;font-size:12px;line-height:17px;color:var(--bt-ink-2)}
+.bt-secret-about{margin:0 0 -4px;padding:0 4px;font-size:12px;line-height:18px;color:var(--bt-ink-2)}
 .bt-secret-title{display:flex;align-items:center;gap:6px;min-width:0;color:var(--bt-ink)}
 .bt-secret-title svg{flex:none;color:var(--bt-ink-2)}
 .bt-secret-purpose{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--bt-ink-2)}
 .bt-secret-faces{display:inline-flex}
 .bt-secret-faces>*+*{margin-left:-6px}
-.bt-secret-edit{display:flex;flex-direction:column;gap:14px;padding:4px 12px 14px;animation:bt-q-in ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing} backwards,bt-veil-in .2s ease-out backwards}
+.bt-secret-edit{display:flex;flex-direction:column;gap:14px;padding:14px 16px 16px;border-top:.5px solid var(--bt-line);background:color-mix(in srgb,var(--bt-hover) 45%,transparent);animation:bt-q-in ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing} backwards,bt-veil-in .2s ease-out backwards}
 .bt-secret-edit-block{display:flex;flex-direction:column;gap:8px}
 .bt-secret-edit-label{font-size:12px;line-height:16px;font-weight:600;color:var(--bt-ink-2)}
 .bt-secret-radios{display:flex;gap:16px;font-size:13px}
