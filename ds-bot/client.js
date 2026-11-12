@@ -883,6 +883,9 @@ var JA = {
   "Today {time}": "今日 {time}",
   "Yesterday {time}": "昨日 {time}",
   "Ran for {duration}": "実行時間 {duration}",
+  "No background work detected": "バックグラウンドの作業を検出できませんでした",
+  "DS Bot has no recorded tool call or active background task for this reply.": "DS Bot には、この返信のツール呼び出しや実行中のバックグラウンドタスクの記録がありません。",
+  "File not found: {path}": "ファイルが見つかりません：{path}",
   "{tokens} tok · Cache hit {hit}%": "{tokens} tok · キャッシュヒット {hit}%",
   "1 turn": "1 ターン",
   "{count} turns": "{count} ターン",
@@ -3190,6 +3193,9 @@ var KO = {
   "Today {time}": "오늘 {time}",
   "Yesterday {time}": "어제 {time}",
   "Ran for {duration}": "{duration} 동안 실행됨",
+  "No background work detected": "백그라운드 작업이 감지되지 않음",
+  "DS Bot has no recorded tool call or active background task for this reply.": "DS Bot에 이 답변의 도구 호출이나 실행 중인 백그라운드 작업이 기록되어 있지 않습니다.",
+  "File not found: {path}": "파일을 찾을 수 없음: {path}",
   "{tokens} tok · Cache hit {hit}%": "{tokens} tok · 캐시 적중 {hit}%",
   "1 turn": "1턴",
   "{count} turns": "{count}턴",
@@ -5514,6 +5520,9 @@ var ES = {
   "Today {time}": "Hoy {time}",
   "Yesterday {time}": "Ayer {time}",
   "Ran for {duration}": "Duración: {duration}",
+  "No background work detected": "No se detectó trabajo en segundo plano",
+  "DS Bot has no recorded tool call or active background task for this reply.": "DS Bot no ha registrado llamadas a herramientas ni tareas activas en segundo plano para esta respuesta.",
+  "File not found: {path}": "No se encuentra el archivo: {path}",
   "{tokens} tok · Cache hit {hit}%": "{tokens} tok · Acierto de caché {hit}%",
   "1 turn": "1 turno",
   "{count} turns": "{count} turnos",
@@ -7810,6 +7819,9 @@ var FR = {
   "Today {time}": "Aujourd’hui {time}",
   "Yesterday {time}": "Hier {time}",
   "Ran for {duration}": "Exécuté pendant {duration}",
+  "No background work detected": "Aucune tâche en arrière-plan détectée",
+  "DS Bot has no recorded tool call or active background task for this reply.": "DS Bot n’a enregistré aucun appel d’outil ni aucune tâche active en arrière-plan pour cette réponse.",
+  "File not found: {path}": "Fichier introuvable : {path}",
   "{tokens} tok · Cache hit {hit}%": "{tokens} tok · Cache {hit} %",
   "1 turn": "1 tour",
   "{count} turns": "{count} tours",
@@ -10117,6 +10129,9 @@ var DE = {
   "Today {time}": "Heute {time}",
   "Yesterday {time}": "Gestern {time}",
   "Ran for {duration}": "Laufzeit {duration}",
+  "No background work detected": "Keine Hintergrundarbeit erkannt",
+  "DS Bot has no recorded tool call or active background task for this reply.": "DS Bot hat für diese Antwort keinen Werkzeugaufruf und keine aktive Hintergrundaufgabe aufgezeichnet.",
+  "File not found: {path}": "Datei nicht gefunden: {path}",
   "{tokens} tok · Cache hit {hit}%": "{tokens} tok · Cache-Treffer {hit}%",
   "1 turn": "1 Durchgang",
   "{count} turns": "{count} Durchgänge",
@@ -12443,6 +12458,9 @@ var ZH = {
   "Today {time}": "今天 {time}",
   "Yesterday {time}": "昨天 {time}",
   "Ran for {duration}": "本次用时 {duration}",
+  "No background work detected": "未检测到后台任务",
+  "DS Bot has no recorded tool call or active background task for this reply.": "DS Bot 未记录到这条回复的工具调用或正在运行的后台任务。",
+  "File not found: {path}": "文件不存在：{path}",
   "{tokens} tok · Cache hit {hit}%": "{tokens} tok · 缓存命中 {hit}%",
   "1 turn": "1 轮",
   "{count} turns": "{count} 轮",
@@ -15112,6 +15130,10 @@ button.bt-lead{border:0;background:none;padding:0;cursor:pointer}
 .bt-group-name:has(>.bt-lead){display:flex;align-items:center;margin:0 0 2px;font-size:13px;line-height:22px;font-weight:600;color:var(--bt-ink)}
 .bt-group-name>.bt-lead{margin:0 8px 0 0}
 .bt-group-time,.bt-group-took{margin-left:6px;font-size:11px;line-height:16px;font-weight:400;color:var(--bt-ink-2);font-variant-numeric:tabular-nums;white-space:nowrap}
+.bt-claim{margin-left:30px;font-size:11px;line-height:16px;color:var(--bt-ink-2)}
+body[data-bt-layout=flat] .bt-claim{margin-left:0}
+.bt-claim-file{color:var(--bt-danger)}
+.bt-claim-inProgress{color:var(--bt-ink-2)}
 .bt-x{border:0;background:none;color:var(--bt-ink-2);cursor:pointer;width:24px;height:24px;border-radius:6px;font-size:16px;line-height:24px;padding:0;transition:background-color .12s ease,color .12s ease,${spring(SPRING_TAP, "scale")}}
 .bt-x:hover{background:var(--bt-hover);color:var(--bt-ink)}
 
@@ -24982,11 +25004,21 @@ function stackReplies(replies) {
   const items = [];
   replies.forEach((reply, index) => {
     const last = items.at(-1);
-    if (reply.kind === void 0 && last?.reply.kind === void 0 && last?.reply.botId === reply.botId) {
+    if (reply.kind === void 0 && last?.reply.kind === void 0 && last?.reply.botId === reply.botId && last.claims === void 0) {
       last.texts.push(reply.text);
       last.time = reply.time;
       last.duration = reply.duration;
-    } else items.push({ reply, index, texts: reply.kind === void 0 ? [reply.text] : [], time: reply.time, duration: reply.duration });
+      if (reply.claims !== void 0) last.claims = reply.claims;
+    } else {
+      items.push({
+        reply,
+        index,
+        texts: reply.kind === void 0 ? [reply.text] : [],
+        time: reply.time,
+        duration: reply.duration,
+        ...reply.claims === void 0 ? {} : { claims: reply.claims }
+      });
+    }
   });
   return items;
 }
@@ -26023,7 +26055,20 @@ function scheduleGroupChains(flow) {
     if (flow.isConnected !== false) syncGroupChains(flow);
   });
 }
-function GroupMessage({ bot, text, texts: texts2 = [text], room: room2, sessionId, roster, actions, msgKey, useUi, whole, time, duration }) {
+function claimLines(claims) {
+  if (claims === void 0 || claims === null) return [];
+  const lines = [];
+  if (claims.inProgress === true) {
+    lines.push({
+      kind: "inProgress",
+      text: t("No background work detected"),
+      detail: t("DS Bot has no recorded tool call or active background task for this reply.")
+    });
+  }
+  for (const path2 of claims.missingFiles ?? []) lines.push({ kind: "file", text: t("File not found: {path}", { path: path2 }) });
+  return lines;
+}
+function GroupMessage({ bot, text, texts: texts2 = [text], room: room2, sessionId, roster, actions, msgKey, useUi, whole, time, duration, claims }) {
   const ref = (0, import_react32.useRef)(null);
   (0, import_react32.useLayoutEffect)(() => {
     const el = ref.current;
@@ -26053,7 +26098,8 @@ function GroupMessage({ bot, text, texts: texts2 = [text], room: room2, sessionI
       Number.isFinite(time) ? (0, import_react32.createElement)("span", { className: "bt-group-time", title: clockLabel(time) }, messageClock(time)) : null,
       took ? (0, import_react32.createElement)("span", { className: "bt-group-took", title: t("Ran for {duration}", { duration: took }) }, took) : null
     ),
-    (0, import_react32.createElement)(Bubbles, { texts: texts2, roster, selfId: bot.id, actions, sessionId: quoteSession, msgKey, useUi, lead: flat ? null : lead, whole })
+    (0, import_react32.createElement)(Bubbles, { texts: texts2, roster, selfId: bot.id, actions, sessionId: quoteSession, msgKey, useUi, lead: flat ? null : lead, whole }),
+    claimLines(claims).map((line) => (0, import_react32.createElement)("div", { key: line.kind + line.text, className: `bt-claim bt-claim-${line.kind}`, role: "status", title: line.detail ?? void 0 }, line.text))
   );
 }
 function GroupEvent({ prefix, room: room2, name, roster, actions }) {
@@ -26279,6 +26325,7 @@ function chatRow(row, key, { sessionId, selfId, roster, actions, useUi, onBtwDel
         msgKey: `${sessionId}:post:${row.seq ?? row.time}`,
         time: row.time,
         duration: row.duration,
+        claims: row.claims,
         whole: row.file ? { length: row.length, load: () => actions.fileText(row.file) } : void 0
       });
     }
@@ -26350,6 +26397,7 @@ function TriggerCell({ node, sessionId, useRoster, useSessions, useTurnClock, us
           msgKey: `${sessionId}:post:${data.seq ?? node.key}`,
           useUi,
           time: data.time,
+          claims: source.claims,
           whole: file ? { length: source.length, load: () => actions.fileText(file) } : void 0
         });
       }
@@ -26713,7 +26761,7 @@ function GroupReplies({ sessionId, callId, done, content, roster, actions, useUi
   return (0, import_react32.createElement)(
     "div",
     { className: "bt-group-replies" },
-    stackReplies(replies).map(({ reply, index, texts: texts2, time, duration }) => {
+    stackReplies(replies).map(({ reply, index, texts: texts2, time, duration, claims }) => {
       const bot = roster.byId[reply.botId] ?? { id: reply.botId, name: reply.name, color: reply.color ?? "gray" };
       if (reply.kind === "user") {
         return (0, import_react32.createElement)(
@@ -26734,7 +26782,7 @@ function GroupReplies({ sessionId, callId, done, content, roster, actions, useUi
           goalEventText(reply)
         );
       }
-      return (0, import_react32.createElement)(GroupMessage, { key: `${reply.botId}-${index}`, bot, texts: texts2, room: room2, sessionId, roster, actions, msgKey: callId ? `${sessionId}:${callId}:${index}` : void 0, useUi, time, duration });
+      return (0, import_react32.createElement)(GroupMessage, { key: `${reply.botId}-${index}`, bot, texts: texts2, room: room2, sessionId, roster, actions, msgKey: callId ? `${sessionId}:${callId}:${index}` : void 0, useUi, time, duration, claims });
     }),
     pending.map((id, at) => {
       const bot = roster.byId[id];
