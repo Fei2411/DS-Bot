@@ -627,3 +627,49 @@ test('a platform status error is redacted of the stored secret', async (t) => {
   assert.equal(status.state, 'error')
   assert.ok(!status.error.includes('tok-1234'), 'the token is redacted')
 })
+
+// #1417: a 5xx was retryable with no limit, so one message held its chat's queue
+// forever while the status still said ready. The retry budget is now bounded, the
+// status says what happened, and the messages behind the failed one still go out.
+test('a send that keeps answering 5xx gives up after bounded retries and the queue moves on', async (t) => {
+  const s = await start()
+  t.after(s.stop)
+  const conn = await add(s)
+  const one = s.rt.state.im.connections[conn.id]
+  one.paired.push({ id: 'u1', name: 'U1', at: 1 })
+  await s.rt.save()
+  await dm(s, 'u1', 'hi')
+  s.fake.sent.length = 0
+  const fail = () => Object.assign(new Error('Feishu answered 502'), { status: 502, retryAfter: 0.005 })
+  s.fake.fails.push(fail(), fail(), fail(), fail())
+  s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'first' }] } })
+  await delay(120)
+  assert.equal(s.fake.sent.filter(job => job.text === 'first').length, 4, 'the first message is tried four times, then given up')
+  const status = s.rt.imStatusView()[conn.id]
+  assert.equal(status.state, 'error')
+  assert.match(status.error, /Send failed after 4 attempts: Feishu answered 502/)
+  s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'second' }] } })
+  await delay(40)
+  assert.equal(s.fake.sent.filter(job => job.text === 'second').length, 1, 'the next message is not held behind the failed one')
+  assert.equal(s.rt.imStatusView()[conn.id].state, 'ready', 'a send that works again lifts the send status')
+})
+
+test('a retrying send shows a retrying status before the budget runs out', async (t) => {
+  const s = await start()
+  t.after(s.stop)
+  const conn = await add(s)
+  const one = s.rt.state.im.connections[conn.id]
+  one.paired.push({ id: 'u1', name: 'U1', at: 1 })
+  await s.rt.save()
+  await dm(s, 'u1', 'hi')
+  s.fake.sent.length = 0
+  s.fake.fails.push(Object.assign(new Error('Feishu answered 502'), { status: 502, retryAfter: 0.2 }))
+  s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'slow' }] } })
+  await delay(60)
+  const status = s.rt.imStatusView()[conn.id]
+  assert.equal(status.state, 'retrying')
+  assert.match(status.error, /502/)
+  await delay(220)
+  assert.equal(s.fake.sent.filter(job => job.text === 'slow').length, 2)
+  assert.equal(s.rt.imStatusView()[conn.id].state, 'ready')
+})

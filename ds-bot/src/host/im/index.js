@@ -13,6 +13,10 @@ import { adapters } from './platforms/index.js'
 const RECONCILE_MS = 15_000
 const RUNTIME_SAVE_MS = 400
 const RETRY_MS = 5_000
+// A send that keeps failing is given up on, with a bounded backoff, so one broken
+// message cannot hold every later message in the same chat forever (#1417).
+const RETRY_MAX_MS = 30_000
+const SEND_ATTEMPTS = 4
 const TYPING_MS = 4_000
 const NUMBERS = /^\s*\d+(\s+\d+)*\s*$/
 
@@ -303,10 +307,10 @@ export function install(rt) {
   /** @type {Map<string, {handle:any, queues:Map<string, {jobs:any[], retry?:any}>, statuses:Map}>} */
   const runners = new Map()
   const statuses = new Map()
-  const setStatus = (id, next) => {
+  const setStatus = (id, next, source = 'adapter') => {
     // Adapter errors can echo platform responses that quote the token; keep them out of the UI and logs.
-    if (typeof next.error === 'string' && next.error !== '') return statuses.set(id, { ...next, error: rt.redactSecrets(next.error), at: Date.now() })
-    return statuses.set(id, { ...next, at: Date.now() })
+    if (typeof next.error === 'string' && next.error !== '') return statuses.set(id, { ...next, error: rt.redactSecrets(next.error), at: Date.now(), source })
+    return statuses.set(id, { ...next, at: Date.now(), source })
   }
   const targetsOf = (conn) => {
     const out = []
@@ -334,9 +338,11 @@ export function install(rt) {
     if (runner === undefined) return
     let queue = runner.queues.get(chatKey)
     if (queue === undefined) runner.queues.set(chatKey, queue = { jobs: [] })
+    job.attempts = 0
     queue.jobs.push(job)
     if (queue.jobs.length === 1) void drain(conn, chatKey)
   }
+  const failMessage = error => String(error?.message ?? error).slice(0, 300)
   const drain = async (conn, chatKey) => {
     const runner = runners.get(conn.id)
     const queue = runner?.queues.get(chatKey)
@@ -349,16 +355,33 @@ export function install(rt) {
         const sent = await runner.handle.send(job.chat, job)
         job.after?.(sent)
         queue.jobs.shift()
+        // A send that works again lifts only a status this queue raised itself;
+        // the adapter's own view of the connection stays as it reported it.
+        if (statuses.get(conn.id)?.source === 'send') setStatus(conn.id, { state: 'ready' }, 'send')
       } catch (error) {
         const how = failClass(error)
         if (how === 'retry') {
-          const wait = Number(error?.retryAfter) > 0 ? error.retryAfter * 1000 : RETRY_MS
-          queue.retry = setTimeout(() => { void drain(conn, chatKey) }, wait)
-          queue.retry.unref?.()
-          return
+          job.attempts += 1
+          if (job.attempts < SEND_ATTEMPTS) {
+            const backoff = Math.min(RETRY_MS * 2 ** (job.attempts - 1), RETRY_MAX_MS)
+            const asked = Number(error?.retryAfter) > 0 ? Math.min(error.retryAfter * 1000, RETRY_MAX_MS) : backoff
+            setStatus(conn.id, { state: 'retrying', error: failMessage(error) }, 'send')
+            queue.retry = setTimeout(() => { void drain(conn, chatKey) }, asked)
+            queue.retry.unref?.()
+            return
+          }
+          // The message is given up on, the reason is visible, and the messages
+          // behind it are still delivered instead of waiting forever.
+          queue.jobs.shift()
+          setStatus(conn.id, { state: 'error', error: `Send failed after ${job.attempts} attempts: ${failMessage(error)}` }, 'send')
+          rt.warn('ds-bot: im send to %s failed after %d attempts: %s', chatKey, job.attempts, failMessage(error))
+          continue
         }
         queue.jobs.shift()
-        if (how === 'permanent') setStatus(conn.id, { state: 'error', error: String(error?.message ?? error).slice(0, 300) })
+        if (how === 'permanent') {
+          setStatus(conn.id, { state: 'error', error: failMessage(error) }, 'send')
+          rt.warn('ds-bot: im send to %s failed: %s', chatKey, failMessage(error))
+        }
       }
     }
   }
