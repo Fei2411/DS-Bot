@@ -14767,6 +14767,7 @@ var MIN_CHAT = 420;
 var RAIL_WIDTH = 88;
 var PANEL_MIN = { details: 320, browser: 360, side: 320 };
 var DSH_NARROW = 1024;
+var trackRoom = ({ width, right }) => Math.max(0, Math.min(width, right));
 var SIDEBAR_MIN = 264;
 var SIDEBAR_MAX = 420;
 var FALLBACK_SIDEBAR_WIDTH = 280;
@@ -27004,7 +27005,10 @@ function showsDshRow(dsh, app) {
 }
 
 // src/client/frame-watch.js
-var sidebarTrackWidth = () => typeof document === "undefined" ? null : document.querySelector('[class*="_sidebarCol"]')?.getBoundingClientRect().width ?? null;
+var sidebarTrackWidth = () => {
+  const box = typeof document === "undefined" ? void 0 : document.querySelector('[class*="_sidebarCol"]')?.getBoundingClientRect();
+  return box === void 0 ? null : trackRoom(box);
+};
 var dshCollapsed = () => {
   if (typeof document === "undefined") return null;
   const column = document.querySelector('[class*="_sidebarCol"]');
