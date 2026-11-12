@@ -36981,14 +36981,14 @@ function composerLabels(root) {
     return item.querySelector("[title]")?.getAttribute("title") ?? "";
   });
 }
-function pasteLinks(blocks, ids, labels) {
-  if (labels.length !== ids.length) return [];
+function pasteLinks(blocks, ids, labels2) {
+  if (labels2.length !== ids.length) return [];
   const taken = /* @__PURE__ */ new Set();
   for (const block of blocks) if (block.attachmentId !== null) taken.add(block.attachmentId);
   const links = [];
   for (const block of blocks) {
     if (block.attachmentId !== null || !block.name) continue;
-    const index = labels.findIndex((label, i) => label === block.name && !taken.has(ids[i]));
+    const index = labels2.findIndex((label, i) => label === block.name && !taken.has(ids[i]));
     if (index === -1) continue;
     taken.add(ids[index]);
     links.push({ blockId: block.id, attachmentId: ids[index] });
