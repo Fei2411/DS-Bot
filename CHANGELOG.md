@@ -4,9 +4,32 @@ All notable changes to DS Bot are listed here. The format follows [Keep a Change
 
 ## [Unreleased]
 
+## [0.3.5] - 2026-11-11
+
 ### Added
 
 - DS Bot phone app for Android (beta). Pair a phone with the QR code in Settings → Phone, then chat with your Bots and group chats, send photos, answer questions, approvals and cards, and manage Bots, memory, schedules and settings from the phone. Phone and computer talk end to end encrypted through a Relay Server (`relay.dsbot.app` unless you enter your own), so the computer opens no port. The APK is attached to each release and linked from Settings → Phone. ([#1004](https://github.com/Fei2411/DS-Bot/pull/1004))
+- Six more interface languages: Traditional Chinese, Japanese, Korean, Spanish, French and German, in the desktop app, the plugin and the start window. ([#1315](https://github.com/Fei2411/DS-Bot/pull/1315))
+
+### Changed
+
+- Group chat messages, the calls a Bot makes to other Bots in a group, and messages between Bots are written to a ledger before they go out, and a group's round now runs inside DS Bot. A restart no longer loses who owes whom, the chat is drawn from the ledger, and a group is stopped with "Stop all" in its details instead of the stop button beside the composer. ([#316](https://github.com/Fei2411/DS-Bot/issues/316), [#1317](https://github.com/Fei2411/DS-Bot/pull/1317), [#1351](https://github.com/Fei2411/DS-Bot/pull/1351), [#1358](https://github.com/Fei2411/DS-Bot/pull/1358), [#1364](https://github.com/Fei2411/DS-Bot/pull/1364))
+- Classic Agent mode is back in the account menu at the bottom left (it had moved to Settings → General → Mode only), and the classic page's button back to the Bot view reads "Back to DS Bot". ([#1071](https://github.com/Fei2411/DS-Bot/issues/1071), [#1272](https://github.com/Fei2411/DS-Bot/issues/1272), [#1385](https://github.com/Fei2411/DS-Bot/pull/1385))
+- A `show_view` or `ask_user` card you dismiss or answer by message settles in the chat at the place it was asked, instead of staying pinned above the composer. ([#1154](https://github.com/Fei2411/DS-Bot/issues/1154), [#1370](https://github.com/Fei2411/DS-Bot/pull/1370))
+- DS Bot works with DeepSeek Harness 0.2.2-rc.2, including its updated macOS Computer use methods, native Office tools, the sidebar scroll fade and custom Google Gemini model routes; the pinned version stays 0.2.2-rc.1. ([#1386](https://github.com/Fei2411/DS-Bot/pull/1386))
+- A Plugins button at the foot of the team sidebar opens DSH's plugin install and manage page. ([#646](https://github.com/Fei2411/DS-Bot/issues/646), [#1340](https://github.com/Fei2411/DS-Bot/pull/1340))
+- Settings → Local agents shows each agent's logo, hides Sign in when the agent is already signed in, and drops the sign-in row for agents that have no account login. ([#1242](https://github.com/Fei2411/DS-Bot/pull/1242))
+- Connect on a connector catalog tile shows the sign-in code on that tile, with Copy, Open again and Cancel. ([#1240](https://github.com/Fei2411/DS-Bot/pull/1240))
+
+### Fixed
+
+- A `ds-bot` plugin installed into the desktop app's own profile (for example from the plugins page) stayed at the version it was installed at and broke the Bots after an app update. The start window now names such a copy and removes it when you agree. ([#1305](https://github.com/Fei2411/DS-Bot/issues/1305), [#1379](https://github.com/Fei2411/DS-Bot/pull/1379))
+- On DSH Desktop, the `ds-bot` plugin activates again instead of failing with `iconv_lite_1.default.getCodec is not a function`; the mail library loads the first time a mail is read. ([#1237](https://github.com/Fei2411/DS-Bot/issues/1237), [#1318](https://github.com/Fei2411/DS-Bot/pull/1318))
+- A call batch in a group settles by the call, and the caller gets the results of the whole batch. ([#1282](https://github.com/Fei2411/DS-Bot/issues/1282), [#1283](https://github.com/Fei2411/DS-Bot/pull/1283))
+- Successive group rounds no longer trigger DSH's repeat-tool reminder. ([#978](https://github.com/Fei2411/DS-Bot/issues/978), [#1002](https://github.com/Fei2411/DS-Bot/pull/1002))
+- The memory summary tries again with a larger output budget when the gateway answers with an error or an empty reply. ([#1261](https://github.com/Fei2411/DS-Bot/issues/1261), [#1269](https://github.com/Fei2411/DS-Bot/pull/1269))
+- Clicking New session repeatedly on the DSH Agent opens the same empty conversation instead of creating several. ([#1225](https://github.com/Fei2411/DS-Bot/issues/1225), [#1270](https://github.com/Fei2411/DS-Bot/pull/1270))
+- In Settings → Connectors → Mailbox, the provider names stay on one line. ([#1239](https://github.com/Fei2411/DS-Bot/issues/1239), [#1241](https://github.com/Fei2411/DS-Bot/pull/1241))
 
 ## [0.3.2] - 2026-11-09
 
