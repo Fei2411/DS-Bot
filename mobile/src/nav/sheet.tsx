@@ -57,7 +57,7 @@ export function confirmDanger(title: string, action: string, onConfirm: () => vo
 const styles = StyleSheet.create({
   bar: { borderBottomWidth: StyleSheet.hairlineWidth },
   grab: { alignSelf: 'center', width: 36, height: 5, borderRadius: 3, marginTop: 6 },
-  row: { flexDirection: 'row', alignItems: 'center', minHeight: 52, paddingHorizontal: 16 },
-  side: { width: 76 },
+  row: { flexDirection: 'row', alignItems: 'center', minHeight: 52, paddingHorizontal: 16, gap: 8 },
+  side: { minWidth: 72, maxWidth: '34%', flexShrink: 0 },
   action: { minHeight: 44, justifyContent: 'center' },
 })
