@@ -4,8 +4,8 @@
 import { createElement as h, useEffect, useRef, useState } from 'react'
 import { call } from './api.js'
 import { MarkdownText } from './dsh-primitives.js'
-import { hostText, t } from './i18n.js'
-import { failureText, mdLabels } from './btw.js'
+import { hostText, mdLabels, t } from './i18n.js'
+import { failureText } from './btw.js'
 import { ArrowUpIcon } from './icons.js'
 import { sendsOnEnter } from './enter-key.js'
 import {
