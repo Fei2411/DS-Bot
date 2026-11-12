@@ -67,24 +67,23 @@ async function start(team = TEAM) {
     hold = { promise: new Promise(resolve => { release = resolve }) }
     return () => { hold = undefined; release() }
   }
-  // While `folderHold` is set, the next folder check waits until it is let go.
-  let folderHold
-  const rawCleanWorkDir = rt.cleanWorkDir.bind(rt)
-  rt.cleanWorkDir = async (value) => {
-    if (folderHold !== undefined) await folderHold.promise
-    return rawCleanWorkDir(value)
+  let releaseHold
+  const rawReleaseBot = rt.releaseBot.bind(rt)
+  rt.releaseBot = async (...args) => {
+    if (releaseHold !== undefined) await releaseHold.promise
+    return rawReleaseBot(...args)
   }
-  const heldFolder = () => {
+  const heldRelease = () => {
     let release
-    folderHold = { promise: new Promise(resolve => { release = resolve }) }
-    return () => { folderHold = undefined; release() }
+    releaseHold = { promise: new Promise(resolve => { release = resolve }) }
+    return () => { releaseHold = undefined; release() }
   }
   const saved = () => JSON.parse(readFileSync(join(home, 'state.json'), 'utf8'))
   const stop = async () => {
     await ctx.dispose()
     rmSync(root, { recursive: true, force: true, maxRetries: 5 })
   }
-  return { rt, ctx, home, folder, archived, held, heldFolder, saved, stop }
+  return { rt, ctx, home, folder, archived, held, heldRelease, saved, stop }
 }
 
 test('a Bot deleted while its group is made stays out of it, and so does the admin role it was given', async (t) => {
@@ -125,15 +124,28 @@ test('a change that waits for its folder keeps the member another change added m
 })
 
 test('a Bot deleted while a change waits for its folder is not added back', async (t) => {
-  const { rt, folder, saved, heldFolder, stop } = await start()
+  const { rt, folder, saved, stop } = await start()
   t.after(stop)
-  const release = heldFolder()
   const moving = rt.updateRoom('r1', { add: ['c'], workDir: folder })
-  // Let the deletion finish while the change waits for its folder check, not after it.
   await rt.deleteBot('c')
-  release()
   const moved = await moving
   assert.deepEqual(moved.changes, [`every member now works in ${folder} here`])
+  assert.deepEqual(saved().rooms.r1.members, ['a', 'b'])
+})
+
+test('a change that finishes its folder check while deleteBot still releases the Bot cannot add it', async (t) => {
+  const { rt, folder, saved, heldRelease, stop } = await start()
+  t.after(stop)
+  const moving = rt.updateRoom('r1', { add: ['c'], workDir: folder })
+  const letReleaseFinish = heldRelease()
+  const deleting = rt.deleteBot('c')
+  const moved = await moving
+  assert.deepEqual(moved.changes, [`every member now works in ${folder} here`])
+  assert.deepEqual(rt.state.rooms.r1.members, ['a', 'b'])
+  await assert.rejects(rt.deleteBot('c'), /Unknown Bot/)
+  letReleaseFinish()
+  await deleting
+  assert.equal('c' in rt.state.bots, false)
   assert.deepEqual(saved().rooms.r1.members, ['a', 'b'])
 })
 
