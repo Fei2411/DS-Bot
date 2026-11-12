@@ -608,6 +608,92 @@ export function install(rt) {
     },
   }))
 
+  // The shared to-do list of a group: open items first, then done ones, each with the
+  // short id the check and remove actions take. Ids are UUIDs, and the first eight
+  // characters are what the list shows; a prefix is accepted when it names exactly one item.
+  const todoCount = (room) => {
+    const todos = room.todos ?? []
+    const open = todos.filter(item => item.done !== true).length
+    return { todos, open, done: todos.length - open }
+  }
+  const todoLines = (room) => {
+    const { todos, open, done } = todoCount(room)
+    if (todos.length === 0) return `The shared to-do list of "${room.name}" is empty. Add one with action "add".`
+    const order = [...todos].sort((a, b) => Number(a.done === true) - Number(b.done === true) || (a.createdAt ?? 0) - (b.createdAt ?? 0))
+    return [
+      `Shared to-do list of "${room.name}" (${open} open, ${done} done):`,
+      ...order.map(item => `- [${item.done === true ? 'x' : ' '}] ${item.text} (todo ${item.id.slice(0, 8)})`),
+    ].join('\n')
+  }
+  const findTodo = (room, ref) => {
+    const wanted = String(ref ?? '').trim()
+    if (wanted === '') return { error: 'Which to-do? Pass the id from the list.' }
+    const exact = (room.todos ?? []).find(item => item.id === wanted)
+    if (exact !== undefined) return { todo: exact }
+    const matches = (room.todos ?? []).filter(item => item.id.startsWith(wanted))
+    if (matches.length === 1) return { todo: matches[0] }
+    if (matches.length > 1) return { error: `Several to-dos start with "${wanted}". Use a longer id.` }
+    return { error: `No to-do with id "${wanted}" on the list.` }
+  }
+
+  rt.teamTools.push(defineTool({
+    name: 'group_todo',
+    description: 'The shared to-do list of a group chat. Every member reads and changes the same list, and the user sees it in the group\'s details. List it, add one item, tick an item done or not done, remove one item, or clear the completed items. The list holds at most 100 items; when it is full, remove an item or clear completed ones before adding. Nothing is dropped on its own. Add, remove, or clear only what the user asked for.',
+    parameters: {
+      group: GROUP_REF,
+      action: {
+        type: 'string',
+        enum: ['list', 'add', 'check', 'remove', 'clear'],
+        required: true,
+        description: '"list" reads the list; "add" adds one item with text; "check" ticks one item by id, or unticks it with done: false; "remove" deletes one item by id; "clear" deletes every completed item',
+      },
+      text: { type: 'string', description: 'The to-do item, one line, at most 200 characters (action "add")' },
+      id: { type: 'string', description: 'The to-do id from the list, or its first characters (action "check" or "remove")' },
+      done: { type: 'boolean', description: 'true ticks the item, false unticks it; defaults to true (action "check")' },
+    },
+    output,
+    async execute(args, exec) {
+      await rt.load()
+      const self = rt.selfOf(exec.agent?.id)
+      if (rt.botOf(self) === undefined) return 'Only Bots on the team can use a group to-do list.'
+      const { room, error } = pickRoom(args.group, self)
+      if (error) return error
+      const action = String(args.action ?? '').trim()
+      if (action === 'list') return todoLines(room)
+      try {
+        if (action === 'add') {
+          const item = await rt.addRoomTodo(room.id, args.text, self)
+          const { open } = todoCount(room)
+          return `Added "${item.text}" to the shared to-do list of "${room.name}" (${open} open, todo ${item.id.slice(0, 8)}).`
+        }
+        if (action === 'check') {
+          const found = findTodo(room, args.id)
+          if (found.error) return found.error
+          const item = await rt.setRoomTodoDone(room.id, found.todo.id, args.done === undefined ? true : args.done === true, self)
+          const { open } = todoCount(room)
+          return `${item.done === true ? 'Ticked' : 'Unticked'} "${item.text}" (${open} open).`
+        }
+        if (action === 'remove') {
+          const found = findTodo(room, args.id)
+          if (found.error) return found.error
+          const item = await rt.removeRoomTodo(room.id, found.todo.id)
+          const { open } = todoCount(room)
+          return `Removed "${item.text}" from the shared to-do list of "${room.name}" (${open} open).`
+        }
+        if (action === 'clear') {
+          const removed = await rt.clearDoneRoomTodos(room.id)
+          const { open } = todoCount(room)
+          if (removed.length === 0) return `No completed to-dos to clear on "${room.name}" (${open} open).`
+          const noun = removed.length === 1 ? 'to-do' : 'to-dos'
+          return `Cleared ${removed.length} completed ${noun} from "${room.name}" (${open} open).`
+        }
+        return 'Use action "list", "add", "check", "remove" or "clear".'
+      } catch (failure) {
+        return `Could not change the to-do list of "${room.name}": ${failure.message}`
+      }
+    },
+  }))
+
   rt.teamTools.push(defineTool({
     name: 'delete_group',
     description: 'Main Bot only. Delete a group chat; its history is archived. Only when the user asks.',
