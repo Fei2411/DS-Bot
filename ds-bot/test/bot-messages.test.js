@@ -738,6 +738,24 @@ test('a long refused message keeps its start as the answer, and the refusal says
   assert.equal(textOf(callsOf(agents, 'a')[0][1].content), `[Reply from Writer]\n${report.slice(0, 2000)}`)
 })
 
+test('a message refused after a long one in the same turn keeps the start of both, and the refusal says so', async (t) => {
+  const team = await start(threeBots())
+  t.after(team.stop)
+  const { agents, emit, tool } = team
+  const turns = turnTaker(agents, emit)
+  turns.userTurn('a', 'have Writer do it')
+  await tool('message_bot', { to: 'Writer', message: 'write the report' }, 'a')
+  turns.end('a')
+  turns.take('b')
+  const report = `${'x'.repeat(1990)}${'y'.repeat(510)}`
+  await tool('message_bot', { to: 'Chief', message: report }, 'b')
+  const refused = await tool('message_bot', { to: 'Chief', message: 'One more thing.' }, 'b')
+  assert.match(refused, /Your message was kept as your answer, after what was kept before in this turn, but only the first 2000 characters of all of it\. To send all of it, write it in full as your answer\./)
+  turns.end('b')
+  await settled(() => callsOf(agents, 'a').length === 1)
+  assert.equal(textOf(callsOf(agents, 'a')[0][1].content), `[Reply from Writer]\n${report.slice(0, 2000)}`)
+})
+
 test('a message refused because a Bot further up waits goes to the direct asker, and the refusal says so', async (t) => {
   const team = await start(threeBots())
   t.after(team.stop)

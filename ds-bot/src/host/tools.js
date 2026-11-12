@@ -216,14 +216,17 @@ export function install(rt) {
     // Messages refused in one turn add up, as the turn's texts do; a later turn's
     // replace what an earlier turn kept, as its reply would.
     const before = keptUp.get(exec.agent?.id)
-    const earlier = before?.turn === turn.turn && before.work === work ? before.texts : []
-    const replaced = earlier.length === 0 && state.works[work].held !== undefined
-    const texts = [...earlier, said]
-    keptUp.set(exec.agent?.id, { turn: turn.turn, work, texts })
-    const text = texts.join('\n\n')
+    const again = before?.turn === turn.turn && before.work === work
+    const replaced = !again && state.works[work].held !== undefined
+    const text = again ? `${before.text}\n\n${said}` : said
+    // Only turns still running are remembered, and only as much as holdWork keeps,
+    // with one more character to tell that it was cut: Sessions of earlier parts
+    // never end another turn that would clear them.
+    for (const [id, kept] of keptUp) if (rt.live.get(id)?.turn !== kept.turn) keptUp.delete(id)
+    keptUp.set(exec.agent?.id, { turn: turn.turn, work, text: text.slice(0, TEXT_KEPT + 1) })
     rt.holdWork(work, text)
     const cut = text.length > TEXT_KEPT
-    const kept = earlier.length > 0
+    const kept = again
       ? `Your message was kept as your answer, after what was kept before in this turn${cut ? `, but only the first ${TEXT_KEPT} characters of all of it` : ''}.`
       : `${cut ? `Only its first ${TEXT_KEPT} characters were` : 'Your message was'} kept as your answer${replaced ? ', in place of what was kept for this work before this turn' : ''}.`
     const whole = cut ? ' To send all of it, write it in full as your answer.' : ''
