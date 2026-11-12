@@ -5,6 +5,7 @@ import { syncBuiltinESMExports } from 'node:module'
 import { hostname, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
+import { afterRound } from './relay-rows.js'
 import { format } from 'node:util'
 import { createRuntime } from '../index.js'
 import { fakeContext } from './fake-ctx.js'
@@ -218,11 +219,11 @@ test('a group the user makes without a first message opens with its admin asking
 
   // The relay gives the admin alone a turn, and the cue adds no line to the group.
   for (const listener of ctx.listeners.get('session/event')) listener({ id: room.id }, { type: 'user/message', data: sent[0].message })
-  const controller = new AbortController()
-  const relay = rt.teamTools.find(d => d.name === 'group_relay').execute({}, { agent: { id: room.id }, callId: 'relay', signal: controller.signal })
+  const relay = rt.teamTools.find(d => d.name === 'group_relay').execute({}, { agent: { id: room.id }, callId: 'relay', signal: new AbortController().signal })
+    .then(value => afterRound(rt, room.id, value))
   await until(() => sent.length > 1)
-  controller.abort()
-  const result = JSON.parse(await relay)
+  rt.stopRoomRound(room.id)
+  const result = await relay
   const turns = sent.slice(1)
   assert.equal(turns.length, 1)
   const text = turns[0].message.content[0].text
