@@ -20,7 +20,7 @@ export function install(rt) {
   const { ctx, home, statePath } = rt
 
   /** @type {{version:1, workspaceId?:string, mainBotIds:string[], bots:Record<string,any>, privateArchives:any[], rooms:Record<string,any>, agents:Record<string,any>, sections:any[], capabilities:{items:Record<string,any>}, exchanges:any[], exchangeTurns:Record<string,number[]>, revision:number}} */
-  const state = { version: 1, mainBotIds: [], bots: {}, privateArchives: [], rooms: {}, agents: {}, sections: [], capabilities: { items: {} }, exchanges: [], exchangeTurns: {}, works: {}, requests: {}, questions: {}, views: {}, closedCards: {}, closedViews: {}, prefs: {}, switching: {}, revision: 0 }
+  const state = { version: 1, mainBotIds: [], bots: {}, privateArchives: [], rooms: {}, agents: {}, sections: [], capabilities: { items: {} }, exchanges: [], exchangeTurns: {}, works: {}, requests: {}, questions: {}, views: {}, closedCards: {}, prefs: {}, switching: {}, revision: 0 }
   let loaded = null
   let writing = Promise.resolve()
   const { warn } = rt
@@ -193,9 +193,18 @@ export function install(rt) {
     }
     if (state.works === null || typeof state.works !== 'object' || Array.isArray(state.works)) state.works = {}
     if (state.requests === null || typeof state.requests !== 'object' || Array.isArray(state.requests)) state.requests = {}
+    // Group call batches (groups.js); a batch that is not whole is dropped.
+    if (state.roomBatches === null || typeof state.roomBatches !== 'object' || Array.isArray(state.roomBatches)) state.roomBatches = {}
+    for (const [key, batch] of Object.entries(state.roomBatches)) {
+      if (!Array.isArray(batch?.pending) || !Array.isArray(batch.done) || !Array.isArray(batch.results) || batch.key !== key) delete state.roomBatches[key]
+    }
     if (state.views === null || typeof state.views !== 'object' || Array.isArray(state.views)) state.views = {}
     if (state.closedCards === null || typeof state.closedCards !== 'object' || Array.isArray(state.closedCards)) state.closedCards = {}
-    if (state.closedViews === null || typeof state.closedViews !== 'object' || Array.isArray(state.closedViews)) state.closedViews = {}
+    // LEGACY: v0.3.2 kept closed dock views here, pinning them above the composer.
+    if ('closedViews' in state) {
+      delete state.closedViews
+      migrated = true
+    }
     // LEGACY: aside cards lived in this file only before the feature shipped;
     // they are kept under btw/ per part now. A saved copy is dropped, not moved.
     if ('btwCards' in state) {
@@ -564,18 +573,13 @@ export function install(rt) {
   }
 
   // A question or view card closed without an answer on the card (dismissed, or
-  // answered by a message) stays in the chat, read-only: by Session, its call id
-  // and how it closed. A card answered on the card shows on its reply message.
+  // answered by a message) stays in the chat, read-only: by the Session where it
+  // was asked, its call id and how it closed. A card answered on the card shows
+  // on its reply message.
   const closeCard = (sessionId, card, outcome) => {
-    if (card === null || typeof card !== 'object') return
-    if (typeof card.callId === 'string') {
-      state.closedCards[sessionId] = { ...own(state.closedCards, sessionId), [card.callId]: outcome }
-      return
-    }
-    // A view card with no call row (a hidden Bot-to-Bot turn) has no place in the
-    // transcript: keep it above the composer instead of losing it. A question
-    // card without a call row has no dock form, and keeps its old behaviour.
-    if (card.view !== undefined && typeof card.id === 'string') state.closedViews[sessionId] = { id: card.id, title: typeof card.title === 'string' ? card.title : '', closed: outcome }
+    if (typeof card?.callId !== 'string') return
+    const target = typeof card.callSessionId === 'string' ? card.callSessionId : sessionId
+    state.closedCards[target] = { ...own(state.closedCards, target), [card.callId]: outcome }
   }
 
   Object.assign(rt, {

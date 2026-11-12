@@ -625,3 +625,27 @@ test('a second host reads chats but never writes or answers', async (t) => {
   assert.equal(env.requests.length, 0)
   assert.equal(existsSync(join(env.home, 'side', 'b1.json')), true)
 })
+
+test('a side question retries transient TRANSPORT failures and stops immediately if aborted in backoff', async (t) => {
+  const recovered = await setup({
+    scripts: [
+      [
+        { type: 'text-delta', index: 0, text: 'broken partial ' },
+        { type: 'finish', reason: { kind: 'error', failure: { code: 'TRANSPORT', message: 'DeepSeek Messages transport failed' } } },
+      ],
+      [
+        { type: 'text-delta', index: 0, text: 'Clean answer.' },
+        { type: 'finish', reason: { kind: 'stop' } },
+      ],
+    ],
+  })
+  recovered.rt.config.llmRetryBackoff = { initialDelayMs: 1, maxDelayMs: 5 }
+  t.after(() => recovered.stop())
+  const asked = await recovered.call('side-ask', { sessionId: 's-now', text: 'quick check' })
+  await recovered.rt.sideJoin(asked.value.entryId)
+  const entry = chatOf(recovered.rt, asked.value.chatId).entries[0]
+  assert.equal(recovered.requests.length, 2)
+  assert.equal(entry.status, 'done')
+  assert.equal(entry.answer, 'Clean answer.')
+})
+
