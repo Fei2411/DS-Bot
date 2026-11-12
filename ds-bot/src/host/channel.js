@@ -146,6 +146,10 @@ export function install(rt) {
     phone: rt.phoneView(),
     imStatus: rt.imStatusView?.() ?? {},
     imVia: rt.imViaView?.() ?? {},
+    // Why this host cannot write the team, or null. It changes without a save — the
+    // other dsh can quit while this window stays open and this host takes the lock
+    // over — so a window learns that it may write again without a reload.
+    readOnly: rt.readOnly() ?? null,
     // Computer use live state: per-Bot control, leases, pending app cards and holds.
     // Named apart from the state view's `computer`: the live answer merges into the
     // same object and would wipe its `enabled` and `provider` fields.
