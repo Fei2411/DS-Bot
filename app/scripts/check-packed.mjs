@@ -416,7 +416,7 @@ async function chat(cdp) {
   // Click the composer through the input pipeline. A bare focus() is not enough where no window
   // manager gives the window focus (xvfb in CI): the text and the Enter would go nowhere.
   const box = "[...document.querySelectorAll('[role=textbox][contenteditable=true], textarea')].at(-1)"
-  const focusCheck = "(document.activeElement?.isContentEditable ?? false) || document.activeElement?.tagName === 'TEXTAREA'"
+  const focusCheck = "document.hasFocus() && ((document.activeElement?.isContentEditable ?? false) || document.activeElement?.tagName === 'TEXTAREA')"
   // A greeting that just arrived leaves the composer rebinding: for a moment the field is
   // not editable, so a click lands on it but does not focus it. The probe and the click are
   // separate round trips, so keep probing and click only where the field itself is on top
@@ -506,35 +506,14 @@ async function chat(cdp) {
   } catch (error) {
     throw new Error(`${error.message}; composer: ${await composerState()}`)
   }
-  // The composer still drops an Enter now and then: it lands while the field is being rebound, and
-  // the message stays where it was. A user who sees that presses Enter again, so do the same — but
-  // only while nothing has changed. The first press may also have been sent with its text just
-  // slow to clear, and pressing again then would post it twice or post an empty one, so a draft that
-  // moved on, a disabled send button or a lost focus ends the retries instead.
   const message = 'packaged app check'
   const draft = `String(${box}?.innerText ?? '')`
-  let previousDraft = null
-  let sent = false
-  for (let press = 1; press <= 3 && !sent; press += 1) {
-    if (press > 1) {
-      await sleep(1000)
-      const state = JSON.parse(await evaluate(`JSON.stringify(${snapshot})`))
-      const shown = String(state.draft ?? '')
-      if (!shown.includes(message)) break
-      if (shown !== previousDraft) break
-      if (state.send === null || state.send.disabled) break
-      if (!state.editable) break
-    }
-    previousDraft = await evaluate(draft)
-    for (const type of ['keyDown', 'keyUp']) await cdp.call('Input.dispatchKeyEvent', { type, key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 })
-    try {
-      await until(`!${draft}.includes(${JSON.stringify(message)})`, 'Enter to send the message', 10_000)
-      sent = true
-    } catch {
-      // The field still holds the text; the next pass reads the state before deciding to press again.
-    }
+  for (const type of ['keyDown', 'keyUp']) await cdp.call('Input.dispatchKeyEvent', { type, key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 })
+  try {
+    await until(`!${draft}.includes(${JSON.stringify(message)})`, 'Enter to send the message', 10_000)
+  } catch (error) {
+    throw new Error(`${error.message}; composer: ${await composerState()}`)
   }
-  if (!sent) throw new Error(`the message stayed in the composer after 3 Enter presses; composer: ${await composerState()}`)
   // The mock model starts its reply with 收到： and the message.
   try {
     await until(text('收到：packaged app check'), 'the reply')
@@ -614,6 +593,16 @@ try {
     })
     if (answer.exceptionDetails) throw new Error(answer.exceptionDetails.exception?.description ?? answer.exceptionDetails.text)
     return answer.result?.value
+  }
+  // Wait until the start window finishes its cross-fade and closes before driving the team window;
+  // otherwise the splash teardown on Xvfb drops window focus after the composer was clicked.
+  const revealEnd = Date.now() + 120_000
+  while (Date.now() < revealEnd) {
+    if (await windowState('BrowserWindow.getAllWindows().length === 1 && win !== undefined && !win.isDestroyed() && win.isVisible()') === true) break
+    await sleep(200)
+  }
+  if (await windowState('BrowserWindow.getAllWindows().length === 1 && win !== undefined && !win.isDestroyed() && win.isVisible()') !== true) {
+    throw new Error('timed out waiting for the start window to hand off to the team window')
   }
   const chatError = await chat(cdp).then(() => undefined, error => error)
   if (shotFile) {
