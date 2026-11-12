@@ -9,11 +9,17 @@
       name: ds-bot/web-search
 
 # A config override replaces the whole entry config, so fetchProvider is
-# restated. A profile patch that names another searchProvider (exa, perplexity,
-# deepseek-official) wins over this one. Turning off web-search-auto alone
-# leaves this row on "auto", and every web_search then fails; the profile must
+# restated. A profile patch that names another searchProvider (deepseek-search-api,
+# deepseek-official, exa, perplexity) wins over this one. Turning off web-search-auto
+# alone leaves this row on "auto", and every web_search then fails; the profile must
 # name another searchProvider too (see README "Web search").
 - id: web
   config:
     searchProvider: auto
     fetchProvider: http
+
+# DS Bot's settings shell holds the sidebar's settings seat (src/client/settings-shell.js)
+# and draws DSH's settings pages in DS Bot's Settings dialog. Only the entry that declares
+# the seat's child slots may render them, so DSH's own shell stays off.
+- id: ui-settings-general
+  disabled: true

@@ -1,4 +1,4 @@
-// Check a packaged app: process an image with its sharp, then start it on throwaway folders with the ds-bot mock model, choose a model,
+// Check a packaged app: copy files that end in .asar with its copy of a user's folders, process an image with its sharp, convert a Word document with its LibreOffice engine, then start it on throwaway folders with the ds-bot mock model, choose a model,
 // send a message, wait for the reply, then close the window the way a user does: the window hides
 // and the app goes on. The window comes back when the app is started again, and the app ends the
 // way the tray's Quit ends it. Fails on a page error or a non-zero exit.
@@ -6,11 +6,13 @@
 // The executable defaults to the one that `npm run pack` or `npm run dist` writes into dist-pack/.
 import { spawn, spawnSync } from 'node:child_process'
 import { connect, createServer } from 'node:net'
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
+import { crc32 } from 'node:zlib'
+import { hostExecutable } from '../src/host-process.mjs'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const [given, shotFile] = process.argv.slice(2)
@@ -18,11 +20,11 @@ const executable = given || packedExecutable()
 
 function packedExecutable() {
   const out = join(root, 'dist-pack')
-  if (process.platform === 'win32') return join(out, 'win-unpacked', 'DeepSeek Bot.exe')
+  if (process.platform === 'win32') return join(out, 'win-unpacked', 'DS Bot.exe')
   // executableName in electron-builder.yml.
-  if (process.platform === 'linux') return join(out, 'linux-unpacked', 'deepseek-bot')
+  if (process.platform === 'linux') return join(out, 'linux-unpacked', 'dsbot')
   const dir = ['mac-arm64', 'mac'].find(name => existsSync(join(out, name))) ?? 'mac'
-  return join(out, dir, 'DeepSeek Bot.app', 'Contents', 'MacOS', 'DeepSeek Bot')
+  return join(out, dir, 'DS Bot.app', 'Contents', 'MacOS', 'DS Bot')
 }
 
 if (!existsSync(executable)) {
@@ -35,15 +37,27 @@ if (!existsSync(executable)) {
 {
   const resources = process.platform === 'darwin' ? join(dirname(executable), '..', 'Resources') : join(dirname(executable), 'resources')
   const windows = process.platform === 'win32'
+  const unpacked = process.platform === 'linux' ? 'app' : 'app.asar.unpacked'
   const required = [
     'primary-runtime/runtime.json',
     join('primary-runtime', 'dependencies', 'python', ...(windows ? ['python.exe'] : ['bin', 'python3'])),
     join('primary-runtime', 'dependencies', 'node', 'bin', windows ? 'node.exe' : 'node'),
     join('office-skills', 'office', 'SKILL.md'),
-    join('app.asar.unpacked', 'node_modules', '@deepseek-ai', 'libreoffice-kit', 'lib', 'cli.js'),
-    join('app.asar.unpacked', 'node_modules', 'ds-bot', 'office.js'),
+    join(unpacked, 'node_modules', '@deepseek-ai', 'libreoffice-kit', 'lib', 'cli.js'),
+    join(unpacked, 'node_modules', 'ds-bot', 'office.js'),
   ]
   const missing = required.filter((entry) => !existsSync(join(resources, entry)))
+  // macOS carries the signed "DSH Computer Use" helper outside the asar, in a
+  // hash-named folder; find it by its name rather than the changing hash.
+  if (process.platform === 'darwin') {
+    const rootDir = join(resources, unpacked, 'node_modules', '@deepseek-ai', 'dsh-experimental-cua-macos', 'native', 'bin')
+    const dirs = existsSync(rootDir) ? readdirSync(rootDir) : []
+    const helper = dirs.flatMap(dir => {
+      const here = join(rootDir, dir)
+      return existsSync(here) ? readdirSync(here).map(hash => join(here, hash, 'DSH Computer Use.app')) : []
+    }).find(entry => existsSync(entry))
+    if (helper === undefined) missing.push(join(unpacked, 'node_modules', '@deepseek-ai', 'dsh-experimental-cua-macos', 'native', 'bin', '<arch>', '<hash>', 'DSH Computer Use.app'))
+  }
   if (missing.length > 0) {
     console.error(`check-packed: FAILED: missing from ${resources}:\n  ${missing.join('\n  ')}`)
     process.exit(1)
@@ -86,12 +100,62 @@ function outsideCheckout(file) {
   return join(copy, relative(appDir, file))
 }
 
-function checkSharp(app) {
+// The copy that the import and the data move share, in Electron's own fs, which plain Node and so
+// the tests do not have: a user's files that end in .asar arrive as they are and can be removed.
+function checkAsarCopy(app) {
   const resources = process.platform === 'darwin' ? resolve(app, '..', '..', 'Resources') : join(dirname(app), 'resources')
-  const script = `
+  const tree = join(resources, process.platform === 'linux' ? 'app' : 'app.asar', 'src', 'copy-tree.mjs')
+  const result = spawnSync(app, ['-e', `
+    const assert = require('node:assert/strict')
+    const { join } = require('node:path')
+    const { pathToFileURL } = require('node:url')
+    const work = ${JSON.stringify(join(work, 'asar-copy'))}
+    // asar's own format: two size headers, the length of the JSON, the JSON padded to 4 bytes, the files.
+    const json = Buffer.from(JSON.stringify({ files: { 'f.txt': { size: 2, offset: '0' } } }))
+    const padded = Math.ceil(json.length / 4) * 4
+    const archive = Buffer.alloc(16 + padded + 2)
+    for (const [at, size] of [[0, 4], [4, 8 + padded], [8, 4 + padded], [12, json.length]]) archive.writeUInt32LE(size, at)
+    json.copy(archive, 16)
+    archive.write('hi', 16 + padded)
+    import(pathToFileURL(${JSON.stringify(tree)}).href).then(async ({ copyTree, disk }) => {
+      assert.ok(process.versions.electron, 'this check needs Electron')
+      const files = { 'valid.asar': archive, 'junk.asar': Buffer.from('no archive'), 'folder.asar/in.txt': Buffer.from('in') }
+      for (const [name, content] of Object.entries(files)) {
+        disk.mkdirSync(join(work, 'from', name, '..'), { recursive: true })
+        disk.writeFileSync(join(work, 'from', name), content)
+      }
+      assert.deepEqual(await copyTree(join(work, 'from'), join(work, 'to'), { skip: true }), [])
+      for (const [name, content] of Object.entries(files)) assert.ok(disk.readFileSync(join(work, 'to', name)).equals(content), name)
+      await disk.promises.rm(join(work, 'to'), { recursive: true })
+      assert.equal(disk.existsSync(join(work, 'to')), false)
+      console.log('check-packed: files that end in .asar are copied as they are')
+    }).catch((error) => { console.error(error); process.exit(1) })
+  `], { cwd: work, env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', NODE_PATH: '' }, encoding: 'utf8', timeout: 60_000 })
+  if (result.error || result.status !== 0) throw new Error(`the .asar copy check failed (exit ${String(result.status)}): ${result.error?.message ?? result.stderr}`)
+  console.log(result.stdout.trim())
+}
+
+// Run a script with the Host's runtime and the app's dependencies as the Host loads them,
+// outside the checkout and not with the CI runner's Node.
+function runInHost(app, what, script, timeout) {
+  const resources = process.platform === 'darwin' ? resolve(app, '..', '..', 'Resources') : join(dirname(app), 'resources')
+  const linux = process.platform === 'linux'
+  const prelude = `
     const assert = require('node:assert/strict')
     const { createRequire } = require('node:module')
-    const appRequire = createRequire(${JSON.stringify(join(resources, 'app.asar', 'package.json'))})
+    ${linux ? "assert.equal(process.versions.electron, undefined, 'the Linux Host must not run in Electron')" : ''}
+    const appRequire = createRequire(${JSON.stringify(join(resources, linux ? 'app' : 'app.asar', 'package.json'))})
+  `
+  const result = spawnSync(linux ? hostExecutable(resources) : app, ['-e', prelude + script], {
+    cwd: work, env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', NODE_PATH: '' },
+    encoding: 'utf8', timeout,
+  })
+  if (result.error || result.status !== 0) throw new Error(`packaged ${what} failed (exit ${String(result.status)}, signal ${String(result.signal)}): ${result.error?.message ?? ''}\n${result.stderr ?? ''}`)
+  console.log(result.stdout.trim())
+}
+
+function checkSharp(app) {
+  runInHost(app, 'sharp', `
     const sharp = appRequire('sharp')
     ;(async () => {
       const image = await sharp({ create: { width: 4, height: 4, channels: 3, background: '#ff0000' } }).png().toBuffer()
@@ -101,14 +165,112 @@ function checkSharp(app) {
       assert.deepEqual([...data], Array.from({ length: 4 }, () => [255, 0, 0]).flat())
       console.log('check-packed: sharp image processing passed (libvips ' + sharp.versions.vips + ')')
     })().catch(error => { console.error(error); process.exitCode = 1 })
-  `
-  // Use the shipped Electron and dependencies outside the checkout, just like the Host.
-  const result = spawnSync(app, ['-e', script], {
-    cwd: work, env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', NODE_PATH: '' },
-    encoding: 'utf8', timeout: 30_000,
+  `, 30_000)
+}
+
+// A zip archive of stored (uncompressed) files.
+function zip(files) {
+  const records = []
+  const directory = []
+  let offset = 0
+  for (const [path, text] of Object.entries(files)) {
+    const name = Buffer.from(path)
+    const data = Buffer.from(text)
+    // The fields that the local header and the directory entry share: zip 2.0, stored, dated 1980-01-01.
+    const shared = Buffer.alloc(26)
+    shared.writeUInt16LE(20, 0)
+    shared.writeUInt16LE(0x21, 8)
+    shared.writeUInt32LE(crc32(data), 10)
+    shared.writeUInt32LE(data.length, 14)
+    shared.writeUInt32LE(data.length, 18)
+    shared.writeUInt16LE(name.length, 22)
+    const local = Buffer.alloc(4)
+    local.writeUInt32LE(0x04034b50)
+    const entry = Buffer.alloc(6)
+    entry.writeUInt32LE(0x02014b50)
+    entry.writeUInt16LE(20, 4)
+    const entryEnd = Buffer.alloc(14)
+    entryEnd.writeUInt32LE(offset, 10)
+    records.push(local, shared, name, data)
+    directory.push(entry, shared, entryEnd, name)
+    offset += local.length + shared.length + name.length + data.length
+  }
+  const listing = Buffer.concat(directory)
+  const end = Buffer.alloc(22)
+  end.writeUInt32LE(0x06054b50)
+  end.writeUInt16LE(Object.keys(files).length, 8)
+  end.writeUInt16LE(Object.keys(files).length, 10)
+  end.writeUInt32LE(listing.length, 12)
+  end.writeUInt32LE(offset, 16)
+  return Buffer.concat([...records, listing, end])
+}
+
+function wordDocument(text) {
+  return zip({
+    '[Content_Types].xml': '<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>',
+    '_rels/.rels': '<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>',
+    'word/document.xml': `<?xml version="1.0" encoding="UTF-8"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>${text}</w:t></w:r></w:p></w:body></w:document>`,
   })
-  if (result.error || result.status !== 0) throw new Error(`packaged sharp failed (exit ${String(result.status)}, signal ${String(result.signal)}): ${result.error?.message ?? ''}\n${result.stderr ?? ''}`)
-  console.log(result.stdout.trim())
+}
+
+// File previews convert Office files with the LibreOffice engine, a program that the kit
+// resolves and starts. From inside the asar it cannot start, and every preview fails (#679).
+function checkOffice(app) {
+  const folder = join(work, 'office')
+  mkdirSync(folder)
+  const input = join(folder, 'check.docx')
+  const output = join(folder, 'check.pdf')
+  writeFileSync(input, wordDocument('packaged app check'))
+  runInHost(app, 'Office conversion', `
+    const { readFileSync } = require('node:fs')
+    const { pathToFileURL } = require('node:url')
+    ;(async () => {
+      const kit = await import(pathToFileURL(appRequire.resolve('@deepseek-ai/libreoffice-kit')).href)
+      const { backend } = await kit.discoverRuntime()
+      const converter = await kit.createConverter({ fontMetadataCacheDirectory: ${JSON.stringify(join(folder, 'fonts'))} })
+      try {
+        await converter.render({ inputPath: ${JSON.stringify(input)}, outputPath: ${JSON.stringify(output)} })
+      } finally {
+        await converter.dispose()
+      }
+      assert.equal(readFileSync(${JSON.stringify(output)}).subarray(0, 5).toString('latin1'), '%PDF-')
+      console.log('check-packed: Office conversion passed (' + backend + ' engine)')
+    })().catch(error => { console.error(error); process.exitCode = 1 })
+  `, 180_000)
+}
+
+// The browser plugins drive the app's own browser through Playwright; without it in the package
+// every browser tool failed before it did anything.
+function checkPlaywright(app) {
+  runInHost(app, 'Playwright', `
+    const { chromium } = createRequire(appRequire.resolve('ds-bot/package.json'))('playwright-core')
+    assert.equal(typeof chromium.connectOverCDP, 'function')
+    console.log('check-packed: the browser plugins find Playwright')
+  `, 30_000)
+}
+
+// Computer use on Windows loads the Cua Driver SDK's DLL by a path that the SDK derives from its
+// own module; a module inside the asar gives a path that Windows' loader cannot open (#1025).
+// The SDK is found the way the provider's import finds it, then asked for its tools.
+function checkComputerUse(app) {
+  runInHost(app, 'computer use driver', `
+    const { existsSync } = require('node:fs')
+    const { join } = require('node:path')
+    const { pathToFileURL } = require('node:url')
+    ;(async () => {
+      const provider = appRequire.resolve('@deepseek-ai/dsh-experimental-computer-use-cua-driver-native')
+      const sdk = createRequire(provider).resolve.paths('@trycua/cua-driver')
+        .map(dir => join(dir, '@trycua', 'cua-driver')).find(dir => existsSync(join(dir, 'package.json')))
+      assert.ok(sdk !== undefined, 'the provider finds no @trycua/cua-driver')
+      assert.ok(!/[\\\\/]app\\.asar[\\\\/]/u.test(sdk), 'the Cua Driver SDK is inside the asar: ' + sdk)
+      const { CuaDriver } = await import(pathToFileURL(join(sdk, 'dist', 'index.js')).href)
+      const driver = CuaDriver.create(undefined)
+      const { tools } = JSON.parse(await driver.listToolsJson())
+      assert.ok(tools.length > 0, 'the Cua Driver lists no tools')
+      await driver.shutdown?.()
+      console.log('check-packed: the Cua Driver loads from ' + sdk + ' and lists ' + tools.length + ' tools')
+    })().then(() => process.exit(process.exitCode ?? 0), error => { console.error(error); process.exit(1) })
+  `, 60_000)
 }
 
 function startMock() {
@@ -209,13 +371,17 @@ function devtools(url, problems) {
   return { opened, call, close: () => { socket.close() } }
 }
 
-// mica.css styles DSH's own page, which can change with a DSH upgrade; every rule must still
-// find an element, on every platform, so the change shows here and not as a broken window.
-function micaRules() {
-  const css = readFileSync(join(root, 'src', 'mica.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//gu, '')
+// material.css and macos.css style DSH's own page, which can change with a DSH upgrade; every
+// rule must still find an element, on every platform, so the change shows here and not as a
+// broken window. The page is not in fullscreen here, so a rule's html:not([data-fullscreen])
+// is dropped before the look. DSH draws its session tree only in the classic Agent view, which
+// the check does not open, so the rules for the tree are not looked for.
+const frameSheets = ['material.css', 'macos.css']
+function frameRules(file) {
+  const css = readFileSync(join(root, 'src', file), 'utf8').replace(/\/\*[\s\S]*?\*\//gu, '')
   return [...css.matchAll(/([^{}]+)\{/gu)].map(([, selectors]) => selectors.split(',')
-    .map(selector => selector.trim().replace(/::(?:before|after)$/u, ''))
-    .filter(selector => selector !== '' && selector !== 'body'))
+    .map(selector => selector.trim().replace(/::(?:before|after)$/u, '').replace(/^html(?::not\(\[data-fullscreen\]\))?\s*/u, ''))
+    .filter(selector => selector !== '' && selector !== 'body' && !selector.includes('_treeBody') && !selector.includes('_scrollRegion')))
     .filter(rule => rule.length > 0)
 }
 
@@ -224,7 +390,7 @@ async function chat(cdp) {
   const until = async (expression, label, ms = 120_000) => {
     const end = Date.now() + ms
     while (Date.now() < end) {
-      if (await evaluate(`Boolean(${expression})`)) return
+      if (await evaluate(`(async () => Boolean(await (${expression})))()`)) return
       await sleep(250)
     }
     throw new Error(`timed out waiting for ${label}`)
@@ -235,8 +401,10 @@ async function chat(cdp) {
   await cdp.call('Runtime.enable')
   await cdp.call('Log.enable')
   await until("document.querySelector('.bt-tile, .bt-row')", 'the team')
-  const stale = await evaluate(`${JSON.stringify(micaRules())}.filter(rule => !rule.some(selector => document.querySelector(selector) !== null)).map(rule => rule.join(', '))`)
-  if (stale.length > 0) throw new Error(`src/mica.css no longer matches DSH's page: ${stale.join(' | ')}`)
+  for (const file of frameSheets) {
+    const stale = await evaluate(`${JSON.stringify(frameRules(file))}.filter(rule => !rule.some(selector => document.querySelector(selector) !== null)).map(rule => rule.join(', '))`)
+    if (stale.length > 0) throw new Error(`src/${file} no longer matches DSH's page: ${stale.join(' | ')}`)
+  }
   await dismissNotice()
   const main = await evaluate("fetch('api/bot', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ endpoint: 'state', payload: {} }) }).then(r => r.json()).then(r => r.value.mainBotId)")
   await evaluate(`document.querySelector(${JSON.stringify(`[data-bot-id="${main}"]`)}).click()`)
@@ -296,23 +464,90 @@ async function chat(cdp) {
   }
   await cdp.call('Input.insertText', { text: 'packaged app check' })
   await until(text('packaged app check'), 'the typed message', 10_000)
+  // DSH's composer drops an Enter while it cannot send: while it is busy, or before it has taken
+  // in the inserted text. Its send button is disabled under the same conditions, so press Enter
+  // once a user could click the button, as a user who sees it greyed out would wait.
+  const send = `(() => {
+    let node = ${box}
+    while (node && !node.querySelector?.('button[aria-busy]')) node = node.parentElement
+    return node?.querySelector('button[aria-busy]') ?? null
+  })()`
+  const composerState = () => evaluate(`(() => {
+    const el = ${box}
+    const button = ${send}
+    return JSON.stringify({
+      active: document.activeElement?.tagName ?? null, editable: document.activeElement?.isContentEditable ?? null,
+      draft: el?.innerText ?? null, send: button === null ? null : { label: button.getAttribute('aria-label'), disabled: button.disabled },
+      tail: document.body.innerText.slice(-300),
+    })
+  })()`)
+  try {
+    await until(`(() => { const button = ${send}; return button !== null && !button.disabled })()`, 'the send button', 30_000)
+  } catch (error) {
+    throw new Error(`${error.message}; composer: ${await composerState()}`)
+  }
   for (const type of ['keyDown', 'keyUp']) await cdp.call('Input.dispatchKeyEvent', { type, key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 })
+  try {
+    await until(`!(${box}?.innerText ?? '').includes('packaged app check')`, 'Enter to send the message', 10_000)
+  } catch (error) {
+    throw new Error(`${error.message}; composer: ${await composerState()}`)
+  }
   // The mock model starts its reply with 收到： and the message.
   try {
     await until(text('收到：packaged app check'), 'the reply')
   } catch (error) {
-    const state = await evaluate("JSON.stringify({ active: document.activeElement?.tagName ?? null, editable: document.activeElement?.isContentEditable ?? null, tail: document.body.innerText.slice(-300) })")
-    throw new Error(`${error.message}; page state: ${state}`)
+    throw new Error(`${error.message}; composer: ${await composerState()}`)
   }
   await sleep(1000)
   console.log(`check-packed: chat ${JSON.stringify(await evaluate('document.body.innerText.slice(-200)'))}`)
+  if (process.platform === 'darwin') await checkComputerHelper(evaluate, until)
+}
+
+async function checkComputerHelper(evaluate, until) {
+  const helperHome = join(work, 'shell', 'computer-use')
+  const call = (endpoint, payload = {}) => `fetch('api/bot', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: ${JSON.stringify(JSON.stringify({ endpoint, payload }))},
+  }).then(r => r.json()).then(r => r.value)`
+  const provider = `${call('state')}.then(state => state.computer.provider)`
+
+  // A file at the copy location forces a real filesystem error without touching the bundle.
+  writeFileSync(helperHome, '')
+  await evaluate(call('computer-set-enabled', { enabled: true }))
+  await until(`${provider}.then(provider => provider.state !== 'loading')`, 'the computer-use provider error')
+  const failure = await evaluate(provider)
+  if (failure.state !== 'error' || !failure.message.startsWith('Could not prepare the macOS computer-use helper:')) {
+    throw new Error(`expected the helper preparation error: ${JSON.stringify(failure)}`)
+  }
+  rmSync(helperHome)
+  const retry = await evaluate(call('computer-provider-retry'))
+  if (retry?.provider?.state !== 'ready') {
+    throw new Error(`the computer-use provider could not retry: ${JSON.stringify(retry?.provider)}`)
+  }
+  console.log('check-packed: retry prepared the computer-use helper outside the app')
+
+  // The hosted macOS 26 Intel runner hangs in IconServices when the DSH helper starts.
+  if (process.arch === 'x64' && process.env.GITHUB_ACTIONS === 'true') {
+    console.log('check-packed: skipping the native permission query on the hosted Intel runner')
+  } else {
+    const status = await evaluate(call('computer-system-status'))
+    if (typeof status?.accessibility !== 'boolean' || !status?.helper?.path?.startsWith(helperHome + '/')) {
+      throw new Error(`the computer-use helper did not answer from outside the app: ${JSON.stringify(status)}`)
+    }
+    console.log(`check-packed: the computer-use helper answers from ${status.helper.path}`)
+  }
+  await evaluate(call('computer-set-enabled', { enabled: false }))
 }
 
 let failed = false
 const problems = []
 try {
   const packedApp = outsideCheckout(resolve(executable))
+  checkAsarCopy(packedApp)
   checkSharp(packedApp)
+  checkOffice(packedApp)
+  checkPlaywright(packedApp)
+  if (process.platform === 'win32') checkComputerUse(packedApp)
   const modelUrl = await startMock()
   const port = await freePort()
   const mainPort = await freePort()

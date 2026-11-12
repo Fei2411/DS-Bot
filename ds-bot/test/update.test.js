@@ -121,9 +121,9 @@ test('a versioned GitHub install follows the latest release tag and keeps its pa
 
 test('a versioned GitHub install follows the release to the repository\'s current address', async () => {
   const { rt, installs } = start({
-    source: 'github:old-owner/DeepSeek-Bot#v0.1.0&path:/ds-bot',
+    source: 'github:old-owner/retired-dsbot#v0.1.0&path:/ds-bot',
     answers: {
-      'https://api.github.com/repos/old-owner/DeepSeek-Bot/releases/latest': {
+      'https://api.github.com/repos/old-owner/retired-dsbot/releases/latest': {
         tag_name: 'v9.1.0',
         html_url: 'https://github.com/Fei2411/DS-Bot/releases/tag/v9.1.0',
       },
@@ -353,6 +353,21 @@ test('a reinstall refused by an application state also puts the old version back
   const note = noteIn(home)
   assert.equal(note.error, `install failed; ${PKG.name}@${PKG.version} was reinstalled`)
   assert.equal((await rt.updateCheck()).phase, 'failed')
+  rmSync(home, { recursive: true, force: true, maxRetries: 5 })
+})
+
+test('a newer release is offered in the run that reported the last update', async () => {
+  const home = newHome()
+  writeFileSync(join(home, 'update.json'), JSON.stringify({ from: '0.2.0', to: PKG.version, spec: `${PKG.name}@${PKG.version}`, startedAt: new Date().toISOString() }))
+  const { rt } = start({
+    home,
+    source: `${PKG.name}@^${PKG.version}`,
+    answers: { [`https://registry.npmjs.org/${PKG.name}/latest`]: { version: '9.0.0' } },
+  })
+  assert.equal(rt.updateView().phase, 'updated')
+  const view = await rt.updateCheck({ fresh: true })
+  assert.equal(view.available, true)
+  assert.equal(view.phase, 'idle')
   rmSync(home, { recursive: true, force: true, maxRetries: 5 })
 })
 

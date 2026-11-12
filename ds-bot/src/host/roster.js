@@ -1,12 +1,18 @@
 // Roster: creating, changing, and deleting Bots and group chats, the Main Bot role, and
 // the first Main Bot of a new team.
+import { randomUUID } from 'node:crypto'
 import { mkdir } from 'node:fs/promises'
-import { MAX_AVATAR_IMAGE, ROOM_MAX_MEMBERS, ROOM_MODES, ROOM_NAME_MAX, ROOM_NOTICE_MAX } from './constants.js'
+import { MAX_AVATAR_IMAGE, ROOM_MAX_MEMBERS, ROOM_MODES, ROOM_NAME_MAX, ROOM_NOTICE_MAX, SECTION_COLORS, SECTION_NAME_MAX } from './constants.js'
 import { currentColor, isColor, normalize, unquote } from './text.js'
 import { nameProblem } from '../shared/mentions.js'
 
 const BROWSER_GRANT_KINDS = new Set(['post', 'upload', 'download', 'delete', '*'])
 const HOSTNAME = /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)(?:\.(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?))*$/
+
+const OWN_RULES = 'Where your instructions say otherwise, follow them.'
+const writeIn = language => `Write in ${language ?? 'the user\'s language if known; otherwise Chinese'}.`
+// The first Main Bot's greeting when the user wrote before it had a model that works.
+const AFTER_USER = 'You were just set up as the user\'s Main Bot. The user wrote to you before your model could answer; their message above has no answer yet. Answer it now, and say in one short sentence that you run their Bot team.'
 
 function cleanBrowserGrants(input) {
   if (input === null) return null
@@ -75,7 +81,8 @@ export function install(rt) {
   }
 
   // `dir` is a working folder outside the team workspace. Such a Session is made by cwd
-  // alone, so it joins no DSH workspace and the user's own project lists stay as they are.
+  // alone, so it joins no DSH workspace and the user's own project lists stay as they are —
+  // unless the folder is already registered as a workspace, which it then joins (#710).
   async function createSession(title, { dir } = {}) {
     // A Bot's tools run here too; while another dsh holds the team, a new Session would
     // belong to no saved Bot.
@@ -83,7 +90,8 @@ export function install(rt) {
     if (readOnly !== undefined) throw new Error(readOnly)
     const usable = dir !== undefined && await rt.isFolder(dir)
     if (dir !== undefined && !usable) rt.warn('ds-bot: the working folder %s is gone; %s starts in the team workspace', dir, title)
-    const place = usable ? { cwd: dir } : { workspaceId: await ensureWorkspace() }
+    const known = usable ? await ctx.workspaceRegistry.resolveByPath(dir) : undefined
+    const place = known !== undefined ? { workspaceId: known.id } : usable ? { cwd: dir } : { workspaceId: await ensureWorkspace() }
     const { sessionId } = await ctx.sessionController.create({ ...place, ...await botPreset() })
     const agent = await rt.resolveAgent(sessionId)
     await ctx.sessionTitle.rename(agent.session, title)
@@ -95,7 +103,7 @@ export function install(rt) {
     const avatar = {}
     if (typeof input.shape === 'string' && /^[a-z][\w-]{0,31}$/.test(input.shape)) avatar.shape = input.shape
     if (typeof input.image === 'string') {
-      if (!/^data:image\/(png|jpeg|webp|gif);base64,[A-Za-z0-9+/=]+$/.test(input.image)) throw new Error('Avatar images must be PNG, JPEG, WebP, or GIF')
+      if (!/^data:image\/(png|jpeg|webp|gif|svg\+xml);base64,[A-Za-z0-9+/=]+$/.test(input.image)) throw new Error('Avatar images must be PNG, JPEG, WebP, GIF, or SVG')
       if (input.image.length > MAX_AVATAR_IMAGE) throw new Error('Avatar image is too large')
       avatar.image = input.image
     }
@@ -127,8 +135,46 @@ export function install(rt) {
     return `${stem} ${index}`
   }
 
+  function cleanSectionName(text, selfId) {
+    const next = unquote(text).replace(/\s+/g, ' ').slice(0, SECTION_NAME_MAX)
+    if (next === '') throw new Error('Enter a section name')
+    if ((state.sections ?? []).some(sec => sec.id !== selfId && normalize(sec.name) === normalize(next))) {
+      throw new Error(`Another section is already called "${next}"`)
+    }
+    return next
+  }
+
+  function freshSectionName(base = 'New section') {
+    const stem = unquote(base).replace(/\s+/g, ' ').slice(0, SECTION_NAME_MAX - 4) || 'New section'
+    const taken = name => (state.sections ?? []).some(sec => normalize(sec.name) === normalize(name))
+    if (!taken(stem)) return stem
+    let index = 2
+    while (taken(`${stem} ${index}`)) index += 1
+    return `${stem} ${index}`
+  }
+
+  // Resolves a section by id (`sectionId`) or by name/id (`section`, creating one when
+  // a new name is given); `null` or an empty string clears the entry's section.
+  function resolveSectionInput({ section, sectionId }, { allowCreate = true } = {}) {
+    if (section === undefined && sectionId === undefined) return undefined
+    const raw = section !== undefined ? section : sectionId
+    if (raw === null || raw === '' || /^(none|null|无|未分组)$/i.test(String(raw).trim())) return null
+    const list = (state.sections ??= [])
+    const byId = list.find(sec => sec.id === raw)
+    if (byId !== undefined) return byId.id
+    if (section === undefined) throw new Error('Unknown section')
+    const byName = list.find(sec => normalize(sec.name) === normalize(raw))
+    if (byName !== undefined) return byName.id
+    const clean = cleanSectionName(raw)
+    if (!allowCreate) return clean
+    const created = { id: `sec-${randomUUID().slice(0, 8)}`, name: clean }
+    list.push(created)
+    return created.id
+  }
+
   // `pickModel` leaves the model to the user: the chat opens on a model card, and the
-  // greeting waits until a model is chosen. So does a Bot made when no model is served.
+  // greeting waits until a model is chosen. So does a Bot made when no model it can
+  // run on is served.
   async function createBot(options) {
     const cleanName = String(options.name ?? '').trim().slice(0, 40)
     const problem = nameProblem(cleanName)
@@ -137,10 +183,10 @@ export function install(rt) {
     return holdName('bot', cleanName, () => buildBot(cleanName, options))
   }
 
-  async function buildBot(cleanName, { role = '', instructions = '', color, brief = '', createdBy, main = false, avatar, model, effort, workDir, copyOf, pickModel = false }) {
+  async function buildBot(cleanName, { role = '', instructions = '', color, brief = '', createdBy, main = false, avatar, model, effort, workDir, copyOf, pickModel = false, section, sectionId }) {
     const cleanAvatarValue = cleanAvatar(avatar)
     // The model is fixed at creation, so a later change of the DSH default leaves it alone.
-    const modelRef = model ? await rt.resolveModel(model) : pickModel ? undefined : await rt.defaultModel()
+    const modelRef = model ? await rt.resolveModel(model) : pickModel ? undefined : await rt.defaultBotModel()
     // A thinking level needs a model to resolve against; with none it would be dropped
     // silently, so the create fails before a Session is made.
     if (effort && modelRef === undefined) throw new Error('Pick a model before choosing a thinking level')
@@ -152,8 +198,10 @@ export function install(rt) {
     const dir = workDir === undefined || workDir === null ? undefined : await rt.cleanWorkDir(workDir)
     const clash = dir === undefined ? undefined : await rt.privateClash(dir)
     if (clash) throw new Error(`${dir} is in or around the folder of ${clash.name}, a private Bot, so ${cleanName} cannot work there`)
+    if (!main && (section !== undefined || sectionId !== undefined)) resolveSectionInput({ section, sectionId }, { allowCreate: false })
     const id = await createSession(cleanName, { dir })
     try {
+      const resolvedSecId = !main ? resolveSectionInput({ section, sectionId }) : undefined
       state.bots[id] = {
         id,
         name: cleanName,
@@ -164,6 +212,7 @@ export function install(rt) {
         ...(modelRef ? { model: modelRef } : {}),
         ...(effortId ? { effort: effortId } : {}),
         ...(dir ? { workDir: dir } : {}),
+        ...(resolvedSecId ? { sectionId: resolvedSecId } : {}),
         instructions: String(instructions).trim(),
         createdAt: Date.now(),
         createdBy: createdBy ?? null,
@@ -176,7 +225,7 @@ export function install(rt) {
       // The kickoff arrives as a user message, so it outranks the Bot's instructions
       // unless it gives way to them, and it names no tool those instructions may rule out.
       const kickoff = main
-        ? `You were just set up as the user's Main Bot. Greet the user in one or two short messages: say you will run their Bot team and that they can come to you for anything that needs a decision. Then ask in one short question what they want the team to help with first. Write in ${language ?? 'the user\'s language if known; otherwise Chinese'}.`
+        ? `You were just set up as the user's Main Bot. Greet the user in one or two short messages: say you will run their Bot team and that they can come to you for anything that needs a decision. Then ask in one short question what they want the team to help with first. ${writeIn(language)}`
         : original
           ? `The user just made you as a copy of ${original.name}: same job, fresh memory. Greet the user in one short message, then ask in one short question what this copy should focus on.`
           : creator
@@ -184,14 +233,15 @@ export function install(rt) {
             : brief
               ? `The user just created you and sent this first message:\n\n${brief}\n\nIntroduce yourself in one short line, then help with it.`
               : 'The user just created you. Greet the user in one short message, then ask in one short question what you should focus on.'
-      const opener = `${kickoff}\nWhere your instructions say otherwise, follow them.`
+      const opener = `${kickoff}\n${OWN_RULES}`
       const text = !main && language ? `${opener}\nWrite in ${language}.` : opener
       const bot = state.bots[id]
+      const greeting = { text, from: createdBy ?? null, ...(main ? { main: true } : {}) }
       // The Bot is saved by now; a failure here must not archive it in the catch below.
       const scopeTools = () => rt.resolveAgent(id)
         .catch(error => rt.warn('ds-bot: scoped tools for %s not applied: %s', cleanName, error))
       if (modelRef === undefined) {
-        bot.kickoff = { text, from: createdBy ?? null, ...(main ? { main: true } : {}) }
+        bot.kickoff = greeting
         await rt.save()
         // The Session was resolved before the Bot existed, so its scoped tools land now.
         await scopeTools()
@@ -202,7 +252,7 @@ export function install(rt) {
       // The greeting runs on the Bot's own model, once its provider is registered.
       void rt.waitForModel(bot)
         .then(() => rt.applyModel(bot).catch(error => rt.warn('ds-bot: model for %s not applied: %s', cleanName, error)))
-        .then(() => sendKickoff(bot, { text, from: createdBy }))
+        .then(() => sendKickoff(bot, greeting))
       return bot
     } catch (error) {
       // The Bot's Session was already made: archive it instead of leaving an orphan.
@@ -218,15 +268,65 @@ export function install(rt) {
     }
   }
 
-  function sendKickoff(bot, { text, from }) {
-    void rt.deliver({ fromId: from ?? undefined, toId: bot.id, text, role: 'kickoff' })
+  // Greetings sent, by Bot: one whose turn a key, a sign-in or a balance stops is held
+  // again (turns.js), to go out once the user has fixed that.
+  const sentKickoffs = new Map()
+  function sendKickoff(bot, greeting) {
+    sentKickoffs.set(bot.id, greeting)
+    const text = greeting.afterUser ? `${AFTER_USER} ${writeIn(rt.uiLanguage?.())}\n${OWN_RULES}` : greeting.text
+    void rt.deliver({ fromId: greeting.from ?? undefined, toId: bot.id, text, role: 'kickoff' })
       .catch(error => rt.warn('ds-bot: kickoff failed: %s', error))
   }
 
-  // The user wrote first, so the held greeting would only interrupt.
-  function dropKickoff(botId) {
+  // A held greeting goes out once its Bot has a model, on that model once its provider
+  // is registered. False while the Bot has none.
+  const releasing = new Set()
+  async function releaseKickoff(bot) {
+    const greeting = bot.kickoff
+    if (greeting === undefined || !bot.model) return false
+    delete bot.kickoff
+    releasing.add(bot.id)
+    await rt.save().catch((error) => { releasing.delete(bot.id); throw error })
+    const send = () => { releasing.delete(bot.id); sendKickoff(bot, greeting) }
+    void rt.waitForModel(bot).then(send, send)
+    return true
+  }
+
+  // A greeting on its way to a Bot: released and waiting for its model, or sent to its
+  // chat and not yet taken up by a turn there (resume.js notes what no turn took up).
+  const greetingOut = botId => releasing.has(botId)
+    || (rt.unreadOf?.(rt.chatOf(botId)) ?? []).some(args => args.role === 'kickoff')
+
+  function holdKickoffAgain(botId) {
     const bot = rt.botOf(botId)
-    if (bot?.kickoff === undefined) return
+    const greeting = sentKickoffs.get(botId)
+    sentKickoffs.delete(botId)
+    if (bot === undefined || greeting === undefined || bot.kickoff !== undefined) return
+    // "You are the Main Bot" must not go out after a demotion.
+    if (greeting.main && !rt.isMain(botId)) return
+    bot.kickoff = greeting
+    void rt.save().catch(() => {})
+  }
+
+  // The user wrote in a Bot's own chat, so a held greeting would only interrupt. The
+  // first Main Bot's stays while that Bot has no model it can run on, and a Bot that a
+  // key, a sign-in or a balance blocks has none: once it has one, it answers the message
+  // first, unless a turn answered it meanwhile (userAnswered). Read from the catalog as
+  // last listed, so it is marked before that turn can end.
+  function userWrote(botId) {
+    const bot = rt.botOf(botId)
+    const greeting = bot?.kickoff
+    if (greeting === undefined || greeting.afterUser) return
+    if (greeting.main && (bot.blocked !== undefined || !rt.isUsable(bot.model))) greeting.afterUser = true
+    else delete bot.kickoff
+    void rt.save().catch(() => {})
+  }
+
+  // A turn that answered the user in a Bot's own chat leaves nothing for a greeting held
+  // for that message to answer.
+  function userAnswered(botId) {
+    const bot = rt.botOf(botId)
+    if (bot?.kickoff?.afterUser !== true) return
     delete bot.kickoff
     void rt.save().catch(() => {})
   }
@@ -250,6 +350,7 @@ export function install(rt) {
       // explicit Default pick); else the create would inherit the profile level.
       effort: served ? (bot.effort ?? null) : undefined,
       workDir,
+      sectionId: bot.sectionId,
       copyOf: bot.id,
     })
   }
@@ -263,6 +364,12 @@ export function install(rt) {
     if (patch.private !== undefined && actorId !== undefined) {
       throw new Error(`Only the user can make ${bot.name} private or open`)
     }
+    if ((patch.section !== undefined || patch.sectionId !== undefined) && actorId !== undefined && !rt.isMain(actorId)) {
+      throw new Error(`Only the user or a Main Bot can move ${bot.name} between sidebar sections`)
+    }
+    if (patch.section !== undefined || patch.sectionId !== undefined) {
+      resolveSectionInput({ section: patch.section, sectionId: patch.sectionId }, { allowCreate: false })
+    }
     const browserGrants = patch.browserGrants === undefined ? undefined : cleanBrowserGrants(patch.browserGrants)
     // Checked first, so a folder, model or level that does not pass leaves the rest
     // unchanged too.
@@ -273,6 +380,14 @@ export function install(rt) {
     const modelRef = patch.model === undefined ? undefined
       : patch.model === null || patch.model === '' ? null
       : await rt.resolveModel(patch.model)
+    // What a Bot runs on changes only from its settings, after the user confirmed: every
+    // conversation of the Bot starts a new part for it. A Bot without a model runs on the
+    // one it last ran on, and one that never ran runs on DS Bot's models.
+    const engineBefore = rt.engineOf === undefined ? undefined : rt.engineOfBot(bot) ?? 'model'
+    if (modelRef === null && engineBefore !== undefined && engineBefore !== 'model') throw new Error(`${bot.name} runs on a local agent and keeps a model of it`)
+    const engineChanged = !!modelRef && engineBefore !== undefined && rt.engineOf(modelRef) !== engineBefore
+    if (engineChanged && actorId !== undefined) throw new Error(`Only the user can change what ${bot.name} runs on, in the Bot's settings`)
+    if (engineChanged && patch.changeEngine !== true) throw new Error(`Changing what ${bot.name} runs on needs a confirmation in the Bot's settings`)
     // A new level resolves against the model the Bot will run on: the new one, the
     // model it keeps, or — the model cleared — the one it last ran on.
     const effortRef = modelRef === undefined ? bot.model ?? bot.appliedModel : modelRef ?? bot.appliedModel
@@ -312,6 +427,8 @@ export function install(rt) {
       else delete bot.avatar
     }
     if (patch.model !== undefined) {
+      // A failure that blocked the Bot was its old model's (turns.js).
+      if ((modelRef ?? undefined) !== bot.model) delete bot.blocked
       if (modelRef === null) delete bot.model
       else bot.model = modelRef
       modelChanged = true
@@ -328,6 +445,11 @@ export function install(rt) {
     }
     if (flag === true) bot.private = true
     else if (flag === false) delete bot.private
+    if (patch.section !== undefined || patch.sectionId !== undefined) {
+      const nextSecId = id === state.mainBotIds[0] ? null : resolveSectionInput({ section: patch.section, sectionId: patch.sectionId })
+      if (nextSecId === null || nextSecId === undefined) delete bot.sectionId
+      else bot.sectionId = nextSecId
+    }
     const moved = moving && workDir !== bot.workDir
     if (moving) {
       if (workDir === undefined) delete bot.workDir
@@ -352,23 +474,105 @@ export function install(rt) {
         .catch(error => rt.warn('ds-bot: profile update for %s not delivered: %s', bot.name, error?.message ?? error))
     }
     if (modelChanged) await rt.applyModel(bot, { force: true })
-    if (moved) void rt.followFolder(bot.id)
-    if (bot.model && bot.kickoff !== undefined) {
-      const held = bot.kickoff
-      delete bot.kickoff
-      await rt.save()
-      sendKickoff(bot, held)
-    }
+    if (engineChanged) void rt.followEngine(bot.id)
+    if (moved) void rt.followFolder({ botId: bot.id })
+    // A new model lifted what blocked the Bot; a new thinking level alone fixes nothing.
+    // releaseKickoff itself leaves when the Bot still lacks a model or holds no greeting.
+    if (modelChanged && bot.blocked === undefined) await releaseKickoff(bot)
     return bot
   }
 
-  async function setFlags(id, { pinned, hidden }) {
+  async function setFlags(id, { pinned, hidden, sectionId }) {
     const entry = rt.botOf(id) ?? rt.roomOf(id) ?? rt.own(state.agents, id)
     if (entry === undefined) throw new Error('Unknown conversation')
     if (typeof pinned === 'boolean') entry.pinned = pinned
     if (typeof hidden === 'boolean') entry.hidden = hidden
+    if (sectionId !== undefined) {
+      if (sectionId === null || sectionId === '' || id === state.mainBotIds[0]) delete entry.sectionId
+      else if (typeof sectionId === 'string' && (state.sections ?? []).some(sec => sec.id === sectionId)) entry.sectionId = sectionId
+      else throw new Error('Unknown section')
+    }
     await rt.save()
     return entry
+  }
+
+  async function saveSection({ id, name, collapsed, color, items, add, remove } = {}) {
+    if (color !== undefined && color !== null && color !== '' && !SECTION_COLORS.includes(color)) {
+      throw new Error('Unknown section color')
+    }
+    const list = (state.sections ??= [])
+    let sec
+    if (id !== undefined && id !== null && id !== '') {
+      sec = list.find(entry => entry.id === id)
+      if (sec === undefined) throw new Error('Unknown section')
+      if (name !== undefined) sec.name = cleanSectionName(name, sec.id)
+      if (typeof collapsed === 'boolean') {
+        if (collapsed) sec.collapsed = true
+        else delete sec.collapsed
+      }
+      if (color !== undefined) {
+        if (color === null || color === '') delete sec.color
+        else sec.color = color
+      }
+    } else {
+      const clean = name !== undefined && String(name).trim() !== '' ? cleanSectionName(name) : freshSectionName()
+      sec = {
+        id: `sec-${randomUUID().slice(0, 8)}`,
+        name: clean,
+        ...(collapsed === true ? { collapsed: true } : {}),
+        ...(SECTION_COLORS.includes(color) ? { color } : {}),
+      }
+      list.push(sec)
+    }
+    const entryOf = entryId => (entryId === state.mainBotIds[0] ? undefined : rt.botOf(entryId) ?? rt.roomOf(entryId) ?? rt.own(state.agents, entryId))
+    if (Array.isArray(items)) {
+      const keep = new Set(items)
+      for (const entry of [...Object.values(state.bots), ...Object.values(state.rooms), ...Object.values(state.agents)]) {
+        if (entry.sectionId === sec.id && !keep.has(entry.id)) delete entry.sectionId
+      }
+      for (const itemId of keep) {
+        const entry = entryOf(itemId)
+        if (entry !== undefined) entry.sectionId = sec.id
+      }
+    }
+    for (const itemId of add ?? []) {
+      const entry = entryOf(itemId)
+      if (entry !== undefined) entry.sectionId = sec.id
+    }
+    for (const itemId of remove ?? []) {
+      const entry = entryOf(itemId)
+      if (entry !== undefined && entry.sectionId === sec.id) delete entry.sectionId
+    }
+    await rt.save()
+    return sec
+  }
+
+  async function reorderSections(ids) {
+    if (!Array.isArray(ids)) throw new Error('Section order must be an array of section ids')
+    const list = (state.sections ??= [])
+    const byId = new Map(list.map(sec => [sec.id, sec]))
+    const next = []
+    for (const id of ids) {
+      const sec = byId.get(id)
+      if (sec !== undefined) {
+        next.push(sec)
+        byId.delete(id)
+      }
+    }
+    for (const sec of byId.values()) next.push(sec)
+    state.sections = next
+    await rt.save()
+    return state.sections
+  }
+
+  async function deleteSection(id) {
+    const list = (state.sections ??= [])
+    if (!list.some(sec => sec.id === id)) throw new Error('Unknown section')
+    state.sections = list.filter(sec => sec.id !== id)
+    for (const entry of [...Object.values(state.bots), ...Object.values(state.rooms), ...Object.values(state.agents)]) {
+      if (entry.sectionId === id) delete entry.sectionId
+    }
+    await rt.save()
   }
 
   // ---------------------------------------------------------------------------
@@ -377,7 +581,12 @@ export function install(rt) {
 
   const roomBusy = id => [...rt.roomProgress.values()].some(round => round.roomId === id)
   const autoRoomName = members => ['You', ...members.map(id => rt.botOf(id)?.name).filter(Boolean)].join(', ')
-  const cleanNotice = text => String(text ?? '').trim().slice(0, ROOM_NOTICE_MAX)
+  // A notice past the limit is refused rather than silently cut (#710).
+  const cleanNotice = (text) => {
+    const notice = String(text ?? '').trim()
+    if (notice.length > ROOM_NOTICE_MAX) throw new Error(`A group's notice can hold at most ${ROOM_NOTICE_MAX} characters; this one has ${notice.length}`)
+    return notice
+  }
 
   function cleanRoomName(text, selfId) {
     const next = unquote(text).replace(/\s+/g, ' ').slice(0, ROOM_NAME_MAX)
@@ -387,7 +596,7 @@ export function install(rt) {
 
   async function retitleRoom(room) {
     try {
-      const agent = await rt.resolveAgent(room.id)
+      const agent = await rt.resolveAgent(rt.sessionOfRoom(room))
       await ctx.sessionTitle.rename(agent.session, room.name)
     } catch (error) {
       rt.warn('ds-bot: group title for %s not updated: %s', room.name, error)
@@ -415,20 +624,21 @@ export function install(rt) {
   // member when it has one.
   const defaultAdmin = (members, createdBy) => (members.includes(createdBy) ? createdBy : members.find(rt.isMain) ?? null)
 
-  async function createRoom({ members: memberIds = [], name: roomName, notice, mode, admin, createdBy } = {}) {
+  async function createRoom({ members: memberIds = [], name: roomName, notice, mode, admin, createdBy, section, sectionId } = {}) {
     const members = [...new Set(memberIds)].filter(id => rt.botOf(id))
     checkMembers(members)
     const custom = cleanRoomName(roomName ?? '')
     const adminId = admin !== undefined ? admin : defaultAdmin(members, createdBy)
     if (adminId !== null && !members.includes(adminId)) throw new Error('The admin must be a member of the group')
     if (mode !== undefined && !ROOM_MODES.includes(mode)) throw new Error(`Reply mode must be one of ${ROOM_MODES.join(', ')}`)
-    return holdName('room', custom, () => buildRoom({ members, custom, notice, mode, adminId, createdBy }))
+    if (section !== undefined || sectionId !== undefined) resolveSectionInput({ section, sectionId }, { allowCreate: false })
+    return holdName('room', custom, () => buildRoom({ members, custom, notice, mode, adminId, createdBy, section, sectionId }))
   }
 
-  async function buildRoom({ members, custom, notice, mode, adminId, createdBy }) {
+  async function buildRoom({ members, custom, notice, mode, adminId, createdBy, section, sectionId }) {
     const title = custom || autoRoomName(members)
-    // The group's own Session only relays, so it stays in the team workspace; the
-    // group's folder is for its members' Sessions.
+    // The group's own Session only relays; like a member's it moves to a fresh part
+    // in the group's folder once the group has one (parts.js).
     const id = await createSession(title)
     try {
       // A member deleted while the Session was made stays out, and the group is checked
@@ -437,10 +647,12 @@ export function install(rt) {
       checkMembers(live)
       const lead = adminId === null || live.includes(adminId) ? adminId : defaultAdmin(live, createdBy)
       const name = custom || autoRoomName(live)
+      const resolvedSecId = resolveSectionInput({ section, sectionId })
       const room = {
         id,
         name,
         ...(custom ? { named: true } : {}),
+        ...(resolvedSecId ? { sectionId: resolvedSecId } : {}),
         members: live,
         admin: lead,
         mode: mode ?? 'admin',
@@ -450,6 +662,8 @@ export function install(rt) {
       }
       state.rooms[id] = room
       await rt.save()
+      // The Session was resolved before the group owned it, so its relay tool lands now.
+      await rt.resolveAgent(id)
       if (name !== title) await retitleRoom(room)
       return room
     } catch (error) {
@@ -489,22 +703,19 @@ export function install(rt) {
     if (patch.mode !== undefined && !ROOM_MODES.includes(patch.mode)) throw new Error(`Reply mode must be one of ${ROOM_MODES.join(', ')}`)
     const notice = patch.notice === undefined ? undefined : cleanNotice(patch.notice)
     if (patch.workDir !== undefined && byAdmin) throw new Error(`Only the user or a Main Bot can set the folder of "${room.name}"`)
+    if ((patch.section !== undefined || patch.sectionId !== undefined) && byAdmin) {
+      throw new Error(`Only the user or a Main Bot can move "${room.name}" between sidebar sections`)
+    }
+    if (patch.section !== undefined || patch.sectionId !== undefined) {
+      resolveSectionInput({ section: patch.section, sectionId: patch.sectionId }, { allowCreate: false })
+    }
     // A Bot's own permissions are the user's to set, so a group's are too.
     if (patch.permission !== undefined && actorId !== undefined) throw new Error(`Only the user can set the permissions of "${room.name}"`)
     const permission = patch.permission === undefined ? undefined : rt.cleanRoomPermission(patch.permission)
-    // The relay limit is the user's guard against a group that never stops; it is
-    // not a member's to move, whatever its role.
-    if (patch.relayLimit !== undefined && actorId !== undefined) throw new Error(`Only the user can set the relay limit of "${room.name}"`)
-    let relayLimit
-    if (patch.relayLimit === null) relayLimit = null
-    else if (patch.relayLimit !== undefined) {
-      if (!Number.isInteger(patch.relayLimit) || patch.relayLimit < 1 || patch.relayLimit > 200) throw new Error('Relay limit must be a whole number from 1 to 200')
-      relayLimit = patch.relayLimit
-    }
     // The second run is the last check before the change is written, so no other change
     // can take the name in between.
     const name = patch.name === undefined ? undefined : cleanRoomName(patch.name, room.id)
-    return { members, admin, name, notice, permission, relayLimit }
+    return { members, admin, name, notice, permission }
   }
 
   // `actorId` is the Bot asking, or undefined for the user. Returns what changed, in words.
@@ -519,7 +730,7 @@ export function install(rt) {
     // No await from here until every change is written.
     const room = rt.roomOf(id)
     if (room === undefined) throw new Error('Unknown group chat')
-    const { members, admin, name, notice, permission, relayLimit } = planRoomChange(room, patch, actorId)
+    const { members, admin, name, notice, permission } = planRoomChange(room, patch, actorId)
 
     const changes = []
     const names = ids => ids.map(member => rt.botOf(member)?.name).filter(Boolean).join(', ')
@@ -540,20 +751,21 @@ export function install(rt) {
       room.mode = patch.mode
       changes.push(patch.mode === 'admin' ? 'plain messages now go to the admin first' : 'every member now replies in turn')
     }
-    if (relayLimit !== undefined && relayLimit !== (room.relayLimit ?? null)) {
-      if (relayLimit === null) delete room.relayLimit
-      else room.relayLimit = relayLimit
-      changes.push(relayLimit === null ? 'Bots pause at the default relay count again' : `Bots now pause after ${relayLimit} relays`)
-    }
     if (notice !== undefined && notice !== (room.notice ?? '')) {
       room.notice = notice
       changes.push(notice ? 'updated the notice' : 'cleared the notice')
     }
-    // Members' group conversations move on to the folder at their next turn there.
+    // Members' group conversations move on to the folder at their next turn there;
+    // the group's own Session moves the same way, now when it is idle.
     if (moving && workDir !== room.workDir) {
+      delete room.folderNotice
       if (workDir === undefined) delete room.workDir
       else room.workDir = workDir
+      // A member's own pick for this group gives way to the group's folder, and a
+      // cleared one does not bring it back.
+      delete room.memberDirs
       changes.push(workDir ? `every member now works in ${workDir} here` : 'every member works in its own folder again')
+      void rt.followFolder({ roomId: room.id })
     }
     const before = room.name
     if (name !== undefined) {
@@ -573,6 +785,19 @@ export function install(rt) {
       changes.push(`renamed it "${room.name}"`)
       await retitleRoom(room)
     }
+    if (patch.section !== undefined || patch.sectionId !== undefined) {
+      const nextSecId = resolveSectionInput({ section: patch.section, sectionId: patch.sectionId })
+      if ((nextSecId ?? undefined) !== room.sectionId) {
+        if (nextSecId === null || nextSecId === undefined) {
+          delete room.sectionId
+          changes.push('removed it from its sidebar section')
+        } else {
+          room.sectionId = nextSecId
+          const secName = (state.sections ?? []).find(sec => sec.id === nextSecId)?.name ?? nextSecId
+          changes.push(`moved it to section "${secName}"`)
+        }
+      }
+    }
     await rt.save()
     return { room, changes }
   }
@@ -583,6 +808,8 @@ export function install(rt) {
     // Before the group's Sessions leave the state, which the archive reads.
     const archived = rt.archiveGroupMemory(room)
     for (const botId of Object.keys(room.sessions ?? {})) rt.dropGroupSession(room, botId)
+    for (const segment of room.parts ?? []) delete state.switching[segment.sessionId]
+    delete state.switching[rt.sessionOfRoom(room)]
     delete state.rooms[id]
     rt.roomInbox.delete(id)
     rt.dropGroupLines(id)
@@ -590,7 +817,7 @@ export function install(rt) {
     const failed = await saveForDelete()
     // Armed scheduled tasks refuse a plain archive and would keep delivering into
     // the deleted group; the session-stop that stopActivity runs removes them.
-    await ctx.workspaceRegistry.archiveSession(id, { stopActivity: true })
+    await ctx.workspaceRegistry.archiveSession(rt.sessionOfRoom(room), { stopActivity: true })
       .catch(error => rt.warn('ds-bot: group chat %s not archived: %s', room.name, error))
     if (failed !== undefined) throw failed
   }
@@ -624,6 +851,7 @@ export function install(rt) {
       if (rt.botOf(other)?.kickoff?.main) delete rt.botOf(other).kickoff
     }
     state.mainBotIds = next
+    if (next[0] && state.bots[next[0]]) delete state.bots[next[0]].sectionId
     await rt.save()
   }
 
@@ -648,9 +876,13 @@ export function install(rt) {
     await rt.releaseBot(id, [...parts, ...rt.groupSessionsOf(id)])
     if (closedArchive !== undefined) state.privateArchives = [...(state.privateArchives ?? []).filter(entry => entry.id !== id), closedArchive]
     delete state.bots[id]
+    // The shared capability list is the user's and keeps its items; only a
+    // still-unapproved local MCP this Bot alone asked for leaves with it.
+    rt.dropOrphanCapabilities?.(bot)
     for (const part of parts) {
       delete state.questions[part]
       if (state.views !== undefined) delete state.views[part]
+      if (state.closedCards !== undefined) delete state.closedCards[part]
       delete state.exchangeTurns[part]
       delete state.switching[part]
     }
@@ -708,7 +940,8 @@ export function install(rt) {
 
   Object.assign(rt, {
     ensureWorkspace, keepTeamFolder, createSession, createBot, duplicateBot, updateBot, setFlags,
+    saveSection, reorderSections, deleteSection,
     roomBusy, autoRoomName, retitleRoom, createRoom, updateRoom, deleteRoom,
-    setMain, deleteBot, bootstrap, dropKickoff,
+    setMain, deleteBot, bootstrap, releaseKickoff, greetingOut, holdKickoffAgain, userWrote, userAnswered,
   })
 }

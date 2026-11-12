@@ -1,0 +1,323 @@
+/* DS Bot start window. Geometry in DIP of the 720 x 540 window content (40 px band on top). */
+/* tokens */
+/* Generated from the DeepSeek theme in ds-bot/src/client/themes.js, inks.js and styles.js by scripts/start-assets.mjs; do not edit. */
+:root{color-scheme:light dark;--bt-main:#fcfcfc;--bt-card:#ffffff;--bt-ink:#141414;--bt-ink-2:rgba(20,20,20,0.6);--bt-line:rgba(20,20,20,0.08);--bt-line-2:rgba(20,20,20,0.15);--bt-hover:rgba(119,119,119,.09);--bt-accent:#4d6bfe;--bt-accent-ink:#ffffff;--bt-ink-deepseek:#4D6BFE;--bt-green:#00c972;--bt-danger:#e02135}
+@media (prefers-color-scheme:dark){:root{--bt-main:#141414;--bt-card:#1f1f1f;--bt-ink:#f2f2f2;--bt-ink-2:rgba(242,242,242,0.6);--bt-line:rgba(242,242,242,0.08);--bt-line-2:rgba(242,242,242,0.15);--bt-hover:rgba(160,160,160,.12);--bt-accent:#5b7bff;--bt-accent-ink:#141414;--bt-ink-deepseek:#6A84FF}}
+/* /tokens */
+:root{--font:-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei UI",system-ui,sans-serif;--mono:ui-monospace,Consolas,monospace;--u:1.12px}
+/* springs */
+/* Generated from ds-bot/src/client/motion.js by scripts/start-assets.mjs; do not edit. */
+:root {
+  --spring-shape: linear(0.0000,0.0510,0.1692,0.3153,0.4639,0.6001,0.7163,0.8102,0.8823,0.9350,0.9717,0.9955,1.0098,1.0171,1.0198,1.0195,1.0175,1.0147,1.0117,1.0089,1.0064,1.0044,1.0028,1.0016,1.0000);
+  --spring-shape-ms: 420ms;
+  --spring-tap: linear(0.0000,0.0541,0.1776,0.3279,0.4784,0.6141,0.7281,0.8187,0.8874,0.9369,0.9709,0.9928,1.0057,1.0124,1.0150,1.0149,1.0134,1.0112,1.0089,1.0067,1.0048,1.0033,1.0021,1.0013,1.0000);
+  --spring-tap-ms: 290ms;
+  --spring-pop: linear(0.0000,0.0698,0.2385,0.4520,0.6677,0.8566,1.0027,1.1009,1.1539,1.1695,1.1578,1.1293,1.0931,1.0566,1.0245,0.9997,0.9830,0.9740,0.9713,0.9732,0.9781,0.9842,0.9904,0.9958,1.0000);
+  --spring-pop-ms: 430ms;
+  --spring-stretch: linear(0.0000,0.0740,0.2474,0.4594,0.6666,0.8422,0.9740,1.0602,1.1060,1.1202,1.1126,1.0924,1.0670,1.0419,1.0204,1.0042,0.9934,0.9875,0.9856,0.9863,0.9887,0.9917,0.9947,0.9974,1.0000);
+  --spring-stretch-ms: 560ms;
+  --spring-list: linear(0.0000,0.0138,0.0503,0.1030,0.1666,0.2367,0.3099,0.3836,0.4556,0.5244,0.5891,0.6489,0.7034,0.7525,0.7962,0.8347,0.8681,0.8969,0.9215,0.9421,0.9592,0.9733,0.9846,0.9936,1.0000);
+  --spring-list-ms: 190ms;
+}
+/* /springs */
+
+/* The corners DSH gives every element (dsh-client-ui-theme corner-shape.css), so the buttons here
+   are shaped like the plugin's; the circles stay round. */
+@supports (corner-shape:superellipse(1.5)){*,::before,::after{corner-shape:superellipse(1.5)}.whale-hit,.ripple,.drop{corner-shape:round}}
+[hidden]{display:none!important}
+html,body{margin:0;height:100%;background:transparent}
+/* The stage hangs 45 px below the window until a card needs the sheet; body clips it rather
+   than scrolls, so no focus, scroll anchoring or restored scroll position can shift the page. */
+html{overflow:hidden}
+html[data-frame=system]{background:var(--bt-main)}
+body{position:relative;overflow:clip;font:14px/22px var(--font);color:var(--bt-ink);-webkit-user-select:none;user-select:none;cursor:default}
+html:not([data-start]) body>:not(.band){visibility:hidden}
+p,h1,h2,ol,ul{margin:0;padding:0}
+code{font-family:var(--mono);font-size:inherit}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+.band{position:fixed;inset:0 0 auto;height:40px;-webkit-app-region:drag;app-region:drag}
+html[data-frame=system] .band{display:none}
+
+/* stage: everything that moves when a card needs the sheet */
+.stage{position:absolute;left:calc(50% - 360px);top:0;width:720px;height:100%}
+html[data-frame=system] .stage{top:-24px}
+/* Until a card needs the sheet, the whale, its ring and its line sit 45 px lower, a little above
+   the window's visual centre (an integer translation, so the text stays on whole pixels). */
+html:not([data-up]) .stage{translate:0 45px}
+/* The whale's line: one centred line under the ring, the only voice on the page, and only when
+   the user is needed. Every line of text rests on whole pixels (integer translations only) and
+   never wraps (the copy is written to fit; the ellipsis is a last resort). When a card needs the
+   sheet, the line rises with the pond on the same spring (start.js shift()), so it stays under
+   the shrunken ring. */
+.voice{position:absolute;left:48px;top:334px;width:624px;height:20px;text-align:center;font-size:15px;line-height:20px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;opacity:0;transition:opacity .16s ease-in}
+.voice[data-on]{opacity:1;transition:opacity .16s ease-out}
+html[data-up] .voice{translate:0 -108px}
+
+/* The pond: the ring, the water, the lane, the whale's hit box and the effects, as one block.
+   The whale floats in the middle of a ring of three arcs, one per stage: centre (360, 210),
+   radius 106; the waterline is its chord at y 242; the whale is 112 px. When a card needs the
+   sheet, the pond shrinks to .62 and rises with the stage (start.js shift()), so the ring ends
+   above the card. */
+.pond{position:absolute;inset:0;pointer-events:none;transform-origin:360px 210px}
+html[data-up] .pond{translate:0 -60px;scale:.62}
+.lane{position:absolute;left:48px;top:102px;width:624px;height:140px;overflow:clip;pointer-events:none}
+.whale-x{position:absolute;left:256px;top:43px;width:112px;height:112px}
+/* The whale's flight to the Main Bot at the hand-off (whale.js leap): window-wide and above the
+   stage, so neither the lane's clip at the waterline nor the stage holds it. */
+.flight{position:fixed;inset:0;overflow:visible;pointer-events:none}
+.whale-gaze,.whale,.whale-move,.whale-loop{width:100%;height:100%}
+/* .whale-gaze scales only for the breath at rest (whale.js), around the same pivot. */
+.whale-gaze,.whale,.whale-move,.whale-loop{transform-origin:49.95% 79%}
+.whale-gaze{translate:calc(var(--gx,0) * 4.6 * var(--u)) calc(var(--gy,0) * 2.3 * var(--u));transition:translate .18s ease-out}
+.whale-svg{display:block;width:100%;height:100%;overflow:visible;forced-color-adjust:none}
+#tail{transform-box:view-box;transform-origin:27.9px 61.1px}
+.bt-eye,#eye-pair,#gaze{transform-box:fill-box;transform-origin:center}
+#gaze{transform:translate(calc(var(--gx,0) * 12%),calc(var(--gy,0) * 11%));transition:transform .18s ease-out}
+.whale-hit{position:absolute;left:290px;top:140px;width:140px;height:108px;border-radius:50%;pointer-events:auto}
+.fx{position:absolute;inset:0;pointer-events:none}
+.ripple{position:absolute;left:326px;top:236px;width:68px;height:12px;box-sizing:border-box;border:1.5px solid var(--bt-line-2);border-radius:50%;opacity:0}
+/* The spout: the plume is a template that whale.js clones for each spout, with its drops. */
+.spout{position:absolute;left:61%;top:21%;width:0;height:0;pointer-events:none}
+.plume{position:absolute;left:-24px;top:-44px;width:48px;height:48px;overflow:visible;transform-origin:50% 100%}
+.plume path{fill:none;stroke:color-mix(in srgb,var(--bt-ink-deepseek) 70%,transparent);stroke-width:4;stroke-linecap:round;stroke-dasharray:1 1;stroke-dashoffset:1}
+.drop{position:absolute;left:-2.75px;top:-2.75px;width:5.5px;height:5.5px;border-radius:50%;background:color-mix(in srgb,var(--bt-ink-deepseek) 70%,transparent);pointer-events:none}
+
+/* The ring is the progress: one arc per stage, 120 degrees each from the top, clockwise, 10
+   degrees apart. Pending: a faint line. Active (whale.js, after 250 ms pending): tinted, with a
+   light running along it, slower while the whale ponders. Done: drawn in the whale's blue,
+   clockwise. Failed: red. The waterline is only the surface the whale rests on, soft at both
+   ends. */
+.ring{position:absolute;left:250px;top:100px;width:220px;height:220px;overflow:visible}
+.ring path,.ring circle{fill:none;stroke-width:2;stroke-linecap:round}
+/* A round cap is drawn wherever a dash touches its path, even a dash of no length: an empty fill
+   (offset 100 of a 100-long path) left a dot at the arc's end. Hidden dashes lie wholly off the
+   path instead, one unit past either end, with gaps long enough that no other dash comes in. */
+.arc-base{stroke:var(--bt-line);stroke-dasharray:100 200;stroke-dashoffset:0}
+.arc-fill{stroke:var(--bt-ink-deepseek);stroke-dasharray:100 200;stroke-dashoffset:101;transition:stroke-dashoffset .56s cubic-bezier(.3,.7,.4,1)}
+.arc-glow{stroke:color-mix(in srgb,var(--bt-ink-deepseek) 75%,transparent);stroke-width:2.5!important;stroke-dasharray:22 200;stroke-dashoffset:23;opacity:0}
+.arc[data-state=active] .arc-base{stroke:color-mix(in srgb,var(--bt-ink-deepseek) 22%,transparent)}
+.arc[data-state=active] .arc-glow{opacity:1;animation:bt-arc 1.8s cubic-bezier(.4,0,.2,1) infinite}
+.arc[data-state=done] .arc-fill{stroke-dashoffset:0}
+.arc[data-state=failed] .arc-base{stroke:color-mix(in srgb,var(--bt-danger) 60%,transparent)}
+/* The import's arc (a first start that copies a team, §6) is there only on such a start, and it
+   fills with the copy (--f, from the main process's share); a failed copy keeps what it reached,
+   in red. It lights up once the card has flown into it (data-caught). */
+.ring:not([data-n="4"]) .arc[data-phase=import]{display:none}
+.arc[data-phase=import]:is([data-state=active],[data-state=failed]) .arc-fill{stroke-dashoffset:calc(101 - var(--f,0) * 101);transition-duration:.3s;transition-timing-function:ease-out}
+.arc[data-phase=import][data-state=failed] .arc-fill{stroke:var(--bt-danger)}
+.arc[data-caught] .arc-base{stroke:var(--bt-ink-deepseek);stroke-opacity:.22;animation:bt-catch .42s ease-out}
+@keyframes bt-catch{from{stroke-width:5;stroke-opacity:1}}
+html[data-whale=pondering] .arc[data-state=active] .arc-glow{animation-duration:2.6s}
+@keyframes bt-arc{from{stroke-dashoffset:23}to{stroke-dashoffset:-101}}
+/* The hand-off: the gaps close into one circle, which swells once. */
+.ring-full{stroke:var(--bt-ink-deepseek);stroke-dasharray:100 200;stroke-dashoffset:101;opacity:0;transition:stroke-dashoffset .3s ease-out,opacity .3s ease-out}
+html[data-ring=closed] .ring-full{stroke-dashoffset:0;opacity:1}
+html[data-ring=closed] .ring{animation:bt-ring-pulse .5s cubic-bezier(.3,.7,.4,1)}
+@keyframes bt-ring-pulse{0%,100%{scale:1}40%{scale:1.035}}
+html[data-resume] :is(.arc-fill,.ring-full){transition:none}
+.water{position:absolute;left:260px;top:242px;width:200px;height:1px;background:linear-gradient(90deg,transparent,var(--bt-line-2) 18% 82%,transparent)}
+/* Stage props: in front of the whale, on the waterline, the work of the stage that is running:
+   a folder whose pages riffle (data), two gears turning on a pulse (engine), the team popping up
+   (team). Each shows only while its arc is active, so a stage done before it turns active shows
+   none. Rotations keep the gears meshed: 9 and 6 teeth, so the small one turns 1.5 times as fast. */
+.props{position:absolute;left:413px;top:195px;width:46px;height:46px;overflow:visible}
+.props>g{opacity:0;scale:.6;transform-origin:20px 36px;transition:opacity .16s ease-in,scale .16s ease-in}
+.props *{transform-box:fill-box}
+.props>g{transform-box:view-box}
+.pond:has(.arc[data-phase=data][data-state=active]) [data-p=data],.pond:has(.arc[data-phase=import][data-state=active]) [data-p=import],.pond:has(.arc[data-phase=engine][data-state=active]) [data-p=engine],.pond:has(.arc[data-phase=team][data-state=active]) [data-p=team]{opacity:1;scale:1;transition:opacity .2s ease-out,scale var(--spring-pop-ms) var(--spring-pop)}
+.folder-back{fill:color-mix(in srgb,var(--bt-ink-deepseek) 40%,transparent)}
+.folder-front{fill:var(--bt-ink-deepseek)}
+.page rect{fill:var(--bt-card);stroke:var(--bt-line-2);stroke-width:1}
+.page path{fill:none;stroke:var(--bt-line-2);stroke-width:1.2;stroke-linecap:round}
+.page{transform-origin:0 100%;animation:bt-riffle 1.5s cubic-bezier(.4,0,.2,1) infinite}
+.page:nth-of-type(2){animation-delay:-.5s}
+.page:nth-of-type(3){animation-delay:-1s}
+@keyframes bt-riffle{0%,100%{transform:translateY(5px)}35%{transform:translateY(-3px) rotate(-14deg)}60%{transform:translateY(5px) rotate(0)}}
+.gear{transform-box:view-box}
+.gear-big{transform-origin:15px 24px}
+.gear-small{transform-origin:28.5px 14.8px}
+.gear-big{fill:var(--bt-ink-deepseek);animation:bt-turn 2.7s linear infinite}
+.gear-small{fill:color-mix(in srgb,var(--bt-ink-deepseek) 55%,transparent);animation:bt-turn 1.8s linear infinite reverse}
+[data-p=engine]{animation:bt-pulse 1.35s ease-in-out infinite}
+.pond:not(:has(.arc[data-phase=engine][data-state=active])) [data-p=engine]{animation:none}
+/* The import: a box is lifted off the old pile, tips forward along a dotted route and lands with a
+   squash on the new one, 1.6 s a trip. The pale pile is where the team was. */
+.box rect{fill:var(--bt-ink-deepseek)}
+.box path{fill:none;stroke:var(--bt-card);stroke-width:1.3;stroke-linecap:round}
+.box-from rect{fill:color-mix(in srgb,var(--bt-ink-deepseek) 35%,transparent)}
+.box-from path{stroke:color-mix(in srgb,var(--bt-card) 70%,transparent)}
+.route{fill:none;stroke:color-mix(in srgb,var(--bt-ink-deepseek) 55%,transparent);stroke-width:1.5;stroke-linecap:round;stroke-dasharray:0 3.4}
+.box-moving{transform-origin:50% 100%;animation:bt-carry 1.6s infinite}
+@keyframes bt-carry{0%{translate:0 0;rotate:0deg;scale:1;opacity:0;animation-timing-function:ease-out}12%{translate:0 -2px;opacity:1;animation-timing-function:cubic-bezier(.3,.6,.5,1)}38%{translate:10px -15px;rotate:14deg;animation-timing-function:cubic-bezier(.5,0,.8,.4)}62%{translate:21px -12px;rotate:0deg;scale:1.12 .86;animation-timing-function:ease-out}72%{scale:.96 1.05}80%,90%{translate:21px -12px;scale:1;opacity:1}100%{translate:21px -12px;opacity:0}}
+@keyframes bt-turn{to{rotate:360deg}}
+@keyframes bt-pulse{0%,100%{transform:none}15%{transform:scale(1.07)}35%{transform:none}}
+.mate circle{fill:var(--bt-ink-deepseek)}
+.mate rect{fill:var(--bt-card)}
+.mate{transform-origin:50% 100%;animation:bt-mate 1.8s cubic-bezier(.3,.7,.4,1) infinite}
+[data-p=team]>g:nth-child(1) .mate{opacity:.55}
+[data-p=team]>g:nth-child(2) .mate{animation-delay:.2s}
+[data-p=team]>g:nth-child(3) .mate{opacity:.75;animation-delay:.4s}
+@keyframes bt-mate{0%,40%,100%{transform:none}15%{transform:translateY(-4px) scale(1.05,.95)}}
+html[data-whale=pondering] :is(.page,.mate,[data-p=engine],.box-moving){animation-duration:2.6s}
+html[data-whale=pondering] .gear-big{animation-duration:4s}
+html[data-whale=pondering] .gear-small{animation-duration:2.667s}
+
+.track{list-style:none}
+html[data-shimmer] .voice[data-on]>span{color:transparent;background:linear-gradient(90deg,var(--bt-ink) 0 40%,var(--bt-ink-2) 50%,var(--bt-ink) 60% 100%) 0 0/300% 100%;-webkit-background-clip:text;background-clip:text;animation:bt-shimmer 2.2s steps(60) infinite}
+@keyframes bt-shimmer{from{background-position:100% 0}to{background-position:0 0}}
+
+/* The hint row: a short drive's grey note, or the log button. It sits where the sheet is, so it
+   goes while a card is up; the empty sheet lets clicks through to it. */
+.caption{position:absolute;left:48px;top:358px;width:624px;height:28px;display:flex;align-items:center;justify-content:center;gap:8px;font-size:13px;line-height:18px;color:var(--bt-ink-2);transition:opacity .16s}
+html[data-up] .caption{opacity:0;pointer-events:none}
+.caption-text{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.caption>*{opacity:0;filter:blur(6px);transition:opacity .16s,filter .16s}
+.caption>[data-on]{opacity:1;filter:none;transition:opacity .22s ease-out,filter .22s ease-out}
+
+/* sheet: one surface that every card morphs in and out of */
+.sheet{position:absolute;left:48px;top:260px;width:624px;height:calc(100% - 304px)}
+html[data-sheet=none] .sheet{pointer-events:none}
+.sheet-edge,.sheet-fill{position:absolute;inset:0;opacity:0;clip-path:inset(0 0 100% 0 round 12px)}
+.sheet-edge{background:var(--bt-line)}
+.sheet-fill{background:var(--bt-card)}
+.sheet-body{position:absolute;inset:0}
+.lead{font-size:14px;line-height:22px}
+.small{font-size:13px;line-height:18px;color:var(--bt-ink-2)}
+.dim{color:var(--bt-ink-2)}
+.ink{color:var(--bt-ink)}
+.danger{color:var(--bt-danger)}
+.card{position:absolute;inset:0 0 auto;max-height:100%;box-sizing:border-box;padding:14px 16px;display:flex;flex-direction:column;transition:opacity .22s ease-out .07s,filter .22s ease-out .07s}
+@starting-style{.card{opacity:0;filter:blur(6px)}}
+.card-scroll,.log{scrollbar-width:thin;scrollbar-color:var(--bt-line-2) transparent}
+/* The padding keeps the 2px + 2px focus rings inside the scroll clip; the negative margin keeps the layout where it was. */
+.card-scroll{position:relative;min-height:0;flex:0 1 auto;overflow:auto;padding:4px;margin:-4px}
+.card-scroll>*+*{margin-top:6px}
+.card-scroll>.card-actions{margin-top:12px}
+.card-title{font-size:15px;line-height:20px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.card-actions{flex:none;display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:12px}
+.card>.card-actions:first-child{margin-top:0}
+.card-actions .foot,.card-actions .end{margin-left:auto}
+.foot{font-size:13px;line-height:18px;color:var(--bt-ink-2)}
+.card>.foot,.miss{margin-top:8px}
+.miss{font-size:13px;line-height:18px;color:var(--bt-danger)}
+:is(.miss,.banner,.log,.confirm,.models,.more,[data-u]):not([hidden]){transition:opacity .22s ease-out,filter .22s ease-out}
+@starting-style{:is(.miss,.banner,.log,.confirm,.models,.more,[data-u]):not([hidden]){opacity:0;filter:blur(6px)}}
+/* Opened, the import card's body fits the sheet at 540 px with these gaps; a model list
+   opened under it scrolls inside the card. */
+.more{margin-top:4px;padding-top:5px;border-top:1px solid var(--bt-line)}
+.more>*+*{margin-top:4px}
+.card[data-kind=import] .card-scroll>*+*{margin-top:4px}
+.extra-row{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap}
+.model-row{display:flex;gap:8px;align-items:baseline}
+.models{list-style:none}
+.models .btn{width:100%;justify-content:flex-start;border-radius:8px;background:none;height:30px;font-size:13px}
+.models .btn:hover{background:var(--bt-hover)}
+.opts{display:flex;gap:20px;font-size:13px;line-height:18px}
+.opts label{display:inline-flex;align-items:center;gap:6px;cursor:pointer}
+.opts input{margin:0;width:14px;height:14px;accent-color:var(--bt-accent)}
+.bar{height:4px;border-radius:2px;background:var(--bt-hover);overflow:hidden}
+.bar-fill{display:block;height:100%;background:var(--bt-accent);transform-origin:0 50%;scale:0 1}
+.banner{border-radius:12px;background:var(--bt-hover);padding:12px 14px}
+.card-scroll>.banner{margin-top:10px}
+.banner+.card-actions{margin-top:10px}
+.banner-row{display:flex;align-items:center;gap:12px}
+.banner-row .lead{flex:1 1 auto}
+.banner-down,.banner>.small,.banner-fail{margin-top:8px}
+.banner-line{display:flex;gap:12px;justify-content:space-between;font-variant-numeric:tabular-nums}
+.banner-down .bar{margin-top:6px}
+.banner-fail{display:flex;align-items:center;gap:8px}
+.banner-fail .danger{margin-right:auto}
+.log{margin-top:12px;border-radius:8px;background:var(--bt-hover);height:168px;overflow:auto;-webkit-user-select:text;user-select:text}
+.log pre{margin:0;padding:10px 12px;font:13px/18px var(--mono);color:var(--bt-ink-2);white-space:pre-wrap;word-break:break-all}
+
+/* buttons: .bt-send (primary), .bt-soft, .bt-soft-sm and a text link, ui-standard 10.1 */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:4px;flex:none;height:36px;padding:0 16px;border:0;border-radius:999px;background:var(--bt-hover);color:var(--bt-ink);font:inherit;font-size:14px;line-height:20px;white-space:nowrap;cursor:pointer;transition:background-color .12s,color .12s,scale var(--spring-tap-ms) var(--spring-tap)}
+.btn:hover{background:color-mix(in srgb,var(--bt-hover),var(--bt-ink) 6%)}
+.btn:active{scale:.96}
+.btn[data-look=primary]{height:40px;background:var(--bt-accent);color:var(--bt-accent-ink)}
+.btn[data-look=primary]:hover{background:color-mix(in srgb,var(--bt-accent),var(--bt-ink) 10%)}
+.btn[data-look=small]{height:28px;padding:0 12px;font-size:13px;line-height:18px}
+.btn[data-look=link]{height:auto;padding:0 2px;border-radius:4px;background:none;color:var(--bt-ink);font-size:13px;line-height:18px;text-decoration:underline;text-decoration-color:var(--bt-line-2);text-underline-offset:3px}
+.btn[data-look=link]:hover{background:var(--bt-hover)}
+.btn.danger{color:var(--bt-danger)}
+.btn:focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
+.btn:focus:not(:focus-visible){outline:none}
+.disclose{text-decoration:none!important;color:var(--bt-ink-2)!important}
+.disclose svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;transition:rotate var(--spring-tap-ms) var(--spring-tap)}
+.disclose[aria-expanded=true] svg{rotate:180deg}
+
+/* The footer row: where the data goes, centred, with a grey 〔换个位置…〕 (a first start with a
+   place, a later start whose drive runs low). The button never gives way; the text is cut with
+   an ellipsis when the two do not fit (English, a long folder). It ends 4 px under the sheet. */
+.footrow{position:absolute;left:calc(50% - 312px);right:calc(50% - 312px);top:calc(100% - 40px);display:flex;justify-content:center;font-size:13px;line-height:18px;color:var(--bt-ink-2)}
+.place{flex:0 1 auto;min-width:0;margin:0;display:flex;align-items:center;gap:8px;white-space:nowrap;transition:opacity .22s ease-out}
+@starting-style{.place{opacity:0}}
+.place-text{min-width:0;overflow:hidden;text-overflow:ellipsis}
+html[data-start=moving] .footrow{display:none}
+/* A work area under 588 px gets a 500 px window: the stage rises 8 px and the sheet still ends
+   above the footer. */
+@media (max-height:520px){.stage{top:-8px}html[data-frame=system] .stage{top:-32px}.sheet{height:calc(100% - 296px)}}
+
+/* entrance, keyed on data-start (no JS timing); the ring draws itself in as the whale surfaces */
+/* held at its first frame until the window is on screen (start.js data-held) */
+html[data-held] *{animation-play-state:paused!important}
+@keyframes bt-veil{from{opacity:0;filter:blur(6px)}}
+@keyframes bt-enter-first{from{transform:translateY(96px) rotate(-12deg)}}
+@keyframes bt-enter-later{from{transform:translateY(84px)}}
+@keyframes bt-ring-draw{from{stroke-dashoffset:101}}
+@keyframes bt-wake{0%{transform:scaleY(.05)}60%{transform:scaleY(1.06)}}
+@keyframes bt-flick-in{0%,100%{transform:none}35%{transform:rotate(-10deg)}70%{transform:rotate(8deg)}}
+@keyframes bt-ripple-scale{from{scale:.5}to{scale:1.6}}
+@keyframes bt-ripple-fade{from{opacity:.9}to{opacity:0}}
+html[data-start=first]:not([data-resume],[data-entered]) .whale-move{animation:bt-enter-first var(--spring-stretch-ms) var(--spring-stretch) backwards}
+html[data-start=first]:not([data-resume],[data-entered]) .bt-eye{animation:bt-wake .16s ease-out .36s backwards}
+html[data-start=first]:not([data-resume],[data-entered],[data-tier=quiet]) #tail{animation:bt-flick-in .4s ease-in-out .3s}
+html[data-start=first]:not([data-resume],[data-settled],[data-tier=quiet]) .ripple{animation:bt-ripple-scale var(--spring-shape-ms) var(--spring-shape) .12s backwards,bt-ripple-fade .56s linear .12s}
+html[data-start=first]:not([data-resume],[data-settled]) .voice{animation:bt-veil .22s ease-out .16s backwards}
+html:not([data-resume],[data-settled]) .water{animation:bt-veil .22s ease-out .22s backwards}
+html:not([data-resume],[data-settled]) .arc-base{animation:bt-ring-draw .5s cubic-bezier(.3,.7,.4,1) .18s backwards}
+html[data-start=first]:not([data-resume],[data-settled]) .place{animation:bt-veil .22s ease-out .42s backwards}
+html:is([data-start=later],[data-start=moving]):not([data-resume],[data-entered]) .whale-move{animation:bt-enter-later var(--spring-tap-ms) var(--spring-tap) backwards}
+html:is([data-start=later],[data-start=moving]):not([data-resume],[data-settled]) .voice{animation:bt-veil .22s ease-out .06s backwards}
+
+/* state loops, keyed on data-whale and data-tail; plugin keyframes (styles.js:84-105) in px via --u */
+html[data-whale=searching] .whale-loop{animation:bt-seek 1s ease-in-out infinite}
+html[data-whale=searching] #eye-pair{animation:bt-scan 1.6s ease-in-out infinite}
+html[data-whale=working] .whale-loop{animation:bt-bob 1.6s ease-in-out infinite}
+html[data-whale=working] .bt-eye{animation:bt-blink 2.4s ease-in-out infinite}
+html[data-whale=pondering] .whale-loop{animation:bt-ponder 2.2s ease-in-out infinite}
+html[data-whale=pondering] .bt-eye{animation:bt-squint 2.2s ease-in-out infinite}
+html[data-whale=sending] .whale-loop{animation:bt-dash 1.1s cubic-bezier(.4,0,.2,1) infinite}
+html[data-tail=beat]:not([data-tier=quiet]) #tail{animation:bt-tail-beat 1.1s ease-in-out -.55s infinite alternate}
+html[data-tail=dash]:not([data-tier=quiet]) #tail{animation:bt-tail-dash .55s ease-in-out -.275s infinite alternate}
+@keyframes bt-seek{0%,100%{transform:rotate(-4deg)}50%{transform:translateY(calc(-2.9 * var(--u))) rotate(-1deg)}}
+@keyframes bt-scan{0%,100%{transform:translateX(-12%)}50%{transform:translateX(12%)}}
+@keyframes bt-bob{0%,100%{transform:none}30%{transform:translateY(calc(-2.3 * var(--u))) rotate(-5deg)}65%{transform:rotate(4deg)}}
+@keyframes bt-blink{0%,42%,50%,100%{transform:none}46%{transform:scaleY(.03)}48%{transform:scaleY(1.06)}}
+@keyframes bt-ponder{0%,100%{transform:rotate(4deg)}50%{transform:translateY(calc(-1.7 * var(--u))) rotate(7deg)}}
+@keyframes bt-squint{0%,100%{transform:translate(0,-4%) scaleY(.7)}50%{transform:translate(5%,-5%) scaleY(.78)}}
+@keyframes bt-dash{0%,100%{transform:none}35%{transform:translateX(calc(8.3 * var(--u))) rotate(7deg)}55%{transform:translateX(calc(-1.8 * var(--u))) rotate(-3deg)}}
+@keyframes bt-tail-beat{from{transform:rotate(-5deg)}to{transform:rotate(5deg)}}
+@keyframes bt-tail-dash{from{transform:rotate(-8deg)}to{transform:rotate(8deg)}}
+
+/* hand-off: window-level content fades */
+html[data-exit~=caption] .caption,html[data-exit~=all] :is(.voice,.water,.ring,.props,.spout,.sheet,.place){opacity:0;transition:opacity .16s}
+html[data-hidden] *{animation-play-state:paused!important}
+
+/* reduced motion (ui-standard 9.6, styles.js:106): static whale, fades only */
+:root[data-eyes=squint] .bt-eye{transform:translate(0,-4%) scaleY(.7)}
+:root[data-eyes=heavy] .bt-eye{transform:translateY(1.5px) scaleY(.55)}
+:root[data-eyes=happy] .bt-eye{transform:scaleY(0)}
+:root[data-eyes=happy] .bt-eye-happy{opacity:1}
+@media (prefers-reduced-motion:reduce){
+:root :is(.whale-x,.whale-gaze,.whale,.whale-move,.whale-loop,#tail,#gaze,#eye-pair,.bt-eye,.bt-eye-happy,.ripple,.stage){animation:none!important;transition:none!important}
+:root :is(.voice,.water,.place,.arc-base,.arc-glow,.ring,.props,.props *){animation:none!important}
+:root .props>g{scale:none!important;transition:opacity .12s!important}
+:root :is(.arc-fill,.ring-full){transition-duration:.12s!important}
+:root .voice>span{animation:none!important;background:none!important;color:var(--bt-ink)!important}
+:root :is(.voice,.caption>*,.card,.miss,.banner,.log,.confirm,.models,[data-u]){filter:none!important;scale:none!important;transition-property:opacity!important;transition-duration:.12s!important;transition-delay:0s!important}
+:root .btn:active{scale:none}
+:root[data-exit~=lane] .lane{opacity:0;transition:opacity .12s}
+}
+
+@media (forced-colors:active){.sheet-edge{background:CanvasText}.sheet-fill{background:Canvas}.btn{border:1px solid ButtonText}.bar-fill{background:Highlight}.water{background:CanvasText}.arc .arc-base{stroke:GrayText!important}.arc-fill,.ring-full,.arc-glow,.plume path{stroke:Highlight}.props :is(.folder-back,.folder-front,.gear,.mate circle,.box rect){fill:CanvasText}.page rect,.mate rect{fill:Canvas}.drop{forced-color-adjust:none;background:Highlight}}

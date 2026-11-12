@@ -1,0 +1,25 @@
+# Local development: run the mounted checkout and reload it on source changes.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build
+#
+# The base file owns the port, environment and persistent data. This override
+# adds the checkout mount and the development image. An optional local
+# docker-compose.override.yml can supply keys without entering version control.
+services:
+  ds-bot:
+    image: ds-bot:dev
+    pull_policy: never
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.dev
+    volumes:
+      # Mask the checkout's node_modules: a host checkout can contain binaries
+      # for another operating system. The entrypoint fills this volume with the
+      # Linux dependencies built into the development image.
+      - ./ds-bot:/app/ds-bot
+      - ds-bot-dev-modules:/app/ds-bot/node_modules
+    restart: unless-stopped
+    stop_grace_period: 15s
+
+volumes:
+  ds-bot-dev-modules:

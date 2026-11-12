@@ -1,7 +1,7 @@
 name: Release
 
 # Publishes ds-bot to npm when a GitHub release is published, then attaches the desktop app's
-# Windows installer, macOS zips and Linux packages to the release. Windows and the Linux
+# Windows installer, macOS zips and Linux packages, and the phone app's Android APK, to the release. Windows and the Linux
 # AppImage update from latest.yml / latest-linux.yml; macOS and the Linux deb open the release
 # page for a manual download.
 #
@@ -13,6 +13,10 @@ name: Release
 # The release tag must be v<version in ds-bot/package.json> and must point at a commit on
 # main. A version with a pre-release part (0.2.0-rc.1) goes to the npm tag "next", so that
 # "latest" stays on the last stable version.
+#
+# Publish the release with "Set as latest release" turned off: the last job marks it Latest
+# once every package, the download table and SHA256SUMS.txt are on it, so a releases/latest
+# link never finds a release whose installer is still being built.
 
 on:
   release:
@@ -77,6 +81,9 @@ jobs:
             exit 1
           fi
 
+      # The tests rebuild link.js from ../link and run its Relay Server, which have their own packages.
+      - name: Install the phone link's packages
+        run: npm ci --no-fund --no-audit --prefix ../link
       - run: npm ci --no-fund --no-audit
       - run: npm run harness
       - run: npm test
@@ -119,6 +126,7 @@ jobs:
         with:
           node-version: 24
       - run: npm ci --no-fund --no-audit
+      - run: node scripts/seed-electron-checksums.mjs
       - run: npm run dist
       - name: Check the packaged app
         run: node scripts/check-packed.mjs
@@ -126,8 +134,8 @@ jobs:
         if: github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v4
         with:
-          name: DeepSeek-Bot-win-x64
-          path: app/dist-pack/DeepSeek-Bot-*-win-x64.exe
+          name: DS-Bot-win-x64
+          path: app/dist-pack/DS-Bot-*-win-x64.exe
           retention-days: 7
           if-no-files-found: error
           compression-level: 0
@@ -138,7 +146,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.event.release.tag_name }}
         run: |
-          installer="dist-pack/DeepSeek-Bot-$(node -p "require('./package.json').version")-win-x64.exe"
+          installer="dist-pack/DS-Bot-$(node -p "require('./package.json').version")-win-x64.exe"
           gh release upload "$TAG" "$installer" "$installer.blockmap" dist-pack/latest.yml --clobber
 
   app-macos:
@@ -162,6 +170,7 @@ jobs:
         with:
           node-version: 24
       - run: npm ci --no-fund --no-audit
+      - run: node scripts/seed-electron-checksums.mjs
       - run: npm run dist
       - name: Check the packaged app
         run: node scripts/check-packed.mjs
@@ -169,8 +178,8 @@ jobs:
         if: github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v4
         with:
-          name: DeepSeek-Bot-mac-${{ matrix.arch }}
-          path: app/dist-pack/DeepSeek-Bot-*-mac-${{ matrix.arch }}.zip
+          name: DS-Bot-mac-${{ matrix.arch }}
+          path: app/dist-pack/DS-Bot-*-mac-${{ matrix.arch }}.zip
           retention-days: 7
           if-no-files-found: error
           compression-level: 0
@@ -180,8 +189,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.event.release.tag_name }}
         run: |
-          zip="dist-pack/DeepSeek-Bot-$(node -p "require('./package.json').version")-mac-${{ matrix.arch }}.zip"
-          gh release upload "$TAG" "$zip" --clobber
+          zip="dist-pack/DS-Bot-$(node -p "require('./package.json').version")-mac-${{ matrix.arch }}.zip"
+          legacy="$(node scripts/legacy-release-assets.mjs "$zip")"
+          gh release upload "$TAG" "$zip" "$legacy" --clobber
 
   app-linux:
     name: Desktop app packages (Linux x64)
@@ -198,6 +208,7 @@ jobs:
         with:
           node-version: 24
       - run: npm ci --no-fund --no-audit
+      - run: node scripts/seed-electron-checksums.mjs
       - run: npm run dist
       - name: Check the packaged app
         # Ubuntu 24.04's AppArmor blocks the unprivileged user namespaces that Chromium's
@@ -209,15 +220,15 @@ jobs:
         # The dry run never uploads, so it checks here that every file the release attaches exists.
         run: |
           version="$(node -p "require('./package.json').version")"
-          ls -l "dist-pack/DeepSeek-Bot-$version-linux-x86_64.AppImage" "dist-pack/DeepSeek-Bot-$version-linux-amd64.deb" dist-pack/latest-linux.yml
+          ls -l "dist-pack/DS-Bot-$version-linux-x86_64.AppImage" "dist-pack/DS-Bot-$version-linux-amd64.deb" dist-pack/latest-linux.yml
       - name: Keep the packages for real-device checks
         if: github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v4
         with:
-          name: DeepSeek-Bot-linux-x64
+          name: DS-Bot-linux-x64
           path: |
-            app/dist-pack/DeepSeek-Bot-*-linux-x86_64.AppImage
-            app/dist-pack/DeepSeek-Bot-*-linux-amd64.deb
+            app/dist-pack/DS-Bot-*-linux-x86_64.AppImage
+            app/dist-pack/DS-Bot-*-linux-amd64.deb
           retention-days: 7
           if-no-files-found: error
           compression-level: 0
@@ -229,4 +240,128 @@ jobs:
         # The AppImage carries its block map inside the file, so there is no .blockmap to attach.
         run: |
           version="$(node -p "require('./package.json').version")"
-          gh release upload "$TAG" "dist-pack/DeepSeek-Bot-$version-linux-x86_64.AppImage" "dist-pack/DeepSeek-Bot-$version-linux-amd64.deb" dist-pack/latest-linux.yml --clobber
+          legacy="$(node scripts/legacy-release-assets.mjs "dist-pack/DS-Bot-$version-linux-amd64.deb")"
+          gh release upload "$TAG" "dist-pack/DS-Bot-$version-linux-x86_64.AppImage" "dist-pack/DS-Bot-$version-linux-amd64.deb" "$legacy" dist-pack/latest-linux.yml --clobber
+
+  # The phone app's APK, signed with the upload key in the ANDROID_KEYSTORE_BASE64,
+  # ANDROID_KEYSTORE_PASSWORD and ANDROID_KEY_ALIAS secrets. Every later APK must carry
+  # the same key, or Android refuses it as an update. A dry run without the secrets
+  # signs with the debug key, and that APK is for checks only.
+  app-android:
+    name: Phone app (Android)
+    needs: publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - run: npm ci --no-fund --no-audit --prefix ../link
+      - run: npm ci --no-fund --no-audit
+      - run: npm run typecheck
+      - run: npm test
+      - run: npx expo prebuild --platform android --no-install
+      - name: Build the APK
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: |
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/upload.jks"
+            export DSBOT_ANDROID_KEYSTORE="$RUNNER_TEMP/upload.jks" DSBOT_ANDROID_KEYSTORE_PASSWORD="$KEYSTORE_PASSWORD" DSBOT_ANDROID_KEY_ALIAS="$KEY_ALIAS"
+          elif [ "$GITHUB_EVENT_NAME" = release ]; then
+            echo "::error::The ANDROID_KEYSTORE_BASE64 secret is missing, so the APK cannot be signed for release."
+            exit 1
+          else
+            echo "::warning::No upload key: this dry run signs the APK with the debug key."
+          fi
+          (cd android && ./gradlew assembleRelease --no-daemon --console=plain)
+          rm -f "$RUNNER_TEMP/upload.jks"
+          version="$(node -p "require('../ds-bot/package.json').version")"
+          mkdir -p dist
+          cp android/app/build/outputs/apk/release/app-release.apk "dist/DS-Bot-$version-android.apk"
+      - name: Check the signature
+        run: |
+          apksigner="$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)/apksigner"
+          certs="$("$apksigner" verify --print-certs dist/DS-Bot-*-android.apk)"
+          echo "$certs" | grep -E 'certificate (DN|SHA-256 digest):'
+          if [ "$GITHUB_EVENT_NAME" = release ] && echo "$certs" | grep -q 'CN=Android Debug'; then
+            echo "::error::The APK is signed with the debug key."
+            exit 1
+          fi
+      - name: Keep the APK for real-device checks
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: DS-Bot-android
+          path: mobile/dist/DS-Bot-*-android.apk
+          retention-days: 7
+          if-no-files-found: error
+          compression-level: 0
+      - name: Attach the APK to the release
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: gh release upload "$TAG" dist/DS-Bot-*-android.apk --clobber
+
+  downloads:
+    name: Download table, checksums and Latest
+    needs: [app-windows, app-macos, app-linux, app-android]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+        working-directory: app
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ github.event.release.tag_name }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Download the packages from the release
+        if: github.event_name == 'release'
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          gh release download "$TAG" --dir "$RUNNER_TEMP/packages" --pattern "DS-Bot-$version-*"
+          gh release view "$TAG" --json body --jq .body > "$RUNNER_TEMP/notes.md"
+      # The dry run has no release, so it checks the table and the checksums on the packages
+      # that the app jobs kept.
+      - name: Download the packages of the dry run
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/download-artifact@v4
+        with:
+          pattern: DS-Bot-*
+          path: ${{ runner.temp }}/packages
+          merge-multiple: true
+      - name: Write the download table and the checksums
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          notes=()
+          if [ -f "$RUNNER_TEMP/notes.md" ]; then notes=("$RUNNER_TEMP/notes.md"); fi
+          node scripts/release-notes.mjs "$version" "$RUNNER_TEMP/packages" "$RUNNER_TEMP/attach" "${notes[@]}" > "$RUNNER_TEMP/body.md"
+          ls -l "$RUNNER_TEMP/attach"
+          cat "$RUNNER_TEMP/body.md" >> "$GITHUB_STEP_SUMMARY"
+      - name: Attach the checksums and the copies without a version
+        if: github.event_name == 'release'
+        run: gh release upload "$TAG" "$RUNNER_TEMP"/attach/* --clobber
+      - name: Put the download table on top of the notes
+        if: github.event_name == 'release'
+        run: gh release edit "$TAG" --notes-file "$RUNNER_TEMP/body.md"
+      # GitHub cannot make a pre-release Latest.
+      - name: Mark the release as Latest
+        if: github.event_name == 'release' && !github.event.release.prerelease
+        run: gh release edit "$TAG" --latest

@@ -1,13 +1,15 @@
-appId: io.github.fei2411.deepseekbot
-productName: DeepSeek Bot
+appId: io.github.fei2411.dsbot
+productName: DS Bot
 copyright: Copyright 2026 Fei2411 and the DS Bot contributors
-artifactName: DeepSeek-Bot-${version}-${os}-${arch}.${ext}
+artifactName: DS-Bot-${version}-${os}-${arch}.${ext}
 directories:
   output: dist-pack
 files:
   - package.json
   - src/**
   - assets/**
+  # The LibreOffice engine goes beside the app instead (extraResources).
+  - '!node_modules/@deepseek-ai/libreoffice-kit-*{,/**/*}'
 # The Host runs pnpm as a separate Node process to install plugins, and the Office payload's
 # plain Node runs the LibreOffice Kit CLI: both must be plain files outside the asar.
 asarUnpack:
@@ -17,6 +19,11 @@ asarUnpack:
   - node_modules/ds-bot/office.js
   # Automatic unpacking misses versioned Linux libraries such as libvips-cpp.so.8.18.7.
   - node_modules/@img/sharp*/**
+  # The signed "DSH Computer Use" helper and the Cua Driver binaries are programs;
+  # inside the asar they would not run, and an ad-hoc re-sign would lose DeepSeek's
+  # Developer ID signature (mac.signIgnore below keeps it).
+  - node_modules/@deepseek-ai/dsh-experimental-cua-macos/**
+  - node_modules/@trycua/cua-driver*/**
 # The Office payload that scripts/prepare-runtime.mjs writes in beforePack (see package.json's
 # `runtime` script). build/ is not in `files`, so nothing of it lands inside the asar.
 extraResources:
@@ -24,17 +31,38 @@ extraResources:
     to: primary-runtime
   - from: build/runtime/office-skills
     to: office-skills
+  # File previews start the LibreOffice engine, a program in the engine package that the kit
+  # resolves. Electron cannot start a program by a path inside the asar, even an unpacked one
+  # (#679). Out here the engine is plain files, and Node's lookup from the kit inside the asar
+  # goes up from app.asar/node_modules to resources/node_modules and finds it.
+  - from: node_modules/@deepseek-ai
+    to: node_modules/@deepseek-ai
+    filter: ['libreoffice-kit-*/**']
 # node-pty, sharp and koffi ship prebuilt binaries for each platform. A rebuild would compile
 # node-pty from source and needs a C++ toolchain.
 npmRebuild: false
 # So the binaries come from npm as it installed them; a build for another architecture stops.
 beforePack: ./scripts/before-pack.mjs
 win:
+  # The Cua Driver SDK finds its DLL from where its own module lies and hands that path to
+  # Windows' loader, which cannot open a file inside the asar, unpacked or not (#1025). Out here
+  # the SDK and the @ubjs runtime it imports are plain files, and the computer-use provider's
+  # import goes up from app.asar/node_modules to resources/node_modules and finds them.
+  files:
+    - '!node_modules/@trycua{,/**/*}'
+    - '!node_modules/@ubjs{,/**/*}'
+  extraResources:
+    - from: node_modules/@trycua
+      to: node_modules/@trycua
+    - from: node_modules/@ubjs
+      to: node_modules/@ubjs
   target:
     - target: nsis
       arch: [x64]
   icon: assets/icon.ico
 nsis:
+  # Preserve the GUID derived from the legacy appId so installed copies upgrade in place.
+  guid: 32c46dfc-ed78-5d41-85a4-a3c7f083f2e0
   oneClick: false
   perMachine: false
   allowElevation: false
@@ -47,11 +75,20 @@ mac:
   target: zip
   # Ad-hoc signing seals the bundle; no Developer ID or notarization.
   identity: '-'
+  # The DSH helper keeps the signature it was notarized with; the rest is ours to seal.
+  signIgnore:
+    - 'DSH Computer Use\.app'
   hardenedRuntime: false
   icon: assets/icon.png
   category: public.app-category.productivity
+  # Without this key macOS registers no Local Network entry for the app and
+  # blocks LAN connections from tool processes outright ("No route to host").
+  extendInfo:
+    NSLocalNetworkUsageDescription: DS Bot runs commands that connect to devices on your local network.
 linux:
-  # One AppImage runs on every distribution and updates itself; the deb is for Debian/Ubuntu,
+  # The Linux Host uses the payload's plain Node, which cannot read asar archives.
+  asar: false
+  # One AppImage runs on every distribution with glibc 2.28 or newer and updates itself; the deb is for Debian/Ubuntu,
   # where it avoids Ubuntu 24.04's AppArmor question of an AppImage and adds a menu entry.
   target:
     - target: AppImage
@@ -60,13 +97,16 @@ linux:
       arch: [x64]
   # The binary and the deb's menu entry take this name; productName has a space, which a
   # terminal command should not have.
-  executableName: deepseek-bot
+  executableName: dsbot
   # A deb needs a maintainer; package.json's author has no email, so it goes here.
   maintainer: Fei2411 <https://github.com/Fei2411>
   # Links the running window to the menu entry (WM_CLASS = app id).
   syncDesktopName: true
   icon: assets/icon.png
   category: Utility
+# Let apt replace the legacy deb instead of leaving two installed applications.
+deb:
+  fpm: ['--replaces', 'deepseek-bot', '--conflicts', 'deepseek-bot'] # legacy package
 # Where the installed app looks for updates (app-update.yml in the package). The build writes
 # latest.yml beside the installer; the release workflow attaches both to the GitHub release,
 # so the build itself never publishes (--publish never).

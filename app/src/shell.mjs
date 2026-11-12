@@ -7,22 +7,84 @@ import { createTray } from './tray.mjs'
 
 export const SHELL_TEXT = {
   en: {
-    tooltip: 'DeepSeek Bot',
-    open: 'Open DeepSeek Bot',
-    quit: 'Quit DeepSeek Bot',
-    notice: 'DeepSeek Bot keeps running in the system tray. Its Bots go on working while the window is closed.',
+    tooltip: 'DS Bot',
+    open: 'Open DS Bot',
+    quit: 'Quit DS Bot',
+    notice: 'DS Bot keeps running in the system tray. Its Bots go on working while the window is closed.',
     noticeConfirm: 'OK',
-    fallback: 'The system tray is not available, so DeepSeek Bot cannot stay in the background. Do you want to end it?',
+    fallback: 'The system tray is not available, so DS Bot cannot stay in the background. Do you want to end it?',
     cancel: 'Cancel',
+    stopAll: 'Stop all',
   },
   zh: {
-    tooltip: 'DeepSeek Bot',
-    open: '打开 DeepSeek Bot',
-    quit: '退出 DeepSeek Bot',
-    notice: 'DeepSeek Bot 会留在系统托盘里继续运行，关掉窗口时 Bot 们照常工作。',
+    tooltip: 'DS Bot',
+    open: '打开 DS Bot',
+    quit: '退出 DS Bot',
+    notice: 'DS Bot 会留在系统托盘里继续运行，关掉窗口时 Bot 们照常工作。',
     noticeConfirm: '好',
-    fallback: '系统托盘不可用，DeepSeek Bot 不能留在后台。要结束它吗？',
+    fallback: '系统托盘不可用，DS Bot 不能留在后台。要结束它吗？',
     cancel: '取消',
+    stopAll: '全部停止',
+  },
+  'zh-TW': {
+    tooltip: 'DS Bot',
+    open: '打開 DS Bot',
+    quit: '結束 DS Bot',
+    notice: 'DS Bot 會留在系統匣裡繼續運行，關掉視窗時 Bot 們照常工作。',
+    noticeConfirm: '好',
+    fallback: '系統匣不可用，DS Bot 不能留在背景。要結束它嗎？',
+    cancel: '取消',
+    stopAll: '全部停止',
+  },
+  ja: {
+    tooltip: 'DS Bot',
+    open: 'DS Bot を開く',
+    quit: 'DS Bot を終了',
+    notice: 'DS Bot はシステムトレイで動作し続けます。ウィンドウを閉じても Bot は作業を続けます。',
+    noticeConfirm: 'OK',
+    fallback: 'システムトレイが利用できないため、DS Bot をバックグラウンドに残せません。終了しますか？',
+    cancel: 'キャンセル',
+    stopAll: 'すべて停止',
+  },
+  ko: {
+    tooltip: 'DS Bot',
+    open: 'DS Bot 열기',
+    quit: 'DS Bot 종료',
+    notice: 'DS Bot은 시스템 트레이에서 계속 실행됩니다. 창을 닫아도 Bot은 계속 작업합니다.',
+    noticeConfirm: '확인',
+    fallback: '시스템 트레이를 사용할 수 없어 DS Bot을 백그라운드에 유지할 수 없습니다. 종료할까요?',
+    cancel: '취소',
+    stopAll: '모두 중지',
+  },
+  es: {
+    tooltip: 'DS Bot',
+    open: 'Abrir DS Bot',
+    quit: 'Salir de DS Bot',
+    notice: 'DS Bot sigue ejecutándose en la bandeja del sistema. Sus Bots continúan trabajando mientras la ventana está cerrada.',
+    noticeConfirm: 'Aceptar',
+    fallback: 'La bandeja del sistema no está disponible, por lo que DS Bot no puede permanecer en segundo plano. ¿Quieres cerrarlo?',
+    cancel: 'Cancelar',
+    stopAll: 'Detener todo',
+  },
+  fr: {
+    tooltip: 'DS Bot',
+    open: 'Ouvrir DS Bot',
+    quit: 'Quitter DS Bot',
+    notice: 'DS Bot continue de fonctionner dans la barre d’état système. Ses Bots continuent de travailler lorsque la fenêtre est fermée.',
+    noticeConfirm: 'OK',
+    fallback: 'La barre d’état système n’est pas disponible, DS Bot ne peut donc pas rester en arrière-plan. Voulez-vous l’arrêter ?',
+    cancel: 'Annuler',
+    stopAll: 'Tout arrêter',
+  },
+  de: {
+    tooltip: 'DS Bot',
+    open: 'DS Bot öffnen',
+    quit: 'DS Bot beenden',
+    notice: 'DS Bot läuft im Systembereich weiter. Seine Bots arbeiten weiter, während das Fenster geschlossen ist.',
+    noticeConfirm: 'OK',
+    fallback: 'Der Systembereich ist nicht verfügbar, daher kann DS Bot nicht im Hintergrund bleiben. Möchtest du es beenden?',
+    cancel: 'Abbrechen',
+    stopAll: 'Alle stoppen',
   },
 }
 
@@ -40,7 +102,7 @@ export const SHELL_TEXT = {
  *   quit: () => void,
  *   busy: () => boolean,
  *   ready: () => boolean,
- *   notice: { marker: () => string, show: (options: object) => Promise<{ response: number }> },
+ *   notice: { marker: () => string, show: (options: object) => Promise<{ response: number }>, focus?: () => void },
  *   fallback?: { show: (options: object) => Promise<{ response: number }> },
  *   log?: Pick<Console, 'warn'>,
  * }} options the pieces of the app the shell drives
@@ -133,12 +195,13 @@ export function createShell(options) {
         image, tooltip: text().tooltip,
         open: { label: text().open, run: () => { open() } },
         quit: { label: text().quit, run: () => { quit() } },
+        computer: { onAction: (kind, botId) => { options.computer?.(kind, botId) }, stopAll: () => text().stopAll },
         log,
       })
     } catch (error) {
       // Without a tray the window stays where the user can reach it; the app never vanishes.
       tray = undefined
-      log.warn(`DeepSeek Bot: the system tray is not available: ${error instanceof Error ? error.message : String(error)}`)
+      log.warn(`DS Bot: the system tray is not available: ${error instanceof Error ? error.message : String(error)}`)
     }
   }
 
@@ -150,12 +213,12 @@ export function createShell(options) {
     const t = text()
     try {
       const { response } = await options.fallback.show({
-        type: 'question', title: 'DeepSeek Bot', message: t.fallback,
+        type: 'question', title: 'DS Bot', message: t.fallback,
         buttons: [t.quit, t.cancel], defaultId: 1, cancelId: 1, noLink: true,
       })
       if (response === 0) { quit(); return }
     } catch (error) {
-      log.warn(`DeepSeek Bot: the fallback quit could not be asked: ${error instanceof Error ? error.message : String(error)}`)
+      log.warn(`DS Bot: the fallback quit could not be asked: ${error instanceof Error ? error.message : String(error)}`)
     }
     // The window stays in the task bar, where the user can reach it.
     target.minimize()
@@ -204,7 +267,7 @@ export function createShell(options) {
       powerMonitor.on('shutdown', () => { sessionEnding = true })
     }
     notice = new BackgroundNotice({
-      marker: options.notice.marker(), show: options.notice.show, message: text().notice, confirm: text().noticeConfirm, log,
+      marker: options.notice.marker(), show: options.notice.show, focus: options.notice.focus, message: text().notice, confirm: text().noticeConfirm, log,
     })
     buildTray()
   }
@@ -225,6 +288,8 @@ export function createShell(options) {
     beginQuit,
     cancelQuit,
     dispose,
+    /** The same computer-use entries the floating indicator carries. */
+    setComputer: entries => { tray?.setComputer(entries) },
     hasTray: () => tray !== undefined,
     isQuitting: () => quitting,
     isHidden: (target) => hidden.has(target),

@@ -18,8 +18,8 @@ const manifest = process.platform === 'linux' ? 'latest-linux.yml' : 'latest.yml
 // The asset the fake release lists: what this install's update check waits for. The deb's file
 // name uses the Debian architecture (x64 → amd64).
 const asset = mac
-  ? version => `DeepSeek-Bot-${version}-mac-${process.arch}.zip`
-  : version => `DeepSeek-Bot-${version}-linux-${{ x64: 'amd64' }[process.arch] ?? process.arch}.deb`
+  ? version => `DS-Bot-${version}-mac-${process.arch}.zip`
+  : version => `DS-Bot-${version}-linux-${{ x64: 'amd64' }[process.arch] ?? process.arch}.deb`
 if (!executable || !source || !existsSync(executable)
   || (releasePage ? mode !== undefined : !existsSync(join(source, manifest)))) {
   console.error(`check-update: usage: ${releasePage
@@ -59,10 +59,11 @@ const feed = `http://127.0.0.1:${String(server.address().port)}/`
 // The tray's Quit ends the app. The check cannot click the tray icon, so it asks the browser
 // target of the debugging port to close. Tray menu dispatch is covered by the main-process tests.
 async function quitApp(port, waitForReady = false) {
-  // Until the Host is ready the window shows a note of its own.
+  // Until the Host is ready only the start window is there (a file: page); the team window
+  // loads the Host's address once the engine is up.
   const find = async () => {
     const targets = await (await fetch(`http://127.0.0.1:${String(port)}/json/list`)).json()
-    const pages = targets.filter(target => target.type === 'page' && (/^http:\/\/127\.0\.0\.1:\d+\//u.test(target.url) || target.url.startsWith('data:text/html')))
+    const pages = targets.filter(target => target.type === 'page' && (/^http:\/\/127\.0\.0\.1:\d+\//u.test(target.url) || /\/src\/start\/start\.html\?start=/u.test(target.url)))
     return pages.find(target => target.url.startsWith('http:')) ?? (waitForReady ? undefined : pages[0])
   }
   let page = await find()
@@ -127,10 +128,10 @@ try {
     stream.setEncoding('utf8')
     stream.on('data', (chunk) => { output += chunk; process.stdout.write(chunk) })
   }
-  const updateLine = `DeepSeek Bot: update ${String(version)} ${releasePage ? 'available' : 'downloaded'}`
+  const updateLine = `DS Bot: update ${String(version)} ${releasePage ? 'available' : 'downloaded'}`
   const end = Date.now() + (releasePage ? 3 : 5) * 60_000
   while (!output.includes(updateLine)) {
-    if (releasePage ? /DeepSeek Bot: update check failed/u.test(output) : /DeepSeek Bot: update failed/u.test(output)) {
+    if (releasePage ? /DS Bot: update check failed/u.test(output) : /DS Bot: update failed/u.test(output)) {
       throw new Error('the app reported a failed update')
     }
     if (app.exitCode !== null) {

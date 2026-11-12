@@ -153,6 +153,7 @@ export const AVATAR_LIBRARY_CSS = `
 .bt-lib-del{position:absolute;right:0;top:0;width:28px;height:28px;padding:0;border:1px solid var(--bt-line-2);border-radius:50%;background:var(--bt-main);color:var(--bt-ink-2);display:flex;align-items:center;justify-content:center;cursor:pointer}
 .bt-lib-del:hover{color:var(--bt-ink)}
 .bt-lib-del svg{width:14px;height:14px}
+.bt-lib-pick:focus-visible,.bt-lib-del:focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px}
 .bt-lib-more{display:flex;align-items:center;gap:8px}
 .bt-lib-report{display:flex;flex-direction:column;gap:4px}
 `

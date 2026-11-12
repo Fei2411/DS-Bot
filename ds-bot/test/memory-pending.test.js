@@ -8,7 +8,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
-import { apply } from '../index.js'
+import { createRuntime } from '../index.js'
 import { PENDING_FILE, record } from '../src/host/memory-pending.js'
 import { fakeContext } from './fake-ctx.js'
 
@@ -27,11 +27,12 @@ const TEAM = {
   questions: {},
 }
 
+let rt
 function start({ home = mkdtempSync(join(tmpdir(), 'ds-bot-memory-')) } = {}) {
   if (!existsSync(join(home, 'state.json'))) writeFileSync(join(home, 'state.json'), JSON.stringify(TEAM))
   const ctx = fakeContext()
-  apply(ctx, { home })
-  const tool = (name, args, sessionId) => ctx.registeredTools.get(name).execute(args, { agent: { id: sessionId } })
+  rt = createRuntime(ctx, { home })
+  const tool = (name, args, sessionId) => rt.teamTools.find(d => d.name === name).execute(args, { agent: { id: sessionId } })
   const read = (...path) => readFileSync(join(home, 'memory', ...path), 'utf8')
   const journal = () => read('journal.jsonl').trim().split('\n').map(line => JSON.parse(line))
   const stop = async ({ keep = false } = {}) => {
@@ -305,7 +306,7 @@ test('the change log keeps what each change replaced, and the id that tells it a
   await tool('remember', { text: 'Likes tea' }, 'b2')
   await tool('remember', { text: 'Likes green tea', replace: 'Likes tea' }, 'b2')
   const [added, replaced] = journal()
-  assert.deepEqual(Object.keys(added).sort(), ['actor', 'actorName', 'after', 'file', 'id', 'op', 'scope', 'time'])
+  assert.deepEqual(Object.keys(added).sort(), ['actor', 'actorName', 'after', 'file', 'id', 'op', 'scope', 'session', 'time'])
   assert.equal(replaced.before, added.after)
   assert.notEqual(replaced.id, added.id)
 })

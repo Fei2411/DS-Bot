@@ -1,7 +1,7 @@
 // Settings → About DS Bot: the version, updates for DS Bot and DSH, and the links to
 // the repository. The sidebar's cloud button shows the same update state.
 import { createElement as h, useEffect, useState } from 'react'
-import { GitHubMark } from './connectors.js'
+import { GitHubMark } from './connector-marks.js'
 import { whenText } from './feedback.js'
 import { dateLocale, hostText, t } from './i18n.js'
 import { StarLineIcon } from './icons.js'
@@ -21,7 +21,7 @@ function botHint(update) {
   if (update.phase === 'updated') return t('DS Bot {version} is installed.', { version: update.installed ?? update.latest })
   if (update.phase === 'failed') return t('The update did not finish: {reason}', { reason: hostText(update.error ?? '') })
   if (update.available) return t('DS Bot {version} is available', { version: update.latest })
-  if (update.source === 'app') return t('Updates come with the DeepSeek Bot app.')
+  if (update.source === 'app') return t('Updates come with the DS Bot app.')
   if (update.enabled === false) return t('Update checks are off.')
   if (update.source === 'path') return t('Installed from a local folder; update it there.')
   if (!update.checkedAt) return null

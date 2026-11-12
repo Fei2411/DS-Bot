@@ -82,7 +82,7 @@ function start() {
       },
     },
     sessionController: {
-      resolveAgent: async sessionId => ({ agent: { id: sessionId, session: { id: sessionId, seq: 2 } } }),
+      resolveAgent: async sessionId => ({ agent: { id: sessionId, session: { id: sessionId, seq: 2 }, ctx: { tools: { register: () => () => {} } } } }),
       selectModel: async () => {},
       page: async () => ({
         records: [
@@ -144,9 +144,31 @@ test('an image in a group is read for the group, and the group still relays its 
   assert.match(reading, /read by vision:\]\nA red triangle\./)
   assert.deepEqual(bench.requests.map(request => [request.model, request.sessionId]), [['vision', 'r1']])
 
-  const chunks = await drain(ctx.llm.stream({ provider: 'deepseek', model: 'v4', sessionId: 'r1', messages: [userText('Discuss the picture')] }))
+  const chunks = await drain(ctx.llm.stream({ provider: 'deepseek', model: 'v4', sessionId: 'r1', messages: [userText('Discuss the picture')], tools: [{ name: 'group_relay' }] }))
   assert.ok(chunks.some(chunk => chunk.type === 'tool-call-delta' && chunk.name === 'group_relay'))
   assert.equal(bench.requests.length, 1)
+})
+
+test('image readings skip providers without a key and include the read-only path when available', async (t) => {
+  const { ctx, rt, bench, stop } = start()
+  t.after(stop)
+  ctx.llm.listProviders = () => [{ id: 'unkeyed', name: 'Unkeyed' }, { id: 'deepseek', name: 'DeepSeek' }]
+  ctx.llm.listModels = async provider => (provider === 'unkeyed'
+    ? [{ id: 'unkeyed-vision', inputModalities: ['text', 'image'] }]
+    : [{ id: 'v4' }, { id: 'vision', inputModalities: ['text', 'image'] }])
+  rt.missingKeys = async () => new Set(['unkeyed'])
+  rt.dropCatalog()
+  const baseGet = ctx.get
+  ctx.get = name => (name === 'attachments'
+    ? { imageHostPath: () => '/host/attachments/v1/objects/aa/bb' }
+    : name === 'fs'
+        ? { processPathFromHostPath: p => p.replace('/host/', '/world/') }
+        : baseGet?.(name))
+  bench.respond = () => 'A blue circle.'
+  const [reading] = await rt.imagesForGroup([attachment], 'r1')
+  assert.match(reading, /read-only copy saved at "\/world\/attachments\/v1\/objects\/aa\/bb"/)
+  assert.match(reading, /read by vision:\]\nA blue circle\./)
+  assert.deepEqual(bench.requests.map(request => [request.provider, request.model, request.sessionId]), [['deepseek', 'vision', 'r1']])
 })
 
 test('the Session hooks pass DS Bot\'s own requests through, and still act on a Session\'s own rounds', async (t) => {
@@ -160,7 +182,7 @@ test('the Session hooks pass DS Bot\'s own requests through, and still act on a 
 
   const relay = hook(/relayOrPass/)
   assert.equal(relay(own('r1', [userText('Read this')]), pass), passed)
-  assert.ok((await drain(relay(round('r1', [userText('Read this')]), pass))).some(chunk => chunk.name === 'group_relay'))
+  assert.ok((await drain(relay({ ...round('r1', [userText('Read this')]), tools: [{ name: 'group_relay' }] }, pass))).some(chunk => chunk.name === 'group_relay'))
 
   const handoff = [{ role: 'user', source: { kind: 'bot', handoff: true }, content: [{ type: 'text', text: 'Handoff note' }] }]
   const acknowledge = hook(/acknowledge/)

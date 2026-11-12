@@ -4,13 +4,14 @@
 // Modeled on ChatGPT's memory summary.
 import { createElement as h, Fragment, useCallback, useEffect, useRef, useState } from 'react'
 import { useEscape } from './overlay-hooks.js'
-import { ArrowUpIcon, CheckIcon, ChevronLeftIcon, ChevronRightIcon, CloseIcon, DotsIcon, MemoryIcon, TrashIcon } from './icons.js'
+import { ArrowUpIcon, CheckIcon, ChevronLeftIcon, ChevronRightIcon, CloseIcon, DotsIcon, MemoryIcon, MoveIcon, PinIcon, TrashIcon } from './icons.js'
 import { dateLocale, hostText, t } from './i18n.js'
 import { summaryBlocks } from './text.js'
-import { useLinger } from './motion.js'
+import { stepMenuFocus, useLinger } from './motion.js'
 
 const POLL_MS = 1500
 const MENU_EXIT_MS = 120
+const MOVE_MENU_GAP = 12
 
 // Entry counts per Bot or group, for the details pane; the dialog updates them as it loads.
 const counts = new Map()
@@ -19,6 +20,27 @@ function noteCount(id, count) {
   if (counts.get(id) === count) return
   counts.set(id, count)
   for (const listener of countListeners) listener()
+}
+
+// A menu closes on a press outside it or on Escape, without closing the dialog under it.
+function useMenuDismiss(open, menuRef, triggerRef, close) {
+  useEffect(() => {
+    if (!open) return undefined
+    const onDown = (event) => {
+      if (menuRef.current?.contains(event.target) || triggerRef.current?.contains(event.target)) return
+      close()
+    }
+    const onKey = (event) => {
+      if (stepMenuFocus(menuRef.current, event, triggerRef.current)) return
+      if (event.key === 'Escape') { event.stopPropagation(); close(); triggerRef.current?.focus() }
+    }
+    window.addEventListener('mousedown', onDown)
+    window.addEventListener('keydown', onKey, true)
+    return () => {
+      window.removeEventListener('mousedown', onDown)
+      window.removeEventListener('keydown', onKey, true)
+    }
+  }, [open])
 }
 
 export function useMemoryCount(id, actions) {
@@ -95,7 +117,7 @@ const groupEntries = entries => entries.reduce((groups, entry) => {
   return groups
 }, [])
 
-function EntryRow({ entry, remove }) {
+function EntryRow({ entry, remove, pin, layer, openMove }) {
   const [confirming, setConfirming] = useState(false)
   const [busy, setBusy] = useState(false)
   useEffect(() => {
@@ -104,7 +126,8 @@ function EntryRow({ entry, remove }) {
     return () => clearTimeout(timer)
   }, [confirming])
   const by = entry.source === 'memory panel' ? t('by you') : entry.by ? t('by {name}', { name: entry.by }) : null
-  const meta = [entry.added, by].filter(Boolean).join(' · ')
+  const until = entry.until ? t(entry.expired ? 'ended {day}' : 'until {day}', { day: entry.until }) : null
+  const meta = [entry.added, by, until].filter(Boolean).join(' · ')
   const click = async () => {
     if (!confirming) { setConfirming(true); return }
     setBusy(true)
@@ -115,12 +138,47 @@ function EntryRow({ entry, remove }) {
       h('span', { className: 'bt-mem-entry-text' }, entry.text),
       meta ? h('span', { className: 'bt-mem-entry-meta' }, meta) : null),
     h('button', {
+      type: 'button', className: 'bt-mem-remove bt-mem-pin', 'data-on': entry.pinned || undefined, disabled: busy, 'aria-pressed': entry.pinned,
+      'aria-label': entry.pinned ? t('Unpin') : t('Pin'), title: entry.pinned ? t('Unpin') : t('Pin'), onClick: () => pin(entry, !entry.pinned),
+    }, h(PinIcon)),
+    entry.scope === 'team' ? h('button', {
+      type: 'button', className: 'bt-mem-place', disabled: busy, onClick: () => layer(entry, entry.topic !== null),
+    }, entry.topic === null ? t('Only when needed') : t('Every conversation')) : null,
+    h('button', {
+      type: 'button', className: 'bt-mem-remove', disabled: busy, 'aria-haspopup': 'menu',
+      'aria-label': t('Move to…'), title: t('Move to…'), onClick: event => openMove(entry, event.currentTarget),
+    }, h(MoveIcon)),
+    h('button', {
       type: 'button', className: 'bt-mem-remove', 'data-confirm': confirming || undefined, disabled: busy,
       'aria-label': confirming ? t('Click again to remove') : t('Remove from memory'), title: confirming ? undefined : t('Remove from memory'), onClick: click,
     }, confirming ? t('Remove') : h(TrashIcon)))
 }
 
-function Entries({ owner, view, remove }) {
+// Where an entry can go: the team's memory, a Bot's, or a group chat's.
+function MoveMenu({ menuRef, moving, view, move, leaving }) {
+  const { entry, box } = moving
+  const here = view.keys[entry.scope]
+  const item = (key, label) => h('button', { key, type: 'button', role: 'menuitem', onClick: () => move(entry, key) }, h('span', { className: 'bt-menu-label' }, label))
+  const list = (kind, head) => {
+    const places = view.places.filter(place => place.kind === kind && place.key !== here)
+    return places.length === 0 ? null : h(Fragment, { key: kind }, h('div', { className: 'bt-menu-sub-head' }, head), places.map(place => item(place.key, place.name)))
+  }
+  return h('div', { ref: menuRef, className: 'bt-menu bt-mem-move', role: 'menu', 'aria-label': t('Move to…'), style: box, 'data-leaving': leaving || undefined },
+    here === 'team' ? null : item('team', t('Team memory')),
+    list('bot', t('Bots')),
+    list('group', t('Group chats')))
+}
+
+function TidyNote({ tidy, undo }) {
+  const [busy, setBusy] = useState(false)
+  const line = t('Tidied: {merged} merged, {moved} moved, {retired} archived', { merged: tidy.merged, moved: tidy.moved, retired: tidy.retired })
+  return h('details', { className: 'bt-mem-tidy' },
+    h('summary', null, h('span', null, line),
+      h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: busy, onClick: async (event) => { event.preventDefault(); setBusy(true); await undo(tidy); setBusy(false) } }, t('Undo'))),
+    h('ul', null, tidy.items.map((item, at) => h('li', { key: at }, item.text))))
+}
+
+function Entries({ owner, view, remove, pin, layer, openMove, undoTidy }) {
   const groups = groupEntries(view.entries)
   const sections = owner.group
     ? [{ scope: 'group', title: t('Group memory'), hint: t('Only its members read it'), size: view.sizes.group }]
@@ -129,15 +187,16 @@ function Entries({ owner, view, remove }) {
         { scope: 'team', title: t('Team memory'), hint: t('Every Bot reads it'), size: view.sizes.team },
       ]
   return h('div', { className: 'bt-mem-entries' },
+    view.tidy ? h(TidyNote, { tidy: view.tidy, undo: undoTidy }) : null,
     sections.map(section => h('section', { key: section.scope, className: 'bt-mem-section' },
       h('div', { className: 'bt-mem-section-head' },
         h('h3', null, section.title),
         section.hint ? h('span', null, section.hint) : null,
-        h('span', { className: 'bt-mem-size', title: t('MEMORY.md, which every conversation reads') }, t('{used} of {limit} characters', { used: section.size.toLocaleString(dateLocale()), limit: view.limits.main.toLocaleString(dateLocale()) }))),
+        h('span', { className: 'bt-mem-size', title: t('MEMORY.md, which every conversation reads') }, t('{used} of {limit} characters', { used: section.size.toLocaleString(dateLocale()), limit: view.limits[section.scope].toLocaleString(dateLocale()) }))),
       groups.some(group => group.scope === section.scope)
         ? groups.filter(group => group.scope === section.scope).map(group => h(Fragment, { key: group.key },
             group.topic ? h('div', { className: 'bt-mem-topic' }, group.topic) : null,
-            h('ul', { className: 'bt-mem-list' }, group.entries.map(entry => h(EntryRow, { key: `${entry.topic ?? ''}:${entry.text}`, entry, remove })))))
+            h('ul', { className: 'bt-mem-list' }, group.entries.map(entry => h(EntryRow, { key: `${entry.topic ?? ''}:${entry.text}`, entry, remove, pin, layer, openMove })))))
         : h('div', { className: 'bt-mem-none' }, t('Nothing saved yet')))))
 }
 
@@ -147,6 +206,63 @@ function changeLine(change) {
   if (change.op === 'remove') return change.scope === 'team' ? t('Removed from team memory: {text}', { text }) : t('Removed: {text}', { text })
   if (change.op === 'edit') return t('Updated: {text}', { text })
   return change.scope === 'team' ? t('Added to team memory: {text}', { text }) : t('Added: {text}', { text })
+}
+
+function historyLine(row) {
+  const text = row.text.length > 120 ? `${row.text.slice(0, 120)}…` : row.text
+  if (row.op === 'remove') return row.scope === 'team' ? t('Removed from team memory: {text}', { text }) : t('Removed: {text}', { text })
+  if (row.op === 'replace') return t('Updated: {text}', { text })
+  return row.scope === 'team' ? t('Added to team memory: {text}', { text }) : t('Added: {text}', { text })
+}
+
+export function HistoryRow({ row, undo, now }) {
+  const [confirming, setConfirming] = useState(false)
+  const [busy, setBusy] = useState(false)
+  useEffect(() => {
+    if (!confirming) return undefined
+    const timer = setTimeout(() => setConfirming(false), 3000)
+    return () => clearTimeout(timer)
+  }, [confirming])
+  const when = ago(Date.parse(row.time), now) ?? t('just now')
+  const meta = [when, row.by === 'user' ? t('by you') : t('by {name}', { name: row.by })].join(' · ')
+  const click = async () => {
+    if (!confirming) { setConfirming(true); return }
+    setBusy(true)
+    if (!await undo(row)) setBusy(false)
+  }
+  return h('li', { className: 'bt-mem-entry', 'data-busy': busy || undefined },
+    h('div', { className: 'bt-mem-entry-copy' },
+      h('span', { className: 'bt-mem-entry-text' }, historyLine(row)),
+      h('span', { className: 'bt-mem-entry-meta' }, meta)),
+    row.restored
+      ? h('span', { className: 'bt-mem-undone' }, t('Undone'))
+      : h('button', {
+        type: 'button', className: 'bt-mem-remove', 'data-confirm': confirming || undefined, disabled: busy,
+        'aria-label': confirming ? t('Click again to undo') : t('Undo this change'), title: confirming ? undefined : t('Undo this change'), onClick: click,
+      }, t('Undo')))
+}
+
+export function History({ owner, actions, undo, now }) {
+  const [rows, setRows] = useState(null)
+  const [more, setMore] = useState(null)
+  const [paging, setPaging] = useState(false)
+  const load = useCallback(async (before) => {
+    const page = await actions.memoryHistory(owner.id, before)
+    setRows(before === undefined ? page.rows : [...(rows ?? []), ...page.rows])
+    setMore(page.more)
+  }, [owner.id, rows])
+  useEffect(() => { void load() }, [owner.id])
+  const reload = async () => { setRows(null); setMore(null); await load() }
+  const undoRow = async row => (await undo(row) ? reload() : false)
+  const moreClick = async () => {
+    setPaging(true)
+    try { await load(more) } finally { setPaging(false) }
+  }
+  if (rows === null) return h(Skeleton)
+  if (rows.length === 0) return h('div', { className: 'bt-mem-none' }, t('No changes yet'))
+  return h('div', { className: 'bt-mem-entries' },
+    h('ul', { className: 'bt-mem-list' }, rows.map(row => h(HistoryRow, { key: row.id, row, undo: undoRow, now }))),
+    more ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: paging, onClick: () => void moreClick() }, t('Load more')) : null)
 }
 
 function Reply({ answer, dismiss }) {
@@ -211,6 +327,11 @@ export function MemoryDialog({ owner, actions, leaving = false }) {
   const [page, setPage] = useState('summary')
   const [menu, setMenu] = useState(false)
   const [menuShown, menuLeaving] = useLinger(menu, MENU_EXIT_MS)
+  const [moving, setMoving] = useState(null)
+  const [moveOpen, setMoveOpen] = useState(false)
+  const [moveShown, moveLeaving] = useLinger(moveOpen, MENU_EXIT_MS)
+  const moveRef = useRef(null)
+  const moveAnchor = useRef(null)
   const [text, setText] = useState('')
   const [answer, setAnswer] = useState(null)
   const menuRef = useRef(null)
@@ -219,22 +340,27 @@ export function MemoryDialog({ owner, actions, leaving = false }) {
   const now = useNow(30_000)
   const close = useCallback(() => actions.closeMemory(), [])
   useEscape(close)
+  useMenuDismiss(menu, menuRef, dotsRef, () => setMenu(false))
+  useMenuDismiss(moveOpen, moveRef, moveAnchor, () => setMoveOpen(false))
   useEffect(() => {
-    if (!menu) return undefined
-    const onDown = (event) => {
-      if (menuRef.current?.contains(event.target) || dotsRef.current?.contains(event.target)) return
-      setMenu(false)
-    }
-    const onKey = (event) => { if (event.key === 'Escape') { event.stopPropagation(); setMenu(false); dotsRef.current?.focus() } }
-    window.addEventListener('mousedown', onDown)
-    window.addEventListener('keydown', onKey, true)
-    return () => {
-      window.removeEventListener('mousedown', onDown)
-      window.removeEventListener('keydown', onKey, true)
-    }
-  }, [menu])
+    if (!moveOpen) return undefined
+    const onScroll = (event) => { if (!moveRef.current?.contains(event.target)) setMoveOpen(false) }
+    window.addEventListener('scroll', onScroll, true)
+    return () => window.removeEventListener('scroll', onScroll, true)
+  }, [moveOpen])
+  const openMove = (entry, button) => {
+    if (moveOpen && moveAnchor.current === button) { setMoveOpen(false); return }
+    moveAnchor.current = button
+    const rect = button.getBoundingClientRect()
+    const below = window.innerHeight - rect.bottom - MOVE_MENU_GAP
+    const above = rect.top - MOVE_MENU_GAP
+    const right = Math.max(MOVE_MENU_GAP, window.innerWidth - rect.right)
+    setMoving({ entry, box: above > below ? { right, bottom: window.innerHeight - rect.top + 4, maxHeight: above } : { right, top: rect.bottom + 4, maxHeight: below } })
+    setMoveOpen(true)
+  }
   const regenerate = () => { setMenu(false); setPage('summary'); void load({ regenerate: true }) }
   const openEntries = () => { setMenu(false); setPage('entries') }
+  const openHistory = () => { setMenu(false); setPage('history') }
   const backToSummary = () => { setPage('summary'); void load({ summarize: true }) }
   const remove = async (entry) => {
     try {
@@ -242,6 +368,44 @@ export function MemoryDialog({ owner, actions, leaving = false }) {
       return true
     } catch (failure) {
       setAnswer({ asked: entry.text, error: failure?.message ?? String(failure) })
+      return false
+    }
+  }
+  const undoTidy = async (tidy) => {
+    try {
+      show(await actions.memoryTidyUndo(owner.id, tidy.scope, tidy.batch))
+    } catch (failure) {
+      setAnswer({ asked: t('Undo'), error: failure?.message ?? String(failure) })
+    }
+  }
+  const move = async (entry, to) => {
+    setMoveOpen(false)
+    try {
+      show(await actions.memoryMove(owner.id, entry, to))
+    } catch (failure) {
+      setAnswer({ asked: entry.text, error: failure?.message ?? String(failure) })
+    }
+  }
+  const layer = async (entry, always) => {
+    try {
+      show(await actions.memoryLayer(owner.id, entry, always))
+    } catch (failure) {
+      setAnswer({ asked: entry.text, error: failure?.message ?? String(failure) })
+    }
+  }
+  const pin = async (entry, on) => {
+    try {
+      show(await actions.memoryPin(owner.id, entry, on))
+    } catch (failure) {
+      setAnswer({ asked: entry.text, error: failure?.message ?? String(failure) })
+    }
+  }
+  const undo = async (row) => {
+    try {
+      show(await actions.memoryRestore(owner.id, row.id))
+      return true
+    } catch (failure) {
+      setAnswer({ asked: row.text, error: failure?.message ?? String(failure) })
       return false
     }
   }
@@ -274,22 +438,25 @@ export function MemoryDialog({ owner, actions, leaving = false }) {
     h('div', { className: 'bt-scrim bt-mem-scrim', onMouseDown: close }),
     h('div', { className: 'bt-mem', role: 'dialog', 'aria-modal': true, 'aria-label': t("{name}'s memory", { name: owner.name }) },
       h('div', { className: 'bt-mem-head' },
-        page === 'entries' ? h('button', { type: 'button', className: 'bt-icon-btn', 'aria-label': t('Back to the summary'), onClick: backToSummary }, h(ChevronLeftIcon)) : null,
-        h('h2', null, page === 'entries' ? t('All entries') : t('Memory summary')),
-        h('span', { className: 'bt-mem-status' }, page === 'summary' ? [owner.name, status].filter(Boolean).join(' · ') : status),
+        page === 'summary' ? null : h('button', { type: 'button', className: 'bt-icon-btn', 'aria-label': t('Back to the summary'), onClick: backToSummary }, h(ChevronLeftIcon)),
+        h('h2', null, page === 'entries' ? t('All entries') : page === 'history' ? t('Change history') : t('Memory summary')),
+        h('span', { className: 'bt-mem-status' }, page === 'summary' ? [owner.name, status].filter(Boolean).join(' · ') : page === 'entries' ? status : ''),
         h('span', { className: 'bt-mem-head-gap' }),
         h('button', { ref: dotsRef, type: 'button', className: 'bt-icon-btn', 'aria-label': t('Memory options'), 'aria-haspopup': 'menu', 'aria-expanded': menu, onClick: () => setMenu(value => !value) }, h(DotsIcon)),
         h('button', { type: 'button', className: 'bt-icon-btn', 'aria-label': t('Close memory'), onClick: close }, h(CloseIcon)),
         menuShown ? h('div', { ref: menuRef, className: 'bt-menu bt-mem-menu', role: 'menu', 'aria-label': t('Memory options'), 'data-leaving': menuLeaving || undefined },
           h('button', { type: 'button', role: 'menuitem', onClick: openEntries },
             h('span', { className: 'bt-menu-label' }, t('All entries')), h('span', { className: 'bt-menu-hint' }, String(count))),
+          h('button', { type: 'button', role: 'menuitem', onClick: openHistory },
+            h('span', { className: 'bt-menu-label' }, t('Change history'))),
           h('button', { type: 'button', role: 'menuitem', disabled: count === 0 || view?.summarizing, onClick: regenerate },
             h('span', { className: 'bt-menu-label' }, t('Regenerate summary')))) : null),
       h('div', { className: 'bt-mem-body' },
         error ? h('div', { className: 'bt-error', role: 'alert', style: { padding: 0 } }, hostText(error)) : null,
         view === null ? (error ? null : h(Skeleton))
-          : page === 'entries' ? h(Entries, { owner, view, remove })
-            : h(Summary, { owner, view, regenerate })),
+          : page === 'entries' ? h(Entries, { owner, view, remove, pin, layer, openMove, undoTidy })
+            : page === 'history' ? h(History, { owner, actions, undo, now })
+              : h(Summary, { owner, view, regenerate })),
       h('div', { className: 'bt-mem-foot' },
         answer ? h(Reply, { answer, dismiss: () => setAnswer(null) }) : null,
         h('form', { className: 'bt-mem-ask', onSubmit: ask },
@@ -299,5 +466,6 @@ export function MemoryDialog({ owner, actions, leaving = false }) {
             onChange: event => setText(event.target.value),
           }),
           h('button', { type: 'submit', className: 'bt-mem-send', disabled: busy || text.trim() === '', 'aria-label': t('Send') },
-            busy ? h('span', { className: 'bt-mem-spin', 'aria-hidden': true }) : h(ArrowUpIcon))))))
+            busy ? h('span', { className: 'bt-mem-spin', 'aria-hidden': true }) : h(ArrowUpIcon))))),
+    moveShown && moving !== null && view !== null ? h(MoveMenu, { menuRef: moveRef, moving, view, move, leaving: moveLeaving }) : null)
 }

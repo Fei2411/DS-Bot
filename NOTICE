@@ -29,8 +29,10 @@ MIT License, Copyright (c) 2026 DeepSeek
     verification, the wheel test pruning and the Office skill asset copy.
   - app/src/host-process.mjs follows apps/desktop/src/host-process.ts: the
     Host in Electron's Node mode and the shutdown escalation.
-  - app/src/main.mjs follows apps/desktop/src/main.ts for the Windows window
-    options (the caption-button overlay, its colors and the native theme). app/src/preload.cjs adapts
+  - app/src/main.mjs and app/src/window-frame.mjs follow apps/desktop/src/main.ts
+    for the window options (the Windows caption-button overlay, its colors and
+    the native theme; the macOS traffic lights and sidebar vibrancy, and the
+    opaque fill while the window is minimized or hidden). app/src/preload.cjs adapts
     apps/desktop/src/preload-windows.ts, apps/desktop/src/preload-platform.ts
     and apps/desktop/src/preload-theme.ts: the caption-band marks, the
     fullscreen mark, the caption-color measure and the theme sync.
@@ -74,6 +76,22 @@ MIT License, Copyright (c) 2026 DeepSeek
   OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
   SOFTWARE.
 
+Simple Icons (https://simpleicons.org)
+CC0 1.0 Universal, the Simple Icons contributors
+
+  - ds-bot/src/client/connector-marks.js keeps the single-color brand path of
+    each connector service from Simple Icons 16.36.0 (the SI table), the
+    Gmail, iCloud and QQ paths for the mailbox rows, and the Telegram, WeChat
+    and Discord paths for the IM page.
+
+Context7 (https://github.com/upstash/context7)
+MIT License, Copyright (c) Upstash
+
+  - ds-bot/src/client/connector-marks.js keeps the Context7 connector mark
+    from public/context7-icon.svg, without the brand square.
+
+  MIT license text: see the DeepSeek Harness section above.
+
 Microsoft Playwright (https://github.com/microsoft/playwright) and
 Playwright MCP (https://github.com/microsoft/playwright-mcp)
 Apache License, Version 2.0, Copyright (c) Microsoft Corporation
@@ -91,17 +109,122 @@ Apache License, Version 2.0, Copyright (c) Microsoft Corporation
   The license is the same Apache License, Version 2.0 that covers this
   repository; see LICENSE for the text.
 
+DSH Remote (https://github.com/liguobao/deepseek-harness-remote)
+MIT License, Copyright (c) 2026 DSH Remote contributors
+
+  The phone link code in link/ adapts code from commit 4d888ad of DSH Remote.
+  DS Bot changed the names, the Noise prologue label, the fragment marker, the
+  hello and the pairing, so the protocol is DS Bot's own and does not talk to
+  DSH Remote.
+  - link/src/noise.ts adapts packages/crypto/src/noise.ts (the Noise
+    IK session and the remote-key check).
+  - link/src/keys.ts copies the key pair, fingerprint and Base64URL
+    functions of packages/crypto/src/index.ts.
+  - link/src/frames.ts adapts packages/protocol/src/index.ts: the
+    control frame and message envelopes, the frame size limits, and
+    SecureMessageCodec. It checks frames by hand instead of with zod.
+  - link/src/transport.ts copies packages/webrtc/src/transport.ts and
+    packages/webrtc/src/websocket-backpressure.ts.
+  - link/src/relay-transport.ts adapts RelayTransport in
+    packages/webrtc/src/index.ts.
+  - link/src/secure-transport.ts adapts
+    apps/android/src/services/secure-transport.ts.
+  - link/src/rpc-client.ts adapts RemoteClientCore in
+    packages/client-core/src/index.ts.
+  - link/server/gateway.ts adapts apps/server/src/gateway.ts (the hello
+    check, the link stages, the Relay counters, the heartbeat and the rate
+    limits). It drops accounts and WebRTC signaling.
+  - link/src/host.ts follows the flow of HostServerConnection in
+    packages/plugin/src/server-connection.ts (reconnect, connect.incoming,
+    the responder handshake, Relay sends), written again for DS Bot.
+  - mobile/src/polyfills.ts copies apps/android/src/polyfills.ts.
+
+  Full license text: the same MIT terms as printed under DeepSeek Harness
+  above, with the copyright line of DSH Remote.
+
+dsh-im (https://github.com/xmanrui/dsh-im)
+MIT License, Copyright (c) 2026 xmanrui
+
+  - ds-bot/src/host/im/platforms/telegram.js follows the Telegram Bot API
+    mapping of dsh-im's telegram channel (long polling, getFile downloads,
+    callback queries, and its send/edit calls), and
+    ds-bot/src/host/im/format.js follows the Markdown chunking of
+    src/channels/shared/markdown-chunks.mjs and telegram-rich-message.mjs
+    there: code fences stay whole where they fit and are re-fenced when
+    they must be split.
+  - ds-bot/src/host/im/platforms/discord.js follows the gateway and REST
+    mapping of dsh-im's discord channel (src/channels/discord/discord-runtime.mjs
+    and discord-api.mjs): resume with session_id and resume_gateway_url,
+    component presses answered by a deferred update, message chunking.
+  - ds-bot/src/host/im/platforms/slack.js follows the Socket Mode handling of
+    src/channels/slack/slack-runtime.mjs and slack-api.mjs: every envelope
+    ACKed, disconnect frames reconnect, message and app_mention events, and
+    file downloads from url_private.
+  - ds-bot/src/host/im/platforms/weixin.js follows the iLink mapping of
+    src/channels/weixin/weixin-api.mjs and weixin-controller.mjs: the QR
+    login poll, getupdates with the get_updates_buf cursor, context_token
+    per user, typing tickets, and the AES image download.
+  - ds-bot/src/host/im/platforms/wecom.js follows the aibot frame mapping of
+    src/channels/wecom/wecom-runtime.mjs and wecom-cards.mjs: subscribe,
+    ping, req_id replies, proactive sends and template-card events.
+  - ds-bot/src/host/im/platforms/qq.js follows the gateway opcodes and
+    message fields of @tencent-connect/qqbot-nodejs
+    (https://github.com/tencent-connect/qqbot-nodejs, MIT): app access
+    token, hello/heartbeat/identify/resume/reconnect/invalid session,
+    C2C and group @ events, passive replies with msg_id and msg_seq.
+  - ds-bot/src/host/im/platforms/dingtalk.js follows the stream frames of
+    dingtalk-stream (https://github.com/alibaba-dingtalk/dingtalk-stream-nodejs,
+    MIT): connections/open, ACKs by messageId, system pings, sessionWebhook
+    and the robot OpenAPI fallback.
+  - ds-bot/src/host/im/platforms/feishu.js follows the long-connection
+    pbbp2 frame protocol of @larksuiteoapi/node-sdk
+    (https://github.com/larksuite/node-sdk, MIT): the protobuf frame shape,
+    ping/pong, data-frame ACKs with biz_rt, and split-payload reassembly.
+  - ds-bot/src/client/im-page.js renders the pairing code with
+    qrcode-generator (https://github.com/kazuhikoarase/qrcode-generator,
+    MIT, Copyright (c) Kazuhiko Arase).
+
+  The MIT License text:
+
+  Permission is hereby granted, free of charge, to any person obtaining a copy
+  of this software and associated documentation files (the "Software"), to deal
+  in the Software without restriction, including without limitation the rights
+  to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+  copies of the Software, and to permit persons to whom the Software is
+  furnished to do so, subject to the following conditions:
+
+  The above copyright notice and this permission notice shall be included in
+  all copies or substantial portions of the Software.
+
+  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+  SOFTWARE.
+
 No other third-party code is copied into this repository. At run time the
 plugin uses the @deepseek-ai/* packages of the DeepSeek Harness install it
 runs in; they are not bundled. The bundled ds-bot/office.js includes
 @xmldom/xmldom (https://github.com/xmldom/xmldom, MIT License, Copyright (c)
-jindw and contributors) from npm. esbuild is a build tool only. The desktop app
+jindw and contributors) from npm. esbuild is a build tool only. The plugin's
+client.js bundles qrcode-generator from npm (MIT, Copyright (c) 2009 Kazuhiko
+Arase), and its link.js bundles the phone link from link/ with the packages
+it uses, listed below. The desktop app
 in app/ installs the pinned @deepseek-ai/* packages, Electron and pnpm from
 npm; they keep their own licenses. The build of its window (app/ui) bundles,
 from npm, React and React DOM (MIT, Copyright (c) Meta Platforms, Inc. and
 affiliates), and react-markdown and remark-gfm with the packages they use
 (MIT, most of them Copyright (c) Titus Wormer; @ungap/structured-clone is ISC,
-Copyright (c) Andrea Giammarchi). Vite is a build tool only.
+Copyright (c) Andrea Giammarchi). Vite is a build tool only. The mobile app in
+mobile/ bundles, from npm, Expo and React Native (MIT, Copyright (c) 650
+Industries, Inc. and Meta Platforms, Inc. and affiliates). The phone link in
+link/, which the mobile app bundles and the Relay Server runs, uses from npm
+@noble/ciphers, @noble/curves and @noble/hashes (MIT, Copyright (c) Paul
+Miller), @lukeburns/clatterjs (MIT, Copyright (c) 2025 Joni Lepistö) and, in
+the Server only, ws (MIT, Copyright (c) 2011 Einar Otto Stangvik, (c) 2013
+Arnout Kazemier and contributors, (c) 2016 Luigi Pinca and contributors).
 
 ==============================================================================
 Projects that gave us ideas (no code copied)
@@ -133,3 +256,11 @@ their ideas; it does not contain their code.
     (packages/experimental/client-ui-voice-input), MIT: the voice chat
     records with the same steps (record, resample to 16 kHz mono, PCM16 WAV)
     before it calls the plugin's speech service.
+
+Agent logos (ds-bot/src/client/agent-logos.js)
+The logos name the agent CLI a Bot runs on. Each is a trademark of its owner:
+Claude (Anthropic), Cursor (Anysphere), Gemini (Google), OpenCode (SST),
+Cline (Cline Bot Inc.), Qwen (Alibaba Cloud), Devin (Cognition AI),
+OpenAI (OpenAI). DS Bot is not affiliated with or endorsed by these owners.
+Vector marks from Simple Icons (https://simpleicons.org), CC0-1.0.
+Devin and OpenAI marks from the vendors' application icons.

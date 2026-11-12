@@ -12,6 +12,7 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSyn
 import { tmpdir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { modelsFor } from '../src/client/agent-routes.js'
 
 const [name, port, ...rest] = process.argv.slice(2)
 if (!name || !port) {
@@ -145,8 +146,8 @@ async function step(title, run, check) {
     return undefined
   }
   const calls = mockLog().slice(before)
-  const problem = (() => {
-    try { return check?.(value, calls) } catch (error) { return error.message }
+  const problem = await (async () => {
+    try { return await check?.(value, calls) } catch (error) { return error.message }
   })()
   transcript.push({ step: title, said: said(calls), state: normalized() })
   if (problem) {
@@ -167,7 +168,8 @@ let models = []
 await step('bootstrap: Chief waits for a model', () => api('state'), (value, calls) => {
   const current = state()
   const bots = Object.values(current.bots)
-  models = value.models ?? []
+  // The model card offers DS Bot models only; a CLI found on this machine is no pick there.
+  models = modelsFor(value.models)
   return expect(bots.length === 1 && bots[0].name === 'Chief' && current.mainBotIds[0] === bots[0].id, 'expected one Main Bot named Chief')
     ?? expect(bots[0].model === undefined && bots[0].kickoff !== undefined, 'Chief should hold its greeting until a model is picked')
     ?? expect(value.bots[0].waiting === true, 'the view should show Chief as waiting')
@@ -183,10 +185,11 @@ await step('user picks a model; Chief greets and asks in its reply', () => api('
     ?? expect(saidText(calls, /先让团队帮你做哪块/), 'expected Chief to ask in its reply')
 })
 
-await step('Chief creates Writer, who replies', () => send(chief().id, '创建一个叫Writer的bot'), () => {
+await step('Chief creates Writer, who replies', () => send(chief().id, '创建一个叫Writer的bot'), async () => {
   const writer = botNamed('Writer')
   if (!writer) return 'no Writer'
-  const kinds = state().exchanges.filter(entry => [entry.from, entry.to].includes(writer.id)).map(entry => entry.role)
+  const entries = await api('exchange', { a: chief().id, b: writer.id })
+  const kinds = entries.map(entry => entry.role)
   return expect(writer.createdBy === chief().id, 'Writer should be created by Chief')
     ?? expect(kinds.includes('request') && kinds.includes('reply'), `expected a request and a reply, got ${kinds}`)
 })
@@ -354,9 +357,12 @@ await step('Writer waits for the work it handed on, then answers with it', async
     if (activity[writer] === 'waiting') return work.waiting?.[writer]
   }
   return undefined
-}, (waiting, calls) => expect(waiting?.bots?.includes(botNamed('Coder').id) && waiting.for.includes(chief().id), `Writer did not show that it waits for Coder (${JSON.stringify(waiting)})`)
-  ?? expect(saidText(calls, /^Coder 交回了，我把结果交给 Chief/), 'Writer did not go on when Coder answered')
-  ?? expect(state().exchanges.some(entry => entry.role === 'reply' && entry.from === botNamed('Writer').id && entry.text.includes('[Handed back to Writer for this work]')), 'Chief did not get Coder\'s result with Writer\'s answer'))
+}, async (waiting, calls) => {
+  const entries = await api('exchange', { a: chief().id, b: botNamed('Writer').id })
+  return expect(waiting?.bots?.includes(botNamed('Coder').id) && waiting.for.includes(chief().id), `Writer did not show that it waits for Coder (${JSON.stringify(waiting)})`)
+    ?? expect(saidText(calls, /^Coder 交回了，我把结果交给 Chief/), 'Writer did not go on when Coder answered')
+    ?? expect(entries.some(entry => entry.role === 'reply' && entry.from === botNamed('Writer').id && String(entry.text).includes('[Handed back to Writer for this work]')), 'Chief did not get Coder\'s result with Writer\'s answer')
+})
 
 await step('update Writer', () => api('update-bot', { id: botNamed('Writer').id, role: 'Copywriter', instructions: 'Write the copy.' }), () => {
   const writer = botNamed('Writer')

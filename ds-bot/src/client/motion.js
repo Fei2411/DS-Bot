@@ -55,6 +55,8 @@ export const SPRING_POP = springEasing(500, 22)
 // within about a quarter second.
 export const SPRING_LEAD = springEasing(784, 48.2)
 export const SPRING_TRAIL = springEasing(289, 29.2)
+// Critically damped layout glide (ω≈31.6, ζ=1) for sidebar row reordering.
+export const SPRING_GLIDE = springEasing(1000, 63)
 // A highlight that follows the keyboard and pointer down a list keeps up on stiffer
 // edges (ω=30 and ω=20).
 export const QUICK_EDGES = { lead: springEasing(900, 51), trail: springEasing(400, 34) }
@@ -67,35 +69,41 @@ export const spring = (curve, ...properties) => properties.map(property => `${pr
 // page delays the thumb instead of slowing it down.
 function liveSprings(apply) {
   const values = new Map()
+  const current = {}
   let frame = 0
   let last = 0
-  const read = () => Object.fromEntries([...values].map(([key, value]) => [key, value.x]))
   const step = (now) => {
     const dt = Math.min(0.5, Math.max(0.001, (now - last) / 1000))
     last = now
     const steps = Math.ceil(dt * 240)
     const h = dt / steps
     let moving = false
-    for (const value of values.values()) {
+    for (const [key, value] of values) {
       for (let index = 0; index < steps; index += 1) {
         value.v += (-value.k * (value.x - value.to) - value.c * value.v) * h
         value.x += value.v * h
       }
       if (Math.abs(value.x - value.to) < 0.05 && Math.abs(value.v) < 1) { value.x = value.to; value.v = 0 } else moving = true
+      current[key] = value.x
     }
-    apply(read())
+    apply(current)
     frame = moving ? requestAnimationFrame(step) : 0
   }
   return {
-    target: () => (values.size ? Object.fromEntries([...values].map(([key, value]) => [key, value.to])) : null),
+    target: () => {
+      if (!values.size) return null
+      const out = {}
+      for (const [key, value] of values) out[key] = value.to
+      return out
+    },
     set(targets, curves, jump) {
       for (const [key, to] of Object.entries(targets)) {
         const value = values.get(key)
         const { stiffness: k, damping: c } = curves[key]
-        if (!value || jump) values.set(key, { x: to, v: 0, to, k, c })
+        if (!value || jump) { values.set(key, { x: to, v: 0, to, k, c }); current[key] = to }
         else Object.assign(value, { to, k, c })
       }
-      if (jump) { cancelAnimationFrame(frame); frame = 0; apply(read()); return }
+      if (jump) { cancelAnimationFrame(frame); frame = 0; apply(current); return }
       if (!frame) { last = performance.now(); frame = requestAnimationFrame(step) }
     },
     stop: () => cancelAnimationFrame(frame),
@@ -242,4 +250,22 @@ export function useLinger(value, ms) {
     return () => clearTimeout(timer)
   }, [value])
   return [value || kept, !value && Boolean(kept)]
+}
+
+// Moves keyboard focus through enabled menu items on ArrowDown, ArrowUp, Home and End.
+export function stepMenuFocus(menu, event, trigger) {
+  if (!menu || !['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return false
+  const items = Array.from(menu.querySelectorAll('button[role^="menuitem"]:not(:disabled)'))
+  if (items.length === 0) return false
+  const target = document.activeElement
+  const current = items.indexOf(target)
+  if (current === -1 && target !== menu && target !== trigger) return false
+  event.preventDefault()
+  event.stopPropagation()
+  const next = event.key === 'Home' ? 0
+    : event.key === 'End' ? items.length - 1
+      : event.key === 'ArrowDown' ? (current + 1) % items.length
+        : (current <= 0 ? items.length - 1 : current - 1)
+  items[next]?.focus()
+  return true
 }

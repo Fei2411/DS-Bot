@@ -67,7 +67,7 @@ export function skillSystem() {
     '4. Not covered: no listed skill already says it. When a learned skill of this Bot covers the class, update that skill instead of making a new one. Also update a learned skill that the work showed to be wrong, outdated, or missing a step.',
     '',
     'Never put in a skill: one-off facts, task progress, file lists, dates, version, pull request or issue numbers, pasted errors or logs, facts about the user that are not about how to work (memory keeps those), or keys, passwords, and tokens.',
-    'Write rules that stand alone, not the story of this work: a reason says why the rule matters, never when or how it was broken ("the user corrected this before", "version 1.2 missed it"). Examples must be general, not the files, values, or fixes of this task.',
+    'Write rules that stand alone, not the story of this work: a reason says why the rule matters, never when or how it was broken ("the user corrected this before", "version 1.2 missed it"). Examples must be general: do not name the files, functions, values, or fixes that this work happened to touch, not even as an example, and write a placeholder such as `<file>:<line>` instead; name something only when the rule is about it, such as a check the user wants run.',
     '',
     'Form:',
     '- name: the class of task, lowercase letters, digits, and single hyphens, 32 characters at most, e.g. "release-checks", never "fix-login-bug".',
@@ -202,6 +202,33 @@ export function applyEdits(current, edits) {
   return text
 }
 
+// The review's answer as a proposal. A single edit written as the answer itself, with
+// its operation as the action, is that edit; a replacement with no text removes; lines
+// one edit names that stand apart in the file, each once, are one edit each.
+export function agentsAnswer(reply, current) {
+  let answer = parseJson(reply)
+  if (['add', 'replace', 'remove'].includes(answer?.action)) {
+    const { action, ...edit } = answer
+    answer = { action: 'edit', edits: [{ op: action, ...edit }] }
+  }
+  if (!Array.isArray(answer?.edits)) return answer
+  const lines = lineBlock(current ?? '')
+  const apart = edit => {
+    if (edit?.op !== 'replace' && edit?.op !== 'remove') return [edit]
+    const old = lineBlock(textOf(edit.old))
+    const text = lineBlock(textOf(edit.text))
+    if (old.length < 2 || occurrences(lines, old).length > 0 || old.some(line => occurrences(lines, [line]).length !== 1)) return [edit]
+    if (edit.op === 'replace' && text.length !== old.length) return [edit]
+    return old.map((line, index) => ({ ...edit, old: line, ...(edit.op === 'replace' ? { text: text[index] } : {}) }))
+  }
+  const removes = edit => {
+    const { text, ...rest } = edit
+    return { ...rest, op: 'remove' }
+  }
+  const edits = answer.edits.map(edit => edit?.op === 'replace' && textOf(edit.text).trim() === '' ? removes(edit) : edit)
+  return { ...answer, edits: edits.flatMap(apart) }
+}
+
 export function agentsProblem(proposal, current) {
   if (proposal === undefined) return 'the answer is not a JSON object'
   if (proposal.action === 'none') return undefined
@@ -272,7 +299,7 @@ export function install(rt) {
   const on = config.learning !== false && config.memory !== false
   const view = () => ({})
   if (!on) {
-    Object.assign(rt, { learningView: view, learningEndpoint: async () => { throw new Error('Learning is turned off on this host') }, learningRun: async () => 0 })
+    Object.assign(rt, { learningView: view, learningSettledView: view, learningEndpoint: async () => { throw new Error('Learning is turned off on this host') }, learningRun: async () => 0 })
     return
   }
 
@@ -280,7 +307,9 @@ export function install(rt) {
   const path = join(root, 'state.json')
   // `pending`: Bot id → chats with a long turn since the last pass. `agentsPending`:
   // folder → queued work waiting for AGENTS.md review. `cursors`: newest line read.
-  // `proposals`: waiting for the user, by id. `learned`: skill names learned by Bot.
+  // `proposals`: waiting for the user, by id. `settled`: answered ones, by id, with
+  // the outcome; their cards stay in the chat part they were answered in.
+  // `learned`: skill names learned by Bot.
   let saved
   const data = () => {
     if (saved !== undefined) return saved
@@ -293,6 +322,7 @@ export function install(rt) {
     saved.pending ??= {}
     saved.cursors ??= {}
     saved.proposals ??= {}
+    saved.settled ??= {}
     saved.declined ??= []
     saved.learned ??= {}
     saved.agentsPending ??= {}
@@ -421,7 +451,7 @@ export function install(rt) {
     const language = writtenIn(lines.filter(line => line.startsWith('User: ')).map(line => line.slice(6)), rt.uiLanguage?.())
     const request = agentsRequest({ folder, current, lines, declined: data().declined, language })
     const reply = await rt.botShot(bot, agentsSystem(), request, { sessionId: rt.chatOf(bot.id), kind: 'memory' })
-    const answer = parseJson(reply)
+    const answer = agentsAnswer(reply, current)
     if (answer === undefined || answer === null || typeof answer !== 'object') throw new Error('the answer is not a JSON object')
     if (Array.isArray(answer.edits) && answer.edits.some(edit => [edit?.text, edit?.why].some(value => typeof value === 'string' && rt.redactSecrets(value) !== value))) {
       rt.warn('ds-bot: the AGENTS.md review of %s proposed content containing a saved secret', bot.name)
@@ -631,8 +661,15 @@ export function install(rt) {
     const store = data()
     const proposal = Object.hasOwn(store.proposals, id) ? store.proposals[id] : undefined
     if (proposal === undefined) throw Object.assign(new Error('This proposal is no longer open'), { code: 'bot/stale' })
-    if (approve !== true) {
+    // The answered card stays where it was, read-only, with how it ended. A waiting
+    // card shows in the Bot's current chat part, so that is where it stays.
+    const settle = (outcome) => {
       delete store.proposals[id]
+      const { saved: _saved, ...kept } = proposal
+      store.settled[id] = { ...kept, sessionId: rt.chatOf(proposal.botId), outcome, settledAt: Date.now() }
+    }
+    if (approve !== true) {
+      settle('declined')
       const decline = proposal.kind === 'agents'
         ? { kind: 'agents', folder: proposal.folder, edits: proposal.edits.map(({ op, text, old }) => ({ op, text, old })), at: Date.now() }
         : { name: proposal.name, description: proposal.description, at: Date.now() }
@@ -643,7 +680,7 @@ export function install(rt) {
     // A failed approval keeps the card, so the user can still decline it.
     if (proposal.kind === 'agents') await applyAgents(proposal)
     else await applySkill(proposal)
-    delete store.proposals[id]
+    settle('approved')
     await persist()
     return { applied: true }
   }
@@ -736,6 +773,14 @@ export function install(rt) {
     for (const entry of Object.values(data().proposals)) (byBot[entry.botId] ??= []).push(entry)
     return byBot
   }
+  // Per Bot, the answered proposals of its current chat part.
+  const learningSettledView = () => {
+    const byBot = {}
+    for (const entry of Object.values(data().settled)) {
+      if (rt.botOf(entry.botId) !== undefined && entry.sessionId === rt.chatOf(entry.botId)) (byBot[entry.botId] ??= []).push(entry)
+    }
+    return byBot
+  }
 
   const capabilityDelete = rt.capabilityDelete
   rt.capabilityDelete = async (...args) => {
@@ -750,5 +795,5 @@ export function install(rt) {
     return result
   }
 
-  Object.assign(rt, { learningView, learningEndpoint, learningRun: run })
+  Object.assign(rt, { learningView, learningSettledView, learningEndpoint, learningRun: run })
 }

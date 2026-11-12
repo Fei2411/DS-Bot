@@ -3,8 +3,10 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
-import { apply } from '../index.js'
+import { createRuntime } from '../index.js'
 import { fakeContext } from './fake-ctx.js'
+
+let rt
 
 const TEAM = {
   version: 1,
@@ -38,14 +40,14 @@ async function start() {
     route = options
     return register(options)
   }
-  apply(ctx, { home })
+  rt = createRuntime(ctx, { home })
   let seq = 0
   const emit = (id, type, data) => {
     for (const listener of ctx.listeners.get('session/event') ?? []) {
       if (listener.length >= 2) listener({ id }, { type, seq: ++seq, data })
     }
   }
-  const ask = (sessionId, callId) => ctx.registeredTools.get('ask_user').execute(
+  const ask = (sessionId, callId) => rt.teamTools.find(d => d.name === 'ask_user').execute(
     { question: 'Which name?', options: [{ label: 'Lookout' }, { label: 'Scout' }] },
     { agent: { id: sessionId }, callId, concludeTurn() {} },
   )
@@ -53,13 +55,13 @@ async function start() {
     method: 'POST', body: JSON.stringify({ endpoint: 'state', payload: {} }),
   }))).json()).value.questions
   // Loading once fills the Session-owner indexes turns.js filters events by.
-  await ctx.registeredTools.get('list_bots').execute({}, { agent: { id: 'chief' } })
+  await rt.teamTools.find(d => d.name === 'list_bots').execute({}, { agent: { id: 'chief' } })
   return { emit, ask, questions, stop: async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) } }
 }
 
 const text = value => [{ type: 'text', text: value }]
 
-test('a card asked in a hidden Bot-to-Bot turn goes to the dock, without its call', async (t) => {
+test('a card asked in a hidden Bot-to-Bot turn keeps its call id, and closing it records at that call', async (t) => {
   const { emit, ask, questions, stop } = await start()
   t.after(stop)
   emit('writer', 'turn/start', { turn: 1 })
@@ -67,7 +69,10 @@ test('a card asked in a hidden Bot-to-Bot turn goes to the dock, without its cal
   await ask('writer', 'call-1')
   const asked = (await questions()).writer
   assert.equal(asked.question, 'Which name?')
-  assert.equal(asked.callId, undefined)
+  assert.equal(asked.callId, 'call-1')
+  emit('writer', 'user/message', { content: text('Call it Scout'), source: { kind: 'user' } })
+  assert.equal((await questions()).writer, undefined)
+  assert.deepEqual(rt.state.closedCards, { writer: { 'call-1': 'replied' } })
 })
 
 test('a card asked in a visible turn stays at its call', async (t) => {

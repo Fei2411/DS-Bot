@@ -41,6 +41,20 @@ describe('the notice before the window hides', () => {
     assert.equal(existsSync(join(app.folder, 'acknowledged')), false, 'nothing is kept')
   })
 
+  test('a notice that could not be shown hides the window and asks again next time', async (t) => {
+    const asked = []
+    const app = harness({ show: async (options) => { asked.push(options); return { response: 0, unasked: true } } })
+    t.after(app.cleanup)
+    let hidden = 0
+    app.notice.close(() => { hidden += 1 })
+    await settle()
+    assert.equal(hidden, 1, 'the window is hidden')
+    assert.equal(existsSync(join(app.folder, 'acknowledged')), false, 'nothing is kept')
+    app.notice.close(() => { hidden += 1 })
+    await settle()
+    assert.equal(asked.length, 2, 'the next close asks again')
+  })
+
   test('a notice that is answered once is not shown again', async (t) => {
     const app = harness()
     t.after(app.cleanup)
