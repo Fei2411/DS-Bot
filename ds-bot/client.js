@@ -15594,8 +15594,8 @@ button:hover .bt-you{background:color-mix(in srgb,var(--bt-ink) 9%,var(--bt-side
 .bt-gs-ctx{background:var(--bt-hover);border-radius:8px;padding:6px 8px}
 .bt-gs-ctx .bt-gs-line{font-size:13px;line-height:18px;color:var(--bt-ink-2)}
 .bt-gs mark{background:color-mix(in srgb,var(--bt-star) 32%,transparent);color:inherit;border-radius:4px;padding:0 1px}
-.bt-gs-foot{display:flex;justify-content:space-between;gap:8px;padding:6px 14px 10px;font-size:12px;line-height:16px;color:var(--bt-ink-3)}
-.bt-gs-cap{white-space:nowrap}
+.bt-gs-foot{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 14px 10px;font-size:12px;line-height:16px;color:var(--bt-ink-3)}
+.bt-gs-foot-side{display:flex;align-items:center;justify-content:flex-end;gap:8px;min-width:0}
 @media (prefers-reduced-motion:reduce){.bt-palette{animation:bt-fade .1s ease-out}}
 .bt-account-menu{width:224px}
 .bt-account{flex:none;width:36px;height:36px;border:0;padding:0;background:none;border-radius:50%;cursor:pointer;display:inline-flex}
@@ -36279,10 +36279,14 @@ function GroupSearch({ room: room2, roster, token, actions }) {
   const [query, setQuery] = (0, import_react54.useState)("");
   const [answer, setAnswer] = (0, import_react54.useState)(null);
   const [busy, setBusy] = (0, import_react54.useState)(false);
+  const [paging, setPaging] = (0, import_react54.useState)(false);
   const [error, setError] = (0, import_react54.useState)(null);
+  const [moreError, setMoreError] = (0, import_react54.useState)(null);
   const [picked, setPicked] = (0, import_react54.useState)(null);
   const [leaving, setLeaving] = (0, import_react54.useState)(false);
   const input = (0, import_react54.useRef)(null);
+  const generation = (0, import_react54.useRef)(0);
+  const moreCall = (0, import_react54.useRef)(null);
   const close = () => {
     if (leaving) return;
     setLeaving(true);
@@ -36292,21 +36296,28 @@ function GroupSearch({ room: room2, roster, token, actions }) {
   const terms = termsOf(query);
   const text = query.trim();
   (0, import_react54.useEffect)(() => {
+    const mine = ++generation.current;
+    moreCall.current?.abort();
     if (text.length < MIN_QUERY) {
       setAnswer(null);
       setBusy(false);
+      setPaging(false);
       setError(null);
+      setMoreError(null);
       return void 0;
     }
+    setPaging(false);
+    setMoreError(null);
     const controller = new AbortController();
     const timer = setTimeout(() => {
       setBusy(true);
       call("group-search", { roomId: room2.id, query: text }, controller.signal).then((result) => {
-        setAnswer({ results: Array.isArray(result?.results) ? result.results : [], capped: result?.capped === true });
+        if (mine !== generation.current) return;
+        setAnswer({ query: text, results: Array.isArray(result?.results) ? result.results : [], hasMore: result?.hasMore === true });
         setBusy(false);
         setError(null);
       }, (failure) => {
-        if (failure?.name === "AbortError") return;
+        if (failure?.name === "AbortError" || mine !== generation.current) return;
         setBusy(false);
         setError(failure);
       });
@@ -36314,12 +36325,38 @@ function GroupSearch({ room: room2, roster, token, actions }) {
     return () => {
       clearTimeout(timer);
       controller.abort();
+      moreCall.current?.abort();
     };
   }, [text, room2.id]);
   (0, import_react54.useEffect)(() => {
     setPicked(null);
   }, [text]);
   const results = answer?.results ?? [];
+  const loadMore = () => {
+    if (paging || answer?.query !== text || answer?.hasMore !== true) return void 0;
+    const oldest = results.at(-1)?.seq;
+    const page = Number.isInteger(oldest) ? { before: oldest } : { offset: results.length };
+    const mine = generation.current;
+    const controller = new AbortController();
+    moreCall.current?.abort();
+    moreCall.current = controller;
+    setPaging(true);
+    setMoreError(null);
+    return call("group-search", { roomId: room2.id, query: text, ...page }, controller.signal).then((result) => {
+      if (mine !== generation.current) return;
+      const incoming = Array.isArray(result?.results) ? result.results : [];
+      setAnswer((prev) => {
+        const seen = new Set((prev?.results ?? []).map((hit) => hit.seq).filter((seq) => seq !== void 0));
+        const next = incoming.filter((hit) => hit.seq === void 0 || !seen.has(hit.seq));
+        return { query: prev?.query ?? text, results: [...prev?.results ?? [], ...next], hasMore: result?.hasMore === true };
+      });
+      setPaging(false);
+    }, (failure) => {
+      if (failure?.name === "AbortError" || mine !== generation.current) return;
+      setPaging(false);
+      setMoreError(failure);
+    });
+  };
   const body = picked !== null ? (0, import_react54.createElement)(Detail, { hit: picked, roster, terms, back: () => setPicked(null) }) : text.length < MIN_QUERY ? (0, import_react54.createElement)(
     "div",
     { className: "bt-palette-empty" },
@@ -36350,11 +36387,18 @@ function GroupSearch({ room: room2, roster, token, actions }) {
     ),
     (0, import_react54.createElement)("div", { className: "bt-gs-snippet" }, marked(snippetOf(hit.text, terms), terms))
   ));
-  const footer = picked === null && text.length >= MIN_QUERY && results.length > 0 ? (0, import_react54.createElement)(
+  const current = answer?.query === text;
+  const more = current && answer?.hasMore === true ? (0, import_react54.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: paging, onClick: () => void loadMore() }, t("Load more")) : null;
+  const footer = current && picked === null && error === null && text.length >= MIN_QUERY && results.length > 0 ? (0, import_react54.createElement)(
     "div",
     { className: "bt-gs-foot" },
     (0, import_react54.createElement)("span", null, results.length === 1 ? t("1 match") : t("{count} matches", { count: results.length })),
-    answer?.capped === true ? (0, import_react54.createElement)("span", { className: "bt-gs-cap" }, t("Showing the {count} newest", { count: results.length })) : null
+    more !== null || moreError !== null ? (0, import_react54.createElement)(
+      "span",
+      { className: "bt-gs-foot-side" },
+      moreError !== null ? (0, import_react54.createElement)("span", null, hostText(moreError?.message ?? moreError)) : null,
+      more
+    ) : null
   ) : null;
   return (0, import_react54.createElement)(
     "div",

@@ -847,8 +847,8 @@ button:hover .bt-you{background:color-mix(in srgb,var(--bt-ink) 9%,var(--bt-side
 .bt-gs-ctx{background:var(--bt-hover);border-radius:8px;padding:6px 8px}
 .bt-gs-ctx .bt-gs-line{font-size:13px;line-height:18px;color:var(--bt-ink-2)}
 .bt-gs mark{background:color-mix(in srgb,var(--bt-star) 32%,transparent);color:inherit;border-radius:4px;padding:0 1px}
-.bt-gs-foot{display:flex;justify-content:space-between;gap:8px;padding:6px 14px 10px;font-size:12px;line-height:16px;color:var(--bt-ink-3)}
-.bt-gs-cap{white-space:nowrap}
+.bt-gs-foot{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 14px 10px;font-size:12px;line-height:16px;color:var(--bt-ink-3)}
+.bt-gs-foot-side{display:flex;align-items:center;justify-content:flex-end;gap:8px;min-width:0}
 @media (prefers-reduced-motion:reduce){.bt-palette{animation:bt-fade .1s ease-out}}
 .bt-account-menu{width:224px}
 .bt-account{flex:none;width:36px;height:36px;border:0;padding:0;background:none;border-radius:50%;cursor:pointer;display:inline-flex}

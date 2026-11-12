@@ -326,8 +326,8 @@ export function install(rt) {
     return rt.ledger.range(bookOf(roomId), from, to).filter(record => record.session !== true).map(rowOf).filter(Boolean)
   }
   // A sequence of words over everything said in the group, newest first, with each
-  // hit's neighbours: the chat draws the message in its context from this.
-  const groupSearch = (roomId, query) => searchGroupBook(rt.ledger.records(bookOf(roomId)), query)
+  // hit's neighbours. `page` (`before` or `offset`) reads the next older page.
+  const groupSearch = (roomId, query, page) => searchGroupBook(rt.ledger.records(bookOf(roomId)), query, page)
 
   Object.assign(rt, {
     keepGroupLine, dropGroupLines, groupRows, groupSearch,
