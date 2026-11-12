@@ -4,6 +4,15 @@ All notable changes to DS Bot are listed here. The format follows [Keep a Change
 
 ## [Unreleased]
 
+## [0.3.6] - 2026-11-12
+
+### Fixed
+
+- In the Android phone app, tapping another Bot or a group chat in the sidebar or tapping an incoming notice banner no longer closes the app, and switching chats keeps each conversation's cached messages separate. ([#1405](https://github.com/Fei2411/DS-Bot/issues/1405), [#1427](https://github.com/Fei2411/DS-Bot/issues/1427), [#1444](https://github.com/Fei2411/DS-Bot/issues/1444), [#1436](https://github.com/Fei2411/DS-Bot/pull/1436))
+- In the Android phone app, opening Memory for a Bot or a group chat that has a saved summary no longer closes the app. ([#1405](https://github.com/Fei2411/DS-Bot/issues/1405), [#1436](https://github.com/Fei2411/DS-Bot/pull/1436))
+- The Android APK is signed with v1 (JAR), v2 and v3 signature schemes together so OEM package installers recognize its developer certificate on first install. ([#1445](https://github.com/Fei2411/DS-Bot/pull/1445))
+- In the phone app, chat bubbles, settled `ask_user` and `show_view` cards, inline code spacing, part dividers, multi-card docks, archived group relays, long-message notes, settings rows, Chinese translations and photo previews render cleanly. ([#1442](https://github.com/Fei2411/DS-Bot/pull/1442); photo preview state fix reported by @hydrogen2289 in [#1447](https://github.com/Fei2411/DS-Bot/pull/1447))
+
 ## [0.3.5] - 2026-11-11
 
 ### Added

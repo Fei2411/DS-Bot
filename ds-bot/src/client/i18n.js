@@ -726,6 +726,10 @@ const ZH = {
   'Mark as Unread': '标为未读',
   'Rename Bot': '重命名 Bot',
   'Group settings': '群设置',
+  'Shared to-do': '共享待办',
+  '{count} open': '{count} 项未完成',
+  'No shared to-dos yet. Ask a Bot in this group to add one.': '还没有共享待办。让群里的一个 Bot 加一条。',
+  'Clear completed': '清除已完成',
   'Rename group': '重命名群聊',
   'Copy conversation ID': '复制对话 ID',
   'Hide from sidebar': '从侧栏隐藏',
@@ -1879,3 +1883,14 @@ export function language() {
 }
 
 export const dateLocale = () => DATE_LOCALES[resolveLangKey(language())] ?? 'en-US'
+
+// MarkdownText re-parses when `labels` changes identity, and a streaming message starts
+// over, so one object serves until the language changes the text.
+let labels = null
+export function mdLabels() {
+  const [copyLabel, copiedLabel, footnotes] = [t('Copy'), t('Copied'), t('Footnotes')]
+  if (labels?.code.copyLabel !== copyLabel || labels.code.copiedLabel !== copiedLabel || labels.footnotes !== footnotes) {
+    labels = { code: { copyLabel, copiedLabel }, footnotes }
+  }
+  return labels
+}

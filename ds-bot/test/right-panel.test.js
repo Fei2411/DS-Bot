@@ -311,3 +311,61 @@ test('every Bot gets the Sessions section and New session, not only local-agent 
   const engineEntry = buttonsOf(engine).find(button => textOf(button).includes('New session'))
   assert.ok(engineEntry, 'the local-agent Bot still has it')
 })
+
+// A second instance of the drawer bundle whose React runs effects at once and keeps
+// one state slot, so the status line can resolve its host read and render.
+const runStatsBundle = await build({
+  entryPoints: [fileURLToPath(new URL('../src/client/details-drawer.js', import.meta.url))],
+  bundle: true, format: 'cjs', platform: 'node', write: false,
+  external: ['react', 'react-dom', '@deepseek-ai/dsh-client-ui-primitives'],
+})
+let runStatsState
+const runStatsReact = {
+  createContext: (initial) => { const ctx = { value: initial }; ctx.Provider = ({ children }) => children; return ctx },
+  useContext: ctx => ctx.value, useId: () => 'rv-id',
+  createElement: (type, props, ...children) => ({ type, props: props ?? {}, children: children.flat(Infinity) }),
+  useState: () => [runStatsState, value => { runStatsState = value }],
+  useEffect: effect => effect(), useRef: current => ({ current }), useLayoutEffect: () => {},
+  useMemo: make => make(), useCallback: fn => fn,
+  useSyncExternalStore: (_subscribe, get) => get(), Fragment: 'fragment',
+}
+const runStatsModule = { exports: {} }
+runInNewContext(runStatsBundle.outputFiles[0].text, {
+  module: runStatsModule, exports: runStatsModule.exports, URL, URLSearchParams, setTimeout, clearTimeout,
+  require: (name) => {
+    const platform = {
+      react: runStatsReact,
+      'react-dom': { createPortal: node => node },
+      '@deepseek-ai/dsh-client-ui-primitives': { MarkdownText: () => null },
+    }
+    if (!(name in platform)) throw new Error(`no platform module ${name}`)
+    return platform[name]
+  },
+})
+const { RunStats } = runStatsModule.exports
+
+test('the Bot status line needs the runStats action and then draws turns, speed, cache and context', () => {
+  runStatsState = undefined
+  const bot = { id: 'a', name: 'Chief', sessionId: 'a' }
+  // Without the action the line stays away instead of drawing itself empty.
+  assert.equal(RunStats({ bot, part: 'a', running: false, actions: {} }), null)
+  // The host's figures, as the run-stats endpoint returns them.
+  const values = {
+    sessionStats: { turns: 12, decodeMs: 4000, decodeTokens: 150 },
+    tokenUsage: { uncachedInputTokens: 50, cacheReadTokens: 900, cacheWriteTokens: 50, outputTokens: 400 },
+    contextPressure: { pressureTokens: 41_000, contextWindow: 100_000 },
+  }
+  let asked
+  const actions = { runStats: (id) => { asked = id; return { then: ok => { ok(values) } } } }
+  // The first render starts the read; it has nothing to draw until the read lands.
+  assert.equal(RunStats({ bot, part: 'a', running: false, actions }), null)
+  const node = RunStats({ bot, part: 'a', running: false, actions })
+  assert.equal(asked, 'a')
+  const line = textOf(node)
+  assert.match(line, /12 turns/)
+  assert.match(line, /38 tok\/s/)
+  assert.match(line, /Cache hit 90%/)
+  assert.match(line, /Context 41%/)
+  // Moving to another part clears the previous part's figures until the new read finishes.
+  assert.equal(RunStats({ bot, part: 'a-2', running: false, actions: { runStats: () => ({ then() {} }) } }), null)
+})
