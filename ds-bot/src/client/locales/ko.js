@@ -1307,6 +1307,10 @@ export const KO = {
   'Its group conversation could not open': '그룹 대화 세션을 열 수 없습니다',
   'Its group conversation could not open, so it starts a new one next time': '그룹 대화 세션을 열 수 없어 다음번에 새 세션을 시작합니다',
   // The composer's +
+  'Pasted text · {count} characters': '붙여넣은 텍스트 · {count}자',
+  'Put back': '되돌리기',
+  'Put back into the box': '입력창에 되돌리기',
+  'Remove pasted text': '붙여넣은 텍스트 삭제',
   'Add files': '파일 추가',
   'Reference a chat': '대화 참조',
   'Chat with {name}': '{name}와(과)의 대화',

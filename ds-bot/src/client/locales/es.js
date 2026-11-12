@@ -1307,6 +1307,10 @@ export const ES = {
   'Its group conversation could not open': 'No se pudo abrir su conversación grupal',
   'Its group conversation could not open, so it starts a new one next time': 'No se pudo abrir su conversación grupal, por lo que iniciará una nueva la próxima vez',
   // The composer's +
+  'Pasted text · {count} characters': 'Texto pegado · {count} caracteres',
+  'Put back': 'Devolver',
+  'Put back into the box': 'Devolver al cuadro de texto',
+  'Remove pasted text': 'Quitar el texto pegado',
   'Add files': 'Añadir archivos',
   'Reference a chat': 'Referenciar un chat',
   'Chat with {name}': 'Chat con {name}',

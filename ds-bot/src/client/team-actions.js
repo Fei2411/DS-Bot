@@ -8,6 +8,9 @@ import { noteClientError } from './diagnostics.js'
 export function teamActions({ call, after, partFor, roster, ui, live, cards, heldCards, turnClock, panelFolded }) {
   // A memory is a Bot's or a group chat's; both are opened by id.
   const memoryOf = id => (roster.getSnapshot().roomsById[id] ? { roomId: id } : { botId: id })
+  // Cards of long pastes, numbered as they come; each waits for the shell's attachment.
+  let pastes = 0
+  const pasteState = (state, sessionId, blocks) => ({ ...state, paste: { ...state.paste, [sessionId]: blocks } })
   // An action that shows the panel lands the yield with it: when a folded
   // panel's explicit opener fires, the column gives way in the same set.
   // `view` is the next view, since its minimum decides what fits; a yield already
@@ -86,6 +89,30 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     },
     closePanel: () => { ui.set(state => (state.details ? { ...state, details: null, view: 'details', renaming: false, tab: null, side: null } : state)) },
     quote: (sessionId, text) => ui.set(state => ({ ...state, quote: { sessionId, text, token: Date.now() } })),
+    // A long paste becomes a card; its text stays here until it goes back into the box.
+    addPaste: (sessionId, text, name) => {
+      pastes += 1
+      const block = { id: `paste-${pastes}`, text, name, attachmentId: null }
+      ui.set(state => pasteState(state, sessionId, [...(state.paste?.[sessionId] ?? []), block]))
+      return block.id
+    },
+    // The shell attachment whose label is that waiting card's own file name.
+    linkPastes: (sessionId, links) => ui.set((state) => {
+      const blocks = state.paste?.[sessionId] ?? []
+      const byBlock = new Map()
+      for (const link of links) byBlock.set(link.blockId, link.attachmentId)
+      const linked = blocks.map((block) => {
+        if (block.attachmentId !== null) return block
+        const id = byBlock.get(block.id)
+        return id === undefined ? block : { ...block, attachmentId: id }
+      })
+      return linked.every((block, index) => block === blocks[index]) ? state : pasteState(state, sessionId, linked)
+    }),
+    removePaste: (sessionId, blockIds) => ui.set((state) => {
+      const blocks = state.paste?.[sessionId] ?? []
+      const kept = blocks.filter(block => !blockIds.includes(block.id))
+      return kept.length === blocks.length ? state : pasteState(state, sessionId, kept)
+    }),
     clearQuote: token => ui.set(state => (state.quote?.token === token ? { ...state, quote: null } : state)),
     setFlags: (id, flags) => after(call('set-flags', { id, ...flags })),
     saveSection: payload => after(call('section-save', payload)),
