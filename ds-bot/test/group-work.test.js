@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -7,6 +7,7 @@ import { afterRound } from './relay-rows.js'
 import { createRuntime } from '../index.js'
 import { fakeAttachments, fakeContext } from './fake-ctx.js'
 import { LONG_HEAD, MESSAGE_INLINE_MAX, ROOM_STEP_GAP_MS, ROOM_WORK_GRACE_MS } from '../src/host/constants.js'
+import { scopeTarget } from '@deepseek-ai/dsh-scope'
 import { promisesWork } from '../src/host/turns.js'
 
 let rt
@@ -82,6 +83,10 @@ async function start(t, room, services, extraRooms, bots, llm, top, files = {}) 
       if (listener.length >= 2) listener({ id }, { type, seq: ++seq, data })
     }
   }
+  const emitScoped = (parentId, name, info) => {
+    const carrier = scopeTarget({}, agentOf(parentId))
+    for (const listener of ctx.listeners.get(name) ?? []) listener.call(carrier, info)
+  }
   const tool = (name, args, sessionId, exec = {}) => rt.teamTools.find(d => d.name === name).execute(args, { agent: { id: sessionId }, ...exec })
   const call = async (endpoint, payload) => (await route.fetch(new Request('http://localhost/api/bot', { method: 'POST', body: JSON.stringify({ endpoint, payload }) }))).json()
   // A Session takes up the newest message it was sent, as a new turn.
@@ -117,9 +122,15 @@ async function start(t, room, services, extraRooms, bots, llm, top, files = {}) 
     return { content: post.content, source: post.source }
   }
   await tool('list_bots', {}, 'a')
-  return { home, ctx, agentOf, emit, tool, call, begin, finish, round, say, takePost, selected }
+  return { home, ctx, agentOf, emit, emitScoped, tool, call, begin, finish, round, say, takePost, selected }
 }
 
+// The save before a group post runs on a timer; waiting with setImmediate starves it.
+const until = async (check, ms = 3000) => {
+  const stop = Date.now() + ms
+  while (!check() && Date.now() < stop) await new Promise(resolve => setTimeout(resolve, 20))
+  assert.ok(check(), 'condition not reached')
+}
 const settle = async (check) => {
   const until = Date.now() + 3000
   while (!check() && Date.now() < until) await new Promise(resolve => setImmediate(resolve))
@@ -1712,6 +1723,143 @@ test('a group member with a running DSH subagent stays working and stop-room-wor
 })
 
 
+for (const noticeFirst of [true, false]) {
+  test(`a failed child reaches the group once on the open anchor without synthesizing a round when its notice comes ${noticeFirst ? 'first' : 'last'} (#973)`, async (t) => {
+    const host = await start(t)
+    const first = host.round('c1', host.say('@Writer 导出这份 PPT'))
+    await settle(() => host.agentOf('gb').calls.length === 1)
+    host.begin('gb')
+    host.emit('gb', 'subagent/catalog', { childId: 'sub-1', label: 'Export the deck' })
+    host.finish('gb', '正在导出。')
+    await settle(() => first() !== undefined)
+    const revBefore = rt.state.revision
+    // An intermediate message from the running child must neither end it nor spend its label.
+    host.emit('gb', 'user/message', {
+      content: [{ type: 'text', text: 'Agent sub-1 sent a message: 进度 50%' }],
+      source: { kind: 'agent-message', form: 'relay', senderSessionId: 'sub-1' },
+    })
+    assert.equal(rt.hasSubagents('gb'), true)
+
+    const notice = {
+      content: [{ type: 'text', text: 'Background subagent sub-1 failed before it finished.\nIt left no closing message.' }],
+      source: { kind: 'subagent-settled', form: 'notice', summary: 'Background subagent sub-1 failed before it finished.', senderSessionId: 'sub-1' },
+    }
+    const ending = { runId: 'run-1', provider: 'spawn', id: 'sub-1', local: true, stopReason: 'error' }
+    if (noticeFirst) host.emit('gb', 'user/message', notice)
+    host.emitScoped('gb', 'subagent/end', ending)
+    if (!noticeFirst) host.emit('gb', 'user/message', notice)
+    host.emit('gb', 'turn/start', { turn: 2 })
+    host.finish('gb', '[PASS]')
+    await until(() => rt.state.revision > revBefore)
+    assert.deepEqual(host.agentOf('r1').calls, [], 'no fake empty round is posted to the group Session')
+    const view = (await host.call('group-rows', { roomId: 'r1', from: first().from, anchor: first().anchor })).value
+    const shown = view.rows.filter(row => row.kind === 'helper-failed')
+    assert.equal(shown.length, 1)
+    assert.equal(shown[0].name, 'Writer')
+    assert.equal(shown[0].stopReason, 'error')
+    assert.equal(shown[0].helper, 'Export the deck')
+    host.emit('gb', 'user/message', notice)
+    assert.equal(rt.groupRows('r1', 0, rt.roomOf('r1').seq).filter(row => row.kind === 'helper-failed').length, 1)
+    host.emitScoped('gb', 'subagent/end', { ...ending, runId: 'run-2', stopReason: 'completed' })
+    assert.deepEqual(host.agentOf('r1').calls, [])
+  })
+}
+
+for (const [reason, summary] of [['error', 'failed before it finished.'], ['max-tokens', 'ran out of room before it finished.']]) {
+  test(`a failure known only from its settlement notice still shows in the group (${reason}, #973)`, async (t) => {
+    const host = await start(t)
+    const first = host.round('c1', host.say('@Writer 导出这份 PPT'))
+    await settle(() => host.agentOf('gb').calls.length === 1)
+    host.begin('gb')
+    host.emit('gb', 'subagent/catalog', { childId: 'sub-1', label: 'Export the deck' })
+    host.finish('gb', '正在导出。')
+    await settle(() => first() !== undefined)
+    // No subagent/end: an in-place plugin reload lost it, so the notice is the only
+    // ending this runtime sees. The child's own turn answers it with [PASS].
+    const notice = {
+      content: [
+        { type: 'text', text: `Background subagent sub-1 ${summary}` },
+        { type: 'text', text: 'It left no closing message.' },
+      ],
+      source: { kind: 'subagent-settled', form: 'notice', summary: `Background subagent sub-1 ${summary}`, senderSessionId: 'sub-1' },
+    }
+    const revBefore = rt.state.revision
+    host.emit('gb', 'user/message', notice)
+    host.emit('gb', 'turn/start', { turn: 2 })
+    host.finish('gb', '[PASS]')
+    await until(() => rt.state.revision > revBefore)
+    assert.deepEqual(host.agentOf('r1').calls, [])
+    const view = (await host.call('group-rows', { roomId: 'r1', from: first().from, anchor: first().anchor })).value
+    const shown = view.rows.filter(row => row.kind === 'helper-failed')
+    assert.equal(shown.length, 1)
+    assert.equal(shown[0].name, 'Writer')
+    assert.equal(shown[0].stopReason, reason)
+    assert.equal(shown[0].helper, 'Export the deck')
+    assert.equal(shown[0].text, `Export the deck — subagent ended (${reason})`)
+    // The same notice again, and the lifecycle ending arriving late, add no second row.
+    host.emit('gb', 'user/message', notice)
+    host.emitScoped('gb', 'subagent/end', { runId: 'run-1', provider: 'spawn', id: 'sub-1', local: true, stopReason: reason })
+    assert.deepEqual(host.agentOf('r1').calls, [])
+    assert.equal(rt.groupRows('r1', first().from).filter(row => row.kind === 'helper-failed').length, 1)
+    // A clean ending is not a failure: it adds no row and no post.
+    host.emit('gb', 'subagent/catalog', { childId: 'sub-2', label: 'Check the slides' })
+    host.emit('gb', 'user/message', {
+      content: [{ type: 'text', text: 'Background subagent sub-2 finished.' }],
+      source: { kind: 'subagent-settled', form: 'notice', summary: 'Background subagent sub-2 finished.', senderSessionId: 'sub-2' },
+    })
+    assert.equal(rt.groupRows('r1', 0, rt.roomOf('r1').seq).filter(row => row.kind === 'helper-failed').length, 1)
+    assert.deepEqual(host.agentOf('r1').calls, [])
+  })
+}
+
+test('a child that runs again after settling gets its own failure row, and read-only hosts stay untouched (#973)', async (t) => {
+  const host = await start(t)
+  const failure = {
+    content: [
+      { type: 'text', text: 'Background subagent sub-1 failed before it finished.' },
+      { type: 'text', text: 'It left no closing message.' },
+    ],
+    source: { kind: 'subagent-settled', form: 'notice', summary: 'Background subagent sub-1 failed before it finished.', senderSessionId: 'sub-1' },
+  }
+  host.emit('gb', 'subagent/catalog', { childId: 'sub-1', label: 'First run' })
+  host.emit('gb', 'user/message', failure)
+  const rows = () => rt.groupRows('r1', 0, rt.roomOf('r1').seq).filter(row => row.kind === 'helper-failed')
+  await until(() => rows().length === 1)
+  assert.equal(rows()[0].helper, 'First run')
+  assert.equal(rows()[0].stopReason, 'error')
+  // The same child takes a new run; the earlier row must not hide this ending.
+  host.emitScoped('gb', 'subagent/start', { runId: 'run-2', provider: 'spawn', id: 'sub-1', local: true })
+  host.emit('gb', 'user/message', failure)
+  await until(() => rows().length === 2)
+  // A read-only window must never append to the ledger.
+  const prevReadOnly = rt.readOnly
+  rt.readOnly = () => ({ pid: 999 })
+  try {
+    await rt.subagentFailureNotice('gb', { stopReason: 'error', helper: 'Blocked' })
+    assert.equal(rows().length, 2)
+  } finally {
+    rt.readOnly = prevReadOnly
+  }
+})
+
+test('a helper failure in a running round preserves the idle guard, does not mark the member failed, and stays one event', async (t) => {
+  const host = await start(t)
+  const round = host.round('c1', host.say('@Writer 检查'))
+  await settle(() => host.agentOf('gb').calls.length === 1)
+  host.begin('gb')
+  host.emit('gb', 'subagent/catalog', { childId: 'sub-1', label: 'Check' })
+  const room = rt.roomOf('r1')
+  room.idleRelays = 4
+  await rt.subagentFailureNotice('gb', { stopReason: 'error', helper: 'Check' })
+  assert.equal(room.idleRelays, 4)
+  assert.equal(room.log.filter(row => row.reason === 'helper-failed').length, 1)
+  assert.equal(room.log.filter(row => row.botId === 'b').length, 0)
+  host.emitScoped('gb', 'subagent/end', { id: 'sub-1', stopReason: 'completed', runId: 'run-1', provider: 'spawn', local: true })
+  host.finish('gb', '[PASS]')
+  await settle(() => round() !== undefined)
+  assert.equal(round().failed, undefined, 'member own turn was not marked failed')
+})
+
 test('approval keeps a member inside its parallel batch until all results arrive', async t => {
   t.mock.timers.enable({ apis: ['setTimeout'] })
   const host = await start(t)
@@ -2227,6 +2375,115 @@ test('a batch wake says which member finished with no closing message of its own
   assert.ok(!text(wake).includes('Finished without a closing message: Writer and'))
   host.begin('ga')
   host.finish('ga', '[PASS]')
+})
+
+// #977: a final reply that announces work while no tool, job or subagent runs is marked
+// for the reader, and a local file it links to is checked. Nothing is retried or reworded.
+test('a reply announcing work with nothing running is marked, with its missing linked file (#977)', async (t) => {
+  const host = await start(t)
+  const first = host.round('c1', host.say('@Writer 导出报告'))
+  await settle(() => host.agentOf('gb').calls.length === 1)
+  host.begin('gb')
+  const missing = join(tmpdir(), `ds-bot-977-${process.pid}-${Date.now()}`, 'report.pptx')
+  const long = `正在导出报告到 [report.pptx](<${missing}>)，稍后汇报。${'背景：这一页要沿用上一版的样式和图表。'.repeat(12)}`
+  host.finish('gb', long)
+  await settle(() => first() !== undefined)
+  const reply = first().replies.find(row => row.name === 'Writer')
+  assert.deepEqual(reply.claims, { missingFiles: [missing], inProgress: true })
+  assert.equal(host.agentOf('gb').calls.length, 1, 'nothing is retried')
+})
+
+// A member that started real work or handed work to a peer is not marked, and an existing file in a spaced folder passes.
+test('work that did run, a peer handoff and an existing file in a spaced folder carry no marker (#977)', async (t) => {
+  const root = mkdtempSync(join(tmpdir(), 'ds-bot-977-file-'))
+  t.after(() => rmSync(root, { recursive: true, force: true }))
+  const spaced = join(root, 'DS Bot')
+  mkdirSync(spaced, { recursive: true })
+  const done = join(spaced, 'report.pptx')
+  writeFileSync(done, 'x')
+  const host = await start(t, { workDir: spaced })
+  const first = host.round('c1', host.say('@Chief 导出报告'))
+  await settle(() => host.agentOf('ga').calls.length === 1)
+  host.begin('ga')
+  host.finish('ga', '@Writer 请先导出初稿，我稍后汇报。')
+  await settle(() => host.agentOf('gb').calls.length === 1)
+  host.begin('gb')
+  host.emit('gb', 'tool/call', { callId: 'k1', name: 'pwsh', arguments: '{}' })
+  host.emit('gb', 'tool/result', { callId: 'k1' })
+  host.finish('gb', '正在导出报告到 [report.pptx](report.pptx)，稍后汇报。')
+  await settle(() => host.agentOf('ga').calls.length === 2)
+  host.begin('ga')
+  host.finish('ga', '[PASS]')
+  await settle(() => first() !== undefined)
+  for (const reply of first().replies) assert.equal(reply.claims, undefined)
+})
+
+// #977 review: the check must use the Session's own folder, the one its header reports
+// or DS Bot gave it. A group's folder outranks the member's own, and neither is the team
+// folder the old code fell back to.
+test('a relative file link is checked in the group folder (#977)', async (t) => {
+  const root = mkdtempSync(join(tmpdir(), 'ds-bot-977-room-'))
+  const group = join(root, 'group')
+  const member = join(root, 'member')
+  mkdirSync(join(group, 'out'), { recursive: true })
+  mkdirSync(member, { recursive: true })
+  writeFileSync(join(group, 'out', 'report.pptx'), 'x')
+  t.after(() => rmSync(root, { recursive: true, force: true }))
+  const host = await start(t, { workDir: group }, {}, {}, { b: { workDir: member } })
+  const first = host.round('c1', host.say('@Writer 导出报告'))
+  await settle(() => host.agentOf('gb').calls.length === 1)
+  host.begin('gb')
+  host.finish('gb', '报告已导出到 [report.pptx](./out/report.pptx)。')
+  await settle(() => first() !== undefined)
+  const reply = first().replies.find(row => row.name === 'Writer')
+  assert.equal(reply.claims, undefined)
+})
+
+test('a relative file link is checked in the member\'s own folder (#977)', async (t) => {
+  const root = mkdtempSync(join(tmpdir(), 'ds-bot-977-member-'))
+  const member = join(root, 'member')
+  mkdirSync(join(member, 'out'), { recursive: true })
+  writeFileSync(join(member, 'out', 'report.pptx'), 'x')
+  t.after(() => rmSync(root, { recursive: true, force: true }))
+  const host = await start(t, {}, {}, {}, { b: { workDir: member } })
+  const first = host.round('c1', host.say('@Writer 导出报告'))
+  await settle(() => host.agentOf('gb').calls.length === 1)
+  host.begin('gb')
+  host.finish('gb', '报告已导出到 [report.pptx](./out/report.pptx)。')
+  await settle(() => first() !== undefined)
+  const reply = first().replies.find(row => row.name === 'Writer')
+  assert.equal(reply.claims, undefined)
+})
+
+test('a late reply and post_to_group keep missing-file claims when opening a group round', async (t) => {
+  const root = mkdtempSync(join(tmpdir(), 'ds-bot-977-post-'))
+  t.after(() => rmSync(root, { recursive: true, force: true }))
+  const host = await start(t, {}, {}, {}, { a: { workDir: root } })
+  const missing = join(host.home, 'missing-report.md')
+  await rt.lateRoomReply('gb', {}, `Report is at [missing-report.md](<${missing}>).`)
+  const post = host.takePost()
+  assert.deepEqual(post.source.claims, { missingFiles: [missing] })
+  const relay = host.round('claims-late', post)
+  await settle(() => relay() !== undefined)
+  const record = logLines(host).find(line => line.text?.includes('missing-report.md'))
+  assert.deepEqual(record.claims, { missingFiles: [missing] })
+  assert.equal(record.session, true)
+
+  const postedMissing = join(root, 'gone.md').replace(/\\/g, '/')
+  await host.tool('post_to_group', { group: 'Ops', message: '请看 [gone.md](./gone.md)' }, 'a', { agent: { id: 'a', session: { header: { cwd: root } } } })
+  const fromTool = host.takePost()
+  assert.deepEqual(fromTool.source.claims, { missingFiles: [postedMissing] })
+})
+
+test('the first completed member of a parallel batch keeps its file claim', async (t) => {
+  const { host } = await batchInBackground(t)
+  const missing = join(host.home, 'missing-report.md')
+  host.emit('gb', 'tool/result', { callId: 'k1' })
+  host.finish('gb', `Report is at [missing-report.md](<${missing}>).`)
+  await settle(() => host.agentOf('r1').calls.length > 0)
+  const post = host.takePost()
+  assert.equal(post.source.quiet, true)
+  assert.deepEqual(post.source.claims, { missingFiles: [missing] })
 })
 
 // A batch is saved with the team, so who still owes whom survives a restart.
