@@ -70,3 +70,33 @@ export function lineDiff(before, after) {
   rows.push(...b.slice(offset).map((line, index) => ({ kind: 'same', line, number: offset + index + 1 })))
   return rows
 }
+
+// A failed answer keeps its card only while another try could work — the host still has
+// the proposal. `bot/stale` says it does not, so the card goes; every other failure
+// (network, `bot/internal`, a skill of that name already existing) keeps it.
+export const answerKeepsCard = failure => failure?.code !== 'bot/stale'
+
+// A copy of a per-proposal record without one entry; the same object when nothing changed.
+export const withoutEntry = (state, key) => {
+  if (!(key in state)) return state
+  const next = { ...state }
+  delete next[key]
+  return next
+}
+
+// What a failed answer leaves behind for one Session's cards: a stale proposal is forgotten,
+// every other failure is recorded on its card so the card stays and can be tried again.
+export function answerFailure(record, proposal, failure) {
+  if (!answerKeepsCard(failure)) return withoutEntry(record, proposal.id)
+  return { ...record, [proposal.id]: { proposal, error: failure?.message ?? String(failure) } }
+}
+
+// The cards a Session draws: the host's proposals and its settled ones, plus the cards a
+// failed answer keeps up for another try. A stale answer puts nothing back.
+export function proposalCards({ proposals = [], settled = [], failures = {} }) {
+  const visible = [...settled.filter(entry => !proposals.some(proposal => proposal.id === entry.id)), ...proposals]
+  for (const entry of Object.values(failures)) {
+    if (!proposals.some(proposal => proposal.id === entry.proposal.id) && !visible.some(proposal => proposal.id === entry.proposal.id)) visible.push(entry.proposal)
+  }
+  return visible.sort((a, b) => (a.at ?? 0) - (b.at ?? 0))
+}

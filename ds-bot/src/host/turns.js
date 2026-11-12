@@ -123,6 +123,22 @@ const subEndText = (data) => {
   return reason === '' || reason === 'completed' ? text : `subagent ended (${reason}) before it finished. What it had written:\n${text}`
 }
 
+// A settlement notice is all a plugin loaded again has of an ending (#973): its
+// runtime-owned summary names how the child stopped without carrying raw output into
+// the group ledger.
+const noticeStopReason = (source, content) => {
+  const said = typeof source?.summary === 'string' && source.summary !== ''
+    ? source.summary
+    : (textOf(content).split('\n')[0] ?? '')
+  const rest = said.replace(/^Background subagent \S+\s+/, '')
+  if (rest === '' || rest.startsWith('finished')) return undefined
+  if (rest.startsWith('was stopped')) return 'aborted'
+  if (rest.startsWith('ran out of room')) return 'max-tokens'
+  if (rest.startsWith('declined')) return 'refusal'
+  if (rest.startsWith('failed')) return 'error'
+  return /^ended abnormally \(([^)]*)\)/.exec(rest)?.[1] ?? 'error'
+}
+
 const RETRY_TEXT = 'Your last reply wrote a tool call as plain text (<tool_call>…), so it did not run and nothing happened. Call the tool through the tool interface now, then reply as you meant to.'
 const RETRY_PROMISE_TEXT = 'Your last reply said you would start working, but you ended the turn without calling any tool, so nothing ran. Call the tools you need and do the work now. If your last reply already was your whole answer, reply [PASS]; it stays posted.'
 // The turn number a running turn gets when it started before this plugin was loaded and
@@ -228,13 +244,31 @@ export function install(rt) {
     if (rt.groupOwners.has(parentId)) rt.workRoomTurn?.(parentId, 'subagent')
   }
 
+  // The settlement notice can arrive before subagent/end, so the label must outlive the
+  // active entry; it is spent when the ending is read (#973).
+  const endedSubagentLabels = new Map()
   const noteSubagentEnd = (childId) => {
     if (typeof childId !== 'string' || childId === '') return
     const parentId = subagentParent.get(childId)
     if (parentId === undefined) return
     const map = subagentsByParent.get(parentId)
+    const label = map?.get(childId)?.label
+    if (typeof label === 'string' && label !== '') {
+      endedSubagentLabels.set(childId, label)
+      while (endedSubagentLabels.size > 100) endedSubagentLabels.delete(endedSubagentLabels.keys().next().value)
+    }
     map?.delete(childId)
     if (map !== undefined && map.size === 0) subagentsByParent.delete(parentId)
+  }
+
+  // The group sees one row for a failed helper: whichever ending names it first posts
+  // it, and the other one adds nothing (#973).
+  const notedSubagentFailures = new Set()
+  const noteSubagentFailure = (parentId, childId, { stopReason, helper, closing }) => {
+    if (typeof childId !== 'string' || childId === '' || notedSubagentFailures.has(childId)) return
+    rememberStopped(notedSubagentFailures, childId)
+    void rt.subagentFailureNotice(parentId, { stopReason, helper, closing })
+      .catch(error => rt.warn('ds-bot: background helper failure not posted: %s', error))
   }
 
   const hasSubagents = id => (subagentsByParent.get(id)?.size ?? 0) > 0
@@ -695,11 +729,23 @@ export function install(rt) {
     const parentId = subagentParent.get(childId)
       ?? ctx.get?.('agents')?.get?.(childId)?.session?.header?.parentSession
       ?? [...live.entries()].find(([, entry]) => [...(entry.calls?.values() ?? [])].some(call => call.name === 'subagent'))?.[0]
-    if (parentId !== undefined) noteSubagentStart(parentId, childId, undefined)
+    if (parentId === undefined) return
+    // A child can run again after it settled; its next ending gets its own row.
+    notedSubagentFailures.delete(childId)
+    noteSubagentStart(parentId, childId, undefined)
   })
-  ctx.on?.('subagent/end', (info) => {
+  ctx.on?.('subagent/end', function (info) {
+    const parentId = carrierKeyOf(this)?.session?.id ?? subagentParent.get(info?.id)
+    const helper = subagentsByParent.get(parentId)?.get(info?.id)?.label ?? endedSubagentLabels.get(info?.id)
     noteSubagentEnd(info?.id)
-    if (rt.groupOwners.has(info?.id)) void rt.goalSettled?.(rt.roomOf(rt.groupOwners.get(info.id).roomId)).catch(error => rt.warn('ds-bot: goal settle failed: %s', error))
+    endedSubagentLabels.delete(info?.id)
+    const owner = rt.groupOwners.get(parentId)
+    if (owner === undefined) return
+    if (typeof info?.stopReason === 'string' && info.stopReason !== 'completed'
+      && !stoppedSubagentParents.has(parentId) && !stoppedSubagents.has(info.id)) {
+      noteSubagentFailure(parentId, info.id, { stopReason: info.stopReason, helper, closing: textOf(info?.lastAssistantMessage) })
+    }
+    void rt.goalSettled?.(rt.roomOf(owner.roomId)).catch(error => rt.warn('ds-bot: goal settle failed: %s', error))
   })
 
   ctx.on('session/event', (session, event) => {
@@ -794,14 +840,25 @@ export function install(rt) {
       case 'user/message': {
         const source = event.data?.source
         if (source?.kind === 'subagent-settled' || source?.kind === 'agent-message') {
-          if (typeof source.senderSessionId === 'string') {
-            noteSubagentEnd(source.senderSessionId)
+          const childId = typeof source.senderSessionId === 'string' ? source.senderSessionId : undefined
+          // Only settlement ends a child's turn; an intermediate `agent-message` keeps the
+          // child active and preserves its label until it actually settles.
+          if (source.kind === 'subagent-settled' && childId !== undefined) {
+            noteSubagentEnd(childId)
             if (rt.groupOwners.has(id)) void rt.goalSettled?.(rt.roomOf(rt.groupOwners.get(id).roomId)).catch(error => rt.warn('ds-bot: goal settle failed: %s', error))
           }
-          if (stoppedSubagentParents.has(id) || (typeof source.senderSessionId === 'string' && stoppedSubagents.has(source.senderSessionId))) {
+          if (stoppedSubagentParents.has(id) || (childId !== undefined && stoppedSubagents.has(childId))) {
             entry.suppressedSubagent = true
             void rt.resolveAgent(id).then(agent => agent?.cancel({ kind: 'hook', reason: 'ds-bot/stopped' })).catch(() => {})
             break
+          }
+          // An ending the lifecycle event never brought here (a reload lost it) still
+          // says why the child stopped: the notice names it, so the group's row appears.
+          if (source.kind === 'subagent-settled' && childId !== undefined) {
+            const stopReason = noticeStopReason(source, event.data?.content)
+            const label = endedSubagentLabels.get(childId)
+            endedSubagentLabels.delete(childId)
+            if (stopReason !== undefined && rt.groupOwners.has(id)) noteSubagentFailure(id, childId, { stopReason, helper: label })
           }
         } else if (source?.kind === 'user' || source?.kind === SOURCE_KIND) {
           stoppedSubagentParents.delete(id)
@@ -839,6 +896,7 @@ export function install(rt) {
             botId: source.senderSessionId,
             name: source.senderName,
             reportBack: source.reportBack === true,
+            ...(source.claims === undefined ? {} : { claims: source.claims }),
             ...(source.member ? { member: true } : {}),
             // Who the whole post called. `text` may be only its opening (attachLong).
             ...(source.mentions ? { mentions: source.mentions } : {}),
@@ -852,6 +910,8 @@ export function install(rt) {
             ...(source.stopped ? { stopped: true } : {}),
             ...(source.done ? { done: true } : {}),
             ...(source.askedBy ? { askedBy: source.askedBy } : {}),
+            ...(source.batch ? { batch: source.batch } : {}),
+            ...(source.batchEnd ? { batchEnd: true } : {}),
             ...(source.fromRoomId ? { fromRoomId: source.fromRoomId } : {}),
             // A post written into a running round already carries its log seq, or true
             // when its event needed none; the relay must not write it again.
@@ -1126,14 +1186,14 @@ export function install(rt) {
           } else if (!stopped && reason?.kind !== 'aborted') {
             // The round moved on without this member; how its turn ends still reaches the group.
             if (failure !== undefined) void rt.lateRoomFailure?.(id, info, failure)
-            else void rt.lateRoomReply?.(id, info, groupReply(), { shown })
+            else void rt.lateRoomReply?.(id, info, groupReply(), { shown, toolCount })
           }
         } else if (!retry && speaksInGroup(id, info)) {
           // A turn that failed before it took any input (DSH can turn it down before its
           // first step) never names its call, so the call waiting on this Session fails.
           const inRound = failure !== undefined && info === undefined && rt.failRoomTurn?.(id, failure) === true
           if (failure !== undefined) { if (!inRound) void rt.lateRoomFailure?.(id, info ?? {}, failure) }
-          else if (reason?.kind !== 'aborted') void rt.lateRoomReply?.(id, info ?? {}, groupReply(), { shown })
+          else if (reason?.kind !== 'aborted') void rt.lateRoomReply?.(id, info ?? {}, groupReply(), { shown, toolCount })
         } else if (!retry && info !== undefined) {
           finish(info, replyText())
         }

@@ -3,6 +3,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
+import { afterRound } from './relay-rows.js'
 import { createRuntime } from '../index.js'
 import { fakeContext } from './fake-ctx.js'
 import { ROOM_WORK_GRACE_MS } from '../src/host/constants.js'
@@ -95,7 +96,7 @@ async function start(t, room, services, extraRooms) {
     let result
     const stop = new AbortController()
     t.after(() => stop.abort())
-    void tool('group_relay', {}, 'r1', { callId, signal: stop.signal }).then((value) => { result = JSON.parse(value) })
+    void tool('group_relay', {}, 'r1', { callId, signal: stop.signal }).then(async (value) => { result = await afterRound(rt, 'r1', value) })
     const read = () => result
     return read
   }
@@ -505,6 +506,7 @@ test('a stale goal check calls nobody; a stale draft is a plain user message', a
   const stale = host.round('c2', nudge)
   await settle(() => stale() !== undefined)
   assert.equal(host.agentOf('ga').calls.length, 1)
+  // The round calls nobody; the pause the user made shows above it, where it happened.
   assert.deepEqual(stale().replies, [])
   // A draft whose goal was stopped keeps its user line and routes as a user post.
   const id = goal(host).id

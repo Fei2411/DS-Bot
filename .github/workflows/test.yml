@@ -8,9 +8,13 @@ on:
 permissions:
   contents: read
 
+# A newer push to a pull request replaces its running checks. A run on main or dev finishes, and
+# of the pushes that wait for it only the newest runs next: a cancelled run never saves the
+# download caches that every pull request restores from dev, and running one at a time keeps the
+# Docker image of an earlier commit from being pushed after a later one.
 concurrency:
   group: test-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   test:
@@ -37,6 +41,8 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
       - run: npm ci --no-fund --no-audit
+      - name: Install the phone link's packages
+        run: npm ci --no-fund --no-audit --prefix ../link
       - name: Install DSH ${{ matrix.dsh }}
         # The testkit pins the DSH packages it was built with; at another version it would
         # bring a second, mismatched set.
@@ -89,8 +95,28 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
+      # The app type-checks the shared code in ../link, which has its own packages.
+      - name: Install the phone link's packages
+        run: npm ci --no-fund --no-audit --prefix ../link
       - run: npm ci --no-fund --no-audit
       - run: npm run typecheck
+      - run: npm test
+
+  link:
+    name: Phone link and Relay Server
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+        working-directory: link
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm ci --no-fund --no-audit
+      - run: npm run typecheck
+      - run: npm test
 
   app-package:
     name: Desktop app package (Windows)
@@ -449,11 +475,11 @@ jobs:
 
   # The one check that branch rules require. A job whose needs failed is skipped,
   # and GitHub counts a skipped required check as passed, so this job always runs
-  # and fails unless the matrix, leak scan, app, mobile app, app package and Docker checks passed.
+  # and fails unless the matrix, leak scan, app, mobile app, phone link, app package and Docker checks passed.
   result:
     name: Test result
-    needs: [test, scan, app, mobile, app-package, app-package-macos, app-package-linux, docker]
+    needs: [test, scan, app, mobile, link, app-package, app-package-macos, app-package-linux, docker]
     if: always()
     runs-on: ubuntu-latest
     steps:
-      - run: test "${{ needs.test.result }}" = success && test "${{ needs.scan.result }}" = success && test "${{ needs.app.result }}" = success && test "${{ needs.mobile.result }}" = success && test "${{ needs.app-package.result }}" = success && test "${{ needs.app-package-macos.result }}" = success && test "${{ needs.app-package-linux.result }}" = success && test "${{ needs.docker.result }}" = success
+      - run: test "${{ needs.test.result }}" = success && test "${{ needs.scan.result }}" = success && test "${{ needs.app.result }}" = success && test "${{ needs.mobile.result }}" = success && test "${{ needs.link.result }}" = success && test "${{ needs.app-package.result }}" = success && test "${{ needs.app-package-macos.result }}" = success && test "${{ needs.app-package-linux.result }}" = success && test "${{ needs.docker.result }}" = success

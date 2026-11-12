@@ -33,7 +33,14 @@ export function useSchedules(actions) {
 }
 
 const localZone = () => Intl.DateTimeFormat().resolvedOptions().timeZone
-const clock = time => String(time ?? '').slice(0, 5)
+// The time of day as the service keeps it, HH:mm:ss.SSS: whole minutes show as HH:mm, and a
+// task set to a second past the minute keeps its seconds, so the row says when it fires.
+const clock = (time) => {
+  const text = String(time ?? '')
+  const [, minutes, seconds] = /^(\d\d:\d\d)(?::(\d\d))?/.exec(text) ?? []
+  if (minutes === undefined) return text.slice(0, 5)
+  return seconds === undefined || seconds === '00' ? minutes : `${minutes}:${seconds}`
+}
 const when = (ms, options) => new Intl.DateTimeFormat(dateLocale(), options).format(ms)
 function dayAndTime(ms) {
   const sameYear = new Date(ms).getFullYear() === new Date().getFullYear()
@@ -41,7 +48,7 @@ function dayAndTime(ms) {
 }
 function weekdayNames(days) {
   const names = days.map(day => when(Date.UTC(2024, 0, day), { weekday: 'short', timeZone: 'UTC' }))
-  return names.join(dateLocale().startsWith('zh') ? '、' : ', ')
+  return names.join(dateLocale().startsWith('zh') || dateLocale().startsWith('ja') ? '、' : ', ')
 }
 function everyText(seconds) {
   if (seconds % 86400 === 0) return seconds === 86400 ? t('Every day') : t('Every {count} days', { count: seconds / 86400 })

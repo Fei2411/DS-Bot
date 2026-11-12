@@ -7,7 +7,9 @@
 // the service is optional and every endpoint reports whether it is there.
 
 const MAX_TITLE = 120
-const TIME = /^([01]\d|2[0-3]):[0-5]\d$/
+// A time input reports HH:mm, or HH:mm:ss when the browser's picker shows seconds.
+const TIME = /^([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?$/
+const withSeconds = time => (time.length === 5 ? `${time}:00` : time)
 
 const invalid = message => Object.assign(new Error(message), { code: 'bot/invalid' })
 
@@ -68,12 +70,12 @@ function selectorOf(when) {
     }
     case 'daily':
       if (!TIME.test(String(when.time))) throw invalid('Pick a time of day')
-      return { daily: { time: `${when.time}:00`, time_zone: zone } }
+      return { daily: { time: withSeconds(when.time), time_zone: zone } }
     case 'weekly': {
       if (!TIME.test(String(when.time))) throw invalid('Pick a time of day')
       const weekdays = [...new Set((Array.isArray(when.weekdays) ? when.weekdays : []).map(Number))].filter(day => Number.isInteger(day) && day >= 1 && day <= 7).sort()
       if (weekdays.length === 0) throw invalid('Pick at least one day')
-      return { weekly: { time: `${when.time}:00`, time_zone: zone, weekdays } }
+      return { weekly: { time: withSeconds(when.time), time_zone: zone, weekdays } }
     }
     case 'every': {
       const minutes = Number(when.minutes)

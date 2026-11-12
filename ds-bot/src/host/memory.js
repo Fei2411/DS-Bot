@@ -28,9 +28,10 @@ import { createHash, randomUUID } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, truncateSync, unlinkSync, writeFileSync } from 'node:fs'
 import { appendFile, mkdir, rename, unlink, writeFile } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
-import { BlockAssembler, HarnessError, createUserMessage } from '@deepseek-ai/dsh-llm'
+import { HarnessError, createUserMessage } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { replaceFile } from './files.js'
+import { assembleLlmStream } from './models.js'
 import { inside, pendingPath, read as readPending, record as pendingRecord, relativePath, serialize as serializePending } from './memory-pending.js'
 import { estimateTokens, splitRef, textOf, unquote } from './text.js'
 import { EMPTY_MAIN, GONE, DENIED, HEADING, MAIN, MEMORY_LIMITS, NO_MATCH, ROUTED, addLink, bodySize, cleanDay, cleanEntry, cleanTopic, entryId, fitWindow, formatEntry, insertEntry, isExpired, isPinned, joinLines, looksSecret, matchEntries, newEntryId, parseAsk, parseMemory, promptEntry, TEAM_SHARED, removeLink, splitMeta, squash, topicAbout, WINDOW_SHARE } from './memory-entries.js'
@@ -61,10 +62,16 @@ const RECENT_TAIL_CHARS = 512 * 1024
 const QUERY_TERMS_MAX = 6
 const SOURCE_READ_MS = 5_000
 const MODEL_TIMEOUT_MS = 120_000
-const SUMMARY_MAX_TOKENS = 2_048
-// A reply cut off at the limit is tried once more with room for reasoning plus
-// the answer; a model that thinks can spend the smaller budget thinking alone.
-const SUMMARY_RETRY_MAX_TOKENS = 8_192
+// A thinking model spends several thousand output tokens before its answer starts. On a
+// 13k-token context one spent a 2,048-token budget on reasoning alone and wrote nothing;
+// given 16,384 it wrote the answer. The first try gets that room, the retry gets more,
+// unless the adapter's default starts lower.
+const SUMMARY_MAX_TOKENS = 16_384
+const SUMMARY_RETRY_MAX_TOKENS = 32_768
+function providerFailure(failure) {
+  const label = [failure?.code, failure?.status].filter(part => part !== undefined && part !== '').join(' ')
+  return new Error(`The provider returned an error${label === '' ? '' : ` (${label})`}: ${failure?.message ?? 'no message'}`)
+}
 const SUMMARY_TEXT_MAX = 8_000
 const ASK_TEXT_MAX = 2_000
 const ASK_CHANGES_MAX = 20
@@ -87,6 +94,8 @@ export function install(rt) {
       archiveBotMemory: async () => {},
       archiveGroupMemory: async () => {},
       memoryEndpoint: async () => { throw new Error('Memory is turned off on this host') },
+      memoryEdit: async () => { throw new Error('Memory is turned off on this host') },
+      memoryAdd: async () => { throw new Error('Memory is turned off on this host') },
       memoryNews: () => ({}),
       memoryReviews: () => 0,
     })
@@ -1241,11 +1250,17 @@ export function install(rt) {
     // Thinking counts against the same output budget as the answer, so ask for
     // the least the model offers: 'off' when it has one, else its lowest level.
     const effort = efforts.some(entry => entry.id === 'off') ? 'off' : efforts.at(0)?.id
+    // The adapter's default guides the first request. An explicit retry budget
+    // can exceed that default when a thinking model ran out of room.
+    const first = Math.min(info?.defaultMaxTokens ?? SUMMARY_MAX_TOKENS, SUMMARY_MAX_TOKENS)
+    const retry = first < SUMMARY_MAX_TOKENS ? SUMMARY_MAX_TOKENS : SUMMARY_RETRY_MAX_TOKENS
+    const budgets = [first, retry]
     const messages = [{ role: 'user', content: [{ type: 'text', text }] }]
     if (tag !== undefined) rt.tagUsage?.(messages, tag)
-    for (const maxTokens of [SUMMARY_MAX_TOKENS, SUMMARY_RETRY_MAX_TOKENS]) {
-      const assembler = new BlockAssembler()
-      for await (const chunk of ctx.llm.stream({
+    let lastKind = 'stop'
+    for (let attempt = 0; attempt < budgets.length; attempt += 1) {
+      const maxTokens = budgets[attempt]
+      const callOptions = {
         provider: route.provider,
         model: route.model,
         ...(tag?.sessionId === undefined ? {} : { sessionId: tag.sessionId }),
@@ -1254,16 +1269,29 @@ export function install(rt) {
         messages,
         maxTokens,
         signal: AbortSignal.timeout(MODEL_TIMEOUT_MS),
-      })) assembler.push(chunk)
+      }
+      const assembler = await (rt.assembleLlm ? rt.assembleLlm(callOptions) : assembleLlmStream(ctx, callOptions, { backoff: rt.config?.llmRetryBackoff }))
       const finish = assembler.finish
-      if (finish.kind === 'error' || finish.kind === 'aborted') throw new Error(finish.failure?.message ?? finish.kind)
+      // A cancelled call is the caller's decision, not a route that may answer again.
+      if (finish.kind === 'aborted') throw new Error(finish.failure?.message ?? 'aborted')
+      if (finish.kind === 'error') {
+        const failure = finish.failure
+        // A gateway can report empty output as 502. The pi-ai adapter
+        // classifies 5xx as SERVER without preserving the HTTP status.
+        const mayBeEmpty = failure?.code === 'EMPTY_RESPONSE' || failure?.status === 502
+          || (failure?.code === 'SERVER' && failure.status === undefined)
+        if (attempt !== 0 || !mayBeEmpty) throw providerFailure(failure)
+        continue
+      }
       const reply = assembler.blocks().filter(block => block.type === 'text').map(block => block.text).join('\n').trim()
       if (finish.kind !== 'max-tokens' && reply !== '') return reply
-      // A reply cut off at the limit — all of it thinking, or a half-written
-      // answer — is dropped, never used; the retry gives it room once.
-      if (finish.kind !== 'max-tokens' && maxTokens === SUMMARY_MAX_TOKENS) throw new Error('The model wrote nothing')
+      // Drop the incomplete reply and try once with more output room.
+      lastKind = finish.kind
     }
-    throw new Error(`The model's reasoning used up the output budget (${SUMMARY_MAX_TOKENS} and ${SUMMARY_RETRY_MAX_TOKENS} tokens); no complete answer was written`)
+    const where = `${budgets.join(' and ')} output tokens`
+    throw new Error(lastKind === 'max-tokens'
+      ? `The model's answer was cut off at ${where}; no complete answer was written`
+      : `The model wrote nothing within ${where}; no complete answer was written`)
   }
 
   // A served model can still refuse the call (a key without access, say), and
@@ -1412,6 +1440,32 @@ export function install(rt) {
     const topic = body.topic === null || body.topic === undefined ? undefined : cleanTopic(body.topic)
     await removeEntry({ scope, topic, match: String(body.text ?? ''), actor: USER, label: panelLabel(panel, scope) })
     return await memoryView(panelBody(panel))
+  }
+
+  // The user's own words for one entry, from a window that edits the list in place
+  // (the mobile API): no model call, the same checks as the tools.
+  const userEntry = (raw) => {
+    const text = cleanEntry(raw)
+    const problem = entryProblem(text)
+    if (problem) throw Object.assign(new Error(problem), { code: 'bot/invalid' })
+    return text
+  }
+  const userTopic = raw => (raw === null || raw === undefined || raw === '' ? undefined : cleanTopic(raw))
+  async function memoryEdit(body) {
+    const panel = panelOf(body)
+    const scope = panel.scopes[body.scope] ?? panel.scopes[panel.group ? 'group' : 'own']
+    const text = userEntry(body.next)
+    const meta = { source: 'memory panel', by: 'user', added: today() }
+    await replaceEntry({ scope, topic: userTopic(body.topic), match: String(body.text ?? ''), text, meta, actor: USER, label: panelLabel(panel, scope) })
+    return memoryView(panelBody(panel))
+  }
+  async function memoryAdd(body) {
+    const panel = panelOf(body)
+    const scope = panel.scopes[body.scope] ?? panel.scopes[panel.group ? 'group' : 'own']
+    const text = userEntry(body.text)
+    const meta = { source: 'memory panel', by: 'user', added: today() }
+    await addEntry({ scope, topic: userTopic(body.topic), text, meta, actor: USER, label: panelLabel(panel, scope) })
+    return memoryView(panelBody(panel))
   }
 
   // One team entry the user brings in front of every Bot, or sends back to wait in a topic.
@@ -1737,7 +1791,7 @@ export function install(rt) {
   }
 
   Object.assign(rt, {
-    memoryEnabled: true, renewMemory, archiveBotMemory, archiveGroupMemory, memoryEndpoint, memoryReviews,
+    memoryEnabled: true, renewMemory, archiveBotMemory, archiveGroupMemory, memoryEndpoint, memoryEdit, memoryAdd, memoryReviews,
     memoryNews: () => Object.fromEntries(news), botShot, tidyMemoryNow: tidyNow,
   })
 }
