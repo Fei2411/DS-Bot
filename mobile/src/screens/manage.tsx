@@ -6,11 +6,13 @@ import { useIsFocused } from '@react-navigation/native'
 import { Image, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { confirmDanger, Sheet, SheetHeader, useInSheet } from '../nav/sheet.tsx'
+import { openChat } from '../nav/open-chat.ts'
 import * as Crypto from 'expo-crypto'
 import { listComputers, removeComputer, type StoredComputer } from '../store.ts'
 import { ComputersCtx } from '../nav/computers.ts'
 import * as ImagePicker from 'expo-image-picker'
 import { useTeam } from '../team/context.tsx'
+import { memorySummaryText } from '../team/memory.ts'
 import { t, timeLabel } from '../ui/i18n.ts'
 import { CheckIcon, ChevronLeftIcon, ChevronRightIcon, GearIcon } from '../ui/icons.tsx'
 import { Avatar, COLOR_PAINT, RoomAvatar } from '../ui/marks.tsx'
@@ -176,7 +178,7 @@ function useOpenWhenListed(navigation: any) {
     const listed = target.kind === 'bot' ? botOf(team, target.id) !== undefined : (team?.rooms ?? []).some(room => room.id === target.id)
     if (!listed) return
     setTarget(null)
-    navigation.popTo('Chat', target)
+    openChat(navigation, target)
   }, [target, team])
   return setTarget
 }
@@ -436,7 +438,7 @@ export function BotEdit({ route, navigation }: any) {
         <BotCapabilities bot={bot} team={team} run={run} />
         <Section label={t('Bot')}>
           {bot.private === true ? null : <Row label={t('Duplicate')} hint={t('A copy with the same job and model, and fresh memory.')} onPress={() => void run('duplicate-bot', { id: bot.id }, value => open({ kind: 'bot', id: (value as Bot).id }))} />}
-          <DangerRow label={t('Delete Bot')} confirm={t('Delete {name}?', { name: bot.name })} onConfirm={() => void run('delete-bot', { id: bot.id }, () => navigation.popTo('Chat'))} />
+          <DangerRow label={t('Delete Bot')} confirm={t('Delete {name}?', { name: bot.name })} onConfirm={() => void run('delete-bot', { id: bot.id }, () => openChat(navigation))} />
         </Section>
       </ScrollView>
     </Screen>
@@ -628,7 +630,7 @@ export function GroupSettings({ route, navigation }: any) {
           })}
         </Section>
         <Section label={t('Danger')}>
-          <DangerRow label={t('Delete group')} confirm={t('Delete {name}?', { name: room.name })} onConfirm={() => void run('delete-room', { id: room.id }, () => navigation.popTo('Chat'))} />
+          <DangerRow label={t('Delete group')} confirm={t('Delete {name}?', { name: room.name })} onConfirm={() => void run('delete-room', { id: room.id }, () => openChat(navigation))} />
         </Section>
       </ScrollView>
     </Screen>
@@ -693,14 +695,17 @@ export function Memory({ route, navigation }: any) {
   const { call } = useTeam()
   const id = String(route.params?.id ?? '')
   const name = String(route.params?.name ?? '')
-  const [view, setView] = useState<{ summary?: string; entries?: { scope: string; topic: string | null; text: string; added?: string; by?: string | null }[]; error?: string } | null>(null)
+  const isGroup = route.params?.group === true
+  const [view, setView] = useState<{ summary?: { text?: string; at?: number } | string | null; entries?: { scope: string; topic: string | null; text: string; added?: string | null; by?: string | null; source?: string | null }[]; error?: string | null } | null>(null)
   const [asking, setAsking] = useState(false)
   const [question, setQuestion] = useState('')
   const [answer, setAnswer] = useState<string | null>(null)
   const [editor, setEditor] = useState<{ index: number | null; scope: string; topic: string; text: string } | null>(null)
-  const owner = route.params?.group === true ? { roomId: id } : { botId: id }
-  const load = () => void call('memory-view', owner).then(v => setView(v as typeof view)).catch(() => {})
-  useState(() => { load(); return null })
+  const owner = isGroup ? { roomId: id } : { botId: id }
+  const load = useCallback(() => {
+    void call('memory-view', isGroup ? { roomId: id } : { botId: id }).then(v => setView(v as typeof view)).catch(() => {})
+  }, [call, id, isGroup])
+  useEffect(() => { load() }, [load])
   const forget = (entry: { scope: string; topic: string | null; text: string }) =>
     confirmDanger(t('Remove from memory'), t('Remove'), () => void call('memory-forget', { ...owner, scope: entry.scope, topic: entry.topic, text: entry.text }).then(load).catch(() => {}), entry.text)
   const saveEditor = () => {
@@ -712,12 +717,13 @@ export function Memory({ route, navigation }: any) {
     setEditor(null)
     void call(endpoint, payload).then(load).catch(() => {})
   }
-  const ask = () => { if (!question.trim()) return; setAsking(true); void call('memory-ask', { ...owner, text: question.trim() }).then(v => { const r = v as { reply?: string; view?: typeof view }; setAnswer(r.reply ?? null); if (r.view !== undefined) setView(r.view) }).catch(() => {}).finally(() => setAsking(false)) }
+  const ask = () => { if (!question.trim()) return; setAsking(true); void call('memory-ask', { ...owner, text: question.trim() }).then(v => { const r = v as { reply?: string; view?: typeof view }; setAnswer(typeof r.reply === 'string' ? r.reply : null); if (r.view !== undefined) setView(r.view) }).catch(() => {}).finally(() => setAsking(false)) }
+  const summary = memorySummaryText(view?.summary)
   return (
     <Screen title={name}>
       <BackRow title={t('Memory')} onBack={() => navigation.goBack()} />
       <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
-        {view?.summary ? <Text style={[typeScale.caption, { color: p.ink3, margin: 18 }]}>{view.summary}</Text> : null}
+        {summary !== null ? <Text style={[typeScale.caption, { color: p.ink3, margin: 18 }]}>{summary}</Text> : null}
         <View style={[styles.card, { backgroundColor: p.card, borderColor: p.line, marginTop: 14 }]}>
           <View style={styles.row}>
             <TextInput style={[typeScale.settingsRow, { color: p.ink, flex: 1 }]} value={question} onChangeText={setQuestion}
@@ -727,19 +733,23 @@ export function Memory({ route, navigation }: any) {
           {answer !== null ? <Text style={[typeScale.settingsRow, { color: p.ink, paddingHorizontal: 16, paddingBottom: 12 }]}>{answer}</Text> : null}
         </View>
         <Section label={t('{count} entries', { count: view?.entries?.length ?? 0 })}>
-          {(view?.entries ?? []).map((entry, i) => (
-            <Pressable key={i} accessibilityRole="button" onPress={() => setEditor({ index: i, scope: entry.scope, topic: entry.topic ?? '', text: entry.text })} style={styles.row}>
-              <View style={{ flex: 1 }}>
-                {entry.topic ? <Text style={[typeScale.small, { color: p.ink3 }]}>{entry.topic}</Text> : null}
-                <Text style={[typeScale.settingsRow, { color: p.ink }]}>{entry.text}</Text>
-                <Text style={[typeScale.small, { color: p.ink3, marginTop: 2 }]}>{[entry.added, entry.by ? t('by {name}', { name: entry.by }) : null].filter(Boolean).join(' · ')}</Text>
-              </View>
-              <Pressable accessibilityRole="button" accessibilityLabel={t('Remove from memory')} onPress={() => forget(entry)} hitSlop={8}
-                style={{ minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' }}>
-                <Text style={{ color: p.ink3, fontSize: 17 }}>×</Text>
+          {(view?.entries ?? []).map((entry, i) => {
+            const by = entry.source === 'memory panel' ? t('by you') : entry.by ? t('by {name}', { name: entry.by }) : null
+            const meta = [entry.added, by].filter(Boolean).join(' · ')
+            return (
+              <Pressable key={i} accessibilityRole="button" onPress={() => setEditor({ index: i, scope: entry.scope, topic: entry.topic ?? '', text: entry.text })} style={styles.row}>
+                <View style={{ flex: 1 }}>
+                  {entry.topic ? <Text style={[typeScale.small, { color: p.ink3 }]}>{entry.topic}</Text> : null}
+                  <Text style={[typeScale.settingsRow, { color: p.ink }]}>{entry.text}</Text>
+                  {meta !== '' ? <Text style={[typeScale.small, { color: p.ink3, marginTop: 2 }]}>{meta}</Text> : null}
+                </View>
+                <Pressable accessibilityRole="button" accessibilityLabel={t('Remove from memory')} onPress={() => forget(entry)} hitSlop={8}
+                  style={{ minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' }}>
+                  <Text style={{ color: p.ink3, fontSize: 17 }}>×</Text>
+                </Pressable>
               </Pressable>
-            </Pressable>
-          ))}
+            )
+          })}
           {view !== null && (view.entries ?? []).length === 0 ? <Row label={t('Nothing saved yet')} disabled /> : null}
           <Row label={t('Add')} onPress={() => setEditor({ index: null, scope: 'own', topic: '', text: '' })} />
         </Section>

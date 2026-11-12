@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
-import { ActivityIndicator, FlatList, KeyboardAvoidingView, Linking, Modal, Pressable, StyleSheet, Text, View, ScrollView, type ListRenderItem } from 'react-native'
+import { ActivityIndicator, Dimensions, FlatList, KeyboardAvoidingView, Linking, Modal, Pressable, StyleSheet, Text, View, ScrollView, type ListRenderItem } from 'react-native'
 import { useNavigation } from '@react-navigation/native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import * as Haptics from 'expo-haptics'
 import type { Approval, Bot, Question, Room } from '../connection.ts'
+import { createChatCache } from '../team/chat-cache.ts'
 import { useTeam } from '../team/context.tsx'
 import { markSeen } from '../team/seen.ts'
 import { messageClock, t } from '../ui/i18n.ts'
@@ -43,13 +44,8 @@ function keepSame(prev: ChatItem[], next: ChatItem[]): ChatItem[] {
 
 // The last page of each chat opened in this run, so going back to a chat shows it at
 // once and the read only brings what changed. Kept in memory only.
-const pages = new Map<string, { page: ChatPage; older: ChatItem[]; cursor: unknown }>()
 const PAGES_KEPT = 16
-function keepPage(key: string, entry: { page: ChatPage; older: ChatItem[]; cursor: unknown }) {
-  pages.delete(key)
-  pages.set(key, entry)
-  if (pages.size > PAGES_KEPT) pages.delete(pages.keys().next().value as string)
-}
+const pages = createChatCache<ChatPage, ChatItem>(PAGES_KEPT)
 
 // A chat read started before the chat is on screen: on launch the last chat is asked
 // for while the team state is still on its way, and the chat takes that answer.
@@ -93,8 +89,13 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
   const id = bot?.id ?? room?.id ?? ''
   const chatKey = `${computer?.hostDeviceId ?? ''}:${room !== undefined ? 'room' : 'bot'}:${id}`
   const cached = pages.get(chatKey)
-  const [page, setPage] = useState<ChatPage | null>(cached?.page ?? null)
-  const [older, setOlder] = useState<ChatItem[]>(cached?.older ?? [])
+  const [pageState, setPageState] = useState<{ key: string; page: ChatPage | null; older: ChatItem[] }>(() => ({
+    key: chatKey,
+    page: cached?.page ?? null,
+    older: cached?.older ?? [],
+  }))
+  const page = pageState.key === chatKey ? pageState.page : (cached?.page ?? null)
+  const older = pageState.key === chatKey ? pageState.older : (cached?.older ?? [])
   const cursor = useRef<unknown>(cached?.cursor)
   const [gone, setGone] = useState(false)
   const [openSteps, setOpenSteps] = useState<Record<string, boolean>>({})
@@ -121,7 +122,13 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
       reads.delete(chatKey)
       const next = await (early ?? readChat(call, room !== undefined, id))
       if (generation.current === gen) {
-        setPage(prev => prev !== null && prev.sessionId === next.sessionId ? { ...next, items: keepSame(prev.items, next.items) } : next)
+        setPageState(prev => ({
+          key: chatKey,
+          older: prev.key === chatKey ? prev.older : [],
+          page: prev.key === chatKey && prev.page !== null && prev.page.sessionId === next.sessionId
+            ? { ...next, items: keepSame(prev.page.items, next.items) }
+            : next,
+        }))
         if (cursor.current === undefined) cursor.current = next.cursor
         setLoadError(null)
       }
@@ -143,7 +150,9 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
   useEffect(() => {
     const gen = ++generation.current
     const kept = pages.get(chatKey)
-    setPage(kept?.page ?? null); setOlder(kept?.older ?? []); cursor.current = kept?.cursor; setGone(false)
+    setPageState({ key: chatKey, page: kept?.page ?? null, older: kept?.older ?? [] })
+    cursor.current = kept?.cursor
+    setGone(false)
     setAwayFromLatest(false)
     let timer: ReturnType<typeof setTimeout> | undefined
     const loop = async () => {
@@ -155,7 +164,9 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
   }, [refresh, chatKey])
 
   // What this chat shows is kept for the next visit.
-  useEffect(() => { if (page !== null) keepPage(chatKey, { page, older, cursor: cursor.current }) }, [page, older, chatKey])
+  useEffect(() => {
+    if (pageState.page !== null) pages.keep(chatKey, pageState.key, { page: pageState.page, older: pageState.older, cursor: cursor.current })
+  }, [pageState, chatKey])
 
   // The page before the oldest one shown. cursor lives in a ref: the list can ask
   // again before the state from the previous load commits.
@@ -170,10 +181,10 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
         : await call('chat', { botId: id, cursor: cursor.current, steps: true })) as ChatPage
       if (generation.current !== gen) return
       cursor.current = next.cursor
-      setOlder(prev => [...next.items, ...prev])
+      setPageState(prev => (prev.key !== chatKey ? prev : { ...prev, older: [...next.items, ...prev.older] }))
     } catch { /* keep the page we have */ }
     finally { loading.current = false; setLoadingOlder(false) }
-  }, [call, id])
+  }, [call, id, room?.id, chatKey])
 
   const sessionId = page?.sessionId ?? bot?.sessionId ?? room?.id ?? id
   const question: Question | undefined = team?.questions?.[sessionId]
@@ -189,7 +200,7 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
   const doingText = doing !== undefined ? workPhrase(doing) : roomWork[0] !== undefined ? `${doingBot?.name ?? ''} · ${workPhrase(roomWork[0])}` : ''
   const flat = team?.prefs?.layout === 'flat'
   const width = Math.min(100, Math.max(50, team?.prefs?.width ?? 80))
-  const [chatWidth, setChatWidth] = useState(0)
+  const [chatWidth, setChatWidth] = useState(() => Math.max(0, Dimensions.get('window').width - 24))
   const [chatHeight, setChatHeight] = useState(0)
   const [expandedKey, setExpandedKey] = useState<string | null>(null)
   const [menuText, setMenuText] = useState<string | null>(null)
@@ -227,7 +238,11 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
       if (event === 'room' && room !== undefined && data?.roomId === room.id) void refresh(gen)
       if (event === 'message' && data?.sessionId === sessionId) {
         const item = data.item
-        if (item !== undefined) setPage(prev => prev === null || prev.items.some(it => it.seq !== undefined && it.seq === item.seq) ? prev : { ...prev, items: [...prev.items, item] })
+        if (item !== undefined) {
+          setPageState(prev => prev.key !== chatKey || prev.page === null || prev.page.items.some(it => it.seq !== undefined && it.seq === item.seq)
+            ? prev
+            : { ...prev, page: { ...prev.page, items: [...prev.page.items, item] } })
+        }
         markSeen(id)
         void refresh(gen)
       }
