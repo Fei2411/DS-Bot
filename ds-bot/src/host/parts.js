@@ -15,9 +15,10 @@
 // word, and where the rest is. Input that arrives meanwhile waits and moves along.
 // read_own_chat searches every part, the condensed messages included.
 import { randomUUID } from 'node:crypto'
-import { BlockAssembler, createUserMessage } from '@deepseek-ai/dsh-llm'
+import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { openTurnAt } from './btw.js'
 import { HANDOFF_ACK, HISTORY_TIMEOUT_MS, REPLY_KIND, SOURCE_KIND } from './constants.js'
+import { assembleLlmStream } from './models.js'
 import { parseReplies, relayRange, stackReplies } from '../shared/group-replies.js'
 import { CHECKPOINT_PROMPT, STEWARD_SYSTEM, checkpointCount, checkpointTail, checkpointTailNote, checkpointText, linesFor, parseDecision, stewardRequest } from './steward.js'
 import { RESUME_DELAY_MS } from './resume.js'
@@ -257,7 +258,7 @@ export function install(rt) {
     const route = session.requestHeader()?.config
     if (!route?.provider || !route?.model) return undefined
     const info = await ctx.llm.resolveModelInfo(route.provider, route.model)
-    return linesFor({ window: info.context?.contextWindow, reserve: route.maxTokens ?? info.defaultMaxTokens, checkRatio: config.checkRatio })
+    return linesFor({ window: info.context?.contextWindow, reserve: route.maxTokens ?? info.defaultMaxTokens, checkRatio: config.checkRatio, checkTokens: config.checkTokens })
   }
 
   // The backend's own entry points leave Bot Sessions alone, earlier parts and group
@@ -492,8 +493,7 @@ export function install(rt) {
     for (let attempt = 1; attempt <= NOTE_ATTEMPTS; attempt += 1) {
       const prompt = retry === undefined ? base : `${base}\n\n${retry}`
       const maxTokens = Math.min(attempt === 1 ? NOTE_MAX_TOKENS : NOTE_RETRY_MAX_TOKENS, limit)
-      const assembler = new BlockAssembler()
-      for await (const chunk of ctx.llm.stream({
+      const callOptions = {
         provider: route.provider,
         model: route.model,
         ...(effort === undefined ? {} : { reasoningEffort: effort }),
@@ -504,7 +504,8 @@ export function install(rt) {
         sessionId: session.id,
         purpose: 'compaction',
         signal,
-      })) assembler.push(chunk)
+      }
+      const assembler = await (rt.assembleLlm ? rt.assembleLlm(callOptions) : assembleLlmStream(ctx, callOptions, { backoff: rt.config?.llmRetryBackoff }))
       const finish = assembler.finish
       if (finish.kind === 'error' || finish.kind === 'aborted') throw new Error(finish.failure?.message ?? finish.kind)
       const text = assembler.blocks().filter(block => block.type === 'text').map(block => block.text).join('\n').trim()
@@ -621,8 +622,7 @@ export function install(rt) {
     let last
     for (const one of routes) {
       try {
-        const assembler = new BlockAssembler()
-        for await (const chunk of ctx.llm.stream({
+        const callOptions = {
           ...one,
           messages: [...head, ...tail, { role: 'user', content: [{ type: 'text', text: prompt }] }],
           toolHistory: session.toolHistory(),
@@ -631,7 +631,8 @@ export function install(rt) {
           sessionId: session.id,
           purpose: 'compaction',
           signal,
-        })) assembler.push(chunk)
+        }
+        const assembler = await (rt.assembleLlm ? rt.assembleLlm(callOptions) : assembleLlmStream(ctx, callOptions, { backoff: rt.config?.llmRetryBackoff }))
         const finish = assembler.finish
         if (finish.kind === 'error' || finish.kind === 'aborted') throw new Error(finish.failure?.message ?? finish.kind)
         if (finish.kind === 'max-tokens') throw new Error('the checkpoint was cut off at the output limit')
@@ -665,8 +666,7 @@ export function install(rt) {
     const info = await ctx.llm.resolveModelInfo(route.provider, route.model).catch(() => undefined)
     // The decision needs no long thinking.
     const off = info?.reasoning?.efforts?.some(effort => effort.id === 'off')
-    const assembler = new BlockAssembler()
-    for await (const chunk of ctx.llm.stream({
+    const callOptions = {
       provider: route.provider,
       model: route.model,
       ...(off ? { reasoningEffort: 'off' } : {}),
@@ -676,7 +676,8 @@ export function install(rt) {
       sessionId: session.id,
       purpose: 'compaction',
       signal: AbortSignal.timeout(STEWARD_TIMEOUT_MS),
-    })) assembler.push(chunk)
+    }
+    const assembler = await (rt.assembleLlm ? rt.assembleLlm(callOptions) : assembleLlmStream(ctx, callOptions, { backoff: rt.config?.llmRetryBackoff }))
     const finish = assembler.finish
     if (finish.kind === 'error' || finish.kind === 'aborted') throw new Error(finish.failure?.message ?? finish.kind)
     return parseDecision(assembler.blocks().filter(block => block.type === 'text').map(block => block.text).join('\n'))
@@ -1174,19 +1175,18 @@ export function install(rt) {
     } else {
       ;(bot.segments ??= []).push(segment)
       bot.sessionId = freshId
-      // The card's call stays in the old part, so the fresh part shows it in the
-      // composer dock, which takes a card without a call.
+      // The card's call stays in the old part: the fresh part raises it in the
+      // composer dock while pending, and closing it records at the part that asked it.
       if (state.questions[agent.id] !== undefined) {
-        const { callId: _call, ...question } = state.questions[agent.id]
-        state.questions[freshId] = question
+        const pending = state.questions[agent.id]
+        state.questions[freshId] = pending.callId && !pending.callSessionId ? { ...pending, callSessionId: agent.id } : pending
         delete state.questions[agent.id]
       }
       if (state.views?.[agent.id] !== undefined) {
-        const { callId: _call, ...pending } = state.views[agent.id]
-        state.views[freshId] = pending
+        const pending = state.views[agent.id]
+        state.views[freshId] = pending.callId && !pending.callSessionId ? { ...pending, callSessionId: agent.id } : pending
         delete state.views[agent.id]
       }
-      moveClosedView(agent.id, freshId)
     }
     await rt.save()
     // A model the user picked until now went to the earlier part, which was still the
@@ -1558,10 +1558,10 @@ export function install(rt) {
         // A group_relay call's result is paired back to it by call id — the tool
         // name is on the call, never on the result.
         if (event.data?.name === 'group_relay') relayCalls.add(event.data?.callId)
-        // Hidden turns and refused calls never showed a display card. Interactive
-        // cards live in the pending dock or on their answer message instead.
+        // Hidden turns and refused calls never showed a display card. Closed cards
+        // stay at the call that asked them, including in a hidden Bot-to-Bot turn.
         const named = event.data?.name
-        if ((named === 'show_view' || named === 'ask_user') && !hidden.has(event.data?.turn)) {
+        if (named === 'show_view' || named === 'ask_user') {
           let args = event.data?.arguments
           if (typeof args === 'string') { try { args = JSON.parse(args) } catch { args = undefined } }
           const callId = event.data?.callId ?? null
@@ -1573,7 +1573,7 @@ export function install(rt) {
           const view = normalizeView(args?.view)
           const shown = checkShownView(args?.title, view)
           if (shown.error === undefined && !shown.interactive && args?.await_reply !== true) {
-            items.push({ kind: 'view', title: shown.title, view, callId, time: event.time })
+            if (!hidden.has(event.data?.turn ?? turn)) items.push({ kind: 'view', title: shown.title, view, callId, time: event.time })
           } else if (shown.error === undefined && closed !== undefined) {
             items.push({ kind: 'closed', closed, title: shown.title, view, callId, time: event.time })
           }
@@ -1589,14 +1589,14 @@ export function install(rt) {
         const text = textOf(message?.content)
         const range = relayRange(text)
         const room = range === undefined ? undefined : rt.roomOf(partId) ?? rt.roomOf(rt.pastOwners.get(partId)?.roomId)
-        const replies = range === undefined ? parseReplies(text).replies : room === undefined ? [] : rt.groupRows(room.id, range.from, range.to)
-        for (const { reply, texts, time, duration } of stackReplies(replies)) {
+        const replies = range === undefined ? parseReplies(text).replies : room === undefined ? [] : rt.groupRows(room.id, range.from, range.to, range.anchor)
+        for (const { reply, texts, time, duration, claims } of stackReplies(replies)) {
           // Reply rows take the reply's own time, and no seq: several rows share
           // the result event's seq, which the chat keys a post's anchor by.
           const item = { time: time ?? reply.time ?? event.time }
           if (turn !== undefined) item.turn = turn
           if (reply.kind === 'user') items.push({ kind: 'user', text: reply.text, ...(reply.via ? { via: reply.via } : {}), ...item })
-          else if (reply.kind === undefined) items.push({ kind: 'post', botId: reply.botId ?? null, name: reply.name ?? null, texts, ...item, ...(duration === undefined ? {} : { duration }) })
+          else if (reply.kind === undefined) items.push({ kind: 'post', botId: reply.botId ?? null, name: reply.name ?? null, texts, ...(claims === undefined ? {} : { claims }), ...item, ...(duration === undefined ? {} : { duration }) })
           else items.push({ kind: 'relay', reply, ...item })
         }
         continue
@@ -1605,9 +1605,11 @@ export function install(rt) {
       const source = event.data?.source
       if (source?.kind === 'user') {
         const content = Array.isArray(event.data.content) ? event.data.content : []
+        const imageRefs = content.filter(block => block?.type === 'image' && block.attachment !== undefined)
+          .map(block => ({ attachmentId: block.attachment.attachmentId, mime: block.attachment.mediaType ?? block.attachment.mime ?? block.attachment.mimeType, name: block.attachment.name }))
         const images = content.filter(block => block?.type === 'image').length
         const via = viaOf(source)
-        stamp(event, { kind: 'user', text: textOf(content), ...(images > 0 ? { images } : {}), ...(via ? { via } : {}), time: event.time })
+        stamp(event, { kind: 'user', text: textOf(content), ...(images > 0 ? { images } : {}), ...(imageRefs.length > 0 ? { imageRefs } : {}), ...(via ? { via } : {}), time: event.time })
       } else if (source?.kind === REPLY_KIND) {
         const text = textOf(event.data.content)
         const reply = readReply(text)
@@ -1623,6 +1625,7 @@ export function install(rt) {
           kind: 'post',
           botId: source.senderSessionId ?? null,
           name: source.senderName ?? null,
+          ...(source.claims === undefined ? {} : { claims: source.claims }),
           text: textOf(content).replace(/^\[Group post from (?:[^\r\n]*\]\r?\n|[^\]\r\n]*\])/, ''),
           ...(file ? { file, length: source.length } : {}),
           time: event.time,
@@ -1634,7 +1637,7 @@ export function install(rt) {
     return items
   }
 
-  async function partPage(parts, index, cursor) {
+  async function partPage(parts, index, cursor, steps = false) {
     const part = parts[index]
     const signal = AbortSignal.timeout(HISTORY_TIMEOUT_MS)
     // An archived earlier part may have no live agent left; its stored events
@@ -1672,6 +1675,7 @@ export function install(rt) {
     const more = page.hasMore && events.length > 0
     // The line above a part's first message marks where it began.
     if (!more && index > 0) items.unshift({ kind: 'divider', time: part.startedAt })
+    if (steps === true) await applySteps(items, events, part.sessionId)
     return { items, cursor: more ? { part: index, beforeSeq: events[0].seq } : index > 0 ? { part: index - 1 } : null }
   }
 
@@ -1693,12 +1697,114 @@ export function install(rt) {
 
   // A Bot's whole own chat, newest page first: the current part, then the earlier
   // ones, for a window that draws the conversation itself.
-  async function chatPage(botId, cursor) {
+  // The same short labels the client gives a tool (cells.js cannot be loaded
+  // here; keep the two tables in step).
+  const TOOL_PHRASES = [
+    [/web_?search|search_?web/i, 'Searching online'],
+    [/fetch|browse|browser|web/i, 'Reading a page'],
+    [/shell|bash|pwsh|powershell|exec|command|terminal/i, 'Running shell commands'],
+    [/^(read|view|cat)\b|read_/i, 'Opening a file'],
+    [/grep|glob|list_dir|^ls$|find|search/i, 'Looking through files'],
+    [/write|edit|patch|apply|replace/i, 'Writing changes'],
+    [/image|photo|draw/i, 'Working on an image'],
+  ]
+  const STEP_LABELS = {
+    list_secrets: 'Checking the keys', ask_user_question: 'Waiting for your answer',
+    message_bot: 'Asking another Bot', stop_bot: 'Stopping another Bot',
+    create_bot: 'Creating a Bot', update_bot: 'Updating a Bot',
+    create_group: 'Creating a group', update_group: 'Updating the group',
+    delete_group: 'Deleting the group', post_to_group: 'Posting in the group',
+    list_bots: 'Checking the team', read_group_chat: 'Reading a group chat',
+    read_own_chat: 'Looking back through the chat',
+    remember: 'Saving to memory', forget: 'Updating memory', recall: 'Checking memory',
+  }
+  const toolLabel = name => STEP_LABELS[name] ?? TOOL_PHRASES.find(([pattern]) => pattern.test(name))?.[1]
+
+  // Per-turn folds of a page's tool calls, for `chat`/`room-chat` with
+  // `steps: true`. Interactive calls stay out: they show as cards, not steps.
+  function stepsItems(events, partId) {
+    const hidden = new Set(state.exchangeTurns[partId] ?? [])
+    const byTurn = new Map()
+    let turn
+    for (const event of events) {
+      if (event.type === 'turn/start') {
+        if (typeof event.data?.turn === 'number' && Number.isInteger(event.data.turn)) turn = event.data.turn
+        continue
+      }
+      if (turn === undefined || hidden.has(turn)) continue
+      if (event.type === 'tool/call') {
+        const name = event.data?.name
+        if (typeof name !== 'string' || name === 'ask_user' || name === 'request_secret' || name === 'group_relay') continue
+        const list = byTurn.get(turn) ?? byTurn.set(turn, []).get(turn)
+        list.push({ callId: event.data?.callId ?? null, name, label: toolLabel(name) ?? null })
+        continue
+      }
+      if (event.type === 'tool/result') {
+        const callId = event.data?.message?.toolCallId
+        const entry = byTurn.get(turn)?.find(tool => tool.callId === callId)
+        if (entry !== undefined && typeof event.data?.message?.ok === 'boolean') entry.ok = event.data.message.ok
+      }
+    }
+    for (const tools of byTurn.values()) for (const tool of tools) delete tool.callId
+    return byTurn
+  }
+
+  // Places a page's `steps` items after the last row of each turn and fills in
+  // `ms` from the turn's thinking time when the stream has it.
+  async function applySteps(items, events, sessionId) {
+    const byTurn = stepsItems(events, sessionId)
+    for (const [turn, tools] of byTurn) {
+      const item = { kind: 'steps', turn, tools, time: items.filter(it => it.turn === turn).at(-1)?.time ?? events.at(-1)?.time }
+      const ms = await rt.thinkingOf(sessionId, turn).catch(() => undefined)
+      if (typeof ms === 'number' && ms > 0) item.ms = ms
+      const at = items.reduce((last, it, index) => it.turn === turn ? index : last, -1)
+      items.splice(at < 0 ? items.length : at + 1, 0, item)
+    }
+    return items
+  }
+
+  // The newest line of a Bot's own-chat part, for the list row's order and
+  // preview. Read once per part, then kept by session/event.
+  const PREVIEWABLE = new Set(['bot', 'user', 'answer', 'post', 'view'])
+  const tails = new Map()
+  const previewText = item => String(item.text ?? item.title ?? item.texts?.join(' ') ?? '').replace(/\s+/g, ' ').trim()
+  const applyTail = (sessionId, item) => tails.set(sessionId, { lastAt: item.time ?? 0, preview: previewText(item) })
+  const fillTail = async sessionId => {
+    // Newest page back until a row shows; chats almost always have it on page one.
+    try {
+      let beforeSeq
+      for (let pages = 0; pages < 10; pages += 1) {
+        const page = await ctx.sessionController.page({
+          address: { kind: 'session', sessionId },
+          ...(beforeSeq !== undefined ? { beforeSeq } : {}),
+          maxMessages: EARLIER_PAGE,
+        }, AbortSignal.timeout(HISTORY_TIMEOUT_MS))
+        const events = page.records.map(record => record.event)
+        const last = [...displayItems(sessionId, events)].reverse().find(item => PREVIEWABLE.has(item.kind))
+        if (last !== undefined) { applyTail(sessionId, last); return }
+        if (!page.hasMore || events.length === 0) break
+        beforeSeq = events[0]?.seq
+      }
+      tails.set(sessionId, { lastAt: 0, preview: '' })
+    } catch { tails.set(sessionId, { lastAt: 0, preview: '' }) }
+  }
+  rt.chatTail = sessionId => {
+    if (!tails.has(sessionId)) { tails.set(sessionId, null); void fillTail(sessionId); return undefined }
+    return tails.get(sessionId) ?? undefined
+  }
+  ctx.on('session/event', (session, event) => {
+    if (!tails.has(session.id)) return
+    try {
+      for (const item of displayItems(session.id, [event], session)) if (PREVIEWABLE.has(item.kind)) applyTail(session.id, item)
+    } catch { /* a tail miss must never take out the other listeners */ }
+  })
+
+  async function chatPage(botId, cursor, steps = false) {
     const parts = partsOf(botId)
     if (parts.length === 0) throw Object.assign(new Error('Unknown Bot'), { code: 'bot/not-found' })
     const index = Number.isInteger(cursor?.part) ? cursor.part : parts.length - 1
     if (index < 0 || index >= parts.length) return { sessionId: parts.at(-1).sessionId, items: [], cursor: null }
-    return { sessionId: parts.at(-1).sessionId, ...(await partPage(parts, index, cursor)) }
+    return { sessionId: parts.at(-1).sessionId, ...(await partPage(parts, index, cursor, steps)) }
   }
 
   // "New session" in a Bot's chat: a manual move to a fresh part with the
@@ -1711,14 +1817,6 @@ export function install(rt) {
     if (agent.status !== 'idle') throw Object.assign(new Error('The Bot is working; wait for it to finish or stop it first'), { code: 'bot/busy' })
     startSwitch(agent, { manual: true })
     return true
-  }
-
-  // The active chat's dock is authoritative, including when it has no closed view.
-  function moveClosedView(from, to) {
-    const closed = state.closedViews ??= {}
-    if (closed[from] === undefined) delete closed[to]
-    else closed[to] = closed[from]
-    delete closed[from]
   }
 
   // Opening an earlier part again: it becomes the current one and the part that
@@ -1740,7 +1838,6 @@ export function install(rt) {
     segments.splice(at, 1)
     segments.splice(at, 0, { sessionId: current, endedAt: Date.now() })
     bot.sessionId = partId
-    moveClosedView(current, partId)
     rt.chatOwners.delete(current)
     rt.chatOwners.set(partId, botId)
     rt.pastOwners.delete(partId)
@@ -1764,5 +1861,5 @@ export function install(rt) {
     return true
   }
 
-  Object.assign(rt, { clock, partsOf, historyEntry, partLines, noteText, earlierPage, chatPage, displayItems, followFolder, followEngine, heldBack, newPart, switchPart, sessionTokens: session => tokensOf(session), switchJobs: () => switches.values() })
+  Object.assign(rt, { clock, partsOf, historyEntry, partLines, noteText, earlierPage, chatPage, displayItems, applySteps, followFolder, followEngine, heldBack, newPart, switchPart, sessionTokens: session => tokensOf(session), switchJobs: () => switches.values() })
 }

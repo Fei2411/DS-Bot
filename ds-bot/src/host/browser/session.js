@@ -703,6 +703,12 @@ export function createSession({ context, browser, page, botId, userDataDir, cook
       return finishAction(() => target.goBack({ waitUntil: 'domcontentloaded', timeout: 15_000 }).catch(() => {}), target)
     },
     shot,
+    async frame() {
+      const target = activePage()
+      if (!target) return undefined
+      const image = await target.screenshot({ type: 'jpeg', quality: 40 })
+      return { mime: 'image/jpeg', data: image.toString('base64'), url: target.url(), title: await target.title().catch(() => '') }
+    },
     // `origin` names the call and Session that asked, so a card can answer them.
     handoff(reason, note, origin) {
       ready()
