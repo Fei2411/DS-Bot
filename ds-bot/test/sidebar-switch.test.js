@@ -278,11 +278,14 @@ const showing = rules.filter(rule => /display:inline-flex/.test(rule.body))
 
 // The shell sidebar's own markup (dsh-client-ui-sidebar SidebarRoot), reduced to what the
 // team view reshapes: the switch is in the logo row, except in a macOS desktop window,
-// where it sits in the strip by the window buttons.
+// where it sits in the strip by the window buttons. `mac` is DSH Desktop with the system
+// title bar; `mac-frameless` is the packaged app, whose window has no system title bar and
+// so carries the title-bar attribute as well.
 function shell({ platform, collapsed }) {
-  const darwin = platform === 'mac'
+  const darwin = platform === 'mac' || platform === 'mac-frameless'
+  const titlebar = platform === 'windows' || platform === 'mac-frameless'
   const toggle = '<button class="x_iconButton x_toggle" aria-label="Toggle sidebar"></button>'
-  const html = `<!doctype html><html${platform === 'windows' ? ' data-windows-titlebar' : ''}${darwin ? ' data-platform="darwin"' : ''}><body>
+  const html = `<!doctype html><html${titlebar ? ' data-windows-titlebar' : ''}${darwin ? ' data-platform="darwin"' : ''}><body>
     <div${collapsed ? ' data-sidebar-collapsed="true"' : ''}>
       <div class="x_root${collapsed ? ' x_collapsed' : ''}">
         ${darwin ? `<div class="x_topStrip">${toggle}</div>` : ''}
@@ -314,6 +317,47 @@ for (const collapsed of [false, true]) {
     assert.deepEqual(switches.map(node => node.className), ['bt-title-toggle'])
   })
 }
+
+// #1430: the shell's own switch drew a tooltip shadow across the rail's edge. It lives in the
+// logo row, or in the top strip in a macOS desktop window, and none of the team view's
+// switches may share the screen with it.
+const PLATFORMS = ['web', 'windows', 'mac', 'mac-frameless']
+for (const platform of PLATFORMS) {
+  for (const collapsed of [false, true]) {
+    test(`the shell's own sidebar switch is hidden: ${platform}, ${collapsed ? 'collapsed' : 'open'}`, () => {
+      const { document, hidden } = shell({ platform, collapsed })
+      const own = [...document.querySelectorAll('.x_toggle')]
+      assert.equal(own.length, 1)
+      assert.equal(hidden(own[0]), true)
+    })
+  }
+}
+
+test('the top strip stays as the window\'s drag area while its switch is hidden', () => {
+  for (const platform of ['mac', 'mac-frameless']) {
+    for (const collapsed of [false, true]) {
+      const { document, hidden } = shell({ platform, collapsed })
+      const strip = document.querySelector('.x_topStrip')
+      assert.ok(strip !== null, platform)
+      assert.equal(hidden(strip), false, `${platform} ${collapsed ? 'collapsed' : 'open'}`)
+      assert.equal(hidden(strip.querySelector('.x_toggle')), true)
+    }
+  }
+})
+
+test('the team view\'s own switches keep the places they had on every platform', () => {
+  for (const platform of PLATFORMS) {
+    const titlebar = platform === 'windows' || platform === 'mac-frameless'
+    for (const collapsed of [false, true]) {
+      const { document, hidden } = shell({ platform, collapsed })
+      const title = document.querySelector('.bt-title-toggle')
+      assert.equal(hidden(title), false, `${platform} title-band switch`)
+      const side = document.querySelector('.bt-side-collapse')
+      // The column's top row exists while it is open; under a title bar the band's switch replaces it.
+      if (side !== null) assert.equal(hidden(side), titlebar, `${platform} column switch`)
+    }
+  }
+})
 
 test('off a Windows title bar the column\'s top row and the floating switch are never hidden by style', () => {
   for (const platform of ['web', 'mac']) {
