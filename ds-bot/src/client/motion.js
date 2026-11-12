@@ -37,7 +37,11 @@ export function springEasing(stiffness, damping) {
   let end = 0.05
   while (end < 2 && Math.abs(1 - at(end)) > 0.001) end += 0.01
   const points = Array.from({ length: 25 }, (_, index) => (index === 24 ? 1 : at(end * index / 24)).toFixed(4))
-  return { duration: Math.round(end * 1000), easing: `linear(${points.join(',')})`, stiffness, damping }
+  // `progress(ms)` is the same curve for a glide a script drives frame by frame, one
+  // that follows a target moving as it goes; it reads 1 once `duration` has passed.
+  const duration = Math.round(end * 1000)
+  const progress = ms => (ms >= duration ? 1 : ms <= 0 ? 0 : at(ms / 1000))
+  return { duration, easing: `linear(${points.join(',')})`, stiffness, damping, progress }
 }
 
 // The capsule's two springs: a gentle one (ω=20, ζ=0.78) reshapes surfaces, a

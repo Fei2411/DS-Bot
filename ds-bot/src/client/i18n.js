@@ -327,6 +327,8 @@ const ZH = {
   'The model service failed.': '模型服务出错了。',
   'DeepSeek Harness stopped before this turn finished.': '这一轮还没完成，DeepSeek Harness 就停下了。',
   'This turn failed.': '这一轮运行失败了。',
+  "The conversation could not be compacted for this model. Try again or choose another model.": "无法为这个模型压缩对话。请重试或选择其他模型。",
+  'Open model settings': '打开模型设置',
   'The model service': '模型服务',
   'DeepSeek account': 'DeepSeek 账号',
   'This Bot': '这个 Bot',
@@ -1283,6 +1285,7 @@ const ZH = {
   'The model service failed': '模型服务出错',
   'The model took too long to answer': '模型响应超时',
   'Could not reach the model service': '连不上模型服务',
+  "The conversation could not be compacted for the model switch": "切换模型时无法压缩对话",
   'Its group conversation could not open': '它的群聊会话打不开',
   'Its group conversation could not open, so it starts a new one next time': '它的群聊会话打不开，下次会换一个新的',
   // The composer's +
