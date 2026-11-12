@@ -207,4 +207,13 @@ test('on touch, the message toolbar sits below the message and is shorter', () =
   assert.match(touch, /\.bt-tools\{top:100%;bottom:auto;/)
   assert.match(touch, /\.bt-tool\{width:36px;height:36px\}/)
   assert.doesNotMatch(touch, /\.bt-tool\{width:44px;height:44px\}/)
+  // The open pill is 36px plus a 4px gap; reserve it so the next message's text stays clear.
+  assert.match(touch, /\.bt-msg:has\(>\.bt-msg-line>\.bt-tools\[data-open\]\)\{margin-bottom:40px\}/)
+})
+
+test('an active message toolbar stacks above the next message', () => {
+  const css = readFileSync(new URL('../src/client/styles.js', import.meta.url), 'utf8')
+  // Later .bt-msg siblings are position:relative in the flat layout and on touch,
+  // so without a z-index they paint over a toolbar that hangs below this message.
+  assert.match(css, /\.bt-msg:hover,\.bt-msg:focus-within,\.bt-msg:has\(>\.bt-msg-line>\.bt-tools\[data-open\]\)\{z-index:2\}/)
 })
