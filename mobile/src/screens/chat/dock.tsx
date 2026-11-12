@@ -2,7 +2,7 @@ import { useState } from 'react'
 import * as Haptics from 'expo-haptics'
 import { ChevronRightIcon } from '../../ui/icons.tsx'
 import { ViewCard } from './view.tsx'
-import { ScrollView, StyleSheet, Text, TextInput, View, Pressable } from 'react-native'
+import { ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View, Pressable } from 'react-native'
 import Animated, { useReducedMotion, useAnimatedStyle, withRepeat, withTiming, withSpring, useSharedValue, withSequence } from 'react-native-reanimated'
 import { useEffect } from 'react'
 import type { Approval, Question, ShownView } from '../../connection.ts'
@@ -27,14 +27,14 @@ function useChevron(expanded: boolean) {
 function AccordionCard({ title, dot, expanded, onToggle, p, children }: { title: string; dot?: boolean; expanded: boolean; onToggle: () => void; p: Palette; children: React.ReactNode }) {
   const chevron = useChevron(expanded)
   return (
-    <View style={[styles.card, { backgroundColor: p.card, borderColor: p.line }]}>
+    <View style={[styles.accordion, { backgroundColor: p.card, borderColor: p.line }]}>
       <Pressable accessibilityRole="button" accessibilityState={{ expanded }} onPress={() => { void Haptics.selectionAsync(); onToggle() }}
-        style={{ flexDirection: 'row', alignItems: 'center', minHeight: 44, paddingHorizontal: 14, gap: 8 }}>
-        <Text style={[typeScale.settingsRow, { color: p.ink, fontWeight: '600', flex: 1 }]} numberOfLines={expanded ? 4 : 1}>{title}</Text>
-        {dot === true ? <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: p.accent }} /> : null}
-        <Animated.View style={chevron}><ChevronRightIcon size={16} color={p.ink3} /></Animated.View>
+        style={{ flexDirection: 'row', alignItems: 'center', minHeight: 46, paddingHorizontal: 16, paddingVertical: 10, gap: 8 }}>
+        <Text style={[typeScale.settingsRow, { color: p.ink, fontWeight: '600', flex: 1, minWidth: 0 }]} numberOfLines={expanded ? 4 : 1}>{title}</Text>
+        {dot === true ? <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: p.accent, flexShrink: 0 }} /> : null}
+        <Animated.View style={[chevron, { flexShrink: 0 }]}><ChevronRightIcon size={16} color={p.ink3} /></Animated.View>
       </Pressable>
-      {expanded ? <View style={{ paddingHorizontal: 14, paddingBottom: 12 }}>{children}</View> : null}
+      {expanded ? <View style={{ paddingHorizontal: 16, paddingBottom: 14 }}>{children}</View> : null}
     </View>
   )
 }
@@ -46,6 +46,8 @@ export function Dock({ question, sessionId, approvals, secrets = [], btw = [], h
   question?: Question; sessionId: string; approvals: Approval[]; call: Call; p: Palette
 }) {
   interface CardEntry { key: string; title: string; needs: boolean; order: number; body: React.ReactNode }
+  const { height: windowHeight } = useWindowDimensions()
+  const cap = maxHeight ?? Math.round(windowHeight * 0.52)
   const cards: CardEntry[] = []
   for (const approval of approvals) cards.push({ key: `approval-${approval.id}`, title: approval.tool ?? t('Approval'), needs: true, order: 0, body: <ApprovalCard approval={approval} call={call} p={p} bare /> })
   if (question !== undefined) cards.push({ key: 'question', title: question.question ?? t('Question'), needs: true, order: 1, body: <QuestionCard question={question} sessionId={sessionId} call={call} p={p} bare /> })
@@ -57,7 +59,7 @@ export function Dock({ question, sessionId, approvals, secrets = [], btw = [], h
   const chosen = cards.find(card => card.key === expanded)
   const active = chosen ?? cards.slice().sort((a, b) => a.order - b.order).find(card => card.needs) ?? cards[0]
   return (
-    <ScrollView style={[styles.dock, maxHeight !== undefined ? { maxHeight } : null]} contentContainerStyle={{ paddingBottom: 4 }} keyboardShouldPersistTaps="handled">
+    <ScrollView style={[styles.dock, { maxHeight: cap }]} contentContainerStyle={{ paddingBottom: 4 }} keyboardShouldPersistTaps="handled">
       {cards.map(card => (
         <AccordionCard key={card.key} title={card.title} dot={card.needs && card.key !== active.key && chosen === undefined} p={p}
           expanded={card.key === active.key} onToggle={() => onExpand(card.key === active.key && chosen !== undefined ? null : card.key)}>
@@ -205,18 +207,26 @@ export function BtwCard({ card, sessionId, call, p , bare = false }: { card: Btw
   }
   return (
     <View style={bare ? undefined : [styles.card, { backgroundColor: p.card, borderColor: p.line }]}>
-      <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8 }}>
-        <View style={{ flex: 1 }}>
-          {bare ? null : <Text style={[typeScale.small, { color: p.ink3 }]}>{t('Aside')}</Text>}
-          {card.question && !bare ? <Text style={[typeScale.settingsRow, { color: p.ink, fontWeight: '600', marginTop: 2 }]}>{card.question}</Text> : null}
+      {!bare ? (
+        <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8 }}>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Text style={[typeScale.small, { color: p.ink3 }]}>{t('Aside')}</Text>
+            {card.question ? <Text style={[typeScale.settingsRow, { color: p.ink, fontWeight: '600', marginTop: 2 }]}>{card.question}</Text> : null}
+          </View>
+          <Pressable accessibilityRole="button" accessibilityLabel={t('Delete aside')} onPress={drop} hitSlop={10} disabled={busy}
+            style={{ width: 36, height: 36, alignItems: 'center', justifyContent: 'center', opacity: busy ? 0.35 : 1 }}>
+            <Text style={{ color: p.ink3, fontSize: 18 }}>×</Text>
+          </Pressable>
         </View>
-        <Pressable accessibilityRole="button" accessibilityLabel={t('Delete aside')} onPress={drop} hitSlop={10} disabled={busy}
-          style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center', opacity: busy ? 0.35 : 1 }}>
-          <Text style={{ color: p.ink3, fontSize: 18 }}>×</Text>
+      ) : null}
+      {card.failure ? <Text style={[typeScale.small, { color: p.danger, marginTop: bare ? 0 : 6 }]}>{card.failure}</Text> : null}
+      {card.answer ? <Text style={[typeScale.settingsRow, { color: p.ink2, marginTop: bare ? 0 : 6 }]}>{card.answer}</Text> : null}
+      {bare ? (
+        <Pressable accessibilityRole="button" accessibilityLabel={t('Delete aside')} onPress={drop} disabled={busy}
+          style={{ alignSelf: 'flex-end', marginTop: 8, paddingHorizontal: 10, paddingVertical: 4, borderRadius: radius.pill, backgroundColor: p.hover, opacity: busy ? 0.35 : 1 }}>
+          <Text style={[typeScale.caption, { color: p.ink2 }]}>{t('Dismiss')}</Text>
         </Pressable>
-      </View>
-      {card.failure ? <Text style={[typeScale.small, { color: p.danger, marginTop: 6 }]}>{card.failure}</Text> : null}
-      {card.answer ? <Text style={[typeScale.settingsRow, { color: p.ink2, marginTop: 6 }]}>{card.answer}</Text> : null}
+      ) : null}
     </View>
   )
 }
@@ -271,8 +281,8 @@ function DockView({ sessionId, view, p, cap, collapsed, onCollapse }: { sessionI
   return (
     <View style={[styles.card, { backgroundColor: p.card, borderColor: p.line, paddingVertical: 0 }]}>
       <Pressable accessibilityRole="button" accessibilityState={{ expanded: !shut }} onPress={() => onCollapse?.(id, !shut)} style={styles.viewHead}>
-        <Text style={[typeScale.settingsRow, { color: p.ink, fontWeight: '600' }]}>{title}</Text>
-        <Animated.View style={chevron}><ChevronRightIcon size={16} color={p.ink3} /></Animated.View>
+        <Text style={[typeScale.settingsRow, { color: p.ink, fontWeight: '600', flex: 1, minWidth: 0 }]}>{title}</Text>
+        <Animated.View style={[chevron, { flexShrink: 0 }]}><ChevronRightIcon size={16} color={p.ink3} /></Animated.View>
       </Pressable>
       {shut ? null : (
         <View style={{ paddingBottom: 14 }} onLayout={e => { if (cap !== undefined && collapsed === null && e.nativeEvent.layout.height > cap) onCollapse?.(id, true) }}>
@@ -284,14 +294,15 @@ function DockView({ sessionId, view, p, cap, collapsed, onCollapse }: { sessionI
 }
 
 const styles = StyleSheet.create({
-  dock: { maxHeight: '50%', flexGrow: 0 },
-  card: { marginHorizontal: 12, marginVertical: 6, borderRadius: radius.card, borderWidth: 1, paddingHorizontal: 16, paddingVertical: 14, ...shadow(1) },
-  option: { paddingHorizontal: 10, paddingVertical: 8, minHeight: 44, justifyContent: 'center' },
-  answerRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 12 },
-  viewHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: 44 },
-  answerInput: { flex: 1, minHeight: 40, borderRadius: radius.input, paddingHorizontal: 12, fontSize: 15 },
-  submit: { height: 40, borderRadius: radius.pill, paddingHorizontal: 16, alignItems: 'center', justifyContent: 'center' },
-  secretInput: { borderWidth: 1, borderRadius: 10, paddingHorizontal: 12, height: 40, marginTop: 10, fontSize: 14 },
-  choice: { flex: 1, height: 44, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center' },
+  dock: { maxHeight: '55%', flexGrow: 0, marginBottom: 6 },
+  accordion: { marginHorizontal: 12, marginVertical: 5, borderRadius: radius.card, borderWidth: StyleSheet.hairlineWidth, overflow: 'hidden', ...shadow(1) },
+  card: { marginHorizontal: 12, marginVertical: 6, borderRadius: radius.card, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 16, paddingVertical: 14, ...shadow(1) },
+  option: { paddingHorizontal: 12, paddingVertical: 10, minHeight: 44, justifyContent: 'center' },
+  answerRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginTop: 12 },
+  viewHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8, minHeight: 44 },
+  answerInput: { flex: 1, minWidth: 160, minHeight: 40, borderRadius: radius.input, paddingHorizontal: 12, paddingVertical: 8, fontSize: 15 },
+  submit: { minHeight: 40, borderRadius: radius.pill, paddingHorizontal: 16, paddingVertical: 8, alignItems: 'center', justifyContent: 'center' },
+  secretInput: { borderWidth: 1, borderRadius: 10, paddingHorizontal: 12, minHeight: 40, paddingVertical: 8, marginTop: 10, fontSize: 14 },
+  choice: { flex: 1, minWidth: 104, minHeight: 44, borderRadius: radius.pill, paddingHorizontal: 14, paddingVertical: 8, alignItems: 'center', justifyContent: 'center' },
   action: { flexDirection: 'row', alignItems: 'center', height: 36, marginHorizontal: 12 },
 })
