@@ -40,14 +40,14 @@ const tagged = (document, tag) => [...document.head.querySelectorAll('style')]
 
 // The client-modules bundle registers itself through the page's __ModuleLoader__
 // facade when it loads; capture that registration once to reach its exports.
-const clientModules = (() => {
+const clientModules = await (async () => {
   const { window } = new JSDOM('<!doctype html><html><head></head><body></body></html>')
   let registration
   const previousWindow = globalThis.window
   globalThis.window = window
   window.__ModuleLoader__ = { load: (record) => { registration = record } }
   try {
-    requireHarness('@deepseek-ai/dsh-client-modules/client')
+    await import('@deepseek-ai/dsh-client-modules/client')
   } finally {
     globalThis.window = previousWindow
   }
