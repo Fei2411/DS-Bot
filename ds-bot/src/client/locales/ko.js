@@ -2,6 +2,7 @@
 
 export const KO = {
   'Opening…': '여는 중…',
+  'Still opening…': '아직 여는 중…',
   // Shared
   'Main Bot': '메인 Bot',
   Working: '작업 중',

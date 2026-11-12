@@ -2,6 +2,7 @@
 
 export const ES = {
   'Opening…': 'Abriendo…',
+  'Still opening…': 'Sigue abriendo…',
   // Shared
   'Main Bot': 'Bot principal',
   Working: 'En curso',

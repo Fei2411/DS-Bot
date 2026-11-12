@@ -2,6 +2,7 @@
 
 export const DE = {
   'Opening…': 'Wird geöffnet…',
+  'Still opening…': 'Wird noch geöffnet…',
   // Shared
   'Main Bot': 'Haupt-Bot',
   Working: 'Arbeitet',

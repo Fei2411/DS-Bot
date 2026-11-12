@@ -54,7 +54,7 @@ import { IM_CSS } from './im-page.js'
 import { GOAL_CSS } from './goal.js'
 import { USER_MESSAGE_CSS, UserMessageCell, canDrawUserMessages } from './user-message.js'
 import { QueueDock, QUEUE_CSS } from './queue-dock.js'
-import { OPENING_CSS, OPENING_WAIT_MS } from './opening.js'
+import { OPENING_CSS, bindOpeningWait } from './opening.js'
 import { noticeApprovals } from './approval-notices.js'
 import { listedOpener } from './open-listed.js'
 import { agentSessionToReuse, singleFlight } from './agent-new.js'
@@ -451,9 +451,10 @@ export function apply(ctx) {
   const mainView = () => Object.values(ctx.sessions.list.getSnapshot().byId ?? {}).find(session => (session?.retainedBy?.mainView ?? 0) > 0)?.id
   // A Session the Host made a moment ago is not in the shell's list yet, so the main view
   // would keep showing the chat that was there before — for a Bot the user just opened,
-  // that reads as "the new Bot loaded someone else's conversation" (#1196). While the
-  // wait lasts the asked-for Bot fills the conversation area; a wait that never ends lets
-  // the previous chat back rather than covering the window for good.
+  // that reads as "the new Bot loaded someone else's conversation" (#1196). The asked-for
+  // Bot stays over that chat until its Session is the one on screen, or the user opens
+  // something else. A long wait changes the note and asks for the list again; it does
+  // not uncover the previous conversation.
   const ownerOfSession = (sessionId) => {
     const snapshot = roster.getSnapshot()
     if (snapshot.byId[sessionId] !== undefined) return snapshot.byId[sessionId]
@@ -461,19 +462,14 @@ export function apply(ctx) {
     return Object.values(snapshot.byId).find(bot => currentPart(bot) === sessionId)
       ?? Object.values(snapshot.roomsById).find(room => (room.sessionId ?? room.id) === sessionId)
   }
-  let openingTimer = null
+  const openingWait = bindOpeningWait(ui, {
+    onSlow: () => { void Promise.resolve(ctx.sessions.refresh?.()).catch(quietly('refresh sessions')) },
+  })
   const beginOpening = (target) => {
     const owner = ownerOfSession(target)
-    ui.set(state => ({ ...state, pendingOpen: { target, id: owner?.id ?? target, name: owner?.name ?? '' } }))
-    clearTimeout(openingTimer)
-    openingTimer = setTimeout(() => {
-      ui.set(state => (state.pendingOpen?.target === target ? { ...state, pendingOpen: null } : state))
-    }, OPENING_WAIT_MS)
+    openingWait.begin({ target, id: owner?.id ?? target, name: owner?.name ?? '' })
   }
-  const endOpening = () => {
-    clearTimeout(openingTimer)
-    ui.set(state => (state.pendingOpen === null ? state : { ...state, pendingOpen: null }))
-  }
+  const endOpening = () => { openingWait.end() }
   const show = listedOpener({ list: ctx.sessions.list, refresh: () => Promise.resolve(ctx.sessions.refresh?.()).catch(quietly('refresh sessions')), open: (target) => { expected = target; ctx.uiWorkspace.openSession(target) }, current: mainView, begin: beginOpening, done: endOpening })
   // Whether the open Bot panel is folded away for lack of room: its opener then
   // means "show it" (the column yields), not "close it". A panel shown because

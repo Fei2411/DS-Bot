@@ -2,6 +2,7 @@
 
 export const FR = {
   "Opening…": "Ouverture…",
+  "Still opening…": "Toujours en cours d’ouverture…",
   "Main Bot": "Bot principal",
   "Working": "En cours",
   "Waiting for your answer": "Attend votre réponse",

@@ -124,6 +124,7 @@ function convertHostErrors(pairs) {
 // src/client/locales/ja.js
 var JA = {
   "Opening…": "開いています…",
+  "Still opening…": "まだ開いています…",
   "Main Bot": "メイン Bot",
   "Working": "実行中",
   "Waiting for your answer": "回答待ち",
@@ -2375,6 +2376,7 @@ var DSH_JA = {
 // src/client/locales/ko.js
 var KO = {
   "Opening…": "여는 중…",
+  "Still opening…": "아직 여는 중…",
   // Shared
   "Main Bot": "메인 Bot",
   Working: "작업 중",
@@ -4671,6 +4673,7 @@ var DSH_KO = {
 // src/client/locales/es.js
 var ES = {
   "Opening…": "Abriendo…",
+  "Still opening…": "Sigue abriendo…",
   // Shared
   "Main Bot": "Bot principal",
   Working: "En curso",
@@ -6967,6 +6970,7 @@ var DSH_ES = {
 // src/client/locales/fr.js
 var FR = {
   "Opening…": "Ouverture…",
+  "Still opening…": "Toujours en cours d’ouverture…",
   "Main Bot": "Bot principal",
   "Working": "En cours",
   "Waiting for your answer": "Attend votre réponse",
@@ -9218,6 +9222,7 @@ var DSH_FR = {
 // src/client/locales/de.js
 var DE = {
   "Opening…": "Wird geöffnet…",
+  "Still opening…": "Wird noch geöffnet…",
   // Shared
   "Main Bot": "Haupt-Bot",
   Working: "Arbeitet",
@@ -12778,6 +12783,7 @@ var ZH = {
   // The composer's +
   // A Session that is still landing
   "Opening…": "正在打开…",
+  "Still opening…": "还在打开…",
   "Add files": "添加文件",
   "Reference a chat": "引用对话",
   "Chat with {name}": "与 {name} 的对话",
@@ -38812,6 +38818,39 @@ var BROWSER_CSS = `
 // src/client/opening.js
 var import_react61 = require("react");
 var OPENING_WAIT_MS = 5e3;
+function openingPastWait(pending, target) {
+  if (!pending || pending.target !== target || pending.slow === true) return pending ?? null;
+  return { ...pending, slow: true };
+}
+function bindOpeningWait(ui2, { waitMs = OPENING_WAIT_MS, schedule = setTimeout, clear = clearTimeout, onSlow } = {}) {
+  let timer = null;
+  const stop = () => {
+    if (timer === null) return;
+    clear(timer);
+    timer = null;
+  };
+  return {
+    begin(pending) {
+      ui2.set((state) => ({ ...state, pendingOpen: pending }));
+      stop();
+      const target = pending?.target;
+      timer = schedule(() => {
+        timer = null;
+        let held = false;
+        ui2.set((state) => {
+          const pendingOpen = openingPastWait(state.pendingOpen, target);
+          held = pendingOpen !== state.pendingOpen;
+          return held ? { ...state, pendingOpen } : state;
+        });
+        if (held) onSlow?.();
+      }, waitMs);
+    },
+    end() {
+      stop();
+      ui2.set((state) => state.pendingOpen === null ? state : { ...state, pendingOpen: null });
+    }
+  };
+}
 function openingModel({ pending, current, roster }) {
   if (!pending || pending.target === void 0) return null;
   if (current === pending.target) return null;
@@ -38821,7 +38860,8 @@ function openingModel({ pending, current, roster }) {
     id: pending.id,
     name: bot?.name ?? room2?.name ?? pending.name ?? "",
     bot,
-    group: room2 !== void 0
+    group: room2 !== void 0,
+    slow: pending.slow === true
   };
 }
 function OpeningCover({ model, column }) {
@@ -38839,7 +38879,7 @@ function OpeningCover({ model, column }) {
       { className: "bt-opening-card" },
       (0, import_react61.createElement)("span", { className: "bt-opening-mark" }, model.bot ? (0, import_react61.createElement)(BotMark, { bot: model.bot, size: 44 }) : (0, import_react61.createElement)(PeopleIcon)),
       model.name ? (0, import_react61.createElement)("span", { className: "bt-opening-name" }, model.name) : null,
-      (0, import_react61.createElement)("span", { className: "bt-opening-note" }, t("Opening…"))
+      (0, import_react61.createElement)("span", { className: "bt-opening-note" }, t(model.slow ? "Still opening…" : "Opening…"))
     )
   );
 }
@@ -40960,18 +41000,17 @@ function apply(ctx) {
     if (snapshot.roomsById[sessionId] !== void 0) return snapshot.roomsById[sessionId];
     return Object.values(snapshot.byId).find((bot) => currentPart(bot) === sessionId) ?? Object.values(snapshot.roomsById).find((room2) => (room2.sessionId ?? room2.id) === sessionId);
   };
-  let openingTimer = null;
+  const openingWait = bindOpeningWait(ui2, {
+    onSlow: () => {
+      void Promise.resolve(ctx.sessions.refresh?.()).catch(quietly("refresh sessions"));
+    }
+  });
   const beginOpening = (target) => {
     const owner = ownerOfSession(target);
-    ui2.set((state) => ({ ...state, pendingOpen: { target, id: owner?.id ?? target, name: owner?.name ?? "" } }));
-    clearTimeout(openingTimer);
-    openingTimer = setTimeout(() => {
-      ui2.set((state) => state.pendingOpen?.target === target ? { ...state, pendingOpen: null } : state);
-    }, OPENING_WAIT_MS);
+    openingWait.begin({ target, id: owner?.id ?? target, name: owner?.name ?? "" });
   };
   const endOpening = () => {
-    clearTimeout(openingTimer);
-    ui2.set((state) => state.pendingOpen === null ? state : { ...state, pendingOpen: null });
+    openingWait.end();
   };
   const show2 = listedOpener({ list: ctx.sessions.list, refresh: () => Promise.resolve(ctx.sessions.refresh?.()).catch(quietly("refresh sessions")), open: (target) => {
     expected2 = target;

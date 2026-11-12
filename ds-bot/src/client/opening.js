@@ -8,9 +8,52 @@ import { t } from './i18n.js'
 // a moment ago leaves the previous chat on screen until it lands (#1196). What is left
 // there reads as "the Bot I just opened is showing someone else's conversation", so the
 // conversation area shows this quiet state for the Bot that was asked for instead.
+// The cover stays until that Session is the one on screen, or the user opens something
+// else. A long wait only changes the note; it never uncovers the chat that was there.
 
-// A wait that never ends gives the window back rather than covering it for good.
+// How long "Opening…" stays before the note says the Session is still on its way.
+// This timer does not take the cover down.
 export const OPENING_WAIT_MS = 5000
+
+// The same wait, once its note should change. A different target, or no wait, is left
+// as it is — a late timer must not clear a cover the user has already moved on from.
+function openingPastWait(pending, target) {
+  if (!pending || pending.target !== target || pending.slow === true) return pending ?? null
+  return { ...pending, slow: true }
+}
+
+// One cover for one asked-for Session. `end` is the only way down (that Session is
+// current, or the user opened something else). When the wait runs long, `onSlow` runs
+// once and the cover stays up.
+export function bindOpeningWait(ui, { waitMs = OPENING_WAIT_MS, schedule = setTimeout, clear = clearTimeout, onSlow } = {}) {
+  let timer = null
+  const stop = () => {
+    if (timer === null) return
+    clear(timer)
+    timer = null
+  }
+  return {
+    begin(pending) {
+      ui.set(state => ({ ...state, pendingOpen: pending }))
+      stop()
+      const target = pending?.target
+      timer = schedule(() => {
+        timer = null
+        let held = false
+        ui.set(state => {
+          const pendingOpen = openingPastWait(state.pendingOpen, target)
+          held = pendingOpen !== state.pendingOpen
+          return held ? { ...state, pendingOpen } : state
+        })
+        if (held) onSlow?.()
+      }, waitMs)
+    },
+    end() {
+      stop()
+      ui.set(state => (state.pendingOpen === null ? state : { ...state, pendingOpen: null }))
+    },
+  }
+}
 
 // The Bot or group chat to show while its Session lands; null once the main view holds
 // it, or when nothing is waiting.
@@ -24,6 +67,7 @@ export function openingModel({ pending, current, roster }) {
     name: bot?.name ?? room?.name ?? pending.name ?? '',
     bot,
     group: room !== undefined,
+    slow: pending.slow === true,
   }
 }
 
@@ -35,7 +79,7 @@ export function OpeningCover({ model, column }) {
   h('div', { className: 'bt-opening-card' },
     h('span', { className: 'bt-opening-mark' }, model.bot ? h(BotMark, { bot: model.bot, size: 44 }) : h(PeopleIcon)),
     model.name ? h('span', { className: 'bt-opening-name' }, model.name) : null,
-    h('span', { className: 'bt-opening-note' }, t('Opening…'))))
+    h('span', { className: 'bt-opening-note' }, t(model.slow ? 'Still opening…' : 'Opening…'))))
 }
 
 export const OPENING_CSS = `

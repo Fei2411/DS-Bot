@@ -1265,6 +1265,7 @@ const ZH = {
   // The composer's +
   // A Session that is still landing
   'Opening…': '正在打开…',
+  'Still opening…': '还在打开…',
   'Add files': '添加文件',
   'Reference a chat': '引用对话',
   'Chat with {name}': '与 {name} 的对话',

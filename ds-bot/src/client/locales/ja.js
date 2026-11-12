@@ -2,6 +2,7 @@
 
 export const JA = {
   "Opening…": "開いています…",
+  "Still opening…": "まだ開いています…",
   "Main Bot": "メイン Bot",
   "Working": "実行中",
   "Waiting for your answer": "回答待ち",
