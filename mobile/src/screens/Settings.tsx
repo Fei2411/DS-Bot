@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { Children, Fragment, useEffect, useState } from 'react'
 import { Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native'
 import { useTeam } from '../team/context.tsx'
 import { t, getLang, setLang } from '../ui/i18n.ts'
@@ -10,10 +10,10 @@ function Row({ label, value, onPress, end }: { label: string; value?: string; on
   const { p } = useTheme()
   const body = (
     <View style={styles.row}>
-      <Text style={[typeScale.settingsRow, { color: p.ink, flex: 1 }]}>{label}</Text>
-      {value !== undefined ? <Text style={[typeScale.settingsRow, { color: p.ink2 }]}>{value}</Text> : null}
+      <Text style={[typeScale.settingsRow, { color: p.ink, flex: 1, minWidth: 96 }]}>{label}</Text>
+      {value !== undefined ? <Text style={[typeScale.settingsRow, { color: p.ink2, flexShrink: 1, maxWidth: '52%', textAlign: 'right' }]} numberOfLines={1}>{value}</Text> : null}
       {end}
-      {onPress ? <ChevronRightIcon size={16} color={p.ink3} /> : null}
+      {onPress ? <View style={{ flexShrink: 0 }}><ChevronRightIcon size={16} color={p.ink3} /></View> : null}
     </View>
   )
   return onPress ? <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => pressed ? { backgroundColor: p.hover } : null}>{body}</Pressable> : body
@@ -31,7 +31,7 @@ function Choice<T extends string>({ label, options, value, onPick }: { label: st
           return (
             <Pressable key={option.id} accessibilityRole="radio" accessibilityState={{ checked: on }} onPress={() => onPick(option.id)}
               style={[styles.segment, on && [{ backgroundColor: p.card }, shadow(1)]]}>
-              <Text style={[typeScale.small, { color: on ? p.ink : p.ink2, fontWeight: on ? '600' : '400' }]} numberOfLines={1}>{option.label}</Text>
+              <Text style={[typeScale.small, { color: on ? p.ink : p.ink2, fontWeight: on ? '600' : '400', textAlign: 'center' }]} numberOfLines={1}>{option.label}</Text>
             </Pressable>
           )
         })}
@@ -42,10 +42,18 @@ function Choice<T extends string>({ label, options, value, onPick }: { label: st
 
 function Section({ label, children }: { label: string; children: React.ReactNode }) {
   const { p } = useTheme()
+  const items = Children.toArray(children).filter(Boolean)
   return (
     <View style={{ marginTop: 16 }}>
       <Text style={[typeScale.caption, { color: p.ink3, paddingHorizontal: 18, marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.6, fontSize: 11 }]}>{label}</Text>
-      <View style={[styles.card, { backgroundColor: p.card, borderColor: p.line }]}>{children}</View>
+      <View style={[styles.card, { backgroundColor: p.card, borderColor: p.line }]}>
+        {items.map((child, i) => (
+          <Fragment key={i}>
+            {i > 0 ? <View style={[styles.divider, { backgroundColor: p.line }]} /> : null}
+            {child}
+          </Fragment>
+        ))}
+      </View>
     </View>
   )
 }
@@ -67,7 +75,7 @@ export function Settings({ navigation }: { navigation?: any }) {
           options={[{ id: 'system', label: t('System') }, { id: 'light', label: t('Light') }, { id: 'dark', label: t('Dark') }]} />
         <Choice label={t('Language')} value={lang as 'system' | 'zh' | 'en'} onPick={next => { set('lang', next); setLang(next); bump(v => v + 1) }}
           options={[{ id: 'system', label: t('Follow system') }, { id: 'zh', label: '简体中文' }, { id: 'en', label: 'English' }]} />
-        <Row label={t('In-app banners')} end={<Switch value={prefs.banners !== 'off'} onValueChange={on => set('banners', on ? 'on' : 'off')} trackColor={{ true: p.accent }} thumbColor="#ffffff" />} />
+        <Row label={t('In-app banners')} end={<Switch value={prefs.banners !== 'off'} onValueChange={on => set('banners', on ? 'on' : 'off')} trackColor={{ false: p.line2, true: p.accent }} thumbColor={p.knob} />} />
       </Section>
       {/* The desktop settings pages, in the desktop's order. */}
       <Section label={t('Team')}>
@@ -85,9 +93,10 @@ export function Settings({ navigation }: { navigation?: any }) {
 }
 
 const styles = StyleSheet.create({
-  card: { marginHorizontal: 14, borderRadius: radius.card, borderWidth: 1, overflow: 'hidden', ...shadow(1) },
-  row: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, minHeight: 50, gap: 8 },
-  choice: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 12, gap: 8 },
+  card: { marginHorizontal: 14, borderRadius: radius.card, borderWidth: StyleSheet.hairlineWidth, overflow: 'hidden', ...shadow(1) },
+  divider: { height: StyleSheet.hairlineWidth, marginLeft: 16 },
+  row: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 10, minHeight: 50, gap: 10 },
+  choice: { paddingHorizontal: 16, paddingVertical: 12, gap: 8 },
   segments: { flexDirection: 'row', borderRadius: 9, padding: 2 },
-  segment: { flex: 1, height: 32, borderRadius: 7, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4 },
+  segment: { flex: 1, minHeight: 34, paddingVertical: 5, borderRadius: 7, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 6 },
 })

@@ -37,27 +37,46 @@ export function tint(color: string, alpha: number): string {
 
 interface Ink { text: string; muted: string; line: string; fill: string; bg: string }
 
-export function Markdown({ text, p, textColor, bg, fontSize = 16, lineHeight = 24 }: { text: string; p: Palette; textColor: string; bg?: string; fontSize?: number; lineHeight?: number }) {
-  const blocks = tokensOf(text)
-  const ink: Ink = { text: textColor, muted: tint(textColor, 0.45), line: tint(textColor, 0.14), fill: tint(textColor, 0.07), bg: bg ?? p.bubble }
-  return <View>{blocks.map((token, index) => <Block key={index} token={token} p={p} ink={ink} textColor={textColor} fs={fontSize} lh={lineHeight} />)}</View>
+export function Markdown({ text, p, textColor, bg, fontSize = 16, lineHeight = 25 }: { text: string; p: Palette; textColor: string; bg?: string; fontSize?: number; lineHeight?: number }) {
+  const blocks = tokensOf(text).filter(token => token.type !== 'space')
+  const ink: Ink = { text: textColor, muted: tint(textColor, 0.48), line: tint(textColor, 0.14), fill: tint(textColor, 0.07), bg: bg ?? p.bubble }
+  return (
+    <View>
+      {blocks.map((token, index) => (
+        <Block key={index} token={token} p={p} ink={ink} textColor={textColor} fs={fontSize} lh={lineHeight}
+          first={index === 0} last={index === blocks.length - 1} />
+      ))}
+    </View>
+  )
 }
 
-function Block({ token, p, ink, textColor, fs, lh }: { token: Token; p: Palette; ink: Ink; textColor: string; fs: number; lh: number }) {
+function Block({ token, p, ink, textColor, fs, lh, first = false, last = false }: { token: Token; p: Palette; ink: Ink; textColor: string; fs: number; lh: number; first?: boolean; last?: boolean }) {
   const base = { color: textColor, fontSize: fs, lineHeight: lh }
+  const top = (gap: number) => (first ? 0 : gap)
+  const bottom = (gap: number) => (last ? 0 : gap)
   switch (token.type) {
     case 'heading': {
-      const size = (token as Tokens.Heading).depth === 1 ? fs + 6 : (token as Tokens.Heading).depth === 2 ? fs + 3 : fs + 1
-      return <Text selectable style={[base, { fontSize: size, fontWeight: '600', marginTop: 8, marginBottom: 4 }]}><Inlines tokens={(token as Tokens.Heading).tokens ?? []} p={p} color={textColor} /></Text>
+      const depth = (token as Tokens.Heading).depth
+      const size = depth === 1 ? fs + 4 : depth === 2 ? fs + 2 : fs + 1
+      const headingLh = Math.round(size * 1.4)
+      return (
+        <Text selectable style={[base, { fontSize: size, lineHeight: headingLh, fontWeight: '600', marginTop: top(12), marginBottom: bottom(4) }]}>
+          <Inlines tokens={(token as Tokens.Heading).tokens ?? []} p={p} color={textColor} fs={size} />
+        </Text>
+      )
     }
     case 'paragraph':
-      return <Text selectable style={[base, { marginVertical: 4 }]}><Inlines tokens={(token as Tokens.Paragraph).tokens ?? []} p={p} color={textColor} /></Text>
+      return (
+        <Text selectable style={[base, { marginTop: top(8), marginBottom: bottom(2) }]}>
+          <Inlines tokens={(token as Tokens.Paragraph).tokens ?? []} p={p} color={textColor} fs={fs} />
+        </Text>
+      )
     case 'code': {
       const code = (token as Tokens.Code)
       return (
-        <View style={{ backgroundColor: ink.fill, borderRadius: radius.item, marginVertical: 6, borderWidth: 1, borderColor: ink.line }}>
+        <View style={{ backgroundColor: ink.fill, borderRadius: radius.input, marginTop: top(6), marginBottom: bottom(6), borderWidth: 1, borderColor: ink.line, overflow: 'hidden' }}>
           <HScroll fade={ink.bg}>
-            <Text selectable style={{ fontFamily: Platform.OS === 'ios' ? 'Menlo' : MONO, fontSize: 13, lineHeight: 19, color: textColor, paddingHorizontal: 10, paddingVertical: 8 }}>{code.text}</Text>
+            <Text selectable style={{ fontFamily: Platform.OS === 'ios' ? 'Menlo' : MONO, fontSize: 13, lineHeight: 19, color: textColor, paddingHorizontal: 12, paddingVertical: 9 }}>{code.text}</Text>
           </HScroll>
         </View>
       )
@@ -67,34 +86,51 @@ function Block({ token, p, ink, textColor, fs, lh }: { token: Token; p: Palette;
       const depth = (token as Tokens.List & { depth?: number }).depth ?? 0
       // A list item's tokens are block tokens (text/paragraph, code, nested list).
       return (
-        <View style={{ marginVertical: 4, marginLeft: depth * 14 }}>
-          {list.items.map((item, index) => (
-            <View key={index} style={{ flexDirection: 'row', marginVertical: 2 }}>
-              <Text style={[base, { color: ink.muted, width: 22 }]}>{list.ordered ? `${(list.start as number) + index}.` : '•'}</Text>
-              <View style={{ flex: 1 }}>{item.tokens?.map((inner, bi) => <Block key={bi} token={inner} p={p} ink={ink} textColor={textColor} fs={fs} lh={lh} />)}</View>
-            </View>
+        <View style={{ marginTop: top(6), marginBottom: bottom(4), marginLeft: depth * 14, gap: 6 }}>
+          {list.items.map((item, index) => {
+            const innerTokens = (item.tokens ?? []).filter(inner => inner.type !== 'space')
+            return (
+              <View key={index} style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
+                <Text style={[base, { color: ink.muted, minWidth: list.ordered ? 24 : 16, paddingRight: list.ordered ? 6 : 4, fontVariant: ['tabular-nums'] }]}>
+                  {list.ordered ? `${(list.start as number) + index}.` : '•'}
+                </Text>
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  {innerTokens.map((inner, bi) => (
+                    <Block key={bi} token={inner} p={p} ink={ink} textColor={textColor} fs={fs} lh={lh}
+                      first={bi === 0} last={bi === innerTokens.length - 1} />
+                  ))}
+                </View>
+              </View>
+            )
+          })}
+        </View>
+      )
+    }
+    case 'blockquote': {
+      const innerTokens = ((token as Tokens.Blockquote).tokens ?? []).filter(inner => inner.type !== 'space')
+      return (
+        <View style={{ borderLeftWidth: 3, borderLeftColor: ink.line, paddingLeft: 10, marginTop: top(6), marginBottom: bottom(6) }}>
+          {innerTokens.map((inner, index) => (
+            <Block key={index} token={inner} p={p} ink={ink} textColor={textColor} fs={fs} lh={lh}
+              first={index === 0} last={index === innerTokens.length - 1} />
           ))}
         </View>
       )
     }
-    case 'blockquote':
-      return (
-        <View style={{ borderLeftWidth: 3, borderLeftColor: ink.line, paddingLeft: 10, marginVertical: 6 }}>
-          {(token as Tokens.Blockquote).tokens?.map((inner, index) => <Block key={index} token={inner} p={p} ink={ink} textColor={textColor} fs={fs} lh={lh} />)}
-        </View>
-      )
     case 'table': {
       const table = token as Tokens.Table
-      const cells = (row: Tokens.TableCell[], ri: number) => row.map((cell, ci) => (
-        <View key={ci} style={{ minWidth: 96, maxWidth: 260, paddingHorizontal: 8, paddingVertical: 6, borderTopWidth: ri > 0 ? 1 : 0, borderTopColor: ink.line }}>
-          <Text selectable style={{ color: textColor, fontSize: fs - 1, lineHeight: lh - 3 }}><Inlines tokens={cell.tokens ?? []} p={p} color={textColor} /></Text>
+      const cells = (row: Tokens.TableCell[], ri: number, header = false) => row.map((cell, ci) => (
+        <View key={ci} style={{ minWidth: 92, maxWidth: 260, paddingHorizontal: 10, paddingVertical: 7, borderTopWidth: ri > 0 ? 1 : 0, borderTopColor: ink.line }}>
+          <Text selectable style={{ color: textColor, fontSize: fs - 1, lineHeight: lh - 4, fontWeight: header ? '600' : '400' }}>
+            <Inlines tokens={cell.tokens ?? []} p={p} color={textColor} fs={fs - 1} />
+          </Text>
         </View>
       ))
       return (
-        <View style={{ marginVertical: 6 }}>
+        <View style={{ marginTop: top(6), marginBottom: bottom(6) }}>
           <HScroll fade={ink.bg}>
-            <View style={{ borderWidth: 1, borderColor: ink.line, borderRadius: radius.item, overflow: 'hidden' }}>
-              <View style={{ flexDirection: 'row', backgroundColor: ink.fill }}>{cells(table.header, 0)}</View>
+            <View style={{ borderWidth: 1, borderColor: ink.line, borderRadius: radius.input, overflow: 'hidden' }}>
+              <View style={{ flexDirection: 'row', backgroundColor: ink.fill }}>{cells(table.header, 0, true)}</View>
               {table.rows.map((row, ri) => <View key={ri} style={{ flexDirection: 'row' }}>{cells(row, ri + 1)}</View>)}
             </View>
           </HScroll>
@@ -102,13 +138,13 @@ function Block({ token, p, ink, textColor, fs, lh }: { token: Token; p: Palette;
       )
     }
     case 'hr':
-      return <View style={{ height: 1, backgroundColor: ink.line, marginVertical: 8 }} />
+      return <View style={{ height: 1, backgroundColor: ink.line, marginTop: top(10), marginBottom: bottom(10) }} />
     case 'space':
-      return <View style={{ height: 6 }} />
+      return null
     case 'text': {
       const text = token as Tokens.Text
       return Array.isArray(text.tokens) && text.tokens.length > 0
-        ? <Text selectable style={base}><Inlines tokens={text.tokens} p={p} color={textColor} /></Text>
+        ? <Text selectable style={base}><Inlines tokens={text.tokens} p={p} color={textColor} fs={fs} /></Text>
         : <Text selectable style={base}>{text.text}</Text>
     }
     default:
@@ -151,41 +187,58 @@ function HScroll({ children, fade: background }: { children: React.ReactNode; fa
   )
 }
 
-function Inlines({ tokens, p, color }: { tokens: Token[]; p: Palette; color: string }) {
-  return <>{tokens.map((token, index) => <Inline key={index} token={token} p={p} color={color} />)}</>
+const endsHan = (token?: Token) => token !== undefined && 'text' in token && /[\u4e00-\u9fff]$/.test(String(token.text))
+const startsHan = (token?: Token) => token !== undefined && 'text' in token && /^[\u4e00-\u9fff]/.test(String(token.text))
+
+function Inlines({ tokens, p, color, fs = 16 }: { tokens: Token[]; p: Palette; color: string; fs?: number }) {
+  return (
+    <>
+      {tokens.map((token, index) => {
+        const node = <Inline key={index} token={token} p={p} color={color} fs={fs} />
+        if (token.type !== 'codespan') return node
+        const lead = endsHan(tokens[index - 1]) ? '\u2006' : ''
+        const trail = startsHan(tokens[index + 1]) ? '\u2006' : ''
+        return lead || trail ? <Text key={index}>{lead}{node}{trail}</Text> : node
+      })}
+    </>
+  )
 }
 
-function Inline({ token, p, color }: { token: Token; p: Palette; color: string }): React.ReactNode {
+function Inline({ token, p, color, fs }: { token: Token; p: Palette; color: string; fs: number }): React.ReactNode {
   switch (token.type) {
     case 'strong':
-      return <Text style={{ fontWeight: '600' }}><Inlines tokens={(token as Tokens.Strong).tokens ?? []} p={p} color={color} /></Text>
+      return <Text style={{ fontWeight: '600' }}><Inlines tokens={(token as Tokens.Strong).tokens ?? []} p={p} color={color} fs={fs} /></Text>
     case 'em':
-      return <Text style={{ fontStyle: 'italic' }}><Inlines tokens={(token as Tokens.Em).tokens ?? []} p={p} color={color} /></Text>
+      return <Text style={{ fontStyle: 'italic' }}><Inlines tokens={(token as Tokens.Em).tokens ?? []} p={p} color={color} fs={fs} /></Text>
     case 'codespan':
-      return <Text style={{ fontFamily: Platform.OS === 'ios' ? 'Menlo' : MONO, fontSize: 14, backgroundColor: tint(color, 0.08) }}>{(token as Tokens.Codespan).text}</Text>
+      return (
+        <Text style={{ fontFamily: Platform.OS === 'ios' ? 'Menlo' : MONO, fontSize: Math.max(12.5, fs - 2.5), backgroundColor: tint(color, 0.05) }}>
+          {(token as Tokens.Codespan).text}
+        </Text>
+      )
     case 'link': {
       const link = token as Tokens.Link
       // Bot text is untrusted: only web and mail links open; other schemes drop
       // to plain text so a crafted intent:/file: URL can never fire.
       const safe = /^https?:/i.test(link.href) || /^mailto:/i.test(link.href)
-      if (!safe) return <Inlines tokens={link.tokens ?? []} p={p} color={color} />
+      if (!safe) return <Inlines tokens={link.tokens ?? []} p={p} color={color} fs={fs} />
       return (
         <Text style={{ color: p.accent, textDecorationLine: 'underline' }}
           onPress={() => void Linking.openURL(link.href).catch(() => {})}
           suppressHighlighting>
-          <Inlines tokens={link.tokens ?? []} p={p} color={color} />
+          <Inlines tokens={link.tokens ?? []} p={p} color={color} fs={fs} />
         </Text>
       )
     }
     case 'del':
-      return <Text style={{ textDecorationLine: 'line-through' }}><Inlines tokens={(token as Tokens.Del).tokens ?? []} p={p} color={color} /></Text>
+      return <Text style={{ textDecorationLine: 'line-through' }}><Inlines tokens={(token as Tokens.Del).tokens ?? []} p={p} color={color} fs={fs} /></Text>
     case 'br':
       return '\n'
     case 'image':
       return <Text style={{ color: tint(color, 0.45) }}>{(token as Tokens.Image).text || 'image'}</Text>
     default:
       if ('tokens' in token && Array.isArray((token as { tokens?: Token[] }).tokens)) {
-        return <Inlines tokens={(token as { tokens: Token[] }).tokens} p={p} color={color} />
+        return <Inlines tokens={(token as { tokens: Token[] }).tokens} p={p} color={color} fs={fs} />
       }
       return 'text' in token ? String(token.text) : ('raw' in token ? String(token.raw) : null)
   }

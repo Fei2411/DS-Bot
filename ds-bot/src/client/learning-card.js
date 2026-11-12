@@ -1,11 +1,12 @@
-import { createElement as h, useId, useMemo, useRef, useState } from 'react'
+import { createElement as h, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { useTurnFacts } from './btw.js'
-import { editLines, lineDiff, proposalPlacement } from './learning-card-model.js'
+import { answerFailure, answerKeepsCard, editLines, lineDiff, proposalCards, proposalPlacement, withoutEntry } from './learning-card-model.js'
 import { currentPart } from './text.js'
 import { t } from './i18n.js'
 import { CheckIcon, MemoryIcon, PencilIcon } from './icons.js'
 import { spring, SPRING_TAP } from './motion.js'
 
+// One entry per proposal still waiting for another try, kept across remounts.
 const failedAnswers = new Map()
 
 // `proposal.outcome` set: an answered card, read-only and folded to one row (what
@@ -24,9 +25,8 @@ function ProposalCard({ proposal, initialError = '', onFailure, onResolved, acti
     setError('')
     void Promise.resolve().then(() => actions.learningAnswer(proposal.id, approve))
       .then(() => onResolved(proposal.id), failure => {
-        const message = failure?.message ?? String(failure)
-        setError(message)
-        onFailure(proposal, message)
+        setError(failure?.message ?? String(failure))
+        onFailure(proposal, failure)
       })
       .finally(() => {
         busyRef.current = false
@@ -122,34 +122,39 @@ function LearningProposals({ turn, dock, sessionId, useRoster, actions }) {
   const facts = useTurnFacts(sessionId, actions)
   const [failed, setFailed] = useState({})
   const bot = roster.byId?.[sessionId]
+  // A proposal answered in another window or turn takes its failure with it, so this map
+  // holds only the answers still waiting for another try (#1339).
+  const settledIds = (bot === undefined ? [] : roster.learningSettled?.[bot.id] ?? []).map(entry => entry.id)
+  useEffect(() => {
+    const gone = Object.keys(failed).filter(id => settledIds.includes(id))
+    if (gone.length === 0) return
+    for (const id of gone) failedAnswers.delete(id)
+    setFailed(current => gone.reduce((next, id) => withoutEntry(next, id), current))
+  }, [settledIds.join('|')])
   if (!bot || currentPart(bot) !== sessionId) return null
   const proposals = roster.learning?.[bot.id] ?? []
   // Answered cards stay in place, read-only; a waiting copy of the same card wins.
-  const settled = (roster.learningSettled?.[bot.id] ?? []).filter(entry => !proposals.some(proposal => proposal.id === entry.id))
-  const visible = [...settled, ...proposals]
-  for (const entry of Object.values(failed)) {
-    if (entry.proposal.botId === bot.id && !visible.some(proposal => proposal.id === entry.proposal.id)) visible.push(entry.proposal)
-  }
-  for (const entry of failedAnswers.values()) {
-    if (entry.proposal.botId === bot.id && !proposals.some(proposal => proposal.id === entry.proposal.id)
-      && !visible.some(proposal => proposal.id === entry.proposal.id)) visible.push(entry.proposal)
-  }
-  visible.sort((a, b) => (a.at ?? 0) - (b.at ?? 0))
+  const settled = roster.learningSettled?.[bot.id] ?? []
+  const remembered = Object.fromEntries([...failedAnswers.values(), ...Object.values(failed)]
+    .filter(entry => entry.proposal.botId === bot.id)
+    .map(entry => [entry.proposal.id, entry]))
+  const visible = proposalCards({ proposals, settled, failures: remembered })
   const cards = visible.filter(proposal => {
     const placement = proposalPlacement(proposal, facts?.turns)
     return dock ? placement.kind === 'dock' : placement.kind === 'turn' && placement.turn === turn?.turn
   })
   if (cards.length === 0) return null
-  const onFailure = (proposal, error) => {
-    failedAnswers.set(proposal.id, { proposal, error })
-    setFailed(current => ({ ...current, [proposal.id]: { proposal, error } }))
+  // An answer the host no longer knows (`bot/stale`) drops the card: the proposal is gone,
+  // so a retry cannot work and leaving it up only pins a dead card. Every other failure —
+  // network, a host error, a skill of that name already existing — keeps it for another go.
+  const onFailure = (proposal, failure) => {
+    if (answerKeepsCard(failure)) failedAnswers.set(proposal.id, { proposal, error: failure?.message ?? String(failure) })
+    else failedAnswers.delete(proposal.id)
+    setFailed(current => answerFailure(current, proposal, failure))
   }
   const onResolved = id => setFailed(current => {
     failedAnswers.delete(id)
-    if (!(id in current)) return current
-    const next = { ...current }
-    delete next[id]
-    return next
+    return withoutEntry(current, id)
   })
   return h('div', { className: dock ? 'bt-learning-stack bt-learning-dock' : 'bt-learning-stack' }, cards.map(proposal => h('div', { className: 'bt-q-inline', key: proposal.id },
     h(ProposalCard, {

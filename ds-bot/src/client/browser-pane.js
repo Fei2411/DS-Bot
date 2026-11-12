@@ -10,7 +10,8 @@ import { BotMark } from './mark.js'
 import { STORAGE } from './storage.js'
 import { MIN_CHAT } from './frame-layout.js'
 import { chatRoom } from './frame-watch.js'
-import { SPRING_LEAD, SPRING_SHAPE, SPRING_TRAIL, stepMenuFocus, useLinger } from './motion.js'
+import { SPRING_LEAD, SPRING_SHAPE, SPRING_TRAIL, reducedMotion, stepMenuFocus, useLinger } from './motion.js'
+import { FLIGHT_ENDS, INTENT_MS, createFlight, flightEnd, flightStart, planFlight, uniqueIds } from './mark-flight.js'
 import { DetailsDrawer } from './details-drawer.js'
 import { SideChatView } from './side-chat.js'
 import { panelHasStrip, sideChatsOf, stripMenuKeys } from './side-model.js'
@@ -72,7 +73,6 @@ const widthRange = (view, room) => (view === 'browser'
 const fitWidth = (width, [low, high]) => Math.round(Math.max(low, Math.min(width, high)))
 // The address as the bar shows it while not editing: no scheme, no trailing slash.
 const shortAddress = url => String(url ?? '').replace(/^https?:\/\//i, '').replace(/^www\./i, '').replace(/\/$/, '')
-const reducedMotion = () => typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches
 
 const tabLabel = page => page.title || shortAddress(page.url) || t('New tab')
 
@@ -531,7 +531,10 @@ export function BotPanel({ pane, leaving, room, overlay, roster, actions, useSes
   const page = useBrowserPages(pages => (active ? pages[active] : null) ?? EMPTY_PAGE)
   const hold = useBrowserHolds?.(map => bot ? map[bot.id] ?? null : null) ?? null
   const root = useRef(null)
-  const fly = useRef(null)
+  // The Bot's mark flying between the drawer and the strip, and the note a switch leaves
+  // for the commit that follows it (what to fly, from where).
+  const [flight] = useState(() => createFlight({ shape: SPRING_SHAPE }))
+  const intent = useRef(null)
   const [landed, setLanded] = useState(false)
   const [settling, setSettling] = useState(false)
   const [width, setWidth] = useState(savedWidth)
@@ -552,7 +555,8 @@ export function BotPanel({ pane, leaving, room, overlay, roster, actions, useSes
   const [last, setLast] = useState({ view, width: panelWidth })
   if (last.view !== view || last.width !== panelWidth) {
     setLast({ view, width: panelWidth })
-    if (last.view !== view) setSettling(last.width !== panelWidth && !instant)
+    // An overlay panel covers the window whatever its width variable says: nothing settles.
+    if (last.view !== view) setSettling(last.width !== panelWidth && !instant && !overlay)
   }
   // Such a switch gives the conversation its new width at once, so it reflows once
   // instead of every frame of the glide. Opening and closing glide it with the panel.
@@ -606,33 +610,41 @@ export function BotPanel({ pane, leaving, room, overlay, roster, actions, useSes
     return () => clearTimeout(timer)
   }, [page.readAt])
 
-  // A view switch flies the Bot's mark between the drawer avatar and the strip,
-  // and the outgoing view fades out over the incoming one at its own width.
+  // A view switch flies the Bot's mark between the drawer avatar and the strip, and the
+  // outgoing view fades out over the incoming one at its own width. This runs before the
+  // view changes and leaves a note; the layout effect below takes it up once the new
+  // view stands, because only then is there a target to fly to.
   const beginSwitch = (next) => {
-    if (reducedMotion()) return
     const panel = root.current
+    intent.current = null
+    if (reducedMotion()) { flight.finish(); return }
+    if (!panel) return
     // The mark flies between the drawer avatar (details view) and the strip's Bot tab:
     // up into the tab when the details view is left, back down when it returns. A switch
     // between the browser and a side chat has no drawer avatar and nothing to fly.
-    const source = next === 'details'
-      ? panel?.querySelector('.bt-ptab-bot .bt-mark')
-      : panel?.querySelector('.bt-drawer-id .bt-mark')
-    const outgoing = panel?.querySelector('.bt-panel-view')
+    const plan = planFlight(flight.active(), next)
+    const source = plan === 'start' ? panel.querySelector(FLIGHT_ENDS[flightStart(next)]) : null
+    const flies = plan !== 'keep' && (plan === 'reverse' || source !== null)
+    const outgoing = panel.querySelector(':scope > .bt-panel-view')
     if (outgoing) {
       const ghostEl = document.createElement('div')
       ghostEl.className = 'bt-panel-ghost'
-      ghostEl.style.width = `${outgoing.offsetWidth}px`
-      ghostEl.append(outgoing.cloneNode(true))
-      // The flying clone stands in for the drawer's mark; the fading copy must not
-      // show it a second time.
-      if (source && next !== 'details') for (const mark of ghostEl.querySelectorAll('.bt-drawer-id .bt-mark')) mark.style.visibility = 'hidden'
-      outgoing.parentElement.append(ghostEl)
+      // The fading copy stays exactly where the view stood, whatever the panel grows around it.
+      Object.assign(ghostEl.style, { top: `${outgoing.offsetTop}px`, width: `${outgoing.offsetWidth}px`, height: `${outgoing.offsetHeight}px` })
+      ghostEl.append(uniqueIds(outgoing.cloneNode(true)))
+      // The flying mark stands in for the drawer's; the fading copy must not show it a second time.
+      if (flies && next !== 'details') for (const mark of ghostEl.querySelectorAll('.bt-drawer-id .bt-mark')) mark.style.visibility = 'hidden'
+      panel.append(ghostEl)
       void ghostEl.animate([
         { opacity: 1, transform: 'scale(1)' },
         { opacity: 0, transform: 'scale(0.985)' },
       ], { duration: 160, easing: 'ease-out', fill: 'forwards' }).finished.catch(() => {}).finally(() => ghostEl.remove())
     }
-    if (source) fly.current = { node: source.cloneNode(true), from: source.getBoundingClientRect() }
+    if (plan === 'start' && source === null) return
+    intent.current = {
+      plan, next, id: pane.id, at: performance.now(), end: flightEnd(next),
+      node: source ? uniqueIds(source.cloneNode(true)) : null, from: source ? source.getBoundingClientRect() : null,
+    }
   }
   const switchView = (next) => {
     if (next === view || leaving) return
@@ -647,36 +659,22 @@ export function BotPanel({ pane, leaving, room, overlay, roster, actions, useSes
   for (const name of ['openSideChat', 'newSideChat']) {
     if (actions[name]) panelActions[name] = (...args) => { if (view !== 'side') beginSwitch('side'); return actions[name](...args) }
   }
+  // The note is good for the one switch it was made for. A view change without a note
+  // (a closed tab folding the panel back, say) or after the note went stale ends the flight:
+  // its target is no longer what it flew for.
   useLayoutEffect(() => {
-    const move = fly.current
-    if (!move) return
-    fly.current = null
-    const target = view === 'details'
-      ? root.current?.querySelector('.bt-drawer-id .bt-mark')
-      : root.current?.querySelector('.bt-ptab-bot .bt-mark')
-    if (!target || move.from.width === 0) return
-    // A strip that has just appeared still grows from zero height; the target is
-    // measured where it stands once the strip is full height.
-    const growing = root.current.getAnimations({ subtree: true }).filter(animation => animation.animationName === 'bt-strip-in')
-    const at = growing.map(animation => animation.currentTime)
-    for (const animation of growing) animation.currentTime = animation.effect.getComputedTiming().endTime
-    const to = target.getBoundingClientRect()
-    growing.forEach((animation, index) => { animation.currentTime = at[index] })
-    const clone = move.node
-    Object.assign(clone.style, {
-      position: 'fixed', left: `${move.from.left}px`, top: `${move.from.top}px`,
-      width: `${move.from.width}px`, height: `${move.from.height}px`, margin: '0',
-      transformOrigin: '0 0', zIndex: '80', pointerEvents: 'none', visibility: '',
-    })
-    document.body.append(clone)
-    target.style.visibility = 'hidden'
-    const scale = to.width / move.from.width
-    const anim = clone.animate([
-      { transform: 'translate(0px, 0px) scale(1)' },
-      { transform: `translate(${to.left - move.from.left}px, ${to.top - move.from.top}px) scale(${scale})` },
-    ], { duration: SPRING_SHAPE.duration, easing: SPRING_SHAPE.easing, fill: 'forwards' })
-    void anim.finished.catch(() => {}).finally(() => { clone.remove(); target.style.visibility = '' })
+    const note = intent.current
+    intent.current = null
+    const current = note !== null && note.next === view && note.id === pane.id && performance.now() - note.at < INTENT_MS && !instant && !leaving && !reducedMotion()
+    if (!current) { flight.finish(); return }
+    if (note.plan === 'keep') return
+    if (note.plan === 'reverse') { if (!flight.retarget(note.end)) flight.finish(); return }
+    flight.begin({ panel: root.current, end: note.end, node: note.node, from: note.from })
   }, [view, pane.id])
+  // A drag, a window resize, the panel leaving or going away end the flight on the spot:
+  // the mark is back where it belongs and nothing of the copy stays.
+  useLayoutEffect(() => { if (instant || leaving) flight.finish() }, [instant, leaving])
+  useEffect(() => flight.finish, [])
 
   // A drag writes the width into the panel's and the column's own inline styles each
   // frame (each restyles one element) and renders once, on release.
@@ -770,14 +768,16 @@ export const BROWSER_CSS = `
 .bt-ptab-new svg{width:15px;height:15px}
 .bt-ptab-ind{position:absolute;top:4px;bottom:4px;border-radius:8px;background:var(--bt-hover);opacity:0;pointer-events:none;z-index:0;transition:opacity .15s ease}
 .bt-ptab-close{flex:none;margin-left:2px}
-.bt-panel-ghost{position:absolute;top:calc(44px + var(--bt-caption-band,0px));right:0;bottom:0;overflow:hidden;pointer-events:none;z-index:2}
+.bt-panel-ghost{position:absolute;right:0;overflow:hidden;pointer-events:none;z-index:2}
 .bt-panel-ghost>.bt-panel-view{position:absolute;inset:0}
 .bt-panel-view{flex:1;min-height:0;display:flex;flex-direction:column;animation:bt-panel-view-in .22s cubic-bezier(.16,1,.3,1)}
 @keyframes bt-panel-view-in{from{opacity:0}}
 /* While the panel changes width its views keep their final width on the right edge, so
    only the panel edge moves and nothing inside reflows frame by frame. */
 .bt-panel[data-settling]{overflow:hidden}
-.bt-panel[data-settling]>.bt-ptabs,.bt-panel[data-settling]>.bt-panel-view{flex-shrink:0;align-self:flex-end;box-sizing:border-box;width:calc(var(--bt-panel-w,320px) - .5px)}
+.bt-panel[data-settling]:not([data-overlay])>.bt-ptabs,.bt-panel[data-settling]:not([data-overlay])>.bt-panel-view{flex-shrink:0;align-self:flex-end;box-sizing:border-box;width:calc(var(--bt-panel-w,320px) - .5px)}
+.bt-panel[data-flying=tab] .bt-ptab-bot .bt-mark,.bt-panel[data-flying=drawer] .bt-drawer-id .bt-mark{visibility:hidden}
+.bt-mark-fly{position:absolute;left:0;top:0;margin:0;transform-origin:0 0;z-index:5;pointer-events:none;will-change:transform}
 .bt-panel-browser{position:relative}
 .bt-browser-bar{position:relative;display:flex;align-items:center;gap:2px;height:52px;padding:0 10px 0 12px;flex:none;border-bottom:.5px solid var(--bt-line)}
 .bt-browser-takeover{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 12px;background:var(--bt-hover);border-bottom:.5px solid var(--bt-line);font-size:12px;color:var(--bt-ink-2)}
