@@ -290,8 +290,8 @@ test('a group notice stays read-only in the drawer', () => {
 
 test('the Bot label and instructions are keyed by Bot id and stay read-only when another dsh holds the team', () => {
   const writable = editable({ role: 'Writer', instructions: 'Drafts notes.' })
-  assert.equal(named(writable, 'BotLabel')[0].key, 'role:a')
-  assert.equal(named(writable, 'About')[0].key, 'about:a')
+  assert.equal(named(writable, 'BotLabel')[0].props.key, 'role:a')
+  assert.equal(named(writable, 'About')[0].props.key, 'about:a')
 
   const locked = drawer('a', {}, { ...roster, readOnly: 'Another dsh holds this team.', byId: { a: { ...bot, role: 'Writer', instructions: 'Drafts notes.' } } })
   assert.equal(named(locked, 'BotLabel').length, 0)
