@@ -8,9 +8,11 @@ const chatSource = source.slice(source.indexOf('async function chat(cdp)'), sour
 
 // delivery says what the page does with the Enter press:
 //   sent      the press sends the message
+//   second    the first press is dropped, the second sends
 //   unfocused the window starts without focus until the mouse click lands on the composer
 //   dropped   the press never reaches the page
 //   composing an IME owns the key, so the press sends nothing
+//   busy      the first press disables the send button while sending
 async function runChat(delivery) {
   let now = 0
   let reply = ''
@@ -49,7 +51,7 @@ async function runChat(delivery) {
     frameSheets: [], process: { platform: 'linux' }, console: { log() {} },
   })
   const error = await chat({ call: async (method, params = {}) => {
-    if (method === 'Runtime.enable' || method === 'Log.enable') return {}
+    if (method === 'Runtime.enable' || method === 'Log.enable' || method === 'Page.bringToFront') return {}
     if (method === 'Runtime.evaluate') return { result: { value: await runInContext(params.expression, page) } }
     if (method === 'Input.dispatchMouseEvent') {
       if (params.type === 'mouseReleased') { clicks += 1; focused = true }
@@ -57,6 +59,7 @@ async function runChat(delivery) {
     }
     if (method === 'Input.insertText') {
       assert.equal(focused, true, 'must not insert text before the window holds focus')
+      assert.ok(clicks >= 1, 'must click through the input pipeline before typing even if bare focus() held')
       field.innerText = params.text
       button.disabled = false
       return {}
@@ -65,7 +68,7 @@ async function runChat(delivery) {
     keys.push(params)
     const type = params.type === 'keyDown' ? 'keydown' : 'keyup'
     if (type === 'keydown') presses += 1
-    if (delivery === 'dropped') return {}
+    if (delivery === 'dropped' || (delivery === 'second' && presses < 2)) return {}
     const event = {
       type, key: params.key, code: params.code, keyCode: params.windowsVirtualKeyCode,
       target: field, isComposing: delivery === 'composing', repeat: false,
@@ -74,10 +77,11 @@ async function runChat(delivery) {
     listeners.get(type)?.(event)
     if (type === 'keydown') {
       event.defaultPrevented = true
-      if (delivery === 'sent' || delivery === 'unfocused') {
+      if (delivery === 'sent' || delivery === 'unfocused' || (delivery === 'second' && presses >= 2)) {
         field.innerText = ''
         reply = '收到：packaged app check'
       }
+      if (delivery === 'busy') button.disabled = true
     }
     for (const callback of timers.splice(0)) callback()
     return {}
@@ -85,10 +89,10 @@ async function runChat(delivery) {
   return { error, keys, presses, clicks, trace: page.__packedEnter }
 }
 
-test('a focused composer sends on a single Enter press', async () => {
+test('even when bare JS focus already reports true, chat clicks the composer once through the input pipeline and sends on Enter', async () => {
   const { error, keys, presses, clicks } = await runChat('sent')
   assert.equal(error, undefined)
-  assert.equal(clicks, 0)
+  assert.equal(clicks, 1)
   assert.deepEqual(keys.map(key => key.type), ['keyDown', 'keyUp'])
   assert.equal(presses, 1)
 })
@@ -100,11 +104,20 @@ test('an unfocused window is clicked through the input pipeline until document.h
   assert.equal(presses, 1)
 })
 
-test('a dropped press fails without re-pressing Enter and reports the empty key trace', async () => {
+test('a dropped Enter under Xvfb re-focuses and sends on the second press, without re-pressing an in-flight send', async () => {
+  const second = await runChat('second')
+  assert.equal(second.error, undefined)
+  assert.equal(second.presses, 2)
+  assert.equal(second.clicks, 2)
+  const busy = await runChat('busy')
+  assert.equal(busy.presses, 1)
+})
+
+test('every press being dropped stops after three tries and reports the empty key trace', async () => {
   const { error, keys, presses, trace } = await runChat('dropped')
   assert.match(error.message, /timed out waiting for Enter to send the message/)
-  assert.equal(presses, 1)
-  assert.equal(keys.length, 2)
+  assert.equal(presses, 3)
+  assert.equal(keys.length, 6)
   assert.equal(trace.events.length, 0)
   const state = JSON.parse(error.message.split('; composer: ')[1])
   assert.equal(state.focused, true)
@@ -113,14 +126,14 @@ test('a dropped press fails without re-pressing Enter and reports the empty key 
   assert.deepEqual(state.enter.events, [])
 })
 
-test('an IME holding the key fails on the first press and reports composing and prevented state', async () => {
+test('an IME holding the key stops after three tries and reports composing and prevented state', async () => {
   const { error, keys, presses, trace } = await runChat('composing')
   assert.match(error.message, /timed out waiting for Enter to send the message/)
-  assert.equal(presses, 1)
-  assert.equal(keys.length, 2)
-  assert.equal(trace.events.length, 2)
+  assert.equal(presses, 3)
+  assert.equal(keys.length, 6)
+  assert.equal(trace.events.length, 6)
   const state = JSON.parse(error.message.split('; composer: ')[1])
-  assert.deepEqual([...state.enter.events].map(event => event.type), ['keydown', 'keyup'])
+  assert.deepEqual([...state.enter.events].map(event => event.type), ['keydown', 'keyup', 'keydown', 'keyup', 'keydown', 'keyup'])
   assert.equal(state.enter.events[0].target, 'DIV')
   assert.equal(state.enter.events[0].composing, true)
   assert.equal(state.enter.events[0].prevented, true)

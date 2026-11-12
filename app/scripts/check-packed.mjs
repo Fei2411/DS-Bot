@@ -433,13 +433,17 @@ async function chat(cdp) {
     return null
   })()`
   let shot = null
+  let clicked = false
   const deadline = Date.now() + 30_000
-  while (Date.now() < deadline && !(await evaluate(`Boolean(${focusCheck})`))) {
+  // Even if the page's own JS focus() already flipped activeElement and document.hasFocus(), click
+  // at least once through CDP's input pipeline so Xvfb / Aura routes keyboard focus to the widget.
+  while (Date.now() < deadline && (!clicked || !(await evaluate(`Boolean(${focusCheck})`)))) {
     const point = await evaluate(probe)
     if (point !== null && point !== undefined) {
       shot = point
       await cdp.call('Input.dispatchMouseEvent', { type: 'mousePressed', x: point.x, y: point.y, button: 'left', clickCount: 1 })
       await cdp.call('Input.dispatchMouseEvent', { type: 'mouseReleased', x: point.x, y: point.y, button: 'left', clickCount: 1 })
+      clicked = true
       await sleep(300)
     } else await sleep(250)
   }
@@ -508,12 +512,39 @@ async function chat(cdp) {
   }
   const message = 'packaged app check'
   const draft = `String(${box}?.innerText ?? '')`
-  for (const type of ['keyDown', 'keyUp']) await cdp.call('Input.dispatchKeyEvent', { type, key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 })
-  try {
-    await until(`!${draft}.includes(${JSON.stringify(message)})`, 'Enter to send the message', 10_000)
-  } catch (error) {
-    throw new Error(`${error.message}; composer: ${await composerState()}`)
+  let previousDraft = null
+  let sent = false
+  for (let press = 1; press <= 3 && !sent; press += 1) {
+    if (press > 1) {
+      await sleep(1000)
+      const state = JSON.parse(await evaluate(`JSON.stringify({ ...${snapshot}, enterCount: window.__packedEnter?.events?.length ?? 0 })`))
+      const shown = String(state.draft ?? '')
+      if (!shown.includes(message)) break
+      if (shown !== previousDraft) break
+      if (state.send === null || state.send.disabled) break
+      if (!state.editable) break
+      // When the previous press never reached the page at all under Xvfb, re-prime focus through
+      // Page.bringToFront and a real click on the composer before pressing Enter again.
+      if (state.enterCount === 0) {
+        await cdp.call('Page.bringToFront').catch(() => {})
+        const point = await evaluate(probe)
+        if (point !== null && point !== undefined) {
+          await cdp.call('Input.dispatchMouseEvent', { type: 'mousePressed', x: point.x, y: point.y, button: 'left', clickCount: 1 })
+          await cdp.call('Input.dispatchMouseEvent', { type: 'mouseReleased', x: point.x, y: point.y, button: 'left', clickCount: 1 })
+          await sleep(200)
+        }
+      }
+    }
+    previousDraft = await evaluate(draft)
+    for (const type of ['keyDown', 'keyUp']) await cdp.call('Input.dispatchKeyEvent', { type, key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 })
+    try {
+      await until(`!${draft}.includes(${JSON.stringify(message)})`, 'Enter to send the message', 10_000)
+      sent = true
+    } catch {
+      // The field still holds the text; the next pass reads the state before deciding to press again.
+    }
   }
+  if (!sent) throw new Error(`timed out waiting for Enter to send the message; composer: ${await composerState()}`)
   // The mock model starts its reply with 收到： and the message.
   try {
     await until(text('收到：packaged app check'), 'the reply')
@@ -604,6 +635,8 @@ try {
   if (await windowState('BrowserWindow.getAllWindows().length === 1 && win !== undefined && !win.isDestroyed() && win.isVisible()') !== true) {
     throw new Error('timed out waiting for the start window to hand off to the team window')
   }
+  await windowState('win.focus(), win.webContents.focus(), true')
+  await cdp.call('Page.bringToFront').catch(() => {})
   const chatError = await chat(cdp).then(() => undefined, error => error)
   if (shotFile) {
     const { data } = await cdp.call('Page.captureScreenshot', { format: 'png' })
