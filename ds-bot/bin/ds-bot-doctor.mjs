@@ -1,24 +1,38 @@
 #!/usr/bin/env node
-// ds-bot-doctor: repair a DSH home whose profiles pin official DSH packages at a
-// version other than the one now running. A pinned copy shadows the new
+// ds-bot-doctor: diagnose a DSH home whose profiles pin official DSH runtime packages
+// at a version the running DSH does not satisfy. A pinned copy shadows the new
 // installation's module, DSH disables the rows whose versions do not match its
 // runtime, and plugins that inject their services — the Bot team's
-// sessionController and workspaceRegistry — stay pending. That is the startup
-// failure behind issue #1449.
+// sessionController and workspaceRegistry — stay pending. That is the startup failure
+// behind issue #1449.
 //
+// This is a repair tool the user runs by hand; nothing invokes it automatically.
 //   npx ds-bot doctor          report the stale pins
-//   npx ds-bot doctor --fix    remove them from the profile manifests
+//   npx ds-bot doctor --fix    remove them and reconcile each profile with pnpm
 //
-// Only the dependency entries that name a different DSH version are removed.
-// Sessions, settings, credentials and dsh.profile.bundles are not touched, so
-// the chats written before the upgrade stay readable.
+// A pin that the running DSH satisfies (an exact version, or a range such as
+// ^0.2.2-rc.2) is kept, and only DSH's own runtime/bundle packages are considered:
+// other official packages may be pinned by other plugins on purpose. Sessions,
+// settings, credentials and dsh.profile.bundles are not touched, so the chats
+// written before the upgrade stay readable.
 import { spawnSync } from 'node:child_process'
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
+import semver from 'semver'
 
 const OFFICIAL = /^@deepseek-ai\/dsh(?:-|$)/
+// DSH's runtime and bundle packages. A profile copy of one of these is what the
+// loader can resolve against the running DSH; other official packages (client
+// libraries such as dsh-client-ui-primitives) are not this tool's business.
+const CORE = new Set([
+  'dsh-base', 'dsh-web', 'dsh-web-app', 'dsh-acp-app', 'dsh-headless', 'dsh-sdk-app', 'dsh-sdk-minimal',
+  'dsh-llm', 'dsh-tools', 'dsh-scope', 'dsh-session', 'dsh-shell-env', 'dsh-workspace',
+  'dsh-api-session-controller', 'dsh-api-workspace-controller', 'dsh-client-connection',
+  'dsh-cordis-host-runner', 'dsh-tool-cordis', 'dsh-harness-dev-context', 'dsh-workspace-changes',
+  'dsh-api-remotes', 'dsh-agent-preset', 'dsh-agent-preset-registry',
+].map(name => `@deepseek-ai/${name}`))
 const RUNNING = /^\d/
 
 /** Profile directories under a DSH home that carry a manifest. */
@@ -31,12 +45,23 @@ export function profileDirs(home) {
     .sort()
 }
 
-/** Official DSH packages a manifest pins at another version than the running DSH. */
+const inScope = (name, bundles) => bundles.has(name) || CORE.has(name)
+
+/**
+ * Official runtime/bundle packages a manifest pins at a version the running DSH does
+ * not satisfy. A spec the running version satisfies is kept even when it is written
+ * as a range; a tag, `file:` or `workspace:` spec is not a version and is kept too.
+ */
 export function stalePins(manifest, dshVersion) {
   const dependencies = typeof manifest?.dependencies === 'object' && manifest.dependencies !== null ? manifest.dependencies : {}
   const bundles = new Set(Array.isArray(manifest?.dsh?.profile?.bundles) ? manifest.dsh.profile.bundles : [])
   return Object.entries(dependencies)
-    .filter(([name, spec]) => OFFICIAL.test(name) && typeof spec === 'string' && spec !== dshVersion)
+    .filter(([name, spec]) => {
+      if (!OFFICIAL.test(name) || typeof spec !== 'string') return false
+      if (!inScope(name, bundles)) return false
+      if (semver.validRange(spec) === null) return false
+      return !semver.satisfies(dshVersion, spec, { includePrerelease: true })
+    })
     .map(([name, spec]) => ({ name, spec, inBundles: bundles.has(name) }))
 }
 
@@ -53,14 +78,29 @@ export function planRepair({ home, dshVersion }) {
   })
 }
 
-/** Remove the stale pins from the planned profiles; returns what changed. */
-export function repair(plan) {
+/**
+ * Remove the stale pins and reconcile each changed profile's installed tree, so a
+ * restart uses the running DSH's own modules without a separate manual install.
+ * Returns what changed, whether the reconcile worked, and the command to run by hand
+ * when it did not.
+ */
+export function repair(plan, { pnpm = process.env.DSH_PNPM ?? 'pnpm' } = {}) {
   const changed = []
   for (const entry of plan) {
     if (entry.error !== undefined || entry.stale.length === 0) continue
     for (const pin of entry.stale) delete entry.manifest.dependencies[pin.name]
     writeFileSync(join(entry.dir, 'package.json'), `${JSON.stringify(entry.manifest, null, 2)}\n`)
-    changed.push({ dir: entry.dir, removed: entry.stale.map(pin => `${pin.name}@${pin.spec}`) })
+    const command = `cd ${entry.dir} && ${pnpm} install`
+    let installed = false
+    let failure
+    try {
+      const result = spawnSync(pnpm, ['install', '--prefer-offline', '--config.strictDepBuilds=false'], { cwd: entry.dir, encoding: 'utf8' })
+      installed = result.status === 0
+      if (!installed) failure = `${result.stdout ?? ''}${result.stderr ?? ''}`.trim().split('\n').slice(-4).join('\n')
+    } catch (error) {
+      failure = error?.message ?? String(error)
+    }
+    changed.push({ dir: entry.dir, removed: entry.stale.map(pin => `${pin.name}@${pin.spec}`), installed, command, ...(failure === undefined ? {} : { failure }) })
   }
   return changed
 }
@@ -106,14 +146,25 @@ function main(argv) {
     }
   }
   if (found.length === 0) {
-    console.log(`ds-bot doctor: no profile pins an official DSH package at another version than ${dshVersion}.`)
+    console.log(`ds-bot doctor: no profile pins an official DSH package at a version the running DSH does not satisfy (${dshVersion}).`)
     return broken.length > 0 ? 2 : 0
   }
   if (!fix) {
     console.log('\nRe-run with --fix to remove them. Sessions, settings and credentials are not touched.')
     return 1
   }
-  for (const change of repair(found)) console.log(`ds-bot doctor: removed ${change.removed.join(', ')} from ${change.dir}`)
+  let installFailed = false
+  for (const change of repair(found)) {
+    console.log(`ds-bot doctor: removed ${change.removed.join(', ')} from ${change.dir}`)
+    if (change.installed) {
+      console.log('  profile packages reconciled with pnpm.')
+    } else {
+      installFailed = true
+      console.error(`  could not reconcile the profile's packages${change.failure === undefined ? '' : `:\n${change.failure}`}`)
+      console.error(`  run this, then restart DSH: ${change.command}`)
+    }
+  }
+  if (installFailed) return 1
   console.log('Restart DSH. The Bot team reads the chats written before the upgrade from the same DSH home.')
   return broken.length > 0 ? 2 : 0
 }

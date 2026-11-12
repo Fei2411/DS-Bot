@@ -55,7 +55,7 @@ pnpm -s dsh --profile web --no-open
 
 The first time the team opens, the plugin creates a Main Bot called Chief.
 
-**If DSH was upgraded and the Bot team does not start**: a profile can keep its own pinned copies of official DSH packages (for example `@deepseek-ai/dsh-web-app` at the version before the upgrade). DSH then mounts the new installation's rows against those older modules, disables the rows whose versions do not match, and a plugin that injects their services — the Bot team's `sessionController` and `workspaceRegistry` — stays pending. The doctor names those pins; `--fix` removes only them, and chats, settings and credentials are not touched:
+**If DSH was upgraded and the Bot team does not start**: a profile can keep its own pinned copies of official DSH packages (for example `@deepseek-ai/dsh-web-app` at the version before the upgrade). DSH then mounts the new installation's rows against those older modules, disables the rows whose versions do not match, and a plugin that injects their services — the Bot team's `sessionController` and `workspaceRegistry` — stays pending. This is a diagnostic/repair tool you run by hand — DS Bot never invokes it on its own. The doctor names the pins the running DSH does not satisfy; `--fix` removes only those (a version range the running DSH satisfies is kept, and only DSH runtime/bundle packages are considered), then runs `pnpm install` in the changed profile so a restart needs no separate manual install. If that install cannot run, it prints the exact command. Chats, settings and credentials are not touched:
 
 ```sh
 npx ds-bot doctor
