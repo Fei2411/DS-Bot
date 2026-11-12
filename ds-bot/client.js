@@ -40259,6 +40259,24 @@ function lineDiff(before, after) {
   rows2.push(...b.slice(offset).map((line, index) => ({ kind: "same", line, number: offset + index + 1 })));
   return rows2;
 }
+var answerKeepsCard = (failure) => failure?.code !== "bot/stale";
+var withoutEntry = (state, key) => {
+  if (!(key in state)) return state;
+  const next = { ...state };
+  delete next[key];
+  return next;
+};
+function answerFailure(record, proposal, failure) {
+  if (!answerKeepsCard(failure)) return withoutEntry(record, proposal.id);
+  return { ...record, [proposal.id]: { proposal, error: failure?.message ?? String(failure) } };
+}
+function proposalCards({ proposals = [], settled = [], failures = {} }) {
+  const visible = [...settled.filter((entry) => !proposals.some((proposal) => proposal.id === entry.id)), ...proposals];
+  for (const entry of Object.values(failures)) {
+    if (!proposals.some((proposal) => proposal.id === entry.proposal.id) && !visible.some((proposal) => proposal.id === entry.proposal.id)) visible.push(entry.proposal);
+  }
+  return visible.sort((a, b) => (a.at ?? 0) - (b.at ?? 0));
+}
 
 // src/client/learning-card.js
 var import_react63 = require("react");
@@ -40276,9 +40294,8 @@ function ProposalCard({ proposal, initialError = "", onFailure, onResolved, acti
     setBusy(true);
     setError("");
     void Promise.resolve().then(() => actions.learningAnswer(proposal.id, approve)).then(() => onResolved(proposal.id), (failure) => {
-      const message = failure?.message ?? String(failure);
-      setError(message);
-      onFailure(proposal, message);
+      setError(failure?.message ?? String(failure));
+      onFailure(proposal, failure);
     }).finally(() => {
       busyRef.current = false;
       setBusy(false);
@@ -40404,32 +40421,31 @@ function LearningProposals({ turn, dock, sessionId, useRoster, actions }) {
   const facts = useTurnFacts(sessionId, actions);
   const [failed, setFailed] = (0, import_react63.useState)({});
   const bot = roster.byId?.[sessionId];
+  const settledIds = (bot === void 0 ? [] : roster.learningSettled?.[bot.id] ?? []).map((entry) => entry.id);
+  (0, import_react62.useEffect)(() => {
+    const gone = Object.keys(failed).filter((id) => settledIds.includes(id));
+    if (gone.length === 0) return;
+    for (const id of gone) failedAnswers.delete(id);
+    setFailed((current) => gone.reduce((next, id) => withoutEntry(next, id), current));
+  }, [settledIds.join("|")]);
   if (!bot || currentPart(bot) !== sessionId) return null;
   const proposals = roster.learning?.[bot.id] ?? [];
-  const settled = (roster.learningSettled?.[bot.id] ?? []).filter((entry) => !proposals.some((proposal) => proposal.id === entry.id));
-  const visible = [...settled, ...proposals];
-  for (const entry of Object.values(failed)) {
-    if (entry.proposal.botId === bot.id && !visible.some((proposal) => proposal.id === entry.proposal.id)) visible.push(entry.proposal);
-  }
-  for (const entry of failedAnswers.values()) {
-    if (entry.proposal.botId === bot.id && !proposals.some((proposal) => proposal.id === entry.proposal.id) && !visible.some((proposal) => proposal.id === entry.proposal.id)) visible.push(entry.proposal);
-  }
-  visible.sort((a, b) => (a.at ?? 0) - (b.at ?? 0));
+  const settled = roster.learningSettled?.[bot.id] ?? [];
+  const remembered = Object.fromEntries([...failedAnswers.values(), ...Object.values(failed)].filter((entry) => entry.proposal.botId === bot.id).map((entry) => [entry.proposal.id, entry]));
+  const visible = proposalCards({ proposals, settled, failures: remembered });
   const cards = visible.filter((proposal) => {
     const placement = proposalPlacement(proposal, facts?.turns);
     return dock ? placement.kind === "dock" : placement.kind === "turn" && placement.turn === turn?.turn;
   });
   if (cards.length === 0) return null;
-  const onFailure = (proposal, error) => {
-    failedAnswers.set(proposal.id, { proposal, error });
-    setFailed((current) => ({ ...current, [proposal.id]: { proposal, error } }));
+  const onFailure = (proposal, failure) => {
+    if (answerKeepsCard(failure)) failedAnswers.set(proposal.id, { proposal, error: failure?.message ?? String(failure) });
+    else failedAnswers.delete(proposal.id);
+    setFailed((current) => answerFailure(current, proposal, failure));
   };
   const onResolved = (id) => setFailed((current) => {
     failedAnswers.delete(id);
-    if (!(id in current)) return current;
-    const next = { ...current };
-    delete next[id];
-    return next;
+    return withoutEntry(current, id);
   });
   return (0, import_react63.createElement)("div", { className: dock ? "bt-learning-stack bt-learning-dock" : "bt-learning-stack" }, cards.map((proposal) => (0, import_react63.createElement)(
     "div",
