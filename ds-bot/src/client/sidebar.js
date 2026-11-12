@@ -477,12 +477,21 @@ function TitleToggle({ hidden, onToggle }) {
 // The Bot-API-down hint cannot send the user to Settings → Feedback: its
 // diagnostics request needs the same API. What still works in this state is
 // the last error this window recorded, and the engine's own startup output —
-// its console, or the app's startup error box (#516).
+// its console, or the app's startup error box (#516). With no Bot team there is
+// nothing to use on this surface, so the hint also offers the classic view.
 const bootHint = () => {
   const last = clientErrors().at(-1)?.text
   return last === undefined
     ? t('The Bot team could not start. The engine’s startup output — its console, or the app’s startup error box — has the cause.')
     : t('The Bot team could not start. {error}. The engine’s startup output — its console, or the app’s startup error box — has the cause.', { error: last })
+}
+
+function BootFailed({ actions }) {
+  return h('div', { className: 'bt-hint bt-boot-failed', role: 'alert' },
+    h('div', null, bootHint()),
+    typeof actions.setSurface === 'function'
+      ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => actions.setSurface('agent') }, t('Switch to classic Agent mode'))
+      : null)
 }
 
 export function TeamSidebar(props) {
@@ -798,7 +807,7 @@ export function TeamSidebar(props) {
     : h('div', { className: 'bt-rail-top' },
         h(UpdateButton, { useUpdate: props.useUpdate, actions }),
         h('button', { type: 'button', className: 'bt-round bt-side-collapse', 'aria-label': t('Collapse sidebar'), title: t('Collapse sidebar'), onClick: onToggle }, h(SidebarIcon)),
-        main ? h(BotRow, { ...rowProps, bot: main, marked: markedUnread[main.id] === true }) : roster.ready ? null : h('div', { className: 'bt-hint' }, bootFailed ? bootHint() : t('Setting up your Main Bot…')),
+        main ? h(BotRow, { ...rowProps, bot: main, marked: markedUnread[main.id] === true }) : roster.ready ? null : bootFailed ? h(BootFailed, { actions }) : h('div', { className: 'bt-hint' }, t('Setting up your Main Bot…')),
         h('span', { className: 'bt-rail-sep', 'aria-hidden': true }))
   // The foot stands in for the shell's hidden footer: the account avatar, and on
   // the rail the new-chat button above it.
@@ -816,7 +825,7 @@ export function TeamSidebar(props) {
       onDragEnd: () => { setDragId(null); setDropTarget(null) },
       onDragLeave: (event) => { if (!event.currentTarget.contains(event.relatedTarget)) setDropTarget(null) },
     },
-      wideContent ? (main ? h(BotRow, { ...rowProps, bot: main, marked: markedUnread[main.id] === true }) : roster.ready ? null : h('div', { className: 'bt-hint' }, bootFailed ? bootHint() : t('Setting up your Main Bot…'))) : null,
+      wideContent ? (main ? h(BotRow, { ...rowProps, bot: main, marked: markedUnread[main.id] === true }) : roster.ready ? null : bootFailed ? h(BootFailed, { actions }) : h('div', { className: 'bt-hint' }, t('Setting up your Main Bot…'))) : null,
       sections.length > 0 && wideContent
         ? h('div', {
             className: 'bt-sec-ungrouped',

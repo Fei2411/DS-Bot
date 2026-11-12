@@ -610,3 +610,33 @@ test('TeamSidebar subscribes to specific ui slices rather than the whole ui obje
   }
 })
 
+
+// A Bot team that never started leaves nothing to use on the Bot surface; the hint
+// that says so carries the way back to the classic view, wide or on the rail (#1314).
+for (const wide of [true, false]) {
+  test(`a Bot team that could not start offers the classic view (${wide ? 'open column' : 'rail'})`, () => {
+    viewport.innerWidth = 1280
+    const calls = []
+    const tree = TeamSidebar({
+      wide,
+      useRoster: pick => pick({ bots: [], rooms: [], agents: [], byId: {}, ready: false }),
+      useUi: pick => pick({ unread: {}, leftDrawer: false, bootFailed: true }),
+      useRegistry: pick => pick({}),
+      useSessions: pick => pick({ ids: [], byId: {} }),
+      useUpdate: () => ({}),
+      actions: { toggleSidebar() {}, setSurface: mode => calls.push(mode) },
+    })
+    const find = (node, match) => {
+      if (Array.isArray(node)) { for (const child of node) { const hit = find(child, match); if (hit) return hit } return undefined }
+      if (!node || typeof node !== 'object') return undefined
+      if (match(node)) return node
+      return find(node.props?.children, match)
+    }
+    const hint = find(tree, node => node.type?.name === 'BootFailed')
+    assert.ok(hint, 'the could-not-start hint renders')
+    const button = find(hint.type(hint.props), node => node.type === 'button')
+    assert.equal(button.props.children.join(''), 'Switch to classic Agent mode')
+    button.props.onClick()
+    assert.deepEqual(calls, ['agent'])
+  })
+}

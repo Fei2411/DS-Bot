@@ -217,6 +217,7 @@ export const JA = {
   "This DSH cannot load connectors": "この DSH ではコネクタを読み込めません",
   "No such connector": "該当するコネクタがありません",
   "Classic Agent mode": "クラシック Agent モード",
+  "Switch to classic Agent mode": "クラシック Agent モードに切り替え",
   "Bot mode": "Bot モード",
   "Switch": "切り替え",
   "Back to DS Bot": "DS Bot に戻る",

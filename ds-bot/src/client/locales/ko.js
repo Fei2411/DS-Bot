@@ -220,6 +220,7 @@ export const KO = {
   'This DSH cannot load connectors': '이 DSH에서는 커넥터를 불러올 수 없습니다',
   'No such connector': '해당 커넥터가 없습니다',
   'Classic Agent mode': '클래식 Agent 모드',
+  'Switch to classic Agent mode': '클래식 Agent 모드로 전환',
   'Bot mode': 'Bot 모드',
   'Switch': '전환',
   'Back to DS Bot': 'DS Bot로 돌아가기',

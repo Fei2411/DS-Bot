@@ -217,6 +217,7 @@ export const FR = {
   "This DSH cannot load connectors": "Ce DSH ne peut pas charger les connecteurs",
   "No such connector": "Connecteur introuvable",
   "Classic Agent mode": "Mode Agent classique",
+  "Switch to classic Agent mode": "Passer au mode Agent classique",
   "Bot mode": "Mode Bot",
   "Switch": "Basculer",
   "Back to DS Bot": "Retour à DS Bot",
