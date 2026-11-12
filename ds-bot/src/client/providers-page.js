@@ -2,7 +2,7 @@
 // DSH serves, with their API keys and models, and the providers it can add. DSH keeps
 // all of it; a key only ever travels from these inputs to the host.
 import { createElement as h, useEffect, useState } from 'react'
-import { CheckIcon, ChevronRightIcon, TrashIcon } from './icons.js'
+import { CheckIcon, ChevronRightIcon, PlusIcon, TrashIcon } from './icons.js'
 import { KeyIcon, MaskedInput } from './secret-card.js'
 import { Segmented, SPRING_SHAPE } from './motion.js'
 import { hostText, t } from './i18n.js'
@@ -32,14 +32,14 @@ export function ProvidersPage({ actions, run, Section, advanced = null }) {
   useEffect(() => { void apply(actions.providers()) }, [])
   if (view === null) return null
   if (!view.available) return h('p', { className: 'bt-set-hint' }, t('This DSH cannot set up model providers.'))
+  const addBtn = adding ? null : h('button', { type: 'button', className: 'bt-soft bt-soft-sm bt-with-icon', onClick: () => setAdding(true) }, h(PlusIcon), t('Add a provider'))
   return [
-    h(Section, { key: 'list', title: t('Model providers · {count}', { count: view.providers.length }) },
+    h(Section, { key: 'list', title: t('Model providers · {count}', { count: view.providers.length }), action: addBtn },
       view.providers.map(provider => h(ProviderRow, {
         key: provider.id, provider, apply, actions,
         open: open === provider.id, onToggle: () => setOpen(open === provider.id ? null : provider.id),
       })),
       adding ? h(AddProvider, { key: 'add', view, apply, actions, onDone: () => setAdding(false) }) : null),
-    adding ? null : h('div', { key: 'add', className: 'bt-actions' }, h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => setAdding(true) }, t('Add a provider'))),
     // DSH's own Models page: each model's context, output, inputs, thinking levels and order.
     advanced ? h('div', { key: 'advanced', className: 'bt-set-card' },
       h('button', { type: 'button', className: 'bt-set-row bt-bs-row bt-advanced', onClick: advanced },
@@ -177,7 +177,7 @@ function CustomForm({ view, apply, actions, onDone }) {
 function FormActions({ onCancel, onAdd, ready }) {
   return h('div', { className: 'bt-secret-row-actions' },
     h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: onCancel }, t('Cancel')),
-    h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: !ready, onClick: onAdd }, t('Add')))
+    h('button', { type: 'button', className: 'bt-send bt-soft-sm', disabled: !ready, onClick: onAdd }, t('Add')))
 }
 
 export const PROVIDERS_CSS = `

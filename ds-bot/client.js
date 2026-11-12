@@ -14819,11 +14819,11 @@ function writeSidebar(value, storage = globalThis.localStorage) {
 
 // src/client/styles.js
 var SHELL_CSS = `
-body{--bt-im-telegram:#229ed9;--bt-im-weixin:#07c160;--bt-im-feishu:#3370ff;--bt-im-dingtalk:#1e88e5;--bt-im-wecom:#0082ef;--bt-im-qq:#e03e3e;--bt-im-discord:#5865f2;--bt-im-slack:#4a154b;--bt-im-mark-ink:#ffffff;--bt-qr-paper:#ffffff;--bt-qr-ink:#141414;--bt-ink:#141414;--bt-danger:#e02135;--bt-ink-2:rgba(20,20,20,.6);--bt-ink-3:rgba(20,20,20,.36);--bt-bubble:#eeeeee;--bt-sidebar:#f7f7f7;--bt-main:#fcfcfc;--bt-line:rgba(20,20,20,.08);--bt-line-2:rgba(20,20,20,.15);--bt-line-weak:rgba(20,20,20,.1);--bt-hover:rgba(119,119,119,.09);--bt-active:rgba(119,119,119,.17);--bt-card:#ffffff;--bt-accent:#4d6bfe;--bt-green:#00c972;--bt-star:#ff9800;--bt-user:#070707;--bt-user-ink:#fcfcfc;--bt-tag-bg:rgba(20,20,20,.06);--bt-tag-ink:rgba(20,20,20,.56);--bt-knob:#ffffff;--bt-glass-bg:color-mix(in srgb,var(--bt-main) 78%,transparent);--bt-glass-border:rgba(255,255,255,.72);--bt-glass-rim:rgba(20,20,20,.09);--bt-glass-shadow:0 8px 28px -6px rgba(0,0,0,.08),0 2px 6px -1px rgba(0,0,0,.04),inset 0 1px 0 rgba(255,255,255,.82);--bt-accent-soft:color-mix(in srgb,var(--bt-accent) 14%,transparent);--bt-danger-soft:color-mix(in srgb,var(--bt-danger) 14%,transparent);--bt-danger-glow:color-mix(in srgb,var(--bt-danger) 24%,transparent);-webkit-tap-highlight-color:transparent;-webkit-text-size-adjust:100%;--bt-font:var(--dsw-font-family,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif)}
+body{--bt-im-telegram:#229ed9;--bt-im-weixin:#07c160;--bt-im-feishu:#3370ff;--bt-im-dingtalk:#1e88e5;--bt-im-wecom:#0082ef;--bt-im-qq:#e03e3e;--bt-im-discord:#5865f2;--bt-im-slack:#4a154b;--bt-im-mark-ink:#ffffff;--bt-qr-paper:#ffffff;--bt-qr-ink:#141414;--bt-ink:#141414;--bt-danger:#e02135;--bt-ink-2:rgba(20,20,20,.6);--bt-ink-3:rgba(20,20,20,.36);--bt-bubble:#eeeeee;--bt-sidebar:#f7f7f7;--bt-main:#fcfcfc;--bt-line:rgba(20,20,20,.08);--bt-line-2:rgba(20,20,20,.15);--bt-line-weak:rgba(20,20,20,.1);--bt-hover:rgba(119,119,119,.09);--bt-active:rgba(119,119,119,.17);--bt-card:#ffffff;--bt-accent:#4d6bfe;--bt-green:#00c972;--bt-star:#ff9800;--bt-user:#070707;--bt-user-ink:#fcfcfc;--bt-tag-bg:rgba(20,20,20,.06);--bt-tag-ink:rgba(20,20,20,.56);--bt-knob:#ffffff;--bt-glass-bg:color-mix(in srgb,var(--bt-main) 78%,transparent);--bt-glass-border:rgba(255,255,255,.72);--bt-glass-rim:rgba(20,20,20,.09);--bt-glass-shadow:0 8px 28px -6px rgba(0,0,0,.08),0 2px 6px -1px rgba(0,0,0,.04),inset 0 1px 0 rgba(255,255,255,.82);--bt-dialog-shadow:0 28px 90px -12px rgba(0,0,0,.22),0 8px 24px -4px rgba(0,0,0,.08),inset 0 1px 0 rgba(255,255,255,.78);--bt-card-shadow:0 1px 2px rgba(20,20,20,.03),inset 0 1px 0 rgba(255,255,255,.65);--bt-nav-thumb-bg:color-mix(in srgb,var(--bt-card) 82%,var(--bt-active));--bt-nav-thumb-shadow:0 1px 2px rgba(20,20,20,.06),inset 0 .5px 0 rgba(255,255,255,.8);--bt-select-arrow:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12' fill='none' stroke='%23888' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m3 4.5 3 3 3-3'/%3E%3C/svg%3E");--bt-accent-soft:color-mix(in srgb,var(--bt-accent) 14%,transparent);--bt-danger-soft:color-mix(in srgb,var(--bt-danger) 14%,transparent);--bt-danger-glow:color-mix(in srgb,var(--bt-danger) 24%,transparent);-webkit-tap-highlight-color:transparent;-webkit-text-size-adjust:100%;--bt-font:var(--dsw-font-family,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif)}
 /* iOS waits out a double-tap zoom on buttons; the plugin's own controls never zoom. */
 :is(.bt-tool,.bt-uaction,.bt-menu button,.bt-menu-item,.bt-icon-btn,.bt-round,.bt-pill,.bt-account,.bt-set-row,.bt-settings-item,.bt-react-strip button,.bt-palette-row,.bt-palette-clear,.bt-tab,.bt-ptab,.bt-ptab-x,.bt-bcard-x,.bt-plus,.bt-q-btn,.bt-q-x,.bt-x,.bt-nc-send,.bt-send,.bt-soft,.bt-mini,.bt-side-send,.bt-shape,.bt-swatch,.bt-color,.bt-newchat,.bt-task-day,.bt-task-remove,.bt-fb-btn){touch-action:manipulation}
-:is(.bt-round,.bt-you,.bt-account,.bt-color,.bt-color span,.bt-swatch,.bt-icon-btn,.bt-avatar-trigger,.bt-avatar-pencil,.bt-plus,.bt-mic,.bt-voice){corner-shape:round}
-body[data-ds-dark-theme]{--bt-im-telegram:#2ea8de;--bt-im-weixin:#17c96a;--bt-im-feishu:#4d84ff;--bt-im-dingtalk:#3d99ed;--bt-im-wecom:#2898f2;--bt-im-qq:#e85555;--bt-im-discord:#6e7bf2;--bt-im-slack:#7c4380;--bt-im-mark-ink:#ffffff;--bt-ink:#f2f2f2;--bt-ink-2:rgba(242,242,242,.6);--bt-ink-3:rgba(242,242,242,.36);--bt-bubble:#262626;--bt-sidebar:#1b1b1b;--bt-main:#141414;--bt-line:rgba(255,255,255,.08);--bt-line-2:rgba(255,255,255,.15);--bt-line-weak:rgba(255,255,255,.1);--bt-hover:rgba(160,160,160,.12);--bt-active:rgba(160,160,160,.2);--bt-card:#1f1f1f;--bt-user:#f2f2f2;--bt-user-ink:#141414;--bt-tag-bg:rgba(255,255,255,.09);--bt-tag-ink:rgba(242,242,242,.62);--bt-glass-bg:color-mix(in srgb,var(--bt-main) 74%,transparent);--bt-glass-border:rgba(255,255,255,.13);--bt-glass-rim:rgba(255,255,255,.11);--bt-glass-shadow:0 12px 32px -6px rgba(0,0,0,.42),0 2px 8px -1px rgba(0,0,0,.28),inset 0 1px 0 rgba(255,255,255,.12);--bt-accent-soft:color-mix(in srgb,var(--bt-accent) 18%,transparent);--bt-danger-soft:color-mix(in srgb,var(--bt-danger) 18%,transparent);--bt-danger-glow:color-mix(in srgb,var(--bt-danger) 28%,transparent)}
+:is(.bt-round,.bt-you,.bt-account,.bt-color,.bt-color span,.bt-swatch,.bt-icon-btn,.bt-avatar-trigger,.bt-avatar-pencil,.bt-plus,.bt-mic,.bt-voice,.bt-task-day,.bt-task-off-mark){corner-shape:round}
+body[data-ds-dark-theme]{--bt-im-telegram:#2ea8de;--bt-im-weixin:#17c96a;--bt-im-feishu:#4d84ff;--bt-im-dingtalk:#3d99ed;--bt-im-wecom:#2898f2;--bt-im-qq:#e85555;--bt-im-discord:#6e7bf2;--bt-im-slack:#7c4380;--bt-im-mark-ink:#ffffff;--bt-ink:#f2f2f2;--bt-ink-2:rgba(242,242,242,.6);--bt-ink-3:rgba(242,242,242,.36);--bt-bubble:#262626;--bt-sidebar:#1b1b1b;--bt-main:#141414;--bt-line:rgba(255,255,255,.08);--bt-line-2:rgba(255,255,255,.15);--bt-line-weak:rgba(255,255,255,.1);--bt-hover:rgba(160,160,160,.12);--bt-active:rgba(160,160,160,.2);--bt-card:#1f1f1f;--bt-user:#f2f2f2;--bt-user-ink:#141414;--bt-tag-bg:rgba(255,255,255,.09);--bt-tag-ink:rgba(242,242,242,.62);--bt-glass-bg:color-mix(in srgb,var(--bt-main) 74%,transparent);--bt-glass-border:rgba(255,255,255,.13);--bt-glass-rim:rgba(255,255,255,.11);--bt-glass-shadow:0 12px 32px -6px rgba(0,0,0,.42),0 2px 8px -1px rgba(0,0,0,.28),inset 0 1px 0 rgba(255,255,255,.12);--bt-dialog-shadow:0 32px 96px -12px rgba(0,0,0,.62),0 10px 28px -4px rgba(0,0,0,.42),inset 0 1px 0 rgba(255,255,255,.1);--bt-card-shadow:0 1px 3px rgba(0,0,0,.22),inset 0 .5px 0 rgba(255,255,255,.07);--bt-nav-thumb-bg:color-mix(in srgb,var(--bt-card) 65%,var(--bt-active));--bt-nav-thumb-shadow:0 1px 3px rgba(0,0,0,.28),inset 0 .5px 0 rgba(255,255,255,.12);--bt-accent-soft:color-mix(in srgb,var(--bt-accent) 18%,transparent);--bt-danger-soft:color-mix(in srgb,var(--bt-danger) 18%,transparent);--bt-danger-glow:color-mix(in srgb,var(--bt-danger) 28%,transparent)}
 ${Object.entries(INKS).map(([name, [light]]) => `body{--bt-ink-${name}:${light}}`).join("")}
 ${Object.entries(INKS).map(([name, [, dark]]) => `body[data-ds-dark-theme]{--bt-ink-${name}:${dark}}`).join("")}
 .bt-mark{display:inline-block;flex:none;position:relative;line-height:0}
@@ -15222,7 +15222,7 @@ html[data-windows-titlebar]:not([data-fullscreen]) :is(.bt-pane,.bt-panel)::befo
 @keyframes bt-foot-in{from{opacity:0;transform:translateY(6px)}}
 @keyframes bt-foot-out{to{opacity:0;transform:translateY(6px)}}
 @media (prefers-reduced-motion:reduce){.bt-exchange,.bt-exchange .bt-dialog-foot{animation-duration:.01s}}
-.bt-soft{height:36px;border-radius:999px;border:0;background:var(--bt-hover);color:var(--bt-ink);padding:0 16px;font-size:14px;cursor:pointer;flex:none;white-space:nowrap}
+.bt-soft{display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;height:36px;border-radius:999px;border:0;background:var(--bt-hover);color:var(--bt-ink);padding:0 16px;font-size:14px;font-weight:450;text-decoration:none;cursor:pointer;flex:none;white-space:nowrap}
 .bt-soft:hover{background:var(--bt-active)}
 .bt-time{display:block;text-align:center;font-size:12px;line-height:16px;color:var(--bt-ink-2);padding:6px 0}
 
@@ -15262,8 +15262,8 @@ html[data-windows-titlebar]:not([data-fullscreen]) :is(.bt-pane,.bt-panel)::befo
 .bt-muted{color:var(--bt-ink-2)}
 .bt-swatches{display:flex;flex-wrap:wrap;gap:6px}
 .bt-swatch{width:22px;height:22px;border-radius:50%;border:2px solid transparent;cursor:pointer;padding:0;box-shadow:inset 0 0 0 1px var(--bt-line-2)}
-.bt-swatch[aria-pressed=true]{border-color:var(--bt-ink)}
-.bt-textarea{width:100%;box-sizing:border-box;min-height:120px;border:1px solid var(--bt-line);border-radius:8px;padding:8px;background:var(--bt-card);color:var(--bt-ink);font:inherit;resize:vertical}
+.bt-swatch[aria-pressed=true]{border-color:var(--bt-ink);box-shadow:inset 0 0 0 2px var(--bt-card)}
+.bt-textarea{width:100%;box-sizing:border-box;min-height:120px;border:.5px solid var(--bt-line-2);border-radius:8px;padding:8px 10px;background:var(--bt-card);color:var(--bt-ink);font:inherit;resize:vertical;transition:border-color .14s ease,box-shadow .14s ease}
 .bt-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 .bt-kv{display:flex;justify-content:space-between;gap:8px;font-size:12px;line-height:20px;color:var(--bt-ink-2)}
 .bt-kv span:last-child{color:var(--bt-ink);font-variant-numeric:tabular-nums}
@@ -15274,11 +15274,12 @@ html[data-windows-titlebar]:not([data-fullscreen]) :is(.bt-pane,.bt-panel)::befo
 /* Bot settings: fields, the avatar editor popover, and the details-pane sub-view. */
 .bt-field{display:flex;flex-direction:column;gap:6px}
 .bt-field-label{font-size:13px;line-height:18px;font-weight:500}
-.bt-input{width:100%;box-sizing:border-box;height:36px;border:1px solid var(--bt-line);border-radius:8px;padding:0 10px;background:var(--bt-card);color:var(--bt-ink);font:inherit;font-size:13px;outline:none}
-.bt-input:focus{border-color:var(--bt-line-2)}
-.bt-input-area{height:auto;min-height:96px;padding:8px 10px;line-height:18px;resize:vertical}
+.bt-input{width:100%;box-sizing:border-box;height:36px;border:.5px solid var(--bt-line-2);border-radius:8px;padding:0 11px;background:var(--bt-card);color:var(--bt-ink);font:inherit;font-size:13px;outline:none;transition:border-color .14s ease,box-shadow .14s ease,background-color .14s ease}
+.bt-input:hover:not(:disabled):not(:focus){border-color:color-mix(in srgb,var(--bt-ink) 24%,transparent)}
+.bt-input:focus{border-color:var(--bt-accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--bt-accent) 22%,transparent)}
+.bt-input-area{height:auto;min-height:96px;padding:8px 11px;line-height:18px;resize:vertical}
 .bt-note{font-size:12px;line-height:16px;color:var(--bt-ink-3)}
-.bt-soft-sm{height:28px;padding:0 12px;font-size:12px}
+.bt-soft-sm{height:28px;padding:0 12px;font-size:12px;font-weight:500}
 .bt-set-avatar{display:flex;justify-content:center;padding:4px 0}
 .bt-avatar-anchor{position:relative}
 .bt-avatar-trigger{position:relative;width:64px;height:64px;border:0;border-radius:50%;background:none;cursor:pointer;padding:0}
@@ -15325,24 +15326,25 @@ html[data-windows-titlebar]:not([data-fullscreen]) :is(.bt-pane,.bt-panel)::befo
 
 /* Settings dialog: a 198px page list beside the page. */
 .bt-settings-layer{position:fixed;inset:var(--dsh-frame-chrome-top,0px) 0 0;z-index:60;display:flex;align-items:center;justify-content:center;font-family:var(--bt-font)}
-.bt-scrim{position:absolute;inset:0;background:rgba(0,0,0,.32);animation:bt-fade .22s ease-out}
+.bt-scrim{position:absolute;inset:0;background:rgba(0,0,0,.32);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);animation:bt-fade .22s ease-out}
 body[data-ds-dark-theme] .bt-scrim{background:rgba(0,0,0,.5)}
-.bt-settings{--bt-set-w:min(1100px,calc(100vw - 48px));--bt-set-h:min(780px,calc(100vh - 2*max(32px,var(--dsh-frame-overlay-top,32px))));position:relative;width:var(--bt-set-w);height:var(--bt-set-h);background:var(--bt-main);border-radius:16px;border:.5px solid var(--bt-line-2);box-shadow:0 24px 80px rgba(0,0,0,.24);display:flex;overflow:hidden;color:var(--bt-ink);animation:bt-dialog-rise ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing},bt-veil-in .2s ease-out}
+.bt-settings{--bt-set-w:min(1100px,calc(100vw - 48px));--bt-set-h:min(780px,calc(100vh - 2*max(32px,var(--dsh-frame-overlay-top,32px))));position:relative;width:var(--bt-set-w);height:var(--bt-set-h);background:var(--bt-main);border-radius:20px;border:.5px solid var(--bt-glass-rim);box-shadow:var(--bt-dialog-shadow);display:flex;overflow:hidden;color:var(--bt-ink);animation:bt-dialog-rise ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing},bt-veil-in .2s ease-out}
 :is(.bt-settings-layer,.bt-mem-layer)[data-leaving]{pointer-events:none}
 :is(.bt-settings-layer,.bt-mem-layer)[data-leaving] .bt-scrim{opacity:0;transition:opacity .16s ease-in}
 :is(.bt-settings-layer,.bt-mem-layer)[data-leaving]>[role=dialog]{animation:bt-dialog-sink .16s cubic-bezier(.4,0,1,1) forwards}
 @keyframes bt-dialog-rise{from{transform:translateY(12px) scale(.96)}}
 @keyframes bt-dialog-sink{to{opacity:0;transform:translateY(6px) scale(.975);filter:blur(3px)}}
 @media (prefers-reduced-motion:reduce){.bt-settings,.bt-scrim,.bt-settings-page>*{animation:bt-fade .12s ease-out!important}}
-.bt-settings-nav{position:relative;width:198px;flex:none;padding:16px 8px;border-right:.5px solid var(--bt-line);display:flex;flex-direction:column;gap:2px;background:var(--bt-sidebar);box-sizing:border-box}
-.bt-settings-item{position:relative;z-index:1;display:flex;align-items:center;gap:8px;padding:6px 8px;border:0;border-radius:8px;background:none;color:var(--bt-ink-2);font:inherit;font-size:13px;line-height:20px;cursor:pointer;text-align:left;transition:background-color .12s ease,color .12s ease}
+.bt-settings-nav{position:relative;width:198px;flex:none;padding:16px 10px;border-right:.5px solid var(--bt-line);display:flex;flex-direction:column;gap:2px;background:color-mix(in srgb,var(--bt-sidebar) 88%,var(--bt-main));box-sizing:border-box}
+.bt-settings-item{position:relative;z-index:1;display:flex;align-items:center;gap:10px;padding:7px 10px;border:0;border-radius:10px;background:none;color:var(--bt-ink-2);font:inherit;font-size:13px;line-height:20px;font-weight:450;cursor:pointer;text-align:left;transition:background-color .14s ease,color .14s ease}
 .bt-settings-item:hover{color:var(--bt-ink);background:var(--bt-hover)}
-.bt-settings-item[aria-current=page]{background:var(--bt-active);color:var(--bt-ink)}
-.bt-settings-nav>.bt-thumb{left:8px;right:8px;border-radius:8px;background:var(--bt-active)}
-.bt-settings-nav[data-glide] .bt-settings-item[aria-current=page]{background:transparent}
+.bt-settings-item[aria-current=page]{background:var(--bt-nav-thumb-bg);box-shadow:var(--bt-nav-thumb-shadow);color:var(--bt-ink);font-weight:500}
+.bt-settings-item[aria-current=page] .bt-settings-icon,.bt-settings-item[aria-current=page]>svg{color:var(--bt-accent)}
+.bt-settings-nav>.bt-thumb{left:10px;right:10px;border-radius:10px;background:var(--bt-nav-thumb-bg);box-shadow:var(--bt-nav-thumb-shadow)}
+.bt-settings-nav[data-glide] .bt-settings-item[aria-current=page]{background:transparent;box-shadow:none}
 .bt-settings-nav{overflow-y:auto;scrollbar-width:thin}
 .bt-settings-rule{flex:none;height:.5px;margin:6px 8px;background:var(--bt-line)}
-.bt-settings-icon{display:inline-flex;flex:none;width:16px;height:16px;align-items:center;justify-content:center}
+.bt-settings-icon{display:inline-flex;flex:none;width:16px;height:16px;align-items:center;justify-content:center;transition:color .14s ease}
 .bt-settings-actions{margin-left:auto;display:flex;align-items:center;gap:8px;min-width:0}
 .bt-settings-actions:empty{display:none}
 .bt-dsh-section{min-width:0}
@@ -15351,23 +15353,23 @@ body[data-ds-dark-theme] .bt-scrim{background:rgba(0,0,0,.5)}
 .bt-dsh-item{min-width:0}
 /* DSH's General rows draw their own row inside DS Bot's card: the card's inset and
    rules apply, an empty row takes no line, and Appearance is already the section title. */
-.bt-dsh-item>[data-slot]>*{padding-left:12px;padding-right:12px;border-bottom-width:0}
-.bt-dsh-item>[data-slot]>.bt-set-row{padding:10px 12px}
+.bt-dsh-item>[data-slot]>*{padding-left:16px;padding-right:16px;border-bottom-width:0}
+.bt-dsh-item>[data-slot]>.bt-set-row{padding:12px 16px}
 .bt-dsh-item:has(>[data-slot]:empty){display:none}
 .bt-dsh-item[data-item=appearance]>[data-slot]>*>:first-child{display:none}
 .bt-advanced{width:100%;border:0;background:none;font:inherit;color:inherit;text-align:left;cursor:pointer;justify-content:space-between}
 .bt-advanced:hover{background:var(--bt-hover)}
 .bt-advanced>svg{flex:none;color:var(--bt-ink-3)}
-.bt-settings-item>svg{flex:none}
+.bt-settings-item>svg{flex:none;transition:color .14s ease}
 /* Usage while another page is open: out of the flow, so it keeps its layout, and not
    rendered. */
 .bt-settings-usage[data-off]{position:absolute;top:0;left:198px;width:calc(var(--bt-set-w) - 198px);height:100%;box-sizing:border-box;content-visibility:hidden;pointer-events:none}
 .bt-settings-main{flex:none;display:flex;flex-direction:column;min-width:0;width:calc(var(--bt-set-w) - 198px);height:var(--bt-set-h)}
-.bt-settings-head{display:flex;align-items:center;gap:6px;padding:16px 56px 4px 20px}
-.bt-settings-head h2{margin:0;font-size:15px;line-height:24px;font-weight:600;animation:bt-veil-in .2s ease-out}
+.bt-settings-head{display:flex;align-items:center;gap:8px;padding:20px 56px 8px 28px}
+.bt-settings-head h2{margin:0;font-size:17px;line-height:24px;font-weight:600;letter-spacing:-.01em;animation:bt-veil-in .2s ease-out}
 .bt-settings-head>.bt-icon-btn{animation:bt-back-in ${SPRING_TAP.duration}ms ${SPRING_TAP.easing},bt-veil-in .16s ease-out}
 @keyframes bt-back-in{from{translate:6px 0;scale:.8}}
-.bt-settings-scroll{flex:1;overflow-y:auto;padding:12px 20px 24px;display:flex;flex-direction:column;gap:20px;scrollbar-width:thin}
+.bt-settings-scroll{flex:1;overflow-y:auto;padding:12px 28px 28px;display:flex;flex-direction:column;gap:22px;scrollbar-width:thin}
 .bt-settings-page>:not(.bt-us){animation:bt-page-up ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing} backwards,bt-veil-in .22s ease-out backwards}
 .bt-settings-page[data-move=in]>:not(.bt-us){animation-name:bt-page-in,bt-veil-in}
 .bt-settings-page[data-move=out]>:not(.bt-us){animation-name:bt-page-out,bt-veil-in}
@@ -15378,32 +15380,33 @@ body[data-ds-dark-theme] .bt-scrim{background:rgba(0,0,0,.5)}
 @keyframes bt-page-up{from{transform:translateY(10px)}}
 @keyframes bt-page-in{from{transform:translateX(18px)}}
 @keyframes bt-page-out{from{transform:translateX(-18px)}}
-.bt-settings-close{position:absolute;top:12px;right:12px;width:32px;height:32px;border-radius:50%;border:0;background:var(--bt-hover);color:var(--bt-ink-2);display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0}
+.bt-settings-close{position:absolute;top:14px;right:14px;width:32px;height:32px;border-radius:50%;border:0;background:var(--bt-hover);color:var(--bt-ink-2);display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0}
 .bt-settings-close:hover{background:var(--bt-active);color:var(--bt-ink)}
-.bt-settings-form{display:flex;flex-direction:column;gap:16px}
-.bt-set-section{display:flex;flex-direction:column;gap:10px}
-.bt-set-section>h3,.bt-la-sec-head>h3{font-size:13px;line-height:18px;font-weight:600;margin:0 0 -2px;padding:0 4px}
-.bt-browser-settings{display:flex;flex-direction:column;gap:20px}
-.bt-set-card{border:1px solid var(--bt-line);border-radius:12px;background:var(--bt-card);display:flex;flex-direction:column}
+.bt-settings-form{display:flex;flex-direction:column;gap:18px}
+.bt-set-section{display:flex;flex-direction:column;gap:8px}
+.bt-set-section>h3,.bt-la-sec-head>h3{font-size:13px;line-height:18px;font-weight:600;color:var(--bt-ink);margin:0;padding:0 4px}
+.bt-browser-settings{display:flex;flex-direction:column;gap:22px}
+.bt-set-card{border:.5px solid var(--bt-glass-rim);border-radius:12px;background:var(--bt-card);box-shadow:var(--bt-card-shadow);display:flex;flex-direction:column}
 .bt-set-card>*+*{border-top:.5px solid var(--bt-line)}
-.bt-set-row{display:flex;align-items:center;gap:12px;padding:10px 12px;border:0;background:none;color:var(--bt-ink);font:inherit;font-size:13px;line-height:18px;text-align:left;width:100%;box-sizing:border-box;border-radius:0}
+.bt-set-row{display:flex;align-items:center;gap:16px;min-height:48px;padding:12px 16px;border:0;background:none;color:var(--bt-ink);font:inherit;font-size:13px;line-height:18px;text-align:left;width:100%;box-sizing:border-box;border-radius:0;transition:background-color .14s ease}
 button.bt-set-row{cursor:pointer}
 button.bt-set-row:hover{background:var(--bt-hover)}
+button.bt-set-row:hover .bt-chevron{transform:translateX(2px);color:var(--bt-ink-2)}
 .bt-set-card>.bt-set-row+.bt-set-row{border-top:.5px solid var(--bt-line)}
 .bt-set-row:first-child{border-top-left-radius:12px;border-top-right-radius:12px}
 .bt-set-row:last-child{border-bottom-left-radius:12px;border-bottom-right-radius:12px}
-.bt-set-copy{flex:1;display:flex;flex-direction:column;gap:2px;min-width:0}
-.bt-set-hint{font-size:12px;line-height:16px;color:color-mix(in srgb,var(--bt-ink-2) 50%,var(--bt-ink-3))}
-.bt-set-control{flex:none;display:flex;align-items:center;gap:6px}
+.bt-set-copy{flex:1;display:flex;flex-direction:column;gap:3px;min-width:0}
+.bt-set-hint{font-size:12px;line-height:17px;color:color-mix(in srgb,var(--bt-ink-2) 55%,var(--bt-ink-3))}
+.bt-set-control{flex:none;display:flex;align-items:center;gap:8px}
 .bt-set-places .bt-set-control{flex:0 1 auto;max-width:50%;min-width:0}
 /* Shrinkable, so a long model name gets its ellipsis instead of pushing Reset out of the card. */
 .bt-set-model .bt-set-control{flex:0 1 auto;min-width:0;max-width:65%}
 .bt-set-number{width:112px}
 .bt-set-places .bt-set-hint{overflow-wrap:anywhere}
 .bt-set-value{font-size:13px;color:var(--bt-ink-2);text-align:right}
-.bt-set-bot{flex:1;display:flex;align-items:center;gap:8px;min-width:0}
-.bt-browser-note{margin:0;padding:10px 12px;color:var(--bt-ink-2);font-size:12px;line-height:17px}
-.bt-browser-grant{display:flex;align-items:center;gap:12px;padding:10px 12px}
+.bt-set-bot{flex:1;display:flex;align-items:center;gap:10px;min-width:0}
+.bt-browser-note{margin:0;padding:12px 16px;color:var(--bt-ink-2);font-size:12px;line-height:18px}
+.bt-browser-grant{display:flex;align-items:center;gap:12px;padding:12px 16px}
 .bt-browser-grant+.bt-browser-grant{border-top:.5px solid var(--bt-line)}
 .bt-browser-grant-who{display:flex;align-items:center;gap:8px;flex:0 0 150px;min-width:0;font-size:13px}
 .bt-browser-grant-who>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -15411,20 +15414,28 @@ button.bt-set-row:hover{background:var(--bt-hover)}
 .bt-browser-grant-site{font-size:13px;overflow-wrap:anywhere}
 .bt-browser-grant-kinds{display:flex;gap:4px;flex-wrap:wrap}
 .bt-browser-grant-expired{opacity:.5}
-.bt-browser-action-list,.bt-browser-duration{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
-.bt-browser-action-choice{display:inline-flex;align-items:center;gap:4px;font-size:12px;white-space:nowrap}
-.bt-browser-duration-choice{border:1px solid var(--bt-line);border-radius:8px;padding:5px 8px;background:var(--bt-card);color:var(--bt-ink-2);font:inherit;font-size:12px;cursor:pointer}
-.bt-browser-duration-choice[aria-pressed=true]{background:var(--bt-hover);color:var(--bt-ink)}
-.bt-browser-form>.bt-set-row>.bt-set-control{flex:1;min-width:0}
+.bt-browser-action-list{display:flex;gap:6px;flex-wrap:wrap;align-items:center;justify-content:flex-end}
+.bt-browser-action-choice{display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 12px;border-radius:999px;border:.5px solid var(--bt-line-2);background:var(--bt-hover);color:var(--bt-ink-2);font-size:12px;font-weight:500;white-space:nowrap;cursor:pointer;user-select:none;transition:background-color .14s ease,border-color .14s ease,color .14s ease,${spring(SPRING_TAP, "scale")}}
+.bt-browser-action-choice:hover{background:var(--bt-active);color:var(--bt-ink)}
+.bt-browser-action-choice:active{scale:.96}
+.bt-browser-action-choice:has(input:checked){background:var(--bt-accent-soft);border-color:color-mix(in srgb,var(--bt-accent) 42%,transparent);color:var(--bt-ink)}
+.bt-browser-action-choice input{margin:0;accent-color:var(--bt-accent);cursor:pointer}
+.bt-browser-duration{display:inline-flex;gap:2px;flex-wrap:wrap;align-items:center;padding:2px;border-radius:10px;background:var(--bt-hover)}
+.bt-browser-duration-choice{height:28px;border:0;border-radius:8px;padding:0 12px;background:none;color:var(--bt-ink-2);font:inherit;font-size:12px;font-weight:500;cursor:pointer;transition:background-color .14s ease,color .14s ease,box-shadow .14s ease,${spring(SPRING_TAP, "scale")}}
+.bt-browser-duration-choice:hover{color:var(--bt-ink)}
+.bt-browser-duration-choice:active{scale:.96}
+.bt-browser-duration-choice[aria-pressed=true]{background:var(--bt-card);color:var(--bt-ink);box-shadow:0 1px 3px rgba(0,0,0,.08)}
+.bt-browser-form>.bt-set-row>.bt-set-control{flex:0 1 64%;min-width:0;justify-content:flex-end}
+.bt-browser-form .bt-select{width:auto;min-width:160px;max-width:260px}
 .bt-browser-form>.bt-set-row+.bt-set-row{border-top:.5px solid var(--bt-line)}
-.bt-browser-site{max-width:320px}
-.bt-browser-form-foot{display:flex;justify-content:flex-end;padding:10px 12px;border-top:.5px solid var(--bt-line)}
+.bt-browser-site{width:min(320px,100%);max-width:320px}
+.bt-browser-form-foot{display:flex;justify-content:flex-end;padding:10px 16px;border-top:.5px solid var(--bt-line)}
 @media(max-width:700px){.bt-browser-grant{flex-wrap:wrap}.bt-browser-grant-who{flex:1}.bt-browser-grant-meta{order:3;flex:1 0 100%}}
-.bt-set-paste{flex-direction:column;align-items:stretch;gap:8px}
-.bt-chevron{color:var(--bt-ink-3);display:inline-flex;flex:none}
-.bt-la-sec-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.bt-set-paste{flex-direction:column;align-items:stretch;gap:10px;padding:14px 16px}
+.bt-chevron{color:var(--bt-ink-3);display:inline-flex;flex:none;transition:transform .16s ease,color .16s ease}
+.bt-la-sec-head{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:28px}
 .bt-la-sec-head>h3{margin:0}
-.bt-la-row{padding:11px 12px}
+.bt-la-row{padding:12px 16px}
 .bt-la-logo{width:32px;height:32px;border-radius:8px}
 .bt-la-copy{gap:3px}
 .bt-la-head{display:flex;align-items:baseline;gap:8px;min-width:0}
@@ -15435,7 +15446,7 @@ button.bt-set-row:hover{background:var(--bt-hover)}
 .bt-la-actions{gap:8px}
 .bt-la-state{display:inline-flex;align-items:center;gap:6px;font-size:12px;line-height:16px;color:var(--bt-ink-2);white-space:nowrap}
 .bt-la-state[data-state=true] .bt-cli-dot{background:var(--bt-green)}
-.bt-set-form{display:flex;flex-direction:column;gap:12px;padding:12px}
+.bt-set-form{display:flex;flex-direction:column;gap:12px;padding:14px 16px}
 .bt-set-form-row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .bt-set-field{display:flex;flex-direction:column;gap:6px;min-width:0;font-size:12px;line-height:16px;font-weight:500;color:var(--bt-ink-2)}
 .bt-set-field>.bt-input{background:var(--bt-main)}
@@ -15444,7 +15455,9 @@ button.bt-set-row:hover{background:var(--bt-hover)}
 @media(max-width:600px){.bt-set-form-row{grid-template-columns:1fr}}
 
 /* Settings → Phone. */
+.bt-phone{display:flex;flex-direction:column;gap:22px}
 .bt-phone-server{gap:8px}
+.bt-set-card>.bt-phone-server{border-top:0;padding-top:2px}
 .bt-phone-server .bt-input{flex:1;min-width:0}
 .bt-phone-warn .bt-set-hint{color:var(--bt-danger)}
 .bt-phone-error{padding:0 4px 12px}
@@ -15456,11 +15469,12 @@ button.bt-set-row:hover{background:var(--bt-hover)}
 @media(max-width:700px){.bt-phone-pair{flex-direction:column;align-items:flex-start}}
 
 /* Settings → Connectors. */
-.bt-connector{display:flex;flex-direction:column;gap:10px;padding:12px}
+.bt-connector{display:flex;flex-direction:column;gap:12px;padding:14px 16px}
 .bt-connector-head{display:flex;align-items:center;gap:12px;min-width:0}
-.bt-connector-mark{flex:none;width:36px;height:36px;border-radius:10px;background:var(--bt-card);border:.5px solid var(--bt-line);display:flex;align-items:center;justify-content:center;color:var(--bt-ink)}
-.bt-connector-text{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
-.bt-connector-name{font-size:14px;line-height:20px;font-weight:500}
+.bt-connector-mark{flex:none;width:36px;height:36px;border-radius:10px;background:var(--bt-main);border:.5px solid var(--bt-line-2);box-shadow:0 1px 2px rgba(0,0,0,.04);display:flex;align-items:center;justify-content:center;color:var(--bt-ink)}
+.bt-connector-text{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
+.bt-connector-title{display:flex;align-items:center;gap:6px;min-width:0}
+.bt-connector-name{font-size:14px;line-height:20px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bt-connector-status{font-size:12px;line-height:16px;color:var(--bt-ink-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bt-connector[data-state=ready] .bt-connector-status{color:var(--bt-ink-2)}
 .bt-connector[data-state=error] .bt-connector-status{color:var(--bt-danger);white-space:normal}
@@ -15664,7 +15678,9 @@ button:hover .bt-you{background:color-mix(in srgb,var(--bt-ink) 9%,var(--bt-side
 .bt-pick[aria-pressed=true]{border-color:var(--bt-line-2);background:var(--bt-hover)}
 .bt-pick>span:last-child:not(.bt-mark){max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bt-pick:hover .bt-mark[data-state=idle] .bt-eye{animation:bt-blink .5s linear 1}
-.bt-select{width:100%;height:34px;box-sizing:border-box;border-radius:8px;border:1px solid var(--bt-line);background:var(--bt-card);color:var(--bt-ink);padding:0 8px;font:inherit;font-size:13px;outline:none}
+.bt-select{-webkit-appearance:none;appearance:none;width:auto;min-width:148px;max-width:100%;height:34px;box-sizing:border-box;border-radius:8px;border:.5px solid var(--bt-line-2);background-color:var(--bt-hover);background-image:var(--bt-select-arrow);background-repeat:no-repeat;background-position:right 10px center;color:var(--bt-ink);padding:0 30px 0 12px;font:inherit;font-size:13px;font-weight:450;cursor:pointer;outline:none;transition:background-color .14s ease,border-color .14s ease,box-shadow .14s ease}
+.bt-select:hover:not(:disabled){background-color:var(--bt-active)}
+.bt-select:disabled{opacity:.45;cursor:default}
 :is(.bt-input,.bt-select,.bt-textarea):focus-visible{border-color:var(--bt-accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--bt-accent) 22%,transparent)}
 :is(.bt-round,.bt-icon-btn,.bt-soft,.bt-send,.bt-mini,.bt-pill,.bt-plus,.bt-mic,.bt-voice,.bt-account,.bt-title-toggle,.bt-settings-close,.bt-avatar-trigger,.bt-shape,.bt-color,.bt-swatch,.bt-pick,.bt-more,.bt-mem-row,.bt-mem-send):focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
 :is(.bt-row,.bt-tile,.bt-tab,.bt-avedit-tab,.bt-settings-item,.bt-menu button,.bt-option,.bt-palette-row,button.bt-set-row):focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px}
@@ -15815,8 +15831,9 @@ body[data-ds-dark-theme] .bt-theme-chip i{background:var(--da)}
 .bt-with-icon{display:inline-flex;align-items:center;gap:4px}
 .bt-with-icon svg{width:14px;height:14px}
 .bt-tag-admin{display:inline-flex;align-items:center;gap:4px}
-.bt-create-inline{padding:18px 16px;border:1px solid var(--bt-line);border-radius:12px;background:var(--bt-card)}
+.bt-create-inline{padding:20px;border:.5px solid var(--bt-glass-rim);border-radius:12px;background:var(--bt-card);box-shadow:var(--bt-card-shadow)}
 .bt-create-inline .bt-create-card{max-width:none}
+.bt-create-inline .bt-create-looks{max-width:340px;width:100%;align-self:center;background:var(--bt-main);border:.5px solid var(--bt-line-2)}
 .bt-panel-view>[data-move=in]{animation:bt-page-in ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing} backwards,bt-veil-in .2s ease-out backwards}
 .bt-panel-view>[data-move=out]{animation:bt-page-out ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing} backwards,bt-veil-in .2s ease-out backwards}
 .bt-panel-view>:is([data-move=in],[data-move=out]):nth-child(2){animation-delay:25ms}
@@ -15841,10 +15858,13 @@ body[data-ds-dark-theme] .bt-theme-chip i{background:var(--da)}
   .bt-settings-item{flex:none}
   .bt-settings-rule{width:.5px;height:16px;margin:0 4px}
   .bt-settings-main{width:100%;flex:1;min-height:0;height:auto}
+  .bt-settings-head{padding:14px 52px 4px 16px}
   .bt-settings-usage[data-off]{left:0;width:100%}
-  .bt-settings-scroll{overflow-x:clip}
+  .bt-settings-scroll{overflow-x:clip;padding:12px 16px calc(24px + env(safe-area-inset-bottom,0px))}
   .bt-set-row{flex-direction:column;align-items:stretch;gap:8px}
   .bt-set-row>.bt-set-copy{width:100%}
+  .bt-browser-form>.bt-set-row>.bt-set-control{flex:1 1 auto;justify-content:flex-start}
+  .bt-browser-action-list{justify-content:flex-start}
   .bt-la-row{flex-direction:row;align-items:center;flex-wrap:wrap}
   .bt-la-row>.bt-set-copy{width:auto}
   .bt-set-model .bt-set-control{max-width:none}
@@ -21031,7 +21051,7 @@ function AddSecret({ actions, run: run2, onDone }) {
       { className: "bt-secret-row-actions" },
       (0, import_react18.createElement)("span", { className: "bt-set-hint" }, t("New keys are for all Bots; narrow it down afterwards.")),
       (0, import_react18.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: onDone }, t("Cancel")),
-      (0, import_react18.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: !ready, onClick: save }, t("Save key"))
+      (0, import_react18.createElement)("button", { type: "button", className: "bt-send bt-soft-sm", disabled: !ready, onClick: save }, t("Save key"))
     )
   );
 }
@@ -21039,6 +21059,7 @@ function SecretsPage({ roster, actions, run: run2, Section: Section2 }) {
   const [open, setOpen] = (0, import_react18.useState)(null);
   const [adding, setAdding] = (0, import_react18.useState)(false);
   const secrets = roster.secrets ?? [];
+  const addBtn = adding ? null : (0, import_react18.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm bt-with-icon", onClick: () => setAdding(true) }, (0, import_react18.createElement)(PlusIcon), t("Add a key"));
   return [
     (0, import_react18.createElement)(
       "p",
@@ -21051,12 +21072,11 @@ function SecretsPage({ roster, actions, run: run2, Section: Section2 }) {
     ),
     (0, import_react18.createElement)(
       Section2,
-      { key: "list", title: t("Secrets · {count}", { count: secrets.length }) },
+      { key: "list", title: t("Secrets · {count}", { count: secrets.length }), action: addBtn },
       secrets.length === 0 && !adding ? (0, import_react18.createElement)("div", { className: "bt-set-row" }, (0, import_react18.createElement)("span", { className: "bt-set-hint" }, t("No keys yet. When a Bot needs one, it shows a card in its chat."))) : null,
       secrets.map((secret) => (0, import_react18.createElement)(SecretRow, { key: secret.name, secret, roster, actions, run: run2, open: open === secret.name, onToggle: () => setOpen(open === secret.name ? null : secret.name) })),
       adding ? (0, import_react18.createElement)(AddSecret, { actions, run: run2, onDone: () => setAdding(false) }) : null
-    ),
-    adding ? null : (0, import_react18.createElement)("div", { key: "add", className: "bt-actions" }, (0, import_react18.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => setAdding(true) }, t("Add a key")))
+    )
   ];
 }
 var SECRET_CSS = `
@@ -21099,13 +21119,13 @@ var SECRET_CSS = `
 .bt-secret-event{display:inline-flex;align-items:center;gap:5px}
 .bt-secret-dock{flex-direction:column;align-items:center}
 .bt-secret-dock .bt-q{max-width:min(550px,calc(100% - 32px))}
-.bt-secret-about{margin:0 0 12px;padding:0 4px;font-size:12px;line-height:17px;color:var(--bt-ink-2)}
+.bt-secret-about{margin:0 0 -4px;padding:0 4px;font-size:12px;line-height:18px;color:var(--bt-ink-2)}
 .bt-secret-title{display:flex;align-items:center;gap:6px;min-width:0;color:var(--bt-ink)}
 .bt-secret-title svg{flex:none;color:var(--bt-ink-2)}
 .bt-secret-purpose{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--bt-ink-2)}
 .bt-secret-faces{display:inline-flex}
 .bt-secret-faces>*+*{margin-left:-6px}
-.bt-secret-edit{display:flex;flex-direction:column;gap:14px;padding:4px 12px 14px;animation:bt-q-in ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing} backwards,bt-veil-in .2s ease-out backwards}
+.bt-secret-edit{display:flex;flex-direction:column;gap:14px;padding:14px 16px 16px;border-top:.5px solid var(--bt-line);background:color-mix(in srgb,var(--bt-hover) 45%,transparent);animation:bt-q-in ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing} backwards,bt-veil-in .2s ease-out backwards}
 .bt-secret-edit-block{display:flex;flex-direction:column;gap:8px}
 .bt-secret-edit-label{font-size:12px;line-height:16px;font-weight:600;color:var(--bt-ink-2)}
 .bt-secret-radios{display:flex;gap:16px;font-size:13px}
@@ -22361,17 +22381,23 @@ function SchedulesPage({ roster, actions, start }) {
     ...roster.bots.map((bot) => [bot.id, (0, import_react22.createElement)(BotAvatar, { bot, size: 18, badge: false, live: false }), bot.name, view.tasks.filter((task) => task.botId === bot.id)]),
     ...roster.rooms.map((room2) => [room2.id, (0, import_react22.createElement)(RoomAvatar, { room: room2, roster, size: 18 }), room2.name, view.tasks.filter((task) => task.botId === void 0 && task.roomId === room2.id)])
   ].filter(([id, , , tasks]) => tasks.length > 0 && (owner === null || id === owner));
+  const addBar = adding ? null : (0, import_react22.createElement)(
+    "div",
+    { className: "bt-actions" },
+    (0, import_react22.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm bt-with-icon", onClick: () => setAdding(true) }, (0, import_react22.createElement)(PlusIcon), t("New task")),
+    owner !== null ? (0, import_react22.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => actions.openSettings("schedules") }, t("Show all")) : null
+  );
   return [
-    adding ? (0, import_react22.createElement)(TaskForm, { key: "form", roster, actions, start: owner ?? start, onDone: shown, onCancel: () => setAdding(false) }) : (0, import_react22.createElement)(
-      "div",
-      { key: "add", className: "bt-actions" },
-      (0, import_react22.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm bt-with-icon", onClick: () => setAdding(true) }, (0, import_react22.createElement)(PlusIcon), t("New task")),
-      owner !== null ? (0, import_react22.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => actions.openSettings("schedules") }, t("Show all")) : null
-    ),
-    byChat.length === 0 && !adding ? (0, import_react22.createElement)("div", { key: "none", className: "bt-set-card" }, (0, import_react22.createElement)("div", { className: "bt-set-row" }, (0, import_react22.createElement)("span", { className: "bt-set-hint" }, t("No scheduled tasks yet.")))) : byChat.map(([id, avatar, name, tasks]) => (0, import_react22.createElement)(
+    adding ? (0, import_react22.createElement)(TaskForm, { key: "form", roster, actions, start: owner ?? start, onDone: shown, onCancel: () => setAdding(false) }) : null,
+    byChat.length === 0 ? !adding ? (0, import_react22.createElement)(
+      "section",
+      { key: "none", className: "bt-set-section" },
+      (0, import_react22.createElement)("div", { className: "bt-la-sec-head" }, (0, import_react22.createElement)("h3", null, t("Scheduled tasks")), addBar),
+      (0, import_react22.createElement)("div", { className: "bt-set-card" }, (0, import_react22.createElement)("div", { className: "bt-set-row" }, (0, import_react22.createElement)("span", { className: "bt-set-hint" }, t("No scheduled tasks yet."))))
+    ) : null : byChat.map(([id, avatar, name, tasks], index) => (0, import_react22.createElement)(
       "section",
       { key: id, className: "bt-set-section" },
-      (0, import_react22.createElement)("h3", { className: "bt-task-head" }, avatar, name),
+      index === 0 ? (0, import_react22.createElement)("div", { className: "bt-la-sec-head" }, (0, import_react22.createElement)("h3", { className: "bt-task-head" }, avatar, name), addBar) : (0, import_react22.createElement)("h3", { className: "bt-task-head" }, avatar, name),
       (0, import_react22.createElement)("div", { className: "bt-set-card" }, tasks.map((task) => (0, import_react22.createElement)(TaskRow2, { key: task.id, task, actions, roster, onView: publish })))
     ))
   ];
@@ -22430,15 +22456,17 @@ var SCHEDULE_CSS = `
 .bt-task-remove[data-confirm]{background:color-mix(in srgb,var(--bt-danger) 10%,transparent);color:var(--bt-danger)}
 .bt-task-head{display:flex;align-items:center;gap:6px}
 .bt-task-form{animation:bt-q-in .4s cubic-bezier(.22,1,.36,1),bt-veil-in .2s ease-out}
+.bt-task-form .bt-bs-input:not(.bt-bs-area){flex:0 1 320px}
 .bt-task-bot{width:auto;min-width:160px;max-width:58%}
-.bt-task-when{display:flex;align-items:center;flex-wrap:wrap;gap:8px}
-.bt-task-when .bt-input{width:auto;height:32px}
-.bt-task-time{min-width:110px}
-.bt-task-count{width:72px!important}
-.bt-task-unit{width:auto;height:32px}
+.bt-task-when{display:flex;align-items:center;flex-wrap:wrap;gap:10px;padding-top:4px}
+.bt-task-when .bt-input{width:auto;height:34px}
+.bt-task-time{min-width:116px}
+.bt-task-count{width:76px!important}
+.bt-task-unit{width:auto;height:34px}
 .bt-task-every{font-size:13px;color:var(--bt-ink-2)}
-.bt-task-days{display:flex;gap:4px}
-.bt-task-day{width:30px;height:30px;border-radius:50%;border:1px solid var(--bt-line);background:none;color:var(--bt-ink-2);font:inherit;font-size:12px;cursor:pointer;transition:background-color .12s ease,color .12s ease,border-color .12s ease}
+.bt-task-days{display:flex;gap:6px}
+.bt-task-day{width:32px;height:32px;border-radius:50%;border:.5px solid var(--bt-line-2);background:var(--bt-hover);color:var(--bt-ink-2);font:inherit;font-size:12px;font-weight:500;cursor:pointer;transition:background-color .14s ease,color .14s ease,border-color .14s ease}
+.bt-task-day:hover{background:var(--bt-active);color:var(--bt-ink)}
 .bt-task-day[aria-pressed=true]{background:var(--bt-user);border-color:var(--bt-user);color:var(--bt-user-ink)}
 .bt-task-foot{justify-content:flex-end;gap:8px}
 .bt-task-foot .bt-send{height:28px;font-size:12px}
@@ -22587,6 +22615,7 @@ function CapabilityForm({ draft, setDraft, items, actions, onClose }) {
 }
 function CapabilityRow({ item, onEdit, onDelete, onApprove, confirming }) {
   const detail = item.kind === "pack" ? `${t("Pack")}: ${(item.items ?? []).join(", ") || t("No items")}` : item.kind === "mcp" ? item.transport === "stdio" ? t("Local command") : t("HTTP server") : t("Skill");
+  const badge = item.kind === "mcp" ? "MCP" : item.kind === "skill" ? t("Skill") : t("Pack");
   const secondary = item.kind === "pack" ? [item.description, (item.items ?? []).join(", ") || t("No items")].filter(Boolean).join(" · ") : item.description || detail;
   return (0, import_react23.createElement)(
     "div",
@@ -22597,7 +22626,12 @@ function CapabilityRow({ item, onEdit, onDelete, onApprove, confirming }) {
       (0, import_react23.createElement)(
         "span",
         { className: "bt-connector-text" },
-        (0, import_react23.createElement)("span", { className: "bt-connector-name" }, item.name),
+        (0, import_react23.createElement)(
+          "span",
+          { className: "bt-connector-title" },
+          (0, import_react23.createElement)("span", { className: "bt-connector-name" }, item.name),
+          (0, import_react23.createElement)("span", { className: "bt-tag" }, badge)
+        ),
         (0, import_react23.createElement)("span", { className: "bt-connector-status" }, secondary)
       ),
       (0, import_react23.createElement)(
@@ -22640,12 +22674,13 @@ function CapabilitiesPage({ roster, actions, run: run2 }) {
   return (0, import_react23.createElement)(
     "section",
     { className: "bt-set-section" },
-    (0, import_react23.createElement)("h3", null, t("Shared capabilities")),
-    draft ? (0, import_react23.createElement)(CapabilityForm, { draft, setDraft, items, actions, onClose: () => setDraft(null) }) : (0, import_react23.createElement)(
+    (0, import_react23.createElement)(
       "div",
-      { className: "bt-actions" },
-      (0, import_react23.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: startNew }, t("Add capability"))
+      { className: "bt-la-sec-head" },
+      (0, import_react23.createElement)("h3", null, t("Shared capabilities")),
+      draft ? null : (0, import_react23.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm bt-with-icon", onClick: startNew }, (0, import_react23.createElement)(PlusIcon), t("Add capability"))
     ),
+    draft ? (0, import_react23.createElement)(CapabilityForm, { draft, setDraft, items, actions, onClose: () => setDraft(null) }) : null,
     (0, import_react23.createElement)(
       "div",
       { className: "bt-set-card bt-connectors-card" },
@@ -23834,7 +23869,7 @@ function BotSettingsForm({ bot, roster, actions, run: run2 }) {
   );
 }
 var BOT_SETTINGS_CSS = `
-.bt-bs{display:flex;flex-direction:column;gap:18px}
+.bt-bs{display:flex;flex-direction:column;gap:22px}
 .bt-bs-hero{display:flex;align-items:center;gap:14px;padding:2px 4px}
 .bt-bs-who{display:flex;flex-direction:column;min-width:0;gap:2px}
 .bt-bs-name{font-size:17px;line-height:24px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -23845,9 +23880,9 @@ label.bt-bs-row{cursor:text}
 .bt-bs-row>.bt-set-copy{flex:1 1 auto}
 .bt-bs-label{font-size:13px;line-height:18px;font-weight:500}
 .bt-bs-row .bt-model-trigger{flex:none;max-width:58%}
-.bt-bs-input{flex:0 1 220px;width:0;min-width:96px;height:30px;box-sizing:border-box;margin:-4px -6px -4px 0;padding:0 8px;border:1px solid transparent;border-radius:8px;background:none;color:var(--bt-ink);font:inherit;font-size:13px;text-align:right;outline:none;transition:background-color .12s ease,border-color .12s ease}
+.bt-bs-input{flex:0 1 220px;width:0;min-width:96px;height:30px;box-sizing:border-box;margin:-4px -6px -4px 0;padding:0 8px;border:.5px solid transparent;border-radius:8px;background:none;color:var(--bt-ink);font:inherit;font-size:13px;text-align:right;outline:none;transition:background-color .14s ease,border-color .14s ease,box-shadow .14s ease}
 .bt-bs-input:hover{background:var(--bt-hover)}
-.bt-bs-input:focus{background:var(--bt-main);border-color:var(--bt-line-2);text-align:left}
+.bt-bs-input:focus{background:var(--bt-main);border-color:var(--bt-accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--bt-accent) 22%,transparent);text-align:left}
 .bt-bs-input::placeholder{color:var(--bt-ink-3)}
 .bt-bs-stack{flex-direction:column;align-items:stretch;gap:8px}
 .bt-bs-area{flex:none;width:auto;min-height:112px;height:auto;margin:0 -6px -4px;padding:8px;line-height:19px;text-align:left;resize:vertical;background:var(--bt-hover)}
@@ -32874,7 +32909,7 @@ function BrowserPage({ roster, actions, run: run2, Section: Section2, Row: Row4 
           { className: "bt-browser-form-foot" },
           (0, import_react43.createElement)("button", {
             type: "submit",
-            className: "bt-soft bt-soft-sm",
+            className: "bt-send bt-soft-sm",
             disabled: busy || !selectedBot || kinds.length === 0
           }, busy ? t("Saving…") : t("Add"))
         )
@@ -33260,10 +33295,11 @@ function ProvidersPage({ actions, run: run2, Section: Section2, advanced = null 
   }, []);
   if (view === null) return null;
   if (!view.available) return (0, import_react46.createElement)("p", { className: "bt-set-hint" }, t("This DSH cannot set up model providers."));
+  const addBtn = adding ? null : (0, import_react46.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm bt-with-icon", onClick: () => setAdding(true) }, (0, import_react46.createElement)(PlusIcon), t("Add a provider"));
   return [
     (0, import_react46.createElement)(
       Section2,
-      { key: "list", title: t("Model providers · {count}", { count: view.providers.length }) },
+      { key: "list", title: t("Model providers · {count}", { count: view.providers.length }), action: addBtn },
       view.providers.map((provider) => (0, import_react46.createElement)(ProviderRow, {
         key: provider.id,
         provider,
@@ -33274,7 +33310,6 @@ function ProvidersPage({ actions, run: run2, Section: Section2, advanced = null 
       })),
       adding ? (0, import_react46.createElement)(AddProvider, { key: "add", view, apply: apply2, actions, onDone: () => setAdding(false) }) : null
     ),
-    adding ? null : (0, import_react46.createElement)("div", { key: "add", className: "bt-actions" }, (0, import_react46.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => setAdding(true) }, t("Add a provider"))),
     // DSH's own Models page: each model's context, output, inputs, thinking levels and order.
     advanced ? (0, import_react46.createElement)(
       "div",
@@ -33499,7 +33534,7 @@ function FormActions({ onCancel, onAdd, ready }) {
     "div",
     { className: "bt-secret-row-actions" },
     (0, import_react46.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: onCancel }, t("Cancel")),
-    (0, import_react46.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: !ready, onClick: onAdd }, t("Add"))
+    (0, import_react46.createElement)("button", { type: "button", className: "bt-send bt-soft-sm", disabled: !ready, onClick: onAdd }, t("Add"))
   );
 }
 var PROVIDERS_CSS = `
@@ -33703,8 +33738,13 @@ function MemorySize({ label, value, save }) {
     if (event.key === "Enter") event.target.blur();
   } });
 }
-function SetSection({ title, className = "", children }) {
-  return (0, import_react48.createElement)("section", { className: `bt-set-section ${className}`.trim() }, (0, import_react48.createElement)("h3", null, title), (0, import_react48.createElement)("div", { className: "bt-set-card" }, children));
+function SetSection({ title, action = null, className = "", children }) {
+  return (0, import_react48.createElement)(
+    "section",
+    { className: `bt-set-section ${className}`.trim() },
+    action ? (0, import_react48.createElement)("div", { className: "bt-la-sec-head" }, (0, import_react48.createElement)("h3", null, title), action) : title ? (0, import_react48.createElement)("h3", null, title) : null,
+    (0, import_react48.createElement)("div", { className: "bt-set-card" }, children)
+  );
 }
 function SetRow({ label, hint, children, className = "" }) {
   return (0, import_react48.createElement)(
@@ -33970,17 +34010,14 @@ function MotionSection({ roster, actions, run: run2 }) {
 }
 function BotsPage({ roster, actions, run: run2 }) {
   const [creating, setCreating] = (0, import_react48.useState)(false);
+  const newBotBtn = creating ? null : (0, import_react48.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm bt-with-icon", onClick: () => setCreating(true) }, (0, import_react48.createElement)(PlusIcon), t("New Bot"));
   return [
     (0, import_react48.createElement)(MainBotsSection, { key: "main", roster, actions, run: run2 }),
     (0, import_react48.createElement)(MotionSection, { key: "motion", roster, actions, run: run2 }),
-    creating ? (0, import_react48.createElement)(CreateBot, { key: "create", roster, actions, inline: true, onBack: () => setCreating(false), onCreated: (bot) => actions.openSettings("bots", bot.id) }) : (0, import_react48.createElement)(
-      "div",
-      { key: "new", className: "bt-actions" },
-      (0, import_react48.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm bt-with-icon", onClick: () => setCreating(true) }, (0, import_react48.createElement)(PlusIcon), t("New Bot"))
-    ),
+    creating ? (0, import_react48.createElement)(CreateBot, { key: "create", roster, actions, inline: true, onBack: () => setCreating(false), onCreated: (bot) => actions.openSettings("bots", bot.id) }) : null,
     (0, import_react48.createElement)(
       SetSection,
-      { key: "bots", title: t("Bots · {count}", { count: roster.bots.length }) },
+      { key: "bots", title: t("Bots · {count}", { count: roster.bots.length }), action: newBotBtn },
       roster.bots.map((bot) => (0, import_react48.createElement)(
         "button",
         { key: bot.id, type: "button", className: "bt-set-row", onClick: () => actions.openSettings("bots", bot.id) },
@@ -34001,15 +34038,12 @@ function BotsPage({ roster, actions, run: run2 }) {
 }
 function GroupsPage({ roster, actions, run: run2 }) {
   const [creating, setCreating] = (0, import_react48.useState)(false);
+  const newGroupBtn = creating ? null : (0, import_react48.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm bt-with-icon", disabled: roster.bots.length < 2, title: roster.bots.length < 2 ? t("A group chat needs at least two Bots") : void 0, onClick: () => setCreating(true) }, (0, import_react48.createElement)(PlusIcon), t("Create group chat"));
   return [
-    creating ? (0, import_react48.createElement)(NewGroupForm, { key: "create", roster, actions, run: run2, onCancel: () => setCreating(false), onCreated: (room2) => actions.openSettings("groups", room2.id) }) : (0, import_react48.createElement)(
-      "div",
-      { key: "new", className: "bt-actions" },
-      (0, import_react48.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm bt-with-icon", disabled: roster.bots.length < 2, title: roster.bots.length < 2 ? t("A group chat needs at least two Bots") : void 0, onClick: () => setCreating(true) }, (0, import_react48.createElement)(PlusIcon), t("Create group chat"))
-    ),
+    creating ? (0, import_react48.createElement)(NewGroupForm, { key: "create", roster, actions, run: run2, onCancel: () => setCreating(false), onCreated: (room2) => actions.openSettings("groups", room2.id) }) : null,
     (0, import_react48.createElement)(
       SetSection,
-      { key: "groups", title: t("Group chats · {count}", { count: roster.rooms.length }) },
+      { key: "groups", title: t("Group chats · {count}", { count: roster.rooms.length }), action: newGroupBtn },
       roster.rooms.length === 0 ? (0, import_react48.createElement)(SetRow, { label: t("No group chats yet."), hint: t("A group chat lets several Bots work on one thing with you.") }) : roster.rooms.map((room2) => {
         const admin = roster.byId[room2.admin];
         return (0, import_react48.createElement)(
