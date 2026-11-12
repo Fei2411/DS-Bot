@@ -145,27 +145,62 @@ export function install(rt) {
     return path
   }
 
-  // Every Session of a Bot: its own chat and its conversation in each of its groups.
-  const sessionsOfBot = botId => [rt.chatOf(botId), ...Object.values(state.rooms)
-    .filter(room => room.members.includes(botId)).map(room => room.sessions?.[botId])].filter(Boolean)
+  // Every place (its live Session, if made yet, and the preset its fresh part gets) that
+  // would work in the folder being set. A group with its own folder or a member's own
+  // folder pick there does not inherit the Bot's folder.
+  const folderPlaces = ({ botId, room, botIds, places, sessions = [] }) => {
+    if (places !== undefined) return places
+    if (botId !== undefined) {
+      const bot = rt.botOf(botId)
+      const list = [{ sessionId: rt.chatOf(botId), preset: bot?.permission }]
+      for (const entry of Object.values(state.rooms)) {
+        if (!entry.members.includes(botId) || entry.workDir !== undefined || Object.hasOwn(entry.memberDirs ?? {}, botId)) continue
+        list.push({ sessionId: entry.sessions?.[botId], preset: entry.permission ?? bot?.permission })
+      }
+      return list
+    }
+    if (room !== undefined && botIds !== undefined) {
+      return botIds.map(id => ({ sessionId: room.sessions?.[id], preset: room.permission ?? rt.botOf(id)?.permission }))
+    }
+    return [{ preset: undefined }, ...sessions.map(sessionId => ({ sessionId }))]
+  }
 
-  // A folder outside the team workspace widens where a Bot may write, so a Bot that
-  // sets one for Bots whose writes are bounded by their folder asks the user first.
-  // `sessions` are the Sessions that would work there; the default policy counts too,
-  // since the Sessions made there later start under it. Throws when it is not allowed.
-  async function approveFolder(exec, { path, sessions = [], who }) {
+  // A folder outside the team workspace widens where a bounded Session may write, so a
+  // bounded caller that sets one for Sessions bounded by their folder asks the user first.
+  // Both existing Sessions and the presets their fresh parts inherit count; a caller on
+  // Full access (not Auto review or custom review) widens nothing beyond its own reach.
+  async function approveFolder(exec, options) {
+    const { path, who } = options
     const team = await realTeam()
     const policy = ctx.get?.('sandboxPolicy')
     if (path === undefined || (team !== undefined && within(path, team))) return
+    const agent = exec.agent
     if (policy !== undefined) {
+      const presets = ctx.get?.('permissionPresets')
+      if (agent?.session !== undefined && policy.resolve({ session: agent.session }).mode === 'danger-full-access') {
+        let callerPreset
+        try { callerPreset = presets?.current?.(agent.session) } catch {}
+        if (callerPreset === undefined || callerPreset === 'danger-full-access') return
+      }
+      const fallback = policy.resolve().mode
+      const presetMode = (name) => {
+        if (presets === undefined) return fallback
+        const chosen = name || presets.catalog?.()?.defaultPreset
+        if (!chosen) return fallback
+        try { return presets.resolve(chosen)?.sandbox ?? fallback } catch { return fallback }
+      }
+      const places = folderPlaces(options)
+      const sessions = [...new Set(places.map(place => place.sessionId).filter(Boolean))]
       const agents = await Promise.all(sessions.map(id => rt.resolveAgent(id)))
-      const modes = [policy.resolve(), ...agents.map(agent => policy.resolve({ session: agent.session }))].map(entry => entry.mode)
+      const modes = places.length === 0 ? [fallback] : [
+        ...agents.map(entry => policy.resolve({ session: entry.session }).mode),
+        ...places.filter(place => Object.hasOwn(place, 'preset')).map(place => presetMode(place.preset)),
+      ]
       if (!modes.includes('workspace-write')) return
     }
     // With no policy service a Session's bounds cannot be checked, so a folder outside
     // the workspace asks like a bounded one would; when nobody can be asked it throws.
     const approval = ctx.get?.('approval')
-    const agent = exec.agent
     if (approval === undefined || agent?.session === undefined) throw new Error(`Working in ${path} needs the user's approval, and there is no way to ask for it here, so nothing changed. The user can make this change in the settings.`)
     const outcome = await approval.request({
       agent,
@@ -226,5 +261,5 @@ export function install(rt) {
     }
   }
 
-  Object.assign(rt, { teamFolder, defaultTeamFolder, workDirOf, sessionFolder, isFolder, real, realBeyond, folderAt, cleanWorkDir, workFolder, inData, setTeamWorkspace, sessionsOfBot, approveFolder, folderEndpoint })
+  Object.assign(rt, { teamFolder, defaultTeamFolder, workDirOf, sessionFolder, isFolder, real, realBeyond, folderAt, cleanWorkDir, workFolder, inData, setTeamWorkspace, approveFolder, folderEndpoint })
 }
