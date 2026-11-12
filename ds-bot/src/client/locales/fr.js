@@ -1,6 +1,8 @@
 // French (fr) localization for DS Bot client and DSH settings namespaces.
 
 export const FR = {
+  "Opening…": "Ouverture…",
+  "Still opening…": "Toujours en cours d’ouverture…",
   "Android beta": "Android bêta",
   "Cannot reach the Server. Trying again…": "Impossible de joindre le serveur. Nouvel essai…",
   "No phones yet": "Aucun téléphone pour l’instant",
@@ -2284,5 +2286,5 @@ export const DSH_FR = {
     "subagentModelSelectionRequired": "Sélectionnez au moins un modèle avant d’enregistrer.",
     "subagentModelSelectionConflict": "Les paramètres ont été modifiés ailleurs. Abandonnez vos modifications et réessayez.",
     "subagentModelSelectionOff": "Les sous-agents utilisent les valeurs par défaut configurées ou héritent du modèle de l’agent parent. Les choix de modèles enregistrés sont conservés."
-  }
+  },
 }
