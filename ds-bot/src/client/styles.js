@@ -639,10 +639,11 @@ button.bt-set-row:hover{background:var(--bt-hover)}
 @media(max-width:600px){.bt-set-form-row{grid-template-columns:1fr}}
 
 /* Settings → Phone. */
+.bt-phone{display:flex;flex-direction:column;gap:20px}
 .bt-phone-server{gap:8px}
 .bt-phone-server .bt-input{flex:1;min-width:0}
 .bt-phone-warn .bt-set-hint{color:var(--bt-danger)}
-.bt-phone-error{padding:0 4px 12px}
+.bt-phone-error{padding:0 4px}
 .bt-phone-pair{display:flex;align-items:center;gap:20px;padding:16px}
 .bt-phone-qr{flex:none;width:184px;height:184px;border-radius:8px}
 .bt-phone-qr rect{fill:var(--bt-qr-paper)}
