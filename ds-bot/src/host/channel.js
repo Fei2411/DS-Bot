@@ -91,7 +91,6 @@ export function install(rt) {
     questions: state.questions,
     views: state.views ?? {},
     closedCards: state.closedCards ?? {},
-    closedViews: state.closedViews ?? {},
     // Aside answers of each Bot's current part, newest first. Not part of the
     // model-visible history; earlier parts send their cards on their own pages.
     btwCards: rt.btwView?.() ?? {},
@@ -287,12 +286,12 @@ export function install(rt) {
           return ok(state.prefs)
         case 'exchange': {
           await rt.load()
-          const pair = new Set([body.a, body.b])
-          return ok(state.exchanges.filter(entry => pair.has(entry.from) && pair.has(entry.to)))
+          return ok(rt.exchangesOf(body.a, body.b))
         }
         case 'exchange-text': {
           await rt.load()
-          const entry = state.exchanges.find(item => item.id === body.id)
+          const entry = (body.a !== undefined && body.b !== undefined ? rt.exchangeOf(body.id, body.a, body.b) : undefined)
+            ?? state.exchanges.find(item => item.id === body.id)
           if (entry === undefined) return fail('This message is no longer kept', 'bot/stale')
           return ok(await rt.exchangeText(entry))
         }
@@ -333,8 +332,12 @@ export function install(rt) {
           const room = rt.roomOf(body.roomId) ?? rt.roomOf(rt.pastOwners.get(body.roomId)?.roomId)
           const from = Number(body.from)
           const to = body.to === undefined ? undefined : Number(body.to)
-          if (room === undefined || !Number.isInteger(from) || (to !== undefined && !Number.isInteger(to))) return ok([])
-          return ok(rt.groupRows(room.id, from, to))
+          if (room === undefined || !Number.isInteger(from) || (to !== undefined && !Number.isInteger(to))) return ok({ rows: [], open: false, speaking: [] })
+          const view = rt.groupRowsView(room.id, from, to, typeof body.anchor === 'string' ? body.anchor : undefined)
+          // The newest call's rows grow while the group works; who is answering shows under them.
+          const active = view.open && rt.roomActive(room.id)
+          const speaking = active ? [...rt.roomProgress.values()].filter(round => round.roomId === room.id).flatMap(round => round.slots.filter(slot => slot.status === 'speaking').map(slot => slot.id)) : []
+          return ok({ ...view, active, speaking })
         }
         case 'create-bot': {
           await rt.bootstrap()

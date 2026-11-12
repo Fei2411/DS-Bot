@@ -63,6 +63,7 @@ const FAILURES = {
   SERVER: 'The model service failed',
   TIMEOUT: 'The model took too long to answer',
   TRANSPORT: 'Could not reach the model service',
+  MODEL_SWITCH_COMPACTION_FAILED: "The conversation could not be compacted for the model switch",
   SESSION: 'Its group conversation could not open',
   SESSION_RESET: 'Its group conversation could not open, so it starts a new one next time',
 }

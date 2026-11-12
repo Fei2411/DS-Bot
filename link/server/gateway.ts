@@ -43,6 +43,8 @@ export interface GatewayOptions {
   maxSocketsPerAddress?: number
   /** Devices one address may register per hour, so nobody can fill the device table. */
   maxNewDevicesPerHour?: number
+  /** Bytes one address may send per hour, so nobody can turn the relay into a bulk tunnel. */
+  maxBytesPerHour?: number
   /** Take the client address from the last X-Forwarded-For entry. Only behind a proxy that sets it. */
   trustProxy?: boolean
   /** Forget devices not seen for this long. */
@@ -52,6 +54,7 @@ export interface GatewayOptions {
 const RELAY_CAPABILITY = 'transport.relay'
 const HEARTBEAT_MS = 25_000
 const HOUR_MS = 3_600_000
+const DEFAULT_MAX_BYTES_PER_HOUR = 512 * 1024 * 1024
 
 /**
  * Pairs a phone's control socket with its computer's and forwards their frames.
@@ -66,6 +69,7 @@ export class Gateway {
   private readonly options: GatewayOptions
   private readonly sockets = new Map<string, number>()
   private readonly registrations = new Map<string, { start: number; count: number }>()
+  private readonly traffic = new Map<string, { start: number; bytes: number }>()
   private lastPrune = 0
 
   constructor(options: GatewayOptions) {
@@ -124,9 +128,21 @@ export class Gateway {
     window.count += 1
   }
 
+  private chargeBytes(address: string, size: number): void {
+    const now = Date.now()
+    let window = this.traffic.get(address)
+    if (window === undefined || now - window.start >= HOUR_MS) {
+      window = { start: now, bytes: 0 }
+      this.traffic.set(address, window)
+    }
+    window.bytes += size
+    if (window.bytes > (this.options.maxBytesPerHour ?? DEFAULT_MAX_BYTES_PER_HOUR)) throw new LinkError('RATE_LIMITED')
+  }
+
   private prune(): void {
     const now = Date.now()
     for (const [address, window] of this.registrations) if (now - window.start >= HOUR_MS) this.registrations.delete(address)
+    for (const [address, window] of this.traffic) if (now - window.start >= HOUR_MS) this.traffic.delete(address)
     if (this.options.deviceTtlMs === undefined || now - this.lastPrune < HOUR_MS) return
     this.lastPrune = now
     this.options.store.prune(this.options.deviceTtlMs, now)
@@ -185,8 +201,10 @@ export class Gateway {
       try {
         if (binary) throw new LinkError('INVALID_MESSAGE')
         const text = raw.toString()
+        const size = Buffer.byteLength(text)
         if (Date.now() - windowStart >= 1_000) { windowStart = Date.now(); frames = 0; bytes = 0 }
-        if (++frames > 512 || (bytes += Buffer.byteLength(text)) > 16 * MAX_RELAY_FRAME_BYTES) throw new LinkError('RATE_LIMITED')
+        if (++frames > 512 || (bytes += size) > 8 * MAX_RELAY_FRAME_BYTES) throw new LinkError('RATE_LIMITED')
+        this.chargeBytes(address, size)
         frame = decodeControlFrame(text, { maxControlFrameBytes: MAX_CONTROL_FRAME_BYTES, maxRelayFrameBytes: MAX_RELAY_FRAME_BYTES })
         if (peer === undefined) {
           peer = this.hello(ws, frame, address)
