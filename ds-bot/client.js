@@ -37370,13 +37370,14 @@ function PermissionRow({ bot, roster, actions, run: run2 }) {
   );
 }
 function RunStats({ bot, part, running, actions }) {
-  const [values, setValues] = (0, import_react59.useState)(null);
+  const scope = `${bot.id}:${part ?? ""}`;
+  const [read, setRead] = (0, import_react59.useState)(null);
   (0, import_react59.useEffect)(() => {
     if (!actions.runStats) return void 0;
     let current = true;
     actions.runStats(bot.id).then(
-      (next) => {
-        if (current) setValues(next);
+      (values) => {
+        if (current) setRead({ scope, values });
       },
       // The line stays as it was until the next read works.
       () => {
@@ -37385,8 +37386,8 @@ function RunStats({ bot, part, running, actions }) {
     return () => {
       current = false;
     };
-  }, [bot.id, part, running]);
-  const shown = runStatsOf(values);
+  }, [scope, bot.id, running, actions]);
+  const shown = runStatsOf(read?.scope === scope ? read.values : null);
   if (shown.length === 0) return null;
   return (0, import_react59.createElement)(
     "div",

@@ -260,4 +260,6 @@ test('the Bot status line needs the runStats action and then draws turns, speed,
   assert.match(line, /38 tok\/s/)
   assert.match(line, /Cache hit 90%/)
   assert.match(line, /Context 41%/)
+  // Moving to another part clears the previous part's figures until the new read finishes.
+  assert.equal(RunStats({ bot, part: 'a-2', running: false, actions: { runStats: () => ({ then() {} }) } }), null)
 })
