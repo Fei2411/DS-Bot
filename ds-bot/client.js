@@ -14128,6 +14128,8 @@ function teamActions({ call: call2, after, partFor, roster, ui: ui2, live, cards
     earlier: (sessionId, cursor) => call2("earlier", { sessionId, cursor: cursor ?? null }),
     // Hours come back in this browser's time zone, so days start at local midnight.
     usage: () => call2("usage", { timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }),
+    // The details panel's status line: turns, speed, cache hits and context for one Bot.
+    runStats: (botId) => call2("run-stats", { botId }),
     // `summarize` starts a summary when the entries changed; `regenerate` always does.
     memoryView: (id, flags = {}) => call2("memory-view", { ...memoryOf(id), ...flags }),
     memoryAsk: (id, text) => call2("memory-ask", { ...memoryOf(id), text }),
@@ -38372,13 +38374,14 @@ function PermissionRow({ bot, roster, actions, run: run2 }) {
   );
 }
 function RunStats({ bot, part, running, actions }) {
-  const [values, setValues] = (0, import_react60.useState)(null);
+  const scope = `${bot.id}:${part ?? ""}`;
+  const [read, setRead] = (0, import_react60.useState)(null);
   (0, import_react60.useEffect)(() => {
     if (!actions.runStats) return void 0;
     let current = true;
     actions.runStats(bot.id).then(
-      (next) => {
-        if (current) setValues(next);
+      (values) => {
+        if (current) setRead({ scope, values });
       },
       // The line stays as it was until the next read works.
       () => {
@@ -38387,8 +38390,8 @@ function RunStats({ bot, part, running, actions }) {
     return () => {
       current = false;
     };
-  }, [bot.id, part, running]);
-  const shown = runStatsOf(values);
+  }, [scope, bot.id, running, actions]);
+  const shown = runStatsOf(read?.scope === scope ? read.values : null);
   if (shown.length === 0) return null;
   return (0, import_react60.createElement)(
     "div",

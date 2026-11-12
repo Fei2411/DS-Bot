@@ -49,21 +49,21 @@ function PermissionRow({ bot, roster, actions, run }) {
     h(PermissionPicker, { catalog, saved: bot.permission ?? catalog.defaultPreset, repick: bot.permission === undefined, onPick: permission => run(actions.updateBot(bot.id, { permission })) }))
 }
 
-// The current part's turns, speed, cache hits and context, for a window without DSH's
-// status bar (actions.runStats). It reads them again when a turn starts or ends.
-function RunStats({ bot, part, running, actions }) {
-  const [values, setValues] = useState(null)
+// The current part's turns, speed, cache hits and context, refreshed when a turn starts or ends.
+export function RunStats({ bot, part, running, actions }) {
+  const scope = `${bot.id}:${part ?? ''}`
+  const [read, setRead] = useState(null)
   useEffect(() => {
     if (!actions.runStats) return undefined
     let current = true
     actions.runStats(bot.id).then(
-      (next) => { if (current) setValues(next) },
+      (values) => { if (current) setRead({ scope, values }) },
       // The line stays as it was until the next read works.
       () => {},
     )
     return () => { current = false }
-  }, [bot.id, part, running])
-  const shown = runStatsOf(values)
+  }, [scope, bot.id, running, actions])
+  const shown = runStatsOf(read?.scope === scope ? read.values : null)
   if (shown.length === 0) return null
   return h('div', { className: 'bt-run-stats' },
     shown.map((entry, index) => h(Fragment, { key: entry.key },
