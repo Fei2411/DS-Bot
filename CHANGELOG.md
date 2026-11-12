@@ -4,6 +4,10 @@ All notable changes to DS Bot are listed here. The format follows [Keep a Change
 
 ## [Unreleased]
 
+### Added
+
+- DS Bot phone app for Android (beta). Pair a phone with the QR code in Settings → Phone, then chat with your Bots and group chats, send photos, answer questions, approvals and cards, and manage Bots, memory, schedules and settings from the phone. Phone and computer talk end to end encrypted through a Relay Server (`relay.dsbot.app` unless you enter your own), so the computer opens no port. The APK is attached to each release and linked from Settings → Phone. ([#1004](https://github.com/Fei2411/DS-Bot/pull/1004))
+
 ## [0.3.2] - 2026-11-09
 
 ### Added

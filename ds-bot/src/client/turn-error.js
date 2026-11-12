@@ -44,6 +44,7 @@ export function failureText(code, { name, provider, status }) {
     case 'RATE_LIMIT': return t('Too many requests. Wait a moment, then try again.')
     case 'SERVER': return t('The model service failed.')
     case 'INTERRUPTED': return t('DeepSeek Harness stopped before this turn finished.')
+    case 'MODEL_SWITCH_COMPACTION_FAILED': return t("The conversation could not be compacted for this model. Try again or choose another model.")
     default: return knownFailure(code) ?? t('This turn failed.')
   }
 }
@@ -60,6 +61,7 @@ export function fixesFor(code, { canSignIn, official, topUp, onAccount = false }
     case 'AUTH': return ['rekey', canSignIn ? 'use-account' : null, 'model'].filter(Boolean)
     case 'QUOTA': return official ? ['top-up'] : []
     case 'ACCOUNT_QUOTA': return topUp ? ['top-up'] : []
+    case 'MODEL_SWITCH_COMPACTION_FAILED': return ['model', 'model-settings']
     default: return []
   }
 }
@@ -68,6 +70,7 @@ export const retryShown = (code, blocked) => !CREDENTIAL_CODES.has(code) || bloc
 
 const FIX_LABELS = {
   key: () => t('Enter API key'),
+  'model-settings': () => t('Open model settings'),
   rekey: () => t('Enter the key again'),
   'sign-in': signedIn => (signedIn ? t('Use the DeepSeek account') : t('Sign in with a DeepSeek account')),
   'use-account': () => t('Use a DeepSeek account instead'),
@@ -200,6 +203,7 @@ export function FailureCell({ node, sessionId, useRoster, useTurnClock, actions 
     'use-account': viaAccount,
     'sign-in-again': () => actions.signIn(),
     model: actions.showDetails ? () => actions.showDetails(sessionId) : undefined,
+    'model-settings': manageModels(actions),
   }
   const fixes = fixesFor(data.code, { canSignIn, official, topUp: topUp !== undefined, onAccount: provider === ACCOUNT }).filter(fix => fix === 'top-up' || runs[fix] !== undefined)
   // A turn another Bot asked for answers that Bot, which was already told it failed.

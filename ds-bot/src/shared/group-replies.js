@@ -8,7 +8,7 @@
 export function relayRange(text) {
   try {
     const value = JSON.parse(text)
-    if (Number.isInteger(value?.from)) return { from: value.from, ...(Number.isInteger(value.to) ? { to: value.to } : {}) }
+    if (Number.isInteger(value?.from)) return { from: value.from, ...(Number.isInteger(value.to) ? { to: value.to } : {}), ...(typeof value.anchor === 'string' ? { anchor: value.anchor } : {}) }
   } catch { /* an older result, or one cut short */ }
   return undefined
 }
