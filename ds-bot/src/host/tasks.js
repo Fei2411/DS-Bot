@@ -40,8 +40,6 @@ function prune(room) {
 }
 
 export function install(rt) {
-  const { state } = rt
-
   const open = (room, botId, goal) => {
     const text = oneLine(goal, GOAL_MAX)
     if (text === '') return { error: 'A task needs a one-line goal.' }
@@ -153,8 +151,12 @@ export function install(rt) {
   Object.assign(rt, {
     taskNote: (roomId, id, text) => {
       const room = rt.roomOf(roomId)
-      if (room === undefined) return undefined
-      return note(room, id, text, 'user')
+      if (room === undefined) return { error: 'No such group.' }
+      const task = tasksOf(room)[String(id ?? '')]
+      if (task === undefined) return { error: 'No such task.' }
+      if (!OPEN_STATUSES.includes(task.status)) return { error: 'That task is already finished.' }
+      const noted = note(room, id, text, 'user')
+      return noted === undefined ? { error: 'Write a note first.' } : { task: noted }
     },
     taskCancel: (roomId, id) => {
       const room = rt.roomOf(roomId)
