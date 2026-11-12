@@ -8,6 +8,7 @@ import { join } from 'node:path'
 import { replaceFile } from '../files.js'
 import { viewCardText } from '../parts.js'
 import { imPlatform, IM_PLATFORMS } from '../../shared/im-platforms.js'
+import { REPLY_KIND, SOURCE_KIND } from '../constants.js'
 import { adapters } from './platforms/index.js'
 
 const RECONCILE_MS = 15_000
@@ -322,47 +323,50 @@ export function install(rt) {
   // An IM message starts a turn carrying the request it came in on; every other way a
   // turn starts — the Web UI, a peer Bot's message, a scheduled task, work picked up
   // after a restart — has no IM origin, and its replies, views and cards stay in the app.
-  // Nothing is persisted: after a restart there is no origin, so nothing goes out. An
-  // origin lives until its turn ends or another source joins it, however long the turn
-  // runs; a request lives until the message it names is admitted, however long that
-  // message waits in the queue behind a busy Bot.
+  // Nothing is persisted: after a restart there is no origin, so nothing goes out. A
+  // Bot's origin lives until its turn ends or another source joins it, however long the
+  // turn runs; a group's own Session ends its relay turn at once while its members keep
+  // working, so its origin lives until another source writes in the group or the user
+  // is unpaired. A request lives until the message it names is admitted, however long
+  // that message waits in the queue behind a busy Bot.
   const UNUSED_REQUEST_MS = 24 * 60 * 60 * 1000
+  const paired = (conn, senderId) => (conn.paired ?? []).some(entry => entry.id === senderId)
   // Session id → the chat its running turn came from.
   const origins = new Map()
   // Request id of an IM message → the chat it came from, until that message shows up.
   const requests = new Map()
-  const claimOrigin = (sessionId, connId, chatKey) => {
+  const claimOrigin = (sessionId, connId, chatKey, senderId) => {
     if (sessionId === undefined || connId === undefined) return
-    origins.set(sessionId, { connId, chatKey, at: Date.now() })
+    origins.set(sessionId, { connId, chatKey, senderId, at: Date.now() })
   }
   const dropOrigin = (sessionId) => { origins.delete(sessionId) }
-  /** The connection and chat a Session's replies go to, or undefined when nothing may leave. */
+  /**
+   * The connection and chat a Session's replies go to, or undefined when nothing may
+   * leave: no origin, its connection gone, its chat gone, or the user who asked no
+   * longer paired. A card goes out on this connection alone.
+   */
   const originOf = (sessionId) => {
     const entry = sessionId === undefined ? undefined : origins.get(sessionId)
     if (entry === undefined) return undefined
     const conn = Object.values(connections()).find(item => item.id === entry.connId)
     if (conn === undefined || !runners.has(conn.id)) return undefined
+    if (entry.senderId !== undefined && !paired(conn, entry.senderId)) return undefined
     const chat = conn.chats?.[entry.chatKey]
     return chat === undefined ? undefined : { conn, chatKey: entry.chatKey, chat }
   }
-  // The chats a Session's replies may go to, as the senders take them.
-  const originTargets = (sessionId) => {
-    const found = originOf(sessionId)
-    return found === undefined ? [] : [{ chatKey: found.chatKey, chat: found.chat }]
-  }
-  const rememberRequest = (requestId, connId, chatKey) => {
+  const rememberRequest = (requestId, connId, chatKey, senderId) => {
     // A request waiting behind a busy Bot is still the one its turn answers; only an
     // entry nothing ever claimed, long past any queue, is dropped to keep the map small.
     for (const [id, entry] of requests) if (Date.now() - entry.at > UNUSED_REQUEST_MS) requests.delete(id)
-    requests.set(requestId, { connId, chatKey, at: Date.now() })
+    requests.set(requestId, { connId, chatKey, senderId, at: Date.now() })
   }
   // The Session a Bot writes into now, for a card that carries no Session of its own.
   const chatOfBot = botId => rt.botOf(botId) === undefined ? undefined : rt.chatOf(botId)
   // A card answered here continues that turn: its replies belong to this chat too.
-  const claimChat = (conn, chat) => {
+  const claimChat = (conn, chat, senderId) => {
     const target = conn.chats?.[chat.key]?.target ?? (chat.kind === 'direct' ? { botId: conn.botId } : undefined)
     const sessionId = target?.roomId !== undefined ? (rt.roomOf(target.roomId)?.sessionId ?? target.roomId) : chatOfBot(target?.botId)
-    claimOrigin(sessionId, conn.id, chat.key)
+    claimOrigin(sessionId, conn.id, chat.key, senderId)
   }
 
   const failClass = (error) => {
@@ -408,7 +412,6 @@ export function install(rt) {
   const sendTo = (conn, chatKey, chat, body, buttons, after) => enqueue(conn, chatKey, { chat, text: body, buttons, after })
 
   // ----------------------------------------------------------------- inbound
-  const paired = (conn, senderId) => (conn.paired ?? []).some(entry => entry.id === senderId)
   const requested = (conn, msg) => {
     if ((conn.requests ?? []).some(entry => entry.id === msg.sender.id)) return false
     conn.requests = [...(conn.requests ?? []), { id: msg.sender.id, name: msg.sender.name, chatKey: msg.chat.key, chatKind: msg.chat.kind, at: Date.now() }]
@@ -440,13 +443,16 @@ export function install(rt) {
     }
     return undefined
   }
+  // 'answered': the answer continued the turn the chat claimed. 'stale': the card was
+  // gone and only the stale text was sent, so this chat claims nothing. false: the pick
+  // was not an answer to this card at all.
   const answerQuestionCard = async (conn, chat, cardKey, labels) => {
     const held = openCard(conn, chat.key, cardKey)
     if (held === undefined) return false
     const found = questionById(held.cardKey.slice(2))
     if (found === undefined) {
       await sendCardReply(conn, chat, text('stale'))
-      return true
+      return 'stale'
     }
     const valid = labels.filter(label => (found.question.options ?? []).some(option => option.label === label))
     if (valid.length === 0) return false
@@ -459,11 +465,11 @@ export function install(rt) {
         await settleCard(conn.id, held.cardKey, text('answered'))
         await sendCardReply(conn, chat, text('stale'))
         await settledEdits(conn)
-        return true
+        return 'stale'
       }
       throw error
     }
-    return true
+    return 'answered'
   }
   const answerApprovalCard = async (conn, chat, cardKey, choice) => {
     const held = openCard(conn, chat.key, cardKey)
@@ -475,11 +481,11 @@ export function install(rt) {
     } catch (error) {
       if (error?.code === 'bot/stale') {
         await sendCardReply(conn, chat, text('stale'))
-        return true
+        return 'stale'
       }
       throw error
     }
-    return true
+    return 'answered'
   }
   const sendCardReply = async (conn, chat, body) => sendText(conn, { key: chat.key, kind: chat.kind, title: chat.title }, body)
 
@@ -539,12 +545,18 @@ export function install(rt) {
           const options = found.question.options ?? []
           const inRange = picked.length > 0 && (found.question.multiSelect === true || picked.length === 1)
             && picked.every(index => options[index - 1] !== undefined)
-          if (inRange && await answerQuestionCard(conn, msg.chat, held.cardKey, picked.map(index => options[index - 1].label))) { claimChat(conn, msg.chat); return }
+          if (inRange) {
+            const answered = await answerQuestionCard(conn, msg.chat, held.cardKey, picked.map(index => options[index - 1].label))
+            if (answered === 'answered') claimChat(conn, msg.chat, msg.sender.id)
+            if (answered !== false) return
+          }
         }
       } else if (held !== undefined && held.cardKey.startsWith('a:')
         && picked.length === 1 && (picked[0] === 1 || picked[0] === 2)
         && rt.approvalsView().some(entry => `a:${entry.id}` === held.cardKey)) {
-        if (await answerApprovalCard(conn, msg.chat, held.cardKey, picked[0] === 1 ? 'allow' : 'reject')) { claimChat(conn, msg.chat); return }
+        const answered = await answerApprovalCard(conn, msg.chat, held.cardKey, picked[0] === 1 ? 'allow' : 'reject')
+        if (answered === 'answered') claimChat(conn, msg.chat, msg.sender.id)
+        if (answered !== false) return
       }
     }
     if (target === undefined) {
@@ -567,7 +579,7 @@ export function install(rt) {
     if (content.length === 0) return
     const requestId = `im:${conn.platform}:${randomUUID()}`
     // The turn this starts belongs to this chat: its replies go back here and nowhere else.
-    rememberRequest(requestId, conn.id, msg.chat.key)
+    rememberRequest(requestId, conn.id, msg.chat.key, msg.sender.id)
     await rt.sendUser({ sessionId, content, requestId })
   }
 
@@ -587,14 +599,16 @@ export function install(rt) {
         await sendCardReply(conn, chat, text('stale'))
         return
       }
-      if (!(await answerQuestionCard(conn, chat, cardKey, [label]))) await sendCardReply(conn, chat, text('stale'))
-      else claimChat(conn, chat)
+      const answered = await answerQuestionCard(conn, chat, cardKey, [label])
+      if (answered === 'answered') claimChat(conn, chat, action.sender.id)
+      else if (answered === false) await sendCardReply(conn, chat, text('stale'))
       return
     }
     if (data.startsWith('a:') && cut > 2) {
       if (choice === 'allow' || choice === 'reject') {
-        if (!(await answerApprovalCard(conn, chat, cardKey, choice))) await sendCardReply(conn, chat, text('stale'))
-        else claimChat(conn, chat)
+        const answered = await answerApprovalCard(conn, chat, cardKey, choice)
+        if (answered === 'answered') claimChat(conn, chat, action.sender.id)
+        else if (answered === false) await sendCardReply(conn, chat, text('stale'))
       }
     }
   }
@@ -629,7 +643,7 @@ export function install(rt) {
       const runner = runners.get(conn.id)
       if (runner === undefined) continue
       const data = await cardsOf(conn.id)
-      // Questions: one card per open question id, sent to the Bot's chats.
+      // Questions: one card per open question id, on the connection whose chat asked.
       for (const [sessionId, question] of Object.entries(state.questions ?? {})) {
         const cardKey = `q:${question.id}`
         if (data.cards[cardKey] !== undefined) continue
@@ -637,10 +651,10 @@ export function install(rt) {
         const bot = rt.botOf(botId)
         if (bot === undefined) continue
         // A card follows its own turn: only the chat that asked for it gets one.
-        const targets = originTargets(sessionId)
-        if (targets.length === 0) continue
+        const origin = originOf(sessionId)
+        if (origin === undefined || origin.conn.id !== conn.id) continue
         const buttons = imPlatform(conn.platform)?.buttons === true ? cardButtons.question(question) : undefined
-        await sendCard(conn, cardKey, targets, cardText.question(bot.name, question), buttons)
+        await sendCard(conn, cardKey, [{ chatKey: origin.chatKey, chat: origin.chat }], cardText.question(bot.name, question), buttons)
       }
       // Secret requests: text only — the key is typed on the computer or phone.
       for (const [botId, list] of Object.entries(state.secretRequests ?? {})) {
@@ -649,9 +663,9 @@ export function install(rt) {
         for (const request of list) {
           const cardKey = `s:${request.id}`
           if (request.status !== 'pending' || data.cards[cardKey] !== undefined) continue
-          const targets = originTargets(chatOfBot(botId))
-          if (targets.length === 0) continue
-          await sendCard(conn, cardKey, targets, text('secretAsk', { bot: bot.name, name: request.name }))
+          const origin = originOf(chatOfBot(botId))
+          if (origin === undefined || origin.conn.id !== conn.id) continue
+          await sendCard(conn, cardKey, [{ chatKey: origin.chatKey, chat: origin.chat }], text('secretAsk', { bot: bot.name, name: request.name }))
         }
       }
       // Views awaiting a reply: text form only.
@@ -661,10 +675,10 @@ export function install(rt) {
         const botId = rt.chatOwners.get(sessionId)
         const bot = rt.botOf(botId)
         if (bot === undefined) continue
-        const targets = originTargets(sessionId)
-        if (targets.length === 0) continue
+        const origin = originOf(sessionId)
+        if (origin === undefined || origin.conn.id !== conn.id) continue
         const form = viewCardText({ title: view.title, view: view.view })
-        await sendCard(conn, cardKey, targets, `${text('viewShow', { bot: bot.name })}${form !== '' ? `\n${form}` : view.title ? `\n${view.title}` : ''}`)
+        await sendCard(conn, cardKey, [{ chatKey: origin.chatKey, chat: origin.chat }], `${text('viewShow', { bot: bot.name })}${form !== '' ? `\n${form}` : view.title ? `\n${view.title}` : ''}`)
       }
     }
   }
@@ -1072,7 +1086,8 @@ export function install(rt) {
   // ----------------------------------------------------------------- outbound
   ctx.on('session/event', (session, event) => {
     if (event.type === 'user/message') {
-      const rpcId = event.data?.source?.rpcId
+      const source = event.data?.source
+      const rpcId = source?.rpcId
       if (typeof rpcId === 'string' && rpcId.startsWith('im:')) {
         if (Number.isInteger(event.seq)) imVia.set(session.id, { ...imVia.get(session.id), [event.seq]: rpcId.split(':')[1] })
         // The chat this message came from is the one its turn answers. A message this
@@ -1080,14 +1095,24 @@ export function install(rt) {
         const asked = requests.get(rpcId)
         requests.delete(rpcId)
         if (asked === undefined) dropOrigin(session.id)
-        else claimOrigin(session.id, asked.connId, asked.chatKey)
+        else claimOrigin(session.id, asked.connId, asked.chatKey, asked.senderId)
+      } else if (source?.kind === REPLY_KIND) {
+        // The answer to a card this chat answered: the turn it starts carries on where
+        // the chat left off, so the claim that answer made stays.
+      } else if (source?.kind === SOURCE_KIND && source.role === 'post') {
+        // A member's late result relayed into the group's own Session. The group's work
+        // is still the answer to the chat that asked, wherever the member runs.
       } else {
         // A message from the Web UI, a peer Bot or a scheduled task: this turn is not an
         // IM chat's to answer, even when an earlier turn of this Session was.
         dropOrigin(session.id)
       }
     }
-    if (event.type === 'turn/end') dropOrigin(session.id)
+    if (event.type === 'turn/end') {
+      // A group's own Session ends its relay turn at once while its members keep
+      // working and post later; only a Bot's turn ending ends the chat's claim.
+      if (rt.roomOf(session.id) === undefined) dropOrigin(session.id)
+    }
     const botId = rt.chatOwners.get(session.id)
     if (botId === undefined) {
       // A group's own chat has no Bot of its own; its lines go out from onRoomLine.
@@ -1099,7 +1124,7 @@ export function install(rt) {
     for (const item of rt.displayItems(session.id, [event])) {
       if (item.kind !== 'bot' && item.kind !== 'view') continue
       const body = item.kind === 'bot' ? item.text : viewCardText({ title: item.title, view: item.view }) || (item.title ?? '')
-      for (const { chatKey, chat } of originTargets(session.id)) sendTo(origin.conn, chatKey, { key: chatKey, kind: chat.kind, title: chat.title }, body)
+      sendTo(origin.conn, origin.chatKey, { key: origin.chatKey, kind: origin.chat.kind, title: origin.chat.title }, body)
     }
   })
 
@@ -1108,24 +1133,18 @@ export function install(rt) {
     const origin = originOf(room.sessionId ?? room.id)
     if (origin === undefined) return
     const body = `**${line.who}**: ${line.text}`
-    for (const { chatKey, chat } of originTargets(room.sessionId ?? room.id)) sendTo(origin.conn, chatKey, { key: chatKey, kind: chat.kind, title: chat.title }, body)
+    sendTo(origin.conn, origin.chatKey, { key: origin.chatKey, kind: origin.chat.kind, title: origin.chat.title }, body)
   })
 
   rt.onApproval((kind, data) => {
     if (kind === 'open') {
       void (async () => {
         const sessionId = data.roomId !== undefined ? (rt.roomOf(data.roomId)?.sessionId ?? data.roomId) : chatOfBot(data.botId)
-        const cards = originTargets(sessionId)
-        if (cards.length === 0) return
-        for (const conn of Object.values(connections())) {
-          const runner = runners.get(conn.id)
-          if (runner === undefined) continue
-          const bot = rt.botOf(data.botId)
-          const targets = cards.filter(({ chatKey }) => conn.chats?.[chatKey] !== undefined)
-          if (targets.length === 0) continue
-          const buttons = imPlatform(conn.platform)?.buttons === true ? cardButtons.approval(data.id) : undefined
-          await sendCard(conn, `a:${data.id}`, targets, cardText.approval(bot?.name ?? '?', data), buttons)
-        }
+        const origin = originOf(sessionId)
+        if (origin === undefined) return
+        const bot = rt.botOf(data.botId)
+        const buttons = imPlatform(origin.conn.platform)?.buttons === true ? cardButtons.approval(data.id) : undefined
+        await sendCard(origin.conn, `a:${data.id}`, [{ chatKey: origin.chatKey, chat: origin.chat }], cardText.approval(bot?.name ?? '?', data), buttons)
       })().catch(error => rt.warn('ds-bot: im approval card failed: %s', error))
       return
     }
