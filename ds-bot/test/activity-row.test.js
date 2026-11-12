@@ -45,10 +45,13 @@ runInNewContext(outputFiles[0].text, {
 })
 const { findHost, rowVisible, freshInputAt, clientErrors } = module.exports
 
-test('the activity row mounts at the running slot even under an extra wrapper', () => {
-  dom.window.document.body.innerHTML = '<div data-chat-flow><div class="wrap"><div data-chat-running id="slot"></div></div></div>'
+// The row mounts at the flow's tail, after the shell's pending rows, so an
+// interjection's echo never appears above it: the flow around the running
+// slot hosts the row, even under an extra wrapper.
+test('the activity row mounts at the flow around the running slot, even under an extra wrapper', () => {
+  dom.window.document.body.innerHTML = '<div data-chat-flow id="flow"><div class="wrap"><div data-chat-running id="slot"></div></div></div>'
   const host = findHost()
-  assert.equal(host?.id, 'slot')
+  assert.equal(host?.id, 'flow')
 })
 
 test('without the running slot the row mounts at the flow tail', () => {

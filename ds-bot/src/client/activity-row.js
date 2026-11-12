@@ -8,7 +8,7 @@ import { t } from './i18n.js'
 
 // -------------------------------------------------------------------------
 // The activity row: the Bot's mark and a shimmering phrase at the transcript
-// tail while it works. It lives in the shell's running status, steps aside while a
+// tail while it works. It mounts at the flow's tail, steps aside while a
 // reply streams, and holds each phrase long enough to read.
 
 const PHRASE_HOLD_MS = 800
@@ -25,13 +25,18 @@ export const rowVisible = ({ running, streaming, tools, relaying, bot, room }) =
 export const freshInputAt = (submissions, steeredAt) => Math.max(0, steeredAt ?? 0,
   ...(submissions ?? []).filter(sub => sub.placement !== 'queued').map(sub => sub.time))
 
-// The shell's running slot can sit under wrappers it adds around the flow, so the
-// search is a descendant one; without the slot the row mounts at the flow's tail.
-// No flow at all is a mount failure, noted once per page — the observer keeps
-// retrying in case the transcript is only mid-mount.
+// The shell's running status renders before pending steering rows, so hosting
+// the row there puts it above an interjection's echo, and it jumps below the
+// message once the echo commits. The flow's tail always sorts last, so the
+// search resolves the flow around the running slot and mounts there; the
+// shell's own running content stays hidden in styles. The slot can sit under
+// wrappers the shell adds around the flow, so the search is a descendant one
+// and a flow without a slot falls back to the first flow. No flow at all is a
+// mount failure, noted once per page — the observer keeps retrying in case
+// the transcript is only mid-mount.
 let mountMissed = false
 export function findHost() {
-  const node = document.querySelector('[data-chat-flow] [data-chat-running]')
+  const node = document.querySelector('[data-chat-flow] [data-chat-running]')?.closest('[data-chat-flow]')
     ?? document.querySelector('[data-chat-flow]')
   if (node === null && !mountMissed) {
     mountMissed = true
