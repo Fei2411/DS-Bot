@@ -214,9 +214,10 @@ export function install(rt) {
   ctx.on('session/event', (session, event) => {
     const id = session?.id
     if (id === undefined) return
-    if (rt.roomOf(id) !== undefined) {
+    const room = rt.roomOf(id)
+    if (room !== undefined) {
       // A round starts or ends.
-      if (event.type === 'tool/call' || event.type === 'tool/result' || event.type === 'user/message') roomChanged(id)
+      if (event.type === 'tool/call' || event.type === 'tool/result' || event.type === 'user/message') roomChanged(room.id)
       return
     }
     if (event.type !== 'assistant/message') return
@@ -278,16 +279,23 @@ export function install(rt) {
     const room = rt.roomOf(String(body.roomId ?? ''))
     if (room === undefined) throw Object.assign(new Error('Unknown group chat'), { code: 'bot/not-found' })
     const cursor = body.cursor ?? undefined
-    const agent = await rt.resolveAgent(room.id)
+    const parts = rt.partsOf(undefined, room.id)
+    const index = Number.isInteger(cursor?.part) ? cursor.part : parts.length - 1
+    if (index < 0 || index >= parts.length) return { roomId: room.id, items: [], cursor: null, running: false, speaking: null }
+    const part = parts[index]
+    const agent = await rt.resolveAgent(part.sessionId).catch((error) => {
+      if (index === parts.length - 1) throw error
+      return undefined
+    })
     const page = await ctx.sessionController.page({
-      address: { kind: 'session', sessionId: room.id },
-      throughSeq: Number(agent.session.seq) - 1,
+      address: { kind: 'session', sessionId: part.sessionId },
+      ...(agent ? { throughSeq: Number(agent.session.seq) - 1 } : {}),
       ...(Number.isInteger(cursor?.beforeSeq) ? { beforeSeq: cursor.beforeSeq } : {}),
       maxMessages: ROOM_PAGE,
     }, AbortSignal.timeout(HISTORY_TIMEOUT_MS))
     const events = page.records.map(record => record.event)
-    const { items, open } = roomItems(events, range => rt.groupRows?.(room.id, range.from, range.to) ?? [])
-    if (body.steps === true) await rt.applySteps?.(items, events, room.id)
+    const { items, open } = roomItems(events, range => rt.groupRows?.(room.id, range.from, range.to, range.anchor) ?? [])
+    if (body.steps === true) await rt.applySteps?.(items, events, part.sessionId)
     const running = [...rt.roomProgress.entries()].filter(([, round]) => round.roomId === room.id)
     // The newest page shows what the running round has said so far, where its call sits.
     if (cursor === undefined) {
@@ -303,7 +311,7 @@ export function install(rt) {
     return {
       roomId: room.id,
       items,
-      cursor: more ? { beforeSeq: events[0].seq } : null,
+      cursor: more ? { part: index, beforeSeq: events[0].seq } : index > 0 ? { part: index - 1 } : null,
       running: running.length > 0,
       speaking: running.map(([, round]) => round.slots?.find(slot => slot.status === 'speaking')?.id ?? round.speaking).find(Boolean) ?? null,
     }
@@ -344,40 +352,48 @@ export function install(rt) {
 
   async function image(body) {
     const sessionId = String(body.sessionId ?? '')
-    const owned = rt.chatOwners.get(sessionId) !== undefined || rt.roomOf(sessionId) !== undefined || rt.pastOwners.get(sessionId) !== undefined
-    if (!owned) throw Object.assign(new Error('Unknown session'), { code: 'bot/not-found' })
+    const room = rt.roomOf(sessionId) ?? rt.roomOf(rt.pastOwners.get(sessionId)?.roomId)
+    const botId = room === undefined ? rt.chatOwners.get(sessionId) ?? rt.pastOwners.get(sessionId)?.botId : undefined
+    if (botId === undefined && room === undefined) throw Object.assign(new Error('Unknown session'), { code: 'bot/not-found' })
     const attachments = ctx.get?.('attachments')
     if (attachments === undefined) throw Object.assign(new Error('Attachments unavailable'), { code: 'bot/refused' })
-    let beforeSeq
-    for (;;) {
-      const page = await ctx.sessionController.page({
-        address: { kind: 'session', sessionId },
-        ...(beforeSeq !== undefined ? { beforeSeq } : {}),
-        maxMessages: 500,
-      }, AbortSignal.timeout(HISTORY_TIMEOUT_MS))
-      for (const record of page.records) {
-        const content = Array.isArray(record.event?.data?.content) ? record.event.data.content : []
-        for (const block of content) {
-          if (block?.type === 'image' && String(block.attachment?.attachmentId) === String(body.attachmentId)) {
-            const key = String(block.attachment.attachmentId)
-            if (body.preview === true && previews.get(key)) return shown(key)
-            // An image block's ref names no file: DSH reads it as an image, not a file.
-            const bytes = Buffer.from((await attachments.readImage(block.attachment, AbortSignal.timeout(HISTORY_TIMEOUT_MS))).data)
-            const mime = mediaOf(block.attachment) ?? 'image/png'
-            const { width, height } = block.attachment
-            if (body.preview === true && !(Math.max(width, height) <= PREVIEW_EDGE)) {
-              // A photo that cannot be shrunk is sent as it is, and remembered as such.
-              const small = await previewImage(bytes, mime).catch(() => null)
-              keep(key, small)
-              if (small !== null) return shown(key)
+    const sessions = [...new Set([
+      ...(room !== undefined ? [rt.sessionOfRoom(room)] : []),
+      sessionId,
+      ...rt.partsOf(botId, room?.id).map(part => part.sessionId).reverse(),
+    ])]
+    for (const targetId of sessions) {
+      let beforeSeq
+      for (;;) {
+        const page = await ctx.sessionController.page({
+          address: { kind: 'session', sessionId: targetId },
+          ...(beforeSeq !== undefined ? { beforeSeq } : {}),
+          maxMessages: 500,
+        }, AbortSignal.timeout(HISTORY_TIMEOUT_MS))
+        for (const record of page.records) {
+          const content = Array.isArray(record.event?.data?.content) ? record.event.data.content : []
+          for (const block of content) {
+            if (block?.type === 'image' && String(block.attachment?.attachmentId) === String(body.attachmentId)) {
+              const key = String(block.attachment.attachmentId)
+              if (body.preview === true && previews.get(key)) return shown(key)
+              // An image block's ref names no file: DSH reads it as an image, not a file.
+              const bytes = Buffer.from((await attachments.readImage(block.attachment, AbortSignal.timeout(HISTORY_TIMEOUT_MS))).data)
+              const mime = mediaOf(block.attachment) ?? 'image/png'
+              const { width, height } = block.attachment
+              if (body.preview === true && !(Math.max(width, height) <= PREVIEW_EDGE)) {
+                // A photo that cannot be shrunk is sent as it is, and remembered as such.
+                const small = await previewImage(bytes, mime).catch(() => null)
+                keep(key, small)
+                if (small !== null) return shown(key)
+              }
+              return { mime, data: bytes.toString('base64') }
             }
-            return { mime, data: bytes.toString('base64') }
           }
         }
+        if (page.hasMore !== true) break
+        beforeSeq = page.records[0]?.event?.seq
+        if (beforeSeq === undefined) break
       }
-      if (page.hasMore !== true) break
-      beforeSeq = page.records[0]?.event?.seq
-      if (beforeSeq === undefined) break
     }
     throw Object.assign(new Error('Unknown attachment'), { code: 'bot/not-found' })
   }

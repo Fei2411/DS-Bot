@@ -474,3 +474,56 @@ test('state rows carry lastAt and preview from the Bot own chat', async () => {
   assert.equal(row.preview, 'Ship the list first')
   await stop()
 })
+
+test('room-chat reads the current part after a group chat moves to a fresh part, and pages back to earlier parts', async (t) => {
+  const { call, emit, history, routes, rt, stop } = start()
+  t.after(stop)
+  const { room } = await team(call)
+  history[room.id] = [user(1, 'First part message', 10)]
+  const saved = rt.state.rooms[room.id]
+  saved.parts = [{ sessionId: room.id, endedAt: 20 }]
+  saved.sessionId = 's-room-2'
+  await rt.save()
+  await rt.load()
+  history['s-room-2'] = [user(1, 'Second part message', 30)]
+
+  const current = (await call('room-chat', { roomId: room.id })).value
+  assert.deepEqual(current.items.map(item => [item.id, item.text]), [['1', 'Second part message']])
+  assert.deepEqual(current.cursor, { part: 0 })
+
+  const earlier = (await call('room-chat', { roomId: room.id, cursor: current.cursor })).value
+  assert.deepEqual(earlier.items.map(item => [item.id, item.text]), [['1', 'First part message']])
+  assert.equal(earlier.cursor, null)
+
+  const abort = new AbortController()
+  t.after(() => abort.abort())
+  const next = reader(await routes['/api/bot/feed'].fetch(new Request('http://localhost/api/bot/feed', { signal: abort.signal })))
+  assert.equal((await next()).event, 'hello')
+  await emit('s-room-2', user(2, 'Another message in part 2', 40))
+  const event = await next()
+  assert.deepEqual(event, { event: 'room', data: { roomId: room.id } })
+})
+
+test('room-chat keeps two group_relay calls that start at the same seq apart by their anchor', async (t) => {
+  const { call, history, rt, stop } = start()
+  t.after(stop)
+  const { writer, room } = await team(call)
+  rt.ledger.append(`group-${room.id}`, { event: 'anchor', id: 'one', from: 1, time: 1 })
+  rt.ledger.append(`group-${room.id}`, { event: 'anchor', id: 'two', from: 1, time: 2 })
+  rt.logRoom(rt.roomOf(room.id), { who: 'Writer', botId: writer.id, text: 'Reply to second call' })
+  history[room.id] = [
+    user(1, 'First call'),
+    relayCall(2, 'call-1'),
+    relayResult(3, 'call-1', JSON.stringify({ from: 1, anchor: 'one' })),
+    user(4, 'Second call'),
+    relayCall(5, 'call-2'),
+    relayResult(6, 'call-2', JSON.stringify({ from: 1, anchor: 'two' })),
+  ]
+  const page = (await call('room-chat', { roomId: room.id })).value
+  assert.deepEqual(page.items.map(item => [item.id, item.text]), [
+    ['1', 'First call'],
+    ['4', 'Second call'],
+    ['call-2:0', 'Reply to second call'],
+  ])
+})
+
