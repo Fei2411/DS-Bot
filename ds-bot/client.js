@@ -1352,6 +1352,11 @@ var JA = {
   "Settings → Feedback has the details.": "詳細は「設定 → フィードバック」を確認してください。",
   "Could not reach DSH. Check that it is still running.": "DSH に接続できませんでした。起動しているか確認してください。",
   "{name} stopped: {reason}. Switch its model or ask it to go on.": "{name} が停止しました: {reason}。モデルを切り替えるか、続行するよう伝えてください。",
+  "{name}'s background helper did not finish: {reason}. Ask it to go on if it still matters.": "{name} のバックグラウンド ヘルパーは完了できませんでした：{reason}。必要なら続行を依頼してください。",
+  "Run failed": "実行に失敗しました",
+  "Reached the output limit": "出力上限に達しました",
+  "Stopped before finishing": "完了前に停止しました",
+  "Declined the task": "タスクを辞退しました",
   "Unknown error": "不明なエラー",
   "The model has no API key": "モデルに API キーが設定されていません",
   "The API key is not in the right format": "API キーの形式が正しくありません",
@@ -3665,6 +3670,11 @@ var KO = {
   "Settings → Feedback has the details.": "설정 → 피드백에서 자세한 내용을 확인하세요.",
   "Could not reach DSH. Check that it is still running.": "DSH에 연결할 수 없습니다. 실행 중인지 확인하세요.",
   "{name} stopped: {reason}. Switch its model or ask it to go on.": "{name} 중지됨: {reason}. 모델을 변경하거나 계속 진행하도록 요청하세요.",
+  "{name}'s background helper did not finish: {reason}. Ask it to go on if it still matters.": "{name}의 백그라운드 도우미가 끝내지 못했습니다: {reason}. 계속 필요하면 다시 진행하도록 요청하세요.",
+  "Run failed": "실행 실패",
+  "Reached the output limit": "출력 한도에 도달했습니다",
+  "Stopped before finishing": "완료 전에 중지됨",
+  "Declined the task": "작업을 거절했습니다",
   "Unknown error": "알 수 없는 오류",
   "The model has no API key": "모델에 API 키가 없습니다",
   "The API key is not in the right format": "API 키 형식이 올바르지 않습니다",
@@ -5984,6 +5994,11 @@ var ES = {
   "Settings → Feedback has the details.": "Los detalles están en Ajustes → Comentarios.",
   "Could not reach DSH. Check that it is still running.": "No se pudo conectar con DSH. Comprueba que siga en ejecución.",
   "{name} stopped: {reason}. Switch its model or ask it to go on.": "{name} se detuvo: {reason}. Cambia su modelo o pídele que continúe.",
+  "{name}'s background helper did not finish: {reason}. Ask it to go on if it still matters.": "El ayudante en segundo plano de {name} no terminó: {reason}. Pídele que siga si aún importa.",
+  "Run failed": "Falló la ejecución",
+  "Reached the output limit": "Se alcanzó el límite de salida",
+  "Stopped before finishing": "Se detuvo antes de terminar",
+  "Declined the task": "Rechazó la tarea",
   "Unknown error": "Error desconocido",
   "The model has no API key": "El modelo no tiene clave API",
   "The API key is not in the right format": "La clave API no tiene el formato correcto",
@@ -8264,6 +8279,11 @@ var FR = {
   "Settings → Feedback has the details.": "Voir les détails dans Paramètres → Retours.",
   "Could not reach DSH. Check that it is still running.": "Impossible de joindre DSH. Vérifiez qu’il est toujours en cours d’exécution.",
   "{name} stopped: {reason}. Switch its model or ask it to go on.": "{name} s’est arrêté : {reason}. Changez son modèle ou demandez-lui de continuer.",
+  "{name}'s background helper did not finish: {reason}. Ask it to go on if it still matters.": "L'assistant en arrière-plan de {name} n'a pas terminé : {reason}. Demandez-lui de continuer si c'est encore utile.",
+  "Run failed": "Échec de l’exécution",
+  "Reached the output limit": "Limite de sortie atteinte",
+  "Stopped before finishing": "Arrêté avant la fin",
+  "Declined the task": "Tâche refusée",
   "Unknown error": "Erreur inconnue",
   "The model has no API key": "Le modèle n’a pas de clé API",
   "The API key is not in the right format": "La clé API n’est pas au bon format",
@@ -10577,6 +10597,11 @@ var DE = {
   "Settings → Feedback has the details.": "Details findest du unter Einstellungen → Feedback.",
   "Could not reach DSH. Check that it is still running.": "DSH ist nicht erreichbar. Prüfe bitte, ob es noch läuft.",
   "{name} stopped: {reason}. Switch its model or ask it to go on.": "{name} hat gestoppt: {reason}. Wechsle das Modell oder bitte ihn weiterzumachen.",
+  "{name}'s background helper did not finish: {reason}. Ask it to go on if it still matters.": "Der Hintergrundhelfer von {name} wurde nicht fertig: {reason}. Bitte {name}, weiterzumachen, falls es noch wichtig ist.",
+  "Run failed": "Ausführung fehlgeschlagen",
+  "Reached the output limit": "Ausgabelimit erreicht",
+  "Stopped before finishing": "Vor Abschluss gestoppt",
+  "Declined the task": "Aufgabe abgelehnt",
   "Unknown error": "Unbekannter Fehler",
   "The model has no API key": "Für das Modell ist kein API-Schlüssel hinterlegt",
   "The API key is not in the right format": "Der API-Schlüssel hat ein ungültiges Format",
@@ -12898,6 +12923,11 @@ var ZH = {
   "Settings → Feedback has the details.": "详情见 设置 → 反馈。",
   "Could not reach DSH. Check that it is still running.": "连不上 DSH，请确认它还在运行。",
   "{name} stopped: {reason}. Switch its model or ask it to go on.": "{name} 停下了：{reason}。换个模型，或让它继续。",
+  "{name}'s background helper did not finish: {reason}. Ask it to go on if it still matters.": "{name} 的后台子代理没做完：{reason}。如果还需要，让它继续。",
+  "Run failed": "运行出错",
+  "Reached the output limit": "达到输出上限",
+  "Stopped before finishing": "未完成即停止",
+  "Declined the task": "拒绝了任务",
   "Unknown error": "未知错误",
   "The model has no API key": "模型还没有 API Key",
   "The API key is not in the right format": "API Key 格式不对",
@@ -26517,12 +26547,40 @@ function useLiveNote(actions, sessionId, id, entry) {
     return () => actions.noteLive(sessionId, id, null);
   }, [sessionId, id, key]);
 }
+function helperFailureReason(reply) {
+  let why;
+  switch (reply.stopReason) {
+    case "max-tokens":
+      why = t("Reached the output limit");
+      break;
+    case "aborted":
+      why = t("Stopped before finishing");
+      break;
+    case "refusal":
+      why = t("Declined the task");
+      break;
+    case "error":
+      why = t("Run failed");
+      break;
+    default:
+      why = reply.stopReason ? `${t("Run failed")} (${reply.stopReason})` : reply.text || t("Run failed");
+      break;
+  }
+  return reply.helper ? `${reply.helper} (${why})` : why;
+}
 function RelayEvent({ reply, bot, sessionId, actions }) {
   if (reply.kind === "failed") {
     return (0, import_react32.createElement)(
       "div",
       { className: "bt-event bt-event-error", role: "status", title: [reply.code, reply.status, reply.text].filter(Boolean).join(" · ") },
       t("{name} stopped: {reason}. Switch its model or ask it to go on.", { name: bot.name, reason: failureLabel(reply.code, reply.text) })
+    );
+  }
+  if (reply.kind === "helper-failed") {
+    return (0, import_react32.createElement)(
+      "div",
+      { className: "bt-event bt-event-error", role: "status", title: reply.text || void 0 },
+      t("{name}'s background helper did not finish: {reason}. Ask it to go on if it still matters.", { name: bot.name, reason: helperFailureReason(reply) })
     );
   }
   if (reply.kind === "lookup") {
