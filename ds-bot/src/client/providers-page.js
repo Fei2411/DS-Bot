@@ -2,7 +2,7 @@
 // DSH serves, with their API keys and models, and the providers it can add. DSH keeps
 // all of it; a key only ever travels from these inputs to the host.
 import { createElement as h, useEffect, useState } from 'react'
-import { CheckIcon, ChevronRightIcon, TrashIcon } from './icons.js'
+import { CheckIcon, ChevronRightIcon, PlusIcon, TrashIcon } from './icons.js'
 import { KeyIcon, MaskedInput } from './secret-card.js'
 import { Segmented, SPRING_SHAPE } from './motion.js'
 import { hostText, t } from './i18n.js'
@@ -32,14 +32,14 @@ export function ProvidersPage({ actions, run, Section, advanced = null }) {
   useEffect(() => { void apply(actions.providers()) }, [])
   if (view === null) return null
   if (!view.available) return h('p', { className: 'bt-set-hint' }, t('This DSH cannot set up model providers.'))
+  const addBtn = adding ? null : h('button', { type: 'button', className: 'bt-soft bt-soft-sm bt-with-icon', onClick: () => setAdding(true) }, h(PlusIcon), t('Add a provider'))
   return [
-    h(Section, { key: 'list', title: t('Model providers · {count}', { count: view.providers.length }) },
+    h(Section, { key: 'list', title: t('Model providers · {count}', { count: view.providers.length }), action: addBtn },
       view.providers.map(provider => h(ProviderRow, {
         key: provider.id, provider, apply, actions,
         open: open === provider.id, onToggle: () => setOpen(open === provider.id ? null : provider.id),
       })),
       adding ? h(AddProvider, { key: 'add', view, apply, actions, onDone: () => setAdding(false) }) : null),
-    adding ? null : h('div', { key: 'add', className: 'bt-actions' }, h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => setAdding(true) }, t('Add a provider'))),
     // DSH's own Models page: each model's context, output, inputs, thinking levels and order.
     advanced ? h('div', { key: 'advanced', className: 'bt-set-card' },
       h('button', { type: 'button', className: 'bt-set-row bt-bs-row bt-advanced', onClick: advanced },
@@ -130,7 +130,9 @@ function KnownForm({ view, apply, actions, onDone }) {
     h(FormActions, { onCancel: onDone, onAdd: add, ready: provider !== '' }))
 }
 
-function CustomForm({ view, apply, actions, onDone }) {
+// Exported so the Add form's readiness and missing-field hint can be driven without a
+// whole settings page: the hint is what tells the user why Add stays disabled.
+export function CustomForm({ view, apply, actions, onDone }) {
   const [draft, setDraft] = useState({ provider: '', name: '', baseURL: '', api: view.protocols[0], key: '', typed: '' })
   const [found, setFound] = useState(null)
   const [picked, setPicked] = useState([])
@@ -138,7 +140,15 @@ function CustomForm({ view, apply, actions, onDone }) {
   const set = (field, value) => setDraft(current => ({ ...current, [field]: value }))
   const typed = draft.typed.split(/[\s,]+/).map(id => id.trim()).filter(Boolean)
   const models = [...(found ?? []).filter(model => picked.includes(model.id)), ...typed.filter(id => !picked.includes(id)).map(id => ({ id }))]
-  const ready = draft.provider.trim() !== '' && draft.baseURL.trim() !== '' && models.length > 0
+  const missing = []
+  if (draft.provider.trim() === '') missing.push(t('Provider ID'))
+  if (draft.baseURL.trim() === '') missing.push(t('Endpoint'))
+  if (models.length === 0) missing.push(t('At least one model'))
+  const ready = missing.length === 0
+  const missingHint = ready ? null : h('div', { className: 'bt-set-hint bt-provider-missing', role: 'status' },
+    t('Still needed: {fields}', {
+      fields: missing.join(t(', ')),
+    }))
   const fetchModels = () => {
     setAsking(true)
     void apply(Promise.resolve(actions.providerModels({ baseURL: draft.baseURL, api: draft.api, key: draft.key })).then((list) => { setFound(list); setPicked([]) }))
@@ -171,13 +181,14 @@ function CustomForm({ view, apply, actions, onDone }) {
         key: model.id, type: 'button', className: 'bt-secret-bot', 'aria-pressed': picked.includes(model.id), title: model.name && model.name !== model.id ? model.name : undefined, onClick: () => toggle(model.id),
       }, h('code', null, model.id), picked.includes(model.id) ? h(CheckIcon) : null))) : null,
       input('typed', t('Model ids'), t('Model ids, separated by commas'))),
+    missingHint,
     h(FormActions, { onCancel: onDone, onAdd: add, ready }))
 }
 
 function FormActions({ onCancel, onAdd, ready }) {
   return h('div', { className: 'bt-secret-row-actions' },
     h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: onCancel }, t('Cancel')),
-    h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: !ready, onClick: onAdd }, t('Add')))
+    h('button', { type: 'button', className: 'bt-send bt-soft-sm', disabled: !ready, onClick: onAdd }, t('Add')))
 }
 
 export const PROVIDERS_CSS = `
@@ -200,6 +211,7 @@ export const PROVIDERS_CSS = `
 .bt-provider-form .bt-secret-field{min-height:36px;align-items:center;gap:8px}
 .bt-provider-pair{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .bt-provider-models-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.bt-provider-missing{color:var(--bt-danger)}
 /* Room for the pills' focus rings inside the scroll box; the margin keeps them in line with the fields. */
 .bt-provider-found{max-height:180px;overflow-y:auto;scrollbar-width:thin;padding:3px;margin:-3px}
 .bt-provider-found code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px}

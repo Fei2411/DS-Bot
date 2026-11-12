@@ -1,6 +1,8 @@
 // French (fr) localization for DS Bot client and DSH settings namespaces.
 
 export const FR = {
+  "Opening…": "Ouverture…",
+  "Still opening…": "Toujours en cours d’ouverture…",
   "Android beta": "Android bêta",
   "Cannot reach the Server. Trying again…": "Impossible de joindre le serveur. Nouvel essai…",
   "No phones yet": "Aucun téléphone pour l’instant",
@@ -260,6 +262,9 @@ export const FR = {
   "The privacy rules of a private Bot do not cover the tools of a local agent.": "Les règles de confidentialité d’un Bot privé ne couvrent pas les outils d’un agent local.",
   "Change and start a new part": "Modifier et démarrer une nouvelle partie",
   "Local agents": "Agents locaux",
+  // Add-provider form
+  "Still needed: {fields}": "Encore nécessaire : {fields}",
+  "At least one model": "Au moins un modèle",
   "This DSH cannot register local agent routes.": "Ce DSH ne peut pas enregistrer de routes d’agent local.",
   "Detected agents": "Agents détectés",
   "Refresh": "Actualiser",
@@ -444,7 +449,6 @@ export const FR = {
   "Name after members": "Nommer d’après les membres",
   "Rename {name}": "Renommer {name}",
   "Rename": "Renommer",
-  "Add instructions in Bot settings": "Ajouter des instructions dans les paramètres du Bot",
   "No scheduled tasks yet. To add one, tell the Bot in its chat what to do and when.": "Aucune tâche planifiée. Pour en ajouter une, dites au Bot dans sa discussion quoi faire et quand.",
   "The browser is in DSH Desktop and the DS Bot app.": "Le navigateur est disponible dans DSH Desktop et l’application DS Bot.",
   "New tab": "Nouvel onglet",
@@ -518,6 +522,7 @@ export const FR = {
   "Applies from the next message.": "S’applique dès le prochain message.",
   "Profile": "Profil",
   "Label": "Étiquette",
+  "Add a label": "Ajouter une étiquette",
   "Optional. Shown under the name.": "Facultatif. Affiché sous le nom.",
   "Research, admin…": "Recherche, administration…",
   "What this Bot does": "Rôle de ce Bot",
@@ -2285,5 +2290,5 @@ export const DSH_FR = {
     "subagentModelSelectionRequired": "Sélectionnez au moins un modèle avant d’enregistrer.",
     "subagentModelSelectionConflict": "Les paramètres ont été modifiés ailleurs. Abandonnez vos modifications et réessayez.",
     "subagentModelSelectionOff": "Les sous-agents utilisent les valeurs par défaut configurées ou héritent du modèle de l’agent parent. Les choix de modèles enregistrés sont conservés."
-  }
+  },
 }
