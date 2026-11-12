@@ -943,18 +943,32 @@ export function install(rt) {
     if (typeof agent.ctx?.tools?.restrict !== 'function' || typeof ctx.tools?.schemas !== 'function') return
     const botId = rt.selfOf(agent.session?.id)
     const prefixes = rt.connectorOffFor?.(botId) ?? []
-    const served = new Set(ctx.tools.schemas(agent).map(schema => schema.name))
-    const deny = [...served].filter(name => prefixes.some(prefix => name.startsWith(prefix)))
+    // Taking the served schemas is the expensive part (every schema is walked when
+    // the tool scope is taken), and most Bots have no connector off.
+    if (prefixes.length === 0 && (held.connectorLifts?.length ?? 0) === 0 && (held.connectorDenied?.size ?? 0) === 0) return
+    const served = ctx.tools.schemas(agent).map(schema => schema.name)
+    const denies = prefixes.map(prefix => served.filter(name => name.startsWith(prefix))).filter(names => names.length > 0)
+    const deny = new Set(denies.flat())
     const before = held.connectorDenied ?? new Set()
-    if (deny.length === before.size && deny.every(name => before.has(name))) return
+    if (deny.size === before.size && [...deny].every(name => before.has(name))) return
     for (const lift of held.connectorLifts ?? []) { try { lift() } catch { /* already lifted */ } }
     held.connectorLifts = []
-    held.connectorDenied = new Set(deny)
-    for (const name of deny) {
+    held.connectorDenied = deny
+    // One restrict per connector: one per tool would take the scope once for each.
+    for (const names of denies) {
       try {
-        const lift = agent.ctx.tools.restrict({ deny: [name] })
+        const lift = agent.ctx.tools.restrict({ deny: names })
         if (typeof lift === 'function') held.connectorLifts.push(lift)
-      } catch { /* a scoped name cannot be restricted; connectors are global */ }
+      } catch {
+        // A name in the Agent's own scope fails the whole list (restrict() masks
+        // inherited tools only), so mask the rest one at a time.
+        for (const name of names) {
+          try {
+            const lift = agent.ctx.tools.restrict({ deny: [name] })
+            if (typeof lift === 'function') held.connectorLifts.push(lift)
+          } catch { /* a scoped name cannot be restricted; connectors are global */ }
+        }
+      }
     }
   }
   const reapplyToolMasks = () => {
