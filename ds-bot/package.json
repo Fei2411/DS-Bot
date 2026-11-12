@@ -30,6 +30,7 @@
     "./package.json": "./package.json"
   },
   "files": [
+    "bin/",
     "plugin.js",
     "index.js",
     "src/host/",
@@ -80,5 +81,8 @@
     "playwright-core": "1.64.1",
     "pngjs": "7.0.0",
     "ws": "8.18.3"
+  },
+  "bin": {
+    "ds-bot": "./bin/ds-bot-doctor.mjs"
   }
 }
