@@ -1,5 +1,5 @@
 import { createNativeStackNavigator } from '@react-navigation/native-stack'
-import { useNavigation } from '@react-navigation/native'
+import { useNavigation, type NavigationProp, type ParamListBase } from '@react-navigation/native'
 import { useEffect, useRef, useState } from 'react'
 import { ActivityIndicator, Dimensions, Modal, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
@@ -21,6 +21,7 @@ import { Side } from '../screens/side.tsx'
 import { BotBrowser } from '../screens/manage.tsx'
 import type { Bot, Room } from '../connection.ts'
 import { pendingCountOf } from './pending.ts'
+import { activeChatTarget, openChat } from './open-chat.ts'
 import { Sheet, SheetHeader } from './sheet.tsx'
 
 const Stack = createNativeStackNavigator()
@@ -32,9 +33,10 @@ function DrawerContent() {
   const { p } = useTheme()
   const { team } = useTeam()
   const insets = useSafeAreaInsets()
-  const navigation = useNavigation<any>()
+  const navigation = useNavigation<NavigationProp<ParamListBase>>()
   const drawer = useDrawer()
   const pending = pendingCountOf(team)
+  const fallbackId = (team?.bots?.find(b => b.id === team?.mainBotId) ?? team?.bots?.[0])?.id
   const [searching, setSearching] = useState(false)
   const [query, setQuery] = useState('')
   const [newOpen, setNewOpen] = useState(false)
@@ -43,21 +45,17 @@ function DrawerContent() {
   // drawer sits outside the navigator, so it follows the container's own state.
   const [current, setCurrent] = useState<string | undefined>(undefined)
   useEffect(() => {
-    const update = () => {
-      const state = navigation.getState()
-      const top = state?.routes?.[state.index ?? 0]
-      setCurrent(top?.name === 'Chat' ? (top.params as ChatTarget | undefined)?.id : undefined)
-    }
+    const update = () => setCurrent(activeChatTarget(navigation.getState(), fallbackId)?.id)
     update()
     return navigation.addListener('state', update)
-  }, [navigation])
+  }, [navigation, fallbackId])
   // A chat replaces the one on screen; nothing stays stacked under it. Needs you and
   // Settings slide up over the chat and go back down to it.
   const open = (target: ChatTarget | { kind: 'needs' } | { kind: 'settings' }) => {
     drawer.close()
     if (target.kind === 'needs') navigation.navigate('Needs')
     else if (target.kind === 'settings') navigation.navigate('Settings')
-    else navigation.popTo('Chat', target)
+    else openChat(navigation, target)
   }
   return (
     <View style={{ flex: 1, backgroundColor: p.sidebar }}>
@@ -193,14 +191,14 @@ function ChatScreenB({ route, navigation }: any) {
     </View>
   )
   const onMissing = () => { void SecureStore.deleteItemAsync(LAST_KEY); if (fallback !== undefined) navigation.setParams({ kind: 'bot', id: fallback.id }) }
-  return <ChatView bot={bot} room={room} header={header} onMissing={onMissing} />
+  return <ChatView key={`${computer?.hostDeviceId ?? ''}:${kind}:${id}`} bot={bot} room={room} header={header} onMissing={onMissing} />
 }
 
 function NeedsSheet({ navigation }: any) {
   return (
     <Sheet>
       <SheetHeader title={t('Needs you')} right={{ label: t('Done'), onPress: () => navigation.goBack(), strong: true }} />
-      <NeedsYou onOpen={target => navigation.popTo('Chat', target)} />
+      <NeedsYou onOpen={target => openChat(navigation, target)} />
     </Sheet>
   )
 }
@@ -241,11 +239,13 @@ function SettingsSheet() {
 // the top; a tap opens the chat it belongs to.
 function NoticeBanner() {
   const { p } = useTheme()
-  const { onFeed } = useTeam()
-  const navigation = useNavigation<any>()
+  const { team, onFeed } = useTeam()
+  const navigation = useNavigation<NavigationProp<ParamListBase>>()
   const insets = useSafeAreaInsets()
   const [notice, setNotice] = useState<{ text: string; target: ChatTarget; seq: number } | null>(null)
   const banners = useRef(true)
+  const fallbackRef = useRef<string | undefined>(undefined)
+  fallbackRef.current = (team?.bots?.find(b => b.id === team?.mainBotId) ?? team?.bots?.[0])?.id
   useEffect(() => {
     const read = () => void readPrefs().then(prefs => { banners.current = prefs.banners !== 'off' })
     read()
@@ -260,18 +260,16 @@ function NoticeBanner() {
         ? { kind: 'room', id: data.roomId }
         : { kind: 'bot', id: data.botId ?? '' }
       // The chat on screen already shows its own card.
-      const state = navigation.getState()
-      const top = state?.routes?.[state.index]
-      const params = top?.params as ChatTarget | undefined
-      if (top?.name === 'Chat' && params?.kind === target.kind && params?.id === target.id) return
+      const active = activeChatTarget(navigation.getState(), fallbackRef.current)
+      if (active?.kind === target.kind && active.id === target.id) return
       const mine = ++seq
       setNotice({ text: data.title !== undefined ? `${data.title}：${data.text ?? ''}` : (data.text ?? ''), target, seq: mine })
       setTimeout(() => setNotice(current => (current?.seq === mine ? null : current)), 8000)
     })
-  }, [onFeed])
+  }, [onFeed, navigation])
   if (notice === null) return null
   return (
-    <Pressable accessibilityRole="button" onPress={() => { navigation.popTo('Chat', notice.target); setNotice(null) }}
+    <Pressable accessibilityRole="button" onPress={() => { openChat(navigation, notice.target); setNotice(null) }}
       style={[{ position: 'absolute', top: insets.top + 8, left: 12, right: 12, zIndex: 10, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10, backgroundColor: p.card, borderColor: p.accent, borderWidth: 1 }, shadow(2)]}>
       <Text style={[typeScale.small, { color: p.ink }]} numberOfLines={2}>{notice.text}</Text>
     </Pressable>
@@ -325,12 +323,12 @@ export default function ShellB() {
   // drawer only claims it while the root Chat is on top. The shell sits
   // outside the navigator, so it tracks the top route through the container's
   // own navigation object instead of useNavigationState.
-  const navigation = useNavigation<any>()
+  const navigation = useNavigation<NavigationProp<ParamListBase>>()
   const [top, setTop] = useState('Chat')
   useEffect(() => {
     const update = () => {
       const state = navigation.getState()
-      setTop(state?.routes?.[state.index]?.name ?? 'Chat')
+      setTop(state?.routes?.[state.index ?? 0]?.name ?? 'Chat')
     }
     update()
     return navigation.addListener('state', update)
