@@ -10,7 +10,7 @@ const gradle = readFileSync(join(__dirname, 'fixtures', 'expo-58-app-build.gradl
 
 test('the release build signs with the upload key when the build names one, else with the debug key', () => {
   const signed = sign(gradle)
-  assert.match(signed, /signingConfigs \{\n\s*debug \{[^}]*\}\n\s*release \{\n\s*if \(System\.getenv\('DSBOT_ANDROID_KEYSTORE'\)\)/)
+  assert.match(signed, /signingConfigs \{\n\s*debug \{[^}]*enableV1Signing true\n\s*enableV2Signing true\n\s*enableV3Signing true\n\s*\}\n\s*release \{\n\s*if \(System\.getenv\('DSBOT_ANDROID_KEYSTORE'\)\)[\s\S]*?enableV1Signing true\n\s*enableV2Signing true\n\s*enableV3Signing true\n\s*\}/)
   const release = signed.slice(signed.indexOf('buildTypes {'))
   assert.match(release, /release \{[\s\S]*signingConfig System\.getenv\('DSBOT_ANDROID_KEYSTORE'\) \? signingConfigs\.release : signingConfigs\.debug/)
   assert.match(release, /debug \{\n\s*signingConfig signingConfigs\.debug\n/)
