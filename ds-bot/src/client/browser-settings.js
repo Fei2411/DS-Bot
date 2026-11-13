@@ -70,8 +70,14 @@ export function BrowserPage({ roster, actions, run, Section, Row }) {
 
   return h('div', { className: 'bt-browser-settings' },
     h(Section, { title: t('Browser access') },
-      h('p', { className: 'bt-browser-note' }, t('Bots browse, click and fill in forms freely. Posting, uploading, downloading and deleting ask you first unless you allow them here. Payments are always yours: the Bot hands the page to you.'))),
+      h('p', { className: 'bt-browser-note' }, t('A Bot can read the page you have open: its title, address and visible text. By default it cannot click, type, scroll or open pages.')),
+      h(Row, {
+        label: t('How to enable interactive browsing'),
+        hint: t('In this DSH profile, set browserPlugin to refs, script or task, then restart DS Bot.'),
+      }),
+      h('p', { className: 'bt-browser-note' }, t('With an interactive plugin, Bots browse, click and fill in forms. Posting, uploading, downloading and deleting ask you first unless you allow them here. Payments are always yours: the Bot hands the page to you.'))),
     h(Section, { title: t('Allowed actions') },
+      h('p', { className: 'bt-browser-note' }, t('These grants apply only after an interactive browser plugin is enabled.')),
       grants.length === 0
         ? h(Row, { label: t('Nothing allowed yet.') })
         : grants.map(({ bot, grant, index, expired }) => h('div', {
