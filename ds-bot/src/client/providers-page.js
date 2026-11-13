@@ -24,7 +24,8 @@ const SHOWN_MODELS = 8
 const translated = promise => Promise.resolve(promise).catch((failure) => { throw new Error(hostText(failure?.message ?? String(failure))) })
 
 // A discovery result as a draft: what the endpoint returned is selected; entries the
-// endpoint no longer returns stay visible, unselected, so keeping them is explicit.
+// endpoint no longer returns stay visible and selected, so a smaller upstream list never
+// drops a hand-declared id without the user unchecking it.
 export function draftFrom(provider, discovered) {
   const existing = Array.isArray(provider.declaredModels) && provider.declaredModels.length > 0
     ? provider.declaredModels
