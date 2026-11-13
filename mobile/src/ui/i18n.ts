@@ -237,6 +237,14 @@ const MOBILE_ZH: Record<string, string> = {
   'the Bot': 'Bot',
   '{name} could not answer: {reason}': '{name} 无法回答：{reason}',
   'Copy data (CSV)': '复制数据（CSV）',
+  'Something went wrong': '出了点问题',
+  'Unknown error': '未知错误',
+  'New reply': '新回复',
+  'Table': '表格',
+  'Expand': '展开',
+  'Scheduled task': '定时任务',
+  'Jump to latest': '回到底部',
+  'New messages below': '下方有新消息',
 }
 
 const systemZh = (): boolean => {

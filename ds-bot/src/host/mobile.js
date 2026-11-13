@@ -245,18 +245,20 @@ export function install(rt) {
   function hello(body) {
     const offered = Array.isArray(body.api) ? body.api.filter(Number.isInteger) : [API_VERSION]
     const common = offered.filter(version => version >= API_MIN && version <= API_VERSION)
+    const rpc = rt.remoteRpc?.()
     return {
       api: common.length > 0 ? Math.max(...common) : null,
       apiMin: API_MIN,
       apiMax: API_VERSION,
       plugin: { name: PKG.name, version: PKG.version },
-      capabilities: CAPABILITIES,
+      capabilities: rpc ? [...CAPABILITIES, 'rpc'] : CAPABILITIES,
       boot,
       seq,
       revision: state.revision,
       readOnly: rt.readOnly() ?? null,
       memory: rt.memoryEnabled !== false,
       feed: 'api/bot/feed',
+      ...(rpc ? { rpc } : {}),
     }
   }
 
