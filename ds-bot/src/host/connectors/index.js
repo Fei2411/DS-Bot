@@ -826,8 +826,6 @@ export function install(rt) {
     return endpoints[endpoint](body ?? {})
   }
 
-  ctx.on('tools/change', () => { rt.reapplyToolMasks?.() })
-
   ctx.effect(() => {
     stopped = false
     void rt.load().then(() => rt.loadSecrets()).then(() => sync())
