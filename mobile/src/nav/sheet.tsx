@@ -2,6 +2,7 @@ import { createContext, useContext } from 'react'
 import { Alert, Platform, Pressable, StyleSheet, Text, View } from 'react-native'
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { t } from '../ui/i18n.ts'
+import { Press } from '../ui/press.tsx'
 import { type as typeScale, useTheme } from '../ui/tokens.ts'
 
 // A page that slides up over the chat (Settings, Needs you, Create new Bot, Create
@@ -28,9 +29,9 @@ export function SheetHeader({ title, left, right }: { title: string; left?: Head
   const action = (entry: HeaderAction | undefined, align: 'flex-start' | 'flex-end') => (
     <View style={[styles.side, { alignItems: align }]}>
       {entry !== undefined ? (
-        <Pressable accessibilityRole="button" disabled={entry.disabled} onPress={entry.onPress} hitSlop={10} style={styles.action}>
+        <Press accessibilityRole="button" disabled={entry.disabled} onPress={entry.onPress} hitSlop={10} style={styles.action}>
           <Text style={[typeScale.settingsRow, { color: entry.disabled ? p.ink3 : entry.strong ? p.accent : p.ink2, fontWeight: entry.strong ? '600' : '400' }]}>{entry.label}</Text>
-        </Pressable>
+        </Press>
       ) : null}
     </View>
   )

@@ -8,6 +8,8 @@ import { useEffect } from 'react'
 import type { Approval, Question, ShownView } from '../../connection.ts'
 import { t } from '../../ui/i18n.ts'
 import { radius, shadow, SPRING_TAP, type as typeScale, type Palette } from '../../ui/tokens.ts'
+import { Press } from '../../ui/press.tsx'
+import { Reveal } from '../../ui/reveal.tsx'
 import { Avatar } from '../../ui/marks.tsx'
 import type { Bot } from '../../connection.ts'
 
@@ -34,7 +36,9 @@ function AccordionCard({ title, dot, expanded, onToggle, p, children }: { title:
         {dot === true ? <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: p.accent, flexShrink: 0 }} /> : null}
         <Animated.View style={[chevron, { flexShrink: 0 }]}><ChevronRightIcon size={16} color={p.ink3} /></Animated.View>
       </Pressable>
-      {expanded ? <View style={{ paddingHorizontal: 16, paddingBottom: 14 }}>{children}</View> : null}
+      {/* ui-standard 1: the card is one surface that folds and unfolds; the body
+          stays mounted so the fold has an exit to play and its state survives. */}
+      <Reveal open={expanded}><View style={{ paddingHorizontal: 16, paddingBottom: 14 }}>{children}</View></Reveal>
     </View>
   )
 }
@@ -105,10 +109,10 @@ export function QuestionCard({ question, sessionId, call, p , bare = false }: { 
         ? <View style={styles.answerRow}>
             <TextInput value={custom} onChangeText={setCustom} placeholder={t('Your answer')} placeholderTextColor={p.ink3}
               style={[styles.answerInput, { color: p.ink, backgroundColor: p.hover }]} />
-            <Pressable accessibilityRole="button" disabled={busy || (picked.size === 0 && custom.trim() === '')} onPress={() => void send([...picked])}
+            <Press accessibilityRole="button" disabled={busy || (picked.size === 0 && custom.trim() === '')} onPress={() => void send([...picked])}
               style={[styles.submit, { backgroundColor: p.accent, opacity: busy || (picked.size === 0 && custom.trim() === '') ? 0.35 : 1 }]}>
               <Text style={{ color: p.accentInk, fontSize: 13, fontWeight: '600' }}>{t('Submit')}</Text>
-            </Pressable>
+            </Press>
           </View>
         : null}
       {failed ? <Text style={[type.small, { color: p.danger, marginTop: 8 }]}>{t('This question is no longer open.')}</Text> : null}
@@ -134,14 +138,14 @@ export function ApprovalCard({ approval, call, p , bare = false }: { approval: A
       {approval.detail?.code ? <Text selectable style={[type.small, { color: p.ink3, marginTop: 6, fontFamily: 'monospace' }]} numberOfLines={3}>{approval.detail.code}</Text> : null}
       {approval.answerable === true
         ? <View style={styles.answerRow}>
-            <Pressable accessibilityRole="button" disabled={busy} onPress={() => void answer('reject')}
+            <Press accessibilityRole="button" disabled={busy} onPress={() => void answer('reject')}
               style={[styles.choice, { backgroundColor: p.hover, opacity: busy ? 0.35 : 1 }]}>
               <Text style={{ color: p.ink, fontSize: 14 }}>{t('Reject')}</Text>
-            </Pressable>
-            <Pressable accessibilityRole="button" disabled={busy} onPress={() => void answer('allow')}
+            </Press>
+            <Press accessibilityRole="button" disabled={busy} onPress={() => void answer('allow')}
               style={[styles.choice, { backgroundColor: p.accent, opacity: busy ? 0.35 : 1 }]}>
               <Text style={{ color: p.accentInk, fontSize: 14, fontWeight: '600' }}>{t('Allow once')}</Text>
-            </Pressable>
+            </Press>
           </View>
         : <Text style={[type.small, { color: p.ink2, marginTop: 8 }]}>{t('Answer on the computer.')}</Text>}
       {failed ? <Text style={[type.small, { color: p.danger, marginTop: 8 }]}>{t('This approval is no longer open.')}</Text> : null}
@@ -177,18 +181,18 @@ export function SecretCard({ secret, call, p , bare = false }: { secret: SecretR
           autoCapitalize="none" autoCorrect={false} secureTextEntry />
       ) : null}
       <View style={styles.answerRow}>
-        <Pressable accessibilityRole="button" disabled={busy} onPress={() => void send('secret-cancel', {})} style={[styles.choice, { backgroundColor: p.hover, opacity: busy ? 0.35 : 1 }]}>
+        <Press accessibilityRole="button" disabled={busy} onPress={() => void send('secret-cancel', {})} style={[styles.choice, { backgroundColor: p.hover, opacity: busy ? 0.35 : 1 }]}>
           <Text style={{ color: p.ink, fontSize: 14 }}>{t('Cancel')}</Text>
-        </Pressable>
+        </Press>
         {allow ? (
-          <Pressable accessibilityRole="button" disabled={busy} onPress={() => void send('secret-allow', {})} style={[styles.choice, { backgroundColor: p.accent, opacity: busy ? 0.35 : 1 }]}>
+          <Press accessibilityRole="button" disabled={busy} onPress={() => void send('secret-allow', {})} style={[styles.choice, { backgroundColor: p.accent, opacity: busy ? 0.35 : 1 }]}>
             <Text style={{ color: p.accentInk, fontSize: 14, fontWeight: '600' }}>{busy ? t('Allowing…') : t('Allow')}</Text>
-          </Pressable>
+          </Press>
         ) : (
-          <Pressable accessibilityRole="button" disabled={busy || value.trim() === ''} onPress={() => { const next = value; setValue(''); void send('secret-set', { value: next }) }}
+          <Press accessibilityRole="button" disabled={busy || value.trim() === ''} onPress={() => { const next = value; setValue(''); void send('secret-set', { value: next }) }}
             style={[styles.choice, { backgroundColor: p.accent, opacity: busy || value.trim() === '' ? 0.35 : 1 }]}>
             <Text style={{ color: p.accentInk, fontSize: 14, fontWeight: '600' }}>{busy ? t('Saving…') : t('Save')}</Text>
-          </Pressable>
+          </Press>
         )}
       </View>
       {failed ? <Text style={[type.small, { color: p.danger, marginTop: 8 }]}>{t('This approval is no longer open.')}</Text> : null}
@@ -222,10 +226,10 @@ export function BtwCard({ card, sessionId, call, p , bare = false }: { card: Btw
       {card.failure ? <Text style={[typeScale.small, { color: p.danger, marginTop: bare ? 0 : 6 }]}>{card.failure}</Text> : null}
       {card.answer ? <Text style={[typeScale.settingsRow, { color: p.ink2, marginTop: bare ? 0 : 6 }]}>{card.answer}</Text> : null}
       {bare ? (
-        <Pressable accessibilityRole="button" accessibilityLabel={t('Delete aside')} onPress={drop} disabled={busy}
+        <Press accessibilityRole="button" accessibilityLabel={t('Delete aside')} onPress={drop} disabled={busy}
           style={{ alignSelf: 'flex-end', marginTop: 8, paddingHorizontal: 10, paddingVertical: 4, borderRadius: radius.pill, backgroundColor: p.hover, opacity: busy ? 0.35 : 1 }}>
           <Text style={[typeScale.caption, { color: p.ink2 }]}>{t('Dismiss')}</Text>
-        </Pressable>
+        </Press>
       ) : null}
     </View>
   )
@@ -245,9 +249,9 @@ export function HandoffCard({ handoff, botId, onView, call, p , bare = false }: 
       {bare ? null : <Text style={[type.settingsRow, { color: p.ink, fontWeight: '600' }]}>{t('Browser handoff')}</Text>}
       {handoff.note || handoff.reason ? <Text style={[type.small, { color: p.ink2, marginTop: 4 }]}>{handoff.note ?? handoff.reason}</Text> : null}
       <View style={styles.answerRow}>
-        {onView !== undefined ? <Pressable accessibilityRole="button" onPress={onView} style={[styles.choice, { backgroundColor: p.hover }]}><Text style={{ color: p.ink, fontSize: 14 }}>{t('Card')}</Text></Pressable> : null}
-        <Pressable accessibilityRole="button" disabled={busy} onPress={() => answer('skip')} style={[styles.choice, { backgroundColor: p.hover, opacity: busy ? 0.35 : 1 }]}><Text style={{ color: p.ink, fontSize: 14 }}>{t('Skip')}</Text></Pressable>
-        <Pressable accessibilityRole="button" disabled={busy} onPress={() => answer('done')} style={[styles.choice, { backgroundColor: p.accent, opacity: busy ? 0.35 : 1 }]}><Text style={{ color: p.accentInk, fontSize: 14, fontWeight: '600' }}>{t('Done')}</Text></Pressable>
+        {onView !== undefined ? <Press accessibilityRole="button" onPress={onView} style={[styles.choice, { backgroundColor: p.hover }]}><Text style={{ color: p.ink, fontSize: 14 }}>{t('Card')}</Text></Press> : null}
+        <Press accessibilityRole="button" disabled={busy} onPress={() => answer('skip')} style={[styles.choice, { backgroundColor: p.hover, opacity: busy ? 0.35 : 1 }]}><Text style={{ color: p.ink, fontSize: 14 }}>{t('Skip')}</Text></Press>
+        <Press accessibilityRole="button" disabled={busy} onPress={() => answer('done')} style={[styles.choice, { backgroundColor: p.accent, opacity: busy ? 0.35 : 1 }]}><Text style={{ color: p.accentInk, fontSize: 14, fontWeight: '600' }}>{t('Done')}</Text></Press>
       </View>
     </View>
   )

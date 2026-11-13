@@ -9,6 +9,8 @@ import { Avatar } from '../../ui/marks.tsx'
 import type { Bot } from '../../connection.ts'
 import { imPlatform } from '../../../../ds-bot/src/shared/im-platforms.js'
 import { inkColor, radius, type as typeScale, useTheme, type Palette } from '../../ui/tokens.ts'
+import { Reveal } from '../../ui/reveal.tsx'
+import { SheetUp } from '../../ui/overlay.tsx'
 import { Markdown, hasBlockContent } from './markdown.tsx'
 import { useTeam } from '../../team/context.tsx'
 import { ViewCard } from './view.tsx'
@@ -483,21 +485,19 @@ function useOriginal(sessionId: string, ref: ImageRef | undefined): string | und
 // selectable page. ChatView mounts one of each for the whole conversation.
 export function Actions({ visible, text, p, onClose, onSelect }: { visible: boolean; text: string; p: Palette; onClose: () => void; onSelect: () => void }) {
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <Pressable style={styles.scrim} onPress={onClose}>
-        <View style={[styles.sheet, { backgroundColor: p.card, borderColor: p.line }]}>
-          <Pressable accessibilityRole="button" onPress={async () => { await Clipboard.setStringAsync(text); onClose() }} style={({ pressed }) => [styles.sheetRow, pressed && { backgroundColor: p.hover }]}>
-            <Text style={[typeScale.settingsRow, { color: p.ink }]}>{t('Copy')}</Text>
-          </Pressable>
-          <Pressable accessibilityRole="button" onPress={onSelect} style={({ pressed }) => [styles.sheetRow, pressed && { backgroundColor: p.hover }]}>
-            <Text style={[typeScale.settingsRow, { color: p.ink }]}>{t('Select text')}</Text>
-          </Pressable>
-          <Pressable accessibilityRole="button" onPress={onClose} style={({ pressed }) => [styles.sheetRow, pressed && { backgroundColor: p.hover }]}>
-            <Text style={[typeScale.settingsRow, { color: p.ink3 }]}>{t('Cancel')}</Text>
-          </Pressable>
-        </View>
-      </Pressable>
-    </Modal>
+    <SheetUp open={visible} onClose={onClose}>
+      <View style={[styles.sheet, { backgroundColor: p.card, borderColor: p.line }]}>
+        <Pressable accessibilityRole="button" onPress={async () => { await Clipboard.setStringAsync(text); onClose() }} style={({ pressed }) => [styles.sheetRow, pressed && { backgroundColor: p.hover }]}>
+          <Text style={[typeScale.settingsRow, { color: p.ink }]}>{t('Copy')}</Text>
+        </Pressable>
+        <Pressable accessibilityRole="button" onPress={onSelect} style={({ pressed }) => [styles.sheetRow, pressed && { backgroundColor: p.hover }]}>
+          <Text style={[typeScale.settingsRow, { color: p.ink }]}>{t('Select text')}</Text>
+        </Pressable>
+        <Pressable accessibilityRole="button" onPress={onClose} style={({ pressed }) => [styles.sheetRow, pressed && { backgroundColor: p.hover }]}>
+          <Text style={[typeScale.settingsRow, { color: p.ink3 }]}>{t('Cancel')}</Text>
+        </Pressable>
+      </View>
+    </SheetUp>
   )
 }
 
@@ -512,11 +512,15 @@ function Steps({ item, p, open, onToggle }: { item: ChatItem; p: Palette; open: 
           {tools.length === 1 ? t('Used {count} tool', { count: tools.length }) : t('Used {count} tools', { count: tools.length })}{seconds !== undefined && seconds > 0 ? t(' · thought for {seconds}s', { seconds }) : ''}
         </Text>
       </Pressable>
-      {open ? tools.map((tool, index) => (
-        <Text key={`${tool.name}-${index}`} style={[type.caption, { color: p.ink2, textAlign: 'center' }]}>
-          {(tool.label ? t(tool.label) : undefined) ?? tool.name}{tool.ok === false ? t(' — failed') : ''}
-        </Text>
-      )) : null}
+      <Reveal open={open}>
+        <View>
+          {tools.map((tool, index) => (
+            <Text key={`${tool.name}-${index}`} style={[type.caption, { color: p.ink2, textAlign: 'center' }]}>
+              {(tool.label ? t(tool.label) : undefined) ?? tool.name}{tool.ok === false ? t(' — failed') : ''}
+            </Text>
+          ))}
+        </View>
+      </Reveal>
     </View>
   )
 }
@@ -541,7 +545,6 @@ const styles = StyleSheet.create({
   reader: { flex: 1, paddingTop: 60 },
   via: { fontSize: 11, lineHeight: 16, paddingHorizontal: 6, borderRadius: 6, overflow: 'hidden', flexShrink: 0 },
   readerClose: { position: 'absolute', bottom: 30, alignSelf: 'center', paddingHorizontal: 24, paddingVertical: 10, borderRadius: 20, borderWidth: 1 },
-  scrim: { flex: 1, backgroundColor: 'rgba(0,0,0,.35)', justifyContent: 'flex-end' },
   sheet: { marginHorizontal: 12, marginBottom: 34, borderRadius: 14, borderWidth: 1, overflow: 'hidden' },
   sheetRow: { paddingVertical: 14, paddingHorizontal: 18 },
 })

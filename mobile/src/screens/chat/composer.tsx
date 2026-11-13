@@ -3,9 +3,12 @@ import * as ImagePicker from 'expo-image-picker'
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator'
 import { useState } from 'react'
 import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
+import Animated, { useReducedMotion } from 'react-native-reanimated'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { t } from '../../ui/i18n.ts'
 import { ArrowUpIcon, CloseIcon, PlusIcon, StopIcon } from '../../ui/icons.tsx'
+import { PopIn } from '../../ui/entry.ts'
+import { Press } from '../../ui/press.tsx'
 import { radius, shadow, type as typeScale, type Palette } from '../../ui/tokens.ts'
 
 // A photo ready to send: shown from `uri`, sent as base64 JPEG.
@@ -34,6 +37,7 @@ export function Composer({ name, running, canStop, canAttach, onSend, onStop, p 
   const [photos, setPhotos] = useState<Photo[]>([])
   const [preparing, setPreparing] = useState(false)
   const [pickError, setPickError] = useState<string | null>(null)
+  const reduced = useReducedMotion()
   // Float above the home indicator (iOS) or the gesture bar (Android, drawn edge to
   // edge). The matching negative keyboardVerticalOffset in ChatView keeps the card
   // hugging the keyboard.
@@ -82,21 +86,22 @@ export function Composer({ name, running, canStop, canAttach, onSend, onStop, p 
         ) : null}
         <View style={styles.line}>
           {canAttach ? (
-            <Pressable accessibilityRole="button" accessibilityLabel={t('Add photos')} onPress={() => void pick()} hitSlop={6} style={styles.attach}>
+            <Press accessibilityRole="button" accessibilityLabel={t('Add photos')} to={0.9} onPress={() => void pick()} hitSlop={6} style={styles.attach}>
               <PlusIcon size={20} color={p.ink2} />
-            </Pressable>
+            </Press>
           ) : null}
           <TextInput value={text} onChangeText={setText} placeholder={t('Message {name}', { name })} placeholderTextColor={p.ink3}
             multiline style={[styles.input, { color: p.ink, paddingLeft: canAttach ? 2 : 6 }]} accessibilityLabel={t('Message {name}', { name })} />
+          {/* One key that swaps between stop and send: the mark pops in on SPRING_POP. */}
           {running && canStop && !ready
-            ? <Pressable accessibilityRole="button" accessibilityLabel={t('Stop')} onPress={onStop} hitSlop={6}
+            ? <Press accessibilityRole="button" accessibilityLabel={t('Stop')} to={0.9} onPress={onStop} hitSlop={6}
                 style={[styles.send, { backgroundColor: p.accent }]}>
-                <StopIcon size={14} />
-              </Pressable>
-            : <Pressable accessibilityRole="button" accessibilityLabel={t('Send')} disabled={!ready} onPress={send} hitSlop={6}
+                <Animated.View key="stop" entering={reduced ? undefined : PopIn}><StopIcon size={14} /></Animated.View>
+              </Press>
+            : <Press accessibilityRole="button" accessibilityLabel={t('Send')} to={0.9} disabled={!ready} onPress={send} hitSlop={6}
                 style={[styles.send, { backgroundColor: p.accent, opacity: ready ? 1 : 0.35 }]}>
-                <ArrowUpIcon size={18} />
-              </Pressable>}
+                <Animated.View key="send" entering={reduced ? undefined : PopIn}><ArrowUpIcon size={18} /></Animated.View>
+              </Press>}
         </View>
       </View>
     </View>

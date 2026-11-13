@@ -1,7 +1,8 @@
 import { createNativeStackNavigator } from '@react-navigation/native-stack'
 import { useNavigation, type NavigationProp, type ParamListBase } from '@react-navigation/native'
 import { useEffect, useRef, useState } from 'react'
-import { ActivityIndicator, Dimensions, Modal, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
+import { ActivityIndicator, Dimensions, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
+import Animated, { EntryExitAnimationFunction, FadeIn, FadeOut, useReducedMotion, withSpring, withTiming } from 'react-native-reanimated'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import * as SecureStore from 'expo-secure-store'
 import { onPrefsChange, readPrefs } from '../store.ts'
@@ -9,7 +10,10 @@ import { Drawer, useDrawer } from './Drawer.tsx'
 import { useTeam } from '../team/context.tsx'
 import { ErrorBoundary } from '../ui/error-boundary.tsx'
 import { t } from '../ui/i18n.ts'
-import { shadow, type as typeScale, useTheme } from '../ui/tokens.ts'
+import { shadow, SPRING_SHAPE, type as typeScale, useTheme } from '../ui/tokens.ts'
+import { Press } from '../ui/press.tsx'
+import { Reveal } from '../ui/reveal.tsx'
+import { SheetUp } from '../ui/overlay.tsx'
 import { Avatar, RoomAvatar } from '../ui/marks.tsx'
 import { GearIcon, PeopleIcon, PlusIcon, SearchIcon, SidebarIcon, SideIcon } from '../ui/icons.tsx'
 import { ChatView, prefetchChat } from '../screens/Chat.tsx'
@@ -63,20 +67,20 @@ function DrawerContent() {
       {/* The desktop sidebar's head: the product name, search and New. */}
       <View style={[styles.drawerHead, { paddingTop: insets.top + 6 }]}>
         <Text style={{ color: p.ink, fontSize: 17, fontWeight: '600', flex: 1 }}>DS Bot</Text>
-        <Pressable accessibilityRole="button" accessibilityLabel={t('Search')} onPress={() => setSearching(on => !on)} hitSlop={4} style={[styles.round, { borderColor: p.line, backgroundColor: p.card }]}>
+        <Press accessibilityRole="button" accessibilityLabel={t('Search')} to={0.9} onPress={() => setSearching(on => !on)} hitSlop={4} style={[styles.round, { borderColor: p.line, backgroundColor: p.card }]}>
           <SearchIcon size={16} color={p.ink2} />
-        </Pressable>
-        <Pressable accessibilityRole="button" accessibilityLabel={t('New')} onPress={() => setNewOpen(true)} hitSlop={4} style={[styles.round, { borderColor: p.line, backgroundColor: p.card }]}>
+        </Press>
+        <Press accessibilityRole="button" accessibilityLabel={t('New')} to={0.9} onPress={() => setNewOpen(true)} hitSlop={4} style={[styles.round, { borderColor: p.line, backgroundColor: p.card }]}>
           <PlusIcon size={16} color={p.ink2} />
-        </Pressable>
+        </Press>
       </View>
-      {searching ? (
+      <Reveal open={searching}>
         <View style={[styles.search, { backgroundColor: p.hover }]}>
           <SearchIcon size={15} color={p.ink3} />
           <TextInput value={query} onChangeText={setQuery} placeholder={t('Search the team')} placeholderTextColor={p.ink3} autoFocus
             style={{ flex: 1, fontSize: 15, paddingVertical: 4, color: p.ink }} autoCapitalize="none" autoCorrect={false} />
         </View>
-      ) : null}
+      </Reveal>
       {pending > 0 ? (
         <Pressable accessibilityRole="button" onPress={() => open({ kind: 'needs' })}
           style={({ pressed }) => [styles.needsRow, { backgroundColor: pressed ? p.hover : 'transparent' }]}>
@@ -87,25 +91,23 @@ function DrawerContent() {
       <View style={{ flex: 1 }}>
         <TeamList onOpen={open} query={searching ? query : ''} current={current} />
       </View>
-      <Modal visible={newOpen} transparent animationType="fade" onRequestClose={() => setNewOpen(false)}>
-        <Pressable style={styles.sheetScrim} onPress={() => setNewOpen(false)} accessibilityLabel={t('Close')}>
-          <View style={[styles.newSheet, { backgroundColor: p.card, borderColor: p.line, marginBottom: insets.bottom + 12 }, shadow(3)]}>
-            <Pressable accessibilityRole="button" onPress={() => create('NewBot')} style={({ pressed }) => [styles.newRow, pressed && { backgroundColor: p.hover }]}>
-              <View style={[styles.newIcon, { backgroundColor: p.hover }]}><PlusIcon size={18} color={p.ink} /></View>
-              <Text style={[typeScale.settingsRow, { color: p.ink }]}>{t('Create new Bot')}</Text>
-            </Pressable>
-            <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: p.line, marginLeft: 64 }} />
-            <Pressable accessibilityRole="button" onPress={() => create('NewGroup')} style={({ pressed }) => [styles.newRow, pressed && { backgroundColor: p.hover }]}>
-              <View style={[styles.newIcon, { backgroundColor: p.hover }]}><PeopleIcon size={18} color={p.ink} /></View>
-              <Text style={[typeScale.settingsRow, { color: p.ink }]}>{t('Create group chat')}</Text>
-            </Pressable>
-          </View>
-        </Pressable>
-      </Modal>
+      <SheetUp open={newOpen} onClose={() => setNewOpen(false)}>
+        <View style={[styles.newSheet, { backgroundColor: p.card, borderColor: p.line, marginBottom: insets.bottom + 12 }, shadow(3)]}>
+          <Press accessibilityRole="button" onPress={() => create('NewBot')} style={({ pressed }) => [styles.newRow, pressed && { backgroundColor: p.hover }]}>
+            <View style={[styles.newIcon, { backgroundColor: p.hover }]}><PlusIcon size={18} color={p.ink} /></View>
+            <Text style={[typeScale.settingsRow, { color: p.ink }]}>{t('Create new Bot')}</Text>
+          </Press>
+          <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: p.line, marginLeft: 64 }} />
+          <Press accessibilityRole="button" onPress={() => create('NewGroup')} style={({ pressed }) => [styles.newRow, pressed && { backgroundColor: p.hover }]}>
+            <View style={[styles.newIcon, { backgroundColor: p.hover }]}><PeopleIcon size={18} color={p.ink} /></View>
+            <Text style={[typeScale.settingsRow, { color: p.ink }]}>{t('Create group chat')}</Text>
+          </Press>
+        </View>
+      </SheetUp>
       <View style={[styles.foot, { paddingBottom: insets.bottom + 8 }]}>
-        <Pressable accessibilityRole="button" accessibilityLabel={t('Settings')} onPress={() => open({ kind: 'settings' })} hitSlop={4} style={[styles.round, { borderColor: p.line, backgroundColor: p.card }]}>
+        <Press accessibilityRole="button" accessibilityLabel={t('Settings')} to={0.9} onPress={() => open({ kind: 'settings' })} hitSlop={4} style={[styles.round, { borderColor: p.line, backgroundColor: p.card }]}>
           <GearIcon size={18} color={p.ink2} />
-        </Pressable>
+        </Press>
       </View>
     </View>
   )
@@ -131,10 +133,10 @@ function Header({ title, bot, room, bots = [], onMenu, onPill, onSide }: { title
   return (
     <View style={{ backgroundColor: p.main }}>
     <View style={{ flexDirection: 'row', alignItems: 'center', paddingTop: insets.top + 4, paddingBottom: 8, paddingHorizontal: 10 }}>
-      <Pressable accessibilityRole="button" accessibilityLabel={t('Open team list')} onPress={onMenu} hitSlop={8} style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}>
+      <Press accessibilityRole="button" accessibilityLabel={t('Open team list')} to={0.9} onPress={onMenu} hitSlop={8} style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}>
         <SidebarIcon size={20} color={p.ink2} />
         {pending ? <View style={{ position: 'absolute', top: 8, right: 8, width: 8, height: 8, borderRadius: 4, backgroundColor: p.accent }} /> : null}
-      </Pressable>
+      </Press>
       {/* A long group name ends in an ellipsis inside the pill instead of pushing past the side buttons. */}
       <View style={{ flex: 1, alignItems: 'center', minWidth: 0 }}>
         {title === '' ? null
@@ -142,9 +144,9 @@ function Header({ title, bot, room, bots = [], onMenu, onPill, onSide }: { title
             : onPill !== undefined ? <Pressable accessibilityRole="button" onPress={onPill} style={{ maxWidth: '100%' }}><Pill title={title} bot={bot} room={room} bots={bots} /></Pressable> : <Pill title={title} bot={bot} room={room} bots={bots} />}
       </View>
       {onSide !== undefined ? (
-        <Pressable accessibilityRole="button" accessibilityLabel={t('Side chat')} onPress={onSide} hitSlop={8} style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}>
+        <Press accessibilityRole="button" accessibilityLabel={t('Side chat')} to={0.9} onPress={onSide} hitSlop={8} style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}>
           <SideIcon size={20} color={p.ink2} />
-        </Pressable>
+        </Press>
       ) : <View style={{ width: 44 }} />}
     </View>
     {reconnecting ? (
@@ -240,11 +242,28 @@ const NOTICE_BANNER_KINDS = new Set(['question', 'approval', 'message', 'group',
 
 // A notice that lands while the app is open shows as a banner at the top when
 // it belongs to another chat; a tap opens that chat.
+// ui-standard 9.4: it drops in on the shape spring and lifts back out over the
+// .16s exit instead of appearing and vanishing.
+const DropIn: EntryExitAnimationFunction = () => {
+  'worklet'
+  return {
+    initialValues: { opacity: 0, transform: [{ translateY: -56 }] },
+    animations: { opacity: withTiming(1, { duration: 160 }), transform: [{ translateY: withSpring(0, SPRING_SHAPE) }] },
+  }
+}
+const LiftOut: EntryExitAnimationFunction = () => {
+  'worklet'
+  return {
+    initialValues: { opacity: 1, transform: [{ translateY: 0 }] },
+    animations: { opacity: withTiming(0, { duration: 160 }), transform: [{ translateY: withTiming(-56, { duration: 160 }) }] },
+  }
+}
 function NoticeBanner() {
   const { p } = useTheme()
   const { team, onFeed } = useTeam()
   const navigation = useNavigation<NavigationProp<ParamListBase>>()
   const insets = useSafeAreaInsets()
+  const reduced = useReducedMotion()
   const [notice, setNotice] = useState<{ text: string; target: ChatTarget; seq: number } | null>(null)
   const banners = useRef(true)
   const fallbackRef = useRef<string | undefined>(undefined)
@@ -278,10 +297,13 @@ function NoticeBanner() {
   }, [onFeed, navigation])
   if (notice === null) return null
   return (
-    <Pressable accessibilityRole="button" onPress={() => { openChat(navigation, notice.target); setNotice(null) }}
-      style={[{ position: 'absolute', top: insets.top + 8, left: 12, right: 12, zIndex: 10, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10, backgroundColor: p.card, borderColor: p.accent, borderWidth: 1 }, shadow(2)]}>
-      <Text style={[typeScale.small, { color: p.ink }]} numberOfLines={2}>{notice.text}</Text>
-    </Pressable>
+    <Animated.View entering={reduced ? FadeIn : DropIn} exiting={reduced ? FadeOut.duration(120) : LiftOut}
+      style={{ position: 'absolute', top: insets.top + 8, left: 12, right: 12, zIndex: 10 }}>
+      <Pressable accessibilityRole="button" onPress={() => { openChat(navigation, notice.target); setNotice(null) }}
+        style={{ borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10, backgroundColor: p.card, borderColor: p.accent, borderWidth: 1, ...shadow(2) }}>
+        <Text style={[typeScale.small, { color: p.ink }]} numberOfLines={2}>{notice.text}</Text>
+      </Pressable>
+    </Animated.View>
   )
 }
 
@@ -360,7 +382,6 @@ const styles = StyleSheet.create({
   round: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', borderWidth: StyleSheet.hairlineWidth },
   search: { flexDirection: 'row', alignItems: 'center', gap: 8, marginHorizontal: 14, marginBottom: 8, borderRadius: 10, paddingHorizontal: 10, height: 36 },
   you: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 4, height: 44 },
-  sheetScrim: { flex: 1, backgroundColor: 'rgba(0,0,0,0.25)', justifyContent: 'flex-end' },
   newSheet: { marginHorizontal: 12, borderRadius: 16, borderWidth: StyleSheet.hairlineWidth, overflow: 'hidden' },
   newRow: { flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 56, paddingHorizontal: 14 },
   newIcon: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
