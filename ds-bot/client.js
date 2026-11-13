@@ -28163,7 +28163,6 @@ function SectionBlock({ section, entries: entries2, rowProps, markedUnread, rena
     if (!keep || value.trim() === "" || value.trim() === section.name) return;
     void Promise.resolve(actions.saveSection({ id: section.id, name: value.trim() })).catch((error) => actions.reportError(error, "section-rename"));
   };
-  const bodyEntries = section.collapsed && activeEntry ? entries2.filter((entry) => entry !== activeEntry) : entries2;
   return (0, import_react34.createElement)(
     "div",
     {
@@ -28262,10 +28261,9 @@ function SectionBlock({ section, entries: entries2, rowProps, markedUnread, rena
       (0, import_react34.createElement)(
         "div",
         { className: "bt-sec-body-in" },
-        bodyEntries.map((entry) => renderSidebarEntry(entry, rowProps, markedUnread, onDragStart))
+        entries2.map((entry) => renderSidebarEntry(entry, rowProps, markedUnread, onDragStart))
       )
-    ),
-    section.collapsed && activeEntry ? (0, import_react34.createElement)("div", { className: "bt-sec-peek" }, renderSidebarEntry(activeEntry, rowProps, markedUnread, onDragStart)) : null
+    )
   );
 }
 function useListGlide(listRef, layout, key) {
@@ -29225,7 +29223,6 @@ var SIDEBAR_CSS = `
 .bt-sec-body-in{overflow:hidden;min-height:0;display:flex;flex-direction:column;gap:3px;position:relative}
 .bt-sec[data-collapsed=false] .bt-sec-body-in{padding-top:2px}
 .bt-sec[data-collapsed=false]:hover .bt-sec-body-in::before{content:'';position:absolute;left:10px;top:6px;bottom:6px;width:1.5px;border-radius:999px;background:var(--bt-line-2);opacity:.55;pointer-events:none}
-.bt-sec-peek{margin-top:2px}
 .bt-rail-sec{display:flex;flex-direction:column;align-items:center;gap:4px;width:100%}
 .bt-rail-sec-div{display:flex;align-items:center;justify-content:center;width:100%;padding:5px 0 2px;cursor:pointer}
 .bt-rail-sec-pill{width:22px;height:3px;border-radius:999px;background:var(--bt-line-2);transition:width .14s ease,background-color .14s ease}
