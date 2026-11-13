@@ -93,21 +93,28 @@ const actions = () => ({
   removeProvider: async () => ({ providers: [] }),
   setProviderKey: async () => ({ providers: [] }),
 })
+const writer = () => ({ id: 'b1', name: 'Writer', model: 'relay/manual', appliedModel: 'relay/manual' })
+const teamRoster = (bots = [writer()]) => ({
+  bots,
+  models: [
+    { ref: 'deepseek-official/deepseek-flash', provider: 'deepseek-official', providerName: 'DeepSeek', id: 'deepseek-flash', name: 'DeepSeek-V4.1-Flash' },
+    { ref: 'relay/a', provider: 'relay', providerName: 'Relay', id: 'a', name: 'A' },
+    { ref: 'relay/manual', provider: 'relay', providerName: 'Relay', id: 'manual', name: 'Manual' },
+  ],
+  defaultModel: 'deepseek-official/deepseek-flash',
+})
 const row = (props = {}) => {
   const calls = { save: [], refresh: 0, error: undefined }
   const acts = actions()
   acts.saveProviderModels = async (body) => { calls.save.push(body); return { providers: [] } }
   acts.refreshModels = () => { calls.refresh += 1 }
-  const tree = render(ProviderRow, {
+  const viewProps = {
     provider: provider(), apply: promise => Promise.resolve(promise).then(() => true, (error) => { calls.error = error; return false }),
-    actions: acts, roster: { bots: [{ id: 'b1', name: 'Writer', model: 'relay/manual', appliedModel: 'relay/manual' }] },
+    actions: acts, roster: teamRoster(),
     revision: 4, open: true, onToggle() {}, ...props,
-  })
-  return { tree, calls, acts, rerender: (patch) => render(ProviderRow, {
-    provider: provider(), apply: promise => Promise.resolve(promise).then(() => true, (error) => { calls.error = error; return false }),
-    actions: acts, roster: { bots: [{ id: 'b1', name: 'Writer', model: 'relay/manual', appliedModel: 'relay/manual' }] },
-    revision: 4, open: true, onToggle() {}, ...props, ...patch,
-  }) }
+  }
+  const tree = render(ProviderRow, viewProps)
+  return { tree, calls, acts, rerender: (patch) => render(ProviderRow, { ...viewProps, ...patch }) }
 }
 
 test('refresh shows a draft: endpoint models selected, unreturned ones kept only if picked, used removals called out', async () => {
@@ -134,9 +141,7 @@ test('removing a model a Bot uses needs a second Save', async () => {
   view.tree = view.rerender()
   assert.deepEqual(view.calls.save, [])
   assert.ok(button(ui(view.tree), 'Save anyway'))
-  assert.match(textOf(ui(view.tree)), /Used by Writer/)
-  assert.match(textOf(ui(view.tree)), /switch to the last model/)
-  assert.match(textOf(ui(view.tree)), /turn fails only if no other model/)
+  assert.match(textOf(ui(view.tree)), /Writer will switch to DeepSeek-V4\.1-Flash on its next turn\./)
   assert.doesNotMatch(textOf(ui(view.tree)), /may fail/)
   button(ui(view.tree), 'Save anyway').props.onClick()
   await settle(); await settle()
@@ -144,16 +149,48 @@ test('removing a model a Bot uses needs a second Save', async () => {
   assert.deepEqual(JSON.parse(JSON.stringify(view.calls.save[0].models)), [{ id: 'a', name: 'A' }, { id: 'b', name: 'B' }])
 })
 
+test('a Bot whose last applied model survives switches back to it', async () => {
+  const bot = { id: 'b1', name: 'Writer', model: 'relay/manual', appliedModel: 'relay/a' }
+  const view = row({ roster: teamRoster([bot]) })
+  button(ui(view.tree), 'Refresh models').props.onClick()
+  await settle(); await settle()
+  view.tree = view.rerender()
+  button(ui(view.tree), 'manual').props.onClick()
+  view.tree = view.rerender()
+  assert.match(textOf(ui(view.tree)), /Writer will switch to A on its next turn\./)
+  assert.doesNotMatch(textOf(ui(view.tree)), /DeepSeek-V4\.1-Flash/)
+  button(ui(view.tree), 'Save').props.onClick()
+  view.tree = view.rerender()
+  assert.ok(button(ui(view.tree), 'Save anyway'))
+})
+
+test('a Bot with no usable model left is warned that its turn will fail', async () => {
+  const bot = { id: 'b1', name: 'Writer', model: 'relay/manual', appliedModel: 'relay/manual' }
+  const view = row({
+    provider: { ...provider(), key: { configured: false, writable: true } },
+    roster: { bots: [bot], models: [], defaultModel: null },
+  })
+  button(ui(view.tree), 'Refresh models').props.onClick()
+  await settle(); await settle()
+  view.tree = view.rerender()
+  button(ui(view.tree), 'manual').props.onClick()
+  view.tree = view.rerender()
+  assert.match(textOf(ui(view.tree)), /Writer has no model to fall back to; its next turn will fail\./)
+  button(ui(view.tree), 'Save').props.onClick()
+  view.tree = view.rerender()
+  assert.ok(button(ui(view.tree), 'Save anyway'))
+})
+
 test('a local-agent Bot is named as unaffected and does not need the second Save', async () => {
   const local = { id: 'b1', name: 'Writer', model: 'local-codex-cli/gpt-5', appliedModel: 'relay/manual', engine: 'codex-cli' }
-  const view = row({ roster: { bots: [local] } })
+  const view = row({ roster: teamRoster([local]) })
   button(ui(view.tree), 'Refresh models').props.onClick()
   await settle(); await settle()
   view.tree = view.rerender()
   button(ui(view.tree), 'manual').props.onClick()
   view.tree = view.rerender()
   assert.match(textOf(ui(view.tree)), /Local agent, not affected: Writer/)
-  assert.doesNotMatch(textOf(ui(view.tree)), /Used by Writer/)
+  assert.doesNotMatch(textOf(ui(view.tree)), /Writer will switch/)
   assert.equal(button(ui(view.tree), 'Save anyway'), undefined)
   button(ui(view.tree), 'Save').props.onClick()
   await settle(); await settle()

@@ -255,7 +255,8 @@ export const KO = {
   'Select at least one model': '모델을 하나 이상 선택하세요',
   'Save anyway': '그래도 저장',
   'The endpoint lists no models.': '이 엔드포인트가 모델을 반환하지 않았습니다.',
-  'Used by {names}. On their next turn those Bots switch to the last model they ran on, or to the default model; the turn fails only if no other model is available.': '{names} 사용 중입니다. 다음 턴에 해당 Bot은 마지막으로 사용한 모델 또는 기본 모델로 전환됩니다. 사용할 다른 모델이 없으면 그 턴은 실패합니다.',
+  '{name} will switch to {model} on its next turn.': '{name}은(는) 다음 턴에 {model}(으)로 전환됩니다.',
+  '{name} has no model to fall back to; its next turn will fail.': '{name}은(는) 대체할 모델이 없어 다음 턴이 실패합니다.',
   'Local agent, not affected: {names}': '로컬 에이전트, 영향 없음: {names}',
   // What a Bot runs on
   'Runs on': '실행 방식',

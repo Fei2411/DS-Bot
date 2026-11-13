@@ -57,22 +57,73 @@ export function draftSummary(draft) {
   }
 }
 
-// Models this save would remove that a Bot still names. A model-backed Bot falls back
-// on its next turn; a local-agent Bot keeps its own model and is only listed so the
-// warning does not include it. The save itself never moves a Bot.
-export function usedRemoved(provider, draft, roster) {
-  const switching = new Map()
-  const local = new Map()
-  for (const row of draft.rows) {
-    if (!row.existing || row.selected) continue
-    const ref = row.model.ref ?? `${provider.id}/${row.id}`
-    for (const bot of roster?.bots ?? []) {
-      if (bot.model !== ref && bot.appliedModel !== ref) continue
-      const bucket = bot.engine !== undefined || isLocalRoute(bot.model ?? bot.appliedModel) ? local : switching
-      bucket.set(ref, [...(bucket.get(ref) ?? []), bot.name])
+const isLocalBot = bot => bot.engine !== undefined || isLocalRoute(bot.model ?? bot.appliedModel)
+
+// The catalog after this save: every provider as it is, except this provider's entries,
+// which become the selected draft rows in draft order.
+function catalogAfterSave(provider, draft, roster) {
+  const before = Array.isArray(roster?.models) ? roster.models : []
+  const known = new Map(before.map(entry => [entry.ref, entry]))
+  const replacement = draftSummary(draft).selected.map((row) => {
+    const ref = `${provider.id}/${row.id}`
+    const entry = known.get(ref)
+    if (entry !== undefined) return entry
+    return {
+      ref, provider: provider.id, providerName: provider.name, id: row.id,
+      name: row.model?.name ?? row.id,
+      ...(provider.key?.configured === false ? { needsKey: true } : {}),
     }
+  })
+  const out = []
+  let placed = false
+  for (const entry of before) {
+    if (entry.provider === provider.id) {
+      if (!placed) { out.push(...replacement); placed = true }
+      continue
+    }
+    out.push(entry)
   }
-  return { switching, local }
+  if (!placed) out.push(...replacement)
+  return out
+}
+
+const usableModel = entries => entries.filter(entry => entry.needsKey !== true && !isLocalRoute(entry.ref))
+
+// The model desiredModel() gives this Bot once the draft is saved: its own model while
+// the catalog still serves it, else its last applied model while usable, else the
+// default model (or the first usable one when the default is gone).
+function nextModel(bot, entries, roster) {
+  if (!bot.model) return undefined
+  const own = entries.find(entry => entry.ref === bot.model)
+  if (own !== undefined) return own
+  const usable = usableModel(entries)
+  const applied = bot.appliedModel === undefined ? undefined : usable.find(entry => entry.ref === bot.appliedModel)
+  if (applied !== undefined) return applied
+  return usable.find(entry => entry.ref === roster?.defaultModel) ?? usable[0]
+}
+
+// What saving this draft would do to each Bot that names a removed model. A model-backed
+// Bot moves to the model desiredModel() picks; without a usable model it fails. A
+// local-agent Bot keeps its own model and is listed only so it is not warned about.
+export function fallbacksFor(provider, draft, roster) {
+  const entries = catalogAfterSave(provider, draft, roster)
+  const removed = new Set()
+  for (const row of draft.rows) {
+    if (row.existing && !row.selected) removed.add(row.model.ref ?? `${provider.id}/${row.id}`)
+  }
+  const seen = new Set()
+  const switching = []
+  const failed = []
+  const local = []
+  for (const bot of roster?.bots ?? []) {
+    if (seen.has(bot.id) || (!removed.has(bot.model) && !removed.has(bot.appliedModel))) continue
+    seen.add(bot.id)
+    if (isLocalBot(bot)) { local.push(bot); continue }
+    const target = nextModel(bot, entries, roster)
+    if (target === undefined) failed.push(bot)
+    else if (target.ref !== (bot.model ?? bot.appliedModel)) switching.push({ ...bot, target })
+  }
+  return { switching, failed, local }
 }
 
 export function ProvidersPage({ actions, run, roster, Section, advanced = null }) {
@@ -144,7 +195,8 @@ export function ProviderRow({ provider, apply, actions, roster, revision, open, 
     if (draft === null) return
     const { selected } = draftSummary(draft)
     if (selected.length === 0) return
-    if (usedRemoved(provider, draft, roster).switching.size > 0 && !confirmRemove) {
+    const impact = fallbacksFor(provider, draft, roster)
+    if ((impact.switching.length > 0 || impact.failed.length > 0) && !confirmRemove) {
       setConfirmRemove(true)
       return
     }
@@ -199,9 +251,8 @@ export function ProviderRow({ provider, apply, actions, roster, revision, open, 
 
 function ModelDraft({ provider, draft, roster, onToggle, onSave, onCancel, confirmRemove }) {
   const { selected, added, removed } = draftSummary(draft)
-  const { switching: used, local: unaffected } = usedRemoved(provider, draft, roster)
-  const names = [...new Set([...used.values()].flat())]
-  const localNames = [...new Set([...unaffected.values()].flat())]
+  const { switching, failed, local } = fallbacksFor(provider, draft, roster)
+  const localNames = [...new Set(local.map(bot => bot.name))]
   const returned = draft.rows.filter(row => row.returned)
   const unreturned = draft.rows.filter(row => !row.returned)
   const modelButton = row => h('button', {
@@ -224,10 +275,10 @@ function ModelDraft({ provider, draft, roster, onToggle, onSave, onCancel, confi
           h('div', { className: 'bt-secret-bots bt-provider-found' }, unreturned.map(modelButton)))
       : null,
     selected.length === 0 ? h('div', { className: 'bt-set-hint', 'data-error': '', role: 'status' }, t('Select at least one model')) : null,
-    used.size > 0
-      ? h('div', { className: 'bt-set-hint bt-provider-used', role: 'status' },
-          t('Used by {names}. On their next turn those Bots switch to the last model they ran on, or to the default model; the turn fails only if no other model is available.', { names: names.join(t(', ')) }))
-      : null,
+    switching.map(bot => h('div', { key: `switch-${bot.id}`, className: 'bt-set-hint bt-provider-used', role: 'status' },
+      t('{name} will switch to {model} on its next turn.', { name: bot.name, model: bot.target.name ?? bot.target.ref }))),
+    failed.map(bot => h('div', { key: `fail-${bot.id}`, className: 'bt-set-hint bt-provider-used', role: 'status' },
+      t('{name} has no model to fall back to; its next turn will fail.', { name: bot.name }))),
     localNames.length > 0
       ? h('div', { className: 'bt-set-hint', role: 'status' }, t('Local agent, not affected: {names}', { names: localNames.join(t(', ')) }))
       : null,
@@ -235,7 +286,7 @@ function ModelDraft({ provider, draft, roster, onToggle, onSave, onCancel, confi
       h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: onCancel }, t('Cancel')),
       h('button', {
         type: 'button', className: 'bt-send bt-soft-sm', disabled: selected.length === 0, onClick: onSave,
-      }, confirmRemove && used.size > 0 ? t('Save anyway') : t('Save'))))
+      }, confirmRemove && (switching.length > 0 || failed.length > 0) ? t('Save anyway') : t('Save'))))
 }
 
 function KeyEditor({ provider, apply, actions }) {

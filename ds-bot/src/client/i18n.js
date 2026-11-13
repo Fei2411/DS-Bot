@@ -244,7 +244,8 @@ const ZH = {
   'Select at least one model': '至少选择一个模型',
   'Save anyway': '仍要保存',
   'The endpoint lists no models.': '这个接口没有列出模型。',
-  'Used by {names}. On their next turn those Bots switch to the last model they ran on, or to the default model; the turn fails only if no other model is available.': '正在使用：{names}。下一轮这些 Bot 会改用它们上次运行的模型，或默认模型；只有没有其他可用模型时这一轮才会失败。',
+  '{name} will switch to {model} on its next turn.': '{name} 下一轮会改用 {model}。',
+  '{name} has no model to fall back to; its next turn will fail.': '{name} 没有可回落的模型，下一轮会失败。',
   'Local agent, not affected: {names}': '本地 Agent，不受影响：{names}',
   // What a Bot runs on
   'Runs on': '运行方式',

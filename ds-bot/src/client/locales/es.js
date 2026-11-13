@@ -255,7 +255,8 @@ export const ES = {
   'Select at least one model': 'Selecciona al menos un modelo',
   'Save anyway': 'Guardar igualmente',
   'The endpoint lists no models.': 'El endpoint no enumera ningún modelo.',
-  'Used by {names}. On their next turn those Bots switch to the last model they ran on, or to the default model; the turn fails only if no other model is available.': 'En uso por {names}. En su siguiente turno esos Bots cambian al modelo que usaron por última vez, o al modelo predeterminado; el turno solo falla si no hay otro modelo disponible.',
+  '{name} will switch to {model} on its next turn.': '{name} cambiará a {model} en su siguiente turno.',
+  '{name} has no model to fall back to; its next turn will fail.': '{name} no tiene un modelo al que recurrir; su siguiente turno fallará.',
   'Local agent, not affected: {names}': 'Agente local, sin efecto: {names}',
   // What a Bot runs on
   'Runs on': 'Se ejecuta en',
