@@ -69,7 +69,7 @@ test('the page lists every Bot with model, and a local agent Bot cannot be selec
 })
 
 test('a Bot with no model shows the team default, one whose model is gone says so', () => {
-  assert.equal(modelLine({ id: 'n', name: 'N' }, roster), 'Team default: Flash')
+  assert.equal(modelLine({ id: 'n', name: 'N' }, roster), 'No model picked yet')
   assert.equal(modelLine({ id: 'g', name: 'G', model: 'official/gone' }, roster), 'gone (not available)')
   assert.equal(modelLine({ id: 'c', name: 'C', model: 'official/pro' }, roster), 'Pro')
 })

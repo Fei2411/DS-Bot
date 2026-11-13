@@ -1614,8 +1614,6 @@ export const JA = {
   "Select all": "すべて選択",
   "Changing…": "変更中…",
   "Selected Bots": "選択した Bot",
-  "Team default": "チームの既定",
-  "Team default: {model}": "チームの既定: {model}",
   "{model} (not available)": "{model}（現在利用できません）",
   "Changed": "変更済み",
   "Already on this model": "すでにこのモデルを使用中",
@@ -1629,6 +1627,7 @@ export const JA = {
   "Skipped: {count}": "スキップ: {count} 件",
   "Failed: {count}": "失敗: {count} 件",
   "{count} skipped": "{count} 件スキップ",
+  "No model picked yet": "モデル未選択",
 }
 
 export const HOST_ERRORS_JA = [

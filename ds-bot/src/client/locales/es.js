@@ -1649,8 +1649,6 @@ export const ES = {
   "Select all": "Seleccionar todos",
   "Changing…": "Cambiando…",
   "Selected Bots": "Bots seleccionados",
-  "Team default": "Predeterminado del equipo",
-  "Team default: {model}": "Predeterminado del equipo: {model}",
   "{model} (not available)": "{model} (no disponible)",
   "Changed": "Cambiado",
   "Already on this model": "Ya usa este modelo",
@@ -1664,6 +1662,7 @@ export const ES = {
   "Skipped: {count}": "Omitidos: {count}",
   "Failed: {count}": "Fallaron: {count}",
   "{count} skipped": "{count} omitidas",
+  "No model picked yet": "Sin modelo elegido",
 }
 
 export const HOST_ERRORS_ES = [

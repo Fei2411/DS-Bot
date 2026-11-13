@@ -1649,8 +1649,6 @@ export const KO = {
   "Select all": "모두 선택",
   "Changing…": "변경 중…",
   "Selected Bots": "선택한 Bot",
-  "Team default": "팀 기본값",
-  "Team default: {model}": "팀 기본값: {model}",
   "{model} (not available)": "{model}(사용할 수 없음)",
   "Changed": "변경됨",
   "Already on this model": "이미 이 모델 사용 중",
@@ -1664,6 +1662,7 @@ export const KO = {
   "Skipped: {count}": "건너뜀: {count}개",
   "Failed: {count}": "실패: {count}개",
   "{count} skipped": "{count}개 건너뜀",
+  "No model picked yet": "아직 모델을 선택하지 않음",
 }
 
 export const HOST_ERRORS_KO = [

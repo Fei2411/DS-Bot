@@ -12,10 +12,7 @@ import { t } from './i18n.js'
 
 export const modelLine = (bot, roster) => {
   const shown = modelOf(bot, roster)
-  if (shown === undefined) {
-    const fallback = (roster.models ?? []).find(model => model.ref === roster.prefs?.defaultBotModel)
-    return fallback ? t('Team default: {model}', { model: fallback.name }) : t('Team default')
-  }
+  if (shown === undefined) return t('No model picked yet')
   return shown.served ? shown.name : t('{model} (not available)', { model: shown.name })
 }
 

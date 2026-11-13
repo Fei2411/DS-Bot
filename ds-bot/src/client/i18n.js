@@ -1568,8 +1568,6 @@ const ZH = {
   "Select all": "全选",
   "Changing…": "正在更换…",
   "Selected Bots": "选中的 Bot",
-  "Team default": "团队默认模型",
-  "Team default: {model}": "团队默认模型：{model}",
   "{model} (not available)": "{model}（当前不可用）",
   "Changed": "已更换",
   "Already on this model": "已在使用此模型",
@@ -1583,6 +1581,7 @@ const ZH = {
   "Skipped: {count}": "已跳过：{count} 个",
   "Failed: {count}": "失败：{count} 个",
   "{count} skipped": "跳过 {count} 个",
+  "No model picked yet": "还没有选模型",
 }
 
 // Host errors stay English, since Bots read them too; they are translated where the

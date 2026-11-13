@@ -1736,8 +1736,6 @@ var JA = {
   "Select all": "すべて選択",
   "Changing…": "変更中…",
   "Selected Bots": "選択した Bot",
-  "Team default": "チームの既定",
-  "Team default: {model}": "チームの既定: {model}",
   "{model} (not available)": "{model}（現在利用できません）",
   "Changed": "変更済み",
   "Already on this model": "すでにこのモデルを使用中",
@@ -1750,7 +1748,8 @@ var JA = {
   "Already on this model: {count}": "すでにこのモデル: {count} 件",
   "Skipped: {count}": "スキップ: {count} 件",
   "Failed: {count}": "失敗: {count} 件",
-  "{count} skipped": "{count} 件スキップ"
+  "{count} skipped": "{count} 件スキップ",
+  "No model picked yet": "モデル未選択"
 };
 var HOST_ERRORS_JA = [
   [/^Could not reach the mail server at (.+)\. Check the server address\.$/, "メールサーバー $1 に接続できませんでした。サーバーアドレスを確認してください。"],
@@ -4109,8 +4108,6 @@ var KO = {
   "Select all": "모두 선택",
   "Changing…": "변경 중…",
   "Selected Bots": "선택한 Bot",
-  "Team default": "팀 기본값",
-  "Team default: {model}": "팀 기본값: {model}",
   "{model} (not available)": "{model}(사용할 수 없음)",
   "Changed": "변경됨",
   "Already on this model": "이미 이 모델 사용 중",
@@ -4123,7 +4120,8 @@ var KO = {
   "Already on this model: {count}": "이미 이 모델: {count}개",
   "Skipped: {count}": "건너뜀: {count}개",
   "Failed: {count}": "실패: {count}개",
-  "{count} skipped": "{count}개 건너뜀"
+  "{count} skipped": "{count}개 건너뜀",
+  "No model picked yet": "아직 모델을 선택하지 않음"
 };
 var HOST_ERRORS_KO = [
   [/^Could not reach the mail server at (.+)\. Check the server address\.$/, "메일 서버 $1에 연결할 수 없습니다. 서버 주소를 확인하세요."],
@@ -6483,8 +6481,6 @@ var ES = {
   "Select all": "Seleccionar todos",
   "Changing…": "Cambiando…",
   "Selected Bots": "Bots seleccionados",
-  "Team default": "Predeterminado del equipo",
-  "Team default: {model}": "Predeterminado del equipo: {model}",
   "{model} (not available)": "{model} (no disponible)",
   "Changed": "Cambiado",
   "Already on this model": "Ya usa este modelo",
@@ -6497,7 +6493,8 @@ var ES = {
   "Already on this model: {count}": "Ya usan este modelo: {count}",
   "Skipped: {count}": "Omitidos: {count}",
   "Failed: {count}": "Fallaron: {count}",
-  "{count} skipped": "{count} omitidas"
+  "{count} skipped": "{count} omitidas",
+  "No model picked yet": "Sin modelo elegido"
 };
 var HOST_ERRORS_ES = [
   [/^Could not reach the mail server at (.+)\. Check the server address\.$/, "No se pudo conectar con el servidor de correo en $1. Comprueba la dirección del servidor."],
@@ -8813,8 +8810,6 @@ var FR = {
   "Select all": "Tout sélectionner",
   "Changing…": "Modification…",
   "Selected Bots": "Bots sélectionnés",
-  "Team default": "Modèle par défaut de l'équipe",
-  "Team default: {model}": "Modèle par défaut de l'équipe : {model}",
   "{model} (not available)": "{model} (indisponible)",
   "Changed": "Modifié",
   "Already on this model": "Utilise déjà ce modèle",
@@ -8827,7 +8822,8 @@ var FR = {
   "Already on this model: {count}": "Utilisent déjà ce modèle : {count}",
   "Skipped: {count}": "Ignorés : {count}",
   "Failed: {count}": "En échec : {count}",
-  "{count} skipped": "{count} ignorés"
+  "{count} skipped": "{count} ignorés",
+  "No model picked yet": "Aucun modèle choisi"
 };
 var HOST_ERRORS_FR = [
   [/^Could not reach the mail server at (.+)\. Check the server address\.$/, "Impossible de joindre le serveur de messagerie à l’adresse $1. Vérifiez l’adresse du serveur."],
@@ -11186,8 +11182,6 @@ var DE = {
   "Select all": "Alle auswählen",
   "Changing…": "Wird geändert…",
   "Selected Bots": "Ausgewählte Bots",
-  "Team default": "Team-Standard",
-  "Team default: {model}": "Team-Standard: {model}",
   "{model} (not available)": "{model} (nicht verfügbar)",
   "Changed": "Geändert",
   "Already on this model": "Nutzt dieses Modell bereits",
@@ -11200,7 +11194,8 @@ var DE = {
   "Already on this model: {count}": "Nutzen dieses Modell bereits: {count}",
   "Skipped: {count}": "Übersprungen: {count}",
   "Failed: {count}": "Fehlgeschlagen: {count}",
-  "{count} skipped": "{count} übersprungen"
+  "{count} skipped": "{count} übersprungen",
+  "No model picked yet": "Noch kein Modell gewählt"
 };
 var HOST_ERRORS_DE = [
   [/^Could not reach the mail server at (.+)\. Check the server address\.$/, "Mailserver unter $1 nicht erreichbar. Bitte prüfe die Serveradresse."],
@@ -13468,8 +13463,6 @@ var ZH = {
   "Select all": "全选",
   "Changing…": "正在更换…",
   "Selected Bots": "选中的 Bot",
-  "Team default": "团队默认模型",
-  "Team default: {model}": "团队默认模型：{model}",
   "{model} (not available)": "{model}（当前不可用）",
   "Changed": "已更换",
   "Already on this model": "已在使用此模型",
@@ -13482,7 +13475,8 @@ var ZH = {
   "Already on this model: {count}": "已在使用此模型：{count} 个",
   "Skipped: {count}": "已跳过：{count} 个",
   "Failed: {count}": "失败：{count} 个",
-  "{count} skipped": "跳过 {count} 个"
+  "{count} skipped": "跳过 {count} 个",
+  "No model picked yet": "还没有选模型"
 };
 var HOST_ERRORS = [
   [/^Could not reach the mail server at (.+)\. Check the server address\.$/, "连不上邮件服务器 $1，请检查服务器地址。"],
@@ -34581,10 +34575,7 @@ function summarizeModelChange(results) {
 var import_react48 = require("react");
 var modelLine = (bot, roster) => {
   const shown = modelOf(bot, roster);
-  if (shown === void 0) {
-    const fallback = (roster.models ?? []).find((model) => model.ref === roster.prefs?.defaultBotModel);
-    return fallback ? t("Team default: {model}", { model: fallback.name }) : t("Team default");
-  }
+  if (shown === void 0) return t("No model picked yet");
   return shown.served ? shown.name : t("{model} (not available)", { model: shown.name });
 };
 var resultLine = (entry) => {
