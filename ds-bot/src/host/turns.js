@@ -10,6 +10,7 @@ import { absoluteLinks } from './links.js'
 import { splitRef, textOf } from './text.js'
 import { viaOf } from '../shared/im-platforms.js'
 import { reminderText } from './schedules.js'
+import { usageChunk } from './usage.js'
 
 // Failures only the user can fix: a key, a sign-in, a balance. They block the Bot
 // until it is fixed (`bot.blocked`, for the repair card).
@@ -1035,7 +1036,8 @@ export function install(rt) {
         const content = event.data?.message?.content
         const text = textOf(content)
         const called = Array.isArray(content) && content.some(block => block?.type === 'tool-call')
-        if (event.data?.usage !== undefined) entry.usage = event.data.usage
+        const messageUsage = event.data?.usage ?? usageChunk(event.data?.stream)
+        if (messageUsage !== undefined) entry.usage = messageUsage
         if (text !== '' && text !== HANDOFF_ACK) {
           // What a turn says goes on to the group or the sender, read from other folders.
           entry.texts.push(absoluteLinks(text, rt.sessionFolder?.(session)))

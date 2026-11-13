@@ -553,3 +553,23 @@ test('a group conversation cut off with nothing written moves on too', async (t)
   await until(() => host.archived.length > 0)
   assert.deepEqual(host.archived, [['gb', { stopActivity: true }]])
 })
+
+test('stream-only usage on assistant/message also detects premature window cut-offs', async (t) => {
+  const host = await start({ services: cutOffServices })
+  t.after(host.stop)
+  const agent = host.agentOf('b')
+  agent.session.requestHeader = () => ({ config: { provider: 'gateway', model: 'step-5' } })
+  const idle = () => host.ctx.emit('agent/status', { agent, status: 'idle' })
+  for (const turn of [1, 2]) {
+    host.emit('b', 'turn/start', { turn })
+    host.emit('b', 'assistant/message', {
+      message: { content: [{ type: 'text', text: `Half ${turn}` }] },
+      stream: [{ type: 'chunk', chunk: { type: 'usage', usage: { inputTokens: 129_000, outputTokens: 40 } } }],
+    })
+    host.emit('b', 'turn/end', { turn, reason: { kind: 'max-tokens' } })
+    idle()
+    await settle()
+  }
+  await until(() => host.state().bots.b.sessionId === 's1')
+  assert.equal(host.state().bots.b.segments[0].fallback, 'cutoff')
+})
