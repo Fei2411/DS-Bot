@@ -98,3 +98,70 @@ test('finding a CLI never waits on npm, and npm\'s global folder joins in the ba
   await refresh
   assert.equal(findExecutable('dsb-fake-agent'), join(prefix, 'bin', 'dsb-fake-agent'))
 })
+
+// A data folder can share a CLI's name: a PATH entry may hold an app's data root,
+// where `Devin/` and `devin` are the same name on Windows. A directory is not a CLI;
+// the scan must skip it and keep going to the real file behind it.
+test('a directory on PATH does not shadow the CLI file after it', { skip: process.platform === 'win32' }, (t) => {
+  const root = mkdtempSync(join(tmpdir(), 'dsb-discover-shadow-'))
+  t.after(() => rmSync(root, { recursive: true, force: true }))
+  const shadow = join(root, 'shadow')
+  const bin = join(root, 'bin')
+  const name = `dsb-shadow-${process.pid}`
+  mkdirSync(join(shadow, name), { recursive: true })
+  mkdirSync(bin)
+  const executable = join(bin, name)
+  writeFileSync(executable, '#!/bin/sh\nexit 0\n')
+  chmodSync(executable, 0o755)
+  const { PATH } = process.env
+  process.env.PATH = [shadow, bin, PATH].join(delimiter)
+  t.after(() => { process.env.PATH = PATH })
+
+  assert.equal(findExecutable(name), executable)
+})
+
+// The same name with no file behind it is not an installed CLI: registering the
+// directory would only make every call to it fail with ENOENT.
+test('a directory alone on PATH is not an installed CLI', (t) => {
+  const root = mkdtempSync(join(tmpdir(), 'dsb-discover-dir-'))
+  t.after(() => rmSync(root, { recursive: true, force: true }))
+  const name = `dsb-dir-only-${process.pid}`
+  mkdirSync(join(root, name), { recursive: true })
+  const { PATH } = process.env
+  process.env.PATH = [root, PATH].join(delimiter)
+  t.after(() => { process.env.PATH = PATH })
+
+  assert.equal(findExecutable(name), undefined)
+})
+
+// The Windows shape of the same bug: the data folder is `devin` and the real CLI is
+// `devin.exe` in another PATH entry. The bare directory must not win.
+test('a directory on PATH does not shadow a .exe CLI on Windows', { skip: process.platform !== 'win32' }, (t) => {
+  const root = mkdtempSync(join(tmpdir(), 'dsb-discover-win-'))
+  t.after(() => rmSync(root, { recursive: true, force: true }))
+  const shadow = join(root, 'shadow')
+  const bin = join(root, 'bin')
+  const name = `dsb-shadow-${process.pid}`
+  mkdirSync(join(shadow, name), { recursive: true })
+  mkdirSync(bin)
+  const executable = join(bin, `${name}.exe`)
+  writeFileSync(executable, '')
+  const { PATH } = process.env
+  process.env.PATH = [shadow, bin, PATH].join(delimiter)
+  t.after(() => { process.env.PATH = PATH })
+
+  assert.equal(findExecutable(name), executable)
+})
+
+// An absolute path has the same rule: a directory is refused, a file is returned.
+test('an absolute path is an executable only when it is a file', (t) => {
+  const root = mkdtempSync(join(tmpdir(), 'dsb-discover-abs-'))
+  t.after(() => rmSync(root, { recursive: true, force: true }))
+  const directory = join(root, 'dsb-abs-agent')
+  mkdirSync(directory)
+  assert.equal(findExecutable(directory), undefined)
+  const file = join(root, 'dsb-abs-agent-file')
+  writeFileSync(file, '#!/bin/sh\nexit 0\n')
+  chmodSync(file, 0o755)
+  assert.equal(findExecutable(file), file)
+})

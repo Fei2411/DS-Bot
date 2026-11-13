@@ -2,7 +2,7 @@
 // login-shell PATH plus the usual install folders, and an environment that
 // keeps their own sign-in but leaks nothing of ours.
 import { execFile, spawn } from 'node:child_process'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { delimiter, join, win32 } from 'node:path'
 
@@ -76,17 +76,29 @@ function searchDirs() {
   return dirs
 }
 
+// A name that merely exists is not a CLI: a data folder can share a command's name,
+// and Windows matches the bare name case-insensitively (D:\AI-Dev\Devin vs devin).
+// Only a regular file is taken; a directory on PATH is skipped so the scan goes on
+// to the real executable behind it.
+function isRegularFile(path) {
+  try {
+    return statSync(path).isFile()
+  } catch {
+    return false
+  }
+}
+
 // The executable's full path, or undefined when the CLI is not installed. Only
 // file checks: the folders from refreshSearchDirs() join once it has run.
 export function findExecutable(name) {
   if (name.includes('/') || name.includes('\\')) {
     const path = name.startsWith('~') ? join(homedir(), name.slice(1)) : name
-    return existsSync(path) ? path : undefined
+    return isRegularFile(path) ? path : undefined
   }
   for (const dir of searchDirs()) {
     for (const file of candidates(name)) {
       const path = join(dir, file)
-      if (existsSync(path)) return path
+      if (isRegularFile(path)) return path
     }
   }
   return undefined
