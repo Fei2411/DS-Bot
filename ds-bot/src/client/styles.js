@@ -1375,6 +1375,20 @@ div:has(> nav [class*="_marks"]){display:none!important}
 .bt-news-x svg{width:12px;height:12px}
 .bt-news-x:hover{opacity:1;background:rgba(20,20,20,.5)}
 @media (prefers-reduced-motion:reduce){.bt-news,[class*="_toBottomSlot"]>button{animation:none}}
+/* The pill over a long reply whose start has scrolled away (reading.js). */
+.bt-reading{position:fixed;z-index:29;display:inline-flex;align-items:center;max-width:min(360px,calc(100vw - 32px));height:28px;padding:0 2px;box-sizing:border-box;border-radius:999px;background:var(--bt-glass-bg);-webkit-backdrop-filter:blur(24px) saturate(180%);backdrop-filter:blur(24px) saturate(180%);box-shadow:inset 0 0 0 .5px var(--bt-glass-rim),var(--bt-glass-shadow);font-family:var(--bt-font);transform-origin:top left;animation:bt-pop-drop ${SPRING_TAP.duration}ms ${SPRING_TAP.easing},bt-veil-in .16s ease-out}
+.bt-reading[data-leaving]{pointer-events:none;animation:bt-pop-out .12s cubic-bezier(.4,0,1,1) forwards}
+.bt-reading>button{display:inline-flex;align-items:center;gap:4px;min-width:0;height:24px;margin:0;padding:0 8px;border:0;border-radius:999px;background:none;color:var(--bt-ink-2);font:inherit;font-size:12px;line-height:16px;white-space:nowrap;cursor:pointer;transition:background-color .12s ease,color .12s ease}
+.bt-reading>button:hover,.bt-reading>button[aria-expanded=true]{background:var(--bt-hover);color:var(--bt-ink)}
+.bt-reading>button:focus-visible{outline:2px solid var(--bt-accent);outline-offset:1px}
+.bt-reading>button svg{flex:none;width:14px;height:14px}
+.bt-reading>.bt-reading-up{flex:none;justify-content:center;width:24px;padding:0}
+.bt-reading-label{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.bt-reading>.bt-reading-menu{position:absolute;top:calc(100% + 4px);left:0;max-width:min(360px,calc(100vw - 32px));max-height:min(420px,60vh);overflow-y:auto}
+.bt-reading-menu>button[data-depth="1"]{padding-left:20px}
+.bt-reading-menu>button[data-depth="2"]{padding-left:32px}
+.bt-reading-menu>button[aria-current=true]{color:var(--bt-accent);font-weight:500}
+@media (prefers-reduced-motion:reduce){.bt-reading{animation:none}}
 .bt-new-sep{display:flex;align-items:center;gap:8px;margin:14px 0 8px;padding:2px 0;font-size:11px;line-height:14px;font-weight:500;letter-spacing:.02em;text-transform:uppercase;color:var(--bt-accent);font-family:var(--bt-font)}
 .bt-new-sep::before,.bt-new-sep::after{content:"";flex:1;height:1px;background:color-mix(in srgb,var(--bt-accent) 20%,transparent)}
 .bt-open-new{display:flex;flex-direction:column}

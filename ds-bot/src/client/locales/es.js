@@ -788,6 +788,11 @@ export const ES = {
   'Show all · {count} characters': 'Mostrar todo · {count} caracteres',
   'Showing the first {count} characters': 'Mostrando los primeros {count} caracteres',
   'Only the start of this message is kept here': 'Aquí solo se conserva el principio de este mensaje',
+  'Start of reply': 'Inicio de la respuesta',
+  'Back to the start of this reply': 'Volver al inicio de esta respuesta',
+  Contents: 'Contenido',
+  'Sections in this reply': 'Secciones de esta respuesta',
+  'Sections in this reply: {section}': 'Secciones de esta respuesta: {section}',
 
   // Time and usage
   'Today {time}': 'Hoy {time}',
