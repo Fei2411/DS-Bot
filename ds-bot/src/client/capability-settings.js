@@ -1,4 +1,5 @@
 import { createElement as h, Fragment, useEffect, useState } from 'react'
+import { PlusIcon } from './icons.js'
 import { t } from './i18n.js'
 
 const blank = () => ({ name: '', kind: 'mcp', description: '', transport: 'stdio', command: '', argsText: '', envText: '{}', url: '', headersText: '{}', content: '', items: [] })
@@ -94,13 +95,16 @@ function CapabilityRow({ item, onEdit, onDelete, onApprove, confirming }) {
   const detail = item.kind === 'pack' ? `${t('Pack')}: ${(item.items ?? []).join(', ') || t('No items')}`
     : item.kind === 'mcp' ? item.transport === 'stdio' ? t('Local command') : t('HTTP server')
       : t('Skill')
+  const badge = item.kind === 'mcp' ? 'MCP' : item.kind === 'skill' ? t('Skill') : t('Pack')
   const secondary = item.kind === 'pack'
     ? [item.description, (item.items ?? []).join(', ') || t('No items')].filter(Boolean).join(' · ')
     : item.description || detail
   return h('div', { className: 'bt-connector' },
     h('div', { className: 'bt-connector-head' },
       h('span', { className: 'bt-connector-text' },
-        h('span', { className: 'bt-connector-name' }, item.name),
+        h('span', { className: 'bt-connector-title' },
+          h('span', { className: 'bt-connector-name' }, item.name),
+          h('span', { className: 'bt-tag' }, badge)),
         h('span', { className: 'bt-connector-status' }, secondary)),
       h('span', { className: 'bt-connector-actions' },
         item.kind === 'mcp' && item.transport === 'stdio' && !item.approved
@@ -134,11 +138,10 @@ export function CapabilitiesPage({ roster, actions, run }) {
     void run(actions.deleteCapability(item.name))
   }
   return h('section', { className: 'bt-set-section' },
-    h('h3', null, t('Shared capabilities')),
-    draft
-      ? h(CapabilityForm, { draft, setDraft, items, actions, onClose: () => setDraft(null) })
-      : h('div', { className: 'bt-actions' },
-          h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: startNew }, t('Add capability'))),
+    h('div', { className: 'bt-la-sec-head' },
+      h('h3', null, t('Shared capabilities')),
+      draft ? null : h('button', { type: 'button', className: 'bt-soft bt-soft-sm bt-with-icon', onClick: startNew }, h(PlusIcon), t('Add capability'))),
+    draft ? h(CapabilityForm, { draft, setDraft, items, actions, onClose: () => setDraft(null) }) : null,
     h('div', { className: 'bt-set-card bt-connectors-card' },
       items.length === 0 ? h('div', { className: 'bt-set-row' }, h('span', { className: 'bt-set-hint' }, t('No capabilities saved')))
         : items.map(item => h(CapabilityRow, {

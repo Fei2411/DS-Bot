@@ -41,17 +41,21 @@ export class CodexEngine {
     this.child = child
     const peer = this.peer = new JsonRpcPeer(line => child.stdin.write(`${JSON.stringify(line)}\n`))
     wireProcess(child, peer)
-    child.on('exit', () => {
-      peer.close(new Error(`${this.engine.name} exited`))
+    const gone = (error) => {
+      peer.close(error)
       // A process close() let go of must not take the one that replaced it along.
       if (this.child !== child) return
       this.child = undefined
       this.peer = undefined
       for (const thread of this.threads.values()) {
         thread.dead = true
-        thread.push({ type: 'error', error: new Error(`${this.engine.name} exited`) })
+        thread.push({ type: 'error', error })
       }
-    })
+    }
+    child.on('exit', () => gone(new Error(`${this.engine.name} exited`)))
+    // A CLI that cannot start at all (a broken install, a missing interpreter)
+    // raises 'error', never 'exit'; unheard it takes the host down.
+    child.on('error', error => gone(Object.assign(new Error(`${this.engine.name} could not start: ${error.message}`), { code: 'LOCAL_AGENT_EXIT' })))
     peer.notificationHandler = (method, params) => this.onNotice(method, params)
     peer.requestHandler = (method, params) => this.onRequest(method, params)
     await peer.request('initialize', { clientInfo: { name: 'ds-bot', title: null, version: '1' } }, { timeout: 30_000 })

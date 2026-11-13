@@ -40,17 +40,21 @@ export class AcpEngine {
     this.child = child
     const peer = this.peer = new JsonRpcPeer(line => child.stdin.write(`${JSON.stringify(line)}\n`))
     wireProcess(child, peer)
-    child.on('exit', (code, signal) => {
-      peer.close(new Error(`${this.engine.name} exited${signal ? ` (${signal})` : code !== null ? ` (${code})` : ''}`))
+    const gone = (error) => {
+      peer.close(error)
       // A process close() let go of must not take the one that replaced it along.
       if (this.child !== child) return
       this.child = undefined
       this.peer = undefined
       for (const session of this.sessions.values()) {
         session.dead = true
-        session.push({ type: 'error', error: new Error(`${this.engine.name} exited`) })
+        session.push({ type: 'error', error })
       }
-    })
+    }
+    child.on('exit', (code, signal) => gone(new Error(`${this.engine.name} exited${signal ? ` (${signal})` : code !== null ? ` (${code})` : ''}`)))
+    // A CLI that cannot start at all (a broken install, a missing interpreter)
+    // raises 'error', never 'exit'; unheard it takes the host down.
+    child.on('error', error => gone(Object.assign(new Error(`${this.engine.name} could not start: ${error.message}`), { code: 'LOCAL_AGENT_EXIT' })))
     peer.notificationHandler = (method, params) => this.onNotice(method, params)
     peer.requestHandler = (method, params) => this.onRequest(method, params)
     const reply = await peer.request('initialize', {
