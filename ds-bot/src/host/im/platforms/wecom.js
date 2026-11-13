@@ -104,12 +104,14 @@ export default {
       lastReqId.set(key, String(headers?.req_id ?? ''))
       const direct = body.chattype === 'single'
       // Groups only count when the bot was @-ed: the text keeps the mention.
-      const text = String(body.text?.content ?? '').trim()
+      // A voice message carries its own transcription, which is all of the text
+      // there is to send on.
+      const text = String(body.text?.content ?? body.voice?.content ?? '').trim()
       const images = []
       const files = []
       if (body.msgtype === 'image' && body.image?.url !== undefined) {
-        const bytes = await downloadImage(body.image, env).catch(() => undefined)
-        if (bytes !== undefined) images.push({ mediaType: 'image/jpeg', data: Buffer.from(bytes).toString('base64') })
+        const got = await downloadMedium(body.image, env).catch(() => undefined)
+        if (got !== undefined) images.push({ mediaType: imageTypeOf(got.bytes, got.name), data: got.bytes.toString('base64') })
       }
       if (body.msgtype === 'file' || body.msgtype === 'video') {
         const media = body[body.msgtype]
@@ -127,7 +129,7 @@ export default {
           if (item?.msgtype !== 'image' || item.image?.url === undefined) continue
           const got = await downloadMedium(item.image, env).catch(() => undefined)
           if (got === undefined) continue
-          images.push({ mediaType: imageTypeOf(got.name), data: got.bytes.toString('base64') })
+          images.push({ mediaType: imageTypeOf(got.bytes, got.name), data: got.bytes.toString('base64') })
         }
       }
       // Reply frames go out with the callback's req_id; a failed reply is
@@ -262,10 +264,6 @@ async function downloadMedium(medium, env) {
   return { bytes: decryptMedia(encrypted, key), name: filenameOf(response.headers?.get?.('content-disposition')) }
 }
 
-async function downloadImage(image, env) {
-  return (await downloadMedium(image, env))?.bytes
-}
-
 // WeCom pads to a 32-byte block, not the 16 that `setAutoPadding` assumes, so the
 // padding is removed here: leaving it on makes `final()` throw on a bad decrypt.
 function decryptMedia(encrypted, key) {
@@ -290,8 +288,16 @@ function filenameOf(contentDisposition) {
   try { return decodeURIComponent(plain[1].trim()) } catch { return plain[1].trim() }
 }
 
-// A mixed image arrives without a media type; the extension is the only clue.
-function imageTypeOf(name) {
+// WeCom does not say what an image is: declare what the bytes actually are, since a
+// decrypted PNG labelled image/jpeg fails admission later on. The name is only a
+// fallback for a format the signatures do not cover.
+function imageTypeOf(bytes, name) {
+  const at = (offset, ...signature) => signature.every((byte, index) => bytes[offset + index] === byte)
+  if (at(0, 0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a)) return 'image/png'
+  if (at(0, 0xff, 0xd8, 0xff)) return 'image/jpeg'
+  if (at(0, 0x47, 0x49, 0x46, 0x38)) return 'image/gif'
+  if (at(0, 0x42, 0x4d)) return 'image/bmp'
+  if (at(0, 0x52, 0x49, 0x46, 0x46) && at(8, 0x57, 0x45, 0x42, 0x50)) return 'image/webp'
   const ext = String(name ?? '').toLowerCase().match(/\.([a-z0-9]+)$/)?.[1]
   if (ext === 'png') return 'image/png'
   if (ext === 'gif') return 'image/gif'

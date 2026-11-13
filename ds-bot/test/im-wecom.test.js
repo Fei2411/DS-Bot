@@ -217,3 +217,85 @@ test('a video message arrives as a file, and a text message still carries none',
   assert.equal(video.files[0].name, 'wecom-m-v')
   assert.equal(plainText.files.length, 0)
 })
+
+test('a voice message forwards its transcription as the text', async (t) => {
+  const fake = await fakeWecom()
+  const messages = []
+  const handle = wecom.connect(FIELDS, env(fake), { onMessage: async msg => { messages.push(msg) }, onAction: () => {}, onStatus: () => {} })
+  t.after(() => { handle.stop(); fake.close() })
+  const ws = await until(() => fake.sockets[0])
+  fake.push(ws, { cmd: 'aibot_msg_callback', headers: { req_id: 'req-voice' }, body: { msgid: 'm-voice', msgtype: 'voice', chattype: 'single', from: { userid: 'u1' }, voice: { content: '发个文件给我' } } })
+  const delivered = await until(() => messages.find(msg => msg.messageId === 'm-voice'))
+  assert.equal(delivered.text, '发个文件给我')
+  assert.equal(delivered.files.length, 0)
+})
+
+// A PNG of every 32-byte length residue decrypts to real PNG bytes, and its media
+// type comes from the bytes: the callback never says which format it is. Padding
+// lengths 17-32 are the ones Node's 16-byte unpad would have refused.
+test('a decrypted PNG is declared image/png across every padding length', async (t) => {
+  const { createCipheriv, randomBytes } = await import('node:crypto')
+  const key = randomBytes(32)
+  const fake = await fakeWecom()
+  const messages = []
+  // Send every residue on one connection, then check each PNG landed as image/png.
+  const pngs = []
+  for (let pad = 1; pad <= 32; pad += 1) {
+    // Pad length `pad` in 1..32, with the filler making the total a whole number
+    // of 32-byte blocks, the way the protocol always is.
+    const filler = (32 - ((8 + pad) % 32)) % 32
+    const body = Buffer.concat([Buffer.from('89504e470d0a1a0a', 'hex'), randomBytes(filler), Buffer.alloc(pad, pad)])
+    const cipher = createCipheriv('aes-256-cbc', key, key.subarray(0, 16))
+    cipher.setAutoPadding(false)
+    // What arrives is the message without its padding, not the padded buffer.
+    pngs.push({ id: `m-png-${pad}`, encrypted: Buffer.concat([cipher.update(body), cipher.final()]), plain: body.subarray(0, body.length - pad) })
+  }
+  let current
+  const mediaEnv = { ...env(fake), fetch: async () => ({ ok: true, headers: { get: () => null }, arrayBuffer: async () => current }) }
+  const handle = wecom.connect(FIELDS, mediaEnv, { onMessage: async msg => { messages.push(msg) }, onAction: () => {}, onStatus: () => {} })
+  t.after(() => { handle.stop(); fake.close() })
+  const ws = await until(() => fake.sockets[0])
+  for (const png of pngs) {
+    current = png.encrypted
+    fake.push(ws, { cmd: 'aibot_msg_callback', headers: { req_id: `req-${png.id}` }, body: { msgid: png.id, msgtype: 'image', chattype: 'single', from: { userid: 'u1' }, image: { url: `https://cdn.invalid/${png.id}`, aeskey: key.toString('base64') } } })
+    const arrived = await until(() => messages.find(msg => msg.messageId === png.id))
+    assert.ok(arrived, `${png.id} arrived`)
+    assert.equal(arrived.images.length, 1, `${png.id} kept its image`)
+    assert.equal(arrived.images[0].mediaType, 'image/png', `${png.id} declared as PNG`)
+    assert.equal(arrived.images[0].data, png.plain.toString('base64'), `${png.id} decrypted intact`)
+  }
+})
+
+test('a JPEG keeps image/jpeg, and unknown bytes fall back on the name', async (t) => {
+  const { createCipheriv, randomBytes } = await import('node:crypto')
+  const key = randomBytes(32)
+  const fake = await fakeWecom()
+  const messages = []
+  const encrypt = (plain) => {
+    const pad = 32 - (plain.length % 32)
+    const cipher = createCipheriv('aes-256-cbc', key, key.subarray(0, 16))
+    cipher.setAutoPadding(false)
+    return Buffer.concat([cipher.update(Buffer.concat([plain, Buffer.alloc(pad, pad)])), cipher.final()])
+  }
+  const jpeg = encrypt(Buffer.concat([Buffer.from('ffd8ff', 'hex'), randomBytes(40)]))
+  const odd = encrypt(Buffer.from('not an image at all, but named webp', 'utf8'))
+  let current = jpeg
+  const mediaEnv = {
+    ...env(fake),
+    fetch: async () => ({
+      ok: true,
+      headers: { get: name => (name.toLowerCase() === 'content-disposition' && current === odd ? 'attachment; filename="picture.webp"' : null) },
+      arrayBuffer: async () => current,
+    }),
+  }
+  const handle = wecom.connect(FIELDS, mediaEnv, { onMessage: async msg => { messages.push(msg) }, onAction: () => {}, onStatus: () => {} })
+  t.after(() => { handle.stop(); fake.close() })
+  const ws = await until(() => fake.sockets[0])
+  fake.push(ws, { cmd: 'aibot_msg_callback', headers: { req_id: 'req-j' }, body: { msgid: 'm-jpeg', msgtype: 'image', chattype: 'single', from: { userid: 'u1' }, image: { url: 'https://cdn.invalid/j', aeskey: key.toString('base64') } } })
+  const jpg = await until(() => messages.find(msg => msg.messageId === 'm-jpeg'))
+  assert.equal(jpg.images[0].mediaType, 'image/jpeg')
+  current = odd
+  fake.push(ws, { cmd: 'aibot_msg_callback', headers: { req_id: 'req-o' }, body: { msgid: 'm-odd', msgtype: 'image', chattype: 'single', from: { userid: 'u1' }, image: { url: 'https://cdn.invalid/o', aeskey: key.toString('base64') } } })
+  const unknown = await until(() => messages.find(msg => msg.messageId === 'm-odd'))
+  assert.equal(unknown.images[0].mediaType, 'image/webp')
+})
