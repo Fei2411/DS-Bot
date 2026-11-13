@@ -61,7 +61,7 @@ async function start() {
 
 const text = value => [{ type: 'text', text: value }]
 
-test('a card asked in a hidden Bot-to-Bot turn goes to the dock, without its call', async (t) => {
+test('a card asked in a hidden Bot-to-Bot turn keeps its call id, and closing it records at that call', async (t) => {
   const { emit, ask, questions, stop } = await start()
   t.after(stop)
   emit('writer', 'turn/start', { turn: 1 })
@@ -69,7 +69,10 @@ test('a card asked in a hidden Bot-to-Bot turn goes to the dock, without its cal
   await ask('writer', 'call-1')
   const asked = (await questions()).writer
   assert.equal(asked.question, 'Which name?')
-  assert.equal(asked.callId, undefined)
+  assert.equal(asked.callId, 'call-1')
+  emit('writer', 'user/message', { content: text('Call it Scout'), source: { kind: 'user' } })
+  assert.equal((await questions()).writer, undefined)
+  assert.deepEqual(rt.state.closedCards, { writer: { 'call-1': 'replied' } })
 })
 
 test('a card asked in a visible turn stays at its call', async (t) => {

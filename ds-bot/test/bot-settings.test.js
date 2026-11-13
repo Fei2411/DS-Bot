@@ -20,7 +20,7 @@ runInNewContext(outputFiles[0].text, {
   module, exports: module.exports,
   require: name => (name === 'react' ? react : name === 'react-dom' ? { createPortal: node => node } : {}),
 })
-const { BotSettingsForm } = module.exports
+const { BotSettingsForm, InlineText } = module.exports
 
 function walk(node, found = []) {
   if (Array.isArray(node)) { for (const child of node) walk(child, found); return found }
@@ -60,4 +60,71 @@ test('a private Bot can always turn privacy off, and cannot become Main or be du
   assert.equal(privacy.props.disabled, false)
   assert.equal(tree.find(node => node.props?.label === 'Main Bot').props.disabled, true)
   assert.equal(tree.some(node => node.props?.onClick && node.props.className === 'bt-set-row bt-bs-row' && JSON.stringify(node).includes('Duplicate')), false)
+})
+
+// One InlineText with working state, so a test can type into it, press keys and blur it.
+function field(props) {
+  const cells = []
+  let slot = 0
+  const real = { useState: react.useState, useRef: react.useRef }
+  react.useState = initial => { const mine = slot++; cells[mine] ??= { value: initial }; return [cells[mine].value, next => { cells[mine].value = next }] }
+  react.useRef = initial => { const mine = slot++; cells[mine] ??= { value: { current: initial } }; return cells[mine].value }
+  const render = () => { slot = 0; return InlineText(props).props }
+  const api = {
+    props: render,
+    type: text => render().onChange({ target: { value: text } }),
+    blur: () => render().onBlur(),
+    key: name => render().onKeyDown({ key: name, nativeEvent: {}, stopPropagation() {}, currentTarget: { blur: () => api.blur() } }),
+  }
+  return { api, restore: () => Object.assign(react, real) }
+}
+function editing(props, steps) {
+  const log = []
+  const { api, restore } = field({ ...props, onSave: next => log.push(['save', next]), onDone: () => log.push(['done']) })
+  try { steps(api) } finally { restore() }
+  return log
+}
+
+test('an inline field saves the trimmed text on blur and then reports the edit done', () => {
+  assert.deepEqual(editing({ label: 'Label', value: 'Writer' }, (api) => { api.type('  Editor '); api.blur() }), [['save', 'Editor'], ['done']])
+})
+
+test('Enter in a single-line field saves; Enter in a multiline one adds a line', () => {
+  assert.deepEqual(editing({ label: 'Label', value: 'Writer' }, (api) => { api.type('Editor'); api.key('Enter') }), [['save', 'Editor'], ['done']])
+  assert.deepEqual(editing({ label: 'Instructions', value: '', multiline: true }, (api) => { api.type('A'); api.key('Enter') }), [])
+})
+
+test('Escape drops the typed text, still reports the edit done, and the saved value stays', () => {
+  const log = editing({ label: 'Label', value: 'Writer' }, (api) => { api.type('Editor'); api.key('Escape') })
+  assert.deepEqual(log, [['done']])
+})
+
+test('an unchanged or untouched field saves nothing but still reports done', () => {
+  assert.deepEqual(editing({ label: 'Label', value: 'Writer' }, (api) => { api.type('Writer'); api.blur() }), [['done']])
+  assert.deepEqual(editing({ label: 'Label', value: 'Writer' }, (api) => { api.blur() }), [['done']])
+})
+
+test('a required field never saves empty', () => {
+  assert.deepEqual(editing({ label: 'Name', value: 'Ada', required: true }, (api) => { api.type('  '); api.blur() }), [['done']])
+  assert.deepEqual(editing({ label: 'Label', value: 'Writer' }, (api) => { api.type(''); api.blur() }), [['save', ''], ['done']])
+})
+
+test('a failed save keeps the typed draft in the field and does not end the edit', async () => {
+  const done = []
+  const { api, restore } = field({ label: 'Instructions', value: 'Old', onSave: () => Promise.resolve(false), onDone: () => done.push('done') })
+  try {
+    api.type('Unsaved draft')
+    api.blur()
+    await Promise.resolve()
+    assert.equal(api.props().value, 'Unsaved draft')
+    assert.deepEqual(done, [])
+  } finally {
+    restore()
+  }
+})
+
+test('a field takes its class from the page it sits in, and defaults to the Settings page look', () => {
+  assert.equal(InlineText({ label: 'Label', value: '' }).props.className, 'bt-bs-input')
+  assert.equal(InlineText({ label: 'Instructions', value: '', multiline: true }).props.className, 'bt-bs-input bt-bs-area')
+  assert.equal(InlineText({ label: 'Label', value: '', className: 'bt-drawer-role-input' }).props.className, 'bt-drawer-role-input')
 })

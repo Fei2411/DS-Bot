@@ -5,6 +5,7 @@ import { syncBuiltinESMExports } from 'node:module'
 import { hostname, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
+import { afterRound } from './relay-rows.js'
 import { format } from 'node:util'
 import { createRuntime } from '../index.js'
 import { fakeContext } from './fake-ctx.js'
@@ -218,11 +219,11 @@ test('a group the user makes without a first message opens with its admin asking
 
   // The relay gives the admin alone a turn, and the cue adds no line to the group.
   for (const listener of ctx.listeners.get('session/event')) listener({ id: room.id }, { type: 'user/message', data: sent[0].message })
-  const controller = new AbortController()
-  const relay = rt.teamTools.find(d => d.name === 'group_relay').execute({}, { agent: { id: room.id }, callId: 'relay', signal: controller.signal })
+  const relay = rt.teamTools.find(d => d.name === 'group_relay').execute({}, { agent: { id: room.id }, callId: 'relay', signal: new AbortController().signal })
+    .then(value => afterRound(rt, room.id, value))
   await until(() => sent.length > 1)
-  controller.abort()
-  const result = JSON.parse(await relay)
+  rt.stopRoomRound(room.id)
+  const result = await relay
   const turns = sent.slice(1)
   assert.equal(turns.length, 1)
   const text = turns[0].message.content[0].text
@@ -1334,6 +1335,35 @@ test('create_bot uses a named model, then the team default, then its creator’s
   rt.state.prefs.defaultBotModel = 'gone/model'
   assert.match(await createBotAs('Inherited'), /^Created Inherited/)
   assert.equal((await botNamed('Inherited')).model, 'deepseek/deepseek-v4-pro')
+})
+
+// A Bot created from inside another Bot's turn is the one path a user reported as
+// sharing history (#1196). Its Session, its greeting and its transcript stay its own.
+test('a Bot created inside another Bot’s turn gets a Session of its own', async (t) => {
+  const { call, stop, sent } = start(TEAM_MODEL, { models: ['deepseek-v4-flash', 'deepseek-v4-pro'] })
+  t.after(stop)
+  const before = (await call('state', {})).value
+  const chief = before.bots.find(bot => bot.id === before.mainBotId)
+  assert.match(await createBotAs('Isolated'), /^Created Isolated/)
+
+  const after = (await call('state', {})).value
+  const created = after.bots.find(bot => bot.name === 'Isolated')
+  const keptChief = after.bots.find(bot => bot.id === chief.id)
+  // Its own chat, not the chat whose turn made it.
+  assert.notEqual(created.id, chief.id)
+  assert.equal(created.sessionId, created.id)
+  assert.ok(!(created.parts ?? []).includes(chief.id))
+  // The greeting goes to the new Bot's Session and nowhere else.
+  await until(() => sent.length > 0)
+  assert.deepEqual([...new Set(sent.map(entry => entry.sessionId))], [created.id])
+  // The creator keeps its own chat, and the new Bot's Session is not part of it.
+  assert.equal(keptChief.sessionId, chief.sessionId)
+  assert.ok(!(keptChief.parts ?? []).includes(created.id))
+  // Nothing of the creator's conversation is reachable from the new Bot's chat: it
+  // answers with its own Session and no lines, never with the chat that made it.
+  const chat = await call('chat', { botId: created.id })
+  assert.ok(chat.value === undefined || chat.value.sessionId === created.id, `chat answered for ${chat.value?.sessionId}`)
+  assert.deepEqual(chat.value?.items ?? [], [])
 })
 
 test('create_bot inherits the creator’s model when no team default is set', async (t) => {

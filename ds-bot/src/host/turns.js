@@ -10,6 +10,7 @@ import { absoluteLinks } from './links.js'
 import { splitRef, textOf } from './text.js'
 import { viaOf } from '../shared/im-platforms.js'
 import { reminderText } from './schedules.js'
+import { usageChunk } from './usage.js'
 
 // Failures only the user can fix: a key, a sign-in, a balance. They block the Bot
 // until it is fixed (`bot.blocked`, for the repair card).
@@ -123,6 +124,22 @@ const subEndText = (data) => {
   return reason === '' || reason === 'completed' ? text : `subagent ended (${reason}) before it finished. What it had written:\n${text}`
 }
 
+// A settlement notice is all a plugin loaded again has of an ending (#973): its
+// runtime-owned summary names how the child stopped without carrying raw output into
+// the group ledger.
+const noticeStopReason = (source, content) => {
+  const said = typeof source?.summary === 'string' && source.summary !== ''
+    ? source.summary
+    : (textOf(content).split('\n')[0] ?? '')
+  const rest = said.replace(/^Background subagent \S+\s+/, '')
+  if (rest === '' || rest.startsWith('finished')) return undefined
+  if (rest.startsWith('was stopped')) return 'aborted'
+  if (rest.startsWith('ran out of room')) return 'max-tokens'
+  if (rest.startsWith('declined')) return 'refusal'
+  if (rest.startsWith('failed')) return 'error'
+  return /^ended abnormally \(([^)]*)\)/.exec(rest)?.[1] ?? 'error'
+}
+
 const RETRY_TEXT = 'Your last reply wrote a tool call as plain text (<tool_call>…), so it did not run and nothing happened. Call the tool through the tool interface now, then reply as you meant to.'
 const RETRY_PROMISE_TEXT = 'Your last reply said you would start working, but you ended the turn without calling any tool, so nothing ran. Call the tools you need and do the work now. If your last reply already was your whole answer, reply [PASS]; it stays posted.'
 // The turn number a running turn gets when it started before this plugin was loaded and
@@ -136,6 +153,13 @@ const CUT_OFF_EMPTY_NOTE = '[cut off at the model\'s output limit before it wrot
 // The answer a cut-off turn leaves: what it said, marked as unfinished, or the line
 // that stands in for a turn that wrote nothing at all.
 export const cutOffText = said => (said === '' ? CUT_OFF_EMPTY_NOTE : `${said}\n\n${CUT_OFF_NOTE}`)
+// A route whose real window is smaller than the one DS Bot knows answers an oversized
+// request with a `length` finish and a short answer, not a context error (#1104). Such
+// a turn is far below any real output cap; a turn that truly reached the model's
+// output limit is not, and only that one is a real truncation. The cut-off shape has to
+// make room the way an overflow does, even when the turn wrote a line first (#1461).
+const PREMATURE_OUTPUT_TOKENS = 4_096
+const PREMATURE_INPUT_TOKENS = 32_000
 
 // A reply that only promises to start investigating/checking/running tools now without
 // actually calling a tool or handing off with @Name (#469). A verb followed by 过了,
@@ -228,13 +252,31 @@ export function install(rt) {
     if (rt.groupOwners.has(parentId)) rt.workRoomTurn?.(parentId, 'subagent')
   }
 
+  // The settlement notice can arrive before subagent/end, so the label must outlive the
+  // active entry; it is spent when the ending is read (#973).
+  const endedSubagentLabels = new Map()
   const noteSubagentEnd = (childId) => {
     if (typeof childId !== 'string' || childId === '') return
     const parentId = subagentParent.get(childId)
     if (parentId === undefined) return
     const map = subagentsByParent.get(parentId)
+    const label = map?.get(childId)?.label
+    if (typeof label === 'string' && label !== '') {
+      endedSubagentLabels.set(childId, label)
+      while (endedSubagentLabels.size > 100) endedSubagentLabels.delete(endedSubagentLabels.keys().next().value)
+    }
     map?.delete(childId)
     if (map !== undefined && map.size === 0) subagentsByParent.delete(parentId)
+  }
+
+  // The group sees one row for a failed helper: whichever ending names it first posts
+  // it, and the other one adds nothing (#973).
+  const notedSubagentFailures = new Set()
+  const noteSubagentFailure = (parentId, childId, { stopReason, helper, closing }) => {
+    if (typeof childId !== 'string' || childId === '' || notedSubagentFailures.has(childId)) return
+    rememberStopped(notedSubagentFailures, childId)
+    void rt.subagentFailureNotice(parentId, { stopReason, helper, closing })
+      .catch(error => rt.warn('ds-bot: background helper failure not posted: %s', error))
   }
 
   const hasSubagents = id => (subagentsByParent.get(id)?.size ?? 0) > 0
@@ -612,12 +654,18 @@ export function install(rt) {
 
   // A turn cut off at the output limit is not a finish, but no failure either. The
   // record names the route and the size of the input, so a route whose declared
-  // window is larger than the service really serves can be found from it.
-  const noteCutOffTurn = (id, { session, wroteNothing }) => {
+  // window is larger than the service really serves can be found from it. A cut-off
+  // far below the model's output limit also records what came out: that is the shape
+  // of a route stopping the request at its real window (#1104, #1461).
+  const noteCutOffTurn = (id, { session, wroteNothing, outputTokens }) => {
     const route = session.requestHeader?.()?.config
     const ref = route?.provider && route?.model ? `${route.provider}/${route.model}` : undefined
     const tokens = rt.sessionTokens?.(session)
-    const facts = [ref, Number.isFinite(tokens) && tokens > 0 ? `${tokens} tokens in` : undefined].filter(Boolean)
+    const facts = [
+      ref,
+      Number.isFinite(tokens) && tokens > 0 ? `${tokens} tokens in` : undefined,
+      Number.isFinite(outputTokens) && outputTokens >= 0 ? `${outputTokens} tokens out` : undefined,
+    ].filter(Boolean)
     rt.noteFailure({
       level: 'warn',
       source: 'turn',
@@ -695,11 +743,23 @@ export function install(rt) {
     const parentId = subagentParent.get(childId)
       ?? ctx.get?.('agents')?.get?.(childId)?.session?.header?.parentSession
       ?? [...live.entries()].find(([, entry]) => [...(entry.calls?.values() ?? [])].some(call => call.name === 'subagent'))?.[0]
-    if (parentId !== undefined) noteSubagentStart(parentId, childId, undefined)
+    if (parentId === undefined) return
+    // A child can run again after it settled; its next ending gets its own row.
+    notedSubagentFailures.delete(childId)
+    noteSubagentStart(parentId, childId, undefined)
   })
-  ctx.on?.('subagent/end', (info) => {
+  ctx.on?.('subagent/end', function (info) {
+    const parentId = carrierKeyOf(this)?.session?.id ?? subagentParent.get(info?.id)
+    const helper = subagentsByParent.get(parentId)?.get(info?.id)?.label ?? endedSubagentLabels.get(info?.id)
     noteSubagentEnd(info?.id)
-    if (rt.groupOwners.has(info?.id)) void rt.goalSettled?.(rt.roomOf(rt.groupOwners.get(info.id).roomId)).catch(error => rt.warn('ds-bot: goal settle failed: %s', error))
+    endedSubagentLabels.delete(info?.id)
+    const owner = rt.groupOwners.get(parentId)
+    if (owner === undefined) return
+    if (typeof info?.stopReason === 'string' && info.stopReason !== 'completed'
+      && !stoppedSubagentParents.has(parentId) && !stoppedSubagents.has(info.id)) {
+      noteSubagentFailure(parentId, info.id, { stopReason: info.stopReason, helper, closing: textOf(info?.lastAssistantMessage) })
+    }
+    void rt.goalSettled?.(rt.roomOf(owner.roomId)).catch(error => rt.warn('ds-bot: goal settle failed: %s', error))
   })
 
   ctx.on('session/event', (session, event) => {
@@ -751,6 +811,7 @@ export function install(rt) {
         entry.step = undefined
         entry.info = undefined
         entry.toolCount = 0
+        entry.usage = undefined
         entry.suppressedSubagent = false
         // A turn turned away before its first step may end without a turn/end.
         entry.switched = false
@@ -794,14 +855,25 @@ export function install(rt) {
       case 'user/message': {
         const source = event.data?.source
         if (source?.kind === 'subagent-settled' || source?.kind === 'agent-message') {
-          if (typeof source.senderSessionId === 'string') {
-            noteSubagentEnd(source.senderSessionId)
+          const childId = typeof source.senderSessionId === 'string' ? source.senderSessionId : undefined
+          // Only settlement ends a child's turn; an intermediate `agent-message` keeps the
+          // child active and preserves its label until it actually settles.
+          if (source.kind === 'subagent-settled' && childId !== undefined) {
+            noteSubagentEnd(childId)
             if (rt.groupOwners.has(id)) void rt.goalSettled?.(rt.roomOf(rt.groupOwners.get(id).roomId)).catch(error => rt.warn('ds-bot: goal settle failed: %s', error))
           }
-          if (stoppedSubagentParents.has(id) || (typeof source.senderSessionId === 'string' && stoppedSubagents.has(source.senderSessionId))) {
+          if (stoppedSubagentParents.has(id) || (childId !== undefined && stoppedSubagents.has(childId))) {
             entry.suppressedSubagent = true
             void rt.resolveAgent(id).then(agent => agent?.cancel({ kind: 'hook', reason: 'ds-bot/stopped' })).catch(() => {})
             break
+          }
+          // An ending the lifecycle event never brought here (a reload lost it) still
+          // says why the child stopped: the notice names it, so the group's row appears.
+          if (source.kind === 'subagent-settled' && childId !== undefined) {
+            const stopReason = noticeStopReason(source, event.data?.content)
+            const label = endedSubagentLabels.get(childId)
+            endedSubagentLabels.delete(childId)
+            if (stopReason !== undefined && rt.groupOwners.has(id)) noteSubagentFailure(id, childId, { stopReason, helper: label })
           }
         } else if (source?.kind === 'user' || source?.kind === SOURCE_KIND) {
           stoppedSubagentParents.delete(id)
@@ -839,6 +911,7 @@ export function install(rt) {
             botId: source.senderSessionId,
             name: source.senderName,
             reportBack: source.reportBack === true,
+            ...(source.claims === undefined ? {} : { claims: source.claims }),
             ...(source.member ? { member: true } : {}),
             // Who the whole post called. `text` may be only its opening (attachLong).
             ...(source.mentions ? { mentions: source.mentions } : {}),
@@ -963,6 +1036,8 @@ export function install(rt) {
         const content = event.data?.message?.content
         const text = textOf(content)
         const called = Array.isArray(content) && content.some(block => block?.type === 'tool-call')
+        const messageUsage = event.data?.usage ?? usageChunk(event.data?.stream)
+        if (messageUsage !== undefined) entry.usage = messageUsage
         if (text !== '' && text !== HANDOFF_ACK) {
           // What a turn says goes on to the group or the sender, read from other folders.
           entry.texts.push(absoluteLinks(text, rt.sessionFolder?.(session)))
@@ -992,6 +1067,7 @@ export function install(rt) {
         const wroteText = entry.texts.length > 0
         const shown = entry.shown > 0 || (info?.retried === true && promisedOpenings.delete(info.exchangeId))
         const { lastText, lastCalled } = entry
+        const usage = entry.usage
         const toolCount = entry.toolCount ?? 0
         const suppressedSubagent = entry.suppressedSubagent === true
         // A turn stopped for a switch goes on in the next part, which answers instead.
@@ -1014,6 +1090,7 @@ export function install(rt) {
         entry.calls = undefined
         entry.lastText = undefined
         entry.lastCalled = undefined
+        entry.usage = undefined
         const later = entry.later ?? []
         entry.later = []
         if (steerCut || suppressedSubagent) break
@@ -1049,8 +1126,18 @@ export function install(rt) {
         // context check then moves the part on instead of sending the same size again.
         const cutOff = watched && failure === undefined && reason?.kind === 'max-tokens'
         const wroteNothing = cutOff && !wroteText
-        rt.noteCutOffTurn?.(id, { withoutText: wroteNothing })
-        if (cutOff) noteCutOffTurn(id, { session, wroteNothing })
+        // A `length` finish far below any real output cap is the route's window, not the
+        // model's output limit: it counts toward making room like a turn that wrote
+        // nothing, or every later turn stops at the same size (#1461).
+        const outputTokens = Number(usage?.outputTokens)
+        // The request's size is its fresh input plus both cache sides: a route that
+        // reads mostly from the provider's cache still sends the whole prompt.
+        const inputTokens = Number(usage?.inputTokens ?? 0) + Number(usage?.cacheReadTokens ?? 0)
+          + Number(usage?.cacheWriteTokens ?? 0)
+        const premature = cutOff && Number.isFinite(outputTokens) && outputTokens < PREMATURE_OUTPUT_TOKENS
+          && inputTokens >= PREMATURE_INPUT_TOKENS
+        rt.noteCutOffTurn?.(id, { withoutText: wroteNothing, premature })
+        if (cutOff) noteCutOffTurn(id, { session, wroteNothing, ...(premature ? { outputTokens } : {}) })
         if (failure !== undefined) {
           if (blockBot(id, session, failure) && owner !== undefined && info?.role === 'kickoff') rt.holdKickoffAgain(owner)
         } else if (reason?.kind === 'completed') {
@@ -1128,14 +1215,14 @@ export function install(rt) {
           } else if (!stopped && reason?.kind !== 'aborted') {
             // The round moved on without this member; how its turn ends still reaches the group.
             if (failure !== undefined) void rt.lateRoomFailure?.(id, info, failure)
-            else void rt.lateRoomReply?.(id, info, groupReply(), { shown })
+            else void rt.lateRoomReply?.(id, info, groupReply(), { shown, toolCount })
           }
         } else if (!retry && speaksInGroup(id, info)) {
           // A turn that failed before it took any input (DSH can turn it down before its
           // first step) never names its call, so the call waiting on this Session fails.
           const inRound = failure !== undefined && info === undefined && rt.failRoomTurn?.(id, failure) === true
           if (failure !== undefined) { if (!inRound) void rt.lateRoomFailure?.(id, info ?? {}, failure) }
-          else if (reason?.kind !== 'aborted') void rt.lateRoomReply?.(id, info ?? {}, groupReply(), { shown })
+          else if (reason?.kind !== 'aborted') void rt.lateRoomReply?.(id, info ?? {}, groupReply(), { shown, toolCount })
         } else if (!retry && info !== undefined) {
           finish(info, replyText())
         }

@@ -8,6 +8,9 @@ import { noteClientError } from './diagnostics.js'
 export function teamActions({ call, after, partFor, roster, ui, live, cards, heldCards, turnClock, panelFolded }) {
   // A memory is a Bot's or a group chat's; both are opened by id.
   const memoryOf = id => (roster.getSnapshot().roomsById[id] ? { roomId: id } : { botId: id })
+  // Cards of long pastes, numbered as they come; each waits for the shell's attachment.
+  let pastes = 0
+  const pasteState = (state, sessionId, blocks) => ({ ...state, paste: { ...state.paste, [sessionId]: blocks } })
   // An action that shows the panel lands the yield with it: when a folded
   // panel's explicit opener fires, the column gives way in the same set.
   // `view` is the next view, since its minimum decides what fits; a yield already
@@ -25,6 +28,9 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     openPalette: (query = '') => { ui.set(state => ({ ...state, palette: { query, token: Date.now() }, newChat: null, menu: null })) },
     // The token keeps a late exit timer from closing a palette opened again since.
     closePalette: (token) => { ui.set(state => (state.palette && (token === undefined || state.palette.token === token) ? { ...state, palette: null } : state)) },
+    // Searching one group's own history, from its header.
+    openGroupSearch: (roomId) => { if (roomId) ui.set(state => ({ ...state, groupSearch: { roomId, token: Date.now() }, palette: null, newChat: null, menu: null })) },
+    closeGroupSearch: (token) => { ui.set(state => (state.groupSearch && (token === undefined || state.groupSearch.token === token) ? { ...state, groupSearch: null } : state)) },
     openExchange: (a, b) => { if (a && b) ui.set(state => ({ ...state, exchange: [a, b] })) },
     openVoice: (id) => { if (id) ui.set(state => ({ ...state, voice: id, menu: null })) },
     closeVoice: () => { ui.set(state => (state.voice ? { ...state, voice: null } : state)) },
@@ -83,6 +89,30 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     },
     closePanel: () => { ui.set(state => (state.details ? { ...state, details: null, view: 'details', renaming: false, tab: null, side: null } : state)) },
     quote: (sessionId, text) => ui.set(state => ({ ...state, quote: { sessionId, text, token: Date.now() } })),
+    // A long paste becomes a card; its text stays here until it goes back into the box.
+    addPaste: (sessionId, text, name) => {
+      pastes += 1
+      const block = { id: `paste-${pastes}`, text, name, attachmentId: null }
+      ui.set(state => pasteState(state, sessionId, [...(state.paste?.[sessionId] ?? []), block]))
+      return block.id
+    },
+    // The shell attachment whose label is that waiting card's own file name.
+    linkPastes: (sessionId, links) => ui.set((state) => {
+      const blocks = state.paste?.[sessionId] ?? []
+      const byBlock = new Map()
+      for (const link of links) byBlock.set(link.blockId, link.attachmentId)
+      const linked = blocks.map((block) => {
+        if (block.attachmentId !== null) return block
+        const id = byBlock.get(block.id)
+        return id === undefined ? block : { ...block, attachmentId: id }
+      })
+      return linked.every((block, index) => block === blocks[index]) ? state : pasteState(state, sessionId, linked)
+    }),
+    removePaste: (sessionId, blockIds) => ui.set((state) => {
+      const blocks = state.paste?.[sessionId] ?? []
+      const kept = blocks.filter(block => !blockIds.includes(block.id))
+      return kept.length === blocks.length ? state : pasteState(state, sessionId, kept)
+    }),
     clearQuote: token => ui.set(state => (state.quote?.token === token ? { ...state, quote: null } : state)),
     setFlags: (id, flags) => after(call('set-flags', { id, ...flags })),
     saveSection: payload => after(call('section-save', payload)),
@@ -125,6 +155,9 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     setPrefs: prefs => after(call('set-prefs', prefs)),
     setMain: (id, main = true, options = {}) => after(call('set-main', { id, main, ...options })),
     updateRoom: (id, patch) => after(call('update-room', { id, ...patch })),
+    roomTodoCheck: (roomId, id, done) => after(call('room-todo', { roomId, id, done })),
+    roomTodoRemove: (roomId, id) => after(call('room-todo', { roomId, id, action: 'remove' })),
+    roomTodoClear: roomId => after(call('room-todo', { roomId, action: 'clear' })),
     send: (sessionId, text) => after(call('send', { sessionId: partFor(sessionId), text })),
     answerQuestion: (sessionId, questionId, answer) => after(call('answer-question', { sessionId: partFor(sessionId), questionId, answer })),
     dismissQuestion: sessionId => after(call('dismiss-question', { sessionId })),
@@ -179,6 +212,10 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     mailRuleSet: payload => after(call('mail-rule-set', payload)),
     mailSendAnswer: (requestId, choice, extra = {}) => after(call('mail-send-answer', { requestId, choice, ...extra })),
     mailSignInCode: payload => after(call('mail-sign-in-code', payload)),
+    phoneSet: settings => after(call('phone-set', settings)),
+    phonePair: () => after(call('phone-pair')),
+    phonePairCancel: () => after(call('phone-pair-cancel')),
+    phoneRemove: id => after(call('phone-remove', { id })),
     imAdd: payload => after(call('im-add', payload)),
     imUpdate: (id, patch) => after(call('im-update', { id, ...patch })),
     imRemove: id => after(call('im-remove', { id })),
@@ -196,12 +233,15 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     scheduleCreate: task => call('schedule-create', task),
     scheduleDelete: (sessionId, id) => call('schedule-delete', { sessionId, id }),
     exchange: (a, b) => call('exchange', { a, b }).catch(() => []),
-    exchangeText: id => call('exchange-text', { id }).catch(() => undefined),
+    exchangeText: (id, a, b) => call('exchange-text', { id, ...(a !== undefined && b !== undefined ? { a, b } : {}) }).catch(() => undefined),
     fileText: file => call('file-text', { file }).catch(() => undefined),
     roomProgress: roomId => call('room-progress', { roomId }).catch(() => []),
+    groupRows: (roomId, from, to, anchor) => call('group-rows', { roomId, from, ...(to === undefined ? {} : { to }), ...(anchor === undefined ? {} : { anchor }) }).catch(() => null),
     earlier: (sessionId, cursor) => call('earlier', { sessionId, cursor: cursor ?? null }),
     // Hours come back in this browser's time zone, so days start at local midnight.
     usage: () => call('usage', { timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }),
+    // The details panel's status line: turns, speed, cache hits and context for one Bot.
+    runStats: botId => call('run-stats', { botId }),
     // `summarize` starts a summary when the entries changed; `regenerate` always does.
     memoryView: (id, flags = {}) => call('memory-view', { ...memoryOf(id), ...flags }),
     memoryAsk: (id, text) => call('memory-ask', { ...memoryOf(id), text }),

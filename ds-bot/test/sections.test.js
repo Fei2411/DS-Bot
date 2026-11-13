@@ -309,20 +309,23 @@ test('section-add menu offers both creating a new Bot/group in the section and a
   let peekFound = false
   let bodyInert = false
   let writerRows = 0
-  const walkSidebar = (node) => {
-    if (Array.isArray(node)) { node.forEach(walkSidebar); return }
+  let writerInBody = false
+  const walkSidebar = (node, inBody = false) => {
+    if (Array.isArray(node)) { node.forEach(child => walkSidebar(child, inBody)); return }
     if (!node || typeof node !== 'object') return
     if (typeof node.type === 'function' && node.type !== react.Fragment) {
-      walkSidebar(node.type(node.props ?? {}))
+      walkSidebar(node.type(node.props ?? {}), inBody)
       return
     }
     if (node.props?.className === 'bt-sec-peek') peekFound = true
     if (node.props?.className === 'bt-sec-body' && node.props?.inert === true && node.props?.['aria-hidden'] === true) bodyInert = true
-    if (node.props?.['data-bot-id'] === 'writer') writerRows += 1
-    walkSidebar(node.props?.children)
+    const here = inBody || node.props?.className === 'bt-sec-body'
+    if (node.props?.['data-bot-id'] === 'writer') { writerRows += 1; writerInBody = here }
+    walkSidebar(node.props?.children, here)
   }
   walkSidebar(sidebarTree)
-  assert.equal(peekFound, true)
+  assert.equal(peekFound, false)
   assert.equal(bodyInert, true)
   assert.equal(writerRows, 1)
+  assert.equal(writerInBody, true)
 })
