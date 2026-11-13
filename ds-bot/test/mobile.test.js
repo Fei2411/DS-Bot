@@ -527,34 +527,57 @@ test('room-chat keeps two group_relay calls that start at the same seq apart by 
   ])
 })
 
-test('file-download sends a presented file back to the phone', async (t) => {
-  const { call, history, stop } = start()
+test('file-download sends a presented file back to the phone, and disambiguates parts by sessionId', async (t) => {
+  const { call, history, rt, stop } = start()
   t.after(stop)
+  const { chief } = await team(call)
+  const part1 = (await call('state', {})).value.bots.find(bot => bot.id === chief).sessionId
+  const part2 = 's-file-part-2'
   const dir = mkdtempSync(join(tmpdir(), 'ds-bot-file-'))
   t.after(() => rmSync(dir, { recursive: true, force: true }))
-  const path = join(dir, 'report.pdf')
-  writeFileSync(path, Buffer.from('%PDF-1.4 presented'))
-  history['s-file'] = [{ seq: 9, type: 'deliverables/presented', data: { turn: 1, files: [{ path }] } }]
-  const saved = await call('file-download', { sessionId: 's-file', seq: 9, index: 0 })
-  assert.equal(saved.ok, true)
-  assert.equal(saved.value.name, 'report.pdf')
-  assert.equal(saved.value.mime, 'application/pdf')
-  assert.equal(Buffer.from(saved.value.bytes, 'base64').toString(), '%PDF-1.4 presented')
-  const wrong = await call('file-download', { sessionId: 's-file', seq: 10, index: 0 })
+  const path1 = join(dir, 'report-v1.pdf')
+  const path2 = join(dir, 'report-v2.pdf')
+  writeFileSync(path1, Buffer.from('%PDF-1.4 part1'))
+  writeFileSync(path2, Buffer.from('%PDF-1.4 part2'))
+  history[part1] = [{ seq: 9, type: 'deliverables/presented', data: { turn: 1, files: [{ path: path1 }] } }]
+  rt.state.bots[chief].segments = [{ sessionId: part1, endedAt: 10 }]
+  rt.state.bots[chief].sessionId = part2
+  rt.chatOwners.set(part2, chief)
+  rt.pastOwners.set(part1, { botId: chief })
+  history[part2] = [{ seq: 9, type: 'deliverables/presented', data: { turn: 1, files: [{ path: path2 }] } }]
+
+  const saved1 = await call('file-download', { sessionId: part1, seq: 9, index: 0 })
+  assert.equal(saved1.ok, true)
+  assert.equal(saved1.value.name, 'report-v1.pdf')
+  assert.equal(saved1.value.mime, 'application/pdf')
+  assert.equal(Buffer.from(saved1.value.bytes, 'base64').toString(), '%PDF-1.4 part1')
+
+  const saved2 = await call('file-download', { sessionId: part2, seq: 9, index: 0 })
+  assert.equal(saved2.ok, true)
+  assert.equal(saved2.value.name, 'report-v2.pdf')
+  assert.equal(Buffer.from(saved2.value.bytes, 'base64').toString(), '%PDF-1.4 part2')
+
+  const wrong = await call('file-download', { sessionId: part2, seq: 10, index: 0 })
   assert.deepEqual([wrong.ok, wrong.error.code], [false, 'bot/not-found'])
+  const unowned = await call('file-download', { sessionId: 's-unknown', seq: 9, index: 0 })
+  assert.deepEqual([unowned.ok, unowned.error.code], [false, 'bot/not-found'])
 })
 
-test('file-download sends a file attachment and refuses an unknown one', async (t) => {
+test('file-download sends a file attachment and refuses an unknown session or attachment', async (t) => {
   const { call, ctx, history, stop } = start()
   t.after(stop)
+  const { chief } = await team(call)
+  const sessionId = (await call('state', {})).value.bots.find(bot => bot.id === chief).sessionId
   const ref = await ctx.get('attachments').saveFile({ data: Buffer.from('notes for the phone'), name: 'notes.txt' })
-  history['s-att'] = [{ seq: 3, type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'file', attachment: ref }] } }]
-  const saved = await call('file-download', { sessionId: 's-att', attachmentId: ref.attachmentId })
+  history[sessionId] = [{ seq: 3, type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'file', attachment: ref }] } }]
+  const saved = await call('file-download', { sessionId, attachmentId: ref.attachmentId })
   assert.equal(saved.ok, true)
   assert.deepEqual([saved.value.name, saved.value.mime], ['notes.txt', 'text/plain'])
   assert.equal(Buffer.from(saved.value.bytes, 'base64').toString(), 'notes for the phone')
-  const missing = await call('file-download', { sessionId: 's-att', attachmentId: 'sha256:none' })
+  const missing = await call('file-download', { sessionId, attachmentId: 'sha256:none' })
   assert.deepEqual([missing.ok, missing.error.code], [false, 'bot/not-found'])
+  const unowned = await call('file-download', { sessionId: 's-other', attachmentId: ref.attachmentId })
+  assert.deepEqual([unowned.ok, unowned.error.code], [false, 'bot/not-found'])
 })
 
 test('a presented file rides on the closing Bot row so the phone can save it', async (t) => {
@@ -567,5 +590,5 @@ test('a presented file rides on the closing Bot row so the phone can save it', a
   ]
   const items = rt.displayItems('s-presented', events)
   const row = items.find(item => item.kind === 'bot')
-  assert.deepEqual(row.files, [{ name: 'quarterly.pdf', seq: 13, index: 0 }])
+  assert.deepEqual(row.files, [{ name: 'quarterly.pdf', sessionId: 's-presented', seq: 13, index: 0 }])
 })

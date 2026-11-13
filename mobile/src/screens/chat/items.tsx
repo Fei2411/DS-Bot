@@ -17,7 +17,7 @@ import { viewAnswerText } from 'deep-view/core'
 
 export interface ImageRef { attachmentId: string; mime?: string; name?: string }
 
-export interface FileRef { name: string; bytes?: number; attachmentId?: string; seq?: number; index?: number }
+export interface FileRef { name: string; bytes?: number; sessionId?: string; attachmentId?: string; seq?: number; index?: number }
 
 export type { SettledQuestionData }
 

@@ -214,18 +214,24 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
   // open it in a viewer. A refusal names the reason in the same line as file errors.
   const saveFile = useCallback((file: FileRef) => {
     setFileError(null)
+    const targetSession = file.sessionId ?? sessionId
     const payload = file.attachmentId !== undefined
-      ? { sessionId: id, attachmentId: file.attachmentId }
-      : { sessionId: id, seq: file.seq, index: file.index }
-    void call('file-download', payload).then(async result => {
-      const saved = result as { name?: string; mime?: string; bytes?: string }
-      const name = (saved.name ?? file.name ?? 'file').replace(/[^\w.-]+/g, '_')
-      const uri = `${FileSystem.cacheDirectory ?? ''}${name}`
-      await FileSystem.writeAsStringAsync(uri, saved.bytes ?? '', { encoding: FileSystem.EncodingType.Base64 })
-      if (!(await Sharing.isAvailableAsync())) throw new Error(t('Saving to the device is not available on this phone'))
-      await Sharing.shareAsync(uri, { mimeType: saved.mime ?? 'application/octet-stream', dialogTitle: name })
-    }, (failure: { code?: string; message?: string }) => setFileError(failure?.message ?? t('Could not save this file')))
-  }, [call, id])
+      ? { sessionId: targetSession, attachmentId: file.attachmentId }
+      : { sessionId: targetSession, seq: file.seq, index: file.index }
+    void (async () => {
+      try {
+        const saved = (await call('file-download', payload)) as { name?: string; mime?: string; bytes?: string }
+        const name = (saved.name ?? file.name ?? 'file').replace(/[^\w.-]+/g, '_')
+        const uri = `${FileSystem.cacheDirectory ?? ''}${name}`
+        await FileSystem.writeAsStringAsync(uri, saved.bytes ?? '', { encoding: FileSystem.EncodingType.Base64 })
+        if (!(await Sharing.isAvailableAsync())) throw new Error(t('Saving to the device is not available on this phone'))
+        await Sharing.shareAsync(uri, { mimeType: saved.mime ?? 'application/octet-stream', dialogTitle: name })
+      } catch (failure) {
+        const msg = (failure as { message?: string })?.message
+        setFileError(msg ?? t('Could not save this file'))
+      }
+    })()
+  }, [call, sessionId])
   const openFile = useCallback((file: { name: string; attachmentId?: string }) => {
     void call('file-text', { file }).then(result => {
       const read = result as { text?: string; truncated?: boolean } | string

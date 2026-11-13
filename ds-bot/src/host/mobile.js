@@ -419,12 +419,19 @@ export function install(rt) {
     if (attachmentId === undefined && presentedSeq === undefined) throw Object.assign(new Error('No file named'), { code: 'bot/invalid' })
     const sessionId = String(body.sessionId ?? '')
     const room = rt.roomOf(sessionId) ?? rt.roomOf(rt.pastOwners.get(sessionId)?.roomId)
-    const botId = room === undefined ? rt.chatOwners.get(sessionId) ?? rt.pastOwners.get(sessionId)?.botId : undefined
-    const sessions = [...new Set([
+    const botId = room === undefined
+      ? rt.chatOwners.get(sessionId) ?? rt.pastOwners.get(sessionId)?.botId ?? rt.botOf(sessionId)?.id
+      : undefined
+    if (botId === undefined && room === undefined) throw Object.assign(new Error('Unknown session'), { code: 'bot/not-found' })
+    const owned = new Set([
       ...(room !== undefined ? [rt.sessionOfRoom(room)] : []),
-      sessionId,
-      ...rt.partsOf(botId, room?.id).map(part => part.sessionId).reverse(),
-    ].filter(Boolean))]
+      ...(botId !== undefined ? [rt.chatOf(botId)] : []),
+      ...rt.partsOf(botId, room?.id).map(part => part.sessionId),
+    ].filter(Boolean))
+    // Presented files keep their own part's sessionId, because seq is local to one Session.
+    const sessions = presentedSeq !== undefined && owned.has(sessionId)
+      ? [sessionId]
+      : [...owned].reverse()
     for (const targetId of sessions) {
       let beforeSeq
       for (;;) {
@@ -438,10 +445,12 @@ export function install(rt) {
           if (presentedSeq !== undefined && event?.type === 'deliverables/presented' && Number(event.seq) === presentedSeq) {
             const file = Array.isArray(event.data?.files) ? event.data.files[presentedIndex] : undefined
             if (typeof file?.path !== 'string') continue
-            const info = await stat(file.path).catch(() => undefined)
+            const realPath = await rt.real?.(file.path)
+            if (realPath && await rt.inData?.(realPath)) throw unavailable()
+            const info = await stat(realPath ?? file.path).catch(() => undefined)
             if (info?.isFile() !== true) throw unavailable()
             if (info.size > FILE_DOWNLOAD_MAX) throw tooLarge()
-            const bytes = await readFile(file.path)
+            const bytes = await readFile(realPath ?? file.path)
             return { name: typeof file.name === 'string' && file.name !== '' ? file.name : nameOf(file.path), mime: mimeOf(file.path), bytes: bytes.toString('base64'), size: bytes.length }
           }
           if (attachmentId === undefined) continue

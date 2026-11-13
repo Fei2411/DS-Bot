@@ -1647,7 +1647,7 @@ export function install(rt) {
       if (owner === undefined) continue
       owner.files = [
         ...(owner.files ?? []),
-        ...entry.files.map((file, index) => ({ name: String(file.path).split(/[\\/]/).pop() || 'file', seq: entry.seq, index })),
+        ...entry.files.map((file, index) => ({ name: String(file.path).split(/[\\/]/).pop() || 'file', sessionId: partId, seq: entry.seq, index })),
       ]
     }
     return items
