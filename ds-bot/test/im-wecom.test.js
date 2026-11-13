@@ -161,3 +161,59 @@ test('a dropped socket reconnects and subscribes again', async (t) => {
   await until(() => fake.sockets.length === 2)
   await until(() => fake.packets.filter(packet => packet.cmd === 'aibot_subscribe').length === 2)
 })
+
+// A file message carries no filename: it arrives on content-disposition, and the
+// encrypted body is AES-256-CBC padded to a 32-byte block, not Node's default 16.
+test('a file message arrives as bytes with the name from content-disposition', async (t) => {
+  const { createCipheriv, randomBytes } = await import('node:crypto')
+  const key = randomBytes(32)
+  const plain = Buffer.from('hello 文件内容')
+  const pad = 32 - (plain.length % 32)
+  const cipher = createCipheriv('aes-256-cbc', key, key.subarray(0, 16))
+  cipher.setAutoPadding(false)
+  const encrypted = Buffer.concat([cipher.update(Buffer.concat([plain, Buffer.alloc(pad, pad)])), cipher.final()])
+
+  const fake = await fakeWecom()
+  const messages = []
+  const mediaEnv = {
+    ...env(fake),
+    fetch: async () => ({
+      ok: true,
+      headers: { get: name => (name.toLowerCase() === 'content-disposition' ? `attachment; filename*=UTF-8''${encodeURIComponent('季度报告.pdf')}` : null) },
+      arrayBuffer: async () => encrypted,
+    }),
+  }
+  const handle = wecom.connect(FIELDS, mediaEnv, { onMessage: async msg => { messages.push(msg) }, onAction: () => {}, onStatus: () => {} })
+  t.after(() => { handle.stop(); fake.close() })
+  const ws = await until(() => fake.sockets[0])
+  fake.push(ws, { cmd: 'aibot_msg_callback', headers: { req_id: 'req-f' }, body: { msgid: 'm-f', msgtype: 'file', chattype: 'single', from: { userid: 'u1' }, file: { url: 'https://cdn.invalid/f', aeskey: key.toString('base64') } } })
+  const delivered = await until(() => messages.find(msg => msg.files?.length === 1))
+  assert.ok(delivered, 'the file reached onMessage')
+  assert.equal(delivered.files[0].name, '季度报告.pdf')
+  assert.equal(delivered.files[0].data.toString(), plain.toString())
+})
+
+test('a video message arrives as a file, and a text message still carries none', async (t) => {
+  const { createCipheriv, randomBytes } = await import('node:crypto')
+  const key = randomBytes(32)
+  const cipher = createCipheriv('aes-256-cbc', key, key.subarray(0, 16))
+  cipher.setAutoPadding(false)
+  const encrypted = Buffer.concat([cipher.update(Buffer.alloc(32, 1)), cipher.final()])
+
+  const fake = await fakeWecom()
+  const messages = []
+  const mediaEnv = { ...env(fake), fetch: async () => ({ ok: true, headers: { get: () => null }, arrayBuffer: async () => encrypted }) }
+  const handle = wecom.connect(FIELDS, mediaEnv, { onMessage: async msg => { messages.push(msg) }, onAction: () => {}, onStatus: () => {} })
+  t.after(() => { handle.stop(); fake.close() })
+  const ws = await until(() => fake.sockets[0])
+  fake.push(ws, { cmd: 'aibot_msg_callback', headers: { req_id: 'req-v' }, body: { msgid: 'm-v', msgtype: 'video', chattype: 'single', from: { userid: 'u1' }, video: { url: 'https://cdn.invalid/v', aeskey: key.toString('base64') } } })
+  fake.push(ws, { cmd: 'aibot_msg_callback', headers: { req_id: 'req-t' }, body: { msgid: 'm-t', msgtype: 'text', chattype: 'single', from: { userid: 'u1' }, text: { content: 'hi' } } })
+  await until(() => messages.length === 2)
+  // A video has no name to find, so the message id stands in for one. Neither
+  // frame waits on the other, so the two are picked by id rather than by order.
+  const video = messages.find(msg => msg.messageId === 'm-v')
+  const plainText = messages.find(msg => msg.messageId === 'm-t')
+  assert.equal(video.files.length, 1)
+  assert.equal(video.files[0].name, 'wecom-m-v')
+  assert.equal(plainText.files.length, 0)
+})

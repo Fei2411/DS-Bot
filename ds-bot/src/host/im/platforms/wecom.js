@@ -14,6 +14,9 @@ import { chunkMarkdown } from '../format.js'
 
 const WSS = 'wss://openws.work.weixin.qq.com'
 const TEXT_LIMIT = 4000
+// A long-connection download reads the whole body into memory, so an oversized
+// attachment is surfaced in the log instead of buffered.
+const FILE_LIMIT = 100 * 1024 * 1024
 
 const socketUrl = env => String(env.config?.gateway ?? env.config?.api ?? WSS).replace(/\/+$/, '')
 // Keep the cause on screen: a refused handshake reports its HTTP status here.
@@ -103,16 +106,36 @@ export default {
       // Groups only count when the bot was @-ed: the text keeps the mention.
       const text = String(body.text?.content ?? '').trim()
       const images = []
+      const files = []
       if (body.msgtype === 'image' && body.image?.url !== undefined) {
         const bytes = await downloadImage(body.image, env).catch(() => undefined)
         if (bytes !== undefined) images.push({ mediaType: 'image/jpeg', data: Buffer.from(bytes).toString('base64') })
+      }
+      if (body.msgtype === 'file' || body.msgtype === 'video') {
+        const media = body[body.msgtype]
+        if (media?.url !== undefined) {
+          const got = await downloadMedium(media, env).catch(() => undefined)
+          if (got !== undefined) {
+            if (got.bytes.length <= FILE_LIMIT) files.push({ name: got.name || `wecom-${body.msgid ?? 'file'}`, data: got.bytes })
+            else env.log?.warn?.('ds-bot im: wecom %s is %d bytes, over the %d cap', body.msgtype, got.bytes.length, FILE_LIMIT)
+          }
+        }
+      }
+      // 图文混排: the image items ride the same encrypted-link path as a plain image.
+      if (body.msgtype === 'mixed' && Array.isArray(body.mixed?.msg_item)) {
+        for (const item of body.mixed.msg_item) {
+          if (item?.msgtype !== 'image' || item.image?.url === undefined) continue
+          const got = await downloadMedium(item.image, env).catch(() => undefined)
+          if (got === undefined) continue
+          images.push({ mediaType: imageTypeOf(got.name), data: got.bytes.toString('base64') })
+        }
       }
       // Reply frames go out with the callback's req_id; a failed reply is
       // logged but the message itself still lands in the core.
       await handlers.onMessage({
         chat: { key, kind: direct ? 'direct' : 'group', title: '' },
         sender: { id: String(body.from?.userid ?? ''), name: String(body.from?.name ?? body.from?.userid ?? '') },
-        text, images, files: [],
+        text, images, files,
         mentioned: body.chattype !== 'single' && body.mention_robot === true,
         messageId: String(body.msgid ?? ''),
       })
@@ -227,14 +250,52 @@ export default {
   },
 }
 
-// Images download from their CDN URL and decrypt with the per-link AES-256
-// key (base64).
-async function downloadImage(image, env) {
-  const response = await env.fetch(String(image.url))
+// Inbound media (images, files, video, mixed items) downloads from its CDN URL and
+// decrypts with the per-link AES-256 key (base64). The name comes from
+// Content-Disposition: the callback body carries none for a file.
+async function downloadMedium(medium, env) {
+  const response = await env.fetch(String(medium.url))
   if (!response.ok) return undefined
   const encrypted = Buffer.from(await response.arrayBuffer())
-  const key = Buffer.from(String(image.aeskey ?? ''), 'base64')
+  const key = Buffer.from(String(medium.aeskey ?? ''), 'base64')
   if (key.length !== 32) return undefined
+  return { bytes: decryptMedia(encrypted, key), name: filenameOf(response.headers?.get?.('content-disposition')) }
+}
+
+async function downloadImage(image, env) {
+  return (await downloadMedium(image, env))?.bytes
+}
+
+// WeCom pads to a 32-byte block, not the 16 that `setAutoPadding` assumes, so the
+// padding is removed here: leaving it on makes `final()` throw on a bad decrypt.
+function decryptMedia(encrypted, key) {
   const decipher = createDecipheriv('aes-256-cbc', key, key.subarray(0, 16))
-  return Buffer.concat([decipher.update(encrypted), decipher.final()])
+  decipher.setAutoPadding(false)
+  const plain = Buffer.concat([decipher.update(encrypted), decipher.final()])
+  const pad = plain[plain.length - 1]
+  if (pad < 1 || pad > 32 || pad > plain.length) return plain
+  for (let i = plain.length - pad; i < plain.length; i += 1) if (plain[i] !== pad) return plain
+  return plain.subarray(0, plain.length - pad)
+}
+
+function filenameOf(contentDisposition) {
+  const header = String(contentDisposition ?? '')
+  if (header === '') return ''
+  const utf8 = header.match(/filename\*=UTF-8''([^;\s]+)/i)
+  if (utf8 !== null) {
+    try { return decodeURIComponent(utf8[1]) } catch { /* a malformed escape keeps the plain name */ }
+  }
+  const plain = header.match(/filename="?([^";]+)"?/i)
+  if (plain === null) return ''
+  try { return decodeURIComponent(plain[1].trim()) } catch { return plain[1].trim() }
+}
+
+// A mixed image arrives without a media type; the extension is the only clue.
+function imageTypeOf(name) {
+  const ext = String(name ?? '').toLowerCase().match(/\.([a-z0-9]+)$/)?.[1]
+  if (ext === 'png') return 'image/png'
+  if (ext === 'gif') return 'image/gif'
+  if (ext === 'webp') return 'image/webp'
+  if (ext === 'bmp') return 'image/bmp'
+  return 'image/jpeg'
 }
