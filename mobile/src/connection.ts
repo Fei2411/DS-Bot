@@ -1,6 +1,7 @@
 import { Platform } from 'react-native'
 import { RelayTransport, RpcClient, SecureTransport } from '../../link/src/index.ts'
 import type { PhoneIdentity, SavedComputer } from './store.ts'
+import type { ConnectorsView } from './team/connectors.ts'
 
 type BotResult<T> = { ok: true; value: T } | { ok: false; error: { code: string; message: string } }
 
@@ -90,7 +91,7 @@ export interface TeamState {
   questions?: Record<string, Question>
   views?: Record<string, ShownView>
   secretRequests?: Record<string, SecretRequest[]>
-  connectors?: { id: string; name: string; state?: string; account?: string; error?: string }[]
+  connectors?: ConnectorsView
   capabilities?: { name: string; description?: string; kind?: string; transport?: string; command?: string; url?: string; content?: string; items?: string[]; status?: string }[]
   browserHolds?: Record<string, { by?: string; reason?: string; note?: string; callId?: string }>
   btwCards?: Record<string, { id: string; partId?: string; question?: string; answer?: string; failure?: string; status?: string }[]>

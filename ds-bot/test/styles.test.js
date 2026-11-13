@@ -173,7 +173,11 @@ test('the chat-room rule is installed through installStyles, so it is owned too'
 test('message tools anchor to the bottom of a long reply in both layouts', () => {
   const css = readFileSync(new URL('../src/client/styles.js', import.meta.url), 'utf8')
   assert.match(css, /\.bt-tools\{position:absolute;bottom:0;/)
-  assert.match(css, /body\[data-bt-layout=flat\] \.bt-tools\{bottom:-14px;/)
+  // Flat: the toolbar hangs below the whole message instead of over its last line.
+  assert.match(css, /body\[data-bt-layout=flat\] \.bt-msg\{position:relative\}/)
+  assert.match(css, /body\[data-bt-layout=flat\] \.bt-msg-line\{position:static\}/)
+  assert.match(css, /body\[data-bt-layout=flat\] \.bt-tools\{top:100%;bottom:auto;/)
+  assert.doesNotMatch(css, /body\[data-bt-layout=flat\] \.bt-tools\{bottom:-14px;/)
   assert.doesNotMatch(css, /\.bt-tools\{position:absolute;top:50%;/)
 })
 
@@ -186,7 +190,30 @@ test('the tools toolbar keeps its own stacking context for the hover bridge', ()
   assert.match(css, /\.bt-tools::after\{[^}]*z-index:-1/)
 })
 
-test('the flat toolbar does not cover reactions below the message', () => {
+test('the flat toolbar hangs below reactions instead of covering them', () => {
   const css = readFileSync(new URL('../src/client/styles.js', import.meta.url), 'utf8')
-  assert.match(css, /body\[data-bt-layout=flat\] \.bt-msg:has\(>\.bt-reacts\) \.bt-tools\{bottom:0\}/)
+  assert.match(css, /body\[data-bt-layout=flat\] \.bt-msg\{position:relative\}/)
+  assert.match(css, /body\[data-bt-layout=flat\] \.bt-msg-line\{position:static\}/)
+  assert.match(css, /body\[data-bt-layout=flat\] \.bt-tools\{top:100%;/)
+  assert.doesNotMatch(css, /body\[data-bt-layout=flat\] \.bt-msg:has\(>\.bt-reacts\) \.bt-tools\{bottom:0\}/)
+})
+
+test('on touch, the message toolbar sits below the message and is shorter', () => {
+  const css = readFileSync(new URL('../src/client/styles.js', import.meta.url), 'utf8')
+  const touch = css.slice(css.indexOf('@media (hover:none)'), css.indexOf('.bt-mic-note'))
+  // A touch tap opens the toolbar, so it must not sit over the bubble it belongs to.
+  assert.match(touch, /\.bt-msg\{position:relative\}/)
+  assert.match(touch, /\.bt-msg-line\{position:static\}/)
+  assert.match(touch, /\.bt-tools\{top:100%;bottom:auto;/)
+  assert.match(touch, /\.bt-tool\{width:36px;height:36px\}/)
+  assert.doesNotMatch(touch, /\.bt-tool\{width:44px;height:44px\}/)
+  // The open pill is 36px plus a 4px gap; reserve it so the next message's text stays clear.
+  assert.match(touch, /\.bt-msg:has\(>\.bt-msg-line>\.bt-tools\[data-open\]\)\{margin-bottom:40px\}/)
+})
+
+test('an active message toolbar stacks above the next message', () => {
+  const css = readFileSync(new URL('../src/client/styles.js', import.meta.url), 'utf8')
+  // Later .bt-msg siblings are position:relative in the flat layout and on touch,
+  // so without a z-index they paint over a toolbar that hangs below this message.
+  assert.match(css, /\.bt-msg:hover,\.bt-msg:focus-within,\.bt-msg:has\(>\.bt-msg-line>\.bt-tools\[data-open\]\)\{z-index:2\}/)
 })

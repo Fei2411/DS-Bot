@@ -428,25 +428,31 @@ interface ImageState { uri?: string; error?: string }
 
 function useImages(sessionId: string, refs: ImageRef[]): ImageState[] {
   const { call } = useTeam()
-  const [states, setStates] = useState<ImageState[]>(() =>
-    refs.map(ref => imageCache.has(`${sessionId}:${ref.attachmentId}`) ? { uri: imageCache.get(`${sessionId}:${ref.attachmentId}`) } : {}))
+  const [, bump] = useState(0)
+  const [errors, setErrors] = useState<Record<string, string>>({})
   const key = `${sessionId}:${refs.map(ref => ref.attachmentId).join(',')}`
   useEffect(() => {
     let live = true
-    refs.forEach((ref, index) => {
+    for (const ref of refs) {
       const cacheKey = `${sessionId}:${ref.attachmentId}`
-      if (imageCache.has(cacheKey)) return
+      if (imageCache.has(cacheKey)) continue
       call('image', { sessionId, attachmentId: ref.attachmentId, preview: true })
         .then(value => {
-          const uri = dataUri(value)
-          imageCache.set(cacheKey, uri)
-          if (live) setStates(prev => prev.map((state, i) => i === index ? { uri } : state))
+          imageCache.set(cacheKey, dataUri(value))
+          if (live) bump(n => n + 1)
         })
-        .catch(error => { if (live) setStates(prev => prev.map((state, i) => i === index ? { error: String((error as { code?: string })?.code ?? (error as Error)?.message ?? 'Failed') } : state)) })
-    })
+        .catch(error => {
+          const reason = String((error as { code?: string })?.code ?? (error as Error)?.message ?? 'Failed')
+          if (live) setErrors(prev => ({ ...prev, [cacheKey]: reason }))
+        })
+    }
     return () => { live = false }
   }, [key])
-  return states
+  return refs.map(ref => {
+    const cacheKey = `${sessionId}:${ref.attachmentId}`
+    const uri = imageCache.get(cacheKey)
+    return uri !== undefined ? { uri } : errors[cacheKey] !== undefined ? { error: errors[cacheKey] } : {}
+  })
 }
 
 // The original of the photo open in the viewer; the preview shows until it arrives.
