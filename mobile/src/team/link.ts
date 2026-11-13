@@ -140,6 +140,7 @@ export function useTeamLink(computer: SavedComputer, identity: PhoneIdentity) {
     revision.current = -1
     writes.current = []
     liveKey.current = undefined
+    let noticeCursor = { boot: '', seq: 0 }
     setTeam(null)
     setOnline(false)
     setLinked(false)
@@ -195,13 +196,26 @@ export function useTeamLink(computer: SavedComputer, identity: PhoneIdentity) {
         setError(null)
         client.onEvent(({ event, data }: { event: string; data: any }) => {
           if (stopped || clientRef.current !== client) return
+          if (event === 'notice' && typeof data?.seq === 'number' && noticeCursor.boot === helloResult.boot && data.seq > noticeCursor.seq) {
+            noticeCursor = { boot: helloResult.boot, seq: data.seq }
+          }
           if (event === 'revision' || event === 'live') void poll()
           for (const handler of feedHandlers.current) handler(event, data)
         })
-        void callBot(client, 'notices', { boot: helloResult.boot, since: 0 }).then(answer => {
+        const sameBoot = noticeCursor.boot === helloResult.boot && noticeCursor.seq > 0
+        const since = sameBoot ? noticeCursor.seq : 0
+        void callBot(client, 'notices', { boot: helloResult.boot, since }).then(answer => {
           if (stopped || clientRef.current !== client) return
-          const notices = answer as { reset?: boolean }
+          const notices = answer as { boot?: string; seq?: number; reset?: boolean; notices?: unknown[] }
+          const nextBoot = typeof notices.boot === 'string' ? notices.boot : helloResult.boot
+          const nextSeq = typeof notices.seq === 'number' ? notices.seq : (sameBoot ? noticeCursor.seq : 0)
+          noticeCursor = { boot: nextBoot, seq: nextSeq }
           if (notices.reset === true) void poll()
+          else if (sameBoot && Array.isArray(notices.notices)) {
+            for (const entry of notices.notices) {
+              for (const handler of feedHandlers.current) handler('notice', entry)
+            }
+          }
         }).catch(() => {})
         client.onClose(() => {
           if (stopped || clientRef.current !== client) return

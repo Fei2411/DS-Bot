@@ -8,7 +8,7 @@
 //   DSBOT_ANDROID_KEYSTORE_PASSWORD  its password
 //   DSBOT_ANDROID_KEY_ALIAS          the key's alias
 //   DSBOT_ANDROID_KEY_PASSWORD       the key's password, when it differs from the store's
-const { withAppBuildGradle } = require('expo/config-plugins')
+const { withAppBuildGradle, withGradleProperties } = require('expo/config-plugins')
 
 const SCHEMES = `
             enableV1Signing true
@@ -35,8 +35,34 @@ function sign(gradle) {
     .replace(release, "$1signingConfig System.getenv('DSBOT_ANDROID_KEYSTORE') ? signingConfigs.release : signingConfigs.debug")
 }
 
-module.exports = config => withAppBuildGradle(config, (mod) => {
-  mod.modResults.contents = sign(mod.modResults.contents)
-  return mod
-})
+const GRADLE_OVERRIDES = [
+  // Drop x86/x86_64 simulator binaries from the distributed APK (~122 MB -> ~60 MB)
+  // while keeping 64-bit and 32-bit ARM support for phones.
+  ['reactNativeArchitectures', 'arm64-v8a,armeabi-v7a'],
+  // Store uncompressed, 16KB-aligned native libraries inside the APK (Android 15+ requirement).
+  ['expo.useLegacyPackaging', 'false'],
+]
+
+function applyArchs(properties) {
+  const next = Array.isArray(properties) ? [...properties] : []
+  for (const [key, value] of GRADLE_OVERRIDES) {
+    const index = next.findIndex(item => item?.type === 'property' && item.key === key)
+    const entry = { type: 'property', key, value }
+    if (index >= 0) next[index] = entry
+    else next.push(entry)
+  }
+  return next
+}
+
+module.exports = config => withGradleProperties(
+  withAppBuildGradle(config, (mod) => {
+    mod.modResults.contents = sign(mod.modResults.contents)
+    return mod
+  }),
+  (mod) => {
+    mod.modResults = applyArchs(mod.modResults)
+    return mod
+  },
+)
 module.exports.sign = sign
+module.exports.applyArchs = applyArchs

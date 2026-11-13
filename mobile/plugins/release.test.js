@@ -2,7 +2,7 @@ const assert = require('node:assert/strict')
 const { readFileSync } = require('node:fs')
 const { join } = require('node:path')
 const { test } = require('node:test')
-const { sign } = require('./android-release-signing.js')
+const { applyArchs, sign } = require('./android-release-signing.js')
 const { versionCode } = require('../app.config.js')
 
 // app/build.gradle as `expo prebuild` of Expo 58 writes it.
@@ -34,4 +34,19 @@ test('versionCode grows with the version, and a pre-release stays below its rele
   assert.deepEqual([...codes].sort((a, b) => a - b), codes)
   assert.equal(versionCode('0.3.2'), 300299)
   assert.throws(() => versionCode('0.3'), /cannot make/)
+})
+
+test('applyArchs restricts release native ABIs to ARM and enables uncompressed 16KB packaging', () => {
+  const existing = [
+    { type: 'property', key: 'reactNativeArchitectures', value: 'armeabi-v7a,arm64-v8a,x86,x86_64' },
+    { type: 'property', key: 'expo.useLegacyPackaging', value: 'true' },
+  ]
+  assert.deepEqual(applyArchs(existing), [
+    { type: 'property', key: 'reactNativeArchitectures', value: 'arm64-v8a,armeabi-v7a' },
+    { type: 'property', key: 'expo.useLegacyPackaging', value: 'false' },
+  ])
+  assert.deepEqual(applyArchs([]), [
+    { type: 'property', key: 'reactNativeArchitectures', value: 'arm64-v8a,armeabi-v7a' },
+    { type: 'property', key: 'expo.useLegacyPackaging', value: 'false' },
+  ])
 })
