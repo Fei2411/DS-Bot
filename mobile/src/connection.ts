@@ -96,7 +96,8 @@ export interface TeamState {
   browserHolds?: Record<string, { by?: string; reason?: string; note?: string; callId?: string }>
   btwCards?: Record<string, { id: string; partId?: string; question?: string; answer?: string; failure?: string; status?: string }[]>
   sideChats?: Record<string, { chatId: string; entries?: { id: string; question?: string; answer?: string; status?: string; failure?: string }[] }[]>
-  capabilityStatuses?: Record<string, Record<string, { state?: string; error?: string }> | { state?: string; error?: string }>
+  // Per Bot id, then capability name (ds-bot/src/host/capabilities.js).
+  capabilityStatuses?: Record<string, Record<string, { state?: string; error?: string }>>
   workspace?: string
   dataPath?: string
   version?: string

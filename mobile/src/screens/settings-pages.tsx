@@ -4,6 +4,7 @@ import { Linking, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, Vi
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { confirmDanger, Sheet, SheetHeader, useInSheet } from '../nav/sheet.tsx'
 import * as Clipboard from 'expo-clipboard'
+import { capabilityStatusesFor } from '../team/capabilities.ts'
 import { connectorRows, type ConnectorRow } from '../team/connectors.ts'
 import { useTeam } from '../team/context.tsx'
 import { t } from '../ui/i18n.ts'
@@ -294,12 +295,15 @@ export function Connectors({ navigation }: any) {
   )
 }
 
-export const capabilityStatusText = (status?: { state?: string; error?: string }) =>
-  status === undefined ? undefined
-  : status.state === 'ready' ? t('Ready')
-  : status.state === 'needs-approval' ? t('Needs approval')
-  : status.state === 'error' ? t('Could not connect: {error}', { error: status.error ?? '' })
-  : t('Connecting…')
+export const capabilityStatusText = (status?: { state?: string; error?: string }) => {
+  // A status the phone does not know (no layer for the Bot, nothing attached, an answer
+  // of another shape) is unknown, not an empty line that reads as "fine" (#1523).
+  if (status === undefined || status.state === undefined) return t('Unknown')
+  return status.state === 'ready' ? t('Ready')
+    : status.state === 'needs-approval' ? t('Needs approval')
+      : status.state === 'error' ? t('Could not connect: {error}', { error: status.error ?? '' })
+        : t('Connecting…')
+}
 
 export function Capabilities({ navigation }: any) {
   const { p } = useTheme()
@@ -326,7 +330,10 @@ export function Capabilities({ navigation }: any) {
     setError(null)
     void call('capability-save', payload).then(() => setEditing(null), (f: { code?: string; message?: string }) => { if (f?.code !== 'unlock/canceled') setError(f?.message ?? String(f)) })
   }
-  const statuses = (team as { capabilityStatuses?: Record<string, { state?: string; error?: string }> } | null)?.capabilityStatuses ?? {}
+  // The phone has one team and no Bot setting on this page: statuses are the Main
+  // Bot's, the chat the shell opens by default. A Bot's own page reads its own layer.
+  const botId = team?.mainBotId ?? team?.mainBotIds?.[0] ?? team?.bots?.[0]?.id
+  const statuses = capabilityStatusesFor(team?.capabilityStatuses, botId)
   const statusText = capabilityStatusText
   const detail = (item: { kind?: string; transport?: string; items?: string[] }) =>
     item.kind === 'pack' ? `${t('Pack')}: ${(item.items ?? []).join(', ') || t('No items')}`

@@ -115,7 +115,7 @@ const MOBILE_ZH: Record<string, string> = {
   'Arguments (one per line)': '参数（一行一个）', 'Environment': '环境', 'Headers': '请求头',
   'URL': '地址', 'Skill instructions': '技能说明', '{label} must be a JSON object.': '{label} 必须是 JSON 对象。',
   'Save changes': '保存修改', 'Error': '出错',
-  'Ready': '就绪', 'Needs approval': '需要批准', 'Pack': '套件', 'No items': '没有项目',
+  'Ready': '就绪', 'Needs approval': '需要批准', 'Unknown': '未知', 'Pack': '套件', 'No items': '没有项目',
   'Local command': '本地命令', 'HTTP server': 'HTTP 服务', 'Skill': '技能',
   'Approve': '批准', 'Save an MCP server or skill first.': '先保存一个 MCP 服务或技能。',
   'Updating DS Bot…': '正在更新 DS Bot…', 'Restart DSH to start using DS Bot {version}.': '重启 DSH 后开始用 DS Bot {version}。',

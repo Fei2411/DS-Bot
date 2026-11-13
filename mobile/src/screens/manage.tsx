@@ -11,6 +11,7 @@ import * as Crypto from 'expo-crypto'
 import { listComputers, removeComputer, type StoredComputer } from '../store.ts'
 import { ComputersCtx } from '../nav/computers.ts'
 import * as ImagePicker from 'expo-image-picker'
+import { capabilityStatusesFor } from '../team/capabilities.ts'
 import { useTeam } from '../team/context.tsx'
 import { memorySummaryText } from '../team/memory.ts'
 import { t, timeLabel, weekdayShort } from '../ui/i18n.ts'
@@ -379,7 +380,7 @@ function BotCapabilities({ bot, team, run }: { bot: Bot; team: TeamState | null;
   if (library.length === 0) return null
   const items = [...library].sort((a, b) => Number(b.kind === 'pack') - Number(a.kind === 'pack') || a.name.localeCompare(b.name))
   const attached = new Set(bot.capabilities ?? [])
-  const statuses = (team as { capabilityStatuses?: Record<string, Record<string, { state?: string; error?: string }>> } | null)?.capabilityStatuses?.[bot.id] ?? {}
+  const statuses = capabilityStatusesFor(team?.capabilityStatuses, bot.id)
   return (
     <Section label={t('Capabilities')}>
       {items.map(item => (
