@@ -4,6 +4,7 @@ import { Linking, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, Vi
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { confirmDanger, Sheet, SheetHeader, useInSheet } from '../nav/sheet.tsx'
 import * as Clipboard from 'expo-clipboard'
+import { connectorRows, type ConnectorRow } from '../team/connectors.ts'
 import { useTeam } from '../team/context.tsx'
 import { t } from '../ui/i18n.ts'
 import { ChevronLeftIcon, ChevronRightIcon } from '../ui/icons.tsx'
@@ -233,7 +234,7 @@ export function Providers({ navigation }: any) {
 const CONNECTOR_ABOUT: Record<string, string> = { github: 'Repositories, issues, and pull requests' }
 const TOKEN_URLS: Record<string, string> = { github: 'https://github.com/settings/personal-access-tokens/new' }
 
-const connectorStatus = (item: { id: string; name: string; state?: string; account?: string; error?: string }) => {
+const connectorStatus = (item: ConnectorRow) => {
   if (item.state === 'connecting') return t('Connecting…')
   if (item.state === 'error') return t('Could not connect: {error}', { error: item.error ?? '' })
   if (item.state === 'ready') return item.account ? t('Connected as {account}', { account: item.account }) : t('Connected')
@@ -247,7 +248,7 @@ export function Connectors({ navigation }: any) {
   const [token, setToken] = useState('')
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const connectors = (team as { connectors?: { id: string; name: string; state?: string; account?: string; error?: string }[] } | null)?.connectors ?? []
+  const connectors = connectorRows(team?.connectors)
   const run = (id: string, task: Promise<unknown>, after?: () => void) => {
     setBusy(id)
     return task.then(() => { setError(null); after?.() }, (f: { code?: string; message?: string }) => { if (f?.code !== 'unlock/canceled') setError(f?.message ?? String(f)) }).finally(() => setBusy(null))
