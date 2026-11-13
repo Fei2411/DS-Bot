@@ -14,11 +14,16 @@ async function fakeFeishu() {
   const frames = []
   const replies = {}
   const tokens = []
+  let tokenValidUntil = 0
+  let failResources = false
+  // The resource endpoint sends the file itself, not a JSON envelope.
+  const imageBytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4])
   const json = (res, body) => {
     res.writeHead(200, { 'content-type': 'application/json' })
     res.end(JSON.stringify(body))
   }
-  const authorized = (req) => req.headers.authorization === `Bearer ${tokens.at(-1)}`
+  // A tenant token also dies when its two hours are up, like the real one.
+  const authorized = (req) => req.headers.authorization === `Bearer ${tokens.at(-1)}` && Date.now() < tokenValidUntil
   const refused = (res) => json(res, { code: 99991668, msg: 'user access token not support' })
   const http = createServer((req, res) => {
     let body = ''
@@ -32,6 +37,7 @@ async function fakeFeishu() {
         if (params.app_id !== 'cli_a1' || params.app_secret !== 'sec') { json(res, { code: 10003, msg: 'invalid param' }); return }
         const token = `fs-tok-${tokens.length + 1}`
         tokens.push(token)
+        tokenValidUntil = Date.now() + 7_200_000
         json(res, { code: 0, tenant_access_token: token, expire: 7200 })
         return
       }
@@ -46,6 +52,12 @@ async function fakeFeishu() {
           && params.appId === undefined && params.appSecret === undefined
         if (!uppercase) { json(res, { code: 10003, msg: 'invalid param' }); return }
         json(res, { code: 0, msg: 'success', data: { URL: wss.url, ClientConfig: { PingInterval: 90, ReconnectInterval: 90 } } })
+        return
+      }
+      if (req.url.startsWith('/open-apis/im/v1/messages/') && req.url.includes('/resources/')) {
+        if (failResources || !authorized(req)) { res.writeHead(401); res.end(); return }
+        res.writeHead(200, { 'content-type': 'application/octet-stream' })
+        res.end(imageBytes)
         return
       }
       if (req.url.startsWith('/open-apis/im/v1/messages')) {
@@ -69,8 +81,9 @@ async function fakeFeishu() {
   await new Promise(resolve => http.listen(0, '127.0.0.1', resolve))
   return {
     api: `http://127.0.0.1:${http.address().port}`,
-    calls, replies, frames, tokens,
+    calls, replies, frames, tokens, imageBytes,
     sockets: wss.sockets,
+    failDownloads: () => { failResources = true },
     push: (ws, frame) => ws.send(encodeFrame(frame)),
     dataFrame: (type, payload, extra = {}) => ({
       SeqID: 9, LogID: 9, service: 100, method: 1,
@@ -312,4 +325,49 @@ test('a socket that cannot be built at the handshake is retried (#1119)', async 
   const ready = await until(() => statuses.slice(statuses.indexOf(failed) + 1).find(status => status.state === 'ready'), 160)
   assert.ok(ready !== undefined, 'the connection became ready after a new socket')
   assert.equal(fake.sockets.length, 1)
+})
+
+test('an inbound image refreshes an expired tenant token before download', async (t) => {
+  const fake = await fakeFeishu()
+  const messages = []
+  const handle = feishu.connect(FIELDS, env(fake), { onMessage: async msg => { messages.push(msg) }, onAction: () => {}, onStatus: () => {} })
+  t.after(() => { handle.stop(); fake.close() })
+  const ws = await until(() => fake.sockets[0])
+  const image = (id) => fake.dataFrame('event', message({
+    chat_type: 'p2p', chat_id: 'oc_1', message_id: id, message_type: 'image',
+    content: JSON.stringify({ image_key: `key_${id}` }),
+  }), { messageId: id })
+  fake.push(ws, image('om_1'))
+  await until(() => messages.length === 1)
+  assert.equal(messages[0].images[0].data, fake.imageBytes.toString('base64'))
+  // Two hours later the cached token is dead: the download has to renew it.
+  const realNow = Date.now
+  Date.now = () => realNow() + 7_300_000
+  t.after(() => { Date.now = realNow })
+  fake.push(ws, image('om_2'))
+  await until(() => messages.length === 2)
+  assert.equal(messages[1].images.length, 1)
+  assert.equal(messages[1].images[0].data, fake.imageBytes.toString('base64'))
+  assert.equal(fake.tokens.length, 2, 'the expired token was renewed once')
+  const download = fake.calls.findLast(call => call.path.includes('/resources/'))
+  assert.equal(download.auth, `Bearer ${fake.tokens[1]}`)
+})
+
+test('a failed image download warns instead of staying silent', async (t) => {
+  const fake = await fakeFeishu()
+  const messages = []
+  const warns = []
+  const log = { warn: (...args) => warns.push(args.join(' ')) }
+  const handle = feishu.connect(FIELDS, { ...env(fake), log }, { onMessage: async msg => { messages.push(msg) }, onAction: () => {}, onStatus: () => {} })
+  t.after(() => { handle.stop(); fake.close() })
+  const ws = await until(() => fake.sockets[0])
+  fake.failDownloads()
+  fake.push(ws, fake.dataFrame('event', message({
+    chat_type: 'p2p', chat_id: 'oc_1', message_id: 'om_1', message_type: 'image',
+    content: JSON.stringify({ image_key: 'key_1' }),
+  }), { messageId: 'fm1' }))
+  await until(() => warns.length === 1)
+  assert.match(warns[0], /om_1/)
+  await until(() => messages.length === 1)
+  assert.equal(messages[0].images.length, 0, 'the message still arrives, without the image')
 })

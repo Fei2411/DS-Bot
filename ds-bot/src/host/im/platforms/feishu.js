@@ -142,14 +142,19 @@ export default {
     // Split data frames reassemble by (sum, seq) until all parts arrive.
     const parts = new Map()
 
-    const rest = async (path, { method = 'POST', body } = {}) => {
+    // Inbound downloads share the expiry check: a socket that only receives
+    // still needs a live token.
+    const freshToken = async () => {
       if (token === undefined || Date.now() > tokenExpiresAt - 30_000) {
         const got = await tenantToken({ appId, appSecret }, env)
         token = got.token
         tokenExpiresAt = got.expiresAt
       }
-      return api(env, apiBase(env, fields), token, path, { method, body })
+      return token
     }
+
+    const rest = async (path, { method = 'POST', body } = {}) =>
+      api(env, apiBase(env, fields), await freshToken(), path, { method, body })
 
     const sendFrame = (buffer) => { if (socket?.readyState === 1) socket.send(buffer) }
     const pong = (frame) => sendFrame(encodeFrame({ ...frame, headers: frame.headers.map(h => h.key === 'type' ? { key: 'type', value: 'pong' } : h), payload: Buffer.from('pong') }))
@@ -171,8 +176,11 @@ export default {
         const text = String(content.text ?? '').replace(/@_user_\d+/g, '').trim()
         const images = []
         if (message.message_type === 'image' && content.image_key !== undefined) {
-          const bytes = await resource(env, apiBase(env, fields), token, message.message_id, content.image_key, 'image').catch(() => undefined)
+          const bytes = await freshToken()
+            .then(bearer => resource(env, apiBase(env, fields), bearer, message.message_id, content.image_key, 'image'))
+            .catch(() => undefined)
           if (bytes !== undefined) images.push({ mediaType: 'image/png', data: Buffer.from(bytes).toString('base64') })
+          else env.log?.warn?.('ds-bot im: feishu image download failed for %s', String(message.message_id ?? ''))
         }
         const sender = event.sender?.sender_id?.open_id ?? event.sender?.user_id ?? ''
         await handlers.onMessage({
@@ -200,14 +208,9 @@ export default {
       const gen = generation
       let url
       try {
-        if (token === undefined || Date.now() > tokenExpiresAt - 30_000) {
-          const got = await tenantToken({ appId, appSecret }, env)
-          token = got.token
-          tokenExpiresAt = got.expiresAt
-        }
         const answer = await env.fetch(`${apiBase(env, fields)}/callback/ws/endpoint`, {
           method: 'POST',
-          headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+          headers: { 'content-type': 'application/json', authorization: `Bearer ${await freshToken()}` },
           body: JSON.stringify({ AppID: appId, AppSecret: appSecret }),
         })
         const body = await answer.json().catch(() => ({}))
