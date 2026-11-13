@@ -1609,6 +1609,11 @@ export const FR = {
   "Stop {name}": "Arrêter {name}",
   "{name} · foreground": "{name} · premier plan",
   "{name} waits for the computer": "{name} attend que l’ordinateur soit libre",
+  "Running": "En cours",
+  "Open this session": "Ouvrir cette session",
+  "Open this running session": "Ouvrir cette session en cours",
+  "A running session keeps using model calls in the background.": "Une session en cours continue d’utiliser des appels au modèle en arrière-plan.",
+  "This session is still running. Wait for it to finish, or stop it.": "Cette session est toujours en cours. Attendez la fin ou arrêtez-la.",
 }
 
 export const HOST_ERRORS_FR = [

@@ -229,31 +229,49 @@ function GroupOverview({ room, roster, actions, usage, useWork, openSettings }) 
   ]
 }
 
-// A Bot's chat sessions: the current one first, then the earlier ones, newest first.
-// Every Bot's chat has parts, whether it answers with a DS Bot model or a local CLI.
-// Each row names when it started and how it was last titled.
-function AgentSessions({ bot, part, run, useSessions }) {
-  const ids = [part, ...(bot.parts ?? []).filter(id => id !== part).slice().reverse()]
-  const rows = useSessions(list => ids.map(id => list.byId?.[id]), rowsEqual)
-  const total = ids.length
+// A Bot's chat sessions: the current one first, then the parts opened while the Bot
+// was busy (each still live, marked when its turn runs), then the earlier ones, newest
+// first. Every Bot's chat has parts, whether it answers with a DS Bot model or a local
+// CLI. A running part opened from here is read-only until its turn ends: two sessions
+// running at once means two model calls.
+function BotSessions({ bot, part, run, useSessions, actions, running }) {
+  const runningOf = id => running?.[id] === true
+  const open = (bot.openParts ?? []).map(entry => ({ id: entry.sessionId, open: true, running: runningOf(entry.sessionId) }))
+  const entries = [
+    { id: part, current: true, running: runningOf(part) },
+    ...open,
+    ...(bot.parts ?? []).filter(id => id !== part).slice().reverse().map(id => ({ id, earlier: true })),
+  ]
+  const rows = useSessions(list => entries.map(entry => list.byId?.[entry.id]), rowsEqual)
+  const total = entries.length
+  const openPart = (entry) => {
+    if (entry.current) return undefined
+    if (entry.open && actions.openPart !== undefined) return () => run(actions.openPart(bot.id, entry.id, entry.running))
+    return () => run(call('bot-open-part', { botId: bot.id, sessionId: entry.id }))
+  }
   return h('div', { className: 'bt-drawer-model' },
     h('div', { className: 'bt-agent-sessions-head' },
       h('div', { className: 'bt-section-title' }, t('Sessions')),
-      h('button', { type: 'button', className: 'bt-agent-sessions-new', onClick: () => run(call('bot-new-part', { botId: bot.id })) }, h(PlusIcon), t('New session'))),
-    h('div', { className: 'bt-agent-sessions' }, ids.map((id, index) => {
+      h('button', { type: 'button', className: 'bt-agent-sessions-new', onClick: () => run(actions.newPart !== undefined ? actions.newPart(bot.id) : call('bot-new-part', { botId: bot.id })) }, h(PlusIcon), t('New session'))),
+    h('div', { className: 'bt-agent-sessions' }, entries.map((entry, index) => {
       const row = rows[index]
-      const current = index === 0
       const when = row?.updatedAt ?? row?.createdAt
       const label = row?.title && row.title.trim() !== '' ? row.title : t('Session {number}', { number: total - index })
+      const title = entry.current ? t('Current session') : entry.open && entry.running ? t('Open this running session') : entry.open ? t('Open this session') : t('Open this earlier session')
       return h('button', {
-        key: id, type: 'button', disabled: current,
-        className: `bt-agent-session${current ? ' is-current' : ''}`,
-        title: current ? t('Current session') : t('Open this earlier session'),
-        onClick: current ? undefined : () => run(call('bot-open-part', { botId: bot.id, sessionId: id })),
+        key: entry.id, type: 'button', disabled: entry.current,
+        className: `bt-agent-session${entry.current ? ' is-current' : ''}${entry.running ? ' is-running' : ''}`,
+        title, onClick: openPart(entry),
       },
         h('span', { className: 'bt-agent-session-name' }, label),
-        h('span', { className: 'bt-agent-session-meta' }, current ? t('Current') : when ? new Date(when).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''))
-    })))
+        h('span', { className: 'bt-agent-session-meta' },
+          entry.running ? h('span', { className: 'bt-agent-session-run', role: 'status' }, t('Running'))
+            : entry.current ? t('Current')
+              : when ? new Date(when).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''))
+    })),
+    open.length > 0
+      ? h('div', { className: 'bt-note bt-agent-sessions-note' }, t('A running session keeps using model calls in the background.'))
+      : null)
 }
 const rowsEqual = (a, b) => a.length === b.length && a.every((row, index) => row?.title === b[index]?.title && row?.updatedAt === b[index]?.updatedAt)
 
@@ -365,7 +383,7 @@ export function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, ro
           h(ModelMenu, { bot, roster, actions, run, wide: true, inline: true }),
           modelOf(bot, roster) ? null : h('div', { className: 'bt-note' }, t('Pick a model and {name} can start.', { name: bot.name })),
         ),
-        h(AgentSessions, { key: 'sessions', bot, part, run, useSessions }),
+        h(BotSessions, { key: 'sessions', bot, part, run, useSessions, actions, running: roster.partsRunning }),
         h(PermissionRow, { key: 'permission', bot, roster, actions, run }),
         h(BotConnectors, { key: 'connectors', bot, roster, actions, run }),
         h('div', { key: 'folder', className: 'bt-drawer-model' },

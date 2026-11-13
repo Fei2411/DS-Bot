@@ -1730,7 +1730,12 @@ var JA = {
   "You control the computer": "あなたがコンピュータを操作中",
   "Stop {name}": "{name} を停止",
   "{name} · foreground": "{name} · フォアグラウンド",
-  "{name} waits for the computer": "{name} があなたの操作完了を待っています"
+  "{name} waits for the computer": "{name} があなたの操作完了を待っています",
+  "Running": "実行中",
+  "Open this session": "このセッションを開く",
+  "Open this running session": "実行中のセッションを開く",
+  "A running session keeps using model calls in the background.": "実行中のセッションはバックグラウンドでモデル呼び出しを続けます。",
+  "This session is still running. Wait for it to finish, or stop it.": "このセッションはまだ実行中です。終了を待つか、停止してください。"
 };
 var HOST_ERRORS_JA = [
   [/^Could not reach the mail server at (.+)\. Check the server address\.$/, "メールサーバー $1 に接続できませんでした。サーバーアドレスを確認してください。"],
@@ -4083,7 +4088,12 @@ var KO = {
   "You control the computer": "사용자가 컴퓨터를 제어 중입니다",
   "Stop {name}": "{name} 중지",
   "{name} · foreground": "{name} · 포그라운드",
-  "{name} waits for the computer": "{name}이(가) 사용자 조작을 기다리는 중"
+  "{name} waits for the computer": "{name}이(가) 사용자 조작을 기다리는 중",
+  "Running": "실행 중",
+  "Open this session": "이 세션 열기",
+  "Open this running session": "실행 중인 세션 열기",
+  "A running session keeps using model calls in the background.": "실행 중인 세션은 백그라운드에서 모델 호출을 계속 사용합니다.",
+  "This session is still running. Wait for it to finish, or stop it.": "이 세션은 아직 실행 중입니다. 끝날 때까지 기다리거나 중지하세요."
 };
 var HOST_ERRORS_KO = [
   [/^Could not reach the mail server at (.+)\. Check the server address\.$/, "메일 서버 $1에 연결할 수 없습니다. 서버 주소를 확인하세요."],
@@ -6437,7 +6447,12 @@ var ES = {
   "You control the computer": "Tú controlas el ordenador",
   "Stop {name}": "Detener a {name}",
   "{name} · foreground": "{name} · primer plano",
-  "{name} waits for the computer": "{name} espera el ordenador"
+  "{name} waits for the computer": "{name} espera el ordenador",
+  "Running": "En ejecución",
+  "Open this session": "Abrir esta sesión",
+  "Open this running session": "Abrir esta sesión en ejecución",
+  "A running session keeps using model calls in the background.": "Una sesión en ejecución sigue usando llamadas al modelo en segundo plano.",
+  "This session is still running. Wait for it to finish, or stop it.": "Esta sesión sigue en ejecución. Espera a que termine o detenla."
 };
 var HOST_ERRORS_ES = [
   [/^Could not reach the mail server at (.+)\. Check the server address\.$/, "No se pudo conectar con el servidor de correo en $1. Comprueba la dirección del servidor."],
@@ -8747,7 +8762,12 @@ var FR = {
   "You control the computer": "Vous contrôlez l’ordinateur",
   "Stop {name}": "Arrêter {name}",
   "{name} · foreground": "{name} · premier plan",
-  "{name} waits for the computer": "{name} attend que l’ordinateur soit libre"
+  "{name} waits for the computer": "{name} attend que l’ordinateur soit libre",
+  "Running": "En cours",
+  "Open this session": "Ouvrir cette session",
+  "Open this running session": "Ouvrir cette session en cours",
+  "A running session keeps using model calls in the background.": "Une session en cours continue d’utiliser des appels au modèle en arrière-plan.",
+  "This session is still running. Wait for it to finish, or stop it.": "Cette session est toujours en cours. Attendez la fin ou arrêtez-la."
 };
 var HOST_ERRORS_FR = [
   [/^Could not reach the mail server at (.+)\. Check the server address\.$/, "Impossible de joindre le serveur de messagerie à l’adresse $1. Vérifiez l’adresse du serveur."],
@@ -11100,7 +11120,12 @@ var DE = {
   "You control the computer": "Du steuerst den Computer",
   "Stop {name}": "{name} stoppen",
   "{name} · foreground": "{name} · Vordergrund",
-  "{name} waits for the computer": "{name} wartet, bis du fertig bist"
+  "{name} waits for the computer": "{name} wartet, bis du fertig bist",
+  "Running": "Läuft",
+  "Open this session": "Diese Sitzung öffnen",
+  "Open this running session": "Diese laufende Sitzung öffnen",
+  "A running session keeps using model calls in the background.": "Eine laufende Sitzung verbraucht weiterhin Modellaufrufe im Hintergrund.",
+  "This session is still running. Wait for it to finish, or stop it.": "Diese Sitzung läuft noch. Warte, bis sie endet, oder stoppe sie."
 };
 var HOST_ERRORS_DE = [
   [/^Could not reach the mail server at (.+)\. Check the server address\.$/, "Mailserver unter $1 nicht erreichbar. Bitte prüfe die Serveradresse."],
@@ -13362,7 +13387,12 @@ var ZH = {
   "Bcc": "密送",
   "Attachments: {names}": "附件：{names}",
   "Sent": "已发送",
-  "Failed": "失败"
+  "Failed": "失败",
+  "Running": "运行中",
+  "Open this session": "打开这个会话",
+  "Open this running session": "打开这个正在运行的会话",
+  "A running session keeps using model calls in the background.": "运行中的会话会在后台继续消耗模型调用。",
+  "This session is still running. Wait for it to finish, or stop it.": "这个会话还在运行。等它结束，或先停止它。"
 };
 var HOST_ERRORS = [
   [/^Could not reach the mail server at (.+)\. Check the server address\.$/, "连不上邮件服务器 $1，请检查服务器地址。"],
@@ -13910,8 +13940,8 @@ function bodyOf(def, paint, flat = false) {
     return "";
   }
 }
-var eyeMarkup = ([cx, cy, w, h66, tilt]) => `<g transform="translate(${cx} ${cy}) rotate(${tilt})"><rect class="bt-eye" x="${-w / 2}" y="${-h66 / 2}" width="${w}" height="${h66}" rx="${w / 2}"/></g>`;
-var happyEyeMarkup = ([cx, cy, w, h66, tilt]) => `<g transform="translate(${cx} ${cy}) rotate(${tilt})"><path class="bt-eye-happy" opacity="0" d="M${-w * 0.62} ${h66 * 0.14}Q0 ${-h66 * 0.42} ${w * 0.62} ${h66 * 0.14}" fill="none" stroke="#000" stroke-width="${w * 0.5}" stroke-linecap="round"/></g>`;
+var eyeMarkup = ([cx, cy, w, h67, tilt]) => `<g transform="translate(${cx} ${cy}) rotate(${tilt})"><rect class="bt-eye" x="${-w / 2}" y="${-h67 / 2}" width="${w}" height="${h67}" rx="${w / 2}"/></g>`;
+var happyEyeMarkup = ([cx, cy, w, h67, tilt]) => `<g transform="translate(${cx} ${cy}) rotate(${tilt})"><path class="bt-eye-happy" opacity="0" d="M${-w * 0.62} ${h67 * 0.14}Q0 ${-h67 * 0.42} ${w * 0.62} ${h67 * 0.14}" fill="none" stroke="#000" stroke-width="${w * 0.5}" stroke-linecap="round"/></g>`;
 var maskBox = (size) => `maskUnits="userSpaceOnUse" x="${-size}" y="${-size}" width="${size * 3}" height="${size * 3}"`;
 var holes = (def, eyes) => `<rect x="${-def.size}" y="${-def.size}" width="${def.size * 3}" height="${def.size * 3}" fill="#fff"/>${eyes}`;
 var MASK_ID = "%MASK%";
@@ -14205,6 +14235,20 @@ function teamActions({ call: call2, after, partFor, roster, ui: ui2, live, cards
     computerShot: (attachmentId) => call2("computer-shot", { attachmentId }),
     computerUserActive: (idleSeconds) => call2("computer-user-active", { idleSeconds }),
     stopMemberWork: (roomId, botId) => after(call2("stop-member-work", { roomId, botId })),
+    // A running part opened from the session list takes no input until it ends.
+    newPart: (botId) => after(call2("bot-new-part", { botId })),
+    openPart: (botId, sessionId, running = false) => {
+      ui2.set((state) => ({ ...state, readOnlyPart: running ? sessionId : null }));
+      return after(call2("bot-open-part", { botId, sessionId })).catch((error) => {
+        ui2.set((state) => state.readOnlyPart === sessionId ? { ...state, readOnlyPart: null } : state);
+        throw error;
+      });
+    },
+    clearReadOnlyPart: () => ui2.set((state) => state.readOnlyPart === null ? state : { ...state, readOnlyPart: null }),
+    stopChat: (botId) => {
+      ui2.set((state) => state.readOnlyPart === null ? state : { ...state, readOnlyPart: null });
+      return after(call2("stop-chat", { botId }));
+    },
     stopRoomWork: (roomId) => after(call2("stop-room-work", { roomId })),
     goalDraft: (roomId, text) => after(call2("goal-draft", { roomId, text })),
     goalControl: (roomId, goalId, action, stopWork) => after(call2("goal-control", { roomId, goalId, action, ...stopWork ? { stopWork: true } : {} })),
@@ -14781,12 +14825,12 @@ function liveSprings(apply2) {
     const dt = Math.min(0.5, Math.max(1e-3, (now - last) / 1e3));
     last = now;
     const steps = Math.ceil(dt * 240);
-    const h66 = dt / steps;
+    const h67 = dt / steps;
     let moving = false;
     for (const [key, value] of values) {
       for (let index = 0; index < steps; index += 1) {
-        value.v += (-value.k * (value.x - value.to) - value.c * value.v) * h66;
-        value.x += value.v * h66;
+        value.v += (-value.k * (value.x - value.to) - value.c * value.v) * h67;
+        value.x += value.v * h67;
       }
       if (Math.abs(value.x - value.to) < 0.05 && Math.abs(value.v) < 1) {
         value.x = value.to;
@@ -39259,10 +39303,21 @@ function GroupOverview({ room: room2, roster, actions, usage, useWork, openSetti
     ) : null
   ];
 }
-function AgentSessions({ bot, part, run: run2, useSessions }) {
-  const ids = [part, ...(bot.parts ?? []).filter((id) => id !== part).slice().reverse()];
-  const rows2 = useSessions((list) => ids.map((id) => list.byId?.[id]), rowsEqual);
-  const total = ids.length;
+function BotSessions({ bot, part, run: run2, useSessions, actions, running }) {
+  const runningOf = (id) => running?.[id] === true;
+  const open = (bot.openParts ?? []).map((entry) => ({ id: entry.sessionId, open: true, running: runningOf(entry.sessionId) }));
+  const entries2 = [
+    { id: part, current: true, running: runningOf(part) },
+    ...open,
+    ...(bot.parts ?? []).filter((id) => id !== part).slice().reverse().map((id) => ({ id, earlier: true }))
+  ];
+  const rows2 = useSessions((list) => entries2.map((entry) => list.byId?.[entry.id]), rowsEqual);
+  const total = entries2.length;
+  const openPart = (entry) => {
+    if (entry.current) return void 0;
+    if (entry.open && actions.openPart !== void 0) return () => run2(actions.openPart(bot.id, entry.id, entry.running));
+    return () => run2(call("bot-open-part", { botId: bot.id, sessionId: entry.id }));
+  };
   return (0, import_react63.createElement)(
     "div",
     { className: "bt-drawer-model" },
@@ -39270,27 +39325,32 @@ function AgentSessions({ bot, part, run: run2, useSessions }) {
       "div",
       { className: "bt-agent-sessions-head" },
       (0, import_react63.createElement)("div", { className: "bt-section-title" }, t("Sessions")),
-      (0, import_react63.createElement)("button", { type: "button", className: "bt-agent-sessions-new", onClick: () => run2(call("bot-new-part", { botId: bot.id })) }, (0, import_react63.createElement)(PlusIcon), t("New session"))
+      (0, import_react63.createElement)("button", { type: "button", className: "bt-agent-sessions-new", onClick: () => run2(actions.newPart !== void 0 ? actions.newPart(bot.id) : call("bot-new-part", { botId: bot.id })) }, (0, import_react63.createElement)(PlusIcon), t("New session"))
     ),
-    (0, import_react63.createElement)("div", { className: "bt-agent-sessions" }, ids.map((id, index) => {
+    (0, import_react63.createElement)("div", { className: "bt-agent-sessions" }, entries2.map((entry, index) => {
       const row = rows2[index];
-      const current = index === 0;
       const when3 = row?.updatedAt ?? row?.createdAt;
       const label = row?.title && row.title.trim() !== "" ? row.title : t("Session {number}", { number: total - index });
+      const title = entry.current ? t("Current session") : entry.open && entry.running ? t("Open this running session") : entry.open ? t("Open this session") : t("Open this earlier session");
       return (0, import_react63.createElement)(
         "button",
         {
-          key: id,
+          key: entry.id,
           type: "button",
-          disabled: current,
-          className: `bt-agent-session${current ? " is-current" : ""}`,
-          title: current ? t("Current session") : t("Open this earlier session"),
-          onClick: current ? void 0 : () => run2(call("bot-open-part", { botId: bot.id, sessionId: id }))
+          disabled: entry.current,
+          className: `bt-agent-session${entry.current ? " is-current" : ""}${entry.running ? " is-running" : ""}`,
+          title,
+          onClick: openPart(entry)
         },
         (0, import_react63.createElement)("span", { className: "bt-agent-session-name" }, label),
-        (0, import_react63.createElement)("span", { className: "bt-agent-session-meta" }, current ? t("Current") : when3 ? new Date(when3).toLocaleString(void 0, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "")
+        (0, import_react63.createElement)(
+          "span",
+          { className: "bt-agent-session-meta" },
+          entry.running ? (0, import_react63.createElement)("span", { className: "bt-agent-session-run", role: "status" }, t("Running")) : entry.current ? t("Current") : when3 ? new Date(when3).toLocaleString(void 0, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : ""
+        )
       );
-    }))
+    })),
+    open.length > 0 ? (0, import_react63.createElement)("div", { className: "bt-note bt-agent-sessions-note" }, t("A running session keeps using model calls in the background.")) : null
   );
 }
 var rowsEqual = (a, b) => a.length === b.length && a.every((row, index) => row?.title === b[index]?.title && row?.updatedAt === b[index]?.updatedAt);
@@ -39428,7 +39488,7 @@ function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, roster, a
           (0, import_react63.createElement)(ModelMenu, { bot, roster, actions, run: run2, wide: true, inline: true }),
           modelOf(bot, roster) ? null : (0, import_react63.createElement)("div", { className: "bt-note" }, t("Pick a model and {name} can start.", { name: bot.name }))
         ),
-        (0, import_react63.createElement)(AgentSessions, { key: "sessions", bot, part, run: run2, useSessions }),
+        (0, import_react63.createElement)(BotSessions, { key: "sessions", bot, part, run: run2, useSessions, actions, running: roster.partsRunning }),
         (0, import_react63.createElement)(PermissionRow, { key: "permission", bot, roster, actions, run: run2 }),
         (0, import_react63.createElement)(BotConnectors, { key: "connectors", bot, roster, actions, run: run2 }),
         (0, import_react63.createElement)(
@@ -41944,6 +42004,55 @@ var LEARNING_CSS = `
 .bt-learning-error{font-size:12px;line-height:16px;color:var(--bt-danger)}
 `;
 
+// src/client/read-only-dock.js
+var import_react68 = require("react");
+function ReadOnlyDock({ sessionId, useUi, useRoster, actions }) {
+  const readOnlyPart = useUi((state) => state.readOnlyPart);
+  const bot = useRoster((state) => state.byId?.[sessionId] ?? Object.values(state.byId ?? {}).find((entry) => entry?.sessionId === sessionId));
+  const running = useRoster((state) => state.partsRunning?.[sessionId] === true);
+  const active = readOnlyPart !== null && readOnlyPart === sessionId && running;
+  const root = (0, import_react68.useRef)(null);
+  (0, import_react68.useEffect)(() => {
+    if (readOnlyPart !== null && readOnlyPart === sessionId && !running) actions.clearReadOnlyPart?.();
+  }, [readOnlyPart, sessionId, running]);
+  (0, import_react68.useEffect)(() => {
+    if (!active) return void 0;
+    const card = root.current?.closest("[data-composer-card]") ?? document.querySelector("[data-composer-card]");
+    if (card === null || card === void 0) return void 0;
+    const onKey = (event) => {
+      if (event.key === "Enter" && !event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey && !event.isComposing) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+      }
+    };
+    const onClick = (event) => {
+      const button = event.target?.closest?.("button");
+      if (button === null || button === void 0) return;
+      if (/send|发送/i.test(button.getAttribute("aria-label") ?? "")) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+      }
+    };
+    card.addEventListener("keydown", onKey, true);
+    card.addEventListener("click", onClick, true);
+    return () => {
+      card.removeEventListener("keydown", onKey, true);
+      card.removeEventListener("click", onClick, true);
+    };
+  }, [active]);
+  return (0, import_react68.createElement)(
+    "div",
+    { ref: root, className: "bt-readonly-dock", "data-on": active ? "" : void 0, role: "status", hidden: !active },
+    (0, import_react68.createElement)("span", { className: "bt-readonly-text" }, t("This session is still running. Wait for it to finish, or stop it.")),
+    (0, import_react68.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => actions.stopChat(bot.id) }, t("Stop"))
+  );
+}
+var READ_ONLY_CSS = `
+.bt-readonly-dock{display:none}
+.bt-readonly-dock[data-on]{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 0 6px;padding:8px 10px;border:.5px solid var(--bt-line);border-radius:12px;background:var(--bt-card);font-size:12px;line-height:17px;color:var(--bt-ink-2)}
+.bt-readonly-text{min-width:0}
+`;
+
 // src/client/right-panel.js
 var RIGHTBAR_ATTRIBUTES = ["data-rightbar-collapsed", "data-rightbar-fullscreen"];
 function rightColumnOpen(doc) {
@@ -41974,7 +42083,7 @@ function createSwitchWindow(settle) {
 }
 
 // src/client/queue-dock.js
-var import_react68 = require("react");
+var import_react69 = require("react");
 var OWN_QUEUE_KINDS = /* @__PURE__ */ new Set(["user", "schedule", "user-question-reply"]);
 var EMPTY_QUEUE = [];
 var QUEUE_TEXT_FACTS = { collapseWhitespace: true, trimWhitespace: true };
@@ -41991,17 +42100,17 @@ function queueAttachments(content) {
 var fileSizeText2 = (bytes) => typeof bytes !== "number" || !Number.isFinite(bytes) ? "" : bytes < 1024 ? `${bytes} B` : bytes < 1048576 ? `${(bytes / 1024).toFixed(1)} KB` : `${(bytes / 1048576).toFixed(1)} MB`;
 function QueueFile({ attachment, label }) {
   const size = fileSizeText2(attachment.bytes);
-  return (0, import_react68.createElement)(
+  return (0, import_react69.createElement)(
     "span",
     { className: "bt-queue-file", "aria-label": label, title: attachment.name },
-    (0, import_react68.createElement)("span", { className: "bt-queue-fileicon", "aria-hidden": true }, (0, import_react68.createElement)(PaperclipIcon)),
-    (0, import_react68.createElement)("span", { className: "bt-queue-filename" }, attachment.name),
-    size !== "" ? (0, import_react68.createElement)("span", { className: "bt-queue-filesize" }, size) : null
+    (0, import_react69.createElement)("span", { className: "bt-queue-fileicon", "aria-hidden": true }, (0, import_react69.createElement)(PaperclipIcon)),
+    (0, import_react69.createElement)("span", { className: "bt-queue-filename" }, attachment.name),
+    size !== "" ? (0, import_react69.createElement)("span", { className: "bt-queue-filesize" }, size) : null
   );
 }
 function QueueThumb({ attachment, loadImage, label }) {
-  const [url, setUrl] = (0, import_react68.useState)(null);
-  (0, import_react68.useEffect)(() => {
+  const [url, setUrl] = (0, import_react69.useState)(null);
+  (0, import_react69.useEffect)(() => {
     let alive = true;
     loadImage(attachment).then((resolved) => {
       if (alive) setUrl(resolved);
@@ -42011,22 +42120,22 @@ function QueueThumb({ attachment, loadImage, label }) {
       alive = false;
     };
   }, [attachment, loadImage]);
-  return url === null ? (0, import_react68.createElement)("span", { className: "bt-queue-thumb", "aria-hidden": true }) : (0, import_react68.createElement)("img", { className: "bt-queue-thumb", src: url, alt: label });
+  return url === null ? (0, import_react69.createElement)("span", { className: "bt-queue-thumb", "aria-hidden": true }) : (0, import_react69.createElement)("img", { className: "bt-queue-thumb", src: url, alt: label });
 }
 function Preview({ text, renderFactorySlot }) {
   const rendered = renderFactorySlot?.("conversation.user.text", { text, facts: QUEUE_TEXT_FACTS, interactive: false, ellipsis: true });
-  return (0, import_react68.createElement)("span", { className: "bt-queue-preview" }, rendered ?? text);
+  return (0, import_react69.createElement)("span", { className: "bt-queue-preview" }, rendered ?? text);
 }
 function EditField({ text, onChange, onSave, onCancel }) {
-  const field = (0, import_react68.useRef)(null);
-  (0, import_react68.useEffect)(() => {
+  const field = (0, import_react69.useRef)(null);
+  (0, import_react69.useEffect)(() => {
     const node = field.current;
     if (node === null) return;
     node.focus();
     node.style.height = "auto";
     node.style.height = `${node.scrollHeight}px`;
   }, [text]);
-  return (0, import_react68.createElement)("textarea", {
+  return (0, import_react69.createElement)("textarea", {
     ref: field,
     className: "bt-queue-edit",
     value: text,
@@ -42045,28 +42154,28 @@ function EditField({ text, onChange, onSave, onCancel }) {
   });
 }
 function RowButton({ label, title, disabled, onClick, children }) {
-  return (0, import_react68.createElement)("button", { type: "button", className: "bt-queue-action", "aria-label": label, title: title ?? label, disabled, onClick }, children);
+  return (0, import_react69.createElement)("button", { type: "button", className: "bt-queue-action", "aria-label": label, title: title ?? label, disabled, onClick }, children);
 }
 function QueueDock({ useSession, useProjection, updateQueue, loadImage, renderFactorySlot, actions }) {
   const inbox = useProjection?.("inbox");
   const pendingSubmissions = useSession?.((s) => s.pendingSubmissions) ?? EMPTY_QUEUE;
-  const queue = (0, import_react68.useMemo)(() => {
+  const queue = (0, import_react69.useMemo)(() => {
     const rows2 = (inbox?.["next-turn"] ?? EMPTY_QUEUE).filter((row) => OWN_QUEUE_KINDS.has(row.source?.kind));
     const inChat = new Set(pendingSubmissions.filter((item) => item.placement === "transcript").map((item) => item.requestId));
     return inChat.size === 0 ? rows2 : rows2.filter(({ source }) => source === null || typeof source !== "object" || !("rpcId" in source) || !inChat.has(source.rpcId));
   }, [inbox, pendingSubmissions]);
-  const pendingQueue = (0, import_react68.useMemo)(() => {
+  const pendingQueue = (0, import_react69.useMemo)(() => {
     const admitted = new Set(queue.flatMap(({ source }) => source !== null && typeof source === "object" && "rpcId" in source ? [source.rpcId] : []));
     return pendingSubmissions.filter((submission) => submission.placement === "queued" && !admitted.has(submission.requestId));
   }, [pendingSubmissions, queue]);
   const rowCount = queue.length + pendingQueue.length;
   const running = useSession?.((s) => s.running) === true;
   const queueMutable = useSession?.((s) => s.subagent === null || s.subagent === void 0 || s.subagent.address?.mode === "continuable") ?? true;
-  const [editing, setEditing] = (0, import_react68.useState)(null);
-  const [busy, setBusy] = (0, import_react68.useState)(null);
-  const [collapsed, setCollapsed] = (0, import_react68.useState)(true);
-  const listId = (0, import_react68.useId)();
-  (0, import_react68.useEffect)(() => {
+  const [editing, setEditing] = (0, import_react69.useState)(null);
+  const [busy, setBusy] = (0, import_react69.useState)(null);
+  const [collapsed, setCollapsed] = (0, import_react69.useState)(true);
+  const listId = (0, import_react69.useId)();
+  (0, import_react69.useEffect)(() => {
     if (rowCount === 0 && !collapsed) setCollapsed(true);
     if (editing !== null && (!queueMutable || !queue.some((row) => row.id === editing.id))) setEditing(null);
   }, [collapsed, editing, queue, queueMutable, rowCount]);
@@ -42094,77 +42203,77 @@ function QueueDock({ useSession, useProjection, updateQueue, loadImage, renderFa
     if (editing === null || editing.text.trim() === "") return;
     if (await applyAction(editing.id, { kind: "edit", content: [{ type: "text", text: editing.text }] }, t("Couldn’t edit the queued message — it may have started already."))) setEditing(null);
   };
-  return (0, import_react68.createElement)(
+  return (0, import_react69.createElement)(
     "div",
     { className: "bt-queue-dock", "data-queue-dock": "" },
-    (0, import_react68.createElement)(
+    (0, import_react69.createElement)(
       "div",
       { className: "bt-queue-panel" },
-      rowCount > 1 && (0, import_react68.createElement)(
+      rowCount > 1 && (0, import_react69.createElement)(
         "button",
         { type: "button", className: "bt-queue-head", "aria-controls": listId, "aria-expanded": expanded, disabled: interactionActive, onClick: () => setCollapsed((value) => !value) },
-        (0, import_react68.createElement)("span", { className: "bt-queue-lead", "aria-hidden": true }, (0, import_react68.createElement)(QueueIcon)),
-        (0, import_react68.createElement)("span", { className: "bt-queue-count" }, t("{n} queued messages", { n: rowCount })),
-        !listVisible && pendingQueue.length > 0 && (0, import_react68.createElement)("span", { className: "bt-queue-status", role: "status" }, t("Sending…")),
-        (0, import_react68.createElement)("span", { className: "bt-queue-chev", "aria-hidden": true }, expanded ? (0, import_react68.createElement)(ChevronDownIcon) : (0, import_react68.createElement)(ChevronUpIcon))
+        (0, import_react69.createElement)("span", { className: "bt-queue-lead", "aria-hidden": true }, (0, import_react69.createElement)(QueueIcon)),
+        (0, import_react69.createElement)("span", { className: "bt-queue-count" }, t("{n} queued messages", { n: rowCount })),
+        !listVisible && pendingQueue.length > 0 && (0, import_react69.createElement)("span", { className: "bt-queue-status", role: "status" }, t("Sending…")),
+        (0, import_react69.createElement)("span", { className: "bt-queue-chev", "aria-hidden": true }, expanded ? (0, import_react69.createElement)(ChevronDownIcon) : (0, import_react69.createElement)(ChevronUpIcon))
       ),
-      (0, import_react68.createElement)(
+      (0, import_react69.createElement)(
         "ul",
         { id: listId, className: "bt-queue-list", hidden: !listVisible },
         listVisible && queue.map((row) => {
           const attachments = queueAttachments(row.content);
           const text = textOf(row.content);
-          return (0, import_react68.createElement)(
+          return (0, import_react69.createElement)(
             "li",
             { key: row.id, className: "bt-queue-row" },
-            rowCount === 1 && (0, import_react68.createElement)("span", { className: "bt-queue-lead", "aria-hidden": true }, (0, import_react68.createElement)(QueueIcon)),
-            editing?.id === row.id ? (0, import_react68.createElement)(EditField, { text: editing.text, onChange: (text2) => setEditing({ id: row.id, text: text2 }), onSave: saveEdit, onCancel: () => setEditing(null) }) : (0, import_react68.createElement)(
-              import_react68.Fragment,
+            rowCount === 1 && (0, import_react69.createElement)("span", { className: "bt-queue-lead", "aria-hidden": true }, (0, import_react69.createElement)(QueueIcon)),
+            editing?.id === row.id ? (0, import_react69.createElement)(EditField, { text: editing.text, onChange: (text2) => setEditing({ id: row.id, text: text2 }), onSave: saveEdit, onCancel: () => setEditing(null) }) : (0, import_react69.createElement)(
+              import_react69.Fragment,
               null,
-              attachments.length > 0 && (0, import_react68.createElement)(
+              attachments.length > 0 && (0, import_react69.createElement)(
                 "span",
                 { className: "bt-queue-attachments" },
-                attachments.map((item, index) => item.type === "image" ? (0, import_react68.createElement)(QueueThumb, { key: `${item.attachment.attachmentId}:${index}`, attachment: item.attachment, loadImage, label: t("Queued image") }) : (0, import_react68.createElement)(QueueFile, { key: `${item.attachment.attachmentId}:${item.attachment.name}:${index}`, attachment: item.attachment, label: t("Queued file {name}", { name: item.attachment.name }) }))
+                attachments.map((item, index) => item.type === "image" ? (0, import_react69.createElement)(QueueThumb, { key: `${item.attachment.attachmentId}:${index}`, attachment: item.attachment, loadImage, label: t("Queued image") }) : (0, import_react69.createElement)(QueueFile, { key: `${item.attachment.attachmentId}:${item.attachment.name}:${index}`, attachment: item.attachment, label: t("Queued file {name}", { name: item.attachment.name }) }))
               ),
-              (0, import_react68.createElement)(Preview, { text: row.content.filter((block) => block.type === "text").map((block) => block.text).join(""), renderFactorySlot })
+              (0, import_react69.createElement)(Preview, { text: row.content.filter((block) => block.type === "text").map((block) => block.text).join(""), renderFactorySlot })
             ),
-            queueMutable && (0, import_react68.createElement)(
+            queueMutable && (0, import_react69.createElement)(
               "div",
               { className: "bt-queue-actions" },
-              editing?.id === row.id ? (0, import_react68.createElement)(
-                import_react68.Fragment,
+              editing?.id === row.id ? (0, import_react69.createElement)(
+                import_react69.Fragment,
                 null,
-                (0, import_react68.createElement)(RowButton, { label: t("Save queued message"), disabled: busy !== null || editing.text.trim() === "", onClick: saveEdit }, (0, import_react68.createElement)(CheckIcon)),
-                (0, import_react68.createElement)(RowButton, { label: t("Cancel editing"), disabled: busy !== null, onClick: () => setEditing(null) }, (0, import_react68.createElement)(CloseIcon))
-              ) : (0, import_react68.createElement)(
-                import_react68.Fragment,
+                (0, import_react69.createElement)(RowButton, { label: t("Save queued message"), disabled: busy !== null || editing.text.trim() === "", onClick: saveEdit }, (0, import_react69.createElement)(CheckIcon)),
+                (0, import_react69.createElement)(RowButton, { label: t("Cancel editing"), disabled: busy !== null, onClick: () => setEditing(null) }, (0, import_react69.createElement)(CloseIcon))
+              ) : (0, import_react69.createElement)(
+                import_react69.Fragment,
                 null,
-                (0, import_react68.createElement)(RowButton, { label: t("Edit queued message"), title: text === null ? t("Contains non-text content, so editing is not supported yet") : void 0, disabled: busy !== null || text === null, onClick: () => {
+                (0, import_react69.createElement)(RowButton, { label: t("Edit queued message"), title: text === null ? t("Contains non-text content, so editing is not supported yet") : void 0, disabled: busy !== null || text === null, onClick: () => {
                   if (text !== null) setEditing({ id: row.id, text });
-                } }, (0, import_react68.createElement)(PencilIcon)),
-                (0, import_react68.createElement)(RowButton, { label: t("Delete queued message"), disabled: busy !== null, onClick: () => applyAction(row.id, { kind: "remove" }, t("Couldn’t delete the queued message — it may have started already.")) }, (0, import_react68.createElement)(TrashIcon)),
-                (0, import_react68.createElement)(RowButton, { label: t("Steer queued message"), title: running ? void 0 : t("Only while a turn is running"), disabled: busy !== null || !running, onClick: () => applyAction(row.id, { kind: "steer" }, t("Couldn’t steer the queued message. Try again.")) }, (0, import_react68.createElement)(ArrowUpIcon))
+                } }, (0, import_react69.createElement)(PencilIcon)),
+                (0, import_react69.createElement)(RowButton, { label: t("Delete queued message"), disabled: busy !== null, onClick: () => applyAction(row.id, { kind: "remove" }, t("Couldn’t delete the queued message — it may have started already.")) }, (0, import_react69.createElement)(TrashIcon)),
+                (0, import_react69.createElement)(RowButton, { label: t("Steer queued message"), title: running ? void 0 : t("Only while a turn is running"), disabled: busy !== null || !running, onClick: () => applyAction(row.id, { kind: "steer" }, t("Couldn’t steer the queued message. Try again.")) }, (0, import_react69.createElement)(ArrowUpIcon))
               )
             )
           );
         }),
-        listVisible && pendingQueue.map((submission) => (0, import_react68.createElement)(
+        listVisible && pendingQueue.map((submission) => (0, import_react69.createElement)(
           "li",
           { key: submission.requestId, className: "bt-queue-row bt-queue-pending" },
-          rowCount === 1 && (0, import_react68.createElement)("span", { className: "bt-queue-lead", "aria-hidden": true }, (0, import_react68.createElement)(QueueIcon)),
-          submission.attachments.length > 0 && (0, import_react68.createElement)(
+          rowCount === 1 && (0, import_react69.createElement)("span", { className: "bt-queue-lead", "aria-hidden": true }, (0, import_react69.createElement)(QueueIcon)),
+          submission.attachments.length > 0 && (0, import_react69.createElement)(
             "span",
             { className: "bt-queue-attachments" },
-            submission.attachments.map((attachment, index) => attachment.type === "image" ? (0, import_react68.createElement)("img", { key: `${attachment.value.previewUrl}:${index}`, className: "bt-queue-thumb", src: attachment.value.previewUrl, alt: t("Queued image") }) : (0, import_react68.createElement)(QueueFile, { key: `${attachment.value.attachmentId}:${attachment.value.name}:${index}`, attachment: attachment.value, label: t("Queued file {name}", { name: attachment.value.name }) }))
+            submission.attachments.map((attachment, index) => attachment.type === "image" ? (0, import_react69.createElement)("img", { key: `${attachment.value.previewUrl}:${index}`, className: "bt-queue-thumb", src: attachment.value.previewUrl, alt: t("Queued image") }) : (0, import_react69.createElement)(QueueFile, { key: `${attachment.value.attachmentId}:${attachment.value.name}:${index}`, attachment: attachment.value, label: t("Queued file {name}", { name: attachment.value.name }) }))
           ),
-          (0, import_react68.createElement)(Preview, { text: submission.text, renderFactorySlot }),
-          (0, import_react68.createElement)("span", { className: "bt-queue-status", role: "status" }, t("Sending…")),
-          queueMutable && (0, import_react68.createElement)(
+          (0, import_react69.createElement)(Preview, { text: submission.text, renderFactorySlot }),
+          (0, import_react69.createElement)("span", { className: "bt-queue-status", role: "status" }, t("Sending…")),
+          queueMutable && (0, import_react69.createElement)(
             "div",
             { className: "bt-queue-actions" },
-            (0, import_react68.createElement)(RowButton, { label: t("Edit queued message"), title: t("Sending…"), disabled: true }, (0, import_react68.createElement)(PencilIcon)),
-            (0, import_react68.createElement)(RowButton, { label: t("Delete queued message"), title: t("Sending…"), disabled: true }, (0, import_react68.createElement)(TrashIcon)),
-            (0, import_react68.createElement)(RowButton, { label: t("Steer queued message"), title: t("Sending…"), disabled: true }, (0, import_react68.createElement)(ArrowUpIcon))
+            (0, import_react69.createElement)(RowButton, { label: t("Edit queued message"), title: t("Sending…"), disabled: true }, (0, import_react69.createElement)(PencilIcon)),
+            (0, import_react69.createElement)(RowButton, { label: t("Delete queued message"), title: t("Sending…"), disabled: true }, (0, import_react69.createElement)(TrashIcon)),
+            (0, import_react69.createElement)(RowButton, { label: t("Steer queued message"), title: t("Sending…"), disabled: true }, (0, import_react69.createElement)(ArrowUpIcon))
           )
         ))
       )
@@ -42309,7 +42418,7 @@ function apply(ctx) {
   const reactionStore = sharedMap(STORAGE.reactions);
   const seenStore = sharedMap(STORAGE.seen);
   let seenAt = seenStore.read();
-  const ui2 = createSource({ details: null, view: "details", renaming: false, tab: null, side: null, newChat: null, exchange: null, menu: null, voice: null, palette: null, quote: null, paste: {}, pendingOpen: null, settings: null, memory: null, toast: null, signIn: null, renameAgent: null, unread: unreadStore.read(), reactions: reactionStore.read(), visits: {}, panelYield: false, leftDrawer: false, bootFailed: false, goalCompose: null, goalOpen: null });
+  const ui2 = createSource({ details: null, view: "details", readOnlyPart: null, renaming: false, tab: null, side: null, newChat: null, exchange: null, menu: null, voice: null, palette: null, quote: null, paste: {}, pendingOpen: null, settings: null, memory: null, toast: null, signIn: null, renameAgent: null, unread: unreadStore.read(), reactions: reactionStore.read(), visits: {}, panelYield: false, leftDrawer: false, bootFailed: false, goalCompose: null, goalOpen: null });
   let sidebarSaved = readSidebar();
   const sidebarPref = createSource(sidebarSaved.pref);
   const frame = createSource({ viewport: typeof window === "undefined" ? 0 : window.innerWidth, sidebarWidth: sidebarSaved.width, collapsedWidth: 0, collapsed: false });
@@ -42415,6 +42524,7 @@ function apply(ctx) {
     if (value.memoryNews !== void 0) noteMemoryNews(value.memoryNews);
     const current = roster.getSnapshot();
     const live2 = {};
+    if (value.partsRunning !== void 0 && JSON.stringify(value.partsRunning) !== JSON.stringify(current.partsRunning ?? {})) live2.partsRunning = value.partsRunning;
     if (value.connectors !== void 0 && JSON.stringify(value.connectors) !== JSON.stringify(current.connectors ?? [])) live2.connectors = value.connectors;
     if (value.capabilityStatuses !== void 0 && JSON.stringify(value.capabilityStatuses) !== JSON.stringify(current.capabilityStatuses ?? {})) live2.capabilityStatuses = value.capabilityStatuses;
     if (value.phone !== void 0 && JSON.stringify(value.phone) !== JSON.stringify(current.phone ?? null)) live2.phone = value.phone;
@@ -43319,7 +43429,7 @@ function apply(ctx) {
     () => shadow("shell.overlay", { id: "bot-toast", order: 60, inject: face }, ErrorToast)
   ];
   const installConversation = () => [
-    () => installCompiledStyles(CONVERSATION_CSS, "conversation"),
+    () => installCompiledStyles(CONVERSATION_CSS + READ_ONLY_CSS, "conversation"),
     () => installCompiledStyles(TURN_ERROR_CSS, "turn-errors"),
     () => installCompiledStyles(QUEUE_CSS, "queue"),
     () => installMentions(),
@@ -43367,6 +43477,7 @@ function apply(ctx) {
     () => shadow("conversation.input.dock", { id: "bot-paste", order: -130, inject: face }, PasteDock),
     () => shadow("conversation.input.dock", { id: "bot-members", order: -120, inject: face }, MemberDock),
     () => shadow("conversation.input.dock", { id: "bot-model", order: -110, inject: face }, ModelChoiceDock),
+    () => shadow("conversation.input.dock", { id: "bot-readonly", order: -105, inject: face }, ReadOnlyDock),
     () => shadow("conversation.input.dock", { id: "bot-question", order: -100, inject: face }, QuestionDock),
     () => shadow("conversation.input.dock", { id: "bot-view", order: -95, inject: face }, WidgetDock),
     () => shadow("conversation.input.dock", { id: "bot-secret", order: -90, inject: face }, SecretDock),

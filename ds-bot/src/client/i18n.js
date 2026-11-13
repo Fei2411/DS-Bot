@@ -1563,6 +1563,11 @@ const ZH = {
   'Sent': '已发送',
   'Failed': '失败',
 
+  "Running": "运行中",
+  "Open this session": "打开这个会话",
+  "Open this running session": "打开这个正在运行的会话",
+  "A running session keeps using model calls in the background.": "运行中的会话会在后台继续消耗模型调用。",
+  "This session is still running. Wait for it to finish, or stop it.": "这个会话还在运行。等它结束，或先停止它。",
 }
 
 // Host errors stay English, since Bots read them too; they are translated where the

@@ -502,6 +502,9 @@ export function install(rt) {
     for (const bot of Object.values(state.bots)) {
       for (const segment of bot.segments ?? []) pastOwners.set(segment.sessionId, { botId: bot.id })
       chatOwners.set(chatOf(bot.id), bot.id)
+      // Parts opened while the Bot was busy are its own chat too: a turn there may use
+      // the team tools, and the phone still sees only the current part.
+      for (const part of bot.openParts ?? []) chatOwners.set(part.sessionId, bot.id)
     }
     for (const room of Object.values(state.rooms)) {
       const sessionId = sessionOfRoom(room)
