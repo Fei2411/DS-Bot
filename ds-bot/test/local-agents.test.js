@@ -41,7 +41,7 @@ function makeAdapter({ records = {}, preset = 'workspace-write', acp = FIXTURES.
     },
     record: sessionId => records[sessionId],
     saveRecord: (sessionId, record) => { records[sessionId] = record },
-    presetFor: () => preset,
+    presetFor: typeof preset === 'function' ? preset : () => preset,
     cwdFor: async () => mkdtempSync(join(tmpdir(), 'dsb-cwd-')),
     probeCwd: () => mkdtempSync(join(tmpdir(), 'dsb-probe-')),
     toolsFor: () => [{ name: 'message_bot', description: 'Message another Bot', parameters: { type: 'object', properties: { bot: { type: 'string' }, text: { type: 'string' } } } }],
@@ -287,6 +287,42 @@ test('acp: the preset picks among the modes the session lists', async (t) => {
   assert.match((await collect(readOnly.stream(options('s1', [user('m1', 'show-mode')])))).text, /mode: ask; refused: 0/)
   // Cursor has no accept-edits: it stays in its own agent mode and asks before acting.
   assert.match((await collect(write.stream(options('s1', [user('m1', 'show-mode')])))).text, /mode: agent; refused: 0/)
+})
+
+// #1503: a live CLI keeps the permission mode it opened with. Changing the
+// Bot's preset must reopen the CLI for the next turn, not wait for a restart.
+test('a changed permission preset reopens the local agent for the next turn', async () => {
+  let preset = 'workspace-write'
+  const adapter = makeAdapter({ preset: () => preset })
+  try {
+    const first = await collect(adapter.stream(options('s1', [user('m1', 'show-mode')])))
+    assert.match(first.text, /mode: accept-edits/)
+    preset = 'danger-full-access'
+    const second = await collect(adapter.stream(options('s1', [user('m2', 'show-mode')])))
+    assert.match(second.text, /mode: bypass/)
+  } finally {
+    await adapter.dispose()
+  }
+})
+
+test('codex: a changed permission preset resumes the thread with the new sandbox and approval', async () => {
+  let preset = 'workspace-write'
+  const record = join(mkdtempSync(join(tmpdir(), 'dsb-codex-preset-')), 'params.jsonl')
+  const records = {}
+  const adapter = makeAdapter({ preset: () => preset, records, codexArgs: ['--record', record] })
+  try {
+    const request = (id, text) => options('s1', [user(id, text)], { provider: 'local-codex-cli', model: 'gpt-5.1-codex' })
+    await collect(adapter.stream(request('m1', 'hello')))
+    preset = 'danger-full-access'
+    await collect(adapter.stream(request('m2', 'again')))
+  } finally {
+    await adapter.dispose()
+  }
+  const calls = readFileSync(record, 'utf8').trim().split('\n').map(line => JSON.parse(line))
+  const resumed = calls.filter(call => call.method === 'thread/resume')
+  assert.equal(resumed.length, 1)
+  assert.equal(resumed[0].params.sandbox, 'danger-full-access')
+  assert.equal(resumed[0].params.approvalPolicy, 'never')
 })
 
 test('probeModels reports the probe session\'s model options plus CLI default', async (t) => {
