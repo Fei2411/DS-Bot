@@ -70,7 +70,19 @@ export function elapsedLabel(ms) {
   return `${hours > 0 ? `${hours}h ` : ''}${total >= 60 ? `${Math.floor(total / 60) % 60}m ` : ''}${total % 60}s`
 }
 
-export const contentText = content => (content ?? []).filter(block => block?.type === 'text').map(block => block.text).join('\n')
+// A model that writes its tool call in DSML form can leave the closing tags in
+// the text block DSH hands the chat. They are wire syntax, not part of the reply.
+const DSML_CLOSING_TAG = /<\/DSML\s+(?:invoke|calls)\s*>/i
+const DSML_CLOSING_TAGS = /\s*<\/DSML\s+(?:invoke|calls)\s*>\s*/gi
+export const stripToolCallTags = (text) => {
+  const value = String(text ?? '')
+  if (!DSML_CLOSING_TAG.test(value)) return value
+  return value.replace(DSML_CLOSING_TAGS, ' ').trim()
+}
+export const contentText = content => (content ?? [])
+  .filter(block => block?.type === 'text')
+  .map(block => (typeof block.text === 'string' ? stripToolCallTags(block.text) : ''))
+  .join('\n')
 // A name can contain brackets. Generated headers end at the newline; without a
 // newline, a legacy inline header still stops at its first closing bracket.
 export const HEADER = /^\[(Message from|Reply from|Group chat|Group post from|Bot team setup|Handoff · part|Secret card)(?:[^\r\n]*\]\r?\n|[^\]\r\n]*\])/

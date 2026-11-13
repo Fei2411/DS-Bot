@@ -148,3 +148,20 @@ test('the thinking row shows only with its switch on, and the activity row is ne
     assert.ok(noted.every(id => id.startsWith('text:')))
   }
 })
+
+// #1517: a model that writes its tool call in DSML form can leave the closing
+// tags in the text block; they must not reach the visible reply.
+test('a Bot reply drops DSML closing tags left after a tool call', () => {
+  const { props } = cellProps()
+  props.node.data.blocks = [
+    { kind: 'text', text: '做到第 3 题。\n</DSML invoke>\n</DSML calls>' },
+    { kind: 'tool-call' },
+  ]
+  assert.equal(markdownOf(props)[0].props.text, '做到第 3 题。')
+  // A message whose text is only the tags leaves no empty reply behind.
+  props.node.data.blocks = [
+    { kind: 'text', text: '</DSML invoke>\n</DSML calls>' },
+    { kind: 'tool-call' },
+  ]
+  assert.equal(markdownOf(props).length, 0)
+})
