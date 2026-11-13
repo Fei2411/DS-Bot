@@ -20,6 +20,7 @@ export class AcpEngine {
     this.findExecutable = findExecutable
     this.child = undefined
     this.peer = undefined
+    this.starting = undefined
     this.sessions = new Map()
     this.caps = {}
     // The modes and options this CLI listed last, for a reply that lists none.
@@ -27,7 +28,17 @@ export class AcpEngine {
   }
 
   async ensure() {
+    // A peer exists before its handshake has finished; other callers wait for it.
+    if (this.starting !== undefined) return this.starting
     if (this.peer !== undefined) return this.peer
+    const starting = this.start()
+    this.starting = starting
+    try { return await starting } finally {
+      if (this.starting === starting) this.starting = undefined
+    }
+  }
+
+  async start() {
     const bin = this.engine.command.startsWith('/') || this.engine.command.startsWith('~')
       ? this.findExecutable(this.engine.command)
       : this.findExecutable(this.engine.command)
@@ -57,13 +68,20 @@ export class AcpEngine {
     child.on('error', error => gone(Object.assign(new Error(`${this.engine.name} could not start: ${error.message}`), { code: 'LOCAL_AGENT_EXIT' })))
     peer.notificationHandler = (method, params) => this.onNotice(method, params)
     peer.requestHandler = (method, params) => this.onRequest(method, params)
-    const reply = await peer.request('initialize', {
-      protocolVersion: 1,
-      clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false },
-      clientInfo: CLIENT,
-    }, { timeout: 30_000 })
-    this.caps = { mcpHttp: reply?.agentCapabilities?.mcpCapabilities?.http === true, mcpSse: reply?.agentCapabilities?.mcpCapabilities?.sse === true }
-    return peer
+    try {
+      const reply = await peer.request('initialize', {
+        protocolVersion: 1,
+        clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false },
+        clientInfo: CLIENT,
+      }, { timeout: 30_000 })
+      this.caps = { mcpHttp: reply?.agentCapabilities?.mcpCapabilities?.http === true, mcpSse: reply?.agentCapabilities?.mcpCapabilities?.sse === true }
+      return peer
+    } catch (error) {
+      // A live process that refused or timed out the handshake is let go of, so
+      // the next ensure() starts a fresh one instead of reusing the dead peer.
+      if (this.child === child) await this.close()
+      throw error
+    }
   }
 
   sessionFor(dshSessionId) {
@@ -211,7 +229,10 @@ export class AcpEngine {
   async close() {
     const child = this.child
     this.child = undefined
+    const peer = this.peer
     this.peer = undefined
+    this.starting = undefined
+    peer?.close(new Error(`${this.engine.name} closed`))
     if (child !== undefined) {
       child.kill('SIGTERM')
       setTimeout(() => { try { child.kill('SIGKILL') } catch {} }, 5_000).unref?.()
