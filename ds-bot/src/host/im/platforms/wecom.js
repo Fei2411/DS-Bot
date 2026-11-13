@@ -142,7 +142,9 @@ export default {
           else if (got?.bytes !== undefined) images.push({ mediaType: imageTypeOf(got.bytes, got.name), data: got.bytes.toString('base64') })
         }
       }
-      // The parts of a mixed message keep their order: one line each, caption first.
+      // The core places one text part before every image, so splitting a mixed
+      // message into its parts loses which caption sat beside which picture. The
+      // words are joined rather than dropped: a caption is the whole instruction.
       const words = mixedText.length === 0 ? text : [text, ...mixedText].filter(part => part !== '').join('\n')
       // Reply frames go out with the callback's req_id; a failed reply is
       // logged but the message itself still lands in the core.
