@@ -5,7 +5,6 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 import { Context } from '@deepseek-ai/cordis'
 import { TypertGatewayService } from '@deepseek-ai/dsh-api-gateway'
-import { RemoteAccessService } from '@deepseek-ai/dsh-api-remote-access'
 import { TypertRegistry } from '@deepseek-ai/dsh-typert-registry'
 import { createRuntime } from '../index.js'
 import * as pluginEntry from '../plugin.js'
@@ -14,6 +13,16 @@ import { RPC_NAMESPACE, createRemoteService, feedEvents, install as installRemot
 import { fakeContext } from './fake-ctx.js'
 
 const tick = () => new Promise(resolve => setTimeout(resolve, 20))
+
+async function startGatewayHost(ctx) {
+  await ctx.plugin(TypertRegistry)
+  // DSH >= 0.2.1-alpha.3 separates remoteAccess into its own Service; 0.2.0-rc.2 does not have it.
+  if (TypertGatewayService.inject?.includes('remoteAccess')) {
+    const { RemoteAccessService } = await import('@deepseek-ai/dsh-api-remote-access')
+    await ctx.plugin(RemoteAccessService)
+  }
+  await ctx.plugin(TypertGatewayService)
+}
 
 function startHost(extraCtx = {}) {
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-remote-'))
@@ -77,15 +86,15 @@ function ownerPeer(signal = new AbortController().signal) {
   }
 }
 
-test('hello advertises rpc capability and dsBot endpoints', async (t) => {
+test('hello omits rpc capability and endpoints without a Typert Gateway', async (t) => {
   const { call, stop } = startHost()
   t.after(stop)
   const reply = await call('hello', { api: [1], client: 'dsh-go', platform: 'android' })
   assert.equal(reply.ok, true)
   assert.equal(reply.value.api, API_VERSION)
-  assert.equal(CAPABILITIES.includes('rpc'), true)
-  assert.equal(reply.value.capabilities.includes('rpc'), true)
-  assert.deepEqual(reply.value.rpc, { call: 'dsBot/call', feed: 'dsBot/feed' })
+  assert.deepEqual(reply.value.capabilities, CAPABILITIES)
+  assert.equal(reply.value.capabilities.includes('rpc'), false)
+  assert.equal(reply.value.rpc, undefined)
 })
 
 test('channelCall and subscribeFeed mirror HTTP channel and SSE feed', async (t) => {
@@ -153,16 +162,41 @@ test('feedEvents ends when queued events pass the backlog cap', async () => {
   assert.equal(unsubscribed, true)
 })
 
+test('feedEvents streams past the ring capacity when consumer keeps pace with pending items', async () => {
+  let push
+  let unsubscribed = false
+  const subscribe = (listener) => {
+    push = listener
+    listener('hello', { i: 0 })
+    listener('tick', { i: 1 })
+    return () => { unsubscribed = true }
+  }
+  const controller = new AbortController()
+  const stream = feedEvents(subscribe, controller.signal)
+  const seen = []
+  for (let i = 0; i < 1500; i += 1) {
+    const next = await stream.next()
+    assert.equal(next.done, false)
+    seen.push(next.value.data.i)
+    if (i + 2 < 1500) push('tick', { i: i + 2 })
+  }
+  assert.equal(seen.length, 1500)
+  assert.equal(seen[0], 0)
+  assert.equal(seen[1499], 1499)
+  controller.abort()
+  const ended = await stream.next()
+  assert.equal(ended.done, true)
+  assert.equal(unsubscribed, true)
+})
+
 test('createRemoteService serves dsBot/call and dsBot/feed through real DSH TypertGatewayService', async (t) => {
   const root = new Context()
   const received = []
   const abortedStates = []
   const listeners = new Set()
 
-  // Real Cordis + TypertRegistry + RemoteAccessService + TypertGatewayService stack.
-  await root.plugin(TypertRegistry)
-  await root.plugin(RemoteAccessService)
-  await root.plugin(TypertGatewayService)
+  // Real Cordis + TypertRegistry (+ RemoteAccessService when present) + TypertGatewayService stack.
+  await startGatewayHost(root)
   t.after(async () => { await root.fiber.dispose() })
 
   const rt = {
@@ -277,9 +311,7 @@ test('createRemoteService serves dsBot/call and dsBot/feed through real DSH Type
 test('full ds-bot runtime serves real hello, state and live feed through TypertGatewayService', async (t) => {
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-remote-full-'))
   const root = new Context()
-  await root.plugin(TypertRegistry)
-  await root.plugin(RemoteAccessService)
-  await root.plugin(TypertGatewayService)
+  await startGatewayHost(root)
   t.after(async () => {
     await root.fiber.dispose()
     rmSync(home, { recursive: true, force: true, maxRetries: 5 })
@@ -350,6 +382,7 @@ test('full ds-bot runtime serves real hello, state and live feed through TypertG
   )
   assert.equal(rpcHello.ok, true)
   assert.equal(rpcHello.value.ok, true)
+  assert.equal(rpcHello.value.value.capabilities.includes('rpc'), true)
   assert.deepEqual(rpcHello.value.value.rpc, { call: 'dsBot/call', feed: 'dsBot/feed' })
 
   const rpcState = await gateway.dispatchRpc(
@@ -363,6 +396,7 @@ test('full ds-bot runtime serves real hello, state and live feed through TypertG
   assert.ok(rpcState.value.value.bots.length >= 1)
 
   // Updating a Bot saves state and emits a `revision` frame over `dsBot/feed`.
+  const beforeUpdateRev = rt.state.revision
   const botId = rpcState.value.value.bots[0].id
   const updated = await gateway.dispatchRpc(
     'dsBot/call',
@@ -372,8 +406,19 @@ test('full ds-bot runtime serves real hello, state and live feed through TypertG
   )
   assert.equal(updated.ok, true)
   assert.equal(updated.value.ok, true)
+  const targetRev = rt.state.revision
+  assert.ok(targetRev > beforeUpdateRev)
 
-  const revEvent = await iterator.next()
+  // Drain any earlier startup/bootstrap revision frames until `update-bot`'s revision arrives.
+  let revEvent
+  for (let i = 0; i < 10; i += 1) {
+    const next = await iterator.next()
+    if (next.value.event === 'revision' && next.value.data.revision >= targetRev) {
+      revEvent = next
+      break
+    }
+  }
+  assert.ok(revEvent)
   assert.equal(revEvent.value.event, 'revision')
   assert.ok(revEvent.value.data.revision > helloEvent.value.data.revision)
 
@@ -392,18 +437,21 @@ test('full ds-bot runtime serves real hello, state and live feed through TypertG
   await rt.dispose?.()
 })
 
-test('plugin entry loads dsBot Remote methods on a real Cordis Gateway host', async (t) => {
+test('plugin entry tracks late TypertGatewayService mount and disposal in hello', async (t) => {
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-remote-entry-'))
   const root = new Context()
-  await root.plugin(TypertRegistry)
-  await root.plugin(RemoteAccessService)
-  await root.plugin(TypertGatewayService)
   t.after(async () => {
     await root.fiber.dispose()
     rmSync(home, { recursive: true, force: true, maxRetries: 5 })
   })
 
   const fake = fakeContext()
+  const routes = {}
+  const register = fake.connection.fetch.register
+  fake.connection.fetch.register = (options) => {
+    routes[options.path] = options
+    return register(options)
+  }
   root.provide('events', fake.events)
   root.provide('tools', fake.tools)
   root.provide('systemPrompt', fake.systemPrompt)
@@ -414,11 +462,31 @@ test('plugin entry loads dsBot Remote methods on a real Cordis Gateway host', as
   root.provide('sessionTitle', { rename: async () => {} })
   root.provide('sessions', { flush: async () => {} })
   await root.plugin(pluginEntry, { home })
-  // pluginEntry.apply is async (imports index.js inside apply); allow dynamic import + effect tick.
-  for (let i = 0; i < 20 && !root.typertGateway.claimsEndpoint('dsBot/call'); i += 1) await tick()
+  for (let i = 0; i < 20 && !routes['/api/bot']; i += 1) await tick()
+
+  const callHttp = async (endpoint, payload) => {
+    const response = await routes['/api/bot'].fetch(new Request('http://localhost/api/bot', {
+      method: 'POST',
+      body: JSON.stringify({ endpoint, payload }),
+    }))
+    return response.json()
+  }
+
+  // Before typertGateway exists, HTTP hello omits `rpc`.
+  const before = await callHttp('hello', { api: [1] })
+  assert.equal(before.value.capabilities.includes('rpc'), false)
+  assert.equal(before.value.rpc, undefined)
+
+  // Late mount of typertGateway registers dsBot Remote methods and turns `rpc` on.
+  const gwFork = await root.plugin(startGatewayHost)
+  for (let i = 0; i < 20 && !root.typertGateway?.claimsEndpoint('dsBot/call'); i += 1) await tick()
 
   assert.equal(root.typertGateway.claimsEndpoint('dsBot/call'), true)
   assert.equal(root.typertGateway.claimsEndpoint('dsBot/feed'), true)
+
+  const afterHttp = await callHttp('hello', { api: [1] })
+  assert.equal(afterHttp.value.capabilities.includes('rpc'), true)
+  assert.deepEqual(afterHttp.value.rpc, { call: 'dsBot/call', feed: 'dsBot/feed' })
 
   const reply = await root.typertGateway.dispatchRpc(
     'dsBot/call',
@@ -429,4 +497,11 @@ test('plugin entry loads dsBot Remote methods on a real Cordis Gateway host', as
   assert.equal(reply.ok, true)
   assert.equal(reply.value.ok, true)
   assert.deepEqual(reply.value.value.rpc, { call: 'dsBot/call', feed: 'dsBot/feed' })
+
+  // Disposing typertGateway turns `rpc` back off on HTTP hello.
+  await gwFork.dispose()
+  await tick()
+  const disposed = await callHttp('hello', { api: [1] })
+  assert.equal(disposed.value.capabilities.includes('rpc'), false)
+  assert.equal(disposed.value.rpc, undefined)
 })

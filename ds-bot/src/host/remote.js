@@ -10,6 +10,7 @@
 import { Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 
 export const RPC_NAMESPACE = 'dsBot'
+const RPC_ENDPOINTS = Object.freeze({ call: `${RPC_NAMESPACE}/call`, feed: `${RPC_NAMESPACE}/feed` })
 // A reader that falls this far behind is ended; it opens the stream again and catches up.
 const MAX_QUEUED = 512
 
@@ -25,24 +26,28 @@ function decorate(Class, name, decorator) {
 // A JSON copy: the Gateway accepts only JSON values, and an answer may hold `undefined`.
 const plain = value => (value === undefined ? null : JSON.parse(JSON.stringify(value)))
 
-// The feed as an async iterable that ends when `signal` aborts.
+// The feed as an async iterable backed by a bounded ring buffer that ends when `signal` aborts.
 export async function* feedEvents(subscribe, signal) {
   if (signal?.aborted === true) return
-  const queue = []
+  const queue = Array.from({ length: MAX_QUEUED })
   let head = 0
+  let count = 0
   let wake
   let overflow = false
   const unsubscribe = subscribe((event, data) => {
     if (overflow || signal?.aborted === true) return
-    if (queue.length - head >= MAX_QUEUED) overflow = true
-    else queue.push({ event, data: plain(data) })
+    if (count >= MAX_QUEUED) overflow = true
+    else {
+      queue[(head + count) % MAX_QUEUED] = { event, data: plain(data) }
+      count += 1
+    }
     wake?.()
   })
   const aborted = () => wake?.()
   signal?.addEventListener('abort', aborted, { once: true })
   try {
     while (signal?.aborted !== true) {
-      if (head === queue.length) {
+      if (count === 0) {
         if (overflow) return
         await new Promise((resolve) => { wake = resolve })
         wake = undefined
@@ -50,11 +55,8 @@ export async function* feedEvents(subscribe, signal) {
       }
       const next = queue[head]
       queue[head] = undefined
-      head += 1
-      if (head === queue.length) {
-        queue.length = 0
-        head = 0
-      }
+      head = (head + 1) % MAX_QUEUED
+      count -= 1
       yield next
     }
   } finally {
@@ -90,7 +92,20 @@ export function createRemoteService(rt) {
 // test context has none.
 export function install(rt) {
   const { ctx } = rt
+  let gateway
+  rt.remoteRpc = () => (
+    gateway?.claimsEndpoint?.(RPC_ENDPOINTS.call) && gateway?.claimsEndpoint?.(RPC_ENDPOINTS.feed)
+      ? RPC_ENDPOINTS
+      : undefined
+  )
   if (typeof ctx.inject !== 'function') return
   // The fork is not returned: Cordis would await a returned fiber before the Service it starts.
-  ctx.inject(['typertGateway'], (gatewayCtx) => { gatewayCtx.plugin(createRemoteService(rt)) })
+  ctx.inject(['typertGateway'], (gatewayCtx) => {
+    const current = gatewayCtx.typertGateway
+    gatewayCtx.plugin(createRemoteService(rt))
+    gatewayCtx.effect(() => {
+      gateway = current
+      return () => { if (gateway === current) gateway = undefined }
+    }, 'ds-bot: remote readiness')
+  })
 }

@@ -22,10 +22,10 @@
 
 ### 版本和握手
 
-- `hello`：`{ client?: { name, version, platform }, api?: [1] }` → `{ api, apiMin, apiMax, plugin: { name, version }, capabilities, boot, seq, revision, readOnly, memory, feed, rpc }`。
+- `hello`：`{ client?: { name, version, platform }, api?: [1] }` → `{ api, apiMin, apiMax, plugin: { name, version }, capabilities, boot, seq, revision, readOnly, memory, feed, rpc? }`。
   - `api` 是双方都会的最高版本；客户端不传时是服务端当前版本；没有交集时是 `null`，客户端提示更新。
-  - `capabilities` 列出服务端会的东西（`room-chat`、`notices`、`avatar`、`memory-edit`、`usage-summary`、`rpc` 等）。
-  - `rpc` 声明 Remote 入口：`{ call: 'dsBot/call', feed: 'dsBot/feed' }`。
+  - `capabilities` 列出服务端会的东西（`room-chat`、`notices`、`avatar`、`memory-edit`、`usage-summary`，挂载 Gateway Remote 时含 `rpc` 等）。
+  - 当宿主挂载 DSH Typert Gateway 且 `dsBot/call`、`dsBot/feed` 就绪时，带 `rpc: { call: 'dsBot/call', feed: 'dsBot/feed' }`；未挂载时不返回 `rpc` 与 `rpc` 能力。
   - `boot` 每次 DSH 启动都换；`seq` 是最新一条提醒的序号。
 - 版本规则：
   - 只加东西（新接口、新字段、新的条目或提醒种类、新的 feed 事件）不升 `api`，写进 `capabilities`。客户端跳过不认识的字段、种类和事件。
@@ -77,6 +77,7 @@
 - `hello` 多带 `api`、`boot`、`seq`，重连后客户端先用 `notices` 补上。
 - 新事件 `notice`：一条提醒，内容同上。
 - 新事件 `room`：`{ roomId }`，群里有了新的一行、一轮开始或结束，150 毫秒内的合并成一条。客户端重新读这个群的第一页。
+- `dsBot/feed` 流每次订阅先送一条 `hello`，随后转发所有实时事件；单条订阅积压满 512 条未消费事件时断开，由客户端重连后用 `notices` 补齐。
 
 ### 记忆
 
@@ -96,8 +97,6 @@
 - 不推送到手机系统（FCM 之类）：客户端连着时才收得到，后台靠客户端自己的保活。
 - 不给群聊单独算用量：成员在群里的用量记在成员自己名下。
 - 不改网页版和桌面应用用的接口和事件。
-
-- `dsBot/feed` 流每次订阅先送一条 `hello`，随后转发所有实时事件；单条订阅积压满 512 条未消费事件时断开，由客户端重连后用 `notices` 补齐。
 
 ## 已知限制
 
