@@ -373,7 +373,8 @@ var JA = {
   "Select at least one model": "モデルを 1 つ以上選択してください",
   "Save anyway": "それでも保存",
   "The endpoint lists no models.": "このエンドポイントはモデルを返しませんでした。",
-  "Used by {names}. Saving removes these models from the provider; those Bots keep their current model and may fail until they choose another.": "{names} が使用中です。保存するとこれらのモデルはプロバイダーから削除されます。該当する Bot は現在のモデルを保持しますが、別のモデルを選ぶまで失敗する可能性があります。",
+  "Used by {names}. On their next turn those Bots switch to the last model they ran on, or to the default model; the turn fails only if no other model is available.": "{names} が使用中です。次回のターンで、これらの Bot は前回使ったモデル、またはデフォルトモデルに切り替わります。他のモデルがなければ、そのターンは失敗します。",
+  "Local agent, not affected: {names}": "ローカルエージェントのため影響なし: {names}",
   "Runs on": "実行環境",
   "DS Bot model": "DS Bot モデル",
   "Local agent": "ローカルエージェント",
@@ -2694,7 +2695,8 @@ var KO = {
   "Select at least one model": "모델을 하나 이상 선택하세요",
   "Save anyway": "그래도 저장",
   "The endpoint lists no models.": "이 엔드포인트가 모델을 반환하지 않았습니다.",
-  "Used by {names}. Saving removes these models from the provider; those Bots keep their current model and may fail until they choose another.": "{names} 사용 중입니다. 저장하면 이 모델들이 제공자에서 제거됩니다. 해당 Bot은 현재 모델을 유지하지만 다른 모델을 선택할 때까지 실패할 수 있습니다.",
+  "Used by {names}. On their next turn those Bots switch to the last model they ran on, or to the default model; the turn fails only if no other model is available.": "{names} 사용 중입니다. 다음 턴에 해당 Bot은 마지막으로 사용한 모델 또는 기본 모델로 전환됩니다. 사용할 다른 모델이 없으면 그 턴은 실패합니다.",
+  "Local agent, not affected: {names}": "로컬 에이전트, 영향 없음: {names}",
   // What a Bot runs on
   "Runs on": "실행 방식",
   "DS Bot model": "DS Bot 모델",
@@ -5057,7 +5059,8 @@ var ES = {
   "Select at least one model": "Selecciona al menos un modelo",
   "Save anyway": "Guardar igualmente",
   "The endpoint lists no models.": "El endpoint no enumera ningún modelo.",
-  "Used by {names}. Saving removes these models from the provider; those Bots keep their current model and may fail until they choose another.": "En uso por {names}. Al guardar, estos modelos se quitan del proveedor; esos Bots mantienen su modelo actual y pueden fallar hasta que elijan otro.",
+  "Used by {names}. On their next turn those Bots switch to the last model they ran on, or to the default model; the turn fails only if no other model is available.": "En uso por {names}. En su siguiente turno esos Bots cambian al modelo que usaron por última vez, o al modelo predeterminado; el turno solo falla si no hay otro modelo disponible.",
+  "Local agent, not affected: {names}": "Agente local, sin efecto: {names}",
   // What a Bot runs on
   "Runs on": "Se ejecuta en",
   "DS Bot model": "Modelo de DS Bot",
@@ -7417,7 +7420,8 @@ var FR = {
   "Select at least one model": "Sélectionnez au moins un modèle",
   "Save anyway": "Enregistrer quand même",
   "The endpoint lists no models.": "L’endpoint ne liste aucun modèle.",
-  "Used by {names}. Saving removes these models from the provider; those Bots keep their current model and may fail until they choose another.": "Utilisés par {names}. L’enregistrement retire ces modèles du fournisseur ; ces Bots gardent leur modèle actuel et peuvent échouer jusqu’à ce qu’ils en choisissent un autre.",
+  "Used by {names}. On their next turn those Bots switch to the last model they ran on, or to the default model; the turn fails only if no other model is available.": "Utilisés par {names}. À leur prochain tour, ces Bots passent au dernier modèle qu’ils ont utilisé, ou au modèle par défaut ; le tour n’échoue que si aucun autre modèle n’est disponible.",
+  "Local agent, not affected: {names}": "Agent local, non concerné : {names}",
   "Runs on": "Fonctionne sur",
   "DS Bot model": "Modèle DS Bot",
   "Local agent": "Agent local",
@@ -9738,7 +9742,8 @@ var DE = {
   "Select at least one model": "Wähle mindestens ein Modell",
   "Save anyway": "Trotzdem speichern",
   "The endpoint lists no models.": "Der Endpunkt listet keine Modelle.",
-  "Used by {names}. Saving removes these models from the provider; those Bots keep their current model and may fail until they choose another.": "Verwendet von {names}. Beim Speichern werden diese Modelle beim Anbieter entfernt; die Bots behalten ihr aktuelles Modell und können fehlschlagen, bis sie ein anderes wählen.",
+  "Used by {names}. On their next turn those Bots switch to the last model they ran on, or to the default model; the turn fails only if no other model is available.": "Verwendet von {names}. In ihrem nächsten Turn wechseln diese Bots zu dem Modell, das sie zuletzt genutzt haben, oder zum Standardmodell; der Turn schlägt nur fehl, wenn kein anderes Modell verfügbar ist.",
+  "Local agent, not affected: {names}": "Lokaler Agent, nicht betroffen: {names}",
   // What a Bot runs on
   "Runs on": "Läuft auf",
   "DS Bot model": "DS Bot-Modell",
@@ -12081,7 +12086,8 @@ var ZH = {
   "Select at least one model": "至少选择一个模型",
   "Save anyway": "仍要保存",
   "The endpoint lists no models.": "这个接口没有列出模型。",
-  "Used by {names}. Saving removes these models from the provider; those Bots keep their current model and may fail until they choose another.": "正在使用：{names}。保存后这些模型会从服务商目录移除；这些 Bot 会保留当前模型，直到另选模型前可能失败。",
+  "Used by {names}. On their next turn those Bots switch to the last model they ran on, or to the default model; the turn fails only if no other model is available.": "正在使用：{names}。下一轮这些 Bot 会改用它们上次运行的模型，或默认模型；只有没有其他可用模型时这一轮才会失败。",
+  "Local agent, not affected: {names}": "本地 Agent，不受影响：{names}",
   // What a Bot runs on
   "Runs on": "运行方式",
   "DS Bot model": "DS Bot 模型",
@@ -34064,14 +34070,18 @@ function draftSummary(draft) {
   };
 }
 function usedRemoved(provider, draft, roster) {
-  const used = /* @__PURE__ */ new Map();
+  const switching = /* @__PURE__ */ new Map();
+  const local = /* @__PURE__ */ new Map();
   for (const row of draft.rows) {
     if (!row.existing || row.selected) continue;
     const ref = row.model.ref ?? `${provider.id}/${row.id}`;
-    const bots = (roster?.bots ?? []).filter((bot) => bot.model === ref || bot.appliedModel === ref);
-    if (bots.length > 0) used.set(ref, bots.map((bot) => bot.name));
+    for (const bot of roster?.bots ?? []) {
+      if (bot.model !== ref && bot.appliedModel !== ref) continue;
+      const bucket = bot.engine !== void 0 || isLocalRoute(bot.model ?? bot.appliedModel) ? local : switching;
+      bucket.set(ref, [...bucket.get(ref) ?? [], bot.name]);
+    }
   }
-  return used;
+  return { switching, local };
 }
 function ProvidersPage({ actions, run: run2, roster, Section: Section2, advanced = null }) {
   const [view, setView] = (0, import_react46.useState)(null);
@@ -34156,7 +34166,7 @@ function ProviderRow({ provider, apply: apply2, actions, roster, revision, open,
     if (draft === null) return;
     const { selected } = draftSummary(draft);
     if (selected.length === 0) return;
-    if (usedRemoved(provider, draft, roster).size > 0 && !confirmRemove) {
+    if (usedRemoved(provider, draft, roster).switching.size > 0 && !confirmRemove) {
       setConfirmRemove(true);
       return;
     }
@@ -34230,8 +34240,9 @@ function ProviderRow({ provider, apply: apply2, actions, roster, revision, open,
 }
 function ModelDraft({ provider, draft, roster, onToggle, onSave, onCancel, confirmRemove }) {
   const { selected, added, removed } = draftSummary(draft);
-  const used = usedRemoved(provider, draft, roster);
+  const { switching: used, local: unaffected } = usedRemoved(provider, draft, roster);
   const names = [...new Set([...used.values()].flat())];
+  const localNames = [...new Set([...unaffected.values()].flat())];
   const returned = draft.rows.filter((row) => row.returned);
   const unreturned = draft.rows.filter((row) => !row.returned);
   const modelButton = (row) => (0, import_react46.createElement)("button", {
@@ -34267,8 +34278,9 @@ function ModelDraft({ provider, draft, roster, onToggle, onSave, onCancel, confi
     used.size > 0 ? (0, import_react46.createElement)(
       "div",
       { className: "bt-set-hint bt-provider-used", role: "status" },
-      t("Used by {names}. Saving removes these models from the provider; those Bots keep their current model and may fail until they choose another.", { names: names.join(t(", ")) })
+      t("Used by {names}. On their next turn those Bots switch to the last model they ran on, or to the default model; the turn fails only if no other model is available.", { names: names.join(t(", ")) })
     ) : null,
+    localNames.length > 0 ? (0, import_react46.createElement)("div", { className: "bt-set-hint", role: "status" }, t("Local agent, not affected: {names}", { names: localNames.join(t(", ")) })) : null,
     (0, import_react46.createElement)(
       "div",
       { className: "bt-secret-row-actions" },

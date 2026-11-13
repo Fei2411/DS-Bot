@@ -5,6 +5,7 @@ import { createElement as h, useEffect, useState } from 'react'
 import { CheckIcon, ChevronRightIcon, PlusIcon, TrashIcon } from './icons.js'
 import { KeyIcon, MaskedInput } from './secret-card.js'
 import { Segmented, SPRING_SHAPE } from './motion.js'
+import { isLocalRoute } from './agent-routes.js'
 import { hostText, t } from './i18n.js'
 
 const PROTOCOL_NAMES = {
@@ -56,17 +57,22 @@ export function draftSummary(draft) {
   }
 }
 
-// Models this save would remove that a Bot still names. The save itself never moves a
-// Bot; the warning is the only place that says its current model may stop working.
+// Models this save would remove that a Bot still names. A model-backed Bot falls back
+// on its next turn; a local-agent Bot keeps its own model and is only listed so the
+// warning does not include it. The save itself never moves a Bot.
 export function usedRemoved(provider, draft, roster) {
-  const used = new Map()
+  const switching = new Map()
+  const local = new Map()
   for (const row of draft.rows) {
     if (!row.existing || row.selected) continue
     const ref = row.model.ref ?? `${provider.id}/${row.id}`
-    const bots = (roster?.bots ?? []).filter(bot => bot.model === ref || bot.appliedModel === ref)
-    if (bots.length > 0) used.set(ref, bots.map(bot => bot.name))
+    for (const bot of roster?.bots ?? []) {
+      if (bot.model !== ref && bot.appliedModel !== ref) continue
+      const bucket = bot.engine !== undefined || isLocalRoute(bot.model ?? bot.appliedModel) ? local : switching
+      bucket.set(ref, [...(bucket.get(ref) ?? []), bot.name])
+    }
   }
-  return used
+  return { switching, local }
 }
 
 export function ProvidersPage({ actions, run, roster, Section, advanced = null }) {
@@ -138,7 +144,7 @@ export function ProviderRow({ provider, apply, actions, roster, revision, open, 
     if (draft === null) return
     const { selected } = draftSummary(draft)
     if (selected.length === 0) return
-    if (usedRemoved(provider, draft, roster).size > 0 && !confirmRemove) {
+    if (usedRemoved(provider, draft, roster).switching.size > 0 && !confirmRemove) {
       setConfirmRemove(true)
       return
     }
@@ -193,8 +199,9 @@ export function ProviderRow({ provider, apply, actions, roster, revision, open, 
 
 function ModelDraft({ provider, draft, roster, onToggle, onSave, onCancel, confirmRemove }) {
   const { selected, added, removed } = draftSummary(draft)
-  const used = usedRemoved(provider, draft, roster)
+  const { switching: used, local: unaffected } = usedRemoved(provider, draft, roster)
   const names = [...new Set([...used.values()].flat())]
+  const localNames = [...new Set([...unaffected.values()].flat())]
   const returned = draft.rows.filter(row => row.returned)
   const unreturned = draft.rows.filter(row => !row.returned)
   const modelButton = row => h('button', {
@@ -219,7 +226,10 @@ function ModelDraft({ provider, draft, roster, onToggle, onSave, onCancel, confi
     selected.length === 0 ? h('div', { className: 'bt-set-hint', 'data-error': '', role: 'status' }, t('Select at least one model')) : null,
     used.size > 0
       ? h('div', { className: 'bt-set-hint bt-provider-used', role: 'status' },
-          t('Used by {names}. Saving removes these models from the provider; those Bots keep their current model and may fail until they choose another.', { names: names.join(t(', ')) }))
+          t('Used by {names}. On their next turn those Bots switch to the last model they ran on, or to the default model; the turn fails only if no other model is available.', { names: names.join(t(', ')) }))
+      : null,
+    localNames.length > 0
+      ? h('div', { className: 'bt-set-hint', role: 'status' }, t('Local agent, not affected: {names}', { names: localNames.join(t(', ')) }))
       : null,
     h('div', { className: 'bt-secret-row-actions' },
       h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: onCancel }, t('Cancel')),

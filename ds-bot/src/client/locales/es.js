@@ -255,7 +255,8 @@ export const ES = {
   'Select at least one model': 'Selecciona al menos un modelo',
   'Save anyway': 'Guardar igualmente',
   'The endpoint lists no models.': 'El endpoint no enumera ningún modelo.',
-  'Used by {names}. Saving removes these models from the provider; those Bots keep their current model and may fail until they choose another.': 'En uso por {names}. Al guardar, estos modelos se quitan del proveedor; esos Bots mantienen su modelo actual y pueden fallar hasta que elijan otro.',
+  'Used by {names}. On their next turn those Bots switch to the last model they ran on, or to the default model; the turn fails only if no other model is available.': 'En uso por {names}. En su siguiente turno esos Bots cambian al modelo que usaron por última vez, o al modelo predeterminado; el turno solo falla si no hay otro modelo disponible.',
+  'Local agent, not affected: {names}': 'Agente local, sin efecto: {names}',
   // What a Bot runs on
   'Runs on': 'Se ejecuta en',
   'DS Bot model': 'Modelo de DS Bot',

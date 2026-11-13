@@ -244,7 +244,8 @@ const ZH = {
   'Select at least one model': '至少选择一个模型',
   'Save anyway': '仍要保存',
   'The endpoint lists no models.': '这个接口没有列出模型。',
-  'Used by {names}. Saving removes these models from the provider; those Bots keep their current model and may fail until they choose another.': '正在使用：{names}。保存后这些模型会从服务商目录移除；这些 Bot 会保留当前模型，直到另选模型前可能失败。',
+  'Used by {names}. On their next turn those Bots switch to the last model they ran on, or to the default model; the turn fails only if no other model is available.': '正在使用：{names}。下一轮这些 Bot 会改用它们上次运行的模型，或默认模型；只有没有其他可用模型时这一轮才会失败。',
+  'Local agent, not affected: {names}': '本地 Agent，不受影响：{names}',
   // What a Bot runs on
   'Runs on': '运行方式',
   'DS Bot model': 'DS Bot 模型',
