@@ -23,7 +23,52 @@ const SHOWN_MODELS = 8
 // A failure in the interface language; the dialog's error line shows it.
 const translated = promise => Promise.resolve(promise).catch((failure) => { throw new Error(hostText(failure?.message ?? String(failure))) })
 
-export function ProvidersPage({ actions, run, Section, advanced = null }) {
+// A discovery result as a draft: what the endpoint returned is selected; entries the
+// endpoint no longer returns stay visible, unselected, so keeping them is explicit.
+export function draftFrom(provider, discovered) {
+  const existing = Array.isArray(provider.declaredModels) && provider.declaredModels.length > 0
+    ? provider.declaredModels
+    : (provider.models ?? [])
+  const byId = new Map(existing.filter(model => typeof model?.id === 'string' && model.id !== '').map(model => [model.id, model]))
+  const seen = new Set()
+  const rows = []
+  for (const model of Array.isArray(discovered) ? discovered : []) {
+    const id = typeof model?.id === 'string' ? model.id.trim() : ''
+    if (id === '' || seen.has(id)) continue
+    seen.add(id)
+    rows.push({ id, model, existing: byId.has(id), returned: true, selected: true })
+  }
+  for (const model of existing) {
+    if (typeof model?.id !== 'string' || model.id === '' || seen.has(model.id)) continue
+    seen.add(model.id)
+    rows.push({ id: model.id, model, existing: true, returned: false, selected: true })
+  }
+  return { rows, existingIds: new Set(rows.filter(row => row.existing).map(row => row.id)) }
+}
+
+export function draftSummary(draft) {
+  const selected = draft.rows.filter(row => row.selected)
+  return {
+    selected,
+    added: selected.filter(row => !row.existing).length,
+    removed: draft.rows.filter(row => row.existing && !row.selected).length,
+  }
+}
+
+// Models this save would remove that a Bot still names. The save itself never moves a
+// Bot; the warning is the only place that says its current model may stop working.
+export function usedRemoved(provider, draft, roster) {
+  const used = new Map()
+  for (const row of draft.rows) {
+    if (!row.existing || row.selected) continue
+    const ref = row.model.ref ?? `${provider.id}/${row.id}`
+    const bots = (roster?.bots ?? []).filter(bot => bot.model === ref || bot.appliedModel === ref)
+    if (bots.length > 0) used.set(ref, bots.map(bot => bot.name))
+  }
+  return used
+}
+
+export function ProvidersPage({ actions, run, roster, Section, advanced = null }) {
   const [view, setView] = useState(null)
   const [open, setOpen] = useState(null)
   const [adding, setAdding] = useState(false)
@@ -36,7 +81,7 @@ export function ProvidersPage({ actions, run, Section, advanced = null }) {
   return [
     h(Section, { key: 'list', title: t('Model providers · {count}', { count: view.providers.length }), action: addBtn },
       view.providers.map(provider => h(ProviderRow, {
-        key: provider.id, provider, apply, actions,
+        key: provider.id, provider, apply, actions, roster, revision: view.revision,
         open: open === provider.id, onToggle: () => setOpen(open === provider.id ? null : provider.id),
       })),
       adding ? h(AddProvider, { key: 'add', view, apply, actions, onDone: () => setAdding(false) }) : null),
@@ -53,12 +98,78 @@ function keyState(key) {
   return key.writable ? ['set', t('Key set')] : ['outside', t('Key set outside DS Bot')]
 }
 
-function ProviderRow({ provider, apply, actions, open, onToggle }) {
+export function ProviderRow({ provider, apply, actions, roster, revision, open, onToggle }) {
   const [confirm, setConfirm] = useState(false)
-  useEffect(() => { if (!open) setConfirm(false) }, [open])
+  const [refreshing, setRefreshing] = useState(false)
+  const [refreshError, setRefreshError] = useState('')
+  const [draft, setDraft] = useState(null)
+  const [confirmRemove, setConfirmRemove] = useState(false)
+  useEffect(() => {
+    if (open) return
+    setConfirm(false)
+    setDraft(null)
+    setRefreshError('')
+    setConfirmRemove(false)
+  }, [open])
   const state = keyState(provider.key)
   const shown = provider.models.slice(0, SHOWN_MODELS)
   const hint = provider.error ?? (provider.models.length === 0 ? t('No models') : t('{count} models', { count: provider.models.length }))
+  const canRefresh = provider.refreshable === true
+  const refresh = () => {
+    if (!canRefresh || refreshing) return
+    setRefreshing(true)
+    setRefreshError('')
+    setDraft(null)
+    setConfirmRemove(false)
+    void translated(Promise.resolve(actions.providerModels({ provider: provider.id })))
+      .then(list => setDraft(draftFrom(provider, list)))
+      .catch(error => setRefreshError(error?.message ?? String(error)))
+      .finally(() => setRefreshing(false))
+  }
+  const toggle = (id) => {
+    setConfirmRemove(false)
+    setDraft(current => current === null ? current : ({
+      ...current,
+      rows: current.rows.map(row => (row.id === id ? { ...row, selected: !row.selected } : row)),
+    }))
+  }
+  const save = () => {
+    if (draft === null) return
+    const { selected } = draftSummary(draft)
+    if (selected.length === 0) return
+    if (usedRemoved(provider, draft, roster).size > 0 && !confirmRemove) {
+      setConfirmRemove(true)
+      return
+    }
+    const models = selected.map(row => (row.returned ? row.model : { id: row.id }))
+    void apply(actions.saveProviderModels({ provider: provider.id, models, revision })).then((ok) => {
+      if (!ok) return
+      setDraft(null)
+      setConfirmRemove(false)
+      void actions.refreshModels?.()
+    })
+  }
+  const modelsBlock = (provider.models.length > 0 || canRefresh)
+    ? h('div', { className: 'bt-secret-edit-block' },
+        h('div', { className: 'bt-provider-models-head' },
+          h('span', { className: 'bt-secret-edit-label' }, t('Models')),
+          canRefresh
+            ? h('button', {
+                type: 'button', className: 'bt-soft bt-soft-sm', disabled: refreshing,
+                'aria-busy': refreshing ? true : undefined, onClick: refresh,
+              }, refreshing ? t('Refreshing…') : t('Refresh models'))
+            : null),
+        draft !== null
+          ? h(ModelDraft, { provider, draft, roster, onToggle: toggle, onSave: save, onCancel: () => { setDraft(null); setConfirmRemove(false) }, confirmRemove })
+          : [
+              provider.models.length > 0
+                ? h('div', { className: 'bt-provider-models' },
+                    shown.map(model => h('span', { key: model.ref, className: 'bt-tag', title: model.ref }, model.name)),
+                    provider.models.length > shown.length ? h('span', { className: 'bt-set-hint' }, t('and {count} more', { count: provider.models.length - shown.length })) : null)
+                : h('div', { className: 'bt-set-hint' }, t('No models')),
+              refreshError ? h('div', { className: 'bt-set-hint', 'data-error': '', role: 'alert' }, refreshError) : null,
+            ])
+    : null
   return h('div', { className: 'bt-secret-item bt-provider', 'data-open': open ? '' : undefined },
     h('button', { type: 'button', className: 'bt-set-row bt-secret-summary', 'aria-expanded': open, onClick: onToggle },
       h('span', { className: 'bt-set-copy' },
@@ -68,11 +179,7 @@ function ProviderRow({ provider, apply, actions, open, onToggle }) {
     open ? h('div', { className: 'bt-secret-edit' },
       provider.key?.writable ? h(KeyEditor, { provider, apply, actions }) : null,
       provider.key && !provider.key.writable ? h('div', { className: 'bt-set-hint' }, t('This key comes from outside DS Bot, such as an environment variable, and cannot be changed here.')) : null,
-      provider.models.length > 0 ? h('div', { className: 'bt-secret-edit-block' },
-        h('div', { className: 'bt-secret-edit-label' }, t('Models')),
-        h('div', { className: 'bt-provider-models' },
-          shown.map(model => h('span', { key: model.ref, className: 'bt-tag', title: model.ref }, model.name)),
-          provider.models.length > shown.length ? h('span', { className: 'bt-set-hint' }, t('and {count} more', { count: provider.models.length - shown.length })) : null)) : null,
+      modelsBlock,
       provider.removable ? h('div', { className: 'bt-secret-row-actions' },
         confirm
           ? [
@@ -81,6 +188,43 @@ function ProviderRow({ provider, apply, actions, open, onToggle }) {
               h('button', { key: 'yes', type: 'button', className: 'bt-soft bt-soft-sm bt-secret-danger', onClick: () => apply(actions.removeProvider(provider.id)) }, t('Remove')),
             ]
           : h('button', { type: 'button', className: 'bt-soft bt-soft-sm bt-secret-danger', onClick: () => setConfirm(true) }, h(TrashIcon), t('Remove provider'))) : null) : null)
+}
+
+function ModelDraft({ provider, draft, roster, onToggle, onSave, onCancel, confirmRemove }) {
+  const { selected, added, removed } = draftSummary(draft)
+  const used = usedRemoved(provider, draft, roster)
+  const names = [...new Set([...used.values()].flat())]
+  const returned = draft.rows.filter(row => row.returned)
+  const unreturned = draft.rows.filter(row => !row.returned)
+  const modelButton = row => h('button', {
+    key: row.id, type: 'button', className: 'bt-secret-bot', 'aria-pressed': row.selected,
+    title: row.model.name && row.model.name !== row.id ? row.model.name : undefined,
+    onClick: () => onToggle(row.id),
+  }, h('code', null, row.id), row.selected ? h(CheckIcon) : null)
+  return h('div', { className: 'bt-provider-draft' },
+    h('div', { className: 'bt-provider-models-head' },
+      h('span', { className: 'bt-set-hint' }, t('{added} added · {removed} removed · {count} selected', { added, removed, count: selected.length }))),
+    returned.length > 0
+      ? h('div', { className: 'bt-provider-draft-group' },
+          h('div', { className: 'bt-secret-edit-label' }, t('Models from the endpoint')),
+          h('div', { className: 'bt-secret-bots bt-provider-found' }, returned.map(modelButton)))
+      : h('div', { className: 'bt-set-hint' }, t('The endpoint lists no models.')),
+    unreturned.length > 0
+      ? h('div', { className: 'bt-provider-draft-group' },
+          h('div', { className: 'bt-secret-edit-label' }, t("Upstream didn't return")),
+          h('div', { className: 'bt-set-hint' }, t('Keep the ids you still want by hand.')),
+          h('div', { className: 'bt-secret-bots bt-provider-found' }, unreturned.map(modelButton)))
+      : null,
+    selected.length === 0 ? h('div', { className: 'bt-set-hint', 'data-error': '', role: 'status' }, t('Select at least one model')) : null,
+    used.size > 0
+      ? h('div', { className: 'bt-set-hint bt-provider-used', role: 'status' },
+          t('Used by {names}. Saving removes these models from the provider; those Bots keep their current model and may fail until they choose another.', { names: names.join(t(', ')) }))
+      : null,
+    h('div', { className: 'bt-secret-row-actions' },
+      h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: onCancel }, t('Cancel')),
+      h('button', {
+        type: 'button', className: 'bt-send bt-soft-sm', disabled: selected.length === 0, onClick: onSave,
+      }, confirmRemove && used.size > 0 ? t('Save anyway') : t('Save'))))
 }
 
 function KeyEditor({ provider, apply, actions }) {
@@ -212,6 +356,11 @@ export const PROVIDERS_CSS = `
 .bt-provider-pair{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .bt-provider-models-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
 .bt-provider-missing{color:var(--bt-danger)}
+.bt-provider-draft{display:flex;flex-direction:column;gap:8px}
+.bt-provider-draft-group{display:flex;flex-direction:column;gap:6px}
+.bt-provider-draft>.bt-set-hint,.bt-provider-draft-group>.bt-set-hint{margin:0}
+.bt-provider-used{color:var(--bt-danger)}
+.bt-provider-draft .bt-secret-row-actions{margin-top:2px}
 /* Room for the pills' focus rings inside the scroll box; the margin keeps them in line with the fields. */
 .bt-provider-found{max-height:180px;overflow-y:auto;scrollbar-width:thin;padding:3px;margin:-3px}
 .bt-provider-found code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px}

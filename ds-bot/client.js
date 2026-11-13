@@ -364,6 +364,16 @@ var JA = {
   "Key set outside DS Bot": "DS Bot 外でキー設定済み",
   "No models": "モデルなし",
   "{count} models": "{count} 個のモデル",
+  "Refresh models": "モデル一覧を更新",
+  "Refreshing…": "更新中…",
+  "Models from the endpoint": "エンドポイントのモデル",
+  "Upstream didn't return": "上流から返されませんでした",
+  "Keep the ids you still want by hand.": "残したい ID は手動で選択してください。",
+  "{added} added · {removed} removed · {count} selected": "{added} 件追加 · {removed} 件削除 · {count} 件選択中",
+  "Select at least one model": "モデルを 1 つ以上選択してください",
+  "Save anyway": "それでも保存",
+  "The endpoint lists no models.": "このエンドポイントはモデルを返しませんでした。",
+  "Used by {names}. Saving removes these models from the provider; those Bots keep their current model and may fail until they choose another.": "{names} が使用中です。保存するとこれらのモデルはプロバイダーから削除されます。該当する Bot は現在のモデルを保持しますが、別のモデルを選ぶまで失敗する可能性があります。",
   "Runs on": "実行環境",
   "DS Bot model": "DS Bot モデル",
   "Local agent": "ローカルエージェント",
@@ -2675,6 +2685,16 @@ var KO = {
   "Key set outside DS Bot": "DS Bot 외부에서 키 설정됨",
   "No models": "모델 없음",
   "{count} models": "모델 {count}개",
+  "Refresh models": "모델 새로고침",
+  "Refreshing…": "새로고침 중…",
+  "Models from the endpoint": "엔드포인트의 모델",
+  "Upstream didn't return": "업스트림에서 반환되지 않음",
+  "Keep the ids you still want by hand.": "남기고 싶은 ID는 직접 선택하세요.",
+  "{added} added · {removed} removed · {count} selected": "{added}개 추가 · {removed}개 제거 · {count}개 선택됨",
+  "Select at least one model": "모델을 하나 이상 선택하세요",
+  "Save anyway": "그래도 저장",
+  "The endpoint lists no models.": "이 엔드포인트가 모델을 반환하지 않았습니다.",
+  "Used by {names}. Saving removes these models from the provider; those Bots keep their current model and may fail until they choose another.": "{names} 사용 중입니다. 저장하면 이 모델들이 제공자에서 제거됩니다. 해당 Bot은 현재 모델을 유지하지만 다른 모델을 선택할 때까지 실패할 수 있습니다.",
   // What a Bot runs on
   "Runs on": "실행 방식",
   "DS Bot model": "DS Bot 모델",
@@ -5028,6 +5048,16 @@ var ES = {
   "Key set outside DS Bot": "Clave configurada fuera de DS Bot",
   "No models": "Sin modelos",
   "{count} models": "{count} modelos",
+  "Refresh models": "Actualizar modelos",
+  "Refreshing…": "Actualizando…",
+  "Models from the endpoint": "Modelos del endpoint",
+  "Upstream didn't return": "No devuelto por el upstream",
+  "Keep the ids you still want by hand.": "Marca a mano los ID que quieras conservar.",
+  "{added} added · {removed} removed · {count} selected": "{added} añadidos · {removed} eliminados · {count} seleccionados",
+  "Select at least one model": "Selecciona al menos un modelo",
+  "Save anyway": "Guardar igualmente",
+  "The endpoint lists no models.": "El endpoint no enumera ningún modelo.",
+  "Used by {names}. Saving removes these models from the provider; those Bots keep their current model and may fail until they choose another.": "En uso por {names}. Al guardar, estos modelos se quitan del proveedor; esos Bots mantienen su modelo actual y pueden fallar hasta que elijan otro.",
   // What a Bot runs on
   "Runs on": "Se ejecuta en",
   "DS Bot model": "Modelo de DS Bot",
@@ -7378,6 +7408,16 @@ var FR = {
   "Key set outside DS Bot": "Clé configurée hors de DS Bot",
   "No models": "Aucun modèle",
   "{count} models": "{count} modèles",
+  "Refresh models": "Actualiser les modèles",
+  "Refreshing…": "Actualisation…",
+  "Models from the endpoint": "Modèles de l’endpoint",
+  "Upstream didn't return": "Non renvoyé par l’amont",
+  "Keep the ids you still want by hand.": "Cochez à la main les ID que vous voulez garder.",
+  "{added} added · {removed} removed · {count} selected": "{added} ajoutés · {removed} supprimés · {count} sélectionnés",
+  "Select at least one model": "Sélectionnez au moins un modèle",
+  "Save anyway": "Enregistrer quand même",
+  "The endpoint lists no models.": "L’endpoint ne liste aucun modèle.",
+  "Used by {names}. Saving removes these models from the provider; those Bots keep their current model and may fail until they choose another.": "Utilisés par {names}. L’enregistrement retire ces modèles du fournisseur ; ces Bots gardent leur modèle actuel et peuvent échouer jusqu’à ce qu’ils en choisissent un autre.",
   "Runs on": "Fonctionne sur",
   "DS Bot model": "Modèle DS Bot",
   "Local agent": "Agent local",
@@ -9689,6 +9729,16 @@ var DE = {
   "Key set outside DS Bot": "Schlüssel außerhalb von DS Bot gesetzt",
   "No models": "Keine Modelle",
   "{count} models": "{count} Modelle",
+  "Refresh models": "Modelle aktualisieren",
+  "Refreshing…": "Wird aktualisiert…",
+  "Models from the endpoint": "Modelle vom Endpunkt",
+  "Upstream didn't return": "Vom Upstream nicht zurückgegeben",
+  "Keep the ids you still want by hand.": "Behalte gewünschte IDs manuell.",
+  "{added} added · {removed} removed · {count} selected": "{added} hinzugefügt · {removed} entfernt · {count} ausgewählt",
+  "Select at least one model": "Wähle mindestens ein Modell",
+  "Save anyway": "Trotzdem speichern",
+  "The endpoint lists no models.": "Der Endpunkt listet keine Modelle.",
+  "Used by {names}. Saving removes these models from the provider; those Bots keep their current model and may fail until they choose another.": "Verwendet von {names}. Beim Speichern werden diese Modelle beim Anbieter entfernt; die Bots behalten ihr aktuelles Modell und können fehlschlagen, bis sie ein anderes wählen.",
   // What a Bot runs on
   "Runs on": "Läuft auf",
   "DS Bot model": "DS Bot-Modell",
@@ -12022,6 +12072,16 @@ var ZH = {
   "Key set outside DS Bot": "key 在 DS Bot 之外设置",
   "No models": "没有模型",
   "{count} models": "{count} 个模型",
+  "Refresh models": "刷新模型列表",
+  "Refreshing…": "正在刷新…",
+  "Models from the endpoint": "接口返回的模型",
+  "Upstream didn't return": "上游未返回",
+  "Keep the ids you still want by hand.": "想保留的 ID 请手动勾选。",
+  "{added} added · {removed} removed · {count} selected": "新增 {added} · 移除 {removed} · 已选 {count}",
+  "Select at least one model": "至少选择一个模型",
+  "Save anyway": "仍要保存",
+  "The endpoint lists no models.": "这个接口没有列出模型。",
+  "Used by {names}. Saving removes these models from the provider; those Bots keep their current model and may fail until they choose another.": "正在使用：{names}。保存后这些模型会从服务商目录移除；这些 Bot 会保留当前模型，直到另选模型前可能失败。",
   // What a Bot runs on
   "Runs on": "运行方式",
   "DS Bot model": "DS Bot 模型",
@@ -14161,6 +14221,7 @@ function teamActions({ call: call2, after, partFor, roster, ui: ui2, live, cards
     setProviderKey: (provider, value) => after(call2("provider-key", { provider, value })),
     addProvider: (body) => after(call2("provider-add", body)),
     providerModels: (body) => call2("provider-models", body),
+    saveProviderModels: (body) => call2("provider-models-save", body),
     removeProvider: (provider) => after(call2("provider-remove", { provider })),
     // After a failed turn: the Bot answers the user's last unanswered message, which is never sent again.
     resume: (botId) => after(call2("resume", { botId })),
@@ -33976,7 +34037,43 @@ var SHOWN_MODELS = 8;
 var translated = (promise) => Promise.resolve(promise).catch((failure) => {
   throw new Error(hostText(failure?.message ?? String(failure)));
 });
-function ProvidersPage({ actions, run: run2, Section: Section2, advanced = null }) {
+function draftFrom(provider, discovered) {
+  const existing = Array.isArray(provider.declaredModels) && provider.declaredModels.length > 0 ? provider.declaredModels : provider.models ?? [];
+  const byId = new Map(existing.filter((model) => typeof model?.id === "string" && model.id !== "").map((model) => [model.id, model]));
+  const seen = /* @__PURE__ */ new Set();
+  const rows2 = [];
+  for (const model of Array.isArray(discovered) ? discovered : []) {
+    const id = typeof model?.id === "string" ? model.id.trim() : "";
+    if (id === "" || seen.has(id)) continue;
+    seen.add(id);
+    rows2.push({ id, model, existing: byId.has(id), returned: true, selected: true });
+  }
+  for (const model of existing) {
+    if (typeof model?.id !== "string" || model.id === "" || seen.has(model.id)) continue;
+    seen.add(model.id);
+    rows2.push({ id: model.id, model, existing: true, returned: false, selected: true });
+  }
+  return { rows: rows2, existingIds: new Set(rows2.filter((row) => row.existing).map((row) => row.id)) };
+}
+function draftSummary(draft) {
+  const selected = draft.rows.filter((row) => row.selected);
+  return {
+    selected,
+    added: selected.filter((row) => !row.existing).length,
+    removed: draft.rows.filter((row) => row.existing && !row.selected).length
+  };
+}
+function usedRemoved(provider, draft, roster) {
+  const used = /* @__PURE__ */ new Map();
+  for (const row of draft.rows) {
+    if (!row.existing || row.selected) continue;
+    const ref = row.model.ref ?? `${provider.id}/${row.id}`;
+    const bots = (roster?.bots ?? []).filter((bot) => bot.model === ref || bot.appliedModel === ref);
+    if (bots.length > 0) used.set(ref, bots.map((bot) => bot.name));
+  }
+  return used;
+}
+function ProvidersPage({ actions, run: run2, roster, Section: Section2, advanced = null }) {
   const [view, setView] = (0, import_react46.useState)(null);
   const [open, setOpen] = (0, import_react46.useState)(null);
   const [adding, setAdding] = (0, import_react46.useState)(false);
@@ -33998,6 +34095,8 @@ function ProvidersPage({ actions, run: run2, Section: Section2, advanced = null 
         provider,
         apply: apply2,
         actions,
+        roster,
+        revision: view.revision,
         open: open === provider.id,
         onToggle: () => setOpen(open === provider.id ? null : provider.id)
       })),
@@ -34021,14 +34120,82 @@ function keyState(key) {
   if (!key.configured) return ["missing", t("Needs an API key")];
   return key.writable ? ["set", t("Key set")] : ["outside", t("Key set outside DS Bot")];
 }
-function ProviderRow({ provider, apply: apply2, actions, open, onToggle }) {
+function ProviderRow({ provider, apply: apply2, actions, roster, revision, open, onToggle }) {
   const [confirm, setConfirm] = (0, import_react46.useState)(false);
+  const [refreshing, setRefreshing] = (0, import_react46.useState)(false);
+  const [refreshError, setRefreshError] = (0, import_react46.useState)("");
+  const [draft, setDraft] = (0, import_react46.useState)(null);
+  const [confirmRemove, setConfirmRemove] = (0, import_react46.useState)(false);
   (0, import_react46.useEffect)(() => {
-    if (!open) setConfirm(false);
+    if (open) return;
+    setConfirm(false);
+    setDraft(null);
+    setRefreshError("");
+    setConfirmRemove(false);
   }, [open]);
   const state = keyState(provider.key);
   const shown = provider.models.slice(0, SHOWN_MODELS);
   const hint = provider.error ?? (provider.models.length === 0 ? t("No models") : t("{count} models", { count: provider.models.length }));
+  const canRefresh = provider.refreshable === true;
+  const refresh = () => {
+    if (!canRefresh || refreshing) return;
+    setRefreshing(true);
+    setRefreshError("");
+    setDraft(null);
+    setConfirmRemove(false);
+    void translated(Promise.resolve(actions.providerModels({ provider: provider.id }))).then((list) => setDraft(draftFrom(provider, list))).catch((error) => setRefreshError(error?.message ?? String(error))).finally(() => setRefreshing(false));
+  };
+  const toggle = (id) => {
+    setConfirmRemove(false);
+    setDraft((current) => current === null ? current : {
+      ...current,
+      rows: current.rows.map((row) => row.id === id ? { ...row, selected: !row.selected } : row)
+    });
+  };
+  const save = () => {
+    if (draft === null) return;
+    const { selected } = draftSummary(draft);
+    if (selected.length === 0) return;
+    if (usedRemoved(provider, draft, roster).size > 0 && !confirmRemove) {
+      setConfirmRemove(true);
+      return;
+    }
+    const models = selected.map((row) => row.returned ? row.model : { id: row.id });
+    void apply2(actions.saveProviderModels({ provider: provider.id, models, revision })).then((ok) => {
+      if (!ok) return;
+      setDraft(null);
+      setConfirmRemove(false);
+      void actions.refreshModels?.();
+    });
+  };
+  const modelsBlock = provider.models.length > 0 || canRefresh ? (0, import_react46.createElement)(
+    "div",
+    { className: "bt-secret-edit-block" },
+    (0, import_react46.createElement)(
+      "div",
+      { className: "bt-provider-models-head" },
+      (0, import_react46.createElement)("span", { className: "bt-secret-edit-label" }, t("Models")),
+      canRefresh ? (0, import_react46.createElement)("button", {
+        type: "button",
+        className: "bt-soft bt-soft-sm",
+        disabled: refreshing,
+        "aria-busy": refreshing ? true : void 0,
+        onClick: refresh
+      }, refreshing ? t("Refreshing…") : t("Refresh models")) : null
+    ),
+    draft !== null ? (0, import_react46.createElement)(ModelDraft, { provider, draft, roster, onToggle: toggle, onSave: save, onCancel: () => {
+      setDraft(null);
+      setConfirmRemove(false);
+    }, confirmRemove }) : [
+      provider.models.length > 0 ? (0, import_react46.createElement)(
+        "div",
+        { className: "bt-provider-models" },
+        shown.map((model) => (0, import_react46.createElement)("span", { key: model.ref, className: "bt-tag", title: model.ref }, model.name)),
+        provider.models.length > shown.length ? (0, import_react46.createElement)("span", { className: "bt-set-hint" }, t("and {count} more", { count: provider.models.length - shown.length })) : null
+      ) : (0, import_react46.createElement)("div", { className: "bt-set-hint" }, t("No models")),
+      refreshError ? (0, import_react46.createElement)("div", { className: "bt-set-hint", "data-error": "", role: "alert" }, refreshError) : null
+    ]
+  ) : null;
   return (0, import_react46.createElement)(
     "div",
     { className: "bt-secret-item bt-provider", "data-open": open ? "" : void 0 },
@@ -34048,17 +34215,7 @@ function ProviderRow({ provider, apply: apply2, actions, open, onToggle }) {
       { className: "bt-secret-edit" },
       provider.key?.writable ? (0, import_react46.createElement)(KeyEditor, { provider, apply: apply2, actions }) : null,
       provider.key && !provider.key.writable ? (0, import_react46.createElement)("div", { className: "bt-set-hint" }, t("This key comes from outside DS Bot, such as an environment variable, and cannot be changed here.")) : null,
-      provider.models.length > 0 ? (0, import_react46.createElement)(
-        "div",
-        { className: "bt-secret-edit-block" },
-        (0, import_react46.createElement)("div", { className: "bt-secret-edit-label" }, t("Models")),
-        (0, import_react46.createElement)(
-          "div",
-          { className: "bt-provider-models" },
-          shown.map((model) => (0, import_react46.createElement)("span", { key: model.ref, className: "bt-tag", title: model.ref }, model.name)),
-          provider.models.length > shown.length ? (0, import_react46.createElement)("span", { className: "bt-set-hint" }, t("and {count} more", { count: provider.models.length - shown.length })) : null
-        )
-      ) : null,
+      modelsBlock,
       provider.removable ? (0, import_react46.createElement)(
         "div",
         { className: "bt-secret-row-actions" },
@@ -34069,6 +34226,60 @@ function ProviderRow({ provider, apply: apply2, actions, open, onToggle }) {
         ] : (0, import_react46.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm bt-secret-danger", onClick: () => setConfirm(true) }, (0, import_react46.createElement)(TrashIcon), t("Remove provider"))
       ) : null
     ) : null
+  );
+}
+function ModelDraft({ provider, draft, roster, onToggle, onSave, onCancel, confirmRemove }) {
+  const { selected, added, removed } = draftSummary(draft);
+  const used = usedRemoved(provider, draft, roster);
+  const names = [...new Set([...used.values()].flat())];
+  const returned = draft.rows.filter((row) => row.returned);
+  const unreturned = draft.rows.filter((row) => !row.returned);
+  const modelButton = (row) => (0, import_react46.createElement)("button", {
+    key: row.id,
+    type: "button",
+    className: "bt-secret-bot",
+    "aria-pressed": row.selected,
+    title: row.model.name && row.model.name !== row.id ? row.model.name : void 0,
+    onClick: () => onToggle(row.id)
+  }, (0, import_react46.createElement)("code", null, row.id), row.selected ? (0, import_react46.createElement)(CheckIcon) : null);
+  return (0, import_react46.createElement)(
+    "div",
+    { className: "bt-provider-draft" },
+    (0, import_react46.createElement)(
+      "div",
+      { className: "bt-provider-models-head" },
+      (0, import_react46.createElement)("span", { className: "bt-set-hint" }, t("{added} added · {removed} removed · {count} selected", { added, removed, count: selected.length }))
+    ),
+    returned.length > 0 ? (0, import_react46.createElement)(
+      "div",
+      { className: "bt-provider-draft-group" },
+      (0, import_react46.createElement)("div", { className: "bt-secret-edit-label" }, t("Models from the endpoint")),
+      (0, import_react46.createElement)("div", { className: "bt-secret-bots bt-provider-found" }, returned.map(modelButton))
+    ) : (0, import_react46.createElement)("div", { className: "bt-set-hint" }, t("The endpoint lists no models.")),
+    unreturned.length > 0 ? (0, import_react46.createElement)(
+      "div",
+      { className: "bt-provider-draft-group" },
+      (0, import_react46.createElement)("div", { className: "bt-secret-edit-label" }, t("Upstream didn't return")),
+      (0, import_react46.createElement)("div", { className: "bt-set-hint" }, t("Keep the ids you still want by hand.")),
+      (0, import_react46.createElement)("div", { className: "bt-secret-bots bt-provider-found" }, unreturned.map(modelButton))
+    ) : null,
+    selected.length === 0 ? (0, import_react46.createElement)("div", { className: "bt-set-hint", "data-error": "", role: "status" }, t("Select at least one model")) : null,
+    used.size > 0 ? (0, import_react46.createElement)(
+      "div",
+      { className: "bt-set-hint bt-provider-used", role: "status" },
+      t("Used by {names}. Saving removes these models from the provider; those Bots keep their current model and may fail until they choose another.", { names: names.join(t(", ")) })
+    ) : null,
+    (0, import_react46.createElement)(
+      "div",
+      { className: "bt-secret-row-actions" },
+      (0, import_react46.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: onCancel }, t("Cancel")),
+      (0, import_react46.createElement)("button", {
+        type: "button",
+        className: "bt-send bt-soft-sm",
+        disabled: selected.length === 0,
+        onClick: onSave
+      }, confirmRemove && used.size > 0 ? t("Save anyway") : t("Save"))
+    )
   );
 }
 function KeyEditor({ provider, apply: apply2, actions }) {
@@ -34263,6 +34474,11 @@ var PROVIDERS_CSS = `
 .bt-provider-pair{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .bt-provider-models-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
 .bt-provider-missing{color:var(--bt-danger)}
+.bt-provider-draft{display:flex;flex-direction:column;gap:8px}
+.bt-provider-draft-group{display:flex;flex-direction:column;gap:6px}
+.bt-provider-draft>.bt-set-hint,.bt-provider-draft-group>.bt-set-hint{margin:0}
+.bt-provider-used{color:var(--bt-danger)}
+.bt-provider-draft .bt-secret-row-actions{margin-top:2px}
 /* Room for the pills' focus rings inside the scroll box; the margin keeps them in line with the fields. */
 .bt-provider-found{max-height:180px;overflow-y:auto;scrollbar-width:thin;padding:3px;margin:-3px}
 .bt-provider-found code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px}
@@ -34868,7 +35084,7 @@ function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false,
             null,
             shown === "computer" ? (0, import_react48.createElement)(ComputerPage, { roster, actions, run: run2, Section: SetSection, Row: SetRow, Switch }) : null,
             shown === "general" ? (0, import_react48.createElement)(GeneralPage, { roster, actions, run: run2, dsh }) : null,
-            shown === "models" && !advanced ? (0, import_react48.createElement)(ProvidersPage, { actions, run: run2, Section: SetSection, advanced: hasSection(dsh, "models") ? () => actions.openSettings("models", "advanced") : null }) : null,
+            shown === "models" && !advanced ? (0, import_react48.createElement)(ProvidersPage, { actions, run: run2, roster, Section: SetSection, advanced: hasSection(dsh, "models") ? () => actions.openSettings("models", "advanced") : null }) : null,
             advanced ? (0, import_react48.createElement)("div", { className: "bt-dsh-section" }, dsh.renderSlot("settings.section", { close }, { only: "models" })) : null,
             section ? (0, import_react48.createElement)("div", { className: "bt-dsh-section" }, dsh.renderSlot("settings.section", { close }, { only: section.id })) : null,
             shown === "local-agents" ? (0, import_react48.createElement)(LocalAgentsPage, { run: run2, Section: SetSection, Row: SetRow }) : null,

@@ -361,7 +361,7 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
           h(PageBoundary, null,
           shown === 'computer' ? h(ComputerPage, { roster, actions, run, Section: SetSection, Row: SetRow, Switch }) : null,
           shown === 'general' ? h(GeneralPage, { roster, actions, run, dsh }) : null,
-          shown === 'models' && !advanced ? h(ProvidersPage, { actions, run, Section: SetSection, advanced: hasSection(dsh, 'models') ? () => actions.openSettings('models', 'advanced') : null }) : null,
+          shown === 'models' && !advanced ? h(ProvidersPage, { actions, run, roster, Section: SetSection, advanced: hasSection(dsh, 'models') ? () => actions.openSettings('models', 'advanced') : null }) : null,
           advanced ? h('div', { className: 'bt-dsh-section' }, dsh.renderSlot('settings.section', { close }, { only: 'models' })) : null,
           section ? h('div', { className: 'bt-dsh-section' }, dsh.renderSlot('settings.section', { close }, { only: section.id })) : null,
           shown === 'local-agents' ? h(LocalAgentsPage, { run, Section: SetSection, Row: SetRow }) : null,
