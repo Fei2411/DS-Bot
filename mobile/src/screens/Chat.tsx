@@ -133,7 +133,6 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
 
   useEffect(() => {
     prevSigRef.current = ''
-    bumpMarkdownImageCache()
   }, [chatKey])
 
   // One chat read at a time, like the team state: a burst of messages becomes one
@@ -149,8 +148,11 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
       reads.delete(chatKey)
       const next = await (early ?? readChat(call, room !== undefined, id))
       if (generation.current === gen) {
-        const last = next.items[next.items.length - 1]
-        const sig = `${next.sessionId ?? ''}:${next.items.length}:${last?.seq ?? ''}:${last?.text?.length ?? ''}`
+        let lastBot: ChatItem | undefined
+        for (let i = next.items.length - 1; i >= 0; i -= 1) {
+          if (next.items[i].kind === 'bot' || next.items[i].kind === 'post') { lastBot = next.items[i]; break }
+        }
+        const sig = `${next.sessionId ?? ''}:${lastBot?.seq ?? ''}:${lastBot?.text?.length ?? ''}`
         if (prevSigRef.current !== '' && prevSigRef.current !== sig) bumpMarkdownImageCache()
         prevSigRef.current = sig
         setPageState(prev => ({

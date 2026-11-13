@@ -299,7 +299,7 @@ const mdImageListeners = new Set<(epoch: number) => void>()
 
 export function bumpMarkdownImageCache(): void {
   mdImageEpoch += 1
-  mdImageCache.clear()
+  for (const entry of mdImageCache.values()) entry.at = 0
   for (const listener of mdImageListeners) listener(mdImageEpoch)
 }
 
@@ -345,10 +345,14 @@ function MarkdownImage({ href, alt, linkHref, p, ink, sessionId, botId }: {
     if (cached !== undefined && Date.now() - cached.at < MD_IMAGE_TTL_MS) return
     if (!sessionId || !href) { setFailed(true); return }
     let active = true
-    void call('markdown-image', { sessionId, path: href, ...(botId ? { botId } : {}) })
+    void call('markdown-image', { sessionId, path: href, ...(botId ? { botId } : {}), ...(cached?.rev ? { knownRev: cached.rev } : {}) })
       .then(result => {
         if (!active) return
-        const res = result as { mime?: string; bytes?: string; rev?: string }
+        const res = result as { mime?: string; bytes?: string; rev?: string; unchanged?: boolean }
+        if (res?.unchanged === true && cached !== undefined) {
+          keepMdImage(cacheKey, { uri: cached.uri, svg: cached.svg, rev: res.rev ?? cached.rev })
+          return
+        }
         if (typeof res?.bytes !== 'string' || res.bytes === '') { setFailed(true); return }
         const mime = res.mime ?? 'image/png'
         if (mime === 'image/svg+xml') {

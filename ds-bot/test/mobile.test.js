@@ -759,6 +759,20 @@ test('markdown-image resolves archived part workspaces, returns rev, allows grou
   assert.equal(fromNew.ok, true)
   assert.equal(Buffer.from(fromNew.value.bytes, 'base64').equals(newBytes), true)
 
+  const unchanged = await call('markdown-image', { sessionId: part2, path: './charts/plot.png', knownRev: fromNew.value.rev })
+  assert.equal(unchanged.ok, true)
+  assert.equal(unchanged.value.unchanged, true)
+  assert.equal(unchanged.value.bytes, undefined)
+  assert.equal(unchanged.value.rev, fromNew.value.rev)
+
+  const updatedBytes = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 9, 9])
+  writeFileSync(join(newDir, 'charts', 'plot.png'), updatedBytes)
+  const changed = await call('markdown-image', { sessionId: part2, path: './charts/plot.png', knownRev: fromNew.value.rev })
+  assert.equal(changed.ok, true)
+  assert.equal(changed.value.unchanged, undefined)
+  assert.notEqual(changed.value.rev, fromNew.value.rev)
+  assert.equal(Buffer.from(changed.value.bytes, 'base64').equals(updatedBytes), true)
+
   const escapeFromOld = await call('markdown-image', { sessionId: part1, path: '../new/charts/plot.png' })
   assert.deepEqual([escapeFromOld.ok, escapeFromOld.error.code], [false, 'bot/forbidden'])
 
@@ -772,5 +786,5 @@ test('markdown-image resolves archived part workspaces, returns rev, allows grou
   rt.readOnly = () => 'other window'
   const readOnlyImg = await call('markdown-image', { sessionId: part2, path: './charts/plot.png' })
   assert.equal(readOnlyImg.ok, true)
-  assert.equal(Buffer.from(readOnlyImg.value.bytes, 'base64').equals(newBytes), true)
+  assert.equal(Buffer.from(readOnlyImg.value.bytes, 'base64').equals(updatedBytes), true)
 })

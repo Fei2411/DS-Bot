@@ -575,12 +575,16 @@ export function install(rt) {
     const info = await stat(realPath).catch(() => undefined)
     if (info?.isFile() !== true) throw Object.assign(new Error('Image not found'), { code: 'bot/not-found' })
     if (info.size > MARKDOWN_IMAGE_MAX) throw Object.assign(new Error('Image too large'), { code: 'bot/refused' })
+    const rev = `${info.size}:${Math.trunc(info.mtimeMs)}`
+    if (typeof body.knownRev === 'string' && body.knownRev === rev) {
+      return { mime, unchanged: true, size: info.size, rev }
+    }
     const bytes = await readFile(realPath)
     return {
       mime,
       bytes: bytes.toString('base64'),
       size: bytes.length,
-      rev: `${info.size}:${Math.trunc(info.mtimeMs)}`,
+      rev,
     }
   }
 
