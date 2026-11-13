@@ -450,6 +450,11 @@ html[data-windows-titlebar]:not([data-fullscreen]) :is(.bt-pane,.bt-panel)::befo
 .bt-drawer-name:hover{background:var(--bt-hover)}
 .bt-drawer-name-input{font-size:17px;line-height:24px;text-align:center;border:.5px solid var(--bt-line-2);border-radius:6px;padding:0 6px;background:var(--bt-main);color:var(--bt-ink);outline:none;font-weight:500}
 .bt-drawer-role{font-size:12px;line-height:16px;color:var(--bt-ink-3);margin-top:6px;text-align:center}
+.bt-drawer-role-input{width:min(100%,220px);min-height:28px;box-sizing:border-box;margin-top:4px;padding:0 6px;border:1px solid transparent;border-radius:6px;background:none;color:var(--bt-ink-3);font:inherit;font-size:12px;line-height:16px;text-align:center;outline:none;transition:background-color .12s ease,border-color .12s ease,color .12s ease}
+.bt-drawer-role-input:hover{background:var(--bt-hover)}
+.bt-drawer-role-input:focus{background:var(--bt-main);border-color:var(--bt-line-2);color:var(--bt-ink)}
+.bt-drawer-role-input:focus-visible{outline:2px solid var(--bt-accent);outline-offset:1px}
+.bt-drawer-role-input::placeholder{color:var(--bt-ink-3);opacity:.7}
 .bt-tabs{position:relative;display:flex;justify-content:center;gap:2px;margin:16px 16px 0}
 .bt-tab{position:relative;z-index:1;border:0;background:none;border-radius:999px;padding:4px 8px;font-size:13px;line-height:20px;color:var(--bt-ink-2);cursor:pointer;white-space:nowrap}
 .bt-tab:hover{color:var(--bt-ink)}
@@ -512,6 +517,9 @@ html[data-windows-titlebar]:not([data-fullscreen]) :is(.bt-pane,.bt-panel)::befo
 .bt-set-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 .bt-about{white-space:pre-wrap;display:-webkit-box;-webkit-line-clamp:5;-webkit-box-orient:vertical;overflow:hidden}
 .bt-about[data-open]{display:block;-webkit-line-clamp:unset}
+.bt-about[data-editable]{margin:0 -6px;padding:2px 6px;border-radius:6px;cursor:text;transition:background-color .12s ease}
+.bt-about[data-editable]:hover{background:var(--bt-hover)}
+.bt-about[data-editable]:focus-visible{outline:2px solid var(--bt-accent);outline-offset:1px}
 .bt-more{border:0;background:none;color:var(--bt-ink-3);font-size:12px;line-height:16px;cursor:pointer;padding:2px 0}
 .bt-more:hover{color:var(--bt-ink)}
 .bt-subhead{display:flex;align-items:center;gap:4px;padding:10px 12px 4px}
@@ -785,15 +793,19 @@ html:not([data-windows-titlebar]) [class*="_footArea"],:not([class*="_collapsed"
 .bt-tools::after{content:"";position:absolute;top:-8px;bottom:-8px;right:100%;width:10px;z-index:-1}
 .bt-msg:hover>.bt-msg-line>.bt-tools,.bt-msg:focus-within>.bt-msg-line>.bt-tools,.bt-tools[data-open]{opacity:1;visibility:visible}
 /* The flat layout: a Bot's text has no bubble and takes its own share of the column
-   (the whole of it unless set). The toolbar floats over the message's bottom right. */
+   (the whole of it unless set). The toolbar hangs below the message's bottom right,
+   clear of its last line. */
 body[data-bt-layout=flat] .bt-astack{align-items:stretch;gap:10px}
 body[data-bt-layout=flat] .bt-msg,body[data-bt-layout=flat] .bt-astack[data-lead]>.bt-msg{align-items:stretch;max-width:calc(var(--bt-flat-w) * 100%)}
+body[data-bt-layout=flat] .bt-msg{position:relative}
+body[data-bt-layout=flat] .bt-msg-line{position:static}
 body[data-bt-layout=flat] .bt-bubble{background:none;padding:0;border-radius:0}
-body[data-bt-layout=flat] .bt-tools{bottom:-14px;right:0;left:auto;margin-left:0;transform:none;padding:2px;border-radius:999px;background:var(--bt-card);box-shadow:inset 0 0 0 .5px var(--bt-line-2),0 4px 14px rgba(0,0,0,.14)}
-/* With reactions below, the toolbar stays inside the message row instead of
-   covering their top edge when the hover shows it. */
-body[data-bt-layout=flat] .bt-msg:has(>.bt-reacts) .bt-tools{bottom:0}
+body[data-bt-layout=flat] .bt-tools{top:100%;bottom:auto;right:0;left:auto;margin-left:0;margin-top:2px;transform:none;padding:2px;border-radius:999px;background:var(--bt-card);box-shadow:inset 0 0 0 .5px var(--bt-line-2),0 4px 14px rgba(0,0,0,.14)}
 body[data-bt-layout=flat] .bt-tools::after{display:none}
+/* Flat layout and touch both hang the toolbar below a position:relative message.
+   The next message is position:relative too, so it paints over that toolbar and
+   takes the tap. The active message stays above its neighbors. */
+.bt-msg:hover,.bt-msg:focus-within,.bt-msg:has(>.bt-msg-line>.bt-tools[data-open]){z-index:2}
 .bt-tool{width:24px;height:24px;border:0;padding:0;border-radius:6px;background:none;color:var(--bt-ink-2);display:inline-flex;align-items:center;justify-content:center;cursor:pointer;transition:background-color .12s ease,color .12s ease}
 .bt-tool:hover,.bt-tool[aria-expanded=true]{background:var(--bt-hover);color:var(--bt-ink)}
 .bt-tool:active{background:var(--bt-active)}
@@ -862,6 +874,29 @@ button:hover .bt-you{background:color-mix(in srgb,var(--bt-ink) 9%,var(--bt-side
 .bt-palette-empty-icon svg{width:32px;height:32px}
 .bt-palette-empty-label{font-size:14px;font-weight:500;color:var(--bt-ink-2)}
 .bt-palette-empty-hint{font-size:13px;line-height:16px;color:var(--bt-ink-3)}
+.bt-head-search{flex:none;margin-left:2px;pointer-events:auto}
+.bt-head-search svg{width:16px;height:16px}
+.bt-gs-body{position:relative;flex:1;min-height:220px;max-height:min(420px,54vh);overflow-y:auto;padding:6px 8px;box-sizing:border-box}
+.bt-gs-row{display:flex;flex-direction:column;gap:3px;width:100%;padding:9px 10px;border:0;border-radius:10px;background:none;color:inherit;font:inherit;text-align:left;cursor:pointer;box-sizing:border-box}
+.bt-gs-row:hover,.bt-gs-row:focus-visible{background:var(--bt-hover)}
+.bt-gs-meta{display:flex;align-items:baseline;gap:8px;font-size:12px;line-height:16px;min-width:0}
+.bt-gs-author{font-weight:600;color:var(--bt-ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bt-gs-when{color:var(--bt-ink-3);white-space:nowrap}
+.bt-gs-snippet{font-size:13px;line-height:18px;color:var(--bt-ink-2);overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.bt-gs-line,.bt-gs-full{font-size:14px;line-height:20px;color:var(--bt-ink);white-space:pre-wrap;overflow-wrap:anywhere}
+.bt-gs-detail{padding:10px 10px 14px;display:flex;flex-direction:column;gap:8px;animation:bt-veil-in .18s ease-out}
+.bt-gs-back{display:inline-flex;align-items:center;gap:4px;align-self:flex-start;border:0;background:none;color:var(--bt-accent);font:inherit;font-size:13px;line-height:18px;padding:2px 4px;border-radius:6px;cursor:pointer}
+.bt-gs-back:hover{background:var(--bt-hover)}
+.bt-gs-back-ico{display:inline-flex;transform:rotate(180deg)}
+.bt-gs-back-ico svg{width:12px;height:12px}
+.bt-gs-full{padding:8px 0;border-bottom:.5px solid var(--bt-line)}
+.bt-gs-context{display:flex;flex-direction:column;gap:6px}
+.bt-gs-context-label{font-size:12px;line-height:16px;color:var(--bt-ink-3)}
+.bt-gs-ctx{background:var(--bt-hover);border-radius:8px;padding:6px 8px}
+.bt-gs-ctx .bt-gs-line{font-size:13px;line-height:18px;color:var(--bt-ink-2)}
+.bt-gs mark{background:color-mix(in srgb,var(--bt-star) 32%,transparent);color:inherit;border-radius:4px;padding:0 1px}
+.bt-gs-foot{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 14px 10px;font-size:12px;line-height:16px;color:var(--bt-ink-3)}
+.bt-gs-foot-side{display:flex;align-items:center;justify-content:flex-end;gap:8px;min-width:0}
 @media (prefers-reduced-motion:reduce){.bt-palette{animation:bt-fade .1s ease-out}}
 .bt-account-menu{width:224px}
 .bt-account{flex:none;width:36px;height:36px;border:0;padding:0;background:none;border-radius:50%;cursor:pointer;display:inline-flex}
@@ -1255,11 +1290,17 @@ body[data-bt-goal] [class*="_scroll"]:has(> [class*="_column"]){padding-top:calc
 .bt-voice:hover{opacity:.9}
 .bt-mic:active,.bt-voice:active{scale:.9}
 /* Touch devices never hover: tap-open toolbars (data-open on the message), always
-   visible icon buttons and 44px targets replace the hover affordances. */
+   visible icon buttons and 44px targets replace the hover affordances. The message
+   toolbar sits below the message instead of over it; its secondary buttons are 36px,
+   so the pill stays shorter than the primary touch controls. */
 @media (hover:none){
-  .bt-tools{left:auto;right:4px;margin-left:0;border-radius:999px;padding:2px;background:var(--bt-card);box-shadow:inset 0 0 0 .5px var(--bt-line-2),0 4px 14px rgba(0,0,0,.14)}
+  .bt-msg{position:relative}
+  .bt-msg-line{position:static}
+  .bt-tools{top:100%;bottom:auto;left:auto;right:4px;margin-left:0;margin-top:2px;border-radius:999px;padding:2px;background:var(--bt-card);box-shadow:inset 0 0 0 .5px var(--bt-line-2),0 4px 14px rgba(0,0,0,.14)}
   .bt-tools::after{display:none}
-  .bt-tool{width:44px;height:44px}
+  /* 36px touch pill plus the 4px gap. The next message moves down instead of sitting under the open toolbar. */
+  .bt-msg:has(>.bt-msg-line>.bt-tools[data-open]){margin-bottom:40px}
+  .bt-tool{width:36px;height:36px}
   .bt-menu button,.bt-menu [role=menuitem],.bt-react-strip button{min-height:44px}
   .bt-utools[data-open]{opacity:1;visibility:visible}
   .bt-utools button{width:44px;height:44px}

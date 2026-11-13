@@ -3,7 +3,7 @@
 import { randomUUID } from 'node:crypto'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { readAvatar } from './avatar.js'
-import { COLORS, EXTRA_COLORS, MESSAGE_INLINE_MAX, ROOM_MODES, SOURCE_KIND } from './constants.js'
+import { COLORS, EXTRA_COLORS, MESSAGE_INLINE_MAX, ROOM_MODES, SOURCE_KIND, TEXT_KEPT } from './constants.js'
 import { within } from './folders.js'
 import { missingFileRefs } from './claims.js'
 import { absoluteLinks } from './links.js'
@@ -191,11 +191,52 @@ export function install(rt) {
   // The Bots each Session's post_to_group called by name in its current turn, so that
   // turn does not also send them the same work in their own chats.
   const calledInPosts = new Map()
+  // The refused messages each Session's current turn kept for its work.
+  const keptUp = new Map()
   const turnOf = exec => rt.live.get(exec.agent?.id)?.turn
+
+  // The refusal of a message to a Bot that waits for the caller's work. The model has
+  // written the message by now, so when it can stand as the answer to the turn's own
+  // work it is kept as what the Bot said for that work (handoffs.js answerText). That
+  // answer goes to whoever asked for the work, also when the target is further up.
+  const upstreamRefusal = (exec, sender, target, said, args) => {
+    const plain = `Not sent: ${target.name} is waiting for the result of the work you are doing, and your answer reaches it by itself once everything you handed on is back.`
+    const turn = rt.live.get(exec.agent?.id)
+    const work = rt.workOf(turn?.info)
+    const asker = rt.ownsWork(sender.id, work) ? rt.botOf(state.works[work].from) : undefined
+    // A request that joined the turn is answered in a later turn, and a queued or
+    // user-facing message is not an answer to this work.
+    const answers = asker !== undefined && args.reply_to !== 'user' && args.when !== 'queue' && rt.upstreamOf([work]).has(target.id)
+    if (!answers) return `${plain} Finish the work and end your turn; to ask ${target.name} something, end your turn with the question.`
+    const to = asker.id === target.id ? target.name : `${asker.name} as your answer, and reaches ${target.name} with ${asker.name}'s answer`
+    // The turn's reply is all the text it wrote, so text from before this call goes up
+    // in place of a kept message.
+    if (turn.texts.slice(turn.shown ?? 0).join('').trim() !== '') {
+      return `${plain} Your message was not kept: this turn already wrote text, and that goes up to ${to}. Write the message in your final answer.`
+    }
+    // Messages refused in one turn add up, as the turn's texts do; a later turn's
+    // replace what an earlier turn kept, as its reply would.
+    const before = keptUp.get(exec.agent?.id)
+    const again = before?.turn === turn.turn && before.work === work
+    const replaced = !again && state.works[work].held !== undefined
+    const text = again ? `${before.text}\n\n${said}` : said
+    // Only turns still running are remembered, and only as much as holdWork keeps,
+    // with one more character to tell that it was cut: Sessions of earlier parts
+    // never end another turn that would clear them.
+    for (const [id, kept] of keptUp) if (rt.live.get(id)?.turn !== kept.turn) keptUp.delete(id)
+    keptUp.set(exec.agent?.id, { turn: turn.turn, work, text: text.slice(0, TEXT_KEPT + 1) })
+    rt.holdWork(work, text)
+    const cut = text.length > TEXT_KEPT
+    const kept = again
+      ? `Your message was kept as your answer, after what was kept before in this turn${cut ? `, but only the first ${TEXT_KEPT} characters of all of it` : ''}.`
+      : `${cut ? `Only its first ${TEXT_KEPT} characters were` : 'Your message was'} kept as your answer${replaced ? ', in place of what was kept for this work before this turn' : ''}.`
+    const whole = cut ? ' To send all of it, write it in full as your answer.' : ''
+    return `${plain} ${kept}${whole} If you end your turn without writing any text, ${cut ? 'that part' : 'it'} goes up to ${to}; any text you write for this work from now on goes up instead.`
+  }
 
   rt.teamTools.push(defineTool({
     name: 'message_bot',
-    description: 'Send a message to another Bot on the team. If that Bot is working, it reads your message at its next step and can change course, then answers once that work is done; if it is idle, it starts on it right away. Its reply arrives later as a new message to you; with reply_to "user" it answers the user in its own chat instead. In a group chat it reaches only members of that group, as writing "@Name" there does. With request_id you name the request yourself: a repeat of that name with the same message is not sent again, but gives the receipt of the first call back.',
+    description: 'Send a message to another Bot on the team. If that Bot is working, it reads your message at its next step and can change course, then answers once that work is done; if it is idle, it starts on it right away. Its reply arrives later as a new message to you; with reply_to "user" it answers the user in its own chat instead. Do not message a Bot that is waiting for the result of the work you are doing (the Bot that asked you for it, or one above that): your answer reaches it by itself once you end your turn and everything you handed on is back. In a group chat it reaches only members of that group, as writing "@Name" there does. With request_id you name the request yourself: a repeat of that name with the same message is not sent again, but gives the receipt of the first call back.',
     parameters: {
       to: { type: 'string', required: true, description: 'Exact Bot name from list_bots' },
       message: { type: 'string', required: true, description: 'Self-contained message; the other Bot cannot see this conversation' },
@@ -266,9 +307,7 @@ export function install(rt) {
       // the work, and the result says where its answer goes instead of showing a
       // bare error the Bot cannot act on.
       const works = worksOf(exec)
-      if (rt.upstreamOf(works).has(target.id)) {
-        return `Not sent: ${target.name} is waiting for the result of the work you are doing, and your answer reaches it by itself once everything you handed on is back. Finish the work and end your turn; to ask ${target.name} something, end your turn with the question.`
-      }
+      if (rt.upstreamOf(works).has(target.id)) return upstreamRefusal(exec, sender, target, text.trim(), args)
       const send = async () => {
         const toUser = args.reply_to === 'user'
         const work = toUser ? undefined : works[0]
@@ -604,6 +643,92 @@ export function install(rt) {
         return changes.length === 0 ? `Nothing changed in "${next.name}".` : `Updated "${next.name}": ${changes.join('; ')}.`
       } catch (failure) {
         return `Could not update "${room.name}": ${failure.message}`
+      }
+    },
+  }))
+
+  // The shared to-do list of a group: open items first, then done ones, each with the
+  // short id the check and remove actions take. Ids are UUIDs, and the first eight
+  // characters are what the list shows; a prefix is accepted when it names exactly one item.
+  const todoCount = (room) => {
+    const todos = room.todos ?? []
+    const open = todos.filter(item => item.done !== true).length
+    return { todos, open, done: todos.length - open }
+  }
+  const todoLines = (room) => {
+    const { todos, open, done } = todoCount(room)
+    if (todos.length === 0) return `The shared to-do list of "${room.name}" is empty. Add one with action "add".`
+    const order = [...todos].sort((a, b) => Number(a.done === true) - Number(b.done === true) || (a.createdAt ?? 0) - (b.createdAt ?? 0))
+    return [
+      `Shared to-do list of "${room.name}" (${open} open, ${done} done):`,
+      ...order.map(item => `- [${item.done === true ? 'x' : ' '}] ${item.text} (todo ${item.id.slice(0, 8)})`),
+    ].join('\n')
+  }
+  const findTodo = (room, ref) => {
+    const wanted = String(ref ?? '').trim()
+    if (wanted === '') return { error: 'Which to-do? Pass the id from the list.' }
+    const exact = (room.todos ?? []).find(item => item.id === wanted)
+    if (exact !== undefined) return { todo: exact }
+    const matches = (room.todos ?? []).filter(item => item.id.startsWith(wanted))
+    if (matches.length === 1) return { todo: matches[0] }
+    if (matches.length > 1) return { error: `Several to-dos start with "${wanted}". Use a longer id.` }
+    return { error: `No to-do with id "${wanted}" on the list.` }
+  }
+
+  rt.teamTools.push(defineTool({
+    name: 'group_todo',
+    description: 'The shared to-do list of a group chat. Every member reads and changes the same list, and the user sees it in the group\'s details. List it, add one item, tick an item done or not done, remove one item, or clear the completed items. The list holds at most 100 items; when it is full, remove an item or clear completed ones before adding. Nothing is dropped on its own. Add, remove, or clear only what the user asked for.',
+    parameters: {
+      group: GROUP_REF,
+      action: {
+        type: 'string',
+        enum: ['list', 'add', 'check', 'remove', 'clear'],
+        required: true,
+        description: '"list" reads the list; "add" adds one item with text; "check" ticks one item by id, or unticks it with done: false; "remove" deletes one item by id; "clear" deletes every completed item',
+      },
+      text: { type: 'string', description: 'The to-do item, one line, at most 200 characters (action "add")' },
+      id: { type: 'string', description: 'The to-do id from the list, or its first characters (action "check" or "remove")' },
+      done: { type: 'boolean', description: 'true ticks the item, false unticks it; defaults to true (action "check")' },
+    },
+    output,
+    async execute(args, exec) {
+      await rt.load()
+      const self = rt.selfOf(exec.agent?.id)
+      if (rt.botOf(self) === undefined) return 'Only Bots on the team can use a group to-do list.'
+      const { room, error } = pickRoom(args.group, self)
+      if (error) return error
+      const action = String(args.action ?? '').trim()
+      if (action === 'list') return todoLines(room)
+      try {
+        if (action === 'add') {
+          const item = await rt.addRoomTodo(room.id, args.text, self)
+          const { open } = todoCount(room)
+          return `Added "${item.text}" to the shared to-do list of "${room.name}" (${open} open, todo ${item.id.slice(0, 8)}).`
+        }
+        if (action === 'check') {
+          const found = findTodo(room, args.id)
+          if (found.error) return found.error
+          const item = await rt.setRoomTodoDone(room.id, found.todo.id, args.done === undefined ? true : args.done === true, self)
+          const { open } = todoCount(room)
+          return `${item.done === true ? 'Ticked' : 'Unticked'} "${item.text}" (${open} open).`
+        }
+        if (action === 'remove') {
+          const found = findTodo(room, args.id)
+          if (found.error) return found.error
+          const item = await rt.removeRoomTodo(room.id, found.todo.id)
+          const { open } = todoCount(room)
+          return `Removed "${item.text}" from the shared to-do list of "${room.name}" (${open} open).`
+        }
+        if (action === 'clear') {
+          const removed = await rt.clearDoneRoomTodos(room.id)
+          const { open } = todoCount(room)
+          if (removed.length === 0) return `No completed to-dos to clear on "${room.name}" (${open} open).`
+          const noun = removed.length === 1 ? 'to-do' : 'to-dos'
+          return `Cleared ${removed.length} completed ${noun} from "${room.name}" (${open} open).`
+        }
+        return 'Use action "list", "add", "check", "remove" or "clear".'
+      } catch (failure) {
+        return `Could not change the to-do list of "${room.name}": ${failure.message}`
       }
     },
   }))
