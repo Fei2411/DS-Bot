@@ -54,7 +54,7 @@ async function fixture(t, options = {}) {
   const session = createSession({
     context, page: primary, botId: 'b1', userDataDir: directory,
     cookieFile: join(directory, 'cookies.json'), downloadDir: async () => directory,
-    actionTimeout: options.actionTimeout ?? 400, getHold: options.getHold,
+    actionTimeout: options.actionTimeout ?? 400, downloadGraceMs: options.downloadGraceMs, getHold: options.getHold,
   })
   t.after(async () => {
     for (const timer of timers) clearTimeout(timer)
@@ -131,13 +131,31 @@ test('a key press other than Enter does not wait for a download', async (t) => {
   assert.ok(Date.now() - started < 1_000, 'a non-Enter press returned before the download window')
 })
 
-// The same fixture, a click and no download: that is the action the window is for,
-// so it does hold until the deadline. This is what the two tests above do not do.
-test('a click with no download holds until the action timeout', async (t) => {
-  const { session } = await fixture(t, { actionTimeout: 1_500 })
+// A click waits for a download, but only for its own grace window: a large
+// actionTimeout must not make an ordinary click slower.
+test('a click with no download returns after the download grace, not the action timeout', async (t) => {
+  const { session } = await fixture(t, { actionTimeout: 5_000 })
   const started = Date.now()
   await session.click('e1')
-  assert.ok(Date.now() - started >= 1_000, 'the click kept its download window')
+  const elapsed = Date.now() - started
+  assert.ok(elapsed < 1_500, `a click without a download returned in ${elapsed} ms`)
+  assert.ok(elapsed >= 600, `the click still waited out its grace window (${elapsed} ms)`)
+})
+
+// A download that starts after the grace window is not captured: it is canceled and
+// named in the next snapshot, never silently dropped.
+test('a download that starts after the grace window is canceled and reported', async (t) => {
+  const incoming = download()
+  const { session, files } = await fixture(t, {
+    downloadGraceMs: 120,
+    click: (page, later) => later(() => page.emit('download', incoming), 700),
+  })
+  await session.click('e1')
+  await incoming.whenCanceled
+  const snapshot = await session.snapshotText()
+  assert.match(snapshot, /Download "report.csv".*after.*action.*canceled/i)
+  assert.equal(incoming.canceled, 1)
+  assert.deepEqual(await files(), [])
 })
 
 // Enter can submit a form whose answer is a download, so it keeps the window.

@@ -8,6 +8,10 @@ import { gateScope } from './gate.js'
 import { runIsolatedScript } from './script-runner.js'
 
 const ACTION_TIMEOUT = 5_000
+// How long a click-like action waits after it resolves for the download it may have
+// started. Exports that build the file asynchronously need a moment, but a click with
+// no download must not pay the whole action timeout.
+const DOWNLOAD_GRACE_MS = 800
 const SNAPSHOT_LIMIT = 40_000
 const REASONS = new Set(['login', 'payment', 'captcha', 'other'])
 
@@ -91,7 +95,7 @@ async function loadChromium(playwrightUrl) {
 /**
  * @param {{ botId: string, profileRoot: string, headless?: boolean, playwrightUrl?: string, executablePath?: string, actionTimeout?: number, downloadDir?: string | (() => Promise<string | undefined>), uploadRoots?: () => Promise<string[]>, connect?: (botId: string) => Promise<string>, getHold?: () => any, onHold?: (hold: any) => void }} options
  */
-export async function openBotBrowser({ botId, profileRoot, downloadDir, headless = true, playwrightUrl, executablePath, actionTimeout = ACTION_TIMEOUT, connect, getHold, onHold, uploadRoots }) {
+export async function openBotBrowser({ botId, profileRoot, downloadDir, headless = true, playwrightUrl, executablePath, actionTimeout = ACTION_TIMEOUT, downloadGraceMs = DOWNLOAD_GRACE_MS, connect, getHold, onHold, uploadRoots }) {
   const getDownloadDir = typeof downloadDir === 'function' ? downloadDir : async () => downloadDir
   const userDataDir = join(profileRoot, botId)
   const chromium = await loadChromium(playwrightUrl)
@@ -120,7 +124,7 @@ export async function openBotBrowser({ botId, profileRoot, downloadDir, headless
   return createSession({ context, browser, page, botId, userDataDir, cookieFile, downloadDir: getDownloadDir, actionTimeout, getHold, onHold, uploadRoots })
 }
 
-export function createSession({ context, browser, page, botId, userDataDir, cookieFile, downloadDir, actionTimeout = ACTION_TIMEOUT, getHold, onHold, uploadRoots }) {
+export function createSession({ context, browser, page, botId, userDataDir, cookieFile, downloadDir, actionTimeout = ACTION_TIMEOUT, downloadGraceMs = DOWNLOAD_GRACE_MS, getHold, onHold, uploadRoots }) {
   const pages = new Set()
   const unknownByOrigin = new Map()
   const unknownPageOrigins = new WeakMap()
@@ -392,7 +396,7 @@ export function createSession({ context, browser, page, botId, userDataDir, cook
     const parent = activeDownloads
     const batch = parent ?? {
       gate: gateScope.getStore(), items: [], pages: new Set(target ? [target] : []),
-      notify: undefined, deadline: Date.now() + actionTimeout, waitForDownload: false,
+      notify: undefined, waitForDownload: false,
     }
     batch.waitForDownload ||= waitForDownload
     if (!parent) activeDownloads = batch
@@ -409,7 +413,7 @@ export function createSession({ context, browser, page, botId, userDataDir, cook
         && (openingDownload || (!failure && batch.waitForDownload))) {
         // Async exports begin after click() resolves. Keep the original call's
         // approval scope until a download starts or its action deadline passes.
-        const remaining = openingDownload ? Math.max(actionTimeout, ACTION_TIMEOUT) : batch.deadline - Date.now()
+        const remaining = openingDownload ? Math.max(actionTimeout, ACTION_TIMEOUT) : downloadGraceMs
         await new Promise(resolve => {
           const finish = () => {
             clearTimeout(timer)
