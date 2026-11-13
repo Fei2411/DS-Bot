@@ -592,3 +592,35 @@ test('a presented file rides on the closing Bot row so the phone can save it', a
   const row = items.find(item => item.kind === 'bot')
   assert.deepEqual(row.files, [{ name: 'quarterly.pdf', sessionId: 's-presented', seq: 13, index: 0 }])
 })
+
+test('file-download resolves presented files in active and archived group member sessions', async (t) => {
+  const { call, history, rt, stop } = start()
+  t.after(stop)
+  const { chief, room } = await team(call)
+  const storedRoom = rt.state.rooms[room.id]
+  const pastMember = 's-room-member-1'
+  const activeMember = 's-room-member-2'
+  const dir = mkdtempSync(join(tmpdir(), 'ds-bot-group-file-'))
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  const pastPath = join(dir, 'past.txt')
+  const activePath = join(dir, 'active.txt')
+  writeFileSync(pastPath, Buffer.from('from archived member segment'))
+  writeFileSync(activePath, Buffer.from('from active member session'))
+
+  storedRoom.segments = { [chief]: [{ sessionId: pastMember, endedAt: 10 }] }
+  storedRoom.sessions = { [chief]: activeMember }
+  rt.pastOwners.set(pastMember, { botId: chief, roomId: room.id })
+  rt.groupOwners.set(activeMember, { botId: chief, roomId: room.id })
+  history[pastMember] = [{ seq: 9, type: 'deliverables/presented', data: { turn: 1, files: [{ path: pastPath }] } }]
+  history[activeMember] = [{ seq: 9, type: 'deliverables/presented', data: { turn: 1, files: [{ path: activePath }] } }]
+
+  const savedPast = await call('file-download', { sessionId: pastMember, seq: 9, index: 0 })
+  assert.equal(savedPast.ok, true)
+  assert.equal(savedPast.value.name, 'past.txt')
+  assert.equal(Buffer.from(savedPast.value.bytes, 'base64').toString(), 'from archived member segment')
+
+  const savedActive = await call('file-download', { sessionId: activeMember, seq: 9, index: 0 })
+  assert.equal(savedActive.ok, true)
+  assert.equal(savedActive.value.name, 'active.txt')
+  assert.equal(Buffer.from(savedActive.value.bytes, 'base64').toString(), 'from active member session')
+})

@@ -418,14 +418,18 @@ export function install(rt) {
     const presentedIndex = Number.isInteger(body.index) ? body.index : 0
     if (attachmentId === undefined && presentedSeq === undefined) throw Object.assign(new Error('No file named'), { code: 'bot/invalid' })
     const sessionId = String(body.sessionId ?? '')
-    const room = rt.roomOf(sessionId) ?? rt.roomOf(rt.pastOwners.get(sessionId)?.roomId)
-    const botId = room === undefined
-      ? rt.chatOwners.get(sessionId) ?? rt.pastOwners.get(sessionId)?.botId ?? rt.botOf(sessionId)?.id
-      : undefined
+    const groupOwner = rt.groupOwners?.get(sessionId)
+    const pastOwner = rt.pastOwners.get(sessionId)
+    const memberBotId = groupOwner?.botId ?? (pastOwner?.roomId !== undefined ? pastOwner.botId : undefined)
+    const room = rt.roomOf(sessionId) ?? rt.roomOf(groupOwner?.roomId ?? pastOwner?.roomId)
+    const botId = memberBotId ?? (room === undefined
+      ? rt.chatOwners.get(sessionId) ?? pastOwner?.botId ?? rt.botOf(sessionId)?.id
+      : undefined)
     if (botId === undefined && room === undefined) throw Object.assign(new Error('Unknown session'), { code: 'bot/not-found' })
     const owned = new Set([
-      ...(room !== undefined ? [rt.sessionOfRoom(room)] : []),
-      ...(botId !== undefined ? [rt.chatOf(botId)] : []),
+      ...(room !== undefined && memberBotId === undefined ? [rt.sessionOfRoom(room)] : []),
+      ...(room !== undefined && memberBotId !== undefined && room.sessions?.[memberBotId] ? [room.sessions[memberBotId]] : []),
+      ...(room === undefined && botId !== undefined ? [rt.chatOf(botId)] : []),
       ...rt.partsOf(botId, room?.id).map(part => part.sessionId),
     ].filter(Boolean))
     // Presented files keep their own part's sessionId, because seq is local to one Session.
