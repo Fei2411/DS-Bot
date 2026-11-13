@@ -820,6 +820,7 @@ export function install(rt) {
     }
   }
 
+  rt.channelCall = handle
   rt.phoneServe(handle)
 
   // How a user message reaches a Session: a Bot id, a group chat's id, or an earlier
