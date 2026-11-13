@@ -120,6 +120,36 @@ test('one Bot\u2019s shadow stays out of another Bot\u2019s commands', async () 
   assert.equal(w.runs(), 1, 'the other Bot still runs the DSH command')
 })
 
+test('two mounted agents are both shielded, each with its own Session\u2019s refusal', async () => {
+  const w = world()
+  install(w.rt)
+  w.rt.chatOwners.set('a', 'a')
+  w.rt.rooms.set('r1', { id: 'r1' })
+  w.registerGlobal('plan')
+  w.registerGlobal('goal')
+  // Both agents arrive after install, like the second and later Bots in a running team:
+  // the reflection (not `inject`) is what makes the second mount find the service too.
+  const a = w.agent('a')
+  const room = w.agent('r1')
+  w.emit('agent/created', { agent: a })
+  w.emit('agent/created', { agent: room })
+
+  assert.match(w.service.find(a, 'plan').description, /Bot chat/)
+  assert.match(w.service.find(room, 'plan').description, /group chat/)
+
+  const fromBot = await w.service.execute(a, '/plan 明天上线')
+  const fromGroup = await w.service.execute(room, '/goal 明天上线')
+  assert.equal(fromBot.result.kind, 'error')
+  assert.equal(fromGroup.result.kind, 'error')
+  // Each shadow answers for its own Session: neither refusal leaks into the other's
+  // surface, and no DSH handler ran for either agent.
+  assert.match(fromBot.result.text, /Bot's chat/)
+  assert.doesNotMatch(fromBot.result.text, /group chat/)
+  assert.match(fromGroup.result.text, /group chat/)
+  assert.doesNotMatch(fromGroup.result.text, /Bot's chat/)
+  assert.equal(w.runs(), 0)
+})
+
 test('a group chat\u2019s own Session is covered and its /goal points at the group goal', async () => {
   const w = world()
   install(w.rt)
