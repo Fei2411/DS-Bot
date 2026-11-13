@@ -972,6 +972,7 @@ export const FR = {
   "At least {count} characters.": "Au moins {count} caractères.",
   "Replace value": "Remplacer la valeur",
   "Saving…": "Enregistrement…",
+  "Could not save this file": "Impossible d’enregistrer ce fichier",
   "Save": "Enregistrer",
   "Allowing…": "Autorisation…",
   "Allow": "Autoriser",
