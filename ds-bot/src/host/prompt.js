@@ -1,5 +1,6 @@
 // Prompt: one section whose text depends only on the rendering Session's own Bot
 // record, so the prefix stays byte-stable across turns and roster changes.
+import { replyStyleText } from '../shared/reply-style.js'
 
 const TEAM_RULES = [
   '## How your Bot team works',
@@ -48,6 +49,7 @@ export function install(rt) {
       return [
         '# Your identity',
         `You are ${bot.name}, a Bot on the user's team in DS Bot.${bot.role ? ` Your role: ${bot.role}.` : ''}`,
+        `\n${replyStyleText(bot.replyStyle, rt.state?.prefs?.replyStyle)}`,
         bot.instructions ? `\n${bot.instructions}` : '',
         '',
         rt.isMain(self) ? `${MAIN_RULES}\n\n${TEAM_RULES}` : TEAM_RULES,

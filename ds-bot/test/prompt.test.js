@@ -44,3 +44,31 @@ test('the group relay and non-Bot sessions do not get progress instructions', (t
   assert.doesNotMatch(prompt('room'), /progress|milestone/)
   assert.equal(prompt('outside'), '')
 })
+
+// How a Bot writes is one team setting; a Bot may override it, and the section sits
+// before its own instructions so the style shapes the whole answer.
+test('the prompt carries the team reply style, and a Bot may pick its own', (t) => {
+  const ctx = fakeContext()
+  const bots = new Map([
+    ['main', { name: 'Chief' }],
+    ['worker', { name: 'Dev', instructions: 'Check files.', replyStyle: 'formal' }],
+  ])
+  const state = { prefs: {} }
+  install({
+    ctx,
+    state,
+    selfOf: id => id,
+    botOf: id => bots.get(id),
+    roomOf: () => undefined,
+    isMain: id => id === 'main',
+  })
+  t.after(() => ctx.dispose())
+  const prompt = id => ctx.sections.get('bot-identity').text({ agent: { id } })
+  assert.match(prompt('main'), /## How you write\nWrite like a teammate texting/)
+  const formal = prompt('worker')
+  assert.match(formal, /## How you write\nWrite plain professional prose/)
+  assert.ok(formal.indexOf('## How you write') < formal.indexOf('Check files.'))
+  state.prefs.replyStyle = 'concise'
+  assert.match(prompt('main'), /## How you write\nLead with the conclusion, then at most two sentences/)
+  assert.match(prompt('worker'), /## How you write\nWrite plain professional prose/)
+})

@@ -880,6 +880,16 @@ var ZH = {
   "{names} went back and forth {count} times without progress and paused. Write here to go on": "{names} 来回 {count} 次没有进展，先停下了。你发言后继续",
   "{name} paused for your approval": "{name} 停下来等你批准",
   "{name} started on it": "{name} 开始做了",
+  "Bot replies": "Bot 回复",
+  "Reply style": "回复风格",
+  "Natural": "自然",
+  "Concise": "简洁",
+  "Detailed": "详细",
+  "Formal": "正式",
+  "Same as the team": "跟随团队",
+  "One default for every Bot. A Bot can choose its own in its settings.": "全队统一默认；单个 Bot 可在自己的设置里覆盖。",
+  "How this Bot writes": "这个 Bot 怎么回复",
+  "Follows the team default unless it picks its own.": "默认跟随团队，也可以单独选。",
   "You stopped {name}'s work": "你停下了 {name} 的工作",
   "{name} finished its work": "{name} 做完了",
   "{name} was cut off by a restart and picked its work back up": "{name} 的工作被重启打断，已经接着做",
@@ -10934,6 +10944,38 @@ function BotCapabilitiesCard({ bot, roster, actions, run: run2, Card: Card3, Swi
   );
 }
 
+// src/shared/reply-style.js
+var REPLY_STYLES = ["natural", "concise", "detailed", "formal"];
+var STYLE_LABELS = { natural: "Natural", concise: "Concise", detailed: "Detailed", formal: "Formal" };
+var DEFAULT_REPLY_STYLE = "natural";
+var TEXT = {
+  natural: [
+    "## How you write",
+    "Write like a teammate texting, not like a report: brief sentences, no headings or bullet lists for an ordinary answer, and no more than a sentence or two of explanation after the point. Never restate the question and never narrate your process. Details belong in a file or a path, not in the message. In a group chat, a scheduled task or an IM chat, say nothing when nothing changed."
+  ].join("\n"),
+  concise: [
+    "## How you write",
+    "Lead with the conclusion, then at most two sentences of what it means for the user. No headings, no bullet lists, no process, no restating the question. Put details in a file or a path. When nothing changed, say nothing."
+  ].join("\n"),
+  detailed: [
+    "## How you write",
+    "Lead with the conclusion, then the reasons, commands and evidence, kept behind a fold or below the first screen. Go long only when the user asked for a plan, an analysis or a document."
+  ].join("\n"),
+  formal: [
+    "## How you write",
+    "Write plain professional prose for a reader outside the team: complete sentences, no chat shorthand, no emoji. Conclusion first, then the detail the reader needs. Never restate the question."
+  ].join("\n")
+};
+function isReplyStyle(value) {
+  return REPLY_STYLES.includes(value);
+}
+function replyStyleText(botStyle, teamStyle) {
+  return TEXT[botStyle] ?? TEXT[teamStyle] ?? TEXT[DEFAULT_REPLY_STYLE];
+}
+function replyStyleOf(botStyle, teamStyle) {
+  return botStyle ?? teamStyle ?? DEFAULT_REPLY_STYLE;
+}
+
 // src/client/avatar-library.js
 var import_react24 = require("react");
 var CHUNK = 20;
@@ -12032,6 +12074,24 @@ function BotSettingsForm({ bot, roster, actions, run: run2 }) {
         Row,
         { label: t("What this Bot does"), hint: t("Its job on the team. Part of the Bot's system prompt."), stack: true },
         (0, import_react26.createElement)(InlineText, { label: t("Instructions"), value: bot.instructions, multiline: true, placeholder: t("What this Bot is responsible for…"), onSave: (instructions) => save({ instructions }) })
+      )
+    ),
+    (0, import_react26.createElement)(
+      Card2,
+      { title: t("Reply style") },
+      (0, import_react26.createElement)(
+        Row,
+        { label: t("How this Bot writes"), hint: t("Follows the team default unless it picks its own."), stack: true },
+        (0, import_react26.createElement)(
+          Segmented,
+          { label: t("Reply style"), value: bot.replyStyle ?? "inherit" },
+          ["inherit", ...REPLY_STYLES].map((id) => (0, import_react26.createElement)("button", {
+            key: id,
+            type: "button",
+            "aria-pressed": (bot.replyStyle ?? "inherit") === id,
+            onClick: () => save({ replyStyle: id })
+          }, id === "inherit" ? t("Same as the team") : t(STYLE_LABELS[id])))
+        )
       )
     ),
     (0, import_react26.createElement)(BotCapabilitiesCard, { bot, roster, actions, run: run2, Card: Card2, SwitchRow }),
@@ -21907,6 +21967,24 @@ function GeneralPage({ roster, actions, run: run2, dsh }) {
           onPick: (ref) => run2(actions.setPrefs({ defaultBotModel: ref }))
         }),
         prefs.defaultBotModel ? (0, import_react47.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => run2(actions.setPrefs({ defaultBotModel: null })) }, t("Reset")) : null
+      )
+    ),
+    (0, import_react47.createElement)(
+      SetSection,
+      { key: "reply", title: t("Bot replies") },
+      (0, import_react47.createElement)(
+        SetRow,
+        { label: t("Reply style"), hint: t("One default for every Bot. A Bot can choose its own in its settings.") },
+        (0, import_react47.createElement)(
+          Segmented,
+          { label: t("Reply style"), value: prefs.replyStyle ?? DEFAULT_REPLY_STYLE },
+          REPLY_STYLES.map((id) => (0, import_react47.createElement)("button", {
+            key: id,
+            type: "button",
+            "aria-pressed": (prefs.replyStyle ?? DEFAULT_REPLY_STYLE) === id,
+            onClick: () => run2(actions.setPrefs({ replyStyle: id }))
+          }, t(STYLE_LABELS[id])))
+        )
       )
     ),
     (0, import_react47.createElement)(

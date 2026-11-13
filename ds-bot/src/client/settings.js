@@ -8,6 +8,7 @@ import { AdminStar, BotAvatar, RoomAvatar } from './mark.js'
 import { useEscape } from './overlay-hooks.js'
 import { BotSettingsForm, Switch } from './bot-settings.js'
 import { Segmented, useGlide } from './motion.js'
+import { DEFAULT_REPLY_STYLE, REPLY_STYLES, STYLE_LABELS } from '../shared/reply-style.js'
 import { GroupSettingsForm, NewGroupForm } from './group-settings.js'
 import { CreateBot } from './create-bot.js'
 import { KeptPrivateSection } from './kept-private.js'
@@ -152,6 +153,13 @@ function GeneralPage({ roster, actions, run, dsh }) {
           onPick: ref => run(actions.setPrefs({ defaultBotModel: ref })),
         }),
         prefs.defaultBotModel ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => run(actions.setPrefs({ defaultBotModel: null })) }, t('Reset')) : null)),
+    h(SetSection, { key: 'reply', title: t('Bot replies') },
+      h(SetRow, { label: t('Reply style'), hint: t('One default for every Bot. A Bot can choose its own in its settings.') },
+        h(Segmented, { label: t('Reply style'), value: prefs.replyStyle ?? DEFAULT_REPLY_STYLE },
+          REPLY_STYLES.map(id => h('button', {
+            key: id, type: 'button', 'aria-pressed': (prefs.replyStyle ?? DEFAULT_REPLY_STYLE) === id,
+            onClick: () => run(actions.setPrefs({ replyStyle: id })),
+          }, t(STYLE_LABELS[id])))))),
     h(SetSection, { key: 'input', title: t('Input') },
       h(SetRow, { label: t('Enter sends message') },
         h(Switch, { label: t('Enter sends message'), on: prefs.enterToSend !== false, onChange: enterToSend => run(actions.setPrefs({ enterToSend })) }))),
