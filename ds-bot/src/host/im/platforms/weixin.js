@@ -140,6 +140,7 @@ export default {
         else if (item.type === 3 && item.voice_item?.text !== undefined) texts.push(String(item.voice_item.text))
         else if (item.type === 2 && item.image_item?.media !== undefined) {
           const bytes = await image(item.image_item.media, env, stopping.signal).catch(() => undefined)
+          if (stopping.signal.aborted) return
           if (bytes !== undefined) images.push({ mediaType: 'image/jpeg', data: bytes.toString('base64') })
         }
         else if (item.type === 4 && item.file_item !== undefined) files.push({ name: String(item.file_item.file_name ?? 'file'), data: undefined })
@@ -194,11 +195,13 @@ export default {
             continue
           }
           handlers.onStatus({ state: 'ready' })
+          for (const msg of answer.msgs ?? []) {
+            if (stopped || generation !== gen) return
+            await deliver(msg).catch(error => env.log?.warn?.('ds-bot im: weixin message failed: %s', error?.message ?? error))
+          }
+          if (stopped || generation !== gen) return
           if (answer.get_updates_buf !== undefined && answer.get_updates_buf !== runtime().cursor) {
             setRuntime({ cursor: String(answer.get_updates_buf) })
-          }
-          for (const msg of answer.msgs ?? []) {
-            await deliver(msg).catch(error => env.log?.warn?.('ds-bot im: weixin message failed: %s', error?.message ?? error))
           }
         }
       } finally {
@@ -343,7 +346,13 @@ async function request(env, baseUrl, token, endpoint, body, timeoutMs = POLL_TIM
   } finally {
     clearTimeout(timer)
   }
-  const text = await response.text().catch(() => '')
+  let text
+  try {
+    text = await response.text()
+  } catch (error) {
+    if (aborted.aborted) throw Object.assign(new Error('timeout', { cause: error }), { timeout: true })
+    text = ''
+  }
   let parsed
   try { parsed = text === '' ? {} : JSON.parse(text) } catch { parsed = undefined }
   const json = parsed !== null && typeof parsed === 'object' ? parsed : undefined
