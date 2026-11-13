@@ -482,6 +482,21 @@ test('a real auth failure still blocks the Bot', () => {
   assert.equal(rt.bots.b.failures.b.message, '')
 })
 
+test('a 401 mentioning content_filter stays AUTH, and remembered errors redact keys', () => {
+  const { rt, emit } = turnsHost()
+  emit('b', 'turn/start', { turn: 1 })
+  emit('b', 'user/message', { content: textBlock('hi'), source: { kind: 'user' } })
+  emit('b', 'turn/end', { turn: 1, reason: { kind: 'error', error: { code: 'AUTH', status: 401, message: 'Authentication failed for content_filter service' } } })
+  assert.equal(rt.bots.b.blocked.code, 'AUTH')
+  assert.equal(rt.bots.b.failures.b.code, 'AUTH')
+  assert.equal(rt.bots.b.failures.b.message, '')
+  emit('b', 'turn/start', { turn: 2 })
+  emit('b', 'user/message', { content: textBlock('hi'), source: { kind: 'user' } })
+  emit('b', 'turn/end', { turn: 2, reason: { kind: 'error', error: { code: 'SERVER', status: 500, message: 'upstream echoed sk-secretkey123456' } } })
+  assert.doesNotMatch(rt.bots.b.failures.b.message, /sk-secretkey123456/)
+  assert.match(rt.bots.b.failures.b.message, /sk-\[hidden\]/)
+})
+
 test('a joined request never claims the next turn', () => {
   const { rt, emit, delivered } = turnsHost()
   emit('b', 'turn/start', { turn: 1 })

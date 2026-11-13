@@ -36306,7 +36306,7 @@ function FailureCell({ node, sessionId, useRoster, useTurnClock, actions }) {
   const [error, setError] = (0, import_react53.useState)("");
   const [joining, setJoining] = (0, import_react53.useState)(null);
   const blocked = bot?.blocked?.code === data.code ? bot.blocked : void 0;
-  const provider = blocked?.provider ?? providerOf(bot, roster);
+  const provider = blocked?.provider ?? host?.provider ?? providerOf(bot, roster);
   const text = failureText2(data.code, { name: bot?.name ?? t("This Bot"), provider: providerName(roster, provider), status: data.status ?? blocked?.status });
   const facts = failureFacts(data, blocked);
   const current = bot !== void 0 && currentPart(bot) === sessionId && !later;

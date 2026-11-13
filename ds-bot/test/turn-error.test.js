@@ -457,10 +457,10 @@ test('the host correction reaches the card for the failed turn', () => {
   const body = 'upstream 403: content_policy_violation: 内容审计命中风险规则'
   const side = cell({
     code: 'AUTH', turn: 3,
-    bot: { failures: { 'chief-part': { turn: 3, code: 'CONTENT_POLICY', message: body, status: 403, requestId: 'req-7', at: 1 } } },
+    bot: { id: 'b', model: 'alt/other', failures: { 'chief-part': { turn: 3, code: 'CONTENT_POLICY', message: body, status: 403, requestId: 'req-7', provider: 'gateway', at: 1 } } },
   })
   const tree = side.render()
-  assert.match(textOf(walk(tree, node => node.props?.className === 'bt-fail-text')[0]), /blocked this request with its content filter \(403\)/)
+  assert.match(textOf(walk(tree, node => node.props?.className === 'bt-fail-text')[0]), /gateway blocked this request with its content filter \(403\)/)
   assert.equal(side.buttons(tree).some(entry => /Enter the key again|Use a DeepSeek account|Pick another model/.test(entry.label)), false)
   assert.ok(side.tech(tree).includes(body))
   assert.ok(side.tech(tree).includes('req-7'))

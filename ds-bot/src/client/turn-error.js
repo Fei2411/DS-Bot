@@ -169,7 +169,7 @@ export function FailureCell({ node, sessionId, useRoster, useTurnClock, actions 
   // A sign-in started here to leave a failing key route, with the model the Bot was on.
   const [joining, setJoining] = useState(null)
   const blocked = bot?.blocked?.code === data.code ? bot.blocked : undefined
-  const provider = blocked?.provider ?? providerOf(bot, roster)
+  const provider = blocked?.provider ?? host?.provider ?? providerOf(bot, roster)
   const text = failureText(data.code, { name: bot?.name ?? t('This Bot'), provider: providerName(roster, provider), status: data.status ?? blocked?.status })
   const facts = failureFacts(data, blocked)
   const current = bot !== undefined && currentPart(bot) === sessionId && !later

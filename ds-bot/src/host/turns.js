@@ -35,9 +35,9 @@ const requestIdOf = (message) => {
 export function turnFailure(error) {
   const rawCode = typeof error?.code === 'string' && error.code !== '' ? error.code : 'UNKNOWN'
   const raw = typeof error?.message === 'string' ? error.message.trim() : ''
-  const contentPolicy = rawCode === 'AUTH' && CONTENT_POLICY.test(raw)
+  const contentPolicy = rawCode === 'AUTH' && error?.status === 403 && CONTENT_POLICY.test(raw)
   const code = contentPolicy ? 'CONTENT_POLICY' : rawCode
-  const message = code === 'AUTH' || raw === '' ? '' : raw.slice(0, 500)
+  const message = code === 'AUTH' || raw === '' ? '' : cleanText(raw).slice(0, 500)
   const requestId = typeof error?.requestId === 'string' && error.requestId !== '' ? error.requestId : requestIdOf(raw)
   return {
     code,
@@ -663,11 +663,13 @@ export function install(rt) {
   // corrected (a 403 content audit arrives as AUTH). Keep the corrected failure with
   // the part and turn it belongs to; the view sends it to the card, and the next
   // completed turn in that part drops it.
-  const rememberFailure = (id, turn, failure) => {
+  const rememberFailure = (id, turn, failure, session) => {
     const bot = rt.botOf(rt.selfOf(id))
     if (bot === undefined || turn === undefined) return
+    const provider = session?.requestHeader?.()?.config?.provider
+    const message = failure.message ? cleanText(failure.message, { redact: rt.redactSecrets }).slice(0, 500) : ''
     const failures = bot.failures ??= {}
-    failures[id] = { turn, ...failure, at: Date.now() }
+    failures[id] = { turn, ...failure, message, ...(provider ? { provider } : {}), at: Date.now() }
     const keys = Object.keys(failures)
     if (keys.length > 6) {
       for (const key of keys.sort((a, b) => (failures[a].at ?? 0) - (failures[b].at ?? 0)).slice(0, keys.length - 6)) delete failures[key]
@@ -1149,7 +1151,7 @@ export function install(rt) {
         rt.noteCutOffTurn?.(id, { withoutText: wroteNothing })
         if (cutOff) noteCutOffTurn(id, { session, wroteNothing })
         if (failure !== undefined) {
-          if (watched) rememberFailure(id, turn, failure)
+          if (watched) rememberFailure(id, turn, failure, session)
           if (blockBot(id, session, failure) && owner !== undefined && info?.role === 'kickoff') rt.holdKickoffAgain(owner)
         } else if (reason?.kind === 'completed') {
           forgetFailure(id)
