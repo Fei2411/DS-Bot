@@ -1260,7 +1260,7 @@ function viewPublish() {
         </div></div>`,
 
     4: `<h2>提交审核</h2>
-      <p class="hint">人审在 24 小时内。通过后你会拿到一个可以直接分享的链接。</p>
+      <p class="hint">自动检查通常几分钟；带能力的 Bot 要人工看代码，1–2 个工作日。通过后有可以直接分享的链接。</p>
       <div class="opt on" style="padding:14px">
         ${avatar({ shape: d.shape, color: d.color }, 64)}
         <span class="t" style="margin-left:4px">
@@ -1280,7 +1280,7 @@ function viewPublish() {
         <div class="dl-row"><span>许可</span><b>可接入，不可再分发</b></div>
       </div>
       <div class="buy-note" style="margin-top:16px">${I.copy}<span>发布是把你这份另存成市场版本：你自己那个 Bot 的名字、记忆、文件夹一样不动，之后在本地改提示词也不会同步上去。要更新市场版本得重新发一次。</span></div>
-      <div class="buy-note" style="margin-top:8px">${I.shield}<span>审核看三件事：能不能用、有没有夹带别人的数据、权限写得准不准。</span></div>`,
+      <div class="buy-note" style="margin-top:8px">${I.shield}<span>审核看三件事：能不能用、有没有夹带别人的数据、权限写得准不准。只有提示词的 Bot 不排队等人审。</span></div>`,
   }[state.step]
 
   return `<div class="shell" style="grid-template-columns:minmax(0,1fr)">
