@@ -507,7 +507,7 @@ export function install(rt) {
     const noHash = raw.split('#')[0].split('?')[0]
     let decoded = noHash
     try { decoded = decodeURIComponent(noHash) } catch { /* keep raw if malformed % */ }
-    if (/^[a-z][a-z0-9+.-]*:/i.test(decoded) && !/^file:\/\//i.test(decoded)) {
+    if (/^[a-z][a-z0-9+.-]*:/i.test(decoded) && !/^[a-z]:[\\/]/i.test(decoded) && !/^file:\/\//i.test(decoded)) {
       throw Object.assign(new Error('Unsupported image scheme'), { code: 'bot/invalid' })
     }
     let cleanPath = decoded
@@ -575,11 +575,11 @@ export function install(rt) {
     const info = await stat(realPath).catch(() => undefined)
     if (info?.isFile() !== true) throw Object.assign(new Error('Image not found'), { code: 'bot/not-found' })
     if (info.size > MARKDOWN_IMAGE_MAX) throw Object.assign(new Error('Image too large'), { code: 'bot/refused' })
-    const rev = `${info.size}:${Math.trunc(info.mtimeMs)}`
-    if (typeof body.knownRev === 'string' && body.knownRev === rev) {
-      return { mime, unchanged: true, size: info.size, rev }
-    }
     const bytes = await readFile(realPath)
+    const rev = `${bytes.length}:${createHash('sha256').update(bytes).digest('hex').slice(0, 16)}`
+    if (typeof body.knownRev === 'string' && body.knownRev === rev) {
+      return { mime, unchanged: true, size: bytes.length, rev }
+    }
     return {
       mime,
       bytes: bytes.toString('base64'),

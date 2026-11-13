@@ -752,7 +752,7 @@ test('markdown-image resolves archived part workspaces, returns rev, allows grou
   const fromOld = await call('markdown-image', { sessionId: part1, path: './charts/plot.png' })
   assert.equal(fromOld.ok, true)
   assert.equal(typeof fromOld.value.rev, 'string')
-  assert.match(fromOld.value.rev, /^\d+:\d+$/)
+  assert.match(fromOld.value.rev, /^\d+:[0-9a-f]{16}$/)
   assert.equal(Buffer.from(fromOld.value.bytes, 'base64').equals(oldBytes), true)
 
   const fromNew = await call('markdown-image', { sessionId: part2, path: './charts/plot.png' })
@@ -765,7 +765,8 @@ test('markdown-image resolves archived part workspaces, returns rev, allows grou
   assert.equal(unchanged.value.bytes, undefined)
   assert.equal(unchanged.value.rev, fromNew.value.rev)
 
-  const updatedBytes = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 9, 9])
+  // Overwrite with the exact same byte length (9 bytes) to verify content hashing detects in-place edits.
+  const updatedBytes = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 9])
   writeFileSync(join(newDir, 'charts', 'plot.png'), updatedBytes)
   const changed = await call('markdown-image', { sessionId: part2, path: './charts/plot.png', knownRev: fromNew.value.rev })
   assert.equal(changed.ok, true)

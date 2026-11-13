@@ -369,7 +369,17 @@ function MarkdownImage({ href, alt, linkHref, p, ink, sessionId, botId }: {
           setLoaded(prev => (prev?.rev !== undefined && prev.rev === next.rev && prev.uri === next.uri ? prev : next))
         }
       })
-      .catch(() => { if (active && mdImageCache.get(cacheKey) === undefined) setFailed(true) })
+      .catch((err: unknown) => {
+        if (!active) return
+        const code = (err as { code?: string })?.code
+        if (code === 'bot/not-found' || code === 'bot/forbidden' || code === 'bot/invalid' || code === 'bot/refused') {
+          mdImageCache.delete(cacheKey)
+          setLoaded(null)
+          setFailed(true)
+          return
+        }
+        if (mdImageCache.get(cacheKey) === undefined) setFailed(true)
+      })
     return () => { active = false }
   }, [call, cacheKey, href, remote, sessionId, botId, epoch])
 

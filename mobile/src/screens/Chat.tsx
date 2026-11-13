@@ -149,10 +149,15 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
       const next = await (early ?? readChat(call, room !== undefined, id))
       if (generation.current === gen) {
         let lastBot: ChatItem | undefined
+        let botCount = 0
         for (let i = next.items.length - 1; i >= 0; i -= 1) {
-          if (next.items[i].kind === 'bot' || next.items[i].kind === 'post') { lastBot = next.items[i]; break }
+          const entry = next.items[i]
+          if (entry.kind === 'bot' || entry.kind === 'post') {
+            if (lastBot === undefined) lastBot = entry
+            botCount += 1
+          }
         }
-        const sig = `${next.sessionId ?? ''}:${lastBot?.seq ?? ''}:${lastBot?.text?.length ?? ''}`
+        const sig = `${next.sessionId ?? ''}:${botCount}:${lastBot?.id ?? lastBot?.seq ?? ''}:${lastBot?.text?.length ?? ''}`
         if (prevSigRef.current !== '' && prevSigRef.current !== sig) bumpMarkdownImageCache()
         prevSigRef.current = sig
         setPageState(prev => ({

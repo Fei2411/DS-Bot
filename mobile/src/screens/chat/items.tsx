@@ -22,6 +22,7 @@ export interface FileRef { name: string; bytes?: number; sessionId?: string; att
 export type { SettledQuestionData }
 
 export interface ChatItem {
+  id?: string
   kind: 'bot' | 'user' | 'event' | 'answer' | 'view' | 'divider' | 'steps' | 'closed' | 'post' | 'relay'
   text?: string
   time?: number
