@@ -1315,6 +1315,7 @@ export const KO = {
   'Reference a chat': '대화 참조',
   'Chat with {name}': '{name}와(과)의 대화',
   'Scheduled task': '예약 작업',
+  'Open the scheduled tasks of this chat': '이 대화의 예약 작업 열기',
   'Send to': '받는 대상',
   'Scheduled task: {text}': '예약 작업: {text}',
   // New group chats

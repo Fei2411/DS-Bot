@@ -1315,6 +1315,7 @@ export const ES = {
   'Reference a chat': 'Referenciar un chat',
   'Chat with {name}': 'Chat con {name}',
   'Scheduled task': 'Tarea programada',
+  'Open the scheduled tasks of this chat': 'Abrir las tareas programadas de este chat',
   'Send to': 'Enviar a',
   'Scheduled task: {text}': 'Tarea programada: {text}',
   // New group chats

@@ -1285,6 +1285,7 @@ export const FR = {
   "Reference a chat": "Référencer une discussion",
   "Chat with {name}": "Discussion avec {name}",
   "Scheduled task": "Tâche planifiée",
+  "Open the scheduled tasks of this chat": "Ouvrir les tâches planifiées de cette conversation",
   "Send to": "Envoyer à",
   "Scheduled task: {text}": "Tâche planifiée : {text}",
   "Choose the group admin": "Choisir l’admin du groupe",
