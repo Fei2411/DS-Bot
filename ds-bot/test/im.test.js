@@ -673,3 +673,73 @@ test('a retrying send shows a retrying status before the budget runs out', async
   assert.equal(s.fake.sent.filter(job => job.text === 'slow').length, 2)
   assert.equal(s.rt.imStatusView()[conn.id].state, 'ready')
 })
+
+test('send recovery restores the adapter state, isolates chats, and keeps adapter errors visible', async (t) => {
+  const s = await start()
+  t.after(s.stop)
+  const conn = await add(s)
+  const one = s.rt.state.im.connections[conn.id]
+  one.paired.push({ id: 'u1', name: 'U1', at: 1 }, { id: 'u2', name: 'U2', at: 2 })
+  await s.rt.save()
+  await dm(s, 'u1', 'hi')
+  await dm(s, 'u2', 'hi')
+  s.fake.sent.length = 0
+
+  // Transient failure while reconnecting restores 'reconnecting' instead of assuming 'ready'.
+  s.fake.handlers.onStatus({ state: 'reconnecting' })
+  s.fake.fails.push(Object.assign(new Error('502'), { status: 502, retryAfter: 0.005 }))
+  s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'during-reconnect' }] } })
+  await delay(60)
+  assert.equal(s.rt.imStatusView()[conn.id].state, 'reconnecting')
+
+  // Chat A's dropped send error survives when Chat B succeeds, and an adapter error is never hidden by send retrying.
+  s.fake.handlers.onStatus({ state: 'ready' })
+  s.rt.state.im.connections[conn.id].chats['dm-u2'].target = { botId: 'b' }
+  await s.rt.save()
+  s.fake.fails.push(Object.assign(new Error('chat-a-down'), { status: 403, permanent: true }))
+  s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'fails-u1' }] } })
+  await delay(40)
+  assert.equal(s.rt.imStatusView()[conn.id].state, 'error')
+  s.emitEvent('b', 'assistant/message', { message: { content: [{ type: 'text', text: 'ok-u2' }] } })
+  await delay(40)
+  assert.equal(s.rt.imStatusView()[conn.id].state, 'error')
+  assert.match(s.rt.imStatusView()[conn.id].error, /chat-a-down/)
+
+  s.fake.handlers.onStatus({ state: 'error', error: 'handshake refused' })
+  s.fake.fails.push(Object.assign(new Error('502'), { status: 502, retryAfter: 0.2 }))
+  s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'retry-under-err' }] } })
+  await delay(40)
+  assert.equal(s.rt.imStatusView()[conn.id].state, 'error')
+  assert.equal(s.rt.imStatusView()[conn.id].error, 'handshake refused')
+})
+
+test('an approval card whose send exhausts retries is unmarked and re-delivered on reconciliation', async (t) => {
+  const s = await start()
+  t.after(s.stop)
+  const conn = await add(s)
+  const one = s.rt.state.im.connections[conn.id]
+  one.paired.push({ id: 'u1', name: 'U1', at: 1 })
+  await s.rt.save()
+  await dm(s, 'u1', 'hi')
+  s.fake.sent.length = 0
+
+  const fail = () => Object.assign(new Error('Feishu answered 502'), { status: 502, retryAfter: 0.005 })
+  s.fake.fails.push(fail(), fail(), fail(), fail())
+  const original = new AbortController()
+  const racing = s.fireApprovals(
+    { agent: { id: 'a' }, toolName: 'bash', reason: 'run it', signal: original.signal },
+    () => new Promise(() => {}),
+  )
+  await delay(140)
+  assert.equal(s.fake.sent.filter(job => /bash/.test(job.text)).length, 4)
+
+  // Reconciliation re-enqueues the dropped card so the user still gets it.
+  await s.rt.save()
+  await delay(60)
+  const card = s.fake.sent.at(-1)
+  assert.match(card.text, /bash/)
+  assert.equal(s.fake.sent.filter(job => /bash/.test(job.text)).length, 5)
+  const approvalId = card.buttons[0].data.split(':')[1]
+  await s.fake.handlers.onAction({ chat: { key: 'dm-u1', kind: 'direct', title: 'U1' }, sender: { id: 'u1', name: 'U1' }, data: `a:${approvalId}:allow`, messageId: card.messageId ?? 1 })
+  assert.equal((await racing)[0], 'allowed-once')
+})
