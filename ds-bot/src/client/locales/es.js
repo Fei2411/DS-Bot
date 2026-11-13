@@ -991,6 +991,7 @@ export const ES = {
   'At least {count} characters.': 'Al menos {count} caracteres.',
   'Replace value': 'Reemplazar valor',
   'Saving…': 'Guardando…',
+  'Could not save this file': 'No se pudo guardar este archivo',
   Save: 'Guardar',
   'Allowing…': 'Permitiendo…',
   Allow: 'Permitir',

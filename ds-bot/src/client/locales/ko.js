@@ -991,6 +991,7 @@ export const KO = {
   'At least {count} characters.': '최소 {count}자 이상이어야 합니다.',
   'Replace value': '값 교체',
   'Saving…': '저장 중…',
+  'Could not save this file': '이 파일을 저장하지 못했습니다',
   Save: '저장',
   'Allowing…': '허용 중…',
   Allow: '허용',
