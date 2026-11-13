@@ -940,7 +940,16 @@ test('codex app-server: a steer names the turn it steers, and a finished turn ca
   assert.equal(steer.params.input[0].text, 'steer me')
   // A turn the CLI ends has nothing to steer: it says so instead of dropping the input.
   await engine.prompt(thread, [{ type: 'text', text: 'bye' }], {})
-  for (let attempt = 0; attempt < 100 && engine.canSteer(thread); attempt += 1) await new Promise(resolve => setTimeout(resolve, 10))
+  // The CLI's own turn/completed is the signal: read until it arrives, not for a clock.
+  const deadline = Date.now() + 15_000
+  for (;;) {
+    const event = await Promise.race([
+      thread.next(),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('no turn/completed')), 15_000)),
+    ])
+    if (event.type === 'done') break
+    if (Date.now() > deadline) throw new Error(`no turn/completed: ${JSON.stringify(event)}`)
+  }
   assert.equal(engine.canSteer(thread), false, 'turn/completed cleared the live turn')
   await assert.rejects(() => engine.steer(thread, 'too late'), /already ended/)
 })
