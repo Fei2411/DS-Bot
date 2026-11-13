@@ -149,6 +149,22 @@ test('removing a model a Bot uses needs a second Save', async () => {
   assert.deepEqual(JSON.parse(JSON.stringify(view.calls.save[0].models)), [{ id: 'a', name: 'A' }, { id: 'b', name: 'B' }])
 })
 
+test('each affected Bot gets its own fallback line', async () => {
+  const reviewer = { id: 'b2', name: 'Reviewer', model: 'relay/manual', appliedModel: 'relay/a' }
+  const view = row({ roster: teamRoster([writer(), reviewer]) })
+  button(ui(view.tree), 'Refresh models').props.onClick()
+  await settle(); await settle()
+  view.tree = view.rerender()
+  button(ui(view.tree), 'manual').props.onClick()
+  view.tree = view.rerender()
+  assert.match(textOf(ui(view.tree)), /Writer will switch to DeepSeek-V4\.1-Flash on its next turn\./)
+  assert.match(textOf(ui(view.tree)), /Reviewer will switch to A on its next turn\./)
+  assert.equal(button(ui(view.tree), 'Save anyway'), undefined)
+  button(ui(view.tree), 'Save').props.onClick()
+  view.tree = view.rerender()
+  assert.ok(button(ui(view.tree), 'Save anyway'))
+})
+
 test('a Bot whose last applied model survives switches back to it', async () => {
   const bot = { id: 'b1', name: 'Writer', model: 'relay/manual', appliedModel: 'relay/a' }
   const view = row({ roster: teamRoster([bot]) })
