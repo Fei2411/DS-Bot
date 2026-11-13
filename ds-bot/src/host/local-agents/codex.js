@@ -78,6 +78,9 @@ export class CodexEngine {
       case 'turn/completed': {
         if (thread === undefined) break
         const turn = params?.turn ?? {}
+        // The thread has no live turn now: a steer cannot land on it, and the
+        // adapter has to start a new one instead of dropping the input.
+        thread.turnId = undefined
         if (turn.status === 'failed') thread.push({ type: 'error', error: new Error(turn.error?.message ?? 'the turn failed') })
         else thread.push({ type: 'done', reason: 'stop' })
         break
@@ -166,8 +169,17 @@ export class CodexEngine {
     return thread.turnId
   }
 
+  // Codex's app-server refuses a steer that does not name the turn it steers, and
+  // a refused steer must reach the adapter: it starts a turn of its own instead of
+  // dropping the user's answer. A thread with no live turn cannot be steered at all.
+  canSteer(thread) {
+    return thread?.turnId !== undefined
+  }
+
   async steer(thread, text) {
-    await this.peer?.request('turn/steer', { threadId: thread.threadId, input: [{ type: 'text', text }] }, { timeout: 15_000 }).catch(() => {})
+    const expectedTurnId = thread?.turnId
+    if (expectedTurnId === undefined) throw new Error('the turn this input steers has already ended')
+    await this.peer?.request('turn/steer', { threadId: thread.threadId, expectedTurnId, input: [{ type: 'text', text }] }, { timeout: 15_000 })
   }
 
   cancel(thread) {

@@ -300,12 +300,15 @@ export class LocalAgentAdapter extends LlmAdapter {
     // A user message never resolves an approve_agent_action pending: only that
     // tool's own result may. User text may answer a pending bridged MCP call
     // whose DSH tool concluded the turn (a question-type card).
+    const settled = []
     for (const message of delta) {
       if (message.role !== 'tool') continue
       const pending = live.pending.get(message.toolCallId)
       if (pending === undefined) continue
       live.pending.delete(message.toolCallId)
-      pending.resolve({ text: textOf(message.content) || (message.isError ? 'the call failed' : ''), isError: message.isError === true })
+      const text = textOf(message.content) || (message.isError ? 'the call failed' : '')
+      pending.resolve({ text, isError: message.isError === true })
+      settled.push({ name: pending.name, text, isError: message.isError === true })
     }
     // The loop's runtime-context user messages are context, not input: they
     // fold into the next prompt or steer, never start a prompt on their own.
@@ -401,6 +404,15 @@ export class LocalAgentAdapter extends LlmAdapter {
         sentInstructions = true
       }
     }
+    // A card can outlive the CLI's turn: the CLI finished — often by timing out on the
+    // call it bridged out — while the user was still deciding. The answer then has to
+    // start a turn of its own, or the user's decision never reaches the agent and the
+    // stream ends by reading the finished turn's old reply (#1513).
+    if (promptText === '' && settled.length > 0 && live.engine.canSteer?.(live.engineSession) === false) {
+      const answer = settled.map(entry => `${entry.name} → ${entry.text === '' ? (entry.isError ? 'failed' : 'no result') : entry.text}`).join('\n')
+      live.events.length = 0
+      this.startTurn(live, `The calls that were waiting on the user are settled:\n\n${answer}\n\nContinue from where the turn stopped.`, options.signal, options.reasoningEffort)
+    }
     if (promptText !== '') {
       this.sendInput(live, promptText, options.signal, options.reasoningEffort)
       if (sentInstructions) live.promptHash = promptHash
@@ -448,14 +460,33 @@ export class LocalAgentAdapter extends LlmAdapter {
   sendInput(live, text, signal, effort) {
     if (live.state !== 'idle') {
       if (live.spec.kind === 'acp') { live.queue.push(text); return }
+      // Steering lands on a turn that is still running. When the CLI finished the
+      // turn behind a card — the usual case for an answer that arrives late — the
+      // steer has nothing to land on, and dropping it leaves the user's answer
+      // without a turn at all. Start a turn of its own instead, without the events
+      // the finished turn left behind: they would answer this one with the old reply.
+      if (live.engine.canSteer?.(live.engineSession) === false) {
+        live.events.length = 0
+        this.startTurn(live, text, signal, effort)
+        return
+      }
       try {
         Promise.resolve(live.engine.steer?.(live.engineSession, text))
-          .catch(error => live.push({ type: 'error', error }))
-      } catch (error) {
-        live.push({ type: 'error', error })
+          .catch(() => {
+            live.events.length = 0
+            this.startTurn(live, text, signal, effort)
+          })
+      } catch {
+        live.events.length = 0
+        this.startTurn(live, text, signal, effort)
       }
       return
     }
+    this.startTurn(live, text, signal, effort)
+  }
+
+  // A prompt of its own: the CLI begins a turn that answers this text.
+  startTurn(live, text, signal, effort) {
     live.state = 'running'
     try {
       Promise.resolve(live.engine.prompt(live.engineSession, [{ type: 'text', text }], { signal, effort }))

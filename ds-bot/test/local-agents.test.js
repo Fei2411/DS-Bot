@@ -880,3 +880,40 @@ test('an open-ended request outlives the default deadline', async () => {
   peer.handleLine(JSON.stringify({ jsonrpc: '2.0', id: 1, result: { stopReason: 'end_turn' } }))
   assert.deepEqual(await open, { stopReason: 'end_turn' }, 'a 0 timeout never expires')
 })
+
+// #1513: a card that suspends the stream can outlive the CLI's turn. The answer must
+// start a turn of its own, and the finished turn's leftover events must not answer it.
+test('codex app-server: an answer whose turn already ended starts a new turn', async (t) => {
+  const adapter = makeAdapter()
+  t.after(() => adapter.dispose())
+  const messages = [user('m1', 'late-ask')]
+  const first = await collect(adapter.stream(options('s1', messages, { provider: 'local-codex-cli' })))
+  const call = first.calls.find(entry => entry.name === 'approve_agent_action')
+  assert.ok(call, 'the approval came as a card')
+  // The CLI's turn completed while the card was open: its `done` is still queued.
+  await new Promise(resolve => setTimeout(resolve, 100))
+  const second = await collect(adapter.stream(options('s1', [...messages, toolResult('t1', call.id, '{"decision":"allow"}', false)], { provider: 'local-codex-cli' })))
+  // The answer opened a turn of its own, and the stream says what that turn said.
+  assert.match(second.text, /ok: /, JSON.stringify(second))
+  assert.equal(second.finish?.kind, 'stop')
+})
+
+test('codex app-server: a steer names the turn it steers, and a finished turn cannot be steered', async (t) => {
+  const recordPath = join(mkdtempSync(join(tmpdir(), 'dsb-steer-')), 'record.jsonl')
+  const engine = new CodexEngine('local-codex-cli', { command: process.execPath, args: [FIXTURES.codex, '--record', recordPath] }, { findExecutable: path => path })
+  t.after(() => { engine.close?.() })
+  const thread = await engine.open('s1', { cwd: mkdtempSync(join(tmpdir(), 'dsb-steer-cwd-')), mode: 'workspace-write' })
+  const turnId = await engine.prompt(thread, [{ type: 'text', text: 'hold' }], {})
+  assert.equal(engine.canSteer(thread), true, 'the turn is live')
+  await engine.steer(thread, 'steer me')
+  const lines = readFileSync(recordPath, 'utf8').trim().split('\n').filter(line => line !== '').map(line => JSON.parse(line))
+  const steer = lines.find(entry => entry.method === 'turn/steer')
+  assert.ok(steer, 'a steer was sent')
+  assert.equal(steer.params.expectedTurnId, turnId, 'the steer names the turn it steers')
+  assert.equal(steer.params.input[0].text, 'steer me')
+  // A turn that ended has nothing to steer: the engine says so instead of dropping the input.
+  thread.push({ type: 'done' })
+  thread.turnId = undefined
+  assert.equal(engine.canSteer(thread), false)
+  await assert.rejects(() => engine.steer(thread, 'too late'), /already ended/)
+})
