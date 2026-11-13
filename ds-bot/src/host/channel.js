@@ -588,6 +588,7 @@ export function install(rt) {
         case 'room-chat':
         case 'image':
         case 'file-download':
+        case 'markdown-image':
         case 'usage-summary':
         case 'memory-edit':
         case 'memory-add':

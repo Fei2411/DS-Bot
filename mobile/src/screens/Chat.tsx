@@ -10,6 +10,7 @@ import { createChatCache } from '../team/chat-cache.ts'
 import { useTeam } from '../team/context.tsx'
 import { markSeen } from '../team/seen.ts'
 import { messageClock, t } from '../ui/i18n.ts'
+import { ErrorBoundary } from '../ui/error-boundary.tsx'
 import { shadow, useTheme } from '../ui/tokens.ts'
 import { Avatar, RoomAvatar } from '../ui/marks.tsx'
 import { ArrowDownIcon } from '../ui/icons.tsx'
@@ -48,6 +49,19 @@ function keepSame(prev: ChatItem[], next: ChatItem[]): ChatItem[] {
 // once and the read only brings what changed. Kept in memory only.
 const PAGES_KEPT = 16
 const pages = createChatCache<ChatPage, ChatItem>(PAGES_KEPT)
+
+// Remember scroll positions across chat switches and reconnects so reading history
+// stays where the user scrolled when new replies or state refreshes land.
+const SCROLL_OFFSETS_KEPT = 50
+const scrollOffsets = new Map<string, number>()
+function keepScrollOffset(key: string, offset: number): void {
+  scrollOffsets.delete(key)
+  scrollOffsets.set(key, Math.max(0, offset))
+  if (scrollOffsets.size > SCROLL_OFFSETS_KEPT) {
+    const oldest = scrollOffsets.keys().next().value
+    if (oldest !== undefined) scrollOffsets.delete(oldest)
+  }
+}
 
 // A chat read started before the chat is on screen: on launch the last chat is asked
 // for while the team state is still on its way, and the chat takes that answer.
@@ -104,12 +118,16 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
   // A failed load clears itself on the next good one.
   const [loadError, setLoadError] = useState<string | null>(null)
   const [loadingOlder, setLoadingOlder] = useState(false)
-  const [awayFromLatest, setAwayFromLatest] = useState(false)
+  const [awayFromLatest, setAwayFromLatest] = useState(() => (scrollOffsets.get(chatKey) ?? 0) > 600)
+  const [unreadBelow, setUnreadBelow] = useState(0)
   // Each poll loop owns a generation number; a chat switch bumps it so stale
   // loops and in-flight refreshes stop writing instead of fighting the new chat.
   const generation = useRef(0)
   const list = useRef<FlatList<Row>>(null)
   const loading = useRef(false)
+  const offsetRef = useRef(scrollOffsets.get(chatKey) ?? 0)
+  const restoredForRef = useRef<string | null>(null)
+  const prevPageItemsLenRef = useRef(0)
 
   // One chat read at a time, like the team state: a burst of messages becomes one
   // read now and at most one more after it.
@@ -155,7 +173,12 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
     setPageState({ key: chatKey, page: kept?.page ?? null, older: kept?.older ?? [] })
     cursor.current = kept?.cursor
     setGone(false)
-    setAwayFromLatest(false)
+    const saved = scrollOffsets.get(chatKey) ?? 0
+    offsetRef.current = saved
+    restoredForRef.current = null
+    prevPageItemsLenRef.current = kept?.page?.items.length ?? 0
+    setAwayFromLatest(saved > 600)
+    setUnreadBelow(0)
     let timer: ReturnType<typeof setTimeout> | undefined
     const loop = async () => {
       await refresh(gen)
@@ -164,6 +187,16 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
     void loop()
     return () => { clearTimeout(timer); if (generation.current === gen) generation.current += 1 }
   }, [refresh, chatKey])
+
+  // Track newly appended messages while scrolled up reading history.
+  const latestItemsLen = page?.items.length ?? 0
+  useEffect(() => {
+    const prev = prevPageItemsLenRef.current
+    if (prev > 0 && latestItemsLen > prev && awayFromLatest) {
+      setUnreadBelow(n => n + (latestItemsLen - prev))
+    }
+    prevPageItemsLenRef.current = latestItemsLen
+  }, [latestItemsLen, awayFromLatest])
 
   // What this chat shows is kept for the next visit.
   useEffect(() => {
@@ -352,9 +385,13 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
   const renderRow = useCallback<ListRenderItem<Row>>(({ item: row }) => {
     const { item } = row
     const skey = item.kind === 'steps' ? row.key : row.key
-    return <Item stamp={row.stamp} author={inRoom && item.botId !== undefined ? botsById.get(item.botId) : undefined} admin={inRoom && item.botId !== undefined && item.botId === admin}
-      item={item} p={p} flat={flat} maxWidth={item.kind === 'bot' || item.kind === 'post' ? botMax : userMax} inRoom={inRoom} sessionId={sessionId}
-      onLongPress={setMenuText} onOpenFile={openFile} onSaveFile={saveFile} onRetry={retry} open={openSteps[skey]} onToggle={toggleOf(skey)} />
+    return (
+      <ErrorBoundary inline>
+        <Item stamp={row.stamp} author={inRoom && item.botId !== undefined ? botsById.get(item.botId) : undefined} admin={inRoom && item.botId !== undefined && item.botId === admin}
+          item={item} p={p} flat={flat} maxWidth={item.kind === 'bot' || item.kind === 'post' ? botMax : userMax} inRoom={inRoom} sessionId={sessionId}
+          onLongPress={setMenuText} onOpenFile={openFile} onSaveFile={saveFile} onRetry={retry} open={openSteps[skey]} onToggle={toggleOf(skey)} />
+      </ErrorBoundary>
+    )
   }, [inRoom, botsById, admin, p, flat, botMax, userMax, sessionId, openFile, retry, openSteps])
 
   const empty = page !== null && rows.length === 0
@@ -388,17 +425,33 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
                 windowSize={11}
                 onEndReached={() => void loadMore()}
                 onEndReachedThreshold={0.6}
-                maintainVisibleContentPosition={{ minIndexForVisible: 0, autoscrollToTopThreshold: 120 }}
-                onScroll={event => { const away = event.nativeEvent.contentOffset.y > 600; if (away !== awayFromLatest) setAwayFromLatest(away) }}
+                maintainVisibleContentPosition={{ minIndexForVisible: 0, autoscrollToTopThreshold: awayFromLatest ? undefined : 60 }}
+                onContentSizeChange={() => {
+                  const saved = scrollOffsets.get(chatKey) ?? 0
+                  if (saved > 0 && restoredForRef.current !== chatKey && rows.length > 0) {
+                    restoredForRef.current = chatKey
+                    requestAnimationFrame(() => list.current?.scrollToOffset({ offset: saved, animated: false }))
+                  }
+                }}
+                onScroll={event => {
+                  const y = event.nativeEvent.contentOffset.y
+                  offsetRef.current = y
+                  keepScrollOffset(chatKey, y)
+                  const away = y > 600
+                  if (away !== awayFromLatest) setAwayFromLatest(away)
+                  if (y <= 80 && unreadBelow > 0) setUnreadBelow(0)
+                }}
                 scrollEventThrottle={100}
                 ListHeaderComponent={<Streaming key={sessionId} sessionId={sessionId} p={p} flat={flat} maxWidth={botMax} inRoom={inRoom} />}
                 ListFooterComponent={loadingOlder ? <ActivityIndicator style={{ marginVertical: 12 }} color={p.ink3} /> : undefined}
               />}
         {empty && !gone ? <EmptyChat bot={bot} room={room} bots={team?.bots ?? []} p={p} dark={dark} /> : null}
-        {awayFromLatest ? (
-          <Pressable accessibilityRole="button" accessibilityLabel={t('Latest messages')} onPress={() => list.current?.scrollToOffset({ offset: 0, animated: true })}
-            style={[styles.toLatest, { backgroundColor: p.card, borderColor: p.line2 }, shadow(2)]}>
-            <ArrowDownIcon size={18} color={p.ink2} />
+        {awayFromLatest || unreadBelow > 0 ? (
+          <Pressable accessibilityRole="button" accessibilityLabel={t('Latest messages')}
+            onPress={() => { setUnreadBelow(0); keepScrollOffset(chatKey, 0); list.current?.scrollToOffset({ offset: 0, animated: true }) }}
+            style={[unreadBelow > 0 ? styles.toLatestPill : styles.toLatest, { backgroundColor: unreadBelow > 0 ? p.accent : p.card, borderColor: unreadBelow > 0 ? p.accent : p.line2 }, shadow(2)]}>
+            {unreadBelow > 0 ? <Text style={[type.caption, { color: p.accentInk, fontWeight: '600' }]}>{t('{count} new', { count: unreadBelow })}</Text> : null}
+            <ArrowDownIcon size={16} color={unreadBelow > 0 ? p.accentInk : p.ink2} />
           </Pressable>
         ) : null}
       </View>
@@ -590,6 +643,7 @@ const styles = StyleSheet.create({
   reader: { flex: 1 },
   empty: { position: 'absolute', left: 24, right: 24, top: '28%', alignItems: 'center' },
   toLatest: { position: 'absolute', right: 14, bottom: 10, width: 38, height: 38, borderRadius: 19, borderWidth: StyleSheet.hairlineWidth, alignItems: 'center', justifyContent: 'center' },
+  toLatestPill: { position: 'absolute', right: 14, bottom: 10, height: 36, paddingHorizontal: 12, borderRadius: 18, borderWidth: StyleSheet.hairlineWidth, flexDirection: 'row', alignItems: 'center', gap: 6 },
   goal: { marginHorizontal: 12, marginBottom: 6, borderRadius: 16, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 14, paddingVertical: 10 },
   blocked: { marginHorizontal: 12, marginBottom: 8, borderRadius: 16, borderWidth: StyleSheet.hairlineWidth, padding: 14 },
   fix: { minHeight: 40, borderRadius: 20, paddingHorizontal: 16, alignItems: 'center', justifyContent: 'center' },

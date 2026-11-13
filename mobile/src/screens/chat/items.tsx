@@ -133,6 +133,7 @@ export const Item = memo(function Item({ item, p, flat, maxWidth, inRoom, sessio
   }
   if (item.kind === 'event') {
     if (item.role === 'paused') return <Text style={[type.caption, { color: p.ink3, alignSelf: 'center', marginVertical: 4, paddingHorizontal: 12, textAlign: 'center' }]}>{t('Paused after {count} Bot relays. Waiting: {names}', { count: item.ms ?? 0, names: item.text ?? '' })}</Text>
+    if (item.role === 'schedule') return <Text style={[type.caption, { color: p.ink3, alignSelf: 'center', marginVertical: 4, paddingHorizontal: 12, textAlign: 'center' }]}>{item.text ? t('Scheduled task: {text}', { text: item.text }) : t('Routine started')}</Text>
     const name = item.name ?? t('a Bot')
     const round = roundEventText(name, item.event, item.text, item.code)
     if (round !== undefined) return <Text style={[type.caption, { color: p.ink3, alignSelf: 'center', marginVertical: 4, paddingHorizontal: 12, textAlign: 'center' }]}>{round}</Text>
@@ -241,7 +242,7 @@ export const Item = memo(function Item({ item, p, flat, maxWidth, inRoom, sessio
       <Pressable onLongPress={longPress} onPress={item.local === 'failed' && item.localId !== undefined ? () => onRetry?.(item.localId!) : undefined}
         style={[styles.bubble, styles.userBubble, { backgroundColor: p.user, maxWidth, width: wide ? maxWidth : undefined, opacity: item.local === 'sending' ? 0.7 : 1 },
           photosOnly ? { backgroundColor: 'transparent', paddingHorizontal: 0, paddingVertical: 0 } : null]}>
-        {item.text ? <Markdown text={item.text} p={p} textColor={p.userInk} bg={p.user} /> : null}
+        {item.text ? <Markdown text={item.text} p={p} textColor={p.userInk} bg={p.user} sessionId={sessionId} /> : null}
         {chips}
         {item.localImages !== undefined && item.localImages.length > 0
           ? <LocalImages uris={item.localImages} />
@@ -289,7 +290,7 @@ export const Item = memo(function Item({ item, p, flat, maxWidth, inRoom, sessio
             const last = bi === bodyTexts.length - 1
             return (
               <View key={bi} style={[styles.bubble, { backgroundColor: p.bubble, alignSelf: hasBlockContent(partText) || (last && hasImages) ? 'stretch' : 'flex-start', maxWidth: '100%' }]}>
-                <Markdown text={partText} p={p} textColor={p.ink} bg={p.bubble} />
+                <Markdown text={partText} p={p} textColor={p.ink} bg={p.bubble} sessionId={sessionId} />
                 {last && hasImages ? <ImageGrid refs={item.imageRefs!} sessionId={sessionId!} p={p} /> : null}
                 {last ? chips : null}
                 {last ? fullMessageLink : null}
@@ -313,7 +314,7 @@ export const Item = memo(function Item({ item, p, flat, maxWidth, inRoom, sessio
     return (
       <Pressable onLongPress={longPress} style={{ alignSelf: 'stretch', marginVertical: 4 }}>
         {name}
-        {bodyTexts.length > 0 ? <Markdown text={bodyJoined} p={p} textColor={p.ink} bg={p.main} /> : null}
+        {bodyTexts.length > 0 ? <Markdown text={bodyJoined} p={p} textColor={p.ink} bg={p.main} sessionId={sessionId} /> : null}
         {hasImages ? <ImageGrid refs={item.imageRefs!} sessionId={sessionId!} p={p} /> : null}
         {chips}
         {fullMessageLink}
@@ -325,7 +326,7 @@ export const Item = memo(function Item({ item, p, flat, maxWidth, inRoom, sessio
     <Pressable onLongPress={longPress} style={{ alignSelf: 'flex-start', maxWidth, width: wide ? maxWidth : undefined }}>
       {name}
       <View style={[styles.bubble, { backgroundColor: p.bubble, maxWidth: '100%' }]}>
-        {bodyTexts.length > 0 ? <Markdown text={bodyJoined} p={p} textColor={p.ink} bg={p.bubble} /> : null}
+        {bodyTexts.length > 0 ? <Markdown text={bodyJoined} p={p} textColor={p.ink} bg={p.bubble} sessionId={sessionId} /> : null}
         {hasImages ? <ImageGrid refs={item.imageRefs!} sessionId={sessionId!} p={p} /> : null}
         {chips}
         {fullMessageLink}

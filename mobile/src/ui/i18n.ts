@@ -43,6 +43,7 @@ const MOBILE_ZH: Record<string, string> = {
   'Message {name}': '发消息给 {name}',
   'Your answer': '你的回答',
   'No messages yet': '还没有消息',
+  '{count} new': '{count} 条新消息',
   'asked for work': '来要工作',
   'replied': '回复了',
   'reported back': '交回了工作',
