@@ -19,12 +19,13 @@ test('the state poll stretches while nothing changes and snaps back when somethi
   assert.equal(pollDelay(1500, -3), 1500)
 })
 
-test('the OS idle time is read only while a Bot waits for the user to step away', () => {
-  assert.equal(needsIdleSample(undefined), false)
-  assert.equal(needsIdleSample({}), false)
-  assert.equal(needsIdleSample({ bots: {} }), false)
+test('the OS idle time is read while a Bot has foreground control or waits for idle', () => {
+  assert.equal(needsIdleSample(undefined, undefined), false)
+  assert.equal(needsIdleSample({}, {}), false)
+  assert.equal(needsIdleSample({ bots: {} }, { bots: { a: { level: 'background' }, b: { level: 'view' } } }), false)
   assert.equal(needsIdleSample({ bots: { a: { appName: 'Finder' } } }), false)
   assert.equal(needsIdleSample({ bots: { a: { waitingFor: 'window' } } }), false)
   assert.equal(needsIdleSample({ bots: { a: { waitingFor: 'user-idle' } } }), true)
   assert.equal(needsIdleSample({ bots: { a: {}, b: { waitingFor: 'user-idle' } } }), true)
+  assert.equal(needsIdleSample({ bots: {} }, { bots: { a: { level: 'background' }, b: { level: 'foreground' } } }), true)
 })

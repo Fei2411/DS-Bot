@@ -184,6 +184,7 @@ export function apply(ctx) {
     const value = await call('state', { since: known.revision, models: known.modelsKey ?? '', live: liveKey, locale: language() })
     if (order < applied) return
     applied = order
+    const prevLiveKey = liveKey
     if (value.liveKey !== undefined) liveKey = value.liveKey
     if (value.activity !== undefined) {
       const nextActivity = JSON.stringify(value.activity)
@@ -211,7 +212,9 @@ export function apply(ctx) {
     if (value.imStatus !== undefined && JSON.stringify(value.imStatus) !== JSON.stringify(current.imStatus ?? {})) live.imStatus = value.imStatus
     if (value.imVia !== undefined && JSON.stringify(value.imVia) !== JSON.stringify(current.imVia ?? {})) live.imVia = value.imVia
     if (Object.keys(live).length > 0 && current.ready) roster.set({ ...current, ...live })
-    if (value.unchanged || (value.revision === current.revision && value.modelsKey === current.modelsKey)) return false
+    if (value.unchanged || (value.revision === current.revision && value.modelsKey === current.modelsKey)) {
+      return value.liveKey !== undefined && value.liveKey !== prevLiveKey
+    }
     // On a browser with no visit record yet, everything already there counts as seen.
     if (Object.keys(seenAt).length === 0) leaveVisits([...value.bots, ...value.rooms].map(entry => entry.id))
     roster.set(indexRoster(value))
@@ -828,9 +831,10 @@ export function apply(ctx) {
   if (typeof appComputer?.idleSeconds === 'function') {
     ctx.effect(() => {
       const push = () => {
-        if (roster.getSnapshot().computer?.enabled !== true) return
-        // Nothing reads the OS idle time unless a Bot is waiting for the user to step away.
-        if (!needsIdleSample(computer.getSnapshot())) return
+        const current = roster.getSnapshot()
+        if (current.computer?.enabled !== true) return
+        // Read OS idle time whenever a Bot can claim foreground control or is waiting for idle.
+        if (!needsIdleSample(computer.getSnapshot(), current.computer)) return
         void Promise.resolve(appComputer.idleSeconds()).then((idle) => {
           if (Number.isFinite(idle)) call('computer-user-active', { idleSeconds: idle }).catch(() => {})
         }).catch(() => {})

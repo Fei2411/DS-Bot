@@ -23,11 +23,14 @@ export function pollDelay(base, unchanged) {
 }
 
 /**
- * Whether the desktop app must read the OS idle time now: only a Bot waiting for the
- * user to step away needs it, so nothing is read while no Bot waits.
- * @param {{bots?: Record<string, {waitingFor?: string}>}} computer the computer source
+ * Whether the desktop app must read the OS idle time now: when any Bot has foreground
+ * control (so `userActive` stays fresh before `computerGate` evaluates a foreground call)
+ * or is already waiting for the user to step away.
+ * @param {{bots?: Record<string, {waitingFor?: string}>}} computer live computer control state
+ * @param {{bots?: Record<string, {level?: string}>}} settings roster computer view
  * @returns {boolean}
  */
-export function needsIdleSample(computer) {
+export function needsIdleSample(computer, settings) {
   return Object.values(computer?.bots ?? {}).some(entry => entry?.waitingFor === 'user-idle')
+    || Object.values(settings?.bots ?? {}).some(bot => bot?.level === 'foreground')
 }

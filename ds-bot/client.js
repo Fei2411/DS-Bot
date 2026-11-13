@@ -41173,8 +41173,8 @@ function pollDelay(base, unchanged) {
   const steps = Math.min(Math.max(unchanged, 0), 8);
   return Math.min(base * 2 ** steps, Math.max(base, POLL_MAX_MS));
 }
-function needsIdleSample(computer) {
-  return Object.values(computer?.bots ?? {}).some((entry) => entry?.waitingFor === "user-idle");
+function needsIdleSample(computer, settings) {
+  return Object.values(computer?.bots ?? {}).some((entry) => entry?.waitingFor === "user-idle") || Object.values(settings?.bots ?? {}).some((bot) => bot?.level === "foreground");
 }
 
 // src/client/agent-new.js
@@ -41291,6 +41291,7 @@ function apply(ctx) {
     const value = await call("state", { since: known.revision, models: known.modelsKey ?? "", live: liveKey, locale: language() });
     if (order < applied) return;
     applied = order;
+    const prevLiveKey = liveKey;
     if (value.liveKey !== void 0) liveKey = value.liveKey;
     if (value.activity !== void 0) {
       const nextActivity = JSON.stringify(value.activity);
@@ -41326,7 +41327,9 @@ function apply(ctx) {
     if (value.imStatus !== void 0 && JSON.stringify(value.imStatus) !== JSON.stringify(current.imStatus ?? {})) live2.imStatus = value.imStatus;
     if (value.imVia !== void 0 && JSON.stringify(value.imVia) !== JSON.stringify(current.imVia ?? {})) live2.imVia = value.imVia;
     if (Object.keys(live2).length > 0 && current.ready) roster.set({ ...current, ...live2 });
-    if (value.unchanged || value.revision === current.revision && value.modelsKey === current.modelsKey) return false;
+    if (value.unchanged || value.revision === current.revision && value.modelsKey === current.modelsKey) {
+      return value.liveKey !== void 0 && value.liveKey !== prevLiveKey;
+    }
     if (Object.keys(seenAt).length === 0) leaveVisits([...value.bots, ...value.rooms].map((entry) => entry.id));
     roster.set(indexRoster(value));
     try {
@@ -41941,8 +41944,9 @@ function apply(ctx) {
   if (typeof appComputer?.idleSeconds === "function") {
     ctx.effect(() => {
       const push = () => {
-        if (roster.getSnapshot().computer?.enabled !== true) return;
-        if (!needsIdleSample(computer.getSnapshot())) return;
+        const current = roster.getSnapshot();
+        if (current.computer?.enabled !== true) return;
+        if (!needsIdleSample(computer.getSnapshot(), current.computer)) return;
         void Promise.resolve(appComputer.idleSeconds()).then((idle) => {
           if (Number.isFinite(idle)) call("computer-user-active", { idleSeconds: idle }).catch(() => {
           });
