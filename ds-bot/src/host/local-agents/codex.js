@@ -70,9 +70,12 @@ export class CodexEngine {
       case 'item/completed': {
         const item = params?.item ?? {}
         if (thread === undefined) break
-        if (item.type === 'agentMessage' || item.type === 'agent_message') thread.push({ type: 'text', text: item.text ?? '' })
-        else if (item.type === 'reasoning') thread.push({ type: 'thought', text: (item.content ?? []).join('') || item.text || '' })
-        else if (method === 'item/started' && item.type !== undefined) thread.push({ type: 'activity', text: `▸ ${activityOf(item)}` })
+        // Every event names its turn, so the adapter can tell a finished turn's
+        // leftovers from the turn it reads now (#1513).
+        const turnId = params?.turnId
+        if (item.type === 'agentMessage' || item.type === 'agent_message') thread.push({ type: 'text', text: item.text ?? '', turnId })
+        else if (item.type === 'reasoning') thread.push({ type: 'thought', text: (item.content ?? []).join('') || item.text || '', turnId })
+        else if (method === 'item/started' && item.type !== undefined) thread.push({ type: 'activity', text: `▸ ${activityOf(item)}`, turnId })
         break
       }
       case 'turn/completed': {
@@ -81,14 +84,14 @@ export class CodexEngine {
         // The thread has no live turn now: a steer cannot land on it, and the
         // adapter has to start a new one instead of dropping the input.
         thread.turnId = undefined
-        if (turn.status === 'failed') thread.push({ type: 'error', error: new Error(turn.error?.message ?? 'the turn failed') })
-        else thread.push({ type: 'done', reason: 'stop' })
+        if (turn.status === 'failed') thread.push({ type: 'error', error: new Error(turn.error?.message ?? 'the turn failed'), turnId: turn.id })
+        else thread.push({ type: 'done', reason: 'stop', turnId: turn.id })
         break
       }
       case 'thread/tokenUsage/updated': {
         if (thread === undefined) break
         const usage = params?.tokenUsage ?? params?.usage
-        if (usage !== undefined) thread.push({ type: 'usage', usage: { inputTokens: usage.inputTokens ?? usage.input_tokens ?? 0, outputTokens: usage.outputTokens ?? usage.output_tokens ?? 0 } })
+        if (usage !== undefined) thread.push({ type: 'usage', usage: { inputTokens: usage.inputTokens ?? usage.input_tokens ?? 0, outputTokens: usage.outputTokens ?? usage.output_tokens ?? 0 }, turnId: params?.turnId })
         break
       }
       default: break

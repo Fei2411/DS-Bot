@@ -898,9 +898,36 @@ test('codex app-server: an answer whose turn already ended starts a new turn', a
   assert.equal(second.finish?.kind, 'stop')
 })
 
+test('codex app-server: a steer refused while the turn ends still gets a turn of its own', async (t) => {
+  const adapter = makeAdapter()
+  t.after(() => adapter.dispose())
+  const messages = [user('m1', 'hold-ask')]
+  const first = await collect(adapter.stream(options('s1', messages, { provider: 'local-codex-cli' })))
+  assert.ok(first.calls.some(entry => entry.name === 'approve_agent_action'), 'the card came through')
+  // The CLI refuses the steer and completes the turn in the same breath.
+  const second = await collect(adapter.stream(options('s1', [...messages, user('m2', 'race')], { provider: 'local-codex-cli' })))
+  assert.match(second.text, /ok: race/, JSON.stringify(second))
+})
+
+test('codex app-server: text answering a bridged call after the turn ended starts one', async (t) => {
+  const adapter = makeAdapter()
+  t.after(() => adapter.dispose())
+  const messages = [user('m1', 'late-ask')]
+  const first = await collect(adapter.stream(options('s1', messages, { provider: 'local-codex-cli' })))
+  assert.ok(first.calls.some(entry => entry.name === 'approve_agent_action'), 'the card came through')
+  // A loopback call is still open — browser_handoff and friends look like this — and
+  // the user answers it with plain text after the CLI's turn already ended.
+  const live = adapter.live.get('s1')
+  const answered = []
+  live.pending.set('bridged-1', { name: 'browser_handoff', resolve: result => answered.push(result) })
+  const second = await collect(adapter.stream(options('s1', [...messages, user('m2', 'yes, go ahead')], { provider: 'local-codex-cli' })))
+  assert.deepEqual(answered, [{ text: 'yes, go ahead' }], 'the answer reached the bridged call')
+  assert.match(second.text, /ok: The calls that were waiting on the user are settled/, JSON.stringify(second))
+})
+
 test('codex app-server: a steer names the turn it steers, and a finished turn cannot be steered', async (t) => {
   const recordPath = join(mkdtempSync(join(tmpdir(), 'dsb-steer-')), 'record.jsonl')
-  const engine = new CodexEngine('local-codex-cli', { command: process.execPath, args: [FIXTURES.codex, '--record', recordPath] }, { findExecutable: path => path })
+  const engine = new CodexEngine('local-codex-cli', { name: 'Codex', command: process.execPath, args: [FIXTURES.codex, '--record', recordPath] }, { findExecutable: path => path })
   t.after(() => { engine.close?.() })
   const thread = await engine.open('s1', { cwd: mkdtempSync(join(tmpdir(), 'dsb-steer-cwd-')), mode: 'workspace-write' })
   const turnId = await engine.prompt(thread, [{ type: 'text', text: 'hold' }], {})
@@ -911,9 +938,9 @@ test('codex app-server: a steer names the turn it steers, and a finished turn ca
   assert.ok(steer, 'a steer was sent')
   assert.equal(steer.params.expectedTurnId, turnId, 'the steer names the turn it steers')
   assert.equal(steer.params.input[0].text, 'steer me')
-  // A turn that ended has nothing to steer: the engine says so instead of dropping the input.
-  thread.push({ type: 'done' })
-  thread.turnId = undefined
-  assert.equal(engine.canSteer(thread), false)
+  // A turn the CLI ends has nothing to steer: it says so instead of dropping the input.
+  await engine.prompt(thread, [{ type: 'text', text: 'bye' }], {})
+  for (let attempt = 0; attempt < 100 && engine.canSteer(thread); attempt += 1) await new Promise(resolve => setTimeout(resolve, 10))
+  assert.equal(engine.canSteer(thread), false, 'turn/completed cleared the live turn')
   await assert.rejects(() => engine.steer(thread, 'too late'), /already ended/)
 })

@@ -325,7 +325,11 @@ export class LocalAgentAdapter extends LlmAdapter {
       if (!answered && openCall !== undefined) {
         const [id, pending] = openCall
         live.pending.delete(id)
-        pending.resolve({ text: textOf(message.content) })
+        const answer = textOf(message.content)
+        pending.resolve({ text: answer })
+        // The CLI may have finished while this call waited; the answer is then a
+        // settled result the turn below has to carry, like a tool result (#1513).
+        settled.push({ name: openCall[1].name, text: answer, isError: false })
         answered = true
       } else {
         remaining.push(message)
@@ -408,19 +412,27 @@ export class LocalAgentAdapter extends LlmAdapter {
     // call it bridged out — while the user was still deciding. The answer then has to
     // start a turn of its own, or the user's decision never reaches the agent and the
     // stream ends by reading the finished turn's old reply (#1513).
-    if (promptText === '' && settled.length > 0 && live.engine.canSteer?.(live.engineSession) === false) {
+    // A settled answer has to reach the agent even when the CLI's turn is over: its
+    // turn may still look alive here and end a moment later without reading the
+    // answer, which is why the drain also catches a turn that ends silently.
+    if (settled.length > 0) {
       const answer = settled.map(entry => `${entry.name} → ${entry.text === '' ? (entry.isError ? 'failed' : 'no result') : entry.text}`).join('\n')
-      live.events.length = 0
-      this.startTurn(live, `The calls that were waiting on the user are settled:\n\n${answer}\n\nContinue from where the turn stopped.`, options.signal, options.reasoningEffort)
+      const continuation = `The calls that were waiting on the user are settled:\n\n${answer}\n\nContinue from where the turn stopped.`
+      if (promptText === '' && live.engine.canSteer?.(live.engineSession) === false) {
+        live.events.length = 0
+        await this.startTurn(live, continuation, options.signal, options.reasoningEffort)
+      } else {
+        live.continuation = continuation
+      }
     }
     if (promptText !== '') {
-      this.sendInput(live, promptText, options.signal, options.reasoningEffort)
+      await this.sendInput(live, promptText, options.signal, options.reasoningEffort)
       if (sentInstructions) live.promptHash = promptHash
       // ACP only counts instructions once they reach the agent with a prompt.
       if (live.spec.kind === 'acp' && (freshCli || sentInstructions)) live.promptHash = promptHash
     }
     if (live.spec.kind === 'acp' && freshCli && promptText === '' && instructions !== undefined) {
-      this.sendInput(live, `Follow these instructions from the user's team for everything you do here. They sit on top of your own; when they conflict, these win.\n\n${instructions}`, options.signal, options.reasoningEffort)
+      await this.sendInput(live, `Follow these instructions from the user's team for everything you do here. They sit on top of your own; when they conflict, these win.\n\n${instructions}`, options.signal, options.reasoningEffort)
       live.promptHash = promptHash
     }
 
@@ -457,9 +469,13 @@ export class LocalAgentAdapter extends LlmAdapter {
   // ends, inside the same stream). The prompt request itself stays open for
   // the whole turn (ACP session/prompt ends when the agent's turn does), so it
   // is sent but not awaited; a send failure lands in the queue as an error.
+  // Resolves once the input is settled: the CLI took the steer, a turn of its own
+  // started, or the prompt is away. The caller waits for it before reading the CLI,
+  // so a steer that fails after the finished turn's `done` arrived still gets a turn
+  // of its own instead of being read as this turn's end (#1513).
   sendInput(live, text, signal, effort) {
     if (live.state !== 'idle') {
-      if (live.spec.kind === 'acp') { live.queue.push(text); return }
+      if (live.spec.kind === 'acp') { live.queue.push(text); return Promise.resolve() }
       // Steering lands on a turn that is still running. When the CLI finished the
       // turn behind a card — the usual case for an answer that arrives late — the
       // steer has nothing to land on, and dropping it leaves the user's answer
@@ -467,32 +483,38 @@ export class LocalAgentAdapter extends LlmAdapter {
       // the finished turn left behind: they would answer this one with the old reply.
       if (live.engine.canSteer?.(live.engineSession) === false) {
         live.events.length = 0
-        this.startTurn(live, text, signal, effort)
-        return
+        return this.startTurn(live, text, signal, effort)
+      }
+      // The turn's id has to be known before the stream reads the CLI, or the finished
+      // turn's own `done` would be read as this turn's end.
+      const recover = () => {
+        live.events.length = 0
+        return this.startTurn(live, text, signal, effort)
       }
       try {
-        Promise.resolve(live.engine.steer?.(live.engineSession, text))
-          .catch(() => {
-            live.events.length = 0
-            this.startTurn(live, text, signal, effort)
-          })
+        return Promise.resolve(live.engine.steer?.(live.engineSession, text)).then(() => {}, recover)
       } catch {
-        live.events.length = 0
-        this.startTurn(live, text, signal, effort)
+        recover()
+        return Promise.resolve()
       }
-      return
     }
     this.startTurn(live, text, signal, effort)
+    return Promise.resolve()
   }
 
   // A prompt of its own: the CLI begins a turn that answers this text.
   startTurn(live, text, signal, effort) {
     live.state = 'running'
+    // The turn an engine names is the one this stream reads: a finished turn's late
+    // events carry another id and are dropped instead of answering this one (#1513).
+    live.turnTag = undefined
     try {
-      Promise.resolve(live.engine.prompt(live.engineSession, [{ type: 'text', text }], { signal, effort }))
+      return Promise.resolve(live.engine.prompt(live.engineSession, [{ type: 'text', text }], { signal, effort }))
+        .then((turnId) => { if (turnId !== undefined) live.turnTag = turnId })
         .catch(error => live.push({ type: 'error', error }))
     } catch (error) {
       live.push({ type: 'error', error })
+      return Promise.resolve()
     }
   }
 
@@ -536,7 +558,9 @@ export class LocalAgentAdapter extends LlmAdapter {
         yield { type: 'finish', reason: { kind: 'aborted', failure: { code: 'ABORTED', message: 'the turn was stopped' } } }
         return
       }
-      switch (event.type) {
+      // A finished turn's leftovers must not answer the turn this stream reads.
+    if (event.turnId !== undefined && live.turnTag !== undefined && event.turnId !== live.turnTag) continue
+    switch (event.type) {
         case 'text': {
           if (textIndex === -1) {
             if (thinkIndex !== -1) { yield { type: 'block-end', index: thinkIndex, block: { type: 'reasoning', text: thinkBuf } }; thinkIndex = -1; thinkBuf = '' }
@@ -585,6 +609,17 @@ export class LocalAgentAdapter extends LlmAdapter {
           return
         }
         case 'done': {
+          // The answer resolved a call this turn never read — it ended while the user
+          // was still deciding. Nothing was said after that answer, so start the turn
+          // that carries it instead of ending on the finished turn's old reply (#1513).
+          if (live.continuation !== undefined && index === 0) {
+            const continuation = live.continuation
+            live.continuation = undefined
+            live.events.length = 0
+            await this.startTurn(live, continuation, options.signal, options.reasoningEffort)
+            break
+          }
+          live.continuation = undefined
           yield* closeBlocks()
           if (event.usage !== undefined) yield { type: 'usage', usage: event.usage }
           live.state = 'idle'
