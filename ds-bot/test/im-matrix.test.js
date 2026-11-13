@@ -8,6 +8,7 @@ import matrix from '../src/host/im/platforms/matrix.js'
 async function fakeMatrix() {
   const calls = []
   const batches = []
+  let firstSync = null
   const MEDIA = Buffer.from('file-bytes')
   const http = createServer((req, res) => {
     let body = ''
@@ -22,8 +23,8 @@ async function fakeMatrix() {
       if (url.startsWith('/_matrix/client/v3/account/whoami')) return json({ user_id: '@bot:example.org' })
       if (url.includes('/account_data/m.direct')) return json({})
       if (url.startsWith('/_matrix/client/v3/sync')) {
+        if (url.includes('timeout=0')) return json(firstSync ?? { next_batch: 'first', rooms: {} })
         const batch = batches.length > 1 ? batches.shift() : batches[0]
-        if (url.includes('timeout=0')) return json({ next_batch: 'first', rooms: {} })
         return json(batch ?? { next_batch: 'empty' })
       }
       if (url.startsWith('/_matrix/client/v3/join/')) return json({ room_id: decodeURIComponent(url.split('/join/')[1]) })
@@ -41,6 +42,7 @@ async function fakeMatrix() {
   return {
     url: `http://127.0.0.1:${http.address().port}`,
     calls, batches, MEDIA,
+    setFirst: payload => { firstSync = payload },
     close: () => { http.closeAllConnections?.(); http.close() },
   }
 }
@@ -53,7 +55,7 @@ const envOf = () => ({
   log: { warn: () => {} },
 })
 
-const until = async (fn, tries = 100) => {
+const until = async (fn, tries = 120) => {
   for (let at = 0; at < tries; at += 1) {
     const value = await fn()
     if (value !== undefined && value !== false) return value
@@ -70,13 +72,10 @@ const message = (over = {}) => ({
   ...over,
 })
 
-const room = ({ members = [], events = [], name } = {}) => ({
-  state: {
-    events: [
-      ...(name === undefined ? [] : [{ type: 'm.room.name', content: { name } }]),
-      ...members.map(user => ({ type: 'm.room.member', state_key: user, content: { membership: 'join' } })),
-    ],
-  },
+const members = (ids) => ids.map(user => ({ type: 'm.room.member', state_key: user, content: { membership: 'join' } }))
+
+const room = ({ join = [], events = [], name } = {}) => ({
+  state: { events: [...(name === undefined ? [] : [{ type: 'm.room.name', content: { name } }]), ...members(join)] },
   timeline: { events },
 })
 
@@ -100,9 +99,16 @@ test('check names the account from the homeserver', async () => {
   } finally { fake.close() }
 })
 
+test('a plain-http homeserver is refused, so the token never travels in the clear', async () => {
+  await assert.rejects(
+    () => matrix.check({ ...FIELDS(), homeserver: 'http://matrix.example.org' }, envOf()),
+    /must start with https/,
+  )
+})
+
 test('a two-member room reads as a direct chat', async () => {
   const fake = await fakeMatrix()
-  fake.batches.push({ next_batch: 'n1', rooms: { join: { '!dm:example.org': room({ members: ['@bot:example.org', '@ada:example.org'], events: [message()] }) } } })
+  fake.batches.push({ next_batch: 'n1', rooms: { join: { '!dm:example.org': room({ join: ['@bot:example.org', '@ada:example.org'], events: [message()] }) } } })
   try {
     const { handle, seen } = await connected(fake)
     const got = await until(async () => seen[0])
@@ -114,36 +120,86 @@ test('a two-member room reads as a direct chat', async () => {
   } finally { fake.close() }
 })
 
-test('a group room answers only when the bot is mentioned', async () => {
+test('the first sync delivers what arrived while the Bot was off', async () => {
   const fake = await fakeMatrix()
-  const members = ['@bot:example.org', '@ada:example.org', '@bob:example.org']
-  fake.batches.push({
-    next_batch: 'n1',
+  fake.setFirst({
+    next_batch: 'first',
     rooms: {
       join: {
-        '!group:example.org': room({
-          members,
-          name: 'Team',
-          events: [
-            message({ event_id: '$quiet', content: { msgtype: 'm.text', body: 'no mention here' } }),
-            message({
-              event_id: '$loud',
-              content: { msgtype: 'm.text', body: 'bot please answer', 'm.mentions': { user_ids: ['@bot:example.org'] } },
-            }),
-          ],
+        '!dm:example.org': room({
+          join: ['@bot:example.org', '@ada:example.org'],
+          events: [message({ event_id: '$offline', content: { msgtype: 'm.text', body: 'sent while you were off' } })],
         }),
+      },
+    },
+  })
+  fake.batches.push({ next_batch: 'n2', rooms: {} })
+  try {
+    const { handle, seen } = await connected(fake)
+    const got = await until(async () => seen.find(entry => entry.messageId === '$offline'))
+    assert.equal(got.text, 'sent while you were off')
+    handle.stop()
+  } finally { fake.close() }
+})
+
+test('a group room keeps its kind without member events, and needs a mention', async () => {
+  const fake = await fakeMatrix()
+  const team = ['@bot:example.org', '@ada:example.org', '@bob:example.org']
+  fake.setFirst({ next_batch: 'first', rooms: { join: { '!group:example.org': room({ join: team, name: 'Team' }) } } })
+  fake.batches.push({
+    next_batch: 'n2',
+    rooms: {
+      join: {
+        '!group:example.org': {
+          timeline: {
+            events: [
+              message({ event_id: '$quiet', content: { msgtype: 'm.text', body: 'no mention here' } }),
+              message({ event_id: '$loud', content: { msgtype: 'm.text', body: 'please answer', 'm.mentions': { user_ids: ['@bot:example.org'] } } }),
+            ],
+          },
+        },
       },
     },
   })
   try {
     const { handle, seen } = await connected(fake)
-    const got = await until(async () => seen.find(entry => entry.messageId === '$loud'))
-    assert.equal(got.chat.kind, 'group')
-    assert.equal(got.chat.title, 'Team')
-    assert.equal(got.mentioned, true)
-    // The adapter reports the mention; the channel is what drops an unmentioned group message.
+    const loud = await until(async () => seen.find(entry => entry.messageId === '$loud'))
     const quiet = await until(async () => seen.find(entry => entry.messageId === '$quiet'))
+    assert.equal(loud.chat.kind, 'group')
+    assert.equal(loud.chat.title, 'Team')
+    assert.equal(loud.mentioned, true)
+    // The room stayed a group even though this batch carried no member events.
+    assert.equal(quiet.chat.kind, 'group')
     assert.equal(quiet.mentioned, false)
+    handle.stop()
+  } finally { fake.close() }
+})
+
+test('a word that merely contains the Bot name is not a mention', async () => {
+  const fake = await fakeMatrix()
+  const team = ['@bot:example.org', '@ada:example.org', '@bob:example.org']
+  fake.setFirst({ next_batch: 'first', rooms: { join: { '!group:example.org': room({ join: team }) } } })
+  fake.batches.push({
+    next_batch: 'n2',
+    rooms: {
+      join: {
+        '!group:example.org': {
+          timeline: {
+            events: [
+              message({ event_id: '$robot', content: { msgtype: 'm.text', body: 'the robot vacuum is broken' } }),
+              message({ event_id: '$named', content: { msgtype: 'm.text', body: 'bot what do you think?' } }),
+            ],
+          },
+        },
+      },
+    },
+  })
+  try {
+    const { handle, seen } = await connected(fake)
+    const named = await until(async () => seen.find(entry => entry.messageId === '$named'))
+    const robot = await until(async () => seen.find(entry => entry.messageId === '$robot'))
+    assert.equal(named.mentioned, true)
+    assert.equal(robot.mentioned, false)
     handle.stop()
   } finally { fake.close() }
 })
@@ -210,7 +266,7 @@ test('an attachment is downloaded through the authenticated media endpoint', asy
     rooms: {
       join: {
         '!dm:example.org': room({
-          members: ['@bot:example.org', '@ada:example.org'],
+          join: ['@bot:example.org', '@ada:example.org'],
           events: [
             message({
               event_id: '$file',
@@ -230,5 +286,20 @@ test('an attachment is downloaded through the authenticated media endpoint', asy
     const download = fake.calls.find(call => call.path.startsWith('/_matrix/client/v1/media/download/'))
     assert.equal(download.auth, 'Bearer tok')
     handle.stop()
+  } finally { fake.close() }
+})
+
+test('a stopped connection stops delivering', async () => {
+  const fake = await fakeMatrix()
+  fake.batches.push({ next_batch: 'n1', rooms: {} })
+  try {
+    const { handle, seen } = await connected(fake)
+    handle.stop()
+    fake.batches.push({
+      next_batch: 'n2',
+      rooms: { join: { '!dm:example.org': room({ join: ['@bot:example.org', '@ada:example.org'], events: [message({ event_id: '$late' })] }) } },
+    })
+    const leaked = await until(async () => seen.find(entry => entry.messageId === '$late'), 25)
+    assert.equal(leaked, undefined)
   } finally { fake.close() }
 })
