@@ -3,6 +3,7 @@ import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { runInNewContext } from 'node:vm'
 import { build } from 'esbuild'
+import { contentText } from '../src/client/text.js'
 
 const bundle = await build({
   entryPoints: [fileURLToPath(new URL('../src/client/cells.js', import.meta.url))],
@@ -164,4 +165,11 @@ test('a Bot reply drops DSML closing tags left after a tool call', () => {
     { kind: 'tool-call' },
   ]
   assert.equal(markdownOf(props).length, 0)
+})
+
+// #1517: the post/event path uses the same cleanup.
+test('content text drops DSML closing tags from a post or event', () => {
+  assert.equal(contentText([{ type: 'text', text: '正文\n</DSML invoke>' }]), '正文')
+  assert.equal(contentText([{ type: 'text', text: '</DSML invoke>\n</DSML calls>' }]), '')
+  assert.equal(contentText([{ type: 'text', text: 'a < b and c > d' }]), 'a < b and c > d')
 })
