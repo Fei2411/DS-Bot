@@ -43,6 +43,7 @@ export const CAPABILITIES = [
   'images',
   'image-preview',
   'write-state',
+  'rpc',
 ]
 export const NOTICE_KINDS = ['message', 'group', 'done', 'question', 'view', 'approval']
 
@@ -251,6 +252,7 @@ export function install(rt) {
       readOnly: rt.readOnly() ?? null,
       memory: rt.memoryEnabled !== false,
       feed: 'api/bot/feed',
+      rpc: { call: 'dsBot/call', feed: 'dsBot/feed' },
     }
   }
 
