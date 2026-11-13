@@ -670,7 +670,7 @@ export function createSession({ context, browser, page, botId, userDataDir, cook
     },
     async select(ref, values) {
       const { target, locator } = await refLocator(ref)
-      return finishAction(() => locator.selectOption(values, { timeout: actionTimeout }), target)
+      return finishAction(() => locator.selectOption(values, { timeout: actionTimeout }), target, false)
     },
     async press(key) {
       ready()
@@ -683,7 +683,7 @@ export function createSession({ context, browser, page, botId, userDataDir, cook
         if (action?.kind === 'payment') throw paymentError(action)
         if (action) return performWrite(action, target, perform)
       }
-      return finishAction(perform, target)
+      return finishAction(perform, target, value.toLowerCase() === 'enter')
     },
     async upload(ref, paths) {
       ready()
@@ -728,7 +728,7 @@ export function createSession({ context, browser, page, botId, userDataDir, cook
       const url = new URL(target.url())
       const label = labels.join(', ').slice(0, 80) || 'uploaded files'
       await authorizeWrite({ kind: 'upload', label, origin: url.origin, host: url.hostname })
-      return finishAction(() => locator.setInputFiles(files, { timeout: actionTimeout }), target)
+      return finishAction(() => locator.setInputFiles(files, { timeout: actionTimeout }), target, false)
     },
     async scroll(direction) {
       ready()

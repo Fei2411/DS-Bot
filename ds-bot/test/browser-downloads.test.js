@@ -38,7 +38,9 @@ async function fixture(t, options = {}) {
         click: async () => options.click?.(target, later),
         fill: async () => {},
         press: async () => options.click?.(target, later),
+        selectOption: async () => options.click?.(target, later),
       }),
+      keyboard: { press: async () => options.click?.(target, later) },
       close: async () => { closed = true; target.emit('close') },
     })
     return target
@@ -52,7 +54,7 @@ async function fixture(t, options = {}) {
   const session = createSession({
     context, page: primary, botId: 'b1', userDataDir: directory,
     cookieFile: join(directory, 'cookies.json'), downloadDir: async () => directory,
-    actionTimeout: 400, getHold: options.getHold,
+    actionTimeout: options.actionTimeout ?? 400, getHold: options.getHold,
   })
   t.after(async () => {
     for (const timer of timers) clearTimeout(timer)
@@ -110,6 +112,44 @@ test('an asynchronously started download still needs its original approval', asy
   assert.deepEqual(await files(), [])
   assert.equal(incoming.canceled, 1)
   assert.equal(incoming.deleted, 1)
+})
+
+// The observation window belongs to actions that can start a download from a click.
+// A select and an ordinary key press are not clicks: they return without holding the
+// action open for the whole actionTimeout.
+test('a select does not wait for a download', async (t) => {
+  const { session } = await fixture(t, { actionTimeout: 1_500 })
+  const started = Date.now()
+  await session.select('e1', ['a'])
+  assert.ok(Date.now() - started < 1_000, 'select returned before the download window')
+})
+
+test('a key press other than Enter does not wait for a download', async (t) => {
+  const { session } = await fixture(t, { actionTimeout: 1_500 })
+  const started = Date.now()
+  await session.press('ArrowDown')
+  assert.ok(Date.now() - started < 1_000, 'a non-Enter press returned before the download window')
+})
+
+// The same fixture, a click and no download: that is the action the window is for,
+// so it does hold until the deadline. This is what the two tests above do not do.
+test('a click with no download holds until the action timeout', async (t) => {
+  const { session } = await fixture(t, { actionTimeout: 1_500 })
+  const started = Date.now()
+  await session.click('e1')
+  assert.ok(Date.now() - started >= 1_000, 'the click kept its download window')
+})
+
+// Enter can submit a form whose answer is a download, so it keeps the window.
+test('an Enter press keeps the download window and captures a delayed download', async (t) => {
+  const incoming = download()
+  const { session, files } = await fixture(t, {
+    click: (page, later) => later(() => page.emit('download', incoming), 150),
+  })
+  const result = await session.press('Enter')
+  assert.match(result, /Downloaded "report.csv" to /)
+  assert.deepEqual(await files(), ['report.csv'])
+  assert.equal(incoming.canceled, 0)
 })
 
 test('a download from another tab is not included in the current action', async (t) => {
