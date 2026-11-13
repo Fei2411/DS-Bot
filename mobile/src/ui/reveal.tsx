@@ -22,7 +22,7 @@ export function Reveal({ open, children }: { open: boolean; children: ReactNode 
   const box = useAnimatedStyle(() => ({ height: height.value }))
   const veil = useAnimatedStyle(() => ({ opacity: fade.value }))
   return (
-    <Animated.View style={[box, { overflow: 'hidden' }]}>
+    <Animated.View accessibilityElementsHidden={!open} importantForAccessibility={open ? 'auto' : 'no-hide-descendants'} style={[box, { overflow: 'hidden' }]}>
       <Animated.View style={veil} onLayout={event => setMeasured(event.nativeEvent.layout.height)}>{children}</Animated.View>
     </Animated.View>
   )

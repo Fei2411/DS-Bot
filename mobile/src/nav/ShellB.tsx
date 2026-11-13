@@ -1,7 +1,7 @@
 import { createNativeStackNavigator } from '@react-navigation/native-stack'
 import { useNavigation, type NavigationProp, type ParamListBase } from '@react-navigation/native'
 import { useEffect, useRef, useState } from 'react'
-import { ActivityIndicator, Dimensions, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
+import { ActivityIndicator, Dimensions, Keyboard, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
 import Animated, { EntryExitAnimationFunction, FadeIn, FadeOut, useReducedMotion, withSpring, withTiming } from 'react-native-reanimated'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import * as SecureStore from 'expo-secure-store'
@@ -67,7 +67,7 @@ function DrawerContent() {
       {/* The desktop sidebar's head: the product name, search and New. */}
       <View style={[styles.drawerHead, { paddingTop: insets.top + 6 }]}>
         <Text style={{ color: p.ink, fontSize: 17, fontWeight: '600', flex: 1 }}>DS Bot</Text>
-        <Press accessibilityRole="button" accessibilityLabel={t('Search')} to={0.9} onPress={() => setSearching(on => !on)} hitSlop={4} style={[styles.round, { borderColor: p.line, backgroundColor: p.card }]}>
+        <Press accessibilityRole="button" accessibilityLabel={t('Search')} to={0.9} onPress={() => { if (searching) Keyboard.dismiss(); setSearching(on => !on) }} hitSlop={4} style={[styles.round, { borderColor: p.line, backgroundColor: p.card }]}>
           <SearchIcon size={16} color={p.ink2} />
         </Press>
         <Press accessibilityRole="button" accessibilityLabel={t('New')} to={0.9} onPress={() => setNewOpen(true)} hitSlop={4} style={[styles.round, { borderColor: p.line, backgroundColor: p.card }]}>

@@ -1,5 +1,5 @@
 import { createContext, useContext } from 'react'
-import { Alert, Platform, Pressable, StyleSheet, Text, View } from 'react-native'
+import { Alert, Platform, StyleSheet, Text, View } from 'react-native'
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { t } from '../ui/i18n.ts'
 import { Press } from '../ui/press.tsx'

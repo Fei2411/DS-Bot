@@ -1,12 +1,10 @@
 import { useMemo } from 'react'
 import { Pressable, StyleSheet, Text, View, SectionList } from 'react-native'
-import Animated, { useReducedMotion } from 'react-native-reanimated'
 import type { Bot, Room } from '../connection.ts'
 import { useTeam } from '../team/context.tsx'
 import { seenAt } from '../team/seen.ts'
 import { t } from '../ui/i18n.ts'
 import { radius, type as typeScale, useTheme } from '../ui/tokens.ts'
-import { PopIn } from '../ui/entry.ts'
 import { Avatar, RoomAvatar } from '../ui/marks.tsx'
 import { PinMarkIcon } from '../ui/icons.tsx'
 import { workPhrase } from '../ui/phrases.ts'
@@ -103,7 +101,6 @@ function BotRow({ bot, p, dark, mains, questions, approvals, workBots, preview, 
   questions: Record<string, unknown>; approvals: { botId: string }[]; workBots: Record<string, unknown>; preview?: string; unread?: boolean; selected?: boolean; onPress: () => void
 }) {
   const waiting = questions[bot.sessionId ?? bot.id] !== undefined || approvals.some(a => a.botId === bot.id)
-  const reduced = useReducedMotion()
   return (
     <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.row, (pressed || selected) && { backgroundColor: p.hover }]}>
       <Avatar bot={bot} dark={dark} size={36} ring={p.sidebar} main={mains.has(bot.id)} working={workBots[bot.id] !== undefined} waiting={waiting} accent={p.accent} />
@@ -111,7 +108,7 @@ function BotRow({ bot, p, dark, mains, questions, approvals, workBots, preview, 
         <View style={styles.nameRow}>
           <Text style={[typeScale.rowName, { color: p.ink, flexShrink: 1 }]} numberOfLines={1}>{bot.name}</Text>
           {bot.pinned === true ? <PinMarkIcon size={12} /> : null}
-          {unread === true ? <Animated.View entering={reduced ? undefined : PopIn} style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: p.accent, marginLeft: 'auto' }} /> : null}
+          {unread === true ? <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: p.accent, marginLeft: 'auto' }} /> : null}
         </View>
         {preview ? <Text style={[typeScale.rowPreview, { color: p.ink2 }]} numberOfLines={1}>{preview}</Text> : null}
       </View>
@@ -124,7 +121,6 @@ function RoomRow({ room, bots, p, dark, approvals, preview, unread, working, sel
   approvals: { roomId?: string }[]; preview?: string; unread?: boolean; working: boolean; selected?: boolean; onPress: () => void
 }) {
   const waiting = approvals.some(a => a.roomId === room.id)
-  const reduced = useReducedMotion()
   return (
     <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.row, (pressed || selected) && { backgroundColor: p.hover }]}>
       <View>
@@ -137,7 +133,7 @@ function RoomRow({ room, bots, p, dark, approvals, preview, unread, working, sel
         <View style={styles.nameRow}>
           <Text style={[typeScale.rowName, { color: p.ink, flexShrink: 1 }]} numberOfLines={1}>{room.name}</Text>
           {room.pinned === true ? <PinMarkIcon size={12} /> : null}
-          {unread === true ? <Animated.View entering={reduced ? undefined : PopIn} style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: p.accent, marginLeft: 'auto' }} /> : null}
+          {unread === true ? <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: p.accent, marginLeft: 'auto' }} /> : null}
         </View>
         {preview ? <Text style={[typeScale.rowPreview, { color: p.ink2 }]} numberOfLines={1}>{preview}</Text> : null}
       </View>
