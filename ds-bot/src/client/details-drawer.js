@@ -8,7 +8,7 @@ import { GlobeIcon, Favicon, PanelMenu, menuItemFor } from './browser-pane.js'
 import { drawerMenuKeys } from './side-model.js'
 import { useEscape } from './overlay-hooks.js'
 import { BotSettingsForm, InlineText } from './bot-settings.js'
-import { GroupSettingsForm, ROOM_MODES, roomSubtitle, shownMode } from './group-settings.js'
+import { GroupSettingsForm, GroupTodos, ROOM_MODES, roomSubtitle, shownMode } from './group-settings.js'
 import { ModelMenu, modelOf } from './model-menu.js'
 import { FolderMenu } from './folder-menu.js'
 import { MemoryRow } from './memory-panel.js'
@@ -49,21 +49,21 @@ function PermissionRow({ bot, roster, actions, run }) {
     h(PermissionPicker, { catalog, saved: bot.permission ?? catalog.defaultPreset, repick: bot.permission === undefined, onPick: permission => run(actions.updateBot(bot.id, { permission })) }))
 }
 
-// The current part's turns, speed, cache hits and context, for a window without DSH's
-// status bar (actions.runStats). It reads them again when a turn starts or ends.
-function RunStats({ bot, part, running, actions }) {
-  const [values, setValues] = useState(null)
+// The current part's turns, speed, cache hits and context, refreshed when a turn starts or ends.
+export function RunStats({ bot, part, running, actions }) {
+  const scope = `${bot.id}:${part ?? ''}`
+  const [read, setRead] = useState(null)
   useEffect(() => {
     if (!actions.runStats) return undefined
     let current = true
     actions.runStats(bot.id).then(
-      (next) => { if (current) setValues(next) },
+      (values) => { if (current) setRead({ scope, values }) },
       // The line stays as it was until the next read works.
       () => {},
     )
     return () => { current = false }
-  }, [bot.id, part, running])
-  const shown = runStatsOf(values)
+  }, [scope, bot.id, running, actions])
+  const shown = runStatsOf(read?.scope === scope ? read.values : null)
   if (shown.length === 0) return null
   return h('div', { className: 'bt-run-stats' },
     shown.map((entry, index) => h(Fragment, { key: entry.key },
@@ -194,6 +194,7 @@ function GroupOverview({ room, roster, actions, usage, useWork, openSettings }) 
     room.notice
       ? h(About, { key: 'notice', title: 'Notice', text: room.notice })
       : h('button', { key: 'notice', type: 'button', className: 'bt-more', onClick: openSettings }, t('Add a notice in group settings')),
+    h(GroupTodos, { key: 'todos', room, actions }),
     h('div', { key: 'members' },
       h('div', { className: 'bt-members-head' },
         h('div', { className: 'bt-section-title' }, t('Members · {count}', { count: members.length })),
