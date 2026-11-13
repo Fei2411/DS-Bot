@@ -62,6 +62,8 @@ npx ds-bot doctor
 npx ds-bot doctor --fix
 ```
 
+The doctor reads the profiles' `package.json` files only. If DSH still does not start after a clean report, an older copy may be a transitive dependency that another plugin brought into the profile; the report names `pnpm why @deepseek-ai/<package>` so you can find the plugin that carries it. The doctor never removes such a copy, because that would break the plugin that needs it.
+
 **Upgrading from the legacy `dsh-bot` package**: earlier builds used the package name `dsh-bot`. Remove `dsh-bot` from the profile before you add `ds-bot`, because both use the plugin id `bot`. Your team, chats and secrets stay where they are (see [Data and backups](#data-and-backups)); saved browser settings, the theme and Bot colors move over the first time DS Bot opens.
 
 ## Configuration

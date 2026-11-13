@@ -15,6 +15,10 @@
 // other official packages may be pinned by other plugins on purpose. Sessions,
 // settings, credentials and dsh.profile.bundles are not touched, so the chats
 // written before the upgrade stay readable.
+//
+// Only the profiles' manifests are read. An older copy that another plugin's dependency
+// tree hoisted into the profile is not detected, so a clean report says how to look for
+// one with pnpm why; removing that copy would break the plugin that carries it.
 import { spawnSync } from 'node:child_process'
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
@@ -147,6 +151,7 @@ function main(argv) {
   }
   if (found.length === 0) {
     console.log(`ds-bot doctor: no profile pins an official DSH package at a version the running DSH does not satisfy (${dshVersion}).`)
+    console.log('If DSH still does not start, another plugin\'s dependencies may have hoisted an older copy of a DSH package into the profile. Find it there with: pnpm why @deepseek-ai/<package>')
     return broken.length > 0 ? 2 : 0
   }
   if (!fix) {

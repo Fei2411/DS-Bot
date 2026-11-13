@@ -88,6 +88,7 @@ test('the command reports a stale pin, --fix reconciles it, and a failed install
   assert.match(check.stdout, /@deepseek-ai\/dsh-web-app@0\.2\.1-rc\.5/)
   assert.match(check.stdout, /running DSH is 0\.2\.2-rc\.2/)
   assert.match(check.stdout, /--fix/)
+  assert.doesNotMatch(check.stdout, /pnpm why/)
   const fixed = run(FAKE_PNPM, '--fix')
   assert.equal(fixed.status, 0)
   assert.match(fixed.stdout, /reconciled with pnpm/)
@@ -100,4 +101,17 @@ test('the command reports a stale pin, --fix reconciles it, and a failed install
   assert.match(failed.stderr, /pnpm install/)
   rmSync(home, { recursive: true, force: true })
   rmSync(again, { recursive: true, force: true })
+})
+
+test('a clean report says how to find an older copy another plugin hoisted in', () => {
+  // The manifest is clean but node_modules can still hold a stale copy as a transitive
+  // dependency; the doctor does not read those, so a clean report must not read as "all
+  // clear" - it names pnpm why and never claims the copy was removed.
+  const home = homeWith({ web: manifest({ 'ds-bot': '0.3.2', '@deepseek-ai/dsh-web-app': RUNNING }) })
+  const check = spawnSync(process.execPath, [DOCTOR, 'doctor', '--home', home, '--dsh-version', RUNNING], { encoding: 'utf8' })
+  assert.equal(check.status, 0)
+  assert.match(check.stdout, /no profile pins an official DSH package/)
+  assert.match(check.stdout, /pnpm why @deepseek-ai\/<package>/)
+  assert.doesNotMatch(check.stdout, /removed /)
+  rmSync(home, { recursive: true, force: true })
 })
