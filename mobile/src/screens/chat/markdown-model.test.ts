@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { lexer, type Tokens } from 'marked'
+import { lexer, type Token, type Tokens } from 'marked'
 import {
   computeTableWidths,
   listItemInfo,
@@ -71,4 +71,24 @@ test('splitParagraphImages separates inline text runs and standalone images', ()
     alt: 'pic',
     linkHref: 'https://example.com',
   })
+
+  const formatted = lexer('**![bold-img](a.png)**\n\n*before ![italic-img](b.png) after*\n\n~~[![strike-link](c.png)](https://example.org)~~')
+  const boldPara = formatted[0] as Tokens.Paragraph
+  assert.deepEqual(splitParagraphImages(boldPara.tokens ?? []), [{ kind: 'image', href: 'a.png', alt: 'bold-img' }])
+
+  const italicSegs = splitParagraphImages((formatted[2] as Tokens.Paragraph).tokens ?? [])
+  assert.equal(italicSegs.length, 3)
+  assert.equal(italicSegs[0].kind, 'inlines')
+  assert.equal((italicSegs[0] as { kind: 'inlines'; tokens: Token[] }).tokens[0].type, 'em')
+  assert.deepEqual(italicSegs[1], { kind: 'image', href: 'b.png', alt: 'italic-img' })
+  assert.equal(italicSegs[2].kind, 'inlines')
+  assert.equal((italicSegs[2] as { kind: 'inlines'; tokens: Token[] }).tokens[0].type, 'em')
+
+  const strikeLink = splitParagraphImages((formatted[4] as Tokens.Paragraph).tokens ?? [])
+  assert.deepEqual(strikeLink, [{
+    kind: 'image',
+    href: 'c.png',
+    alt: 'strike-link',
+    linkHref: 'https://example.org',
+  }])
 })

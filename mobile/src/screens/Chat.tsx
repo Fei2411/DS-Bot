@@ -18,6 +18,7 @@ import { workPhrase } from '../ui/phrases.ts'
 import { ActionRow, Dock } from './chat/dock.tsx'
 import { Composer, type Photo } from './chat/composer.tsx'
 import { Actions, Item, keysOf, PhotoViewer, PhotoViewerCtx, type ChatItem, type FileRef, type ImageRef } from './chat/items.tsx'
+import { bumpMarkdownImageCache } from './chat/markdown.tsx'
 
 // Feed events refresh the chat as things happen; the poll only catches what a
 // dropped event missed, so it runs rarely.
@@ -128,6 +129,12 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
   const offsetRef = useRef(scrollOffsets.get(chatKey) ?? 0)
   const restoredForRef = useRef<string | null>(null)
   const prevPageItemsLenRef = useRef(0)
+  const prevSigRef = useRef('')
+
+  useEffect(() => {
+    prevSigRef.current = ''
+    bumpMarkdownImageCache()
+  }, [chatKey])
 
   // One chat read at a time, like the team state: a burst of messages becomes one
   // read now and at most one more after it.
@@ -142,6 +149,10 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
       reads.delete(chatKey)
       const next = await (early ?? readChat(call, room !== undefined, id))
       if (generation.current === gen) {
+        const last = next.items[next.items.length - 1]
+        const sig = `${next.sessionId ?? ''}:${next.items.length}:${last?.seq ?? ''}:${last?.text?.length ?? ''}`
+        if (prevSigRef.current !== '' && prevSigRef.current !== sig) bumpMarkdownImageCache()
+        prevSigRef.current = sig
         setPageState(prev => ({
           key: chatKey,
           older: prev.key === chatKey ? prev.older : [],

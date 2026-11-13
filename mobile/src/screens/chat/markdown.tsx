@@ -51,8 +51,8 @@ export function tint(color: string, alpha: number): string {
 
 interface Ink { text: string; muted: string; line: string; fill: string; bg: string }
 
-export function Markdown({ text, p, textColor, bg, fontSize = 16, lineHeight = 25, sessionId }: {
-  text: string; p: Palette; textColor: string; bg?: string; fontSize?: number; lineHeight?: number; sessionId?: string
+export function Markdown({ text, p, textColor, bg, fontSize = 16, lineHeight = 25, sessionId, botId }: {
+  text: string; p: Palette; textColor: string; bg?: string; fontSize?: number; lineHeight?: number; sessionId?: string; botId?: string
 }) {
   const blocks = tokensOf(text).filter(token => token.type !== 'space')
   const ink: Ink = { text: textColor, muted: tint(textColor, 0.48), line: tint(textColor, 0.14), fill: tint(textColor, 0.07), bg: bg ?? p.bubble }
@@ -60,7 +60,7 @@ export function Markdown({ text, p, textColor, bg, fontSize = 16, lineHeight = 2
     <View>
       {blocks.map((token, index) => (
         <Block key={index} token={token} p={p} ink={ink} textColor={textColor} fs={fontSize} lh={lineHeight}
-          sessionId={sessionId} listDepth={0} first={index === 0} last={index === blocks.length - 1} />
+          sessionId={sessionId} botId={botId} listDepth={0} first={index === 0} last={index === blocks.length - 1} />
       ))}
     </View>
   )
@@ -78,9 +78,9 @@ function tokenPlainText(tokens?: Token[]): string {
   return out
 }
 
-function Block({ token, p, ink, textColor, fs, lh, sessionId, listDepth = 0, first = false, last = false }: {
+function Block({ token, p, ink, textColor, fs, lh, sessionId, botId, listDepth = 0, first = false, last = false }: {
   token: Token; p: Palette; ink: Ink; textColor: string; fs: number; lh: number
-  sessionId?: string; listDepth?: number; first?: boolean; last?: boolean
+  sessionId?: string; botId?: string; listDepth?: number; first?: boolean; last?: boolean
 }) {
   const base = { color: textColor, fontSize: fs, lineHeight: lh }
   const top = (gap: number) => (first ? 0 : gap)
@@ -105,7 +105,7 @@ function Block({ token, p, ink, textColor, fs, lh, sessionId, listDepth = 0, fir
               <Inlines tokens={seg.tokens} p={p} color={textColor} fs={fs} />
             </Text>
           ) : (
-            <MarkdownImage key={si} href={seg.href} alt={seg.alt} linkHref={seg.linkHref} p={p} ink={ink} sessionId={sessionId} />
+            <MarkdownImage key={si} href={seg.href} alt={seg.alt} linkHref={seg.linkHref} p={p} ink={ink} sessionId={sessionId} botId={botId} />
           ))}
         </View>
       )
@@ -135,7 +135,7 @@ function Block({ token, p, ink, textColor, fs, lh, sessionId, listDepth = 0, fir
                 <View style={{ flexGrow: 1, flexShrink: 1, minWidth: 0 }}>
                   {info.tokens.map((inner, bi) => (
                     <Block key={bi} token={inner} p={p} ink={ink} textColor={textColor} fs={fs} lh={lh}
-                      sessionId={sessionId} listDepth={listDepth + 1} first={bi === 0} last={bi === info.tokens.length - 1} />
+                      sessionId={sessionId} botId={botId} listDepth={listDepth + 1} first={bi === 0} last={bi === info.tokens.length - 1} />
                   ))}
                 </View>
               </View>
@@ -150,7 +150,7 @@ function Block({ token, p, ink, textColor, fs, lh, sessionId, listDepth = 0, fir
         <View style={{ borderLeftWidth: 3, borderLeftColor: ink.line, paddingLeft: 10, marginTop: top(6), marginBottom: bottom(6) }}>
           {innerTokens.map((inner, index) => (
             <Block key={index} token={inner} p={p} ink={ink} textColor={textColor} fs={fs} lh={lh}
-              sessionId={sessionId} listDepth={listDepth} first={index === 0} last={index === innerTokens.length - 1} />
+              sessionId={sessionId} botId={botId} listDepth={listDepth} first={index === 0} last={index === innerTokens.length - 1} />
           ))}
         </View>
       )
@@ -172,7 +172,7 @@ function Block({ token, p, ink, textColor, fs, lh, sessionId, listDepth = 0, fir
                 <Inlines tokens={seg.tokens} p={p} color={textColor} fs={fs} />
               </Text>
             ) : (
-              <MarkdownImage key={si} href={seg.href} alt={seg.alt} linkHref={seg.linkHref} p={p} ink={ink} sessionId={sessionId} />
+              <MarkdownImage key={si} href={seg.href} alt={seg.alt} linkHref={seg.linkHref} p={p} ink={ink} sessionId={sessionId} botId={botId} />
             ))}
           </View>
         )
@@ -290,57 +290,84 @@ function MarkdownTable({ table, p, ink, textColor, fs, lh, top, bottom }: {
   )
 }
 
-const mdImageCache = new Map<string, { uri?: string; svg?: string }>()
+const MD_IMAGE_TTL_MS = 15_000
+type MdImageEntry = { uri?: string; svg?: string; rev?: string; at: number }
+const mdImageCache = new Map<string, MdImageEntry>()
 const MD_IMAGES_KEPT = 64
+let mdImageEpoch = 0
+const mdImageListeners = new Set<(epoch: number) => void>()
 
-function keepMdImage(key: string, value: { uri?: string; svg?: string }) {
-  mdImageCache.set(key, value)
+export function bumpMarkdownImageCache(): void {
+  mdImageEpoch += 1
+  mdImageCache.clear()
+  for (const listener of mdImageListeners) listener(mdImageEpoch)
+}
+
+function keepMdImage(key: string, value: { uri?: string; svg?: string; rev?: string }) {
+  mdImageCache.set(key, { ...value, at: Date.now() })
   if (mdImageCache.size > MD_IMAGES_KEPT) {
     const oldest = mdImageCache.keys().next().value
     if (oldest !== undefined) mdImageCache.delete(oldest)
   }
 }
 
-function MarkdownImage({ href, alt, linkHref, p, ink, sessionId }: {
-  href: string; alt: string; linkHref?: string; p: Palette; ink: Ink; sessionId?: string
+function MarkdownImage({ href, alt, linkHref, p, ink, sessionId, botId }: {
+  href: string; alt: string; linkHref?: string; p: Palette; ink: Ink; sessionId?: string; botId?: string
 }) {
   const { call } = useTeam()
   const remote = /^https?:\/\//i.test(href) || /^data:image\//i.test(href)
-  const cacheKey = remote ? href : `${sessionId ?? ''}:${href}`
-  const [loaded, setLoaded] = useState<{ uri?: string; svg?: string } | null>(() => (remote ? { uri: href } : mdImageCache.get(cacheKey) ?? null))
+  const cacheKey = remote ? href : `${sessionId ?? ''}:${botId ?? ''}:${href}`
+  const [loaded, setLoaded] = useState<{ uri?: string; svg?: string; rev?: string } | null>(() => (remote ? { uri: href } : mdImageCache.get(cacheKey) ?? null))
   const [failed, setFailed] = useState(false)
   const [aspect, setAspect] = useState<number>(16 / 9)
   const [open, setOpen] = useState(false)
+  const [epoch, setEpoch] = useState(mdImageEpoch)
+  const lastKeyRef = useRef(cacheKey)
   const insets = useSafeAreaInsets()
+
+  useEffect(() => {
+    const sync = (next: number) => setEpoch(next)
+    mdImageListeners.add(sync)
+    if (mdImageEpoch !== epoch) setEpoch(mdImageEpoch)
+    return () => { mdImageListeners.delete(sync) }
+  }, [])
 
   useEffect(() => {
     setFailed(false)
     if (remote) { setLoaded({ uri: href }); return }
     const cached = mdImageCache.get(cacheKey)
-    if (cached !== undefined) { setLoaded(cached); return }
+    if (lastKeyRef.current !== cacheKey) {
+      lastKeyRef.current = cacheKey
+      setLoaded(cached ?? null)
+    } else if (cached !== undefined) {
+      setLoaded(cached)
+    }
+    if (cached !== undefined && Date.now() - cached.at < MD_IMAGE_TTL_MS) return
     if (!sessionId || !href) { setFailed(true); return }
     let active = true
-    void call('markdown-image', { sessionId, path: href })
+    void call('markdown-image', { sessionId, path: href, ...(botId ? { botId } : {}) })
       .then(result => {
         if (!active) return
-        const res = result as { mime?: string; bytes?: string }
+        const res = result as { mime?: string; bytes?: string; rev?: string }
         if (typeof res?.bytes !== 'string' || res.bytes === '') { setFailed(true); return }
         const mime = res.mime ?? 'image/png'
         if (mime === 'image/svg+xml') {
           try {
             const svg = decodeURIComponent(escape(atob(res.bytes)))
-            keepMdImage(cacheKey, { svg })
-            setLoaded({ svg })
+            const next = { svg, rev: res.rev }
+            keepMdImage(cacheKey, next)
+            setLoaded(prev => (prev?.rev !== undefined && prev.rev === next.rev && prev.svg === next.svg ? prev : next))
           } catch { setFailed(true) }
         } else {
           const uri = `data:${mime};base64,${res.bytes}`
-          keepMdImage(cacheKey, { uri })
-          setLoaded({ uri })
+          const next = { uri, rev: res.rev }
+          keepMdImage(cacheKey, next)
+          setLoaded(prev => (prev?.rev !== undefined && prev.rev === next.rev && prev.uri === next.uri ? prev : next))
         }
       })
-      .catch(() => { if (active) setFailed(true) })
+      .catch(() => { if (active && mdImageCache.get(cacheKey) === undefined) setFailed(true) })
     return () => { active = false }
-  }, [call, cacheKey, href, remote, sessionId])
+  }, [call, cacheKey, href, remote, sessionId, botId, epoch])
 
   const onPress = useCallback(() => {
     if (linkHref && /^https?:\/\//i.test(linkHref)) void Linking.openURL(linkHref).catch(() => {})

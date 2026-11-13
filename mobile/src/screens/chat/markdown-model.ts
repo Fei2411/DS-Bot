@@ -104,6 +104,23 @@ export function listItemInfo(
   return { marker: bullet, isTask: false, checked: false, tokens }
 }
 
+const IMAGE_WRAPPERS = new Set(['strong', 'em', 'del', 'link'])
+
+function childInlineTokens(token: Token): Token[] | undefined {
+  if (!IMAGE_WRAPPERS.has(token.type)) return undefined
+  const inner = (token as { tokens?: Token[] }).tokens
+  return Array.isArray(inner) ? inner : undefined
+}
+
+function containsImageToken(tokens: Token[]): boolean {
+  for (const token of tokens) {
+    if (token.type === 'image') return true
+    const inner = childInlineTokens(token)
+    if (inner !== undefined && containsImageToken(inner)) return true
+  }
+  return false
+}
+
 // Split a paragraph's inline tokens into pure inline text runs and standalone image
 // blocks so an <Image>/<View> is never mounted inside a <Text> subtree on Android Fabric.
 export function splitParagraphImages(tokens: Token[]): ParagraphSegment[] {
@@ -117,30 +134,35 @@ export function splitParagraphImages(tokens: Token[]): ParagraphSegment[] {
     }
   }
 
-  for (const token of tokens) {
-    if (token.type === 'image') {
-      const img = token as Tokens.Image
-      flush()
-      segments.push({ kind: 'image', href: String(img.href ?? ''), alt: String(img.text || img.title || 'image') })
-      continue
-    }
-    if (token.type === 'link') {
-      const link = token as Tokens.Link
-      const inner = Array.isArray(link.tokens) ? link.tokens : []
-      if (inner.length === 1 && inner[0]?.type === 'image') {
-        const img = inner[0] as Tokens.Image
+  const walk = (list: Token[], wrap?: (inner: Token[]) => Token, linkHref?: string) => {
+    for (const token of list) {
+      if (token.type === 'image') {
+        const img = token as Tokens.Image
         flush()
-        segments.push({
+        const segment: ParagraphSegment = {
           kind: 'image',
           href: String(img.href ?? ''),
           alt: String(img.text || img.title || 'image'),
-          linkHref: String(link.href ?? ''),
-        })
+        }
+        if (linkHref !== undefined && linkHref !== '') segment.linkHref = linkHref
+        segments.push(segment)
         continue
       }
+      const inner = childInlineTokens(token)
+      if (inner !== undefined && containsImageToken(inner)) {
+        const nextLink = token.type === 'link' ? (linkHref ?? String((token as Tokens.Link).href ?? '')) : linkHref
+        const nextWrap = (part: Token[]) => {
+          const wrapped = { ...token, tokens: part } as Token
+          return wrap ? wrap([wrapped]) : wrapped
+        }
+        walk(inner, nextWrap, nextLink)
+        continue
+      }
+      run.push(wrap ? wrap([token]) : token)
     }
-    run.push(token)
   }
+
+  walk(tokens)
   flush()
   return segments
 }

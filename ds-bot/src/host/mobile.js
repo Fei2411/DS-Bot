@@ -6,7 +6,7 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { readFile, stat } from 'node:fs/promises'
-import { extname, resolve } from 'node:path'
+import { extname, isAbsolute, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { HANDOFF_ACK, HISTORY_TIMEOUT_MS, SOURCE_KIND } from './constants.js'
 import { within } from './folders.js'
@@ -301,6 +301,9 @@ export function install(rt) {
     }, AbortSignal.timeout(HISTORY_TIMEOUT_MS))
     const events = page.records.map(record => record.event)
     const { items, open } = roomItems(events, range => rt.groupRows?.(room.id, range.from, range.to, range.anchor) ?? [])
+    for (const item of items) {
+      if (item.sessionId === undefined && (item.kind === 'bot' || item.kind === 'post')) item.sessionId = part.sessionId
+    }
     if (body.steps === true) await rt.applySteps?.(items, events, part.sessionId)
     const running = [...rt.roomProgress.entries()].filter(([, round]) => round.roomId === room.id)
     // The newest page shows what the running round has said so far, where its call sits.
@@ -519,16 +522,50 @@ export function install(rt) {
     const botId = groupOwner?.botId ?? (pastOwner?.roomId !== undefined ? pastOwner.botId : undefined)
       ?? (room === undefined ? rt.chatOwners.get(sessionId) ?? pastOwner?.botId ?? rt.botOf(sessionId)?.id : undefined)
     if (botId === undefined && room === undefined) throw Object.assign(new Error('Unknown session'), { code: 'bot/not-found' })
+    const authorId = room !== undefined && typeof body.botId === 'string' && rt.botOf(body.botId) !== undefined
+      && (room.members?.includes(body.botId) || rt.botOf(body.botId)?.private !== true)
+      ? body.botId
+      : undefined
     const targetSessionId = room !== undefined
-      ? (rt.sessionOfRoom(room) ?? sessionId)
-      : (rt.chatOf(botId) ?? sessionId)
+      ? (sessionId === room.id && rt.sessionOfRoom(room) !== sessionId && !(room.parts ?? []).some(part => part.sessionId === sessionId)
+        ? rt.sessionOfRoom(room) ?? sessionId
+        : sessionId)
+      : (sessionId === botId && pastOwner === undefined && !rt.chatOwners.has(sessionId)
+        ? rt.chatOf(botId) ?? sessionId
+        : sessionId)
     const agent = await rt.resolveAgent(targetSessionId).catch(() => undefined)
     const baseDir = rt.sessionFolder?.(agent?.session) ?? rt.workDirOf?.({ botId, roomId: room?.id }) ?? rt.teamFolder?.() ?? rt.defaultTeamFolder?.()
     if (!baseDir) throw Object.assign(new Error('Workspace unavailable'), { code: 'bot/not-found' })
     const realBase = await rt.real(baseDir)
     const candidate = resolve(realBase, cleanPath)
     const realPath = await (rt.realBeyond?.(candidate) ?? rt.real(candidate))
-    if (!within(realPath, realBase) || await rt.inData?.(realPath)) {
+    let allowed = within(realPath, realBase)
+    if (!allowed && isAbsolute(cleanPath)) {
+      const extraDirs = [
+        rt.teamFolder?.(),
+        rt.defaultTeamFolder?.(),
+        rt.workDirOf?.({ botId, roomId: room?.id }),
+        ...(authorId !== undefined ? [rt.workDirOf?.({ botId: authorId, roomId: room?.id }), rt.workDirOf?.({ botId: authorId })] : []),
+      ].filter(Boolean)
+      for (const dir of extraDirs) {
+        if (within(realPath, await rt.real(dir))) { allowed = true; break }
+      }
+      if (!allowed) {
+        const partIds = new Set([
+          ...rt.partsOf(botId, room?.id).map(part => part.sessionId),
+          ...(authorId !== undefined ? [
+            ...rt.partsOf(authorId, room?.id).map(part => part.sessionId),
+            ...rt.partsOf(authorId).map(part => part.sessionId),
+          ] : []),
+        ])
+        for (const partSessionId of partIds) {
+          const partAgent = await rt.resolveAgent(partSessionId).catch(() => undefined)
+          const partDir = rt.sessionFolder?.(partAgent?.session)
+          if (partDir && within(realPath, await rt.real(partDir))) { allowed = true; break }
+        }
+      }
+    }
+    if (!allowed || await rt.inData?.(realPath)) {
       throw Object.assign(new Error('Image outside workspace'), { code: 'bot/forbidden' })
     }
     const mime = MARKDOWN_IMAGE_MIMES.get(extname(realPath).toLowerCase())
@@ -537,7 +574,12 @@ export function install(rt) {
     if (info?.isFile() !== true) throw Object.assign(new Error('Image not found'), { code: 'bot/not-found' })
     if (info.size > MARKDOWN_IMAGE_MAX) throw Object.assign(new Error('Image too large'), { code: 'bot/refused' })
     const bytes = await readFile(realPath)
-    return { mime, bytes: bytes.toString('base64'), size: bytes.length }
+    return {
+      mime,
+      bytes: bytes.toString('base64'),
+      size: bytes.length,
+      rev: `${info.size}:${Math.trunc(info.mtimeMs)}`,
+    }
   }
 
   async function mobileEndpoint(endpoint, body) {

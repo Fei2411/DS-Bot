@@ -700,3 +700,77 @@ test('markdown-image serves workspace images and blocks traversal, unowned sessi
   const unowned = await call('markdown-image', { sessionId: 's-other', path: './charts/plot.png' })
   assert.deepEqual([unowned.ok, unowned.error.code], [false, 'bot/not-found'])
 })
+
+test('markdown-image resolves archived part workspaces, returns rev, allows group author links, and works read-only', async (t) => {
+  const { call, ctx, history, rt, stop } = start()
+  t.after(stop)
+  const { chief, room } = await team(call)
+  const root = mkdtempSync(join(tmpdir(), 'ds-bot-md-parts-'))
+  t.after(() => rmSync(root, { recursive: true, force: true }))
+  const oldDir = join(root, 'old')
+  const newDir = join(root, 'new')
+  const roomDir = join(root, 'room')
+  const unrelatedDir = join(root, 'unrelated')
+  for (const dir of [join(oldDir, 'charts'), join(newDir, 'charts'), roomDir, unrelatedDir]) {
+    mkdirSync(dir, { recursive: true })
+  }
+  const oldBytes = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 1])
+  const newBytes = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 2])
+  const unrelatedBytes = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 3])
+  const oldPlot = join(oldDir, 'charts', 'plot.png')
+  writeFileSync(oldPlot, oldBytes)
+  writeFileSync(join(newDir, 'charts', 'plot.png'), newBytes)
+  writeFileSync(join(unrelatedDir, 'secret.png'), unrelatedBytes)
+
+  const part1 = (await call('state', {})).value.bots.find(bot => bot.id === chief).sessionId
+  const part2 = 's-md-part-2'
+  rt.state.bots[chief].segments = [{ sessionId: part1, endedAt: 10 }]
+  rt.state.bots[chief].sessionId = part2
+  rt.state.bots[chief].workDir = newDir
+  rt.chatOwners.set(part2, chief)
+  rt.pastOwners.set(part1, { botId: chief })
+  history[part1] = [
+    { seq: 1, type: 'turn/start', data: { turn: 1 } },
+    { seq: 2, type: 'assistant/message', time: 5, data: { turn: 1, message: { content: [{ type: 'text', text: '![old](./charts/plot.png)' }] } } },
+  ]
+  const roomSession = rt.sessionOfRoom(rt.state.rooms[room.id])
+  rt.state.rooms[room.id].workDir = roomDir
+
+  const sessionCwds = { [part1]: oldDir, [part2]: newDir, [roomSession]: roomDir }
+  const origResolveAgent = ctx.sessionController.resolveAgent
+  ctx.sessionController.resolveAgent = async (sessionId) => {
+    const resolved = await origResolveAgent(sessionId)
+    const cwd = sessionCwds[sessionId]
+    return cwd === undefined ? resolved : { ...resolved, agent: { ...resolved.agent, session: { ...resolved.agent.session, header: { cwd } } } }
+  }
+
+  const archivedPage = await call('chat', { botId: chief, cursor: { part: 0 } })
+  assert.equal(archivedPage.ok, true)
+  const archivedBotItem = archivedPage.value.items.find(item => item.kind === 'bot')
+  assert.equal(archivedBotItem.sessionId, part1)
+
+  const fromOld = await call('markdown-image', { sessionId: part1, path: './charts/plot.png' })
+  assert.equal(fromOld.ok, true)
+  assert.equal(typeof fromOld.value.rev, 'string')
+  assert.match(fromOld.value.rev, /^\d+:\d+$/)
+  assert.equal(Buffer.from(fromOld.value.bytes, 'base64').equals(oldBytes), true)
+
+  const fromNew = await call('markdown-image', { sessionId: part2, path: './charts/plot.png' })
+  assert.equal(fromNew.ok, true)
+  assert.equal(Buffer.from(fromNew.value.bytes, 'base64').equals(newBytes), true)
+
+  const escapeFromOld = await call('markdown-image', { sessionId: part1, path: '../new/charts/plot.png' })
+  assert.deepEqual([escapeFromOld.ok, escapeFromOld.error.code], [false, 'bot/forbidden'])
+
+  const groupAuthorAbs = await call('markdown-image', { sessionId: roomSession, botId: chief, path: oldPlot })
+  assert.equal(groupAuthorAbs.ok, true)
+  assert.equal(Buffer.from(groupAuthorAbs.value.bytes, 'base64').equals(oldBytes), true)
+
+  const unrelatedAbs = await call('markdown-image', { sessionId: roomSession, botId: chief, path: join(unrelatedDir, 'secret.png') })
+  assert.deepEqual([unrelatedAbs.ok, unrelatedAbs.error.code], [false, 'bot/forbidden'])
+
+  rt.readOnly = () => 'other window'
+  const readOnlyImg = await call('markdown-image', { sessionId: part2, path: './charts/plot.png' })
+  assert.equal(readOnlyImg.ok, true)
+  assert.equal(Buffer.from(readOnlyImg.value.bytes, 'base64').equals(newBytes), true)
+})

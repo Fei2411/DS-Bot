@@ -1693,6 +1693,9 @@ export function install(rt) {
       }
     }
     const items = displayItems(part.sessionId, events, agent?.session, seedTurn)
+    for (const item of items) {
+      if (item.sessionId === undefined && (item.kind === 'bot' || item.kind === 'post')) item.sessionId = part.sessionId
+    }
     const more = page.hasMore && events.length > 0
     // The line above a part's first message marks where it began.
     if (!more && index > 0) items.unshift({ kind: 'divider', time: part.startedAt })
