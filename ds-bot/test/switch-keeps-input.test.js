@@ -369,6 +369,8 @@ test('a failed task move leaves the earlier part unarchived and marked for retry
   await settle()
   assert.deepEqual(host.archived, [])
   assert.deepEqual(host.state().switching, { b: { botId: 'b' } })
+  assert.equal(host.rt.isSwitching('b'), true)
+  assert.equal((await host.call('state', {})).value.bots.find(bot => bot.id === 'b').switching, true)
 
   host.rt.moveSchedules = async () => {}
   await host.rt.heldBack()
@@ -528,4 +530,40 @@ test('a Bot exposes switching state until its earlier part is archived', async (
   release()
   await until(() => !host.rt.isSwitching('b'))
   assert.equal((await host.call('state', {})).value.bots.find(bot => bot.id === 'b').switching, undefined)
+})
+
+test('a failed private handoff keeps recovery input without reporting an active switch', async (t) => {
+  const host = await start({ services, fail: { create: new Error('disk full'), flush: new Error('disk full') } })
+  t.after(host.stop)
+  await moveWriter(host, [said('m1', 'keep me', 'e1')])
+  await until(() => host.warnings.some(line => line.includes('was not handed on')))
+  await until(() => Array.from(host.rt.switchJobs()).length === 0)
+  assert.deepEqual(host.state().switching, { b: { botId: 'b' } })
+  assert.deepEqual(inboxTexts(host.agentOf('b')), [PAUSE, 'keep me'])
+  assert.equal(host.rt.isSwitching('b'), false)
+  assert.equal((await host.call('state', {})).value.bots.find(bot => bot.id === 'b').switching, undefined)
+})
+
+test('group handoffs and group recovery markers do not mark the private chat as switching', async (t) => {
+  const host = await start({ services: cutOffServices, state: GROUP_TEAM })
+  t.after(host.stop)
+  const agent = host.agentOf('gb')
+  let release
+  const gate = new Promise(resolve => { release = resolve })
+  t.after(() => release())
+  let archiving = false
+  host.ctx.workspaceRegistry.archiveSession = async () => { archiving = true; await gate }
+  for (const turn of [1, 2]) {
+    cutOff(host, 'gb', turn)
+    host.ctx.emit('agent/status', { agent, status: 'idle' })
+    await settle()
+  }
+  await until(() => archiving)
+  assert.equal(Array.from(host.rt.switchJobs()).some(job => job.roomId === 'r1'), true)
+  assert.equal(host.rt.isSwitching('b'), false)
+  assert.equal((await host.call('state', {})).value.bots.find(bot => bot.id === 'b').switching, undefined)
+  release()
+  await until(() => Array.from(host.rt.switchJobs()).length === 0)
+  host.rt.state.switching.gb = { botId: 'b', roomId: 'r1' }
+  assert.equal(host.rt.isSwitching('b'), false)
 })

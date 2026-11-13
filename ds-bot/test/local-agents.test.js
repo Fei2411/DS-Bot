@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -459,6 +459,28 @@ test('a write to a CLI that has exited does not throw out of DS Bot', async () =
     process.off('uncaughtException', hear)
   }
   assert.deepEqual(unheard.map(error => error.code), [])
+})
+
+// A CLI that exists but cannot run (a broken install, a missing interpreter)
+// fails spawn with 'error', not 'exit'; unheard it took the whole host down.
+test('a CLI that cannot start fails its probe as a typed error, not the host', async () => {
+  const broken = join(mkdtempSync(join(tmpdir(), 'dsb-broken-')), 'broken-cli')
+  writeFileSync(broken, '#!/missing/interpreter/never\nexit 1\n', { mode: 0o755 })
+  const unheard = []
+  const hear = error => unheard.push(error)
+  process.on('uncaughtException', hear)
+  try {
+    for (const Engine of [AcpEngine, CodexEngine]) {
+      const engine = new Engine('local-broken', { name: 'Broken CLI', command: broken, args: [] }, { findExecutable: () => broken })
+      await assert.rejects(() => engine.ensure(), error => error.code === 'LOCAL_AGENT_EXIT' && /could not start/.test(error.message))
+      // The failed process is let go of: the next ensure() tries a fresh one.
+      assert.equal(engine.peer, undefined)
+      assert.equal(engine.child, undefined)
+    }
+  } finally {
+    process.off('uncaughtException', hear)
+  }
+  assert.deepEqual(unheard, [])
 })
 
 test('claude: another model restarts only that conversation\'s process, with its new tool server', async (t) => {

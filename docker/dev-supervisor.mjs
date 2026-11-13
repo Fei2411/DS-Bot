@@ -29,7 +29,7 @@ const POLL_MS = 1500
 
 // What the supervisor watches. The bundles the build writes are not in here,
 // so the rebuild does not trigger the next poll.
-const WATCHED = ['src', 'index.js', 'web-search.js', 'package.json', 'cordis.patch.yml']
+const WATCHED = ['src', 'plugin.js', 'index.js', 'web-search.js', 'package.json', 'cordis.patch.yml']
 
 const log = message => console.log(`[ds-bot-dev] ${message}`)
 
@@ -191,7 +191,7 @@ const apply = async () => {
   const bundle = files.some(file => file.startsWith('src/client/') || file.startsWith('src/office/')
     || file.startsWith('src/shared/'))
   const host = files.some(file => file.startsWith('src/host/') || file.startsWith('src/shared/')
-    || file === 'index.js' || file === 'web-search.js' || file === 'package.json'
+    || file === 'plugin.js' || file === 'index.js' || file === 'web-search.js' || file === 'package.json'
     || file === 'cordis.patch.yml')
   if (bundle) await rebuild()
   if (host) restart()

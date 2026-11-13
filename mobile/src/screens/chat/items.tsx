@@ -4,6 +4,7 @@ import { ActivityIndicator, Dimensions, Image, Modal, Pressable, ScrollView, Sty
 import * as Clipboard from 'expo-clipboard'
 import * as Haptics from 'expo-haptics'
 import { t, clockLabel, messageClock } from '../../ui/i18n.ts'
+import { CheckIcon } from '../../ui/icons.tsx'
 import { Avatar } from '../../ui/marks.tsx'
 import type { Bot } from '../../connection.ts'
 import { imPlatform } from '../../../../ds-bot/src/shared/im-platforms.js'
@@ -11,12 +12,17 @@ import { inkColor, radius, type as typeScale, useTheme, type Palette } from '../
 import { Markdown, hasBlockContent } from './markdown.tsx'
 import { useTeam } from '../../team/context.tsx'
 import { ViewCard } from './view.tsx'
+import { handoffTitleOf, relayReplyText, roundEventText, settledQuestionPicks, stripLongNote, type RelayReplyData, type SettledQuestionData } from './settled.ts'
 import { viewAnswerText } from 'deep-view/core'
 
 export interface ImageRef { attachmentId: string; mime?: string; name?: string }
 
+export interface FileRef { name: string; bytes?: number; attachmentId?: string }
+
+export type { SettledQuestionData }
+
 export interface ChatItem {
-  kind: 'bot' | 'user' | 'event' | 'answer' | 'view' | 'divider' | 'steps'
+  kind: 'bot' | 'user' | 'event' | 'answer' | 'view' | 'divider' | 'steps' | 'closed' | 'post' | 'relay'
   text?: string
   time?: number
   seq?: number
@@ -31,13 +37,18 @@ export interface ChatItem {
   // The IM platform a user message came in over (parts.js viaOf).
   via?: string
   imageRefs?: ImageRef[]
-  files?: { name: string; bytes?: number; attachmentId?: string }[]
-  file?: string
+  files?: FileRef[]
+  file?: FileRef
+  whole?: { file?: FileRef; length?: number }
   length?: number
   title?: string
   view?: unknown
   views?: { id: string; title: string; view: unknown }[]
-  questions?: { question: string }[]
+  closed?: string
+  question?: SettledQuestionData
+  questions?: SettledQuestionData[]
+  handoff?: { reason?: string; note?: string; outcome?: string }
+  reply?: RelayReplyData
   answers?: { id?: string; action?: string; values?: { selected?: string[]; inputs?: Record<string, unknown>; fields?: Record<string, string>; confirmed?: boolean }; selected?: string[]; custom?: string }[]
   tools?: { name: string; label?: string | null; ok?: boolean }[]
   ms?: number
@@ -75,82 +86,131 @@ const dataUri = (value: unknown) => `data:${(value as { mime?: string })?.mime ?
 // bubble at min(width%, 100% - 40); flat layout draws Bot text full width.
 export const Item = memo(function Item({ item, p, flat, maxWidth, inRoom, sessionId, open, onToggle, onLongPress, onOpenFile, onRetry, stamp, author, admin }: { item: ChatItem; p: Palette; flat: boolean; maxWidth: number | string; inRoom: boolean; sessionId?: string; open?: boolean; onToggle?: () => void; stamp?: string; author?: Bot; admin?: boolean; onLongPress?: (text: string) => void; onOpenFile?: (file: { name: string; attachmentId?: string }) => void; onRetry?: (localId: string, discard?: boolean) => void }) {
   const { dark } = useTheme()
+  const wholeFile = item.file?.attachmentId !== undefined ? item.file : item.whole?.file?.attachmentId !== undefined ? item.whole.file : undefined
   const chips = (item.files ?? []).map(file => (
     <Pressable key={file.attachmentId ?? file.name} accessibilityRole="button" onPress={() => onOpenFile?.(file)}
-      style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 6, minHeight: 44, paddingHorizontal: 10, paddingVertical: 8, borderRadius: 14, borderWidth: 1, borderColor: p.line, backgroundColor: p.card }}>
-      <View style={{ flex: 1 }}>
+      style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 6, minHeight: 44, paddingHorizontal: 10, paddingVertical: 8, borderRadius: 12, borderWidth: StyleSheet.hairlineWidth, borderColor: p.line2, backgroundColor: p.card }}>
+      <View style={{ flex: 1, minWidth: 0 }}>
         <Text style={[type.small, { color: p.ink, fontWeight: '500' }]} numberOfLines={1}>{file.name}</Text>
         <Text style={[type.caption, { color: p.ink3 }]}>{[(file.name.split('.').pop() ?? '').toUpperCase(), file.bytes !== undefined ? `${Math.max(1, Math.round(file.bytes / 1024))} KB` : ''].filter(Boolean).join(' · ')}</Text>
       </View>
     </Pressable>
   ))
+  const fullMessageLink = wholeFile !== undefined ? (
+    <Pressable accessibilityRole="button" onPress={() => onOpenFile?.(wholeFile)} style={{ alignSelf: 'flex-start', marginTop: 6, paddingVertical: 2 }}>
+      <Text style={[type.small, { color: p.accent, fontWeight: '500' }]}>{t('Read full message')}</Text>
+    </Pressable>
+  ) : null
+  const bodyTexts = item.texts !== undefined && item.texts.length > 0
+    ? item.texts.filter(entry => entry.trim() !== '')
+    : (item.text ?? '') !== '' ? [wholeFile !== undefined ? stripLongNote(item.text ?? '') : (item.text ?? '')] : []
+  const bodyJoined = bodyTexts.join('\n\n')
   const source = item.answers !== undefined
     ? item.answers.map(answer => [...(answer.selected ?? []), ...(answer.custom ? [answer.custom] : [])].join(', ')).join('\n')
-    : item.text ?? ''
+    : bodyJoined
   const longPress = () => { void Haptics.selectionAsync(); onLongPress?.(source) }
   if (item.kind === 'steps') return <Steps item={item} p={p} open={open === true} onToggle={onToggle ?? (() => {})} />
   if (item.kind === 'divider') {
-    return <Text style={[type.caption, { color: p.ink3, alignSelf: 'center', marginVertical: 10 }]}>{typeof item.time === 'number' ? clockLabel(item.time) : ''}</Text>
+    const label = typeof item.time === 'number' ? clockLabel(item.time) : ''
+    return (
+      <View style={styles.partDivider} accessibilityRole="header">
+        <View style={[styles.partLine, { backgroundColor: p.line }]} />
+        {label !== '' ? <Text style={[type.caption, { color: p.ink3 }]}>{label}</Text> : null}
+        <View style={[styles.partLine, { backgroundColor: p.line }]} />
+      </View>
+    )
+  }
+  if (item.kind === 'relay') {
+    const line = relayReplyText(item.reply)
+    return line ? <Text style={[type.caption, { color: p.ink3, alignSelf: 'center', marginVertical: 4, paddingHorizontal: 12, textAlign: 'center' }]}>{line}</Text> : null
   }
   if (item.kind === 'event') {
-    if (item.role === 'paused') return <Text style={[type.caption, { color: p.ink3, alignSelf: 'center', marginVertical: 4, textAlign: 'center' }]}>{t('Paused after {count} Bot relays. Waiting: {names}', { count: item.ms ?? 0, names: item.text ?? '' })}</Text>
-    // A group round's events, worded like the desktop's RelayEvent (cells.js).
+    if (item.role === 'paused') return <Text style={[type.caption, { color: p.ink3, alignSelf: 'center', marginVertical: 4, paddingHorizontal: 12, textAlign: 'center' }]}>{t('Paused after {count} Bot relays. Waiting: {names}', { count: item.ms ?? 0, names: item.text ?? '' })}</Text>
     const name = item.name ?? t('a Bot')
-    const round = item.event === undefined ? undefined : ({
-      failed: () => t('{name} could not answer: {reason}', { name, reason: item.text ?? item.code ?? '' }),
-      lookup: () => (item.text ? t('{name} looked up its own chat for “{text}”', { name, text: item.text }) : t('{name} looked up its own chat', { name })),
-      missed: () => t("{name} didn't answer in time", { name }),
-      resumed: () => t('{name} was cut off by a restart and picked its work back up', { name }),
-      cut: () => t('{name} was cut off by a restart again and stopped', { name }),
-      approval: () => t('{name} paused for your approval', { name }),
-      working: () => t('{name} started on it', { name }),
-      stopped: () => t("You stopped {name}'s work", { name }),
-      done: () => t('{name} finished its work', { name }),
-      schedule: () => item.text ?? '',
-    } as Record<string, () => string>)[item.event]
-    if (round !== undefined) return <Text style={[type.caption, { color: p.ink3, alignSelf: 'center', marginVertical: 4, textAlign: 'center' }]}>{round()}</Text>
+    const round = roundEventText(name, item.event, item.text, item.code)
+    if (round !== undefined) return <Text style={[type.caption, { color: p.ink3, alignSelf: 'center', marginVertical: 4, paddingHorizontal: 12, textAlign: 'center' }]}>{round}</Text>
     const label = { request: t('asked for work'), reply: t('replied'), report: t('reported back'), stopped: t('stopped') }[item.role ?? ''] ?? item.role ?? ''
-    return <Text style={[type.caption, { color: p.ink3, alignSelf: 'center', marginVertical: 4, textAlign: 'center' }]}>{t('{name} {event}', { name: item.name ?? t('a Bot'), event: label })}</Text>
+    return <Text style={[type.caption, { color: p.ink3, alignSelf: 'center', marginVertical: 4, paddingHorizontal: 12, textAlign: 'center' }]}>{t('{name} {event}', { name: item.name ?? t('a Bot'), event: label })}</Text>
+  }
+  if (item.kind === 'closed') {
+    const badge = t(item.closed === 'replied' ? 'Answered by message' : 'Dismissed')
+    const prompt = item.question?.question ?? item.title ?? ''
+    return (
+      <View style={[styles.settledCard, { backgroundColor: p.card, borderColor: p.line }]}>
+        <View style={styles.settledHead}>
+          <Text style={[type.small, { color: p.ink2, fontWeight: '500', flex: 1, minWidth: 0 }]}>{prompt}</Text>
+          <View style={[styles.settledBadge, { borderColor: p.line2 }]}>
+            <Text style={[type.caption, { color: p.ink2 }]}>{badge}</Text>
+          </View>
+        </View>
+      </View>
+    )
   }
   if (item.kind === 'view') {
     return item.view !== undefined
       ? <ViewCard sessionId={sessionId ?? ''} title={item.title} root={item.view} p={p} readOnly />
-      : <View style={[styles.card, { backgroundColor: p.card, borderColor: p.line }]}>
+      : <View style={[styles.settledCard, { backgroundColor: p.card, borderColor: p.line }]}>
           <Text style={[type.settingsRow, { color: p.ink, fontWeight: '600' }]}>{item.title ?? 'View'}</Text>
         </View>
   }
   if (item.kind === 'answer') {
+    let handoff = item.handoff
+    if (handoff === undefined && (item.questions ?? []).length === 0 && (item.views ?? []).length === 0 && typeof item.text === 'string') {
+      try {
+        const parsed = JSON.parse(item.text) as { kind?: string; reason?: string; note?: string; outcome?: string }
+        if (parsed?.kind === 'answer_to_pending_handoff' && typeof parsed.reason === 'string') {
+          handoff = { reason: parsed.reason, note: parsed.note, outcome: parsed.outcome }
+        }
+      } catch { /* plain text fallback */ }
+    }
+    if (handoff !== undefined) {
+      const skipped = handoff.outcome === 'skipped'
+      const returned = handoff.outcome === 'returned'
+      const title = handoffTitleOf(handoff.reason)
+      return (
+        <View style={[styles.settledCard, { backgroundColor: p.card, borderColor: p.line }]}>
+          <View style={styles.settledHead}>
+            <Text style={[type.small, { color: p.ink2, fontWeight: '500', flex: 1, minWidth: 0 }]}>{title}</Text>
+            {skipped || returned ? (
+              <View style={[styles.settledBadge, { borderColor: p.line2 }]}>
+                <Text style={[type.caption, { color: p.ink2 }]}>{t(skipped ? 'Skipped' : 'Returned')}</Text>
+              </View>
+            ) : <CheckIcon size={16} color={p.ink2} />}
+          </View>
+        </View>
+      )
+    }
     const viewReplies = (item.views ?? []).map((entry, i) => {
       const answer = (item.answers ?? []).find(a => a.id === entry.id) ?? item.answers?.[i]
       const detail = answer !== undefined && entry.view !== undefined ? viewAnswerText(entry.view, answer as never) : ''
       return { title: entry.title, detail }
     })
     if (viewReplies.length > 0) return (
-      <Pressable onLongPress={longPress} style={[styles.answeredCard, { backgroundColor: p.card, borderColor: p.line, maxWidth }]}>
+      <Pressable onLongPress={longPress} style={[styles.settledCard, { backgroundColor: p.card, borderColor: p.line }]}>
         {viewReplies.map((reply, i) => (
           <View key={i} style={{ gap: 4 }}>
-            <Text style={[type.caption, { color: p.ink3 }]}>{reply.title}</Text>
-            <Text style={[type.bubble, { color: p.ink }]}>{reply.detail !== '' ? reply.detail : source}</Text>
+            {reply.title ? <Text style={[type.small, { color: p.ink2, fontWeight: '500' }]}>{reply.title}</Text> : null}
+            <Text style={[type.small, { color: p.ink }]}>{reply.detail !== '' ? reply.detail : source}</Text>
           </View>
         ))}
       </Pressable>
     )
-    // An answered ask_user card folds to its result on the Bot's side, as the desktop's
-    // settled question card does: the question muted, only the chosen rows.
+    // An answered ask_user card folds to its result across the chat column, matching the
+    // desktop's SettledQuestion: full width so multi-line picks never collapse or clip.
     if ((item.questions ?? []).length > 0) return (
-      <Pressable onLongPress={longPress} style={[styles.answeredCard, { backgroundColor: p.card, borderColor: p.line, maxWidth }]}>
+      <Pressable onLongPress={longPress} style={[styles.settledCard, { backgroundColor: p.card, borderColor: p.line }]}>
         {(item.questions ?? []).map((question, i) => {
-          const answer = item.answers?.[i]
-          const picks = [...(answer?.selected ?? []), ...(answer?.custom ? [answer.custom] : [])]
+          const answer = (item.answers ?? []).find(a => question.id !== undefined && a.id === question.id) ?? item.answers?.[i]
+          const picks = settledQuestionPicks(question, answer)
           return (
-            <View key={i} style={{ gap: 2 }}>
-              <Text style={[type.small, { color: p.ink2, fontWeight: '500', marginBottom: 2 }]}>{question.question}</Text>
+            <View key={i} style={{ gap: 6 }}>
+              <Text style={[type.small, { color: p.ink2, fontWeight: '500' }]}>{question.question}</Text>
               {picks.map((pick, j) => (
-                <View key={j} style={[styles.pickLine, { gap: 10 }]}>
-                  <View style={{ width: 20, height: 20, borderRadius: 6, backgroundColor: p.accent, alignItems: 'center', justifyContent: 'center' }}>
-                    <Text style={{ color: p.accentInk, fontSize: 11, fontWeight: '600' }}>{String.fromCharCode(65 + j)}</Text>
+                <View key={j} style={styles.pickLine}>
+                  <View style={[styles.pickBadge, { backgroundColor: p.accent }]}>
+                    <Text style={{ color: p.accentInk, fontSize: 12, fontWeight: '600' }}>{pick.letter}</Text>
                   </View>
-                  <Text style={[type.small, { color: p.ink, flex: 1 }]}>{pick}</Text>
+                  <Text style={[type.small, { color: p.ink, flex: 1, minWidth: 0, lineHeight: 20 }]}>{pick.label}</Text>
                 </View>
               ))}
             </View>
@@ -169,12 +229,13 @@ export const Item = memo(function Item({ item, p, flat, maxWidth, inRoom, sessio
     // a bubble sized to its content cannot hold a block that scrolls sideways.
     const wide = hasBlockContent(item.text ?? '')
     // Photos with no text show as photos, without a bubble around them.
-    const photosOnly = (item.text ?? '') === '' && ((item.imageRefs?.length ?? 0) > 0 || (item.localImages?.length ?? 0) > 0)
+    const photosOnly = (item.text ?? '') === '' && chips.length === 0 && ((item.imageRefs?.length ?? 0) > 0 || (item.localImages?.length ?? 0) > 0)
     const bubble = (
       <Pressable onLongPress={longPress} onPress={item.local === 'failed' && item.localId !== undefined ? () => onRetry?.(item.localId!) : undefined}
         style={[styles.bubble, styles.userBubble, { backgroundColor: p.user, maxWidth, width: wide ? maxWidth : undefined, opacity: item.local === 'sending' ? 0.7 : 1 },
           photosOnly ? { backgroundColor: 'transparent', paddingHorizontal: 0, paddingVertical: 0 } : null]}>
         {item.text ? <Markdown text={item.text} p={p} textColor={p.userInk} bg={p.user} /> : null}
+        {chips}
         {item.localImages !== undefined && item.localImages.length > 0
           ? <LocalImages uris={item.localImages} />
           : item.imageRefs !== undefined && item.imageRefs.length > 0 && sessionId !== undefined
@@ -202,45 +263,67 @@ export const Item = memo(function Item({ item, p, flat, maxWidth, inRoom, sessio
       </View>
     ) : bubble
   }
+  const hasImages = item.imageRefs !== undefined && item.imageRefs.length > 0 && sessionId !== undefined
+  if (bodyTexts.length === 0 && !hasImages && chips.length === 0 && fullMessageLink === null) return null
   // In a group each reply carries its member: avatar, name in the member's color, the
   // admin tag and the time, as the desktop's group rows do.
   if (inRoom && !flat) {
+    const wide = bodyTexts.some(hasBlockContent) || hasImages
     return (
       <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8, marginTop: 6 }}>
         <View style={{ width: 22, paddingTop: 22 }}>{author ? <Avatar bot={author} dark={dark} size={22} ring={p.main} /> : null}</View>
-        <Pressable onLongPress={longPress} style={{ flexShrink: 1, maxWidth, width: hasBlockContent(item.text ?? '') ? '100%' : undefined }}>
+        <Pressable onLongPress={longPress} style={{ flexShrink: 1, minWidth: 0, maxWidth, width: wide ? maxWidth : undefined }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 3, marginLeft: 2 }}>
-            <Text style={[type.caption, { color: author !== undefined ? inkColor(author.color, dark) : p.ink2, fontWeight: '500' }]} numberOfLines={1}>{item.name ?? author?.name ?? ''}</Text>
+            <Text style={[type.caption, { color: author !== undefined ? inkColor(author.color, dark) : p.ink2, fontWeight: '500', flexShrink: 1 }]} numberOfLines={1}>{item.name ?? author?.name ?? ''}</Text>
             {admin ? <Text style={[styles.via, { backgroundColor: p.hover, color: p.ink3 }]}>{t('Admin')}</Text> : null}
             {typeof item.time === 'number' ? <Text style={[type.caption, { color: p.ink3 }]}>{messageClock(item.time)}</Text> : null}
           </View>
-          <View style={[styles.bubble, { backgroundColor: p.bubble, alignSelf: 'flex-start' }]}>
-            <Markdown text={item.text ?? ''} p={p} textColor={p.ink} bg={p.bubble} />
-            {item.imageRefs !== undefined && item.imageRefs.length > 0 && sessionId !== undefined ? <ImageGrid refs={item.imageRefs} sessionId={sessionId} p={p} /> : null}
-          </View>
+          {bodyTexts.map((partText, bi) => {
+            const last = bi === bodyTexts.length - 1
+            return (
+              <View key={bi} style={[styles.bubble, { backgroundColor: p.bubble, alignSelf: hasBlockContent(partText) || (last && hasImages) ? 'stretch' : 'flex-start', maxWidth: '100%' }]}>
+                <Markdown text={partText} p={p} textColor={p.ink} bg={p.bubble} />
+                {last && hasImages ? <ImageGrid refs={item.imageRefs!} sessionId={sessionId!} p={p} /> : null}
+                {last ? chips : null}
+                {last ? fullMessageLink : null}
+              </View>
+            )
+          })}
+          {bodyTexts.length === 0 ? (
+            <View style={[styles.bubble, { backgroundColor: p.bubble, alignSelf: 'flex-start', maxWidth: '100%' }]}>
+              {hasImages ? <ImageGrid refs={item.imageRefs!} sessionId={sessionId!} p={p} /> : null}
+              {chips}
+              {fullMessageLink}
+            </View>
+          ) : null}
         </Pressable>
       </View>
     )
   }
   const name = inRoom && item.name ? <Text style={[type.caption, { color: p.ink3, marginBottom: 2, marginLeft: 2 }]}>{item.name}</Text> : null
-  const wide = hasBlockContent(item.text ?? '') || (item.imageRefs !== undefined && item.imageRefs.length > 0)
+  const wide = bodyTexts.some(hasBlockContent) || hasImages
   if (flat) {
     return (
-      <Pressable onLongPress={longPress} style={{ alignSelf: 'flex-start', maxWidth, width: wide ? '100%' : undefined, marginVertical: 4 }}>
+      <Pressable onLongPress={longPress} style={{ alignSelf: 'stretch', marginVertical: 4 }}>
         {name}
-        <Markdown text={item.text ?? ''} p={p} textColor={p.ink} bg={p.main} />
-        {item.imageRefs !== undefined && item.imageRefs.length > 0 && sessionId !== undefined ? <ImageGrid refs={item.imageRefs} sessionId={sessionId} p={p} /> : null}
+        {bodyTexts.length > 0 ? <Markdown text={bodyJoined} p={p} textColor={p.ink} bg={p.main} /> : null}
+        {hasImages ? <ImageGrid refs={item.imageRefs!} sessionId={sessionId!} p={p} /> : null}
+        {chips}
+        {fullMessageLink}
+        {stamp ? <Text style={[type.caption, { color: p.ink3, marginTop: 4 }]}>{stamp}</Text> : null}
       </Pressable>
     )
   }
   return (
-    <Pressable onLongPress={longPress} style={{ alignSelf: 'flex-start', maxWidth, width: wide ? '100%' : undefined }}>
+    <Pressable onLongPress={longPress} style={{ alignSelf: 'flex-start', maxWidth, width: wide ? maxWidth : undefined }}>
       {name}
-      <View style={[styles.bubble, { backgroundColor: p.bubble }]}>
-        <Markdown text={item.text ?? ''} p={p} textColor={p.ink} bg={p.bubble} />
-        {item.imageRefs !== undefined && item.imageRefs.length > 0 && sessionId !== undefined ? <ImageGrid refs={item.imageRefs} sessionId={sessionId} p={p} /> : null}
+      <View style={[styles.bubble, { backgroundColor: p.bubble, maxWidth: '100%' }]}>
+        {bodyTexts.length > 0 ? <Markdown text={bodyJoined} p={p} textColor={p.ink} bg={p.bubble} /> : null}
+        {hasImages ? <ImageGrid refs={item.imageRefs!} sessionId={sessionId!} p={p} /> : null}
+        {chips}
+        {fullMessageLink}
       </View>
-      {stamp ? <Text style={[type.caption, { color: p.ink3, marginTop: 2, marginLeft: 2 }]}>{stamp}</Text> : null}
+      {stamp ? <Text style={[type.caption, { color: p.ink3, marginTop: 2, marginLeft: 4 }]}>{stamp}</Text> : null}
     </Pressable>
   )
 })
@@ -338,25 +421,31 @@ interface ImageState { uri?: string; error?: string }
 
 function useImages(sessionId: string, refs: ImageRef[]): ImageState[] {
   const { call } = useTeam()
-  const [states, setStates] = useState<ImageState[]>(() =>
-    refs.map(ref => imageCache.has(`${sessionId}:${ref.attachmentId}`) ? { uri: imageCache.get(`${sessionId}:${ref.attachmentId}`) } : {}))
+  const [, bump] = useState(0)
+  const [errors, setErrors] = useState<Record<string, string>>({})
   const key = `${sessionId}:${refs.map(ref => ref.attachmentId).join(',')}`
   useEffect(() => {
     let live = true
-    refs.forEach((ref, index) => {
+    for (const ref of refs) {
       const cacheKey = `${sessionId}:${ref.attachmentId}`
-      if (imageCache.has(cacheKey)) return
+      if (imageCache.has(cacheKey)) continue
       call('image', { sessionId, attachmentId: ref.attachmentId, preview: true })
         .then(value => {
-          const uri = dataUri(value)
-          imageCache.set(cacheKey, uri)
-          if (live) setStates(prev => prev.map((state, i) => i === index ? { uri } : state))
+          imageCache.set(cacheKey, dataUri(value))
+          if (live) bump(n => n + 1)
         })
-        .catch(error => { if (live) setStates(prev => prev.map((state, i) => i === index ? { error: String((error as { code?: string })?.code ?? (error as Error)?.message ?? 'Failed') } : state)) })
-    })
+        .catch(error => {
+          const reason = String((error as { code?: string })?.code ?? (error as Error)?.message ?? 'Failed')
+          if (live) setErrors(prev => ({ ...prev, [cacheKey]: reason }))
+        })
+    }
     return () => { live = false }
   }, [key])
-  return states
+  return refs.map(ref => {
+    const cacheKey = `${sessionId}:${ref.attachmentId}`
+    const uri = imageCache.get(cacheKey)
+    return uri !== undefined ? { uri } : errors[cacheKey] !== undefined ? { error: errors[cacheKey] } : {}
+  })
 }
 
 // The original of the photo open in the viewer; the preview shows until it arrives.
@@ -418,7 +507,7 @@ function Steps({ item, p, open, onToggle }: { item: ChatItem; p: Palette; open: 
       </Pressable>
       {open ? tools.map((tool, index) => (
         <Text key={`${tool.name}-${index}`} style={[type.caption, { color: p.ink2, textAlign: 'center' }]}>
-          {tool.label ?? tool.name}{tool.ok === false ? t(' — failed') : ''}
+          {(tool.label ? t(tool.label) : undefined) ?? tool.name}{tool.ok === false ? t(' — failed') : ''}
         </Text>
       )) : null}
     </View>
@@ -426,9 +515,15 @@ function Steps({ item, p, open, onToggle }: { item: ChatItem; p: Palette; open: 
 }
 
 const styles = StyleSheet.create({
-  bubble: { borderRadius: radius.bubble, paddingHorizontal: 12, paddingVertical: 7, marginVertical: 2 },
+  bubble: { borderRadius: radius.bubble, paddingHorizontal: 14, paddingVertical: 9, marginVertical: 2 },
   userBubble: { alignSelf: 'flex-end' },
-  card: { marginHorizontal: 12, marginVertical: 6, borderRadius: radius.card, borderWidth: 1, paddingHorizontal: 16, paddingVertical: 14 },
+  partDivider: { flexDirection: 'row', alignItems: 'center', gap: 10, marginVertical: 12 },
+  partLine: { flex: 1, height: StyleSheet.hairlineWidth },
+  settledCard: { alignSelf: 'stretch', width: '100%', borderRadius: radius.dialog, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 16, paddingVertical: 12, marginVertical: 6, gap: 8 },
+  settledHead: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 },
+  settledBadge: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: radius.pill, borderWidth: 1, borderStyle: 'dashed', flexShrink: 0 },
+  pickBadge: { width: 22, height: 22, borderRadius: 7, alignItems: 'center', justifyContent: 'center', marginTop: 1, flexShrink: 0 },
+  pickLine: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, paddingVertical: 2 },
   grid: { flexDirection: 'row', flexWrap: 'wrap' },
   tile: { width: 120, height: 120, borderRadius: radius.bubble, borderWidth: StyleSheet.hairlineWidth, overflow: 'hidden' },
   tileImage: { width: '100%', height: '100%' },
@@ -437,9 +532,7 @@ const styles = StyleSheet.create({
   viewerBar: { position: 'absolute', left: 16, right: 8, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   viewerClose: { padding: 10 },
   reader: { flex: 1, paddingTop: 60 },
-  answeredCard: { alignSelf: 'flex-start', borderRadius: 16, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 16, paddingVertical: 12, marginVertical: 4, gap: 10 },
-  via: { fontSize: 11, lineHeight: 16, paddingHorizontal: 6, borderRadius: 6, overflow: 'hidden' },
-  pickLine: { flexDirection: 'row', alignItems: 'center', minHeight: 32 },
+  via: { fontSize: 11, lineHeight: 16, paddingHorizontal: 6, borderRadius: 6, overflow: 'hidden', flexShrink: 0 },
   readerClose: { position: 'absolute', bottom: 30, alignSelf: 'center', paddingHorizontal: 24, paddingVertical: 10, borderRadius: 20, borderWidth: 1 },
   scrim: { flex: 1, backgroundColor: 'rgba(0,0,0,.35)', justifyContent: 'flex-end' },
   sheet: { marginHorizontal: 12, marginBottom: 34, borderRadius: 14, borderWidth: 1, overflow: 'hidden' },
