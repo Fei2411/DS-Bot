@@ -108,7 +108,8 @@ export default {
       const direct = body.chattype === 'single'
       // Groups only count when the bot was @-ed: the text keeps the mention.
       // A voice message carries its own transcription, which is all of the text
-      // there is to send on.
+      // there is to send on. A mixed message carries its words as items, so those
+      // are gathered here rather than dropped: a caption is the whole instruction.
       const text = String(body.text?.content ?? body.voice?.content ?? '').trim()
       const images = []
       const files = []
@@ -124,21 +125,31 @@ export default {
           else if (got?.bytes !== undefined) files.push({ name: got.name || `wecom-${body.msgid ?? 'file'}`, data: got.bytes })
         }
       }
-      // 图文混排: the image items ride the same encrypted-link path as a plain image.
+      // 图文混排: the words and the pictures of one message. Both matter — a picture
+      // without its caption loses the instruction, and a text-only one would otherwise
+      // arrive empty and be dropped.
+      const mixedText = []
       if (body.msgtype === 'mixed' && Array.isArray(body.mixed?.msg_item)) {
         for (const item of body.mixed.msg_item) {
+          if (item?.msgtype === 'text') {
+            const itemText = String(item.text?.content ?? '').trim()
+            if (itemText !== '') mixedText.push(itemText)
+            continue
+          }
           if (item?.msgtype !== 'image' || item.image?.url === undefined) continue
           const got = await downloadMedium(item.image, env, IMAGE_LIMIT).catch(error => error)
           if (got?.overLimit === true) env.log?.warn?.('ds-bot im: wecom mixed image is over the %d byte cap, skipped', IMAGE_LIMIT)
           else if (got?.bytes !== undefined) images.push({ mediaType: imageTypeOf(got.bytes, got.name), data: got.bytes.toString('base64') })
         }
       }
+      // The parts of a mixed message keep their order: one line each, caption first.
+      const words = mixedText.length === 0 ? text : [text, ...mixedText].filter(part => part !== '').join('\n')
       // Reply frames go out with the callback's req_id; a failed reply is
       // logged but the message itself still lands in the core.
       await handlers.onMessage({
         chat: { key, kind: direct ? 'direct' : 'group', title: '' },
         sender: { id: String(body.from?.userid ?? ''), name: String(body.from?.name ?? body.from?.userid ?? '') },
-        text, images, files,
+        text: words, images, files,
         mentioned: body.chattype !== 'single' && body.mention_robot === true,
         messageId: String(body.msgid ?? ''),
       })
@@ -264,9 +275,13 @@ async function downloadMedium(medium, env, limit) {
   const response = await env.fetch(String(medium.url))
   if (!response.ok) return undefined
   const overLimit = () => Object.assign(new Error('over the media cap'), { overLimit: true })
-  // A declared length settles it before a single chunk is pulled.
+  // A declared length settles it before a single chunk is pulled — but the body is
+  // still an open transfer, so it is cancelled rather than left downloading.
   const declared = Number(response.headers?.get?.('content-length') ?? Number.NaN)
-  if (Number.isFinite(declared) && declared > limit) throw overLimit()
+  if (Number.isFinite(declared) && declared > limit) {
+    await response.body?.cancel?.().catch(() => {})
+    throw overLimit()
+  }
   const encrypted = await readCapped(response, limit, overLimit)
   const key = Buffer.from(String(medium.aeskey ?? ''), 'base64')
   if (key.length !== 32) return undefined

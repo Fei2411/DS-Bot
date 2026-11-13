@@ -375,3 +375,57 @@ test('a body with no stream is still capped after it is read whole', async (t) =
   const delivered = await until(() => messages.find(msg => msg.messageId === 'm-nostream'))
   assert.equal(delivered.files.length, 0, 'the no-stream fallback still refused it')
 })
+
+// A mixed message carries its words as items, and they are the instruction: a
+// picture without its caption loses the request, and a text-only one would arrive
+// empty and be dropped entirely.
+test('a mixed message keeps its text items along with its images', async (t) => {
+  const { createCipheriv, randomBytes } = await import('node:crypto')
+  const key = randomBytes(32)
+  const png = Buffer.concat([Buffer.from('89504e470d0a1a0a', 'hex'), randomBytes(20)])
+  const pad = 32 - (png.length % 32)
+  const cipher = createCipheriv('aes-256-cbc', key, key.subarray(0, 16))
+  cipher.setAutoPadding(false)
+  const encrypted = Buffer.concat([cipher.update(Buffer.concat([png, Buffer.alloc(pad, pad)])), cipher.final()])
+  const fake = await fakeWecom()
+  const messages = []
+  const mediaEnv = { ...env(fake), fetch: async () => ({ ok: true, headers: { get: () => null }, arrayBuffer: async () => encrypted }) }
+  const handle = wecom.connect(FIELDS, mediaEnv, { onMessage: async msg => { messages.push(msg) }, onAction: () => {}, onStatus: () => {} })
+  t.after(() => { handle.stop(); fake.close() })
+  const ws = await until(() => fake.sockets[0])
+
+  fake.push(ws, { cmd: 'aibot_msg_callback', headers: { req_id: 'req-mix' }, body: { msgid: 'm-mix', msgtype: 'mixed', chattype: 'single', from: { userid: 'u1' }, mixed: { msg_item: [{ msgtype: 'text', text: { content: 'Summarize this chart' } }, { msgtype: 'image', image: { url: 'https://cdn.invalid/i', aeskey: key.toString('base64') } }, { msgtype: 'text', text: { content: 'in two lines' } }] } } })
+  const delivered = await until(() => messages.find(msg => msg.messageId === 'm-mix'))
+  assert.equal(delivered.text, 'Summarize this chart\nin two lines')
+  assert.equal(delivered.images.length, 1)
+
+  // A mixed message of text alone must still arrive rather than be dropped.
+  fake.push(ws, { cmd: 'aibot_msg_callback', headers: { req_id: 'req-mixtext' }, body: { msgid: 'm-mixtext', msgtype: 'mixed', chattype: 'single', from: { userid: 'u1' }, mixed: { msg_item: [{ msgtype: 'text', text: { content: 'just words' } }] } } })
+  const textOnly = await until(() => messages.find(msg => msg.messageId === 'm-mixtext'))
+  assert.equal(textOnly.text, 'just words')
+  assert.equal(textOnly.images.length, 0)
+})
+
+// A declared oversized length must stop the transfer, not leave it downloading.
+test('a declared oversized length cancels the response body', async (t) => {
+  const { randomBytes } = await import('node:crypto')
+  const key = randomBytes(32)
+  const fake = await fakeWecom()
+  const messages = []
+  let cancelled = false
+  const mediaEnv = {
+    ...env(fake),
+    fetch: async () => ({
+      ok: true,
+      headers: { get: (h) => (h.toLowerCase() === 'content-length' ? String(400 * 1024 * 1024) : null) },
+      body: { cancel: async () => { cancelled = true }, getReader: () => ({ read: async () => ({ done: true }), cancel: async () => {} }) },
+    }),
+  }
+  const handle = wecom.connect(FIELDS, mediaEnv, { onMessage: async msg => { messages.push(msg) }, onAction: () => {}, onStatus: () => {} })
+  t.after(() => { handle.stop(); fake.close() })
+  const ws = await until(() => fake.sockets[0])
+  fake.push(ws, { cmd: 'aibot_msg_callback', headers: { req_id: 'req-cxl' }, body: { msgid: 'm-cxl', msgtype: 'file', chattype: 'single', from: { userid: 'u1' }, file: { url: 'https://cdn.invalid/cxl', aeskey: key.toString('base64') } } })
+  const delivered = await until(() => messages.find(msg => msg.messageId === 'm-cxl'))
+  assert.equal(delivered.files.length, 0)
+  assert.ok(cancelled, 'the rejected transfer was cancelled rather than left open')
+})
