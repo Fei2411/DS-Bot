@@ -1,7 +1,7 @@
 import { createElement as h, Fragment, useEffect, useRef, useState } from 'react'
 import { isMainOf } from './sources.js'
 import { HEADER, currentPart, runStatsOf, stripHeader, usageOf } from './text.js'
-import { PlusIcon, ShareIcon, CloseIcon, ChevronLeftIcon, GearIcon } from './icons.js'
+import { AlertIcon, PlusIcon, ShareIcon, CloseIcon, ChevronLeftIcon, GearIcon } from './icons.js'
 import { botState, BotMark, BotAvatar } from './mark.js'
 import { call } from './api.js'
 import { GlobeIcon, Favicon, PanelMenu, menuItemFor } from './browser-pane.js'
@@ -237,6 +237,9 @@ function GroupOverview({ room, roster, actions, usage, useWork, openSettings }) 
 function BotSessions({ bot, part, run, useSessions, actions, running }) {
   const runningOf = id => running?.[id] === true
   const open = (bot.openParts ?? []).map(entry => ({ id: entry.sessionId, open: true, running: runningOf(entry.sessionId) }))
+  // Two sessions running at once means two model calls: shown only while a background
+  // part really runs, above the list rather than as a quiet footnote.
+  const backgroundRunning = open.some(entry => entry.running)
   const entries = [
     { id: part, current: true, running: runningOf(part) },
     ...open,
@@ -253,6 +256,11 @@ function BotSessions({ bot, part, run, useSessions, actions, running }) {
     h('div', { className: 'bt-agent-sessions-head' },
       h('div', { className: 'bt-section-title' }, t('Sessions')),
       h('button', { type: 'button', className: 'bt-agent-sessions-new', onClick: () => run(actions.newPart !== undefined ? actions.newPart(bot.id) : call('bot-new-part', { botId: bot.id })) }, h(PlusIcon), t('New session'))),
+    backgroundRunning
+      ? h('div', { className: 'bt-agent-sessions-warn', role: 'status' },
+          h(AlertIcon),
+          h('span', null, t('A running session keeps using model calls in the background.')))
+      : null,
     h('div', { className: 'bt-agent-sessions' }, entries.map((entry, index) => {
       const row = rows[index]
       const when = row?.updatedAt ?? row?.createdAt
@@ -268,10 +276,7 @@ function BotSessions({ bot, part, run, useSessions, actions, running }) {
           entry.running ? h('span', { className: 'bt-agent-session-run', role: 'status' }, t('Running'))
             : entry.current ? t('Current')
               : when ? new Date(when).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''))
-    })),
-    open.length > 0
-      ? h('div', { className: 'bt-note bt-agent-sessions-note' }, t('A running session keeps using model calls in the background.'))
-      : null)
+    })))
 }
 const rowsEqual = (a, b) => a.length === b.length && a.every((row, index) => row?.title === b[index]?.title && row?.updatedAt === b[index]?.updatedAt)
 
