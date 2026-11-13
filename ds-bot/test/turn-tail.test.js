@@ -3,6 +3,7 @@ import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { runInNewContext } from 'node:vm'
 import { build } from 'esbuild'
+import { contentText } from '../src/client/text.js'
 
 const bundle = await build({
   entryPoints: [fileURLToPath(new URL('../src/client/cells.js', import.meta.url))],
@@ -147,4 +148,28 @@ test('the thinking row shows only with its switch on, and the activity row is ne
     const { noted } = cell(prefs, replying.blocks, [replying])
     assert.ok(noted.every(id => id.startsWith('text:')))
   }
+})
+
+// #1517: a model that writes its tool call in DSML form can leave the closing
+// tags in the text block; they must not reach the visible reply.
+test('a Bot reply drops DSML closing tags left after a tool call', () => {
+  const { props } = cellProps()
+  props.node.data.blocks = [
+    { kind: 'text', text: '做到第 3 题。\n</DSML invoke>\n</DSML calls>' },
+    { kind: 'tool-call' },
+  ]
+  assert.equal(markdownOf(props)[0].props.text, '做到第 3 题。')
+  // A message whose text is only the tags leaves no empty reply behind.
+  props.node.data.blocks = [
+    { kind: 'text', text: '</DSML invoke>\n</DSML calls>' },
+    { kind: 'tool-call' },
+  ]
+  assert.equal(markdownOf(props).length, 0)
+})
+
+// #1517: the post/event path uses the same cleanup.
+test('content text drops DSML closing tags from a post or event', () => {
+  assert.equal(contentText([{ type: 'text', text: '正文\n</DSML invoke>' }]), '正文')
+  assert.equal(contentText([{ type: 'text', text: '</DSML invoke>\n</DSML calls>' }]), '')
+  assert.equal(contentText([{ type: 'text', text: 'a < b and c > d' }]), 'a < b and c > d')
 })
