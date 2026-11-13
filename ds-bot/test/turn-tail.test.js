@@ -167,9 +167,33 @@ test('a Bot reply drops DSML closing tags left after a tool call', () => {
   assert.equal(markdownOf(props).length, 0)
 })
 
-// #1517: the post/event path uses the same cleanup.
-test('content text drops DSML closing tags from a post or event', () => {
+// #1517: the post/event path uses the same cleanup, keeping Markdown paragraph breaks and indentation.
+test('content text and Bubbles drop DSML closing tags while keeping Markdown structure', () => {
   assert.equal(contentText([{ type: 'text', text: '正文\n</DSML invoke>' }]), '正文')
   assert.equal(contentText([{ type: 'text', text: '</DSML invoke>\n</DSML calls>' }]), '')
   assert.equal(contentText([{ type: 'text', text: 'a < b and c > d' }]), 'a < b and c > d')
+  assert.equal(contentText([{ type: 'text', text: 'Before\n</DSML invoke>\n\n## After' }]), 'Before\n\n## After')
+  assert.equal(contentText([{ type: 'text', text: '    indented()\n</DSML invoke>' }]), '    indented()')
+  const bubbles = find(expand(AssistantCell({
+    ...cellProps().props,
+    sessionId: 'b',
+  }), ['Bubbles', 'Bubble']), node => node.type === MarkdownText)
+  assert.equal(bubbles.length, 1)
+  const { props } = cellProps()
+  const { Bubbles } = module.exports
+  const groupOut = find(expand(Bubbles({
+    texts: ['群里回复\n</DSML invoke>\n</DSML calls>'],
+    roster,
+    selfId: 'b',
+    actions: props.actions,
+  }), ['Bubble']), node => node.type === MarkdownText)
+  assert.equal(groupOut.length, 1)
+  assert.equal(groupOut[0].props.text, '群里回复')
+  const emptyOut = find(expand(Bubbles({
+    texts: ['</DSML invoke>\n</DSML calls>'],
+    roster,
+    selfId: 'b',
+    actions: props.actions,
+  }), ['Bubble']), node => node.type === MarkdownText)
+  assert.equal(emptyOut.length, 0)
 })

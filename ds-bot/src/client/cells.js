@@ -46,10 +46,11 @@ export function Bubbles({ texts, roster, selfId, actions, streaming, sessionId, 
     event.stopPropagation()
     actions.openSession(target)
   }
+  const cleaned = texts.map(stripToolCallTags).filter(text => text.trim() !== '')
   const reactions = useUi ? useUi(state => (msgKey ? state.reactions?.[msgKey] ?? null : null)) : null
   return h('div', { className: 'bt-astack', 'data-lead': lead ? '' : undefined, onClickCapture: onClick },
-    texts.map((text, index) => {
-      const last = index === texts.length - 1
+    cleaned.map((text, index) => {
+      const last = index === cleaned.length - 1
       return h(Bubble, {
         key: index, text, index, roster, selfId, actions, sessionId, msgKey, mentions, fold, textInteractionSource,
         picked: msgKey ? reactions?.[index] ?? [] : [],

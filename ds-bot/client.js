@@ -14548,11 +14548,18 @@ function elapsedLabel(ms) {
   return `${hours > 0 ? `${hours}h ` : ""}${total >= 60 ? `${Math.floor(total / 60) % 60}m ` : ""}${total % 60}s`;
 }
 var DSML_CLOSING_TAG = /<\/DSML\s+(?:invoke|calls)\s*>/i;
-var DSML_CLOSING_TAGS = /\s*<\/DSML\s+(?:invoke|calls)\s*>\s*/gi;
+var DSML_EDGE_TOP = /^(?:[ \t]*<\/DSML\s+(?:invoke|calls)\s*>[ \t]*(?:\r?\n|$))+/i;
+var DSML_EDGE_END = /(?:\r?\n[ \t]*<\/DSML\s+(?:invoke|calls)\s*>[ \t]*)+$/i;
+var DSML_TAG_LINE = /\r?\n[ \t]*<\/DSML\s+(?:invoke|calls)\s*>[ \t]*(?=\r?\n)/gi;
+var DSML_TAG_INLINE = /[ \t]*<\/DSML\s+(?:invoke|calls)\s*>[ \t]*/gi;
 var stripToolCallTags = (text) => {
   const value = String(text ?? "");
   if (!DSML_CLOSING_TAG.test(value)) return value;
-  return value.replace(DSML_CLOSING_TAGS, " ").trim();
+  return value.replace(DSML_EDGE_TOP, "").replace(DSML_EDGE_END, "").replace(DSML_TAG_LINE, "").replace(DSML_TAG_INLINE, (match, offset, whole) => {
+    const before = offset > 0 ? whole[offset - 1] : "";
+    const after = whole[offset + match.length] ?? "";
+    return before && after && !/\s/.test(before) && !/\s/.test(after) ? " " : "";
+  });
 };
 var contentText = (content) => (content ?? []).filter((block) => block?.type === "text").map((block) => typeof block.text === "string" ? stripToolCallTags(block.text) : "").join("\n");
 var HEADER = /^\[(Message from|Reply from|Group chat|Group post from|Bot team setup|Handoff · part|Secret card)(?:[^\r\n]*\]\r?\n|[^\]\r\n]*\])/;
@@ -26219,12 +26226,13 @@ function Bubbles({ texts: texts2, roster, selfId, actions, streaming, sessionId,
     event.stopPropagation();
     actions.openSession(target);
   };
+  const cleaned = texts2.map(stripToolCallTags).filter((text) => text.trim() !== "");
   const reactions = useUi ? useUi((state) => msgKey ? state.reactions?.[msgKey] ?? null : null) : null;
   return (0, import_react32.createElement)(
     "div",
     { className: "bt-astack", "data-lead": lead ? "" : void 0, onClickCapture: onClick },
-    texts2.map((text, index) => {
-      const last = index === texts2.length - 1;
+    cleaned.map((text, index) => {
+      const last = index === cleaned.length - 1;
       return (0, import_react32.createElement)(Bubble, {
         key: index,
         text,
