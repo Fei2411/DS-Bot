@@ -14,9 +14,12 @@ import { chunkMarkdown } from '../format.js'
 
 const WSS = 'wss://openws.work.weixin.qq.com'
 const TEXT_LIMIT = 4000
-// A long-connection download reads the whole body into memory, so an oversized
-// attachment is surfaced in the log instead of buffered.
+// An attachment is read fully into memory and handed on as one Buffer, so it is
+// capped: the body is abandoned mid-transfer once it passes this, before a second
+// copy exists for the decrypt.
 const FILE_LIMIT = 100 * 1024 * 1024
+// A prompt image rides the whole request, so it gets a tighter cap of its own.
+const IMAGE_LIMIT = 20 * 1024 * 1024
 
 const socketUrl = env => String(env.config?.gateway ?? env.config?.api ?? WSS).replace(/\/+$/, '')
 // Keep the cause on screen: a refused handshake reports its HTTP status here.
@@ -110,26 +113,24 @@ export default {
       const images = []
       const files = []
       if (body.msgtype === 'image' && body.image?.url !== undefined) {
-        const got = await downloadMedium(body.image, env).catch(() => undefined)
+        const got = await downloadMedium(body.image, env, IMAGE_LIMIT).catch(() => undefined)
         if (got !== undefined) images.push({ mediaType: imageTypeOf(got.bytes, got.name), data: got.bytes.toString('base64') })
       }
       if (body.msgtype === 'file' || body.msgtype === 'video') {
         const media = body[body.msgtype]
         if (media?.url !== undefined) {
-          const got = await downloadMedium(media, env).catch(() => undefined)
-          if (got !== undefined) {
-            if (got.bytes.length <= FILE_LIMIT) files.push({ name: got.name || `wecom-${body.msgid ?? 'file'}`, data: got.bytes })
-            else env.log?.warn?.('ds-bot im: wecom %s is %d bytes, over the %d cap', body.msgtype, got.bytes.length, FILE_LIMIT)
-          }
+          const got = await downloadMedium(media, env, FILE_LIMIT).catch(error => error)
+          if (got?.overLimit === true) env.log?.warn?.('ds-bot im: wecom %s is over the %d byte cap, skipped', body.msgtype, FILE_LIMIT)
+          else if (got?.bytes !== undefined) files.push({ name: got.name || `wecom-${body.msgid ?? 'file'}`, data: got.bytes })
         }
       }
       // 图文混排: the image items ride the same encrypted-link path as a plain image.
       if (body.msgtype === 'mixed' && Array.isArray(body.mixed?.msg_item)) {
         for (const item of body.mixed.msg_item) {
           if (item?.msgtype !== 'image' || item.image?.url === undefined) continue
-          const got = await downloadMedium(item.image, env).catch(() => undefined)
-          if (got === undefined) continue
-          images.push({ mediaType: imageTypeOf(got.bytes, got.name), data: got.bytes.toString('base64') })
+          const got = await downloadMedium(item.image, env, IMAGE_LIMIT).catch(error => error)
+          if (got?.overLimit === true) env.log?.warn?.('ds-bot im: wecom mixed image is over the %d byte cap, skipped', IMAGE_LIMIT)
+          else if (got?.bytes !== undefined) images.push({ mediaType: imageTypeOf(got.bytes, got.name), data: got.bytes.toString('base64') })
         }
       }
       // Reply frames go out with the callback's req_id; a failed reply is
@@ -255,13 +256,51 @@ export default {
 // Inbound media (images, files, video, mixed items) downloads from its CDN URL and
 // decrypts with the per-link AES-256 key (base64). The name comes from
 // Content-Disposition: the callback body carries none for a file.
-async function downloadMedium(medium, env) {
+//
+// The body is read in chunks and abandoned the moment it passes `limit`, so an
+// oversized attachment costs neither the buffer nor the decrypt. Checking the size
+// after buffering would have guarded nothing: the memory is already spent by then.
+async function downloadMedium(medium, env, limit) {
   const response = await env.fetch(String(medium.url))
   if (!response.ok) return undefined
-  const encrypted = Buffer.from(await response.arrayBuffer())
+  const overLimit = () => Object.assign(new Error('over the media cap'), { overLimit: true })
+  // A declared length settles it before a single chunk is pulled.
+  const declared = Number(response.headers?.get?.('content-length') ?? Number.NaN)
+  if (Number.isFinite(declared) && declared > limit) throw overLimit()
+  const encrypted = await readCapped(response, limit, overLimit)
   const key = Buffer.from(String(medium.aeskey ?? ''), 'base64')
   if (key.length !== 32) return undefined
   return { bytes: decryptMedia(encrypted, key), name: filenameOf(response.headers?.get?.('content-disposition')) }
+}
+
+// Reads the whole body, giving up as soon as the running total passes `limit`. A
+// response without a stream (a stubbed fetch in a test, an older runtime) still has
+// to be taken whole, so that path keeps the size check afterwards.
+async function readCapped(response, limit, overLimit) {
+  const body = response.body
+  if (body === undefined || typeof body.getReader !== 'function') {
+    const whole = Buffer.from(await response.arrayBuffer())
+    if (whole.length > limit) throw overLimit()
+    return whole
+  }
+  const reader = body.getReader()
+  const chunks = []
+  let total = 0
+  try {
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      const chunk = Buffer.from(value)
+      total += chunk.length
+      if (total > limit) throw overLimit()
+      chunks.push(chunk)
+    }
+  } catch (error) {
+    // Stop the transfer rather than draining a body nobody will read.
+    await reader.cancel(error).catch(() => {})
+    throw error
+  }
+  return Buffer.concat(chunks, total)
 }
 
 // WeCom pads to a 32-byte block, not the 16 that `setAutoPadding` assumes, so the

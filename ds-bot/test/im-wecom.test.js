@@ -299,3 +299,79 @@ test('a JPEG keeps image/jpeg, and unknown bytes fall back on the name', async (
   const unknown = await until(() => messages.find(msg => msg.messageId === 'm-odd'))
   assert.equal(unknown.images[0].mediaType, 'image/webp')
 })
+
+// The cap has to bite before the body is in memory, or it guards nothing. A body
+// that reports how much was pulled proves the transfer stops early, and that a
+// declared length settles it before any chunk is read at all.
+test('an oversized file stops downloading early instead of buffering first', async (t) => {
+  // Only the key is used: the body is never decrypted, because it is refused first.
+  const { randomBytes } = await import('node:crypto')
+  const key = randomBytes(32)
+  const fake = await fakeWecom()
+  const messages = []
+  const warnings = []
+
+  // 4 MB chunks: the 100 MB cap must be crossed after ~26 of them, not all 200.
+  const CHUNK = 4 * 1024 * 1024
+  const TOTAL = 200 * CHUNK
+  let pulled = 0
+  let cancelled = false
+  const streamedBody = () => ({
+    getReader: () => ({
+      read: async () => {
+        if (pulled >= TOTAL) return { done: true, value: undefined }
+        pulled += CHUNK
+        return { done: false, value: new Uint8Array(CHUNK) }
+      },
+      cancel: async () => { cancelled = true },
+    }),
+  })
+
+  const mediaEnv = {
+    ...env(fake),
+    log: { warn: (...args) => warnings.push(args.join(' ')) },
+    fetch: async () => ({ ok: true, headers: { get: (h) => (h.toLowerCase() === 'content-length' ? null : null) }, body: streamedBody(), arrayBuffer: async () => { throw new Error('the whole body must not be read') } }),
+  }
+  const handle = wecom.connect(FIELDS, mediaEnv, { onMessage: async msg => { messages.push(msg) }, onAction: () => {}, onStatus: () => {} })
+  t.after(() => { handle.stop(); fake.close() })
+  const ws = await until(() => fake.sockets[0])
+  fake.push(ws, { cmd: 'aibot_msg_callback', headers: { req_id: 'req-big' }, body: { msgid: 'm-big', msgtype: 'file', chattype: 'single', from: { userid: 'u1' }, file: { url: 'https://cdn.invalid/big', aeskey: key.toString('base64') } } })
+  const delivered = await until(() => messages.find(msg => msg.messageId === 'm-big'))
+  assert.ok(delivered, 'the frame still reached onMessage')
+  assert.equal(delivered.files.length, 0, 'the oversized file was not attached')
+  assert.ok(pulled <= 27 * CHUNK, `stopped near the cap, pulled ${pulled / CHUNK} of ${TOTAL / CHUNK} chunks`)
+  assert.ok(cancelled, 'the transfer was cancelled rather than drained')
+  assert.ok(warnings.some(w => w.includes('over the')), 'the skip was logged')
+
+  // A declared length larger than the cap decides it before the first read.
+  pulled = 0
+  mediaEnv.fetch = async () => ({
+    ok: true,
+    headers: { get: (h) => (h.toLowerCase() === 'content-length' ? String(TOTAL) : null) },
+    body: streamedBody(),
+    arrayBuffer: async () => { throw new Error('the whole body must not be read') },
+  })
+  fake.push(ws, { cmd: 'aibot_msg_callback', headers: { req_id: 'req-huge' }, body: { msgid: 'm-huge', msgtype: 'video', chattype: 'single', from: { userid: 'u1' }, video: { url: 'https://cdn.invalid/huge', aeskey: key.toString('base64') } } })
+  const huge = await until(() => messages.find(msg => msg.messageId === 'm-huge'))
+  assert.equal(huge.files.length, 0)
+  assert.equal(pulled, 0, 'content-length settled it without reading a byte')
+})
+
+test('a body with no stream is still capped after it is read whole', async (t) => {
+  const { createCipheriv, randomBytes } = await import('node:crypto')
+  const key = randomBytes(32)
+  const fake = await fakeWecom()
+  const messages = []
+  const over = Buffer.alloc(101 * 1024 * 1024)
+  const cipher = createCipheriv('aes-256-cbc', key, key.subarray(0, 16))
+  cipher.setAutoPadding(false)
+  const padded = Buffer.alloc(over.length + (32 - (over.length % 32)), 32)
+  const encrypted = Buffer.concat([cipher.update(padded), cipher.final()])
+  const mediaEnv = { ...env(fake), fetch: async () => ({ ok: true, headers: { get: () => null }, arrayBuffer: async () => encrypted }) }
+  const handle = wecom.connect(FIELDS, mediaEnv, { onMessage: async msg => { messages.push(msg) }, onAction: () => {}, onStatus: () => {} })
+  t.after(() => { handle.stop(); fake.close() })
+  const ws = await until(() => fake.sockets[0])
+  fake.push(ws, { cmd: 'aibot_msg_callback', headers: { req_id: 'req-nostream' }, body: { msgid: 'm-nostream', msgtype: 'file', chattype: 'single', from: { userid: 'u1' }, file: { url: 'https://cdn.invalid/ns', aeskey: key.toString('base64') } } })
+  const delivered = await until(() => messages.find(msg => msg.messageId === 'm-nostream'))
+  assert.equal(delivered.files.length, 0, 'the no-stream fallback still refused it')
+})
