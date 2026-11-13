@@ -14,6 +14,7 @@ test('the release build signs with the upload key when the build names one, else
   const release = signed.slice(signed.indexOf('buildTypes {'))
   assert.match(release, /release \{[\s\S]*signingConfig System\.getenv\('DSBOT_ANDROID_KEYSTORE'\) \? signingConfigs\.release : signingConfigs\.debug/)
   assert.match(release, /debug \{\n\s*signingConfig signingConfigs\.debug\n/)
+  assert.match(signed, /withBuildType\("release"\)[\s\S]*variant\.packaging\.jniLibs\.excludes\.addAll\(\["\*\*\/x86\/\*\*", "\*\*\/x86_64\/\*\*"\]\)/)
   assert.equal(sign(signed), signed)
 })
 
@@ -36,17 +37,16 @@ test('versionCode grows with the version, and a pre-release stays below its rele
   assert.throws(() => versionCode('0.3'), /cannot make/)
 })
 
-test('applyArchs restricts release native ABIs to ARM and enables uncompressed 16KB packaging', () => {
+test('applyArchs preserves debug architectures while enabling uncompressed 16KB packaging', () => {
   const existing = [
     { type: 'property', key: 'reactNativeArchitectures', value: 'armeabi-v7a,arm64-v8a,x86,x86_64' },
     { type: 'property', key: 'expo.useLegacyPackaging', value: 'true' },
   ]
   assert.deepEqual(applyArchs(existing), [
-    { type: 'property', key: 'reactNativeArchitectures', value: 'arm64-v8a,armeabi-v7a' },
+    { type: 'property', key: 'reactNativeArchitectures', value: 'armeabi-v7a,arm64-v8a,x86,x86_64' },
     { type: 'property', key: 'expo.useLegacyPackaging', value: 'false' },
   ])
   assert.deepEqual(applyArchs([]), [
-    { type: 'property', key: 'reactNativeArchitectures', value: 'arm64-v8a,armeabi-v7a' },
     { type: 'property', key: 'expo.useLegacyPackaging', value: 'false' },
   ])
 })

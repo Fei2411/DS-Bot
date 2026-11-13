@@ -3,6 +3,7 @@ import { AppState } from 'react-native'
 import type { RpcClient } from '../../../link/src/index.ts'
 import { callBot, callBotState, openLink, type TeamState } from '../connection.ts'
 import { ensureUnlock } from './gate.ts'
+import { createNoticeCursor, type NoticeCursorAnswer } from './notices.ts'
 import { OPTIMISTIC, optimistic, withWrites, type Write } from './optimistic.ts'
 import { t } from '../ui/i18n.ts'
 import type { PhoneIdentity, SavedComputer } from '../store.ts'
@@ -140,7 +141,7 @@ export function useTeamLink(computer: SavedComputer, identity: PhoneIdentity) {
     revision.current = -1
     writes.current = []
     liveKey.current = undefined
-    let noticeCursor = { boot: '', seq: 0 }
+    const noticeCursor = createNoticeCursor()
     setTeam(null)
     setOnline(false)
     setLinked(false)
@@ -194,25 +195,19 @@ export function useTeamLink(computer: SavedComputer, identity: PhoneIdentity) {
         setHello(helloResult)
         setOnline(true)
         setError(null)
+        const { sameBoot, since } = noticeCursor.connect(helloResult)
         client.onEvent(({ event, data }: { event: string; data: any }) => {
           if (stopped || clientRef.current !== client) return
-          if (event === 'notice' && typeof data?.seq === 'number' && noticeCursor.boot === helloResult.boot && data.seq > noticeCursor.seq) {
-            noticeCursor = { boot: helloResult.boot, seq: data.seq }
-          }
+          if (event === 'notice' && !noticeCursor.acceptLive(helloResult.boot, data)) return
           if (event === 'revision' || event === 'live') void poll()
           for (const handler of feedHandlers.current) handler(event, data)
         })
-        const sameBoot = noticeCursor.boot === helloResult.boot && noticeCursor.seq > 0
-        const since = sameBoot ? noticeCursor.seq : 0
         void callBot(client, 'notices', { boot: helloResult.boot, since }).then(answer => {
           if (stopped || clientRef.current !== client) return
-          const notices = answer as { boot?: string; seq?: number; reset?: boolean; notices?: unknown[] }
-          const nextBoot = typeof notices.boot === 'string' ? notices.boot : helloResult.boot
-          const nextSeq = typeof notices.seq === 'number' ? notices.seq : (sameBoot ? noticeCursor.seq : 0)
-          noticeCursor = { boot: nextBoot, seq: nextSeq }
-          if (notices.reset === true) void poll()
-          else if (sameBoot && Array.isArray(notices.notices)) {
-            for (const entry of notices.notices) {
+          const { reset, replay } = noticeCursor.acceptCatchUp(helloResult.boot, sameBoot, answer as NoticeCursorAnswer)
+          if (reset) void poll()
+          else {
+            for (const entry of replay) {
               for (const handler of feedHandlers.current) handler('notice', entry)
             }
           }

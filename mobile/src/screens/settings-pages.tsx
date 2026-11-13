@@ -5,7 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { confirmDanger, Sheet, SheetHeader, useInSheet } from '../nav/sheet.tsx'
 import * as Clipboard from 'expo-clipboard'
 import { connectorRows, type ConnectorRow } from '../team/connectors.ts'
-import { capabilityStatusFor } from '../team/capabilities.ts'
+import { capabilityStatusFor, unapprovedCapabilitiesFor } from '../team/capabilities.ts'
 import { useTeam } from '../team/context.tsx'
 import { t } from '../ui/i18n.ts'
 import { ChevronLeftIcon, ChevronRightIcon } from '../ui/icons.tsx'
@@ -358,7 +358,18 @@ export function Capabilities({ navigation }: any) {
         <Section label={t('Capabilities')}>
           {items.map(item => {
             const status = capabilityStatusFor(statuses, item.name, { bots: team?.bots, item })
+            const approvable = unapprovedCapabilitiesFor(items, statuses, item, team?.bots)
             const text = statusText(status)
+            const approveAll = () => {
+              void (async () => {
+                setError(null)
+                for (const name of approvable) {
+                  await call('capability-approve', { name })
+                }
+              })().catch((f: { code?: string; message?: string }) => {
+                if (f?.code !== 'unlock/canceled') setError(f?.message ?? String(f))
+              })
+            }
             return (
               <View key={item.name}>
                 <Pressable accessibilityRole="button" onPress={() => setOpen(open === item.name ? null : item.name)} style={styles.row}>
@@ -374,7 +385,7 @@ export function Capabilities({ navigation }: any) {
                     <ScrollView style={{ maxHeight: 180 }}><Text selectable style={[typeScale.small, { color: p.ink2 }]}>{item.content ?? item.description ?? ''}</Text></ScrollView>
                     <View style={{ flexDirection: 'row', gap: 14, marginTop: 10, justifyContent: 'flex-end' }}>
                       <Pressable onPress={() => setEditing({ name: item.name, kind: item.kind ?? 'mcp', description: item.description ?? '', transport: item.transport ?? 'stdio', command: item.command ?? '', argsText: (item.args ?? []).join('\n'), envText: mapText(item.env), url: item.url ?? '', headersText: mapText(item.headers), content: item.content ?? '', items: item.items ?? [], originalName: item.name })}><Text style={{ color: p.ink2 }}>{t('Edit')}</Text></Pressable>
-                      {status?.state === 'needs-approval' ? <Pressable onPress={() => void act('capability-approve', { name: item.name })}><Text style={{ color: p.accent, fontWeight: '600' }}>{t('Approve')}</Text></Pressable> : null}
+                      {approvable.length > 0 ? <Pressable onPress={approveAll}><Text style={{ color: p.accent, fontWeight: '600' }}>{t('Approve')}</Text></Pressable> : null}
                       <Pressable onPress={() => confirmDanger(t('Delete {name}?', { name: item.name }), t('Delete'), () => void act('capability-delete', { name: item.name }))}><Text style={{ color: p.danger }}>{t('Delete')}</Text></Pressable>
                     </View>
                   </View>

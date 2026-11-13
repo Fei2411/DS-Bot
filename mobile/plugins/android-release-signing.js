@@ -25,21 +25,34 @@ const RELEASE_CONFIG = `
             }${SCHEMES}
         }`
 
+const RELEASE_ABI_EXCLUDES = `
+androidComponents {
+    onVariants(selector().withBuildType("release")) { variant ->
+        variant.packaging.jniLibs.excludes.addAll(["**/x86/**", "**/x86_64/**"])
+    }
+}
+`
+
 function sign(gradle) {
-  if (gradle.includes("System.getenv('DSBOT_ANDROID_KEYSTORE')") && gradle.includes('enableV3Signing true')) return gradle
-  const configs = /signingConfigs \{\n(\s*debug \{[^}]*?)(\n\s*\})(?:\n\s*release \{\n\s*if \(System\.getenv\('DSBOT_ANDROID_KEYSTORE'\)\) \{[^}]*\}\n\s*\})?/
-  const release = /(buildTypes \{[\s\S]*?release \{[\s\S]*?)signingConfig (?:signingConfigs\.debug|System\.getenv\('DSBOT_ANDROID_KEYSTORE'\) \? signingConfigs\.release : signingConfigs\.debug)/
-  if (!configs.test(gradle) || !release.test(gradle)) throw new Error('android-release-signing: app/build.gradle has an unexpected layout')
-  return gradle
-    .replace(configs, (_whole, debug, close) => `signingConfigs {\n${debug}${SCHEMES}${close}${RELEASE_CONFIG}`)
-    .replace(release, "$1signingConfig System.getenv('DSBOT_ANDROID_KEYSTORE') ? signingConfigs.release : signingConfigs.debug")
+  let next = gradle
+  if (!(next.includes("System.getenv('DSBOT_ANDROID_KEYSTORE')") && next.includes('enableV3Signing true'))) {
+    const configs = /signingConfigs \{\n(\s*debug \{[^}]*?)(\n\s*\})(?:\n\s*release \{\n\s*if \(System\.getenv\('DSBOT_ANDROID_KEYSTORE'\)\) \{[^}]*\}\n\s*\})?/
+    const release = /(buildTypes \{[\s\S]*?release \{[\s\S]*?)signingConfig (?:signingConfigs\.debug|System\.getenv\('DSBOT_ANDROID_KEYSTORE'\) \? signingConfigs\.release : signingConfigs\.debug)/
+    if (!configs.test(next) || !release.test(next)) throw new Error('android-release-signing: app/build.gradle has an unexpected layout')
+    next = next
+      .replace(configs, (_whole, debug, close) => `signingConfigs {\n${debug}${SCHEMES}${close}${RELEASE_CONFIG}`)
+      .replace(release, "$1signingConfig System.getenv('DSBOT_ANDROID_KEYSTORE') ? signingConfigs.release : signingConfigs.debug")
+  }
+  if (!next.includes('variant.packaging.jniLibs.excludes.addAll')) {
+    next = `${next.trimEnd()}\n${RELEASE_ABI_EXCLUDES}`
+  }
+  return next
 }
 
+// Keep debug x86/x86_64 emulators working via default gradle.properties; only release strips
+// simulator ABIs (via androidComponents above and -PreactNativeArchitectures in CI) while
+// storing uncompressed, 16KB-aligned native libraries inside the APK (Android 15+ requirement).
 const GRADLE_OVERRIDES = [
-  // Drop x86/x86_64 simulator binaries from the distributed APK (~122 MB -> ~60 MB)
-  // while keeping 64-bit and 32-bit ARM support for phones.
-  ['reactNativeArchitectures', 'arm64-v8a,armeabi-v7a'],
-  // Store uncompressed, 16KB-aligned native libraries inside the APK (Android 15+ requirement).
   ['expo.useLegacyPackaging', 'false'],
 ]
 
