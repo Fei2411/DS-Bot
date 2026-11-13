@@ -143,10 +143,16 @@ test('a legacy round without roundId returns the same result as a new one', asyn
   const tool = rt.teamTools.find(def => def.name === 'group_relay')
   assert.deepEqual(validateJsonSchemaValue(tool.parameters, {}), [])
   const exec = { agent: { id: 'room' }, callId: 'legacy', signal: AbortSignal.abort() }
-  const legacy = await tool.execute({}, exec)
-  const current = await tool.execute({ roundId: `${Date.now()}-legacy` }, { ...exec, callId: 'current' })
-  assert.equal(current, legacy)
-  assert.deepEqual(JSON.parse(current), { replies: [], passed: [] })
+  // Each call names where its rows start in the group's book; the rest of the result is the same.
+  const rest = (value) => {
+    const { from, anchor, ...others } = JSON.parse(value)
+    assert.ok(Number.isInteger(from) && typeof anchor === 'string')
+    return others
+  }
+  const legacy = rest(await tool.execute({}, exec))
+  const current = rest(await tool.execute({ roundId: `${Date.now()}-legacy` }, { ...exec, callId: 'current' }))
+  assert.deepEqual(current, legacy)
+  assert.deepEqual(current, {})
 })
 
 test('nine consecutive synthesized calls add no repeat-tool reminder', async (t) => {

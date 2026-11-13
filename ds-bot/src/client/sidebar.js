@@ -4,7 +4,7 @@ import { FishLogo } from './dsh-primitives.js'
 import { inkFill } from './inks.js'
 import { isMainOf } from './sources.js'
 import { currentPart, previewOf, relativeShort } from './text.js'
-import { PlusIcon, SearchIcon, SidebarIcon, GaugeIcon, ClockIcon, GearIcon, PinMarkIcon, ConnectorIcon, CloudDownloadIcon, SignInIcon, SignOutIcon, SlidersIcon, ChevronRightIcon, DotsIcon, FolderIcon } from './icons.js'
+import { PlusIcon, SearchIcon, SidebarIcon, GaugeIcon, ClockIcon, GearIcon, PinMarkIcon, ConnectorIcon, PlugIcon, SwitchIcon, CloudDownloadIcon, SignInIcon, SignOutIcon, SlidersIcon, ChevronRightIcon, DotsIcon, FolderIcon } from './icons.js'
 import { lookOf, MAIN_LOOK } from './characters.js'
 import { botState, BotMark, BotAvatar, RoomAvatar } from './mark.js'
 import { AgentBadge } from './agent-badge.js'
@@ -249,14 +249,16 @@ function AgentRow({ agent, actions, useSessions, useSessionStatus, useUi, wide, 
       preview ? h('span', { className: 'bt-row-preview' }, preview) : null) : null,
     wide && unread && !active ? h('span', { className: 'bt-unread', 'aria-hidden': true })
       : !wide && unread && !active ? h('span', { className: 'bt-dot', 'aria-hidden': true }) : null),
-    h('div', { className: 'bt-agent-sub', 'data-open': open || undefined },
+    // The rail has no Session list. Left in, its text is wider than the rail, so this wrapper
+    // filled the rail and the 56px row sat at its left edge instead of the centre.
+    wide ? h('div', { className: 'bt-agent-sub', 'data-open': open || undefined },
       h('div', { className: 'bt-agent-sub-in' },
         h('button', { type: 'button', className: 'bt-agent-sub-row bt-agent-new', style: { '--i': 0 }, onClick: () => { void actions.newAgentSession(agent.id).catch(error => actions.reportError(error, 'agent-session')) } },
           h(PlusIcon), h('span', { className: 'bt-agent-sub-title' }, t('New session'))),
         sessions.map((session, index) => h(AgentSessionRow, {
           key: session.id, session, agent, actions, index: index + 1,
           renaming: renaming === session.id,
-        })))))
+        })))) : null)
 }
 
 function renderSidebarEntry(entry, rowProps, markedUnread, onDragStart) {
@@ -357,7 +359,6 @@ function SectionBlock({ section, entries, rowProps, markedUnread, renaming, drop
     if (!keep || value.trim() === '' || value.trim() === section.name) return
     void Promise.resolve(actions.saveSection({ id: section.id, name: value.trim() })).catch(error => actions.reportError(error, 'section-rename'))
   }
-  const bodyEntries = section.collapsed && activeEntry ? entries.filter(entry => entry !== activeEntry) : entries
   return h('div', {
     className: 'bt-sec',
     'data-sec-id': section.id,
@@ -420,10 +421,7 @@ function SectionBlock({ section, entries, rowProps, markedUnread, renaming, drop
     'aria-hidden': section.collapsed ? true : undefined,
   },
     h('div', { className: 'bt-sec-body-in' },
-      bodyEntries.map(entry => renderSidebarEntry(entry, rowProps, markedUnread, onDragStart)))),
-  section.collapsed && activeEntry
-    ? h('div', { className: 'bt-sec-peek' }, renderSidebarEntry(activeEntry, rowProps, markedUnread, onDragStart))
-    : null)
+      entries.map(entry => renderSidebarEntry(entry, rowProps, markedUnread, onDragStart)))))
 }
 
 function useListGlide(listRef, layout, key) {
@@ -475,12 +473,21 @@ function TitleToggle({ hidden, onToggle }) {
 // The Bot-API-down hint cannot send the user to Settings → Feedback: its
 // diagnostics request needs the same API. What still works in this state is
 // the last error this window recorded, and the engine's own startup output —
-// its console, or the app's startup error box (#516).
+// its console, or the app's startup error box (#516). With no Bot team there is
+// nothing to use on this surface, so the hint also offers the classic view.
 const bootHint = () => {
   const last = clientErrors().at(-1)?.text
   return last === undefined
     ? t('The Bot team could not start. The engine’s startup output — its console, or the app’s startup error box — has the cause.')
     : t('The Bot team could not start. {error}. The engine’s startup output — its console, or the app’s startup error box — has the cause.', { error: last })
+}
+
+function BootFailed({ actions }) {
+  return h('div', { className: 'bt-hint bt-boot-failed', role: 'alert' },
+    h('div', null, bootHint()),
+    typeof actions.setSurface === 'function'
+      ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => actions.setSurface('agent') }, t('Switch to classic Agent mode'))
+      : null)
 }
 
 export function TeamSidebar(props) {
@@ -796,15 +803,16 @@ export function TeamSidebar(props) {
     : h('div', { className: 'bt-rail-top' },
         h(UpdateButton, { useUpdate: props.useUpdate, actions }),
         h('button', { type: 'button', className: 'bt-round bt-side-collapse', 'aria-label': t('Collapse sidebar'), title: t('Collapse sidebar'), onClick: onToggle }, h(SidebarIcon)),
-        main ? h(BotRow, { ...rowProps, bot: main, marked: markedUnread[main.id] === true }) : roster.ready ? null : h('div', { className: 'bt-hint' }, bootFailed ? bootHint() : t('Setting up your Main Bot…')),
+        main ? h(BotRow, { ...rowProps, bot: main, marked: markedUnread[main.id] === true }) : roster.ready ? null : bootFailed ? h(BootFailed, { actions }) : h('div', { className: 'bt-hint' }, t('Setting up your Main Bot…')),
         h('span', { className: 'bt-rail-sep', 'aria-hidden': true }))
   // The foot stands in for the shell's hidden footer: the account avatar, and on
   // the rail the new-chat button above it.
   const foot = wideContent
-    ? h('div', { className: 'bt-leftcol-foot' }, h(AccountLauncher, { seat: false, actions }))
+    ? h('div', { className: 'bt-leftcol-foot' }, h(AccountLauncher, { seat: false, actions }), h(PluginsButton, { actions }))
     : h('div', { className: 'bt-leftcol-foot bt-leftcol-foot-rail' },
         h('button', { type: 'button', className: 'bt-round', 'aria-label': t('New…'), title: t('New…'), onClick: () => actions.openNewChat('new') }, h(PlusIcon)),
-        h(AccountLauncher, { seat: false, actions }))
+        h(AccountLauncher, { seat: false, actions }),
+        h(PluginsButton, { actions }))
   const content = h('div', { className: wideContent ? 'bt-side' : 'bt-side bt-rail', onKeyDown: typeToSearch },
     top,
     wideContent && roster.readOnly ? h('div', { className: 'bt-hint bt-read-only', role: 'status' }, hostText(roster.readOnly)) : null,
@@ -813,7 +821,7 @@ export function TeamSidebar(props) {
       onDragEnd: () => { setDragId(null); setDropTarget(null) },
       onDragLeave: (event) => { if (!event.currentTarget.contains(event.relatedTarget)) setDropTarget(null) },
     },
-      wideContent ? (main ? h(BotRow, { ...rowProps, bot: main, marked: markedUnread[main.id] === true }) : roster.ready ? null : h('div', { className: 'bt-hint' }, bootFailed ? bootHint() : t('Setting up your Main Bot…'))) : null,
+      wideContent ? (main ? h(BotRow, { ...rowProps, bot: main, marked: markedUnread[main.id] === true }) : roster.ready ? null : bootFailed ? h(BootFailed, { actions }) : h('div', { className: 'bt-hint' }, t('Setting up your Main Bot…'))) : null,
       sections.length > 0 && wideContent
         ? h('div', {
             className: 'bt-sec-ungrouped',
@@ -1048,7 +1056,8 @@ export function AccountLauncher({ seat = true, settingsOpen, actions }) {
       [t('Automation tasks'), ClockIcon, () => actions.selectPanel('schedules')],
       [t('Settings'), GearIcon, () => actions.openSettings('general')],
     ].filter(Boolean),
-  ]
+    typeof actions.setSurface === 'function' ? [[t('Classic Agent mode'), SwitchIcon, () => actions.setSurface('agent')]] : null,
+  ].filter(Boolean)
   if (signedIn) groups.push([[accountT('signOut'), SignOutIcon, askSignOut, undefined, true]])
   else if (signedOut) groups.push([[t('Sign in to DeepSeek'), SignInIcon, () => actions.signIn()]])
   return h(Fragment, null,
@@ -1207,6 +1216,15 @@ function useLandOnMainBot(roster, useSessions, actions) {
   }, [mainView, roster])
 }
 
+// The Plugins icon beside the foot's account gear: it opens the shell's plugin
+// manager panel. Wherever that panel's navigation face is absent — such as a
+// profile the peer may not list bundles in — nothing renders.
+export function PluginsButton({ actions }) {
+  if (!actions.hasPlugins?.()) return null
+  return h('button', { type: 'button', className: 'bt-account', 'aria-label': t('Plugins'), title: t('Plugins'), onClick: () => actions.openPlugins() },
+    h('span', { className: 'bt-you', 'aria-hidden': true }, h(PlugIcon)))
+}
+
 export function FooterAccount(props) {
   const seated = props.useUi(value => value.accountSeated === true)
   if (seated) return null
@@ -1221,21 +1239,25 @@ export function BotReturn({ wide, useSurface, useRoster, actions }) {
   // Agent mode draws no team sidebar; there this button is the team interface.
   useReportReady(mode === 'agent' && ready)
   if (mode !== 'agent') return null
-  return h('button', { type: 'button', className: 'bt-return', 'aria-label': t('DS Bot'), title: t('DS Bot'), onClick: () => actions.setSurface('bot') },
+  const label = t('Back to DS Bot')
+  return h('button', { type: 'button', className: 'bt-return', 'aria-label': label, title: label, onClick: () => actions.setSurface('bot') },
     h(BotMark, { look: MAIN_LOOK, size: 20 }),
-    wide ? h('span', { className: 'bt-return-name' }, t('DS Bot')) : null)
+    wide ? h('span', { className: 'bt-return-name' }, label) : null,
+    wide ? h('span', { className: 'bt-return-swap', 'aria-hidden': true }, h(SwitchIcon)) : null)
 }
 
 // Agent mode has none of the shell-group styles, so the return button carries its own.
 export const RETURN_CSS = `
-.bt-return{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:36px;padding:0 14px;border:0;border-radius:999px;background:none;color:inherit;font:inherit;font-size:14px;line-height:20px;cursor:pointer;transition:background-color .12s ease}
-.bt-return:hover{background:rgba(127,127,127,.14)}
+.bt-return{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:36px;padding:0 14px;border:0;border-radius:999px;background:var(--bt-return-fill);color:inherit;font:inherit;font-size:14px;line-height:20px;cursor:pointer;transition:background-color .12s ease}
+.bt-return:hover{background:var(--bt-return-fill-hover)}
 .bt-return:active{transform:scale(.96)}
 .bt-return .bt-mark{display:inline-flex;flex:none;line-height:0}
 .bt-return .bt-mark svg{width:100%;height:100%;overflow:visible}
 /* Shell styles carry --bt-ink-deepseek and Agent mode withdraws them; pin it here. */
 .bt-return .bt-mark{--bt-ink-deepseek:#4D6BFE}
 .bt-return-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bt-return-swap{display:inline-flex;flex:none;line-height:0;opacity:.55}
+.bt-return-swap svg{width:16px;height:16px}
 `
 
 export function BrandMark({ size = 24 }) {
@@ -1361,7 +1383,6 @@ export const SIDEBAR_CSS = `
 .bt-sec-body-in{overflow:hidden;min-height:0;display:flex;flex-direction:column;gap:3px;position:relative}
 .bt-sec[data-collapsed=false] .bt-sec-body-in{padding-top:2px}
 .bt-sec[data-collapsed=false]:hover .bt-sec-body-in::before{content:'';position:absolute;left:10px;top:6px;bottom:6px;width:1.5px;border-radius:999px;background:var(--bt-line-2);opacity:.55;pointer-events:none}
-.bt-sec-peek{margin-top:2px}
 .bt-rail-sec{display:flex;flex-direction:column;align-items:center;gap:4px;width:100%}
 .bt-rail-sec-div{display:flex;align-items:center;justify-content:center;width:100%;padding:5px 0 2px;cursor:pointer}
 .bt-rail-sec-pill{width:22px;height:3px;border-radius:999px;background:var(--bt-line-2);transition:width .14s ease,background-color .14s ease}

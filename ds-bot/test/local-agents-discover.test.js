@@ -64,16 +64,24 @@ test('an agent CLI installed by npm starts on Windows', { skip: process.platform
   assert.deepEqual(JSON.parse(out).argv, ['acp', SYSTEM])
 })
 
-// A slow npm on PATH stands for the real one: it takes seconds to start, and the
-// host must not wait for it on the way to a Session.
+// A held npm on PATH stands for the real one: it has not answered when the lookup
+// starts, so the host must not wait for it on the way to a Session, and its global
+// folder joins once the answer arrives. The test lets npm answer itself; a fixed
+// `sleep 2` raced the lookup's own 5 s child timeout whenever the suite was busy
+// enough to delay the child past it.
 test('finding a CLI never waits on npm, and npm\'s global folder joins in the background', { skip: process.platform === 'win32' }, async (t) => {
   const root = mkdtempSync(join(tmpdir(), 'dsb-discover-'))
-  t.after(() => rmSync(root, { recursive: true, force: true }))
   const fakeBin = join(root, 'bin')
   const prefix = join(root, 'npm-global')
+  const release = join(root, 'npm-release')
+  t.after(() => {
+    // Let a held npm exit even when an assertion above failed before releasing it.
+    writeFileSync(release, '')
+    rmSync(root, { recursive: true, force: true })
+  })
   mkdirSync(fakeBin)
   mkdirSync(join(prefix, 'bin'), { recursive: true })
-  writeFileSync(join(fakeBin, 'npm'), `#!/bin/sh\nsleep 2\nprintf '%s\\n' '${prefix}'\n`)
+  writeFileSync(join(fakeBin, 'npm'), `#!/bin/sh\nwhile [ ! -e '${release}' ]; do sleep 0.05; done\nprintf '%s\\n' '${prefix}'\n`)
   writeFileSync(join(prefix, 'bin', 'dsb-fake-agent'), '#!/bin/sh\n')
   chmodSync(join(fakeBin, 'npm'), 0o755)
   chmodSync(join(prefix, 'bin', 'dsb-fake-agent'), 0o755)
@@ -86,6 +94,7 @@ test('finding a CLI never waits on npm, and npm\'s global folder joins in the ba
   assert.equal(findExecutable('dsb-fake-agent'), undefined)
   const refresh = refreshSearchDirs()
   assert.ok(Date.now() - started < 1000, 'the lookup waited on npm')
+  writeFileSync(release, '')
   await refresh
   assert.equal(findExecutable('dsb-fake-agent'), join(prefix, 'bin', 'dsb-fake-agent'))
 })

@@ -28,9 +28,9 @@ Every command accepts `--json` and prints `{"ok":true,"data":…}` for a run tha
 
 **Word** — `docx read` for the ids → one `docx edit` batch over the opened document → `docx read` again to confirm → `check --against <the untouched original>` for anything left. Keep the original copy untouched (no `--in-place` on it).
 
-**PowerPoint** — `pptx inventory` → edit (python-pptx through the format skill; `pptx slides`/`pptx clean` for structure) → `pptx layout` for overlap/off-slide findings → when `office-render` is in the catalog, render → `sheet` over the rendered images and look at the contact sheet before single slides → fix → recheck.
+**PowerPoint** — `pptx inventory` → edit (python-pptx through the format skill; `pptx slides`/`pptx clean` for structure) → `pptx layout` for overlap/off-slide findings → when `office_render` (or `office-render`) is available, render → `sheet` over the rendered images and look at the contact sheet before single slides → fix → recheck.
 
-**Excel** — `xlsx inventory` → edit with openpyxl (format skill) → `office-recalculate` → `xlsx inventory` again and confirm no error cells and no uncached formulas.
+**Excel** — `xlsx inventory` → edit with openpyxl (format skill) → `office_recalculate` (or `office-recalculate`) → `xlsx inventory` again and confirm no error cells and no uncached formulas.
 
 **XML edits** — only through `unpack`, a real XML parser, and `pack --against`. Never sed or string-splice XML.
 
