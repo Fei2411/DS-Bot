@@ -5,9 +5,10 @@
 // the team window hides it; the tray brings it back and its Quit ends the app (shell.mjs). Only
 // what the start window and the tray need is imported up front; the rest loads once the start
 // window is up (docs/plans/2026-10-26-start-window.md §11).
-import { app, BrowserWindow, clipboard, ipcMain, Menu, nativeImage, nativeTheme, powerMonitor, screen, session, shell as electronShell, systemPreferences, Tray, WebContentsView } from 'electron'
+import { app, BrowserWindow, clipboard, ipcMain, Menu, nativeImage, nativeTheme, Notification, powerMonitor, screen, session, shell as electronShell, systemPreferences, Tray, WebContentsView } from 'electron'
 import { createComputerIndicator, indicatorHtml } from './computer-indicator.mjs'
 import { createComputerCursor } from './computer-cursor.mjs'
+import { badgeCount, createNotifications } from './notifications.mjs'
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { release } from 'node:os'
@@ -48,6 +49,7 @@ const IPC = {
   appUpdateInstall: 'ds-bot:app-update-install', appUpdateOpen: 'ds-bot:app-update-open',
   appUpdateChanged: 'ds-bot:app-update-changed',
   idleSeconds: 'ds-bot:idle-seconds', computer: 'ds-bot:computer', computerAction: 'ds-bot:computer-action', computerCursor: 'ds-bot:computer-cursor',
+  notify: 'ds-bot:notify', notifyStatus: 'ds-bot:notify-status', badge: 'ds-bot:badge', openSession: 'ds-bot:open-session',
 }
 // A cookie export larger than this is not a cookie export.
 const IMPORT_FILE_MAX = 32 * 1024 * 1024
@@ -765,6 +767,26 @@ function handleIpc() {
     shell.setComputer(list)
   })
   ipcMain.handle(IPC.idleSeconds, (event) => (fromWindow(event) ? powerMonitor.getSystemIdleTime() : 0))
+  // A window that is not in front asks for a reminder; a click brings it forward and
+  // names the Session, nothing else (#1504). A focused window is never disturbed.
+  const notifications = createNotifications({ Notification, systemPreferences, platform: process.platform, log: logs })
+  ipcMain.handle(IPC.notifyStatus, (event) => (fromWindow(event) ? notifications.status() : 'unsupported'))
+  ipcMain.handle(IPC.notify, (event, notice) => {
+    if (!fromWindow(event)) return false
+    const sessionId = typeof notice?.sessionId === 'string' ? notice.sessionId : undefined
+    return notifications.show({ title: String(notice?.title ?? ''), body: String(notice?.body ?? '') }, {
+      focused: () => mainWindow?.isFocused() === true,
+      open: () => {
+        toFront(mainWindow)
+        mainWindow?.webContents.send(IPC.openSession, sessionId)
+      },
+    })
+  })
+  ipcMain.on(IPC.badge, (event, count) => {
+    if (!fromWindow(event)) return
+    try { app.setBadgeCount(process.platform === 'darwin' || process.platform === 'linux' ? badgeCount(count) : 0) } catch { /* no dock here */ }
+  })
+  app.on('browser-window-focus', () => notifications.clear())
   const computerCursor = createComputerCursor({ BrowserWindow, screen, platform: process.platform, log: logs })
   ipcMain.on(IPC.computerCursor, (event, entry) => {
     if (!fromWindow(event)) return

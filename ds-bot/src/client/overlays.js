@@ -1,4 +1,5 @@
 import { createElement as h, Fragment, useEffect, useRef, useState } from 'react'
+import { NotificationWatcher } from './notifications.js'
 import { createPortal } from 'react-dom'
 import { CommandPalette } from './palette.js'
 import { GroupSearch } from './group-search.js'
@@ -66,6 +67,7 @@ export function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useA
   // Bot fills the conversation area instead of the chat that was there before.
   const opening = openingModel({ pending: ui.pendingOpen ?? null, current, roster })
   return h(Fragment, null,
+    h(NotificationWatcher, { key: 'ds-bot:notifications', useSessions, useSessionStatus, useRoster, actions }),
     opening ? createPortal(h(OpeningCover, { model: opening, column: layout.column }), document.body) : null,
     pane ? createPortal(h(BotPanel, { pane, leaving: shown === null, room: layout.room, overlay: layout.panel === 'overlay', roster, actions, useSessions, useSessionStatus, useActivity, useWork, useBrowserTabs, useBrowserPages, useBrowserHolds }), document.body) : null,
     ui.newChat ? createPortal(h(NewChat, { key: `${ui.newChat}:${ui.newChatSection ?? ''}`, mode: ui.newChat, sectionId: ui.newChatSection ?? null, paneLeft: layout.column, roster, actions }), document.body) : null,
