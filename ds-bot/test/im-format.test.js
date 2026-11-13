@@ -41,6 +41,12 @@ test('chunkMarkdown drops blank lines at the start and end of a message', () => 
   assert.deepEqual(chunkMarkdown('\n\nbody\n\n', 4096), ['body'])
   assert.deepEqual(chunkMarkdown('\n\n \n\t\nbody\n\n  \n', 4096), ['body'])
   assert.deepEqual(chunkMarkdown('\r\n\r\nbody\r\n   \r\n', 4096), ['body'])
+  // Full-width spaces on edge lines are dropped too, while many internal blank lines stay linear.
+  assert.deepEqual(chunkMarkdown('\u3000\n\u3000\nbody\n\u3000\n', 4096), ['body'])
+  const manyNewlines = `a${'\n'.repeat(30_000)}b`
+  const started = performance.now()
+  assert.deepEqual(chunkMarkdown(manyNewlines, 40_000), [manyNewlines])
+  assert.ok(performance.now() - started < 200)
   // Blank lines inside the text and indentation of a content line stay as written.
   assert.deepEqual(chunkMarkdown('\n\none\n\ntwo\n\n', 4096), ['one\n\ntwo'])
   assert.deepEqual(chunkMarkdown('\n  indented\n\n', 4096), ['  indented'])
