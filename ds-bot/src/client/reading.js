@@ -67,18 +67,28 @@ export function pillPlace(rect, band, above) {
   return { top: Math.round(top), left: Math.round(left) }
 }
 
-// Replies are many and few are long, so one observer watches every reply's size and
-// only a long one follows the scroll.
+// Whether a reply `height` tall follows the scroll. Three quarters of the band is enough:
+// DSH's composer can grow and leave a band shorter than the reply without a size change
+// here to say so.
+export const fillsBand = (height, band) => height > (band.bottom - band.top) * 0.75
+
+// Replies are many and few are long, so one observer watches every reply's size, and the
+// scroller's for the band they are measured against; only a long reply follows the scroll.
 let sizes = null
 const sized = new WeakMap()
 function watchSize(node, onSize) {
   if (typeof ResizeObserver !== 'function') return () => {}
   sizes ??= new ResizeObserver((entries) => {
-    for (const entry of entries) sized.get(entry.target)?.(entry.contentRect.height)
+    for (const entry of entries) sized.get(entry.target)?.forEach(listener => listener())
   })
-  sized.set(node, onSize)
-  sizes.observe(node)
-  return () => { sized.delete(node); sizes.unobserve(node) }
+  const listeners = sized.get(node) ?? new Set()
+  sized.set(node, listeners)
+  listeners.add(onSize)
+  if (listeners.size === 1) sizes.observe(node)
+  return () => {
+    listeners.delete(onSize)
+    if (listeners.size === 0) { sized.delete(node); sizes.unobserve(node) }
+  }
 }
 
 const glide = (scroller, by) => scroller.scrollTo({ top: Math.max(0, scroller.scrollTop + by), behavior: reducedMotion() ? 'auto' : 'smooth' })
@@ -96,7 +106,9 @@ export function ReplyGuide({ box, active }) {
     const own = active && node ? node.closest('[data-conversation-scroll]') : null
     setScroller(own)
     if (!own) { setLong(false); return undefined }
-    return watchSize(node, height => setLong(height > own.clientHeight * 0.75))
+    const check = () => setLong(fillsBand(node.getBoundingClientRect().height, readingBand(own)))
+    const stops = [watchSize(node, check), watchSize(own, check)]
+    return () => stops.forEach(stop => stop())
   }, [active])
   useEffect(() => {
     if (!long || !scroller) { setView(null); return undefined }

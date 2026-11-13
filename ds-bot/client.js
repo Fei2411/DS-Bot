@@ -25765,19 +25765,25 @@ function pillPlace(rect, band, above) {
   if (rect.top >= band.top - GAP || rect.bottom < top + PILL + TAIL) return null;
   return { top: Math.round(top), left: Math.round(left) };
 }
+var fillsBand = (height, band) => height > (band.bottom - band.top) * 0.75;
 var sizes = null;
 var sized = /* @__PURE__ */ new WeakMap();
 function watchSize(node, onSize) {
   if (typeof ResizeObserver !== "function") return () => {
   };
   sizes ??= new ResizeObserver((entries2) => {
-    for (const entry of entries2) sized.get(entry.target)?.(entry.contentRect.height);
+    for (const entry of entries2) sized.get(entry.target)?.forEach((listener) => listener());
   });
-  sized.set(node, onSize);
-  sizes.observe(node);
+  const listeners2 = sized.get(node) ?? /* @__PURE__ */ new Set();
+  sized.set(node, listeners2);
+  listeners2.add(onSize);
+  if (listeners2.size === 1) sizes.observe(node);
   return () => {
-    sized.delete(node);
-    sizes.unobserve(node);
+    listeners2.delete(onSize);
+    if (listeners2.size === 0) {
+      sized.delete(node);
+      sizes.unobserve(node);
+    }
   };
 }
 var glide = (scroller, by) => scroller.scrollTo({ top: Math.max(0, scroller.scrollTop + by), behavior: reducedMotion() ? "auto" : "smooth" });
@@ -25796,7 +25802,9 @@ function ReplyGuide({ box, active }) {
       setLong(false);
       return void 0;
     }
-    return watchSize(node, (height) => setLong(height > own.clientHeight * 0.75));
+    const check = () => setLong(fillsBand(node.getBoundingClientRect().height, readingBand(own)));
+    const stops = [watchSize(node, check), watchSize(own, check)];
+    return () => stops.forEach((stop) => stop());
   }, [active]);
   (0, import_react30.useEffect)(() => {
     if (!long || !scroller) {

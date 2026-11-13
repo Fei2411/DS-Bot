@@ -27,7 +27,7 @@ runInNewContext(outputFiles[0].text, {
   module, exports: module.exports, document, window: dom.window, getComputedStyle: node => dom.window.getComputedStyle(node),
   require: name => (name === 'react' ? react : name === 'react-dom' ? { createPortal: node => node } : {}),
 })
-const { headingsIn, outlineOf: outlineIn, pillPlace: placeIn, readingBand: bandIn, sectionAt } = module.exports
+const { fillsBand, headingsIn, outlineOf: outlineIn, pillPlace: placeIn, readingBand: bandIn, sectionAt } = module.exports
 // Values made in the bundle's context have its prototypes; compare them as plain data.
 const plain = value => JSON.parse(JSON.stringify(value))
 const outlineOf = headings => plain(outlineIn(headings))
@@ -100,6 +100,16 @@ test('the band starts under DS Bot\'s header over the scroller and ends above DS
   assert.deepEqual(readingBand(scroller), { top: 8, bottom: 800, left: 300, right: 1200 })
   scroller.remove()
   head.remove()
+})
+
+test('a reply follows the scroll by the band it is read in, not by the whole scroller', () => {
+  // An 800px scroller under a 60px header, with a 180px composer inside it, shows 552px.
+  const band = { top: 68, bottom: 620, left: 0, right: 900 }
+  // Taller than the band, though under three quarters of the scroller.
+  assert.equal(fillsBand(580, band), true)
+  // Under the band, yet followed: the composer can grow past it.
+  assert.equal(fillsBand(420, band), true)
+  assert.equal(fillsBand(414, band), false)
 })
 
 test('the pill is a glass surface that pops in with the tap spring and stays still with reduced motion', () => {
