@@ -29,7 +29,7 @@ const SLOT_MS = 15 * 60_000
 
 const count = value => (Number.isSafeInteger(value) && value > 0 ? value : 0)
 
-function usageChunk(stream) {
+export function usageChunk(stream) {
   if (!Array.isArray(stream)) return undefined
   for (let index = stream.length - 1; index >= 0; index -= 1) {
     const record = stream[index]

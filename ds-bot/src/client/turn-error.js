@@ -32,6 +32,9 @@ export function failureText(code, { name, provider, status }) {
     case 'AUTH': return status === undefined
       ? t('{provider} did not accept the current API key.', { provider })
       : t('{provider} did not accept the current API key ({status}).', { provider, status })
+    case 'CONTENT_POLICY': return status === undefined
+      ? t('{provider} blocked this request with its content filter. The API key is not the problem; edit the input or start a new chat.', { provider })
+      : t('{provider} blocked this request with its content filter ({status}). The API key is not the problem; edit the input or start a new chat.', { provider, status })
     case 'QUOTA': return status === undefined
       ? t('{provider} is out of balance or quota.', { provider })
       : t('{provider} is out of balance or quota ({status}).', { provider, status })
@@ -44,6 +47,7 @@ export function failureText(code, { name, provider, status }) {
     case 'RATE_LIMIT': return t('Too many requests. Wait a moment, then try again.')
     case 'SERVER': return t('The model service failed.')
     case 'INTERRUPTED': return t('DeepSeek Harness stopped before this turn finished.')
+    case 'MODEL_SWITCH_COMPACTION_FAILED': return t("The conversation could not be compacted for this model. Try again or choose another model.")
     default: return knownFailure(code) ?? t('This turn failed.')
   }
 }
@@ -58,8 +62,11 @@ export function fixesFor(code, { canSignIn, official, topUp, onAccount = false }
     case 'MISSING_CREDENTIAL': return ['key', canSignIn ? 'sign-in' : null, 'model'].filter(Boolean)
     case 'INVALID_CREDENTIAL': return ['rekey', 'model']
     case 'AUTH': return ['rekey', canSignIn ? 'use-account' : null, 'model'].filter(Boolean)
+    // A content audit is about the input, not the credentials; no key action helps.
+    case 'CONTENT_POLICY': return []
     case 'QUOTA': return official ? ['top-up'] : []
     case 'ACCOUNT_QUOTA': return topUp ? ['top-up'] : []
+    case 'MODEL_SWITCH_COMPACTION_FAILED': return ['model', 'model-settings']
     default: return []
   }
 }
@@ -68,6 +75,7 @@ export const retryShown = (code, blocked) => !CREDENTIAL_CODES.has(code) || bloc
 
 const FIX_LABELS = {
   key: () => t('Enter API key'),
+  'model-settings': () => t('Open model settings'),
   rekey: () => t('Enter the key again'),
   'sign-in': signedIn => (signedIn ? t('Use the DeepSeek account') : t('Sign in with a DeepSeek account')),
   'use-account': () => t('Use a DeepSeek account instead'),
@@ -119,8 +127,10 @@ const providerName = (roster, provider) => (provider === undefined
 export function failureFacts(data, blocked) {
   const facts = []
   if (data.code) facts.push(['Code', t('Code'), data.code])
-  if (blocked?.status !== undefined) facts.push(['HTTP status', t('HTTP status'), String(blocked.status)])
-  if (blocked?.requestId) facts.push(['Request ID', t('Request ID'), blocked.requestId])
+  const status = data.status ?? blocked?.status
+  if (status !== undefined) facts.push(['HTTP status', t('HTTP status'), String(status)])
+  const requestId = data.requestId ?? blocked?.requestId
+  if (requestId) facts.push(['Request ID', t('Request ID'), requestId])
   // DSH already blanks an AUTH message; it never shows here either way.
   if (data.code !== 'AUTH' && data.message) facts.push(['Message', t('Provider message'), data.message])
   return facts
@@ -141,8 +151,13 @@ function TechnicalDetails({ facts }) {
 
 export function FailureCell({ node, sessionId, useRoster, useTurnClock, actions }) {
   const roster = useRoster(value => value)
-  const data = node?.data ?? {}
+  const failRow = node?.data ?? {}
   const bot = roster.byId?.[sessionId]
+  // The host corrects a failure DSH classified from the status alone (a 403 content
+  // audit arrives as AUTH) and keeps the upstream message and request id. Its record
+  // for this part and turn wins over the row's for the copy and Technical details.
+  const host = bot?.failures?.[sessionId]
+  const data = host !== undefined && host.turn === failRow.turn ? { ...failRow, ...host } : failRow
   // A later turn, or a later part of the Bot's chat, has moved past this failure.
   const later = useTurnClock(state => Object.keys(state[sessionId] ?? {}).some(turn => Number(turn) > data.turn))
   const account = useAccountView(actions)
@@ -154,8 +169,8 @@ export function FailureCell({ node, sessionId, useRoster, useTurnClock, actions 
   // A sign-in started here to leave a failing key route, with the model the Bot was on.
   const [joining, setJoining] = useState(null)
   const blocked = bot?.blocked?.code === data.code ? bot.blocked : undefined
-  const provider = blocked?.provider ?? providerOf(bot, roster)
-  const text = failureText(data.code, { name: bot?.name ?? t('This Bot'), provider: providerName(roster, provider), status: blocked?.status })
+  const provider = blocked?.provider ?? host?.provider ?? providerOf(bot, roster)
+  const text = failureText(data.code, { name: bot?.name ?? t('This Bot'), provider: providerName(roster, provider), status: data.status ?? blocked?.status })
   const facts = failureFacts(data, blocked)
   const current = bot !== undefined && currentPart(bot) === sessionId && !later
   // The key route never takes the account's credential, so a sign-in alone leaves the Bot
@@ -200,6 +215,7 @@ export function FailureCell({ node, sessionId, useRoster, useTurnClock, actions 
     'use-account': viaAccount,
     'sign-in-again': () => actions.signIn(),
     model: actions.showDetails ? () => actions.showDetails(sessionId) : undefined,
+    'model-settings': manageModels(actions),
   }
   const fixes = fixesFor(data.code, { canSignIn, official, topUp: topUp !== undefined, onAccount: provider === ACCOUNT }).filter(fix => fix === 'top-up' || runs[fix] !== undefined)
   // A turn another Bot asked for answers that Bot, which was already told it failed.

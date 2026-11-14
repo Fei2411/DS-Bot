@@ -1192,13 +1192,12 @@ test('a paused group parks every member an @all called, in a new round', async (
   const post = sent.find(entry => entry.sessionId === room.id && entry.message.source.role === 'post')
   await emit(room.id, { type: 'user/message', data: { source: post.message.source, content: post.message.content } })
   const held = relay(room.id, 'relay-1')
-  await settle()
+  await held
   assert.equal(sent.filter(entry => entry.message.source.role === 'room').length, 0, 'a paused room opens no round')
   assert.deepEqual((state().paused ?? []).map(entry => [entry.name, entry.note, entry.idle]), [
     ['Writer', 'Chief called everyone', true],
     ['Tester', 'Chief called everyone', true],
   ], 'every member @all called waits for the user')
-  await held
 
   // The user's message brings them back.
   sent.length = 0
@@ -1309,8 +1308,7 @@ test('the idle pause survives a restart and the user lifts it', async (t) => {
   await rt.teamTools.find(d => d.name === 'post_to_group').execute({ group: 'R1', message: '暂无待办' }, { agent: { id: rt.chatOf(chief) } })
   const post = sent.find(entry => entry.sessionId === room.id && entry.message.source.role === 'post')
   await emit(room.id, { type: 'user/message', data: { source: post.message.source, content: post.message.content } })
-  const quiet = relay(room.id, 'relay-1')
-  await settle()
+  await relay(room.id, 'relay-1')
   assert.equal(sent.filter(entry => entry.message.source.role === 'room').length, 0, 'no round starts on its own after a restart')
 
   await emit(room.id, { type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text: '@Writer 继续' }] } })
@@ -1319,7 +1317,6 @@ test('the idle pause survives a restart and the user lifts it', async (t) => {
   assert.ok(turn, "the user's message opens a round again")
   await answer(turn.sessionId, turn.message.source.exchangeId, '继续核对', 1)
   await resumed
-  await quiet
   assert.equal(state().idlePaused, undefined)
 })
 
@@ -1351,6 +1348,33 @@ test("a long round's result stays small, and its rows read back whole after a re
   await again.call('state', {})
   const rows = (await again.call('group-rows', { roomId: room.id, from, to })).value.rows
   assert.deepEqual(rows.map(row => [row.kind ?? 'message', row.text?.length]), [['message', long.length]])
+})
+
+// A member's turn that changed files carries the review coordinates on the row the group
+// shows, so the chat can open DSH's review for that turn; a turn that changed nothing adds
+// no row (changes.test.js), and a summary that is gone reports itself gone.
+test("a member's group row carries the change line of its turn", async (t) => {
+  const { call, emit, userMessage, relay, answer, stop, sent, rt } = start()
+  t.after(stop)
+  const room = await team(call, sent)
+  const changes = {
+    sessionId: 'member-session', seq: 12, turn: 4, total: 2, added: 9, deleted: 3,
+    files: [{ path: 'src/a.js', added: 6, deleted: 3 }, { path: 'docs/b.md', added: 3, deleted: 0 }],
+  }
+  rt.turnChanges = async () => changes
+  await emit(room.id, userMessage('First'))
+  const running = relay(room.id, 'one')
+  const first = await turnFor(sent)
+  await answer(first.sessionId, first.message.source.exchangeId, 'Done.', 1)
+  const second = await turnFor(sent, first)
+  await answer(second.sessionId, second.message.source.exchangeId, '[PASS]', 2)
+  const from = JSON.parse(await running).from
+  const rows = rt.groupRows(room.id, from)
+  const done = rows.find(row => row.text === 'Done.')
+  assert.deepEqual(done.changes, changes)
+  // The review coordinates reach the window with the row, and the check names the summary.
+  const check = await call('changes-check', { sessionId: changes.sessionId, seq: changes.seq })
+  assert.equal(check.value, false)
 })
 
 // The opening message is the one the group's own Session shows; what is said between

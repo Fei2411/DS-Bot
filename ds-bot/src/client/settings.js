@@ -1,7 +1,7 @@
 import { Component, createElement as h, useCallback, useEffect, useRef, useState } from 'react'
 import { ACCENT_INKS, INKS } from './inks.js'
 import { isMainOf } from './sources.js'
-import { MESSAGE_WIDTH, allThemes, flatWidthOf, layoutOf, thinkingShown, widthOf } from './themes.js'
+import { MESSAGE_WIDTH, allThemes, effectsOf, flatWidthOf, layoutOf, thinkingShown, widthOf } from './themes.js'
 import { CloseIcon, ChevronLeftIcon, ChevronRightIcon, ChatsIcon, ClockIcon, ConnectorIcon, GlobeIcon, InfoIcon, MonitorIcon, PhoneIcon, PlugIcon, PlusIcon, SlidersIcon, TerminalIcon, SETTINGS_ICONS } from './icons.js'
 import { IconAgentPresetOutlineMedium, IconArchiveOutlineMedium, IconPersonalizationOutlineMedium, IconSettingsOutlineMedium, IconUserOutlineMedium } from '@deepseek-ai/dsh-client-ui-primitives'
 import { AdminStar, BotAvatar, RoomAvatar } from './mark.js'
@@ -65,8 +65,10 @@ function MemorySize({ label, value, save }) {
   return h('input', { className: 'bt-input bt-set-number', type: 'number', min: 1_000, max: 200_000, step: 1_000, 'aria-label': label, value: text, onChange: event => setText(event.target.value), onBlur: commit, onKeyDown: event => { if (event.key === 'Enter') event.target.blur() } })
 }
 
-function SetSection({ title, className = '', children }) {
-  return h('section', { className: `bt-set-section ${className}`.trim() }, h('h3', null, title), h('div', { className: 'bt-set-card' }, children))
+function SetSection({ title, action = null, className = '', children }) {
+  return h('section', { className: `bt-set-section ${className}`.trim() },
+    action ? h('div', { className: 'bt-la-sec-head' }, h('h3', null, title), action) : title ? h('h3', null, title) : null,
+    h('div', { className: 'bt-set-card' }, children))
 }
 function SetRow({ label, hint, children, className = '' }) {
   return h('div', { className: `bt-set-row ${className}`.trim() },
@@ -75,6 +77,7 @@ function SetRow({ label, hint, children, className = '' }) {
 }
 
 const LAYOUTS = [['bubble', 'Bubble'], ['flat', 'Flat']]
+const EFFECTS = [['full', 'Full'], ['reduced', 'Reduced'], ['off', 'None']]
 
 function Choice({ label, value, options, pick }) {
   return h(Segmented, { label, value, className: 'bt-look-seg' }, options.map(([id, text]) => h('button', {
@@ -143,6 +146,7 @@ function GeneralPage({ roster, actions, run, dsh }) {
       // The flat layout's text has a width of its own; the bubble width stays for the user's messages.
       layoutOf(prefs) === 'flat' ? h(SetRow, { label: t('Text width') }, h(WidthSlider, { label: t('Text width'), value: flatWidthOf(prefs), save: flatWidth => run(actions.setPrefs({ flatWidth })) })) : null,
       h(SetRow, { label: t('Bubble width') }, h(WidthSlider, { label: t('Bubble width'), value: widthOf(prefs), save: width => run(actions.setPrefs({ width })) })),
+      h(SetRow, { label: t('Interface motion') }, h(Choice, { label: t('Interface motion'), value: effectsOf(prefs), options: EFFECTS, pick: id => run(actions.setPrefs({ effects: id })) })),
       h(SetRow, { label: t('Show thinking') }, h(Switch, { label: t('Show thinking'), on: thinkingShown(prefs), onChange: thinking => run(actions.setPrefs({ thinking })) })),
       look.map(id => dshItem(dsh, id))),
     h(SetSection, { key: 'new', title: t('New Bots') },
@@ -242,14 +246,12 @@ function MotionSection({ roster, actions, run }) {
 
 function BotsPage({ roster, actions, run }) {
   const [creating, setCreating] = useState(false)
+  const newBotBtn = creating ? null : h('button', { type: 'button', className: 'bt-soft bt-soft-sm bt-with-icon', onClick: () => setCreating(true) }, h(PlusIcon), t('New Bot'))
   return [
     h(MainBotsSection, { key: 'main', roster, actions, run }),
     h(MotionSection, { key: 'motion', roster, actions, run }),
-    creating
-      ? h(CreateBot, { key: 'create', roster, actions, inline: true, onBack: () => setCreating(false), onCreated: bot => actions.openSettings('bots', bot.id) })
-      : h('div', { key: 'new', className: 'bt-actions' },
-          h('button', { type: 'button', className: 'bt-soft bt-soft-sm bt-with-icon', onClick: () => setCreating(true) }, h(PlusIcon), t('New Bot'))),
-    h(SetSection, { key: 'bots', title: t('Bots · {count}', { count: roster.bots.length }) },
+    creating ? h(CreateBot, { key: 'create', roster, actions, inline: true, onBack: () => setCreating(false), onCreated: bot => actions.openSettings('bots', bot.id) }) : null,
+    h(SetSection, { key: 'bots', title: t('Bots · {count}', { count: roster.bots.length }), action: newBotBtn },
       roster.bots.map(bot => h('button', { key: bot.id, type: 'button', className: 'bt-set-row', onClick: () => actions.openSettings('bots', bot.id) },
         h('span', { className: 'bt-set-bot' },
           h(BotAvatar, { bot, size: 28, badge: false, live: false }),
@@ -264,12 +266,10 @@ function BotsPage({ roster, actions, run }) {
 
 function GroupsPage({ roster, actions, run }) {
   const [creating, setCreating] = useState(false)
+  const newGroupBtn = creating ? null : h('button', { type: 'button', className: 'bt-soft bt-soft-sm bt-with-icon', disabled: roster.bots.length < 2, title: roster.bots.length < 2 ? t('A group chat needs at least two Bots') : undefined, onClick: () => setCreating(true) }, h(PlusIcon), t('Create group chat'))
   return [
-    creating
-      ? h(NewGroupForm, { key: 'create', roster, actions, run, onCancel: () => setCreating(false), onCreated: room => actions.openSettings('groups', room.id) })
-      : h('div', { key: 'new', className: 'bt-actions' },
-          h('button', { type: 'button', className: 'bt-soft bt-soft-sm bt-with-icon', disabled: roster.bots.length < 2, title: roster.bots.length < 2 ? t('A group chat needs at least two Bots') : undefined, onClick: () => setCreating(true) }, h(PlusIcon), t('Create group chat'))),
-    h(SetSection, { key: 'groups', title: t('Group chats · {count}', { count: roster.rooms.length }) },
+    creating ? h(NewGroupForm, { key: 'create', roster, actions, run, onCancel: () => setCreating(false), onCreated: room => actions.openSettings('groups', room.id) }) : null,
+    h(SetSection, { key: 'groups', title: t('Group chats · {count}', { count: roster.rooms.length }), action: newGroupBtn },
       roster.rooms.length === 0
         ? h(SetRow, { label: t('No group chats yet.'), hint: t('A group chat lets several Bots work on one thing with you.') })
         : roster.rooms.map((room) => {

@@ -258,7 +258,7 @@ export function install(rt) {
     const route = session.requestHeader()?.config
     if (!route?.provider || !route?.model) return undefined
     const info = await ctx.llm.resolveModelInfo(route.provider, route.model)
-    return linesFor({ window: info.context?.contextWindow, reserve: route.maxTokens ?? info.defaultMaxTokens, checkRatio: config.checkRatio })
+    return linesFor({ window: info.context?.contextWindow, reserve: route.maxTokens ?? info.defaultMaxTokens, checkRatio: config.checkRatio, checkTokens: config.checkTokens })
   }
 
   // The backend's own entry points leave Bot Sessions alone, earlier parts and group
@@ -828,11 +828,12 @@ export function install(rt) {
   const noteFailures = new Map()
   // Parts the steward is deciding about at the end of a turn.
   const checking = new Set()
-  // Turns cut off at the output limit with nothing written, in a row, per part.
+  // Turns a route stopped at its window, in a row, per part: nothing written, or a
+  // short answer far below the model's output limit (#1104, #1461).
   const cutOffs = new Map()
   // The turn tracker reports every turn it sees end, so that only turns in a row count.
-  rt.noteCutOffTurn = (sessionId, { withoutText }) => {
-    if (withoutText) cutOffs.set(sessionId, (cutOffs.get(sessionId) ?? 0) + 1)
+  rt.noteCutOffTurn = (sessionId, { withoutText, premature }) => {
+    if (withoutText || premature) cutOffs.set(sessionId, (cutOffs.get(sessionId) ?? 0) + 1)
     else cutOffs.delete(sessionId)
   }
   // Parts that could not follow the Bot's run mode, and the time before which they do
@@ -1429,9 +1430,10 @@ export function install(rt) {
     // A local agent CLI owns its in-session compaction.
     if (rt.isLocalAgentRef?.(rt.botOf(placeOf(agent.id)?.botId)?.model ?? rt.botOf(placeOf(agent.id)?.botId)?.appliedModel) === true) return
     if (lastTurnEnd(agent)?.data?.reason?.kind === 'error') return
-    // Twice in a row cut off at the output limit with nothing written: the request is
-    // over the window the route really has, so the same size is not sent again. The
-    // part moves on the way an overflow moves it, without a note at that size.
+    // Twice in a row stopped by the route's window (nothing written, or a short answer
+    // far below any real output limit): the request is over the window the route really
+    // has, so the same size is not sent again. The part moves on the way an overflow
+    // moves it, without a note at that size.
     if ((cutOffs.get(agent.id) ?? 0) >= 2) {
       if (await canMakeRoom(agent)) {
         cutOffs.delete(agent.id)
@@ -1525,6 +1527,9 @@ export function install(rt) {
   const EARLIER_PAGE = 60
   function displayItems(partId, events, session, seedTurn) {
     const hidden = new Set(state.exchangeTurns[partId] ?? [])
+    // Files a turn presented, attached to its closing Bot row so the phone can save
+    // them: the card shows name and type, the save action names seq and index.
+    const presented = []
     // Call ids of the page's group_relay calls; their tool/result events carry the
     // round's replies. A result without its call on the page (the page cut between
     // them) draws nothing rather than guessing.
@@ -1543,6 +1548,11 @@ export function install(rt) {
     for (const event of events) {
       if (event.type === 'turn/start') {
         if (typeof event.data?.turn === 'number' && Number.isInteger(event.data.turn)) turn = event.data.turn
+        continue
+      }
+      if (event.type === 'deliverables/presented') {
+        const files = Array.isArray(event.data?.files) ? event.data.files.filter(file => typeof file?.path === 'string') : []
+        if (files.length > 0) presented.push({ turn: event.data?.turn ?? turn, seq: event.seq, files })
         continue
       }
       if (event.type === 'assistant/message') {
@@ -1590,13 +1600,13 @@ export function install(rt) {
         const range = relayRange(text)
         const room = range === undefined ? undefined : rt.roomOf(partId) ?? rt.roomOf(rt.pastOwners.get(partId)?.roomId)
         const replies = range === undefined ? parseReplies(text).replies : room === undefined ? [] : rt.groupRows(room.id, range.from, range.to, range.anchor)
-        for (const { reply, texts, time, duration } of stackReplies(replies)) {
+        for (const { reply, texts, time, duration, claims } of stackReplies(replies)) {
           // Reply rows take the reply's own time, and no seq: several rows share
           // the result event's seq, which the chat keys a post's anchor by.
           const item = { time: time ?? reply.time ?? event.time }
           if (turn !== undefined) item.turn = turn
           if (reply.kind === 'user') items.push({ kind: 'user', text: reply.text, ...(reply.via ? { via: reply.via } : {}), ...item })
-          else if (reply.kind === undefined) items.push({ kind: 'post', botId: reply.botId ?? null, name: reply.name ?? null, texts, ...item, ...(duration === undefined ? {} : { duration }) })
+          else if (reply.kind === undefined) items.push({ kind: 'post', botId: reply.botId ?? null, name: reply.name ?? null, texts, ...(claims === undefined ? {} : { claims }), ...(reply.changes === undefined ? {} : { changes: reply.changes }), ...item, ...(duration === undefined ? {} : { duration }) })
           else items.push({ kind: 'relay', reply, ...item })
         }
         continue
@@ -1625,6 +1635,8 @@ export function install(rt) {
           kind: 'post',
           botId: source.senderSessionId ?? null,
           name: source.senderName ?? null,
+          ...(source.claims === undefined ? {} : { claims: source.claims }),
+          ...(source.changes === undefined ? {} : { changes: source.changes }),
           text: textOf(content).replace(/^\[Group post from (?:[^\r\n]*\]\r?\n|[^\]\r\n]*\])/, ''),
           ...(file ? { file, length: source.length } : {}),
           time: event.time,
@@ -1632,6 +1644,14 @@ export function install(rt) {
       } else if (source?.kind === SOURCE_KIND && source.handoff !== true && source.deferred !== true && ['request', 'reply', 'report', 'stopped'].includes(source.role)) {
         stamp(event, { kind: 'event', role: source.role, botId: source.senderSessionId ?? null, name: source.senderName ?? null, roomId: source.roomId ?? null, time: event.time })
       }
+    }
+    for (const entry of presented) {
+      const owner = [...items].reverse().find(item => item.turn === entry.turn && (item.kind === 'bot' || item.kind === 'post'))
+      if (owner === undefined) continue
+      owner.files = [
+        ...(owner.files ?? []),
+        ...entry.files.map((file, index) => ({ name: String(file.path).split(/[\\/]/).pop() || 'file', sessionId: partId, seq: entry.seq, index })),
+      ]
     }
     return items
   }

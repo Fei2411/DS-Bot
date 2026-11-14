@@ -4,6 +4,8 @@ import { Linking, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, Vi
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { confirmDanger, Sheet, SheetHeader, useInSheet } from '../nav/sheet.tsx'
 import * as Clipboard from 'expo-clipboard'
+import { connectorRows, type ConnectorRow } from '../team/connectors.ts'
+import { capabilityStatusFor, unapprovedCapabilitiesFor } from '../team/capabilities.ts'
 import { useTeam } from '../team/context.tsx'
 import { t } from '../ui/i18n.ts'
 import { ChevronLeftIcon, ChevronRightIcon } from '../ui/icons.tsx'
@@ -95,13 +97,27 @@ export function Providers({ navigation }: any) {
   const [error, setError] = useState<string | null>(null)
   const [saved, setSaved] = useState<string | null>(null)
   const load = () => void call('providers').then(v => setView(v as ProvidersView)).catch(() => {})
-  useState(() => { load(); return null })
+  useEffect(() => { load() }, [])
   const apply = (task: Promise<unknown>, after?: () => void) => task.then(() => { setError(null); after?.() }, (f: { code?: string; message?: string }) => { if (f?.code !== 'unlock/canceled') setError(f?.message ?? String(f)) })
   const saveKey = (id: string) => { if (key === '') return; const next = key; setKey(''); void apply(call('provider-key', { provider: id, value: next }), () => { setSaved(id); load() }) }
   const typed = draft.typed.split(/[\s,]+/).map(s => s.trim()).filter(Boolean)
   const models = [...(found ?? []).filter(m => picked.includes(m.id)), ...typed.filter(id => !picked.includes(id)).map(id => ({ id }))]
   const ready = draft.provider.trim() !== '' && draft.baseURL.trim() !== '' && models.length > 0
-  const discover = () => { if (draft.baseURL.trim() === '') return; void apply(call('provider-models', { baseURL: draft.baseURL, api: draft.api || (view?.protocols ?? [])[0], key: draft.key }), () => {}) .then(() => {}) }
+  const discover = () => {
+    if (draft.baseURL.trim() === '') return
+    void call('provider-models', { baseURL: draft.baseURL, api: draft.api || (view?.protocols ?? [])[0], key: draft.key })
+      .then(value => {
+        setError(null)
+        const raw = Array.isArray(value) ? value : Array.isArray((value as { models?: unknown })?.models) ? (value as { models: unknown[] }).models : []
+        const list = raw
+          .map((entry: unknown) => (typeof entry === 'string' ? { id: entry } : entry as { id?: string; name?: string }))
+          .filter((entry): entry is { id: string; name?: string } => typeof entry?.id === 'string' && entry.id !== '')
+        setFound(list)
+        setPicked(list.map(m => m.id))
+      }, (f: { code?: string; message?: string }) => {
+        if (f?.code !== 'unlock/canceled') setError(f?.message ?? String(f))
+      })
+  }
   const addKnown = () => { if (draft.provider === '') return; void apply(call('provider-add', { provider: draft.provider, key: draft.key }), () => { setAdding(false); setDraft(d => ({ ...d, provider: '', key: '' })); load() }) }
   const addCustom = () => { if (!ready) return; void apply(call('provider-add', { custom: true, provider: draft.provider.trim(), name: draft.name, baseURL: draft.baseURL, api: draft.api || (view?.protocols ?? [])[0], key: draft.key, models }), () => { setAdding(false); setFound(null); setPicked([]); setDraft({ provider: '', name: '', baseURL: '', api: '', key: '', typed: '' }); load() }) }
   return (
@@ -233,7 +249,7 @@ export function Providers({ navigation }: any) {
 const CONNECTOR_ABOUT: Record<string, string> = { github: 'Repositories, issues, and pull requests' }
 const TOKEN_URLS: Record<string, string> = { github: 'https://github.com/settings/personal-access-tokens/new' }
 
-const connectorStatus = (item: { id: string; name: string; state?: string; account?: string; error?: string }) => {
+const connectorStatus = (item: ConnectorRow) => {
   if (item.state === 'connecting') return t('Connecting…')
   if (item.state === 'error') return t('Could not connect: {error}', { error: item.error ?? '' })
   if (item.state === 'ready') return item.account ? t('Connected as {account}', { account: item.account }) : t('Connected')
@@ -247,7 +263,7 @@ export function Connectors({ navigation }: any) {
   const [token, setToken] = useState('')
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const connectors = (team as { connectors?: { id: string; name: string; state?: string; account?: string; error?: string }[] } | null)?.connectors ?? []
+  const connectors = connectorRows(team?.connectors)
   const run = (id: string, task: Promise<unknown>, after?: () => void) => {
     setBusy(id)
     return task.then(() => { setError(null); after?.() }, (f: { code?: string; message?: string }) => { if (f?.code !== 'unlock/canceled') setError(f?.message ?? String(f)) }).finally(() => setBusy(null))
@@ -325,7 +341,7 @@ export function Capabilities({ navigation }: any) {
     setError(null)
     void call('capability-save', payload).then(() => setEditing(null), (f: { code?: string; message?: string }) => { if (f?.code !== 'unlock/canceled') setError(f?.message ?? String(f)) })
   }
-  const statuses = (team as { capabilityStatuses?: Record<string, { state?: string; error?: string }> } | null)?.capabilityStatuses ?? {}
+  const statuses = team?.capabilityStatuses
   const statusText = capabilityStatusText
   const detail = (item: { kind?: string; transport?: string; items?: string[] }) =>
     item.kind === 'pack' ? `${t('Pack')}: ${(item.items ?? []).join(', ') || t('No items')}`
@@ -334,30 +350,42 @@ export function Capabilities({ navigation }: any) {
     : ''
   const act = (endpoint: string, payload: Record<string, unknown>) =>
     call(endpoint, payload).catch((f: { code?: string; message?: string }) => { if (f?.code !== 'unlock/canceled') setError(f?.message ?? String(f)) })
+  const mapText = (map?: Record<string, string>) => (map && Object.keys(map).length > 0 ? JSON.stringify(map, null, 2) : '')
   return (
     <Screen><Back title={t('Capabilities')} onBack={() => navigation.goBack()} />
       <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
         {error ? <Text style={[typeScale.small, { color: p.danger, margin: 18 }]}>{error}</Text> : null}
         <Section label={t('Capabilities')}>
           {items.map(item => {
-            const status = statuses[item.name]
+            const status = capabilityStatusFor(statuses, item.name, { bots: team?.bots, item })
+            const approvable = unapprovedCapabilitiesFor(items, statuses, item, team?.bots)
             const text = statusText(status)
+            const approveAll = () => {
+              void (async () => {
+                setError(null)
+                for (const name of approvable) {
+                  await call('capability-approve', { name })
+                }
+              })().catch((f: { code?: string; message?: string }) => {
+                if (f?.code !== 'unlock/canceled') setError(f?.message ?? String(f))
+              })
+            }
             return (
               <View key={item.name}>
                 <Pressable accessibilityRole="button" onPress={() => setOpen(open === item.name ? null : item.name)} style={styles.row}>
                   <View style={{ flex: 1 }}>
                     <Text style={[typeScale.settingsRow, { color: p.ink }]}>{item.name}</Text>
                     {item.description ? <Text style={[typeScale.small, { color: p.ink3, marginTop: 2 }]} numberOfLines={2}>{item.description}</Text> : null}
-                    <Text style={[typeScale.small, { color: status?.state === 'needs-approval' ? p.accent : status?.state === 'error' ? p.danger : p.ink3, marginTop: 2 }]}>{[detail(item as { kind?: string; transport?: string; items?: string[] }), text].filter(Boolean).join(' · ')}</Text>
+                    <Text style={[typeScale.small, { color: status?.state === 'needs-approval' ? p.accent : status?.state === 'error' ? p.danger : p.ink3, marginTop: 2 }]}>{[detail(item), text].filter(Boolean).join(' · ')}</Text>
                   </View>
                   <ChevronRightIcon size={16} color={p.ink3} />
                 </Pressable>
                 {open === item.name ? (
                   <View style={{ borderTopWidth: 1, borderTopColor: p.line, paddingHorizontal: 16, paddingVertical: 10 }}>
-                    <ScrollView style={{ maxHeight: 180 }}><Text selectable style={[typeScale.small, { color: p.ink2 }]}>{(item as { content?: string }).content ?? item.description ?? ''}</Text></ScrollView>
+                    <ScrollView style={{ maxHeight: 180 }}><Text selectable style={[typeScale.small, { color: p.ink2 }]}>{item.content ?? item.description ?? ''}</Text></ScrollView>
                     <View style={{ flexDirection: 'row', gap: 14, marginTop: 10, justifyContent: 'flex-end' }}>
-                      <Pressable onPress={() => setEditing({ name: item.name, kind: item.kind ?? 'mcp', description: item.description ?? '', transport: item.transport ?? 'stdio', command: item.command ?? '', argsText: '', envText: '', url: item.url ?? '', headersText: '', content: item.content ?? '', items: item.items ?? [], originalName: item.name })}><Text style={{ color: p.ink2 }}>{t('Edit')}</Text></Pressable>
-                      {status?.state === 'needs-approval' ? <Pressable onPress={() => void act('capability-approve', { name: item.name })}><Text style={{ color: p.accent }}>{t('Approve')}</Text></Pressable> : null}
+                      <Pressable onPress={() => setEditing({ name: item.name, kind: item.kind ?? 'mcp', description: item.description ?? '', transport: item.transport ?? 'stdio', command: item.command ?? '', argsText: (item.args ?? []).join('\n'), envText: mapText(item.env), url: item.url ?? '', headersText: mapText(item.headers), content: item.content ?? '', items: item.items ?? [], originalName: item.name })}><Text style={{ color: p.ink2 }}>{t('Edit')}</Text></Pressable>
+                      {approvable.length > 0 ? <Pressable onPress={approveAll}><Text style={{ color: p.accent, fontWeight: '600' }}>{t('Approve')}</Text></Pressable> : null}
                       <Pressable onPress={() => confirmDanger(t('Delete {name}?', { name: item.name }), t('Delete'), () => void act('capability-delete', { name: item.name }))}><Text style={{ color: p.danger }}>{t('Delete')}</Text></Pressable>
                     </View>
                   </View>
@@ -438,7 +466,9 @@ export function TeamUsage({ navigation }: any) {
   // The computer's usage view (usage.js): hourly rows of
   // [hour, owner, model, kind, input, cacheRead, cacheWrite, output, calls].
   const [view, setView] = useState<{ owners?: { name: string; kind: string; deleted?: boolean }[]; models?: { name: string }[]; rows?: number[][] } | null>(null)
-  useState(() => { void call('usage', { timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }).then(v => setView(v as typeof view)).catch(() => {}); return null })
+  useEffect(() => {
+    void call('usage', { timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }).then(v => setView(v as typeof view)).catch(() => {})
+  }, [])
   const rows = (view?.rows ?? []) as unknown as [string, number, number, string, number, number, number, number, number][]
   const sum = (pick: (row: typeof rows[number]) => boolean) => rows.filter(pick).reduce((total, row) => ({ input: total.input + row[4] + row[5] + row[6], output: total.output + row[7] }), { input: 0, output: 0 })
   const all = sum(() => true)
@@ -494,7 +524,10 @@ export function Updates({ navigation }: any) {
   const [copied, setCopied] = useState(false)
   const [busy, setBusy] = useState(false)
   const check = () => { setBusy(true); void call('update-check').then(v => { const r = v as { update?: typeof update; dsh?: typeof dsh } | typeof update; setUpdate((r as { update?: typeof update }).update ?? (r as typeof update)); setDsh((r as { dsh?: typeof dsh }).dsh ?? null) }).catch(() => {}).finally(() => setBusy(false)) }
-  useState(() => { check(); void call('diagnostics').then(v => setDiag(v as typeof diag)).catch(() => {}); return null })
+  useEffect(() => {
+    check()
+    void call('diagnostics').then(v => setDiag(v as typeof diag)).catch(() => {})
+  }, [])
   const updateText = (u: typeof update) => {
     if (u === null) return '—'
     if (u.phase === 'installing') return t('Updating DS Bot…')
@@ -557,9 +590,11 @@ export function About({ navigation }: any) {
   const { p } = useTheme()
   const { call, computer } = useTeam()
   // The state carries no versions; the update check knows both.
-  const [versions, setVersions] = useState<{ current?: string; dsh?: { current?: string } | null } | null>(null)
-  useState(() => { void call('update-check').then(v => setVersions(v as typeof versions)).catch(() => {}); return null })
-  const version = versions?.current ?? '—'
+  const [versions, setVersions] = useState<{ update?: { current?: string }; current?: string; dsh?: { current?: string } | null } | null>(null)
+  useEffect(() => {
+    void call('update-check').then(v => setVersions(v as typeof versions)).catch(() => {})
+  }, [])
+  const version = versions?.update?.current ?? versions?.current ?? '—'
   const dsh = versions?.dsh?.current
   const appVersion = require('expo-constants').default.expoConfig?.version ?? require('expo-constants').default.manifest?.version ?? '—'
   return (

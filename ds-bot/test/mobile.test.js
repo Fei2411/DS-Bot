@@ -1,6 +1,7 @@
+import { fileChunks } from '../src/shared/file-chunks.js'
 import assert from 'node:assert/strict'
-import { randomUUID } from 'node:crypto'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { createHash, randomBytes, randomUUID } from 'node:crypto'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -527,3 +528,154 @@ test('room-chat keeps two group_relay calls that start at the same seq apart by 
   ])
 })
 
+test('file-download sends a presented file back to the phone, and disambiguates parts by sessionId', async (t) => {
+  const { call, history, rt, stop } = start()
+  t.after(stop)
+  const { chief } = await team(call)
+  const part1 = (await call('state', {})).value.bots.find(bot => bot.id === chief).sessionId
+  const part2 = 's-file-part-2'
+  const dir = mkdtempSync(join(tmpdir(), 'ds-bot-file-'))
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  const path1 = join(dir, 'report-v1.pdf')
+  const path2 = join(dir, 'report-v2.pdf')
+  writeFileSync(path1, Buffer.from('%PDF-1.4 part1'))
+  writeFileSync(path2, Buffer.from('%PDF-1.4 part2'))
+  history[part1] = [{ seq: 9, type: 'deliverables/presented', data: { turn: 1, files: [{ path: path1 }] } }]
+  rt.state.bots[chief].segments = [{ sessionId: part1, endedAt: 10 }]
+  rt.state.bots[chief].sessionId = part2
+  rt.chatOwners.set(part2, chief)
+  rt.pastOwners.set(part1, { botId: chief })
+  history[part2] = [{ seq: 9, type: 'deliverables/presented', data: { turn: 1, files: [{ path: path2 }] } }]
+
+  const saved1 = await call('file-download', { sessionId: part1, seq: 9, index: 0 })
+  assert.equal(saved1.ok, true)
+  assert.equal(saved1.value.name, 'report-v1.pdf')
+  assert.equal(saved1.value.mime, 'application/pdf')
+  assert.equal(Buffer.from(saved1.value.bytes, 'base64').toString(), '%PDF-1.4 part1')
+
+  const saved2 = await call('file-download', { sessionId: part2, seq: 9, index: 0 })
+  assert.equal(saved2.ok, true)
+  assert.equal(saved2.value.name, 'report-v2.pdf')
+  assert.equal(Buffer.from(saved2.value.bytes, 'base64').toString(), '%PDF-1.4 part2')
+
+  const wrong = await call('file-download', { sessionId: part2, seq: 10, index: 0 })
+  assert.deepEqual([wrong.ok, wrong.error.code], [false, 'bot/not-found'])
+  const unowned = await call('file-download', { sessionId: 's-unknown', seq: 9, index: 0 })
+  assert.deepEqual([unowned.ok, unowned.error.code], [false, 'bot/not-found'])
+})
+
+test('file-download sends a file attachment and refuses an unknown session or attachment', async (t) => {
+  const { call, ctx, history, stop } = start()
+  t.after(stop)
+  const { chief } = await team(call)
+  const sessionId = (await call('state', {})).value.bots.find(bot => bot.id === chief).sessionId
+  const ref = await ctx.get('attachments').saveFile({ data: Buffer.from('notes for the phone'), name: 'notes.txt' })
+  history[sessionId] = [{ seq: 3, type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'file', attachment: ref }] } }]
+  const saved = await call('file-download', { sessionId, attachmentId: ref.attachmentId })
+  assert.equal(saved.ok, true)
+  assert.deepEqual([saved.value.name, saved.value.mime], ['notes.txt', 'text/plain'])
+  assert.equal(Buffer.from(saved.value.bytes, 'base64').toString(), 'notes for the phone')
+  const missing = await call('file-download', { sessionId, attachmentId: 'sha256:none' })
+  assert.deepEqual([missing.ok, missing.error.code], [false, 'bot/not-found'])
+  const unowned = await call('file-download', { sessionId: 's-other', attachmentId: ref.attachmentId })
+  assert.deepEqual([unowned.ok, unowned.error.code], [false, 'bot/not-found'])
+})
+
+test('a presented file rides on the closing Bot row so the phone can save it', async (t) => {
+  const { rt, stop } = start()
+  t.after(stop)
+  const events = [
+    { seq: 11, type: 'turn/start', data: { turn: 1 } },
+    { seq: 12, type: 'assistant/message', time: 1, data: { turn: 1, message: { content: [{ type: 'text', text: 'Done, here it is.' }] } } },
+    { seq: 13, type: 'deliverables/presented', time: 2, data: { turn: 1, files: [{ path: '/tmp/reports/quarterly.pdf' }] } },
+  ]
+  const items = rt.displayItems('s-presented', events)
+  const row = items.find(item => item.kind === 'bot')
+  assert.deepEqual(row.files, [{ name: 'quarterly.pdf', sessionId: 's-presented', seq: 13, index: 0 }])
+})
+
+test('file-download resolves presented files in active and archived group member sessions', async (t) => {
+  const { call, history, rt, stop } = start()
+  t.after(stop)
+  const { chief, room } = await team(call)
+  const storedRoom = rt.state.rooms[room.id]
+  const pastMember = 's-room-member-1'
+  const activeMember = 's-room-member-2'
+  const dir = mkdtempSync(join(tmpdir(), 'ds-bot-group-file-'))
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  const pastPath = join(dir, 'past.txt')
+  const activePath = join(dir, 'active.txt')
+  writeFileSync(pastPath, Buffer.from('from archived member segment'))
+  writeFileSync(activePath, Buffer.from('from active member session'))
+
+  storedRoom.segments = { [chief]: [{ sessionId: pastMember, endedAt: 10 }] }
+  storedRoom.sessions = { [chief]: activeMember }
+  rt.pastOwners.set(pastMember, { botId: chief, roomId: room.id })
+  rt.groupOwners.set(activeMember, { botId: chief, roomId: room.id })
+  history[pastMember] = [{ seq: 9, type: 'deliverables/presented', data: { turn: 1, files: [{ path: pastPath }] } }]
+  history[activeMember] = [{ seq: 9, type: 'deliverables/presented', data: { turn: 1, files: [{ path: activePath }] } }]
+
+  const savedPast = await call('file-download', { sessionId: pastMember, seq: 9, index: 0 })
+  assert.equal(savedPast.ok, true)
+  assert.equal(savedPast.value.name, 'past.txt')
+  assert.equal(Buffer.from(savedPast.value.bytes, 'base64').toString(), 'from archived member segment')
+
+  const savedActive = await call('file-download', { sessionId: activeMember, seq: 9, index: 0 })
+  assert.equal(savedActive.ok, true)
+  assert.equal(savedActive.value.name, 'active.txt')
+  assert.equal(Buffer.from(savedActive.value.bytes, 'base64').toString(), 'from active member session')
+})
+
+
+test('files larger than the secure message limit download through bounded chunks without a total-size cap', async t => {
+  const { call, history, stop } = start()
+  t.after(stop)
+  const { chief } = await team(call)
+  const sessionId = (await call('state', {})).value.bots.find(bot => bot.id === chief).sessionId
+  const dir = mkdtempSync(join(tmpdir(), 'dsb-file-chunks-'))
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  const bytes = randomBytes(17 * 1024 * 1024 + 13)
+  const path = join(dir, 'large.bin')
+  writeFileSync(path, bytes)
+  history[sessionId] = [{ seq: 9, type: 'deliverables/presented', data: { turn: 1, files: [{ path }] } }]
+  const hash = createHash('sha256')
+  let downloaded = 0
+  let calls = 0
+  const ask = async (endpoint, payload) => {
+    const result = await call(endpoint, payload)
+    assert.equal(result.ok, true, JSON.stringify(result.error))
+    assert.ok(Buffer.byteLength(JSON.stringify(result)) < 1024 * 1024, 'one result fits the link frame budget')
+    calls++
+    return result.value
+  }
+  for await (const part of fileChunks(ask, { sessionId, seq: 9, index: 0 })) {
+    assert.ok(part.data.length <= 512 * 1024)
+    downloaded += part.data.length
+    hash.update(part.data)
+  }
+  assert.ok(calls > 1)
+  assert.equal(downloaded, bytes.length)
+  assert.equal(hash.digest('hex'), createHash('sha256').update(bytes).digest('hex'))
+  const first = await call('file-download', { sessionId, seq: 9, index: 0, offset: 0 })
+  writeFileSync(path, 'changed')
+  const changed = await call('file-download', { sessionId, seq: 9, index: 0, offset: first.value.nextOffset, version: first.value.version })
+  assert.equal(changed.error.code, 'bot/not-found')
+  assert.equal((await call('file-download', { sessionId, seq: 9, offset: -1 })).error.code, 'bot/invalid')
+})
+
+test('file attachment chunks round-trip through the same client iterator', async t => {
+  const { call, ctx, history, stop } = start()
+  t.after(stop)
+  const { chief } = await team(call)
+  const sessionId = (await call('state', {})).value.bots.find(bot => bot.id === chief).sessionId
+  const bytes = randomBytes(4 * 1024 * 1024 + 7)
+  const ref = await ctx.get('attachments').saveFile({ data: bytes, name: 'data.bin' })
+  history[sessionId] = [{ seq: 3, type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'file', attachment: ref }] } }]
+  const chunks = []
+  for await (const part of fileChunks(async (endpoint, payload) => {
+    const result = await call(endpoint, payload)
+    assert.equal(result.ok, true)
+    return result.value
+  }, { sessionId, attachmentId: ref.attachmentId })) chunks.push(Buffer.from(part.data))
+  assert.deepEqual(Buffer.concat(chunks), bytes)
+})

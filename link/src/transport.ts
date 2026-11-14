@@ -1,4 +1,4 @@
-import type { TransportStats } from './frames.ts'
+import { MAX_RELAY_FRAME_BYTES, MAX_RELAY_BYTES_PER_SECOND, MAX_RELAY_FRAMES_PER_SECOND, type TransportStats } from './frames.ts'
 
 export interface RemoteTransport {
   connect(): Promise<void>
@@ -48,12 +48,24 @@ export abstract class BaseTransport implements RemoteTransport {
   abstract getStats(): TransportStats
 }
 
+const nextSends = new WeakMap<object, number>()
+
 /** Bounds Relay buffering without changing frame order. Call from serialized sends. */
-export async function waitForRelayCapacity(socket: { readonly readyState: number; readonly bufferedAmount?: number }): Promise<void> {
+export async function waitForRelayCapacity(socket: { readonly readyState: number; readonly bufferedAmount?: number }, wireBytes = 0): Promise<void> {
   const started = Date.now()
   while ((socket.bufferedAmount ?? 0) > 512 * 1024) {
     if (socket.readyState !== 1 || Date.now() - started > 10_000) throw new Error('Relay consumer is too slow or disconnected')
     await new Promise<void>(resolve => setTimeout(resolve, 10))
+  }
+  if (wireBytes > 0) {
+    // Pace encoded envelopes across all tunnels on a socket. A full frame of
+    // headroom covers control traffic and avoids turning a one-second burst
+    // allowance into repeated bursts at the boundary of the Server's window.
+    const now = Date.now()
+    const due = Math.max(now, nextSends.get(socket) ?? now)
+    const interval = Math.max(1000 / (MAX_RELAY_FRAMES_PER_SECOND - 1), 1000 * wireBytes / (MAX_RELAY_BYTES_PER_SECOND - MAX_RELAY_FRAME_BYTES))
+    nextSends.set(socket, due + interval)
+    if (due > now) await new Promise<void>(resolve => setTimeout(resolve, Math.ceil(due - now)))
   }
   if (socket.readyState !== 1) throw new Error('Relay transport closed')
 }

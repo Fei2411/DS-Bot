@@ -4,7 +4,7 @@
 // hidden stage list belong to the director in whale.js. Text is set only through textContent
 // (and text nodes), never as markup.
 import { fill as fillIn, t } from './text.mjs'
-import { createDirector, reduced, play, spring, sleep, clamped } from './whale.js'
+import { createDirector, reduced, reducedFx, play, spring, sleep, clamped } from './whale.js'
 
 const root = document.documentElement
 const asked = new URLSearchParams(location.search).get('start')
@@ -117,7 +117,7 @@ function speak() {
   if (v.swap) return
   if (!voiceEl.hasAttribute('data-on')) { put(); return }
   delete voiceEl.dataset.on
-  v.swap = setTimeout(put, reduced() ? 120 : FADE_MS)
+  v.swap = setTimeout(put, root.dataset.effects === 'off' ? 0 : reduced() ? 120 : FADE_MS)
 }
 function put() {
   v.swap = 0
@@ -135,7 +135,7 @@ function hintWant() {
 }
 let shimmerReady = false
 if (!first) setTimeout(() => { shimmerReady = true; if (s) shimmer() }, resume ? 0 : 1000)
-const shimmer = () => root.toggleAttribute('data-shimmer', shimmerReady && (s.view === 'boot' || s.view === 'moving'))
+const shimmer = () => root.toggleAttribute('data-shimmer', root.dataset.effects !== 'reduced' && root.dataset.effects !== 'off' && shimmerReady && (s.view === 'boot' || s.view === 'moving'))
 // The main process's boot clock: ms at the wall time `at`, paused while a card waits on the user.
 const bootMs = () => { const c = s?.clock; if (!c) return 0; return c.running ? c.ms + Math.max(0, Date.now() - c.at) : c.ms }
 let tick = 0
@@ -195,7 +195,7 @@ function morph(target, jump) {
     for (const a of layer.getAnimations()) a.cancel()
     layer.style.clipPath = clips[k]
     layer.style.opacity = vanish ? '0' : '1'
-    if (jump) return
+    if (jump || root.dataset.effects === 'off') return
     if (reduced()) { if (appear || vanish) play(layer, [{ opacity: fromOpacity }, { opacity: vanish ? 0 : 1 }], { duration: vanish ? 160 : 120, fill: 'none' }); return }
     const shape = spring('shape')
     // A collapse is clamped at zero height: overshooting past it would only empty the clip.
@@ -212,8 +212,8 @@ function resize() {
 const exits = new WeakMap()
 function leave(el, jump) {
   if (!el || el.hidden) return
-  if (jump) { el.hidden = true; return }
-  const frames = reduced() ? [{ opacity: 1 }, { opacity: 0 }] : [{ opacity: 1, translate: '0 0', scale: '1', filter: 'none' }, { opacity: 0, translate: '0 6px', scale: '.975', filter: 'blur(3px)' }]
+  if (jump || root.dataset.effects === 'off') { el.hidden = true; return }
+  const frames = reducedFx() ? [{ opacity: 1 }, { opacity: 0 }] : [{ opacity: 1, translate: '0 0', scale: '1', filter: 'none' }, { opacity: 0, translate: '0 6px', scale: '.975', filter: 'blur(3px)' }]
   const a = play(el, frames, { duration: 160, easing: 'ease-in' })
   exits.set(el, a)
   el.inert = true
@@ -483,7 +483,7 @@ document.addEventListener('change', (event) => {
 })
 document.addEventListener('visibilitychange', () => root.toggleAttribute('data-hidden', document.hidden))
 matchMedia('(prefers-reduced-motion: reduce)').addEventListener('change', () => director.refresh())
-new MutationObserver(() => director.refresh()).observe(root, { attributes: true, attributeFilter: ['data-motion'] })
+new MutationObserver(() => director.refresh()).observe(root, { attributes: true, attributeFilter: ['data-motion', 'data-effects'] })
 
 // ---- snapshots ----
 const director = createDirector({ start: START, resume, begin, act: (name, detail) => bridge?.act(name, detail), label: say, announce })
@@ -494,6 +494,8 @@ function apply(next) {
   if ((next.lang ?? 'zh') !== lang || !applied) { lang = next.lang ?? 'zh'; renderStatic() }
   const motion = next.motion ?? 'normal'
   if (root.dataset.motion !== motion) root.dataset.motion = motion
+  const effects = next.effects ?? 'full'
+  if (root.dataset.effects !== effects) root.dataset.effects = effects
   // Linux draws a system title bar, so the page has no band of its own.
   if (next.frame === 'system') root.dataset.frame = 'system'
   else delete root.dataset.frame
