@@ -1685,6 +1685,26 @@ export const KO = {
   'Stop {name}': '{name} 중지',
   '{name} · foreground': '{name} · 포그라운드',
   '{name} waits for the computer': '{name}이(가) 사용자 조작을 기다리는 중',
+
+  // DeepSeek services
+  'DeepSeek services': 'DeepSeek 서비스',
+  'DeepSeek API': 'DeepSeek API',
+  'DeepSeek Web Search API': 'DeepSeek 웹 검색 API',
+  'Find it in Plugins → Web search.': '플러그인 → 웹 검색에서 찾을 수 있습니다.',
+  'Image and document reading': '이미지 및 문서 읽기',
+  'Use DeepSeek to read images and documents': 'DeepSeek으로 이미지와 문서 읽기',
+  'Bots upload selected files to DeepSeek for text recognition; local Office editing is unchanged.': '선택한 파일은 텍스트 인식을 위해 DeepSeek에 업로드됩니다. 로컬 Office 편집은 그대로입니다.',
+  'Text to speech': '텍스트 음성 변환',
+  'Read replies aloud': '답변 소리 내어 읽기',
+  'System': '시스템',
+  'Voice': '음성',
+  'Speech recognition': '음성 인식',
+  'Dictation provider': '받아쓰기 제공자',
+  'Use DeepSeek for dictation': '받아쓰기에 DeepSeek 사용',
+  'In use': '사용 중',
+  'Not ready': '준비되지 않음',
+  "Couldn't read the reply": '답변을 읽지 못했습니다',
+  "Couldn't reach the speech service": '음성 인식 서비스에 연결할 수 없습니다',
 }
 
 export const HOST_ERRORS_KO = [

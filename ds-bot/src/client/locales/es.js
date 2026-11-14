@@ -1685,6 +1685,26 @@ export const ES = {
   'Stop {name}': 'Detener a {name}',
   '{name} · foreground': '{name} · primer plano',
   '{name} waits for the computer': '{name} espera el ordenador',
+
+  // DeepSeek services
+  'DeepSeek services': 'Servicios de DeepSeek',
+  'DeepSeek API': 'API de DeepSeek',
+  'DeepSeek Web Search API': 'API de búsqueda web de DeepSeek',
+  'Find it in Plugins → Web search.': 'Está en Plugins → Búsqueda web.',
+  'Image and document reading': 'Lectura de imágenes y documentos',
+  'Use DeepSeek to read images and documents': 'Usar DeepSeek para leer imágenes y documentos',
+  'Bots upload selected files to DeepSeek for text recognition; local Office editing is unchanged.': 'Los Bots suben los archivos seleccionados a DeepSeek para reconocer el texto; la edición local de Office no cambia.',
+  'Text to speech': 'Texto a voz',
+  'Read replies aloud': 'Leer las respuestas en voz alta',
+  'System': 'Sistema',
+  'Voice': 'Voz',
+  'Speech recognition': 'Reconocimiento de voz',
+  'Dictation provider': 'Proveedor de dictado',
+  'Use DeepSeek for dictation': 'Usar DeepSeek para el dictado',
+  'In use': 'En uso',
+  'Not ready': 'No listo',
+  "Couldn't read the reply": 'No se pudo leer la respuesta',
+  "Couldn't reach the speech service": 'No se pudo conectar con el servicio de voz',
 }
 
 export const HOST_ERRORS_ES = [

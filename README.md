@@ -115,6 +115,12 @@ In Settings → Connectors, you can sign in to GitHub, Gmail, QQ Mail, 163 and o
 
 In Settings → Capabilities, you can manage shared MCP servers, skills and packs for the team and enable them per bot; local commands added by a bot need your approval before they run.
 
+### DeepSeek services
+
+A DeepSeek API key can add independent image and document reading, DeepSeek text-to-speech (with a choice of voice) and DeepSeek dictation to any model, in **Settings → DeepSeek services**. Each capability is off until you turn it on; setting the key never uploads files or switches speech by itself. The key is set in **Settings → Models**, and the page shows whether each service is ready and why not. Dictation uses the existing Voice Input provider picker; when that plugin is off, your current dictation keeps working. Document reading is read-only: `read_document` takes a workspace path or a file or image attached to the current chat, and keeps the whole recognized text even when the result is long.
+
+The `auto` web search keeps the asking conversation's own route and key (never borrowing another route's key) with a keyless fallback, and now also tries DeepSeek's official Search API on that route's own origin. To use the official Search and Fetch APIs for every model, open the Plugins page (the DeepSeek services page has an **Open Plugins** button) and go to **Web search**, then turn on **Use the new Web Search API**; that switch selects both. A DeepSeek account sign-in is only verified for Search and Fetch — it does not enable OCR or speech. These calls are billed to your own API key by usage.
+
 ### Office files
 
 Bots can create, check and edit Word (`.docx`), PowerPoint (`.pptx`) and Excel (`.xlsx`) documents directly, and render pages to images to check layout. The desktop app includes the full runtime out of the box; DSH Web does not bundle this runtime, so it can only check and edit existing documents, while creating files from scratch and rendering pages require the desktop app or DSH Desktop.
