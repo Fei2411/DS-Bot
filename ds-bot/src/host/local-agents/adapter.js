@@ -821,8 +821,11 @@ export class LocalAgentAdapter extends LlmAdapter {
         system: spec.kind === 'claude' ? system : undefined,
       }).catch(error => { throw toLlmError(error, { spec }) })
       const side = { state: 'running', pending: new Map(), spec }
+      // A decision needs no long thinking: the least the model offers, when it lists any.
+      const efforts = (this.modelCache.get(route) ?? []).find(model => model.id === record.model)?.reasoning?.efforts ?? []
+      const effort = efforts.some(entry => entry.id === 'off') ? 'off' : efforts[0]?.id
       // An ACP prompt resolves only when its turn ends; its events wait in the queue.
-      void Promise.resolve(engine.prompt(session, [{ type: 'text', text: spec.kind === 'acp' ? `${system}\n\n${prompt}` : prompt }], { signal })).catch(() => {})
+      void Promise.resolve(engine.prompt(session, [{ type: 'text', text: spec.kind === 'acp' ? `${system}\n\n${prompt}` : prompt }], { signal, effort })).catch(() => {})
       return (await this.collect(side, () => ({ event: session.next(), drop: () => {} }), signal)).text
     } finally {
       if (session !== undefined) {
