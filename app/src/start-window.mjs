@@ -945,13 +945,15 @@ export class StartWindow {
       main.setOpacity(eased)
       win.setOpacity(1 - eased)
       if (time < 1) { this.#later('fade', CROSSFADE.step, step); return }
-      if (how === 'focused') main.focus()
-      else {
+      this.#destroy()
+      if (how === 'focused') {
+        main.focus()
+        main.webContents?.focus?.()
+      } else {
         main.flashFrame(true)
         main.once('focus', () => { main.flashFrame(false) })
       }
       note(`team window shown (${how}) at ready + ${String(Date.now() - this.#readyAt)} ms`)
-      this.#destroy()
     }
     step()
   }

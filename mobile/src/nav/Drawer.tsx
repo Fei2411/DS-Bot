@@ -1,7 +1,8 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { BackHandler, Pressable, StyleSheet, View } from 'react-native'
 import { Gesture, GestureDetector } from 'react-native-gesture-handler'
 import Animated, { runOnJS, useAnimatedStyle, useReducedMotion, useSharedValue, withSpring } from 'react-native-reanimated'
+import { ErrorBoundary } from '../ui/error-boundary.tsx'
 import { SPRING_SHAPE } from '../ui/tokens.ts'
 import { t } from '../ui/i18n.ts'
 
@@ -16,7 +17,11 @@ export function Drawer({ width, edgeWidth = 24, edgeEnabled = true, content, chi
   const x = useSharedValue(-width)
   const [shown, setShown] = useState(false)
 
-  const snapTo = (to: number) => {
+  useEffect(() => {
+    if (!shown) x.value = -width
+  }, [width, shown, x])
+
+  const snapTo = useCallback((to: number) => {
     const opening = to === 0
     if (opening) setShown(true)
     if (reduced) {
@@ -28,9 +33,10 @@ export function Drawer({ width, edgeWidth = 24, edgeEnabled = true, content, chi
         if (finished && !opening) runOnJS(setShown)(false)
       })
     }
-  }
-  const open = () => snapTo(0)
-  const close = () => snapTo(-width)
+  }, [reduced, x])
+
+  const open = useCallback(() => snapTo(0), [snapTo])
+  const close = useCallback(() => snapTo(-width), [snapTo, width])
 
   useEffect(() => {
     const sub = BackHandler.addEventListener('hardwareBackPress', () => {
@@ -38,41 +44,44 @@ export function Drawer({ width, edgeWidth = 24, edgeEnabled = true, content, chi
       return false
     })
     return () => sub.remove()
-  })
+  }, [close, width, x])
 
-  const clampX = (v: number) => {
-    'worklet'
-    return Math.min(0, Math.max(-width, v))
-  }
-  const edgePan = Gesture.Pan()
+  const edgePan = useMemo(() => Gesture.Pan()
+    .enabled(!shown && edgeEnabled)
     .activeOffsetX(8)
     .failOffsetY([-12, 12])
-    .onUpdate(e => { x.value = clampX(-width + Math.max(0, e.translationX)) })
-    .onEnd(e => { runOnJS(snapTo)(e.velocityX > 350 || x.value > -width / 2 ? 0 : -width) })
-  const drawerPan = Gesture.Pan()
+    .onUpdate(e => { x.value = Math.min(0, Math.max(-width, -width + Math.max(0, e.translationX))) })
+    .onEnd(e => { runOnJS(snapTo)(e.velocityX > 350 || x.value > -width / 2 ? 0 : -width) }),
+  [shown, edgeEnabled, width, snapTo, x])
+
+  const drawerPan = useMemo(() => Gesture.Pan()
+    .enabled(shown)
     .activeOffsetX(-8)
     .failOffsetY([-12, 12])
-    .onUpdate(e => { x.value = clampX(e.translationX) })
-    .onEnd(e => { runOnJS(snapTo)(e.velocityX < -350 || x.value < -width / 2 ? -width : 0) })
+    .onUpdate(e => { x.value = Math.min(0, Math.max(-width, e.translationX)) })
+    .onEnd(e => { runOnJS(snapTo)(e.velocityX < -350 || x.value < -width / 2 ? -width : 0) }),
+  [shown, width, snapTo, x])
 
   const scrimStyle = useAnimatedStyle(() => ({ opacity: (x.value + width) / width }))
   const panelStyle = useAnimatedStyle(() => ({ transform: [{ translateX: x.value }] }))
+  const ctxValue = useMemo(() => ({ open, close }), [open, close])
 
   return (
-    <DrawerCtx.Provider value={{ open, close }}>
+    <DrawerCtx.Provider value={ctxValue}>
       <View style={{ flex: 1 }}>
         {children}
-        {!shown && edgeEnabled ? (
-          <GestureDetector gesture={edgePan}>
-            <View style={[styles.edge, { width: edgeWidth }]} />
-          </GestureDetector>
-        ) : null}
+        {/* Keep the edge GestureDetector permanently mounted so opening the drawer by tap never detaches an active native Fabric view mid-frame. */}
+        <GestureDetector gesture={edgePan}>
+          <View pointerEvents={!shown && edgeEnabled ? 'auto' : 'none'} style={[styles.edge, { width: edgeWidth }]} />
+        </GestureDetector>
         <View pointerEvents={shown ? 'auto' : 'none'} style={StyleSheet.absoluteFill}>
           <Animated.View style={[styles.scrim, scrimStyle]}>
             <Pressable style={{ flex: 1 }} onPress={close} accessibilityLabel={t('Close team list')} />
           </Animated.View>
           <GestureDetector gesture={drawerPan}>
-            <Animated.View style={[styles.panel, { width }, panelStyle]}>{content}</Animated.View>
+            <Animated.View style={[styles.panel, { width }, panelStyle]}>
+              <ErrorBoundary>{content}</ErrorBoundary>
+            </Animated.View>
           </GestureDetector>
         </View>
       </View>

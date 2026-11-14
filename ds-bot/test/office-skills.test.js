@@ -53,6 +53,22 @@ describe('office skill provider', () => {
     assert.match(skill.content, /`office-render`/)
     assert.match(skill.content, /unavailable/)
   })
+
+  // 公开#1499: `read` rejects a PDF as a binary file, and nothing the model saw named another way in,
+  // so a Bot told the user it could not read a scanned PDF that `office_render` shows page by page.
+  test('office skill shows how to read a PDF, both in the catalog line and in the routing text', async () => {
+    const provider = officeProvider()
+    const [candidate] = (await provider.list()).filter(s => s.name === 'office')
+    assert.match(candidate.description, /read a PDF/)
+    const skill = await provider.get(candidate)
+    const line = skill.content.split('\n').find(row => row.startsWith('- Read a PDF'))
+    assert.ok(line, 'a routing line for reading a PDF')
+    assert.match(line, /scanned or not/)
+    assert.match(line, /`office_render`/)
+    assert.match(line, /`office-render`/)
+    assert.match(line, /accepts images/)
+    assert.match(skill.content, /Office inputs only, not PDFs/, 'convert still takes Office files only')
+  })
 })
 
 describe('office node selection', () => {

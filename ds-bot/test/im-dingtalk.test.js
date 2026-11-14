@@ -105,7 +105,7 @@ test('system pings get a pong, a single chat and an @ group message land, every 
   assert.equal(messages[2].mentioned, false)
 })
 
-test('send replies through the sessionWebhook when live, else the robot API', async (t) => {
+test('send replies through the sessionWebhook when live, else the robot API with msgParam as a JSON string', async (t) => {
   const fake = await fakeDingtalk()
   const messages = []
   const handle = dingtalk.connect(FIELDS, env(fake), { onMessage: async msg => { messages.push(msg) }, onAction: () => {}, onStatus: () => {} })
@@ -121,6 +121,15 @@ test('send replies through the sessionWebhook when live, else the robot API', as
   const post = fake.calls.find(call => call.path === '/v1.0/robot/oToMessages/batchSend')
   assert.equal(post.params.msgKey, 'sampleMarkdown')
   assert.deepEqual(post.params.userIds, ['u9'])
+  assert.equal(typeof post.params.msgParam, 'string')
+  assert.deepEqual(JSON.parse(post.params.msgParam), { title: 'push', text: 'push' })
+  // A group without a sessionWebhook goes through groupMessages/send.
+  await handle.send({ key: 'g1', kind: 'group' }, { text: 'group push' })
+  const group = fake.calls.find(call => call.path === '/v1.0/robot/groupMessages/send')
+  assert.equal(group.params.openConversationId, 'g1')
+  assert.equal(group.params.msgKey, 'sampleMarkdown')
+  assert.equal(typeof group.params.msgParam, 'string')
+  assert.deepEqual(JSON.parse(group.params.msgParam), { title: 'group push', text: 'group push' })
 })
 
 test('a dropped socket reconnects', async (t) => {
