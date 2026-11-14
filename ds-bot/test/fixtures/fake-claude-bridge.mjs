@@ -1,9 +1,11 @@
 // A fake Claude Code that calls the dsbot MCP server, like the real CLI does for
 // a team tool. The log file (first argument) gets every user message it reads
 // on stdin, so a test can tell what reached the CLI.
-//   contains "call-tool" -> calls message_bot over the --mcp-config server and
-//                           stays inside that call until DS Bot answers it
-//   otherwise            -> answers "ok: <text>"
+//   contains "call-twice"     -> the same, twice in one turn
+//   contains "call-then-fail" -> one call, then the turn ends with an error result
+//   contains "call-tool"      -> calls message_bot over the --mcp-config server and
+//                                stays inside that call until DS Bot answers it
+//   otherwise                 -> answers "ok: <text>"
 import { appendFileSync } from 'node:fs'
 
 const log = process.argv[2]
@@ -42,11 +44,23 @@ process.stdin.on('data', (chunk) => {
   }
 })
 
+async function callTool() {
+  send({ type: 'assistant', message: { content: [{ type: 'tool_use', name: 'mcp__dsbot__message_bot' }] } })
+  const result = await mcpCall('message_bot', { bot: 'Chief', text: 'ping' })
+  send({ type: 'assistant', message: { content: [{ type: 'text', text: `tool said: ${result.content?.[0]?.text}` }] } })
+}
+
 async function answer(text) {
-  if (text.includes('call-tool')) {
-    send({ type: 'assistant', message: { content: [{ type: 'tool_use', name: 'mcp__dsbot__message_bot' }] } })
-    const result = await mcpCall('message_bot', { bot: 'Chief', text: 'ping' })
-    send({ type: 'assistant', message: { content: [{ type: 'text', text: `tool said: ${result.content?.[0]?.text}` }] } })
+  if (text.includes('call-then-fail')) {
+    await callTool()
+    send({ type: 'result', subtype: 'error_during_execution', is_error: true, num_turns: 1, session_id: sessionId, result: 'the model is overloaded' })
+    return
+  }
+  if (text.includes('call-twice')) {
+    await callTool()
+    await callTool()
+  } else if (text.includes('call-tool')) {
+    await callTool()
   } else {
     send({ type: 'assistant', message: { content: [{ type: 'text', text: `ok: ${text.slice(0, 60)}` }] } })
   }

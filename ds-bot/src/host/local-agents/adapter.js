@@ -183,8 +183,9 @@ export class LocalAgentAdapter extends LlmAdapter {
       // 'idle': no CLI turn. 'running': a prompt is in flight. 'suspended': the
       // turn waits on a bridged tool call or a permission answer.
       state: 'idle',
-      // Prompts queued while a turn runs (ACP speaks one prompt at a time);
-      // the drain sends the next one when the turn ends.
+      // Prompts queued while a turn runs (ACP speaks one prompt at a time, Claude
+      // reads stdin only between turns); the drain sends the next one when the
+      // turn ends. Each is {text, handed}: the marker from before it was handed.
       queue: [],
       idle: undefined,
       cwd: record?.cwd,
@@ -335,16 +336,16 @@ export class LocalAgentAdapter extends LlmAdapter {
   }
 
   // Input held back for the next prompt was handed but never sent. When the turn
-  // ends any way but `done` (stopped, closed, or its process died), the marker
-  // goes back to where the first held input began, so the next request carries
-  // it again instead of losing it.
+  // ends any way but `done` (stopped, closed, failed, or its process died), the
+  // marker goes back to where the oldest input still held began, so the next
+  // request carries it again instead of losing it. Held input that already went
+  // out stays handed.
   rollbackQueued(live) {
-    if (live.queue.length === 0) return
+    const oldest = live.queue[0]
     live.queue.length = 0
-    if (live.queueBase === undefined) return
-    live.handed = live.queueBase.handed
-    live.queueBase = undefined
-    this.deps.saveRecord(live.sessionId, { route: live.route, cliSessionId: live.cliSessionId, cwd: live.cwd, handedId: live.handed, promptHash: live.promptHash, model: live.model })
+    if (oldest === undefined) return
+    live.handed = oldest.handed
+    this.deps.saveRecord(live.sessionId, this.recordOf(live))
   }
 
   // The loopback MCP server for one live session; tools/call lands in its event queue.
@@ -544,8 +545,7 @@ export class LocalAgentAdapter extends LlmAdapter {
     if (live.state !== 'idle') {
       if (live.spec.kind === 'acp' || typeof live.engine.steer !== 'function') {
         // The marker has not moved past this input yet: it is where a rollback goes.
-        if (live.queue.length === 0) live.queueBase = { handed: live.handed }
-        live.queue.push(text)
+        live.queue.push({ text, handed: live.handed })
         return
       }
       try {
@@ -668,8 +668,7 @@ export class LocalAgentAdapter extends LlmAdapter {
           // inside the same drain (ACP takes one prompt at a time).
           const next = live.queue.shift()
           if (next !== undefined) {
-            if (live.queue.length === 0) live.queueBase = undefined
-            this.sendInput(live, next, options.signal, options.reasoningEffort)
+            this.sendInput(live, next.text, options.signal, options.reasoningEffort)
             break
           }
           yield { type: 'finish', reason: { kind: 'stop' } }
@@ -677,6 +676,7 @@ export class LocalAgentAdapter extends LlmAdapter {
         }
         case 'error': {
           live.state = 'idle'
+          this.rollbackQueued(live)
           throw toLlmError(event.error, live)
         }
         default: break

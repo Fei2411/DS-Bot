@@ -956,12 +956,66 @@ for (const [name, end] of [
     const first = await collect(adapter.stream(options('s1', [user('m1', 'please call-tool now')], claude)))
     const live = adapter.live.get('s1')
     assert.equal(live.state, 'suspended')
+    // What the CLI said about its context rides in the same record.
+    live.context = { used: 1234, size: 200000 }
+    live.compactions = 2
     adapter.sendInput(live, 'held back')
-    assert.deepEqual(live.queue, ['held back'])
+    assert.deepEqual(live.queue.map(entry => entry.text), ['held back'])
     await end(adapter, live)
     assert.deepEqual(live.queue, [])
     assert.equal(live.handed, 'm1', 'the marker is back before the held input')
     assert.equal(records.s1.handedId, 'm1')
+    assert.deepEqual(records.s1.context, { used: 1234, size: 200000 }, 'the rollback dropped the context from the record')
+    assert.equal(records.s1.compactions, 2, 'the rollback dropped the compactions from the record')
     assert.equal(first.finish.kind, 'tool-calls')
   })
 }
+
+// Two requests each bring input while the CLI waits; the first goes out when the
+// turn ends. A stop then gives back only the second: the first reached the CLI.
+test('claude: a stop gives back only the queued input that never went out', async (t) => {
+  const log = join(mkdtempSync(join(tmpdir(), 'dsb-claude-')), 'prompts')
+  const records = {}
+  const adapter = makeAdapter({ records, claude: FIXTURE('fake-claude-bridge.mjs'), claudeArgs: [log] })
+  t.after(() => adapter.dispose())
+  const claude = { provider: 'local-claude-code' }
+  const history = [user('m1', 'please call-twice now')]
+  const first = await collect(adapter.stream(options('s1', history, claude)))
+  history.push(toolResult('m2', first.calls[0].id, 'r1'), user('m3', 'then call-tool once'))
+  const second = await collect(adapter.stream(options('s1', history, claude)))
+  assert.equal(second.finish.kind, 'tool-calls', 'the CLI is inside its second call')
+  history.push(toolResult('m4', second.calls[0].id, 'r2'), user('m5', 'and one more thing'))
+  const third = await collect(adapter.stream(options('s1', history, claude)))
+  assert.equal(third.finish.kind, 'tool-calls', 'the first held input went out and calls a tool')
+  const live = adapter.live.get('s1')
+  assert.deepEqual(live.queue.map(entry => entry.text), ['and one more thing'])
+  live.mcp.failAll(new Error('gone'))
+  live.pending.clear()
+  adapter.stopTurn(live, 'the turn was stopped')
+  assert.equal(readFileSync(log, 'utf8').split('then call-tool once').length - 1, 1)
+  assert.equal(live.handed, 'm3', 'the marker went back past input the CLI already read')
+  assert.equal(records.s1.handedId, 'm3')
+})
+
+// A turn can also end with an error result. Input held for it goes back, so the
+// next request carries it ahead of what the user wrote after.
+test('claude: a turn that fails gives back input that was still queued', async (t) => {
+  const log = join(mkdtempSync(join(tmpdir(), 'dsb-claude-')), 'prompts')
+  const records = {}
+  const adapter = makeAdapter({ records, claude: FIXTURE('fake-claude-bridge.mjs'), claudeArgs: [log] })
+  t.after(() => adapter.dispose())
+  const claude = { provider: 'local-claude-code' }
+  const history = [user('m1', 'please call-then-fail now')]
+  const first = await collect(adapter.stream(options('s1', history, claude)))
+  assert.equal(first.finish.kind, 'tool-calls')
+  history.push(toolResult('m2', first.calls[0].id, 'The card is on screen.'), user('m3', 'my answer is blue'))
+  await assert.rejects(collect(adapter.stream(options('s1', history, claude))), /overloaded/)
+  const live = adapter.live.get('s1')
+  assert.deepEqual(live.queue, [])
+  assert.equal(live.handed, 'm1', 'the marker is back before the held input')
+  assert.equal(records.s1.handedId, 'm1')
+  history.push(user('m4', 'are you there'))
+  const third = await collect(adapter.stream(options('s1', history, claude)))
+  assert.equal(third.finish.kind, 'stop')
+  assert.match(readFileSync(log, 'utf8'), /my answer is blue\n\nare you there\n---\n$/, 'the held answer is missing or comes after the newer message')
+})

@@ -246,10 +246,6 @@ class ClaudeSession {
     return Promise.resolve()
   }
 
-  async steer(thread, text) {
-    this.prompt([{ type: 'text', text }])
-  }
-
   // `/compact` in stream-json runs the CLI's own compaction and ends with a result.
   compact() {
     this.prompt([{ type: 'text', text: '/compact' }])
