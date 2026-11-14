@@ -309,18 +309,20 @@ export function install(rt) {
     try {
       do {
         refreshQueued = false
-        const seen = new Set()
-        const targets = []
+        const byId = new Map()
+        const extra = []
         for (const agent of service('agents')?.list?.() ?? []) {
-          if (!seen.has(agent)) { seen.add(agent); targets.push(agent) }
+          if (disposedAgents.has(agent)) continue
+          const id = agent?.session?.id ?? agent?.id
+          if (typeof id === 'string') byId.set(id, agent)
+          else extra.push(agent)
         }
-        for (const held of applied.values()) {
-          if (held?.agent !== undefined && !seen.has(held.agent)) {
-            seen.add(held.agent)
-            targets.push(held.agent)
+        for (const [id, held] of applied) {
+          if (held?.agent !== undefined && !disposedAgents.has(held.agent) && !byId.has(id)) {
+            byId.set(id, held.agent)
           }
         }
-        for (const agent of targets) {
+        for (const agent of [...byId.values(), ...extra]) {
           try { applyComputer(agent) } catch (error) { rt.warn('ds-bot: computer-use masking on %s failed: %s', agent?.session?.id, error) }
         }
       } while (refreshQueued && !stopped)

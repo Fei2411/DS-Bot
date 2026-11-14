@@ -256,6 +256,32 @@ test('disposing a superseded agent does not strip computer tools from its replac
   assert.deepEqual(turn.tools, ['computer_handoff', 'cua'])
 })
 
+test('refreshComputer prefers live registry agent when an undisposed old agent shares the same session id', async (t) => {
+  const { root, rt, state, mountGate, runTurn } = await bootHarness({ enabled: true })
+  t.after(async () => root.fiber.dispose())
+
+  mountGate.resolve()
+  await tick(30)
+  state.bots['bot-replace-off'] = { id: 'bot-replace-off', name: 'BotReplaceOff', computer: { level: 'off' } }
+  await rt.save()
+
+  // Old undisposed agent occupies `applied` first, while `agents.list()` later lists `newAgent` for the same id.
+  const oldAgent = { session: { id: 'bot-replace-off' }, id: 'bot-replace-off', ctx: root.extend() }
+  root.emit('agent/created', { agent: oldAgent })
+  await tick(15)
+
+  const newAgent = await root.agentLoop.create(SessionId('bot-replace-off'), { provider: 'mock', model: 'm' })
+  // Refresh synchronously before `newAgent`'s async `agent/created` overwrites `applied`,
+  // while `oldAgent` is still undisposed in `applied` and `agents.list()` holds `newAgent`.
+  await rt.save()
+  await tick(15)
+  root.emit('agent/disposed', { agent: oldAgent })
+  await tick(15)
+
+  const turn = await runTurn(newAgent, 'must stay masked')
+  assert.deepEqual(turn.tools, [])
+})
+
 test('plain DSH session keeps external computer provider tools when DS Bot switch is off', async (t) => {
   const { root, rt, runTurn } = await bootHarness({ enabled: false, externalProvider: true })
   t.after(async () => root.fiber.dispose())
