@@ -70,3 +70,49 @@ registerHooks({
     return nextResolve(specifier, context)
   },
 })
+
+// With --test-force-exit, Node's test runner calls process.exit() right after the reporter unpipes
+// from process.stdout, before buffered serialized frames finish draining. Wait for stdout and
+// stderr write queues to flush in child test contexts while preserving exit code validation.
+const flushStream = (stream, done) => {
+  if (!stream || stream.destroyed || stream.writableEnded || stream.writableFinished || !stream.writable) {
+    done()
+    return
+  }
+  let settled = false
+  const finish = () => {
+    if (settled) return
+    settled = true
+    stream.off('close', finish)
+    done()
+  }
+  while (stream.writableCorked > 0) stream.uncork()
+  // Keep a persistent error listener while exiting so an async EPIPE on one stream cannot crash
+  // before the other stream finishes flushing.
+  stream.on('error', finish)
+  stream.once('close', finish)
+  try {
+    stream.write('', finish)
+  } catch {
+    finish()
+  }
+}
+
+const testContext = process.env.NODE_TEST_CONTEXT
+if (testContext === 'child-v8' || testContext === 'child') {
+  const originalExit = process.exit
+  let exiting = false
+  process.exit = function exit(code) {
+    if (exiting) return
+    if (arguments.length !== 0) process.exitCode = code
+    exiting = true
+    const streams = [process.stdout, process.stderr]
+    let pending = streams.length
+    const onFlushed = () => {
+      if (--pending !== 0) return
+      process.exit = originalExit
+      originalExit.call(process)
+    }
+    for (const stream of streams) flushStream(stream, onFlushed)
+  }
+}
