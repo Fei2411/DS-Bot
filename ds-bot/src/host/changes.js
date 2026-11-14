@@ -1,15 +1,4 @@
-// The files a Bot changed in a turn, for the group chat to show and open.
-//
-// DSH's workspace-changes service keeps one summary per top-level turn and announces it
-// with a `workspace/changes` Session event carrying only the turn number. A group row
-// therefore carries the coordinates of that event (Session, seq, turn) and the counts the
-// summary had when the turn ended; the review itself stays DSH's own changes-review tab,
-// which reads the summary and each file's comparison from its routes while the Session
-// lives. Nothing here reads another folder's files: the only Session read is the one whose
-// turn is being posted into the group.
-//
-// Without the service (a composition that does not mount it) there are no rows, and the
-// chat draws no change line rather than an empty one.
+// Group change rows and reviews use the documented workspaceChanges service.
 const EVENT = 'workspace/changes'
 const MAX_FILES = 8
 const PAGE_EVENTS = 80
@@ -17,10 +6,14 @@ const PAGE_EVENTS = 80
 export function install(rt) {
   const { ctx } = rt
   const latest = new Map()
+  const turns = new Map()
 
   // The turn each Session announced last, from the live event. Cheap, and it covers a turn
   // whose page has not been read since.
   ctx.on('session/event', (session, event) => {
+    if (event?.type === 'turn/start' || event?.type === 'turn/end') {
+      if (Number.isInteger(event.data?.turn)) turns.set(session.id, event.data.turn)
+    }
     if (event?.type !== EVENT || !Number.isInteger(event.seq)) return
     const turn = event.data?.turn
     if (!Number.isInteger(turn)) return
@@ -33,12 +26,15 @@ export function install(rt) {
   // process listened, from the tail of its log.
   async function announcedTurn(sessionId) {
     const known = latest.get(sessionId)
+    if (turns.has(sessionId)) return known?.turn === turns.get(sessionId) ? known : undefined
     if (known !== undefined) return known
     try {
       const page = await ctx.sessionController.page({ address: { kind: 'session', sessionId }, maxMessages: PAGE_EVENTS }, AbortSignal.timeout(4000))
       const events = page.records.map(record => record.event)
       const event = events.findLast(item => item.type === EVENT && Number.isInteger(item.seq))
       const turn = event?.data?.turn
+      const lastTurn = events.findLast(item => item.type === 'turn/start' || item.type === 'turn/end')?.data?.turn
+      if (lastTurn !== undefined && lastTurn !== turn) return undefined
       return event === undefined || !Number.isInteger(turn) ? undefined : { seq: event.seq, turn }
     } catch {
       return undefined
@@ -59,7 +55,7 @@ export function install(rt) {
     } catch {
       return undefined
     }
-    if (summary === undefined || !Array.isArray(summary.files) || summary.files.length === 0) return undefined
+    if (summary === undefined || summary.turn !== announced.turn || !Array.isArray(summary.files) || summary.files.length === 0) return undefined
     return {
       sessionId,
       seq: announced.seq,
@@ -89,6 +85,20 @@ export function install(rt) {
     }
   }
 
+  // The caller supplies only recorded coordinates and a file index, never a path.
+  function changesSummary(sessionId, seq) {
+    if (!changesAvailable(sessionId, seq)) throw new Error('These changes are no longer available')
+    return service().summary(sessionId, seq)
+  }
+  async function changesDiff(sessionId, seq, index, signal) {
+    const summary = changesSummary(sessionId, seq)
+    if (!Number.isInteger(index) || index < 0 || index >= summary.files.length) throw new Error('No such file')
+    const diff = await service().diff(sessionId, seq, index, signal)
+    if (diff === undefined) throw new Error('These changes are no longer available')
+    return diff
+  }
+  rt.changesSummary = changesSummary
+  rt.changesDiff = changesDiff
   rt.turnChanges = turnChanges
   rt.changesAvailable = changesAvailable
   rt.changesMounted = () => service() !== undefined

@@ -29,6 +29,7 @@ import { escapeRegExp, headOf, splitRef, textOf } from './text.js'
 import { viaOf } from '../shared/im-platforms.js'
 import { mentionSpans, speakerOf } from '../shared/mentions.js'
 import { GROUP_REF, output } from './tools.js'
+import { searchGroupBook } from './group-search.js'
 import { failureLine } from './turns.js'
 import { parseBook } from './ledger.js'
 
@@ -343,9 +344,12 @@ export function install(rt) {
     return { rows, open: end === undefined }
   }
   const groupRows = (roomId, from, to, anchor) => rowsView(roomId, from, to, anchor).rows
+  // A sequence of words over everything said in the group, newest first, with each
+  // hit's neighbours. `page` (`before` or `offset`) reads the next older page.
+  const groupSearch = (roomId, query, page) => searchGroupBook(rt.ledger.records(bookOf(roomId)), query, page)
 
   Object.assign(rt, {
-    keepGroupLine, dropGroupLines, groupRows, groupRowsView: rowsView,
+    keepGroupLine, dropGroupLines, groupRows, groupRowsView: rowsView, groupSearch,
     logRoom: (room, line) => say(room, line),
     onRoomLine: (listener) => {
       roomLineListeners.add(listener)
@@ -1128,9 +1132,8 @@ export function install(rt) {
       onWork,
     )
     const final = typeof reply === 'string' && !isPass(reply) ? reply : undefined
-    // What this turn changed in the member's folder rides its final row, so the group
-    // can open DSH's review for that turn.
-    const changes = final === undefined ? undefined : await rt.turnChanges?.(session.id)
+    // Tool-only turns can finish without assistant text; their changes still belong here.
+    const changes = await rt.turnChanges?.(session.id)
     const subRunning = rt.hasSubagents?.(session.id) === true
     if (reply?.failure !== undefined) {
       // Not a pass: the user sees why the member is silent, and the round goes on.
@@ -1153,6 +1156,10 @@ export function install(rt) {
       slot.status = 'working'
       markSlotWorked(room.id, slot)
       say(room, { who: member.name, botId: member.id, kind: 'working' })
+    } else if (changes !== undefined && final === undefined && typeof reply === 'string') {
+      slot.status = 'posted'
+      say(room, { who: member.name, botId: member.id, kind: 'done', text: '', changes })
+      posted.push(room.seq)
     } else if (final !== undefined || (typeof reply === 'string' && said.length > 0)) {
       slot.status = 'posted'
       if (final !== undefined) {

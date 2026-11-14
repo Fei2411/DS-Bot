@@ -18,19 +18,41 @@ import { t } from './i18n.js'
 const capitalize = word => word[0].toUpperCase() + word.slice(1)
 
 // Settings save on blur or Enter, with no Save button; Escape puts the
-// saved value back. A required field never saves empty.
-export function InlineText({ label, value, placeholder, required = false, maxLength, multiline = false, onSave }) {
+// saved value back. A required field never saves empty. Where the field sits in a page
+// other than Settings, `className` styles it, `autoFocus` puts the caret at the end of
+// the text on mount, and `onDone` runs when the edit ends, saved or not.
+export function InlineText({ label, value, placeholder, required = false, maxLength, multiline = false, className, autoFocus = false, onSave, onDone }) {
   const [draft, setDraft] = useState(null)
   const reverting = useRef(false)
+  const field = useRef(null)
+  useEffect(() => {
+    const node = field.current
+    if (!autoFocus || !node) return
+    node.focus()
+    node.setSelectionRange(node.value.length, node.value.length)
+  }, [])
   const commit = () => {
     const next = draft?.trim()
-    setDraft(null)
-    if (reverting.current) { reverting.current = false; return }
-    if (next === undefined || next === (value ?? '') || (required && next === '')) return
-    void onSave(next)
+    if (reverting.current) { reverting.current = false; setDraft(null); onDone?.(); return }
+    if (next === undefined || next === (value ?? '') || (required && next === '')) {
+      setDraft(null)
+      onDone?.()
+      return
+    }
+    const finish = (ok) => {
+      if (ok === false) return
+      setDraft(null)
+      onDone?.()
+    }
+    const outcome = onSave(next)
+    if (outcome && typeof outcome.then === 'function') {
+      void outcome.then(finish, () => {})
+    } else {
+      finish(outcome)
+    }
   }
   return h(multiline ? 'textarea' : 'input', {
-    className: multiline ? 'bt-bs-input bt-bs-area' : 'bt-bs-input', value: draft ?? value ?? '', placeholder, maxLength, required, 'aria-label': label, spellCheck: false,
+    ref: field, className: className ?? (multiline ? 'bt-bs-input bt-bs-area' : 'bt-bs-input'), value: draft ?? value ?? '', placeholder, maxLength, required, 'aria-label': label, spellCheck: false,
     onChange: event => setDraft(event.target.value),
     onBlur: commit,
     onKeyDown: (event) => {

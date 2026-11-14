@@ -105,3 +105,31 @@ test('a paging failure adds no row rather than failing the turn', async () => {
   rt.ctx.sessionController.page = async () => { throw new Error('no session') }
   assert.equal(await rt.turnChanges('s1'), undefined)
 })
+
+
+test('a later unchanged turn cannot reuse the last changed turn, live or after reload', async () => {
+  const summary = summaryOf(3, [file('a.js', 1, 0)])
+  const service = { summary: () => summary }
+  const live = harness({ service })
+  live.emit({ id: 's1' }, event(7, 3))
+  assert.ok(await live.rt.turnChanges('s1'))
+  live.emit({ id: 's1' }, { type: 'turn/start', seq: 8, data: { turn: 4 } })
+  live.emit({ id: 's1' }, { type: 'turn/end', seq: 9, data: { turn: 4 } })
+  assert.equal(await live.rt.turnChanges('s1'), undefined)
+  const cold = harness({ service, page: [event(7, 3), { type: 'turn/start', seq: 8, data: { turn: 4 } }, { type: 'turn/end', seq: 9, data: { turn: 4 } }] })
+  assert.equal(await cold.rt.turnChanges('s1'), undefined)
+})
+
+test('a review reads its recorded file index through the service', async () => {
+  const calls = []
+  const summary = summaryOf(3, [file('a.js', 1, 0)])
+  const service = { summary: () => summary, diff: (...args) => { calls.push(args); return { kind: 'binary', path: 'a.js', display: 'a.js' } } }
+  const { rt } = harness({ service })
+  const signal = new AbortController().signal
+  assert.equal(rt.changesSummary('s1', 7), summary)
+  assert.equal((await rt.changesDiff('s1', 7, 0, signal)).kind, 'binary')
+  assert.deepEqual(calls[0], ['s1', 7, 0, signal])
+  await assert.rejects(rt.changesDiff('s1', 7, -1, signal), /No such file/)
+  await assert.rejects(rt.changesDiff('s1', 7, 1, signal), /No such file/)
+  await assert.rejects(rt.changesDiff('s1', 7, 'a.js', signal), /No such file/)
+})
