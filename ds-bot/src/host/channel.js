@@ -106,6 +106,8 @@ export function install(rt) {
     sections: state.sections ?? [],
     // Key names and who may use them; values never leave the host.
     secrets: rt.secretsView(),
+    // How the secrets file is stored and whether this process can read it now.
+    secretStore: rt.secretStoreStatus(),
     capabilities: rt.capabilityLibraryView(),
     secretRequests: state.secretRequests ?? {},
     connectorRequests: state.connectorRequests ?? {},
@@ -135,6 +137,8 @@ export function install(rt) {
   // turn there runs; the approvals waiting; per Bot, who it waits for to hand back work;
   // and per Session, when its running turn began.
   const live = () => ({
+    secretStore: rt.secretStoreStatus(),
+    secrets: rt.secretsView(),
     activity: rt.activityView(),
     work: { bots: rt.workView(), rooms: rt.roomWorkView(), approvals: rt.approvalsView(), waiting: rt.waitingView?.() ?? {}, turns: rt.turnsView?.() ?? {}, steered: rt.steeredView?.() ?? {} },
     memoryNews: rt.memoryNews(),
@@ -167,7 +171,7 @@ export function install(rt) {
   }
   // What a host that only reads the team may still answer.
   // Updates change the dsh profile, not the team, so a reading host may run them too.
-  const READS = new Set(['state', 'models', 'efforts', 'providers', 'provider-models', 'earlier', 'chat', 'run-stats', 'room-progress', 'group-rows', 'exchange', 'exchange-text', 'file-text', 'usage', 'schedules', 'memory-view', 'browser-wait', 'browser-result', 'diagnostics', 'diagnostics-log', 'diagnostics-clear', 'update-check', 'update-install', 'dsh-update-install', 'repo-stars', 'approval-answer', 'thinking', 'avatar-library', 'computer-system-status', 'computer-shot', 'local-agents', 'local-agent-models', 'browser-frame', 'hello', 'notices', 'avatar', 'room-chat', 'usage-summary', 'image', 'file-download'])
+  const READS = new Set(['secret-store', 'secret-unlock', 'state', 'models', 'efforts', 'providers', 'provider-models', 'earlier', 'chat', 'run-stats', 'room-progress', 'group-rows', 'exchange', 'exchange-text', 'file-text', 'usage', 'schedules', 'memory-view', 'browser-wait', 'browser-result', 'diagnostics', 'diagnostics-log', 'diagnostics-clear', 'update-check', 'update-install', 'dsh-update-install', 'repo-stars', 'approval-answer', 'thinking', 'avatar-library', 'computer-system-status', 'computer-shot', 'local-agents', 'local-agent-models', 'browser-frame', 'hello', 'notices', 'avatar', 'room-chat', 'usage-summary', 'image', 'file-download'])
 
   async function setPrefs(body) {
     if (body.theme !== undefined) {
@@ -507,6 +511,31 @@ export function install(rt) {
           const result = await rt.goalControl(String(body.roomId ?? ''), body)
           return result.error !== undefined ? fail(result.error, result.code ?? 'bot/refused') : ok(view())
         }
+        // The task board's two panel actions. A note the user adds is kept on the task
+        // and posted into the group as the user's own message that calls its owner, so
+        // the Bot acts on it where the work runs, as if the user had typed it there.
+        case 'task-note': {
+          await rt.load()
+          const roomId = String(body.roomId ?? '')
+          const result = rt.taskNote(roomId, String(body.id ?? ''), body.text)
+          if (result.error !== undefined) return fail(result.error, 'bot/refused')
+          const bot = rt.botOf(result.task.botId)
+          await rt.save()
+          if (bot !== undefined) {
+            await rt.sendUser({
+              sessionId: roomId,
+              content: [{ type: 'text', text: `@${bot.name} ${result.task.notes.at(-1).text}` }],
+            })
+          }
+          return ok(view())
+        }
+        case 'task-cancel': {
+          await rt.load()
+          const result = rt.taskCancel(String(body.roomId ?? ''), String(body.id ?? ''))
+          if (result.error !== undefined) return fail(result.error, 'bot/refused')
+          await rt.save()
+          return ok(view())
+        }
         case 'stop-chat':
           return ok(await rt.stopChat(String(body.botId ?? '')))
         case 'dismiss-question':
@@ -530,6 +559,10 @@ export function install(rt) {
         case 'secret-cancel':
         case 'secret-update':
         case 'secret-delete':
+        case 'secret-store':
+        case 'secret-unlock':
+        case 'secret-encrypt':
+        case 'secret-decrypt':
           await rt.load()
           return ok(await rt.secretEndpoint(endpoint, body))
         case 'connector-connect':
