@@ -137,7 +137,7 @@ export class LocalAgentAdapter extends LlmAdapter {
 
   // ---------------------------------------------------------------------------
   // The live bridge for one DS Bot Session.
-  async liveFor(options) {
+  async liveFor(options, preset) {
     const sessionId = String(options.sessionId)
     let live = this.live.get(sessionId)
     const record = this.deps.record(sessionId)
@@ -154,9 +154,9 @@ export class LocalAgentAdapter extends LlmAdapter {
         // instead of reading its exit as the new turn's failure.
         live.events.length = 0
       }
-      // A CLI takes its model when its session opens. Another model reopens the same
-      // CLI session as soon as no turn runs in it.
-      if (live.model === options.model || live.state !== 'idle') return live
+      // A CLI takes its model and permission mode when its session opens. Another
+      // model or preset reopens the same CLI session as soon as no turn runs in it.
+      if ((live.model === options.model && live.preset === preset) || live.state !== 'idle') return live
       await this.closeLive(live, { idle: true })
     } else if (live !== undefined) await this.closeLive(live)
     const spec = engineOf(route, this.deps.customAgents())
@@ -183,6 +183,7 @@ export class LocalAgentAdapter extends LlmAdapter {
       idle: undefined,
       cwd: record?.cwd,
       model: options.model,
+      preset,
     }
     live.push = (event) => {
       clearTimeout(live.idle)
@@ -287,7 +288,8 @@ export class LocalAgentAdapter extends LlmAdapter {
     }
     const sessionId = options.sessionId
     if (sessionId === undefined) throw new LlmError('a local agent request needs a session', 'INVALID_REQUEST')
-    const live = await this.liveFor(options)
+    const preset = this.deps.presetFor(sessionId)
+    const live = await this.liveFor(options, preset)
 
     // What the request carries past the last handed message. When the marker is
     // gone the CLI session is stale or new: it gets a replay instead of a delta.
@@ -335,7 +337,6 @@ export class LocalAgentAdapter extends LlmAdapter {
     const cwd = live.cwd ?? await this.deps.cwdFor(sessionId)
     live.cwd = cwd
 
-    const preset = this.deps.presetFor(sessionId)
     const mode = cliMode(live.spec.kind, preset)
     const instructions = system === '' ? undefined : system
 

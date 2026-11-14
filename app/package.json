@@ -59,6 +59,7 @@
     "@deepseek-ai/dsh-skill-office": "0.2.2-rc.1",
     "@deepseek-ai/dsh-spill": "0.2.2-rc.1",
     "@deepseek-ai/dsh-tool-workspace-dependencies": "0.2.2-rc.1",
+    "@deepseek-ai/dsh-typert-protocol": "0.2.2-rc.1",
     "@deepseek-ai/dsh-util-time": "0.2.2-rc.1",
     "@deepseek-ai/dsh-util-workspace-path": "0.2.2-rc.1",
     "@deepseek-ai/dsh-workflow": "0.2.2-rc.1",

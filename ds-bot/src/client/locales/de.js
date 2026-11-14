@@ -991,6 +991,7 @@ export const DE = {
   'At least {count} characters.': 'Mindestens {count} Zeichen.',
   'Replace value': 'Wert ersetzen',
   'Saving…': 'Wird gespeichert…',
+  'Could not save this file': 'Diese Datei konnte nicht gespeichert werden',
   Save: 'Speichern',
   'Allowing…': 'Wird erlaubt…',
   Allow: 'Erlauben',
