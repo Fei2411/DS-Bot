@@ -794,6 +794,11 @@ export const KO = {
   'Show all · {count} characters': '전체 표시 · {count}자',
   'Showing the first {count} characters': '처음 {count}자만 표시 중',
   'Only the start of this message is kept here': '이 메시지의 앞부분만 여기에 보관됩니다',
+  'Start of reply': '답장 처음',
+  'Back to the start of this reply': '이 답장의 처음으로 돌아가기',
+  Contents: '목차',
+  'Sections in this reply': '이 답장의 목차',
+  'Sections in this reply: {section}': '이 답장의 목차: {section}',
 
   // Time and usage
   'Today {time}': '오늘 {time}',

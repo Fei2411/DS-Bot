@@ -806,6 +806,11 @@ const ZH = {
   'Show all · {count} characters': '显示全部 · {count} 字',
   'Showing the first {count} characters': '只显示前 {count} 字',
   'Only the start of this message is kept here': '这里只保留了这条消息的开头',
+  'Start of reply': '回复开头',
+  'Back to the start of this reply': '回到这条回复的开头',
+  Contents: '目录',
+  'Sections in this reply': '这条回复的目录',
+  'Sections in this reply: {section}': '这条回复的目录：{section}',
 
   // Time and usage
   'Today {time}': '今天 {time}',

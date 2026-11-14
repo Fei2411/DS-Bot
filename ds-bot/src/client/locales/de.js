@@ -794,6 +794,11 @@ export const DE = {
   'Show all · {count} characters': 'Alles anzeigen · {count} Zeichen',
   'Showing the first {count} characters': 'Zeigt die ersten {count} Zeichen',
   'Only the start of this message is kept here': 'Hier ist nur der Anfang dieser Nachricht gespeichert',
+  'Start of reply': 'Anfang der Antwort',
+  'Back to the start of this reply': 'Zurück zum Anfang dieser Antwort',
+  Contents: 'Inhalt',
+  'Sections in this reply': 'Abschnitte dieser Antwort',
+  'Sections in this reply: {section}': 'Abschnitte dieser Antwort: {section}',
 
   // Time and usage
   'Today {time}': 'Heute {time}',
