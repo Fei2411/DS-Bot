@@ -56,8 +56,8 @@ body:not([data-bt-motion=quiet]) :is(.bt-row,.bt-tile)>:is(.bt-mark,.bt-cluster)
 @keyframes bt-nuzzle{50%{rotate:14deg;translate:8% -3%;scale:1.03 .97}}
 .bt-mark[data-gaze] .bt-b{translate:calc(var(--bt-gx,0) * 5%) calc(var(--bt-gy,0) * 4%);transition:translate .18s ease-out}
 .bt-mark[data-gaze] .bt-gaze{transform:translate(calc(var(--bt-gx,0) * 12%),calc(var(--bt-gy,0) * 11%));transition:transform .18s ease-out}
-body[data-bt-motion=quiet] .bt-mark[data-gaze] .bt-b{translate:none}
-body[data-bt-motion=quiet] .bt-mark[data-gaze] .bt-gaze{transform:none}
+body[data-bt-motion=quiet] .bt-mark[data-gaze] .bt-b,body[data-bt-effects=reduced] .bt-mark[data-gaze] .bt-b,body[data-bt-effects=off] .bt-mark[data-gaze] .bt-b{translate:none}
+body[data-bt-motion=quiet] .bt-mark[data-gaze] .bt-gaze,body[data-bt-effects=reduced] .bt-mark[data-gaze] .bt-gaze,body[data-bt-effects=off] .bt-mark[data-gaze] .bt-gaze{transform:none}
 .bt-mark[data-state=thinking] .bt-b{animation:bt-ponder 2.2s ease-in-out infinite}
 .bt-mark[data-state=thinking] .bt-eyes{animation:bt-squint 2.2s ease-in-out infinite}
 .bt-mark[data-state=searching] .bt-b{animation:bt-seek 1s ease-in-out infinite}

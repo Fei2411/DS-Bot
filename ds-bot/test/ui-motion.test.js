@@ -21,6 +21,7 @@ const { outputFiles } = await build({
       "export { effectsTier, reducedEffects, reducedMotion } from './src/client/motion.js'",
       "export { SHELL_CSS, botOwnCss } from './src/client/styles.js'",
       "export { SettingsDialog } from './src/client/settings.js'",
+      "export { BotMark } from './src/client/mark.js'",
     ].join('\n'),
     resolveDir: PLUGIN,
   },
@@ -28,7 +29,7 @@ const { outputFiles } = await build({
   external: ['react', 'react-dom', '@deepseek-ai/dsh-client-ui-primitives'],
 })
 
-const makeReact = () => {
+const makeReact = (overrides = {}) => {
   class FakeComponent { constructor(p) { this.props = p } }
   return {
     Component: FakeComponent,
@@ -43,11 +44,12 @@ const makeReact = () => {
     startTransition: fn => fn(),
     createElement: (type, p, ...children) => ({ type, props: p ? { ...p, children } : { children } }),
     Fragment: 'fragment',
+    ...overrides,
   }
 }
 
-const loadClient = (globals = {}) => {
-  const react = makeReact()
+const loadClient = (globals = {}, hooks = {}) => {
+  const react = makeReact(hooks)
   const icons = new Proxy({}, { get: () => () => ({ type: 'svg', props: { children: [] } }) })
   const module = { exports: {} }
   runInNewContext(outputFiles[0].text, {
@@ -188,6 +190,7 @@ test('botOwnCss preserves effects tokens, backdrop relief and off-tier rules whi
   assert.match(SHELL_CSS, /@keyframes bt-veil-in\{from\{opacity:0;filter:var\(--bt-fx-blur-6,blur\(6px\)\)\}\}/)
   const own = botOwnCss(SHELL_CSS)
   assert.match(own, /body\[data-bt-effects=reduced\],body\[data-bt-effects=off\]\{--dsw-menu-backdrop-filter:none;--dsw-mask-blur:none;/)
+  assert.match(own, /body\[data-bt-effects=reduced\] \.bt-mark\[data-gaze\] \.bt-gaze/)
   assert.match(own, /--bt-fx-blur-6:none/)
   assert.match(own, /\.bt-pill[^}]*backdrop-filter:none!important/)
   assert.match(own, /\.bt-settings-layer[^}]*animation:none!important;transition:none!important/)
@@ -233,4 +236,82 @@ test('SettingsDialog renders Interface motion choices in General appearance and 
   ])
   buttons[2].props.onClick()
   assert.deepEqual(JSON.parse(JSON.stringify(calls)), [{ effects: 'off' }])
+})
+
+test('BotMark gaze listeners and offsets respond dynamically to data-bt-effects changes', async () => {
+  const dom = new JSDOM('<!doctype html><html><body></body></html>')
+  const { window } = dom
+  const { document } = window
+  document.body.dataset.btEffects = 'full'
+
+  let rafId = 0
+  let queued = new Map()
+  let rafCalls = 0
+  window.matchMedia = () => ({ matches: false })
+  const globals = {
+    window,
+    document,
+    MutationObserver: window.MutationObserver,
+    requestAnimationFrame: (fn) => {
+      rafCalls += 1
+      const id = ++rafId
+      queued.set(id, fn)
+      return id
+    },
+    cancelAnimationFrame: (id) => { queued.delete(id) },
+  }
+  const flushRaf = () => {
+    const callbacks = [...queued.values()]
+    queued.clear()
+    for (const fn of callbacks) fn()
+  }
+
+  const node = document.createElement('span')
+  node.getBoundingClientRect = () => ({ left: 0, top: 0, width: 40, height: 40 })
+  document.body.appendChild(node)
+
+  const effects = []
+  let refCount = 0
+  const { exports: client } = loadClient(globals, {
+    useRef: (init) => (refCount++ === 0 ? { current: node } : { current: init }),
+    useEffect: (fn) => { effects.push(fn) },
+  })
+
+  client.BotMark({ bot: { id: 'b1' }, look: { shape: 'orb', color: '#4f7' }, gaze: true })
+  assert.equal(effects.length, 1)
+  const dispose = effects[0]()
+
+  const move = (x, y) => {
+    const ev = new window.Event('pointermove')
+    ev.clientX = x
+    ev.clientY = y
+    window.dispatchEvent(ev)
+  }
+  rafCalls = 0
+  move(100, 60)
+  assert.equal(rafCalls, 1)
+  flushRaf()
+  assert.notEqual(node.style.getPropertyValue('--bt-gx'), '')
+
+  // Switching to reduced clears existing gaze offsets and stops scheduling RAF
+  document.body.dataset.btEffects = 'reduced'
+  await new Promise(r => setTimeout(r, 20))
+  assert.equal(node.style.getPropertyValue('--bt-gx'), '')
+  assert.equal(node.style.getPropertyValue('--bt-gy'), '')
+  rafCalls = 0
+  move(180, 140)
+  assert.equal(rafCalls, 0)
+
+  // Switching back to full re-attaches without remounting the mark
+  document.body.dataset.btEffects = 'full'
+  await new Promise(r => setTimeout(r, 20))
+  move(180, 140)
+  assert.equal(rafCalls, 1)
+  flushRaf()
+  assert.notEqual(node.style.getPropertyValue('--bt-gx'), '')
+
+  dispose()
+  rafCalls = 0
+  move(10, 10)
+  assert.equal(rafCalls, 0)
 })
