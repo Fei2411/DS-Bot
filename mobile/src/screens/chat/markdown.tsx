@@ -1,8 +1,9 @@
-import { Linking, Platform, Pressable, ScrollView, Text, View } from 'react-native'
-import { useRef, useState } from 'react'
+import { Image, Linking, Platform, Pressable, ScrollView, Text, View } from 'react-native'
+import { useEffect, useRef, useState } from 'react'
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg'
 import { lexer, type Token, type Tokens } from 'marked'
 import { MONO, radius, type Palette } from '../../ui/tokens.ts'
+import { inlineImage, softBreakText } from '../../team/markdown-rules.ts'
 
 // Markdown in Bot text: the marked lexer walks the block tokens; each block maps
 // to RN views. Tables and fenced code scroll horizontally.
@@ -22,8 +23,14 @@ function tokensOf(text: string): Token[] {
 
 // A message that has any block that lays out wider than its text (list, code,
 // table, heading, rule, quote) needs the bubble's full width to wrap inside it.
+// A paragraph that carries an https image is wide too: the image takes that width.
+const imageIn = (tokens?: Token[]) => (tokens ?? []).some(token =>
+  token.type === 'image' && inlineImage((token as Tokens.Image).href, (token as Tokens.Image).text).kind === 'image')
 export function hasBlockContent(text: string): boolean {
-  return text !== '' && tokensOf(text).some(token => token.type !== 'paragraph' && token.type !== 'text' && token.type !== 'space')
+  return text !== '' && tokensOf(text).some((token) => {
+    if (token.type === 'paragraph' || token.type === 'text') return imageIn((token as Tokens.Paragraph).tokens)
+    return token.type !== 'space'
+  })
 }
 
 // Lines, code backgrounds and bullets are tints of the text color, so the same
@@ -65,12 +72,14 @@ function Block({ token, p, ink, textColor, fs, lh, first = false, last = false }
         </Text>
       )
     }
-    case 'paragraph':
-      return (
-        <Text selectable style={[base, { marginTop: top(8), marginBottom: bottom(2) }]}>
-          <Inlines tokens={(token as Tokens.Paragraph).tokens ?? []} p={p} color={textColor} fs={fs} />
-        </Text>
-      )
+    case 'paragraph': {
+      const tokens = (token as Tokens.Paragraph).tokens ?? []
+      const style = [base, { marginTop: top(8), marginBottom: bottom(2) }]
+      if (!tokens.some(inner => inner.type === 'image')) {
+        return <Text selectable style={style}><Inlines tokens={tokens} p={p} color={textColor} fs={fs} /></Text>
+      }
+      return <View style={{ marginTop: top(8), marginBottom: bottom(2) }}><Flow tokens={tokens} p={p} color={textColor} style={style} fs={fs} /></View>
+    }
     case 'code': {
       const code = (token as Tokens.Code)
       return (
@@ -143,9 +152,9 @@ function Block({ token, p, ink, textColor, fs, lh, first = false, last = false }
       return null
     case 'text': {
       const text = token as Tokens.Text
-      return Array.isArray(text.tokens) && text.tokens.length > 0
-        ? <Text selectable style={base}><Inlines tokens={text.tokens} p={p} color={textColor} fs={fs} /></Text>
-        : <Text selectable style={base}>{text.text}</Text>
+      if (!Array.isArray(text.tokens) || text.tokens.length === 0) return <Text selectable style={base}>{softBreakText(text.text)}</Text>
+      if (!text.tokens.some(inner => inner.type === 'image')) return <Text selectable style={base}><Inlines tokens={text.tokens} p={p} color={textColor} fs={fs} /></Text>
+      return <View><Flow tokens={text.tokens} p={p} color={textColor} style={base} fs={fs} /></View>
     }
     default:
       return 'raw' in token && typeof token.raw === 'string' && token.raw.trim() !== ''
@@ -189,6 +198,47 @@ function HScroll({ children, fade: background }: { children: React.ReactNode; fa
 
 const endsHan = (token?: Token) => token !== undefined && 'text' in token && /[\u4e00-\u9fff]$/.test(String(token.text))
 const startsHan = (token?: Token) => token !== undefined && 'text' in token && /^[\u4e00-\u9fff]/.test(String(token.text))
+
+// A paragraph can carry an https image among its inline tokens. React Native has no
+// inline image inside <Text> on Android, so a run of text and each image become
+// separate children of a View; text around an image keeps its inline formatting.
+function Flow({ tokens, p, color, style, fs }: { tokens: Token[]; p: Palette; color: string; style: object; fs: number }) {
+  const parts: React.ReactNode[] = []
+  let run: Token[] = []
+  const flush = () => {
+    if (run.length === 0) return
+    parts.push(<Text key={`t${parts.length}`} selectable style={style}><Inlines tokens={run} p={p} color={color} fs={fs} /></Text>)
+    run = []
+  }
+  tokens.forEach((token, index) => {
+    if (token.type !== 'image') { run.push(token); return }
+    flush()
+    const image = token as Tokens.Image
+    const shown = inlineImage(image.href, image.text)
+    parts.push(shown.kind === 'image'
+      ? <MarkdownImage key={`i${index}`} src={shown.src} alt={shown.alt} color={color} />
+      : <Text key={`i${index}`} style={{ color: tint(color, 0.45) }}>{shown.text}</Text>)
+  })
+  flush()
+  return <>{parts.map((part, index) => <View key={index} style={index === parts.length - 1 ? undefined : { marginBottom: 2 }}>{part}</View>)}</>
+}
+
+// An https image takes the bubble's width once its own size is known; until then,
+// and when it cannot load, the alt text is what the reader sees.
+function MarkdownImage({ src, alt, color }: { src: string; alt: string; color: string }) {
+  const [ratio, setRatio] = useState<number | null>(null)
+  const [failed, setFailed] = useState(false)
+  useEffect(() => {
+    let live = true
+    setRatio(null)
+    setFailed(false)
+    Image.getSize(src, (width, height) => { if (live && width > 0 && height > 0) setRatio(width / height) }, () => { if (live) setFailed(true) })
+    return () => { live = false }
+  }, [src])
+  if (failed || ratio === null) return <Text style={{ color: tint(color, 0.45) }}>{alt}</Text>
+  return <Image accessibilityLabel={alt} source={{ uri: src }} resizeMode="contain" onError={() => setFailed(true)}
+    style={{ width: '100%', aspectRatio: ratio, borderRadius: radius.input, marginVertical: 4, backgroundColor: tint(color, 0.07) }} />
+}
 
 function Inlines({ tokens, p, color, fs = 16 }: { tokens: Token[]; p: Palette; color: string; fs?: number }) {
   return (
@@ -234,12 +284,15 @@ function Inline({ token, p, color, fs }: { token: Token; p: Palette; color: stri
       return <Text style={{ textDecorationLine: 'line-through' }}><Inlines tokens={(token as Tokens.Del).tokens ?? []} p={p} color={color} fs={fs} /></Text>
     case 'br':
       return '\n'
-    case 'image':
-      return <Text style={{ color: tint(color, 0.45) }}>{(token as Tokens.Image).text || 'image'}</Text>
+    case 'image': {
+      const image = (token as Tokens.Image)
+      const shown = inlineImage(image.href, image.text)
+      return <Text style={{ color: tint(color, 0.45) }}>{shown.kind === 'alt' ? shown.text : shown.alt}</Text>
+    }
     default:
       if ('tokens' in token && Array.isArray((token as { tokens?: Token[] }).tokens)) {
         return <Inlines tokens={(token as { tokens: Token[] }).tokens} p={p} color={color} fs={fs} />
       }
-      return 'text' in token ? String(token.text) : ('raw' in token ? String(token.raw) : null)
+      return 'text' in token ? softBreakText(String(token.text)) : ('raw' in token ? String(token.raw) : null)
   }
 }
