@@ -5,12 +5,11 @@ import { SPRING_TAP } from './tokens.ts'
 
 const APressable = Animated.createAnimatedComponent(Pressable)
 
-// The ui-standard 10.1 press, on the phone: the whole control scales toward `to`
-// on SPRING_TAP while the finger is down and springs back on release. Only the
-// scale is animated, so the caller's style can keep changing colors freely.
-// Under reduced motion the scale stays 1.
-// A style function is resolved here, against our own pressed state: Pressable
-// only recognizes a function as the whole style prop, and it reaches it merged
+// The ui-standard 10.1 press, on the phone. Only the scale is animated, so the
+// caller's style can keep changing colors freely; under reduced motion the
+// scale stays 1.
+// A style function is resolved here against our own pressed state: Pressable
+// only recognizes a function as the whole style prop, but it reaches it merged
 // with the animated scale inside an array.
 export function Press({ to = 0.96, disabled, onPressIn, onPressOut, style, ...rest }: PressableProps & { to?: number }) {
   const reduced = useReducedMotion()

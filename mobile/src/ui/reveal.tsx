@@ -2,12 +2,12 @@ import { useEffect, useState, type ReactNode } from 'react'
 import Animated, { useAnimatedStyle, useReducedMotion, useSharedValue, withSpring, withTiming } from 'react-native-reanimated'
 import { SPRING_SHAPE } from './tokens.ts'
 
-// ui-standard 1 and 9.1: one surface changes shape on a spring. The content
-// keeps its laid-out size while the height springs between 0 and measured, so
-// nothing inside re-flows; it is clipped and fades, the one fixed-duration
-// change opacity is allowed (9.2). Snaps under reduced motion. The content
-// stays mounted while closed, so state inside survives a fold and the exit
-// has something to play on.
+// The content keeps its laid-out size while the height springs, so nothing
+// inside re-flows; it is clipped and fades — the one fixed-duration change
+// opacity is allowed (ui-standard 9.2). Snaps under reduced motion.
+// The content stays mounted while closed, so state inside survives a fold and
+// the exit has something to play on; that is also why the folded area is
+// hidden from screen readers.
 export function Reveal({ open, children }: { open: boolean; children: ReactNode }) {
   const reduced = useReducedMotion()
   const height = useSharedValue(0)

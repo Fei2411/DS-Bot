@@ -1,6 +1,6 @@
 import { createNativeStackNavigator } from '@react-navigation/native-stack'
 import { useNavigation, type NavigationProp, type ParamListBase } from '@react-navigation/native'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ComponentRef } from 'react'
 import { ActivityIndicator, Dimensions, Keyboard, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
 import Animated, { EntryExitAnimationFunction, FadeIn, FadeOut, useReducedMotion, withSpring, withTiming } from 'react-native-reanimated'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
@@ -45,6 +45,17 @@ function DrawerContent() {
   const [searching, setSearching] = useState(false)
   const [query, setQuery] = useState('')
   const [newOpen, setNewOpen] = useState(false)
+  // The search field stays mounted inside the fold, so autoFocus cannot refocus it on
+  // reopen; the toggle drives focus itself, once the fold is tall enough to hold it.
+  const searchField = useRef<ComponentRef<typeof TextInput>>(null)
+  const toggleSearch = () => {
+    setSearching(on => {
+      const next = !on
+      if (next) setTimeout(() => searchField.current?.focus(), 100)
+      else { searchField.current?.blur(); Keyboard.dismiss() }
+      return next
+    })
+  }
   const create = (screen: 'NewBot' | 'NewGroup') => { setNewOpen(false); drawer.close(); navigation.navigate(screen) }
   // The chat on screen is marked in the list, as the desktop marks its open chat. The
   // drawer sits outside the navigator, so it follows the container's own state.
@@ -67,7 +78,7 @@ function DrawerContent() {
       {/* The desktop sidebar's head: the product name, search and New. */}
       <View style={[styles.drawerHead, { paddingTop: insets.top + 6 }]}>
         <Text style={{ color: p.ink, fontSize: 17, fontWeight: '600', flex: 1 }}>DS Bot</Text>
-        <Press accessibilityRole="button" accessibilityLabel={t('Search')} to={0.9} onPress={() => { if (searching) Keyboard.dismiss(); setSearching(on => !on) }} hitSlop={4} style={[styles.round, { borderColor: p.line, backgroundColor: p.card }]}>
+        <Press accessibilityRole="button" accessibilityLabel={t('Search')} to={0.9} onPress={toggleSearch} hitSlop={4} style={[styles.round, { borderColor: p.line, backgroundColor: p.card }]}>
           <SearchIcon size={16} color={p.ink2} />
         </Press>
         <Press accessibilityRole="button" accessibilityLabel={t('New')} to={0.9} onPress={() => setNewOpen(true)} hitSlop={4} style={[styles.round, { borderColor: p.line, backgroundColor: p.card }]}>
@@ -77,7 +88,7 @@ function DrawerContent() {
       <Reveal open={searching}>
         <View style={[styles.search, { backgroundColor: p.hover }]}>
           <SearchIcon size={15} color={p.ink3} />
-          <TextInput value={query} onChangeText={setQuery} placeholder={t('Search the team')} placeholderTextColor={p.ink3} autoFocus
+          <TextInput ref={searchField} value={query} onChangeText={setQuery} placeholder={t('Search the team')} placeholderTextColor={p.ink3}
             style={{ flex: 1, fontSize: 15, paddingVertical: 4, color: p.ink }} autoCapitalize="none" autoCorrect={false} />
         </View>
       </Reveal>
@@ -242,8 +253,6 @@ const NOTICE_BANNER_KINDS = new Set(['question', 'approval', 'message', 'group',
 
 // A notice that lands while the app is open shows as a banner at the top when
 // it belongs to another chat; a tap opens that chat.
-// ui-standard 9.4: it drops in on the shape spring and lifts back out over the
-// .16s exit instead of appearing and vanishing.
 const DropIn: EntryExitAnimationFunction = () => {
   'worklet'
   return {

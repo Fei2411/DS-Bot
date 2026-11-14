@@ -36,8 +36,8 @@ function AccordionCard({ title, dot, expanded, onToggle, p, children }: { title:
         {dot === true ? <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: p.accent, flexShrink: 0 }} /> : null}
         <Animated.View style={[chevron, { flexShrink: 0 }]}><ChevronRightIcon size={16} color={p.ink3} /></Animated.View>
       </Pressable>
-      {/* ui-standard 1: the card is one surface that folds and unfolds; the body
-          stays mounted so the fold has an exit to play and its state survives. */}
+      {/* The body stays mounted while folded: a half-answered card keeps its state,
+          and the fold has an exit to play. */}
       <Reveal open={expanded}><View style={{ paddingHorizontal: 16, paddingBottom: 14 }}>{children}</View></Reveal>
     </View>
   )

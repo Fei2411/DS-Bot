@@ -4,10 +4,10 @@ import Animated, { Easing, runOnJS, useAnimatedStyle, useReducedMotion, useShare
 import { t } from './i18n.ts'
 import { SPRING_SHAPE } from './tokens.ts'
 
-// A small bottom sheet, the phone's form of ui-standard 9.4's rising surface:
-// the panel springs up (SPRING_SHAPE), the scrim fades in over .22s, and a
-// close first slides the panel back down over the .16s exit before the modal
-// unmounts. Snaps under reduced motion. The children keep their own margins.
+// The panel rises on SPRING_SHAPE; a close first plays the .16s exit before the
+// modal unmounts, and snaps under reduced motion. The children keep their own
+// margins. Height is unknown until the first layout — the panel waits hidden
+// until then, so the rise starts from off screen rather than flashing at 0.
 export function SheetUp({ open, onClose, label, children }: { open: boolean; onClose: () => void; label?: string; children: ReactNode }) {
   const reduced = useReducedMotion()
   const [shown, setShown] = useState(open)
@@ -18,7 +18,6 @@ export function SheetUp({ open, onClose, label, children }: { open: boolean; onC
   useEffect(() => {
     if (!shown) return
     if (open) {
-      // 0 until the panel has laid out; the rise then starts from off screen.
       if (panelHeight === 0) return
       if (reduced) { rise.value = 1; scrim.value = 1; return }
       rise.value = withSpring(1, SPRING_SHAPE)

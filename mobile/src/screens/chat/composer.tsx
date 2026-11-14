@@ -92,7 +92,6 @@ export function Composer({ name, running, canStop, canAttach, onSend, onStop, p 
           ) : null}
           <TextInput value={text} onChangeText={setText} placeholder={t('Message {name}', { name })} placeholderTextColor={p.ink3}
             multiline style={[styles.input, { color: p.ink, paddingLeft: canAttach ? 2 : 6 }]} accessibilityLabel={t('Message {name}', { name })} />
-          {/* One key that swaps between stop and send: the mark pops in on SPRING_POP. */}
           {running && canStop && !ready
             ? <Press accessibilityRole="button" accessibilityLabel={t('Stop')} to={0.9} onPress={onStop} hitSlop={6}
                 style={[styles.send, { backgroundColor: p.accent }]}>
