@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
@@ -1151,4 +1151,460 @@ test('an approval card whose send exhausts retries is retained and re-delivered 
   const approvalId = card.buttons[0].data.split(':')[1]
   await s.fake.handlers.onAction({ chat: { key: 'dm-u1', kind: 'direct', title: 'U1' }, sender: { id: 'u1', name: 'U1' }, data: `a:${approvalId}:allow`, messageId: card.messageId ?? 1 })
   assert.equal((await racing)[0], 'allowed-once')
+})
+
+async function startSwitchHarness(t, { tokens = new Map([['a', 1_000]]), cwd = () => undefined } = {}) {
+  const home = mkdtempSync(join(tmpdir(), 'dsb-im-switch-'))
+  const work = join(home, 'work')
+  mkdirSync(work, { recursive: true })
+  writeFileSync(join(home, 'state.json'), JSON.stringify({ ...TEAM(), workspace: work }))
+  let created = 0
+  let failCreate = false
+  let idleGate
+  let createGate
+  const fake = fakeAdapter()
+  const real = adapters.telegram
+  adapters.telegram = fake
+  const ctx = fakeContext({
+    services: {
+      tokenMeter: {
+        measure: session => ({ totalTokens: tokens.get(session.id) ?? 0 }),
+        estimateMessage: () => 50,
+      },
+    },
+  })
+  const prompts = []
+  const agents = new Map()
+  const agentOf = (id) => {
+    if (!agents.has(id)) {
+      const nextStep = []
+      const nextTurn = []
+      const calls = []
+      agents.set(id, {
+        id,
+        calls,
+        status: 'idle',
+        session: {
+          id,
+          seq: 1,
+          header: { cwd: cwd(id) ?? work },
+          requestHeader: () => ({ config: { provider: 'deepseek', model: 'chat' } }),
+          deriveMessages: () => [],
+          toolHistory: () => [],
+        },
+        followup(message) {
+          this.lastFollowup = message
+          this.followed = (this.followed ?? 0) + 1
+          calls.push(['followup', message])
+          nextTurn.push(message)
+        },
+        steer(message) { calls.push(['steer', message]); nextStep.push(message) },
+        inject(message) { calls.push(['inject', message]); nextStep.push(message) },
+        send(message, target) { (target === 'next-turn' ? nextTurn : nextStep).push(message); calls.push(['send', message]) },
+        cancel() {},
+        whenIdle() { return idleGate ?? Promise.resolve() },
+        async runMaintenance(fn) { return fn(AbortSignal.timeout(60_000)) },
+        inbox: {
+          nextStep,
+          nextTurn,
+          prepend(target, message) { (target === 'next-turn' ? nextTurn : nextStep).unshift(message) },
+          remove(msgId) {
+            for (const list of [nextStep, nextTurn]) {
+              const at = list.findIndex(entry => entry.id === msgId)
+              if (at !== -1) return list.splice(at, 1).length === 1
+            }
+            return false
+          },
+        },
+      })
+    }
+    return agents.get(id)
+  }
+  Object.assign(ctx, {
+    llm: {
+      listProviders: () => [],
+      listModels: async () => [],
+      resolveModelInfo: async () => ({ context: { contextWindow: 200_000 }, defaultMaxTokens: 0 }),
+    },
+    workspaceRegistry: {
+      get: () => ({ id: 'w1', path: work }),
+      resolveByPath: async () => ({ id: 'w1', path: work }),
+      create: async () => ({ id: 'w1', path: work }),
+      archiveSession: async () => {},
+    },
+    sessionController: {
+      prompt: async (request) => { prompts.push(request); return { ok: true } },
+      create: async () => {
+        if (createGate) await createGate()
+        if (failCreate) throw new Error('create failed')
+        return { sessionId: `s${++created}` }
+      },
+      resolveAgent: async sessionId => ({ agent: agentOf(sessionId) }),
+      selectModel: async () => {},
+      page: async () => ({ records: [], hasMore: false }),
+    },
+    sessionTitle: { rename: async () => {} },
+    sessions: { flush: async () => {} },
+  })
+  const rt = createRuntime(ctx, { home })
+  t.after(async () => {
+    adapters.telegram = real
+    await ctx.dispose()
+    rmSync(home, { recursive: true, force: true, maxRetries: 5 })
+  })
+  let seq = 0
+  const emitEvent = (sessionId, type, data) => {
+    for (const listener of ctx.listeners.get('session/event') ?? []) {
+      if (listener.length >= 2) listener({ id: sessionId }, { type, seq: ++seq, data, time: Date.now() })
+    }
+  }
+  const runChain = async (eventName, payload) => {
+    const chain = [...(ctx.listeners.get(eventName) ?? [])]
+    const run = index => (index >= chain.length ? undefined : chain[index](payload, () => run(index + 1)))
+    return run(0)
+  }
+  const preStep = async (sessionId, messages, step) => {
+    const agent = agentOf(sessionId)
+    const chain = [...(ctx.listeners.get('agent/pre-step') ?? [])]
+    const run = index => (index >= chain.length
+      ? Promise.resolve({ kind: 'enter', messages })
+      : chain[index]({ agent, messages, turn: 1, step, signal: AbortSignal.timeout(60_000), modelSelection: {} }, () => run(index + 1)))
+    return run(0)
+  }
+  const fireRequestError = (sessionId, code) => runChain('agent/request-error', {
+    agent: agentOf(sessionId),
+    failure: { code },
+    signal: AbortSignal.timeout(60_000),
+  })
+  const fireApprovals = (request, next) => Promise.all((ctx.listeners.get('approval/request') ?? []).map(listener => listener(request, next)))
+
+  const conn = await rt.imEndpoint('im-add', { platform: 'telegram', botId: 'a', fields: { token: 'tok-1234' } })
+  rt.state.im.connections[conn.id].paired.push({ id: 'u1', name: 'U1', at: 1 })
+  await rt.save()
+
+  const waitHandoff = async (sessionIdOf) => {
+    for (let i = 0; i < 300; i += 1) {
+      const sid = sessionIdOf()
+      if (sid !== undefined && agentOf(sid).inbox.nextTurn.length > 0) return sid
+      await delay(10)
+    }
+    throw new Error('timed out waiting for switch handoff message')
+  }
+
+  return {
+    rt, fake, prompts, tokens, agentOf, emitEvent, preStep, fireRequestError, fireApprovals, waitHandoff, conn, work,
+    setFailCreate: (value) => { failCreate = value },
+    setIdleGate: (gate) => { idleGate = gate },
+    setCreateGate: (gate) => { createGate = gate },
+  }
+}
+
+test('reply origin: a mid-turn part switch keeps delivering the resumed turn back to its IM chat', async (t) => {
+  const s = await startSwitchHarness(t)
+  const { rt, fake, prompts, tokens, agentOf, emitEvent, preStep, fireApprovals, waitHandoff, setFailCreate } = s
+
+  await fake.handlers.onMessage({ chat: { key: 'dm-u1', kind: 'direct', title: 'U1' }, sender: { id: 'u1', name: 'U1' }, text: 'run long task' })
+  const requestId = prompts.at(-1)?.requestId
+  assert.ok(requestId)
+  fake.sent.length = 0
+
+  // Step 1 on part 1 ('a'): user/message is admitted and runs a tool call.
+  emitEvent('a', 'turn/start', { turn: 1 })
+  const step1 = await preStep('a', [{ content: [{ type: 'text', text: 'run long task' }], source: { kind: 'user', rpcId: requestId } }], 1)
+  assert.equal(step1.kind, 'enter')
+  emitEvent('a', 'user/message', { source: { kind: 'user', rpcId: requestId }, content: [{ type: 'text', text: 'run long task' }] })
+  emitEvent('a', 'assistant/message', { turn: 1, message: { content: [{ type: 'tool-call', id: 'tc1', name: 'bash', arguments: '{}' }] } })
+
+  // Step 2 hits the hard context limit mid-turn and triggers a resumed switch to part 2 ('s1').
+  tokens.set('a', 195_000)
+  const step2 = await preStep('a', [], 2)
+  assert.equal(step2.kind, 'reject')
+  emitEvent('a', 'turn/end', { turn: 1, reason: { kind: 'aborted', reason: { kind: 'hook', reason: 'pre-step' } } })
+
+  const part2 = await waitHandoff(() => (rt.botOf('a').sessionId === 'a' ? undefined : rt.botOf('a').sessionId))
+  assert.equal(part2, 's1')
+  const handoffMsg = agentOf(part2).inbox.nextTurn.shift()
+  assert.ok(handoffMsg)
+
+  // Part 2 runs the resumed turn, opens an approval card, and answers the user.
+  emitEvent(part2, 'turn/start', { turn: 1 })
+  const p2Step1 = await preStep(part2, [handoffMsg], 1)
+  assert.equal(p2Step1.kind, 'enter')
+  emitEvent(part2, 'user/message', { source: handoffMsg.source, content: handoffMsg.content })
+  const approval = fireApprovals({ agent: agentOf(part2), toolName: 'bash', reason: 'run part 2 command', signal: new AbortController().signal }, () => new Promise(() => {}))
+  await delay(30)
+  const card = fake.sent.find(job => /run part 2 command/.test(job.text))
+  assert.ok(card)
+  const approvalId = card.buttons[0].data.split(':')[1]
+  await fake.handlers.onAction({ chat: { key: 'dm-u1', kind: 'direct', title: 'U1' }, sender: { id: 'u1', name: 'U1' }, data: `a:${approvalId}:allow`, messageId: card.messageId ?? 1 })
+  assert.equal((await approval)[0], 'allowed-once')
+  fake.sent.length = 0
+
+  emitEvent(part2, 'assistant/message', { turn: 1, message: { content: [{ type: 'text', text: 'finished in part 2' }] } })
+  emitEvent(part2, 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  await delay(30)
+
+  assert.deepEqual(fake.sent.map(job => [job.chat.key, job.text]), [['dm-u1', 'finished in part 2']])
+
+  // Switch failure fallback (`PAUSE_NOTE` on the same part) also keeps delivering to the originating IM chat.
+  await fake.handlers.onMessage({ chat: { key: 'dm-u1', kind: 'direct', title: 'U1' }, sender: { id: 'u1', name: 'U1' }, text: 'another long task' })
+  const req2 = prompts.at(-1)?.requestId
+  fake.sent.length = 0
+  setFailCreate(true)
+  tokens.set(part2, 1_000)
+  emitEvent(part2, 'turn/start', { turn: 2 })
+  await preStep(part2, [{ content: [{ type: 'text', text: 'another long task' }], source: { kind: 'user', rpcId: req2 } }], 1)
+  emitEvent(part2, 'user/message', { source: { kind: 'user', rpcId: req2 }, content: [{ type: 'text', text: 'another long task' }] })
+  emitEvent(part2, 'assistant/message', { turn: 2, message: { content: [{ type: 'tool-call', id: 'tc2', name: 'bash', arguments: '{}' }] } })
+  tokens.set(part2, 195_000)
+  const failStep2 = await preStep(part2, [], 2)
+  assert.equal(failStep2.kind, 'reject')
+  emitEvent(part2, 'turn/end', { turn: 2, reason: { kind: 'aborted', reason: { kind: 'hook', reason: 'pre-step' } } })
+
+  await waitHandoff(() => part2)
+  const pauseMsg = agentOf(part2).inbox.nextTurn.shift()
+  assert.ok(pauseMsg)
+  emitEvent(part2, 'turn/start', { turn: 3 })
+  emitEvent(part2, 'user/message', { source: pauseMsg.source, content: pauseMsg.content })
+  emitEvent(part2, 'assistant/message', { turn: 3, message: { content: [{ type: 'text', text: 'finished after pause fallback' }] } })
+  emitEvent(part2, 'turn/end', { turn: 3, reason: { kind: 'completed' } })
+  await delay(30)
+
+  assert.deepEqual(fake.sent.map(job => [job.chat.key, job.text]), [['dm-u1', 'finished after pause fallback']])
+})
+
+test('reply origin: overflow switch keeps IM origin, mixed turns stay isolated, and group folder switch keeps delivering room lines', async (t) => {
+  const s = await startSwitchHarness(t, { cwd: id => (id === 'r1' ? '/tmp/stale-group-dir' : undefined) })
+  const { rt, fake, prompts, agentOf, emitEvent, preStep, fireRequestError, waitHandoff, setIdleGate, setCreateGate, conn } = s
+
+  // 1. Overflow request-error mid-turn switches part and preserves the IM origin.
+  await fake.handlers.onMessage({ chat: { key: 'dm-u1', kind: 'direct', title: 'U1' }, sender: { id: 'u1', name: 'U1' }, text: 'overflow task' })
+  const req1 = prompts.at(-1)?.requestId
+  fake.sent.length = 0
+  emitEvent('a', 'turn/start', { turn: 1 })
+  await preStep('a', [{ content: [{ type: 'text', text: 'overflow task' }], source: { kind: 'user', rpcId: req1 } }], 1)
+  emitEvent('a', 'user/message', { source: { kind: 'user', rpcId: req1 }, content: [{ type: 'text', text: 'overflow task' }] })
+  await fireRequestError('a', 'CONTEXT_WINDOW_EXCEEDED')
+  emitEvent('a', 'turn/end', { turn: 1, reason: { kind: 'error' } })
+
+  const part2 = await waitHandoff(() => (rt.botOf('a').sessionId === 'a' ? undefined : rt.botOf('a').sessionId))
+  assert.equal(part2, 's1')
+  const handoff2 = agentOf(part2).inbox.nextTurn.shift()
+  assert.ok(handoff2)
+  emitEvent(part2, 'turn/start', { turn: 1 })
+  emitEvent(part2, 'user/message', { source: handoff2.source, content: handoff2.content })
+  emitEvent(part2, 'assistant/message', { turn: 1, message: { content: [{ type: 'text', text: 'recovered after overflow' }] } })
+  emitEvent(part2, 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  await delay(30)
+  assert.deepEqual(fake.sent.map(job => [job.chat.key, job.text]), [['dm-u1', 'recovered after overflow']])
+
+  // 2. A turn already joined by Web UI input before switching does NOT carry the IM origin across parts.
+  await fake.handlers.onMessage({ chat: { key: 'dm-u1', kind: 'direct', title: 'U1' }, sender: { id: 'u1', name: 'U1' }, text: 'mixed task' })
+  const req2 = prompts.at(-1)?.requestId
+  fake.sent.length = 0
+  emitEvent(part2, 'turn/start', { turn: 2 })
+  await preStep(part2, [{ content: [{ type: 'text', text: 'mixed task' }], source: { kind: 'user', rpcId: req2 } }], 1)
+  emitEvent(part2, 'user/message', { source: { kind: 'user', rpcId: req2 }, content: [{ type: 'text', text: 'mixed task' }] })
+  emitEvent(part2, 'user/message', { source: { kind: 'user' }, content: [{ type: 'text', text: 'web steer' }] })
+  await fireRequestError(part2, 'CONTEXT_WINDOW_EXCEEDED')
+  emitEvent(part2, 'turn/end', { turn: 2, reason: { kind: 'error' } })
+
+  const part3 = await waitHandoff(() => (rt.botOf('a').sessionId === part2 ? undefined : rt.botOf('a').sessionId))
+  assert.equal(part3, 's2')
+  const handoff3 = agentOf(part3).inbox.nextTurn.shift()
+  assert.ok(handoff3)
+  emitEvent(part3, 'turn/start', { turn: 1 })
+  emitEvent(part3, 'user/message', { source: handoff3.source, content: handoff3.content })
+  emitEvent(part3, 'assistant/message', { turn: 1, message: { content: [{ type: 'text', text: 'must stay internal' }] } })
+  emitEvent(part3, 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  await delay(30)
+  assert.deepEqual(fake.sent, [])
+
+  // 3. A turn that turns mixed after startSwitch held the origin does not leak it to the fresh part either.
+  await fake.handlers.onMessage({ chat: { key: 'dm-u1', kind: 'direct', title: 'U1' }, sender: { id: 'u1', name: 'U1' }, text: 'late mixed task' })
+  const req3 = prompts.at(-1)?.requestId
+  fake.sent.length = 0
+  let releaseIdle
+  setIdleGate(new Promise((resolve) => { releaseIdle = resolve }))
+  emitEvent(part3, 'turn/start', { turn: 2 })
+  await preStep(part3, [{ content: [{ type: 'text', text: 'late mixed task' }], source: { kind: 'user', rpcId: req3 } }], 1)
+  emitEvent(part3, 'user/message', { source: { kind: 'user', rpcId: req3 }, content: [{ type: 'text', text: 'late mixed task' }] })
+  await fireRequestError(part3, 'CONTEXT_WINDOW_EXCEEDED')
+  emitEvent(part3, 'user/message', { source: { kind: 'user' }, content: [{ type: 'text', text: 'late web steer' }] })
+  emitEvent(part3, 'turn/end', { turn: 2, reason: { kind: 'error' } })
+  releaseIdle()
+  setIdleGate(undefined)
+
+  const part4 = await waitHandoff(() => (rt.botOf('a').sessionId === part3 ? undefined : rt.botOf('a').sessionId))
+  assert.equal(part4, 's3')
+  const handoff4 = agentOf(part4).inbox.nextTurn.shift()
+  assert.ok(handoff4)
+  emitEvent(part4, 'turn/start', { turn: 1 })
+  emitEvent(part4, 'user/message', { source: handoff4.source, content: handoff4.content })
+  emitEvent(part4, 'assistant/message', { turn: 1, message: { content: [{ type: 'text', text: 'late mixed stays internal' }] } })
+  emitEvent(part4, 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  await delay(30)
+  assert.deepEqual(fake.sent, [])
+
+  // 4. A group's own Session moving to its folder keeps delivering member room lines to the IM group chat.
+  rt.state.im.connections[conn.id].chats.g1 = { kind: 'group', title: 'Group One', target: { roomId: 'r1' }, at: 1 }
+  await rt.save()
+  await fake.handlers.onMessage({ chat: { key: 'g1', kind: 'group', title: 'Group One' }, sender: { id: 'u1', name: 'U1' }, text: 'start group work', mentioned: true })
+  const gReq = prompts.at(-1)?.requestId
+  const room = rt.roomOf('r1')
+  emitEvent('r1', 'turn/start', { turn: 1 })
+  emitEvent('r1', 'user/message', { source: { kind: 'user', rpcId: gReq }, content: [{ type: 'text', text: 'start group work' }] })
+  emitEvent('r1', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  fake.sent.length = 0
+
+  await rt.followFolder({ roomId: 'r1' })
+  const roomPart2 = await waitHandoff(() => room.sessionId)
+  assert.equal(roomPart2, 's4')
+  const roomHandoff = agentOf(roomPart2).inbox.nextTurn.shift()
+  assert.ok(roomHandoff)
+  emitEvent(roomPart2, 'turn/start', { turn: 1 })
+  emitEvent(roomPart2, 'user/message', { source: roomHandoff.source, content: roomHandoff.content })
+  emitEvent(roomPart2, 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+
+  emitEvent(roomPart2, 'turn/start', { turn: 2 })
+  emitEvent(roomPart2, 'user/message', {
+    source: { kind: 'bot', form: 'relay', role: 'post', exchangeId: 'e-room', senderName: 'Writer', senderSessionId: 'b', roomId: 'r1' },
+    content: [{ type: 'text', text: 'member finished after switch' }],
+  })
+  rt.logRoom(room, { who: 'Writer', botId: 'b', text: 'member finished after switch' })
+  emitEvent(roomPart2, 'turn/end', { turn: 2, reason: { kind: 'completed' } })
+  await delay(30)
+  assert.deepEqual(fake.sent.map(job => [job.chat.key, job.text]), [['g1', '**Writer**: member finished after switch']])
+
+  // 5. Group folder switch invalidated by a Web UI message while switching does not re-attach the old IM origin.
+  fake.sent.length = 0
+  agentOf(roomPart2).session.header.cwd = '/tmp/stale-group-dir-2'
+  let onCreateEntered
+  const enteredCreate1 = new Promise((resolve) => { onCreateEntered = resolve })
+  let releaseCreate1
+  const waitCreate1 = new Promise((resolve) => { releaseCreate1 = resolve })
+  setCreateGate(async () => { onCreateEntered(); await waitCreate1 })
+  const folderSwitch1 = rt.followFolder({ roomId: 'r1' })
+  await enteredCreate1
+  emitEvent(roomPart2, 'turn/start', { turn: 3 })
+  emitEvent(roomPart2, 'user/message', { source: { kind: 'user' }, content: [{ type: 'text', text: 'web takeover while switching' }] })
+  emitEvent(roomPart2, 'turn/end', { turn: 3, reason: { kind: 'completed' } })
+  releaseCreate1()
+  setCreateGate(undefined)
+  await folderSwitch1
+
+  const roomPart3 = await waitHandoff(() => (room.sessionId === roomPart2 ? undefined : room.sessionId))
+  assert.equal(roomPart3, 's5')
+  const roomHandoff3 = agentOf(roomPart3).inbox.nextTurn.shift()
+  assert.ok(roomHandoff3)
+  emitEvent(roomPart3, 'turn/start', { turn: 1 })
+  emitEvent(roomPart3, 'user/message', { source: roomHandoff3.source, content: roomHandoff3.content })
+  emitEvent(roomPart3, 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  emitEvent(roomPart3, 'turn/start', { turn: 2 })
+  emitEvent(roomPart3, 'user/message', {
+    source: { kind: 'bot', form: 'relay', role: 'post', exchangeId: 'e-room-web', senderName: 'Writer', senderSessionId: 'b', roomId: 'r1' },
+    content: [{ type: 'text', text: 'must not leak after web takeover' }],
+  })
+  rt.logRoom(room, { who: 'Writer', botId: 'b', text: 'must not leak after web takeover' })
+  emitEvent(roomPart3, 'turn/end', { turn: 2, reason: { kind: 'completed' } })
+  await delay(30)
+  assert.deepEqual(fake.sent, [])
+
+  // 6. Group folder switch invalidated by another IM chat while switching does not leak to the old IM chat.
+  rt.state.im.connections[conn.id].chats.g2 = { kind: 'group', title: 'Group Two', target: { roomId: 'r1' }, at: 1 }
+  await rt.save()
+  await fake.handlers.onMessage({ chat: { key: 'g1', kind: 'group', title: 'Group One' }, sender: { id: 'u1', name: 'U1' }, text: 'start second group work', mentioned: true })
+  const gReq2 = prompts.at(-1)?.requestId
+  emitEvent(roomPart3, 'turn/start', { turn: 3 })
+  emitEvent(roomPart3, 'user/message', { source: { kind: 'user', rpcId: gReq2 }, content: [{ type: 'text', text: 'start second group work' }] })
+  emitEvent(roomPart3, 'turn/end', { turn: 3, reason: { kind: 'completed' } })
+  fake.sent.length = 0
+
+  agentOf(roomPart3).session.header.cwd = '/tmp/stale-group-dir-3'
+  let onCreateEntered2
+  const enteredCreate2 = new Promise((resolve) => { onCreateEntered2 = resolve })
+  let releaseCreate2
+  const waitCreate2 = new Promise((resolve) => { releaseCreate2 = resolve })
+  setCreateGate(async () => { onCreateEntered2(); await waitCreate2 })
+  const folderSwitch2 = rt.followFolder({ roomId: 'r1' })
+  await enteredCreate2
+  await fake.handlers.onMessage({ chat: { key: 'g2', kind: 'group', title: 'Group Two' }, sender: { id: 'u1', name: 'U1' }, text: 'takeover from g2', mentioned: true })
+  const g2Req = prompts.at(-1)?.requestId
+  emitEvent(roomPart3, 'turn/start', { turn: 4 })
+  emitEvent(roomPart3, 'user/message', { source: { kind: 'user', rpcId: g2Req }, content: [{ type: 'text', text: 'takeover from g2' }] })
+  emitEvent(roomPart3, 'turn/end', { turn: 4, reason: { kind: 'completed' } })
+  releaseCreate2()
+  setCreateGate(undefined)
+  await folderSwitch2
+
+  const roomPart4 = await waitHandoff(() => (room.sessionId === roomPart3 ? undefined : room.sessionId))
+  assert.equal(roomPart4, 's6')
+  const roomHandoff4 = agentOf(roomPart4).inbox.nextTurn.shift()
+  assert.ok(roomHandoff4)
+  emitEvent(roomPart4, 'turn/start', { turn: 1 })
+  emitEvent(roomPart4, 'user/message', { source: roomHandoff4.source, content: roomHandoff4.content })
+  emitEvent(roomPart4, 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  emitEvent(roomPart4, 'turn/start', { turn: 2 })
+  emitEvent(roomPart4, 'user/message', {
+    source: { kind: 'bot', form: 'relay', role: 'post', exchangeId: 'e-room-g2', senderName: 'Writer', senderSessionId: 'b', roomId: 'r1' },
+    content: [{ type: 'text', text: 'must not leak to g1 after g2 takeover' }],
+  })
+  rt.logRoom(room, { who: 'Writer', botId: 'b', text: 'must not leak to g1 after g2 takeover' })
+  emitEvent(roomPart4, 'turn/end', { turn: 2, reason: { kind: 'completed' } })
+  await delay(30)
+  assert.deepEqual(fake.sent.filter(job => job.chat.key === 'g1'), [])
+
+  // 7. Group `!working` pendingReset window after moveOn (before handoff opens) invalidates the held token on Web UI takeover.
+  await fake.handlers.onMessage({ chat: { key: 'g1', kind: 'group', title: 'Group One' }, sender: { id: 'u1', name: 'U1' }, text: 'start third group work', mentioned: true })
+  const gReq3 = prompts.at(-1)?.requestId
+  emitEvent(roomPart4, 'turn/start', { turn: 3 })
+  emitEvent(roomPart4, 'user/message', { source: { kind: 'user', rpcId: gReq3 }, content: [{ type: 'text', text: 'start third group work' }] })
+  emitEvent(roomPart4, 'turn/end', { turn: 3, reason: { kind: 'completed' } })
+  fake.sent.length = 0
+
+  agentOf(roomPart4).session.header.cwd = '/tmp/stale-group-dir-4'
+  await rt.followFolder({ roomId: 'r1' })
+  const roomPart5 = await waitHandoff(() => (room.sessionId !== roomPart4 && [...rt.switchJobs()].length === 0 ? room.sessionId : undefined))
+  assert.equal(roomPart5, 's7')
+  const roomHandoff5 = agentOf(roomPart5).inbox.nextTurn.shift()
+  assert.ok(roomHandoff5)
+  emitEvent(roomPart5, 'turn/start', { turn: 1 })
+  emitEvent(roomPart5, 'user/message', { source: { kind: 'user' }, content: [{ type: 'text', text: 'web takeover before handoff' }] })
+  emitEvent(roomPart5, 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  emitEvent(roomPart5, 'turn/start', { turn: 2 })
+  emitEvent(roomPart5, 'turn/end', { turn: 2, reason: { kind: 'aborted' } })
+  emitEvent(roomPart5, 'turn/start', { turn: 3 })
+  emitEvent(roomPart5, 'user/message', { source: roomHandoff5.source, content: roomHandoff5.content })
+  rt.logRoom(room, { who: 'Writer', botId: 'b', text: 'must not leak after pendingReset web takeover' })
+  emitEvent(roomPart5, 'turn/end', { turn: 3, reason: { kind: 'completed' } })
+  await delay(30)
+  assert.deepEqual(fake.sent, [])
+
+  // 8. Group `!working` pendingReset window after moveOn (before handoff opens) invalidates the held token when another IM chat claims the part.
+  await fake.handlers.onMessage({ chat: { key: 'g1', kind: 'group', title: 'Group One' }, sender: { id: 'u1', name: 'U1' }, text: 'start fourth group work', mentioned: true })
+  const gReq4 = prompts.at(-1)?.requestId
+  emitEvent(roomPart5, 'turn/start', { turn: 4 })
+  emitEvent(roomPart5, 'user/message', { source: { kind: 'user', rpcId: gReq4 }, content: [{ type: 'text', text: 'start fourth group work' }] })
+  emitEvent(roomPart5, 'turn/end', { turn: 4, reason: { kind: 'completed' } })
+  fake.sent.length = 0
+
+  agentOf(roomPart5).session.header.cwd = '/tmp/stale-group-dir-5'
+  await rt.followFolder({ roomId: 'r1' })
+  const roomPart6 = await waitHandoff(() => (room.sessionId !== roomPart5 && [...rt.switchJobs()].length === 0 ? room.sessionId : undefined))
+  assert.equal(roomPart6, 's8')
+  const roomHandoff6 = agentOf(roomPart6).inbox.nextTurn.shift()
+  assert.ok(roomHandoff6)
+  await fake.handlers.onMessage({ chat: { key: 'g2', kind: 'group', title: 'Group Two' }, sender: { id: 'u1', name: 'U1' }, text: 'claim s8 from g2', mentioned: true })
+  const g2Req2 = prompts.at(-1)?.requestId
+  emitEvent(roomPart6, 'turn/start', { turn: 1 })
+  emitEvent(roomPart6, 'user/message', { source: { kind: 'user', rpcId: g2Req2 }, content: [{ type: 'text', text: 'claim s8 from g2' }] })
+  emitEvent(roomPart6, 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  emitEvent(roomPart6, 'turn/start', { turn: 2 })
+  emitEvent(roomPart6, 'turn/end', { turn: 2, reason: { kind: 'aborted' } })
+  emitEvent(roomPart6, 'turn/start', { turn: 3 })
+  emitEvent(roomPart6, 'user/message', { source: roomHandoff6.source, content: roomHandoff6.content })
+  rt.logRoom(room, { who: 'Writer', botId: 'b', text: 'must not leak to g1 after pendingReset g2 claim' })
+  emitEvent(roomPart6, 'turn/end', { turn: 3, reason: { kind: 'completed' } })
+  await delay(30)
+  assert.deepEqual(fake.sent.filter(job => job.chat.key === 'g1'), [])
 })

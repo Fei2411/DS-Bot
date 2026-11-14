@@ -874,9 +874,19 @@ export function install(rt) {
     ].join('\n')
   }
 
+  // Carries any active IM turn origin onto a synthetic switch/resume source without
+  // replaying a stale request rpcId that the earlier part already consumed.
+  function carryOriginSource(job, base) {
+    const source = { ...base }
+    delete source.rpcId
+    if (job.resumeOrigin === undefined) return source
+    job.originSent = true
+    return { ...source, imOrigin: job.resumeOrigin }
+  }
+
   // A turn stopped for a switch goes on with its own source, so its reply still
   // reaches whoever asked.
-  const handoffSource = (job, resume) => ({
+  const handoffSource = (job, resume) => carryOriginSource(job, {
     ...(resume && job.info ? job.info : { kind: SOURCE_KIND, form: 'relay', role: 'handoff', senderName: 'DS Bot' }),
     exchangeId: job.info?.exchangeId ?? randomUUID(),
     handoff: true,
@@ -1038,7 +1048,8 @@ export function install(rt) {
   function startSwitch(agent, { resume = false, carry = [], info, joined, overflow = false, failed, bare = false, folder = false, manual = false, cutoff = false, engine = false, hard = overflow || folder || manual || engine || cutoff } = {}) {
     const place = placeOf(agent.id)
     if (place === undefined || switches.has(agent.id) || readOnly()) return
-    const job = { ...place, carry: [...carry], info, joined, resume, overflow, failed, bare, folder, engine, hard, manual, cutoff, since: Date.now() }
+    const resumeOrigin = resume || place.botId === undefined ? rt.holdImOrigin?.(agent.id) : undefined
+    const job = { ...place, carry: [...carry], info, joined, resume, resumeOrigin, overflow, failed, bare, folder, engine, hard, manual, cutoff, since: Date.now() }
     switches.set(agent.id, job)
     void runSwitch(agent, job)
       .catch(error => {
@@ -1049,6 +1060,7 @@ export function install(rt) {
       .finally(async () => {
         switches.delete(agent.id)
         if (job.moved) {
+          if (!job.originSent) rt.dropImOrigin?.(job.resumeOrigin)
           // A move that had to put input back keeps the part marked for the restart pass.
           if (job.kept !== true) {
             delete state.switching[agent.id]
@@ -1072,7 +1084,9 @@ export function install(rt) {
           const carried = job.joined?.length ? { joined: job.joined } : {}
           back.unshift(createUserMessage({
             content: [{ type: 'text', text: PAUSE_NOTE }],
-            source: job.info ? { ...job.info, ...carried } : { kind: SOURCE_KIND, form: 'relay', role: 'resume', exchangeId: randomUUID(), senderName: 'DS Bot', ...carried },
+            source: carryOriginSource(job, job.info
+              ? { ...job.info, ...carried }
+              : { kind: SOURCE_KIND, form: 'relay', role: 'resume', exchangeId: randomUUID(), senderName: 'DS Bot', ...carried }),
           }))
         }
         await forward(job, back).then(() => {
@@ -1085,6 +1099,7 @@ export function install(rt) {
           // The input is back where it was; the turn that owns it goes on at once.
           try { wake(agent) } catch {}
         })
+        if (!job.originSent) rt.dropImOrigin?.(job.resumeOrigin)
         await rt.save()
       })
       // A state write that fails here (full disk, a file another program holds, a lost lock)
@@ -1248,6 +1263,7 @@ export function install(rt) {
     if (bot === undefined) {
       ;(room.parts ??= []).push(segment)
       room.sessionId = freshId
+      if (job.resumeOrigin !== undefined) rt.peekImOrigin?.(freshId, job.resumeOrigin)
     } else if (room !== undefined) {
       room.segments ??= {}
       ;(room.segments[bot.id] ??= []).push(segment)
