@@ -206,6 +206,19 @@ test('send posts text and an interactive card, edit patches the message', async 
   assert.ok(patch, 'message PATCH called')
 })
 
+test('send drops blank lines at the start and end of the text', async (t) => {
+  const fake = await fakeFeishu()
+  const handle = feishu.connect(FIELDS, env(fake), { onMessage: () => {}, onAction: () => {}, onStatus: () => {} })
+  t.after(() => { handle.stop(); fake.close() })
+  await until(() => fake.sockets[0])
+  await until(() => fake.calls.some(call => call.path === '/open-apis/bot/v3/info'))
+  await handle.send({ key: 'oc_1', kind: 'direct' }, { text: '\n\nfirst\n\nsecond\n\n' })
+  const posts = fake.calls.filter(call => call.path.startsWith('/open-apis/im/v1/messages?'))
+  assert.equal(posts.length, 1)
+  assert.equal(posts[0].params.msg_type, 'text')
+  assert.equal(JSON.parse(posts[0].params.content).text, 'first\n\nsecond')
+})
+
 test('a dropped socket reconnects through a fresh endpoint and a renewed token', async (t) => {
   const fake = await fakeFeishu()
   const handle = feishu.connect(FIELDS, env(fake), { onMessage: () => {}, onAction: () => {}, onStatus: () => {} })

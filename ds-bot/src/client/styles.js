@@ -1202,10 +1202,13 @@ html[data-platform=darwin] header[class*="_header"]:has(.bt-head) :is(a,button,i
 [class*="_scroll"]:has(> [class*="_column"]){padding:calc(60px + env(safe-area-inset-top,0px)) calc(11px + env(safe-area-inset-right,0px)) calc(16px + env(safe-area-inset-bottom,0px)) calc(16px + env(safe-area-inset-left,0px))!important}
 /* The goal island's pod hangs off the header over the transcript's first message. */
 body[data-bt-goal] [class*="_scroll"]:has(> [class*="_column"]){padding-top:calc(90px + env(safe-area-inset-top,0px))!important}
-/* The shell's running status only hosts the activity row (.bt-typing). */
+/* The shell's running status keeps its slot but hosts nothing visible: the activity
+   row mounts at the flow's end, after the shell's pending rows, so an interjection's
+   echo always draws above it and the row never jumps. The slot keeps the shell's
+   accessible status text. */
 [data-chat-running]{display:block!important;width:100%;min-height:0!important;margin:0!important;padding:0!important}
 [data-chat-running]>span:not([role=status]){display:none!important}
-[data-chat-running]:has(> .bt-typing){margin-top:var(--dsh-chat-flow-gap,12px)!important}
+[data-chat-flow]>.bt-typing{margin-top:var(--dsh-chat-flow-gap,12px)!important}
 .bt-typing{display:flex;align-items:center;gap:12px;height:36px;min-width:0;padding-inline-start:8px;transform-origin:0 50%;animation:bt-typing-in ${SPRING_TAP.duration}ms ${SPRING_TAP.easing} backwards}
 .bt-typing[data-exiting]{animation:bt-typing-out .14s cubic-bezier(.22,1,.36,1) forwards}
 .bt-typing>.bt-mark,.bt-typing>.bt-cluster{flex-shrink:0}

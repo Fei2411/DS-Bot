@@ -40,10 +40,18 @@ export function install(rt) {
     for (const controller of clients) send(controller, chunk)
   }
 
+  const feedHello = () => ({ revision: state.revision, ...(rt.noticeCursor ? { api: rt.apiVersion, ...rt.noticeCursor() } : {}) })
+
   // Non-SSE listeners (the phone link) get every event through a tap; a tap is
   // isolated so a slow or throwing listener never hurts SSE clients.
   const taps = new Set()
   rt.feedTap = (listener) => { taps.add(listener); return () => taps.delete(listener) }
+  // Remote subscribers (such as `dsBot/feed`) open at `hello` and then track every live event.
+  rt.subscribeFeed = (listener) => {
+    const untap = rt.feedTap(listener)
+    try { listener('hello', feedHello()) } catch { /* isolate subscriber errors */ }
+    return untap
+  }
   const listening = () => clients.size > 0 || taps.size > 0
   const offSaved = rt.onSaved(() => {
     if (listening()) publish('revision', { revision: state.revision })
@@ -113,8 +121,7 @@ export function install(rt) {
         start(own) {
           controller = own
           clients.add(own)
-          const hello = { revision: state.revision, ...(rt.noticeCursor ? { api: rt.apiVersion, ...rt.noticeCursor() } : {}) }
-          send(own, encoder.encode(`event: hello\ndata: ${JSON.stringify(hello)}\n\n`))
+          send(own, encoder.encode(`event: hello\ndata: ${JSON.stringify(feedHello())}\n\n`))
         },
         cancel() { leave(controller) },
       })

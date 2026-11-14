@@ -3,6 +3,8 @@ import { ActivityIndicator, Dimensions, FlatList, KeyboardAvoidingView, Linking,
 import { useNavigation } from '@react-navigation/native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import * as Haptics from 'expo-haptics'
+import * as FileSystem from 'expo-file-system/legacy'
+import * as Sharing from 'expo-sharing'
 import type { Approval, Bot, Question, Room } from '../connection.ts'
 import { createChatCache } from '../team/chat-cache.ts'
 import { useTeam } from '../team/context.tsx'
@@ -14,7 +16,7 @@ import { ArrowDownIcon } from '../ui/icons.tsx'
 import { workPhrase } from '../ui/phrases.ts'
 import { ActionRow, Dock } from './chat/dock.tsx'
 import { Composer, type Photo } from './chat/composer.tsx'
-import { Actions, Item, keysOf, PhotoViewer, PhotoViewerCtx, type ChatItem, type ImageRef } from './chat/items.tsx'
+import { Actions, Item, keysOf, PhotoViewer, PhotoViewerCtx, type ChatItem, type FileRef, type ImageRef } from './chat/items.tsx'
 
 // Feed events refresh the chat as things happen; the poll only catches what a
 // dropped event missed, so it runs rarely.
@@ -207,6 +209,29 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
   const [readerTitle, setReaderTitle] = useState<string | null>(null)
   const [fileError, setFileError] = useState<string | null>(null)
   const [photos, setPhotos] = useState<{ sessionId: string; refs: ImageRef[]; index: number } | null>(null)
+  // Save hands the file to the phone: the host sends its bytes, the app writes them
+  // to a cache file, and the system share sheet lets Android put it in Downloads or
+  // open it in a viewer. A refusal names the reason in the same line as file errors.
+  const saveFile = useCallback((file: FileRef) => {
+    setFileError(null)
+    const targetSession = file.sessionId ?? sessionId
+    const payload = file.attachmentId !== undefined
+      ? { sessionId: targetSession, attachmentId: file.attachmentId }
+      : { sessionId: targetSession, seq: file.seq, index: file.index }
+    void (async () => {
+      try {
+        const saved = (await call('file-download', payload)) as { name?: string; mime?: string; bytes?: string }
+        const name = (saved.name ?? file.name ?? 'file').replace(/[^\w.-]+/g, '_')
+        const uri = `${FileSystem.cacheDirectory ?? ''}${name}`
+        await FileSystem.writeAsStringAsync(uri, saved.bytes ?? '', { encoding: FileSystem.EncodingType.Base64 })
+        if (!(await Sharing.isAvailableAsync())) throw new Error(t('Saving to the device is not available on this phone'))
+        await Sharing.shareAsync(uri, { mimeType: saved.mime ?? 'application/octet-stream', dialogTitle: name })
+      } catch (failure) {
+        const msg = (failure as { message?: string })?.message
+        setFileError(msg ?? t('Could not save this file'))
+      }
+    })()
+  }, [call, sessionId])
   const openFile = useCallback((file: { name: string; attachmentId?: string }) => {
     void call('file-text', { file }).then(result => {
       const read = result as { text?: string; truncated?: boolean } | string
@@ -329,7 +354,7 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
     const skey = item.kind === 'steps' ? row.key : row.key
     return <Item stamp={row.stamp} author={inRoom && item.botId !== undefined ? botsById.get(item.botId) : undefined} admin={inRoom && item.botId !== undefined && item.botId === admin}
       item={item} p={p} flat={flat} maxWidth={item.kind === 'bot' || item.kind === 'post' ? botMax : userMax} inRoom={inRoom} sessionId={sessionId}
-      onLongPress={setMenuText} onOpenFile={openFile} onRetry={retry} open={openSteps[skey]} onToggle={toggleOf(skey)} />
+      onLongPress={setMenuText} onOpenFile={openFile} onSaveFile={saveFile} onRetry={retry} open={openSteps[skey]} onToggle={toggleOf(skey)} />
   }, [inRoom, botsById, admin, p, flat, botMax, userMax, sessionId, openFile, retry, openSteps])
 
   const empty = page !== null && rows.length === 0
