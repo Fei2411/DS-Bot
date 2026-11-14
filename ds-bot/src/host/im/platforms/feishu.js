@@ -142,13 +142,30 @@ export default {
     // Split data frames reassemble by (sum, seq) until all parts arrive.
     const parts = new Map()
 
-    const rest = async (path, { method = 'POST', body } = {}) => {
+    const tokenNow = async () => {
       if (token === undefined || Date.now() > tokenExpiresAt - 30_000) {
         const got = await tenantToken({ appId, appSecret }, env)
         token = got.token
         tokenExpiresAt = got.expiresAt
       }
-      return api(env, apiBase(env, fields), token, path, { method, body })
+      return token
+    }
+    const rest = async (path, { method = 'POST', body } = {}) => {
+      return api(env, apiBase(env, fields), await tokenNow(), path, { method, body })
+    }
+
+    // A reaction says "seen it" without a message of its own: an ack while the Bot
+    // works, a thumbs-up once the reply is out. Best-effort: a missing scope must
+    // never block a reply.
+    const reactions = new Map()
+    const react = async (messageId, emoji) => {
+      try {
+        const got = await rest(`/open-apis/im/v1/messages/${messageId}/reactions`, { body: { reaction_type: { emoji_type: emoji } } })
+        return got?.data?.reaction_id
+      } catch { return undefined }
+    }
+    const clearReaction = async (messageId, reactionId) => {
+      try { await rest(`/open-apis/im/v1/messages/${messageId}/reactions/${reactionId}`, { method: 'DELETE' }) } catch {}
     }
 
     const sendFrame = (buffer) => { if (socket?.readyState === 1) socket.send(buffer) }
@@ -181,6 +198,9 @@ export default {
           text, images, files: [],
           mentioned, messageId: String(message.message_id ?? ''),
         })
+        const chatKey = String(message.chat_id ?? '')
+        const arrivedId = String(message.message_id ?? '')
+        if (arrivedId !== '') void react(arrivedId, 'Typing').then((reactionId) => { if (reactionId !== undefined) reactions.set(chatKey, { messageId: arrivedId, reactionId }) })
       }
       if (type === 'card' || payload.header?.event_type === 'card.action.trigger') {
         const event = payload.event ?? {}
@@ -312,32 +332,86 @@ export default {
       body: {
         elements: [
           { tag: 'markdown', content: text },
-          ...(buttons?.length > 0 ? [{
-            tag: 'action',
-            actions: buttons.slice(0, 5).map(button => ({
-              tag: 'button', type: 'primary',
-              text: { tag: 'plain_text', content: button.label.slice(0, 20) },
-              value: { v: button.data },
-            })),
-          }] : []),
+          ...(buttons?.length > 0 ? buttons.slice(0, 5).map(button => ({
+            tag: 'button', type: 'primary',
+            text: { tag: 'plain_text', content: button.label.slice(0, 20) },
+            value: { v: button.data },
+            behaviors: [{ type: 'callback', value: { v: button.data } }],
+          })) : []),
         ],
       },
     })
 
+    // Files go up through im/v1/files, then out as a file message with its key.
+    // Feishu renders markdown inside a `post` body; a plain `text` body shows the
+    // raw syntax. Hermes routes the same way, so markdown replies read properly.
+    const MARKDOWN_HINT = /(?:\*\*|`[^`\n]+`|^#{1,6}\s|^\s*[-*+]\s|^\s*\d+\.\s|^\s*>|^\s*\|.*\||\[[^\]\n]+\]\([^)\n]+\))/m
+    const postBody = (text) => JSON.stringify({ zh_cn: { content: [[{ tag: 'md', text }]] } })
+
+    const sendFile = async (chat, file) => {
+      const name = String(file?.name ?? 'file').slice(0, 120)
+      // Images go out as image messages so they show inline; hermes routes the
+      // same way. Everything else is an upload with a file type Feishu accepts.
+      if (/\.(png|jpe?g|gif|webp|bmp)$/i.test(name)) {
+        const imageForm = new FormData()
+        imageForm.append('image_type', 'message')
+        imageForm.append('image', new Blob([file.data]), name)
+        const picture = await fetch(`${apiBase(env, fields)}/open-apis/im/v1/images`, {
+          method: 'POST',
+          headers: { authorization: `Bearer ${await tokenNow()}` },
+          body: imageForm,
+        }).then(response => response.json())
+        if (picture?.code !== 0) throw fail(`Feishu refused the image (${picture?.msg ?? 'unknown'})`, { permanent: true })
+        const shown = await rest('/open-apis/im/v1/messages?receive_id_type=chat_id', {
+          body: { receive_id: chat.key, msg_type: 'image', content: JSON.stringify({ image_key: picture.data.image_key }) },
+        })
+        if (shown?.code !== 0) throw fail(`Feishu refused the image message (${shown?.msg ?? 'unknown'})`, { permanent: true })
+        return { messageId: String(shown?.data?.message_id ?? '') }
+      }
+      const type = /\.pdf$/i.test(name) ? 'pdf'
+        : /\.docx?$/i.test(name) ? 'doc'
+          : /\.xlsx?$/i.test(name) ? 'xls'
+            : /\.pptx?$/i.test(name) ? 'ppt'
+              : /\.(mp4|mov|avi|m4v)$/i.test(name) ? 'mp4' : 'stream'
+      const form = new FormData()
+      form.append('file_type', type)
+      form.append('file_name', name)
+      form.append('file', new Blob([file.data]), name)
+      const uploaded = await fetch(`${apiBase(env, fields)}/open-apis/im/v1/files`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${await tokenNow()}` },
+        body: form,
+      }).then(response => response.json())
+      if (uploaded?.code !== 0) throw fail(`Feishu refused the file (${uploaded?.msg ?? 'unknown'})`, { permanent: true })
+      const sent = await rest('/open-apis/im/v1/messages?receive_id_type=chat_id', {
+        body: { receive_id: chat.key, msg_type: 'file', content: JSON.stringify({ file_key: uploaded.data.file_key }) },
+      })
+      if (sent?.code !== 0) throw fail(`Feishu refused the file message (${sent?.msg ?? 'unknown'})`, { permanent: true })
+      return { messageId: String(sent?.data?.message_id ?? '') }
+    }
+
     return {
-      send: async (chat, { text, buttons }) => {
+      sendFile,
+      send: async (chat, { text, buttons, file }) => {
+        if (file !== undefined) return sendFile(chat, file)
         const chunks = chunkMarkdown(String(text ?? ''), TEXT_LIMIT)
         let messageId
         for (const [index, chunk] of chunks.entries()) {
           const interactive = buttons !== undefined && index === chunks.length - 1
+          const rich = !interactive && MARKDOWN_HINT.test(chunk)
           const sent = await rest('/open-apis/im/v1/messages?receive_id_type=chat_id', {
             body: {
               receive_id: chat.key,
-              msg_type: interactive ? 'interactive' : 'text',
-              content: interactive ? card(chunk, buttons) : JSON.stringify({ text: chunk }),
+              msg_type: interactive ? 'interactive' : rich ? 'post' : 'text',
+              content: interactive ? card(chunk, buttons) : rich ? postBody(chunk) : JSON.stringify({ text: chunk }),
             },
           })
           messageId = String(sent?.data?.message_id ?? messageId ?? '')
+        }
+        const seen = reactions.get(chat.key)
+        if (seen !== undefined) {
+          reactions.delete(chat.key)
+          void clearReaction(seen.messageId, seen.reactionId).then(() => react(seen.messageId, 'THUMBSUP'))
         }
         return { messageId }
       },

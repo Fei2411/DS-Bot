@@ -8,7 +8,7 @@
 // getconfig ticket. Voice items arrive with a transcript; images download
 // from the CDN and decrypt with their AES key. A refused send is permanent
 // with the platform's reason. Protocol ported from dsh-im (MIT, see NOTICE).
-import { createDecipheriv, randomBytes } from 'node:crypto'
+import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto'
 
 const QR_BASE = 'https://ilinkai.weixin.qq.com/'
 const BOT_TYPE = '3'
@@ -24,6 +24,15 @@ const SESSION_EXPIRED = -14
 // Waits between attempts to open the session, from the reference client; the
 // last one repeats while the network stays down, like the poll's own retry.
 const START_RETRY_DELAYS_MS = [250, 1_000, 3_000]
+// Files ride the iLink CDN: get an upload address, send AES-128-ECB ciphertext,
+// then quote the returned parameter in a sendmessage file item.
+const CDN_BASE = 'https://novac2c.cdn.weixin.qq.com/c2c'
+const CDN_HOST = 'novac2c.cdn.weixin.qq.com'
+const CDN_HOSTS = new Set([
+  'novac2c.cdn.weixin.qq.com', 'ilinkai.weixin.qq.com', 'wx.qlogo.cn',
+  'thirdwx.qlogo.cn', 'res.wx.qq.com', 'mmbiz.qpic.cn', 'mmbiz.qlogo.cn',
+])
+const FILE_LIMIT = 25 * 1024 * 1024
 
 // iLink answers with the bare host (no trailing slash), and the request URL is
 // built by appending a path: normalize to exactly one slash either way.
@@ -238,8 +247,94 @@ export default {
     handlers.onStatus({ state: 'connecting' })
     void startSession()
 
+    const sendFile = async (chat, file) => {
+      const bytes = Buffer.from(file?.data ?? [])
+      if (bytes.byteLength === 0) throw fail('Empty file', { permanent: true })
+      if (bytes.byteLength > FILE_LIMIT) throw fail('File too large for WeChat', { permanent: true })
+      const name = String(file?.name ?? 'file').slice(0, 120)
+      const fileKey = randomBytes(16).toString('hex')
+      const aesKey = randomBytes(16)
+      const padded = Math.ceil((bytes.byteLength + 1) / 16) * 16
+      const upload = await request(env, base(env, fields), fields.token, 'getuploadurl', {
+        filekey: fileKey,
+        media_type: 3,
+        to_user_id: chat.key,
+        rawsize: bytes.byteLength,
+        rawfilemd5: createHash('md5').update(bytes).digest('hex'),
+        filesize: padded,
+        no_need_thumb: true,
+        aeskey: aesKey.toString('hex'),
+      })
+      if (Number(upload?.ret) !== 0 && upload?.ret !== undefined) throw fail(`WeChat refused the upload (${upload.errmsg ?? upload.ret})`, { permanent: true })
+      const full = String(upload?.upload_full_url ?? '')
+      const param = String(upload?.upload_param ?? '')
+      let url
+      if (full !== '') url = new URL(full)
+      else if (param !== '') {
+        url = new URL(`${CDN_BASE}/upload`)
+        url.searchParams.set('encrypted_query_param', param)
+        url.searchParams.set('filekey', fileKey)
+      } else throw fail('WeChat returned no upload address', { permanent: true })
+      // The upload host is chosen by the platform: this account got novac2c.cdn.wechat.com,
+      // hermes' allowlist names novac2c.cdn.weixin.qq.com. Accept both families.
+      if (!/^https?:$/.test(url.protocol) || !(CDN_HOSTS.has(url.hostname) || /(^|\.)(wechat|weixin)\.qq\.com$/i.test(url.hostname) || /(^|\.)wechat\.com$/i.test(url.hostname))) {
+        throw fail(`Untrusted upload address (${url.hostname})`, { permanent: true })
+      }
+      const cipher = createCipheriv('aes-128-ecb', aesKey, null)
+      const body = Buffer.concat([cipher.update(bytes), cipher.final()])
+      const response = await env.fetch(url, {
+        method: 'POST',
+        headers: { 'content-type': 'application/octet-stream', 'content-length': String(body.byteLength) },
+        body,
+      })
+      if (response.status !== 200) throw fail(`WeChat file upload failed (HTTP ${response.status})`)
+      const downloadParam = response.headers.get('x-encrypted-param')
+      if (!downloadParam) throw fail('WeChat upload returned no download parameter', { permanent: true })
+      const clientId = `ds-bot-${randomBytes(8).toString('hex')}`
+      const contextToken = contextTokens()[chat.key]
+      const answer = await request(env, base(env, fields), fields.token, 'sendmessage', {
+        msg: {
+          from_user_id: '', to_user_id: chat.key, client_id: clientId,
+          message_type: 2, message_state: 2,
+          item_list: [{
+            type: 4,
+            file_item: {
+              media: {
+                encrypt_query_param: downloadParam,
+                aes_key: Buffer.from(aesKey.toString('hex')).toString('base64'),
+                encrypt_type: 1,
+              },
+              file_name: name,
+              len: String(bytes.byteLength),
+            },
+          }],
+          ...(contextToken ? { context_token: contextToken } : {}),
+        },
+      })
+      if (Number(answer.ret) !== 0 && answer.ret !== undefined) throw fail(`WeChat refused the file (${answer.errmsg ?? answer.ret})`, { permanent: true })
+      return { messageId: clientId }
+    }
+
+    // getconfig hands out a typing ticket; hermes caches it for 600s rather than
+    // asking on every ping. Without the chat's context_token the call returns none.
+    const tickets = new Map()
+    let typingStop
+    const typingTicket = async (chatKey, contextToken) => {
+      const held = tickets.get(chatKey)
+      if (held !== undefined && held.expiresAt > Date.now()) return held.ticket
+      const answer = await request(env, base(env, fields), fields.token, 'getconfig', {
+        ilink_user_id: chatKey,
+        ...(contextToken ? { context_token: contextToken } : {}),
+      }, 8_000).catch(() => undefined)
+      const ticket = String(answer?.typing_ticket ?? '')
+      if (ticket !== '') tickets.set(chatKey, { ticket, expiresAt: Date.now() + 600_000 })
+      return ticket
+    }
+
     return {
-      send: async (chat, { text }) => {
+      sendFile,
+      send: async (chat, { text, file }) => {
+        if (file !== undefined) return sendFile(chat, file)
         const chunks = chunk(String(text ?? ''), TEXT_LIMIT)
         const contextToken = contextTokens()[chat.key]
         let messageId
@@ -261,10 +356,15 @@ export default {
         return { messageId }
       },
       typing: async (chat) => {
-        const answer = await request(env, base(env, fields), fields.token, 'getconfig', { ilink_user_id: chat.key }, 8_000).catch(() => undefined)
-        const ticket = String(answer?.typing_ticket ?? '')
+        const ticket = await typingTicket(chat.key, contextTokens()[chat.key])
         if (ticket === '') return
         await request(env, base(env, fields), fields.token, 'sendtyping', { ilink_user_id: chat.key, typing_ticket: ticket, status: 1 }, 8_000).catch(() => {})
+        // The indicator has no timeout of its own: stop it once the turn goes quiet.
+        clearTimeout(typingStop)
+        typingStop = setTimeout(() => {
+          void request(env, base(env, fields), fields.token, 'sendtyping', { ilink_user_id: chat.key, typing_ticket: ticket, status: 2 }, 8_000).catch(() => {})
+        }, 12_000)
+        typingStop.unref?.()
       },
       stop: () => {
         stopped = true
