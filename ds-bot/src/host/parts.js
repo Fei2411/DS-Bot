@@ -688,7 +688,6 @@ export function install(rt) {
     const local = localPart(session)
     const own = session.requestHeader()?.config
     if (!own?.provider || !own?.model) return undefined
-    const route = local ? await stewardRoute() : own
     const group = placeOf(agent.id)?.roomId !== undefined
     const lines = []
     for await (const line of partLines(agent.id, AbortSignal.timeout(HANDOFF_READ_MS), { group })) {
@@ -698,7 +697,9 @@ export function install(rt) {
     // A CLI's own compactions are this part's checkpoints.
     const checkpoints = local ? rt.localAgentContext?.(agent.id)?.compactions ?? 0 : checkpointCount(session.deriveMessages())
     const request = stewardRequest({ lines, midTurn, checkpoints, group })
-    if (route === undefined) return parseDecision(await rt.localAgentAsk(agent.id, { system: STEWARD_SYSTEM, prompt: request, signal: AbortSignal.timeout(STEWARD_TIMEOUT_MS) }))
+    // A part on a local agent CLI asks its own CLI and model, in a one-off session.
+    if (local) return parseDecision(await rt.localAgentAsk(agent.id, { system: STEWARD_SYSTEM, prompt: request, signal: AbortSignal.timeout(STEWARD_TIMEOUT_MS) }))
+    const route = own
     const info = await ctx.llm.resolveModelInfo(route.provider, route.model).catch(() => undefined)
     // The decision needs no long thinking.
     const off = info?.reasoning?.efforts?.some(effort => effort.id === 'off')
@@ -717,15 +718,6 @@ export function install(rt) {
     const finish = assembler.finish
     if (finish.kind === 'error' || finish.kind === 'aborted') throw new Error(finish.failure?.message ?? finish.kind)
     return parseDecision(assembler.blocks().filter(block => block.type === 'text').map(block => block.text).join('\n'))
-  }
-
-  // The steward of a part on a local agent CLI runs on the team's default model, else
-  // the profile's, as the after-turn memory review does; with neither, the CLI itself
-  // answers it in a one-off session. Undefined: the CLI.
-  async function stewardRoute() {
-    const team = state.prefs?.defaultBotModel
-    const ref = team && rt.isLocalAgentRef?.(team) !== true ? team : await rt.defaultModel?.()
-    return ref === undefined ? undefined : splitRef(ref)
   }
 
   // What the steward decides; a part that cannot be condensed, or a steward that

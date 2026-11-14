@@ -292,25 +292,17 @@ function localPart({ context, team, decision = 'switch', note = goodNote('from-t
 
 const packageOf = run => run.followed.map(message => message?.content?.map?.(block => block.text).join('') ?? '').join('\n')
 
-test('past the check line, the steward on the team model says switch: the CLI writes the note and the part moves on', async () => {
+test('past the check line, the steward on the CLI says switch: the CLI writes the note and the part moves on', async () => {
   const run = localPart({ context: { used: 220_000, size: 262_000, compactions: 0 }, team: 'deepseek/v4' })
   run.idle()
   await run.settle()
   assert.equal(run.bot.sessionId, 's2', run.warnings.join(' | '))
-  assert.deepEqual(run.calls.steward, ['deepseek/v4'])
+  // What the conversation runs on answers, not the team's default model.
+  assert.deepEqual(run.calls.steward, [])
+  assert.equal(run.calls.asks.length, 1)
   assert.equal(run.calls.notes.length, 1)
   assert.match(run.calls.notes[0], /handoff note to yourself/)
   assert.match(packageOf(run), /from-the-cli/)
-})
-
-test('a team with no model of its own: the CLI answers the steward', async () => {
-  const run = localPart({ context: { used: 220_000, size: 262_000, compactions: 0 } })
-  run.idle()
-  await run.settle()
-  assert.equal(run.calls.steward.length, 0)
-  assert.equal(run.calls.asks.length, 1)
-  assert.match(run.calls.asks[0], /"checkpoints"|condensed|compact/i)
-  assert.equal(run.bot.sessionId, 's2')
 })
 
 test('work still under way: the CLI condenses and the part stays', async () => {
@@ -332,18 +324,18 @@ test('a CLI that condensed without saying how full it is now: still past the lin
   run.idle()
   await run.settle()
   assert.equal(run.bot.sessionId, 's2', run.warnings.join(' | '))
-  assert.equal(run.calls.steward.length, 1)
+  assert.equal(run.calls.asks.length, 1)
 })
 
 test('below the check line, a compaction the CLI ran on its own still gets the steward', async () => {
   const run = localPart({ context: { used: 40_000, size: 262_000, compactions: 0 }, team: 'deepseek/v4' })
   run.idle()
   await new Promise(resolve => setTimeout(resolve, 50))
-  assert.equal(run.calls.steward.length, 0)
+  assert.equal(run.calls.asks.length, 0)
   run.setContext({ used: 45_000, compactions: 1 })
   run.idle()
   await run.settle()
-  assert.equal(run.calls.steward.length, 1)
+  assert.equal(run.calls.asks.length, 1)
   assert.equal(run.bot.sessionId, 's2')
 })
 
@@ -351,7 +343,7 @@ test('a CLI that reports nothing about its context is not checked', async () => 
   const run = localPart({ context: {}, team: 'deepseek/v4' })
   run.idle()
   await new Promise(resolve => setTimeout(resolve, 50))
-  assert.equal(run.calls.steward.length, 0)
+  assert.equal(run.calls.asks.length, 0)
   assert.equal(run.bot.sessionId, 's1')
 })
 

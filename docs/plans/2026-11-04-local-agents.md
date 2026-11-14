@@ -98,9 +98,9 @@ session:
 - Inside a running turn DS Bot cannot step in between the CLI's model calls:
   the CLI's own compaction covers it, and a CLI that reports its context is past
   its window fails the turn as an overflow, which moves the part on.
-- The steward runs on the team default model, else the profile default, like
-  the after-turn memory review. With neither, the Bot's own CLI answers it in a
-  one-off session with no team tools and read-only access.
+- The steward runs on what the conversation runs on, as for any Bot: the Bot's
+  own CLI and model answer it, in a one-off session with no team tools and
+  read-only access.
 - Condense in place is the CLI's own compaction: `/compact` for Claude Code and
   for an ACP agent that lists a `compact` command, `thread/compact/start` for
   Codex. An agent with no such command condenses only on its own. A
