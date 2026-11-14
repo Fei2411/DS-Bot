@@ -22,14 +22,29 @@ const SIGN_IN_CODES = new Set(['ACCOUNT_SIGN_IN_REQUIRED', 'ACCOUNT_SIGNED_OUT',
 
 // A failed turn's `LlmFailure`, kept to what can be shown and logged. Like DSH's own
 // error row, an AUTH failure loses its message: providers may echo part of the key.
+// DSH maps every HTTP 403 to AUTH, but an upstream also uses 403 for a content audit,
+// and the body says which one it is. A rekey cannot fix an audit, so it keeps its own
+// code; the audit body and request id stay for the card and the diagnostics.
+const CONTENT_POLICY = /content[\s_-]?polic|content[\s_-]?violation|content[\s_-]?filter|内容审计|内容安全|风险规则/i
+const REQUEST_ID = /(?:request[-_ ]?id|x-request-id)["'\s:=]+([A-Za-z0-9._:-]{6,})/i
+
+const requestIdOf = (message) => {
+  const found = REQUEST_ID.exec(message)
+  return found === null ? undefined : found[1].replace(/[.,;:)+]+$/, '')
+}
+
 export function turnFailure(error) {
-  const code = typeof error?.code === 'string' && error.code !== '' ? error.code : 'UNKNOWN'
-  const message = code === 'AUTH' || typeof error?.message !== 'string' ? '' : error.message.trim().slice(0, 500)
+  const rawCode = typeof error?.code === 'string' && error.code !== '' ? error.code : 'UNKNOWN'
+  const raw = typeof error?.message === 'string' ? error.message.trim() : ''
+  const contentPolicy = rawCode === 'AUTH' && error?.status === 403 && CONTENT_POLICY.test(raw)
+  const code = contentPolicy ? 'CONTENT_POLICY' : rawCode
+  const message = code === 'AUTH' || raw === '' ? '' : cleanText(raw).slice(0, 500)
+  const requestId = typeof error?.requestId === 'string' && error.requestId !== '' ? error.requestId : requestIdOf(raw)
   return {
     code,
     message,
     ...(typeof error?.status === 'number' ? { status: error.status } : {}),
-    ...(typeof error?.requestId === 'string' ? { requestId: error.requestId } : {}),
+    ...(requestId === undefined ? {} : { requestId }),
   }
 }
 
@@ -153,13 +168,15 @@ const CUT_OFF_EMPTY_NOTE = '[cut off at the model\'s output limit before it wrot
 // The answer a cut-off turn leaves: what it said, marked as unfinished, or the line
 // that stands in for a turn that wrote nothing at all.
 export const cutOffText = said => (said === '' ? CUT_OFF_EMPTY_NOTE : `${said}\n\n${CUT_OFF_NOTE}`)
-// A route whose real window is smaller than the one DS Bot knows answers an oversized
-// request with a `length` finish and a short answer, not a context error (#1104). Such
-// a turn is far below any real output cap; a turn that truly reached the model's
-// output limit is not, and only that one is a real truncation. The cut-off shape has to
-// make room the way an overflow does, even when the turn wrote a line first (#1461).
-const PREMATURE_OUTPUT_TOKENS = 4_096
-const PREMATURE_INPUT_TOKENS = 32_000
+// A finish far below the prepared request's own output budget can be a route's
+// smaller context window. Unknown budgets provide no evidence for that inference.
+export function prematureCutOff(usage, route) {
+  const limit = Number(route?.maxTokens)
+  const output = Number(usage?.outputTokens)
+  const input = Number(usage?.inputTokens ?? 0) + Number(usage?.cacheReadTokens ?? 0) + Number(usage?.cacheWriteTokens ?? 0)
+  return Number.isFinite(limit) && limit > 0 && Number.isFinite(output) && output >= 0
+    && output < limit / 8 && input >= limit
+}
 
 // A reply that only promises to start investigating/checking/running tools now without
 // actually calling a tool or handing off with @Name (#469). A verb followed by 过了,
@@ -652,6 +669,31 @@ export function install(rt) {
     })
   }
 
+  // The repair card reads DSH's own failure row, which can carry a code DS Bot has
+  // corrected (a 403 content audit arrives as AUTH). Keep the corrected failure with
+  // the part and turn it belongs to; the view sends it to the card, and the next
+  // completed turn in that part drops it.
+  const rememberFailure = (id, turn, failure, session) => {
+    const bot = rt.botOf(rt.selfOf(id))
+    if (bot === undefined || turn === undefined) return
+    const provider = session?.requestHeader?.()?.config?.provider
+    const message = failure.message ? cleanText(failure.message, { redact: rt.redactSecrets }).slice(0, 500) : ''
+    const failures = bot.failures ??= {}
+    failures[id] = { turn, ...failure, message, ...(provider ? { provider } : {}), at: Date.now() }
+    const keys = Object.keys(failures)
+    if (keys.length > 6) {
+      for (const key of keys.sort((a, b) => (failures[a].at ?? 0) - (failures[b].at ?? 0)).slice(0, keys.length - 6)) delete failures[key]
+    }
+    void rt.save().catch(() => {})
+  }
+  const forgetFailure = (id) => {
+    const bot = rt.botOf(rt.selfOf(id))
+    if (bot?.failures?.[id] === undefined) return
+    delete bot.failures[id]
+    if (Object.keys(bot.failures).length === 0) delete bot.failures
+    void rt.save().catch(() => {})
+  }
+
   // A turn cut off at the output limit is not a finish, but no failure either. The
   // record names the route and the size of the input, so a route whose declared
   // window is larger than the service really serves can be found from it. A cut-off
@@ -1075,6 +1117,7 @@ export function install(rt) {
         // A turn the plugin watched start. A turn/end replayed after a restart, whose
         // turn is settled from the Session's log, is not one (resume.js does that).
         const watched = entry.turn !== undefined
+        const turn = entry.turn
         entry.turn = undefined
         entry.info = undefined
         entry.texts = []
@@ -1125,22 +1168,18 @@ export function install(rt) {
         // row, is what a route over the window it really has leaves behind, and the
         // context check then moves the part on instead of sending the same size again.
         const cutOff = watched && failure === undefined && reason?.kind === 'max-tokens'
-        const wroteNothing = cutOff && !wroteText
-        // A `length` finish far below any real output cap is the route's window, not the
-        // model's output limit: it counts toward making room like a turn that wrote
-        // nothing, or every later turn stops at the same size (#1461).
+        const route = session.requestHeader?.()?.config
         const outputTokens = Number(usage?.outputTokens)
-        // The request's size is its fresh input plus both cache sides: a route that
-        // reads mostly from the provider's cache still sends the whole prompt.
-        const inputTokens = Number(usage?.inputTokens ?? 0) + Number(usage?.cacheReadTokens ?? 0)
-          + Number(usage?.cacheWriteTokens ?? 0)
-        const premature = cutOff && Number.isFinite(outputTokens) && outputTokens < PREMATURE_OUTPUT_TOKENS
-          && inputTokens >= PREMATURE_INPUT_TOKENS
+        const usedBudget = Number.isFinite(outputTokens) && Number(route?.maxTokens) > 0 && outputTokens >= Number(route.maxTokens)
+        const wroteNothing = cutOff && !wroteText && !usedBudget
+        const premature = cutOff && prematureCutOff(usage, route)
         rt.noteCutOffTurn?.(id, { withoutText: wroteNothing, premature })
         if (cutOff) noteCutOffTurn(id, { session, wroteNothing, ...(premature ? { outputTokens } : {}) })
         if (failure !== undefined) {
+          if (watched) rememberFailure(id, turn, failure, session)
           if (blockBot(id, session, failure) && owner !== undefined && info?.role === 'kickoff') rt.holdKickoffAgain(owner)
         } else if (reason?.kind === 'completed') {
+          forgetFailure(id)
           unblockBot(rt.selfOf(id))
           // A turn the user opened, or the Retry that answers the user.
           if (owner !== undefined && (info === undefined || info.role === 'continue')) rt.userAnswered(owner)

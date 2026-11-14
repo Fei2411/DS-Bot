@@ -106,6 +106,8 @@ export function install(rt) {
     sections: state.sections ?? [],
     // Key names and who may use them; values never leave the host.
     secrets: rt.secretsView(),
+    // How the secrets file is stored and whether this process can read it now.
+    secretStore: rt.secretStoreStatus(),
     capabilities: rt.capabilityLibraryView(),
     secretRequests: state.secretRequests ?? {},
     connectorRequests: state.connectorRequests ?? {},
@@ -135,6 +137,8 @@ export function install(rt) {
   // turn there runs; the approvals waiting; per Bot, who it waits for to hand back work;
   // and per Session, when its running turn began.
   const live = () => ({
+    secretStore: rt.secretStoreStatus(),
+    secrets: rt.secretsView(),
     activity: rt.activityView(),
     work: { bots: rt.workView(), rooms: rt.roomWorkView(), approvals: rt.approvalsView(), waiting: rt.waitingView?.() ?? {}, turns: rt.turnsView?.() ?? {}, steered: rt.steeredView?.() ?? {} },
     memoryNews: rt.memoryNews(),
@@ -146,6 +150,10 @@ export function install(rt) {
     phone: rt.phoneView(),
     imStatus: rt.imStatusView?.() ?? {},
     imVia: rt.imViaView?.() ?? {},
+    // Why this host cannot write the team, or null. It changes without a save — the
+    // other dsh can quit while this window stays open and this host takes the lock
+    // over — so a window learns that it may write again without a reload.
+    readOnly: rt.readOnly() ?? null,
     // Computer use live state: per-Bot control, leases, pending app cards and holds.
     // Named apart from the state view's `computer`: the live answer merges into the
     // same object and would wipe its `enabled` and `provider` fields.
@@ -167,7 +175,7 @@ export function install(rt) {
   }
   // What a host that only reads the team may still answer.
   // Updates change the dsh profile, not the team, so a reading host may run them too.
-  const READS = new Set(['state', 'models', 'efforts', 'providers', 'provider-models', 'earlier', 'chat', 'run-stats', 'room-progress', 'group-rows', 'exchange', 'exchange-text', 'file-text', 'usage', 'schedules', 'memory-view', 'browser-wait', 'browser-result', 'diagnostics', 'diagnostics-log', 'diagnostics-clear', 'update-check', 'update-install', 'dsh-update-install', 'repo-stars', 'approval-answer', 'thinking', 'avatar-library', 'computer-system-status', 'computer-shot', 'local-agents', 'local-agent-models', 'browser-frame', 'hello', 'notices', 'avatar', 'room-chat', 'usage-summary', 'image', 'file-download', 'changes-check', 'changes-summary', 'changes-diff'])
+  const READS = new Set(['secret-store', 'secret-unlock', 'state', 'models', 'efforts', 'providers', 'provider-models', 'earlier', 'chat', 'run-stats', 'room-progress', 'group-rows', 'exchange', 'exchange-text', 'file-text', 'usage', 'schedules', 'memory-view', 'browser-wait', 'browser-result', 'diagnostics', 'diagnostics-log', 'diagnostics-clear', 'update-check', 'update-install', 'dsh-update-install', 'repo-stars', 'approval-answer', 'thinking', 'avatar-library', 'computer-system-status', 'computer-shot', 'local-agents', 'local-agent-models', 'browser-frame', 'hello', 'notices', 'avatar', 'room-chat', 'usage-summary', 'image', 'file-download', 'changes-check', 'changes-summary', 'changes-diff'])
 
   async function setPrefs(body) {
     if (body.theme !== undefined) {
@@ -563,6 +571,10 @@ export function install(rt) {
         case 'secret-cancel':
         case 'secret-update':
         case 'secret-delete':
+        case 'secret-store':
+        case 'secret-unlock':
+        case 'secret-encrypt':
+        case 'secret-decrypt':
           await rt.load()
           return ok(await rt.secretEndpoint(endpoint, body))
         case 'connector-connect':
