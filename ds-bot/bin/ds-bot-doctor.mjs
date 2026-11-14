@@ -20,10 +20,10 @@
 // tree hoisted into the profile is not detected, so a clean report says how to look for
 // one with pnpm why; removing that copy would break the plugin that carries it.
 import { spawnSync } from 'node:child_process'
-import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import { pathToFileURL } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import semver from 'semver'
 import { findExecutable, launchOf } from '../src/host/local-agents/discover.js'
 
@@ -179,6 +179,18 @@ function main(argv) {
   return broken.length > 0 ? 2 : 0
 }
 
-if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href) {
+// npm links a bin with a symlink on Unix (and a shim on Windows): argv[1] can name the
+// link while import.meta.url names the file it points at. Compare the real paths, or an
+// `npx ds-bot doctor` call would find no entry point and exit 0 without doing anything.
+function invokedDirectly() {
+  if (process.argv[1] === undefined) return false
+  try {
+    return realpathSync(fileURLToPath(import.meta.url)) === realpathSync(process.argv[1])
+  } catch {
+    return import.meta.url === pathToFileURL(process.argv[1]).href
+  }
+}
+
+if (invokedDirectly()) {
   process.exit(main(process.argv))
 }

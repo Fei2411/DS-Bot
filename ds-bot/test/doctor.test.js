@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
 import { test } from 'node:test'
@@ -126,4 +126,26 @@ test('an invalid explicit DSH version cannot remove pins during repair', () => {
     assert.notEqual(result.status, 0)
     assert.equal(readFileSync(file, 'utf8'), before)
   } finally { rmSync(home, { recursive: true, force: true }) }
+})
+
+test('the command runs when npm links the bin with a symlink', { skip: process.platform === 'win32' }, () => {
+  // Unix npm puts a symlink in node_modules/.bin; the kernel then runs the script with
+  // argv[1] naming the link while the module resolves to the file it points at. On
+  // Windows npm writes a .cmd shim instead, which passes the script path directly.
+  const home = homeWith({ web: manifest({ 'ds-bot': '0.3.2', '@deepseek-ai/dsh-web-app': RUNNING }) })
+  const dir = mkdtempSync(join(tmpdir(), 'ds-bot-doctor-bin-'))
+  const link = join(dir, 'ds-bot-doctor')
+  symlinkSync(DOCTOR, link)
+  try {
+    const check = spawnSync(process.execPath, [link, 'doctor', '--home', home, '--dsh-version', RUNNING], { encoding: 'utf8' })
+    assert.equal(check.status, 0, check.stderr)
+    assert.match(check.stdout, /no profile pins an official DSH package/)
+    // A linked call with no argument prints the usage instead of exiting 0 in silence.
+    const usage = spawnSync(process.execPath, [link], { encoding: 'utf8' })
+    assert.equal(usage.status, 2)
+    assert.match(usage.stderr, /usage: npx ds-bot doctor/)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+    rmSync(home, { recursive: true, force: true })
+  }
 })
