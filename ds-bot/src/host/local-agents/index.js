@@ -6,6 +6,7 @@ import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { defineTool } from '@deepseek-ai/dsh-tools'
+import { serviceOf } from '../services.js'
 import { splitRef } from '../text.js'
 import { output } from '../tools.js'
 import { LocalAgentAdapter } from './adapter.js'
@@ -114,7 +115,8 @@ export function install(rt) {
   })
 
   let registration
-  const supported = () => typeof ctx.llm?.registerAdapter === 'function'
+  const llm = () => serviceOf(ctx, 'llm')
+  const supported = () => typeof llm()?.registerAdapter === 'function'
   const usedRefs = () => [...new Set(Object.values(state.bots ?? {}).flatMap(bot => [bot.model, bot.appliedModel]).filter(Boolean))]
   // A route a Bot runs on stays registered when its CLI goes away: the turn then fails
   // with the repair card, and nothing moves the Bot to another run mode by itself.
@@ -126,7 +128,7 @@ export function install(rt) {
     // is legal and keeps the adapter registered with zero routes.
     if (registration === undefined) {
       if (routes.length === 0) return
-      registration = ctx.llm.registerAdapter(routes, adapter)
+      registration = llm().registerAdapter(routes, adapter)
     } else registration.replace(routes)
   }
   // Custom agents hold a route whether or not their command resolves yet; a
