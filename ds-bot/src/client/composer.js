@@ -193,11 +193,19 @@ export function ComposerPlus({ sessionId, inputActions, useInput, useRoster, act
     setOpen(null)
     actions.openSettings('schedules', target)
   }
-  // The chats open in the shell's "@" menu at the caret, so the pick lands where the
-  // user was typing.
+  // Insert a real "@" at the caret and let the shell's own trigger flow open the
+  // menu: a draft holding the trigger keeps the menu alive while the user types, so
+  // the chats filter as they type. The menu referenceChat opens alone is synthetic —
+  // the draft carries no trigger for the shell to match — so it dies on the first
+  // keystroke; that path stays only as a fallback for hosts without insertText.
   const reference = () => {
     setOpen(null)
-    actions.referenceChat(sessionId, inputActions?.captureInsertion?.())
+    const span = inputActions?.captureInsertion?.()
+    if (span !== undefined && typeof inputActions?.insertText === 'function') {
+      inputActions.insertText('@', span)
+      return
+    }
+    actions.referenceChat(sessionId, span)
   }
   const canReference = typeof inputActions?.captureInsertion === 'function' && actions.canReferenceChat()
   const room = roster.roomsById?.[sessionId]

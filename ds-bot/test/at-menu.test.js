@@ -50,19 +50,18 @@ test('the chats are the other Bots\' current parts, then the latest Sessions out
   assert.deepEqual(chatRows(roster, list, 'new'), [])
 })
 
-test('the chats join only the menu that "+" opened, and a pick inserts a session reference', async () => {
-  let open = false
+test('the chats join every typed "@" menu, and a pick inserts a session reference', async () => {
   const [bots, chats] = atSources({
     roster: { getSnapshot: () => roster },
     sessions: { list: { getSnapshot: () => ({ ids: [], byId: {} }) } },
-    launched: () => open,
+    launched: () => false,
     iconFor: () => 'session',
   })
   assert.deepEqual([bots.name, chats.name], [BOTS_SOURCE, CHATS_SOURCE])
   assert.ok(bots.order < chats.order && chats.order < 0)
   const session = { sessionId: 'chief-2' }
-  assert.deepEqual(await chats.candidates(session, { query: '' }), [])
-  open = true
+  // The chats no longer wait for "+" to open the menu: a typed "@" offers them too,
+  // so a quote stays searchable while typing.
   const rows = await chats.candidates(session, { query: '' })
   assert.deepEqual(rows.map(row => row.name), ['King', 'Writer'])
   const picked = chats.onPick({ candidate: rows[0] })
