@@ -11,9 +11,13 @@ import { useTeam } from '../team/context.tsx'
 import { markSeen } from '../team/seen.ts'
 import { messageClock, t } from '../ui/i18n.ts'
 import { shadow, useTheme } from '../ui/tokens.ts'
+import { PopIn } from '../ui/entry.ts'
+import { Press } from '../ui/press.tsx'
+import { Reveal } from '../ui/reveal.tsx'
 import { Avatar, RoomAvatar } from '../ui/marks.tsx'
 import { ArrowDownIcon } from '../ui/icons.tsx'
 import { workPhrase } from '../ui/phrases.ts'
+import Animated, { FadeIn, useReducedMotion, ZoomOut } from 'react-native-reanimated'
 import { ActionRow, Dock } from './chat/dock.tsx'
 import { Composer, type Photo } from './chat/composer.tsx'
 import { Actions, Item, keysOf, PhotoViewer, PhotoViewerCtx, type ChatItem, type FileRef, type ImageRef } from './chat/items.tsx'
@@ -88,6 +92,7 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
   const { team, call, computer, hello } = useTeam()
   const { p, dark } = useTheme()
   const insets = useSafeAreaInsets()
+  const reduced = useReducedMotion()
   const id = bot?.id ?? room?.id ?? ''
   const chatKey = `${computer?.hostDeviceId ?? ''}:${room !== undefined ? 'room' : 'bot'}:${id}`
   const cached = pages.get(chatKey)
@@ -396,10 +401,12 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
               />}
         {empty && !gone ? <EmptyChat bot={bot} room={room} bots={team?.bots ?? []} p={p} dark={dark} /> : null}
         {awayFromLatest ? (
-          <Pressable accessibilityRole="button" accessibilityLabel={t('Latest messages')} onPress={() => list.current?.scrollToOffset({ offset: 0, animated: true })}
-            style={[styles.toLatest, { backgroundColor: p.card, borderColor: p.line2 }, shadow(2)]}>
-            <ArrowDownIcon size={18} color={p.ink2} />
-          </Pressable>
+          <Animated.View entering={reduced ? FadeIn : PopIn} exiting={ZoomOut.duration(160)} style={styles.toLatestSpot}>
+            <Press accessibilityRole="button" accessibilityLabel={t('Latest messages')} to={0.9} onPress={() => list.current?.scrollToOffset({ offset: 0, animated: true })}
+              style={[styles.toLatest, { backgroundColor: p.card, borderColor: p.line2 }, shadow(2)]}>
+              <ArrowDownIcon size={18} color={p.ink2} />
+            </Press>
+          </Animated.View>
         ) : null}
       </View>
       {bot?.blocked !== undefined ? <BlockedCard bot={bot} p={p} /> : null}
@@ -482,13 +489,17 @@ function GoalBar({ goal, p }: { goal: Goal; p: ReturnType<typeof useTheme>['p'] 
       </View>
       <Text style={[type.small, { color: p.ink2, marginTop: 2 }]} numberOfLines={open ? undefined : 1}>{label}</Text>
       {stages.length > 0 ? <View style={{ flexDirection: 'row', gap: 3, marginTop: 8 }}>{stages.map((_, i) => <View key={i} style={{ flex: 1, height: 3, borderRadius: 2, backgroundColor: segment(i) }} />)}</View> : null}
-      {open ? stages.map((stage, i) => (
-        <View key={i} style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
-          <Text style={[type.small, { color: p.ink3, minWidth: 18, fontVariant: ['tabular-nums'] }]}>{i + 1}</Text>
-          <Text style={[type.small, { color: stage.status === 'passed' ? p.ink3 : p.ink, flex: 1, minWidth: 0 }]}>{stage.title ?? ''}</Text>
-          {stage.status === 'passed' ? <Text style={{ color: p.green, fontSize: 13 }}>✓</Text> : null}
+      <Reveal open={open}>
+        <View>
+          {stages.map((stage, i) => (
+            <View key={i} style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
+              <Text style={[type.small, { color: p.ink3, minWidth: 18, fontVariant: ['tabular-nums'] }]}>{i + 1}</Text>
+              <Text style={[type.small, { color: stage.status === 'passed' ? p.ink3 : p.ink, flex: 1, minWidth: 0 }]}>{stage.title ?? ''}</Text>
+              {stage.status === 'passed' ? <Text style={{ color: p.green, fontSize: 13 }}>✓</Text> : null}
+            </View>
+          ))}
         </View>
-      )) : null}
+      </Reveal>
     </Pressable>
   )
 }
@@ -510,16 +521,16 @@ function ComputerCards({ bot, p }: { bot: Bot; p: ReturnType<typeof useTheme>['p
         <View key={ask.id} style={[styles.blocked, { backgroundColor: p.card, borderColor: p.line }]}>
           <Text style={[type.settingsRow, { color: p.ink }]}>{t('Allow {name} to use {app}?', { name: bot.name, app: ask.appName ?? '' })}</Text>
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 10 }}>
-            <Pressable accessibilityRole="button" onPress={() => act('computer-app-answer', { id: ask.id, answer: 'deny' })} style={[styles.fix, { backgroundColor: p.hover }]}><Text style={{ color: p.ink }}>{t('Deny')}</Text></Pressable>
-            <Pressable accessibilityRole="button" onPress={() => act('computer-app-answer', { id: ask.id, answer: 'once' })} style={[styles.fix, { backgroundColor: p.hover }]}><Text style={{ color: p.ink }}>{t('This time')}</Text></Pressable>
-            <Pressable accessibilityRole="button" onPress={() => act('computer-app-answer', { id: ask.id, answer: 'always' })} style={[styles.fix, { backgroundColor: p.accent }]}><Text style={{ color: p.accentInk, fontWeight: '600' }}>{t('Always')}</Text></Pressable>
+            <Press accessibilityRole="button" onPress={() => act('computer-app-answer', { id: ask.id, answer: 'deny' })} style={[styles.fix, { backgroundColor: p.hover }]}><Text style={{ color: p.ink }}>{t('Deny')}</Text></Press>
+            <Press accessibilityRole="button" onPress={() => act('computer-app-answer', { id: ask.id, answer: 'once' })} style={[styles.fix, { backgroundColor: p.hover }]}><Text style={{ color: p.ink }}>{t('This time')}</Text></Press>
+            <Press accessibilityRole="button" onPress={() => act('computer-app-answer', { id: ask.id, answer: 'always' })} style={[styles.fix, { backgroundColor: p.accent }]}><Text style={{ color: p.accentInk, fontWeight: '600' }}>{t('Always')}</Text></Press>
           </View>
         </View>
       ))}
       {acting ? (
         <View style={[styles.blocked, { backgroundColor: p.card, borderColor: p.line, flexDirection: 'row', alignItems: 'center', paddingVertical: 8 }]}>
           <Text style={[type.small, { color: p.ink, flex: 1 }]} numberOfLines={1}>{control?.app ? `${t('Computer use')} · ${control.app}` : t('Computer use')}</Text>
-          <Pressable accessibilityRole="button" onPress={() => act('computer-stop', { botId: bot.id })} style={[styles.fix, { backgroundColor: p.hover, minHeight: 36 }]}><Text style={{ color: p.danger }}>{t('Stop')}</Text></Pressable>
+          <Press accessibilityRole="button" onPress={() => act('computer-stop', { botId: bot.id })} style={[styles.fix, { backgroundColor: p.hover, minHeight: 36 }]}><Text style={{ color: p.danger }}>{t('Stop')}</Text></Press>
         </View>
       ) : null}
       {error ? <Text style={[type.small, { color: p.danger, marginHorizontal: 16, marginBottom: 6 }]}>{error}</Text> : null}
@@ -552,9 +563,9 @@ function BlockedCard({ bot, p }: { bot: Bot; p: ReturnType<typeof useTheme>['p']
     <View style={[styles.blocked, { backgroundColor: p.card, borderColor: p.line }]} accessibilityRole="alert">
       <Text style={[type.settingsRow, { color: p.ink }]}>{failureText(blocked.code, bot.name, provider, blocked.status)}</Text>
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 10 }}>
-        {key ? <Pressable accessibilityRole="button" onPress={() => navigation.navigate('Settings', { screen: 'Providers', initial: false })} style={[styles.fix, { backgroundColor: p.accent }]}><Text style={{ color: p.accentInk, fontWeight: '600' }}>{blocked.code === 'MISSING_CREDENTIAL' ? t('Enter API key') : t('Enter the key again')}</Text></Pressable> : null}
-        {topUp ? <Pressable accessibilityRole="button" onPress={() => void Linking.openURL('https://platform.deepseek.com/top_up')} style={[styles.fix, { backgroundColor: p.accent }]}><Text style={{ color: p.accentInk, fontWeight: '600' }}>{t('Top up ↗')}</Text></Pressable> : null}
-        <Pressable accessibilityRole="button" onPress={() => navigation.navigate('BotDetails', { botId: bot.id })} style={[styles.fix, { backgroundColor: p.hover }]}><Text style={{ color: p.ink }}>{t('Pick another model')}</Text></Pressable>
+        {key ? <Press accessibilityRole="button" onPress={() => navigation.navigate('Settings', { screen: 'Providers', initial: false })} style={[styles.fix, { backgroundColor: p.accent }]}><Text style={{ color: p.accentInk, fontWeight: '600' }}>{blocked.code === 'MISSING_CREDENTIAL' ? t('Enter API key') : t('Enter the key again')}</Text></Press> : null}
+        {topUp ? <Press accessibilityRole="button" onPress={() => void Linking.openURL('https://platform.deepseek.com/top_up')} style={[styles.fix, { backgroundColor: p.accent }]}><Text style={{ color: p.accentInk, fontWeight: '600' }}>{t('Top up ↗')}</Text></Press> : null}
+        <Press accessibilityRole="button" onPress={() => navigation.navigate('BotDetails', { botId: bot.id })} style={[styles.fix, { backgroundColor: p.hover }]}><Text style={{ color: p.ink }}>{t('Pick another model')}</Text></Press>
       </View>
     </View>
   )
@@ -589,7 +600,8 @@ const styles = StyleSheet.create({
   listContent: { paddingVertical: 8, paddingHorizontal: 12 },
   reader: { flex: 1 },
   empty: { position: 'absolute', left: 24, right: 24, top: '28%', alignItems: 'center' },
-  toLatest: { position: 'absolute', right: 14, bottom: 10, width: 38, height: 38, borderRadius: 19, borderWidth: StyleSheet.hairlineWidth, alignItems: 'center', justifyContent: 'center' },
+  toLatestSpot: { position: 'absolute', right: 14, bottom: 10 },
+  toLatest: { width: 38, height: 38, borderRadius: 19, borderWidth: StyleSheet.hairlineWidth, alignItems: 'center', justifyContent: 'center' },
   goal: { marginHorizontal: 12, marginBottom: 6, borderRadius: 16, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 14, paddingVertical: 10 },
   blocked: { marginHorizontal: 12, marginBottom: 8, borderRadius: 16, borderWidth: StyleSheet.hairlineWidth, padding: 14 },
   fix: { minHeight: 40, borderRadius: 20, paddingHorizontal: 16, alignItems: 'center', justifyContent: 'center' },

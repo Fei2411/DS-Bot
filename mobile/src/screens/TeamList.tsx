@@ -78,7 +78,7 @@ export function TeamList({ onOpen, query = '', current }: { onOpen: (target: Cha
             {mainList.map(main => (
               <Pressable key={main.id} accessibilityRole="button" accessibilityLabel={`${main.name}, ${t('Main Bot')}`} onPress={() => onOpen({ kind: 'bot', id: main.id })}
                 style={({ pressed }) => [styles.tile, { backgroundColor: pressed || current === main.id ? p.active : p.hover }]}>
-                <Avatar bot={main} dark={dark} size={52} ring={p.hover} main working={workBots[main.id] !== undefined} waiting={questions[main.sessionId ?? main.id] !== undefined} />
+                <Avatar bot={main} dark={dark} size={52} ring={p.hover} main working={workBots[main.id] !== undefined} waiting={questions[main.sessionId ?? main.id] !== undefined} accent={p.accent} />
                 <Text style={[typeScale.small, { color: p.ink, fontWeight: '600', marginTop: 6 }]} numberOfLines={1}>{main.name}</Text>
                 {main.role ? <View style={[styles.tag, { backgroundColor: p.active }]}><Text style={{ fontSize: 11, lineHeight: 15, color: p.ink2 }} numberOfLines={1}>{main.role}</Text></View> : null}
               </Pressable>
@@ -103,7 +103,7 @@ function BotRow({ bot, p, dark, mains, questions, approvals, workBots, preview, 
   const waiting = questions[bot.sessionId ?? bot.id] !== undefined || approvals.some(a => a.botId === bot.id)
   return (
     <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.row, (pressed || selected) && { backgroundColor: p.hover }]}>
-      <Avatar bot={bot} dark={dark} size={36} ring={p.sidebar} main={mains.has(bot.id)} working={workBots[bot.id] !== undefined} waiting={waiting} />
+      <Avatar bot={bot} dark={dark} size={36} ring={p.sidebar} main={mains.has(bot.id)} working={workBots[bot.id] !== undefined} waiting={waiting} accent={p.accent} />
       <View style={styles.rowBody}>
         <View style={styles.nameRow}>
           <Text style={[typeScale.rowName, { color: p.ink, flexShrink: 1 }]} numberOfLines={1}>{bot.name}</Text>

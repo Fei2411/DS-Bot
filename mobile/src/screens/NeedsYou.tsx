@@ -67,7 +67,7 @@ export function NeedsYou({ onOpen }: { onOpen: (target: ChatTarget) => void }) {
         return (
           <Pressable accessibilityRole="button" onPress={() => onOpen(row.roomId ? { kind: 'room', id: row.roomId } : { kind: 'bot', id: row.botId })}
             style={({ pressed }) => [styles.row, pressed && { backgroundColor: p.hover }]}>
-            {bot ? <Avatar bot={bot} dark={dark} size={44} ring={p.main} waiting /> : <View style={{ width: 44, height: 44 }} />}
+            {bot ? <Avatar bot={bot} dark={dark} size={44} ring={p.main} waiting accent={p.accent} /> : <View style={{ width: 44, height: 44 }} />}
             <View style={styles.body}>
               <Text style={[typeScale.rowName, { color: p.ink }]} numberOfLines={1}>{name}</Text>
               <Text style={[typeScale.rowPreview, { color: p.ink2 }]} numberOfLines={1}>{row.summary}</Text>

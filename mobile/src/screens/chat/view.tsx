@@ -6,6 +6,7 @@ import { INKS } from '../../../../ds-bot/src/client/inks.js'
 import Svg, { Circle, Line, Path, Polygon, Polyline, Rect } from 'react-native-svg'
 import { compileFormula, createScope, evaluate, isFormula, choiceValue, show } from 'deep-view/core'
 import { t } from '../../ui/i18n.ts'
+import { Press } from '../../ui/press.tsx'
 import { radius, type as typeScale, type Palette } from '../../ui/tokens.ts'
 import { Markdown } from './markdown.tsx'
 import { useTeam } from '../../team/context.tsx'
@@ -182,9 +183,9 @@ function Node({ node, val, p, readOnly, inputs, setInputs, answer, done }: {
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
           <Text style={[type.caption, { color: p.ink2, flex: 1, minWidth: 0 }]}>{String(val(n.label) ?? '')}</Text>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flexShrink: 0 }}>
-            <Pressable accessibilityRole="button" disabled={readOnly} onPress={() => bump(-1)} style={[styles.stepper, { borderColor: p.line }]}><Text style={{ color: p.ink, fontSize: 16 }}>−</Text></Pressable>
+            <Press accessibilityRole="button" to={0.9} disabled={readOnly} onPress={() => bump(-1)} style={[styles.stepper, { borderColor: p.line }]}><Text style={{ color: p.ink, fontSize: 16 }}>−</Text></Press>
             <Text style={[type.settingsRow, { color: p.ink, minWidth: 36, textAlign: 'center' }]}>{value}{n.unit !== undefined ? ` ${String(val(n.unit) ?? '')}` : ''}</Text>
-            <Pressable accessibilityRole="button" disabled={readOnly} onPress={() => bump(1)} style={[styles.stepper, { borderColor: p.line }]}><Text style={{ color: p.ink, fontSize: 16 }}>+</Text></Pressable>
+            <Press accessibilityRole="button" to={0.9} disabled={readOnly} onPress={() => bump(1)} style={[styles.stepper, { borderColor: p.line }]}><Text style={{ color: p.ink, fontSize: 16 }}>+</Text></Press>
           </View>
         </View>
       )
@@ -226,15 +227,15 @@ function Node({ node, val, p, readOnly, inputs, setInputs, answer, done }: {
       const id = String(n.id)
       return (
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 4 }}>
-          <Pressable accessibilityRole="button" disabled={readOnly} onPress={() => answer(id, 'confirm', { confirmed: false })} style={[styles.choice, { backgroundColor: p.hover }]}><Text style={[type.settingsRow, { color: p.ink2, textAlign: 'center' }]}>{String(val(n.cancelLabel) ?? t('Cancel'))}</Text></Pressable>
-          <Pressable accessibilityRole="button" disabled={readOnly} onPress={() => answer(id, 'confirm', { confirmed: true })} style={[styles.choice, { backgroundColor: p.accent }]}><Text style={[type.settingsRow, { color: p.accentInk, textAlign: 'center', fontWeight: '600' }]}>{String(val(n.confirmLabel) ?? t('Confirm'))}</Text></Pressable>
+          <Press accessibilityRole="button" disabled={readOnly} onPress={() => answer(id, 'confirm', { confirmed: false })} style={[styles.choice, { backgroundColor: p.hover }]}><Text style={[type.settingsRow, { color: p.ink2, textAlign: 'center' }]}>{String(val(n.cancelLabel) ?? t('Cancel'))}</Text></Press>
+          <Press accessibilityRole="button" disabled={readOnly} onPress={() => answer(id, 'confirm', { confirmed: true })} style={[styles.choice, { backgroundColor: p.accent }]}><Text style={[type.settingsRow, { color: p.accentInk, textAlign: 'center', fontWeight: '600' }]}>{String(val(n.confirmLabel) ?? t('Confirm'))}</Text></Press>
         </View>
       )
     }
     case 'form':
       return <FormNode n={n} val={val} p={p} readOnly={readOnly} answer={answer} />
     case 'submit':
-      return <Pressable accessibilityRole="button" disabled={readOnly} onPress={() => answer(String(n.id), 'submit', {})} style={[styles.submit, { backgroundColor: p.accent, marginTop: 4 }]}><Text style={[type.settingsRow, { color: p.accentInk, textAlign: 'center' }]}>{String(val(n.label) ?? t('Submit'))}</Text></Pressable>
+      return <Press accessibilityRole="button" disabled={readOnly} onPress={() => answer(String(n.id), 'submit', {})} style={[styles.submit, { backgroundColor: p.accent, marginTop: 4 }]}><Text style={[type.settingsRow, { color: p.accentInk, textAlign: 'center' }]}>{String(val(n.label) ?? t('Submit'))}</Text></Press>
     default: return null
   }
 }
@@ -254,7 +255,7 @@ function OptionsNode({ n, p, readOnly, answer }: { n: Record<string, unknown>; p
           </Pressable>
         )
       })}
-      {multi ? <Pressable accessibilityRole="button" disabled={readOnly || picked.size === 0} onPress={() => answer(id, 'options', { selected: [...picked] })} style={[styles.submit, { backgroundColor: picked.size === 0 ? p.hover : p.accent }]}><Text style={[type.settingsRow, { color: picked.size === 0 ? p.ink3 : p.accentInk, textAlign: 'center' }]}>{t('Submit')}</Text></Pressable> : null}
+      {multi ? <Press accessibilityRole="button" disabled={readOnly || picked.size === 0} onPress={() => answer(id, 'options', { selected: [...picked] })} style={[styles.submit, { backgroundColor: picked.size === 0 ? p.hover : p.accent }]}><Text style={[type.settingsRow, { color: picked.size === 0 ? p.ink3 : p.accentInk, textAlign: 'center' }]}>{t('Submit')}</Text></Press> : null}
     </View>
   )
 }
@@ -272,9 +273,9 @@ function FormNode({ n, val, p, readOnly, answer }: { n: Record<string, unknown>;
           style={[styles.field, { color: p.ink, backgroundColor: p.hover }]} />
         </View>
       ))}
-      <Pressable accessibilityRole="button" disabled={readOnly} onPress={() => answer(id, 'form', { fields: values })} style={[styles.submit, { backgroundColor: p.accent }]}>
+      <Press accessibilityRole="button" disabled={readOnly} onPress={() => answer(id, 'form', { fields: values })} style={[styles.submit, { backgroundColor: p.accent }]}>
         <Text style={[type.settingsRow, { color: p.accentInk, textAlign: 'center' }]}>{String(val(n.submitLabel) ?? t('Submit'))}</Text>
-      </Pressable>
+      </Press>
     </View>
   )
 }
