@@ -23,7 +23,7 @@ export class CodexEngine {
     // still waiting there: a resumed thread needs a fresh one.
     if (thread === undefined || thread.dead) {
       const queue = new EventQueue()
-      thread = { dshSessionId, threadId: undefined, dead: false, push: event => queue.push(event), next: () => queue.next() }
+      thread = { dshSessionId, threadId: undefined, dead: false, push: event => queue.push(event), next: () => queue.next(), dropQueued: () => queue.clear() }
       this.threads.set(dshSessionId, thread)
     }
     return thread

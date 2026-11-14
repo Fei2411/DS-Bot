@@ -29,7 +29,7 @@ export class JsonRpcPeer {
       const call = this.pending.get(message.id)
       if (call === undefined) return
       this.pending.delete(message.id)
-      if (message.error !== undefined) call.reject(Object.assign(new Error(message.error.message ?? 'request failed'), { code: message.error.code, data: message.error.data }))
+      if (message.error !== undefined) call.reject(Object.assign(new Error(errorMessage(message.error)), { code: message.error?.code, data: message.error?.data }))
       else call.resolve(message.result)
       return
     }
@@ -48,7 +48,7 @@ export class JsonRpcPeer {
   }
 
   request(method, params, { signal, timeout = 120_000 } = {}) {
-    if (signal?.aborted) return Promise.reject(signal.reason ?? new Error('aborted'))
+    if (signal?.aborted) return Promise.reject(rejectReason(signal.reason))
     const id = ++this.nextId
     return new Promise((resolve, reject) => {
       let timer
@@ -56,7 +56,7 @@ export class JsonRpcPeer {
         resolve: (value) => { clearTimeout(timer); signal?.removeEventListener('abort', onAbort); resolve(value) },
         reject: (error) => { clearTimeout(timer); signal?.removeEventListener('abort', onAbort); reject(error) },
       }
-      const onAbort = () => call.reject(signal.reason ?? new Error('aborted'))
+      const onAbort = () => call.reject(rejectReason(signal.reason))
       this.pending.set(id, call)
       if (timeout > 0) timer = setTimeout(() => { if (this.pending.delete(id)) call.reject(new Error(`${method} timed out`)) }, timeout)
       if (signal !== undefined) signal.addEventListener('abort', onAbort, { once: true })
@@ -111,4 +111,37 @@ export class EventQueue {
     if (this.events.length > 0) return Promise.resolve(this.events.shift())
     return new Promise(resolve => this.waiters.push(resolve))
   }
+  clear() { this.events.length = 0 }
+}
+
+// JSON-RPC error.message is sometimes an object. `new Error(object)` stringifies
+// it as "[object Object]", which is what the turn would then show.
+function errorMessage(error) {
+  if (typeof error === 'string') return error === '' ? 'request failed' : error
+  if (error == null || typeof error !== 'object') return 'request failed'
+  const message = error.message
+  if (typeof message === 'string' && message !== '' && message !== '[object Object]') return message
+  if (message !== null && typeof message === 'object') {
+    if (typeof message.text === 'string' && message.text !== '') return message.text
+    try {
+      const json = JSON.stringify(message)
+      if (json && json !== '{}' && json !== 'null') return json
+    } catch { /* fall through */ }
+  }
+  if (typeof error.data === 'string' && error.data !== '') return error.data
+  for (const key of ['text', 'detail', 'reason']) {
+    if (typeof error[key] === 'string' && error[key] !== '') return error[key]
+  }
+  try {
+    const json = JSON.stringify(error)
+    if (json && json !== '{}' && json !== 'null') return json
+  } catch { /* fall through */ }
+  return 'request failed'
+}
+
+function rejectReason(reason) {
+  if (reason instanceof Error && reason.message !== '[object Object]') return reason
+  if (typeof reason === 'string' && reason !== '') return new Error(reason)
+  if (reason !== null && typeof reason === 'object') return Object.assign(new Error(errorMessage(reason)), reason.code === undefined ? {} : { code: reason.code })
+  return new Error('aborted')
 }
