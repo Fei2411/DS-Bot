@@ -482,3 +482,30 @@ test('a live Bot Session gets its team tools back after a disable and re-enable'
   assert.ok(hasShowView(second, 'a'), 'the scoped team tools are back')
   assert.ok(denied(second, 'a'), 'the blocking question tool is denied again')
 })
+
+test('a tools/change with no connector off projects no schemas, and still masks one that is off', async (t) => {
+  // #1157: the mask read every visible schema on each tools/change even when the
+  // Bot had turned no connector off, so the deny set it built was always empty.
+  const host = start()
+  t.after(host.stop)
+  await host.call('state', {})
+  await host.agentCreated('a')
+  const schemas = host.ctx.tools.schemas
+  let calls = 0
+  host.ctx.tools.schemas = (agent) => { calls += 1; return schemas(agent) }
+  host.ctx.emit('tools/change')
+  host.ctx.emit('tools/change')
+  assert.equal(calls, 0, 'with no connector off the mask needs no projection')
+  // One connector off: the served names are read, and the matching tool denied.
+  host.ctx.tools.schemas = (agent) => { calls += 1; return [...schemas(agent), { name: 'mcp__notion__search' }] }
+  rt.connectorOffFor = () => ['mcp__notion__']
+  host.ctx.emit('tools/change')
+  const withConnector = calls
+  assert.ok(withConnector > 0, 'the mask reads the schemas it has to filter')
+  assert.ok(host.restricted.some(entry => entry.sessionId === 'a' && entry.deny.includes('mcp__notion__search')), 'the connector tool is denied')
+  // Turned back on: nothing matches, and the deny it took is lifted.
+  rt.connectorOffFor = () => []
+  host.ctx.emit('tools/change')
+  assert.ok(!host.restricted.some(entry => entry.sessionId === 'a' && entry.deny.includes('mcp__notion__search')), 'the deny lifts when the connector is back')
+  assert.equal(calls, withConnector, 'and the lift costs no projection either')
+})

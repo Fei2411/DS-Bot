@@ -1093,6 +1093,19 @@ export function install(rt) {
     if (typeof agent.ctx?.tools?.restrict !== 'function' || typeof ctx.tools?.schemas !== 'function') return
     const botId = rt.selfOf(agent.session?.id)
     const prefixes = rt.connectorOffFor?.(botId) ?? []
+    // With no connector off, no served name can match a prefix, so `deny` would be
+    // empty whatever the schemas say. Read them anyway and the projection — a deep
+    // clone of every visible schema — runs again on each tools/change for every Bot,
+    // and the result is thrown away (#1157). Lift what an earlier pass denied and
+    // stop; the empty-deny path below did the same thing, one projection later.
+    if (prefixes.length === 0) {
+      if ((held.connectorLifts?.length ?? 0) > 0) {
+        for (const lift of held.connectorLifts) { try { lift() } catch { /* already lifted */ } }
+        held.connectorLifts = []
+      }
+      if ((held.connectorDenied?.size ?? 0) > 0) held.connectorDenied = new Set()
+      return
+    }
     const served = new Set(ctx.tools.schemas(agent).map(schema => schema.name))
     const deny = [...served].filter(name => prefixes.some(prefix => name.startsWith(prefix)))
     const before = held.connectorDenied ?? new Set()
