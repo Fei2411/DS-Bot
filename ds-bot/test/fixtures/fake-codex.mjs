@@ -56,6 +56,7 @@ async function elicitTurn(thread, turnId, text) {
 }
 
 function runTurn(thread, turnId, text, effort) {
+  if (/\bhang\b/.test(text)) return
   if (/elicit \S+ \S+/.test(text)) return void elicitTurn(thread, turnId, text)
   // What the thread was opened with, for a test that checks the fields.
   if (text.includes('show-thread')) {

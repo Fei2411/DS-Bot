@@ -197,18 +197,20 @@ export class LocalAgentAdapter extends LlmAdapter {
       // Stamped when the engine emitted it. A later prompt bumps the epoch, so
       // a chunk that was already queued for the cancelled turn cannot be read
       // as the new one even if it is delivered late.
-      if (event?.epoch !== undefined && event.epoch !== live.epoch) return
-      if (live.dropping === true) {
-        if (event?.type === 'done' || event?.type === 'error') this.settleDiscard(live)
+      if (event?.epoch !== undefined && event.epoch !== live.epoch) {
+        this.dropStray(live, event)
         return
       }
-      if (live.dropping === 'armed') return
-      clearTimeout(live.idle)
-      live.idle = setTimeout(() => void this.closeLive(live, { idle: true }), IDLE_CLOSE_MS)
-      live.idle.unref?.()
-      const waiter = live.waiters.shift()
-      if (waiter !== undefined) waiter(event)
-      else live.events.push(event)
+      if (live.dropping === true) {
+        if (event?.type === 'done' || event?.type === 'error') this.settleDiscard(live, event)
+        else this.dropStray(live, event)
+        return
+      }
+      if (live.dropping === 'armed') {
+        this.dropStray(live, event)
+        return
+      }
+      this.acceptEvent(live, event)
     }
     live.next = () => (live.events.length > 0 ? Promise.resolve(live.events.shift()) : new Promise(resolve => live.waiters.push(resolve)))
     this.live.set(sessionId, live)
@@ -261,17 +263,63 @@ export class LocalAgentAdapter extends LlmAdapter {
 
   // The cancelled prompt settled. Events still buffered behind that marker
   // belong to it. The next prompt, if the user already sent one, starts now.
-  settleDiscard(live) {
+  // A process that died instead takes the waiting message back: it was saved
+  // as handed before the CLI ever saw it, and the drain has to hear the exit.
+  settleDiscard(live, event) {
     const held = live.held
     live.held = undefined
-    if (held !== undefined && live.engineSession?.dead !== true) {
+    if (live.engineSession?.dead === true) {
+      if (held !== undefined) this.undoHanded(live)
+      live.dropping = false
+      const failure = event?.type === 'error' ? event : { type: 'error', error: new Error('the local agent exited') }
+      this.acceptEvent(live, failure)
+      return
+    }
+    if (held !== undefined) {
       this.openGate(live)
       this.sendInput(live, held.text, held.signal, held.effort)
-    } else {
-      live.dropping = 'armed'
-      live.events.length = 0
-      live.engineSession?.dropQueued?.()
+      return
     }
+    live.dropping = 'armed'
+    live.events.length = 0
+    live.engineSession?.dropQueued?.()
+  }
+
+  // The marker was written before drain, so a message the CLI never received
+  // would otherwise vanish from the next delta.
+  undoHanded(live) {
+    live.handed = live.handedBefore
+    this.deps.saveRecord(live.sessionId, {
+      route: live.route,
+      cliSessionId: live.cliSessionId,
+      cwd: live.cwd,
+      handedId: live.handed,
+      promptHash: live.promptHash,
+      model: live.model,
+    })
+  }
+
+  // A call or permission that will not be shown must not stay open. The call
+  // is registered before push, so dropping the event would leave it pending
+  // and the next user message would be consumed as its answer.
+  dropStray(live, event) {
+    if (event?.type === 'call' && event.dshCallId !== undefined) {
+      const pending = live.pending.get(event.dshCallId)
+      if (pending !== undefined) {
+        live.pending.delete(event.dshCallId)
+        pending.resolve({ text: 'the turn was stopped', isError: true })
+      }
+    }
+    if (event?.type === 'permission') event.reply?.(null)
+  }
+
+  acceptEvent(live, event) {
+    clearTimeout(live.idle)
+    live.idle = setTimeout(() => void this.closeLive(live, { idle: true }), IDLE_CLOSE_MS)
+    live.idle.unref?.()
+    const waiter = live.waiters.shift()
+    if (waiter !== undefined) waiter(event)
+    else live.events.push(event)
   }
 
   // The next prompt's events are a new turn. Anything stamped earlier is not.
@@ -528,20 +576,25 @@ export class LocalAgentAdapter extends LlmAdapter {
     if (live.dropping === 'armed') this.openGate(live)
     if (live.state !== 'idle') {
       if (live.spec.kind === 'acp') { live.queue.push(text); return }
+      const epoch = live.epoch
       try {
         Promise.resolve(live.engine.steer?.(live.engineSession, text))
-          .catch(error => live.push({ type: 'error', error }))
+          .catch(error => live.push({ type: 'error', error, epoch }))
       } catch (error) {
-        live.push({ type: 'error', error })
+        live.push({ type: 'error', error, epoch })
       }
       return
     }
     live.state = 'running'
+    // The epoch of this prompt, not of whatever turn is current when the
+    // rejection arrives. A cancelled prompt rejects after its replacement
+    // has already opened the next epoch.
+    const epoch = live.epoch
     try {
       Promise.resolve(live.engine.prompt(live.engineSession, [{ type: 'text', text }], { signal, effort }))
-        .catch(error => live.push({ type: 'error', error }))
+        .catch(error => live.push({ type: 'error', error, epoch }))
     } catch (error) {
-      live.push({ type: 'error', error })
+      live.push({ type: 'error', error, epoch })
     }
   }
 

@@ -16,6 +16,8 @@
 // and refuses any other, as it does.
 const exitAfterTurn = process.argv.includes('--exit-after-turn')
 const cursorModes = process.argv.includes('--cursor-modes')
+const deferArg = process.argv.find(arg => arg.startsWith('--defer-cancel='))
+const deferCancel = deferArg === undefined ? 0 : Number(deferArg.slice('--defer-cancel='.length))
 const MODES = cursorModes ? ['agent', 'plan', 'ask'] : ['ask', 'accept-edits', 'bypass']
 let refusedModes = 0
 const sessions = new Map()
@@ -51,6 +53,11 @@ async function runPrompt(session, prompt, requestId) {
     reply(requestId, { stopReason: 'end_turn' })
   }
   if (/\bhang\b/.test(text)) return true // session/cancel finishes the prompt below
+  if (text.includes('fail-now')) {
+    if (session.pendingPrompt === requestId) session.pendingPrompt = undefined
+    fail(requestId, 'policy blocked the tool')
+    return
+  }
   if (text.includes('show-mode')) { finish(`mode: ${session.mode}; refused: ${refusedModes}`); return }
   if (text.includes('ask-permission')) {
     // Like Devin: the call's kind and input arrive with its tool_call update;
@@ -200,16 +207,20 @@ process.stdin.on('data', (chunk) => {
         break
       }
       case 'session/cancel': {
-        const session = sessions.get(params.sessionId)
-        // What a cancelled turn still had in flight. The next user message
-        // must not show it.
-        update(params.sessionId, { sessionUpdate: 'agent_thought_chunk', content: { type: 'text', text: 'STALE_FRAGMENT thought' } })
-        update(params.sessionId, { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'STALE_FRAGMENT text' } })
-        const pending = session?.pendingPrompt
-        if (pending !== undefined) {
-          session.pendingPrompt = undefined
-          fail(pending, { text: 'the cancelled prompt failed' })
+        const finishCancel = () => {
+          const session = sessions.get(params.sessionId)
+          // What a cancelled turn still had in flight. The next user message
+          // must not show it.
+          update(params.sessionId, { sessionUpdate: 'agent_thought_chunk', content: { type: 'text', text: 'STALE_FRAGMENT thought' } })
+          update(params.sessionId, { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'STALE_FRAGMENT text' } })
+          const pending = session?.pendingPrompt
+          if (pending !== undefined) {
+            session.pendingPrompt = undefined
+            fail(pending, { text: 'the cancelled prompt failed' })
+          }
         }
+        if (deferCancel > 0) setTimeout(finishCancel, deferCancel)
+        else finishCancel()
         break
       }
       default:

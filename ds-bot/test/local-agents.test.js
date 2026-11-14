@@ -267,6 +267,158 @@ test('a message sent while the cancelled turn is still emitting is not that turn
   assert.match(out.text, /are you there/)
 })
 
+const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms))
+
+async function untilHeld(adapter, sessionId = 's1') {
+  for (let i = 0; i < 50 && adapter.live.get(sessionId)?.held === undefined; i += 1) await delay(10)
+  assert.ok(adapter.live.get(sessionId)?.held, 'the next prompt waits for the cancelled turn')
+}
+
+// AcpEngine.prompt reports the rejection on the session queue and also returns
+// it. The returned rejection must not fail the message that was waiting.
+// Same shape as AcpEngine.prompt: the rejection is pushed on the session queue
+// and the returned promise rejects, which sendInput catches a second time.
+function doubleRejectEngine() {
+  const queue = new EventQueue()
+  let rejectPrompt
+  const session = {
+    acpSessionId: 'acp-reject',
+    turns: 0,
+    push: event => queue.push(event),
+    next: () => queue.next(),
+    dropQueued: () => queue.clear(),
+  }
+  return {
+    reject() { rejectPrompt(new Error('the cancelled prompt failed')) },
+    open: async () => session,
+    prompt(current, blocks) {
+      current.turns += 1
+      const text = blocks.map(block => block.text ?? '').join('\n')
+      if (current.turns === 1) {
+        const reply = new Promise((resolve, reject) => { rejectPrompt = reject })
+        reply.then(
+          () => current.push({ type: 'done', reason: 'end_turn' }),
+          error => current.push({ type: 'error', error }),
+        )
+        return reply
+      }
+      current.push({ type: 'text', text: `fresh: ${text.slice(-24)}` })
+      current.push({ type: 'done', reason: 'end_turn' })
+      return Promise.resolve()
+    },
+    cancel() {},
+  }
+}
+
+test('a cancelled prompt that rejects twice does not fail the message that was waiting', async (t) => {
+  const engine = doubleRejectEngine()
+  const adapter = makeAdapter({ engine })
+  t.after(() => adapter.dispose())
+  const control = new AbortController()
+  const stream = collect(adapter.stream(options('s1', [user('m1', 'hang')], { signal: control.signal })))
+  setTimeout(() => control.abort(), 30)
+  const aborted = await stream
+  assert.equal(aborted.finish.kind, 'aborted')
+  const second = collect(adapter.stream(options('s1', [user('m1', 'hang'), user('m2', 'are you there')], { signal: AbortSignal.timeout(5_000) })))
+  await untilHeld(adapter)
+  engine.reject()
+  const out = await second
+  assert.equal(out.finish.kind, 'stop')
+  assert.match(out.text, /are you there/)
+  assert.equal(out.text.includes('the cancelled prompt failed'), false)
+  const after = await collect(adapter.stream(options('s1', [user('m1', 'hang'), user('m2', 'are you there'), user('m3', 'and now')], { signal: AbortSignal.timeout(5_000) })))
+  assert.equal(after.finish.kind, 'stop')
+  assert.match(after.text, /and now/)
+})
+
+test('a deferred ACP reject does not fail the message waiting on the cancelled prompt', async (t) => {
+  const adapter = makeAdapter({ acpArgs: ['--defer-cancel=200'] })
+  t.after(() => adapter.dispose())
+  const control = new AbortController()
+  const stream = collect(adapter.stream(options('s1', [user('m1', 'hang')], { signal: control.signal })))
+  setTimeout(() => control.abort(), 200)
+  const aborted = await stream
+  assert.equal(aborted.finish.kind, 'aborted')
+  const next = await collect(adapter.stream(options('s1', [user('m1', 'hang'), user('m2', 'are you there')], { signal: AbortSignal.timeout(5_000) })))
+  assert.equal(next.finish.kind, 'stop')
+  assert.match(next.text, /are you there/)
+  assert.equal(next.text.includes('the cancelled prompt failed'), false)
+  assert.equal(next.text.includes('STALE_FRAGMENT'), false)
+  // The rejection is also pushed again with no epoch. That copy used to sit
+  // in the queue and fail the turn after the replacement.
+  const after = await collect(adapter.stream(options('s1', [user('m1', 'hang'), user('m2', 'are you there'), user('m3', 'and now')], { signal: AbortSignal.timeout(5_000) })))
+  assert.equal(after.finish.kind, 'stop')
+  assert.match(after.text, /and now/)
+  assert.equal(after.text.includes('the cancelled prompt failed'), false)
+})
+
+test('an ACP prompt failure is not delivered again on the next message', async (t) => {
+  const adapter = makeAdapter()
+  t.after(() => adapter.dispose())
+  await assert.rejects(
+    collect(adapter.stream(options('s1', [user('m1', 'fail-now')]))),
+    error => error.code === 'LOCAL_AGENT_ERROR' && /policy blocked the tool/.test(error.message),
+  )
+  const next = await collect(adapter.stream(options('s1', [user('m1', 'fail-now'), user('m2', 'hello again')])))
+  assert.equal(next.finish.kind, 'stop')
+  assert.match(next.text, /hello again/)
+  assert.equal(next.text.includes('policy blocked'), false)
+})
+
+test('a CLI that exits while the next message is waiting reports the exit and keeps the message unsent', async (t) => {
+  const cases = [
+    ['local-acp-fake', ['--defer-cancel=30000'], engine => engine.child],
+    ['local-claude-code', [], engine => engine.sessions.get('s1').child],
+    ['local-codex-cli', [], engine => engine.child],
+  ]
+  for (const [provider, args, childOf] of cases) {
+    const records = {}
+    const adapter = makeAdapter({
+      records,
+      ...(provider === 'local-acp-fake' ? { acpArgs: args } : {}),
+    })
+    t.after(() => adapter.dispose())
+    const control = new AbortController()
+    const request = (messages, extra = {}) => options('s1', messages, { provider, signal: control.signal, ...extra })
+    const stream = collect(adapter.stream(request([user('m1', 'hang')])))
+    setTimeout(() => control.abort(), 200)
+    const aborted = await stream
+    assert.equal(aborted.finish.kind, 'aborted', provider)
+    const second = collect(adapter.stream(request(
+      [user('m1', 'hang'), user('m2', 'please continue')],
+      { signal: AbortSignal.timeout(5_000) },
+    )))
+    await untilHeld(adapter)
+    childOf(adapter.engines.get(provider)).kill('SIGTERM')
+    await assert.rejects(second, error => /exited/.test(error.message) && error.code === 'LOCAL_AGENT_EXIT')
+    assert.equal(records.s1.handedId, 'm1', provider)
+  }
+})
+
+test('a tool call that arrives after the turn was stopped does not consume the next message', async (t) => {
+  const adapter = makeAdapter({ acpArgs: ['--defer-cancel=400'] })
+  t.after(() => adapter.dispose())
+  const control = new AbortController()
+  const stream = collect(adapter.stream(options('s1', [user('m1', 'hang')], { signal: control.signal })))
+  setTimeout(() => control.abort(), 200)
+  const aborted = await stream
+  assert.equal(aborted.finish.kind, 'aborted')
+  const live = adapter.live.get('s1')
+  assert.equal(live.dropping, true)
+  const call = await fetch(live.mcp.url, {
+    method: 'POST',
+    signal: AbortSignal.timeout(2_000),
+    headers: { authorization: `Bearer ${live.mcp.token}`, 'content-type': 'application/json', accept: 'text/event-stream' },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 7, method: 'tools/call', params: { name: 'message_bot', arguments: { to: 'Chief', message: 'late' } } }),
+  })
+  const body = await call.text()
+  assert.match(body, /the turn was stopped/)
+  assert.equal(live.pending.size, 0)
+  const next = await collect(adapter.stream(options('s1', [user('m1', 'hang'), user('m2', 'are you there')], { signal: AbortSignal.timeout(5_000) })))
+  assert.equal(next.finish.kind, 'stop')
+  assert.match(next.text, /are you there/)
+})
+
 test('a plain-object agent failure is a readable LOCAL_AGENT_ERROR', async (t) => {
   const fail = (error) => makeAdapter({
     engine: {

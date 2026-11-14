@@ -199,7 +199,10 @@ export class AcpEngine {
       result => session.push({ type: 'done', reason: result?.stopReason ?? 'end_turn' }),
       error => session.push({ type: 'error', error }),
     )
-    return reply
+    // One delivery. sendInput also catches this promise; a second push is not
+    // stamped until that catch runs, which can be after the next prompt has
+    // already started, so the cancelled error fails the replacement.
+    return reply.then(() => {}, () => {})
   }
 
   cancel(session) {
