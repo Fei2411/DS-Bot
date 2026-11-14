@@ -627,3 +627,61 @@ test('a platform status error is redacted of the stored secret', async (t) => {
   assert.equal(status.state, 'error')
   assert.ok(!status.error.includes('tok-1234'), 'the token is redacted')
 })
+
+test('an approval opened while the connection is down is sent when it comes back', async (t) => {
+  const s = await start()
+  t.after(s.stop)
+  const conn = await add(s)
+  const one = s.rt.state.im.connections[conn.id]
+  one.paired.push({ id: 'u1', name: 'U1', at: 1 })
+  await s.rt.save()
+  await dm(s, 'u1', 'hi')
+  // The connection drops: the adapter stops, so no card can go out.
+  one.enabled = false
+  await s.rt.save()
+  await s.flush()
+  s.fake.sent.length = 0
+  void s.fireApprovals(
+    { agent: { id: 'a' }, toolName: 'bash', reason: 'while down', signal: new AbortController().signal },
+    () => new Promise(() => {}),
+  )
+  await s.flush()
+  assert.equal(s.fake.sent.filter(entry => entry.buttons !== undefined).length, 0, 'nothing goes out while the connection is down')
+  // Back up: the card differences catch up on the approval that still waits.
+  one.enabled = true
+  await s.rt.save()
+  await s.flush()
+  await s.flush()
+  const cards = s.fake.sent.filter(entry => entry.buttons !== undefined)
+  assert.equal(cards.length, 1, 'the approval is sent once the connection is back')
+  assert.match(cards[0].text, /while down/)
+  assert.ok(cards[0].buttons.some(button => button.data.endsWith(':allow')))
+})
+
+test('an approval sent while the connection is up is not sent twice', async (t) => {
+  const s = await start()
+  t.after(s.stop)
+  const conn = await add(s)
+  const one = s.rt.state.im.connections[conn.id]
+  one.paired.push({ id: 'u1', name: 'U1', at: 1 })
+  await s.rt.save()
+  await dm(s, 'u1', 'hi')
+  s.fake.sent.length = 0
+  void s.fireApprovals(
+    { agent: { id: 'a' }, toolName: 'bash', reason: 'while up', signal: new AbortController().signal },
+    () => new Promise(() => {}),
+  )
+  await s.flush()
+  assert.equal(s.fake.sent.filter(entry => entry.buttons !== undefined).length, 1)
+  // A save and a reconnect both run the differences again; the recorded card stops a second send.
+  await s.rt.save()
+  await s.flush()
+  one.enabled = false
+  await s.rt.save()
+  await s.flush()
+  one.enabled = true
+  await s.rt.save()
+  await s.flush()
+  await s.flush()
+  assert.equal(s.fake.sent.filter(entry => entry.buttons !== undefined).length, 1, 'the card is recorded after the first send')
+})

@@ -612,6 +612,19 @@ export function install(rt) {
         const form = viewCardText({ title: view.title, view: view.view })
         await sendCard(conn, cardKey, listeners(conn, { botId }), `${text('viewShow', { bot: bot.name })}${form !== '' ? `\n${form}` : view.title ? `\n${view.title}` : ''}`)
       }
+      // Approvals still waiting. One goes out as it opens, but a request that
+      // arrives while the connection is down has no card at all: the differences
+      // run once the adapter starts send it, so the work it holds does not wait on
+      // a card the user never saw (#1122). An approval answered in the meantime
+      // has left the view, and one already sent has its record.
+      for (const approval of rt.approvalsView()) {
+        const cardKey = `a:${approval.id}`
+        if (data.cards[cardKey] !== undefined) continue
+        const targets = approval.roomId !== undefined ? listeners(conn, { roomId: approval.roomId }) : listeners(conn, { botId: approval.botId })
+        if (targets.length === 0) continue
+        const buttons = imPlatform(conn.platform)?.buttons === true ? cardButtons.approval(approval.id) : undefined
+        await sendCard(conn, cardKey, targets, cardText.approval(rt.botOf(approval.botId)?.name ?? '?', approval), buttons)
+      }
     }
   }
 
