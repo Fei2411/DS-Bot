@@ -321,6 +321,21 @@ export function install(rt) {
   /** @type {Map<string, Map<string, {state:string, error?:string, at:number}>>} */
   const sendStatuses = new Map()
   const failedSends = new Map()
+  const pendingSends = new Map()
+  const setPendingSend = (id, chatKey, entry) => {
+    let chats = pendingSends.get(id)
+    if (chats === undefined) pendingSends.set(id, chats = new Map())
+    chats.set(chatKey, entry)
+  }
+  const clearPendingSend = (id, chatKey, entry) => {
+    if (entry === undefined) return
+    const chats = pendingSends.get(id)
+    if (chats?.get(chatKey) === entry) {
+      chats.delete(chatKey)
+      if (chats.size === 0) pendingSends.delete(id)
+    }
+    entry.resolve()
+  }
   const failedFor = (id, chatKey) => {
     let chats = failedSends.get(id)
     if (chats === undefined) failedSends.set(id, chats = new Map())
@@ -491,6 +506,11 @@ export function install(rt) {
     queue.draining = true
     try {
       while (!runner.stopped && queue.jobs.length > 0) {
+        const prior = pendingSends.get(conn.id)?.get(chatKey)
+        if (prior !== undefined) {
+          await prior.promise
+          continue
+        }
         const job = queue.jobs[0]
         queue.sending = true
         let sent
@@ -498,13 +518,26 @@ export function install(rt) {
           sent = await runner.handle.send(job.chat, job)
         } catch (error) {
           queue.sending = false
+          const settled = queue.stoppedSend
+          queue.stoppedSend = undefined
           const how = failClass(error)
           if (runner.stopped || connections()[conn.id] === undefined) {
             queue.jobs.shift()
+            const waiter = settled?.waiter
+            const replay = waiter !== undefined && !waiter.runner.stopped && runners.get(conn.id) === waiter.runner ? waiter : undefined
             if (connections()[conn.id] === undefined || stopped || how === 'drop') {
               await Promise.resolve(job.onDrop?.()).catch(() => {})
+              clearPendingSend(conn.id, chatKey, settled)
+            } else if (replay !== undefined) {
+              let nextQueue = replay.runner.queues.get(chatKey)
+              if (nextQueue === undefined) replay.runner.queues.set(chatKey, nextQueue = { jobs: [] })
+              job.attempts = 0
+              nextQueue.jobs.unshift(job)
+              clearPendingSend(conn.id, chatKey, settled)
+              if (!nextQueue.draining) void drain(replay.conn, chatKey)
             } else {
-              retainFailed(conn.id, chatKey, job, failMessage(error), queue.firstRetained)
+              retainFailed(conn.id, chatKey, job, failMessage(error), settled?.firstRetained ?? queue.firstRetained)
+              clearPendingSend(conn.id, chatKey, settled)
             }
             break
           }
@@ -536,10 +569,18 @@ export function install(rt) {
         }
         queue.sending = false
         queue.jobs.shift()
-        if (connections()[conn.id] === undefined) break
-        job.after?.(sent)
+        const settled = queue.stoppedSend
+        queue.stoppedSend = undefined
+        if (connections()[conn.id] !== undefined) {
+          job.after?.(sent)
+          const current = runners.get(conn.id)
+          const waiterDone = settled?.waiter !== undefined && current === settled.waiter.runner && (current.queues.get(chatKey)?.jobs.length ?? 0) === 0
+          if (((!runner.stopped && current === runner) || waiterDone) && (failedSends.get(conn.id)?.get(chatKey)?.length ?? 0) === 0) {
+            setSendStatus(conn.id, chatKey, undefined)
+          }
+        }
+        clearPendingSend(conn.id, chatKey, settled)
         if (runner.stopped || runners.get(conn.id) !== runner) break
-        if ((failedSends.get(conn.id)?.get(chatKey)?.length ?? 0) === 0) setSendStatus(conn.id, chatKey, undefined)
       }
     } finally {
       queue.sending = false
@@ -996,6 +1037,13 @@ export function install(rt) {
       clearTimeout(queue.retry)
       queue.retry = undefined
       const rest = queue.jobs.splice(queue.sending ? 1 : 0)
+      const pending = pendingSends.get(id)?.get(chatKey)
+      if (!dropOnly && queue.sending && queue.stoppedSend === undefined) {
+        let resolve
+        const promise = new Promise((done) => { resolve = done })
+        queue.stoppedSend = { firstRetained: rest[0], promise, resolve }
+        setPendingSend(id, chatKey, queue.stoppedSend)
+      }
       if (rest.length === 0) continue
       if (dropOnly) {
         for (const job of rest) dropped.push(Promise.resolve(job.onDrop?.()).catch(() => {}))
@@ -1003,6 +1051,7 @@ export function install(rt) {
       }
       const prevError = sendStatuses.get(id)?.get(chatKey)?.error
       queue.firstRetained = rest[0]
+      if (pending !== undefined) pending.firstRetained ??= rest[0]
       failedFor(id, chatKey).push(...rest)
       setSendStatus(id, chatKey, { state: 'error', error: prevError || 'Stopped before delivery' })
     }
@@ -1156,6 +1205,8 @@ export function install(rt) {
       delete connections()[id]
       failedSends.delete(id)
       sendStatuses.delete(id)
+      for (const entry of pendingSends.get(id)?.values() ?? []) entry.resolve()
+      pendingSends.delete(id)
       runtimes.delete(id)
       await rm(join(imDir, `${id}.json`), { force: true }).catch(() => {})
       await rt.save()
@@ -1217,11 +1268,16 @@ export function install(rt) {
       if (!runners.has(conn.id)) return true
       const chats = failedSends.get(conn.id)
       failedSends.delete(conn.id)
+      const runner = runners.get(conn.id)
+      for (const [chatKey, pending] of pendingSends.get(conn.id) ?? []) {
+        pending.firstRetained = undefined
+        pending.waiter = { conn, runner }
+        setSendStatus(conn.id, chatKey, { state: 'retrying' })
+      }
       for (const [chatKey, jobs] of chats ?? []) {
         setSendStatus(conn.id, chatKey, { state: 'retrying' })
         for (const job of jobs) enqueue(conn, chatKey, job)
       }
-      const runner = runners.get(conn.id)
       for (const [chatKey, queue] of runner?.queues ?? []) {
         if (queue.retry === undefined || queue.draining || queue.jobs.length === 0) continue
         clearTimeout(queue.retry)
