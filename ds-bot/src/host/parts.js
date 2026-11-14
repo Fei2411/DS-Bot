@@ -1973,6 +1973,14 @@ export function install(rt) {
     // Marked as a switch until its tasks sit on the opened part and it is archived, so
     // the restart pass (handOnHeld) finishes a move that fails here.
     state.switching[current] = { botId }
+    if (state.questions[current] !== undefined) {
+      rt.closeCard(current, state.questions[current], 'dismissed')
+      delete state.questions[current]
+    }
+    if (state.views?.[current] !== undefined) {
+      rt.closeCard(current, state.views[current], 'dismissed')
+      delete state.views[current]
+    }
     await rt.applyModel(bot, { force: true }).catch(error => rt.warn('ds-bot: model for %s not applied: %s', bot.name, error))
     const room = undefined
     await rt.applyPermission(bot, partId, room).catch(() => {})

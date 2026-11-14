@@ -58,6 +58,8 @@ const NOTICE_TEXT_MAX = 300
 const ROOM_PAGE = 60
 // A round's events come in bursts; one `room` feed event covers each burst.
 const ROOM_SIGNAL_MS = 150
+// Non-revision pending items (approvals, browser holds) coalesce briefly into one `live` signal.
+const LIVE_SIGNAL_MS = 50
 const ROUND_EVENTS = new Set(['done', 'stopped', 'working', 'approval', 'failed', 'missed', 'lookup', 'resumed', 'cut'])
 const POST_HEADER = /^\[Group post from [^\r\n]*\]\r?\n/
 
@@ -231,9 +233,24 @@ export function install(rt) {
     if (text !== '' && text !== HANDOFF_ACK) botNotice(botId, { kind: 'message', sessionId: id, text })
   })
 
+  let liveTimer
+  const liveChanged = () => {
+    if (liveTimer !== undefined) return
+    liveTimer = setTimeout(() => {
+      liveTimer = undefined
+      rt.publishFeed?.('live', {})
+    }, LIVE_SIGNAL_MS)
+  }
+  const offApproval = rt.onApproval?.(() => liveChanged())
+  const offHolds = rt.browserChannel?.subscribeHolds?.(() => liveChanged())
+
   ctx.effect(() => () => {
     for (const timer of roomTimers.values()) clearTimeout(timer)
     roomTimers.clear()
+    clearTimeout(liveTimer)
+    liveTimer = undefined
+    offApproval?.()
+    offHolds?.()
   }, 'ds-bot: mobile room signals')
 
   rt.apiVersion = API_VERSION
