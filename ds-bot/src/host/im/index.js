@@ -346,7 +346,13 @@ export function install(rt) {
     while (queue.jobs.length > 0) {
       const job = queue.jobs[0]
       try {
-        const sent = await runner.handle.send(job.chat, job)
+        // A queued job can carry a chat snapshot from before the topic was known;
+        // the saved chat is the source of truth.
+        const storedChat = conn.chats?.[chatKey]
+        const chat = storedChat?.threadId === undefined
+          ? job.chat
+          : { ...job.chat, threadId: storedChat.threadId, threadMessageId: storedChat.threadMessageId }
+        const sent = await runner.handle.send(chat, job)
         job.after?.(sent)
         queue.jobs.shift()
       } catch (error) {
@@ -464,8 +470,26 @@ export function install(rt) {
     }
     conn.chats ??= {}
     if (msg.chat.kind === 'group' && !msg.mentioned) return
-    if (conn.chats[msg.chat.key] === undefined) {
-      conn.chats[msg.chat.key] = { kind: msg.chat.kind, title: msg.chat.title, at: Date.now() }
+    const storedChat = conn.chats[msg.chat.key]
+    // A message in a topic keeps later answers there; a top-level message ends it.
+    // The chat is saved, so the topic also survives a restart.
+    if (storedChat === undefined) {
+      conn.chats[msg.chat.key] = {
+        kind: msg.chat.kind,
+        title: msg.chat.title,
+        at: Date.now(),
+        ...(msg.chat.threadId === undefined ? {} : { threadId: msg.chat.threadId, threadMessageId: msg.chat.threadMessageId }),
+      }
+      await rt.save()
+    } else if (msg.chat.threadId === undefined) {
+      if (storedChat.threadId !== undefined) {
+        delete storedChat.threadId
+        delete storedChat.threadMessageId
+        await rt.save()
+      }
+    } else if (storedChat.threadId !== msg.chat.threadId || storedChat.threadMessageId !== msg.chat.threadMessageId) {
+      storedChat.threadId = msg.chat.threadId
+      storedChat.threadMessageId = msg.chat.threadMessageId
       await rt.save()
     }
     const body = String(msg.text ?? '').trim()

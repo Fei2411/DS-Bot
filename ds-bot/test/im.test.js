@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
@@ -30,7 +30,8 @@ const fakeAdapter = ({ buttons = true } = {}) => {
       handlers.onStatus({ state: 'ready', account: { id: 'bot1', name: '@fakebot' } })
       return {
         send: async (chat, body) => {
-          sent.push({ chat, ...body })
+          // Keep the chat the adapter was handed: drain injects the topic into it.
+          sent.push({ ...body, chat })
           const next = fails.shift()
           if (next !== undefined) throw next
           return { messageId: sent.length }
@@ -222,6 +223,43 @@ test('outbound: assistant text and member lines go out; hidden turns, user and s
   assert.equal(s.fake.sent.length, 2)
   assert.equal(s.fake.sent[1].text, '**Writer**: member spoke')
   assert.equal(s.fake.sent[1].chat.key, 'g1')
+})
+
+test('a topic message is saved on the chat, injected into later sends and cleared by a top-level message', async (t) => {
+  const s = await start()
+  t.after(s.stop)
+  const conn = await add(s)
+  const one = s.rt.state.im.connections[conn.id]
+  one.paired.push({ id: 'u1', name: 'U1', at: 1 })
+  one.chats.g1 = { kind: 'group', title: 'G', target: { roomId: 'r1' }, at: 1 }
+  await s.rt.save()
+  const chat = () => s.rt.state.im.connections[conn.id].chats.g1
+
+  await gm(s, 'u1', 'in topic', { chat: { key: 'g1', kind: 'group', title: 'G', threadId: 'th_1', threadMessageId: 'om_1' } })
+  assert.equal(chat().threadId, 'th_1')
+  assert.equal(chat().threadMessageId, 'om_1')
+  const saved = JSON.parse(readFileSync(join(s.home, 'state.json'), 'utf8'))
+  const savedChat = Object.values(saved.im.connections)[0].chats.g1
+  assert.equal(savedChat.threadId, 'th_1', 'the topic is part of the saved chat')
+  assert.equal(savedChat.threadMessageId, 'om_1')
+
+  // A send built from the stored chat (a room line) carries the topic through the queue.
+  const room = s.rt.roomOf('r1')
+  s.fake.sent.length = 0
+  s.rt.logRoom(room, { who: 'Writer', botId: 'b', text: 'member spoke' })
+  await s.flush()
+  assert.equal(s.fake.sent.length, 1)
+  assert.equal(s.fake.sent[0].chat.threadId, 'th_1')
+  assert.equal(s.fake.sent[0].chat.threadMessageId, 'om_1')
+
+  await gm(s, 'u1', 'top level')
+  assert.equal(chat().threadId, undefined)
+  assert.equal(chat().threadMessageId, undefined)
+  s.fake.sent.length = 0
+  s.rt.logRoom(room, { who: 'Writer', botId: 'b', text: 'again' })
+  await s.flush()
+  assert.equal(s.fake.sent.length, 1)
+  assert.equal(s.fake.sent[0].chat.threadId, undefined, 'no topic after a top-level message')
 })
 
 test('IM user messages are tagged by seq for the current part; a part that is no longer current drops out', async (t) => {

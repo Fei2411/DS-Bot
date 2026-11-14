@@ -313,3 +313,72 @@ test('a socket that cannot be built at the handshake is retried (#1119)', async 
   assert.ok(ready !== undefined, 'the connection became ready after a new socket')
   assert.equal(fake.sockets.length, 1)
 })
+
+test('a post message reads its rows, not an empty content.text', async (t) => {
+  const fake = await fakeFeishu()
+  const messages = []
+  const handle = feishu.connect(FIELDS, env(fake), { onMessage: async msg => { messages.push(msg) }, onAction: () => {}, onStatus: () => {} })
+  t.after(() => { handle.stop(); fake.close() })
+  const ws = await until(() => fake.sockets[0])
+  fake.push(ws, fake.dataFrame('event', message({
+    chat_type: 'group',
+    chat_id: 'oc_9',
+    message_id: 'om_9',
+    message_type: 'post',
+    content: JSON.stringify({
+      title: '',
+      content: [
+        [{ tag: 'text', text: '@_user_1 hello ', style: [] }, { tag: 'a', text: 'docs', href: 'https://example.com' }],
+        [{ tag: 'at', user_name: 'Tom' }, { tag: 'text', text: ' see ' }, { tag: 'code_block', text: 'npm test' }],
+      ],
+    }),
+    mentions: [{ key: '@_user_1', id: { open_id: 'ou_bot' } }],
+  }), { messageId: 'fm9' }))
+  fake.push(ws, fake.dataFrame('event', message({
+    chat_type: 'group',
+    chat_id: 'oc_9',
+    message_id: 'om_10',
+    message_type: 'post',
+    content: JSON.stringify({ content_v2: [[{ tag: 'text', text: 'from content_v2' }]] }),
+    mentions: [{ key: '@_user_1', id: { open_id: 'ou_bot' } }],
+  }), { messageId: 'fm10' }))
+  await until(() => messages.length === 2)
+  assert.equal(messages[0].text, 'hello docs\nTom see npm test')
+  assert.equal(messages[1].text, 'from content_v2')
+})
+
+test('a topic message carries its thread, and the answer replies inside it', async (t) => {
+  const fake = await fakeFeishu()
+  const messages = []
+  const handle = feishu.connect(FIELDS, env(fake), { onMessage: async msg => { messages.push(msg) }, onAction: () => {}, onStatus: () => {} })
+  t.after(() => { handle.stop(); fake.close() })
+  const ws = await until(() => fake.sockets[0])
+  await until(() => fake.calls.some(call => call.path === '/open-apis/bot/v3/info'))
+  const group = (body) => message({
+    chat_type: 'group',
+    chat_id: 'oc_3',
+    message_type: 'text',
+    content: JSON.stringify({ text: '@_user_1 ping' }),
+    mentions: [{ key: '@_user_1', id: { open_id: 'ou_bot' } }],
+    ...body,
+  })
+  fake.push(ws, fake.dataFrame('event', group({ message_id: 'om_in', thread_id: 'th_1' }), { messageId: 'fm_in' }))
+  fake.push(ws, fake.dataFrame('event', group({ message_id: 'om_top' }), { messageId: 'fm_top' }))
+  await until(() => messages.length === 2)
+  assert.equal(messages[0].chat.threadId, 'th_1')
+  assert.equal(messages[0].chat.threadMessageId, 'om_in')
+  assert.equal(messages[1].chat.threadId, undefined, 'a top-level message has no topic')
+
+  await handle.send(messages[0].chat, { text: 'answer' })
+  const reply = fake.calls.find(call => call.path === '/open-apis/im/v1/messages/om_in/reply')
+  assert.ok(reply, 'a topic message is answered with the reply endpoint')
+  assert.equal(reply.params.reply_in_thread, true)
+  assert.equal(reply.params.msg_type, 'text')
+  assert.equal(JSON.parse(reply.params.content).text, 'answer')
+  assert.equal(fake.calls.filter(call => call.path === '/open-apis/im/v1/messages/om_in/reply').length, 1)
+
+  await handle.send(messages[1].chat, { text: 'top answer' })
+  const posted = fake.calls.find(call => call.path.startsWith('/open-apis/im/v1/messages?'))
+  assert.ok(posted, 'a message without a topic still posts to the chat')
+  assert.equal(posted.params.receive_id, 'oc_3')
+})

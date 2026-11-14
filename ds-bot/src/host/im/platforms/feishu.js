@@ -168,18 +168,28 @@ export default {
         const direct = message.chat_type === 'p2p'
         const mentioned = !direct && (message.mentions ?? []).some(m => m.id?.open_id === botOpenId || m.key === `@_user_${1}`)
         const content = safeJson(message.content)
-        const text = String(content.text ?? '').replace(/@_user_\d+/g, '').trim()
+        const text = String(message.message_type === 'post' ? postText(content) : (content.text ?? ''))
+          .replace(/@_user_\d+/g, '').trim()
         const images = []
         if (message.message_type === 'image' && content.image_key !== undefined) {
           const bytes = await resource(env, apiBase(env, fields), token, message.message_id, content.image_key, 'image').catch(() => undefined)
           if (bytes !== undefined) images.push({ mediaType: 'image/png', data: Buffer.from(bytes).toString('base64') })
         }
         const sender = event.sender?.sender_id?.open_id ?? event.sender?.user_id ?? ''
+        const chatKey = String(message.chat_id ?? '')
+        const messageId = String(message.message_id ?? '')
+        const threadId = String(message.thread_id ?? '')
         await handlers.onMessage({
-          chat: { key: String(message.chat_id ?? ''), kind: direct ? 'direct' : 'group', title: String(message.chat_id ?? '') },
+          chat: {
+            key: chatKey,
+            kind: direct ? 'direct' : 'group',
+            title: chatKey,
+            // The host keeps a topic on the chat, so later answers can reply there.
+            ...(threadId === '' || messageId === '' ? {} : { threadId, threadMessageId: messageId }),
+          },
           sender: { id: String(sender), name: String(sender) },
           text, images, files: [],
-          mentioned, messageId: String(message.message_id ?? ''),
+          mentioned, messageId,
         })
       }
       if (type === 'card' || payload.header?.event_type === 'card.action.trigger') {
@@ -327,16 +337,21 @@ export default {
     return {
       send: async (chat, { text, buttons }) => {
         const chunks = chunkMarkdown(String(text ?? ''), TEXT_LIMIT)
+        const inThread = chat.threadId !== undefined && chat.threadMessageId !== undefined
         let messageId
         for (const [index, chunk] of chunks.entries()) {
           const interactive = buttons !== undefined && index === chunks.length - 1
-          const sent = await rest('/open-apis/im/v1/messages?receive_id_type=chat_id', {
-            body: {
-              receive_id: chat.key,
-              msg_type: interactive ? 'interactive' : 'text',
-              content: interactive ? card(chunk, buttons) : JSON.stringify({ text: chunk }),
-            },
-          })
+          const payload = {
+            msg_type: interactive ? 'interactive' : 'text',
+            content: interactive ? card(chunk, buttons) : JSON.stringify({ text: chunk }),
+          }
+          const sent = inThread
+            ? await rest(`/open-apis/im/v1/messages/${chat.threadMessageId}/reply`, {
+              body: { ...payload, reply_in_thread: true },
+            })
+            : await rest('/open-apis/im/v1/messages?receive_id_type=chat_id', {
+              body: { receive_id: chat.key, ...payload },
+            })
           messageId = String(sent?.data?.message_id ?? messageId ?? '')
         }
         return { messageId }
@@ -355,6 +370,25 @@ export default {
       },
     }
   },
+}
+
+// Feishu rich text (post) keeps its text in rows of elements instead of
+// content.text. Keep what a Bot can read: text, links, code and @names.
+const postText = (content) => {
+  const rows = content?.content_v2 ?? content?.content
+  if (!Array.isArray(rows)) return ''
+  const lines = []
+  for (const row of rows) {
+    const elements = Array.isArray(row) ? row : [row]
+    let line = ''
+    for (const element of elements) {
+      if (element === null || typeof element !== 'object') continue
+      if (element.tag === 'text' || element.tag === 'a' || element.tag === 'code_block') line += String(element.text ?? '')
+      else if (element.tag === 'at') line += String(element.user_name ?? '')
+    }
+    if (line !== '') lines.push(line)
+  }
+  return lines.join('\n')
 }
 
 const safeJson = (text) => { try { return JSON.parse(text ?? '{}') } catch { return {} } }
