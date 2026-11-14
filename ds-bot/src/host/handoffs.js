@@ -10,6 +10,7 @@ import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node
 import { join } from 'node:path'
 import { LATE_ANSWER, TEXT_KEPT } from './constants.js'
 import { headOf } from './text.js'
+import { isOpenPart, ownChatSessions } from './threads.js'
 
 const minutes = since => {
   const count = Math.floor((Date.now() - since) / 60_000)
@@ -398,10 +399,16 @@ export function install(rt) {
   // What a Bot is doing, in one line for the Bots that work with it.
   function statusOf(botId) {
     const chat = rt.chatOf(botId)
-    const sessions = [...new Set([chat, ...(rt.groupSessionsOf?.(botId) ?? [])])]
+    // A Bot's own chat may keep parts running in the background, as its group Sessions
+    // may run: a Bot working there is not idle, and the line says where.
+    const bot = rt.botOf(botId)
+    const own = bot === undefined ? [chat] : ownChatSessions(bot)
+    const sessions = [...new Set([...own, ...(rt.groupSessionsOf?.(botId) ?? [])])]
     const place = sessionId => {
       const room = rt.roomOf(rt.groupOwners.get(sessionId)?.roomId)
-      return room ? `in group "${room.name}"` : 'in its own chat'
+      if (room) return `in group "${room.name}"`
+      // The same words the message_bot note uses for a background part.
+      return isOpenPart(bot, sessionId) ? 'in another of its conversations' : 'in its own chat'
     }
     const forWhom = (sessionId, info) => {
       if (rt.groupOwners.has(sessionId)) return info?.askedBy && nameOf(info.askedBy) ? `, for ${nameOf(info.askedBy)}` : ''
