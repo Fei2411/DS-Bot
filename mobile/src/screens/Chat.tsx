@@ -3,7 +3,7 @@ import { ActivityIndicator, Dimensions, FlatList, KeyboardAvoidingView, Linking,
 import { useNavigation } from '@react-navigation/native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import * as Haptics from 'expo-haptics'
-import * as FileSystem from 'expo-file-system/legacy'
+import { downloadFile } from '../team/file-download.ts'
 import * as Sharing from 'expo-sharing'
 import type { Approval, Bot, Question, Room } from '../connection.ts'
 import { createChatCache } from '../team/chat-cache.ts'
@@ -220,12 +220,9 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
       : { sessionId: targetSession, seq: file.seq, index: file.index }
     void (async () => {
       try {
-        const saved = (await call('file-download', payload)) as { name?: string; mime?: string; bytes?: string }
-        const name = (saved.name ?? file.name ?? 'file').replace(/[^\w.-]+/g, '_')
-        const uri = `${FileSystem.cacheDirectory ?? ''}${name}`
-        await FileSystem.writeAsStringAsync(uri, saved.bytes ?? '', { encoding: FileSystem.EncodingType.Base64 })
+        const saved = await downloadFile(call, payload)
         if (!(await Sharing.isAvailableAsync())) throw new Error(t('Saving to the device is not available on this phone'))
-        await Sharing.shareAsync(uri, { mimeType: saved.mime ?? 'application/octet-stream', dialogTitle: name })
+        await Sharing.shareAsync(saved.uri, { mimeType: saved.mime, dialogTitle: saved.name })
       } catch (failure) {
         const msg = (failure as { message?: string })?.message
         setFileError(msg ?? t('Could not save this file'))

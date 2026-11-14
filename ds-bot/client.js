@@ -36718,6 +36718,25 @@ function installHeaderNavigation(slots, face, component, priority) {
   };
 }
 
+// src/shared/file-chunks.js
+async function* fileChunks(call2, target) {
+  let offset = 0;
+  let version;
+  for (; ; ) {
+    const part = await call2("file-download", { ...target, offset, ...version === void 0 ? {} : { version } });
+    const bytes = Uint8Array.from(atob(part.bytes), (char) => char.charCodeAt(0));
+    if (part.nextOffset === void 0) {
+      yield { ...part, data: bytes };
+      return;
+    }
+    if (part.nextOffset !== offset + bytes.length || part.done !== true && bytes.length === 0 || version !== void 0 && version !== part.version) throw new Error("This file is no longer available");
+    yield { ...part, data: bytes };
+    if (part.done === true) return;
+    offset = part.nextOffset;
+    version = part.version;
+  }
+}
+
 // src/client/file-target.js
 function presentedFileTarget(actionUrl) {
   if (typeof actionUrl !== "string" || !actionUrl.includes("?")) return null;
@@ -36733,17 +36752,6 @@ function presentedFileTarget(actionUrl) {
 
 // src/client/file-save.js
 var import_react53 = require("react");
-function saveBytes(file) {
-  const binary2 = atob(String(file?.bytes ?? ""));
-  const bytes = new Uint8Array(binary2.length);
-  for (let at = 0; at < binary2.length; at += 1) bytes[at] = binary2.charCodeAt(at);
-  const url = URL.createObjectURL(new Blob([bytes], { type: file?.mime ?? "application/octet-stream" }));
-  const link = Object.assign(document.createElement("a"), { href: url, download: file?.name ?? "file" });
-  document.body.append(link);
-  link.click();
-  link.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 1e4);
-}
 function SaveFileAction({ actionUrl, available = true, pending = false }) {
   const [busy, setBusy] = (0, import_react53.useState)(false);
   const [error, setError] = (0, import_react53.useState)(null);
@@ -36752,9 +36760,20 @@ function SaveFileAction({ actionUrl, available = true, pending = false }) {
   const save = () => {
     setBusy(true);
     setError(null);
-    call("file-download", target).then((file) => {
-      saveBytes(file);
-    }, (failure) => setError(failure?.message ?? t("Could not save this file"))).finally(() => setBusy(false));
+    void (async () => {
+      const parts = [];
+      let saved;
+      for await (const part of fileChunks(call, target)) {
+        parts.push(part.data);
+        saved = part;
+      }
+      const url = URL.createObjectURL(new Blob(parts, { type: saved.mime }));
+      const link = Object.assign(document.createElement("a"), { href: url, download: saved.name });
+      document.body.append(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1e4);
+    })().catch((failure) => setError(failure?.message ?? t("Could not save this file"))).finally(() => setBusy(false));
   };
   return (0, import_react53.createElement)(
     "span",
