@@ -37109,6 +37109,25 @@ function installHeaderNavigation(slots, face, component, priority) {
   };
 }
 
+// src/shared/file-chunks.js
+async function* fileChunks(call2, target) {
+  let offset = 0;
+  let version;
+  for (; ; ) {
+    const part = await call2("file-download", { ...target, offset, ...version === void 0 ? {} : { version } });
+    const bytes = Uint8Array.from(atob(part.bytes), (char) => char.charCodeAt(0));
+    if (part.nextOffset === void 0) {
+      yield { ...part, data: bytes };
+      return;
+    }
+    if (part.nextOffset !== offset + bytes.length || part.done !== true && bytes.length === 0 || version !== void 0 && version !== part.version) throw new Error("This file is no longer available");
+    yield { ...part, data: bytes };
+    if (part.done === true) return;
+    offset = part.nextOffset;
+    version = part.version;
+  }
+}
+
 // src/client/file-target.js
 function presentedFileTarget(actionUrl) {
   if (typeof actionUrl !== "string" || !actionUrl.includes("?")) return null;
@@ -37124,17 +37143,6 @@ function presentedFileTarget(actionUrl) {
 
 // src/client/file-save.js
 var import_react54 = require("react");
-function saveBytes(file) {
-  const binary2 = atob(String(file?.bytes ?? ""));
-  const bytes = new Uint8Array(binary2.length);
-  for (let at = 0; at < binary2.length; at += 1) bytes[at] = binary2.charCodeAt(at);
-  const url = URL.createObjectURL(new Blob([bytes], { type: file?.mime ?? "application/octet-stream" }));
-  const link = Object.assign(document.createElement("a"), { href: url, download: file?.name ?? "file" });
-  document.body.append(link);
-  link.click();
-  link.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 1e4);
-}
 function SaveFileAction({ actionUrl, available = true, pending = false }) {
   const [busy, setBusy] = (0, import_react54.useState)(false);
   const [error, setError] = (0, import_react54.useState)(null);
@@ -37143,9 +37151,20 @@ function SaveFileAction({ actionUrl, available = true, pending = false }) {
   const save = () => {
     setBusy(true);
     setError(null);
-    call("file-download", target).then((file) => {
-      saveBytes(file);
-    }, (failure) => setError(failure?.message ?? t("Could not save this file"))).finally(() => setBusy(false));
+    void (async () => {
+      const parts = [];
+      let saved;
+      for await (const part of fileChunks(call, target)) {
+        parts.push(part.data);
+        saved = part;
+      }
+      const url = URL.createObjectURL(new Blob(parts, { type: saved.mime }));
+      const link = Object.assign(document.createElement("a"), { href: url, download: saved.name });
+      document.body.append(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1e4);
+    })().catch((failure) => setError(failure?.message ?? t("Could not save this file"))).finally(() => setBusy(false));
   };
   return (0, import_react54.createElement)(
     "span",
@@ -42905,6 +42924,16 @@ function listedOpener({ list, open, refresh, current, begin, done }) {
   };
 }
 
+// src/client/polling.js
+var POLL_MAX_MS = 5e3;
+function pollDelay(base, unchanged) {
+  const steps = Math.min(Math.max(unchanged, 0), 8);
+  return Math.min(base * 2 ** steps, Math.max(base, POLL_MAX_MS));
+}
+function needsIdleSample(computer, settings) {
+  return Object.values(computer?.bots ?? {}).some((entry) => entry?.waitingFor === "user-idle") || Object.values(settings?.bots ?? {}).some((bot) => bot?.level === "foreground");
+}
+
 // src/client/agent-new.js
 function agentSessionToReuse(list, latest, pending) {
   if (pending !== void 0 && list.byId[pending] === void 0) return pending;
@@ -43019,6 +43048,7 @@ function apply(ctx) {
     const value = await call("state", { since: known.revision, models: known.modelsKey ?? "", live: liveKey, locale: language() });
     if (order < applied) return;
     applied = order;
+    const prevLiveKey = liveKey;
     if (value.liveKey !== void 0) liveKey = value.liveKey;
     if (value.activity !== void 0) {
       const nextActivity = JSON.stringify(value.activity);
@@ -43057,7 +43087,9 @@ function apply(ctx) {
     if (value.imVia !== void 0 && JSON.stringify(value.imVia) !== JSON.stringify(current.imVia ?? {})) live2.imVia = value.imVia;
     if (value.readOnly !== void 0 && (value.readOnly ?? null) !== (current.readOnly ?? null)) live2.readOnly = value.readOnly;
     if (Object.keys(live2).length > 0 && current.ready) roster.set({ ...current, ...live2 });
-    if (value.unchanged || value.revision === current.revision && value.modelsKey === current.modelsKey) return;
+    if (value.unchanged || value.revision === current.revision && value.modelsKey === current.modelsKey) {
+      return value.liveKey !== void 0 && value.liveKey !== prevLiveKey;
+    }
     if (Object.keys(seenAt).length === 0) leaveVisits([...value.bots, ...value.rooms].map((entry) => entry.id));
     roster.set(indexRoster(value));
     try {
@@ -43078,18 +43110,20 @@ function apply(ctx) {
       refreshed.add(id);
       void Promise.resolve(ctx.sessions.refreshProjections?.(id)).catch(quietly("refresh projections"));
     }
+    return true;
   };
   ctx.effect(() => {
     let stopped = false;
     let running = false;
     let timer;
     let misses = 0;
+    let unchanged = 0;
     const loop = async () => {
       clearTimeout(timer);
       if (running || stopped) return;
       running = true;
       try {
-        await pull();
+        unchanged = await pull() ? 0 : unchanged + 1;
         misses = 0;
         ui2.set((state) => state.bootFailed ? { ...state, bootFailed: false } : state);
       } catch (error) {
@@ -43103,10 +43137,13 @@ function apply(ctx) {
       } finally {
         running = false;
       }
-      if (!stopped) timer = setTimeout(loop, document.hidden ? 1e4 : 1500);
+      if (!stopped) timer = setTimeout(loop, pollDelay(document.hidden ? 1e4 : 1500, unchanged));
     };
     const wake = () => {
-      if (!document.hidden) void loop();
+      if (!document.hidden) {
+        unchanged = 0;
+        void loop();
+      }
     };
     document.addEventListener("visibilitychange", wake);
     void loop();
@@ -43689,7 +43726,9 @@ function apply(ctx) {
   if (typeof appComputer?.idleSeconds === "function") {
     ctx.effect(() => {
       const push = () => {
-        if (roster.getSnapshot().computer?.enabled !== true) return;
+        const current = roster.getSnapshot();
+        if (current.computer?.enabled !== true) return;
+        if (!needsIdleSample(computer.getSnapshot(), current.computer)) return;
         void Promise.resolve(appComputer.idleSeconds()).then((idle) => {
           if (Number.isFinite(idle)) call("computer-user-active", { idleSeconds: idle }).catch(() => {
           });
