@@ -226,7 +226,10 @@ export function install(rt) {
     if (!messages.some(message => message.source?.handoff === true)) return true
     const place = placeOf(agent.id)
     const room = rt.roomOf(place.roomId)
-    const parts = partsOf(place.botId, place.roomId)
+    const bot = place.botId === undefined ? undefined : rt.botOf(place.botId)
+    // A background part makes room within its own thread, like the foreground chat.
+    const thread = bot === undefined || place.roomId !== undefined ? undefined : threadOf(bot, agent.id)
+    const parts = partsOf(place.botId, place.roomId, thread?.segments)
     const previous = parts.at(-2)
     const lines = await contextLines(session).catch(() => undefined)
     const budget = Math.min(RECENT_TOKENS, Math.floor((lines?.check ?? 4 * RECENT_TOKENS) / 4))
@@ -592,10 +595,13 @@ export function install(rt) {
     const written = await summaryThrough(session, route, { input, head, tail, prompt, maxTokens, signal })
     const place = placeOf(session.id)
     const lines = await contextLines(session).catch(() => undefined)
+    const number = place === undefined ? 1
+      : place.roomId === undefined ? partsOfThread(place.botId, session.id).length
+        : partsOf(undefined, place.roomId).length
     const { kept, more } = await keptMessages(session.id, {
       budget: Math.min(RECENT_TOKENS, Math.floor((lines?.check ?? 4 * RECENT_TOKENS) / 4)),
       group: place?.roomId !== undefined,
-      number: place === undefined ? 1 : partsOf(place.botId, place.roomId).length,
+      number,
     })
     const text = checkpointText({
       number: checkpointCount(input.messages) + 1,
