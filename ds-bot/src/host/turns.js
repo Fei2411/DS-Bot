@@ -23,14 +23,29 @@ const SIGN_IN_CODES = new Set(['ACCOUNT_SIGN_IN_REQUIRED', 'ACCOUNT_SIGNED_OUT',
 
 // A failed turn's `LlmFailure`, kept to what can be shown and logged. Like DSH's own
 // error row, an AUTH failure loses its message: providers may echo part of the key.
+// DSH maps every HTTP 403 to AUTH, but an upstream also uses 403 for a content audit,
+// and the body says which one it is. A rekey cannot fix an audit, so it keeps its own
+// code; the audit body and request id stay for the card and the diagnostics.
+const CONTENT_POLICY = /content[\s_-]?polic|content[\s_-]?violation|content[\s_-]?filter|内容审计|内容安全|风险规则/i
+const REQUEST_ID = /(?:request[-_ ]?id|x-request-id)["'\s:=]+([A-Za-z0-9._:-]{6,})/i
+
+const requestIdOf = (message) => {
+  const found = REQUEST_ID.exec(message)
+  return found === null ? undefined : found[1].replace(/[.,;:)+]+$/, '')
+}
+
 export function turnFailure(error) {
-  const code = typeof error?.code === 'string' && error.code !== '' ? error.code : 'UNKNOWN'
-  const message = code === 'AUTH' || typeof error?.message !== 'string' ? '' : error.message.trim().slice(0, 500)
+  const rawCode = typeof error?.code === 'string' && error.code !== '' ? error.code : 'UNKNOWN'
+  const raw = typeof error?.message === 'string' ? error.message.trim() : ''
+  const contentPolicy = rawCode === 'AUTH' && error?.status === 403 && CONTENT_POLICY.test(raw)
+  const code = contentPolicy ? 'CONTENT_POLICY' : rawCode
+  const message = code === 'AUTH' || raw === '' ? '' : cleanText(raw).slice(0, 500)
+  const requestId = typeof error?.requestId === 'string' && error.requestId !== '' ? error.requestId : requestIdOf(raw)
   return {
     code,
     message,
     ...(typeof error?.status === 'number' ? { status: error.status } : {}),
-    ...(typeof error?.requestId === 'string' ? { requestId: error.requestId } : {}),
+    ...(requestId === undefined ? {} : { requestId }),
   }
 }
 
@@ -662,6 +677,31 @@ export function install(rt) {
     })
   }
 
+  // The repair card reads DSH's own failure row, which can carry a code DS Bot has
+  // corrected (a 403 content audit arrives as AUTH). Keep the corrected failure with
+  // the part and turn it belongs to; the view sends it to the card, and the next
+  // completed turn in that part drops it.
+  const rememberFailure = (id, turn, failure, session) => {
+    const bot = rt.botOf(rt.selfOf(id))
+    if (bot === undefined || turn === undefined) return
+    const provider = session?.requestHeader?.()?.config?.provider
+    const message = failure.message ? cleanText(failure.message, { redact: rt.redactSecrets }).slice(0, 500) : ''
+    const failures = bot.failures ??= {}
+    failures[id] = { turn, ...failure, message, ...(provider ? { provider } : {}), at: Date.now() }
+    const keys = Object.keys(failures)
+    if (keys.length > 6) {
+      for (const key of keys.sort((a, b) => (failures[a].at ?? 0) - (failures[b].at ?? 0)).slice(0, keys.length - 6)) delete failures[key]
+    }
+    void rt.save().catch(() => {})
+  }
+  const forgetFailure = (id) => {
+    const bot = rt.botOf(rt.selfOf(id))
+    if (bot?.failures?.[id] === undefined) return
+    delete bot.failures[id]
+    if (Object.keys(bot.failures).length === 0) delete bot.failures
+    void rt.save().catch(() => {})
+  }
+
   // A turn cut off at the output limit is not a finish, but no failure either. The
   // record names the route and the size of the input, so a route whose declared
   // window is larger than the service really serves can be found from it. A cut-off
@@ -1085,6 +1125,7 @@ export function install(rt) {
         // A turn the plugin watched start. A turn/end replayed after a restart, whose
         // turn is settled from the Session's log, is not one (resume.js does that).
         const watched = entry.turn !== undefined
+        const turn = entry.turn
         entry.turn = undefined
         entry.info = undefined
         entry.texts = []
@@ -1145,8 +1186,10 @@ export function install(rt) {
         rt.noteCutOffTurn?.(id, { withoutText: wroteNothing, premature })
         if (cutOff) noteCutOffTurn(id, { session, wroteNothing, ...(premature ? { outputTokens } : {}) })
         if (failure !== undefined) {
+          if (watched) rememberFailure(id, turn, failure, session)
           if (blockBot(id, session, failure) && owner !== undefined && info?.role === 'kickoff') rt.holdKickoffAgain(owner)
         } else if (reason?.kind === 'completed') {
+          forgetFailure(id)
           unblockBot(rt.selfOf(id))
           // A turn the user opened, or the Retry that answers the user.
           if (owner !== undefined && (info === undefined || info.role === 'continue')) rt.userAnswered(owner)

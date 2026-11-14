@@ -61,6 +61,7 @@ import { PASTE_CSS, PasteDock, PasteGuard } from './paste-card.js'
 import { OPENING_CSS, bindOpeningWait } from './opening.js'
 import { noticeApprovals } from './approval-notices.js'
 import { listedOpener } from './open-listed.js'
+import { needsIdleSample, pollDelay } from './polling.js'
 import { agentSessionToReuse, singleFlight } from './agent-new.js'
 
 export const inject = ['sessions', 'uiWorkspace', 'uiConversation', 'slots', 'theme', 'layout']
@@ -188,6 +189,7 @@ export function apply(ctx) {
     const value = await call('state', { since: known.revision, models: known.modelsKey ?? '', live: liveKey, locale: language() })
     if (order < applied) return
     applied = order
+    const prevLiveKey = liveKey
     if (value.liveKey !== undefined) liveKey = value.liveKey
     if (value.activity !== undefined) {
       const nextActivity = JSON.stringify(value.activity)
@@ -221,7 +223,9 @@ export function apply(ctx) {
     // closed, without a reload: the window holds the answer's live fields until then.
     if (value.readOnly !== undefined && (value.readOnly ?? null) !== (current.readOnly ?? null)) live.readOnly = value.readOnly
     if (Object.keys(live).length > 0 && current.ready) roster.set({ ...current, ...live })
-    if (value.unchanged || (value.revision === current.revision && value.modelsKey === current.modelsKey)) return
+    if (value.unchanged || (value.revision === current.revision && value.modelsKey === current.modelsKey)) {
+      return value.liveKey !== undefined && value.liveKey !== prevLiveKey
+    }
     // On a browser with no visit record yet, everything already there counts as seen.
     if (Object.keys(seenAt).length === 0) leaveVisits([...value.bots, ...value.rooms].map(entry => entry.id))
     roster.set(indexRoster(value))
@@ -243,6 +247,7 @@ export function apply(ctx) {
       refreshed.add(id)
       void Promise.resolve(ctx.sessions.refreshProjections?.(id)).catch(quietly('refresh projections'))
     }
+    return true
   }
 
   ctx.effect(() => {
@@ -250,12 +255,16 @@ export function apply(ctx) {
     let running = false
     let timer
     let misses = 0
+    // While the host keeps answering that nothing changed, asking every 1.5 s only makes
+    // the renderer serialise requests and compare answers (#1462). The wait stretches to
+    // POLL_MAX_MS and snaps back on the first change, a wake, or any action's own pull.
+    let unchanged = 0
     const loop = async () => {
       clearTimeout(timer)
       if (running || stopped) return
       running = true
       try {
-        await pull()
+        unchanged = await pull() ? 0 : unchanged + 1
         misses = 0
         // A late-arriving API clears the failure the misses reported.
         ui.set(state => (state.bootFailed ? { ...state, bootFailed: false } : state))
@@ -271,9 +280,9 @@ export function apply(ctx) {
           }
         }
       } finally { running = false }
-      if (!stopped) timer = setTimeout(loop, document.hidden ? 10000 : 1500)
+      if (!stopped) timer = setTimeout(loop, pollDelay(document.hidden ? 10000 : 1500, unchanged))
     }
-    const wake = () => { if (!document.hidden) void loop() }
+    const wake = () => { if (!document.hidden) { unchanged = 0; void loop() } }
     document.addEventListener('visibilitychange', wake)
     void loop()
     return () => { stopped = true; clearTimeout(timer); document.removeEventListener('visibilitychange', wake) }
@@ -854,7 +863,10 @@ export function apply(ctx) {
   if (typeof appComputer?.idleSeconds === 'function') {
     ctx.effect(() => {
       const push = () => {
-        if (roster.getSnapshot().computer?.enabled !== true) return
+        const current = roster.getSnapshot()
+        if (current.computer?.enabled !== true) return
+        // Read OS idle time whenever a Bot can claim foreground control or is waiting for idle.
+        if (!needsIdleSample(computer.getSnapshot(), current.computer)) return
         void Promise.resolve(appComputer.idleSeconds()).then((idle) => {
           if (Number.isFinite(idle)) call('computer-user-active', { idleSeconds: idle }).catch(() => {})
         }).catch(() => {})
