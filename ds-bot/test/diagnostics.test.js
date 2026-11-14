@@ -205,6 +205,22 @@ test('turnFailure drops AUTH messages and keeps the facts', () => {
   assert.equal(failureLine({ code: 'SERVER', status: 503, message: 'busy' }), 'SERVER 503: busy')
 })
 
+test('a 403 content audit is not an AUTH failure, and keeps its body and request id', () => {
+  const body = 'upstream 403 request-id=00000000-0000-4000-8000-000000000000: {"error":{"message":"内容审计命中风险规则，请调整输入后重试","type":"content_policy_violation"}}'
+  assert.deepEqual(turnFailure({ code: 'AUTH', status: 403, message: body }), {
+    code: 'CONTENT_POLICY',
+    message: body,
+    status: 403,
+    requestId: '00000000-0000-4000-8000-000000000000',
+  })
+  // A real auth failure keeps AUTH and still loses the provider text.
+  assert.deepEqual(turnFailure({ code: 'AUTH', status: 401, message: 'invalid api key' }), { code: 'AUTH', message: '', status: 401 })
+  // A 403 without an audit body stays as DSH classified it.
+  assert.deepEqual(turnFailure({ code: 'AUTH', status: 403, message: 'forbidden' }), { code: 'AUTH', message: '', status: 403 })
+  // A structured request id wins over one found in the text.
+  assert.equal(turnFailure({ code: 'AUTH', status: 403, message: body, requestId: 'r1' }).requestId, 'r1')
+})
+
 function turnsHost() {
   let listener
   const delivered = []
