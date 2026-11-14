@@ -1313,6 +1313,7 @@ export const JA = {
   "Reference a chat": "チャットを参照",
   "Chat with {name}": "{name} とのチャット",
   "Scheduled task": "定期タスク",
+  "Open the scheduled tasks of this chat": "このチャットの定期タスクを開く",
   "Send to": "送信先",
   "Scheduled task: {text}": "定期タスク: {text}",
   "Choose the group admin": "グループの管理者を選択",

@@ -1435,6 +1435,7 @@ var JA = {
   "Reference a chat": "チャットを参照",
   "Chat with {name}": "{name} とのチャット",
   "Scheduled task": "定期タスク",
+  "Open the scheduled tasks of this chat": "このチャットの定期タスクを開く",
   "Send to": "送信先",
   "Scheduled task: {text}": "定期タスク: {text}",
   "Choose the group admin": "グループの管理者を選択",
@@ -3811,6 +3812,7 @@ var KO = {
   "Reference a chat": "대화 참조",
   "Chat with {name}": "{name}와(과)의 대화",
   "Scheduled task": "예약 작업",
+  "Open the scheduled tasks of this chat": "이 대화의 예약 작업 열기",
   "Send to": "받는 대상",
   "Scheduled task: {text}": "예약 작업: {text}",
   // New group chats
@@ -6192,6 +6194,7 @@ var ES = {
   "Reference a chat": "Referenciar un chat",
   "Chat with {name}": "Chat con {name}",
   "Scheduled task": "Tarea programada",
+  "Open the scheduled tasks of this chat": "Abrir las tareas programadas de este chat",
   "Send to": "Enviar a",
   "Scheduled task: {text}": "Tarea programada: {text}",
   // New group chats
@@ -8533,6 +8536,7 @@ var FR = {
   "Reference a chat": "Référencer une discussion",
   "Chat with {name}": "Discussion avec {name}",
   "Scheduled task": "Tâche planifiée",
+  "Open the scheduled tasks of this chat": "Ouvrir les tâches planifiées de cette conversation",
   "Send to": "Envoyer à",
   "Scheduled task: {text}": "Tâche planifiée : {text}",
   "Choose the group admin": "Choisir l’admin du groupe",
@@ -10909,6 +10913,7 @@ var DE = {
   "Reference a chat": "Chat referenzieren",
   "Chat with {name}": "Chat mit {name}",
   "Scheduled task": "Geplante Aufgabe",
+  "Open the scheduled tasks of this chat": "Geplante Aufgaben dieses Chats öffnen",
   "Send to": "Senden an",
   "Scheduled task: {text}": "Geplante Aufgabe: {text}",
   // New group chats
@@ -13296,6 +13301,7 @@ var ZH = {
   "Reference a chat": "引用对话",
   "Chat with {name}": "与 {name} 的对话",
   "Scheduled task": "定时任务",
+  "Open the scheduled tasks of this chat": "打开这个会话的定时任务",
   "Send to": "发给",
   "Scheduled task: {text}": "定时任务：{text}",
   // New group chats
@@ -42362,6 +42368,63 @@ var LEARNING_CSS = `
 .bt-learning-error{font-size:12px;line-height:16px;color:var(--bt-danger)}
 `;
 
+// src/client/command-actions.js
+var SCHEDULED_TASK = "scheduled-task";
+function commandEntries({ roster, actions }) {
+  const entry = (sessionId) => {
+    const snapshot = roster.getSnapshot();
+    return snapshot.byId?.[sessionId] ?? snapshot.roomsById?.[sessionId];
+  };
+  const isRoom = (sessionId) => roster.getSnapshot().roomsById?.[sessionId] !== void 0;
+  const isBotSurface = (sessionId) => entry(sessionId) !== void 0;
+  return {
+    contributions: [{
+      name: SCHEDULED_TASK,
+      label: () => t("Scheduled task"),
+      description: () => t("Open the scheduled tasks of this chat"),
+      icon: ClockIcon,
+      available: (session) => isBotSurface(session?.sessionId),
+      ui: {
+        kind: "action",
+        run(session) {
+          const target = entry(session?.sessionId);
+          if (target !== void 0) actions.openSettings("schedules", target.id);
+        }
+      }
+    }],
+    decorations: [{
+      name: "goal",
+      available: (session) => isRoom(session?.sessionId),
+      ui: {
+        kind: "action",
+        run(session) {
+          const room2 = roster.getSnapshot().roomsById?.[session?.sessionId];
+          if (room2 !== void 0) actions.composeGoal(room2.id);
+        }
+      }
+    }]
+  };
+}
+function installCommandActions(ctx, { roster, actions }) {
+  return ctx.inject(["commandUi"], (scope) => {
+    scope.effect(() => {
+      const entries2 = commandEntries({ roster, actions });
+      const disposers = [
+        ...entries2.contributions.map((contribution) => scope.commandUi.register(contribution)),
+        ...entries2.decorations.map((decoration) => scope.commandUi.decorate(decoration))
+      ];
+      return () => {
+        for (const dispose of disposers) {
+          try {
+            dispose?.();
+          } catch {
+          }
+        }
+      };
+    }, "ds-bot: bot command actions");
+  });
+}
+
 // src/client/right-panel.js
 var RIGHTBAR_ATTRIBUTES = ["data-rightbar-collapsed", "data-rightbar-fullscreen"];
 function rightColumnOpen(doc) {
@@ -43494,6 +43557,7 @@ function apply(ctx) {
     });
   }
   const face = () => ({ actions, hooks: { roster, ui: ui2, activity, work, memoryNews, registry, turnClock, live, computer, cards, heldCards, browserPages, browserTabs, browserHolds, surface, update, frame, sidebarPref, settingsShellHeld } });
+  ctx.effect(() => installCommandActions(ctx, { roster, actions }), "ds-bot: bot command actions");
   ctx.effect(() => {
     const offStyles = installCompiledStyles(SETTINGS_SHELL_CSS, "settings-shell");
     settingsShell = installSettingsShell(ctx, { face, actions, ui: ui2, held: settingsShellHeld });
