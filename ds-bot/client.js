@@ -14984,6 +14984,7 @@ var STORAGE = {
   prefs: "ds-bot:prefs",
   surface: "ds-bot:surface",
   agentSessions: "ds-bot:agent-sessions",
+  agentForks: "ds-bot:pending-agent-forks",
   browserWidth: "ds-bot:browser-width",
   sidebar: "ds-bot:sidebar",
   browsers: "ds-bot.browser.v2"
@@ -42292,6 +42293,122 @@ function singleFlight(map, key, run2) {
   return tracked;
 }
 
+// src/client/agent-fork.js
+function installAgentForks({ sessions, ownerOf, hasAgent, pending, adopt, refresh, report, storage, ready }) {
+  const journal = /* @__PURE__ */ new Map();
+  const inFlight = /* @__PURE__ */ new Map();
+  const forks = /* @__PURE__ */ new Set();
+  let stopped = false;
+  try {
+    const saved = JSON.parse(storage?.getItem(STORAGE.agentForks) ?? "[]");
+    if (Array.isArray(saved)) {
+      for (const entry of saved) {
+        if (typeof entry?.sessionId === "string" && typeof entry?.agentId === "string") journal.set(entry.sessionId, entry);
+      }
+    }
+  } catch {
+  }
+  const save = () => {
+    try {
+      storage?.setItem(STORAGE.agentForks, JSON.stringify([...journal.values()]));
+    } catch {
+    }
+  };
+  const remember = (agentId, sessionId) => {
+    const entry = { agentId, sessionId };
+    journal.set(sessionId, entry);
+    pending.set(sessionId, agentId);
+    save();
+    return entry;
+  };
+  const persist = (entry) => {
+    const running = inFlight.get(entry.sessionId);
+    if (running !== void 0) return running;
+    const task = Promise.resolve().then(() => adopt(entry.agentId, entry.sessionId)).then(async () => {
+      journal.delete(entry.sessionId);
+      save();
+      if (!stopped) {
+        try {
+          await refresh();
+        } catch (error) {
+          report(error, "agent-fork-refresh");
+        }
+      }
+    }).catch((error) => {
+      if (!stopped) report(error, "agent-fork-adopt");
+    }).finally(() => {
+      inFlight.delete(entry.sessionId);
+    });
+    inFlight.set(entry.sessionId, task);
+    return task;
+  };
+  const original = sessions.fork;
+  const descriptor = Object.getOwnPropertyDescriptor(sessions, "fork");
+  const wrapped = function(options) {
+    if (stopped) return Reflect.apply(original, this, [options]);
+    const receiver = this;
+    const captured = ownerOf(options.sessionId) ?? pending.get(options.sessionId);
+    const task = (async () => {
+      if (captured === void 0) await ready();
+      const agentId = captured ?? ownerOf(options.sessionId) ?? pending.get(options.sessionId);
+      if (agentId === void 0) return Reflect.apply(original, receiver, [options]);
+      let created;
+      let adoption;
+      const onCreated = (sessionId) => {
+        created = sessionId;
+        adoption = persist(remember(agentId, sessionId));
+        options.onCreated?.(sessionId);
+      };
+      try {
+        const child = await Reflect.apply(original, receiver, [{ ...options, onCreated }]);
+        if (created === void 0 && typeof child === "string") onCreated(child);
+        if (adoption !== void 0) await adoption;
+        return child;
+      } catch (error) {
+        const rpc = error?.rpcError;
+        const partial = rpc?.code === "session/workspace-attach-failed" ? rpc.details?.sessionId : void 0;
+        if (created === void 0 && typeof partial === "string") adoption = persist(remember(agentId, partial));
+        if (adoption !== void 0) await adoption;
+        throw error;
+      }
+    })();
+    forks.add(task);
+    const settle = () => {
+      forks.delete(task);
+    };
+    task.then(settle, settle);
+    return task;
+  };
+  sessions.fork = wrapped;
+  const reconcile = async () => {
+    if (stopped) return;
+    const listed = sessions.list.getSnapshot().byId ?? {};
+    for (const entry of journal.values()) {
+      if (stopped) return;
+      if (!hasAgent(entry.agentId)) continue;
+      if (ownerOf(entry.sessionId) === entry.agentId) {
+        journal.delete(entry.sessionId);
+        save();
+        continue;
+      }
+      if (listed[entry.sessionId] === void 0) continue;
+      pending.set(entry.sessionId, entry.agentId);
+      await persist(entry);
+    }
+  };
+  return {
+    reconcile,
+    async dispose() {
+      stopped = true;
+      if (sessions.fork === wrapped) {
+        if (descriptor === void 0) delete sessions.fork;
+        else Object.defineProperty(sessions, "fork", descriptor);
+      }
+      await Promise.allSettled([...forks, ...inFlight.values()]);
+    }
+  };
+}
+
 // src/client/index.js
 var inject = ["sessions", "uiWorkspace", "uiConversation", "slots", "theme", "layout"];
 function apply(ctx) {
@@ -43385,6 +43502,34 @@ function apply(ctx) {
   ctx.effect(() => installCompiledStyles(COMPUTER_CSS, "computer"), "ds-bot: computer styles");
   shadow("sidebar.footer.action", { id: "bot-return", order: -300, inject: face }, BotReturn);
   ctx.effect(() => {
+    const forks = installAgentForks({
+      sessions: ctx.sessions,
+      ownerOf: (id) => roster.getSnapshot().agentOf[id],
+      hasAgent: (id) => roster.getSnapshot().agentsById[id] !== void 0,
+      pending: pendingAdopt,
+      ready: async () => {
+        if (!roster.getSnapshot().ready) await pull();
+      },
+      adopt: (agentId, sessionId) => call("agent-adopt", { agentId, sessionId }),
+      refresh: pull,
+      report: (error, source) => actions.reportError(error, source),
+      storage: globalThis.localStorage
+    });
+    const reconcile = () => {
+      void forks.reconcile().catch((error) => actions.reportError(error, "agent-fork-reconcile"));
+    };
+    const offRoster = roster.subscribe(reconcile);
+    const offList = ctx.sessions.list.subscribe(reconcile);
+    const timer = setInterval(reconcile, 5e3);
+    reconcile();
+    return () => {
+      offRoster();
+      offList();
+      clearInterval(timer);
+      return forks.dispose();
+    };
+  }, "ds-bot: Agent forks");
+  ctx.effect(() => {
     let previous;
     const sync = () => {
       const list = ctx.sessions.list.getSnapshot();
@@ -43405,9 +43550,7 @@ function apply(ctx) {
       if (snapshot.byId[main] !== void 0 || snapshot.roomsById[main] !== void 0 || agentOfSession(main) !== void 0) return;
       const row = list.byId[main];
       if (row?.origin === "subagent") return;
-      const parent = row?.parentId ?? row?.parentSessionId;
-      const forkedFromAgent = parent !== void 0 && agentOfSession(parent) === agentId;
-      if (row?.blank !== true && !forkedFromAgent) return;
+      if (row?.blank !== true) return;
       pendingAdopt.set(main, agentId);
       setPlain(true);
       void call("agent-adopt", { agentId, sessionId: main }).then(() => pull()).catch((error) => {

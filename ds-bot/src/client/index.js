@@ -60,6 +60,7 @@ import { OPENING_CSS, bindOpeningWait } from './opening.js'
 import { noticeApprovals } from './approval-notices.js'
 import { listedOpener } from './open-listed.js'
 import { agentSessionToReuse, singleFlight } from './agent-new.js'
+import { installAgentForks } from './agent-fork.js'
 
 export const inject = ['sessions', 'uiWorkspace', 'uiConversation', 'slots', 'theme', 'layout']
 
@@ -1192,10 +1193,35 @@ export function apply(ctx) {
   ctx.effect(() => installCompiledStyles(COMPUTER_CSS, 'computer'), 'ds-bot: computer styles')
   shadow('sidebar.footer.action', { id: 'bot-return', order: -300, inject: face }, BotReturn)
 
+  ctx.effect(() => {
+    const forks = installAgentForks({
+      sessions: ctx.sessions,
+      ownerOf: id => roster.getSnapshot().agentOf[id],
+      hasAgent: id => roster.getSnapshot().agentsById[id] !== undefined,
+      pending: pendingAdopt,
+      ready: async () => { if (!roster.getSnapshot().ready) await pull() },
+      adopt: (agentId, sessionId) => call('agent-adopt', { agentId, sessionId }),
+      refresh: pull,
+      report: (error, source) => actions.reportError(error, source),
+      storage: globalThis.localStorage,
+    })
+    const reconcile = () => { void forks.reconcile().catch(error => actions.reportError(error, 'agent-fork-reconcile')) }
+    const offRoster = roster.subscribe(reconcile)
+    const offList = ctx.sessions.list.subscribe(reconcile)
+    const timer = setInterval(reconcile, 5000)
+    reconcile()
+    return () => {
+      offRoster()
+      offList()
+      clearInterval(timer)
+      return forks.dispose()
+    }
+  }, 'ds-bot: Agent forks')
+
   // The main view decides `plain`: a DSH Agent Session keeps the Bot shell but
-  // withdraws the conversation replacements, so the native dsh page shows. A jump
-  // this plugin did not start — the hero's workspace picker or a fork — opens an
-  // unowned Session; coming from a DSH Agent Session it is adopted into that Agent.
+  // withdraws the conversation replacements, so the native dsh page shows. The
+  // hero's workspace picker creates a blank Session, adopted into the same Agent;
+  // forks are captured at creation above, without depending on list metadata.
   ctx.effect(() => {
     let previous
     const sync = () => {
@@ -1217,18 +1243,13 @@ export function apply(ctx) {
       if (agentId === undefined) return
       const snapshot = roster.getSnapshot()
       if (snapshot.byId[main] !== undefined || snapshot.roomsById[main] !== undefined || agentOfSession(main) !== undefined) return
-      // Only a Session this jump created joins the Agent: a blank one from the
-      // workspace picker, or a fork of a Session the same Agent owns. An existing
-      // Session the user opened from the sidebar keeps its team tools and stays out.
+      // Only a blank Session from the workspace picker joins here. Existing
+      // Sessions opened from the native sidebar keep their tools and stay out.
       const row = list.byId[main]
       // A subagent child reports the Agent Session as its parent, but adopting it
       // would steal it from subagent routing — the Host refuses anyway, so skip.
       if (row?.origin === 'subagent') return
-      // The client list maps the fork's parent to `parentId`; the raw field is
-      // the fallback for shapes that skip the mapping.
-      const parent = row?.parentId ?? row?.parentSessionId
-      const forkedFromAgent = parent !== undefined && agentOfSession(parent) === agentId
-      if (row?.blank !== true && !forkedFromAgent) return
+      if (row?.blank !== true) return
       pendingAdopt.set(main, agentId)
       setPlain(true)
       void call('agent-adopt', { agentId, sessionId: main }).then(() => pull()).catch((error) => {
