@@ -1767,13 +1767,21 @@ export function install(rt) {
         if (batch !== undefined) closeBatch(batch.key)
         rt.warn('ds-bot: late group reply from %s failed: %s', member.name, error)
       })
+    // A late turn that changed files still has a review to open. When it wrote text, that
+    // text carries the change line; when it wrote none, its completion line does. This
+    // line stays out of `inBatch`: the batching and closeBatch behaviour below is not
+    // changed by it, and a late pass that changed nothing still posts nothing.
+    const lateDone = () => postToRoom(room, member, '', { late: true, done: true, ...moved({}), ...(askedBy ? { askedBy } : {}) })
+      .catch(error => rt.warn('ds-bot: late completion from %s failed: %s', member.name, error))
     if (waitingPeers && named.length === 0) {
       if (!isPass(text)) await post(text, { quiet: true })
+      else if (changes !== undefined) await lateDone()
       return
     }
     const done = isPass(text) && (shown || batchDoneBefore) && askedBy !== undefined
     if (isPass(text) && !done) {
       if (batch !== undefined) closeBatch(batch.key)
+      if (changes !== undefined) await lateDone()
       return
     }
     await post(done ? '' : text, { ...(done ? { done: true } : {}), ...(askedBy ? { askedBy } : {}) })

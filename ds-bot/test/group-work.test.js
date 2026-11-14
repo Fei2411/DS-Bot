@@ -2475,6 +2475,30 @@ test('a late reply and post_to_group keep missing-file claims when opening a gro
   assert.deepEqual(fromTool.source.claims, { missingFiles: [postedMissing] })
 })
 
+// Codex on the change line: a late turn that changed files and ended with [PASS] used to
+// read the summary and then post nothing on either return path. Its completion line now
+// carries the change card; a late pass that changed nothing still posts nothing.
+test('a late pass that changed files posts its completion line', async (t) => {
+  const host = await start(t)
+  const changes = { sessionId: 'gb', seq: 12, turn: 3, total: 1, added: 2, deleted: 0, files: [{ path: 'late.md', added: 2, deleted: 0 }] }
+  rt.turnChanges = async () => changes
+  await rt.lateRoomReply('gb', {}, '[PASS]', { toolCount: 1 })
+  const post = host.takePost()
+  assert.equal(post.source.done, true)
+  assert.deepEqual(post.source.changes, changes)
+  const relay = host.round('late-pass', post)
+  await settle(() => relay() !== undefined)
+  const rows = rt.groupRows('r1', 1, Number.MAX_SAFE_INTEGER)
+  assert.deepEqual(rows.find(row => row.kind === 'done')?.changes, changes)
+})
+
+test('a late pass that changed nothing posts nothing', async (t) => {
+  const host = await start(t)
+  rt.turnChanges = async () => undefined
+  await rt.lateRoomReply('gb', {}, '[PASS]', { toolCount: 1 })
+  assert.equal(host.agentOf('r1').calls.length, 0)
+})
+
 test('the first completed member of a parallel batch keeps its file claim', async (t) => {
   const { host } = await batchInBackground(t)
   const missing = join(host.home, 'missing-report.md')
