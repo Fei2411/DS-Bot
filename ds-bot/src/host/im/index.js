@@ -510,13 +510,20 @@ export function install(rt) {
       return
     }
     const sessionId = target.botId ?? target.roomId
+    // The receipt has to sit on the Session that takes the message. A group's own
+    // Session moves on to a fresh part (`room.sessionId`) while `room.id` stays the
+    // first one, so uploading under the id leaves the receipt on a Session the
+    // message never reaches and DSH drops the file (#1121).
+    const uploadTo = target.botId !== undefined
+      ? rt.chatOf(target.botId)
+      : rt.sessionOfRoom(rt.roomOf(target.roomId))
     const content = []
     if (body !== '') content.push({ type: 'text', text: body })
     for (const image of msg.images ?? []) content.push({ type: 'image', mediaType: image.mediaType, data: image.data })
     const env = await envFor(conn)
     for (const file of msg.files ?? []) {
       try {
-        const receiptId = await env.uploadFile(rt.botOf(sessionId) ? rt.chatOf(sessionId) : sessionId, file)
+        const receiptId = await env.uploadFile(uploadTo, file)
         content.push({ type: 'file', receiptId })
       } catch {
         await sendText(conn, msg.chat, text('noFile'))
