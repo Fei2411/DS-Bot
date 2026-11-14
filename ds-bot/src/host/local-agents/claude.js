@@ -33,6 +33,10 @@ export class ClaudeEngine {
     session.cancel()
   }
 
+  compact(session) {
+    return session.compact()
+  }
+
   // The adapter stopped reading this session. A process takes its model and tool
   // server when it starts, so it leaves too; a later open resumes the CLI session.
   forget(dshSessionId) {
@@ -167,10 +171,19 @@ class ClaudeSession {
       case 'system':
         if (event.subtype === 'init') {
           this.cliSessionId = event.session_id
+          this.model = event.model
           for (const resolve of this.idWaiters.splice(0)) resolve(this.cliSessionId)
-        }
+        } else if (event.subtype === 'compact_boundary') this.emit({ type: 'compaction', status: 'completed' })
+        else if (event.subtype === 'status' && event.status === 'compacting') this.emit({ type: 'compaction', status: 'started' })
         break
       case 'assistant': {
+        // Each response carries its usage, and what it read plus what it wrote is
+        // what the context holds now. A subagent's (parent_tool_use_id) is its own.
+        const usage = event.message?.usage
+        if (usage !== undefined && event.parent_tool_use_id == null) {
+          const used = ['input_tokens', 'cache_creation_input_tokens', 'cache_read_input_tokens', 'output_tokens'].reduce((sum, key) => sum + (usage[key] ?? 0), 0)
+          if (used > 0) this.emit({ type: 'context', used })
+        }
         for (const block of event.message?.content ?? []) {
           if (block.type === 'text') this.emit({ type: 'text', text: block.text ?? '' })
           else if (block.type === 'thinking') this.emit({ type: 'thought', text: block.thinking ?? '' })
@@ -206,6 +219,12 @@ class ClaudeSession {
           this.emit({ type: 'error', error: Object.assign(new Error(`${this.engine.engine.name} no longer has this conversation`), { code: 'LOCAL_AGENT_EXIT' }) })
           break
         }
+        {
+          // modelUsage names each model's window; the session's own model decides.
+          const models = Object.entries(event.modelUsage ?? {})
+          const size = (models.find(([name]) => name === this.model) ?? models.toSorted((a, b) => (b[1]?.contextWindow ?? 0) - (a[1]?.contextWindow ?? 0))[0])?.[1]?.contextWindow
+          if (typeof size === 'number' && size > 0) this.emit({ type: 'context', size })
+        }
         this.emit(event.subtype === 'success' || event.is_error !== true
           ? { type: 'done', reason: 'stop', usage: usageOf(event.usage) }
           : { type: 'error', error: new Error(event.result ?? 'the agent failed') })
@@ -231,6 +250,12 @@ class ClaudeSession {
     this.prompt([{ type: 'text', text }])
   }
 
+  // `/compact` in stream-json runs the CLI's own compaction and ends with a result.
+  compact() {
+    this.prompt([{ type: 'text', text: '/compact' }])
+    return true
+  }
+
   cancel() {
     // The documented interrupt asks the turn to stop cleanly.
     this.write({ type: 'control_request', request: { subtype: 'interrupt' } })
@@ -248,4 +273,5 @@ const usageOf = usage => (usage === undefined ? undefined : {
   inputTokens: usage.input_tokens ?? 0,
   outputTokens: usage.output_tokens ?? 0,
   ...(usage.cache_read_input_tokens ? { cacheReadTokens: usage.cache_read_input_tokens } : {}),
+  ...(usage.cache_creation_input_tokens ? { cacheWriteTokens: usage.cache_creation_input_tokens } : {}),
 })
