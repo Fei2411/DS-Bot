@@ -483,8 +483,10 @@ export function install(rt) {
   }
 
   // A long result's whole text goes to the session's spill store — DSH's own
-  // retention seam — and the model reads it back through the locator's hint.
-  // Without the service the paid result stays inline; the output policy bounds it.
+  // retention seam — and the model reads it back through the saved locator. The
+  // hint is backend guidance only: it does not carry the locator, so the answer
+  // must name the locator itself. Without the service the paid result stays
+  // inline; the output policy bounds it.
   async function spillResult(exec, text, name) {
     const store = ctx.get?.('spillStore')
     const sessionId = exec.agent?.session?.id
@@ -526,7 +528,10 @@ export function install(rt) {
     if (whole.length <= OCR_INLINE_MAX) return `${head.join(' ')}\n\n${whole}`
     const spilled = await spillResult(exec, whole, input.name)
     if (spilled === undefined) return `${head.join(' ')} The full result is below; this DSH could not file a copy for later.\n\n${whole}`
-    return `${head.join(' ')} The full result was saved (${spilled.bytes} bytes). ${spilled.retrievalHint}\n\n${whole.slice(0, OCR_INLINE_MAX)}\n\n[... ${whole.length - OCR_INLINE_MAX} more characters in the saved result]`
+    // The locator is the model-facing handle (an absolute path for the local
+    // backend); retrievalHint is generic guidance that never names it, so the
+    // answer quotes the locator literally for a copyable read/grep target.
+    return `${head.join(' ')} The full result was saved to ${JSON.stringify(String(spilled.locator))} (${spilled.bytes} bytes). ${spilled.retrievalHint}\n\n${whole.slice(0, OCR_INLINE_MAX)}\n\n[... ${whole.length - OCR_INLINE_MAX} more characters in the saved result]`
   }
 
   rt.teamTools.push(defineTool({

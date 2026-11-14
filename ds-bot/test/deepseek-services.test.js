@@ -278,10 +278,12 @@ test('read_document reads a workspace path through ctx.fs and spills a long resu
     processPath: target => target.displayPath,
     readBytes: async () => new Uint8Array([37, 80, 68, 70]),
   }
+  // The real LocalSpillStore: locator is an absolute path, retrievalHint is
+  // generic guidance that never names it — the result must quote the locator.
   const spillStore = {
     saveText: async (input) => {
       spills.push(input)
-      return { locator: `/spill/${input.suggestedName}`, bytes: input.content.length, retrievalHint: 'Read the saved result at the locator above.' }
+      return { locator: `/tmp/dsh-spill-abc123/session-0123abcd/a1b2c3-${input.suggestedName}`, bytes: Buffer.byteLength(input.content, 'utf8'), retrievalHint: 'Use read with offset/limit, or grep this path to search within it.' }
     },
   }
   const { rt } = setup({ keys: { DEEPSEEK_API_KEY: 'sk-1' }, fs, spillStore, sessions: { bot1: 'bot1' }, prefs: { deepseekServices: { ocr: true } } })
@@ -294,14 +296,17 @@ test('read_document reads a workspace path through ctx.fs and spills a long resu
   const form = calls[0].init.body
   assert.equal(form.get('purpose'), 'rich_layout_recognition')
   assert.equal(form.get('file').name, 'scan.pdf')
-  // Long result: the whole paid text went to the spill store, the hint names it.
+  // Long result: the whole paid text went to the spill store, and the answer
+  // carries BOTH the copyable locator and the generic retrieval hint.
   assert.equal(spills.length, 1)
   assert.equal(spills[0].owner.sessionId, 'bot1')
   assert.equal(spills[0].source.toolName, 'read_document')
   assert.equal(spills[0].source.callId, 'call-1')
   assert.match(spills[0].suggestedName, /scan\.ocr\.txt$/)
-  assert.match(spills[0].content, /long/)
-  assert.match(out, /saved|locator|full result/i)
+  const expected = `long `.repeat(5000)
+  assert.equal(spills[0].content, `[page 0]\n${expected}`, 'the full text stays in the spill')
+  assert.ok(out.includes('"/tmp/dsh-spill-abc123/session-0123abcd/a1b2c3-scan.ocr.txt"'), 'the locator is named in the answer')
+  assert.ok(out.includes('Use read with offset/limit, or grep this path to search within it.'), 'the backend hint is kept')
   assert.match(out, /more characters in the saved result/)
 })
 
@@ -321,6 +326,11 @@ test('read_document keeps a long result inline when there is no spill store', as
   const out = await readTool(rt).execute({ path: 'big.pdf' }, exec(sessionWithFile('x')))
   assert.match(out, /full result is below/)
   assert.ok(out.length > 20000, 'the paid text is not thrown away')
+  // A store that fails mid-save degrades the same way: still fully inline.
+  const failing = setup({ keys: { DEEPSEEK_API_KEY: 'sk-1' }, fs, spillStore: { saveText: async () => { throw new Error('disk full') } }, sessions: { bot1: 'bot1' }, prefs: { deepseekServices: { ocr: true } } })
+  const again = await readTool(failing.rt).execute({ path: 'big.pdf' }, exec(sessionWithFile('x')))
+  assert.match(again, /full result is below/)
+  assert.ok(again.length > 20000, 'a failed spill still keeps the paid text')
 })
 
 test('read_document reads an uploaded image through attachments.readImage, still session-scoped', async (t) => {
