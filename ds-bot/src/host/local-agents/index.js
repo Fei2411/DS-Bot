@@ -48,8 +48,10 @@ export function install(rt) {
 
   // Only CLIs found on this machine get a route; the scan result feeds the page.
   const found = new Map()
+  let disposed = false
   async function scan() {
     await refreshSearchDirs()
+    if (disposed) return []
     for (const route of Object.keys(ENGINES)) {
       const spec = ENGINES[route]
       const path = findExecutable(spec.command)
@@ -132,14 +134,15 @@ export function install(rt) {
   // Custom agents hold a route whether or not their command resolves yet; a
   // missing one fails at prompt time with a typed error.
   applyRoutes()
-  void scan()
+  const initialScan = scan()
   // Custom agents arrive with the state load; their routes register then too.
-  void rt.load?.().then(() => applyRoutes()).catch(() => {})
+  void rt.load?.().then(() => { if (!disposed) applyRoutes() }).catch(() => {})
   // The callback returns the disposer: running adapter.dispose() inside the
   // setup would leave the adapter disposed from the moment it installs.
-  ctx.effect(() => () => {
-    void adapter.dispose()
+  ctx.effect(() => async () => {
+    disposed = true
     registration?.()
+    await Promise.all([initialScan, adapter.dispose()])
   }, 'ds-bot: local agents')
 
   // ---------------------------------------------------------------------------

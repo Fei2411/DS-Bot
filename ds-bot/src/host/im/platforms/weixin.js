@@ -112,6 +112,11 @@ export default {
     let stopped = false
     let running = false
     let generation = 0
+    // Every request this connection makes ends with the connection: a stop must not
+    // leave the getupdates long poll (up to 50 s) holding the host process open.
+    const stopping = new AbortController()
+    const call = (endpoint, body, timeoutMs, options) =>
+      request(env, base(env, fields), fields.token, endpoint, body, timeoutMs, { ...options, signal: stopping.signal })
 
     const runtime = () => env.runtime.get()
     const setRuntime = patch => env.runtime.set(patch)
@@ -134,7 +139,8 @@ export default {
         // Voice items carry their transcript in voice_item.text.
         else if (item.type === 3 && item.voice_item?.text !== undefined) texts.push(String(item.voice_item.text))
         else if (item.type === 2 && item.image_item?.media !== undefined) {
-          const bytes = await image(item.image_item.media, env).catch(() => undefined)
+          const bytes = await image(item.image_item.media, env, stopping.signal).catch(() => undefined)
+          if (stopping.signal.aborted) return
           if (bytes !== undefined) images.push({ mediaType: 'image/jpeg', data: bytes.toString('base64') })
         }
         else if (item.type === 4 && item.file_item !== undefined) files.push({ name: String(item.file_item.file_name ?? 'file'), data: undefined })
@@ -155,7 +161,7 @@ export default {
         while (!stopped && generation === gen) {
           let answer
           try {
-            answer = await request(env, base(env, fields), fields.token, 'getupdates', { get_updates_buf: runtime().cursor ?? '' }, POLL_TIMEOUT_MS + 15_000, { requireJson: true })
+            answer = await call('getupdates', { get_updates_buf: runtime().cursor ?? '' }, POLL_TIMEOUT_MS + 15_000, { requireJson: true })
           } catch (error) {
             if (stopped || generation !== gen) return
             if (error?.timeout) { continue }
@@ -189,11 +195,13 @@ export default {
             continue
           }
           handlers.onStatus({ state: 'ready' })
+          for (const msg of answer.msgs ?? []) {
+            if (stopped || generation !== gen) return
+            await deliver(msg).catch(error => env.log?.warn?.('ds-bot im: weixin message failed: %s', error?.message ?? error))
+          }
+          if (stopped || generation !== gen) return
           if (answer.get_updates_buf !== undefined && answer.get_updates_buf !== runtime().cursor) {
             setRuntime({ cursor: String(answer.get_updates_buf) })
-          }
-          for (const msg of answer.msgs ?? []) {
-            await deliver(msg).catch(error => env.log?.warn?.('ds-bot im: weixin message failed: %s', error?.message ?? error))
           }
         }
       } finally {
@@ -211,7 +219,7 @@ export default {
       for (let attempt = 0; ; attempt += 1) {
         if (stopped) return
         try {
-          await notifyStart(env, base(env, fields), fields.token)
+          await notifyStart(env, base(env, fields), fields.token, stopping.signal)
           break
         } catch (error) {
           if (stopped) return
@@ -245,7 +253,7 @@ export default {
         let messageId
         for (const chunkText of chunks) {
           const clientId = `ds-bot-${randomBytes(8).toString('hex')}`
-          const answer = await request(env, base(env, fields), fields.token, 'sendmessage', {
+          const answer = await call('sendmessage', {
             msg: {
               from_user_id: '', to_user_id: chat.key, client_id: clientId,
               message_type: 2, message_state: 2,
@@ -261,14 +269,15 @@ export default {
         return { messageId }
       },
       typing: async (chat) => {
-        const answer = await request(env, base(env, fields), fields.token, 'getconfig', { ilink_user_id: chat.key }, 8_000).catch(() => undefined)
+        const answer = await call('getconfig', { ilink_user_id: chat.key }, 8_000).catch(() => undefined)
         const ticket = String(answer?.typing_ticket ?? '')
         if (ticket === '') return
-        await request(env, base(env, fields), fields.token, 'sendtyping', { ilink_user_id: chat.key, typing_ticket: ticket, status: 1 }, 8_000).catch(() => {})
+        await call('sendtyping', { ilink_user_id: chat.key, typing_ticket: ticket, status: 1 }, 8_000).catch(() => {})
       },
       stop: () => {
         stopped = true
         generation += 1
+        stopping.abort(new Error('stopped'))
       },
     }
   },
@@ -297,8 +306,8 @@ const chunk = (text, limit) => {
 
 // iLink only carries getupdates for an opened session: before msg/notifystart
 // the server keeps answering {"errcode":-14,"errmsg":"session timeout"}.
-async function notifyStart(env, baseUrl, token) {
-  const answer = await request(env, baseUrl, token, 'msg/notifystart', {}, 10_000)
+async function notifyStart(env, baseUrl, token, signal) {
+  const answer = await request(env, baseUrl, token, 'msg/notifystart', {}, 10_000, { signal })
   const code = answer?.errcode ?? answer?.ret
   if (code === undefined || Number(code) === 0) return
   const reason = Number(code) === SESSION_EXPIRED
@@ -307,10 +316,14 @@ async function notifyStart(env, baseUrl, token) {
   throw fail(reason, { permanent: true })
 }
 
-async function request(env, baseUrl, token, endpoint, body, timeoutMs = POLL_TIMEOUT_MS, { requireJson = false } = {}) {
+async function request(env, baseUrl, token, endpoint, body, timeoutMs = POLL_TIMEOUT_MS, { requireJson = false, signal } = {}) {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(new Error('timeout')), timeoutMs)
   timer.unref?.()
+  // A connection that stops aborts every request it still has in flight: the
+  // getupdates long poll otherwise outlives it by up to 50 s and keeps the host
+  // process alive after a quit.
+  const aborted = signal === undefined ? controller.signal : AbortSignal.any([controller.signal, signal])
   let response
   try {
     response = await env.fetch(`${baseUrl}ilink/bot/${endpoint}`, {
@@ -322,7 +335,7 @@ async function request(env, baseUrl, token, endpoint, body, timeoutMs = POLL_TIM
         ...(token ? { authorization: `Bearer ${token}`, AuthorizationType: 'ilink_bot_token' } : {}),
       },
       body: JSON.stringify({ ...body, base_info: baseInfo() }),
-      signal: controller.signal,
+      signal: aborted,
     })
   } catch (error) {
     const timedOut = error?.name === 'AbortError' || /timeout|aborted/i.test(String(error?.message))
@@ -333,7 +346,13 @@ async function request(env, baseUrl, token, endpoint, body, timeoutMs = POLL_TIM
   } finally {
     clearTimeout(timer)
   }
-  const text = await response.text().catch(() => '')
+  let text
+  try {
+    text = await response.text()
+  } catch (error) {
+    if (aborted.aborted) throw Object.assign(new Error('timeout', { cause: error }), { timeout: true })
+    text = ''
+  }
   let parsed
   try { parsed = text === '' ? {} : JSON.parse(text) } catch { parsed = undefined }
   const json = parsed !== null && typeof parsed === 'object' ? parsed : undefined
@@ -350,10 +369,10 @@ async function request(env, baseUrl, token, endpoint, body, timeoutMs = POLL_TIM
 }
 
 // Inbound images: the CDN URL plus a base64 AES-128 key (ECB, PKCS7).
-async function image(media, env) {
+async function image(media, env, signal) {
   const url = String(media.full_url ?? media.url ?? '')
   if (url === '') return undefined
-  const response = await env.fetch(url)
+  const response = await env.fetch(url, { signal })
   if (!response.ok) return undefined
   const encrypted = Buffer.from(await response.arrayBuffer())
   const hex = Buffer.from(String(media.aes_key ?? ''), 'base64').toString('utf8')
