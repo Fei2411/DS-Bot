@@ -3,6 +3,7 @@
 // it, the route's key in DSH's credential store under the reference the route names.
 // The providers to add are the ones DSH's directory of configurable providers offers.
 
+import { serviceOf } from './services.js'
 const PI_AI = 'llm-pi-ai'
 const ROUTE_ID = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/
 // The baseline wire protocols DSH's pi-ai adapter serves on a custom route; newer DSH
@@ -192,7 +193,9 @@ export function install(rt) {
     if (found === undefined) return new Map()
     const map = sections(found.settings)
     const refs = new Map()
-    for (const entry of ctx.llm.listConfigurableProviders()) {
+    const llm = serviceOf(ctx, 'llm')
+    if (llm === undefined) return refs
+    for (const entry of llm.listConfigurableProviders()) {
       const ref = refOf(profileOf(entry, map))
       if (ref !== undefined) refs.set(entry.provider, ref)
     }

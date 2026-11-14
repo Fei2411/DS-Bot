@@ -3,6 +3,7 @@
 // user picks one in its chat. The Session keeps the selection durably.
 import { BlockAssembler, resolveRetryPolicy } from '@deepseek-ai/dsh-llm'
 import { normalize, splitRef } from './text.js'
+import { serviceOf } from './services.js'
 
 const CATALOG_TTL_MS = 10_000
 const ROUTE_WAIT_MS = 30_000
@@ -12,7 +13,7 @@ const TRANSIENT_LLM_CODES = new Set(['TRANSPORT', 'TIMEOUT'])
 
 function retryPolicyOf(ctx, provider) {
   try {
-    const resolved = ctx.llm?.providerRetryPolicy?.(provider)
+    const resolved = serviceOf(ctx, 'llm')?.providerRetryPolicy?.(provider)
     if (resolved !== undefined) return resolved
   } catch {}
   return resolveRetryPolicy(undefined, 'ds-bot')
@@ -64,13 +65,15 @@ function canRetryPolicy(policy, code, retry) {
 // their transport or stream-idle failures. Retry those transient codes on the same
 // route with the provider's own retry policy, discarding partial chunks from failed attempts.
 export async function assembleLlmStream(ctx, options, { signal, backoff, random = Math.random } = {}) {
+  const service = serviceOf(ctx, 'llm')
+  if (service === undefined) throw Object.assign(new Error('DS Bot is shutting down'), { code: 'ABORTED', failure: { code: 'ABORTED', message: 'DS Bot is shutting down' } })
   const fused = options.signal && signal ? AbortSignal.any([options.signal, signal]) : (options.signal ?? signal)
   const request = fused === options.signal ? options : { ...options, signal: fused }
   for (let retry = 1; ; retry += 1) {
     const assembler = new BlockAssembler()
     let thrown
     try {
-      for await (const chunk of ctx.llm.stream(request)) assembler.push(chunk)
+      for await (const chunk of service.stream(request)) assembler.push(chunk)
     } catch (error) {
       thrown = error
     }
@@ -102,6 +105,8 @@ export function install(rt) {
   const { ctx, state } = rt
 
   let modelsSynced = null
+  // A model service that cannot be read means the host is going away.
+  const llm = () => serviceOf(ctx, 'llm')
   let catalogCache = { at: 0, value: [] }
   // Routes DSH serves that cannot answer a request at all — a hosted loop engine
   // publishes one so its Sessions can be prompted. Once one refuses with
@@ -112,7 +117,9 @@ export function install(rt) {
   // The models a ref's provider serves, as a string to compare; undefined when it
   // cannot be listed, e.g. the provider is not registered.
   async function servedModels(ref) {
-    try { return JSON.stringify(await ctx.llm.listModels(splitRef(ref).provider)) } catch { return undefined }
+    const service = llm()
+    if (service === undefined) return undefined
+    try { return JSON.stringify(await service.listModels(splitRef(ref).provider)) } catch { return undefined }
   }
   // An adapter update may have replaced a refused placeholder with a real route, which
   // serves other models; the same models again are the same route, still refused.
@@ -158,7 +165,9 @@ export function install(rt) {
     const cached = reasoningCache.get(ref)
     if (cached !== undefined && Date.now() - cached.at < CATALOG_TTL_MS) return cached.value
     const route = splitRef(ref)
-    const info = route === undefined ? undefined : await ctx.llm.resolveModelInfo?.(route.provider, route.model).catch(() => undefined)
+    const service = llm()
+    if (service === undefined) return undefined
+    const info = route === undefined ? undefined : await service.resolveModelInfo?.(route.provider, route.model).catch(() => undefined)
     const value = info?.reasoning === undefined ? undefined : {
       efforts: (info.reasoning.efforts ?? []).map(effort => ({ id: effort.id, name: effort.name ?? effort.id, ...(effort.description ? { description: effort.description } : {}) })),
       ...(info.reasoning.defaultEffort === undefined ? {} : { defaultEffort: info.reasoning.defaultEffort }),
@@ -172,10 +181,13 @@ export function install(rt) {
   // also carry their `reasoning`, so the picker can offer thinking levels.
   async function catalog({ fresh = false } = {}) {
     if (!fresh && Date.now() - catalogCache.at < CATALOG_TTL_MS && catalogCache.value.length > 0) return answerable(catalogCache.value)
+    // The host is gone: the last answer stands, and no service is read again.
+    const service = llm()
+    if (service === undefined) return answerable(catalogCache.value)
     const entries = []
-    for (const provider of ctx.llm.listProviders()) {
+    for (const provider of service.listProviders()) {
       let models = []
-      try { models = await ctx.llm.listModels(provider.id) } catch { continue }
+      try { models = await service.listModels(provider.id) } catch { continue }
       for (const model of models) {
         entries.push({
           ref: `${provider.id}/${model.id}`,
@@ -187,6 +199,9 @@ export function install(rt) {
         })
       }
     }
+    // The host was disposed while the models were listed: keep the answer, skip the
+    // work that would read other services.
+    if (llm() === undefined) return answerable(entries)
     // DSH serves a provider's models whether or not its key is set; without one, every
     // turn on them fails.
     const missing = await rt.missingKeys?.([...new Set(entries.map(entry => entry.provider))]) ?? new Set()
@@ -241,7 +256,9 @@ export function install(rt) {
   // a CLI. Its CLI is asked only when DS Bot does not know the model yet.
   async function resolveLocalModel(ref) {
     const { provider, model } = splitRef(ref)
-    const known = await ctx.llm.listModels(provider).catch(() => [])
+    const service = llm()
+    if (service === undefined) throw new Error('DS Bot is shutting down')
+    const known = await service.listModels(provider).catch(() => [])
     const served = known.some(entry => entry.id === model) ? known : await rt.localAgentModels(provider)
     if (served.some(entry => entry.id === model)) return ref
     throw new Error(`Model ${ref} is not available. Available models: ${served.map(entry => `${provider}/${entry.id}`).join(', ') || 'none'}`)
@@ -338,6 +355,7 @@ export function install(rt) {
   // `force` re-selects even when the record says it is applied: the composer's own
   // model picker can move the Session without telling this plugin.
   async function applyModel(bot, { force = false } = {}) {
+    if (llm() === undefined) return undefined
     const ref = await desiredModel(bot)
     if (ref === undefined) return ref
     const effort = await desiredEffort(bot, ref)
@@ -366,6 +384,7 @@ export function install(rt) {
       if (!bot.model) return undefined
       catalogCache = { at: 0, value: [] }
       const served = new Set((await catalog()).map(entry => entry.ref))
+      if (llm() === undefined) return undefined
       if (served.has(bot.model) || Date.now() >= deadline) return desiredModel(bot)
       await new Promise((resolve) => {
         const timer = setTimeout(done, Math.min(2000, deadline - Date.now()))
@@ -417,6 +436,8 @@ export function install(rt) {
   const assembleLlm = options => assembleLlmStream(ctx, options, { signal: lifetime.signal, backoff: rt.config?.llmRetryBackoff })
 
   Object.assign(rt, {
+    // Work that starts while the host runs can ask whether the host is still there.
+    hostClosing: () => llm() === undefined,
     catalog, cachedCatalog: () => answerable(catalogCache.value), cachedDefault: () => pickDefault(catalogCache.value),
     defaultRef, defaultModel, defaultBotModel, defaultEffort, isUsable, resolveModel, desiredModel, reasoningOf, resolveEffort, desiredEffort,
     selectSessionModel, applyModel, waitForModel, syncModels, routeRefused, dropCatalog, assembleLlm,

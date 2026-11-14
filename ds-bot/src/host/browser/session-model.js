@@ -4,6 +4,7 @@ import {
   createToolResultMessage,
   createUserMessage,
 } from '@deepseek-ai/dsh-llm'
+import { serviceOf } from '../services.js'
 import { assembleLlmStream } from '../models.js'
 
 const NO_SESSION_MODEL = 'browser_task needs a Bot session model'
@@ -151,9 +152,10 @@ function driverTools(tools) {
 
 async function routeReadsImages(ctx, config, rt) {
   if (rt?.config?.textOnlyModels?.includes?.(`${config.provider}/${config.model}`)) return false
-  if (typeof ctx.llm?.resolveModelInfo !== 'function') return true
+  const llm = serviceOf(ctx, 'llm')
+  if (typeof llm?.resolveModelInfo !== 'function') return true
   try {
-    const info = await ctx.llm.resolveModelInfo(config.provider, config.model)
+    const info = await llm.resolveModelInfo(config.provider, config.model)
     return info.inputModalities === undefined || info.inputModalities.includes('image')
   } catch {
     return true

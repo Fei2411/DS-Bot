@@ -277,6 +277,8 @@ export function install(rt) {
   // again (turns.js), to go out once the user has fixed that.
   const sentKickoffs = new Map()
   function sendKickoff(bot, greeting) {
+    // A greeting waiting for its model may still be waiting when the host goes away.
+    if (rt.hostClosing?.() === true) return
     sentKickoffs.set(bot.id, greeting)
     const text = greeting.afterUser ? `${AFTER_USER} ${writeIn(rt.uiLanguage?.())}\n${OWN_RULES}` : greeting.text
     void rt.deliver({ fromId: greeting.from ?? undefined, toId: bot.id, text, role: 'kickoff' })
