@@ -1338,3 +1338,47 @@ test('im-retry keeps an interrupted in-flight send ahead of queued followers whe
   assert.deepEqual(s.fake.sent.map(job => job.text), ['first-A', 'second-B'])
   assert.equal(s.rt.imStatusView()[conn.id].state, 'ready')
 })
+
+test('im-retry clears retrying status when an interrupted single send drops after reconnect', async (t) => {
+  let releaseSend
+  const fake = fakeAdapter()
+  const realConnect = fake.connect.bind(fake)
+  let holdNext = false
+  fake.holdNextSend = () => { holdNext = true }
+  fake.connect = (fields, env, handlers) => {
+    const handle = realConnect(fields, env, handlers)
+    const origSend = handle.send
+    return {
+      ...handle,
+      send: async (chat, body) => {
+        if (holdNext) {
+          holdNext = false
+          await new Promise((_, reject) => {
+            releaseSend = () => reject(Object.assign(new Error('stopped mid-send'), { stopped: true }))
+          })
+        }
+        return origSend(chat, body)
+      },
+    }
+  }
+  const s = await start({ adapter: fake })
+  t.after(s.stop)
+  const conn = await add(s)
+  const one = s.rt.state.im.connections[conn.id]
+  one.paired.push({ id: 'u1', name: 'U1', at: 1 })
+  await s.rt.save()
+  await dm(s, 'u1', 'hi')
+  s.imTurn('a')
+  s.fake.sent.length = 0
+
+  fake.holdNextSend()
+  s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'cancelled-on-stop' }] } })
+  await delay(20)
+  s.fake.handlers.onStatus({ state: 'reconnecting' })
+  await s.rt.imEndpoint('im-retry', { id: conn.id })
+  assert.equal(s.rt.imStatusView()[conn.id].state, 'retrying')
+
+  releaseSend()
+  await delay(30)
+  assert.equal(s.rt.imStatusView()[conn.id].state, 'ready')
+})

@@ -495,6 +495,13 @@ export function install(rt) {
     else list.push(job)
     setSendStatus(id, chatKey, { state: 'error', error: errorText })
   }
+  const clearSettledSendStatus = (id, chatKey, runner, settled) => {
+    if (connections()[id] === undefined || (failedSends.get(id)?.get(chatKey)?.length ?? 0) > 0) return
+    const current = runners.get(id)
+    const activeDone = !runner.stopped && current === runner
+    const waiterDone = settled?.waiter !== undefined && current === settled.waiter.runner && (current.queues.get(chatKey)?.jobs.length ?? 0) === 0
+    if (activeDone || waiterDone) setSendStatus(id, chatKey, undefined)
+  }
   const drain = async (conn, chatKey) => {
     const runner = runners.get(conn.id)
     const queue = runner?.queues.get(chatKey)
@@ -527,6 +534,7 @@ export function install(rt) {
             const replay = waiter !== undefined && !waiter.runner.stopped && runners.get(conn.id) === waiter.runner ? waiter : undefined
             if (connections()[conn.id] === undefined || stopped || how === 'drop') {
               await Promise.resolve(job.onDrop?.()).catch(() => {})
+              clearSettledSendStatus(conn.id, chatKey, runner, settled)
               clearPendingSend(conn.id, chatKey, settled)
             } else if (replay !== undefined) {
               let nextQueue = replay.runner.queues.get(chatKey)
@@ -564,6 +572,7 @@ export function install(rt) {
             rt.warn('ds-bot: im send to %s failed: %s', chatKey, failMessage(error))
           } else {
             await Promise.resolve(job.onDrop?.()).catch(() => {})
+            clearSettledSendStatus(conn.id, chatKey, runner, undefined)
           }
           continue
         }
@@ -571,14 +580,8 @@ export function install(rt) {
         queue.jobs.shift()
         const settled = queue.stoppedSend
         queue.stoppedSend = undefined
-        if (connections()[conn.id] !== undefined) {
-          job.after?.(sent)
-          const current = runners.get(conn.id)
-          const waiterDone = settled?.waiter !== undefined && current === settled.waiter.runner && (current.queues.get(chatKey)?.jobs.length ?? 0) === 0
-          if (((!runner.stopped && current === runner) || waiterDone) && (failedSends.get(conn.id)?.get(chatKey)?.length ?? 0) === 0) {
-            setSendStatus(conn.id, chatKey, undefined)
-          }
-        }
+        if (connections()[conn.id] !== undefined) job.after?.(sent)
+        clearSettledSendStatus(conn.id, chatKey, runner, settled)
         clearPendingSend(conn.id, chatKey, settled)
         if (runner.stopped || runners.get(conn.id) !== runner) break
       }
