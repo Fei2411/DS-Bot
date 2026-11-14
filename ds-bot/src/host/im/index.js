@@ -14,6 +14,10 @@ import { adapters } from './platforms/index.js'
 const RECONCILE_MS = 15_000
 const RUNTIME_SAVE_MS = 400
 const RETRY_MS = 5_000
+// A send that keeps failing is given up on, with a bounded backoff, so one broken
+// message cannot hold every later message in the same chat forever (#1417).
+const RETRY_MAX_MS = 30_000
+const SEND_ATTEMPTS = 4
 const TYPING_MS = 4_000
 const NUMBERS = /^\s*\d+(\s+\d+)*\s*$/
 
@@ -268,6 +272,16 @@ export function install(rt) {
     data.cards[cardKey] = entries
     scheduleWrite(id)
   }
+  const unmarkCard = async (id, cardKey, chatKey) => {
+    const data = await cardsOf(id)
+    const entries = data.cards[cardKey]
+    if (entries === undefined) return
+    const kept = entries.filter(entry => entry.chatKey !== chatKey)
+    if (kept.length === entries.length) return
+    if (kept.length === 0) delete data.cards[cardKey]
+    else data.cards[cardKey] = kept
+    scheduleWrite(id)
+  }
   const settleCard = async (id, cardKey, answer) => {
     const data = await cardsOf(id)
     const entries = data.cards[cardKey]
@@ -301,13 +315,53 @@ export function install(rt) {
   })
 
   // ------------------------------------------------------------------ send out
-  /** @type {Map<string, {handle:any, queues:Map<string, {jobs:any[], retry?:any}>, statuses:Map}>} */
+  /** @type {Map<string, {handle:any, queues:Map<string, {jobs:any[], retry?:any}>}>} */
   const runners = new Map()
   const statuses = new Map()
+  /** @type {Map<string, Map<string, {state:string, error?:string, at:number}>>} */
+  const sendStatuses = new Map()
+  const failedSends = new Map()
+  const failedFor = (id, chatKey) => {
+    let chats = failedSends.get(id)
+    if (chats === undefined) failedSends.set(id, chats = new Map())
+    let jobs = chats.get(chatKey)
+    if (jobs === undefined) chats.set(chatKey, jobs = [])
+    return jobs
+  }
   const setStatus = (id, next) => {
     // Adapter errors can echo platform responses that quote the token; keep them out of the UI and logs.
     if (typeof next.error === 'string' && next.error !== '') return statuses.set(id, { ...next, error: rt.redactSecrets(next.error), at: Date.now() })
     return statuses.set(id, { ...next, at: Date.now() })
+  }
+  const setSendStatus = (id, chatKey, next) => {
+    if (next === undefined) {
+      const byChat = sendStatuses.get(id)
+      if (byChat === undefined) return
+      byChat.delete(chatKey)
+      if (byChat.size === 0) sendStatuses.delete(id)
+      return
+    }
+    let byChat = sendStatuses.get(id)
+    if (byChat === undefined) sendStatuses.set(id, byChat = new Map())
+    const error = typeof next.error === 'string' && next.error !== '' ? rt.redactSecrets(next.error) : next.error
+    byChat.set(chatKey, { ...next, error, at: Date.now() })
+  }
+  const combinedStatus = (id) => {
+    const adapter = statuses.get(id)
+    if (adapter?.state === 'error' || adapter?.state === 'off') return adapter
+    const byChat = sendStatuses.get(id)
+    if (byChat !== undefined && byChat.size > 0) {
+      let picked
+      for (const entry of byChat.values()) {
+        if (picked === undefined || (picked.state !== 'error' && entry.state === 'error') || (picked.state === entry.state && entry.at > picked.at)) {
+          picked = entry
+        }
+      }
+      if (picked !== undefined && (picked.state === 'error' || adapter === undefined || adapter.state === 'ready' || adapter.state === 'connecting')) {
+        return picked
+      }
+    }
+    return adapter
   }
   const targetsOf = (conn) => {
     const out = []
@@ -411,9 +465,11 @@ export function install(rt) {
     if (runner === undefined) return
     let queue = runner.queues.get(chatKey)
     if (queue === undefined) runner.queues.set(chatKey, queue = { jobs: [] })
+    job.attempts = 0
     queue.jobs.push(job)
     if (queue.jobs.length === 1) void drain(conn, chatKey)
   }
+  const failMessage = error => String(error?.message ?? error).slice(0, 300)
   const drain = async (conn, chatKey) => {
     const runner = runners.get(conn.id)
     const queue = runner?.queues.get(chatKey)
@@ -426,16 +482,33 @@ export function install(rt) {
         const sent = await runner.handle.send(job.chat, job)
         job.after?.(sent)
         queue.jobs.shift()
+        if ((failedSends.get(conn.id)?.get(chatKey)?.length ?? 0) === 0) setSendStatus(conn.id, chatKey, undefined)
       } catch (error) {
         const how = failClass(error)
         if (how === 'retry') {
-          const wait = Number(error?.retryAfter) > 0 ? error.retryAfter * 1000 : RETRY_MS
-          queue.retry = setTimeout(() => { void drain(conn, chatKey) }, wait)
-          queue.retry.unref?.()
-          return
+          job.attempts += 1
+          if (job.attempts < SEND_ATTEMPTS) {
+            const backoff = Math.min(RETRY_MS * 2 ** (job.attempts - 1), RETRY_MAX_MS)
+            const asked = Number(error?.retryAfter) > 0 ? Math.min(error.retryAfter * 1000, RETRY_MAX_MS) : backoff
+            setSendStatus(conn.id, chatKey, { state: 'retrying', error: failMessage(error) })
+            queue.retry = setTimeout(() => { void drain(conn, chatKey) }, asked)
+            queue.retry.unref?.()
+            return
+          }
+          // A failed job keeps its delivery callback: Try again resumes the same
+          // message and card instead of dropping it or creating a second card.
+          queue.jobs.shift()
+          failedFor(conn.id, chatKey).push(job)
+          setSendStatus(conn.id, chatKey, { state: 'error', error: `Send failed after ${job.attempts} attempts: ${failMessage(error)}` })
+          rt.warn('ds-bot: im send to %s failed after %d attempts: %s', chatKey, job.attempts, failMessage(error))
+          continue
         }
         queue.jobs.shift()
-        if (how === 'permanent') setStatus(conn.id, { state: 'error', error: String(error?.message ?? error).slice(0, 300) })
+        if (how === 'permanent') {
+          failedFor(conn.id, chatKey).push(job)
+          setSendStatus(conn.id, chatKey, { state: 'error', error: failMessage(error) })
+          rt.warn('ds-bot: im send to %s failed: %s', chatKey, failMessage(error))
+        } else job.onDrop?.()
       }
     }
   }
@@ -660,13 +733,23 @@ export function install(rt) {
   }
 
   const sendCard = async (conn, cardKey, targets, body, buttons) => {
-    for (const { chatKey, chat } of targets) {
-      sendTo(conn, chatKey, { key: chatKey, kind: chat.kind, title: chat.title }, body, buttons, (sent) => {
-        void markCard(conn.id, cardKey, chatKey, sent?.messageId, body)
+    const data = await cardsOf(conn.id)
+    const entries = data.cards[cardKey] ??= []
+    const recorded = new Set(entries.map(entry => entry.chatKey))
+    const pending = targets.filter(({ chatKey }) => !recorded.has(chatKey))
+    if (pending.length === 0) return
+    // Reserve pending chats synchronously before enqueueing so concurrent diffs cannot double-send.
+    for (const { chatKey } of pending) entries.push({ chatKey, messageId: undefined, text: body })
+    scheduleWrite(conn.id)
+    for (const { chatKey, chat } of pending) {
+      enqueue(conn, chatKey, {
+        chat: { key: chatKey, kind: chat.kind, title: chat.title },
+        text: body,
+        buttons,
+        after: (sent) => { void markCard(conn.id, cardKey, chatKey, sent?.messageId, body) },
+        onDrop: () => { void unmarkCard(conn.id, cardKey, chatKey) },
       })
     }
-    // A card a chat never got (queued behind a failure) is still recorded below.
-    for (const { chatKey } of targets) await markCard(conn.id, cardKey, chatKey, undefined, body)
   }
 
   const diffCards = async () => {
@@ -674,11 +757,10 @@ export function install(rt) {
     for (const conn of Object.values(connections())) {
       const runner = runners.get(conn.id)
       if (runner === undefined) continue
-      const data = await cardsOf(conn.id)
+      await cardsOf(conn.id)
       // Questions: one card per open question id, on the connection whose chat asked.
       for (const [sessionId, question] of Object.entries(state.questions ?? {})) {
         const cardKey = `q:${question.id}`
-        if (data.cards[cardKey] !== undefined) continue
         const botId = rt.chatOwners.get(sessionId) ?? rt.pastOwners.get(sessionId)?.botId
         const bot = rt.botOf(botId)
         if (bot === undefined) continue
@@ -688,13 +770,23 @@ export function install(rt) {
         const buttons = imPlatform(conn.platform)?.buttons === true ? cardButtons.question(question) : undefined
         await sendCard(conn, cardKey, [{ chatKey: origin.chatKey, chat: origin.chat }], cardText.question(bot.name, question), buttons)
       }
+      // Approvals: one card per open approval id, resent to chats whose earlier send dropped.
+      for (const entry of rt.approvalsView?.() ?? []) {
+        const cardKey = `a:${entry.id}`
+        const bot = rt.botOf(entry.botId)
+        const origin = originOf(entry.roomId !== undefined ? (rt.roomOf(entry.roomId)?.sessionId ?? entry.roomId) : chatOfBot(entry.botId))
+        if (origin === undefined || origin.conn.id !== conn.id) continue
+        const targets = [{ chatKey: origin.chatKey, chat: origin.chat }]
+        const buttons = imPlatform(conn.platform)?.buttons === true ? cardButtons.approval(entry.id) : undefined
+        await sendCard(conn, cardKey, targets, cardText.approval(bot?.name ?? '?', entry), buttons)
+      }
       // Secret requests: text only — the key is typed on the computer or phone.
       for (const [botId, list] of Object.entries(state.secretRequests ?? {})) {
         const bot = rt.botOf(botId)
         if (bot === undefined) continue
         for (const request of list) {
           const cardKey = `s:${request.id}`
-          if (request.status !== 'pending' || data.cards[cardKey] !== undefined) continue
+          if (request.status !== 'pending') continue
           const origin = originOf(chatOfBot(botId))
           if (origin === undefined || origin.conn.id !== conn.id) continue
           await sendCard(conn, cardKey, [{ chatKey: origin.chatKey, chat: origin.chat }], text('secretAsk', { bot: bot.name, name: request.name }))
@@ -703,7 +795,6 @@ export function install(rt) {
       // Views awaiting a reply: text form only.
       for (const [sessionId, view] of Object.entries(state.views ?? {})) {
         const cardKey = `v:${view.id}`
-        if (data.cards[cardKey] !== undefined) continue
         const botId = rt.chatOwners.get(sessionId)
         const bot = rt.botOf(botId)
         if (bot === undefined) continue
@@ -845,6 +936,7 @@ export function install(rt) {
   const stop = async (id) => {
     const runner = runners.get(id)
     runners.delete(id)
+    sendStatuses.delete(id)
     if (runner?.typing !== undefined) clearInterval(runner.typing)
     for (const queue of runner?.queues.values() ?? []) clearTimeout(queue.retry)
     await Promise.resolve(runner?.handle?.stop?.()).catch(() => {})
@@ -865,12 +957,13 @@ export function install(rt) {
         else if (!wants && runners.has(conn.id)) await stop(conn.id)
       }
       for (const id of [...runners.keys()]) if (conns[id] === undefined) await stop(id)
-      for (const id of [...statuses.keys()]) if (conns[id] === undefined) statuses.delete(id)
+      for (const id of [...statuses.keys()]) if (conns[id] === undefined) { statuses.delete(id); sendStatuses.delete(id) }
       for (const conn of Object.values(conns)) {
         if (conn.enabled === false || !runners.has(conn.id)) {
           if (statuses.get(conn.id)?.state !== 'error') setStatus(conn.id, { state: 'off', at: Date.now() })
         }
       }
+      await diffCards()
     })
     syncing = run.catch(() => {})
     return run
@@ -993,6 +1086,7 @@ export function install(rt) {
         await rt.secretEndpoint('secret-delete', { name }).catch(() => {})
       }
       delete connections()[id]
+      failedSends.delete(id)
       runtimes.delete(id)
       await rm(join(imDir, `${id}.json`), { force: true }).catch(() => {})
       await rt.save()
@@ -1047,8 +1141,16 @@ export function install(rt) {
     async 'im-retry'(body) {
       const conn = connections()[String(body.id ?? '')]
       if (conn === undefined) throw new Error('No such IM bot')
-      if (runners.has(conn.id)) await stop(conn.id)
-      await sync()
+      if (statuses.get(conn.id)?.state !== 'ready') {
+        if (runners.has(conn.id)) await stop(conn.id)
+        await sync()
+      }
+      const chats = failedSends.get(conn.id)
+      failedSends.delete(conn.id)
+      for (const [chatKey, jobs] of chats ?? []) {
+        setSendStatus(conn.id, chatKey, { state: 'retrying' })
+        for (const job of jobs) enqueue(conn, chatKey, job)
+      }
       return true
     },
     async 'im-login-start'(body) {
@@ -1228,7 +1330,10 @@ export function install(rt) {
   }, 'ds-bot: im')
 
   const imView = () => ({ connections: Object.values(connections()).map(viewOf), platforms: IM_PLATFORMS.filter(platform => adaptersFor().includes(platform.id)).map(platform => platform.id) })
-  const imStatusView = () => Object.fromEntries([...statuses.entries()].map(([id, status]) => [id, { state: status.state, ...(status.error !== undefined ? { error: status.error } : {}), at: status.at }]))
+  const imStatusView = () => Object.fromEntries([...new Set([...statuses.keys(), ...sendStatuses.keys()])].map((id) => {
+    const status = combinedStatus(id)
+    return [id, { state: status.state, ...(status.error !== undefined ? { error: status.error } : {}), at: status.at }]
+  }))
 
   Object.assign(rt, { imView, imStatusView, imViaView, imEndpoint })
 }
