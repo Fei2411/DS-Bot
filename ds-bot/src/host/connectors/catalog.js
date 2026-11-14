@@ -6,6 +6,9 @@
 //   none  — the server needs no sign-in.
 //   oauth — MCP OAuth sign-in (browser PKCE); `client` names a known public
 //           client (GitHub device flow), `token: true` also offers pasting a token.
+//           `clientSetup` marks a service where the user brings a client of
+//           their own: `appUrl` is where they configure it, `kind` picks the
+//           steps the client form explains before they paste it.
 //   key   — an API key in a header (`header`, optional `prefix`) or a query
 //           parameter (`query`); `keyUrl` is where the user gets one.
 // `headers` are extra static headers; `whoami` reads the account name after
@@ -15,7 +18,7 @@
 // overridable for development. Empty keeps the pasted-token form only.
 export const GITHUB_CLIENT_ID = process.env.DS_BOT_GITHUB_OAUTH_CLIENT_ID ?? 'Ov23liin4waZGLSJJgn5'
 
-const oauth = url => ({ remote: { url }, auth: { kind: 'oauth' } })
+const oauth = (url, clientSetup) => ({ remote: { url }, auth: { kind: 'oauth', ...(clientSetup ? { clientSetup } : {}) } })
 
 export const CATALOG = [
   {
@@ -55,7 +58,7 @@ export const CATALOG = [
   { id: 'asana', name: 'Asana', category: 'work', about: 'Tasks, projects, and workspaces', ...oauth('https://mcp.asana.com/v2/mcp') },
   { id: 'box', name: 'Box', category: 'docs', about: 'Files, folders, and metadata', ...oauth('https://mcp.box.com') },
   { id: 'hubspot', name: 'HubSpot', category: 'work', about: 'Contacts, deals, and tickets', ...oauth('https://mcp.hubspot.com/') },
-  { id: 'slack', name: 'Slack', category: 'work', about: 'Channels and messages', ...oauth('https://mcp.slack.com/mcp') },
+  { id: 'slack', name: 'Slack', category: 'work', about: 'Channels and messages', ...oauth('https://mcp.slack.com/mcp', { kind: 'slack', appUrl: 'https://api.slack.com/apps' }) },
   { id: 'huggingface', name: 'Hugging Face', category: 'data', about: 'Models, datasets, and Spaces', remote: { url: 'https://huggingface.co/mcp' }, auth: { kind: 'none' } },
   { id: 'exa', name: 'Exa', category: 'search', about: 'Web search for agents', remote: { url: 'https://mcp.exa.ai/mcp' }, auth: { kind: 'none' } },
   { id: 'deepwiki', name: 'DeepWiki', category: 'docs', about: 'Documentation for public code repositories', remote: { url: 'https://mcp.deepwiki.com/mcp' }, auth: { kind: 'none' } },

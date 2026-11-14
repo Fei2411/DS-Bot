@@ -1552,6 +1552,11 @@ var JA = {
   "Open {host}": "{host} を開く",
   "Client ID": "Client ID",
   "Client secret (optional)": "Client Secret（任意）",
+  "In OAuth & Permissions at {app}, add this redirect URL:": "{app} の OAuth & Permissions に、このリダイレクト URL を追加してください：",
+  "In the app settings, add this redirect URL:": "アプリの設定に、このリダイレクト URL を追加してください：",
+  "Turn on the MCP features and scopes the app needs.": "アプリに必要な MCP 機能とスコープを有効にしてください。",
+  "Copy the Client ID and Client Secret here.": "Client ID と Client Secret をここに入力してください。",
+  "Open app settings": "アプリの設定を開く",
   "Continue": "続行",
   "{name} key": "{name} キー",
   "{name} token": "{name} トークン",
@@ -3944,6 +3949,11 @@ var KO = {
   "Open {host}": "{host} 열기",
   "Client ID": "Client ID",
   "Client secret (optional)": "Client secret (선택사항)",
+  "In OAuth & Permissions at {app}, add this redirect URL:": "{app}의 OAuth & Permissions에서 이 리디렉션 URL을 추가하세요:",
+  "In the app settings, add this redirect URL:": "앱 설정에서 이 리디렉션 URL을 추가하세요:",
+  "Turn on the MCP features and scopes the app needs.": "앱에 필요한 MCP 기능과 범위를 켜세요.",
+  "Copy the Client ID and Client Secret here.": "Client ID와 Client Secret을 여기에 입력하세요.",
+  "Open app settings": "앱 설정 열기",
   "Continue": "계속",
   "{name} key": "{name} 키",
   "{name} token": "{name} 토큰",
@@ -6339,6 +6349,11 @@ var ES = {
   "Open {host}": "Abrir {host}",
   "Client ID": "Client ID",
   "Client secret (optional)": "Client secret (opcional)",
+  "In OAuth & Permissions at {app}, add this redirect URL:": "En OAuth & Permissions de {app}, añade esta URL de redirección:",
+  "In the app settings, add this redirect URL:": "En los ajustes de la app, añade esta URL de redirección:",
+  "Turn on the MCP features and scopes the app needs.": "Activa las funciones y los permisos de MCP que necesita la app.",
+  "Copy the Client ID and Client Secret here.": "Copia aquí el Client ID y el Client Secret.",
+  "Open app settings": "Abrir ajustes de la app",
   "Continue": "Continuar",
   "{name} key": "Clave de {name}",
   "{name} token": "Token de {name}",
@@ -8692,6 +8707,11 @@ var FR = {
   "Open {host}": "Ouvrir {host}",
   "Client ID": "Client ID",
   "Client secret (optional)": "Client secret (facultatif)",
+  "In OAuth & Permissions at {app}, add this redirect URL:": "Dans OAuth & Permissions de {app}, ajoutez cette URL de redirection :",
+  "In the app settings, add this redirect URL:": "Dans les réglages de l’app, ajoutez cette URL de redirection :",
+  "Turn on the MCP features and scopes the app needs.": "Activez les fonctions et les portées MCP dont l’app a besoin.",
+  "Copy the Client ID and Client Secret here.": "Collez ici le Client ID et le Client Secret.",
+  "Open app settings": "Ouvrir les réglages de l’app",
   "Continue": "Continuer",
   "{name} key": "Clé {name}",
   "{name} token": "Jeton {name}",
@@ -11084,6 +11104,11 @@ var DE = {
   "Open {host}": "{host} öffnen",
   "Client ID": "Client ID",
   "Client secret (optional)": "Client Secret (optional)",
+  "In OAuth & Permissions at {app}, add this redirect URL:": "Füge in OAuth & Permissions von {app} diese Redirect-URL hinzu:",
+  "In the app settings, add this redirect URL:": "Füge in den App-Einstellungen diese Redirect-URL hinzu:",
+  "Turn on the MCP features and scopes the app needs.": "Aktiviere die MCP-Funktionen und Berechtigungen, die die App braucht.",
+  "Copy the Client ID and Client Secret here.": "Trage hier die Client ID und das Client Secret ein.",
+  "Open app settings": "App-Einstellungen öffnen",
   "Continue": "Weiter",
   "{name} key": "{name}-Schlüssel",
   "{name} token": "{name}-Token",
@@ -13485,6 +13510,11 @@ var ZH = {
   "Open {host}": "打开 {host}",
   "Client ID": "Client ID",
   "Client secret (optional)": "Client secret(可选)",
+  "In OAuth & Permissions at {app}, add this redirect URL:": "在 {app} 的 OAuth & Permissions 里添加这个重定向地址：",
+  "In the app settings, add this redirect URL:": "在应用设置里添加这个重定向地址：",
+  "Turn on the MCP features and scopes the app needs.": "打开应用需要的 MCP 功能和权限范围。",
+  "Copy the Client ID and Client Secret here.": "再把 Client ID 和 Client Secret 填到这里。",
+  "Open app settings": "打开应用设置",
   "Continue": "继续",
   "{name} key": "{name} 密钥",
   "{name} token": "{name} 令牌",
@@ -16046,6 +16076,10 @@ button.bt-set-row:hover .bt-chevron{transform:translateX(2px);color:var(--bt-ink
 .bt-connector-link{flex:none;padding:0;border:0;background:none;font:inherit;font-size:12px;color:var(--bt-ink-2);text-decoration:underline;text-underline-offset:2px;cursor:pointer}
 .bt-connector-link:hover:not(:disabled){color:var(--bt-ink)}
 .bt-connector-wait{flex:1;min-width:0;font-size:12px;line-height:16px;color:var(--bt-ink-2)}
+.bt-connector-setup{display:flex;flex-direction:column;gap:6px;padding:8px 10px;border-radius:10px;background:var(--bt-tag-bg);font-size:12px;line-height:16px;color:var(--bt-ink-2)}
+.bt-connector-setup p{margin:0}
+.bt-connector-setup-uri{display:flex;align-items:center;gap:6px;min-width:0}
+.bt-connector-uri{flex:1;min-width:0;padding:3px 6px;border-radius:6px;background:var(--bt-card);box-shadow:inset 0 0 0 .5px var(--bt-line-2);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;line-height:15px;color:var(--bt-ink);word-break:break-all}
 .bt-connector-aside{align-self:flex-start}
 .bt-connector-error{padding-left:48px;font-size:12px;line-height:16px;color:var(--bt-danger)}
 .bt-connector-banner{padding:0 0 8px}
@@ -25219,9 +25253,34 @@ function SignInPanel({ connector, actions, run: run2, onUseToken }) {
 function ClientPanel({ connector, actions, run: run2 }) {
   const [clientId, setClientId] = (0, import_react29.useState)("");
   const [clientSecret, setClientSecret] = (0, import_react29.useState)("");
+  const setup = connector.auth?.clientSetup;
+  const app = setup?.appUrl?.replace(/^https?:\/\//, "");
+  const uri = connector.redirectUri;
+  const copies = (0, import_react29.useSyncExternalStore)(watchCopies, () => codeCopies.get(uri) ?? 0);
   return (0, import_react29.createElement)(
     "div",
     { className: "bt-connector-form" },
+    // The app on the service side has to know the address the browser comes back
+    // to, and its own MCP features, before the pasted client can sign in.
+    (0, import_react29.createElement)(
+      "div",
+      { className: "bt-connector-setup" },
+      (0, import_react29.createElement)("p", null, setup?.kind === "slack" ? t("In OAuth & Permissions at {app}, add this redirect URL:", { app }) : t("In the app settings, add this redirect URL:")),
+      uri ? (0, import_react29.createElement)(
+        "div",
+        { className: "bt-connector-setup-uri" },
+        (0, import_react29.createElement)("code", { className: "bt-connector-uri" }, uri),
+        (0, import_react29.createElement)("button", { type: "button", className: "bt-connector-link", onClick: () => void copyCode(uri) }, t("Copy")),
+        copies > 0 ? (0, import_react29.createElement)(
+          "span",
+          { className: "bt-connector-copied", role: "status" },
+          (0, import_react29.createElement)("span", { key: copies, className: "bt-connector-copied-text" }, (0, import_react29.createElement)(CheckIcon), t("Copied to clipboard"))
+        ) : null
+      ) : null,
+      setup?.kind === "slack" ? (0, import_react29.createElement)("p", null, t("Turn on the MCP features and scopes the app needs.")) : null,
+      (0, import_react29.createElement)("p", null, t("Copy the Client ID and Client Secret here.")),
+      setup?.appUrl ? (0, import_react29.createElement)("button", { type: "button", className: "bt-connector-link", onClick: () => openPage(setup.appUrl) }, t("Open app settings")) : null
+    ),
     (0, import_react29.createElement)("input", { className: "bt-input", "aria-label": t("Client ID"), placeholder: t("Client ID"), value: clientId, spellCheck: false, autoComplete: "off", onChange: (e) => setClientId(e.target.value) }),
     (0, import_react29.createElement)("label", { className: "bt-q-field bt-secret-field" }, (0, import_react29.createElement)(MaskedInput, { value: clientSecret, onChange: setClientSecret, label: t("Client secret (optional)") })),
     (0, import_react29.createElement)(

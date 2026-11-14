@@ -66,9 +66,13 @@ export async function resolveClient(entry, discovery, redirectUri, fixedPort, st
     const expired = Number.isFinite(stored.secretExpiresAt) && stored.secretExpiresAt * 1000 <= Date.now()
     const uriMissing = Array.isArray(stored.redirectUris) && !stored.redirectUris.includes(redirectUri)
     // A stored CIMD client still needs the fixed port its document names.
-    if (!expired && !uriMissing && stored.via === 'cimd' && fixedPort) return { via: 'cimd', clientInformation: { client_id: stored.clientId } }
-    if (!expired && !uriMissing && stored.via !== 'dcr' && stored.via !== 'cimd') return { via: stored.via, clientInformation: { client_id: stored.clientId } }
-    if (!expired && !uriMissing && stored.via === 'dcr') return { via: 'dcr', clientInformation: { client_id: stored.clientId, ...(stored.clientSecret ? { client_secret: stored.clientSecret } : {}) } }
+    const usable = !expired && !uriMissing && (stored.via !== 'cimd' || fixedPort)
+    // A confidential client signs the token request with its secret, whether it
+    // was registered (DCR) or typed in by hand: without it the AS answers
+    // bad_client_secret. A CIMD client is public, so a secret left behind by an
+    // earlier DCR client must not travel with it.
+    const secret = stored.via !== 'cimd' && stored.clientSecret ? { client_secret: stored.clientSecret } : {}
+    if (usable) return { via: stored.via, clientInformation: { client_id: stored.clientId, ...secret } }
   }
   const metadata = discovery.metadata
   if (metadata?.client_id_metadata_document_supported === true && fixedPort) {
