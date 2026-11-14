@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { ActivityIndicator, Dimensions, FlatList, KeyboardAvoidingView, Linking, Modal, Pressable, StyleSheet, Text, View, ScrollView, type ListRenderItem } from 'react-native'
-import { useNavigation } from '@react-navigation/native'
+import { useIsFocused, useNavigation } from '@react-navigation/native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import * as Haptics from 'expo-haptics'
 import { downloadFile } from '../team/file-download.ts'
@@ -244,7 +244,22 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
     return toggle
   }
   const { onFeed, online } = useTeam()
-  useEffect(() => { markSeen(id) }, [id])
+  const hostId = computer?.hostDeviceId ?? ''
+  const isFocused = useIsFocused()
+  const focusedRef = useRef(isFocused)
+  focusedRef.current = isFocused
+  const latestAt = useMemo(() => {
+    let max = bot?.lastAt ?? room?.lastAt ?? 0
+    for (const item of page?.items ?? []) {
+      if (typeof item.time === 'number' && Number.isFinite(item.time) && item.time > max) max = item.time
+    }
+    return max
+  }, [bot?.lastAt, room?.lastAt, page?.items])
+  useEffect(() => {
+    if (isFocused && hostId !== '' && id !== '' && (bot !== undefined || room !== undefined) && latestAt > 0) {
+      void markSeen(hostId, id, latestAt)
+    }
+  }, [isFocused, hostId, id, bot !== undefined, room !== undefined, latestAt])
   // Back online after a drop: read what was missed. Not on mount, which reads already.
   const wasOnline = useRef(online)
   useEffect(() => {
@@ -263,12 +278,14 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
           setPageState(prev => prev.key !== chatKey || prev.page === null || prev.page.items.some(it => it.seq !== undefined && it.seq === item.seq)
             ? prev
             : { ...prev, page: { ...prev.page, items: [...prev.page.items, item] } })
+          if (focusedRef.current && hostId !== '' && id !== '' && typeof item.time === 'number' && Number.isFinite(item.time) && item.time > 0) {
+            void markSeen(hostId, id, item.time)
+          }
         }
-        markSeen(id)
         void refresh(gen)
       }
     })
-  }, [onFeed, room, sessionId, refresh, id])
+  }, [onFeed, room, sessionId, refresh, id, hostId])
   // Bubble caps in px — RN cannot parse CSS min(). Narrow phone screens ignore the
   // desktop's wide-window column slider so bubbles do not waste a third of the screen;
   // group rows reserve 30px (22px avatar + 8px gap) on the left.
