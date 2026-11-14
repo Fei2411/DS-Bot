@@ -22,7 +22,7 @@ import { assembleLlmStream } from './models.js'
 import { parseReplies, relayRange, stackReplies } from '../shared/group-replies.js'
 import { CHECKPOINT_PROMPT, STEWARD_SYSTEM, checkpointCount, checkpointTail, checkpointTailNote, checkpointText, linesFor, parseDecision, stewardRequest } from './steward.js'
 import { RESUME_DELAY_MS } from './resume.js'
-import { clip, createClock, escapeRegExp, estimateTokens, splitRef, textOf } from './text.js'
+import { clip, createClock, escapeRegExp, estimateTokens, reminderPrompts, splitRef, textOf } from './text.js'
 import { viaOf } from '../shared/im-platforms.js'
 import { checkShownView, normalizeView, readViewReply, viewCardText, viewReply, viewReplyText } from 'deep-view/core'
 
@@ -1642,6 +1642,9 @@ export function install(rt) {
         })
       } else if (source?.kind === SOURCE_KIND && source.handoff !== true && source.deferred !== true && ['request', 'reply', 'report', 'stopped'].includes(source.role)) {
         stamp(event, { kind: 'event', role: source.role, botId: source.senderSessionId ?? null, name: source.senderName ?? null, roomId: source.roomId ?? null, time: event.time })
+      } else if (source?.kind === 'schedule') {
+        const prompts = reminderPrompts(textOf(event.data.content))
+        stamp(event, { kind: 'event', role: 'schedule', text: prompts.join(' · ').slice(0, 120), time: event.time })
       }
     }
     for (const entry of presented) {
@@ -1690,6 +1693,11 @@ export function install(rt) {
       }
     }
     const items = displayItems(part.sessionId, events, agent?.session, seedTurn)
+    if (index < parts.length - 1) {
+      for (const item of items) {
+        if (item.sessionId === undefined && (item.kind === 'bot' || item.kind === 'post')) item.sessionId = part.sessionId
+      }
+    }
     const more = page.hasMore && events.length > 0
     // The line above a part's first message marks where it began.
     if (!more && index > 0) items.unshift({ kind: 'divider', time: part.startedAt })

@@ -6,7 +6,10 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { readFile, stat } from 'node:fs/promises'
+import { extname, isAbsolute, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { HANDOFF_ACK, HISTORY_TIMEOUT_MS, SOURCE_KIND } from './constants.js'
+import { within } from './folders.js'
 import { PREVIEW_EDGE, previewImage } from './preview.js'
 import { relayRange } from '../shared/group-replies.js'
 import { textOf } from './text.js'
@@ -44,6 +47,7 @@ export const CAPABILITIES = [
   'images',
   'image-preview',
   'file-download',
+  'markdown-image',
   'write-state',
 ]
 export const NOTICE_KINDS = ['message', 'group', 'done', 'question', 'view', 'approval']
@@ -299,6 +303,9 @@ export function install(rt) {
     }, AbortSignal.timeout(HISTORY_TIMEOUT_MS))
     const events = page.records.map(record => record.event)
     const { items, open } = roomItems(events, range => rt.groupRows?.(room.id, range.from, range.to, range.anchor) ?? [])
+    for (const item of items) {
+      if (item.sessionId === undefined && (item.kind === 'bot' || item.kind === 'post')) item.sessionId = part.sessionId
+    }
     if (body.steps === true) await rt.applySteps?.(items, events, part.sessionId)
     const running = [...rt.roomProgress.entries()].filter(([, round]) => round.roomId === room.id)
     // The newest page shows what the running round has said so far, where its call sits.
@@ -482,6 +489,105 @@ export function install(rt) {
     throw unavailable()
   }
 
+  const MARKDOWN_IMAGE_MAX = 8 * 1024 * 1024
+  const MARKDOWN_IMAGE_MIMES = new Map([
+    ['.png', 'image/png'],
+    ['.jpg', 'image/jpeg'],
+    ['.jpeg', 'image/jpeg'],
+    ['.gif', 'image/gif'],
+    ['.webp', 'image/webp'],
+    ['.bmp', 'image/bmp'],
+    ['.svg', 'image/svg+xml'],
+  ])
+
+  async function markdownImage(body) {
+    const sessionId = String(body.sessionId ?? '')
+    const raw = typeof body.path === 'string' ? body.path.trim() : ''
+    if (raw === '') throw Object.assign(new Error('No image named'), { code: 'bot/invalid' })
+    const noHash = raw.split('#')[0].split('?')[0]
+    let decoded = noHash
+    try { decoded = decodeURIComponent(noHash) } catch { /* keep raw if malformed % */ }
+    if (/^[a-z][a-z0-9+.-]*:/i.test(decoded) && !/^[a-z]:[\\/]/i.test(decoded) && !/^file:\/\//i.test(decoded)) {
+      throw Object.assign(new Error('Unsupported image scheme'), { code: 'bot/invalid' })
+    }
+    let cleanPath = decoded
+    if (/^file:\/\//i.test(noHash)) {
+      try {
+        cleanPath = fileURLToPath(noHash)
+      } catch {
+        throw Object.assign(new Error('Invalid image URL'), { code: 'bot/invalid' })
+      }
+    }
+    const groupOwner = rt.groupOwners?.get(sessionId)
+    const pastOwner = rt.pastOwners.get(sessionId)
+    const room = rt.roomOf(sessionId) ?? rt.roomOf(groupOwner?.roomId ?? pastOwner?.roomId)
+    const botId = groupOwner?.botId ?? (pastOwner?.roomId !== undefined ? pastOwner.botId : undefined)
+      ?? (room === undefined ? rt.chatOwners.get(sessionId) ?? pastOwner?.botId ?? rt.botOf(sessionId)?.id : undefined)
+    if (botId === undefined && room === undefined) throw Object.assign(new Error('Unknown session'), { code: 'bot/not-found' })
+    const authorId = room !== undefined && typeof body.botId === 'string' && rt.botOf(body.botId) !== undefined
+      && (room.members?.includes(body.botId) || rt.botOf(body.botId)?.private !== true)
+      ? body.botId
+      : undefined
+    const targetSessionId = room !== undefined
+      ? (sessionId === room.id && rt.sessionOfRoom(room) !== sessionId && !(room.parts ?? []).some(part => part.sessionId === sessionId)
+        ? rt.sessionOfRoom(room) ?? sessionId
+        : sessionId)
+      : (sessionId === botId && pastOwner === undefined && !rt.chatOwners.has(sessionId)
+        ? rt.chatOf(botId) ?? sessionId
+        : sessionId)
+    const agent = await rt.resolveAgent(targetSessionId).catch(() => undefined)
+    const baseDir = rt.sessionFolder?.(agent?.session) ?? rt.workDirOf?.({ botId, roomId: room?.id }) ?? rt.teamFolder?.() ?? rt.defaultTeamFolder?.()
+    if (!baseDir) throw Object.assign(new Error('Workspace unavailable'), { code: 'bot/not-found' })
+    const realBase = await rt.real(baseDir)
+    const candidate = resolve(realBase, cleanPath)
+    const realPath = await (rt.realBeyond?.(candidate) ?? rt.real(candidate))
+    let allowed = within(realPath, realBase)
+    if (!allowed && isAbsolute(cleanPath)) {
+      const extraDirs = [
+        rt.teamFolder?.(),
+        rt.defaultTeamFolder?.(),
+        rt.workDirOf?.({ botId, roomId: room?.id }),
+        ...(authorId !== undefined ? [rt.workDirOf?.({ botId: authorId, roomId: room?.id }), rt.workDirOf?.({ botId: authorId })] : []),
+      ].filter(Boolean)
+      for (const dir of extraDirs) {
+        if (within(realPath, await rt.real(dir))) { allowed = true; break }
+      }
+      if (!allowed) {
+        const partIds = new Set([
+          ...rt.partsOf(botId, room?.id).map(part => part.sessionId),
+          ...(authorId !== undefined ? [
+            ...rt.partsOf(authorId, room?.id).map(part => part.sessionId),
+            ...rt.partsOf(authorId).map(part => part.sessionId),
+          ] : []),
+        ])
+        for (const partSessionId of partIds) {
+          const partAgent = await rt.resolveAgent(partSessionId).catch(() => undefined)
+          const partDir = rt.sessionFolder?.(partAgent?.session)
+          if (partDir && within(realPath, await rt.real(partDir))) { allowed = true; break }
+        }
+      }
+    }
+    if (!allowed || await rt.inData?.(realPath)) {
+      throw Object.assign(new Error('Image outside workspace'), { code: 'bot/forbidden' })
+    }
+    const mime = MARKDOWN_IMAGE_MIMES.get(extname(realPath).toLowerCase())
+    if (mime === undefined) throw Object.assign(new Error('Unsupported image format'), { code: 'bot/invalid' })
+    const info = await stat(realPath).catch(() => undefined)
+    if (info?.isFile() !== true) throw Object.assign(new Error('Image not found'), { code: 'bot/not-found' })
+    if (info.size > MARKDOWN_IMAGE_MAX) throw Object.assign(new Error('Image too large'), { code: 'bot/refused' })
+    const bytes = await readFile(realPath)
+    const rev = `${bytes.length}:${createHash('sha256').update(bytes).digest('hex').slice(0, 16)}`
+    if (typeof body.knownRev === 'string' && body.knownRev === rev) {
+      return { mime, unchanged: true, size: bytes.length, rev }
+    }
+    return {
+      mime,
+      bytes: bytes.toString('base64'),
+      size: bytes.length,
+      rev,
+    }
+  }
+
   async function mobileEndpoint(endpoint, body) {
     switch (endpoint) {
       case 'hello': return hello(body)
@@ -490,6 +596,7 @@ export function install(rt) {
       case 'room-chat': return roomChat(body)
       case 'image': return image(body)
       case 'file-download': return fileDownload(body)
+      case 'markdown-image': return markdownImage(body)
       case 'usage-summary': return usageSummary(body)
       case 'memory-edit': return rt.memoryEdit({ ...memoryTarget(body), scope: body.scope, topic: body.topic, text: body.text, next: body.next })
       case 'memory-add': return rt.memoryAdd({ ...memoryTarget(body), scope: body.scope, topic: body.topic, text: body.text })
