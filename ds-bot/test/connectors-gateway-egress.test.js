@@ -172,11 +172,11 @@ test('a strict upstream that allows only a fixed header list rejects the call an
 // launcher does, and an https upstream reachable only through that proxy.
 const NOT_INHERITED = /^(https?_proxy|all_proxy|no_proxy|node_use_env_proxy|node_extra_ca_certs)$/i
 
-async function startChild(t, { upstream, proxy, ca, undiciTimeoutMs }) {
+async function startChild(t, { upstream, proxy, ca, undiciTimeoutMs, headers }) {
   const env = Object.fromEntries(Object.entries(process.env).filter(([name]) => !NOT_INHERITED.test(name)))
   if (proxy !== undefined) env.HTTPS_PROXY = proxy
   if (ca !== undefined) env.NODE_EXTRA_CA_CERTS = ca
-  env.GATEWAY_EGRESS = JSON.stringify({ upstream, undiciTimeoutMs })
+  env.GATEWAY_EGRESS = JSON.stringify({ upstream, undiciTimeoutMs, headers })
   const child = spawn(process.execPath, ['--import', pathToFileURL(join(here, 'harness-resolve.mjs')).href, join(here, 'fixtures/gateway-egress.mjs')], { env, stdio: ['pipe', 'pipe', 'pipe'] })
   let stderr = ''
   child.stderr.on('data', (chunk) => { stderr += chunk })
@@ -190,8 +190,8 @@ async function startChild(t, { upstream, proxy, ca, undiciTimeoutMs }) {
     child.stdout.on('data', (chunk) => { text += chunk; if (text.includes('\n')) resolve(text.split('\n')[0]) })
     child.on('exit', code => reject(new Error(`the gateway process exited with ${code}: ${stderr}`)))
   }), 10_000, 'the gateway process starts')
-  const { url, headers } = JSON.parse(first)
-  return { stderr: () => stderr, call: (init = {}) => fetch(url, { ...init, headers: { ...headers, ...init.headers } }) }
+  const { url, headers: auth } = JSON.parse(first)
+  return { stderr: () => stderr, call: (init = {}) => fetch(url, { ...init, headers: { ...auth, ...init.headers } }) }
 }
 
 // An https upstream for upstream.example, and a proxy that tunnels every CONNECT to it.
@@ -268,6 +268,39 @@ test('a loopback upstream stays direct when a proxy is configured', async (t) =>
   const response = await gateway.call(mcpCall)
   assert.deepEqual(await response.json(), { direct: true })
   assert.deepEqual(route.connects, [])
+})
+
+// fetch refuses an address that carries credentials; the old client turned them into Basic auth
+// unless the connector already sent an Authorization header.
+test('credentials in a connector address are sent as Basic auth, not in the address or the log', async (t) => {
+  const seen = []
+  const route = await tunnel(t, (req, res) => {
+    seen.push({ url: req.url, authorization: req.headers.authorization })
+    req.resume()
+    res.writeHead(200, { 'content-type': 'application/json' })
+    res.end('{}')
+  })
+  const address = 'https://bot:s3cr%40t@upstream.example/mcp?key=private-key'
+  const plain = await startChild(t, { upstream: address, proxy: route.proxy, ca: route.ca, headers: {} })
+  assert.equal((await plain.call(mcpCall)).status, 200, plain.stderr())
+  const bearer = await startChild(t, { upstream: address, proxy: route.proxy, ca: route.ca, headers: { Authorization: 'Bearer private-token' } })
+  assert.equal((await bearer.call(mcpCall)).status, 200, bearer.stderr())
+  assert.deepEqual(seen, [
+    { url: '/mcp?key=private-key', authorization: `Basic ${Buffer.from('bot:s3cr@t').toString('base64')}` },
+    { url: '/mcp?key=private-key', authorization: 'Bearer private-token' },
+  ])
+  for (const gateway of [plain, bearer]) assert.doesNotMatch(gateway.stderr(), /s3cr|private-key/)
+})
+
+test('a failed call to an address with credentials does not log them', async (t) => {
+  const closed = createHttp()
+  const closedPort = await listen(closed)
+  closed.close()
+  const gateway = await startChild(t, { upstream: 'https://bot:s3cr%40t@upstream.example/mcp?key=private-key', proxy: `http://127.0.0.1:${closedPort}` })
+  const response = await gateway.call(mcpCall)
+  assert.equal(response.status, 502)
+  assert.match(gateway.stderr(), /connector gateway/, 'the failure is logged')
+  assert.doesNotMatch(gateway.stderr(), /s3cr|private-key/)
 })
 
 // undici ends a request that sends no response head, or no body bytes, for 300 s. The child stands

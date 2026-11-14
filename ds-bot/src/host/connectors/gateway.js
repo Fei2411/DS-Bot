@@ -98,6 +98,15 @@ export function createGateway({ credential, readOnly, onUnauthorized, log = () =
     // fetch would ask for compression on its own; the old client never did.
     const outgoing = { 'accept-encoding': 'identity', ...entry.headers }
     for (const name of FORWARD_HEADERS) if (headers[name] !== undefined) outgoing[name] = headers[name]
+    // fetch refuses an address that carries credentials, and its error would repeat them. The old
+    // client turned them into Basic auth unless an Authorization header was already set.
+    if (target.username !== '' || target.password !== '') {
+      if (!Object.keys(outgoing).some(name => name.toLowerCase() === 'authorization')) {
+        outgoing.authorization = `Basic ${Buffer.from(`${decodeURIComponent(target.username)}:${decodeURIComponent(target.password)}`).toString('base64')}`
+      }
+      target.username = ''
+      target.password = ''
+    }
     // A redirect is the server's answer, not something to follow with the credential attached.
     const init = { method, headers: outgoing, redirect: 'manual', signal }
     if (body !== undefined) init.body = body

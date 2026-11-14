@@ -6,7 +6,7 @@ import { createRequire } from 'node:module'
 import { installProxyFromEnvironment } from '@deepseek-ai/dsh-http-proxy'
 import { createGateway } from '../../src/host/connectors/gateway.js'
 
-const { upstream, undiciTimeoutMs } = JSON.parse(process.env.GATEWAY_EGRESS)
+const { upstream, undiciTimeoutMs, headers = { Authorization: 'Bearer private-token' } } = JSON.parse(process.env.GATEWAY_EGRESS)
 
 await installProxyFromEnvironment(new Map(Object.entries(process.env).map(([name, value]) => [name, { value }])), message => process.stderr.write(`policy: ${message}\n`))
 if (undiciTimeoutMs !== undefined) {
@@ -16,7 +16,7 @@ if (undiciTimeoutMs !== undefined) {
 }
 
 const gateway = createGateway({
-  credential: () => ({ url: upstream, headers: { Authorization: 'Bearer private-token' } }),
+  credential: () => ({ url: upstream, headers }),
   readOnly: () => false,
   onUnauthorized: async () => false,
   log: (...args) => process.stderr.write(`gateway: ${args.join(' ')}\n`),
