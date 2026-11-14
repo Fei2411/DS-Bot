@@ -845,7 +845,7 @@ export function Schedules({ route, navigation }: any) {
   const [unit, setUnit] = useState('hours')
   const [adding, setAdding] = useState(false)
   const load = () => void call('schedules').then(v => setTasks(((v as { tasks?: typeof tasks })?.tasks ?? []).filter(t2 => t2.botId === undefined || t2.botId === botId))).catch(() => {})
-  useState(() => { load(); return null })
+  useEffect(() => { load() }, [botId])
   const when = () => {
     if (kind === 'at') { const at = new Date(`${atDate}T${atTime}`); return Number.isNaN(at.getTime()) ? null : { kind, at: at.toISOString() } }
     if (kind === 'every') { const minutes = Math.round(Number(count) * (UNITS.find(([id]) => id === unit)?.[1] ?? 60)); return minutes > 0 ? { kind, minutes } : null }
@@ -934,7 +934,10 @@ export function Folder({ route, navigation }: any) {
   const [listing, setListing] = useState<{ path: string; parent: string | null; entries: { name: string; path: string }[]; truncated?: boolean } | null>(null)
   const [recent, setRecent] = useState<{ path: string; title: string }[]>([])
   const load = (next: string) => { setPath(next); void call('folder-list', { path: next }).then(v => setListing(v as typeof listing)).catch(() => {}) }
-  useState(() => { void call('folders').then(v => setRecent((v as { folders?: { path: string; title: string }[] })?.folders ?? [])).catch(() => {}); load(path); return null })
+  useEffect(() => {
+    void call('folders').then(v => setRecent((v as { folders?: { path: string; title: string }[] })?.folders ?? [])).catch(() => {})
+    load(path)
+  }, [])
   const choose = (picked: string) => {
     const target = route.params?.onPick === 'room' ? ['update-room', { id: route.params?.roomId, workDir: picked }]
       : route.params?.onPick === 'team' ? ['team-workspace', { path: picked }]
@@ -976,11 +979,10 @@ export function Usage({ route, navigation }: any) {
   const [summary, setSummary] = useState<{ day?: Totals; week?: Totals; month?: Totals; models?: ({ key?: string; name: string } & Totals)[] } | null>(null)
   // The Bot's chat Session projections (channel.js RUN_STATS).
   const [stats, setStats] = useState<{ sessionStats?: { turns?: number; steps?: number }; contextPressure?: { pressureTokens?: number; contextWindow?: number } } | null>(null)
-  useState(() => {
+  useEffect(() => {
     void call('usage-summary', { botId }).then(v => setSummary(v as typeof summary)).catch(() => {})
     void call('run-stats', { botId }).then(v => setStats(v as typeof stats)).catch(() => {})
-    return null
-  })
+  }, [botId])
   const sum = (t2: Totals) => t2.input + (t2.cacheRead ?? 0) + (t2.cacheWrite ?? 0) + t2.output
   const total = (t2?: Totals) => t2 === undefined ? '—' : sum(t2).toLocaleString()
   const pressure = stats?.contextPressure
@@ -1019,13 +1021,12 @@ export function Computers({ navigation }: any) {
   const { online, computer } = useTeam()
   const [list, setList] = useState<StoredComputer[]>([])
   const [prints, setPrints] = useState<Record<string, string>>({})
-  useState(() => {
+  useEffect(() => {
     void listComputers().then(({ computers }) => {
       setList(computers)
       computers.forEach(item => void fingerprint(item.hostKey).then(text => setPrints(prev => ({ ...prev, [item.hostDeviceId]: text }))).catch(() => {}))
     })
-    return null
-  })
+  }, [])
   const actions = useContext(ComputersCtx)
   const forget = (id: string, name: string) => confirmDanger(t('Forget {name}?', { name }), t('Forget'), () => { void removeComputer(id).then(next => { setList(next); if (computer?.hostDeviceId === id) actions.reload() }) })
   return (

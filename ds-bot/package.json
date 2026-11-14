@@ -55,6 +55,7 @@
     "@deepseek-ai/dsh-llm": "*",
     "@deepseek-ai/dsh-scope": "*",
     "@deepseek-ai/dsh-tools": "*",
+    "@deepseek-ai/dsh-typert-protocol": "*",
     "@deepseek-ai/dsh-web": "*"
   },
   "dsh": {
