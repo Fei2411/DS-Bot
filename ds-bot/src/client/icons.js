@@ -18,6 +18,12 @@ export function PeopleIcon() {
 export function ArrowUpIcon() {
   return h('svg', { width: 16, height: 16, viewBox: '0 0 20 20', 'aria-hidden': true }, h('path', { d: 'M10 16V4M5 9l5-5 5 5', stroke: 'currentColor', strokeWidth: 1.8, fill: 'none', strokeLinecap: 'round', strokeLinejoin: 'round' }))
 }
+// DSH's right-column start page: a panel holding its tools.
+export function PanelStartIcon() {
+  return h('svg', { width: 16, height: 16, viewBox: '0 0 20 20', fill: 'none', stroke: 'currentColor', strokeWidth: 1.6, 'aria-hidden': true },
+    h('rect', { x: 3, y: 3, width: 14, height: 14, rx: 3 }),
+    h('path', { d: 'M10 3.8v12.4M3.8 10h12.4' }))
+}
 export function MicIcon({ size = 16 }) {
   return h('svg', { width: size, height: size, viewBox: '0 0 20 20', fill: 'none', stroke: 'currentColor', strokeWidth: 1.6, strokeLinecap: 'round', 'aria-hidden': true },
     h('rect', { x: 7, y: 2.5, width: 6, height: 10, rx: 3, fill: 'currentColor', stroke: 'none' }),

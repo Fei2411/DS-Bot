@@ -1294,6 +1294,7 @@ var JA = {
   "Own chat": "個別チャット",
   "Side chat": "サイドチャット",
   "New browser tab": "新しいブラウザタブ",
+  "Start page": "スタートページ",
   "Terminal": "ターミナル",
   "Files": "ファイル",
   "Close side chat": "サイドチャットを閉じる",
@@ -2474,6 +2475,7 @@ var DSH_JA = {
 
 // src/client/locales/ko.js
 var KO = {
+  "Start page": "시작 페이지",
   "Opening…": "여는 중…",
   "Still opening…": "아직 여는 중…",
   "Android beta": "Android 베타",
@@ -4869,6 +4871,7 @@ var DSH_KO = {
 
 // src/client/locales/es.js
 var ES = {
+  "Start page": "Página de inicio",
   "Opening…": "Abriendo…",
   "Still opening…": "Sigue abriendo…",
   "Android beta": "Android beta",
@@ -8434,6 +8437,7 @@ var FR = {
   "Own chat": "Discussion privée",
   "Side chat": "Discussion parallèle",
   "New browser tab": "Nouvel onglet de navigateur",
+  "Start page": "Page d’accueil",
   "Terminal": "Terminal",
   "Files": "Fichiers",
   "Close side chat": "Fermer la discussion parallèle",
@@ -9614,6 +9618,7 @@ var DSH_FR = {
 
 // src/client/locales/de.js
 var DE = {
+  "Start page": "Startseite",
   "Opening…": "Wird geöffnet…",
   "Still opening…": "Wird noch geöffnet…",
   "Android beta": "Android-Beta",
@@ -13218,6 +13223,7 @@ var ZH = {
   "Side chat": "侧边对话",
   "New browser tab": "新建浏览器页",
   Terminal: "终端",
+  "Start page": "开始页",
   Files: "文件树",
   "Close side chat": "关闭侧边对话",
   "Delete side chat": "删除侧边对话",
@@ -17170,6 +17176,14 @@ function PeopleIcon() {
 }
 function ArrowUpIcon() {
   return (0, import_react3.createElement)("svg", { width: 16, height: 16, viewBox: "0 0 20 20", "aria-hidden": true }, (0, import_react3.createElement)("path", { d: "M10 16V4M5 9l5-5 5 5", stroke: "currentColor", strokeWidth: 1.8, fill: "none", strokeLinecap: "round", strokeLinejoin: "round" }));
+}
+function PanelStartIcon() {
+  return (0, import_react3.createElement)(
+    "svg",
+    { width: 16, height: 16, viewBox: "0 0 20 20", fill: "none", stroke: "currentColor", strokeWidth: 1.6, "aria-hidden": true },
+    (0, import_react3.createElement)("rect", { x: 3, y: 3, width: 14, height: 14, rx: 3 }),
+    (0, import_react3.createElement)("path", { d: "M10 3.8v12.4M3.8 10h12.4" })
+  );
 }
 function MicIcon({ size = 16 }) {
   return (0, import_react3.createElement)(
@@ -36729,7 +36743,7 @@ function stripMenuKeys({ canBrowse, canTerminal, canFiles }) {
   if (tail.length > 0) keys.push("sep");
   return [...keys, ...tail];
 }
-function drawerMenuKeys({ bot, room: room2, canBrowse, canTerminal, canFiles }) {
+function drawerMenuKeys({ bot, room: room2, canBrowse, canTerminal, canFiles, canStart }) {
   const keys = [];
   if (bot === true && canBrowse === true) keys.push("browser");
   if (bot === true) keys.push("side");
@@ -36737,6 +36751,7 @@ function drawerMenuKeys({ bot, room: room2, canBrowse, canTerminal, canFiles }) 
   if (bot === true || room2 === true) {
     if (canTerminal === true) tail.push("terminal");
     if (canFiles === true) tail.push("files");
+    if (canStart === true) tail.push("start");
   }
   if (keys.length > 0 && tail.length > 0) keys.push("sep");
   return [...keys, ...tail];
@@ -40082,7 +40097,8 @@ function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, roster, a
     room: room2 !== void 0,
     canBrowse: bot !== void 0 && roster.browser === true && actions.openBrowser !== void 0,
     canTerminal: actions.canOpenTerminal?.() === true,
-    canFiles: actions.canOpenFiles?.() === true
+    canFiles: actions.canOpenFiles?.() === true,
+    canStart: actions.canOpenRightStart?.() === true
   }).map((key) => menuItemFor(key, actions, sessionId));
   const top = (0, import_react66.createElement)(
     "div",
@@ -40306,6 +40322,8 @@ function menuItemFor(key, actions, subject) {
       return { key, icon: TerminalIcon, label: t("Terminal"), onPick: report(() => actions.newTerminal()) };
     case "files":
       return { key, icon: FolderIcon, label: t("Files"), onPick: report(() => actions.openFiles()) };
+    case "start":
+      return { key, icon: PanelStartIcon, label: t("Start page"), onPick: report(() => actions.openRightStart()) };
     default:
       return { sep: true };
   }
@@ -43919,6 +43937,17 @@ function apply(ctx) {
     actions.closePanel();
     try {
       ctx.get("sidebarRight")?.openTab("files");
+    } catch (error) {
+      actions.reportError(error, "right-sidebar");
+    }
+  };
+  actions.canOpenRightStart = () => ctx.get("sidebarRight") !== void 0;
+  actions.openRightStart = () => {
+    const sidebar = ctx.get("sidebarRight");
+    if (sidebar === void 0) return;
+    actions.closePanel();
+    try {
+      if (sidebar.isExpanded() !== true) sidebar.toggleExpanded();
     } catch (error) {
       actions.reportError(error, "right-sidebar");
     }

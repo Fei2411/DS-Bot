@@ -15,7 +15,7 @@ import { FLIGHT_ENDS, INTENT_MS, createFlight, flightEnd, flightStart, planFligh
 import { DetailsDrawer } from './details-drawer.js'
 import { SideChatView } from './side-chat.js'
 import { panelHasStrip, sideChatsOf, stripMenuKeys } from './side-model.js'
-import { DotsIcon, FolderIcon, SideIcon, TerminalIcon } from './icons.js'
+import { DotsIcon, FolderIcon, PanelStartIcon, SideIcon, TerminalIcon } from './icons.js'
 import { t } from './i18n.js'
 import { rectsOverlap } from './browser-overlap.js'
 
@@ -122,6 +122,7 @@ export function menuItemFor(key, actions, subject) {
     case 'side': return { key, icon: SideIcon, label: t('Side chat'), onPick: report(() => actions.newSideChat(subject)) }
     case 'terminal': return { key, icon: TerminalIcon, label: t('Terminal'), onPick: report(() => actions.newTerminal()) }
     case 'files': return { key, icon: FolderIcon, label: t('Files'), onPick: report(() => actions.openFiles()) }
+    case 'start': return { key, icon: PanelStartIcon, label: t('Start page'), onPick: report(() => actions.openRightStart()) }
     default: return { sep: true }
   }
 }

@@ -1,6 +1,7 @@
 // Korean (ko) localization for DS Bot client and DSH settings namespaces.
 
 export const KO = {
+  "Start page": "시작 페이지",
   'Opening…': '여는 중…',
   'Still opening…': '아직 여는 중…',
   "Android beta": "Android 베타",

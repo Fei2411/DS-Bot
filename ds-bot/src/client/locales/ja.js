@@ -1171,6 +1171,7 @@ export const JA = {
   "Own chat": "個別チャット",
   "Side chat": "サイドチャット",
   "New browser tab": "新しいブラウザタブ",
+  "Start page": "スタートページ",
   "Terminal": "ターミナル",
   "Files": "ファイル",
   "Close side chat": "サイドチャットを閉じる",

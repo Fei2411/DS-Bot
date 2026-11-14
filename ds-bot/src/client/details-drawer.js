@@ -314,6 +314,7 @@ export function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, ro
     canBrowse: bot !== undefined && roster.browser === true && actions.openBrowser !== undefined,
     canTerminal: actions.canOpenTerminal?.() === true,
     canFiles: actions.canOpenFiles?.() === true,
+    canStart: actions.canOpenRightStart?.() === true,
   }).map(key => menuItemFor(key, actions, sessionId))
   const top = h('div', { className: 'bt-drawer-top', 'data-move': side },
     bot || room ? h('button', { type: 'button', className: 'bt-round', 'aria-label': bot ? t('Edit Bot') : t('Group settings'), title: bot ? t('Edit Bot') : t('Group settings'), 'data-info-row': 'settings', onClick: () => setView('settings') }, h(GearIcon)) : null,

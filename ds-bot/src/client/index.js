@@ -984,6 +984,23 @@ export function apply(ctx) {
     }
   }
 
+  // DSH's right column opens on its own start page while no tab is open. That
+  // page lists every tab type registered there (a CAD viewer, for example), so
+  // it is the only way into them from Bot mode: the `...` menu names Terminal
+  // and Files by hand and cannot know the others.
+  actions.canOpenRightStart = () => ctx.get('sidebarRight') !== undefined
+  actions.openRightStart = () => {
+    const sidebar = ctx.get('sidebarRight')
+    if (sidebar === undefined) return
+    // The column takes the drawer's space: hand it over first.
+    actions.closePanel()
+    try {
+      if (sidebar.isExpanded() !== true) sidebar.toggleExpanded()
+    } catch (error) {
+      actions.reportError(error, 'right-sidebar')
+    }
+  }
+
   // The drawer and DSH's right column never share the window: whichever the
   // user asked for last wins. The column's state is read off the frame's
   // attributes through a MutationObserver. `mounted` moves before the DOM of a
