@@ -78,6 +78,17 @@ export const IM_PLATFORMS = [
     buttons: true,
     groups: true,
   },
+  {
+    id: 'matrix',
+    name: 'Matrix',
+    fields: [
+      { key: 'homeserver', label: 'Homeserver URL', hint: 'https://matrix.example.org' },
+      { key: 'userId', label: 'User ID', hint: '@bot:example.org' },
+      { key: 'accessToken', label: 'Access token', secret: true },
+    ],
+    buttons: false,
+    groups: true,
+  },
 ]
 
 export const imPlatform = id => IM_PLATFORMS.find(platform => platform.id === id)
