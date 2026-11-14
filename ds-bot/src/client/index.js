@@ -20,6 +20,7 @@ import { VOICE_BUNDLE, closingReplyText, requestPreparation } from './speech.js'
 import { sameVersion } from './dsh-offer.js'
 import { QuestionCard, QuestionDock } from './questions.js'
 import { AnsweredReply, WidgetDock, WIDGET_CSS } from './widget-cell.js'
+import { CHANGES_CSS } from './changes-card.js'
 import { HandoffDock, HANDOFF_CSS } from './handoff-card.js'
 import { AppAccessDock, ComputerHandoffDock, ComputerIndicator, COMPUTER_CSS } from './computer.js'
 import { installHeaderNavigation } from './header-navigation.js'
@@ -522,6 +523,10 @@ export function apply(ctx) {
   }
   const actions = {
     ...teamActions({ call, after, partFor, roster, ui, live, cards, heldCards, turnClock, panelFolded }),
+    openChanges: changes => ui.set(state => ({ ...state, changes })),
+    closeChanges: () => ui.set(state => ({ ...state, changes: null })),
+    changesSummary: changes => call('changes-summary', changes),
+    changesDiff: (changes, index) => call('changes-diff', { ...changes, index }),
     learningAnswer: (id, approve) => after(call('learning-answer', { id, approve })),
     // The full-pane overlays sit above the conversation, so opening one must dismiss them
     // or the click appears to do nothing.
@@ -1105,6 +1110,7 @@ export function apply(ctx) {
     [GOAL_CSS, 'goal'],
     [USER_MESSAGE_CSS, 'user-messages'],
     [WIDGET_CSS, 'widgets'],
+    [CHANGES_CSS, 'changes'],
     [HANDOFF_CSS, 'handoff'],
     [SIDE_CSS, 'side'],
     [BROWSER_CSS, 'browser'],

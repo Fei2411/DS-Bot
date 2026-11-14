@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { CommandPalette } from './palette.js'
 import { GroupSearch } from './group-search.js'
 import { NewChat } from './new-chat.js'
+import { ChangesReview } from './changes-review.js'
 import { ExchangeDialog } from './exchange.js'
 import { VoiceMode } from './voice.js'
 import { SettingsDialog } from './settings.js'
@@ -73,6 +74,7 @@ export function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useA
     ui.groupSearch && roster.roomsById[ui.groupSearch.roomId]
       ? createPortal(h(GroupSearch, { key: ui.groupSearch.token, room: roster.roomsById[ui.groupSearch.roomId], roster, token: ui.groupSearch.token, actions }), document.body)
       : null,
+    ui.changes ? createPortal(h(ChangesReview, { key: `${ui.changes.sessionId}:${ui.changes.seq}`, changes: ui.changes, paneLeft: layout.column, actions }), document.body) : null,
     ui.exchange ? createPortal(h(ExchangeDialog, { pair: ui.exchange, paneLeft: layout.column, roster, actions }), document.body) : null,
     ui.voice ? createPortal(h(VoiceMode, { key: ui.voice, sessionId: ui.voice, paneLeft: layout.column, roster, actions, useSessions, useSessionStatus }), document.body) : null,
     menu ? createPortal(h(ContextMenu, { key: `${menu.kind ?? ''}:${menu.id}:${menu.x}:${menu.y}`, menu, roster, actions, useWork, leaving: menuLeaving }), document.body) : null,

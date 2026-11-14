@@ -4,6 +4,7 @@ import { MarkdownText, writeClipboard } from './dsh-primitives.js'
 import { inkText } from './inks.js'
 import { linkMentions, mentionTarget, dayLabel, contentText, stripHeader, isHiddenTurn, isRelayContext, relaysBefore, relayPart, commRunOf, toolName, toolArgs, reminderPrompts, elapsedLabel, clockLabel, messageClock } from './text.js'
 import { SmileIcon, ReplyIcon, DotsIcon, CheckIcon, DownloadIcon, CopyIcon, GoalIcon, MemoryIcon } from './icons.js'
+import { ChangesCard } from './changes-card.js'
 import { goalEventText } from './goal.js'
 import { colorOf, toolState, BotMark, RoomAvatar } from './mark.js'
 import { CellEmpty } from './cell-empty.js'
@@ -392,7 +393,7 @@ export function claimLines(claims) {
   return lines
 }
 
-export function GroupMessage({ bot, text, texts = [text], room, sessionId, roster, actions, msgKey, useUi, whole, time, duration, claims }) {
+export function GroupMessage({ bot, text, texts = [text], room, sessionId, roster, actions, msgKey, useUi, whole, time, duration, claims, changes }) {
   const ref = useRef(null)
   useLayoutEffect(() => {
     const el = ref.current
@@ -415,6 +416,7 @@ export function GroupMessage({ bot, text, texts = [text], room, sessionId, roste
       Number.isFinite(time) ? h('span', { className: 'bt-group-time', title: clockLabel(time) }, messageClock(time)) : null,
       took ? h('span', { className: 'bt-group-took', title: t('Ran for {duration}', { duration: took }) }, took) : null),
     h(Bubbles, { texts, roster, selfId: bot.id, actions, sessionId: quoteSession, msgKey, useUi, lead: flat ? null : lead, whole, textInteractionSource: true }),
+    changes === undefined ? null : h(ChangesCard, { changes, actions }),
     claimLines(claims).map(line => h('div', { key: line.kind + line.text, className: `bt-claim bt-claim-${line.kind}`, role: 'status', title: line.detail ?? undefined }, line.text)))
 }
 
@@ -645,7 +647,7 @@ function chatRow(row, key, { sessionId, selfId, roster, actions, useUi, onBtwDel
       const poster = roster.byId[row.botId] ?? { id: row.botId, name: row.name ?? t('a Bot'), color: 'gray' }
       return h(GroupMessage, {
         key, bot: poster, text: row.file ? stripLongNote(row.text) : row.text, texts: row.texts, room: roster.roomsById[sessionId], sessionId, roster, actions,
-        msgKey: `${sessionId}:post:${row.seq ?? row.time}`, time: row.time, duration: row.duration, claims: row.claims,
+        msgKey: `${sessionId}:post:${row.seq ?? row.time}`, time: row.time, duration: row.duration, claims: row.claims, changes: row.changes,
         whole: row.file ? { length: row.length, load: () => actions.fileText(row.file) } : undefined,
       })
     }
@@ -730,6 +732,7 @@ export function TriggerCell({ node, sessionId, useRoster, useSessions, useTurnCl
         return h(GroupMessage, {
           bot: poster, text: file ? stripLongNote(text) : text, room, sessionId, roster, actions, msgKey: `${sessionId}:post:${data.seq ?? node.key}`, useUi, time: data.time,
           claims: source.claims,
+          changes: source.changes,
           whole: file ? { length: source.length, load: () => actions.fileText(file) } : undefined,
         })
       }
@@ -1006,7 +1009,8 @@ function RelayEvent({ reply, bot, sessionId, actions }) {
     return h('div', { className: 'bt-event' }, t("You stopped {name}'s work", { name: bot.name }))
   }
   if (reply.kind === 'done') {
-    return h('div', { className: 'bt-event' }, t('{name} finished its work', { name: bot.name }))
+    const line = h('div', { className: 'bt-event' }, t('{name} finished its work', { name: bot.name }))
+    return reply.changes === undefined ? line : h(Fragment, null, line, h(ChangesCard, { changes: reply.changes, actions }))
   }
   return null
 }
@@ -1086,7 +1090,7 @@ function GroupReplies({ sessionId, callId, done, content, roster, actions, useUi
   }
   const room = roster.roomsById[sessionId]
   return h('div', { className: 'bt-group-replies' },
-    stackReplies(replies).map(({ reply, index, texts, time, duration, claims }) => {
+    stackReplies(replies).map(({ reply, index, texts, time, duration, claims, changes }) => {
       const bot = roster.byId[reply.botId] ?? { id: reply.botId, name: reply.name, color: reply.color ?? 'gray' }
       if (reply.kind === 'user') {
         return h('div', { key: `user-${index}`, className: 'bt-urow' },
@@ -1100,7 +1104,7 @@ function GroupReplies({ sessionId, callId, done, content, roster, actions, useUi
         return h('div', { key: `goal-${index}`, className: 'bt-event', title: reply.text || undefined },
           h('span', { className: 'bt-event-ico', 'aria-hidden': true }, h(GoalIcon)), goalEventText(reply))
       }
-      return h(GroupMessage, { key: `${reply.botId}-${index}`, bot, texts, room, sessionId, roster, actions, msgKey: callId ? `${sessionId}:${callId}:${index}` : undefined, useUi, time, duration, claims })
+      return h(GroupMessage, { key: `${reply.botId}-${index}`, bot, texts, room, sessionId, roster, actions, msgKey: callId ? `${sessionId}:${callId}:${index}` : undefined, useUi, time, duration, claims, changes })
     }),
     pending.map((id, at) => {
       const bot = roster.byId[id]
