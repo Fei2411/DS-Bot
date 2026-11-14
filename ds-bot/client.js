@@ -12065,6 +12065,7 @@ var ZH = {
   "Classic Agent mode": "经典 Agent 模式",
   "Switch to classic Agent mode": "切换到经典 Agent 模式",
   "Bot mode": "Bot 模式",
+  "Switch Bot / Classic Agent mode": "切换 Bot / 经典 Agent 模式",
   "Switch": "切换",
   "Back to DS Bot": "返回 DS Bot",
   "{model} is not available anymore. Pick another model for me.": "{model} 已经不可用了。给我换一个模型吧。",
@@ -35425,6 +35426,28 @@ function DeveloperToolsRow({ useDeveloperTools, setEnabled }) {
     }))
   );
 }
+function surfaceModeCommand(actions, ui2, roster) {
+  return {
+    id: "ds-bot.toggle-surface",
+    label: () => t("Switch Bot / Classic Agent mode"),
+    aliases: ["bot mode", "classic agent mode"],
+    defaults: {},
+    regions: ["page", "editable"],
+    modals: [],
+    resolve: ({ modal, region }) => {
+      if (modal !== null) return { status: "blocked", reason: "modal" };
+      if (region === "terminal") return { status: "pass" };
+      if (!roster.getSnapshot().ready) return { status: "pass" };
+      const state = ui2.getSnapshot();
+      const draftView = state.details || state.newChat || state.exchange || state.voice || state.memory || state.palette || state.goalCompose || state.signIn || state.renameSection || state.renameAgent;
+      if (actions.surfaceMode() === "bot" && draftView) return { status: "pass" };
+      return {
+        status: "handled",
+        run: () => actions.setSurface(actions.surfaceMode() === "bot" ? "agent" : "bot")
+      };
+    }
+  };
+}
 function installSettingsShell(ctx, { face, actions, ui: ui2, held }) {
   const slots = ctx.slots;
   const locale = () => ctx.get("locale");
@@ -35516,6 +35539,7 @@ function installSettingsShell(ctx, { face, actions, ui: ui2, held }) {
           return { status: "handled", run: () => actions.openSettings("general") };
         }
       }), "ds-bot: settings command");
+      scope.effect(() => scope.shortcuts.register(surfaceModeCommand(actions, ui2, face().hooks.roster)), "ds-bot: surface mode command");
     }),
     ctx.inject(["modules"], (scope) => {
       scope.effect(() => slots.inject("shell.overlay", () => slots.register({

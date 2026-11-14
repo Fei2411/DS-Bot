@@ -213,6 +213,7 @@ const ZH = {
   'Classic Agent mode': '经典 Agent 模式',
   'Switch to classic Agent mode': '切换到经典 Agent 模式',
   'Bot mode': 'Bot 模式',
+  'Switch Bot / Classic Agent mode': '切换 Bot / 经典 Agent 模式',
   'Switch': '切换',
   'Back to DS Bot': '返回 DS Bot',
   '{model} is not available anymore. Pick another model for me.': '{model} 已经不可用了。给我换一个模型吧。',
