@@ -153,6 +153,7 @@ export class LocalAgentAdapter extends LlmAdapter {
       // new process instead of writing into the one that is gone.
       if (live.engineSession?.dead === true) {
         this.rollbackUnread(live, sessionId)
+        this.rollbackQueued(live)
         live.engineSession = undefined
         live.pumpToken = {}
         // The queue belongs to the process that is gone: the retry starts clean
@@ -182,8 +183,10 @@ export class LocalAgentAdapter extends LlmAdapter {
       // 'idle': no CLI turn. 'running': a prompt is in flight. 'suspended': the
       // turn waits on a bridged tool call or a permission answer.
       state: 'idle',
-      // Prompts queued while a turn runs (ACP speaks one prompt at a time);
-      // the drain sends the next one when the turn ends.
+      // Prompts queued while a turn runs (ACP speaks one prompt at a time, Claude
+      // reads stdin only between turns); the drain sends the next one when the
+      // turn ends. Each is {text, handed, promptHash}: the marker and the
+      // instructions from before it was handed.
       queue: [],
       idle: undefined,
       cwd: record?.cwd,
@@ -213,8 +216,10 @@ export class LocalAgentAdapter extends LlmAdapter {
   }
 
   // A Session's record: its CLI session, what was handed to it, and what the CLI said
-  // about its context.
+  // about its context. Input still queued is not delivered yet: the record keeps the
+  // marker and instructions from before it, so a host that restarts sends it again.
   recordOf(live, extra = {}) {
+    const held = live.queue?.[0]
     return {
       route: live.route,
       cliSessionId: live.cliSessionId,
@@ -225,6 +230,7 @@ export class LocalAgentAdapter extends LlmAdapter {
       ...(live.context === undefined ? {} : { context: live.context }),
       ...(live.compactions > 0 ? { compactions: live.compactions } : {}),
       ...extra,
+      ...(held === undefined ? {} : { handedId: held.handed, promptHash: held.promptHash }),
     }
   }
 
@@ -278,6 +284,7 @@ export class LocalAgentAdapter extends LlmAdapter {
   async closeLive(live, { idle = false } = {}) {
     if (live.dead) return
     live.dead = true
+    this.rollbackQueued(live)
     clearTimeout(live.idle)
     this.live.delete(live.sessionId)
     live.engine.forget?.(live.sessionId)
@@ -296,7 +303,7 @@ export class LocalAgentAdapter extends LlmAdapter {
   // The turn under way ends: the CLI stops, and a call it waits on gets an answer.
   stopTurn(live, reason) {
     live.state = 'idle'
-    live.queue.length = 0
+    this.rollbackQueued(live)
     if (live.engineSession !== undefined) live.engine.cancel?.(live.engineSession)
     live.mcp?.failAll(new Error(reason))
     for (const pending of live.pending.values()) pending.resolve({ text: reason, isError: true })
@@ -330,6 +337,20 @@ export class LocalAgentAdapter extends LlmAdapter {
       live.resumeLost = true
     } else live.handed = live.handedBefore
     this.deps.saveRecord(sessionId, this.recordOf(live))
+  }
+
+  // Input held back for the next prompt was handed but never sent. When the turn
+  // ends any way but `done` (stopped, closed, failed, or its process died), the
+  // marker and the instructions go back to where the oldest input still held
+  // began, so the next request carries it again instead of losing it. Held input
+  // that already went out stays handed.
+  rollbackQueued(live) {
+    const oldest = live.queue[0]
+    live.queue.length = 0
+    if (oldest === undefined) return
+    live.handed = oldest.handed
+    live.promptHash = oldest.promptHash
+    this.deps.saveRecord(live.sessionId, this.recordOf(live))
   }
 
   // The loopback MCP server for one live session; tools/call lands in its event queue.
@@ -518,15 +539,21 @@ export class LocalAgentAdapter extends LlmAdapter {
   }
 
   // Input for the CLI: a fresh prompt while it is idle; while a turn runs or
-  // waits on a bridged call, steering for Codex and Claude, or a queued prompt
-  // for ACP (it speaks one prompt at a time; the drain sends it when the turn
-  // ends, inside the same stream). The prompt request itself stays open for
+  // waits on a bridged call, steering for an engine that can steer (Codex), or a
+  // queued prompt for one that cannot (ACP speaks one prompt at a time, Claude
+  // reads stdin only between turns); the drain sends it when the turn ends,
+  // inside the same stream. The prompt request itself stays open for
   // the whole turn (ACP session/prompt ends when the agent's turn does), so it
   // is sent but not awaited; a send failure lands in the queue as an error.
   sendInput(live, text, signal, effort) {
     live.mute = false
     if (live.state !== 'idle') {
-      if (live.spec.kind === 'acp') { live.queue.push(text); return }
+      if (live.spec.kind === 'acp' || typeof live.engine.steer !== 'function') {
+        // The marker and the instructions have not moved past this input yet:
+        // they are where a rollback goes.
+        live.queue.push({ text, handed: live.handed, promptHash: live.promptHash })
+        return
+      }
       try {
         Promise.resolve(live.engine.steer?.(live.engineSession, text))
           .catch(error => live.push({ type: 'error', error }))
@@ -647,7 +674,9 @@ export class LocalAgentAdapter extends LlmAdapter {
           // inside the same drain (ACP takes one prompt at a time).
           const next = live.queue.shift()
           if (next !== undefined) {
-            this.sendInput(live, next, options.signal, options.reasoningEffort)
+            this.sendInput(live, next.text, options.signal, options.reasoningEffort)
+            // It reached the CLI: the record counts it as delivered now.
+            this.deps.saveRecord(live.sessionId, this.recordOf(live))
             break
           }
           yield { type: 'finish', reason: { kind: 'stop' } }
@@ -655,6 +684,7 @@ export class LocalAgentAdapter extends LlmAdapter {
         }
         case 'error': {
           live.state = 'idle'
+          this.rollbackQueued(live)
           throw toLlmError(event.error, live)
         }
         default: break
