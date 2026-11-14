@@ -138,17 +138,20 @@ export default {
     let reconnectTimer
     let token
     let tokenExpiresAt = 0
+    let refreshing
     let botOpenId = ''
     // Split data frames reassemble by (sum, seq) until all parts arrive.
     const parts = new Map()
 
     // Inbound downloads share the expiry check: a socket that only receives
-    // still needs a live token.
+    // still needs a live token. Callers wait on the one in-flight refresh —
+    // two images arriving together must not race two tokens.
     const freshToken = async () => {
       if (token === undefined || Date.now() > tokenExpiresAt - 30_000) {
-        const got = await tenantToken({ appId, appSecret }, env)
-        token = got.token
-        tokenExpiresAt = got.expiresAt
+        refreshing ??= tenantToken({ appId, appSecret }, env)
+          .then(got => { token = got.token; tokenExpiresAt = got.expiresAt })
+          .finally(() => { refreshing = undefined })
+        await refreshing
       }
       return token
     }

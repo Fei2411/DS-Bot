@@ -15,6 +15,7 @@ async function fakeFeishu() {
   const replies = {}
   const tokens = []
   let tokenValidUntil = 0
+  let tokenReplyDelay = 0
   let failResources = false
   // The resource endpoint sends the file itself, not a JSON envelope.
   const imageBytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4])
@@ -38,7 +39,7 @@ async function fakeFeishu() {
         const token = `fs-tok-${tokens.length + 1}`
         tokens.push(token)
         tokenValidUntil = Date.now() + 7_200_000
-        json(res, { code: 0, tenant_access_token: token, expire: 7200 })
+        setTimeout(() => json(res, { code: 0, tenant_access_token: token, expire: 7200 }), tokenReplyDelay)
         return
       }
       if (req.url === '/open-apis/bot/v3/info') {
@@ -84,6 +85,7 @@ async function fakeFeishu() {
     calls, replies, frames, tokens, imageBytes,
     sockets: wss.sockets,
     failDownloads: () => { failResources = true },
+    slowTokens: (ms) => { tokenReplyDelay = ms },
     push: (ws, frame) => ws.send(encodeFrame(frame)),
     dataFrame: (type, payload, extra = {}) => ({
       SeqID: 9, LogID: 9, service: 100, method: 1,
@@ -388,4 +390,28 @@ test('a 5xx answer is retryable and carries its status; a 4xx answer is permanen
     assert.equal(error.permanent, true, 'a 4xx is not retried')
     return true
   })
+})
+
+test('images arriving together after expiry share one token refresh', async (t) => {
+  const fake = await fakeFeishu()
+  const messages = []
+  const handle = feishu.connect(FIELDS, env(fake), { onMessage: async msg => { messages.push(msg) }, onAction: () => {}, onStatus: () => {} })
+  t.after(() => { handle.stop(); fake.close() })
+  const ws = await until(() => fake.sockets[0])
+  const realNow = Date.now
+  Date.now = () => realNow() + 7_300_000
+  t.after(() => { Date.now = realNow })
+  // Slow token replies make a second refresh overtake the first download
+  // deterministically; the fake only accepts its newest token.
+  fake.slowTokens(50)
+  const image = (id) => fake.dataFrame('event', message({
+    chat_type: 'p2p', chat_id: 'oc_1', message_id: id, message_type: 'image',
+    content: JSON.stringify({ image_key: `key_${id}` }),
+  }), { messageId: id })
+  fake.push(ws, image('om_1'))
+  fake.push(ws, image('om_2'))
+  await until(() => messages.length === 2)
+  assert.equal(fake.tokens.length, 2, 'two expired downloads share the one refresh')
+  assert.equal(messages[0].images.length, 1)
+  assert.equal(messages[1].images.length, 1)
 })
