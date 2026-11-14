@@ -350,9 +350,11 @@ test('full ds-bot runtime serves real hello, state and live feed through TypertG
   root.provide('sessions', { flush: async () => {} })
 
   let rt
-  await root.plugin((sub) => {
+  // A real Cordis plugin declares the services its runtime reads, including work
+  // scheduled after the RPC finishes. The production entry declares them too.
+  await root.plugin(Object.assign((sub) => {
     rt = createRuntime(sub, { home })
-  })
+  }, { inject: ['events', 'tools', 'systemPrompt', 'connection', 'llm', 'workspaceRegistry', 'sessionController', 'sessionTitle', 'sessions'] }))
   await tick()
 
   const gateway = root.typertGateway
