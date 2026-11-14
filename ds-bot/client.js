@@ -15052,6 +15052,12 @@ var SIDEBAR_MIN = 264;
 var SIDEBAR_MAX = 420;
 var FALLBACK_SIDEBAR_WIDTH = 280;
 var RAIL_SNAP = (RAIL_WIDTH + SIDEBAR_MIN) / 2;
+var nextCollapsedWidth = ({ measured, collapsed, animating = false, last }) => {
+  if (animating) return last;
+  if (collapsed === null) return 0;
+  if (collapsed === true) return measured ?? 0;
+  return last;
+};
 function frameLayout({ viewport, sidebarWidth, pref, drawer = false, panel = null }) {
   const fits = pref === "open" && viewport >= sidebarWidth + MIN_CHAT;
   let left = pref === "hidden" ? "hidden" : fits ? "open" : drawer && pref === "open" ? "drawer" : "rail";
@@ -27737,7 +27743,7 @@ function installFrameWatch(frame) {
     const animating = column?.closest("[data-animating]") != null;
     const width = animating ? null : sidebarTrackWidth();
     const collapsed = dshCollapsed();
-    if (width !== null && collapsed === true) collapsedWidth = width;
+    collapsedWidth = nextCollapsedWidth({ measured: width, collapsed, animating, last: collapsedWidth });
     frame.set((state) => {
       const next = { ...state, viewport: window.innerWidth, collapsedWidth, collapsed: collapsed === true };
       return state.viewport === next.viewport && state.collapsedWidth === next.collapsedWidth && state.collapsed === next.collapsed ? state : next;
