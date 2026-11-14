@@ -96,6 +96,9 @@ test('the state lists the live open part and reads its run state, while chatOf s
   assert.equal(second.partsRunning.w3, true)
   assert.equal(second.partsRunning.w2, undefined)
   assert.deepEqual(writer.openParts[0].parts, ['w4'])
+  // A read inside a thread lists that thread's own parts, not the foreground chain.
+  assert.deepEqual(rt.partsOfThread('w1', 'w2').map(part => part.sessionId), ['w1', 'w2'])
+  assert.deepEqual(rt.partsOfThread('w1', 'w3').map(part => part.sessionId), ['w4', 'w3'])
 })
 
 test('opening a live part swaps the threads and archives nothing', async (t) => {

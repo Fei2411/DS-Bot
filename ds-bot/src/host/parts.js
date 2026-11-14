@@ -229,7 +229,7 @@ export function install(rt) {
     const bot = place.botId === undefined ? undefined : rt.botOf(place.botId)
     // A background part makes room within its own thread, like the foreground chat.
     const thread = bot === undefined || place.roomId !== undefined ? undefined : threadOf(bot, agent.id)
-    const parts = partsOf(place.botId, place.roomId, thread?.segments)
+    const parts = partsOf(place.botId, place.roomId, thread?.segments, thread === undefined ? undefined : agent.id)
     const previous = parts.at(-2)
     const lines = await contextLines(session).catch(() => undefined)
     const budget = Math.min(RECENT_TOKENS, Math.floor((lines?.check ?? 4 * RECENT_TOKENS) / 4))
@@ -357,7 +357,7 @@ export function install(rt) {
   // A Bot's own chat, or its Session in one group, or the group's own Session
   // (`botId === undefined`), as numbered parts, oldest first; the last one is
   // current.
-  function partsOf(botId, roomId, segments) {
+  function partsOf(botId, roomId, segments, currentSessionId) {
     const room = rt.roomOf(roomId)
     if (botId === undefined) {
       if (room === undefined) return []
@@ -370,7 +370,7 @@ export function install(rt) {
     const bot = rt.botOf(botId)
     if (bot === undefined) return []
     const earlier = (room ? room.segments?.[botId] : (segments ?? bot.segments)) ?? []
-    const current = room ? room.sessions?.[botId] : rt.chatOf(botId)
+    const current = room ? room.sessions?.[botId] : (currentSessionId ?? rt.chatOf(botId))
     const parts = earlier.map((segment, index) => ({ ...segment, number: index + 1, startedAt: earlier[index - 1]?.endedAt ?? bot.createdAt }))
     if (current !== undefined) parts.push({ sessionId: current, number: parts.length + 1, startedAt: earlier.at(-1)?.endedAt ?? bot.createdAt })
     return parts
@@ -383,7 +383,9 @@ export function install(rt) {
     const bot = botId === undefined ? undefined : rt.botOf(botId)
     if (bot === undefined) return []
     const thread = sessionId === undefined ? undefined : threadOf(bot, sessionId)
-    return partsOf(bot.id, undefined, thread === undefined ? bot.segments : thread.segments)
+    if (thread === undefined) return partsOf(bot.id)
+    const current = thread.thread === 'current' ? rt.chatOf(bot.id) : bot.openParts[thread.index].sessionId
+    return partsOf(bot.id, undefined, thread.segments, current)
   }
 
   // What was said in one part, newest first: the user, other Bots, and the Bot itself.
@@ -1135,7 +1137,7 @@ export function install(rt) {
     const session = agent.session
     const tokens = tokensOf(session)
     const lines = await contextLines(session).catch(() => undefined)
-    const parts = bot === undefined ? partsOf(undefined, room.id) : partsOf(bot.id, room?.id, thread?.segments)
+    const parts = bot === undefined ? partsOf(undefined, room.id) : partsOf(bot.id, room?.id, thread?.segments, thread === undefined ? undefined : agent.id)
     const number = parts.length
     const budget = Math.min(RECENT_TOKENS, Math.floor((lines?.check ?? 4 * RECENT_TOKENS) / 4))
     const readLines = () => (job.bare ? { recent: [], earlier: [], unlisted: 0, complete: true } : handoffLines(agent.id, { budget, group: room !== undefined, number }))
