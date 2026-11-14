@@ -13,6 +13,7 @@ import { adapters } from '../src/host/im/platforms/index.js'
 const fakeAdapter = ({ buttons = true } = {}) => {
   const sent = []
   const edited = []
+  const typed = []
   const fails = []
   const adapter = {
     id: 'fake',
@@ -36,12 +37,13 @@ const fakeAdapter = ({ buttons = true } = {}) => {
           return { messageId: sent.length }
         },
         edit: async (chat, messageId, body) => { edited.push({ chat, messageId, ...body }) },
-        typing: async () => {},
+        typing: async (chat) => { typed.push(chat) },
         stop: () => { adapter.stopped = (adapter.stopped ?? 0) + 1 },
       }
     },
   }
   adapter.fails = fails
+  adapter.typed = typed
   adapter.buttons = buttons
   return adapter
 }
@@ -626,4 +628,17 @@ test('a platform status error is redacted of the stored secret', async (t) => {
   const status = s.rt.imStatusView()[conn.id]
   assert.equal(status.state, 'error')
   assert.ok(!status.error.includes('tok-1234'), 'the token is redacted')
+})
+
+test('typing goes to the chat key, not the chat object', async (t) => {
+  const s = await start()
+  t.after(s.stop)
+  const one = await add(s)
+  one.paired.push({ id: 'u1', name: 'User u1', at: 1 })
+  await dm(s, 'u1', '/start')
+  await s.flush()
+  s.rt.live.set(s.rt.chatOf('a'), { turn: 1 })
+  await delay(4_100)
+  assert.equal(s.fake.typed.length, 1)
+  assert.deepEqual(s.fake.typed[0], { key: 'dm-u1', kind: 'direct', title: 'u1' })
 })
