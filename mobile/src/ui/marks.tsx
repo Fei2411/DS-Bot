@@ -59,8 +59,8 @@ export function YouMark({ dark, size = 24 }: { dark: boolean; size?: number }) {
 // Status badges per ui-standard 8.2, scaled to the row's 44px avatar: a working
 // green dot (12px), a waiting accent "?" (12px), the Main Bot star at 36% of the
 // avatar, each ringed in the list's background color.
-export function Avatar({ bot, dark, size = 44, ring, working = false, waiting = false, main = false }: {
-  bot: Bot; dark: boolean; size?: number; ring: string; working?: boolean; waiting?: boolean; main?: boolean
+export function Avatar({ bot, dark, size = 44, ring, working = false, waiting = false, main = false, accent }: {
+  bot: Bot; dark: boolean; size?: number; ring: string; working?: boolean; waiting?: boolean; main?: boolean; accent?: string
 }) {
   const star = Math.round(size * 0.36)
   const dot = Math.round(size * 0.27)
@@ -69,7 +69,7 @@ export function Avatar({ bot, dark, size = 44, ring, working = false, waiting = 
       <BotMark bot={bot} dark={dark} size={size} />
       {waiting
         ? <View style={[styles.badge, { width: dot + 4, height: dot + 4, borderRadius: (dot + 4) / 2, backgroundColor: ring, bottom: -2, right: -2 }]}>
-            <View style={[styles.badgeIn, { width: dot, height: dot, borderRadius: dot / 2, backgroundColor: '#4d6bfe' }]}>
+            <View style={[styles.badgeIn, { width: dot, height: dot, borderRadius: dot / 2, backgroundColor: accent ?? '#4d6bfe' }]}>
               <Text style={[styles.q, { fontSize: dot * 0.66, lineHeight: dot }]}>?</Text>
             </View>
           </View>
