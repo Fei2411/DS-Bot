@@ -12,11 +12,13 @@
 const root = document.documentElement
 const rm = matchMedia('(prefers-reduced-motion: reduce)')
 const tierNow = () => root.dataset.motion || 'normal'
+const effectsNow = () => root.dataset.effects || 'full'
 // html[data-tier] is the tier the CSS reads; it follows data-motion (the snapshot's tier).
 const syncTier = () => { if (root.dataset.tier !== tierNow()) root.dataset.tier = tierNow() }
 syncTier()
 new MutationObserver(syncTier).observe(root, { attributes: true, attributeFilter: ['data-motion'] })
-export const reduced = () => rm.matches
+export const reduced = () => rm.matches || effectsNow() === 'off'
+export const reducedFx = () => rm.matches || effectsNow() !== 'full'
 export const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
 const cs = el => getComputedStyle(el)
 const clamp = v => Math.max(-1, Math.min(1, v))
@@ -476,7 +478,7 @@ export function createDirector({ start, resume, act, label, announce, onCheck, o
     to(loop, { transform: 'none' }, spring('shape'))
   }
   function breathe(mine) {
-    if (D.breath || instant || !stirs() || D.pose !== 'rest') return
+    if (D.breath || instant || !stirs() || D.pose !== 'rest' || reducedFx()) return
     // Compositor-only: the scale property on an HTML wrapper that nothing else scales.
     const a = gazeLayer.animate(kf([{ scale: '1' }, { scale: '1.008 1.018', offset: 0.45 }, { scale: '1' }], 'ease-in-out'), { duration: 4200, iterations: Infinity })
     D.breath = a
@@ -873,7 +875,7 @@ export function createDirector({ start, resume, act, label, announce, onCheck, o
   // measured each time.
   function applyGaze() {
     frame = 0
-    if (reduced()) return setGaze(0, 0)
+    if (reducedFx()) return setGaze(0, 0)
     let gx = D.bx
     let gy = D.by
     const control = focused && focused === document.activeElement && focused.checkVisibility() ? focused.getBoundingClientRect() : null

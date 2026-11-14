@@ -251,6 +251,7 @@ export function startSnapshot(state, now) {
     lang: state.lang,
     start: state.start,
     motion: state.motion,
+    effects: state.effects ?? 'full',
     // Windows and macOS draw their window controls over the page's band; Linux a system title bar.
     frame: state.frame,
     view: state.view,
@@ -723,7 +724,7 @@ export class StartWindow {
     const now = Date.now()
     this.#phaseAt = now
     this.#state = {
-      lang: this.#o.lang(), start, motion: this.#o.motion, frame: framelessOn(process.platform) ? 'band' : 'system',
+      lang: this.#o.lang(), start, motion: this.#o.motion, effects: this.#o.effects ?? 'full', frame: framelessOn(process.platform) ? 'band' : 'system',
       view: start === 'moving' ? 'moving' : 'boot',
       done: [], explain: this.#explain, celebrate: start === 'first', shown: false,
       clock: { base: 0, from: now, running: true },
@@ -940,7 +941,7 @@ export class StartWindow {
     const began = Date.now()
     const step = () => {
       if (!this.#open() || main.isDestroyed()) return
-      const time = Math.min(1, (Date.now() - began) / CROSSFADE.duration)
+      const time = this.#o.effects === 'off' ? 1 : Math.min(1, (Date.now() - began) / CROSSFADE.duration)
       const eased = time * time * (3 - 2 * time)
       main.setOpacity(eased)
       win.setOpacity(1 - eased)
