@@ -1,5 +1,6 @@
 // Client channel: the team view the browser renders, and the POST /api/bot endpoints.
 import { randomUUID } from 'node:crypto'
+import { DEFAULT_REPLY_STYLE, isReplyStyle } from '../shared/reply-style.js'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { install as installBtw } from './btw.js'
 import { install as installSide } from './side.js'
@@ -219,6 +220,12 @@ export function install(rt) {
     if (body.memoryAutoRecall !== undefined) {
       if (body.memoryAutoRecall === false) state.prefs.memoryAutoRecall = false
       else delete state.prefs.memoryAutoRecall
+    }
+    if (body.replyStyle !== undefined) {
+      // The team default every Bot inherits; a Bot may still choose its own.
+      if (body.replyStyle === null || body.replyStyle === '' || body.replyStyle === DEFAULT_REPLY_STYLE) delete state.prefs.replyStyle
+      else if (isReplyStyle(body.replyStyle)) state.prefs.replyStyle = body.replyStyle
+      else throw invalid('Reply style must be natural, concise, detailed or formal')
     }
     if (body.memoryLimits !== undefined) {
       const sizes = Object.entries(body.memoryLimits ?? {}).filter(([scope, size]) => MEMORY_LIMIT_SCOPES.has(scope) && Number.isInteger(size) && size >= MEMORY_LIMIT_MIN && size <= MEMORY_LIMIT_MAX)

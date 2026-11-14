@@ -9,10 +9,11 @@ import { RunModeCard } from './agent-cards.js'
 import { FolderMenu } from './folder-menu.js'
 import { BotSchedules } from './schedules.js'
 import { BotCapabilitiesCard } from './capability-settings.js'
+import { REPLY_STYLES, STYLE_LABELS } from '../shared/reply-style.js'
 import { BotComputerCard } from './computer.js'
 import { AvatarLibraryPanel, avatarImage } from './avatar-library.js'
 import { useMemoryCount } from './memory-panel.js'
-import { SPRING_SHAPE, SPRING_TAP, spring, useGlide, useLinger } from './motion.js'
+import { SPRING_SHAPE, SPRING_TAP, Segmented, spring, useGlide, useLinger } from './motion.js'
 import { t } from './i18n.js'
 
 const capitalize = word => word[0].toUpperCase() + word.slice(1)
@@ -253,6 +254,13 @@ export function BotSettingsForm({ bot, roster, actions, run }) {
     h(Card, { title: t('Instructions') },
       h(Row, { label: t('What this Bot does'), hint: t('Its job on the team. Part of the Bot\'s system prompt.'), stack: true },
         h(InlineText, { label: t('Instructions'), value: bot.instructions, multiline: true, placeholder: t('What this Bot is responsible for…'), onSave: instructions => save({ instructions }) }))),
+    h(Card, { title: t('Reply style') },
+      h(Row, { label: t('How this Bot writes'), hint: t('Follows the team default unless it picks its own.'), stack: true },
+        h(Segmented, { label: t('Reply style'), value: bot.replyStyle ?? 'inherit' },
+          ['inherit', ...REPLY_STYLES].map(id => h('button', {
+            key: id, type: 'button', 'aria-pressed': (bot.replyStyle ?? 'inherit') === id,
+            onClick: () => save({ replyStyle: id }),
+          }, id === 'inherit' ? t('Same as the team') : t(STYLE_LABELS[id])))))),
     h(BotCapabilitiesCard, { bot, roster, actions, run, Card, SwitchRow }),
     h(BotComputerCard, { bot, roster, actions, run, Card, Row }),
     roster.memory === false ? null : h(MemoryCard, { bot, actions }),

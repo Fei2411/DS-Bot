@@ -1,6 +1,7 @@
 // Roster: creating, changing, and deleting Bots and group chats, the Main Bot role, and
 // the first Main Bot of a new team.
 import { randomUUID } from 'node:crypto'
+import { isReplyStyle } from '../shared/reply-style.js'
 import { mkdir } from 'node:fs/promises'
 import { MAX_AVATAR_IMAGE, ROOM_MAX_MEMBERS, ROOM_MODES, ROOM_NAME_MAX, ROOM_NOTICE_MAX, ROOM_TODO_MAX, ROOM_TODO_TEXT_MAX, SECTION_COLORS, SECTION_NAME_MAX } from './constants.js'
 import { currentColor, isColor, normalize, unquote } from './text.js'
@@ -369,6 +370,9 @@ export function install(rt) {
     if (patch.private !== undefined && actorId !== undefined) {
       throw new Error(`Only the user can make ${bot.name} private or open`)
     }
+    if (patch.replyStyle !== undefined && patch.replyStyle !== null && patch.replyStyle !== '' && patch.replyStyle !== 'inherit' && !isReplyStyle(patch.replyStyle)) {
+      throw new Error('Reply style is natural, concise, detailed, formal, or inherit')
+    }
     if ((patch.section !== undefined || patch.sectionId !== undefined) && actorId !== undefined && !rt.isMain(actorId)) {
       throw new Error(`Only the user or a Main Bot can move ${bot.name} between sidebar sections`)
     }
@@ -420,6 +424,11 @@ export function install(rt) {
     }
     const roleBefore = bot.role
     const instructionsBefore = bot.instructions
+    if (patch.replyStyle !== undefined) {
+      // 'inherit' (or clearing it) follows the team default again.
+      if (patch.replyStyle === null || patch.replyStyle === '' || patch.replyStyle === 'inherit') delete bot.replyStyle
+      else bot.replyStyle = patch.replyStyle
+    }
     if (patch.role !== undefined) bot.role = String(patch.role).trim().slice(0, 24)
     if (patch.instructions !== undefined) bot.instructions = String(patch.instructions).trim()
     let modelChanged = false
