@@ -1,11 +1,13 @@
 // How the connector gateway reaches its upstream: through the proxy the launcher installed, event by
-// event, and with a call that stops when the client gives up. The upstream, the proxy and the client
-// are the test; the gateway runs in a child process when the process-wide proxy policy matters.
+// event, never cut for being quiet, and with a call that stops when the client gives up. The
+// upstream, the proxy and the client are the test; the gateway runs in a child process when the
+// process-wide proxy policy matters.
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
 import { once } from 'node:events'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { createServer as createHttp } from 'node:http'
+import { createSecureServer as createHttp2 } from 'node:http2'
 import { createServer as createHttps } from 'node:https'
 import net from 'node:net'
 import { tmpdir } from 'node:os'
@@ -128,55 +130,60 @@ test('an upstream redirect is passed on, not followed', async (t) => {
   assert.equal(followed, 0)
 })
 
-// Known difference from the node:https client the gateway used before: fetch always adds these
-// request headers, and sec-fetch-mode cannot be overridden or removed.
+// The old node:https client sent exactly what the connector and the client set, plus the three
+// every request carries. undici's `request` does the same; `fetch` added four more.
 const FORWARDED = ['accept', 'authorization', 'connection', 'content-length', 'content-type', 'host', 'mcp-protocol-version', 'mcp-session-id']
-const FETCH_EXTRAS = ['accept-encoding', 'accept-language', 'sec-fetch-mode', 'user-agent']
 const headerNames = req => req.rawHeaders.filter((name, index) => index % 2 === 0).map(name => name.toLowerCase())
 const mcpCall = { method: 'POST', headers: { accept: 'application/json, text/event-stream', 'content-type': 'application/json', 'mcp-protocol-version': '2025-03-26', 'mcp-session-id': 'client-session' }, body: '{"jsonrpc":"2.0","id":1,"method":"ping"}' }
 
-test('the upstream sees the forwarded headers plus the four that fetch adds', async (t) => {
+test('the upstream sees the headers the connector and the client set and nothing else', async (t) => {
   const seen = []
   const upstream = createHttp((req, res) => { seen.push(req); req.resume(); res.writeHead(200, { 'content-type': 'application/json' }); res.end('{}') })
   const port = await listen(upstream)
   t.after(stop(upstream))
   const { call } = await inProcessGateway(t, `http://127.0.0.1:${port}/mcp`)
   assert.equal((await call(mcpCall)).status, 200)
-  const names = headerNames(seen[0])
-  assert.deepEqual(names.filter(name => !FORWARDED.includes(name)).sort(), FETCH_EXTRAS)
-  assert.equal(seen[0].headers['accept-encoding'], 'identity', 'no compression, as before')
+  assert.deepEqual(headerNames(seen[0]).sort(), FORWARDED)
   assert.equal(seen[0].headers.authorization, 'Bearer private-token')
   assert.equal(seen[0].headers['mcp-session-id'], 'client-session')
 })
 
-test('a strict upstream that allows only a fixed header list rejects the call and the rejection reaches the client', async (t) => {
-  let allowed = FORWARDED
+test('a strict upstream that allows only a fixed header list accepts the call', async (t) => {
   const upstream = createHttp((req, res) => {
     req.resume()
-    const unexpected = headerNames(req).find(name => !allowed.includes(name))
+    const unexpected = headerNames(req).find(name => !FORWARDED.includes(name))
     res.writeHead(unexpected === undefined ? 200 : 400, { 'content-type': 'application/json' })
     res.end(JSON.stringify(unexpected === undefined ? { ok: true } : { error: `unexpected header ${unexpected}` }))
   })
   const port = await listen(upstream)
   t.after(stop(upstream))
   const { call, logs } = await inProcessGateway(t, `http://127.0.0.1:${port}/mcp`)
-  const rejected = await call(mcpCall)
-  assert.equal(rejected.status, 400)
-  assert.match((await rejected.json()).error, /^unexpected header (accept-encoding|accept-language|sec-fetch-mode|user-agent)$/)
-  assert.match(logs.join('\n'), /svc.*POST.*400/)
-  allowed = [...FORWARDED, ...FETCH_EXTRAS]
-  assert.equal((await call(mcpCall)).status, 200)
+  const response = await call(mcpCall)
+  assert.deepEqual(await response.json(), { ok: true })
+  assert.deepEqual(logs, [])
+})
+
+// fetch refuses the ports a browser blocks (6000, 6667, 10080, 5060 ...); a connector on one of
+// them worked with the old client and does again.
+test('an upstream on a port that fetch refuses is reached', async (t) => {
+  const upstream = createHttp((req, res) => { req.resume(); res.writeHead(200, { 'content-type': 'application/json' }); res.end('{"port":"blocked-for-fetch"}') })
+  const port = await new Promise(resolve => upstream.listen(6667, '127.0.0.1', () => resolve(6667)).on('error', () => resolve(0)))
+  if (port === 0) { t.skip('port 6667 is in use here'); return }
+  t.after(stop(upstream))
+  await assert.rejects(fetch(`http://127.0.0.1:${port}/`), /fetch failed/, 'fetch refuses this port')
+  const { call } = await inProcessGateway(t, `http://127.0.0.1:${port}/mcp`)
+  assert.deepEqual(await (await call(mcpCall)).json(), { port: 'blocked-for-fetch' })
 })
 
 // The gateway in a child process, with the proxy policy installed from the environment as the
 // launcher does, and an https upstream reachable only through that proxy.
 const NOT_INHERITED = /^(https?_proxy|all_proxy|no_proxy|node_use_env_proxy|node_extra_ca_certs)$/i
 
-async function startChild(t, { upstream, proxy, ca, undiciTimeoutMs, headers }) {
+async function startChild(t, { upstream, proxy, ca, undiciTimeoutMs, headers, control }) {
   const env = Object.fromEntries(Object.entries(process.env).filter(([name]) => !NOT_INHERITED.test(name)))
   if (proxy !== undefined) env.HTTPS_PROXY = proxy
   if (ca !== undefined) env.NODE_EXTRA_CA_CERTS = ca
-  env.GATEWAY_EGRESS = JSON.stringify({ upstream, undiciTimeoutMs, headers })
+  env.GATEWAY_EGRESS = JSON.stringify({ upstream, undiciTimeoutMs, headers, control })
   const child = spawn(process.execPath, ['--import', pathToFileURL(join(here, 'harness-resolve.mjs')).href, join(here, 'fixtures/gateway-egress.mjs')], { env, stdio: ['pipe', 'pipe', 'pipe'] })
   let stderr = ''
   child.stderr.on('data', (chunk) => { stderr += chunk })
@@ -185,23 +192,34 @@ async function startChild(t, { upstream, proxy, ca, undiciTimeoutMs, headers }) 
     child.stdin.end()
     await within(exited, 3000, 'the gateway process exits').catch(() => child.kill())
   })
-  const first = await within(new Promise((resolve, reject) => {
-    let text = ''
-    child.stdout.on('data', (chunk) => { text += chunk; if (text.includes('\n')) resolve(text.split('\n')[0]) })
-    child.on('exit', code => reject(new Error(`the gateway process exited with ${code}: ${stderr}`)))
-  }), 10_000, 'the gateway process starts')
-  const { url, headers: auth } = JSON.parse(first)
-  return { stderr: () => stderr, call: (init = {}) => fetch(url, { ...init, headers: { ...auth, ...init.headers } }) }
+  // The child prints one JSON line per fact: first where the gateway listens, later what a plain
+  // fetch made in the same process did (see `control`).
+  const lines = []
+  const waiting = []
+  let text = ''
+  child.stdout.on('data', (chunk) => {
+    text += chunk
+    for (let end = text.indexOf('\n'); end >= 0; end = text.indexOf('\n')) {
+      const line = JSON.parse(text.slice(0, end))
+      text = text.slice(end + 1)
+      if (waiting.length > 0) waiting.shift()(line)
+      else lines.push(line)
+    }
+  })
+  const exitedEarly = new Promise((resolve, reject) => child.on('exit', code => reject(new Error(`the gateway process exited with ${code}: ${stderr}`))))
+  const nextLine = (what, ms) => within(Promise.race([new Promise(resolve => (lines.length > 0 ? resolve(lines.shift()) : waiting.push(resolve))), exitedEarly]), ms, what)
+  const { url, headers: auth } = await nextLine('the gateway process starts', 10_000)
+  return { stderr: () => stderr, controlResult: () => nextLine('the control fetch ends', 10_000), call: (init = {}) => fetch(url, { ...init, headers: { ...auth, ...init.headers } }) }
 }
 
 // An https upstream for upstream.example, and a proxy that tunnels every CONNECT to it.
-async function tunnel(t, handler) {
+async function tunnel(t, handler, { http2 = false } = {}) {
   const { cert, key } = selfSigned('upstream.example')
   const dir = mkdtempSync(join(tmpdir(), 'dsb-gateway-'))
   t.after(() => rmSync(dir, { recursive: true, force: true }))
   const ca = join(dir, 'ca.pem')
   writeFileSync(ca, cert)
-  const upstream = createHttps({ cert, key }, handler)
+  const upstream = http2 ? createHttp2({ cert, key, allowHTTP1: true }, handler) : createHttps({ cert, key }, handler)
   const upstreamPort = await listen(upstream)
   t.after(stop(upstream))
   const connects = []
@@ -243,6 +261,15 @@ test('an https upstream is reached through the proxy the launcher installed', as
   assert.equal(response.headers.get('content-type'), 'application/json')
   assert.deepEqual(await response.json(), { jsonrpc: '2.0', id: 1, result: { ok: true } })
   assert.deepEqual(seen, [{ method: 'POST', url: '/mcp?key=k', authorization: 'Bearer private-token', session: 'client-session', body: mcpCall.body }])
+})
+
+// The old client spoke HTTP/1.1 only; undici would use HTTP/2 with a server that offers it.
+test('an upstream that offers HTTP/2 is spoken to over HTTP/1.1, through the proxy', async (t) => {
+  const versions = []
+  const route = await tunnel(t, (req, res) => { versions.push(req.httpVersion); req.resume(); res.writeHead(200, { 'content-type': 'application/json' }); res.end('{}') }, { http2: true })
+  const gateway = await startChild(t, { upstream: 'https://upstream.example/mcp', proxy: route.proxy, ca: route.ca })
+  assert.equal((await gateway.call(mcpCall)).status, 200, gateway.stderr())
+  assert.deepEqual(versions, ['1.1'])
 })
 
 test('a stream through the proxy reaches the client event by event and stops when the client gives up', async (t) => {
@@ -303,29 +330,40 @@ test('a failed call to an address with credentials does not log them', async (t)
   assert.doesNotMatch(gateway.stderr(), /s3cr|private-key/)
 })
 
-// undici ends a request that sends no response head, or no body bytes, for 300 s. The child stands
-// in for that with a 300 ms limit on the process-wide dispatcher.
-test('an upstream that stays silent past the dispatcher limit ends the call and is closed', async (t) => {
-  const closed = deferred()
-  const upstream = createHttp((req, res) => { res.on('close', closed.resolve); req.resume() })
+// undici ends a request that sends no response head, or no body bytes, for 300 s by default, and
+// an MCP stream may stay quiet for far longer. The child stands in for that default with a 300 ms
+// limit on the process-wide dispatcher, which is what the launcher's own dispatcher carries too;
+// a plain fetch made in the same child shows the limit is in force.
+const QUIET_MS = 2500
+
+test('an upstream that is slow to answer is not cut by the dispatcher limit', async (t) => {
+  const upstream = createHttp((req, res) => {
+    req.resume()
+    setTimeout(() => { res.writeHead(200, { 'content-type': 'application/json' }); res.end('{"late":true}') }, QUIET_MS)
+  })
   const port = await listen(upstream)
   t.after(stop(upstream))
-  const gateway = await startChild(t, { upstream: `http://127.0.0.1:${port}/mcp`, undiciTimeoutMs: 300 })
-  const response = await gateway.call({ ...mcpCall, signal: AbortSignal.timeout(5000) })
-  assert.equal(response.status, 502)
-  assert.deepEqual(await response.json(), { error: 'connector upstream failed' })
-  await within(closed.promise, 2000, 'the upstream request is closed')
+  const url = `http://127.0.0.1:${port}/mcp`
+  const gateway = await startChild(t, { upstream: url, undiciTimeoutMs: 300, control: url })
+  const response = await gateway.call({ ...mcpCall, signal: AbortSignal.timeout(10_000) })
+  assert.equal(response.status, 200, gateway.stderr())
+  assert.deepEqual(await response.json(), { late: true })
+  assert.equal((await gateway.controlResult()).control, 'UND_ERR_HEADERS_TIMEOUT', 'the limit does cut a plain fetch to the same upstream')
+  assert.doesNotMatch(gateway.stderr(), /connector gateway/)
 })
 
-test('an upstream stream that goes silent past the dispatcher limit ends the stream and is closed', async (t) => {
-  const stream = heldStream()
-  const upstream = createHttp(stream.handler)
+test('an upstream stream that goes quiet is not cut by the dispatcher limit', async (t) => {
+  const upstream = createHttp((req, res) => {
+    res.writeHead(200, { 'content-type': 'text/event-stream' })
+    res.write('event: message\ndata: one\n\n')
+    setTimeout(() => res.end('event: message\ndata: two\n\n'), QUIET_MS)
+  })
   const port = await listen(upstream)
   t.after(stop(upstream))
-  const gateway = await startChild(t, { upstream: `http://127.0.0.1:${port}/mcp`, undiciTimeoutMs: 300 })
-  const response = await gateway.call({ headers: { accept: 'text/event-stream' }, signal: AbortSignal.timeout(5000) })
-  const reader = response.body.getReader()
-  assert.match(decode((await reader.read()).value), /data: one/)
-  await assert.rejects(within(reader.read(), 3000, 'the stream ends'), error => !/timed out/.test(error.message))
-  await within(stream.closed.promise, 2000, 'the upstream stream is closed')
+  const url = `http://127.0.0.1:${port}/mcp`
+  const gateway = await startChild(t, { upstream: url, undiciTimeoutMs: 300, control: url })
+  const response = await gateway.call({ headers: { accept: 'text/event-stream' }, signal: AbortSignal.timeout(10_000) })
+  assert.match(await response.text(), /data: one\n\nevent: message\ndata: two\n\n$/, gateway.stderr())
+  assert.equal((await gateway.controlResult()).control, 'UND_ERR_BODY_TIMEOUT', 'the limit does cut a plain fetch to the same upstream')
+  assert.doesNotMatch(gateway.stderr(), /stream failed/)
 })

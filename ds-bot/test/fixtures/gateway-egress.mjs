@@ -6,7 +6,7 @@ import { createRequire } from 'node:module'
 import { installProxyFromEnvironment } from '@deepseek-ai/dsh-http-proxy'
 import { createGateway } from '../../src/host/connectors/gateway.js'
 
-const { upstream, undiciTimeoutMs, headers = { Authorization: 'Bearer private-token' } } = JSON.parse(process.env.GATEWAY_EGRESS)
+const { upstream, undiciTimeoutMs, headers = { Authorization: 'Bearer private-token' }, control } = JSON.parse(process.env.GATEWAY_EGRESS)
 
 await installProxyFromEnvironment(new Map(Object.entries(process.env).map(([name, value]) => [name, { value }])), message => process.stderr.write(`policy: ${message}\n`))
 if (undiciTimeoutMs !== undefined) {
@@ -23,6 +23,18 @@ const gateway = createGateway({
 })
 await gateway.listen()
 process.stdout.write(`${JSON.stringify({ url: gateway.urlFor('svc'), headers: gateway.headers() })}\n`)
+if (control !== undefined) {
+  // A plain fetch to the same address, under the same process-wide limits, to show they are in force.
+  const outcome = async () => {
+    try {
+      await (await fetch(control, { method: 'POST', body: '{}' })).arrayBuffer()
+      return 'none'
+    } catch (error) {
+      return error.cause?.code ?? error.message
+    }
+  }
+  outcome().then(code => process.stdout.write(`${JSON.stringify({ control: code })}\n`))
+}
 process.stdin.resume()
 process.stdin.on('end', async () => {
   await gateway.close()

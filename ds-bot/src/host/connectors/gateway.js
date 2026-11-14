@@ -6,7 +6,11 @@
 // readOnlyHint tools and write tools/call is refused locally.
 import { createServer } from 'node:http'
 import { randomBytes, timingSafeEqual } from 'node:crypto'
-import { Readable } from 'node:stream'
+
+// Loaded on the first call, not with this file, so that undici's own start-up (it installs a
+// default global dispatcher when none exists) happens after the launcher's proxy policy.
+let undici
+const loadUndici = () => undici ??= import('undici')
 
 const FORWARD_HEADERS = ['mcp-session-id', 'mcp-protocol-version', 'last-event-id', 'accept', 'content-type']
 const RETURN_HEADERS = ['content-type', 'mcp-session-id', 'mcp-protocol-version']
@@ -84,22 +88,26 @@ export function createGateway({ credential, readOnly, onUnauthorized, log = () =
     return true
   }
 
-  // Plain fetch, so the proxy policy the launcher installed process-wide applies and this file
-  // holds no proxy code. The answer is wrapped as a stream and is never buffered here: an MCP
-  // stream can stay open for as long as the server likes. `signal` ends the call when the client
-  // leaves; it adds no limit of its own.
+  // undici's own `request`, which takes the process-wide dispatcher the launcher installed, so the
+  // proxy policy applies and this file holds no proxy code. `fetch` would do the same but ties
+  // every call to undici's 300 s header and idle limits, and an MCP stream may stay quiet for far
+  // longer; `request` takes its limits per call, and both are off here. It also sends only the
+  // headers named here, and does not follow a redirect (the server's answer, not something to
+  // follow with the credential attached). It would speak HTTP/2 to a server that offers it; the
+  // old client spoke HTTP/1.1 only, so that is kept. The answer is a stream and is never buffered
+  // here. `signal` ends the call when the client leaves.
   async function sendUpstream(id, entry, method, path, headers, body, signal) {
+    const { request } = await loadUndici()
     const target = new URL(entry.url)
     const suffix = new URL(path, 'http://x')
     if (suffix.pathname !== '/') {
       target.pathname = `${target.pathname.replace(/\/$/, '')}/${suffix.pathname.replace(/^\//, '')}`
     }
     for (const [key, value] of suffix.searchParams) target.searchParams.append(key, value)
-    // fetch would ask for compression on its own; the old client never did.
-    const outgoing = { 'accept-encoding': 'identity', ...entry.headers }
+    const outgoing = { ...entry.headers }
     for (const name of FORWARD_HEADERS) if (headers[name] !== undefined) outgoing[name] = headers[name]
-    // fetch refuses an address that carries credentials, and its error would repeat them. The old
-    // client turned them into Basic auth unless an Authorization header was already set.
+    // An address that carries credentials becomes Basic auth, unless an Authorization header is
+    // already set, and is cleaned of them so a failure never repeats them in the log.
     if (target.username !== '' || target.password !== '') {
       if (!Object.keys(outgoing).some(name => name.toLowerCase() === 'authorization')) {
         outgoing.authorization = `Basic ${Buffer.from(`${decodeURIComponent(target.username)}:${decodeURIComponent(target.password)}`).toString('base64')}`
@@ -107,16 +115,13 @@ export function createGateway({ credential, readOnly, onUnauthorized, log = () =
       target.username = ''
       target.password = ''
     }
-    // A redirect is the server's answer, not something to follow with the credential attached.
-    const init = { method, headers: outgoing, redirect: 'manual', signal }
-    if (body !== undefined) init.body = body
-    const response = await fetch(target, init)
-    const upstream = response.body === null ? Readable.from([]) : Readable.fromWeb(response.body)
+    const response = await request(target, { method, headers: outgoing, body, signal, headersTimeout: 0, bodyTimeout: 0, allowH2: false })
+    const upstream = response.body
     // This listener must exist before refresh awaits: the response can fail
     // before the handler starts consuming it.
     upstream.on('error', () => {})
-    upstream.statusCode = response.status
-    upstream.headers = Object.fromEntries(response.headers)
+    upstream.statusCode = response.statusCode
+    upstream.headers = response.headers
     // GET 405 is the normal answer from servers without a standalone stream.
     if (upstream.statusCode >= 400 && !(method === 'GET' && upstream.statusCode === 405)) log('ds-bot: connector %s upstream %s HTTP %s (session: %s)', id, method, upstream.statusCode, headers['mcp-session-id'] !== undefined)
     return upstream
