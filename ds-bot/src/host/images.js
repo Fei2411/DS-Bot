@@ -42,6 +42,9 @@ export function install(rt) {
   const liveImages = message => Array.isArray(message?.content)
     && message.content.some(block => block?.type === 'image' && !block.offloaded)
 
+  const liveFiles = message => Array.isArray(message?.content)
+    && message.content.some(block => block?.type === 'file')
+
   async function readsImages(provider, model) {
     if (textOnlyModels.has(`${provider}/${model}`)) return false
     try {
@@ -143,17 +146,54 @@ export function install(rt) {
     }
   }
 
-  // When DeepSeek OCR is on, a text-only model can call read_document on the
-  // image itself; the note names it with the full attachment id.
-  const ocrHint = attachment => rt.servicePrefs?.().ocr === true
+  // When DeepSeek OCR is on, a model in a team session can call read_document
+  // on the upload itself; the note names it with the full attachment id, which
+  // the model otherwise never sees (the file handle only carries the digest's
+  // head). `team` false on plain DSH sessions, whose agent has no read_document.
+  const ocrHint = (attachment, team = true) => rt.servicePrefs?.().ocr === true && team
     ? ` To read it with DeepSeek's document recognition, call read_document with attachment_id "${attachment.attachmentId}".`
     : ''
 
-  function imageAsText(attachment, reading) {
+  // An uploaded file reaches every model only as handle text whose saved path is
+  // a private DSH address read_document must refuse. With OCR on, a note after
+  // each file block names the attachment_id that reads the upload itself; the
+  // file block stays for the route's own projection, and with OCR off nothing
+  // changes. The note is deterministic, so a request this listener already
+  // rewrote is recognised by its text and passed through instead of hinted
+  // again. Only team sessions get the note: read_document is a team tool, so a
+  // plain DSH session's model could never answer it.
+  const fileHintText = attachment => `[For document recognition of this upload, call read_document with attachment_id "${attachment.attachmentId}"; do not pass its storage path.]`
+
+  function fileHint(attachment) {
+    if (rt.servicePrefs?.().ocr !== true || attachment?.attachmentId === undefined) return undefined
+    return { type: 'text', text: fileHintText(attachment) }
+  }
+
+  function withFileHints(messages, team) {
+    if (team !== true || !messages.some(liveFiles)) return messages
+    let hinted = false
+    const rewritten = messages.map(message => (liveFiles(message)
+      ? {
+          ...message,
+          content: message.content.flatMap((block, index, blocks) => {
+            if (block?.type !== 'file') return [block]
+            const next = blocks[index + 1]
+            if (block.attachment?.attachmentId !== undefined && next?.type === 'text' && next.text === fileHintText(block.attachment)) return [block]
+            const hint = fileHint(block.attachment)
+            if (hint === undefined) return [block]
+            hinted = true
+            return [block, hint]
+          }),
+        }
+      : message))
+    return hinted ? rewritten : messages
+  }
+
+  function imageAsText(attachment, reading, team) {
     const label = imageLabel(attachment)
     const path = imagePath(attachment)
     const saved = path === undefined ? '' : ` Read-only copy saved at ${JSON.stringify(path)}.`
-    const ocr = ocrHint(attachment)
+    const ocr = ocrHint(attachment, team)
     return {
       type: 'text',
       text: reading === null
@@ -189,27 +229,31 @@ export function install(rt) {
       }
     }
     const readings = new Map(await Promise.all([...images].map(async ([id, attachment]) => [id, await imageReading(attachment, sessionId)])))
+    const team = rt.isBotSession(sessionId)
     return messages.map(message => (liveImages(message)
       ? {
           ...message,
           content: message.content.map(block => (block?.type === 'image' && !block.offloaded
-            ? imageAsText(block.attachment, readings.get(String(block.attachment.attachmentId)))
+            ? imageAsText(block.attachment, readings.get(String(block.attachment.attachmentId)), team)
             : block)),
         }
       : message))
   }
 
   ctx.on('llm/stream', (options, next) => {
-    if (options.sessionId === undefined || rt.ownRequest(options) || !(options.messages ?? []).some(liveImages)) return next()
+    const incoming = options.messages ?? []
+    if (options.sessionId === undefined || rt.ownRequest(options) || !(incoming.some(liveImages) || incoming.some(liveFiles))) return next()
     return (async function* imagesAsTextOrPass() {
       await rt.load()
-      if (rt.roomOf(options.sessionId) !== undefined || await readsImages(options.provider, options.model)) {
-        yield* next()
+      const hinted = withFileHints(incoming, rt.isBotSession(options.sessionId))
+      // `next` cannot take new messages, so a rewritten request starts over. Its
+      // file blocks are already followed by their hints and its converted
+      // images are text, so this listener lets that request through untouched.
+      if (rt.roomOf(options.sessionId) !== undefined || await readsImages(options.provider, options.model) || !hinted.some(liveImages)) {
+        yield* hinted === incoming ? next() : ctx.llm.stream({ ...options, messages: hinted })
         return
       }
-      // `next` cannot take new messages, so the rewritten request starts over; it
-      // carries no image, so this listener lets it through.
-      yield* ctx.llm.stream({ ...options, messages: await withImagesAsText(options.messages, options.sessionId) })
+      yield* ctx.llm.stream({ ...options, messages: await withImagesAsText(hinted, options.sessionId) })
     })()
   })
 

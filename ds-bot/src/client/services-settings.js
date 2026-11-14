@@ -97,8 +97,8 @@ export function ServicesForm({ status, selection, busy, saved, asrBusy, speechAv
           h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: onOpenModels }, t('Manage models')))),
       status?.endpoint ? h('div', { className: 'bt-svc-line' }, h('span', { className: 'bt-svc-key' }, status.endpoint)) : null,
       // DSH's Web search switch is a Plugins page item, not a settings section:
-      // Plugins → Official → Web search turns on the new API for search and fetch.
-      h(Row, { label: t('DeepSeek Web Search API'), hint: t('Find it in Plugins → Official → Web search.') },
+      // Plugins → Web search turns on the new API for search and fetch.
+      h(Row, { label: t('DeepSeek Web Search API'), hint: t('Find it in Plugins → Web search.') },
         pluginsAvailable ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: onOpenPlugins }, t('Open Plugins')) : null),
       h('div', { className: 'bt-svc-line' },
         h('span', { className: 'bt-svc-note', role: 'status' }, saved ? t('Saved.') : busy ? t('Saving…') : ''))),

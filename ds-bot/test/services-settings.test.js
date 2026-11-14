@@ -162,6 +162,7 @@ test('the Web search row navigates with the existing Plugins action', () => {
   const { tree, log } = form()
   const row = tree().find(node => node.type === Row && node.props.label === 'DeepSeek Web Search API')
   assert.ok(row)
+  assert.equal(row.props.hint, 'Find it in Plugins → Web search.')
   const button = walk(row).find(node => node.type === 'button' && textOf(node) === 'Open Plugins')
   button.props.onClick()
   assert.deepEqual(log, [['plugins']])

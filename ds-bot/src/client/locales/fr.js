@@ -1614,7 +1614,7 @@ export const FR = {
   "DeepSeek services": "Services DeepSeek",
   "DeepSeek API": "API DeepSeek",
   "DeepSeek Web Search API": "API de recherche web DeepSeek",
-  "Find it in Plugins → Official → Web search.": "Dans Plugins → Officiel → Recherche web.",
+  "Find it in Plugins → Web search.": "Dans Plugins → Recherche web.",
   "Image and document reading": "Lecture des images et des documents",
   "Use DeepSeek to read images and documents": "Utiliser DeepSeek pour lire les images et les documents",
   "Bots upload selected files to DeepSeek for text recognition; local Office editing is unchanged.": "Les Bots envoient les fichiers sélectionnés à DeepSeek pour la reconnaissance du texte ; l’édition locale d’Office reste inchangée.",

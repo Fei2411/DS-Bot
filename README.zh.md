@@ -119,7 +119,7 @@ ds bot 拥有群聊功能。群聊是非常好的多 bot 协作方式，但它�
 
 在 设置 → DeepSeek 服务 里，可以用一个 DeepSeek API key 给任意模型单独开启图片与文档识别、DeepSeek 文字转语音（可选声音）和 DeepSeek 听写。每项默认关闭，必须手动打开；配置 key 不会自动上传文件，也不会自动切换语音。key 在 设置 → 模型 里设置，页面会显示每项是否就绪以及未就绪的原因。听写复用现有的语音输入提供方选择；插件没开时，原来的听写方式照常可用。文档识别是只读的：`read_document` 接受工作区路径或本会话上传的文件 / 图片附件，结果再长也会保留全文，不丢内容。
 
-`auto` 联网搜索仍走发起检索会话自己的路由和 key（绝不借用别的路由的 key）与无 key 回退，现在还会在该路由自己的 origin 上尝试 DeepSeek 官方 Search API。想让所有模型都用官方 Search / Fetch API，在插件页（DeepSeek 服务页有「打开插件页」按钮）打开 官方 → 网页搜索 → 「Use the new Web Search API」，这个开关会同时选择 Search 与 Fetch。DeepSeek 账号登录目前只验证了 Search / Fetch，不代表解锁 OCR 或语音。这些调用按你自己的 API key 用量计费。
+`auto` 联网搜索仍走发起检索会话自己的路由和 key（绝不借用别的路由的 key）与无 key 回退，现在还会在该路由自己的 origin 上尝试 DeepSeek 官方 Search API。想让所有模型都用官方 Search / Fetch API，在插件页（DeepSeek 服务页有「打开插件页」按钮）找到 插件 → 网页搜索 下的「Use the new Web Search API」开关，打开后会同时选择 Search 与 Fetch。DeepSeek 账号登录目前只验证了 Search / Fetch，不代表解锁 OCR 或语音。这些调用按你自己的 API key 用量计费。
 
 ### Office 文件
 

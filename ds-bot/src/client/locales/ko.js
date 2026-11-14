@@ -1649,7 +1649,7 @@ export const KO = {
   'DeepSeek services': 'DeepSeek 서비스',
   'DeepSeek API': 'DeepSeek API',
   'DeepSeek Web Search API': 'DeepSeek 웹 검색 API',
-  'Find it in Plugins → Official → Web search.': '플러그인 → 공식 → 웹 검색에서 찾을 수 있습니다.',
+  'Find it in Plugins → Web search.': '플러그인 → 웹 검색에서 찾을 수 있습니다.',
   'Image and document reading': '이미지 및 문서 읽기',
   'Use DeepSeek to read images and documents': 'DeepSeek으로 이미지와 문서 읽기',
   'Bots upload selected files to DeepSeek for text recognition; local Office editing is unchanged.': '선택한 파일은 텍스트 인식을 위해 DeepSeek에 업로드됩니다. 로컬 Office 편집은 그대로입니다.',

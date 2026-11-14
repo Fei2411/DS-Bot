@@ -1614,7 +1614,7 @@ export const JA = {
   "DeepSeek services": "DeepSeek サービス",
   "DeepSeek API": "DeepSeek API",
   "DeepSeek Web Search API": "DeepSeek ウェブ検索 API",
-  "Find it in Plugins → Official → Web search.": "プラグイン → 公式 → ウェブ検索 にあります。",
+  "Find it in Plugins → Web search.": "プラグイン → ウェブ検索 にあります。",
   "Image and document reading": "画像と文書の読み取り",
   "Use DeepSeek to read images and documents": "DeepSeek で画像と文書を読み取る",
   "Bots upload selected files to DeepSeek for text recognition; local Office editing is unchanged.": "選択したファイルはテキスト認識のため DeepSeek にアップロードされます。ローカルの Office 編集は変わりません。",

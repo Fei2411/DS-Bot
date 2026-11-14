@@ -1735,7 +1735,7 @@ var JA = {
   "DeepSeek services": "DeepSeek サービス",
   "DeepSeek API": "DeepSeek API",
   "DeepSeek Web Search API": "DeepSeek ウェブ検索 API",
-  "Find it in Plugins → Official → Web search.": "プラグイン → 公式 → ウェブ検索 にあります。",
+  "Find it in Plugins → Web search.": "プラグイン → ウェブ検索 にあります。",
   "Image and document reading": "画像と文書の読み取り",
   "Use DeepSeek to read images and documents": "DeepSeek で画像と文書を読み取る",
   "Bots upload selected files to DeepSeek for text recognition; local Office editing is unchanged.": "選択したファイルはテキスト認識のため DeepSeek にアップロードされます。ローカルの Office 編集は変わりません。",
@@ -4107,7 +4107,7 @@ var KO = {
   "DeepSeek services": "DeepSeek 서비스",
   "DeepSeek API": "DeepSeek API",
   "DeepSeek Web Search API": "DeepSeek 웹 검색 API",
-  "Find it in Plugins → Official → Web search.": "플러그인 → 공식 → 웹 검색에서 찾을 수 있습니다.",
+  "Find it in Plugins → Web search.": "플러그인 → 웹 검색에서 찾을 수 있습니다.",
   "Image and document reading": "이미지 및 문서 읽기",
   "Use DeepSeek to read images and documents": "DeepSeek으로 이미지와 문서 읽기",
   "Bots upload selected files to DeepSeek for text recognition; local Office editing is unchanged.": "선택한 파일은 텍스트 인식을 위해 DeepSeek에 업로드됩니다. 로컬 Office 편집은 그대로입니다.",
@@ -6480,7 +6480,7 @@ var ES = {
   "DeepSeek services": "Servicios de DeepSeek",
   "DeepSeek API": "API de DeepSeek",
   "DeepSeek Web Search API": "API de búsqueda web de DeepSeek",
-  "Find it in Plugins → Official → Web search.": "Está en Plugins → Oficial → Búsqueda web.",
+  "Find it in Plugins → Web search.": "Está en Plugins → Búsqueda web.",
   "Image and document reading": "Lectura de imágenes y documentos",
   "Use DeepSeek to read images and documents": "Usar DeepSeek para leer imágenes y documentos",
   "Bots upload selected files to DeepSeek for text recognition; local Office editing is unchanged.": "Los Bots suben los archivos seleccionados a DeepSeek para reconocer el texto; la edición local de Office no cambia.",
@@ -8809,7 +8809,7 @@ var FR = {
   "DeepSeek services": "Services DeepSeek",
   "DeepSeek API": "API DeepSeek",
   "DeepSeek Web Search API": "API de recherche web DeepSeek",
-  "Find it in Plugins → Official → Web search.": "Dans Plugins → Officiel → Recherche web.",
+  "Find it in Plugins → Web search.": "Dans Plugins → Recherche web.",
   "Image and document reading": "Lecture des images et des documents",
   "Use DeepSeek to read images and documents": "Utiliser DeepSeek pour lire les images et les documents",
   "Bots upload selected files to DeepSeek for text recognition; local Office editing is unchanged.": "Les Bots envoient les fichiers sélectionnés à DeepSeek pour la reconnaissance du texte ; l’édition locale d’Office reste inchangée.",
@@ -11181,7 +11181,7 @@ var DE = {
   "DeepSeek services": "DeepSeek-Dienste",
   "DeepSeek API": "DeepSeek-API",
   "DeepSeek Web Search API": "DeepSeek-Websuche-API",
-  "Find it in Plugins → Official → Web search.": "Zu finden unter Plugins → Offiziell → Websuche.",
+  "Find it in Plugins → Web search.": "Zu finden unter Plugins → Websuche.",
   "Image and document reading": "Bilder und Dokumente lesen",
   "Use DeepSeek to read images and documents": "DeepSeek zum Lesen von Bildern und Dokumenten verwenden",
   "Bots upload selected files to DeepSeek for text recognition; local Office editing is unchanged.": "Bots laden ausgewählte Dateien zur Texterkennung zu DeepSeek hoch; die lokale Office-Bearbeitung bleibt unverändert.",
@@ -12612,7 +12612,7 @@ var ZH = {
   "DeepSeek services": "DeepSeek 服务",
   "DeepSeek API": "DeepSeek API",
   "DeepSeek Web Search API": "DeepSeek 联网搜索 API",
-  "Find it in Plugins → Official → Web search.": "在 插件 → 官方 → 网页搜索 里设置。",
+  "Find it in Plugins → Web search.": "在 插件 → 网页搜索 里设置。",
   "Image and document reading": "图片与文档识别",
   "Use DeepSeek to read images and documents": "用 DeepSeek 识别图片和文档",
   "Bots upload selected files to DeepSeek for text recognition; local Office editing is unchanged.": "Bot 会把选中的文件上传给 DeepSeek 做文字识别；本地 Office 编辑流程不变。",
@@ -33687,10 +33687,10 @@ function ServicesForm({
       ),
       status?.endpoint ? (0, import_react43.createElement)("div", { className: "bt-svc-line" }, (0, import_react43.createElement)("span", { className: "bt-svc-key" }, status.endpoint)) : null,
       // DSH's Web search switch is a Plugins page item, not a settings section:
-      // Plugins → Official → Web search turns on the new API for search and fetch.
+      // Plugins → Web search turns on the new API for search and fetch.
       (0, import_react43.createElement)(
         Row4,
-        { label: t("DeepSeek Web Search API"), hint: t("Find it in Plugins → Official → Web search.") },
+        { label: t("DeepSeek Web Search API"), hint: t("Find it in Plugins → Web search.") },
         pluginsAvailable ? (0, import_react43.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: onOpenPlugins }, t("Open Plugins")) : null
       ),
       (0, import_react43.createElement)(

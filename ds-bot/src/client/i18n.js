@@ -702,7 +702,7 @@ const ZH = {
   'DeepSeek services': 'DeepSeek 服务',
   'DeepSeek API': 'DeepSeek API',
   'DeepSeek Web Search API': 'DeepSeek 联网搜索 API',
-  'Find it in Plugins → Official → Web search.': '在 插件 → 官方 → 网页搜索 里设置。',
+  'Find it in Plugins → Web search.': '在 插件 → 网页搜索 里设置。',
   'Image and document reading': '图片与文档识别',
   'Use DeepSeek to read images and documents': '用 DeepSeek 识别图片和文档',
   'Bots upload selected files to DeepSeek for text recognition; local Office editing is unchanged.': 'Bot 会把选中的文件上传给 DeepSeek 做文字识别；本地 Office 编辑流程不变。',

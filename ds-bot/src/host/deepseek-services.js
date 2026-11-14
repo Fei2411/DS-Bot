@@ -531,10 +531,10 @@ export function install(rt) {
 
   rt.teamTools.push(defineTool({
     name: 'read_document',
-    description: 'Read the text of a document or scanned file — PDF, Word, PowerPoint, or an image of a page — with DeepSeek\'s document recognition (a paid call on your DeepSeek API key, enabled in DS Bot settings). Give either a path in your working folder or the attachment_id of a file or image uploaded to this conversation. The text comes back page by page; a long result is also written to a file you can read.',
+    description: 'Read the text of a document or scanned file — PDF, Word, PowerPoint, or an image of a page — with DeepSeek\'s document recognition (a paid call on your DeepSeek API key, enabled in DS Bot settings). Give exactly one of path or attachment_id. The text comes back page by page; a long result is also written to a file you can read.',
     parameters: {
-      path: { type: 'string', description: 'Path of the file to read; a relative path starts in your working folder' },
-      attachment_id: { type: 'string', description: 'attachmentId of a file or image uploaded to this conversation, for uploads that are not on disk' },
+      path: { type: 'string', description: 'Path of a file in your working folder; a relative path starts in that folder. For an uploaded file or image, use attachment_id' },
+      attachment_id: { type: 'string', description: 'attachmentId of a file or image uploaded to this conversation; the only way to read an upload with this tool' },
       purpose: { type: 'string', enum: PURPOSES, description: '"text_recognition" (default): direct text extraction for text documents, page recognition otherwise. "rich_layout_recognition": every page recognized with layout and figure locations' },
     },
     output,

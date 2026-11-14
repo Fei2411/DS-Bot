@@ -47,7 +47,7 @@ DS Bot 的基础路径不依赖官方 API：图片由主模型或视觉模型读
 ### 联网搜索与导航
 
 - `auto` 提供方仍按**发起检索的会话自己的模型路由**走它自己的 key、它自己的 origin，绝不借用别的路由的 key；失败时仍走解析公开结果页的无 key 回退。现在 `auto` 的候选里多了一条针对 `api.deepseek.com` 的官方 Search API 声明（先于按协议的标准搜索工具尝试，空结果不计费），每次尝试的结果按路由 / 端点 / 模型记忆，避免为不支持搜索的端点反复付费。
-- 显式跨模型选择 `deepseek-search-api` / `fetch-api` 由 DSH 自己的 Plugins → Official → Web search 开关提供（"Use the new Web Search API"，一个开关同时选 Search 与 Fetch）。DS Bot 不在自己的设置页里重做这个开关，只从 DeepSeek services 页导航到插件页：先关闭设置对话框再打开插件页，否则对话框会挡住插件页；「设置语音输入」共用同一导航。
+- 显式跨模型选择 `deepseek-search-api` / `fetch-api` 由 DSH 自己的 Plugins → Web search 开关提供（"Use the new Web Search API"，一个开关同时选 Search 与 Fetch）。DS Bot 不在自己的设置页里重做这个开关，只从 DeepSeek services 页导航到插件页：先关闭设置对话框再打开插件页，否则对话框会挡住插件页；「设置语音输入」共用同一导航。
 - provider key、Models 管理、账号登录与插件安装都复用 DSH 现有入口（`openModels()` / `openPlugins()`），不新建网络客户端。
 
 ### 停止 / 取消 / 缺 key / 费用
