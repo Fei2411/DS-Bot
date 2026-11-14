@@ -1064,6 +1064,8 @@ export function install(rt) {
       // The greeting round leaves the user's messages for a round of their own.
       if (turns.size === 0 && !round.slots.some(slot => slot.status === 'waiting') && (round.kickoff || waitingLines(agent).length === 0)) break
     }
+    // No new turns can start once the loop exits; mark closed before draining so late joiners queue for the next round.
+    round.closed = true
     await Promise.allSettled([...turns])
     delete round.nudge
     // The admin was alone with the user's message and passed: the round ends with
@@ -1233,10 +1235,17 @@ export function install(rt) {
   // it, a Bot's post calls its members in it. A goal post, a greeting, a message with
   // images or chat references, or anything while the greeting round runs, opens the next
   // round instead.
-  async function joinRound(room, running, posts) {
+  async function joinRound(room, running, posts, agent) {
     const round = running.starting ? await running.ready : running
     if (round === undefined) {
-      startRound(room, posts, await rt.resolveAgent(rt.sessionOfRoom(room)))
+      const current = runningRound(room.id)
+      if (current !== undefined) return joinRound(room, current, posts, agent)
+      if (finalizing.has(room.id)) laterPosts.set(room.id, [...(laterPosts.get(room.id) ?? []), ...posts])
+      else startRound(room, posts, agent ?? await rt.resolveAgent(rt.sessionOfRoom(room)))
+      return
+    }
+    if (round.closed || round.abort?.signal.aborted) {
+      laterPosts.set(room.id, [...(laterPosts.get(room.id) ?? []), ...posts])
       return
     }
     const members = room.members.map(rt.botOf).filter(Boolean)
@@ -1513,7 +1522,7 @@ export function install(rt) {
       const anchor = randomUUID()
       rt.ledger.append(bookOf(room.id), { event: 'anchor', id: anchor, from, time: Date.now() })
       const running = runningRound(room.id)
-      if (running !== undefined) await joinRound(room, running, queued)
+      if (running !== undefined) await joinRound(room, running, queued, exec.agent)
       else if (finalizing.has(room.id)) laterPosts.set(room.id, [...(laterPosts.get(room.id) ?? []), ...queued])
       else {
         // What a stopped round left waiting goes first.
@@ -1681,7 +1690,9 @@ export function install(rt) {
   // once, and the members it calls start in that round, so it is not held back until
   // the round ends and never sits in the group Session's QueueDock (#663).
   async function postToRoom(room, sender, text, extra = {}, files = []) {
-    const running = [...rt.roomProgress.values()].find(round => round.roomId === room.id && round.nudge !== undefined)
+    const noticeOnly = extra.resumed === true || extra.stopped === true || (extra.failed !== undefined && !extra.askedBy)
+    const running = [...rt.roomProgress.values()].find(round => round.roomId === room.id
+      && (noticeOnly ? !round.starting : round.nudge !== undefined && !round.closed && !round.abort?.signal.aborted))
     if (running !== undefined) {
       if (extra.failed !== undefined) {
         // A failed model call is in the log already (noteFailure); the round names it.
