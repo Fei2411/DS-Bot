@@ -35473,21 +35473,21 @@ function installSettingsShell(ctx, { face, actions, ui: ui2, held }) {
     () => update.dispose(),
     // A profile that turned DSH's shell back on keeps it: the seat's child slots are then
     // declared already, and DS Bot's dialog stays on its own pages.
-    slots.inject("sidebar.settings", () => {
+    slots.inject("sidebar.settings", function* () {
+      let off;
       try {
-        const off = slots.register({ name: "sidebar.settings", inject: shellFace, children: SETTINGS_CHILDREN }, SettingsShell);
-        held?.set(true);
-        return () => {
-          held?.set(false);
-          off();
-        };
+        off = slots.register({ name: "sidebar.settings", inject: shellFace, children: SETTINGS_CHILDREN }, SettingsShell);
       } catch (error) {
         console.warn("[ds-bot] DSH settings shell is on; DS Bot settings show its own pages only", error);
-        return () => {
-        };
+        return;
       }
-    }),
-    slots.inject("settings.trigger", () => slots.register({ name: "settings.trigger" }, TriggerContent))
+      held?.set(true);
+      yield () => {
+        held?.set(false);
+        off();
+      };
+      yield slots.inject("settings.trigger", () => slots.register({ name: "settings.trigger" }, TriggerContent));
+    })
   ];
   if (carrier?.protocolVersion === 1) {
     disposers.push(slots.inject("sidebar.toggle.badge", () => slots.register({
