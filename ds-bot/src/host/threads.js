@@ -66,6 +66,12 @@ export function focusOpenPart(bot, sessionId) {
 // session list.
 export const openSessions = bot => (bot?.openParts ?? []).flatMap(part => [part.sessionId, ...(part.segments ?? []).map(segment => segment.sessionId)])
 
+// A part that just moved on records a successor only when it belongs to an open thread:
+// the foreground chat keeps its current part in `bot.sessionId`. The thread is read
+// again after the move, because the user may have opened another part while the switch
+// ran and turned this one into a background thread.
+export const successorOfMovedPart = (bot, freshId) => (threadOf(bot, freshId)?.thread === 'open' ? freshId : undefined)
+
 // Every live thread's current session. A change that must reach all of a Bot's own
 // chats (its run mode) walks these, so no thread can be left on the other side.
 export const ownChatSessions = bot => [currentSession(bot), ...(bot?.openParts ?? []).map(part => part.sessionId)].filter((id, index, list) => id !== undefined && list.indexOf(id) === index)

@@ -61,7 +61,7 @@ export function installReview(rt, memory) {
       if (since === undefined ? fresh.length < REVIEW_FIRST_LINES || !fresh.some(seen => seen.who === 'user') : line.seq > since) fresh.push(line)
       else if (earlier.push(line) >= REVIEW_CONTEXT_LINES) break
     }
-    const parts = rt.partsOf(bot.id)
+    const parts = rt.partsOfThread(bot.id, sessionId)
     const at = parts.findIndex(part => part.sessionId === sessionId)
     return {
       through,

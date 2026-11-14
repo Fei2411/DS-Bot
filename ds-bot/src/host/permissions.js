@@ -65,6 +65,10 @@ export function install(rt) {
     // Session the Bot has ends at the value the newest request actually applied.
     const applyTo = (sessionId, room = roomOfSession(sessionId)) =>
       setPreset(sessionId, () => (request.seq === mine ? room?.permission ?? bot.permission : undefined))
+    // The Bot's own chat may have background parts opened while it was busy: a stricter
+    // preset must reach those live Sessions too, or the user would think it applied.
+    const own = () => [rt.chatOf(bot.id), ...(bot.openParts ?? []).map(part => part.sessionId)]
+      .filter((sessionId, index, list) => sessionId !== undefined && list.indexOf(sessionId) === index)
     const groups = async (warnFail) => {
       for (const sessionId of rt.groupSessionsOf(bot.id)) {
         if (request.seq !== mine) break
@@ -73,7 +77,11 @@ export function install(rt) {
       }
     }
     try {
-      const applied = await applyTo(rt.chatOf(bot.id))
+      let applied
+      for (const sessionId of own()) {
+        if (request.seq !== mine) break
+        applied = await applyTo(sessionId)
+      }
       if (applied !== undefined) request.applied = applied
     } catch (error) {
       if (request.seq === mine) {
@@ -82,7 +90,7 @@ export function install(rt) {
           bot.permission = request.applied
           // The restored preset goes back on every Session the change left behind.
           const warnFail = error => rt.warn('ds-bot: permission for %s not restored: %s', bot.name, error)
-          await applyTo(rt.chatOf(bot.id)).catch(warnFail)
+          for (const sessionId of own()) await applyTo(sessionId).catch(warnFail)
           await groups(warnFail)
         }
       }

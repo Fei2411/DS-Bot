@@ -24,7 +24,7 @@ import { CHECKPOINT_PROMPT, STEWARD_SYSTEM, checkpointCount, checkpointTail, che
 import { RESUME_DELAY_MS } from './resume.js'
 import { clip, createClock, escapeRegExp, estimateTokens, splitRef, textOf } from './text.js'
 import { viaOf } from '../shared/im-platforms.js'
-import { focusOpenPart, isOpenPart, ownChatSessions, pushThreadPart, startOpenPart, threadCurrent, threadOf } from './threads.js'
+import { focusOpenPart, isOpenPart, ownChatSessions, pushThreadPart, startOpenPart, successorOfMovedPart, threadCurrent, threadOf, threadSegments } from './threads.js'
 import { checkShownView, normalizeView, readViewReply, viewCardText, viewReply, viewReplyText } from 'deep-view/core'
 
 // An ask_user card as the user saw it. The user's reply is often just an option label,
@@ -371,6 +371,16 @@ export function install(rt) {
     const parts = earlier.map((segment, index) => ({ ...segment, number: index + 1, startedAt: earlier[index - 1]?.endedAt ?? bot.createdAt }))
     if (current !== undefined) parts.push({ sessionId: current, number: parts.length + 1, startedAt: earlier.at(-1)?.endedAt ?? bot.createdAt })
     return parts
+  }
+
+  // The parts of one of a Bot's own chat threads: the caller may be a background part
+  // opened while the Bot was busy, and its history is its own thread, not the foreground
+  // chat. A session outside any thread (a group Session) reads the current thread.
+  function partsOfThread(botId, sessionId) {
+    const bot = botId === undefined ? undefined : rt.botOf(botId)
+    if (bot === undefined) return []
+    const thread = sessionId === undefined ? undefined : threadOf(bot, sessionId)
+    return partsOf(bot.id, undefined, thread === undefined ? bot.segments : thread.segments)
   }
 
   // What was said in one part, newest first: the user, other Bots, and the Bot itself.
@@ -1188,10 +1198,13 @@ export function install(rt) {
       room.sessions[bot.id] = freshId
     } else {
       pushThreadPart(bot, agent.id, freshId, segment)
-      if (thread !== undefined && thread.thread === 'open') {
-        job.next = freshId
+      // Read the thread again: a part the user opened meanwhile turned this one into a
+      // background thread, whose successor must be recorded for its own thread.
+      const successor = successorOfMovedPart(bot, freshId)
+      if (successor !== undefined) {
+        job.next = successor
         // A restart pass must find this thread's new part, not the foreground chat.
-        if (state.switching[agent.id] !== undefined) state.switching[agent.id].next = freshId
+        if (state.switching[agent.id] !== undefined) state.switching[agent.id].next = successor
       }
       // The card's call stays in the old part: the fresh part raises it in the
       // composer dock while pending, and closing it records at the part that asked it.
@@ -1720,7 +1733,7 @@ export function install(rt) {
     // current Session and every earlier `room.parts` page the same "Load earlier".
     const roomId = rt.roomOwners?.get(sessionId) ?? (past?.botId === undefined ? past?.roomId : undefined)
     const botId = roomId === undefined ? rt.chatOwners.get(sessionId) ?? (past?.roomId === undefined ? past?.botId : undefined) : undefined
-    const parts = roomId === undefined ? (botId === undefined ? [] : partsOf(botId)) : partsOf(undefined, roomId)
+    const parts = roomId === undefined ? (botId === undefined ? [] : partsOfThread(botId, sessionId)) : partsOf(undefined, roomId)
     const at = parts.findIndex(part => part.sessionId === sessionId)
     const index = Number.isInteger(cursor?.part) ? cursor.part : at - 1
     if (at <= 0 || index < 0 || index >= at) return { items: [], cursor: null, startedAt: parts[at]?.startedAt ?? null }
@@ -1930,5 +1943,5 @@ export function install(rt) {
     return true
   }
 
-  Object.assign(rt, { clock, partsOf, historyEntry, partLines, noteText, earlierPage, chatPage, displayItems, applySteps, followFolder, followEngine, heldBack, newPart, switchPart, sessionTokens: session => tokensOf(session), switchJobs: () => switches.values() })
+  Object.assign(rt, { clock, partsOf, partsOfThread, historyEntry, partLines, noteText, earlierPage, chatPage, displayItems, applySteps, followFolder, followEngine, heldBack, newPart, switchPart, sessionTokens: session => tokensOf(session), switchJobs: () => switches.values() })
 }

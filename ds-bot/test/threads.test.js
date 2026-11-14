@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { currentSession, focusOpenPart, isOpenPart, openSessions, ownChatSessions, pushThreadPart, startOpenPart, threadCurrent, threadOf } from '../src/host/threads.js'
+import { currentSession, focusOpenPart, isOpenPart, openSessions, ownChatSessions, pushThreadPart, startOpenPart, successorOfMovedPart, threadCurrent, threadOf } from '../src/host/threads.js'
 
 // #1501: a Bot's own chat can keep a second part live while the first one runs. Each
 // thread (the current one and each open part) has its own earlier parts, so a handoff
@@ -75,4 +75,18 @@ test('a Bot that never ran uses its own id as the current session', () => {
   assert.equal(b.openParts[0].sessionId, 'w1')
   assert.equal(b.sessionId, 'w2')
   assert.equal(threadOf(b, 'w1').thread, 'open')
+})
+
+test('a part that became a background thread while it moved records that thread successor', () => {
+  // The user opened a new part while this part was switching: the switch captured the
+  // foreground thread, but by the time the part moved on it belongs to an open thread.
+  // Its successor must be recorded there, or scheduled tasks move to the new part.
+  const b = { id: 'w1', sessionId: 'w2', segments: [] }
+  startOpenPart(b, 'w3')
+  assert.equal(pushThreadPart(b, 'w2', 'w4', { sessionId: 'w2', endedAt: 9 }), true)
+  assert.equal(successorOfMovedPart(b, 'w4'), 'w4')
+  // A foreground move needs no successor: bot.sessionId already names the fresh part.
+  const fg = { id: 'w1', sessionId: 'w2', segments: [] }
+  pushThreadPart(fg, 'w2', 'w5', { sessionId: 'w2', endedAt: 9 })
+  assert.equal(successorOfMovedPart(fg, 'w5'), undefined)
 })

@@ -1016,7 +1016,7 @@ export function install(rt) {
       const room = rt.roomOf(owner.roomId)
       return room === undefined ? 'group ?' : `group "${room.name}" #${room.seq}`
     }
-    const parts = rt.partsOf(rt.selfOf(sessionId))
+    const parts = rt.partsOfThread(rt.selfOf(sessionId), sessionId)
     const at = parts.findIndex(part => part.sessionId === sessionId)
     const number = at === -1 ? Math.max(parts.length, 1) : at + 1
     let seq

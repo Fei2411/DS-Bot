@@ -169,3 +169,13 @@ test('the last preset asked for wins when two group changes overlap', async () =
   assert.equal(writes.length, 4)
   assert.ok(writes.every(write => write.endsWith('=danger-full-access')))
 })
+
+test('a stricter preset reaches the parts opened while the Bot was busy', async () => {
+  // Two Sessions running at once must not let the background one keep the old,
+  // wider preset after the user was told the Bot was made stricter.
+  const { rt, writes } = runtime()
+  const bot = { id: 'b1', name: 'Ada', openParts: [{ sessionId: 'b1-bg', segments: [] }] }
+  await rt.setPermission(bot, 'workspace-write')
+  assert.equal(bot.permission, 'workspace-write')
+  assert.deepEqual(writes, ['b1-chat=workspace-write', 'b1-bg=workspace-write', 'b1-group=workspace-write'])
+})
