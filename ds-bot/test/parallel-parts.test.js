@@ -65,11 +65,11 @@ const TEAM = {
   questions: {},
 }
 
-async function team(t, archived = []) {
+async function team(t, archived = [], state = TEAM, live = ['m1', 'w1', 'w2', 'w3', 'w4']) {
   const home = mkdtempSync(join(tmpdir(), 'dsb-parallel-'))
-  writeFileSync(join(home, 'state.json'), JSON.stringify(TEAM))
+  writeFileSync(join(home, 'state.json'), JSON.stringify(state))
   const ctx = fakeContext({})
-  const registry = await dshRegistry(t, join(home, 'dsh'), ['m1', 'w1', 'w2', 'w3', 'w4'], ctx)
+  const registry = await dshRegistry(t, join(home, 'dsh'), live, ctx)
   for (const id of archived) await registry.archiveSession(SessionId(id), { stopActivity: true })
   ctx.workspaceRegistry = registry
   const register = ctx.connection.fetch.register
@@ -77,7 +77,7 @@ async function team(t, archived = []) {
   const rt = createRuntime(ctx, { home })
   t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
   const call = async (endpoint, payload = {}) => (await ctx.route.fetch(new Request('http://localhost/api/bot', { method: 'POST', body: JSON.stringify({ endpoint, payload }) }))).json()
-  return { home, registry, call, rt }
+  return { home, registry, call, ctx, rt }
 }
 
 const saved = home => JSON.parse(readFileSync(join(home, 'state.json'), 'utf8'))
@@ -99,6 +99,34 @@ test('the state lists the live open part and reads its run state, while chatOf s
   // A read inside a thread lists that thread's own parts, not the foreground chain.
   assert.deepEqual(rt.partsOfThread('w1', 'w2').map(part => part.sessionId), ['w1', 'w2'])
   assert.deepEqual(rt.partsOfThread('w1', 'w3').map(part => part.sessionId), ['w4', 'w3'])
+})
+
+// A background thread that moved on twice keeps its own earlier parts: reading one of
+// them goes on in that thread, not in the foreground chain.
+const MOVED_BACK = {
+  ...TEAM,
+  bots: {
+    ...TEAM.bots,
+    w1: {
+      ...TEAM.bots.w1,
+      openParts: [{ sessionId: 'w3', segments: [{ sessionId: 'w4', endedAt: 5 }, { sessionId: 'w5', endedAt: 6 }], startedAt: 7 }],
+    },
+  },
+}
+
+test('an earlier part of a background thread reads that thread\'s history', async (t) => {
+  const { ctx, call, rt } = await team(t, [], MOVED_BACK, ['m1', 'w1', 'w2', 'w3', 'w4', 'w5'])
+  await call('state')
+  // The part is the Bot's, so its history can be resolved at all.
+  assert.deepEqual(rt.pastOwners.get('w4'), { botId: 'w1' })
+  assert.deepEqual(rt.partsOfThread('w1', 'w5').map(part => part.sessionId), ['w4', 'w5', 'w3'])
+  // Every part says what it is when it is read, so the page shows which one was read.
+  ctx.sessionController = { page: async ({ address }) => ({
+    records: [{ event: { type: 'user/message', seq: 1, time: 1, data: { content: [{ type: 'text', text: address.sessionId }], source: { kind: 'user' } } } }],
+    hasMore: false,
+  }) }
+  const page = await rt.earlierPage('w5')
+  assert.deepEqual(page.items.map(item => [item.kind, item.text]), [['user', 'w4']])
 })
 
 test('opening a live part swaps the threads and archives nothing', async (t) => {

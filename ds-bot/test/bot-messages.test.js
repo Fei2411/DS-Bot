@@ -206,6 +206,29 @@ test('a request steered into a running turn is recorded once and answered in a t
   assert.deepEqual((await exchanges()).map(entry => entry.role), ['request', 'reply'])
 })
 
+// #1501: a Bot may ask from a background part of its own chat while the user reads the
+// foreground one. The answer comes back to the thread it was asked from.
+test('a reply to a Bot that asked from a background part comes back to that part', async (t) => {
+  const seed = team()
+  seed.bots.a.openParts = [{ sessionId: 'a-bg', segments: [] }]
+  const { agents, emit, tool, stop } = await start(seed)
+  t.after(stop)
+  assert.match(await tool('message_bot', { to: 'Writer', message: 'check the data' }, 'a-bg'), /^Delivered to Writer/)
+  const request = agents.get('b').calls[0][1]
+  assert.equal(request.source.senderPart, 'a-bg')
+
+  // Writer takes the request up and answers it.
+  emit('b', 'turn/start', { turn: 1 })
+  emit('b', 'user/message', { content: request.content, source: request.source })
+  emit('b', 'assistant/message', assistantText('data checked'))
+  emit('b', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  for (let count = 0; count < 200 && (agents.get('a-bg')?.calls ?? []).length < 1; count += 1) await delay(5)
+  const reply = agents.get('a-bg').calls[0][1]
+  assert.equal(textOf(reply.content), '[Reply from Writer]\ndata checked')
+  // The foreground chat, where the user is, got none of it.
+  assert.equal(agents.get('a')?.calls.length ?? 0, 0)
+})
+
 // Issue #580: a queued message the user steers into the running turn restarts
 // the activity row's clock from when it landed, not from the turn's start.
 test('a user message steered into the running steps marks when it landed', async (t) => {

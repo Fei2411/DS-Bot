@@ -13,7 +13,8 @@ function runtime({ presets = true, auto = false, fail = false, hold = false } = 
   const service = {
     catalog: () => ({ options: [...Object.keys(PRESETS), ...(auto ? SESSION_ONLY : [])].map(value => ({ value, name: value })), defaultOptions: [], defaultPreset: 'workspace-write' }),
     resolve: (name) => { if (!(name in PRESETS) && !(auto && SESSION_ONLY.includes(name))) throw new Error(`permission: unknown preset "${name}"`); return PRESETS[name] },
-    set: (session, name) => { if (control.fail) throw new Error('permission: rejected'); writes.push(`${session}=${name}`) },
+    // `fail` is true, a predicate on the Session, or a Session name.
+    set: (session, name) => { if (control.fail === true || (typeof control.fail === 'function' && control.fail(session)) || control.fail === session) throw new Error('permission: rejected'); writes.push(`${session}=${name}`) },
   }
   const ctx = { get: name => (presets && name === 'permissionPresets' ? service : undefined) }
   const rt = {
@@ -168,6 +169,24 @@ test('the last preset asked for wins when two group changes overlap', async () =
   assert.equal(room.permission, 'danger-full-access')
   assert.equal(writes.length, 4)
   assert.ok(writes.every(write => write.endsWith('=danger-full-access')))
+})
+
+test('a change that fails on one part puts the parts already changed back', async () => {
+  // The Bot had no preset of its own: the chat takes the wider one, then the background
+  // part refuses it. Rolling the field back alone would leave the chat wide while the
+  // user is told the Bot is strict again.
+  const { rt, writes, releases, settle, control } = runtime({ hold: true })
+  const bot = { id: 'b1', name: 'Ada', openParts: [{ sessionId: 'b1-bg', segments: [] }] }
+  const change = rt.setPermission(bot, 'danger-full-access')
+  const refused = assert.rejects(change, /rejected/)
+  await settle(0) // the chat takes the wider preset
+  control.fail = session => session === 'b1-bg'
+  await settle(0) // the background part refuses it, so the change rolls back
+  control.fail = false
+  while (releases.length) await settle(0) // the chat, that part and the group go back
+  await refused
+  assert.equal(bot.permission, undefined)
+  assert.deepEqual(writes, ['b1-chat=danger-full-access', 'b1-chat=workspace-write', 'b1-bg=workspace-write', 'b1-group=workspace-write'])
 })
 
 test('a stricter preset reaches the parts opened while the Bot was busy', async () => {

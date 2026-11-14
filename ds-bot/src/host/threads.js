@@ -25,6 +25,26 @@ export function threadCurrent(bot, sessionId) {
   return thread.thread === 'current' ? currentSession(bot) : bot.openParts[thread.index].sessionId
 }
 
+// The thread a part belongs to, whether it is that thread's current part or one of its
+// earlier parts. A Session outside the Bot's own chat (a group Session) belongs to none.
+// `threadOf` alone knows only the current part of each thread; the earlier parts are
+// still readable, and their history belongs to the thread they came from.
+export function threadOfPart(bot, sessionId) {
+  const found = threadOf(bot, sessionId)
+  if (found !== undefined || bot === undefined || sessionId === undefined) return found
+  if ((bot.segments ?? []).some(segment => segment.sessionId === sessionId)) return { thread: 'current', segments: bot.segments }
+  const at = (bot.openParts ?? []).findIndex(part => (part.segments ?? []).some(segment => segment.sessionId === sessionId))
+  return at === -1 ? undefined : { thread: 'open', index: at, segments: bot.openParts[at].segments ?? [] }
+}
+
+// The session a part's thread goes on in: a reply to, or input given to, an earlier part
+// of a thread reaches the part that thread has now.
+export function threadCurrentOfPart(bot, sessionId) {
+  const thread = threadOfPart(bot, sessionId)
+  if (thread === undefined) return undefined
+  return thread.thread === 'current' ? currentSession(bot) : bot.openParts[thread.index].sessionId
+}
+
 // A fresh part replaces a thread's current one; the part it replaces joins that thread's
 // own earlier parts. Returns false for a session that belongs to no thread.
 export function pushThreadPart(bot, sessionId, freshId, segment) {

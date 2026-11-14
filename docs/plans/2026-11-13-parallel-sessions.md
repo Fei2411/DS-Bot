@@ -68,6 +68,27 @@ The host reads `rt.live` per session and exposes `running` for the current part 
 each background part. The client shows the mark from that state; it does not infer a
 running turn from the transcript.
 
+## A part is a thread everywhere, not only in the chat view
+
+A second live Session must not become a side door. Everything that used to treat the
+Bot's chat as one place follows the thread a part belongs to instead:
+
+- **Permissions**: a preset change reaches every live part, and a change that fails
+  halfway puts every part back on the preset the Bot had before it — not only the
+  field. A stricter preset that misses the running background part would tell the user
+  the Bot is strict while one part still runs wider.
+- **Replies and requests**: a Bot writes to another Bot from the part it works in, so
+  the answer comes back to that part's thread. The part is recorded with the request
+  (the delivery source and the work record in `state.json`) and kept across a restart.
+- **Resume and kept input**: work a restart cut off goes on in the part it ran in, and
+  input a failed switch kept goes back to that part's thread. Only a part that is gone
+  falls back to the Bot's current chat.
+- **History**: a thread's earlier parts are the Bot's, and reading one reads that
+  thread. `read_own_chat`, search and "load earlier" resolve a session to the thread it
+  belongs to, including when the session is an earlier part that has already moved on.
+- **Privacy**: a private Bot's background parts are closed to other Bots exactly like its
+  chat.
+
 ## Out of scope
 
 - Two windows side by side (the next step; this change is "parallel work", not "two

@@ -24,7 +24,7 @@ import { CHECKPOINT_PROMPT, STEWARD_SYSTEM, checkpointCount, checkpointTail, che
 import { RESUME_DELAY_MS } from './resume.js'
 import { clip, createClock, escapeRegExp, estimateTokens, splitRef, textOf } from './text.js'
 import { viaOf } from '../shared/im-platforms.js'
-import { focusOpenPart, isOpenPart, ownChatSessions, pushThreadPart, startOpenPart, successorOfMovedPart, threadCurrent, threadOf } from './threads.js'
+import { focusOpenPart, isOpenPart, ownChatSessions, pushThreadPart, startOpenPart, successorOfMovedPart, threadCurrent, threadCurrentOfPart, threadOf, threadOfPart } from './threads.js'
 import { checkShownView, normalizeView, readViewReply, viewCardText, viewReply, viewReplyText } from 'deep-view/core'
 
 // An ask_user card as the user saw it. The user's reply is often just an option label,
@@ -378,11 +378,12 @@ export function install(rt) {
 
   // The parts of one of a Bot's own chat threads: the caller may be a background part
   // opened while the Bot was busy, and its history is its own thread, not the foreground
-  // chat. A session outside any thread (a group Session) reads the current thread.
+  // chat. A Session that is one of a thread's earlier parts reads that thread too. A
+  // session outside any thread (a group Session) reads the current thread.
   function partsOfThread(botId, sessionId) {
     const bot = botId === undefined ? undefined : rt.botOf(botId)
     if (bot === undefined) return []
-    const thread = sessionId === undefined ? undefined : threadOf(bot, sessionId)
+    const thread = sessionId === undefined ? undefined : threadOfPart(bot, sessionId)
     if (thread === undefined) return partsOf(bot.id)
     const current = thread.thread === 'current' ? rt.chatOf(bot.id) : bot.openParts[thread.index].sessionId
     return partsOf(bot.id, undefined, thread.segments, current)
@@ -873,11 +874,12 @@ export function install(rt) {
     : owner.botId === undefined ? rt.sessionOfRoom(rt.roomOf(owner.roomId))
       : rt.roomOf(owner.roomId)?.sessions?.[owner.botId])
   // Where a kept input belongs: the current part of the thread the switch ran on, not
-  // the Bot's foreground chat when that switch was a background part's.
+  // the Bot's foreground chat when that switch was a background part's. The part may be
+  // one of the thread's earlier ones, so the thread is looked up through it.
   const threadTargetOf = (sessionId, owner) => {
     if (owner.roomId !== undefined || owner.botId === undefined) return currentOf(owner)
     const bot = rt.botOf(owner.botId)
-    return owner.next ?? threadCurrent(bot, sessionId) ?? rt.chatOf(owner.botId)
+    return owner.next ?? threadCurrentOfPart(bot, sessionId) ?? rt.chatOf(owner.botId)
   }
   const grown = (sessionId, tokens, lines) => tokens >= (partBase.get(sessionId) ?? 0) + lines.check / 4
   // A read-only process (another dsh holds the team) neither condenses nor switches.
@@ -1021,7 +1023,7 @@ export function install(rt) {
             source: job.info ? { ...job.info, ...carried } : { kind: SOURCE_KIND, form: 'relay', role: 'resume', exchangeId: randomUUID(), senderName: 'DS Bot', ...carried },
           }))
         }
-        await forward(job, back).then(() => {
+        await forward(job, back, threadTargetOf(agent.id, job)).then(() => {
           delete state.switching[agent.id]
         }).catch((error) => {
           job.kept = true
@@ -1265,7 +1267,7 @@ export function install(rt) {
     for (const message of held) agent.inbox.remove(message.id)
     // Input the old part claimed while the rest moved goes on after it.
     for (let late = job.carry.splice(0); late.length > 0; late = job.carry.splice(0)) {
-      await forward(job, late).catch((error) => {
+      await forward(job, late, threadTargetOf(agent.id, job)).catch((error) => {
         job.kept = true
         try { restore(agent, late) } catch {}
         throw error
@@ -1292,7 +1294,7 @@ export function install(rt) {
     const { agent } = payload
     const past = rt.pastOwners.get(agent.id)
     if (past !== undefined && !rt.isBotSession(agent.id)) {
-      await forward(past, payload.messages).catch(error => rt.warn('ds-bot: input for %s was not handed on: %s', agent.id, error))
+      await forward(past, payload.messages, threadTargetOf(agent.id, past)).catch(error => rt.warn('ds-bot: input for %s was not handed on: %s', agent.id, error))
       return takeOverStep(agent, payload)
     }
     const place = placeOf(agent.id)

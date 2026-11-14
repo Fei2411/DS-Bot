@@ -85,13 +85,23 @@ export function install(rt) {
       if (applied !== undefined) request.applied = applied
     } catch (error) {
       if (request.seq === mine) {
+        // A change that fails halfway leaves Sessions on the preset it asked for: the
+        // preset goes back on every one of them, including when the Bot had none before,
+        // where it is the default that Bot ran on. Rolling only the field back would tell
+        // the user the Bot is strict again while a part still runs wider.
         if (request.applied === undefined) delete bot.permission
-        else {
-          bot.permission = request.applied
-          // The restored preset goes back on every Session the change left behind.
-          const warnFail = error => rt.warn('ds-bot: permission for %s not restored: %s', bot.name, error)
-          for (const sessionId of own()) await applyTo(sessionId).catch(warnFail)
-          await groups(warnFail)
+        else bot.permission = request.applied
+        const fallback = request.applied ?? presets().catalog().defaultPreset
+        const warnFail = error => rt.warn('ds-bot: permission for %s not restored: %s', bot.name, error)
+        const restoreTo = (sessionId) => setPreset(sessionId, roomOfSession(sessionId)?.permission ?? fallback)
+        for (const sessionId of own()) {
+          if (request.seq !== mine) break
+          await restoreTo(sessionId).catch(warnFail)
+        }
+        for (const sessionId of rt.groupSessionsOf(bot.id)) {
+          if (request.seq !== mine) break
+          if (roomOfSession(sessionId)?.permission) continue
+          await restoreTo(sessionId).catch(warnFail)
         }
       }
       throw error
