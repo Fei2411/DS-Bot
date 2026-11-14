@@ -153,13 +153,15 @@ const CUT_OFF_EMPTY_NOTE = '[cut off at the model\'s output limit before it wrot
 // The answer a cut-off turn leaves: what it said, marked as unfinished, or the line
 // that stands in for a turn that wrote nothing at all.
 export const cutOffText = said => (said === '' ? CUT_OFF_EMPTY_NOTE : `${said}\n\n${CUT_OFF_NOTE}`)
-// A route whose real window is smaller than the one DS Bot knows answers an oversized
-// request with a `length` finish and a short answer, not a context error (#1104). Such
-// a turn is far below any real output cap; a turn that truly reached the model's
-// output limit is not, and only that one is a real truncation. The cut-off shape has to
-// make room the way an overflow does, even when the turn wrote a line first (#1461).
-const PREMATURE_OUTPUT_TOKENS = 4_096
-const PREMATURE_INPUT_TOKENS = 32_000
+// A finish far below the prepared request's own output budget can be a route's
+// smaller context window. Unknown budgets provide no evidence for that inference.
+export function prematureCutOff(usage, route) {
+  const limit = Number(route?.maxTokens)
+  const output = Number(usage?.outputTokens)
+  const input = Number(usage?.inputTokens ?? 0) + Number(usage?.cacheReadTokens ?? 0) + Number(usage?.cacheWriteTokens ?? 0)
+  return Number.isFinite(limit) && limit > 0 && Number.isFinite(output) && output >= 0
+    && output < limit / 8 && input >= limit
+}
 
 // A reply that only promises to start investigating/checking/running tools now without
 // actually calling a tool or handing off with @Name (#469). A verb followed by 过了,
@@ -1125,17 +1127,11 @@ export function install(rt) {
         // row, is what a route over the window it really has leaves behind, and the
         // context check then moves the part on instead of sending the same size again.
         const cutOff = watched && failure === undefined && reason?.kind === 'max-tokens'
-        const wroteNothing = cutOff && !wroteText
-        // A `length` finish far below any real output cap is the route's window, not the
-        // model's output limit: it counts toward making room like a turn that wrote
-        // nothing, or every later turn stops at the same size (#1461).
+        const route = session.requestHeader?.()?.config
         const outputTokens = Number(usage?.outputTokens)
-        // The request's size is its fresh input plus both cache sides: a route that
-        // reads mostly from the provider's cache still sends the whole prompt.
-        const inputTokens = Number(usage?.inputTokens ?? 0) + Number(usage?.cacheReadTokens ?? 0)
-          + Number(usage?.cacheWriteTokens ?? 0)
-        const premature = cutOff && Number.isFinite(outputTokens) && outputTokens < PREMATURE_OUTPUT_TOKENS
-          && inputTokens >= PREMATURE_INPUT_TOKENS
+        const usedBudget = Number.isFinite(outputTokens) && Number(route?.maxTokens) > 0 && outputTokens >= Number(route.maxTokens)
+        const wroteNothing = cutOff && !wroteText && !usedBudget
+        const premature = cutOff && prematureCutOff(usage, route)
         rt.noteCutOffTurn?.(id, { withoutText: wroteNothing, premature })
         if (cutOff) noteCutOffTurn(id, { session, wroteNothing, ...(premature ? { outputTokens } : {}) })
         if (failure !== undefined) {
