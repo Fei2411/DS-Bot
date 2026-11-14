@@ -360,17 +360,18 @@ export function apply(ctx) {
 
   ctx.effect(() => () => { markupCache.clear() }, 'ds-bot: character markup')
 
-  // Mentions wear each Bot's color and character silhouette (or its photo). A message
-  // DSH still draws itself, while it waits to be sent or to join a running turn, shows
-  // "@Name" as a file reference; one whose label is a whole Bot name wears the Bot's
-  // mark there too (a name with a space is cut by DSH, so it stays as DSH draws it).
+  // Mentions wear each Bot's color and character silhouette (or its photo). User text
+  // DSH draws (a message waiting to be sent or to join a running turn, and since DSH
+  // 0.2.1-alpha.3 the contents of DS Bot's own user bubble, .bt-uhost) shows "@Name" as
+  // a file reference; one whose label is a whole Bot name wears the Bot's mark there too
+  // (a name with a space is cut by DSH, so it stays as DSH draws it).
   const installMentions = () => {
     const style = installStyles('', 'mentions')
     let last = ''
     const render = () => {
       const next = roster.getSnapshot().bots.map((bot) => {
         const anchor = `.bt-bubble a[href="${MENTION_ORIGIN}${bot.id}"]`
-        const chip = /\s/.test(bot.name) ? '' : `[class*="_userRow"] [data-ref-chip="file"][title="@${bot.name.replace(/["\\]/g, '\\$&')}" i]`
+        const chip = /\s/.test(bot.name) ? '' : `:is([class*="_userRow"],.bt-uhost) [data-ref-chip="file"][title="@${bot.name.replace(/["\\]/g, '\\$&')}" i]`
         const look = lookOf(bot)
         const marks = chip ? `${anchor}::before,${chip}::before` : `${anchor}::before`
         const mark = look.image
@@ -889,6 +890,9 @@ export function apply(ctx) {
     })
   }
   const face = () => ({ actions, hooks: { roster, ui, activity, work, memoryNews, registry, turnClock, live, computer, cards, heldCards, browserPages, browserTabs, browserHolds, surface, update, frame, sidebarPref, settingsShellHeld } })
+  // Since DSH 0.2.1-alpha.3 user text is drawn by rules and a content factory, not the
+  // primitives' text projection; the user's bubble draws with either (user-message.js).
+  const hostDrawsUserText = typeof ctx.uiConversation.userText?.register === 'function'
   // DS Bot holds the settings seat in every mode, Agent mode included: the bundle patch
   // turns DSH's own shell off, and this one draws DSH's settings pages in DS Bot's dialog.
   ctx.effect(() => {
@@ -1191,7 +1195,7 @@ export function apply(ctx) {
     // A Bot chat leaves DSH's context lines (tool updates, injected context) out; a Bot
     // message spliced in mid-turn gets an event line from the step that reads it instead.
     () => shadow('conversation.chat.node', { key: 'context', priority: BOT_PRIORITY, locale: 'chat' }, CellEmpty),
-    ...(canDrawUserMessages() ? ['user', 'steering'].map(key => () => shadow('conversation.chat.node', { key, priority: BOT_PRIORITY, locale: 'chat', inject: face }, UserMessageCell)) : []),
+    ...(canDrawUserMessages(hostDrawsUserText) ? ['user', 'steering'].map(key => () => shadow('conversation.chat.node', { key, priority: BOT_PRIORITY, locale: 'chat', inject: face }, UserMessageCell)) : []),
     () => shadow('conversation.input.permission', { priority: BOT_PRIORITY }, Nothing),
     () => shadow('conversation.input.plan', { priority: BOT_PRIORITY }, Nothing),
     // The composer carries no model picker or run statistics; a Bot's model lives
