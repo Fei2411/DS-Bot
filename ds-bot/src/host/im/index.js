@@ -422,6 +422,9 @@ export function install(rt) {
   const dropImOrigin = (token) => {
     if (token !== undefined) resumedOrigins.delete(token)
   }
+  const detachHeldOrigin = (sessionId) => {
+    for (const held of resumedOrigins.values()) if (held.activeOn === sessionId) held.activeOn = undefined
+  }
   const claimOrigin = (sessionId, connId, chatKey, senderId, binding) => {
     if (sessionId === undefined || connId === undefined) return
     if (mixed.has(sessionId)) return
@@ -429,6 +432,11 @@ export function install(rt) {
     if (previous !== undefined && (previous.connId !== connId || previous.chatKey !== chatKey || previous.senderId !== senderId)) {
       dropOrigin(sessionId)
       return
+    }
+    for (const [token, held] of resumedOrigins) {
+      if (held.activeOn === sessionId && (held.connId !== connId || held.chatKey !== chatKey || held.senderId !== senderId)) {
+        resumedOrigins.delete(token)
+      }
     }
     let bound = binding
     if (bound === undefined) {
@@ -445,7 +453,6 @@ export function install(rt) {
   const resetOrigin = (sessionId) => {
     origins.delete(sessionId)
     mixed.delete(sessionId)
-    for (const held of resumedOrigins.values()) if (held.activeOn === sessionId) held.activeOn = undefined
   }
   /**
    * The connection and chat a Session's replies go to, or undefined when nothing may
@@ -1293,8 +1300,12 @@ export function install(rt) {
       // A group's own Session ends its relay turn at once while its members keep
       // working and post later; only a Bot's turn ending ends the chat's claim. A
       // pending reset means the turn never got a message to classify, so apply it now.
-      if (rt.roomOf(session.id) === undefined) resetOrigin(session.id)
-      else if (pendingReset.delete(session.id)) resetOrigin(session.id)
+      if (rt.roomOf(session.id) === undefined) {
+        resetOrigin(session.id)
+        detachHeldOrigin(session.id)
+      } else if (pendingReset.delete(session.id)) {
+        resetOrigin(session.id)
+      }
     }
     const botId = rt.chatOwners.get(session.id)
     if (botId === undefined) {
