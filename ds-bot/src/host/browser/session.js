@@ -10,8 +10,9 @@ import { runIsolatedScript } from './script-runner.js'
 const ACTION_TIMEOUT = 5_000
 // How long a click-like action waits after it resolves for the download it may have
 // started. Exports that build the file asynchronously need a moment, but a click with
-// no download must not pay the whole action timeout.
-const DOWNLOAD_GRACE_MS = 800
+// no download must not pay the whole action timeout. The window opens when the click
+// resolves, so the settle that follows it counts against the grace.
+const DOWNLOAD_GRACE_MS = 300
 const SNAPSHOT_LIMIT = 40_000
 const REASONS = new Set(['login', 'payment', 'captcha', 'other'])
 
@@ -392,7 +393,7 @@ export function createSession({ context, browser, page, botId, userDataDir, cook
     return `${String(result ?? '')}\n\n${suffix}`
   }
 
-  async function captureAction(perform, { target = activePage(), waitForDownload = false } = {}) {
+  async function captureAction(perform, { target = activePage(), waitForDownload = false, resolvedAt } = {}) {
     const parent = activeDownloads
     const batch = parent ?? {
       gate: gateScope.getStore(), items: [], pages: new Set(target ? [target] : []),
@@ -412,8 +413,13 @@ export function createSession({ context, browser, page, botId, userDataDir, cook
       if (!parent && !closed && batch.pages.size > 0 && batch.items.length === 0
         && (openingDownload || (!failure && batch.waitForDownload))) {
         // Async exports begin after click() resolves. Keep the original call's
-        // approval scope until a download starts or its action deadline passes.
-        const remaining = openingDownload ? Math.max(actionTimeout, ACTION_TIMEOUT) : downloadGraceMs
+        // approval scope until a download starts or its grace window passes. The
+        // window opens at the action's own resolution, so the settle that already
+        // follows the click is part of it rather than extra waiting.
+        const openedAt = resolvedAt?.()
+        const remaining = openingDownload
+          ? Math.max(actionTimeout, ACTION_TIMEOUT)
+          : openedAt === undefined ? downloadGraceMs : Math.max(0, downloadGraceMs - (Date.now() - openedAt))
         await new Promise(resolve => {
           const finish = () => {
             clearTimeout(timer)
@@ -543,12 +549,14 @@ export function createSession({ context, browser, page, botId, userDataDir, cook
   }
 
   async function finishAction(perform, target = activePage(), waitForDownload = true) {
+    let resolvedAt
     return captureAction(async () => {
       await perform()
+      resolvedAt = Date.now()
       await settle()
       // The observation wait and download approval can change the page and refs.
       return snapshotText
-    }, { target, waitForDownload })
+    }, { target, waitForDownload, resolvedAt: () => resolvedAt })
   }
 
   async function shot() {

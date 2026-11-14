@@ -83,10 +83,10 @@ function download({ filename = 'report.csv', saveError } = {}) {
   return value
 }
 
-test('a click captures a download started asynchronously after 250 ms', async (t) => {
+test('a click captures a download started asynchronously after 120 ms', async (t) => {
   const incoming = download()
   const { session, directory, files } = await fixture(t, {
-    click: (page, later) => later(() => page.emit('download', incoming), 250),
+    click: (page, later) => later(() => page.emit('download', incoming), 120),
   })
   const actions = []
   const result = await gateScope.run(async action => { actions.push(action) }, () => session.click('e1'))
@@ -100,7 +100,7 @@ test('a click captures a download started asynchronously after 250 ms', async (t
 test('an asynchronously started download still needs its original approval', async (t) => {
   const incoming = download()
   const { session, files } = await fixture(t, {
-    click: (page, later) => later(() => page.emit('download', incoming), 250),
+    click: (page, later) => later(() => page.emit('download', incoming), 120),
   })
   let approvals = 0
   const result = await gateScope.run(async () => {
@@ -138,8 +138,7 @@ test('a click with no download returns after the download grace, not the action 
   const started = Date.now()
   await session.click('e1')
   const elapsed = Date.now() - started
-  assert.ok(elapsed < 1_500, `a click without a download returned in ${elapsed} ms`)
-  assert.ok(elapsed >= 600, `the click still waited out its grace window (${elapsed} ms)`)
+  assert.ok(elapsed < 500, `a click without a download returned in ${elapsed} ms: it holds at most its 300 ms grace, not the 5 s action timeout`)
 })
 
 // A download that starts after the grace window is not captured: it is canceled and
@@ -147,8 +146,8 @@ test('a click with no download returns after the download grace, not the action 
 test('a download that starts after the grace window is canceled and reported', async (t) => {
   const incoming = download()
   const { session, files } = await fixture(t, {
-    downloadGraceMs: 120,
-    click: (page, later) => later(() => page.emit('download', incoming), 700),
+    downloadGraceMs: 100,
+    click: (page, later) => later(() => page.emit('download', incoming), 400),
   })
   await session.click('e1')
   await incoming.whenCanceled
@@ -177,7 +176,7 @@ test('a download from another tab is not included in the current action', async 
   const fixtureValue = await fixture(t, {
     click: (page, later) => {
       other.emit('download', unrelated)
-      later(() => page.emit('download', incoming), 250)
+      later(() => page.emit('download', incoming), 120)
     },
   })
   other = fixtureValue.other
@@ -196,7 +195,7 @@ test('a popup opened by the action can deliver its download', async (t) => {
   const { session, other, files } = await fixture(t, {
     click: (page, later) => {
       page.emit('popup', popup)
-      later(() => popup.emit('download', incoming), 250)
+      later(() => popup.emit('download', incoming), 120)
     },
   })
   popup = other
@@ -210,7 +209,7 @@ test('parallel script helpers return each action with its own download result', 
   const { session, files } = await fixture(t, {
     click: (page, later) => {
       const incoming = download({ filename: `report-${++count}.csv` })
-      later(() => page.emit('download', incoming), 250)
+      later(() => page.emit('download', incoming), 120)
     },
   })
   const answer = await gateScope.run(async () => {}, () => session.runScript(
@@ -230,7 +229,7 @@ for (const ending of ['done("finished")', 'throw new Error("script failed")']) {
     const { session, files } = await fixture(t, {
       click: (page, later) => {
         const incoming = download({ filename: `report-${++count}.csv` })
-        later(() => page.emit('download', incoming), 250)
+        later(() => page.emit('download', incoming), 120)
       },
     })
     const approvals = []
@@ -258,7 +257,7 @@ for (const action of ['click', 'submit']) {
       click: (page, later) => later(() => {
         page.ariaSnapshot = async () => '- status "Export ready"'
         page.emit('download', incoming)
-      }, 250),
+      }, 120),
     })
     const result = await gateScope.run(async () => {}, () => action === 'click'
       ? session.click('e1')

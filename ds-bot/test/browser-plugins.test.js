@@ -98,7 +98,7 @@ function browserExec(botId = 'b2', sessionId = botId) {
 
 // A Playwright page/context pair with just enough surface for one click, so the
 // plugin's real session code runs against it instead of a live browser.
-function fakeBrowserPage() {
+function fakeBrowserPage({ onClick } = {}) {
   const page = new EventEmitter()
   let closed = false
   Object.assign(page, {
@@ -113,7 +113,7 @@ function fakeBrowserPage() {
     locator: () => ({
       count: async () => 1,
       evaluate: async () => null,
-      click: async () => {},
+      click: async () => onClick?.(page),
       fill: async () => {},
       press: async () => {},
       selectOption: async () => {},
@@ -218,10 +218,27 @@ test('the mount passes its download grace to the injected session opener', async
 })
 
 // The whole config path, not just createSession's own argument: config → install
-// → mount → openBotBrowser → createSession. Lost on the way, the session falls
-// back to the 800 ms default, which this timing catches.
+// → mount → openBotBrowser → createSession. The configured 20 ms grace is far below
+// the 300 ms default, so a download that starts 200 ms after the click must find the
+// batch closed: it is canceled and named in the next snapshot. Were the setting
+// dropped, the default 300 ms window is still open at 200 ms and the download is
+// captured (and its approval path entered) instead.
 test('browserDownloadGraceMs from the config reaches the browser session', async (t) => {
-  const { context } = fakeBrowserPage()
+  let saved = false
+  let canceled = 0
+  let resolveCanceled
+  const wasCanceled = new Promise(resolve => { resolveCanceled = resolve })
+  const incoming = {
+    suggestedFilename: () => 'report.csv',
+    url: () => 'https://reports.example.test/report.csv',
+    async saveAs() { saved = true },
+    async cancel() { canceled += 1; resolveCanceled() },
+    async delete() {},
+  }
+  let timer
+  const { context } = fakeBrowserPage({
+    onClick: clicked => { timer = setTimeout(() => clicked.emit('download', incoming), 200) },
+  })
   const key = Symbol.for('ds-bot.test.browser-context')
   globalThis[key] = context
   const stub = mkdtempSync(join(tmpdir(), 'ds-bot-playwright-stub-'))
@@ -239,8 +256,8 @@ test('browserDownloadGraceMs from the config reaches the browser session', async
         name: 'browser_probe',
         needsBrowser: true,
         async execute(args, { session }) {
-          await session.click('e1')
-          return 'ok'
+          const click = await session.click('e1')
+          return { click, session }
         },
       }],
     },
@@ -251,6 +268,7 @@ test('browserDownloadGraceMs from the config reaches the browser session', async
   // exposes services through get(), so give it the registry teamFolder() reads.
   ctx.workspaceRegistry = { get: () => ({ path: join(stub, 'workspace') }) }
   t.after(async () => {
+    clearTimeout(timer)
     await ctx.dispose()
     stop()
     delete globalThis[key]
@@ -258,9 +276,16 @@ test('browserDownloadGraceMs from the config reaches the browser session', async
   })
   const started = Date.now()
   const tool = runtime.teamTools.find(entry => entry.name === 'browser_probe')
-  assert.equal(await tool.execute({}, browserExec()), 'ok')
+  const result = await tool.execute({}, browserExec())
   const elapsed = Date.now() - started
-  assert.ok(elapsed < 700, `a click without a download returned in ${elapsed} ms: the configured 20 ms grace must replace the 800 ms default`)
+  assert.equal(typeof result.click, 'string')
+  assert.doesNotMatch(result.click, /Download "report\.csv"/, 'the click did not wait for the late download')
+  assert.ok(elapsed < 500, `a click with a 20 ms configured grace returned in ${elapsed} ms`)
+  await wasCanceled
+  assert.equal(saved, false, 'the late download was not saved')
+  assert.equal(canceled, 1)
+  const snapshot = await result.session.snapshotText()
+  assert.match(snapshot, /Download "report.csv".*after its browser action finished and was canceled/i)
 })
 
 test('concurrent first browser calls share opening and relay connection', async () => {
