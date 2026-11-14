@@ -6,8 +6,11 @@
 // readOnlyHint tools and write tools/call is refused locally.
 import { createServer } from 'node:http'
 import { randomBytes, timingSafeEqual } from 'node:crypto'
-import { request as httpsRequest } from 'node:https'
-import { request as httpRequest } from 'node:http'
+
+// Loaded on the first call, not with this file, so that undici's own start-up (it installs a
+// default global dispatcher when none exists) happens after the launcher's proxy policy.
+let undici
+const loadUndici = () => undici ??= import('undici')
 
 const FORWARD_HEADERS = ['mcp-session-id', 'mcp-protocol-version', 'last-event-id', 'accept', 'content-type']
 const RETURN_HEADERS = ['content-type', 'mcp-session-id', 'mcp-protocol-version']
@@ -32,8 +35,6 @@ const sseMessage = (body) => {
 
 // Upstreams are https; loopback HTTP is allowed for local custom servers.
 const loopbackHttp = url => /^http:\/\/(127\.|localhost|::1)/i.test(String(url))
-const upstreamRequest = (target, init, onResponse) =>
-  (target.protocol === 'http:' && loopbackHttp(target) ? httpRequest : httpsRequest)(target, init, onResponse)
 
 const readAll = stream => new Promise((resolve, reject) => {
   if (stream.errored) { reject(stream.errored); return }
@@ -87,29 +88,43 @@ export function createGateway({ credential, readOnly, onUnauthorized, log = () =
     return true
   }
 
-  async function sendUpstream(id, entry, method, path, headers, body) {
-    return new Promise((resolve, reject) => {
-      const target = new URL(entry.url)
-      const suffix = new URL(path, 'http://x')
-      if (suffix.pathname !== '/') {
-        target.pathname = `${target.pathname.replace(/\/$/, '')}/${suffix.pathname.replace(/^\//, '')}`
+  // undici's own `request`, which takes the process-wide dispatcher the launcher installed, so the
+  // proxy policy applies and this file holds no proxy code. `fetch` would do the same but ties
+  // every call to undici's 300 s header and idle limits, and an MCP stream may stay quiet for far
+  // longer; `request` takes its limits per call, and both are off here. It also sends only the
+  // headers named here, and does not follow a redirect (the server's answer, not something to
+  // follow with the credential attached). It would speak HTTP/2 to a server that offers it; the
+  // old client spoke HTTP/1.1 only, so that is kept. The answer is a stream and is never buffered
+  // here. `signal` ends the call when the client leaves.
+  async function sendUpstream(id, entry, method, path, headers, body, signal) {
+    const { request } = await loadUndici()
+    const target = new URL(entry.url)
+    const suffix = new URL(path, 'http://x')
+    if (suffix.pathname !== '/') {
+      target.pathname = `${target.pathname.replace(/\/$/, '')}/${suffix.pathname.replace(/^\//, '')}`
+    }
+    for (const [key, value] of suffix.searchParams) target.searchParams.append(key, value)
+    const outgoing = { ...entry.headers }
+    for (const name of FORWARD_HEADERS) if (headers[name] !== undefined) outgoing[name] = headers[name]
+    // An address that carries credentials becomes Basic auth, unless an Authorization header is
+    // already set, and is cleaned of them so a failure never repeats them in the log.
+    if (target.username !== '' || target.password !== '') {
+      if (!Object.keys(outgoing).some(name => name.toLowerCase() === 'authorization')) {
+        outgoing.authorization = `Basic ${Buffer.from(`${decodeURIComponent(target.username)}:${decodeURIComponent(target.password)}`).toString('base64')}`
       }
-      for (const [key, value] of suffix.searchParams) target.searchParams.append(key, value)
-      const outgoing = { ...entry.headers }
-      for (const name of FORWARD_HEADERS) if (headers[name] !== undefined) outgoing[name] = headers[name]
-      if (body !== undefined) outgoing['content-length'] = body.length
-      const req = upstreamRequest(target, { method, headers: outgoing }, upstream => {
-        // This listener must exist before refresh awaits: the response can fail
-        // before the handler starts consuming it.
-        upstream.on('error', reject)
-        // GET 405 is the normal answer from servers without a standalone stream.
-        if (upstream.statusCode >= 400 && !(method === 'GET' && upstream.statusCode === 405)) log('ds-bot: connector %s upstream %s HTTP %s (session: %s)', id, method, upstream.statusCode, headers['mcp-session-id'] !== undefined)
-        resolve(upstream)
-      })
-      req.on('error', reject)
-      if (body !== undefined) req.write(body)
-      req.end()
-    })
+      target.username = ''
+      target.password = ''
+    }
+    const response = await request(target, { method, headers: outgoing, body, signal, headersTimeout: 0, bodyTimeout: 0, allowH2: false })
+    const upstream = response.body
+    // This listener must exist before refresh awaits: the response can fail
+    // before the handler starts consuming it.
+    upstream.on('error', () => {})
+    upstream.statusCode = response.statusCode
+    upstream.headers = response.headers
+    // GET 405 is the normal answer from servers without a standalone stream.
+    if (upstream.statusCode >= 400 && !(method === 'GET' && upstream.statusCode === 405)) log('ds-bot: connector %s upstream %s HTTP %s (session: %s)', id, method, upstream.statusCode, headers['mcp-session-id'] !== undefined)
+    return upstream
   }
 
   async function handle(id, req, res) {
@@ -124,6 +139,9 @@ export function createGateway({ credential, readOnly, onUnauthorized, log = () =
       res.end(JSON.stringify({ error: 'connector address must be https' }))
       return
     }
+    // A client that leaves before the upstream answers must not leave its call running.
+    const abort = new AbortController()
+    res.on('close', () => { if (!res.writableFinished) abort.abort() })
     const suffix = req.url.slice(`/c/${id}`.length)
     const path = suffix === '' ? '/' : suffix
     const limited = readOnly(id) === true
@@ -144,12 +162,12 @@ export function createGateway({ credential, readOnly, onUnauthorized, log = () =
         return
       }
       if (rpc?.method === 'tools/list') {
-        let upstream = await sendUpstream(id, entry, req.method, path, req.headers, body)
+        let upstream = await sendUpstream(id, entry, req.method, path, req.headers, body, abort.signal)
         if (upstream.statusCode === 401) {
           const retried = await onUnauthorized(id)
           if (retried === true) {
             upstream.resume()
-            upstream = await sendUpstream(id, credential(id) ?? entry, req.method, path, req.headers, body)
+            upstream = await sendUpstream(id, credential(id) ?? entry, req.method, path, req.headers, body, abort.signal)
           }
         }
         if (upstream.statusCode === 401 && signInAgain(id, body, upstream, res)) return
@@ -180,18 +198,18 @@ export function createGateway({ credential, readOnly, onUnauthorized, log = () =
     }
     let upstream
     try {
-      upstream = await sendUpstream(id, entry, req.method, path, req.headers, body)
+      upstream = await sendUpstream(id, entry, req.method, path, req.headers, body, abort.signal)
       // One refresh + retry when the answer is still unsent.
       if (upstream.statusCode === 401) {
         const retried = await onUnauthorized(id)
         if (retried === true) {
           upstream.resume()
-          upstream = await sendUpstream(id, credential(id) ?? entry, req.method, path, req.headers, body)
+          upstream = await sendUpstream(id, credential(id) ?? entry, req.method, path, req.headers, body, abort.signal)
         }
       }
       if (upstream.errored) throw upstream.errored
     } catch (error) {
-      log('ds-bot: connector gateway %s: %s', id, error?.message ?? error)
+      if (!abort.signal.aborted) log('ds-bot: connector gateway %s: %s', id, error?.message ?? error)
       res.writeHead(502, { 'content-type': 'application/json' })
       res.end(JSON.stringify({ error: 'connector upstream failed' }))
       return
@@ -206,7 +224,7 @@ export function createGateway({ credential, readOnly, onUnauthorized, log = () =
       res.on('close', close)
       upstream.on('end', () => res.off('close', close))
       upstream.on('error', () => {
-        log('ds-bot: connector %s upstream %s stream failed', id, req.method)
+        if (!abort.signal.aborted) log('ds-bot: connector %s upstream %s stream failed', id, req.method)
         res.destroy()
       })
       res.writeHead(upstream.statusCode ?? 502, heads)
@@ -242,7 +260,7 @@ export function createGateway({ credential, readOnly, onUnauthorized, log = () =
           return
         }
         handle(found[1], req, res).catch((error) => {
-          log('ds-bot: connector gateway: %s', error?.message ?? error)
+          if (error?.name !== 'AbortError') log('ds-bot: connector gateway: %s', error?.message ?? error)
           if (res.headersSent) res.destroy()
           else { res.writeHead(502); res.end() }
         })
