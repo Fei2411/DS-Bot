@@ -27,6 +27,30 @@ const projects = typeof ui.projectUserText === 'function'
 // `drawsUserContent`: the host has the user-content factory (it has a user-text registry).
 export const canDrawUserMessages = (drawsUserContent = false) => projects || drawsUserContent
 
+// Other plugins mark where a message came from (Liveshare: "From <name> in a shared
+// Session") in `conversation.chat.user.before`. DSH's own user row declares that slot,
+// and only the entry that declares a slot may render it, so a row DS Bot draws cannot
+// show those marks. While any plugin has a mark there, DS Bot leaves the user rows to
+// DSH (the marks show, long messages do not fold); otherwise it draws them. Marks can
+// register after DS Bot, so the choice follows the slot.
+export const USER_SOURCE_SLOT = 'conversation.chat.user.before'
+
+export function installUserBubble(slots, drawRows) {
+  let dispose
+  const refresh = () => {
+    const marked = slots.entries(USER_SOURCE_SLOT).length > 0
+    if (marked && dispose !== undefined) {
+      dispose()
+      dispose = undefined
+    } else if (!marked && dispose === undefined) {
+      dispose = drawRows()
+    }
+  }
+  const unsubscribe = slots.subscribe(USER_SOURCE_SLOT, refresh)
+  try { refresh() } catch (error) { unsubscribe(); throw error }
+  return () => { unsubscribe(); dispose?.() }
+}
+
 export function contentParts(content) {
   const texts = []
   const attachments = []

@@ -26542,6 +26542,30 @@ var import_react32 = require("react");
 var ui = __toESM(require("@deepseek-ai/dsh-client-ui-primitives"), 1);
 var projects = typeof ui.projectUserText === "function";
 var canDrawUserMessages = (drawsUserContent = false) => projects || drawsUserContent;
+var USER_SOURCE_SLOT = "conversation.chat.user.before";
+function installUserBubble(slots, drawRows) {
+  let dispose;
+  const refresh = () => {
+    const marked2 = slots.entries(USER_SOURCE_SLOT).length > 0;
+    if (marked2 && dispose !== void 0) {
+      dispose();
+      dispose = void 0;
+    } else if (!marked2 && dispose === void 0) {
+      dispose = drawRows();
+    }
+  };
+  const unsubscribe = slots.subscribe(USER_SOURCE_SLOT, refresh);
+  try {
+    refresh();
+  } catch (error) {
+    unsubscribe();
+    throw error;
+  }
+  return () => {
+    unsubscribe();
+    dispose?.();
+  };
+}
 function contentParts(content) {
   const texts2 = [];
   const attachments = [];
@@ -44171,7 +44195,12 @@ function apply(ctx) {
     // A Bot chat leaves DSH's context lines (tool updates, injected context) out; a Bot
     // message spliced in mid-turn gets an event line from the step that reads it instead.
     () => shadow("conversation.chat.node", { key: "context", priority: BOT_PRIORITY, locale: "chat" }, CellEmpty),
-    ...canDrawUserMessages(hostDrawsUserText) ? ["user", "steering"].map((key) => () => shadow("conversation.chat.node", { key, priority: BOT_PRIORITY, locale: "chat", inject: face }, UserMessageCell)) : [],
+    ...canDrawUserMessages(hostDrawsUserText) ? [() => installUserBubble(ctx.slots, () => {
+      const offs = ["user", "steering"].map((key) => shadow("conversation.chat.node", { key, priority: BOT_PRIORITY, locale: "chat", inject: face }, UserMessageCell));
+      return () => {
+        for (const off of offs) off();
+      };
+    })] : [],
     () => shadow("conversation.input.permission", { priority: BOT_PRIORITY }, Nothing),
     () => shadow("conversation.input.plan", { priority: BOT_PRIORITY }, Nothing),
     // The composer carries no model picker or run statistics; a Bot's model lives

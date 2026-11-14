@@ -166,6 +166,55 @@ test('on a current DSH the host bubble is the one text source, so a quote is not
   assert.equal(find(tree, node => node.props?.['data-text-interaction-source'] !== undefined).length, 0)
 })
 
+// A slot registry with the two calls installUserBubble makes.
+const registry = () => {
+  const entries = new Map()
+  const listeners = new Map()
+  const notify = key => { for (const fn of listeners.get(key) ?? []) fn() }
+  return {
+    listeners,
+    entries: key => entries.get(key) ?? [],
+    subscribe: (key, fn) => {
+      listeners.set(key, new Set([...(listeners.get(key) ?? []), fn]))
+      return () => listeners.get(key).delete(fn)
+    },
+    add: (key, entry) => { entries.set(key, [...(entries.get(key) ?? []), entry]); notify(key) },
+    remove: (key, entry) => { entries.set(key, (entries.get(key) ?? []).filter(item => item !== entry)); notify(key) },
+  }
+}
+
+test('DS Bot draws the user rows only while no plugin marks where a message came from', () => {
+  const slots = registry()
+  let drawn = 0
+  const draw = () => { drawn += 1; return () => { drawn -= 1 } }
+  const off = current.installUserBubble(slots, draw)
+  assert.equal(drawn, 1, 'no source marks: DS Bot draws the rows')
+  // A source mark that registers later (Liveshare) takes the rows back to DSH's own,
+  // which renders the mark; only that row declares the slot it lives in.
+  const mark = { component: () => null }
+  slots.add(current.USER_SOURCE_SLOT, mark)
+  assert.equal(drawn, 0)
+  slots.add(current.USER_SOURCE_SLOT, { component: () => null })
+  assert.equal(drawn, 0)
+  slots.remove(current.USER_SOURCE_SLOT, mark)
+  assert.equal(drawn, 0, 'one mark is still there')
+  slots.remove(current.USER_SOURCE_SLOT, slots.entries(current.USER_SOURCE_SLOT)[0])
+  assert.equal(drawn, 1, 'the last mark gone: DS Bot draws again')
+  off()
+  assert.equal(drawn, 0)
+  assert.equal(slots.listeners.get(current.USER_SOURCE_SLOT).size, 0)
+})
+
+test('a source mark already there when DS Bot installs keeps DSH\'s own rows', () => {
+  const slots = registry()
+  slots.add(current.USER_SOURCE_SLOT, { component: () => null })
+  let drawn = 0
+  const off = current.installUserBubble(slots, () => { drawn += 1; return () => { drawn -= 1 } })
+  assert.equal(drawn, 0)
+  off()
+  assert.equal(drawn, 0)
+})
+
 test('an older DSH still draws the text through its projection, folded', () => {
   fresh()
   const { props, drawn } = hostProps([{ type: 'text', text: lines(60) }])

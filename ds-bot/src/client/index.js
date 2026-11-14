@@ -55,7 +55,7 @@ import { MEMBER_CSS, MemberDock } from './member-status.js'
 import { TASK_CSS } from './task-board.js'
 import { IM_CSS } from './im-page.js'
 import { GOAL_CSS } from './goal.js'
-import { USER_MESSAGE_CSS, UserMessageCell, canDrawUserMessages } from './user-message.js'
+import { USER_MESSAGE_CSS, UserMessageCell, canDrawUserMessages, installUserBubble } from './user-message.js'
 import { QueueDock, QUEUE_CSS } from './queue-dock.js'
 import { PASTE_CSS, PasteDock, PasteGuard } from './paste-card.js'
 import { OPENING_CSS, bindOpeningWait } from './opening.js'
@@ -1195,7 +1195,10 @@ export function apply(ctx) {
     // A Bot chat leaves DSH's context lines (tool updates, injected context) out; a Bot
     // message spliced in mid-turn gets an event line from the step that reads it instead.
     () => shadow('conversation.chat.node', { key: 'context', priority: BOT_PRIORITY, locale: 'chat' }, CellEmpty),
-    ...(canDrawUserMessages(hostDrawsUserText) ? ['user', 'steering'].map(key => () => shadow('conversation.chat.node', { key, priority: BOT_PRIORITY, locale: 'chat', inject: face }, UserMessageCell)) : []),
+    ...(canDrawUserMessages(hostDrawsUserText) ? [() => installUserBubble(ctx.slots, () => {
+      const offs = ['user', 'steering'].map(key => shadow('conversation.chat.node', { key, priority: BOT_PRIORITY, locale: 'chat', inject: face }, UserMessageCell))
+      return () => { for (const off of offs) off() }
+    })] : []),
     () => shadow('conversation.input.permission', { priority: BOT_PRIORITY }, Nothing),
     () => shadow('conversation.input.plan', { priority: BOT_PRIORITY }, Nothing),
     // The composer carries no model picker or run statistics; a Bot's model lives
