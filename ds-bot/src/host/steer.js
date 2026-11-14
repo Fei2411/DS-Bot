@@ -133,67 +133,81 @@ export function install(rt) {
       return
     }
     shadowed.add(agent)
-    const lift = agent.ctx.tools.register({
-      ...def,
-      execute: async (args, exec) => {
-        const native = def.execute(args, exec)
-        const sessionId = exec.agent?.id
-        if (args?.run_in_background === true || jobs === undefined || sessionId === undefined
-          || !privateOf(sessionId)) return native
-        const track = stateOf(sessionId)
-        const startedAt = Date.now()
-        let steerResolve
-        let jobResolve
-        let graceTimer
-        try {
-          // A user steer ends the wait: first for the steer event itself, then a
-          // short grace for a fast command, then for the job id the native call
-          // registers (it may not exist yet while approval is pending).
-          const steerSeen = () => {
-            if ((exec.agent.inbox?.nextStep ?? []).some(message => message?.source?.kind === 'user')) return Promise.resolve('steered')
-            return new Promise(resolve => { steerResolve = resolve; track.steerWaiters.add(resolve) }).then(() => 'steered')
+    let lift
+    try {
+      lift = agent.ctx.tools.register({
+        ...def,
+        execute: async (args, exec) => {
+          const native = def.execute(args, exec)
+          const sessionId = exec.agent?.id
+          if (args?.run_in_background === true || jobs === undefined || sessionId === undefined
+            || !privateOf(sessionId)) return native
+          const track = stateOf(sessionId)
+          const startedAt = Date.now()
+          let steerResolve
+          let jobResolve
+          let graceTimer
+          try {
+            // A user steer ends the wait: first for the steer event itself, then a
+            // short grace for a fast command, then for the job id the native call
+            // registers (it may not exist yet while approval is pending).
+            const steerSeen = () => {
+              if ((exec.agent.inbox?.nextStep ?? []).some(message => message?.source?.kind === 'user')) return Promise.resolve('steered')
+              return new Promise(resolve => { steerResolve = resolve; track.steerWaiters.add(resolve) }).then(() => 'steered')
+            }
+            const first = await Promise.race([native, steerSeen()])
+            if (first !== 'steered') return await native
+            const graced = await Promise.race([native, new Promise(resolve => { graceTimer = setTimeout(() => resolve('grace'), STEER_GRACE_MS) })])
+            if (graced !== 'grace') return await native
+            const known = track.jobsByCall.get(exec.callId)
+            const jobWait = known !== undefined ? Promise.resolve(known) : new Promise(resolve => {
+              jobResolve = resolve
+              const set = track.jobWaiters.get(exec.callId) ?? new Set()
+              track.jobWaiters.set(exec.callId, set)
+              set.add(resolve)
+            })
+            const settled = await Promise.race([native.then(() => 'native'), jobWait.then(() => 'job')])
+            if (settled !== 'job') return await native
+          } catch {
+            // A native rejection before or after the steer propagates unchanged.
+            return await native
+          } finally {
+            if (steerResolve !== undefined) track.steerWaiters.delete(steerResolve)
+            if (jobResolve !== undefined) {
+              const set = track.jobWaiters.get(exec.callId)
+              set?.delete(jobResolve)
+              if (set?.size === 0) track.jobWaiters.delete(exec.callId)
+            }
+            clearTimeout(graceTimer)
           }
-          const first = await Promise.race([native, steerSeen()])
-          if (first !== 'steered') return await native
-          const graced = await Promise.race([native, new Promise(resolve => { graceTimer = setTimeout(() => resolve('grace'), STEER_GRACE_MS) })])
-          if (graced !== 'grace') return await native
-          const known = track.jobsByCall.get(exec.callId)
-          const jobWait = known !== undefined ? Promise.resolve(known) : new Promise(resolve => {
-            jobResolve = resolve
-            const set = track.jobWaiters.get(exec.callId) ?? new Set()
-            track.jobWaiters.set(exec.callId, set)
-            set.add(resolve)
-          })
-          const settled = await Promise.race([native.then(() => 'native'), jobWait.then(() => 'job')])
-          if (settled !== 'job') return await native
-        } catch {
-          // A native rejection before or after the steer propagates unchanged.
-          return await native
-        } finally {
-          if (steerResolve !== undefined) track.steerWaiters.delete(steerResolve)
-          if (jobResolve !== undefined) {
-            const set = track.jobWaiters.get(exec.callId)
-            set?.delete(jobResolve)
-            if (set?.size === 0) track.jobWaiters.delete(exec.callId)
+          const jobId = track.jobsByCall.get(exec.callId)
+          let read
+          try {
+            read = jobs.read(jobId, sessionId)
+          } catch {
+            return await native
           }
-          clearTimeout(graceTimer)
-        }
-        const jobId = track.jobsByCall.get(exec.callId)
-        let read
-        try {
-          read = jobs.read(jobId, sessionId)
-        } catch {
-          return await native
-        }
-        const status = read?.job?.status
-        if (status === 'completed' || status === 'killed' || status === 'failed') return await native
-        detachAfter(jobId, args, exec, def, native, name)
-        const base = rt.sessionFolder?.(exec.agent.session)
-        const cwd = args?.workdir === undefined ? (base ?? '')
-          : !isAbsolute(args.workdir) && base !== undefined ? resolve(base, args.workdir) : args.workdir
-        return { kind: 'promoted', cwd, jobId, timeoutMs: Date.now() - startedAt, output: renderJobRead(read) }
+          const status = read?.job?.status
+          if (status === 'completed' || status === 'killed' || status === 'failed') return await native
+          detachAfter(jobId, args, exec, def, native, name)
+          const base = rt.sessionFolder?.(exec.agent.session)
+          const cwd = args?.workdir === undefined ? (base ?? '')
+            : !isAbsolute(args.workdir) && base !== undefined ? resolve(base, args.workdir) : args.workdir
+          return { kind: 'promoted', cwd, jobId, timeoutMs: Date.now() - startedAt, output: renderJobRead(read) }
       },
-    })
+      })
+    } catch (error) {
+      // NamedEntries has no replace: re-registering a tool name that already
+      // exists in this agent's scope throws "already registered". A previous
+      // shadow registration that survived its disposer (or a scope reuse) is
+      // the common cause. The existing registration already shadows the shell
+      // for this agent, so treat it as ours and skip — this makes the shadow
+      // idempotent instead of crashing the Bot session.
+      if (error?.message?.includes('already registered')) {
+        return () => { shadowed.delete(agent) }
+      }
+      throw error
+    }
     // tools.js keeps this with the Session's scope; unmarking lets a later
     // scope register the shadow again.
     return () => { shadowed.delete(agent); lift?.() }
