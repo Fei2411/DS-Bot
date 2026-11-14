@@ -511,6 +511,31 @@ export function install(rt) {
           const result = await rt.goalControl(String(body.roomId ?? ''), body)
           return result.error !== undefined ? fail(result.error, result.code ?? 'bot/refused') : ok(view())
         }
+        // The task board's two panel actions. A note the user adds is kept on the task
+        // and posted into the group as the user's own message that calls its owner, so
+        // the Bot acts on it where the work runs, as if the user had typed it there.
+        case 'task-note': {
+          await rt.load()
+          const roomId = String(body.roomId ?? '')
+          const result = rt.taskNote(roomId, String(body.id ?? ''), body.text)
+          if (result.error !== undefined) return fail(result.error, 'bot/refused')
+          const bot = rt.botOf(result.task.botId)
+          await rt.save()
+          if (bot !== undefined) {
+            await rt.sendUser({
+              sessionId: roomId,
+              content: [{ type: 'text', text: `@${bot.name} ${result.task.notes.at(-1).text}` }],
+            })
+          }
+          return ok(view())
+        }
+        case 'task-cancel': {
+          await rt.load()
+          const result = rt.taskCancel(String(body.roomId ?? ''), String(body.id ?? ''))
+          if (result.error !== undefined) return fail(result.error, 'bot/refused')
+          await rt.save()
+          return ok(view())
+        }
         case 'stop-chat':
           return ok(await rt.stopChat(String(body.botId ?? '')))
         case 'dismiss-question':

@@ -51,6 +51,7 @@ import { RIGHTBAR_ATTRIBUTES, columnOpened, createSwitchWindow, drawerOpened, ri
 import { ErrorToast, FEEDBACK_CSS } from './feedback.js'
 import { ABOUT_CSS } from './about.js'
 import { MEMBER_CSS, MemberDock } from './member-status.js'
+import { TASK_CSS } from './task-board.js'
 import { IM_CSS } from './im-page.js'
 import { GOAL_CSS } from './goal.js'
 import { USER_MESSAGE_CSS, UserMessageCell, canDrawUserMessages } from './user-message.js'
@@ -1083,6 +1084,7 @@ export function apply(ctx) {
     [FEEDBACK_CSS, 'feedback'],
     [ABOUT_CSS, 'about'],
     [MEMBER_CSS, 'members'],
+    [TASK_CSS, 'tasks'],
     [PASTE_CSS, 'paste'],
     [OPENING_CSS, 'opening'],
     [IM_CSS, 'im'],
