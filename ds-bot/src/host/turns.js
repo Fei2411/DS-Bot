@@ -954,6 +954,9 @@ export function install(rt) {
             name: source.senderName,
             reportBack: source.reportBack === true,
             ...(source.claims === undefined ? {} : { claims: source.claims }),
+            // The turn's change line travels with its post; without it a completion
+            // notice that arrives after the round closed has nothing to show.
+            ...(source.changes === undefined ? {} : { changes: source.changes }),
             ...(source.member ? { member: true } : {}),
             // Who the whole post called. `text` may be only its opening (attachLong).
             ...(source.mentions ? { mentions: source.mentions } : {}),

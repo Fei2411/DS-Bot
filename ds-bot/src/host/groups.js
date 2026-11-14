@@ -1132,9 +1132,11 @@ export function install(rt) {
       onWork,
     )
     const final = typeof reply === 'string' && !isPass(reply) ? reply : undefined
-    // What this turn changed in the member's folder rides its final row, so the group
-    // can open DSH's review for that turn.
-    const changes = final === undefined ? undefined : await rt.turnChanges?.(session.id)
+    // What this turn changed in the member's folder rides its last row, so the group can
+    // open DSH's review for that turn. Read for every finished turn, not only for ones
+    // that wrote text: a turn that changed files and ended with [PASS] still has a review
+    // to open. It rides the turn's completion line when there is no text to hang it on.
+    const changes = typeof reply === 'string' ? await rt.turnChanges?.(session.id) : undefined
     const subRunning = rt.hasSubagents?.(session.id) === true
     if (reply?.failure !== undefined) {
       // Not a pass: the user sees why the member is silent, and the round goes on.
@@ -1159,13 +1161,20 @@ export function install(rt) {
       say(room, { who: member.name, botId: member.id, kind: 'working' })
     } else if (final !== undefined || (typeof reply === 'string' && said.length > 0)) {
       slot.status = 'posted'
-      if (final !== undefined) {
+      if (final !== undefined && final.trim() !== '') {
         posted.push(postInRound(room, member, final, Date.now() - startedAt, claimsOf(session, final, worked, callsIn(room, member, final)), changes))
         callFrom(room, round, member, final, called, { worked, byBot: answeredBot })
+      } else if (changes !== undefined) {
+        // The turn wrote nothing to hang the change line on (a pass, or an empty final
+        // reply): its completion line carries it, the same place a late completion does.
+        say(room, { who: member.name, botId: member.id, kind: 'done', text: '', changes })
       }
     } else {
       slot.status = reply === null ? 'cancelled' : typeof reply === 'string' ? 'passed' : 'missed'
       round.passed.push(member.name)
+      // A pass that changed files has a review to open even without a word: its
+      // completion line carries the change line, exactly like a late completion.
+      if (changes !== undefined) say(room, { who: member.name, botId: member.id, kind: 'done', text: '', changes })
       if (reply?.missed) {
         // The round moved on without this member: the log shows the call and then
         // silence, which reads as a lost message. The group is told the baton was
@@ -1428,7 +1437,7 @@ export function install(rt) {
     for (const post of posts.filter(item => (item.resumed || item.stopped || item.done) && item.logged === undefined)) {
       const name = rt.botOf(post.botId)?.name ?? post.name
       const kind = post.done ? 'done' : post.stopped ? 'stopped' : post.again ? 'cut' : 'resumed'
-      say(room, { who: name, botId: post.botId, kind, text: '' })
+      say(room, { who: name, botId: post.botId, kind, text: '', ...(post.changes === undefined ? {} : { changes: post.changes }) })
     }
     if (posts.some(post => post.resumed || post.stopped || post.done)) await rt.save()
     for (const post of posts) if (post.batchEnd) closeBatch(post.batch)
