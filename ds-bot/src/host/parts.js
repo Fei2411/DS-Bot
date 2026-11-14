@@ -1409,15 +1409,21 @@ export function install(rt) {
 
   // A Bot's own chat moves to its new folder now when it is idle; a running turn
   // moves at its next step, and each group conversation at its next turn there. The
-  // group's own Session follows the same way when the group's folder changes.
+  // group's own Session follows the same way when the group's folder changes. Every
+  // part of the Bot's own chat moves, as every part follows its run mode: a background
+  // part left in the old folder would keep working there.
   async function followFolder(owner) {
-    const sessionId = currentOf(owner)
-    if (sessionId === undefined || switches.has(sessionId) || readOnly()) return
-    try {
-      const agent = await rt.resolveAgent(sessionId)
-      if (agent.status === 'idle' && await folderMove(agent) !== undefined) startSwitch(agent, { folder: true })
-    } catch (error) {
-      rt.warn('ds-bot: %s did not move to its working folder: %s', owner.botId === undefined ? rt.roomOf(owner.roomId)?.name ?? owner.roomId : rt.botOf(owner.botId)?.name ?? owner.botId, error)
+    const bot = owner.roomId === undefined && owner.botId !== undefined ? rt.botOf(owner.botId) : undefined
+    const sessions = bot === undefined ? [currentOf(owner)] : ownChatSessions(bot)
+    const name = owner.botId === undefined ? rt.roomOf(owner.roomId)?.name ?? owner.roomId : rt.botOf(owner.botId)?.name ?? owner.botId
+    for (const sessionId of sessions) {
+      if (sessionId === undefined || switches.has(sessionId) || readOnly()) continue
+      try {
+        const agent = await rt.resolveAgent(sessionId)
+        if (agent.status === 'idle' && await folderMove(agent) !== undefined) startSwitch(agent, { folder: true })
+      } catch (error) {
+        rt.warn('ds-bot: %s did not move to its working folder: %s', name, error)
+      }
     }
   }
 

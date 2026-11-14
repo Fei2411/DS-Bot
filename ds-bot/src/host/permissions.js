@@ -93,7 +93,9 @@ export function install(rt) {
         else bot.permission = request.applied
         const fallback = request.applied ?? presets().catalog().defaultPreset
         const warnFail = error => rt.warn('ds-bot: permission for %s not restored: %s', bot.name, error)
-        const restoreTo = (sessionId) => setPreset(sessionId, roomOfSession(sessionId)?.permission ?? fallback)
+        // Read through the staleness check, like applyTo: a newer request that applies to
+        // a Session while this rollback waits on it must not be written over afterwards.
+        const restoreTo = (sessionId) => setPreset(sessionId, () => (request.seq === mine ? roomOfSession(sessionId)?.permission ?? fallback : undefined))
         for (const sessionId of own()) {
           if (request.seq !== mine) break
           await restoreTo(sessionId).catch(warnFail)
