@@ -182,8 +182,12 @@ export function useTeamLink(computer: SavedComputer, identity: PhoneIdentity) {
         if (!stopped && clientRef.current === client) setError(errorText(failure))
       } finally {
         reading = false
-        if (again && !stopped) { again = false; void poll() }
-        else if (!stopped && clientRef.current === client) later(() => void poll(), POLL_MS)
+        if (!stopped && clientRef.current === client) {
+          if (again) { again = false; void poll() }
+          else later(() => void poll(), POLL_MS)
+        } else {
+          again = false
+        }
       }
     }
     pollRef.current = () => void poll()
@@ -201,6 +205,8 @@ export function useTeamLink(computer: SavedComputer, identity: PhoneIdentity) {
         const helloResult = await callBot<Hello>(client, 'hello', {}).catch(() => null)
         if (stopped) { void client.close(); return }
         if (helloResult === null || helloResult.api === null) {
+          if (activeClient === client) activeClient = undefined
+          if (clientRef.current === client) clientRef.current = undefined
           setError(t('Update DS Bot on the computer to use this phone.'))
           setLinked(false)
           void client.close()

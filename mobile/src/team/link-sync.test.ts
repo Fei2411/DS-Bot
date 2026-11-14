@@ -67,6 +67,8 @@ after(() => {
 function mountUseTeamLink(options: {
   onStateCall: (payload: { since?: number; live?: string }) => Promise<TeamState>
   onCallBotState?: (endpoint: string, payload: unknown, state: unknown) => Promise<{ value: unknown; state?: TeamState }>
+  onHelloCall?: () => Promise<{ api: number | null; capabilities: string[]; boot: string; seq: number }>
+  onOpen?: () => void
 }) {
   let states: any[] = []
   let refs: { current: any }[] = []
@@ -113,15 +115,18 @@ function mountUseTeamLink(options: {
         })
       }
     },
-    openLink: async () => ({
-      onEvent(fn: (ev: { event: string; data: any }) => void) { eventListener = fn },
-      onClose() {},
-      close: async () => {},
-      probe() {},
-    }),
+    openLink: async () => {
+      options.onOpen?.()
+      return {
+        onEvent(fn: (ev: { event: string; data: any }) => void) { eventListener = fn },
+        onClose() {},
+        close: async () => {},
+        probe() {},
+      }
+    },
     callBot: async (_client: unknown, endpoint: string, payload: unknown) => {
       if (endpoint === 'state') return options.onStateCall(payload as { since?: number; live?: string })
-      if (endpoint === 'hello') return { api: 1, capabilities: [], boot: 'boot-1', seq: 0 }
+      if (endpoint === 'hello') return options.onHelloCall ? options.onHelloCall() : { api: 1, capabilities: [], boot: 'boot-1', seq: 0 }
       if (endpoint === 'notices') return { reset: false, notices: [] }
       return {}
     },
@@ -285,4 +290,71 @@ test('useTeamLink reconciles settled approvals and browserHolds via refresh and 
   afterCall.refresh()
   await new Promise(resolve => setTimeout(resolve, 20))
   assert.equal(pendingCountOf(h.render().team), 0)
+})
+
+test('useTeamLink keeps connection retry timer when initial handshake fails before concurrent poll rejects', async (t) => {
+  const scheduled: { id: number; ms: number; run: () => void }[] = []
+  const origSetTimeout = globalThis.setTimeout
+  const origClearTimeout = globalThis.clearTimeout
+  const timers = new Map<number, { cleared: boolean }>()
+  let nextTimerId = 1
+  ;(globalThis as any).setTimeout = (fn: () => void, ms: number = 0) => {
+    if (ms >= 1_000) {
+      const id = nextTimerId++
+      timers.set(id, { cleared: false })
+      scheduled.push({ id, ms, run: () => { if (!timers.get(id)?.cleared) fn() } })
+      return id as unknown as ReturnType<typeof setTimeout>
+    }
+    return origSetTimeout(fn, ms)
+  }
+  ;(globalThis as any).clearTimeout = (id: any) => {
+    const entry = timers.get(id)
+    if (entry) entry.cleared = true
+    else origClearTimeout(id)
+  }
+  t.after(() => {
+    globalThis.setTimeout = origSetTimeout
+    globalThis.clearTimeout = origClearTimeout
+  })
+
+  let openCount = 0
+  let attempt = 0
+  let stateCalls = 0
+  let rejectFirstState!: (err: Error) => void
+  const h = mountUseTeamLink({
+    onOpen() { openCount += 1 },
+    async onHelloCall() {
+      attempt += 1
+      if (attempt === 1) throw new Error('handshake failed')
+      return { api: 1, capabilities: [], boot: 'boot-1', seq: 0 }
+    },
+    async onStateCall() {
+      stateCalls += 1
+      if (stateCalls === 1) {
+        return new Promise<TeamState>((_resolve, reject) => { rejectFirstState = reject })
+      }
+      return { revision: 1, liveKey: 'ok', bots: [{ id: 'b1', name: 'Chief', sessionId: 's1' }], questions: {} }
+    },
+  })
+  t.after(h.cleanup)
+  h.render()
+  await new Promise(resolve => origSetTimeout(resolve, 20))
+
+  // First hello failed, so connect() scheduled a 2_000ms retry timer.
+  // Now the concurrent first poll rejects because the socket closed: it MUST NOT cancel the 2_000ms retry timer!
+  rejectFirstState(new Error('closed'))
+  await new Promise(resolve => origSetTimeout(resolve, 20))
+
+  const retryEntry = scheduled.find(entry => entry.ms === 2_000)
+  assert.ok(retryEntry, 'expected 2_000ms reconnect timer to be scheduled')
+  assert.equal(timers.get(retryEntry.id)?.cleared, false, 'failed concurrent poll must not cancel connect retry timer')
+  assert.equal(scheduled.some(entry => entry.ms === 15_000 && !timers.get(entry.id)?.cleared), false, 'closed handshake client must not schedule 15_000ms poll timer')
+
+  // Firing the retry timer reconnects and loads state.
+  retryEntry.run()
+  await new Promise(resolve => origSetTimeout(resolve, 20))
+  assert.equal(openCount, 2)
+  const reconnected = h.render()
+  assert.equal(reconnected.online, true)
+  assert.equal(reconnected.team?.revision, 1)
 })
