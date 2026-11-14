@@ -65,10 +65,12 @@ async function saveShot(ctx, value) {
 
 /**
  * @param {any} ctx
- * @param {{ toolDefs: any[], defineTool: Function, keyOf: (exec: any) => Promise<string|undefined>, profileRoot: string, downloadRoot?: string, downloadRoots?: (botId: string) => Promise<string[]>, uploadRoots?: (botId: string) => Promise<string[]>, headless: boolean, playwrightUrl?: string, executablePath?: string, actionTimeout?: number, authorize?: (exec: any, botId: string, action: any) => Promise<void>, completeFor?: (exec: any) => Function, connect?: (botId: string, downloadRoots?: string[]) => Promise<string>, getHold?: (botId: string) => any, onHold?: (botId: string, hold: any) => void, subscribeHolds?: (listener: (botId: string, hold: any) => void) => (() => void) | undefined, openSession?: typeof openBotBrowser, api?: object, register?: (tool: any) => void }} options
+ * @param {{ toolDefs: any[], defineTool: Function, keyOf: (exec: any) => Promise<string|undefined>, profileRoot: string, downloadRoot?: string, downloadRoots?: (botId: string) => Promise<string[]>, uploadRoots?: (botId: string) => Promise<string[]>, headless: boolean, playwrightUrl?: string, executablePath?: string, actionTimeout?: number, downloadGraceMs?: number, authorize?: (exec: any, botId: string, action: any) => Promise<void>, completeFor?: (exec: any) => Function, connect?: (botId: string, downloadRoots?: string[]) => Promise<string>, getHold?: (botId: string) => any, onHold?: (botId: string, hold: any) => void, subscribeHolds?: (listener: (botId: string, hold: any) => void) => (() => void) | undefined, openSession?: typeof openBotBrowser, api?: object, register?: (tool: any) => void }} options
  */
-export function mountBrowserPlugin(ctx, { toolDefs, defineTool, keyOf, profileRoot, downloadRoot, downloadRoots, uploadRoots, headless, playwrightUrl, executablePath, actionTimeout, authorize, completeFor, connect, getHold, onHold, subscribeHolds, openSession = openBotBrowser, api, register }) {
+export function mountBrowserPlugin(ctx, { toolDefs, defineTool, keyOf, profileRoot, downloadRoot, downloadRoots, uploadRoots, headless, playwrightUrl, executablePath, actionTimeout, downloadGraceMs, authorize, completeFor, connect, getHold, onHold, subscribeHolds, openSession = openBotBrowser, api, register }) {
   const sessions = new Map()
+  const pendingCalls = new Map()
+  let disposed = false
   const names = new Set(toolDefs.map(tool => tool.name))
   // Tool results persist their rendered blocks, so changing render() cannot fix
   // old screenshots. Replace only this plugin's malformed image blocks through
@@ -107,6 +109,7 @@ export function mountBrowserPlugin(ctx, { toolDefs, defineTool, keyOf, profileRo
     void Promise.resolve(session).then(s => s.close(), () => {}).catch(() => {})
   })
   ctx.effect(() => async () => {
+    disposed = true
     unsubscribeHolds?.()
     const open = [...sessions.values()]
     sessions.clear()
@@ -131,6 +134,7 @@ export function mountBrowserPlugin(ctx, { toolDefs, defineTool, keyOf, profileRo
       async execute(args, exec) {
         const botId = await keyOf(exec)
         if (!botId) return 'Only Bots on the team have a browser.'
+        if (disposed) throw new Error('The browser plugin is closed.')
         if (getHold?.(botId)?.by === 'user') throw new Error('The user has taken over this browser. Wait for them to give it back.')
         let session = sessions.get(botId)
         if (spec.needsBrowser && session === undefined) {
@@ -147,6 +151,7 @@ export function mountBrowserPlugin(ctx, { toolDefs, defineTool, keyOf, profileRo
               playwrightUrl,
               executablePath,
               actionTimeout,
+              downloadGraceMs,
               connect: connect ? id => connect(id, roots ?? []) : undefined,
               getHold: () => getHold?.(botId),
               onHold: hold => onHold?.(botId, hold),
@@ -159,15 +164,30 @@ export function mountBrowserPlugin(ctx, { toolDefs, defineTool, keyOf, profileRo
           })
           session = opening
         }
+        const sessionEntry = session
         session = await session
         const gate = authorize ? action => authorize(exec, botId, action) : undefined
-        return saveShot(ctx, await gateScope.run(gate, () => spec.execute(args ?? {}, {
-          botId,
-          profileDir: join(profileRoot, botId),
-          session,
-          complete: completeFor?.(exec),
-          origin: { ...(exec.callId !== undefined ? { callId: exec.callId } : {}), ...(exec.agent?.id !== undefined ? { sessionId: exec.agent.id } : {}) },
-        })))
+        // A Bot shares one browser across Sessions. Keep its action and any
+        // delayed download inside the call that owns the approval context.
+        const previous = pendingCalls.get(botId) ?? Promise.resolve()
+        const running = previous.catch(() => {}).then(async () => {
+          if (disposed) throw new Error('The browser plugin is closed.')
+          if (getHold?.(botId)?.by === 'user') throw new Error('The user has taken over this browser. Wait for them to give it back.')
+          if (sessionEntry !== undefined && sessions.get(botId) !== sessionEntry) throw new Error('The browser session is closed.')
+          return saveShot(ctx, await gateScope.run(gate, () => spec.execute(args ?? {}, {
+            botId,
+            profileDir: join(profileRoot, botId),
+            session,
+            complete: completeFor?.(exec),
+            origin: { ...(exec.callId !== undefined ? { callId: exec.callId } : {}), ...(exec.agent?.id !== undefined ? { sessionId: exec.agent.id } : {}) },
+          })))
+        })
+        pendingCalls.set(botId, running)
+        try {
+          return await running
+        } finally {
+          if (pendingCalls.get(botId) === running) pendingCalls.delete(botId)
+        }
       },
     }))
   }

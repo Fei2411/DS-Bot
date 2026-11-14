@@ -39,6 +39,12 @@ export function defaultBrowserHeadless(platform, env = process.env) {
   return platform === 'linux' && !env.DISPLAY && !env.WAYLAND_DISPLAY
 }
 
+function optionalNumber(config, key) {
+  const value = config[key]
+  if (value !== undefined && (typeof value !== 'number' || !Number.isFinite(value) || value <= 0)) throw new TypeError(`${key} must be a positive number`)
+  return value
+}
+
 function optionalString(config, key) {
   const value = config[key]
   if (value !== undefined && typeof value !== 'string') throw new TypeError(`${key} must be a string`)
@@ -119,6 +125,7 @@ export function install(rt) {
   if (!plugin) throw new Error(`Unknown browser plugin "${name}". Choose ${NAMES.join(', ')}.`)
   const playwrightUrl = optionalString(rt.config, 'playwrightUrl')
   const executablePath = optionalString(rt.config, 'browserExecutablePath')
+  const downloadGraceMs = optionalNumber(rt.config, 'browserDownloadGraceMs')
   const headless = typeof rt.config.browserHeadless === 'boolean'
     ? rt.config.browserHeadless
     : defaultBrowserHeadless(process.platform)
@@ -147,6 +154,7 @@ export function install(rt) {
     headless,
     playwrightUrl,
     executablePath,
+    downloadGraceMs,
     connect: process.env.DS_BOT_APP === '1' && typeof process.send === 'function' ? appBrowserEndpoint : undefined,
     getHold: botId => rt.browserChannel?.holdOf(botId) ?? null,
     onHold: (botId, hold) => rt.browserChannel?.setHold(botId, hold && handoffHold(rt, botId, hold)),

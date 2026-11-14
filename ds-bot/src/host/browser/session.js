@@ -8,6 +8,11 @@ import { gateScope } from './gate.js'
 import { runIsolatedScript } from './script-runner.js'
 
 const ACTION_TIMEOUT = 5_000
+// How long a click-like action waits after it resolves for the download it may have
+// started. Exports that build the file asynchronously need a moment, but a click with
+// no download must not pay the whole action timeout. The window opens when the click
+// resolves, so the settle that follows it counts against the grace.
+const DOWNLOAD_GRACE_MS = 300
 const SNAPSHOT_LIMIT = 40_000
 const REASONS = new Set(['login', 'payment', 'captcha', 'other'])
 
@@ -89,9 +94,9 @@ async function loadChromium(playwrightUrl) {
 }
 
 /**
- * @param {{ botId: string, profileRoot: string, headless?: boolean, playwrightUrl?: string, executablePath?: string, actionTimeout?: number, downloadDir?: string | (() => Promise<string | undefined>), uploadRoots?: () => Promise<string[]>, connect?: (botId: string) => Promise<string>, getHold?: () => any, onHold?: (hold: any) => void }} options
+ * @param {{ botId: string, profileRoot: string, headless?: boolean, playwrightUrl?: string, executablePath?: string, actionTimeout?: number, downloadGraceMs?: number, downloadDir?: string | (() => Promise<string | undefined>), uploadRoots?: () => Promise<string[]>, connect?: (botId: string) => Promise<string>, getHold?: () => any, onHold?: (hold: any) => void }} options
  */
-export async function openBotBrowser({ botId, profileRoot, downloadDir, headless = true, playwrightUrl, executablePath, actionTimeout = ACTION_TIMEOUT, connect, getHold, onHold, uploadRoots }) {
+export async function openBotBrowser({ botId, profileRoot, downloadDir, headless = true, playwrightUrl, executablePath, actionTimeout = ACTION_TIMEOUT, downloadGraceMs = DOWNLOAD_GRACE_MS, connect, getHold, onHold, uploadRoots }) {
   const getDownloadDir = typeof downloadDir === 'function' ? downloadDir : async () => downloadDir
   const userDataDir = join(profileRoot, botId)
   const chromium = await loadChromium(playwrightUrl)
@@ -117,23 +122,26 @@ export async function openBotBrowser({ botId, profileRoot, downloadDir, headless
       if (Array.isArray(saved) && saved.length > 0) await context.addCookies(saved)
     } catch { /* no cookies yet */ }
   }
-  return createSession({ context, browser, page, botId, userDataDir, cookieFile, downloadDir: getDownloadDir, actionTimeout, getHold, onHold, uploadRoots })
+  return createSession({ context, browser, page, botId, userDataDir, cookieFile, downloadDir: getDownloadDir, actionTimeout, downloadGraceMs, getHold, onHold, uploadRoots })
 }
 
-export function createSession({ context, browser, page, botId, userDataDir, cookieFile, downloadDir, actionTimeout, getHold, onHold, uploadRoots }) {
+export function createSession({ context, browser, page, botId, userDataDir, cookieFile, downloadDir, actionTimeout = ACTION_TIMEOUT, downloadGraceMs = DOWNLOAD_GRACE_MS, getHold, onHold, uploadRoots }) {
   const pages = new Set()
   const unknownByOrigin = new Map()
   const unknownPageOrigins = new WeakMap()
   const crashedPages = new WeakSet()
+  const downloadNotices = new WeakMap()
   let current = page
   let pendingPageReady = Promise.resolve()
   let hold = null
   let lastImage = ''
   let activeDownloads = null
+  let closed = false
   let pendingDelete = null
   let pendingDeleteLocator = null
 
   const ready = () => {
+    if (closed) throw new Error('The browser session is closed.')
     const externalHold = getHold?.()
     if (externalHold?.by === 'user') throw new Error('The user has taken over this browser. Wait for them to give it back.')
     if (hold && getHold && externalHold == null) hold = null
@@ -153,14 +161,25 @@ export function createSession({ context, browser, page, botId, userDataDir, cook
       target.setDefaultNavigationTimeout(actionTimeout)
       target.on('dialog', dialog => { dialog.dismiss().catch(() => {}) })
       target.on('crash', () => crashedPages.add(target))
+      target.on('popup', popup => {
+        if (activeDownloads?.pages.has(target)) activeDownloads.pages.add(popup)
+      })
       target.on('download', download => {
-        if (activeDownloads) {
+        if (!closed && activeDownloads?.pages.has(target)) {
           activeDownloads.items.push({ download, page: target })
           activeDownloads.notify?.()
-        } else download.cancel().catch(() => {})
+        } else {
+          const filename = download.suggestedFilename().replace(/\s+/g, ' ').slice(0, 80)
+          const notices = downloadNotices.get(target) ?? []
+          notices.push(`Download "${filename}" started after its browser action finished and was canceled. Nothing was saved.`)
+          downloadNotices.set(target, notices.slice(-10))
+          void download.cancel().catch(() => {}).then(() => download.delete().catch(() => {}))
+        }
       })
       target.on('close', () => {
         pages.delete(target)
+        activeDownloads?.pages.delete(target)
+        if (activeDownloads?.pages.size === 0) activeDownloads.notify?.()
         if (current === target) {
           current = [...pages].filter(candidate => !candidate.isClosed()).at(-1) ?? null
         }
@@ -239,6 +258,11 @@ export function createSession({ context, browser, page, botId, userDataDir, cook
     const truncated = yaml.length > SNAPSHOT_LIMIT
     lines.push('', truncated ? yaml.slice(0, SNAPSHOT_LIMIT) : yaml)
     if (truncated) lines.push('(snapshot cut at 40000 characters)')
+    const notices = downloadNotices.get(target)
+    if (notices?.length) {
+      lines.push('', ...notices)
+      downloadNotices.delete(target)
+    }
     if (observe) {
       const unknown = unknownByOrigin.get(originOf(target))
       if (unknown) unknown.observed = true
@@ -331,10 +355,12 @@ export function createSession({ context, browser, page, botId, userDataDir, cook
     const filename = download.suggestedFilename()
     let action
     try {
+      ready()
       const pageUrl = new URL(page.url())
       const url = pageUrl.origin === 'null' ? new URL(download.url()) : pageUrl
       action = { kind: 'download', label: filename.slice(0, 80), origin: url.origin, host: url.hostname }
       await authorizeWrite(action, gate)
+      ready()
     } catch (error) {
       await download.cancel().catch(() => {})
       await download.delete().catch(() => {})
@@ -344,6 +370,7 @@ export function createSession({ context, browser, page, botId, userDataDir, cook
     let path
     try {
       const directory = await downloadDir()
+      ready()
       if (!directory) throw new Error('No download directory is configured.')
       await mkdir(directory, { recursive: true })
       path = await reserveDownloadPath(filename, directory)
@@ -366,9 +393,13 @@ export function createSession({ context, browser, page, botId, userDataDir, cook
     return `${String(result ?? '')}\n\n${suffix}`
   }
 
-  async function captureAction(perform) {
+  async function captureAction(perform, { target = activePage(), waitForDownload = false, resolvedAt } = {}) {
     const parent = activeDownloads
-    const batch = parent ?? { gate: gateScope.getStore(), items: [], notify: undefined }
+    const batch = parent ?? {
+      gate: gateScope.getStore(), items: [], pages: new Set(target ? [target] : []),
+      notify: undefined, waitForDownload: false,
+    }
+    batch.waitForDownload ||= waitForDownload
     if (!parent) activeDownloads = batch
     let result
     let failure
@@ -378,33 +409,51 @@ export function createSession({ context, browser, page, botId, userDataDir, cook
       } catch (error) {
         failure = error
       }
-      if (!parent && failure && batch.items.length === 0
-        && String(failure?.message ?? failure).includes('Download is starting')) {
+      const openingDownload = failure && String(failure?.message ?? failure).includes('Download is starting')
+      if (!parent && !closed && batch.pages.size > 0 && batch.items.length === 0
+        && (openingDownload || (!failure && batch.waitForDownload))) {
+        // Async exports begin after click() resolves. Keep the original call's
+        // approval scope until a download starts or its grace window passes. The
+        // window opens at the action's own resolution, so the settle that already
+        // follows the click is part of it rather than extra waiting.
+        const openedAt = resolvedAt?.()
+        const remaining = openingDownload
+          ? Math.max(actionTimeout, ACTION_TIMEOUT)
+          : openedAt === undefined ? downloadGraceMs : Math.max(0, downloadGraceMs - (Date.now() - openedAt))
         await new Promise(resolve => {
           const finish = () => {
             clearTimeout(timer)
             batch.notify = undefined
             resolve()
           }
-          const timer = setTimeout(finish, Math.max(actionTimeout, ACTION_TIMEOUT))
+          const timer = setTimeout(finish, Math.max(0, remaining))
           batch.notify = finish
         })
       }
+      if (parent) {
+        if (failure) throw failure
+        return result
+      }
+      const messages = []
+      for (const item of batch.items) messages.push(await finishDownload(item, batch.gate))
+      activeDownloads = null
+      if (failure && batch.items.length > 0) {
+        const snapshot = await snapshotText().catch(() => '')
+        return snapshot ? `${snapshot}\n\n${messages.join('\n')}` : messages.join('\n')
+      }
+      if (failure) throw failure
+      if (typeof result === 'function') {
+        try {
+          result = await result()
+        } catch (error) {
+          if (messages.length === 0) throw error
+          result = String(error?.message ?? error)
+        }
+      }
+      return appendDownloadResults(result, messages)
     } finally {
       if (!parent) activeDownloads = null
     }
-    if (parent) {
-      if (failure) throw failure
-      return result
-    }
-    const messages = []
-    for (const item of batch.items) messages.push(await finishDownload(item, batch.gate))
-    if (failure && batch.items.length > 0) {
-      const snapshot = await snapshotText().catch(() => '')
-      return snapshot ? `${snapshot}\n\n${messages.join('\n')}` : messages.join('\n')
-    }
-    if (failure) throw failure
-    return appendDownloadResults(result, messages)
   }
 
   function pendingWriteError(previous) {
@@ -488,7 +537,7 @@ export function createSession({ context, browser, page, botId, userDataDir, cook
         await settle()
         if (target.isClosed() || crashedPages.has(target)) throw new Error('the browser page closed or crashed during the action')
         if (target.url().startsWith('chrome-error://')) throw new Error('the browser page navigated to an error page')
-        return await snapshotText()
+        return () => snapshotText().catch(error => unknownResult(action, error, target))
       } catch (error) {
         return unknownResult(action, error, target)
       } finally {
@@ -496,15 +545,18 @@ export function createSession({ context, browser, page, botId, userDataDir, cook
         target.off('requestfinished', onRequestFinished)
         target.off('requestfailed', onRequestFailed)
       }
-    })
+    }, { target, waitForDownload: true })
   }
 
-  async function finishAction(perform) {
+  async function finishAction(perform, target = activePage(), waitForDownload = true) {
+    let resolvedAt
     return captureAction(async () => {
       await perform()
+      resolvedAt = Date.now()
       await settle()
-      return snapshotText()
-    })
+      // The observation wait and download approval can change the page and refs.
+      return snapshotText
+    }, { target, waitForDownload, resolvedAt: () => resolvedAt })
   }
 
   async function shot() {
@@ -532,7 +584,7 @@ export function createSession({ context, browser, page, botId, userDataDir, cook
       ready()
       await clearPendingDelete()
       const target = activePage()
-      return finishAction(() => target.goto(String(url), { waitUntil: 'domcontentloaded', timeout: 30_000 }), target)
+      return finishAction(() => target.goto(String(url), { waitUntil: 'domcontentloaded', timeout: 30_000 }), target, false)
     },
     tabs,
     async selectTab(index) {
@@ -603,7 +655,7 @@ export function createSession({ context, browser, page, botId, userDataDir, cook
         await clearPendingDelete()
       }
       if (action) return performWrite(action, target, () => locator.click({ timeout: actionTimeout }))
-      return finishAction(() => locator.click({ timeout: actionTimeout }))
+      return finishAction(() => locator.click({ timeout: actionTimeout }), target)
     },
     async type(ref, text, submit = false) {
       const { target, locator } = await refLocator(ref)
@@ -622,7 +674,7 @@ export function createSession({ context, browser, page, botId, userDataDir, cook
           if (action) return performWrite(action, target, pressEnter)
           return finishAction(pressEnter, target)
         }
-        return finishAction(async () => {}, target)
+        return finishAction(async () => {}, target, false)
       })
     },
     async fill(ref, text) {
@@ -630,7 +682,7 @@ export function createSession({ context, browser, page, botId, userDataDir, cook
     },
     async select(ref, values) {
       const { target, locator } = await refLocator(ref)
-      return finishAction(() => locator.selectOption(values, { timeout: actionTimeout }), target)
+      return finishAction(() => locator.selectOption(values, { timeout: actionTimeout }), target, false)
     },
     async press(key) {
       ready()
@@ -643,7 +695,7 @@ export function createSession({ context, browser, page, botId, userDataDir, cook
         if (action?.kind === 'payment') throw paymentError(action)
         if (action) return performWrite(action, target, perform)
       }
-      return finishAction(perform, target)
+      return finishAction(perform, target, value.toLowerCase() === 'enter')
     },
     async upload(ref, paths) {
       ready()
@@ -688,7 +740,7 @@ export function createSession({ context, browser, page, botId, userDataDir, cook
       const url = new URL(target.url())
       const label = labels.join(', ').slice(0, 80) || 'uploaded files'
       await authorizeWrite({ kind: 'upload', label, origin: url.origin, host: url.hostname })
-      return finishAction(() => locator.setInputFiles(files, { timeout: actionTimeout }), target)
+      return finishAction(() => locator.setInputFiles(files, { timeout: actionTimeout }), target, false)
     },
     async scroll(direction) {
       ready()
@@ -700,7 +752,7 @@ export function createSession({ context, browser, page, botId, userDataDir, cook
       ready()
       await clearPendingDelete()
       const target = activePage()
-      return finishAction(() => target.goBack({ waitUntil: 'domcontentloaded', timeout: 15_000 }).catch(() => {}), target)
+      return finishAction(() => target.goBack({ waitUntil: 'domcontentloaded', timeout: 15_000 }).catch(() => {}), target, false)
     },
     shot,
     async frame() {
@@ -730,7 +782,7 @@ export function createSession({ context, browser, page, botId, userDataDir, cook
     async runScript(source, origin) {
       const body = String(source ?? '')
       if (body.length > 8_000) throw new Error('Script is longer than 8000 characters.')
-      const answer = await runIsolatedScript(body, {
+      const helpers = {
         goto: url => this.open(url),
         snapshot: () => this.snapshotText(),
         click: (ref, options) => this.clickWithOptions(ref, options),
@@ -749,10 +801,31 @@ export function createSession({ context, browser, page, botId, userDataDir, cook
         handoff: (reason, note) => this.handoff(reason, note, origin),
         resume: () => this.resume(),
         back: () => this.back(),
-      })
-      return answer ?? 'Script finished without done().'
+      }
+      let pending = Promise.resolve()
+      let finished = false
+      const ordered = Object.fromEntries(Object.entries(helpers).map(([name, run]) => [name, (...args) => {
+        const running = pending.then(() => {
+          if (finished) throw new Error('The browser script has finished.')
+          return run(...args)
+        })
+        pending = running.catch(() => {})
+        return running
+      }]))
+      try {
+        const answer = await runIsolatedScript(body, ordered)
+        return answer ?? 'Script finished without done().'
+      } finally {
+        finished = true
+        // A helper already running in the host survives the script child.
+        // Drain it before the next call can acquire this Bot's browser.
+        await pending
+      }
     },
     async close() {
+      closed = true
+      activeDownloads?.notify?.()
+      for (const { download } of activeDownloads?.items ?? []) await download.cancel().catch(() => {})
       if (browser) { await browser.close().catch(() => {}); return }
       const cookies = await context.cookies().catch(() => [])
       const kept = cookies.map(cookie => cookie.expires > 0 ? cookie : { ...cookie, expires: Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60 })
