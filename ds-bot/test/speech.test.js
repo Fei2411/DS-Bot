@@ -38,6 +38,18 @@ test('speechCatalog is usable only when the selected provider is ready', async (
   await assert.rejects(speechCatalog({ catalog: async () => ({ ok: false, error: { message: 'down' } }) }), /down/)
 })
 
+test('a cloud provider without preparation is usable; a missing provider is not', async () => {
+  const cloud = catalog('ready', {
+    providers: [{ id: 'deepseek-asr', name: 'DeepSeek ASR', location: 'cloud', languages: ['auto'] }],
+    selection: { providerId: 'deepseek-asr', language: 'auto' },
+  })
+  const speech = { catalog: async () => ({ ok: true, value: cloud }) }
+  assert.equal((await speechCatalog(speech)).usable, true)
+  // The selection naming a provider that is not in the catalog stays unusable.
+  const gone = { ...cloud, selection: { providerId: 'sensevoice', language: 'auto' } }
+  assert.equal((await speechCatalog({ catalog: async () => ({ ok: true, value: gone }) })).usable, false)
+})
+
 test('requestPreparation is false on a refused request and on a throw', async () => {
   let asked = 0
   const speech = { prepare: async () => { asked += 1; return { ok: true } } }
@@ -55,7 +67,9 @@ test('preparationStep maps every catalog phase to the pane step', () => {
   // Every terminal non-usable state ends the wait so the setup step can retry.
   for (const phase of ['cancelled', 'unprepared']) assert.deepEqual(preparationStep(catalog(phase)), { state: 'done', failed: false }, phase)
   assert.deepEqual(preparationStep(catalog('failed')), { state: 'done', failed: true })
-  // The selected provider gone from the catalog is done too.
+  // A provider with nothing to prepare (cloud ASR) is usable at once; a
+  // provider missing from the catalog still ends the wait.
+  assert.deepEqual(preparationStep({ providers: [{ id: 'deepseek-asr' }], selection: { providerId: 'deepseek-asr', language: 'auto' } }), { state: 'usable' })
   assert.deepEqual(preparationStep({ providers: [], selection: { providerId: 'sensevoice', language: 'auto' } }), { state: 'done', failed: false })
   assert.deepEqual(preparationStep(catalog('downloading', { providers: [{ id: 'sensevoice', preparation: { phase: 'downloading', completedBytes: 25, totalBytes: 100 } }] })), { state: 'waiting', pct: 25 })
   assert.deepEqual(preparationStep(catalog('downloading')), { state: 'waiting', pct: undefined })

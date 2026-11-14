@@ -16,11 +16,11 @@ const HOUR = 60 * MINUTE
 
 /** A provider over recorded fakes; `keys` is the whole credential store, `fetch` answers by URL. */
 function harness({ route, keys = {}, fetch, webFetch, token, now, config } = {}) {
-  const calls = { fetch: [], webFetch: [], keys: [] }
+  const calls = { fetch: [], webFetch: [], keys: [], tokens: [] }
   const provider = createAutoSearchProvider({
     route: () => route,
     resolveKey: async (ref) => { calls.keys.push(ref); return keys[ref] },
-    resolveAccountToken: async () => token,
+    resolveAccountToken: async (endpoint) => { calls.tokens.push(endpoint); return token },
     fetch: async (url, init) => { calls.fetch.push({ url, init }); return fetch ? fetch(url, init) : json({}, 500) },
     webFetch: async (request, signal) => { calls.webFetch.push(request.url); return webFetch ? webFetch(request, signal) : page(fixture('bing.html')) },
     ...now ? { now } : {},
@@ -37,13 +37,17 @@ const MESSAGES_HIT = { content: [
   { type: 'web_search_tool_result', content: [{ type: 'web_search_result', url: 'https://m.example/', title: 'M' }] },
 ] }
 const KIMI_HIT = { search_results: [{ title: 'A', url: 'https://a.example/', snippet: 'alpha', date: '2026-10-01' }] }
+const DS_OFFICIAL = { provider: 'deepseek-official', model: 'deepseek-v4-pro', api: 'anthropic-messages', baseURL: 'https://api.deepseek.com/anthropic', apiKeyEnv: 'DEEPSEEK_API_KEY', account: false, headers: {} }
+const DS_ACCOUNT = { provider: 'deepseek-account', model: 'deepseek-v4-pro', api: 'anthropic-messages', baseURL: 'https://api.deepseek.com/anthropic', account: true, headers: {} }
+const DS_HIT = { results: [{ title: 'D', url: 'https://d.example/', snippet: 'delta', summary: 'longer delta', content: '', site_name: 'D site', site_icon: 'https://d.example/icon.png', date: '2026-11-01T00:00:00+00:00' }] }
 
 // ---------------------------------------------------------------------------
 // Route → what to try
 
 test('planNative tries the standard search tool of the route protocol, on the route base', () => {
   const plan = route => { const p = planNative({ provider: 'r', model: 'm', ...route }); return p.reason ?? p.candidates.map(c => `${c.id} ${c.url}`) }
-  assert.deepEqual(plan({ api: 'anthropic-messages', baseURL: 'https://api.deepseek.com/anthropic' }), ['messages https://api.deepseek.com/anthropic/v1/messages'])
+  assert.deepEqual(plan({ api: 'anthropic-messages', baseURL: 'https://api.deepseek.com/anthropic' }),
+    ['deepseek https://api.deepseek.com/v1/tools/search', 'messages https://api.deepseek.com/anthropic/v1/messages'])
   assert.deepEqual(plan({ api: 'anthropic-messages', baseURL: 'https://api.kimi.com/coding' }), ['messages https://api.kimi.com/coding/v1/messages'])
   assert.deepEqual(plan({ api: 'anthropic-messages', baseURL: 'https://gateway.example/v1/' }), ['messages https://gateway.example/v1/messages'])
   assert.deepEqual(plan({ api: 'openai-responses', baseURL: 'https://api.openai.com/v1' }), ['responses https://api.openai.com/v1/responses'])
@@ -56,6 +60,9 @@ test('planNative tries the standard search tool of the route protocol, on the ro
 
 test('planNative puts search APIs declared for the route host first, on the route origin', () => {
   const plan = route => planNative({ provider: 'r', model: 'm', api: 'openai-completions', ...route }).candidates.map(c => `${c.id} ${c.url}`)
+  assert.deepEqual(plan({ baseURL: 'https://api.deepseek.com/anthropic' }).slice(0, 1), ['deepseek https://api.deepseek.com/v1/tools/search'])
+  // The declared API is bound to the origin: a DeepSeek-shaped base URL elsewhere is not one.
+  assert.deepEqual(plan({ baseURL: 'https://deepseek.example.com/v1' }).slice(0, 1), ['responses https://deepseek.example.com/v1/responses'])
   assert.deepEqual(plan({ baseURL: 'https://ollama.com/v1' }).slice(0, 1), ['ollama https://ollama.com/api/web_search'])
   assert.deepEqual(plan({ baseURL: 'https://api.moonshot.ai/v1' }).slice(0, 1), ['kimi https://api.moonshot.ai/v1/tools/search'])
   assert.deepEqual(plan({ baseURL: 'https://open.bigmodel.cn/api/coding/paas/v4' }).slice(0, 1), ['zhipu https://open.bigmodel.cn/api/paas/v4/web_search'])
@@ -200,7 +207,7 @@ test('MiMo searches through its declared plugin request, with the route model an
     fetch: () => json({ choices: [{ message: { content: 'answer', annotations: [{ type: 'url_citation', url: 'https://www.weather.com.cn/weather/101200101.shtml', title: '武汉天气预报', summary: ' 武汉天气预报，及时准确 ', site_name: '中国天气网', publish_time: '2026-09-21T08:32:25.0000000' }] } }] }),
   })
   const result = await provider.search({ query: '武汉天气', maxResults: 8 })
-  assert.deepEqual(result.sources, [{ url: 'https://www.weather.com.cn/weather/101200101.shtml', title: '武汉天气预报', snippet: '武汉天气预报，及时准确', publishedAt: '2026-09-21T08:32:25.0000000' }])
+  assert.deepEqual(result.sources, [{ url: 'https://www.weather.com.cn/weather/101200101.shtml', title: '武汉天气预报', snippet: '武汉天气预报，及时准确', summary: '武汉天气预报，及时准确', publishedAt: '2026-09-21T08:32:25.0000000' }])
   const { url, init } = calls.fetch[0]
   assert.equal(url, 'https://api.xiaomimimo.com/v1/chat/completions')
   assert.equal(init.headers['api-key'], 'sk-mimo')
@@ -222,6 +229,87 @@ test('Zhipu queries are cut to the 70 characters its API accepts', async () => {
   assert.equal(JSON.parse(calls.fetch[0].init.body).search_query, '搜'.repeat(70))
 })
 
+test('the DeepSeek Search API answers on the route origin, billed to the route API key', async () => {
+  const { provider, calls } = harness({ route: DS_OFFICIAL, keys: { DEEPSEEK_API_KEY: 'sk-ds' }, fetch: () => json(DS_HIT) })
+  const result = await provider.search({ query: 'deepseek search api', maxResults: 8 })
+  assert.deepEqual(result.sources, [{ url: 'https://d.example/', title: 'D', snippet: 'delta', summary: 'longer delta', publishedAt: '2026-11-01T00:00:00+00:00' }])
+  assert.match(result.content, /route "deepseek-official": DeepSeek Search API \(api\.deepseek\.com\/v1\/tools\/search\), billed to the API key DEEPSEEK_API_KEY/)
+  assert.deepEqual(urls(calls), ['https://api.deepseek.com/v1/tools/search'])
+  const { init } = calls.fetch[0]
+  assert.equal(init.headers.authorization, 'Bearer sk-ds')
+  assert.equal(init.headers['x-dsh-auth-token'], undefined)
+  assert.deepEqual(JSON.parse(init.body), { query: 'deepseek search api', count: 8, need_content: false })
+  assert.deepEqual(calls.tokens, [])
+})
+
+test('a DeepSeek account route searches with only the account token, resolved for the search endpoint', async () => {
+  const { provider, calls } = harness({ route: DS_ACCOUNT, keys: { DEEPSEEK_API_KEY: 'sk-should-not-be-used' }, token: 'acct-token', fetch: () => json(DS_HIT) })
+  const result = await provider.search({ query: 'q' })
+  assert.deepEqual(calls.keys, [])
+  assert.deepEqual(calls.tokens, ['https://api.deepseek.com/v1/tools/search'])
+  const { url, init } = calls.fetch[0]
+  assert.equal(url, 'https://api.deepseek.com/v1/tools/search')
+  assert.equal(init.headers['x-dsh-auth-token'], 'acct-token')
+  assert.equal(init.headers.authorization, undefined)
+  assert.match(result.content, /billed to the DeepSeek account sign-in/)
+})
+
+test('a signed-out account route falls back instead of searching with a key it does not own', async () => {
+  const { provider, calls } = harness({ route: DS_ACCOUNT, keys: { DEEPSEEK_API_KEY: 'sk-other' } })
+  const result = await provider.search({ query: 'deepseek harness' })
+  assert.equal(calls.fetch.length, 0)
+  assert.deepEqual(calls.keys, [])
+  assert.match(result.content, /keyless fallback/)
+  assert.match(result.content, /route "deepseek-account" could not search natively: it is not signed in to a DeepSeek account/)
+})
+
+test('a DeepSeek route without its own key does not borrow a key meant for another route', async () => {
+  const { provider, calls } = harness({ route: DS_OFFICIAL, keys: { MOONSHOT_API_KEY: 'sk-kimi', OPENAI_API_KEY: 'sk-openai' } })
+  const result = await provider.search({ query: 'deepseek harness' })
+  assert.deepEqual(calls.keys, ['DEEPSEEK_API_KEY'])
+  assert.equal(calls.fetch.length, 0)
+  assert.match(result.content, /keyless fallback/)
+  assert.match(result.content, /no API key is stored for DEEPSEEK_API_KEY/)
+})
+
+test('an empty result list is a successful search, not a failure and not a second paid probe', async () => {
+  const { provider, calls } = harness({ route: DS_OFFICIAL, keys: { DEEPSEEK_API_KEY: 'k' }, fetch: () => json({ results: [] }) })
+  const result = await provider.search({ query: 'q' })
+  // The declared API ran and found nothing: no retry of the paid protocol endpoint, the
+  // search still answers through the keyless page.
+  assert.deepEqual(urls(calls), ['https://api.deepseek.com/v1/tools/search'])
+  assert.match(result.content, /keyless fallback/)
+  assert.match(result.content, /DeepSeek Search API .*: returned no results/)
+  assert.ok(!/unavailable|does not seem to support/.test(result.content))
+})
+
+test('DeepSeek Search queries are cut at 128 Unicode characters, never mid-character', async () => {
+  const { provider, calls } = harness({ route: DS_OFFICIAL, keys: { DEEPSEEK_API_KEY: 'k' }, fetch: () => json({ results: [] }) })
+  await provider.search({ query: `${'问'.repeat(127)}\u{1f600}\u{1f601}` })
+  const sent = JSON.parse(calls.fetch[0].init.body).query
+  assert.equal([...sent].length, 128)
+  assert.equal(sent, `${'问'.repeat(127)}\u{1f600}`)
+  assert.equal(JSON.parse(calls.fetch[0].init.body).count, 8)
+})
+
+test('an insufficient-balance answer is denied and the paid endpoint is not retried', async () => {
+  let clock = 0
+  // The fake answers 402 everywhere, so each candidate's denial is remembered separately.
+  const { provider, calls } = harness({
+    route: DS_OFFICIAL, keys: { DEEPSEEK_API_KEY: 'k' }, now: () => clock,
+    fetch: () => json({ error: { message: 'Insufficient Balance', type: 'invalid_request_error', param: null, code: 'invalid_request_error' } }, 402),
+  })
+  const first = await provider.search({ query: 'q' })
+  assert.match(first.content, /DeepSeek Search API \(api\.deepseek\.com\/v1\/tools\/search\): HTTP 402: Insufficient Balance/)
+  assert.deepEqual(urls(calls), ['https://api.deepseek.com/v1/tools/search', 'https://api.deepseek.com/anthropic/v1/messages'])
+  clock += MINUTE
+  const second = await provider.search({ query: 'q' })
+  // Remembered as denied: no endpoint is paid again, and the key is not even re-read.
+  assert.match(second.content, /DeepSeek Search API .*: HTTP 402: Insufficient Balance; not retried for 29 min/)
+  assert.equal(calls.fetch.length, 2)
+  assert.deepEqual(calls.keys, ['DEEPSEEK_API_KEY'])
+})
+
 test('a route without its own key never borrows another one and falls back', async () => {
   const { provider, calls } = harness({ route: KIMI, keys: { DEEPSEEK_API_KEY: 'sk-deepseek', OPENAI_API_KEY: 'sk-openai' } })
   const result = await provider.search({ query: 'deepseek harness', maxResults: 8 })
@@ -237,11 +325,14 @@ test('a DeepSeek account route sends only the account token, with the Session mo
     route: { provider: 'deepseek-account', model: 'deepseek-v4-pro', api: 'anthropic-messages', baseURL: 'https://api.deepseek.com/anthropic', account: true, headers: {} },
     keys: { DEEPSEEK_API_KEY: 'sk-should-not-be-used' },
     token: 'acct-token',
-    fetch: () => json(MESSAGES_HIT),
+    // The declared Search API is tried first; when the host does not serve it the protocol
+    // search must carry the same account credential and the Session model.
+    fetch: url => (url.endsWith('/v1/tools/search') ? json({ error: { message: 'Not Found' } }, 404) : json(MESSAGES_HIT)),
   })
   const result = await provider.search({ query: 'q' })
   assert.deepEqual(calls.keys, [])
-  const { url, init } = calls.fetch[0]
+  assert.equal(calls.fetch[0].url, 'https://api.deepseek.com/v1/tools/search')
+  const { url, init } = calls.fetch[1]
   assert.equal(url, 'https://api.deepseek.com/anthropic/v1/messages')
   assert.equal(init.headers['x-dsh-auth-token'], 'acct-token')
   assert.equal(init.headers['x-api-key'], undefined)
@@ -511,6 +602,13 @@ test('declared search API responses are read by shape, skipping media links and 
     tools: [{ type: 'web_search', url: 'https://echo.example/' }],
     items: [{ link: 'https://l.example/', site_name: 'L', thumbnail: { url: 'https://img.example/t.png' } }],
   }), [{ url: 'https://l.example/', title: 'L' }])
+  // A provider's summary is kept as its own seam field beside the display snippet.
+  assert.deepEqual(findSources({ results: [{ url: 'https://s.example/', title: 'S', snippet: 'short', summary: 'a longer extract' }] }),
+    [{ url: 'https://s.example/', title: 'S', snippet: 'short', summary: 'a longer extract' }])
+  // Summary alone feeds both fields, so the old display behavior is kept; a long one is clipped.
+  assert.deepEqual(findSources({ results: [{ url: 'https://s.example/', title: 'S', summary: 'only' }] }), [{ url: 'https://s.example/', title: 'S', snippet: 'only', summary: 'only' }])
+  assert.deepEqual(findSources({ results: [{ url: 'https://s.example/', snippet: 's', summary: 'x'.repeat(1200) }] })[0],
+    { url: 'https://s.example/', snippet: 's', summary: `${'x'.repeat(999)}…` })
   assert.deepEqual(readDeclared({ search_results: [] }), { ran: true, sources: [] })
   assert.deepEqual(readDeclared({ results: [] }), { ran: true, sources: [] })
   assert.deepEqual(readDeclared({ choices: [{ message: { content: 'see https://a.example/' } }] }), { ran: false, sources: [] })

@@ -444,7 +444,9 @@ test('a Bot cut off at the output limit with nothing written moves on to a fresh
   assert.deepEqual([entries[0].level, entries[0].bot, entries[0].where], ['warn', 'Writer', 'own chat'])
 
   // The old part is archived and the fresh one opens with the deterministic handoff:
-  // no model call, and the cut-off turn is not replayed.
+  // no model call, and the cut-off turn is not replayed. The archive stub is the
+  // switch's last step, so it orders everything before it.
+  await until(() => host.archived.length > 0)
   assert.deepEqual(host.archived, [['b', { stopActivity: true }]])
   const handoff = text(host.agentOf('s1').calls.find(([kind]) => kind === 'followup')[1])
   assert.match(handoff, /^\[Handoff · part 2\]/)

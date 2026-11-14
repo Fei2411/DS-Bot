@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { install as imagesInstall, offloadTargets } from '../src/host/images.js'
+import { install as servicesInstall } from '../src/host/deepseek-services.js'
 import { assembleLlmStream } from '../src/host/models.js'
 
 test('offloadTargets selects live images from prior user and tool messages', () => {
@@ -72,6 +73,35 @@ test('image OCR retries transient TRANSPORT failures instead of caching a 2-minu
   const [line] = await rt.imagesForGroup([{ attachmentId: 'sha256:abcdef1234567890', name: 'shot.png' }], 'g1')
   assert.equal(calls, 2)
   assert.match(line, /Image: Retry banner\./)
+})
+
+test('the image note names read_document only when DeepSeek OCR is on', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'dsb-images-'))
+  t.after(() => rmSync(home, { recursive: true, force: true }))
+  const attachment = { attachmentId: 'sha256:img-1', name: 'note.png' }
+  const makeRt = (prefs) => {
+    const rt = {
+      ctx: { on: () => () => {}, effect: f => f(), llm: { resolveModelInfo: async () => ({}) } },
+      config: {}, home, warn: () => {},
+      state: { prefs },
+      teamTools: [],
+      catalog: async () => [], defaultRef: () => undefined,
+      isLocalAgentRef: () => false, ownRequest: () => false,
+      tagUsage: m => m,
+    }
+    servicesInstall(rt)
+    imagesInstall(rt)
+    return rt
+  }
+  // With OCR on, the group note names the tool and the full attachment id.
+  const on = makeRt({ deepseekServices: { ocr: true } })
+  const [line] = await on.imagesForGroup([attachment], 'g1')
+  assert.match(line, /read_document/)
+  assert.match(line, /sha256:img-1/)
+  // With OCR off, the note stays as before.
+  const off = makeRt({})
+  const [plain] = await off.imagesForGroup([attachment], 'g1')
+  assert.doesNotMatch(plain, /read_document/)
 })
 
 test('assembleLlmStream forwards lifetime disposal signal to in-flight streams and stops on disabled retry policies', async () => {

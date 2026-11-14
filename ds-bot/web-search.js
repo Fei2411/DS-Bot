@@ -25,6 +25,8 @@ export const DEFAULTS = Object.freeze({
 
 const USER_AGENT = 'deepseek-harness/0.0.1'
 const SNIPPET_CHARS = 500
+// A provider's long model-readable extract (WebSearchSource.summary) beside the display snippet.
+const SUMMARY_CHARS = 1000
 const PROMPT = query => `Perform a web search for the query: ${query}`
 
 const MINUTE = 60_000
@@ -126,16 +128,18 @@ const attrOf = (attrs, attr) => {
 const plain = value => (typeof value === 'string' ? value.replace(/\s+/g, ' ').trim() : '')
 
 /** One portable source from plain-text fields; empty optional fields are omitted rather than invented. */
-const sourceOf = (url, title, snippet, publishedAt) => {
+const sourceOf = (url, title, snippet, publishedAt, summary) => {
   const href = httpUrl(url)
   if (href === undefined) return undefined
   const cleanTitle = plain(title)
   const cleanSnippet = plain(snippet)
+  const cleanSummary = plain(summary)
   const date = str(publishedAt)
   return {
     url: href,
     ...cleanTitle ? { title: clip(cleanTitle, 300) } : {},
     ...cleanSnippet ? { snippet: clip(cleanSnippet, SNIPPET_CHARS) } : {},
+    ...cleanSummary ? { summary: clip(cleanSummary, SUMMARY_CHARS) } : {},
     ...date ? { publishedAt: date } : {},
   }
 }
@@ -215,7 +219,10 @@ export function readGemini(body) {
 
 const URL_KEYS = ['url', 'uri', 'link']
 const TITLE_KEYS = ['title', 'name', 'site_name']
-const SNIPPET_KEYS = ['snippet', 'summary', 'content', 'description', 'cited_text', 'text']
+// A provider's `summary` is the last snippet fallback, so a summary-only result still displays.
+const SNIPPET_KEYS = ['snippet', 'content', 'description', 'cited_text', 'text', 'summary']
+// The provider's own long extract is also kept as the seam's summary beside the snippet.
+const SUMMARY_KEYS = ['summary']
 const DATE_KEYS = ['published_date', 'publish_date', 'publish_time', 'page_age', 'date', 'last_updated']
 // Media links are not results, and a response that echoes the request's tools is not a search.
 const NOT_SOURCES = new Set(['image_url', 'images', 'image', 'icon', 'favicon', 'logo', 'logo_url', 'thumbnail', 'tools'])
@@ -229,7 +236,7 @@ export function findSources(body) {
     if (depth > 16 || value === null || typeof value !== 'object') return
     if (Array.isArray(value)) { for (const item of value) visit(item, depth + 1); return }
     const url = URL_KEYS.map(key => httpUrl(value[key])).find(Boolean)
-    if (url !== undefined) found.push(sourceOf(url, firstText(value, TITLE_KEYS), firstText(value, SNIPPET_KEYS), firstText(value, DATE_KEYS)))
+    if (url !== undefined) found.push(sourceOf(url, firstText(value, TITLE_KEYS), firstText(value, SNIPPET_KEYS), firstText(value, DATE_KEYS), firstText(value, SUMMARY_KEYS)))
     for (const [key, child] of Object.entries(value)) if (!NOT_SOURCES.has(key)) visit(child, depth + 1)
   }
   visit(body, 0)
@@ -318,6 +325,10 @@ const UNKNOWN_PROTOCOL = ['responses', 'messages']
  * `$maxResults` in a body are replaced per call. Each path is joined to the route's own origin.
  */
 export const SEARCH_APIS = Object.freeze([
+  // api-docs.deepseek.com/guides/search; a search with no matches answers results: [], a
+  // successful unbilled search — so it ends native probing instead of paying for another
+  // native endpoint (the keyless fallback still runs).
+  { id: 'deepseek', name: 'DeepSeek Search API', hosts: ['api.deepseek.com'], path: '/v1/tools/search', maxResults: 50, maxQueryChars: 128, body: { query: '$query', count: '$maxResults', need_content: false } },
   // docs.ollama.com/capabilities/web-search
   { id: 'ollama', name: 'Ollama web search API', hosts: ['ollama.com'], path: '/api/web_search', maxResults: 10, body: { query: '$query', max_results: '$maxResults' } },
   // platform.kimi.ai; an empty result is not billed.

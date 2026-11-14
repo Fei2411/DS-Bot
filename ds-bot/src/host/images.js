@@ -143,15 +143,22 @@ export function install(rt) {
     }
   }
 
+  // When DeepSeek OCR is on, a text-only model can call read_document on the
+  // image itself; the note names it with the full attachment id.
+  const ocrHint = attachment => rt.servicePrefs?.().ocr === true
+    ? ` To read it with DeepSeek's document recognition, call read_document with attachment_id "${attachment.attachmentId}".`
+    : ''
+
   function imageAsText(attachment, reading) {
     const label = imageLabel(attachment)
     const path = imagePath(attachment)
     const saved = path === undefined ? '' : ` Read-only copy saved at ${JSON.stringify(path)}.`
+    const ocr = ocrHint(attachment)
     return {
       type: 'text',
       text: reading === null
-        ? `[Image ${label}: you cannot see images and it could not be read right now.${saved} Ask the user what it shows if it matters.]`
-        : `[Image ${label}.${saved} You cannot see images, so ${reading.model} read it for you:]\n${reading.text}\n[End of image ${label}]`,
+        ? `[Image ${label}: you cannot see images and it could not be read right now.${saved}${ocr} Ask the user what it shows if it matters.]`
+        : `[Image ${label}.${saved} You cannot see images, so ${reading.model} read it for you:${ocr}]\n${reading.text}\n[End of image ${label}]`,
     }
   }
 
@@ -165,9 +172,10 @@ export function install(rt) {
       const label = imageLabel(attachment)
       const path = imagePath(attachment)
       const saved = path === undefined ? '' : ` (read-only copy saved at ${JSON.stringify(path)})`
+      const ocr = ocrHint(attachment)
       return reading === null
-        ? `[Image ${label}${saved}: it could not be read right now. Ask the user what it shows if it matters.]`
-        : `[Image ${label}${saved}, read by ${reading.model}:]\n${reading.text}\n[End of image ${label}]`
+        ? `[Image ${label}${saved}: it could not be read right now.${ocr} Ask the user what it shows if it matters.]`
+        : `[Image ${label}${saved}, read by ${reading.model}:${ocr}]\n${reading.text}\n[End of image ${label}]`
     }))
   }
 

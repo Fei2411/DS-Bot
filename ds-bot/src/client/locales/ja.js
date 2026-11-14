@@ -1609,6 +1609,26 @@ export const JA = {
   "Stop {name}": "{name} を停止",
   "{name} · foreground": "{name} · フォアグラウンド",
   "{name} waits for the computer": "{name} があなたの操作完了を待っています",
+
+  // DeepSeek services
+  "DeepSeek services": "DeepSeek サービス",
+  "DeepSeek API": "DeepSeek API",
+  "DeepSeek Web Search API": "DeepSeek ウェブ検索 API",
+  "Find it in Plugins → Official → Web search.": "プラグイン → 公式 → ウェブ検索 にあります。",
+  "Image and document reading": "画像と文書の読み取り",
+  "Use DeepSeek to read images and documents": "DeepSeek で画像と文書を読み取る",
+  "Bots upload selected files to DeepSeek for text recognition; local Office editing is unchanged.": "選択したファイルはテキスト認識のため DeepSeek にアップロードされます。ローカルの Office 編集は変わりません。",
+  "Text to speech": "テキスト読み上げ",
+  "Read replies aloud": "返信を読み上げる",
+  "System": "システム",
+  "Voice": "音声",
+  "Speech recognition": "音声認識",
+  "Dictation provider": "音声入力プロバイダー",
+  "Use DeepSeek for dictation": "音声入力に DeepSeek を使う",
+  "In use": "使用中",
+  "Not ready": "準備未完了",
+  "Couldn't read the reply": "返信を読み上げられませんでした",
+  "Couldn't reach the speech service": "音声認識サービスに接続できません",
 }
 
 export const HOST_ERRORS_JA = [

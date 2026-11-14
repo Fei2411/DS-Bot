@@ -43,6 +43,7 @@
 | [群聊 Goal](2026-11-01-group-goal.md) | 管理员先对齐再写 Goal；分阶段派给成员、每阶段带证据验收；每轮带 Goal 账本防跑偏；空闲时自动推进；暂停、纠偏、终止；会话头胶囊和吊舱显示进度与分工 |
 | [群聊共享待办](2026-11-10-group-todos.md) | 每个群一份清单：成员用 `group_todo` 加、勾、删、清空已完成、看，用户在群详情里看、勾、删；随群保存和删除；上限 100 条，满了删一条或清空已完成后再加 |
 | [浏览器、搜索、密钥和连接器](2026-10-08-browser-and-secrets.md) | 每个 Bot 的浏览器和 `read_browser`、`auto` 联网搜索、密钥卡和替换规则、GitHub 连接器(已被 2026-11-04 通用连接器取代) |
+| [DeepSeek 独立能力](2026-11-14-deepseek-services.md) | 官方 API key 给任意主模型独立 OCR / ASR / TTS，基础路径不变、按能力显式选择；`read_document` 会话归属 / 只读 / 长文留存、TTS 分段取消、ASR 复用 `speech.configure`；`auto` 新增同源 key 的官方 Search 候选，跨模型 Search/Fetch 在 DSH Plugins → Official → Web search；凭据网关隔离、持久化默认、缺 key / 费用与验收 |
 | [浏览器插件](2026-10-21-browser-plugins.md) | 全团队一个浏览器后端，每个 Bot 一份 profile；`refs` / `script` / `task` |
 | [电脑操控](2026-11-04-computer-use.md) | 设置里的总开关和 DSH 提供方；每个 Bot 四档（关 / 只看 / 后台操作 / 可以动前台）；按 Bot 记的应用授权；不能碰的应用；应用租约和前台租约；指示器、停止、「电脑」页；接管和交接卡与浏览器共用 |
 | [上下文与记忆](2026-10-09-context-and-memory.md) | 对话分段、上下文管家（压缩还是换段）、交接包、`read_own_chat`；记忆的存放、格式、权限、整理和冻结 |
