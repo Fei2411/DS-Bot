@@ -881,7 +881,7 @@ export function install(rt) {
 
   // The user's answer to an ask_user card, from the web or an IM chat. A Bot id or an
   // earlier part of its own chat means the current one.
-  async function answerQuestion(sessionRef, questionId, answer) {
+  async function answerQuestion(sessionRef, questionId, answer, requestId) {
     const past = rt.pastOwners.get(sessionRef)
     const sessionId = rt.botOf(sessionRef) ? rt.chatOf(sessionRef) : past && past.roomId === undefined ? rt.chatOf(past.botId) : sessionRef
     const question = rt.own(state.questions, sessionId)
@@ -893,7 +893,7 @@ export function install(rt) {
     try {
       await rt.ensureCapabilities(sessionId)
       const agent = await rt.resolveAgent(sessionId)
-      agent.followup(createUserMessage({ content: [{ type: 'text', text: reply.text }], source: reply.source }))
+      agent.followup(createUserMessage({ content: [{ type: 'text', text: reply.text }], source: { ...reply.source, ...(requestId === undefined ? {} : { rpcId: requestId }) } }))
       await ctx.sessions.flush(agent.session)
     } catch (error) {
       state.questions[sessionId] ??= question
