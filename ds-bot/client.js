@@ -16212,6 +16212,11 @@ body[data-ds-dark-theme] .bt-theme-chip i{background:var(--da)}
 }
 `;
 var CONVERSATION_CSS = `
+/* The menus above the composer ("@", "/", and the picker a command such as /model
+   opens): DSH paints them translucent and leans on a backdrop blur to keep the chat
+   behind them unreadable. Where the blur does not take, the chat shows through the
+   rows (issues 1113 and 935), so they get a solid fill. */
+[data-composer-overlay] [data-menu-material]{--dsw-menu-surface-fill:var(--bt-card)}
 .bt-think{font-size:13px;line-height:18px;color:var(--bt-ink-2);margin:2px 0 4px;max-width:calc(var(--bt-msg-w) * 100%)}
 body[data-bt-layout=flat] .bt-think{max-width:calc(var(--bt-flat-w) * 100%)}
 .bt-think summary{cursor:pointer;list-style:none;display:inline-flex;align-items:center;gap:6px}
