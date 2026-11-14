@@ -206,6 +206,99 @@ test('the drawer Show button toggles the goal by the room id when the Session mo
   assert.deepEqual(calls, [['toggle', 'g']])
 })
 
+// A Bot's label and instructions are edited in the drawer through the Settings page's own
+// field. Finds the components the drawer returns by name, without running the others.
+const named = (node, name, expand = false, out = []) => {
+  if (Array.isArray(node)) { for (const child of node) named(child, name, expand, out); return out }
+  if (node === null || typeof node !== 'object') return out
+  if (typeof node.type === 'function') {
+    if (node.type.name === name) out.push(node)
+    else if (expand) named(node.type(node.props), name, expand, out)
+    return out
+  }
+  for (const child of node.children ?? []) named(child, name, expand, out)
+  return out
+}
+const hostStrings = (node, out = []) => {
+  if (Array.isArray(node)) { for (const child of node) hostStrings(child, out); return out }
+  if (typeof node === 'string') { out.push(node); return out }
+  if (node === null || typeof node !== 'object' || typeof node.type === 'function') return out
+  for (const child of node.children ?? []) hostStrings(child, out)
+  return out
+}
+const editable = (patch, actions = {}) => drawer('a', actions, { ...roster, byId: { a: { ...bot, ...patch } } })
+const aboutOf = (tree) => { const [about] = named(tree, 'About'); return about.type(about.props) }
+const fieldOf = about => about.children.find(child => child?.props?.onSave)
+
+test('the drawer label is a field that saves the Bot role, like the Settings page', async () => {
+  const saved = []
+  const tree = editable({ role: 'Writer' }, { updateBot: (id, patch) => { saved.push(JSON.stringify([id, patch])); return Promise.resolve() } })
+  const [label] = named(tree, 'BotLabel')
+  const field = label.type(label.props)
+  assert.equal(field.props.label, 'Label')
+  assert.equal(field.props.value, 'Writer')
+  assert.equal(field.props.maxLength, 24)
+  assert.equal(field.props.placeholder, 'Add a label')
+  await field.props.onSave('Editor')
+  assert.deepEqual(saved, ['["a",{"role":"Editor"}]'])
+})
+
+test('a refused save of the label or the instructions does not throw out of the field', async () => {
+  const tree = editable({ role: 'Writer', instructions: '' }, { updateBot: () => Promise.reject(new Error('refused')) })
+  const [label] = named(tree, 'BotLabel')
+  await label.type(label.props).props.onSave('Editor')
+  await fieldOf(aboutOf(tree)).props.onSave('Drafts notes.')
+})
+
+test('a Bot without instructions gets a field in the drawer, not a way into Settings', async () => {
+  const saved = []
+  const tree = editable({ instructions: undefined }, { updateBot: (id, patch) => { saved.push(JSON.stringify([id, patch])); return Promise.resolve() } })
+  assert.equal(hostStrings(tree).some(text => text.includes('Bot settings')), false)
+  const field = fieldOf(aboutOf(tree))
+  assert.equal(field.props.multiline, true)
+  assert.equal(field.props.label, 'Instructions')
+  assert.equal(field.props.placeholder, 'What this Bot is responsible for…')
+  assert.equal(field.props.autoFocus, false)
+  assert.equal(field.props.value, '')
+  await field.props.onSave('Drafts notes.')
+  assert.deepEqual(saved, ['["a",{"instructions":"Drafts notes."}]'])
+})
+
+test('a Bot with instructions shows them as text that a click or Enter turns into the field', () => {
+  const read = aboutOf(editable({ instructions: 'Drafts notes.' }))
+  assert.equal(fieldOf(read), undefined)
+  const text = read.children.find(child => child?.props?.className === 'bt-about')
+  assert.ok(text, 'the instructions read as the folded text')
+  assert.equal(text.props.role, 'button')
+  assert.equal(text.props.tabIndex, 0)
+  assert.equal(text.props.title, 'Edit')
+  assert.equal(typeof text.props.onClick, 'function')
+  assert.equal(typeof text.props.onKeyDown, 'function')
+  assert.deepEqual([...text.children], ['Drafts notes.'])
+})
+
+test('a group notice stays read-only in the drawer', () => {
+  const noticeRoster = { ...roster, roomsById: { g: { ...room, notice: 'Be kind.' } } }
+  const tree = drawer('g', {}, noticeRoster)
+  const [about] = named(tree, 'About', true)
+  assert.equal(about.props.onSave, undefined)
+  const shown = about.type(about.props)
+  const text = shown.children.find(child => child?.props?.className === 'bt-about')
+  assert.equal(text.props.role, undefined)
+  assert.equal(text.props['data-editable'], undefined)
+})
+
+test('the Bot label and instructions are keyed by Bot id and stay read-only when another dsh holds the team', () => {
+  const writable = editable({ role: 'Writer', instructions: 'Drafts notes.' })
+  assert.equal(named(writable, 'BotLabel')[0].props.key, 'role:a')
+  assert.equal(named(writable, 'About')[0].props.key, 'about:a')
+
+  const locked = drawer('a', {}, { ...roster, readOnly: 'Another dsh holds this team.', byId: { a: { ...bot, role: 'Writer', instructions: 'Drafts notes.' } } })
+  assert.equal(named(locked, 'BotLabel').length, 0)
+  const [about] = named(locked, 'About')
+  assert.equal(about.props.onSave, undefined)
+})
+
 test('every Bot gets the Sessions section and New session, not only local-agent Bots', () => {
   // A plain cloud-model Bot (no engine badge) has chat parts too.
   const plain = drawer('a', {}, { ...roster, byId: { a: { id: 'a', name: 'Chief', sessionId: 'a' } } })
@@ -217,4 +310,62 @@ test('every Bot gets the Sessions section and New session, not only local-agent 
   const engine = drawer('a', {}, { ...roster, byId: { a: { id: 'a', name: 'Writer', sessionId: 'a', engine: 'claude-code', parts: ['a', 'a-old'] } } })
   const engineEntry = buttonsOf(engine).find(button => textOf(button).includes('New session'))
   assert.ok(engineEntry, 'the local-agent Bot still has it')
+})
+
+// A second instance of the drawer bundle whose React runs effects at once and keeps
+// one state slot, so the status line can resolve its host read and render.
+const runStatsBundle = await build({
+  entryPoints: [fileURLToPath(new URL('../src/client/details-drawer.js', import.meta.url))],
+  bundle: true, format: 'cjs', platform: 'node', write: false,
+  external: ['react', 'react-dom', '@deepseek-ai/dsh-client-ui-primitives'],
+})
+let runStatsState
+const runStatsReact = {
+  createContext: (initial) => { const ctx = { value: initial }; ctx.Provider = ({ children }) => children; return ctx },
+  useContext: ctx => ctx.value, useId: () => 'rv-id',
+  createElement: (type, props, ...children) => ({ type, props: props ?? {}, children: children.flat(Infinity) }),
+  useState: () => [runStatsState, value => { runStatsState = value }],
+  useEffect: effect => effect(), useRef: current => ({ current }), useLayoutEffect: () => {},
+  useMemo: make => make(), useCallback: fn => fn,
+  useSyncExternalStore: (_subscribe, get) => get(), Fragment: 'fragment',
+}
+const runStatsModule = { exports: {} }
+runInNewContext(runStatsBundle.outputFiles[0].text, {
+  module: runStatsModule, exports: runStatsModule.exports, URL, URLSearchParams, setTimeout, clearTimeout,
+  require: (name) => {
+    const platform = {
+      react: runStatsReact,
+      'react-dom': { createPortal: node => node },
+      '@deepseek-ai/dsh-client-ui-primitives': { MarkdownText: () => null },
+    }
+    if (!(name in platform)) throw new Error(`no platform module ${name}`)
+    return platform[name]
+  },
+})
+const { RunStats } = runStatsModule.exports
+
+test('the Bot status line needs the runStats action and then draws turns, speed, cache and context', () => {
+  runStatsState = undefined
+  const bot = { id: 'a', name: 'Chief', sessionId: 'a' }
+  // Without the action the line stays away instead of drawing itself empty.
+  assert.equal(RunStats({ bot, part: 'a', running: false, actions: {} }), null)
+  // The host's figures, as the run-stats endpoint returns them.
+  const values = {
+    sessionStats: { turns: 12, decodeMs: 4000, decodeTokens: 150 },
+    tokenUsage: { uncachedInputTokens: 50, cacheReadTokens: 900, cacheWriteTokens: 50, outputTokens: 400 },
+    contextPressure: { pressureTokens: 41_000, contextWindow: 100_000 },
+  }
+  let asked
+  const actions = { runStats: (id) => { asked = id; return { then: ok => { ok(values) } } } }
+  // The first render starts the read; it has nothing to draw until the read lands.
+  assert.equal(RunStats({ bot, part: 'a', running: false, actions }), null)
+  const node = RunStats({ bot, part: 'a', running: false, actions })
+  assert.equal(asked, 'a')
+  const line = textOf(node)
+  assert.match(line, /12 turns/)
+  assert.match(line, /38 tok\/s/)
+  assert.match(line, /Cache hit 90%/)
+  assert.match(line, /Context 41%/)
+  // Moving to another part clears the previous part's figures until the new read finishes.
+  assert.equal(RunStats({ bot, part: 'a-2', running: false, actions: { runStats: () => ({ then() {} }) } }), null)
 })

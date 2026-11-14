@@ -104,6 +104,9 @@ const MOBILE_ZH: Record<string, string> = {
   'Browser handoff': '浏览器交接', 'View': '查看',
   'Aside': '旁注', 'Delete aside': '删除旁注',
   'This file cannot be read here': '这个文件在这里读不了',
+  'Save {name}': '保存 {name}',
+  'Saving to the device is not available on this phone': '这台手机还不能保存到本机',
+  'Could not save this file': '保存这个文件失败',
   'Paused after {count} Bot relays. Waiting: {names}': '{count} 次 Bot 接力后暂停。还在等：{names}',
   'Side chat': '旁聊', 'Ask about the work so far': '问一下目前的进展',
   'Answering…': '正在回答…', 'Cancel this side question': '取消这个旁问',
@@ -233,6 +236,14 @@ const MOBILE_ZH: Record<string, string> = {
   'the Bot': 'Bot',
   '{name} could not answer: {reason}': '{name} 无法回答：{reason}',
   'Copy data (CSV)': '复制数据（CSV）',
+  'Something went wrong': '出了点问题',
+  'Unknown error': '未知错误',
+  'New reply': '新回复',
+  'Table': '表格',
+  'Expand': '展开',
+  'Scheduled task': '定时任务',
+  'Jump to latest': '回到底部',
+  'New messages below': '下方有新消息',
 }
 
 const systemZh = (): boolean => {
