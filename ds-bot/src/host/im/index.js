@@ -410,12 +410,14 @@ export function install(rt) {
     const entry = origins.get(sessionId)
     if (entry === undefined) return undefined
     const token = randomUUID()
-    resumedOrigins.set(token, entry)
+    resumedOrigins.set(token, { ...entry, activeOn: sessionId })
     return token
   }
   const peekImOrigin = (sessionId, token) => {
     const entry = token === undefined ? undefined : resumedOrigins.get(token)
-    if (entry !== undefined) claimOrigin(sessionId, entry.connId, entry.chatKey, entry.senderId, entry.binding)
+    if (entry === undefined) return
+    claimOrigin(sessionId, entry.connId, entry.chatKey, entry.senderId, entry.binding)
+    if (!mixed.has(sessionId)) entry.activeOn = sessionId
   }
   const dropImOrigin = (token) => {
     if (token !== undefined) resumedOrigins.delete(token)
@@ -425,8 +427,7 @@ export function install(rt) {
     if (mixed.has(sessionId)) return
     const previous = origins.get(sessionId)
     if (previous !== undefined && (previous.connId !== connId || previous.chatKey !== chatKey || previous.senderId !== senderId)) {
-      origins.delete(sessionId)
-      mixed.add(sessionId)
+      dropOrigin(sessionId)
       return
     }
     let bound = binding
@@ -436,8 +437,16 @@ export function install(rt) {
     }
     origins.set(sessionId, { connId, chatKey, senderId, binding: bound, at: Date.now() })
   }
-  const dropOrigin = (sessionId) => { origins.delete(sessionId); mixed.add(sessionId) }
-  const resetOrigin = (sessionId) => { origins.delete(sessionId); mixed.delete(sessionId) }
+  const dropOrigin = (sessionId) => {
+    origins.delete(sessionId)
+    mixed.add(sessionId)
+    for (const [token, held] of resumedOrigins) if (held.activeOn === sessionId) resumedOrigins.delete(token)
+  }
+  const resetOrigin = (sessionId) => {
+    origins.delete(sessionId)
+    mixed.delete(sessionId)
+    for (const held of resumedOrigins.values()) if (held.activeOn === sessionId) held.activeOn = undefined
+  }
   /**
    * The connection and chat a Session's replies go to, or undefined when nothing may
    * leave: no origin, its connection gone, its chat gone, the user who asked no longer

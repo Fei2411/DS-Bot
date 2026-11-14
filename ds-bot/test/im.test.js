@@ -1160,6 +1160,7 @@ async function startSwitchHarness(t, { tokens = new Map([['a', 1_000]]), cwd = (
   writeFileSync(join(home, 'state.json'), JSON.stringify({ ...TEAM(), workspace: work }))
   let created = 0
   let failCreate = false
+  let idleGate
   const fake = fakeAdapter()
   const real = adapters.telegram
   adapters.telegram = fake
@@ -1200,7 +1201,7 @@ async function startSwitchHarness(t, { tokens = new Map([['a', 1_000]]), cwd = (
         inject(message) { calls.push(['inject', message]); nextStep.push(message) },
         send(message, target) { (target === 'next-turn' ? nextTurn : nextStep).push(message); calls.push(['send', message]) },
         cancel() {},
-        async whenIdle() {},
+        whenIdle() { return idleGate ?? Promise.resolve() },
         async runMaintenance(fn) { return fn(AbortSignal.timeout(60_000)) },
         inbox: {
           nextStep,
@@ -1279,15 +1280,25 @@ async function startSwitchHarness(t, { tokens = new Map([['a', 1_000]]), cwd = (
   rt.state.im.connections[conn.id].paired.push({ id: 'u1', name: 'U1', at: 1 })
   await rt.save()
 
+  const waitHandoff = async (sessionIdOf) => {
+    for (let i = 0; i < 300; i += 1) {
+      const sid = sessionIdOf()
+      if (sid !== undefined && agentOf(sid).inbox.nextTurn.length > 0) return sid
+      await delay(10)
+    }
+    throw new Error('timed out waiting for switch handoff message')
+  }
+
   return {
-    rt, fake, prompts, tokens, agentOf, emitEvent, preStep, fireRequestError, fireApprovals, conn, work,
+    rt, fake, prompts, tokens, agentOf, emitEvent, preStep, fireRequestError, fireApprovals, waitHandoff, conn, work,
     setFailCreate: (value) => { failCreate = value },
+    setIdleGate: (gate) => { idleGate = gate },
   }
 }
 
 test('reply origin: a mid-turn part switch keeps delivering the resumed turn back to its IM chat', async (t) => {
   const s = await startSwitchHarness(t)
-  const { rt, fake, prompts, tokens, agentOf, emitEvent, preStep, fireApprovals, setFailCreate } = s
+  const { rt, fake, prompts, tokens, agentOf, emitEvent, preStep, fireApprovals, waitHandoff, setFailCreate } = s
 
   await fake.handlers.onMessage({ chat: { key: 'dm-u1', kind: 'direct', title: 'U1' }, sender: { id: 'u1', name: 'U1' }, text: 'run long task' })
   const requestId = prompts.at(-1)?.requestId
@@ -1307,8 +1318,7 @@ test('reply origin: a mid-turn part switch keeps delivering the resumed turn bac
   assert.equal(step2.kind, 'reject')
   emitEvent('a', 'turn/end', { turn: 1, reason: { kind: 'aborted', reason: { kind: 'hook', reason: 'pre-step' } } })
 
-  for (let i = 0; i < 100 && rt.botOf('a').sessionId === 'a'; i += 1) await delay(10)
-  const part2 = rt.botOf('a').sessionId
+  const part2 = await waitHandoff(() => (rt.botOf('a').sessionId === 'a' ? undefined : rt.botOf('a').sessionId))
   assert.equal(part2, 's1')
   const handoffMsg = agentOf(part2).inbox.nextTurn.shift()
   assert.ok(handoffMsg)
@@ -1348,7 +1358,7 @@ test('reply origin: a mid-turn part switch keeps delivering the resumed turn bac
   assert.equal(failStep2.kind, 'reject')
   emitEvent(part2, 'turn/end', { turn: 2, reason: { kind: 'aborted', reason: { kind: 'hook', reason: 'pre-step' } } })
 
-  for (let i = 0; i < 100 && agentOf(part2).inbox.nextTurn.length === 0; i += 1) await delay(10)
+  await waitHandoff(() => part2)
   const pauseMsg = agentOf(part2).inbox.nextTurn.shift()
   assert.ok(pauseMsg)
   emitEvent(part2, 'turn/start', { turn: 3 })
@@ -1362,7 +1372,7 @@ test('reply origin: a mid-turn part switch keeps delivering the resumed turn bac
 
 test('reply origin: overflow switch keeps IM origin, mixed turns stay isolated, and group folder switch keeps delivering room lines', async (t) => {
   const s = await startSwitchHarness(t, { cwd: id => (id === 'r1' ? '/tmp/stale-group-dir' : undefined) })
-  const { rt, fake, prompts, agentOf, emitEvent, preStep, fireRequestError, conn } = s
+  const { rt, fake, prompts, agentOf, emitEvent, preStep, fireRequestError, waitHandoff, setIdleGate, conn } = s
 
   // 1. Overflow request-error mid-turn switches part and preserves the IM origin.
   await fake.handlers.onMessage({ chat: { key: 'dm-u1', kind: 'direct', title: 'U1' }, sender: { id: 'u1', name: 'U1' }, text: 'overflow task' })
@@ -1374,8 +1384,7 @@ test('reply origin: overflow switch keeps IM origin, mixed turns stay isolated, 
   await fireRequestError('a', 'CONTEXT_WINDOW_EXCEEDED')
   emitEvent('a', 'turn/end', { turn: 1, reason: { kind: 'error' } })
 
-  for (let i = 0; i < 100 && rt.botOf('a').sessionId === 'a'; i += 1) await delay(10)
-  const part2 = rt.botOf('a').sessionId
+  const part2 = await waitHandoff(() => (rt.botOf('a').sessionId === 'a' ? undefined : rt.botOf('a').sessionId))
   assert.equal(part2, 's1')
   const handoff2 = agentOf(part2).inbox.nextTurn.shift()
   assert.ok(handoff2)
@@ -1397,8 +1406,7 @@ test('reply origin: overflow switch keeps IM origin, mixed turns stay isolated, 
   await fireRequestError(part2, 'CONTEXT_WINDOW_EXCEEDED')
   emitEvent(part2, 'turn/end', { turn: 2, reason: { kind: 'error' } })
 
-  for (let i = 0; i < 100 && rt.botOf('a').sessionId === part2; i += 1) await delay(10)
-  const part3 = rt.botOf('a').sessionId
+  const part3 = await waitHandoff(() => (rt.botOf('a').sessionId === part2 ? undefined : rt.botOf('a').sessionId))
   assert.equal(part3, 's2')
   const handoff3 = agentOf(part3).inbox.nextTurn.shift()
   assert.ok(handoff3)
@@ -1409,7 +1417,33 @@ test('reply origin: overflow switch keeps IM origin, mixed turns stay isolated, 
   await delay(30)
   assert.deepEqual(fake.sent, [])
 
-  // 3. A group's own Session moving to its folder keeps delivering member room lines to the IM group chat.
+  // 3. A turn that turns mixed after startSwitch held the origin does not leak it to the fresh part either.
+  await fake.handlers.onMessage({ chat: { key: 'dm-u1', kind: 'direct', title: 'U1' }, sender: { id: 'u1', name: 'U1' }, text: 'late mixed task' })
+  const req3 = prompts.at(-1)?.requestId
+  fake.sent.length = 0
+  let releaseIdle
+  setIdleGate(new Promise((resolve) => { releaseIdle = resolve }))
+  emitEvent(part3, 'turn/start', { turn: 2 })
+  await preStep(part3, [{ content: [{ type: 'text', text: 'late mixed task' }], source: { kind: 'user', rpcId: req3 } }], 1)
+  emitEvent(part3, 'user/message', { source: { kind: 'user', rpcId: req3 }, content: [{ type: 'text', text: 'late mixed task' }] })
+  await fireRequestError(part3, 'CONTEXT_WINDOW_EXCEEDED')
+  emitEvent(part3, 'user/message', { source: { kind: 'user' }, content: [{ type: 'text', text: 'late web steer' }] })
+  emitEvent(part3, 'turn/end', { turn: 2, reason: { kind: 'error' } })
+  releaseIdle()
+  setIdleGate(undefined)
+
+  const part4 = await waitHandoff(() => (rt.botOf('a').sessionId === part3 ? undefined : rt.botOf('a').sessionId))
+  assert.equal(part4, 's3')
+  const handoff4 = agentOf(part4).inbox.nextTurn.shift()
+  assert.ok(handoff4)
+  emitEvent(part4, 'turn/start', { turn: 1 })
+  emitEvent(part4, 'user/message', { source: handoff4.source, content: handoff4.content })
+  emitEvent(part4, 'assistant/message', { turn: 1, message: { content: [{ type: 'text', text: 'late mixed stays internal' }] } })
+  emitEvent(part4, 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  await delay(30)
+  assert.deepEqual(fake.sent, [])
+
+  // 4. A group's own Session moving to its folder keeps delivering member room lines to the IM group chat.
   rt.state.im.connections[conn.id].chats.g1 = { kind: 'group', title: 'Group One', target: { roomId: 'r1' }, at: 1 }
   await rt.save()
   await fake.handlers.onMessage({ chat: { key: 'g1', kind: 'group', title: 'Group One' }, sender: { id: 'u1', name: 'U1' }, text: 'start group work', mentioned: true })
@@ -1421,9 +1455,8 @@ test('reply origin: overflow switch keeps IM origin, mixed turns stay isolated, 
   fake.sent.length = 0
 
   await rt.followFolder({ roomId: 'r1' })
-  for (let i = 0; i < 100 && room.sessionId === undefined; i += 1) await delay(10)
-  const roomPart2 = room.sessionId
-  assert.equal(roomPart2, 's3')
+  const roomPart2 = await waitHandoff(() => room.sessionId)
+  assert.equal(roomPart2, 's4')
   const roomHandoff = agentOf(roomPart2).inbox.nextTurn.shift()
   assert.ok(roomHandoff)
   emitEvent(roomPart2, 'turn/start', { turn: 1 })
