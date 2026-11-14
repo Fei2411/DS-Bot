@@ -9,6 +9,9 @@ const ROUTE_ID = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/
 // builds advertise any additional protocols (such as `google-generative-ai`) in their
 // `llm-pi-ai` settings schema.
 export const PROTOCOLS = ['openai-completions', 'openai-responses', 'anthropic-messages']
+// The protocols whose model-listing the pi-ai adapter can read. A route on any other
+// protocol has no refresh entry: the adapter would answer DISCOVERY_UNSUPPORTED.
+const LISTABLE_PROTOCOLS = new Set(PROTOCOLS)
 
 function protocolsOf(section) {
   const schema = section?.schema
@@ -229,13 +232,28 @@ export function install(rt) {
         continue
       }
       const ref = refOf(profile)
-      const models = catalog.filter(model => model.provider === entry.provider).map(model => ({ ref: model.ref, name: model.name }))
+      const models = catalog.filter(model => model.provider === entry.provider).map(model => ({ id: model.id, ref: model.ref, name: model.name }))
       if (ref === undefined && models.length === 0 && entry.error === undefined) continue
       const info = ref === undefined ? undefined : await found.credentials.describe(ref).catch(() => undefined)
+      // A route can be refreshed when DSH's pi-ai discovery can list its endpoint and
+      // the route has a user layer to write the new model list into. Native and
+      // subscription routes (other settings namespaces, or base-only routes) have no
+      // such entry; they are not named here.
+      const listable = entry.settingsNs === PI_AI && profile !== undefined
+        && typeof profile.baseURL === 'string' && profile.baseURL !== ''
+        && LISTABLE_PROTOCOLS.has(typeof profile.api === 'string' ? profile.api : 'openai-completions')
+      const refreshable = listable && profileOf(entry, map, 'user') !== undefined
+      const declared = (Array.isArray(profile?.models) ? profile.models : []).map(model => {
+        const id = typeof model === 'string' ? model : model?.id
+        if (typeof id !== 'string' || id.trim() === '') return undefined
+        return { id, ref: `${entry.provider}/${id}`, name: typeof model?.name === 'string' && model.name.trim() !== '' ? model.name : id }
+      }).filter(Boolean)
       providers.push({
         id: entry.provider,
         name: entry.displayName,
         models,
+        declaredModels: declared,
+        refreshable,
         key: ref === undefined ? null : { configured: info?.configured === true, writable: info?.writable !== false },
         removable: entry.settingsNs === PI_AI && profileOf(entry, map, 'user') !== undefined && profileOf(entry, map, 'base') === undefined,
         custom: entry.declared === true,
@@ -244,7 +262,7 @@ export function install(rt) {
     }
     // The ones that come with the setup first, then the added ones as DSH lists them.
     providers.sort((a, b) => Number(a.removable) - Number(b.removable))
-    return { available: true, providers, addable, protocols: protocolsOf(map.get(PI_AI)) }
+    return { available: true, providers, addable, protocols: protocolsOf(map.get(PI_AI)), revision: map.get(PI_AI)?.revision }
   }
 
   async function writableRef(provider) {
@@ -315,10 +333,23 @@ export function install(rt) {
   // the question goes with it and is not stored.
   async function discoverModels(body) {
     const { settings } = usable()
-    const protocols = protocolsOf(sections(settings).get(PI_AI))
+    const map = sections(settings)
+    const protocols = protocolsOf(map.get(PI_AI))
     const provider = typeof body.provider === 'string' && body.provider !== '' ? body.provider : undefined
-    const request = provider !== undefined && entryOf(provider)?.declared === false
-      ? { provider }
+    const entry = provider === undefined ? undefined : entryOf(provider)
+    const profile = entry !== undefined && entry.settingsNs === PI_AI ? profileOf(entry, map) : undefined
+    const stored = entry !== undefined && entry.settingsNs === PI_AI
+      && (profile !== undefined || entry.declared === false)
+    // An existing route is discovered through the profile DSH already has: the endpoint,
+    // protocol, headers and the credential reference it names. The key never comes back
+    // to the client and is never part of the request here; DSH's stored profile resolves
+    // it for the named provider.
+    const request = stored
+      ? {
+          provider,
+          ...(typeof profile?.baseURL === 'string' && profile.baseURL !== '' ? { baseURL: profile.baseURL } : {}),
+          ...(typeof profile?.api === 'string' ? { api: profile.api } : {}),
+        }
       : {
           baseURL: checkEndpoint(body.baseURL),
           ...(protocols.includes(body.api) ? { api: body.api } : {}),
@@ -338,6 +369,43 @@ export function install(rt) {
         ...(inputModalities ? { inputModalities: [...inputModalities] } : {}),
       }
     })
+  }
+
+  // Replace only one provider's models. The route, its endpoint, protocol, key
+  // reference, headers and compatibility settings stay as they are; a Bot's model
+  // choice is not touched here.
+  async function saveProviderModels(body) {
+    const { settings } = usable()
+    const provider = String(body.provider ?? '').trim()
+    if (provider === '') throw invalid('Choose a provider')
+    const map = sections(settings)
+    const entry = entryOf(provider)
+    if (entry === undefined || entry.settingsNs !== PI_AI) throw invalid(`No editable provider ${provider}`)
+    if (profileOf(entry, map, 'user') === undefined) throw invalid(`${provider} cannot be changed here`)
+    const profile = profileOf(entry, map)
+    const listable = typeof profile?.baseURL === 'string' && profile.baseURL !== ''
+      && LISTABLE_PROTOCOLS.has(typeof profile.api === 'string' ? profile.api : 'openai-completions')
+    if (!listable) throw invalid(`${provider} has no model list to refresh here`)
+    const section = map.get(PI_AI)
+    if (body.revision !== undefined && section !== undefined && body.revision !== section.revision) {
+      throw Object.assign(new Error('The provider settings changed in another window; refresh the models and try again'), { code: 'bot/stale' })
+    }
+    const list = Array.isArray(body.models) ? body.models : []
+    if (list.length === 0) throw invalid('Select at least one model')
+    if (list.length > MAX_MODELS) throw invalid(`At most ${MAX_MODELS} models can be kept`)
+    const known = await knownCatalogModels()
+    const current = new Map((Array.isArray(profile?.models) ? profile.models : [])
+      .map(model => [typeof model === 'string' ? model : model?.id, model])
+      .filter(([id]) => typeof id === 'string' && id !== ''))
+    const models = list.map((model) => {
+      const next = modelEntry(model, known)
+      const old = current.get(next.id)
+      return old === undefined ? next : { ...(typeof old === 'string' ? { id: old } : old), ...next }
+    })
+    if (new Set(models.map(model => model.id)).size !== models.length) throw invalid('Two models have the same id')
+    await settings.mutate(PI_AI, [{ op: 'set', path: [...entry.settingsPath, 'models'], value: models }], section?.revision)
+    rt.dropCatalog()
+    return providersView()
   }
 
   // Only a route the user added goes; its key goes with it when it is the one this page
@@ -360,5 +428,5 @@ export function install(rt) {
     return providersView()
   }
 
-  Object.assign(rt, { keyRefs, missingKeys, providersView, setProviderKey, clearProviderKey, addProvider, discoverModels, removeProvider })
+  Object.assign(rt, { keyRefs, missingKeys, providersView, setProviderKey, clearProviderKey, addProvider, discoverModels, saveProviderModels, removeProvider })
 }

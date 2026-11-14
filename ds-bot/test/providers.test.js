@@ -303,3 +303,78 @@ test('a route\'s key reference follows DSH\'s own Models page', () => {
   assert.equal(keyRefFor('moonshotai'), 'MOONSHOTAI_API_KEY')
   assert.equal(keyRefFor('my-gateway2'), 'MY_GATEWAY2_API_KEY')
 })
+
+// #968: a saved custom route is discovered through the profile DSH already holds; the
+// browser sends only its id, never the endpoint, headers or key.
+test('an existing custom provider refreshes through its saved profile without a key', async () => {
+  const user = { providers: { relay: { api: 'openai-completions', baseURL: 'https://relay.example/v1', apiKeyEnv: 'RELAY_API_KEY', models: [{ id: 'old' }] } } }
+  const { rt, discovered, store } = dsh({ user, keys: { RELAY_API_KEY: 'sk' } })
+  const view = await rt.providersView()
+  assert.equal(row(view, 'relay').refreshable, true)
+  assert.deepEqual(row(view, 'relay').declaredModels.map(model => model.id), ['old'])
+  assert.equal(row(view, 'deepseek-official').refreshable, false)
+  const found = await rt.discoverModels({ provider: 'relay' })
+  assert.deepEqual(discovered.at(-1), ['llm-pi-ai', { provider: 'relay', baseURL: 'https://relay.example/v1', api: 'openai-completions' }])
+  assert.deepEqual(found.map(model => model.id), ['relay-1', 'relay-2'])
+  assert.deepEqual(store, { RELAY_API_KEY: 'sk' })
+})
+
+test('a protocol whose listing pi-ai cannot read offers no refresh entry', async () => {
+  const user = { providers: { gem: { api: 'google-generative-ai', baseURL: 'https://gem.example/v1beta', models: [{ id: 'g' }] } } }
+  const { rt } = dsh({ user })
+  assert.equal(row(await rt.providersView(), 'gem').refreshable, false)
+})
+
+test('refreshing saves only the model list, keeps advanced fields, and leaves the Bot model alone', async () => {
+  const user = { providers: { relay: {
+    displayName: 'Relay', api: 'openai-completions', baseURL: 'https://relay.example/v1', apiKeyEnv: 'RELAY_API_KEY',
+    compat: { supportsDeveloperRole: false, supportsStore: false, maxTokensField: 'max_tokens', requiresReasoningContentOnAssistantMessages: true },
+    models: [
+      { id: 'relay-1', name: 'Old name', contextWindow: 128000, input: ['text'], compat: { supportsParallelToolCalls: false }, reasoningEfforts: { default: 'high' } },
+      { id: 'manual', name: 'Manual', contextWindow: 64000 },
+    ],
+  } } }
+  const { rt, writes } = dsh({ user, keys: { RELAY_API_KEY: 'sk' } })
+  rt.state.bots.b1 = { id: 'b1', model: 'relay/relay-1', appliedModel: 'relay/relay-1' }
+  const view = await rt.providersView()
+  writes.length = 0
+  const next = await rt.saveProviderModels({
+    provider: 'relay', revision: view.revision,
+    models: [{ id: 'relay-1', name: 'New name', contextWindow: 256000, inputModalities: ['text', 'image'] }, { id: 'relay-2' }, { id: 'manual' }],
+  })
+  assert.deepEqual(writes, [['llm-pi-ai', [{ op: 'set', path: ['providers', 'relay', 'models'], value: [
+    { id: 'relay-1', name: 'New name', contextWindow: 256000, input: ['text', 'image'], compat: { supportsParallelToolCalls: false }, reasoningEfforts: { default: 'high' } },
+    { id: 'relay-2' },
+    { id: 'manual', name: 'Manual', contextWindow: 64000 },
+  ] }]]])
+  const saved = row(next, 'relay')
+  assert.deepEqual(saved.models.map(model => model.id), ['relay-1', 'relay-2', 'manual'])
+  assert.equal(rt.state.bots.b1.model, 'relay/relay-1')
+  // The route itself, its key reference, and its compatibility switches are untouched.
+  const profile = rt.ctx.get('settings').describe().find(section => section.ns === 'llm-pi-ai').value.providers.relay
+  assert.equal(profile.api, 'openai-completions')
+  assert.equal(profile.baseURL, 'https://relay.example/v1')
+  assert.equal(profile.apiKeyEnv, 'RELAY_API_KEY')
+  assert.equal(profile.compat.supportsStore, false)
+})
+
+test('saving models refuses an empty list, a stale preview, and a provider with no editable models', async () => {
+  const user = { providers: { relay: { api: 'openai-completions', baseURL: 'https://relay.example/v1', models: [{ id: 'a' }] } } }
+  const { rt } = dsh({ user })
+  const view = await rt.providersView()
+  await assert.rejects(rt.saveProviderModels({ provider: 'relay', revision: view.revision, models: [] }), /at least one model/)
+  await assert.rejects(rt.saveProviderModels({ provider: 'deepseek-official', models: [{ id: 'm' }] }), /No editable provider|changed here/)
+  await rt.ctx.get('settings').mutate('llm-pi-ai', [], view.revision)
+  await assert.rejects(rt.saveProviderModels({ provider: 'relay', revision: view.revision, models: [{ id: 'a' }] }), /changed in another window/)
+})
+
+test('a discovery failure leaves the saved list untouched', async () => {
+  const user = { providers: { relay: { api: 'openai-completions', baseURL: 'https://relay.example/v1', models: [{ id: 'a' }] } } }
+  const { rt, writes } = dsh({ user })
+  await rt.providersView()
+  writes.length = 0
+  rt.ctx.llm.discoverModels = async () => { throw new Error('the endpoint answered 401') }
+  await assert.rejects(rt.discoverModels({ provider: 'relay' }), /answered 401/)
+  assert.deepEqual(writes, [])
+  assert.deepEqual(row(await rt.providersView(), 'relay').declaredModels.map(model => model.id), ['a'])
+})
