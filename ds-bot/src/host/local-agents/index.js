@@ -94,6 +94,12 @@ export function install(rt) {
       store().sessions[sessionId] = record
       void rt.save().catch(() => {})
     },
+    // A change that rides along with the next save: the CLI reports its context on
+    // every model call.
+    patchRecord: (sessionId, patch) => {
+      const record = store().sessions[sessionId]
+      if (record !== undefined) Object.assign(record, patch)
+    },
     presetFor: (sessionId) => {
       const bot = rt.botOf(rt.selfOf(sessionId))
       const room = rt.roomOf(rt.groupOwners.get(sessionId)?.roomId)
@@ -265,6 +271,13 @@ export function install(rt) {
     localAgentRoutes: allRoutes, localAgentsEndpoint, localAgentModels,
     engineNameOf: ref => (isLocalAgentRef(ref) ? adapter.providerInfo(splitRef(ref).provider).name : `the model ${ref}`),
     closeLocalAgentSession: (sessionId, reason) => adapter.closeSession(sessionId, reason),
+    // The parts module's view of a CLI session's context, and the requests it makes of
+    // the CLI when the conversation grows long: condense, write the handoff note, and
+    // answer the context steward when the team has no model of its own.
+    localAgentContext: sessionId => adapter.contextOf(String(sessionId)),
+    localAgentCompact: (sessionId, signal) => adapter.compact(String(sessionId), signal),
+    localAgentNote: (sessionId, text, signal) => adapter.note(String(sessionId), text, signal),
+    localAgentAsk: (sessionId, request) => adapter.ask(String(sessionId), request),
     localAgentBadge: (ref) => {
       const provider = splitRef(ref)?.provider
       return provider !== undefined && isLocalAgentRoute(provider) ? provider : undefined
