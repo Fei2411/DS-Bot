@@ -169,7 +169,7 @@ export function install(rt) {
   }
   // What a host that only reads the team may still answer.
   // Updates change the dsh profile, not the team, so a reading host may run them too.
-  const READS = new Set(['state', 'models', 'efforts', 'providers', 'provider-models', 'earlier', 'chat', 'run-stats', 'room-progress', 'group-rows', 'exchange', 'exchange-text', 'file-text', 'usage', 'schedules', 'memory-view', 'browser-wait', 'browser-result', 'diagnostics', 'diagnostics-log', 'diagnostics-clear', 'update-check', 'update-install', 'dsh-update-install', 'repo-stars', 'approval-answer', 'thinking', 'avatar-library', 'computer-system-status', 'computer-shot', 'local-agents', 'local-agent-models', 'browser-frame', 'hello', 'notices', 'avatar', 'room-chat', 'usage-summary', 'image'])
+  const READS = new Set(['state', 'models', 'efforts', 'providers', 'provider-models', 'earlier', 'chat', 'run-stats', 'room-progress', 'group-rows', 'exchange', 'exchange-text', 'file-text', 'usage', 'schedules', 'memory-view', 'browser-wait', 'browser-result', 'diagnostics', 'diagnostics-log', 'diagnostics-clear', 'update-check', 'update-install', 'dsh-update-install', 'repo-stars', 'approval-answer', 'thinking', 'avatar-library', 'computer-system-status', 'computer-shot', 'local-agents', 'local-agent-models', 'browser-frame', 'hello', 'notices', 'avatar', 'room-chat', 'usage-summary', 'image', 'file-download'])
 
   async function setPrefs(body) {
     if (body.theme !== undefined) {
@@ -328,6 +328,14 @@ export function install(rt) {
           const room = rt.roomOf(body.roomId) ?? rt.roomOf(rt.pastOwners.get(body.roomId)?.roomId)
           return ok([...rt.roomProgress.entries()].filter(([, entry]) => entry.roomId === (room?.id ?? body.roomId)).map(([callId, entry]) => ({ callId, replies: rt.groupRows(entry.roomId, entry.from), speaking: entry.slots.filter(slot => slot.status === 'speaking').map(slot => slot.id) })))
         }
+        // Search a group's messages, newest first, each hit with its neighbours.
+        // `before` (a seq) or `offset` continues into older hits.
+        case 'group-search': {
+          await rt.load()
+          const room = rt.roomOf(body.roomId) ?? rt.roomOf(rt.pastOwners.get(body.roomId)?.roomId)
+          if (room === undefined) return fail('Unknown group chat', 'bot/not-found')
+          return ok(rt.groupSearch(room.id, body.query, { before: body.before, offset: body.offset }))
+        }
         // The rows a settled round of a group chat shows, from its book.
         case 'group-rows': {
           await rt.load()
@@ -410,6 +418,23 @@ export function install(rt) {
             sectionId: body.sectionId,
           })
           return ok({ room: view().rooms.find(entry => entry.id === room.id), changes })
+        }
+        // The user ticks, removes, or clears completed shared to-dos in the group's
+        // details; members read and change the same list with the group_todo tool.
+        case 'room-todo': {
+          await rt.load()
+          const room = rt.roomOf(String(body.roomId ?? ''))
+          if (room === undefined) return fail('Unknown group chat', 'room/not-found')
+          if (body.action === 'clear') {
+            const removed = await rt.clearDoneRoomTodos(room.id)
+            return ok({ removed: removed.length, todos: room.todos ?? [] })
+          }
+          if (body.action === 'remove') {
+            const item = await rt.removeRoomTodo(room.id, String(body.id ?? ''))
+            return ok({ item, todos: room.todos ?? [] })
+          }
+          const item = await rt.setRoomTodoDone(room.id, String(body.id ?? ''), typeof body.done === 'boolean' ? body.done : undefined)
+          return ok({ item, todos: room.todos ?? [] })
         }
         case 'folders':
         case 'folder-pick':
@@ -568,6 +593,7 @@ export function install(rt) {
         case 'avatar':
         case 'room-chat':
         case 'image':
+        case 'file-download':
         case 'usage-summary':
         case 'memory-edit':
         case 'memory-add':
@@ -800,6 +826,7 @@ export function install(rt) {
     }
   }
 
+  rt.channelCall = handle
   rt.phoneServe(handle)
 
   // How a user message reaches a Session: a Bot id, a group chat's id, or an earlier

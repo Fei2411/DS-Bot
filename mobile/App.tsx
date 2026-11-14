@@ -10,6 +10,7 @@ import { loadComputer, loadIdentity, onPrefsChange, readPrefs, setActiveComputer
 import { ComputersCtx, type ComputerActions } from './src/nav/computers.ts'
 import { errorText } from './src/team/link.ts'
 import { DEMO, DemoProvider, TeamProvider, useTeam } from './src/team/context.tsx'
+import { ErrorBoundary } from './src/ui/error-boundary.tsx'
 import { palette, ThemeContext, useTheme } from './src/ui/tokens.ts'
 import { Pair } from './src/screens/Pair.tsx'
 import ShellB from './src/nav/ShellB.tsx'
@@ -72,7 +73,9 @@ function ThemedShell({ lang }: { lang?: string }) {
   return (
     <ThemeContext.Provider value={value}>
       <NavigationContainer key={lang} theme={navTheme} initialState={navState.current} onStateChange={state => { navState.current = state }}>
-        <ShellB />
+        <ErrorBoundary>
+          <ShellB />
+        </ErrorBoundary>
       </NavigationContainer>
     </ThemeContext.Provider>
   )
@@ -130,7 +133,9 @@ export default function App() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
-        <Boot />
+        <ErrorBoundary>
+          <Boot />
+        </ErrorBoundary>
         <StatusBar style={dark ? 'light' : 'dark'} />
       </SafeAreaProvider>
     </GestureHandlerRootView>

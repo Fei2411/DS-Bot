@@ -1,7 +1,7 @@
 {
   "name": "dsbot",
   "productName": "DS Bot",
-  "version": "0.3.2",
+  "version": "0.3.6",
   "private": true,
   "description": "DS Bot desktop app: the ds-bot team on its own pinned DeepSeek Harness.",
   "author": "Fei2411",
@@ -59,6 +59,7 @@
     "@deepseek-ai/dsh-skill-office": "0.2.2-rc.1",
     "@deepseek-ai/dsh-spill": "0.2.2-rc.1",
     "@deepseek-ai/dsh-tool-workspace-dependencies": "0.2.2-rc.1",
+    "@deepseek-ai/dsh-typert-protocol": "0.2.2-rc.1",
     "@deepseek-ai/dsh-util-time": "0.2.2-rc.1",
     "@deepseek-ai/dsh-util-workspace-path": "0.2.2-rc.1",
     "@deepseek-ai/dsh-workflow": "0.2.2-rc.1",
