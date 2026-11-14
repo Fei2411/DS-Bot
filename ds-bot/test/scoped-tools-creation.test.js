@@ -482,3 +482,64 @@ test('a live Bot Session gets its team tools back after a disable and re-enable'
   assert.ok(hasShowView(second, 'a'), 'the scoped team tools are back')
   assert.ok(denied(second, 'a'), 'the blocking question tool is denied again')
 })
+
+test('connector tool masking converges without re-entry or lift ping-pong when schemas omit restricted tools', async (t) => {
+  // In DSH, ctx.tools.schemas(agent) returns only unrestricted tools, and
+  // restrict()/lift() fire tools/change. Masking must keep denied connector
+  // names across tools/change and guard synchronous re-entry.
+  const host = start(TEAM, {}, [
+    { name: 'mcp__notion__search', description: 'search', execute: async () => 'ok' },
+    { name: 'mcp__notion__create', description: 'create', execute: async () => 'ok' },
+  ])
+  t.after(host.stop)
+  await host.call('state', {})
+  await rt.connectorEndpoint('connector-set', { id: 'notion', offFor: ['a'] })
+
+  let restrictCalls = 0
+  let liftCalls = 0
+  const baseAgent = host.agentOf('a')
+  const baseRestrict = baseAgent.ctx.tools.restrict
+  baseAgent.ctx.tools.restrict = (filter) => {
+    restrictCalls += 1
+    const baseLift = baseRestrict(filter)
+    host.ctx.emit('tools/change', {})
+    return () => {
+      liftCalls += 1
+      baseLift()
+      host.ctx.emit('tools/change', {})
+    }
+  }
+  const baseSchemas = host.ctx.tools.schemas.bind(host.ctx.tools)
+  host.ctx.tools.schemas = (agent) => {
+    const blocked = new Set(host.restricted.filter(r => r.sessionId === agent?.session?.id).flatMap(r => r.deny))
+    return [
+      ...baseSchemas(agent),
+      { name: 'mcp__notion__search' },
+      { name: 'mcp__notion__create' },
+    ].filter(schema => !blocked.has(schema.name))
+  }
+
+  await host.agentCreated('a')
+  assert.equal(restrictCalls, 2)
+  assert.equal(liftCalls, 0)
+  assert.deepEqual(
+    host.restricted.filter(r => r.sessionId === 'a').flatMap(r => r.deny).filter(name => name.startsWith('mcp__notion__')).sort(),
+    ['mcp__notion__create', 'mcp__notion__search'],
+  )
+
+  // Subsequent tools/change events must not lift and re-deny the masked tools.
+  await host.ctx.emit('tools/change', {})
+  await host.ctx.emit('tools/change', {})
+  assert.equal(restrictCalls, 2)
+  assert.equal(liftCalls, 0)
+
+  // Turning the connector back on lifts the mask cleanly.
+  await rt.connectorEndpoint('connector-set', { id: 'notion', offFor: [] })
+  await host.ctx.emit('tools/change', {})
+  assert.equal(liftCalls, 1)
+  assert.equal(restrictCalls, 2)
+  assert.deepEqual(
+    host.restricted.filter(r => r.sessionId === 'a').flatMap(r => r.deny).filter(name => name.startsWith('mcp__notion__')),
+    [],
+  )
+})

@@ -939,29 +939,69 @@ export function install(rt) {
 
   // Per-Bot connector switches (state.connectors[id].offFor): deny the served
   // tools matching each off connector's prefix. Re-applied on tools/change.
+  let masking = false
+  let maskDirty = false
   const maskConnectorTools = (agent, held) => {
     if (typeof agent.ctx?.tools?.restrict !== 'function' || typeof ctx.tools?.schemas !== 'function') return
     const botId = rt.selfOf(agent.session?.id)
     const prefixes = rt.connectorOffFor?.(botId) ?? []
-    const served = new Set(ctx.tools.schemas(agent).map(schema => schema.name))
-    const deny = [...served].filter(name => prefixes.some(prefix => name.startsWith(prefix)))
     const before = held.connectorDenied ?? new Set()
+    if (prefixes.length === 0 && before.size === 0) return
+    const served = new Set(ctx.tools.schemas(agent).map(schema => schema.name))
+    // Keep previously denied tools whose connector is still off: schemas(agent)
+    // omits already-restricted tools, so dropping them here would lift and
+    // re-deny on every tools/change event.
+    const kept = [...before].filter(name => prefixes.some(prefix => name.startsWith(prefix)))
+    const added = prefixes.length === 0 ? [] : [...served].filter(name => prefixes.some(prefix => name.startsWith(prefix)))
+    const deny = [...new Set([...kept, ...added])]
     if (deny.length === before.size && deny.every(name => before.has(name))) return
-    for (const lift of held.connectorLifts ?? []) { try { lift() } catch { /* already lifted */ } }
+    // Update connectorDenied before lifting/restricting so any synchronous
+    // tools/change emitted by lift() or restrict() sees the new target state.
+    const oldLifts = held.connectorLifts ?? []
     held.connectorLifts = []
     held.connectorDenied = new Set(deny)
-    for (const name of deny) {
-      try {
-        const lift = agent.ctx.tools.restrict({ deny: [name] })
-        if (typeof lift === 'function') held.connectorLifts.push(lift)
-      } catch { /* a scoped name cannot be restricted; connectors are global */ }
+    for (const lift of oldLifts) { try { lift() } catch { /* already lifted */ } }
+    if (deny.length === 0) return
+    try {
+      const lift = agent.ctx.tools.restrict({ deny })
+      if (typeof lift === 'function') held.connectorLifts.push(lift)
+    } catch {
+      for (const name of deny) {
+        try {
+          const lift = agent.ctx.tools.restrict({ deny: [name] })
+          if (typeof lift === 'function') held.connectorLifts.push(lift)
+        } catch { /* a scoped name cannot be restricted; connectors are global */ }
+      }
+    }
+  }
+  const runMaskPass = (initialFn) => {
+    if (masking) {
+      maskDirty = true
+      return
+    }
+    masking = true
+    try {
+      initialFn()
+      let passes = 0
+      while (maskDirty && passes < 5) {
+        maskDirty = false
+        passes += 1
+        for (const held of scoped.values()) {
+          if (held.agent === undefined) continue
+          try { maskConnectorTools(held.agent, held) } catch (error) { rt.warn('ds-bot: connector mask failed: %s', error) }
+        }
+      }
+    } finally {
+      masking = false
     }
   }
   const reapplyToolMasks = () => {
-    for (const held of scoped.values()) {
-      if (held.agent === undefined) continue
-      try { maskConnectorTools(held.agent, held) } catch (error) { rt.warn('ds-bot: connector mask failed: %s', error) }
-    }
+    runMaskPass(() => {
+      for (const held of scoped.values()) {
+        if (held.agent === undefined) continue
+        try { maskConnectorTools(held.agent, held) } catch (error) { rt.warn('ds-bot: connector mask failed: %s', error) }
+      }
+    })
   }
 
   // restrict() throws on a name this profile does not serve.
@@ -1016,7 +1056,7 @@ export function install(rt) {
     if (held.restricted !== true && typeof agent.ctx?.tools?.restrict === 'function') {
       maskHiddenTools(agent, held, new Set(ctx.tools.schemas(agent).map(schema => schema.name)))
     }
-    maskConnectorTools(agent, held)
+    runMaskPass(() => maskConnectorTools(agent, held))
   }
   ctx.on('tools/change', () => reapplyToolMasks())
   // A new Bot, part, or group Session gets its Agent before ds-bot records it, so the
