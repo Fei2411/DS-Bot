@@ -124,6 +124,28 @@ test('client resolution: CIMD only on the fixed port, DCR fallback, re-registrat
   assert.equal(catalog.clientInformation.client_id, 'ghc')
 })
 
+test('a stored manual client keeps its secret for the token request', async () => {
+  const discovery = { authorizationServerUrl: 'https://as.test', metadata: { authorization_endpoint: 'https://as.test/auth', token_endpoint: 'https://as.test/token' }, resource: 'r' }
+  const entry = { auth: { kind: 'oauth' } }
+  // The user typed the client in by hand: the AS still signs the token request with it.
+  const stored = { via: 'manual', clientId: 'manual-id', clientSecret: 'manual-secret' }
+  const reused = await oauth.resolveClient(entry, discovery, 'http://127.0.0.1:38517/callback', true, stored)
+  assert.equal(reused.via, 'manual')
+  assert.deepEqual(reused.clientInformation, { client_id: 'manual-id', client_secret: 'manual-secret' })
+  // …and the token request signs with it, which is what Slack checks.
+  let sent
+  const request = async (url, init) => {
+    url = String(url?.url ?? url)
+    if (url === 'https://as.test/token') { sent = init.headers.get('authorization'); return json({ access_token: 'AT', token_type: 'Bearer' }) }
+    throw new Error(`unfaked ${url}`)
+  }
+  await oauth.exchange(discovery, reused.clientInformation, { code: 'C', codeVerifier: 'v', redirectUri: 'http://127.0.0.1:38517/callback' }, { fetch: request })
+  assert.equal(sent, `Basic ${Buffer.from('manual-id:manual-secret').toString('base64')}`)
+  // A public client has no secret to sign with.
+  const publicClient = await oauth.resolveClient(entry, discovery, 'http://127.0.0.1:38517/callback', true, { via: 'manual', clientId: 'public-id' })
+  assert.deepEqual(publicClient.clientInformation, { client_id: 'public-id' })
+})
+
 test('browser PKCE carries state, code challenge, and resource; tokens exchange and refresh', async () => {
   const discovery = { authorizationServerUrl: 'https://as.test', metadata: AS, scope: 'mcp:all', resource: 'https://mcp.test/mcp' }
   const client = { client_id: 'dcr-1' }
@@ -801,6 +823,80 @@ test('a stored CIMD client is reused only with the fixed port', async () => {
   const request = async (url, init) => url.toString() === 'https://as.test/register' ? json({ client_id: 'dcr-9', redirect_uris: JSON.parse(init.body).redirect_uris }) : notFound()
   const random = await oauth.resolveClient(entry, discovery, 'http://127.0.0.1:9/callback', false, stored, { fetch: request })
   assert.equal(random.via, 'dcr')
+})
+
+test('a retried sign-in releases the old listener and keeps one callback address', async (t) => {
+  const real = globalThis.fetch
+  const metadata = { issuer: 'https://as.test', authorization_endpoint: 'https://as.test/auth', token_endpoint: 'https://as.test/token', response_types_supported: ['code'], code_challenge_methods_supported: ['S256'] }
+  let signIn
+  globalThis.fetch = async (url, init) => {
+    url = String(url?.url ?? url)
+    if (url.includes('oauth-authorization-server')) return json(metadata)
+    if (url.includes('oauth-protected-resource')) return json({ resource: 'https://mcp.notion.com/mcp', authorization_servers: ['https://as.test'] })
+    if (url === 'https://as.test/token') { signIn = init.headers.get('authorization'); return json({ access_token: 'AT-9', token_type: 'Bearer' }) }
+    return new Response('', { status: 401 })
+  }
+  t.after(() => { globalThis.fetch = real })
+  const home = teamHome()
+  const ctx = fakeContext()
+  const rt = createRuntime(ctx, { home, github: false })
+  t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true }) })
+  await rt.load()
+  // No CIMD and no DCR: the first attempt keeps its listener while the client form is shown.
+  await rt.connectorEndpoint('connector-connect', { id: 'notion' })
+  const internals = rt.connectorsInternals
+  const first = internals.pendings.get('notion')
+  assert.equal(first.listener.listening, true)
+  assert.equal(internals.statuses.get('notion').state, 'needs-client')
+  await rt.connectorEndpoint('connector-client', { id: 'notion', clientId: 'manual-id', clientSecret: 'manual-secret' })
+  const second = internals.pendings.get('notion')
+  // The replaced attempt gave its port back, so the second one can take it again.
+  assert.equal(first.listener.listening, false)
+  assert.equal(second.listener.listening, true)
+  assert.equal(second.kind, 'browser')
+  assert.equal(second.redirectUri, first.redirectUri)
+  assert.deepEqual(second.clientInformation, { client_id: 'manual-id', client_secret: 'manual-secret' })
+  // The callback the browser would hit completes the sign-in with that client.
+  const state = new URL(second.row.url).searchParams.get('state')
+  await rt.connectorEndpoint('connector-sign-in-code', { id: 'notion', input: `http://127.0.0.1/callback?code=CODE-1&state=${state}` })
+  assert.equal(signIn, `Basic ${Buffer.from('manual-id:manual-secret').toString('base64')}`)
+  assert.equal(rt.secretValue('CONNECTOR_NOTION_TOKEN'), 'AT-9')
+  assert.equal(internals.pendings.has('notion'), false)
+})
+
+test('a fixed port taken by another app falls back to one stable callback address', async (t) => {
+  const blocker = createServer(() => {})
+  // Whatever holds the port (this test or something else), the flow must not move
+  // to a new address on every retry.
+  await new Promise(resolve => { blocker.once('error', () => resolve()); blocker.listen(38517, '127.0.0.1', () => resolve()) })
+  t.after(() => { try { blocker.close() } catch { /* not listening */ } })
+  const real = globalThis.fetch
+  const metadata = { issuer: 'https://as.test', authorization_endpoint: 'https://as.test/auth', token_endpoint: 'https://as.test/token', response_types_supported: ['code'], code_challenge_methods_supported: ['S256'] }
+  globalThis.fetch = async (url) => {
+    url = String(url?.url ?? url)
+    if (url.includes('oauth-authorization-server')) return json(metadata)
+    if (url.includes('oauth-protected-resource')) return json({ resource: 'https://mcp.notion.com/mcp', authorization_servers: ['https://as.test'] })
+    return new Response('', { status: 401 })
+  }
+  t.after(() => { globalThis.fetch = real })
+  const home = teamHome()
+  const ctx = fakeContext()
+  const rt = createRuntime(ctx, { home, github: false })
+  t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true }) })
+  await rt.load()
+  await rt.connectorEndpoint('connector-connect', { id: 'notion' })
+  const first = rt.connectorsInternals.pendings.get('notion')
+  assert.notEqual(first.redirectUri, `http://127.0.0.1:${oauth.FIXED_CALLBACK_PORT}/callback`)
+  // Churn the ephemeral range, so a fresh listen(0) would land on another port:
+  // the address stays only because the sign-in remembers the one that worked.
+  const noise = await Promise.all(Array.from({ length: 8 }, () => new Promise(resolve => {
+    const server = createServer(() => {})
+    server.listen(0, '127.0.0.1', () => resolve(server))
+  })))
+  await Promise.all(noise.map(server => new Promise(resolve => server.close(resolve))))
+  await rt.connectorEndpoint('connector-client', { id: 'notion', clientId: 'manual-id', clientSecret: 'manual-secret' })
+  const second = rt.connectorsInternals.pendings.get('notion')
+  assert.equal(second.redirectUri, first.redirectUri)
 })
 
 test('connector-sign-in-code refuses a wrong state and accepts the pasted URL or bare code', async (t) => {

@@ -258,16 +258,34 @@ export function install(rt) {
     return typeof body?.[entry.whoami.field] === 'string' ? body[entry.whoami.field] : undefined
   }
 
+  // A listener left open holds the fixed callback port, and every later attempt
+  // then falls back to a new random port. close() alone waits for an open
+  // browser connection, so its sockets go first.
+  const closeListener = (listener) => new Promise(resolve => {
+    if (listener?.listening !== true) { resolve(); return }
+    for (const socket of listener.loopbackSockets ?? []) socket.destroy()
+    listener.loopbackSockets?.clear()
+    try { listener.close(() => resolve()) } catch { resolve() }
+  })
+
+  const releasePending = async (pending) => {
+    if (pending === undefined) return
+    if (pending.timer !== undefined) clearTimeout(pending.timer)
+    await closeListener(pending.listener)
+  }
+
   async function endPending(id, status) {
     const pending = pendings.get(id)
     pendings.delete(id)
-    if (pending?.timer !== undefined) clearTimeout(pending.timer)
-    if (pending?.listener !== undefined) await new Promise(resolve => pending.listener.close(resolve)).catch(() => {})
+    await releasePending(pending)
     if (status !== undefined) statuses.set(id, status)
     else statuses.delete(id)
   }
 
-  // The loopback server for the browser flow: fixed port first, else a random one.
+  // The loopback server for the browser flow. The fixed port is the address the
+  // app documents for its callback; when something else holds it, the port that
+  // worked last time comes next, so a retry keeps one address to configure.
+  let callbackPort = 0
   async function loopback(ready) {
     const listener = createServer((req, res) => {
       req.on('error', () => res.destroy())
@@ -279,6 +297,12 @@ export function install(rt) {
       res.end('<!doctype html><title>Signed in</title><p style="font-family:sans-serif;margin:3em;text-align:center">Signed in — you can close this tab and go back to DS Bot.</p>')
       void ready({ code: url.searchParams.get('code'), state: url.searchParams.get('state'), iss: url.searchParams.get('iss'), error: url.searchParams.get('error'), errorDescription: url.searchParams.get('error_description') }).catch(error => rt.warn('ds-bot: connector sign-in callback failed: %s', reason(error)))
     })
+    const sockets = new Set()
+    listener.loopbackSockets = sockets
+    listener.on('connection', socket => {
+      sockets.add(socket)
+      socket.on('close', () => sockets.delete(socket))
+    })
     listener.on('error', error => {
       if (listener.listening) rt.warn('ds-bot: connector sign-in listener failed: %s', error?.code ?? 'error')
     })
@@ -289,41 +313,56 @@ export function install(rt) {
       listener.once('listening', onOk)
       listener.listen(port, '127.0.0.1')
     })
-    try {
-      await listen(oauth.FIXED_CALLBACK_PORT)
-      return { listener, fixed: true, redirectUri: `http://127.0.0.1:${oauth.FIXED_CALLBACK_PORT}/callback` }
-    } catch {
-      await listen(0)
-      const port = listener.address().port
-      return { listener, fixed: false, redirectUri: `http://127.0.0.1:${port}/callback` }
+    const ports = [oauth.FIXED_CALLBACK_PORT, ...(callbackPort !== 0 && callbackPort !== oauth.FIXED_CALLBACK_PORT ? [callbackPort] : []), 0]
+    for (const port of ports) {
+      try {
+        await listen(port)
+      } catch (error) {
+        if (port === 0) throw error
+        continue
+      }
+      const bound = listener.address().port
+      const fixed = bound === oauth.FIXED_CALLBACK_PORT
+      if (!fixed) callbackPort = bound
+      return { listener, fixed, redirectUri: `http://127.0.0.1:${bound}/callback` }
     }
   }
 
   async function startBrowserFlow(id, entry, pending) {
+    // This attempt replaces the last one: its listener has to go first, or it
+    // keeps the fixed port and this attempt falls back to a random one.
+    const previous = pendings.get(id)
+    pendings.delete(id)
+    await releasePending(previous)
     const { listener, fixed, redirectUri } = await loopback(({ code, state, iss, error, errorDescription }) => completeBrowser(id, { code, state, iss, error, errorDescription }))
-    const saved = state.connectors?.[id]
-    const persist = async (client) => {
-      const { clientSecret, ...rest } = client
-      if (clientSecret !== undefined) await writeSecret(clientSecretOf(id), clientSecret, `${entry.name} connector`)
-      await saveState(id, { client: rest })
+    try {
+      const saved = state.connectors?.[id]
+      const persist = async (client) => {
+        const { clientSecret, ...rest } = client
+        if (clientSecret !== undefined) await writeSecret(clientSecretOf(id), clientSecret, `${entry.name} connector`)
+        await saveState(id, { client: rest })
+      }
+      const resolved = await oauth.resolveClient(entry, pending.discovery, redirectUri, fixed, saved?.client ? { ...saved.client, clientSecret: rt.secretValue(clientSecretOf(id)) } : undefined, { persist })
+      if (resolved === null) {
+        pendings.set(id, { ...pending, listener, redirectUri })
+        statuses.set(id, { state: 'needs-client' })
+        return
+      }
+      // Refresh needs to know which client signed in; DCR already persisted its result.
+      if (resolved.via !== 'dcr') await saveState(id, { client: { via: resolved.via, clientId: resolved.clientInformation.client_id } })
+      const stateParam = randomBytes(16).toString('base64url')
+      const { url, codeVerifier } = await oauth.beginBrowser(pending.discovery, resolved.clientInformation, redirectUri, { state: stateParam })
+      pendings.set(id, {
+        ...pending, kind: 'browser', listener, redirectUri, codeVerifier, expectedState: stateParam,
+        clientInformation: resolved.clientInformation,
+        row: { kind: 'browser', url },
+        timer: setTimeout(() => void expire(id), SIGN_IN_TIMEOUT_MS),
+      })
+      statuses.set(id, { state: 'connecting' })
+    } catch (error) {
+      await closeListener(listener)
+      throw error
     }
-    const resolved = await oauth.resolveClient(entry, pending.discovery, redirectUri, fixed, saved?.client ? { ...saved.client, clientSecret: rt.secretValue(clientSecretOf(id)) } : undefined, { persist })
-    if (resolved === null) {
-      pendings.set(id, { ...pending, listener, redirectUri })
-      statuses.set(id, { state: 'needs-client' })
-      return
-    }
-    // Refresh needs to know which client signed in; DCR already persisted its result.
-    if (resolved.via !== 'dcr') await saveState(id, { client: { via: resolved.via, clientId: resolved.clientInformation.client_id } })
-    const stateParam = randomBytes(16).toString('base64url')
-    const { url, codeVerifier } = await oauth.beginBrowser(pending.discovery, resolved.clientInformation, redirectUri, { state: stateParam })
-    pendings.set(id, {
-      ...pending, kind: 'browser', listener, redirectUri, codeVerifier, expectedState: stateParam,
-      clientInformation: resolved.clientInformation,
-      row: { kind: 'browser', url },
-      timer: setTimeout(() => void expire(id), SIGN_IN_TIMEOUT_MS),
-    })
-    statuses.set(id, { state: 'connecting' })
   }
 
   async function expire(id) {
@@ -833,14 +872,13 @@ export function install(rt) {
     void rt.load().then(() => rt.loadSecrets()).then(() => sync())
     return () => {
       stopped = true
-      for (const pending of pendings.values()) if (pending.timer !== undefined) clearTimeout(pending.timer)
-      for (const pending of pendings.values()) pending.listener?.close()
+      const released = [...pendings.values()].map(releasePending)
       pendings.clear()
       const closing = [...mounts.values()].map(mount => Promise.resolve().then(() => mount.fiber?.dispose()).catch(() => {}))
       mounts.clear()
       const gw = gateways.gw
       gateways.gw = null
-      return Promise.all([...closing, gw?.close(), mailApi.dispose()])
+      return Promise.all([...released, ...closing, gw?.close(), mailApi.dispose()])
     }
   }, 'ds-bot: connectors')
 
