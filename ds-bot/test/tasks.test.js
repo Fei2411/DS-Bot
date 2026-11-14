@@ -198,3 +198,28 @@ test('a panel note reaches the task owner as a user message, and both panel acti
   assert.equal(after(second.id).status, 'cancelled')
   assert.equal(host.prompts.length, 1)
 })
+
+
+test('a finished task is immutable through every Bot action', async () => {
+  for (const terminal of ['complete', 'cancel']) {
+    const host = fakeHost()
+    await host.tool({ action: 'open', goal: 'Deliver' }, 'gb')
+    const id = host.tasks()[0].id
+    await host.tool({ action: terminal, id, result: 'delivered', reason: 'stopped' }, 'gb')
+    const saved = JSON.stringify(host.tasks())
+    for (const action of ['update', 'complete', 'cancel']) {
+      assert.equal(await host.tool({ action, id, status: 'active', progress: 'late', result: 'changed' }, 'gb'), 'That task is already finished.')
+      assert.equal(JSON.stringify(host.tasks()), saved)
+    }
+  }
+})
+
+test('finished tasks stay in the board history beyond two hundred deliveries', async () => {
+  const host = fakeHost()
+  for (let i = 0; i < 205; i++) {
+    await host.tool({ action: 'open', goal: `Deliver ${i}` }, 'gb')
+    await host.tool({ action: 'complete', result: `Result ${i}` }, 'gb')
+  }
+  assert.equal(host.tasks().length, 205)
+  assert.ok(host.tasks().some(task => task.goal === 'Deliver 0'))
+})

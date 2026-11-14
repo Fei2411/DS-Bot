@@ -13,8 +13,6 @@ const PROGRESS_MAX = 300
 const RESULT_MAX = 2000
 const NOTE_MAX = 500
 const REASON_MAX = 500
-const TASKS_MAX = 200
-const HISTORY_MAX = 50
 
 const oneLine = (text, max) => String(text ?? '').replace(/\s+/g, ' ').trim().slice(0, max)
 const tasksOf = room => (room.tasks ??= {})
@@ -30,15 +28,6 @@ function pickTask(room, id, botId) {
   return openTasksOf(room).filter(task => task.botId === botId).at(-1)
 }
 
-function prune(room) {
-  const all = listOf(room)
-  if (all.length <= TASKS_MAX) return
-  const terminal = all.filter(task => !OPEN_STATUSES.includes(task.status))
-  for (const task of terminal.slice(0, Math.max(0, all.length - TASKS_MAX))) delete tasksOf(room)[task.id]
-  const left = listOf(room).filter(task => !OPEN_STATUSES.includes(task.status))
-  for (const task of left.slice(0, Math.max(0, left.length - HISTORY_MAX))) delete tasksOf(room)[task.id]
-}
-
 export function install(rt) {
   const open = (room, botId, goal) => {
     const text = oneLine(goal, GOAL_MAX)
@@ -46,12 +35,12 @@ export function install(rt) {
     const at = Date.now()
     const task = { id: newId(), botId, goal: text, status: 'active', startedAt: at, updatedAt: at, progress: '' }
     tasksOf(room)[task.id] = task
-    prune(room)
     return { task }
   }
   const update = (room, botId, id, { status, progress } = {}) => {
     const task = pickTask(room, id, botId)
     if (task === undefined) return { error: 'No open task of yours in this group. Name one with its id, or open a task first.' }
+    if (!OPEN_STATUSES.includes(task.status)) return { error: 'That task is already finished.' }
     if (task.botId !== botId) return { error: `Task ${task.id} belongs to another member.` }
     if (status !== undefined && !OPEN_STATUSES.includes(status)) {
       return { error: `A running task\'s status is ${OPEN_STATUSES.join(', ')}; finish it with complete or cancel.` }
@@ -64,6 +53,7 @@ export function install(rt) {
   const complete = (room, botId, id, result) => {
     const task = pickTask(room, id, botId)
     if (task === undefined) return { error: 'No open task of yours in this group.' }
+    if (!OPEN_STATUSES.includes(task.status)) return { error: 'That task is already finished.' }
     if (task.botId !== botId) return { error: `Task ${task.id} belongs to another member.` }
     const text = oneLine(result, RESULT_MAX)
     if (text === '') return { error: 'A finished task needs a result summary.' }
@@ -75,6 +65,7 @@ export function install(rt) {
   const cancel = (room, botId, id, reason, isAdmin) => {
     const task = pickTask(room, id, botId)
     if (task === undefined) return { error: 'No open task to cancel.' }
+    if (!OPEN_STATUSES.includes(task.status)) return { error: 'That task is already finished.' }
     if (task.botId !== botId && !isAdmin) return { error: `Task ${task.id} belongs to another member; only its owner, the admin or a Main Bot cancels it.` }
     task.status = 'cancelled'
     const why = oneLine(reason, REASON_MAX)
