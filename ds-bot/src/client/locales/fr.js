@@ -1171,6 +1171,7 @@ export const FR = {
   "Own chat": "Discussion privée",
   "Side chat": "Discussion parallèle",
   "New browser tab": "Nouvel onglet de navigateur",
+  "Toggle the side panel": "Afficher ou masquer le panneau latéral",
   "Terminal": "Terminal",
   "Files": "Fichiers",
   "Close side chat": "Fermer la discussion parallèle",

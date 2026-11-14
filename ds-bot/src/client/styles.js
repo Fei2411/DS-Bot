@@ -876,6 +876,8 @@ button:hover .bt-you{background:color-mix(in srgb,var(--bt-ink) 9%,var(--bt-side
 .bt-palette-empty-hint{font-size:13px;line-height:16px;color:var(--bt-ink-3)}
 .bt-head-search{flex:none;margin-left:2px;pointer-events:auto}
 .bt-head-search svg{width:16px;height:16px}
+.bt-head-sidebar{flex:none;margin-left:2px;pointer-events:auto}
+.bt-head-sidebar svg{width:16px;height:16px}
 .bt-gs-body{position:relative;flex:1;min-height:220px;max-height:min(420px,54vh);overflow-y:auto;padding:6px 8px;box-sizing:border-box}
 .bt-gs-row{display:flex;flex-direction:column;gap:3px;width:100%;padding:9px 10px;border:0;border-radius:10px;background:none;color:inherit;font:inherit;text-align:left;cursor:pointer;box-sizing:border-box}
 .bt-gs-row:hover,.bt-gs-row:focus-visible{background:var(--bt-hover)}

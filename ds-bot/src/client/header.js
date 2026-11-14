@@ -1,7 +1,7 @@
 import { createElement as h, Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { currentPart, latestMemoryChange } from './text.js'
-import { ArrowUpIcon, CloseIcon, ArrowDownIcon, GoalIcon, MemoryIcon, SearchIcon } from './icons.js'
+import { ArrowUpIcon, CloseIcon, ArrowDownIcon, GoalIcon, MemoryIcon, SearchIcon, SidebarIcon } from './icons.js'
 import { botState, BotAvatar, RoomAvatar } from './mark.js'
 import { AgentBadge } from './agent-badge.js'
 import { ActivityIndicator } from './activity-row.js'
@@ -142,6 +142,12 @@ export function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus
         type: 'button', className: 'bt-icon-btn bt-head-search', 'aria-label': t('Search this group'), title: t('Search this group'),
         onClick: () => actions.openGroupSearch(room.id),
       }, h(SearchIcon))
+      : null,
+    actions.canToggleHostSidebar?.() === true
+      ? h('button', {
+        type: 'button', className: 'bt-icon-btn bt-head-sidebar', 'aria-label': t('Toggle the side panel'), title: t('Toggle the side panel'),
+        onClick: () => actions.toggleHostSidebar(),
+      }, h(SidebarIcon))
       : null,
     h(NewMessagePills, { key: sessionId, sessionId, useSessions, useUi, useTurnClock }),
     h(ActivityIndicator, { key: `activity:${sessionId}`, sessionId, useRoster, useSessionStatus, useSession, useLive, useWork, actions }))

@@ -983,6 +983,21 @@ export function apply(ctx) {
       actions.reportError(error, 'right-sidebar')
     }
   }
+  // DSH's right column itself, for the tabs other plugins register there (a CAD
+  // viewer, for example). Bot mode has no other way in: the column is mounted by
+  // the frame, but nothing in the Bot surface opens it.
+  actions.canToggleHostSidebar = () => ctx.get('sidebarRight') !== undefined
+  actions.toggleHostSidebar = () => {
+    const sidebar = ctx.get('sidebarRight')
+    if (sidebar === undefined) return
+    try {
+      // An expanding column takes the drawer's space, as it does for Terminal.
+      if (sidebar.isExpanded() !== true) actions.closePanel()
+      sidebar.toggleExpanded()
+    } catch (error) {
+      actions.reportError(error, 'right-sidebar')
+    }
+  }
 
   // The drawer and DSH's right column never share the window: whichever the
   // user asked for last wins. The column's state is read off the frame's

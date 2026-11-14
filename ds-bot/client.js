@@ -1294,6 +1294,7 @@ var JA = {
   "Own chat": "個別チャット",
   "Side chat": "サイドチャット",
   "New browser tab": "新しいブラウザタブ",
+  "Toggle the side panel": "サイドパネルを切り替え",
   "Terminal": "ターミナル",
   "Files": "ファイル",
   "Close side chat": "サイドチャットを閉じる",
@@ -2474,6 +2475,7 @@ var DSH_JA = {
 
 // src/client/locales/ko.js
 var KO = {
+  "Toggle the side panel": "사이드 패널 전환",
   "Opening…": "여는 중…",
   "Still opening…": "아직 여는 중…",
   "Android beta": "Android 베타",
@@ -4869,6 +4871,7 @@ var DSH_KO = {
 
 // src/client/locales/es.js
 var ES = {
+  "Toggle the side panel": "Mostrar u ocultar el panel lateral",
   "Opening…": "Abriendo…",
   "Still opening…": "Sigue abriendo…",
   "Android beta": "Android beta",
@@ -8434,6 +8437,7 @@ var FR = {
   "Own chat": "Discussion privée",
   "Side chat": "Discussion parallèle",
   "New browser tab": "Nouvel onglet de navigateur",
+  "Toggle the side panel": "Afficher ou masquer le panneau latéral",
   "Terminal": "Terminal",
   "Files": "Fichiers",
   "Close side chat": "Fermer la discussion parallèle",
@@ -9614,6 +9618,7 @@ var DSH_FR = {
 
 // src/client/locales/de.js
 var DE = {
+  "Toggle the side panel": "Seitenleiste ein- oder ausblenden",
   "Opening…": "Wird geöffnet…",
   "Still opening…": "Wird noch geöffnet…",
   "Android beta": "Android-Beta",
@@ -13218,6 +13223,7 @@ var ZH = {
   "Side chat": "侧边对话",
   "New browser tab": "新建浏览器页",
   Terminal: "终端",
+  "Toggle the side panel": "侧栏面板",
   Files: "文件树",
   "Close side chat": "关闭侧边对话",
   "Delete side chat": "删除侧边对话",
@@ -16228,6 +16234,8 @@ button:hover .bt-you{background:color-mix(in srgb,var(--bt-ink) 9%,var(--bt-side
 .bt-palette-empty-hint{font-size:13px;line-height:16px;color:var(--bt-ink-3)}
 .bt-head-search{flex:none;margin-left:2px;pointer-events:auto}
 .bt-head-search svg{width:16px;height:16px}
+.bt-head-sidebar{flex:none;margin-left:2px;pointer-events:auto}
+.bt-head-sidebar svg{width:16px;height:16px}
 .bt-gs-body{position:relative;flex:1;min-height:220px;max-height:min(420px,54vh);overflow-y:auto;padding:6px 8px;box-sizing:border-box}
 .bt-gs-row{display:flex;flex-direction:column;gap:3px;width:100%;padding:9px 10px;border:0;border-radius:10px;background:none;color:inherit;font:inherit;text-align:left;cursor:pointer;box-sizing:border-box}
 .bt-gs-row:hover,.bt-gs-row:focus-visible{background:var(--bt-hover)}
@@ -36124,6 +36132,13 @@ function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus, useSe
       title: t("Search this group"),
       onClick: () => actions.openGroupSearch(room2.id)
     }, (0, import_react51.createElement)(SearchIcon)) : null,
+    actions.canToggleHostSidebar?.() === true ? (0, import_react51.createElement)("button", {
+      type: "button",
+      className: "bt-icon-btn bt-head-sidebar",
+      "aria-label": t("Toggle the side panel"),
+      title: t("Toggle the side panel"),
+      onClick: () => actions.toggleHostSidebar()
+    }, (0, import_react51.createElement)(SidebarIcon)) : null,
     (0, import_react51.createElement)(NewMessagePills, { key: sessionId, sessionId, useSessions, useUi, useTurnClock }),
     (0, import_react51.createElement)(ActivityIndicator, { key: `activity:${sessionId}`, sessionId, useRoster, useSessionStatus, useSession, useLive, useWork, actions })
   );
@@ -43919,6 +43934,17 @@ function apply(ctx) {
     actions.closePanel();
     try {
       ctx.get("sidebarRight")?.openTab("files");
+    } catch (error) {
+      actions.reportError(error, "right-sidebar");
+    }
+  };
+  actions.canToggleHostSidebar = () => ctx.get("sidebarRight") !== void 0;
+  actions.toggleHostSidebar = () => {
+    const sidebar = ctx.get("sidebarRight");
+    if (sidebar === void 0) return;
+    try {
+      if (sidebar.isExpanded() !== true) actions.closePanel();
+      sidebar.toggleExpanded();
     } catch (error) {
       actions.reportError(error, "right-sidebar");
     }

@@ -1,6 +1,7 @@
 // Spanish (es) localization for DS Bot client and DSH settings namespaces.
 
 export const ES = {
+  "Toggle the side panel": "Mostrar u ocultar el panel lateral",
   'Opening…': 'Abriendo…',
   'Still opening…': 'Sigue abriendo…',
   "Android beta": "Android beta",

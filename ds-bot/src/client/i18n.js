@@ -1211,6 +1211,7 @@ const ZH = {
   'Side chat': '侧边对话',
   'New browser tab': '新建浏览器页',
   Terminal: '终端',
+  'Toggle the side panel': '侧栏面板',
   Files: '文件树',
   'Close side chat': '关闭侧边对话',
   'Delete side chat': '删除侧边对话',

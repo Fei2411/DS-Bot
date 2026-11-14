@@ -1,6 +1,7 @@
 // German (de) localization for DS Bot client and DSH settings namespaces.
 
 export const DE = {
+  "Toggle the side panel": "Seitenleiste ein- oder ausblenden",
   'Opening…': 'Wird geöffnet…',
   'Still opening…': 'Wird noch geöffnet…',
   "Android beta": "Android-Beta",
