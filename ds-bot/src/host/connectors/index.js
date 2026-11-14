@@ -653,6 +653,7 @@ export function install(rt) {
   const rowFor = (entry) => {
     const saved = state.connectors?.[entry.id]
     const status = statuses.get(entry.id)
+    const pending = pendings.get(entry.id)
     const connected = hasCredential(entry.id)
     const remote = entry.custom === undefined || entry.custom.url !== undefined
     const state_ = status?.state ?? (connected && mounts.has(entry.id) ? 'ready' : connected ? 'connecting' : 'off')
@@ -670,7 +671,9 @@ export function install(rt) {
       offFor: saved?.offFor ?? [],
       tools: gateways.gw?.toolCount?.(entry.id) ?? 0,
       ...(entry.custom !== undefined ? { custom: true } : {}),
-      ...(pendings.has(entry.id) ? { pending: pendings.get(entry.id).row } : {}),
+      ...(pending !== undefined ? { pending: pending.row } : {}),
+      // The client form shows this address: the service's app must answer on it.
+      ...(pending?.redirectUri !== undefined ? { redirectUri: pending.redirectUri } : {}),
     }
   }
 

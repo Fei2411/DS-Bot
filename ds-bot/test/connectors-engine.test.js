@@ -843,11 +843,15 @@ test('a retried sign-in releases the old listener and keeps one callback address
   t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true }) })
   await rt.load()
   // No CIMD and no DCR: the first attempt keeps its listener while the client form is shown.
-  await rt.connectorEndpoint('connector-connect', { id: 'notion' })
+  const view = await rt.connectorEndpoint('connector-connect', { id: 'notion' })
   const internals = rt.connectorsInternals
   const first = internals.pendings.get('notion')
   assert.equal(first.listener.listening, true)
   assert.equal(internals.statuses.get('notion').state, 'needs-client')
+  // The form names the address the service's app has to answer on, and Slack
+  // says where to configure it.
+  assert.equal(view.connectors.find(connector => connector.id === 'notion').redirectUri, first.redirectUri)
+  assert.deepEqual(view.connectors.find(connector => connector.id === 'slack').auth.clientSetup, { kind: 'slack', appUrl: 'https://api.slack.com/apps' })
   await rt.connectorEndpoint('connector-client', { id: 'notion', clientId: 'manual-id', clientSecret: 'manual-secret' })
   const second = internals.pendings.get('notion')
   // The replaced attempt gave its port back, so the second one can take it again.
