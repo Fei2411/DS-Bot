@@ -54,7 +54,8 @@ import { MEMBER_CSS, MemberDock } from './member-status.js'
 import { TASK_CSS } from './task-board.js'
 import { IM_CSS } from './im-page.js'
 import { GOAL_CSS } from './goal.js'
-import { USER_MESSAGE_CSS, UserMessageCell, canDrawUserMessages } from './user-message.js'
+import { BotMention, USER_MESSAGE_CSS, UserMessageCell, canDrawUserMessages } from './user-message.js'
+import { BOT_MENTION_ID, installBotMentionRule } from './user-text-rule.js'
 import { QueueDock, QUEUE_CSS } from './queue-dock.js'
 import { PASTE_CSS, PasteDock, PasteGuard } from './paste-card.js'
 import { OPENING_CSS, bindOpeningWait } from './opening.js'
@@ -1157,6 +1158,13 @@ export function apply(ctx) {
     // message spliced in mid-turn gets an event line from the step that reads it instead.
     () => shadow('conversation.chat.node', { key: 'context', priority: BOT_PRIORITY, locale: 'chat' }, CellEmpty),
     ...(canDrawUserMessages() ? ['user', 'steering'].map(key => () => shadow('conversation.chat.node', { key, priority: BOT_PRIORITY, locale: 'chat', inject: face }, UserMessageCell)) : []),
+    // DSH 0.2.2-rc.1 draws user text by rules, and its file rule cuts "@新 Bot" at the
+    // space. A rule of ours claims a whole Bot name first; releases that still have the
+    // text projection (above) have no such registry.
+    ...(typeof ctx.uiConversation.userText?.register === 'function' ? [
+      () => installBotMentionRule(ctx.uiConversation.userText, roster),
+      () => shadow('conversation.user.text.node', { key: BOT_MENTION_ID, inject: face }, BotMention),
+    ] : []),
     () => shadow('conversation.input.permission', { priority: BOT_PRIORITY }, Nothing),
     () => shadow('conversation.input.plan', { priority: BOT_PRIORITY }, Nothing),
     // The composer carries no model picker or run statistics; a Bot's model lives

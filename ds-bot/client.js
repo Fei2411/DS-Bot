@@ -26189,6 +26189,13 @@ function UserText({ text, bots, referenceLabels, skillNames, references, actions
     part.label
   ) : (0, import_react31.createElement)(import_react31.Fragment, { key: index }, ui.projectUserText(part.text, referenceLabels, skillNames, "skill", references)));
 }
+function BotMention({ node, raw, interactive, sessionId, useRoster, actions }) {
+  const roster = useRoster((value) => value);
+  const bot = mentionableBots(roster, sessionId).find((item) => item.id === node.data.botId);
+  if (!bot) return raw;
+  const mark2 = (0, import_react31.createElement)(BotMark, { bot, size: 16 });
+  return interactive ? (0, import_react31.createElement)("button", { type: "button", className: "bt-umention", title: `@${bot.name}`, onClick: () => actions.openSession(bot.id) }, mark2, node.data.label) : (0, import_react31.createElement)("span", { className: "bt-umention", "data-static": "", title: `@${bot.name}` }, mark2, node.data.label);
+}
 function Attachments({ attachments, renderMessageImages }) {
   const compact2 = attachments.length > 1;
   return (0, import_react31.createElement)("div", { className: "bt-uattach" }, attachments.map((block, index) => {
@@ -26274,6 +26281,8 @@ var USER_MESSAGE_CSS = `
 .bt-ubody a{color:inherit}
 .bt-umention{display:inline-flex;align-items:center;gap:3px;vertical-align:-3px;max-width:100%;padding:0 1px;border:0;background:none;color:inherit;font:inherit;font-weight:600;line-height:inherit;cursor:pointer;border-radius:6px;white-space:nowrap}
 .bt-umention:hover{text-decoration:underline;text-underline-offset:2px}
+.bt-umention[data-static]{cursor:inherit}
+.bt-umention[data-static]:hover{text-decoration:none}
 .bt-umention>:first-child{flex:none}
 .bt-uattach{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px;max-width:100%}
 .bt-ufile{display:inline-flex;align-items:center;gap:10px;box-sizing:border-box;width:240px;min-height:64px;padding:8px 12px;border-radius:18px;border:.5px solid var(--bt-line-2);background:var(--bt-card)}
@@ -42207,6 +42216,42 @@ function createSwitchWindow(settle) {
   };
 }
 
+// src/client/user-text-rule.js
+var BOT_MENTION_ID = "bot-mention";
+var ORDER = 5;
+function botMentionRule(bots) {
+  const named = bots.filter((bot) => bot?.name);
+  return {
+    id: BOT_MENTION_ID,
+    order: ORDER,
+    match(text, from, context) {
+      if (named.length === 0) return void 0;
+      const references = context.read("sessionLabels") ?? [];
+      const span = mentionSpans(text, named, { references }).find((item) => item.bot !== void 0 && item.start >= from);
+      if (span === void 0) return void 0;
+      return { id: BOT_MENTION_ID, start: span.start, end: span.end, data: { botId: span.bot.id, label: text.slice(span.start + 1, span.end) } };
+    }
+  };
+}
+function installBotMentionRule(userText, roster) {
+  let key;
+  let off;
+  const sync = () => {
+    const bots = roster.getSnapshot().bots ?? [];
+    const next = JSON.stringify(bots.filter((bot) => bot?.name).map((bot) => [bot.id, bot.name]));
+    if (next === key) return;
+    key = next;
+    off?.();
+    off = userText.register(botMentionRule(bots));
+  };
+  sync();
+  const offRoster = roster.subscribe(sync);
+  return () => {
+    offRoster();
+    off?.();
+  };
+}
+
 // src/client/queue-dock.js
 var import_react69 = require("react");
 var OWN_QUEUE_KINDS = /* @__PURE__ */ new Set(["user", "schedule", "user-question-reply"]);
@@ -43584,6 +43629,13 @@ function apply(ctx) {
     // message spliced in mid-turn gets an event line from the step that reads it instead.
     () => shadow("conversation.chat.node", { key: "context", priority: BOT_PRIORITY, locale: "chat" }, CellEmpty),
     ...canDrawUserMessages() ? ["user", "steering"].map((key) => () => shadow("conversation.chat.node", { key, priority: BOT_PRIORITY, locale: "chat", inject: face }, UserMessageCell)) : [],
+    // DSH 0.2.2-rc.1 draws user text by rules, and its file rule cuts "@新 Bot" at the
+    // space. A rule of ours claims a whole Bot name first; releases that still have the
+    // text projection (above) have no such registry.
+    ...typeof ctx.uiConversation.userText?.register === "function" ? [
+      () => installBotMentionRule(ctx.uiConversation.userText, roster),
+      () => shadow("conversation.user.text.node", { key: BOT_MENTION_ID, inject: face }, BotMention)
+    ] : [],
     () => shadow("conversation.input.permission", { priority: BOT_PRIORITY }, Nothing),
     () => shadow("conversation.input.plan", { priority: BOT_PRIORITY }, Nothing),
     // The composer carries no model picker or run statistics; a Bot's model lives
