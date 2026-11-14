@@ -1043,6 +1043,27 @@ test('earlier-part rows carry seq and the turn that turn/start opened', () => {
   assert.equal(items[5].name, 'Chief')
 })
 
+// parts.js: an earlier group page stacks the replies of one turn. The change line must
+// come from the stacked row (the wrapper carries the last reply's `changes`), not from
+// the first reply of the turn.
+test('an earlier group page takes the change line of the last stacked reply', () => {
+  const rt = earlierParts([])
+  rt.roomOf = id => (id === 'g1' ? { id: 'g1', name: 'Launch' } : undefined)
+  const early = { sessionId: 'w1', seq: 3, turn: 1, total: 1, added: 1, deleted: 0, files: [{ path: 'early.js', added: 1, deleted: 0 }] }
+  const last = { sessionId: 'w1', seq: 9, turn: 1, total: 1, added: 2, deleted: 1, files: [{ path: 'final.js', added: 2, deleted: 1 }] }
+  rt.groupRows = () => [
+    { botId: 'b', name: 'Writer', text: 'Working…', time: 5, changes: early },
+    { botId: 'b', name: 'Writer', text: 'Done.', time: 6, changes: last },
+  ]
+  const items = rt.displayItems('g1', [
+    { seq: 1, type: 'tool/call', time: 1, data: { name: 'group_relay', callId: 'c1' } },
+    { seq: 2, type: 'tool/result', time: 2, data: { message: { toolCallId: 'c1', content: [{ type: 'text', text: '{"from":1,"to":9}' }] } } },
+  ])
+  const post = items.find(item => item.kind === 'post')
+  assert.deepEqual(post.texts, ['Working…', 'Done.'])
+  assert.deepEqual(post.changes, last)
+})
+
 // One turn opened on the older page and still running on the newer one.
 // The page holds 60 events, so the newer page starts after that turn/start.
 test('one turn keeps its identity across two earlier pages', async (t) => {

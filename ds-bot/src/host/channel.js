@@ -343,6 +343,10 @@ export function install(rt) {
           return ok(rt.groupSearch(room.id, body.query, { before: body.before, offset: body.offset }))
         }
         // The rows a settled round of a group chat shows, from its book.
+        // Whether a turn's change review can still be opened: the Host serves a turn's
+        // summary until its Session is disposed.
+        case 'changes-check':
+          return ok(rt.changesAvailable?.(String(body.sessionId ?? ''), Number(body.seq)) === true)
         case 'group-rows': {
           await rt.load()
           const room = rt.roomOf(body.roomId) ?? rt.roomOf(rt.pastOwners.get(body.roomId)?.roomId)
