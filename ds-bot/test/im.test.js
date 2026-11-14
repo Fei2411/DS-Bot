@@ -72,7 +72,7 @@ async function start({ platform = 'telegram', adapter, seed } = {}) {
     if (!agents.has(id)) agents.set(id, {
       id,
       session: { id, requestHeader: () => undefined },
-      followup() { this.followed = (this.followed ?? 0) + 1 },
+      followup(message) { this.lastFollowup = message; this.followed = (this.followed ?? 0) + 1 },
       cancel() { this.cancelled = true },
       inbox: { nextStep: [], nextTurn: [], remove: () => false },
       async whenIdle() {},
@@ -110,6 +110,7 @@ async function start({ platform = 'telegram', adapter, seed } = {}) {
   // came in on; the plugin takes the chat that request belongs to as the turn's origin.
   const imTurn = (sessionId = 'a') => {
     const requestId = prompts.at(-1)?.requestId
+    emitEvent(sessionId, 'turn/start', { turn: prompts.length })
     emitEvent(sessionId, 'user/message', { source: { kind: 'user', rpcId: requestId }, content: [{ type: 'text', text: 'from the chat' }] })
   }
   return { ctx, rt, home, fake, prompts, agents, agentOf, emitEvent, fireApprovals, imTurn, stop, flush, platform }
@@ -876,7 +877,8 @@ test('reply origin: an answer from IM keeps its chat for the turn the answer con
   s.fake.sent.length = 0
   // The chat answers its own card; the host queues the answer as the next message.
   await s.fake.handlers.onAction({ chat: { key: 'dm-u1', kind: 'direct', title: 'U1' }, sender: { id: 'u1', name: 'U1' }, data: 'q:q1:0', messageId: 1 })
-  s.emitEvent('a', 'user/message', { source: { kind: 'user-question-reply', callId: 'c1', outcome: 'answered' }, content: [{ type: 'text', text: 'answer' }] })
+  s.emitEvent('a', 'turn/start', { turn: 2 })
+  s.emitEvent('a', 'user/message', s.agentOf('a').lastFollowup)
   s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'after the answer' }] } })
   await s.flush()
   assert.deepEqual(s.fake.sent.map(entry => [entry.chat.key, entry.text]), [['dm-u1', 'after the answer']])
@@ -936,4 +938,40 @@ test('reply origin: a stale card answered in a race does not claim the chat for 
   s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'a later, unrelated turn' }] } })
   await s.flush()
   assert.equal(s.fake.sent.length, stale, 'the stale answer did not claim the chat')
+})
+
+
+test('mixed IM chats cannot reclaim the same turn, and the next turn starts clean', async t => {
+  const s = await start()
+  t.after(s.stop)
+  const { conn } = await pairedConn(s)
+  s.rt.state.im.connections[conn.id].paired.push({ id: 'u2', name: 'U2', at: 1 })
+  await dm(s, 'u1', 'first')
+  s.imTurn('a')
+  await dm(s, 'u2', 'second')
+  s.emitEvent('a', 'user/message', { source: { kind: 'user', rpcId: s.prompts.at(-1).requestId } })
+  await dm(s, 'u1', 'third')
+  s.emitEvent('a', 'user/message', { source: { kind: 'user', rpcId: s.prompts.at(-1).requestId } })
+  s.fake.sent.length = 0
+  s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'mixed' }] } })
+  await s.flush()
+  assert.equal(s.fake.sent.length, 0)
+  await dm(s, 'u1', 'fresh')
+  s.imTurn('a')
+  s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'clean' }] } })
+  await s.flush()
+  assert.deepEqual(s.fake.sent.map(x => [x.chat.key, x.text]), [['dm-u1', 'clean']])
+})
+
+test('a Web question answer cannot inherit a previous IM destination', async t => {
+  const s = await start()
+  t.after(s.stop)
+  await pairedConn(s)
+  await dm(s, 'u1', 'first')
+  s.imTurn('a')
+  s.emitEvent('a', 'user/message', { source: { kind: 'user-question-reply', callId: 'c1', outcome: 'answered' } })
+  s.fake.sent.length = 0
+  s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'private answer' }] } })
+  await s.flush()
+  assert.equal(s.fake.sent.length, 0)
 })

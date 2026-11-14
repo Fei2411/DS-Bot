@@ -329,17 +329,26 @@ export function install(rt) {
   // working, so its origin lives until another source writes in the group or the user
   // is unpaired. A request lives until the message it names is admitted, however long
   // that message waits in the queue behind a busy Bot.
-  const UNUSED_REQUEST_MS = 24 * 60 * 60 * 1000
   const paired = (conn, senderId) => (conn.paired ?? []).some(entry => entry.id === senderId)
   // Session id → the chat its running turn came from.
   const origins = new Map()
+  const mixed = new Set()
+
   // Request id of an IM message → the chat it came from, until that message shows up.
   const requests = new Map()
   const claimOrigin = (sessionId, connId, chatKey, senderId) => {
     if (sessionId === undefined || connId === undefined) return
+    if (mixed.has(sessionId)) return
+    const previous = origins.get(sessionId)
+    if (previous !== undefined && (previous.connId !== connId || previous.chatKey !== chatKey || previous.senderId !== senderId)) {
+      origins.delete(sessionId)
+      mixed.add(sessionId)
+      return
+    }
     origins.set(sessionId, { connId, chatKey, senderId, at: Date.now() })
   }
-  const dropOrigin = (sessionId) => { origins.delete(sessionId) }
+  const dropOrigin = (sessionId) => { origins.delete(sessionId); mixed.add(sessionId) }
+  const resetOrigin = (sessionId) => { origins.delete(sessionId); mixed.delete(sessionId) }
   /**
    * The connection and chat a Session's replies go to, or undefined when nothing may
    * leave: no origin, its connection gone, its chat gone, or the user who asked no
@@ -355,9 +364,6 @@ export function install(rt) {
     return chat === undefined ? undefined : { conn, chatKey: entry.chatKey, chat }
   }
   const rememberRequest = (requestId, connId, chatKey, senderId) => {
-    // A request waiting behind a busy Bot is still the one its turn answers; only an
-    // entry nothing ever claimed, long past any queue, is dropped to keep the map small.
-    for (const [id, entry] of requests) if (Date.now() - entry.at > UNUSED_REQUEST_MS) requests.delete(id)
     requests.set(requestId, { connId, chatKey, senderId, at: Date.now() })
   }
   // The Session a Bot writes into now, for a card that carries no Session of its own.
@@ -446,7 +452,7 @@ export function install(rt) {
   // 'answered': the answer continued the turn the chat claimed. 'stale': the card was
   // gone and only the stale text was sent, so this chat claims nothing. false: the pick
   // was not an answer to this card at all.
-  const answerQuestionCard = async (conn, chat, cardKey, labels) => {
+  const answerQuestionCard = async (conn, chat, cardKey, labels, senderId) => {
     const held = openCard(conn, chat.key, cardKey)
     if (held === undefined) return false
     const found = questionById(held.cardKey.slice(2))
@@ -456,11 +462,14 @@ export function install(rt) {
     }
     const valid = labels.filter(label => (found.question.options ?? []).some(option => option.label === label))
     if (valid.length === 0) return false
+    const requestId = `im:${conn.platform}:${randomUUID()}`
+    rememberRequest(requestId, conn.id, chat.key, senderId)
     try {
-      await rt.answerQuestion(found.sessionId, found.question.id, { selected: valid })
+      await rt.answerQuestion(found.sessionId, found.question.id, { selected: valid }, requestId)
       await settleCard(conn.id, held.cardKey, valid.join(', '))
       await settledEdits(conn)
     } catch (error) {
+      requests.delete(requestId)
       if (error?.code === 'bot/stale') {
         await settleCard(conn.id, held.cardKey, text('answered'))
         await sendCardReply(conn, chat, text('stale'))
@@ -546,8 +555,7 @@ export function install(rt) {
           const inRange = picked.length > 0 && (found.question.multiSelect === true || picked.length === 1)
             && picked.every(index => options[index - 1] !== undefined)
           if (inRange) {
-            const answered = await answerQuestionCard(conn, msg.chat, held.cardKey, picked.map(index => options[index - 1].label))
-            if (answered === 'answered') claimChat(conn, msg.chat, msg.sender.id)
+            const answered = await answerQuestionCard(conn, msg.chat, held.cardKey, picked.map(index => options[index - 1].label), msg.sender.id)
             if (answered !== false) return
           }
         }
@@ -599,9 +607,8 @@ export function install(rt) {
         await sendCardReply(conn, chat, text('stale'))
         return
       }
-      const answered = await answerQuestionCard(conn, chat, cardKey, [label])
-      if (answered === 'answered') claimChat(conn, chat, action.sender.id)
-      else if (answered === false) await sendCardReply(conn, chat, text('stale'))
+      const answered = await answerQuestionCard(conn, chat, cardKey, [label], action.sender.id)
+      if (answered === false) await sendCardReply(conn, chat, text('stale'))
       return
     }
     if (data.startsWith('a:') && cut > 2) {
@@ -1085,6 +1092,11 @@ export function install(rt) {
 
   // ----------------------------------------------------------------- outbound
   ctx.on('session/event', (session, event) => {
+    if (event.type === 'turn/start') {
+      const room = rt.roomOf(session.id)
+      const working = room !== undefined && (rt.roomActive?.(room.id) || (rt.roomWorkView?.()[room.id] ?? []).length > 0)
+      if (!working) resetOrigin(session.id)
+    }
     if (event.type === 'user/message') {
       const source = event.data?.source
       const rpcId = source?.rpcId
@@ -1097,8 +1109,8 @@ export function install(rt) {
         if (asked === undefined) dropOrigin(session.id)
         else claimOrigin(session.id, asked.connId, asked.chatKey, asked.senderId)
       } else if (source?.kind === REPLY_KIND) {
-        // The answer to a card this chat answered: the turn it starts carries on where
-        // the chat left off, so the claim that answer made stays.
+        // Web and phone answers carry no registered IM request.
+        dropOrigin(session.id)
       } else if (source?.kind === SOURCE_KIND && source.role === 'post') {
         // A member's late result relayed into the group's own Session. The group's work
         // is still the answer to the chat that asked, wherever the member runs.
@@ -1111,7 +1123,7 @@ export function install(rt) {
     if (event.type === 'turn/end') {
       // A group's own Session ends its relay turn at once while its members keep
       // working and post later; only a Bot's turn ending ends the chat's claim.
-      if (rt.roomOf(session.id) === undefined) dropOrigin(session.id)
+      if (rt.roomOf(session.id) === undefined) resetOrigin(session.id)
     }
     const botId = rt.chatOwners.get(session.id)
     if (botId === undefined) {
