@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { randomBytes } from 'node:crypto'
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { hostname, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { createRuntime } from '../index.js'
@@ -249,4 +249,59 @@ test('a locked store can be rolled back with its passphrase', async (t) => {
   assert.equal(rawSecrets(home).secrets[0].value, secret)
   assert.equal(host.rt.secretValue('DEMO_TOKEN'), secret)
   await host.stop({ keep: true })
+})
+
+
+test('decrypt and set serialize whole mutations without restoring an older token', async () => {
+  const host = start()
+  try {
+    assert.equal((await host.call('secret-set', { name: 'DEMO_TOKEN', value: 'old-test-value', scope: 'all' })).ok, true)
+    assert.equal((await host.call('secret-encrypt', { passphrase: PASS })).ok, true)
+    const results = await Promise.all([
+      host.call('secret-decrypt', { passphrase: PASS }),
+      host.call('secret-set', { name: 'DEMO_TOKEN', value: 'new-test-value', scope: 'all' }),
+    ])
+    assert.ok(results.every(r => r.ok), JSON.stringify(results))
+    assert.equal(rawSecrets(host.home).secrets.find(s => s.name === 'DEMO_TOKEN').value, 'new-test-value')
+  } finally { await host.stop() }
+})
+
+test('an unsupported encrypted envelope stays locked and cannot be overwritten as plaintext', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'dsb-future-secrets-'))
+  const envelope = { ...encryptSecrets({ version: 1, secrets: [] }, PASS), version: 999 }
+  writeFileSync(join(home, 'secrets.json'), JSON.stringify(envelope))
+  const host = start({ home })
+  try {
+    assert.equal((await host.view()).secretStore.locked, true)
+    assert.equal((await host.call('secret-set', { name: 'DEMO_TOKEN', value: 'new-test-value' })).ok, false)
+    assert.deepEqual(rawSecrets(home), envelope)
+  } finally { await host.stop() }
+})
+
+
+test('a reading window can unlock locally and incremental polls include the unlocked metadata', async () => {
+  const owner = start()
+  let reader
+  try {
+    await owner.call('secret-set', { name: 'DEMO_TOKEN', value: 'test-secret-value' })
+    await owner.call('secret-encrypt', { passphrase: PASS })
+    await owner.stop({ keep: true })
+    writeFileSync(join(owner.home, 'state.lock'), JSON.stringify({ pid: process.ppid, host: hostname(), token: 'other-process' }))
+    reader = start({ home: owner.home })
+    const before = await reader.view()
+    assert.equal(before.secretStore.locked, true)
+    assert.ok(reader.rt.readOnly())
+    const disk = rawText(owner.home)
+    assert.equal((await reader.call('secret-unlock', { passphrase: PASS })).ok, true)
+    const poll = await reader.call('state', { since: before.revision, live: before.liveKey })
+    assert.equal(poll.ok, true)
+    assert.equal(poll.value.unchanged, true)
+    assert.equal(poll.value.secretStore.locked, false)
+    assert.ok(poll.value.secrets.some(item => item.name === 'DEMO_TOKEN'))
+    assert.equal(rawText(owner.home), disk)
+    assert.equal((await reader.call('secret-set', { name: 'OTHER_TOKEN', value: 'test-other-value' })).error.code, 'bot/read-only')
+  } finally {
+    if (reader) await reader.stop({ keep: true })
+    await owner.stop()
+  }
 })

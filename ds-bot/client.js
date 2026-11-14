@@ -42599,6 +42599,8 @@ function apply(ctx) {
     if (value.memoryNews !== void 0) noteMemoryNews(value.memoryNews);
     const current = roster.getSnapshot();
     const live2 = {};
+    if (value.secretStore !== void 0 && JSON.stringify(value.secretStore) !== JSON.stringify(current.secretStore ?? {})) live2.secretStore = value.secretStore;
+    if (value.secrets !== void 0 && JSON.stringify(value.secrets) !== JSON.stringify(current.secrets ?? [])) live2.secrets = value.secrets;
     if (value.connectors !== void 0 && JSON.stringify(value.connectors) !== JSON.stringify(current.connectors ?? [])) live2.connectors = value.connectors;
     if (value.capabilityStatuses !== void 0 && JSON.stringify(value.capabilityStatuses) !== JSON.stringify(current.capabilityStatuses ?? {})) live2.capabilityStatuses = value.capabilityStatuses;
     if (value.phone !== void 0 && JSON.stringify(value.phone) !== JSON.stringify(current.phone ?? null)) live2.phone = value.phone;

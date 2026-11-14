@@ -108,6 +108,12 @@ export function install(rt) {
   const secrets = new Map()
   let loaded = null
   let writing = Promise.resolve()
+  let mutating = Promise.resolve()
+  const mutate = (run) => {
+    const job = mutating.then(run)
+    mutating = job.catch(() => {})
+    return job
+  }
   let redact = text => text
   let refreshEnv = () => {}
 
@@ -239,6 +245,15 @@ export function install(rt) {
       changed()
       return
     }
+    if (parsed !== null && typeof parsed === 'object' && (parsed.encrypted === true || typeof parsed.ciphertext === 'string')) {
+      blocked = 'secrets/format'
+      store.mode = 'encrypted'
+      store.locked = true
+      store.reason = 'format'
+      secrets.clear()
+      changed()
+      return
+    }
     if (parsed === null || typeof parsed !== 'object' || !Array.isArray(parsed.secrets)) {
       // A file that is not a secrets file is kept aside, like a broken state.json, then
       // the store goes on with an empty one.
@@ -298,7 +313,7 @@ export function install(rt) {
     usedTimer = setTimeout(() => {
       usedTimer = null
       if (loadedReadOnly || rt.readOnly() !== undefined || blocked !== undefined) return
-      void persist().then(() => rt.save()).catch(() => {})
+      void mutate(() => persist().then(() => rt.save())).catch(() => {})
     }, USED_SAVE_MS)
     usedTimer.unref?.()
   }
@@ -419,6 +434,7 @@ export function install(rt) {
     // A typed passphrase unlocks the store for this process; the file is unchanged.
     async 'secret-unlock'(body) {
       const passphrase = cleanPassphrase(body.passphrase)
+      await writing
       const payload = decryptSecrets(readEnvelope(), passphrase)
       store.mode = 'encrypted'
       store.locked = false
@@ -462,6 +478,7 @@ export function install(rt) {
       if (store.mode !== 'encrypted') throw new Error('Secrets are not encrypted.')
       const readOnly = rt.readOnly()
       if (readOnly !== undefined) throw new Error(readOnly)
+      await writing
       const payload = decryptSecrets(readEnvelope(), passphrase)
       const previous = { ...store }
       const before = [...secrets.values()]
@@ -571,27 +588,31 @@ export function install(rt) {
   // A locked store has no values to change; a write would also replace the encrypted
   // file with an empty one. Unlocking and rolling back are the exceptions.
   const LOCKED_ENDPOINTS = new Set(['secret-set', 'secret-allow', 'secret-update', 'secret-delete'])
-  async function secretEndpoint(endpoint, body) {
-    await loadSecrets()
-    if (store.locked && LOCKED_ENDPOINTS.has(endpoint)) throw new Error(LOCKED)
-    return endpoints[endpoint](body ?? {})
+  function secretEndpoint(endpoint, body) {
+    return mutate(async () => {
+      await loadSecrets()
+      if (store.locked && LOCKED_ENDPOINTS.has(endpoint)) throw new Error(LOCKED)
+      return endpoints[endpoint](body ?? {})
+    })
   }
 
   // A deleted Bot leaves every list it was on, and its cards go with it.
-  async function forgetBotSecrets(botId) {
-    await loadSecrets()
-    if (state.secretRequests !== undefined) delete state.secretRequests[botId]
-    let touched = false
-    for (const secret of secrets.values()) {
-      if (Array.isArray(secret.scope) && secret.scope.includes(botId)) {
-        secret.scope = secret.scope.filter(id => id !== botId)
-        touched = true
+  function forgetBotSecrets(botId) {
+    return mutate(async () => {
+      await loadSecrets()
+      if (state.secretRequests !== undefined) delete state.secretRequests[botId]
+      let touched = false
+      for (const secret of secrets.values()) {
+        if (Array.isArray(secret.scope) && secret.scope.includes(botId)) {
+          secret.scope = secret.scope.filter(id => id !== botId)
+          touched = true
+        }
       }
-    }
-    if (touched) {
-      changed()
-      await persist().catch(() => {})
-    }
+      if (touched) {
+        changed()
+        await persist().catch(() => {})
+      }
+    })
   }
 
   const callerOf = exec => rt.selfOf(exec.agent?.session?.header?.id ?? exec.agent?.id)
