@@ -8,7 +8,7 @@ import { test } from 'node:test'
 import { LocalAgentAdapter } from '../src/host/local-agents/adapter.js'
 import { AcpEngine } from '../src/host/local-agents/acp.js'
 import { CodexEngine } from '../src/host/local-agents/codex.js'
-import { JsonRpcPeer, wireProcess } from '../src/host/local-agents/jsonrpc.js'
+import { EventQueue, JsonRpcPeer, wireProcess } from '../src/host/local-agents/jsonrpc.js'
 import { ClaudeEngine } from '../src/host/local-agents/claude.js'
 import { LoopbackMcp, flattenSchema } from '../src/host/local-agents/mcp.js'
 import { cleanEnv } from '../src/host/local-agents/discover.js'
@@ -25,7 +25,7 @@ const system = (id, text) => ({ id, role: 'system', content: [{ type: 'text', te
 const toolResult = (id, callId, text, isError = false) => ({ id, role: 'tool', content: [{ type: 'text', text }], toolCallId: callId, isError, source: { kind: 'tool', callId } })
 
 // An adapter wired to the fake CLIs: every engine route spawns `node fixture`.
-function makeAdapter({ records = {}, preset = 'workspace-write', acp = FIXTURES.acp, acpArgs = [], codex = FIXTURES.codex, codexArgs = [], claude = FIXTURES.claude, claudeArgs = [] } = {}) {
+function makeAdapter({ records = {}, preset = 'workspace-write', acp = FIXTURES.acp, acpArgs = [], codex = FIXTURES.codex, codexArgs = [], claude = FIXTURES.claude, claudeArgs = [], engine } = {}) {
   const files = { acp, codex, claude }
   const spawned = []
   const adapter = new LocalAgentAdapter({
@@ -33,11 +33,12 @@ function makeAdapter({ records = {}, preset = 'workspace-write', acp = FIXTURES.
     customAgents: () => [{ id: 'fake', name: 'Fake ACP', command: 'x', args: [] }, { id: 'fake2', name: 'Fake ACP 2', command: 'x', args: [] }],
     findExecutable: path => path,
     spawnEngine: (kind, route, spec) => {
-      const engine = kind === 'acp' ? new AcpEngine(route, { ...spec, command: process.execPath, args: [files.acp, ...acpArgs] }, { findExecutable: path => path })
+      if (engine !== undefined) return engine
+      const driver = kind === 'acp' ? new AcpEngine(route, { ...spec, command: process.execPath, args: [files.acp, ...acpArgs] }, { findExecutable: path => path })
         : kind === 'codex' ? new CodexEngine(route, { ...spec, command: process.execPath, args: [files.codex, ...codexArgs] }, { findExecutable: path => path })
           : new ClaudeEngine(route, { ...spec, command: process.execPath, args: [files.claude, ...claudeArgs] }, { findExecutable: path => path })
-      spawned.push(engine)
-      return engine
+      spawned.push(driver)
+      return driver
     },
     record: sessionId => records[sessionId],
     saveRecord: (sessionId, record) => { records[sessionId] = record },
@@ -184,6 +185,265 @@ test('abort cancels the turn and the pending calls', async (t) => {
   setTimeout(() => control.abort(), 300)
   const out = await stream
   assert.equal(out.finish.kind, 'aborted')
+})
+
+// The cancelled prompt keeps emitting after stop: its rejection, leftover
+// chunks, and a delayed done. None of that is the next message's reply.
+test('the turn after an abort does not replay the cancelled prompt', async (t) => {
+  const adapter = makeAdapter()
+  t.after(() => adapter.dispose())
+  const control = new AbortController()
+  const stream = collect(adapter.stream(options('s1', [user('m1', 'hang')], { signal: control.signal })))
+  setTimeout(() => control.abort({ detail: 'the approval policy blocked it' }), 300)
+  const aborted = await stream
+  assert.equal(aborted.finish.kind, 'aborted')
+  const next = await collect(adapter.stream(options('s1', [user('m1', 'hang'), user('m2', 'hello again')])))
+  assert.equal(next.finish.kind, 'stop')
+  assert.equal(next.text.includes('STALE_FRAGMENT'), false)
+  assert.equal(next.thinking.includes('STALE_FRAGMENT'), false)
+  assert.equal(next.text.includes('[object Object]'), false)
+  assert.equal(next.text.includes('the cancelled prompt failed'), false)
+  assert.match(next.text, /hello again/)
+})
+
+// A scripted CLI emits the cancelled turn only after the next message is
+// already waiting, which is when a stale done used to finish that message.
+function leakingEngine() {
+  const queue = new EventQueue()
+  let resolveRelease
+  const released = new Promise(resolve => { resolveRelease = resolve })
+  const session = {
+    acpSessionId: 'acp-scripted',
+    turns: 0,
+    push: event => queue.push(event),
+    next: () => queue.next(),
+    dropQueued: () => queue.clear(),
+  }
+  return {
+    release() {
+      session.push({ type: 'thought', text: 'STALE_FRAGMENT thought' })
+      session.push({ type: 'text', text: 'STALE_FRAGMENT text' })
+      session.push({ type: 'error', error: { message: { text: 'the cancelled prompt failed' } } })
+      session.push({ type: 'done', reason: 'cancelled' })
+      resolveRelease()
+    },
+    open: async () => session,
+    prompt(current, blocks) {
+      current.turns += 1
+      const text = blocks.map(block => block.text ?? '').join('\n')
+      if (current.turns === 1) {
+        current.push({ type: 'thought', text: 'investigating APPROVAL_POLICIES' })
+        return released
+      }
+      current.push({ type: 'text', text: `fresh: ${text.slice(-24)}` })
+      current.push({ type: 'done', reason: 'end_turn' })
+      return Promise.resolve()
+    },
+    cancel() {},
+  }
+}
+
+test('a message sent while the cancelled turn is still emitting is not that turn', async (t) => {
+  const engine = leakingEngine()
+  const adapter = makeAdapter({ engine })
+  t.after(() => adapter.dispose())
+  const control = new AbortController()
+  const stream = collect(adapter.stream(options('s1', [user('m1', 'hang')], { signal: control.signal })))
+  setTimeout(() => control.abort({ message: { text: 'plain object abort' } }), 50)
+  const aborted = await stream
+  assert.equal(aborted.finish.kind, 'aborted')
+  const second = collect(adapter.stream(options('s1', [user('m1', 'hang'), user('m2', 'are you there')])))
+  for (let i = 0; i < 50 && adapter.live.get('s1')?.held === undefined; i += 1) {
+    await new Promise(resolve => setTimeout(resolve, 10))
+  }
+  assert.ok(adapter.live.get('s1')?.held, 'the next prompt waits for the cancelled turn')
+  engine.release()
+  const out = await second
+  assert.equal(out.finish.kind, 'stop')
+  assert.equal(out.text.includes('STALE_FRAGMENT'), false)
+  assert.equal(out.thinking.includes('STALE_FRAGMENT'), false)
+  assert.equal(out.text.includes('[object Object]'), false)
+  assert.equal(out.text.includes('the cancelled prompt failed'), false)
+  assert.match(out.text, /are you there/)
+})
+
+const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms))
+
+async function untilHeld(adapter, sessionId = 's1') {
+  for (let i = 0; i < 50 && adapter.live.get(sessionId)?.held === undefined; i += 1) await delay(10)
+  assert.ok(adapter.live.get(sessionId)?.held, 'the next prompt waits for the cancelled turn')
+}
+
+// AcpEngine.prompt reports the rejection on the session queue and also returns
+// it. The returned rejection must not fail the message that was waiting.
+// Same shape as AcpEngine.prompt: the rejection is pushed on the session queue
+// and the returned promise rejects, which sendInput catches a second time.
+function doubleRejectEngine() {
+  const queue = new EventQueue()
+  let rejectPrompt
+  const session = {
+    acpSessionId: 'acp-reject',
+    turns: 0,
+    push: event => queue.push(event),
+    next: () => queue.next(),
+    dropQueued: () => queue.clear(),
+  }
+  return {
+    reject() { rejectPrompt(new Error('the cancelled prompt failed')) },
+    open: async () => session,
+    prompt(current, blocks) {
+      current.turns += 1
+      const text = blocks.map(block => block.text ?? '').join('\n')
+      if (current.turns === 1) {
+        const reply = new Promise((resolve, reject) => { rejectPrompt = reject })
+        reply.then(
+          () => current.push({ type: 'done', reason: 'end_turn' }),
+          error => current.push({ type: 'error', error }),
+        )
+        return reply
+      }
+      current.push({ type: 'text', text: `fresh: ${text.slice(-24)}` })
+      current.push({ type: 'done', reason: 'end_turn' })
+      return Promise.resolve()
+    },
+    cancel() {},
+  }
+}
+
+test('a cancelled prompt that rejects twice does not fail the message that was waiting', async (t) => {
+  const engine = doubleRejectEngine()
+  const adapter = makeAdapter({ engine })
+  t.after(() => adapter.dispose())
+  const control = new AbortController()
+  const stream = collect(adapter.stream(options('s1', [user('m1', 'hang')], { signal: control.signal })))
+  setTimeout(() => control.abort(), 30)
+  const aborted = await stream
+  assert.equal(aborted.finish.kind, 'aborted')
+  const second = collect(adapter.stream(options('s1', [user('m1', 'hang'), user('m2', 'are you there')], { signal: AbortSignal.timeout(5_000) })))
+  await untilHeld(adapter)
+  engine.reject()
+  const out = await second
+  assert.equal(out.finish.kind, 'stop')
+  assert.match(out.text, /are you there/)
+  assert.equal(out.text.includes('the cancelled prompt failed'), false)
+  const after = await collect(adapter.stream(options('s1', [user('m1', 'hang'), user('m2', 'are you there'), user('m3', 'and now')], { signal: AbortSignal.timeout(5_000) })))
+  assert.equal(after.finish.kind, 'stop')
+  assert.match(after.text, /and now/)
+})
+
+test('a deferred ACP reject does not fail the message waiting on the cancelled prompt', async (t) => {
+  const adapter = makeAdapter({ acpArgs: ['--defer-cancel=200'] })
+  t.after(() => adapter.dispose())
+  const control = new AbortController()
+  const stream = collect(adapter.stream(options('s1', [user('m1', 'hang')], { signal: control.signal })))
+  setTimeout(() => control.abort(), 200)
+  const aborted = await stream
+  assert.equal(aborted.finish.kind, 'aborted')
+  const next = await collect(adapter.stream(options('s1', [user('m1', 'hang'), user('m2', 'are you there')], { signal: AbortSignal.timeout(5_000) })))
+  assert.equal(next.finish.kind, 'stop')
+  assert.match(next.text, /are you there/)
+  assert.equal(next.text.includes('the cancelled prompt failed'), false)
+  assert.equal(next.text.includes('STALE_FRAGMENT'), false)
+  // The rejection is also pushed again with no epoch. That copy used to sit
+  // in the queue and fail the turn after the replacement.
+  const after = await collect(adapter.stream(options('s1', [user('m1', 'hang'), user('m2', 'are you there'), user('m3', 'and now')], { signal: AbortSignal.timeout(5_000) })))
+  assert.equal(after.finish.kind, 'stop')
+  assert.match(after.text, /and now/)
+  assert.equal(after.text.includes('the cancelled prompt failed'), false)
+})
+
+test('an ACP prompt failure is not delivered again on the next message', async (t) => {
+  const adapter = makeAdapter()
+  t.after(() => adapter.dispose())
+  await assert.rejects(
+    collect(adapter.stream(options('s1', [user('m1', 'fail-now')]))),
+    error => error.code === 'LOCAL_AGENT_ERROR' && /policy blocked the tool/.test(error.message),
+  )
+  const next = await collect(adapter.stream(options('s1', [user('m1', 'fail-now'), user('m2', 'hello again')])))
+  assert.equal(next.finish.kind, 'stop')
+  assert.match(next.text, /hello again/)
+  assert.equal(next.text.includes('policy blocked'), false)
+})
+
+test('a CLI that exits while the next message is waiting reports the exit and keeps the message unsent', async (t) => {
+  const cases = [
+    ['local-acp-fake', ['--defer-cancel=30000'], engine => engine.child],
+    ['local-claude-code', [], engine => engine.sessions.get('s1').child],
+    ['local-codex-cli', [], engine => engine.child],
+  ]
+  for (const [provider, args, childOf] of cases) {
+    const records = {}
+    const adapter = makeAdapter({
+      records,
+      ...(provider === 'local-acp-fake' ? { acpArgs: args } : {}),
+    })
+    t.after(() => adapter.dispose())
+    const control = new AbortController()
+    const request = (messages, extra = {}) => options('s1', messages, { provider, signal: control.signal, ...extra })
+    const stream = collect(adapter.stream(request([user('m1', 'hang')])))
+    setTimeout(() => control.abort(), 200)
+    const aborted = await stream
+    assert.equal(aborted.finish.kind, 'aborted', provider)
+    const second = collect(adapter.stream(request(
+      [user('m1', 'hang'), user('m2', 'please continue')],
+      { signal: AbortSignal.timeout(5_000) },
+    )))
+    await untilHeld(adapter)
+    childOf(adapter.engines.get(provider)).kill('SIGTERM')
+    await assert.rejects(second, error => /exited/.test(error.message) && error.code === 'LOCAL_AGENT_EXIT')
+    assert.equal(records.s1.handedId, 'm1', provider)
+  }
+})
+
+test('a tool call that arrives after the turn was stopped does not consume the next message', async (t) => {
+  const adapter = makeAdapter({ acpArgs: ['--defer-cancel=400'] })
+  t.after(() => adapter.dispose())
+  const control = new AbortController()
+  const stream = collect(adapter.stream(options('s1', [user('m1', 'hang')], { signal: control.signal })))
+  setTimeout(() => control.abort(), 200)
+  const aborted = await stream
+  assert.equal(aborted.finish.kind, 'aborted')
+  const live = adapter.live.get('s1')
+  assert.equal(live.dropping, true)
+  const call = await fetch(live.mcp.url, {
+    method: 'POST',
+    signal: AbortSignal.timeout(2_000),
+    headers: { authorization: `Bearer ${live.mcp.token}`, 'content-type': 'application/json', accept: 'text/event-stream' },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 7, method: 'tools/call', params: { name: 'message_bot', arguments: { to: 'Chief', message: 'late' } } }),
+  })
+  const body = await call.text()
+  assert.match(body, /the turn was stopped/)
+  assert.equal(live.pending.size, 0)
+  const next = await collect(adapter.stream(options('s1', [user('m1', 'hang'), user('m2', 'are you there')], { signal: AbortSignal.timeout(5_000) })))
+  assert.equal(next.finish.kind, 'stop')
+  assert.match(next.text, /are you there/)
+})
+
+test('a plain-object agent failure is a readable LOCAL_AGENT_ERROR', async (t) => {
+  const fail = (error) => makeAdapter({
+    engine: {
+      open: async () => ({ next: () => new Promise(() => {}), dropQueued() {} }),
+      prompt: () => Promise.reject(error),
+      cancel() {},
+    },
+  })
+  const cases = [
+    [{ message: { text: 'policy blocked the tool' } }, /policy blocked the tool/],
+    [{ detail: 'the approval policy blocked it' }, /the approval policy blocked it/],
+  ]
+  for (const [error, pattern] of cases) {
+    const adapter = fail(error)
+    t.after(() => adapter.dispose())
+    await assert.rejects(
+      collect(adapter.stream(options('s1', [user('m1', 'hello')]))),
+      failure => {
+        assert.equal(failure.code, 'LOCAL_AGENT_ERROR')
+        assert.match(failure.message, pattern)
+        assert.equal(failure.message.includes('[object Object]'), false)
+        return true
+      },
+    )
+  }
 })
 
 test('env sanitization drops agent and key variables', () => {
@@ -904,6 +1164,21 @@ test('a fresh part carries the deterministic handoff', async () => {
   assert.equal(bot.segments[0].sessionId, 's1')
   const text = [...followed, ...delivered].map(message => message?.content?.map?.(block => block.text).join('') ?? message?.text ?? String(message)).join('\n')
   assert.match(text, /fresh conversation was started|previous part|read_own_chat/i)
+})
+
+test('a JSON-RPC error whose message is an object stays readable', async () => {
+  const peer = new JsonRpcPeer(() => {})
+  const pending = peer.request('session/prompt', {})
+  peer.handleLine(JSON.stringify({ jsonrpc: '2.0', id: 1, error: { code: -32603, message: { text: 'policy blocked the tool' } } }))
+  await assert.rejects(pending, error => error.message.includes('policy blocked the tool') && !error.message.includes('[object Object]'))
+})
+
+test('an abort reason that is a plain object rejects as text', async () => {
+  const peer = new JsonRpcPeer(() => {})
+  const control = new AbortController()
+  const pending = peer.request('session/prompt', {}, { signal: control.signal, timeout: 0 })
+  control.abort({ detail: 'the approval policy blocked it' })
+  await assert.rejects(pending, error => error instanceof Error && error.message.includes('the approval policy blocked it') && !error.message.includes('[object Object]'))
 })
 
 test('an open-ended request outlives the default deadline', async () => {

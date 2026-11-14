@@ -153,6 +153,8 @@ export class LocalAgentAdapter extends LlmAdapter {
         // The queue belongs to the process that is gone: the retry starts clean
         // instead of reading its exit as the new turn's failure.
         live.events.length = 0
+        live.dropping = false
+        live.held = undefined
       }
       // A CLI takes its model and permission mode when its session opens. Another
       // model or preset reopens the same CLI session as soon as no turn runs in it.
@@ -172,6 +174,12 @@ export class LocalAgentAdapter extends LlmAdapter {
       mcp: undefined,
       events: [],
       waiters: [],
+      // false: read events. true: a cancelled turn is still emitting; drop it
+      // until its done or error. 'armed': that turn settled, and anything
+      // still arriving belongs to it until the next prompt opens a new epoch.
+      dropping: false,
+      held: undefined,   // {text, signal, effort} waiting out a cancelled turn
+      epoch: 1,
       pending: new Map(),   // dshCallId -> {name, mcpCallId?, reply?}
       started: false,
       // 'idle': no CLI turn. 'running': a prompt is in flight. 'suspended': the
@@ -186,12 +194,23 @@ export class LocalAgentAdapter extends LlmAdapter {
       preset,
     }
     live.push = (event) => {
-      clearTimeout(live.idle)
-      live.idle = setTimeout(() => void this.closeLive(live, { idle: true }), IDLE_CLOSE_MS)
-      live.idle.unref?.()
-      const waiter = live.waiters.shift()
-      if (waiter !== undefined) waiter(event)
-      else live.events.push(event)
+      // Stamped when the engine emitted it. A later prompt bumps the epoch, so
+      // a chunk that was already queued for the cancelled turn cannot be read
+      // as the new one even if it is delivered late.
+      if (event?.epoch !== undefined && event.epoch !== live.epoch) {
+        this.dropStray(live, event)
+        return
+      }
+      if (live.dropping === true) {
+        if (event?.type === 'done' || event?.type === 'error') this.settleDiscard(live, event)
+        else this.dropStray(live, event)
+        return
+      }
+      if (live.dropping === 'armed') {
+        this.dropStray(live, event)
+        return
+      }
+      this.acceptEvent(live, event)
     }
     live.next = () => (live.events.length > 0 ? Promise.resolve(live.events.shift()) : new Promise(resolve => live.waiters.push(resolve)))
     this.live.set(sessionId, live)
@@ -217,13 +236,113 @@ export class LocalAgentAdapter extends LlmAdapter {
   }
 
   // The turn under way ends: the CLI stops, and a call it waits on gets an answer.
+  // The CLI keeps emitting after cancel (the prompt's reject, late session
+  // updates, a delayed done). Those stay in the queue unless they are dropped
+  // here, and the next drain() would read them as the new reply.
   stopTurn(live, reason) {
     live.state = 'idle'
     live.queue.length = 0
+    this.armDiscard(live)
     if (live.engineSession !== undefined) live.engine.cancel?.(live.engineSession)
     live.mcp?.failAll(new Error(reason))
     for (const pending of live.pending.values()) pending.resolve({ text: reason, isError: true })
     live.pending.clear()
+  }
+
+  // Drop what this turn already queued. A done or error in that queue means
+  // the turn has settled; otherwise wait for the one the CLI still owes.
+  armDiscard(live) {
+    const pending = live.events.splice(0)
+    live.held = undefined
+    // closeLive still owns the waiters: it wakes a drain that is ending
+    // because the Session left. The abort path detaches its own loser first.
+    if (live.dropping !== 'armed') {
+      live.dropping = pending.some(event => event.type === 'done' || event.type === 'error') ? 'armed' : true
+    }
+  }
+
+  // The cancelled prompt settled. Events still buffered behind that marker
+  // belong to it. The next prompt, if the user already sent one, starts now.
+  // A process that died instead takes the waiting message back: it was saved
+  // as handed before the CLI ever saw it, and the drain has to hear the exit.
+  settleDiscard(live, event) {
+    const held = live.held
+    live.held = undefined
+    if (live.engineSession?.dead === true) {
+      if (held !== undefined) this.undoHanded(live)
+      live.dropping = false
+      const failure = event?.type === 'error' ? event : { type: 'error', error: new Error('the local agent exited') }
+      this.acceptEvent(live, failure)
+      return
+    }
+    if (held !== undefined) {
+      this.openGate(live)
+      this.sendInput(live, held.text, held.signal, held.effort)
+      return
+    }
+    live.dropping = 'armed'
+    live.events.length = 0
+    live.engineSession?.dropQueued?.()
+  }
+
+  // The marker was written before drain, so a message the CLI never received
+  // would otherwise vanish from the next delta.
+  undoHanded(live) {
+    live.handed = live.handedBefore
+    this.deps.saveRecord(live.sessionId, {
+      route: live.route,
+      cliSessionId: live.cliSessionId,
+      cwd: live.cwd,
+      handedId: live.handed,
+      promptHash: live.promptHash,
+      model: live.model,
+    })
+  }
+
+  // A call or permission that will not be shown must not stay open. The call
+  // is registered before push, so dropping the event would leave it pending
+  // and the next user message would be consumed as its answer.
+  dropStray(live, event) {
+    if (event?.type === 'call' && event.dshCallId !== undefined) {
+      const pending = live.pending.get(event.dshCallId)
+      if (pending !== undefined) {
+        live.pending.delete(event.dshCallId)
+        pending.resolve({ text: 'the turn was stopped', isError: true })
+      }
+    }
+    if (event?.type === 'permission') event.reply?.(null)
+  }
+
+  acceptEvent(live, event) {
+    clearTimeout(live.idle)
+    live.idle = setTimeout(() => void this.closeLive(live, { idle: true }), IDLE_CLOSE_MS)
+    live.idle.unref?.()
+    const waiter = live.waiters.shift()
+    if (waiter !== undefined) waiter(event)
+    else live.events.push(event)
+  }
+
+  // The next prompt's events are a new turn. Anything stamped earlier is not.
+  openGate(live) {
+    live.dropping = false
+    live.epoch += 1
+    live.events.length = 0
+    for (const waiter of live.waiters.splice(0)) waiter({ type: 'skip' })
+    live.engineSession?.dropQueued?.()
+  }
+
+  // Epoch is fixed when the engine emits, not when the pump reads, so a chunk
+  // that left the CLI before the next prompt keeps the cancelled turn's stamp.
+  stampSession(live) {
+    const session = live.engineSession
+    if (session === undefined || session.stamped === true) return
+    session.stamped = true
+    const stamp = (event) => (event !== null && typeof event === 'object' ? { ...event, epoch: live.epoch } : event)
+    for (const key of ['push', 'emit']) {
+      if (typeof session[key] !== 'function') continue
+      const raw = session[key].bind(session)
+      session[key] = (event) => raw(stamp(event))
+    }
   }
 
   // The Session left this CLI: its part moved on. Its process leaves; the CLI session
@@ -357,6 +476,7 @@ export class LocalAgentAdapter extends LlmAdapter {
       }
       live.engineSession = await live.engine.open(sessionId, openArgs)
         .catch(error => { throw toLlmError(error, live) })
+      this.stampSession(live)
       // A resumed CLI reports its id only with `system/init`: keep the saved one
       // in the meantime, or a resume that fails would erase it.
       const reportedId = live.engineSession.acpSessionId ?? live.engineSession.threadId ?? live.engineSession.cliSessionId
@@ -447,22 +567,34 @@ export class LocalAgentAdapter extends LlmAdapter {
   // the whole turn (ACP session/prompt ends when the agent's turn does), so it
   // is sent but not awaited; a send failure lands in the queue as an error.
   sendInput(live, text, signal, effort) {
+    // A cancelled prompt is still the CLI's current turn. Sending now would
+    // mix its leftover chunks into this one, so the text waits until it settles.
+    if (live.dropping === true) {
+      live.held = { text, signal, effort }
+      return
+    }
+    if (live.dropping === 'armed') this.openGate(live)
     if (live.state !== 'idle') {
       if (live.spec.kind === 'acp') { live.queue.push(text); return }
+      const epoch = live.epoch
       try {
         Promise.resolve(live.engine.steer?.(live.engineSession, text))
-          .catch(error => live.push({ type: 'error', error }))
+          .catch(error => live.push({ type: 'error', error, epoch }))
       } catch (error) {
-        live.push({ type: 'error', error })
+        live.push({ type: 'error', error, epoch })
       }
       return
     }
     live.state = 'running'
+    // The epoch of this prompt, not of whatever turn is current when the
+    // rejection arrives. A cancelled prompt rejects after its replacement
+    // has already opened the next epoch.
+    const epoch = live.epoch
     try {
       Promise.resolve(live.engine.prompt(live.engineSession, [{ type: 'text', text }], { signal, effort }))
-        .catch(error => live.push({ type: 'error', error }))
+        .catch(error => live.push({ type: 'error', error, epoch }))
     } catch (error) {
-      live.push({ type: 'error', error })
+      live.push({ type: 'error', error, epoch })
     }
   }
 
@@ -502,10 +634,15 @@ export class LocalAgentAdapter extends LlmAdapter {
     for (;;) {
       const event = await Promise.race([live.next(), abortPromise]).catch(error => ({ type: 'abort', error }))
       if (event.type === 'abort') {
+        // next() lost the race and is still registered. Detach it before
+        // cancel emits, or it swallows the first event of the turn after this.
+        live.dropping = true
+        for (const waiter of live.waiters.splice(0)) waiter({ type: 'skip' })
         this.stopTurn(live, 'the turn was stopped')
         yield { type: 'finish', reason: { kind: 'aborted', failure: { code: 'ABORTED', message: 'the turn was stopped' } } }
         return
       }
+      if (event.type === 'skip') continue
       switch (event.type) {
         case 'text': {
           if (textIndex === -1) {
@@ -638,14 +775,45 @@ function renderReplay(messages, system) {
 
 // Process exits, missing CLIs, quota and sign-in failures get typed codes so DS
 // Bot's repair card can act on them.
+// A CLI or an abort can reject with a plain object (signal.reason, a JSON-RPC
+// error whose message is itself an object). String(object) is "[object Object]".
+function errorText(error, seen = new Set()) {
+  if (typeof error === 'string') return error === '[object Object]' ? '' : error
+  if (error == null || typeof error !== 'object') {
+    const text = String(error)
+    return text === '[object Object]' ? '' : text
+  }
+  if (seen.has(error)) return ''
+  seen.add(error)
+  const message = error.message
+  if (typeof message === 'string' && message !== '' && message !== '[object Object]') return message
+  if (message !== undefined && typeof message !== 'string') {
+    const nested = errorText(message, seen)
+    if (nested !== '') return nested
+  }
+  for (const key of ['text', 'detail', 'reason', 'error', 'data']) {
+    if (error[key] === undefined) continue
+    const nested = errorText(error[key], seen)
+    if (nested !== '') return nested
+  }
+  try {
+    const json = JSON.stringify(error)
+    if (json && json !== '{}' && json !== 'null') return json
+  } catch { /* a circular reject still needs some words */ }
+  return ''
+}
+
 function toLlmError(error, live) {
   if (error instanceof LlmError) return error
-  const text = String(error?.message ?? error)
-  const code = error?.code === 'NO_ADAPTER' ? 'LOCAL_AGENT_MISSING'
+  const text = errorText(error) || 'the local agent failed'
+  // JSON-RPC codes are numbers. LlmError only accepts a string code, and a
+  // number here used to throw instead of showing the failure.
+  const given = typeof error?.code === 'string' && error.code !== '' ? error.code : undefined
+  const code = given === 'NO_ADAPTER' ? 'LOCAL_AGENT_MISSING'
     : /not signed in|not logged in|login required|unauthorized|authentication/i.test(text) ? 'LOCAL_AGENT_SIGNIN'
       : /quota|rate.?limit|usage limit|exceeded/i.test(text) ? 'LOCAL_AGENT_QUOTA'
         : /exited|spawn|ENOENT/i.test(text) ? 'LOCAL_AGENT_EXIT'
-          : error?.code ?? 'LOCAL_AGENT_ERROR'
+          : given ?? 'LOCAL_AGENT_ERROR'
   const hint = code === 'LOCAL_AGENT_SIGNIN' ? ` Sign in with: ${live?.spec?.signIn ?? `${live?.spec?.command ?? 'the CLI'} login`}.` : ''
   return new LlmError(`${text}${hint}`, code, error?.status === undefined ? {} : { status: error.status })
 }

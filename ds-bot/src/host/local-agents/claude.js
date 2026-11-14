@@ -64,6 +64,7 @@ class ClaudeSession {
     if (waiter !== undefined) waiter(event)
     else this.events.push(event)
   }
+  dropQueued() { this.events.length = 0 }
   next() {
     if (this.events.length > 0) return Promise.resolve(this.events.shift())
     return new Promise(resolve => this.waiters.push(resolve))
