@@ -13991,7 +13991,7 @@ var GRADIENTS = { aurora: [[0, "#A4FFB0"], [0.42, "#00F0E4"], [1, "#2E9EF7"]] };
 var ACCENT_INKS = ["deepseek", "charcoal", "graphite", "rose", "sky", "tangerine", "cobalt"];
 var LEGACY_INKS = { kimi: "charcoal", zai: "graphite", minimax: "rose", stepfun: "sky", mimo: "tangerine", qwen: "cobalt" };
 var isHex = (color) => typeof color === "string" && /^#[0-9a-f]{6}$/i.test(color);
-var luminance = (hex) => [1, 3, 5].map((index) => parseInt(hex.slice(index, index + 2), 16) / 255).map((channel) => channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4).reduce((sum, channel, index) => sum + channel * [0.2126, 0.7152, 0.0722][index], 0);
+var luminance = (hex) => [1, 3, 5].map((index) => parseInt(hex.slice(index, index + 2), 16) / 255).map((channel2) => channel2 <= 0.04045 ? channel2 / 12.92 : ((channel2 + 0.055) / 1.055) ** 2.4).reduce((sum, channel2, index) => sum + channel2 * [0.2126, 0.7152, 0.0722][index], 0);
 var inkName = (color) => INKS[color] ? color : INKS[LEGACY_INKS[color]] ? LEGACY_INKS[color] : "gray";
 var inkFill = (color) => isHex(color) ? color : `var(--bt-ink-${inkName(color)})`;
 var inkText = (color) => color === "black" ? "var(--bt-ink-gray)" : inkFill(color);
@@ -14536,9 +14536,9 @@ function themeVars(mode, dark, accent = mode.accent) {
     "--bt-ink-2": rgba(mode.text, 0.6),
     "--bt-ink-3": rgba(mode.text, 0.36),
     "--bt-bubble": mode.bubble,
-    "--bt-sidebar": mode.sidebar,
-    "--bt-main": mode.bg,
-    "--bt-card": mode.card,
+    "--bt-sidebar": `var(--bt-skin-sidebar, ${mode.sidebar})`,
+    "--bt-main": `var(--bt-skin-main, ${mode.bg})`,
+    "--bt-card": `var(--bt-skin-card, ${mode.card})`,
     "--bt-line": rgba(mode.text, 0.08),
     "--bt-line-2": rgba(mode.text, 0.15),
     "--bt-hover": dark ? "rgba(160,160,160,.12)" : "rgba(119,119,119,.09)",
@@ -14619,6 +14619,91 @@ var layoutOf = (prefs) => prefs?.layout === "flat" ? "flat" : "bubble";
 var thinkingShown = (prefs) => prefs?.thinking === true;
 var widthOf = (prefs) => percent(prefs?.width, 80);
 var flatWidthOf = (prefs) => percent(prefs?.flatWidth, 100);
+
+// src/client/skin.js
+var MIN_SKIN_ALPHA = 0.7;
+var SKIN_VARIABLES = ["--bt-skin-main", "--bt-skin-sidebar", "--bt-skin-card"];
+var HEX = /^#([0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i;
+var RGB = /^rgba?\(\s*([\d.]+)[\s,]+([\d.]+)[\s,]+([\d.]+)(?:\s*[,/]\s*([\d.]+)(%?))?\s*\)$/i;
+function parseColor(value) {
+  const text = String(value ?? "").trim();
+  const hex = HEX.exec(text);
+  if (hex !== null) {
+    const digits = hex[1];
+    const pair = (at) => {
+      const part = digits.length <= 4 ? digits[at] + digits[at] : digits.slice(at * 2, at * 2 + 2);
+      return Number.parseInt(part, 16);
+    };
+    const alpha = digits.length === 4 ? pair(3) / 255 : digits.length === 8 ? pair(3) / 255 : 1;
+    return { r: pair(0), g: pair(1), b: pair(2), a: alpha };
+  }
+  const rgb = RGB.exec(text);
+  if (rgb !== null) {
+    const alpha = rgb[4] === void 0 ? 1 : rgb[5] === "%" ? Number(rgb[4]) / 100 : Number(rgb[4]);
+    return { r: Number(rgb[1]), g: Number(rgb[2]), b: Number(rgb[3]), a: Math.max(0, Math.min(1, alpha)) };
+  }
+  return void 0;
+}
+var hex2 = (value) => Math.max(0, Math.min(255, Math.round(value))).toString(16).padStart(2, "0");
+var withAlpha = ({ r, g, b }, a) => `#${hex2(r)}${hex2(g)}${hex2(b)}${hex2(a * 255)}`;
+var alphaOf = (value) => parseColor(value)?.a ?? 1;
+function skinSurfaceVars({ main, sidebar, colors }, { minAlpha = MIN_SKIN_ALPHA } = {}) {
+  const vars = {};
+  const floor = (alpha) => Math.min(1, Math.max(alpha, minAlpha));
+  const mainAlpha = alphaOf(main);
+  const sidebarAlpha = alphaOf(sidebar);
+  if (mainAlpha < 1) {
+    const alpha = floor(mainAlpha);
+    vars["--bt-skin-main"] = withAlpha(parseColor(colors.main) ?? { r: 252, g: 252, b: 252 }, alpha);
+    vars["--bt-skin-card"] = withAlpha(parseColor(colors.card) ?? { r: 255, g: 255, b: 255 }, alpha);
+  }
+  if (sidebarAlpha < 1) {
+    vars["--bt-skin-sidebar"] = withAlpha(parseColor(colors.sidebar) ?? { r: 247, g: 247, b: 247 }, floor(sidebarAlpha));
+  }
+  return vars;
+}
+function over(surface, alpha, wallpaper) {
+  const back = parseColor(wallpaper) ?? { r: 255, g: 255, b: 255, a: 1 };
+  return { r: surface.r * alpha + back.r * (1 - alpha), g: surface.g * alpha + back.g * (1 - alpha), b: surface.b * alpha + back.b * (1 - alpha), a: 1 };
+}
+var channel = (value) => {
+  const c = value / 255;
+  return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+};
+var luminance2 = ({ r, g, b }) => 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b);
+var contrastRatio = (foreground, background) => {
+  const a = luminance2(foreground);
+  const b = luminance2(background);
+  return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+};
+function readSkinSurfaceVars(doc, theme, { minAlpha = MIN_SKIN_ALPHA } = {}) {
+  const body = doc?.body;
+  if (body === void 0) return {};
+  const dark = body.hasAttribute?.("data-ds-dark-theme") === true;
+  const mode = dark ? theme.dark : theme.light;
+  const colors = { main: mode.bg, sidebar: mode.sidebar, card: mode.card };
+  const style = doc.defaultView?.getComputedStyle?.(body);
+  const token = (name) => style?.getPropertyValue?.(name)?.trim() ?? "";
+  return skinSurfaceVars({ main: token("--dsw-alias-bg-base"), sidebar: token("--dsw-specific-sidebar-fill"), colors }, { minAlpha });
+}
+function writeSkinSurfaceVars(doc, read) {
+  const body = doc?.body;
+  const apply2 = () => {
+    if (body === void 0) return;
+    const vars = read() ?? {};
+    for (const name of SKIN_VARIABLES) {
+      if (vars[name] === void 0) body.style.removeProperty(name);
+      else if (body.style.getPropertyValue?.(name) !== vars[name]) body.style.setProperty(name, vars[name]);
+    }
+  };
+  return {
+    apply: apply2,
+    clear() {
+      if (body === void 0) return;
+      for (const name of SKIN_VARIABLES) body.style.removeProperty(name);
+    }
+  };
+}
 
 // src/shared/mentions.js
 var ALL_WORDS = ["all", "everyone", "所有人", "全体"];
@@ -24438,7 +24523,7 @@ function CharacterGrid({ look, hasPhoto = false, onShape, onColor }) {
 function AvatarEditor({ bot, actions, run: run2, onClose, leaving = false }) {
   const look = lookOf(bot);
   const [tab, setTab] = (0, import_react26.useState)(look.image ? "upload" : "bot");
-  const [over, setOver] = (0, import_react26.useState)(false);
+  const [over2, setOver] = (0, import_react26.useState)(false);
   const ref = (0, import_react26.useRef)(null);
   const fileRef = (0, import_react26.useRef)(null);
   const upload = (file) => {
@@ -24505,7 +24590,7 @@ function AvatarEditor({ bot, actions, run: run2, onClose, leaving = false }) {
       "div",
       {
         className: "bt-dropzone",
-        "data-over": over || void 0,
+        "data-over": over2 || void 0,
         onDragOver: (event) => {
           event.preventDefault();
           setOver(true);
@@ -24870,10 +24955,10 @@ var ExaMark = () => svg(
   (0, import_react27.createElement)("rect", { x: 4.2, y: 4.2, width: 15.6, height: 15.6, rx: 1.5, stroke: "#254BF6", strokeWidth: 2.1 }),
   (0, import_react27.createElement)("path", { d: "M5.6 5.6L11 12 5.6 18.4M18.4 5.6L11 12 18.4 18.4", stroke: "#254BF6", strokeWidth: 2.1 })
 );
-var HEX = (cx, cy, r) => `M${cx} ${cy - r}l${r * 0.87} ${r * 0.5}v${r}l-${r * 0.87} ${r * 0.5}l-${r * 0.87}-${r * 0.5}v-${r}l${r * 0.87}-${r * 0.5}z`;
+var HEX2 = (cx, cy, r) => `M${cx} ${cy - r}l${r * 0.87} ${r * 0.5}v${r}l-${r * 0.87} ${r * 0.5}l-${r * 0.87}-${r * 0.5}v-${r}l${r * 0.87}-${r * 0.5}z`;
 var DeepwikiMark = mark(
-  path(HEX(7.2, 6.9, 4.4) + HEX(7.2, 17.1, 4.4), "#2B7FFF"),
-  path(HEX(15.6, 12, 4.4), "#0D9488")
+  path(HEX2(7.2, 6.9, 4.4) + HEX2(7.2, 17.1, 4.4), "#2B7FFF"),
+  path(HEX2(15.6, 12, 4.4), "#0D9488")
 );
 var Context7Mark = () => (0, import_react27.createElement)(
   "svg",
@@ -41099,7 +41184,7 @@ function readPage(limits) {
     }
     return el.childNodes;
   };
-  const over = () => {
+  const over2 = () => {
     if (stop) return true;
     if (chars > limits.chars) stop = `the text passed ${limits.chars} characters`;
     else if (stats.nodes > limits.nodes) stop = `the page has more than ${limits.nodes} nodes`;
@@ -41142,7 +41227,7 @@ ${fence}`;
     let number = ordered ? Number(el.getAttribute("start") || 1) || 1 : 1;
     const lines = [];
     for (const child of childrenOf(el)) {
-      if (over()) break;
+      if (over2()) break;
       if (child.nodeType !== 1 || child.localName !== "li") {
         const loose = block(render(child, ctx));
         if (loose) lines.push(loose);
@@ -41180,7 +41265,7 @@ ${children(cell, ctx)}
     const carry = [];
     let width = 0;
     for (const row of rows2.slice(0, limits.tableRows + 1)) {
-      if (over()) break;
+      if (over2()) break;
       const line = [];
       let column = 0;
       const place = () => {
@@ -41253,7 +41338,7 @@ ${body2 || "(no text)"}
   function children(el, ctx) {
     let out = "";
     for (const child of childrenOf(el)) {
-      if (over()) break;
+      if (over2()) break;
       out += render(child, ctx);
     }
     return out;
@@ -41270,7 +41355,7 @@ ${body2 || "(no text)"}
     if (node.nodeType !== 1) return "";
     const el = node;
     const tag = el.localName;
-    if (SKIP.has(tag) || ctx.depth > limits.depth || over()) return "";
+    if (SKIP.has(tag) || ctx.depth > limits.depth || over2()) return "";
     const style = styleOf(el);
     const display = style.display;
     if (display === "none" || style.contentVisibility === "hidden") return "";
@@ -43016,6 +43101,15 @@ function apply(ctx) {
     const style = installStyles("", "theme");
     let key = "";
     let releaseTokens = null;
+    let activeTheme = null;
+    const skin = writeSkinSurfaceVars(document, () => activeTheme === null ? {} : readSkinSurfaceVars(document, activeTheme));
+    const offTheme = ctx.on("theme/change", () => skin.apply());
+    const observer = typeof MutationObserver === "function" ? new MutationObserver(() => skin.apply()) : null;
+    if (observer !== null) {
+      observer.observe(document.body, { attributes: true, attributeFilter: ["style", "data-ds-dark-theme"] });
+      observer.observe(document.documentElement, { attributes: true, attributeFilter: ["style", "class"] });
+      observer.observe(document.head, { childList: true, subtree: true, characterData: true });
+    }
     const render = () => {
       const snapshot = roster.getSnapshot();
       const prefs = snapshot.ready ? snapshot.prefs ?? {} : savedPrefs;
@@ -43034,6 +43128,8 @@ function apply(ctx) {
       if (next === key) return;
       key = next;
       style.textContent = themeCss(themes[id], accent);
+      activeTheme = themes[id];
+      skin.apply();
       const release = releaseTokens;
       releaseTokens = ctx.theme.overrideTokens("ds-bot", shellTokens(themes[id]));
       if (typeof release === "function") release();
@@ -43050,6 +43146,9 @@ function apply(ctx) {
     return () => {
       offRoster();
       offRegistry();
+      offTheme();
+      observer?.disconnect();
+      skin.clear();
       try {
         if (typeof releaseTokens === "function") releaseTokens();
       } finally {

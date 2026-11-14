@@ -4,6 +4,7 @@ import { DEFAULT_MASK, SHAPES, markupCache, maskOf } from './characters.js'
 import { createSource, EMPTY_ROSTER, indexRoster, isAgentSession } from './sources.js'
 import { teamActions } from './team-actions.js'
 import { themeCss, shellTokens, registry, registerShape, registerTheme, allThemes, layoutOf, widthOf, flatWidthOf } from './themes.js'
+import { readSkinSurfaceVars, writeSkinSurfaceVars } from './skin.js'
 import { MENTION_ORIGIN, currentPart } from './text.js'
 import { SHELL_CSS, CONVERSATION_CSS, botOwnCss, installStyles, installCompiledStyles, RETURN_TOKENS } from './styles.js'
 import { lookOf } from './mark.js'
@@ -380,6 +381,19 @@ export function apply(ctx) {
     const style = installStyles('', 'theme')
     let key = ''
     let releaseTokens = null
+    let activeTheme = null
+    // A third-party skin's glass sliders change DSH's background tokens; the surfaces
+    // follow them through --bt-skin-*, and nothing is set while the tokens are opaque.
+    const skin = writeSkinSurfaceVars(document, () => (activeTheme === null ? {} : readSkinSurfaceVars(document, activeTheme)))
+    const offTheme = ctx.on('theme/change', () => skin.apply())
+    // A skin may write the tokens itself (some set them straight on the document); the
+    // composed value is what counts, so re-read whenever the tokens may have moved.
+    const observer = typeof MutationObserver === 'function' ? new MutationObserver(() => skin.apply()) : null
+    if (observer !== null) {
+      observer.observe(document.body, { attributes: true, attributeFilter: ['style', 'data-ds-dark-theme'] })
+      observer.observe(document.documentElement, { attributes: true, attributeFilter: ['style', 'class'] })
+      observer.observe(document.head, { childList: true, subtree: true, characterData: true })
+    }
     const render = () => {
       const snapshot = roster.getSnapshot()
       const prefs = snapshot.ready ? snapshot.prefs ?? {} : savedPrefs
@@ -398,6 +412,8 @@ export function apply(ctx) {
       if (next === key) return
       key = next
       style.textContent = themeCss(themes[id], accent)
+      activeTheme = themes[id]
+      skin.apply()
       const release = releaseTokens
       releaseTokens = ctx.theme.overrideTokens('ds-bot', shellTokens(themes[id]))
       if (typeof release === 'function') release()
@@ -411,6 +427,9 @@ export function apply(ctx) {
     return () => {
       offRoster()
       offRegistry()
+      offTheme()
+      observer?.disconnect()
+      skin.clear()
       try {
         if (typeof releaseTokens === 'function') releaseTokens()
       } finally {
