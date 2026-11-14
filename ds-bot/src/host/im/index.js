@@ -319,6 +319,14 @@ export function install(rt) {
   const statuses = new Map()
   /** @type {Map<string, Map<string, {state:string, error?:string, at:number}>>} */
   const sendStatuses = new Map()
+  const failedSends = new Map()
+  const failedFor = (id, chatKey) => {
+    let chats = failedSends.get(id)
+    if (chats === undefined) failedSends.set(id, chats = new Map())
+    let jobs = chats.get(chatKey)
+    if (jobs === undefined) chats.set(chatKey, jobs = [])
+    return jobs
+  }
   const setStatus = (id, next) => {
     // Adapter errors can echo platform responses that quote the token; keep them out of the UI and logs.
     if (typeof next.error === 'string' && next.error !== '') return statuses.set(id, { ...next, error: rt.redactSecrets(next.error), at: Date.now() })
@@ -397,7 +405,7 @@ export function install(rt) {
         const sent = await runner.handle.send(job.chat, job)
         job.after?.(sent)
         queue.jobs.shift()
-        setSendStatus(conn.id, chatKey, undefined)
+        if ((failedSends.get(conn.id)?.get(chatKey)?.length ?? 0) === 0) setSendStatus(conn.id, chatKey, undefined)
       } catch (error) {
         const how = failClass(error)
         if (how === 'retry') {
@@ -410,20 +418,20 @@ export function install(rt) {
             queue.retry.unref?.()
             return
           }
-          // The message is given up on, the reason is visible, and the messages
-          // behind it are still delivered instead of waiting forever.
+          // A failed job keeps its delivery callback: Try again resumes the same
+          // message and card instead of dropping it or creating a second card.
           queue.jobs.shift()
-          job.onDrop?.()
+          failedFor(conn.id, chatKey).push(job)
           setSendStatus(conn.id, chatKey, { state: 'error', error: `Send failed after ${job.attempts} attempts: ${failMessage(error)}` })
           rt.warn('ds-bot: im send to %s failed after %d attempts: %s', chatKey, job.attempts, failMessage(error))
           continue
         }
         queue.jobs.shift()
-        job.onDrop?.()
         if (how === 'permanent') {
+          failedFor(conn.id, chatKey).push(job)
           setSendStatus(conn.id, chatKey, { state: 'error', error: failMessage(error) })
           rt.warn('ds-bot: im send to %s failed: %s', chatKey, failMessage(error))
-        }
+        } else job.onDrop?.()
       }
     }
   }
@@ -976,6 +984,7 @@ export function install(rt) {
         await rt.secretEndpoint('secret-delete', { name }).catch(() => {})
       }
       delete connections()[id]
+      failedSends.delete(id)
       runtimes.delete(id)
       await rm(join(imDir, `${id}.json`), { force: true }).catch(() => {})
       await rt.save()
@@ -1030,8 +1039,16 @@ export function install(rt) {
     async 'im-retry'(body) {
       const conn = connections()[String(body.id ?? '')]
       if (conn === undefined) throw new Error('No such IM bot')
-      if (runners.has(conn.id)) await stop(conn.id)
-      await sync()
+      if (statuses.get(conn.id)?.state !== 'ready') {
+        if (runners.has(conn.id)) await stop(conn.id)
+        await sync()
+      }
+      const chats = failedSends.get(conn.id)
+      failedSends.delete(conn.id)
+      for (const [chatKey, jobs] of chats ?? []) {
+        setSendStatus(conn.id, chatKey, { state: 'retrying' })
+        for (const job of jobs) enqueue(conn, chatKey, job)
+      }
       return true
     },
     async 'im-login-start'(body) {

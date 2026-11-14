@@ -631,7 +631,7 @@ test('a platform status error is redacted of the stored secret', async (t) => {
 // #1417: a 5xx was retryable with no limit, so one message held its chat's queue
 // forever while the status still said ready. The retry budget is now bounded, the
 // status says what happened, and the messages behind the failed one still go out.
-test('a send that keeps answering 5xx gives up after bounded retries and the queue moves on', async (t) => {
+test('a send that keeps answering 5xx keeps an exhausted send for manual retry while the queue moves on', async (t) => {
   const s = await start()
   t.after(s.stop)
   const conn = await add(s)
@@ -644,14 +644,18 @@ test('a send that keeps answering 5xx gives up after bounded retries and the que
   s.fake.fails.push(fail(), fail(), fail(), fail())
   s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'first' }] } })
   await delay(120)
-  assert.equal(s.fake.sent.filter(job => job.text === 'first').length, 4, 'the first message is tried four times, then given up')
+  assert.equal(s.fake.sent.filter(job => job.text === 'first').length, 4, 'the first message pauses after four attempts')
   const status = s.rt.imStatusView()[conn.id]
   assert.equal(status.state, 'error')
   assert.match(status.error, /Send failed after 4 attempts: Feishu answered 502/)
   s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'second' }] } })
   await delay(40)
   assert.equal(s.fake.sent.filter(job => job.text === 'second').length, 1, 'the next message is not held behind the failed one')
-  assert.equal(s.rt.imStatusView()[conn.id].state, 'ready', 'a send that works again lifts the send status')
+  assert.equal(s.rt.imStatusView()[conn.id].state, 'error', 'a later success cannot hide an undelivered message')
+  await s.rt.imEndpoint('im-retry', { id: conn.id })
+  await delay(40)
+  assert.equal(s.fake.sent.filter(job => job.text === 'first').length, 5)
+  assert.equal(s.rt.imStatusView()[conn.id].state, 'ready')
 })
 
 test('a retrying send shows a retrying status before the budget runs out', async (t) => {
@@ -713,7 +717,7 @@ test('send recovery restores the adapter state, isolates chats, and keeps adapte
   assert.equal(s.rt.imStatusView()[conn.id].error, 'handshake refused')
 })
 
-test('an approval card whose send exhausts retries is unmarked and re-delivered on reconciliation', async (t) => {
+test('an approval card whose send exhausts retries is retained and re-delivered by Try again', async (t) => {
   const s = await start()
   t.after(s.stop)
   const conn = await add(s)
@@ -733,8 +737,8 @@ test('an approval card whose send exhausts retries is unmarked and re-delivered 
   await delay(140)
   assert.equal(s.fake.sent.filter(job => /bash/.test(job.text)).length, 4)
 
-  // Reconciliation re-enqueues the dropped card so the user still gets it.
-  await s.rt.save()
+  // Try again resumes the original card and its pending delivery callback.
+  await s.rt.imEndpoint('im-retry', { id: conn.id })
   await delay(60)
   const card = s.fake.sent.at(-1)
   assert.match(card.text, /bash/)
