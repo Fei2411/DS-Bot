@@ -56,8 +56,8 @@ body:not([data-bt-motion=quiet]) :is(.bt-row,.bt-tile)>:is(.bt-mark,.bt-cluster)
 @keyframes bt-nuzzle{50%{rotate:14deg;translate:8% -3%;scale:1.03 .97}}
 .bt-mark[data-gaze] .bt-b{translate:calc(var(--bt-gx,0) * 5%) calc(var(--bt-gy,0) * 4%);transition:translate .18s ease-out}
 .bt-mark[data-gaze] .bt-gaze{transform:translate(calc(var(--bt-gx,0) * 12%),calc(var(--bt-gy,0) * 11%));transition:transform .18s ease-out}
-body[data-bt-motion=quiet] .bt-mark[data-gaze] .bt-b{translate:none}
-body[data-bt-motion=quiet] .bt-mark[data-gaze] .bt-gaze{transform:none}
+body[data-bt-motion=quiet] .bt-mark[data-gaze] .bt-b,body[data-bt-effects=reduced] .bt-mark[data-gaze] .bt-b,body[data-bt-effects=off] .bt-mark[data-gaze] .bt-b{translate:none}
+body[data-bt-motion=quiet] .bt-mark[data-gaze] .bt-gaze,body[data-bt-effects=reduced] .bt-mark[data-gaze] .bt-gaze,body[data-bt-effects=off] .bt-mark[data-gaze] .bt-gaze{transform:none}
 .bt-mark[data-state=thinking] .bt-b{animation:bt-ponder 2.2s ease-in-out infinite}
 .bt-mark[data-state=thinking] .bt-eyes{animation:bt-squint 2.2s ease-in-out infinite}
 .bt-mark[data-state=searching] .bt-b{animation:bt-seek 1s ease-in-out infinite}
@@ -399,7 +399,7 @@ html[data-windows-titlebar]:not([data-fullscreen]) :is(.bt-pane,.bt-panel)::befo
 .bt-exchange{animation:bt-sheet-in ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing} both,bt-veil-in .24s ease-out both}
 .bt-exchange[data-leaving]{animation:bt-sheet-out .22s cubic-bezier(.4,0,1,1) forwards;pointer-events:none}
 @keyframes bt-sheet-in{from{transform:translateY(24px)}}
-@keyframes bt-sheet-out{to{opacity:0;transform:translateY(16px);filter:blur(4px)}}
+@keyframes bt-sheet-out{to{opacity:0;transform:translateY(16px);filter:var(--bt-fx-blur-4,blur(4px))}}
 .bt-exchange .bt-dialog{position:relative}
 .bt-exchange .bt-dialog-log{max-width:none;margin:0;padding:39px max(16px,calc((100% - 960px)/2)) 116px;scrollbar-width:thin}
 .bt-exchange .bt-tools{display:none}
@@ -541,7 +541,7 @@ body[data-ds-dark-theme] .bt-scrim{background:rgba(0,0,0,.5)}
 :is(.bt-settings-layer,.bt-mem-layer)[data-leaving] .bt-scrim{opacity:0;transition:opacity .16s ease-in}
 :is(.bt-settings-layer,.bt-mem-layer)[data-leaving]>[role=dialog]{animation:bt-dialog-sink .16s cubic-bezier(.4,0,1,1) forwards}
 @keyframes bt-dialog-rise{from{transform:translateY(12px) scale(.96)}}
-@keyframes bt-dialog-sink{to{opacity:0;transform:translateY(6px) scale(.975);filter:blur(3px)}}
+@keyframes bt-dialog-sink{to{opacity:0;transform:translateY(6px) scale(.975);filter:var(--bt-fx-blur-3,blur(3px))}}
 @media (prefers-reduced-motion:reduce){.bt-settings,.bt-scrim,.bt-settings-page>*{animation:bt-fade .12s ease-out!important}}
 .bt-settings-nav{position:relative;width:198px;flex:none;padding:16px 10px;border-right:.5px solid var(--bt-line);display:flex;flex-direction:column;gap:2px;background:color-mix(in srgb,var(--bt-sidebar) 88%,var(--bt-main));box-sizing:border-box}
 .bt-settings-item{position:relative;z-index:1;display:flex;align-items:center;gap:10px;padding:7px 10px;border:0;border-radius:10px;background:none;color:var(--bt-ink-2);font:inherit;font-size:13px;line-height:20px;font-weight:450;cursor:pointer;text-align:left;transition:background-color .14s ease,color .14s ease}
@@ -771,7 +771,7 @@ html:not([data-windows-titlebar]) [class*="_footArea"],:not([class*="_collapsed"
 .bt-voice-end{background:#ff3e51;color:#fff}
 .bt-voice-end:hover{background:#e02135}
 @keyframes bt-fade{from{opacity:0}to{opacity:1}}
-@keyframes bt-blur-in{from{opacity:0;filter:blur(2px)}to{opacity:1;filter:blur(0)}}
+@keyframes bt-blur-in{from{opacity:0;filter:var(--bt-fx-blur-2,blur(2px))}to{opacity:1;filter:none}}
 @media (prefers-reduced-motion:reduce){.bt-voice-pane,.bt-voice-caption,.bt-voice-ring{animation:none!important}}
 /* A bubble takes the set share of the column, as the user's does; 82px stays free for
    the hover toolbar beside it: a 6px margin and three 24px tools 2px apart. */
@@ -905,8 +905,8 @@ button:hover .bt-you{background:color-mix(in srgb,var(--bt-ink) 9%,var(--bt-side
    already has. */
 @keyframes bt-pop-drop{from{translate:0 -4px;scale:.96}}
 @keyframes bt-pop-lift{from{translate:0 4px;scale:.96}}
-@keyframes bt-pop-out{to{opacity:0;scale:.97;filter:blur(2px)}}
-@keyframes bt-veil-in{from{opacity:0;filter:blur(6px)}}
+@keyframes bt-pop-out{to{opacity:0;scale:.97;filter:var(--bt-fx-blur-2,blur(2px))}}
+@keyframes bt-veil-in{from{opacity:0;filter:var(--bt-fx-blur-6,blur(6px))}}
 @keyframes bt-check-pop{from{opacity:0;scale:.4}}
 @media (prefers-reduced-motion:reduce){.bt-menu,.bt-avedit,.bt-react-strip{animation:bt-fade .1s ease-out}.bt-react-strip button,.bt-q-check,.bt-color[aria-pressed=true] span{animation:none}}
 .bt-brand:hover{background:var(--bt-hover)}
@@ -1124,6 +1124,20 @@ body[data-ds-dark-theme] .bt-theme-chip i{background:var(--da)}
 @media (max-width:640px) and (pointer:coarse){
   .bt-input,.bt-bs-input,.bt-browser-address input,.bt-folder-input,.bt-secret-input,.bt-q-input,.bt-to input,.bt-palette-head input,.bt-mem-input{font-size:16px}
 }
+@media (prefers-reduced-motion:reduce){:root{--bt-fx-blur-2:none;--bt-fx-blur-3:none;--bt-fx-blur-4:none;--bt-fx-blur-5:none;--bt-fx-blur-6:none}}
+body[data-bt-effects=reduced],body[data-bt-effects=off]{--dsw-menu-backdrop-filter:none;--dsw-mask-blur:none;--dsw-specific-menu:var(--bt-main);--dsw-menu-surface-fill:var(--bt-main);--bt-glass-bg:var(--bt-card);--bt-fx-blur-2:none;--bt-fx-blur-3:none;--bt-fx-blur-4:none;--bt-fx-blur-5:none;--bt-fx-blur-6:none}
+body:is([data-bt-effects=reduced],[data-bt-effects=off]) :is(.bt-pill,.bt-island,.bt-drop,.bt-avedit,.bt-scrim,.bt-react-strip,.bt-menu,.bt-palette,.bt-import-menu,.bt-cbar,.bt-pmenu-pop,.bt-update-pop,.bt-bcard-x,.bt-us-tip){-webkit-backdrop-filter:none!important;backdrop-filter:none!important}
+body:is([data-bt-effects=reduced],[data-bt-effects=off]) .bt-bcard-x{background:var(--bt-main)}
+body:is([data-bt-effects=reduced],[data-bt-effects=off]) .bt-us-tip{background:var(--bt-card)}
+body:is([data-bt-effects=reduced],[data-bt-effects=off]) :is(.bt-pill-mem-in,.bt-pill-go,.bt-pill-swap>*,.bt-toast[data-leaving]){filter:none!important}
+body:is([data-bt-effects=reduced],[data-bt-effects=off]) .bt-shimmer{animation:none!important;background:none;color:var(--bt-ink-2)}
+body:is([data-bt-effects=reduced],[data-bt-effects=off]) :is(.bt-mem-skel-block span,.bt-us-skel,.bt-im-qr-blank){animation:none!important;background:var(--bt-hover)}
+body[data-bt-effects=reduced] .bt-mark:not([data-state=done]):not([data-state=alert]):not(.bt-mark-poke) :is(.bt-b,.bt-mark-img),body[data-bt-effects=reduced] .bt-mark :is(.bt-eyes,.bt-eye),body[data-bt-effects=reduced] :is(.bt-badge-alert,.bt-voice-ring,.bt-us-note::before,.bt-im-dot[data-state=connecting],.bt-agent-ava.bt-run,.bt-mic[aria-pressed=true]){animation:none!important}
+body[data-bt-effects=reduced][data-bt-motion=lively] .bt-mark[data-state=alert] :is(.bt-b,.bt-mark-img){animation-iteration-count:1!important}
+body[data-bt-effects=off] [class*="_centerCol"]{transition:none!important}
+body[data-bt-effects=off] :is([class^="bt-"],[class*=" bt-"]):not(.bt-spin):not(.bt-model-spin):not(.bt-mem-spin):not(.bt-loading-spin),body[data-bt-effects=off] :is([class^="bt-"],[class*=" bt-"]) *:not(.bt-spin):not(.bt-model-spin):not(.bt-mem-spin):not(.bt-loading-spin),body[data-bt-effects=off] :is([class^="bt-"],[class*=" bt-"])::before,body[data-bt-effects=off] :is([class^="bt-"],[class*=" bt-"])::after,body[data-bt-effects=off] :is([class^="bt-"],[class*=" bt-"]) *::before,body[data-bt-effects=off] :is([class^="bt-"],[class*=" bt-"]) *::after{animation:none!important;transition:none!important}
+body[data-bt-effects=off] :is(.bt-settings-layer,.bt-mem-layer,.bt-palette-layer,.bt-layer,.bt-panel,.bt-dialog,.bt-scrim,.bt-menu,.bt-drop,.bt-toast,.bt-avedit,.bt-react-strip,.bt-app,.bt-us):not(.bt-spin):not(.bt-model-spin):not(.bt-mem-spin):not(.bt-loading-spin),body[data-bt-effects=off] :is(.bt-settings-layer,.bt-mem-layer,.bt-palette-layer,.bt-layer,.bt-panel,.bt-dialog,.bt-scrim,.bt-menu,.bt-drop,.bt-toast,.bt-avedit,.bt-react-strip,.bt-app,.bt-us) *:not(.bt-spin):not(.bt-model-spin):not(.bt-mem-spin):not(.bt-loading-spin),body[data-bt-effects=off] :is(.bt-settings-layer,.bt-mem-layer,.bt-palette-layer,.bt-layer,.bt-panel,.bt-dialog,.bt-scrim,.bt-menu,.bt-drop,.bt-toast,.bt-avedit,.bt-react-strip,.bt-app,.bt-us)::before,body[data-bt-effects=off] :is(.bt-settings-layer,.bt-mem-layer,.bt-palette-layer,.bt-layer,.bt-panel,.bt-dialog,.bt-scrim,.bt-menu,.bt-drop,.bt-toast,.bt-avedit,.bt-react-strip,.bt-app,.bt-us)::after,body[data-bt-effects=off] :is(.bt-settings-layer,.bt-mem-layer,.bt-palette-layer,.bt-layer,.bt-panel,.bt-dialog,.bt-scrim,.bt-menu,.bt-drop,.bt-toast,.bt-avedit,.bt-react-strip,.bt-app,.bt-us) *::before,body[data-bt-effects=off] :is(.bt-settings-layer,.bt-mem-layer,.bt-palette-layer,.bt-layer,.bt-panel,.bt-dialog,.bt-scrim,.bt-menu,.bt-drop,.bt-toast,.bt-avedit,.bt-react-strip,.bt-app,.bt-us) *::after{animation:none!important;transition:none!important}
+body[data-bt-effects=off] :is(.bt-spin,.bt-model-spin,.bt-mem-spin,.bt-loading-spin){animation-timing-function:steps(8)!important;transition:none!important}
 `
 
 export const CONVERSATION_CSS = `
@@ -1221,8 +1235,8 @@ body[data-bt-goal] [class*="_scroll"]:has(> [class*="_column"]){padding-top:calc
 .bt-typing-label>.bt-shimmer{font-size:14px;line-height:22px;font-weight:400;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bt-typing-time{flex-shrink:0;margin-left:6px;font-size:12px;line-height:22px;color:var(--bt-ink-3);font-variant-numeric:tabular-nums;white-space:nowrap}
 @keyframes bt-typing-in{from{opacity:0;transform:scale(.9)}}
-@keyframes bt-typing-out{from{opacity:1;transform:scale(1)}to{opacity:0;transform:scale(.92);filter:blur(3px)}}
-@keyframes bt-typing-label{from{opacity:0;filter:blur(5px);transform:translateY(3px)}}
+@keyframes bt-typing-out{from{opacity:1;transform:scale(1)}to{opacity:0;transform:scale(.92);filter:var(--bt-fx-blur-3,blur(3px))}}
+@keyframes bt-typing-label{from{opacity:0;filter:var(--bt-fx-blur-5,blur(5px));transform:translateY(3px)}}
 /* Shimmer: a stepped sweep clipped to the text. */
 .bt-shimmer{color:transparent;background:linear-gradient(90deg,var(--bt-shimmer-base) 0%,var(--bt-shimmer-base) 25%,var(--bt-ink) 60%,var(--bt-shimmer-base) 75%,var(--bt-shimmer-base) 100%);background-size:200% 100%;-webkit-background-clip:text;background-clip:text;animation:bt-shimmer 2.2s steps(60) infinite;--bt-shimmer-base:color-mix(in srgb,var(--bt-ink) 40%,transparent)}
 @keyframes bt-shimmer{from{background-position:200% 0}to{background-position:-200% 0}}
@@ -1449,6 +1463,9 @@ div:has(> nav [class*="_marks"]){display:none!important}
 .bt-btw-answer p{margin:0}
 .bt-btw-fail{margin:0 0 6px;color:var(--bt-danger);font-size:13px;line-height:18px}
 @media (prefers-reduced-motion:reduce){.bt-btw-chevron{transition:none}}
+body:is([data-bt-effects=reduced],[data-bt-effects=off]) :is([data-composer-card],[class*="_toBottomSlot"]>button){-webkit-backdrop-filter:none!important;backdrop-filter:none!important}
+body[data-bt-effects=off] :is([data-composer-card],[data-chat-flow-kind=user] [class*="_actions"],[class*="_toBottomSlot"]>button,.bt-news){transition:none!important}
+body[data-bt-effects=off] :is([data-bt-enter="new"],[data-bt-enter="after-collapse"],[class*="_toBottomSlot"]>button,.bt-news,.bt-typing,.bt-typing-text,.bt-typing-label){animation:none!important}
 `
 
 // -------------------------------------------------------------------------

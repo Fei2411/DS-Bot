@@ -3,7 +3,7 @@ import { isHex, inkText, paintCss } from './inks.js'
 import { DEFAULT_MASK, SHAPES, markupCache, maskOf } from './characters.js'
 import { createSource, EMPTY_ROSTER, indexRoster, isAgentSession } from './sources.js'
 import { teamActions } from './team-actions.js'
-import { themeCss, shellTokens, registry, registerShape, registerTheme, allThemes, layoutOf, widthOf, flatWidthOf } from './themes.js'
+import { themeCss, shellTokens, registry, registerShape, registerTheme, allThemes, layoutOf, effectsOf, widthOf, flatWidthOf } from './themes.js'
 import { MENTION_ORIGIN, currentPart } from './text.js'
 import { SHELL_CSS, CONVERSATION_CSS, botOwnCss, installStyles, installCompiledStyles, RETURN_TOKENS } from './styles.js'
 import { lookOf } from './mark.js'
@@ -401,13 +401,15 @@ export function apply(ctx) {
       const accent = isHex(prefs.accent) ? prefs.accent : undefined
       const motion = prefs.motion === 'quiet' || prefs.motion === 'lively' ? prefs.motion : 'normal'
       const layout = layoutOf(prefs)
+      const effects = effectsOf(prefs)
       const width = widthOf(prefs)
       const flatWidth = flatWidthOf(prefs)
       document.body.dataset.btMotion = motion
       document.body.dataset.btLayout = layout
+      document.body.dataset.btEffects = effects
       document.body.style.setProperty('--bt-msg-w', String(width / 100))
       document.body.style.setProperty('--bt-flat-w', String(flatWidth / 100))
-      const next = `${id}|${accent ?? ''}|${motion}|${layout}|${width}|${flatWidth}|${registry.getSnapshot()}`
+      const next = `${id}|${accent ?? ''}|${motion}|${layout}|${effects}|${width}|${flatWidth}|${registry.getSnapshot()}`
       if (next === key) return
       key = next
       style.textContent = themeCss(themes[id], accent)
@@ -415,7 +417,7 @@ export function apply(ctx) {
       releaseTokens = ctx.theme.overrideTokens('ds-bot', shellTokens(themes[id]))
       if (typeof release === 'function') release()
       if (snapshot.ready) {
-        try { localStorage.setItem(PREFS_KEY, JSON.stringify({ theme: prefs.theme, accent: prefs.accent, motion: prefs.motion, layout: prefs.layout, width: prefs.width, flatWidth: prefs.flatWidth, thinking: prefs.thinking, defaultBotModel: prefs.defaultBotModel, enterToSend: prefs.enterToSend })) } catch { /* storage unavailable */ }
+        try { localStorage.setItem(PREFS_KEY, JSON.stringify({ theme: prefs.theme, accent: prefs.accent, motion: prefs.motion, layout: prefs.layout, effects: prefs.effects, width: prefs.width, flatWidth: prefs.flatWidth, thinking: prefs.thinking, defaultBotModel: prefs.defaultBotModel, enterToSend: prefs.enterToSend })) } catch { /* storage unavailable */ }
       }
     }
     render()
@@ -429,6 +431,7 @@ export function apply(ctx) {
       } finally {
         delete document.body.dataset.btMotion
         delete document.body.dataset.btLayout
+        delete document.body.dataset.btEffects
         document.body.style.removeProperty('--bt-msg-w')
         document.body.style.removeProperty('--bt-flat-w')
         style.remove()
@@ -1120,15 +1123,24 @@ export function apply(ctx) {
   let shellSheets = 0
   actions.holdSettingsLook = () => {
     if (shellSheets > 0) return () => {}
+    const syncEffects = () => {
+      const current = roster.getSnapshot()
+      document.body.dataset.btEffects = effectsOf(current.ready ? current.prefs ?? {} : savedPrefs)
+    }
+    syncEffects()
     const snapshot = roster.getSnapshot()
     const prefs = snapshot.ready ? snapshot.prefs ?? {} : savedPrefs
     const themes = allThemes()
     const theme = themes[prefs.theme] ?? themes.deepseek
     const offs = [
+      roster.subscribe(syncEffects),
       ...SHELL_SHEETS.map(([text, tag]) => installCompiledStyles(botOwnCss(text), `settings-${tag}`)),
       installCompiledStyles(botOwnCss(themeCss(theme, isHex(prefs.accent) ? prefs.accent : undefined)), 'settings-theme'),
     ]
-    return () => { for (const off of offs) off() }
+    return () => {
+      delete document.body.dataset.btEffects
+      for (const off of offs) off()
+    }
   }
   const installShell = () => [
     () => { shellSheets += 1; return () => { shellSheets -= 1 } },
