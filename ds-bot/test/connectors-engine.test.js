@@ -124,6 +124,24 @@ test('client resolution: CIMD only on the fixed port, DCR fallback, re-registrat
   assert.equal(catalog.clientInformation.client_id, 'ghc')
 })
 
+// public#1485: Figma's authorization server answers the SDK's RFC 7591 registration with
+// a rejection. The sign-in then showed the SDK's raw text on the row and stopped, instead
+// of asking for the client ID of an app the user registered — the fallback the client
+// resolution already names for servers that offer no registration at all.
+test('a refused dynamic registration falls back to asking for a registered client', async () => {
+  const discovery = { authorizationServerUrl: 'https://as.test', metadata: AS, scope: 's', resource: 'r' }
+  const calls = []
+  const request = async (url) => {
+    url = String(url?.url ?? url)
+    calls.push(url)
+    if (url === 'https://as.test/register') return json({ error: 'invalid_client_metadata', error_description: 'Dynamic registration is not supported' }, 400)
+    throw new Error(`unfaked ${url}`)
+  }
+  const resolved = await oauth.resolveClient({ auth: { kind: 'oauth' } }, discovery, 'http://127.0.0.1:9/callback', false, undefined, { fetch: request })
+  assert.deepEqual(calls, ['https://as.test/register'])
+  assert.equal(resolved, null, 'the row asks for an app client ID instead of ending the sign-in')
+})
+
 test('browser PKCE carries state, code challenge, and resource; tokens exchange and refresh', async () => {
   const discovery = { authorizationServerUrl: 'https://as.test', metadata: AS, scope: 'mcp:all', resource: 'https://mcp.test/mcp' }
   const client = { client_id: 'dcr-1' }
