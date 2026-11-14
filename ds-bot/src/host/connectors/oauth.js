@@ -69,8 +69,10 @@ export async function resolveClient(entry, discovery, redirectUri, fixedPort, st
     const usable = !expired && !uriMissing && (stored.via !== 'cimd' || fixedPort)
     // A confidential client signs the token request with its secret, whether it
     // was registered (DCR) or typed in by hand: without it the AS answers
-    // bad_client_secret.
-    if (usable) return { via: stored.via, clientInformation: { client_id: stored.clientId, ...(stored.clientSecret ? { client_secret: stored.clientSecret } : {}) } }
+    // bad_client_secret. A CIMD client is public, so a secret left behind by an
+    // earlier DCR client must not travel with it.
+    const secret = stored.via !== 'cimd' && stored.clientSecret ? { client_secret: stored.clientSecret } : {}
+    if (usable) return { via: stored.via, clientInformation: { client_id: stored.clientId, ...secret } }
   }
   const metadata = discovery.metadata
   if (metadata?.client_id_metadata_document_supported === true && fixedPort) {

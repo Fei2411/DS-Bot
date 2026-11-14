@@ -283,10 +283,11 @@ export function install(rt) {
   }
 
   // The loopback server for the browser flow. The fixed port is the address the
-  // app documents for its callback; when something else holds it, the port that
-  // worked last time comes next, so a retry keeps one address to configure.
+  // app documents for its callback; a port already shown to the user comes
+  // before it, and the port that worked last time after it, so a retry keeps the
+  // one address somebody may have configured.
   let callbackPort = 0
-  async function loopback(ready) {
+  async function loopback(ready, shownPort) {
     const listener = createServer((req, res) => {
       req.on('error', () => res.destroy())
       res.on('error', () => req.destroy())
@@ -313,7 +314,7 @@ export function install(rt) {
       listener.once('listening', onOk)
       listener.listen(port, '127.0.0.1')
     })
-    const ports = [oauth.FIXED_CALLBACK_PORT, ...(callbackPort !== 0 && callbackPort !== oauth.FIXED_CALLBACK_PORT ? [callbackPort] : []), 0]
+    const ports = [...new Set([shownPort, oauth.FIXED_CALLBACK_PORT, callbackPort].filter(port => Number.isInteger(port) && port > 0)), 0]
     for (const port of ports) {
       try {
         await listen(port)
@@ -330,11 +331,13 @@ export function install(rt) {
 
   async function startBrowserFlow(id, entry, pending) {
     // This attempt replaces the last one: its listener has to go first, or it
-    // keeps the fixed port and this attempt falls back to a random one.
+    // keeps the fixed port and this attempt falls back to a random one. The port
+    // the user was already shown wins, so the address they registered holds.
     const previous = pendings.get(id)
     pendings.delete(id)
     await releasePending(previous)
-    const { listener, fixed, redirectUri } = await loopback(({ code, state, iss, error, errorDescription }) => completeBrowser(id, { code, state, iss, error, errorDescription }))
+    const shownPort = pending.redirectUri === undefined ? undefined : Number(new URL(pending.redirectUri).port)
+    const { listener, fixed, redirectUri } = await loopback(({ code, state, iss, error, errorDescription }) => completeBrowser(id, { code, state, iss, error, errorDescription }), shownPort)
     try {
       const saved = state.connectors?.[id]
       const persist = async (client) => {
@@ -350,6 +353,11 @@ export function install(rt) {
       }
       // Refresh needs to know which client signed in; DCR already persisted its result.
       if (resolved.via !== 'dcr') await saveState(id, { client: { via: resolved.via, clientId: resolved.clientInformation.client_id } })
+      // The metadata document names a public client: a secret an earlier DCR
+      // client left behind has nothing to sign and must not come back.
+      if (resolved.via === 'cimd' && rt.secretValue(clientSecretOf(id)) !== undefined) {
+        await rt.secretEndpoint('secret-delete', { name: clientSecretOf(id) }).catch(() => {})
+      }
       const stateParam = randomBytes(16).toString('base64url')
       const { url, codeVerifier } = await oauth.beginBrowser(pending.discovery, resolved.clientInformation, redirectUri, { state: stateParam })
       pendings.set(id, {
