@@ -184,6 +184,11 @@ export function install(rt) {
       else if (body.motion === 'quiet' || body.motion === 'lively') state.prefs.motion = body.motion
       else throw invalid('Motion must be quiet, normal or lively')
     }
+    if (body.effects !== undefined) {
+      if (body.effects === null || body.effects === 'full') delete state.prefs.effects
+      else if (body.effects === 'reduced' || body.effects === 'off') state.prefs.effects = body.effects
+      else throw invalid('Effects must be full, reduced or off')
+    }
     if (body.layout !== undefined) {
       if (body.layout === null || body.layout === 'bubble') delete state.prefs.layout
       else if (body.layout === 'flat') state.prefs.layout = body.layout

@@ -1,6 +1,6 @@
 import { createElement as h, useEffect, useRef, useState } from 'react'
 import { fnv1a, lookOf, shapeId, shapeOf, MASK_ID, nextMarkSerial, characterMarkup } from './characters.js'
-import { reducedMotion } from './motion.js'
+import { reducedEffects, reducedMotion } from './motion.js'
 import { t } from './i18n.js'
 
 export { colorOf, lookOf } from './characters.js'
@@ -20,7 +20,7 @@ export const toolState = name => (/^(message_bot|stop_bot|create_bot|update_bot|
 // Eyes follow the pointer on large marks.
 function useGaze(ref, enabled) {
   useEffect(() => {
-    if (!enabled || reducedMotion()) return undefined
+    if (!enabled || reducedEffects()) return undefined
     let frame = 0
     let point = null
     const place = () => {
@@ -76,7 +76,7 @@ export function BotMark({ bot, look: given, size = 36, state = 'idle', live = fa
     role: label ? 'img' : undefined,
     'aria-label': label,
     'aria-hidden': label ? undefined : true,
-    onClick: pokeable ? () => setPoked(true) : undefined,
+    onClick: pokeable ? () => { if (!reducedMotion() && document.body?.dataset.btMotion !== 'quiet') setPoked(true) } : undefined,
     onAnimationEnd: poked ? (event) => { if (/^bt-poke/.test(event.animationName)) setPoked(false) } : undefined,
   }
   if (image) return h('span', common, h('img', { className: 'bt-mark-img', src: image, alt: '', draggable: false, onError: () => setBroken(image) }))
