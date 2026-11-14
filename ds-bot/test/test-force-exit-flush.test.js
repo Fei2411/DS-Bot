@@ -4,9 +4,10 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { test } from 'node:test'
+import { pathToFileURL } from 'node:url'
 
 const dsBotDir = resolve(import.meta.dirname, '..')
-const harnessResolve = join(dsBotDir, 'test', 'harness-resolve.mjs')
+const harnessResolve = pathToFileURL(join(dsBotDir, 'test', 'harness-resolve.mjs')).href
 
 const spawnNode = (args, { env = process.env, onChild, stdio = ['ignore', 'pipe', 'pipe'] } = {}) => new Promise((resolveRun, rejectRun) => {
   const child = spawn(process.execPath, args, {
@@ -53,6 +54,7 @@ test('node --test --test-force-exit does not drop results before child-v8 exits'
     '})',
     "stream.on('test:pass', (e) => { if (e.nesting === 0) passed++ })",
     "stream.on('test:fail', (e) => { if (e.nesting === 0) failed++; process.exitCode = 1 })",
+    "stream.on('test:stderr', (e) => process.stderr.write(e.message))",
     "stream.on('end', () => console.log(JSON.stringify({ passed, failed })))",
     'stream.resume()',
     '',
