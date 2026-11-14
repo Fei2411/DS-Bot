@@ -3,6 +3,7 @@ import { AppState } from 'react-native'
 import type { RpcClient } from '../../../link/src/index.ts'
 import { callBot, callBotState, openLink, type TeamState } from '../connection.ts'
 import { ensureUnlock } from './gate.ts'
+import { createNoticeCursor, type NoticeCursorAnswer } from './notices.ts'
 import { OPTIMISTIC, optimistic, withWrites, type Write } from './optimistic.ts'
 import { t } from '../ui/i18n.ts'
 import type { PhoneIdentity, SavedComputer } from '../store.ts'
@@ -140,6 +141,7 @@ export function useTeamLink(computer: SavedComputer, identity: PhoneIdentity) {
     revision.current = -1
     writes.current = []
     liveKey.current = undefined
+    const noticeCursor = createNoticeCursor()
     setTeam(null)
     setOnline(false)
     setLinked(false)
@@ -193,15 +195,22 @@ export function useTeamLink(computer: SavedComputer, identity: PhoneIdentity) {
         setHello(helloResult)
         setOnline(true)
         setError(null)
+        const { sameBoot, since } = noticeCursor.connect(helloResult)
         client.onEvent(({ event, data }: { event: string; data: any }) => {
           if (stopped || clientRef.current !== client) return
+          if (event === 'notice' && !noticeCursor.acceptLive(helloResult.boot, data)) return
           if (event === 'revision' || event === 'live') void poll()
           for (const handler of feedHandlers.current) handler(event, data)
         })
-        void callBot(client, 'notices', { boot: helloResult.boot, since: 0 }).then(answer => {
+        void callBot(client, 'notices', { boot: helloResult.boot, since }).then(answer => {
           if (stopped || clientRef.current !== client) return
-          const notices = answer as { reset?: boolean }
-          if (notices.reset === true) void poll()
+          const { reset, replay } = noticeCursor.acceptCatchUp(helloResult.boot, sameBoot, answer as NoticeCursorAnswer)
+          if (reset) void poll()
+          else {
+            for (const entry of replay) {
+              for (const handler of feedHandlers.current) handler('notice', entry)
+            }
+          }
         }).catch(() => {})
         client.onClose(() => {
           if (stopped || clientRef.current !== client) return
