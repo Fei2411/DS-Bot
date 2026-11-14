@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict'
+import { EventEmitter } from 'node:events'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
+import { pathToFileURL } from 'node:url'
 import { apply, createRuntime } from '../index.js'
 import { defaultBrowserHeadless } from '../src/host/browser-plugins.js'
 import { gateScope } from '../src/host/browser/gate.js'
@@ -94,6 +96,38 @@ function browserExec(botId = 'b2', sessionId = botId) {
   }
 }
 
+// A Playwright page/context pair with just enough surface for one click, so the
+// plugin's real session code runs against it instead of a live browser.
+function fakeBrowserPage() {
+  const page = new EventEmitter()
+  let closed = false
+  Object.assign(page, {
+    setDefaultTimeout() {},
+    setDefaultNavigationTimeout() {},
+    isClosed: () => closed,
+    url: () => 'https://reports.example.test/export',
+    title: async () => 'Reports',
+    ariaSnapshot: async () => '- button "Export CSV" [ref=e1]',
+    waitForLoadState: async () => {},
+    goto: async () => {},
+    locator: () => ({
+      count: async () => 1,
+      evaluate: async () => null,
+      click: async () => {},
+      fill: async () => {},
+      press: async () => {},
+      selectOption: async () => {},
+    }),
+    keyboard: { press: async () => {} },
+    close: async () => { closed = true; page.emit('close') },
+  })
+  const context = new EventEmitter()
+  context.pages = () => [page]
+  context.cookies = async () => []
+  context.close = async () => { await page.close() }
+  return { page, context }
+}
+
 test('app browser endpoint carries download roots for the Bot resolved from the exec', async () => {
   const originalSend = process.send
   const roots = ['/workspace/b2', '/workspace']
@@ -151,6 +185,82 @@ test('app browser endpoint carries download roots for the Bot resolved from the 
     await cleanup?.()
     process.send = originalSend
   }
+})
+
+// The download grace travels mount → openSession → createSession. A fake opener
+// pins the first link; the config test below pins the whole chain.
+test('the mount passes its download grace to the injected session opener', async () => {
+  let opened
+  const tools = new Map()
+  let cleanup
+  mountBrowserPlugin({
+    on() {},
+    effect(create) { cleanup = create() },
+    tools: { register(tool) { tools.set(tool.name, tool) } },
+  }, {
+    toolDefs: [{ name: 'browser_probe', needsBrowser: true, execute: () => 'ok' }],
+    defineTool: value => value,
+    keyOf: async () => 'b2',
+    profileRoot: '/profiles',
+    headless: true,
+    downloadGraceMs: 1234,
+    openSession: async options => {
+      opened = options
+      return { close: async () => {} }
+    },
+  })
+  try {
+    assert.equal(await tools.get('browser_probe').execute({}, { agent: { id: 'b2' } }), 'ok')
+    assert.equal(opened.downloadGraceMs, 1234)
+  } finally {
+    await cleanup?.()
+  }
+})
+
+// The whole config path, not just createSession's own argument: config → install
+// → mount → openBotBrowser → createSession. Lost on the way, the session falls
+// back to the 800 ms default, which this timing catches.
+test('browserDownloadGraceMs from the config reaches the browser session', async (t) => {
+  const { context } = fakeBrowserPage()
+  const key = Symbol.for('ds-bot.test.browser-context')
+  globalThis[key] = context
+  const stub = mkdtempSync(join(tmpdir(), 'ds-bot-playwright-stub-'))
+  writeFileSync(join(stub, 'fake-playwright.mjs'), [
+    'export const chromium = {',
+    "  launchPersistentContext: async () => globalThis[Symbol.for('ds-bot.test.browser-context')],",
+    '}',
+    '',
+  ].join('\n'))
+  const { ctx, rt: runtime, stop } = start({
+    browserPlugin: 'refs',
+    browserPluginApi: {
+      id: 'probe',
+      tools: [{
+        name: 'browser_probe',
+        needsBrowser: true,
+        async execute(args, { session }) {
+          await session.click('e1')
+          return 'ok'
+        },
+      }],
+    },
+    browserDownloadGraceMs: 20,
+    playwrightUrl: pathToFileURL(join(stub, 'fake-playwright.mjs')).href,
+  })
+  // The team folder is read lazily when the browser opens; the fake context only
+  // exposes services through get(), so give it the registry teamFolder() reads.
+  ctx.workspaceRegistry = { get: () => ({ path: join(stub, 'workspace') }) }
+  t.after(async () => {
+    await ctx.dispose()
+    stop()
+    delete globalThis[key]
+    rmSync(stub, { recursive: true, force: true })
+  })
+  const started = Date.now()
+  const tool = runtime.teamTools.find(entry => entry.name === 'browser_probe')
+  assert.equal(await tool.execute({}, browserExec()), 'ok')
+  const elapsed = Date.now() - started
+  assert.ok(elapsed < 700, `a click without a download returned in ${elapsed} ms: the configured 20 ms grace must replace the 800 ms default`)
 })
 
 test('concurrent first browser calls share opening and relay connection', async () => {
