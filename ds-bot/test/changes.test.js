@@ -105,3 +105,16 @@ test('a paging failure adds no row rather than failing the turn', async () => {
   rt.ctx.sessionController.page = async () => { throw new Error('no session') }
   assert.equal(await rt.turnChanges('s1'), undefined)
 })
+
+test('a later unchanged turn cannot reuse the last changed turn, live or after reload', async () => {
+  const summary = summaryOf(3, [file('a.js', 1, 0)])
+  const service = { summary: () => summary }
+  const live = harness({ service })
+  live.emit({ id: 's1' }, event(7, 3))
+  assert.ok(await live.rt.turnChanges('s1'))
+  live.emit({ id: 's1' }, { type: 'turn/start', seq: 8, data: { turn: 4 } })
+  live.emit({ id: 's1' }, { type: 'turn/end', seq: 9, data: { turn: 4 } })
+  assert.equal(await live.rt.turnChanges('s1'), undefined)
+  const cold = harness({ service, page: [event(7, 3), { type: 'turn/start', seq: 8, data: { turn: 4 } }, { type: 'turn/end', seq: 9, data: { turn: 4 } }] })
+  assert.equal(await cold.rt.turnChanges('s1'), undefined)
+})
