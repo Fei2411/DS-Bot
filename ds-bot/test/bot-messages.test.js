@@ -117,7 +117,7 @@ async function start(seed) {
   }
   // Loading once fills the Session-owner indexes turns.js filters events by.
   await tool('list_bots', {}, 'a')
-  return { ctx, agents, agentOf, emit, fire, tool, call, exchanges, home, stop }
+  return { rt, ctx, agents, agentOf, emit, fire, tool, call, exchanges, home, stop }
 }
 
 const textOf = content => content.map(block => block.text ?? '').join('\n')
@@ -450,6 +450,53 @@ test('a joined request gets the failure notice when the model call fails', () =>
   assert.match(delivered[0].text, /^Writer could not answer your message: its model call failed \(SERVER 503: upstream busy\)/)
 })
 
+test('a content-audit 403 stays on its turn without blocking the key', () => {
+  const { rt, emit } = turnsHost()
+  const body = 'upstream 403 request-id=00000000-0000-4000-8000-000000000000: {"error":{"message":"内容审计命中风险规则，请调整输入后重试","type":"content_policy_violation"}}'
+  emit('b', 'turn/start', { turn: 1 })
+  emit('b', 'user/message', { content: textBlock('write it'), source: { kind: 'user' } })
+  emit('b', 'turn/end', { turn: 1, reason: { kind: 'error', error: { code: 'AUTH', status: 403, message: body } } })
+  const failure = rt.bots.b.failures.b
+  assert.equal(failure.turn, 1)
+  assert.equal(failure.code, 'CONTENT_POLICY')
+  assert.equal(failure.status, 403)
+  assert.equal(failure.requestId, '00000000-0000-4000-8000-000000000000')
+  assert.match(failure.message, /content_policy_violation/)
+  // No key repair: the Bot stays usable and no blocked credential state is set.
+  assert.equal(rt.bots.b.blocked, undefined)
+  // A completed turn in the same part drops the record.
+  emit('b', 'turn/start', { turn: 2 })
+  emit('b', 'user/message', { content: textBlock('hello'), source: { kind: 'user' } })
+  emit('b', 'assistant/message', assistantText('hi'))
+  emit('b', 'turn/end', { turn: 2, reason: { kind: 'completed' } })
+  assert.equal(rt.bots.b.failures, undefined)
+})
+
+test('a real auth failure still blocks the Bot', () => {
+  const { rt, emit } = turnsHost()
+  emit('b', 'turn/start', { turn: 1 })
+  emit('b', 'user/message', { content: textBlock('hi'), source: { kind: 'user' } })
+  emit('b', 'turn/end', { turn: 1, reason: { kind: 'error', error: { code: 'AUTH', status: 401, message: 'invalid key sk-12' } } })
+  assert.equal(rt.bots.b.blocked.code, 'AUTH')
+  assert.equal(rt.bots.b.failures.b.code, 'AUTH')
+  assert.equal(rt.bots.b.failures.b.message, '')
+})
+
+test('a 401 mentioning content_filter stays AUTH, and remembered errors redact keys', () => {
+  const { rt, emit } = turnsHost()
+  emit('b', 'turn/start', { turn: 1 })
+  emit('b', 'user/message', { content: textBlock('hi'), source: { kind: 'user' } })
+  emit('b', 'turn/end', { turn: 1, reason: { kind: 'error', error: { code: 'AUTH', status: 401, message: 'Authentication failed for content_filter service' } } })
+  assert.equal(rt.bots.b.blocked.code, 'AUTH')
+  assert.equal(rt.bots.b.failures.b.code, 'AUTH')
+  assert.equal(rt.bots.b.failures.b.message, '')
+  emit('b', 'turn/start', { turn: 2 })
+  emit('b', 'user/message', { content: textBlock('hi'), source: { kind: 'user' } })
+  emit('b', 'turn/end', { turn: 2, reason: { kind: 'error', error: { code: 'SERVER', status: 500, message: 'upstream echoed sk-secretkey123456' } } })
+  assert.doesNotMatch(rt.bots.b.failures.b.message, /sk-secretkey123456/)
+  assert.match(rt.bots.b.failures.b.message, /sk-\[hidden\]/)
+})
+
 test('a joined request never claims the next turn', () => {
   const { rt, emit, delivered } = turnsHost()
   emit('b', 'turn/start', { turn: 1 })
@@ -632,6 +679,177 @@ test('a Bot may take part in the same work again, but not message one that waits
   take('c')
   assert.match(await tool('message_bot', { to: 'Writer', message: 'what did you change last?' }, 'c'), /^Delivered to Writer/)
   assert.match(await tool('message_bot', { to: 'Chief', message: 'done' }, 'c'), refused)
+})
+
+test('message_bot tells the Bot not to message one that waits for its result', async (t) => {
+  const team = await start(threeBots())
+  t.after(team.stop)
+  const { description } = team.rt.teamTools.find(definition => definition.name === 'message_bot')
+  assert.match(description, /Do not message a Bot that is waiting for the result of the work you are doing \(the Bot that asked you for it, or one above that\): your answer reaches it by itself once you end your turn and everything you handed on is back\./)
+})
+
+// Chief asks Writer, and Writer messages Chief with what it has instead of answering.
+async function refusedUp({ agents, emit, tool }) {
+  const turns = turnTaker(agents, emit)
+  turns.userTurn('a', 'have Writer do it')
+  await tool('message_bot', { to: 'Writer', message: 'write the summary' }, 'a')
+  turns.end('a', 'asked Writer')
+  turns.take('b')
+  const refused = await tool('message_bot', { to: 'Chief', message: 'Here is the summary: all three parts are done.' }, 'b')
+  return { ...turns, refused }
+}
+
+test('a message refused because its Bot waits for the result goes up as the answer', async (t) => {
+  const team = await start(threeBots())
+  t.after(team.stop)
+  const { agents } = team
+  const { end, refused } = await refusedUp(team)
+  assert.equal(refused, 'Not sent: Chief is waiting for the result of the work you are doing, and your answer reaches it by itself once everything you handed on is back. Your message was kept as your answer. If you end your turn without writing any text, it goes up to Chief; any text you write for this work from now on goes up instead.')
+  assert.deepEqual(callsOf(agents, 'a'), [])
+  end('b')
+  await settled(() => callsOf(agents, 'a').length === 1)
+  assert.equal(textOf(callsOf(agents, 'a')[0][1].content), '[Reply from Writer]\nHere is the summary: all three parts are done.')
+  assert.deepEqual(await worksIn(team), {})
+})
+
+test('a final answer replaces the refused message it kept', async (t) => {
+  const team = await start(threeBots())
+  t.after(team.stop)
+  const { agents } = team
+  const { end } = await refusedUp(team)
+  assert.equal(Object.values(await worksIn(team)).find(work => work.to === 'b').held, 'Here is the summary: all three parts are done.')
+  end('b', 'The summary, final.')
+  await settled(() => callsOf(agents, 'a').length === 1)
+  assert.equal(textOf(callsOf(agents, 'a')[0][1].content), '[Reply from Writer]\nThe summary, final.')
+})
+
+test('messages refused in one turn add up to the answer, and the refusal says so', async (t) => {
+  const team = await start(threeBots())
+  t.after(team.stop)
+  const { agents, tool } = team
+  const { end } = await refusedUp(team)
+  assert.equal(await tool('message_bot', { to: 'Chief', message: 'One more thing: part two needs a review.' }, 'b'), 'Not sent: Chief is waiting for the result of the work you are doing, and your answer reaches it by itself once everything you handed on is back. Your message was kept as your answer, after what was kept before in this turn. If you end your turn without writing any text, it goes up to Chief; any text you write for this work from now on goes up instead.')
+  end('b')
+  await settled(() => callsOf(agents, 'a').length === 1)
+  assert.equal(textOf(callsOf(agents, 'a')[0][1].content), '[Reply from Writer]\nHere is the summary: all three parts are done.\n\nOne more thing: part two needs a review.')
+})
+
+test('a message refused in a later turn replaces what an earlier turn kept, and the refusal says so', async (t) => {
+  const team = await start(threeBots())
+  t.after(team.stop)
+  const { agents, tool } = team
+  const { take, end } = await handedOn(team)
+  assert.match(await tool('message_bot', { to: 'Chief', message: 'Built it; Tester is reviewing.' }, 'b'), /^Not sent: Chief is waiting/)
+  end('b')
+  take('c')
+  end('c', 'looks good')
+  await settled(() => callsOf(agents, 'b').length === 2)
+  take('b')
+  assert.equal(await tool('message_bot', { to: 'Chief', message: 'Built and reviewed.' }, 'b'), 'Not sent: Chief is waiting for the result of the work you are doing, and your answer reaches it by itself once everything you handed on is back. Your message was kept as your answer, in place of what was kept for this work before this turn. If you end your turn without writing any text, it goes up to Chief; any text you write for this work from now on goes up instead.')
+  end('b')
+  await settled(() => callsOf(agents, 'a').length === 1)
+  assert.equal(textOf(callsOf(agents, 'a')[0][1].content), '[Reply from Writer]\nBuilt and reviewed.\n\n[Handed back to Writer for this work]\n\nTester:\nlooks good')
+})
+
+test('a refused message stays the answer while the work waits for what was handed on', async (t) => {
+  const team = await start(threeBots())
+  t.after(team.stop)
+  const { agents, tool } = team
+  const { take, end } = await handedOn(team)
+  assert.match(await tool('message_bot', { to: 'Chief', message: 'Built it; Tester is reviewing.' }, 'b'), /^Not sent: Chief is waiting/)
+  end('b')
+  assert.equal(Object.values(await worksIn(team)).find(work => work.to === 'b').held, 'Built it; Tester is reviewing.')
+  take('c')
+  end('c', 'looks good')
+  await settled(() => callsOf(agents, 'b').length === 2)
+  take('b')
+  end('b')
+  await settled(() => callsOf(agents, 'a').length === 1)
+  assert.equal(textOf(callsOf(agents, 'a')[0][1].content), '[Reply from Writer]\nBuilt it; Tester is reviewing.\n\n[Handed back to Writer for this work]\n\nTester:\nlooks good')
+})
+
+test('a long refused message keeps its start as the answer, and the refusal says so', async (t) => {
+  const team = await start(threeBots())
+  t.after(team.stop)
+  const { agents, emit, tool } = team
+  const turns = turnTaker(agents, emit)
+  turns.userTurn('a', 'have Writer do it')
+  await tool('message_bot', { to: 'Writer', message: 'write the report' }, 'a')
+  turns.end('a')
+  turns.take('b')
+  const report = 'x'.repeat(2500)
+  const refused = await tool('message_bot', { to: 'Chief', message: report }, 'b')
+  assert.match(refused, /Only its first 2000 characters were kept as your answer\. To send all of it, write it in full as your answer\. If you end your turn without writing any text, that part goes up to Chief;/)
+  turns.end('b')
+  await settled(() => callsOf(agents, 'a').length === 1)
+  assert.equal(textOf(callsOf(agents, 'a')[0][1].content), `[Reply from Writer]\n${report.slice(0, 2000)}`)
+})
+
+test('a message refused after a long one in the same turn keeps the start of both, and the refusal says so', async (t) => {
+  const team = await start(threeBots())
+  t.after(team.stop)
+  const { agents, emit, tool } = team
+  const turns = turnTaker(agents, emit)
+  turns.userTurn('a', 'have Writer do it')
+  await tool('message_bot', { to: 'Writer', message: 'write the report' }, 'a')
+  turns.end('a')
+  turns.take('b')
+  const report = `${'x'.repeat(1990)}${'y'.repeat(510)}`
+  await tool('message_bot', { to: 'Chief', message: report }, 'b')
+  const refused = await tool('message_bot', { to: 'Chief', message: 'One more thing.' }, 'b')
+  assert.match(refused, /Your message was kept as your answer, after what was kept before in this turn, but only the first 2000 characters of all of it\. To send all of it, write it in full as your answer\./)
+  turns.end('b')
+  await settled(() => callsOf(agents, 'a').length === 1)
+  assert.equal(textOf(callsOf(agents, 'a')[0][1].content), `[Reply from Writer]\n${report.slice(0, 2000)}`)
+})
+
+test('a message refused because a Bot further up waits goes to the direct asker, and the refusal says so', async (t) => {
+  const team = await start(threeBots())
+  t.after(team.stop)
+  const { agents, tool } = team
+  const { take, end } = await handedOn(team)
+  end('b')
+  take('c')
+  assert.equal(await tool('message_bot', { to: 'Chief', message: 'Chief, it passes.' }, 'c'), 'Not sent: Chief is waiting for the result of the work you are doing, and your answer reaches it by itself once everything you handed on is back. Your message was kept as your answer. If you end your turn without writing any text, it goes up to Writer as your answer, and reaches Chief with Writer\'s answer; any text you write for this work from now on goes up instead.')
+  end('c')
+  await settled(() => callsOf(agents, 'b').length === 2)
+  assert.equal(textOf(take('b').content), '[Reply from Tester · for the work Chief asked you for; your answer goes to Chief once everything you handed on is back]\nChief, it passes.')
+  assert.deepEqual(callsOf(agents, 'a'), [])
+})
+
+test('a message refused after the turn wrote text is not kept, and the refusal says so', async (t) => {
+  const team = await start(threeBots())
+  t.after(team.stop)
+  const { agents, emit, tool } = team
+  const turns = turnTaker(agents, emit)
+  turns.userTurn('a', 'have Writer do it')
+  await tool('message_bot', { to: 'Writer', message: 'write the summary' }, 'a')
+  turns.end('a')
+  turns.take('b')
+  emit('b', 'assistant/message', assistantText('Let me send Chief the summary.'))
+  assert.equal(await tool('message_bot', { to: 'Chief', message: 'The summary.' }, 'b'), 'Not sent: Chief is waiting for the result of the work you are doing, and your answer reaches it by itself once everything you handed on is back. Your message was not kept: this turn already wrote text, and that goes up to Chief. Write the message in your final answer.')
+  assert.equal(Object.values(await worksIn(team)).find(work => work.to === 'b').held, undefined)
+  turns.end('b')
+  await settled(() => callsOf(agents, 'a').length === 1)
+  assert.equal(textOf(callsOf(agents, 'a')[0][1].content), '[Reply from Writer]\nLet me send Chief the summary.')
+})
+
+test('a queued or user-facing message to a Bot that waits for the result is not kept as the answer', async (t) => {
+  const team = await start(threeBots())
+  t.after(team.stop)
+  const { agents, emit, tool } = team
+  const turns = turnTaker(agents, emit)
+  turns.userTurn('a', 'have Writer do it')
+  await tool('message_bot', { to: 'Writer', message: 'write the summary' }, 'a')
+  turns.end('a')
+  turns.take('b')
+  const plain = 'Not sent: Chief is waiting for the result of the work you are doing, and your answer reaches it by itself once everything you handed on is back. Finish the work and end your turn; to ask Chief something, end your turn with the question.'
+  assert.equal(await tool('message_bot', { to: 'Chief', message: 'Unrelated: review doc Z later?', when: 'queue' }, 'b'), plain)
+  assert.equal(await tool('message_bot', { to: 'Chief', message: 'Tell the user hi', reply_to: 'user' }, 'b'), plain)
+  assert.equal(Object.values(await worksIn(team)).find(work => work.to === 'b').held, undefined)
+  turns.end('b')
+  await settled(() => callsOf(agents, 'a').length === 1)
+  assert.equal(textOf(callsOf(agents, 'a')[0][1].content), '[Reply from Writer]\nWriter finished without a reply.')
 })
 
 test('a stopped turn answers at once, and what it handed on comes back to it alone', async (t) => {

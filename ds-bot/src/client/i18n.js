@@ -322,6 +322,9 @@ const ZH = {
   'This API key is not in the right format.': '这个 API Key 的格式不对。',
   '{provider} did not accept the current API key.': '{provider} 不接受现在的 API Key。',
   '{provider} did not accept the current API key ({status}).': '{provider} 不接受现在的 API Key（{status}）。',
+  'The model service blocked the content': '模型服务的内容审核拦截了这条内容',
+  '{provider} blocked this request with its content filter. The API key is not the problem; edit the input or start a new chat.': '{provider} 的内容审核拦截了这次请求。问题不在 API Key；请修改输入内容或新开一个对话。',
+  '{provider} blocked this request with its content filter ({status}). The API key is not the problem; edit the input or start a new chat.': '{provider} 的内容审核拦截了这次请求（{status}）。问题不在 API Key；请修改输入内容或新开一个对话。',
   '{provider} is out of balance or quota.': '{provider} 的余额或额度不够了。',
   '{provider} is out of balance or quota ({status}).': '{provider} 的余额或额度不够了（{status}）。',
   'The DeepSeek account balance is too low.': 'DeepSeek 账号余额不足。',
@@ -451,7 +454,6 @@ const ZH = {
   'Name after members': '按成员命名',
   'Rename {name}': '重命名 {name}',
   Rename: '重命名',
-  'Add instructions in Bot settings': '在 Bot 设置里添加说明',
   'No scheduled tasks yet. To add one, tell the Bot in its chat what to do and when.': '还没有定时任务。要添加，在对话里告诉 Bot 做什么、什么时候做。',
   'The browser is in DSH Desktop and the DS Bot app.': '浏览器在 DSH 桌面版和 DS Bot 应用里。',
   'New tab': '新标签页',
@@ -529,6 +531,7 @@ const ZH = {
   'Applies from the next message.': '从下一条消息开始生效。',
   Profile: '资料',
   Label: '标签',
+  'Add a label': '添加标签',
   'Optional. Shown under the name.': '可选，显示在名字下方。',
   'Research, admin…': '研究、行政…',
   'What this Bot does': '这个 Bot 做什么',
@@ -726,6 +729,10 @@ const ZH = {
   'Mark as Unread': '标为未读',
   'Rename Bot': '重命名 Bot',
   'Group settings': '群设置',
+  'Shared to-do': '共享待办',
+  '{count} open': '{count} 项未完成',
+  'No shared to-dos yet. Ask a Bot in this group to add one.': '还没有共享待办。让群里的一个 Bot 加一条。',
+  'Clear completed': '清除已完成',
   'Rename group': '重命名群聊',
   'Copy conversation ID': '复制对话 ID',
   'Hide from sidebar': '从侧栏隐藏',
@@ -773,6 +780,20 @@ const ZH = {
   Results: '结果',
   'No results': '没有结果',
   'Try a Bot name or words from a message': '试试 Bot 名字或消息里的词',
+
+  // Group history search
+  'Search this group': '搜索这个群',
+  'Search this group’s messages': '搜索这个群的消息',
+  'Search messages in {name}': '在 {name} 里搜索消息',
+  'Type at least two characters': '至少输入两个字',
+  'No messages found': '没有找到消息',
+  'Try a different word': '换个词试试',
+  'Searching…': '搜索中…',
+  'Back to results': '返回结果',
+  'Around this message': '这条消息的前后',
+  '1 match': '1 条结果',
+  '{count} matches': '{count} 条结果',
+  'Showing the {count} newest': '只显示最新 {count} 条',
 
   // Bot exchange
   'Bot exchange': 'Bot 间对话',
@@ -985,6 +1006,7 @@ const ZH = {
   'At least {count} characters.': '至少 {count} 个字符。',
   'Replace value': '替换值',
   'Saving…': '保存中…',
+  'Could not save this file': '保存这个文件失败',
   Save: '保存',
   'Allowing…': '允许中…',
   Allow: '允许',
@@ -1019,6 +1041,21 @@ const ZH = {
   ' in their shell, and every value is replaced by ': ' 使用，而且发给模型之前，每个值都会被替换成 ',
   ' before anything goes to a model.': '。',
   'Secrets · {count}': '密钥 · {count}',
+  'Encryption at rest': '静态加密',
+  'Keys are stored in a file only this user can read, but the values are not encrypted.': '密钥存在只有该用户能读的文件里，但值没有加密。',
+  'Encrypt keys at rest': '加密存储密钥',
+  'Passphrase (at least 8 characters)': '口令（至少 8 个字符）',
+  'Repeat the passphrase': '再输一次口令',
+  'The passphrases do not match.': '两次输入的口令不一致。',
+  'Turn on encryption': '开启加密',
+  'Keys are stored encrypted. They stay decrypted in memory while DS Bot runs.': '密钥加密存放；DS Bot 运行期间解密后的值只在内存里。',
+  'Turn off encryption': '关闭加密',
+  'Secrets are locked': '密钥已锁定',
+  'Passphrase': '口令',
+  'Unlock': '解锁',
+  'The passphrase file named by DS_BOT_SECRETS_PASSPHRASE_FILE could not be read.': 'DS_BOT_SECRETS_PASSPHRASE_FILE 指向的口令文件读不到。',
+  'The passphrase in the environment or the passphrase file did not unlock the secrets.': '环境变量或口令文件里的口令解不开密钥。',
+  'No passphrase was found at startup. Enter it here, or set DS_BOT_SECRETS_PASSPHRASE_FILE for unattended starts.': '启动时没有找到口令。在这里输入，或为无人值守启动设置 DS_BOT_SECRETS_PASSPHRASE_FILE。',
   'No keys yet. When a Bot needs one, it shows a card in its chat.': '还没有密钥。Bot 需要时，会在对话里弹出一张卡片。',
   'Add a key': '添加密钥',
 
@@ -1175,6 +1212,19 @@ const ZH = {
   'Ask about the work so far': '问问目前做到哪了',
   'Answering…': '正在回答…',
   Cancelled: '已取消',
+  // The group task board
+  Tasks: '任务',
+  'In progress': '进行中',
+  'Awaiting review': '待审',
+  Blocked: '阻塞',
+  'Add a note': '补一句',
+  'Cancel task': '取消任务',
+  'Click again to cancel': '再点一次取消',
+  'History ({count})': '历史（{count}）',
+  'Hide history': '收起历史',
+  'No task is running in this group.': '这个群还没有进行中的任务。',
+  'What should change?': '要补什么？',
+  'Note: {text}': '备注：{text}',
   'Answered from progress so far; nothing was run': '基于目前已有进展的回答，没有执行任何操作',
   'Could not answer.': '没能答上。',
   'Cancel this side question': '取消这次旁路提问',
@@ -1305,7 +1355,15 @@ const ZH = {
   "The conversation could not be compacted for the model switch": "切换模型时无法压缩对话",
   'Its group conversation could not open': '它的群聊会话打不开',
   'Its group conversation could not open, so it starts a new one next time': '它的群聊会话打不开，下次会换一个新的',
+  // A long paste, folded into a card
+  'Pasted text · {count} characters': '粘贴的文本 · {count} 字',
+  'Put back': '放回',
+  'Put back into the box': '放回输入框',
+  'Remove pasted text': '删除粘贴的文本',
   // The composer's +
+  // A Session that is still landing
+  'Opening…': '正在打开…',
+  'Still opening…': '还在打开…',
   'Add files': '添加文件',
   'Reference a chat': '引用对话',
   'Chat with {name}': '与 {name} 的对话',
@@ -1867,3 +1925,14 @@ export function language() {
 }
 
 export const dateLocale = () => DATE_LOCALES[resolveLangKey(language())] ?? 'en-US'
+
+// MarkdownText re-parses when `labels` changes identity, and a streaming message starts
+// over, so one object serves until the language changes the text.
+let labels = null
+export function mdLabels() {
+  const [copyLabel, copiedLabel, footnotes] = [t('Copy'), t('Copied'), t('Footnotes')]
+  if (labels?.code.copyLabel !== copyLabel || labels.code.copiedLabel !== copiedLabel || labels.footnotes !== footnotes) {
+    labels = { code: { copyLabel, copiedLabel }, footnotes }
+  }
+  return labels
+}

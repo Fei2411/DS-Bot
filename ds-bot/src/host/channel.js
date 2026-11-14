@@ -106,6 +106,8 @@ export function install(rt) {
     sections: state.sections ?? [],
     // Key names and who may use them; values never leave the host.
     secrets: rt.secretsView(),
+    // How the secrets file is stored and whether this process can read it now.
+    secretStore: rt.secretStoreStatus(),
     capabilities: rt.capabilityLibraryView(),
     secretRequests: state.secretRequests ?? {},
     connectorRequests: state.connectorRequests ?? {},
@@ -135,6 +137,8 @@ export function install(rt) {
   // turn there runs; the approvals waiting; per Bot, who it waits for to hand back work;
   // and per Session, when its running turn began.
   const live = () => ({
+    secretStore: rt.secretStoreStatus(),
+    secrets: rt.secretsView(),
     activity: rt.activityView(),
     work: { bots: rt.workView(), rooms: rt.roomWorkView(), approvals: rt.approvalsView(), waiting: rt.waitingView?.() ?? {}, turns: rt.turnsView?.() ?? {}, steered: rt.steeredView?.() ?? {} },
     memoryNews: rt.memoryNews(),
@@ -146,6 +150,10 @@ export function install(rt) {
     phone: rt.phoneView(),
     imStatus: rt.imStatusView?.() ?? {},
     imVia: rt.imViaView?.() ?? {},
+    // Why this host cannot write the team, or null. It changes without a save — the
+    // other dsh can quit while this window stays open and this host takes the lock
+    // over — so a window learns that it may write again without a reload.
+    readOnly: rt.readOnly() ?? null,
     // Computer use live state: per-Bot control, leases, pending app cards and holds.
     // Named apart from the state view's `computer`: the live answer merges into the
     // same object and would wipe its `enabled` and `provider` fields.
@@ -167,7 +175,7 @@ export function install(rt) {
   }
   // What a host that only reads the team may still answer.
   // Updates change the dsh profile, not the team, so a reading host may run them too.
-  const READS = new Set(['state', 'models', 'efforts', 'providers', 'provider-models', 'earlier', 'chat', 'run-stats', 'room-progress', 'group-rows', 'exchange', 'exchange-text', 'file-text', 'usage', 'schedules', 'memory-view', 'browser-wait', 'browser-result', 'diagnostics', 'diagnostics-log', 'diagnostics-clear', 'update-check', 'update-install', 'dsh-update-install', 'repo-stars', 'approval-answer', 'thinking', 'avatar-library', 'computer-system-status', 'computer-shot', 'local-agents', 'local-agent-models', 'browser-frame', 'hello', 'notices', 'avatar', 'room-chat', 'usage-summary', 'image'])
+  const READS = new Set(['secret-store', 'secret-unlock', 'state', 'models', 'efforts', 'providers', 'provider-models', 'earlier', 'chat', 'run-stats', 'room-progress', 'group-rows', 'exchange', 'exchange-text', 'file-text', 'usage', 'schedules', 'memory-view', 'browser-wait', 'browser-result', 'diagnostics', 'diagnostics-log', 'diagnostics-clear', 'update-check', 'update-install', 'dsh-update-install', 'repo-stars', 'approval-answer', 'thinking', 'avatar-library', 'computer-system-status', 'computer-shot', 'local-agents', 'local-agent-models', 'browser-frame', 'hello', 'notices', 'avatar', 'room-chat', 'usage-summary', 'image', 'file-download'])
 
   async function setPrefs(body) {
     if (body.theme !== undefined) {
@@ -326,6 +334,14 @@ export function install(rt) {
           const room = rt.roomOf(body.roomId) ?? rt.roomOf(rt.pastOwners.get(body.roomId)?.roomId)
           return ok([...rt.roomProgress.entries()].filter(([, entry]) => entry.roomId === (room?.id ?? body.roomId)).map(([callId, entry]) => ({ callId, replies: rt.groupRows(entry.roomId, entry.from), speaking: entry.slots.filter(slot => slot.status === 'speaking').map(slot => slot.id) })))
         }
+        // Search a group's messages, newest first, each hit with its neighbours.
+        // `before` (a seq) or `offset` continues into older hits.
+        case 'group-search': {
+          await rt.load()
+          const room = rt.roomOf(body.roomId) ?? rt.roomOf(rt.pastOwners.get(body.roomId)?.roomId)
+          if (room === undefined) return fail('Unknown group chat', 'bot/not-found')
+          return ok(rt.groupSearch(room.id, body.query, { before: body.before, offset: body.offset }))
+        }
         // The rows a settled round of a group chat shows, from its book.
         // Whether a turn's change review can still be opened: the Host serves a turn's
         // summary until its Session is disposed.
@@ -413,6 +429,23 @@ export function install(rt) {
           })
           return ok({ room: view().rooms.find(entry => entry.id === room.id), changes })
         }
+        // The user ticks, removes, or clears completed shared to-dos in the group's
+        // details; members read and change the same list with the group_todo tool.
+        case 'room-todo': {
+          await rt.load()
+          const room = rt.roomOf(String(body.roomId ?? ''))
+          if (room === undefined) return fail('Unknown group chat', 'room/not-found')
+          if (body.action === 'clear') {
+            const removed = await rt.clearDoneRoomTodos(room.id)
+            return ok({ removed: removed.length, todos: room.todos ?? [] })
+          }
+          if (body.action === 'remove') {
+            const item = await rt.removeRoomTodo(room.id, String(body.id ?? ''))
+            return ok({ item, todos: room.todos ?? [] })
+          }
+          const item = await rt.setRoomTodoDone(room.id, String(body.id ?? ''), typeof body.done === 'boolean' ? body.done : undefined)
+          return ok({ item, todos: room.todos ?? [] })
+        }
         case 'folders':
         case 'folder-pick':
         case 'folder-list':
@@ -486,6 +519,31 @@ export function install(rt) {
           const result = await rt.goalControl(String(body.roomId ?? ''), body)
           return result.error !== undefined ? fail(result.error, result.code ?? 'bot/refused') : ok(view())
         }
+        // The task board's two panel actions. A note the user adds is kept on the task
+        // and posted into the group as the user's own message that calls its owner, so
+        // the Bot acts on it where the work runs, as if the user had typed it there.
+        case 'task-note': {
+          await rt.load()
+          const roomId = String(body.roomId ?? '')
+          const result = rt.taskNote(roomId, String(body.id ?? ''), body.text)
+          if (result.error !== undefined) return fail(result.error, 'bot/refused')
+          const bot = rt.botOf(result.task.botId)
+          await rt.save()
+          if (bot !== undefined) {
+            await rt.sendUser({
+              sessionId: roomId,
+              content: [{ type: 'text', text: `@${bot.name} ${result.task.notes.at(-1).text}` }],
+            })
+          }
+          return ok(view())
+        }
+        case 'task-cancel': {
+          await rt.load()
+          const result = rt.taskCancel(String(body.roomId ?? ''), String(body.id ?? ''))
+          if (result.error !== undefined) return fail(result.error, 'bot/refused')
+          await rt.save()
+          return ok(view())
+        }
         case 'stop-chat':
           return ok(await rt.stopChat(String(body.botId ?? '')))
         case 'dismiss-question':
@@ -509,6 +567,10 @@ export function install(rt) {
         case 'secret-cancel':
         case 'secret-update':
         case 'secret-delete':
+        case 'secret-store':
+        case 'secret-unlock':
+        case 'secret-encrypt':
+        case 'secret-decrypt':
           await rt.load()
           return ok(await rt.secretEndpoint(endpoint, body))
         case 'connector-connect':
@@ -566,6 +628,7 @@ export function install(rt) {
         case 'avatar':
         case 'room-chat':
         case 'image':
+        case 'file-download':
         case 'usage-summary':
         case 'memory-edit':
         case 'memory-add':
@@ -798,6 +861,7 @@ export function install(rt) {
     }
   }
 
+  rt.channelCall = handle
   rt.phoneServe(handle)
 
   // How a user message reaches a Session: a Bot id, a group chat's id, or an earlier

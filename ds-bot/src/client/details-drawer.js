@@ -7,8 +7,8 @@ import { call } from './api.js'
 import { GlobeIcon, Favicon, PanelMenu, menuItemFor } from './browser-pane.js'
 import { drawerMenuKeys } from './side-model.js'
 import { useEscape } from './overlay-hooks.js'
-import { BotSettingsForm } from './bot-settings.js'
-import { GroupSettingsForm, ROOM_MODES, roomSubtitle, shownMode } from './group-settings.js'
+import { BotSettingsForm, InlineText } from './bot-settings.js'
+import { GroupSettingsForm, GroupTodos, ROOM_MODES, roomSubtitle, shownMode } from './group-settings.js'
 import { ModelMenu, modelOf } from './model-menu.js'
 import { FolderMenu } from './folder-menu.js'
 import { MemoryRow } from './memory-panel.js'
@@ -17,6 +17,7 @@ import { useGlide, useMorph } from './motion.js'
 import { MemberApprovals, MemberState, StopMemberWork, StopRoomWork, useMemberWork, workState } from './member-status.js'
 import { canSetGoal, goalView, hasGoalAdmin } from './goal.js'
 import { PermissionPicker, presetDanger, presetName } from './permission-picker.js'
+import { TaskBoard } from './task-board.js'
 import { BotConnectors } from './connectors.js'
 import { ComputerView } from './computer.js'
 import { t } from './i18n.js'
@@ -49,21 +50,21 @@ function PermissionRow({ bot, roster, actions, run }) {
     h(PermissionPicker, { catalog, saved: bot.permission ?? catalog.defaultPreset, repick: bot.permission === undefined, onPick: permission => run(actions.updateBot(bot.id, { permission })) }))
 }
 
-// The current part's turns, speed, cache hits and context, for a window without DSH's
-// status bar (actions.runStats). It reads them again when a turn starts or ends.
-function RunStats({ bot, part, running, actions }) {
-  const [values, setValues] = useState(null)
+// The current part's turns, speed, cache hits and context, refreshed when a turn starts or ends.
+export function RunStats({ bot, part, running, actions }) {
+  const scope = `${bot.id}:${part ?? ''}`
+  const [read, setRead] = useState(null)
   useEffect(() => {
     if (!actions.runStats) return undefined
     let current = true
     actions.runStats(bot.id).then(
-      (next) => { if (current) setValues(next) },
+      (values) => { if (current) setRead({ scope, values }) },
       // The line stays as it was until the next read works.
       () => {},
     )
     return () => { current = false }
-  }, [bot.id, part, running])
-  const shown = runStatsOf(values)
+  }, [scope, bot.id, running, actions])
+  const shown = runStatsOf(read?.scope === scope ? read.values : null)
   if (shown.length === 0) return null
   return h('div', { className: 'bt-run-stats' },
     shown.map((entry, index) => h(Fragment, { key: entry.key },
@@ -110,16 +111,49 @@ function BrowserCards({ bot, sessionId, roster, actions, useBrowserTabs, useBrow
     h('button', { type: 'button', className: 'bt-bcard-new', style: { animationDelay: `${state.ids.length * 30}ms` }, onClick: () => actions.browserNewTab(sessionId) }, h(PlusIcon), t('New tab')))
 }
 
+// A saved value shows as soon as it is typed and until the host has answered, so the
+// old text does not flash back between the blur and the roster update. `save` returns
+// the promise of the save.
+function useSaved(value, save) {
+  const [pending, setPending] = useState(null)
+  const commit = (next) => {
+    setPending({ next })
+    return Promise.resolve(save(next)).then(
+      (ok) => { setPending(null); return ok },
+      () => { setPending(null); return false },
+    )
+  }
+  return [pending ? pending.next : value, commit]
+}
+
+// The Bot's label under its name, a field that reads as plain text until it is hovered.
+function BotLabel({ bot, actions, run }) {
+  const [role, save] = useSaved(bot.role ?? '', next => run(actions.updateBot(bot.id, { role: next })))
+  return h(InlineText, { label: t('Label'), value: role, placeholder: t('Add a label'), maxLength: 24, className: 'bt-drawer-role-input', onSave: save })
+}
+
 // About: a Bot's instructions or a group's notice in the overview, folded to five lines.
-function About({ text, title = 'About' }) {
+// With `onSave` the Bot's text is edited in place: a click turns it into a field, and an
+// empty one is a field already.
+function About({ text, title = 'About', label, placeholder, onSave }) {
   const [open, setOpen] = useState(false)
-  const long = text.split('\n').length > 5 || text.length > 240
+  const [editing, setEditing] = useState(false)
+  const [shown, save] = useSaved(text, next => onSave(next))
+  const long = shown.split('\n').length > 5 || shown.length > 240
   const body = useRef(null)
   useMorph(body, open)
+  const field = onSave !== undefined && (editing || shown === '')
+  // A click that ends a text selection is a copy, not an edit.
+  const edit = () => { if (!window.getSelection?.()?.toString()) setEditing(true) }
   return h('div', null,
     h('div', { className: 'bt-section-title' }, t(title)),
-    h('div', { ref: body, className: 'bt-about', 'data-open': open || undefined }, text),
-    long ? h('button', { type: 'button', className: 'bt-more', onClick: () => setOpen(value => !value) }, open ? t('Show less') : t('Show more')) : null)
+    field
+      ? h(InlineText, { label, value: shown, multiline: true, placeholder, autoFocus: editing, className: 'bt-input bt-input-area', onSave: save, onDone: () => setEditing(false) })
+      : h('div', {
+          ref: body, className: 'bt-about', 'data-open': open || undefined,
+          ...(onSave ? { role: 'button', tabIndex: 0, title: t('Edit'), 'data-editable': '', onClick: edit, onKeyDown: (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setEditing(true) } } } : {}),
+        }, shown),
+    long && !field ? h('button', { type: 'button', className: 'bt-more', onClick: () => setOpen(value => !value) }, open ? t('Show less') : t('Show more')) : null)
 }
 
 // A group's face in its details: its first members side by side, each on a disc that
@@ -161,6 +195,7 @@ function GroupOverview({ room, roster, actions, usage, useWork, openSettings }) 
     room.notice
       ? h(About, { key: 'notice', title: 'Notice', text: room.notice })
       : h('button', { key: 'notice', type: 'button', className: 'bt-more', onClick: openSettings }, t('Add a notice in group settings')),
+    h(GroupTodos, { key: 'todos', room, actions }),
     h('div', { key: 'members' },
       h('div', { className: 'bt-members-head' },
         h('div', { className: 'bt-section-title' }, t('Members · {count}', { count: members.length })),
@@ -168,6 +203,7 @@ function GroupOverview({ room, roster, actions, usage, useWork, openSettings }) 
       h('div', { className: 'bt-members', role: 'list' }, members.map(member => h(MemberRow, {
         key: member.id, member, entry: entries.find(item => item.id === member.id), room, roster, actions,
       })))),
+    h('div', { key: 'tasks' }, h(TaskBoard, { room, roster, actions })),
     h('div', { key: 'goal' }, h('div', { className: 'bt-section-title' }, t('Goal')),
       h('div', { className: 'bt-kv' },
         room.goal
@@ -297,7 +333,7 @@ export function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, ro
     // An empty group name goes back to naming the group after its members.
     if (room) await run(actions.updateRoom(room.id, { name: next }))
   }
-  const subtitle = bot ? bot.role : roomSubtitle(room, roster)
+  const subtitle = bot ? undefined : roomSubtitle(room, roster)
   // Tab sets: a 1:1 Bot has Details and Browser; a group has only Details, so no tab row.
   const tabs = bot ? (roster.computer?.enabled === true ? ['details', 'browser', 'computer'] : ['details', 'browser']) : ['details']
   return [h(Fragment, { key: 'top' }, top),
@@ -312,7 +348,11 @@ export function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, ro
             onKeyDown: (event) => { if (event.key === 'Enter') void saveName(); if (event.key === 'Escape') { event.stopPropagation(); setEditing(false) } },
           })
         : h('button', { type: 'button', className: 'bt-drawer-name', 'aria-label': t('Rename {name}', { name: current }), title: t('Rename'), onClick: () => { setDraftName(room && !room.named ? '' : current); setEditing(true) } }, current),
-      subtitle ? h('span', { className: 'bt-drawer-role' }, subtitle) : null),
+      bot
+        ? (roster.readOnly
+            ? (bot.role ? h('span', { className: 'bt-drawer-role' }, bot.role) : null)
+            : h(BotLabel, { key: `role:${bot.id}`, bot, actions, run }))
+        : subtitle ? h('span', { className: 'bt-drawer-role' }, subtitle) : null),
     tabs.length > 1 ? h('div', { key: 'tabs', ref: glide.box, className: 'bt-tabs', role: 'tablist', 'data-move': side },
       h('span', { ref: glide.thumb, className: 'bt-thumb', 'aria-hidden': true }),
       tabs.map(key => h('button', { key, type: 'button', role: 'tab', className: 'bt-tab', 'aria-selected': tab === key, onClick: () => setTab(key) }, t(TAB_LABELS[key])))) : null,
@@ -324,7 +364,7 @@ export function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, ro
         h(RunStats, { key: 'stats', bot, part, running, actions }),
         h('div', { key: 'model', className: 'bt-drawer-model' },
           h('div', { className: 'bt-section-title' }, t('Model')),
-          h(ModelMenu, { bot, roster, actions, run, wide: true }),
+          h(ModelMenu, { bot, roster, actions, run, wide: true, inline: true }),
           modelOf(bot, roster) ? null : h('div', { className: 'bt-note' }, t('Pick a model and {name} can start.', { name: bot.name })),
         ),
         h(AgentSessions, { key: 'sessions', bot, part, run, useSessions }),
@@ -333,9 +373,12 @@ export function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, ro
         h('div', { key: 'folder', className: 'bt-drawer-model' },
           h('div', { className: 'bt-section-title' }, t('Working folder')),
           h(FolderMenu, { value: bot.workDir, actions, run, wide: true, onPick: workDir => run(actions.updateBot(bot.id, { workDir })) })),
-        bot.instructions
-          ? h(About, { key: 'about', text: bot.instructions })
-          : h('button', { key: 'about', type: 'button', className: 'bt-more', onClick: () => setView('settings') }, t('Add instructions in Bot settings')),
+        roster.readOnly
+          ? (bot.instructions ? h(About, { key: `about:${bot.id}`, text: bot.instructions }) : null)
+          : h(About, {
+              key: `about:${bot.id}`, text: bot.instructions ?? '', label: t('Instructions'), placeholder: t('What this Bot is responsible for…'),
+              onSave: instructions => run(actions.updateBot(bot.id, { instructions })),
+            }),
         roster.memory === false ? null : h(MemoryRow, { key: 'memory', owner: { id: bot.id, name: bot.name }, actions }),
         usage ? h('div', { key: 'usage' }, h('div', { className: 'bt-section-title' }, t('Usage')),
           h('div', { className: 'bt-kv' }, h('span', null, bot.name), h('span', null, usage))) : null,

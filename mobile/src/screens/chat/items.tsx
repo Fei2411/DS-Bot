@@ -17,7 +17,7 @@ import { viewAnswerText } from 'deep-view/core'
 
 export interface ImageRef { attachmentId: string; mime?: string; name?: string }
 
-export interface FileRef { name: string; bytes?: number; attachmentId?: string }
+export interface FileRef { name: string; bytes?: number; sessionId?: string; attachmentId?: string; seq?: number; index?: number }
 
 export type { SettledQuestionData }
 
@@ -84,17 +84,24 @@ const dataUri = (value: unknown) => `data:${(value as { mime?: string })?.mime ?
 // One displayItems row (parts.js). Bubbles: radius 18, padding 7×12, Bot on the
 // theme's bubble color, the user on user/userInk. `prefs.width` caps the Bot
 // bubble at min(width%, 100% - 40); flat layout draws Bot text full width.
-export const Item = memo(function Item({ item, p, flat, maxWidth, inRoom, sessionId, open, onToggle, onLongPress, onOpenFile, onRetry, stamp, author, admin }: { item: ChatItem; p: Palette; flat: boolean; maxWidth: number | string; inRoom: boolean; sessionId?: string; open?: boolean; onToggle?: () => void; stamp?: string; author?: Bot; admin?: boolean; onLongPress?: (text: string) => void; onOpenFile?: (file: { name: string; attachmentId?: string }) => void; onRetry?: (localId: string, discard?: boolean) => void }) {
+export const Item = memo(function Item({ item, p, flat, maxWidth, inRoom, sessionId, open, onToggle, onLongPress, onOpenFile, onSaveFile, onRetry, stamp, author, admin }: { item: ChatItem; p: Palette; flat: boolean; maxWidth: number | string; inRoom: boolean; sessionId?: string; open?: boolean; onToggle?: () => void; stamp?: string; author?: Bot; admin?: boolean; onLongPress?: (text: string) => void; onOpenFile?: (file: FileRef) => void; onSaveFile?: (file: FileRef) => void; onRetry?: (localId: string, discard?: boolean) => void }) {
   const { dark } = useTheme()
   const wholeFile = item.file?.attachmentId !== undefined ? item.file : item.whole?.file?.attachmentId !== undefined ? item.whole.file : undefined
   const chips = (item.files ?? []).map(file => (
-    <Pressable key={file.attachmentId ?? file.name} accessibilityRole="button" onPress={() => onOpenFile?.(file)}
-      style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 6, minHeight: 44, paddingHorizontal: 10, paddingVertical: 8, borderRadius: 12, borderWidth: StyleSheet.hairlineWidth, borderColor: p.line2, backgroundColor: p.card }}>
-      <View style={{ flex: 1, minWidth: 0 }}>
+    <View key={file.attachmentId ?? `${file.seq}:${file.index}:${file.name}`}
+      style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 6, borderRadius: 12, borderWidth: StyleSheet.hairlineWidth, borderColor: p.line2, backgroundColor: p.card }}>
+      <Pressable accessibilityRole="button" onPress={() => onOpenFile?.(file)}
+        style={{ flex: 1, minWidth: 0, minHeight: 44, justifyContent: 'center', paddingHorizontal: 10, paddingVertical: 8 }}>
         <Text style={[type.small, { color: p.ink, fontWeight: '500' }]} numberOfLines={1}>{file.name}</Text>
         <Text style={[type.caption, { color: p.ink3 }]}>{[(file.name.split('.').pop() ?? '').toUpperCase(), file.bytes !== undefined ? `${Math.max(1, Math.round(file.bytes / 1024))} KB` : ''].filter(Boolean).join(' · ')}</Text>
-      </View>
-    </Pressable>
+      </Pressable>
+      {onSaveFile === undefined ? null : (
+        <Pressable accessibilityRole="button" accessibilityLabel={t('Save {name}', { name: file.name })} onPress={() => onSaveFile(file)}
+          style={({ pressed }) => ({ minHeight: 44, justifyContent: 'center', paddingHorizontal: 12, opacity: pressed ? 0.6 : 1 })}>
+          <Text style={[type.small, { color: p.accent, fontWeight: '600' }]}>{t('Save')}</Text>
+        </Pressable>
+      )}
+    </View>
   ))
   const fullMessageLink = wholeFile !== undefined ? (
     <Pressable accessibilityRole="button" onPress={() => onOpenFile?.(wholeFile)} style={{ alignSelf: 'flex-start', marginTop: 6, paddingVertical: 2 }}>
@@ -421,25 +428,31 @@ interface ImageState { uri?: string; error?: string }
 
 function useImages(sessionId: string, refs: ImageRef[]): ImageState[] {
   const { call } = useTeam()
-  const [states, setStates] = useState<ImageState[]>(() =>
-    refs.map(ref => imageCache.has(`${sessionId}:${ref.attachmentId}`) ? { uri: imageCache.get(`${sessionId}:${ref.attachmentId}`) } : {}))
+  const [, bump] = useState(0)
+  const [errors, setErrors] = useState<Record<string, string>>({})
   const key = `${sessionId}:${refs.map(ref => ref.attachmentId).join(',')}`
   useEffect(() => {
     let live = true
-    refs.forEach((ref, index) => {
+    for (const ref of refs) {
       const cacheKey = `${sessionId}:${ref.attachmentId}`
-      if (imageCache.has(cacheKey)) return
+      if (imageCache.has(cacheKey)) continue
       call('image', { sessionId, attachmentId: ref.attachmentId, preview: true })
         .then(value => {
-          const uri = dataUri(value)
-          imageCache.set(cacheKey, uri)
-          if (live) setStates(prev => prev.map((state, i) => i === index ? { uri } : state))
+          imageCache.set(cacheKey, dataUri(value))
+          if (live) bump(n => n + 1)
         })
-        .catch(error => { if (live) setStates(prev => prev.map((state, i) => i === index ? { error: String((error as { code?: string })?.code ?? (error as Error)?.message ?? 'Failed') } : state)) })
-    })
+        .catch(error => {
+          const reason = String((error as { code?: string })?.code ?? (error as Error)?.message ?? 'Failed')
+          if (live) setErrors(prev => ({ ...prev, [cacheKey]: reason }))
+        })
+    }
     return () => { live = false }
   }, [key])
-  return states
+  return refs.map(ref => {
+    const cacheKey = `${sessionId}:${ref.attachmentId}`
+    const uri = imageCache.get(cacheKey)
+    return uri !== undefined ? { uri } : errors[cacheKey] !== undefined ? { error: errors[cacheKey] } : {}
+  })
 }
 
 // The original of the photo open in the viewer; the preview shows until it arrives.
