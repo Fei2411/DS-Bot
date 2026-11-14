@@ -20,6 +20,12 @@ export const ES = {
   "The Relay Server that passes encrypted messages between your phone and this computer. It cannot read them.": "El servidor de retransmisión que pasa los mensajes cifrados entre tu teléfono y este ordenador. No puede leerlos.",
   "The code works once. It stops working in {count} min.": "El código sirve una sola vez. Caduca en {count} min.",
   "Turn on phone access first": "Activa primero el acceso desde el teléfono",
+  "The Server address must start with ws:// or wss://": "La dirección del servidor debe empezar por ws:// o wss://",
+  "Enter the Server address first": "Introduce primero la dirección del servidor",
+  "This phone is not paired": "Este teléfono no está vinculado",
+  "Another dsh has this Bot team open, so phones connect to that one": "Otro dsh tiene abierto este equipo de Bots, así que los teléfonos se conectan a ese",
+  "This dsh runs on a Node without WebSocket": "Este dsh se ejecuta en un Node sin WebSocket",
+  "Phones are paired and removed on the computer": "Los teléfonos se vinculan y eliminan desde el ordenador",
   "Your phone scans it once. After that it connects by itself.": "Tu teléfono lo escanea una vez. Después se conecta solo.",
   "Beta": "Beta",
   // Shared
