@@ -178,6 +178,7 @@ html[data-bt-collapsing] [class*="_frame"]:has(>[class*="_sidebarCol"]){transiti
 .bt-rail .bt-row{justify-content:center;width:56px;height:56px;min-height:56px;padding:0;border-radius:16px}
 .bt-rail-top{display:flex;flex-direction:column;align-items:center;gap:8px;padding-bottom:8px}
 .bt-rail-sep{width:24px;height:1px;flex:none;background:var(--bt-line)}
+.bt-rail .bt-agent{width:56px}
 .bt-rail .bt-agent-ava{width:44px;height:44px}
 /* Icon rows breathe the way the open column's rows do: 8px of gap puts ~20px
    between avatar edges, the open list's 19px (8px padding + 3px gap + 8px). */
