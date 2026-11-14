@@ -144,13 +144,15 @@ export class RelayTransport extends BaseTransport implements SecureHandshakeTran
   async send(data: Uint8Array): Promise<void> {
     if (this.socket?.readyState !== 1) throw new Error('relay transport is not connected')
     if (this.connectionId === undefined) throw new Error('relay connection has not been authorized')
-    await waitForRelayCapacity(this.socket)
-    this.sendControl('relay', {
+    const socket = this.socket
+    const frame = encodeControlFrame(createControlFrame('relay', {
       connectionId: this.connectionId,
       targetDeviceId: this.options.targetDeviceId,
       counter: this.relayCounter,
       ciphertext: toBase64Url(data),
-    } satisfies RelayPayload)
+    } satisfies RelayPayload), this.controlFrameLimits)
+    await waitForRelayCapacity(socket, new TextEncoder().encode(frame).byteLength)
+    socket.send(frame)
     this.bytesSent += data.byteLength
     this.relayCounter += 1
   }

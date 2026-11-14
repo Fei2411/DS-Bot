@@ -215,6 +215,7 @@ export default {
         if (url === undefined || (body.code !== undefined && body.code !== 0)) {
           const reason = body.msg ?? `Feishu answered ${answer.status}`
           const error = new Error(body.code === undefined ? reason : `${reason} (code ${body.code})`)
+          error.status = answer.status
           // A 200 that carries no WebSocket URL is the platform refusing the app.
           error.permanent = answer.ok || (answer.status >= 400 && answer.status < 500 && answer.status !== 429)
           throw error
@@ -369,6 +370,7 @@ async function tenantToken(fields, env) {
   const body = await response.json().catch(() => ({}))
   if (body.tenant_access_token === undefined) {
     const error = new Error(body.msg ?? 'Feishu refused these credentials')
+    error.status = response.status
     // A 5xx or a 429 is the service, not the credentials: retry those.
     error.permanent = !(response.status >= 500 || response.status === 429)
     throw error
@@ -385,6 +387,7 @@ async function api(env, base, token, path, { method = 'GET', body } = {}) {
   const json = await response.json().catch(() => ({}))
   if (!response.ok || (json.code !== undefined && json.code !== 0)) {
     const error = new Error(String(json.msg ?? `Feishu answered ${response.status}`))
+    error.status = response.status
     error.permanent = response.status >= 400 && response.status < 500 && response.status !== 429
     throw error
   }

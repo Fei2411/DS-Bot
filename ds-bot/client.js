@@ -452,6 +452,9 @@ var JA = {
   "This API key is not in the right format.": "この API キーの形式が正しくありません。",
   "{provider} did not accept the current API key.": "{provider} で現在の API キーが拒否されました。",
   "{provider} did not accept the current API key ({status}).": "{provider} で現在の API キーが拒否されました（{status}）。",
+  "The model service blocked the content": "モデルサービスのコンテンツフィルターが内容をブロックしました",
+  "{provider} blocked this request with its content filter. The API key is not the problem; edit the input or start a new chat.": "{provider} のコンテンツフィルターがこのリクエストをブロックしました。API キーの問題ではありません。入力を変更するか、新しいチャットを始めてください。",
+  "{provider} blocked this request with its content filter ({status}). The API key is not the problem; edit the input or start a new chat.": "{provider} のコンテンツフィルターがこのリクエストをブロックしました（{status}）。API キーの問題ではありません。入力を変更するか、新しいチャットを始めてください。",
   "{provider} is out of balance or quota.": "{provider} の残高または利用枠が不足しています。",
   "{provider} is out of balance or quota ({status}).": "{provider} の残高または利用枠が不足しています（{status}）。",
   "The DeepSeek account balance is too low.": "DeepSeek アカウントの残高が不足しています。",
@@ -2797,6 +2800,9 @@ var KO = {
   "This API key is not in the right format.": "이 API 키의 형식이 올바르지 않습니다.",
   "{provider} did not accept the current API key.": "{provider}에서 현재 API 키를 승인하지 않았습니다.",
   "{provider} did not accept the current API key ({status}).": "{provider}에서 현재 API 키를 승인하지 않았습니다 ({status}).",
+  "The model service blocked the content": "모델 서비스의 콘텐츠 필터가 내용을 차단했습니다",
+  "{provider} blocked this request with its content filter. The API key is not the problem; edit the input or start a new chat.": "{provider}의 콘텐츠 필터가 이 요청을 차단했습니다. API 키 문제가 아닙니다. 입력을 수정하거나 새 대화를 시작하세요.",
+  "{provider} blocked this request with its content filter ({status}). The API key is not the problem; edit the input or start a new chat.": "{provider}의 콘텐츠 필터가 이 요청을 차단했습니다 ({status}). API 키 문제가 아닙니다. 입력을 수정하거나 새 대화를 시작하세요.",
   "{provider} is out of balance or quota.": "{provider}의 잔액 또는 할당량이 부족합니다.",
   "{provider} is out of balance or quota ({status}).": "{provider}의 잔액 또는 할당량이 부족합니다 ({status}).",
   "The DeepSeek account balance is too low.": "DeepSeek 계정 잔액이 부족합니다.",
@@ -5181,6 +5187,9 @@ var ES = {
   "This API key is not in the right format.": "Esta clave API no tiene el formato correcto.",
   "{provider} did not accept the current API key.": "{provider} no aceptó la clave API actual.",
   "{provider} did not accept the current API key ({status}).": "{provider} no aceptó la clave API actual ({status}).",
+  "The model service blocked the content": "El filtro de contenido del servicio de modelos bloqueó el contenido",
+  "{provider} blocked this request with its content filter. The API key is not the problem; edit the input or start a new chat.": "El filtro de contenido de {provider} bloqueó esta solicitud. La clave API no es el problema; edita la entrada o inicia un chat nuevo.",
+  "{provider} blocked this request with its content filter ({status}). The API key is not the problem; edit the input or start a new chat.": "El filtro de contenido de {provider} bloqueó esta solicitud ({status}). La clave API no es el problema; edita la entrada o inicia un chat nuevo.",
   "{provider} is out of balance or quota.": "{provider} se quedó sin saldo o cuota.",
   "{provider} is out of balance or quota ({status}).": "{provider} se quedó sin saldo o cuota ({status}).",
   "The DeepSeek account balance is too low.": "El saldo de la cuenta de DeepSeek es insuficiente.",
@@ -7559,6 +7568,9 @@ var FR = {
   "This API key is not in the right format.": "Cette clé API n’est pas au bon format.",
   "{provider} did not accept the current API key.": "{provider} a refusé la clé API actuelle.",
   "{provider} did not accept the current API key ({status}).": "{provider} a refusé la clé API actuelle ({status}).",
+  "The model service blocked the content": "Le filtre de contenu du service de modèles a bloqué le contenu",
+  "{provider} blocked this request with its content filter. The API key is not the problem; edit the input or start a new chat.": "Le filtre de contenu de {provider} a bloqué cette requête. La clé API n’est pas en cause ; modifiez la saisie ou démarrez une nouvelle discussion.",
+  "{provider} blocked this request with its content filter ({status}). The API key is not the problem; edit the input or start a new chat.": "Le filtre de contenu de {provider} a bloqué cette requête ({status}). La clé API n’est pas en cause ; modifiez la saisie ou démarrez une nouvelle discussion.",
   "{provider} is out of balance or quota.": "Le solde ou le quota de {provider} est épuisé.",
   "{provider} is out of balance or quota ({status}).": "Le solde ou le quota de {provider} est épuisé ({status}).",
   "The DeepSeek account balance is too low.": "Le solde du compte DeepSeek est insuffisant.",
@@ -9904,6 +9916,9 @@ var DE = {
   "This API key is not in the right format.": "Dieser API-Schlüssel hat nicht das richtige Format.",
   "{provider} did not accept the current API key.": "{provider} hat den aktuellen API-Schlüssel nicht akzeptiert.",
   "{provider} did not accept the current API key ({status}).": "{provider} hat den aktuellen API-Schlüssel nicht akzeptiert ({status}).",
+  "The model service blocked the content": "Der Inhaltsfilter des Modelldienstes hat den Inhalt blockiert",
+  "{provider} blocked this request with its content filter. The API key is not the problem; edit the input or start a new chat.": "Der Inhaltsfilter von {provider} hat diese Anfrage blockiert. Der API-Schlüssel ist nicht das Problem; ändere die Eingabe oder starte einen neuen Chat.",
+  "{provider} blocked this request with its content filter ({status}). The API key is not the problem; edit the input or start a new chat.": "Der Inhaltsfilter von {provider} hat diese Anfrage blockiert ({status}). Der API-Schlüssel ist nicht das Problem; ändere die Eingabe oder starte einen neuen Chat.",
   "{provider} is out of balance or quota.": "Guthaben oder Kontingent bei {provider} ist aufgebraucht.",
   "{provider} is out of balance or quota ({status}).": "Guthaben oder Kontingent bei {provider} ist aufgebraucht ({status}).",
   "The DeepSeek account balance is too low.": "Das Guthaben des DeepSeek-Kontos reicht nicht aus.",
@@ -12268,6 +12283,9 @@ var ZH = {
   "This API key is not in the right format.": "这个 API Key 的格式不对。",
   "{provider} did not accept the current API key.": "{provider} 不接受现在的 API Key。",
   "{provider} did not accept the current API key ({status}).": "{provider} 不接受现在的 API Key（{status}）。",
+  "The model service blocked the content": "模型服务的内容审核拦截了这条内容",
+  "{provider} blocked this request with its content filter. The API key is not the problem; edit the input or start a new chat.": "{provider} 的内容审核拦截了这次请求。问题不在 API Key；请修改输入内容或新开一个对话。",
+  "{provider} blocked this request with its content filter ({status}). The API key is not the problem; edit the input or start a new chat.": "{provider} 的内容审核拦截了这次请求（{status}）。问题不在 API Key；请修改输入内容或新开一个对话。",
   "{provider} is out of balance or quota.": "{provider} 的余额或额度不够了。",
   "{provider} is out of balance or quota ({status}).": "{provider} 的余额或额度不够了（{status}）。",
   "The DeepSeek account balance is too low.": "DeepSeek 账号余额不足。",
@@ -13912,6 +13930,7 @@ var FAILURES = {
   MISSING_CREDENTIAL: "The model has no API key",
   INVALID_CREDENTIAL: "The API key is not in the right format",
   AUTH: "The API key was rejected",
+  CONTENT_POLICY: "The model service blocked the content",
   QUOTA: "The account is out of quota",
   ACCOUNT_QUOTA: "The account is out of quota",
   ACCOUNT_SIGN_IN_REQUIRED: "The DeepSeek account needs a sign-in",
@@ -16610,8 +16629,11 @@ body[data-bt-room] [data-composer-card]:has(button[class*="_primary"]:disabled) 
 div:has(> nav [class*="_marks"]){display:none!important}
 /* Every user-side bubble (sent, steering mid-turn, not yet admitted, question replies)
    takes its surface and its text from the one --bt-user pair: a skin that repaints
-   the host's bubble surface alone would otherwise leave the text unreadable. */
-[class*="_userRow"] [class*="_bubble"],[data-chat-flow-kind=question-reply] [class*="_bubble"],[data-chat-flow-kind=command-input] [class*="_bubble"]{background:var(--bt-user)!important;color:var(--bt-user-ink)!important;border-radius:18px!important;padding:7px 12px!important;font-size:var(--dsh-content-font-size,14px)!important;line-height:calc(var(--dsh-content-font-size,14px) + 8px)!important}
+   the host's bubble surface alone would otherwise leave the text unreadable. The
+   surface is also laid as an image layer: a skin's more specific background-color
+   with !important (a glass fill) then changes the color under the layer, not the
+   surface the text sits on. */
+[class*="_userRow"] [class*="_bubble"],[data-chat-flow-kind=question-reply] [class*="_bubble"],[data-chat-flow-kind=command-input] [class*="_bubble"]{background:var(--bt-user)!important;background-image:linear-gradient(var(--bt-user),var(--bt-user))!important;color:var(--bt-user-ink)!important;border-radius:18px!important;padding:7px 12px!important;font-size:var(--dsh-content-font-size,14px)!important;line-height:calc(var(--dsh-content-font-size,14px) + 8px)!important}
 [class*="_userRow"] [class*="_bubble"] [class*="_markdown"],[class*="_userRow"] [class*="_bubble"] a{color:inherit}
 /* Sent messages get the hover toolbar below; steering and unsent bubbles keep none. */
 [class*="_userRow"] [class*="_actions"]{display:none!important}
@@ -37057,6 +37079,25 @@ function installHeaderNavigation(slots, face, component, priority) {
   };
 }
 
+// src/shared/file-chunks.js
+async function* fileChunks(call2, target) {
+  let offset = 0;
+  let version;
+  for (; ; ) {
+    const part = await call2("file-download", { ...target, offset, ...version === void 0 ? {} : { version } });
+    const bytes = Uint8Array.from(atob(part.bytes), (char) => char.charCodeAt(0));
+    if (part.nextOffset === void 0) {
+      yield { ...part, data: bytes };
+      return;
+    }
+    if (part.nextOffset !== offset + bytes.length || part.done !== true && bytes.length === 0 || version !== void 0 && version !== part.version) throw new Error("This file is no longer available");
+    yield { ...part, data: bytes };
+    if (part.done === true) return;
+    offset = part.nextOffset;
+    version = part.version;
+  }
+}
+
 // src/client/file-target.js
 function presentedFileTarget(actionUrl) {
   if (typeof actionUrl !== "string" || !actionUrl.includes("?")) return null;
@@ -37072,17 +37113,6 @@ function presentedFileTarget(actionUrl) {
 
 // src/client/file-save.js
 var import_react53 = require("react");
-function saveBytes(file) {
-  const binary2 = atob(String(file?.bytes ?? ""));
-  const bytes = new Uint8Array(binary2.length);
-  for (let at = 0; at < binary2.length; at += 1) bytes[at] = binary2.charCodeAt(at);
-  const url = URL.createObjectURL(new Blob([bytes], { type: file?.mime ?? "application/octet-stream" }));
-  const link = Object.assign(document.createElement("a"), { href: url, download: file?.name ?? "file" });
-  document.body.append(link);
-  link.click();
-  link.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 1e4);
-}
 function SaveFileAction({ actionUrl, available = true, pending = false }) {
   const [busy, setBusy] = (0, import_react53.useState)(false);
   const [error, setError] = (0, import_react53.useState)(null);
@@ -37091,9 +37121,20 @@ function SaveFileAction({ actionUrl, available = true, pending = false }) {
   const save = () => {
     setBusy(true);
     setError(null);
-    call("file-download", target).then((file) => {
-      saveBytes(file);
-    }, (failure) => setError(failure?.message ?? t("Could not save this file"))).finally(() => setBusy(false));
+    void (async () => {
+      const parts = [];
+      let saved;
+      for await (const part of fileChunks(call, target)) {
+        parts.push(part.data);
+        saved = part;
+      }
+      const url = URL.createObjectURL(new Blob(parts, { type: saved.mime }));
+      const link = Object.assign(document.createElement("a"), { href: url, download: saved.name });
+      document.body.append(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1e4);
+    })().catch((failure) => setError(failure?.message ?? t("Could not save this file"))).finally(() => setBusy(false));
   };
   return (0, import_react53.createElement)(
     "span",
@@ -37124,6 +37165,8 @@ function failureText2(code, { name, provider, status }) {
       return t("This API key is not in the right format.");
     case "AUTH":
       return status === void 0 ? t("{provider} did not accept the current API key.", { provider }) : t("{provider} did not accept the current API key ({status}).", { provider, status });
+    case "CONTENT_POLICY":
+      return status === void 0 ? t("{provider} blocked this request with its content filter. The API key is not the problem; edit the input or start a new chat.", { provider }) : t("{provider} blocked this request with its content filter ({status}). The API key is not the problem; edit the input or start a new chat.", { provider, status });
     case "QUOTA":
       return status === void 0 ? t("{provider} is out of balance or quota.", { provider }) : t("{provider} is out of balance or quota ({status}).", { provider, status });
     case "ACCOUNT_QUOTA":
@@ -37157,6 +37200,9 @@ function fixesFor(code, { canSignIn, official, topUp, onAccount = false }) {
       return ["rekey", "model"];
     case "AUTH":
       return ["rekey", canSignIn ? "use-account" : null, "model"].filter(Boolean);
+    // A content audit is about the input, not the credentials; no key action helps.
+    case "CONTENT_POLICY":
+      return [];
     case "QUOTA":
       return official ? ["top-up"] : [];
     case "ACCOUNT_QUOTA":
@@ -37206,8 +37252,10 @@ var providerName = (roster, provider) => provider === void 0 ? t("The model serv
 function failureFacts(data, blocked) {
   const facts = [];
   if (data.code) facts.push(["Code", t("Code"), data.code]);
-  if (blocked?.status !== void 0) facts.push(["HTTP status", t("HTTP status"), String(blocked.status)]);
-  if (blocked?.requestId) facts.push(["Request ID", t("Request ID"), blocked.requestId]);
+  const status = data.status ?? blocked?.status;
+  if (status !== void 0) facts.push(["HTTP status", t("HTTP status"), String(status)]);
+  const requestId = data.requestId ?? blocked?.requestId;
+  if (requestId) facts.push(["Request ID", t("Request ID"), requestId]);
   if (data.code !== "AUTH" && data.message) facts.push(["Message", t("Provider message"), data.message]);
   return facts;
 }
@@ -37232,8 +37280,10 @@ function TechnicalDetails({ facts }) {
 }
 function FailureCell({ node, sessionId, useRoster, useTurnClock, actions }) {
   const roster = useRoster((value) => value);
-  const data = node?.data ?? {};
+  const failRow = node?.data ?? {};
   const bot = roster.byId?.[sessionId];
+  const host = bot?.failures?.[sessionId];
+  const data = host !== void 0 && host.turn === failRow.turn ? { ...failRow, ...host } : failRow;
   const later = useTurnClock((state) => Object.keys(state[sessionId] ?? {}).some((turn) => Number(turn) > data.turn));
   const account = useAccountView(actions);
   const signedIn = account?.status === "credential-stored";
@@ -37243,8 +37293,8 @@ function FailureCell({ node, sessionId, useRoster, useTurnClock, actions }) {
   const [error, setError] = (0, import_react54.useState)("");
   const [joining, setJoining] = (0, import_react54.useState)(null);
   const blocked = bot?.blocked?.code === data.code ? bot.blocked : void 0;
-  const provider = blocked?.provider ?? providerOf(bot, roster);
-  const text = failureText2(data.code, { name: bot?.name ?? t("This Bot"), provider: providerName(roster, provider), status: blocked?.status });
+  const provider = blocked?.provider ?? host?.provider ?? providerOf(bot, roster);
+  const text = failureText2(data.code, { name: bot?.name ?? t("This Bot"), provider: providerName(roster, provider), status: data.status ?? blocked?.status });
   const facts = failureFacts(data, blocked);
   const current = bot !== void 0 && currentPart(bot) === sessionId && !later;
   const moveToAccount = () => {
@@ -42772,6 +42822,16 @@ function listedOpener({ list, open, refresh, current, begin, done }) {
   };
 }
 
+// src/client/polling.js
+var POLL_MAX_MS = 5e3;
+function pollDelay(base, unchanged) {
+  const steps = Math.min(Math.max(unchanged, 0), 8);
+  return Math.min(base * 2 ** steps, Math.max(base, POLL_MAX_MS));
+}
+function needsIdleSample(computer, settings) {
+  return Object.values(computer?.bots ?? {}).some((entry) => entry?.waitingFor === "user-idle") || Object.values(settings?.bots ?? {}).some((bot) => bot?.level === "foreground");
+}
+
 // src/client/agent-new.js
 function agentSessionToReuse(list, latest, pending) {
   if (pending !== void 0 && list.byId[pending] === void 0) return pending;
@@ -42886,6 +42946,7 @@ function apply(ctx) {
     const value = await call("state", { since: known.revision, models: known.modelsKey ?? "", live: liveKey, locale: language() });
     if (order < applied) return;
     applied = order;
+    const prevLiveKey = liveKey;
     if (value.liveKey !== void 0) liveKey = value.liveKey;
     if (value.activity !== void 0) {
       const nextActivity = JSON.stringify(value.activity);
@@ -42924,7 +42985,9 @@ function apply(ctx) {
     if (value.imVia !== void 0 && JSON.stringify(value.imVia) !== JSON.stringify(current.imVia ?? {})) live2.imVia = value.imVia;
     if (value.readOnly !== void 0 && (value.readOnly ?? null) !== (current.readOnly ?? null)) live2.readOnly = value.readOnly;
     if (Object.keys(live2).length > 0 && current.ready) roster.set({ ...current, ...live2 });
-    if (value.unchanged || value.revision === current.revision && value.modelsKey === current.modelsKey) return;
+    if (value.unchanged || value.revision === current.revision && value.modelsKey === current.modelsKey) {
+      return value.liveKey !== void 0 && value.liveKey !== prevLiveKey;
+    }
     if (Object.keys(seenAt).length === 0) leaveVisits([...value.bots, ...value.rooms].map((entry) => entry.id));
     roster.set(indexRoster(value));
     try {
@@ -42945,18 +43008,20 @@ function apply(ctx) {
       refreshed.add(id);
       void Promise.resolve(ctx.sessions.refreshProjections?.(id)).catch(quietly("refresh projections"));
     }
+    return true;
   };
   ctx.effect(() => {
     let stopped = false;
     let running = false;
     let timer;
     let misses = 0;
+    let unchanged = 0;
     const loop = async () => {
       clearTimeout(timer);
       if (running || stopped) return;
       running = true;
       try {
-        await pull();
+        unchanged = await pull() ? 0 : unchanged + 1;
         misses = 0;
         ui2.set((state) => state.bootFailed ? { ...state, bootFailed: false } : state);
       } catch (error) {
@@ -42970,10 +43035,13 @@ function apply(ctx) {
       } finally {
         running = false;
       }
-      if (!stopped) timer = setTimeout(loop, document.hidden ? 1e4 : 1500);
+      if (!stopped) timer = setTimeout(loop, pollDelay(document.hidden ? 1e4 : 1500, unchanged));
     };
     const wake = () => {
-      if (!document.hidden) void loop();
+      if (!document.hidden) {
+        unchanged = 0;
+        void loop();
+      }
     };
     document.addEventListener("visibilitychange", wake);
     void loop();
@@ -43555,7 +43623,9 @@ function apply(ctx) {
   if (typeof appComputer?.idleSeconds === "function") {
     ctx.effect(() => {
       const push = () => {
-        if (roster.getSnapshot().computer?.enabled !== true) return;
+        const current = roster.getSnapshot();
+        if (current.computer?.enabled !== true) return;
+        if (!needsIdleSample(computer.getSnapshot(), current.computer)) return;
         void Promise.resolve(appComputer.idleSeconds()).then((idle) => {
           if (Number.isFinite(idle)) call("computer-user-active", { idleSeconds: idle }).catch(() => {
           });

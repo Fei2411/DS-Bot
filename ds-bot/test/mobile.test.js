@@ -1,5 +1,6 @@
+import { fileChunks } from '../src/shared/file-chunks.js'
 import assert from 'node:assert/strict'
-import { randomUUID } from 'node:crypto'
+import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -623,4 +624,58 @@ test('file-download resolves presented files in active and archived group member
   assert.equal(savedActive.ok, true)
   assert.equal(savedActive.value.name, 'active.txt')
   assert.equal(Buffer.from(savedActive.value.bytes, 'base64').toString(), 'from active member session')
+})
+
+
+test('files larger than the secure message limit download through bounded chunks without a total-size cap', async t => {
+  const { call, history, stop } = start()
+  t.after(stop)
+  const { chief } = await team(call)
+  const sessionId = (await call('state', {})).value.bots.find(bot => bot.id === chief).sessionId
+  const dir = mkdtempSync(join(tmpdir(), 'dsb-file-chunks-'))
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  const bytes = randomBytes(17 * 1024 * 1024 + 13)
+  const path = join(dir, 'large.bin')
+  writeFileSync(path, bytes)
+  history[sessionId] = [{ seq: 9, type: 'deliverables/presented', data: { turn: 1, files: [{ path }] } }]
+  const hash = createHash('sha256')
+  let downloaded = 0
+  let calls = 0
+  const ask = async (endpoint, payload) => {
+    const result = await call(endpoint, payload)
+    assert.equal(result.ok, true, JSON.stringify(result.error))
+    assert.ok(Buffer.byteLength(JSON.stringify(result)) < 1024 * 1024, 'one result fits the link frame budget')
+    calls++
+    return result.value
+  }
+  for await (const part of fileChunks(ask, { sessionId, seq: 9, index: 0 })) {
+    assert.ok(part.data.length <= 512 * 1024)
+    downloaded += part.data.length
+    hash.update(part.data)
+  }
+  assert.ok(calls > 1)
+  assert.equal(downloaded, bytes.length)
+  assert.equal(hash.digest('hex'), createHash('sha256').update(bytes).digest('hex'))
+  const first = await call('file-download', { sessionId, seq: 9, index: 0, offset: 0 })
+  writeFileSync(path, 'changed')
+  const changed = await call('file-download', { sessionId, seq: 9, index: 0, offset: first.value.nextOffset, version: first.value.version })
+  assert.equal(changed.error.code, 'bot/not-found')
+  assert.equal((await call('file-download', { sessionId, seq: 9, offset: -1 })).error.code, 'bot/invalid')
+})
+
+test('file attachment chunks round-trip through the same client iterator', async t => {
+  const { call, ctx, history, stop } = start()
+  t.after(stop)
+  const { chief } = await team(call)
+  const sessionId = (await call('state', {})).value.bots.find(bot => bot.id === chief).sessionId
+  const bytes = randomBytes(4 * 1024 * 1024 + 7)
+  const ref = await ctx.get('attachments').saveFile({ data: bytes, name: 'data.bin' })
+  history[sessionId] = [{ seq: 3, type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'file', attachment: ref }] } }]
+  const chunks = []
+  for await (const part of fileChunks(async (endpoint, payload) => {
+    const result = await call(endpoint, payload)
+    assert.equal(result.ok, true)
+    return result.value
+  }, { sessionId, attachmentId: ref.attachmentId })) chunks.push(Buffer.from(part.data))
+  assert.deepEqual(Buffer.concat(chunks), bytes)
 })
