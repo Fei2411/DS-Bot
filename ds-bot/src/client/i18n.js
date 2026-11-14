@@ -257,6 +257,9 @@ const ZH = {
   'Change and start a new part': '更换并开新的一段',
   // Local agents page
   'Local agents': '本地 Agent',
+  // Add-provider form
+  'Still needed: {fields}': '还差：{fields}',
+  'At least one model': '至少一个模型',
   'This DSH cannot register local agent routes.': '这个 DSH 不能注册本地 Agent 路由。',
   'Detected agents': '已检测到的 Agent',
   Refresh: '刷新',
@@ -448,7 +451,6 @@ const ZH = {
   'Name after members': '按成员命名',
   'Rename {name}': '重命名 {name}',
   Rename: '重命名',
-  'Add instructions in Bot settings': '在 Bot 设置里添加说明',
   'No scheduled tasks yet. To add one, tell the Bot in its chat what to do and when.': '还没有定时任务。要添加，在对话里告诉 Bot 做什么、什么时候做。',
   'The browser is in DSH Desktop and the DS Bot app.': '浏览器在 DSH 桌面版和 DS Bot 应用里。',
   'New tab': '新标签页',
@@ -526,6 +528,7 @@ const ZH = {
   'Applies from the next message.': '从下一条消息开始生效。',
   Profile: '资料',
   Label: '标签',
+  'Add a label': '添加标签',
   'Optional. Shown under the name.': '可选，显示在名字下方。',
   'Research, admin…': '研究、行政…',
   'What this Bot does': '这个 Bot 做什么',
@@ -723,6 +726,10 @@ const ZH = {
   'Mark as Unread': '标为未读',
   'Rename Bot': '重命名 Bot',
   'Group settings': '群设置',
+  'Shared to-do': '共享待办',
+  '{count} open': '{count} 项未完成',
+  'No shared to-dos yet. Ask a Bot in this group to add one.': '还没有共享待办。让群里的一个 Bot 加一条。',
+  'Clear completed': '清除已完成',
   'Rename group': '重命名群聊',
   'Copy conversation ID': '复制对话 ID',
   'Hide from sidebar': '从侧栏隐藏',
@@ -770,6 +777,20 @@ const ZH = {
   Results: '结果',
   'No results': '没有结果',
   'Try a Bot name or words from a message': '试试 Bot 名字或消息里的词',
+
+  // Group history search
+  'Search this group': '搜索这个群',
+  'Search this group’s messages': '搜索这个群的消息',
+  'Search messages in {name}': '在 {name} 里搜索消息',
+  'Type at least two characters': '至少输入两个字',
+  'No messages found': '没有找到消息',
+  'Try a different word': '换个词试试',
+  'Searching…': '搜索中…',
+  'Back to results': '返回结果',
+  'Around this message': '这条消息的前后',
+  '1 match': '1 条结果',
+  '{count} matches': '{count} 条结果',
+  'Showing the {count} newest': '只显示最新 {count} 条',
 
   // Bot exchange
   'Bot exchange': 'Bot 间对话',
@@ -982,6 +1003,7 @@ const ZH = {
   'At least {count} characters.': '至少 {count} 个字符。',
   'Replace value': '替换值',
   'Saving…': '保存中…',
+  'Could not save this file': '保存这个文件失败',
   Save: '保存',
   'Allowing…': '允许中…',
   Allow: '允许',
@@ -1297,7 +1319,15 @@ const ZH = {
   "The conversation could not be compacted for the model switch": "切换模型时无法压缩对话",
   'Its group conversation could not open': '它的群聊会话打不开',
   'Its group conversation could not open, so it starts a new one next time': '它的群聊会话打不开，下次会换一个新的',
+  // A long paste, folded into a card
+  'Pasted text · {count} characters': '粘贴的文本 · {count} 字',
+  'Put back': '放回',
+  'Put back into the box': '放回输入框',
+  'Remove pasted text': '删除粘贴的文本',
   // The composer's +
+  // A Session that is still landing
+  'Opening…': '正在打开…',
+  'Still opening…': '还在打开…',
   'Add files': '添加文件',
   'Reference a chat': '引用对话',
   'Chat with {name}': '与 {name} 的对话',
@@ -1859,3 +1889,14 @@ export function language() {
 }
 
 export const dateLocale = () => DATE_LOCALES[resolveLangKey(language())] ?? 'en-US'
+
+// MarkdownText re-parses when `labels` changes identity, and a streaming message starts
+// over, so one object serves until the language changes the text.
+let labels = null
+export function mdLabels() {
+  const [copyLabel, copiedLabel, footnotes] = [t('Copy'), t('Copied'), t('Footnotes')]
+  if (labels?.code.copyLabel !== copyLabel || labels.code.copiedLabel !== copiedLabel || labels.footnotes !== footnotes) {
+    labels = { code: { copyLabel, copiedLabel }, footnotes }
+  }
+  return labels
+}
