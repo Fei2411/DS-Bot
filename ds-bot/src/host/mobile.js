@@ -300,7 +300,7 @@ export function install(rt) {
     }, AbortSignal.timeout(HISTORY_TIMEOUT_MS))
     const events = page.records.map(record => record.event)
     const { items, open } = roomItems(events, range => rt.groupRows?.(room.id, range.from, range.to, range.anchor) ?? [])
-    if (body.steps === true) await rt.applySteps?.(items, events, part.sessionId)
+    if (body.steps === true) await rt.applySteps?.(items, events, part.sessionId, { atTip: !Number.isInteger(cursor?.beforeSeq) && index === parts.length - 1 })
     const running = [...rt.roomProgress.entries()].filter(([, round]) => round.roomId === room.id)
     // The newest page shows what the running round has said so far, where its call sits.
     if (cursor === undefined) {

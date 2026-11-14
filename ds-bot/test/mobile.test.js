@@ -679,3 +679,35 @@ test('file attachment chunks round-trip through the same client iterator', async
   }, { sessionId, attachmentId: ref.attachmentId })) chunks.push(Buffer.from(part.data))
   assert.deepEqual(Buffer.concat(chunks), bytes)
 })
+
+test('chat with steps computes thinking time from the loaded page without re-reading the session tail', async t => {
+  const { call, ctx, history, stop } = start()
+  t.after(stop)
+  const { chief } = await team(call)
+  const sessionId = (await call('state', {})).value.bots.find(bot => bot.id === chief).sessionId
+  const events = []
+  let seq = 0
+  for (let turn = 1; turn <= 12; turn += 1) {
+    events.push({ seq: seq++, time: turn * 1000, type: 'turn/start', data: { turn } })
+    events.push(user(seq++, `msg ${turn}`))
+    events.push({
+      seq: seq++, time: turn * 1000 + 10, type: 'assistant/message',
+      data: { turn, step: 0, message: { content: [{ type: 'text', text: `reply ${turn}` }] }, stream: [{ type: 'reasoning-chunks', time0: 100, index: 0, dt: [250], texts: ['a', 'b'] }] },
+    })
+    events.push({ seq: seq++, time: turn * 1000 + 20, type: 'tool/call', data: { turn, callId: `c${turn}`, name: 'read_file', arguments: '{}' } })
+    events.push({ seq: seq++, time: turn * 1000 + 30, type: 'tool/result', data: { turn, message: { toolCallId: `c${turn}`, ok: true, content: [] } } })
+    events.push({ seq: seq++, time: turn * 1000 + 40, type: 'turn/end', data: { turn } })
+  }
+  history[sessionId] = events
+  let pageCalls = 0
+  const basePage = ctx.sessionController.page
+  ctx.sessionController.page = async (args, signal) => {
+    pageCalls += 1
+    return basePage(args, signal)
+  }
+  const older = (await call('chat', { botId: chief, cursor: { part: 0, beforeSeq: 24 }, steps: true })).value
+  const stepRows = older.items.filter(item => item.kind === 'steps')
+  assert.ok(stepRows.length >= 3)
+  assert.ok(stepRows.every(row => row.ms === 250))
+  assert.equal(pageCalls, 1)
+})

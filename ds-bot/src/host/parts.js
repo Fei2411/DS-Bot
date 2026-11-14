@@ -23,6 +23,7 @@ import { parseReplies, relayRange, stackReplies } from '../shared/group-replies.
 import { CHECKPOINT_PROMPT, STEWARD_SYSTEM, checkpointCount, checkpointTail, checkpointTailNote, checkpointText, linesFor, parseDecision, stewardRequest } from './steward.js'
 import { RESUME_DELAY_MS } from './resume.js'
 import { clip, createClock, escapeRegExp, estimateTokens, splitRef, textOf } from './text.js'
+import { pageThinkingMs } from './thinking.js'
 import { viaOf } from '../shared/im-platforms.js'
 import { checkShownView, normalizeView, readViewReply, viewCardText, viewReply, viewReplyText } from 'deep-view/core'
 
@@ -1879,11 +1880,12 @@ export function install(rt) {
 
   // Places a page's `steps` items after the last row of each turn and fills in
   // `ms` from the turn's thinking time when the stream has it.
-  async function applySteps(items, events, sessionId) {
+  async function applySteps(items, events, sessionId, options) {
     const byTurn = stepsItems(events, sessionId)
+    const known = pageThinkingMs(events, options)
     for (const [turn, tools] of byTurn) {
       const item = { kind: 'steps', turn, tools, time: items.filter(it => it.turn === turn).at(-1)?.time ?? events.at(-1)?.time }
-      const ms = await rt.thinkingOf(sessionId, turn).catch(() => undefined)
+      const ms = known.has(turn) ? known.get(turn) : await rt.thinkingOf(sessionId, turn).catch(() => undefined)
       if (typeof ms === 'number' && ms > 0) item.ms = ms
       const at = items.reduce((last, it, index) => it.turn === turn ? index : last, -1)
       items.splice(at < 0 ? items.length : at + 1, 0, item)
