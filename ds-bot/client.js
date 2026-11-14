@@ -1133,6 +1133,21 @@ var JA = {
   " in their shell, and every value is replaced by ": " として使用し、モデルに送信される前にすべての値が ",
   " before anything goes to a model.": " に置き換えられます。",
   "Secrets · {count}": "シークレット · {count}",
+  "Encryption at rest": "保存時の暗号化",
+  "Keys are stored in a file only this user can read, but the values are not encrypted.": "キーはこのユーザーだけが読めるファイルに保存されますが、値は暗号化されていません。",
+  "Encrypt keys at rest": "キーを保存時に暗号化",
+  "Passphrase (at least 8 characters)": "パスフレーズ（8 文字以上）",
+  "Repeat the passphrase": "パスフレーズをもう一度",
+  "The passphrases do not match.": "パスフレーズが一致しません。",
+  "Turn on encryption": "暗号化をオンにする",
+  "Keys are stored encrypted. They stay decrypted in memory while DS Bot runs.": "キーは暗号化して保存されます。DS Bot の実行中だけメモリ上で復号されます。",
+  "Turn off encryption": "暗号化をオフにする",
+  "Secrets are locked": "シークレットはロックされています",
+  "Passphrase": "パスフレーズ",
+  "Unlock": "ロックを解除",
+  "The passphrase file named by DS_BOT_SECRETS_PASSPHRASE_FILE could not be read.": "DS_BOT_SECRETS_PASSPHRASE_FILE が指すパスフレーズファイルを読めませんでした。",
+  "The passphrase in the environment or the passphrase file did not unlock the secrets.": "環境変数またはパスフレーズファイルのパスフレーズではロックを解除できませんでした。",
+  "No passphrase was found at startup. Enter it here, or set DS_BOT_SECRETS_PASSPHRASE_FILE for unattended starts.": "起動時にパスフレーズが見つかりませんでした。ここで入力するか、無人起動用に DS_BOT_SECRETS_PASSPHRASE_FILE を設定してください。",
   "No keys yet. When a Bot needs one, it shows a card in its chat.": "シークレットはまだありません。Bot が必要としたときにチャット内にカードが表示されます。",
   "Add a key": "シークレットを追加",
   "Memory": "メモリ",
@@ -3490,6 +3505,21 @@ var KO = {
   " in their shell, and every value is replaced by ": " 환경 변수로 사용하고, 모델에 전달되기 전에 모든 값은 ",
   " before anything goes to a model.": " 로 치환됩니다.",
   "Secrets · {count}": "시크릿 · {count}",
+  "Encryption at rest": "저장 시 암호화",
+  "Keys are stored in a file only this user can read, but the values are not encrypted.": "키는 이 사용자만 읽을 수 있는 파일에 저장되지만 값은 암호화되어 있지 않습니다.",
+  "Encrypt keys at rest": "키를 저장 시 암호화",
+  "Passphrase (at least 8 characters)": "암호 문구(8자 이상)",
+  "Repeat the passphrase": "암호 문구 다시 입력",
+  "The passphrases do not match.": "암호 문구가 일치하지 않습니다.",
+  "Turn on encryption": "암호화 켜기",
+  "Keys are stored encrypted. They stay decrypted in memory while DS Bot runs.": "키는 암호화되어 저장됩니다. DS Bot이 실행되는 동안에만 메모리에서 복호화됩니다.",
+  "Turn off encryption": "암호화 끄기",
+  "Secrets are locked": "키가 잠겨 있습니다",
+  "Passphrase": "암호 문구",
+  "Unlock": "잠금 해제",
+  "The passphrase file named by DS_BOT_SECRETS_PASSPHRASE_FILE could not be read.": "DS_BOT_SECRETS_PASSPHRASE_FILE이 가리키는 암호 문구 파일을 읽을 수 없습니다.",
+  "The passphrase in the environment or the passphrase file did not unlock the secrets.": "환경 변수나 암호 문구 파일의 암호 문구로 잠금을 해제하지 못했습니다.",
+  "No passphrase was found at startup. Enter it here, or set DS_BOT_SECRETS_PASSPHRASE_FILE for unattended starts.": "시작할 때 암호 문구를 찾지 못했습니다. 여기에 입력하거나 무인 시작을 위해 DS_BOT_SECRETS_PASSPHRASE_FILE을 설정하세요.",
   "No keys yet. When a Bot needs one, it shows a card in its chat.": "아직 시크릿이 없습니다. Bot에 시크릿이 필요하면 대화창에 요청 카드가 표시됩니다.",
   "Add a key": "시크릿 추가",
   // Memory
@@ -5859,6 +5889,21 @@ var ES = {
   " in their shell, and every value is replaced by ": " en su terminal, y cada valor se reemplaza por ",
   " before anything goes to a model.": " antes de enviarse a cualquier modelo.",
   "Secrets · {count}": "Secretos · {count}",
+  "Encryption at rest": "Cifrado en reposo",
+  "Keys are stored in a file only this user can read, but the values are not encrypted.": "Las claves se guardan en un archivo que solo este usuario puede leer, pero los valores no están cifrados.",
+  "Encrypt keys at rest": "Cifrar las claves",
+  "Passphrase (at least 8 characters)": "Frase de contraseña (mínimo 8 caracteres)",
+  "Repeat the passphrase": "Repite la frase de contraseña",
+  "The passphrases do not match.": "Las frases de contraseña no coinciden.",
+  "Turn on encryption": "Activar el cifrado",
+  "Keys are stored encrypted. They stay decrypted in memory while DS Bot runs.": "Las claves se guardan cifradas. Solo se descifran en memoria mientras DS Bot se ejecuta.",
+  "Turn off encryption": "Desactivar el cifrado",
+  "Secrets are locked": "Los secretos están bloqueados",
+  "Passphrase": "Frase de contraseña",
+  "Unlock": "Desbloquear",
+  "The passphrase file named by DS_BOT_SECRETS_PASSPHRASE_FILE could not be read.": "No se pudo leer el archivo de frase de contraseña indicado por DS_BOT_SECRETS_PASSPHRASE_FILE.",
+  "The passphrase in the environment or the passphrase file did not unlock the secrets.": "La frase de contraseña del entorno o del archivo no desbloqueó los secretos.",
+  "No passphrase was found at startup. Enter it here, or set DS_BOT_SECRETS_PASSPHRASE_FILE for unattended starts.": "No se encontró una frase de contraseña al iniciar. Escríbela aquí o configura DS_BOT_SECRETS_PASSPHRASE_FILE para inicios sin supervisión.",
   "No keys yet. When a Bot needs one, it shows a card in its chat.": "Aún no hay claves. Cuando un Bot necesite una, mostrará una tarjeta en su chat.",
   "Add a key": "Añadir una clave",
   // Memory
@@ -8195,6 +8240,21 @@ var FR = {
   " in their shell, and every value is replaced by ": " dans leur shell, et chaque valeur est remplacée par ",
   " before anything goes to a model.": " avant tout envoi à un modèle.",
   "Secrets · {count}": "Secrets · {count}",
+  "Encryption at rest": "Chiffrement au repos",
+  "Keys are stored in a file only this user can read, but the values are not encrypted.": "Les clés sont stockées dans un fichier lisible par cet utilisateur seulement, mais les valeurs ne sont pas chiffrées.",
+  "Encrypt keys at rest": "Chiffrer les clés",
+  "Passphrase (at least 8 characters)": "Phrase secrète (8 caractères minimum)",
+  "Repeat the passphrase": "Répétez la phrase secrète",
+  "The passphrases do not match.": "Les phrases secrètes ne correspondent pas.",
+  "Turn on encryption": "Activer le chiffrement",
+  "Keys are stored encrypted. They stay decrypted in memory while DS Bot runs.": "Les clés sont stockées chiffrées. Elles ne sont déchiffrées en mémoire que pendant l’exécution de DS Bot.",
+  "Turn off encryption": "Désactiver le chiffrement",
+  "Secrets are locked": "Les secrets sont verrouillés",
+  "Passphrase": "Phrase secrète",
+  "Unlock": "Déverrouiller",
+  "The passphrase file named by DS_BOT_SECRETS_PASSPHRASE_FILE could not be read.": "Le fichier de phrase secrète indiqué par DS_BOT_SECRETS_PASSPHRASE_FILE est illisible.",
+  "The passphrase in the environment or the passphrase file did not unlock the secrets.": "La phrase secrète de l’environnement ou du fichier n’a pas déverrouillé les secrets.",
+  "No passphrase was found at startup. Enter it here, or set DS_BOT_SECRETS_PASSPHRASE_FILE for unattended starts.": "Aucune phrase secrète trouvée au démarrage. Saisissez-la ici ou définissez DS_BOT_SECRETS_PASSPHRASE_FILE pour les démarrages sans surveillance.",
   "No keys yet. When a Bot needs one, it shows a card in its chat.": "Aucune clé pour le moment. Lorsqu’un Bot en a besoin, il affiche une carte dans sa discussion.",
   "Add a key": "Ajouter une clé",
   "Memory": "Mémoire",
@@ -10552,6 +10612,21 @@ var DE = {
   " in their shell, and every value is replaced by ": ", und jeder Wert wird ersetzt durch ",
   " before anything goes to a model.": ", bevor Daten an ein Modell gesendet werden.",
   "Secrets · {count}": "Geheimnisse · {count}",
+  "Encryption at rest": "Verschlüsselung im Ruhezustand",
+  "Keys are stored in a file only this user can read, but the values are not encrypted.": "Die Schlüssel liegen in einer Datei, die nur dieser Benutzer lesen kann; die Werte sind aber nicht verschlüsselt.",
+  "Encrypt keys at rest": "Schlüssel verschlüsseln",
+  "Passphrase (at least 8 characters)": "Passphrase (mindestens 8 Zeichen)",
+  "Repeat the passphrase": "Passphrase wiederholen",
+  "The passphrases do not match.": "Die Passphrasen stimmen nicht überein.",
+  "Turn on encryption": "Verschlüsselung einschalten",
+  "Keys are stored encrypted. They stay decrypted in memory while DS Bot runs.": "Die Schlüssel liegen verschlüsselt. Sie werden nur im Speicher entschlüsselt, solange DS Bot läuft.",
+  "Turn off encryption": "Verschlüsselung ausschalten",
+  "Secrets are locked": "Geheimnisse sind gesperrt",
+  "Passphrase": "Passphrase",
+  "Unlock": "Entsperren",
+  "The passphrase file named by DS_BOT_SECRETS_PASSPHRASE_FILE could not be read.": "Die über DS_BOT_SECRETS_PASSPHRASE_FILE angegebene Passphrase-Datei konnte nicht gelesen werden.",
+  "The passphrase in the environment or the passphrase file did not unlock the secrets.": "Die Passphrase aus der Umgebung oder der Datei hat die Geheimnisse nicht entsperrt.",
+  "No passphrase was found at startup. Enter it here, or set DS_BOT_SECRETS_PASSPHRASE_FILE for unattended starts.": "Beim Start wurde keine Passphrase gefunden. Gib sie hier ein oder setze DS_BOT_SECRETS_PASSPHRASE_FILE für unbeaufsichtigte Starts.",
   "No keys yet. When a Bot needs one, it shows a card in its chat.": "Noch keine Schlüssel hinterlegt. Wenn ein Bot einen benötigt, zeigt er im Chat eine Karte an.",
   "Add a key": "Schlüssel hinzufügen",
   // Memory
@@ -12922,6 +12997,21 @@ var ZH = {
   " in their shell, and every value is replaced by ": " 使用，而且发给模型之前，每个值都会被替换成 ",
   " before anything goes to a model.": "。",
   "Secrets · {count}": "密钥 · {count}",
+  "Encryption at rest": "静态加密",
+  "Keys are stored in a file only this user can read, but the values are not encrypted.": "密钥存在只有该用户能读的文件里，但值没有加密。",
+  "Encrypt keys at rest": "加密存储密钥",
+  "Passphrase (at least 8 characters)": "口令（至少 8 个字符）",
+  "Repeat the passphrase": "再输一次口令",
+  "The passphrases do not match.": "两次输入的口令不一致。",
+  "Turn on encryption": "开启加密",
+  "Keys are stored encrypted. They stay decrypted in memory while DS Bot runs.": "密钥加密存放；DS Bot 运行期间解密后的值只在内存里。",
+  "Turn off encryption": "关闭加密",
+  "Secrets are locked": "密钥已锁定",
+  "Passphrase": "口令",
+  "Unlock": "解锁",
+  "The passphrase file named by DS_BOT_SECRETS_PASSPHRASE_FILE could not be read.": "DS_BOT_SECRETS_PASSPHRASE_FILE 指向的口令文件读不到。",
+  "The passphrase in the environment or the passphrase file did not unlock the secrets.": "环境变量或口令文件里的口令解不开密钥。",
+  "No passphrase was found at startup. Enter it here, or set DS_BOT_SECRETS_PASSPHRASE_FILE for unattended starts.": "启动时没有找到口令。在这里输入，或为无人值守启动设置 DS_BOT_SECRETS_PASSPHRASE_FILE。",
   "No keys yet. When a Bot needs one, it shows a card in its chat.": "还没有密钥。Bot 需要时，会在对话里弹出一张卡片。",
   "Add a key": "添加密钥",
   // Memory
@@ -14316,6 +14406,9 @@ function teamActions({ call: call2, after, partFor, roster, ui: ui2, live, cards
     secretCancel: (requestId) => after(call2("secret-cancel", { requestId })),
     secretUpdate: (name, { scope, purpose } = {}) => after(call2("secret-update", { name, scope, purpose })),
     secretDelete: (name) => after(call2("secret-delete", { name })),
+    secretUnlock: (passphrase) => after(call2("secret-unlock", { passphrase })),
+    secretEncrypt: (passphrase) => after(call2("secret-encrypt", { passphrase })),
+    secretDecrypt: (passphrase) => after(call2("secret-decrypt", { passphrase })),
     connectorConnect: (id, payload = {}) => after(call2("connector-connect", { id, ...payload })),
     connectorDisconnect: (id) => after(call2("connector-disconnect", { id })),
     connectorRetry: (id) => after(call2("connector-retry", { id })),
@@ -21528,12 +21621,103 @@ function AddSecret({ actions, run: run2, onDone }) {
     )
   );
 }
+function SecretStoreCard({ store, actions, run: run2, Section: Section2 }) {
+  const mode = store?.mode ?? "plaintext";
+  const locked = store?.locked === true;
+  const [passphrase, setPassphrase] = (0, import_react18.useState)("");
+  const [confirm, setConfirm] = (0, import_react18.useState)("");
+  const [form, setForm] = (0, import_react18.useState)(null);
+  const [busy, setBusy] = (0, import_react18.useState)(false);
+  const reset = () => {
+    setPassphrase("");
+    setConfirm("");
+    setForm(null);
+  };
+  const submit = (action) => {
+    if (busy || passphrase.length < 8) return;
+    setBusy(true);
+    void run2(action(passphrase)).then((ok) => {
+      if (ok) reset();
+    }).finally(() => setBusy(false));
+  };
+  const field = (label, value, onChange, autoFocus) => (0, import_react18.createElement)(
+    "label",
+    { className: "bt-q-field bt-secret-field" },
+    (0, import_react18.createElement)(MaskedInput, { value, onChange, label, autoFocus })
+  );
+  const row = (children) => (0, import_react18.createElement)("div", { className: "bt-secret-row-actions" }, children);
+  const hint = (key) => (0, import_react18.createElement)("div", { className: "bt-set-row" }, (0, import_react18.createElement)("span", { className: "bt-set-hint" }, t(key)));
+  if (locked) {
+    const reason = store?.reason;
+    const why = reason === "passphrase-source" ? t("The passphrase file named by DS_BOT_SECRETS_PASSPHRASE_FILE could not be read.") : reason === "wrong-passphrase" ? t("The passphrase in the environment or the passphrase file did not unlock the secrets.") : t("No passphrase was found at startup. Enter it here, or set DS_BOT_SECRETS_PASSPHRASE_FILE for unattended starts.");
+    return (0, import_react18.createElement)(
+      Section2,
+      { title: t("Encryption at rest") },
+      (0, import_react18.createElement)(
+        "div",
+        { className: "bt-set-row bt-bs-stack" },
+        (0, import_react18.createElement)(
+          "span",
+          { className: "bt-set-copy" },
+          (0, import_react18.createElement)("span", { className: "bt-bs-label" }, t("Secrets are locked")),
+          (0, import_react18.createElement)("span", { className: "bt-set-hint" }, why)
+        ),
+        field(t("Passphrase"), passphrase, setPassphrase, true),
+        row((0, import_react18.createElement)("button", { type: "button", className: "bt-send bt-soft-sm", disabled: busy || passphrase.length < 8, onClick: () => submit(actions.secretUnlock) }, t("Unlock")))
+      )
+    );
+  }
+  if (mode === "encrypted") {
+    return (0, import_react18.createElement)(
+      Section2,
+      { title: t("Encryption at rest") },
+      hint("Keys are stored encrypted. They stay decrypted in memory while DS Bot runs."),
+      form === "decrypt" ? (0, import_react18.createElement)(
+        "div",
+        { className: "bt-set-row bt-bs-stack" },
+        field(t("Passphrase"), passphrase, setPassphrase, true),
+        row([
+          (0, import_react18.createElement)("button", { key: "cancel", type: "button", className: "bt-soft bt-soft-sm", onClick: reset }, t("Cancel")),
+          (0, import_react18.createElement)("button", { key: "off", type: "button", className: "bt-soft bt-soft-sm", disabled: busy || passphrase.length < 8, onClick: () => submit(actions.secretDecrypt) }, t("Turn off encryption"))
+        ])
+      ) : (0, import_react18.createElement)(
+        "div",
+        { className: "bt-actions" },
+        (0, import_react18.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => {
+          setForm("decrypt");
+          setPassphrase("");
+        } }, t("Turn off encryption"))
+      )
+    );
+  }
+  return (0, import_react18.createElement)(
+    Section2,
+    { title: t("Encryption at rest") },
+    hint("Keys are stored in a file only this user can read, but the values are not encrypted."),
+    form === "encrypt" ? (0, import_react18.createElement)(
+      "div",
+      { className: "bt-set-row bt-bs-stack" },
+      field(t("Passphrase (at least 8 characters)"), passphrase, setPassphrase, true),
+      field(t("Repeat the passphrase"), confirm, setConfirm),
+      confirm !== "" && confirm !== passphrase ? (0, import_react18.createElement)("div", { className: "bt-set-hint" }, t("The passphrases do not match.")) : null,
+      row([
+        (0, import_react18.createElement)("button", { key: "cancel", type: "button", className: "bt-soft bt-soft-sm", onClick: reset }, t("Cancel")),
+        (0, import_react18.createElement)("button", { key: "on", type: "button", className: "bt-send bt-soft-sm", disabled: busy || passphrase.length < 8 || passphrase !== confirm, onClick: () => submit(actions.secretEncrypt) }, t("Turn on encryption"))
+      ])
+    ) : (0, import_react18.createElement)(
+      "div",
+      { className: "bt-actions" },
+      (0, import_react18.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => setForm("encrypt") }, t("Encrypt keys at rest"))
+    )
+  );
+}
 function SecretsPage({ roster, actions, run: run2, Section: Section2 }) {
   const [open, setOpen] = (0, import_react18.useState)(null);
   const [adding, setAdding] = (0, import_react18.useState)(false);
   const secrets = roster.secrets ?? [];
   const addBtn = adding ? null : (0, import_react18.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm bt-with-icon", onClick: () => setAdding(true) }, (0, import_react18.createElement)(PlusIcon), t("Add a key"));
   return [
+    (0, import_react18.createElement)(SecretStoreCard, { key: "store", store: roster.secretStore, actions, run: run2, Section: Section2 }),
     (0, import_react18.createElement)(
       "p",
       { key: "about", className: "bt-secret-about" },
@@ -42697,6 +42881,8 @@ function apply(ctx) {
     if (value.memoryNews !== void 0) noteMemoryNews(value.memoryNews);
     const current = roster.getSnapshot();
     const live2 = {};
+    if (value.secretStore !== void 0 && JSON.stringify(value.secretStore) !== JSON.stringify(current.secretStore ?? {})) live2.secretStore = value.secretStore;
+    if (value.secrets !== void 0 && JSON.stringify(value.secrets) !== JSON.stringify(current.secrets ?? [])) live2.secrets = value.secrets;
     if (value.connectors !== void 0 && JSON.stringify(value.connectors) !== JSON.stringify(current.connectors ?? [])) live2.connectors = value.connectors;
     if (value.capabilityStatuses !== void 0 && JSON.stringify(value.capabilityStatuses) !== JSON.stringify(current.capabilityStatuses ?? {})) live2.capabilityStatuses = value.capabilityStatuses;
     if (value.phone !== void 0 && JSON.stringify(value.phone) !== JSON.stringify(current.phone ?? null)) live2.phone = value.phone;
