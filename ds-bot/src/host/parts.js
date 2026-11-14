@@ -217,6 +217,12 @@ export function install(rt) {
     }
   }
   const tokensOf = session => measureOf(session)?.totalTokens
+  // A part answered by a local agent CLI. The CLI holds the working context: its size
+  // and window are what the CLI reports, and the CLI condenses it and writes the note.
+  // The DSH Session keeps the whole record for read_own_chat and is never condensed.
+  const localPart = session => rt.isLocalAgentRoute?.(session.requestHeader?.()?.config?.provider ?? '') === true
+  // Undefined while the CLI has not said how full it is: such a part is not checked.
+  const sizeOf = session => (localPart(session) ? rt.localAgentContext?.(session.id)?.used : tokensOf(session))
   const clock = createClock(config.timeZone)
   // Replacing a handoff must shrink the request, not just create another Session.
   async function canMakeRoom(agent, carry = []) {
@@ -247,6 +253,9 @@ export function install(rt) {
     const pending = carry.reduce((total, message) => total + size(message), 0)
     const replacement = size({ role: 'user', content: [{ type: 'text', text }] }) + pending
     const tokens = measured?.totalTokens
+    // A fresh CLI session holds only its own instructions besides the handoff.
+    const used = localPart(session) ? rt.localAgentContext?.(session.id)?.used : undefined
+    if (used !== undefined) return replacement < used
     // The system prompt and tool definitions stay; pending input is forwarded whole.
     return replacement < history + pending
       && (lines === undefined || tokens === undefined || tokens - history + replacement <= lines.usable)
@@ -257,6 +266,9 @@ export function install(rt) {
   async function contextLines(session) {
     const route = session.requestHeader()?.config
     if (!route?.provider || !route?.model) return undefined
+    // A CLI's window is the one it reports; it keeps its own room for replies.
+    const reported = localPart(session) ? rt.localAgentContext?.(session.id)?.size : undefined
+    if (reported !== undefined) return linesFor({ window: reported, checkRatio: config.checkRatio, checkTokens: config.checkTokens })
     const info = await ctx.llm.resolveModelInfo(route.provider, route.model)
     return linesFor({ window: info.context?.contextWindow, reserve: route.maxTokens ?? info.defaultMaxTokens, checkRatio: config.checkRatio, checkTokens: config.checkTokens })
   }
@@ -488,10 +500,7 @@ export function install(rt) {
   // more output room; a request error or an abort ends the attempts there.
   async function noteThrough(session, header, messages, route, base, signal) {
     const { effort, limit } = await notePlan(route)
-    let retry
-    let problem
-    for (let attempt = 1; attempt <= NOTE_ATTEMPTS; attempt += 1) {
-      const prompt = retry === undefined ? base : `${base}\n\n${retry}`
+    return noteAttempts(session, route, base, async (prompt, attempt) => {
       const maxTokens = Math.min(attempt === 1 ? NOTE_MAX_TOKENS : NOTE_RETRY_MAX_TOKENS, limit)
       const callOptions = {
         provider: route.provider,
@@ -508,10 +517,21 @@ export function install(rt) {
       const assembler = await (rt.assembleLlm ? rt.assembleLlm(callOptions) : assembleLlmStream(ctx, callOptions, { backoff: rt.config?.llmRetryBackoff }))
       const finish = assembler.finish
       if (finish.kind === 'error' || finish.kind === 'aborted') throw new Error(finish.failure?.message ?? finish.kind)
-      const text = assembler.blocks().filter(block => block.type === 'text').map(block => block.text).join('\n').trim()
+      return { text: assembler.blocks().filter(block => block.type === 'text').map(block => block.text).join('\n').trim(), finish: finish.kind, usage: assembler.usage }
+    })
+  }
+
+  // The attempts at a note, each asked through `request`: a cut-off note, or one
+  // without every section, is asked for again once.
+  async function noteAttempts(session, route, base, request) {
+    let retry
+    let problem
+    for (let attempt = 1; attempt <= NOTE_ATTEMPTS; attempt += 1) {
+      const prompt = retry === undefined ? base : `${base}\n\n${retry}`
+      const { text, finish, usage } = await request(prompt, attempt)
       const note = missingSections(text).length > 0 ? canonicalHeadings(text, NOTE_SECTIONS.map(([name]) => name)) : text
       const missing = missingSections(note)
-      if (finish.kind === 'max-tokens') {
+      if (finish === 'max-tokens') {
         problem = 'it was cut off at the output limit'
         retry = NOTE_RETRY_SHORTER
       } else if (note === '') {
@@ -521,11 +541,21 @@ export function install(rt) {
         problem = `it lacked ${missing.join(', ')}`
         retry = noteRetryMissing(missing)
       } else {
-        return { note, attempts: attempt, finish: finish.kind, usage: assembler.usage }
+        return { note, attempts: attempt, finish, usage }
       }
-      rt.warn('ds-bot: handoff note attempt %d of %d for %s on %s/%s not used: %s (finish %s, output %s tokens)', attempt, NOTE_ATTEMPTS, session.id, route.provider, route.model, problem, finish.kind, assembler.usage?.outputTokens ?? 'unknown')
+      rt.warn('ds-bot: handoff note attempt %d of %d for %s on %s/%s not used: %s (finish %s, output %s tokens)', attempt, NOTE_ATTEMPTS, session.id, route.provider, route.model, problem, finish, usage?.outputTokens ?? 'unknown')
     }
     return { problem }
+  }
+
+  // A part on a local agent CLI: the CLI writes the note in its own session, which
+  // holds the whole working context, as one more prompt the conversation never sees.
+  async function writeLocalNote(agent, signal, { folder = false } = {}) {
+    const route = agent.session.requestHeader()?.config ?? {}
+    const written = await noteAttempts(agent.session, route, folder ? FOLDER_PROMPT : HANDOFF_PROMPT,
+      async prompt => ({ text: String(await rt.localAgentNote(agent.id, prompt, signal) ?? '').trim(), finish: 'stop' }))
+    if (written.note !== undefined) return { note: written.note, attempts: written.attempts }
+    throw new Error(`no usable note in ${NOTE_ATTEMPTS} attempts from ${route.provider}/${route.model}; the last one: ${written.problem}`)
   }
 
   // A note is written on the Session's own route — the provider the user chose for this
@@ -655,14 +685,20 @@ export function install(rt) {
   // own prefix, so it stays small. Undefined when its answer names no action.
   async function askSteward(agent, { midTurn }) {
     const session = agent.session
-    const route = session.requestHeader()?.config
-    if (!route?.provider || !route?.model) return undefined
+    const local = localPart(session)
+    const own = session.requestHeader()?.config
+    if (!own?.provider || !own?.model) return undefined
+    const route = local ? await stewardRoute() : own
     const group = placeOf(agent.id)?.roomId !== undefined
     const lines = []
     for await (const line of partLines(agent.id, AbortSignal.timeout(HANDOFF_READ_MS), { group })) {
       lines.push({ who: line.who, text: line.who === 'you' || line.who === 'user' ? line.text.replace(/^(?:You|User): /, '') : line.text })
       if (lines.length >= STEWARD_LINES) break
     }
+    // A CLI's own compactions are this part's checkpoints.
+    const checkpoints = local ? rt.localAgentContext?.(agent.id)?.compactions ?? 0 : checkpointCount(session.deriveMessages())
+    const request = stewardRequest({ lines, midTurn, checkpoints, group })
+    if (route === undefined) return parseDecision(await rt.localAgentAsk(agent.id, { system: STEWARD_SYSTEM, prompt: request, signal: AbortSignal.timeout(STEWARD_TIMEOUT_MS) }))
     const info = await ctx.llm.resolveModelInfo(route.provider, route.model).catch(() => undefined)
     // The decision needs no long thinking.
     const off = info?.reasoning?.efforts?.some(effort => effort.id === 'off')
@@ -671,7 +707,7 @@ export function install(rt) {
       model: route.model,
       ...(off ? { reasoningEffort: 'off' } : {}),
       system: STEWARD_SYSTEM,
-      messages: rt.tagUsage([{ role: 'user', content: [{ type: 'text', text: stewardRequest({ lines, midTurn, checkpoints: checkpointCount(session.deriveMessages()), group }) }] }], { sessionId: agent.id, kind: 'compaction' }),
+      messages: rt.tagUsage([{ role: 'user', content: [{ type: 'text', text: request }] }], { sessionId: agent.id, kind: 'compaction' }),
       maxTokens: STEWARD_MAX_TOKENS,
       sessionId: session.id,
       purpose: 'compaction',
@@ -683,10 +719,19 @@ export function install(rt) {
     return parseDecision(assembler.blocks().filter(block => block.type === 'text').map(block => block.text).join('\n'))
   }
 
+  // The steward of a part on a local agent CLI runs on the team's default model, else
+  // the profile's, as the after-turn memory review does; with neither, the CLI itself
+  // answers it in a one-off session. Undefined: the CLI.
+  async function stewardRoute() {
+    const team = state.prefs?.defaultBotModel
+    const ref = team && rt.isLocalAgentRef?.(team) !== true ? team : await rt.defaultModel?.()
+    return ref === undefined ? undefined : splitRef(ref)
+  }
+
   // What the steward decides; a part that cannot be condensed, or a steward that
   // gives no answer, moves on as it always could.
   async function decide(agent, { midTurn }) {
-    if (engineOf(agent) === undefined) return 'switch'
+    if (!localPart(agent.session) && engineOf(agent) === undefined) return 'switch'
     try {
       const action = await askSteward(agent, { midTurn })
       if (action !== undefined) return action
@@ -703,6 +748,7 @@ export function install(rt) {
   // the check line, false when it did not (it then moves on), undefined when a turn
   // got in first (the part is checked again when that turn ends).
   async function condense(agent, lines, { inTurn, signal }) {
+    if (localPart(agent.session)) return condenseLocal(agent, lines, signal)
     const engine = engineOf(agent)
     const before = tokensOf(agent.session)
     const sessionId = agent.session.id
@@ -727,6 +773,36 @@ export function install(rt) {
     partBase.set(agent.id, after)
     ctx.logger.info('ds-bot: %s condensed from %d to %d tokens (check line %d, hard line %d)', agent.id, before ?? -1, after ?? -1, lines.check, lines.hard)
     return after < lines.check
+  }
+
+  // A part on a local agent CLI condenses through the CLI's own compaction. Undefined
+  // when the CLI offers no command for it: it condenses on its own near its window,
+  // and the part is checked again once it grew. A CLI that reports its size only with
+  // its next turn leaves the part marked, and that check moves it on if it is still
+  // past the line.
+  async function condenseLocal(agent, lines, signal) {
+    const before = sizeOf(agent.session)
+    let result
+    try {
+      // Under the agent's maintenance, so no turn starts on the CLI session meanwhile.
+      result = await agent.runMaintenance(held => rt.localAgentCompact(agent.id, AbortSignal.any([held, signal ?? AbortSignal.timeout(NOTE_TIMEOUT_MS)])))
+    } catch (error) {
+      if (['LOCAL_AGENT_BUSY', 'busy', 'cancelled'].includes(error?.code)) return undefined
+      rt.warn('ds-bot: the local agent of %s did not condense: %s', agent.id, error)
+      return false
+    } finally {
+      cliCompactions.set(agent.id, rt.localAgentContext?.(agent.id)?.compactions ?? 0)
+    }
+    if (result === 'unsupported') {
+      partBase.set(agent.id, before ?? 0)
+      return undefined
+    }
+    rt.renewMemory(agent.id)
+    const after = sizeOf(agent.session)
+    partBase.set(agent.id, after ?? 0)
+    if (after === undefined) condensedUnmeasured.add(agent.id)
+    ctx.logger.info('ds-bot: %s condensed by its local agent from %d to %d tokens (check line %d, hard line %d)', agent.id, before ?? -1, after ?? -1, lines.check, lines.hard)
+    return after === undefined || after < lines.check
   }
 
   // The note a part opened with, as the fresh part shows it. A note DS Bot put
@@ -828,6 +904,10 @@ export function install(rt) {
   const noteFailures = new Map()
   // Parts the steward is deciding about at the end of a turn.
   const checking = new Set()
+  // Per part on a local agent CLI: the compactions already looked at, and the parts
+  // the CLI condensed without saying yet how full they are now.
+  const cliCompactions = new Map()
+  const condensedUnmeasured = new Set()
   // Turns a route stopped at its window, in a row, per part: nothing written, or a
   // short answer far below the model's output limit (#1104, #1461).
   const cutOffs = new Map()
@@ -983,7 +1063,7 @@ export function install(rt) {
         }
         if (folder) folderRetry.set(agent.id, Date.now() + FOLDER_RETRY_MS)
         if (job.engine) engineRetry.set(agent.id, Date.now() + FOLDER_RETRY_MS)
-        if (!job.noteFailed) partBase.set(agent.id, tokensOf(agent.session) ?? 0)
+        if (!job.noteFailed) partBase.set(agent.id, sizeOf(agent.session) ?? 0)
         // The stopped turn goes on where it was. A retry finds the note among the
         // input this part kept, so it is added once.
         const back = job.carry.splice(0)
@@ -1106,7 +1186,7 @@ export function install(rt) {
     job.engine ||= engineMoved(agent, job)
     const name = bot?.name ?? room?.name ?? agent.id
     const session = agent.session
-    const tokens = tokensOf(session)
+    const tokens = sizeOf(session)
     const lines = await contextLines(session).catch(() => undefined)
     const parts = bot === undefined ? partsOf(undefined, room.id) : partsOf(bot.id, room?.id)
     const number = parts.length
@@ -1117,21 +1197,21 @@ export function install(rt) {
     const whole = carried?.whole === true && !session.deriveMessages().some(message => message.role === 'tool')
     let written
     let failure
-    // A local agent CLI keeps its own compaction and notes: no model call is made
-    // for its handoff; the part moves on with the deterministic package.
-    const local = bot !== undefined && rt.isLocalAgentRef?.(bot.model ?? bot.appliedModel) === true
+    const local = localPart(session)
     // The group's own Session only relays; it has no route a note could be written with.
-    if (!local && !job.engine && !job.overflow && job.cutoff !== true && job.failed === undefined && !whole && bot !== undefined) {
+    if (!job.engine && !job.overflow && job.cutoff !== true && job.failed === undefined && !whole && bot !== undefined) {
       try {
-        written = await writeNote(agent, AbortSignal.any([signal, AbortSignal.timeout(NOTE_TIMEOUT_MS)]), { folder: job.folder })
+        const noteSignal = AbortSignal.any([signal, AbortSignal.timeout(NOTE_TIMEOUT_MS)])
+        written = local ? await writeLocalNote(agent, noteSignal, { folder: job.folder }) : await writeNote(agent, noteSignal, { folder: job.folder })
       } catch (error) {
         if (signal.aborted) throw error
         failure = error
       }
     }
     // Below the hard line a part without a good note stays as it is: it still works,
-    // and a later try may write one.
-    if (written === undefined && !job.hard && !job.engine) {
+    // and a later try may write one. A CLI session that was asked for a note already
+    // reads as moving on, so a part on one moves on with the package instead.
+    if (written === undefined && !job.hard && !job.engine && !local) {
       const count = (noteFailures.get(agent.id)?.count ?? 0) + 1
       const wait = NOTE_COOLDOWN_MS[Math.min(count, NOTE_COOLDOWN_MS.length) - 1]
       noteFailures.set(agent.id, { count, until: Date.now() + wait })
@@ -1144,7 +1224,6 @@ export function install(rt) {
     const earlierNote = previous?.note ? { note: previous.note, noteFrom: previous.noteFrom ?? previous.number } : {}
     const noted = written !== undefined ? { note: written.note }
       : job.engine ? { fallback: 'engine', ...earlierNote }
-      : local ? {}
       : { fallback: whole ? 'whole' : job.failed !== undefined ? 'failure' : job.overflow ? 'overflow' : job.cutoff === true ? 'cutoff' : 'failed', ...earlierNote }
     carried ??= await readLines()
     if (signal.aborted) throw signal.reason
@@ -1268,7 +1347,7 @@ export function install(rt) {
     const fresh = freshParts.get(agent.id)
     if (fresh !== undefined) {
       freshParts.delete(agent.id)
-      partBase.set(agent.id, (tokensOf(agent.session) ?? 0) + fresh)
+      partBase.set(agent.id, (sizeOf(agent.session) ?? 0) + fresh)
     }
     if (!readOnly() && await folderMove(agent, { midTurn: payload.step > 1 }) !== undefined) return switchBeforeStep(agent, payload, { folder: true })
     // The group's own Session moves only for its folder, never for its size: its turns
@@ -1276,9 +1355,9 @@ export function install(rt) {
     if (place.botId === undefined) return next()
     if (!readOnly() && engineMoved(agent, place, payload.modelSelection)) return switchBeforeStep(agent, payload, { engine: true })
     if (offEngine(agent, place, payload.modelSelection)) return holdStep(agent, payload)
-    // A local agent CLI owns its in-session compaction; the DSH Session keeps the
-    // full history for read_own_chat and never condenses or switches on size.
-    if (rt.isLocalAgentRef?.(rt.botOf(place.botId)?.model ?? rt.botOf(place.botId)?.appliedModel) === true) return next()
+    // A local agent CLI condenses on its own inside a running turn, and DS Bot cannot
+    // step in between its model calls: a part on one is checked when its turn ends.
+    if (localPart(agent.session)) return next()
     const lines = await contextLines(agent.session).catch(() => undefined)
     const tokens = tokensOf(agent.session)
     if (lines === undefined || tokens === undefined || tokens < lines.hard || !grown(agent.id, tokens, lines) || readOnly()) return next()
@@ -1427,9 +1506,8 @@ export function install(rt) {
   // past it.
   async function checkContext(agent) {
     if (switches.has(agent.id) || freshParts.has(agent.id) || checking.has(agent.id) || readOnly()) return
-    // A local agent CLI owns its in-session compaction.
-    if (rt.isLocalAgentRef?.(rt.botOf(placeOf(agent.id)?.botId)?.model ?? rt.botOf(placeOf(agent.id)?.botId)?.appliedModel) === true) return
     if (lastTurnEnd(agent)?.data?.reason?.kind === 'error') return
+    if (localPart(agent.session)) return checkLocal(agent)
     // Twice in a row stopped by the route's window (nothing written, or a short answer
     // far below any real output limit): the request is over the window the route really
     // has, so the same size is not sent again. The part moves on the way an overflow
@@ -1455,6 +1533,45 @@ export function install(rt) {
       if (switches.has(agent.id)) return
       if (!await canMakeRoom(agent)) return
       startSwitch(agent, { hard: (tokensOf(agent.session) ?? tokens) >= lines.hard })
+    } finally {
+      checking.delete(agent.id)
+    }
+  }
+
+  // A part on a local agent CLI, at the end of a turn. The CLI also condenses on its
+  // own near its window, which may lie below the check line: each time it did, the
+  // steward decides as well, so the part moves on at a stopping point instead of being
+  // condensed again and again; the compactions so far make a fresh part likelier.
+  async function checkLocal(agent) {
+    const context = rt.localAgentContext?.(agent.id)
+    const lines = await contextLines(agent.session).catch(() => undefined)
+    if (context === undefined || lines === undefined) return
+    const tokens = context.used
+    const condensed = context.compactions > (cliCompactions.get(agent.id) ?? 0)
+    cliCompactions.set(agent.id, context.compactions)
+    // Condensed past the check line and still there: a checkpoint that did not make
+    // room, so the part moves on.
+    if (condensedUnmeasured.has(agent.id) && tokens !== undefined) {
+      condensedUnmeasured.delete(agent.id)
+      if (tokens >= lines.check) {
+        if (await canMakeRoom(agent)) startSwitch(agent, { hard: tokens >= lines.hard })
+        return
+      }
+    }
+    const past = tokens !== undefined && tokens >= lines.check && grown(agent.id, tokens, lines)
+    if (!past && !condensed) return
+    checking.add(agent.id)
+    try {
+      if (await decide(agent, { midTurn: false }) === 'compact') {
+        // The CLI has just condensed: there is nothing more to do until it grows.
+        if (!past) {
+          partBase.set(agent.id, tokens ?? 0)
+          return
+        }
+        if (await condense(agent, lines, { inTurn: false }) !== false) return
+      }
+      if (switches.has(agent.id) || !await canMakeRoom(agent)) return
+      startSwitch(agent, { hard: (sizeOf(agent.session) ?? tokens ?? 0) >= lines.hard })
     } finally {
       checking.delete(agent.id)
     }
