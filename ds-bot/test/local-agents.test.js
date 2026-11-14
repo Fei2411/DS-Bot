@@ -916,3 +916,48 @@ test('an open-ended request outlives the default deadline', async () => {
   peer.handleLine(JSON.stringify({ jsonrpc: '2.0', id: 1, result: { stopReason: 'end_turn' } }))
   assert.deepEqual(await open, { stopReason: 'end_turn' }, 'a 0 timeout never expires')
 })
+
+// #1170: ask_user ends the DSH turn while the CLI is still inside the bridged
+// call. The next request settles that call with the card's stored result and
+// carries the user's answer in the same delta. Claude has no way to steer, so
+// the answer used to go nowhere and `handed` had already moved past it.
+test('claude: input that arrives while the CLI waits on a bridged call still reaches it', async (t) => {
+  const log = join(mkdtempSync(join(tmpdir(), 'dsb-claude-')), 'prompts')
+  const adapter = makeAdapter({ claude: FIXTURE('fake-claude-bridge.mjs'), claudeArgs: [log] })
+  t.after(() => adapter.dispose())
+  const claude = { provider: 'local-claude-code' }
+  const first = await collect(adapter.stream(options('s1', [user('m1', 'please call-tool now')], claude)))
+  assert.equal(first.finish.kind, 'tool-calls')
+  const history = [user('m1', 'please call-tool now'), toolResult('m2', first.calls[0].id, 'The card is on screen.'), user('m3', 'my answer is blue')]
+  const second = await collect(adapter.stream(options('s1', history, claude)))
+  assert.equal(second.finish.kind, 'stop')
+  assert.match(readFileSync(log, 'utf8'), /my answer is blue/, 'the CLI never read the user answer')
+  assert.match(second.text, /ok: my answer is blue/)
+})
+
+// Input held for the next prompt was already counted as handed. A stop or a close
+// before it goes out must give it back, or the user's message is lost.
+for (const [name, end] of [
+  // stopTurn also settles the pending MCP call twice (failAll, then resolve), which
+  // writes to a closed response; that is not under test here, so the call is gone first.
+  ['a stop', (adapter, live) => { live.mcp.failAll(new Error('gone')); live.pending.clear(); adapter.stopTurn(live, 'the turn was stopped') }],
+  ['an idle close', (adapter, live) => adapter.closeLive(live, { idle: true })],
+]) {
+  test(`claude: ${name} hands back input that was still queued`, async (t) => {
+    const log = join(mkdtempSync(join(tmpdir(), 'dsb-claude-')), 'prompts')
+    const records = {}
+    const adapter = makeAdapter({ records, claude: FIXTURE('fake-claude-bridge.mjs'), claudeArgs: [log] })
+    t.after(() => adapter.dispose())
+    const claude = { provider: 'local-claude-code' }
+    const first = await collect(adapter.stream(options('s1', [user('m1', 'please call-tool now')], claude)))
+    const live = adapter.live.get('s1')
+    assert.equal(live.state, 'suspended')
+    adapter.sendInput(live, 'held back')
+    assert.deepEqual(live.queue, ['held back'])
+    await end(adapter, live)
+    assert.deepEqual(live.queue, [])
+    assert.equal(live.handed, 'm1', 'the marker is back before the held input')
+    assert.equal(records.s1.handedId, 'm1')
+    assert.equal(first.finish.kind, 'tool-calls')
+  })
+}

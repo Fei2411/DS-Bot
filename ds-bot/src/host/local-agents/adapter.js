@@ -148,6 +148,7 @@ export class LocalAgentAdapter extends LlmAdapter {
       // new process instead of writing into the one that is gone.
       if (live.engineSession?.dead === true) {
         this.rollbackUnread(live, sessionId)
+        this.rollbackQueued(live)
         live.engineSession = undefined
         live.pumpToken = {}
         // The queue belongs to the process that is gone: the retry starts clean
@@ -201,6 +202,7 @@ export class LocalAgentAdapter extends LlmAdapter {
   async closeLive(live, { idle = false } = {}) {
     if (live.dead) return
     live.dead = true
+    this.rollbackQueued(live)
     clearTimeout(live.idle)
     this.live.delete(live.sessionId)
     live.engine.forget?.(live.sessionId)
@@ -219,7 +221,7 @@ export class LocalAgentAdapter extends LlmAdapter {
   // The turn under way ends: the CLI stops, and a call it waits on gets an answer.
   stopTurn(live, reason) {
     live.state = 'idle'
-    live.queue.length = 0
+    this.rollbackQueued(live)
     if (live.engineSession !== undefined) live.engine.cancel?.(live.engineSession)
     live.mcp?.failAll(new Error(reason))
     for (const pending of live.pending.values()) pending.resolve({ text: reason, isError: true })
@@ -253,6 +255,19 @@ export class LocalAgentAdapter extends LlmAdapter {
       live.resumeLost = true
     } else live.handed = live.handedBefore
     this.deps.saveRecord(sessionId, { route: live.route, cliSessionId: live.cliSessionId, cwd: live.cwd, handedId: live.handed, promptHash: live.promptHash, model: live.model })
+  }
+
+  // Input held back for the next prompt was handed but never sent. When the turn
+  // ends any way but `done` (stopped, closed, or its process died), the marker
+  // goes back to where the first held input began, so the next request carries
+  // it again instead of losing it.
+  rollbackQueued(live) {
+    if (live.queue.length === 0) return
+    live.queue.length = 0
+    if (live.queueBase === undefined) return
+    live.handed = live.queueBase.handed
+    live.queueBase = undefined
+    this.deps.saveRecord(live.sessionId, { route: live.route, cliSessionId: live.cliSessionId, cwd: live.cwd, handedId: live.handed, promptHash: live.promptHash, model: live.model })
   }
 
   // The loopback MCP server for one live session; tools/call lands in its event queue.
@@ -441,14 +456,20 @@ export class LocalAgentAdapter extends LlmAdapter {
   }
 
   // Input for the CLI: a fresh prompt while it is idle; while a turn runs or
-  // waits on a bridged call, steering for Codex and Claude, or a queued prompt
-  // for ACP (it speaks one prompt at a time; the drain sends it when the turn
-  // ends, inside the same stream). The prompt request itself stays open for
+  // waits on a bridged call, steering for an engine that can steer (Codex), or a
+  // queued prompt for one that cannot (ACP speaks one prompt at a time, Claude
+  // reads stdin only between turns); the drain sends it when the turn ends,
+  // inside the same stream. The prompt request itself stays open for
   // the whole turn (ACP session/prompt ends when the agent's turn does), so it
   // is sent but not awaited; a send failure lands in the queue as an error.
   sendInput(live, text, signal, effort) {
     if (live.state !== 'idle') {
-      if (live.spec.kind === 'acp') { live.queue.push(text); return }
+      if (live.spec.kind === 'acp' || typeof live.engine.steer !== 'function') {
+        // The marker has not moved past this input yet: it is where a rollback goes.
+        if (live.queue.length === 0) live.queueBase = { handed: live.handed }
+        live.queue.push(text)
+        return
+      }
       try {
         Promise.resolve(live.engine.steer?.(live.engineSession, text))
           .catch(error => live.push({ type: 'error', error }))
@@ -562,6 +583,7 @@ export class LocalAgentAdapter extends LlmAdapter {
           // inside the same drain (ACP takes one prompt at a time).
           const next = live.queue.shift()
           if (next !== undefined) {
+            if (live.queue.length === 0) live.queueBase = undefined
             this.sendInput(live, next, options.signal, options.reasoningEffort)
             break
           }
