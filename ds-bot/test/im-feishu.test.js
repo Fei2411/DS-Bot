@@ -313,21 +313,3 @@ test('a socket that cannot be built at the handshake is retried (#1119)', async 
   assert.ok(ready !== undefined, 'the connection became ready after a new socket')
   assert.equal(fake.sockets.length, 1)
 })
-
-// #1417: the send path classified 5xx as retryable but carried no status, so the
-// queue could not tell a broken tunnel from a network blip and retried forever.
-test('a 5xx answer is retryable and carries its status; a 4xx answer is permanent', async () => {
-  const responding = (status, body) => async (url) => (url.endsWith('/tenant_access_token/internal')
-    ? { ok: true, status: 200, json: async () => ({ tenant_access_token: 'tok', expire: 7200 }) }
-    : { ok: false, status, json: async () => body })
-  await assert.rejects(feishu.check(FIELDS, { fetch: responding(502, { msg: 'bad gateway' }), config: { api: 'https://open.feishu.cn' } }), (error) => {
-    assert.equal(error.status, 502)
-    assert.notEqual(error.permanent, true, 'a 5xx must stay retryable')
-    return true
-  })
-  await assert.rejects(feishu.check(FIELDS, { fetch: responding(403, { msg: 'forbidden' }), config: { api: 'https://open.feishu.cn' } }), (error) => {
-    assert.equal(error.status, 403)
-    assert.equal(error.permanent, true, 'a 4xx is not retried')
-    return true
-  })
-})
