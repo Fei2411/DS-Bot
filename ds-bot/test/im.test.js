@@ -905,6 +905,59 @@ test('reply origin: a group keeps its chat while members work after the relay tu
   assert.deepEqual(s.fake.sent.map(entry => [entry.chat.key, entry.text]), [['g1', '**Writer**: late result']])
 })
 
+test('reply origin: unbinding or rebinding the chat stops a running group turn from replying', async (t) => {
+  const s = await start()
+  t.after(s.stop)
+  const { one } = await pairedConn(s)
+  one.chats.g1 = { kind: 'group', title: 'G', target: { roomId: 'r1' }, at: 1 }
+  await s.rt.save()
+  const room = s.rt.roomOf('r1')
+  await gm(s, 'u1', 'hello group')
+  s.imTurn('r1')
+  s.fake.sent.length = 0
+  s.emitEvent('r1', 'turn/end', {})
+  // While the chat still follows the group, its lines go out.
+  s.rt.logRoom(room, { who: 'Writer', botId: 'b', text: 'first result' })
+  await s.flush()
+  assert.deepEqual(s.fake.sent.map(entry => entry.text), ['**Writer**: first result'])
+  s.fake.sent.length = 0
+  // The app unbinds the chat while the group keeps working: late lines must not follow
+  // the old origin into a chat that no longer points at the group.
+  await s.rt.imEndpoint('im-chat', { id: one.id, chatKey: 'g1', target: null })
+  s.rt.logRoom(room, { who: 'Writer', botId: 'b', text: 'late result' })
+  await s.flush()
+  assert.equal(s.fake.sent.length, 0, 'an unbound chat gets no late lines')
+  // Pointing the same chat at another Bot stops the old group's lines too.
+  await s.rt.imEndpoint('im-chat', { id: one.id, chatKey: 'g1', target: { botId: 'b' } })
+  s.rt.logRoom(room, { who: 'Writer', botId: 'b', text: 'later result' })
+  await s.flush()
+  assert.equal(s.fake.sent.length, 0, 'a rebound chat gets no lines from the old target')
+})
+
+test('reply origin: a member result that wakes the group after its relay turn still reaches the chat', async (t) => {
+  const s = await start()
+  t.after(s.stop)
+  const { one } = await pairedConn(s)
+  one.chats.g1 = { kind: 'group', title: 'G', target: { roomId: 'r1' }, at: 1 }
+  await s.rt.save()
+  const room = s.rt.roomOf('r1')
+  await gm(s, 'u1', 'hello group')
+  s.imTurn('r1')
+  s.emitEvent('r1', 'turn/end', {})
+  s.fake.sent.length = 0
+  // The last member finishes after the relay turn ended: the host posts its result into
+  // the group's own Session and starts a turn for it. The turn starts (and looks idle)
+  // before its user/message arrives, which must not clear the chat that asked.
+  s.emitEvent('r1', 'turn/start', { turn: 2 })
+  s.emitEvent('r1', 'user/message', {
+    source: { kind: 'bot', form: 'relay', role: 'post', exchangeId: 'e2', senderName: 'Writer', senderSessionId: 'b', roomId: 'r1' },
+    content: [{ type: 'text', text: '[Group post from Writer]\nlast result' }],
+  })
+  s.rt.logRoom(room, { who: 'Writer', botId: 'b', text: 'last result' })
+  await s.flush()
+  assert.deepEqual(s.fake.sent.map(entry => [entry.chat.key, entry.text]), [['g1', '**Writer**: last result']])
+})
+
 test('reply origin: unpairing the chat stops a running turn from replying', async (t) => {
   const s = await start()
   t.after(s.stop)

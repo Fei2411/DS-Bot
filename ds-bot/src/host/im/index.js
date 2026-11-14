@@ -334,9 +334,22 @@ export function install(rt) {
   const origins = new Map()
   const mixed = new Set()
 
+  // The target a chat currently points at, as a comparable string. A direct chat falls
+  // back to the connection's Bot; an unbound group chat has no target.
+  const bindingOf = (conn, chatKey) => {
+    const chat = conn?.chats?.[chatKey]
+    if (chat === undefined) return undefined
+    const target = chat.target ?? (chat.kind === 'direct' ? { botId: conn.botId } : undefined)
+    if (target?.botId !== undefined) return `bot:${target.botId}`
+    if (target?.roomId !== undefined) return `room:${target.roomId}`
+    return undefined
+  }
+  // Turns that may be a member's late result waking a group up again: wait for the first
+  // message of the turn before dropping the chat's origin (see the turn/start handler).
+  const pendingReset = new Set()
   // Request id of an IM message → the chat it came from, until that message shows up.
   const requests = new Map()
-  const claimOrigin = (sessionId, connId, chatKey, senderId) => {
+  const claimOrigin = (sessionId, connId, chatKey, senderId, binding) => {
     if (sessionId === undefined || connId === undefined) return
     if (mixed.has(sessionId)) return
     const previous = origins.get(sessionId)
@@ -345,14 +358,20 @@ export function install(rt) {
       mixed.add(sessionId)
       return
     }
-    origins.set(sessionId, { connId, chatKey, senderId, at: Date.now() })
+    let bound = binding
+    if (bound === undefined) {
+      const conn = Object.values(connections()).find(item => item.id === connId)
+      bound = conn === undefined ? undefined : bindingOf(conn, chatKey)
+    }
+    origins.set(sessionId, { connId, chatKey, senderId, binding: bound, at: Date.now() })
   }
   const dropOrigin = (sessionId) => { origins.delete(sessionId); mixed.add(sessionId) }
   const resetOrigin = (sessionId) => { origins.delete(sessionId); mixed.delete(sessionId) }
   /**
    * The connection and chat a Session's replies go to, or undefined when nothing may
-   * leave: no origin, its connection gone, its chat gone, or the user who asked no
-   * longer paired. A card goes out on this connection alone.
+   * leave: no origin, its connection gone, its chat gone, the user who asked no longer
+   * paired, or the chat no longer pointing at the target whose turn asked. A card goes
+   * out on this connection alone.
    */
   const originOf = (sessionId) => {
     const entry = sessionId === undefined ? undefined : origins.get(sessionId)
@@ -361,10 +380,16 @@ export function install(rt) {
     if (conn === undefined || !runners.has(conn.id)) return undefined
     if (entry.senderId !== undefined && !paired(conn, entry.senderId)) return undefined
     const chat = conn.chats?.[entry.chatKey]
-    return chat === undefined ? undefined : { conn, chatKey: entry.chatKey, chat }
+    if (chat === undefined) return undefined
+    // The chat may have been unbound or pointed at another Bot or group while the work
+    // it started keeps running; that work's late lines must not follow the old origin.
+    if (entry.binding === undefined || bindingOf(conn, entry.chatKey) !== entry.binding) return undefined
+    return { conn, chatKey: entry.chatKey, chat }
   }
-  const rememberRequest = (requestId, connId, chatKey, senderId) => {
-    requests.set(requestId, { connId, chatKey, senderId, at: Date.now() })
+  const rememberRequest = (requestId, conn, chatKey, senderId) => {
+    // The binding is captured when the message arrives, not when it is admitted: a chat
+    // rebound while the message waits in the queue still answers the target that asked.
+    requests.set(requestId, { connId: conn.id, chatKey, senderId, binding: bindingOf(conn, chatKey), at: Date.now() })
   }
   // The Session a Bot writes into now, for a card that carries no Session of its own.
   const chatOfBot = botId => rt.botOf(botId) === undefined ? undefined : rt.chatOf(botId)
@@ -463,7 +488,7 @@ export function install(rt) {
     const valid = labels.filter(label => (found.question.options ?? []).some(option => option.label === label))
     if (valid.length === 0) return false
     const requestId = `im:${conn.platform}:${randomUUID()}`
-    rememberRequest(requestId, conn.id, chat.key, senderId)
+    rememberRequest(requestId, conn, chat.key, senderId)
     try {
       await rt.answerQuestion(found.sessionId, found.question.id, { selected: valid }, requestId)
       await settleCard(conn.id, held.cardKey, valid.join(', '))
@@ -587,7 +612,7 @@ export function install(rt) {
     if (content.length === 0) return
     const requestId = `im:${conn.platform}:${randomUUID()}`
     // The turn this starts belongs to this chat: its replies go back here and nowhere else.
-    rememberRequest(requestId, conn.id, msg.chat.key, msg.sender.id)
+    rememberRequest(requestId, conn, msg.chat.key, msg.sender.id)
     await rt.sendUser({ sessionId, content, requestId })
   }
 
@@ -1094,12 +1119,22 @@ export function install(rt) {
   ctx.on('session/event', (session, event) => {
     if (event.type === 'turn/start') {
       const room = rt.roomOf(session.id)
-      const working = room !== undefined && (rt.roomActive?.(room.id) || (rt.roomWorkView?.()[room.id] ?? []).length > 0)
-      if (!working) resetOrigin(session.id)
+      if (room === undefined) {
+        resetOrigin(session.id)
+      } else {
+        const working = rt.roomActive?.(room.id) || (rt.roomWorkView?.()[room.id] ?? []).length > 0
+        // A group's own Session can start a turn for the last member's late result after
+        // its relay turn ended, when no work looks active. Keep the origin until the
+        // turn's first message says whether it continues the work the chat asked for.
+        if (!working) pendingReset.add(session.id)
+      }
     }
     if (event.type === 'user/message') {
       const source = event.data?.source
       const rpcId = source?.rpcId
+      // A late member result continues the group work the chat asked for; any other
+      // first message starts a fresh turn, which clears the previous turn's origin.
+      if (pendingReset.delete(session.id) && !(source?.kind === SOURCE_KIND && source.role === 'post')) resetOrigin(session.id)
       if (typeof rpcId === 'string' && rpcId.startsWith('im:')) {
         if (Number.isInteger(event.seq)) imVia.set(session.id, { ...imVia.get(session.id), [event.seq]: rpcId.split(':')[1] })
         // The chat this message came from is the one its turn answers. A message this
@@ -1107,7 +1142,7 @@ export function install(rt) {
         const asked = requests.get(rpcId)
         requests.delete(rpcId)
         if (asked === undefined) dropOrigin(session.id)
-        else claimOrigin(session.id, asked.connId, asked.chatKey, asked.senderId)
+        else claimOrigin(session.id, asked.connId, asked.chatKey, asked.senderId, asked.binding)
       } else if (source?.kind === REPLY_KIND) {
         // Web and phone answers carry no registered IM request.
         dropOrigin(session.id)
@@ -1122,8 +1157,10 @@ export function install(rt) {
     }
     if (event.type === 'turn/end') {
       // A group's own Session ends its relay turn at once while its members keep
-      // working and post later; only a Bot's turn ending ends the chat's claim.
+      // working and post later; only a Bot's turn ending ends the chat's claim. A
+      // pending reset means the turn never got a message to classify, so apply it now.
       if (rt.roomOf(session.id) === undefined) resetOrigin(session.id)
+      else if (pendingReset.delete(session.id)) resetOrigin(session.id)
     }
     const botId = rt.chatOwners.get(session.id)
     if (botId === undefined) {
