@@ -75,6 +75,7 @@ export function install(rt) {
         // `engine` is the Bot's local-agent route, present only on abots.
         ...(rt.localAgentBadge?.(bot.model ?? bot.appliedModel) !== undefined ? { engine: rt.localAgentBadge(bot.model ?? bot.appliedModel) } : {}),
         ...(tail ? { lastAt: tail.lastAt, preview: tail.preview } : {}),
+        ...(rt.isSwitching(bot.id) ? { switching: true } : {}),
       }
     }),
     // `sessionId` is the group's own Session's current part, `ownParts` its earlier

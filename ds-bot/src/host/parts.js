@@ -1039,6 +1039,7 @@ export function install(rt) {
         job.kept = true
         throw error
       }
+      if (job.botId !== undefined) rt.pastOwners.set(agent.id, job.roomId === undefined ? { botId: job.botId } : { botId: job.botId, roomId: job.roomId })
       await ctx.workspaceRegistry.archiveSession(agent.id, { stopActivity: true })
         .catch(error => rt.warn('ds-bot: earlier part %s not archived: %s', agent.id, error))
     }
@@ -1879,5 +1880,11 @@ export function install(rt) {
     return true
   }
 
-  Object.assign(rt, { clock, partsOf, historyEntry, partLines, noteText, earlierPage, chatPage, displayItems, applySteps, followFolder, followEngine, heldBack, newPart, switchPart, sessionTokens: session => tokensOf(session), switchJobs: () => switches.values() })
+  // Recovery marks can outlive a failed job whose private part stayed current.
+  // Group parts never describe the Bot's private-chat state.
+  const isSwitching = botId => Array.from(switches.values()).some(job => job.botId === botId && job.roomId === undefined)
+    || Object.entries(state.switching ?? {}).some(([sessionId, owner]) => owner?.botId === botId
+      && owner.roomId === undefined && currentOf(owner) !== sessionId)
+
+  Object.assign(rt, { clock, partsOf, historyEntry, partLines, noteText, earlierPage, chatPage, displayItems, applySteps, followFolder, followEngine, heldBack, isSwitching, newPart, switchPart, sessionTokens: session => tokensOf(session), switchJobs: () => switches.values() })
 }
