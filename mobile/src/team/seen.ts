@@ -32,6 +32,7 @@ export function createSeenStore(storage: SeenStorage = defaultStorage) {
   let loaded = false
   let loadPromise: Promise<void> | null = null
   let dirty = false
+  let pendingPersist = false
   let flushing: Promise<void> | null = null
   let ver = 0
 
@@ -96,17 +97,25 @@ export function createSeenStore(storage: SeenStorage = defaultStorage) {
       seen.set(hostId, map)
     }
     const prev = map.get(id) ?? 0
-    if (at <= prev) return flushing ?? Promise.resolve()
-    map.set(id, at)
-    bump()
+    if (at <= prev && !pendingPersist) return flushing ?? Promise.resolve()
+    if (at > prev) {
+      map.set(id, at)
+      bump()
+    }
     dirty = true
+    pendingPersist = true
     if (flushing === null) {
       flushing = (async () => {
         try {
           await loadSeen()
           while (dirty) {
             dirty = false
-            await storage.setItem(KEY, serialize(seen)).catch(() => {})
+            try {
+              await storage.setItem(KEY, serialize(seen))
+              if (!dirty) pendingPersist = false
+            } catch {
+              pendingPersist = true
+            }
           }
         } finally {
           flushing = null

@@ -101,8 +101,10 @@ function Boot() {
   const lang = useLang()
 
   useEffect(() => {
-    Promise.all([loadIdentity(), loadComputer(), loadSeen()])
-      .then(([nextIdentity, saved]) => { setIdentity(nextIdentity); setComputer(saved ?? null); setSeenReady(true) })
+    void loadSeen().finally(() => setSeenReady(true))
+    if (DEMO) return
+    Promise.all([loadIdentity(), loadComputer()])
+      .then(([nextIdentity, saved]) => { setIdentity(nextIdentity); setComputer(saved ?? null) })
       .catch(failure => setBootError(errorText(failure)))
   }, [])
 

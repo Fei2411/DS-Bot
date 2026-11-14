@@ -48,7 +48,7 @@ test('persists seenAt across app restarts so read bots and rooms stay read (#158
 
 test('App.tsx awaits loadSeen() during Boot before mounting the shell', () => {
   const appSource = readFileSync(new URL('../../App.tsx', import.meta.url), 'utf8')
-  assert.match(appSource, /Promise\.all\(\[loadIdentity\(\),\s*loadComputer\(\),\s*loadSeen\(\)\]/)
+  assert.match(appSource, /loadSeen\(\)\.finally\(\(\) => setSeenReady\(true\)\)/)
   assert.match(appSource, /!seenReady/)
 })
 
@@ -139,4 +139,33 @@ test('ignores corrupted or unscoped legacy JSON without crashing and notifies su
   assert.equal(notifications, 1)
   assert.equal(legacyDisk.writes, writesBefore)
   unsub()
+})
+
+test('retries failed storage write when markSeen is called again with the same timestamp', async () => {
+  const raw = new Map<string, string>()
+  let failNextWrite = true
+  const flakyStorage: SeenStorage = {
+    async getItem(key) {
+      return raw.get(key) ?? null
+    },
+    async setItem(key, value) {
+      if (failNextWrite) {
+        failNextWrite = false
+        throw new Error('transient SecureStore failure')
+      }
+      raw.set(key, value)
+    },
+  }
+
+  const store = createSeenStore(flakyStorage)
+  await store.loadSeen()
+  await store.markSeen('host-a', 'b-chief', 2000)
+  assert.equal(raw.has('dsbot.seenAt'), false)
+
+  // Reopening the same chat reports the same timestamp and retries persistence.
+  await store.markSeen('host-a', 'b-chief', 2000)
+  const restarted = createSeenStore(flakyStorage)
+  await restarted.loadSeen()
+  assert.equal(restarted.seenAt('host-a', 'b-chief'), 2000)
+  assert.equal(restarted.isUnread('host-a', 'b-chief', 2000, false), false)
 })
