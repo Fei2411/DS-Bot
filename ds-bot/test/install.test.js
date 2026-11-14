@@ -61,6 +61,8 @@ test('apply registers listeners and effects in a fixed order', (t) => {
     'tools guard',
     'on agent/created',
     'on system-prompt/assemble',
+    // tools.js: connector schemas handed on plain for strict providers (#1508).
+    'on system-prompt/assemble',
     'on session/event',
     'effect ds-bot: chat index',
     'effect ds-bot: group rounds',

@@ -10,6 +10,7 @@ import { absoluteLinks } from './links.js'
 import { NAME_MAX } from './requests.js'
 import { unquote } from './text.js'
 import { mentionSpans } from '../shared/mentions.js'
+import { plainToolSchema } from './tool-schema.js'
 import { checkShownView, showViewDescription, showViewParameters } from 'deep-view/core'
 
 export const output = { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: String(value) }] }
@@ -1243,6 +1244,33 @@ export function install(rt) {
       rt.warn('ds-bot: listing the scoped tools of %s failed: %s', agent.session?.id ?? agent.id, error)
       return assembled
     }
+  })
+
+  // Connector tools (mcp__<id>__*) come from MCP servers whose schemas are legal JSON
+  // Schema but not always what a strict provider accepts: a property may be a union with
+  // no `type` of its own, or an enum may list null. Moonshot/KIMI validates its subset and
+  // refused every turn for that (public#1508), while other providers accepted the same
+  // schema. Every connector schema is handed on plain, and the result is cached by the
+  // schema object so a Session that asks again does not re-flatten its whole tool list.
+  const plainSchemas = new WeakMap()
+  ctx.on('system-prompt/assemble', async function plainConnectorSchemas(_assembly, _context, next) {
+    const assembled = await next()
+    if (!Array.isArray(assembled.tools)) return assembled
+    let changed = false
+    const tools = assembled.tools.map((tool) => {
+      if (typeof tool?.name !== 'string' || !tool.name.startsWith('mcp__') || tool.parameters === undefined) return tool
+      let entry = plainSchemas.get(tool.parameters)
+      if (entry === undefined) {
+        const plain = plainToolSchema(tool.parameters)
+        // A schema already plain keeps its own object: the tool list stays as it was.
+        entry = { plain, same: JSON.stringify(plain) === JSON.stringify(tool.parameters) }
+        plainSchemas.set(tool.parameters, entry)
+      }
+      if (entry.same) return tool
+      changed = true
+      return { ...tool, parameters: entry.plain }
+    })
+    return changed ? { ...assembled, tools } : assembled
   })
 
   // The /goal command stays open in every Session, so a goal started in a Bot chat or a

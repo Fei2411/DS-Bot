@@ -360,6 +360,47 @@ test('a Session that becomes a Bot\'s again gets the scope back', async (t) => {
   assert.ok(hasShowView(host, 'b'))
 })
 
+// public#1508: a connector MCP tool whose property is a union with no type of its own
+// made Moonshot/KIMI refuse every turn, while other providers accepted it. The step's
+// assemble hands connector schemas on plain; other tools keep the schema they had.
+test('a connector tool schema reaches the model without unions, and other tools are left alone', async (t) => {
+  const host = start()
+  t.after(host.stop)
+  await host.call('state', {})
+  const listener = host.ctx.listeners.get('system-prompt/assemble')
+    .find(listener => /plainConnectorSchemas/.test(String(listener)))
+  assert.ok(listener, 'the connector schema listener is registered')
+  const parameters = {
+    type: 'object',
+    properties: {
+      sort_order: { oneOf: [{ type: 'string' }, { type: 'null' }], enum: ['ASC', 'DESC', null], description: 'Sort Order', title: 'Sort Order' },
+    },
+  }
+  const read = { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] }
+  const assembly = {
+    tools: [
+      { name: 'mcp__drupal__entity_list', description: 'List entities', parameters },
+      { name: 'read', description: 'Read a file', parameters: read },
+    ],
+    sections: [],
+  }
+  const context = { agent: host.agentOf('a'), signal: AbortSignal.timeout(60_000) }
+  const assembled = await listener(assembly, context, async () => assembly)
+  const connector = assembled.tools.find(tool => tool.name === 'mcp__drupal__entity_list')
+  assert.deepEqual(connector.parameters.properties.sort_order, {
+    type: 'string',
+    enum: ['ASC', 'DESC'],
+    description: 'Sort Order',
+    title: 'Sort Order',
+  })
+  assert.equal(connector.parameters.type, 'object')
+  // Another tool's schema is the same object: it was already plain.
+  assert.equal(assembled.tools.find(tool => tool.name === 'read').parameters, read)
+  // The same schema next step is served from the cache, unchanged.
+  const again = await listener(assembly, context, async () => assembly)
+  assert.equal(again.tools[0].parameters, connector.parameters)
+})
+
 // #826: after a DSH restart the creation path can miss a live Agent and nothing
 // scoped it again, so the Session ran its requests without the team tools. The
 // step's assemble scopes an owned Session the creation path missed and adds the
