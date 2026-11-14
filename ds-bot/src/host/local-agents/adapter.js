@@ -185,7 +185,8 @@ export class LocalAgentAdapter extends LlmAdapter {
       state: 'idle',
       // Prompts queued while a turn runs (ACP speaks one prompt at a time, Claude
       // reads stdin only between turns); the drain sends the next one when the
-      // turn ends. Each is {text, handed}: the marker from before it was handed.
+      // turn ends. Each is {text, handed, promptHash}: the marker and the
+      // instructions from before it was handed.
       queue: [],
       idle: undefined,
       cwd: record?.cwd,
@@ -215,8 +216,10 @@ export class LocalAgentAdapter extends LlmAdapter {
   }
 
   // A Session's record: its CLI session, what was handed to it, and what the CLI said
-  // about its context.
+  // about its context. Input still queued is not delivered yet: the record keeps the
+  // marker and instructions from before it, so a host that restarts sends it again.
   recordOf(live, extra = {}) {
+    const held = live.queue?.[0]
     return {
       route: live.route,
       cliSessionId: live.cliSessionId,
@@ -227,6 +230,7 @@ export class LocalAgentAdapter extends LlmAdapter {
       ...(live.context === undefined ? {} : { context: live.context }),
       ...(live.compactions > 0 ? { compactions: live.compactions } : {}),
       ...extra,
+      ...(held === undefined ? {} : { handedId: held.handed, promptHash: held.promptHash }),
     }
   }
 
@@ -337,14 +341,15 @@ export class LocalAgentAdapter extends LlmAdapter {
 
   // Input held back for the next prompt was handed but never sent. When the turn
   // ends any way but `done` (stopped, closed, failed, or its process died), the
-  // marker goes back to where the oldest input still held began, so the next
-  // request carries it again instead of losing it. Held input that already went
-  // out stays handed.
+  // marker and the instructions go back to where the oldest input still held
+  // began, so the next request carries it again instead of losing it. Held input
+  // that already went out stays handed.
   rollbackQueued(live) {
     const oldest = live.queue[0]
     live.queue.length = 0
     if (oldest === undefined) return
     live.handed = oldest.handed
+    live.promptHash = oldest.promptHash
     this.deps.saveRecord(live.sessionId, this.recordOf(live))
   }
 
@@ -544,8 +549,9 @@ export class LocalAgentAdapter extends LlmAdapter {
     live.mute = false
     if (live.state !== 'idle') {
       if (live.spec.kind === 'acp' || typeof live.engine.steer !== 'function') {
-        // The marker has not moved past this input yet: it is where a rollback goes.
-        live.queue.push({ text, handed: live.handed })
+        // The marker and the instructions have not moved past this input yet:
+        // they are where a rollback goes.
+        live.queue.push({ text, handed: live.handed, promptHash: live.promptHash })
         return
       }
       try {
@@ -669,6 +675,8 @@ export class LocalAgentAdapter extends LlmAdapter {
           const next = live.queue.shift()
           if (next !== undefined) {
             this.sendInput(live, next.text, options.signal, options.reasoningEffort)
+            // It reached the CLI: the record counts it as delivered now.
+            this.deps.saveRecord(live.sessionId, this.recordOf(live))
             break
           }
           yield { type: 'finish', reason: { kind: 'stop' } }

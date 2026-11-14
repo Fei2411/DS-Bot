@@ -997,6 +997,56 @@ test('claude: a stop gives back only the queued input that never went out', asyn
   assert.equal(records.s1.handedId, 'm3')
 })
 
+// Held input lives only in memory. A host that restarts while it waits must
+// find it unhanded in the saved record, or the next host never sends it.
+test('claude: a host restart while input is queued still sends it', async (t) => {
+  const log = join(mkdtempSync(join(tmpdir(), 'dsb-claude-')), 'prompts')
+  const records = {}
+  const host = () => {
+    const adapter = makeAdapter({ records, claude: FIXTURE('fake-claude-bridge.mjs'), claudeArgs: [log] })
+    t.after(() => adapter.dispose())
+    return adapter
+  }
+  const claude = { provider: 'local-claude-code' }
+  const before = host()
+  const history = [user('m1', 'please call-twice now')]
+  const first = await collect(before.stream(options('s1', history, claude)))
+  history.push(toolResult('m2', first.calls[0].id, 'r1'), user('m3', 'my answer is blue'))
+  // The CLI moves on to its second call; the answer waits in the queue.
+  const second = await collect(before.stream(options('s1', history, claude)))
+  assert.equal(second.finish.kind, 'tool-calls')
+  assert.deepEqual(before.live.get('s1').queue.map(entry => entry.text), ['my answer is blue'])
+  assert.equal(records.s1.handedId, 'm1', 'the saved marker counts held input as delivered')
+  // The first host is gone without a stop or a close: only the record is left.
+  const out = await collect(host().stream(options('s1', [...history, user('m4', 'are you there')], { ...claude, signal: AbortSignal.timeout(15_000) })))
+  assert.equal(out.finish.kind, 'stop')
+  assert.match(readFileSync(log, 'utf8'), /my answer is blue\n\nare you there\n---\n$/)
+})
+
+// Updated team instructions ride on the next prompt. When that prompt was only
+// queued and the turn fails, the instructions go back with it: the next request
+// sends them again instead of counting them as delivered.
+test('claude: updated instructions held with queued input go back when the turn fails', async (t) => {
+  const log = join(mkdtempSync(join(tmpdir(), 'dsb-claude-')), 'prompts')
+  const records = {}
+  const adapter = makeAdapter({ records, claude: FIXTURE('fake-claude-bridge.mjs'), claudeArgs: [log] })
+  t.after(() => adapter.dispose())
+  const claude = { provider: 'local-claude-code' }
+  const history = [system('sys', 'Instructions A.'), user('m1', 'please call-then-fail now')]
+  const first = await collect(adapter.stream(options('s1', history, claude)))
+  assert.equal(first.finish.kind, 'tool-calls')
+  const live = adapter.live.get('s1')
+  const hashA = live.promptHash
+  history[0] = system('sys', 'Instructions B.')
+  history.push(toolResult('m2', first.calls[0].id, 'The card is on screen.'), user('m3', 'my answer is blue'))
+  await assert.rejects(collect(adapter.stream(options('s1', history, claude))), /overloaded/)
+  assert.equal(live.promptHash, hashA, 'instructions the CLI never read count as delivered')
+  assert.equal(records.s1.promptHash, hashA)
+  history.push(user('m4', 'are you there'))
+  await collect(adapter.stream(options('s1', history, claude)))
+  assert.match(readFileSync(log, 'utf8'), /Updated team instructions[^]*Instructions B\.\n\nmy answer is blue\n\nare you there\n---\n$/)
+})
+
 // A turn can also end with an error result. Input held for it goes back, so the
 // next request carries it ahead of what the user wrote after.
 test('claude: a turn that fails gives back input that was still queued', async (t) => {
