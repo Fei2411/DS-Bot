@@ -115,3 +115,15 @@ test('a clean report says how to find an older copy another plugin hoisted in', 
   assert.doesNotMatch(check.stdout, /removed /)
   rmSync(home, { recursive: true, force: true })
 })
+
+
+test('an invalid explicit DSH version cannot remove pins during repair', () => {
+  const home = homeWith({ web: manifest({ '@deepseek-ai/dsh-web-app': RUNNING }) })
+  try {
+    const file = join(home, 'profiles', 'web', 'package.json')
+    const before = readFileSync(file, 'utf8')
+    const result = spawnSync(process.execPath, [DOCTOR, '--home', home, '--dsh-version', 'typo', '--fix'], { encoding: 'utf8' })
+    assert.notEqual(result.status, 0)
+    assert.equal(readFileSync(file, 'utf8'), before)
+  } finally { rmSync(home, { recursive: true, force: true }) }
+})

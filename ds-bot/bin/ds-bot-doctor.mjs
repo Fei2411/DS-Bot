@@ -25,6 +25,12 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import semver from 'semver'
+import { findExecutable, launchOf } from '../src/host/local-agents/discover.js'
+
+const run = (file, args, options) => {
+  const launch = launchOf(findExecutable(file) ?? file, args)
+  return spawnSync(launch.file, launch.args, { ...options, ...launch.options })
+}
 
 const OFFICIAL = /^@deepseek-ai\/dsh(?:-|$)/
 // DSH's runtime and bundle packages. A profile copy of one of these is what the
@@ -37,7 +43,6 @@ const CORE = new Set([
   'dsh-cordis-host-runner', 'dsh-tool-cordis', 'dsh-harness-dev-context', 'dsh-workspace-changes',
   'dsh-api-remotes', 'dsh-agent-preset', 'dsh-agent-preset-registry',
 ].map(name => `@deepseek-ai/${name}`))
-const RUNNING = /^\d/
 
 /** Profile directories under a DSH home that carry a manifest. */
 export function profileDirs(home) {
@@ -98,9 +103,9 @@ export function repair(plan, { pnpm = process.env.DSH_PNPM ?? 'pnpm' } = {}) {
     let installed = false
     let failure
     try {
-      const result = spawnSync(pnpm, ['install', '--prefer-offline', '--config.strictDepBuilds=false'], { cwd: entry.dir, encoding: 'utf8' })
+      const result = run(pnpm, ['install', '--prefer-offline', '--config.strictDepBuilds=false'], { cwd: entry.dir, encoding: 'utf8' })
       installed = result.status === 0
-      if (!installed) failure = `${result.stdout ?? ''}${result.stderr ?? ''}`.trim().split('\n').slice(-4).join('\n')
+      if (!installed) failure = `${result.error?.message ?? ''}${result.stdout ?? ''}${result.stderr ?? ''}`.trim().split('\n').slice(-4).join('\n')
     } catch (error) {
       failure = error?.message ?? String(error)
     }
@@ -111,9 +116,9 @@ export function repair(plan, { pnpm = process.env.DSH_PNPM ?? 'pnpm' } = {}) {
 
 function runningVersion() {
   try {
-    const result = spawnSync(process.env.DSH_BIN ?? 'dsh', ['--version'], { encoding: 'utf8' })
+    const result = run(process.env.DSH_BIN ?? 'dsh', ['--version'], { encoding: 'utf8' })
     const text = `${result.stdout ?? ''}${result.stderr ?? ''}`.trim().split(/\s+/)[0]
-    return result.status === 0 && RUNNING.test(text) ? text : undefined
+    return result.status === 0 && semver.valid(text) !== null ? text : undefined
   } catch {
     return undefined
   }
@@ -134,7 +139,7 @@ function main(argv) {
   }
   const home = homeArg >= 0 ? args[homeArg + 1] : (process.env.DSH_HOME?.trim() || join(homedir(), '.dsh'))
   const dshVersion = versionArg >= 0 ? args[versionArg + 1] : runningVersion()
-  if (dshVersion === undefined) {
+  if (dshVersion === undefined || semver.valid(dshVersion) === null) {
     console.error('ds-bot doctor: cannot read the DSH version. Pass --dsh-version <version>.')
     return 2
   }
