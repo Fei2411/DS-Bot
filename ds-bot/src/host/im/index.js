@@ -462,54 +462,88 @@ export function install(rt) {
 
   const enqueue = (conn, chatKey, job) => {
     const runner = runners.get(conn.id)
-    if (runner === undefined) return
+    if (runner === undefined) {
+      void Promise.resolve(job.onDrop?.()).catch(() => {})
+      return
+    }
     let queue = runner.queues.get(chatKey)
     if (queue === undefined) runner.queues.set(chatKey, queue = { jobs: [] })
     job.attempts = 0
     queue.jobs.push(job)
-    if (queue.jobs.length === 1) void drain(conn, chatKey)
+    if (!queue.draining && queue.jobs.length === 1) void drain(conn, chatKey)
   }
   const failMessage = error => String(error?.message ?? error).slice(0, 300)
+  const retainFailed = (id, chatKey, job, errorText, insertBefore) => {
+    const list = failedFor(id, chatKey)
+    const idx = insertBefore !== undefined ? list.indexOf(insertBefore) : -1
+    if (idx !== -1) list.splice(idx, 0, job)
+    else list.push(job)
+    setSendStatus(id, chatKey, { state: 'error', error: errorText })
+  }
   const drain = async (conn, chatKey) => {
     const runner = runners.get(conn.id)
     const queue = runner?.queues.get(chatKey)
     // A reserved slot has no handle until connect() lands; start() re-kicks
     // anything queued in the meantime.
-    if (runner?.handle === undefined || queue === undefined) return
-    while (queue.jobs.length > 0) {
-      const job = queue.jobs[0]
-      try {
-        const sent = await runner.handle.send(job.chat, job)
-        job.after?.(sent)
-        queue.jobs.shift()
-        if ((failedSends.get(conn.id)?.get(chatKey)?.length ?? 0) === 0) setSendStatus(conn.id, chatKey, undefined)
-      } catch (error) {
-        const how = failClass(error)
-        if (how === 'retry') {
-          job.attempts += 1
-          if (job.attempts < SEND_ATTEMPTS) {
-            const backoff = Math.min(RETRY_MS * 2 ** (job.attempts - 1), RETRY_MAX_MS)
-            const asked = Number(error?.retryAfter) > 0 ? Math.min(error.retryAfter * 1000, RETRY_MAX_MS) : backoff
-            setSendStatus(conn.id, chatKey, { state: 'retrying', error: failMessage(error) })
-            queue.retry = setTimeout(() => { void drain(conn, chatKey) }, asked)
-            queue.retry.unref?.()
-            return
+    if (runner?.handle === undefined || queue === undefined || queue.draining) return
+    clearTimeout(queue.retry)
+    queue.retry = undefined
+    queue.draining = true
+    try {
+      while (!runner.stopped && queue.jobs.length > 0) {
+        const job = queue.jobs[0]
+        queue.sending = true
+        let sent
+        try {
+          sent = await runner.handle.send(job.chat, job)
+        } catch (error) {
+          queue.sending = false
+          const how = failClass(error)
+          if (runner.stopped || connections()[conn.id] === undefined) {
+            queue.jobs.shift()
+            if (connections()[conn.id] === undefined || stopped || how === 'drop') {
+              await Promise.resolve(job.onDrop?.()).catch(() => {})
+            } else {
+              retainFailed(conn.id, chatKey, job, failMessage(error), queue.firstRetained)
+            }
+            break
           }
-          // A failed job keeps its delivery callback: Try again resumes the same
-          // message and card instead of dropping it or creating a second card.
+          if (how === 'retry') {
+            job.attempts += 1
+            if (job.attempts < SEND_ATTEMPTS) {
+              const backoff = Math.min(RETRY_MS * 2 ** (job.attempts - 1), RETRY_MAX_MS)
+              const asked = Number(error?.retryAfter) > 0 ? Math.min(error.retryAfter * 1000, RETRY_MAX_MS) : backoff
+              setSendStatus(conn.id, chatKey, { state: 'retrying', error: failMessage(error) })
+              queue.retry = setTimeout(() => { void drain(conn, chatKey) }, asked)
+              queue.retry.unref?.()
+              return
+            }
+            // A failed job keeps its delivery callback: Try again resumes the same
+            // message and card instead of dropping it or creating a second card.
+            queue.jobs.shift()
+            retainFailed(conn.id, chatKey, job, `Send failed after ${job.attempts} attempts: ${failMessage(error)}`)
+            rt.warn('ds-bot: im send to %s failed after %d attempts: %s', chatKey, job.attempts, failMessage(error))
+            continue
+          }
           queue.jobs.shift()
-          failedFor(conn.id, chatKey).push(job)
-          setSendStatus(conn.id, chatKey, { state: 'error', error: `Send failed after ${job.attempts} attempts: ${failMessage(error)}` })
-          rt.warn('ds-bot: im send to %s failed after %d attempts: %s', chatKey, job.attempts, failMessage(error))
+          if (how === 'permanent') {
+            retainFailed(conn.id, chatKey, job, failMessage(error))
+            rt.warn('ds-bot: im send to %s failed: %s', chatKey, failMessage(error))
+          } else {
+            await Promise.resolve(job.onDrop?.()).catch(() => {})
+          }
           continue
         }
+        queue.sending = false
         queue.jobs.shift()
-        if (how === 'permanent') {
-          failedFor(conn.id, chatKey).push(job)
-          setSendStatus(conn.id, chatKey, { state: 'error', error: failMessage(error) })
-          rt.warn('ds-bot: im send to %s failed: %s', chatKey, failMessage(error))
-        } else job.onDrop?.()
+        if (connections()[conn.id] === undefined) break
+        job.after?.(sent)
+        if (runner.stopped || runners.get(conn.id) !== runner) break
+        if ((failedSends.get(conn.id)?.get(chatKey)?.length ?? 0) === 0) setSendStatus(conn.id, chatKey, undefined)
       }
+    } finally {
+      queue.sending = false
+      queue.draining = false
     }
   }
   const sendText = (conn, chat, body, buttons, after) => enqueue(conn, chat.key, { chat, text: body, buttons, after })
@@ -734,6 +768,7 @@ export function install(rt) {
 
   const sendCard = async (conn, cardKey, targets, body, buttons) => {
     const data = await cardsOf(conn.id)
+    if (!runners.has(conn.id)) return
     const entries = data.cards[cardKey] ??= []
     const recorded = new Set(entries.map(entry => entry.chatKey))
     const pending = targets.filter(({ chatKey }) => !recorded.has(chatKey))
@@ -747,7 +782,7 @@ export function install(rt) {
         text: body,
         buttons,
         after: (sent) => { void markCard(conn.id, cardKey, chatKey, sent?.messageId, body) },
-        onDrop: () => { void unmarkCard(conn.id, cardKey, chatKey) },
+        onDrop: () => unmarkCard(conn.id, cardKey, chatKey),
       })
     }
   }
@@ -936,10 +971,43 @@ export function install(rt) {
   const stop = async (id) => {
     const runner = runners.get(id)
     runners.delete(id)
-    sendStatuses.delete(id)
-    if (runner?.typing !== undefined) clearInterval(runner.typing)
-    for (const queue of runner?.queues.values() ?? []) clearTimeout(queue.retry)
-    await Promise.resolve(runner?.handle?.stop?.()).catch(() => {})
+    if (runner === undefined) {
+      sendStatuses.delete(id)
+      if (statuses.get(id)?.state !== 'error') setStatus(id, { state: 'off', at: Date.now() })
+      return
+    }
+    runner.stopped = true
+    if (runner.typing !== undefined) clearInterval(runner.typing)
+    const dropOnly = stopped || connections()[id] === undefined
+    if (dropOnly) {
+      sendStatuses.delete(id)
+    } else {
+      const failed = failedSends.get(id)
+      const byChat = sendStatuses.get(id)
+      if (byChat !== undefined) {
+        for (const chatKey of byChat.keys()) {
+          if ((failed?.get(chatKey)?.length ?? 0) === 0) byChat.delete(chatKey)
+        }
+        if (byChat.size === 0) sendStatuses.delete(id)
+      }
+    }
+    const dropped = []
+    for (const [chatKey, queue] of runner.queues) {
+      clearTimeout(queue.retry)
+      queue.retry = undefined
+      const rest = queue.jobs.splice(queue.sending ? 1 : 0)
+      if (rest.length === 0) continue
+      if (dropOnly) {
+        for (const job of rest) dropped.push(Promise.resolve(job.onDrop?.()).catch(() => {}))
+        continue
+      }
+      const prevError = sendStatuses.get(id)?.get(chatKey)?.error
+      queue.firstRetained = rest[0]
+      failedFor(id, chatKey).push(...rest)
+      setSendStatus(id, chatKey, { state: 'error', error: prevError || 'Stopped before delivery' })
+    }
+    await Promise.all(dropped)
+    await Promise.resolve(runner.handle?.stop?.()).catch(() => {})
     if (statuses.get(id)?.state !== 'error') setStatus(id, { state: 'off', at: Date.now() })
   }
 
@@ -1087,6 +1155,7 @@ export function install(rt) {
       }
       delete connections()[id]
       failedSends.delete(id)
+      sendStatuses.delete(id)
       runtimes.delete(id)
       await rm(join(imDir, `${id}.json`), { force: true }).catch(() => {})
       await rt.save()
@@ -1145,11 +1214,21 @@ export function install(rt) {
         if (runners.has(conn.id)) await stop(conn.id)
         await sync()
       }
+      if (!runners.has(conn.id)) return true
       const chats = failedSends.get(conn.id)
       failedSends.delete(conn.id)
       for (const [chatKey, jobs] of chats ?? []) {
         setSendStatus(conn.id, chatKey, { state: 'retrying' })
         for (const job of jobs) enqueue(conn, chatKey, job)
+      }
+      const runner = runners.get(conn.id)
+      for (const [chatKey, queue] of runner?.queues ?? []) {
+        if (queue.retry === undefined || queue.draining || queue.jobs.length === 0) continue
+        clearTimeout(queue.retry)
+        queue.retry = undefined
+        queue.jobs[0].attempts = 0
+        setSendStatus(conn.id, chatKey, { state: 'retrying' })
+        void drain(conn, chatKey)
       }
       return true
     },
@@ -1202,7 +1281,7 @@ export function install(rt) {
   const imEndpoint = async (endpoint, body) => {
     const result = await endpoints[endpoint]?.(body ?? {})
     if (result === undefined) throw new Error(`Unknown endpoint ${endpoint}`)
-    void sync()
+    if (endpoint !== 'im-retry') void sync()
     void diffCards()
     return result
   }
