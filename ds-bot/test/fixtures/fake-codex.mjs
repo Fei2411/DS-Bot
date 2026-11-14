@@ -4,7 +4,10 @@
 //   "elicit <server> <kind>" -> an MCP tool-call approval (mcpServer/elicitation/request)
 //                 from <server>, with _meta.codex_approval_kind <kind>; the answer
 //                 comes back as the agentMessage, as JSON
-//   otherwise  -> an activity item, an agentMessage, turn/completed
+//   otherwise  -> an activity item, an agentMessage, thread/tokenUsage/updated,
+//                 turn/completed
+// thread/compact/start condenses in a turn of its own. Usage and compaction take the
+// shapes Codex 0.166 sends (test/fixtures/recorded/codex-app-server-0.166.json).
 // `--exit-after-turn` exits once a turn completes, and `--text-only` sends no
 // activity items first: a test can then tell whether the one text event reached
 // the client. `--record <file>` appends the params of thread/start and thread/resume,
@@ -68,8 +71,27 @@ function runTurn(thread, turnId, text, effort) {
     notice('item/completed', { threadId: thread.id, item: { id: 'i1', type: 'commandExecution', exitCode: 0 } })
   }
   notice('item/completed', { threadId: thread.id, item: { id: 'i2', type: 'agentMessage', text: `ok: ${text.slice(0, 60)} effort=${effort ?? 'none'}` } })
+  thread.used = (thread.used ?? 25_000) + 800 + Number(text.match(/grow:(\d+)/)?.[1] ?? 0)
+  usage(thread, turnId, { totalTokens: thread.used, inputTokens: thread.used - 6, cachedInputTokens: 12_288, cacheWriteInputTokens: 0, outputTokens: 6, reasoningOutputTokens: 0 })
   notice('turn/completed', { threadId: thread.id, turn: { id: turnId, status: 'completed' } })
   if (exitAfterTurn) setTimeout(() => process.exit(0), 50)
+}
+
+const ZERO = { totalTokens: 0, inputTokens: 0, cachedInputTokens: 0, cacheWriteInputTokens: 0, outputTokens: 0, reasoningOutputTokens: 0 }
+function usage(thread, turnId, last) {
+  const total = thread.total ?? ZERO
+  thread.total = Object.fromEntries(Object.keys(ZERO).map(key => [key, total[key] + last[key]]))
+  notice('thread/tokenUsage/updated', { threadId: thread.id, turnId, tokenUsage: { total: thread.total, last, modelContextWindow: 475_000 } })
+}
+
+function compactTurn(thread) {
+  const turnId = `turn-${++nextId}`
+  notice('turn/started', { threadId: thread.id, turn: { id: turnId, status: 'inProgress' } })
+  notice('item/started', { threadId: thread.id, turnId, item: { type: 'contextCompaction', id: 'cc1' } })
+  thread.used = 29_000
+  usage(thread, turnId, { ...ZERO, totalTokens: thread.used })
+  notice('item/completed', { threadId: thread.id, turnId, item: { type: 'contextCompaction', id: 'cc1' } })
+  notice('turn/completed', { threadId: thread.id, turn: { id: turnId, status: 'completed' } })
 }
 
 let rest = ''
@@ -132,6 +154,13 @@ process.stdin.on('data', (chunk) => {
         reply(id, { turn: { id: turnId } })
         const text = (params.input ?? []).map(item => item.text ?? '').join('\n')
         setImmediate(() => runTurn(thread ?? { id: params.threadId }, turnId, text, params.effort))
+        break
+      }
+      case 'thread/compact/start': {
+        reply(id, {})
+        const thread = threads.get(params.threadId) ?? { id: params.threadId }
+        threads.set(thread.id, thread)
+        setImmediate(() => compactTurn(thread))
         break
       }
       case 'turn/interrupt': reply(id, {}); break
