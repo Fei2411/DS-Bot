@@ -403,6 +403,23 @@ export function install(rt) {
   const pendingReset = new Set()
   // Request id of an IM message → the chat it came from, until that message shows up.
   const requests = new Map()
+  // IM origin held across a part switch until the resumed/handoff message opens.
+  const resumedOrigins = new Map()
+  const holdImOrigin = (sessionId) => {
+    if (sessionId === undefined || mixed.has(sessionId)) return undefined
+    const entry = origins.get(sessionId)
+    if (entry === undefined) return undefined
+    const token = randomUUID()
+    resumedOrigins.set(token, entry)
+    return token
+  }
+  const peekImOrigin = (sessionId, token) => {
+    const entry = token === undefined ? undefined : resumedOrigins.get(token)
+    if (entry !== undefined) claimOrigin(sessionId, entry.connId, entry.chatKey, entry.senderId, entry.binding)
+  }
+  const dropImOrigin = (token) => {
+    if (token !== undefined) resumedOrigins.delete(token)
+  }
   const claimOrigin = (sessionId, connId, chatKey, senderId, binding) => {
     if (sessionId === undefined || connId === undefined) return
     if (mixed.has(sessionId)) return
@@ -1233,11 +1250,17 @@ export function install(rt) {
     }
     if (event.type === 'user/message') {
       const source = event.data?.source
+      const imOrigin = source?.imOrigin
       const rpcId = source?.rpcId
-      // A late member result continues the group work the chat asked for; any other
-      // first message starts a fresh turn, which clears the previous turn's origin.
-      if (pendingReset.delete(session.id) && !(source?.kind === SOURCE_KIND && source.role === 'post')) resetOrigin(session.id)
-      if (typeof rpcId === 'string' && rpcId.startsWith('im:')) {
+      // A late member result or part-switch handoff continues the work the chat asked for;
+      // any other first message starts a fresh turn, which clears the previous turn's origin.
+      if (pendingReset.delete(session.id) && !(typeof imOrigin === 'string' || (source?.kind === SOURCE_KIND && source.role === 'post'))) resetOrigin(session.id)
+      if (typeof imOrigin === 'string') {
+        const resumed = resumedOrigins.get(imOrigin)
+        resumedOrigins.delete(imOrigin)
+        if (resumed === undefined) dropOrigin(session.id)
+        else claimOrigin(session.id, resumed.connId, resumed.chatKey, resumed.senderId, resumed.binding)
+      } else if (typeof rpcId === 'string' && rpcId.startsWith('im:')) {
         if (Number.isInteger(event.seq)) imVia.set(session.id, { ...imVia.get(session.id), [event.seq]: rpcId.split(':')[1] })
         // The chat this message came from is the one its turn answers. A message this
         // process never registered — after a restart, or a redelivery — leaves no origin.
@@ -1322,6 +1345,7 @@ export function install(rt) {
     return () => {
       stopped = true
       clearInterval(interval)
+      resumedOrigins.clear()
       return Promise.all([...runners.keys()].map(stop)).then(async () => {
         for (const held of runtimes.values()) if (held.timer !== undefined) clearTimeout(held.timer)
         await Promise.all([...runtimes.keys()].map(writeRuntime)).catch(() => {})
@@ -1335,5 +1359,5 @@ export function install(rt) {
     return [id, { state: status.state, ...(status.error !== undefined ? { error: status.error } : {}), at: status.at }]
   }))
 
-  Object.assign(rt, { imView, imStatusView, imViaView, imEndpoint })
+  Object.assign(rt, { imView, imStatusView, imViaView, imEndpoint, holdImOrigin, peekImOrigin, dropImOrigin })
 }
