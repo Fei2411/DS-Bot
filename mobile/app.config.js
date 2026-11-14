@@ -11,10 +11,18 @@ function versionCode(text) {
   return ((major * 1000 + minor) * 1000 + patch) * 100 + (match[4] === undefined ? 99 : pre)
 }
 
+// The Apple Developer team signs the archive; it is account data, so it comes from the
+// environment and is never written here (docs/plans/2026-11-13-ios-release.md).
+const appleTeamId = (process.env.DS_BOT_APPLE_TEAM_ID ?? '').trim()
+
 module.exports = ({ config }) => ({
   ...config,
   version,
   android: { ...config.android, versionCode: versionCode(version) },
-  ios: { ...config.ios, buildNumber: version },
+  ios: {
+    ...config.ios,
+    buildNumber: version,
+    ...(appleTeamId === '' ? {} : { appleTeamId }),
+  },
 })
 module.exports.versionCode = versionCode
