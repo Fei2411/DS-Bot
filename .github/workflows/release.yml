@@ -1,7 +1,7 @@
 name: Release
 
 # Publishes ds-bot to npm when a GitHub release is published, then attaches the desktop app's
-# Windows installer, macOS zips and Linux packages to the release. Windows and the Linux
+# Windows installer, macOS zips and Linux packages, and the phone app's Android APK, to the release. Windows and the Linux
 # AppImage update from latest.yml / latest-linux.yml; macOS and the Linux deb open the release
 # page for a manual download.
 #
@@ -81,6 +81,9 @@ jobs:
             exit 1
           fi
 
+      # The tests rebuild link.js from ../link and run its Relay Server, which have their own packages.
+      - name: Install the phone link's packages
+        run: npm ci --no-fund --no-audit --prefix ../link
       - run: npm ci --no-fund --no-audit
       - run: npm run harness
       - run: npm test
@@ -123,6 +126,7 @@ jobs:
         with:
           node-version: 24
       - run: npm ci --no-fund --no-audit
+      - run: node scripts/seed-electron-checksums.mjs
       - run: npm run dist
       - name: Check the packaged app
         run: node scripts/check-packed.mjs
@@ -166,6 +170,7 @@ jobs:
         with:
           node-version: 24
       - run: npm ci --no-fund --no-audit
+      - run: node scripts/seed-electron-checksums.mjs
       - run: npm run dist
       - name: Check the packaged app
         run: node scripts/check-packed.mjs
@@ -203,6 +208,7 @@ jobs:
         with:
           node-version: 24
       - run: npm ci --no-fund --no-audit
+      - run: node scripts/seed-electron-checksums.mjs
       - run: npm run dist
       - name: Check the packaged app
         # Ubuntu 24.04's AppArmor blocks the unprivileged user namespaces that Chromium's
@@ -237,9 +243,95 @@ jobs:
           legacy="$(node scripts/legacy-release-assets.mjs "dist-pack/DS-Bot-$version-linux-amd64.deb")"
           gh release upload "$TAG" "dist-pack/DS-Bot-$version-linux-x86_64.AppImage" "dist-pack/DS-Bot-$version-linux-amd64.deb" "$legacy" dist-pack/latest-linux.yml --clobber
 
+  # The phone app's APK, signed with the upload key in the ANDROID_KEYSTORE_BASE64,
+  # ANDROID_KEYSTORE_PASSWORD and ANDROID_KEY_ALIAS secrets. Every later APK must carry
+  # the same key, or Android refuses it as an update. A dry run without the secrets
+  # signs with the debug key, and that APK is for checks only.
+  app-android:
+    name: Phone app (Android)
+    needs: publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - run: npm ci --no-fund --no-audit --prefix ../link
+      - run: npm ci --no-fund --no-audit
+      - run: npm run typecheck
+      - run: npm test
+      - run: npx expo prebuild --platform android --no-install
+      - name: Build the APK
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: |
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/upload.jks"
+            export DSBOT_ANDROID_KEYSTORE="$RUNNER_TEMP/upload.jks" DSBOT_ANDROID_KEYSTORE_PASSWORD="$KEYSTORE_PASSWORD" DSBOT_ANDROID_KEY_ALIAS="$KEY_ALIAS"
+          elif [ "$GITHUB_EVENT_NAME" = release ]; then
+            echo "::error::The ANDROID_KEYSTORE_BASE64 secret is missing, so the APK cannot be signed for release."
+            exit 1
+          else
+            echo "::warning::No upload key: this dry run signs the APK with the debug key."
+          fi
+          (cd android && ./gradlew assembleRelease --no-daemon --console=plain -PreactNativeArchitectures=arm64-v8a,armeabi-v7a)
+          rm -f "$RUNNER_TEMP/upload.jks"
+          version="$(node -p "require('../ds-bot/package.json').version")"
+          mkdir -p dist
+          cp android/app/build/outputs/apk/release/app-release.apk "dist/DS-Bot-$version-android.apk"
+      - name: Check the signature
+        run: |
+          if unzip -l dist/DS-Bot-*-android.apk | grep -Eq 'lib/(x86|x86_64)/'; then
+            echo "::error::Release APK contains x86 simulator binaries."
+            exit 1
+          fi
+          # --min-sdk-version 21 makes apksigner verify the v1 JAR signature too, even though
+          # the app's minSdkVersion is 24 (where Android prefers v2/v3).
+          apksigner="$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)/apksigner"
+          zipalign="$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)/zipalign"
+          "$zipalign" -c -P 16 4 dist/DS-Bot-*-android.apk
+          certs="$("$apksigner" verify --min-sdk-version 21 --verbose --print-certs dist/DS-Bot-*-android.apk)"
+          echo "$certs" | grep -E '(^Verified using v[123] |certificate (DN|SHA-256 digest):)'
+          for scheme in 'v1 scheme (JAR signing): true' 'v2 scheme (APK Signature Scheme v2): true' 'v3 scheme (APK Signature Scheme v3): true'; do
+            if ! echo "$certs" | grep -Fq "Verified using $scheme"; then
+              echo "::error::The APK is missing signature $scheme."
+              exit 1
+            fi
+          done
+          if [ "$GITHUB_EVENT_NAME" = release ] && echo "$certs" | grep -q 'CN=Android Debug'; then
+            echo "::error::The APK is signed with the debug key."
+            exit 1
+          fi
+      - name: Keep the APK for real-device checks
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: DS-Bot-android
+          path: mobile/dist/DS-Bot-*-android.apk
+          retention-days: 7
+          if-no-files-found: error
+          compression-level: 0
+      - name: Attach the APK to the release
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: gh release upload "$TAG" dist/DS-Bot-*-android.apk --clobber
+
   downloads:
     name: Download table, checksums and Latest
-    needs: [app-windows, app-macos, app-linux]
+    needs: [app-windows, app-macos, app-linux, app-android]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     defaults:

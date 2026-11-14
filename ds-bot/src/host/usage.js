@@ -29,7 +29,7 @@ const SLOT_MS = 15 * 60_000
 
 const count = value => (Number.isSafeInteger(value) && value > 0 ? value : 0)
 
-function usageChunk(stream) {
+export function usageChunk(stream) {
   if (!Array.isArray(stream)) return undefined
   for (let index = stream.length - 1; index >= 0; index -= 1) {
     const record = stream[index]
@@ -213,7 +213,7 @@ function sqliteLedger(DatabaseSync, path) {
 }
 
 // Every hour bucket in one time zone, as `YYYY-MM-DD HH`.
-function hourKeys(timeZone) {
+export function hourKeys(timeZone) {
   let format
   try {
     format = new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', hourCycle: 'h23' })
@@ -649,5 +649,7 @@ export function install(rt) {
     })()
   })
 
-  Object.assign(rt, { usageView, tagUsage, carryUsageTag, ownRequest })
+  // A request DS Bot makes of a local agent CLI outside the model stream.
+  const recordUsage = entry => record(entry)
+  Object.assign(rt, { usageView, tagUsage, carryUsageTag, ownRequest, recordUsage })
 }

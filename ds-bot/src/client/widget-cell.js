@@ -50,7 +50,7 @@ export function PendingView({ sessionId, view, actions, inline }) {
 // The show_view call in the transcript.
 export function WidgetCell({ sessionId, callId, args, done, isError, roster, actions, heldCards }) {
   const record = roster.views?.[sessionId]
-  if (record !== undefined && record.callId === callId) {
+  if (record !== undefined && (record.callSessionId ?? sessionId) === sessionId && record.callId === callId) {
     if (heldCards?.[heldCardKey('view', record.id)] > 0) return h(CellEmpty)
     return h(PendingView, { sessionId, view: record, actions, inline: true })
   }
@@ -85,7 +85,8 @@ export function WidgetDock({ sessionId, useRoster, useCards, useHeldCards, actio
   const view = useRoster(value => value.views?.[sessionId])
   const drawn = useCards?.(state => state[sessionId]?.[view?.callId] > 0) === true
   const held = useHeldCards?.(state => state[sessionId]?.[heldCardKey('view', view?.id)] > 0) === true
-  if (view === undefined || (view.callId && drawn && !held)) return null
+  const inPart = (view?.callSessionId ?? sessionId) === sessionId
+  if (view === undefined || (inPart && view.callId && drawn && !held)) return null
   return h(PendingView, { sessionId, view, actions, inline: false })
 }
 

@@ -1,7 +1,17 @@
 // Reading a settled group_relay result back into the group's conversation rows,
 // shared by the live chat (client/cells.js) and the earlier-parts page
-// (host/parts.js): the result's JSON holds the round's `replies`, in the order
-// the live view draws them.
+// (host/parts.js). A result names where its rows are in the group's book of the
+// ledger (relayRange); one from before the ledger holds the round's `replies`
+// itself, in the order the live view draws them.
+
+// The seq range of a round's rows, or undefined for a result from before the ledger.
+export function relayRange(text) {
+  try {
+    const value = JSON.parse(text)
+    if (Number.isInteger(value?.from)) return { from: value.from, ...(Number.isInteger(value.to) ? { to: value.to } : {}), ...(typeof value.anchor === 'string' ? { anchor: value.anchor } : {}) }
+  } catch { /* an older result, or one cut short */ }
+  return undefined
+}
 
 // Compaction can prune the middle of a long tool result, which leaves invalid
 // JSON: then every complete reply object that survived is recovered so the turn
@@ -59,11 +69,24 @@ export function stackReplies(replies) {
   const items = []
   replies.forEach((reply, index) => {
     const last = items.at(-1)
-    if (reply.kind === undefined && last?.reply.kind === undefined && last?.reply.botId === reply.botId) {
+    if (reply.kind === undefined && last?.reply.kind === undefined && last?.reply.botId === reply.botId
+      && last.claims === undefined) {
       last.texts.push(reply.text)
       last.time = reply.time
       last.duration = reply.duration
-    } else items.push({ reply, index, texts: reply.kind === undefined ? [reply.text] : [], time: reply.time, duration: reply.duration })
+      if (reply.claims !== undefined) last.claims = reply.claims
+      // The change line belongs to the turn, so a later message of the same turn replaces
+      // it rather than stacking a second one.
+      if (reply.changes !== undefined) last.changes = reply.changes
+    } else {
+      items.push({
+        reply, index,
+        texts: reply.kind === undefined ? [reply.text] : [],
+        time: reply.time, duration: reply.duration,
+        ...(reply.claims === undefined ? {} : { claims: reply.claims }),
+        ...(reply.changes === undefined ? {} : { changes: reply.changes }),
+      })
+    }
   })
   return items
 }

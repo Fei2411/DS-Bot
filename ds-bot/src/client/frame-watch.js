@@ -2,9 +2,12 @@
 // sidebar track, and the one CSS rule that writes the conversation column's
 // margins (our own column on the left, the Bot panel on the right).
 import { installStyles } from './styles.js'
+import { trackRoom } from './frame-layout.js'
 
-export const sidebarTrackWidth = () =>
-  typeof document === 'undefined' ? null : document.querySelector('[class*="_sidebarCol"]')?.getBoundingClientRect().width ?? null
+export const sidebarTrackWidth = () => {
+  const box = typeof document === 'undefined' ? undefined : document.querySelector('[class*="_sidebarCol"]')?.getBoundingClientRect()
+  return box === undefined ? null : trackRoom(box)
+}
 
 // The shell frame marks itself [data-sidebar-collapsed]; null when no frame is found.
 export const dshCollapsed = () => {

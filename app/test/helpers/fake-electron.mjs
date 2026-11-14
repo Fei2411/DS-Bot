@@ -72,6 +72,7 @@ export class FakeWindow extends EventEmitter {
   destroy() { this.destroyed = true; this.emit('closed') }
   close() { this.emit('close', { preventDefault: () => { this.prevented = true } }) }
   setTitleBarOverlay() {}
+  setVibrancy() {}
   setProgressBar() {}
   setMinimumSize() {}
   moveTop() {}

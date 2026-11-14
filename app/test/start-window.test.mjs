@@ -141,7 +141,7 @@ test('acts come only from the start page that was loaded', () => {
 })
 
 const state = (change = {}) => ({
-  lang: 'zh', start: 'first', motion: 'normal', frame: 'band', view: 'boot', done: [], celebrate: true,
+  lang: 'zh', start: 'first', motion: 'normal', effects: 'full', frame: 'band', view: 'boot', done: [], celebrate: true,
   explain: explainOf(), clock: { base: 0, from: 1000, running: true }, hint: undefined, failure: undefined, ...change,
 })
 
@@ -149,10 +149,11 @@ test('the snapshot carries the phase, the stages done and the clock', () => {
   const now = 1_700_000_000_000
   const booting = startSnapshot(state({ clock: { base: 0, from: now - 6400, running: true } }), now)
   assert.deepEqual(booting, {
-    v: 1, lang: 'zh', start: 'first', motion: 'normal', frame: 'band', view: 'boot', phases: ['data', 'engine', 'team'], phase: 'data', done: [],
+    v: 1, lang: 'zh', start: 'first', motion: 'normal', effects: 'full', frame: 'band', view: 'boot', phases: ['data', 'engine', 'team'], phase: 'data', done: [],
     clock: { ms: 6400, at: now, running: true, rate: 1 },
     explain: { mode: 'new', nextStep: true, previewNotice: true }, celebrate: true, shown: false,
   })
+  assert.equal(startSnapshot(state({ effects: 'off' }), now).effects, 'off')
   assert.equal(startSnapshot(state({ done: ['data'] }), now).phase, 'engine')
   const ready = startSnapshot(state({ view: 'handoff', done: ['team', 'data', 'engine'] }), now)
   assert.equal(ready.phase, 'team')
@@ -196,20 +197,25 @@ test('the copied details name the version and the reason before the log', () => 
   assert.equal(detailsText({ version: '0.2.2', platform: 'win32', arch: 'x64', reason: 'engine', lines: ['l1', 'l2'] }), 'DS Bot 0.2.2 (win32 x64)\nreason: engine\n\nl1\nl2')
 })
 
-test('the start window remembers the theme and the motion tier in its own file', (t) => {
+test('the start window remembers the theme, the motion tier and the effects tier in its own file', (t) => {
   const dir = mkdtempSync(join(tmpdir(), 'ds-bot-start-frame-'))
   t.after(() => { rmSync(dir, { recursive: true, force: true }) })
   const file = join(dir, 'start-frame.json')
-  assert.deepEqual(readStartFrame(file), { themeSource: 'system', motion: 'normal' })
+  assert.deepEqual(readStartFrame(file), { themeSource: 'system', motion: 'normal', effects: 'full' })
   assert.equal(writeStartFrame(file, { themeSource: 'dark' }), true)
   assert.equal(writeStartFrame(file, { themeSource: 'dark' }), false)
   assert.equal(writeStartFrame(file, { motion: 'lively', themeSource: 'moonlight' }), true)
-  assert.deepEqual(readStartFrame(file), { themeSource: 'dark', motion: 'lively' })
+  assert.deepEqual(readStartFrame(file), { themeSource: 'dark', motion: 'lively', effects: 'full' })
+  assert.equal(writeStartFrame(file, { effects: 'reduced' }), true)
+  assert.equal(writeStartFrame(file, { effects: 'reduced' }), false)
+  assert.deepEqual(readStartFrame(file), { themeSource: 'dark', motion: 'lively', effects: 'reduced' })
+  assert.equal(writeStartFrame(file, { effects: 'off' }), true)
+  assert.deepEqual(readStartFrame(file), { themeSource: 'dark', motion: 'lively', effects: 'off' })
   assert.deepEqual(readdirSync(dir), ['start-frame.json'])
-  writeFileSync(file, '{"themeSource":"neon","motion":7}')
-  assert.deepEqual(readStartFrame(file), { themeSource: 'system', motion: 'normal' })
+  writeFileSync(file, '{"themeSource":"neon","motion":7,"effects":"blur"}')
+  assert.deepEqual(readStartFrame(file), { themeSource: 'system', motion: 'normal', effects: 'full' })
   writeFileSync(file, 'not json')
-  assert.deepEqual(readStartFrame(file), { themeSource: 'system', motion: 'normal' })
+  assert.deepEqual(readStartFrame(file), { themeSource: 'system', motion: 'normal', effects: 'full' })
 })
 
 // Onboarding acceptance: no dialog during the first start without a window it belongs to.
@@ -290,15 +296,15 @@ function fakeElectron() {
   return { electron, windows, act: (event, name, payload) => act(event, name, payload) }
 }
 
-function startWindow(t) {
+function startWindow(t, { effects = 'full' } = {}) {
   t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_000_000 })
   t.mock.method(console, 'log', () => {})
   const fake = fakeElectron()
   const main = new fake.electron.BrowserWindow({ show: false })
   const calls = { retry: 0, reload: 0, close: 0, pick: [], answer: [], update: [], saveAs: [], saveTo: undefined }
   const start = new StartWindow({
-    electron: fake.electron, page: join(tmpdir(), 'start', 'start.html'), preload: 'preload.cjs', icon: 'icon.ico', mica: false, devTools: false,
-    lang: () => 'en', motion: 'normal', version: '0.0.0', program: [], log: { dir: 'logs', tail: () => ['a log line'] },
+    electron: fake.electron, page: join(tmpdir(), 'start', 'start.html'), preload: 'preload.cjs', icon: 'icon.ico', devTools: false,
+    lang: () => 'en', motion: 'normal', effects, version: '0.0.0', program: [], log: { dir: 'logs', tail: () => ['a log line'] },
     mainWindow: () => main,
     onRetry: () => { calls.retry += 1 }, onReload: () => { calls.reload += 1 }, onClose: () => { calls.close += 1 },
     onPick: (value) => { calls.pick.push(value) }, onAnswer: (value) => { calls.answer.push(value) }, onUpdate: (name) => { calls.update.push(name) },
@@ -593,8 +599,8 @@ test('the whale the start page hands over is put in the team page\'s own coordin
 
 // The start window never resizes: the team window, see-through under it since ready(), takes the
 // whale, and the two windows cross-fade.
-function handingOver(t, { focused = true } = {}) {
-  const s = startWindow(t)
+function handingOver(t, { focused = true, effects = 'full' } = {}) {
+  const s = startWindow(t, { effects })
   s.start.open('later')
   s.win().focused = focused
   s.start.placeMain()
@@ -635,6 +641,17 @@ test('at handoffShow the team page gets the whale, and the windows cross-fade on
   // It never resized.
   assert.equal(start.calls.includes('setBounds'), false)
   assert.equal(s.calls.close, 0)
+})
+
+test('when interface motion is off, the handoff reveals the team window at once with zero cross-fade ticks', (t) => {
+  const s = handingOver(t, { effects: 'off' })
+  assert.equal(s.state().effects, 'off')
+  s.act('handoffShow')
+  const start = s.win()
+  assert.equal(start.opacity, 0)
+  assert.equal(s.main.opacity, 1)
+  assert.equal(start.destroyed, true)
+  assert.equal(s.main.calls.at(-1), 'focus')
 })
 
 test('the cross-fade starts anyway when the team page does not say it drew the whale', (t) => {

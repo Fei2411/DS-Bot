@@ -206,6 +206,19 @@ test('send posts text and an interactive card, edit patches the message', async 
   assert.ok(patch, 'message PATCH called')
 })
 
+test('send drops blank lines at the start and end of the text', async (t) => {
+  const fake = await fakeFeishu()
+  const handle = feishu.connect(FIELDS, env(fake), { onMessage: () => {}, onAction: () => {}, onStatus: () => {} })
+  t.after(() => { handle.stop(); fake.close() })
+  await until(() => fake.sockets[0])
+  await until(() => fake.calls.some(call => call.path === '/open-apis/bot/v3/info'))
+  await handle.send({ key: 'oc_1', kind: 'direct' }, { text: '\n\nfirst\n\nsecond\n\n' })
+  const posts = fake.calls.filter(call => call.path.startsWith('/open-apis/im/v1/messages?'))
+  assert.equal(posts.length, 1)
+  assert.equal(posts[0].params.msg_type, 'text')
+  assert.equal(JSON.parse(posts[0].params.content).text, 'first\n\nsecond')
+})
+
 test('a dropped socket reconnects through a fresh endpoint and a renewed token', async (t) => {
   const fake = await fakeFeishu()
   const handle = feishu.connect(FIELDS, env(fake), { onMessage: () => {}, onAction: () => {}, onStatus: () => {} })
@@ -233,4 +246,88 @@ test('a refused handshake reports the code and the message', async (t) => {
   assert.ok(error, 'an error status')
   assert.match(error.error, /invalid param/)
   assert.match(error.error, /10003/)
+})
+
+test('a network failure at start is retried until the platform answers (#1119)', async (t) => {
+  const fake = await fakeFeishu()
+  const statuses = []
+  const base = env(fake)
+  let down = true
+  const fetch = async (...args) => {
+    if (down) throw new TypeError('fetch failed')
+    return base.fetch(...args)
+  }
+  const handle = feishu.connect(FIELDS, { ...base, fetch }, { onMessage: () => {}, onAction: () => {}, onStatus: next => statuses.push(next) })
+  t.after(() => { handle.stop(); fake.close() })
+  const failed = await until(() => statuses.find(status => status.state === 'retrying'))
+  assert.match(failed.error, /fetch failed/)
+  down = false
+  await until(() => statuses.some(status => status.state === 'ready'), 160)
+  assert.ok(fake.calls.some(call => call.path === '/open-apis/auth/v3/tenant_access_token/internal'))
+  assert.equal(fake.sockets.length, 1)
+})
+
+test('a ws endpoint failure after the token is accepted is retried (#1119)', async (t) => {
+  const fake = await fakeFeishu()
+  const statuses = []
+  const base = env(fake)
+  let down = true
+  let handshakes = 0
+  const fetch = async (url, ...rest) => {
+    if (String(url).endsWith('/callback/ws/endpoint')) {
+      handshakes += 1
+      if (down) throw new TypeError('fetch failed')
+    }
+    return base.fetch(url, ...rest)
+  }
+  const handle = feishu.connect(FIELDS, { ...base, fetch }, { onMessage: () => {}, onAction: () => {}, onStatus: next => statuses.push(next) })
+  t.after(() => { handle.stop(); fake.close() })
+  const failed = await until(() => statuses.find(status => status.state === 'retrying'))
+  assert.match(failed.error, /fetch failed/)
+  // The token and bot identity were accepted first, so this covers the websocket
+  // handshake and not a second token failure.
+  assert.equal(fake.calls.filter(call => call.path === '/open-apis/auth/v3/tenant_access_token/internal').length, 1)
+  assert.ok(fake.calls.some(call => call.path === '/open-apis/bot/v3/info'))
+  assert.equal(fake.sockets.length, 0)
+  down = false
+  const ready = await until(() => statuses.slice(statuses.indexOf(failed) + 1).find(status => status.state === 'ready'), 160)
+  assert.ok(ready !== undefined, 'the connection became ready after the retry')
+  assert.equal(handshakes, 2)
+  assert.equal(fake.sockets.length, 1, 'the retry opened one socket, not one per attempt')
+})
+
+test('a socket that cannot be built at the handshake is retried (#1119)', async (t) => {
+  const fake = await fakeFeishu()
+  const statuses = []
+  const base = env(fake)
+  let failures = 1
+  const WebSocket = function (...args) {
+    if (failures > 0) { failures -= 1; throw new TypeError('socket unavailable') }
+    return new base.WebSocket(...args)
+  }
+  const handle = feishu.connect(FIELDS, { ...base, WebSocket }, { onMessage: () => {}, onAction: () => {}, onStatus: next => statuses.push(next) })
+  t.after(() => { handle.stop(); fake.close() })
+  const failed = await until(() => statuses.find(status => status.state === 'retrying'))
+  assert.match(failed.error, /could not open a socket/)
+  const ready = await until(() => statuses.slice(statuses.indexOf(failed) + 1).find(status => status.state === 'ready'), 160)
+  assert.ok(ready !== undefined, 'the connection became ready after a new socket')
+  assert.equal(fake.sockets.length, 1)
+})
+
+// #1417: the send path classified 5xx as retryable but carried no status, so the
+// queue could not tell a broken tunnel from a network blip and retried forever.
+test('a 5xx answer is retryable and carries its status; a 4xx answer is permanent', async () => {
+  const responding = (status, body) => async (url) => (url.endsWith('/tenant_access_token/internal')
+    ? { ok: true, status: 200, json: async () => ({ tenant_access_token: 'tok', expire: 7200 }) }
+    : { ok: false, status, json: async () => body })
+  await assert.rejects(feishu.check(FIELDS, { fetch: responding(502, { msg: 'bad gateway' }), config: { api: 'https://open.feishu.cn' } }), (error) => {
+    assert.equal(error.status, 502)
+    assert.notEqual(error.permanent, true, 'a 5xx must stay retryable')
+    return true
+  })
+  await assert.rejects(feishu.check(FIELDS, { fetch: responding(403, { msg: 'forbidden' }), config: { api: 'https://open.feishu.cn' } }), (error) => {
+    assert.equal(error.status, 403)
+    assert.equal(error.permanent, true, 'a 4xx is not retried')
+    return true
+  })
 })

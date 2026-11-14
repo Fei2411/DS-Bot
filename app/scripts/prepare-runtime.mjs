@@ -37,6 +37,64 @@ export function runtimeTarget(platform, arch) {
   return RUNTIME_TARGET[platform]?.[arch]
 }
 
+// A runner's route to the release CDN answers 5xx for minutes at a time while the archive itself
+// stays downloadable, so one dropped answer must not fail the whole package job.
+const DOWNLOAD_RETRY_DELAYS_MS = [5_000, 20_000, 60_000]
+
+/** The answer carried an HTTP status the download must report. */
+class DownloadStatusError extends Error {
+  constructor(status, url) {
+    super(`primary runtime download: ${String(status)} ${url}`)
+    this.status = status
+  }
+}
+
+/** Wait before the next attempt. @param {number} ms - Delay in milliseconds. @returns {Promise<void>} */
+function sleep(ms) {
+  return new Promise((done) => { setTimeout(done, ms) })
+}
+
+/**
+ * Whether a failed attempt may succeed if repeated. A refused answer stays refused; a gateway
+ * error, a rate limit, a timeout or a dropped connection does not.
+ * @param {unknown} error - The attempt's error.
+ * @returns {boolean} whether to try again
+ */
+function retryableDownloadError(error) {
+  if (error instanceof DownloadStatusError) return error.status >= 500 || error.status === 429 || error.status === 408
+  return true
+}
+
+/**
+ * Download an archive, retrying with backoff before giving up.
+ * @param {string} url - Archive URL.
+ * @param {number} timeout - Per-attempt timeout in milliseconds.
+ * @param {{ fetchImpl?: typeof fetch, sleepImpl?: (ms: number) => Promise<void>, retryDelaysMs?: number[] }} [options] - Test seams.
+ * @returns {Promise<Buffer>} the archive's bytes
+ */
+export async function downloadArchive(url, timeout, options = {}) {
+  const fetchImpl = options.fetchImpl ?? fetch
+  const sleepImpl = options.sleepImpl ?? sleep
+  const retryDelaysMs = options.retryDelaysMs ?? DOWNLOAD_RETRY_DELAYS_MS
+  const attempts = retryDelaysMs.length + 1
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      const response = await fetchImpl(url, { signal: AbortSignal.timeout(timeout) })
+      if (!response.ok) throw new DownloadStatusError(response.status, url)
+      return Buffer.from(await response.arrayBuffer())
+    } catch (error) {
+      const reason = error instanceof Error ? `${error.name}: ${error.message}` : String(error)
+      const delay = retryableDownloadError(error) ? retryDelaysMs[attempt - 1] : undefined
+      if (delay === undefined) {
+        console.error(`primary runtime download: attempt ${String(attempt)}/${String(attempts)} failed, giving up: ${reason}`)
+        throw error
+      }
+      console.warn(`primary runtime download: attempt ${String(attempt)}/${String(attempts)} failed: ${reason}; retrying in ${String(delay)} ms`)
+      await sleepImpl(delay)
+    }
+  }
+}
+
 /**
  * Download or reuse an archive only when its bytes match the release lock.
  * @param {string} url - Locked archive URL.
@@ -54,9 +112,7 @@ async function downloadPrimaryRuntimeAsset(url, sha256, cache) {
     cached = false
     const timeout = Number(process.env.DS_BOT_RUNTIME_DOWNLOAD_TIMEOUT_MS ?? '300000')
     if (!Number.isSafeInteger(timeout) || timeout < 1 || timeout > 2_147_483_647) throw new Error('DS_BOT_RUNTIME_DOWNLOAD_TIMEOUT_MS must be an integer from 1 to 2147483647')
-    const response = await fetch(url, { signal: AbortSignal.timeout(timeout) })
-    if (!response.ok) throw new Error(`primary runtime download: ${String(response.status)} ${url}`)
-    bytes = Buffer.from(await response.arrayBuffer())
+    bytes = await downloadArchive(url, timeout)
   }
   if (createHash('sha256').update(bytes).digest('hex') !== sha256) {
     rmSync(destination, { force: true })
