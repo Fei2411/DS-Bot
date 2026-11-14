@@ -94,9 +94,6 @@ export function install(rt) {
     // Aside answers of each Bot's current part, newest first. Not part of the
     // model-visible history; earlier parts send their cards on their own pages.
     btwCards: rt.btwView?.() ?? {},
-    // Browser holds (handoffs and takeovers) per Bot, so the phone can show
-    // the same cards the desktop toolbar shows.
-    browserHolds: rt.browserChannel?.holdSnapshot?.() ?? {},
     // Each Bot's side chats, in creation order. The answers never join the
     // model-visible history; the side panel reads them here.
     sideChats: rt.sideView?.() ?? {},
@@ -158,6 +155,9 @@ export function install(rt) {
     // Named apart from the state view's `computer`: the live answer merges into the
     // same object and would wipe its `enabled` and `provider` fields.
     computerLive: rt.computerLive?.() ?? {},
+    // Browser holds (handoffs and takeovers) change without bumping state.revision,
+    // so they ride on live() to reconcile unchanged-revision polls.
+    browserHolds: rt.browserChannel?.holdSnapshot?.() ?? {},
   })
   // The live fields' sources are spread across the host with no single change
   // counter, so the serialized answer itself is the detector: a poll whose `live`
