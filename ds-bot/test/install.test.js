@@ -95,7 +95,6 @@ test('apply registers listeners and effects in a fixed order', (t) => {
     'on tools/execute',
     'on llm/stream',
     'effect ds-bot: load secrets',
-    'on tools/change',
     'effect ds-bot: connectors',
     'on agent/created',
     'effect ds-bot: capabilities',
