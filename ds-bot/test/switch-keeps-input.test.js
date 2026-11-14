@@ -465,6 +465,7 @@ test('a Bot cut off at the output limit with nothing written moves on to a fresh
 
   // The old part is archived and the fresh one opens with the deterministic handoff:
   // no model call, and the cut-off turn is not replayed.
+  await until(() => host.archived.length > 0)
   assert.deepEqual(host.archived, [['b', { stopActivity: true }]])
   const handoff = text(host.agentOf('s1').calls.find(([kind]) => kind === 'followup')[1])
   assert.match(handoff, /^\[Handoff · part 2\]/)
