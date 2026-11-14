@@ -5,6 +5,7 @@
 // profile photos by reference, direct memory edits, and usage totals for one Bot.
 import { createHash, randomUUID } from 'node:crypto'
 import { readFileSync } from 'node:fs'
+import { readFile, stat } from 'node:fs/promises'
 import { HANDOFF_ACK, HISTORY_TIMEOUT_MS, SOURCE_KIND } from './constants.js'
 import { PREVIEW_EDGE, previewImage } from './preview.js'
 import { relayRange } from '../shared/group-replies.js'
@@ -42,6 +43,7 @@ export const CAPABILITIES = [
   'link-feed',
   'images',
   'image-preview',
+  'file-download',
   'write-state',
 ]
 export const NOTICE_KINDS = ['message', 'group', 'done', 'question', 'view', 'approval']
@@ -239,18 +241,20 @@ export function install(rt) {
   function hello(body) {
     const offered = Array.isArray(body.api) ? body.api.filter(Number.isInteger) : [API_VERSION]
     const common = offered.filter(version => version >= API_MIN && version <= API_VERSION)
+    const rpc = rt.remoteRpc?.()
     return {
       api: common.length > 0 ? Math.max(...common) : null,
       apiMin: API_MIN,
       apiMax: API_VERSION,
       plugin: { name: PKG.name, version: PKG.version },
-      capabilities: CAPABILITIES,
+      capabilities: rpc ? [...CAPABILITIES, 'rpc'] : CAPABILITIES,
       boot,
       seq,
       revision: state.revision,
       readOnly: rt.readOnly() ?? null,
       memory: rt.memoryEnabled !== false,
       feed: 'api/bot/feed',
+      ...(rpc ? { rpc } : {}),
     }
   }
 
@@ -398,6 +402,86 @@ export function install(rt) {
     throw Object.assign(new Error('Unknown attachment'), { code: 'bot/not-found' })
   }
 
+  // Save an attachment or a presented file onto the device. The bytes travel as
+  // base64 over the same call the rest of the phone API uses; the client writes
+  // them to a file it can hand to Android.
+  const FILE_DOWNLOAD_MAX = 16 * 1024 * 1024
+  const FILE_MIMES = { pdf: 'application/pdf', txt: 'text/plain', md: 'text/markdown', csv: 'text/csv', json: 'application/json', zip: 'application/zip', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', mp3: 'audio/mpeg', mp4: 'video/mp4' }
+  const nameOf = value => String(value).split(/[\\/]/).pop() || 'file'
+  const mimeOf = value => FILE_MIMES[(nameOf(value).split('.').pop() ?? '').toLowerCase()] ?? 'application/octet-stream'
+  const tooLarge = () => Object.assign(new Error('This file is too large to save here (over 16 MB)'), { code: 'bot/refused' })
+  const unavailable = () => Object.assign(new Error('This file is no longer available'), { code: 'bot/not-found' })
+
+  async function fileDownload(body) {
+    const attachments = ctx.get?.('attachments')
+    if (attachments === undefined) throw Object.assign(new Error('Attachments unavailable'), { code: 'bot/refused' })
+    const attachmentId = typeof body.attachmentId === 'string' ? body.attachmentId : undefined
+    const presentedSeq = Number.isInteger(body.seq) ? body.seq : undefined
+    const presentedIndex = Number.isInteger(body.index) ? body.index : 0
+    if (attachmentId === undefined && presentedSeq === undefined) throw Object.assign(new Error('No file named'), { code: 'bot/invalid' })
+    const sessionId = String(body.sessionId ?? '')
+    const groupOwner = rt.groupOwners?.get(sessionId)
+    const pastOwner = rt.pastOwners.get(sessionId)
+    const memberBotId = groupOwner?.botId ?? (pastOwner?.roomId !== undefined ? pastOwner.botId : undefined)
+    const room = rt.roomOf(sessionId) ?? rt.roomOf(groupOwner?.roomId ?? pastOwner?.roomId)
+    const botId = memberBotId ?? (room === undefined
+      ? rt.chatOwners.get(sessionId) ?? pastOwner?.botId ?? rt.botOf(sessionId)?.id
+      : undefined)
+    if (botId === undefined && room === undefined) throw Object.assign(new Error('Unknown session'), { code: 'bot/not-found' })
+    const owned = new Set([
+      ...(room !== undefined && memberBotId === undefined ? [rt.sessionOfRoom(room)] : []),
+      ...(room !== undefined && memberBotId !== undefined && room.sessions?.[memberBotId] ? [room.sessions[memberBotId]] : []),
+      ...(room === undefined && botId !== undefined ? [rt.chatOf(botId)] : []),
+      ...rt.partsOf(botId, room?.id).map(part => part.sessionId),
+    ].filter(Boolean))
+    // Presented files keep their own part's sessionId, because seq is local to one Session.
+    const sessions = presentedSeq !== undefined && owned.has(sessionId)
+      ? [sessionId]
+      : [...owned].reverse()
+    for (const targetId of sessions) {
+      let beforeSeq
+      for (;;) {
+        const page = await ctx.sessionController.page({
+          address: { kind: 'session', sessionId: targetId },
+          ...(beforeSeq !== undefined ? { beforeSeq } : {}),
+          maxMessages: 500,
+        }, AbortSignal.timeout(HISTORY_TIMEOUT_MS))
+        for (const record of page.records) {
+          const event = record.event
+          if (presentedSeq !== undefined && event?.type === 'deliverables/presented' && Number(event.seq) === presentedSeq) {
+            const file = Array.isArray(event.data?.files) ? event.data.files[presentedIndex] : undefined
+            if (typeof file?.path !== 'string') continue
+            const realPath = await rt.real?.(file.path)
+            if (realPath && await rt.inData?.(realPath)) throw unavailable()
+            const info = await stat(realPath ?? file.path).catch(() => undefined)
+            if (info?.isFile() !== true) throw unavailable()
+            if (info.size > FILE_DOWNLOAD_MAX) throw tooLarge()
+            const bytes = await readFile(realPath ?? file.path)
+            return { name: typeof file.name === 'string' && file.name !== '' ? file.name : nameOf(file.path), mime: mimeOf(file.path), bytes: bytes.toString('base64'), size: bytes.length }
+          }
+          if (attachmentId === undefined) continue
+          const content = Array.isArray(event?.data?.content) ? event.data.content : []
+          for (const block of content) {
+            if (block?.type !== 'file' || String(block.attachment?.attachmentId) !== attachmentId) continue
+            const chunks = []
+            let size = 0
+            for await (const chunk of attachments.readFileStream(block.attachment, AbortSignal.timeout(HISTORY_TIMEOUT_MS))) {
+              size += chunk.length
+              if (size > FILE_DOWNLOAD_MAX) throw tooLarge()
+              chunks.push(Buffer.from(chunk))
+            }
+            const bytes = Buffer.concat(chunks)
+            return { name: nameOf(block.attachment.name ?? 'file'), mime: mediaOf(block.attachment) ?? mimeOf(block.attachment.name ?? ''), bytes: bytes.toString('base64'), size: bytes.length }
+          }
+        }
+        if (page.hasMore !== true) break
+        beforeSeq = page.records[0]?.event?.seq
+        if (beforeSeq === undefined) break
+      }
+    }
+    throw unavailable()
+  }
+
   async function mobileEndpoint(endpoint, body) {
     switch (endpoint) {
       case 'hello': return hello(body)
@@ -405,6 +489,7 @@ export function install(rt) {
       case 'avatar': return avatar(body)
       case 'room-chat': return roomChat(body)
       case 'image': return image(body)
+      case 'file-download': return fileDownload(body)
       case 'usage-summary': return usageSummary(body)
       case 'memory-edit': return rt.memoryEdit({ ...memoryTarget(body), scope: body.scope, topic: body.topic, text: body.text, next: body.next })
       case 'memory-add': return rt.memoryAdd({ ...memoryTarget(body), scope: body.scope, topic: body.topic, text: body.text })

@@ -1003,6 +1003,7 @@ const ZH = {
   'At least {count} characters.': '至少 {count} 个字符。',
   'Replace value': '替换值',
   'Saving…': '保存中…',
+  'Could not save this file': '保存这个文件失败',
   Save: '保存',
   'Allowing…': '允许中…',
   Allow: '允许',

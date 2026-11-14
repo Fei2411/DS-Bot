@@ -828,11 +828,12 @@ export function install(rt) {
   const noteFailures = new Map()
   // Parts the steward is deciding about at the end of a turn.
   const checking = new Set()
-  // Turns cut off at the output limit with nothing written, in a row, per part.
+  // Turns a route stopped at its window, in a row, per part: nothing written, or a
+  // short answer far below the model's output limit (#1104, #1461).
   const cutOffs = new Map()
   // The turn tracker reports every turn it sees end, so that only turns in a row count.
-  rt.noteCutOffTurn = (sessionId, { withoutText }) => {
-    if (withoutText) cutOffs.set(sessionId, (cutOffs.get(sessionId) ?? 0) + 1)
+  rt.noteCutOffTurn = (sessionId, { withoutText, premature }) => {
+    if (withoutText || premature) cutOffs.set(sessionId, (cutOffs.get(sessionId) ?? 0) + 1)
     else cutOffs.delete(sessionId)
   }
   // Parts that could not follow the Bot's run mode, and the time before which they do
@@ -1429,9 +1430,10 @@ export function install(rt) {
     // A local agent CLI owns its in-session compaction.
     if (rt.isLocalAgentRef?.(rt.botOf(placeOf(agent.id)?.botId)?.model ?? rt.botOf(placeOf(agent.id)?.botId)?.appliedModel) === true) return
     if (lastTurnEnd(agent)?.data?.reason?.kind === 'error') return
-    // Twice in a row cut off at the output limit with nothing written: the request is
-    // over the window the route really has, so the same size is not sent again. The
-    // part moves on the way an overflow moves it, without a note at that size.
+    // Twice in a row stopped by the route's window (nothing written, or a short answer
+    // far below any real output limit): the request is over the window the route really
+    // has, so the same size is not sent again. The part moves on the way an overflow
+    // moves it, without a note at that size.
     if ((cutOffs.get(agent.id) ?? 0) >= 2) {
       if (await canMakeRoom(agent)) {
         cutOffs.delete(agent.id)
@@ -1525,6 +1527,9 @@ export function install(rt) {
   const EARLIER_PAGE = 60
   function displayItems(partId, events, session, seedTurn) {
     const hidden = new Set(state.exchangeTurns[partId] ?? [])
+    // Files a turn presented, attached to its closing Bot row so the phone can save
+    // them: the card shows name and type, the save action names seq and index.
+    const presented = []
     // Call ids of the page's group_relay calls; their tool/result events carry the
     // round's replies. A result without its call on the page (the page cut between
     // them) draws nothing rather than guessing.
@@ -1543,6 +1548,11 @@ export function install(rt) {
     for (const event of events) {
       if (event.type === 'turn/start') {
         if (typeof event.data?.turn === 'number' && Number.isInteger(event.data.turn)) turn = event.data.turn
+        continue
+      }
+      if (event.type === 'deliverables/presented') {
+        const files = Array.isArray(event.data?.files) ? event.data.files.filter(file => typeof file?.path === 'string') : []
+        if (files.length > 0) presented.push({ turn: event.data?.turn ?? turn, seq: event.seq, files })
         continue
       }
       if (event.type === 'assistant/message') {
@@ -1633,6 +1643,14 @@ export function install(rt) {
       } else if (source?.kind === SOURCE_KIND && source.handoff !== true && source.deferred !== true && ['request', 'reply', 'report', 'stopped'].includes(source.role)) {
         stamp(event, { kind: 'event', role: source.role, botId: source.senderSessionId ?? null, name: source.senderName ?? null, roomId: source.roomId ?? null, time: event.time })
       }
+    }
+    for (const entry of presented) {
+      const owner = [...items].reverse().find(item => item.turn === entry.turn && (item.kind === 'bot' || item.kind === 'post'))
+      if (owner === undefined) continue
+      owner.files = [
+        ...(owner.files ?? []),
+        ...entry.files.map((file, index) => ({ name: String(file.path).split(/[\\/]/).pop() || 'file', sessionId: partId, seq: entry.seq, index })),
+      ]
     }
     return items
   }
