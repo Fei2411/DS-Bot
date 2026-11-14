@@ -110,7 +110,12 @@ export function readSkinSurfaceVars(doc, theme, { minAlpha = MIN_SKIN_ALPHA } = 
   const body = doc?.body
   if (body === undefined) return {}
   const dark = body.hasAttribute?.('data-ds-dark-theme') === true
-  const colors = dark ? theme.dark : theme.light
+  // A theme mode names its surfaces bg/sidebar/card; the bridge wants them as
+  // main/sidebar/card. Reading the mode object directly left `main` empty and the
+  // pane fell back to a near-white color on a dark theme (light text on a light
+  // surface). Map the named fields explicitly.
+  const mode = dark ? theme.dark : theme.light
+  const colors = { main: mode.bg, sidebar: mode.sidebar, card: mode.card }
   const style = doc.defaultView?.getComputedStyle?.(body)
   const token = name => style?.getPropertyValue?.(name)?.trim() ?? ''
   return skinSurfaceVars({ main: token('--dsw-alias-bg-base'), sidebar: token('--dsw-specific-sidebar-fill'), colors }, { minAlpha })
@@ -129,7 +134,9 @@ export function writeSkinSurfaceVars(doc, read) {
     const vars = read() ?? {}
     for (const name of SKIN_VARIABLES) {
       if (vars[name] === undefined) body.style.removeProperty(name)
-      else body.style.setProperty(name, vars[name])
+      // Writing the value the body already has still mutates the style attribute and
+      // notifies observers; a theme or DOM observer reacting to that could loop.
+      else if (body.style.getPropertyValue?.(name) !== vars[name]) body.style.setProperty(name, vars[name])
     }
   }
   return {

@@ -89,3 +89,61 @@ test('the bridge writes the body properties while a token is translucent and rem
   bridge.clear()
   assert.deepEqual([...doc.body.style.values.keys()], [])
 })
+
+// public#1507 follow-up: the reader handed `skinSurfaceVars` the whole theme mode,
+// which names its surfaces bg/sidebar/card. `main` was undefined there, so the pane
+// fell back to a near-white color on a dark theme and the light ink on it measured
+// about 1.9:1. These cases go through the reader (not `skinSurfaceVars` directly).
+test('the reader gives the bridge the active mode surfaces, so a dark theme stays dark', () => {
+  const tokens = { '--dsw-alias-bg-base': 'rgba(0,0,0,0.5)', '--dsw-specific-sidebar-fill': 'rgba(0,0,0,0.5)' }
+  const makeDoc = dark => ({
+    body: {
+      style: { values: new Map(), setProperty(name, value) { this.values.set(name, value) }, removeProperty(name) { this.values.delete(name) } },
+      hasAttribute: name => dark && name === 'data-ds-dark-theme',
+    },
+    defaultView: { getComputedStyle: () => ({ getPropertyValue: name => tokens[name] ?? '' }) },
+  })
+  for (const [id, theme] of Object.entries(THEMES)) {
+    for (const mode of ['light', 'dark']) {
+      const colors = theme[mode]
+      const vars = readSkinSurfaceVars(makeDoc(mode === 'dark'), theme)
+      for (const [name, field] of [['--bt-skin-main', 'bg'], ['--bt-skin-card', 'card'], ['--bt-skin-sidebar', 'sidebar']]) {
+        const shown = parseColor(vars[name])
+        const expected = parseColor(colors[field])
+        assert.deepEqual([shown.r, shown.g, shown.b], [expected.r, expected.g, expected.b], `${id} ${mode} ${name} takes ${field}`)
+      }
+      const main = parseColor(vars['--bt-skin-main'])
+      assert.ok(Math.abs(main.a - MIN_SKIN_ALPHA) < 0.01, `${id} ${mode} alpha floor: ${vars['--bt-skin-main']}`)
+      for (const wallpaper of ['#ffffff', '#000000', '#5b6b7d']) {
+        for (const [surface, value] of [['main', main], ['card', parseColor(vars['--bt-skin-card'])], ['sidebar', parseColor(vars['--bt-skin-sidebar'])]]) {
+          const ratio = contrastRatio(parseColor(colors.text), over(value, value.a, wallpaper))
+          assert.ok(ratio >= 4.5, `${id} ${mode} ${surface} over ${wallpaper}: ${ratio.toFixed(2)}:1`)
+        }
+      }
+    }
+  }
+})
+
+test('applying the same values again does not touch the page', () => {
+  const tokens = { '--dsw-alias-bg-base': 'rgba(20,20,20,0.5)', '--dsw-specific-sidebar-fill': 'rgba(27,27,27,0.5)' }
+  let writes = 0
+  const doc = {
+    body: {
+      style: {
+        values: new Map(),
+        setProperty(name, value) { writes += 1; this.values.set(name, value) },
+        removeProperty(name) { writes += 1; this.values.delete(name) },
+        getPropertyValue(name) { return this.values.get(name) ?? '' },
+      },
+      hasAttribute: () => false,
+    },
+    defaultView: { getComputedStyle: () => ({ getPropertyValue: name => tokens[name] ?? '' }) },
+  }
+  const bridge = writeSkinSurfaceVars(doc, () => readSkinSurfaceVars(doc, THEMES.deepseek))
+  bridge.apply()
+  assert.ok(writes > 0, 'the first apply writes the variables')
+  const first = writes
+  bridge.apply()
+  bridge.apply()
+  assert.equal(writes, first, 'a repeated apply with the same values writes nothing')
+})

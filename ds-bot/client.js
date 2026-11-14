@@ -14510,7 +14510,8 @@ function readSkinSurfaceVars(doc, theme, { minAlpha = MIN_SKIN_ALPHA } = {}) {
   const body = doc?.body;
   if (body === void 0) return {};
   const dark = body.hasAttribute?.("data-ds-dark-theme") === true;
-  const colors = dark ? theme.dark : theme.light;
+  const mode = dark ? theme.dark : theme.light;
+  const colors = { main: mode.bg, sidebar: mode.sidebar, card: mode.card };
   const style = doc.defaultView?.getComputedStyle?.(body);
   const token = (name) => style?.getPropertyValue?.(name)?.trim() ?? "";
   return skinSurfaceVars({ main: token("--dsw-alias-bg-base"), sidebar: token("--dsw-specific-sidebar-fill"), colors }, { minAlpha });
@@ -14522,7 +14523,7 @@ function writeSkinSurfaceVars(doc, read) {
     const vars = read() ?? {};
     for (const name of SKIN_VARIABLES) {
       if (vars[name] === void 0) body.style.removeProperty(name);
-      else body.style.setProperty(name, vars[name]);
+      else if (body.style.getPropertyValue?.(name) !== vars[name]) body.style.setProperty(name, vars[name]);
     }
   };
   return {
