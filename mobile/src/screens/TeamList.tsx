@@ -1,8 +1,8 @@
-import { useMemo } from 'react'
+import { useMemo, useSyncExternalStore } from 'react'
 import { Pressable, StyleSheet, Text, View, SectionList } from 'react-native'
 import type { Bot, Room } from '../connection.ts'
 import { useTeam } from '../team/context.tsx'
-import { seenAt } from '../team/seen.ts'
+import { isUnread, seenVersion, subscribeSeen } from '../team/seen.ts'
 import { t } from '../ui/i18n.ts'
 import { radius, type as typeScale, useTheme } from '../ui/tokens.ts'
 import { Avatar, RoomAvatar } from '../ui/marks.tsx'
@@ -16,8 +16,10 @@ export interface ChatTarget { kind: 'bot' | 'room'; id: string }
 // Bot as a tile on top, then the other Bots and groups as rows, pinned first, then
 // by their latest message.
 export function TeamList({ onOpen, query = '', current }: { onOpen: (target: ChatTarget) => void; query?: string; current?: string }) {
-  const { team, error } = useTeam()
+  const { team, error, computer } = useTeam()
   const { p, dark } = useTheme()
+  const hostId = computer?.hostDeviceId ?? ''
+  useSyncExternalStore(subscribeSeen, seenVersion)
 
   const bots = Array.isArray(team?.bots) ? team.bots : []
   const mains = new Set(team?.mainBotIds ?? [])
@@ -86,9 +88,9 @@ export function TeamList({ onOpen, query = '', current }: { onOpen: (target: Cha
           </View>
         ) : undefined}
         renderItem={({ item: entry }) => entry.kind === 'bot' ? (
-          <BotRow bot={entry.item} p={p} dark={dark} mains={mains} questions={questions} approvals={approvals} workBots={workBots} preview={preview(entry.item)} selected={current === entry.item.id} unread={entry.item.lastAt !== undefined && entry.item.lastAt > seenAt(entry.item.id)} onPress={() => onOpen({ kind: 'bot', id: entry.item.id })} />
+          <BotRow bot={entry.item} p={p} dark={dark} mains={mains} questions={questions} approvals={approvals} workBots={workBots} preview={preview(entry.item)} selected={current === entry.item.id} unread={isUnread(hostId, entry.item.id, entry.item.lastAt, current === entry.item.id)} onPress={() => onOpen({ kind: 'bot', id: entry.item.id })} />
         ) : (
-          <RoomRow room={entry.item} bots={bots} p={p} dark={dark} approvals={approvals} preview={roomPreview(entry.item)} selected={current === entry.item.id} unread={entry.item.lastAt !== undefined && entry.item.lastAt > seenAt(entry.item.id)} working={(workRooms[entry.item.id] ?? []).length > 0} onPress={() => onOpen({ kind: 'room', id: entry.item.id })} />
+          <RoomRow room={entry.item} bots={bots} p={p} dark={dark} approvals={approvals} preview={roomPreview(entry.item)} selected={current === entry.item.id} unread={isUnread(hostId, entry.item.id, entry.item.lastAt, current === entry.item.id)} working={(workRooms[entry.item.id] ?? []).length > 0} onPress={() => onOpen({ kind: 'room', id: entry.item.id })} />
         )}
         ListEmptyComponent={<Text style={[typeScale.small, { color: p.ink3, textAlign: 'center', marginTop: 40 }]}>{team === null ? t('Connecting…') : ''}</Text>}
       />
