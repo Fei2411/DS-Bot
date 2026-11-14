@@ -198,6 +198,23 @@ test('env sanitization drops agent and key variables', () => {
   assert.ok(env.PATH.startsWith(process.env.PATH))
 })
 
+test('env sanitization withholds inherited credential variables and case variants', () => {
+  const keys = ['DSBOT_FIXTURE_API_KEY', 'DSBOT_FIXTURE_TOKEN', 'DSBOT_FIXTURE_SECRET', 'DSBOT_FIXTURE_PASSWORD', 'dsh_fixture_variable']
+  const before = keys.map(key => [key, process.env[key]])
+  try {
+    for (const key of keys) process.env[key] = 'fake-env-value'
+    const env = cleanEnv({ EXPLICIT_CLI_TOKEN: 'fake-explicit-value' })
+    for (const key of keys) assert.equal(Object.hasOwn(env, key), false, key)
+    // An engine's explicit environment is passed in, not inherited, so it stays.
+    assert.equal(env.EXPLICIT_CLI_TOKEN, 'fake-explicit-value')
+  } finally {
+    for (const [key, value] of before) {
+      if (value === undefined) delete process.env[key]
+      else process.env[key] = value
+    }
+  }
+})
+
 // A Dock-launched app has PATH=/usr/bin:/bin:…; a CLI found in ~/.local/bin or
 // Homebrew must also find its `#!/usr/bin/env node` there.
 test('agent env PATH includes the folders CLIs are found in', { skip: process.platform === 'win32' }, () => {
