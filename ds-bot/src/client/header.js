@@ -1,7 +1,7 @@
 import { createElement as h, Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { currentPart, latestMemoryChange } from './text.js'
-import { ArrowUpIcon, CloseIcon, ArrowDownIcon, GoalIcon, MemoryIcon } from './icons.js'
+import { ArrowUpIcon, CloseIcon, ArrowDownIcon, GoalIcon, MemoryIcon, SearchIcon } from './icons.js'
 import { botState, BotAvatar, RoomAvatar } from './mark.js'
 import { AgentBadge } from './agent-badge.js'
 import { ActivityIndicator } from './activity-row.js'
@@ -137,6 +137,12 @@ export function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus
   return h('div', { className: 'bt-head' },
     showGoal ? h(GoalIsland, { room, goal, view, open: goalOpen, composing: goalCompose, roomWork, roster, actions, pill }) : pill,
     h('span', { className: 'bt-sr', role: 'status' }, memoryNotice ? t('Memory updated') : ''),
+    room !== undefined && !away
+      ? h('button', {
+        type: 'button', className: 'bt-icon-btn bt-head-search', 'aria-label': t('Search this group'), title: t('Search this group'),
+        onClick: () => actions.openGroupSearch(room.id),
+      }, h(SearchIcon))
+      : null,
     h(NewMessagePills, { key: sessionId, sessionId, useSessions, useUi, useTurnClock }),
     h(ActivityIndicator, { key: `activity:${sessionId}`, sessionId, useRoster, useSessionStatus, useSession, useLive, useWork, actions }))
 }
