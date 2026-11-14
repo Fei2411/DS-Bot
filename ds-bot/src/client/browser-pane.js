@@ -755,7 +755,7 @@ export const BROWSER_CSS = `
 .bt-ptab-bot{padding:0 7px}
 .bt-ptab-bot .bt-mark{flex:none}
 .bt-ptab-name{max-width:96px;overflow:hidden;text-overflow:ellipsis;font-weight:500;animation:bt-ptab-label .18s ease}
-@keyframes bt-ptab-label{from{opacity:0;filter:blur(4px)}}
+@keyframes bt-ptab-label{from{opacity:0;filter:var(--bt-fx-blur-4,blur(4px))}}
 .bt-ptab-fav{width:14px;height:14px;flex:none;border-radius:3px;object-fit:cover;color:var(--bt-ink-3)}
 .bt-ptab-globe{display:inline-flex}
 .bt-ptab-globe svg{width:14px;height:14px}
@@ -804,7 +804,7 @@ export const BROWSER_CSS = `
 .bt-browser-retry:hover{background:var(--bt-hover)}
 .bt-bcards{display:flex;flex-direction:column;gap:12px}
 .bt-bcard{position:relative;border:.5px solid var(--bt-line-2);border-radius:12px;overflow:hidden;background:var(--bt-main);animation:bt-bcard-in .24s cubic-bezier(.16,1,.3,1) both;transition:border-color .12s ease,box-shadow .12s ease}
-@keyframes bt-bcard-in{from{opacity:0;filter:blur(4px);transform:translateY(4px)}}
+@keyframes bt-bcard-in{from{opacity:0;filter:var(--bt-fx-blur-4,blur(4px));transform:translateY(4px)}}
 .bt-bcard[data-active]{border-color:var(--bt-accent,#4D6BFE);box-shadow:0 0 0 1px var(--bt-accent,#4D6BFE)}
 .bt-bcard-shot{position:relative;display:block;width:100%;aspect-ratio:16/10;border:0;border-radius:12px 12px 0 0;background:var(--bt-hover);padding:0;cursor:pointer}
 .bt-bcard-shot:focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px}

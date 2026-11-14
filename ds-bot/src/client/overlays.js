@@ -11,7 +11,7 @@ import { ContextMenu } from './context-menu.js'
 import { PANEL_LINGER_MS, BotPanel } from './browser-pane.js'
 import { frameLayout, FALLBACK_SIDEBAR_WIDTH } from './frame-layout.js'
 import { MemoryDialog } from './memory-panel.js'
-import { useLinger } from './motion.js'
+import { reducedMotion, useLinger } from './motion.js'
 import { OpeningCover, openingModel } from './opening.js'
 
 // How long a closing dialog or menu stays for its exit (see their [data-leaving] CSS).
@@ -46,7 +46,7 @@ export function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useA
   const [kept, setKept] = useState(shown)
   useEffect(() => {
     if (shown) { setKept(shown); return undefined }
-    const timer = setTimeout(() => setKept(null), PANEL_LINGER_MS)
+    const timer = setTimeout(() => setKept(null), reducedMotion() ? 0 : PANEL_LINGER_MS)
     return () => clearTimeout(timer)
   }, [ui.details, ui.view, ui.renaming, ui.tab, shown === null])
   const pane = shown ?? kept

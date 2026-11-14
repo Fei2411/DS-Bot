@@ -103,6 +103,9 @@
   .dsb-card-btn,.dsb-card-btn:active{transition:background-color .12s,color .12s;scale:none}
   .dsb-picker-up,.dsb-picker-up:active{transition:background-color .12s;scale:none}
 }
+:is(html[data-effects=reduced],html[data-effects=off],body[data-bt-effects=reduced],body[data-bt-effects=off]) .dsb-card-layer[data-leaving] .dsb-card{filter:none}
+:is(html[data-effects=off],body[data-bt-effects=off]) .dsb-card-layer,:is(html[data-effects=off],body[data-bt-effects=off]) .dsb-card-layer *{animation:none!important;transition:none!important}
+:is(html[data-effects=off],body[data-bt-effects=off]) .dsb-card,:is(html[data-effects=off],body[data-bt-effects=off]) .dsb-card-btn:active,:is(html[data-effects=off],body[data-bt-effects=off]) .dsb-picker-up:active{scale:none}
 /* The corners DSH gives every element (dsh-client-ui-theme corner-shape.css), which all:unset
    above takes off the card's controls, and which the start window does not have; last, so it
    wins over all:unset. The up button stays a circle, as the plugin's icon buttons do. */

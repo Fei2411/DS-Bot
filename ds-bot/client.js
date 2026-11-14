@@ -50,6 +50,7 @@ var PHRASES = [
   ["全屏", "全螢幕"],
   ["屏幕", "螢幕"],
   ["窗口", "視窗"],
+  ["界面", "介面"],
   ["菜单", "選單"],
   ["消息", "訊息"],
   ["鼠标", "滑鼠"],
@@ -170,6 +171,9 @@ var JA = {
   "Resize sidebar": "サイドバーの幅を調整",
   "Animation": "アニメーション",
   "Bot animation": "Bot アニメーション",
+  "Interface motion": "画面モーション",
+  "Full": "標準",
+  "Reduced": "軽減",
   "Quiet": "控えめ",
   "Normal": "標準",
   "Lively": "活発",
@@ -2537,6 +2541,9 @@ var KO = {
   "Resize sidebar": "사이드바 너비 조절",
   "Animation": "애니메이션",
   "Bot animation": "Bot 애니메이션",
+  "Interface motion": "화면 모션",
+  Full: "전체",
+  Reduced: "줄이기",
   "Quiet": "차분함",
   "Normal": "보통",
   "Lively": "활발함",
@@ -4948,6 +4955,9 @@ var ES = {
   "Resize sidebar": "Redimensionar barra lateral",
   "Animation": "Animación",
   "Bot animation": "Animación del Bot",
+  "Interface motion": "Movimiento de interfaz",
+  Full: "Completo",
+  Reduced: "Reducido",
   "Quiet": "Discreta",
   "Normal": "Normal",
   "Lively": "Animada",
@@ -7358,6 +7368,9 @@ var FR = {
   "Resize sidebar": "Redimensionner la barre latérale",
   "Animation": "Animation",
   "Bot animation": "Animation des Bots",
+  "Interface motion": "Animation d'interface",
+  "Full": "Complet",
+  "Reduced": "Réduit",
   "Quiet": "Calme",
   "Normal": "Normal",
   "Lively": "Vif",
@@ -9725,6 +9738,9 @@ var DE = {
   "Resize sidebar": "Breite der Seitenleiste ändern",
   "Animation": "Animation",
   "Bot animation": "Bot-Animation",
+  "Interface motion": "Oberflächenbewegung",
+  Full: "Vollständig",
+  Reduced: "Reduziert",
   "Quiet": "Ruhig",
   "Normal": "Normal",
   "Lively": "Lebhaft",
@@ -12116,6 +12132,9 @@ var ZH = {
   "Resize sidebar": "调整侧边栏宽度",
   "Animation": "动画",
   "Bot animation": "Bot 动画",
+  "Interface motion": "界面动效",
+  Full: "标准",
+  Reduced: "精简",
   "Quiet": "安静",
   "Normal": "正常",
   "Lively": "活泼",
@@ -14813,6 +14832,7 @@ var allThemes = () => ({ ...THEMES, ...customThemes });
 var MESSAGE_WIDTH = { min: 50, max: 100, step: 5 };
 var percent = (value, initial) => Number.isInteger(value) && value >= MESSAGE_WIDTH.min && value <= MESSAGE_WIDTH.max ? value : initial;
 var layoutOf = (prefs) => prefs?.layout === "flat" ? "flat" : "bubble";
+var effectsOf = (prefs) => prefs?.effects === "reduced" || prefs?.effects === "off" ? prefs.effects : "full";
 var thinkingShown = (prefs) => prefs?.thinking === true;
 var widthOf = (prefs) => percent(prefs?.width, 80);
 var flatWidthOf = (prefs) => percent(prefs?.flatWidth, 100);
@@ -15096,7 +15116,12 @@ function runStatsOf(values) {
 
 // src/client/motion.js
 var import_react = require("react");
-var reducedMotion = () => window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
+var effectsTier = () => {
+  const tier = typeof document === "undefined" ? void 0 : document.body?.dataset?.btEffects || document.documentElement?.dataset?.btEffects;
+  return tier === "reduced" || tier === "off" ? tier : "full";
+};
+var reducedMotion = () => effectsTier() === "off" || typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
+var reducedEffects = () => effectsTier() !== "full" || typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
 var noHover = () => window.matchMedia?.("(hover: none)").matches === true;
 var viewBottom = () => window.visualViewport ? window.visualViewport.height + window.visualViewport.offsetTop : window.innerHeight;
 function useViewport() {
@@ -15276,7 +15301,8 @@ function useFlip(list, key, selector, id = (node) => node.dataset.flip) {
       if (!moving) continue;
       const before = tops.current.get(name);
       if (before === void 0) {
-        node.animate([{ opacity: 0, filter: "blur(4px)" }, { opacity: 1, filter: "blur(0)" }], { duration: 180, easing: "ease-out" });
+        const noBlur = reducedEffects();
+        node.animate([noBlur ? { opacity: 0 } : { opacity: 0, filter: "blur(4px)" }, noBlur ? { opacity: 1 } : { opacity: 1, filter: "blur(0)" }], { duration: 180, easing: "ease-out" });
       } else if (Math.abs(before - top) > 0.5) {
         node.animate([{ transform: `translateY(${before - top}px)` }, { transform: "none" }], { duration: SPRING_LIST.duration, easing: SPRING_LIST.easing });
       }
@@ -15305,7 +15331,7 @@ function useMorph(box, key) {
     for (const animation2 of running) animation2.cancel();
     const to = node.offsetHeight;
     Object.assign(state, { key, height: to });
-    if (from === null || Math.abs(from - to) < 1 || reducedMotion()) return;
+    if (from === null || Math.abs(from - to) < 1 || reducedEffects()) return;
     node.dataset.morph = "";
     const animation = node.animate([{ height: `${from}px` }, { height: `${to}px` }], { duration: SPRING_SHAPE.duration, easing: SPRING_SHAPE.easing, id: "bt-morph" });
     animation.onfinish = () => {
@@ -15509,8 +15535,8 @@ body:not([data-bt-motion=quiet]) :is(.bt-row,.bt-tile)>:is(.bt-mark,.bt-cluster)
 @keyframes bt-nuzzle{50%{rotate:14deg;translate:8% -3%;scale:1.03 .97}}
 .bt-mark[data-gaze] .bt-b{translate:calc(var(--bt-gx,0) * 5%) calc(var(--bt-gy,0) * 4%);transition:translate .18s ease-out}
 .bt-mark[data-gaze] .bt-gaze{transform:translate(calc(var(--bt-gx,0) * 12%),calc(var(--bt-gy,0) * 11%));transition:transform .18s ease-out}
-body[data-bt-motion=quiet] .bt-mark[data-gaze] .bt-b{translate:none}
-body[data-bt-motion=quiet] .bt-mark[data-gaze] .bt-gaze{transform:none}
+body[data-bt-motion=quiet] .bt-mark[data-gaze] .bt-b,body[data-bt-effects=reduced] .bt-mark[data-gaze] .bt-b,body[data-bt-effects=off] .bt-mark[data-gaze] .bt-b{translate:none}
+body[data-bt-motion=quiet] .bt-mark[data-gaze] .bt-gaze,body[data-bt-effects=reduced] .bt-mark[data-gaze] .bt-gaze,body[data-bt-effects=off] .bt-mark[data-gaze] .bt-gaze{transform:none}
 .bt-mark[data-state=thinking] .bt-b{animation:bt-ponder 2.2s ease-in-out infinite}
 .bt-mark[data-state=thinking] .bt-eyes{animation:bt-squint 2.2s ease-in-out infinite}
 .bt-mark[data-state=searching] .bt-b{animation:bt-seek 1s ease-in-out infinite}
@@ -15852,7 +15878,7 @@ html[data-windows-titlebar]:not([data-fullscreen]) :is(.bt-pane,.bt-panel)::befo
 .bt-exchange{animation:bt-sheet-in ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing} both,bt-veil-in .24s ease-out both}
 .bt-exchange[data-leaving]{animation:bt-sheet-out .22s cubic-bezier(.4,0,1,1) forwards;pointer-events:none}
 @keyframes bt-sheet-in{from{transform:translateY(24px)}}
-@keyframes bt-sheet-out{to{opacity:0;transform:translateY(16px);filter:blur(4px)}}
+@keyframes bt-sheet-out{to{opacity:0;transform:translateY(16px);filter:var(--bt-fx-blur-4,blur(4px))}}
 .bt-exchange .bt-dialog{position:relative}
 .bt-exchange .bt-dialog-log{max-width:none;margin:0;padding:39px max(16px,calc((100% - 960px)/2)) 116px;scrollbar-width:thin}
 .bt-exchange .bt-tools{display:none}
@@ -15994,7 +16020,7 @@ body[data-ds-dark-theme] .bt-scrim{background:rgba(0,0,0,.5)}
 :is(.bt-settings-layer,.bt-mem-layer)[data-leaving] .bt-scrim{opacity:0;transition:opacity .16s ease-in}
 :is(.bt-settings-layer,.bt-mem-layer)[data-leaving]>[role=dialog]{animation:bt-dialog-sink .16s cubic-bezier(.4,0,1,1) forwards}
 @keyframes bt-dialog-rise{from{transform:translateY(12px) scale(.96)}}
-@keyframes bt-dialog-sink{to{opacity:0;transform:translateY(6px) scale(.975);filter:blur(3px)}}
+@keyframes bt-dialog-sink{to{opacity:0;transform:translateY(6px) scale(.975);filter:var(--bt-fx-blur-3,blur(3px))}}
 @media (prefers-reduced-motion:reduce){.bt-settings,.bt-scrim,.bt-settings-page>*{animation:bt-fade .12s ease-out!important}}
 .bt-settings-nav{position:relative;width:198px;flex:none;padding:16px 10px;border-right:.5px solid var(--bt-line);display:flex;flex-direction:column;gap:2px;background:color-mix(in srgb,var(--bt-sidebar) 88%,var(--bt-main));box-sizing:border-box}
 .bt-settings-item{position:relative;z-index:1;display:flex;align-items:center;gap:10px;padding:7px 10px;border:0;border-radius:10px;background:none;color:var(--bt-ink-2);font:inherit;font-size:13px;line-height:20px;font-weight:450;cursor:pointer;text-align:left;transition:background-color .14s ease,color .14s ease}
@@ -16224,7 +16250,7 @@ html:not([data-windows-titlebar]) [class*="_footArea"],:not([class*="_collapsed"
 .bt-voice-end{background:#ff3e51;color:#fff}
 .bt-voice-end:hover{background:#e02135}
 @keyframes bt-fade{from{opacity:0}to{opacity:1}}
-@keyframes bt-blur-in{from{opacity:0;filter:blur(2px)}to{opacity:1;filter:blur(0)}}
+@keyframes bt-blur-in{from{opacity:0;filter:var(--bt-fx-blur-2,blur(2px))}to{opacity:1;filter:none}}
 @media (prefers-reduced-motion:reduce){.bt-voice-pane,.bt-voice-caption,.bt-voice-ring{animation:none!important}}
 /* A bubble takes the set share of the column, as the user's does; 82px stays free for
    the hover toolbar beside it: a 6px margin and three 24px tools 2px apart. */
@@ -16358,8 +16384,8 @@ button:hover .bt-you{background:color-mix(in srgb,var(--bt-ink) 9%,var(--bt-side
    already has. */
 @keyframes bt-pop-drop{from{translate:0 -4px;scale:.96}}
 @keyframes bt-pop-lift{from{translate:0 4px;scale:.96}}
-@keyframes bt-pop-out{to{opacity:0;scale:.97;filter:blur(2px)}}
-@keyframes bt-veil-in{from{opacity:0;filter:blur(6px)}}
+@keyframes bt-pop-out{to{opacity:0;scale:.97;filter:var(--bt-fx-blur-2,blur(2px))}}
+@keyframes bt-veil-in{from{opacity:0;filter:var(--bt-fx-blur-6,blur(6px))}}
 @keyframes bt-check-pop{from{opacity:0;scale:.4}}
 @media (prefers-reduced-motion:reduce){.bt-menu,.bt-avedit,.bt-react-strip{animation:bt-fade .1s ease-out}.bt-react-strip button,.bt-q-check,.bt-color[aria-pressed=true] span{animation:none}}
 .bt-brand:hover{background:var(--bt-hover)}
@@ -16577,6 +16603,20 @@ body[data-ds-dark-theme] .bt-theme-chip i{background:var(--da)}
 @media (max-width:640px) and (pointer:coarse){
   .bt-input,.bt-bs-input,.bt-browser-address input,.bt-folder-input,.bt-secret-input,.bt-q-input,.bt-to input,.bt-palette-head input,.bt-mem-input{font-size:16px}
 }
+@media (prefers-reduced-motion:reduce){:root{--bt-fx-blur-2:none;--bt-fx-blur-3:none;--bt-fx-blur-4:none;--bt-fx-blur-5:none;--bt-fx-blur-6:none}}
+body[data-bt-effects=reduced],body[data-bt-effects=off]{--dsw-menu-backdrop-filter:none;--dsw-mask-blur:none;--dsw-specific-menu:var(--bt-main);--dsw-menu-surface-fill:var(--bt-main);--bt-glass-bg:var(--bt-card);--bt-fx-blur-2:none;--bt-fx-blur-3:none;--bt-fx-blur-4:none;--bt-fx-blur-5:none;--bt-fx-blur-6:none}
+body:is([data-bt-effects=reduced],[data-bt-effects=off]) :is(.bt-pill,.bt-island,.bt-drop,.bt-avedit,.bt-scrim,.bt-react-strip,.bt-menu,.bt-palette,.bt-import-menu,.bt-cbar,.bt-pmenu-pop,.bt-update-pop,.bt-bcard-x,.bt-us-tip){-webkit-backdrop-filter:none!important;backdrop-filter:none!important}
+body:is([data-bt-effects=reduced],[data-bt-effects=off]) .bt-bcard-x{background:var(--bt-main)}
+body:is([data-bt-effects=reduced],[data-bt-effects=off]) .bt-us-tip{background:var(--bt-card)}
+body:is([data-bt-effects=reduced],[data-bt-effects=off]) :is(.bt-pill-mem-in,.bt-pill-go,.bt-pill-swap>*,.bt-toast[data-leaving]){filter:none!important}
+body:is([data-bt-effects=reduced],[data-bt-effects=off]) .bt-shimmer{animation:none!important;background:none;color:var(--bt-ink-2)}
+body:is([data-bt-effects=reduced],[data-bt-effects=off]) :is(.bt-mem-skel-block span,.bt-us-skel,.bt-im-qr-blank){animation:none!important;background:var(--bt-hover)}
+body[data-bt-effects=reduced] .bt-mark:not([data-state=done]):not([data-state=alert]):not(.bt-mark-poke) :is(.bt-b,.bt-mark-img),body[data-bt-effects=reduced] .bt-mark :is(.bt-eyes,.bt-eye),body[data-bt-effects=reduced] :is(.bt-badge-alert,.bt-voice-ring,.bt-us-note::before,.bt-im-dot[data-state=connecting],.bt-agent-ava.bt-run,.bt-mic[aria-pressed=true]){animation:none!important}
+body[data-bt-effects=reduced][data-bt-motion=lively] .bt-mark[data-state=alert] :is(.bt-b,.bt-mark-img){animation-iteration-count:1!important}
+body[data-bt-effects=off] [class*="_centerCol"]{transition:none!important}
+body[data-bt-effects=off] :is([class^="bt-"],[class*=" bt-"]):not(.bt-spin):not(.bt-model-spin):not(.bt-mem-spin):not(.bt-loading-spin),body[data-bt-effects=off] :is([class^="bt-"],[class*=" bt-"]) *:not(.bt-spin):not(.bt-model-spin):not(.bt-mem-spin):not(.bt-loading-spin),body[data-bt-effects=off] :is([class^="bt-"],[class*=" bt-"])::before,body[data-bt-effects=off] :is([class^="bt-"],[class*=" bt-"])::after,body[data-bt-effects=off] :is([class^="bt-"],[class*=" bt-"]) *::before,body[data-bt-effects=off] :is([class^="bt-"],[class*=" bt-"]) *::after{animation:none!important;transition:none!important}
+body[data-bt-effects=off] :is(.bt-settings-layer,.bt-mem-layer,.bt-palette-layer,.bt-layer,.bt-panel,.bt-dialog,.bt-scrim,.bt-menu,.bt-drop,.bt-toast,.bt-avedit,.bt-react-strip,.bt-app,.bt-us):not(.bt-spin):not(.bt-model-spin):not(.bt-mem-spin):not(.bt-loading-spin),body[data-bt-effects=off] :is(.bt-settings-layer,.bt-mem-layer,.bt-palette-layer,.bt-layer,.bt-panel,.bt-dialog,.bt-scrim,.bt-menu,.bt-drop,.bt-toast,.bt-avedit,.bt-react-strip,.bt-app,.bt-us) *:not(.bt-spin):not(.bt-model-spin):not(.bt-mem-spin):not(.bt-loading-spin),body[data-bt-effects=off] :is(.bt-settings-layer,.bt-mem-layer,.bt-palette-layer,.bt-layer,.bt-panel,.bt-dialog,.bt-scrim,.bt-menu,.bt-drop,.bt-toast,.bt-avedit,.bt-react-strip,.bt-app,.bt-us)::before,body[data-bt-effects=off] :is(.bt-settings-layer,.bt-mem-layer,.bt-palette-layer,.bt-layer,.bt-panel,.bt-dialog,.bt-scrim,.bt-menu,.bt-drop,.bt-toast,.bt-avedit,.bt-react-strip,.bt-app,.bt-us)::after,body[data-bt-effects=off] :is(.bt-settings-layer,.bt-mem-layer,.bt-palette-layer,.bt-layer,.bt-panel,.bt-dialog,.bt-scrim,.bt-menu,.bt-drop,.bt-toast,.bt-avedit,.bt-react-strip,.bt-app,.bt-us) *::before,body[data-bt-effects=off] :is(.bt-settings-layer,.bt-mem-layer,.bt-palette-layer,.bt-layer,.bt-panel,.bt-dialog,.bt-scrim,.bt-menu,.bt-drop,.bt-toast,.bt-avedit,.bt-react-strip,.bt-app,.bt-us) *::after{animation:none!important;transition:none!important}
+body[data-bt-effects=off] :is(.bt-spin,.bt-model-spin,.bt-mem-spin,.bt-loading-spin){animation-timing-function:steps(8)!important;transition:none!important}
 `;
 var CONVERSATION_CSS = `
 .bt-think{font-size:13px;line-height:18px;color:var(--bt-ink-2);margin:2px 0 4px;max-width:calc(var(--bt-msg-w) * 100%)}
@@ -16673,8 +16713,8 @@ body[data-bt-goal] [class*="_scroll"]:has(> [class*="_column"]){padding-top:calc
 .bt-typing-label>.bt-shimmer{font-size:14px;line-height:22px;font-weight:400;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bt-typing-time{flex-shrink:0;margin-left:6px;font-size:12px;line-height:22px;color:var(--bt-ink-3);font-variant-numeric:tabular-nums;white-space:nowrap}
 @keyframes bt-typing-in{from{opacity:0;transform:scale(.9)}}
-@keyframes bt-typing-out{from{opacity:1;transform:scale(1)}to{opacity:0;transform:scale(.92);filter:blur(3px)}}
-@keyframes bt-typing-label{from{opacity:0;filter:blur(5px);transform:translateY(3px)}}
+@keyframes bt-typing-out{from{opacity:1;transform:scale(1)}to{opacity:0;transform:scale(.92);filter:var(--bt-fx-blur-3,blur(3px))}}
+@keyframes bt-typing-label{from{opacity:0;filter:var(--bt-fx-blur-5,blur(5px));transform:translateY(3px)}}
 /* Shimmer: a stepped sweep clipped to the text. */
 .bt-shimmer{color:transparent;background:linear-gradient(90deg,var(--bt-shimmer-base) 0%,var(--bt-shimmer-base) 25%,var(--bt-ink) 60%,var(--bt-shimmer-base) 75%,var(--bt-shimmer-base) 100%);background-size:200% 100%;-webkit-background-clip:text;background-clip:text;animation:bt-shimmer 2.2s steps(60) infinite;--bt-shimmer-base:color-mix(in srgb,var(--bt-ink) 40%,transparent)}
 @keyframes bt-shimmer{from{background-position:200% 0}to{background-position:-200% 0}}
@@ -16887,6 +16927,9 @@ div:has(> nav [class*="_marks"]){display:none!important}
 .bt-btw-answer p{margin:0}
 .bt-btw-fail{margin:0 0 6px;color:var(--bt-danger);font-size:13px;line-height:18px}
 @media (prefers-reduced-motion:reduce){.bt-btw-chevron{transition:none}}
+body:is([data-bt-effects=reduced],[data-bt-effects=off]) :is([data-composer-card],[class*="_toBottomSlot"]>button){-webkit-backdrop-filter:none!important;backdrop-filter:none!important}
+body[data-bt-effects=off] :is([data-composer-card],[data-chat-flow-kind=user] [class*="_actions"],[class*="_toBottomSlot"]>button,.bt-news){transition:none!important}
+body[data-bt-effects=off] :is([data-bt-enter="new"],[data-bt-enter="after-collapse"],[class*="_toBottomSlot"]>button,.bt-news,.bt-typing,.bt-typing-text,.bt-typing-label){animation:none!important}
 `;
 var PLUGIN_ID = "ds-bot";
 var ROOT_SELECTOR = /^(?:html\s+)?(?:body|:root)(?:\[[^\]]*\])*$/;
@@ -17037,20 +17080,30 @@ var botState = (running, activity, alert) => running ? STATES.includes(activity)
 var toolState = (name) => /^(message_bot|stop_bot|create_bot|update_bot|create_group|update_group|delete_group|post_to_group)$/.test(name) ? "sending" : /search|fetch|browse|read|grep|glob|list|recall/i.test(name) ? "searching" : "working";
 function useGaze(ref, enabled) {
   (0, import_react2.useEffect)(() => {
-    if (!enabled || reducedMotion()) return void 0;
+    if (!enabled) return void 0;
     let frame = 0;
     let point = null;
+    let active = false;
+    const clear = () => {
+      point = null;
+      if (frame) {
+        cancelAnimationFrame(frame);
+        frame = 0;
+      }
+      ref.current?.style.removeProperty("--bt-gx");
+      ref.current?.style.removeProperty("--bt-gy");
+    };
     const place = () => {
       frame = 0;
       const node = ref.current;
-      if (!node || !point) return;
+      if (!node || !point || reducedEffects()) return;
       const box = node.getBoundingClientRect();
       const clamp = (value) => Math.max(-1, Math.min(1, value));
       node.style.setProperty("--bt-gx", clamp((point.x - box.left - box.width / 2) / 160).toFixed(2));
       node.style.setProperty("--bt-gy", clamp((point.y - box.top - box.height / 2) / 160).toFixed(2));
     };
     const onMove = (event) => {
-      if (document.body?.dataset.btMotion === "quiet") return;
+      if (reducedEffects() || document.body?.dataset.btMotion === "quiet") return;
       point = { x: event.clientX, y: event.clientY };
       if (!frame) frame = requestAnimationFrame(place);
     };
@@ -17059,12 +17112,32 @@ function useGaze(ref, enabled) {
       ref.current?.style.setProperty("--bt-gx", "0");
       ref.current?.style.setProperty("--bt-gy", "0");
     };
-    window.addEventListener("pointermove", onMove, { passive: true });
-    document.documentElement.addEventListener("pointerleave", onLeave);
-    return () => {
-      cancelAnimationFrame(frame);
+    const attach = () => {
+      if (active) return;
+      active = true;
+      window.addEventListener("pointermove", onMove, { passive: true });
+      document.documentElement.addEventListener("pointerleave", onLeave);
+    };
+    const detach = () => {
+      if (!active) return;
+      active = false;
       window.removeEventListener("pointermove", onMove);
       document.documentElement.removeEventListener("pointerleave", onLeave);
+      clear();
+    };
+    const sync = () => {
+      if (reducedEffects()) detach();
+      else attach();
+    };
+    sync();
+    const observer = typeof MutationObserver === "function" && document.body ? new MutationObserver(sync) : null;
+    observer?.observe(document.body, { attributes: true, attributeFilter: ["data-bt-effects"] });
+    const media = window.matchMedia?.("(prefers-reduced-motion: reduce)");
+    media?.addEventListener?.("change", sync);
+    return () => {
+      observer?.disconnect();
+      media?.removeEventListener?.("change", sync);
+      detach();
     };
   }, [enabled]);
 }
@@ -17091,7 +17164,9 @@ function BotMark({ bot, look: given, size = 36, state = "idle", live = false, ga
     role: label ? "img" : void 0,
     "aria-label": label,
     "aria-hidden": label ? void 0 : true,
-    onClick: pokeable ? () => setPoked(true) : void 0,
+    onClick: pokeable ? () => {
+      if (!reducedMotion() && document.body?.dataset.btMotion !== "quiet") setPoked(true);
+    } : void 0,
     onAnimationEnd: poked ? (event) => {
       if (/^bt-poke/.test(event.animationName)) setPoked(false);
     } : void 0
@@ -28074,6 +28149,7 @@ function useRowEntrances(replacing) {
       items.forEach((item, index) => {
         if (seen.has(item)) last = index;
       });
+      if (reducedEffects()) return;
       const fresh = items.filter((item) => !seen.has(item) && item.offsetHeight > 0);
       for (const item of fresh) seen.add(item);
       if (last < 0 || Date.now() - started < 800 || fresh.length > 3) return;
@@ -28149,7 +28225,7 @@ function ActivityIndicator({ sessionId, useRoster, useSessionStatus, useLive, us
     const timer = setTimeout(() => {
       shift.current = document.querySelector("[data-conversation-scroll]")?.scrollTop ?? null;
       setPhase((current) => current === "out" ? null : current);
-    }, 140);
+    }, reducedMotion() ? 0 : 140);
     return () => clearTimeout(timer);
   }, [visible]);
   (0, import_react34.useLayoutEffect)(() => {
@@ -29666,13 +29742,13 @@ var SIDEBAR_CSS = `
 .bt-round.bt-update{position:relative;color:var(--bt-accent,#4D6BFE);animation:bt-update-in ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing}}
 .bt-round.bt-update svg{width:17px;height:17px}
 .bt-round.bt-update[data-phase=installed]{color:var(--bt-ink-2)}
-@keyframes bt-update-in{from{opacity:0;transform:scale(.6);filter:blur(4px)}}
+@keyframes bt-update-in{from{opacity:0;transform:scale(.6);filter:var(--bt-fx-blur-4,blur(4px))}}
 .bt-update[data-phase=installing] .bt-cloud-arrow{animation:bt-cloud-drop 1.1s cubic-bezier(.45,0,.55,1) infinite}
 @keyframes bt-cloud-drop{0%{transform:translateY(-3px);opacity:0}35%{opacity:1}70%{transform:translateY(1px);opacity:1}100%{transform:translateY(2px);opacity:0}}
 .bt-update-dot{position:absolute;top:6px;right:6px;width:7px;height:7px;border-radius:50%;background:#E5484D;box-shadow:0 0 0 1.5px var(--bt-sidebar)}
 .bt-update-pop{position:fixed;z-index:60;width:280px;padding:14px 14px 12px;border-radius:16px;background:var(--bt-glass-bg);-webkit-backdrop-filter:blur(24px) saturate(180%);backdrop-filter:blur(24px) saturate(180%);border:.5px solid var(--bt-glass-rim);box-shadow:var(--bt-glass-shadow);color:var(--bt-ink);box-sizing:border-box;transform-origin:top left;font-family:var(--bt-font);animation:bt-update-pop ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing}}
 .bt-update-pop[data-leaving]{animation:bt-pop-out .12s cubic-bezier(.4,0,1,1) forwards;pointer-events:none}
-@keyframes bt-update-pop{from{opacity:0;transform:scale(.96);filter:blur(4px)}}
+@keyframes bt-update-pop{from{opacity:0;transform:scale(.96);filter:var(--bt-fx-blur-4,blur(4px))}}
 .bt-update-title{font-size:14px;line-height:20px;font-weight:600}
 .bt-update-text{margin-top:2px;font-size:12px;line-height:18px;color:var(--bt-ink-2)}
 .bt-update-error{margin-top:8px;font-size:12px;line-height:17px;color:var(--bt-danger);overflow-wrap:anywhere;max-height:90px;overflow:auto}
@@ -29706,7 +29782,7 @@ var SIDEBAR_CSS = `
 .bt-agent-edit{padding:3px 10px 3px 4px}
 .bt-agent-edit input{width:100%;border:0;border-radius:6px;background:var(--bt-hover);color:var(--bt-ink);font:inherit;font-size:13px;line-height:20px;padding:2px 8px;outline:none;box-shadow:inset 0 0 0 .5px var(--bt-line-2)}
 .bt-agent-sub[data-open] .bt-agent-sub-row{animation:bt-agent-row-in .24s ease both;animation-delay:calc(var(--i, 0)*30ms)}
-@keyframes bt-agent-row-in{from{opacity:0;filter:blur(4px)}to{opacity:1;filter:blur(0)}}
+@keyframes bt-agent-row-in{from{opacity:0;filter:var(--bt-fx-blur-4,blur(4px))}to{opacity:1;filter:none}}
 @media (prefers-reduced-motion:reduce){.bt-agent-sub{transition:none}.bt-agent-sub .bt-agent-sub-row{animation:none}}
 
 /* Sidebar sections: collapsible header with a 3D character pile and live status when
@@ -31671,7 +31747,7 @@ var CONNECTORS_PAGE_CSS = `
 .bt-app-sub-head h3{margin:0;font-size:14px;line-height:20px;font-weight:600}
 .bt-app-about{margin:0 4px;font-size:13px;line-height:20px;color:var(--bt-ink-2)}
 .bt-connector-mark{--bt-mark-ink:var(--bt-ink)}
-[data-bt-motion=off] .bt-app,[data-bt-motion=off] .bt-app *,[data-bt-motion=off] .bt-app::after{animation:none!important;transition:none!important}
+[data-bt-effects=off] .bt-app,[data-bt-effects=off] .bt-app *,[data-bt-effects=off] .bt-app::after{animation:none!important;transition:none!important}
 @media (prefers-reduced-motion:reduce){.bt-app[data-fresh]::after,.bt-app[data-fresh] .bt-app-icon,.bt-app[data-fresh] .bt-app-btn-done{animation:none}}
 `;
 
@@ -35265,6 +35341,7 @@ function SetRow({ label, hint, children, className = "" }) {
   );
 }
 var LAYOUTS = [["bubble", "Bubble"], ["flat", "Flat"]];
+var EFFECTS = [["full", "Full"], ["reduced", "Reduced"], ["off", "None"]];
 function Choice2({ label, value, options, pick: pick2 }) {
   return (0, import_react50.createElement)(Segmented, { label, value, className: "bt-look-seg" }, options.map(([id, text]) => (0, import_react50.createElement)("button", {
     key: id,
@@ -35363,6 +35440,7 @@ function GeneralPage({ roster, actions, run: run2, dsh }) {
       // The flat layout's text has a width of its own; the bubble width stays for the user's messages.
       layoutOf(prefs) === "flat" ? (0, import_react50.createElement)(SetRow, { label: t("Text width") }, (0, import_react50.createElement)(WidthSlider, { label: t("Text width"), value: flatWidthOf(prefs), save: (flatWidth) => run2(actions.setPrefs({ flatWidth })) })) : null,
       (0, import_react50.createElement)(SetRow, { label: t("Bubble width") }, (0, import_react50.createElement)(WidthSlider, { label: t("Bubble width"), value: widthOf(prefs), save: (width) => run2(actions.setPrefs({ width })) })),
+      (0, import_react50.createElement)(SetRow, { label: t("Interface motion") }, (0, import_react50.createElement)(Choice2, { label: t("Interface motion"), value: effectsOf(prefs), options: EFFECTS, pick: (id) => run2(actions.setPrefs({ effects: id })) })),
       (0, import_react50.createElement)(SetRow, { label: t("Show thinking") }, (0, import_react50.createElement)(Switch, { label: t("Show thinking"), on: thinkingShown(prefs), onChange: (thinking) => run2(actions.setPrefs({ thinking })) })),
       look.map((id) => dshItem(dsh, id))
     ),
@@ -40024,9 +40102,9 @@ var MEMBER_CSS = `
 .bt-mw-doing{flex:0 1 auto}
 body[data-ds-dark-theme] .bt-mw-ask{color:#f0b84a}
 @keyframes bt-mw-in{from{transform:translateY(8px) scale(.94)}}
-@keyframes bt-mw-out{to{opacity:0;transform:translateY(6px) scale(.96);filter:blur(3px)}}
+@keyframes bt-mw-out{to{opacity:0;transform:translateY(6px) scale(.96);filter:var(--bt-fx-blur-3,blur(3px))}}
 @keyframes bt-mw-seat{from{opacity:0;scale:.6}}
-@keyframes bt-mw-swap{from{opacity:0;filter:blur(4px)}}
+@keyframes bt-mw-swap{from{opacity:0;filter:var(--bt-fx-blur-4,blur(4px))}}
 .bt-members{display:flex;flex-direction:column;gap:2px;margin:0 -8px}
 .bt-members-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px}
 .bt-members-head>.bt-section-title{margin:0}
@@ -41620,7 +41698,7 @@ var BROWSER_CSS = `
 .bt-ptab-bot{padding:0 7px}
 .bt-ptab-bot .bt-mark{flex:none}
 .bt-ptab-name{max-width:96px;overflow:hidden;text-overflow:ellipsis;font-weight:500;animation:bt-ptab-label .18s ease}
-@keyframes bt-ptab-label{from{opacity:0;filter:blur(4px)}}
+@keyframes bt-ptab-label{from{opacity:0;filter:var(--bt-fx-blur-4,blur(4px))}}
 .bt-ptab-fav{width:14px;height:14px;flex:none;border-radius:3px;object-fit:cover;color:var(--bt-ink-3)}
 .bt-ptab-globe{display:inline-flex}
 .bt-ptab-globe svg{width:14px;height:14px}
@@ -41669,7 +41747,7 @@ var BROWSER_CSS = `
 .bt-browser-retry:hover{background:var(--bt-hover)}
 .bt-bcards{display:flex;flex-direction:column;gap:12px}
 .bt-bcard{position:relative;border:.5px solid var(--bt-line-2);border-radius:12px;overflow:hidden;background:var(--bt-main);animation:bt-bcard-in .24s cubic-bezier(.16,1,.3,1) both;transition:border-color .12s ease,box-shadow .12s ease}
-@keyframes bt-bcard-in{from{opacity:0;filter:blur(4px);transform:translateY(4px)}}
+@keyframes bt-bcard-in{from{opacity:0;filter:var(--bt-fx-blur-4,blur(4px));transform:translateY(4px)}}
 .bt-bcard[data-active]{border-color:var(--bt-accent,#4D6BFE);box-shadow:0 0 0 1px var(--bt-accent,#4D6BFE)}
 .bt-bcard-shot{position:relative;display:block;width:100%;aspect-ratio:16/10;border:0;border-radius:12px 12px 0 0;background:var(--bt-hover);padding:0;cursor:pointer}
 .bt-bcard-shot:focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px}
@@ -41842,7 +41920,7 @@ function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useActivity
       setKept(shown);
       return void 0;
     }
-    const timer = setTimeout(() => setKept(null), PANEL_LINGER_MS);
+    const timer = setTimeout(() => setKept(null), reducedMotion() ? 0 : PANEL_LINGER_MS);
     return () => clearTimeout(timer);
   }, [ui2.details, ui2.view, ui2.renaming, ui2.tab, shown === null]);
   const pane = shown ?? kept;
@@ -43874,13 +43952,15 @@ function apply(ctx) {
       const accent = isHex(prefs.accent) ? prefs.accent : void 0;
       const motion = prefs.motion === "quiet" || prefs.motion === "lively" ? prefs.motion : "normal";
       const layout = layoutOf(prefs);
+      const effects = effectsOf(prefs);
       const width = widthOf(prefs);
       const flatWidth = flatWidthOf(prefs);
       document.body.dataset.btMotion = motion;
       document.body.dataset.btLayout = layout;
+      document.body.dataset.btEffects = effects;
       document.body.style.setProperty("--bt-msg-w", String(width / 100));
       document.body.style.setProperty("--bt-flat-w", String(flatWidth / 100));
-      const next = `${id}|${accent ?? ""}|${motion}|${layout}|${width}|${flatWidth}|${registry.getSnapshot()}`;
+      const next = `${id}|${accent ?? ""}|${motion}|${layout}|${effects}|${width}|${flatWidth}|${registry.getSnapshot()}`;
       if (next === key) return;
       key = next;
       style.textContent = themeCss(themes[id], accent);
@@ -43889,7 +43969,7 @@ function apply(ctx) {
       if (typeof release === "function") release();
       if (snapshot.ready) {
         try {
-          localStorage.setItem(PREFS_KEY, JSON.stringify({ theme: prefs.theme, accent: prefs.accent, motion: prefs.motion, layout: prefs.layout, width: prefs.width, flatWidth: prefs.flatWidth, thinking: prefs.thinking, defaultBotModel: prefs.defaultBotModel, enterToSend: prefs.enterToSend }));
+          localStorage.setItem(PREFS_KEY, JSON.stringify({ theme: prefs.theme, accent: prefs.accent, motion: prefs.motion, layout: prefs.layout, effects: prefs.effects, width: prefs.width, flatWidth: prefs.flatWidth, thinking: prefs.thinking, defaultBotModel: prefs.defaultBotModel, enterToSend: prefs.enterToSend }));
         } catch {
         }
       }
@@ -43905,6 +43985,7 @@ function apply(ctx) {
       } finally {
         delete document.body.dataset.btMotion;
         delete document.body.dataset.btLayout;
+        delete document.body.dataset.btEffects;
         document.body.style.removeProperty("--bt-msg-w");
         document.body.style.removeProperty("--bt-flat-w");
         style.remove();
@@ -44560,15 +44641,22 @@ function apply(ctx) {
   actions.holdSettingsLook = () => {
     if (shellSheets > 0) return () => {
     };
+    const syncEffects = () => {
+      const current = roster.getSnapshot();
+      document.body.dataset.btEffects = effectsOf(current.ready ? current.prefs ?? {} : savedPrefs);
+    };
+    syncEffects();
     const snapshot = roster.getSnapshot();
     const prefs = snapshot.ready ? snapshot.prefs ?? {} : savedPrefs;
     const themes = allThemes();
     const theme = themes[prefs.theme] ?? themes.deepseek;
     const offs = [
+      roster.subscribe(syncEffects),
       ...SHELL_SHEETS.map(([text, tag]) => installCompiledStyles(botOwnCss(text), `settings-${tag}`)),
       installCompiledStyles(botOwnCss(themeCss(theme, isHex(prefs.accent) ? prefs.accent : void 0)), "settings-theme")
     ];
     return () => {
+      delete document.body.dataset.btEffects;
       for (const off of offs) off();
     };
   };
