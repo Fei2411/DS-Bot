@@ -627,3 +627,36 @@ test('a platform status error is redacted of the stored secret', async (t) => {
   assert.equal(status.state, 'error')
   assert.ok(!status.error.includes('tok-1234'), 'the token is redacted')
 })
+
+test('a failed add keeps the network reason under "fetch failed"', async (t) => {
+  // #1120: the outlet printed only error.message, so a DNS failure read as
+  // "im-add: fetch failed" and the user could not tell it from a bad token.
+  const adapter = fakeAdapter()
+  adapter.check = async () => {
+    throw Object.assign(new TypeError('fetch failed'), {
+      cause: Object.assign(new Error('getaddrinfo ENOTFOUND api.telegram.org'), { code: 'ENOTFOUND' }),
+    })
+  }
+  const s = await start({ adapter })
+  t.after(s.stop)
+  await assert.rejects(() => add(s), error => {
+    assert.match(error.message, /fetch failed: getaddrinfo ENOTFOUND api\.telegram\.org/)
+    return true
+  })
+})
+
+test('a failed add does not echo the token back', async (t) => {
+  const adapter = fakeAdapter()
+  adapter.check = async () => {
+    throw Object.assign(new TypeError('fetch failed'), {
+      cause: new Error('connect ECONNREFUSED https://api.telegram.org/bottok-1234/getMe'),
+    })
+  }
+  const s = await start({ adapter })
+  t.after(s.stop)
+  await assert.rejects(() => add(s), error => {
+    assert.match(error.message, /ECONNREFUSED/)
+    assert.ok(!error.message.includes('tok-1234'), 'the token is redacted')
+    return true
+  })
+})

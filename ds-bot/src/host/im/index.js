@@ -284,6 +284,27 @@ export function install(rt) {
     for (const [key, name] of Object.entries(conn.secrets ?? {})) fields[key] = rt.secretValue(name)
     return fields
   }
+  // The reason a request failed, with the chain under it: `fetch failed` alone
+  // hides the DNS, TLS or connection error that the user needs (#1120).
+  const reasonOf = (error) => {
+    const parts = []
+    for (let at = error, depth = 0; at !== undefined && at !== null && depth < 4; at = at.cause, depth += 1) {
+      const text = typeof at === 'string' ? at : at?.message
+      if (typeof text === 'string' && text.trim() !== '' && !parts.includes(text.trim())) parts.push(text.trim())
+    }
+    return parts.length === 0 ? 'The connection failed' : parts.join(': ')
+  }
+
+  // The reason can quote the request URL, and a platform URL carries the token:
+  // keep the field values out of the text before it reaches the UI or the log.
+  const scrub = (text, fields) => {
+    let out = text
+    for (const value of Object.values(fields)) {
+      if (typeof value === 'string' && value.length >= 4) out = out.split(value).join('***')
+    }
+    return out
+  }
+
   const envFor = async (conn, runtime) => ({
     fetch: globalThis.fetch,
     WebSocket: globalThis.WebSocket,
@@ -834,7 +855,16 @@ export function install(rt) {
         if (!field.options && (fields[field.key] === undefined || String(fields[field.key]).trim() === '')) throw new Error(`${field.label} is required`)
       }
       const env = await envFor({ id: 'im_check', platform: platform.id, settings: fields, secrets: {} }, { get: () => ({}), set: () => {} })
-      const { account } = await adapters[platform.id].check(fields, env)
+      // A fetch failure keeps the reason one level down, in `cause`: on its own
+      // "fetch failed" says nothing about DNS, TLS or a refused connection, which
+      // is what the user has to tell apart (#1120). Redacted, as the URL can carry
+      // the token.
+      let account
+      try {
+        ({ account } = await adapters[platform.id].check(fields, env))
+      } catch (error) {
+        throw new Error(scrub(rt.redactSecrets(reasonOf(error)), fields))
+      }
       const conn = {
         id: `im_${randomBytes(4).toString('hex')}`,
         platform: platform.id,
