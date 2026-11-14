@@ -263,6 +263,6 @@ export const CONNECTORS_PAGE_CSS = `
 .bt-app-sub-head h3{margin:0;font-size:14px;line-height:20px;font-weight:600}
 .bt-app-about{margin:0 4px;font-size:13px;line-height:20px;color:var(--bt-ink-2)}
 .bt-connector-mark{--bt-mark-ink:var(--bt-ink)}
-[data-bt-motion=off] .bt-app,[data-bt-motion=off] .bt-app *,[data-bt-motion=off] .bt-app::after{animation:none!important;transition:none!important}
+[data-bt-effects=off] .bt-app,[data-bt-effects=off] .bt-app *,[data-bt-effects=off] .bt-app::after{animation:none!important;transition:none!important}
 @media (prefers-reduced-motion:reduce){.bt-app[data-fresh]::after,.bt-app[data-fresh] .bt-app-icon,.bt-app[data-fresh] .bt-app-btn-done{animation:none}}
 `

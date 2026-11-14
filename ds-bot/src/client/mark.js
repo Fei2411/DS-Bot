@@ -1,6 +1,6 @@
 import { createElement as h, useEffect, useRef, useState } from 'react'
 import { fnv1a, lookOf, shapeId, shapeOf, MASK_ID, nextMarkSerial, characterMarkup } from './characters.js'
-import { reducedMotion } from './motion.js'
+import { reducedEffects, reducedMotion } from './motion.js'
 import { t } from './i18n.js'
 
 export { colorOf, lookOf } from './characters.js'
@@ -20,30 +20,57 @@ export const toolState = name => (/^(message_bot|stop_bot|create_bot|update_bot|
 // Eyes follow the pointer on large marks.
 function useGaze(ref, enabled) {
   useEffect(() => {
-    if (!enabled || reducedMotion()) return undefined
+    if (!enabled) return undefined
     let frame = 0
     let point = null
+    let active = false
+    const clear = () => {
+      point = null
+      if (frame) {
+        cancelAnimationFrame(frame)
+        frame = 0
+      }
+      ref.current?.style.removeProperty('--bt-gx')
+      ref.current?.style.removeProperty('--bt-gy')
+    }
     const place = () => {
       frame = 0
       const node = ref.current
-      if (!node || !point) return
+      if (!node || !point || reducedEffects()) return
       const box = node.getBoundingClientRect()
       const clamp = value => Math.max(-1, Math.min(1, value))
       node.style.setProperty('--bt-gx', clamp((point.x - box.left - box.width / 2) / 160).toFixed(2))
       node.style.setProperty('--bt-gy', clamp((point.y - box.top - box.height / 2) / 160).toFixed(2))
     }
     const onMove = (event) => {
-      if (document.body?.dataset.btMotion === 'quiet') return
+      if (reducedEffects() || document.body?.dataset.btMotion === 'quiet') return
       point = { x: event.clientX, y: event.clientY }
       if (!frame) frame = requestAnimationFrame(place)
     }
     const onLeave = () => { point = null; ref.current?.style.setProperty('--bt-gx', '0'); ref.current?.style.setProperty('--bt-gy', '0') }
-    window.addEventListener('pointermove', onMove, { passive: true })
-    document.documentElement.addEventListener('pointerleave', onLeave)
-    return () => {
-      cancelAnimationFrame(frame)
+    const attach = () => {
+      if (active) return
+      active = true
+      window.addEventListener('pointermove', onMove, { passive: true })
+      document.documentElement.addEventListener('pointerleave', onLeave)
+    }
+    const detach = () => {
+      if (!active) return
+      active = false
       window.removeEventListener('pointermove', onMove)
       document.documentElement.removeEventListener('pointerleave', onLeave)
+      clear()
+    }
+    const sync = () => { if (reducedEffects()) detach(); else attach() }
+    sync()
+    const observer = typeof MutationObserver === 'function' && document.body ? new MutationObserver(sync) : null
+    observer?.observe(document.body, { attributes: true, attributeFilter: ['data-bt-effects'] })
+    const media = window.matchMedia?.('(prefers-reduced-motion: reduce)')
+    media?.addEventListener?.('change', sync)
+    return () => {
+      observer?.disconnect()
+      media?.removeEventListener?.('change', sync)
+      detach()
     }
   }, [enabled])
 }
@@ -76,7 +103,7 @@ export function BotMark({ bot, look: given, size = 36, state = 'idle', live = fa
     role: label ? 'img' : undefined,
     'aria-label': label,
     'aria-hidden': label ? undefined : true,
-    onClick: pokeable ? () => setPoked(true) : undefined,
+    onClick: pokeable ? () => { if (!reducedMotion() && document.body?.dataset.btMotion !== 'quiet') setPoked(true) } : undefined,
     onAnimationEnd: poked ? (event) => { if (/^bt-poke/.test(event.animationName)) setPoked(false) } : undefined,
   }
   if (image) return h('span', common, h('img', { className: 'bt-mark-img', src: image, alt: '', draggable: false, onError: () => setBroken(image) }))

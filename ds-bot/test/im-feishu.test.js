@@ -371,3 +371,21 @@ test('a failed image download warns instead of staying silent', async (t) => {
   await until(() => messages.length === 1)
   assert.equal(messages[0].images.length, 0, 'the message still arrives, without the image')
 })
+
+// #1417: the send path classified 5xx as retryable but carried no status, so the
+// queue could not tell a broken tunnel from a network blip and retried forever.
+test('a 5xx answer is retryable and carries its status; a 4xx answer is permanent', async () => {
+  const responding = (status, body) => async (url) => (url.endsWith('/tenant_access_token/internal')
+    ? { ok: true, status: 200, json: async () => ({ tenant_access_token: 'tok', expire: 7200 }) }
+    : { ok: false, status, json: async () => body })
+  await assert.rejects(feishu.check(FIELDS, { fetch: responding(502, { msg: 'bad gateway' }), config: { api: 'https://open.feishu.cn' } }), (error) => {
+    assert.equal(error.status, 502)
+    assert.notEqual(error.permanent, true, 'a 5xx must stay retryable')
+    return true
+  })
+  await assert.rejects(feishu.check(FIELDS, { fetch: responding(403, { msg: 'forbidden' }), config: { api: 'https://open.feishu.cn' } }), (error) => {
+    assert.equal(error.status, 403)
+    assert.equal(error.permanent, true, 'a 4xx is not retried')
+    return true
+  })
+})

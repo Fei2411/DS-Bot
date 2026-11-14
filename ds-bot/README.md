@@ -55,6 +55,15 @@ pnpm -s dsh --profile web --no-open
 
 The first time the team opens, the plugin creates a Main Bot called Chief.
 
+**If DSH was upgraded and the Bot team does not start**: a profile can keep its own pinned copies of official DSH packages (for example `@deepseek-ai/dsh-web-app` at the version before the upgrade). DSH then mounts the new installation's rows against those older modules, disables the rows whose versions do not match, and a plugin that injects their services — the Bot team's `sessionController` and `workspaceRegistry` — stays pending. This is a diagnostic/repair tool you run by hand — DS Bot never invokes it on its own. The doctor names the pins the running DSH does not satisfy; `--fix` removes only those (a version range the running DSH satisfies is kept, and only DSH runtime/bundle packages are considered), then runs `pnpm install` in the changed profile so a restart needs no separate manual install. If that install cannot run, it prints the exact command. Chats, settings and credentials are not touched:
+
+```sh
+npx ds-bot doctor
+npx ds-bot doctor --fix
+```
+
+The doctor reads the profiles' `package.json` files only. If DSH still does not start after a clean report, an older copy may be a transitive dependency that another plugin brought into the profile; the report names `pnpm why @deepseek-ai/<package>` so you can find the plugin that carries it. The doctor never removes such a copy, because that would break the plugin that needs it.
+
 **Upgrading from the legacy `dsh-bot` package**: earlier builds used the package name `dsh-bot`. Remove `dsh-bot` from the profile before you add `ds-bot`, because both use the plugin id `bot`. Your team, chats and secrets stay where they are (see [Data and backups](#data-and-backups)); saved browser settings, the theme and Bot colors move over the first time DS Bot opens.
 
 ## Configuration
@@ -172,6 +181,7 @@ When a Bot needs an API key, token or password, it calls `request_secret`, and a
 - **Masking**: before a tool result is saved and before each request goes to the model, every copy of a secret value is replaced with `[secret:<NAME>]`.
 - **Manage**: Settings → Secrets lists every secret by name, purpose, the Bot that asked and the last use. You can change who may use it, replace the value, delete it or add one. Deleting a Bot removes it from every secret.
 - **Storage**: `<DSH_HOME>/bot/secrets.json`, file mode 600, written atomically. Values are never in `state.json` or logs.
+- **Encryption at rest (optional)**: Settings → Secrets → Encryption at rest turns the same file into a passphrase-locked envelope (scrypt key, AES-256-GCM payload). An unattended start unlocks it with `DS_BOT_SECRETS_PASSPHRASE` or with `DS_BOT_SECRETS_PASSPHRASE_FILE` (a file with the passphrase); without either the store starts locked, the Secrets page says how to unlock it, and secret writes are refused. Plaintext stays the default and existing files need no migration.
 
 Limits:
 
