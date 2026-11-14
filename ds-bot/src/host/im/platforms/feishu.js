@@ -172,7 +172,10 @@ export default {
         const images = []
         if (message.message_type === 'image' && content.image_key !== undefined) {
           const bytes = await resource(env, apiBase(env, fields), token, message.message_id, content.image_key, 'image').catch(() => undefined)
-          if (bytes !== undefined) images.push({ mediaType: 'image/png', data: Buffer.from(bytes).toString('base64') })
+          if (bytes !== undefined) {
+            const buffer = Buffer.from(bytes)
+            images.push({ mediaType: imageMediaType(buffer), data: buffer.toString('base64') })
+          }
         }
         const sender = event.sender?.sender_id?.open_id ?? event.sender?.user_id ?? ''
         await handlers.onMessage({
@@ -359,6 +362,15 @@ export default {
 
 const safeJson = (text) => { try { return JSON.parse(text ?? '{}') } catch { return {} } }
 const toMarkdown = text => String(text ?? '')
+
+function imageMediaType(bytes) {
+  if (bytes.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return 'image/png'
+  if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return 'image/jpeg'
+  const header = bytes.toString('latin1', 0, 6)
+  if (header === 'GIF87a' || header === 'GIF89a') return 'image/gif'
+  if (bytes.toString('latin1', 0, 4) === 'RIFF' && bytes.toString('latin1', 8, 12) === 'WEBP') return 'image/webp'
+  throw new Error('Feishu returned an unsupported image format')
+}
 
 async function tenantToken(fields, env) {
   const response = await env.fetch(`${apiBase(env, fields)}/open-apis/auth/v3/tenant_access_token/internal`, {
