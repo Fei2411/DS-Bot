@@ -9,6 +9,7 @@ import { installLocale } from '../../../ds-bot/src/client/i18n.js'
 import { MEMBER_CSS } from '../../../ds-bot/src/client/member-status.js'
 import { MODEL_CSS } from '../../../ds-bot/src/client/model-menu.js'
 import { PROVIDERS_CSS } from '../../../ds-bot/src/client/providers-page.js'
+import { READ_ONLY_CSS } from '../../../ds-bot/src/client/read-only-dock.js'
 import { SCHEDULE_CSS } from '../../../ds-bot/src/client/schedules.js'
 import { SECRET_CSS } from '../../../ds-bot/src/client/secret-card.js'
 import { SIDEBAR_CSS } from '../../../ds-bot/src/client/sidebar.js'
@@ -25,7 +26,7 @@ if (/mac/iu.test(navigator.userAgentData?.platform ?? navigator.platform)) docum
 
 // The Bot views' own stylesheets, the same ones the plugin puts in DSH.
 for (const [tag, text] of [
-  ['shell', SHELL_CSS], ['sidebar', SIDEBAR_CSS], ['conversation', CONVERSATION_CSS], ['secrets', SECRET_CSS], ['providers', PROVIDERS_CSS],
+  ['shell', SHELL_CSS], ['sidebar', SIDEBAR_CSS], ['conversation', CONVERSATION_CSS + READ_ONLY_CSS], ['secrets', SECRET_CSS], ['providers', PROVIDERS_CSS],
   ['models', MODEL_CSS + FOLDER_CSS + BOT_SETTINGS_CSS + GROUP_SETTINGS_CSS], ['usage', USAGE_CSS], ['schedules', SCHEDULE_CSS],
   ['feedback', FEEDBACK_CSS], ['about', ABOUT_CSS], ['members', MEMBER_CSS],
 ]) installStyles(text, tag)

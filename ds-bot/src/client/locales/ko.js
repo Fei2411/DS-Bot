@@ -1674,6 +1674,11 @@ export const KO = {
   'Stop {name}': '{name} 중지',
   '{name} · foreground': '{name} · 포그라운드',
   '{name} waits for the computer': '{name}이(가) 사용자 조작을 기다리는 중',
+  "Running": "실행 중",
+  "Open this session": "이 세션 열기",
+  "Open this running session": "실행 중인 세션 열기",
+  "A running session keeps using model calls in the background.": "실행 중인 세션은 백그라운드에서 모델 호출을 계속 사용합니다.",
+  "This session is still running. Wait for it to finish, or stop it.": "이 세션은 아직 실행 중입니다. 끝날 때까지 기다리거나 중지하세요.",
 }
 
 export const HOST_ERRORS_KO = [

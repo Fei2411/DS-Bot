@@ -68,10 +68,18 @@ export function install(rt) {
     // `sessionId` is the Bot's current own-chat part; `parts` its earlier ones.
     // `waiting`: the Bot holds its greeting until the user picks its model or fixes
     // what failed it. `blocked`: the facts of a failure only the user can fix (turns.js).
-    bots: Object.values(state.bots).map(({ segments, kickoff, ...bot }) => {
+    bots: Object.values(state.bots).map(({ segments, kickoff, openParts, ...bot }) => {
       const tail = rt.chatTail(rt.chatOf(bot.id))
+      // `openParts` are the parts opened while the Bot was busy: live, with their own
+      // earlier parts, and each one's run state read from the live turns.
+      const open = (openParts ?? []).map(part => ({
+        sessionId: part.sessionId,
+        startedAt: part.startedAt ?? 0,
+        parts: (part.segments ?? []).map(segment => segment.sessionId),
+      }))
       return {
-        ...bot, sessionId: rt.chatOf(bot.id), parts: (segments ?? []).map(segment => segment.sessionId), ...(kickoff ? { waiting: true } : {}),
+        ...bot, sessionId: rt.chatOf(bot.id), parts: (segments ?? []).map(segment => segment.sessionId),
+        ...(open.length > 0 ? { openParts: open } : {}), ...(kickoff ? { waiting: true } : {}),
         // `engine` is the Bot's local-agent route, present only on abots.
         ...(rt.localAgentBadge?.(bot.model ?? bot.appliedModel) !== undefined ? { engine: rt.localAgentBadge(bot.model ?? bot.appliedModel) } : {}),
         ...(tail ? { lastAt: tail.lastAt, preview: tail.preview } : {}),
@@ -140,6 +148,13 @@ export function install(rt) {
     secretStore: rt.secretStoreStatus(),
     secrets: rt.secretsView(),
     activity: rt.activityView(),
+    // Which of a Bot's own chat parts has a turn right now, current or background:
+    // the session list's Running mark reads this, not a guess from the transcript.
+    partsRunning: Object.fromEntries(Object.values(state.bots)
+      .flatMap(bot => [rt.chatOf(bot.id), ...(bot.openParts ?? []).map(part => part.sessionId)])
+      .filter((sessionId, index, list) => sessionId !== undefined && list.indexOf(sessionId) === index)
+      .filter(sessionId => rt.live.get(sessionId)?.turn !== undefined)
+      .map(sessionId => [sessionId, true])),
     work: { bots: rt.workView(), rooms: rt.roomWorkView(), approvals: rt.approvalsView(), waiting: rt.waitingView?.() ?? {}, turns: rt.turnsView?.() ?? {}, steered: rt.steeredView?.() ?? {} },
     memoryNews: rt.memoryNews(),
     memoryReviews: rt.memoryReviews(),

@@ -289,6 +289,26 @@ test('an ordinary failure in the move that never started wakes the part at once'
   assert.equal(silent.agentOf('b').calls.filter(([kind]) => kind === 'send').length, 0)
 })
 
+// #1501: a Bot's own chat may keep a part live in the background. A switch that fails
+// there keeps its input in that part's thread, not in the foreground chat the user reads.
+const BACKGROUND = {
+  ...TEAM,
+  bots: { ...TEAM.bots, b: { ...TEAM.bots.b, openParts: [{ sessionId: 'bb', segments: [] }] } },
+}
+
+test('a background part that cannot move on keeps its input in its own thread', async (t) => {
+  const host = await start({ services, state: BACKGROUND, fail: { create: new Error('disk full') } })
+  t.after(host.stop)
+  // The Bot's folder changed while its background part was still at work in the old one.
+  host.rt.botOf('b').workDir = host.project
+  assert.deepEqual(await host.preStep('bb', [said('m1', 'keep me', 'e1')], 2), { kind: 'reject' })
+  await until(() => host.warnings.some(line => line.includes('did not move on to a fresh part')))
+  await settle()
+  // The stopped input is handed to that part, and the foreground chat sees none of it.
+  assert.deepEqual(host.agentOf('bb').calls.map(([kind, message]) => [kind, text(message)]), [['followup', PAUSE], ['followup', 'keep me']])
+  assert.deepEqual(host.agentOf('b').calls, [])
+})
+
 test('a marked earlier part hands its kept input on after a restart, once, and is archived', async (t) => {
   const fail = { flush: 2 }
   const host = await start({ fail, services })

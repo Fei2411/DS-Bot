@@ -65,6 +65,10 @@ export function install(rt) {
     // Session the Bot has ends at the value the newest request actually applied.
     const applyTo = (sessionId, room = roomOfSession(sessionId)) =>
       setPreset(sessionId, () => (request.seq === mine ? room?.permission ?? bot.permission : undefined))
+    // The Bot's own chat may have background parts opened while it was busy: a stricter
+    // preset must reach those live Sessions too, or the user would think it applied.
+    const own = () => [rt.chatOf(bot.id), ...(bot.openParts ?? []).map(part => part.sessionId)]
+      .filter((sessionId, index, list) => sessionId !== undefined && list.indexOf(sessionId) === index)
     const groups = async (warnFail) => {
       for (const sessionId of rt.groupSessionsOf(bot.id)) {
         if (request.seq !== mine) break
@@ -73,17 +77,33 @@ export function install(rt) {
       }
     }
     try {
-      const applied = await applyTo(rt.chatOf(bot.id))
+      let applied
+      for (const sessionId of own()) {
+        if (request.seq !== mine) break
+        applied = await applyTo(sessionId)
+      }
       if (applied !== undefined) request.applied = applied
     } catch (error) {
       if (request.seq === mine) {
+        // A change that fails halfway leaves Sessions on the preset it asked for: the
+        // preset goes back on every one of them, including when the Bot had none before,
+        // where it is the default that Bot ran on. Rolling only the field back would tell
+        // the user the Bot is strict again while a part still runs wider.
         if (request.applied === undefined) delete bot.permission
-        else {
-          bot.permission = request.applied
-          // The restored preset goes back on every Session the change left behind.
-          const warnFail = error => rt.warn('ds-bot: permission for %s not restored: %s', bot.name, error)
-          await applyTo(rt.chatOf(bot.id)).catch(warnFail)
-          await groups(warnFail)
+        else bot.permission = request.applied
+        const fallback = request.applied ?? presets().catalog().defaultPreset
+        const warnFail = error => rt.warn('ds-bot: permission for %s not restored: %s', bot.name, error)
+        // Read through the staleness check, like applyTo: a newer request that applies to
+        // a Session while this rollback waits on it must not be written over afterwards.
+        const restoreTo = (sessionId) => setPreset(sessionId, () => (request.seq === mine ? roomOfSession(sessionId)?.permission ?? fallback : undefined))
+        for (const sessionId of own()) {
+          if (request.seq !== mine) break
+          await restoreTo(sessionId).catch(warnFail)
+        }
+        for (const sessionId of rt.groupSessionsOf(bot.id)) {
+          if (request.seq !== mine) break
+          if (roomOfSession(sessionId)?.permission) continue
+          await restoreTo(sessionId).catch(warnFail)
         }
       }
       throw error

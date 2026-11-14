@@ -1674,6 +1674,11 @@ export const DE = {
   'Stop {name}': '{name} stoppen',
   '{name} · foreground': '{name} · Vordergrund',
   '{name} waits for the computer': '{name} wartet, bis du fertig bist',
+  "Running": "Läuft",
+  "Open this session": "Diese Sitzung öffnen",
+  "Open this running session": "Diese laufende Sitzung öffnen",
+  "A running session keeps using model calls in the background.": "Eine laufende Sitzung verbraucht weiterhin Modellaufrufe im Hintergrund.",
+  "This session is still running. Wait for it to finish, or stop it.": "Diese Sitzung läuft noch. Warte, bis sie endet, oder stoppe sie.",
 }
 
 export const HOST_ERRORS_DE = [

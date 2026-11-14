@@ -1639,6 +1639,11 @@ export const JA = {
   "Stop {name}": "{name} を停止",
   "{name} · foreground": "{name} · フォアグラウンド",
   "{name} waits for the computer": "{name} があなたの操作完了を待っています",
+  "Running": "実行中",
+  "Open this session": "このセッションを開く",
+  "Open this running session": "実行中のセッションを開く",
+  "A running session keeps using model calls in the background.": "実行中のセッションはバックグラウンドでモデル呼び出しを続けます。",
+  "This session is still running. Wait for it to finish, or stop it.": "このセッションはまだ実行中です。終了を待つか、停止してください。",
 }
 
 export const HOST_ERRORS_JA = [

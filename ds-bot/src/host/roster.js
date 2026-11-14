@@ -1,5 +1,6 @@
 // Roster: creating, changing, and deleting Bots and group chats, the Main Bot role, and
 // the first Main Bot of a new team.
+import { openSessions } from './threads.js'
 import { randomUUID } from 'node:crypto'
 import { mkdir } from 'node:fs/promises'
 import { MAX_AVATAR_IMAGE, ROOM_MAX_MEMBERS, ROOM_MODES, ROOM_NAME_MAX, ROOM_NOTICE_MAX, ROOM_TODO_MAX, ROOM_TODO_TEXT_MAX, SECTION_COLORS, SECTION_NAME_MAX } from './constants.js'
@@ -936,7 +937,7 @@ export function install(rt) {
       const archived = rt.archiveBotMemory(id)
       const current = rt.chatOf(id)
       // Questions and exchange turns are kept per Session, so every part of the chat is cleared.
-      const parts = new Set([id, current, ...(bot.segments ?? []).map(segment => segment.sessionId)])
+      const parts = new Set([id, current, ...(bot.segments ?? []).map(segment => segment.sessionId), ...openSessions(bot)])
       // `archiving` stands until the archive's path is known: the memory may already be
       // there, and no region of its own closes it yet.
       const closedArchive = bot.private === true ? {
