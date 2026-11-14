@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
 import { test } from 'node:test'
 import telegram from '../src/host/im/platforms/telegram.js'
+import { questionOptionsText } from '../src/host/im/index.js'
 
 // A fake Bot API: requests are recorded and answered from `replies`; updates the
 // adapter polls come from `updates`, newest first.
@@ -237,4 +238,27 @@ test('a drop after getMe succeeds is retried, not reported as an error (#1119)',
   assert.equal(api.calls.filter(call => call.method === 'getMe').length, 1, 'the identity is not fetched again')
   assert.ok(polls >= 2, 'a new long poll went out after the failure')
   assert.equal(statuses.filter(status => status.state === 'error').length, 0, 'a network drop is not shown as an error while it retries')
+})
+
+// A card is read as plain chat text. The house rules ask for a blank line
+// between items and ban both dash characters, including the entity spellings
+// that reach the reader as the same character.
+test('a question card double spaces its options and carries no dash', () => {
+  const rendered = questionOptionsText([
+    { label: 'Deploy it', description: 'merge and ship today' },
+    { label: 'Hold', description: 'keep the branch open' },
+    { label: 'Skip' },
+  ])
+  assert.equal(rendered, [
+    '1. Deploy it: merge and ship today',
+    '',
+    '2. Hold: keep the branch open',
+    '',
+    '3. Skip',
+  ].join('\n'))
+  const blocks = rendered.split('\n\n')
+  assert.equal(blocks.length, 3, 'every pair of options is separated by a blank line')
+  assert.ok(blocks.every(block => !block.includes('\n')), 'no option wraps into a second line')
+  assert.doesNotMatch(rendered, /[\u2013\u2014]/u, 'no en dash or em dash in the rendered card')
+  assert.doesNotMatch(rendered, /&#8211;|&#8212;|&ndash;|&mdash;|&#x2013;|&#x2014;/iu, 'no dash entity spelling in the rendered card')
 })

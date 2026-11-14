@@ -16,6 +16,15 @@ const RETRY_MS = 5_000
 const TYPING_MS = 4_000
 const NUMBERS = /^\s*\d+(\s+\d+)*\s*$/
 
+// Cards land as plain chat text, where the house rules ask for a blank line
+// between items and ban both dash characters. One option per block, and a
+// colon before a description rather than a dash of any kind.
+export function questionOptionsText(options = []) {
+  return options
+    .map((option, index) => `${index + 1}. ${option.label}${option.description ? `: ${option.description}` : ''}`)
+    .join('\n\n')
+}
+
 const secretField = key => key.replace(/[A-Z]/g, char => `_${char}`).toUpperCase()
 
 export function install(rt) {
@@ -555,11 +564,11 @@ export function install(rt) {
   // ------------------------------------------------------------------ cards
   const cardText = {
     question: (bot, question) => {
-      const options = (question.options ?? []).map((option, index) => `${index + 1}. ${option.label}${option.description ? ` — ${option.description}` : ''}`).join('\n')
+      const options = questionOptionsText(question.options)
       const hint = question.multiSelect === true ? text('numbersMulti') : text('numbers')
       return `${text('question', { bot })}${question.question}${question.detail ? `\n${question.detail}` : ''}\n${options}\n(${hint})`
     },
-    approval: (bot, entry) => `${text('approval', { bot })}${entry.tool}${entry.reason ? ` — ${entry.reason}` : ''}${entry.detail?.text ? `\n${entry.detail.text}` : ''}${entry.detail?.code ? `\n${entry.detail.code}` : ''}`,
+    approval: (bot, entry) => `${text('approval', { bot })}${entry.tool}${entry.reason ? `: ${entry.reason}` : ''}${entry.detail?.text ? `\n${entry.detail.text}` : ''}${entry.detail?.code ? `\n${entry.detail.code}` : ''}`,
   }
   const cardButtons = {
     question: (question) => (question.multiSelect === true ? undefined : (question.options ?? []).map((option, index) => ({ data: `q:${question.id}:${index}`, label: option.label }))),
