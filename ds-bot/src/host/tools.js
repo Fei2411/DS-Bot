@@ -9,6 +9,7 @@ import { missingFileRefs } from './claims.js'
 import { absoluteLinks } from './links.js'
 import { NAME_MAX } from './requests.js'
 import { unquote } from './text.js'
+import { isOpenPart, ownChatSessions } from './threads.js'
 import { mentionSpans } from '../shared/mentions.js'
 import { checkShownView, showViewDescription, showViewParameters } from 'deep-view/core'
 
@@ -142,16 +143,22 @@ export function install(rt) {
     },
   }))
 
-  // Sessions a Bot is running in right now: its own chat plus each group Session
-  // with a live turn. An idle Bot reports just its own chat.
+  // Sessions a Bot is running in right now: every live part of its own chat (a part it
+  // opened while it was busy runs there too) plus each group Session with a live turn.
+  // An idle Bot reports no running Session.
   const activeSessions = (botId) => {
-    const running = [...new Set([rt.chatOf(botId), ...rt.groupSessionsOf(botId)])]
-      .filter(sessionId => rt.live.get(sessionId)?.turn !== undefined)
+    const bot = rt.botOf(botId)
+    const own = bot === undefined ? [rt.chatOf(botId)] : ownChatSessions(bot)
+    const running = [...new Set([...own, ...rt.groupSessionsOf(botId)])]
+      .filter(sessionId => sessionId !== undefined && rt.live.get(sessionId)?.turn !== undefined)
     return { running, idle: running.length === 0 }
   }
   const whereOf = (sessionId) => {
     const room = rt.roomOf(rt.groupOwners.get(sessionId)?.roomId)
-    return room ? `group "${room.name}"` : 'its own chat'
+    if (room) return `group "${room.name}"`
+    // A Bot's own chat may keep another part live in the background: it is a second
+    // conversation of that Bot, not its foreground chat.
+    return isOpenPart(rt.botOf(rt.chatOwners.get(sessionId)), sessionId) ? 'another of its conversations' : 'its own chat'
   }
   // A Bot request still in the inbox: no step or turn has taken it out yet.
   const unreadRequest = (agent, senderId, toUser) => {
@@ -317,13 +324,19 @@ export function install(rt) {
       const send = async () => {
         const toUser = args.reply_to === 'user'
         const work = toUser ? undefined : works[0]
+        // The part of the sender's own chat this request comes from: its answer goes back
+        // to that part's thread.
+        const fromPart = callerPart(exec).fromPart
         const chat = rt.chatOf(target.id)
         const agent = await rt.resolveAgent(chat)
         const status = rt.statusOf(target.id)
         // A request it has not read yet, sent for the same work, takes this one in, so
-        // messages to a Bot that cannot read them do not pile up.
+        // messages to a Bot that cannot read them do not pile up. Two parts of the
+        // sender's own chat are two conversations, though: one answer could come back to
+        // only one of them, so their requests are sent and answered apart.
         const earlier = unreadRequest(agent, sender.id, toUser)
-        const joinable = earlier !== undefined && (toUser || rt.sameWork(earlier.message.source.exchangeId, work))
+        const joinable = earlier !== undefined
+          && (toUser || ((earlier.message.source.senderPart ?? undefined) === fromPart && rt.sameWork(earlier.message.source.exchangeId, work)))
         const before = joinable ? bodyOf(earlier.message) : undefined
         let long = await rt.attachLong(before ? `${before.text}\n\n${text}` : text, `Message from ${sender.name}.txt`)
         // Nothing went out, so a named request must not take this as a delivered
@@ -335,9 +348,9 @@ export function install(rt) {
         const steer = (args.when !== 'queue' && !toUser) || (joins && earlier.steered)
         const exchangeId = joins ? earlier.message.source.exchangeId : randomUUID()
         if (joins) rt.forgetDelivery?.(exchangeId)
-        else if (!toUser) rt.openWork(exchangeId, { from: sender.id, to: target.id, parent: work, ...callerPart(exec) })
+        else if (!toUser) rt.openWork(exchangeId, { from: sender.id, to: target.id, parent: work, ...(fromPart ? { fromPart } : {}) })
         try {
-          await rt.deliver({ fromId: sender.id, toId: target.id, ...callerPart(exec), text: long.text, files: [...long.files, ...(joins ? before.files : [])], length: long.length, role: 'request', steer, exchangeId, ...(joins ? { merged: true } : {}), ...(toUser ? { audience: 'user' } : {}) })
+          await rt.deliver({ fromId: sender.id, toId: target.id, ...(fromPart ? { fromPart } : {}), text: long.text, files: [...long.files, ...(joins ? before.files : [])], length: long.length, role: 'request', steer, exchangeId, ...(joins ? { merged: true } : {}), ...(toUser ? { audience: 'user' } : {}) })
         } catch (error) {
           // The delivery stays noted for the next start while its Bot exists
           // (resume.js), and the resent request still answers up the tree, so the
@@ -359,11 +372,13 @@ export function install(rt) {
           asker ? `When you have handed on everything, end your turn: each reply brings you back to this work, and your answer goes to ${asker} once all of it is back.` : '',
         ].filter(Boolean)
         const out = [sent, ...notes].join(' ')
-        // Messages reach a Bot's own chat only; work in a group goes on without them.
-        const groups = activeSessions(target.id).running.filter(sessionId => sessionId !== chat)
-        if (groups.length === 0) return out
+        // A message reaches the part of the Bot's own chat it is delivered to only; work
+        // going on elsewhere (a group, or another live part of its own chat) goes on
+        // without it.
+        const elsewhere = activeSessions(target.id).running.filter(sessionId => sessionId !== chat)
+        if (elsewhere.length === 0) return out
         const stop = rt.isMain(sender.id) ? ' If it must not go on there, use stop_bot.' : ''
-        return `${out} Your message does not reach its work in ${groups.map(whereOf).join(' and ')}.${stop}`
+        return `${out} Your message does not reach its work in ${elsewhere.map(whereOf).join(' and ')}.${stop}`
       }
       return request === undefined ? await send() : answer(await rt.admitRequest(request, send))
     },

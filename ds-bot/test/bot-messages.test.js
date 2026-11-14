@@ -258,6 +258,35 @@ test('a user message steered into the running steps marks when it landed', async
   assert.deepEqual(await steered(), {})
 })
 
+// #1501: two parts of the sender's own chat are two conversations. One answer could come
+// back to only one of them, so their unread requests are not merged; each is answered.
+test('requests from two parts of one Bot are answered apart, not merged', async (t) => {
+  const seed = team()
+  seed.bots.a.openParts = [{ sessionId: 'a-bg', segments: [] }]
+  const { agentOf, agents, emit, tool, stop } = await start(seed)
+  t.after(stop)
+  // What Writer is sent waits unread in its inbox.
+  const writer = agentOf('b')
+  writer.steer = (message) => { writer.calls.push(['steer', message]); writer.inbox.nextStep.push(message) }
+  emit('b', 'turn/start', { turn: 1 })
+  assert.doesNotMatch(await tool('message_bot', { to: 'Writer', message: 'check the data' }, 'a'), /added to it/)
+  assert.doesNotMatch(await tool('message_bot', { to: 'Writer', message: 'check the docs' }, 'a-bg'), /added to it/)
+  const waiting = [...writer.inbox.nextStep]
+  assert.equal(waiting.length, 2)
+  assert.deepEqual(waiting.map(message => message.source.senderPart), ['a', 'a-bg'])
+  assert.notEqual(waiting[0].source.exchangeId, waiting[1].source.exchangeId)
+  // Each is answered in the part that asked.
+  for (const [turn, message, said, asked] of [[1, waiting[0], 'data checked', 'a'], [2, waiting[1], 'docs checked', 'a-bg']]) {
+    emit('b', 'turn/start', { turn })
+    emit('b', 'user/message', { content: message.content, source: message.source })
+    emit('b', 'assistant/message', assistantText(said))
+    emit('b', 'turn/end', { turn, reason: { kind: 'completed' } })
+    for (let count = 0; count < 200 && (agents.get(asked)?.calls ?? []).length < 1; count += 1) await delay(5)
+  }
+  assert.equal(textOf(agents.get('a').calls[0][1].content), '[Reply from Writer]\ndata checked')
+  assert.equal(textOf(agents.get('a-bg').calls[0][1].content), '[Reply from Writer]\ndocs checked')
+})
+
 test('a request from a name with brackets keeps its body when replayed after the current work', async (t) => {
   const seed = team()
   seed.bots.a.name = 'R]2'
@@ -357,6 +386,32 @@ test('stop_bot cancels the running turns and tells the Bot why in a new turn', a
   const notice = agents.get('b').calls[1][1]
   assert.match(textOf(notice.content), /^\[Stopped by Chief\]\nthat command deletes data$/)
   assert.equal(notice.source.role, 'stopped')
+})
+
+test('stop_bot stops a turn running in a background part of the Bot\'s chat', async (t) => {
+  const seed = team()
+  seed.bots.b.openParts = [{ sessionId: 'b-bg', segments: [] }]
+  const { agents, emit, tool, stop } = await start(seed)
+  t.after(stop)
+  // The foreground chat is idle; only the background part runs.
+  emit('b-bg', 'turn/start', { turn: 1 })
+  const out = await tool('stop_bot', { bot: 'Writer', reason: 'that command deletes data' }, 'a')
+  assert.equal(out, 'Stopped Writer in another of its conversations. It is told why in a new turn, whose reply comes back to you.')
+  assert.deepEqual(agents.get('b-bg').calls.map(([kind]) => kind), ['cancel'])
+  assert.deepEqual(agents.get('b-bg').calls[0][1], { kind: 'hook', reason: 'ds-bot/stopped' })
+  // The foreground chat was not cancelled; it gets the notice.
+  assert.deepEqual(agents.get('b').calls.map(([kind]) => kind), ['followup'])
+  assert.equal(agents.get('b').calls[0][1].source.role, 'stopped')
+})
+
+test('message_bot names a running background part as another conversation', async (t) => {
+  const seed = team()
+  seed.bots.b.openParts = [{ sessionId: 'b-bg', segments: [] }]
+  const { emit, tool, stop } = await start(seed)
+  t.after(stop)
+  emit('b-bg', 'turn/start', { turn: 1 })
+  const out = await tool('message_bot', { to: 'Writer', message: 'hi' }, 'a')
+  assert.match(out, /Your message does not reach its work in another of its conversations\. If it must not go on there, use stop_bot\.$/)
 })
 
 test('stop_bot belongs to a Main Bot', async (t) => {
