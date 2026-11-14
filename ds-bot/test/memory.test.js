@@ -185,7 +185,7 @@ function start({ home = mkdtempSync(join(tmpdir(), 'ds-bot-memory-')), replies =
     await ctx.dispose()
     if (!keep) rmSync(home, { recursive: true, force: true, maxRetries: 5 })
   }
-  return { ctx, home, call, tool, section, read, journal, requests, warnings, stop }
+  return { ctx, home, rt, call, tool, section, read, journal, requests, warnings, stop }
 }
 
 const settle = () => new Promise(resolve => setTimeout(resolve, 20))
@@ -1221,6 +1221,53 @@ test('a summary cut off at both budgets on the Bot\'s model is written by the de
   const done = (await call('memory-view', { botId: 'b2' })).value
   assert.deepEqual([done.summary?.text, done.error], ['## Overview\nYou like tea.', null])
   assert.deepEqual(routes(requests), ['deepseek/v4@16384', 'deepseek/v4@32768', 'deepseek/flash@16384'])
+})
+
+// A Bot running on a local agent CLI has no API model of its own to write a
+// summary with, so its memory panel reads one of the two defaults (#1426).
+function onLocalAgent(started, botId = 'b2', ref = 'local-codex-cli/gpt-5') {
+  started.rt.isLocalAgentRef = value => typeof value === 'string' && value.startsWith('local-')
+  started.rt.botOf(botId).model = ref
+}
+
+test('a local agent Bot\'s memory summary is written by the team default model', async (t) => {
+  const replies = ['## Overview\nYou like tea.']
+  const started = start({ replies, models: ['v4', 'flash'] })
+  t.after(() => started.stop())
+  await started.call('set-prefs', { defaultBotModel: 'deepseek/flash' })
+  onLocalAgent(started)
+  await started.tool('remember', { text: 'Likes tea' }, 'b2')
+  await started.call('memory-view', { botId: 'b2', summarize: true })
+  await summarized(started.call)
+  const done = (await started.call('memory-view', { botId: 'b2' })).value
+  assert.deepEqual([done.summary?.text, done.error], ['## Overview\nYou like tea.', null])
+  // The profile default is the catalog's first model (v4); the team picked flash.
+  assert.deepEqual(routes(started.requests), ['deepseek/flash@16384'])
+})
+
+test('a local agent Bot without a team default reads the profile default model', async (t) => {
+  const replies = ['## Overview\nYou like tea.']
+  const started = start({ replies })
+  t.after(() => started.stop())
+  onLocalAgent(started)
+  await started.tool('remember', { text: 'Likes tea' }, 'b2')
+  await started.call('memory-view', { botId: 'b2', summarize: true })
+  await summarized(started.call)
+  const done = (await started.call('memory-view', { botId: 'b2' })).value
+  assert.deepEqual([done.summary?.text, done.error], ['## Overview\nYou like tea.', null])
+  assert.deepEqual(routes(started.requests), ['deepseek/v4@16384'])
+})
+
+test('a local agent Bot with no model at all says which setting to fix, and does not retry it', async (t) => {
+  const started = start({ replies: [], models: [] })
+  t.after(() => started.stop())
+  onLocalAgent(started)
+  await started.tool('remember', { text: 'Likes tea' }, 'b2')
+  await started.call('memory-view', { botId: 'b2', summarize: true })
+  await summarized(started.call)
+  const failed = (await started.call('memory-view', { botId: 'b2', summarize: true })).value
+  assert.deepEqual([failed.summary, failed.error], [null, 'No model is available. Add one in Settings > Models.'])
+  assert.equal(started.requests.length, 0)
 })
 
 test('a summary that failed on both models is tried again once the Bot has another model', async (t) => {
