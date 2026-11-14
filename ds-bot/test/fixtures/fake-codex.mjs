@@ -4,6 +4,10 @@
 //   "elicit <server> <kind>" -> an MCP tool-call approval (mcpServer/elicitation/request)
 //                 from <server>, with _meta.codex_approval_kind <kind>; the answer
 //                 comes back as the agentMessage, as JSON
+//   "late-elicit <server> <kind>" -> the same request, sent before the turn completes:
+//                 the answer then arrives after the turn already ended
+//   "late-ask" -> an approval request whose answer likewise arrives after the turn ended
+//   "hold-ask" -> an approval request that keeps its turn alive, so the answer steers it
 //   otherwise  -> an activity item, an agentMessage, turn/completed
 // `--exit-after-turn` exits once a turn completes, and `--text-only` sends no
 // activity items first: a test can then tell whether the one text event reached
@@ -51,23 +55,45 @@ async function elicitTurn(thread, turnId, text) {
     _meta: { codex_approval_kind: kind, tool_name: 'list_bots' },
   })
   const shown = answer.error !== undefined ? { error: answer.error.code } : answer.result
-  notice('item/completed', { threadId: thread.id, item: { id: 'i1', type: 'agentMessage', text: JSON.stringify(shown) } })
+  notice('item/completed', { threadId: thread.id, turnId, item: { id: 'i1', type: 'agentMessage', text: JSON.stringify(shown) } })
+  thread.turn = undefined
   notice('turn/completed', { threadId: thread.id, turn: { id: turnId, status: 'completed' } })
 }
 
 function runTurn(thread, turnId, text, effort) {
   if (/elicit \S+ \S+/.test(text)) return void elicitTurn(thread, turnId, text)
+  // An approval request whose turn stays alive: an answer has to steer this turn.
+  if (text.includes('hold-ask')) {
+    void ask('item/commandExecution/requestApproval', { threadId: thread.id, turnId, reason: 'hold approval', availableDecisions: ['accept', 'decline'] })
+    return
+  }
+  // The turn ends while the request is still open: the answer comes late.
+  if (text.includes('late-ask')) {
+    void ask('item/commandExecution/requestApproval', { threadId: thread.id, turnId, reason: 'late approval', availableDecisions: ['accept', 'decline'] })
+    thread.turn = undefined
+    notice('turn/completed', { threadId: thread.id, turn: { id: turnId, status: 'completed' } })
+    return
+  }
+  if (/late-elicit \S+ \S+/.test(text)) {
+    void elicitTurn(thread, turnId, text.replace(/^late-/, ''))
+    thread.turn = undefined
+    notice('turn/completed', { threadId: thread.id, turn: { id: turnId, status: 'completed' } })
+    return
+  }
   // What the thread was opened with, for a test that checks the fields.
+  // A turn that stays open until a steer lands on it.
+  if (text.includes('hold')) return
   if (text.includes('show-thread')) {
-    notice('item/completed', { threadId: thread.id, item: { id: 'i2', type: 'agentMessage', text: JSON.stringify(thread.params ?? {}) } })
+    notice('item/completed', { threadId: thread.id, turnId, item: { id: 'i2', type: 'agentMessage', text: JSON.stringify(thread.params ?? {}) } })
     notice('turn/completed', { threadId: thread.id, turn: { id: turnId, status: 'completed' } })
     return
   }
   if (!textOnly) {
-    notice('item/started', { threadId: thread.id, item: { id: 'i1', type: 'commandExecution', command: 'ls' } })
-    notice('item/completed', { threadId: thread.id, item: { id: 'i1', type: 'commandExecution', exitCode: 0 } })
+    notice('item/started', { threadId: thread.id, turnId, item: { id: 'i1', type: 'commandExecution', command: 'ls' } })
+    notice('item/completed', { threadId: thread.id, turnId, item: { id: 'i1', type: 'commandExecution', exitCode: 0 } })
   }
-  notice('item/completed', { threadId: thread.id, item: { id: 'i2', type: 'agentMessage', text: `ok: ${text.slice(0, 60)} effort=${effort ?? 'none'}` } })
+  notice('item/completed', { threadId: thread.id, turnId, item: { id: 'i2', type: 'agentMessage', text: `ok: ${text.slice(0, 60)} effort=${effort ?? 'none'}` } })
+  thread.turn = undefined
   notice('turn/completed', { threadId: thread.id, turn: { id: turnId, status: 'completed' } })
   if (exitAfterTurn) setTimeout(() => process.exit(0), 50)
 }
@@ -127,15 +153,36 @@ process.stdin.on('data', (chunk) => {
       }
       case 'thread/inject_items': reply(id, {}); break
       case 'turn/start': {
+        record('turn/start', params)
         const thread = threads.get(params.threadId)
         const turnId = `turn-${++nextId}`
+        if (thread !== undefined) thread.turn = turnId
         reply(id, { turn: { id: turnId } })
         const text = (params.input ?? []).map(item => item.text ?? '').join('\n')
         setImmediate(() => runTurn(thread ?? { id: params.threadId }, turnId, text, params.effort))
         break
       }
       case 'turn/interrupt': reply(id, {}); break
-      case 'turn/steer': reply(id, {}); break
+      case 'turn/steer': {
+        // Codex's schema requires the turn being steered; a steer after that turn
+        // ended is refused, which is what the adapter must recover from.
+        record('turn/steer', params)
+        const thread = threads.get(params.threadId)
+        if (typeof params.expectedTurnId !== 'string') { replyError(id, 'missing field expectedTurnId'); break }
+        if (thread?.turn === undefined || thread.turn !== params.expectedTurnId) { replyError(id, `no live turn ${params.expectedTurnId}`); break }
+        const text = (params.input ?? []).map(item => item.text ?? '').join('\n')
+        // A steer can be refused while the turn ends at the same moment: the client
+        // must recover by starting a turn of its own.
+        if (text === 'race') {
+          replyError(id, `no live turn ${params.expectedTurnId}`)
+          thread.turn = undefined
+          notice('turn/completed', { threadId: thread.id, turn: { id: params.expectedTurnId, status: 'completed' } })
+          break
+        }
+        notice('item/completed', { threadId: thread.id, turnId: params.expectedTurnId, item: { id: 'steer', type: 'agentMessage', text: `steered: ${text}` } })
+        reply(id, {})
+        break
+      }
       default: if (id !== undefined) fail(id, `method not found: ${method}`)
     }
   }
