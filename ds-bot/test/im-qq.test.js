@@ -115,12 +115,52 @@ test('send replies passively with msg_id and a climbing msg_seq; a refusal is pe
   await handle.send({ key: 'u1', kind: 'direct' }, { text: 'two' })
   const posts = fake.calls.filter(call => call.path === '/v2/users/u1/messages')
   assert.equal(posts.length, 2)
+  // The reply is a markdown message; QQ renders it instead of showing the markers.
+  assert.equal(posts[0].params.msg_type, 2)
+  assert.deepEqual(posts[0].params.markdown, { content: 'one' })
   assert.equal(posts[0].params.msg_id, 'm1')
   assert.equal(posts[0].params.msg_seq, 1)
   assert.equal(posts[1].params.msg_seq, 2)
   // A refusal outside the reply window is a permanent error with the reason.
   fake.replies['/v2/users/u1/messages'] = { error: 304023, message: 'reply time out' }
   await assert.rejects(() => handle.send({ key: 'u1', kind: 'direct' }, { text: 'late' }), error => error.permanent === true && /reply/.test(error.message))
+})
+
+test('send converts tables and local images before the markdown message', async (t) => {
+  const fake = await fakeQq()
+  const messages = []
+  const handle = qq.connect(FIELDS, env(fake), { onMessage: async msg => { messages.push(msg) }, onAction: () => {}, onStatus: () => {} })
+  t.after(() => { handle.stop(); fake.close() })
+  const ws = await until(() => fake.sockets[0])
+  await until(() => fake.packets.some(packet => packet.op === 2))
+  fake.push(ws, { op: 0, t: 'C2C_MESSAGE_CREATE', s: 2, d: { id: 'm1', content: 'hi', author: { user_openid: 'u1' } } })
+  await until(() => messages.length === 1)
+  await handle.send({ key: 'u1', kind: 'direct' }, {
+    text: '## 标题\n\n| 项 | 值 |\n| --- | --- |\n| A | 1 |\n\n![图](/tmp/a.png)',
+  })
+  const post = fake.calls.filter(call => call.path === '/v2/users/u1/messages').at(-1)
+  assert.equal(post.params.msg_type, 2)
+  assert.equal(post.params.markdown.content, '## 标题\n\n- 项：A；值：1\n\n［图片：图］')
+})
+
+test('a platform that refuses markdown gets the same reply as plain text', async (t) => {
+  const fake = await fakeQq()
+  const messages = []
+  const handle = qq.connect(FIELDS, env(fake), { onMessage: async msg => { messages.push(msg) }, onAction: () => {}, onStatus: () => {} })
+  t.after(() => { handle.stop(); fake.close() })
+  const ws = await until(() => fake.sockets[0])
+  await until(() => fake.packets.some(packet => packet.op === 2))
+  fake.push(ws, { op: 0, t: 'C2C_MESSAGE_CREATE', s: 2, d: { id: 'm1', content: 'hi', author: { user_openid: 'u1' } } })
+  await until(() => messages.length === 1)
+  fake.replies['/v2/users/u1/messages'] = (params) => (params.msg_type === 2
+    ? { error: 40034090, message: 'markdown not allowed' }
+    : { result: { id: '930' } })
+  await handle.send({ key: 'u1', kind: 'direct' }, { text: '**加粗**与 `代码`' })
+  const posts = fake.calls.filter(call => call.path === '/v2/users/u1/messages')
+  assert.equal(posts.length, 2)
+  assert.equal(posts[0].params.msg_type, 2)
+  assert.equal(posts[1].params.msg_type, 0)
+  assert.equal(posts[1].params.content, '加粗与 代码')
 })
 
 test('a dropped socket reconnects and resumes', async (t) => {
