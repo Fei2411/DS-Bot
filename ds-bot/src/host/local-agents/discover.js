@@ -148,19 +148,42 @@ export function probeVersion(executable, args, env) {
   })
 }
 
+// A status command may answer in JSON rather than prose (`claude auth status` prints
+// `{"loggedIn": true, ...}`). Read the named field from the first object in the text.
+const jsonField = (text, keys) => {
+  const start = text.indexOf('{')
+  if (start === -1) return undefined
+  try {
+    let value = JSON.parse(text.slice(start, text.lastIndexOf('}') + 1))
+    for (const key of keys) value = value?.[key]
+    return typeof value === 'boolean' ? value : undefined
+  } catch {
+    return undefined
+  }
+}
+
 // Whether a CLI is signed in: true, false, or null when it cannot tell. A missing
 // credential file proves nothing (macOS keeps some in the Keychain), so only a
 // command can say false. The output and the file stay here; only the answer leaves.
+// A `file` check is the fallback for a CLI too old to answer with its status command.
 export function probeSignIn(executable, check, { home = homedir() } = {}) {
   if (check === undefined) return Promise.resolve(null)
-  if (check.file !== undefined) return Promise.resolve(existsSync(join(home, ...check.file)) ? true : null)
+  const fileSays = () => {
+    if (check.file === undefined) return null
+    return existsSync(join(home, ...check.file)) ? true : null
+  }
+  if (check.args === undefined) return Promise.resolve(fileSays())
   return new Promise((resolve) => {
     try {
       const launch = launchOf(executable, check.args)
       execFile(launch.file, launch.args, { encoding: 'utf8', timeout: 3_000, env: cleanEnv(), windowsHide: true, ...launch.options }, (_error, stdout, stderr) => {
         const text = `${stdout ?? ''}${stderr ?? ''}`
-        resolve(/not (?:logged|signed) in/iu.test(text) ? false : /(?:logged|signed) in/iu.test(text) ? true : null)
+        const field = check.json === undefined ? undefined : jsonField(text, check.json)
+        if (field !== undefined) return resolve(field)
+        if (/not (?:logged|signed) in/iu.test(text)) return resolve(false)
+        if (/(?:logged|signed) in/iu.test(text)) return resolve(true)
+        resolve(fileSays())
       })
-    } catch { resolve(null) }
+    } catch { resolve(fileSays()) }
   })
 }
