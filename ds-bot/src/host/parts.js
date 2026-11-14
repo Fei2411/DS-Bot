@@ -784,9 +784,10 @@ export function install(rt) {
     const before = sizeOf(agent.session)
     let result
     try {
-      result = await rt.localAgentCompact(agent.id, signal ?? AbortSignal.timeout(NOTE_TIMEOUT_MS))
+      // Under the agent's maintenance, so no turn starts on the CLI session meanwhile.
+      result = await agent.runMaintenance(held => rt.localAgentCompact(agent.id, AbortSignal.any([held, signal ?? AbortSignal.timeout(NOTE_TIMEOUT_MS)])))
     } catch (error) {
-      if (error?.code === 'LOCAL_AGENT_BUSY') return undefined
+      if (['LOCAL_AGENT_BUSY', 'busy', 'cancelled'].includes(error?.code)) return undefined
       rt.warn('ds-bot: the local agent of %s did not condense: %s', agent.id, error)
       return false
     } finally {

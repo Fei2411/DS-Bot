@@ -680,7 +680,7 @@ export class LocalAgentAdapter extends LlmAdapter {
         live.state = 'idle'
         return 'unsupported'
       }
-      await this.collect(live, () => this.take(live), signal, { compaction: true })
+      this.meter(live, await this.collect(live, () => this.take(live), signal, { compaction: true }))
       return 'done'
     })
   }
@@ -690,7 +690,7 @@ export class LocalAgentAdapter extends LlmAdapter {
   async note(sessionId, text, signal) {
     return this.maintain(sessionId, signal, async (live) => {
       this.sendInput(live, text, signal)
-      return (await this.collect(live, () => this.take(live), signal)).text
+      return this.meter(live, await this.collect(live, () => this.take(live), signal)).text
     })
   }
 
@@ -749,6 +749,11 @@ export class LocalAgentAdapter extends LlmAdapter {
   // CLI says it condensed, which may come after the prompt itself ended.
   async collect(live, take, signal, { compaction = false } = {}) {
     let text = ''
+    let usage
+    const add = (more) => {
+      if (more === undefined) return
+      usage = usage === undefined ? { ...more } : Object.fromEntries([...new Set([...Object.keys(usage), ...Object.keys(more)])].map(key => [key, (usage[key] ?? 0) + (more[key] ?? 0)]))
+    }
     let ended = false
     let started = false
     let condensed = false
@@ -760,7 +765,7 @@ export class LocalAgentAdapter extends LlmAdapter {
     else signal?.addEventListener('abort', onAbort)
     try {
       for (;;) {
-        if (ended && (!compaction || condensed)) return { text }
+        if (ended && (!compaction || condensed)) return { text, usage }
         const next = take()
         const waits = [next.event, aborted]
         // Nothing said it started: the CLI condensed without a word, or not at all.
@@ -787,8 +792,10 @@ export class LocalAgentAdapter extends LlmAdapter {
             else if (event.status === 'completed') condensed = true
             else throw new LlmError('the local agent did not condense its context', 'LOCAL_AGENT_ERROR')
             break
-          case 'quiet': return { text }
+          case 'quiet': return { text, usage }
+          case 'usage': add(event.usage); break
           case 'done':
+            add(event.usage)
             ended = true
             live.state = 'idle'
             break
@@ -801,6 +808,12 @@ export class LocalAgentAdapter extends LlmAdapter {
     } finally {
       signal?.removeEventListener('abort', onAbort)
     }
+  }
+
+  // What a request DS Bot made for itself spent, on the Session it served.
+  meter(live, result) {
+    if (result.usage !== undefined) this.deps.recordUsage?.({ sessionId: live.sessionId, kind: 'compaction', provider: live.route, model: live.model, usage: result.usage })
+    return result
   }
 
   // A one-off request on the CLI a Session runs on, in a session of its own with no
@@ -824,9 +837,12 @@ export class LocalAgentAdapter extends LlmAdapter {
       // A decision needs no long thinking: the least the model offers, when it lists any.
       const efforts = (this.modelCache.get(route) ?? []).find(model => model.id === record.model)?.reasoning?.efforts ?? []
       const effort = efforts.some(entry => entry.id === 'off') ? 'off' : efforts[0]?.id
-      // An ACP prompt resolves only when its turn ends; its events wait in the queue.
-      void Promise.resolve(engine.prompt(session, [{ type: 'text', text: spec.kind === 'acp' ? `${system}\n\n${prompt}` : prompt }], { signal, effort })).catch(() => {})
-      return (await this.collect(side, () => ({ event: session.next(), drop: () => {} }), signal)).text
+      // An ACP prompt resolves only when its turn ends, and its events wait in the
+      // queue; a prompt the CLI refuses ends the request at once.
+      const refused = Promise.resolve(engine.prompt(session, [{ type: 'text', text: spec.kind === 'acp' ? `${system}\n\n${prompt}` : prompt }], { signal, effort }))
+        .then(() => new Promise(() => {}), error => ({ type: 'error', error }))
+      const result = await this.collect(side, () => ({ event: Promise.race([session.next(), refused]), drop: () => {} }), signal)
+      return this.meter({ sessionId, route, model: record.model }, result).text
     } finally {
       if (session !== undefined) {
         if (signal?.aborted) engine.cancel?.(session)

@@ -57,7 +57,7 @@ test('Codex 0.166, as recorded: the last request is the context, its usage count
 const user = (id, text) => ({ id, role: 'user', content: [{ type: 'text', text }], source: { kind: 'user' } })
 const system = (id, text) => ({ id, role: 'system', content: [{ type: 'text', text }], source: { kind: 'system-prompt' } })
 
-function makeAdapter({ kind = 'acp', args = [], records = {} } = {}) {
+function makeAdapter({ kind = 'acp', args = [], records = {}, usage = [] } = {}) {
   const file = FIXTURE(kind === 'acp' ? 'fake-acp.mjs' : 'fake-codex.mjs')
   return new LocalAgentAdapter({
     rt: { warn: () => {} },
@@ -69,6 +69,7 @@ function makeAdapter({ kind = 'acp', args = [], records = {} } = {}) {
     record: sessionId => records[sessionId],
     saveRecord: (sessionId, record) => { records[sessionId] = record },
     patchRecord: (sessionId, patch) => { if (records[sessionId]) Object.assign(records[sessionId], patch) },
+    recordUsage: entry => usage.push(entry),
     presetFor: () => 'workspace-write',
     cwdFor: async () => mkdtempSync(join(tmpdir(), 'dsb-cwd-')),
     probeCwd: () => mkdtempSync(join(tmpdir(), 'dsb-probe-')),
@@ -117,12 +118,15 @@ test('an ACP agent that lists no compact command condenses only on its own', asy
 })
 
 test('the handoff note is one more prompt in the CLI session; the next turn sends only what is new', async (t) => {
-  const adapter = makeAdapter()
+  const usage = []
+  const adapter = makeAdapter({ usage })
   t.after(() => adapter.dispose())
   const history = [user('m1', 'hello')]
   await turn(adapter, 's1', history)
   const note = await adapter.note('s1', 'write the note', AbortSignal.timeout(10_000))
   assert.equal(note, 'ok: write the note')
+  // What it spent counts for the Session it served.
+  assert.deepEqual(usage.map(entry => [entry.sessionId, entry.kind, entry.provider]), [['s1', 'compaction', 'local-acp-fake']])
   const next = await turn(adapter, 's1', [...history, { id: 'a1', role: 'assistant', content: [{ type: 'text', text: 'ok' }] }, user('m2', 'go on')])
   assert.equal(next.text, 'ok: go on')
 })
@@ -136,6 +140,23 @@ test('a one-off request runs in a session of its own and closes it', async (t) =
   assert.equal(answer, 'sessions: 2')
   assert.equal(adapter.live.size, 1)
   assert.equal((await turn(adapter, 's1', [user('m1', 'hello'), user('m2', 'count-sessions')])).text, 'sessions: 1')
+})
+
+test('a one-off request the CLI refuses ends at once', async () => {
+  const queue = { waiters: [], next: () => new Promise(resolve => queue.waiters.push(resolve)) }
+  const engine = {
+    open: async () => queue,
+    prompt: async () => { throw new Error('turn/start refused') },
+    forget: () => {},
+  }
+  const adapter = new LocalAgentAdapter({
+    rt: { warn: () => {} }, customAgents: () => [], findExecutable: () => undefined, spawnEngine: () => engine,
+    record: () => ({ route: 'local-codex-cli', model: 'default' }), saveRecord: () => {}, presetFor: () => 'read-only',
+    cwdFor: async () => tmpdir(), probeCwd: () => tmpdir(), toolsFor: () => [],
+  })
+  const started = Date.now()
+  await assert.rejects(adapter.ask('s1', { system: 'decide', prompt: 'now', signal: AbortSignal.timeout(5_000) }), /refused/)
+  assert.ok(Date.now() - started < 1_000)
 })
 
 test('Codex condenses in a turn of its own and reports what is left', async (t) => {
@@ -166,7 +187,8 @@ const MESSAGES = [
 ]
 
 function localPart({ context, team, decision = 'switch', note = goodNote('from-the-cli'), compact = 'done', after } = {}) {
-  const calls = { steward: [], asks: [], notes: [], compacts: [] }
+  const calls = { steward: [], asks: [], notes: [], compacts: [], maintenance: 0, compactsHeld: 0 }
+  let held = false
   const warnings = []
   const followed = []
   let current = { ...context }
@@ -190,7 +212,12 @@ function localPart({ context, team, decision = 'switch', note = goodNote('from-t
   const bot = { id: 'b1', name: 'Kai', sessionId: 's1', model: 'local-devin-cli/default', segments: [] }
   const header = { config: { provider: 'local-devin-cli', model: 'default' }, tools: [] }
   const session = { id: 's1', header: { cwd: '/tmp/team' }, seq: 1, eventAt: () => undefined, requestHeader: () => header, deriveMessages: () => MESSAGES, toolHistory: () => [] }
-  const agent = { id: 's1', session, status: 'idle', whenIdle: async () => {}, runMaintenance: async job => job(AbortSignal.timeout(10_000)), inbox: { nextStep: [], nextTurn: [] }, followup: message => followed.push(message), send: async () => {} }
+  const maintain = async (job) => {
+    calls.maintenance += 1
+    held = true
+    try { return await job(AbortSignal.timeout(10_000)) } finally { held = false }
+  }
+  const agent = { id: 's1', session, status: 'idle', whenIdle: async () => {}, runMaintenance: maintain, inbox: { nextStep: [], nextTurn: [] }, followup: message => followed.push(message), send: async () => {} }
   const fresh = { id: 's2', session: { id: 's2', header: { cwd: '/tmp/team' }, requestHeader: () => ({ config: {} }), deriveMessages: () => [], toolHistory: () => [] }, status: 'idle', whenIdle: async () => {}, runMaintenance: async job => job(AbortSignal.timeout(10_000)), inbox: { nextStep: [], nextTurn: [] }, followup: message => followed.push(message), send: async () => {} }
   const rt = {
     ctx,
@@ -250,6 +277,7 @@ function localPart({ context, team, decision = 'switch', note = goodNote('from-t
     },
     localAgentCompact: async () => {
       calls.compacts.push(true)
+      if (held) calls.compactsHeld += 1
       if (compact === 'done') current = { ...current, ...after, compactions: (current.compactions ?? 0) + 1 }
       return compact
     },
@@ -290,6 +318,8 @@ test('work still under way: the CLI condenses and the part stays', async () => {
   run.idle()
   await new Promise(resolve => setTimeout(resolve, 100))
   assert.equal(run.calls.compacts.length, 1)
+  // Under the agent's maintenance: no turn can start on the CLI session meanwhile.
+  assert.equal(run.calls.compactsHeld, 1)
   assert.equal(run.bot.sessionId, 's1')
 })
 
