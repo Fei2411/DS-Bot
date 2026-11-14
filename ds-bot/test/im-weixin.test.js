@@ -140,13 +140,71 @@ test('send goes through sendmessage with the stored context_token, chunked at th
   const handle = weixin.connect(FIELDS, env(fake, runtime), { onMessage: () => {}, onAction: () => {}, onStatus: () => {} })
   t.after(() => { handle.stop(); fake.close() })
   await until(() => fake.calls.some(call => call.path === '/ilink/bot/getupdates'))
-  const { messageId } = await handle.send({ key: 'u1', kind: 'direct' }, { text: 'x'.repeat(4000) })
+  const { messageId, ids, parts } = await handle.send({ key: 'u1', kind: 'direct' }, { text: 'x'.repeat(4000) })
   const sends = fake.calls.filter(call => call.path === '/ilink/bot/sendmessage')
   assert.ok(sends.length >= 2, 'chunked at the limit')
   assert.equal(sends[0].params.msg.to_user_id, 'u1')
   assert.equal(sends[0].params.msg.context_token, 'tok-u1')
   assert.equal(sends[0].params.msg.item_list[0].type, 1)
   assert.ok(messageId.startsWith('ds-bot-'))
+  // Each chunk is its own WeChat message: it keeps its own ids and its own text,
+  // so quoting a later chunk must not resolve to the start of the reply.
+  assert.equal(parts.length, sends.length, 'one entry per chunk')
+  assert.equal(parts.map(part => part.text).join(''), 'x'.repeat(4000))
+  assert.equal(new Set(parts.map(part => part.ids[0])).size, sends.length, 'each chunk keeps its own id')
+  for (const part of parts) assert.ok(part.ids[0].startsWith('ds-bot-'))
+  assert.equal(ids.length, sends.length)
+})
+
+test('a quoted reply carries the ids in protocol order and the text the platform kept', async (t) => {
+  const fake = await fakeIlink()
+  const messages = []
+  fake.replies.updates = {
+    ret: 0, get_updates_buf: 'c1',
+    msgs: [
+      {
+        from_user_id: 'u1', client_id: 'm1', context_token: 'tok-u1',
+        // iLink has sent this id as a number and as a string.
+        referenced_msg_id: 7505,
+        item_list: [
+          { type: 1, text_item: { text: '按这个走' } },
+          { type: 3, ref_msg: { msg_id: '7505', referenced_msg_id: '7505', message_item: { msg_id: '7505', text_item: { text: '项目 A 的报价改好了' } } } },
+        ],
+      },
+      {
+        from_user_id: 'u1', client_id: 'm2', context_token: 'tok-u1',
+        item_list: [
+          { type: 1, text_item: { text: '这条呢' } },
+          { type: 3, ref_msg: { msg_id: 'a-1', referenced_msg_id: 'a-2', message_item: { msg_id: 'a-3', text_item: { text: '另一条' } } } },
+        ],
+      },
+      { from_user_id: 'u1', client_id: 'm3', context_token: 'tok-u1', item_list: [{ type: 1, text_item: { text: '普通消息' } }] },
+      // iLink writes 0 in the field when the message quotes nothing.
+      { from_user_id: 'u1', client_id: 'm4', context_token: 'tok-u1', referenced_msg_id: 0, item_list: [{ type: 1, text_item: { text: '也没有引用' } }] },
+    ],
+  }
+  const handle = weixin.connect(FIELDS, env(fake, {}), { onMessage: async msg => { messages.push(msg) }, onAction: () => {}, onStatus: () => {} })
+  t.after(() => { handle.stop(); fake.close() })
+  await until(() => messages.length === 4)
+  assert.deepEqual(messages[0].quote, { ids: ['7505'], text: '项目 A 的报价改好了' })
+  // The message itself first, then the aliases the same payload repeats.
+  assert.deepEqual(messages[1].quote, { ids: ['a-3', 'a-1', 'a-2'], text: '另一条' })
+  assert.equal(messages[2].quote, undefined)
+  assert.equal(messages[3].quote, undefined, 'a zero id is not a quote')
+})
+
+test('send keeps every id the platform names, so a quoted reply can name the message', async (t) => {
+  const fake = await fakeIlink()
+  const runtime = { cursor: 'c1', contextTokens: { u1: 'tok-u1' } }
+  fake.replies.updates = { ret: 0, msgs: [], get_updates_buf: 'c1' }
+  fake.replies['/ilink/bot/sendmessage'] = { ret: 0, message_id: 'p-0', msg: { msg_id: 'p-1', item_list: [{ msg_id: 'p-2' }] } }
+  const handle = weixin.connect(FIELDS, env(fake, runtime), { onMessage: () => {}, onAction: () => {}, onStatus: () => {} })
+  t.after(() => { handle.stop(); fake.close() })
+  await until(() => fake.calls.some(call => call.path === '/ilink/bot/getupdates'))
+  const sent = await handle.send({ key: 'u1', kind: 'direct' }, { text: 'done' })
+  assert.match(sent.messageId, /^ds-bot-/)
+  assert.match(sent.ids[0], /^ds-bot-/, 'the local client id is the fallback')
+  assert.deepEqual(sent.ids.slice(1), ['p-0', 'p-1', 'p-2'])
 })
 
 test('a refused send is permanent, and the auth header carries the token', async (t) => {

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
@@ -14,6 +14,9 @@ const fakeAdapter = ({ buttons = true } = {}) => {
   const sent = []
   const edited = []
   const fails = []
+  // Ids keep counting when a test empties `sent`, so a quoted id never names a
+  // later message by accident.
+  let nextMessage = 0
   const adapter = {
     id: 'fake',
     sent,
@@ -30,10 +33,11 @@ const fakeAdapter = ({ buttons = true } = {}) => {
       handlers.onStatus({ state: 'ready', account: { id: 'bot1', name: '@fakebot' } })
       return {
         send: async (chat, body) => {
-          sent.push({ chat, ...body })
+          const messageId = String(++nextMessage)
+          sent.push({ chat, messageId, ...body })
           const next = fails.shift()
           if (next !== undefined) throw next
-          return { messageId: sent.length }
+          return { messageId }
         },
         edit: async (chat, messageId, body) => { edited.push({ chat, messageId, ...body }) },
         typing: async () => {},
@@ -222,6 +226,137 @@ test('outbound: assistant text and member lines go out; hidden turns, user and s
   assert.equal(s.fake.sent.length, 2)
   assert.equal(s.fake.sent[1].text, '**Writer**: member spoke')
   assert.equal(s.fake.sent[1].chat.key, 'g1')
+})
+
+test('a quoted reply carries the message it answers into the Bot', async (t) => {
+  const s = await start()
+  t.after(s.stop)
+  const conn = await add(s)
+  const one = s.rt.state.im.connections[conn.id]
+  one.paired.push({ id: 'u1', name: 'U1', at: 1 })
+  await s.rt.save()
+  await dm(s, 'u1', 'hi')
+  s.fake.sent.length = 0
+  s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'Project A is done' }] } })
+  await s.flush()
+  const sentId = s.fake.sent.at(-1)?.messageId
+  assert.ok(sentId !== undefined, 'the sent message has an id')
+  await dm(s, 'u1', 'ship it', { quote: { ids: [sentId] } })
+  assert.equal(s.prompts.length, 2)
+  assert.equal(s.prompts[1].content[0].text, 'Replying to an earlier message:\n> Project A is done\n\nship it')
+  // The reply can come after a restart, so the message is kept in the runtime file.
+  await delay(600)
+  const runtime = JSON.parse(readFileSync(join(s.home, 'im', `${conn.id}.json`), 'utf8'))
+  assert.ok(runtime.sent['dm-u1'].some(entry => entry.text === 'Project A is done'))
+})
+
+test('a quote of a later chunk shows that chunk, not the start of the reply', async (t) => {
+  // A platform that cuts a long reply into messages with an id each.
+  const adapter = {
+    id: 'fake',
+    handlers: null,
+    async check() { return { account: { id: 'bot1', name: '@fakebot' } } },
+    connect(fields, env, handlers) {
+      adapter.handlers = handlers
+      handlers.onStatus({ state: 'ready', account: { id: 'bot1', name: '@fakebot' } })
+      return {
+        send: async () => ({
+          messageId: 'chunk-b',
+          ids: ['chunk-a', 'chunk-b'],
+          parts: [
+            { ids: ['chunk-a'], text: 'Project A is done' },
+            { ids: ['chunk-b'], text: 'Project B is done' },
+          ],
+        }),
+        typing: async () => {},
+        stop: () => {},
+      }
+    },
+  }
+  const s = await start({ adapter })
+  t.after(s.stop)
+  const conn = await add(s)
+  const one = s.rt.state.im.connections[conn.id]
+  one.paired.push({ id: 'u1', name: 'U1', at: 1 })
+  await s.rt.save()
+  await dm(s, 'u1', 'hi')
+  s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'Project A is done\n\nProject B is done' }] } })
+  await s.flush()
+  await dm(s, 'u1', 'do that', { quote: { ids: ['chunk-b'] } })
+  assert.equal(s.prompts[1].content[0].text, 'Replying to an earlier message:\n> Project B is done\n\ndo that')
+})
+
+test('a quote resolves by its ids, then by the platform text, and says when both are gone', async (t) => {
+  const s = await start()
+  t.after(s.stop)
+  const conn = await add(s)
+  const one = s.rt.state.im.connections[conn.id]
+  one.paired.push({ id: 'u1', name: 'U1', at: 1 })
+  await s.rt.save()
+  await dm(s, 'u1', 'hi')
+  s.fake.sent.length = 0
+  s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'Project A is done' }] } })
+  await s.flush()
+  const sentId = s.fake.sent.at(-1)?.messageId
+  // Any of the ids may name the message; the first one that does is used.
+  await dm(s, 'u1', 'this one', { quote: { ids: ['not-this-one', sentId] } })
+  assert.equal(s.prompts[1].content[0].text, 'Replying to an earlier message:\n> Project A is done\n\nthis one')
+  // An id this chat never sent falls back to the text the platform kept.
+  await dm(s, 'u1', 'that one', { quote: { ids: ['gone'], text: 'Text the platform kept' } })
+  assert.equal(s.prompts[2].content[0].text, 'Replying to an earlier message:\n> Text the platform kept\n\nthat one')
+  await dm(s, 'u1', 'the other one', { quote: { ids: ['gone'] } })
+  assert.equal(s.prompts[3].content[0].text, 'Replying to an earlier message (its text is not available).\n\nthe other one')
+  // A command is read from the reply alone, never from the quote.
+  await dm(s, 'u1', '/stop', { quote: { ids: [sentId] } })
+  assert.equal(s.prompts.length, 4)
+  assert.equal(s.fake.sent.at(-1).text, 'Nothing is running.')
+})
+
+test('only the last messages sent to a chat are kept for quoting', async (t) => {
+  const s = await start()
+  t.after(s.stop)
+  const conn = await add(s)
+  const one = s.rt.state.im.connections[conn.id]
+  one.paired.push({ id: 'u1', name: 'U1', at: 1 })
+  await s.rt.save()
+  await dm(s, 'u1', 'hi')
+  s.fake.sent.length = 0
+  for (let at = 0; at < 21; at += 1) {
+    s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: `Report ${at}` }] } })
+  }
+  await s.flush()
+  await delay(1_200)
+  const kept = JSON.parse(readFileSync(join(s.home, 'im', `${conn.id}.json`), 'utf8')).sent['dm-u1']
+  assert.equal(kept.length, 20)
+  assert.ok(!kept.some(entry => entry.text === 'Report 0'), 'the oldest is dropped')
+  assert.ok(kept.some(entry => entry.text === 'Report 20'), 'the newest stays')
+})
+
+test('removing a chat drops the messages kept for quoting it', async (t) => {
+  const s = await start()
+  t.after(s.stop)
+  const conn = await add(s)
+  const one = s.rt.state.im.connections[conn.id]
+  one.paired.push({ id: 'u1', name: 'U1', at: 1 })
+  await s.rt.save()
+  // The runtime file is written on a delay, so wait for the write, not a fixed time.
+  const sentOf = () => {
+    try { return JSON.parse(readFileSync(join(s.home, 'im', `${conn.id}.json`), 'utf8')).sent } catch { return undefined }
+  }
+  const until = async (check) => {
+    for (let at = 0; at < 80; at += 1) {
+      if (check(sentOf())) return true
+      await delay(50)
+    }
+    return false
+  }
+  await dm(s, 'u1', 'hi')
+  s.fake.sent.length = 0
+  s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'Project A is done' }] } })
+  await s.flush()
+  assert.ok(await until(sent => sent?.['dm-u1']?.length > 0), 'the sent message is kept')
+  await s.rt.imEndpoint('im-chat', { id: conn.id, chatKey: 'dm-u1', remove: true })
+  assert.ok(await until(sent => sent !== undefined && sent['dm-u1'] === undefined), 'the removed chat leaves nothing behind')
 })
 
 test('IM user messages are tagged by seq for the current part; a part that is no longer current drops out', async (t) => {
