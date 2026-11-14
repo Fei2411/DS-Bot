@@ -1771,11 +1771,13 @@ export function install(rt) {
     // text carries the change line; when it wrote none, its completion line does. This
     // line stays out of `inBatch`: the batching and closeBatch behaviour below is not
     // changed by it, and a late pass that changed nothing still posts nothing.
-    const lateDone = () => postToRoom(room, member, '', { late: true, done: true, ...moved({}), ...(askedBy ? { askedBy } : {}) })
+    const lateDone = (extra = {}) => postToRoom(room, member, '', { late: true, done: true, ...moved(extra), ...(askedBy ? { askedBy } : {}) })
       .catch(error => rt.warn('ds-bot: late completion from %s failed: %s', member.name, error))
     if (waitingPeers && named.length === 0) {
       if (!isPass(text)) await post(text, { quiet: true })
-      else if (changes !== undefined) await lateDone()
+      // `quiet` keeps the change line from waking the caller early: a done post without it
+      // is routed straight to `askedBy`, and the batch end wakes it again.
+      else if (changes !== undefined) await lateDone({ quiet: true })
       return
     }
     const done = isPass(text) && (shown || batchDoneBefore) && askedBy !== undefined

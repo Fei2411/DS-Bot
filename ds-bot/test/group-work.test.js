@@ -2064,6 +2064,31 @@ async function batchInBackground(t, services) {
   return { host, relay }
 }
 
+// Codex on the change line: inside a parallel batch, a change-only completion line must not
+// wake the caller early. It carries `quiet`, the same as an early text result; the batch
+// end still wakes the caller exactly once.
+test('a late pass inside a parallel batch posts its change line quietly', async (t) => {
+  const { host, relay } = await batchInBackground(t)
+  const changes = { sessionId: 'gb', seq: 21, turn: 5, total: 1, added: 4, deleted: 1, files: [{ path: 'batch.md', added: 4, deleted: 1 }] }
+  rt.turnChanges = async sessionId => (sessionId === 'gb' ? changes : undefined)
+  host.emit('gb', 'tool/result', { callId: 'k1' })
+  host.finish('gb', '[PASS]')
+  await settle(() => host.agentOf('r1').calls.length > 0)
+  const post = host.takePost()
+  assert.equal(post.source.done, true)
+  assert.equal(post.source.quiet, true)
+  assert.deepEqual(post.source.changes, changes)
+  const read = host.round('late-pass-batch', post)
+  await settle(() => read() !== undefined)
+  assert.equal(host.agentOf('ga').calls.length, 1, 'the caller is not woken early')
+  // Tester finishes: the batch closes and the caller is woken once, not twice.
+  host.emit('gc', 'tool/result', { callId: 'k2' })
+  host.finish('gc', '测试全过。')
+  await relay()
+  await settle(() => host.agentOf('ga').calls.length === 2)
+  assert.equal(host.agentOf('ga').calls.length, 2)
+})
+
 test('a batch wake names who finished and carries a result that rolled out of the lines before the round', async (t) => {
   const { host, relay } = await batchInBackground(t)
   host.emit('gb', 'tool/result', { callId: 'k1' })
