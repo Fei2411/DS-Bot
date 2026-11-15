@@ -33,7 +33,7 @@ const { rm } = disk.promises
 const IPC = {
   caption: 'ds-bot:caption-colors', nativeTheme: 'ds-bot:native-theme', fullscreen: 'ds-bot:fullscreen',
   dataLocation: 'ds-bot:data-location', moveData: 'ds-bot:move-data', teamWorkspace: 'ds-bot:team-workspace',
-  ready: 'ds-bot:ready', handoffReady: 'ds-bot:handoff-ready', motion: 'ds-bot:motion',
+  ready: 'ds-bot:ready', handoffReady: 'ds-bot:handoff-ready', motion: 'ds-bot:motion', effects: 'ds-bot:effects',
   card: 'ds-bot:app-card', cardShown: 'ds-bot:app-card-shown', cardAnswer: 'ds-bot:app-card-answer',
   browserAcquire: 'ds-bot:browser-acquire', browserRelease: 'ds-bot:browser-release', browserForget: 'ds-bot:browser-forget',
   browserViewChanged: 'ds-bot:browser-view-changed', browserViewCreate: 'ds-bot:browser-view-create',
@@ -201,7 +201,7 @@ if (canonical !== undefined) {
     page: join(here, 'start', 'start.html'), preload: join(here, 'preload.cjs'), icon: iconFile, material, devTools: !app.isPackaged,
     css: readFileSync(join(here, 'page-card.css'), 'utf8'),
     // On Windows the locale is known only once the app is ready.
-    lang: () => langOf(app.getLocale()), motion: readStartFrame(frameFile).motion,
+    lang: () => langOf(app.getLocale()), motion: readStartFrame(frameFile).motion, effects: readStartFrame(frameFile).effects,
     version: app.getVersion(), program: [dirname(process.execPath), process.resourcesPath, app.getAppPath()], log: logs, mainWindow: () => mainWindow,
     onRetry: () => { retry().catch(fail) },
     onReload: () => { mainWindow?.webContents.reload() },
@@ -785,6 +785,7 @@ function handleIpc() {
     writeStartFrame(frameFile, { themeSource: value })
   })
   ipcMain.on(IPC.motion, (event, tier) => { if (fromWindow(event)) writeStartFrame(frameFile, { motion: tier }) })
+  ipcMain.on(IPC.effects, (event, tier) => { if (fromWindow(event)) writeStartFrame(frameFile, { effects: tier }) })
   ipcMain.handle(IPC.dataLocation, (event) => {
     assertWindow(event)
     return { path: places.dataDir, fixed }
