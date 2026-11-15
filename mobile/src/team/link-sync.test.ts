@@ -6,6 +6,7 @@ import { pendingCountOf } from '../nav/pending.ts'
 
 let hooks: ReturnType<typeof registerHooks> | undefined
 let useTeamLinkFn: any
+let reconnectDelayMsFn: (hadLink: boolean, failStreak: number) => number
 
 before(async () => {
   hooks = registerHooks({
@@ -56,7 +57,9 @@ before(async () => {
     },
   })
   ;(globalThis as any).__syncTestHooks = {}
-  useTeamLinkFn = (await import('./link.ts')).useTeamLink
+  const mod = await import('./link.ts')
+  useTeamLinkFn = mod.useTeamLink
+  reconnectDelayMsFn = mod.reconnectDelayMs
 })
 
 after(() => {
@@ -68,7 +71,8 @@ function mountUseTeamLink(options: {
   onStateCall: (payload: { since?: number; live?: string }) => Promise<TeamState>
   onCallBotState?: (endpoint: string, payload: unknown, state: unknown) => Promise<{ value: unknown; state?: TeamState }>
   onHelloCall?: () => Promise<{ api: number | null; capabilities: string[]; boot: string; seq: number }>
-  onOpen?: () => void
+  onOpen?: (attempt: number) => void | Promise<void>
+  onProbe?: (timeoutMs?: number) => void
 }) {
   let states: any[] = []
   let refs: { current: any }[] = []
@@ -80,7 +84,9 @@ function mountUseTeamLink(options: {
   let effectCursor = 0
   let pendingEffects: (() => void)[] = []
   let eventListener: ((ev: { event: string; data: any }) => void) | undefined
+  let closeListener: (() => void) | undefined
   let appStateListener: ((status: string) => void) | undefined
+  let opens = 0
 
   ;(globalThis as any).__syncTestHooks = {
     setAppStateListener(fn: (status: string) => void) { appStateListener = fn },
@@ -116,12 +122,13 @@ function mountUseTeamLink(options: {
       }
     },
     openLink: async () => {
-      options.onOpen?.()
+      opens += 1
+      await options.onOpen?.(opens)
       return {
         onEvent(fn: (ev: { event: string; data: any }) => void) { eventListener = fn },
-        onClose() {},
+        onClose(fn: () => void) { closeListener = fn },
         close: async () => {},
-        probe() {},
+        probe(timeoutMs?: number) { options.onProbe?.(timeoutMs) },
       }
     },
     callBot: async (_client: unknown, endpoint: string, payload: unknown) => {
@@ -153,6 +160,7 @@ function mountUseTeamLink(options: {
   return {
     render,
     emit: (event: string, data: any = {}) => eventListener?.({ event, data }),
+    dropLink: () => closeListener?.(),
     appState: (s: string) => appStateListener?.(s),
     cleanup: () => { for (const effect of effects) effect?.cleanup?.() },
   }
@@ -357,4 +365,50 @@ test('useTeamLink keeps connection retry timer when initial handshake fails befo
   const reconnected = h.render()
   assert.equal(reconnected.online, true)
   assert.equal(reconnected.team?.revision, 1)
+})
+
+test('reconnectDelayMs retries at once on first drop after a live link, then backs off', () => {
+  assert.equal(reconnectDelayMsFn(false, 0), 2_000)
+  assert.equal(reconnectDelayMsFn(true, 0), 0)
+  assert.equal(reconnectDelayMsFn(true, 1), 2_000)
+})
+
+test('useTeamLink reconnects at once when returning to foreground while disconnected, and probes with 2_500ms while linked', async (t) => {
+  let opens = 0
+  const probes: (number | undefined)[] = []
+  let failOpen = false
+  const h = mountUseTeamLink({
+    async onOpen(attempt) {
+      opens = attempt
+      if (failOpen) throw new Error('offline')
+    },
+    onProbe(ms) { probes.push(ms) },
+    async onStateCall() {
+      return { revision: 1, liveKey: 'ok', bots: [{ id: 'b1', name: 'Chief', sessionId: 's1' }], questions: {} }
+    },
+  })
+  t.after(h.cleanup)
+  h.render()
+  await new Promise(resolve => setTimeout(resolve, 20))
+  assert.equal(opens, 1)
+  assert.equal(h.render().online, true)
+
+  // Foreground while connected: probes with tight 2_500ms budget.
+  h.appState('active')
+  assert.deepEqual(probes, [2_500])
+
+  // Drop link, fail the immediate retry so a 2_000ms timer is pending, then go to background
+  // (which clears timers). Returning to active must connect immediately instead of staying stuck offline.
+  failOpen = true
+  h.dropLink()
+  await new Promise(resolve => setTimeout(resolve, 20))
+  assert.equal(opens, 2, 'first drop after live session retried immediately at 0ms')
+  assert.equal(h.render().online, false)
+
+  h.appState('background')
+  failOpen = false
+  h.appState('active')
+  await new Promise(resolve => setTimeout(resolve, 20))
+  assert.equal(opens, 3, 'returning to foreground while disconnected connects at once')
+  assert.equal(h.render().online, true)
 })

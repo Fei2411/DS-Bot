@@ -4,6 +4,7 @@ export type PendingItem =
   | { kind: 'question'; key: string; botId: string; summary: string }
   | { kind: 'approval'; key: string; botId: string; roomId?: string; summary: string }
   | { kind: 'secret'; key: string; botId: string; name?: string }
+  | { kind: 'connector'; key: string; botId: string; connectorId: string; name: string; purpose?: string }
   | { kind: 'handoff'; key: string; botId: string; note?: string; reason?: string }
   | { kind: 'view'; key: string; botId: string; title?: string }
 
@@ -37,6 +38,21 @@ export function pendingItemsOf(team: TeamState | null): PendingItem[] {
     if (!botById.has(botId)) continue
     for (const req of list ?? []) {
       if (req.status === 'pending') items.push({ kind: 'secret', key: `s-${req.id}`, botId, name: req.name })
+    }
+  }
+  for (const [botId, list] of Object.entries(team.connectorRequests ?? {})) {
+    if (!botById.has(botId)) continue
+    for (const req of list ?? []) {
+      if (req.status === 'pending') {
+        items.push({
+          kind: 'connector',
+          key: `c-${req.id}`,
+          botId,
+          connectorId: req.connectorId,
+          name: req.name || req.connectorId,
+          purpose: req.purpose,
+        })
+      }
     }
   }
   const holds = (team as { browserHolds?: Record<string, { callId?: string; note?: string; reason?: string }> }).browserHolds ?? {}

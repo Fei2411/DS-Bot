@@ -27,6 +27,14 @@ export function NeedsYou({ onOpen }: { onOpen: (target: ChatTarget) => void }) {
     botId: item.botId,
     summary: item.name ? t('Asks for the secret {name}', { name: item.name }) : t('A secret is needed'),
   }))
+  const connectors: PendingRow[] = items.filter(item => item.kind === 'connector').map(item => {
+    const botName = bots.find(b => b.id === item.botId)?.name ?? t('the Bot')
+    return {
+      key: item.key,
+      botId: item.botId,
+      summary: item.purpose ? `${item.name} · ${item.purpose}` : t('{bot} needs {name}', { bot: botName, name: item.name }),
+    }
+  })
   const handoffs: PendingRow[] = items.filter(item => item.kind === 'handoff').map(item => ({
     key: item.key,
     botId: item.botId,
@@ -42,6 +50,7 @@ export function NeedsYou({ onOpen }: { onOpen: (target: ChatTarget) => void }) {
     { title: t('Questions'), mark: '?', data: questions },
     { title: t('Approvals'), mark: '!', data: approvals },
     { title: t('Secret requests'), mark: '🔑', data: secrets },
+    { title: t('Connectors'), mark: '⇄', data: connectors },
     { title: t('Browser handoffs'), mark: '🌐', data: handoffs },
     { title: t('Cards'), mark: '▣', data: views },
   ].filter(section => section.data.length > 0)

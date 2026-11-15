@@ -51,6 +51,7 @@ import { freePriority, groupsFor, readMode, surfaceGroups, writeMode } from './s
 import { installLocale, language, t } from './i18n.js'
 import { noteClientError, quietly } from './diagnostics.js'
 import { steerQueued } from './enter-steer.js'
+import { installCommandActions } from './command-actions.js'
 import { RIGHTBAR_ATTRIBUTES, columnOpened, createSwitchWindow, drawerOpened, rightColumnOpen } from './right-panel.js'
 import { ErrorToast, FEEDBACK_CSS } from './feedback.js'
 import { ABOUT_CSS } from './about.js'
@@ -956,6 +957,9 @@ export function apply(ctx) {
   // Since DSH 0.2.1-alpha.3 user text is drawn by rules and a content factory, not the
   // primitives' text projection; the user's bubble draws with either (user-message.js).
   const hostDrawsUserText = typeof ctx.uiConversation.userText?.register === 'function'
+  // DS Bot's own rows in the `/` menu of a Bot chat and a group chat (the DSH rows stay;
+  // the host module stops their execution there).
+  ctx.effect(() => installCommandActions(ctx, { roster, actions }), 'ds-bot: bot command actions')
   // DS Bot holds the settings seat in every mode, Agent mode included: the bundle patch
   // turns DSH's own shell off, and this one draws DSH's settings pages in DS Bot's dialog.
   ctx.effect(() => {

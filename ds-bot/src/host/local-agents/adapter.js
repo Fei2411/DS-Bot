@@ -4,7 +4,7 @@
 // adapter turns each request into a prompt for the CLI session the Session is
 // mapped to, and the CLI's output back into stream chunks.
 import { createHash, randomUUID } from 'node:crypto'
-import { LlmAdapter, LlmError } from '@deepseek-ai/dsh-llm'
+import { LlmAdapter, LlmError, offloadedImageText, resolveImageAttachmentAccess, textOnlyImageText } from '@deepseek-ai/dsh-llm'
 import { textOf } from '../text.js'
 import { engineOf, cliMode } from './engines.js'
 import { LoopbackMcp } from './mcp.js'
@@ -129,11 +129,12 @@ export class LocalAgentAdapter extends LlmAdapter {
   async resolveModel(route, model) {
     const spec = engineOf(route, this.deps.customAgents())
     const listed = (await this.listModels(route).catch(() => [])).find(entry => entry.id === model)
+    const supportsImage = spec?.kind !== 'acp' || this.engines.get(route)?.supportsImages?.() !== false
     return {
       provider: route,
       id: model,
       name: listed?.name ?? model,
-      inputModalities: ['text', 'image'],
+      inputModalities: supportsImage ? ['text', 'image'] : ['text'],
       context: { contextWindow: spec?.contextWindow ?? DEFAULT_CONTEXT_WINDOW },
       // The thinking levels the engine advertises for this model, if any.
       ...(listed?.reasoning ? { reasoning: listed.reasoning } : {}),
@@ -487,8 +488,11 @@ export class LocalAgentAdapter extends LlmAdapter {
       }
     }
 
-    let promptText = fresh ? renderReplay(messages, system)
-      : [contextText, ...remaining.map(message => textOf(message.content))].filter(text => text !== '').join('\n\n')
+    const supportsImages = live.spec.kind !== 'acp' || live.engine.supportsImages?.(live.engineSession) !== false
+    const resolveImage = block => this.resolveImageBlock(block, { supportsImages, signal: options.signal })
+    let promptBlocks = fresh
+      ? await renderReplay(messages, system, resolveImage)
+      : await renderDelta(contextText, remaining, resolveImage)
     let sentInstructions = live.spec.kind !== 'acp' && freshCli && instructions !== undefined
     // A new CLI session gets its instructions in the open args or the replay;
     // the "updated" line is only for a session that saw older ones.
@@ -497,8 +501,8 @@ export class LocalAgentAdapter extends LlmAdapter {
       if (live.spec.kind === 'codex') {
         await live.engine.instruct?.(live.engineSession, updated)
         sentInstructions = true
-      } else if (promptText !== '' || live.spec.kind === 'acp' || live.spec.kind === 'claude') {
-        promptText = `${updated}\n\n${promptText}`
+      } else if (promptBlocks.length > 0 || live.spec.kind === 'acp' || live.spec.kind === 'claude') {
+        promptBlocks = mergeTextBlocks([{ type: 'text', text: updated }, ...promptBlocks])
         sentInstructions = true
       }
     }
@@ -515,23 +519,23 @@ export class LocalAgentAdapter extends LlmAdapter {
       // The turn this answer belongs to is over: it needs a turn of its own, in the same
       // prompt as whatever else this call brought — runtime context, a further user
       // message — because context alone would carry the turn without the decision.
-      const text = [settledText, promptText].filter(part => part !== '').join('\n\n')
+      const blocks = mergeTextBlocks([{ type: 'text', text: settledText }, ...promptBlocks])
       this.discardTurnOutput(live)
       if (sentInstructions) live.promptHash = promptHash
-      promptText = ''
-      await this.startTurn(live, text, options.signal, options.reasoningEffort)
+      promptBlocks = []
+      await this.startTurn(live, blocks, options.signal, options.reasoningEffort)
     } else if (settledText !== '') {
       // The turn still looks alive; if it ends without reading the answer, the drain
       // starts the turn that carries it.
       live.continuation = settledText
     }
-    if (promptText !== '') {
-      await this.sendInput(live, promptText, options.signal, options.reasoningEffort, settledText)
+    if (promptBlocks.length > 0) {
+      await this.sendInput(live, promptBlocks, options.signal, options.reasoningEffort, settledText)
       if (sentInstructions) live.promptHash = promptHash
       // ACP only counts instructions once they reach the agent with a prompt.
       if (live.spec.kind === 'acp' && (freshCli || sentInstructions)) live.promptHash = promptHash
     }
-    if (live.spec.kind === 'acp' && freshCli && promptText === '' && instructions !== undefined) {
+    if (live.spec.kind === 'acp' && freshCli && promptBlocks.length === 0 && instructions !== undefined) {
       await this.sendInput(live, `Follow these instructions from the user's team for everything you do here. They sit on top of your own; when they conflict, these win.\n\n${instructions}`, options.signal, options.reasoningEffort)
       live.promptHash = promptHash
     }
@@ -573,13 +577,17 @@ export class LocalAgentAdapter extends LlmAdapter {
   // started, or the prompt is away. The caller waits for it before reading the CLI,
   // so a steer that fails after the finished turn's `done` arrived still gets a turn
   // of its own instead of being read as this turn's end (#1513).
-  sendInput(live, text, signal, effort, settled) {
+  sendInput(live, input, signal, effort, settled) {
+    const blocks = typeof input === 'string' ? [{ type: 'text', text: input }] : input
+    const steerInput = typeof input === 'string' ? input : blocks
     live.mute = false
     // A settled answer rides with the input: if this input cannot land as a steer, the
     // turn that replaces it must still carry what the user decided (#1513).
-    const body = settled === undefined || settled === '' ? text : `${settled}\n\n${text}`
+    const body = settled === undefined || settled === ''
+      ? blocks
+      : mergeTextBlocks([{ type: 'text', text: settled }, ...blocks])
     if (live.state !== 'idle') {
-      if (live.spec.kind === 'acp') { live.queue.push(text); return Promise.resolve() }
+      if (live.spec.kind === 'acp') { live.queue.push(blocks); return Promise.resolve() }
       // Steering lands on a turn that is still running. When the CLI finished the
       // turn behind a card — the usual case for an answer that arrives late — the
       // steer has nothing to land on, and dropping it leaves the user's answer
@@ -598,12 +606,12 @@ export class LocalAgentAdapter extends LlmAdapter {
         return this.startTurn(live, body, signal, effort)
       }
       try {
-        return Promise.resolve(live.engine.steer?.(live.engineSession, text)).then(() => {}, recover)
+        return Promise.resolve(live.engine.steer?.(live.engineSession, steerInput)).then(() => {}, recover)
       } catch {
         return recover()
       }
     }
-    this.startTurn(live, text, signal, effort)
+    this.startTurn(live, blocks, signal, effort)
     return Promise.resolve()
   }
 
@@ -613,19 +621,57 @@ export class LocalAgentAdapter extends LlmAdapter {
   }
 
   // Codex resolves on acceptance; ACP resolves only when the entire turn ends.
-  startTurn(live, text, signal, effort) {
+  startTurn(live, input, signal, effort) {
+    const blocks = typeof input === 'string' ? [{ type: 'text', text: input }] : input
     live.state = 'running'
     // The turn an engine names is the one this stream reads: a finished turn's late
     // events carry another id and are dropped instead of answering this one (#1513).
     live.turnTag = undefined
     try {
-      const started = Promise.resolve(live.engine.prompt(live.engineSession, [{ type: 'text', text }], { signal, effort }))
+      const started = Promise.resolve(live.engine.prompt(live.engineSession, blocks, { signal, effort }))
         .then((turnId) => { if (live.spec.kind === 'codex' && turnId !== undefined) live.turnTag = turnId })
         .catch(error => live.push({ type: 'error', error }))
       return live.spec.kind === 'acp' ? Promise.resolve() : started
     } catch (error) {
       live.push({ type: 'error', error })
       return Promise.resolve()
+    }
+  }
+
+  async resolveImageBlock(block, { supportsImages, signal }) {
+    const ref = block?.attachment
+    if (ref === undefined) return { type: 'text', text: '[image unavailable]' }
+    const attachments = this.deps.attachments ?? this.deps.rt?.ctx?.get?.('attachments')
+    const fsService = this.deps.fs ?? this.deps.rt?.ctx?.get?.('fs')
+    let access
+    if (attachments !== undefined) {
+      try {
+        const mapHostPath = path => (fsService?.processPathFromHostPath ? fsService.processPathFromHostPath(path) : path)
+        access = resolveImageAttachmentAccess(attachments, mapHostPath, ref)
+      } catch {}
+    }
+    if (block.offloaded === true) return { type: 'text', text: offloadedImageText(ref, access) }
+    if (!supportsImages) {
+      const base = textOnlyImageText(ref)
+      return { type: 'text', text: access?.readonlyPath ? `${base} (file: ${access.readonlyPath})` : base }
+    }
+    if (attachments === undefined || typeof attachments.readImage !== 'function') {
+      this.deps.rt?.warn?.('local-agents: attachments service unavailable; cannot forward image')
+      const base = textOnlyImageText(ref)
+      return { type: 'text', text: access?.readonlyPath ? `${base} (file: ${access.readonlyPath})` : base }
+    }
+    try {
+      const got = await attachments.readImage(ref, signal)
+      return {
+        type: 'image',
+        mediaType: got.ref?.mediaType ?? ref.mediaType ?? 'image/png',
+        data: Buffer.from(got.data).toString('base64'),
+      }
+    } catch (error) {
+      if (signal?.aborted) throw error
+      this.deps.rt?.warn?.(`local-agents: failed to read image ${ref.attachmentId ?? ''}: ${error?.message ?? error}`)
+      const base = textOnlyImageText(ref)
+      return { type: 'text', text: access?.readonlyPath ? `${base} (file: ${access.readonlyPath})` : base }
     }
   }
 
@@ -996,10 +1042,59 @@ function presetAnswer(preset, event) {
   return undefined
 }
 
+// Collapse consecutive text blocks with paragraph breaks while keeping non-text blocks in place.
+function mergeTextBlocks(blocks) {
+  const out = []
+  for (const block of blocks) {
+    if (block.type === 'text') {
+      if (block.text === '') continue
+      const prev = out.at(-1)
+      if (prev?.type === 'text') prev.text = `${prev.text}\n\n${block.text}`
+      else out.push({ type: 'text', text: block.text })
+    } else {
+      out.push(block)
+    }
+  }
+  return out
+}
+
+async function blocksOfMessage(message, { maxText, resolveImage }) {
+  const raw = Array.isArray(message.content) ? message.content : []
+  const out = []
+  let textParts = []
+  let textLeft = maxText ?? Infinity
+  const flushText = () => {
+    const text = textParts.join('\n').trim()
+    textParts = []
+    if (text !== '') out.push({ type: 'text', text })
+  }
+  for (const block of raw) {
+    if (block?.type === 'text' && typeof block.text === 'string') {
+      const piece = textLeft === Infinity ? block.text : block.text.slice(0, textLeft)
+      if (textLeft !== Infinity) textLeft = Math.max(0, textLeft - piece.length)
+      textParts.push(piece)
+    } else if (block?.type === 'image') {
+      flushText()
+      out.push(await resolveImage(block))
+    }
+  }
+  flushText()
+  return out
+}
+
+async function renderDelta(contextText, remaining, resolveImage) {
+  const parts = []
+  if (contextText !== '') parts.push({ type: 'text', text: contextText })
+  for (const message of remaining) {
+    parts.push(...await blocksOfMessage(message, { resolveImage }))
+  }
+  return mergeTextBlocks(parts)
+}
+
 // The replay a fresh CLI session stands up on: the system prompt, then the
-// recent messages rendered as text, newest first, always with the latest input
+// recent messages rendered as text and images, newest first, always with the latest input
 // and the handoff a new part opens with, both word for word.
-function renderReplay(messages, system) {
+async function renderReplay(messages, system, resolveImage) {
   const picked = []
   let used = 0
   const body = (messages ?? []).filter(message => message.role !== 'system')
@@ -1008,16 +1103,24 @@ function renderReplay(messages, system) {
   for (const message of [...body].reverse()) {
     const whole = message === latest || message.source?.handoff === true
     const text = textOf(message.content)
-    const line = `${message.role === 'assistant' ? 'You' : message.role === 'tool' ? `Tool result (${message.toolCallId ?? 'call'})` : 'User'}: ${whole ? text : text.slice(0, 2_000)}`
-    if (whole) { picked.unshift(line); used += line.length; continue }
-    full ||= picked.length >= REPLAY_MESSAGES || used + line.length > REPLAY_BYTES
-    if (full) continue
-    picked.unshift(line)
-    used += line.length
+    const prefix = `${message.role === 'assistant' ? 'You' : message.role === 'tool' ? `Tool result (${message.toolCallId ?? 'call'})` : 'User'}:`
+    const approxLen = prefix.length + 1 + (whole ? text.length : Math.min(text.length, 2_000))
+    if (!whole) {
+      full ||= picked.length >= REPLAY_MESSAGES || used + approxLen > REPLAY_BYTES
+      if (full) continue
+    }
+    const blocks = await blocksOfMessage(message, { maxText: whole ? Infinity : 2_000, resolveImage })
+    const entry = blocks.length > 0 && blocks[0].type === 'text'
+      ? [{ type: 'text', text: `${prefix} ${blocks[0].text}` }, ...blocks.slice(1)]
+      : blocks.length > 0
+        ? [{ type: 'text', text: prefix }, ...blocks]
+        : [{ type: 'text', text: `${prefix} ` }]
+    picked.unshift(entry)
+    used += approxLen
   }
-  if (picked.length === 0) return ''
+  if (picked.length === 0) return []
   const head = system === '' ? '' : `The team instructions for this conversation:\n${system}\n\n`
-  return `${head}The conversation so far (oldest first):\n\n${picked.join('\n\n')}`
+  return mergeTextBlocks([{ type: 'text', text: `${head}The conversation so far (oldest first):` }, ...picked.flat()])
 }
 
 // Process exits, missing CLIs, quota and sign-in failures get typed codes so DS

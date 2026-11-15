@@ -209,6 +209,7 @@ const MOBILE_ZH: Record<string, string> = {
   'Allow': '允许',
   'Reject': '拒绝',
   'Answer on the computer.': '在电脑上回答。',
+  'Set up your mailbox on the computer.': '请在电脑上设置邮箱。',
   'This question is no longer open.': '这个问题已经关闭了。',
   'This approval is no longer open.': '这项批准已经关闭了。',
   'Submit': '提交',
