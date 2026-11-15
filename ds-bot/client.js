@@ -14773,7 +14773,17 @@ function readSkinSurfaceVars(doc, theme, { minAlpha = MIN_SKIN_ALPHA } = {}) {
   const mode = dark ? theme.dark : theme.light;
   const colors = { main: mode.bg, sidebar: mode.sidebar, card: mode.card };
   const style = doc.defaultView?.getComputedStyle?.(body);
-  const token = (name) => style?.getPropertyValue?.(name)?.trim() ?? "";
+  const token = (name) => {
+    const value = style?.getPropertyValue?.(name)?.trim() ?? "";
+    if (value === "" || parseColor(value) !== void 0) return value;
+    const canvas = doc.createElement("canvas");
+    canvas.width = canvas.height = 1;
+    const paint = canvas.getContext("2d");
+    paint.fillStyle = value;
+    paint.fillRect(0, 0, 1, 1);
+    const [r, g, b, a] = paint.getImageData(0, 0, 1, 1).data;
+    return withAlpha({ r, g, b }, a / 255);
+  };
   return skinSurfaceVars({ main: token("--dsw-alias-bg-base"), sidebar: token("--dsw-specific-sidebar-fill"), colors }, { minAlpha });
 }
 function writeSkinSurfaceVars(doc, read) {
