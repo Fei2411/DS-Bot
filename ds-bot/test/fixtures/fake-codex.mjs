@@ -58,7 +58,7 @@ async function elicitTurn(thread, turnId, text) {
   notice('turn/completed', { threadId: thread.id, turn: { id: turnId, status: 'completed' } })
 }
 
-function runTurn(thread, turnId, text, effort) {
+function runTurn(thread, turnId, text, effort, images = []) {
   if (/elicit \S+ \S+/.test(text)) return void elicitTurn(thread, turnId, text)
   // What the thread was opened with, for a test that checks the fields.
   if (text.includes('show-thread')) {
@@ -70,7 +70,8 @@ function runTurn(thread, turnId, text, effort) {
     notice('item/started', { threadId: thread.id, item: { id: 'i1', type: 'commandExecution', command: 'ls' } })
     notice('item/completed', { threadId: thread.id, item: { id: 'i1', type: 'commandExecution', exitCode: 0 } })
   }
-  notice('item/completed', { threadId: thread.id, item: { id: 'i2', type: 'agentMessage', text: `ok: ${text.slice(0, 60)} effort=${effort ?? 'none'}` } })
+  const suffix = images.length > 0 ? ` images=${JSON.stringify(images)}` : ''
+  notice('item/completed', { threadId: thread.id, item: { id: 'i2', type: 'agentMessage', text: `ok: ${text.slice(0, 60)} effort=${effort ?? 'none'}${suffix}` } })
   thread.used = (thread.used ?? 25_000) + 800 + Number(text.match(/grow:(\d+)/)?.[1] ?? 0)
   usage(thread, turnId, { totalTokens: thread.used, inputTokens: thread.used - 6, cachedInputTokens: 12_288, cacheWriteInputTokens: 0, outputTokens: 6, reasoningOutputTokens: 0 })
   notice('turn/completed', { threadId: thread.id, turn: { id: turnId, status: 'completed' } })
@@ -149,11 +150,15 @@ process.stdin.on('data', (chunk) => {
       }
       case 'thread/inject_items': reply(id, {}); break
       case 'turn/start': {
+        const input = params.input ?? []
+        const badImage = input.find(item => item.type === 'image' && typeof item.url !== 'string' && typeof item.fileId !== 'string')
+        if (badImage !== undefined) { replyError(id, 'Invalid image input: missing url or fileId'); break }
+        const images = input.filter(item => item.type === 'image').map(item => ({ type: item.type, url: item.url }))
         const thread = threads.get(params.threadId)
         const turnId = `turn-${++nextId}`
         reply(id, { turn: { id: turnId } })
-        const text = (params.input ?? []).map(item => item.text ?? '').join('\n')
-        setImmediate(() => runTurn(thread ?? { id: params.threadId }, turnId, text, params.effort))
+        const text = input.filter(item => item.type === 'text').map(item => item.text ?? '').join('\n')
+        setImmediate(() => runTurn(thread ?? { id: params.threadId }, turnId, text, params.effort, images))
         break
       }
       case 'thread/compact/start': {

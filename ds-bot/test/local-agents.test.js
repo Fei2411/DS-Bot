@@ -27,11 +27,13 @@ const system = (id, text) => ({ id, role: 'system', content: [{ type: 'text', te
 const toolResult = (id, callId, text, isError = false) => ({ id, role: 'tool', content: [{ type: 'text', text }], toolCallId: callId, isError, source: { kind: 'tool', callId } })
 
 // An adapter wired to the fake CLIs: every engine route spawns `node fixture`.
-function makeAdapter({ records = {}, preset = 'workspace-write', acp = FIXTURES.acp, acpArgs = [], codex = FIXTURES.codex, codexArgs = [], claude = FIXTURES.claude, claudeArgs = [], cwdFor } = {}) {
+function makeAdapter({ records = {}, preset = 'workspace-write', acp = FIXTURES.acp, acpArgs = [], codex = FIXTURES.codex, codexArgs = [], claude = FIXTURES.claude, claudeArgs = [], cwdFor, attachments, fs, rt } = {}) {
   const files = { acp, codex, claude }
   const spawned = []
   const adapter = new LocalAgentAdapter({
-    rt: { warn: () => {} },
+    rt: rt ?? { warn: () => {} },
+    attachments,
+    fs,
     customAgents: () => [{ id: 'fake', name: 'Fake ACP', command: 'x', args: [] }, { id: 'fake2', name: 'Fake ACP 2', command: 'x', args: [] }],
     findExecutable: path => path,
     spawnEngine: (kind, route, spec) => {
@@ -1378,4 +1380,135 @@ test('resuming an ACP session keeps its saved defaultEffort over another workspa
   assert.match(a2.text, /effort: low/)
   assert.equal(records.sA?.defaultEffort, 'low')
   assert.equal(records.sA?.effort, undefined)
+})
+
+function makeMemoryAttachments(entries = {}) {
+  return {
+    async readImage(ref) {
+      const entry = entries[ref.attachmentId]
+      if (entry === undefined) throw new Error(`missing image ${ref.attachmentId}`)
+      if (entry instanceof Error) throw entry
+      return { ref: { ...ref, mediaType: entry.mediaType ?? ref.mediaType }, data: entry.data }
+    },
+    imageHostPath(ref) {
+      return entries[ref.attachmentId]?.hostPath
+    },
+  }
+}
+
+const imageMsg = (id, text, ref, { offloaded = false } = {}) => ({
+  id,
+  role: 'user',
+  content: [
+    ...(text === undefined ? [] : [{ type: 'text', text }]),
+    { type: 'image', attachment: ref, ...(offloaded ? { offloaded: true } : {}) },
+  ],
+  source: { kind: 'user' },
+})
+
+test('codex receives image blocks on first replay turn, delta turn, and image-only turns', async (t) => {
+  const pngBytes = Buffer.from([137, 80, 78, 71, 1, 2, 3, 4])
+  const jpgBytes = Buffer.from([255, 216, 255, 5, 6, 7])
+  const pngRef = { attachmentId: 'att-png', mediaType: 'image/png', bytes: pngBytes.length, width: 1, height: 1, name: 'photo.png' }
+  const jpgRef = { attachmentId: 'att-jpg', mediaType: 'image/jpeg', bytes: jpgBytes.length, width: 2, height: 2 }
+  const adapter = makeAdapter({
+    attachments: makeMemoryAttachments({
+      'att-png': { mediaType: 'image/png', data: pngBytes },
+      'att-jpg': { mediaType: 'image/jpeg', data: jpgBytes },
+    }),
+  })
+  t.after(() => adapter.dispose())
+
+  const first = await collect(adapter.stream(options('s1', [imageMsg('m1', 'describe this', pngRef)], { provider: 'local-codex-cli', model: 'gpt-5.1-codex' })))
+  assert.equal(first.finish?.kind, 'stop')
+  assert.match(first.text, new RegExp(`data:image/png;base64,${pngBytes.toString('base64')}`))
+
+  const second = await collect(adapter.stream(options('s1', [imageMsg('m1', 'describe this', pngRef), imageMsg('m2', undefined, jpgRef)], { provider: 'local-codex-cli', model: 'gpt-5.1-codex' })))
+  assert.equal(second.finish?.kind, 'stop')
+  assert.match(second.text, new RegExp(`data:image/jpeg;base64,${jpgBytes.toString('base64')}`))
+})
+
+test('claude receives Anthropic base64 image blocks for text+image and image-only turns', async (t) => {
+  const pngBytes = Buffer.from([137, 80, 78, 71, 9, 8, 7, 6])
+  const pngRef = { attachmentId: 'att-c1', mediaType: 'image/png', bytes: pngBytes.length, width: 1, height: 1 }
+  const adapter = makeAdapter({
+    attachments: makeMemoryAttachments({ 'att-c1': { mediaType: 'image/png', data: pngBytes } }),
+  })
+  t.after(() => adapter.dispose())
+
+  const first = await collect(adapter.stream(options('s1', [imageMsg('m1', 'check screenshot', pngRef)], { provider: 'local-claude-code', model: 'sonnet' })))
+  assert.equal(first.finish?.kind, 'stop')
+  assert.match(first.text, new RegExp(`"mediaType":"image/png".*"data":"${pngBytes.toString('base64')}"`))
+
+  const second = await collect(adapter.stream(options('s1', [imageMsg('m1', 'check screenshot', pngRef), imageMsg('m2', undefined, pngRef)], { provider: 'local-claude-code', model: 'sonnet' })))
+  assert.equal(second.finish?.kind, 'stop')
+  assert.match(second.text, new RegExp(`"data":"${pngBytes.toString('base64')}"`))
+})
+
+test('acp receives {type:"image", mimeType, data} when promptCapabilities.image is true', async (t) => {
+  const webpBytes = Buffer.from([82, 73, 70, 70, 1, 2, 3])
+  const ref = { attachmentId: 'att-a1', mediaType: 'image/webp', bytes: webpBytes.length, width: 1, height: 1 }
+  const adapter = makeAdapter({
+    attachments: makeMemoryAttachments({ 'att-a1': { mediaType: 'image/webp', data: webpBytes } }),
+  })
+  t.after(() => adapter.dispose())
+
+  const first = await collect(adapter.stream(options('s1', [imageMsg('m1', 'look', ref)])))
+  assert.equal(first.finish?.kind, 'stop')
+  assert.match(first.text, new RegExp(`"mimeType":"image/webp","data":"${webpBytes.toString('base64')}"`))
+
+  const second = await collect(adapter.stream(options('s1', [imageMsg('m1', 'look', ref), imageMsg('m2', undefined, ref)])))
+  assert.equal(second.finish?.kind, 'stop')
+  assert.match(second.text, new RegExp(`"mimeType":"image/webp","data":"${webpBytes.toString('base64')}"`))
+})
+
+test('acp without image capability degrades image to text and updates resolveModel inputModalities', async (t) => {
+  const pngBytes = Buffer.from([137, 80, 78, 71, 4, 5, 6])
+  const ref = { attachmentId: 'att-noimg', mediaType: 'image/png', bytes: pngBytes.length, width: 10, height: 20, name: 'shot.png' }
+  const adapter = makeAdapter({
+    acpArgs: ['--no-image'],
+    attachments: makeMemoryAttachments({
+      'att-noimg': { mediaType: 'image/png', data: pngBytes, hostPath: '/tmp/host-shot.png' },
+    }),
+    fs: { processPathFromHostPath: p => p.replace('/tmp/', '/guest/') },
+  })
+  t.after(() => adapter.dispose())
+
+  // Before any CLI starts, resolveModel must stay fast/lazy and optimistic.
+  const before = await adapter.resolveModel('local-acp-fake', 'default')
+  assert.deepEqual(before.inputModalities, ['text', 'image'])
+  assert.equal(adapter._spawned.length, 0)
+
+  // First turn sees promptCapabilities.image === false and must degrade instead of sending an invalid image block (-32602).
+  const first = await collect(adapter.stream(options('s1', [imageMsg('m1', 'what is this?', ref)])))
+  assert.equal(first.finish?.kind, 'stop')
+  assert.doesNotMatch(first.text, /"mimeType"/)
+  assert.match(first.text, /what is this\?/)
+
+  // Once known, resolveModel excludes 'image' so host OCR takes over on subsequent turns.
+  const after = await adapter.resolveModel('local-acp-fake', 'default')
+  assert.deepEqual(after.inputModalities, ['text'])
+})
+
+test('offloaded or unreadable images degrade cleanly without calling readImage on offloaded blocks', async (t) => {
+  let reads = 0
+  const ref1 = { attachmentId: 'att-off', mediaType: 'image/png', bytes: 12, width: 2, height: 2, name: 'old.png' }
+  const ref2 = { attachmentId: 'att-err', mediaType: 'image/png', bytes: 12, width: 2, height: 2, name: 'broken.png' }
+  const adapter = makeAdapter({
+    attachments: {
+      async readImage(ref) {
+        reads += 1
+        throw new Error(`read failed for ${ref.attachmentId}`)
+      },
+    },
+  })
+  t.after(() => adapter.dispose())
+
+  const out = await collect(adapter.stream(options('s1', [
+    imageMsg('m1', 'check both', ref1, { offloaded: true }),
+    imageMsg('m2', 'and this', ref2),
+  ], { provider: 'local-codex-cli', model: 'gpt-5.1-codex' })))
+  assert.equal(out.finish?.kind, 'stop')
+  assert.equal(reads, 1)
+  assert.doesNotMatch(out.text, /images=/)
 })

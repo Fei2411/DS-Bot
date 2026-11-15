@@ -242,12 +242,12 @@ class ClaudeSession {
   }
 
   prompt(blocks) {
-    this.write({ type: 'user', message: { role: 'user', content: blocks } })
+    this.write({ type: 'user', message: { role: 'user', content: claudeContent(blocks) } })
     return Promise.resolve()
   }
 
-  async steer(thread, text) {
-    this.prompt([{ type: 'text', text }])
+  async steer(thread, input) {
+    this.prompt(Array.isArray(input) ? input : [{ type: 'text', text: input }])
   }
 
   // `/compact` in stream-json runs the CLI's own compaction and ends with a result.
@@ -267,6 +267,25 @@ class ClaudeSession {
     setTimeout(() => { try { this.child?.kill('SIGKILL') } catch {} }, 5_000).unref?.()
     this.child = undefined
   }
+}
+
+function claudeContent(blocks) {
+  const out = []
+  for (const block of blocks) {
+    if (block.type === 'image') {
+      out.push({
+        type: 'image',
+        source: {
+          type: 'base64',
+          media_type: block.mediaType ?? block.mimeType ?? 'image/png',
+          data: block.data,
+        },
+      })
+    } else if ((block.text ?? '') !== '') {
+      out.push({ type: 'text', text: block.text })
+    }
+  }
+  return out.length > 0 ? out : [{ type: 'text', text: '' }]
 }
 
 const usageOf = usage => (usage === undefined ? undefined : {
