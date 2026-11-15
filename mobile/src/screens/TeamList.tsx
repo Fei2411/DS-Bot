@@ -1,8 +1,9 @@
-import { useMemo } from 'react'
+import { useMemo, useSyncExternalStore } from 'react'
 import { Pressable, StyleSheet, Text, View, SectionList } from 'react-native'
 import type { Bot, Room } from '../connection.ts'
 import { useTeam } from '../team/context.tsx'
-import { seenAt } from '../team/seen.ts'
+import { botHasPending, roomHasPending } from '../nav/pending.ts'
+import { isUnread, seenVersion, subscribeSeen } from '../team/seen.ts'
 import { t } from '../ui/i18n.ts'
 import { radius, type as typeScale, useTheme } from '../ui/tokens.ts'
 import { Avatar, RoomAvatar } from '../ui/marks.tsx'
@@ -16,8 +17,10 @@ export interface ChatTarget { kind: 'bot' | 'room'; id: string }
 // Bot as a tile on top, then the other Bots and groups as rows, pinned first, then
 // by their latest message.
 export function TeamList({ onOpen, query = '', current }: { onOpen: (target: ChatTarget) => void; query?: string; current?: string }) {
-  const { team, error } = useTeam()
+  const { team, error, computer } = useTeam()
   const { p, dark } = useTheme()
+  const hostId = computer?.hostDeviceId ?? ''
+  useSyncExternalStore(subscribeSeen, seenVersion)
 
   const bots = Array.isArray(team?.bots) ? team.bots : []
   const mains = new Set(team?.mainBotIds ?? [])
@@ -27,7 +30,7 @@ export function TeamList({ onOpen, query = '', current }: { onOpen: (target: Cha
   const workRooms = team?.work?.rooms ?? {}
   const waiting = team?.work?.waiting ?? {}
   const questions = team?.questions ?? {}
-  const approvals = Array.isArray(team?.work?.approvals) ? team.work.approvals : []
+  const approvals = (Array.isArray(team?.work?.approvals) ? team.work.approvals : []).filter(a => a?.answerable !== false)
 
   const entries = useMemo(() => {
     const rooms = Array.isArray(team?.rooms) ? team.rooms : []
@@ -78,7 +81,7 @@ export function TeamList({ onOpen, query = '', current }: { onOpen: (target: Cha
             {mainList.map(main => (
               <Pressable key={main.id} accessibilityRole="button" accessibilityLabel={`${main.name}, ${t('Main Bot')}`} onPress={() => onOpen({ kind: 'bot', id: main.id })}
                 style={({ pressed }) => [styles.tile, { backgroundColor: pressed || current === main.id ? p.active : p.hover }]}>
-                <Avatar bot={main} dark={dark} size={52} ring={p.hover} main working={workBots[main.id] !== undefined} waiting={questions[main.sessionId ?? main.id] !== undefined} />
+                <Avatar bot={main} dark={dark} size={52} ring={p.hover} main working={workBots[main.id] !== undefined} waiting={botHasPending(team, main)} />
                 <Text style={[typeScale.small, { color: p.ink, fontWeight: '600', marginTop: 6 }]} numberOfLines={1}>{main.name}</Text>
                 {main.role ? <View style={[styles.tag, { backgroundColor: p.active }]}><Text style={{ fontSize: 11, lineHeight: 15, color: p.ink2 }} numberOfLines={1}>{main.role}</Text></View> : null}
               </Pressable>
@@ -86,9 +89,9 @@ export function TeamList({ onOpen, query = '', current }: { onOpen: (target: Cha
           </View>
         ) : undefined}
         renderItem={({ item: entry }) => entry.kind === 'bot' ? (
-          <BotRow bot={entry.item} p={p} dark={dark} mains={mains} questions={questions} approvals={approvals} workBots={workBots} preview={preview(entry.item)} selected={current === entry.item.id} unread={entry.item.lastAt !== undefined && entry.item.lastAt > seenAt(entry.item.id)} onPress={() => onOpen({ kind: 'bot', id: entry.item.id })} />
+          <BotRow bot={entry.item} p={p} dark={dark} mains={mains} waiting={botHasPending(team, entry.item)} workBots={workBots} preview={preview(entry.item)} selected={current === entry.item.id} unread={isUnread(hostId, entry.item.id, entry.item.lastAt, current === entry.item.id)} onPress={() => onOpen({ kind: 'bot', id: entry.item.id })} />
         ) : (
-          <RoomRow room={entry.item} bots={bots} p={p} dark={dark} approvals={approvals} preview={roomPreview(entry.item)} selected={current === entry.item.id} unread={entry.item.lastAt !== undefined && entry.item.lastAt > seenAt(entry.item.id)} working={(workRooms[entry.item.id] ?? []).length > 0} onPress={() => onOpen({ kind: 'room', id: entry.item.id })} />
+          <RoomRow room={entry.item} bots={bots} p={p} dark={dark} waiting={roomHasPending(team, entry.item)} preview={roomPreview(entry.item)} selected={current === entry.item.id} unread={isUnread(hostId, entry.item.id, entry.item.lastAt, current === entry.item.id)} working={(workRooms[entry.item.id] ?? []).length > 0} onPress={() => onOpen({ kind: 'room', id: entry.item.id })} />
         )}
         ListEmptyComponent={<Text style={[typeScale.small, { color: p.ink3, textAlign: 'center', marginTop: 40 }]}>{team === null ? t('Connecting…') : ''}</Text>}
       />
@@ -96,11 +99,10 @@ export function TeamList({ onOpen, query = '', current }: { onOpen: (target: Cha
   )
 }
 
-function BotRow({ bot, p, dark, mains, questions, approvals, workBots, preview, unread, selected, onPress }: {
+function BotRow({ bot, p, dark, mains, waiting, workBots, preview, unread, selected, onPress }: {
   bot: Bot; p: ReturnType<typeof useTheme>['p']; dark: boolean; mains: Set<string>
-  questions: Record<string, unknown>; approvals: { botId: string }[]; workBots: Record<string, unknown>; preview?: string; unread?: boolean; selected?: boolean; onPress: () => void
+  waiting: boolean; workBots: Record<string, unknown>; preview?: string; unread?: boolean; selected?: boolean; onPress: () => void
 }) {
-  const waiting = questions[bot.sessionId ?? bot.id] !== undefined || approvals.some(a => a.botId === bot.id)
   return (
     <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.row, (pressed || selected) && { backgroundColor: p.hover }]}>
       <Avatar bot={bot} dark={dark} size={36} ring={p.sidebar} main={mains.has(bot.id)} working={workBots[bot.id] !== undefined} waiting={waiting} />
@@ -116,11 +118,10 @@ function BotRow({ bot, p, dark, mains, questions, approvals, workBots, preview, 
   )
 }
 
-function RoomRow({ room, bots, p, dark, approvals, preview, unread, working, selected, onPress }: {
+function RoomRow({ room, bots, p, dark, waiting, preview, unread, working, selected, onPress }: {
   room: Room; bots: Bot[]; p: ReturnType<typeof useTheme>['p']; dark: boolean
-  approvals: { roomId?: string }[]; preview?: string; unread?: boolean; working: boolean; selected?: boolean; onPress: () => void
+  waiting: boolean; preview?: string; unread?: boolean; working: boolean; selected?: boolean; onPress: () => void
 }) {
-  const waiting = approvals.some(a => a.roomId === room.id)
   return (
     <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.row, (pressed || selected) && { backgroundColor: p.hover }]}>
       <View>
