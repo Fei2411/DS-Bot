@@ -173,6 +173,8 @@ export class LocalAgentAdapter extends LlmAdapter {
       cliSessionId: record?.cliSessionId,
       handed: record?.handedId,
       promptHash: record?.promptHash,
+      defaultEffort: record?.model === options.model ? record?.defaultEffort : undefined,
+      effort: record?.effort,
       engineSession: undefined,
       mcp: undefined,
       events: [],
@@ -222,6 +224,8 @@ export class LocalAgentAdapter extends LlmAdapter {
       handedId: live.handed,
       promptHash: live.promptHash,
       model: live.model,
+      ...(live.defaultEffort === undefined ? {} : { defaultEffort: live.defaultEffort }),
+      ...(live.effort === undefined ? {} : { effort: live.effort }),
       ...(live.context === undefined ? {} : { context: live.context }),
       ...(live.compactions > 0 ? { compactions: live.compactions } : {}),
       ...extra,
@@ -232,6 +236,12 @@ export class LocalAgentAdapter extends LlmAdapter {
   // window; a compaction makes the last figure stale until the CLI reports again,
   // except where it reported during the compaction itself (Codex).
   observe(live, event) {
+    if (event?.type === 'effort') {
+      if (event.defaultEffort !== undefined) live.defaultEffort = event.defaultEffort
+      live.effort = event.effort
+      this.deps.saveRecord(live.sessionId, this.recordOf(live))
+      return
+    }
     if (event?.type === 'context') {
       const size = Number.isFinite(event.size) && event.size > 0 ? event.size : live.context?.size
       live.context = Number.isFinite(event.used)
@@ -426,6 +436,8 @@ export class LocalAgentAdapter extends LlmAdapter {
         mode,
         preset,
         model: options.model,
+        defaultEffort: live.defaultEffort,
+        effort: live.effort,
         // Codex carries the team instructions as developer config on a new
         // thread; Claude gets them appended at spawn; ACP reads them in the
         // first prompt below.
@@ -438,6 +450,10 @@ export class LocalAgentAdapter extends LlmAdapter {
       // in the meantime, or a resume that fails would erase it.
       const reportedId = live.engineSession.acpSessionId ?? live.engineSession.threadId ?? live.engineSession.cliSessionId
       if (reportedId !== undefined) live.cliSessionId = reportedId
+      if (live.spec.kind === 'acp') {
+        if (live.engineSession.defaultEffort !== undefined) live.defaultEffort = live.engineSession.defaultEffort
+        live.effort = live.engineSession.effort
+      }
       live.started = true
       // The session's events feed this Session's queue: a call from any engine
       // kind reaches drain() through live.next().
@@ -723,8 +739,21 @@ export class LocalAgentAdapter extends LlmAdapter {
   async openFor(live, sessionId) {
     const cwd = live.cwd ?? await this.deps.cwdFor(sessionId)
     live.cwd = cwd
-    live.engineSession = await live.engine.open(sessionId, { cwd, mcp: undefined, resumeId: live.cliSessionId, mode: cliMode(live.spec.kind, live.preset), preset: live.preset, model: live.model })
+    live.engineSession = await live.engine.open(sessionId, {
+      cwd,
+      mcp: undefined,
+      resumeId: live.cliSessionId,
+      mode: cliMode(live.spec.kind, live.preset),
+      preset: live.preset,
+      model: live.model,
+      defaultEffort: live.record === undefined || live.record.model === live.model ? live.defaultEffort : undefined,
+      effort: live.effort,
+    })
       .catch(error => { throw toLlmError(error, live) })
+    if (live.spec.kind === 'acp') {
+      if (live.engineSession.defaultEffort !== undefined) live.defaultEffort = live.engineSession.defaultEffort
+      live.effort = live.engineSession.effort
+    }
     const session = live.engineSession
     const token = live.pumpToken = {}
     void (async () => {
