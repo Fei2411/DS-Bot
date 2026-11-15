@@ -239,6 +239,18 @@ const ZH = {
   'Key set outside DS Bot': 'key 在 DS Bot 之外设置',
   'No models': '没有模型',
   '{count} models': '{count} 个模型',
+  'Refresh models': '刷新模型列表',
+  'Refreshing…': '正在刷新…',
+  'Models from the endpoint': '接口返回的模型',
+  "Upstream didn't return": '上游未返回',
+  'Keep the ids you still want by hand.': '想保留的 ID 请手动勾选。',
+  '{added} added · {removed} removed · {count} selected': '新增 {added} · 移除 {removed} · 已选 {count}',
+  'Select at least one model': '至少选择一个模型',
+  'Save anyway': '仍要保存',
+  'The endpoint lists no models.': '这个接口没有列出模型。',
+  '{name} will switch to {model} on its next turn.': '{name} 下一轮会改用 {model}。',
+  '{name} has no model to fall back to; its next turn will fail.': '{name} 没有可回落的模型，下一轮会失败。',
+  'Local agent, not affected: {names}': '本地 Agent，不受影响：{names}',
   // What a Bot runs on
   'Runs on': '运行方式',
   'DS Bot model': 'DS Bot 模型',
@@ -1611,6 +1623,11 @@ const ZH = {
   'Sent': '已发送',
   'Failed': '失败',
 
+  "Running": "运行中",
+  "Open this session": "打开这个会话",
+  "Open this running session": "打开这个正在运行的会话",
+  "A running session keeps using model calls in the background.": "运行中的会话会在后台继续消耗模型调用。",
+  "This session is still running. Wait for it to finish, or stop it.": "这个会话还在运行。等它结束，或先停止它。",
 }
 
 // Host errors stay English, since Bots read them too; they are translated where the

@@ -21,6 +21,12 @@ export const ES = {
   "The Relay Server that passes encrypted messages between your phone and this computer. It cannot read them.": "El servidor de retransmisión que pasa los mensajes cifrados entre tu teléfono y este ordenador. No puede leerlos.",
   "The code works once. It stops working in {count} min.": "El código sirve una sola vez. Caduca en {count} min.",
   "Turn on phone access first": "Activa primero el acceso desde el teléfono",
+  "The Server address must start with ws:// or wss://": "La dirección del servidor debe empezar por ws:// o wss://",
+  "Enter the Server address first": "Introduce primero la dirección del servidor",
+  "This phone is not paired": "Este teléfono no está vinculado",
+  "Another dsh has this Bot team open, so phones connect to that one": "Otro dsh tiene abierto este equipo de Bots, así que los teléfonos se conectan a ese",
+  "This dsh runs on a Node without WebSocket": "Este dsh se ejecuta en un Node sin WebSocket",
+  "Phones are paired and removed on the computer": "Los teléfonos se vinculan y eliminan desde el ordenador",
   "Your phone scans it once. After that it connects by itself.": "Tu teléfono lo escanea una vez. Después se conecta solo.",
   "Beta": "Beta",
   // Shared
@@ -250,6 +256,18 @@ export const ES = {
   'Key set outside DS Bot': 'Clave configurada fuera de DS Bot',
   'No models': 'Sin modelos',
   '{count} models': '{count} modelos',
+  'Refresh models': 'Actualizar modelos',
+  'Refreshing…': 'Actualizando…',
+  'Models from the endpoint': 'Modelos del endpoint',
+  "Upstream didn't return": 'No devuelto por el upstream',
+  'Keep the ids you still want by hand.': 'Marca a mano los ID que quieras conservar.',
+  '{added} added · {removed} removed · {count} selected': '{added} añadidos · {removed} eliminados · {count} seleccionados',
+  'Select at least one model': 'Selecciona al menos un modelo',
+  'Save anyway': 'Guardar igualmente',
+  'The endpoint lists no models.': 'El endpoint no enumera ningún modelo.',
+  '{name} will switch to {model} on its next turn.': '{name} cambiará a {model} en su siguiente turno.',
+  '{name} has no model to fall back to; its next turn will fail.': '{name} no tiene un modelo al que recurrir; su siguiente turno fallará.',
+  'Local agent, not affected: {names}': 'Agente local, sin efecto: {names}',
   // What a Bot runs on
   'Runs on': 'Se ejecuta en',
   'DS Bot model': 'Modelo de DS Bot',
@@ -1691,6 +1709,11 @@ export const ES = {
   'Stop {name}': 'Detener a {name}',
   '{name} · foreground': '{name} · primer plano',
   '{name} waits for the computer': '{name} espera el ordenador',
+  "Running": "En ejecución",
+  "Open this session": "Abrir esta sesión",
+  "Open this running session": "Abrir esta sesión en ejecución",
+  "A running session keeps using model calls in the background.": "Una sesión en ejecución sigue usando llamadas al modelo en segundo plano.",
+  "This session is still running. Wait for it to finish, or stop it.": "Esta sesión sigue en ejecución. Espera a que termine o detenla.",
 }
 
 export const HOST_ERRORS_ES = [

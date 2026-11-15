@@ -74,7 +74,7 @@ export class LoopbackMcp {
     try { message = JSON.parse(body) } catch { response.writeHead(400); response.end(); return }
     const messages = Array.isArray(message) ? message : [message]
     // Notifications and responses get 202 with no body, per the spec.
-    const calls = messages.filter(item => item?.method !== undefined)
+    const calls = messages.filter(item => item?.method !== undefined && item?.id !== undefined)
     if (calls.length === 0) { response.writeHead(202); response.end(); return }
     const toolsCall = calls.find(item => item.method === 'tools/call')
     if (toolsCall !== undefined) {
