@@ -5,7 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { confirmDanger, Sheet, SheetHeader, useInSheet } from '../nav/sheet.tsx'
 import * as Clipboard from 'expo-clipboard'
 import { connectorRows, type ConnectorRow } from '../team/connectors.ts'
-import { capabilityStatusFor, unapprovedCapabilitiesFor } from '../team/capabilities.ts'
+import { capabilityStatusFor, capabilityStatusText, unapprovedCapabilitiesFor } from '../team/capabilities.ts'
 import { useTeam } from '../team/context.tsx'
 import { t } from '../ui/i18n.ts'
 import { ChevronLeftIcon, ChevronRightIcon } from '../ui/icons.tsx'
@@ -307,16 +307,6 @@ export function Connectors({ navigation }: any) {
       </ScrollView>
     </Screen>
   )
-}
-
-export const capabilityStatusText = (status?: { state?: string; error?: string }) => {
-  // A status the phone does not know — nothing attached to any Bot, or an answer of
-  // another shape — is unknown, not an empty line that reads as "fine" (#1523).
-  if (status === undefined || status.state === undefined) return t('Unknown')
-  return status.state === 'ready' ? t('Ready')
-    : status.state === 'needs-approval' ? t('Needs approval')
-      : status.state === 'error' ? t('Could not connect: {error}', { error: status.error ?? '' })
-        : t('Connecting…')
 }
 
 export function Capabilities({ navigation }: any) {
