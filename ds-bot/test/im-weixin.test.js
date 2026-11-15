@@ -10,6 +10,10 @@ async function fakeIlink() {
   const replies = {}
   let updates = []
   const state = { notified: false }
+  // A client that went away before the held long poll answered, and one promise
+  // per held poll (it resolves when that connection closes).
+  const aborted = []
+  const held = []
   const http = createServer((req, res) => {
     let body = ''
     req.on('data', chunk => { body += chunk })
@@ -45,6 +49,19 @@ async function fakeIlink() {
           res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ errcode: -14, errmsg: 'session timeout' }))
           return
         }
+        // A long poll the test holds open: it answers only when the client goes away,
+        // which is how a stopped connection must end it.
+        if (replies.holdUpdates === true) {
+          const gone = new Promise(resolve => {
+            res.on('close', () => {
+              if (res.writableEnded) return
+              aborted.push(req.url)
+              resolve(true)
+            })
+          })
+          held.push(gone)
+          return
+        }
         const answer = replies.updatesShift ?? updates.shift() ?? replies.updates ?? { ret: 0, msgs: [], get_updates_buf: 'c1' }
         if (typeof answer === 'function') { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify(answer(params))); return }
         res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify(answer))
@@ -57,7 +74,7 @@ async function fakeIlink() {
   await new Promise(resolve => http.listen(0, '127.0.0.1', resolve))
   return {
     base: `http://127.0.0.1:${http.address().port}/`,
-    calls, replies, state,
+    calls, replies, state, aborted, held,
     queue: items => { updates = items },
     close: () => { http.closeAllConnections?.(); http.close() },
   }
@@ -398,4 +415,26 @@ test('the poll never reports ready for a non-JSON or empty answer without ret', 
       await fake.close()
     }
   }
+})
+
+// A quit must not leave the engine host alive: the getupdates long poll answers at
+// the server's own pace (the request timeout is 50 s), so an un-aborted poll holds the
+// process open after the connection is stopped.
+test('stop ends an in-flight getupdates long poll instead of leaving it open', async (t) => {
+  const fake = await fakeIlink()
+  fake.replies.holdUpdates = true
+  const handle = weixin.connect(FIELDS, env(fake, {}), { onMessage: () => {}, onAction: () => {}, onStatus: () => {} })
+  t.after(async () => {
+    handle.stop()
+    await fake.close()
+  })
+  assert.ok(await until(() => fake.calls.some(call => call.path === '/ilink/bot/getupdates')), 'the long poll starts')
+  assert.equal(fake.held.length, 1)
+  handle.stop()
+  const ended = await Promise.race([
+    fake.held[0].then(() => true),
+    new Promise(resolve => setTimeout(() => resolve(false), 1_500)),
+  ])
+  assert.equal(ended, true, 'the long poll must be ended by stop, not by its 50 s timeout')
+  assert.deepEqual(fake.aborted, ['/ilink/bot/getupdates'])
 })
