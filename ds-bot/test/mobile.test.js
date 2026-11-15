@@ -1,5 +1,6 @@
+import { fileChunks } from '../src/shared/file-chunks.js'
 import assert from 'node:assert/strict'
-import { randomUUID } from 'node:crypto'
+import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -14,7 +15,7 @@ import { shrink } from '../src/host/preview-worker.js'
 // A team with no model: Sessions are made in memory, a group round runs on answers
 // played back through the session/event listeners, and `history` holds the events
 // each Session's page reads, oldest first.
-function start() {
+function start(config = {}) {
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-mobile-'))
   const ctx = fakeContext({ services: { attachments: fakeAttachments() } })
   const sent = []
@@ -62,7 +63,7 @@ function start() {
     routes[options.path] = options
     return register(options)
   }
-  const rt = createRuntime(ctx, { home })
+  const rt = createRuntime(ctx, { home, ...config })
   const call = async (endpoint, payload) => {
     const response = await routes['/api/bot'].fetch(new Request('http://localhost/api/bot', { method: 'POST', body: JSON.stringify({ endpoint, payload }) }))
     return response.json()
@@ -623,4 +624,130 @@ test('file-download resolves presented files in active and archived group member
   assert.equal(savedActive.ok, true)
   assert.equal(savedActive.value.name, 'active.txt')
   assert.equal(Buffer.from(savedActive.value.bytes, 'base64').toString(), 'from active member session')
+})
+
+
+test('files larger than the secure message limit download through bounded chunks without a total-size cap', async t => {
+  const { call, history, stop } = start()
+  t.after(stop)
+  const { chief } = await team(call)
+  const sessionId = (await call('state', {})).value.bots.find(bot => bot.id === chief).sessionId
+  const dir = mkdtempSync(join(tmpdir(), 'dsb-file-chunks-'))
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  const bytes = randomBytes(17 * 1024 * 1024 + 13)
+  const path = join(dir, 'large.bin')
+  writeFileSync(path, bytes)
+  history[sessionId] = [{ seq: 9, type: 'deliverables/presented', data: { turn: 1, files: [{ path }] } }]
+  const hash = createHash('sha256')
+  let downloaded = 0
+  let calls = 0
+  const ask = async (endpoint, payload) => {
+    const result = await call(endpoint, payload)
+    assert.equal(result.ok, true, JSON.stringify(result.error))
+    assert.ok(Buffer.byteLength(JSON.stringify(result)) < 1024 * 1024, 'one result fits the link frame budget')
+    calls++
+    return result.value
+  }
+  for await (const part of fileChunks(ask, { sessionId, seq: 9, index: 0 })) {
+    assert.ok(part.data.length <= 512 * 1024)
+    downloaded += part.data.length
+    hash.update(part.data)
+  }
+  assert.ok(calls > 1)
+  assert.equal(downloaded, bytes.length)
+  assert.equal(hash.digest('hex'), createHash('sha256').update(bytes).digest('hex'))
+  const first = await call('file-download', { sessionId, seq: 9, index: 0, offset: 0 })
+  writeFileSync(path, 'changed')
+  const changed = await call('file-download', { sessionId, seq: 9, index: 0, offset: first.value.nextOffset, version: first.value.version })
+  assert.equal(changed.error.code, 'bot/not-found')
+  assert.equal((await call('file-download', { sessionId, seq: 9, offset: -1 })).error.code, 'bot/invalid')
+})
+
+test('file attachment chunks round-trip through the same client iterator', async t => {
+  const { call, ctx, history, stop } = start()
+  t.after(stop)
+  const { chief } = await team(call)
+  const sessionId = (await call('state', {})).value.bots.find(bot => bot.id === chief).sessionId
+  const bytes = randomBytes(4 * 1024 * 1024 + 7)
+  const ref = await ctx.get('attachments').saveFile({ data: bytes, name: 'data.bin' })
+  history[sessionId] = [{ seq: 3, type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'file', attachment: ref }] } }]
+  const chunks = []
+  for await (const part of fileChunks(async (endpoint, payload) => {
+    const result = await call(endpoint, payload)
+    assert.equal(result.ok, true)
+    return result.value
+  }, { sessionId, attachmentId: ref.attachmentId })) chunks.push(Buffer.from(part.data))
+  assert.deepEqual(Buffer.concat(chunks), bytes)
+})
+
+test('desktop approval settlement emits a live feed event and clears pending approvals on unchanged state poll', async (t) => {
+  const { call, ctx, rt, stop } = start()
+  t.after(stop)
+  const { writer, room } = await team(call)
+  const sessionId = `g-${randomUUID()}`
+  rt.state.rooms[room.id].sessions = { [writer.id]: sessionId }
+  rt.groupOwners.set(sessionId, { botId: writer.id, roomId: room.id })
+  const events = []
+  const untap = rt.subscribeFeed((event, data) => events.push({ event, data }))
+  t.after(untap)
+
+  const [approve] = ctx.listeners.get('approval/request')
+  const controller = new AbortController()
+  const answer = approve({ agent: { id: sessionId }, toolName: 'bash', reason: 'run tests', signal: controller.signal }, () => 'allowed-once')
+  const openState = (await call('state', {})).value
+  assert.equal(openState.work.approvals.length, 1)
+
+  events.length = 0
+  controller.abort()
+  assert.equal(await answer, 'cancelled')
+  await waitFor(() => events.some(e => e.event === 'live'))
+
+  const nextState = (await call('state', { since: openState.revision, live: openState.liveKey })).value
+  assert.equal(nextState.unchanged, true)
+  assert.notEqual(nextState.liveKey, openState.liveKey)
+  assert.deepEqual(nextState.work.approvals, [])
+})
+
+test('browser handoff open and settle emit live feed events and clear browserHolds on unchanged-revision state poll', async (t) => {
+  const { call, rt, stop } = start({ browser: true })
+  t.after(stop)
+  const { chief } = await team(call)
+  const events = []
+  const untap = rt.subscribeFeed((event, data) => events.push({ event, data }))
+  t.after(untap)
+
+  rt.browserChannel.setHold(chief, { by: 'bot', reason: 'verification', note: 'Sign in', callId: 'call-1' })
+  await waitFor(() => events.some(e => e.event === 'live'))
+  const openState = (await call('state', {})).value
+  assert.equal(openState.browserHolds[chief]?.callId, 'call-1')
+
+  events.length = 0
+  rt.browserChannel.setHold(chief, null)
+  await waitFor(() => events.some(e => e.event === 'live'))
+
+  const nextState = (await call('state', { since: openState.revision, live: openState.liveKey })).value
+  assert.equal(nextState.unchanged, true)
+  assert.notEqual(nextState.liveKey, openState.liveKey)
+  assert.deepEqual(nextState.browserHolds, {})
+})
+
+test('switching to an earlier part closes open question and view cards instead of leaving orphaned keys', async (t) => {
+  const { call, ctx, rt, stop } = start()
+  t.after(stop)
+  const { chief } = await team(call)
+  const bot = rt.botOf(chief)
+  const part1 = bot.sessionId
+  const part2 = `s-${randomUUID()}`
+  bot.segments = [{ sessionId: part1, endedAt: 100 }]
+  bot.sessionId = part2
+  rt.save()
+  rt.state.questions[part2] = { id: 'q-1', question: 'Pick one', options: [{ label: 'A' }] }
+  rt.state.views[part2] = { id: 'v-1', title: 'Confirm', view: { type: 'text', text: 'hi' } }
+  ctx.workspaceRegistry.unarchiveSession = async () => {}
+  ctx.workspaceRegistry.archiveSession = async () => {}
+
+  await rt.switchPart(chief, part1)
+  const after = (await call('state', {})).value
+  assert.deepEqual(after.questions, {})
+  assert.deepEqual(after.views, {})
 })
