@@ -913,6 +913,10 @@ const ZH = {
   '{first} and {second} are waiting for your approval': '{first}、{second} 等你批准',
   '{first}, {second} and {count} more are waiting for your approval': '{first}、{second} 等 {total} 个等你批准',
   'Waiting for your approval': '等你批准',
+  // Group cards (ask_user / show_view in a group chat).
+  '{name} is waiting for your answer': '{name} 等你回答',
+  '{count} more waiting · show next': '还有 {count} 张等待 · 看下一张',
+  'Waiting for your answer for over 30 minutes': '已等待超过 30 分钟',
   'in its own chat': '在自己的对话里',
   'Stop all work in this group': '停止本群的所有工作',
   'Stop all': '全部停止',

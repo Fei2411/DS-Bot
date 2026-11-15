@@ -4,7 +4,7 @@ import { CellEmpty } from './cell-empty.js'
 import { sendsOnEnter } from './enter-key.js'
 import { t } from './i18n.js'
 import { useDockHold } from './card-hold.js'
-import { createSource, heldCardKey } from './sources.js'
+import { createSource, heldCardKey, roomCardsAt } from './sources.js'
 
 // -------------------------------------------------------------------------
 // Question cards. `ask_user` cards sit in the transcript and never block the Bot;
@@ -204,19 +204,44 @@ export function PendingQuestion({ sessionId, question, actions, inline, enterToS
     })
   }
   const onAnswer = answer => run(() => actions.answerQuestion(sessionId, question.id, { selected: answer.selected ?? [], custom: answer.custom ?? '' }))
-  const onDismiss = () => run(() => actions.dismissQuestion(sessionId))
+  const onDismiss = () => run(() => actions.dismissQuestion(sessionId, question.id))
   return h('div', { className: inline ? 'bt-q-inline' : 'bt-q-dock' },
     h(QuestionView, { key: question.id, question, onAnswer, onDismiss, onInteract: hold, busy, ownAnswer: question.allowCustom === true, raised: !inline, enterToSend }))
+}
+
+// A card a member asked in a group chat waits above that group's composer. The group
+// keeps one queue: the oldest card shows, the chip turns to the others, and any of them
+// can be answered. Skipping is never silent: the member is told, so its task resumes.
+const WAIT_NOTE_MS = 30 * 60 * 1000
+
+function RoomQuestionDock({ roomId, useRoster, actions }) {
+  const cards = useRoster(value => roomCardsAt(value, roomId))
+  const enterToSend = useRoster(value => sendsOnEnter(value.prefs))
+  const [turn, setTurn] = useState(0)
+  if (cards === undefined || cards.length === 0) return null
+  const card = cards[turn % cards.length]
+  const waited = Date.now() - (card.askedAt ?? 0)
+  return h('div', { className: 'bt-q-dock bt-room-dock' },
+    cards.length > 1 ? h('button', {
+      type: 'button',
+      className: 'bt-room-chip',
+      onClick: () => setTurn(current => current + 1),
+    }, t('{count} more waiting · show next', { count: cards.length - 1 })) : null,
+    h(PendingQuestion, { key: card.id, sessionId: roomId, question: card, actions, inline: false, enterToSend }),
+    waited >= WAIT_NOTE_MS ? h('div', { className: 'bt-q-detail bt-room-wait' }, t('Waiting for your answer for over 30 minutes')) : null)
 }
 
 // Questions asked by a tool call render inline at that call (see ToolCell); the dock
 // carries the ones whose call the transcript does not draw, including while history
 // loads. A card the user starts editing stays in the dock until it closes.
 export function QuestionDock({ sessionId, useRoster, useCards, useHeldCards, actions }) {
+  const room = useRoster(value => value.roomsById?.[sessionId])
   const question = useRoster(value => value.questions?.[sessionId])
   const enterToSend = useRoster(value => sendsOnEnter(value.prefs))
   const drawn = useCards?.(state => state[sessionId]?.[question?.callId] > 0) === true
   const held = useHeldCards?.(state => state[sessionId]?.[heldCardKey('question', question?.id)] > 0) === true
+  // In a group the cards belong to the group, not to any member's hidden Session.
+  if (room !== undefined) return h(RoomQuestionDock, { roomId: sessionId, useRoster, actions })
   const inPart = (question?.callSessionId ?? sessionId) === sessionId
   if (question === undefined || (inPart && question.callId && drawn && !held)) return null
   return h(PendingQuestion, { key: JSON.stringify([sessionId, question.id]), sessionId, question, actions, inline: false, enterToSend })

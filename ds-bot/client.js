@@ -1005,6 +1005,9 @@ var JA = {
   "{names} went back and forth {count} times without progress and paused. Write here to go on": "{names} のやり取りが {count} 回続き進展がないため一時停止しました。メッセージを送信すると再開します",
   "{name} paused for your approval": "{name} があなたの承認を待っています",
   "{name} started on it": "{name} が作業を開始しました",
+  "{count} more waiting · show next": "ほかに {count} 件が待機中 · 次を表示",
+  "{name} is waiting for your answer": "{name} があなたの回答を待っています",
+  "Waiting for your answer for over 30 minutes": "回答を 30 分以上待っています",
   "You stopped {name}'s work": "{name} の作業を停止しました",
   "{name} finished its work": "{name} が作業を完了しました",
   "{name} was cut off by a restart and picked its work back up": "{name} の作業は再起動で中断されましたが、再開しました",
@@ -3407,6 +3410,9 @@ var KO = {
   "{names} went back and forth {count} times without progress and paused. Write here to go on": "{names}이(가) 진전 없이 {count}회 대화를 주고받아 일시 중지되었습니다. 계속하려면 메시지를 입력하세요",
   "{name} paused for your approval": "{name}이(가) 승인을 기다리며 일시 중지했습니다",
   "{name} started on it": "{name}이(가) 작업을 시작했습니다",
+  "{count} more waiting · show next": "대기 중인 카드가 {count}장 더 있음 · 다음 보기",
+  "{name} is waiting for your answer": "{name}이(가) 답변을 기다리고 있습니다",
+  "Waiting for your answer for over 30 minutes": "30분 넘게 답변을 기다리고 있습니다",
   "You stopped {name}'s work": "{name}의 작업을 중지했습니다",
   "{name} finished its work": "{name}이(가) 작업을 마쳤습니다",
   "{name} was cut off by a restart and picked its work back up": "{name}의 작업이 재시작으로 중단되었다가 다시 이어졌습니다",
@@ -5825,6 +5831,9 @@ var ES = {
   "{names} went back and forth {count} times without progress and paused. Write here to go on": "{names} intercambiaron mensajes {count} veces sin avanzar y se pausaron. Escribe aquí para continuar",
   "{name} paused for your approval": "{name} se pausó esperando tu aprobación",
   "{name} started on it": "{name} se puso manos a la obra",
+  "{count} more waiting · show next": "{count} más esperando · ver la siguiente",
+  "{name} is waiting for your answer": "{name} espera tu respuesta",
+  "Waiting for your answer for over 30 minutes": "Esperando tu respuesta desde hace más de 30 minutos",
   "You stopped {name}'s work": "Detuviste el trabajo de {name}",
   "{name} finished its work": "{name} terminó su trabajo",
   "{name} was cut off by a restart and picked its work back up": "{name} se interrumpió por un reinicio y retomó su trabajo",
@@ -8214,6 +8223,9 @@ var FR = {
   "{names} went back and forth {count} times without progress and paused. Write here to go on": "{names} ont échangé {count} fois sans avancer et se sont mis en pause. Écrivez ici pour continuer",
   "{name} paused for your approval": "{name} attend votre approbation",
   "{name} started on it": "{name} s’y est mis",
+  "{count} more waiting · show next": "{count} autres en attente · voir la suivante",
+  "{name} is waiting for your answer": "{name} attend votre réponse",
+  "Waiting for your answer for over 30 minutes": "Attend votre réponse depuis plus de 30 minutes",
   "You stopped {name}'s work": "Vous avez arrêté le travail de {name}",
   "{name} finished its work": "{name} a terminé son travail",
   "{name} was cut off by a restart and picked its work back up": "{name} a été interrompu par un redémarrage et a repris son travail",
@@ -10616,6 +10628,9 @@ var DE = {
   "{names} went back and forth {count} times without progress and paused. Write here to go on": "{names} haben sich {count}-mal ohne Fortschritt abgewechselt und pausiert. Schreibe hier, um fortzufahren",
   "{name} paused for your approval": "{name} wartet auf deine Freigabe",
   "{name} started on it": "{name} hat begonnen",
+  "{count} more waiting · show next": "{count} weitere warten · nächste anzeigen",
+  "{name} is waiting for your answer": "{name} wartet auf deine Antwort",
+  "Waiting for your answer for over 30 minutes": "Wartet seit über 30 Minuten auf deine Antwort",
   "You stopped {name}'s work": "Du hast die Arbeit von {name} gestoppt",
   "{name} finished its work": "{name} ist fertig",
   "{name} was cut off by a restart and picked its work back up": "{name} wurde durch einen Neustart unterbrochen und hat weitergearbeitet",
@@ -13042,6 +13057,10 @@ var ZH = {
   "{first} and {second} are waiting for your approval": "{first}、{second} 等你批准",
   "{first}, {second} and {count} more are waiting for your approval": "{first}、{second} 等 {total} 个等你批准",
   "Waiting for your approval": "等你批准",
+  // Group cards (ask_user / show_view in a group chat).
+  "{name} is waiting for your answer": "{name} 等你回答",
+  "{count} more waiting · show next": "还有 {count} 张等待 · 看下一张",
+  "Waiting for your answer for over 30 minutes": "已等待超过 30 分钟",
   "in its own chat": "在自己的对话里",
   "Stop all work in this group": "停止本群的所有工作",
   "Stop all": "全部停止",
@@ -14367,6 +14386,7 @@ function indexRoster(value) {
   }
   return { ...value, agents: value.agents ?? [], sections: value.sections ?? [], byId, roomsById, agentsById, agentOf, ready: true };
 }
+var roomCardsAt = (roster, sessionId) => roster.roomCards?.[sessionId] ?? roster.roomCards?.[roster.roomsById?.[sessionId]?.id];
 function isAgentSession(roster, cache, sessionId) {
   if (sessionId === void 0 || sessionId === null || sessionId === "") return false;
   if (roster.ready) return roster.agentOf[sessionId] !== void 0;
@@ -18504,18 +18524,40 @@ function PendingQuestion({ sessionId, question, actions, inline, enterToSend = t
     });
   };
   const onAnswer = (answer) => run2(() => actions.answerQuestion(sessionId, question.id, { selected: answer.selected ?? [], custom: answer.custom ?? "" }));
-  const onDismiss = () => run2(() => actions.dismissQuestion(sessionId));
+  const onDismiss = () => run2(() => actions.dismissQuestion(sessionId, question.id));
   return (0, import_react10.createElement)(
     "div",
     { className: inline ? "bt-q-inline" : "bt-q-dock" },
     (0, import_react10.createElement)(QuestionView, { key: question.id, question, onAnswer, onDismiss, onInteract: hold, busy, ownAnswer: question.allowCustom === true, raised: !inline, enterToSend })
   );
 }
+var WAIT_NOTE_MS = 30 * 60 * 1e3;
+function RoomQuestionDock({ roomId, useRoster, actions }) {
+  const cards = useRoster((value) => roomCardsAt(value, roomId));
+  const enterToSend = useRoster((value) => sendsOnEnter(value.prefs));
+  const [turn, setTurn] = (0, import_react10.useState)(0);
+  if (cards === void 0 || cards.length === 0) return null;
+  const card = cards[turn % cards.length];
+  const waited = Date.now() - (card.askedAt ?? 0);
+  return (0, import_react10.createElement)(
+    "div",
+    { className: "bt-q-dock bt-room-dock" },
+    cards.length > 1 ? (0, import_react10.createElement)("button", {
+      type: "button",
+      className: "bt-room-chip",
+      onClick: () => setTurn((current) => current + 1)
+    }, t("{count} more waiting · show next", { count: cards.length - 1 })) : null,
+    (0, import_react10.createElement)(PendingQuestion, { key: card.id, sessionId: roomId, question: card, actions, inline: false, enterToSend }),
+    waited >= WAIT_NOTE_MS ? (0, import_react10.createElement)("div", { className: "bt-q-detail bt-room-wait" }, t("Waiting for your answer for over 30 minutes")) : null
+  );
+}
 function QuestionDock({ sessionId, useRoster, useCards, useHeldCards, actions }) {
+  const room2 = useRoster((value) => value.roomsById?.[sessionId]);
   const question = useRoster((value) => value.questions?.[sessionId]);
   const enterToSend = useRoster((value) => sendsOnEnter(value.prefs));
   const drawn = useCards?.((state) => state[sessionId]?.[question?.callId] > 0) === true;
   const held = useHeldCards?.((state) => state[sessionId]?.[heldCardKey("question", question?.id)] > 0) === true;
+  if (room2 !== void 0) return (0, import_react10.createElement)(RoomQuestionDock, { roomId: sessionId, useRoster, actions });
   const inPart = (question?.callSessionId ?? sessionId) === sessionId;
   if (question === void 0 || inPart && question.callId && drawn && !held) return null;
   return (0, import_react10.createElement)(PendingQuestion, { key: JSON.stringify([sessionId, question.id]), sessionId, question, actions, inline: false, enterToSend });
@@ -21621,7 +21663,7 @@ function PendingView({ sessionId, view, actions, inline }) {
     });
   };
   const onSubmit = (action, values) => run2(() => actions.answerView(sessionId, view.id, action, values));
-  const onDismiss = () => run2(() => actions.dismissView(sessionId));
+  const onDismiss = () => run2(() => actions.dismissView(sessionId, view.id));
   return (0, import_react17.createElement)(
     "div",
     { className: inline ? "bt-q-inline" : "bt-q-dock", style: flying ? { display: "none" } : void 0, onFocusCapture: hold, onPointerDownCapture: hold },
@@ -21647,10 +21689,32 @@ function WidgetCell({ sessionId, callId, args, done, isError, roster, actions, h
 function ClosedView({ title, closed }) {
   return (0, import_react17.createElement)("div", { className: "bt-q-inline" }, (0, import_react17.createElement)(SettledQuestion, { question: { question: title || t("View") }, closed }));
 }
+var ROOM_WAIT_NOTE_MS = 30 * 60 * 1e3;
+function RoomViewDock({ roomId, useRoster, actions }) {
+  const all = useRoster((value) => roomCardsAt(value, roomId));
+  const [turn, setTurn] = (0, import_react17.useState)(0);
+  const cards = (all ?? []).filter((card2) => card2.kind === "view");
+  if (cards.length === 0) return null;
+  const card = cards[turn % cards.length];
+  const waited = Date.now() - (card.askedAt ?? 0);
+  return (0, import_react17.createElement)(
+    "div",
+    { className: "bt-q-dock bt-room-dock" },
+    cards.length > 1 ? (0, import_react17.createElement)("button", {
+      type: "button",
+      className: "bt-room-chip",
+      onClick: () => setTurn((current) => current + 1)
+    }, t("{count} more waiting · show next", { count: cards.length - 1 })) : null,
+    (0, import_react17.createElement)(PendingView, { key: card.id, sessionId: roomId, view: card, actions, inline: false }),
+    waited >= ROOM_WAIT_NOTE_MS ? (0, import_react17.createElement)("div", { className: "bt-q-detail bt-room-wait" }, t("Waiting for your answer for over 30 minutes")) : null
+  );
+}
 function WidgetDock({ sessionId, useRoster, useCards, useHeldCards, actions }) {
+  const room2 = useRoster((value) => value.roomsById?.[sessionId]);
   const view = useRoster((value) => value.views?.[sessionId]);
   const drawn = useCards?.((state) => state[sessionId]?.[view?.callId] > 0) === true;
   const held = useHeldCards?.((state) => state[sessionId]?.[heldCardKey("view", view?.id)] > 0) === true;
+  if (room2 !== void 0) return (0, import_react17.createElement)(RoomViewDock, { roomId: sessionId, useRoster, actions });
   const inPart = (view?.callSessionId ?? sessionId) === sessionId;
   if (view === void 0 || inPart && view.callId && drawn && !held) return null;
   return (0, import_react17.createElement)(PendingView, { sessionId, view, actions, inline: false });
@@ -27983,6 +28047,21 @@ function RelayEvent({ reply, bot, sessionId, actions }) {
         (0, import_react33.createElement)("span", { className: "bt-event-name" }, t(reply.kind === "working" ? "{name} started on it" : "{name} paused for your approval", { name: bot.name }))
       )
     );
+  }
+  if (reply.kind === "answer-pending") {
+    return (0, import_react33.createElement)(
+      "div",
+      { className: "bt-event" },
+      (0, import_react33.createElement)(
+        "button",
+        { type: "button", className: "bt-event-whole", onClick: () => actions.showDetails(sessionId) },
+        (0, import_react33.createElement)(BotMark, { bot, size: 16 }),
+        (0, import_react33.createElement)("span", { className: "bt-event-name" }, t("{name} is waiting for your answer", { name: bot.name }))
+      )
+    );
+  }
+  if (reply.kind === "answer") {
+    return (0, import_react33.createElement)("div", { className: "bt-event" }, reply.text);
   }
   if (reply.kind === "folder") {
     return (0, import_react33.createElement)("div", { className: "bt-event" }, reply.text);

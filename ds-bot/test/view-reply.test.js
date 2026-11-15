@@ -82,14 +82,27 @@ async function start() {
 
 const text = value => [{ type: 'text', text: value }]
 
-test('show_view registers an interactive card, refuses a group and a display-only wait, and leaves a display-only card unregistered', async (t) => {
+test('show_view queues an interactive group card, refuses a display-only group card and a display-only wait, and leaves own-chat cards as before', async (t) => {
   const { emit, show, team, stop } = await start()
   t.after(stop)
   await rt.teamTools.find(d => d.name === 'list_bots').execute({}, { agent: { id: 'chief' } })
 
+  // In a group the card waits in the group's queue, and the answer will go back to the
+  // member's hidden group Session.
   const group = await show('writer-group', { title: 'Pick', view: CHOICES })
-  assert.equal(group.text, 'View cards only work in your own chat. In a group, ask in your message instead.')
-  assert.equal(group.concluded, false)
+  assert.match(group.text, /^The view card is waiting for the user above the group's composer\./)
+  assert.equal(group.concluded, true)
+  const queued = (await team()).roomCards.r1
+  assert.equal(queued?.length, 1)
+  assert.equal(queued[0].kind, 'view')
+  assert.equal(queued[0].botId, 'writer')
+
+  // A display-only blueprint has nowhere to live in a group.
+  const displayOnly = await show('writer-group', { title: 'Meter', view: METER })
+  assert.equal(displayOnly.text, 'A display-only view cannot be shown in a group chat. Give the view controls (options, confirm, form, or submit) so it waits for the user\'s answer, or write the content in your message.')
+  assert.equal(displayOnly.concluded, false)
+  assert.equal((await team()).roomCards.r1.length, 1)
+
   const stranger = await show('outsider', { title: 'Pick', view: CHOICES })
   assert.match(stranger.text, /^Only Bots on the team can use show_view\. Use ask_user_question if it is available in this session, or ask the user in your reply\.$/)
   assert.equal(stranger.concluded, false)

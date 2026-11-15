@@ -47,6 +47,14 @@ export function indexRoster(value) {
   return { ...value, agents: value.agents ?? [], sections: value.sections ?? [], byId, roomsById, agentsById, agentOf, ready: true }
 }
 
+// The group cards a Session's dock shows. The backend keys `roomCards` by `room.id`,
+// while the shell may address the group by any of its Session ids (`room.sessionId`
+// when the group's Session was rebuilt, or a part id): resolve the room through
+// `roomsById` (which indexes all three) and retry by its true id. Direct hit first,
+// so the common case stays one lookup.
+export const roomCardsAt = (roster, sessionId) => roster.roomCards?.[sessionId]
+  ?? roster.roomCards?.[roster.roomsById?.[sessionId]?.id]
+
 // Whether a main-view Session id belongs to the team's DSH Agent: the conversation
 // group then stays withdrawn while the shell keeps the sidebar. Before the roster
 // arrives, the ids cached from the last pull answer.

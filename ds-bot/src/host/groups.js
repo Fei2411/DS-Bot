@@ -175,6 +175,7 @@ const slotLabel = (slot, self) => {
   if (slot.status === 'missed') return `${slot.name} (no answer)`
   if (slot.status === 'working') return `${slot.name} (working on it; posts when done)`
   if (slot.status === 'waiting-approval') return `${slot.name} (waiting for the user's approval; posts when done)`
+  if (slot.status === 'waiting-answer') return `${slot.name} (waiting for the user's answer to a card)`
   if (slot.status === 'failed') return `${slot.name} (could not answer: error)`
   if (slot.status === 'left') return `${slot.name} (left the group)`
   return slot.name
@@ -307,7 +308,10 @@ export function install(rt) {
       return { ...who, text: record.text, time, ...(record.duration === undefined ? {} : { duration: record.duration }), ...(record.claims === undefined ? {} : { claims: record.claims }), ...(record.changes === undefined ? {} : { changes: record.changes }) }
     }
     if (record.kind === 'lookup') return { kind: 'lookup', ...who, text: record.text, time }
-    if (record.kind !== 'notice') return { kind: record.kind, ...who, time, ...(record.changes === undefined ? {} : { changes: record.changes }) }
+    // The generic pass-through also carries the text: a line of ours may bring one
+    // (the user's `answer` card reply does), and the group view renders it. The
+    // built-in kinds (approval/working) have none, so the field is only set when present.
+    if (record.kind !== 'notice') return { kind: record.kind, ...who, time, ...(record.text === undefined ? {} : { text: record.text }), ...(record.changes === undefined ? {} : { changes: record.changes }) }
     switch (record.reason) {
       case 'failed': return { kind: 'failed', ...who, code: record.code, ...(record.status ? { status: record.status } : {}), text: record.message ?? record.detail, time }
       case 'helper-failed': return { kind: 'helper-failed', ...who, ...(record.stopReason ? { stopReason: record.stopReason } : {}), ...(record.helper ? { helper: record.helper } : {}), text: record.detail, time }
@@ -412,6 +416,13 @@ export function install(rt) {
   }
   rt.roomFolderNotice = roomFolderNotice
 
+  // A line written by something other than a round speaker (today: the user's answer to
+  // a card). It stays in the book and the room's log for later rounds and
+  // read_group_chat, and the group view draws it from the ledger rows.
+  rt.appendRoomLine = (room, line) => {
+    say(room, line)
+  }
+
   // A member's group Session, created on its first turn there. A new one starts with
   // a fresh look at the log and a brief of the member's own chat; the brief is the
   // first message, so it stays fixed and the prefix stays cacheable.
@@ -475,6 +486,9 @@ export function install(rt) {
     const answering = new Set(round.slots.filter(other => other.status === 'speaking').map(other => other.id))
     const working = workingIn(room).filter(item => item.bot.id !== member.id && !answering.has(item.bot.id))
       .map(item => ({ ...item, unread: unreadCount(room, item.bot.id) }))
+    // Cards a member is waiting on: the user answers them above the composer, and the
+    // members at work go on until then.
+    const waitingNames = [...new Set((rt.roomCardsOf?.(room.id) ?? []).map(card => rt.botOf(card.botId)?.name).filter(Boolean))]
     const text = [
       members,
       notice,
@@ -490,6 +504,9 @@ export function install(rt) {
         : 'Nothing new in this round since your last message.',
       round.shown?.includes(member.id) ? '' : referenceNote(round.references),
       working.length > 0 ? `Still at work on what they were asked; each posts here when done: ${working.map(item => `${item.bot.name} (${minutesSince(item.since)} min${item.unread > 0 ? `, with ${item.unread} group message(s) it has not read yet` : ''})`).join(', ')}.` : '',
+      // Cards a member is waiting on: the user answers them above the composer, and the
+      // members at work go on until then.
+      waitingNames.length > 0 ? `Waiting for the user's answer to a question card: ${waitingNames.join(', ')}.` : '',
       ...placeLines(round, slot),
       ROOM_REPLY,
     ].filter(Boolean).join('\n\n')
@@ -782,7 +799,7 @@ export function install(rt) {
         heard(step)
       }
       touch()
-      rt.roomWaiters.set(exchangeId, { sessionId, botId: member.id, roomId: room.id, resolve: finish, fail: failure => finish({ failure }), touch, work, say, approval: () => finish({ approval: true }) })
+      rt.roomWaiters.set(exchangeId, { sessionId, botId: member.id, roomId: room.id, resolve: finish, fail: failure => finish({ failure }), touch, work, say, approval: () => finish({ approval: true }), answer: kind => finish({ answer: true, kind }) })
       signal.addEventListener('abort', () => finish(null), { once: true })
     })
     try {
@@ -825,6 +842,14 @@ export function install(rt) {
     return waiters.length > 0
   }
   rt.yieldRoomTurn = (sessionId) => { for (const waiter of waitersOf(sessionId)) waiter.approval() }
+  // The member's turn ended on a card the user has to answer (ask_user / show_view in a
+  // group). Its slot keeps the member's place as `waiting-answer` and the round goes on
+  // without it; the answer later starts a turn of its own in the same group Session.
+  rt.waitRoomTurn = (sessionId) => {
+    const waiters = waitersOf(sessionId)
+    for (const waiter of waiters) waiter.answer?.()
+    return waiters.length > 0
+  }
   // The team's own tools are quick; any other tool is the start of work.
   const QUICK_TOOLS = new Set(TEAM_TOOLS)
   rt.workRoomTurn = (sessionId, tool) => {
@@ -1146,6 +1171,13 @@ export function install(rt) {
       // The member's turn goes on in the background and posts when it ends.
       slot.status = 'waiting-approval'
       say(room, { who: member.name, botId: member.id, kind: 'approval' })
+    } else if (reply?.answer) {
+      // The member ended its turn on a card the user has to answer (ask_user / show_view
+      // in the group). Its place in the round stays open as `waiting-answer` and the
+      // round goes on without it — the other members' work never stops for a card —
+      // while the answer later starts a turn of its own in the same group Session.
+      slot.status = 'waiting-answer'
+      say(room, { who: member.name, botId: member.id, kind: 'answer-pending' })
     } else if (reply?.working) {
       slot.status = 'working'
       markSlotWorked(room.id, slot)
@@ -1538,6 +1570,9 @@ export function install(rt) {
         startRound(room, [...left, ...queued], exec.agent, exec.callId)
       }
       exec.concludeTurn?.()
+      // The ledger is the record now: the call returns its anchor and the chat reads the
+      // round's rows from it. Members still waiting on a card are told in roomPrompt's
+      // waitingNames line, so a later round does not read their silence as a pass.
       return JSON.stringify({ from, anchor })
     },
   }))

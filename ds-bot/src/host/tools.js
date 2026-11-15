@@ -840,7 +840,7 @@ export function install(rt) {
 
   rt.teamTools.push(defineTool({
     name: 'ask_user',
-    description: 'Show the user a short multiple-choice question card in the chat (the user can also type their own answer). Calling it ends your turn; the chosen answer arrives later as the user\'s next message.',
+    description: 'Show the user a short multiple-choice question card in the chat (the user can also type their own answer). Calling it ends your turn; the chosen answer arrives later as the user\'s next message. It works in an own chat and in a group chat: in a group the card waits above the group\'s composer, the other members carry on with their work meanwhile, and the answer brings you back in a turn of your own.',
     parameters: {
       question: { type: 'string', required: true, description: 'One short question' },
       options: {
@@ -864,8 +864,7 @@ export function install(rt) {
     async execute(args, exec) {
       await rt.load()
       const id = exec.agent?.id
-      if (rt.groupOwners.has(id)) return 'Question cards only work in your own chat. In a group, ask in your message instead.'
-      if (!rt.chatOwners.has(id)) return `Only Bots on the team can use ask_user. Use ${BLOCKING_QUESTION_TOOL} if it is available in this session, or ask the user in your reply.`
+      if (!rt.chatOwners.has(id) && !rt.groupOwners.has(id)) return `Only Bots on the team can use ask_user. Use ${BLOCKING_QUESTION_TOOL} if it is available in this session, or ask the user in your reply.`
       const options = (Array.isArray(args.options) ? args.options : [])
         .map(option => (typeof option === 'string' ? { label: option } : option ?? {}))
         .map(option => ({
@@ -875,14 +874,32 @@ export function install(rt) {
         .filter(option => option.label !== '')
         .slice(0, 6)
       if (options.length === 0) return 'Give at least one option.'
-      state.questions[id] = {
-        id: randomUUID(),
-        ...(exec.callId ? { callId: exec.callId } : {}),
+      const question = {
         question: String(args.question ?? '').trim(),
         ...(args.detail ? { detail: String(args.detail).trim() } : {}),
         options,
         multiSelect: args.multiSelect === true,
         ...(args.allowCustom === true ? { allowCustom: true } : {}),
+      }
+      // In a group the card belongs to the group: the group view finds it by group id, the
+      // member's round slot stays open as `waiting-answer`, and the answer starts a turn of
+      // its own in the member's hidden group Session.
+      const owner = rt.groupOwners.get(id)
+      if (owner !== undefined) {
+        const room = rt.roomOf(owner.roomId)
+        if (room === undefined) return 'This group chat is gone; ask the user in your message instead.'
+        const { duplicate } = rt.addRoomCard({ id: randomUUID(), kind: 'question', botId: owner.botId, roomId: room.id, askedAt: Date.now(), ...question })
+        await rt.save()
+        rt.waitRoomTurn?.(id)
+        exec.concludeTurn?.()
+        return duplicate
+          ? 'That question card is already waiting for the user in this group chat.'
+          : 'The question card is waiting for the user above the group\'s composer. The other members carry on meanwhile; the answer arrives as a message to you after this turn.'
+      }
+      state.questions[id] = {
+        id: randomUUID(),
+        ...(exec.callId ? { callId: exec.callId } : {}),
+        ...question,
         askedAt: Date.now(),
       }
       await rt.save()
@@ -896,18 +913,36 @@ export function install(rt) {
   // the sessions ds-bot does not own, while this one shadows it inside them.
   rt.teamTools.push(defineTool({
     name: 'show_view',
-    description: showViewDescription({ where: 'your own chat' }),
+    description: showViewDescription({ where: 'your own chat' }) + " In a group chat only a view with controls can be shown: it waits above the group's composer, the other members carry on, and the answer brings you back in a turn of your own.",
     parameters: showViewParameters,
     output,
     async execute(args, exec) {
       await rt.load()
       const id = exec.agent?.id
-      if (rt.groupOwners.has(id)) return 'View cards only work in your own chat. In a group, ask in your message instead.'
-      if (!rt.chatOwners.has(id)) return `Only Bots on the team can use show_view. Use ${BLOCKING_QUESTION_TOOL} if it is available in this session, or ask the user in your reply.`
+      if (!rt.chatOwners.has(id) && !rt.groupOwners.has(id)) return `Only Bots on the team can use show_view. Use ${BLOCKING_QUESTION_TOOL} if it is available in this session, or ask the user in your reply.`
       const checked = checkShownView(args.title, args.view)
       if (checked.error !== undefined) return checked.error
       const title = checked.title
       const view = checked.view
+      // In a group the card belongs to the group: the group view finds it by group id, the
+      // member's round slot stays open as `waiting-answer`, and the answer starts a turn of
+      // its own in the member's hidden group Session.
+      const owner = rt.groupOwners.get(id)
+      if (owner !== undefined) {
+        // A group card has to wait for the user, so a display-only blueprint has nowhere
+        // to live there: it is content for the member's message instead.
+        if (!checked.interactive) return 'A display-only view cannot be shown in a group chat. Give the view controls (options, confirm, form, or submit) so it waits for the user\'s answer, or write the content in your message.'
+        if (args.await_reply === false) return 'A view in a group chat waits for the user\'s answer; call show_view without await_reply: false.'
+        const room = rt.roomOf(owner.roomId)
+        if (room === undefined) return 'This group chat is gone; write the content in your message instead.'
+        const { duplicate } = rt.addRoomCard({ id: randomUUID(), kind: 'view', botId: owner.botId, roomId: room.id, askedAt: Date.now(), title, view })
+        await rt.save()
+        rt.waitRoomTurn?.(id)
+        exec.concludeTurn?.()
+        return duplicate
+          ? 'That view card is already waiting for the user in this group chat.'
+          : 'The view card is waiting for the user above the group\'s composer. The other members carry on meanwhile; the answer arrives as a message to you after this turn.'
+      }
       if (!checked.interactive && args.await_reply === true) return 'This view has nothing to submit; call show_view with await_reply: false.'
       if (checked.interactive && args.await_reply === false) return 'This view has controls to submit, so it waits for the user\'s answer; call show_view without await_reply: false.'
       const awaitReply = args.await_reply ?? checked.interactive

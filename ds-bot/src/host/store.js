@@ -19,8 +19,8 @@ export const own = (table, key) => (table != null && Object.hasOwn(table, key) ?
 export function install(rt) {
   const { ctx, home, statePath } = rt
 
-  /** @type {{version:1, workspaceId?:string, mainBotIds:string[], bots:Record<string,any>, privateArchives:any[], rooms:Record<string,any>, agents:Record<string,any>, sections:any[], capabilities:{items:Record<string,any>}, exchanges:any[], exchangeTurns:Record<string,number[]>, revision:number}} */
-  const state = { version: 1, mainBotIds: [], bots: {}, privateArchives: [], rooms: {}, agents: {}, sections: [], capabilities: { items: {} }, exchanges: [], exchangeTurns: {}, works: {}, requests: {}, questions: {}, views: {}, closedCards: {}, prefs: {}, switching: {}, revision: 0 }
+  /** @type {{version:1, workspaceId?:string, mainBotIds:string[], bots:Record<string,any>, privateArchives:any[], rooms:Record<string,any>, agents:Record<string,any>, sections:any[], capabilities:{items:Record<string,any>}, exchanges:any[], exchangeTurns:Record<string,number[]>, roomCards:Record<string,any>, revision:number}} */
+  const state = { version: 1, mainBotIds: [], bots: {}, privateArchives: [], rooms: {}, agents: {}, sections: [], capabilities: { items: {} }, exchanges: [], exchangeTurns: {}, works: {}, requests: {}, questions: {}, views: {}, closedCards: {}, roomCards: {}, prefs: {}, switching: {}, revision: 0 }
   let loaded = null
   let writing = Promise.resolve()
   const { warn } = rt
@@ -246,6 +246,27 @@ export function install(rt) {
       room.members = members
       room.admin = admin
       migrated = true
+    }
+    // Cards a member asked in a group belong to the group, not to the member's hidden
+    // group Session. A group or Bot that is gone takes its waiting cards with it.
+    if (state.roomCards === null || typeof state.roomCards !== 'object' || Array.isArray(state.roomCards)) {
+      state.roomCards = {}
+      migrated = true
+    }
+    for (const [roomId, cards] of Object.entries(state.roomCards)) {
+      const room = own(state.rooms, roomId)
+      const kept = room === undefined || !Array.isArray(cards) ? [] : cards.filter(card => card !== null && typeof card === 'object'
+        && typeof card.id === 'string' && (card.kind === 'question' || card.kind === 'view' || card.kind === 'secret')
+        && own(state.bots, card.botId) !== undefined && room.members.includes(card.botId))
+      if (kept.length === 0) {
+        delete state.roomCards[roomId]
+        if (room !== undefined || cards !== undefined) migrated = true
+        continue
+      }
+      if (kept.length !== cards.length) {
+        state.roomCards[roomId] = kept
+        migrated = true
+      }
     }
     // Teams from before #206 kept every long message whole in this file, written whole on
     // every save. A message between Bots is whole in its recipient's Session; a group

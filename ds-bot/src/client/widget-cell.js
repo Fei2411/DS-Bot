@@ -6,7 +6,7 @@ import { AnsweredCell, SettledQuestion } from './questions.js'
 import { useDockHold } from './card-hold.js'
 import { SettledHandoff } from './handoff-card.js'
 import { SettledComputerHandoff } from './computer.js'
-import { heldCardKey } from './sources.js'
+import { heldCardKey, roomCardsAt } from './sources.js'
 import { WidgetCard, ViewUi, DEEP_VIEW_CSS, WidgetView as CoreWidgetView, ViewMenuList as CoreViewMenuList } from 'deep-view/react'
 import { checkShownView } from 'deep-view/core'
 
@@ -39,7 +39,7 @@ export function PendingView({ sessionId, view, actions, inline }) {
     void Promise.resolve().then(make).catch(() => setAnswered(null)).finally(() => { busyRef.current = false })
   }
   const onSubmit = (action, values) => run(() => actions.answerView(sessionId, view.id, action, values))
-  const onDismiss = () => run(() => actions.dismissView(sessionId))
+  const onDismiss = () => run(() => actions.dismissView(sessionId, view.id))
   // Hidden, not unmounted, while the answer is on its way: if it fails the card comes
   // back with what the user had typed or picked. The inputs stay busy meanwhile, so a
   // letter key cannot answer a hidden card.
@@ -80,11 +80,32 @@ export function ClosedView({ title, closed }) {
 }
 
 // Views asked by a call the transcript does not draw wait above the composer,
-// mirroring the question dock.
+// mirroring the question dock. In a group the queue belongs to the group.
+const ROOM_WAIT_NOTE_MS = 30 * 60 * 1000
+
+function RoomViewDock({ roomId, useRoster, actions }) {
+  const all = useRoster(value => roomCardsAt(value, roomId))
+  const [turn, setTurn] = useState(0)
+  const cards = (all ?? []).filter(card => card.kind === 'view')
+  if (cards.length === 0) return null
+  const card = cards[turn % cards.length]
+  const waited = Date.now() - (card.askedAt ?? 0)
+  return h('div', { className: 'bt-q-dock bt-room-dock' },
+    cards.length > 1 ? h('button', {
+      type: 'button',
+      className: 'bt-room-chip',
+      onClick: () => setTurn(current => current + 1),
+    }, t('{count} more waiting · show next', { count: cards.length - 1 })) : null,
+    h(PendingView, { key: card.id, sessionId: roomId, view: card, actions, inline: false }),
+    waited >= ROOM_WAIT_NOTE_MS ? h('div', { className: 'bt-q-detail bt-room-wait' }, t('Waiting for your answer for over 30 minutes')) : null)
+}
+
 export function WidgetDock({ sessionId, useRoster, useCards, useHeldCards, actions }) {
+  const room = useRoster(value => value.roomsById?.[sessionId])
   const view = useRoster(value => value.views?.[sessionId])
   const drawn = useCards?.(state => state[sessionId]?.[view?.callId] > 0) === true
   const held = useHeldCards?.(state => state[sessionId]?.[heldCardKey('view', view?.id)] > 0) === true
+  if (room !== undefined) return h(RoomViewDock, { roomId: sessionId, useRoster, actions })
   const inPart = (view?.callSessionId ?? sessionId) === sessionId
   if (view === undefined || (inPart && view.callId && drawn && !held)) return null
   return h(PendingView, { sessionId, view, actions, inline: false })

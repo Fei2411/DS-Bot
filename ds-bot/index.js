@@ -13,6 +13,7 @@ import * as handoffs from './src/host/handoffs.js'
 import * as requests from './src/host/requests.js'
 import * as delivery from './src/host/delivery.js'
 import * as roster from './src/host/roster.js'
+import * as roomCards from './src/host/room-cards.js'
 import * as folders from './src/host/folders.js'
 import * as privacy from './src/host/privacy.js'
 import * as agents from './src/host/agents.js'
@@ -62,7 +63,7 @@ export { name, inject } from './src/host/entry.js'
 // install. Listeners run and tools are listed in registration order, so this order holds:
 // usage meters model requests after every listener that rewrites them. privacy checks a
 // call before the hooks of tools do, so a closed call never reaches a card they show.
-const MODULES = [diagnostics, store, ledger, models, providers, permissions, turns, steer, handoffs, requests, delivery, roster, folders, privacy, agents, prompt, timeContext, tools, chatIndex, groups, goals, tasks, approvals, resume, memory, parts, changes, images, avatarLibrary, secrets, connectors, capabilities, learning, schedules, browser, browserPlugins, computer, usage, update, dshUpdate, thinking, mobile, feed, phone, im, channel, remote, officeSkills, goalSkills, localAgents]
+const MODULES = [diagnostics, store, ledger, models, providers, permissions, turns, steer, handoffs, requests, delivery, roster, roomCards, folders, privacy, agents, prompt, timeContext, tools, chatIndex, groups, goals, tasks, approvals, resume, memory, parts, changes, images, avatarLibrary, secrets, connectors, capabilities, learning, schedules, browser, browserPlugins, computer, usage, update, dshUpdate, thinking, mobile, feed, phone, im, channel, remote, officeSkills, goalSkills, localAgents]
 
 export function apply(ctx, config = {}) {
   createRuntime(ctx, config)
