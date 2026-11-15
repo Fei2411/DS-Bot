@@ -72,16 +72,24 @@ export class CodexEngine {
         if (thread === undefined) break
         // Codex 0.166 condenses as an item of its own, in a turn of its own or mid-turn.
         if (item.type === 'contextCompaction') thread.push({ type: 'compaction', status: method === 'item/started' ? 'started' : 'completed' })
-        if (item.type === 'agentMessage' || item.type === 'agent_message') thread.push({ type: 'text', text: item.text ?? '' })
-        else if (item.type === 'reasoning') thread.push({ type: 'thought', text: (item.content ?? []).join('') || item.text || '' })
-        else if (method === 'item/started' && item.type !== undefined) thread.push({ type: 'activity', text: `▸ ${activityOf(item)}` })
+        // Every event names its turn, so the adapter can tell a finished turn's
+        // leftovers from the turn it reads now (#1513).
+        const turnId = params?.turnId
+        if (item.type === 'agentMessage' || item.type === 'agent_message') thread.push({ type: 'text', text: item.text ?? '', turnId })
+        else if (item.type === 'reasoning') thread.push({ type: 'thought', text: (item.content ?? []).join('') || item.text || '', turnId })
+        else if (method === 'item/started' && item.type !== undefined) thread.push({ type: 'activity', text: `▸ ${activityOf(item)}`, turnId })
         break
       }
       case 'turn/completed': {
         if (thread === undefined) break
         const turn = params?.turn ?? {}
-        if (turn.status === 'failed') thread.push({ type: 'error', error: new Error(turn.error?.message ?? 'the turn failed') })
-        else thread.push({ type: 'done', reason: 'stop' })
+        // Only the turn that finished is cleared. A late notice for an earlier turn —
+        // one a steer already replaced — must not clear the turn running now: that would
+        // make the next input start a turn instead of steering the live one (#1513).
+        thread.completedTurnId = turn.id
+        if (turn.id === undefined || thread.turnId === turn.id) thread.turnId = undefined
+        if (turn.status === 'failed') thread.push({ type: 'error', error: new Error(turn.error?.message ?? 'the turn failed'), turnId: turn.id })
+        else thread.push({ type: 'done', reason: 'stop', turnId: turn.id })
         break
       }
       case 'thread/tokenUsage/updated': {
@@ -91,11 +99,12 @@ export class CodexEngine {
         const last = params?.tokenUsage?.last
         if (thread === undefined || last === undefined) break
         const size = params.tokenUsage.modelContextWindow
-        if (typeof last.totalTokens === 'number') thread.push({ type: 'context', used: last.totalTokens, ...(typeof size === 'number' ? { size } : {}) })
+        if (typeof last.totalTokens === 'number') thread.push({ type: 'context', used: last.totalTokens, ...(typeof size === 'number' ? { size } : {}), turnId: params?.turnId })
         const cached = last.cachedInputTokens ?? 0
         if (last.inputTokens > 0 || last.outputTokens > 0) {
           thread.push({
             type: 'usage',
+            turnId: params?.turnId,
             usage: {
               // Codex folds cached input into inputTokens; DSH counts it apart.
               inputTokens: Math.max(0, (last.inputTokens ?? 0) - cached),
@@ -181,8 +190,17 @@ export class CodexEngine {
       // The app-server takes the level per turn and keeps it for the next ones.
       ...(effort === undefined ? {} : { effort }),
     }, { signal, timeout: 0 })
-    thread.turnId = reply?.turn?.id ?? reply?.id
-    return thread.turnId
+    const turnId = reply?.turn?.id ?? reply?.id
+    // Notifications in the response's stdout batch run before this continuation.
+    thread.turnId = thread.completedTurnId === turnId ? undefined : turnId
+    return turnId
+  }
+
+  // Codex's app-server refuses a steer that does not name the turn it steers, and
+  // a refused steer must reach the adapter: it starts a turn of its own instead of
+  // dropping the user's answer. A thread with no live turn cannot be steered at all.
+  canSteer(thread) {
+    return thread?.turnId !== undefined
   }
 
   // The thread's own compaction: a turn of its own, which ends with turn/completed.
@@ -194,8 +212,10 @@ export class CodexEngine {
   }
 
   async steer(thread, input) {
+    const expectedTurnId = thread?.turnId
+    if (expectedTurnId === undefined) throw new Error('the turn this input steers has already ended')
     const blocks = Array.isArray(input) ? input : [{ type: 'text', text: input }]
-    await this.peer?.request('turn/steer', { threadId: thread.threadId, input: codexInput(blocks) }, { timeout: 15_000 }).catch(() => {})
+    await this.peer?.request('turn/steer', { threadId: thread.threadId, expectedTurnId, input: codexInput(blocks) }, { timeout: 15_000 })
   }
 
   cancel(thread) {
