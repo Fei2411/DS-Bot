@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { test } from 'node:test'
 import { LocalAgentAdapter } from '../src/host/local-agents/adapter.js'
-import { AcpEngine } from '../src/host/local-agents/acp.js'
+import { AcpEngine, stdioBridgePath } from '../src/host/local-agents/acp.js'
 import { CodexEngine } from '../src/host/local-agents/codex.js'
 import { JsonRpcPeer, wireProcess } from '../src/host/local-agents/jsonrpc.js'
 import { ClaudeEngine } from '../src/host/local-agents/claude.js'
@@ -1185,4 +1185,108 @@ test('ClaudeEngine can_use_tool deny sends required message string (#1539)', asy
     toolResult('m2', ask.calls[0].id, JSON.stringify({ decision: 'deny' })),
   ], { provider: 'local-claude-code' })))
   assert.equal(denied.text, 'perm:{"behavior":"deny","message":"The user denied this action."}')
+})
+
+
+test('stdioBridgePath extracts .asar bridges into a private directory and leaves unpacked files alone', (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsb-asar-'))
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  const asarDir = join(dir, 'app.asar')
+  const unpackedDir = join(dir, 'app.asar.unpacked')
+  mkdirSync(asarDir, { recursive: true })
+  mkdirSync(unpackedDir, { recursive: true })
+  const asarSource = join(asarDir, 'mcp-stdio.js')
+  const unpackedSource = join(unpackedDir, 'mcp-stdio.js')
+  writeFileSync(asarSource, '// bridge\n')
+  writeFileSync(unpackedSource, '// unpacked\n')
+
+  const extracted = stdioBridgePath(asarSource)
+  t.after(() => rmSync(dirname(extracted), { recursive: true, force: true }))
+  assert.notEqual(extracted, asarSource)
+  assert.equal(stdioBridgePath(asarSource), extracted)
+  assert.equal(readFileSync(extracted, 'utf8'), '// bridge\n')
+  if (process.platform !== 'win32') {
+    assert.equal(statSync(dirname(extracted)).mode & 0o777, 0o700)
+    assert.equal(statSync(extracted).mode & 0o777, 0o600)
+  }
+  assert.equal(stdioBridgePath(unpackedSource), unpackedSource)
+})
+
+test('ACP session/load falls back to stdio or plain sessions without dropping cliSessionId', async (t) => {
+  for (const flag of ['--reject-http-mcp', '--reject-mcp']) {
+    const records = {}
+    const first = makeAdapter({ records, acpArgs: [flag] })
+    const second = makeAdapter({ records, acpArgs: [flag] })
+    t.after(async () => {
+      await first.dispose()
+      await second.dispose()
+    })
+
+    const turn1 = await collect(first.stream(options('s1', [user('m1', 'first')])))
+    assert.equal(turn1.finish.kind, 'stop')
+    const cliId = records.s1?.cliSessionId
+    assert.ok(cliId)
+    await first.dispose()
+
+    const turn2 = await collect(second.stream(options('s1', [user('m1', 'first'), user('m2', 'second')])))
+    assert.equal(turn2.finish.kind, 'stop')
+    assert.equal(records.s1?.cliSessionId, cliId)
+  }
+})
+
+test('clearing reasoningEffort restores ACP thought_level after session/load and Host restart', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsb-effort-'))
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+
+  for (const [tag, extra] of [['bare', []], ['with-options', ['--load-thought-level']]]) {
+    const records = {}
+    const stateFile = join(dir, `${tag}.json`)
+    const args = ['--thought-levels', `--state-file=${stateFile}`, ...extra]
+    const first = makeAdapter({ records, acpArgs: args })
+    const second = makeAdapter({ records, acpArgs: args })
+    t.after(async () => {
+      await first.dispose()
+      await second.dispose()
+    })
+
+    const t1 = await collect(first.stream(options('s1', [user('m1', 'show-state')], { reasoningEffort: 'high' })))
+    assert.match(t1.text, /effort: high/)
+    assert.equal(records.s1?.defaultEffort, 'medium')
+    assert.equal(records.s1?.effort, 'high')
+    await first.dispose()
+
+    const t2 = await collect(second.stream(options('s1', [user('m1', 'show-state'), user('m2', 'show-state')])))
+    assert.match(t2.text, /effort: medium/)
+    assert.equal(records.s1?.defaultEffort, 'medium')
+    assert.equal(records.s1?.effort, undefined)
+
+    const t3 = await collect(second.stream(options('s1', [user('m1', 'show-state'), user('m2', 'show-state'), user('m3', 'show-state')], { reasoningEffort: 'low' })))
+    assert.match(t3.text, /effort: low/)
+    await second.closeSession('s1')
+
+    const t4 = await collect(second.stream(options('s1', [user('m1', 'show-state'), user('m2', 'show-state'), user('m3', 'show-state'), user('m4', 'show-state')])))
+    assert.match(t4.text, /effort: medium/)
+    assert.equal(records.s1?.effort, undefined)
+  }
+})
+
+test('legacy ACP agents switch models via session/set_model and fail on unknown models', async (t) => {
+  const records = {}
+  const adapter = makeAdapter({ records, acpArgs: ['--legacy-models'] })
+  t.after(() => adapter.dispose())
+
+  const probed = await adapter.probeModels('local-acp-fake')
+  assert.ok(probed.some(model => model.id === 'legacy-fast'))
+
+  const turn1 = await collect(adapter.stream(options('s1', [user('m1', 'show-state')], { model: 'legacy-fast' })))
+  assert.match(turn1.text, /model: legacy-fast/)
+
+  await adapter.closeSession('s1')
+  const turn2 = await collect(adapter.stream(options('s1', [user('m1', 'show-state'), user('m2', 'show-state')], { model: 'legacy-fast' })))
+  assert.match(turn2.text, /model: legacy-fast/)
+
+  await assert.rejects(
+    collect(adapter.stream(options('s2', [user('m1', 'show-state')], { model: 'legacy-missing' }))),
+    err => err?.code === 'LOCAL_AGENT_MODEL',
+  )
 })

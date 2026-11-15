@@ -173,6 +173,8 @@ export class LocalAgentAdapter extends LlmAdapter {
       cliSessionId: record?.cliSessionId,
       handed: record?.handedId,
       promptHash: record?.promptHash,
+      defaultEffort: record?.defaultEffort,
+      effort: record?.effort,
       engineSession: undefined,
       mcp: undefined,
       events: [],
@@ -222,6 +224,8 @@ export class LocalAgentAdapter extends LlmAdapter {
       handedId: live.handed,
       promptHash: live.promptHash,
       model: live.model,
+      ...(live.defaultEffort === undefined ? {} : { defaultEffort: live.defaultEffort }),
+      ...(live.effort === undefined ? {} : { effort: live.effort }),
       ...(live.context === undefined ? {} : { context: live.context }),
       ...(live.compactions > 0 ? { compactions: live.compactions } : {}),
       ...extra,
@@ -426,6 +430,8 @@ export class LocalAgentAdapter extends LlmAdapter {
         mode,
         preset,
         model: options.model,
+        defaultEffort: live.defaultEffort,
+        effort: live.effort,
         // Codex carries the team instructions as developer config on a new
         // thread; Claude gets them appended at spawn; ACP reads them in the
         // first prompt below.
@@ -438,6 +444,10 @@ export class LocalAgentAdapter extends LlmAdapter {
       // in the meantime, or a resume that fails would erase it.
       const reportedId = live.engineSession.acpSessionId ?? live.engineSession.threadId ?? live.engineSession.cliSessionId
       if (reportedId !== undefined) live.cliSessionId = reportedId
+      if (live.spec.kind === 'acp') {
+        if (live.engineSession.defaultEffort !== undefined) live.defaultEffort = live.engineSession.defaultEffort
+        live.effort = live.engineSession.effort
+      }
       live.started = true
       // The session's events feed this Session's queue: a call from any engine
       // kind reaches drain() through live.next().
@@ -534,6 +544,10 @@ export class LocalAgentAdapter extends LlmAdapter {
         live.push({ type: 'error', error })
       }
       return
+    }
+    if (live.spec.kind === 'acp') {
+      if (live.engineSession?.defaultEffort !== undefined) live.defaultEffort = live.engineSession.defaultEffort
+      if (live.defaultEffort !== undefined) live.effort = effort !== undefined && effort !== live.defaultEffort ? effort : undefined
     }
     live.state = 'running'
     try {

@@ -2,7 +2,7 @@
 // folder when the CLI pins shell commands to its process cwd), ACP over stdio.
 // A process multiplexes sessions: each DS Bot Session maps to one ACP session,
 // created or resumed with our loopback MCP server attached.
-import { copyFileSync, existsSync } from 'node:fs'
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -17,15 +17,20 @@ const AUTH_ERROR = /not signed in|not logged in|login required|unauthorized|auth
 const TIMEOUT_ERROR = /timed out|timeout/i
 const BUNDLED_MCP_STDIO = join(dirname(fileURLToPath(import.meta.url)), 'mcp-stdio.js')
 
-let extractedBridge
-function stdioBridgePath() {
-  if (!BUNDLED_MCP_STDIO.includes('.asar')) return BUNDLED_MCP_STDIO
-  if (extractedBridge === undefined || !existsSync(extractedBridge)) {
-    const target = join(tmpdir(), 'dsb-mcp-stdio.mjs')
-    copyFileSync(BUNDLED_MCP_STDIO, target)
-    extractedBridge = target
-  }
-  return extractedBridge
+const extractedBridges = new Map()
+// Electron's ASAR reader does not span external CLI processes spawned by Node:
+// extract the bridge once per process into a private 0700 temp directory.
+export function stdioBridgePath(source = BUNDLED_MCP_STDIO) {
+  if (!/\.asar[\\/]/u.test(source)) return source
+  const cached = extractedBridges.get(source)
+  if (cached !== undefined && existsSync(cached)) return cached
+  const dir = mkdtempSync(join(tmpdir(), 'dsb-mcp-'))
+  try { chmodSync(dir, 0o700) } catch {}
+  const target = join(dir, 'mcp-stdio.mjs')
+  writeFileSync(target, readFileSync(source), { flag: 'wx', mode: 0o600 })
+  extractedBridges.set(source, target)
+  process.once('exit', () => { try { rmSync(dir, { recursive: true, force: true }) } catch {} })
+  return target
 }
 
 function terminateChild(child) {
@@ -43,17 +48,19 @@ const EFFORT_NAMES = { off: 'Off', minimal: 'Minimal', low: 'Low', medium: 'Medi
 // {type:'context',used?,size?} (how full the CLI's own context is) |
 // {type:'compaction',status:'started'|'completed'|'failed'}
 export class AcpEngine {
-  constructor(route, engine, { findExecutable }) {
+  constructor(route, engine, { findExecutable, defaultEfforts = new Map(), sessionEfforts = new Map() }) {
     this.route = route
     this.engine = engine
     this.findExecutable = findExecutable
+    this.defaultEfforts = defaultEfforts
+    this.sessionEfforts = sessionEfforts
     this.child = undefined
     this.peer = undefined
     this.starting = undefined
     this.sessions = new Map()
     this.caps = {}
-    // The modes and options this CLI listed last, for a reply that lists none.
-    this.listed = { modes: [], configOptions: [] }
+    // The modes, options and models this CLI listed last, for a reply that lists none.
+    this.listed = { modes: [], configOptions: [], models: [] }
     // The commands each agent session lists, by the agent's session id.
     this.commands = new Map()
     // For CLIs whose commands follow their process cwd (`cwdPerProcess`): one
@@ -71,7 +78,7 @@ export class AcpEngine {
     return new AcpEngine(
       this.route,
       { ...this.engine, cwdPerProcess: false, ...(cwd ? { spawnCwd: cwd } : {}) },
-      { findExecutable: this.findExecutable },
+      { findExecutable: this.findExecutable, defaultEfforts: this.defaultEfforts, sessionEfforts: this.sessionEfforts },
     )
   }
 
@@ -275,20 +282,34 @@ export class AcpEngine {
     }
   }
 
+  mcpModes(mcp) {
+    if (mcp === undefined || this.caps.mcpMode === 'none') return ['none']
+    if (this.caps.mcpMode === 'stdio') return ['stdio', 'none']
+    return ['http', 'stdio', 'none']
+  }
+
+  recordDefaultEffort(reply, modelKey = '') {
+    const effort = configOptionsOf(reply?.configOptions ?? [], 'thought_level')?.currentValue
+    if (effort !== undefined && !this.defaultEfforts.has(modelKey)) this.defaultEfforts.set(modelKey, effort)
+  }
+
+  setSessionEffort(acpSessionId, effort) {
+    if (acpSessionId === undefined) return
+    if (effort === undefined) this.sessionEfforts.delete(acpSessionId)
+    else this.sessionEfforts.set(acpSessionId, effort)
+  }
+
   // Starts an ACP session using Streamable HTTP MCP when supported, falling back
   // to the stdio MCP bridge and finally to a plain session (#1073, #1463).
   async newSession(peer, { cwd, mcp }) {
-    const modes = mcp === undefined || this.caps.mcpMode === 'none'
-      ? ['none']
-      : this.caps.mcpMode === 'stdio'
-        ? ['stdio', 'none']
-        : ['http', 'stdio', 'none']
+    const modes = this.mcpModes(mcp)
     let lastError
     for (let i = 0; i < modes.length; i++) {
       const mode = modes[i]
       try {
         const reply = await peer.request('session/new', { cwd, mcpServers: serversFor(mcp, mode) }, { timeout: 60_000 })
         if (mcp !== undefined) this.caps.mcpMode = mode
+        this.recordDefaultEffort(reply, '')
         return reply
       } catch (error) {
         lastError = error
@@ -299,48 +320,63 @@ export class AcpEngine {
     throw lastError
   }
 
+  // Resumes an ACP session across the same MCP transport fallback ladder as newSession.
+  async loadSession(peer, { cwd, mcp, resumeId }) {
+    const modes = this.mcpModes(mcp)
+    for (let i = 0; i < modes.length; i++) {
+      const mode = modes[i]
+      try {
+        const reply = await peer.request('session/load', { cwd, mcpServers: serversFor(mcp, mode), sessionId: resumeId }, { timeout: 30_000 })
+        if (mcp !== undefined) this.caps.mcpMode = mode
+        return { reply, loaded: true }
+      } catch (error) {
+        const text = String(error?.message ?? error)
+        if (AUTH_ERROR.test(text) || TIMEOUT_ERROR.test(text)) throw error
+        if (i === modes.length - 1) return { reply: await this.newSession(peer, { cwd, mcp }), loaded: false }
+      }
+    }
+  }
+
   // A new or resumed ACP session for one DS Bot Session.
   async open(dshSessionId, openArgs) {
     if (this.engine.cwdPerProcess) return this.openInWorker(dshSessionId, openArgs)
     const { cwd, mcp, resumeId, preset, model } = openArgs
     const peer = await this.ensure()
     const session = this.sessionFor(dshSessionId)
-    let reply
-    if (resumeId !== undefined) {
-      const loadMode = this.caps.mcpMode ?? 'http'
-      try {
-        reply = await peer.request('session/load', { cwd, mcpServers: serversFor(mcp, loadMode), sessionId: resumeId }, { timeout: 30_000 })
-      } catch (error) {
-        const text = String(error?.message ?? error)
-        if (this.caps.mcpMode === undefined && mcp !== undefined && !AUTH_ERROR.test(text) && !TIMEOUT_ERROR.test(text)) {
-          try {
-            reply = await peer.request('session/load', { cwd, mcpServers: serversFor(mcp, 'stdio'), sessionId: resumeId }, { timeout: 30_000 })
-            this.caps.mcpMode = 'stdio'
-          } catch {}
-        }
-        if (reply === undefined) reply = await this.newSession(peer, { cwd, mcp })
-      }
-    } else {
-      reply = await this.newSession(peer, { cwd, mcp })
-    }
+    const { reply, loaded } = resumeId !== undefined
+      ? await this.loadSession(peer, { cwd, mcp, resumeId })
+      : { reply: await this.newSession(peer, { cwd, mcp }), loaded: false }
     session.acpSessionId = reply?.sessionId ?? resumeId
+    const loadedEffort = configOptionsOf(reply?.configOptions ?? [], 'thought_level')?.currentValue
     // Some agents list nothing on session/load: the session reads what this CLI
-    // listed before rather than guessing a mode.
+    // listed before rather than guessing a mode or model list.
     const listed = this.remember(reply)
     session.configOptions = listed.configOptions
     session.modes = listed.modes
+    session.models = listed.models
     // The preset maps to a mode only once the agent has listed its own.
     const mode = acpMode(preset, session.modes, this.engine.modes)
     if (mode !== undefined) await this.setOption(session, 'mode', mode).catch(() => {})
     // A model the agent does not take fails the turn: going on would answer with a
     // model the user did not pick.
-    if (model !== undefined && model !== 'default') {
-      await this.setOption(session, 'model', model).catch((error) => {
-        throw Object.assign(new Error(`${this.engine.name} did not switch to the model ${model}: ${error?.message ?? error}. Pick another model in the Bot's settings.`), { code: 'LOCAL_AGENT_MODEL' })
+    const modelKey = model !== undefined && model !== 'default' ? model : ''
+    if (modelKey !== '') {
+      await this.setOption(session, 'model', modelKey).catch((error) => {
+        throw Object.assign(new Error(`${this.engine.name} did not switch to the model ${modelKey}: ${error?.message ?? error}. Pick another model in the Bot's settings.`), { code: 'LOCAL_AGENT_MODEL' })
       })
     }
-    session.defaultEffort = configOptionsOf(session.configOptions ?? [], 'thought_level')?.currentValue
-    session.effort = undefined
+    if (!loaded) {
+      const freshDefault = configOptionsOf(session.configOptions ?? [], 'thought_level')?.currentValue
+      if (freshDefault !== undefined && modelKey !== '') this.defaultEfforts.set(modelKey, freshDefault)
+      session.defaultEffort = freshDefault ?? this.defaultEfforts.get(modelKey) ?? this.defaultEfforts.get('')
+      session.effort = undefined
+      this.setSessionEffort(session.acpSessionId, undefined)
+    } else {
+      session.defaultEffort = openArgs.defaultEffort ?? this.defaultEfforts.get(modelKey) ?? this.defaultEfforts.get('') ?? loadedEffort
+      const currentEffort = loadedEffort ?? openArgs.effort ?? this.sessionEfforts.get(session.acpSessionId)
+      session.effort = currentEffort !== undefined && currentEffort !== session.defaultEffort ? currentEffort : undefined
+      this.setSessionEffort(session.acpSessionId, session.effort)
+    }
     return session
   }
 
@@ -348,15 +384,24 @@ export class AcpEngine {
     const worker = this.workerOf(session)
     if (worker !== undefined && worker !== this) return worker.setOption(session, category, value)
     const peer = await this.ensure()
+    const option = configOptionsOf(session.configOptions ?? [], category)
+    if (category === 'model' && option === undefined && (session.models?.length ?? 0) > 0) {
+      await peer.request('session/set_model', { sessionId: session.acpSessionId, modelId: value }, { timeout: 15_000 })
+      return
+    }
     try {
-      const configId = configOptionsOf(session.configOptions ?? [], category)?.id ?? category
+      const configId = option?.id ?? category
       const reply = await peer.request('session/set_config_option', { sessionId: session.acpSessionId, configId, value }, { timeout: 15_000 })
       if (Array.isArray(reply?.configOptions)) {
         session.configOptions = reply.configOptions
         this.remember(reply)
       }
     } catch (error) {
-      // An agent from before config options takes its mode through session/set_mode.
+      // Agents from before configOptions take model or mode via the legacy request.
+      if (category === 'model' && option === undefined) {
+        await peer.request('session/set_model', { sessionId: session.acpSessionId, modelId: value }, { timeout: 15_000 })
+        return
+      }
       if (category !== 'mode') throw error
       await peer.request('session/set_mode', { sessionId: session.acpSessionId, modeId: value }, { timeout: 15_000 }).catch(() => {})
     }
@@ -366,13 +411,18 @@ export class AcpEngine {
     const worker = this.workerOf(session)
     if (worker !== undefined && worker !== this) return worker.prompt(session, blocks, { signal, effort })
     const peer = await this.ensure()
-    if (configOptionsOf(session.configOptions ?? [], 'thought_level') !== undefined) {
-      if (effort !== undefined && session.effort !== effort) {
-        await this.setOption(session, 'thought_level', effort).catch(() => {})
-        session.effort = effort
-      } else if (effort === undefined && session.effort !== undefined && session.defaultEffort !== undefined) {
-        await this.setOption(session, 'thought_level', session.defaultEffort).catch(() => {})
+    if (configOptionsOf(session.configOptions ?? [], 'thought_level') !== undefined || session.defaultEffort !== undefined || session.effort !== undefined) {
+      const current = session.effort ?? session.defaultEffort
+      const target = effort ?? session.defaultEffort
+      if (target !== undefined && target !== current) {
+        const applied = await this.setOption(session, 'thought_level', target).then(() => true, () => false)
+        if (applied) {
+          session.effort = effort !== undefined && effort !== session.defaultEffort ? effort : undefined
+          this.setSessionEffort(session.acpSessionId, session.effort)
+        }
+      } else if (effort === undefined && session.effort !== undefined) {
         session.effort = undefined
+        this.setSessionEffort(session.acpSessionId, undefined)
       }
     }
     const reply = peer.request('session/prompt', { sessionId: session.acpSessionId, prompt: blocks }, { signal, timeout: 0 })
@@ -411,6 +461,7 @@ export class AcpEngine {
     }
     if (session?.acpSessionId === undefined) return
     this.commands.delete(session.acpSessionId)
+    this.sessionEfforts.delete(session.acpSessionId)
     if (this.caps.close) await this.peer?.request('session/close', { sessionId: session.acpSessionId }, { timeout: 15_000 }).catch(() => {})
   }
 
@@ -451,7 +502,12 @@ export class AcpEngine {
   remember(reply) {
     const configOptions = reply?.configOptions
     const modes = reply?.modes?.availableModes ?? configOptionsOf(configOptions ?? [], 'mode')?.options
-    if (configOptions !== undefined || modes !== undefined) this.listed = { configOptions: configOptions ?? [], modes: modes ?? [] }
+    const models = reply?.models?.availableModels
+    this.listed = {
+      configOptions: configOptions ?? this.listed.configOptions,
+      modes: modes ?? this.listed.modes,
+      models: models ?? this.listed.models,
+    }
     return this.listed
   }
 

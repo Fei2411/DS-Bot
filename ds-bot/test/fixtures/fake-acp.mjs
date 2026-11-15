@@ -22,12 +22,16 @@
 // `--cursor-modes` lists the modes cursor-agent 2026.11.05 does (agent, plan, ask)
 // and refuses any other, as it does.
 import { spawn } from 'node:child_process'
+import { readFileSync, writeFileSync } from 'node:fs'
 import { createInterface } from 'node:readline'
 
 const exitAfterTurn = process.argv.includes('--exit-after-turn')
 const cursorModes = process.argv.includes('--cursor-modes')
 const agyModes = process.argv.includes('--agy-modes')
 const thoughtLevels = process.argv.includes('--thought-levels')
+const legacyModels = process.argv.includes('--legacy-models')
+const loadThoughtLevel = process.argv.includes('--load-thought-level')
+const stateFile = process.argv.find(arg => arg.startsWith('--state-file='))?.slice('--state-file='.length)
 const omitMcpCaps = process.argv.includes('--omit-mcp-caps')
 const rejectHttpMcp = process.argv.includes('--reject-http-mcp')
 const rejectMcp = process.argv.includes('--reject-mcp')
@@ -42,6 +46,15 @@ const MODES = agyModes ? ['default', 'accept-edits', 'auto', 'plan'] : cursorMod
 let refusedModes = 0
 const sessions = new Map()
 let nextId = 0
+if (stateFile) {
+  try {
+    for (const [key, value] of Object.entries(JSON.parse(readFileSync(stateFile, 'utf8')))) sessions.set(key, value)
+    nextId = sessions.size
+  } catch {}
+}
+const saveSaved = () => {
+  if (stateFile) writeFileSync(stateFile, JSON.stringify(Object.fromEntries(sessions)))
+}
 const requests = new Map()
 
 const send = (message) => process.stdout.write(`${JSON.stringify(message)}\n`)
@@ -134,7 +147,7 @@ async function runPrompt(session, prompt, requestId) {
   }
   if (text.includes('count-sessions')) { finish(`sessions: ${sessions.size}`); return }
   if (/\bhang\b/.test(text)) return // session/cancel releases it below
-  if (text.includes('show-state')) { finish(`cwd: ${process.cwd()}; effort: ${session.thoughtLevel ?? 'default'}`); return }
+  if (text.includes('show-state')) { finish(`cwd: ${process.cwd()}; effort: ${session.thoughtLevel ?? 'default'}${legacyModels ? `; model: ${session.model ?? 'default'}` : ''}`); return }
   if (text.includes('show-mode')) { finish(`mode: ${session.mode}; refused: ${refusedModes}`); return }
   if (text.includes('ask-permission')) {
     // Like Devin: the call's kind and input arrive with its tool_call update;
@@ -282,21 +295,27 @@ process.stdin.on('data', (chunk) => {
         if (server?.command !== undefined && (server.type !== undefined || !Array.isArray(server.env))) {
           fail(id, 'Invalid params: McpServerStdio malformed'); break
         }
-        const session = { id: `acp-${++nextId}`, mcp: undefined, mode: MODES[0], thoughtLevel: 'medium' }
+        const session = { id: `acp-${++nextId}`, mcp: undefined, mode: MODES[0], thoughtLevel: 'medium', ...(legacyModels ? { model: 'legacy-std' } : {}) }
         if (server !== undefined) {
           session.mcp = server.command !== undefined
             ? { command: server.command, args: server.args ?? [], env: server.env }
             : { url: server.url, token: (server.headers ?? []).find(header => header.name === 'Authorization')?.value?.replace('Bearer ', '') }
         }
         sessions.set(session.id, session)
+        saveSaved()
         // Devin lists its commands before it answers session/new.
         update(session.id, { sessionUpdate: 'available_commands_update', availableCommands: [{ name: 'status', description: 'Show status' }, ...(listsCompact ? [{ name: 'compact', description: 'Force conversation compaction' }] : [])] })
         const configOptions = [
-          { id: 'model', category: 'model', name: 'Model', options: [{ id: 'fake-large', name: 'Fake Large' }, { id: 'fake-small', name: 'Fake Small' }] },
+          ...(legacyModels ? [] : [{ id: 'model', category: 'model', name: 'Model', options: [{ id: 'fake-large', name: 'Fake Large' }, { id: 'fake-small', name: 'Fake Small' }] }]),
           ...(thoughtLevels ? [{ id: 'thought_level', category: 'thought_level', name: 'Thinking Level', currentValue: 'medium', options: [{ value: 'low', name: 'Low' }, { value: 'medium', name: 'Medium' }, { value: 'high', name: 'High' }] }] : []),
           { id: 'mode', category: 'mode', name: 'Mode', currentValue: MODES[0], options: MODES.map(value => ({ value, name: value })) },
         ]
-        const models = thoughtLevels ? {
+        const models = legacyModels ? {
+          availableModels: [
+            { modelId: 'legacy-std', name: 'Legacy Standard' },
+            { modelId: 'legacy-fast', name: 'Legacy Fast' },
+          ],
+        } : thoughtLevels ? {
           availableModels: [
             { modelId: 'fake-large-low', name: 'Fake Large (Low)' },
             { modelId: 'fake-large-medium', name: 'Fake Large (Medium)' },
@@ -318,28 +337,39 @@ process.stdin.on('data', (chunk) => {
         }
         let session = sessions.get(params.sessionId)
         // Bare on purpose: some agents list no modes on load (cursor-agent does).
-        if (session === undefined) { session = { id: params.sessionId, mcp: undefined, mode: MODES[0], thoughtLevel: 'medium' }; sessions.set(session.id, session) }
+        if (session === undefined) { session = { id: params.sessionId, mcp: undefined, mode: MODES[0], thoughtLevel: 'medium', ...(legacyModels ? { model: 'legacy-std' } : {}) }; sessions.set(session.id, session) }
         if (server !== undefined) {
           session.mcp = server.command !== undefined
             ? { command: server.command, args: server.args ?? [], env: server.env }
             : { url: server.url, token: (server.headers ?? []).find(header => header.name === 'Authorization')?.value?.replace('Bearer ', '') }
         }
-        reply(id, { sessionId: params.sessionId })
+        saveSaved()
+        reply(id, {
+          sessionId: params.sessionId,
+          ...(loadThoughtLevel ? {
+            configOptions: [{ id: 'thought_level', category: 'thought_level', name: 'Thinking Level', currentValue: session.thoughtLevel, options: [{ value: 'low', name: 'Low' }, { value: 'medium', name: 'Medium' }, { value: 'high', name: 'High' }] }],
+          } : {}),
+        })
         break
       }
       case 'session/set_config_option':
-        if (params.configId === 'model' && !['fake-large', 'fake-small'].includes(params.value)) fail(id, `unknown model ${params.value}`)
+        if (params.configId === 'model' && (legacyModels || !['fake-large', 'fake-small'].includes(params.value))) fail(id, `unknown model ${params.value}`)
         else if (params.configId === 'mode' && !MODES.includes(params.value)) { refusedModes++; fail(id, 'Invalid params') }
         else if (params.configId === 'thought_level' && !['low', 'medium', 'high', 'xhigh'].includes(params.value)) fail(id, `unknown thought_level ${params.value}`)
         else {
           if (params.configId === 'mode') sessions.get(params.sessionId).mode = params.value
           if (params.configId === 'thought_level') sessions.get(params.sessionId).thoughtLevel = params.value
+          saveSaved()
           reply(id, {})
         }
         break
       case 'session/set_mode':
         if (!MODES.includes(params.modeId)) { refusedModes++; fail(id, 'Internal error') }
-        else { sessions.get(params.sessionId).mode = params.modeId; reply(id, {}) }
+        else { sessions.get(params.sessionId).mode = params.modeId; saveSaved(); reply(id, {}) }
+        break
+      case 'session/set_model':
+        if (!['legacy-std', 'legacy-fast', 'fake-large', 'fake-small'].includes(params.modelId)) fail(id, `unknown model ${params.modelId}`)
+        else { sessions.get(params.sessionId).model = params.modelId; saveSaved(); reply(id, {}) }
         break
       case 'session/prompt':
         void runPrompt(sessions.get(params.sessionId) ?? { id: params.sessionId }, params.prompt, id)
