@@ -186,7 +186,7 @@ export function useAnswerMorph(cardRef, kind, id) {
       duration: SPRING_SHAPE.duration, easing: SPRING_SHAPE.easing, id: 'bt-morph',
     })
     const clear = () => {
-      if (!node.getAnimations().some(other => other.id === 'bt-morph' && other !== animation)) delete node.dataset.morph
+      if (!node.getAnimations?.()?.some(other => other.id === 'bt-morph' && other !== animation)) delete node.dataset.morph
     }
     animation.onfinish = clear
     animation.oncancel = clear
@@ -362,6 +362,7 @@ export function PendingQuestion({ sessionId, question, actions, inline, enterToS
     })
   }
   const onAnswer = (answer) => {
+    if (busyRef.current) return
     const height = boxRef.current?.firstElementChild?.offsetHeight || boxRef.current?.offsetHeight
     if (inline) noteJustAnswered('question', question.id, height)
     run(() => actions.answerQuestion(sessionId, question.id, { selected: answer.selected ?? [], custom: answer.custom ?? '' }), {

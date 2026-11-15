@@ -1278,6 +1278,18 @@ test('settled and answered views summarize every outcome cleanly and derive fall
   assert.equal(text(find(formPrompt, node => node.props?.className === 'bt-q-title')), 'Host')
   const metricPrompt = expandCard(SettledView, { title: '', view: { type: 'metric', label: 'Queue depth', value: 4 }, closed: 'dismissed' })
   assert.equal(text(find(metricPrompt, node => node.props?.className === 'bt-q-title')), 'Queue depth')
+  const formulaView = {
+    type: 'stack',
+    children: [
+      { type: 'text', text: { '=': '"Budget: " + pct + "%"' } },
+      { type: 'slider', id: 'pct', label: 'Budget', min: 0, max: 100, unit: '%', value: 25 },
+      { type: 'submit', id: 'go', label: 'Run check' },
+    ],
+  }
+  const formulaAnswered = expandCard(SettledView, { title: '', view: formulaView, answer: { action: 'go', values: { inputs: { pct: 80 } } } })
+  assert.equal(text(find(formulaAnswered, node => node.props?.className === 'bt-q-title')), 'Budget: 80%')
+  const formulaDismissed = expandCard(SettledView, { title: '', view: formulaView, closed: 'dismissed' })
+  assert.equal(text(find(formulaDismissed, node => node.props?.className === 'bt-q-title')), 'Budget: 25%')
   const fallbackPrompt = expandCard(SettledView, { title: '', view: { type: 'stack', children: [] }, closed: 'dismissed' })
   assert.equal(text(find(fallbackPrompt, node => node.props?.className === 'bt-q-title')), 'View')
 })

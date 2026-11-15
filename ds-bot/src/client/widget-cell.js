@@ -41,10 +41,11 @@ function stripPromptLine(raw) {
 
 const LABELED_NODES = new Set(['metric', 'progress', 'slider', 'number', 'choice', 'toggle', 'submit'])
 
-function viewPrompt(title, view) {
+function viewPrompt(title, view, answer = null) {
   if (typeof title === 'string' && title.trim() !== '') return title.trim()
   if (view !== null && typeof view === 'object') {
-    const lookup = viewScope(view)
+    const sentInputs = answer?.values?.inputs
+    const lookup = viewScope(view, sentInputs !== null && typeof sentInputs === 'object' ? sentInputs : {})
     let found = ''
     walkView(view, (node) => {
       if (found !== '') return
@@ -127,7 +128,7 @@ function summarizeView(view, answer, closed) {
 // A settled view card (answered on the card, replied by message, or dismissed): folds
 // down to the title and outcome summary, and expands smoothly to the full read-only view.
 export function SettledView({ id, title, view, answer = null, closed }) {
-  const prompt = viewPrompt(title, view)
+  const prompt = viewPrompt(title, view, closed === undefined ? answer : null)
   const summary = summarizeView(view, answer, closed)
   const hasDetail = view !== null && typeof view === 'object'
   const cardRef = useRef(null)
@@ -202,6 +203,7 @@ export function PendingView({ sessionId, view, actions, inline, bare = false }) 
     })
   }
   const onSubmit = (action, values) => {
+    if (busyRef.current) return
     const height = boxRef.current?.firstElementChild?.offsetHeight || boxRef.current?.offsetHeight
     if (inline) noteJustAnswered('view', view.id, height)
     run(() => actions.answerView(sessionId, view.id, action, values), {
@@ -235,7 +237,7 @@ export function WidgetCell({ sessionId, callId, args, done, isError, roster, act
   if (held) return h(CellEmpty)
   if (isPending) {
     return h('div', { ref: cellRef, className: 'bt-q-inline' },
-      h(PendingView, { sessionId, view: record, actions, inline: true, bare: true }))
+      h(PendingView, { key: JSON.stringify([sessionId, record.id]), sessionId, view: record, actions, inline: true, bare: true }))
   }
   // A refused call (bad blueprint) drew no card; don't render an empty one.
   if (done && isError) return h(CellEmpty, { className: 'bt-q-gone' })
