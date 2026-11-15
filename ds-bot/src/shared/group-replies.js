@@ -70,7 +70,8 @@ export function stackReplies(replies) {
   replies.forEach((reply, index) => {
     const last = items.at(-1)
     if (reply.kind === undefined && last?.reply.kind === undefined && last?.reply.botId === reply.botId
-      && last.claims === undefined) {
+      && last.claims === undefined && (last.changes === undefined
+        || (reply.changes?.sessionId === last.changes.sessionId && reply.changes?.turn === last.changes.turn))) {
       last.texts.push(reply.text)
       last.time = reply.time
       last.duration = reply.duration
