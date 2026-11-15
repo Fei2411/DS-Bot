@@ -180,6 +180,52 @@ test('a refused Codex compaction releases a cancellation waiting for its turn id
   assert.equal(thread.turnId, undefined)
 })
 
+for (const terminal of ['exit', 'close', 'forget']) {
+  test(`an accepted Codex compaction releases pending cancellation on ${terminal}`, async t => {
+    const adapter = makeAdapter({ kind: 'codex', args: ['--hold-compact'] })
+    let exited
+    t.after(async () => { await adapter.dispose(); await exited })
+    await turn(adapter, 's1', [user('m1', 'hello')], 'local-codex-cli')
+    const live = adapter.live.get('s1')
+    const engine = live.engine
+    const thread = live.engineSession
+    const child = engine.child
+    exited = new Promise(resolve => child.once('close', resolve))
+    const accepted = Promise.withResolvers()
+    const waiting = Promise.withResolvers()
+    const request = engine.peer.request.bind(engine.peer)
+    engine.peer.request = (method, params, options) => {
+      const result = request(method, params, options)
+      if (method === 'thread/compact/start') result.then(accepted.resolve, accepted.reject)
+      return result
+    }
+    const cancel = engine.cancel.bind(engine)
+    engine.cancel = session => {
+      const result = cancel(session)
+      waiting.resolve()
+      return result
+    }
+    const controller = new AbortController()
+    let settled = false
+    const failed = assert.rejects(adapter.compact('s1', controller.signal), /stopped/).then(() => { settled = true })
+    await accepted.promise
+    controller.abort(new Error('stopped before the turn id'))
+    await waiting.promise
+    assert.ok(thread.compactionCancel)
+    if (terminal === 'exit') {
+      child.kill('SIGTERM')
+      await exited
+    } else if (terminal === 'close') await engine.close()
+    else engine.forget('s1')
+    await new Promise(setImmediate)
+    assert.equal(settled, true)
+    await failed
+    assert.equal(thread.pendingCompaction, false)
+    assert.equal(thread.compactionCancel, undefined)
+    assert.equal(live.waiters.length, 0)
+  })
+}
+
 test('the handoff note is one more prompt in the CLI session; the next turn sends only what is new', async (t) => {
   const usage = []
   const adapter = makeAdapter({ usage })

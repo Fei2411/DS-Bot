@@ -48,6 +48,7 @@ export class CodexEngine {
       this.child = undefined
       this.peer = undefined
       for (const thread of this.threads.values()) {
+        this.releaseCompaction(thread)
         thread.dead = true
         thread.push({ type: 'error', error })
       }
@@ -218,6 +219,12 @@ export class CodexEngine {
     if (cancelled !== undefined) Promise.resolve(this.cancel(thread)).then(cancelled.resolve, cancelled.reject)
   }
 
+  releaseCompaction(thread) {
+    thread.pendingCompaction = false
+    thread.compactionCancel?.resolve()
+    thread.compactionCancel = undefined
+  }
+
   // The thread's own compaction: a turn of its own, which ends with turn/completed.
   compact(thread) {
     if (this.peer === undefined) return false
@@ -225,9 +232,7 @@ export class CodexEngine {
     thread.pendingCompaction = true
     this.peer.request('thread/compact/start', { threadId: thread.threadId }, { timeout: 30_000 })
       .catch(error => {
-        thread.pendingCompaction = false
-        thread.compactionCancel?.resolve()
-        thread.compactionCancel = undefined
+        this.releaseCompaction(thread)
         thread.push({ type: 'error', error })
       })
     return true
@@ -251,6 +256,8 @@ export class CodexEngine {
   // The adapter stopped reading this thread: a later open starts a new queue, or
   // the pump that waits on this one would swallow its first event.
   forget(dshSessionId) {
+    const thread = this.threads.get(dshSessionId)
+    if (thread !== undefined) this.releaseCompaction(thread)
     this.threads.delete(dshSessionId)
   }
 
@@ -277,6 +284,7 @@ export class CodexEngine {
   }
 
   async close() {
+    for (const thread of this.threads.values()) this.releaseCompaction(thread)
     const child = this.child
     this.child = undefined
     this.peer = undefined
