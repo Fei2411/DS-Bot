@@ -45,12 +45,55 @@ function protectFences(lines) {
 // delimited by a run of backticks and closed by the same length of run.
 function protectCodeSpans(line, spans) {
   if (!line.includes('`')) return line
-  return line.replace(/(`+)([^`]|[^`][\s\S]*?[^`])\1(?!`)/g, (all) => {
+  let out = ''
+  for (let at = 0; at < line.length;) {
+    if (line[at] === '\\') {
+      // A backslash escapes the next character: \` is a literal backtick, not
+      // the start of a code span, and the pair is copied as written.
+      out += line.slice(at, at + 2)
+      at += 2
+      continue
+    }
+    if (line[at] !== '`') {
+      out += line[at]
+      at += 1
+      continue
+    }
+    let open = at + 1
+    while (line[open] === '`') open += 1
+    const run = open - at
+    const close = closingRun(line, open, run)
+    if (close === -1) {
+      out += line.slice(at, open)
+      at = open
+      continue
+    }
     // The delimiters stay with the span: QQ renders the code span itself, and
     // a double-backtick span must not lose its extra backticks.
-    spans.push(all)
-    return `${CODE}${spans.length - 1}${CODE}`
-  })
+    spans.push(line.slice(at, close + run))
+    out += `${CODE}${spans.length - 1}${CODE}`
+    at = close + run
+  }
+  return out
+}
+
+// The run of exactly `length` backticks that closes a span, skipping escaped ones.
+function closingRun(line, from, length) {
+  for (let at = from; at < line.length;) {
+    if (line[at] === '\\') {
+      at += 2
+      continue
+    }
+    if (line[at] !== '`') {
+      at += 1
+      continue
+    }
+    let end = at + 1
+    while (line[end] === '`') end += 1
+    if (end - at === length) return at
+    at = end
+  }
+  return -1
 }
 
 function restore(text, token, values) {
@@ -135,6 +178,9 @@ export function toQqMarkdown(markdown) {
     .replace(LOCAL_IMAGE, (_all, alt) => (alt.trim() === '' ? '［图片］' : `［图片：${alt.trim()}］`))
     .replace(/<br\s*\/?>/gi, '\n')
     .replace(HTML_TAG, '')
+    // An escaped backtick renders as the character itself; the code spans that
+    // are real are placeholders by now and keep their backslashes.
+    .replace(/\\`/g, '`')
   return restore(restore(converted, CODE, spans), FENCE, fences)
 }
 

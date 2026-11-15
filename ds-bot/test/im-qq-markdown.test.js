@@ -71,3 +71,14 @@ test('an escaped pipe stays inside its table cell', () => {
     '- Expression：a | b；Meaning：bitwise OR',
   )
 })
+
+test('an escaped backtick is literal and does not swallow the column between them', () => {
+  assert.equal(
+    toQqMarkdown('| Syntax | Meaning |\n| --- | --- |\n| \\` | a \\` character |'),
+    '- Syntax：`；Meaning：a ` character',
+  )
+})
+
+test('an escaped backtick does not hide a local image from the conversion', () => {
+  assert.equal(toQqMarkdown('看图 \\`![x](/tmp/a.png)\\` 结束'), '看图 `［图片：x］` 结束')
+})
