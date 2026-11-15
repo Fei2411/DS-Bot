@@ -523,3 +523,20 @@ test('a live Bot Session gets its team tools back after a disable and re-enable'
   assert.ok(hasShowView(second, 'a'), 'the scoped team tools are back')
   assert.ok(denied(second, 'a'), 'the blocking question tool is denied again')
 })
+
+
+test('reapplying a connector mask keeps tools that the current scope already hides', async (t) => {
+  const host = start()
+  t.after(host.stop)
+  await host.call('state', {})
+  await host.agentCreated('a')
+  const name = 'mcp__notion__search'
+  host.ctx.tools.schemas = agent => host.restricted.some(entry => entry.sessionId === agent.id && entry.deny.includes(name)) ? [] : [{ name }]
+  rt.connectorOffFor = () => ['mcp__notion__']
+  rt.reapplyToolMasks()
+  rt.reapplyToolMasks()
+  assert.ok(host.restricted.some(entry => entry.sessionId === 'a' && entry.deny.includes(name)))
+  rt.connectorOffFor = () => []
+  rt.reapplyToolMasks()
+  assert.equal(host.restricted.some(entry => entry.sessionId === 'a' && entry.deny.includes(name)), false)
+})

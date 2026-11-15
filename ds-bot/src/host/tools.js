@@ -1096,7 +1096,9 @@ export function install(rt) {
     // Taking the served schemas is the expensive part: every schema is walked when the
     // tool scope is taken, and most Bots have no connector off.
     if (prefixes.length === 0 && (held.connectorLifts?.length ?? 0) === 0 && (held.connectorDenied?.size ?? 0) === 0) return
-    const served = new Set(ctx.tools.schemas(agent).map(schema => schema.name))
+    // schemas(agent) omits tools our current mask already hid. Keep those names
+    // while computing the next mask, or the next tools/change would lift it.
+    const served = new Set([...ctx.tools.schemas(agent).map(schema => schema.name), ...(held.connectorDenied ?? [])])
     // One restrict() per connector: one per tool would take the scope once for each.
     // A tool two prefixes match is denied once, by the first prefix that names it.
     const deny = new Set()
