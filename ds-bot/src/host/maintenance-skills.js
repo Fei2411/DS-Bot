@@ -3,9 +3,29 @@ import { dirname, join, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const PROVIDER = 'ds-bot-maintenance'
-const SKILL = 'ds-bot-maintenance'
-const DIRECTORY = join(dirname(fileURLToPath(import.meta.url)), 'skills', SKILL)
-const LOCATOR = join(DIRECTORY, 'SKILL.md')
+const SKILLS = ['ds-bot-maintenance', 'ds-bot-plugin-dev']
+const SKILLS_DIR = join(dirname(fileURLToPath(import.meta.url)), 'skills')
+
+export function skillResourcePath(directory) {
+  return directory.replace(`${sep}app.asar${sep}`, `${sep}app.asar.unpacked${sep}`).split(sep).join('/')
+}
+
+function directoryFor(skill) {
+  return join(SKILLS_DIR, skill)
+}
+
+function locatorFor(skill) {
+  return join(directoryFor(skill), 'SKILL.md')
+}
+
+function resolveSkill(item) {
+  if (item?.name) return SKILLS.includes(item.name) ? item.name : undefined
+  if (typeof item?.locator === 'string' && item.locator) {
+    const normalized = item.locator.replaceAll('/', sep)
+    return SKILLS.find((skill) => locatorFor(skill) === item.locator || locatorFor(skill) === normalized)
+  }
+  return undefined
+}
 
 function unquote(value) {
   const trimmed = value.trim()
@@ -41,7 +61,7 @@ function parseSkill(raw, path) {
   }
 }
 
-function candidate(parsed) {
+function candidate(skill, parsed) {
   return {
     name: parsed.name,
     description: parsed.description,
@@ -49,8 +69,8 @@ function candidate(parsed) {
     provider: PROVIDER,
     source: 'bundled',
     rank: 550,
-    resourceBase: { kind: 'directory', path: DIRECTORY.split(sep).join('/') },
-    locator: LOCATOR,
+    resourceBase: { kind: 'directory', path: skillResourcePath(directoryFor(skill)) },
+    locator: locatorFor(skill),
   }
 }
 
@@ -58,13 +78,17 @@ export function maintenanceProvider() {
   return {
     name: PROVIDER,
     async list() {
-      return [candidate(parseSkill(readFileSync(LOCATOR, 'utf8'), LOCATOR))]
+      return SKILLS.map((skill) => {
+        const locator = locatorFor(skill)
+        return candidate(skill, parseSkill(readFileSync(locator, 'utf8'), locator))
+      })
     },
     async get(item) {
-      if (item?.name && item.name !== SKILL) return undefined
-      const locator = typeof item?.locator === 'string' && item.locator ? item.locator : LOCATOR
+      const skill = resolveSkill(item)
+      if (!skill) return undefined
+      const locator = typeof item?.locator === 'string' && item.locator ? item.locator : locatorFor(skill)
       const parsed = parseSkill(readFileSync(locator, 'utf8'), locator)
-      const entry = candidate(parsed)
+      const entry = candidate(skill, parsed)
       return {
         ...entry,
         ...item,
