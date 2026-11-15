@@ -1,7 +1,4 @@
-// The files one Bot turn changed, under the Bot's row in a group chat: how many, the
-// line counts, and the first names. The row opens DSH's own changes-review tab for that
-// turn, so no second diff viewer is drawn here; when that tab cannot be opened the chat
-// says why (team-actions.js `openChanges`).
+// A group opens the recorded turn in its own review sheet.
 import { createElement as h } from 'react'
 import { DiffIcon } from './icons.js'
 import { t } from './i18n.js'

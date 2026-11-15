@@ -2,9 +2,7 @@
 
 A Bot's turn in a group ends with a line of text; the files it changed in its folder were
 invisible there. This adds one row under that Bot's message: how many files it changed, the
-added and removed line counts, and the first file names. Clicking the row opens DSH's own
-changes-review tab for that turn — the same review the Bot's Session shows — instead of a
-second diff viewer.
+added and removed line counts, and the first file names. Clicking the row opens that turn's recorded diff inside the group conversation.
 
 ## What the group shows
 
@@ -45,32 +43,19 @@ a member of that room.
 
 ## The click
 
-The change line is one button. Its action, `openChanges` in `src/client/index.js`:
+The change line opens a DS Bot review sheet above the group conversation. Closing it
+returns to the same group and scroll position. The Host uses the documented
+`workspaceChanges.summary(sessionId, seq)` and `diff(sessionId, seq, index, signal)`
+methods for the recorded turn; it never accepts a caller-provided file path.
 
-1. asks the Host whether the summary is still served — a disposed Session says
-   `These changes are no longer available`;
-2. opens the review through one isolated function, `openChangesReview`, which opens the
-   turn's Session in the shell and then opens
-   `dsh-resource://changes-review/session/<sessionId>/<seq>/<turn>` once that Session's
-   right column is mounted.
+The sheet lists all files in the summary. Text files use the existing Markdown code
+renderer to show the service's unified hunks without recomputing the diff. Binary and
+oversized files have an explicit preview state. A disposed summary reports that the
+changes are no longer available, and a failed request can be retried.
 
-DSH's review tab reads the changes of the Session the shell shows; the Session inside the
-address names the content, but the tab's data requests use the viewed Session. A group's
-own Session is not the member's, so the review cannot be shown while the group stays on
-screen without a DSH-side change (it already did not, before this work: the tab is built
-for the Session it belongs to). Keeping the jump in `openChangesReview` means a future
-review that can stay in the group replaces one function.
-
-## Verified
-
-- Two Bots writing different files in one group: two separate lines, one file each, each
-  opening its own turn's review (`writer-notes.md`, `coder/app.js`).
-- On the dev build the same conversation shows the replies with no change line.
-- A turn that changed nothing, an absent service, an expired summary and a window without
-  the right column each have their own test or message.
-- Host unit tests (`test/changes.test.js`), client tests (`test/changes-card.test.js`), a
-  group-round integration test (`test/rounds.test.js`), the full suite, the client build
-  check, lint and the mock smoke run.
+A new turn invalidates the previous turn's announcement for new group rows. When the
+current turn changed nothing it cannot inherit the earlier turn's files, including after
+a reload. A completed tool-only turn still posts its own change line.
 
 ## Not in this change
 

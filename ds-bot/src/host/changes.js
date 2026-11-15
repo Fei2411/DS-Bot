@@ -1,15 +1,4 @@
-// The files a Bot changed in a turn, for the group chat to show and open.
-//
-// DSH's workspace-changes service keeps one summary per top-level turn and announces it
-// with a `workspace/changes` Session event carrying only the turn number. A group row
-// therefore carries the coordinates of that event (Session, seq, turn) and the counts the
-// summary had when the turn ended; the review itself stays DSH's own changes-review tab,
-// which reads the summary and each file's comparison from its routes while the Session
-// lives. Nothing here reads another folder's files: the only Session read is the one whose
-// turn is being posted into the group.
-//
-// Without the service (a composition that does not mount it) there are no rows, and the
-// chat draws no change line rather than an empty one.
+// Group change rows and reviews use the documented workspaceChanges service.
 const EVENT = 'workspace/changes'
 const MAX_FILES = 8
 const PAGE_EVENTS = 80
@@ -22,8 +11,6 @@ export function install(rt) {
   // The turn each Session announced last, from the live event. Cheap, and it covers a turn
   // whose page has not been read since.
   ctx.on('session/event', (session, event) => {
-    // A turn that announced no changes must not inherit the previous turn's summary, so
-    // the turn boundary is tracked beside the announcement.
     if (event?.type === 'turn/start' || event?.type === 'turn/end') {
       if (Number.isInteger(event.data?.turn)) turns.set(session.id, event.data.turn)
     }
@@ -98,6 +85,20 @@ export function install(rt) {
     }
   }
 
+  // The caller supplies only recorded coordinates and a file index, never a path.
+  function changesSummary(sessionId, seq) {
+    if (!changesAvailable(sessionId, seq)) throw new Error('These changes are no longer available')
+    return service().summary(sessionId, seq)
+  }
+  async function changesDiff(sessionId, seq, index, signal) {
+    const summary = changesSummary(sessionId, seq)
+    if (!Number.isInteger(index) || index < 0 || index >= summary.files.length) throw new Error('No such file')
+    const diff = await service().diff(sessionId, seq, index, signal)
+    if (diff === undefined) throw new Error('These changes are no longer available')
+    return diff
+  }
+  rt.changesSummary = changesSummary
+  rt.changesDiff = changesDiff
   rt.turnChanges = turnChanges
   rt.changesAvailable = changesAvailable
   rt.changesMounted = () => service() !== undefined

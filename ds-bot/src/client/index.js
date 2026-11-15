@@ -3,7 +3,7 @@ import { isHex, inkText, paintCss } from './inks.js'
 import { DEFAULT_MASK, SHAPES, markupCache, maskOf } from './characters.js'
 import { createSource, EMPTY_ROSTER, indexRoster, isAgentSession } from './sources.js'
 import { teamActions } from './team-actions.js'
-import { themeCss, shellTokens, registry, registerShape, registerTheme, allThemes, layoutOf, widthOf, flatWidthOf } from './themes.js'
+import { themeCss, shellTokens, registry, registerShape, registerTheme, allThemes, layoutOf, effectsOf, widthOf, flatWidthOf } from './themes.js'
 import { MENTION_ORIGIN, currentPart } from './text.js'
 import { SHELL_CSS, CONVERSATION_CSS, botOwnCss, installStyles, installCompiledStyles, RETURN_TOKENS } from './styles.js'
 import { lookOf } from './mark.js'
@@ -401,13 +401,15 @@ export function apply(ctx) {
       const accent = isHex(prefs.accent) ? prefs.accent : undefined
       const motion = prefs.motion === 'quiet' || prefs.motion === 'lively' ? prefs.motion : 'normal'
       const layout = layoutOf(prefs)
+      const effects = effectsOf(prefs)
       const width = widthOf(prefs)
       const flatWidth = flatWidthOf(prefs)
       document.body.dataset.btMotion = motion
       document.body.dataset.btLayout = layout
+      document.body.dataset.btEffects = effects
       document.body.style.setProperty('--bt-msg-w', String(width / 100))
       document.body.style.setProperty('--bt-flat-w', String(flatWidth / 100))
-      const next = `${id}|${accent ?? ''}|${motion}|${layout}|${width}|${flatWidth}|${registry.getSnapshot()}`
+      const next = `${id}|${accent ?? ''}|${motion}|${layout}|${effects}|${width}|${flatWidth}|${registry.getSnapshot()}`
       if (next === key) return
       key = next
       style.textContent = themeCss(themes[id], accent)
@@ -415,7 +417,7 @@ export function apply(ctx) {
       releaseTokens = ctx.theme.overrideTokens('ds-bot', shellTokens(themes[id]))
       if (typeof release === 'function') release()
       if (snapshot.ready) {
-        try { localStorage.setItem(PREFS_KEY, JSON.stringify({ theme: prefs.theme, accent: prefs.accent, motion: prefs.motion, layout: prefs.layout, width: prefs.width, flatWidth: prefs.flatWidth, thinking: prefs.thinking, defaultBotModel: prefs.defaultBotModel, enterToSend: prefs.enterToSend })) } catch { /* storage unavailable */ }
+        try { localStorage.setItem(PREFS_KEY, JSON.stringify({ theme: prefs.theme, accent: prefs.accent, motion: prefs.motion, layout: prefs.layout, effects: prefs.effects, width: prefs.width, flatWidth: prefs.flatWidth, thinking: prefs.thinking, defaultBotModel: prefs.defaultBotModel, enterToSend: prefs.enterToSend })) } catch { /* storage unavailable */ }
       }
     }
     render()
@@ -429,6 +431,7 @@ export function apply(ctx) {
       } finally {
         delete document.body.dataset.btMotion
         delete document.body.dataset.btLayout
+        delete document.body.dataset.btEffects
         document.body.style.removeProperty('--bt-msg-w')
         document.body.style.removeProperty('--bt-flat-w')
         style.remove()
@@ -449,35 +452,6 @@ export function apply(ctx) {
   }, 'ds-bot: registry')
 
   ctx.inject(['shortcuts'], scope => { scope.effect(() => holdShellShortcuts(scope.shortcuts), 'ds-bot: settings shortcut') })
-
-  // DSH's own changes-review tab opens by resource address in the right column. A window
-  // without that column never provides the service; the change row then says it cannot
-  // open the review instead of doing nothing.
-  let openReview
-  ctx.inject(['sidebarRight'], (scope) => {
-    openReview = changes => scope.sidebarRight.openResource(`dsh-resource://changes-review/session/${encodeURIComponent(changes.sessionId)}/${changes.seq}/${changes.turn}`)
-    scope.effect(() => () => { openReview = undefined }, 'ds-bot: change review opener')
-  })
-  // The one jump into the review: DSH's tab belongs to the Session the shell shows, so the
-  // member's Session opens first, and the tab is asked for once its column is mounted.
-  // Keeping it here means a future review that can stay in the group replaces one function.
-  const openChangesReview = (changes, tries = 60) => {
-    actions.openSession(changes.sessionId)
-    let left = tries
-    const timer = setInterval(() => {
-      if (mainView() === changes.sessionId) {
-        try {
-          openReview(changes)
-          clearInterval(timer)
-          return
-        } catch { /* the Session's column is still mounting */ }
-      }
-      if ((left -= 1) <= 0) {
-        clearInterval(timer)
-        actions.notice(t('This window cannot open the change review'))
-      }
-    }, 100)
-  }
 
   const after = promise => promise.then(async (value) => { await pull().catch(() => {}); return value })
   // A Bot id or a group chat id, or any part of either's chat, opens the current part.
@@ -552,21 +526,10 @@ export function apply(ctx) {
   }
   const actions = {
     ...teamActions({ call, after, partFor, roster, ui, live, cards, heldCards, turnClock, panelFolded }),
-    // The files a group row names open DSH's own review tab for that turn. The tab reads
-    // the changes of the Session the shell shows, so that Session is opened first; the same
-    // call then retries until its right column is mounted. This jump is the one place a
-    // different place for the review (in the group, or a review that carries its Session)
-    // would replace. A summary the Host no longer serves, or a window without the column,
-    // says so instead of doing nothing.
-    openChanges: async (changes) => {
-      if (changes === null || typeof changes !== 'object' || typeof changes.sessionId !== 'string'
-        || !Number.isInteger(changes.seq) || !Number.isInteger(changes.turn)) return
-      let available = false
-      try { available = (await call('changes-check', { sessionId: changes.sessionId, seq: changes.seq })) === true } catch { available = false }
-      if (!available) { actions.notice(t('These changes are no longer available')); return }
-      if (openReview === undefined) { actions.notice(t('This window cannot open the change review')); return }
-      openChangesReview(changes)
-    },
+    openChanges: changes => ui.set(state => ({ ...state, changes })),
+    closeChanges: () => ui.set(state => ({ ...state, changes: null })),
+    changesSummary: changes => call('changes-summary', changes),
+    changesDiff: (changes, index) => call('changes-diff', { ...changes, index }),
     learningAnswer: (id, approve) => after(call('learning-answer', { id, approve })),
     // The full-pane overlays sit above the conversation, so opening one must dismiss them
     // or the click appears to do nothing.
@@ -1160,15 +1123,24 @@ export function apply(ctx) {
   let shellSheets = 0
   actions.holdSettingsLook = () => {
     if (shellSheets > 0) return () => {}
+    const syncEffects = () => {
+      const current = roster.getSnapshot()
+      document.body.dataset.btEffects = effectsOf(current.ready ? current.prefs ?? {} : savedPrefs)
+    }
+    syncEffects()
     const snapshot = roster.getSnapshot()
     const prefs = snapshot.ready ? snapshot.prefs ?? {} : savedPrefs
     const themes = allThemes()
     const theme = themes[prefs.theme] ?? themes.deepseek
     const offs = [
+      roster.subscribe(syncEffects),
       ...SHELL_SHEETS.map(([text, tag]) => installCompiledStyles(botOwnCss(text), `settings-${tag}`)),
       installCompiledStyles(botOwnCss(themeCss(theme, isHex(prefs.accent) ? prefs.accent : undefined)), 'settings-theme'),
     ]
-    return () => { for (const off of offs) off() }
+    return () => {
+      delete document.body.dataset.btEffects
+      for (const off of offs) off()
+    }
   }
   const installShell = () => [
     () => { shellSheets += 1; return () => { shellSheets -= 1 } },
