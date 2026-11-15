@@ -4,8 +4,9 @@
 import { createElement as h, useEffect, useRef, useState } from 'react'
 import { Switch } from './bot-settings.js'
 import { t } from './i18n.js'
-import { NOTIFY_KEY, badgeOf, noticeText, notifyKind, readNotifyPrefs, writeNotifyPrefs } from './notify.js'
+import { NOTIFY_KEY, badgeOf, noticeText, notificationRows, notifyKind, readNotifyPrefs, writeNotifyPrefs } from './notify.js'
 
+const shellNotify = notice => Promise.resolve(bridge()?.notify?.(notice)).catch(() => {})
 const bridge = () => (typeof window === 'undefined' ? undefined : window.dsBotApp)
 const prefsNow = () => readNotifyPrefs(typeof localStorage === 'undefined' ? null : localStorage.getItem(NOTIFY_KEY))
 const savePrefs = (next) => {
@@ -35,7 +36,8 @@ export function changeNotify(change) {
  * Watch every conversation's status and say what the user cannot see: a reply finishing
  * in a chat that is not on screen, or a card starting to wait on them.
  */
-export function NotificationWatcher({ useSessions, useSessionStatus, useRoster, actions }) {
+export function NotificationWatcher({ useSessions, useSessionStatus, useRoster, useWork, actions }) {
+  const work = useWork(value => value)
   const roster = useRoster(value => value)
   const statuses = useSessionStatus(map => map)
   const viewing = useSessions(list => Object.values(list.byId).find(session => (session?.retainedBy?.mainView ?? 0) > 0)?.id ?? null)
@@ -48,34 +50,29 @@ export function NotificationWatcher({ useSessions, useSessionStatus, useRoster, 
   useEffect(() => {
     const prefs = prefsNow()
     const open = document.hasFocus?.() !== false && document.visibilityState !== 'hidden'
-    const rows = []
-    for (const [sessionId, after] of statuses ?? []) {
-      const before = previous.current.get(sessionId)
-      const room = roster.roomsById?.[sessionId]
-      const botId = roster.agentOf?.[sessionId] ?? (roster.byId?.[sessionId] ? sessionId : undefined)
-      const name = room?.name ?? roster.byId?.[botId]?.name
-      rows.push({ unread: after?.completionUnread === true, pending: after?.pendingInteraction !== undefined })
-      if (name === undefined) continue
+    const rows = notificationRows({ statuses, roster, approvals: work.approvals })
+    const next = new Map()
+    for (const row of rows) {
+      const { id, sessionId, name, group, status: after } = row
+      const before = previous.current.get(id)
+      next.set(id, after)
       const kind = notifyKind({
         before, after,
         viewing: viewing === sessionId,
         focused: open,
         enabled: prefs.enabled,
-        muted: prefs.muted[sessionId] === true,
-        group: room !== undefined,
+        muted: prefs.muted[id] === true,
+        group,
       })
       if (kind === undefined) continue
-      void bridge()?.notify?.({ sessionId, ...noticeText({ title: name, kind }) })
+      void shellNotify({ sessionId: id, ...noticeText({ title: name, kind }) })
     }
-    const next = new Map()
-    for (const [sessionId, after] of statuses ?? []) next.set(sessionId, after)
     previous.current = next
     bridge()?.setBadge?.(badgeOf(rows))
-  }, [statuses, viewing, roster])
+  }, [statuses, viewing, roster, work])
   return null
 }
 
-/** The settings row: one switch for the shell's notifications. */
 export function NotificationsRow() {
   const prefs = useNotifyPrefs()
   const [permission, setPermission] = useState(undefined)

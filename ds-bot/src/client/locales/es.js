@@ -1,6 +1,7 @@
 // Spanish (es) localization for DS Bot client and DSH settings namespaces.
 
 export const ES = {
+  'A new reply is waiting': "Tienes una nueva respuesta",
   'Opening…': 'Abriendo…',
   'Still opening…': 'Sigue abriendo…',
   "Android beta": "Android beta",

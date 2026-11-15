@@ -767,15 +767,14 @@ function handleIpc() {
     shell.setComputer(list)
   })
   ipcMain.handle(IPC.idleSeconds, (event) => (fromWindow(event) ? powerMonitor.getSystemIdleTime() : 0))
-  // A window that is not in front asks for a reminder; a click brings it forward and
-  // names the Session, nothing else (#1504). A focused window is never disturbed.
+  // The renderer knows which conversation is visible; focusing the window alone
+  // does not mean a reply in another conversation has been seen.
   const notifications = createNotifications({ Notification, systemPreferences, platform: process.platform, log: logs })
   ipcMain.handle(IPC.notifyStatus, (event) => (fromWindow(event) ? notifications.status() : 'unsupported'))
   ipcMain.handle(IPC.notify, (event, notice) => {
     if (!fromWindow(event)) return false
     const sessionId = typeof notice?.sessionId === 'string' ? notice.sessionId : undefined
     return notifications.show({ title: String(notice?.title ?? ''), body: String(notice?.body ?? '') }, {
-      focused: () => mainWindow?.isFocused() === true,
       open: () => {
         toFront(mainWindow)
         mainWindow?.webContents.send(IPC.openSession, sessionId)

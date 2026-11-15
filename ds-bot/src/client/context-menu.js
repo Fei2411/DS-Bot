@@ -63,7 +63,7 @@ export function ContextMenu({ menu, roster, actions, useWork, leaving = false })
     [
       isTile ? null : [entry.pinned ? t('Unpin') : t('Pin'), PinIcon, () => actions.setFlags(menu.id, { pinned: !entry.pinned })],
       [t('Mark as Unread'), UnreadIcon, () => actions.markUnread(menu.id)],
-      [isMuted(menu.id) ? t('Unmute notifications') : t('Mute notifications'), UnreadIcon, () => toggleMuted(menu.id)],
+      [isMuted(entry.id) ? t('Unmute notifications') : t('Mute notifications'), UnreadIcon, () => toggleMuted(entry.id)],
     ],
     isTile ? [] : sectionMoveItems(entry, roster, actions),
     [

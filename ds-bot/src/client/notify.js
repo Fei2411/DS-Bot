@@ -1,3 +1,5 @@
+import { t } from './i18n.js'
+
 // Notifications for a window the user is not looking at (#1504): which events deserve
 // one, what it may say, and the switches that keep it quiet. The shell decides whether
 // the window is in front; this decides whether the event is the user's to see.
@@ -18,12 +20,12 @@ export const NOTIFY_KEY = 'ds-bot:notify'
  * @returns {'reply' | 'question' | undefined} what to say, or undefined for nothing
  */
 export function notifyKind({ before, after, viewing, focused, enabled, muted, group }) {
-  if (enabled !== true || muted === true) return undefined
+  if (before === undefined || enabled !== true || muted === true) return undefined
   // The user is looking at this conversation in a focused window: the screen already says it.
   if (viewing === true && focused === true) return undefined
   const wasPending = before?.pendingInteraction !== undefined
   const isPending = after?.pendingInteraction !== undefined
-  if (isPending && !wasPending) return 'question'
+  if (isPending && (!wasPending || after.pendingInteraction !== before.pendingInteraction)) return 'question'
   // A group says nothing for an ordinary reply: only what waits on the user is worth a
   // system notification there. @-mentions are #945's, later on this same channel.
   if (group === true) return undefined
@@ -39,7 +41,7 @@ export function notifyKind({ before, after, viewing, focused, enabled, muted, gr
  */
 export function noticeText({ title, kind }) {
   const name = String(title ?? '').trim().slice(0, 60)
-  const body = kind === 'question' ? 'Waiting for your answer' : 'A new reply is waiting'
+  const body = t(kind === 'question' ? 'Waiting for your answer' : 'A new reply is waiting')
   return { title: name === '' ? 'DS Bot' : name, body }
 }
 
@@ -85,4 +87,30 @@ export function badgeOf(rows) {
   let count = 0
   for (const row of rows ?? []) if (row.unread === true || row.pending === true) count += 1
   return count
+}
+
+
+export function notificationRows({ statuses, roster, approvals = [] }) {
+  const rows = []
+  for (const [group, entries] of [[false, roster.bots ?? []], [true, roster.rooms ?? []]]) {
+    for (const entry of entries) {
+      const sessionId = entry.sessionId ?? entry.id
+      const status = statuses?.get(sessionId)
+      const question = roster.questions?.[sessionId]
+      const waiting = approvals.filter(approval => group ? approval.roomId === entry.id : approval.roomId === undefined && approval.botId === entry.id)
+      const interaction = status?.pendingInteraction
+      const keys = [
+        ...(question ? [`question:${question.id}`] : []),
+        ...waiting.map(approval => `approval:${approval.id}`),
+        ...(interaction !== undefined ? [`interaction:${interaction?.id ?? interaction?.kind ?? 'pending'}`] : []),
+      ].sort()
+      if (status === undefined && keys.length === 0) continue
+      rows.push({
+        id: entry.id, sessionId, name: entry.name, group,
+        unread: status?.completionUnread === true, pending: keys.length > 0,
+        status: { ...status, pendingInteraction: keys.length > 0 ? keys.join('|') : undefined },
+      })
+    }
+  }
+  return rows
 }

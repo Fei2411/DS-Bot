@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { NOTIFY_KEY, badgeOf, noticeText, notifyKind, readNotifyPrefs, writeNotifyPrefs } from '../src/client/notify.js'
+import { NOTIFY_KEY, badgeOf, noticeText, notificationRows, notifyKind, readNotifyPrefs, writeNotifyPrefs } from '../src/client/notify.js'
 
 // #1504: a window the user is not looking at says a Bot answered, or a card waits on
 // them. What may leave the app is the conversation's name and one line, never the message.
@@ -57,4 +57,22 @@ test('the badge counts conversations with something new', () => {
   assert.equal(badgeOf([]), 0)
   assert.equal(badgeOf([{ unread: true }, {}, { pending: true }, { unread: false }]), 2)
   assert.equal(badgeOf(undefined), 0)
+})
+
+
+test('initial unread and pending snapshots do not replay notifications', () => {
+  assert.equal(notifyKind({ ...base, after: { completionUnread: true } }), undefined)
+  assert.equal(notifyKind({ ...base, after: { pendingInteraction: 'existing-card' } }), undefined)
+})
+
+test('questions and group approvals use stable conversation ids after part switches', () => {
+  const roster = { bots: [{ id: 'bot', sessionId: 'part-2', name: 'Bot' }], rooms: [{ id: 'room', sessionId: 'room-2', name: 'Group' }],
+    questions: { 'part-2': { id: 'q1' } } }
+  const statuses = new Map([['part-2', { completionUnread: true }], ['part-1', { completionUnread: true }], ['room-2', {}]])
+  const rows = notificationRows({ roster, statuses, approvals: [{ id: 'a1', botId: 'bot', roomId: 'room' }] })
+  assert.deepEqual(rows.map(row => [row.id, row.sessionId, row.pending]), [['bot', 'part-2', true], ['room', 'room-2', true]])
+  const prefs = readNotifyPrefs('{"muted":{"bot":true}}')
+  assert.equal(notifyKind({ ...base, before: {}, after: rows[0].status, muted: prefs.muted[rows[0].id] }), undefined)
+  assert.equal(notifyKind({ ...base, before: {}, after: rows[1].status, group: true }), 'question')
+  assert.equal(badgeOf(rows), 2)
 })

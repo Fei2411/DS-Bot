@@ -123,6 +123,7 @@ function convertHostErrors(pairs) {
 
 // src/client/locales/ja.js
 var JA = {
+  "A new reply is waiting": "新しい返信があります",
   "Opening…": "開いています…",
   "Still opening…": "まだ開いています…",
   "Android beta": "Android ベータ版",
@@ -2436,6 +2437,7 @@ var DSH_JA = {
 
 // src/client/locales/ko.js
 var KO = {
+  "A new reply is waiting": "새 답변이 도착했습니다",
   "Opening…": "여는 중…",
   "Still opening…": "아직 여는 중…",
   "Android beta": "Android 베타",
@@ -4794,6 +4796,7 @@ var DSH_KO = {
 
 // src/client/locales/es.js
 var ES = {
+  "A new reply is waiting": "Tienes una nueva respuesta",
   "Opening…": "Abriendo…",
   "Still opening…": "Sigue abriendo…",
   "Android beta": "Android beta",
@@ -7152,6 +7155,7 @@ var DSH_ES = {
 
 // src/client/locales/fr.js
 var FR = {
+  "A new reply is waiting": "Une nouvelle réponse vous attend",
   "Opening…": "Ouverture…",
   "Still opening…": "Toujours en cours d’ouverture…",
   "Android beta": "Android bêta",
@@ -9465,6 +9469,7 @@ var DSH_FR = {
 
 // src/client/locales/de.js
 var DE = {
+  "A new reply is waiting": "Eine neue Antwort wartet auf dich",
   "Opening…": "Wird geöffnet…",
   "Still opening…": "Wird noch geöffnet…",
   "Android beta": "Android-Beta",
@@ -11827,6 +11832,7 @@ var ZH = {
   // Shared
   "Main Bot": "主 Bot",
   Working: "进行中",
+  "A new reply is waiting": "有一条新回复",
   "Waiting for your answer": "等你回答",
   "Waiting for {names}": "等 {names} 交回",
   "Unread activity": "有未读",
@@ -34929,18 +34935,18 @@ function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false,
 // src/client/notify.js
 var NOTIFY_KEY = "ds-bot:notify";
 function notifyKind({ before, after, viewing, focused, enabled, muted, group }) {
-  if (enabled !== true || muted === true) return void 0;
+  if (before === void 0 || enabled !== true || muted === true) return void 0;
   if (viewing === true && focused === true) return void 0;
   const wasPending = before?.pendingInteraction !== void 0;
   const isPending = after?.pendingInteraction !== void 0;
-  if (isPending && !wasPending) return "question";
+  if (isPending && (!wasPending || after.pendingInteraction !== before.pendingInteraction)) return "question";
   if (group === true) return void 0;
   if (after?.completionUnread === true && before?.completionUnread !== true) return "reply";
   return void 0;
 }
 function noticeText({ title, kind }) {
   const name = String(title ?? "").trim().slice(0, 60);
-  const body = kind === "question" ? "Waiting for your answer" : "A new reply is waiting";
+  const body = t(kind === "question" ? "Waiting for your answer" : "A new reply is waiting");
   return { title: name === "" ? "DS Bot" : name, body };
 }
 function readNotifyPrefs(raw) {
@@ -34967,9 +34973,39 @@ function badgeOf2(rows2) {
   for (const row of rows2 ?? []) if (row.unread === true || row.pending === true) count += 1;
   return count;
 }
+function notificationRows({ statuses, roster, approvals = [] }) {
+  const rows2 = [];
+  for (const [group, entries2] of [[false, roster.bots ?? []], [true, roster.rooms ?? []]]) {
+    for (const entry of entries2) {
+      const sessionId = entry.sessionId ?? entry.id;
+      const status = statuses?.get(sessionId);
+      const question = roster.questions?.[sessionId];
+      const waiting = approvals.filter((approval) => group ? approval.roomId === entry.id : approval.roomId === void 0 && approval.botId === entry.id);
+      const interaction = status?.pendingInteraction;
+      const keys = [
+        ...question ? [`question:${question.id}`] : [],
+        ...waiting.map((approval) => `approval:${approval.id}`),
+        ...interaction !== void 0 ? [`interaction:${interaction?.id ?? interaction?.kind ?? "pending"}`] : []
+      ].sort();
+      if (status === void 0 && keys.length === 0) continue;
+      rows2.push({
+        id: entry.id,
+        sessionId,
+        name: entry.name,
+        group,
+        unread: status?.completionUnread === true,
+        pending: keys.length > 0,
+        status: { ...status, pendingInteraction: keys.length > 0 ? keys.join("|") : void 0 }
+      });
+    }
+  }
+  return rows2;
+}
 
 // src/client/notifications.js
 var import_react49 = require("react");
+var shellNotify = (notice) => Promise.resolve(bridge()?.notify?.(notice)).catch(() => {
+});
 var bridge = () => typeof window === "undefined" ? void 0 : window.dsBotApp;
 var prefsNow = () => readNotifyPrefs(typeof localStorage === "undefined" ? null : localStorage.getItem(NOTIFY_KEY));
 var savePrefs = (next) => {
@@ -34997,7 +35033,8 @@ function changeNotify(change) {
   for (const run2 of listeners2) run2();
   return current;
 }
-function NotificationWatcher({ useSessions, useSessionStatus, useRoster, actions }) {
+function NotificationWatcher({ useSessions, useSessionStatus, useRoster, useWork, actions }) {
+  const work = useWork((value) => value);
   const roster = useRoster((value) => value);
   const statuses = useSessionStatus((map) => map);
   const viewing = useSessions((list) => Object.values(list.byId).find((session) => (session?.retainedBy?.mainView ?? 0) > 0)?.id ?? null);
@@ -35012,31 +35049,27 @@ function NotificationWatcher({ useSessions, useSessionStatus, useRoster, actions
   (0, import_react49.useEffect)(() => {
     const prefs = prefsNow();
     const open = document.hasFocus?.() !== false && document.visibilityState !== "hidden";
-    const rows2 = [];
-    for (const [sessionId, after] of statuses ?? []) {
-      const before = previous.current.get(sessionId);
-      const room2 = roster.roomsById?.[sessionId];
-      const botId = roster.agentOf?.[sessionId] ?? (roster.byId?.[sessionId] ? sessionId : void 0);
-      const name = room2?.name ?? roster.byId?.[botId]?.name;
-      rows2.push({ unread: after?.completionUnread === true, pending: after?.pendingInteraction !== void 0 });
-      if (name === void 0) continue;
+    const rows2 = notificationRows({ statuses, roster, approvals: work.approvals });
+    const next = /* @__PURE__ */ new Map();
+    for (const row of rows2) {
+      const { id, sessionId, name, group, status: after } = row;
+      const before = previous.current.get(id);
+      next.set(id, after);
       const kind = notifyKind({
         before,
         after,
         viewing: viewing === sessionId,
         focused: open,
         enabled: prefs.enabled,
-        muted: prefs.muted[sessionId] === true,
-        group: room2 !== void 0
+        muted: prefs.muted[id] === true,
+        group
       });
       if (kind === void 0) continue;
-      void bridge()?.notify?.({ sessionId, ...noticeText({ title: name, kind }) });
+      void shellNotify({ sessionId: id, ...noticeText({ title: name, kind }) });
     }
-    const next = /* @__PURE__ */ new Map();
-    for (const [sessionId, after] of statuses ?? []) next.set(sessionId, after);
     previous.current = next;
     bridge()?.setBadge?.(badgeOf2(rows2));
-  }, [statuses, viewing, roster]);
+  }, [statuses, viewing, roster, work]);
   return null;
 }
 function NotificationsRow() {
@@ -38508,7 +38541,7 @@ function ContextMenu({ menu, roster, actions, useWork, leaving = false }) {
     [
       isTile ? null : [entry.pinned ? t("Unpin") : t("Pin"), PinIcon, () => actions.setFlags(menu.id, { pinned: !entry.pinned })],
       [t("Mark as Unread"), UnreadIcon, () => actions.markUnread(menu.id)],
-      [isMuted(menu.id) ? t("Unmute notifications") : t("Mute notifications"), UnreadIcon, () => toggleMuted(menu.id)]
+      [isMuted(entry.id) ? t("Unmute notifications") : t("Mute notifications"), UnreadIcon, () => toggleMuted(entry.id)]
     ],
     isTile ? [] : sectionMoveItems(entry, roster, actions),
     [
@@ -40742,7 +40775,7 @@ function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useActivity
   return (0, import_react66.createElement)(
     import_react66.Fragment,
     null,
-    (0, import_react66.createElement)(NotificationWatcher, { key: "ds-bot:notifications", useSessions, useSessionStatus, useRoster, actions }),
+    (0, import_react66.createElement)(NotificationWatcher, { key: "ds-bot:notifications", useSessions, useSessionStatus, useRoster, useWork, actions }),
     opening ? (0, import_react_dom11.createPortal)((0, import_react66.createElement)(OpeningCover, { model: opening, column: layout.column }), document.body) : null,
     pane ? (0, import_react_dom11.createPortal)((0, import_react66.createElement)(BotPanel, { pane, leaving: shown === null, room: layout.room, overlay: layout.panel === "overlay", roster, actions, useSessions, useSessionStatus, useActivity, useWork, useBrowserTabs, useBrowserPages, useBrowserHolds }), document.body) : null,
     ui2.newChat ? (0, import_react_dom11.createPortal)((0, import_react66.createElement)(NewChat, { key: `${ui2.newChat}:${ui2.newChatSection ?? ""}`, mode: ui2.newChat, sectionId: ui2.newChatSection ?? null, paneLeft: layout.column, roster, actions }), document.body) : null,
@@ -42334,6 +42367,8 @@ var QUEUE_CSS = `
 
 // src/client/approval-notices.js
 function noticeApprovals({ work, roster, shownSession, openSession, since = Date.now() }) {
+  if (typeof window !== "undefined" && typeof window.dsBotApp?.notify === "function") return () => {
+  };
   const told = /* @__PURE__ */ new Set();
   const notify = () => {
     const approvals = work.getSnapshot().approvals ?? [];
