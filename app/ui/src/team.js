@@ -55,7 +55,7 @@ export function createTeam() {
   const seenStore = sharedMap(STORAGE.seen)
   let seenAt = seenStore.read()
   const roster = createSource(EMPTY_ROSTER)
-  const ui = createSource({ details: null, view: 'details', renaming: false, tab: null, newChat: null, exchange: null, menu: null, voice: null, palette: null, quote: null, settings: null, memory: null, toast: null, signIn: null, renameAgent: null, unread: unreadStore.read(), reactions: reactionStore.read(), visits: {} })
+  const ui = createSource({ details: null, view: 'details', renaming: false, tab: null, newChat: null, exchange: null, menu: null, voice: null, palette: null, quote: null, settings: null, memory: null, toast: null, signIn: null, renameAgent: null, readOnlyPart: null, unread: unreadStore.read(), reactions: reactionStore.read(), visits: {} })
   const activity = createSource({})
   const work = createSource(NO_WORK)
   const memoryNews = createSource({})
@@ -124,6 +124,9 @@ export function createTeam() {
     noteNews(value.memoryNews ?? {})
     const current = roster.getSnapshot()
     const changed = {}
+    // Which live parts run changes without a new revision; the session list's Running
+    // mark and the read-only composer read it.
+    if (value.partsRunning !== undefined && JSON.stringify(value.partsRunning) !== JSON.stringify(current.partsRunning ?? {})) changed.partsRunning = value.partsRunning
     if (value.connectors !== undefined && JSON.stringify(value.connectors) !== JSON.stringify(current.connectors ?? [])) changed.connectors = value.connectors
     if (value.capabilityStatuses !== undefined && JSON.stringify(value.capabilityStatuses) !== JSON.stringify(current.capabilityStatuses ?? {})) changed.capabilityStatuses = value.capabilityStatuses
     if (Object.keys(changed).length > 0 && current.ready) roster.set({ ...current, ...changed })

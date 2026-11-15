@@ -20,6 +20,12 @@ export const KO = {
   "The Relay Server that passes encrypted messages between your phone and this computer. It cannot read them.": "휴대폰과 이 컴퓨터 사이에서 암호화된 메시지를 전달하는 중계 서버입니다. 내용은 읽을 수 없습니다.",
   "The code works once. It stops working in {count} min.": "이 코드는 한 번만 사용할 수 있으며 {count}분 후에 만료됩니다.",
   "Turn on phone access first": "먼저 휴대폰 접근을 켜세요",
+  "The Server address must start with ws:// or wss://": "서버 주소는 ws:// 또는 wss://로 시작해야 합니다",
+  "Enter the Server address first": "먼저 서버 주소를 입력하세요",
+  "This phone is not paired": "이 휴대폰은 페어링되어 있지 않습니다",
+  "Another dsh has this Bot team open, so phones connect to that one": "다른 dsh에서 이 Bot 팀을 열어 두고 있어 휴대폰이 그쪽에 연결됩니다",
+  "This dsh runs on a Node without WebSocket": "이 dsh는 WebSocket이 없는 Node에서 실행 중입니다",
+  "Phones are paired and removed on the computer": "휴대폰 페어링 및 제거는 컴퓨터에서 수행합니다",
   "Your phone scans it once. After that it connects by itself.": "한 번만 스캔하면 됩니다. 그 후에는 자동으로 연결됩니다.",
   "Beta": "베타",
   // Shared
@@ -249,6 +255,18 @@ export const KO = {
   'Key set outside DS Bot': 'DS Bot 외부에서 키 설정됨',
   'No models': '모델 없음',
   '{count} models': '모델 {count}개',
+  'Refresh models': '모델 새로고침',
+  'Refreshing…': '새로고침 중…',
+  'Models from the endpoint': '엔드포인트의 모델',
+  "Upstream didn't return": '업스트림에서 반환되지 않음',
+  'Keep the ids you still want by hand.': '남기고 싶은 ID는 직접 선택하세요.',
+  '{added} added · {removed} removed · {count} selected': '{added}개 추가 · {removed}개 제거 · {count}개 선택됨',
+  'Select at least one model': '모델을 하나 이상 선택하세요',
+  'Save anyway': '그래도 저장',
+  'The endpoint lists no models.': '이 엔드포인트가 모델을 반환하지 않았습니다.',
+  '{name} will switch to {model} on its next turn.': '{name}은(는) 다음 턴에 {model}(으)로 전환됩니다.',
+  '{name} has no model to fall back to; its next turn will fail.': '{name}은(는) 대체할 모델이 없어 다음 턴이 실패합니다.',
+  'Local agent, not affected: {names}': '로컬 에이전트, 영향 없음: {names}',
   // What a Bot runs on
   'Runs on': '실행 방식',
   'DS Bot model': 'DS Bot 모델',
@@ -1689,6 +1707,11 @@ export const KO = {
   'Stop {name}': '{name} 중지',
   '{name} · foreground': '{name} · 포그라운드',
   '{name} waits for the computer': '{name}이(가) 사용자 조작을 기다리는 중',
+  "Running": "실행 중",
+  "Open this session": "이 세션 열기",
+  "Open this running session": "실행 중인 세션 열기",
+  "A running session keeps using model calls in the background.": "실행 중인 세션은 백그라운드에서 모델 호출을 계속 사용합니다.",
+  "This session is still running. Wait for it to finish, or stop it.": "이 세션은 아직 실행 중입니다. 끝날 때까지 기다리거나 중지하세요.",
 }
 
 export const HOST_ERRORS_KO = [
