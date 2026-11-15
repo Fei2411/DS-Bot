@@ -7,6 +7,7 @@ import * as SecureStore from 'expo-secure-store'
 import { onPrefsChange, readPrefs } from '../store.ts'
 import { Drawer, useDrawer } from './Drawer.tsx'
 import { useTeam } from '../team/context.tsx'
+import { ErrorBoundary } from '../ui/error-boundary.tsx'
 import { t } from '../ui/i18n.ts'
 import { shadow, type as typeScale, useTheme } from '../ui/tokens.ts'
 import { Avatar, RoomAvatar } from '../ui/marks.tsx'
@@ -235,8 +236,10 @@ function SettingsSheet() {
   )
 }
 
-// A question or approval that lands while the app is open shows as a banner at
-// the top; a tap opens the chat it belongs to.
+const NOTICE_BANNER_KINDS = new Set(['question', 'approval', 'message', 'group', 'done'])
+
+// A notice that lands while the app is open shows as a banner at the top when
+// it belongs to another chat; a tap opens that chat.
 function NoticeBanner() {
   const { p } = useTheme()
   const { team, onFeed } = useTeam()
@@ -255,15 +258,21 @@ function NoticeBanner() {
     if (onFeed === undefined) return
     let seq = 0
     return onFeed((event, data) => {
-      if (event !== 'notice' || (data?.kind !== 'question' && data?.kind !== 'approval') || !banners.current) return
+      if (event !== 'notice' || !NOTICE_BANNER_KINDS.has(String(data?.kind ?? '')) || !banners.current) return
       const target: ChatTarget = data.roomId !== undefined && data.roomId !== null
         ? { kind: 'room', id: data.roomId }
         : { kind: 'bot', id: data.botId ?? '' }
-      // The chat on screen already shows its own card.
+      if (!target.id) return
+      // The chat on screen already shows its own messages and cards.
       const active = activeChatTarget(navigation.getState(), fallbackRef.current)
       if (active?.kind === target.kind && active.id === target.id) return
+      const body = typeof data.text === 'string' && data.text.length > 0
+        ? data.text
+        : data.kind === 'done' ? t('Finished') : t('New reply')
+      const head = data.title ?? data.name
+      const text = head !== undefined && head !== '' ? `${head}：${body}` : body
       const mine = ++seq
-      setNotice({ text: data.title !== undefined ? `${data.title}：${data.text ?? ''}` : (data.text ?? ''), target, seq: mine })
+      setNotice({ text, target, seq: mine })
       setTimeout(() => setNotice(current => (current?.seq === mine ? null : current)), 8000)
     })
   }, [onFeed, navigation])
@@ -336,7 +345,9 @@ export default function ShellB() {
   if (saved === undefined) return <View style={{ flex: 1, backgroundColor: p.main }} />
   return (
     <Drawer width={width} content={<DrawerContent />} edgeEnabled={top === 'Chat'}>
-      <Inner initial={saved} />
+      <ErrorBoundary>
+        <Inner initial={saved} />
+      </ErrorBoundary>
     </Drawer>
   )
 }

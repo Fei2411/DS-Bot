@@ -206,6 +206,19 @@ test('send posts text and an interactive card, edit patches the message', async 
   assert.ok(patch, 'message PATCH called')
 })
 
+test('send drops blank lines at the start and end of the text', async (t) => {
+  const fake = await fakeFeishu()
+  const handle = feishu.connect(FIELDS, env(fake), { onMessage: () => {}, onAction: () => {}, onStatus: () => {} })
+  t.after(() => { handle.stop(); fake.close() })
+  await until(() => fake.sockets[0])
+  await until(() => fake.calls.some(call => call.path === '/open-apis/bot/v3/info'))
+  await handle.send({ key: 'oc_1', kind: 'direct' }, { text: '\n\nfirst\n\nsecond\n\n' })
+  const posts = fake.calls.filter(call => call.path.startsWith('/open-apis/im/v1/messages?'))
+  assert.equal(posts.length, 1)
+  assert.equal(posts[0].params.msg_type, 'text')
+  assert.equal(JSON.parse(posts[0].params.content).text, 'first\n\nsecond')
+})
+
 test('a dropped socket reconnects through a fresh endpoint and a renewed token', async (t) => {
   const fake = await fakeFeishu()
   const handle = feishu.connect(FIELDS, env(fake), { onMessage: () => {}, onAction: () => {}, onStatus: () => {} })
@@ -299,4 +312,22 @@ test('a socket that cannot be built at the handshake is retried (#1119)', async 
   const ready = await until(() => statuses.slice(statuses.indexOf(failed) + 1).find(status => status.state === 'ready'), 160)
   assert.ok(ready !== undefined, 'the connection became ready after a new socket')
   assert.equal(fake.sockets.length, 1)
+})
+
+// #1417: the send path classified 5xx as retryable but carried no status, so the
+// queue could not tell a broken tunnel from a network blip and retried forever.
+test('a 5xx answer is retryable and carries its status; a 4xx answer is permanent', async () => {
+  const responding = (status, body) => async (url) => (url.endsWith('/tenant_access_token/internal')
+    ? { ok: true, status: 200, json: async () => ({ tenant_access_token: 'tok', expire: 7200 }) }
+    : { ok: false, status, json: async () => body })
+  await assert.rejects(feishu.check(FIELDS, { fetch: responding(502, { msg: 'bad gateway' }), config: { api: 'https://open.feishu.cn' } }), (error) => {
+    assert.equal(error.status, 502)
+    assert.notEqual(error.permanent, true, 'a 5xx must stay retryable')
+    return true
+  })
+  await assert.rejects(feishu.check(FIELDS, { fetch: responding(403, { msg: 'forbidden' }), config: { api: 'https://open.feishu.cn' } }), (error) => {
+    assert.equal(error.status, 403)
+    assert.equal(error.permanent, true, 'a 4xx is not retried')
+    return true
+  })
 })

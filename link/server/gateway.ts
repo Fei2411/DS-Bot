@@ -3,6 +3,8 @@ import type { IncomingMessage } from 'node:http'
 import { WebSocket, WebSocketServer, type RawData } from 'ws'
 import {
   MAX_CONTROL_FRAME_BYTES,
+  MAX_RELAY_BYTES_PER_SECOND,
+  MAX_RELAY_FRAMES_PER_SECOND,
   MAX_RELAY_FRAME_BYTES,
   PROTOCOL_VERSION,
   createControlFrame,
@@ -203,7 +205,7 @@ export class Gateway {
         const text = raw.toString()
         const size = Buffer.byteLength(text)
         if (Date.now() - windowStart >= 1_000) { windowStart = Date.now(); frames = 0; bytes = 0 }
-        if (++frames > 512 || (bytes += size) > 8 * MAX_RELAY_FRAME_BYTES) throw new LinkError('RATE_LIMITED')
+        if (++frames > MAX_RELAY_FRAMES_PER_SECOND || (bytes += size) > MAX_RELAY_BYTES_PER_SECOND) throw new LinkError('RATE_LIMITED')
         this.chargeBytes(address, size)
         frame = decodeControlFrame(text, { maxControlFrameBytes: MAX_CONTROL_FRAME_BYTES, maxRelayFrameBytes: MAX_RELAY_FRAME_BYTES })
         if (peer === undefined) {
