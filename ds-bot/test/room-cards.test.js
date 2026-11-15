@@ -30,6 +30,21 @@ test('a group addressed by room.sessionId still finds its cards when room.id dif
   assert.equal(roomCardsAt(roster, 'session-something-else'), undefined)
 })
 
+// A pattern guard, not a behavior test: every Room dock must look its cards up through
+// roomCardsAt (the room.sessionId fallback lives there). A dock that indexes
+// roomCards directly renders an empty dock in any group whose Session was rebuilt —
+// which is exactly what the third dock (RoomSecretDock) did before this guard existed,
+// green through every behavior test because those only covered the two docks we had
+// already fixed.
+test('every room dock looks its cards up through roomCardsAt', async () => {
+  const { readFileSync } = await import('node:fs')
+  for (const file of ['questions.js', 'widget-cell.js', 'secret-card.js']) {
+    const text = readFileSync(new URL(`../src/client/${file}`, import.meta.url), 'utf8')
+    assert.ok(!/roomCards\?\.\[roomId\]/.test(text), `${file} must use roomCardsAt, not a direct roomCards[roomId] lookup`)
+    assert.ok(/roomCardsAt/.test(text), `${file} must call roomCardsAt`)
+  }
+})
+
 // Chief is the admin of group 'r1' and speaks there from 'ga'; Writer from 'gb'; Tester
 // from 'gc'. Everyone answers a plain message in turn (mode 'everyone').
 const seed = (extra = {}) => ({

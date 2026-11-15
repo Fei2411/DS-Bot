@@ -9,7 +9,7 @@ import { contentText, currentPart } from './text.js'
 import { dateLocale, t } from './i18n.js'
 import { SPRING_POP, SPRING_SHAPE, spring } from './motion.js'
 import { useDockHold } from './card-hold.js'
-import { heldCardKey } from './sources.js'
+import { heldCardKey, roomCardsAt } from './sources.js'
 import { CellEmpty } from './cell-empty.js'
 
 const MIN_VALUE = 4
@@ -184,7 +184,9 @@ const ROOM_SECRET_WAIT_MS = 30 * 60 * 1000
 
 function RoomSecretDock({ roomId, useRoster, actions }) {
   const roster = useRoster(value => value)
-  const cards = useRoster(value => value.roomCards?.[roomId])
+  // The backend keys roomCards by room.id; the shell may address the group by
+  // room.sessionId. Same fallback the question and view docks use.
+  const cards = useRoster(value => roomCardsAt(value, roomId))
   const [turn, setTurn] = useState(0)
   const waiting = (cards ?? []).filter(card => card.kind === 'secret')
   if (waiting.length === 0) return null

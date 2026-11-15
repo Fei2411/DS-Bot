@@ -21998,7 +21998,7 @@ function SecretToolCell({ sessionId, callId, name, done, content, roster, action
 var ROOM_SECRET_WAIT_MS = 30 * 60 * 1e3;
 function RoomSecretDock({ roomId, useRoster, actions }) {
   const roster = useRoster((value) => value);
-  const cards = useRoster((value) => value.roomCards?.[roomId]);
+  const cards = useRoster((value) => roomCardsAt(value, roomId));
   const [turn, setTurn] = (0, import_react19.useState)(0);
   const waiting = (cards ?? []).filter((card2) => card2.kind === "secret");
   if (waiting.length === 0) return null;
