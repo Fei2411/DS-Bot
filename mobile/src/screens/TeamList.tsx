@@ -1,8 +1,9 @@
-import { useMemo } from 'react'
+import { useMemo, useSyncExternalStore } from 'react'
 import { Pressable, StyleSheet, Text, View, SectionList } from 'react-native'
 import type { Bot, Room } from '../connection.ts'
 import { useTeam } from '../team/context.tsx'
-import { seenAt } from '../team/seen.ts'
+import { botHasPending, roomHasPending } from '../nav/pending.ts'
+import { isUnread, seenVersion, subscribeSeen } from '../team/seen.ts'
 import { t } from '../ui/i18n.ts'
 import { radius, type as typeScale, useTheme } from '../ui/tokens.ts'
 import { Avatar, RoomAvatar } from '../ui/marks.tsx'
@@ -16,48 +17,53 @@ export interface ChatTarget { kind: 'bot' | 'room'; id: string }
 // Bot as a tile on top, then the other Bots and groups as rows, pinned first, then
 // by their latest message.
 export function TeamList({ onOpen, query = '', current }: { onOpen: (target: ChatTarget) => void; query?: string; current?: string }) {
-  const { team, error } = useTeam()
+  const { team, error, computer } = useTeam()
   const { p, dark } = useTheme()
+  const hostId = computer?.hostDeviceId ?? ''
+  useSyncExternalStore(subscribeSeen, seenVersion)
 
-  const bots = team?.bots ?? []
+  const bots = Array.isArray(team?.bots) ? team.bots : []
   const mains = new Set(team?.mainBotIds ?? [])
-  const mainList = bots.filter(bot => mains.has(bot.id) && bot.hidden !== true && (query.trim() === '' || bot.name.toLowerCase().includes(query.trim().toLowerCase())))
+  const needle = query.trim().toLowerCase()
+  const mainList = bots.filter(bot => mains.has(bot.id) && bot.hidden !== true && (needle === '' || (bot.name ?? '').toLowerCase().includes(needle)))
   const workBots = team?.work?.bots ?? {}
   const workRooms = team?.work?.rooms ?? {}
   const waiting = team?.work?.waiting ?? {}
   const questions = team?.questions ?? {}
-  const approvals = team?.work?.approvals ?? []
+  const approvals = (Array.isArray(team?.work?.approvals) ? team.work.approvals : []).filter(a => a?.answerable !== false)
 
   const entries = useMemo(() => {
+    const rooms = Array.isArray(team?.rooms) ? team.rooms : []
     const list = [
       ...bots.filter(bot => !mains.has(bot.id) && bot.hidden !== true).map(bot => ({ kind: 'bot' as const, item: bot })),
-      ...(team?.rooms ?? []).filter(room => room.hidden !== true).map(room => ({ kind: 'room' as const, item: room })),
+      ...rooms.filter(room => room.hidden !== true).map(room => ({ kind: 'room' as const, item: room })),
     ]
     return list
-      .filter(entry => query.trim() === '' || entry.item.name.toLowerCase().includes(query.trim().toLowerCase()))
+      .filter(entry => needle === '' || (entry.item.name ?? '').toLowerCase().includes(needle))
       .sort((a, b) => Number(Boolean(b.item.pinned)) - Number(Boolean(a.item.pinned)) || (b.item.lastAt ?? b.item.createdAt ?? 0) - (a.item.lastAt ?? a.item.createdAt ?? 0))
-  }, [bots, team?.rooms, team?.mainBotIds, query])
+  }, [bots, team?.rooms, team?.mainBotIds, needle])
 
   const preview = (bot: Bot): string | undefined => {
     const sessionId = bot.sessionId ?? bot.id
     if (questions[sessionId] !== undefined || team?.views?.[sessionId] !== undefined) return t('Waiting for your answer')
-    if (approvals.some(a => a.botId === bot.id)) return t('Waiting for your approval')
+    if (approvals.some(a => a?.botId === bot.id)) return t('Waiting for your approval')
     const doing = workBots[bot.id] ?? team?.activity?.[bot.id]
     if (doing !== undefined) return `${workPhrase(doing)}…`
-    const groupWork = Object.entries(workRooms).find(([, list]) => list.some(e => e.botId === bot.id))
-    if (groupWork) {
+    const groupWork = Object.entries(workRooms).find(([, list]) => Array.isArray(list) && list.some(e => e?.botId === bot.id))
+    const workingEntry = groupWork?.[1]?.find(e => e?.botId === bot.id)
+    if (groupWork && workingEntry !== undefined) {
       const room = team?.rooms?.find(r => r.id === groupWork[0])
-      return `${room?.name ?? t('a group chat')} · ${workPhrase(groupWork[1].find(e => e.botId === bot.id)!)}…`
+      return `${room?.name ?? t('a group chat')} · ${workPhrase(workingEntry)}…`
     }
     const waits = waiting[bot.id]
     if (waits !== undefined && (waits.bots?.length || waits.rooms?.length)) return t('Waiting for your answer')
     return cleanPreview(bot.preview) ?? bot.role
   }
   const roomPreview = (room: Room): string | undefined => {
-    if (approvals.some(a => a.roomId === room.id)) return t('Waiting for your approval')
-    const members = workRooms[room.id] ?? []
+    if (approvals.some(a => a?.roomId === room.id)) return t('Waiting for your approval')
+    const members = Array.isArray(workRooms[room.id]) ? workRooms[room.id] : []
     if (members.length > 0) {
-      const name = bots.find(b => b.id === members[0].botId)?.name ?? ''
+      const name = bots.find(b => b.id === members[0]?.botId)?.name ?? ''
       return `${name} · ${workPhrase(members[0])}…${members.length > 1 ? ` +${members.length - 1}` : ''}`
     }
     return room.preview
@@ -75,7 +81,7 @@ export function TeamList({ onOpen, query = '', current }: { onOpen: (target: Cha
             {mainList.map(main => (
               <Pressable key={main.id} accessibilityRole="button" accessibilityLabel={`${main.name}, ${t('Main Bot')}`} onPress={() => onOpen({ kind: 'bot', id: main.id })}
                 style={({ pressed }) => [styles.tile, { backgroundColor: pressed || current === main.id ? p.active : p.hover }]}>
-                <Avatar bot={main} dark={dark} size={52} ring={p.hover} main working={workBots[main.id] !== undefined} waiting={questions[main.sessionId ?? main.id] !== undefined} />
+                <Avatar bot={main} dark={dark} size={52} ring={p.hover} main working={workBots[main.id] !== undefined} waiting={botHasPending(team, main)} />
                 <Text style={[typeScale.small, { color: p.ink, fontWeight: '600', marginTop: 6 }]} numberOfLines={1}>{main.name}</Text>
                 {main.role ? <View style={[styles.tag, { backgroundColor: p.active }]}><Text style={{ fontSize: 11, lineHeight: 15, color: p.ink2 }} numberOfLines={1}>{main.role}</Text></View> : null}
               </Pressable>
@@ -83,9 +89,9 @@ export function TeamList({ onOpen, query = '', current }: { onOpen: (target: Cha
           </View>
         ) : undefined}
         renderItem={({ item: entry }) => entry.kind === 'bot' ? (
-          <BotRow bot={entry.item} p={p} dark={dark} mains={mains} questions={questions} approvals={approvals} workBots={workBots} preview={preview(entry.item)} selected={current === entry.item.id} unread={entry.item.lastAt !== undefined && entry.item.lastAt > seenAt(entry.item.id)} onPress={() => onOpen({ kind: 'bot', id: entry.item.id })} />
+          <BotRow bot={entry.item} p={p} dark={dark} mains={mains} waiting={botHasPending(team, entry.item)} workBots={workBots} preview={preview(entry.item)} selected={current === entry.item.id} unread={isUnread(hostId, entry.item.id, entry.item.lastAt, current === entry.item.id)} onPress={() => onOpen({ kind: 'bot', id: entry.item.id })} />
         ) : (
-          <RoomRow room={entry.item} bots={bots} p={p} dark={dark} approvals={approvals} preview={roomPreview(entry.item)} selected={current === entry.item.id} unread={entry.item.lastAt !== undefined && entry.item.lastAt > seenAt(entry.item.id)} working={(workRooms[entry.item.id] ?? []).length > 0} onPress={() => onOpen({ kind: 'room', id: entry.item.id })} />
+          <RoomRow room={entry.item} bots={bots} p={p} dark={dark} waiting={roomHasPending(team, entry.item)} preview={roomPreview(entry.item)} selected={current === entry.item.id} unread={isUnread(hostId, entry.item.id, entry.item.lastAt, current === entry.item.id)} working={(workRooms[entry.item.id] ?? []).length > 0} onPress={() => onOpen({ kind: 'room', id: entry.item.id })} />
         )}
         ListEmptyComponent={<Text style={[typeScale.small, { color: p.ink3, textAlign: 'center', marginTop: 40 }]}>{team === null ? t('Connecting…') : ''}</Text>}
       />
@@ -93,11 +99,10 @@ export function TeamList({ onOpen, query = '', current }: { onOpen: (target: Cha
   )
 }
 
-function BotRow({ bot, p, dark, mains, questions, approvals, workBots, preview, unread, selected, onPress }: {
+function BotRow({ bot, p, dark, mains, waiting, workBots, preview, unread, selected, onPress }: {
   bot: Bot; p: ReturnType<typeof useTheme>['p']; dark: boolean; mains: Set<string>
-  questions: Record<string, unknown>; approvals: { botId: string }[]; workBots: Record<string, unknown>; preview?: string; unread?: boolean; selected?: boolean; onPress: () => void
+  waiting: boolean; workBots: Record<string, unknown>; preview?: string; unread?: boolean; selected?: boolean; onPress: () => void
 }) {
-  const waiting = questions[bot.sessionId ?? bot.id] !== undefined || approvals.some(a => a.botId === bot.id)
   return (
     <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.row, (pressed || selected) && { backgroundColor: p.hover }]}>
       <Avatar bot={bot} dark={dark} size={36} ring={p.sidebar} main={mains.has(bot.id)} working={workBots[bot.id] !== undefined} waiting={waiting} />
@@ -113,11 +118,10 @@ function BotRow({ bot, p, dark, mains, questions, approvals, workBots, preview, 
   )
 }
 
-function RoomRow({ room, bots, p, dark, approvals, preview, unread, working, selected, onPress }: {
+function RoomRow({ room, bots, p, dark, waiting, preview, unread, working, selected, onPress }: {
   room: Room; bots: Bot[]; p: ReturnType<typeof useTheme>['p']; dark: boolean
-  approvals: { roomId?: string }[]; preview?: string; unread?: boolean; working: boolean; selected?: boolean; onPress: () => void
+  waiting: boolean; preview?: string; unread?: boolean; working: boolean; selected?: boolean; onPress: () => void
 }) {
-  const waiting = approvals.some(a => a.roomId === room.id)
   return (
     <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.row, (pressed || selected) && { backgroundColor: p.hover }]}>
       <View>

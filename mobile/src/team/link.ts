@@ -3,6 +3,7 @@ import { AppState } from 'react-native'
 import type { RpcClient } from '../../../link/src/index.ts'
 import { callBot, callBotState, openLink, type TeamState } from '../connection.ts'
 import { ensureUnlock } from './gate.ts'
+import { createNoticeCursor, type NoticeCursorAnswer } from './notices.ts'
 import { OPTIMISTIC, optimistic, withWrites, type Write } from './optimistic.ts'
 import { t } from '../ui/i18n.ts'
 import type { PhoneIdentity, SavedComputer } from '../store.ts'
@@ -10,6 +11,20 @@ import type { PhoneIdentity, SavedComputer } from '../store.ts'
 // Feed events keep the app live; the poll only stays as a foreground fallback.
 const POLL_MS = 15_000
 const RETRY_MS = 2_000
+// Writes that settle pending items without always bumping state.revision.
+const PENDING_MUTATING = new Set([
+  'approval-answer',
+  'browser-give-back',
+  'browser-takeover',
+  'browser-stop',
+  'answer-question',
+  'view-reply',
+  'dismiss-question',
+  'dismiss-view',
+  'secret-set',
+  'secret-allow',
+  'secret-cancel',
+])
 
 // Profile photos travel by reference and are fetched once per content hash
 // (`avatars: 'ref'` on `state`, then the `avatar` endpoint per new ref).
@@ -119,6 +134,7 @@ export function useTeamLink(computer: SavedComputer, identity: PhoneIdentity) {
         const answer = await callBotState<unknown>(client, endpoint, payload, { since: revision.current, avatars: 'ref', live: liveKey.current })
         writes.current = writes.current.filter(entry => entry !== write)
         if (answer.state !== undefined && clientRef.current === client) apply(answer.state)
+        else if (PENDING_MUTATING.has(endpoint) && clientRef.current === client) pollRef.current()
         return answer.value
       } finally {
         writes.current = writes.current.filter(entry => entry !== write)
@@ -140,6 +156,7 @@ export function useTeamLink(computer: SavedComputer, identity: PhoneIdentity) {
     revision.current = -1
     writes.current = []
     liveKey.current = undefined
+    const noticeCursor = createNoticeCursor()
     setTeam(null)
     setOnline(false)
     setLinked(false)
@@ -161,12 +178,16 @@ export function useTeamLink(computer: SavedComputer, identity: PhoneIdentity) {
         if (stopped || clientRef.current !== client) return
         apply(next)
         setError(null)
-        later(() => void poll(), POLL_MS)
       } catch (failure) {
         if (!stopped && clientRef.current === client) setError(errorText(failure))
       } finally {
         reading = false
-        if (again && !stopped) { again = false; void poll() }
+        if (!stopped && clientRef.current === client) {
+          if (again) { again = false; void poll() }
+          else later(() => void poll(), POLL_MS)
+        } else {
+          again = false
+        }
       }
     }
     pollRef.current = () => void poll()
@@ -184,6 +205,8 @@ export function useTeamLink(computer: SavedComputer, identity: PhoneIdentity) {
         const helloResult = await callBot<Hello>(client, 'hello', {}).catch(() => null)
         if (stopped) { void client.close(); return }
         if (helloResult === null || helloResult.api === null) {
+          if (activeClient === client) activeClient = undefined
+          if (clientRef.current === client) clientRef.current = undefined
           setError(t('Update DS Bot on the computer to use this phone.'))
           setLinked(false)
           void client.close()
@@ -193,15 +216,23 @@ export function useTeamLink(computer: SavedComputer, identity: PhoneIdentity) {
         setHello(helloResult)
         setOnline(true)
         setError(null)
+        const { sameBoot, since } = noticeCursor.connect(helloResult)
         client.onEvent(({ event, data }: { event: string; data: any }) => {
           if (stopped || clientRef.current !== client) return
+          if (event === 'notice' && !noticeCursor.acceptLive(helloResult.boot, data)) return
           if (event === 'revision' || event === 'live') void poll()
           for (const handler of feedHandlers.current) handler(event, data)
         })
-        void callBot(client, 'notices', { boot: helloResult.boot, since: 0 }).then(answer => {
+        void callBot(client, 'notices', { boot: helloResult.boot, since }).then(answer => {
           if (stopped || clientRef.current !== client) return
-          const notices = answer as { reset?: boolean }
-          if (notices.reset === true) void poll()
+          const { reset, replay } = noticeCursor.acceptCatchUp(helloResult.boot, sameBoot, answer as NoticeCursorAnswer)
+          if (reset) void poll()
+          else {
+            if (replay.length > 0) void poll()
+            for (const entry of replay) {
+              for (const handler of feedHandlers.current) handler('notice', entry)
+            }
+          }
         }).catch(() => {})
         client.onClose(() => {
           if (stopped || clientRef.current !== client) return
@@ -235,12 +266,15 @@ export function useTeamLink(computer: SavedComputer, identity: PhoneIdentity) {
     }
   }, [computer, identity, apply])
 
+  const refresh = useCallback(() => pollRef.current(), [])
+
   return {
     team: switched ? null : team,
     online: switched ? false : online,
     linked: switched ? false : linked,
     error: switched ? null : error,
     call,
+    refresh,
     clientRef,
     hello: switched ? null : hello,
     onFeed,

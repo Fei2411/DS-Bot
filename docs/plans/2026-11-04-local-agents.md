@@ -47,21 +47,20 @@ and model changes all work the same way.
 - The CLI's own work — its thoughts, plans, and tool calls — shows as the
   Bot's thinking rows, one compact line per action. Its final answer is the
   message text. Usage it reports is recorded.
-- No DS Bot or engine compaction runs on an abot session: the CLI owns
-  compaction inside its own session, and the full history stays in the DSH
-  Session for `read_own_chat`. Steward calls are skipped for local-agent
-  routes.
+- An abot's long conversation is handled like any Bot's (see Context below):
+  the user keeps talking in one chat, and DS Bot moves it to a fresh part at a
+  stopping point.
 - A permission prompt from the CLI becomes an `approve_agent_action` tool call
   that DS Bot shows as a normal approval card. Allow picks the agent's
   allow-once option; anything else denies it. It fails closed: only an explicit
   allow option counts. The Bot's permission preset maps to the closest mode the
   agent advertises.
-- Starting a new session or changing the work folder starts a fresh part with
-  a deterministic handoff: the last messages word for word, a list of earlier
-  message anchors, and a line to use `read_own_chat` for details — no model
-  call. A run-mode change starts fresh parts the same way, in the Bot's own chat
-  and every group it is in together (see Run mode), because a CLI session cannot
-  move between modes.
+- Starting a new session or changing the work folder starts a fresh part as
+  for any Bot: the old CLI session writes the handoff note (see Context). A
+  run-mode change starts fresh parts with the deterministic handoff — the last
+  messages word for word, a list of earlier message anchors, and a line to use
+  `read_own_chat` for details — in the Bot's own chat and every group it is in
+  together (see Run mode), because a CLI session cannot move between modes.
 - The after-turn memory review uses the team default model when one is set, and
   is skipped when there is none. Abots get memory in the system prompt and the
   remember, forget, and recall tools like any Bot.
@@ -77,6 +76,46 @@ and model changes all work the same way.
 - Each engine has an original badge shown small beside the Bot's name in the
   sidebar, the chat header, and its details. A new abot's avatar defaults to
   its badge; the user can still pick a character.
+
+## Context (decided 2026-11-14, #1593)
+
+The CLI holds the working context of its session; the DSH Session keeps the
+whole record for `read_own_chat` and is never condensed. DS Bot applies the
+rules of [context and memory](2026-10-09-context-and-memory.md) to the CLI
+session:
+
+- Size and window are what the CLI reports: ACP `usage_update` (`used`,
+  `size`), Codex `thread/tokenUsage/updated` (`last.totalTokens`,
+  `modelContextWindow`), Claude Code's per-response usage and
+  `modelUsage[].contextWindow`. The lines follow that window as for any model.
+  A CLI that reports nothing is not checked, and its context stays the CLI's
+  own business.
+- At the end of a turn past the check line, the context steward decides once:
+  condense in place, or move to a fresh part. The CLI also condenses on its own
+  near its window, which may lie below the check line; each time it did, the
+  steward decides as well, and the compactions so far count as the part's
+  checkpoints, so a fresh part grows likelier as they add up.
+- Inside a running turn DS Bot cannot step in between the CLI's model calls:
+  the CLI's own compaction covers it, and a CLI that reports its context is past
+  its window fails the turn as an overflow, which moves the part on.
+- The steward runs on what the conversation runs on, as for any Bot: the Bot's
+  own CLI and model answer it, in a one-off session with no team tools and
+  read-only access.
+- Condense in place is the CLI's own compaction: `/compact` for Claude Code and
+  for an ACP agent that lists a `compact` command, `thread/compact/start` for
+  Codex. An agent with no such command condenses only on its own. A
+  compaction that leaves the part past the check line moves it on; a CLI that
+  says how full it is only with its next answer is judged then. An ACP agent
+  gets the team instructions again after a compaction, since it read them as a
+  prompt.
+- The handoff note is written by the old CLI session while the Bot is idle, as
+  one more prompt the conversation never sees: it has the whole working context
+  and its own cache. The note has the sections every note has. A CLI that
+  cannot write one still moves on, with the deterministic package and the last
+  note it wrote; asking for the note already told the CLI the conversation moves
+  on.
+- The fresh part opens a new CLI session with the handoff package, like any
+  part.
 
 ## Run mode
 
@@ -151,6 +190,9 @@ handling, so they do not mix in one model list.
   what other Cursor Bots on "CLI default" and Cursor in the terminal use.
 - A custom agent whose ACP dialect differs from what these drivers understand
   needs its own driver before its tools work.
+- A CLI that reports no context usage (some ACP agents, custom agents) keeps
+  its context to itself: DS Bot moves it on only for an overflow, a new
+  session, a work-folder change, or a run-mode change.
 - The sign-in state comes from each CLI's own status command or credential
   file. A CLI that has neither, or whose check does not answer in time, shows
   unknown; unknown does not stop the user from picking it.

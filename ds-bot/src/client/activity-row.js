@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import { BotMark, RoomAvatar } from './mark.js'
 import { Elapsed, Shimmer, PHRASES } from './cells.js'
 import { noteClientError } from './diagnostics.js'
-import { reducedMotion } from './motion.js'
+import { reducedEffects, reducedMotion } from './motion.js'
 import { t } from './i18n.js'
 
 // -------------------------------------------------------------------------
@@ -91,6 +91,7 @@ function useRowEntrances(replacing) {
       const items = [...column.querySelectorAll(':scope > [data-chat-flow-key]')]
       let last = -1
       items.forEach((item, index) => { if (seen.has(item)) last = index })
+      if (reducedEffects()) return
       const fresh = items.filter(item => !seen.has(item) && item.offsetHeight > 0)
       for (const item of fresh) seen.add(item)
       if (last < 0 || Date.now() - started < 800 || fresh.length > 3) return
@@ -169,7 +170,7 @@ export function ActivityIndicator({ sessionId, useRoster, useSessionStatus, useL
     const timer = setTimeout(() => {
       shift.current = document.querySelector('[data-conversation-scroll]')?.scrollTop ?? null
       setPhase(current => (current === 'out' ? null : current))
-    }, 140)
+    }, reducedMotion() ? 0 : 140)
     return () => clearTimeout(timer)
   }, [visible])
   // Removing the row at a pinned tail moves the transcript down; a tail
