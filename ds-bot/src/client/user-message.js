@@ -59,6 +59,19 @@ function UserText({ text, bots, referenceLabels, skillNames, references, actions
     : h(Fragment, { key: index }, ui.projectUserText(part.text, referenceLabels, skillNames, 'skill', references))))
 }
 
+// A Bot mention in a bubble DSH draws itself (DSH 0.2.2-rc.1 and later draw user text by
+// rules; see user-text-rule.js). Only a Bot this chat can call is drawn as one: the rule
+// matches every Bot of the team, so any other name stays the text it was typed as.
+export function BotMention({ node, raw, interactive, sessionId, useRoster, actions }) {
+  const roster = useRoster(value => value)
+  const bot = mentionableBots(roster, sessionId).find(item => item.id === node.data.botId)
+  if (!bot) return raw
+  const mark = h(BotMark, { bot, size: 16 })
+  return interactive
+    ? h('button', { type: 'button', className: 'bt-umention', title: `@${bot.name}`, onClick: () => actions.openSession(bot.id) }, mark, node.data.label)
+    : h('span', { className: 'bt-umention', 'data-static': '', title: `@${bot.name}` }, mark, node.data.label)
+}
+
 function Attachments({ attachments, renderMessageImages }) {
   const compact = attachments.length > 1
   return h('div', { className: 'bt-uattach' }, attachments.map((block, index) => {
@@ -132,6 +145,8 @@ export const USER_MESSAGE_CSS = `
 .bt-ubody a{color:inherit}
 .bt-umention{display:inline-flex;align-items:center;gap:3px;vertical-align:-3px;max-width:100%;padding:0 1px;border:0;background:none;color:inherit;font:inherit;font-weight:600;line-height:inherit;cursor:pointer;border-radius:6px;white-space:nowrap}
 .bt-umention:hover{text-decoration:underline;text-underline-offset:2px}
+.bt-umention[data-static]{cursor:inherit}
+.bt-umention[data-static]:hover{text-decoration:none}
 .bt-umention>:first-child{flex:none}
 .bt-uattach{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px;max-width:100%}
 .bt-ufile{display:inline-flex;align-items:center;gap:10px;box-sizing:border-box;width:240px;min-height:64px;padding:8px 12px;border-radius:18px;border:.5px solid var(--bt-line-2);background:var(--bt-card)}
