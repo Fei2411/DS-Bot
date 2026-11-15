@@ -4,6 +4,7 @@ import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { install as installBtw } from './btw.js'
 import { install as installSide } from './side.js'
 import { handoffReply, questionReply, viewReply } from './parts.js'
+import { threadCurrentOfPart } from './threads.js'
 import { validateViewAnswer } from 'deep-view/core'
 import { COLORS, EXTRA_COLORS, ROUTE } from './constants.js'
 
@@ -68,10 +69,18 @@ export function install(rt) {
     // `sessionId` is the Bot's current own-chat part; `parts` its earlier ones.
     // `waiting`: the Bot holds its greeting until the user picks its model or fixes
     // what failed it. `blocked`: the facts of a failure only the user can fix (turns.js).
-    bots: Object.values(state.bots).map(({ segments, kickoff, ...bot }) => {
+    bots: Object.values(state.bots).map(({ segments, kickoff, openParts, ...bot }) => {
       const tail = rt.chatTail(rt.chatOf(bot.id))
+      // `openParts` are the parts opened while the Bot was busy: live, with their own
+      // earlier parts, and each one's run state read from the live turns.
+      const open = (openParts ?? []).map(part => ({
+        sessionId: part.sessionId,
+        startedAt: part.startedAt ?? 0,
+        parts: (part.segments ?? []).map(segment => segment.sessionId),
+      }))
       return {
-        ...bot, sessionId: rt.chatOf(bot.id), parts: (segments ?? []).map(segment => segment.sessionId), ...(kickoff ? { waiting: true } : {}),
+        ...bot, sessionId: rt.chatOf(bot.id), parts: (segments ?? []).map(segment => segment.sessionId),
+        ...(open.length > 0 ? { openParts: open } : {}), ...(kickoff ? { waiting: true } : {}),
         // `engine` is the Bot's local-agent route, present only on abots.
         ...(rt.localAgentBadge?.(bot.model ?? bot.appliedModel) !== undefined ? { engine: rt.localAgentBadge(bot.model ?? bot.appliedModel) } : {}),
         ...(tail ? { lastAt: tail.lastAt, preview: tail.preview } : {}),
@@ -94,9 +103,6 @@ export function install(rt) {
     // Aside answers of each Bot's current part, newest first. Not part of the
     // model-visible history; earlier parts send their cards on their own pages.
     btwCards: rt.btwView?.() ?? {},
-    // Browser holds (handoffs and takeovers) per Bot, so the phone can show
-    // the same cards the desktop toolbar shows.
-    browserHolds: rt.browserChannel?.holdSnapshot?.() ?? {},
     // Each Bot's side chats, in creation order. The answers never join the
     // model-visible history; the side panel reads them here.
     sideChats: rt.sideView?.() ?? {},
@@ -115,6 +121,7 @@ export function install(rt) {
     colors: [...COLORS, ...EXTRA_COLORS],
     models: rt.cachedCatalog(),
     defaultModel: rt.cachedDefault() ?? null,
+    profileDefaultModel: rt.defaultRef() ?? null,
     permissions: rt.permissionCatalog?.() ?? null,
     modelsKey: modelsKey(),
     prefs: state.prefs,
@@ -140,6 +147,13 @@ export function install(rt) {
     secretStore: rt.secretStoreStatus(),
     secrets: rt.secretsView(),
     activity: rt.activityView(),
+    // Which of a Bot's own chat parts has a turn right now, current or background:
+    // the session list's Running mark reads this, not a guess from the transcript.
+    partsRunning: Object.fromEntries(Object.values(state.bots)
+      .flatMap(bot => [rt.chatOf(bot.id), ...(bot.openParts ?? []).map(part => part.sessionId)])
+      .filter((sessionId, index, list) => sessionId !== undefined && list.indexOf(sessionId) === index)
+      .filter(sessionId => rt.live.get(sessionId)?.turn !== undefined)
+      .map(sessionId => [sessionId, true])),
     work: { bots: rt.workView(), rooms: rt.roomWorkView(), approvals: rt.approvalsView(), waiting: rt.waitingView?.() ?? {}, turns: rt.turnsView?.() ?? {}, steered: rt.steeredView?.() ?? {} },
     memoryNews: rt.memoryNews(),
     memoryReviews: rt.memoryReviews(),
@@ -158,6 +172,9 @@ export function install(rt) {
     // Named apart from the state view's `computer`: the live answer merges into the
     // same object and would wipe its `enabled` and `provider` fields.
     computerLive: rt.computerLive?.() ?? {},
+    // Browser holds (handoffs and takeovers) change without bumping state.revision,
+    // so they ride on live() to reconcile unchanged-revision polls.
+    browserHolds: rt.browserChannel?.holdSnapshot?.() ?? {},
   })
   // The live fields' sources are spread across the host with no single change
   // counter, so the serialized answer itself is the detector: a poll whose `live`
@@ -288,6 +305,8 @@ export function install(rt) {
           return ok(await rt.addProvider(body))
         case 'provider-models':
           return ok(await rt.discoverModels(body))
+        case 'provider-models-save':
+          return ok(await rt.saveProviderModels(body))
         case 'provider-remove':
           return ok(await rt.removeProvider(String(body.provider ?? '')))
         case 'duplicate-bot':
@@ -768,7 +787,7 @@ export function install(rt) {
           // Taking over a handoff keeps its reason, note, and call, so its card stays up.
           const asked = rt.browserChannel.holdOf(botId)
           rt.browserChannel.setHold(botId, asked?.callId !== undefined
-            ? { by: 'user', reason: asked.reason, note: asked.note, callId: asked.callId }
+            ? { by: 'user', reason: asked.reason, note: asked.note, callId: asked.callId, ...(asked.sessionId !== undefined ? { sessionId: asked.sessionId } : {}) }
             : { by: 'user', reason: 'takeover', note: 'The user is controlling this browser.' })
           return ok(true)
         }
@@ -787,7 +806,9 @@ export function install(rt) {
           rt.browserChannel.setHold(botId, null)
           if (hold.callId === undefined) return ok(true)
           try {
-            const sessionId = rt.chatOf(botId)
+            // The answer goes back to the thread that raised the handoff: a background
+            // part the user was not reading must not be answered in the foreground chat.
+            const sessionId = threadCurrentOfPart(rt.botOf(botId), hold.sessionId) ?? rt.chatOf(botId)
             const reply = handoffReply(hold, body.outcome)
             await rt.ensureCapabilities(sessionId)
             const agent = await rt.resolveAgent(sessionId)

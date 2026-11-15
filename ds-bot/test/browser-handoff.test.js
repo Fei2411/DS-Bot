@@ -28,9 +28,9 @@ const TEAM = {
   questions: {},
 }
 
-function start() {
+function start(seed = TEAM) {
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-handoff-'))
-  writeFileSync(join(home, 'state.json'), JSON.stringify(TEAM))
+  writeFileSync(join(home, 'state.json'), JSON.stringify(seed))
   const ctx = fakeContext()
   const sent = []
   const ensured = []
@@ -148,7 +148,8 @@ test('only a handoff raised in the Bot\'s own chat keeps its call and drops the 
   await rt.load()
 
   const raised = { by: 'bot', reason: 'login', note: 'Sign in', callId: 'call-1' }
-  assert.deepEqual(handoffHold(rt, 'b2', { ...raised, sessionId: 'b2' }), raised)
+  // The part that raised it rides along, so its answer can come back to that part.
+  assert.deepEqual(handoffHold(rt, 'b2', { ...raised, sessionId: 'b2' }), { ...raised, sessionId: 'b2' })
   // A group turn runs in another Session: no card there, so no call to answer.
   assert.deepEqual(handoffHold(rt, 'b2', { ...raised, sessionId: 'room-session' }), { by: 'bot', reason: 'login', note: 'Sign in' })
   // Another Bot's chat is no more its own.
@@ -205,11 +206,12 @@ test('a handoff outside the Bot\'s own chat gives resume-first guidance, and bro
   assert.ok(task.text.includes(`Handoffs:\n${group}`))
 })
 
-test('the channel keeps a handoff\'s call on its hold', async (t) => {
+test('the channel keeps a handoff\'s call and Session on its hold', async (t) => {
   const { rt, stop } = start()
   t.after(stop)
-  rt.browserChannel.setHold('b2', { ...BOT_HOLD, callId: 'c'.repeat(300) })
+  rt.browserChannel.setHold('b2', { ...BOT_HOLD, callId: 'c'.repeat(300), sessionId: 's'.repeat(300) })
   assert.equal(rt.browserChannel.holdOf('b2').callId, 'c'.repeat(200))
+  assert.equal(rt.browserChannel.holdOf('b2').sessionId, 's'.repeat(200))
   rt.browserChannel.setHold('b2', { by: 'bot', reason: 'other', note: '' })
   assert.deepEqual(rt.browserChannel.holdOf('b2'), { by: 'bot', reason: 'other', note: '' })
 })
@@ -219,9 +221,9 @@ test('browser-takeover keeps the handoff it takes over, and starts a plain takeo
   t.after(stop)
   await rt.load()
 
-  rt.browserChannel.setHold('b2', BOT_HOLD)
+  rt.browserChannel.setHold('b2', { ...BOT_HOLD, sessionId: 'b2' })
   assert.equal((await call('browser-takeover', { botId: 'b2' })).value, true)
-  assert.deepEqual(rt.browserChannel.holdOf('b2'), { by: 'user', reason: 'login', note: 'Sign in to the shop.', callId: 'call-1' })
+  assert.deepEqual(rt.browserChannel.holdOf('b2'), { by: 'user', reason: 'login', note: 'Sign in to the shop.', callId: 'call-1', sessionId: 'b2' })
 
   rt.browserChannel.setHold('b2', { by: 'bot', reason: 'other', note: '' })
   await call('browser-takeover', { botId: 'b2' })
@@ -265,6 +267,23 @@ test('browser-give-back tells the Bot how the handoff went and clears the hold',
   const skipped = JSON.parse(sent[1].message.content[0].text)
   assert.equal(skipped.outcome, 'skipped')
   assert.match(skipped.message, /Do not retry it/)
+})
+
+// #1501: a Bot's own chat may keep a part live in the background. A handoff raised
+// there is answered there, not in the foreground chat the user is reading.
+test('browser-give-back answers the part that raised the handoff', async (t) => {
+  const seed = { ...TEAM, bots: { ...TEAM.bots, b2: { ...TEAM.bots.b2, openParts: [{ sessionId: 'b2-bg', segments: [] }] } } }
+  const { rt, call, sent, ensured, stop } = start(seed)
+  t.after(stop)
+  await rt.load()
+  rt.browserChannel.setHold('b2', { ...BOT_HOLD, sessionId: 'b2-bg' })
+  assert.equal((await call('browser-give-back', { botId: 'b2', callId: 'call-1', outcome: 'done' })).value, true)
+  assert.deepEqual(ensured, ['b2-bg'])
+  assert.equal(sent.length, 1)
+  assert.equal(sent[0].sessionId, 'b2-bg')
+  assert.deepEqual(sent[0].message.source, { kind: REPLY_KIND, callId: 'call-1', outcome: 'answered' })
+  // The foreground chat, where the user is, gets none of it.
+  assert.equal(sent.some(entry => entry.sessionId === 'b2'), false)
 })
 
 test('browser-give-back answers an open handoff once, and a plain hold without a word', async (t) => {

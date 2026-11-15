@@ -187,6 +187,47 @@ test('a Bot Session gets every team tool in its own scope', async (t) => {
   assert.deepEqual(scopedNames(host, 'a').sort(), [...TEAM_TOOLS].filter(name => name !== 'read_browser').sort())
 })
 
+test('a Bot with no connector off never reads the served schemas for the mask', async (t) => {
+  const host = start()
+  t.after(host.stop)
+  await host.call('state', {})
+  await host.agentCreated('a')
+  rt.connectorOffFor = () => []
+  const before = host.restricted.length
+  let reads = 0
+  const served = host.ctx.tools.schemas
+  host.ctx.tools.schemas = (agent) => { reads += 1; return served(agent) }
+  rt.reapplyToolMasks()
+  assert.equal(reads, 0)
+  assert.equal(host.restricted.length, before)
+})
+
+test('an off connector masks all its tools in one scope', async (t) => {
+  const host = start()
+  t.after(host.stop)
+  await host.call('state', {})
+  await host.agentCreated('a')
+  host.ctx.tools.schemas = () => [{ name: 'ask_user_question' }, { name: 'mcp__notion__search' }, { name: 'mcp__notion__fetch' }]
+  rt.connectorOffFor = () => ['mcp__notion__']
+  rt.reapplyToolMasks()
+  const masks = host.restricted.filter(entry => entry.sessionId === 'a' && entry.deny.some(name => name.startsWith('mcp__notion__')))
+  assert.equal(masks.length, 1)
+  assert.deepEqual(masks[0].deny, ['mcp__notion__search', 'mcp__notion__fetch'])
+})
+
+test('two prefixes matching the same tool deny it once', async (t) => {
+  const host = start()
+  t.after(host.stop)
+  await host.call('state', {})
+  await host.agentCreated('a')
+  host.ctx.tools.schemas = () => [{ name: 'mcp__notion__search' }, { name: 'mcp__notion__fetch' }, { name: 'mcp__other__read' }]
+  rt.connectorOffFor = () => ['mcp__notion__', 'mcp__notion__search']
+  rt.reapplyToolMasks()
+  const masks = host.restricted.filter(entry => entry.sessionId === 'a' && entry.deny.some(name => name.startsWith('mcp__notion__')))
+  assert.equal(masks.length, 1, 'one restrict for the overlapping prefixes')
+  assert.deepEqual(masks[0].deny, ['mcp__notion__search', 'mcp__notion__fetch'])
+})
+
 test('a Bot moved onto a local agent route gets the approval bridge, and loses it moving off', async (t) => {
   const host = start()
   t.after(host.stop)
@@ -481,4 +522,21 @@ test('a live Bot Session gets its team tools back after a disable and re-enable'
   await second.call('state', {})
   assert.ok(hasShowView(second, 'a'), 'the scoped team tools are back')
   assert.ok(denied(second, 'a'), 'the blocking question tool is denied again')
+})
+
+
+test('reapplying a connector mask keeps tools that the current scope already hides', async (t) => {
+  const host = start()
+  t.after(host.stop)
+  await host.call('state', {})
+  await host.agentCreated('a')
+  const name = 'mcp__notion__search'
+  host.ctx.tools.schemas = agent => host.restricted.some(entry => entry.sessionId === agent.id && entry.deny.includes(name)) ? [] : [{ name }]
+  rt.connectorOffFor = () => ['mcp__notion__']
+  rt.reapplyToolMasks()
+  rt.reapplyToolMasks()
+  assert.ok(host.restricted.some(entry => entry.sessionId === 'a' && entry.deny.includes(name)))
+  rt.connectorOffFor = () => []
+  rt.reapplyToolMasks()
+  assert.equal(host.restricted.some(entry => entry.sessionId === 'a' && entry.deny.includes(name)), false)
 })
