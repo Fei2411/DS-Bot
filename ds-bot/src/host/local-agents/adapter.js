@@ -412,21 +412,26 @@ export class LocalAgentAdapter extends LlmAdapter {
     // call it bridged out — while the user was still deciding. The answer then has to
     // start a turn of its own, or the user's decision never reaches the agent and the
     // stream ends by reading the finished turn's old reply (#1513).
-    // A settled answer has to reach the agent even when the CLI's turn is over: its
-    // turn may still look alive here and end a moment later without reading the
-    // answer, which is why the drain also catches a turn that ends silently.
+    let settledText = ''
     if (settled.length > 0) {
       const answer = settled.map(entry => `${entry.name} → ${entry.text === '' ? (entry.isError ? 'failed' : 'no result') : entry.text}`).join('\n')
-      const continuation = `The calls that were waiting on the user are settled:\n\n${answer}\n\nContinue from where the turn stopped.`
-      if (promptText === '' && live.engine.canSteer?.(live.engineSession) === false) {
-        live.events.length = 0
-        await this.startTurn(live, continuation, options.signal, options.reasoningEffort)
-      } else {
-        live.continuation = continuation
-      }
+      settledText = `The calls that were waiting on the user are settled:\n\n${answer}\n\nContinue from where the turn stopped.`
+    }
+    if (settledText !== '' && live.engine.canSteer?.(live.engineSession) === false) {
+      // The turn this answer belongs to is over: it needs a turn of its own, in the same
+      // prompt as whatever else this call brought — runtime context, a further user
+      // message — because context alone would carry the turn without the decision.
+      const text = [settledText, promptText].filter(part => part !== '').join('\n\n')
+      live.events.length = 0
+      promptText = ''
+      await this.startTurn(live, text, options.signal, options.reasoningEffort)
+    } else if (settledText !== '') {
+      // The turn still looks alive; if it ends without reading the answer, the drain
+      // starts the turn that carries it.
+      live.continuation = settledText
     }
     if (promptText !== '') {
-      await this.sendInput(live, promptText, options.signal, options.reasoningEffort)
+      await this.sendInput(live, promptText, options.signal, options.reasoningEffort, settledText)
       if (sentInstructions) live.promptHash = promptHash
       // ACP only counts instructions once they reach the agent with a prompt.
       if (live.spec.kind === 'acp' && (freshCli || sentInstructions)) live.promptHash = promptHash
@@ -473,7 +478,10 @@ export class LocalAgentAdapter extends LlmAdapter {
   // started, or the prompt is away. The caller waits for it before reading the CLI,
   // so a steer that fails after the finished turn's `done` arrived still gets a turn
   // of its own instead of being read as this turn's end (#1513).
-  sendInput(live, text, signal, effort) {
+  sendInput(live, text, signal, effort, settled) {
+    // A settled answer rides with the input: if this input cannot land as a steer, the
+    // turn that replaces it must still carry what the user decided (#1513).
+    const body = settled === undefined || settled === '' ? text : `${settled}\n\n${text}`
     if (live.state !== 'idle') {
       if (live.spec.kind === 'acp') { live.queue.push(text); return Promise.resolve() }
       // Steering lands on a turn that is still running. When the CLI finished the
@@ -483,13 +491,15 @@ export class LocalAgentAdapter extends LlmAdapter {
       // the finished turn left behind: they would answer this one with the old reply.
       if (live.engine.canSteer?.(live.engineSession) === false) {
         live.events.length = 0
-        return this.startTurn(live, text, signal, effort)
+        live.continuation = undefined
+        return this.startTurn(live, body, signal, effort)
       }
       // The turn's id has to be known before the stream reads the CLI, or the finished
       // turn's own `done` would be read as this turn's end.
       const recover = () => {
         live.events.length = 0
-        return this.startTurn(live, text, signal, effort)
+        live.continuation = undefined
+        return this.startTurn(live, body, signal, effort)
       }
       try {
         return Promise.resolve(live.engine.steer?.(live.engineSession, text)).then(() => {}, recover)

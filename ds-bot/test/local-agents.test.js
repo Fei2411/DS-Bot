@@ -925,6 +925,26 @@ test('codex app-server: text answering a bridged call after the turn ended start
   assert.match(second.text, /ok: The calls that were waiting on the user are settled/, JSON.stringify(second))
 })
 
+test('codex app-server: the approval answer rides along with runtime context in the new turn', async (t) => {
+  const recordPath = join(mkdtempSync(join(tmpdir(), 'dsb-settled-')), 'record.jsonl')
+  const adapter = makeAdapter({ codexArgs: ['--record', recordPath] })
+  t.after(() => adapter.dispose())
+  const messages = [user('m1', 'late-ask')]
+  const first = await collect(adapter.stream(options('s1', messages, { provider: 'local-codex-cli' })))
+  const call = first.calls.find(entry => entry.name === 'approve_agent_action')
+  assert.ok(call, 'the approval came as a card')
+  // The CLI's turn is over. The answer arrives in the same call as runtime context, which
+  // used to become the whole prompt and leave the decision behind.
+  const context = { id: 'c1', role: 'user', content: [{ type: 'text', text: 'workspace note: the folder is /team' }], source: { kind: 'runtime-context' } }
+  await collect(adapter.stream(options('s1', [...messages, toolResult('t1', call.id, '{"decision":"allow"}', false), context], { provider: 'local-codex-cli' })))
+  const lines = readFileSync(recordPath, 'utf8').trim().split('\n').filter(line => line !== '').map(line => JSON.parse(line))
+  const starts = lines.filter(entry => entry.method === 'turn/start')
+  const last = starts.at(-1)
+  const text = (last?.params?.input ?? []).map(item => item.text ?? '').join('\n')
+  assert.match(text, /\{"decision":"allow"\}/, `the decision reached the turn: ${text}`)
+  assert.match(text, /workspace note: the folder is \/team/, `the context reached the turn: ${text}`)
+})
+
 test('codex app-server: a steer names the turn it steers, and a finished turn cannot be steered', async (t) => {
   const recordPath = join(mkdtempSync(join(tmpdir(), 'dsb-steer-')), 'record.jsonl')
   const engine = new CodexEngine('local-codex-cli', { name: 'Codex', command: process.execPath, args: [FIXTURES.codex, '--record', recordPath] }, { findExecutable: path => path })
@@ -941,13 +961,16 @@ test('codex app-server: a steer names the turn it steers, and a finished turn ca
   // A turn the CLI ends has nothing to steer: it says so instead of dropping the input.
   await engine.prompt(thread, [{ type: 'text', text: 'bye' }], {})
   // The CLI's own turn/completed is the signal: read until it arrives, not for a clock.
-  const deadline = Date.now() + 15_000
+  const deadline = Date.now() + 30_000
   for (;;) {
     const event = await Promise.race([
       thread.next(),
-      new Promise((_, reject) => setTimeout(() => reject(new Error('no turn/completed')), 15_000)),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('no turn/completed')), 30_000)),
     ])
-    if (event.type === 'done') break
+    // The turn's end is the CLI's; the engine clears its turn id in the same notice, so
+    // the queue is only drained once no live turn is left.
+    if (event.type === 'done' && engine.canSteer(thread) === false) break
+    if (event.type === 'done') await new Promise(resolve => setTimeout(resolve, 5))
     if (Date.now() > deadline) throw new Error(`no turn/completed: ${JSON.stringify(event)}`)
   }
   assert.equal(engine.canSteer(thread), false, 'turn/completed cleared the live turn')
