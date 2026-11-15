@@ -1582,3 +1582,81 @@ test('a message between Bots that the book cannot keep is not sent', { skip: pro
   }
   assert.deepEqual(await exchanges(), [])
 })
+
+
+test('a deferred request from a background part sends its reply back to that part', async (t) => {
+  const seed = team()
+  seed.bots.a.openParts = [{ sessionId: 'a-bg', segments: [] }]
+  const { agents, agentOf, emit, tool, stop } = await start(seed)
+  t.after(stop)
+
+  // Writer is in a user-started turn, reads Chief's steered request from 'a-bg',
+  // and ends the user turn without having answered the joined request yet.
+  emit('b', 'turn/start', { turn: 1 })
+  emit('b', 'user/message', { content: textBlock('Draft first'), source: { kind: 'user' } })
+  await tool('message_bot', { to: 'Writer', message: 'Check appendix' }, 'a-bg')
+  const [, steered] = agentOf('b').calls.at(-1)
+  emit('b', 'user/message', { content: steered.content, source: steered.source })
+  emit('b', 'assistant/message', assistantText('User draft done'))
+  emit('b', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  await settled(() => agentOf('b').calls.some(([kind]) => kind === 'followup'))
+  const [, deferred] = agentOf('b').calls.find(([kind]) => kind === 'followup')
+  assert.equal(deferred.source.senderPart, 'a-bg')
+
+  // When Writer answers that deferred turn, the reply must return to Chief's background part.
+  emit('b', 'turn/start', { turn: 2 })
+  emit('b', 'user/message', { content: deferred.content, source: deferred.source })
+  emit('b', 'assistant/message', assistantText('Appendix looks good'))
+  emit('b', 'turn/end', { turn: 2, reason: { kind: 'completed' } })
+  await settled(() => callsOf(agents, 'a-bg').length === 1)
+  assert.equal(callsOf(agents, 'a').length, 0)
+})
+
+test('a deferred later result follows a switched background openPart instead of leaking to foreground', async (t) => {
+  const seed = threeBots()
+  seed.bots.b = { id: 'b', name: 'Writer', role: 'Write', sessionId: 'b-bg', createdAt: 2, openParts: [{ sessionId: 'b-fg', segments: [] }] }
+  const teamCtx = await start(seed)
+  t.after(teamCtx.stop)
+  const { ctx, agents, agentOf, emit, fire, tool, call } = teamCtx
+  const turns = turnTaker(agents, emit)
+
+  let made = 0
+  ctx.sessionController.create = async () => ({ sessionId: `s${++made}` })
+  const get = ctx.get
+  ctx.get = name => name === 'tokenMeter' ? {
+    measure: () => ({ totalTokens: 272_000 }),
+    estimateMessage: message => estimateTokens(textOf(message.content)),
+  } : get(name)
+  ctx.llm.resolveModelInfo = async () => ({ context: { contextWindow: 192_000 } })
+
+  // Chief asks Writer (foreground is 'b-bg'), and Writer hands part of that work on to Tester.
+  turns.userTurn('a', 'have Writer do it')
+  await tool('message_bot', { to: 'Writer', message: 'carry out the plan' }, 'a')
+  turns.end('a', 'asked Writer')
+  turns.take('b-bg')
+  await tool('message_bot', { to: 'Tester', message: 'review my work' }, 'b-bg')
+  turns.end('b-bg', 'handed to Tester')
+
+  turns.take('c')
+  turns.end('c', 'background reviewed')
+  await settled(() => callsOf(agents, 'b-bg').length === 2)
+  const [, replyMsg] = callsOf(agents, 'b-bg')[1]
+
+  // User opens 'b-fg' as Writer's foreground, moving 'b-bg' into a background openPart.
+  assert.equal((await call('bot-open-part', { botId: 'b', sessionId: 'b-fg' })).ok, true)
+
+  // During an unrelated turn in background 'b-bg', Writer reads Tester's reply, then hits a
+  // context-window switch ('b-bg' -> 's1', into pastOwners) before turn/end drains `later`.
+  emit('b-bg', 'turn/start', { turn: 2 })
+  emit('b-bg', 'user/message', { content: textBlock('unrelated question'), source: { kind: 'user' } })
+  emit('b-bg', 'user/message', { content: replyMsg.content, source: replyMsg.source })
+  emit('b-bg', 'assistant/message', assistantText('answered unrelated'))
+  agentOf('b-bg').session.requestHeader = () => ({ config: { provider: 'custom', model: 'model' } })
+  await fire('agent/request-error', { agent: agentOf('b-bg'), failure: { code: 'CONTEXT_WINDOW_EXCEEDED', message: 'over' }, signal: AbortSignal.timeout(60_000) })
+  await settled(() => callsOf(agents, 's1').length === 1)
+  emit('b-bg', 'turn/end', { turn: 2, reason: { kind: 'completed' } })
+
+  await settled(() => [...callsOf(agents, 's1'), ...callsOf(agents, 'b-fg')].some(([, msg]) => textOf(msg?.content).includes('background reviewed')))
+  assert.equal(callsOf(agents, 'b-fg').length, 0)
+  assert.ok(callsOf(agents, 's1').some(([, msg]) => textOf(msg?.content).includes('background reviewed')))
+})
