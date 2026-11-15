@@ -44395,14 +44395,14 @@ function installMotionRest({ doc = document, win = window, restMs = REST_MS, now
   const sync = () => {
     queued = false;
     if (stopped) return;
-    const current = new Set(doc.getAnimations().filter(isLoop));
+    const current2 = new Set(doc.getAnimations().filter(isLoop));
     for (const [animation, element] of loops) {
-      if (current.has(animation)) continue;
+      if (current2.has(animation)) continue;
       loops.delete(animation);
       if (held.delete(animation) && animation.playState === "paused") animation.play();
       if (element) unwatch(element);
     }
-    for (const animation of current) {
+    for (const animation of current2) {
       if (loops.has(animation)) continue;
       const element = boxOf2(animation.effect?.target);
       loops.set(animation, element);
