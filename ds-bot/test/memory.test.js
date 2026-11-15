@@ -2407,15 +2407,24 @@ test('a queued review keeps the group lines that leave the log while it waits', 
 test('what is said after a member leaves is still reviewed, for the group', async (t) => {
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-memory-'))
   twoMembers(home)
-  const { ctx, call, read, requests, stop } = start({ home, replies: [JSON.stringify({ changes: [{ op: 'add', text: 'The launch moved to Friday' }] })], config: { memoryReviewDelayMs: 200 } })
+  // A held review of Temp's own chat keeps the queue while Writer leaves and the
+  // group speaks; the group's pending review waits its turn and so reads what was
+  // posted after Writer left — without it, the 200 ms timer can run that review to
+  // completion during the awaited calls below, before the post reaches the log.
+  let release
+  const replies = [new Promise(resolve => { release = resolve }), JSON.stringify({ changes: [{ op: 'add', text: 'The launch moved to Friday' }] })]
+  const { ctx, call, read, requests, stop } = start({ home, replies, config: { memoryReviewDelayMs: 200 } })
   t.after(() => stop())
   await call('state', {})
+  ctx.emit('agent/status', { agent: { id: 'b4' }, status: 'idle' })
+  await until(() => requests.length === 1)
   ctx.emit('agent/status', { agent: { id: 'g2' }, status: 'idle' })
   assert.equal((await call('update-room', { id: 'r1', remove: ['b2'] })).ok, true)
   await postToGroup(ctx, ['The launch moved to Friday'])
+  release(JSON.stringify({ changes: [] }))
   await reviewed(call)
-  assert.equal(requests.length, 1)
-  const text = requests[0].messages[0].content[0].text
+  assert.equal(requests.length, 2)
+  const text = requests[1].messages[0].content[0].text
   assert.match(text, /^The group chat: "Launch", with the user and Coder \(admin\), Temp\./)
   assert.match(text, /\nUser: Keep everything you send me under one page\nCoder: Will do\.\n[\s\S]*The launch moved to Friday/)
   assert.match(read('groups', 'r1', 'MEMORY.md'), /- The launch moved to Friday \[id: [0-9a-f]{4}; source: group "Launch"/)
