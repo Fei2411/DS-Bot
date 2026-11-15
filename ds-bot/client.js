@@ -15643,6 +15643,12 @@ var SIDEBAR_MIN = 264;
 var SIDEBAR_MAX = 420;
 var FALLBACK_SIDEBAR_WIDTH = 280;
 var RAIL_SNAP = (RAIL_WIDTH + SIDEBAR_MIN) / 2;
+var nextCollapsedWidth = ({ measured, collapsed, animating = false, last }) => {
+  if (animating) return last;
+  if (collapsed === null) return 0;
+  if (collapsed === true) return measured ?? 0;
+  return last;
+};
 function frameLayout({ viewport, sidebarWidth, pref, drawer = false, panel = null }) {
   const fits = pref === "open" && viewport >= sidebarWidth + MIN_CHAT;
   let left = pref === "hidden" ? "hidden" : fits ? "open" : drawer && pref === "open" ? "drawer" : "rail";
@@ -16843,6 +16849,11 @@ body[data-bt-effects=off] :is(.bt-settings-layer,.bt-mem-layer,.bt-palette-layer
 body[data-bt-effects=off] :is(.bt-spin,.bt-model-spin,.bt-mem-spin,.bt-loading-spin){animation-timing-function:steps(8)!important;transition:none!important}
 `;
 var CONVERSATION_CSS = `
+/* The menus above the composer ("@", "/", and the picker a command such as /model
+   opens): DSH paints them translucent and leans on a backdrop blur to keep the chat
+   behind them unreadable. Where the blur does not take, the chat shows through the
+   rows (issues 1113 and 935), so they get a solid fill. */
+[data-composer-overlay] [data-menu-material]{--dsw-menu-surface-fill:var(--bt-card)}
 .bt-think{font-size:13px;line-height:18px;color:var(--bt-ink-2);margin:2px 0 4px;max-width:calc(var(--bt-msg-w) * 100%)}
 body[data-bt-layout=flat] .bt-think{max-width:calc(var(--bt-flat-w) * 100%)}
 .bt-think summary{cursor:pointer;list-style:none;display:inline-flex;align-items:center;gap:6px}
@@ -29045,7 +29056,7 @@ function installFrameWatch(frame) {
     const animating = column?.closest("[data-animating]") != null;
     const width = animating ? null : sidebarTrackWidth();
     const collapsed = dshCollapsed();
-    if (width !== null && collapsed === true) collapsedWidth = width;
+    collapsedWidth = nextCollapsedWidth({ measured: width, collapsed, animating, last: collapsedWidth });
     frame.set((state) => {
       const next = { ...state, viewport: window.innerWidth, collapsedWidth, collapsed: collapsed === true };
       return state.viewport === next.viewport && state.collapsedWidth === next.collapsedWidth && state.collapsed === next.collapsed ? state : next;
