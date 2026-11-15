@@ -1044,3 +1044,30 @@ test('mail_send refuses attachments outside the working folder', async (t) => {
   const answer = await send.execute({ to: 'x@y', subject: 'S', body: 'B', attachments: ['../../etc/passwd'] }, { agent: { id: 'm1' }, callId: 'c1', concludeTurn: () => {} })
   assert.match(String(answer), /working folder/)
 })
+
+
+test('manual client fallback keeps and closes the original OAuth callback listener', async (t) => {
+  const real = globalThis.fetch
+  globalThis.fetch = async (url) => {
+    url = String(url?.url ?? url)
+    if (url.includes('oauth-authorization-server')) return json(AS)
+    if (url === AS.registration_endpoint) return json({ error: 'invalid_client_metadata' }, 400)
+    if (url.includes('oauth-protected-resource')) return json({ resource: 'https://mcp.notion.com/mcp', authorization_servers: ['https://as.test'] })
+    return new Response('', { status: 401 })
+  }
+  t.after(() => { globalThis.fetch = real })
+  const home = teamHome()
+  const ctx = fakeContext()
+  const rt = createRuntime(ctx, { home, github: false })
+  t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true }) })
+  await rt.load()
+  await rt.connectorEndpoint('connector-connect', { id: 'notion' })
+  const first = rt.connectorsInternals.pendings.get('notion')
+  assert.ok(first.listener.listening)
+  await rt.connectorEndpoint('connector-client', { id: 'notion', clientId: 'registered-app' })
+  const second = rt.connectorsInternals.pendings.get('notion')
+  assert.equal(second.listener, first.listener)
+  assert.equal(new URL(second.row.url).searchParams.get('redirect_uri'), first.redirectUri)
+  await rt.connectorEndpoint('connector-cancel', { id: 'notion' })
+  assert.equal(first.listener.listening, false)
+})
