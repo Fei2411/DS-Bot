@@ -45,8 +45,20 @@ test('applyArchs preserves debug architectures while enabling uncompressed 16KB 
   assert.deepEqual(applyArchs(existing), [
     { type: 'property', key: 'reactNativeArchitectures', value: 'armeabi-v7a,arm64-v8a,x86,x86_64' },
     { type: 'property', key: 'expo.useLegacyPackaging', value: 'false' },
+    { type: 'property', key: 'android.experimental.disableCompileSdkChecks', value: 'true' },
   ])
   assert.deepEqual(applyArchs([]), [
     { type: 'property', key: 'expo.useLegacyPackaging', value: 'false' },
+    { type: 'property', key: 'android.experimental.disableCompileSdkChecks', value: 'true' },
   ])
+})
+
+test('Android config pins compileSdkVersion <= targetSdkVersion (36) and declares POST_NOTIFICATIONS', () => {
+  const { expo } = JSON.parse(readFileSync(join(__dirname, '..', 'app.json'), 'utf8'))
+  assert.ok(Array.isArray(expo.android.permissions))
+  assert.ok(expo.android.permissions.includes('android.permission.POST_NOTIFICATIONS'))
+  const buildProps = expo.plugins.find(entry => Array.isArray(entry) && entry[0] === 'expo-build-properties')?.[1]
+  assert.equal(buildProps?.android?.targetSdkVersion, 36)
+  assert.equal(buildProps?.android?.compileSdkVersion, 36)
+  assert.ok(buildProps.android.compileSdkVersion <= buildProps.android.targetSdkVersion)
 })
