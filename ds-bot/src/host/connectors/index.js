@@ -300,30 +300,38 @@ export function install(rt) {
   }
 
   async function startBrowserFlow(id, entry, pending) {
-    const { listener, fixed, redirectUri } = await loopback(({ code, state, iss, error, errorDescription }) => completeBrowser(id, { code, state, iss, error, errorDescription }))
-    const saved = state.connectors?.[id]
-    const persist = async (client) => {
-      const { clientSecret, ...rest } = client
-      if (clientSecret !== undefined) await writeSecret(clientSecretOf(id), clientSecret, `${entry.name} connector`)
-      await saveState(id, { client: rest })
+    const bound = pending.listener === undefined
+      ? await loopback(({ code, state, iss, error, errorDescription }) => completeBrowser(id, { code, state, iss, error, errorDescription }))
+      : pending
+    const { listener, fixed, redirectUri } = bound
+    pendings.set(id, { ...pending, listener, fixed, redirectUri })
+    try {
+      const saved = state.connectors?.[id]
+      const persist = async (client) => {
+        const { clientSecret, ...rest } = client
+        if (clientSecret !== undefined) await writeSecret(clientSecretOf(id), clientSecret, `${entry.name} connector`)
+        await saveState(id, { client: rest })
+      }
+      const resolved = await oauth.resolveClient(entry, pending.discovery, redirectUri, fixed, saved?.client ? { ...saved.client, clientSecret: rt.secretValue(clientSecretOf(id)) } : undefined, { persist })
+      if (resolved === null) {
+        statuses.set(id, { state: 'needs-client' })
+        return
+      }
+      // Refresh needs to know which client signed in; DCR already persisted its result.
+      if (resolved.via !== 'dcr') await saveState(id, { client: { via: resolved.via, clientId: resolved.clientInformation.client_id } })
+      const stateParam = randomBytes(16).toString('base64url')
+      const { url, codeVerifier } = await oauth.beginBrowser(pending.discovery, resolved.clientInformation, redirectUri, { state: stateParam })
+      pendings.set(id, {
+        ...pending, kind: 'browser', listener, fixed, redirectUri, codeVerifier, expectedState: stateParam,
+        clientInformation: resolved.clientInformation,
+        row: { kind: 'browser', url },
+        timer: setTimeout(() => void expire(id), SIGN_IN_TIMEOUT_MS),
+      })
+      statuses.set(id, { state: 'connecting' })
+    } catch (error) {
+      await endPending(id, { state: 'error', error: reason(error) })
+      throw error
     }
-    const resolved = await oauth.resolveClient(entry, pending.discovery, redirectUri, fixed, saved?.client ? { ...saved.client, clientSecret: rt.secretValue(clientSecretOf(id)) } : undefined, { persist })
-    if (resolved === null) {
-      pendings.set(id, { ...pending, listener, redirectUri })
-      statuses.set(id, { state: 'needs-client' })
-      return
-    }
-    // Refresh needs to know which client signed in; DCR already persisted its result.
-    if (resolved.via !== 'dcr') await saveState(id, { client: { via: resolved.via, clientId: resolved.clientInformation.client_id } })
-    const stateParam = randomBytes(16).toString('base64url')
-    const { url, codeVerifier } = await oauth.beginBrowser(pending.discovery, resolved.clientInformation, redirectUri, { state: stateParam })
-    pendings.set(id, {
-      ...pending, kind: 'browser', listener, redirectUri, codeVerifier, expectedState: stateParam,
-      clientInformation: resolved.clientInformation,
-      row: { kind: 'browser', url },
-      timer: setTimeout(() => void expire(id), SIGN_IN_TIMEOUT_MS),
-    })
-    statuses.set(id, { state: 'connecting' })
   }
 
   async function expire(id) {
@@ -825,8 +833,6 @@ export function install(rt) {
     if (endpoint.startsWith('mail-')) return mailApi.endpoint(endpoint, body)
     return endpoints[endpoint](body ?? {})
   }
-
-  ctx.on('tools/change', () => { rt.reapplyToolMasks?.() })
 
   ctx.effect(() => {
     stopped = false
