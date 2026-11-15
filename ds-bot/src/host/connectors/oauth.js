@@ -82,7 +82,17 @@ export async function resolveClient(entry, discovery, redirectUri, fixedPort, st
       response_types: ['code'],
       token_endpoint_auth_method: 'none',
     }
-    const full = await registerClient(discovery.authorizationServerUrl, { metadata, clientMetadata, scope: discovery.scope, fetchFn: timed(request) })
+    let full
+    try {
+      full = await registerClient(discovery.authorizationServerUrl, { metadata, clientMetadata, scope: discovery.scope, fetchFn: timed(request) })
+    } catch (error) {
+      // An authorization server may refuse RFC 7591 registration outright (Figma
+      // does). The row then asks for the client ID of an app the user registered,
+      // instead of ending the sign-in on the server's rejection; a network failure
+      // still surfaces, because that is not a client we can work around.
+      if (typeof error?.status !== 'number') throw error
+      return null
+    }
     const info = {
       via: 'dcr',
       clientId: full.client_id,

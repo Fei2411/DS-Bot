@@ -249,6 +249,18 @@ export const ES = {
   'Key set outside DS Bot': 'Clave configurada fuera de DS Bot',
   'No models': 'Sin modelos',
   '{count} models': '{count} modelos',
+  'Refresh models': 'Actualizar modelos',
+  'Refreshing…': 'Actualizando…',
+  'Models from the endpoint': 'Modelos del endpoint',
+  "Upstream didn't return": 'No devuelto por el upstream',
+  'Keep the ids you still want by hand.': 'Marca a mano los ID que quieras conservar.',
+  '{added} added · {removed} removed · {count} selected': '{added} añadidos · {removed} eliminados · {count} seleccionados',
+  'Select at least one model': 'Selecciona al menos un modelo',
+  'Save anyway': 'Guardar igualmente',
+  'The endpoint lists no models.': 'El endpoint no enumera ningún modelo.',
+  '{name} will switch to {model} on its next turn.': '{name} cambiará a {model} en su siguiente turno.',
+  '{name} has no model to fall back to; its next turn will fail.': '{name} no tiene un modelo al que recurrir; su siguiente turno fallará.',
+  'Local agent, not affected: {names}': 'Agente local, sin efecto: {names}',
   // What a Bot runs on
   'Runs on': 'Se ejecuta en',
   'DS Bot model': 'Modelo de DS Bot',
@@ -1686,6 +1698,11 @@ export const ES = {
   'Stop {name}': 'Detener a {name}',
   '{name} · foreground': '{name} · primer plano',
   '{name} waits for the computer': '{name} espera el ordenador',
+  "Running": "En ejecución",
+  "Open this session": "Abrir esta sesión",
+  "Open this running session": "Abrir esta sesión en ejecución",
+  "A running session keeps using model calls in the background.": "Una sesión en ejecución sigue usando llamadas al modelo en segundo plano.",
+  "This session is still running. Wait for it to finish, or stop it.": "Esta sesión sigue en ejecución. Espera a que termine o detenla.",
 }
 
 export const HOST_ERRORS_ES = [
