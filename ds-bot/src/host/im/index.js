@@ -299,6 +299,37 @@ export function install(rt) {
     for (const [key, name] of Object.entries(conn.secrets ?? {})) fields[key] = rt.secretValue(name)
     return fields
   }
+  // The reason a request failed, with the chain under it: `fetch failed` alone
+  // hides the DNS, TLS or connection error that the user needs (#1120).
+  const reasonOf = (error) => {
+    const parts = []
+    for (let at = error, depth = 0; at !== undefined && at !== null && depth < 4; at = at.cause, depth += 1) {
+      const text = typeof at === 'string' ? at : at?.message
+      if (typeof text === 'string' && text.trim() !== '' && !parts.includes(text.trim())) parts.push(text.trim())
+    }
+    return parts.length === 0 ? 'The connection failed' : parts.join(': ')
+  }
+
+  // The reason can quote the request URL, and a platform URL carries the token:
+  // keep the secret field values, also as they appear in a URL, out of the text before it
+  // reaches the UI or the log.
+  const scrub = (text, fields, platform) => {
+    let out = text
+    for (const field of platform.fields) {
+      const value = fields[field.key]
+      if (!field.secret || typeof value !== 'string' || value.length < 4) continue
+      for (const form of new Set([value, encodeURIComponent(value)])) out = out.split(form).join('***')
+    }
+    return out
+  }
+  const checkAccount = async (platform, fields, env) => {
+    try {
+      return await adapters[platform.id].check(fields, env)
+    } catch (error) {
+      throw new Error(scrub(rt.redactSecrets(reasonOf(error)), fields, platform))
+    }
+  }
+
   const envFor = async (conn, runtime) => ({
     fetch: globalThis.fetch,
     WebSocket: globalThis.WebSocket,
@@ -1187,7 +1218,7 @@ export function install(rt) {
         if (!field.options && (fields[field.key] === undefined || String(fields[field.key]).trim() === '')) throw new Error(`${field.label} is required`)
       }
       const env = await envFor({ id: 'im_check', platform: platform.id, settings: fields, secrets: {} }, { get: () => ({}), set: () => {} })
-      const { account } = await adapters[platform.id].check(fields, env)
+      const { account } = await checkAccount(platform, fields, env)
       const conn = {
         id: `im_${randomBytes(4).toString('hex')}`,
         platform: platform.id,
@@ -1225,7 +1256,7 @@ export function install(rt) {
         for (const field of platform.fields) {
           if (field.secret && check[field.key] === undefined) check[field.key] = rt.secretValue(conn.secrets[field.key])
         }
-        const { account } = await adapters[conn.platform].check(check, env)
+        const { account } = await checkAccount(platform, check, env)
         conn.account = account
         await saveSecrets(conn, platform, fields)
         for (const field of platform.fields) {

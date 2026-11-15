@@ -1887,3 +1887,53 @@ test('a group attachment uploads under the group current Session, not the id it 
   assert.equal(s.prompts[0].sessionId, 'r1-part2', 'the message itself goes to the current part')
   assert.deepEqual(s.prompts[0].content.at(-1), { type: 'file', receiptId: 'receipt-plan.txt' })
 })
+
+test('a failed add keeps the network reason under "fetch failed"', async (t) => {
+  // #1120: the outlet printed only error.message, so a DNS failure read as
+  // "im-add: fetch failed" and the user could not tell it from a bad token.
+  const adapter = fakeAdapter()
+  adapter.check = async () => {
+    throw Object.assign(new TypeError('fetch failed'), {
+      cause: Object.assign(new Error('getaddrinfo ENOTFOUND api.telegram.org'), { code: 'ENOTFOUND' }),
+    })
+  }
+  const s = await start({ adapter })
+  t.after(s.stop)
+  await assert.rejects(() => add(s), error => {
+    assert.match(error.message, /fetch failed: getaddrinfo ENOTFOUND api\.telegram\.org/)
+    return true
+  })
+})
+
+test('a failed add does not echo the token back', async (t) => {
+  const adapter = fakeAdapter()
+  adapter.check = async () => {
+    throw Object.assign(new TypeError('fetch failed'), {
+      cause: new Error('connect ECONNREFUSED https://api.telegram.org/bottok-1234/getMe'),
+    })
+  }
+  const s = await start({ adapter })
+  t.after(s.stop)
+  await assert.rejects(() => add(s), error => {
+    assert.match(error.message, /ECONNREFUSED/)
+    assert.ok(!error.message.includes('tok-1234'), 'the token is redacted')
+    return true
+  })
+})
+
+test('a failed update keeps the network reason and redacts a secret as it appears in a URL', async (t) => {
+  const adapter = fakeAdapter()
+  const s = await start({ adapter })
+  t.after(s.stop)
+  const conn = await add(s)
+  adapter.check = async () => {
+    throw Object.assign(new TypeError('fetch failed'), {
+      cause: new Error('connect ECONNREFUSED https://api.telegram.org/botnew%2Btok%2F1/getMe'),
+    })
+  }
+  await assert.rejects(() => s.rt.imEndpoint('im-update', { id: conn.id, fields: { token: 'new+tok/1' } }), error => {
+    assert.match(error.message, /fetch failed: connect ECONNREFUSED/)
+    assert.ok(!error.message.includes('new%2Btok%2F1'), 'the encoded token is redacted')
+    return true
+  })
+})
