@@ -238,7 +238,20 @@ export const screen = {
   getPrimaryDisplay: () => display,
 }
 
-export const systemPreferences = { getAnimationSettings: () => ({ prefersReducedMotion: true }) }
+export const systemPreferences = {
+  getAnimationSettings: () => ({ prefersReducedMotion: true }),
+  // macOS reports the notification permission here; the shell reads it before showing.
+  getNotificationSettings: () => ({ authorizationStatus: 'authorized' }),
+}
+
+// Notifications the shell puts up: recorded, never shown (#1504).
+export const notifications = []
+export const Notification = class extends EventEmitter {
+  static isSupported() { return true }
+  constructor(options) { super(); this.options = options; notifications.push(this) }
+  show() { this.shown = true }
+  close() { this.closed = true; this.emit('close') }
+}
 
 export const clipboard = { writeText: () => {} }
 

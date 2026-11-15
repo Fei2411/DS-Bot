@@ -2,14 +2,13 @@ import { createElement as h, Fragment, useEffect, useLayoutEffect, useMemo, useR
 import { createPortal } from 'react-dom'
 import { MarkdownText, writeClipboard } from './dsh-primitives.js'
 import { inkText } from './inks.js'
-import { linkMentions, mentionTarget, dayLabel, contentText, stripHeader, isHiddenTurn, isRelayContext, relaysBefore, relayPart, commRunOf, toolName, toolArgs, reminderPrompts, elapsedLabel, clockLabel, messageClock } from './text.js'
+import { linkMentions, mentionTarget, dayLabel, contentText, stripHeader, stripToolCallTags, isHiddenTurn, isRelayContext, relaysBefore, relayPart, commRunOf, toolName, toolArgs, reminderPrompts, elapsedLabel, clockLabel, messageClock } from './text.js'
 import { SmileIcon, ReplyIcon, DotsIcon, CheckIcon, DownloadIcon, CopyIcon, GoalIcon, MemoryIcon } from './icons.js'
 import { ChangesCard } from './changes-card.js'
 import { goalEventText } from './goal.js'
 import { colorOf, toolState, BotMark, RoomAvatar } from './mark.js'
 import { CellEmpty } from './cell-empty.js'
-import { sendsOnEnter } from './enter-key.js'
-import { SettledQuestion, PendingQuestion } from './questions.js'
+import { AskUserCell, SettledQuestion } from './questions.js'
 import { AnsweredReply, ClosedView, WidgetCell } from './widget-cell.js'
 import { SecretToolCell } from './secret-card.js'
 import { ConnectorToolCell, MailToolCell } from './connectors.js'
@@ -22,7 +21,6 @@ import { turnReasoning, thinkingStep, opensReply, stepActivity } from './turn-re
 import { parseReplies, relayRange, stackReplies } from '../shared/group-replies.js'
 import { FOLD_AT, FOLD_HUGE, stripLongNote, useFold } from './fold.js'
 import { noHover, useViewport, viewBottom } from './motion.js'
-import { heldCardKey } from './sources.js'
 import { BtwCardView } from './btw.js'
 import { partIndexOf, withBtwRows } from './btw-model.js'
 import { ViaTag } from './user-message.js'
@@ -47,10 +45,11 @@ export function Bubbles({ texts, roster, selfId, actions, streaming, sessionId, 
     event.stopPropagation()
     actions.openSession(target)
   }
+  const cleaned = texts.map(stripToolCallTags).filter(text => text.trim() !== '')
   const reactions = useUi ? useUi(state => (msgKey ? state.reactions?.[msgKey] ?? null : null)) : null
   return h('div', { className: 'bt-astack', 'data-lead': lead ? '' : undefined, onClickCapture: onClick },
-    texts.map((text, index) => {
-      const last = index === texts.length - 1
+    cleaned.map((text, index) => {
+      const last = index === cleaned.length - 1
       return h(Bubble, {
         key: index, text, index, roster, selfId, actions, sessionId, msgKey, mentions, fold, textInteractionSource,
         picked: msgKey ? reactions?.[index] ?? [] : [],
@@ -266,7 +265,10 @@ export function AssistantCell({ node, groupPart, sessionId, openFile, fileMentio
   const contexts = useTurnContext(String(data.turn))
   const mentions = useFileMentions({ node, openFile, fileMentions, useTurnData })
   const hidden = Boolean(roster.roomsById[sessionId]) || isHiddenTurn(roster, sessionId, data.turn)
-  const texts = groupPart === 'reasoning' ? [] : data.blocks.filter(block => block.kind === 'text' && block.text.trim() !== '').map(block => block.text)
+  const texts = groupPart === 'reasoning' ? [] : data.blocks
+    .filter(block => block.kind === 'text')
+    .map(block => stripToolCallTags(block.text))
+    .filter(text => text.trim() !== '')
   const running = data.status === 'running'
   const textInteractionSource = data.status === 'settled' && data.finalNode?.messageId !== undefined
   const members = steps.length ? steps : [data]
@@ -1193,19 +1195,8 @@ function renderCall(call, { sessionId, roster, actions, useUi, useWork, findBot,
       const room = roster.rooms.find(entry => entry.name === name)
       return h(GroupEvent, { prefix: t(verbs[0]), room: tool === 'delete_group' ? undefined : room, name, roster, actions })
     }
-    case 'ask_user': {
-      const question = roster.questions?.[sessionId]
-      if (!question || (question.callSessionId ?? sessionId) !== sessionId || question.callId !== call.callId) {
-        // Dismissed or answered by a message: the card stays here, read-only.
-        // Answered on the card: its reply message carries it, so no gap here.
-        const closed = roster.closedCards?.[sessionId]?.[call.callId]
-        if (closed === undefined) return h(CellEmpty, { className: 'bt-q-gone' })
-        const asked = { question: arg('question') ?? '', detail: arg('detail'), options: argValue('options') ?? [], multiSelect: argValue('multiSelect') === true }
-        return h('div', { className: 'bt-q-inline' }, h(SettledQuestion, { question: asked, closed }))
-      }
-      if (heldCards?.[heldCardKey('question', question.id)] > 0) return h(CellEmpty)
-      return h(PendingQuestion, { key: JSON.stringify([sessionId, question.id]), sessionId, question, actions, inline: true, enterToSend: sendsOnEnter(roster.prefs) })
-    }
+    case 'ask_user':
+      return h(AskUserCell, { sessionId, callId: call.callId, arg, argValue, roster, actions, heldCards })
     case 'show_view':
       return h(WidgetCell, { sessionId, callId: call.callId, args: { text: arg, value: argValue }, done, isError: call.isError, roster, actions, heldCards })
     case 'request_secret':

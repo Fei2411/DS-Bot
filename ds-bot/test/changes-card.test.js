@@ -99,12 +99,14 @@ test('a stacked block keeps the last change line of the turn it shows', () => {
   ])
   assert.equal(items.length, 1)
   assert.deepEqual(items[0].changes, row)
-  // A later turn's line replaces the earlier one rather than stacking two.
+  // A completed turn must keep its own review when the same Bot answers again.
   const second = stackReplies([
     { botId: 'b1', text: 'a', time: 1, changes: row },
     { botId: 'b1', text: 'b', time: 2, changes: { ...row, seq: 9, turn: 4 } },
   ])
-  assert.equal(second[0].changes.seq, 9)
+  assert.equal(second.length, 2)
+  assert.equal(second[0].changes.seq, 7)
+  assert.equal(second[1].changes.seq, 9)
 })
 
 

@@ -13,12 +13,12 @@ const HOUR = 60 * MINUTE
 const DAY = 24 * HOUR
 
 // Chief (Main) and Writer in Ops; Writer and Editor in Desk; Diary is a private Bot.
-const team = ({ questions = {}, views = {} } = {}) => ({
+const team = ({ questions = {}, views = {}, openPart = false } = {}) => ({
   version: 1,
   mainBotIds: ['a'],
   bots: {
     a: { id: 'a', name: 'Chief', role: 'Boss', sessionId: 'a', createdAt: 1 },
-    b: { id: 'b', name: 'Writer', role: 'Write', sessionId: 'b', createdAt: 2 },
+    b: { id: 'b', name: 'Writer', role: 'Write', sessionId: 'b', createdAt: 2, ...(openPart ? { openParts: [{ sessionId: 'b-bg', segments: [] }] } : {}) },
     c: { id: 'c', name: 'Editor', role: 'Edit', sessionId: 'c', createdAt: 3 },
     d: { id: 'd', name: 'Diary', role: 'Notes', sessionId: 'd', createdAt: 4, instructions: 'Keep the diary of the user.', private: true },
   },
@@ -51,8 +51,20 @@ async function start(cards) {
   const list = (args, sessionId) => rt.teamTools.find(d => d.name === 'list_bots').execute(args, { agent: { id: sessionId } })
   // Loading once fills the Session-owner indexes the tools look callers up in.
   await list({}, 'a')
-  return { list, stop: async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) } }
+  return { list, rt, stop: async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) } }
 }
+
+// #1501: a Bot's own chat may keep a part running in the background. A Bot working
+// there is not idle, and the line says it is another of its conversations.
+test('a Bot working in a background part is not idle', async (t) => {
+  const { list, rt, stop } = await start({ openPart: true })
+  t.after(stop)
+  rt.live.set('b-bg', { turn: 1, since: Date.now() })
+  assert.match(await list({}, 'a'), /- Writer \(Write\)\n {2}now: working in another of its conversations for less than a minute, for the user\n/)
+  // The foreground part running reads as before, and both are named.
+  rt.live.set('b', { turn: 2, since: Date.now() })
+  assert.match(await list({}, 'a'), /now: working in its own chat for less than a minute, for the user; working in another of its conversations for less than a minute, for the user/)
+})
 
 test('a waiting card says how long it has waited', async (t) => {
   const now = Date.now()
