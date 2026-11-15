@@ -28319,7 +28319,7 @@ var sidebarTrackWidth = () => {
 var dshCollapsed = () => {
   if (typeof document === "undefined") return null;
   const column = document.querySelector('[class*="_sidebarCol"]');
-  return column ? column.parentElement?.hasAttribute("data-sidebar-collapsed") ?? false : null;
+  return column ? column.closest("[data-sidebar-collapsed]") !== null : null;
 };
 var collapsedTrackWidth = () => document.documentElement.hasAttribute("data-windows-titlebar") || document.documentElement.dataset.platform === "darwin" ? 0 : 56;
 var room = { rule: null, selector: "" };
@@ -29182,6 +29182,7 @@ function TeamSidebar(props) {
       }
     }
     if (collapsed) {
+      clearTimeout(requestLapse.current);
       requested.current = false;
       quiet(false);
       return void 0;
@@ -29197,7 +29198,7 @@ function TeamSidebar(props) {
       setLapsed((value) => value + 1);
     }, 300);
     return void 0;
-  }, [wide, frameSnap.viewport, lapsed]);
+  }, [wide, frameSnap.viewport, frameSnap.collapsed, lapsed]);
   (0, import_react35.useEffect)(() => {
     if (mode !== "drawer") return void 0;
     const onDown = (event) => {
