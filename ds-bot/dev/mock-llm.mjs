@@ -248,6 +248,7 @@ function decide(body) {
         return [text(picked ? `好，就从「${picked}」开始。` : '好的。'), text('我先把要点理一下，稍后给你一个方案。')]
       }
       case 'list_bots': return [text(`现在的班底：\n${resultText}`)]
+      case 'todo_write': return [text('计划列好了，我按这个顺序做。')]
       case 'cua': return [text(`cua 结果：${resultText.slice(0, 400)}`)]
       case 'create_group':
       case 'update_group':
@@ -494,6 +495,15 @@ function decide(body) {
   }
   if (/^\s*阻塞提问/.test(userText) && tools.has('ask_user_question')) {
     return [tool('ask_user_question', { questions: [{ id: 'start', header: 'Choose', question: '先从哪块开始？', options: [{ label: '先定目标 (Recommended)', description: '先把要做成什么说清楚' }, { label: '整理日常事务' }] }] })]
+  }
+  // 任务清单: one todo_write, so a bench can check the task card DSH draws for it.
+  if (/^\s*任务清单/.test(userText) && tools.has('todo_write')) {
+    return [tool('todo_write', { todos: [
+      { content: '认领 Issue 并建分支', status: 'completed' },
+      { content: '实现技能包与脚本', status: 'in_progress' },
+      { content: '跑样例与负向用例', status: 'pending' },
+      { content: '开 PR 并回复 Issue', status: 'pending' },
+    ] })]
   }
   // View cards: 视图选项 and 视图表单 wait for an answer; 视图展示 and 大视图 are
   // display-only — the latter sits just under the view byte limit.

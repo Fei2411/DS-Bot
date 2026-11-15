@@ -44,3 +44,14 @@ test('the group relay and non-Bot sessions do not get progress instructions', (t
   assert.doesNotMatch(prompt('room'), /progress|milestone/)
   assert.equal(prompt('outside'), '')
 })
+
+// Multi-step work keeps a task list, so the user sees the flow and where it stands.
+test('Bots are told to keep a task list for multi-step work', (t) => {
+  const { ctx, prompt } = start()
+  t.after(() => ctx.dispose())
+  const rule = '- For work with several steps, keep the plan in todo_write and update each step as it starts and finishes, so the user sees the whole flow and where it stands.'
+  for (const id of ['main', 'worker']) {
+    assert.equal(prompt(id).split(rule).length - 1, 1)
+  }
+  assert.equal(prompt('room').includes('todo_write'), false)
+})
