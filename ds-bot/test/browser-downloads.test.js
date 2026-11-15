@@ -134,11 +134,39 @@ test('a key press other than Enter does not wait for a download', async (t) => {
 // A click waits for a download, but only for its own grace window: a large
 // actionTimeout must not make an ordinary click slower.
 test('a click with no download returns after the download grace, not the action timeout', async (t) => {
-  const { session } = await fixture(t, { actionTimeout: 5_000 })
-  const started = Date.now()
-  await session.click('e1')
-  const elapsed = Date.now() - started
-  assert.ok(elapsed < 500, `a click without a download returned in ${elapsed} ms: it holds at most its 300 ms grace, not the 5 s action timeout`)
+  let markClicked
+  const clicked = new Promise(resolve => { markClicked = resolve })
+  let timersMocked = false
+  const { session } = await fixture(t, {
+    actionTimeout: 5_000,
+    click: () => {
+      t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1_000_000 })
+      timersMocked = true
+      markClicked()
+    },
+  })
+  let finished = false
+  const pending = session.click('e1').then(value => {
+    finished = true
+    return value
+  })
+  try {
+    await clicked
+    await new Promise(resolve => setImmediate(resolve))
+    t.mock.timers.tick(150)
+    await new Promise(resolve => setImmediate(resolve))
+    assert.equal(finished, false, 'the click is still inside its 300 ms download grace after settle')
+
+    t.mock.timers.tick(149)
+    await new Promise(resolve => setImmediate(resolve))
+    assert.equal(finished, false, 'the click holds until the full 300 ms download grace elapses')
+
+    t.mock.timers.tick(1)
+    await pending
+    assert.equal(finished, true, 'the click returns at 300 ms instead of waiting for the 5 s actionTimeout')
+  } finally {
+    if (timersMocked) t.mock.timers.reset()
+  }
 })
 
 // A download that starts after the grace window is not captured: it is canceled and

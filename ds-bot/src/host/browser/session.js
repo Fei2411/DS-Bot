@@ -421,15 +421,17 @@ export function createSession({ context, browser, page, botId, userDataDir, cook
         const remaining = openingDownload
           ? Math.max(actionTimeout, ACTION_TIMEOUT)
           : openedAt === undefined ? downloadGraceMs : Math.max(0, downloadGraceMs - (Date.now() - openedAt))
-        await new Promise(resolve => {
-          const finish = () => {
-            clearTimeout(timer)
-            batch.notify = undefined
-            resolve()
-          }
-          const timer = setTimeout(finish, Math.max(0, remaining))
-          batch.notify = finish
-        })
+        if (remaining > 0) {
+          await new Promise(resolve => {
+            const finish = () => {
+              clearTimeout(timer)
+              batch.notify = undefined
+              resolve()
+            }
+            const timer = setTimeout(finish, remaining)
+            batch.notify = finish
+          })
+        }
       }
       if (parent) {
         if (failure) throw failure

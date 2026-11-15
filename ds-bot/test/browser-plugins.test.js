@@ -235,9 +235,17 @@ test('browserDownloadGraceMs from the config reaches the browser session', async
     async cancel() { canceled += 1; resolveCanceled() },
     async delete() {},
   }
+  let markClicked
+  const clicked = new Promise(resolve => { markClicked = resolve })
+  let timersMocked = false
   let timer
   const { context } = fakeBrowserPage({
-    onClick: clicked => { timer = setTimeout(() => clicked.emit('download', incoming), 200) },
+    onClick: target => {
+      t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1_000_000 })
+      timersMocked = true
+      timer = setTimeout(() => target.emit('download', incoming), 200)
+      markClicked()
+    },
   })
   const key = Symbol.for('ds-bot.test.browser-context')
   globalThis[key] = context
@@ -274,14 +282,31 @@ test('browserDownloadGraceMs from the config reaches the browser session', async
     delete globalThis[key]
     rmSync(stub, { recursive: true, force: true })
   })
-  const started = Date.now()
+  let finished = false
   const tool = runtime.teamTools.find(entry => entry.name === 'browser_probe')
-  const result = await tool.execute({}, browserExec())
-  const elapsed = Date.now() - started
+  const pending = tool.execute({}, browserExec()).then(value => {
+    finished = true
+    return value
+  })
+  let result
+  try {
+    await clicked
+    await new Promise(resolve => setImmediate(resolve))
+    // 150 ms settles the click; with a 20 ms grace already elapsed, the click returns
+    // before the 200 ms download timer fires. With the 300 ms default, it would still wait.
+    t.mock.timers.tick(150)
+    await new Promise(resolve => setImmediate(resolve))
+    assert.equal(finished, true, 'a click with a 20 ms configured grace finished once settle elapsed')
+    result = await pending
+    assert.equal(canceled, 0, 'the 200 ms download has not fired before the click returns')
+
+    t.mock.timers.tick(50)
+    await wasCanceled
+  } finally {
+    if (timersMocked) t.mock.timers.reset()
+  }
   assert.equal(typeof result.click, 'string')
   assert.doesNotMatch(result.click, /Download "report\.csv"/, 'the click did not wait for the late download')
-  assert.ok(elapsed < 500, `a click with a 20 ms configured grace returned in ${elapsed} ms`)
-  await wasCanceled
   assert.equal(saved, false, 'the late download was not saved')
   assert.equal(canceled, 1)
   const snapshot = await result.session.snapshotText()
