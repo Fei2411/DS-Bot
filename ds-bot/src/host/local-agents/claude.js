@@ -29,6 +29,14 @@ export class ClaudeEngine {
     return session.prompt(blocks)
   }
 
+  canSteer(session) {
+    return session.running === true
+  }
+
+  steer(session, text) {
+    return session.prompt([{ type: 'text', text }])
+  }
+
   cancel(session) {
     session.cancel()
   }
@@ -225,6 +233,7 @@ class ClaudeSession {
           const size = (models.find(([name]) => name === this.model) ?? models.toSorted((a, b) => (b[1]?.contextWindow ?? 0) - (a[1]?.contextWindow ?? 0))[0])?.[1]?.contextWindow
           if (typeof size === 'number' && size > 0) this.emit({ type: 'context', size })
         }
+        this.running = false
         this.emit(event.subtype === 'success' || event.is_error !== true
           ? { type: 'done', reason: 'stop', usage: usageOf(event.usage) }
           : { type: 'error', error: new Error(event.result ?? 'the agent failed') })
@@ -242,6 +251,7 @@ class ClaudeSession {
   }
 
   prompt(blocks) {
+    this.running = true
     this.write({ type: 'user', message: { role: 'user', content: blocks } })
     return Promise.resolve()
   }
