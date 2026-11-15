@@ -4,6 +4,7 @@ import { DEFAULT_MASK, SHAPES, markupCache, maskOf } from './characters.js'
 import { createSource, EMPTY_ROSTER, indexRoster, isAgentSession } from './sources.js'
 import { teamActions } from './team-actions.js'
 import { themeCss, shellTokens, registry, registerShape, registerTheme, allThemes, layoutOf, effectsOf, widthOf, flatWidthOf } from './themes.js'
+import { readSkinSurfaceVars, writeSkinSurfaceVars } from './skin.js'
 import { MENTION_ORIGIN, currentPart } from './text.js'
 import { SHELL_CSS, CONVERSATION_CSS, botOwnCss, installStyles, installCompiledStyles, RETURN_TOKENS } from './styles.js'
 import { lookOf } from './mark.js'
@@ -396,6 +397,19 @@ export function apply(ctx) {
     const style = installStyles('', 'theme')
     let key = ''
     let releaseTokens = null
+    let activeTheme = null
+    // A third-party skin's glass sliders change DSH's background tokens; the surfaces
+    // follow them through --bt-skin-*, and nothing is set while the tokens are opaque.
+    const skin = writeSkinSurfaceVars(document, () => (activeTheme === null ? {} : readSkinSurfaceVars(document, activeTheme)))
+    const offTheme = ctx.on('theme/change', () => skin.apply())
+    // A skin may write the tokens itself (some set them straight on the document); the
+    // composed value is what counts, so re-read whenever the tokens may have moved.
+    const observer = typeof MutationObserver === 'function' ? new MutationObserver(() => skin.apply()) : null
+    if (observer !== null) {
+      observer.observe(document.body, { attributes: true, attributeFilter: ['style', 'data-ds-dark-theme'] })
+      observer.observe(document.documentElement, { attributes: true, attributeFilter: ['style', 'class'] })
+      observer.observe(document.head, { childList: true, subtree: true, characterData: true })
+    }
     const render = () => {
       const snapshot = roster.getSnapshot()
       const prefs = snapshot.ready ? snapshot.prefs ?? {} : savedPrefs
@@ -416,6 +430,8 @@ export function apply(ctx) {
       if (next === key) return
       key = next
       style.textContent = themeCss(themes[id], accent)
+      activeTheme = themes[id]
+      skin.apply()
       const release = releaseTokens
       releaseTokens = ctx.theme.overrideTokens('ds-bot', shellTokens(themes[id]))
       if (typeof release === 'function') release()
@@ -429,6 +445,9 @@ export function apply(ctx) {
     return () => {
       offRoster()
       offRegistry()
+      offTheme()
+      observer?.disconnect()
+      skin.clear()
       try {
         if (typeof releaseTokens === 'function') releaseTokens()
       } finally {
@@ -455,6 +474,35 @@ export function apply(ctx) {
   }, 'ds-bot: registry')
 
   ctx.inject(['shortcuts'], scope => { scope.effect(() => holdShellShortcuts(scope.shortcuts), 'ds-bot: settings shortcut') })
+
+  // DSH's own changes-review tab opens by resource address in the right column. A window
+  // without that column never provides the service; the change row then says it cannot
+  // open the review instead of doing nothing.
+  let openReview
+  ctx.inject(['sidebarRight'], (scope) => {
+    openReview = changes => scope.sidebarRight.openResource(`dsh-resource://changes-review/session/${encodeURIComponent(changes.sessionId)}/${changes.seq}/${changes.turn}`)
+    scope.effect(() => () => { openReview = undefined }, 'ds-bot: change review opener')
+  })
+  // The one jump into the review: DSH's tab belongs to the Session the shell shows, so the
+  // member's Session opens first, and the tab is asked for once its column is mounted.
+  // Keeping it here means a future review that can stay in the group replaces one function.
+  const openChangesReview = (changes, tries = 60) => {
+    actions.openSession(changes.sessionId)
+    let left = tries
+    const timer = setInterval(() => {
+      if (mainView() === changes.sessionId) {
+        try {
+          openReview(changes)
+          clearInterval(timer)
+          return
+        } catch { /* the Session's column is still mounting */ }
+      }
+      if ((left -= 1) <= 0) {
+        clearInterval(timer)
+        actions.notice(t('This window cannot open the change review'))
+      }
+    }, 100)
+  }
 
   const after = promise => promise.then(async (value) => { await pull().catch(() => {}); return value })
   // A Bot id or a group chat id, or any part of either's chat, opens the current part.
@@ -529,10 +577,21 @@ export function apply(ctx) {
   }
   const actions = {
     ...teamActions({ call, after, partFor, roster, ui, live, cards, heldCards, turnClock, panelFolded }),
-    openChanges: changes => ui.set(state => ({ ...state, changes })),
-    closeChanges: () => ui.set(state => ({ ...state, changes: null })),
-    changesSummary: changes => call('changes-summary', changes),
-    changesDiff: (changes, index) => call('changes-diff', { ...changes, index }),
+    // The files a group row names open DSH's own review tab for that turn. The tab reads
+    // the changes of the Session the shell shows, so that Session is opened first; the same
+    // call then retries until its right column is mounted. This jump is the one place a
+    // different place for the review (in the group, or a review that carries its Session)
+    // would replace. A summary the Host no longer serves, or a window without the column,
+    // says so instead of doing nothing.
+    openChanges: async (changes) => {
+      if (changes === null || typeof changes !== 'object' || typeof changes.sessionId !== 'string'
+        || !Number.isInteger(changes.seq) || !Number.isInteger(changes.turn)) return
+      let available = false
+      try { available = (await call('changes-check', { sessionId: changes.sessionId, seq: changes.seq })) === true } catch { available = false }
+      if (!available) { actions.notice(t('These changes are no longer available')); return }
+      if (openReview === undefined) { actions.notice(t('This window cannot open the change review')); return }
+      openChangesReview(changes)
+    },
     learningAnswer: (id, approve) => after(call('learning-answer', { id, approve })),
     // The full-pane overlays sit above the conversation, so opening one must dismiss them
     // or the click appears to do nothing.

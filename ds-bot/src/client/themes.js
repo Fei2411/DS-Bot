@@ -34,10 +34,11 @@ const THEMES = {
 const DARK_INK = '#141414'
 const accentInk = accent => ((luminance(accent) + 0.05) ** 2 > 1.05 * (luminance(DARK_INK) + 0.05) ? DARK_INK : '#ffffff')
 const rgba = (hex, alpha) => `rgba(${[1, 3, 5].map(index => parseInt(hex.slice(index, index + 2), 16)).join(',')},${alpha})`
-function themeVars(mode, dark, accent = mode.accent) {
+export function themeVars(mode, dark, accent = mode.accent) {
   return {
     '--bt-ink': mode.text, '--bt-ink-2': rgba(mode.text, 0.6), '--bt-ink-3': rgba(mode.text, 0.36),
-    '--bt-bubble': mode.bubble, '--bt-sidebar': mode.sidebar, '--bt-main': mode.bg, '--bt-card': mode.card,
+    '--bt-bubble': mode.bubble, '--bt-sidebar': `var(--bt-skin-sidebar, ${mode.sidebar})`,
+    '--bt-main': `var(--bt-skin-main, ${mode.bg})`, '--bt-card': `var(--bt-skin-card, ${mode.card})`,
     '--bt-line': rgba(mode.text, 0.08), '--bt-line-2': rgba(mode.text, 0.15),
     '--bt-hover': dark ? 'rgba(160,160,160,.12)' : 'rgba(119,119,119,.09)',
     '--bt-active': dark ? 'rgba(160,160,160,.2)' : 'rgba(119,119,119,.17)',
