@@ -1,4 +1,4 @@
-// A group opens the recorded turn in its own review sheet.
+// A group opens the Bot's conversation and its recorded turn in DSH's review tab.
 import { createElement as h } from 'react'
 import { DiffIcon } from './icons.js'
 import { t } from './i18n.js'
