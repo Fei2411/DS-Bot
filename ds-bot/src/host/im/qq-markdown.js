@@ -5,6 +5,13 @@
 // wrong, so the text is converted to the subset before it is sent.
 
 const LOCAL_IMAGE = /!\[([^\]]*)\]\((?!https?:\/\/|qqbot-media:\/\/)([^)\s]+)[^)]*\)/g
+// A real HTML tag: the name is followed by whitespace, `/` or `>`. An autolink
+// such as <https://example.com> is not a tag — its name is followed by `:` —
+// and must survive, or the address disappears from the reply.
+const HTML_TAG = /<\/?[a-zA-Z][a-zA-Z0-9-]*(?:\s[^<>]*)?\/?>/g
+
+const FENCE = '\u0000'
+const CODE = '\u0001'
 
 // Fenced code is code, not markdown: a table or an image inside a fence must
 // reach the platform exactly as written. The block is swapped for a placeholder
@@ -27,17 +34,55 @@ function protectFences(lines) {
       end += 1
     }
     fences.push(lines.slice(at, end < lines.length ? end + 1 : lines.length).join('\n'))
-    out.push(`\u0000${fences.length - 1}\u0000`)
+    out.push(`${FENCE}${fences.length - 1}${FENCE}`)
     at = end < lines.length ? end + 1 : lines.length
   }
   return { lines: out, fences }
 }
 
+// Inline code is code too: `<div>` or ![x](/tmp/a.png) inside backticks is an
+// example, and rewriting it would hand the reader different code. A span is
+// delimited by a run of backticks and closed by the same length of run.
+function protectCodeSpans(line, spans) {
+  if (!line.includes('`')) return line
+  return line.replace(/(`+)([^`]|[^`][\s\S]*?[^`])\1(?!`)/g, (all) => {
+    // The delimiters stay with the span: QQ renders the code span itself, and
+    // a double-backtick span must not lose its extra backticks.
+    spans.push(all)
+    return `${CODE}${spans.length - 1}${CODE}`
+  })
+}
+
+function restore(text, token, values) {
+  return text.replace(new RegExp(`${token}(\\d+)${token}`, 'g'), (_all, index) => values[Number(index)] ?? '')
+}
+
+// GFM lets a cell hold a literal pipe when it is escaped. Splitting on every
+// pipe would move the rest of the row into the next column.
 function tableCells(line) {
   const trimmed = line.trim()
   if (!trimmed.includes('|')) return null
   if (!trimmed.startsWith('|') && !trimmed.endsWith('|')) return null
-  return trimmed.replace(/^\|/, '').replace(/\|$/, '').split('|').map(cell => cell.trim())
+  const cells = []
+  let cell = ''
+  for (let at = 0; at < trimmed.length; at += 1) {
+    const character = trimmed[at]
+    if (character === '\\' && trimmed[at + 1] === '|') {
+      cell += '|'
+      at += 1
+      continue
+    }
+    if (character === '|') {
+      cells.push(cell)
+      cell = ''
+      continue
+    }
+    cell += character
+  }
+  cells.push(cell)
+  if (cells[0].trim() === '') cells.shift()
+  if (cells.at(-1)?.trim() === '') cells.pop()
+  return cells.map(entry => entry.trim())
 }
 
 function isSeparatorRow(line) {
@@ -60,7 +105,9 @@ export function toQqMarkdown(markdown) {
   const source = typeof markdown === 'string' ? markdown : ''
   if (source === '') return ''
   const raw = source.replace(/\r\n?/g, '\n').split('\n')
-  const { lines, fences } = protectFences(raw)
+  const { lines: fenced, fences } = protectFences(raw)
+  const spans = []
+  const lines = fenced.map(line => (line.startsWith(FENCE) ? line : protectCodeSpans(line, spans)))
   const out = []
   for (let at = 0; at < lines.length;) {
     if (isSeparatorRow(lines[at])) {
@@ -84,11 +131,11 @@ export function toQqMarkdown(markdown) {
     out.push(lines[at])
     at += 1
   }
-  return out.join('\n')
+  const converted = out.join('\n')
     .replace(LOCAL_IMAGE, (_all, alt) => (alt.trim() === '' ? '［图片］' : `［图片：${alt.trim()}］`))
     .replace(/<br\s*\/?>/gi, '\n')
-    .replace(/<\/?[a-zA-Z][^>]*>/g, '')
-    .replace(/\u0000(\d+)\u0000/g, (_all, index) => fences[Number(index)] ?? '')
+    .replace(HTML_TAG, '')
+  return restore(restore(converted, CODE, spans), FENCE, fences)
 }
 
 export default toQqMarkdown

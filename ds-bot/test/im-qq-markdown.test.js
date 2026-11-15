@@ -37,3 +37,37 @@ test('plain prose is unchanged and empty input stays empty', () => {
   assert.equal(toQqMarkdown(''), '')
   assert.equal(toQqMarkdown(undefined), '')
 })
+
+test('autolinks keep their address instead of being read as HTML', () => {
+  assert.equal(
+    toQqMarkdown('Open <https://example.com/docs> for details.'),
+    'Open <https://example.com/docs> for details.',
+  )
+  assert.equal(
+    toQqMarkdown('Write to <dev@example.com> anytime.'),
+    'Write to <dev@example.com> anytime.',
+  )
+})
+
+test('HTML inside an inline code span is left as written', () => {
+  assert.equal(
+    toQqMarkdown('Use `<div>` and `</div>` tags.'),
+    'Use `<div>` and `</div>` tags.',
+  )
+  assert.equal(
+    toQqMarkdown('The syntax is `![alt](/tmp/a.png)` here.'),
+    'The syntax is `![alt](/tmp/a.png)` here.',
+  )
+  assert.equal(toQqMarkdown('打断用 `<br>` 标签。'), '打断用 `<br>` 标签。')
+})
+
+test('a code span keeps the full run of backticks', () => {
+  assert.equal(toQqMarkdown('值 ``a`b`` 保留'), '值 ``a`b`` 保留')
+})
+
+test('an escaped pipe stays inside its table cell', () => {
+  assert.equal(
+    toQqMarkdown('| Expression | Meaning |\n| --- | --- |\n| a \\| b | bitwise OR |'),
+    '- Expression：a | b；Meaning：bitwise OR',
+  )
+})
