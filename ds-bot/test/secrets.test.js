@@ -509,7 +509,8 @@ test('read-only host with secrets loaded before store.load does not touch files 
     version: 1,
     secrets: [{ name: 'API_KEY', value: v1, purpose: 'p', scope: 'all', requestedBy: null, createdAt: 1, updatedAt: 1 }],
   }))
-  chmodSync(secPath, 0o644)
+  chmodSync(secPath, 0o444)
+  const modeBefore = statSync(secPath).mode & 0o777
 
   const ctx = new Context()
   stubCordisHost(ctx)
@@ -535,15 +536,16 @@ test('read-only host with secrets loaded before store.load does not touch files 
   })
 
   // Before rt.load(), secrets must not chmod a locked team's secrets.json.
-  assert.equal(statSync(secPath).mode & 0o777, 0o644)
+  assert.equal(statSync(secPath).mode & 0o777, modeBefore)
 
   // Calling collect before explicit rt.load() must load state & resolve secrets without modifying secrets.json mode.
   const first = ctx.shellEnv.collect({ agent: { session: { header: { id: 'main' } } }, arguments: {} })
   assert.equal(first.DSH_SECRET_API_KEY, v1)
   await rt.load()
-  assert.equal(statSync(secPath).mode & 0o777, 0o644)
+  assert.equal(statSync(secPath).mode & 0o777, modeBefore)
 
   // Writer updates an existing secret and adds a new key while this host stays read-only.
+  chmodSync(secPath, 0o644)
   const v2 = fresh()
   const extra = fresh()
   writeFileSync(secPath, JSON.stringify({
