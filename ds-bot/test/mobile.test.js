@@ -15,7 +15,7 @@ import { shrink } from '../src/host/preview-worker.js'
 // A team with no model: Sessions are made in memory, a group round runs on answers
 // played back through the session/event listeners, and `history` holds the events
 // each Session's page reads, oldest first.
-function start() {
+function start(config = {}) {
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-mobile-'))
   const ctx = fakeContext({ services: { attachments: fakeAttachments() } })
   const sent = []
@@ -63,7 +63,7 @@ function start() {
     routes[options.path] = options
     return register(options)
   }
-  const rt = createRuntime(ctx, { home })
+  const rt = createRuntime(ctx, { home, ...config })
   const call = async (endpoint, payload) => {
     const response = await routes['/api/bot'].fetch(new Request('http://localhost/api/bot', { method: 'POST', body: JSON.stringify({ endpoint, payload }) }))
     return response.json()
@@ -678,4 +678,76 @@ test('file attachment chunks round-trip through the same client iterator', async
     return result.value
   }, { sessionId, attachmentId: ref.attachmentId })) chunks.push(Buffer.from(part.data))
   assert.deepEqual(Buffer.concat(chunks), bytes)
+})
+
+test('desktop approval settlement emits a live feed event and clears pending approvals on unchanged state poll', async (t) => {
+  const { call, ctx, rt, stop } = start()
+  t.after(stop)
+  const { writer, room } = await team(call)
+  const sessionId = `g-${randomUUID()}`
+  rt.state.rooms[room.id].sessions = { [writer.id]: sessionId }
+  rt.groupOwners.set(sessionId, { botId: writer.id, roomId: room.id })
+  const events = []
+  const untap = rt.subscribeFeed((event, data) => events.push({ event, data }))
+  t.after(untap)
+
+  const [approve] = ctx.listeners.get('approval/request')
+  const controller = new AbortController()
+  const answer = approve({ agent: { id: sessionId }, toolName: 'bash', reason: 'run tests', signal: controller.signal }, () => 'allowed-once')
+  const openState = (await call('state', {})).value
+  assert.equal(openState.work.approvals.length, 1)
+
+  events.length = 0
+  controller.abort()
+  assert.equal(await answer, 'cancelled')
+  await waitFor(() => events.some(e => e.event === 'live'))
+
+  const nextState = (await call('state', { since: openState.revision, live: openState.liveKey })).value
+  assert.equal(nextState.unchanged, true)
+  assert.notEqual(nextState.liveKey, openState.liveKey)
+  assert.deepEqual(nextState.work.approvals, [])
+})
+
+test('browser handoff open and settle emit live feed events and clear browserHolds on unchanged-revision state poll', async (t) => {
+  const { call, rt, stop } = start({ browser: true })
+  t.after(stop)
+  const { chief } = await team(call)
+  const events = []
+  const untap = rt.subscribeFeed((event, data) => events.push({ event, data }))
+  t.after(untap)
+
+  rt.browserChannel.setHold(chief, { by: 'bot', reason: 'verification', note: 'Sign in', callId: 'call-1' })
+  await waitFor(() => events.some(e => e.event === 'live'))
+  const openState = (await call('state', {})).value
+  assert.equal(openState.browserHolds[chief]?.callId, 'call-1')
+
+  events.length = 0
+  rt.browserChannel.setHold(chief, null)
+  await waitFor(() => events.some(e => e.event === 'live'))
+
+  const nextState = (await call('state', { since: openState.revision, live: openState.liveKey })).value
+  assert.equal(nextState.unchanged, true)
+  assert.notEqual(nextState.liveKey, openState.liveKey)
+  assert.deepEqual(nextState.browserHolds, {})
+})
+
+test('switching to an earlier part closes open question and view cards instead of leaving orphaned keys', async (t) => {
+  const { call, ctx, rt, stop } = start()
+  t.after(stop)
+  const { chief } = await team(call)
+  const bot = rt.botOf(chief)
+  const part1 = bot.sessionId
+  const part2 = `s-${randomUUID()}`
+  bot.segments = [{ sessionId: part1, endedAt: 100 }]
+  bot.sessionId = part2
+  rt.save()
+  rt.state.questions[part2] = { id: 'q-1', question: 'Pick one', options: [{ label: 'A' }] }
+  rt.state.views[part2] = { id: 'v-1', title: 'Confirm', view: { type: 'text', text: 'hi' } }
+  ctx.workspaceRegistry.unarchiveSession = async () => {}
+  ctx.workspaceRegistry.archiveSession = async () => {}
+
+  await rt.switchPart(chief, part1)
+  const after = (await call('state', {})).value
+  assert.deepEqual(after.questions, {})
+  assert.deepEqual(after.views, {})
 })

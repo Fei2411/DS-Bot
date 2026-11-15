@@ -73,7 +73,7 @@ export function App() {
       h('div', { className: 'dsb-band' }),
       shown ? h(Fragment, { key: shown },
         h('div', { className: 'dsb-head' }, h(HeaderPill, { ...views, sessionId: shown, useSession: team.sessionHook(shown) })),
-        h(Chat, { sessionId: shown, team })) : null),
+        h(Chat, { key: shown, sessionId: shown, team })) : null),
     h(Contain, { onError: closeOverlays }, h(Overlays, views)),
     h(ErrorToast, views))
 }
