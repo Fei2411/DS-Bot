@@ -34541,7 +34541,7 @@ function planModelChange(bots, ref, models) {
     const current = modelRefOf(bot);
     if (isLocalRoute(current)) return { bot, action: "skip", reason: SKIP_LOCAL_AGENT };
     if (!served) return { bot, action: "skip", reason: SKIP_UNAVAILABLE };
-    if (current === ref) return { bot, action: "keep" };
+    if (bot.model === ref) return { bot, action: "keep" };
     return { bot, action: "change" };
   });
 }
@@ -34708,10 +34708,10 @@ var BOT_MODELS_CSS = `
 .bt-bm-name{display:flex;align-items:center;gap:6px;min-width:0;flex-wrap:wrap}
 .bt-bm-agent{display:inline-flex;align-items:center;gap:4px}
 .bt-bm-model{overflow-wrap:anywhere}
-.bt-bm-out{font-size:12px;line-height:17px;color:var(--bt-ink-3)}
+.bt-bm-out{font-size:12px;line-height:16px;color:var(--bt-ink-3)}
 .bt-bm-out[data-state=updated]{color:var(--bt-green)}
 .bt-bm-out[data-state=failed]{color:var(--bt-danger)}
-.bt-bm-summary .bt-set-copy>span{font-size:12.5px;line-height:17px;color:var(--bt-ink-2)}
+.bt-bm-summary .bt-set-copy>span{font-size:12px;line-height:16px;color:var(--bt-ink-2)}
 `;
 
 // src/client/settings.js

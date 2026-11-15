@@ -17,7 +17,7 @@ export function planModelChange(bots, ref, models) {
     const current = modelRefOf(bot)
     if (isLocalRoute(current)) return { bot, action: 'skip', reason: SKIP_LOCAL_AGENT }
     if (!served) return { bot, action: 'skip', reason: SKIP_UNAVAILABLE }
-    if (current === ref) return { bot, action: 'keep' }
+    if (bot.model === ref) return { bot, action: 'keep' }
     return { bot, action: 'change' }
   })
 }

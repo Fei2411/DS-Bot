@@ -68,7 +68,19 @@ test('a Bot already on the model is neither changed nor counted as skipped', asy
   assert.deepEqual(results.map(entry => entry.status), ['unchanged'])
 })
 
-test('a Bot that last ran on the model keeps it', () => {
+test('a Bot that last ran on the model still needs a saved pick', () => {
   const plan = planModelChange([{ id: 'x', name: 'X', appliedModel: 'official/pro' }], 'official/pro', MODELS)
-  assert.deepEqual(plan.map(entry => entry.action), ['keep'])
+  assert.deepEqual(plan.map(entry => entry.action), ['change'])
+})
+
+
+test('a cleared selection is saved even when the last applied model matches', async () => {
+  const bot = { id: 'unpicked', name: 'Bot', appliedModel: 'deepseek/deepseek-chat' }
+  const models = [{ ref: 'deepseek/deepseek-chat' }]
+  const calls = []
+  const results = await runModelChange({ bots: [bot], ref: models[0].ref, models,
+    updateBot: async (...args) => { calls.push(args) },
+  })
+  assert.deepEqual(calls, [[bot.id, { model: models[0].ref }]])
+  assert.equal(results[0].status, 'updated')
 })
