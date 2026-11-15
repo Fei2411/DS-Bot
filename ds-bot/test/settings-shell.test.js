@@ -142,7 +142,7 @@ function settingsInstall({ dsh = false, ready = true } = {}) {
     slots.register({ name: 'sidebar.settings', children: shell.SETTINGS_CHILDREN }, dshSeat)
     slots.register({ name: 'settings.trigger' }, dshTrigger)
   }
-  const ctx = { slots, get: () => undefined, inject: () => ({ dispose() {} }) }
+  const ctx = { slots, get: () => undefined, inject: () => ({ dispose() {} }), effect: (fn) => { const off = fn(); return { dispose: off } } }
   const install = () => shell.installSettingsShell(ctx, {
     face: () => ({}), actions: {}, ui: { getSnapshot: () => ({}) }, held: { set: value => held.push(value) },
   })
@@ -335,7 +335,7 @@ const fakeSlots = () => {
 }
 const installShell = (held) => {
   const slots = fakeSlots()
-  const ctx = { slots, get: () => undefined, inject: () => ({ dispose() {} }) }
+  const ctx = { slots, get: () => undefined, inject: () => ({ dispose() {} }), effect: (fn) => { const off = fn(); return { dispose: off } } }
   const ui = { getSnapshot: () => ({}) }
   const installed = shell.installSettingsShell(ctx, { face: () => ({ actions: {}, hooks: {} }), actions: { closeSettings() {} }, ui, held })
   return { slots, installed }
