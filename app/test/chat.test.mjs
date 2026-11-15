@@ -10,7 +10,7 @@ import { build } from 'esbuild'
 // Parts of the page outside the composer are stubbed: this checks the wiring
 // from the chat's hooks down to the textarea and the plugin's voice buttons.
 const stubs = {
-  'cells.js': 'export const Bubbles = () => null\nexport const ChatRows = () => null\nexport const Shimmer = () => null\n',
+  'cells.js': 'export const Bubbles = ({ texts }) => texts.join(" ")\nexport const ChatRows = () => null\nexport const Shimmer = () => null\n',
   'model-menu.js': 'export const ModelChoiceDock = () => null\n',
   'api.js': "export const call = async () => ({ sessionId: 'b1', items: [], cursor: null })\n",
 }
@@ -117,6 +117,7 @@ const plain = value => JSON.parse(JSON.stringify(value))
 // Mounts a Bot's chat with `prefs` in the roster, types a draft, and returns the
 // send log plus the rendered tree accessor.
 const view = (prefs, ready = true, question, { ui = {}, partsRunning } = {}) => {
+  const listeners = new Set()
   const sent = []
   const answered = []
   const stopped = []
@@ -139,11 +140,11 @@ const view = (prefs, ready = true, question, { ui = {}, partsRunning } = {}) => 
       useUi: select => select(ui),
       useSessionStatus: select => select(new Map()),
     },
-    chat: { on: () => () => {} },
+    chat: { on: fn => { listeners.add(fn); return () => listeners.delete(fn) } },
   }
   const instance = mount({ sessionId: 'b1', team })
   textarea(instance.render()).props.onChange({ target: { value: 'hi' } })
-  return { sent, answered, stopped, tree: () => instance.render() }
+  return { sent, answered, stopped, emit: (event, data) => { for (const listener of listeners) listener(event, data) }, tree: () => instance.render() }
 }
 
 // #1501: a part the user opened while its turn runs is read-only until it ends or the
@@ -239,4 +240,19 @@ test('Shift+Enter and IME confirmation keep their default behavior', async () =>
     assert.equal(event.prevented, false)
     assert.deepEqual(plain(sent), [])
   }
+})
+
+
+test('a parallel part cannot write or clear the viewed part stream', async () => {
+  const { emit, tree } = view({})
+  await tick()
+  const text = node => JSON.stringify(node)
+  emit('stream', { botId: 'b1', sessionId: 'b1', attemptId: 'front', phase: 'start' })
+  emit('stream', { botId: 'b1', sessionId: 'b1', attemptId: 'front', text: 'foreground reply' })
+  emit('stream', { botId: 'b1', sessionId: 'background', attemptId: 'back', phase: 'start' })
+  emit('stream', { botId: 'b1', sessionId: 'background', attemptId: 'back', text: 'background reply' })
+  assert.match(text(tree()), /foreground reply/)
+  assert.doesNotMatch(text(tree()), /background reply/)
+  emit('message', { botId: 'b1', sessionId: 'background', item: { kind: 'bot', text: 'done', time: 100 } })
+  assert.match(text(tree()), /foreground reply/)
 })

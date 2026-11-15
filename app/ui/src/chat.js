@@ -55,7 +55,7 @@ function useChat(botId, part, feed) {
   useEffect(() => feed.on((event, data) => {
     // The feed came back after a break: entries may have been missed.
     if (event === 'hello') { if (ready.current) void load(undefined); return }
-    if (botId === undefined || data?.botId !== botId) return
+    if (botId === undefined || data?.botId !== botId || data.sessionId !== part) return
     if (event === 'message') {
       if (!ready.current) { early.current.push(data); return }
       setView(current => (data.sessionId !== current.sessionId || current.items.some(item => sameItem(item, data.item)) ? current : { ...current, items: [...current.items, data.item] }))
@@ -71,7 +71,7 @@ function useChat(botId, part, feed) {
       else if (data.phase === 'end') setStream(current => (current?.attemptId === data.attemptId ? null : current))
       else setStream(current => (current?.attemptId === data.attemptId ? { ...current, text: current.text + data.text } : current))
     }
-  }), [feed, botId, load])
+  }), [feed, botId, part, load])
 
   // Shown at once: the message can come back on the feed before the request returns.
   const send = async (text, actions, sessionId) => {
