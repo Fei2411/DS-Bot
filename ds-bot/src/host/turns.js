@@ -812,10 +812,24 @@ export function install(rt) {
     void rt.goalSettled?.(rt.roomOf(owner.roomId)).catch(error => rt.warn('ds-bot: goal settle failed: %s', error))
   })
 
+  const laterTarget = (id) => {
+    if (rt.chatOwners.has(id)) return id
+    const group = rt.groupOwners.get(id)
+    if (group !== undefined) return rt.roomOf(group.roomId)?.sessions?.[group.botId]
+    const past = rt.pastOwners?.get(id)
+    if (past !== undefined) {
+      if (past.roomId !== undefined) return rt.roomOf(past.roomId)?.sessions?.[past.botId]
+      const bot = rt.botOf(past.botId)
+      return bot === undefined ? undefined : (threadCurrentOfPart(bot, id) ?? rt.chatOf?.(past.botId))
+    }
+    return undefined
+  }
+
   ctx.on('session/event', (session, event) => {
     const id = session?.id
     if (id === undefined) return
-    if (!rt.isBotSession(id) && !rt.roomOf(id)) {
+    const switchedEnd = event.type === 'turn/end' && live.get(id)?.switched === true && rt.pastOwners?.has(id)
+    if (!rt.isBotSession(id) && !rt.roomOf(id) && !switchedEnd) {
       // A deleted Bot's Session can still be ending its turn; nothing of it stays.
       if (live.delete(id)) setActivity(id, undefined)
       return
@@ -1149,11 +1163,13 @@ export function install(rt) {
         entry.later = []
         if (steerCut || suppressedSubagent) break
         for (const result of later) {
+          const targetSessionId = laterTarget(id)
+          if (targetSessionId === undefined && (rt.groupOwners.has(id) || rt.pastOwners?.has(id))) continue
           void rt.deliver({
             fromId: result.info.senderSessionId,
             toId: rt.selfOf(id),
-            // A result handed back to the turn's own part, unless that part is gone.
-            ...(rt.chatOwners.has(id) ? { sessionId: id } : {}),
+            // A result handed back to the turn's own part, or to the successor part after a switch.
+            ...(targetSessionId !== undefined ? { sessionId: targetSessionId } : {}),
             text: result.text,
             role: result.info.role,
             exchangeId: result.info.exchangeId,
@@ -1297,6 +1313,7 @@ export function install(rt) {
             exchangeId: request.info.exchangeId,
             ...(request.info.role === 'room' ? { roomId: request.info.roomId, askedBy: request.info.askedBy, note: 'you read this call during your last task; answer it now' } : {}),
             ...(request.info.senderRoomId ? { fromRoomId: request.info.senderRoomId } : {}),
+            ...(request.info.senderPart ? { fromPart: request.info.senderPart } : {}),
             deferred: true,
           }).catch(error => rt.warn('ds-bot: deferred request delivery failed: %s', error))
         }
