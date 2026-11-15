@@ -7,6 +7,7 @@
 #   APPLE_API_KEY          path to AuthKey_<KEYID>.p8
 #   APPLE_API_KEY_ID       the key's id (10 characters)
 #   APPLE_API_ISSUER       the key's issuer id (UUID)
+#   DS_BOT_IOS_BUILD_NUMBER optional build number; increase for a repeat upload
 #
 #   sh scripts/ios-archive.sh            archive and export build/export/DSBot.ipa
 #   sh scripts/ios-archive.sh --upload   export, then upload the .ipa to App Store Connect

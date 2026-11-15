@@ -21,7 +21,7 @@ module.exports = ({ config }) => ({
   android: { ...config.android, versionCode: versionCode(version) },
   ios: {
     ...config.ios,
-    buildNumber: version,
+    buildNumber: (process.env.DS_BOT_IOS_BUILD_NUMBER ?? version).trim(),
     ...(appleTeamId === '' ? {} : { appleTeamId }),
   },
 })

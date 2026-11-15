@@ -5,7 +5,7 @@
 
 ## 为什么
 
-v0.3.5 已经有 Android 手机 App（Settings → Phone 扫码配对），iOS 没有对应版本，iPhone 用户用不了配对。用户拍板走付费 Apple Developer Program（99 美元/年），测试版走 TestFlight。账号、付款和证书由用户自己办；仓库这边把出包、签名、上传的流程和脚本准备好，账号一到就能出包。
+v0.3.5 已经有 Android 手机 App（Settings → Phone 扫码配对），iOS 没有对应版本，iPhone 用户用不了配对。iOS 签名和 TestFlight 分发需要 Apple Developer Program 账号。本文列出账号准备、签名、出包和上传步骤；账号、付款和证书由账号持有人管理。
 
 ## 现在的状态
 
@@ -21,7 +21,7 @@ v0.3.5 已经有 Android 手机 App（Settings → Phone 扫码配对），iOS �
 
 1. **注册 Apple Developer Program**：<https://developer.apple.com/programs/enroll/>。个人账号用 Apple ID 注册并验证身份；组织账号还要 D-U-N-S 编号。年费 99 美元，账号持有人（Account Holder）本人操作。
 2. **接受协议**：App Store Connect →「协议、税务和银行业务」（Agreements, Tax, and Banking）→ 接受 Program License Agreement。免费 App 不需要填付费 App 的税务和银行信息。
-3. **拿 Team ID**：App Store Connect →「用户和访问」（Users and Access）→ 页面顶部显示 **Team ID**（10 位，字母数字）；或在 developer.apple.com 的 Membership details 里看。
+3. **拿 Team ID**：developer.apple.com → Account → Membership details，找到 **Team ID**（10 位，字母数字）。它与 App Store Connect API 的 Issuer ID 不同。
 4. **注册 App ID**：developer.apple.com →「Certificates, Identifiers & Profiles」→ Identifiers → 点 `+` → App IDs → App：
    - Description 填 `DS Bot`
    - Bundle ID 选 **Explicit**，填 `io.github.fei2411.dsbot`（必须完全一致，不能用 wildcard）
@@ -40,7 +40,7 @@ v0.3.5 已经有 Android 手机 App（Settings → Phone 扫码配对），iOS �
 
 | 项 | 在哪拿 | 我们用来做什么 |
 |---|---|---|
-| Team ID（10 位） | App Store Connect → 用户和访问 → 顶部 | 签名配置（`DS_BOT_APPLE_TEAM_ID`） |
+| Team ID（10 位） | developer.apple.com → Account → Membership details | 签名配置（`DS_BOT_APPLE_TEAM_ID`） |
 | Issuer ID（UUID） | 同上 → 集成 → App Store Connect API 页面顶部 | API 认证（`APPLE_API_ISSUER`） |
 | Key ID（10 位） | 同上 → Team Keys 列表 | API 认证（`APPLE_API_KEY_ID`） |
 | `AuthKey_<KeyID>.p8` 文件 | 生成密钥时下载（只有一次） | API 认证（`APPLE_API_KEY` 指向它） |
@@ -62,7 +62,7 @@ v0.3.5 已经有 Android 手机 App（Settings → Phone 扫码配对），iOS �
 3. 出包：`cd mobile && sh scripts/ios-archive.sh`。脚本会 `expo prebuild` → `pod install` → 用 API key 自动签名 archive → 导出 `mobile/ios/build/export/DSBot.ipa`。
 4. 上传：`sh scripts/ios-archive.sh --upload`，用 `xcrun altool --upload-app` 传到 App Store Connect。上传后等处理完，在 TestFlight 里加内部测试员（最多 100 人）。
 5. TestFlight 设置：App Store Connect → 该 App → TestFlight。内部测试不需要 App Review；外部测试要 Beta App Review。出口合规：App 的连接层用标准算法做端到端加密，Info.plist 声明了 `ITSAppUsesNonExemptEncryption=false`；如果审核问起，按标准算法（X25519 等）说明。
-6. 版本号：`mobile/app.config.js` 用 `ds-bot/package.json` 的 version 作 `CFBundleShortVersionString` 和 buildNumber。同一个版本重传必须递增 build number（发新版本时 version 跟着发版走）。
+6. 版本号：`CFBundleShortVersionString` 跟随 `ds-bot/package.json` 的 version；build number 默认相同。同一版本重传时，设 `DS_BOT_IOS_BUILD_NUMBER` 为比上一次大的构建号，再运行脚本，无需改产品版本。构建号采用 1–3 段纯数字，例如 `0.3.7`、`0.3.8`。参见 [Apple 的 CFBundleVersion 格式](https://developer.apple.com/documentation/BundleResources/Information-Property-List/CFBundleVersion)。
 
 ## 失败怎么排查
 
