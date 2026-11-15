@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
-import { connectorRows } from './connectors.ts'
+import { connectorActionOf, connectorCanConnectOnMobile, connectorRows } from './connectors.ts'
 
 // Recorded from a running computer: `state.connectors` of a `state` answer, cut to three of
 // its rows (one per auth kind) and with the mailbox as it comes. The rest of the answer is
@@ -56,4 +57,25 @@ test('no connectors, or something else in their place, gives an empty list and n
   assert.deepEqual(connectorRows({ connectors: [] }), [])
   // A row that is not an object would throw in the screen's `item.state`.
   assert.deepEqual(connectorRows({ connectors: [null, 'github', answered.connectors[1], undefined] }).map(row => row.id), ['huggingface'])
+})
+
+test('connectorActionOf picks the right auth flow for none, key, oauth-signin, and token-only rows', () => {
+  assert.equal(connectorActionOf({ id: 'hf', name: 'Hugging Face', auth: { kind: 'none' } }), 'connect-now')
+  assert.equal(connectorActionOf({ id: 'amap', name: 'Amap', auth: { kind: 'key', keyUrl: 'https://lbs.amap.com/api/mcp-server/create' } }), 'key-form')
+  assert.equal(connectorActionOf({ id: 'github', name: 'GitHub', auth: { kind: 'oauth', token: true, client: { id: 'cid', deviceFlow: true } } }), 'oauth-signin')
+  assert.equal(connectorActionOf({ id: 'notion', name: 'Notion', auth: { kind: 'oauth' } }), 'oauth-signin')
+  assert.equal(connectorActionOf({ id: 'gh-pat', name: 'GitHub', auth: { kind: 'oauth', token: true } }), 'token-form')
+  assert.equal(connectorActionOf({ id: 'legacy', name: 'Legacy' }), 'token-form')
+  // needs-sign-in rows for expired keys or token-only GitHub still need the key/token form rather than a blind reconnect call
+  assert.equal(connectorActionOf({ ...answered.connectors[2], state: 'needs-sign-in' }), 'key-form')
+  assert.equal(connectorActionOf({ id: 'github', name: 'GitHub', state: 'needs-sign-in', auth: { kind: 'oauth', token: true, client: { id: '' } } }), 'token-form')
+  assert.equal(connectorActionOf({ ...answered.connectors[0], state: 'needs-sign-in' }), 'oauth-signin')
+  assert.equal(connectorCanConnectOnMobile('mail'), false)
+  assert.equal(connectorCanConnectOnMobile('github'), true)
+})
+
+test('gate.ts gates connector OAuth client and callback completion endpoints', () => {
+  const gateSource = readFileSync(new URL('./gate.ts', import.meta.url), 'utf8')
+  assert.match(gateSource, /'connector-client'/)
+  assert.match(gateSource, /'connector-sign-in-code'/)
 })
