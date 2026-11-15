@@ -44489,22 +44489,29 @@ function TextSelectionAction({ sessionId, dismiss, readText, clearSelection, inp
     if (action === "add") add();
     else void send();
   };
-  const quoteButton = (0, import_react73.createElement)("button", {
-    type: "button",
-    className: "bt-quote-plain",
-    "aria-label": hostT("quote.add"),
-    onPointerDown: (event) => event.preventDefault(),
-    onClick: quoteOnly
-  }, hostT("quote.add"));
-  if (!team) return quoteButton;
+  if (!team) {
+    return (0, import_react73.createElement)("button", {
+      type: "button",
+      className: "bt-quote-plain",
+      "aria-label": hostT("quote.add"),
+      onPointerDown: (event) => event.preventDefault(),
+      onClick: quoteOnly
+    }, hostT("quote.add"));
+  }
   if (!editing) {
     return (0, import_react73.createElement)(
       "div",
       { className: "bt-selection-actions" },
-      quoteButton,
       (0, import_react73.createElement)("button", {
         type: "button",
-        className: "bt-quote-plain bt-quote-annotate",
+        className: "bt-selection-action",
+        "aria-label": hostT("quote.add"),
+        onPointerDown: (event) => event.preventDefault(),
+        onClick: quoteOnly
+      }, hostT("quote.add")),
+      (0, import_react73.createElement)("button", {
+        type: "button",
+        className: "bt-selection-action bt-quote-annotate",
         "aria-label": t("Annotate"),
         onPointerDown: (event) => event.preventDefault(),
         onClick: startAnnotate
@@ -44536,7 +44543,10 @@ function TextSelectionAction({ sessionId, dismiss, readText, clearSelection, inp
   );
 }
 var ANNOTATION_CSS = `
-.bt-selection-actions{display:inline-flex;align-items:center;gap:6px}
+.bt-selection-actions{display:inline-flex;align-items:stretch;overflow:hidden;border-radius:10px;background:var(--dsw-alias-button-floating-fill,var(--bt-card));border:1px solid var(--bt-line-2);box-shadow:var(--dsw-elevation-panel,var(--bt-glass-shadow));animation:bt-annotation-in ${SPRING_TAP.duration}ms ${SPRING_TAP.easing},bt-annotation-veil .12s ease-out}
+.bt-selection-action{display:inline-flex;align-items:center;gap:5px;height:30px;border:0;border-radius:0;margin:0;padding:0 12px;background:transparent;color:var(--dsw-alias-label-primary,var(--bt-ink));font:500 13px/18px var(--bt-font);cursor:pointer;white-space:nowrap;touch-action:manipulation;transition:background-color .12s ease}
+.bt-selection-action+.bt-selection-action{border-left:1px solid var(--bt-line)}
+.bt-selection-action:focus-visible,.bt-selection-action:hover{background:var(--dsw-alias-button-floating-hover,var(--bt-hover));outline:none}
 .bt-quote-plain{corner-shape:round;background:var(--dsw-alias-button-floating-fill,var(--bt-card));--dsw-elevation-stroke-color:var(--dsw-alias-border-l3);box-shadow:var(--dsw-elevation-panel,var(--bt-glass-shadow));color:var(--dsw-alias-label-primary,var(--bt-ink));font:var(--dsw-font-xs-13,13px var(--bt-font));cursor:pointer;border:none;border-radius:999px;padding:5px 10px}
 .bt-quote-plain:focus-visible,.bt-quote-plain:hover{background:var(--dsw-alias-button-floating-hover,var(--bt-hover))}
 .bt-annotation{display:flex;flex-direction:column;gap:8px;width:min(360px,calc(100vw - 32px));box-sizing:border-box;padding:12px;background:var(--bt-card);border:.5px solid var(--bt-line-2);border-radius:12px;box-shadow:var(--bt-glass-shadow);color:var(--bt-ink);font:13px/18px var(--bt-font);animation:bt-annotation-in ${SPRING_TAP.duration}ms ${SPRING_TAP.easing},bt-annotation-veil .14s ease-out}
@@ -44555,7 +44565,7 @@ var ANNOTATION_CSS = `
 @keyframes bt-annotation-in{from{transform:translateY(3px) scale(.98)}to{transform:none}}
 @keyframes bt-annotation-veil{from{opacity:0}to{opacity:1}}
 @keyframes bt-annotation-out{from{opacity:1;transform:none}to{opacity:0;transform:translateY(2px) scale(.98)}}
-@media (prefers-reduced-motion:reduce){.bt-annotation,.bt-annotation[data-leaving]{animation:none}}
+@media (prefers-reduced-motion:reduce){.bt-selection-actions,.bt-annotation,.bt-annotation[data-leaving]{animation:none}}
 `;
 
 // src/client/index.js
