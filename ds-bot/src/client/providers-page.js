@@ -59,15 +59,13 @@ export function draftSummary(draft) {
 
 const isLocalBot = bot => bot.engine !== undefined || isLocalRoute(bot.model ?? bot.appliedModel)
 
-// The catalog after this save: every provider as it is, except this provider's entries,
-// which become the selected draft rows in draft order.
 function catalogAfterSave(provider, draft, roster) {
   const before = Array.isArray(roster?.models) ? roster.models : []
   const known = new Map(before.map(entry => [entry.ref, entry]))
   const replacement = draftSummary(draft).selected.map((row) => {
     const ref = `${provider.id}/${row.id}`
     const entry = known.get(ref)
-    if (entry !== undefined) return entry
+    if (entry !== undefined) return { ...entry, name: row.returned ? row.model?.name ?? row.id : entry.name }
     return {
       ref, provider: provider.id, providerName: provider.name, id: row.id,
       name: row.model?.name ?? row.id,
@@ -99,7 +97,8 @@ function nextModel(bot, entries, roster) {
   const usable = usableModel(entries)
   const applied = bot.appliedModel === undefined ? undefined : usable.find(entry => entry.ref === bot.appliedModel)
   if (applied !== undefined) return applied
-  return usable.find(entry => entry.ref === roster?.defaultModel) ?? usable[0]
+  const configured = Object.hasOwn(roster ?? {}, 'profileDefaultModel') ? roster.profileDefaultModel : roster?.defaultModel
+  return usable.find(entry => entry.ref === configured) ?? usable[0]
 }
 
 // What saving this draft would do to each Bot that names a removed model. A model-backed
@@ -179,8 +178,14 @@ export function ProviderRow({ provider, apply, actions, roster, revision, open, 
     setRefreshError('')
     setDraft(null)
     setConfirmRemove(false)
-    void translated(Promise.resolve(actions.providerModels({ provider: provider.id })))
-      .then(list => setDraft(draftFrom(provider, list)))
+    void translated((async () => {
+      const view = await actions.providers()
+      const fresh = view.providers.find(entry => entry.id === provider.id)
+      if (fresh === undefined) throw new Error('The provider is no longer available')
+      const list = await actions.providerModels({ provider: provider.id })
+      await apply(Promise.resolve(view))
+      setDraft({ ...draftFrom(fresh, list), revision: view.revision, provider: fresh })
+    })())
       .catch(error => setRefreshError(error?.message ?? String(error)))
       .finally(() => setRefreshing(false))
   }
@@ -201,7 +206,7 @@ export function ProviderRow({ provider, apply, actions, roster, revision, open, 
       return
     }
     const models = selected.map(row => (row.returned ? row.model : { id: row.id }))
-    void apply(actions.saveProviderModels({ provider: provider.id, models, revision })).then((ok) => {
+    void apply(actions.saveProviderModels({ provider: provider.id, models, revision: draft.revision ?? revision })).then((ok) => {
       if (!ok) return
       setDraft(null)
       setConfirmRemove(false)

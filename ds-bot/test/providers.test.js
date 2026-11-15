@@ -378,3 +378,17 @@ test('a discovery failure leaves the saved list untouched', async () => {
   assert.deepEqual(writes, [])
   assert.deepEqual(row(await rt.providersView(), 'relay').declaredModels.map(model => model.id), ['a'])
 })
+
+
+test('retained models keep explicit metadata before catalog defaults fill absent fields', async () => {
+  const user = { providers: { relay: { api: 'openai-completions', baseURL: 'https://relay.example/v1', models: [
+    { id: 'relay-1', contextWindow: 64000, input: ['text'], name: 'My Model' },
+  ] } } }
+  const { rt, writes } = dsh({ user })
+  const view = await rt.providersView()
+  await rt.saveProviderModels({ provider: 'relay', revision: view.revision, models: [{ id: 'relay-1' }] })
+  const models = writes.at(-1)[1][0].value
+  assert.equal(models[0].contextWindow, 64000)
+  assert.deepEqual(models[0].input, ['text'])
+  assert.equal(models[0].name, 'My Model')
+})

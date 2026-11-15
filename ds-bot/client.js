@@ -34082,7 +34082,7 @@ function catalogAfterSave(provider, draft, roster) {
   const replacement = draftSummary(draft).selected.map((row) => {
     const ref = `${provider.id}/${row.id}`;
     const entry = known.get(ref);
-    if (entry !== void 0) return entry;
+    if (entry !== void 0) return { ...entry, name: row.returned ? row.model?.name ?? row.id : entry.name };
     return {
       ref,
       provider: provider.id,
@@ -34115,7 +34115,8 @@ function nextModel(bot, entries2, roster) {
   const usable = usableModel(entries2);
   const applied = bot.appliedModel === void 0 ? void 0 : usable.find((entry) => entry.ref === bot.appliedModel);
   if (applied !== void 0) return applied;
-  return usable.find((entry) => entry.ref === roster?.defaultModel) ?? usable[0];
+  const configured = Object.hasOwn(roster ?? {}, "profileDefaultModel") ? roster.profileDefaultModel : roster?.defaultModel;
+  return usable.find((entry) => entry.ref === configured) ?? usable[0];
 }
 function fallbacksFor(provider, draft, roster) {
   const entries2 = catalogAfterSave(provider, draft, roster);
@@ -34210,7 +34211,14 @@ function ProviderRow({ provider, apply: apply2, actions, roster, revision, open,
     setRefreshError("");
     setDraft(null);
     setConfirmRemove(false);
-    void translated(Promise.resolve(actions.providerModels({ provider: provider.id }))).then((list) => setDraft(draftFrom(provider, list))).catch((error) => setRefreshError(error?.message ?? String(error))).finally(() => setRefreshing(false));
+    void translated((async () => {
+      const view = await actions.providers();
+      const fresh = view.providers.find((entry) => entry.id === provider.id);
+      if (fresh === void 0) throw new Error("The provider is no longer available");
+      const list = await actions.providerModels({ provider: provider.id });
+      await apply2(Promise.resolve(view));
+      setDraft({ ...draftFrom(fresh, list), revision: view.revision, provider: fresh });
+    })()).catch((error) => setRefreshError(error?.message ?? String(error))).finally(() => setRefreshing(false));
   };
   const toggle = (id) => {
     setConfirmRemove(false);
@@ -34229,7 +34237,7 @@ function ProviderRow({ provider, apply: apply2, actions, roster, revision, open,
       return;
     }
     const models = selected.map((row) => row.returned ? row.model : { id: row.id });
-    void apply2(actions.saveProviderModels({ provider: provider.id, models, revision })).then((ok) => {
+    void apply2(actions.saveProviderModels({ provider: provider.id, models, revision: draft.revision ?? revision })).then((ok) => {
       if (!ok) return;
       setDraft(null);
       setConfirmRemove(false);

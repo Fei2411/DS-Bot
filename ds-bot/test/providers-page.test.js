@@ -87,6 +87,7 @@ const provider = () => ({
   declaredModels: [{ id: 'a', ref: 'relay/a', name: 'A' }, { id: 'manual', ref: 'relay/manual', name: 'Manual' }],
 })
 const actions = () => ({
+  providers: async () => ({ providers: [provider()], revision: 4 }),
   providerModels: async () => [{ id: 'a', name: 'A' }, { id: 'b', name: 'B' }],
   saveProviderModels: async () => ({ providers: [] }),
   refreshModels() {},
@@ -250,4 +251,29 @@ test('a discovery failure keeps the saved models and shows the error', async () 
   view.tree = view.rerender()
   assert.match(textOf(ui(view.tree)), /the endpoint answered 401/)
   assert.equal(button(ui(view.tree), 'Cancel'), undefined)
+})
+
+
+test('refreshing a stale draft reads the latest provider revision before discovery', async () => {
+  const view = row()
+  view.acts.providers = async () => ({ providers: [provider()], revision: 9 })
+  button(ui(view.tree), 'Refresh models').props.onClick()
+  await settle(); await settle()
+  view.tree = view.rerender()
+  button(ui(view.tree), 'Save').props.onClick()
+  await settle(); await settle()
+  assert.equal(view.calls.save[0].revision, 9)
+})
+
+test('fallback after reordering follows the configured default, not the old effective default', () => {
+  const { draftFrom, fallbacksFor } = module.exports
+  const saved = provider()
+  const draft = draftFrom(saved, [{ id: 'b', name: 'New B' }, { id: 'a', name: 'Renamed A' }])
+  draft.rows.find(row => row.id === 'manual').selected = false
+  const roster = { bots: [writer()], profileDefaultModel: null, defaultModel: 'relay/a', models: [
+    { ref: 'relay/a', provider: 'relay', name: 'Old A' }, { ref: 'relay/manual', provider: 'relay', name: 'Manual' },
+  ] }
+  assert.equal(fallbacksFor(saved, draft, roster).switching[0].target.ref, 'relay/b')
+  roster.profileDefaultModel = 'relay/a'
+  assert.equal(fallbacksFor(saved, draft, roster).switching[0].target.name, 'Renamed A')
 })

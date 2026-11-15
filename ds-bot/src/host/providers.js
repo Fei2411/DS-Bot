@@ -398,9 +398,12 @@ export function install(rt) {
       .map(model => [typeof model === 'string' ? model : model?.id, model])
       .filter(([id]) => typeof id === 'string' && id !== ''))
     const models = list.map((model) => {
-      const next = modelEntry(model, known)
-      const old = current.get(next.id)
-      return old === undefined ? next : { ...(typeof old === 'string' ? { id: old } : old), ...next }
+      const id = typeof model === 'string' ? model.trim() : model?.id?.trim()
+      const old = current.get(id)
+      const saved = typeof old === 'string' ? { id: old } : old
+      const incoming = typeof model === 'string' ? { id: model } : model
+      const next = modelEntry({ ...saved, ...incoming }, known)
+      return { ...saved, ...next }
     })
     if (new Set(models.map(model => model.id)).size !== models.length) throw invalid('Two models have the same id')
     await settings.mutate(PI_AI, [{ op: 'set', path: [...entry.settingsPath, 'models'], value: models }], section?.revision)
