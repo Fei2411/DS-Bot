@@ -2016,6 +2016,12 @@ export function install(rt) {
     startOpenPart(bot, freshId)
     rt.chatOwners.set(freshId, bot.id)
     await rt.save()
+    // A model the user picked while this part was being made went to the parts that were
+    // registered then, and the sync recorded it as applied; this part was not one of them
+    // yet, so the route picked at the top may be the old one. Read it again now that the
+    // part is the Bot's, as the switch does.
+    const now = await freshRoute(bot, agent.session)
+    if (now !== undefined && (now.ref !== picked?.ref || now.effort !== picked?.effort)) await selectRoute({ name: bot.name }, freshId, now)
   }
 
   // Opening an earlier part again: it becomes the current one and the part that

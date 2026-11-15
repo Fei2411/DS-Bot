@@ -81,6 +81,13 @@ async function team(t, archived = [], state = TEAM, live = ['m1', 'w1', 'w2', 'w
 }
 
 const saved = home => JSON.parse(readFileSync(join(home, 'state.json'), 'utf8'))
+const until = async (check, ms = 2000) => {
+  const end = Date.now() + ms
+  while (!check()) {
+    if (Date.now() > end) throw new Error('until: the condition did not hold')
+    await new Promise(resolve => setImmediate(resolve))
+  }
+}
 
 test('the state lists the live open part and reads its run state, while chatOf stays the current part', async (t) => {
   const { call, rt } = await team(t)
@@ -160,6 +167,40 @@ test('a new part made while the Bot works starts at once and leaves the running 
   assert.deepEqual([...registry.archivedSessionIds], [])
   assert.deepEqual(rt.live.get('w2'), { turn: {} })
   assert.equal(rt.chatOwners.get('w5'), 'w1')
+})
+
+// A model picked while the new part is being made must reach it: at that moment it is
+// not registered as the Bot's yet, so the sync that ran meanwhile did not see it (and
+// recorded the new model as applied), and the route this part was made with is the old
+// one. The part reads the route again once it is the Bot's, as a switch does.
+test('a new part takes a model picked while the part was being made', async (t) => {
+  const { call, rt } = await team(t)
+  await call('state')
+  const bot = rt.botOf('w1')
+  const selections = []
+  rt.createSession = async () => 'w5'
+  rt.resolveAgent = async () => ({ id: 'w2', status: 'running', session: { id: 'w2', requestHeader: () => undefined } })
+  rt.desiredModel = async owner => owner.model
+  rt.desiredEffort = async () => undefined
+  rt.selectSessionModel = async (sessionId, route) => { selections.push(`${sessionId}:${route.provider}/${route.model}`) }
+  // The permission write is where the user's model change lands, before the part is the
+  // Bot's.
+  let release
+  rt.applyPermission = () => new Promise(resolve => { release = resolve })
+  bot.model = 'deepseek/old'
+  const opened = call('bot-new-part', { botId: 'w1' })
+  await until(() => release !== undefined)
+  // The user picks another model now: the sync applies it to what is registered (the
+  // foreground part) and records it as the Bot's applied model.
+  bot.model = 'deepseek/new'
+  bot.appliedModel = 'deepseek/new'
+  await rt.selectSessionModel('w2', { provider: 'deepseek', model: 'new' })
+  release()
+  assert.equal((await opened).ok, true)
+  assert.equal(bot.sessionId, 'w5')
+  // The new part was made with the old model, then given the newer one: it does not stay
+  // on the route the sync never reached.
+  assert.deepEqual(selections, ['w5:deepseek/old', 'w2:deepseek/new', 'w5:deepseek/new'])
 })
 
 test('a foreground switch to an archived part does not touch the background part', async (t) => {
