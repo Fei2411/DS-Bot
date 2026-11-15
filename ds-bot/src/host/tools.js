@@ -11,6 +11,7 @@ import { NAME_MAX } from './requests.js'
 import { unquote } from './text.js'
 import { isOpenPart, ownChatSessions } from './threads.js'
 import { mentionSpans } from '../shared/mentions.js'
+import { plainToolSchema } from './tool-schema.js'
 import { checkShownView, showViewDescription, showViewParameters } from 'deep-view/core'
 
 export const output = { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: String(value) }] }
@@ -1287,6 +1288,28 @@ export function install(rt) {
       rt.warn('ds-bot: listing the scoped tools of %s failed: %s', agent.session?.id ?? agent.id, error)
       return assembled
     }
+  })
+
+  // DSH adds tools after system-prompt/assemble. Transform the final request through
+  // its documented LLM waterfall; next() cannot accept replacement options.
+  const plainSchemas = new WeakMap()
+  ctx.on('llm/stream', function plainConnectorSchemas(options, next) {
+    if (!Array.isArray(options.tools)) return next()
+    let changed = false
+    const tools = options.tools.map((tool) => {
+      if (!tool.name?.startsWith('mcp__') || tool.parameters === undefined) return tool
+      let entry = plainSchemas.get(tool.parameters)
+      if (entry === undefined) {
+        const plain = plainToolSchema(tool.parameters)
+        entry = { plain, same: JSON.stringify(plain) === JSON.stringify(tool.parameters) }
+        plainSchemas.set(tool.parameters, entry)
+        plainSchemas.set(plain, { plain, same: true })
+      }
+      if (entry.same) return tool
+      changed = true
+      return { ...tool, parameters: entry.plain }
+    })
+    return changed ? ctx.llm.stream({ ...options, tools }) : next()
   })
 
   // The /goal command stays open in every Session, so a goal started in a Bot chat or a

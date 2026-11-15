@@ -218,3 +218,61 @@ test('a foreground switch to an archived part does not touch the background part
   // Only the part the foreground left is archived; the background part stays live.
   assert.deepEqual([...registry.archivedSessionIds], ['w2'])
 })
+
+
+test('send, answer-question, and view-reply on an earlier segment of an openPart route to that openPart', async (t) => {
+  const seed = {
+    ...MOVED_BACK,
+    questions: {
+      w3: {
+        id: 'q1',
+        callId: 'q-call',
+        question: 'Which option?',
+        options: [{ label: 'yes' }, { label: 'no' }],
+        askedAt: 1,
+      },
+    },
+    views: {
+      w3: {
+        id: 'v1',
+        callId: 'v-call',
+        title: 'Pick',
+        view: { type: 'options', id: 'pick', options: [{ label: 'A' }, { label: 'B' }] },
+        askedAt: 1,
+      },
+    },
+  }
+  const { call, ctx } = await team(t, [], seed)
+  const routed = []
+  ctx.sessionController = {
+    ...ctx.sessionController,
+    prompt: async (address) => {
+      routed.push(['send', address.sessionId])
+    },
+    resolveAgent: async (sessionId) => ({
+      agent: {
+        id: sessionId,
+        session: { id: sessionId },
+        followup() {
+          routed.push(['followup', sessionId])
+        },
+      },
+    }),
+  }
+  ctx.sessions = { flush: async () => {} }
+
+  const sent = await call('send', { sessionId: 'w4', text: 'continue bg part' })
+  assert.equal(sent.ok, true, JSON.stringify(sent))
+
+  const answered = await call('answer-question', { sessionId: 'w4', questionId: 'q1', answer: { selected: ['yes'] } })
+  assert.equal(answered.ok, true, JSON.stringify(answered))
+
+  const replied = await call('view-reply', { sessionId: 'w4', viewId: 'v1', action: 'pick', values: { selected: ['A'] } })
+  assert.equal(replied.ok, true, JSON.stringify(replied))
+
+  assert.deepEqual(routed, [
+    ['send', 'w3'],
+    ['followup', 'w3'],
+    ['followup', 'w3'],
+  ])
+})
