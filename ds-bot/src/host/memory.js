@@ -30,6 +30,7 @@ import { appendFile, mkdir, rename, unlink, writeFile } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
 import { HarnessError, createUserMessage } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
+import { openSessions } from './threads.js'
 import { replaceFile } from './files.js'
 import { assembleLlmStream } from './models.js'
 import { inside, pendingPath, read as readPending, record as pendingRecord, relativePath, serialize as serializePending } from './memory-pending.js'
@@ -626,7 +627,7 @@ export function install(rt) {
   // A deleted Bot's memory moves to the archive, whole.
   function archiveBotMemory(botId) {
     const bot = rt.botOf(botId)
-    for (const sessionId of [botId, rt.chatOf(botId), ...(bot?.segments ?? []).map(segment => segment.sessionId), ...rt.groupSessionsOf(botId)]) renewMemory(sessionId)
+    for (const sessionId of [botId, rt.chatOf(botId), ...(bot?.segments ?? []).map(segment => segment.sessionId), ...openSessions(bot), ...rt.groupSessionsOf(botId)]) renewMemory(sessionId)
     summaries.delete(botId)
     news.delete(botId)
     return queued(async () => {
@@ -1015,7 +1016,7 @@ export function install(rt) {
       const room = rt.roomOf(owner.roomId)
       return room === undefined ? 'group ?' : `group "${room.name}" #${room.seq}`
     }
-    const parts = rt.partsOf(rt.selfOf(sessionId))
+    const parts = rt.partsOfThread(rt.selfOf(sessionId), sessionId)
     const at = parts.findIndex(part => part.sessionId === sessionId)
     const number = at === -1 ? Math.max(parts.length, 1) : at + 1
     let seq

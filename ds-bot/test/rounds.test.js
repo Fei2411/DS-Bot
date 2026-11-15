@@ -1441,3 +1441,150 @@ test('a group whose state was not saved after its last line goes on numbering af
   assert.equal(new Set(seqs).size, seqs.length)
   assert.ok(again.rt.ledger.records(`group-${room.id}`).some(record => record.text === 'Two' && record.seq === seq + 2))
 })
+
+// #1549: a message that arrives while an empty round is starting or closing is queued for
+// the next round instead of joining the exiting round and being dropped.
+async function startPausedStatusRound(t) {
+  const ctx = start()
+  t.after(ctx.stop)
+  const { call, emit, relay, sent, rt } = ctx
+  const room = await team(call, sent)
+  const chief = rt.state.mainBotIds[0]
+  const state = () => rt.state.rooms[room.id]
+  state().idleRelays = ROOM_IDLE_RELAY_LIMIT
+  state().idlePaused = { from: chief, count: ROOM_IDLE_RELAY_LIMIT, noticed: true }
+
+  let releaseSave
+  let markSaving
+  const saveGate = new Promise((resolve) => { releaseSave = resolve })
+  const saving = new Promise((resolve) => { markSaving = resolve })
+  const origSave = rt.save
+  rt.save = async (...args) => {
+    if ([...rt.roomProgress.values()].some(round => round.roomId === room.id && round.starting)) {
+      rt.save = origSave
+      markSaving()
+      await saveGate
+    }
+    return origSave(...args)
+  }
+
+  await rt.teamTools.find(d => d.name === 'post_to_group').execute({ group: 'R1', message: '暂无待办' }, { agent: { id: rt.chatOf(chief) } })
+  const idlePost = sent.find(entry => entry.sessionId === room.id && entry.message.source.role === 'post')
+  await emit(room.id, { type: 'user/message', data: { source: idlePost.message.source, content: idlePost.message.content } })
+  const quiet = relay(room.id, 'relay-1')
+  await saving
+  return { ...ctx, room, chief, state, quiet, releaseSave }
+}
+
+test('a user message arriving while a paused status round starts still opens a round of its own', async (t) => {
+  const { emit, userMessage, relay, answer, sent, room, state, quiet, releaseSave } = await startPausedStatusRound(t)
+  sent.length = 0
+  await emit(room.id, userMessage('@Writer 继续'))
+  const resumed = relay(room.id, 'relay-2')
+  releaseSave()
+
+  const turn = await turnFor(sent)
+  assert.ok(turn, "the user's message opens a round again")
+  await answer(turn.sessionId, turn.message.source.exchangeId, '继续核对', 1)
+  await resumed
+  await quiet
+  assert.equal(state().idlePaused, undefined)
+})
+
+test('a Bot message arriving while a paused status round starts still opens a round of its own', async (t) => {
+  const { emit, relay, answer, sent, rt, room, chief, quiet, releaseSave } = await startPausedStatusRound(t)
+  sent.length = 0
+  await rt.teamTools.find(d => d.name === 'post_to_group').execute({ group: 'R1', message: '@Writer 看一下新报错' }, { agent: { id: rt.chatOf(chief) } })
+  const workPost = sent.find(entry => entry.sessionId === room.id && entry.message.source.role === 'post')
+  await emit(room.id, { type: 'user/message', data: { source: workPost.message.source, content: workPost.message.content } })
+  const work = relay(room.id, 'relay-2')
+  releaseSave()
+
+  const turn = await turnFor(sent)
+  assert.ok(turn, "the Bot's message opens a round again")
+  await answer(turn.sessionId, turn.message.source.exchangeId, '我看过了', 1)
+  await work
+  await quiet
+})
+
+test('a Bot post during an empty round closing drain takes the group Session path to the next round', async (t) => {
+  const { emit, relay, answer, sent, rt, room, chief, quiet, releaseSave } = await startPausedStatusRound(t)
+  const holder = [...rt.roomProgress.values()].find(round => round.roomId === room.id && round.starting)
+  assert.ok(holder)
+  sent.length = 0
+  // Runs in the microtask right after holder.settle(round), while runRound has exited its loop
+  // and sits at Promise.allSettled([...turns]) before delete round.nudge.
+  const postedDuringClose = holder.ready.then(() => rt.postToRoom(rt.roomOf(room.id), rt.botOf(chief), '@Writer 收尾时发的帖'))
+  releaseSave()
+  await postedDuringClose
+
+  const queuedPost = sent.find(entry => entry.sessionId === room.id && entry.message.source.role === 'post')
+  assert.ok(queuedPost, 'the closing round leaves the Bot post in the group Session')
+  await emit(room.id, { type: 'user/message', data: { source: queuedPost.message.source, content: queuedPost.message.content } })
+  const next = relay(room.id, 'relay-2')
+
+  const turn = await turnFor(sent)
+  assert.ok(turn, 'the next round calls the member named in the Bot post')
+  await answer(turn.sessionId, turn.message.source.exchangeId, '收到了', 1)
+  await next
+  await quiet
+})
+
+test('a message arriving while a closing round saves an admin-passed notice still opens the next round', async (t) => {
+  const { call, emit, userMessage, relay, answer, stop, sent, rt } = start()
+  t.after(stop)
+  const room = await team(call, sent)
+  await call('update-room', { id: room.id, mode: 'admin' })
+
+  let releaseSave
+  let markSaving
+  const saveGate = new Promise((resolve) => { releaseSave = resolve })
+  const saving = new Promise((resolve) => { markSaving = resolve })
+  const origSave = rt.save
+  rt.save = async (...args) => {
+    if (rt.roomOf(room.id).log.some(line => line.kind === 'notice' && line.reason === 'admin-passed')) {
+      rt.save = origSave
+      markSaving()
+      await saveGate
+    }
+    return origSave(...args)
+  }
+
+  await emit(room.id, userMessage('Anyone?'))
+  const first = relay(room.id, 'relay-1')
+  const chiefTurn = await turnFor(sent)
+  await answer(chiefTurn.sessionId, chiefTurn.message.source.exchangeId, '[PASS]', 1)
+  await saving
+
+  sent.length = 0
+  await emit(room.id, userMessage('@Writer 看一下'))
+  const second = relay(room.id, 'relay-2')
+  releaseSave()
+
+  const writerTurn = await turnFor(sent)
+  assert.ok(writerTurn, 'the message sent while admin-passed saves still opens the next round')
+  await answer(writerTurn.sessionId, writerTurn.message.source.exchangeId, '好的', 2)
+  await second
+  await first
+})
+
+test('a stopped notice during a round closing drain still logs into the draining round', async (t) => {
+  const { call, emit, userMessage, relay, stop, sent, rt } = start()
+  t.after(stop)
+  const room = await team(call, sent)
+  const writer = Object.values(rt.state.bots).find(bot => bot.name === 'Writer')
+
+  await emit(room.id, userMessage('@Writer 看看日志'))
+  const running = relay(room.id, 'relay-1')
+  const turn = await turnFor(sent)
+  assert.ok(turn)
+
+  // Abort the round so runRound exits its loop and enters Promise.allSettled before deleting round.nudge.
+  rt.stopRoomRound(room.id)
+  await rt.postToRoom(rt.roomOf(room.id), rt.botOf(writer.id), '', { quiet: true, stopped: true })
+  await running
+
+  const stoppedRows = rt.roomOf(room.id).log.filter(line => line.kind === 'stopped' && line.botId === writer.id)
+  assert.equal(stoppedRows.length, 1, 'stopped notice logs into the draining round without waiting for another message')
+  assert.equal(sent.filter(entry => entry.sessionId === room.id && entry.message.source.role === 'post').length, 0)
+})

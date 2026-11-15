@@ -10,7 +10,8 @@ import { format } from 'node:util'
 import { fileURLToPath } from 'node:url'
 import { test } from 'node:test'
 import { LocalAgentAdapter } from '../src/host/local-agents/adapter.js'
-import { AcpEngine } from '../src/host/local-agents/acp.js'
+import { AcpEngine, modelsFromProbe, usageOf } from '../src/host/local-agents/acp.js'
+import { ENGINES } from '../src/host/local-agents/engines.js'
 import { CodexEngine } from '../src/host/local-agents/codex.js'
 import { install as partsInstall } from '../src/host/parts.js'
 import { fakeContext } from './fake-ctx.js'
@@ -292,25 +293,17 @@ function localPart({ context, team, decision = 'switch', note = goodNote('from-t
 
 const packageOf = run => run.followed.map(message => message?.content?.map?.(block => block.text).join('') ?? '').join('\n')
 
-test('past the check line, the steward on the team model says switch: the CLI writes the note and the part moves on', async () => {
+test('past the check line, the steward on the CLI says switch: the CLI writes the note and the part moves on', async () => {
   const run = localPart({ context: { used: 220_000, size: 262_000, compactions: 0 }, team: 'deepseek/v4' })
   run.idle()
   await run.settle()
   assert.equal(run.bot.sessionId, 's2', run.warnings.join(' | '))
-  assert.deepEqual(run.calls.steward, ['deepseek/v4'])
+  // What the conversation runs on answers, not the team's default model.
+  assert.deepEqual(run.calls.steward, [])
+  assert.equal(run.calls.asks.length, 1)
   assert.equal(run.calls.notes.length, 1)
   assert.match(run.calls.notes[0], /handoff note to yourself/)
   assert.match(packageOf(run), /from-the-cli/)
-})
-
-test('a team with no model of its own: the CLI answers the steward', async () => {
-  const run = localPart({ context: { used: 220_000, size: 262_000, compactions: 0 } })
-  run.idle()
-  await run.settle()
-  assert.equal(run.calls.steward.length, 0)
-  assert.equal(run.calls.asks.length, 1)
-  assert.match(run.calls.asks[0], /"checkpoints"|condensed|compact/i)
-  assert.equal(run.bot.sessionId, 's2')
 })
 
 test('work still under way: the CLI condenses and the part stays', async () => {
@@ -332,18 +325,18 @@ test('a CLI that condensed without saying how full it is now: still past the lin
   run.idle()
   await run.settle()
   assert.equal(run.bot.sessionId, 's2', run.warnings.join(' | '))
-  assert.equal(run.calls.steward.length, 1)
+  assert.equal(run.calls.asks.length, 1)
 })
 
 test('below the check line, a compaction the CLI ran on its own still gets the steward', async () => {
   const run = localPart({ context: { used: 40_000, size: 262_000, compactions: 0 }, team: 'deepseek/v4' })
   run.idle()
   await new Promise(resolve => setTimeout(resolve, 50))
-  assert.equal(run.calls.steward.length, 0)
+  assert.equal(run.calls.asks.length, 0)
   run.setContext({ used: 45_000, compactions: 1 })
   run.idle()
   await run.settle()
-  assert.equal(run.calls.steward.length, 1)
+  assert.equal(run.calls.asks.length, 1)
   assert.equal(run.bot.sessionId, 's2')
 })
 
@@ -351,7 +344,7 @@ test('a CLI that reports nothing about its context is not checked', async () => 
   const run = localPart({ context: {}, team: 'deepseek/v4' })
   run.idle()
   await new Promise(resolve => setTimeout(resolve, 50))
-  assert.equal(run.calls.steward.length, 0)
+  assert.equal(run.calls.asks.length, 0)
   assert.equal(run.bot.sessionId, 's1')
 })
 
@@ -361,4 +354,48 @@ test('a note the CLI could not write: the part still moves on, with the package'
   await run.settle()
   assert.equal(run.bot.sessionId, 's2', run.warnings.join(' | '))
   assert.match(packageOf(run), /did not write a usable note/)
+})
+
+test('Antigravity 1.5.9, as recorded: models with per-model thinking levels, context window, commands, permissions, and separate cached usage', async () => {
+  const fixture = JSON.parse(readFileSync(FIXTURE('recorded/antigravity-acp-1.5.9.json'), 'utf8'))
+  const engine = new AcpEngine('local-antigravity', ENGINES['local-antigravity'], { findExecutable: () => undefined })
+  const session = engine.sessionFor('s1')
+  const id = fixture.sessionNew.sessionId
+  session.acpSessionId = id
+  const { queue } = drained(session)
+
+  for (const message of fixture.messages) engine.onNotice(message.method, message.params)
+  assert.ok(engine.commands.get(id).includes('compact'))
+  assert.deepEqual(queue.filter(event => event.type === 'context'), [
+    { type: 'context', used: 0, size: 1048576 },
+    { type: 'context', used: 12701, size: 1048576 },
+    { type: 'context', used: 12984, size: 1048576 },
+  ])
+
+  const mcpOutcome = await engine.onRequest('session/request_permission', fixture.requests[0].params)
+  assert.deepEqual(mcpOutcome, { outcome: { outcome: 'selected', optionId: 'allow' } })
+  assert.equal(queue.filter(event => event.type === 'permission').length, 0)
+
+  const cmdPending = engine.onRequest('session/request_permission', fixture.requests[1].params)
+  const perm = queue.find(event => event.type === 'permission')
+  assert.equal(perm.action, 'Run `pwd`')
+  assert.equal(perm.changes, true)
+  perm.reply(null)
+  assert.deepEqual(await cmdPending, { outcome: { outcome: 'cancelled' } })
+
+  const models = modelsFromProbe(fixture.sessionNew)
+  assert.equal(models.length, 9)
+  const byId = Object.fromEntries(models.map(entry => [entry.id, entry]))
+  assert.deepEqual(byId['gemini-4-carbon'].reasoning.efforts.map(e => e.id), ['low', 'medium', 'high'])
+  assert.deepEqual(byId['gemini-4-hydrogen'].reasoning.efforts.map(e => e.id), ['low', 'medium', 'high', 'xhigh'])
+  assert.equal(byId['gemini-4-hydrogen'].reasoning.defaultEffort, undefined)
+  assert.equal(byId['gemini-pro-orchestrator'].reasoning, undefined)
+  assert.equal(byId['gemini-pro-orchestrator-argon'].reasoning, undefined)
+  assert.equal(byId['gpt-oss-120b-medium'].reasoning, undefined)
+
+  assert.deepEqual(usageOf(fixture.promptResult.usage), {
+    inputTokens: 17436,
+    outputTokens: 137,
+    cacheReadTokens: 8112,
+  })
 })
