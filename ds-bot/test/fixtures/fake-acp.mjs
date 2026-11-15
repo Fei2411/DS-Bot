@@ -151,6 +151,19 @@ async function runPrompt(session, prompt, requestId) {
   if (/\bhang\b/.test(text)) return // session/cancel releases it below
   if (text.includes('show-state')) { finish(`cwd: ${process.cwd()}; effort: ${session.thoughtLevel ?? 'default'}${legacyModels ? `; model: ${session.model ?? 'default'}` : ''}`); return }
   if (text.includes('show-mode')) { finish(`mode: ${session.mode}; refused: ${refusedModes}`); return }
+  if (text.includes('late-permission')) {
+    void ask('session/request_permission', {
+      sessionId, toolCall: { toolCallId: 'late', kind: 'execute', title: 'Late action' },
+      options: [{ optionId: 'allow-once', name: 'Allow once', kind: 'allow_once' }, { optionId: 'reject', name: 'Reject', kind: 'reject_once' }],
+    })
+    session.reask = true
+    finish('old output before the decision')
+    return
+  }
+  if (session.reask && text.includes('The calls that were waiting')) {
+    session.reask = false
+    return runPrompt(session, [{ type: 'text', text: 'ask-permission' }], requestId)
+  }
   if (text.includes('ask-permission')) {
     // Like Devin: the call's kind and input arrive with its tool_call update;
     // the permission request names it only by id.
