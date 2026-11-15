@@ -69,13 +69,13 @@ export default {
         if (chat.kind === 'direct') {
           const answer = await robot(env, await ensureToken(), clientId, '/v1.0/robot/oToMessages/batchSend', {
             robotCode: clientId, userIds: [chat.key],
-            msgKey: 'sampleMarkdown', msgParam: { title: chunk.slice(0, 30), text: chunk },
+            msgKey: 'sampleMarkdown', msgParam: JSON.stringify({ title: chunk.slice(0, 30), text: chunk }),
           })
           messageId = String(answer?.processQueryKey ?? messageId ?? '')
         } else {
           const answer = await robot(env, await ensureToken(), clientId, '/v1.0/robot/groupMessages/send', {
             robotCode: clientId, openConversationId: chat.key,
-            msgKey: 'sampleMarkdown', msgParam: { title: chunk.slice(0, 30), text: chunk },
+            msgKey: 'sampleMarkdown', msgParam: JSON.stringify({ title: chunk.slice(0, 30), text: chunk }),
           })
           messageId = String(answer?.processQueryKey ?? messageId ?? '')
         }

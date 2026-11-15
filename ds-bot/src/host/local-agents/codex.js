@@ -70,6 +70,8 @@ export class CodexEngine {
       case 'item/completed': {
         const item = params?.item ?? {}
         if (thread === undefined) break
+        // Codex 0.166 condenses as an item of its own, in a turn of its own or mid-turn.
+        if (item.type === 'contextCompaction') thread.push({ type: 'compaction', status: method === 'item/started' ? 'started' : 'completed' })
         // Every event names its turn, so the adapter can tell a finished turn's
         // leftovers from the turn it reads now (#1513).
         const turnId = params?.turnId
@@ -89,9 +91,27 @@ export class CodexEngine {
         break
       }
       case 'thread/tokenUsage/updated': {
-        if (thread === undefined) break
-        const usage = params?.tokenUsage ?? params?.usage
-        if (usage !== undefined) thread.push({ type: 'usage', usage: { inputTokens: usage.inputTokens ?? usage.input_tokens ?? 0, outputTokens: usage.outputTokens ?? usage.output_tokens ?? 0 }, turnId: params?.turnId })
+        // {total, last, modelContextWindow}: `last` is the request that just ran, and
+        // its totalTokens is what the thread's context holds now (after a compaction,
+        // what is left).
+        const last = params?.tokenUsage?.last
+        if (thread === undefined || last === undefined) break
+        const size = params.tokenUsage.modelContextWindow
+        if (typeof last.totalTokens === 'number') thread.push({ type: 'context', used: last.totalTokens, ...(typeof size === 'number' ? { size } : {}), turnId: params?.turnId })
+        const cached = last.cachedInputTokens ?? 0
+        if (last.inputTokens > 0 || last.outputTokens > 0) {
+          thread.push({
+            type: 'usage',
+            turnId: params?.turnId,
+            usage: {
+              // Codex folds cached input into inputTokens; DSH counts it apart.
+              inputTokens: Math.max(0, (last.inputTokens ?? 0) - cached),
+              outputTokens: last.outputTokens ?? 0,
+              ...(cached > 0 ? { cacheReadTokens: cached } : {}),
+              ...(last.reasoningOutputTokens ? { reasoningTokens: last.reasoningOutputTokens } : {}),
+            },
+          })
+        }
         break
       }
       default: break
@@ -124,7 +144,7 @@ export class CodexEngine {
     return Promise.reject({ code: -32601, message: `method not found: ${method}` })
   }
 
-  async open(dshSessionId, { cwd, mcp, resumeId, mode, instructions, model }) {
+  async open(dshSessionId, { cwd, mcp, resumeId, mode, instructions, model, ephemeral }) {
     const peer = await this.ensure()
     const thread = this.threadFor(dshSessionId)
     if (resumeId !== undefined) thread.threadId = resumeId
@@ -149,7 +169,7 @@ export class CodexEngine {
         thread.threadId = undefined
       }
     }
-    const reply = await peer.request('thread/start', { ...params, ...(instructions ? { developerInstructions: instructions } : {}) }, { timeout: 60_000 })
+    const reply = await peer.request('thread/start', { ...params, ...(instructions ? { developerInstructions: instructions } : {}), ...(ephemeral ? { ephemeral: true } : {}) }, { timeout: 60_000 })
     thread.threadId = reply?.thread?.id ?? reply?.threadId
     return thread
   }
@@ -177,6 +197,14 @@ export class CodexEngine {
   // dropping the user's answer. A thread with no live turn cannot be steered at all.
   canSteer(thread) {
     return thread?.turnId !== undefined
+  }
+
+  // The thread's own compaction: a turn of its own, which ends with turn/completed.
+  compact(thread) {
+    if (this.peer === undefined) return false
+    this.peer.request('thread/compact/start', { threadId: thread.threadId }, { timeout: 30_000 })
+      .catch(error => thread.push({ type: 'error', error }))
+    return true
   }
 
   async steer(thread, text) {
