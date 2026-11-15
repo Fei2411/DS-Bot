@@ -5,7 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { confirmDanger, Sheet, SheetHeader, useInSheet } from '../nav/sheet.tsx'
 import * as Clipboard from 'expo-clipboard'
 import { connectorRows, type ConnectorRow } from '../team/connectors.ts'
-import { capabilityStatusFor, unapprovedCapabilitiesFor } from '../team/capabilities.ts'
+import { capabilityStatusFor, capabilityStatusText, unapprovedCapabilitiesFor } from '../team/capabilities.ts'
 import { useTeam } from '../team/context.tsx'
 import { t } from '../ui/i18n.ts'
 import { ChevronLeftIcon, ChevronRightIcon } from '../ui/icons.tsx'
@@ -308,13 +308,6 @@ export function Connectors({ navigation }: any) {
     </Screen>
   )
 }
-
-export const capabilityStatusText = (status?: { state?: string; error?: string }) =>
-  status === undefined ? undefined
-  : status.state === 'ready' ? t('Ready')
-  : status.state === 'needs-approval' ? t('Needs approval')
-  : status.state === 'error' ? t('Could not connect: {error}', { error: status.error ?? '' })
-  : t('Connecting…')
 
 export function Capabilities({ navigation }: any) {
   const { p } = useTheme()
