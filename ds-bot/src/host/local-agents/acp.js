@@ -54,6 +54,7 @@ export class AcpEngine {
     this.findExecutable = findExecutable
     this.defaultEfforts = defaultEfforts
     this.sessionEfforts = sessionEfforts
+    this.hasModelConfig = false
     this.child = undefined
     this.peer = undefined
     this.starting = undefined
@@ -360,20 +361,25 @@ export class AcpEngine {
     // A model the agent does not take fails the turn: going on would answer with a
     // model the user did not pick.
     const modelKey = model !== undefined && model !== 'default' ? model : ''
+    let modelReply
     if (modelKey !== '') {
-      await this.setOption(session, 'model', modelKey).catch((error) => {
+      modelReply = await this.setOption(session, 'model', modelKey).catch((error) => {
         throw Object.assign(new Error(`${this.engine.name} did not switch to the model ${modelKey}: ${error?.message ?? error}. Pick another model in the Bot's settings.`), { code: 'LOCAL_AGENT_MODEL' })
       })
     }
+    const switchedEffort = configOptionsOf(modelReply?.configOptions ?? [], 'thought_level')?.currentValue
     if (!loaded) {
-      const freshDefault = configOptionsOf(session.configOptions ?? [], 'thought_level')?.currentValue
+      const freshDefault = switchedEffort ?? configOptionsOf(session.configOptions ?? [], 'thought_level')?.currentValue
       if (freshDefault !== undefined && modelKey !== '') this.defaultEfforts.set(modelKey, freshDefault)
       session.defaultEffort = freshDefault ?? this.defaultEfforts.get(modelKey) ?? this.defaultEfforts.get('')
       session.effort = undefined
       this.setSessionEffort(session.acpSessionId, undefined)
     } else {
-      session.defaultEffort = openArgs.defaultEffort ?? this.defaultEfforts.get(modelKey) ?? this.defaultEfforts.get('') ?? loadedEffort
-      const currentEffort = loadedEffort ?? openArgs.effort ?? this.sessionEfforts.get(session.acpSessionId)
+      const priorEffort = loadedEffort ?? openArgs.effort ?? this.sessionEfforts.get(session.acpSessionId)
+      const resetDefault = switchedEffort !== undefined && (priorEffort === undefined || switchedEffort !== priorEffort) ? switchedEffort : undefined
+      if (resetDefault !== undefined && modelKey !== '') this.defaultEfforts.set(modelKey, resetDefault)
+      session.defaultEffort = resetDefault ?? this.defaultEfforts.get(modelKey) ?? openArgs.defaultEffort ?? this.defaultEfforts.get('') ?? loadedEffort
+      const currentEffort = switchedEffort ?? priorEffort
       session.effort = currentEffort !== undefined && currentEffort !== session.defaultEffort ? currentEffort : undefined
       this.setSessionEffort(session.acpSessionId, session.effort)
     }
@@ -385,7 +391,7 @@ export class AcpEngine {
     if (worker !== undefined && worker !== this) return worker.setOption(session, category, value)
     const peer = await this.ensure()
     const option = configOptionsOf(session.configOptions ?? [], category)
-    if (category === 'model' && option === undefined && (session.models?.length ?? 0) > 0) {
+    if (category === 'model' && option === undefined && !this.hasModelConfig && (session.models?.length ?? 0) > 0) {
       await peer.request('session/set_model', { sessionId: session.acpSessionId, modelId: value }, { timeout: 15_000 })
       return
     }
@@ -396,9 +402,10 @@ export class AcpEngine {
         session.configOptions = reply.configOptions
         this.remember(reply)
       }
+      return reply
     } catch (error) {
       // Agents from before configOptions take model or mode via the legacy request.
-      if (category === 'model' && option === undefined) {
+      if (category === 'model' && option === undefined && !this.hasModelConfig) {
         await peer.request('session/set_model', { sessionId: session.acpSessionId, modelId: value }, { timeout: 15_000 })
         return
       }
@@ -419,10 +426,12 @@ export class AcpEngine {
         if (applied) {
           session.effort = effort !== undefined && effort !== session.defaultEffort ? effort : undefined
           this.setSessionEffort(session.acpSessionId, session.effort)
+          session.push({ type: 'effort', defaultEffort: session.defaultEffort, effort: session.effort })
         }
       } else if (effort === undefined && session.effort !== undefined) {
         session.effort = undefined
         this.setSessionEffort(session.acpSessionId, undefined)
+        session.push({ type: 'effort', defaultEffort: session.defaultEffort, effort: undefined })
       }
     }
     const reply = peer.request('session/prompt', { sessionId: session.acpSessionId, prompt: blocks }, { signal, timeout: 0 })
@@ -501,6 +510,7 @@ export class AcpEngine {
 
   remember(reply) {
     const configOptions = reply?.configOptions
+    if (configOptionsOf(configOptions ?? [], 'model') !== undefined) this.hasModelConfig = true
     const modes = reply?.modes?.availableModes ?? configOptionsOf(configOptions ?? [], 'mode')?.options
     const models = reply?.models?.availableModels
     this.listed = {

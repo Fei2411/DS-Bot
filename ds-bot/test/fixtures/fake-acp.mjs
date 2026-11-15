@@ -31,6 +31,7 @@ const agyModes = process.argv.includes('--agy-modes')
 const thoughtLevels = process.argv.includes('--thought-levels')
 const legacyModels = process.argv.includes('--legacy-models')
 const loadThoughtLevel = process.argv.includes('--load-thought-level')
+const modelResetsThought = process.argv.includes('--model-resets-thought')
 const stateFile = process.argv.find(arg => arg.startsWith('--state-file='))?.slice('--state-file='.length)
 const omitMcpCaps = process.argv.includes('--omit-mcp-caps')
 const rejectHttpMcp = process.argv.includes('--reject-http-mcp')
@@ -357,6 +358,16 @@ process.stdin.on('data', (chunk) => {
         else if (params.configId === 'mode' && !MODES.includes(params.value)) { refusedModes++; fail(id, 'Invalid params') }
         else if (params.configId === 'thought_level' && !['low', 'medium', 'high', 'xhigh'].includes(params.value)) fail(id, `unknown thought_level ${params.value}`)
         else {
+          if (params.configId === 'model') {
+            const session = sessions.get(params.sessionId)
+            session.model = params.value
+            if (modelResetsThought) {
+              session.thoughtLevel = params.value === 'fake-small' ? 'low' : 'medium'
+              saveSaved()
+              reply(id, { configOptions: [{ id: 'thought_level', category: 'thought_level', name: 'Thinking Level', currentValue: session.thoughtLevel, options: [{ value: 'low', name: 'Low' }, { value: 'medium', name: 'Medium' }, { value: 'high', name: 'High' }] }] })
+              break
+            }
+          }
           if (params.configId === 'mode') sessions.get(params.sessionId).mode = params.value
           if (params.configId === 'thought_level') sessions.get(params.sessionId).thoughtLevel = params.value
           saveSaved()

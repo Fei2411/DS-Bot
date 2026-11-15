@@ -1290,3 +1290,58 @@ test('legacy ACP agents switch models via session/set_model and fail on unknown 
     err => err?.code === 'LOCAL_AGENT_MODEL',
   )
 })
+
+test('switching ACP models resets effort tracking cleanly and ignores unapplied efforts', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsb-model-effort-'))
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  const records = {}
+  const stateFile = join(dir, 'state.json')
+  const adapter = makeAdapter({ records, acpArgs: ['--thought-levels', '--load-thought-level', '--model-resets-thought', `--state-file=${stateFile}`] })
+  t.after(() => adapter.dispose())
+
+  const t1 = await collect(adapter.stream(options('s1', [user('m1', 'show-state')], { model: 'fake-large', reasoningEffort: 'high' })))
+  assert.match(t1.text, /effort: high/)
+  assert.equal(records.s1?.defaultEffort, 'medium')
+  assert.equal(records.s1?.effort, 'high')
+
+  const t2 = await collect(adapter.stream(options('s1', [user('m1', 'show-state'), user('m2', 'show-state')], { model: 'fake-small', reasoningEffort: 'high' })))
+  assert.match(t2.text, /effort: high/)
+  assert.equal(records.s1?.defaultEffort, 'low')
+  assert.equal(records.s1?.effort, 'high')
+
+  const t3 = await collect(adapter.stream(options('s1', [user('m1', 'show-state'), user('m2', 'show-state'), user('m3', 'show-state')], { model: 'fake-small' })))
+  assert.match(t3.text, /effort: low/)
+  assert.equal(records.s1?.defaultEffort, 'low')
+  assert.equal(records.s1?.effort, undefined)
+
+  const t4 = await collect(adapter.stream(options('s1', [user('m1', 'show-state'), user('m2', 'show-state'), user('m3', 'show-state'), user('m4', 'show-state')], { model: 'fake-small', reasoningEffort: 'bogus' })))
+  assert.match(t4.text, /effort: low/)
+  assert.equal(records.s1?.effort, undefined)
+})
+
+test('ACP compaction clears persisted effort so Host restart reapplies reasoningEffort cleanly', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsb-compact-effort-'))
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  const records = {}
+  const stateFile = join(dir, 'state.json')
+  const args = ['--thought-levels', `--state-file=${stateFile}`]
+  const first = makeAdapter({ records, acpArgs: args })
+  const second = makeAdapter({ records, acpArgs: args })
+  t.after(async () => {
+    await first.dispose()
+    await second.dispose()
+  })
+
+  const t1 = await collect(first.stream(options('s1', [user('m1', 'show-state')], { reasoningEffort: 'high' })))
+  assert.match(t1.text, /effort: high/)
+  assert.equal(records.s1?.effort, 'high')
+
+  const compacted = await first.compact('s1')
+  assert.equal(compacted, 'done')
+  assert.equal(records.s1?.effort, undefined)
+  await first.dispose()
+
+  const t2 = await collect(second.stream(options('s1', [user('m1', 'show-state'), user('m2', 'show-state')], { reasoningEffort: 'high' })))
+  assert.match(t2.text, /effort: high/)
+  assert.equal(records.s1?.effort, 'high')
+})

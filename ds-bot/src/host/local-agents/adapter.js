@@ -173,7 +173,7 @@ export class LocalAgentAdapter extends LlmAdapter {
       cliSessionId: record?.cliSessionId,
       handed: record?.handedId,
       promptHash: record?.promptHash,
-      defaultEffort: record?.defaultEffort,
+      defaultEffort: record?.model === options.model ? record?.defaultEffort : undefined,
       effort: record?.effort,
       engineSession: undefined,
       mcp: undefined,
@@ -236,6 +236,12 @@ export class LocalAgentAdapter extends LlmAdapter {
   // window; a compaction makes the last figure stale until the CLI reports again,
   // except where it reported during the compaction itself (Codex).
   observe(live, event) {
+    if (event?.type === 'effort') {
+      if (event.defaultEffort !== undefined) live.defaultEffort = event.defaultEffort
+      live.effort = event.effort
+      this.deps.saveRecord(live.sessionId, this.recordOf(live))
+      return
+    }
     if (event?.type === 'context') {
       const size = Number.isFinite(event.size) && event.size > 0 ? event.size : live.context?.size
       live.context = Number.isFinite(event.used)
@@ -545,10 +551,6 @@ export class LocalAgentAdapter extends LlmAdapter {
       }
       return
     }
-    if (live.spec.kind === 'acp') {
-      if (live.engineSession?.defaultEffort !== undefined) live.defaultEffort = live.engineSession.defaultEffort
-      if (live.defaultEffort !== undefined) live.effort = effort !== undefined && effort !== live.defaultEffort ? effort : undefined
-    }
     live.state = 'running'
     try {
       Promise.resolve(live.engine.prompt(live.engineSession, [{ type: 'text', text }], { signal, effort }))
@@ -737,8 +739,21 @@ export class LocalAgentAdapter extends LlmAdapter {
   async openFor(live, sessionId) {
     const cwd = live.cwd ?? await this.deps.cwdFor(sessionId)
     live.cwd = cwd
-    live.engineSession = await live.engine.open(sessionId, { cwd, mcp: undefined, resumeId: live.cliSessionId, mode: cliMode(live.spec.kind, live.preset), preset: live.preset, model: live.model })
+    live.engineSession = await live.engine.open(sessionId, {
+      cwd,
+      mcp: undefined,
+      resumeId: live.cliSessionId,
+      mode: cliMode(live.spec.kind, live.preset),
+      preset: live.preset,
+      model: live.model,
+      defaultEffort: live.record === undefined || live.record.model === live.model ? live.defaultEffort : undefined,
+      effort: live.effort,
+    })
       .catch(error => { throw toLlmError(error, live) })
+    if (live.spec.kind === 'acp') {
+      if (live.engineSession.defaultEffort !== undefined) live.defaultEffort = live.engineSession.defaultEffort
+      live.effort = live.engineSession.effort
+    }
     const session = live.engineSession
     const token = live.pumpToken = {}
     void (async () => {
