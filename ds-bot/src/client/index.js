@@ -66,6 +66,7 @@ import { OPENING_CSS, bindOpeningWait } from './opening.js'
 import { noticeApprovals } from './approval-notices.js'
 import { listedOpener } from './open-listed.js'
 import { needsIdleSample, pollDelay } from './polling.js'
+import { installMotionRest } from './motion-rest.js'
 import { agentSessionToReuse, singleFlight } from './agent-new.js'
 
 export const inject = ['sessions', 'uiWorkspace', 'uiConversation', 'slots', 'theme', 'layout']
@@ -364,6 +365,7 @@ export function apply(ctx) {
   }
 
   ctx.effect(() => () => { markupCache.clear() }, 'ds-bot: character markup')
+  ctx.effect(() => installMotionRest(), 'ds-bot: motion rest')
 
   // Mentions wear each Bot's color and character silhouette (or its photo). A message
   // DSH still draws itself, while it waits to be sent or to join a running turn, shows
