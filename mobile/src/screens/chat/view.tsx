@@ -1,5 +1,6 @@
 import { useMemo, useRef, useState } from 'react'
-import { Linking, PanResponder, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native'
+import { Linking, PanResponder, Platform, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native'
+import { ScrollView as GHScrollView } from 'react-native-gesture-handler'
 import * as Clipboard from 'expo-clipboard'
 import * as Haptics from 'expo-haptics'
 import { INKS } from '../../../../ds-bot/src/client/inks.js'
@@ -8,6 +9,7 @@ import { compileFormula, createScope, evaluate, isFormula, choiceValue, show } f
 import { t } from '../../ui/i18n.ts'
 import { radius, type as typeScale, type Palette } from '../../ui/tokens.ts'
 import { Markdown } from './markdown.tsx'
+import { computeTableWidths } from './markdown-model.ts'
 import { useTeam } from '../../team/context.tsx'
 
 const type = typeScale
@@ -400,26 +402,31 @@ function Donut({ rows, pinned, p }: { rows: { name: string; values: number[]; co
   )
 }
 
-// Columns share the card's width; a table too wide for it scrolls sideways.
+// Columns align across rows and scroll smoothly sideways when wider than the card.
 function DataTable({ columns, rows, p }: { columns: string[]; rows: unknown[][]; p: Palette }) {
   const [width, setWidth] = useState(0)
-  const cellWidth = Math.max(88, columns.length === 0 ? 0 : Math.floor(width / columns.length))
-  const cellStyle = { width: cellWidth, paddingHorizontal: 8, paddingVertical: 7 }
+  const strRows = useMemo(() => rows.map(row => columns.map((_, ci) => String(row[ci] ?? ''))), [columns, rows])
+  const colWidths = useMemo(() => computeTableWidths(columns, strRows, { containerWidth: width }), [columns, strRows, width])
+  const selectableCell = Platform.OS !== 'android'
   return (
-    <View onLayout={event => setWidth(event.nativeEvent.layout.width - 2)} style={{ borderWidth: 1, borderColor: p.line, borderRadius: radius.item, overflow: 'hidden' }}>
+    <View onLayout={event => setWidth(Math.max(0, event.nativeEvent.layout.width - 2))} style={{ borderWidth: 1, borderColor: p.line, borderRadius: radius.item, overflow: 'hidden' }}>
       {width === 0 ? null : (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0 }}>
+        <GHScrollView horizontal nestedScrollEnabled directionalLockEnabled showsHorizontalScrollIndicator style={{ flexGrow: 0 }}>
           <View>
             <View style={{ flexDirection: 'row', backgroundColor: p.hover }}>
-              {columns.map((c, i) => <Text key={i} style={[type.caption, cellStyle, { color: p.ink2, fontWeight: '500' }]}>{c}</Text>)}
+              {columns.map((c, i) => (
+                <Text selectable={selectableCell} key={i} style={[type.caption, { width: colWidths[i] ?? 88, paddingHorizontal: 8, paddingVertical: 7, color: p.ink2, fontWeight: '500', borderLeftWidth: i > 0 ? StyleSheet.hairlineWidth : 0, borderLeftColor: p.line }]}>{c}</Text>
+              ))}
             </View>
-            {rows.map((row, ri) => (
+            {strRows.map((row, ri) => (
               <View key={ri} style={{ flexDirection: 'row', borderTopWidth: 1, borderTopColor: p.line }}>
-                {columns.map((_, ci) => <Text key={ci} style={[type.small, cellStyle, { color: p.ink }]}>{String(row[ci] ?? '')}</Text>)}
+                {row.map((cell, ci) => (
+                  <Text selectable={selectableCell} key={ci} style={[type.small, { width: colWidths[ci] ?? 88, paddingHorizontal: 8, paddingVertical: 7, color: p.ink, borderLeftWidth: ci > 0 ? StyleSheet.hairlineWidth : 0, borderLeftColor: p.line }]}>{cell}</Text>
+                ))}
               </View>
             ))}
           </View>
-        </ScrollView>
+        </GHScrollView>
       )}
     </View>
   )
