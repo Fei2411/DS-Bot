@@ -787,7 +787,9 @@ test('flattenSchema removes unions, refs and const', () => {
 
 // The steward must never touch an abot's Session: the pre-step listener returns
 // early for a local-agent Bot, and checkContext leaves too.
-test('the steward leaves a local-agent Session alone', async () => {
+// A CLI condenses on its own inside a running turn: its part is checked when the turn
+// ends (test/local-agent-context.test.js), never before a step.
+test('a running turn of a local-agent part is not checked before its steps', async () => {
   const ctx = fakeContext()
   const bot = { id: 'b1', name: 'Kai', sessionId: 's1', model: 'local-acp-fake/default' }
   const rt = {
@@ -805,6 +807,8 @@ test('the steward leaves a local-agent Session alone', async () => {
     chatOf: () => 's1',
     isBotSession: id => id === 's1',
     isLocalAgentRef: ref => typeof ref === 'string' && ref.startsWith('local-acp-'),
+    isLocalAgentRoute: route => route.startsWith('local-acp-'),
+    localAgentContext: () => ({ used: 999_999, size: 200_000, compactions: 0 }),
     chatOwners: new Map([['s1', 'b1']]),
     groupOwners: new Map(),
     pastOwners: new Map(),
@@ -816,7 +820,7 @@ test('the steward leaves a local-agent Session alone', async () => {
   partsInstall(rt)
   const listener = ctx.listeners.get('agent/pre-step')?.[0]
   assert.ok(listener !== undefined)
-  const agent = { id: 's1', session: { id: 's1', deriveMessages: () => [] }, status: 'idle' }
+  const agent = { id: 's1', session: { id: 's1', deriveMessages: () => [], requestHeader: () => ({ config: { provider: 'local-acp-fake', model: 'default' } }) }, status: 'idle' }
   const next = async () => 'next-called'
   const result = await listener({ agent, messages: [] }, next)
   assert.equal(result, 'next-called')

@@ -428,7 +428,7 @@ test('a Bot cut off at the output limit with nothing written moves on to a fresh
   const host = await start({ services: cutOffServices })
   t.after(host.stop)
   const agent = host.agentOf('b')
-  agent.session.requestHeader = () => ({ config: { provider: 'gateway', model: 'step-5' } })
+  agent.session.requestHeader = () => ({ config: { provider: 'gateway', model: 'step-5', maxTokens: 16384 } })
   const idle = () => host.ctx.emit('agent/status', { agent, status: 'idle' })
   for (const turn of [1, 2]) {
     cutOff(host, 'b', turn)
@@ -445,6 +445,7 @@ test('a Bot cut off at the output limit with nothing written moves on to a fresh
 
   // The old part is archived and the fresh one opens with the deterministic handoff:
   // no model call, and the cut-off turn is not replayed.
+  await until(() => host.archived.length > 0)
   assert.deepEqual(host.archived, [['b', { stopActivity: true }]])
   const handoff = text(host.agentOf('s1').calls.find(([kind]) => kind === 'followup')[1])
   assert.match(handoff, /^\[Handoff · part 2\]/)
@@ -503,7 +504,7 @@ test('a short answer cut off twice in a row makes room like an overflow', async 
   const host = await start({ services: cutOffServices })
   t.after(host.stop)
   const agent = host.agentOf('b')
-  agent.session.requestHeader = () => ({ config: { provider: 'gateway', model: 'step-5' } })
+  agent.session.requestHeader = () => ({ config: { provider: 'gateway', model: 'step-5', maxTokens: 16384 } })
   const idle = () => host.ctx.emit('agent/status', { agent, status: 'idle' })
   // The second turn reads most of its prompt from the provider's cache: the request is
   // still the whole prompt, so it counts the same.
@@ -526,7 +527,7 @@ test('a cut-off at the model output limit is not a window cut, so the part stays
   const host = await start({ services: cutOffServices })
   t.after(host.stop)
   const agent = host.agentOf('b')
-  agent.session.requestHeader = () => ({ config: { provider: 'gateway', model: 'step-5' } })
+  agent.session.requestHeader = () => ({ config: { provider: 'gateway', model: 'step-5', maxTokens: 16384 } })
   const idle = () => host.ctx.emit('agent/status', { agent, status: 'idle' })
   for (const turn of [1, 2]) {
     shortCutOff(host, turn, { inputTokens: 129_000, outputTokens: 120_000 })
@@ -558,7 +559,7 @@ test('stream-only usage on assistant/message also detects premature window cut-o
   const host = await start({ services: cutOffServices })
   t.after(host.stop)
   const agent = host.agentOf('b')
-  agent.session.requestHeader = () => ({ config: { provider: 'gateway', model: 'step-5' } })
+  agent.session.requestHeader = () => ({ config: { provider: 'gateway', model: 'step-5', maxTokens: 16384 } })
   const idle = () => host.ctx.emit('agent/status', { agent, status: 'idle' })
   for (const turn of [1, 2]) {
     host.emit('b', 'turn/start', { turn })
@@ -572,4 +573,21 @@ test('stream-only usage on assistant/message also detects premature window cut-o
   }
   await until(() => host.state().bots.b.sessionId === 's1')
   assert.equal(host.state().bots.b.segments[0].fallback, 'cutoff')
+})
+
+
+test('a configured small output limit is an ordinary cutoff, including reasoning-only output', async t => {
+  const host = await start({ services: cutOffServices })
+  t.after(host.stop)
+  const agent = host.agentOf('b')
+  agent.session.requestHeader = () => ({ config: { provider: 'gateway', model: 'small-budget', maxTokens: 1024 } })
+  for (const turn of [1, 2]) {
+    host.emit('b', 'turn/start', { turn })
+    host.emit('b', 'assistant/message', { message: { content: [] }, usage: { inputTokens: 129000, outputTokens: 1024 } })
+    host.emit('b', 'turn/end', { turn, reason: { kind: 'max-tokens' } })
+    host.ctx.emit('agent/status', { agent, status: 'idle' })
+    await settle()
+  }
+  assert.equal(host.state().bots.b.sessionId, 'b')
+  assert.deepEqual(host.created, [])
 })
