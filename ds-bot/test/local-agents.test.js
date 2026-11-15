@@ -967,11 +967,13 @@ test('codex app-server: a steer names the turn it steers, and a finished turn ca
       thread.next(),
       new Promise((_, reject) => setTimeout(() => reject(new Error('no turn/completed')), 30_000)),
     ])
-    // The turn's end is the CLI's; the engine clears its turn id in the same notice, so
-    // the queue is only drained once no live turn is left.
-    if (event.type === 'done' && engine.canSteer(thread) === false) break
-    if (event.type === 'done') await new Promise(resolve => setTimeout(resolve, 5))
+    if (event.type === 'done') break
     if (Date.now() > deadline) throw new Error(`no turn/completed: ${JSON.stringify(event)}`)
+  }
+  // The engine clears its turn off the same notice; poll that, never wait for a second
+  // event that will not come.
+  for (let attempt = 0; attempt < 300 && engine.canSteer(thread); attempt += 1) {
+    await new Promise(resolve => setTimeout(resolve, 10))
   }
   assert.equal(engine.canSteer(thread), false, 'turn/completed cleared the live turn')
   await assert.rejects(() => engine.steer(thread, 'too late'), /already ended/)
