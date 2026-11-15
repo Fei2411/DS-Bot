@@ -75,7 +75,8 @@ export function installMotionRest({ doc = document, win = window, restMs = REST_
     for (const [animation, element] of loops) {
       if (current.has(animation)) continue
       loops.delete(animation)
-      held.delete(animation)
+      // A held loop that became finite (effects turned down) still has to play out.
+      if (held.delete(animation) && animation.playState === 'paused') animation.play()
       if (element) unwatch(element)
     }
     for (const animation of current) {
@@ -95,8 +96,9 @@ export function installMotionRest({ doc = document, win = window, restMs = REST_
     timer = 0
     const left = last + restMs - now()
     if (left > 0) { timer = win.setTimeout(check, left); return }
+    // A loop started from script sends no animation event; the rest looks for it anew.
     resting = true
-    apply()
+    sync()
   }
   const touch = () => {
     last = now()
@@ -109,7 +111,7 @@ export function installMotionRest({ doc = document, win = window, restMs = REST_
   const shown = () => {
     if (doc.hidden === true) {
       resting = true
-      apply()
+      sync()
     } else touch()
   }
 

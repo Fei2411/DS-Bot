@@ -151,6 +151,34 @@ test('a loop that starts while the window rests holds still at once, and an ende
   assert.equal(p.observed(mark), false)
 })
 
+test('a loop started from script is found when the window rests', () => {
+  const p = page()
+  installMotionRest({ doc: p.doc, win: p.win, now: p.now })
+  // element.animate() sends no animation event.
+  const scripted = new FakeAnimation({})
+  p.animations.push(scripted)
+  p.advance(REST_MS)
+  assert.equal(scripted.playState, 'paused')
+  p.touch()
+  assert.equal(scripted.playState, 'running')
+})
+
+test('a held loop that becomes finite plays out', async () => {
+  const p = page()
+  const alert = new FakeAnimation({})
+  p.animations.push(alert)
+  const undo = installMotionRest({ doc: p.doc, win: p.win, now: p.now })
+  p.advance(REST_MS)
+  assert.equal(alert.playState, 'paused')
+  // Turning effects down makes the same animation run once instead of forever.
+  alert.effect.getTiming = () => ({ iterations: 1 })
+  p.changed('animationstart')
+  await settle()
+  assert.equal(alert.playState, 'running')
+  undo()
+  assert.equal(alert.playState, 'running')
+})
+
 test('a hidden page rests at once and moves again when it shows', () => {
   const p = page()
   const loop = new FakeAnimation({})

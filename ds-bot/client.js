@@ -43608,7 +43608,7 @@ function installMotionRest({ doc = document, win = window, restMs = REST_MS, now
     for (const [animation, element] of loops) {
       if (current.has(animation)) continue;
       loops.delete(animation);
-      held.delete(animation);
+      if (held.delete(animation) && animation.playState === "paused") animation.play();
       if (element) unwatch(element);
     }
     for (const animation of current) {
@@ -43632,7 +43632,7 @@ function installMotionRest({ doc = document, win = window, restMs = REST_MS, now
       return;
     }
     resting = true;
-    apply2();
+    sync();
   };
   const touch = () => {
     last = now();
@@ -43645,7 +43645,7 @@ function installMotionRest({ doc = document, win = window, restMs = REST_MS, now
   const shown = () => {
     if (doc.hidden === true) {
       resting = true;
-      apply2();
+      sync();
     } else touch();
   };
   for (const type of INPUTS2) win.addEventListener(type, touch, { capture: true, passive: true });
