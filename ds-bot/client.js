@@ -544,7 +544,11 @@ var JA = {
   "Details": "詳細",
   "Browser": "ブラウザ",
   "Browser access": "ブラウザの権限",
-  "Bots browse, click and fill in forms freely. Posting, uploading, downloading and deleting ask you first unless you allow them here. Payments are always yours: the Bot hands the page to you.": "Bot は閲覧、クリック、フォーム入力を自由に行えます。投稿、アップロード、ダウンロード、削除は、ここで許可しない限り事前に確認を求めます。決済は常にあなた自身が行うため、Bot がページを引き継ぎます。",
+  "A Bot can read the page you have open: its title, address and visible text. By default it cannot click, type, scroll or open pages.": "Bot は開いているページのタイトル、アドレス、表示テキストを読めます。既定ではクリック、入力、スクロール、ページを開くことはできません。",
+  "How to enable interactive browsing": "インタラクティブ閲覧を有効にする方法",
+  "In this DSH profile, set browserPlugin to refs, script or task, then restart DS Bot.": "この DSH プロファイルで browserPlugin を refs、script、task のいずれかに設定し、DS Bot を再起動してください。",
+  "With an interactive plugin, Bots browse, click and fill in forms. Posting, uploading, downloading and deleting ask you first unless you allow them here. Payments are always yours: the Bot hands the page to you.": "インタラクティブプラグインを有効にすると、Bot は閲覧、クリック、フォーム入力ができます。投稿、アップロード、ダウンロード、削除は、ここで許可しない限り事前に確認を求めます。決済は常にあなた自身が行うため、Bot がページを引き継ぎます。",
+  "These grants apply only after an interactive browser plugin is enabled.": "これらの許可は、インタラクティブブラウザープラグインを有効にした場合にのみ適用されます。",
   "Allowed actions": "許可済みの操作",
   "Nothing allowed yet.": "まだ許可された操作はありません。",
   "All sites": "すべてのサイト",
@@ -1473,6 +1477,7 @@ var JA = {
   "Reference a chat": "チャットを参照",
   "Chat with {name}": "{name} とのチャット",
   "Scheduled task": "定期タスク",
+  "Open the scheduled tasks of this chat": "このチャットの定期タスクを開く",
   "Send to": "送信先",
   "Scheduled task: {text}": "定期タスク: {text}",
   "Choose the group admin": "グループの管理者を選択",
@@ -2931,7 +2936,11 @@ var KO = {
   Details: "상세 정보",
   Browser: "브라우저",
   "Browser access": "브라우저 권한",
-  "Bots browse, click and fill in forms freely. Posting, uploading, downloading and deleting ask you first unless you allow them here. Payments are always yours: the Bot hands the page to you.": "Bot은 자유롭게 웹을 탐색하고 클릭하며 양식을 작성할 수 있습니다. 게시, 업로드, 다운로드 및 삭제는 여기서 미리 허용하지 않는 한 먼저 확인을 요청합니다. 결제는 항상 사용자가 직접 진행하도록 Bot이 페이지를 넘겨줍니다.",
+  "A Bot can read the page you have open: its title, address and visible text. By default it cannot click, type, scroll or open pages.": "Bot은 열려 있는 페이지의 제목, 주소, 표시되는 텍스트를 읽을 수 있습니다. 기본적으로 클릭, 입력, 스크롤, 페이지 열기는 할 수 없습니다.",
+  "How to enable interactive browsing": "대화형 브라우징을 켜는 방법",
+  "In this DSH profile, set browserPlugin to refs, script or task, then restart DS Bot.": "이 DSH 프로필에서 browserPlugin을 refs, script, task 중 하나로 설정한 뒤 DS Bot을 다시 시작하세요.",
+  "With an interactive plugin, Bots browse, click and fill in forms. Posting, uploading, downloading and deleting ask you first unless you allow them here. Payments are always yours: the Bot hands the page to you.": "대화형 플러그인을 켜면 Bot이 웹을 탐색하고 클릭하며 양식을 작성할 수 있습니다. 게시, 업로드, 다운로드, 삭제는 여기서 미리 허용하지 않는 한 먼저 확인을 요청합니다. 결제는 항상 사용자가 직접 진행하도록 Bot이 페이지를 넘겨줍니다.",
+  "These grants apply only after an interactive browser plugin is enabled.": "이 권한은 대화형 브라우저 플러그인을 켠 뒤에만 적용됩니다.",
   "Allowed actions": "허용된 작업",
   "Nothing allowed yet.": "아직 허용된 작업이 없습니다.",
   "All sites": "모든 사이트",
@@ -3891,6 +3900,7 @@ var KO = {
   "Reference a chat": "대화 참조",
   "Chat with {name}": "{name}와(과)의 대화",
   "Scheduled task": "예약 작업",
+  "Open the scheduled tasks of this chat": "이 대화의 예약 작업 열기",
   "Send to": "받는 대상",
   "Scheduled task: {text}": "예약 작업: {text}",
   // New group chats
@@ -5354,7 +5364,11 @@ var ES = {
   Details: "Detalles",
   Browser: "Navegador",
   "Browser access": "Acceso al navegador",
-  "Bots browse, click and fill in forms freely. Posting, uploading, downloading and deleting ask you first unless you allow them here. Payments are always yours: the Bot hands the page to you.": "Los Bots navegan, hacen clic y rellenan formularios libremente. Publicar, subir, descargar y eliminar te pedirán confirmación a menos que lo permitas aquí. Los pagos siempre son cosa tuya: el Bot te cede la página.",
+  "A Bot can read the page you have open: its title, address and visible text. By default it cannot click, type, scroll or open pages.": "El Bot puede leer la página que tienes abierta: su título, dirección y texto visible. Por defecto no puede hacer clic, escribir, desplazarse ni abrir páginas.",
+  "How to enable interactive browsing": "Cómo activar la navegación interactiva",
+  "In this DSH profile, set browserPlugin to refs, script or task, then restart DS Bot.": "En este perfil de DSH, pon browserPlugin en refs, script o task y reinicia DS Bot.",
+  "With an interactive plugin, Bots browse, click and fill in forms. Posting, uploading, downloading and deleting ask you first unless you allow them here. Payments are always yours: the Bot hands the page to you.": "Con un plugin interactivo, los Bots navegan, hacen clic y rellenan formularios. Publicar, subir, descargar y eliminar te pedirán confirmación a menos que lo permitas aquí. Los pagos siempre son cosa tuya: el Bot te cede la página.",
+  "These grants apply only after an interactive browser plugin is enabled.": "Estos permisos solo se aplican después de activar un plugin de navegador interactivo.",
   "Allowed actions": "Acciones permitidas",
   "Nothing allowed yet.": "Aún no se ha permitido nada.",
   "All sites": "Todos los sitios",
@@ -6314,6 +6328,7 @@ var ES = {
   "Reference a chat": "Referenciar un chat",
   "Chat with {name}": "Chat con {name}",
   "Scheduled task": "Tarea programada",
+  "Open the scheduled tasks of this chat": "Abrir las tareas programadas de este chat",
   "Send to": "Enviar a",
   "Scheduled task: {text}": "Tarea programada: {text}",
   // New group chats
@@ -7768,7 +7783,11 @@ var FR = {
   "Details": "Détails",
   "Browser": "Navigateur",
   "Browser access": "Accès au navigateur",
-  "Bots browse, click and fill in forms freely. Posting, uploading, downloading and deleting ask you first unless you allow them here. Payments are always yours: the Bot hands the page to you.": "Les Bots naviguent, cliquent et remplissent les formulaires librement. La publication, le téléversement, le téléchargement et la suppression vous demandent d’abord confirmation, sauf si vous les autorisez ici. Les paiements restent toujours sous votre contrôle : le Bot vous passe la main sur la page.",
+  "A Bot can read the page you have open: its title, address and visible text. By default it cannot click, type, scroll or open pages.": "Le Bot peut lire la page que vous avez ouverte : son titre, son adresse et le texte visible. Par défaut, il ne peut ni cliquer, ni saisir, ni faire défiler, ni ouvrir des pages.",
+  "How to enable interactive browsing": "Comment activer la navigation interactive",
+  "In this DSH profile, set browserPlugin to refs, script or task, then restart DS Bot.": "Dans ce profil DSH, réglez browserPlugin sur refs, script ou task, puis redémarrez DS Bot.",
+  "With an interactive plugin, Bots browse, click and fill in forms. Posting, uploading, downloading and deleting ask you first unless you allow them here. Payments are always yours: the Bot hands the page to you.": "Avec un plugin interactif, les Bots naviguent, cliquent et remplissent les formulaires. La publication, le téléversement, le téléchargement et la suppression vous demandent d’abord confirmation, sauf si vous les autorisez ici. Les paiements restent toujours sous votre contrôle : le Bot vous passe la main sur la page.",
+  "These grants apply only after an interactive browser plugin is enabled.": "Ces autorisations ne s’appliquent qu’après l’activation d’un plugin de navigateur interactif.",
   "Allowed actions": "Actions autorisées",
   "Nothing allowed yet.": "Aucune action autorisée pour le moment.",
   "All sites": "Tous les sites",
@@ -8697,6 +8716,7 @@ var FR = {
   "Reference a chat": "Référencer une discussion",
   "Chat with {name}": "Discussion avec {name}",
   "Scheduled task": "Tâche planifiée",
+  "Open the scheduled tasks of this chat": "Ouvrir les tâches planifiées de cette conversation",
   "Send to": "Envoyer à",
   "Scheduled task: {text}": "Tâche planifiée : {text}",
   "Choose the group admin": "Choisir l’admin du groupe",
@@ -10155,7 +10175,11 @@ var DE = {
   Details: "Details",
   Browser: "Browser",
   "Browser access": "Browser-Berechtigungen",
-  "Bots browse, click and fill in forms freely. Posting, uploading, downloading and deleting ask you first unless you allow them here. Payments are always yours: the Bot hands the page to you.": "Bots können frei surfen, klicken und Formulare ausfüllen. Vor dem Veröffentlichen, Hochladen, Herunterladen und Löschen wirst du gefragt, sofern du es hier nicht vorab erlaubst. Zahlungen tätigst immer du selbst: Der Bot übergibt dir dafür die Seite.",
+  "A Bot can read the page you have open: its title, address and visible text. By default it cannot click, type, scroll or open pages.": "Ein Bot kann die Seite lesen, die du geöffnet hast: Titel, Adresse und sichtbarer Text. Standardmäßig kann er nicht klicken, tippen, scrollen oder Seiten öffnen.",
+  "How to enable interactive browsing": "Interaktives Browsen aktivieren",
+  "In this DSH profile, set browserPlugin to refs, script or task, then restart DS Bot.": "Setze in diesem DSH-Profil browserPlugin auf refs, script oder task und starte DS Bot neu.",
+  "With an interactive plugin, Bots browse, click and fill in forms. Posting, uploading, downloading and deleting ask you first unless you allow them here. Payments are always yours: the Bot hands the page to you.": "Mit einem interaktiven Plugin können Bots surfen, klicken und Formulare ausfüllen. Vor dem Veröffentlichen, Hochladen, Herunterladen und Löschen wirst du gefragt, sofern du es hier nicht vorab erlaubst. Zahlungen tätigst immer du selbst: Der Bot übergibt dir dafür die Seite.",
+  "These grants apply only after an interactive browser plugin is enabled.": "Diese Berechtigungen gelten erst, nachdem ein interaktives Browser-Plugin aktiviert wurde.",
   "Allowed actions": "Erlaubte Aktionen",
   "Nothing allowed yet.": "Noch keine Aktionen erlaubt.",
   "All sites": "Alle Websites",
@@ -11115,6 +11139,7 @@ var DE = {
   "Reference a chat": "Chat referenzieren",
   "Chat with {name}": "Chat mit {name}",
   "Scheduled task": "Geplante Aufgabe",
+  "Open the scheduled tasks of this chat": "Geplante Aufgaben dieses Chats öffnen",
   "Send to": "Senden an",
   "Scheduled task: {text}": "Geplante Aufgabe: {text}",
   // New group chats
@@ -12552,7 +12577,11 @@ var ZH = {
   Details: "详情",
   Browser: "浏览器",
   "Browser access": "浏览器权限",
-  "Bots browse, click and fill in forms freely. Posting, uploading, downloading and deleting ask you first unless you allow them here. Payments are always yours: the Bot hands the page to you.": "Bot 可以自由浏览、点击和填写表单。发布、上传、下载和删除会先征求你的同意，除非你在这里预先允许。付款始终由你自己完成：Bot 会把页面交给你。",
+  "A Bot can read the page you have open: its title, address and visible text. By default it cannot click, type, scroll or open pages.": "Bot 可以读取你打开的页面：标题、地址和可见文字。默认不能点击、输入、滚动或打开页面。",
+  "How to enable interactive browsing": "如何开启交互式浏览",
+  "In this DSH profile, set browserPlugin to refs, script or task, then restart DS Bot.": "在这个 DSH profile 里把 browserPlugin 设为 refs、script 或 task，然后重启 DS Bot。",
+  "With an interactive plugin, Bots browse, click and fill in forms. Posting, uploading, downloading and deleting ask you first unless you allow them here. Payments are always yours: the Bot hands the page to you.": "启用交互插件后，Bot 可以浏览、点击和填写表单。发布、上传、下载和删除会先征求你的同意，除非你在这里预先允许。付款始终由你自己完成：Bot 会把页面交给你。",
+  "These grants apply only after an interactive browser plugin is enabled.": "这些授权只在启用交互式浏览器插件后生效。",
   "Allowed actions": "已允许的操作",
   "Nothing allowed yet.": "还没有允许的操作。",
   "All sites": "所有网站",
@@ -13538,6 +13567,7 @@ var ZH = {
   "Reference a chat": "引用对话",
   "Chat with {name}": "与 {name} 的对话",
   "Scheduled task": "定时任务",
+  "Open the scheduled tasks of this chat": "打开这个会话的定时任务",
   "Send to": "发给",
   "Scheduled task: {text}": "定时任务：{text}",
   // New group chats
@@ -15657,7 +15687,7 @@ function writeSidebar(value, storage = globalThis.localStorage) {
 var SHELL_CSS = `
 body{--bt-im-telegram:#229ed9;--bt-im-weixin:#07c160;--bt-im-feishu:#3370ff;--bt-im-dingtalk:#1e88e5;--bt-im-wecom:#0082ef;--bt-im-qq:#e03e3e;--bt-im-discord:#5865f2;--bt-im-slack:#4a154b;--bt-im-mark-ink:#ffffff;--bt-qr-paper:#ffffff;--bt-qr-ink:#141414;--bt-ink:#141414;--bt-danger:#e02135;--bt-warn:#8a5a00;--bt-ink-2:rgba(20,20,20,.6);--bt-ink-3:rgba(20,20,20,.36);--bt-bubble:#eeeeee;--bt-sidebar:#f7f7f7;--bt-main:#fcfcfc;--bt-line:rgba(20,20,20,.08);--bt-line-2:rgba(20,20,20,.15);--bt-line-weak:rgba(20,20,20,.1);--bt-hover:rgba(119,119,119,.09);--bt-active:rgba(119,119,119,.17);--bt-card:#ffffff;--bt-accent:#4d6bfe;--bt-green:#00c972;--bt-star:#ff9800;--bt-user:#070707;--bt-user-ink:#fcfcfc;--bt-tag-bg:rgba(20,20,20,.06);--bt-tag-ink:rgba(20,20,20,.56);--bt-knob:#ffffff;--bt-glass-bg:color-mix(in srgb,var(--bt-main) 78%,transparent);--bt-glass-border:rgba(255,255,255,.72);--bt-glass-rim:rgba(20,20,20,.09);--bt-glass-shadow:0 8px 28px -6px rgba(0,0,0,.08),0 2px 6px -1px rgba(0,0,0,.04),inset 0 1px 0 rgba(255,255,255,.82);--bt-dialog-shadow:0 28px 90px -12px rgba(0,0,0,.22),0 8px 24px -4px rgba(0,0,0,.08),inset 0 1px 0 rgba(255,255,255,.78);--bt-card-shadow:0 1px 2px rgba(20,20,20,.03),inset 0 1px 0 rgba(255,255,255,.65);--bt-nav-thumb-bg:color-mix(in srgb,var(--bt-card) 82%,var(--bt-active));--bt-nav-thumb-shadow:0 1px 2px rgba(20,20,20,.06),inset 0 .5px 0 rgba(255,255,255,.8);--bt-select-arrow:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12' fill='none' stroke='%23888' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m3 4.5 3 3 3-3'/%3E%3C/svg%3E");--bt-accent-soft:color-mix(in srgb,var(--bt-accent) 14%,transparent);--bt-danger-soft:color-mix(in srgb,var(--bt-danger) 14%,transparent);--bt-danger-glow:color-mix(in srgb,var(--bt-danger) 24%,transparent);-webkit-tap-highlight-color:transparent;-webkit-text-size-adjust:100%;--bt-font:var(--dsw-font-family,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif)}
 /* iOS waits out a double-tap zoom on buttons; the plugin's own controls never zoom. */
-:is(.bt-tool,.bt-uaction,.bt-menu button,.bt-menu-item,.bt-icon-btn,.bt-round,.bt-pill,.bt-account,.bt-set-row,.bt-settings-item,.bt-react-strip button,.bt-palette-row,.bt-palette-clear,.bt-tab,.bt-ptab,.bt-ptab-x,.bt-bcard-x,.bt-plus,.bt-q-btn,.bt-q-x,.bt-x,.bt-nc-send,.bt-send,.bt-soft,.bt-mini,.bt-side-send,.bt-shape,.bt-swatch,.bt-color,.bt-newchat,.bt-task-day,.bt-task-remove,.bt-fb-btn){touch-action:manipulation}
+:is(.bt-tool,.bt-uaction,.bt-menu button,.bt-menu-item,.bt-icon-btn,.bt-round,.bt-pill,.bt-account,.bt-set-row,.bt-settings-item,.bt-react-strip button,.bt-palette-row,.bt-palette-clear,.bt-tab,.bt-ptab,.bt-ptab-x,.bt-bcard-x,.bt-plus,.bt-q-btn,.bt-q-fold,.bt-q-x,.bt-x,.bt-nc-send,.bt-send,.bt-soft,.bt-mini,.bt-side-send,.bt-shape,.bt-swatch,.bt-color,.bt-newchat,.bt-task-day,.bt-task-remove,.bt-fb-btn){touch-action:manipulation}
 :is(.bt-round,.bt-you,.bt-account,.bt-color,.bt-color span,.bt-swatch,.bt-icon-btn,.bt-avatar-trigger,.bt-avatar-pencil,.bt-plus,.bt-mic,.bt-voice,.bt-task-day,.bt-task-off-mark){corner-shape:round}
 body[data-ds-dark-theme]{--bt-im-telegram:#2ea8de;--bt-im-weixin:#17c96a;--bt-im-feishu:#4d84ff;--bt-im-dingtalk:#3d99ed;--bt-im-wecom:#2898f2;--bt-im-qq:#e85555;--bt-im-discord:#6e7bf2;--bt-im-slack:#7c4380;--bt-im-mark-ink:#ffffff;--bt-ink:#f2f2f2;--bt-ink-2:rgba(242,242,242,.6);--bt-ink-3:rgba(242,242,242,.36);--bt-bubble:#262626;--bt-sidebar:#1b1b1b;--bt-main:#141414;--bt-line:rgba(255,255,255,.08);--bt-line-2:rgba(255,255,255,.15);--bt-line-weak:rgba(255,255,255,.1);--bt-hover:rgba(160,160,160,.12);--bt-active:rgba(160,160,160,.2);--bt-card:#1f1f1f;--bt-user:#f2f2f2;--bt-user-ink:#141414;--bt-tag-bg:rgba(255,255,255,.09);--bt-tag-ink:rgba(242,242,242,.62);--bt-glass-bg:color-mix(in srgb,var(--bt-main) 74%,transparent);--bt-glass-border:rgba(255,255,255,.13);--bt-glass-rim:rgba(255,255,255,.11);--bt-glass-shadow:0 12px 32px -6px rgba(0,0,0,.42),0 2px 8px -1px rgba(0,0,0,.28),inset 0 1px 0 rgba(255,255,255,.12);--bt-dialog-shadow:0 32px 96px -12px rgba(0,0,0,.62),0 10px 28px -4px rgba(0,0,0,.42),inset 0 1px 0 rgba(255,255,255,.1);--bt-card-shadow:0 1px 3px rgba(0,0,0,.22),inset 0 .5px 0 rgba(255,255,255,.07);--bt-nav-thumb-bg:color-mix(in srgb,var(--bt-card) 65%,var(--bt-active));--bt-nav-thumb-shadow:0 1px 3px rgba(0,0,0,.28),inset 0 .5px 0 rgba(255,255,255,.12);--bt-accent-soft:color-mix(in srgb,var(--bt-accent) 18%,transparent);--bt-danger-soft:color-mix(in srgb,var(--bt-danger) 18%,transparent);--bt-danger-glow:color-mix(in srgb,var(--bt-danger) 28%,transparent);--bt-warn:#f0b84a}
 ${Object.entries(INKS).map(([name, [light]]) => `body{--bt-ink-${name}:${light}}`).join("")}
@@ -15944,12 +15974,38 @@ button.bt-q-opt:active{background:var(--bt-active)}
 .bt-q-answered .bt-q-label{color:var(--bt-ink)}
 .bt-q-answered .bt-q-opt+.bt-q-opt::before{display:none}
 .bt-q-dismissed .bt-q-title{color:var(--bt-ink-2)}
-.bt-q.bt-q-settled{gap:6px;padding:12px 16px}
+.bt-q-hold{width:100%;display:flex}
+.bt-q.bt-q-settled{position:relative;--bt-q-py:12px;--bt-q-px:16px;gap:6px;padding:var(--bt-q-py) var(--bt-q-px);transition:box-shadow .15s ease,background-color .15s ease}
+.bt-q.bt-q-settled[data-expandable]:not([data-open]){cursor:pointer}
+.bt-q.bt-q-settled[data-expandable]:not([data-open]):hover{--bt-q-edge:color-mix(in srgb,var(--bt-ink) 18%,transparent)}
+body[data-ds-dark-theme] .bt-q.bt-q-settled[data-expandable]:not([data-open]):hover{--bt-q-edge:color-mix(in srgb,var(--bt-ink) 24%,transparent)}
+.bt-q-fold{appearance:none;width:calc(100% + var(--bt-q-px) * 2);margin:calc(var(--bt-q-py) * -1) calc(var(--bt-q-px) * -1);padding:var(--bt-q-py) var(--bt-q-px);border:0;border-radius:16px;background:transparent;color:inherit;font:inherit;text-align:start;cursor:pointer;align-items:center;box-sizing:border-box;transition:background-color .12s ease}
+.bt-q-fold:focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px}
+.bt-q.bt-q-settled[data-open]>.bt-q-fold{border-radius:16px 16px 0 0}
+.bt-q.bt-q-settled[data-open]>.bt-q-fold:hover{background:color-mix(in srgb,var(--bt-hover) 55%,transparent)}
+.bt-q-chevron{flex:none;width:20px;height:20px;border-radius:6px;color:var(--bt-ink-3);display:inline-flex;align-items:center;justify-content:center;transition:transform ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing},color .12s ease}
+.bt-q.bt-q-settled:hover .bt-q-chevron{color:var(--bt-ink-2)}
+.bt-q.bt-q-settled[data-open] .bt-q-chevron{transform:rotate(180deg);color:var(--bt-ink-2)}
 .bt-q-settled .bt-q-title{font-size:14px;line-height:20px;font-weight:500}
-.bt-q.bt-q-settled>.bt-q-head:has(+.bt-q-list){padding-bottom:0;border-bottom:0}
+.bt-q.bt-q-settled>.bt-q-head:not(.bt-q-fold):has(+.bt-q-list){padding-bottom:0;border-bottom:0}
+.bt-q.bt-q-settled>.bt-q-fold:has(+.bt-q-summary){padding-bottom:6px;margin-bottom:-6px}
 .bt-q.bt-q-settled>.bt-q-head+.bt-q-list{margin-top:0}
+.bt-q-summary{margin-top:0}
+.bt-q-expand{display:flex;flex-direction:column;gap:10px;min-width:0;margin-top:6px;padding-top:10px;border-top:1px solid var(--bt-q-rule);animation:bt-expand-in .18s ease-out backwards}
+.bt-q-expand[data-leaving]{position:absolute;top:var(--bt-fold-top,44px);left:var(--bt-q-px,16px);right:var(--bt-q-px,16px);margin-top:0;z-index:1;background:var(--bt-card);pointer-events:none;animation:bt-expand-out .14s ease-out forwards}
+@keyframes bt-expand-in{from{opacity:0;transform:translateY(-4px)}}
+@keyframes bt-expand-out{to{opacity:0;transform:translateY(-4px)}}
+.bt-q-full-list .bt-q-opt{padding:6px 8px;cursor:default}
+.bt-q-full-list .bt-q-opt:not([data-chosen]) .bt-key{opacity:1;background:var(--bt-hover);color:var(--bt-ink-2)}
+.bt-q-full-list .bt-q-opt:not([data-chosen]) .bt-q-label{color:var(--bt-ink-2)}
+.bt-q-full-list .bt-q-opt[data-chosen] .bt-key{opacity:1;background:var(--bt-accent);color:var(--bt-accent-ink)}
+.bt-q-full-list .bt-q-opt[data-chosen] .bt-q-label{color:var(--bt-ink)}
+.bt-q-kv-row{display:flex;align-items:baseline;justify-content:space-between;gap:12px;padding:3px 8px;font-size:13px;line-height:18px;min-width:0}
+.bt-q-kv-key{flex:none;max-width:45%;color:var(--bt-ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bt-q-kv-val{flex:1 1 auto;min-width:0;text-align:end;color:var(--bt-ink);font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bt-q-settled .bt-q-opt{padding:4px 8px}
 .bt-q-badge{flex:none;height:20px;padding:0 7px;border-radius:999px;border:1px dotted var(--bt-line-2);color:var(--bt-ink-2);font-size:12px;line-height:18px;box-sizing:border-box}
+.bt-q-badge[data-accent]{border-style:solid;border-color:color-mix(in srgb,var(--bt-accent) 28%,transparent);background:color-mix(in srgb,var(--bt-accent) 10%,transparent);color:var(--bt-ink);font-weight:500}
 .bt-q-custom{display:flex;align-items:flex-start;gap:8px;width:100%;min-width:0}
 .bt-q-field{flex:1 1 0;min-width:0;display:flex;box-sizing:border-box;min-height:32px;padding:5px 11px;border-radius:8px;border:.5px solid var(--bt-line-2);background:none;cursor:text;transition:border-color .12s ease}
 .bt-q-field:focus-within{border-color:color-mix(in srgb,var(--bt-ink) 30%,transparent)}
@@ -15979,7 +16035,7 @@ button.bt-q-opt:active{background:var(--bt-active)}
 .bt-q-ownrow{cursor:text}
 .bt-q-ownrow .bt-q-input{color:var(--bt-ink)}
 .bt-q-raised .bt-q-foot{padding:0 8px 8px}
-@media (prefers-reduced-motion:reduce){.bt-q{animation:bt-fade .12s ease-out backwards}.bt-q-settled{animation:none}.bt-q-submit{animation:none}}
+@media (prefers-reduced-motion:reduce){.bt-q{animation:bt-fade .12s ease-out backwards}.bt-q-settled,.bt-q-submit,.bt-q-expand,.bt-q-dock[data-leaving]{animation:none}.bt-q-chevron{transition:none}}
 
 .bt-newchat{flex:1;display:flex;flex-direction:column;min-width:0;position:relative;animation:bt-veil-in .18s ease-out}
 .bt-to{display:flex;align-items:center;flex-wrap:wrap;gap:6px;min-height:48px;padding:6px calc(100% - 32px - min(550px,100% - 64px)) 6px 12px;border-bottom:1px solid var(--bt-line);font-size:14px;box-sizing:border-box}
@@ -16996,6 +17052,8 @@ div:has(> nav [class*="_marks"]){display:none!important}
 .bt-q-inline .bt-q{margin:0;max-width:min(550px,86%);order:0}
 .bt-q-dock{width:100%;display:flex;justify-content:center}
 .bt-q-dock .bt-q{margin:0 auto 8px}
+.bt-q-dock[data-leaving]{pointer-events:none;animation:bt-dock-out .15s ease-out forwards}
+@keyframes bt-dock-out{to{opacity:0;transform:translateY(6px) scale(.985)}}
 /* Phones: the conversation flow gets the whole screen instead of the desktop
    shares. A Bot message may take the width beside its avatar, a card the width of
    the flow, and long text or a wide block wraps inside it instead of running off
@@ -17006,6 +17064,7 @@ div:has(> nav [class*="_marks"]){display:none!important}
 .bt-group-msg,.bt-group-name{max-width:100%}
 [data-chat-flow] :is(pre,table){max-width:100%;overflow-x:auto}
 .bt-q{width:100%;max-width:none;padding:12px 14px;border-radius:16px}
+.bt-q.bt-q-settled{--bt-q-px:14px}
 .bt-q-inline .bt-q,.bt-q-inline .dv-view,.bt-q-inline .dv-q{width:100%;max-width:100%}
 .bt-q .bt-q-opt,.bt-q button,.bt-q-inline .dv-view button,.dv-seg.dv-view-seg button{min-height:44px}
 .bt-q-opt-label,.bt-q-inline .dv-q-label{white-space:normal;overflow-wrap:anywhere}
@@ -18486,9 +18545,93 @@ function QuestionView({ question, onAnswer, onDismiss, onInteract, busy = false,
   );
 }
 var closedLabel = (closed) => t(closed === "replied" ? "Answered by message" : "Dismissed");
+var JUST_ANSWERED_TTL = 2e3;
+var justAnswered = /* @__PURE__ */ new Map();
+var answerKey = (kind, id) => `${kind}:${id}`;
+function noteJustAnswered(kind, id, height) {
+  if (!id || typeof height !== "number" || height <= 0) return;
+  const now = Date.now();
+  for (const [key, entry] of justAnswered) {
+    if (now - entry.at >= JUST_ANSWERED_TTL) justAnswered.delete(key);
+  }
+  justAnswered.set(answerKey(kind, id), { height, at: now });
+}
+function clearJustAnswered(kind, id) {
+  if (id) justAnswered.delete(answerKey(kind, id));
+}
+function takeJustAnswered(kind, id) {
+  if (!id) return void 0;
+  const key = answerKey(kind, id);
+  const entry = justAnswered.get(key);
+  justAnswered.delete(key);
+  if (!entry || Date.now() - entry.at >= JUST_ANSWERED_TTL) return void 0;
+  return entry.height;
+}
+function useAnswerMorph(cardRef, kind, id) {
+  (0, import_react10.useLayoutEffect)(() => {
+    const from = takeJustAnswered(kind, id);
+    const node = cardRef.current;
+    if (from === void 0 || !node || reducedEffects() || typeof node.animate !== "function") return void 0;
+    const to = node.offsetHeight;
+    if (Math.abs(from - to) < 1) return void 0;
+    node.dataset.morph = "";
+    const animation = node.animate([{ height: `${from}px` }, { height: `${to}px` }], {
+      duration: SPRING_SHAPE.duration,
+      easing: SPRING_SHAPE.easing,
+      id: "bt-morph"
+    });
+    const clear = () => {
+      if (!node.getAnimations?.()?.some((other) => other.id === "bt-morph" && other !== animation)) delete node.dataset.morph;
+    };
+    animation.onfinish = clear;
+    animation.oncancel = clear;
+    return () => animation.cancel();
+  }, []);
+}
+function useFoldCard(cardRef, bodyRef, hasDetail) {
+  const [open, setOpen] = (0, import_react10.useState)(false);
+  const [leaving, setLeaving] = (0, import_react10.useState)(false);
+  const foldTopRef = (0, import_react10.useRef)(44);
+  useMorph(cardRef, open);
+  (0, import_react10.useLayoutEffect)(() => {
+    if (open && bodyRef.current) foldTopRef.current = bodyRef.current.offsetTop;
+  }, [open, hasDetail]);
+  (0, import_react10.useEffect)(() => {
+    if (open || !leaving) return void 0;
+    if (reducedMotion() || typeof setTimeout !== "function") {
+      setLeaving(false);
+      return void 0;
+    }
+    const timer = setTimeout(() => setLeaving(false), 150);
+    return () => clearTimeout(timer);
+  }, [open, leaving]);
+  const toggle = () => {
+    if (!hasDetail) return;
+    if (open && bodyRef.current) foldTopRef.current = bodyRef.current.offsetTop;
+    if (open && !reducedMotion() && typeof setTimeout === "function") setLeaving(true);
+    else setLeaving(false);
+    setOpen((value) => !value);
+  };
+  const onCardClick = (event) => {
+    if (open || !hasDetail) return;
+    if (typeof window !== "undefined" && window.getSelection?.()?.toString()) return;
+    if (event?.target?.closest?.("button, a, input, textarea, select, label")) return;
+    setLeaving(false);
+    setOpen(true);
+  };
+  return {
+    open,
+    showBody: (open || leaving) && hasDetail,
+    leaving: !open && leaving && hasDetail,
+    foldTop: foldTopRef.current,
+    toggle,
+    onCardClick
+  };
+}
 function SettledQuestion({ question, answer, closed }) {
   const options = optionsOf(question);
-  const prompt = question?.question ?? "";
+  const prompt = question?.question || question?.header || "";
+  const detail = typeof question?.detail === "string" ? question.detail.trim() : "";
   const selected = Array.isArray(answer?.selected) ? answer.selected : [];
   const custom = typeof answer?.custom === "string" ? answer.custom.trim() : "";
   const answered = closed === void 0 && (selected.length > 0 || custom !== "");
@@ -18496,21 +18639,94 @@ function SettledQuestion({ question, answer, closed }) {
     ...selected.map((label) => ({ label, at: options.findIndex((option) => option.label === label) })),
     ...custom !== "" ? [{ label: custom, at: options.length }] : []
   ] : [];
+  const hasDetail = detail !== "" || (answered ? options.some((option) => typeof option?.description === "string" && option.description.trim() !== "" || !selected.includes(option.label)) : options.length > 0);
+  const cardRef = (0, import_react10.useRef)(null);
+  const bodyRef = (0, import_react10.useRef)(null);
+  useAnswerMorph(cardRef, "question", question?.id);
+  const fold = useFoldCard(cardRef, bodyRef, hasDetail);
+  const badge = answered ? null : (0, import_react10.createElement)("span", { className: "bt-q-badge" }, closedLabel(closed));
+  const head = hasDetail ? (0, import_react10.createElement)(
+    "button",
+    {
+      type: "button",
+      className: "bt-q-head bt-q-fold",
+      "aria-expanded": fold.open,
+      title: fold.open ? t("Show less") : t("Show more"),
+      onClick: fold.toggle
+    },
+    (0, import_react10.createElement)("span", { className: "bt-q-text" }, prompt ? (0, import_react10.createElement)("span", { className: "bt-q-title" }, prompt) : null),
+    badge,
+    (0, import_react10.createElement)("span", { className: "bt-q-chevron", "aria-hidden": true }, (0, import_react10.createElement)(ChevronDownIcon))
+  ) : (0, import_react10.createElement)(
+    "div",
+    { className: "bt-q-head" },
+    (0, import_react10.createElement)("div", { className: "bt-q-text" }, prompt ? (0, import_react10.createElement)("p", { className: "bt-q-title" }, prompt) : null),
+    badge
+  );
   return (0, import_react10.createElement)(
     "div",
-    { className: answered ? "bt-q bt-q-settled bt-q-answered" : "bt-q bt-q-settled bt-q-dismissed", role: "group", "aria-label": prompt },
-    (0, import_react10.createElement)(
-      "div",
-      { className: "bt-q-head" },
-      (0, import_react10.createElement)("div", { className: "bt-q-text" }, prompt ? (0, import_react10.createElement)("p", { className: "bt-q-title" }, prompt) : null),
-      answered ? null : (0, import_react10.createElement)("span", { className: "bt-q-badge" }, closedLabel(closed))
-    ),
-    chosen.length > 0 ? (0, import_react10.createElement)("div", { className: "bt-q-list", role: "group", "aria-label": t("Your answer") }, chosen.map(({ label, at }, index) => (0, import_react10.createElement)(
+    {
+      ref: cardRef,
+      className: answered ? "bt-q bt-q-settled bt-q-answered" : "bt-q bt-q-settled bt-q-dismissed",
+      "data-open": fold.open ? "" : void 0,
+      "data-expandable": hasDetail ? "" : void 0,
+      role: "group",
+      "aria-label": prompt,
+      onClick: hasDetail && !fold.open ? fold.onCardClick : void 0
+    },
+    head,
+    !fold.open && chosen.length > 0 ? (0, import_react10.createElement)("div", { className: "bt-q-list bt-q-summary", role: "group", "aria-label": t("Your answer") }, chosen.map(({ label, at }, index) => (0, import_react10.createElement)(
       "div",
       { key: `${label}-${index}`, className: "bt-q-opt", title: t("Selected") },
       at >= 0 ? (0, import_react10.createElement)("span", { className: "bt-key", "aria-hidden": true }, keyLetter(at)) : null,
       (0, import_react10.createElement)("span", { className: "bt-q-body" }, (0, import_react10.createElement)("span", { className: "bt-q-label" }, label))
-    ))) : null
+    ))) : null,
+    fold.showBody ? (0, import_react10.createElement)(
+      "div",
+      {
+        ref: bodyRef,
+        className: "bt-q-expand",
+        "data-leaving": fold.leaving ? "" : void 0,
+        style: fold.leaving ? { "--bt-fold-top": `${fold.foldTop}px` } : void 0
+      },
+      detail !== "" ? (0, import_react10.createElement)("div", { className: "bt-q-detail" }, detail) : null,
+      options.length > 0 || answered && custom !== "" ? (0, import_react10.createElement)(
+        "div",
+        { className: "bt-q-list bt-q-full-list", role: "group", "aria-label": answered ? t("Your answer") : void 0 },
+        options.map((option, optionIndex) => {
+          const picked = answered && selected.includes(option.label);
+          return (0, import_react10.createElement)(
+            "div",
+            {
+              key: `${option.label}-${optionIndex}`,
+              className: "bt-q-opt",
+              "data-chosen": picked ? "" : void 0,
+              title: picked ? t("Selected") : void 0
+            },
+            (0, import_react10.createElement)("span", { className: "bt-key", "aria-hidden": true }, keyLetter(optionIndex)),
+            (0, import_react10.createElement)(
+              "span",
+              { className: "bt-q-body" },
+              (0, import_react10.createElement)("span", { className: "bt-q-label" }, option.label),
+              option.description ? (0, import_react10.createElement)("span", { className: "bt-q-desc" }, option.description) : null
+            ),
+            picked ? (0, import_react10.createElement)("span", { className: "bt-q-check", title: t("Selected") }, (0, import_react10.createElement)(CheckIcon)) : null
+          );
+        }),
+        answered && custom !== "" ? (0, import_react10.createElement)(
+          "div",
+          {
+            key: "own",
+            className: "bt-q-opt",
+            "data-chosen": "",
+            title: t("Selected")
+          },
+          (0, import_react10.createElement)("span", { className: "bt-key", "aria-hidden": true }, keyLetter(options.length)),
+          (0, import_react10.createElement)("span", { className: "bt-q-body" }, (0, import_react10.createElement)("span", { className: "bt-q-label" }, custom)),
+          (0, import_react10.createElement)("span", { className: "bt-q-check", title: t("Selected") }, (0, import_react10.createElement)(CheckIcon))
+        ) : null
+      ) : null
+    ) : null
   );
 }
 function QuestionCard({ matched }) {
@@ -18531,29 +18747,63 @@ function QuestionCard({ matched }) {
   };
   return (0, import_react10.createElement)(QuestionView, { key: index, question, onAnswer, onDismiss: () => pending.dismiss(), ownAnswer: true, raised: true });
 }
-function PendingQuestion({ sessionId, question, actions, inline, enterToSend = true }) {
+function PendingQuestion({ sessionId, question, actions, inline, enterToSend = true, bare: bare2 = false }) {
   const [answered, setAnswered] = (0, import_react10.useState)(null);
   const [busy, setBusy] = (0, import_react10.useState)(false);
   const busyRef = (0, import_react10.useRef)(false);
+  const boxRef = (0, import_react10.useRef)(null);
   const hold = useDockHold(sessionId, "question", question.id, actions, inline);
   if (answered === question.id) return (0, import_react10.createElement)(CellEmpty);
-  const run2 = (make) => {
+  const run2 = (make, { settle = false, onFail } = {}) => {
     if (busyRef.current) return;
     hold();
     busyRef.current = true;
     setBusy(true);
-    void Promise.resolve().then(make).then(() => setAnswered(question.id), () => setAnswered(null)).finally(() => {
+    void Promise.resolve().then(make).then(() => {
+      if (settle) setAnswered(question.id);
+    }, () => {
+      onFail?.();
+      setAnswered(null);
+    }).finally(() => {
       busyRef.current = false;
       setBusy(false);
     });
   };
-  const onAnswer = (answer) => run2(() => actions.answerQuestion(sessionId, question.id, { selected: answer.selected ?? [], custom: answer.custom ?? "" }));
+  const onAnswer = (answer) => {
+    if (busyRef.current) return;
+    const height = boxRef.current?.firstElementChild?.offsetHeight || boxRef.current?.offsetHeight;
+    if (inline) noteJustAnswered("question", question.id, height);
+    run2(() => actions.answerQuestion(sessionId, question.id, { selected: answer.selected ?? [], custom: answer.custom ?? "" }), {
+      settle: true,
+      onFail: () => clearJustAnswered("question", question.id)
+    });
+  };
   const onDismiss = () => run2(() => actions.dismissQuestion(sessionId));
   return (0, import_react10.createElement)(
     "div",
-    { className: inline ? "bt-q-inline" : "bt-q-dock" },
+    { ref: boxRef, className: bare2 ? "bt-q-hold" : inline ? "bt-q-inline" : "bt-q-dock" },
     (0, import_react10.createElement)(QuestionView, { key: question.id, question, onAnswer, onDismiss, onInteract: hold, busy, ownAnswer: question.allowCustom === true, raised: !inline, enterToSend })
   );
+}
+function AskUserCell({ sessionId, callId, arg, argValue, roster, actions, heldCards }) {
+  const question = roster.questions?.[sessionId];
+  const isPending = Boolean(question) && (question.callSessionId ?? sessionId) === sessionId && question.callId === callId;
+  const held = isPending && heldCards?.[heldCardKey("question", question.id)] > 0;
+  const closed = !isPending && callId !== void 0 ? roster.closedCards?.[sessionId]?.[callId] : void 0;
+  const cellRef = (0, import_react10.useRef)(null);
+  const phase = held ? "held" : isPending ? `pending:${question.id}` : closed !== void 0 ? `closed:${closed}` : "gone";
+  useMorph(cellRef, phase);
+  if (held) return (0, import_react10.createElement)(CellEmpty);
+  if (isPending) {
+    return (0, import_react10.createElement)(
+      "div",
+      { ref: cellRef, className: "bt-q-inline" },
+      (0, import_react10.createElement)(PendingQuestion, { key: JSON.stringify([sessionId, question.id]), sessionId, question, actions, inline: true, enterToSend: sendsOnEnter(roster.prefs), bare: true })
+    );
+  }
+  if (closed === void 0) return (0, import_react10.createElement)(CellEmpty, { className: "bt-q-gone" });
+  const asked = { question: arg("question") ?? "", detail: arg("detail"), options: argValue("options") ?? [], multiSelect: argValue("multiSelect") === true };
+  return (0, import_react10.createElement)("div", { ref: cellRef, className: "bt-q-inline" }, (0, import_react10.createElement)(SettledQuestion, { question: asked, closed }));
 }
 function QuestionDock({ sessionId, useRoster, useCards, useHeldCards, actions }) {
   const question = useRoster((value) => value.questions?.[sessionId]);
@@ -18561,7 +18811,35 @@ function QuestionDock({ sessionId, useRoster, useCards, useHeldCards, actions })
   const drawn = useCards?.((state) => state[sessionId]?.[question?.callId] > 0) === true;
   const held = useHeldCards?.((state) => state[sessionId]?.[heldCardKey("question", question?.id)] > 0) === true;
   const inPart = (question?.callSessionId ?? sessionId) === sessionId;
-  if (question === void 0 || inPart && question.callId && drawn && !held) return null;
+  const handedOff = inPart && Boolean(question?.callId) && drawn && !held;
+  const visible = question !== void 0 && !handedOff;
+  const [exiting, setExiting] = (0, import_react10.useState)(null);
+  const prevRef = (0, import_react10.useRef)({ sessionId, question: void 0, handedOff: false });
+  (0, import_react10.useEffect)(() => {
+    const prev = prevRef.current;
+    prevRef.current = { sessionId, question, handedOff };
+    if (visible) {
+      if (exiting) setExiting(null);
+      return void 0;
+    }
+    if (prev.sessionId === sessionId && prev.question !== void 0 && !prev.handedOff && question === void 0 && !reducedMotion() && typeof setTimeout === "function") {
+      setExiting(prev.question);
+      const timer = setTimeout(() => setExiting(null), 150);
+      return () => clearTimeout(timer);
+    }
+    if (exiting) setExiting(null);
+    return void 0;
+  }, [sessionId, question?.id, visible]);
+  if (!visible) {
+    if (question === void 0 && exiting) {
+      return (0, import_react10.createElement)(
+        "div",
+        { className: "bt-q-dock", "data-leaving": "" },
+        (0, import_react10.createElement)(QuestionView, { key: exiting.id, question: exiting, busy: true, ownAnswer: exiting.allowCustom === true, raised: true, enterToSend })
+      );
+    }
+    return null;
+  }
   return (0, import_react10.createElement)(PendingQuestion, { key: JSON.stringify([sessionId, question.id]), sessionId, question, actions, inline: false, enterToSend });
 }
 function AnsweredCell({ node }) {
@@ -21650,54 +21928,269 @@ var ViewCard = Card;
 var withUi = (Component2) => (props) => (0, import_react17.createElement)(ViewUi.Provider, { value: VIEW_UI }, (0, import_react17.createElement)(Component2, props));
 var WidgetView2 = withUi(WidgetView);
 var ViewMenuList2 = withUi(ViewMenuList);
-function PendingView({ sessionId, view, actions, inline }) {
+function walkView(node, visit) {
+  if (node === null || typeof node !== "object") return;
+  visit(node);
+  if ((node.type === "stack" || node.type === "row") && Array.isArray(node.children)) {
+    for (const child of node.children) walkView(child, visit);
+  }
+}
+function stripPromptLine(raw) {
+  const first = String(raw).split(/\r?\n/).map((line) => line.trim()).find(Boolean) ?? "";
+  const clean = first.replace(/^#+\s*/, "").replace(/[*_`~]+/g, "").replace(/\s+/g, " ").trim();
+  return clean.length > 80 ? `${clean.slice(0, 79)}…` : clean;
+}
+var LABELED_NODES = /* @__PURE__ */ new Set(["metric", "progress", "slider", "number", "choice", "toggle", "submit"]);
+function viewPrompt(title, view, answer = null) {
+  if (typeof title === "string" && title.trim() !== "") return title.trim();
+  if (view !== null && typeof view === "object") {
+    const sentInputs = answer?.values?.inputs;
+    const lookup = viewScope(view, sentInputs !== null && typeof sentInputs === "object" ? sentInputs : {});
+    let found = "";
+    walkView(view, (node) => {
+      if (found !== "") return;
+      if (node.type === "text" || node.type === "callout") {
+        const line = stripPromptLine(asText(resolve(node.text, lookup, "")));
+        if (line !== "") found = line;
+      } else if (node.type === "form") {
+        const fields = Array.isArray(node.fields) ? node.fields : [];
+        const label = fields.map((field) => field?.label || field?.placeholder).find((item) => typeof item === "string" && item.trim() !== "");
+        if (label) found = label.trim();
+      } else if (LABELED_NODES.has(node.type) && typeof node.label === "string" && node.label.trim() !== "") {
+        found = node.label.trim();
+      }
+    });
+    if (found !== "") return found;
+  }
+  return t("View");
+}
+function collectInputRows(view, sentInputs) {
+  return viewInputs(view).map((node) => {
+    const raw = sentInputs !== null && typeof sentInputs === "object" && Object.hasOwn(sentInputs, node.id) ? sentInputs[node.id] : inputDefault(node);
+    let value;
+    if (node.type === "toggle") {
+      value = raw === true ? "✓" : "—";
+    } else if (node.type === "choice") {
+      const options = (Array.isArray(node.options) ? node.options : []).map((option) => typeof option === "string" ? { label: option } : option);
+      value = options.find((option) => choiceValue(option) === raw)?.label ?? asText(raw);
+    } else {
+      value = `${asText(raw)}${node.unit ? ` ${node.unit}` : ""}`;
+    }
+    return { key: node.label || node.id, value };
+  });
+}
+function summarizeView(view, answer, closed) {
+  if (closed !== void 0 || !answer) {
+    return { answered: false, badge: { text: closedLabel(closed), accent: false }, options: [], kvRows: [] };
+  }
+  let target = null;
+  walkView(view, (node) => {
+    if (target === null && node.id === answer.action) target = node;
+  });
+  const inputRows = view !== null && typeof view === "object" ? collectInputRows(view, answer.values?.inputs) : [];
+  switch (target?.type) {
+    case "options": {
+      const opts = (Array.isArray(target.options) ? target.options : []).map((option) => typeof option === "string" ? { label: option } : option);
+      const selected = Array.isArray(answer.values?.selected) ? answer.values.selected : [];
+      const options = selected.map((label) => ({ label, at: opts.findIndex((option) => option?.label === label) }));
+      return { answered: true, badge: null, options, kvRows: inputRows };
+    }
+    case "confirm": {
+      const confirmed = answer.values?.confirmed;
+      const text = confirmed === false ? target.cancelLabel || t("Cancel") : target.confirmLabel || t("Confirm");
+      return { answered: true, badge: { text, accent: confirmed === true }, options: [], kvRows: inputRows };
+    }
+    case "form": {
+      if (answer.values?.canceled === true) {
+        return { answered: true, badge: { text: target.cancelLabel || t("Cancel"), accent: false }, options: [], kvRows: [] };
+      }
+      const fields = (Array.isArray(target.fields) ? target.fields : []).filter((field) => field !== null && typeof field === "object" && field.id !== void 0);
+      const sentFields = answer.values?.fields && typeof answer.values.fields === "object" ? answer.values.fields : {};
+      const fieldRows = fields.map((field) => ({
+        key: field.label || field.placeholder || field.id,
+        value: String(sentFields[field.id] ?? field.value ?? "").replace(/\s+/g, " ").trim()
+      })).filter((row) => row.value !== "");
+      const kvRows = [...fieldRows, ...inputRows];
+      const badge = kvRows.length === 0 ? { text: target.submitLabel || t("Submit"), accent: true } : null;
+      return { answered: true, badge, options: [], kvRows };
+    }
+    default: {
+      const badge = inputRows.length === 0 ? { text: target?.label || t("Send to Bot"), accent: true } : null;
+      return { answered: true, badge, options: [], kvRows: inputRows };
+    }
+  }
+}
+function SettledView({ id, title, view, answer = null, closed }) {
+  const prompt = viewPrompt(title, view, closed === void 0 ? answer : null);
+  const summary = summarizeView(view, answer, closed);
+  const hasDetail = view !== null && typeof view === "object";
+  const cardRef = (0, import_react17.useRef)(null);
+  const bodyRef = (0, import_react17.useRef)(null);
+  useAnswerMorph(cardRef, "view", id);
+  const fold = useFoldCard(cardRef, bodyRef, hasDetail);
+  const badge = summary.badge ? (0, import_react17.createElement)("span", { className: "bt-q-badge", "data-accent": summary.badge.accent ? "" : void 0 }, summary.badge.text) : null;
+  const head = hasDetail ? (0, import_react17.createElement)(
+    "button",
+    {
+      type: "button",
+      className: "bt-q-head bt-q-fold",
+      "aria-expanded": fold.open,
+      title: fold.open ? t("Show less") : t("Show more"),
+      onClick: fold.toggle
+    },
+    (0, import_react17.createElement)("span", { className: "bt-q-text" }, (0, import_react17.createElement)("span", { className: "bt-q-title" }, prompt)),
+    badge,
+    (0, import_react17.createElement)("span", { className: "bt-q-chevron", "aria-hidden": true }, (0, import_react17.createElement)(ChevronDownIcon))
+  ) : (0, import_react17.createElement)(
+    "div",
+    { className: "bt-q-head" },
+    (0, import_react17.createElement)("div", { className: "bt-q-text" }, (0, import_react17.createElement)("p", { className: "bt-q-title" }, prompt)),
+    badge
+  );
+  const hasSummary = !fold.open && (summary.options.length > 0 || summary.kvRows.length > 0);
+  return (0, import_react17.createElement)(
+    "div",
+    {
+      ref: cardRef,
+      className: summary.answered ? "bt-q bt-q-settled bt-q-answered bt-view-settled" : "bt-q bt-q-settled bt-q-dismissed bt-view-settled",
+      "data-open": fold.open ? "" : void 0,
+      "data-expandable": hasDetail ? "" : void 0,
+      role: "group",
+      "aria-label": prompt,
+      onClick: hasDetail && !fold.open ? fold.onCardClick : void 0
+    },
+    head,
+    hasSummary ? (0, import_react17.createElement)(
+      "div",
+      { className: "bt-q-list bt-q-summary", role: "group", "aria-label": t("Your answer") },
+      summary.options.map(({ label, at }, index) => (0, import_react17.createElement)(
+        "div",
+        { key: `${label}-${index}`, className: "bt-q-opt", title: t("Selected") },
+        at >= 0 ? (0, import_react17.createElement)("span", { className: "bt-key", "aria-hidden": true }, keyLetter(at)) : null,
+        (0, import_react17.createElement)("span", { className: "bt-q-body" }, (0, import_react17.createElement)("span", { className: "bt-q-label" }, label))
+      )),
+      summary.kvRows.map((row, index) => (0, import_react17.createElement)(
+        "div",
+        { key: `${row.key}-${index}`, className: "bt-q-kv-row" },
+        (0, import_react17.createElement)("span", { className: "bt-q-kv-key" }, row.key),
+        (0, import_react17.createElement)("span", { className: "bt-q-kv-val" }, row.value)
+      ))
+    ) : null,
+    fold.showBody ? (0, import_react17.createElement)("div", {
+      ref: bodyRef,
+      className: "bt-q-expand",
+      "data-leaving": fold.leaving ? "" : void 0,
+      style: fold.leaving ? { "--bt-fold-top": `${fold.foldTop}px` } : void 0
+    }, (0, import_react17.createElement)(Card, { title: "", view, settled: true, answer })) : null
+  );
+}
+function PendingView({ sessionId, view, actions, inline, bare: bare2 = false }) {
   const [answered, setAnswered] = (0, import_react17.useState)(null);
+  const [busy, setBusy] = (0, import_react17.useState)(false);
   const busyRef = (0, import_react17.useRef)(false);
+  const boxRef = (0, import_react17.useRef)(null);
   const hold = useDockHold(sessionId, "view", view.id, actions, inline);
-  const flying = answered === view.id;
-  const run2 = (make) => {
+  if (answered === view.id) return (0, import_react17.createElement)(CellEmpty);
+  const run2 = (make, { settle = false, onFail } = {}) => {
     if (busyRef.current) return;
-    busyRef.current = true;
     hold();
-    setAnswered(view.id);
-    void Promise.resolve().then(make).catch(() => setAnswered(null)).finally(() => {
+    busyRef.current = true;
+    setBusy(true);
+    void Promise.resolve().then(make).then(() => {
+      if (settle) setAnswered(view.id);
+    }, () => {
+      onFail?.();
+      setAnswered(null);
+    }).finally(() => {
       busyRef.current = false;
+      setBusy(false);
     });
   };
-  const onSubmit = (action, values) => run2(() => actions.answerView(sessionId, view.id, action, values));
+  const onSubmit = (action, values) => {
+    if (busyRef.current) return;
+    const height = boxRef.current?.firstElementChild?.offsetHeight || boxRef.current?.offsetHeight;
+    if (inline) noteJustAnswered("view", view.id, height);
+    run2(() => actions.answerView(sessionId, view.id, action, values), {
+      settle: true,
+      onFail: () => clearJustAnswered("view", view.id)
+    });
+  };
   const onDismiss = () => run2(() => actions.dismissView(sessionId));
   return (0, import_react17.createElement)(
     "div",
-    { className: inline ? "bt-q-inline" : "bt-q-dock", style: flying ? { display: "none" } : void 0, onFocusCapture: hold, onPointerDownCapture: hold },
-    (0, import_react17.createElement)(Card, { key: view.id, title: view.title ?? "", view: view.view, onSubmit, onDismiss, busy: flying, raised: !inline })
+    { ref: boxRef, className: bare2 ? "bt-q-hold" : inline ? "bt-q-inline" : "bt-q-dock", onFocusCapture: hold, onPointerDownCapture: hold },
+    (0, import_react17.createElement)(Card, { key: view.id, title: view.title ?? "", view: view.view, onSubmit, onDismiss, busy, raised: !inline })
   );
 }
 function WidgetCell({ sessionId, callId, args, done, isError, roster, actions, heldCards }) {
   const record = roster.views?.[sessionId];
-  if (record !== void 0 && (record.callSessionId ?? sessionId) === sessionId && record.callId === callId) {
-    if (heldCards?.[heldCardKey("view", record.id)] > 0) return (0, import_react17.createElement)(CellEmpty);
-    return (0, import_react17.createElement)(PendingView, { sessionId, view: record, actions, inline: true });
+  const isPending = record !== void 0 && (record.callSessionId ?? sessionId) === sessionId && record.callId === callId;
+  const held = isPending && heldCards?.[heldCardKey("view", record.id)] > 0;
+  const skipShown = isPending || done && isError;
+  const shown = skipShown ? null : checkShownView(args?.text?.("title"), args?.value?.("view"));
+  const interactive = !skipShown && shown.error === void 0 && (shown.interactive || args?.value?.("await_reply") === true);
+  const closed = interactive && callId !== void 0 ? roster.closedCards?.[sessionId]?.[callId] : void 0;
+  const phase = held ? "held" : isPending ? `pending:${record.id}` : done && isError || shown?.error !== void 0 ? "error" : interactive ? closed !== void 0 ? `closed:${closed}` : "gone" : "display";
+  const cellRef = (0, import_react17.useRef)(null);
+  useMorph(cellRef, phase);
+  if (held) return (0, import_react17.createElement)(CellEmpty);
+  if (isPending) {
+    return (0, import_react17.createElement)(
+      "div",
+      { ref: cellRef, className: "bt-q-inline" },
+      (0, import_react17.createElement)(PendingView, { key: JSON.stringify([sessionId, record.id]), sessionId, view: record, actions, inline: true, bare: true })
+    );
   }
   if (done && isError) return (0, import_react17.createElement)(CellEmpty, { className: "bt-q-gone" });
-  const shown = checkShownView(args?.text?.("title"), args?.value?.("view"));
   if (shown.error !== void 0) return (0, import_react17.createElement)(CellEmpty, { className: "bt-q-gone" });
-  if (shown.interactive || args?.value?.("await_reply") === true) {
-    const closed = callId === void 0 ? void 0 : roster.closedCards?.[sessionId]?.[callId];
+  if (interactive) {
     if (closed === void 0) return (0, import_react17.createElement)(CellEmpty, { className: "bt-q-gone" });
-    return (0, import_react17.createElement)(ClosedView, { title: shown.title, closed });
+    return (0, import_react17.createElement)(
+      "div",
+      { ref: cellRef, className: "bt-q-inline" },
+      (0, import_react17.createElement)(SettledView, { title: shown.title, view: shown.view, closed })
+    );
   }
-  return (0, import_react17.createElement)("div", { className: "bt-q-inline" }, (0, import_react17.createElement)(Card, { title: shown.title, view: shown.view }));
+  return (0, import_react17.createElement)("div", { ref: cellRef, className: "bt-q-inline" }, (0, import_react17.createElement)(Card, { title: shown.title, view: shown.view }));
 }
-function ClosedView({ title, closed }) {
-  return (0, import_react17.createElement)("div", { className: "bt-q-inline" }, (0, import_react17.createElement)(SettledQuestion, { question: { question: title || t("View") }, closed }));
+function ClosedView({ title, view, closed }) {
+  return (0, import_react17.createElement)("div", { className: "bt-q-inline" }, (0, import_react17.createElement)(SettledView, { title, view, closed }));
 }
 function WidgetDock({ sessionId, useRoster, useCards, useHeldCards, actions }) {
   const view = useRoster((value) => value.views?.[sessionId]);
   const drawn = useCards?.((state) => state[sessionId]?.[view?.callId] > 0) === true;
   const held = useHeldCards?.((state) => state[sessionId]?.[heldCardKey("view", view?.id)] > 0) === true;
   const inPart = (view?.callSessionId ?? sessionId) === sessionId;
-  if (view === void 0 || inPart && view.callId && drawn && !held) return null;
-  return (0, import_react17.createElement)(PendingView, { sessionId, view, actions, inline: false });
+  const handedOff = inPart && Boolean(view?.callId) && drawn && !held;
+  const visible = view !== void 0 && !handedOff;
+  const [exiting, setExiting] = (0, import_react17.useState)(null);
+  const prevRef = (0, import_react17.useRef)({ sessionId, view: void 0, handedOff: false });
+  (0, import_react17.useEffect)(() => {
+    const prev = prevRef.current;
+    prevRef.current = { sessionId, view, handedOff };
+    if (visible) {
+      if (exiting) setExiting(null);
+      return void 0;
+    }
+    if (prev.sessionId === sessionId && prev.view !== void 0 && !prev.handedOff && view === void 0 && !reducedMotion() && typeof setTimeout === "function") {
+      setExiting(prev.view);
+      const timer = setTimeout(() => setExiting(null), 150);
+      return () => clearTimeout(timer);
+    }
+    if (exiting) setExiting(null);
+    return void 0;
+  }, [sessionId, view?.id, visible]);
+  if (!visible) {
+    if (view === void 0 && exiting) {
+      return (0, import_react17.createElement)(
+        "div",
+        { className: "bt-q-dock", "data-leaving": "" },
+        (0, import_react17.createElement)(Card, { key: exiting.id, title: exiting.title ?? "", view: exiting.view, busy: true, raised: true })
+      );
+    }
+    return null;
+  }
+  return (0, import_react17.createElement)(PendingView, { key: JSON.stringify([sessionId, view.id]), sessionId, view, actions, inline: false });
 }
 function AnsweredView2({ node }) {
   const data = node.data ?? {};
@@ -21715,7 +22208,7 @@ function AnsweredView2({ node }) {
   if (view === null || typeof view !== "object" || view.view === void 0) return (0, import_react17.createElement)(CellEmpty);
   const answers = Array.isArray(payload.answers) ? payload.answers : [];
   const answer = answers.find((entry) => entry?.id === view.id) ?? answers[0] ?? null;
-  return (0, import_react17.createElement)("div", { className: "bt-q-inline" }, (0, import_react17.createElement)(Card, { title: view.title ?? "", view: view.view, settled: true, answer }));
+  return (0, import_react17.createElement)("div", { className: "bt-q-inline" }, (0, import_react17.createElement)(SettledView, { id: view.id, title: view.title ?? "", view: view.view, answer }));
 }
 function AnsweredReply({ node }) {
   const data = node?.data ?? {};
@@ -21751,18 +22244,26 @@ body{
 --dv-ink-cyan:var(--bt-ink-cyan);--dv-ink-magenta:var(--bt-ink-magenta)}
 .bt-q-inline .dv-view{margin:0;width:100%;max-width:min(100%,max(calc(var(--bt-msg-w,.8) * 100%),560px));order:0}
 .bt-q-inline .dv-q{margin:0;max-width:min(550px,86%);order:0}
-body[data-bt-layout=flat] .bt-q-inline .dv-view{max-width:calc(var(--bt-flat-w,1) * 100%)}
+body[data-bt-layout=flat] .bt-q-inline .dv-view,body[data-bt-layout=flat] .bt-q-inline .bt-view-settled{max-width:calc(var(--bt-flat-w,1) * 100%)}
 .bt-q-inline:has(>.dv-view-bare){margin:8px 0 12px}
-/* An answered options view keeps only the chosen rows, each under its card letter
-   (a counter, since the core draws no letters on a settled card), like ds-bot's
-   own answered question card. Unchosen rows stay in the flow, invisible and
-   zero-height, so they still count their letters. */
-.dv-q-settled .dv-q-list:has(.dv-q-check){counter-reset:bt-opt}
-.dv-q-settled .dv-q-list:has(.dv-q-check)>.dv-q-opt{counter-increment:bt-opt;gap:16px;align-items:center}
-.dv-q-settled .dv-q-list:has(.dv-q-check)>.dv-q-opt:not(:has(.dv-q-check)){visibility:hidden;height:0;min-height:0;padding-block:0;overflow:hidden}
-.dv-q-settled .dv-q-list:has(.dv-q-check)>.dv-q-opt::before{content:counter(bt-opt,upper-alpha);position:static;inset:auto;opacity:1;flex:none;width:24px;height:24px;border-radius:8px;background:var(--bt-accent);color:var(--bt-accent-ink);font-size:12px;line-height:24px;font-weight:500;text-align:center}
-.dv-q-settled .dv-q-list:has(.dv-q-check)>.dv-q-opt .dv-q-label{color:var(--bt-ink)}
-.dv-q-settled .dv-q-list:has(.dv-q-check)>.dv-q-opt .dv-q-desc,.dv-q-settled .dv-q-list:has(.dv-q-check) .dv-q-check{display:none}
+.bt-q-expand>.dv-view{padding:0;margin:0;max-width:none;background:none;box-shadow:none;border-radius:0;animation:none}
+/* A standalone settled ViewCard keeps only the chosen rows, each under its card letter
+   (a counter, since the core draws no letters on a settled card). Inside an expanded
+   SettledView card (.bt-q-expand), every option stays visible with its letter and
+   description, matching expanded SettledQuestion cards. */
+.dv-q-settled:not(.bt-q-expand *) .dv-q-list:has(.dv-q-check){counter-reset:bt-opt}
+.dv-q-settled:not(.bt-q-expand *) .dv-q-list:has(.dv-q-check)>.dv-q-opt{counter-increment:bt-opt;gap:16px;align-items:center}
+.dv-q-settled:not(.bt-q-expand *) .dv-q-list:has(.dv-q-check)>.dv-q-opt:not(:has(.dv-q-check)){visibility:hidden;height:0;min-height:0;padding-block:0;overflow:hidden}
+.dv-q-settled:not(.bt-q-expand *) .dv-q-list:has(.dv-q-check)>.dv-q-opt::before{content:counter(bt-opt,upper-alpha);position:static;inset:auto;opacity:1;flex:none;width:24px;height:24px;border-radius:8px;background:var(--bt-accent);color:var(--bt-accent-ink);font-size:12px;line-height:24px;font-weight:500;text-align:center}
+.dv-q-settled:not(.bt-q-expand *) .dv-q-list:has(.dv-q-check)>.dv-q-opt .dv-q-label{color:var(--bt-ink)}
+.dv-q-settled:not(.bt-q-expand *) .dv-q-list:has(.dv-q-check)>.dv-q-opt .dv-q-desc,.dv-q-settled:not(.bt-q-expand *) .dv-q-list:has(.dv-q-check) .dv-q-check{display:none}
+.bt-q-expand .dv-q-settled .dv-q-list{counter-reset:bt-opt}
+.bt-q-expand .dv-q-settled .dv-q-list>.dv-q-opt{counter-increment:bt-opt;gap:16px;padding:6px 8px;cursor:default}
+.bt-q-expand .dv-q-settled .dv-q-list>.dv-q-opt::before{content:counter(bt-opt,upper-alpha);position:static;inset:auto;opacity:1;flex:none;width:var(--dv-key,24px);height:var(--dv-key,24px);border-radius:8px;background:var(--bt-hover);color:var(--bt-ink-2);font-size:12px;line-height:var(--dv-key,24px);font-weight:500;text-align:center;font-variant-numeric:tabular-nums}
+.bt-q-expand .dv-q-settled .dv-q-list>.dv-q-opt:has(.dv-q-desc)::before{margin-top:2px;border-radius:10px;font-size:13px}
+.bt-q-expand .dv-q-settled .dv-q-list>.dv-q-opt:has(.dv-q-check)::before{background:var(--bt-accent);color:var(--bt-accent-ink)}
+.bt-q-expand .dv-q-settled .dv-q-list>.dv-q-opt .dv-q-label{color:var(--bt-ink-2)}
+.bt-q-expand .dv-q-settled .dv-q-list>.dv-q-opt:has(.dv-q-check) .dv-q-label{color:var(--bt-ink)}
 /* A row of segmented options is only as wide as its labels; at phone widths a
    few longer ones would spill past the card. Let them wrap and let a label wrap
    inside its own button instead. */
@@ -28424,17 +28925,8 @@ function renderCall(call2, { sessionId, roster, actions, useUi, useWork, findBot
       const room2 = roster.rooms.find((entry) => entry.name === name);
       return (0, import_react34.createElement)(GroupEvent, { prefix: t(verbs[0]), room: tool === "delete_group" ? void 0 : room2, name, roster, actions });
     }
-    case "ask_user": {
-      const question = roster.questions?.[sessionId];
-      if (!question || (question.callSessionId ?? sessionId) !== sessionId || question.callId !== call2.callId) {
-        const closed = roster.closedCards?.[sessionId]?.[call2.callId];
-        if (closed === void 0) return (0, import_react34.createElement)(CellEmpty, { className: "bt-q-gone" });
-        const asked = { question: arg("question") ?? "", detail: arg("detail"), options: argValue("options") ?? [], multiSelect: argValue("multiSelect") === true };
-        return (0, import_react34.createElement)("div", { className: "bt-q-inline" }, (0, import_react34.createElement)(SettledQuestion, { question: asked, closed }));
-      }
-      if (heldCards?.[heldCardKey("question", question.id)] > 0) return (0, import_react34.createElement)(CellEmpty);
-      return (0, import_react34.createElement)(PendingQuestion, { key: JSON.stringify([sessionId, question.id]), sessionId, question, actions, inline: true, enterToSend: sendsOnEnter(roster.prefs) });
-    }
+    case "ask_user":
+      return (0, import_react34.createElement)(AskUserCell, { sessionId, callId: call2.callId, arg, argValue, roster, actions, heldCards });
     case "show_view":
       return (0, import_react34.createElement)(WidgetCell, { sessionId, callId: call2.callId, args: { text: arg, value: argValue }, done, isError: call2.isError, roster, actions, heldCards });
     case "request_secret":
@@ -34534,11 +35026,17 @@ function BrowserPage({ roster, actions, run: run2, Section: Section2, Row: Row4 
     (0, import_react45.createElement)(
       Section2,
       { title: t("Browser access") },
-      (0, import_react45.createElement)("p", { className: "bt-browser-note" }, t("Bots browse, click and fill in forms freely. Posting, uploading, downloading and deleting ask you first unless you allow them here. Payments are always yours: the Bot hands the page to you."))
+      (0, import_react45.createElement)("p", { className: "bt-browser-note" }, t("A Bot can read the page you have open: its title, address and visible text. By default it cannot click, type, scroll or open pages.")),
+      (0, import_react45.createElement)(Row4, {
+        label: t("How to enable interactive browsing"),
+        hint: t("In this DSH profile, set browserPlugin to refs, script or task, then restart DS Bot.")
+      }),
+      (0, import_react45.createElement)("p", { className: "bt-browser-note" }, t("With an interactive plugin, Bots browse, click and fill in forms. Posting, uploading, downloading and deleting ask you first unless you allow them here. Payments are always yours: the Bot hands the page to you."))
     ),
     (0, import_react45.createElement)(
       Section2,
       { title: t("Allowed actions") },
+      (0, import_react45.createElement)("p", { className: "bt-browser-note" }, t("These grants apply only after an interactive browser plugin is enabled.")),
       grants.length === 0 ? (0, import_react45.createElement)(Row4, { label: t("Nothing allowed yet.") }) : grants.map(({ bot, grant, index, expired: expired2 }) => (0, import_react45.createElement)(
         "div",
         {
@@ -43449,6 +43947,63 @@ var READ_ONLY_CSS = `
 .bt-readonly-text{min-width:0}
 `;
 
+// src/client/command-actions.js
+var SCHEDULED_TASK = "scheduled-task";
+function commandEntries({ roster, actions }) {
+  const entry = (sessionId) => {
+    const snapshot = roster.getSnapshot();
+    return snapshot.byId?.[sessionId] ?? snapshot.roomsById?.[sessionId];
+  };
+  const isRoom = (sessionId) => roster.getSnapshot().roomsById?.[sessionId] !== void 0;
+  const isBotSurface = (sessionId) => entry(sessionId) !== void 0;
+  return {
+    contributions: [{
+      name: SCHEDULED_TASK,
+      label: () => t("Scheduled task"),
+      description: () => t("Open the scheduled tasks of this chat"),
+      icon: ClockIcon,
+      available: (session) => isBotSurface(session?.sessionId),
+      ui: {
+        kind: "action",
+        run(session) {
+          const target = entry(session?.sessionId);
+          if (target !== void 0) actions.openSettings("schedules", `${isRoom(session.sessionId) ? "room" : "bot"}:${target.id}`);
+        }
+      }
+    }],
+    decorations: [{
+      name: "goal",
+      available: (session) => isRoom(session?.sessionId),
+      ui: {
+        kind: "action",
+        run(session) {
+          const room2 = roster.getSnapshot().roomsById?.[session?.sessionId];
+          if (room2 !== void 0) actions.composeGoal(room2.id);
+        }
+      }
+    }]
+  };
+}
+function installCommandActions(ctx, { roster, actions }) {
+  return ctx.inject(["commandUi"], (scope) => {
+    scope.effect(() => {
+      const entries2 = commandEntries({ roster, actions });
+      const disposers = [
+        ...entries2.contributions.map((contribution) => scope.commandUi.register(contribution)),
+        ...entries2.decorations.map((decoration) => scope.commandUi.decorate(decoration))
+      ];
+      return () => {
+        for (const dispose of disposers) {
+          try {
+            dispose?.();
+          } catch {
+          }
+        }
+      };
+    }, "ds-bot: bot command actions");
+  });
+}
+
 // src/client/right-panel.js
 var RIGHTBAR_ATTRIBUTES = ["data-rightbar-collapsed", "data-rightbar-fullscreen"];
 function rightColumnOpen(doc) {
@@ -44669,6 +45224,7 @@ function apply(ctx) {
     });
   }
   const face = () => ({ actions, hooks: { roster, ui: ui2, activity, work, memoryNews, registry, turnClock, live, computer, cards, heldCards, browserPages, browserTabs, browserHolds, surface, update, frame, sidebarPref, settingsShellHeld } });
+  ctx.effect(() => installCommandActions(ctx, { roster, actions }), "ds-bot: bot command actions");
   ctx.effect(() => {
     const offStyles = installCompiledStyles(SETTINGS_SHELL_CSS, "settings-shell");
     settingsShell = installSettingsShell(ctx, { face, actions, ui: ui2, held: settingsShellHeld });

@@ -8,8 +8,7 @@ import { ChangesCard } from './changes-card.js'
 import { goalEventText } from './goal.js'
 import { colorOf, toolState, BotMark, RoomAvatar } from './mark.js'
 import { CellEmpty } from './cell-empty.js'
-import { sendsOnEnter } from './enter-key.js'
-import { SettledQuestion, PendingQuestion } from './questions.js'
+import { AskUserCell, SettledQuestion } from './questions.js'
 import { AnsweredReply, ClosedView, WidgetCell } from './widget-cell.js'
 import { SecretToolCell } from './secret-card.js'
 import { ConnectorToolCell, MailToolCell } from './connectors.js'
@@ -23,7 +22,6 @@ import { parseReplies, relayRange, stackReplies } from '../shared/group-replies.
 import { FOLD_AT, FOLD_HUGE, stripLongNote, useFold } from './fold.js'
 import { ReplyGuide } from './reading.js'
 import { noHover, useViewport, viewBottom } from './motion.js'
-import { heldCardKey } from './sources.js'
 import { BtwCardView } from './btw.js'
 import { partIndexOf, withBtwRows } from './btw-model.js'
 import { ViaTag } from './user-message.js'
@@ -1200,19 +1198,8 @@ function renderCall(call, { sessionId, roster, actions, useUi, useWork, findBot,
       const room = roster.rooms.find(entry => entry.name === name)
       return h(GroupEvent, { prefix: t(verbs[0]), room: tool === 'delete_group' ? undefined : room, name, roster, actions })
     }
-    case 'ask_user': {
-      const question = roster.questions?.[sessionId]
-      if (!question || (question.callSessionId ?? sessionId) !== sessionId || question.callId !== call.callId) {
-        // Dismissed or answered by a message: the card stays here, read-only.
-        // Answered on the card: its reply message carries it, so no gap here.
-        const closed = roster.closedCards?.[sessionId]?.[call.callId]
-        if (closed === undefined) return h(CellEmpty, { className: 'bt-q-gone' })
-        const asked = { question: arg('question') ?? '', detail: arg('detail'), options: argValue('options') ?? [], multiSelect: argValue('multiSelect') === true }
-        return h('div', { className: 'bt-q-inline' }, h(SettledQuestion, { question: asked, closed }))
-      }
-      if (heldCards?.[heldCardKey('question', question.id)] > 0) return h(CellEmpty)
-      return h(PendingQuestion, { key: JSON.stringify([sessionId, question.id]), sessionId, question, actions, inline: true, enterToSend: sendsOnEnter(roster.prefs) })
-    }
+    case 'ask_user':
+      return h(AskUserCell, { sessionId, callId: call.callId, arg, argValue, roster, actions, heldCards })
     case 'show_view':
       return h(WidgetCell, { sessionId, callId: call.callId, args: { text: arg, value: argValue }, done, isError: call.isError, roster, actions, heldCards })
     case 'request_secret':
