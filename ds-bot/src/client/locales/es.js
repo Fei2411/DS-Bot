@@ -1,6 +1,7 @@
 // Spanish (es) localization for DS Bot client and DSH settings namespaces.
 
 export const ES = {
+  'A new reply is waiting': "Tienes una nueva respuesta",
   'Opening…': 'Abriendo…',
   'Still opening…': 'Sigue abriendo…',
   "Android beta": "Android beta",
@@ -742,6 +743,11 @@ export const ES = {
   Pin: 'Fijar',
   Pinned: 'Fijado',
   'Mark as Unread': 'Marcar como no leído',
+  'Mute notifications': 'Silenciar notificaciones',
+  'Unmute notifications': 'Reactivar notificaciones',
+  Notifications: 'Notificaciones',
+  'Tell me when a Bot answers while I am looking elsewhere.': 'Avísame cuando un Bot responda mientras miro otra cosa.',
+  'System notifications are turned off for DS Bot. Unread marks still show them.': 'Las notificaciones del sistema están desactivadas para DS Bot. Las marcas de no leído siguen apareciendo.',
   'Rename Bot': 'Renombrar Bot',
   'Group settings': 'Ajustes del grupo',
   'Shared to-do': 'Tareas compartidas',
