@@ -48,17 +48,17 @@ export function Bubbles({ texts, roster, selfId, actions, streaming, sessionId, 
     actions.openSession(target)
   }
   const reactions = useUi ? useUi(state => (msgKey ? state.reactions?.[msgKey] ?? null : null)) : null
+  // A text keeps its original index for reactions even when its duplicate is hidden.
+  const shown = texts.flatMap((text, index) => (index > 0 && text === texts[index - 1] ? [] : [{ text, index }]))
+  const last = shown.length - 1
   return h('div', { className: 'bt-astack', 'data-lead': lead ? '' : undefined, onClickCapture: onClick },
-    texts.map((text, index) => {
-      const last = index === texts.length - 1
-      return h(Bubble, {
-        key: index, text, index, roster, selfId, actions, sessionId, msgKey, mentions, fold, textInteractionSource,
-        picked: msgKey ? reactions?.[index] ?? [] : [],
-        live: streaming && last,
-        lead: lead && last ? lead : null,
-        whole: last ? whole : undefined,
-      })
-    }),
+    shown.map(({ text, index }, position) => h(Bubble, {
+      key: index, text, index, roster, selfId, actions, sessionId, msgKey, mentions, fold, textInteractionSource,
+      picked: msgKey ? reactions?.[index] ?? [] : [],
+      live: streaming && position === last,
+      lead: lead && position === last ? lead : null,
+      whole: position === last ? whole : undefined,
+    })),
     Number.isFinite(time) ? h('div', { className: 'bt-utime', title: clockLabel(time) }, messageClock(time)) : null)
 }
 

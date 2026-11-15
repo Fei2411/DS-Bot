@@ -28,11 +28,32 @@ runInNewContext(bundle.outputFiles[0].text, {
   },
   queueMicrotask,
 })
-const { ChatRows, ThinkingRow, syncGroupChains, claimLines, GroupMessage, TriggerCell } = module.exports
+const { Bubbles, ChatRows, ThinkingRow, syncGroupChains, claimLines, GroupMessage, TriggerCell } = module.exports
 
 const roster = { byId: { b: { id: 'b', name: 'Writer' } }, roomsById: {} }
 const MINUTE = 60_000
 const shape = rows => [...rows].map(row => (row.props.className === 'bt-time-sep' ? 'clock' : row.type.name === 'Bubbles' ? `bot:${row.props.texts.join('+')}` : row.type.name))
+
+test('adjacent identical bubbles are hidden without changing message indices', () => {
+  const tree = Bubbles({
+    texts: ['...', '...', 'other', '...', '...'], roster, selfId: 'b', actions: {}, msgKey: 'room:1',
+    useUi: select => select({ reactions: { 'room:1': { 0: ['👍'], 2: ['❤️'], 3: ['😂'] } } }),
+    streaming: true, lead: 'avatar',
+  })
+  const bubbles = tree.children.filter(child => child?.type?.name === 'Bubble')
+  assert.deepEqual(bubbles.map(bubble => [bubble.props.text, bubble.props.index, bubble.props.key]), [
+    ['...', 0, 0], ['other', 2, 2], ['...', 3, 3],
+  ])
+  assert.deepEqual(bubbles.map(bubble => bubble.props.picked), [['👍'], ['❤️'], ['😂']])
+  assert.deepEqual(bubbles.map(bubble => bubble.props.live), [false, false, true])
+  assert.deepEqual(bubbles.map(bubble => bubble.props.lead), [null, null, 'avatar'])
+})
+
+test('identical bubble text with different whitespace is not a duplicate', () => {
+  const tree = Bubbles({ texts: ['...', '... ', '...\n'], roster, selfId: 'b', actions: {} })
+  const bubbles = tree.children.filter(child => child?.type?.name === 'Bubble')
+  assert.deepEqual(bubbles.map(bubble => bubble.props.index), [0, 1, 2])
+})
 
 test('a Bot\'s messages in a row are one block', () => {
   const items = [
