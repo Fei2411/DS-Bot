@@ -43549,6 +43549,121 @@ function needsIdleSample(computer, settings) {
   return Object.values(computer?.bots ?? {}).some((entry) => entry?.waitingFor === "user-idle") || Object.values(settings?.bots ?? {}).some((bot) => bot?.level === "foreground");
 }
 
+// src/client/motion-rest.js
+var REST_MS = 3e4;
+var INPUTS2 = ["pointermove", "pointerdown", "keydown", "wheel", "touchstart"];
+var CHANGES = ["animationstart", "animationcancel", "animationend"];
+var isLoop = (animation) => animation?.effect?.getTiming?.().iterations === Infinity;
+function installMotionRest({ doc = document, win = window, restMs = REST_MS, now = () => Date.now() } = {}) {
+  if (typeof doc?.getAnimations !== "function") return () => {
+  };
+  const loops = /* @__PURE__ */ new Map();
+  const held = /* @__PURE__ */ new Set();
+  const watched = /* @__PURE__ */ new Map();
+  const inView = /* @__PURE__ */ new WeakMap();
+  let last = now();
+  let resting = doc.hidden === true;
+  let timer = 0;
+  let queued = false;
+  let stopped = false;
+  const runs = (animation) => !resting && inView.get(loops.get(animation)) !== false;
+  const apply2 = () => {
+    for (const animation of loops.keys()) {
+      if (runs(animation)) {
+        if (held.delete(animation) && animation.playState === "paused") animation.play();
+      } else if (animation.playState === "running") {
+        animation.pause();
+        held.add(animation);
+      }
+    }
+  };
+  const observer = typeof win.IntersectionObserver === "function" ? new win.IntersectionObserver((entries2) => {
+    for (const entry of entries2) inView.set(entry.target, entry.isIntersecting);
+    apply2();
+  }) : null;
+  const watch = (element) => {
+    const count = watched.get(element) ?? 0;
+    watched.set(element, count + 1);
+    if (count === 0) observer?.observe(element);
+  };
+  const unwatch = (element) => {
+    const count = (watched.get(element) ?? 1) - 1;
+    if (count > 0) {
+      watched.set(element, count);
+      return;
+    }
+    watched.delete(element);
+    inView.delete(element);
+    observer?.unobserve(element);
+  };
+  const sync = () => {
+    queued = false;
+    if (stopped) return;
+    const current = new Set(doc.getAnimations().filter(isLoop));
+    for (const [animation, element] of loops) {
+      if (current.has(animation)) continue;
+      loops.delete(animation);
+      held.delete(animation);
+      if (element) unwatch(element);
+    }
+    for (const animation of current) {
+      if (loops.has(animation)) continue;
+      const element = animation.effect?.target ?? null;
+      loops.set(animation, element);
+      if (element) watch(element);
+    }
+    apply2();
+  };
+  const later = () => {
+    if (queued) return;
+    queued = true;
+    void Promise.resolve().then(sync);
+  };
+  const check = () => {
+    timer = 0;
+    const left = last + restMs - now();
+    if (left > 0) {
+      timer = win.setTimeout(check, left);
+      return;
+    }
+    resting = true;
+    apply2();
+  };
+  const touch = () => {
+    last = now();
+    if (!timer) timer = win.setTimeout(check, restMs);
+    if (resting && doc.hidden !== true) {
+      resting = false;
+      sync();
+    }
+  };
+  const shown = () => {
+    if (doc.hidden === true) {
+      resting = true;
+      apply2();
+    } else touch();
+  };
+  for (const type of INPUTS2) win.addEventListener(type, touch, { capture: true, passive: true });
+  win.addEventListener("focus", touch);
+  doc.addEventListener("visibilitychange", shown);
+  for (const type of CHANGES) doc.addEventListener(type, later, true);
+  timer = win.setTimeout(check, restMs);
+  sync();
+  return () => {
+    stopped = true;
+    for (const type of INPUTS2) win.removeEventListener(type, touch, { capture: true });
+    win.removeEventListener("focus", touch);
+    doc.removeEventListener("visibilitychange", shown);
+    for (const type of CHANGES) doc.removeEventListener(type, later, true);
+    if (timer) win.clearTimeout(timer);
+    observer?.disconnect();
+    for (const animation of held) if (animation.playState === "paused") animation.play();
+    held.clear();
+    loops.clear();
+    watched.clear();
+  };
+}
+
 // src/client/agent-new.js
 function agentSessionToReuse(list, latest, pending) {
   if (pending !== void 0 && list.byId[pending] === void 0) return pending;
@@ -43853,6 +43968,7 @@ function apply(ctx) {
   ctx.effect(() => () => {
     markupCache.clear();
   }, "ds-bot: character markup");
+  ctx.effect(() => installMotionRest(), "ds-bot: motion rest");
   const installMentions = () => {
     const style = installStyles("", "mentions");
     let last = "";
