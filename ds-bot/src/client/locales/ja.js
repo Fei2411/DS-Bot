@@ -1,6 +1,7 @@
 // Japanese (ja) localization for DS Bot client and DSH settings namespaces.
 
 export const JA = {
+  'A new reply is waiting': "新しい返信があります",
   "Opening…": "開いています…",
   "Still opening…": "まだ開いています…",
   "Android beta": "Android ベータ版",
@@ -741,6 +742,11 @@ export const JA = {
   "Pin": "ピン留め",
   "Pinned": "ピン留め済み",
   "Mark as Unread": "未読にする",
+  "Mute notifications": "通知をミュート",
+  "Unmute notifications": "通知のミュートを解除",
+  "Notifications": "通知",
+  "Tell me when a Bot answers while I am looking elsewhere.": "別の場所を見ている間に Bot が返信したら知らせる。",
+  "System notifications are turned off for DS Bot. Unread marks still show them.": "DS Bot のシステム通知はオフになっています。未読の印は表示されます。",
   "Rename Bot": "Bot の名前を変更",
   "Group settings": "グループ設定",
   "Shared to-do": "共有 ToDo",

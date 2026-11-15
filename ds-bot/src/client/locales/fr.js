@@ -1,6 +1,7 @@
 // French (fr) localization for DS Bot client and DSH settings namespaces.
 
 export const FR = {
+  'A new reply is waiting': "Une nouvelle réponse vous attend",
   "Opening…": "Ouverture…",
   "Still opening…": "Toujours en cours d’ouverture…",
   "Android beta": "Android bêta",
@@ -741,6 +742,11 @@ export const FR = {
   "Pin": "Épingler",
   "Pinned": "Épinglé",
   "Mark as Unread": "Marquer comme non lu",
+  "Mute notifications": "Mettre les notifications en sourdine",
+  "Unmute notifications": "Réactiver les notifications",
+  "Notifications": "Notifications",
+  "Tell me when a Bot answers while I am looking elsewhere.": "Prévenez-moi quand un Bot répond pendant que je regarde ailleurs.",
+  "System notifications are turned off for DS Bot. Unread marks still show them.": "Les notifications système sont désactivées pour DS Bot. Les marques de non-lu restent visibles.",
   "Rename Bot": "Renommer le Bot",
   "Group settings": "Paramètres du groupe",
   "Shared to-do": "Tâches partagées",

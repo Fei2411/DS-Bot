@@ -1,6 +1,7 @@
 // German (de) localization for DS Bot client and DSH settings namespaces.
 
 export const DE = {
+  'A new reply is waiting': "Eine neue Antwort wartet auf dich",
   'Opening…': 'Wird geöffnet…',
   'Still opening…': 'Wird noch geöffnet…',
   "Android beta": "Android-Beta",
@@ -741,6 +742,11 @@ export const DE = {
   Pin: 'Anheften',
   Pinned: 'Angeheftet',
   'Mark as Unread': 'Als ungelesen markieren',
+  'Mute notifications': 'Benachrichtigungen stummschalten',
+  'Unmute notifications': 'Benachrichtigungen wieder einschalten',
+  Notifications: 'Benachrichtigungen',
+  'Tell me when a Bot answers while I am looking elsewhere.': 'Sag mir Bescheid, wenn ein Bot antwortet, während ich woanders hinsehe.',
+  'System notifications are turned off for DS Bot. Unread marks still show them.': 'Systembenachrichtigungen sind für DS Bot ausgeschaltet. Ungelesen-Markierungen bleiben sichtbar.',
   'Rename Bot': 'Bot umbenennen',
   'Group settings': 'Gruppeneinstellungen',
   'Shared to-do': 'Gemeinsame To-dos',
