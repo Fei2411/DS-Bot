@@ -79,7 +79,7 @@ export class AcpEngine {
     return new AcpEngine(
       this.route,
       { ...this.engine, cwdPerProcess: false, ...(cwd ? { spawnCwd: cwd } : {}) },
-      { findExecutable: this.findExecutable, defaultEfforts: this.defaultEfforts, sessionEfforts: this.sessionEfforts },
+      { findExecutable: this.findExecutable, defaultEfforts: new Map(this.defaultEfforts), sessionEfforts: this.sessionEfforts },
     )
   }
 
@@ -378,7 +378,7 @@ export class AcpEngine {
       const priorEffort = loadedEffort ?? openArgs.effort ?? this.sessionEfforts.get(session.acpSessionId)
       const resetDefault = switchedEffort !== undefined && (priorEffort === undefined || switchedEffort !== priorEffort) ? switchedEffort : undefined
       if (resetDefault !== undefined && modelKey !== '') this.defaultEfforts.set(modelKey, resetDefault)
-      session.defaultEffort = resetDefault ?? this.defaultEfforts.get(modelKey) ?? openArgs.defaultEffort ?? this.defaultEfforts.get('') ?? loadedEffort
+      session.defaultEffort = resetDefault ?? openArgs.defaultEffort ?? this.defaultEfforts.get(modelKey) ?? this.defaultEfforts.get('') ?? loadedEffort
       const currentEffort = switchedEffort ?? priorEffort
       session.effort = currentEffort !== undefined && currentEffort !== session.defaultEffort ? currentEffort : undefined
       this.setSessionEffort(session.acpSessionId, session.effort)

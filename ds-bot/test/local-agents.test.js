@@ -27,7 +27,7 @@ const system = (id, text) => ({ id, role: 'system', content: [{ type: 'text', te
 const toolResult = (id, callId, text, isError = false) => ({ id, role: 'tool', content: [{ type: 'text', text }], toolCallId: callId, isError, source: { kind: 'tool', callId } })
 
 // An adapter wired to the fake CLIs: every engine route spawns `node fixture`.
-function makeAdapter({ records = {}, preset = 'workspace-write', acp = FIXTURES.acp, acpArgs = [], codex = FIXTURES.codex, codexArgs = [], claude = FIXTURES.claude, claudeArgs = [] } = {}) {
+function makeAdapter({ records = {}, preset = 'workspace-write', acp = FIXTURES.acp, acpArgs = [], codex = FIXTURES.codex, codexArgs = [], claude = FIXTURES.claude, claudeArgs = [], cwdFor } = {}) {
   const files = { acp, codex, claude }
   const spawned = []
   const adapter = new LocalAgentAdapter({
@@ -44,7 +44,7 @@ function makeAdapter({ records = {}, preset = 'workspace-write', acp = FIXTURES.
     record: sessionId => records[sessionId],
     saveRecord: (sessionId, record) => { records[sessionId] = record },
     presetFor: typeof preset === 'function' ? preset : () => preset,
-    cwdFor: async () => mkdtempSync(join(tmpdir(), 'dsb-cwd-')),
+    cwdFor: cwdFor ?? (async () => mkdtempSync(join(tmpdir(), 'dsb-cwd-'))),
     probeCwd: () => mkdtempSync(join(tmpdir(), 'dsb-probe-')),
     toolsFor: () => [{ name: 'message_bot', description: 'Message another Bot', parameters: { type: 'object', properties: { bot: { type: 'string' }, text: { type: 'string' } } } }],
   })
@@ -1344,4 +1344,38 @@ test('ACP compaction clears persisted effort so Host restart reapplies reasoning
   const t2 = await collect(second.stream(options('s1', [user('m1', 'show-state'), user('m2', 'show-state')], { reasoningEffort: 'high' })))
   assert.match(t2.text, /effort: high/)
   assert.equal(records.s1?.effort, 'high')
+})
+
+test('resuming an ACP session keeps its saved defaultEffort over another workspace default for the same model', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsb-ws-effort-'))
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  const lowWs = join(dir, 'low-ws')
+  const normalWs = join(dir, 'normal-ws')
+  mkdirSync(lowWs, { recursive: true })
+  mkdirSync(normalWs, { recursive: true })
+  const records = {}
+  const stateFile = join(dir, 'state.json')
+  const args = ['--thought-levels', '--load-thought-level', '--preserve-thought-on-model', `--state-file=${stateFile}`]
+  const cwdFor = async id => (id === 'sA' ? lowWs : normalWs)
+  const first = makeAdapter({ records, acpArgs: args, cwdFor })
+  const second = makeAdapter({ records, acpArgs: args, cwdFor })
+  t.after(async () => {
+    await first.dispose()
+    await second.dispose()
+  })
+
+  const a1 = await collect(first.stream(options('sA', [user('m1', 'show-state')], { model: 'fake-large', reasoningEffort: 'high' })))
+  assert.match(a1.text, /effort: high/)
+  assert.equal(records.sA?.defaultEffort, 'low')
+  assert.equal(records.sA?.effort, 'high')
+  await first.dispose()
+
+  const b1 = await collect(second.stream(options('sB', [user('m1', 'show-state')], { model: 'fake-large' })))
+  assert.match(b1.text, /effort: medium/)
+  assert.equal(records.sB?.defaultEffort, 'medium')
+
+  const a2 = await collect(second.stream(options('sA', [user('m1', 'show-state'), user('m2', 'show-state')], { model: 'fake-large' })))
+  assert.match(a2.text, /effort: low/)
+  assert.equal(records.sA?.defaultEffort, 'low')
+  assert.equal(records.sA?.effort, undefined)
 })

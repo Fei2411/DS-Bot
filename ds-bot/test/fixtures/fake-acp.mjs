@@ -32,6 +32,7 @@ const thoughtLevels = process.argv.includes('--thought-levels')
 const legacyModels = process.argv.includes('--legacy-models')
 const loadThoughtLevel = process.argv.includes('--load-thought-level')
 const modelResetsThought = process.argv.includes('--model-resets-thought')
+const preserveThoughtOnModel = process.argv.includes('--preserve-thought-on-model')
 const stateFile = process.argv.find(arg => arg.startsWith('--state-file='))?.slice('--state-file='.length)
 const omitMcpCaps = process.argv.includes('--omit-mcp-caps')
 const rejectHttpMcp = process.argv.includes('--reject-http-mcp')
@@ -296,7 +297,8 @@ process.stdin.on('data', (chunk) => {
         if (server?.command !== undefined && (server.type !== undefined || !Array.isArray(server.env))) {
           fail(id, 'Invalid params: McpServerStdio malformed'); break
         }
-        const session = { id: `acp-${++nextId}`, mcp: undefined, mode: MODES[0], thoughtLevel: 'medium', ...(legacyModels ? { model: 'legacy-std' } : {}) }
+        const defaultThought = String(params.cwd ?? '').includes('low-ws') ? 'low' : 'medium'
+        const session = { id: `acp-${++nextId}`, mcp: undefined, mode: MODES[0], thoughtLevel: defaultThought, ...(legacyModels ? { model: 'legacy-std' } : {}) }
         if (server !== undefined) {
           session.mcp = server.command !== undefined
             ? { command: server.command, args: server.args ?? [], env: server.env }
@@ -308,7 +310,7 @@ process.stdin.on('data', (chunk) => {
         update(session.id, { sessionUpdate: 'available_commands_update', availableCommands: [{ name: 'status', description: 'Show status' }, ...(listsCompact ? [{ name: 'compact', description: 'Force conversation compaction' }] : [])] })
         const configOptions = [
           ...(legacyModels ? [] : [{ id: 'model', category: 'model', name: 'Model', options: [{ id: 'fake-large', name: 'Fake Large' }, { id: 'fake-small', name: 'Fake Small' }] }]),
-          ...(thoughtLevels ? [{ id: 'thought_level', category: 'thought_level', name: 'Thinking Level', currentValue: 'medium', options: [{ value: 'low', name: 'Low' }, { value: 'medium', name: 'Medium' }, { value: 'high', name: 'High' }] }] : []),
+          ...(thoughtLevels ? [{ id: 'thought_level', category: 'thought_level', name: 'Thinking Level', currentValue: defaultThought, options: [{ value: 'low', name: 'Low' }, { value: 'medium', name: 'Medium' }, { value: 'high', name: 'High' }] }] : []),
           { id: 'mode', category: 'mode', name: 'Mode', currentValue: MODES[0], options: MODES.map(value => ({ value, name: value })) },
         ]
         const models = legacyModels ? {
@@ -361,8 +363,8 @@ process.stdin.on('data', (chunk) => {
           if (params.configId === 'model') {
             const session = sessions.get(params.sessionId)
             session.model = params.value
-            if (modelResetsThought) {
-              session.thoughtLevel = params.value === 'fake-small' ? 'low' : 'medium'
+            if (modelResetsThought || preserveThoughtOnModel) {
+              if (modelResetsThought) session.thoughtLevel = params.value === 'fake-small' ? 'low' : 'medium'
               saveSaved()
               reply(id, { configOptions: [{ id: 'thought_level', category: 'thought_level', name: 'Thinking Level', currentValue: session.thoughtLevel, options: [{ value: 'low', name: 'Low' }, { value: 'medium', name: 'Medium' }, { value: 'high', name: 'High' }] }] })
               break
