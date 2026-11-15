@@ -13,11 +13,13 @@ import { adapters } from '../src/host/im/platforms/index.js'
 const fakeAdapter = ({ buttons = true } = {}) => {
   const sent = []
   const edited = []
+  const typed = []
   const fails = []
   const adapter = {
     id: 'fake',
     sent,
     edited,
+    typed,
     handlers: null,
     async check(fields) {
       if (fields.token === 'bad-token') throw new Error('platform refused the token')
@@ -36,7 +38,7 @@ const fakeAdapter = ({ buttons = true } = {}) => {
           return { messageId: sent.length }
         },
         edit: async (chat, messageId, body) => { edited.push({ chat, messageId, ...body }) },
-        typing: async () => {},
+        typing: async (chat) => { typed.push(chat) },
         stop: () => { adapter.stopped = (adapter.stopped ?? 0) + 1 },
       }
     },
@@ -140,6 +142,22 @@ test('two concurrent syncs start exactly one adapter', async (t) => {
   await s.flush()
   assert.equal(s.fake.connects, 1)
   assert.equal(s.rt.imStatusView()[conn.id].state, 'ready')
+})
+
+test('typing carries the chat key, not the chat record', async (t) => {
+  t.mock.timers.enable({ apis: ['setInterval'] })
+  const s = await start()
+  t.after(s.stop)
+  const conn = await add(s)
+  const one = s.rt.state.im.connections[conn.id]
+  one.paired.push({ id: 'u1', name: 'U1', at: 1 })
+  await s.rt.save()
+  await dm(s, 'u1', 'hi')
+  s.imTurn('a')
+  t.mock.timers.tick(4000)
+  await s.flush()
+  assert.ok(s.fake.typed.length > 0, 'typing is sent while the turn runs')
+  assert.deepEqual(s.fake.typed[0], { key: 'dm-u1', kind: 'direct', title: 'u1' })
 })
 
 test('im-update applies only the fields it is given and keeps the rest', async (t) => {
