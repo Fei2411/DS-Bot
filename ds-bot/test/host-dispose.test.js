@@ -104,3 +104,13 @@ test('a model catalog asked for after the host is gone returns its last answer',
   // Fresh would list providers again; a disposed host reads no service for it.
   await assert.doesNotReject(() => rt.catalog({ fresh: true }))
 })
+
+
+test('unloading only DS Bot stops its model work while the parent LLM stays available', async (t) => {
+  const { root, fork, rt } = await startHost(t, { listDelayMs: 80 })
+  await rt.channelCall('state', {})
+  await fork.dispose()
+  assert.ok(root.get('llm'), 'the parent service is still live')
+  assert.equal(rt.hostClosing(), true)
+  await assert.doesNotReject(() => rt.catalog({ fresh: true }))
+})

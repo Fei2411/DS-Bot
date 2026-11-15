@@ -104,9 +104,10 @@ export async function assembleLlmStream(ctx, options, { signal, backoff, random 
 export function install(rt) {
   const { ctx, state } = rt
 
+  let closing = false
   let modelsSynced = null
   // A model service that cannot be read means the host is going away.
-  const llm = () => serviceOf(ctx, 'llm')
+  const llm = () => closing ? undefined : serviceOf(ctx, 'llm')
   let catalogCache = { at: 0, value: [] }
   // Routes DSH serves that cannot answer a request at all — a hosted loop engine
   // publishes one so its Sessions can be prompted. Once one refuses with
@@ -333,6 +334,7 @@ export function install(rt) {
   const sessionSelections = new Map()
   function selectSessionModel(sessionId, { provider, model, reasoningEffort }) {
     const run = selecting.then(async () => {
+      if (llm() === undefined) return
       const defaults = ctx.get?.('agentDefaultModel')
       const before = defaults?.currentSelection?.()
       const result = await ctx.sessionController.selectModel({
@@ -340,6 +342,7 @@ export function install(rt) {
         ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
       })
       const saved = result?.selected ?? { provider, model, ...(reasoningEffort === undefined ? {} : { reasoningEffort }) }
+      if (llm() === undefined) return result
       if (before?.provider && before?.model && !sameSelection(before, saved)) {
         await defaults.saveSelection(before).catch(error => rt.warn('ds-bot: the default model was not restored: %s', error))
       }
@@ -359,6 +362,7 @@ export function install(rt) {
     const ref = await desiredModel(bot)
     if (ref === undefined) return ref
     const effort = await desiredEffort(bot, ref)
+    if (llm() === undefined) return
     const ownChanged = force || bot.appliedModel !== ref || (bot.appliedEffort ?? undefined) !== effort
     const route = { ...splitRef(ref), ...(effort === undefined ? {} : { reasoningEffort: effort }) }
     if (ownChanged) await selectSessionModel(rt.chatOf(bot.id), route)
@@ -368,7 +372,7 @@ export function install(rt) {
       await selectSessionModel(sessionId, route)
         .catch(error => rt.warn('ds-bot: model for %s in a group not applied: %s', bot.name, error))
     }
-    if (!ownChanged) return ref
+    if (llm() === undefined || !ownChanged) return ref
     bot.appliedModel = ref
     if (effort === undefined) delete bot.appliedEffort
     else bot.appliedEffort = effort
@@ -432,7 +436,7 @@ export function install(rt) {
   }
 
   const lifetime = new AbortController()
-  ctx.effect?.(() => () => { lifetime.abort() }, 'ds-bot: auxiliary llm retry')
+  ctx.effect?.(() => () => { closing = true; lifetime.abort() }, 'ds-bot: auxiliary llm retry')
   const assembleLlm = options => assembleLlmStream(ctx, options, { signal: lifetime.signal, backoff: rt.config?.llmRetryBackoff })
 
   Object.assign(rt, {
