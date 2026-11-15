@@ -2,7 +2,7 @@
 // JSON-RPC process per route that multiplexes threads. DS Bot Sessions map to
 // threads; turns stream item notifications back.
 import { JsonRpcPeer, wireProcess, EventQueue } from './jsonrpc.js'
-import { cleanEnv, findEngineExecutable, spawnAgent } from './discover.js'
+import { cleanEnv, findEngineExecutable, spawnAgent, terminateChild } from './discover.js'
 
 // The name the loopback MCP server is registered under in each thread's config.
 const MCP_SERVER = 'dsbot'
@@ -14,6 +14,7 @@ export class CodexEngine {
     this.findExecutable = findExecutable
     this.child = undefined
     this.peer = undefined
+    this.starting = undefined
     this.threads = new Map()
   }
 
@@ -30,7 +31,19 @@ export class CodexEngine {
   }
 
   async ensure() {
+    // A peer exists before its handshake has finished; other callers wait for it.
+    if (this.starting !== undefined) return this.starting
     if (this.peer !== undefined) return this.peer
+    const starting = this.startPeer()
+    this.starting = starting
+    try {
+      return await starting
+    } finally {
+      if (this.starting === starting) this.starting = undefined
+    }
+  }
+
+  async startPeer() {
     const bin = findEngineExecutable(this.engine, name => this.findExecutable(name))
     if (bin === undefined) throw Object.assign(new Error(`${this.engine.name} is not installed`), { code: 'NO_ADAPTER' })
     const child = spawnAgent(bin, this.engine.args ?? [], {
@@ -58,9 +71,22 @@ export class CodexEngine {
     child.on('error', error => gone(Object.assign(new Error(`${this.engine.name} could not start: ${error.message}`), { code: 'LOCAL_AGENT_EXIT' })))
     peer.notificationHandler = (method, params) => this.onNotice(method, params)
     peer.requestHandler = (method, params) => this.onRequest(method, params)
-    await peer.request('initialize', { clientInfo: { name: 'ds-bot', title: null, version: '1' } }, { timeout: 30_000 })
-    peer.notify('initialized', {})
-    return peer
+    try {
+      await peer.request('initialize', { clientInfo: { name: 'ds-bot', title: null, version: '1' } }, { timeout: 30_000 })
+      if (this.child !== child) {
+        throw Object.assign(new Error(`${this.engine.name} closed while starting`), { code: 'LOCAL_AGENT_EXIT' })
+      }
+      peer.notify('initialized', {})
+      return peer
+    } catch (error) {
+      peer.close(error)
+      if (this.child === child) {
+        this.child = undefined
+        this.peer = undefined
+        terminateChild(child)
+      }
+      throw error
+    }
   }
 
   onNotice(method, params) {
@@ -253,10 +279,8 @@ export class CodexEngine {
     const child = this.child
     this.child = undefined
     this.peer = undefined
-    if (child !== undefined) {
-      child.kill('SIGTERM')
-      setTimeout(() => { try { child.kill('SIGKILL') } catch {} }, 5_000).unref?.()
-    }
+    this.starting = undefined
+    terminateChild(child)
   }
 }
 
