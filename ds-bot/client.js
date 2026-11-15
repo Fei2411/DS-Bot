@@ -15655,12 +15655,38 @@ button.bt-q-opt:active{background:var(--bt-active)}
 .bt-q-answered .bt-q-label{color:var(--bt-ink)}
 .bt-q-answered .bt-q-opt+.bt-q-opt::before{display:none}
 .bt-q-dismissed .bt-q-title{color:var(--bt-ink-2)}
-.bt-q.bt-q-settled{gap:6px;padding:12px 16px}
+.bt-q-hold{width:100%;display:flex}
+.bt-q.bt-q-settled{position:relative;--bt-q-py:12px;--bt-q-px:16px;gap:6px;padding:var(--bt-q-py) var(--bt-q-px);transition:box-shadow .15s ease,background-color .15s ease}
+.bt-q.bt-q-settled[data-expandable]:not([data-open]){cursor:pointer}
+.bt-q.bt-q-settled[data-expandable]:not([data-open]):hover{--bt-q-edge:color-mix(in srgb,var(--bt-ink) 18%,transparent)}
+body[data-ds-dark-theme] .bt-q.bt-q-settled[data-expandable]:not([data-open]):hover{--bt-q-edge:color-mix(in srgb,var(--bt-ink) 24%,transparent)}
+.bt-q-fold{appearance:none;width:calc(100% + var(--bt-q-px) * 2);margin:calc(var(--bt-q-py) * -1) calc(var(--bt-q-px) * -1);padding:var(--bt-q-py) var(--bt-q-px);border:0;border-radius:16px;background:transparent;color:inherit;font:inherit;text-align:start;cursor:pointer;align-items:center;box-sizing:border-box;transition:background-color .12s ease}
+.bt-q-fold:focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px}
+.bt-q.bt-q-settled[data-open]>.bt-q-fold{border-radius:16px 16px 0 0}
+.bt-q.bt-q-settled[data-open]>.bt-q-fold:hover{background:color-mix(in srgb,var(--bt-hover) 55%,transparent)}
+.bt-q-chevron{flex:none;width:20px;height:20px;border-radius:6px;color:var(--bt-ink-3);display:inline-flex;align-items:center;justify-content:center;transition:transform ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing},color .12s ease}
+.bt-q.bt-q-settled:hover .bt-q-chevron{color:var(--bt-ink-2)}
+.bt-q.bt-q-settled[data-open] .bt-q-chevron{transform:rotate(180deg);color:var(--bt-ink-2)}
 .bt-q-settled .bt-q-title{font-size:14px;line-height:20px;font-weight:500}
-.bt-q.bt-q-settled>.bt-q-head:has(+.bt-q-list){padding-bottom:0;border-bottom:0}
+.bt-q.bt-q-settled>.bt-q-head:not(.bt-q-fold):has(+.bt-q-list){padding-bottom:0;border-bottom:0}
+.bt-q.bt-q-settled>.bt-q-fold:has(+.bt-q-summary){padding-bottom:6px;margin-bottom:-6px}
 .bt-q.bt-q-settled>.bt-q-head+.bt-q-list{margin-top:0}
+.bt-q-summary{margin-top:0}
+.bt-q-expand{display:flex;flex-direction:column;gap:10px;min-width:0;margin-top:6px;padding-top:10px;border-top:1px solid var(--bt-q-rule);animation:bt-expand-in .18s ease-out backwards}
+.bt-q-expand[data-leaving]{position:absolute;top:var(--bt-fold-top,44px);left:var(--bt-q-px,16px);right:var(--bt-q-px,16px);margin-top:0;z-index:1;background:var(--bt-card);pointer-events:none;animation:bt-expand-out .14s ease-out forwards}
+@keyframes bt-expand-in{from{opacity:0;transform:translateY(-4px)}}
+@keyframes bt-expand-out{to{opacity:0;transform:translateY(-4px)}}
+.bt-q-full-list .bt-q-opt{padding:6px 8px;cursor:default}
+.bt-q-full-list .bt-q-opt:not([data-chosen]) .bt-key{opacity:1;background:var(--bt-hover);color:var(--bt-ink-2)}
+.bt-q-full-list .bt-q-opt:not([data-chosen]) .bt-q-label{color:var(--bt-ink-2)}
+.bt-q-full-list .bt-q-opt[data-chosen] .bt-key{opacity:1;background:var(--bt-accent);color:var(--bt-accent-ink)}
+.bt-q-full-list .bt-q-opt[data-chosen] .bt-q-label{color:var(--bt-ink)}
+.bt-q-kv-row{display:flex;align-items:baseline;justify-content:space-between;gap:12px;padding:3px 8px;font-size:13px;line-height:18px;min-width:0}
+.bt-q-kv-key{flex:none;max-width:45%;color:var(--bt-ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bt-q-kv-val{flex:1 1 auto;min-width:0;text-align:end;color:var(--bt-ink);font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bt-q-settled .bt-q-opt{padding:4px 8px}
 .bt-q-badge{flex:none;height:20px;padding:0 7px;border-radius:999px;border:1px dotted var(--bt-line-2);color:var(--bt-ink-2);font-size:12px;line-height:18px;box-sizing:border-box}
+.bt-q-badge[data-accent]{border-style:solid;border-color:color-mix(in srgb,var(--bt-accent) 28%,transparent);background:color-mix(in srgb,var(--bt-accent) 10%,transparent);color:var(--bt-ink);font-weight:500}
 .bt-q-custom{display:flex;align-items:flex-start;gap:8px;width:100%;min-width:0}
 .bt-q-field{flex:1 1 0;min-width:0;display:flex;box-sizing:border-box;min-height:32px;padding:5px 11px;border-radius:8px;border:.5px solid var(--bt-line-2);background:none;cursor:text;transition:border-color .12s ease}
 .bt-q-field:focus-within{border-color:color-mix(in srgb,var(--bt-ink) 30%,transparent)}
@@ -15690,7 +15716,7 @@ button.bt-q-opt:active{background:var(--bt-active)}
 .bt-q-ownrow{cursor:text}
 .bt-q-ownrow .bt-q-input{color:var(--bt-ink)}
 .bt-q-raised .bt-q-foot{padding:0 8px 8px}
-@media (prefers-reduced-motion:reduce){.bt-q{animation:bt-fade .12s ease-out backwards}.bt-q-settled{animation:none}.bt-q-submit{animation:none}}
+@media (prefers-reduced-motion:reduce){.bt-q{animation:bt-fade .12s ease-out backwards}.bt-q-settled,.bt-q-submit,.bt-q-expand,.bt-q-dock[data-leaving]{animation:none}.bt-q-chevron{transition:none}}
 
 .bt-newchat{flex:1;display:flex;flex-direction:column;min-width:0;position:relative;animation:bt-veil-in .18s ease-out}
 .bt-to{display:flex;align-items:center;flex-wrap:wrap;gap:6px;min-height:48px;padding:6px calc(100% - 32px - min(550px,100% - 64px)) 6px 12px;border-bottom:1px solid var(--bt-line);font-size:14px;box-sizing:border-box}
@@ -16707,6 +16733,8 @@ div:has(> nav [class*="_marks"]){display:none!important}
 .bt-q-inline .bt-q{margin:0;max-width:min(550px,86%);order:0}
 .bt-q-dock{width:100%;display:flex;justify-content:center}
 .bt-q-dock .bt-q{margin:0 auto 8px}
+.bt-q-dock[data-leaving]{pointer-events:none;animation:bt-dock-out .15s ease-out forwards}
+@keyframes bt-dock-out{to{opacity:0;transform:translateY(6px) scale(.985)}}
 /* Phones: the conversation flow gets the whole screen instead of the desktop
    shares. A Bot message may take the width beside its avatar, a card the width of
    the flow, and long text or a wide block wraps inside it instead of running off
@@ -16717,6 +16745,7 @@ div:has(> nav [class*="_marks"]){display:none!important}
 .bt-group-msg,.bt-group-name{max-width:100%}
 [data-chat-flow] :is(pre,table){max-width:100%;overflow-x:auto}
 .bt-q{width:100%;max-width:none;padding:12px 14px;border-radius:16px}
+.bt-q.bt-q-settled{--bt-q-px:14px}
 .bt-q-inline .bt-q,.bt-q-inline .dv-view,.bt-q-inline .dv-q{width:100%;max-width:100%}
 .bt-q .bt-q-opt,.bt-q button,.bt-q-inline .dv-view button,.dv-seg.dv-view-seg button{min-height:44px}
 .bt-q-opt-label,.bt-q-inline .dv-q-label{white-space:normal;overflow-wrap:anywhere}
@@ -18180,9 +18209,93 @@ function QuestionView({ question, onAnswer, onDismiss, onInteract, busy = false,
   );
 }
 var closedLabel = (closed) => t(closed === "replied" ? "Answered by message" : "Dismissed");
+var JUST_ANSWERED_TTL = 2e3;
+var justAnswered = /* @__PURE__ */ new Map();
+var answerKey = (kind, id) => `${kind}:${id}`;
+function noteJustAnswered(kind, id, height) {
+  if (!id || typeof height !== "number" || height <= 0) return;
+  const now = Date.now();
+  for (const [key, entry] of justAnswered) {
+    if (now - entry.at >= JUST_ANSWERED_TTL) justAnswered.delete(key);
+  }
+  justAnswered.set(answerKey(kind, id), { height, at: now });
+}
+function clearJustAnswered(kind, id) {
+  if (id) justAnswered.delete(answerKey(kind, id));
+}
+function takeJustAnswered(kind, id) {
+  if (!id) return void 0;
+  const key = answerKey(kind, id);
+  const entry = justAnswered.get(key);
+  justAnswered.delete(key);
+  if (!entry || Date.now() - entry.at >= JUST_ANSWERED_TTL) return void 0;
+  return entry.height;
+}
+function useAnswerMorph(cardRef, kind, id) {
+  (0, import_react10.useLayoutEffect)(() => {
+    const from = takeJustAnswered(kind, id);
+    const node = cardRef.current;
+    if (from === void 0 || !node || reducedEffects() || typeof node.animate !== "function") return void 0;
+    const to = node.offsetHeight;
+    if (Math.abs(from - to) < 1) return void 0;
+    node.dataset.morph = "";
+    const animation = node.animate([{ height: `${from}px` }, { height: `${to}px` }], {
+      duration: SPRING_SHAPE.duration,
+      easing: SPRING_SHAPE.easing,
+      id: "bt-morph"
+    });
+    const clear = () => {
+      if (!node.getAnimations().some((other) => other.id === "bt-morph" && other !== animation)) delete node.dataset.morph;
+    };
+    animation.onfinish = clear;
+    animation.oncancel = clear;
+    return () => animation.cancel();
+  }, []);
+}
+function useFoldCard(cardRef, bodyRef, hasDetail) {
+  const [open, setOpen] = (0, import_react10.useState)(false);
+  const [leaving, setLeaving] = (0, import_react10.useState)(false);
+  const foldTopRef = (0, import_react10.useRef)(44);
+  useMorph(cardRef, open);
+  (0, import_react10.useLayoutEffect)(() => {
+    if (open && bodyRef.current) foldTopRef.current = bodyRef.current.offsetTop;
+  }, [open, hasDetail]);
+  (0, import_react10.useEffect)(() => {
+    if (open || !leaving) return void 0;
+    if (reducedMotion() || typeof setTimeout !== "function") {
+      setLeaving(false);
+      return void 0;
+    }
+    const timer = setTimeout(() => setLeaving(false), 150);
+    return () => clearTimeout(timer);
+  }, [open, leaving]);
+  const toggle = () => {
+    if (!hasDetail) return;
+    if (open && bodyRef.current) foldTopRef.current = bodyRef.current.offsetTop;
+    if (open && !reducedMotion() && typeof setTimeout === "function") setLeaving(true);
+    else setLeaving(false);
+    setOpen((value) => !value);
+  };
+  const onCardClick = (event) => {
+    if (open || !hasDetail) return;
+    if (typeof window !== "undefined" && window.getSelection?.()?.toString()) return;
+    if (event?.target?.closest?.("button, a, input, textarea, select, label")) return;
+    setLeaving(false);
+    setOpen(true);
+  };
+  return {
+    open,
+    showBody: (open || leaving) && hasDetail,
+    leaving: !open && leaving && hasDetail,
+    foldTop: foldTopRef.current,
+    toggle,
+    onCardClick
+  };
+}
 function SettledQuestion({ question, answer, closed }) {
   const options = optionsOf(question);
-  const prompt = question?.question ?? "";
+  const prompt = question?.question || question?.header || "";
+  const detail = typeof question?.detail === "string" ? question.detail.trim() : "";
   const selected = Array.isArray(answer?.selected) ? answer.selected : [];
   const custom = typeof answer?.custom === "string" ? answer.custom.trim() : "";
   const answered = closed === void 0 && (selected.length > 0 || custom !== "");
@@ -18190,21 +18303,94 @@ function SettledQuestion({ question, answer, closed }) {
     ...selected.map((label) => ({ label, at: options.findIndex((option) => option.label === label) })),
     ...custom !== "" ? [{ label: custom, at: options.length }] : []
   ] : [];
+  const hasDetail = detail !== "" || (answered ? options.some((option) => typeof option?.description === "string" && option.description.trim() !== "" || !selected.includes(option.label)) : options.length > 0);
+  const cardRef = (0, import_react10.useRef)(null);
+  const bodyRef = (0, import_react10.useRef)(null);
+  useAnswerMorph(cardRef, "question", question?.id);
+  const fold = useFoldCard(cardRef, bodyRef, hasDetail);
+  const badge = answered ? null : (0, import_react10.createElement)("span", { className: "bt-q-badge" }, closedLabel(closed));
+  const head = hasDetail ? (0, import_react10.createElement)(
+    "button",
+    {
+      type: "button",
+      className: "bt-q-head bt-q-fold",
+      "aria-expanded": fold.open,
+      title: fold.open ? t("Show less") : t("Show more"),
+      onClick: fold.toggle
+    },
+    (0, import_react10.createElement)("span", { className: "bt-q-text" }, prompt ? (0, import_react10.createElement)("span", { className: "bt-q-title" }, prompt) : null),
+    badge,
+    (0, import_react10.createElement)("span", { className: "bt-q-chevron", "aria-hidden": true }, (0, import_react10.createElement)(ChevronDownIcon))
+  ) : (0, import_react10.createElement)(
+    "div",
+    { className: "bt-q-head" },
+    (0, import_react10.createElement)("div", { className: "bt-q-text" }, prompt ? (0, import_react10.createElement)("p", { className: "bt-q-title" }, prompt) : null),
+    badge
+  );
   return (0, import_react10.createElement)(
     "div",
-    { className: answered ? "bt-q bt-q-settled bt-q-answered" : "bt-q bt-q-settled bt-q-dismissed", role: "group", "aria-label": prompt },
-    (0, import_react10.createElement)(
-      "div",
-      { className: "bt-q-head" },
-      (0, import_react10.createElement)("div", { className: "bt-q-text" }, prompt ? (0, import_react10.createElement)("p", { className: "bt-q-title" }, prompt) : null),
-      answered ? null : (0, import_react10.createElement)("span", { className: "bt-q-badge" }, closedLabel(closed))
-    ),
-    chosen.length > 0 ? (0, import_react10.createElement)("div", { className: "bt-q-list", role: "group", "aria-label": t("Your answer") }, chosen.map(({ label, at }, index) => (0, import_react10.createElement)(
+    {
+      ref: cardRef,
+      className: answered ? "bt-q bt-q-settled bt-q-answered" : "bt-q bt-q-settled bt-q-dismissed",
+      "data-open": fold.open ? "" : void 0,
+      "data-expandable": hasDetail ? "" : void 0,
+      role: "group",
+      "aria-label": prompt,
+      onClick: hasDetail && !fold.open ? fold.onCardClick : void 0
+    },
+    head,
+    !fold.open && chosen.length > 0 ? (0, import_react10.createElement)("div", { className: "bt-q-list bt-q-summary", role: "group", "aria-label": t("Your answer") }, chosen.map(({ label, at }, index) => (0, import_react10.createElement)(
       "div",
       { key: `${label}-${index}`, className: "bt-q-opt", title: t("Selected") },
       at >= 0 ? (0, import_react10.createElement)("span", { className: "bt-key", "aria-hidden": true }, keyLetter(at)) : null,
       (0, import_react10.createElement)("span", { className: "bt-q-body" }, (0, import_react10.createElement)("span", { className: "bt-q-label" }, label))
-    ))) : null
+    ))) : null,
+    fold.showBody ? (0, import_react10.createElement)(
+      "div",
+      {
+        ref: bodyRef,
+        className: "bt-q-expand",
+        "data-leaving": fold.leaving ? "" : void 0,
+        style: fold.leaving ? { "--bt-fold-top": `${fold.foldTop}px` } : void 0
+      },
+      detail !== "" ? (0, import_react10.createElement)("div", { className: "bt-q-detail" }, detail) : null,
+      options.length > 0 || answered && custom !== "" ? (0, import_react10.createElement)(
+        "div",
+        { className: "bt-q-list bt-q-full-list", role: "group", "aria-label": answered ? t("Your answer") : void 0 },
+        options.map((option, optionIndex) => {
+          const picked = answered && selected.includes(option.label);
+          return (0, import_react10.createElement)(
+            "div",
+            {
+              key: `${option.label}-${optionIndex}`,
+              className: "bt-q-opt",
+              "data-chosen": picked ? "" : void 0,
+              title: picked ? t("Selected") : void 0
+            },
+            (0, import_react10.createElement)("span", { className: "bt-key", "aria-hidden": true }, keyLetter(optionIndex)),
+            (0, import_react10.createElement)(
+              "span",
+              { className: "bt-q-body" },
+              (0, import_react10.createElement)("span", { className: "bt-q-label" }, option.label),
+              option.description ? (0, import_react10.createElement)("span", { className: "bt-q-desc" }, option.description) : null
+            ),
+            picked ? (0, import_react10.createElement)("span", { className: "bt-q-check", title: t("Selected") }, (0, import_react10.createElement)(CheckIcon)) : null
+          );
+        }),
+        answered && custom !== "" ? (0, import_react10.createElement)(
+          "div",
+          {
+            key: "own",
+            className: "bt-q-opt",
+            "data-chosen": "",
+            title: t("Selected")
+          },
+          (0, import_react10.createElement)("span", { className: "bt-key", "aria-hidden": true }, keyLetter(options.length)),
+          (0, import_react10.createElement)("span", { className: "bt-q-body" }, (0, import_react10.createElement)("span", { className: "bt-q-label" }, custom)),
+          (0, import_react10.createElement)("span", { className: "bt-q-check", title: t("Selected") }, (0, import_react10.createElement)(CheckIcon))
+        ) : null
+      ) : null
+    ) : null
   );
 }
 function QuestionCard({ matched }) {
@@ -18225,29 +18411,62 @@ function QuestionCard({ matched }) {
   };
   return (0, import_react10.createElement)(QuestionView, { key: index, question, onAnswer, onDismiss: () => pending.dismiss(), ownAnswer: true, raised: true });
 }
-function PendingQuestion({ sessionId, question, actions, inline, enterToSend = true }) {
+function PendingQuestion({ sessionId, question, actions, inline, enterToSend = true, bare: bare2 = false }) {
   const [answered, setAnswered] = (0, import_react10.useState)(null);
   const [busy, setBusy] = (0, import_react10.useState)(false);
   const busyRef = (0, import_react10.useRef)(false);
+  const boxRef = (0, import_react10.useRef)(null);
   const hold = useDockHold(sessionId, "question", question.id, actions, inline);
   if (answered === question.id) return (0, import_react10.createElement)(CellEmpty);
-  const run2 = (make) => {
+  const run2 = (make, { settle = false, onFail } = {}) => {
     if (busyRef.current) return;
     hold();
     busyRef.current = true;
     setBusy(true);
-    void Promise.resolve().then(make).then(() => setAnswered(question.id), () => setAnswered(null)).finally(() => {
+    void Promise.resolve().then(make).then(() => {
+      if (settle) setAnswered(question.id);
+    }, () => {
+      onFail?.();
+      setAnswered(null);
+    }).finally(() => {
       busyRef.current = false;
       setBusy(false);
     });
   };
-  const onAnswer = (answer) => run2(() => actions.answerQuestion(sessionId, question.id, { selected: answer.selected ?? [], custom: answer.custom ?? "" }));
+  const onAnswer = (answer) => {
+    const height = boxRef.current?.firstElementChild?.offsetHeight || boxRef.current?.offsetHeight;
+    if (inline) noteJustAnswered("question", question.id, height);
+    run2(() => actions.answerQuestion(sessionId, question.id, { selected: answer.selected ?? [], custom: answer.custom ?? "" }), {
+      settle: true,
+      onFail: () => clearJustAnswered("question", question.id)
+    });
+  };
   const onDismiss = () => run2(() => actions.dismissQuestion(sessionId));
   return (0, import_react10.createElement)(
     "div",
-    { className: inline ? "bt-q-inline" : "bt-q-dock" },
+    { ref: boxRef, className: bare2 ? "bt-q-hold" : inline ? "bt-q-inline" : "bt-q-dock" },
     (0, import_react10.createElement)(QuestionView, { key: question.id, question, onAnswer, onDismiss, onInteract: hold, busy, ownAnswer: question.allowCustom === true, raised: !inline, enterToSend })
   );
+}
+function AskUserCell({ sessionId, callId, arg, argValue, roster, actions, heldCards }) {
+  const question = roster.questions?.[sessionId];
+  const isPending = Boolean(question) && (question.callSessionId ?? sessionId) === sessionId && question.callId === callId;
+  const held = isPending && heldCards?.[heldCardKey("question", question.id)] > 0;
+  const closed = !isPending && callId !== void 0 ? roster.closedCards?.[sessionId]?.[callId] : void 0;
+  const cellRef = (0, import_react10.useRef)(null);
+  const phase = held ? "held" : isPending ? `pending:${question.id}` : closed !== void 0 ? `closed:${closed}` : "gone";
+  useMorph(cellRef, phase);
+  if (held) return (0, import_react10.createElement)(CellEmpty);
+  if (isPending) {
+    return (0, import_react10.createElement)(
+      "div",
+      { ref: cellRef, className: "bt-q-inline" },
+      (0, import_react10.createElement)(PendingQuestion, { key: JSON.stringify([sessionId, question.id]), sessionId, question, actions, inline: true, enterToSend: sendsOnEnter(roster.prefs), bare: true })
+    );
+  }
+  if (closed === void 0) return (0, import_react10.createElement)(CellEmpty, { className: "bt-q-gone" });
+  const asked = { question: arg("question") ?? "", detail: arg("detail"), options: argValue("options") ?? [], multiSelect: argValue("multiSelect") === true };
+  return (0, import_react10.createElement)("div", { ref: cellRef, className: "bt-q-inline" }, (0, import_react10.createElement)(SettledQuestion, { question: asked, closed }));
 }
 function QuestionDock({ sessionId, useRoster, useCards, useHeldCards, actions }) {
   const question = useRoster((value) => value.questions?.[sessionId]);
@@ -18255,7 +18474,35 @@ function QuestionDock({ sessionId, useRoster, useCards, useHeldCards, actions })
   const drawn = useCards?.((state) => state[sessionId]?.[question?.callId] > 0) === true;
   const held = useHeldCards?.((state) => state[sessionId]?.[heldCardKey("question", question?.id)] > 0) === true;
   const inPart = (question?.callSessionId ?? sessionId) === sessionId;
-  if (question === void 0 || inPart && question.callId && drawn && !held) return null;
+  const handedOff = inPart && Boolean(question?.callId) && drawn && !held;
+  const visible = question !== void 0 && !handedOff;
+  const [exiting, setExiting] = (0, import_react10.useState)(null);
+  const prevRef = (0, import_react10.useRef)({ sessionId, question: void 0, handedOff: false });
+  (0, import_react10.useEffect)(() => {
+    const prev = prevRef.current;
+    prevRef.current = { sessionId, question, handedOff };
+    if (visible) {
+      if (exiting) setExiting(null);
+      return void 0;
+    }
+    if (prev.sessionId === sessionId && prev.question !== void 0 && !prev.handedOff && question === void 0 && !reducedMotion() && typeof setTimeout === "function") {
+      setExiting(prev.question);
+      const timer = setTimeout(() => setExiting(null), 150);
+      return () => clearTimeout(timer);
+    }
+    if (exiting) setExiting(null);
+    return void 0;
+  }, [sessionId, question?.id, visible]);
+  if (!visible) {
+    if (question === void 0 && exiting) {
+      return (0, import_react10.createElement)(
+        "div",
+        { className: "bt-q-dock", "data-leaving": "" },
+        (0, import_react10.createElement)(QuestionView, { key: exiting.id, question: exiting, busy: true, ownAnswer: exiting.allowCustom === true, raised: true, enterToSend })
+      );
+    }
+    return null;
+  }
   return (0, import_react10.createElement)(PendingQuestion, { key: JSON.stringify([sessionId, question.id]), sessionId, question, actions, inline: false, enterToSend });
 }
 function AnsweredCell({ node }) {
@@ -21344,54 +21591,267 @@ var ViewCard = Card;
 var withUi = (Component2) => (props) => (0, import_react17.createElement)(ViewUi.Provider, { value: VIEW_UI }, (0, import_react17.createElement)(Component2, props));
 var WidgetView2 = withUi(WidgetView);
 var ViewMenuList2 = withUi(ViewMenuList);
-function PendingView({ sessionId, view, actions, inline }) {
+function walkView(node, visit) {
+  if (node === null || typeof node !== "object") return;
+  visit(node);
+  if ((node.type === "stack" || node.type === "row") && Array.isArray(node.children)) {
+    for (const child of node.children) walkView(child, visit);
+  }
+}
+function stripPromptLine(raw) {
+  const first = String(raw).split(/\r?\n/).map((line) => line.trim()).find(Boolean) ?? "";
+  const clean = first.replace(/^#+\s*/, "").replace(/[*_`~]+/g, "").replace(/\s+/g, " ").trim();
+  return clean.length > 80 ? `${clean.slice(0, 79)}…` : clean;
+}
+var LABELED_NODES = /* @__PURE__ */ new Set(["metric", "progress", "slider", "number", "choice", "toggle", "submit"]);
+function viewPrompt(title, view) {
+  if (typeof title === "string" && title.trim() !== "") return title.trim();
+  if (view !== null && typeof view === "object") {
+    const lookup = viewScope(view);
+    let found = "";
+    walkView(view, (node) => {
+      if (found !== "") return;
+      if (node.type === "text" || node.type === "callout") {
+        const line = stripPromptLine(asText(resolve(node.text, lookup, "")));
+        if (line !== "") found = line;
+      } else if (node.type === "form") {
+        const fields = Array.isArray(node.fields) ? node.fields : [];
+        const label = fields.map((field) => field?.label || field?.placeholder).find((item) => typeof item === "string" && item.trim() !== "");
+        if (label) found = label.trim();
+      } else if (LABELED_NODES.has(node.type) && typeof node.label === "string" && node.label.trim() !== "") {
+        found = node.label.trim();
+      }
+    });
+    if (found !== "") return found;
+  }
+  return t("View");
+}
+function collectInputRows(view, sentInputs) {
+  return viewInputs(view).map((node) => {
+    const raw = sentInputs !== null && typeof sentInputs === "object" && Object.hasOwn(sentInputs, node.id) ? sentInputs[node.id] : inputDefault(node);
+    let value;
+    if (node.type === "toggle") {
+      value = raw === true ? "✓" : "—";
+    } else if (node.type === "choice") {
+      const options = (Array.isArray(node.options) ? node.options : []).map((option) => typeof option === "string" ? { label: option } : option);
+      value = options.find((option) => choiceValue(option) === raw)?.label ?? asText(raw);
+    } else {
+      value = `${asText(raw)}${node.unit ? ` ${node.unit}` : ""}`;
+    }
+    return { key: node.label || node.id, value };
+  });
+}
+function summarizeView(view, answer, closed) {
+  if (closed !== void 0 || !answer) {
+    return { answered: false, badge: { text: closedLabel(closed), accent: false }, options: [], kvRows: [] };
+  }
+  let target = null;
+  walkView(view, (node) => {
+    if (target === null && node.id === answer.action) target = node;
+  });
+  const inputRows = view !== null && typeof view === "object" ? collectInputRows(view, answer.values?.inputs) : [];
+  switch (target?.type) {
+    case "options": {
+      const opts = (Array.isArray(target.options) ? target.options : []).map((option) => typeof option === "string" ? { label: option } : option);
+      const selected = Array.isArray(answer.values?.selected) ? answer.values.selected : [];
+      const options = selected.map((label) => ({ label, at: opts.findIndex((option) => option?.label === label) }));
+      return { answered: true, badge: null, options, kvRows: inputRows };
+    }
+    case "confirm": {
+      const confirmed = answer.values?.confirmed;
+      const text = confirmed === false ? target.cancelLabel || t("Cancel") : target.confirmLabel || t("Confirm");
+      return { answered: true, badge: { text, accent: confirmed === true }, options: [], kvRows: inputRows };
+    }
+    case "form": {
+      if (answer.values?.canceled === true) {
+        return { answered: true, badge: { text: target.cancelLabel || t("Cancel"), accent: false }, options: [], kvRows: [] };
+      }
+      const fields = (Array.isArray(target.fields) ? target.fields : []).filter((field) => field !== null && typeof field === "object" && field.id !== void 0);
+      const sentFields = answer.values?.fields && typeof answer.values.fields === "object" ? answer.values.fields : {};
+      const fieldRows = fields.map((field) => ({
+        key: field.label || field.placeholder || field.id,
+        value: String(sentFields[field.id] ?? field.value ?? "").replace(/\s+/g, " ").trim()
+      })).filter((row) => row.value !== "");
+      const kvRows = [...fieldRows, ...inputRows];
+      const badge = kvRows.length === 0 ? { text: target.submitLabel || t("Submit"), accent: true } : null;
+      return { answered: true, badge, options: [], kvRows };
+    }
+    default: {
+      const badge = inputRows.length === 0 ? { text: target?.label || t("Send to Bot"), accent: true } : null;
+      return { answered: true, badge, options: [], kvRows: inputRows };
+    }
+  }
+}
+function SettledView({ id, title, view, answer = null, closed }) {
+  const prompt = viewPrompt(title, view);
+  const summary = summarizeView(view, answer, closed);
+  const hasDetail = view !== null && typeof view === "object";
+  const cardRef = (0, import_react17.useRef)(null);
+  const bodyRef = (0, import_react17.useRef)(null);
+  useAnswerMorph(cardRef, "view", id);
+  const fold = useFoldCard(cardRef, bodyRef, hasDetail);
+  const badge = summary.badge ? (0, import_react17.createElement)("span", { className: "bt-q-badge", "data-accent": summary.badge.accent ? "" : void 0 }, summary.badge.text) : null;
+  const head = hasDetail ? (0, import_react17.createElement)(
+    "button",
+    {
+      type: "button",
+      className: "bt-q-head bt-q-fold",
+      "aria-expanded": fold.open,
+      title: fold.open ? t("Show less") : t("Show more"),
+      onClick: fold.toggle
+    },
+    (0, import_react17.createElement)("span", { className: "bt-q-text" }, (0, import_react17.createElement)("span", { className: "bt-q-title" }, prompt)),
+    badge,
+    (0, import_react17.createElement)("span", { className: "bt-q-chevron", "aria-hidden": true }, (0, import_react17.createElement)(ChevronDownIcon))
+  ) : (0, import_react17.createElement)(
+    "div",
+    { className: "bt-q-head" },
+    (0, import_react17.createElement)("div", { className: "bt-q-text" }, (0, import_react17.createElement)("p", { className: "bt-q-title" }, prompt)),
+    badge
+  );
+  const hasSummary = !fold.open && (summary.options.length > 0 || summary.kvRows.length > 0);
+  return (0, import_react17.createElement)(
+    "div",
+    {
+      ref: cardRef,
+      className: summary.answered ? "bt-q bt-q-settled bt-q-answered bt-view-settled" : "bt-q bt-q-settled bt-q-dismissed bt-view-settled",
+      "data-open": fold.open ? "" : void 0,
+      "data-expandable": hasDetail ? "" : void 0,
+      role: "group",
+      "aria-label": prompt,
+      onClick: hasDetail && !fold.open ? fold.onCardClick : void 0
+    },
+    head,
+    hasSummary ? (0, import_react17.createElement)(
+      "div",
+      { className: "bt-q-list bt-q-summary", role: "group", "aria-label": t("Your answer") },
+      summary.options.map(({ label, at }, index) => (0, import_react17.createElement)(
+        "div",
+        { key: `${label}-${index}`, className: "bt-q-opt", title: t("Selected") },
+        at >= 0 ? (0, import_react17.createElement)("span", { className: "bt-key", "aria-hidden": true }, keyLetter(at)) : null,
+        (0, import_react17.createElement)("span", { className: "bt-q-body" }, (0, import_react17.createElement)("span", { className: "bt-q-label" }, label))
+      )),
+      summary.kvRows.map((row, index) => (0, import_react17.createElement)(
+        "div",
+        { key: `${row.key}-${index}`, className: "bt-q-kv-row" },
+        (0, import_react17.createElement)("span", { className: "bt-q-kv-key" }, row.key),
+        (0, import_react17.createElement)("span", { className: "bt-q-kv-val" }, row.value)
+      ))
+    ) : null,
+    fold.showBody ? (0, import_react17.createElement)("div", {
+      ref: bodyRef,
+      className: "bt-q-expand",
+      "data-leaving": fold.leaving ? "" : void 0,
+      style: fold.leaving ? { "--bt-fold-top": `${fold.foldTop}px` } : void 0
+    }, (0, import_react17.createElement)(Card, { title: "", view, settled: true, answer })) : null
+  );
+}
+function PendingView({ sessionId, view, actions, inline, bare: bare2 = false }) {
   const [answered, setAnswered] = (0, import_react17.useState)(null);
+  const [busy, setBusy] = (0, import_react17.useState)(false);
   const busyRef = (0, import_react17.useRef)(false);
+  const boxRef = (0, import_react17.useRef)(null);
   const hold = useDockHold(sessionId, "view", view.id, actions, inline);
-  const flying = answered === view.id;
-  const run2 = (make) => {
+  if (answered === view.id) return (0, import_react17.createElement)(CellEmpty);
+  const run2 = (make, { settle = false, onFail } = {}) => {
     if (busyRef.current) return;
-    busyRef.current = true;
     hold();
-    setAnswered(view.id);
-    void Promise.resolve().then(make).catch(() => setAnswered(null)).finally(() => {
+    busyRef.current = true;
+    setBusy(true);
+    void Promise.resolve().then(make).then(() => {
+      if (settle) setAnswered(view.id);
+    }, () => {
+      onFail?.();
+      setAnswered(null);
+    }).finally(() => {
       busyRef.current = false;
+      setBusy(false);
     });
   };
-  const onSubmit = (action, values) => run2(() => actions.answerView(sessionId, view.id, action, values));
+  const onSubmit = (action, values) => {
+    const height = boxRef.current?.firstElementChild?.offsetHeight || boxRef.current?.offsetHeight;
+    if (inline) noteJustAnswered("view", view.id, height);
+    run2(() => actions.answerView(sessionId, view.id, action, values), {
+      settle: true,
+      onFail: () => clearJustAnswered("view", view.id)
+    });
+  };
   const onDismiss = () => run2(() => actions.dismissView(sessionId));
   return (0, import_react17.createElement)(
     "div",
-    { className: inline ? "bt-q-inline" : "bt-q-dock", style: flying ? { display: "none" } : void 0, onFocusCapture: hold, onPointerDownCapture: hold },
-    (0, import_react17.createElement)(Card, { key: view.id, title: view.title ?? "", view: view.view, onSubmit, onDismiss, busy: flying, raised: !inline })
+    { ref: boxRef, className: bare2 ? "bt-q-hold" : inline ? "bt-q-inline" : "bt-q-dock", onFocusCapture: hold, onPointerDownCapture: hold },
+    (0, import_react17.createElement)(Card, { key: view.id, title: view.title ?? "", view: view.view, onSubmit, onDismiss, busy, raised: !inline })
   );
 }
 function WidgetCell({ sessionId, callId, args, done, isError, roster, actions, heldCards }) {
   const record = roster.views?.[sessionId];
-  if (record !== void 0 && (record.callSessionId ?? sessionId) === sessionId && record.callId === callId) {
-    if (heldCards?.[heldCardKey("view", record.id)] > 0) return (0, import_react17.createElement)(CellEmpty);
-    return (0, import_react17.createElement)(PendingView, { sessionId, view: record, actions, inline: true });
+  const isPending = record !== void 0 && (record.callSessionId ?? sessionId) === sessionId && record.callId === callId;
+  const held = isPending && heldCards?.[heldCardKey("view", record.id)] > 0;
+  const skipShown = isPending || done && isError;
+  const shown = skipShown ? null : checkShownView(args?.text?.("title"), args?.value?.("view"));
+  const interactive = !skipShown && shown.error === void 0 && (shown.interactive || args?.value?.("await_reply") === true);
+  const closed = interactive && callId !== void 0 ? roster.closedCards?.[sessionId]?.[callId] : void 0;
+  const phase = held ? "held" : isPending ? `pending:${record.id}` : done && isError || shown?.error !== void 0 ? "error" : interactive ? closed !== void 0 ? `closed:${closed}` : "gone" : "display";
+  const cellRef = (0, import_react17.useRef)(null);
+  useMorph(cellRef, phase);
+  if (held) return (0, import_react17.createElement)(CellEmpty);
+  if (isPending) {
+    return (0, import_react17.createElement)(
+      "div",
+      { ref: cellRef, className: "bt-q-inline" },
+      (0, import_react17.createElement)(PendingView, { sessionId, view: record, actions, inline: true, bare: true })
+    );
   }
   if (done && isError) return (0, import_react17.createElement)(CellEmpty, { className: "bt-q-gone" });
-  const shown = checkShownView(args?.text?.("title"), args?.value?.("view"));
   if (shown.error !== void 0) return (0, import_react17.createElement)(CellEmpty, { className: "bt-q-gone" });
-  if (shown.interactive || args?.value?.("await_reply") === true) {
-    const closed = callId === void 0 ? void 0 : roster.closedCards?.[sessionId]?.[callId];
+  if (interactive) {
     if (closed === void 0) return (0, import_react17.createElement)(CellEmpty, { className: "bt-q-gone" });
-    return (0, import_react17.createElement)(ClosedView, { title: shown.title, closed });
+    return (0, import_react17.createElement)(
+      "div",
+      { ref: cellRef, className: "bt-q-inline" },
+      (0, import_react17.createElement)(SettledView, { title: shown.title, view: shown.view, closed })
+    );
   }
-  return (0, import_react17.createElement)("div", { className: "bt-q-inline" }, (0, import_react17.createElement)(Card, { title: shown.title, view: shown.view }));
+  return (0, import_react17.createElement)("div", { ref: cellRef, className: "bt-q-inline" }, (0, import_react17.createElement)(Card, { title: shown.title, view: shown.view }));
 }
-function ClosedView({ title, closed }) {
-  return (0, import_react17.createElement)("div", { className: "bt-q-inline" }, (0, import_react17.createElement)(SettledQuestion, { question: { question: title || t("View") }, closed }));
+function ClosedView({ title, view, closed }) {
+  return (0, import_react17.createElement)("div", { className: "bt-q-inline" }, (0, import_react17.createElement)(SettledView, { title, view, closed }));
 }
 function WidgetDock({ sessionId, useRoster, useCards, useHeldCards, actions }) {
   const view = useRoster((value) => value.views?.[sessionId]);
   const drawn = useCards?.((state) => state[sessionId]?.[view?.callId] > 0) === true;
   const held = useHeldCards?.((state) => state[sessionId]?.[heldCardKey("view", view?.id)] > 0) === true;
   const inPart = (view?.callSessionId ?? sessionId) === sessionId;
-  if (view === void 0 || inPart && view.callId && drawn && !held) return null;
-  return (0, import_react17.createElement)(PendingView, { sessionId, view, actions, inline: false });
+  const handedOff = inPart && Boolean(view?.callId) && drawn && !held;
+  const visible = view !== void 0 && !handedOff;
+  const [exiting, setExiting] = (0, import_react17.useState)(null);
+  const prevRef = (0, import_react17.useRef)({ sessionId, view: void 0, handedOff: false });
+  (0, import_react17.useEffect)(() => {
+    const prev = prevRef.current;
+    prevRef.current = { sessionId, view, handedOff };
+    if (visible) {
+      if (exiting) setExiting(null);
+      return void 0;
+    }
+    if (prev.sessionId === sessionId && prev.view !== void 0 && !prev.handedOff && view === void 0 && !reducedMotion() && typeof setTimeout === "function") {
+      setExiting(prev.view);
+      const timer = setTimeout(() => setExiting(null), 150);
+      return () => clearTimeout(timer);
+    }
+    if (exiting) setExiting(null);
+    return void 0;
+  }, [sessionId, view?.id, visible]);
+  if (!visible) {
+    if (view === void 0 && exiting) {
+      return (0, import_react17.createElement)(
+        "div",
+        { className: "bt-q-dock", "data-leaving": "" },
+        (0, import_react17.createElement)(Card, { key: exiting.id, title: exiting.title ?? "", view: exiting.view, busy: true, raised: true })
+      );
+    }
+    return null;
+  }
+  return (0, import_react17.createElement)(PendingView, { key: JSON.stringify([sessionId, view.id]), sessionId, view, actions, inline: false });
 }
 function AnsweredView2({ node }) {
   const data = node.data ?? {};
@@ -21409,7 +21869,7 @@ function AnsweredView2({ node }) {
   if (view === null || typeof view !== "object" || view.view === void 0) return (0, import_react17.createElement)(CellEmpty);
   const answers = Array.isArray(payload.answers) ? payload.answers : [];
   const answer = answers.find((entry) => entry?.id === view.id) ?? answers[0] ?? null;
-  return (0, import_react17.createElement)("div", { className: "bt-q-inline" }, (0, import_react17.createElement)(Card, { title: view.title ?? "", view: view.view, settled: true, answer }));
+  return (0, import_react17.createElement)("div", { className: "bt-q-inline" }, (0, import_react17.createElement)(SettledView, { id: view.id, title: view.title ?? "", view: view.view, answer }));
 }
 function AnsweredReply({ node }) {
   const data = node?.data ?? {};
@@ -21445,18 +21905,26 @@ body{
 --dv-ink-cyan:var(--bt-ink-cyan);--dv-ink-magenta:var(--bt-ink-magenta)}
 .bt-q-inline .dv-view{margin:0;width:100%;max-width:min(100%,max(calc(var(--bt-msg-w,.8) * 100%),560px));order:0}
 .bt-q-inline .dv-q{margin:0;max-width:min(550px,86%);order:0}
-body[data-bt-layout=flat] .bt-q-inline .dv-view{max-width:calc(var(--bt-flat-w,1) * 100%)}
+body[data-bt-layout=flat] .bt-q-inline .dv-view,body[data-bt-layout=flat] .bt-q-inline .bt-view-settled{max-width:calc(var(--bt-flat-w,1) * 100%)}
 .bt-q-inline:has(>.dv-view-bare){margin:8px 0 12px}
-/* An answered options view keeps only the chosen rows, each under its card letter
-   (a counter, since the core draws no letters on a settled card), like ds-bot's
-   own answered question card. Unchosen rows stay in the flow, invisible and
-   zero-height, so they still count their letters. */
-.dv-q-settled .dv-q-list:has(.dv-q-check){counter-reset:bt-opt}
-.dv-q-settled .dv-q-list:has(.dv-q-check)>.dv-q-opt{counter-increment:bt-opt;gap:16px;align-items:center}
-.dv-q-settled .dv-q-list:has(.dv-q-check)>.dv-q-opt:not(:has(.dv-q-check)){visibility:hidden;height:0;min-height:0;padding-block:0;overflow:hidden}
-.dv-q-settled .dv-q-list:has(.dv-q-check)>.dv-q-opt::before{content:counter(bt-opt,upper-alpha);position:static;inset:auto;opacity:1;flex:none;width:24px;height:24px;border-radius:8px;background:var(--bt-accent);color:var(--bt-accent-ink);font-size:12px;line-height:24px;font-weight:500;text-align:center}
-.dv-q-settled .dv-q-list:has(.dv-q-check)>.dv-q-opt .dv-q-label{color:var(--bt-ink)}
-.dv-q-settled .dv-q-list:has(.dv-q-check)>.dv-q-opt .dv-q-desc,.dv-q-settled .dv-q-list:has(.dv-q-check) .dv-q-check{display:none}
+.bt-q-expand>.dv-view{padding:0;margin:0;max-width:none;background:none;box-shadow:none;border-radius:0;animation:none}
+/* A standalone settled ViewCard keeps only the chosen rows, each under its card letter
+   (a counter, since the core draws no letters on a settled card). Inside an expanded
+   SettledView card (.bt-q-expand), every option stays visible with its letter and
+   description, matching expanded SettledQuestion cards. */
+.dv-q-settled:not(.bt-q-expand *) .dv-q-list:has(.dv-q-check){counter-reset:bt-opt}
+.dv-q-settled:not(.bt-q-expand *) .dv-q-list:has(.dv-q-check)>.dv-q-opt{counter-increment:bt-opt;gap:16px;align-items:center}
+.dv-q-settled:not(.bt-q-expand *) .dv-q-list:has(.dv-q-check)>.dv-q-opt:not(:has(.dv-q-check)){visibility:hidden;height:0;min-height:0;padding-block:0;overflow:hidden}
+.dv-q-settled:not(.bt-q-expand *) .dv-q-list:has(.dv-q-check)>.dv-q-opt::before{content:counter(bt-opt,upper-alpha);position:static;inset:auto;opacity:1;flex:none;width:24px;height:24px;border-radius:8px;background:var(--bt-accent);color:var(--bt-accent-ink);font-size:12px;line-height:24px;font-weight:500;text-align:center}
+.dv-q-settled:not(.bt-q-expand *) .dv-q-list:has(.dv-q-check)>.dv-q-opt .dv-q-label{color:var(--bt-ink)}
+.dv-q-settled:not(.bt-q-expand *) .dv-q-list:has(.dv-q-check)>.dv-q-opt .dv-q-desc,.dv-q-settled:not(.bt-q-expand *) .dv-q-list:has(.dv-q-check) .dv-q-check{display:none}
+.bt-q-expand .dv-q-settled .dv-q-list{counter-reset:bt-opt}
+.bt-q-expand .dv-q-settled .dv-q-list>.dv-q-opt{counter-increment:bt-opt;gap:16px;padding:6px 8px;cursor:default}
+.bt-q-expand .dv-q-settled .dv-q-list>.dv-q-opt::before{content:counter(bt-opt,upper-alpha);position:static;inset:auto;opacity:1;flex:none;width:var(--dv-key,24px);height:var(--dv-key,24px);border-radius:8px;background:var(--bt-hover);color:var(--bt-ink-2);font-size:12px;line-height:var(--dv-key,24px);font-weight:500;text-align:center;font-variant-numeric:tabular-nums}
+.bt-q-expand .dv-q-settled .dv-q-list>.dv-q-opt:has(.dv-q-desc)::before{margin-top:2px;border-radius:10px;font-size:13px}
+.bt-q-expand .dv-q-settled .dv-q-list>.dv-q-opt:has(.dv-q-check)::before{background:var(--bt-accent);color:var(--bt-accent-ink)}
+.bt-q-expand .dv-q-settled .dv-q-list>.dv-q-opt .dv-q-label{color:var(--bt-ink-2)}
+.bt-q-expand .dv-q-settled .dv-q-list>.dv-q-opt:has(.dv-q-check) .dv-q-label{color:var(--bt-ink)}
 /* A row of segmented options is only as wide as its labels; at phone widths a
    few longer ones would spill past the card. Let them wrap and let a label wrap
    inside its own button instead. */
@@ -27920,17 +28388,8 @@ function renderCall(call2, { sessionId, roster, actions, useUi, useWork, findBot
       const room2 = roster.rooms.find((entry) => entry.name === name);
       return (0, import_react33.createElement)(GroupEvent, { prefix: t(verbs[0]), room: tool === "delete_group" ? void 0 : room2, name, roster, actions });
     }
-    case "ask_user": {
-      const question = roster.questions?.[sessionId];
-      if (!question || (question.callSessionId ?? sessionId) !== sessionId || question.callId !== call2.callId) {
-        const closed = roster.closedCards?.[sessionId]?.[call2.callId];
-        if (closed === void 0) return (0, import_react33.createElement)(CellEmpty, { className: "bt-q-gone" });
-        const asked = { question: arg("question") ?? "", detail: arg("detail"), options: argValue("options") ?? [], multiSelect: argValue("multiSelect") === true };
-        return (0, import_react33.createElement)("div", { className: "bt-q-inline" }, (0, import_react33.createElement)(SettledQuestion, { question: asked, closed }));
-      }
-      if (heldCards?.[heldCardKey("question", question.id)] > 0) return (0, import_react33.createElement)(CellEmpty);
-      return (0, import_react33.createElement)(PendingQuestion, { key: JSON.stringify([sessionId, question.id]), sessionId, question, actions, inline: true, enterToSend: sendsOnEnter(roster.prefs) });
-    }
+    case "ask_user":
+      return (0, import_react33.createElement)(AskUserCell, { sessionId, callId: call2.callId, arg, argValue, roster, actions, heldCards });
     case "show_view":
       return (0, import_react33.createElement)(WidgetCell, { sessionId, callId: call2.callId, args: { text: arg, value: argValue }, done, isError: call2.isError, roster, actions, heldCards });
     case "request_secret":
