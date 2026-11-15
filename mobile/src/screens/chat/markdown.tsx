@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { Image, Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
-import { ScrollView as GHScrollView } from 'react-native-gesture-handler'
+import { GestureHandlerRootView, ScrollView as GHScrollView } from 'react-native-gesture-handler'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import * as Clipboard from 'expo-clipboard'
 import Svg, { Defs, LinearGradient, Rect, Stop, SvgXml } from 'react-native-svg'
@@ -246,7 +246,7 @@ function MarkdownTable({ table, p, ink, textColor, fs, lh, top, bottom }: {
         </Pressable>
       </View>
       <Modal visible={expanded} animationType="slide" onRequestClose={() => setExpanded(false)} statusBarTranslucent>
-        <View style={{ flex: 1, backgroundColor: p.main, paddingTop: insets.top + 8, paddingBottom: insets.bottom + 12 }}>
+        <GestureHandlerRootView style={{ flex: 1, backgroundColor: p.main, paddingTop: insets.top + 8, paddingBottom: insets.bottom + 12 }}>
           <View style={styles.modalHead}>
             <Text style={[typeScale.headerTitle, { color: p.ink }]}>{t('Table')}</Text>
             <View style={{ flexDirection: 'row', gap: 10 }}>
@@ -284,7 +284,7 @@ function MarkdownTable({ table, p, ink, textColor, fs, lh, top, bottom }: {
               </View>
             </GHScrollView>
           </ScrollView>
-        </View>
+        </GestureHandlerRootView>
       </Modal>
     </View>
   )
