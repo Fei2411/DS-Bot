@@ -64,10 +64,10 @@ const TEAM = () => ({
   revision: 0,
 })
 
-async function start({ platform = 'telegram', adapter, seed } = {}) {
+async function start({ platform = 'telegram', adapter, seed, services = {} } = {}) {
   const home = mkdtempSync(join(tmpdir(), 'dsb-im-'))
   writeFileSync(join(home, 'state.json'), JSON.stringify(seed ?? TEAM()))
-  const ctx = fakeContext()
+  const ctx = fakeContext({ services })
   const prompts = []
   const agents = new Map()
   const agentOf = id => {
@@ -1855,4 +1855,35 @@ test('im-retry clears retrying status when an interrupted single send drops afte
   releaseSend()
   await delay(30)
   assert.equal(s.rt.imStatusView()[conn.id].state, 'ready')
+})
+
+test('a group attachment uploads under the group current Session, not the id it started with', async (t) => {
+  // A group's own Session moves on to a fresh part when its folder changes:
+  // `room.id` stays the first Session's id and `room.sessionId` the current one.
+  const seed = TEAM()
+  seed.rooms.r1.sessionId = 'r1-part2'
+  const uploads = []
+  const s = await start({
+    seed,
+    services: {
+      fileUploads: {
+        uploadStream: async ({ sessionId, name }) => {
+          uploads.push({ sessionId, name })
+          return { receiptId: `receipt-${name}` }
+        },
+      },
+    },
+  })
+  t.after(s.stop)
+  const conn = await add(s)
+  s.rt.state.im.connections[conn.id].paired.push({ id: 'u1', name: 'User u1', at: 1 })
+  await s.rt.save()
+  // The chat is recorded by the first mention; binding then points it at the group.
+  await gm(s, 'u1', '@fakebot hello group')
+  await s.rt.imEndpoint('im-chat', { id: conn.id, chatKey: 'g1', target: { roomId: 'r1' } })
+  await gm(s, 'u1', 'see the plan', { files: [{ name: 'plan.txt', data: Buffer.from('plan') }] })
+  assert.deepEqual(uploads, [{ sessionId: 'r1-part2', name: 'plan.txt' }], 'the receipt goes to the Session that takes the message')
+  assert.equal(s.prompts.length, 1)
+  assert.equal(s.prompts[0].sessionId, 'r1-part2', 'the message itself goes to the current part')
+  assert.deepEqual(s.prompts[0].content.at(-1), { type: 'file', receiptId: 'receipt-plan.txt' })
 })
