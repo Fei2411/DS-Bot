@@ -60,3 +60,13 @@ test('the group relay and non-Bot sessions do not get progress instructions', (t
   assert.doesNotMatch(prompt('room'), /progress|milestone/)
   assert.equal(prompt('outside'), '')
 })
+
+test('only Main Bot gets the ds-bot-maintenance rule while worker and group-worker stay unchanged', (t) => {
+  const { ctx, prompt } = start()
+  t.after(() => ctx.dispose())
+  const rule = '- When the user asks to inspect, diagnose, update, back up, migrate, or repair DS Bot itself, load the ds-bot-maintenance skill before acting, and never edit live team state or DSH files behind a running host.'
+  const main = prompt('main')
+  assert.equal(main.split(rule).length - 1, 1)
+  assert.doesNotMatch(prompt('worker'), /ds-bot-maintenance/)
+  assert.equal(prompt('group-worker'), prompt('worker'))
+})

@@ -6,6 +6,8 @@ The DS Bot plugin for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek
 
 Tested with dsh `0.2.2-rc.1` (Web and Desktop).
 
+> For LLM/automated self-maintenance, diagnostics, upgrade playbooks, and failure recovery, see [Self-Maintenance & Operations Reference](../docs/self-maintenance.md) and the bundled [`ds-bot-maintenance`](src/host/skills/ds-bot-maintenance/SKILL.md) skill.
+
 ## Features
 
 - **Long-lived Bots**: each Bot is a dsh Session in the "DS Bot" workspace, with its own name, role, instructions and model.
