@@ -1246,31 +1246,26 @@ export function install(rt) {
     }
   })
 
-  // Connector tools (mcp__<id>__*) come from MCP servers whose schemas are legal JSON
-  // Schema but not always what a strict provider accepts: a property may be a union with
-  // no `type` of its own, or an enum may list null. Moonshot/KIMI validates its subset and
-  // refused every turn for that (public#1508), while other providers accepted the same
-  // schema. Every connector schema is handed on plain, and the result is cached by the
-  // schema object so a Session that asks again does not re-flatten its whole tool list.
+  // DSH adds tools after system-prompt/assemble. Transform the final request through
+  // its documented LLM waterfall; next() cannot accept replacement options.
   const plainSchemas = new WeakMap()
-  ctx.on('system-prompt/assemble', async function plainConnectorSchemas(_assembly, _context, next) {
-    const assembled = await next()
-    if (!Array.isArray(assembled.tools)) return assembled
+  ctx.on('llm/stream', function plainConnectorSchemas(options, next) {
+    if (!Array.isArray(options.tools)) return next()
     let changed = false
-    const tools = assembled.tools.map((tool) => {
-      if (typeof tool?.name !== 'string' || !tool.name.startsWith('mcp__') || tool.parameters === undefined) return tool
+    const tools = options.tools.map((tool) => {
+      if (!tool.name?.startsWith('mcp__') || tool.parameters === undefined) return tool
       let entry = plainSchemas.get(tool.parameters)
       if (entry === undefined) {
         const plain = plainToolSchema(tool.parameters)
-        // A schema already plain keeps its own object: the tool list stays as it was.
         entry = { plain, same: JSON.stringify(plain) === JSON.stringify(tool.parameters) }
         plainSchemas.set(tool.parameters, entry)
+        plainSchemas.set(plain, { plain, same: true })
       }
       if (entry.same) return tool
       changed = true
       return { ...tool, parameters: entry.plain }
     })
-    return changed ? { ...assembled, tools } : assembled
+    return changed ? ctx.llm.stream({ ...options, tools }) : next()
   })
 
   // The /goal command stays open in every Session, so a goal started in a Bot chat or a

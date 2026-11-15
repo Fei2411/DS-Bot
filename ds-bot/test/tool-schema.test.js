@@ -91,3 +91,14 @@ test('a schema already plain comes out equal, so the tool list is left as it was
   assert.deepEqual(plainToolSchema({}), {})
   assert.deepEqual(plainToolSchema(undefined), {})
 })
+
+
+test('schema keywords used as property names and metadata remain data', () => {
+  const input = { type: 'object', properties: {
+    items: { type: 'array', items: { type: 'string' } },
+    properties: { type: 'string' }, const: { type: 'string' },
+    anyOf: { type: 'string' }, $ref: { type: 'string' },
+    options: { type: 'object', default: { items: [1], const: 'keep' } },
+  } }
+  assert.deepEqual(plainToolSchema(input), input)
+})

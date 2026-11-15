@@ -3,7 +3,6 @@
 // (Moonshot/KIMI validates a subset of JSON Schema) refuses the whole request for that,
 // while others accept it. Every connector schema is handed on plain instead, so the same
 // tool list works on every provider.
-import { flattenSchema } from './local-agents/mcp.js'
 
 const scalarType = type => typeof type === 'string' || (Array.isArray(type) && type.every(part => typeof part === 'string'))
 
@@ -20,10 +19,24 @@ function enumType(values) {
 // A schema with a type on every node it can name one for, and no null left in a
 // scalar enum: the two things a strict provider rejects in an otherwise valid schema.
 function typed(node) {
-  if (Array.isArray(node)) return node.map(typed)
-  if (node === null || typeof node !== 'object') return node
-  const out = {}
-  for (const [key, value] of Object.entries(node)) out[key] = typed(value)
+  if (node === null || typeof node !== 'object' || Array.isArray(node)) return node
+  const out = { ...node }
+  delete out.$ref
+  delete out.$defs
+  delete out.definitions
+  delete out.const
+  for (const key of ['oneOf', 'anyOf', 'allOf']) {
+    const first = node[key]?.find?.(branch => branch?.type !== 'null')
+    delete out[key]
+    if (first !== undefined) Object.assign(out, typed(first))
+  }
+  // Property names and enum/default payloads are data, not schema keywords.
+  for (const key of ['properties', 'patternProperties']) {
+    if (out[key] !== undefined) out[key] = Object.fromEntries(Object.entries(out[key]).map(([name, schema]) => [name, typed(schema)]))
+  }
+  for (const key of ['items', 'additionalProperties', 'contains', 'not', 'if', 'then', 'else']) {
+    if (out[key] !== undefined) out[key] = Array.isArray(out[key]) ? out[key].map(typed) : typed(out[key])
+  }
   if (out.type === undefined) {
     if (out.properties !== undefined) out.type = 'object'
     else if (out.items !== undefined) out.type = 'array'
@@ -37,5 +50,5 @@ function typed(node) {
 // first non-null branch, no refs or const, every object typed, null out of a scalar enum.
 // The input is never changed.
 export function plainToolSchema(parameters) {
-  return typed(flattenSchema(parameters ?? {}))
+  return typed(parameters ?? {})
 }

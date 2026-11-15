@@ -1,3 +1,7 @@
+import { Context } from '@deepseek-ai/cordis'
+import { LlmAdapter, createUserMessage } from '@deepseek-ai/dsh-llm'
+import { SessionId } from '@deepseek-ai/dsh-session'
+import { mountAgentLoopTestDependencies, mountAgentLoopTestHarness } from '@deepseek-ai/dsh-agent-loop-testkit'
 import assert from 'node:assert/strict'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -367,7 +371,7 @@ test('a connector tool schema reaches the model without unions, and other tools 
   const host = start()
   t.after(host.stop)
   await host.call('state', {})
-  const listener = host.ctx.listeners.get('system-prompt/assemble')
+  const listener = host.ctx.listeners.get('llm/stream')
     .find(listener => /plainConnectorSchemas/.test(String(listener)))
   assert.ok(listener, 'the connector schema listener is registered')
   const parameters = {
@@ -384,8 +388,8 @@ test('a connector tool schema reaches the model without unions, and other tools 
     ],
     sections: [],
   }
-  const context = { agent: host.agentOf('a'), signal: AbortSignal.timeout(60_000) }
-  const assembled = await listener(assembly, context, async () => assembly)
+  host.ctx.llm.stream = options => listener(options, () => options)
+  const assembled = listener(assembly, () => assembly)
   const connector = assembled.tools.find(tool => tool.name === 'mcp__drupal__entity_list')
   assert.deepEqual(connector.parameters.properties.sort_order, {
     type: 'string',
@@ -397,7 +401,7 @@ test('a connector tool schema reaches the model without unions, and other tools 
   // Another tool's schema is the same object: it was already plain.
   assert.equal(assembled.tools.find(tool => tool.name === 'read').parameters, read)
   // The same schema next step is served from the cache, unchanged.
-  const again = await listener(assembly, context, async () => assembly)
+  const again = listener(assembly, () => assembly)
   assert.equal(again.tools[0].parameters, connector.parameters)
 })
 
@@ -522,4 +526,33 @@ test('a live Bot Session gets its team tools back after a disable and re-enable'
   await second.call('state', {})
   assert.ok(hasShowView(second, 'a'), 'the scoped team tools are back')
   assert.ok(denied(second, 'a'), 'the blocking question tool is denied again')
+})
+
+
+test('the real DSH loop normalizes connector parameters after tool assembly', async (t) => {
+  const host = start()
+  t.after(host.stop)
+  const root = new Context()
+  t.after(() => root.fiber.dispose())
+  await mountAgentLoopTestDependencies(root)
+  let seen
+  class Adapter extends LlmAdapter {
+    async resolveModel(provider, id) { return { provider, id, name: id, inputModalities: ['text'], context: { contextWindow: 100000 } } }
+    async *stream(options) { seen = options; yield { type: 'finish', reason: { kind: 'stop' } } }
+  }
+  root.llm.registerAdapter(['schema-test'], new Adapter())
+  root.on('llm/stream', host.ctx.listeners.get('llm/stream').find(listener => /plainConnectorSchemas/.test(String(listener))))
+  host.ctx.llm.stream = options => root.llm.stream(options)
+  root.tools.register({ name: 'mcp__drupal__entity_list', description: 'List entities',
+    parameters: { type: 'object', properties: { sort_order: { oneOf: [{ type: 'string' }, { type: 'null' }], enum: ['ASC', 'DESC', null] } } },
+    output: { schema: { type: 'string' }, render: () => [] }, execute: async () => '',
+  })
+  await mountAgentLoopTestHarness(root)
+  const agent = await root.agentLoop.create(SessionId('schema-session'), { provider: 'schema-test', model: 'test' })
+  const idle = new Promise(resolve => {
+    const off = root.on('agent/status', ({ agent: subject, status }) => { if (subject === agent && status === 'idle') { off(); resolve() } })
+  })
+  agent.followup(createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: 'hello' }] }))
+  await idle
+  assert.deepEqual(seen.tools.find(tool => tool.name === 'mcp__drupal__entity_list').parameters.properties.sort_order, { type: 'string', enum: ['ASC', 'DESC'] })
 })
