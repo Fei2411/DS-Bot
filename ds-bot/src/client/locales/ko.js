@@ -249,6 +249,18 @@ export const KO = {
   'Key set outside DS Bot': 'DS Bot 외부에서 키 설정됨',
   'No models': '모델 없음',
   '{count} models': '모델 {count}개',
+  'Refresh models': '모델 새로고침',
+  'Refreshing…': '새로고침 중…',
+  'Models from the endpoint': '엔드포인트의 모델',
+  "Upstream didn't return": '업스트림에서 반환되지 않음',
+  'Keep the ids you still want by hand.': '남기고 싶은 ID는 직접 선택하세요.',
+  '{added} added · {removed} removed · {count} selected': '{added}개 추가 · {removed}개 제거 · {count}개 선택됨',
+  'Select at least one model': '모델을 하나 이상 선택하세요',
+  'Save anyway': '그래도 저장',
+  'The endpoint lists no models.': '이 엔드포인트가 모델을 반환하지 않았습니다.',
+  '{name} will switch to {model} on its next turn.': '{name}은(는) 다음 턴에 {model}(으)로 전환됩니다.',
+  '{name} has no model to fall back to; its next turn will fail.': '{name}은(는) 대체할 모델이 없어 다음 턴이 실패합니다.',
+  'Local agent, not affected: {names}': '로컬 에이전트, 영향 없음: {names}',
   // What a Bot runs on
   'Runs on': '실행 방식',
   'DS Bot model': 'DS Bot 모델',
@@ -1705,6 +1717,11 @@ export const KO = {
   "Failed: {count}": "실패: {count}개",
   "{count} skipped": "{count}개 건너뜀",
   "No model picked yet": "아직 모델을 선택하지 않음",
+  "Running": "실행 중",
+  "Open this session": "이 세션 열기",
+  "Open this running session": "실행 중인 세션 열기",
+  "A running session keeps using model calls in the background.": "실행 중인 세션은 백그라운드에서 모델 호출을 계속 사용합니다.",
+  "This session is still running. Wait for it to finish, or stop it.": "이 세션은 아직 실행 중입니다. 끝날 때까지 기다리거나 중지하세요.",
 }
 
 export const HOST_ERRORS_KO = [
