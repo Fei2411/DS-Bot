@@ -58,10 +58,12 @@ function grantAllows(bot, action) {
 }
 
 // A handoff card answers into the Bot's own chat. A group turn has no card, so its
-// hold keeps no call and the browser panel clears it without telling the Bot.
+// hold keeps no call and the browser panel clears it without telling the Bot. The part
+// that raised it is kept too, so the answer comes back to that thread, not to the
+// foreground chat the user happens to be reading.
 export function handoffHold(rt, botId, { sessionId, callId, ...hold }) {
   const own = sessionId !== undefined && rt.chatOwners.get(sessionId) === botId
-  return own && callId !== undefined ? { ...hold, callId } : hold
+  return own && callId !== undefined ? { ...hold, callId, sessionId } : hold
 }
 
 async function authorizeBrowserAction(rt, exec, botId, action) {

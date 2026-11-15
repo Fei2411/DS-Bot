@@ -4,6 +4,7 @@ import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { install as installBtw } from './btw.js'
 import { install as installSide } from './side.js'
 import { handoffReply, questionReply, viewReply } from './parts.js'
+import { threadCurrentOfPart } from './threads.js'
 import { validateViewAnswer } from 'deep-view/core'
 import { COLORS, EXTRA_COLORS, ROUTE } from './constants.js'
 
@@ -783,7 +784,7 @@ export function install(rt) {
           // Taking over a handoff keeps its reason, note, and call, so its card stays up.
           const asked = rt.browserChannel.holdOf(botId)
           rt.browserChannel.setHold(botId, asked?.callId !== undefined
-            ? { by: 'user', reason: asked.reason, note: asked.note, callId: asked.callId }
+            ? { by: 'user', reason: asked.reason, note: asked.note, callId: asked.callId, ...(asked.sessionId !== undefined ? { sessionId: asked.sessionId } : {}) }
             : { by: 'user', reason: 'takeover', note: 'The user is controlling this browser.' })
           return ok(true)
         }
@@ -802,7 +803,9 @@ export function install(rt) {
           rt.browserChannel.setHold(botId, null)
           if (hold.callId === undefined) return ok(true)
           try {
-            const sessionId = rt.chatOf(botId)
+            // The answer goes back to the thread that raised the handoff: a background
+            // part the user was not reading must not be answered in the foreground chat.
+            const sessionId = threadCurrentOfPart(rt.botOf(botId), hold.sessionId) ?? rt.chatOf(botId)
             const reply = handoffReply(hold, body.outcome)
             await rt.ensureCapabilities(sessionId)
             const agent = await rt.resolveAgent(sessionId)
