@@ -754,6 +754,8 @@ export function install(rt) {
       rt.dropGroupSession(room, member)
       // Its waiting cards in this group leave with it.
       rt.dropRoomCards?.({ roomId: room.id, botId: member })
+      // A key it was waiting to ask about is canceled with it.
+      rt.cancelRoomSecretRequests?.({ roomId: room.id, botId: member })
     }
     room.members = members
     if (admin !== (room.admin ?? null)) changes.push(admin ? `made ${rt.botOf(admin).name} the admin` : 'removed the admin')
@@ -820,6 +822,8 @@ export function install(rt) {
     const archived = rt.archiveGroupMemory(room)
     // Cards waiting in the group go with it; their askers are gone from it too.
     rt.dropRoomCards?.({ roomId: id })
+    // A key card waiting there is not answerable any more: its request is canceled.
+    rt.cancelRoomSecretRequests?.({ roomId: id })
     for (const botId of Object.keys(room.sessions ?? {})) rt.dropGroupSession(room, botId)
     for (const segment of room.parts ?? []) delete state.switching[segment.sessionId]
     delete state.switching[rt.sessionOfRoom(room)]
@@ -974,6 +978,8 @@ export function install(rt) {
         rt.dropGroupSession(room, id)
         // Its waiting cards in this group leave with it.
         rt.dropRoomCards?.({ roomId: room.id, botId: id })
+        // A key it was waiting to ask about is canceled with it.
+        rt.cancelRoomSecretRequests?.({ roomId: room.id, botId: id })
         touched.push(room)
       }
       await followMemberNames(touched)

@@ -336,8 +336,17 @@ export function install(rt) {
   }
   const trimRequests = (list) => {
     while (list.length > MAX_REQUESTS) {
+      // A group card whose request is evicted would leave its dock card unanswerable, so
+      // settled records go first; a group request is only evicted with its card.
       const settled = list.findIndex(entry => entry.status !== 'pending')
-      list.splice(settled === -1 ? 0 : settled, 1)
+      const at = settled === -1 ? list.findIndex(entry => entry.roomId === undefined) : settled
+      if (at === -1) break
+      const [gone] = list.splice(at, 1)
+      if (gone?.status === 'pending') {
+        gone.status = 'canceled'
+        gone.settledAt = Date.now()
+      }
+      if (gone?.roomId !== undefined) rt.dropRoomCard?.(gone.roomId, gone.id)
     }
   }
 
@@ -348,7 +357,20 @@ export function install(rt) {
   }
   const usage = name => `$${envName(name)} in bash, or $env:${envName(name)} in PowerShell`
 
-  async function tell(botId, text) {
+  // A note tells the asking Bot what happened. In a group the note goes back to the
+  // member's hidden group Session as a late turn (its output posts into the group); in
+  // its own chat it is a secret-role message. Like the own-chat path, a note that cannot
+  // be delivered is only logged: the value is already saved, and losing the note must
+  // not fail the answer or leave the card behind.
+  async function tell(botId, text, request) {
+    if (request?.roomId !== undefined) {
+      const room = rt.roomOf(request.roomId)
+      if (room === undefined) return
+      await Promise.resolve()
+        .then(() => rt.deliverRoomCardNote(room, { id: request.id, botId }, text, { note: 'secret card' }))
+        .catch(error => rt.warn('ds-bot: secret note to %s in %s failed: %s', botId, request.roomId, error))
+      return
+    }
     if (rt.botOf(botId) === undefined) return
     await rt.deliver({ toId: botId, role: 'secret', text })
       .catch(error => rt.warn('ds-bot: secret note to %s failed: %s', botId, error))
@@ -373,7 +395,9 @@ export function install(rt) {
         if (request.status !== 'pending' || request.name !== name || request === except) continue
         if (canUse(secret, botId)) {
           settle(botId, request, 'saved')
-          notes.push([botId, savedNote(name, `The user saved ${name}, and you may use it now.`)])
+          // The waiting card leaves the dock wherever it was asked.
+          if (request.roomId !== undefined) rt.dropRoomCard?.(request.roomId, request.id)
+          notes.push([botId, savedNote(name, `The user saved ${name}, and you may use it now.`), request])
         } else {
           request.kind = secret ? 'allow' : 'fill'
         }
@@ -385,7 +409,7 @@ export function install(rt) {
     changed()
     await persist()
     await rt.save()
-    for (const [botId, text] of notes) await tell(botId, text)
+    for (const [botId, text, request] of notes) await tell(botId, text, request)
   }
 
   const cleanValue = (raw) => {
@@ -510,9 +534,17 @@ export function install(rt) {
       if (body.requestId !== undefined) {
         const { botId, request } = pendingRequest(body.requestId)
         const existing = secrets.get(request.name)
+        const room = request.roomId === undefined ? undefined : rt.roomOf(request.roomId)
+        // A card asked in a group defaults to that one Bot; choosing the whole team is an
+        // explicit act. A key that already exists keeps its scope and only gains the Bot.
+        const chosen = body.scope ?? (request.roomId === undefined ? 'all' : 'bot')
         let scope
-        if (existing === undefined || request.kind === 'fill') scope = body.scope === 'bot' ? [botId] : 'all'
+        if (existing === undefined || request.kind === 'fill') scope = chosen === 'bot' ? [botId] : 'all'
         else scope = existing.scope === 'all' ? 'all' : [...new Set([...existing.scope, botId])]
+        // Claim the dock card and remember what a failed write must undo.
+        const claimed = room === undefined ? undefined : rt.dropRoomCard(room.id, request.id)
+        const previousStatus = request.status
+        const hadSecret = existing !== undefined
         secrets.set(request.name, {
           name: request.name,
           value,
@@ -524,9 +556,24 @@ export function install(rt) {
           ...(existing?.lastUsedAt !== undefined ? { lastUsedAt: existing.lastUsedAt } : {}),
         })
         settle(botId, request, 'saved')
-        notes.push([botId, savedNote(request.name, `The user saved ${request.name} for ${scopeText(scope)}.`)])
+        // The group learns the key was answered, never the value.
+        if (room !== undefined) rt.appendRoomAnswer?.(room, `Key card answered: ${request.name}`)
+        notes.push([botId, savedNote(request.name, `The user saved ${request.name} for ${scopeText(scope)}.`), request])
         reconcile(request.name, notes, request)
-        await commit(notes)
+        try {
+          await commit(notes)
+        } catch (error) {
+          // Put the card, the request, and the in-memory key back so the user can retry.
+          if (hadSecret) secrets.set(request.name, existing)
+          else secrets.delete(request.name)
+          changed()
+          request.status = previousStatus
+          delete request.settledAt
+          if (claimed !== undefined) rt.restoreRoomCard(claimed)
+          // The value may already be on disk: write the restored map back, best effort.
+          await persist().catch(() => {})
+          throw error
+        }
         return secretView(secrets.get(request.name))
       }
       const name = normalizeName(body.name)
@@ -550,19 +597,47 @@ export function install(rt) {
       const { botId, request } = pendingRequest(body.requestId)
       const secret = secrets.get(request.name)
       if (secret === undefined) throw new Error(`${request.name} is not saved yet`)
+      const room = request.roomId === undefined ? undefined : rt.roomOf(request.roomId)
+      const claimed = room === undefined ? undefined : rt.dropRoomCard(room.id, request.id)
+      const previousScope = secret.scope
+      const previousUpdatedAt = secret.updatedAt
+      const previousStatus = request.status
       if (!canUse(secret, botId)) secret.scope = [...new Set([...secret.scope, botId])]
       secret.updatedAt = Date.now()
       settle(botId, request, 'allowed')
-      const notes = [[botId, savedNote(request.name, `The user let you use ${request.name}.`)]]
+      if (room !== undefined) rt.appendRoomAnswer?.(room, `Key card answered: ${request.name}`)
+      const notes = [[botId, savedNote(request.name, `The user let you use ${request.name}.`), request]]
       reconcile(request.name, notes, request)
-      await commit(notes)
+      try {
+        await commit(notes)
+      } catch (error) {
+        secret.scope = previousScope
+        secret.updatedAt = previousUpdatedAt
+        changed()
+        request.status = previousStatus
+        delete request.settledAt
+        if (claimed !== undefined) rt.restoreRoomCard(claimed)
+        await persist().catch(() => {})
+        throw error
+      }
       return secretView(secret)
     },
     async 'secret-cancel'(body) {
       const { botId, request } = pendingRequest(body.requestId)
+      const room = request.roomId === undefined ? undefined : rt.roomOf(request.roomId)
+      const claimed = room === undefined ? undefined : rt.dropRoomCard(room.id, request.id)
+      const previousStatus = request.status
       settle(botId, request, 'canceled')
-      await rt.save()
-      await tell(botId, `The user canceled your request for ${request.name}. Do not ask for it again unless the user brings it up; carry on without it, or tell the user what you cannot do without it.`)
+      // The card leaves without an answer: the phone's dock shows it cleared.
+      try {
+        await rt.save()
+        await tell(botId, `The user canceled your request for ${request.name}. Do not ask for it again unless the user brings it up; carry on without it, or tell the user what you cannot do without it.`, request)
+      } catch (error) {
+        request.status = previousStatus
+        delete request.settledAt
+        if (claimed !== undefined) rt.restoreRoomCard(claimed)
+        throw error
+      }
       return true
     },
     async 'secret-update'(body) {
@@ -616,11 +691,27 @@ export function install(rt) {
     })
   }
 
+  // A group that goes away, or a member that leaves it, cancels what it was waiting for.
+  // No note: the asker is already gone from that group, so there is nobody to tell.
+  function cancelRoomSecretRequests({ roomId, botId } = {}) {
+    let touched = false
+    for (const [id, list] of Object.entries(state.secretRequests ?? {})) {
+      if (botId !== undefined && id !== botId) continue
+      for (const request of list) {
+        if (request.status !== 'pending' || request.roomId !== roomId) continue
+        request.status = 'canceled'
+        request.settledAt = Date.now()
+        touched = true
+      }
+    }
+    return touched
+  }
+
   const callerOf = exec => rt.selfOf(exec.agent?.session?.header?.id ?? exec.agent?.id)
 
   rt.teamTools.push(defineTool({
     name: 'request_secret',
-    description: 'Ask the user for a key, token, or password through a secure card in your own chat. The user types it into the card; you never see the value. It reaches your shell as an environment variable. When the key is already saved for you, this only tells you its variable. Showing a card ends your turn; a note arrives when the user saves or cancels.',
+    description: 'Ask the user for a key, token, or password through a secure card. The user types it into the card; you never see the value. It reaches your shell as an environment variable. When the key is already saved for you, this only tells you its variable. It works in your own chat and in a group chat: in a group the card waits above the group\'s composer, the other members carry on, and a note reaches you after your turn has ended. Showing a card ends your turn.',
     parameters: {
       name: { type: 'string', required: true, description: 'Key name in capitals, digits, and underscores, e.g. GITHUB_TOKEN' },
       purpose: { type: 'string', required: true, description: 'One short line for the user: what you need it for' },
@@ -637,8 +728,12 @@ export function install(rt) {
       if (!SECRET_NAME.test(name)) return 'Name the key with capitals, digits, and underscores, starting with a letter (for example GITHUB_TOKEN).'
       const secret = secrets.get(name)
       if (canUse(secret, bot.id)) return `${name} is already saved and you may use it: ${usage(name)}. You cannot see the value; never print it.`
-      if (rt.groupOwners.has(id)) return 'Secret cards only work in your own chat. Tell the group you will ask the user in your own chat, and call request_secret there.'
-      if (!rt.chatOwners.has(id)) return 'Secret cards only work in your current own chat.'
+      // A group turn asks through the group's own card queue; the member's hidden Session
+      // never shows a dock of its own.
+      const owner = rt.groupOwners.get(id)
+      if (!rt.chatOwners.has(id) && owner === undefined) return 'Secret cards only work in your current own chat or a group chat.'
+      const room = owner === undefined ? undefined : rt.roomOf(owner.roomId)
+      if (owner !== undefined && room === undefined) return 'This group chat is gone; tell the user what you need instead.'
       const readOnly = rt.readOnly()
       if (readOnly !== undefined) return `No card can be shown now. ${readOnly}`
       const list = requestsOf(bot.id)
@@ -647,21 +742,35 @@ export function install(rt) {
         if (request.status === 'pending' && request.name === name) {
           request.status = 'canceled'
           request.settledAt = now
+          // A card that was waiting in a group leaves its dock with the old request.
+          if (request.roomId !== undefined) rt.dropRoomCard?.(request.roomId, request.id)
         }
       }
-      list.push({
+      const purpose = String(args.purpose ?? '').trim().slice(0, 300)
+      const request = {
         id: randomUUID(),
-        ...(exec.callId ? { callId: exec.callId } : {}),
+        // A group's tool cell is hidden, so its card belongs to the group dock, not a call.
+        ...(room === undefined && exec.callId ? { callId: exec.callId } : {}),
+        ...(room === undefined ? {} : { roomId: room.id }),
         sessionId: id,
         name,
-        purpose: String(args.purpose ?? '').trim().slice(0, 300),
+        purpose,
         kind: secret ? 'allow' : 'fill',
         status: 'pending',
         askedAt: now,
-      })
+      }
+      list.push(request)
+      // The dock's own entry, with the same id as the request: one card, one answer.
+      if (room !== undefined) rt.addRoomCard?.({ id: request.id, kind: 'secret', botId: bot.id, roomId: room.id, askedAt: now, name, purpose, requestKind: request.kind })
       trimRequests(list)
       await rt.save()
+      if (room !== undefined) rt.waitRoomTurn?.(id)
       exec.concludeTurn?.()
+      if (room !== undefined) {
+        return secret
+          ? `The key card asking the user to let you use ${name} is waiting above the group's composer. The other members carry on; a note reaches you when the user answers. You will not see the value.`
+          : `The key card asking the user for ${name} is waiting above the group's composer. The other members carry on; a note reaches you when the user saves or cancels. You will not see the value.`
+      }
       return secret
         ? `The card asking the user to let you use ${name} is on screen. A note arrives when the user answers; you will not see the value.`
         : `The card asking the user for ${name} is on screen. A note arrives when the user saves or cancels; you will not see the value.`
@@ -784,6 +893,7 @@ export function install(rt) {
     canUseSecret: (name, botId) => canUse(secrets.get(name), botId),
     secretEndpoint,
     forgetBotSecrets,
+    cancelRoomSecretRequests,
     loadSecrets,
     redactSecrets: text => redact(text),
   })

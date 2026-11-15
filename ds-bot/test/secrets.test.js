@@ -265,22 +265,28 @@ test('a key\'s purpose can be changed or cleared on its own', async (t) => {
   assert.equal(saved.scope, 'all')
 })
 
-test('cards stay in a Bot\'s own chat; canceling tells the Bot', async (t) => {
+test('cards stay in a Bot\'s own chat; a group turn queues a group card; canceling tells the Bot', async (t) => {
   const bench = start()
   t.after(bench.stop)
+  // In a group the card joins the group's queue: it waits above the group's composer
+  // and the asking member's slot waits for the answer.
   const group = await bench.tool('request_secret', { name: 'DEMO_TOKEN', purpose: 'x' }, 'g-b2')
-  assert.equal(group.concluded, false)
-  assert.match(group.text, /only work in your own chat/)
+  assert.equal(group.concluded, true)
+  assert.match(group.text, /waiting above the group's composer/)
+  assert.equal((await bench.view()).roomCards.r1?.length, 1)
   assert.match((await bench.tool('request_secret', { name: '9bad', purpose: 'x' }, 'b2')).text, /capitals, digits, and underscores/)
   assert.match((await bench.tool('request_secret', { name: 'X_KEY', purpose: 'x' }, 'stranger')).text, /Only Bots/)
 
   await bench.tool('request_secret', { name: 'DEMO_TOKEN', purpose: 'first' }, 'b2')
   await bench.tool('request_secret', { name: 'DEMO_TOKEN', purpose: 'second' }, 'b2')
-  const [first, second] = (await bench.view()).secretRequests.b2
+  // The group card's request lives in the same per-Bot list (the member is b2 there),
+  // so the own-chat path is read through its shape: no roomId on the request.
+  const own = (await bench.view()).secretRequests.b2.filter(request => request.roomId === undefined)
+  const [first, second] = own
   assert.equal(first.status, 'canceled')
   assert.equal(second.status, 'pending')
   assert.equal((await bench.call('secret-cancel', { requestId: second.id })).ok, true)
-  assert.equal((await bench.view()).secretRequests.b2[1].status, 'canceled')
+  assert.equal((await bench.view()).secretRequests.b2.filter(request => request.roomId === undefined)[1].status, 'canceled')
   assert.match(bench.delivered.at(-1).text, /^\[Secret card\]\nThe user canceled your request for DEMO_TOKEN\./)
   assert.match((await bench.call('secret-allow', { requestId: 'gone' })).error.message, /request is gone/)
 })

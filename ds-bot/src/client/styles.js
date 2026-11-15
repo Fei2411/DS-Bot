@@ -1356,6 +1356,12 @@ div:has(> nav [class*="_marks"]){display:none!important}
 .bt-q-inline .bt-q{margin:0;max-width:min(550px,86%);order:0}
 .bt-q-dock{width:100%;display:flex;justify-content:center}
 .bt-q-dock .bt-q{margin:0 auto 8px}
+/* A group's cards queue: the chip turns to the other waiting ones, and an old card says
+   how long it has waited. */
+.bt-room-dock{flex-direction:column;align-items:center;gap:6px}
+.bt-room-chip{align-self:center;border:0;background:none;color:inherit;font:inherit;font-size:12px;opacity:.7;cursor:pointer;padding:2px 8px;border-radius:999px}
+.bt-room-chip:hover{opacity:1}
+.bt-room-wait{opacity:.7}
 /* Phones: the conversation flow gets the whole screen instead of the desktop
    shares. A Bot message may take the width beside its avatar, a card the width of
    the flow, and long text or a wide block wraps inside it instead of running off

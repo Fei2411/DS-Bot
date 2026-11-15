@@ -81,9 +81,11 @@ function SecretHead({ bot, title, detail, name, onClose }) {
     onClose ? h('button', { type: 'button', className: 'bt-q-x', 'aria-label': t('Cancel the request'), title: t('Cancel'), onClick: onClose }, h(CloseIcon)) : null)
 }
 
-export function SecretCard({ sessionId, bot, request, roster, actions, inline = false }) {
+export function SecretCard({ sessionId, bot, request, roster, actions, inline = false, defaultScope = 'all' }) {
   const [value, setValue] = useState('')
-  const [scope, setScope] = useState('all')
+  // An own-chat card starts at "All Bots", as before. A group card starts at "Only this
+  // Bot": letting a key reach the whole team has to be an explicit choice.
+  const [scope, setScope] = useState(defaultScope)
   const [replacing, setReplacing] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -174,10 +176,46 @@ export function SecretToolCell({ sessionId, callId, name, done, content, roster,
 // A card whose call the transcript does not draw (an earlier part of the chat, a
 // hidden turn, a call outside the loaded history) waits above the composer instead.
 // Once editing starts it keeps that component until completion or cancellation.
+// A key card a member asked in a group waits above that group's composer. The group
+// keeps one queue of cards; this dock shows the key ones, oldest first, with the same
+// chip as the question and view docks. The value only ever lives in this component and
+// in the one request that saves it.
+const ROOM_SECRET_WAIT_MS = 30 * 60 * 1000
+
+function RoomSecretDock({ roomId, useRoster, actions }) {
+  const roster = useRoster(value => value)
+  const cards = useRoster(value => value.roomCards?.[roomId])
+  const [turn, setTurn] = useState(0)
+  const waiting = (cards ?? []).filter(card => card.kind === 'secret')
+  if (waiting.length === 0) return null
+  const card = waiting[turn % waiting.length]
+  const bot = roster.byId[card.botId]
+  if (!bot) return null
+  const request = {
+    id: card.id,
+    kind: card.requestKind === 'allow' ? 'allow' : 'fill',
+    name: card.name,
+    purpose: card.purpose,
+    status: 'pending',
+  }
+  const waited = Date.now() - (card.askedAt ?? 0)
+  return h('div', { className: 'bt-q-dock bt-secret-dock bt-room-dock' },
+    waiting.length > 1 ? h('button', {
+      type: 'button',
+      className: 'bt-room-chip',
+      onClick: () => setTurn(current => current + 1),
+    }, t('{count} more waiting · show next', { count: waiting.length - 1 })) : null,
+    h(SecretCard, { key: card.id, sessionId: roomId, bot, request, roster, actions, defaultScope: 'bot' }),
+    waited >= ROOM_SECRET_WAIT_MS ? h('div', { className: 'bt-q-detail bt-room-wait' }, t('Waiting for your answer for over 30 minutes')) : null)
+}
+
 export function SecretDock({ sessionId, useRoster, useCards, useHeldCards, actions }) {
   const roster = useRoster(value => value)
+  const room = useRoster(value => value.roomsById?.[sessionId])
   const shown = useCards?.(state => state[sessionId]) ?? NONE
   const held = useHeldCards?.(state => state[sessionId]) ?? NONE
+  // In a group the key cards belong to the group, not to a member's hidden Session.
+  if (room !== undefined) return h(RoomSecretDock, { roomId: sessionId, useRoster, actions })
   const bot = roster.byId[sessionId]
   if (!bot || currentPart(bot) !== sessionId) return null
   const drawn = entry => entry.callId && entry.sessionId === sessionId && shown[entry.callId] > 0 && !(held[heldCardKey('secret', entry.id)] > 0)
