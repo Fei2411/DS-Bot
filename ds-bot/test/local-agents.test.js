@@ -965,6 +965,25 @@ test('codex app-server: text answering a bridged call after the turn ended start
   assert.match(second.text, /ok: The calls that were waiting on the user are settled/, JSON.stringify(second))
 })
 
+test('codex app-server: a late notice for an earlier turn keeps the running turn steerable', async (t) => {
+  const recordPath = join(mkdtempSync(join(tmpdir(), 'dsb-late-')), 'record.jsonl')
+  const engine = new CodexEngine('local-codex-cli', { name: 'Codex', command: process.execPath, args: [FIXTURES.codex, '--record', recordPath] }, { findExecutable: path => path })
+  t.after(() => { engine.close?.() })
+  const thread = await engine.open('s1', { cwd: mkdtempSync(join(tmpdir(), 'dsb-late-cwd-')), mode: 'workspace-write' })
+  const first = await engine.prompt(thread, [{ type: 'text', text: 'hold' }], {})
+  const second = await engine.prompt(thread, [{ type: 'text', text: 'hold' }], {})
+  assert.notEqual(first, second)
+  // The turn a steer replaced finishes late: its notice must not clear the live turn.
+  await engine.steer(thread, `emit-stale ${first}`)
+  assert.equal(engine.canSteer(thread), true, 'the running turn stays steerable')
+  await engine.steer(thread, 'next input')
+  const lines = readFileSync(recordPath, 'utf8').trim().split('\n').filter(line => line !== '').map(line => JSON.parse(line))
+  const starts = lines.filter(entry => entry.method === 'turn/start')
+  assert.equal(starts.length, 2, 'no turn was started to replace the live one')
+  const steer = lines.filter(entry => entry.method === 'turn/steer').at(-1)
+  assert.equal(steer.params.expectedTurnId, second, 'the next input steers the running turn')
+})
+
 test('codex app-server: the approval answer rides along with runtime context in the new turn', async (t) => {
   const recordPath = join(mkdtempSync(join(tmpdir(), 'dsb-settled-')), 'record.jsonl')
   const adapter = makeAdapter({ codexArgs: ['--record', recordPath] })

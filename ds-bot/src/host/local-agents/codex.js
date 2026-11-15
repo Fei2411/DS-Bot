@@ -83,9 +83,10 @@ export class CodexEngine {
       case 'turn/completed': {
         if (thread === undefined) break
         const turn = params?.turn ?? {}
-        // The thread has no live turn now: a steer cannot land on it, and the
-        // adapter has to start a new one instead of dropping the input.
-        thread.turnId = undefined
+        // Only the turn that finished is cleared. A late notice for an earlier turn —
+        // one a steer already replaced — must not clear the turn running now: that would
+        // make the next input start a turn instead of steering the live one (#1513).
+        if (turn.id === undefined || thread.turnId === turn.id) thread.turnId = undefined
         if (turn.status === 'failed') thread.push({ type: 'error', error: new Error(turn.error?.message ?? 'the turn failed'), turnId: turn.id })
         else thread.push({ type: 'done', reason: 'stop', turnId: turn.id })
         break

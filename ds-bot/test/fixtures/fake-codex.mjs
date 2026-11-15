@@ -200,6 +200,12 @@ process.stdin.on('data', (chunk) => {
         if (typeof params.expectedTurnId !== 'string') { replyError(id, 'missing field expectedTurnId'); break }
         if (thread?.turn === undefined || thread.turn !== params.expectedTurnId) { replyError(id, `no live turn ${params.expectedTurnId}`); break }
         const text = (params.input ?? []).map(item => item.text ?? '').join('\n')
+        // A late notice for an earlier turn: the turn this thread runs now stays live.
+        if (text.startsWith('emit-stale ')) {
+          notice('turn/completed', { threadId: thread.id, turn: { id: text.slice('emit-stale '.length), status: 'completed' } })
+          reply(id, {})
+          break
+        }
         // A steer can be refused while the turn ends at the same moment: the client
         // must recover by starting a turn of its own.
         if (text === 'race') {
