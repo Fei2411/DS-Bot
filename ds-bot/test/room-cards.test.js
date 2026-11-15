@@ -36,13 +36,29 @@ test('a group addressed by room.sessionId still finds its cards when room.id dif
 // which is exactly what the third dock (RoomSecretDock) did before this guard existed,
 // green through every behavior test because those only covered the two docks we had
 // already fixed.
-test('every room dock looks its cards up through roomCardsAt', async () => {
-  const { readFileSync } = await import('node:fs')
-  for (const file of ['questions.js', 'widget-cell.js', 'secret-card.js']) {
-    const text = readFileSync(new URL(`../src/client/${file}`, import.meta.url), 'utf8')
-    assert.ok(!/roomCards\?\.\[roomId\]/.test(text), `${file} must use roomCardsAt, not a direct roomCards[roomId] lookup`)
-    assert.ok(/roomCardsAt/.test(text), `${file} must call roomCardsAt`)
+// Any file that reads `roomCards` directly renders an empty dock in a group whose
+// Session was rebuilt, because the backend keys the cards by room.id while the shell
+// may address the group by room.sessionId. That is exactly what the third dock
+// (RoomSecretDock) did: green through every behaviour test, because those covered
+// only the two docks already fixed. Scanning the whole client directory instead of
+// naming the docks keeps the guard true for a dock added later.
+test('every client file reads group cards through roomCardsAt', async () => {
+  const { readFileSync, readdirSync } = await import('node:fs')
+  const dir = new URL('../src/client/', import.meta.url)
+  // roomCardsAt itself is the one place the raw lookup belongs: its first line is the
+  // direct hit, its second the retry by the room's true id.
+  const allowed = new Map([['sources.js', 2]])
+  const offenders = []
+  // Recursive, so a dock added in a subdirectory is guarded too.
+  for (const name of readdirSync(dir, { recursive: true })) {
+    if (!name.endsWith('.js')) continue
+    const lines = readFileSync(new URL(name, dir), 'utf8').split('\n')
+    const hits = lines.map((line, at) => (/roomCards\?\.\[/.test(line) ? at + 1 : 0)).filter(Boolean)
+    if (hits.length === 0) continue
+    const budget = allowed.get(name) ?? 0
+    if (hits.length > budget) offenders.push(`${name}:${hits.join(',')}`)
   }
+  assert.deepEqual(offenders, [], `these files look group cards up directly: ${offenders.join('; ')}`)
 })
 
 // Chief is the admin of group 'r1' and speaks there from 'ga'; Writer from 'gb'; Tester
