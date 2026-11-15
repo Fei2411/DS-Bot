@@ -42388,7 +42388,7 @@ function commandEntries({ roster, actions }) {
         kind: "action",
         run(session) {
           const target = entry(session?.sessionId);
-          if (target !== void 0) actions.openSettings("schedules", target.id);
+          if (target !== void 0) actions.openSettings("schedules", `${isRoom(session.sessionId) ? "room" : "bot"}:${target.id}`);
         }
       }
     }],

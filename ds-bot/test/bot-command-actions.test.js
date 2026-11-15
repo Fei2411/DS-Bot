@@ -53,7 +53,7 @@ test('picking the scheduled-task action opens this chat\u2019s scheduled tasks',
   const { contributions } = commandEntries({ roster: rosterOf(), actions })
   contributions[0].ui.run({ sessionId: 'a' })
   contributions[0].ui.run({ sessionId: 'r1' })
-  assert.deepEqual(calls, [['settings', 'schedules', 'a'], ['settings', 'schedules', 'r1']])
+  assert.deepEqual(calls, [['settings', 'schedules', 'bot:a'], ['settings', 'schedules', 'room:r1']])
 })
 
 test('a bare /goal in a group chat opens the group goal, and a Bot chat is left to the host', () => {

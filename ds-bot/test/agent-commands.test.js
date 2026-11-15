@@ -51,7 +51,9 @@ function world({ config = {} } = {}) {
     }
     return { commands, get: name => (name === 'commands' ? commands : undefined) }
   }
+  const cleanups = []
   const ctx = {
+    effect(run) { cleanups.push(run()) },
     on(event, listener) {
       listeners.set(event, [...(listeners.get(event) ?? []), listener])
       return () => {}
@@ -83,7 +85,7 @@ function world({ config = {} } = {}) {
     agents.push(entry)
     return entry
   }
-  return { ctx, rt, service, registerGlobal, emit, agent, agents, runs: () => dshRuns }
+  return { cleanups, ctx, rt, service, registerGlobal, emit, agent, agents, runs: () => dshRuns }
 }
 
 test('the shield shadows every command a Bot sees and refuses a typed command with its arguments', () => {
@@ -207,4 +209,19 @@ test('the shield switch turns it off and leaves the DSH commands alone', async (
   const { result } = await w.service.execute(a, '/plan 明天上线')
   assert.equal(result.kind, 'success')
   assert.equal(w.runs(), 1)
+})
+
+
+test('unloading the plugin lifts commands from agents that stay alive', async () => {
+  const w = world()
+  install(w.rt)
+  w.rt.chatOwners.set('a', 'a')
+  w.registerGlobal('plan')
+  const a = w.agent('a')
+  w.emit('agent/created', { agent: a })
+  assert.match(w.service.find(a, 'plan').description, /Not available/)
+  for (const cleanup of w.cleanups) cleanup?.()
+  assert.equal(w.service.find(a, 'plan').description, 'global plan')
+  for (const saved of w.rt.saved) saved()
+  assert.equal((await w.service.execute(a, '/plan')).result.kind, 'success')
 })

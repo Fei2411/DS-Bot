@@ -35,7 +35,7 @@ export function commandEntries({ roster, actions }) {
         kind: 'action',
         run(session) {
           const target = entry(session?.sessionId)
-          if (target !== undefined) actions.openSettings('schedules', target.id)
+          if (target !== undefined) actions.openSettings('schedules', `${isRoom(session.sessionId) ? 'room' : 'bot'}:${target.id}`)
         },
       },
     }],

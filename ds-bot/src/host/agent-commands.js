@@ -146,7 +146,12 @@ export function install(rt) {
   ctx.on('agent/created', ({ agent }) => mountReady(agent))
   ctx.on('agent/disposed', ({ agent }) => { unmount(agent?.session?.id) })
   ctx.on('commands/change', resync)
-  rt.onSaved?.(() => resync())
+  const offSaved = rt.onSaved?.(() => resync())
+  ctx.effect(() => () => {
+    applying = true
+    offSaved?.()
+    for (const sessionId of [...shields.keys()]) unmount(sessionId)
+  }, 'ds-bot: command shield cleanup')
   // A reload can inherit live agents; agent/created will not fire for them again.
   for (const agent of ctx.get?.('agents')?.list?.() ?? []) void mountReady(agent)
 }
