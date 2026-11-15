@@ -920,26 +920,52 @@ test('a question or view card closed without an answer on it stays at its call, 
   assert.ok(find(show(call('show_view', 'v-answered', { args: pick }), { roster }), node => node.props?.className === 'bt-q-gone') !== undefined)
 })
 
-test('a dock card answered by a message stays above the composer, read-only, until a new card replaces it', () => {
-  const closedViews = { [chief.id]: { id: 'view-1', title: 'Pick a lane', closed: 'replied' } }
-  const dock = over => expand(WidgetDock({
-    sessionId: chief.id, useRoster: select => select(team(over)),
-    useCards: select => select({}), useHeldCards: select => select({}), actions: {},
-  }))
-  const node = dock({ views: {}, closedViews })
-  assert.match(node.props.className, /bt-q-dock/)
-  assert.match(text(node), /Pick a lane/)
-  // "Answered by message", with nothing to submit and no close control.
-  assert.match(text(node), /Answered by message/)
-  assert.equal(find(node, each => each.type === 'button'), undefined)
-  // Dismissed keeps its own label.
-  const dismissed = dock({ views: {}, closedViews: { [chief.id]: { id: 'view-1', title: 'Pick a lane', closed: 'dismissed' } } })
-  assert.match(text(dismissed), /Dismissed/)
-  // An open card takes the dock back.
-  const pending = dock({ views: { [chief.id]: { id: 'view-2', callId: 'v-call', title: 'Next', view: { type: 'options', id: 'lane', options: [{ label: 'A' }] } } }, closedViews })
-  assert.doesNotMatch(text(pending), /Pick a lane/)
-  // A question closed without a call row leaves no dock card at all.
-  assert.equal(dock({ views: {}, closedViews: {} }), null)
+test('a hidden-turn card floats in the dock while pending, then leaves the dock and settles at its turn when closed', () => {
+  const store = cardStore()
+  const asked = { question: 'Which draft?', options: [{ label: 'Short' }] }
+  const pick = { title: 'Pick a lane', view: { type: 'options', id: 'lane', options: [{ label: 'Ship now' }] } }
+  const meter = { title: 'Hidden meter', view: { type: 'metric', label: 'Done', value: '3' } }
+  const root = program([
+    call('message_bot', 'm-hidden', { args: { to: 'Writer' } }),
+    call('show_view', 'm-view', { args: meter }),
+    call('ask_user', 'q-hidden', { args: asked }),
+    call('show_view', 'v-hidden', { args: pick }),
+  ])
+  const pendingRoster = team({
+    exchangeTurns: { [chief.id]: [1] },
+    questions: { [chief.id]: { id: 'q-1', callId: 'q-hidden', ...asked } },
+    views: { [chief.id]: { id: 'v-1', callId: 'v-hidden', ...pick } },
+  })
+  // While pending, the hidden turn draws nothing and marks no cards, so the docks show both.
+  const pendingCell = draw(root, store, { roster: pendingRoster })
+  assert.equal(text(pendingCell.out), '')
+  assert.deepEqual(store.state, {})
+  const pendingViewDock = expand(WidgetDock(dockProps(store, pendingRoster)))
+  const pendingQuestionDock = expand(QuestionDock(dockProps(store, pendingRoster)))
+  assert.match(text(pendingViewDock), /Pick a lane/)
+  assert.match(text(pendingQuestionDock), /Which draft\?/)
+  pendingCell.unmount()
+
+  // Once closed by message or dismiss, both docks empty and the hidden turn draws only the settled cards.
+  const closedRoster = team({
+    exchangeTurns: { [chief.id]: [1] },
+    questions: {},
+    views: {},
+    closedCards: { [chief.id]: { 'q-hidden': 'dismissed', 'v-hidden': 'replied' } },
+  })
+  assert.equal(expand(WidgetDock(dockProps(store, closedRoster))), null)
+  assert.equal(expand(QuestionDock(dockProps(store, closedRoster))), null)
+  const settledCell = show(root, { roster: closedRoster })
+  assert.equal(text(settledCell), 'Which draft?DismissedPick a laneAnswered by message')
+  assert.equal(find(settledCell, each => each.type === 'button'), undefined)
+
+  // A card carried from an earlier part stays in the dock even if the current part drew the same call id.
+  store.noteCards(chief.id, ['same-call'], 1)
+  const carriedRoster = team({
+    views: { [chief.id]: { id: 'v-2', callId: 'same-call', callSessionId: 'chief-old', ...pick } },
+  })
+  assert.match(text(expand(WidgetDock(dockProps(store, carriedRoster)))), /Pick a lane/)
+  assert.ok(find(show(call('show_view', 'same-call', { args: pick }), { roster: carriedRoster }), each => each.props?.className === 'bt-q-gone') !== undefined)
 })
 
 test('an answered question card keeps only the chosen rows, each under its card letter, and the own answer after them', () => {

@@ -33,6 +33,17 @@ fi
 
 alive() { [ -f "$HOME_DIR/$1.pid" ] && kill -0 "-$(cat "$HOME_DIR/$1.pid")" 2>/dev/null; }
 
+# macOS has no setsid; the shim is a real file because exec does not resolve
+# shell functions. perl does the same syscall and execs the command, so the pid
+# each process writes is still its own process group for stop_one.
+SETSID=setsid
+if ! command -v setsid >/dev/null 2>&1; then
+  mkdir -p "$HOME_DIR"
+  SETSID="$HOME_DIR/.setsid"
+  printf '#!/bin/sh\nexec perl -e '"'"'use POSIX; setsid; exec @ARGV'"'"' "$@"\n' > "$SETSID"
+  chmod +x "$SETSID"
+fi
+
 # Each process runs in its own session (setsid), so its pid is also its process group, which
 # outlives it: pnpm exits before the dsh it started. The process writes its own pid: the `$!`
 # of a background job is the subshell that runs setsid, not the session leader it forks, so
@@ -88,7 +99,7 @@ start() {
   if ! alive mock; then
     rm -f "$HOME_DIR/mock.pid"
     (cd "$PLUGIN" && MOCK_PORT="$MOCK_PORT" MOCK_DELAY_MS="${MOCK_DELAY_MS:-300}" MOCK_LOG="$HOME_DIR/mock.jsonl" \
-      exec setsid sh -c 'set -eu; echo $$ >"$1"; shift; exec "$@"' sh "$HOME_DIR/mock.pid" \
+      exec "$SETSID" sh -c 'set -eu; echo $$ >"$1"; shift; exec "$@"' sh "$HOME_DIR/mock.pid" \
       node dev/mock-llm.mjs "$HOME_DIR") </dev/null >"$HOME_DIR/mock.out" 2>&1 &
     # The mock writes its own pid just before it starts; wait for the file so a
     # status or stop right after start does not miss a mock still coming up.
@@ -99,7 +110,7 @@ start() {
     log="$HOME_DIR/web.log"
     rm -f "$log" "$HOME_DIR/web.pid"
     (cd "$DSH_HARNESS" && DSH_HOME="$HOME_DIR" DEEPSEEK_BASE_URL="http://127.0.0.1:$MOCK_PORT/v1" DEEPSEEK_API_KEY=mock-key \
-      exec setsid sh -c 'set -eu; echo $$ >"$1"; shift; exec "$@"' sh "$HOME_DIR/web.pid" \
+      exec "$SETSID" sh -c 'set -eu; echo $$ >"$1"; shift; exec "$@"' sh "$HOME_DIR/web.pid" \
       pnpm -s dsh --profile web --patch apps/web/tests/pin-browse-picker.overlay.yml --patch "$HOME_DIR/bench.patch.yml" \
       --no-open --port "$WEB_PORT") </dev/null >"$log" 2>&1 &
     # The process writes its own pid just before dsh starts; wait for that file so a

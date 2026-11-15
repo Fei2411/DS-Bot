@@ -129,6 +129,8 @@ const api = (handlers = {}) => {
     memoryReviews: () => ({}),
     connectorsView: () => ({}),
     capabilityStatusesView: () => ({}),
+    phoneView: () => null,
+    phoneServe: () => {},
     selfOf: id => handlers.selfOf?.(id),
     thinkingOf: handlers.thinkingOf ?? (async () => undefined),
     warn() {},

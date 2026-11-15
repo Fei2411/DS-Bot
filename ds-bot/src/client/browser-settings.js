@@ -123,7 +123,7 @@ export function BrowserPage({ roster, actions, run, Section, Row }) {
         h('div', { className: 'bt-browser-form-foot' },
           h('button', {
             type: 'submit',
-            className: 'bt-soft bt-soft-sm',
+            className: 'bt-send bt-soft-sm',
             disabled: busy || !selectedBot || kinds.length === 0,
           }, busy ? t('Saving…') : t('Add'))))))
 }

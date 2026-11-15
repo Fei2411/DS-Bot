@@ -11,6 +11,9 @@ export const RAIL_WIDTH = 88
 export const PANEL_MIN = { details: 320, browser: 360, side: 320 }
 // The shell collapses its own sidebar below this width.
 export const DSH_NARROW = 1024
+// What the shell's collapsed track takes from the window. A phone-width shell parks the
+// whole sidebar off-canvas: it keeps its full width but leaves no room to subtract.
+export const trackRoom = ({ width, right }) => Math.max(0, Math.min(width, right))
 // The open column's width range; a drag released short of RAIL_SNAP lands on the rail.
 export const SIDEBAR_MIN = 264
 export const SIDEBAR_MAX = 420

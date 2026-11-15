@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -41,7 +41,7 @@ function makeAdapter({ records = {}, preset = 'workspace-write', acp = FIXTURES.
     },
     record: sessionId => records[sessionId],
     saveRecord: (sessionId, record) => { records[sessionId] = record },
-    presetFor: () => preset,
+    presetFor: typeof preset === 'function' ? preset : () => preset,
     cwdFor: async () => mkdtempSync(join(tmpdir(), 'dsb-cwd-')),
     probeCwd: () => mkdtempSync(join(tmpdir(), 'dsb-probe-')),
     toolsFor: () => [{ name: 'message_bot', description: 'Message another Bot', parameters: { type: 'object', properties: { bot: { type: 'string' }, text: { type: 'string' } } } }],
@@ -289,6 +289,42 @@ test('acp: the preset picks among the modes the session lists', async (t) => {
   assert.match((await collect(write.stream(options('s1', [user('m1', 'show-mode')])))).text, /mode: agent; refused: 0/)
 })
 
+// #1503: a live CLI keeps the permission mode it opened with. Changing the
+// Bot's preset must reopen the CLI for the next turn, not wait for a restart.
+test('a changed permission preset reopens the local agent for the next turn', async () => {
+  let preset = 'workspace-write'
+  const adapter = makeAdapter({ preset: () => preset })
+  try {
+    const first = await collect(adapter.stream(options('s1', [user('m1', 'show-mode')])))
+    assert.match(first.text, /mode: accept-edits/)
+    preset = 'danger-full-access'
+    const second = await collect(adapter.stream(options('s1', [user('m2', 'show-mode')])))
+    assert.match(second.text, /mode: bypass/)
+  } finally {
+    await adapter.dispose()
+  }
+})
+
+test('codex: a changed permission preset resumes the thread with the new sandbox and approval', async () => {
+  let preset = 'workspace-write'
+  const record = join(mkdtempSync(join(tmpdir(), 'dsb-codex-preset-')), 'params.jsonl')
+  const records = {}
+  const adapter = makeAdapter({ preset: () => preset, records, codexArgs: ['--record', record] })
+  try {
+    const request = (id, text) => options('s1', [user(id, text)], { provider: 'local-codex-cli', model: 'gpt-5.1-codex' })
+    await collect(adapter.stream(request('m1', 'hello')))
+    preset = 'danger-full-access'
+    await collect(adapter.stream(request('m2', 'again')))
+  } finally {
+    await adapter.dispose()
+  }
+  const calls = readFileSync(record, 'utf8').trim().split('\n').map(line => JSON.parse(line))
+  const resumed = calls.filter(call => call.method === 'thread/resume')
+  assert.equal(resumed.length, 1)
+  assert.equal(resumed[0].params.sandbox, 'danger-full-access')
+  assert.equal(resumed[0].params.approvalPolicy, 'never')
+})
+
 test('probeModels reports the probe session\'s model options plus CLI default', async (t) => {
   const adapter = makeAdapter()
   t.after(() => adapter.dispose())
@@ -459,6 +495,28 @@ test('a write to a CLI that has exited does not throw out of DS Bot', async () =
     process.off('uncaughtException', hear)
   }
   assert.deepEqual(unheard.map(error => error.code), [])
+})
+
+// A CLI that exists but cannot run (a broken install, a missing interpreter)
+// fails spawn with 'error', not 'exit'; unheard it took the whole host down.
+test('a CLI that cannot start fails its probe as a typed error, not the host', async () => {
+  const broken = join(mkdtempSync(join(tmpdir(), 'dsb-broken-')), 'broken-cli')
+  writeFileSync(broken, '#!/missing/interpreter/never\nexit 1\n', { mode: 0o755 })
+  const unheard = []
+  const hear = error => unheard.push(error)
+  process.on('uncaughtException', hear)
+  try {
+    for (const Engine of [AcpEngine, CodexEngine]) {
+      const engine = new Engine('local-broken', { name: 'Broken CLI', command: broken, args: [] }, { findExecutable: () => broken })
+      await assert.rejects(() => engine.ensure(), error => error.code === 'LOCAL_AGENT_EXIT' && /could not start/.test(error.message))
+      // The failed process is let go of: the next ensure() tries a fresh one.
+      assert.equal(engine.peer, undefined)
+      assert.equal(engine.child, undefined)
+    }
+  } finally {
+    process.off('uncaughtException', hear)
+  }
+  assert.deepEqual(unheard, [])
 })
 
 test('claude: another model restarts only that conversation\'s process, with its new tool server', async (t) => {
@@ -729,7 +787,9 @@ test('flattenSchema removes unions, refs and const', () => {
 
 // The steward must never touch an abot's Session: the pre-step listener returns
 // early for a local-agent Bot, and checkContext leaves too.
-test('the steward leaves a local-agent Session alone', async () => {
+// A CLI condenses on its own inside a running turn: its part is checked when the turn
+// ends (test/local-agent-context.test.js), never before a step.
+test('a running turn of a local-agent part is not checked before its steps', async () => {
   const ctx = fakeContext()
   const bot = { id: 'b1', name: 'Kai', sessionId: 's1', model: 'local-acp-fake/default' }
   const rt = {
@@ -747,6 +807,8 @@ test('the steward leaves a local-agent Session alone', async () => {
     chatOf: () => 's1',
     isBotSession: id => id === 's1',
     isLocalAgentRef: ref => typeof ref === 'string' && ref.startsWith('local-acp-'),
+    isLocalAgentRoute: route => route.startsWith('local-acp-'),
+    localAgentContext: () => ({ used: 999_999, size: 200_000, compactions: 0 }),
     chatOwners: new Map([['s1', 'b1']]),
     groupOwners: new Map(),
     pastOwners: new Map(),
@@ -758,7 +820,7 @@ test('the steward leaves a local-agent Session alone', async () => {
   partsInstall(rt)
   const listener = ctx.listeners.get('agent/pre-step')?.[0]
   assert.ok(listener !== undefined)
-  const agent = { id: 's1', session: { id: 's1', deriveMessages: () => [] }, status: 'idle' }
+  const agent = { id: 's1', session: { id: 's1', deriveMessages: () => [], requestHeader: () => ({ config: { provider: 'local-acp-fake', model: 'default' } }) }, status: 'idle' }
   const next = async () => 'next-called'
   const result = await listener({ agent, messages: [] }, next)
   assert.equal(result, 'next-called')

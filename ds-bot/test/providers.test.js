@@ -162,6 +162,30 @@ test('a custom API goes in with its endpoint, protocol, compatibility switches a
   assert.equal(writes.at(-1)[1][0].value.compat, undefined)
 })
 
+test('when DSH advertises google-generative-ai in llm-pi-ai schema, Gemini custom routes and discovery are admitted without OpenAI compat switches', async () => {
+  const { rt, writes, discovered } = dsh()
+  const origDescribe = rt.ctx.get('settings').describe
+  // Start from the real Schemastery JSON shape that settings.describe() produces, and
+  // ensure google-generative-ai is present in the api union (0.2.2-rc.1 lacks it; rc.2 ships it).
+  const realJson = PiAiConfig.toJSON()
+  const refs = structuredClone(realJson.refs)
+  const apiUnion = Object.values(refs).find(node => node?.type === 'union' && Array.isArray(node.list) && node.list.some(id => refs[String(id)]?.value === 'openai-completions'))
+  assert.ok(apiUnion, 'found the api union in real PiAiConfig.toJSON()')
+  if (!apiUnion.list.some(id => refs[String(id)]?.value === 'google-generative-ai')) {
+    refs.geminiConst = { type: 'const', meta: {}, value: 'google-generative-ai' }
+    apiUnion.list.push('geminiConst')
+  }
+  const geminiSchema = { uid: realJson.uid, refs }
+  rt.ctx.get('settings').describe = () => origDescribe().map(section => (section.ns === 'llm-pi-ai' ? { ...section, schema: geminiSchema } : section))
+  const view = await rt.providersView()
+  assert.deepEqual(view.protocols, ['openai-completions', 'openai-responses', 'anthropic-messages', 'google-generative-ai'])
+  await rt.discoverModels({ baseURL: 'https://generativelanguage.googleapis.com/v1beta', api: 'google-generative-ai', key: 'sk-gem' })
+  assert.deepEqual(discovered.at(-1), ['llm-pi-ai', { baseURL: 'https://generativelanguage.googleapis.com/v1beta', api: 'google-generative-ai', apiKey: 'sk-gem' }])
+  await rt.addProvider({ custom: true, provider: 'gemini-gw', api: 'google-generative-ai', baseURL: 'https://generativelanguage.googleapis.com/v1beta', models: ['gemini-2.5-pro'] })
+  assert.equal(writes.at(-1)[1][0].value.api, 'google-generative-ai')
+  assert.equal(writes.at(-1)[1][0].value.compat, undefined)
+})
+
 test('existing custom routes and custom-endpoint catalog routes backfill missing compatibility switches without overwriting explicit ones', async () => {
   const user = {
     providers: {

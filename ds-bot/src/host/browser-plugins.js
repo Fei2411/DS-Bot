@@ -131,6 +131,7 @@ export function install(rt) {
     return [...new Set([working, team].filter(root => typeof root === 'string' && isAbsolute(root)))]
   }
   const mounted = {}
+  rt.browserFrame = botId => mounted.frame?.(botId)
   mountBrowserPlugin(rt.ctx, {
     api: mounted,
     toolDefs: plugin.tools ?? plugin.toolDefs,

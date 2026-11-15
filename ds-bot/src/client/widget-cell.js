@@ -50,7 +50,7 @@ export function PendingView({ sessionId, view, actions, inline }) {
 // The show_view call in the transcript.
 export function WidgetCell({ sessionId, callId, args, done, isError, roster, actions, heldCards }) {
   const record = roster.views?.[sessionId]
-  if (record !== undefined && record.callId === callId) {
+  if (record !== undefined && (record.callSessionId ?? sessionId) === sessionId && record.callId === callId) {
     if (heldCards?.[heldCardKey('view', record.id)] > 0) return h(CellEmpty)
     return h(PendingView, { sessionId, view: record, actions, inline: true })
   }
@@ -83,13 +83,10 @@ export function ClosedView({ title, closed }) {
 // mirroring the question dock.
 export function WidgetDock({ sessionId, useRoster, useCards, useHeldCards, actions }) {
   const view = useRoster(value => value.views?.[sessionId])
-  const closed = useRoster(value => value.closedViews?.[sessionId])
   const drawn = useCards?.(state => state[sessionId]?.[view?.callId] > 0) === true
   const held = useHeldCards?.(state => state[sessionId]?.[heldCardKey('view', view?.id)] > 0) === true
-  // A dock card has no call row to stay at, so its closed form stays in the dock,
-  // read-only, until a new card takes its place.
-  if (view === undefined) return closed === undefined ? null : h('div', { className: 'bt-q-dock' }, h(SettledQuestion, { question: { question: closed.title || t('View') }, closed: closed.closed }))
-  if (view.callId && drawn && !held) return null
+  const inPart = (view?.callSessionId ?? sessionId) === sessionId
+  if (view === undefined || (inPart && view.callId && drawn && !held)) return null
   return h(PendingView, { sessionId, view, actions, inline: false })
 }
 

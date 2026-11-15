@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
   RAIL_WIDTH, RAIL_SNAP, SIDEBAR_MIN, SIDEBAR_MAX, MIN_CHAT, FALLBACK_SIDEBAR_WIDTH,
-  frameLayout, dragColumn, toggledPref, userSidebarToggle, readSidebar, writeSidebar,
+  frameLayout, dragColumn, toggledPref, trackRoom, userSidebarToggle, readSidebar, writeSidebar,
 } from '../src/client/frame-layout.js'
 import { createSource } from '../src/client/sources.js'
 import { teamActions } from '../src/client/team-actions.js'
@@ -214,4 +214,14 @@ test('opening new chat closes the floating drawer', () => {
   actions.openNewChat('new')
   assert.equal(ui.getSnapshot().newChat, 'new')
   assert.equal(ui.getSnapshot().leftDrawer, false)
+})
+
+test('only the part of the collapsed track inside the window counts as its room', () => {
+  // Desktop icon rail, frameless window, phone-width off-canvas sidebar, one still sliding out.
+  assert.equal(trackRoom({ width: 56, right: 56 }), 56)
+  assert.equal(trackRoom({ width: 0, right: 0 }), 0)
+  assert.equal(trackRoom({ width: 280, right: 0 }), 0)
+  assert.equal(trackRoom({ width: 280, right: 40 }), 40)
+  // A track offset from the window's edge still takes only its own width.
+  assert.equal(trackRoom({ width: 56, right: 64 }), 56)
 })

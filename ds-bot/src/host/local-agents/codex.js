@@ -41,17 +41,21 @@ export class CodexEngine {
     this.child = child
     const peer = this.peer = new JsonRpcPeer(line => child.stdin.write(`${JSON.stringify(line)}\n`))
     wireProcess(child, peer)
-    child.on('exit', () => {
-      peer.close(new Error(`${this.engine.name} exited`))
+    const gone = (error) => {
+      peer.close(error)
       // A process close() let go of must not take the one that replaced it along.
       if (this.child !== child) return
       this.child = undefined
       this.peer = undefined
       for (const thread of this.threads.values()) {
         thread.dead = true
-        thread.push({ type: 'error', error: new Error(`${this.engine.name} exited`) })
+        thread.push({ type: 'error', error })
       }
-    })
+    }
+    child.on('exit', () => gone(new Error(`${this.engine.name} exited`)))
+    // A CLI that cannot start at all (a broken install, a missing interpreter)
+    // raises 'error', never 'exit'; unheard it takes the host down.
+    child.on('error', error => gone(Object.assign(new Error(`${this.engine.name} could not start: ${error.message}`), { code: 'LOCAL_AGENT_EXIT' })))
     peer.notificationHandler = (method, params) => this.onNotice(method, params)
     peer.requestHandler = (method, params) => this.onRequest(method, params)
     await peer.request('initialize', { clientInfo: { name: 'ds-bot', title: null, version: '1' } }, { timeout: 30_000 })
@@ -66,6 +70,8 @@ export class CodexEngine {
       case 'item/completed': {
         const item = params?.item ?? {}
         if (thread === undefined) break
+        // Codex 0.166 condenses as an item of its own, in a turn of its own or mid-turn.
+        if (item.type === 'contextCompaction') thread.push({ type: 'compaction', status: method === 'item/started' ? 'started' : 'completed' })
         if (item.type === 'agentMessage' || item.type === 'agent_message') thread.push({ type: 'text', text: item.text ?? '' })
         else if (item.type === 'reasoning') thread.push({ type: 'thought', text: (item.content ?? []).join('') || item.text || '' })
         else if (method === 'item/started' && item.type !== undefined) thread.push({ type: 'activity', text: `▸ ${activityOf(item)}` })
@@ -79,9 +85,26 @@ export class CodexEngine {
         break
       }
       case 'thread/tokenUsage/updated': {
-        if (thread === undefined) break
-        const usage = params?.tokenUsage ?? params?.usage
-        if (usage !== undefined) thread.push({ type: 'usage', usage: { inputTokens: usage.inputTokens ?? usage.input_tokens ?? 0, outputTokens: usage.outputTokens ?? usage.output_tokens ?? 0 } })
+        // {total, last, modelContextWindow}: `last` is the request that just ran, and
+        // its totalTokens is what the thread's context holds now (after a compaction,
+        // what is left).
+        const last = params?.tokenUsage?.last
+        if (thread === undefined || last === undefined) break
+        const size = params.tokenUsage.modelContextWindow
+        if (typeof last.totalTokens === 'number') thread.push({ type: 'context', used: last.totalTokens, ...(typeof size === 'number' ? { size } : {}) })
+        const cached = last.cachedInputTokens ?? 0
+        if (last.inputTokens > 0 || last.outputTokens > 0) {
+          thread.push({
+            type: 'usage',
+            usage: {
+              // Codex folds cached input into inputTokens; DSH counts it apart.
+              inputTokens: Math.max(0, (last.inputTokens ?? 0) - cached),
+              outputTokens: last.outputTokens ?? 0,
+              ...(cached > 0 ? { cacheReadTokens: cached } : {}),
+              ...(last.reasoningOutputTokens ? { reasoningTokens: last.reasoningOutputTokens } : {}),
+            },
+          })
+        }
         break
       }
       default: break
@@ -114,7 +137,7 @@ export class CodexEngine {
     return Promise.reject({ code: -32601, message: `method not found: ${method}` })
   }
 
-  async open(dshSessionId, { cwd, mcp, resumeId, mode, instructions, model }) {
+  async open(dshSessionId, { cwd, mcp, resumeId, mode, instructions, model, ephemeral }) {
     const peer = await this.ensure()
     const thread = this.threadFor(dshSessionId)
     if (resumeId !== undefined) thread.threadId = resumeId
@@ -139,7 +162,7 @@ export class CodexEngine {
         thread.threadId = undefined
       }
     }
-    const reply = await peer.request('thread/start', { ...params, ...(instructions ? { developerInstructions: instructions } : {}) }, { timeout: 60_000 })
+    const reply = await peer.request('thread/start', { ...params, ...(instructions ? { developerInstructions: instructions } : {}), ...(ephemeral ? { ephemeral: true } : {}) }, { timeout: 60_000 })
     thread.threadId = reply?.thread?.id ?? reply?.threadId
     return thread
   }
@@ -160,6 +183,14 @@ export class CodexEngine {
     }, { signal, timeout: 0 })
     thread.turnId = reply?.turn?.id ?? reply?.id
     return thread.turnId
+  }
+
+  // The thread's own compaction: a turn of its own, which ends with turn/completed.
+  compact(thread) {
+    if (this.peer === undefined) return false
+    this.peer.request('thread/compact/start', { threadId: thread.threadId }, { timeout: 30_000 })
+      .catch(error => thread.push({ type: 'error', error }))
+    return true
   }
 
   async steer(thread, text) {

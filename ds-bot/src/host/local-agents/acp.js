@@ -12,7 +12,9 @@ const MCP_SERVER = 'dsbot'
 // Events a driver reports, normalized for the adapter:
 // {type:'text'|'thought',text} | {type:'activity',text} (one compact line of the
 // agent's own work) | {type:'permission',id,action,detail,options,changes,reply} |
-// {type:'done',reason} | {type:'error',error} | {type:'usage',usage}
+// {type:'done',reason,usage?} | {type:'error',error} | {type:'usage',usage} |
+// {type:'context',used?,size?} (how full the CLI's own context is) |
+// {type:'compaction',status:'started'|'completed'|'failed'}
 export class AcpEngine {
   constructor(route, engine, { findExecutable }) {
     this.route = route
@@ -24,6 +26,8 @@ export class AcpEngine {
     this.caps = {}
     // The modes and options this CLI listed last, for a reply that lists none.
     this.listed = { modes: [], configOptions: [] }
+    // The commands each agent session lists, by the agent's session id.
+    this.commands = new Map()
   }
 
   async ensure() {
@@ -40,25 +44,35 @@ export class AcpEngine {
     this.child = child
     const peer = this.peer = new JsonRpcPeer(line => child.stdin.write(`${JSON.stringify(line)}\n`))
     wireProcess(child, peer)
-    child.on('exit', (code, signal) => {
-      peer.close(new Error(`${this.engine.name} exited${signal ? ` (${signal})` : code !== null ? ` (${code})` : ''}`))
+    const gone = (error) => {
+      peer.close(error)
       // A process close() let go of must not take the one that replaced it along.
       if (this.child !== child) return
       this.child = undefined
       this.peer = undefined
       for (const session of this.sessions.values()) {
         session.dead = true
-        session.push({ type: 'error', error: new Error(`${this.engine.name} exited`) })
+        session.push({ type: 'error', error })
       }
-    })
+    }
+    child.on('exit', (code, signal) => gone(new Error(`${this.engine.name} exited${signal ? ` (${signal})` : code !== null ? ` (${code})` : ''}`)))
+    // A CLI that cannot start at all (a broken install, a missing interpreter)
+    // raises 'error', never 'exit'; unheard it takes the host down.
+    child.on('error', error => gone(Object.assign(new Error(`${this.engine.name} could not start: ${error.message}`), { code: 'LOCAL_AGENT_EXIT' })))
     peer.notificationHandler = (method, params) => this.onNotice(method, params)
     peer.requestHandler = (method, params) => this.onRequest(method, params)
     const reply = await peer.request('initialize', {
       protocolVersion: 1,
-      clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false },
+      // `session.compaction` asks for compaction_update notices, so DS Bot hears when
+      // the agent condenses its own context.
+      clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false, session: { compaction: {} } },
       clientInfo: CLIENT,
     }, { timeout: 30_000 })
-    this.caps = { mcpHttp: reply?.agentCapabilities?.mcpCapabilities?.http === true, mcpSse: reply?.agentCapabilities?.mcpCapabilities?.sse === true }
+    this.caps = {
+      mcpHttp: reply?.agentCapabilities?.mcpCapabilities?.http === true,
+      mcpSse: reply?.agentCapabilities?.mcpCapabilities?.sse === true,
+      close: reply?.agentCapabilities?.sessionCapabilities?.close != null,
+    }
     return peer
   }
 
@@ -75,10 +89,21 @@ export class AcpEngine {
   }
 
   onNotice(method, params) {
-    if (method !== 'session/update') return
-    const update = params?.update ?? {}
+    // Devin lists a session's commands before it answers session/new, so they are
+    // kept by the agent's session id rather than on a session not known yet.
+    if (params?.update?.sessionUpdate === 'available_commands_update') {
+      this.commands.set(params.sessionId, (params.update.availableCommands ?? []).map(command => command?.name).filter(Boolean))
+      return
+    }
     const session = [...this.sessions.values()].find(entry => entry.acpSessionId === params?.sessionId)
     if (session === undefined) return
+    // Devin CLI 3000.12 reports its compaction this way, not as compaction_update.
+    if (method === '_cognition.ai/compaction') {
+      session.push({ type: 'compaction', status: compactionStatus(params?.status) })
+      return
+    }
+    if (method !== 'session/update') return
+    const update = params?.update ?? {}
     switch (update.sessionUpdate) {
       case 'agent_message_chunk': session.push({ type: 'text', text: textOf(update.content) }); break
       case 'agent_thought_chunk': session.push({ type: 'thought', text: textOf(update.content) }); break
@@ -96,10 +121,13 @@ export class AcpEngine {
       }
       case 'plan': session.push({ type: 'thought', text: planText(update.entries) }); break
       case 'usage_update': {
-        const usage = usageOf(update)
-        if (usage !== undefined) session.push({ type: 'usage', usage })
+        // Devin sends each one twice, the second marked as a subagent's; a real
+        // subagent's context is not the session's.
+        if (update._meta?.['cognition.ai/subagent_context'] !== undefined) break
+        if (typeof update.used === 'number') session.push({ type: 'context', used: update.used, ...(typeof update.size === 'number' ? { size: update.size } : {}) })
         break
       }
+      case 'compaction_update': session.push({ type: 'compaction', status: compactionStatus(update.status) }); break
       default: break
     }
   }
@@ -188,10 +216,27 @@ export class AcpEngine {
     const peer = await this.ensure()
     const reply = peer.request('session/prompt', { sessionId: session.acpSessionId, prompt: blocks }, { signal, timeout: 0 })
     reply.then(
-      result => session.push({ type: 'done', reason: result?.stopReason ?? 'end_turn' }),
+      result => session.push({ type: 'done', reason: result?.stopReason ?? 'end_turn', ...(usageOf(result?.usage) ? { usage: usageOf(result.usage) } : {}) }),
       error => session.push({ type: 'error', error }),
     )
     return reply
+  }
+
+  // The agent's own compaction, through the command it lists for it. False when it
+  // lists none: it then condenses only on its own.
+  compact(session) {
+    // A loaded session may list nothing again: what this CLI listed last stands in.
+    const listed = this.commands.get(session.acpSessionId) ?? [...this.commands.values()].at(-1) ?? []
+    if (!listed.includes('compact')) return false
+    this.prompt(session, [{ type: 'text', text: '/compact' }], {}).catch(() => {})
+    return true
+  }
+
+  // A one-off session leaves the agent's list when it is done.
+  async closeSession(session) {
+    if (session?.acpSessionId === undefined) return
+    this.commands.delete(session.acpSessionId)
+    if (this.caps.close) await this.peer?.request('session/close', { sessionId: session.acpSessionId }, { timeout: 15_000 }).catch(() => {})
   }
 
   cancel(session) {
@@ -273,10 +318,19 @@ const detailText = (call, action = '') => {
   if (paths.length > 0) lines.push(paths.join(', '))
   return lines.join('\n').slice(0, 4_000)
 }
-const usageOf = update => {
-  const used = update.used ?? update
-  const input = used.inputTokens ?? used.input_tokens
-  const output = used.outputTokens ?? used.output_tokens
-  if (typeof input !== 'number' && typeof output !== 'number') return undefined
-  return { inputTokens: input ?? 0, outputTokens: output ?? 0 }
+// A prompt's usage. ACP folds cached input into inputTokens (Devin: totalTokens is
+// inputTokens plus outputTokens); DSH counts it apart.
+const usageOf = (usage) => {
+  if (typeof usage?.inputTokens !== 'number' && typeof usage?.outputTokens !== 'number') return undefined
+  const read = usage.cachedReadTokens ?? 0
+  const write = usage.cachedWriteTokens ?? 0
+  const input = usage.inputTokens ?? 0
+  return {
+    inputTokens: read + write <= input ? input - read - write : input,
+    outputTokens: usage.outputTokens ?? 0,
+    ...(read > 0 ? { cacheReadTokens: read } : {}),
+    ...(write > 0 ? { cacheWriteTokens: write } : {}),
+    ...(usage.thoughtTokens ? { reasoningTokens: usage.thoughtTokens } : {}),
+  }
 }
+const compactionStatus = status => (status === 'completed' ? 'completed' : status === 'started' || status === 'in_progress' ? 'started' : 'failed')
