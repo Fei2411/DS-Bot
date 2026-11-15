@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { lexer, type Token } from 'marked'
-import { inlineImage, softBreakText } from './markdown-rules.ts'
+import { hasInlineImage, imageFlow, inlineImage, softBreakText } from './markdown-rules.ts'
 
 // The phone's Markdown draws a text token inside React Native <Text>, which turns every
 // "\n" into a drawn line break; a browser collapses a soft break to a space. marked
@@ -56,4 +56,25 @@ test('the reported Markdown image lexes as an image token, which inlineImage can
   assert.deepEqual(inlineImage((image as { href?: string }).href, (image as { text?: string }).text), {
     kind: 'image', src: 'https://cdn.example.test/tokyo.png', alt: 'Tokyo page',
   })
+})
+
+
+test('unsupported images stay inside one inline sentence', () => {
+  const tokens = (lexer('See ![diagram](assets/diagram.png) below')[0] as { tokens: Token[] }).tokens
+  const parts = imageFlow(tokens)
+  assert.equal(parts.length, 1)
+  assert.equal(parts[0].kind, 'text')
+  assert.equal(hasInlineImage(tokens), false)
+})
+
+test('linked and emphasized HTTPS images are rendered while preserving surrounding text', () => {
+  const tokens = (lexer('**before ![chart](https://example.test/chart.png) after** [![preview](https://example.test/preview.png)](https://example.test/page)')[0] as { tokens: Token[] }).tokens
+  const parts = imageFlow(tokens)
+  assert.equal(hasInlineImage(tokens), true)
+  const images = parts.filter(part => part.kind === 'image')
+  assert.equal(images.length, 2)
+  assert.equal(images[1].href, 'https://example.test/page')
+  const first = parts[0]
+  assert.equal(first.kind, 'text')
+  if (first.kind === 'text') assert.equal(first.tokens[0].type, 'strong')
 })

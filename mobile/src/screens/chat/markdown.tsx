@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg'
 import { lexer, type Token, type Tokens } from 'marked'
 import { MONO, radius, type Palette } from '../../ui/tokens.ts'
-import { inlineImage, softBreakText } from '../../team/markdown-rules.ts'
+import { hasInlineImage, imageFlow, inlineImage, softBreakText } from '../../team/markdown-rules.ts'
 
 // Markdown in Bot text: the marked lexer walks the block tokens; each block maps
 // to RN views. Tables and fenced code scroll horizontally.
@@ -24,11 +24,9 @@ function tokensOf(text: string): Token[] {
 // A message that has any block that lays out wider than its text (list, code,
 // table, heading, rule, quote) needs the bubble's full width to wrap inside it.
 // A paragraph that carries an https image is wide too: the image takes that width.
-const imageIn = (tokens?: Token[]) => (tokens ?? []).some(token =>
-  token.type === 'image' && inlineImage((token as Tokens.Image).href, (token as Tokens.Image).text).kind === 'image')
 export function hasBlockContent(text: string): boolean {
   return text !== '' && tokensOf(text).some((token) => {
-    if (token.type === 'paragraph' || token.type === 'text') return imageIn((token as Tokens.Paragraph).tokens)
+    if (token.type === 'paragraph' || token.type === 'text') return hasInlineImage((token as Tokens.Paragraph).tokens)
     return token.type !== 'space'
   })
 }
@@ -75,10 +73,10 @@ function Block({ token, p, ink, textColor, fs, lh, first = false, last = false }
     case 'paragraph': {
       const tokens = (token as Tokens.Paragraph).tokens ?? []
       const style = [base, { marginTop: top(8), marginBottom: bottom(2) }]
-      if (!tokens.some(inner => inner.type === 'image')) {
+      if (!hasInlineImage(tokens)) {
         return <Text selectable style={style}><Inlines tokens={tokens} p={p} color={textColor} fs={fs} /></Text>
       }
-      return <View style={{ marginTop: top(8), marginBottom: bottom(2) }}><Flow tokens={tokens} p={p} color={textColor} style={style} fs={fs} /></View>
+      return <View style={{ marginTop: top(8), marginBottom: bottom(2) }}><Flow tokens={tokens} p={p} color={textColor} style={base} fs={fs} /></View>
     }
     case 'code': {
       const code = (token as Tokens.Code)
@@ -153,7 +151,7 @@ function Block({ token, p, ink, textColor, fs, lh, first = false, last = false }
     case 'text': {
       const text = token as Tokens.Text
       if (!Array.isArray(text.tokens) || text.tokens.length === 0) return <Text selectable style={base}>{softBreakText(text.text)}</Text>
-      if (!text.tokens.some(inner => inner.type === 'image')) return <Text selectable style={base}><Inlines tokens={text.tokens} p={p} color={textColor} fs={fs} /></Text>
+      if (!hasInlineImage(text.tokens)) return <Text selectable style={base}><Inlines tokens={text.tokens} p={p} color={textColor} fs={fs} /></Text>
       return <View><Flow tokens={text.tokens} p={p} color={textColor} style={base} fs={fs} /></View>
     }
     default:
@@ -203,24 +201,13 @@ const startsHan = (token?: Token) => token !== undefined && 'text' in token && /
 // inline image inside <Text> on Android, so a run of text and each image become
 // separate children of a View; text around an image keeps its inline formatting.
 function Flow({ tokens, p, color, style, fs }: { tokens: Token[]; p: Palette; color: string; style: object; fs: number }) {
-  const parts: React.ReactNode[] = []
-  let run: Token[] = []
-  const flush = () => {
-    if (run.length === 0) return
-    parts.push(<Text key={`t${parts.length}`} selectable style={style}><Inlines tokens={run} p={p} color={color} fs={fs} /></Text>)
-    run = []
-  }
-  tokens.forEach((token, index) => {
-    if (token.type !== 'image') { run.push(token); return }
-    flush()
-    const image = token as Tokens.Image
-    const shown = inlineImage(image.href, image.text)
-    parts.push(shown.kind === 'image'
-      ? <MarkdownImage key={`i${index}`} src={shown.src} alt={shown.alt} color={color} />
-      : <Text key={`i${index}`} style={{ color: tint(color, 0.45) }}>{shown.text}</Text>)
-  })
-  flush()
-  return <>{parts.map((part, index) => <View key={index} style={index === parts.length - 1 ? undefined : { marginBottom: 2 }}>{part}</View>)}</>
+  return <>{imageFlow(tokens).map((part, index) => {
+    if (part.kind === 'text') return <Text key={index} selectable style={style}><Inlines tokens={part.tokens} p={p} color={color} fs={fs} /></Text>
+    const image = <MarkdownImage src={part.src} alt={part.alt} color={color} />
+    return part.href
+      ? <Pressable key={index} accessibilityRole="link" onPress={() => void Linking.openURL(part.href!).catch(() => {})}>{image}</Pressable>
+      : <View key={index}>{image}</View>
+  })}</>
 }
 
 // An https image takes the bubble's width once its own size is known; until then,
