@@ -1338,8 +1338,8 @@ div:has(> nav [class*="_marks"]){display:none!important}
    surface is also laid as an image layer: a skin's more specific background-color
    with !important (a glass fill) then changes the color under the layer, not the
    surface the text sits on. */
-[class*="_userRow"] [class*="_bubble"],[data-chat-flow-kind=question-reply] [class*="_bubble"],[data-chat-flow-kind=command-input] [class*="_bubble"]{background:var(--bt-user)!important;background-image:linear-gradient(var(--bt-user),var(--bt-user))!important;color:var(--bt-user-ink)!important;border-radius:18px!important;padding:7px 12px!important;font-size:var(--dsh-content-font-size,14px)!important;line-height:calc(var(--dsh-content-font-size,14px) + 8px)!important}
-[class*="_userRow"] [class*="_bubble"] [class*="_markdown"],[class*="_userRow"] [class*="_bubble"] a{color:inherit}
+[class*="_userRow"] [class*="_bubble"],.bt-uhost [class*="_bubble"],[data-chat-flow-kind=question-reply] [class*="_bubble"],[data-chat-flow-kind=command-input] [class*="_bubble"]{background:var(--bt-user)!important;background-image:linear-gradient(var(--bt-user),var(--bt-user))!important;color:var(--bt-user-ink)!important;border-radius:18px!important;padding:7px 12px!important;font-size:var(--dsh-content-font-size,14px)!important;line-height:calc(var(--dsh-content-font-size,14px) + 8px)!important}
+[class*="_userRow"] [class*="_bubble"] [class*="_markdown"],[class*="_userRow"] [class*="_bubble"] a,.bt-uhost [class*="_bubble"] a{color:inherit}
 /* Sent messages get the hover toolbar below; steering and unsent bubbles keep none. */
 [class*="_userRow"] [class*="_actions"]{display:none!important}
 /* A steering message the Bot has not read yet shows a small unread label under

@@ -16954,8 +16954,8 @@ div:has(> nav [class*="_marks"]){display:none!important}
    surface is also laid as an image layer: a skin's more specific background-color
    with !important (a glass fill) then changes the color under the layer, not the
    surface the text sits on. */
-[class*="_userRow"] [class*="_bubble"],[data-chat-flow-kind=question-reply] [class*="_bubble"],[data-chat-flow-kind=command-input] [class*="_bubble"]{background:var(--bt-user)!important;background-image:linear-gradient(var(--bt-user),var(--bt-user))!important;color:var(--bt-user-ink)!important;border-radius:18px!important;padding:7px 12px!important;font-size:var(--dsh-content-font-size,14px)!important;line-height:calc(var(--dsh-content-font-size,14px) + 8px)!important}
-[class*="_userRow"] [class*="_bubble"] [class*="_markdown"],[class*="_userRow"] [class*="_bubble"] a{color:inherit}
+[class*="_userRow"] [class*="_bubble"],.bt-uhost [class*="_bubble"],[data-chat-flow-kind=question-reply] [class*="_bubble"],[data-chat-flow-kind=command-input] [class*="_bubble"]{background:var(--bt-user)!important;background-image:linear-gradient(var(--bt-user),var(--bt-user))!important;color:var(--bt-user-ink)!important;border-radius:18px!important;padding:7px 12px!important;font-size:var(--dsh-content-font-size,14px)!important;line-height:calc(var(--dsh-content-font-size,14px) + 8px)!important}
+[class*="_userRow"] [class*="_bubble"] [class*="_markdown"],[class*="_userRow"] [class*="_bubble"] a,.bt-uhost [class*="_bubble"] a{color:inherit}
 /* Sent messages get the hover toolbar below; steering and unsent bubbles keep none. */
 [class*="_userRow"] [class*="_actions"]{display:none!important}
 /* A steering message the Bot has not read yet shows a small unread label under
@@ -26860,7 +26860,32 @@ var viaOf = (source) => typeof source?.rpcId === "string" && source.rpcId.starts
 // src/client/user-message.js
 var import_react32 = require("react");
 var ui = __toESM(require("@deepseek-ai/dsh-client-ui-primitives"), 1);
-var canDrawUserMessages = () => typeof ui.projectUserText === "function";
+var projects = typeof ui.projectUserText === "function";
+var canDrawUserMessages = (drawsUserContent = false) => projects || drawsUserContent;
+var USER_SOURCE_SLOT = "conversation.chat.user.before";
+function installUserBubble(slots, drawRows) {
+  let dispose;
+  const refresh = () => {
+    const marked2 = slots.entries(USER_SOURCE_SLOT).length > 0;
+    if (marked2 && dispose !== void 0) {
+      dispose();
+      dispose = void 0;
+    } else if (!marked2 && dispose === void 0) {
+      dispose = drawRows();
+    }
+  };
+  const unsubscribe = slots.subscribe(USER_SOURCE_SLOT, refresh);
+  try {
+    refresh();
+  } catch (error) {
+    unsubscribe();
+    throw error;
+  }
+  return () => {
+    unsubscribe();
+    dispose?.();
+  };
+}
 function contentParts(content) {
   const texts2 = [];
   const attachments = [];
@@ -26871,6 +26896,23 @@ function contentParts(content) {
     else rest.push(block);
   }
   return { text: texts2.join("\n"), attachments, rest };
+}
+function hostContent(content, { referenceLabels, skillNames } = {}) {
+  const texts2 = [];
+  const attachments = [];
+  const extraBlocks = [];
+  for (const block of Array.isArray(content) ? content : []) {
+    if (block?.type === "text" && typeof block.text === "string") texts2.push(block.text);
+    else if (block?.type === "image" && block.attachment !== void 0) attachments.push({ type: "image", image: { attachment: block.attachment } });
+    else if (block?.type === "file" && block.attachment !== void 0) attachments.push({ type: "file", file: block.attachment });
+    else extraBlocks.push(block);
+  }
+  return {
+    text: texts2.join(""),
+    attachments,
+    extraBlocks,
+    facts: { ...referenceLabels === void 0 ? {} : { sessionLabels: referenceLabels }, ...skillNames === void 0 ? {} : { skillNames } }
+  };
 }
 function mentionableBots(roster, sessionId) {
   const room2 = roster.roomsById[sessionId];
@@ -26933,17 +26975,54 @@ function CopyButton({ text }) {
 var clock3 = (time) => typeof time === "number" ? new Date(time).toLocaleTimeString(dateLocale(), { hour: "numeric", minute: "2-digit" }) : void 0;
 var viaOf2 = (source) => typeof source?.rpcId === "string" && source.rpcId.startsWith("im:") ? source.rpcId.split(":")[1] : void 0;
 var ViaTag = ({ via }) => (0, import_react32.createElement)("span", { className: "bt-uvia" }, t("via {platform}", { platform: t(imPlatform(via)?.name ?? via) }));
-function UserMessageCell({ node, sessionId, useRoster, actions, renderMessageImages, openFile, openSkill }) {
-  const roster = useRoster((value) => value);
-  const data = node.data ?? {};
-  const { text, attachments, rest } = contentParts(data.content);
+function ProjectedContent({ data, text, shown, folded, control, roster, sessionId, actions, renderMessageImages, openFile, openSkill, onClick }) {
+  const { attachments, rest } = contentParts(data.content);
   const referenceLabels = data.referenceLabels ?? [];
   const references = openFile && openSkill ? { openFile, openSkill } : void 0;
+  const body = (0, import_react32.createElement)(UserText, { text: shown, bots: mentionableBots(roster, sessionId), referenceLabels, skillNames: data.skillNames ?? [], references, actions });
+  return (0, import_react32.createElement)(
+    import_react32.Fragment,
+    null,
+    attachments.length > 0 ? (0, import_react32.createElement)(Attachments, { attachments, renderMessageImages }) : null,
+    text !== "" || rest.length > 0 ? (0, import_react32.createElement)(
+      "div",
+      { className: "bt-ubody", title: clock3(data.time), "data-folded": folded || void 0, "data-text-interaction-source": text !== "" ? "" : void 0, onClick },
+      control ? (0, import_react32.createElement)("div", { className: "bt-fold-body" }, body) : body,
+      control,
+      rest.map((block, index) => ui.JsonBlock ? (0, import_react32.createElement)(ui.JsonBlock, { key: index, label: t("Content"), payload: block }) : null)
+    ) : null,
+    referenceLabels.length > 0 ? (0, import_react32.createElement)("div", { className: "bt-urefs" }, t("Referenced {labels}", { labels: referenceLabels.join(t(", ")) })) : null
+  );
+}
+function HostContent({ data, prepared, shown, folded, control, loadImage, renderFactorySlot, onClick }) {
+  const referenceLabels = data.referenceLabels ?? [];
+  const content = renderFactorySlot("conversation.chat.user.content", {
+    content: { text: shown, attachments: prepared.attachments, extraBlocks: prepared.extraBlocks },
+    loadImage,
+    facts: prepared.facts,
+    interactive: true
+  });
+  return (0, import_react32.createElement)(
+    import_react32.Fragment,
+    null,
+    (0, import_react32.createElement)(
+      "div",
+      { className: "bt-uhost", title: clock3(data.time), "data-folded": folded || void 0, onClick },
+      control ? (0, import_react32.createElement)("div", { className: "bt-fold-body" }, content) : content,
+      control
+    ),
+    referenceLabels.length > 0 ? (0, import_react32.createElement)("div", { className: "bt-urefs" }, t("Referenced {labels}", { labels: referenceLabels.join(t(", ")) })) : null
+  );
+}
+function UserMessageCell({ node, sessionId, useRoster, actions, renderMessageImages, openFile, openSkill, loadImage, renderFactorySlot }) {
+  const roster = useRoster((value) => value);
+  const data = node.data ?? {};
+  const prepared = projects ? void 0 : hostContent(data.content, data);
+  const text = prepared?.text ?? contentParts(data.content).text;
   const steering = node.kind === "steering";
   const sentAt = Number.isFinite(data.time) ? messageClock(data.time) : void 0;
   const via = viaOf2(data.source) ?? roster.imVia?.[sessionId]?.[data.seq];
   const { shown, folded, control } = useFold(text, { markdown: false });
-  const body = (0, import_react32.createElement)(UserText, { text: shown, bots: mentionableBots(roster, sessionId), referenceLabels, skillNames: data.skillNames ?? [], references, actions });
   const row = (0, import_react32.useRef)(null);
   const [toolsOpen, setToolsOpen] = (0, import_react32.useState)(false);
   (0, import_react32.useEffect)(() => {
@@ -26962,21 +27041,14 @@ function UserMessageCell({ node, sessionId, useRoster, actions, renderMessageIma
     if (!noHover() || event.target instanceof Element && event.target.closest("a,button,input,textarea,select,pre,code,[role=button],[role=link]")) return;
     setToolsOpen((value) => !value);
   };
+  const fold = { data, text, shown, folded, control, onClick: tapTools };
   return (0, import_react32.createElement)(
     "div",
     { ref: row, className: "bt-umsg", "data-steering": steering || void 0 },
     (0, import_react32.createElement)(
       "div",
       { className: "bt-ustack" },
-      attachments.length > 0 ? (0, import_react32.createElement)(Attachments, { attachments, renderMessageImages }) : null,
-      text !== "" || rest.length > 0 ? (0, import_react32.createElement)(
-        "div",
-        { className: "bt-ubody", title: clock3(data.time), "data-folded": folded || void 0, "data-text-interaction-source": text !== "" ? "" : void 0, onClick: tapTools },
-        control ? (0, import_react32.createElement)("div", { className: "bt-fold-body" }, body) : body,
-        control,
-        rest.map((block, index) => ui.JsonBlock ? (0, import_react32.createElement)(ui.JsonBlock, { key: index, label: t("Content"), payload: block }) : null)
-      ) : null,
-      referenceLabels.length > 0 ? (0, import_react32.createElement)("div", { className: "bt-urefs" }, t("Referenced {labels}", { labels: referenceLabels.join(t(", ")) })) : null,
+      prepared === void 0 ? (0, import_react32.createElement)(ProjectedContent, { ...fold, roster, sessionId, actions, renderMessageImages, openFile, openSkill }) : (0, import_react32.createElement)(HostContent, { ...fold, prepared, loadImage, renderFactorySlot }),
       sentAt || via ? (0, import_react32.createElement)("div", { className: "bt-utime", title: clockLabel(data.time) }, ...via ? [(0, import_react32.createElement)(ViaTag, { key: "via", via })] : [], sentAt) : null
     ),
     text === "" ? null : (0, import_react32.createElement)("div", { className: "bt-utools", "data-open": toolsOpen || void 0 }, (0, import_react32.createElement)(CopyButton, { text }))
@@ -26987,6 +27059,12 @@ var USER_MESSAGE_CSS = `
 .bt-ustack{min-width:0;max-width:calc(var(--bt-msg-w) * 100%);display:flex;flex-direction:column;align-items:flex-end;gap:8px}
 .bt-ubody{max-width:100%;box-sizing:border-box;background:var(--bt-user);color:var(--bt-user-ink);border-radius:18px;padding:7px 12px;font-size:var(--dsh-content-font-size,14px);line-height:calc(var(--dsh-content-font-size,14px) + 10px);white-space:pre-wrap;word-break:break-word;text-wrap:pretty;text-autospace:normal}
 .bt-ubody a{color:inherit}
+/* The host's content stack sits in DS Bot's: the width follows --bt-msg-w (the user's
+   message width) through .bt-ustack, not the host's own cap. The fold control goes
+   under the stack, at its right edge. */
+.bt-uhost{max-width:100%;min-width:0;display:flex;flex-direction:column;align-items:flex-end}
+.bt-uhost [class*="_userStack"]{max-width:100%}
+.bt-uhost>.bt-fold{color:var(--bt-ink-3)}
 .bt-umention{display:inline-flex;align-items:center;gap:3px;vertical-align:-3px;max-width:100%;padding:0 1px;border:0;background:none;color:inherit;font:inherit;font-weight:600;line-height:inherit;cursor:pointer;border-radius:6px;white-space:nowrap}
 .bt-umention:hover{text-decoration:underline;text-underline-offset:2px}
 .bt-umention[data-static]{cursor:inherit}
@@ -43944,7 +44022,7 @@ function apply(ctx) {
     const render = () => {
       const next = roster.getSnapshot().bots.map((bot) => {
         const anchor = `.bt-bubble a[href="${MENTION_ORIGIN}${bot.id}"]`;
-        const chip = /\s/.test(bot.name) ? "" : `[class*="_userRow"] [data-ref-chip="file"][title="@${bot.name.replace(/["\\]/g, "\\$&")}" i]`;
+        const chip = /\s/.test(bot.name) ? "" : `:is([class*="_userRow"],.bt-uhost) [data-ref-chip="file"][title="@${bot.name.replace(/["\\]/g, "\\$&")}" i]`;
         const look = lookOf(bot);
         const marks = chip ? `${anchor}::before,${chip}::before` : `${anchor}::before`;
         const mark2 = look.image ? `${marks}{background:center/cover url("${look.image}");-webkit-mask:none;mask:none;border-radius:50%}` : `${marks}{background:${paintCss(look.color)};-webkit-mask-image:${maskOf(look.shape)};mask-image:${maskOf(look.shape)}}`;
@@ -44512,6 +44590,7 @@ function apply(ctx) {
     });
   }
   const face = () => ({ actions, hooks: { roster, ui: ui2, activity, work, memoryNews, registry, turnClock, live, computer, cards, heldCards, browserPages, browserTabs, browserHolds, surface, update, frame, sidebarPref, settingsShellHeld } });
+  const hostDrawsUserText = typeof ctx.uiConversation.userText?.register === "function";
   ctx.effect(() => {
     const offStyles = installCompiledStyles(SETTINGS_SHELL_CSS, "settings-shell");
     settingsShell = installSettingsShell(ctx, { face, actions, ui: ui2, held: settingsShellHeld });
@@ -44795,7 +44874,12 @@ function apply(ctx) {
     // A Bot chat leaves DSH's context lines (tool updates, injected context) out; a Bot
     // message spliced in mid-turn gets an event line from the step that reads it instead.
     () => shadow("conversation.chat.node", { key: "context", priority: BOT_PRIORITY, locale: "chat" }, CellEmpty),
-    ...canDrawUserMessages() ? ["user", "steering"].map((key) => () => shadow("conversation.chat.node", { key, priority: BOT_PRIORITY, locale: "chat", inject: face }, UserMessageCell)) : [],
+    ...canDrawUserMessages(hostDrawsUserText) ? [() => installUserBubble(ctx.slots, () => {
+      const offs = ["user", "steering"].map((key) => shadow("conversation.chat.node", { key, priority: BOT_PRIORITY, locale: "chat", inject: face }, UserMessageCell));
+      return () => {
+        for (const off of offs) off();
+      };
+    })] : [],
     // DSH 0.2.2-rc.1 draws user text by rules, and its file rule cuts "@新 Bot" at the
     // space. A rule of ours claims a whole Bot name first; releases that still have the
     // text projection (above) have no such registry.
