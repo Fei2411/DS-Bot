@@ -1,6 +1,7 @@
 // German (de) localization for DS Bot client and DSH settings namespaces.
 
 export const DE = {
+  'A new reply is waiting': "Eine neue Antwort wartet auf dich",
   'Opening…': 'Wird geöffnet…',
   'Still opening…': 'Wird noch geöffnet…',
   "Android beta": "Android-Beta",
@@ -434,7 +435,11 @@ export const DE = {
   Details: 'Details',
   Browser: 'Browser',
   'Browser access': 'Browser-Berechtigungen',
-  'Bots browse, click and fill in forms freely. Posting, uploading, downloading and deleting ask you first unless you allow them here. Payments are always yours: the Bot hands the page to you.': 'Bots können frei surfen, klicken und Formulare ausfüllen. Vor dem Veröffentlichen, Hochladen, Herunterladen und Löschen wirst du gefragt, sofern du es hier nicht vorab erlaubst. Zahlungen tätigst immer du selbst: Der Bot übergibt dir dafür die Seite.',
+  'A Bot can read the page you have open: its title, address and visible text. By default it cannot click, type, scroll or open pages.': 'Ein Bot kann die Seite lesen, die du geöffnet hast: Titel, Adresse und sichtbarer Text. Standardmäßig kann er nicht klicken, tippen, scrollen oder Seiten öffnen.',
+  'How to enable interactive browsing': 'Interaktives Browsen aktivieren',
+  'In this DSH profile, set browserPlugin to refs, script or task, then restart DS Bot.': 'Setze in diesem DSH-Profil browserPlugin auf refs, script oder task und starte DS Bot neu.',
+  'With an interactive plugin, Bots browse, click and fill in forms. Posting, uploading, downloading and deleting ask you first unless you allow them here. Payments are always yours: the Bot hands the page to you.': 'Mit einem interaktiven Plugin können Bots surfen, klicken und Formulare ausfüllen. Vor dem Veröffentlichen, Hochladen, Herunterladen und Löschen wirst du gefragt, sofern du es hier nicht vorab erlaubst. Zahlungen tätigst immer du selbst: Der Bot übergibt dir dafür die Seite.',
+  'These grants apply only after an interactive browser plugin is enabled.': 'Diese Berechtigungen gelten erst, nachdem ein interaktives Browser-Plugin aktiviert wurde.',
   'Allowed actions': 'Erlaubte Aktionen',
   'Nothing allowed yet.': 'Noch keine Aktionen erlaubt.',
   'All sites': 'Alle Websites',
@@ -738,6 +743,11 @@ export const DE = {
   Pin: 'Anheften',
   Pinned: 'Angeheftet',
   'Mark as Unread': 'Als ungelesen markieren',
+  'Mute notifications': 'Benachrichtigungen stummschalten',
+  'Unmute notifications': 'Benachrichtigungen wieder einschalten',
+  Notifications: 'Benachrichtigungen',
+  'Tell me when a Bot answers while I am looking elsewhere.': 'Sag mir Bescheid, wenn ein Bot antwortet, während ich woanders hinsehe.',
+  'System notifications are turned off for DS Bot. Unread marks still show them.': 'Systembenachrichtigungen sind für DS Bot ausgeschaltet. Ungelesen-Markierungen bleiben sichtbar.',
   'Rename Bot': 'Bot umbenennen',
   'Group settings': 'Gruppeneinstellungen',
   'Shared to-do': 'Gemeinsame To-dos',
@@ -1375,6 +1385,7 @@ export const DE = {
   'Reference a chat': 'Chat referenzieren',
   'Chat with {name}': 'Chat mit {name}',
   'Scheduled task': 'Geplante Aufgabe',
+  'Open the scheduled tasks of this chat': 'Geplante Aufgaben dieses Chats öffnen',
   'Send to': 'Senden an',
   'Scheduled task: {text}': 'Geplante Aufgabe: {text}',
   // New group chats

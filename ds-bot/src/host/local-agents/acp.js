@@ -139,6 +139,7 @@ export class AcpEngine {
       const agentCaps = reply?.agentCapabilities ?? {}
       const mcpCaps = agentCaps.mcpCapabilities ?? agentCaps.mcp_capabilities
       const sessionCaps = agentCaps.sessionCapabilities ?? agentCaps.session_capabilities
+      const promptCaps = agentCaps.promptCapabilities ?? agentCaps.prompt_capabilities
       const mcpHttp = mcpCaps?.http
       this.caps = {
         // Prefer Streamable HTTP MCP when declared, bridge via stdio MCP when HTTP is
@@ -146,6 +147,7 @@ export class AcpEngine {
         mcpMode: mcpHttp === true ? 'http' : mcpHttp === false ? 'stdio' : undefined,
         mcpSse: mcpCaps?.sse === true,
         close: sessionCaps?.close != null,
+        image: promptCaps?.image === true,
       }
       return peer
     } catch (error) {
@@ -269,6 +271,7 @@ export class AcpEngine {
       const session = await worker.open(dshSessionId, openArgs)
       session._worker = worker
       this.sessionWorkers.set(dshSessionId, worker)
+      this.caps.image = worker.caps.image
       return session
     } catch (error) {
       if (created && !reused && ![...this.sessionWorkers.values()].includes(worker)) {
@@ -410,6 +413,10 @@ export class AcpEngine {
     }
   }
 
+  supportsImages(session) {
+    return (this.workerOf(session) ?? this).caps.image
+  }
+
   async prompt(session, blocks, { signal, effort } = {}) {
     const worker = this.workerOf(session)
     if (worker !== undefined && worker !== this) return worker.prompt(session, blocks, { signal, effort })
@@ -431,7 +438,7 @@ export class AcpEngine {
       }
     }
     session.running = true
-    const reply = peer.request('session/prompt', { sessionId: session.acpSessionId, prompt: blocks }, { signal, timeout: 0 })
+    const reply = peer.request('session/prompt', { sessionId: session.acpSessionId, prompt: acpPrompt(blocks) }, { signal, timeout: 0 })
     reply.then(
       result => { session.running = false; session.push({ type: 'done', reason: result?.stopReason ?? 'end_turn', ...(usageOf(result?.usage) ? { usage: usageOf(result.usage) } : {}) }) },
       error => { session.running = false; session.push({ type: 'error', error }) },
@@ -528,11 +535,15 @@ export class AcpEngine {
       const live = this.activeWorker()
       if (live !== undefined) {
         const target = live.engine.spawnCwd && existsSync(live.engine.spawnCwd) ? live.engine.spawnCwd : cwd
-        return live.listModels({ cwd: target, mcp })
+        const models = await live.listModels({ cwd: target, mcp })
+        this.caps.image = live.caps.image
+        return models
       }
       const temp = this.spawnWorker(cwd)
       try {
-        return await temp.listModels({ cwd, mcp })
+        const models = await temp.listModels({ cwd, mcp })
+        this.caps.image = temp.caps.image
+        return models
       } finally {
         await temp.close()
       }
@@ -546,6 +557,18 @@ export class AcpEngine {
     this.remember(probe)
     return modelsFromProbe(probe)
   }
+}
+
+function acpPrompt(blocks) {
+  const out = []
+  for (const block of blocks) {
+    if (block.type === 'image') {
+      out.push({ type: 'image', mimeType: block.mimeType ?? block.mediaType ?? 'image/png', data: block.data })
+    } else if ((block.text ?? '') !== '') {
+      out.push({ type: 'text', text: block.text })
+    }
+  }
+  return out.length > 0 ? out : [{ type: 'text', text: '' }]
 }
 
 export function modelsFromProbe(probe) {

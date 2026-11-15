@@ -7878,9 +7878,12 @@ var RelayTransport = class extends BaseTransport {
   readyReject;
   handshakeTimer;
   controlFrameLimits = {};
-  /** Last frame heard from the current socket, and when the pending probe went out (0 = none). */
+  /** Last frame heard from the current socket, unanswered probe start/last ping timestamps (0 = none), and its timer. */
   lastHeard = 0;
   probeAt = 0;
+  pingSentAt = 0;
+  probeDeadline = 0;
+  probeTimer;
   /** Ends the current socket (reports its close once, without waiting for its close event). */
   endCurrent;
   url;
@@ -7919,14 +7922,16 @@ var RelayTransport = class extends BaseTransport {
           this.endCurrent = void 0;
         }
         if (watchdog !== void 0) clearInterval(watchdog);
+        this.clearProbe();
         if (emit) this.emitClose();
       };
       this.endCurrent = endSocket;
       this.lastHeard = Date.now();
-      this.probeAt = 0;
+      this.clearProbe();
       socket.onmessage = (event) => {
         if (!stale()) {
           this.lastHeard = Date.now();
+          this.clearProbe();
           this.handleSocketMessage(event.data);
         }
       };
@@ -7949,6 +7954,7 @@ var RelayTransport = class extends BaseTransport {
         if (this.socket !== void 0 && stale()) return;
         ended = true;
         if (watchdog !== void 0) clearInterval(watchdog);
+        this.clearProbe();
         if (this.readyReject !== void 0) this.failConnection(Object.assign(new Error("Relay control channel closed before it was ready"), { code: "SERVER_UNREACHABLE" }));
         this.socket = void 0;
         this.connectionId = void 0;
@@ -8005,22 +8011,51 @@ var RelayTransport = class extends BaseTransport {
     this.handshakeHandlers.add(cb);
     return () => this.handshakeHandlers.delete(cb);
   }
-  /** Ask the Server for a liveness reply now; a dead socket ends itself via the watchdog. */
-  probe() {
-    if (this.socket?.readyState !== 1 || this.connectionId === void 0 || this.probeAt > 0) return;
-    this.probeNow();
+  /** Ask the Server for a liveness reply now; a dead socket ends itself promptly. */
+  probe(timeoutMs) {
+    const socket = this.socket;
+    if (socket === void 0 || this.connectionId === void 0) return;
+    if (socket.readyState > 1) {
+      this.endCurrent?.(Object.assign(new Error("The connection to the Server closed"), { code: "SERVER_UNREACHABLE" }));
+      return;
+    }
+    if (socket.readyState !== 1) return;
+    const limit = timeoutMs ?? (this.options.probeTimeoutMs ?? 1e4);
+    const now = Date.now();
+    if (this.probeAt === 0 || now - this.pingSentAt >= Math.min(limit, 1e3)) this.probeNow(now);
+    const deadline = now + limit;
+    if (this.probeTimer !== void 0 && deadline >= this.probeDeadline) return;
+    if (this.probeTimer !== void 0) clearTimeout(this.probeTimer);
+    this.probeDeadline = deadline;
+    this.probeTimer = setTimeout(() => {
+      this.probeTimer = void 0;
+      this.probeDeadline = 0;
+      if (this.socket !== socket || this.probeAt === 0) return;
+      this.endCurrent?.(Object.assign(new Error("The Server stopped answering"), { code: "SERVER_UNREACHABLE" }));
+    }, Math.max(0, limit));
   }
-  probeNow() {
+  clearProbe() {
+    this.probeAt = 0;
+    this.pingSentAt = 0;
+    this.probeDeadline = 0;
+    if (this.probeTimer !== void 0) {
+      clearTimeout(this.probeTimer);
+      this.probeTimer = void 0;
+    }
+  }
+  probeNow(now = Date.now()) {
     if (this.socket === void 0) return;
-    this.probeAt = Date.now();
+    if (this.probeAt === 0) this.probeAt = now;
+    this.pingSentAt = now;
     try {
-      this.sendControl("ping", { nonce: this.probeAt });
+      this.sendControl("ping", { nonce: now });
     } catch {
       this.endCurrent?.(Object.assign(new Error("The Server stopped answering"), { code: "SERVER_UNREACHABLE" }));
     }
   }
   async close() {
     this.clearHandshake();
+    this.clearProbe();
     const end = this.endCurrent;
     if (end !== void 0) {
       end();
@@ -8208,8 +8243,8 @@ var RpcClient = class {
   getStats() {
     return this.transport.getStats();
   }
-  probe() {
-    this.transport.probe?.();
+  probe(timeoutMs) {
+    this.transport.probe?.(timeoutMs);
   }
   async close() {
     this.unsubscribeTransport?.();
@@ -8345,8 +8380,8 @@ var SecureTransport = class {
   onClose(handler) {
     return this.inner.onClose?.(handler) ?? (() => void 0);
   }
-  probe() {
-    this.inner.probe?.();
+  probe(timeoutMs) {
+    this.inner.probe?.(timeoutMs);
   }
   async close() {
     if (this.closed) return;

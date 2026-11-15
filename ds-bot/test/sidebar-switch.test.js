@@ -6,6 +6,7 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { runInNewContext } from 'node:vm'
 import { build } from 'esbuild'
+import { createSource } from '../src/client/sources.js'
 
 // jsdom comes from the harness that test/harness-resolve.mjs found, like the dsh packages.
 const PLUGIN = dirname(dirname(fileURLToPath(import.meta.url)))
@@ -16,7 +17,7 @@ const { JSDOM } = createRequire(join(process.env.DSH_HARNESS ?? join(PLUGIN, '..
 // fixtures retain refs across commits and run their layout effects after each render.
 const { outputFiles } = await build({
   stdin: {
-    contents: "export { SHELL_CSS } from './src/client/styles.js'\nexport { SIDEBAR_CSS, TeamSidebar, PluginsButton } from './src/client/sidebar.js'",
+    contents: "export { SHELL_CSS } from './src/client/styles.js'\nexport { SIDEBAR_CSS, TeamSidebar, PluginsButton } from './src/client/sidebar.js'\nexport { dshCollapsed, installFrameWatch } from './src/client/frame-watch.js'",
     resolveDir: PLUGIN,
   },
   bundle: true, format: 'cjs', platform: 'browser', write: false, logLevel: 'silent',
@@ -24,6 +25,9 @@ const { outputFiles } = await build({
 })
 let renderRefs
 let refIndex = 0
+let renderStates
+let stateIndex = 0
+let scheduleStateRender
 let layoutEffects
 const react = {
   createContext: (initial) => { const ctx = { value: initial }; ctx.Provider = ({ value, children }) => { ctx.value = value; return children }; return ctx },
@@ -31,7 +35,21 @@ const react = {
   useCallback: fn => fn,
   useSyncExternalStore: (subscribe, getSnapshot) => getSnapshot(),
   createElement: (type, props, ...children) => ({ type, props: { ...props, children } }), Fragment: Symbol('Fragment'),
-  useEffect() {}, useLayoutEffect: effect => layoutEffects?.push(effect), useState: initial => [initial, () => {}],
+  useEffect() {}, useLayoutEffect: effect => layoutEffects?.push(effect),
+  useState: (initial) => {
+    if (!renderStates) return [initial, () => {}]
+    const states = renderStates
+    const schedule = scheduleStateRender
+    const index = stateIndex++
+    if (!(index in states)) states[index] = typeof initial === 'function' ? initial() : initial
+    return [states[index], (next) => {
+      const value = typeof next === 'function' ? next(states[index]) : next
+      if (!Object.is(states[index], value)) {
+        states[index] = value
+        schedule?.()
+      }
+    }]
+  },
   useMemo: make => make(), useRef: current => renderRefs ? renderRefs[refIndex++] ??= { current } : { current }, useId: () => 'id',
 }
 const module = { exports: {} }
@@ -42,7 +60,7 @@ const sandbox = {
   window: viewport,
 }
 runInNewContext(outputFiles[0].text, sandbox)
-const { SHELL_CSS, SIDEBAR_CSS, TeamSidebar, PluginsButton } = module.exports
+const { SHELL_CSS, SIDEBAR_CSS, TeamSidebar, PluginsButton, dshCollapsed, installFrameWatch } = module.exports
 
 function navigationSidebar(wide, { leftDrawer = false } = {}) {
   const calls = []
@@ -684,3 +702,158 @@ for (const wide of [true, false]) {
     assert.deepEqual(calls, ['agent'])
   })
 }
+
+async function withDom(html, run) {
+  const dom = new JSDOM(html)
+  const { document, MutationObserver } = dom.window
+  const globals = {
+    document, MutationObserver, performance, setTimeout, clearTimeout,
+    requestAnimationFrame: next => setTimeout(next, 0), cancelAnimationFrame: clearTimeout,
+    CSS: { escape: value => value },
+  }
+  Object.assign(sandbox, globals)
+  Object.assign(viewport, { addEventListener: dom.window.addEventListener.bind(dom.window), removeEventListener: dom.window.removeEventListener.bind(dom.window) })
+  try { return await run(dom.window) }
+  finally {
+    for (const name of Object.keys(globals)) delete sandbox[name]
+    delete viewport.addEventListener
+    delete viewport.removeEventListener
+  }
+}
+
+// 公开#1618: DSH Desktop wraps _sidebarCol in <aside class="dshDesktopSidebarSurface">
+// inside <div class="dshDesktopFrame" data-sidebar-collapsed>, whereas DSH Web puts
+// _sidebarCol directly under the frame. Both structures must report collapsed accurately.
+test('dshCollapsed detects collapsed ancestors in both DSH Web and DSH Desktop layouts', async () => {
+  await withDom('<!doctype html><body><div class="unrelated" data-sidebar-collapsed></div></body>', () => {
+    assert.equal(dshCollapsed(), null)
+  })
+  for (const [name, makeHtml] of [
+    ['web direct parent', collapsed => `<!doctype html><body><div class="x_frame"${collapsed ? ' data-sidebar-collapsed="true"' : ''}><div class="x_sidebarCol"></div></div></body>`],
+    ['desktop nested aside', collapsed => `<!doctype html><body><div class="dshDesktopFrame"${collapsed ? ' data-sidebar-collapsed' : ''}><aside class="dshDesktopSidebarSurface"><div class="dshDesktopUpstreamSidebar dshDesktop_sidebarCol"></div></aside></div></body>`],
+  ]) {
+    await withDom(makeHtml(true), () => {
+      assert.equal(dshCollapsed(), true, `${name} collapsed`)
+    })
+    await withDom(`${makeHtml(false).replace('</body>', '<div class="other" data-sidebar-collapsed></div></body>')}`, () => {
+      assert.equal(dshCollapsed(), false, `${name} expanded`)
+    })
+  }
+})
+
+test('installFrameWatch tracks data-sidebar-collapsed on DSH Desktop ancestor frame', async () => {
+  await withDom('<!doctype html><body><div class="dshDesktopFrame"><aside class="dshDesktopSidebarSurface"><div class="dshDesktopUpstreamSidebar dshDesktop_sidebarCol"></div></aside></div></body>', async ({ document }) => {
+    viewport.innerWidth = 1280
+    const frame = createSource({ viewport: 1280, sidebarWidth: 280, collapsedWidth: 0, collapsed: false })
+    const stop = installFrameWatch(frame)
+    try {
+      assert.equal(frame.getSnapshot().collapsed, false)
+      document.querySelector('.dshDesktopFrame').setAttribute('data-sidebar-collapsed', '')
+      await new Promise(resolve => setTimeout(resolve, 30))
+      assert.equal(frame.getSnapshot().collapsed, true)
+      document.querySelector('.dshDesktopFrame').removeAttribute('data-sidebar-collapsed')
+      await new Promise(resolve => setTimeout(resolve, 30))
+      assert.equal(frame.getSnapshot().collapsed, false)
+    } finally { stop() }
+  })
+})
+
+test('TeamSidebar collapses DSH Desktop sidebar once without entering a 300ms toggle loop', async () => {
+  await withDom('<!doctype html><body><div class="dshDesktopFrame"><aside class="dshDesktopSidebarSurface"><div class="dshDesktopUpstreamSidebar dshDesktop_sidebarCol"></div></aside><div class="dshDesktop_centerCol"></div></div></body>', async ({ document }) => {
+    viewport.innerWidth = 1280
+    const frameEl = document.querySelector('.dshDesktopFrame')
+    const refs = []
+    const states = []
+    const cleanups = []
+    let toggles = 0
+    let scheduled = false
+    const frame = createSource({ viewport: 1280, sidebarWidth: 280, collapsedWidth: 0, collapsed: false })
+    const stopWatch = installFrameWatch(frame)
+    const roster = { bots: [], rooms: [], agents: [], byId: {}, ready: true }
+    const actions = {
+      toggleSidebar() {
+        toggles += 1
+        if (frameEl.hasAttribute('data-sidebar-collapsed')) frameEl.removeAttribute('data-sidebar-collapsed')
+        else frameEl.setAttribute('data-sidebar-collapsed', '')
+      },
+    }
+    let disposed = false
+    const render = () => {
+      if (disposed) return
+      renderRefs = refs
+      refIndex = 0
+      renderStates = states
+      stateIndex = 0
+      layoutEffects = []
+      scheduleStateRender = () => {
+        if (scheduled || disposed) return
+        scheduled = true
+        queueMicrotask(() => { scheduled = false; render() })
+      }
+      const snap = frame.getSnapshot()
+      TeamSidebar({
+        wide: !snap.collapsed, actions,
+        useRoster: pick => pick(roster), useUi: pick => pick({ unread: {} }), useRegistry: pick => pick({}),
+        useSessions: pick => pick({ ids: [], byId: {} }), useUpdate: () => ({}),
+        useFrame: pick => pick(snap),
+      })
+      renderRefs = undefined
+      renderStates = undefined
+      scheduleStateRender = undefined
+      const effects = layoutEffects
+      layoutEffects = undefined
+      for (const effect of effects) {
+        const off = effect()
+        if (typeof off === 'function') cleanups.push(off)
+      }
+    }
+    const offFrame = frame.subscribe(() => queueMicrotask(render))
+    try {
+      render()
+      await new Promise(resolve => setTimeout(resolve, 750))
+      assert.equal(toggles, 1)
+      assert.equal(frameEl.hasAttribute('data-sidebar-collapsed'), true)
+      assert.equal(document.documentElement.hasAttribute('data-bt-collapsing'), false)
+    } finally {
+      disposed = true
+      offFrame()
+      stopWatch()
+      for (const off of cleanups) off()
+      document.documentElement.removeAttribute('data-bt-collapsing')
+    }
+  })
+})
+
+test('TeamSidebar leaves an already-collapsed DSH Desktop sidebar alone', async () => {
+  await withDom('<!doctype html><body><div class="dshDesktopFrame" data-sidebar-collapsed><aside class="dshDesktopSidebarSurface"><div class="dshDesktopUpstreamSidebar dshDesktop_sidebarCol"></div></aside></div></body>', async ({ document }) => {
+    viewport.innerWidth = 1280
+    const refs = []
+    const states = []
+    let toggles = 0
+    renderRefs = refs
+    refIndex = 0
+    renderStates = states
+    stateIndex = 0
+    layoutEffects = []
+    try {
+      TeamSidebar({
+        wide: false,
+        actions: { toggleSidebar() { toggles += 1 } },
+        useRoster: pick => pick({ bots: [], rooms: [], agents: [], byId: {}, ready: true }),
+        useUi: pick => pick({ unread: {} }), useRegistry: pick => pick({}),
+        useSessions: pick => pick({ ids: [], byId: {} }), useUpdate: () => ({}),
+      })
+      const effects = layoutEffects
+      layoutEffects = undefined
+      for (const effect of effects) effect()
+      await new Promise(resolve => setTimeout(resolve, 350))
+      assert.equal(toggles, 0)
+      assert.equal(document.documentElement.hasAttribute('data-bt-collapsing'), false)
+    } finally {
+      renderRefs = undefined
+      renderStates = undefined
+      layoutEffects = undefined
+      document.documentElement.removeAttribute('data-bt-collapsing')
+    }
+  })
+})

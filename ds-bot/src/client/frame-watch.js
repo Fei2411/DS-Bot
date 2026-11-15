@@ -13,7 +13,7 @@ export const sidebarTrackWidth = () => {
 export const dshCollapsed = () => {
   if (typeof document === 'undefined') return null
   const column = document.querySelector('[class*="_sidebarCol"]')
-  return column ? (column.parentElement?.hasAttribute('data-sidebar-collapsed') ?? false) : null
+  return column ? column.closest('[data-sidebar-collapsed]') !== null : null
 }
 
 // The track the collapsed shell sidebar keeps: nothing under a frameless window
