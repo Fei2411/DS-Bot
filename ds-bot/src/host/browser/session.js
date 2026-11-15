@@ -304,6 +304,7 @@ export function createSession({ context, browser, page, botId, userDataDir, cook
     if (previous && !previous.observed) throw pendingWriteError(previous)
     if (previous) unknownByOrigin.delete(action.origin)
     await gate?.(action)
+    ready()
   }
 
   async function clearPendingDelete() {
@@ -812,11 +813,23 @@ export function createSession({ context, browser, page, botId, userDataDir, cook
         pending = running.catch(() => {})
         return running
       }]))
+      const gate = gateScope.getStore()
+      let cancelGate
+      const canceled = new Promise((_, reject) => { cancelGate = reject })
+      // A script's timeout also ends its host-side approval wait. The underlying
+      // approval may answer later; it must never resume a finished script's action.
+      canceled.catch(() => {})
+      const scriptGate = async action => {
+        if (finished) throw new Error('The browser script has finished.')
+        await Promise.race([Promise.resolve().then(() => gate?.(action)), canceled])
+        if (finished) throw new Error('The browser script has finished.')
+      }
       try {
-        const answer = await runIsolatedScript(body, ordered)
+        const answer = await gateScope.run(scriptGate, () => runIsolatedScript(body, ordered))
         return answer ?? 'Script finished without done().'
       } finally {
         finished = true
+        cancelGate(new Error('The browser script has finished.'))
         // A helper already running in the host survives the script child.
         // Drain it before the next call can acquire this Bot's browser.
         await pending

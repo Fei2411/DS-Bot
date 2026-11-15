@@ -238,8 +238,8 @@ for (const ending of ['done("finished")', 'throw new Error("script failed")']) {
     else assert.equal(await script, 'finished')
     const next = await gateScope.run(async action => { approvals.push(['next', action.label]) }, () => session.click('e1'))
     assert.match(next, /Downloaded "report-2.csv"/)
-    assert.deepEqual(approvals, [['script', 'report-1.csv'], ['next', 'report-2.csv']])
-    assert.deepEqual(await files(), ['report-1.csv', 'report-2.csv'])
+    assert.deepEqual(approvals, [['next', 'report-2.csv']])
+    assert.deepEqual(await files(), ['report-2.csv'])
   })
 }
 
@@ -349,4 +349,21 @@ test('closing a session releases its download wait and cancels later events', as
   assert.equal(incoming.saved, 0)
   assert.equal(incoming.canceled, 1)
   assert.deepEqual(await files(), [])
+})
+
+
+test('a script ending during download approval releases its helper and cannot save later', { timeout: 5000 }, async (t) => {
+  const incoming = download()
+  const asked = deferred()
+  const answer = deferred()
+  const { session, files } = await fixture(t, { click: page => page.emit('download', incoming) })
+  const running = gateScope.run(async () => { asked.resolve(); await answer.promise }, () =>
+    session.runScript('void click("e1"); await new Promise(resolve => setTimeout(resolve, 600)); done("finished");'))
+  await asked.promise
+  assert.equal(await running, 'finished')
+  answer.resolve()
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(incoming.saved, 0)
+  assert.deepEqual(await files(), [])
+  assert.equal(incoming.canceled, 1)
 })

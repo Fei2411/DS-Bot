@@ -134,6 +134,7 @@ export function mountBrowserPlugin(ctx, { toolDefs, defineTool, keyOf, profileRo
       async execute(args, exec) {
         const botId = await keyOf(exec)
         if (!botId) return 'Only Bots on the team have a browser.'
+        exec.signal?.throwIfAborted()
         if (disposed) throw new Error('The browser plugin is closed.')
         if (getHold?.(botId)?.by === 'user') throw new Error('The user has taken over this browser. Wait for them to give it back.')
         let session = sessions.get(botId)
@@ -166,11 +167,16 @@ export function mountBrowserPlugin(ctx, { toolDefs, defineTool, keyOf, profileRo
         }
         const sessionEntry = session
         session = await session
-        const gate = authorize ? action => authorize(exec, botId, action) : undefined
+        const gate = authorize ? async action => {
+          exec.signal?.throwIfAborted()
+          await authorize(exec, botId, action)
+          exec.signal?.throwIfAborted()
+        } : undefined
         // A Bot shares one browser across Sessions. Keep its action and any
         // delayed download inside the call that owns the approval context.
         const previous = pendingCalls.get(botId) ?? Promise.resolve()
         const running = previous.catch(() => {}).then(async () => {
+          exec.signal?.throwIfAborted()
           if (disposed) throw new Error('The browser plugin is closed.')
           if (getHold?.(botId)?.by === 'user') throw new Error('The user has taken over this browser. Wait for them to give it back.')
           if (sessionEntry !== undefined && sessions.get(botId) !== sessionEntry) throw new Error('The browser session is closed.')

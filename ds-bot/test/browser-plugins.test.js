@@ -884,3 +884,25 @@ test('browser grants are user-only, normalized, deduplicated, expiring, and clea
   assert.equal(cleared.ok, true)
   assert.equal(Object.hasOwn(cleared.value, 'browserGrants'), false)
 })
+
+
+test('an aborted queued browser call never executes after the earlier call finishes', async () => {
+  const tools = new Map()
+  const release = Promise.withResolvers()
+  const started = []
+  mountBrowserPlugin({ effect() {}, tools: { register(tool) { tools.set(tool.name, tool) } } }, {
+    toolDefs: [{ name: 'queued', needsBrowser: true, async execute({ label }) { started.push(label); if (label === 'first') await release.promise; return label } }],
+    defineTool: value => value, keyOf: async () => 'bot', profileRoot: '/profiles', headless: true,
+    openSession: async () => ({ close: async () => {} }),
+  })
+  const first = tools.get('queued').execute({ label: 'first' }, {})
+  const controller = new AbortController()
+  const second = tools.get('queued').execute({ label: 'canceled' }, { signal: controller.signal })
+  const rejected = assert.rejects(second, /cancel/)
+  await new Promise(resolve => setImmediate(resolve))
+  controller.abort(new Error('canceled'))
+  release.resolve()
+  await first
+  await rejected
+  assert.deepEqual(started, ['first'])
+})
