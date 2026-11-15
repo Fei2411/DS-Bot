@@ -15088,7 +15088,21 @@ function elapsedLabel(ms) {
   const hours = Math.floor(total / 3600);
   return `${hours > 0 ? `${hours}h ` : ""}${total >= 60 ? `${Math.floor(total / 60) % 60}m ` : ""}${total % 60}s`;
 }
-var contentText = (content) => (content ?? []).filter((block) => block?.type === "text").map((block) => block.text).join("\n");
+var DSML_CLOSING_TAG = /<\/DSML\s+(?:invoke|calls)\s*>/i;
+var DSML_EDGE_TOP = /^(?:[ \t]*<\/DSML\s+(?:invoke|calls)\s*>[ \t]*(?:\r?\n|$))+/i;
+var DSML_EDGE_END = /(?:\r?\n[ \t]*<\/DSML\s+(?:invoke|calls)\s*>[ \t]*)+$/i;
+var DSML_TAG_LINE = /\r?\n[ \t]*<\/DSML\s+(?:invoke|calls)\s*>[ \t]*(?=\r?\n)/gi;
+var DSML_TAG_INLINE = /[ \t]*<\/DSML\s+(?:invoke|calls)\s*>[ \t]*/gi;
+var stripToolCallTags = (text) => {
+  const value = String(text ?? "");
+  if (!DSML_CLOSING_TAG.test(value)) return value;
+  return value.replace(DSML_EDGE_TOP, "").replace(DSML_EDGE_END, "").replace(DSML_TAG_LINE, "").replace(DSML_TAG_INLINE, (match, offset, whole) => {
+    const before = offset > 0 ? whole[offset - 1] : "";
+    const after = whole[offset + match.length] ?? "";
+    return before && after && !/\s/.test(before) && !/\s/.test(after) ? " " : "";
+  });
+};
+var contentText = (content) => (content ?? []).filter((block) => block?.type === "text").map((block) => typeof block.text === "string" ? stripToolCallTags(block.text) : "").join("\n");
 var HEADER = /^\[(Message from|Reply from|Group chat|Group post from|Bot team setup|Handoff · part|Secret card)(?:[^\r\n]*\]\r?\n|[^\]\r\n]*\])/;
 var currentPart = (bot) => bot.sessionId ?? bot.id;
 function reminderPrompts(text) {
@@ -27220,12 +27234,13 @@ function Bubbles({ texts: texts2, roster, selfId, actions, streaming, sessionId,
     event.stopPropagation();
     actions.openSession(target);
   };
+  const cleaned = texts2.map(stripToolCallTags).filter((text) => text.trim() !== "");
   const reactions = useUi ? useUi((state) => msgKey ? state.reactions?.[msgKey] ?? null : null) : null;
   return (0, import_react34.createElement)(
     "div",
     { className: "bt-astack", "data-lead": lead ? "" : void 0, onClickCapture: onClick },
-    texts2.map((text, index) => {
-      const last = index === texts2.length - 1;
+    cleaned.map((text, index) => {
+      const last = index === cleaned.length - 1;
       return (0, import_react34.createElement)(Bubble, {
         key: index,
         text,
@@ -27477,7 +27492,7 @@ function AssistantCell({ node, groupPart, sessionId, openFile, fileMentions, use
   const contexts = useTurnContext(String(data.turn));
   const mentions = useFileMentions({ node, openFile, fileMentions, useTurnData });
   const hidden = Boolean(roster.roomsById[sessionId]) || isHiddenTurn(roster, sessionId, data.turn);
-  const texts2 = groupPart === "reasoning" ? [] : data.blocks.filter((block) => block.kind === "text" && block.text.trim() !== "").map((block) => block.text);
+  const texts2 = groupPart === "reasoning" ? [] : data.blocks.filter((block) => block.kind === "text").map((block) => stripToolCallTags(block.text)).filter((text) => text.trim() !== "");
   const running = data.status === "running";
   const textInteractionSource = data.status === "settled" && data.finalNode?.messageId !== void 0;
   const members = steps.length ? steps : [data];
