@@ -49,9 +49,10 @@ export class RelayTransport extends BaseTransport implements SecureHandshakeTran
   private readyReject?: (error: Error) => void
   private handshakeTimer?: ReturnType<typeof setTimeout>
   private controlFrameLimits: ControlFrameByteLimits = {}
-  /** Last frame heard from the current socket, when the pending probe went out (0 = none), and its timer. */
+  /** Last frame heard from the current socket, unanswered probe start/last ping timestamps (0 = none), and its timer. */
   private lastHeard = 0
   private probeAt = 0
+  private pingSentAt = 0
   private probeDeadline = 0
   private probeTimer?: ReturnType<typeof setTimeout>
   /** Ends the current socket (reports its close once, without waiting for its close event). */
@@ -99,7 +100,6 @@ export class RelayTransport extends BaseTransport implements SecureHandshakeTran
           this.endCurrent = undefined
         }
         if (watchdog !== undefined) clearInterval(watchdog)
-        this.clearProbe()
         this.clearProbe()
         if (emit) this.emitClose()
       }
@@ -199,7 +199,7 @@ export class RelayTransport extends BaseTransport implements SecureHandshakeTran
     if (socket.readyState !== 1) return
     const limit = timeoutMs ?? (this.options.probeTimeoutMs ?? 10_000)
     const now = Date.now()
-    if (this.probeAt === 0 || now - this.probeAt >= Math.min(limit, 1_000)) this.probeNow()
+    if (this.probeAt === 0 || now - this.pingSentAt >= Math.min(limit, 1_000)) this.probeNow(now)
     const deadline = now + limit
     if (this.probeTimer !== undefined && deadline >= this.probeDeadline) return
     if (this.probeTimer !== undefined) clearTimeout(this.probeTimer)
@@ -208,14 +208,15 @@ export class RelayTransport extends BaseTransport implements SecureHandshakeTran
       this.probeTimer = undefined
       this.probeDeadline = 0
       if (this.socket !== socket || this.probeAt === 0) return
-      if (Date.now() - Math.max(this.lastHeard, this.probeAt) >= limit - 5) {
-        this.endCurrent?.(Object.assign(new Error('The Server stopped answering'), { code: 'SERVER_UNREACHABLE' }))
-      }
+      // Incoming frames already clear probeAt via socket.onmessage; reaching this
+      // deadline means zero bytes arrived since the first unanswered probe.
+      this.endCurrent?.(Object.assign(new Error('The Server stopped answering'), { code: 'SERVER_UNREACHABLE' }))
     }, Math.max(0, limit))
   }
 
   private clearProbe(): void {
     this.probeAt = 0
+    this.pingSentAt = 0
     this.probeDeadline = 0
     if (this.probeTimer !== undefined) {
       clearTimeout(this.probeTimer)
@@ -223,11 +224,12 @@ export class RelayTransport extends BaseTransport implements SecureHandshakeTran
     }
   }
 
-  private probeNow(): void {
+  private probeNow(now = Date.now()): void {
     if (this.socket === undefined) return
-    this.probeAt = Date.now()
+    if (this.probeAt === 0) this.probeAt = now
+    this.pingSentAt = now
     // Runs from a timer: a throw here would be uncaught (a redbox on the phone).
-    try { this.sendControl('ping', { nonce: this.probeAt }) }
+    try { this.sendControl('ping', { nonce: now }) }
     catch { this.endCurrent?.(Object.assign(new Error('The Server stopped answering'), { code: 'SERVER_UNREACHABLE' })) }
   }
 

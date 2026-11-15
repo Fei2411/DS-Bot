@@ -344,6 +344,35 @@ test('probe(timeoutMs) closes an unresponsive half-open socket within its own bu
   assert.equal(deadCloses, 1, 'already-closed socket reports close immediately on probe()')
 })
 
+test('repeated unanswered probe() calls still close at the earliest deadline', async () => {
+  const sockets: FakeSocket[] = []
+  const transport = new RelayTransport('ws://unused', {
+    deviceId: 'd-phone', identityKey: 'k', accessToken: 't', targetDeviceId: 'd-host',
+    watchdogIntervalMs: 5_000, watchdogSilenceMs: 15_000, probeTimeoutMs: 10_000,
+    createSocket: () => { const s = new FakeSocket(); sockets.push(s); return s as unknown as WebSocket },
+  })
+  let closedAt = 0
+  const closed = new Promise<Error | undefined>(resolve => transport.onClose(() => {
+    closedAt = Date.now()
+    resolve(transport.closeReason)
+  }))
+  void transport.connect().catch(() => {})
+  const socket = sockets[0]
+  socket.readyState = 1
+  socket.onopen?.()
+  ;(transport as unknown as { connectionId?: string }).connectionId = 'conn-1'
+  ;(transport as unknown as { finishConnection(): void }).finishConnection()
+
+  const start = Date.now()
+  transport.probe(1_250)
+  await new Promise(r => setTimeout(r, 1_020))
+  transport.probe(1_250)
+  assert.equal(socket.sent.length, 3, 'hello plus initial and repeated wake pings')
+  const reason = await Promise.race([closed, new Promise(r => setTimeout(() => r('timeout'), 600))])
+  assert.ok(reason instanceof Error, 'repeated probe does not cancel or postpone original failure deadline')
+  assert.ok(closedAt - start < 1_650, `expected closure near 1250ms, got ${closedAt - start}ms`)
+})
+
 test('idle ping/pong over a real relay keeps a paired connection alive across multiple probe cycles', async () => {
   const localServer = await startRelayServer()
   const self = identity()

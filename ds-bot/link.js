@@ -7878,9 +7878,10 @@ var RelayTransport = class extends BaseTransport {
   readyReject;
   handshakeTimer;
   controlFrameLimits = {};
-  /** Last frame heard from the current socket, when the pending probe went out (0 = none), and its timer. */
+  /** Last frame heard from the current socket, unanswered probe start/last ping timestamps (0 = none), and its timer. */
   lastHeard = 0;
   probeAt = 0;
+  pingSentAt = 0;
   probeDeadline = 0;
   probeTimer;
   /** Ends the current socket (reports its close once, without waiting for its close event). */
@@ -7921,7 +7922,6 @@ var RelayTransport = class extends BaseTransport {
           this.endCurrent = void 0;
         }
         if (watchdog !== void 0) clearInterval(watchdog);
-        this.clearProbe();
         this.clearProbe();
         if (emit) this.emitClose();
       };
@@ -8022,7 +8022,7 @@ var RelayTransport = class extends BaseTransport {
     if (socket.readyState !== 1) return;
     const limit = timeoutMs ?? (this.options.probeTimeoutMs ?? 1e4);
     const now = Date.now();
-    if (this.probeAt === 0 || now - this.probeAt >= Math.min(limit, 1e3)) this.probeNow();
+    if (this.probeAt === 0 || now - this.pingSentAt >= Math.min(limit, 1e3)) this.probeNow(now);
     const deadline = now + limit;
     if (this.probeTimer !== void 0 && deadline >= this.probeDeadline) return;
     if (this.probeTimer !== void 0) clearTimeout(this.probeTimer);
@@ -8031,24 +8031,24 @@ var RelayTransport = class extends BaseTransport {
       this.probeTimer = void 0;
       this.probeDeadline = 0;
       if (this.socket !== socket || this.probeAt === 0) return;
-      if (Date.now() - Math.max(this.lastHeard, this.probeAt) >= limit - 5) {
-        this.endCurrent?.(Object.assign(new Error("The Server stopped answering"), { code: "SERVER_UNREACHABLE" }));
-      }
+      this.endCurrent?.(Object.assign(new Error("The Server stopped answering"), { code: "SERVER_UNREACHABLE" }));
     }, Math.max(0, limit));
   }
   clearProbe() {
     this.probeAt = 0;
+    this.pingSentAt = 0;
     this.probeDeadline = 0;
     if (this.probeTimer !== void 0) {
       clearTimeout(this.probeTimer);
       this.probeTimer = void 0;
     }
   }
-  probeNow() {
+  probeNow(now = Date.now()) {
     if (this.socket === void 0) return;
-    this.probeAt = Date.now();
+    if (this.probeAt === 0) this.probeAt = now;
+    this.pingSentAt = now;
     try {
-      this.sendControl("ping", { nonce: this.probeAt });
+      this.sendControl("ping", { nonce: now });
     } catch {
       this.endCurrent?.(Object.assign(new Error("The Server stopped answering"), { code: "SERVER_UNREACHABLE" }));
     }
