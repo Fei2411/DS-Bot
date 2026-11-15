@@ -1,5 +1,7 @@
+import { useEffect } from 'react'
 import { SectionList, StyleSheet, Text, View, Pressable } from 'react-native'
 import { useTeam } from '../team/context.tsx'
+import { pendingItemsOf } from '../nav/pending.ts'
 import { t } from '../ui/i18n.ts'
 import { type as typeScale, useTheme, radius } from '../ui/tokens.ts'
 import { Avatar } from '../ui/marks.tsx'
@@ -11,29 +13,30 @@ interface Section { title: string; mark: string; data: PendingRow[] }
 // Pending things grouped the way the desktop groups them: questions, approvals,
 // secret requests and cards each get a section with its own badge.
 export function NeedsYou({ onOpen }: { onOpen: (target: ChatTarget) => void }) {
-  const { team } = useTeam()
+  const { team, refresh } = useTeam()
   const { p, dark } = useTheme()
+  useEffect(() => { refresh?.() }, [refresh])
   const bots = team?.bots ?? []
   const rooms = team?.rooms ?? []
-  const botOfSession = (sessionId: string) => bots.find(b => b.sessionId === sessionId || b.id === sessionId)
+  const items = pendingItemsOf(team)
 
-  const questions = Object.entries(team?.questions ?? {}).flatMap(([sessionId, question]) => {
-    const bot = botOfSession(sessionId)
-    return bot ? [{ key: `q-${question.id}`, botId: bot.id, summary: question.question }] : []
-  })
-  const approvals = (team?.work?.approvals ?? []).map(a => ({
-    key: `a-${a.id}`, botId: a.botId, roomId: a.roomId,
-    summary: [a.tool, a.reason].filter(Boolean).join(' · '),
+  const questions: PendingRow[] = items.filter(item => item.kind === 'question')
+  const approvals: PendingRow[] = items.filter(item => item.kind === 'approval')
+  const secrets: PendingRow[] = items.filter(item => item.kind === 'secret').map(item => ({
+    key: item.key,
+    botId: item.botId,
+    summary: item.name ? t('Asks for the secret {name}', { name: item.name }) : t('A secret is needed'),
   }))
-  const secrets = Object.entries(team?.secretRequests ?? {}).flatMap(([botId, list]) =>
-    (list ?? []).filter(r => r.status === 'pending').map(r => ({ key: `s-${r.id}`, botId, summary: r.name ? t('Asks for the secret {name}', { name: r.name }) : t('A secret is needed') })))
-  const handoffs = Object.entries((team as { browserHolds?: Record<string, { callId?: string; note?: string; reason?: string }> } | null)?.browserHolds ?? {})
-    .filter(([, hold]) => hold.callId !== undefined)
-    .map(([botId, hold]) => ({ key: `h-${hold.callId}`, botId, summary: hold.note ?? hold.reason ?? t('Browser handoff') }))
-  const views = Object.entries(team?.views ?? {}).flatMap(([sessionId, view]) => {
-    const bot = botOfSession(sessionId)
-    return bot ? [{ key: `v-${view?.id ?? sessionId}`, botId: bot.id, summary: view?.title ?? 'View' }] : []
-  })
+  const handoffs: PendingRow[] = items.filter(item => item.kind === 'handoff').map(item => ({
+    key: item.key,
+    botId: item.botId,
+    summary: item.note ?? item.reason ?? t('Browser handoff'),
+  }))
+  const views: PendingRow[] = items.filter(item => item.kind === 'view').map(item => ({
+    key: item.key,
+    botId: item.botId,
+    summary: item.title ?? 'View',
+  }))
 
   const sections: Section[] = [
     { title: t('Questions'), mark: '?', data: questions },

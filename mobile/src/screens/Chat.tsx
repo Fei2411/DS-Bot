@@ -85,7 +85,7 @@ const sameMessage = (item: ChatItem, sent: ChatItem) =>
 // pages load as it scrolls up), the pending dock and the composer. `header` is the
 // shell's own (back row or pill).
 export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: Room; header: React.ReactNode; onMissing?: () => void }) {
-  const { team, call, computer, hello } = useTeam()
+  const { team, call, refresh: refreshTeam, computer, hello } = useTeam()
   const { p, dark } = useTheme()
   const insets = useSafeAreaInsets()
   const id = bot?.id ?? room?.id ?? ''
@@ -260,18 +260,20 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
       void markSeen(hostId, id, latestAt)
     }
   }, [isFocused, hostId, id, bot !== undefined, room !== undefined, latestAt])
-  // Back online after a drop: read what was missed. Not on mount, which reads already.
+  // Back online after a drop or opening a chat: read what was missed and reconcile team pending state.
+  useEffect(() => { refreshTeam?.() }, [refreshTeam, chatKey])
   const wasOnline = useRef(online)
   useEffect(() => {
-    if (online && !wasOnline.current) void refresh(generation.current)
+    if (online && !wasOnline.current) { void refresh(generation.current); refreshTeam?.() }
     wasOnline.current = online
-  }, [online, refresh])
+  }, [online, refresh, refreshTeam])
+  const hasChatPending = question !== undefined || team?.views?.[sessionId] !== undefined || approvals.length > 0 || secrets.length > 0 || browserHold !== undefined
   useEffect(() => {
     if (onFeed === undefined) return
     const gen = generation.current
     return onFeed((event, data) => {
       if (generation.current !== gen) return
-      if (event === 'room' && room !== undefined && data?.roomId === room.id) void refresh(gen)
+      if (event === 'room' && room !== undefined && data?.roomId === room.id) { void refresh(gen); if (hasChatPending) refreshTeam?.() }
       if (event === 'message' && data?.sessionId === sessionId) {
         const item = data.item
         if (item !== undefined) {
@@ -283,9 +285,10 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
           }
         }
         void refresh(gen)
+        if (hasChatPending) refreshTeam?.()
       }
     })
-  }, [onFeed, room, sessionId, refresh, id, hostId])
+  }, [onFeed, room, sessionId, refresh, refreshTeam, hasChatPending, id, hostId])
   // Bubble caps in px — RN cannot parse CSS min(). Narrow phone screens ignore the
   // desktop's wide-window column slider so bubbles do not waste a third of the screen;
   // group rows reserve 30px (22px avatar + 8px gap) on the left.

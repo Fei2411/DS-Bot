@@ -107,6 +107,7 @@ test('apply registers listeners and effects in a fixed order', (t) => {
     'on tools/execute',
     'on agent/created',
     'on agent/disposed',
+    'on tools/change',
     'on user-questions/request (prepend)',
     'on tools/pre-execute',
     'on tools/execute',
