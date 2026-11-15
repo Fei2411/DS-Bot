@@ -20,8 +20,19 @@ process.stdin.on('data', (chunk) => {
       send({ type: 'result', subtype: 'success', session_id: sessionId, result: 'interrupted', usage: { input_tokens: 1, output_tokens: 1 } })
       continue
     }
+    if (message.type === 'control_response') {
+      const res = message.response?.response
+      const textOut = `perm:${JSON.stringify(res)}`
+      send({ type: 'assistant', message: { content: [{ type: 'text', text: textOut }] } })
+      send({ type: 'result', subtype: 'success', session_id: sessionId, result: textOut, usage: { input_tokens: 10, output_tokens: 5 } })
+      continue
+    }
     if (message.type !== 'user') continue
     const text = (message.message?.content ?? []).map(block => block.text ?? '').join('\n')
+    if (text.includes('ask-claude-perm')) {
+      send({ type: 'control_request', request_id: 'cr-1', request: { subtype: 'can_use_tool', tool_name: 'Bash', input: { command: 'rm -rf /tmp/test' } } })
+      continue
+    }
     send({ type: 'assistant', message: { content: [{ type: 'thinking', thinking: `thought about: ${text.slice(0, 40)}` }, { type: 'tool_use', name: 'Read' }, { type: 'text', text: `ok: ${text.slice(0, 60)}` }] } })
     send({ type: 'result', subtype: 'success', session_id: sessionId, result: `ok: ${text.slice(0, 60)}`, usage: { input_tokens: 10, output_tokens: 5 } })
   }

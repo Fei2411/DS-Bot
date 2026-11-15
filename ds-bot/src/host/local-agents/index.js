@@ -14,17 +14,7 @@ import { AcpEngine } from './acp.js'
 import { CodexEngine } from './codex.js'
 import { ClaudeEngine } from './claude.js'
 import { ENGINES, customRoute, isLocalAgentRoute, validateCustom } from './engines.js'
-import { cleanEnv, findExecutable, probeSignIn, probeVersion, refreshSearchDirs } from './discover.js'
-
-const SIGN_IN = {
-  'devin-cli': 'devin auth login',
-  'claude-code': 'claude',
-  'codex-cli': 'codex login',
-  'cursor-cli': 'cursor-agent login',
-  'gemini-cli': 'gemini',
-  'cline': 'cline auth',
-  'qwen-code': 'qwen',
-}
+import { cleanEnv, findEngineExecutable, findExecutable, probeSignIn, probeVersion, refreshSearchDirs } from './discover.js'
 
 const SIGNED_IN_TTL_MS = 60_000
 
@@ -55,9 +45,9 @@ export function install(rt) {
     if (disposed) return []
     for (const route of Object.keys(ENGINES)) {
       const spec = ENGINES[route]
-      const path = findExecutable(spec.command)
+      const path = findEngineExecutable(spec, findExecutable)
       if (path === undefined) found.delete(route)
-      else if (found.get(route)?.path !== path) found.set(route, { route, name: spec.name, path, version: undefined, signIn: SIGN_IN[spec.id] })
+      else if (found.get(route)?.path !== path) found.set(route, { route, name: spec.name, path, version: undefined, signIn: spec.signIn })
     }
     applyRoutes()
     return [...found.values()]
