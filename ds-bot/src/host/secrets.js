@@ -8,6 +8,7 @@ import { chmod, mkdir, unlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { cleanPassphrase, decryptSecrets, encryptSecrets, isEncryptedSecretsFile, passphraseFromEnv } from './secrets-crypto.js'
+import { serviceOf } from './services.js'
 import { replaceFile } from './files.js'
 import { output } from './tools.js'
 
@@ -710,7 +711,9 @@ export function install(rt) {
     const fresh = [...(messages ?? [])]
     rewritten.add(fresh)
     rt.carryUsageTag(options.messages, fresh)
-    return ctx.llm.stream({ ...options, messages: fresh, ...(system !== undefined ? { system } : {}) })
+    const llm = serviceOf(ctx, 'llm')
+    if (llm === undefined) return next()
+    return llm.stream({ ...options, messages: fresh, ...(system !== undefined ? { system } : {}) })
   })
 
   function resolveEnv(execution) {
