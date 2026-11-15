@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { install as installChannel } from '../src/host/channel.js'
-import { install as installThinking, thinkingMs } from '../src/host/thinking.js'
+import { install as installThinking, pageThinkingMs, thinkingMs } from '../src/host/thinking.js'
 
 const reasoningRun = (time0, gaps, texts) => ({ type: 'reasoning-chunks', time0, index: 0, dt: gaps, texts })
 const textRun = (time0, gaps, texts) => ({ type: 'text-chunks', time0, index: 0, dt: gaps, texts })
@@ -153,4 +153,51 @@ test('the thinking endpoint answers ms only for a Bot session', async () => {
 test('the thinking endpoint omits ms when the time is unknown', async () => {
   const { post } = api({ selfOf: () => 'bot-1', thinkingOf: async () => undefined })
   assert.deepEqual(await post('thinking', { sessionId: 's', turn: 1 }), { ok: true, value: {} })
+})
+
+test('concurrent thinkingOf calls coalesce into minimal backward reads', async () => {
+  const events = [
+    message(1, 1, [reasoningRun(1000, [500], ['a', 'b'])]), { type: 'turn/end', data: { turn: 1 } },
+    message(2, 1, [reasoningRun(2000, [700], ['a', 'b'])]), { type: 'turn/end', data: { turn: 2 } },
+    message(3, 1, [reasoningRun(3000, [900], ['a', 'b'])]), { type: 'turn/end', data: { turn: 3 } },
+    message(4, 1, [reasoningRun(4000, [1100], ['a', 'b'])]), { type: 'turn/end', data: { turn: 4 } },
+  ]
+  let reads = 0
+  const rt = {
+    eventsBackwards: async function* () {
+      reads += 1
+      await new Promise(resolve => setTimeout(resolve, 10))
+      for (const event of [...events].reverse()) yield event
+    },
+  }
+  installThinking(rt)
+  const oldestFirst = await Promise.all([1, 2, 3, 4].map(turn => rt.thinkingOf('s', turn)))
+  assert.deepEqual(oldestFirst, [500, 700, 900, 1100])
+  assert.equal(reads, 1)
+
+  reads = 0
+  const rt2 = { eventsBackwards: rt.eventsBackwards }
+  installThinking(rt2)
+  const newestFirst = await Promise.all([4, 3, 2, 1].map(turn => rt2.thinkingOf('s2', turn)))
+  assert.deepEqual(newestFirst, [1100, 900, 700, 500])
+  assert.ok(reads <= 2)
+})
+
+test('pageThinkingMs answers complete turns on a page and omits boundary-cut turns', () => {
+  const page = [
+    { seq: 20, ...message(5, 1, [reasoningRun(1000, [400], ['a', 'b'])]) },
+    { seq: 21, type: 'turn/end', data: { turn: 5 } },
+    { seq: 22, type: 'turn/start', data: { turn: 6 } },
+    { seq: 23, ...message(6, 1, [reasoningRun(2000, [600], ['a', 'b'])]) },
+    { seq: 24, type: 'turn/end', data: { turn: 6 } },
+    { seq: 25, type: 'turn/start', data: { turn: 7 } },
+    { seq: 26, ...message(7, 1, [reasoningRun(3000, [800], ['a', 'b'])]) },
+  ]
+  const mid = pageThinkingMs(page)
+  assert.equal(mid.has(5), false)
+  assert.equal(mid.get(6), 600)
+  assert.equal(mid.has(7), false)
+
+  const tip = pageThinkingMs(page, { atTip: true })
+  assert.equal(tip.get(7), 800)
 })
