@@ -1379,6 +1379,7 @@ export const DE = {
   'Reference a chat': 'Chat referenzieren',
   'Chat with {name}': 'Chat mit {name}',
   'Scheduled task': 'Geplante Aufgabe',
+  'Open the scheduled tasks of this chat': 'Geplante Aufgaben dieses Chats öffnen',
   'Send to': 'Senden an',
   'Scheduled task: {text}': 'Geplante Aufgabe: {text}',
   // New group chats
