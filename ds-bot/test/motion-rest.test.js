@@ -116,6 +116,21 @@ test('a loop out of view holds still until it comes back into view', () => {
   assert.deepEqual(states([body, eyes, pill]), ['running', 'running', 'running'])
 })
 
+test('a loop on a part of an SVG drawing goes by whether the drawing is in view', () => {
+  const p = page()
+  const svg = { ownerSVGElement: null }
+  const eyes = { ownerSVGElement: { ownerSVGElement: svg } }
+  const squint = new FakeAnimation(eyes)
+  p.animations.push(squint)
+  installMotionRest({ doc: p.doc, win: p.win, now: p.now })
+  assert.equal(p.observed(eyes), false)
+  assert.equal(p.observed(svg), true)
+  p.see(svg, false)
+  assert.equal(squint.playState, 'paused')
+  p.see(svg, true)
+  assert.equal(squint.playState, 'running')
+})
+
 test('a loop that starts while the window rests holds still at once, and an ended one is let go', async () => {
   const p = page()
   installMotionRest({ doc: p.doc, win: p.win, now: p.now })

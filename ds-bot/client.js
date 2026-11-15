@@ -43554,6 +43554,11 @@ var REST_MS = 3e4;
 var INPUTS2 = ["pointermove", "pointerdown", "keydown", "wheel", "touchstart"];
 var CHANGES = ["animationstart", "animationcancel", "animationend"];
 var isLoop = (animation) => animation?.effect?.getTiming?.().iterations === Infinity;
+var boxOf2 = (target) => {
+  let element = target ?? null;
+  while (element?.ownerSVGElement) element = element.ownerSVGElement;
+  return element;
+};
 function installMotionRest({ doc = document, win = window, restMs = REST_MS, now = () => Date.now() } = {}) {
   if (typeof doc?.getAnimations !== "function") return () => {
   };
@@ -43608,7 +43613,7 @@ function installMotionRest({ doc = document, win = window, restMs = REST_MS, now
     }
     for (const animation of current) {
       if (loops.has(animation)) continue;
-      const element = animation.effect?.target ?? null;
+      const element = boxOf2(animation.effect?.target);
       loops.set(animation, element);
       if (element) watch(element);
     }

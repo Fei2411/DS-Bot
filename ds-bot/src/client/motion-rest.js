@@ -12,6 +12,13 @@ const INPUTS = ['pointermove', 'pointerdown', 'keydown', 'wheel', 'touchstart']
 const CHANGES = ['animationstart', 'animationcancel', 'animationend']
 
 const isLoop = animation => animation?.effect?.getTiming?.().iterations === Infinity
+// A part of an SVG drawing (a mark's eyes inside its mask) may have no box of its own; the
+// drawing it belongs to is what scrolls in and out of view.
+const boxOf = (target) => {
+  let element = target ?? null
+  while (element?.ownerSVGElement) element = element.ownerSVGElement
+  return element
+}
 
 /**
  * Pauses the page's infinite animations while nobody can see them and plays them again
@@ -73,7 +80,7 @@ export function installMotionRest({ doc = document, win = window, restMs = REST_
     }
     for (const animation of current) {
       if (loops.has(animation)) continue
-      const element = animation.effect?.target ?? null
+      const element = boxOf(animation.effect?.target)
       loops.set(animation, element)
       if (element) watch(element)
     }
