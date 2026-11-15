@@ -1377,6 +1377,82 @@ test("a member's group row carries the change line of its turn", async (t) => {
   assert.equal(check.value, false)
 })
 
+// A member's turn that finishes after its round closed posts a textless completion
+// notice. That notice must keep the turn's change line: the queued post carries
+// source.changes and the round's log line keeps it.
+test('a late completion notice keeps the change line of its turn', async (t) => {
+  const { call, emit, userMessage, relay, answer, stop, sent, rt } = start()
+  t.after(stop)
+  const room = await team(call, sent)
+  await emit(room.id, userMessage('First'))
+  const running = relay(room.id, 'one')
+  const first = await turnFor(sent)
+  await answer(first.sessionId, first.message.source.exchangeId, 'Done.', 1)
+  const second = await turnFor(sent, first)
+  await answer(second.sessionId, second.message.source.exchangeId, '[PASS]', 2)
+  const { from } = JSON.parse(await running)
+
+  const changes = {
+    sessionId: 'member-session', seq: 31, turn: 8, total: 1, added: 3, deleted: 1,
+    files: [{ path: 'late.js', added: 3, deleted: 1 }],
+  }
+  const member = rt.botOf(room.members.find(id => id !== rt.state.mainBotIds[0]))
+  await rt.postToRoom(room, member, '', { late: true, done: true, changes })
+  const post = sent.findLast(entry => entry.sessionId === room.id && entry.message.source.role === 'post')
+  assert.deepEqual(post.message.source.changes, changes, 'the queued post carries the change line')
+  await emit(room.id, { type: 'user/message', data: { source: post.message.source, content: post.message.content } })
+  await relay(room.id, 'late')
+
+  // Past the next round's anchor: the notice is the last line of the round it ends.
+  const rows = rt.groupRows(room.id, from, Number.MAX_SAFE_INTEGER)
+  const notice = rows.find(row => row.kind === 'done')
+  assert.deepEqual(notice?.changes, changes)
+})
+
+// Codex on the change line: a member that changed files and ended its turn with
+// [PASS] still has a review to open. The turn's last row carries it — the completion
+// line when the turn wrote no text.
+test('a member that changed files and ended with [PASS] still gets its change line', async (t) => {
+  const { call, emit, userMessage, relay, answer, stop, sent, rt } = start()
+  t.after(stop)
+  const room = await team(call, sent)
+  const changes = {
+    sessionId: 'pass-session', seq: 44, turn: 6, total: 1, added: 5, deleted: 2,
+    files: [{ path: 'work.js', added: 5, deleted: 2 }],
+  }
+  let writerSession
+  rt.turnChanges = async sessionId => (sessionId === writerSession ? changes : undefined)
+  await emit(room.id, userMessage('Do the work'))
+  const running = relay(room.id, 'pass')
+  const first = await turnFor(sent)
+  await answer(first.sessionId, first.message.source.exchangeId, 'On it.', 1)
+  const second = await turnFor(sent, first)
+  writerSession = second.sessionId
+  await answer(second.sessionId, second.message.source.exchangeId, '[PASS]', 2)
+  const { from } = JSON.parse(await running)
+  const rows = rt.groupRows(room.id, from)
+  const done = rows.find(row => row.kind === 'done')
+  assert.deepEqual(done?.changes, changes)
+  assert.equal(done?.botId, room.members.find(id => id !== rt.state.mainBotIds[0]))
+})
+
+// The other side of it: a [PASS] turn that changed nothing adds no empty completion line.
+test('a [PASS] turn that changed nothing adds no completion line', async (t) => {
+  const { call, emit, userMessage, relay, answer, stop, sent, rt } = start()
+  t.after(stop)
+  const room = await team(call, sent)
+  rt.turnChanges = async () => undefined
+  await emit(room.id, userMessage('Do the work'))
+  const running = relay(room.id, 'pass-none')
+  const first = await turnFor(sent)
+  await answer(first.sessionId, first.message.source.exchangeId, 'On it.', 1)
+  const second = await turnFor(sent, first)
+  await answer(second.sessionId, second.message.source.exchangeId, '[PASS]', 2)
+  const { from } = JSON.parse(await running)
+  const rows = rt.groupRows(room.id, from)
+  assert.equal(rows.some(row => row.kind === 'done'), false)
+})
+
 // The opening message is the one the group's own Session shows; what is said between
 // rounds shows once, above the message that opens the next round.
 test('the rows of a round leave out its opening message and show once what came between rounds', async (t) => {
