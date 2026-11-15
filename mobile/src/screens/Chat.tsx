@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { ActivityIndicator, Dimensions, FlatList, KeyboardAvoidingView, Linking, Modal, Pressable, StyleSheet, Text, View, ScrollView, type ListRenderItem } from 'react-native'
-import { useNavigation } from '@react-navigation/native'
+import { useIsFocused, useNavigation } from '@react-navigation/native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import * as Haptics from 'expo-haptics'
+import { downloadFile } from '../team/file-download.ts'
+import * as Sharing from 'expo-sharing'
 import type { Approval, Bot, Question, Room } from '../connection.ts'
 import { createChatCache } from '../team/chat-cache.ts'
 import { useTeam } from '../team/context.tsx'
@@ -14,7 +16,7 @@ import { ArrowDownIcon } from '../ui/icons.tsx'
 import { workPhrase } from '../ui/phrases.ts'
 import { ActionRow, Dock } from './chat/dock.tsx'
 import { Composer, type Photo } from './chat/composer.tsx'
-import { Actions, Item, keysOf, PhotoViewer, PhotoViewerCtx, type ChatItem, type ImageRef } from './chat/items.tsx'
+import { Actions, Item, keysOf, PhotoViewer, PhotoViewerCtx, type ChatItem, type FileRef, type ImageRef } from './chat/items.tsx'
 
 // Feed events refresh the chat as things happen; the poll only catches what a
 // dropped event missed, so it runs rarely.
@@ -83,7 +85,7 @@ const sameMessage = (item: ChatItem, sent: ChatItem) =>
 // pages load as it scrolls up), the pending dock and the composer. `header` is the
 // shell's own (back row or pill).
 export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: Room; header: React.ReactNode; onMissing?: () => void }) {
-  const { team, call, computer, hello } = useTeam()
+  const { team, call, refresh: refreshTeam, computer, hello } = useTeam()
   const { p, dark } = useTheme()
   const insets = useSafeAreaInsets()
   const id = bot?.id ?? room?.id ?? ''
@@ -207,6 +209,26 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
   const [readerTitle, setReaderTitle] = useState<string | null>(null)
   const [fileError, setFileError] = useState<string | null>(null)
   const [photos, setPhotos] = useState<{ sessionId: string; refs: ImageRef[]; index: number } | null>(null)
+  // Save hands the file to the phone: the host sends its bytes, the app writes them
+  // to a cache file, and the system share sheet lets Android put it in Downloads or
+  // open it in a viewer. A refusal names the reason in the same line as file errors.
+  const saveFile = useCallback((file: FileRef) => {
+    setFileError(null)
+    const targetSession = file.sessionId ?? sessionId
+    const payload = file.attachmentId !== undefined
+      ? { sessionId: targetSession, attachmentId: file.attachmentId }
+      : { sessionId: targetSession, seq: file.seq, index: file.index }
+    void (async () => {
+      try {
+        const saved = await downloadFile(call, payload)
+        if (!(await Sharing.isAvailableAsync())) throw new Error(t('Saving to the device is not available on this phone'))
+        await Sharing.shareAsync(saved.uri, { mimeType: saved.mime, dialogTitle: saved.name })
+      } catch (failure) {
+        const msg = (failure as { message?: string })?.message
+        setFileError(msg ?? t('Could not save this file'))
+      }
+    })()
+  }, [call, sessionId])
   const openFile = useCallback((file: { name: string; attachmentId?: string }) => {
     void call('file-text', { file }).then(result => {
       const read = result as { text?: string; truncated?: boolean } | string
@@ -222,31 +244,51 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
     return toggle
   }
   const { onFeed, online } = useTeam()
-  useEffect(() => { markSeen(id) }, [id])
-  // Back online after a drop: read what was missed. Not on mount, which reads already.
+  const hostId = computer?.hostDeviceId ?? ''
+  const isFocused = useIsFocused()
+  const focusedRef = useRef(isFocused)
+  focusedRef.current = isFocused
+  const latestAt = useMemo(() => {
+    let max = bot?.lastAt ?? room?.lastAt ?? 0
+    for (const item of page?.items ?? []) {
+      if (typeof item.time === 'number' && Number.isFinite(item.time) && item.time > max) max = item.time
+    }
+    return max
+  }, [bot?.lastAt, room?.lastAt, page?.items])
+  useEffect(() => {
+    if (isFocused && hostId !== '' && id !== '' && (bot !== undefined || room !== undefined) && latestAt > 0) {
+      void markSeen(hostId, id, latestAt)
+    }
+  }, [isFocused, hostId, id, bot !== undefined, room !== undefined, latestAt])
+  // Back online after a drop or opening a chat: read what was missed and reconcile team pending state.
+  useEffect(() => { refreshTeam?.() }, [refreshTeam, chatKey])
   const wasOnline = useRef(online)
   useEffect(() => {
-    if (online && !wasOnline.current) void refresh(generation.current)
+    if (online && !wasOnline.current) { void refresh(generation.current); refreshTeam?.() }
     wasOnline.current = online
-  }, [online, refresh])
+  }, [online, refresh, refreshTeam])
+  const hasChatPending = question !== undefined || team?.views?.[sessionId] !== undefined || approvals.length > 0 || secrets.length > 0 || browserHold !== undefined
   useEffect(() => {
     if (onFeed === undefined) return
     const gen = generation.current
     return onFeed((event, data) => {
       if (generation.current !== gen) return
-      if (event === 'room' && room !== undefined && data?.roomId === room.id) void refresh(gen)
+      if (event === 'room' && room !== undefined && data?.roomId === room.id) { void refresh(gen); if (hasChatPending) refreshTeam?.() }
       if (event === 'message' && data?.sessionId === sessionId) {
         const item = data.item
         if (item !== undefined) {
           setPageState(prev => prev.key !== chatKey || prev.page === null || prev.page.items.some(it => it.seq !== undefined && it.seq === item.seq)
             ? prev
             : { ...prev, page: { ...prev.page, items: [...prev.page.items, item] } })
+          if (focusedRef.current && hostId !== '' && id !== '' && typeof item.time === 'number' && Number.isFinite(item.time) && item.time > 0) {
+            void markSeen(hostId, id, item.time)
+          }
         }
-        markSeen(id)
         void refresh(gen)
+        if (hasChatPending) refreshTeam?.()
       }
     })
-  }, [onFeed, room, sessionId, refresh, id])
+  }, [onFeed, room, sessionId, refresh, refreshTeam, hasChatPending, id, hostId])
   // Bubble caps in px — RN cannot parse CSS min(). Narrow phone screens ignore the
   // desktop's wide-window column slider so bubbles do not waste a third of the screen;
   // group rows reserve 30px (22px avatar + 8px gap) on the left.
@@ -329,7 +371,7 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
     const skey = item.kind === 'steps' ? row.key : row.key
     return <Item stamp={row.stamp} author={inRoom && item.botId !== undefined ? botsById.get(item.botId) : undefined} admin={inRoom && item.botId !== undefined && item.botId === admin}
       item={item} p={p} flat={flat} maxWidth={item.kind === 'bot' || item.kind === 'post' ? botMax : userMax} inRoom={inRoom} sessionId={sessionId}
-      onLongPress={setMenuText} onOpenFile={openFile} onRetry={retry} open={openSteps[skey]} onToggle={toggleOf(skey)} />
+      onLongPress={setMenuText} onOpenFile={openFile} onSaveFile={saveFile} onRetry={retry} open={openSteps[skey]} onToggle={toggleOf(skey)} />
   }, [inRoom, botsById, admin, p, flat, botMax, userMax, sessionId, openFile, retry, openSteps])
 
   const empty = page !== null && rows.length === 0
