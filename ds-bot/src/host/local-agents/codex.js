@@ -2,7 +2,7 @@
 // JSON-RPC process per route that multiplexes threads. DS Bot Sessions map to
 // threads; turns stream item notifications back.
 import { JsonRpcPeer, wireProcess, EventQueue } from './jsonrpc.js'
-import { cleanEnv, spawnAgent } from './discover.js'
+import { cleanEnv, findEngineExecutable, spawnAgent } from './discover.js'
 
 // The name the loopback MCP server is registered under in each thread's config.
 const MCP_SERVER = 'dsbot'
@@ -31,7 +31,7 @@ export class CodexEngine {
 
   async ensure() {
     if (this.peer !== undefined) return this.peer
-    const bin = this.findExecutable(this.engine.command)
+    const bin = findEngineExecutable(this.engine, name => this.findExecutable(name))
     if (bin === undefined) throw Object.assign(new Error(`${this.engine.name} is not installed`), { code: 'NO_ADAPTER' })
     const child = spawnAgent(bin, this.engine.args ?? [], {
       env: cleanEnv(this.engine.env ?? {}),

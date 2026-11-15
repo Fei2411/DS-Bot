@@ -14,10 +14,14 @@ and model changes all work the same way.
 ## Decided behavior
 
 - An abot is a normal Bot whose model route is a local-agent route served by a
-  DSH LLM adapter that DS Bot registers. Routes: `local-devin-cli`,
-  `local-claude-code`, `local-codex-cli`, `local-opencode`, `local-cursor-cli`,
-  `local-gemini-cli`, `local-grok-cli`, `local-cline`, `local-qwen-code`,
-  `local-goose`, and `local-acp-<id>` for custom agents the user adds. A route
+  DSH LLM adapter that DS Bot registers. Built-in routes: `local-devin-cli`,
+  `local-claude-code`, `local-codex-cli`, `local-cursor-cli`,
+  `local-copilot-cli`, `local-gemini-cli`, `local-antigravity`,
+  `local-opencode`, `local-cline`, `local-kilo`, `local-goose`,
+  `local-grok-cli`, `local-kimi-cli`, `local-qwen-code`, `local-codebuddy`,
+  `local-qoder`, `local-minimax-code`, `local-glm-cli`, `local-kiro-cli`,
+  `local-factory-droid`, `local-auggie`, `local-mistral-vibe`, `local-junie`,
+  `local-iflow`, plus `local-acp-<id>` for custom agents the user adds. A route
   appears only while its CLI is found; a refresh re-scans.
 - The `local-` prefix keeps these routes apart from providers that DSH or other
   plugins register. Without it, a CLI named like such a provider (`opencode` is
@@ -176,15 +180,16 @@ handling, so they do not mix in one model list.
 
 ## Out of scope
 
-- Running an agent that has no ACP or equivalent stdio protocol, or wiring the
-  tool bridge over stdio when an agent lacks MCP-over-HTTP support.
+- Running an agent that has no ACP or equivalent stdio protocol.
 - Provider API keys for these routes: local agents use their own sign-in.
 - Editing the CLI's own configuration files.
 
 ## Known limits
 
-- An agent CLI that does not advertise MCP-over-HTTP cannot get the team tools;
-  its text, approvals, and sessions still work.
+- ACP agents receive team tools via Streamable HTTP MCP when advertised, or via
+  DS Bot's stdio MCP bridge (`mcp-stdio.js`) when HTTP MCP is unsupported or
+  rejected. Only an agent that rejects MCP servers altogether runs without team
+  tools; its text, approvals, and sessions still work.
 - Cursor CLI saves the last model selected over ACP as its own global default
   (`~/.cursor`), so picking a specific model for one Cursor Bot also changes
   what other Cursor Bots on "CLI default" and Cursor in the terminal use.

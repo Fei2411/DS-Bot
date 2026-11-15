@@ -1,18 +1,20 @@
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { test } from 'node:test'
 import { LocalAgentAdapter } from '../src/host/local-agents/adapter.js'
-import { AcpEngine } from '../src/host/local-agents/acp.js'
+import { AcpEngine, stdioBridgePath } from '../src/host/local-agents/acp.js'
 import { CodexEngine } from '../src/host/local-agents/codex.js'
 import { JsonRpcPeer, wireProcess } from '../src/host/local-agents/jsonrpc.js'
 import { ClaudeEngine } from '../src/host/local-agents/claude.js'
 import { LoopbackMcp, flattenSchema } from '../src/host/local-agents/mcp.js'
 import { cleanEnv } from '../src/host/local-agents/discover.js'
-import { validateCustom, isLocalAgentRoute, cliMode, acpMode } from '../src/host/local-agents/engines.js'
+import { ENGINES, validateCustom, isLocalAgentRoute, cliMode, acpMode } from '../src/host/local-agents/engines.js'
+import { AGENT_BADGES, agentAvatar, badgeOf, isLocalRoute } from '../src/client/agent-routes.js'
+import { INKS } from '../src/client/inks.js'
 import { install as partsInstall } from '../src/host/parts.js'
 import { install as modelsInstall } from '../src/host/models.js'
 import { fakeContext } from './fake-ctx.js'
@@ -25,7 +27,7 @@ const system = (id, text) => ({ id, role: 'system', content: [{ type: 'text', te
 const toolResult = (id, callId, text, isError = false) => ({ id, role: 'tool', content: [{ type: 'text', text }], toolCallId: callId, isError, source: { kind: 'tool', callId } })
 
 // An adapter wired to the fake CLIs: every engine route spawns `node fixture`.
-function makeAdapter({ records = {}, preset = 'workspace-write', acp = FIXTURES.acp, acpArgs = [], codex = FIXTURES.codex, codexArgs = [], claude = FIXTURES.claude, claudeArgs = [] } = {}) {
+function makeAdapter({ records = {}, preset = 'workspace-write', acp = FIXTURES.acp, acpArgs = [], codex = FIXTURES.codex, codexArgs = [], claude = FIXTURES.claude, claudeArgs = [], cwdFor } = {}) {
   const files = { acp, codex, claude }
   const spawned = []
   const adapter = new LocalAgentAdapter({
@@ -42,7 +44,7 @@ function makeAdapter({ records = {}, preset = 'workspace-write', acp = FIXTURES.
     record: sessionId => records[sessionId],
     saveRecord: (sessionId, record) => { records[sessionId] = record },
     presetFor: typeof preset === 'function' ? preset : () => preset,
-    cwdFor: async () => mkdtempSync(join(tmpdir(), 'dsb-cwd-')),
+    cwdFor: cwdFor ?? (async () => mkdtempSync(join(tmpdir(), 'dsb-cwd-'))),
     probeCwd: () => mkdtempSync(join(tmpdir(), 'dsb-probe-')),
     toolsFor: () => [{ name: 'message_bot', description: 'Message another Bot', parameters: { type: 'object', properties: { bot: { type: 'string' }, text: { type: 'string' } } } }],
   })
@@ -1079,4 +1081,461 @@ test('replacing a completed Codex turn retains another queued approval', { timeo
   const second = await collect(adapter.stream(options('s1', messages, { provider: 'local-codex-cli' })))
   assert.equal(second.calls[0].name, 'approve_agent_action')
   assert.notEqual(second.calls[0].id, first.calls[0].id)
+})
+
+test('antigravity route, badge, avatar, modes, sign-in hint, and env stripping', async (t) => {
+  const spec = ENGINES['local-antigravity']
+  assert.equal(spec.command, 'agy')
+  assert.deepEqual(spec.args, ['acp'])
+  assert.equal(spec.signIn, 'agy acp --login')
+  assert.equal(spec.cwdPerProcess, true)
+  const listedModes = ['default', 'accept-edits', 'auto', 'plan'].map(id => ({ id }))
+  assert.equal(acpMode('read-only', listedModes, spec.modes), 'default')
+  assert.equal(acpMode('workspace-write', listedModes, spec.modes), 'accept-edits')
+  assert.equal(acpMode('danger-full-access', listedModes, spec.modes), 'auto')
+  assert.equal(isLocalRoute('local-antigravity/gemini-4-carbon'), true)
+  assert.deepEqual(badgeOf('local-antigravity'), ['AG', 'sky'])
+  assert.match(agentAvatar('local-antigravity').image, /^data:image\/png;base64,/)
+
+  const prevAlias = process.env.ANTIGRAVITY_CLI_ALIAS
+  const prevAcc = process.env.AGY_ACCOUNT
+  process.env.ANTIGRAVITY_CLI_ALIAS = 'custom'
+  process.env.AGY_ACCOUNT = 'secret'
+  t.after(() => {
+    if (prevAlias === undefined) delete process.env.ANTIGRAVITY_CLI_ALIAS; else process.env.ANTIGRAVITY_CLI_ALIAS = prevAlias
+    if (prevAcc === undefined) delete process.env.AGY_ACCOUNT; else process.env.AGY_ACCOUNT = prevAcc
+  })
+  const cleaned = cleanEnv()
+  assert.equal(cleaned.ANTIGRAVITY_CLI_ALIAS, undefined)
+  assert.equal(cleaned.AGY_ACCOUNT, undefined)
+
+  const adapter = makeAdapter({ acpArgs: ['--omit-mcp-caps', '--auth-required'] })
+  t.after(() => adapter.dispose())
+  await assert.rejects(
+    collect(adapter.stream(options('s1', [user('m1', 'hi')], { provider: 'local-antigravity' }))),
+    err => err.code === 'LOCAL_AGENT_SIGNIN' && /agy acp --login/.test(err.message),
+  )
+})
+
+test('acp tries HTTP MCP when mcpCapabilities is omitted (#1073), bridges stdio MCP when HTTP is unsupported/rejected, and falls back to plain on total rejection (#1463)', async (t) => {
+  const omit = makeAdapter({ acpArgs: ['--omit-mcp-caps'] })
+  t.after(() => omit.dispose())
+  const call = await collect(omit.stream(options('s1', [user('m1', 'call-tool')])))
+  assert.equal(call.calls[0]?.name, 'message_bot')
+  const withTool = await collect(omit.stream(options('s1', [user('m1', 'call-tool'), toolResult('m2', call.calls[0].id, 'delivered to Chief')])))
+  assert.match(withTool.text, /tool said: delivered to Chief/)
+
+  const stdioOnly = makeAdapter({ acpArgs: ['--no-http-mcp'] })
+  t.after(() => stdioOnly.dispose())
+  const stdio1 = await collect(stdioOnly.stream(options('s-stdio', [user('m1', 'two-calls')])))
+  assert.equal(stdio1.calls.length, 1)
+  assert.equal(stdio1.calls[0]?.name, 'message_bot')
+  const msg1 = JSON.parse(stdio1.calls[0].arguments).message
+  const reply1 = msg1 === 'hi 0' ? 'zero' : 'one'
+  const stdio2 = await collect(stdioOnly.stream(options('s-stdio', [
+    user('m1', 'two-calls'),
+    toolResult('m2', stdio1.calls[0].id, reply1),
+  ])))
+  assert.equal(stdio2.calls.length, 1)
+  const msg2 = JSON.parse(stdio2.calls[0].arguments).message
+  assert.notEqual(msg1, msg2)
+  const reply2 = msg2 === 'hi 0' ? 'zero' : 'one'
+  const stdioDone = await collect(stdioOnly.stream(options('s-stdio', [
+    user('m1', 'two-calls'),
+    toolResult('m2', stdio1.calls[0].id, reply1),
+    toolResult('m3', stdio2.calls[0].id, reply2),
+  ])))
+  assert.match(stdioDone.text, /tool said: zero \| one/)
+
+  const records = {}
+  const httpRejected1 = makeAdapter({ records, acpArgs: ['--omit-mcp-caps', '--reject-http-mcp'] })
+  t.after(() => httpRejected1.dispose())
+  const fbCall = await collect(httpRejected1.stream(options('s-fb', [user('m1', 'call-tool')])))
+  assert.equal(fbCall.calls[0]?.name, 'message_bot')
+  const fbDone = await collect(httpRejected1.stream(options('s-fb', [user('m1', 'call-tool'), toolResult('m2', fbCall.calls[0].id, 'via stdio fallback')])))
+  assert.match(fbDone.text, /tool said: via stdio fallback/)
+  await httpRejected1.dispose()
+
+  const httpRejected2 = makeAdapter({ records, acpArgs: ['--omit-mcp-caps', '--reject-http-mcp'] })
+  t.after(() => httpRejected2.dispose())
+  const resumedCall = await collect(httpRejected2.stream(options('s-fb', [
+    user('m1', 'call-tool'),
+    toolResult('m2', fbCall.calls[0].id, 'via stdio fallback'),
+    user('m3', 'call-tool'),
+  ])))
+  assert.equal(resumedCall.calls[0]?.name, 'message_bot')
+  const resumedDone = await collect(httpRejected2.stream(options('s-fb', [
+    user('m1', 'call-tool'),
+    toolResult('m2', fbCall.calls[0].id, 'via stdio fallback'),
+    user('m3', 'call-tool'),
+    toolResult('m4', resumedCall.calls[0].id, 'resumed stdio'),
+  ])))
+  assert.match(resumedDone.text, /tool said: resumed stdio/)
+
+  const rejected = makeAdapter({ acpArgs: ['--omit-mcp-caps', '--reject-mcp'] })
+  t.after(() => rejected.dispose())
+  const fallback = await collect(rejected.stream(options('s2', [user('m1', 'hello')])))
+  assert.match(fallback.text, /^ok: [\s\S]*hello/)
+})
+
+test('LoopbackMcp answers JSON-RPC notifications with 202 and an empty body', async (t) => {
+  const mcp = new LoopbackMcp(() => [], async () => ({ text: 'ok' }))
+  await mcp.listen()
+  t.after(() => mcp.close())
+  const headers = { 'content-type': 'application/json', authorization: `Bearer ${mcp.token}` }
+  for (const payload of [
+    { jsonrpc: '2.0', method: 'notifications/initialized' },
+    { jsonrpc: '2.0', method: 'notifications/roots/list_changed' },
+    [{ jsonrpc: '2.0', method: 'notifications/initialized' }],
+  ]) {
+    const res = await fetch(mcp.url, { method: 'POST', headers, body: JSON.stringify(payload) })
+    assert.equal(res.status, 202)
+    assert.equal(await res.text(), '')
+  }
+})
+
+test('acp exposes per-model thought_level efforts, maps Antigravity presets, and switches/restores them per turn', async (t) => {
+  let currentPreset = 'workspace-write'
+  const adapter = makeAdapter({ acpArgs: ['--agy-modes', '--thought-levels'], preset: () => currentPreset })
+  t.after(() => adapter.dispose())
+  const catalog = await adapter.probeModels('local-antigravity')
+  const large = catalog.find(m => m.id === 'fake-large')
+  const small = catalog.find(m => m.id === 'fake-small')
+  assert.deepEqual(large.reasoning.efforts.map(e => e.id), ['low', 'medium', 'high', 'xhigh'])
+  assert.equal(large.reasoning.defaultEffort, undefined)
+  assert.equal(small.reasoning, undefined)
+
+  const modeWrite = await collect(adapter.stream(options('m0', [user('m1', 'show-mode')], { provider: 'local-antigravity', model: 'fake-large' })))
+  assert.match(modeWrite.text, /mode: accept-edits; refused: 0/)
+  currentPreset = 'read-only'
+  const modeRead = await collect(adapter.stream(options('m0', [user('m1', 'show-mode'), user('m2', 'show-mode')], { provider: 'local-antigravity', model: 'fake-large' })))
+  assert.match(modeRead.text, /mode: default; refused: 0/)
+  currentPreset = 'danger-full-access'
+  const modeAuto = await collect(adapter.stream(options('m0', [user('m1', 'show-mode'), user('m2', 'show-mode'), user('m3', 'show-mode')], { provider: 'local-antigravity', model: 'fake-large' })))
+  assert.match(modeAuto.text, /mode: auto; refused: 0/)
+
+  const high = await collect(adapter.stream(options('s1', [user('m1', 'show-state')], {
+    provider: 'local-antigravity',
+    model: 'fake-large',
+    reasoningEffort: 'high',
+  })))
+  assert.match(high.text, /effort: high/)
+
+  const restored = await collect(adapter.stream(options('s1', [user('m1', 'show-state'), user('m2', 'show-state')], {
+    provider: 'local-antigravity',
+    model: 'fake-large',
+    reasoningEffort: undefined,
+  })))
+  assert.match(restored.text, /effort: medium/)
+})
+
+test('cwdPerProcess isolates ACP child cwd per folder, shares within a folder, and closes probe workers', async (t) => {
+  const dirA = realpathSync(mkdtempSync(join(tmpdir(), 'dsb-agy-a-')))
+  const dirB = realpathSync(mkdtempSync(join(tmpdir(), 'dsb-agy-b-')))
+  const cwds = { sA1: dirA, sA2: dirA, sB: dirB }
+  const spawned = []
+  const adapter = new LocalAgentAdapter({
+    rt: { warn: () => {} },
+    customAgents: () => [],
+    findExecutable: path => path,
+    spawnEngine: (_kind, route, spec) => {
+      const engine = new AcpEngine(route, { ...spec, command: process.execPath, args: [FIXTURES.acp, '--agy-modes', '--thought-levels'] }, { findExecutable: path => path })
+      spawned.push(engine)
+      return engine
+    },
+    record: () => undefined,
+    saveRecord: () => {},
+    presetFor: () => 'workspace-write',
+    cwdFor: async sessionId => cwds[sessionId] ?? dirA,
+    probeCwd: () => dirA,
+    toolsFor: () => [],
+  })
+  t.after(() => adapter.dispose())
+
+  // Probe creates a temporary worker and closes it once models are read.
+  const models = await adapter.probeModels('local-antigravity')
+  assert.ok(models.length >= 2)
+  assert.equal(spawned[0].workers.size, 0)
+
+  const outA1 = await collect(adapter.stream(options('sA1', [user('m1', 'show-state')], { provider: 'local-antigravity', model: 'fake-large' })))
+  const outB = await collect(adapter.stream(options('sB', [user('m1', 'show-state')], { provider: 'local-antigravity', model: 'fake-large' })))
+  const outA2 = await collect(adapter.stream(options('sA2', [user('m1', 'show-state')], { provider: 'local-antigravity', model: 'fake-large' })))
+  assert.match(outA1.text, new RegExp(`cwd: ${dirA.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`))
+  assert.match(outB.text, new RegExp(`cwd: ${dirB.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`))
+  assert.match(outA2.text, new RegExp(`cwd: ${dirA.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`))
+  assert.equal(spawned[0].workers.size, 2)
+})
+
+test('every built-in CLI in ENGINES has valid metadata, badge, valid ink, avatar, and mode mapping', () => {
+  const routes = Object.keys(ENGINES)
+  assert.ok(routes.length >= 24)
+  for (const route of routes) {
+    const spec = ENGINES[route]
+    const cli = route.replace(/^local-/, '')
+    assert.ok(['acp', 'claude', 'codex'].includes(spec.kind), `${route} kind`)
+    assert.ok(typeof spec.name === 'string' && spec.name.length > 0, `${route} name`)
+    assert.ok(typeof spec.command === 'string' && spec.command.length > 0, `${route} command`)
+    assert.ok(typeof spec.signIn === 'string' && spec.signIn.length > 0, `${route} signIn`)
+    const badge = AGENT_BADGES[cli]
+    assert.ok(Array.isArray(badge) && badge.length === 2, `${route} AGENT_BADGES`)
+    assert.ok(INKS[badge[1]] !== undefined, `${route} ink ${badge[1]}`)
+    assert.ok(isLocalRoute(route), `${route} isLocalRoute`)
+    assert.deepEqual(badgeOf(route), badge, `${route} badgeOf`)
+    const avatar = agentAvatar(route)
+    assert.ok(avatar?.image?.startsWith('data:image/'), `${route} agentAvatar`)
+    if (spec.kind === 'acp') {
+      assert.equal(typeof acpMode('workspace-write', spec.modes?.['workspace-write'] ?? ['accept-edits'], spec.modes), 'string')
+    } else {
+      assert.equal(typeof cliMode(spec.kind, 'workspace-write'), 'string')
+    }
+  }
+})
+
+test('AcpEngine.ensure deduplicates concurrent startups and cleans up after failed initialize', async (t) => {
+  let findCalls = 0
+  const engine = new AcpEngine('local-test', {
+    name: 'Test ACP',
+    kind: 'acp',
+    command: process.execPath,
+    args: [FIXTURES.acp, '--fail-first-init'],
+  }, {
+    findExecutable: (name) => { findCalls += 1; return name },
+  })
+  t.after(() => engine.close())
+
+  await assert.rejects(() => Promise.all([engine.ensure(), engine.ensure()]), /init boom/)
+  assert.equal(findCalls, 1)
+  assert.equal(engine.child, undefined)
+  assert.equal(engine.peer, undefined)
+  assert.equal(engine.starting, undefined)
+
+  engine.engine = { ...engine.engine, args: [FIXTURES.acp] }
+  const [peerA, peerB] = await Promise.all([engine.ensure(), engine.ensure()])
+  assert.equal(peerA, peerB)
+  assert.equal(findCalls, 2)
+})
+
+test('ownToolCall auto-approves generic mcp__dsbot__ and dsbot: calls without leaking to unrelated names', async (t) => {
+  const adapter = makeAdapter()
+  t.after(() => adapter.dispose())
+
+  for (const trigger of ['generic-mcp-team', 'generic-mcp-team-colon']) {
+    const step1 = await collect(adapter.stream(options(`team-${trigger}`, [user('m1', trigger)])))
+    assert.equal(step1.calls[0]?.name, 'message_bot', JSON.stringify(step1))
+    const step2 = await collect(adapter.stream(options(`team-${trigger}`, [
+      user('m1', trigger),
+      toolResult('m2', step1.calls[0].id, 'delivered'),
+    ])))
+    assert.match(step2.text, /allowed via allow_once; tool said: delivered/)
+  }
+
+  for (const trigger of ['generic-mcp-other-github', 'generic-mcp-other-prefix']) {
+    const asked = await collect(adapter.stream(options(`other-${trigger}`, [user('m1', trigger)])))
+    assert.equal(asked.calls[0]?.name, 'approve_agent_action', JSON.stringify(asked))
+  }
+})
+
+test('ClaudeEngine can_use_tool deny sends required message string (#1539)', async (t) => {
+  const adapter = makeAdapter()
+  t.after(() => adapter.dispose())
+  const ask = await collect(adapter.stream(options('c1', [user('m1', 'ask-claude-perm')], { provider: 'local-claude-code' })))
+  assert.equal(ask.calls[0]?.name, 'approve_agent_action')
+  const denied = await collect(adapter.stream(options('c1', [
+    user('m1', 'ask-claude-perm'),
+    toolResult('m2', ask.calls[0].id, JSON.stringify({ decision: 'deny' })),
+  ], { provider: 'local-claude-code' })))
+  assert.equal(denied.text, 'perm:{"behavior":"deny","message":"The user denied this action."}')
+})
+
+
+test('stdioBridgePath extracts .asar bridges into a private directory and leaves unpacked files alone', (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsb-asar-'))
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  const asarDir = join(dir, 'app.asar')
+  const unpackedDir = join(dir, 'app.asar.unpacked')
+  mkdirSync(asarDir, { recursive: true })
+  mkdirSync(unpackedDir, { recursive: true })
+  const asarSource = join(asarDir, 'mcp-stdio.js')
+  const unpackedSource = join(unpackedDir, 'mcp-stdio.js')
+  writeFileSync(asarSource, '// bridge\n')
+  writeFileSync(unpackedSource, '// unpacked\n')
+
+  const extracted = stdioBridgePath(asarSource)
+  t.after(() => rmSync(dirname(extracted), { recursive: true, force: true }))
+  assert.notEqual(extracted, asarSource)
+  assert.equal(stdioBridgePath(asarSource), extracted)
+  assert.equal(readFileSync(extracted, 'utf8'), '// bridge\n')
+  if (process.platform !== 'win32') {
+    assert.equal(statSync(dirname(extracted)).mode & 0o777, 0o700)
+    assert.equal(statSync(extracted).mode & 0o777, 0o600)
+  }
+  assert.equal(stdioBridgePath(unpackedSource), unpackedSource)
+})
+
+test('ACP session/load falls back to stdio or plain sessions without dropping cliSessionId', async (t) => {
+  for (const flag of ['--reject-http-mcp', '--reject-mcp']) {
+    const records = {}
+    const first = makeAdapter({ records, acpArgs: [flag] })
+    const second = makeAdapter({ records, acpArgs: [flag] })
+    t.after(async () => {
+      await first.dispose()
+      await second.dispose()
+    })
+
+    const turn1 = await collect(first.stream(options('s1', [user('m1', 'first')])))
+    assert.equal(turn1.finish.kind, 'stop')
+    const cliId = records.s1?.cliSessionId
+    assert.ok(cliId)
+    await first.dispose()
+
+    const turn2 = await collect(second.stream(options('s1', [user('m1', 'first'), user('m2', 'second')])))
+    assert.equal(turn2.finish.kind, 'stop')
+    assert.equal(records.s1?.cliSessionId, cliId)
+  }
+})
+
+test('clearing reasoningEffort restores ACP thought_level after session/load and Host restart', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsb-effort-'))
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+
+  for (const [tag, extra] of [['bare', []], ['with-options', ['--load-thought-level']]]) {
+    const records = {}
+    const stateFile = join(dir, `${tag}.json`)
+    const args = ['--thought-levels', `--state-file=${stateFile}`, ...extra]
+    const first = makeAdapter({ records, acpArgs: args })
+    const second = makeAdapter({ records, acpArgs: args })
+    t.after(async () => {
+      await first.dispose()
+      await second.dispose()
+    })
+
+    const t1 = await collect(first.stream(options('s1', [user('m1', 'show-state')], { reasoningEffort: 'high' })))
+    assert.match(t1.text, /effort: high/)
+    assert.equal(records.s1?.defaultEffort, 'medium')
+    assert.equal(records.s1?.effort, 'high')
+    await first.dispose()
+
+    const t2 = await collect(second.stream(options('s1', [user('m1', 'show-state'), user('m2', 'show-state')])))
+    assert.match(t2.text, /effort: medium/)
+    assert.equal(records.s1?.defaultEffort, 'medium')
+    assert.equal(records.s1?.effort, undefined)
+
+    const t3 = await collect(second.stream(options('s1', [user('m1', 'show-state'), user('m2', 'show-state'), user('m3', 'show-state')], { reasoningEffort: 'low' })))
+    assert.match(t3.text, /effort: low/)
+    await second.closeSession('s1')
+
+    const t4 = await collect(second.stream(options('s1', [user('m1', 'show-state'), user('m2', 'show-state'), user('m3', 'show-state'), user('m4', 'show-state')])))
+    assert.match(t4.text, /effort: medium/)
+    assert.equal(records.s1?.effort, undefined)
+  }
+})
+
+test('legacy ACP agents switch models via session/set_model and fail on unknown models', async (t) => {
+  const records = {}
+  const adapter = makeAdapter({ records, acpArgs: ['--legacy-models'] })
+  t.after(() => adapter.dispose())
+
+  const probed = await adapter.probeModels('local-acp-fake')
+  assert.ok(probed.some(model => model.id === 'legacy-fast'))
+
+  const turn1 = await collect(adapter.stream(options('s1', [user('m1', 'show-state')], { model: 'legacy-fast' })))
+  assert.match(turn1.text, /model: legacy-fast/)
+
+  await adapter.closeSession('s1')
+  const turn2 = await collect(adapter.stream(options('s1', [user('m1', 'show-state'), user('m2', 'show-state')], { model: 'legacy-fast' })))
+  assert.match(turn2.text, /model: legacy-fast/)
+
+  await assert.rejects(
+    collect(adapter.stream(options('s2', [user('m1', 'show-state')], { model: 'legacy-missing' }))),
+    err => err?.code === 'LOCAL_AGENT_MODEL',
+  )
+})
+
+test('switching ACP models resets effort tracking cleanly and ignores unapplied efforts', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsb-model-effort-'))
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  const records = {}
+  const stateFile = join(dir, 'state.json')
+  const adapter = makeAdapter({ records, acpArgs: ['--thought-levels', '--load-thought-level', '--model-resets-thought', `--state-file=${stateFile}`] })
+  t.after(() => adapter.dispose())
+
+  const t1 = await collect(adapter.stream(options('s1', [user('m1', 'show-state')], { model: 'fake-large', reasoningEffort: 'high' })))
+  assert.match(t1.text, /effort: high/)
+  assert.equal(records.s1?.defaultEffort, 'medium')
+  assert.equal(records.s1?.effort, 'high')
+
+  const t2 = await collect(adapter.stream(options('s1', [user('m1', 'show-state'), user('m2', 'show-state')], { model: 'fake-small', reasoningEffort: 'high' })))
+  assert.match(t2.text, /effort: high/)
+  assert.equal(records.s1?.defaultEffort, 'low')
+  assert.equal(records.s1?.effort, 'high')
+
+  const t3 = await collect(adapter.stream(options('s1', [user('m1', 'show-state'), user('m2', 'show-state'), user('m3', 'show-state')], { model: 'fake-small' })))
+  assert.match(t3.text, /effort: low/)
+  assert.equal(records.s1?.defaultEffort, 'low')
+  assert.equal(records.s1?.effort, undefined)
+
+  const t4 = await collect(adapter.stream(options('s1', [user('m1', 'show-state'), user('m2', 'show-state'), user('m3', 'show-state'), user('m4', 'show-state')], { model: 'fake-small', reasoningEffort: 'bogus' })))
+  assert.match(t4.text, /effort: low/)
+  assert.equal(records.s1?.effort, undefined)
+})
+
+test('ACP compaction clears persisted effort so Host restart reapplies reasoningEffort cleanly', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsb-compact-effort-'))
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  const records = {}
+  const stateFile = join(dir, 'state.json')
+  const args = ['--thought-levels', `--state-file=${stateFile}`]
+  const first = makeAdapter({ records, acpArgs: args })
+  const second = makeAdapter({ records, acpArgs: args })
+  t.after(async () => {
+    await first.dispose()
+    await second.dispose()
+  })
+
+  const t1 = await collect(first.stream(options('s1', [user('m1', 'show-state')], { reasoningEffort: 'high' })))
+  assert.match(t1.text, /effort: high/)
+  assert.equal(records.s1?.effort, 'high')
+
+  const compacted = await first.compact('s1')
+  assert.equal(compacted, 'done')
+  assert.equal(records.s1?.effort, undefined)
+  await first.dispose()
+
+  const t2 = await collect(second.stream(options('s1', [user('m1', 'show-state'), user('m2', 'show-state')], { reasoningEffort: 'high' })))
+  assert.match(t2.text, /effort: high/)
+  assert.equal(records.s1?.effort, 'high')
+})
+
+test('resuming an ACP session keeps its saved defaultEffort over another workspace default for the same model', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsb-ws-effort-'))
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  const lowWs = join(dir, 'low-ws')
+  const normalWs = join(dir, 'normal-ws')
+  mkdirSync(lowWs, { recursive: true })
+  mkdirSync(normalWs, { recursive: true })
+  const records = {}
+  const stateFile = join(dir, 'state.json')
+  const args = ['--thought-levels', '--load-thought-level', '--preserve-thought-on-model', `--state-file=${stateFile}`]
+  const cwdFor = async id => (id === 'sA' ? lowWs : normalWs)
+  const first = makeAdapter({ records, acpArgs: args, cwdFor })
+  const second = makeAdapter({ records, acpArgs: args, cwdFor })
+  t.after(async () => {
+    await first.dispose()
+    await second.dispose()
+  })
+
+  const a1 = await collect(first.stream(options('sA', [user('m1', 'show-state')], { model: 'fake-large', reasoningEffort: 'high' })))
+  assert.match(a1.text, /effort: high/)
+  assert.equal(records.sA?.defaultEffort, 'low')
+  assert.equal(records.sA?.effort, 'high')
+  await first.dispose()
+
+  const b1 = await collect(second.stream(options('sB', [user('m1', 'show-state')], { model: 'fake-large' })))
+  assert.match(b1.text, /effort: medium/)
+  assert.equal(records.sB?.defaultEffort, 'medium')
+
+  const a2 = await collect(second.stream(options('sA', [user('m1', 'show-state'), user('m2', 'show-state')], { model: 'fake-large' })))
+  assert.match(a2.text, /effort: low/)
+  assert.equal(records.sA?.defaultEffort, 'low')
+  assert.equal(records.sA?.effort, undefined)
 })

@@ -1,7 +1,7 @@
 // The Claude Code engine: one process per session, stream-json both ways.
 // stdin takes user/control JSON messages; stdout streams the assistant's
 // events until a `result` ends the turn.
-import { cleanEnv, spawnAgent } from './discover.js'
+import { cleanEnv, findEngineExecutable, spawnAgent } from './discover.js'
 
 // Claude Code tools that only read; the rest may change files or run something.
 const READ_TOOLS = new Set(['Read', 'Glob', 'Grep', 'LS', 'WebFetch', 'WebSearch', 'TodoWrite', 'NotebookRead'])
@@ -87,7 +87,7 @@ class ClaudeSession {
 
   async start({ cwd, resumeId, system, mode, mcp, model }) {
     if (this.child !== undefined) return this
-    const bin = this.engine.findExecutable(this.engine.engine.command)
+    const bin = findEngineExecutable(this.engine.engine, name => this.engine.findExecutable(name))
     if (bin === undefined) throw Object.assign(new Error(`${this.engine.engine.name} is not installed`), { code: 'NO_ADAPTER' })
     // Fixture scripts in tests ride in spec.args ahead of the real CLI flags.
     // The stream-json formats only exist in print mode: without `--print` the
@@ -207,7 +207,7 @@ class ClaudeSession {
             type: 'permission', id: event.request_id,
             reply: (optionId) => this.write({
               type: 'control_response',
-              response: { subtype: 'success', request_id: event.request_id, response: optionId === 'allow' ? { behavior: 'allow', updatedInput: request.input ?? {} } : { behavior: 'deny' } },
+              response: { subtype: 'success', request_id: event.request_id, response: optionId === 'allow' ? { behavior: 'allow', updatedInput: request.input ?? {} } : { behavior: 'deny', message: 'The user denied this action.' } },
             }),
             action: `Run ${tool}`,
             detail: JSON.stringify(request.input ?? {}).slice(0, 4_000),
