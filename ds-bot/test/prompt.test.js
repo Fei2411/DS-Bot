@@ -37,6 +37,22 @@ test('Bots get a scoped progress rule without changing the private/group prompt 
   assert.equal(prompt('group-worker'), prompt('worker'))
 })
 
+// 公开#1499: a Bot that is handed a saved path and finds `read` closed to a PDF has to know where to go next.
+test('Bots are told how to open a PDF the user attached, once, in the shared prefix', (t) => {
+  const { ctx, prompt } = start()
+  t.after(() => ctx.dispose())
+  for (const id of ['main', 'worker']) {
+    const rule = prompt(id).split('\n').filter(line => line.startsWith('- A file the user attaches reaches you as a saved path'))
+    assert.equal(rule.length, 1)
+    assert.match(rule[0], /read tool opens text files only/)
+    assert.match(rule[0], /scanned or not/)
+    assert.match(rule[0], /office skill/)
+    assert.match(rule[0], /office_render/)
+    assert.match(rule[0], /never answer only that the file cannot be read/)
+  }
+  assert.equal(prompt('group-worker'), prompt('worker'))
+})
+
 test('the group relay and non-Bot sessions do not get progress instructions', (t) => {
   const { ctx, prompt } = start()
   t.after(() => ctx.dispose())

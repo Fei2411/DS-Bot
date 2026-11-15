@@ -206,6 +206,29 @@ test('a request steered into a running turn is recorded once and answered in a t
   assert.deepEqual((await exchanges()).map(entry => entry.role), ['request', 'reply'])
 })
 
+// #1501: a Bot may ask from a background part of its own chat while the user reads the
+// foreground one. The answer comes back to the thread it was asked from.
+test('a reply to a Bot that asked from a background part comes back to that part', async (t) => {
+  const seed = team()
+  seed.bots.a.openParts = [{ sessionId: 'a-bg', segments: [] }]
+  const { agents, emit, tool, stop } = await start(seed)
+  t.after(stop)
+  assert.match(await tool('message_bot', { to: 'Writer', message: 'check the data' }, 'a-bg'), /^Delivered to Writer/)
+  const request = agents.get('b').calls[0][1]
+  assert.equal(request.source.senderPart, 'a-bg')
+
+  // Writer takes the request up and answers it.
+  emit('b', 'turn/start', { turn: 1 })
+  emit('b', 'user/message', { content: request.content, source: request.source })
+  emit('b', 'assistant/message', assistantText('data checked'))
+  emit('b', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  for (let count = 0; count < 200 && (agents.get('a-bg')?.calls ?? []).length < 1; count += 1) await delay(5)
+  const reply = agents.get('a-bg').calls[0][1]
+  assert.equal(textOf(reply.content), '[Reply from Writer]\ndata checked')
+  // The foreground chat, where the user is, got none of it.
+  assert.equal(agents.get('a')?.calls.length ?? 0, 0)
+})
+
 // Issue #580: a queued message the user steers into the running turn restarts
 // the activity row's clock from when it landed, not from the turn's start.
 test('a user message steered into the running steps marks when it landed', async (t) => {
@@ -233,6 +256,35 @@ test('a user message steered into the running steps marks when it landed', async
   spliced('next-step', [userMessage('m3')], 5000)
   emit('b', 'turn/start', { turn: 3 })
   assert.deepEqual(await steered(), {})
+})
+
+// #1501: two parts of the sender's own chat are two conversations. One answer could come
+// back to only one of them, so their unread requests are not merged; each is answered.
+test('requests from two parts of one Bot are answered apart, not merged', async (t) => {
+  const seed = team()
+  seed.bots.a.openParts = [{ sessionId: 'a-bg', segments: [] }]
+  const { agentOf, agents, emit, tool, stop } = await start(seed)
+  t.after(stop)
+  // What Writer is sent waits unread in its inbox.
+  const writer = agentOf('b')
+  writer.steer = (message) => { writer.calls.push(['steer', message]); writer.inbox.nextStep.push(message) }
+  emit('b', 'turn/start', { turn: 1 })
+  assert.doesNotMatch(await tool('message_bot', { to: 'Writer', message: 'check the data' }, 'a'), /added to it/)
+  assert.doesNotMatch(await tool('message_bot', { to: 'Writer', message: 'check the docs' }, 'a-bg'), /added to it/)
+  const waiting = [...writer.inbox.nextStep]
+  assert.equal(waiting.length, 2)
+  assert.deepEqual(waiting.map(message => message.source.senderPart), ['a', 'a-bg'])
+  assert.notEqual(waiting[0].source.exchangeId, waiting[1].source.exchangeId)
+  // Each is answered in the part that asked.
+  for (const [turn, message, said, asked] of [[1, waiting[0], 'data checked', 'a'], [2, waiting[1], 'docs checked', 'a-bg']]) {
+    emit('b', 'turn/start', { turn })
+    emit('b', 'user/message', { content: message.content, source: message.source })
+    emit('b', 'assistant/message', assistantText(said))
+    emit('b', 'turn/end', { turn, reason: { kind: 'completed' } })
+    for (let count = 0; count < 200 && (agents.get(asked)?.calls ?? []).length < 1; count += 1) await delay(5)
+  }
+  assert.equal(textOf(agents.get('a').calls[0][1].content), '[Reply from Writer]\ndata checked')
+  assert.equal(textOf(agents.get('a-bg').calls[0][1].content), '[Reply from Writer]\ndocs checked')
 })
 
 test('a request from a name with brackets keeps its body when replayed after the current work', async (t) => {
@@ -334,6 +386,32 @@ test('stop_bot cancels the running turns and tells the Bot why in a new turn', a
   const notice = agents.get('b').calls[1][1]
   assert.match(textOf(notice.content), /^\[Stopped by Chief\]\nthat command deletes data$/)
   assert.equal(notice.source.role, 'stopped')
+})
+
+test('stop_bot stops a turn running in a background part of the Bot\'s chat', async (t) => {
+  const seed = team()
+  seed.bots.b.openParts = [{ sessionId: 'b-bg', segments: [] }]
+  const { agents, emit, tool, stop } = await start(seed)
+  t.after(stop)
+  // The foreground chat is idle; only the background part runs.
+  emit('b-bg', 'turn/start', { turn: 1 })
+  const out = await tool('stop_bot', { bot: 'Writer', reason: 'that command deletes data' }, 'a')
+  assert.equal(out, 'Stopped Writer in another of its conversations. It is told why in a new turn, whose reply comes back to you.')
+  assert.deepEqual(agents.get('b-bg').calls.map(([kind]) => kind), ['cancel'])
+  assert.deepEqual(agents.get('b-bg').calls[0][1], { kind: 'hook', reason: 'ds-bot/stopped' })
+  // The foreground chat was not cancelled; it gets the notice.
+  assert.deepEqual(agents.get('b').calls.map(([kind]) => kind), ['followup'])
+  assert.equal(agents.get('b').calls[0][1].source.role, 'stopped')
+})
+
+test('message_bot names a running background part as another conversation', async (t) => {
+  const seed = team()
+  seed.bots.b.openParts = [{ sessionId: 'b-bg', segments: [] }]
+  const { emit, tool, stop } = await start(seed)
+  t.after(stop)
+  emit('b-bg', 'turn/start', { turn: 1 })
+  const out = await tool('message_bot', { to: 'Writer', message: 'hi' }, 'a')
+  assert.match(out, /Your message does not reach its work in another of its conversations\. If it must not go on there, use stop_bot\.$/)
 })
 
 test('stop_bot belongs to a Main Bot', async (t) => {
@@ -448,6 +526,53 @@ test('a joined request gets the failure notice when the model call fails', () =>
   assert.equal(delivered.length, 1)
   assert.equal(delivered[0].replyTo, 'e1')
   assert.match(delivered[0].text, /^Writer could not answer your message: its model call failed \(SERVER 503: upstream busy\)/)
+})
+
+test('a content-audit 403 stays on its turn without blocking the key', () => {
+  const { rt, emit } = turnsHost()
+  const body = 'upstream 403 request-id=00000000-0000-4000-8000-000000000000: {"error":{"message":"内容审计命中风险规则，请调整输入后重试","type":"content_policy_violation"}}'
+  emit('b', 'turn/start', { turn: 1 })
+  emit('b', 'user/message', { content: textBlock('write it'), source: { kind: 'user' } })
+  emit('b', 'turn/end', { turn: 1, reason: { kind: 'error', error: { code: 'AUTH', status: 403, message: body } } })
+  const failure = rt.bots.b.failures.b
+  assert.equal(failure.turn, 1)
+  assert.equal(failure.code, 'CONTENT_POLICY')
+  assert.equal(failure.status, 403)
+  assert.equal(failure.requestId, '00000000-0000-4000-8000-000000000000')
+  assert.match(failure.message, /content_policy_violation/)
+  // No key repair: the Bot stays usable and no blocked credential state is set.
+  assert.equal(rt.bots.b.blocked, undefined)
+  // A completed turn in the same part drops the record.
+  emit('b', 'turn/start', { turn: 2 })
+  emit('b', 'user/message', { content: textBlock('hello'), source: { kind: 'user' } })
+  emit('b', 'assistant/message', assistantText('hi'))
+  emit('b', 'turn/end', { turn: 2, reason: { kind: 'completed' } })
+  assert.equal(rt.bots.b.failures, undefined)
+})
+
+test('a real auth failure still blocks the Bot', () => {
+  const { rt, emit } = turnsHost()
+  emit('b', 'turn/start', { turn: 1 })
+  emit('b', 'user/message', { content: textBlock('hi'), source: { kind: 'user' } })
+  emit('b', 'turn/end', { turn: 1, reason: { kind: 'error', error: { code: 'AUTH', status: 401, message: 'invalid key sk-12' } } })
+  assert.equal(rt.bots.b.blocked.code, 'AUTH')
+  assert.equal(rt.bots.b.failures.b.code, 'AUTH')
+  assert.equal(rt.bots.b.failures.b.message, '')
+})
+
+test('a 401 mentioning content_filter stays AUTH, and remembered errors redact keys', () => {
+  const { rt, emit } = turnsHost()
+  emit('b', 'turn/start', { turn: 1 })
+  emit('b', 'user/message', { content: textBlock('hi'), source: { kind: 'user' } })
+  emit('b', 'turn/end', { turn: 1, reason: { kind: 'error', error: { code: 'AUTH', status: 401, message: 'Authentication failed for content_filter service' } } })
+  assert.equal(rt.bots.b.blocked.code, 'AUTH')
+  assert.equal(rt.bots.b.failures.b.code, 'AUTH')
+  assert.equal(rt.bots.b.failures.b.message, '')
+  emit('b', 'turn/start', { turn: 2 })
+  emit('b', 'user/message', { content: textBlock('hi'), source: { kind: 'user' } })
+  emit('b', 'turn/end', { turn: 2, reason: { kind: 'error', error: { code: 'SERVER', status: 500, message: 'upstream echoed sk-secretkey123456' } } })
+  assert.doesNotMatch(rt.bots.b.failures.b.message, /sk-secretkey123456/)
+  assert.match(rt.bots.b.failures.b.message, /sk-\[hidden\]/)
 })
 
 test('a joined request never claims the next turn', () => {

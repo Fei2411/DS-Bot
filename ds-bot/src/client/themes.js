@@ -44,6 +44,8 @@ function themeVars(mode, dark, accent = mode.accent) {
     '--bt-accent': accent, '--bt-accent-ink': accentInk(accent),
     '--bt-user': mode.user, '--bt-user-ink': mode.userText,
     '--bt-tag-bg': rgba(mode.text, dark ? 0.09 : 0.06), '--bt-tag-ink': rgba(mode.text, 0.58),
+    // Warning text and icon: readable on the card in both modes (ui-standard 2.3).
+    '--bt-warn': dark ? '#f0b84a' : '#8a5a00',
   }
 }
 const declarations = vars => Object.entries(vars).map(([name, value]) => `${name}:${value}`).join(';')
@@ -123,6 +125,7 @@ export const allThemes = () => ({ ...THEMES, ...customThemes })
 export const MESSAGE_WIDTH = { min: 50, max: 100, step: 5 }
 const percent = (value, initial) => (Number.isInteger(value) && value >= MESSAGE_WIDTH.min && value <= MESSAGE_WIDTH.max ? value : initial)
 export const layoutOf = prefs => (prefs?.layout === 'flat' ? 'flat' : 'bubble')
+export const effectsOf = prefs => (prefs?.effects === 'reduced' || prefs?.effects === 'off' ? prefs.effects : 'full')
 export const thinkingShown = prefs => prefs?.thinking === true
 export const widthOf = prefs => percent(prefs?.width, 80)
 export const flatWidthOf = prefs => percent(prefs?.flatWidth, 100)

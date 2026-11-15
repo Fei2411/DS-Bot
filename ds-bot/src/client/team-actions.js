@@ -142,6 +142,7 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     setProviderKey: (provider, value) => after(call('provider-key', { provider, value })),
     addProvider: body => after(call('provider-add', body)),
     providerModels: body => call('provider-models', body),
+    saveProviderModels: body => call('provider-models-save', body),
     removeProvider: provider => after(call('provider-remove', { provider })),
     // After a failed turn: the Bot answers the user's last unanswered message, which is never sent again.
     resume: botId => after(call('resume', { botId })),
@@ -180,9 +181,27 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     computerShot: attachmentId => call('computer-shot', { attachmentId }),
     computerUserActive: idleSeconds => call('computer-user-active', { idleSeconds }),
     stopMemberWork: (roomId, botId) => after(call('stop-member-work', { roomId, botId })),
+    // A running part opened from the session list takes no input until it ends.
+    newPart: botId => after(call('bot-new-part', { botId })),
+    openPart: (botId, sessionId, running = false) => {
+      ui.set(state => ({ ...state, readOnlyPart: running ? sessionId : null }))
+      return after(call('bot-open-part', { botId, sessionId })).catch((error) => {
+        ui.set(state => (state.readOnlyPart === sessionId ? { ...state, readOnlyPart: null } : state))
+        throw error
+      })
+    },
+    clearReadOnlyPart: () => ui.set(state => (state.readOnlyPart === null ? state : { ...state, readOnlyPart: null })),
+    stopChat: botId => {
+      ui.set(state => (state.readOnlyPart === null ? state : { ...state, readOnlyPart: null }))
+      return after(call('stop-chat', { botId }))
+    },
     stopRoomWork: roomId => after(call('stop-room-work', { roomId })),
     goalDraft: (roomId, text) => after(call('goal-draft', { roomId, text })),
     goalControl: (roomId, goalId, action, stopWork) => after(call('goal-control', { roomId, goalId, action, ...(stopWork ? { stopWork: true } : {}) })),
+    // The group task board: the user's note is kept on the task and posted to the
+    // group as a user message that calls its owner; cancelling is the panel's own.
+    taskNote: (roomId, id, text) => after(call('task-note', { roomId, id, text })),
+    taskCancel: (roomId, id) => after(call('task-cancel', { roomId, id })),
     // The goal island: `goalCompose` holds the room whose draft form is open,
     // `goalOpen` the room whose panel is open.
     composeGoal: roomId => ui.set(state => ({ ...state, goalCompose: roomId, goalOpen: roomId })),
@@ -195,6 +214,9 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     secretCancel: requestId => after(call('secret-cancel', { requestId })),
     secretUpdate: (name, { scope, purpose } = {}) => after(call('secret-update', { name, scope, purpose })),
     secretDelete: name => after(call('secret-delete', { name })),
+    secretUnlock: passphrase => after(call('secret-unlock', { passphrase })),
+    secretEncrypt: passphrase => after(call('secret-encrypt', { passphrase })),
+    secretDecrypt: passphrase => after(call('secret-decrypt', { passphrase })),
     connectorConnect: (id, payload = {}) => after(call('connector-connect', { id, ...payload })),
     connectorDisconnect: id => after(call('connector-disconnect', { id })),
     connectorRetry: id => after(call('connector-retry', { id })),
@@ -261,6 +283,9 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
       noteClientError(where, error)
       ui.set(state => ({ ...state, toast: { text: error?.message ?? String(error), token: Date.now() } }))
     },
+    // A message with no failure behind it (a review that expired, a window without the
+    // column): a toast, but not in the client-error log.
+    notice: text => ui.set(state => ({ ...state, toast: { text, token: Date.now() } })),
     dismissToast: token => ui.set(state => (state.toast && (token === undefined || state.toast.token === token) ? { ...state, toast: null } : state)),
     noteTurnTime: (sessionId, turn, key, time) => {
       if (sessionId === undefined || !Number.isFinite(turn) || !Number.isFinite(time)) return

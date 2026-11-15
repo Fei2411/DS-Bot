@@ -4,6 +4,7 @@ import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { install as installBtw } from './btw.js'
 import { install as installSide } from './side.js'
 import { handoffReply, questionReply, viewReply } from './parts.js'
+import { threadCurrentOfPart } from './threads.js'
 import { validateViewAnswer } from 'deep-view/core'
 import { COLORS, EXTRA_COLORS, ROUTE } from './constants.js'
 
@@ -68,10 +69,18 @@ export function install(rt) {
     // `sessionId` is the Bot's current own-chat part; `parts` its earlier ones.
     // `waiting`: the Bot holds its greeting until the user picks its model or fixes
     // what failed it. `blocked`: the facts of a failure only the user can fix (turns.js).
-    bots: Object.values(state.bots).map(({ segments, kickoff, ...bot }) => {
+    bots: Object.values(state.bots).map(({ segments, kickoff, openParts, ...bot }) => {
       const tail = rt.chatTail(rt.chatOf(bot.id))
+      // `openParts` are the parts opened while the Bot was busy: live, with their own
+      // earlier parts, and each one's run state read from the live turns.
+      const open = (openParts ?? []).map(part => ({
+        sessionId: part.sessionId,
+        startedAt: part.startedAt ?? 0,
+        parts: (part.segments ?? []).map(segment => segment.sessionId),
+      }))
       return {
-        ...bot, sessionId: rt.chatOf(bot.id), parts: (segments ?? []).map(segment => segment.sessionId), ...(kickoff ? { waiting: true } : {}),
+        ...bot, sessionId: rt.chatOf(bot.id), parts: (segments ?? []).map(segment => segment.sessionId),
+        ...(open.length > 0 ? { openParts: open } : {}), ...(kickoff ? { waiting: true } : {}),
         // `engine` is the Bot's local-agent route, present only on abots.
         ...(rt.localAgentBadge?.(bot.model ?? bot.appliedModel) !== undefined ? { engine: rt.localAgentBadge(bot.model ?? bot.appliedModel) } : {}),
         ...(tail ? { lastAt: tail.lastAt, preview: tail.preview } : {}),
@@ -94,9 +103,6 @@ export function install(rt) {
     // Aside answers of each Bot's current part, newest first. Not part of the
     // model-visible history; earlier parts send their cards on their own pages.
     btwCards: rt.btwView?.() ?? {},
-    // Browser holds (handoffs and takeovers) per Bot, so the phone can show
-    // the same cards the desktop toolbar shows.
-    browserHolds: rt.browserChannel?.holdSnapshot?.() ?? {},
     // Each Bot's side chats, in creation order. The answers never join the
     // model-visible history; the side panel reads them here.
     sideChats: rt.sideView?.() ?? {},
@@ -106,6 +112,8 @@ export function install(rt) {
     sections: state.sections ?? [],
     // Key names and who may use them; values never leave the host.
     secrets: rt.secretsView(),
+    // How the secrets file is stored and whether this process can read it now.
+    secretStore: rt.secretStoreStatus(),
     capabilities: rt.capabilityLibraryView(),
     secretRequests: state.secretRequests ?? {},
     connectorRequests: state.connectorRequests ?? {},
@@ -113,6 +121,7 @@ export function install(rt) {
     colors: [...COLORS, ...EXTRA_COLORS],
     models: rt.cachedCatalog(),
     defaultModel: rt.cachedDefault() ?? null,
+    profileDefaultModel: rt.defaultRef() ?? null,
     permissions: rt.permissionCatalog?.() ?? null,
     modelsKey: modelsKey(),
     prefs: state.prefs,
@@ -135,7 +144,16 @@ export function install(rt) {
   // turn there runs; the approvals waiting; per Bot, who it waits for to hand back work;
   // and per Session, when its running turn began.
   const live = () => ({
+    secretStore: rt.secretStoreStatus(),
+    secrets: rt.secretsView(),
     activity: rt.activityView(),
+    // Which of a Bot's own chat parts has a turn right now, current or background:
+    // the session list's Running mark reads this, not a guess from the transcript.
+    partsRunning: Object.fromEntries(Object.values(state.bots)
+      .flatMap(bot => [rt.chatOf(bot.id), ...(bot.openParts ?? []).map(part => part.sessionId)])
+      .filter((sessionId, index, list) => sessionId !== undefined && list.indexOf(sessionId) === index)
+      .filter(sessionId => rt.live.get(sessionId)?.turn !== undefined)
+      .map(sessionId => [sessionId, true])),
     work: { bots: rt.workView(), rooms: rt.roomWorkView(), approvals: rt.approvalsView(), waiting: rt.waitingView?.() ?? {}, turns: rt.turnsView?.() ?? {}, steered: rt.steeredView?.() ?? {} },
     memoryNews: rt.memoryNews(),
     memoryReviews: rt.memoryReviews(),
@@ -146,10 +164,17 @@ export function install(rt) {
     phone: rt.phoneView(),
     imStatus: rt.imStatusView?.() ?? {},
     imVia: rt.imViaView?.() ?? {},
+    // Why this host cannot write the team, or null. It changes without a save — the
+    // other dsh can quit while this window stays open and this host takes the lock
+    // over — so a window learns that it may write again without a reload.
+    readOnly: rt.readOnly() ?? null,
     // Computer use live state: per-Bot control, leases, pending app cards and holds.
     // Named apart from the state view's `computer`: the live answer merges into the
     // same object and would wipe its `enabled` and `provider` fields.
     computerLive: rt.computerLive?.() ?? {},
+    // Browser holds (handoffs and takeovers) change without bumping state.revision,
+    // so they ride on live() to reconcile unchanged-revision polls.
+    browserHolds: rt.browserChannel?.holdSnapshot?.() ?? {},
   })
   // The live fields' sources are spread across the host with no single change
   // counter, so the serialized answer itself is the detector: a poll whose `live`
@@ -167,7 +192,7 @@ export function install(rt) {
   }
   // What a host that only reads the team may still answer.
   // Updates change the dsh profile, not the team, so a reading host may run them too.
-  const READS = new Set(['state', 'models', 'efforts', 'providers', 'provider-models', 'earlier', 'chat', 'run-stats', 'room-progress', 'group-rows', 'exchange', 'exchange-text', 'file-text', 'usage', 'schedules', 'memory-view', 'browser-wait', 'browser-result', 'diagnostics', 'diagnostics-log', 'diagnostics-clear', 'update-check', 'update-install', 'dsh-update-install', 'repo-stars', 'approval-answer', 'thinking', 'avatar-library', 'computer-system-status', 'computer-shot', 'local-agents', 'local-agent-models', 'browser-frame', 'hello', 'notices', 'avatar', 'room-chat', 'usage-summary', 'image'])
+  const READS = new Set(['secret-store', 'secret-unlock', 'state', 'models', 'efforts', 'providers', 'provider-models', 'earlier', 'chat', 'run-stats', 'room-progress', 'group-rows', 'exchange', 'exchange-text', 'file-text', 'usage', 'schedules', 'memory-view', 'browser-wait', 'browser-result', 'diagnostics', 'diagnostics-log', 'diagnostics-clear', 'update-check', 'update-install', 'dsh-update-install', 'repo-stars', 'approval-answer', 'thinking', 'avatar-library', 'computer-system-status', 'computer-shot', 'local-agents', 'local-agent-models', 'browser-frame', 'hello', 'notices', 'avatar', 'room-chat', 'usage-summary', 'image', 'file-download', 'changes-check', 'changes-summary', 'changes-diff'])
 
   async function setPrefs(body) {
     if (body.theme !== undefined) {
@@ -183,6 +208,11 @@ export function install(rt) {
       if (body.motion === null || body.motion === 'normal') delete state.prefs.motion
       else if (body.motion === 'quiet' || body.motion === 'lively') state.prefs.motion = body.motion
       else throw invalid('Motion must be quiet, normal or lively')
+    }
+    if (body.effects !== undefined) {
+      if (body.effects === null || body.effects === 'full') delete state.prefs.effects
+      else if (body.effects === 'reduced' || body.effects === 'off') state.prefs.effects = body.effects
+      else throw invalid('Effects must be full, reduced or off')
     }
     if (body.layout !== undefined) {
       if (body.layout === null || body.layout === 'bubble') delete state.prefs.layout
@@ -275,6 +305,8 @@ export function install(rt) {
           return ok(await rt.addProvider(body))
         case 'provider-models':
           return ok(await rt.discoverModels(body))
+        case 'provider-models-save':
+          return ok(await rt.saveProviderModels(body))
         case 'provider-remove':
           return ok(await rt.removeProvider(String(body.provider ?? '')))
         case 'duplicate-bot':
@@ -335,6 +367,14 @@ export function install(rt) {
           return ok(rt.groupSearch(room.id, body.query, { before: body.before, offset: body.offset }))
         }
         // The rows a settled round of a group chat shows, from its book.
+        // Whether a turn's change review can still be opened: the Host serves a turn's
+        // summary until its Session is disposed.
+        case 'changes-summary':
+          return ok(rt.changesSummary(String(body.sessionId ?? ''), Number(body.seq)))
+        case 'changes-diff':
+          return ok(await rt.changesDiff(String(body.sessionId ?? ''), Number(body.seq), body.index, signal))
+        case 'changes-check':
+          return ok(rt.changesAvailable?.(String(body.sessionId ?? ''), Number(body.seq)) === true)
         case 'group-rows': {
           await rt.load()
           const room = rt.roomOf(body.roomId) ?? rt.roomOf(rt.pastOwners.get(body.roomId)?.roomId)
@@ -507,6 +547,31 @@ export function install(rt) {
           const result = await rt.goalControl(String(body.roomId ?? ''), body)
           return result.error !== undefined ? fail(result.error, result.code ?? 'bot/refused') : ok(view())
         }
+        // The task board's two panel actions. A note the user adds is kept on the task
+        // and posted into the group as the user's own message that calls its owner, so
+        // the Bot acts on it where the work runs, as if the user had typed it there.
+        case 'task-note': {
+          await rt.load()
+          const roomId = String(body.roomId ?? '')
+          const result = rt.taskNote(roomId, String(body.id ?? ''), body.text)
+          if (result.error !== undefined) return fail(result.error, 'bot/refused')
+          const bot = rt.botOf(result.task.botId)
+          await rt.save()
+          if (bot !== undefined) {
+            await rt.sendUser({
+              sessionId: roomId,
+              content: [{ type: 'text', text: `@${bot.name} ${result.task.notes.at(-1).text}` }],
+            })
+          }
+          return ok(view())
+        }
+        case 'task-cancel': {
+          await rt.load()
+          const result = rt.taskCancel(String(body.roomId ?? ''), String(body.id ?? ''))
+          if (result.error !== undefined) return fail(result.error, 'bot/refused')
+          await rt.save()
+          return ok(view())
+        }
         case 'stop-chat':
           return ok(await rt.stopChat(String(body.botId ?? '')))
         case 'dismiss-question':
@@ -530,6 +595,10 @@ export function install(rt) {
         case 'secret-cancel':
         case 'secret-update':
         case 'secret-delete':
+        case 'secret-store':
+        case 'secret-unlock':
+        case 'secret-encrypt':
+        case 'secret-decrypt':
           await rt.load()
           return ok(await rt.secretEndpoint(endpoint, body))
         case 'connector-connect':
@@ -587,6 +656,7 @@ export function install(rt) {
         case 'avatar':
         case 'room-chat':
         case 'image':
+        case 'file-download':
         case 'usage-summary':
         case 'memory-edit':
         case 'memory-add':
@@ -717,7 +787,7 @@ export function install(rt) {
           // Taking over a handoff keeps its reason, note, and call, so its card stays up.
           const asked = rt.browserChannel.holdOf(botId)
           rt.browserChannel.setHold(botId, asked?.callId !== undefined
-            ? { by: 'user', reason: asked.reason, note: asked.note, callId: asked.callId }
+            ? { by: 'user', reason: asked.reason, note: asked.note, callId: asked.callId, ...(asked.sessionId !== undefined ? { sessionId: asked.sessionId } : {}) }
             : { by: 'user', reason: 'takeover', note: 'The user is controlling this browser.' })
           return ok(true)
         }
@@ -736,7 +806,9 @@ export function install(rt) {
           rt.browserChannel.setHold(botId, null)
           if (hold.callId === undefined) return ok(true)
           try {
-            const sessionId = rt.chatOf(botId)
+            // The answer goes back to the thread that raised the handoff: a background
+            // part the user was not reading must not be answered in the foreground chat.
+            const sessionId = threadCurrentOfPart(rt.botOf(botId), hold.sessionId) ?? rt.chatOf(botId)
             const reply = handoffReply(hold, body.outcome)
             await rt.ensureCapabilities(sessionId)
             const agent = await rt.resolveAgent(sessionId)
@@ -819,6 +891,7 @@ export function install(rt) {
     }
   }
 
+  rt.channelCall = handle
   rt.phoneServe(handle)
 
   // How a user message reaches a Session: a Bot id, a group chat's id, or an earlier
@@ -842,7 +915,7 @@ export function install(rt) {
 
   // The user's answer to an ask_user card, from the web or an IM chat. A Bot id or an
   // earlier part of its own chat means the current one.
-  async function answerQuestion(sessionRef, questionId, answer) {
+  async function answerQuestion(sessionRef, questionId, answer, requestId) {
     const past = rt.pastOwners.get(sessionRef)
     const sessionId = rt.botOf(sessionRef) ? rt.chatOf(sessionRef) : past && past.roomId === undefined ? rt.chatOf(past.botId) : sessionRef
     const question = rt.own(state.questions, sessionId)
@@ -854,7 +927,7 @@ export function install(rt) {
     try {
       await rt.ensureCapabilities(sessionId)
       const agent = await rt.resolveAgent(sessionId)
-      agent.followup(createUserMessage({ content: [{ type: 'text', text: reply.text }], source: reply.source }))
+      agent.followup(createUserMessage({ content: [{ type: 'text', text: reply.text }], source: { ...reply.source, ...(requestId === undefined ? {} : { rpcId: requestId }) } }))
       await ctx.sessions.flush(agent.session)
     } catch (error) {
       state.questions[sessionId] ??= question

@@ -390,13 +390,15 @@ export class HostLink {
       for (const plaintext of tunnel.outgoing.encode(data)) {
         if (this.tunnels.get(tunnel.connectionId) !== tunnel || this.socket === undefined) throw new Error('The tunnel closed.')
         const ciphertext = tunnel.noise.encrypt(plaintext)
-        await waitForRelayCapacity(this.socket)
-        this.sendControl('relay', {
+        const socket = this.socket
+        const frame = encodeControlFrame(createControlFrame('relay', {
           connectionId: tunnel.connectionId,
           targetDeviceId: tunnel.deviceId,
           counter: tunnel.counter,
           ciphertext: toBase64Url(ciphertext),
-        } satisfies RelayPayload)
+        } satisfies RelayPayload), this.limits)
+        await waitForRelayCapacity(socket, new TextEncoder().encode(frame).byteLength)
+        socket.send(frame)
         tunnel.counter += 1
       }
     })
