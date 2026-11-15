@@ -48,13 +48,17 @@ test('pendingItemsOf, pendingCountOf, botHasPending, and roomHasPending cover al
     secretRequests: {
       b1: [{ id: 'sec1', name: 'TOKEN', status: 'pending' }, { id: 'sec2', name: 'OLD', status: 'saved' }],
     },
+    connectorRequests: {
+      b2: [{ id: 'con1', connectorId: 'notion', name: 'Notion', purpose: 'Read wiki', status: 'pending' }, { id: 'con2', connectorId: 'github', name: 'GitHub', status: 'done' }],
+    },
     browserHolds: {
       b2: { callId: 'hold-1', reason: 'verification', note: 'Complete 2FA' },
     },
   }
   const items = pendingItemsOf(team)
   assert.equal(pendingCountOf(team), items.length)
-  assert.equal(items.length, 6)
+  assert.equal(items.length, 7)
+  assert.equal(items.some(item => item.kind === 'connector' && item.connectorId === 'notion' && item.purpose === 'Read wiki'), true)
   assert.equal(botHasPending(team, baseTeam.bots[0]), true)
   assert.equal(botHasPending(team, baseTeam.bots[1]), true)
   assert.equal(roomHasPending(team, baseTeam.rooms![0]), true)
@@ -65,6 +69,7 @@ test('pendingItemsOf, pendingCountOf, botHasPending, and roomHasPending cover al
     views: {},
     work: { approvals: [] },
     secretRequests: { b1: [{ id: 'sec1', name: 'TOKEN', status: 'saved' }] },
+    connectorRequests: { b2: [{ id: 'con1', connectorId: 'notion', name: 'Notion', status: 'connected' }] },
     browserHolds: {},
   }
   assert.equal(pendingCountOf(settled), 0)
