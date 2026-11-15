@@ -186,7 +186,7 @@ export class CodexEngine {
     const peer = await this.ensure()
     const reply = await peer.request('turn/start', {
       threadId: thread.threadId,
-      input: blocks.map(block => block.type === 'image' ? { type: 'image', url: block.url ?? block.data } : { type: 'text', text: block.text ?? '' }),
+      input: codexInput(blocks),
       // The app-server takes the level per turn and keeps it for the next ones.
       ...(effort === undefined ? {} : { effort }),
     }, { signal, timeout: 0 })
@@ -211,10 +211,11 @@ export class CodexEngine {
     return true
   }
 
-  async steer(thread, text) {
+  async steer(thread, input) {
     const expectedTurnId = thread?.turnId
     if (expectedTurnId === undefined) throw new Error('the turn this input steers has already ended')
-    await this.peer?.request('turn/steer', { threadId: thread.threadId, expectedTurnId, input: [{ type: 'text', text }] }, { timeout: 15_000 })
+    const blocks = Array.isArray(input) ? input : [{ type: 'text', text: input }]
+    await this.peer?.request('turn/steer', { threadId: thread.threadId, expectedTurnId, input: codexInput(blocks) }, { timeout: 15_000 })
   }
 
   cancel(thread) {
@@ -258,6 +259,19 @@ export class CodexEngine {
       setTimeout(() => { try { child.kill('SIGKILL') } catch {} }, 5_000).unref?.()
     }
   }
+}
+
+function codexInput(blocks) {
+  const out = []
+  for (const block of blocks) {
+    if (block.type === 'image') {
+      const url = block.url ?? (block.data?.startsWith('data:') ? block.data : `data:${block.mediaType ?? block.mimeType ?? 'image/png'};base64,${block.data}`)
+      out.push({ type: 'image', url })
+    } else if ((block.text ?? '') !== '') {
+      out.push({ type: 'text', text: block.text })
+    }
+  }
+  return out.length > 0 ? out : [{ type: 'text', text: '' }]
 }
 
 const activityOf = item => {
