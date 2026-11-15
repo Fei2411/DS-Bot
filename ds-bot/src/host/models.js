@@ -3,6 +3,7 @@
 // user picks one in its chat. The Session keeps the selection durably.
 import { BlockAssembler, resolveRetryPolicy } from '@deepseek-ai/dsh-llm'
 import { normalize, splitRef } from './text.js'
+import { ownChatSessions } from './threads.js'
 
 const CATALOG_TTL_MS = 10_000
 const ROUTE_WAIT_MS = 30_000
@@ -343,7 +344,10 @@ export function install(rt) {
     const effort = await desiredEffort(bot, ref)
     const ownChanged = force || bot.appliedModel !== ref || (bot.appliedEffort ?? undefined) !== effort
     const route = { ...splitRef(ref), ...(effort === undefined ? {} : { reasoningEffort: effort }) }
-    if (ownChanged) await selectSessionModel(rt.chatOf(bot.id), route)
+    // A Bot's model is the model of every part of its own chat, the background ones
+    // included: a part left on the old route would keep answering with the old model
+    // while the settings show the new one. A part that cannot take it fails the change.
+    if (ownChanged) for (const sessionId of ownChatSessions(bot)) await selectSessionModel(sessionId, route)
     for (const sessionId of rt.groupSessionsOf(bot.id)) {
       const applied = sessionSelections.get(sessionId)
       if (!force && applied !== undefined && sameSelection(applied, route)) continue
