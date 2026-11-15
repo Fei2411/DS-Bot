@@ -1,13 +1,40 @@
-// The Agent Client Protocol engine: one child process per route, ACP over
-// stdio. A process multiplexes sessions: each DS Bot Session maps to one ACP
-// session, created or resumed with our loopback MCP server attached.
+// The Agent Client Protocol engine: one child process per route (or per working
+// folder when the CLI pins shell commands to its process cwd), ACP over stdio.
+// A process multiplexes sessions: each DS Bot Session maps to one ACP session,
+// created or resumed with our loopback MCP server attached.
+import { copyFileSync, existsSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { dirname, join, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { JsonRpcPeer, wireProcess, EventQueue } from './jsonrpc.js'
-import { cleanEnv, spawnAgent } from './discover.js'
+import { cleanEnv, findEngineExecutable, spawnAgent } from './discover.js'
 import { acpMode } from './engines.js'
 
 const CLIENT = { name: 'ds-bot', version: '1' }
 // DS Bot's loopback MCP server, which carries the Bot's team tools.
 const MCP_SERVER = 'dsbot'
+const AUTH_ERROR = /not signed in|not logged in|login required|unauthorized|authentication/i
+const TIMEOUT_ERROR = /timed out|timeout/i
+const BUNDLED_MCP_STDIO = join(dirname(fileURLToPath(import.meta.url)), 'mcp-stdio.js')
+
+let extractedBridge
+function stdioBridgePath() {
+  if (!BUNDLED_MCP_STDIO.includes('.asar')) return BUNDLED_MCP_STDIO
+  if (extractedBridge === undefined || !existsSync(extractedBridge)) {
+    const target = join(tmpdir(), 'dsb-mcp-stdio.mjs')
+    copyFileSync(BUNDLED_MCP_STDIO, target)
+    extractedBridge = target
+  }
+  return extractedBridge
+}
+
+function terminateChild(child) {
+  if (child === undefined) return
+  try { child.kill('SIGTERM') } catch {}
+  setTimeout(() => { try { child.kill('SIGKILL') } catch {} }, 5_000).unref?.()
+}
+const EFFORT_ORDER = ['minimal', 'low', 'medium', 'high', 'xhigh', 'max']
+const EFFORT_NAMES = { off: 'Off', minimal: 'Minimal', low: 'Low', medium: 'Medium', high: 'High', xhigh: 'Extra high', max: 'Max' }
 
 // Events a driver reports, normalized for the adapter:
 // {type:'text'|'thought',text} | {type:'activity',text} (one compact line of the
@@ -22,21 +49,54 @@ export class AcpEngine {
     this.findExecutable = findExecutable
     this.child = undefined
     this.peer = undefined
+    this.starting = undefined
     this.sessions = new Map()
     this.caps = {}
     // The modes and options this CLI listed last, for a reply that lists none.
     this.listed = { modes: [], configOptions: [] }
     // The commands each agent session lists, by the agent's session id.
     this.commands = new Map()
+    // For CLIs whose commands follow their process cwd (`cwdPerProcess`): one
+    // worker AcpEngine per resolved workspace folder.
+    this.workers = new Map()
+    this.sessionWorkers = new Map()
+    this.ephemeral = false
+  }
+
+  activeWorker() {
+    return [...this.workers.values()].find(worker => worker.peer !== undefined)
+  }
+
+  spawnWorker(cwd) {
+    return new AcpEngine(
+      this.route,
+      { ...this.engine, cwdPerProcess: false, ...(cwd ? { spawnCwd: cwd } : {}) },
+      { findExecutable: this.findExecutable },
+    )
+  }
+
+  workerOf(session, dshSessionId = session?.dshSessionId) {
+    return session?._worker ?? (dshSessionId !== undefined ? this.sessionWorkers.get(dshSessionId) : undefined)
   }
 
   async ensure() {
     if (this.peer !== undefined) return this.peer
-    const bin = this.engine.command.startsWith('/') || this.engine.command.startsWith('~')
-      ? this.findExecutable(this.engine.command)
-      : this.findExecutable(this.engine.command)
+    if (this.starting !== undefined) return this.starting
+    const starting = this.startPeer()
+    this.starting = starting
+    try {
+      return await starting
+    } finally {
+      if (this.starting === starting) this.starting = undefined
+    }
+  }
+
+  async startPeer() {
+    const bin = findEngineExecutable(this.engine, name => this.findExecutable(name))
     if (bin === undefined) throw Object.assign(new Error(`${this.engine.name} is not installed`), { code: 'NO_ADAPTER' })
+    const spawnCwd = this.engine.spawnCwd && existsSync(this.engine.spawnCwd) ? this.engine.spawnCwd : undefined
     const child = spawnAgent(bin, this.engine.args ?? [], {
+      ...(spawnCwd !== undefined ? { cwd: spawnCwd } : {}),
       env: cleanEnv(this.engine.env ?? {}),
       stdio: ['pipe', 'pipe', 'inherit'],
       windowsHide: true,
@@ -61,19 +121,38 @@ export class AcpEngine {
     child.on('error', error => gone(Object.assign(new Error(`${this.engine.name} could not start: ${error.message}`), { code: 'LOCAL_AGENT_EXIT' })))
     peer.notificationHandler = (method, params) => this.onNotice(method, params)
     peer.requestHandler = (method, params) => this.onRequest(method, params)
-    const reply = await peer.request('initialize', {
-      protocolVersion: 1,
-      // `session.compaction` asks for compaction_update notices, so DS Bot hears when
-      // the agent condenses its own context.
-      clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false, session: { compaction: {} } },
-      clientInfo: CLIENT,
-    }, { timeout: 30_000 })
-    this.caps = {
-      mcpHttp: reply?.agentCapabilities?.mcpCapabilities?.http === true,
-      mcpSse: reply?.agentCapabilities?.mcpCapabilities?.sse === true,
-      close: reply?.agentCapabilities?.sessionCapabilities?.close != null,
+    try {
+      const reply = await peer.request('initialize', {
+        protocolVersion: 1,
+        // `session.compaction` asks for compaction_update notices, so DS Bot hears when
+        // the agent condenses its own context.
+        clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false, session: { compaction: {} } },
+        clientInfo: CLIENT,
+      }, { timeout: 30_000 })
+      if (this.child !== child) {
+        throw Object.assign(new Error(`${this.engine.name} closed while starting`), { code: 'LOCAL_AGENT_EXIT' })
+      }
+      const agentCaps = reply?.agentCapabilities ?? {}
+      const mcpCaps = agentCaps.mcpCapabilities ?? agentCaps.mcp_capabilities
+      const sessionCaps = agentCaps.sessionCapabilities ?? agentCaps.session_capabilities
+      const mcpHttp = mcpCaps?.http
+      this.caps = {
+        // Prefer Streamable HTTP MCP when declared, bridge via stdio MCP when HTTP is
+        // false, or probe HTTP -> stdio -> plain when mcpCapabilities is omitted.
+        mcpMode: mcpHttp === true ? 'http' : mcpHttp === false ? 'stdio' : undefined,
+        mcpSse: mcpCaps?.sse === true,
+        close: sessionCaps?.close != null,
+      }
+      return peer
+    } catch (error) {
+      peer.close(error)
+      if (this.child === child) {
+        this.child = undefined
+        this.peer = undefined
+        terminateChild(child)
+      }
+      throw error
     }
-    return peer
   }
 
   sessionFor(dshSessionId) {
@@ -127,6 +206,13 @@ export class AcpEngine {
         if (typeof update.used === 'number') session.push({ type: 'context', used: update.used, ...(typeof update.size === 'number' ? { size: update.size } : {}) })
         break
       }
+      case 'config_option_update': {
+        if (Array.isArray(update.configOptions)) {
+          session.configOptions = update.configOptions
+          session.modes = update.modes?.availableModes ?? configOptionsOf(update.configOptions, 'mode')?.options ?? session.modes
+        }
+        break
+      }
       case 'compaction_update': session.push({ type: 'compaction', status: compactionStatus(update.status) }); break
       default: break
     }
@@ -140,9 +226,9 @@ export class AcpEngine {
       if (session === undefined) return Promise.reject({ code: -32603, message: 'unknown session' })
       const options = (params?.options ?? []).map(option => ({ optionId: option.optionId, name: option.name, kind: option.kind }))
       const call = callOf(session, params?.toolCall)
-      // Cursor and Devin ask before every MCP tool call. A call to DS Bot's own server
-      // is approved once here: toolsFor() already narrowed what the Bot may call.
-      // Other tools, and an agent that offers no one-time allow, still ask.
+      // Cursor, Devin and Antigravity ask before MCP tool calls. A call to DS Bot's
+      // own server is approved once here: toolsFor() already narrowed what the Bot
+      // may call. Other tools, and an agent that offers no one-time allow, still ask.
       const once = ownToolCall(call) ? options.find(option => option.kind === 'allow_once') : undefined
       if (once !== undefined) return Promise.resolve({ outcome: { outcome: 'selected', optionId: once.optionId } })
       const action = describeCall(call)
@@ -164,22 +250,78 @@ export class AcpEngine {
     return Promise.reject({ code: -32601, message: `method not found: ${method}` })
   }
 
+  async openInWorker(dshSessionId, openArgs) {
+    const existing = openArgs.ephemeral === true ? this.activeWorker() : undefined
+    const key = openArgs.cwd ? resolve(openArgs.cwd) : ''
+    const reused = existing !== undefined
+    let worker = existing ?? this.workers.get(key)
+    const created = worker === undefined
+    if (created) {
+      worker = this.spawnWorker(key)
+      if (openArgs.ephemeral === true) worker.ephemeral = true
+      this.workers.set(key, worker)
+    }
+    try {
+      const session = await worker.open(dshSessionId, openArgs)
+      session._worker = worker
+      this.sessionWorkers.set(dshSessionId, worker)
+      return session
+    } catch (error) {
+      if (created && !reused && ![...this.sessionWorkers.values()].includes(worker)) {
+        this.workers.delete(key)
+        await worker.close().catch(() => {})
+      }
+      throw error
+    }
+  }
+
+  // Starts an ACP session using Streamable HTTP MCP when supported, falling back
+  // to the stdio MCP bridge and finally to a plain session (#1073, #1463).
+  async newSession(peer, { cwd, mcp }) {
+    const modes = mcp === undefined || this.caps.mcpMode === 'none'
+      ? ['none']
+      : this.caps.mcpMode === 'stdio'
+        ? ['stdio', 'none']
+        : ['http', 'stdio', 'none']
+    let lastError
+    for (let i = 0; i < modes.length; i++) {
+      const mode = modes[i]
+      try {
+        const reply = await peer.request('session/new', { cwd, mcpServers: serversFor(mcp, mode) }, { timeout: 60_000 })
+        if (mcp !== undefined) this.caps.mcpMode = mode
+        return reply
+      } catch (error) {
+        lastError = error
+        const text = String(error?.message ?? error)
+        if (mcp === undefined || AUTH_ERROR.test(text) || TIMEOUT_ERROR.test(text) || i === modes.length - 1) throw error
+      }
+    }
+    throw lastError
+  }
+
   // A new or resumed ACP session for one DS Bot Session.
-  async open(dshSessionId, { cwd, mcp, resumeId, preset, model }) {
+  async open(dshSessionId, openArgs) {
+    if (this.engine.cwdPerProcess) return this.openInWorker(dshSessionId, openArgs)
+    const { cwd, mcp, resumeId, preset, model } = openArgs
     const peer = await this.ensure()
     const session = this.sessionFor(dshSessionId)
-    const mcpServers = serversFor(mcp)
-    if (mcp !== undefined && this.caps.mcpHttp === false) throw Object.assign(new Error(`${this.engine.name} cannot use HTTP MCP servers; the team tools cannot reach it`), { code: 'NOT_SUPPORTED' })
-    const params = { cwd, mcpServers }
     let reply
     if (resumeId !== undefined) {
+      const loadMode = this.caps.mcpMode ?? 'http'
       try {
-        reply = await peer.request('session/load', { ...params, sessionId: resumeId }, { timeout: 30_000 })
-      } catch {
-        reply = await peer.request('session/new', params, { timeout: 60_000 })
+        reply = await peer.request('session/load', { cwd, mcpServers: serversFor(mcp, loadMode), sessionId: resumeId }, { timeout: 30_000 })
+      } catch (error) {
+        const text = String(error?.message ?? error)
+        if (this.caps.mcpMode === undefined && mcp !== undefined && !AUTH_ERROR.test(text) && !TIMEOUT_ERROR.test(text)) {
+          try {
+            reply = await peer.request('session/load', { cwd, mcpServers: serversFor(mcp, 'stdio'), sessionId: resumeId }, { timeout: 30_000 })
+            this.caps.mcpMode = 'stdio'
+          } catch {}
+        }
+        if (reply === undefined) reply = await this.newSession(peer, { cwd, mcp })
       }
     } else {
-      reply = await peer.request('session/new', params, { timeout: 60_000 })
+      reply = await this.newSession(peer, { cwd, mcp })
     }
     session.acpSessionId = reply?.sessionId ?? resumeId
     // Some agents list nothing on session/load: the session reads what this CLI
@@ -188,7 +330,7 @@ export class AcpEngine {
     session.configOptions = listed.configOptions
     session.modes = listed.modes
     // The preset maps to a mode only once the agent has listed its own.
-    const mode = acpMode(preset, session.modes)
+    const mode = acpMode(preset, session.modes, this.engine.modes)
     if (mode !== undefined) await this.setOption(session, 'mode', mode).catch(() => {})
     // A model the agent does not take fails the turn: going on would answer with a
     // model the user did not pick.
@@ -197,14 +339,22 @@ export class AcpEngine {
         throw Object.assign(new Error(`${this.engine.name} did not switch to the model ${model}: ${error?.message ?? error}. Pick another model in the Bot's settings.`), { code: 'LOCAL_AGENT_MODEL' })
       })
     }
+    session.defaultEffort = configOptionsOf(session.configOptions ?? [], 'thought_level')?.currentValue
+    session.effort = undefined
     return session
   }
 
   async setOption(session, category, value) {
+    const worker = this.workerOf(session)
+    if (worker !== undefined && worker !== this) return worker.setOption(session, category, value)
     const peer = await this.ensure()
     try {
       const configId = configOptionsOf(session.configOptions ?? [], category)?.id ?? category
-      await peer.request('session/set_config_option', { sessionId: session.acpSessionId, configId, value }, { timeout: 15_000 })
+      const reply = await peer.request('session/set_config_option', { sessionId: session.acpSessionId, configId, value }, { timeout: 15_000 })
+      if (Array.isArray(reply?.configOptions)) {
+        session.configOptions = reply.configOptions
+        this.remember(reply)
+      }
     } catch (error) {
       // An agent from before config options takes its mode through session/set_mode.
       if (category !== 'mode') throw error
@@ -212,8 +362,19 @@ export class AcpEngine {
     }
   }
 
-  async prompt(session, blocks, { signal }) {
+  async prompt(session, blocks, { signal, effort } = {}) {
+    const worker = this.workerOf(session)
+    if (worker !== undefined && worker !== this) return worker.prompt(session, blocks, { signal, effort })
     const peer = await this.ensure()
+    if (configOptionsOf(session.configOptions ?? [], 'thought_level') !== undefined) {
+      if (effort !== undefined && session.effort !== effort) {
+        await this.setOption(session, 'thought_level', effort).catch(() => {})
+        session.effort = effort
+      } else if (effort === undefined && session.effort !== undefined && session.defaultEffort !== undefined) {
+        await this.setOption(session, 'thought_level', session.defaultEffort).catch(() => {})
+        session.effort = undefined
+      }
+    }
     const reply = peer.request('session/prompt', { sessionId: session.acpSessionId, prompt: blocks }, { signal, timeout: 0 })
     reply.then(
       result => session.push({ type: 'done', reason: result?.stopReason ?? 'end_turn', ...(usageOf(result?.usage) ? { usage: usageOf(result.usage) } : {}) }),
@@ -225,6 +386,8 @@ export class AcpEngine {
   // The agent's own compaction, through the command it lists for it. False when it
   // lists none: it then condenses only on its own.
   compact(session) {
+    const worker = this.workerOf(session)
+    if (worker !== undefined && worker !== this) return worker.compact(session)
     // A loaded session may list nothing again: what this CLI listed last stands in.
     const listed = this.commands.get(session.acpSessionId) ?? [...this.commands.values()].at(-1) ?? []
     if (!listed.includes('compact')) return false
@@ -234,29 +397,55 @@ export class AcpEngine {
 
   // A one-off session leaves the agent's list when it is done.
   async closeSession(session) {
+    if (this.engine.cwdPerProcess) {
+      const worker = this.workerOf(session)
+      if (worker === undefined) return
+      await worker.closeSession(session)
+      worker.forget(session.dshSessionId)
+      this.sessionWorkers.delete(session.dshSessionId)
+      if (worker.ephemeral && worker.sessions.size === 0) {
+        for (const [key, entry] of this.workers) if (entry === worker) this.workers.delete(key)
+        await worker.close()
+      }
+      return
+    }
     if (session?.acpSessionId === undefined) return
     this.commands.delete(session.acpSessionId)
     if (this.caps.close) await this.peer?.request('session/close', { sessionId: session.acpSessionId }, { timeout: 15_000 }).catch(() => {})
   }
 
   cancel(session) {
+    const worker = this.workerOf(session)
+    if (worker !== undefined && worker !== this) { worker.cancel(session); return }
     this.peer?.notify('session/cancel', { sessionId: session.acpSessionId })
   }
 
   // The adapter stopped reading this session: a later open starts a new queue, or
   // the pump that waits on this one would swallow its first event.
   forget(dshSessionId) {
+    if (this.engine.cwdPerProcess) {
+      const worker = this.sessionWorkers.get(dshSessionId)
+      if (worker === undefined) return
+      this.sessionWorkers.delete(dshSessionId)
+      worker.forget(dshSessionId)
+      if (worker.sessions.size === 0) {
+        for (const [key, entry] of this.workers) if (entry === worker) this.workers.delete(key)
+        void worker.close().catch(() => {})
+      }
+      return
+    }
     this.sessions.delete(dshSessionId)
   }
 
   async close() {
+    for (const worker of this.workers.values()) await worker.close()
+    this.workers.clear()
+    this.sessionWorkers.clear()
     const child = this.child
     this.child = undefined
     this.peer = undefined
-    if (child !== undefined) {
-      child.kill('SIGTERM')
-      setTimeout(() => { try { child.kill('SIGKILL') } catch {} }, 5_000).unref?.()
-    }
+    this.starting = undefined
+    terminateChild(child)
   }
 
   remember(reply) {
@@ -266,21 +455,98 @@ export class AcpEngine {
     return this.listed
   }
 
-  // Models the agent advertises on a probe session (configOptions 'model').
+  // Models (and per-model thinking levels) the agent advertises on a probe session.
   async listModels({ cwd, mcp }) {
+    if (this.engine.cwdPerProcess) {
+      const live = this.activeWorker()
+      if (live !== undefined) {
+        const target = live.engine.spawnCwd && existsSync(live.engine.spawnCwd) ? live.engine.spawnCwd : cwd
+        return live.listModels({ cwd: target, mcp })
+      }
+      const temp = this.spawnWorker(cwd)
+      try {
+        return await temp.listModels({ cwd, mcp })
+      } finally {
+        await temp.close()
+      }
+    }
     const peer = await this.ensure()
-    const probe = await peer.request('session/new', { cwd, mcpServers: serversFor(mcp) }, { timeout: 60_000 })
+    const probe = await this.newSession(peer, { cwd, mcp })
+    if (probe?.sessionId !== undefined) {
+      this.commands.delete(probe.sessionId)
+      if (this.caps.close) await peer.request('session/close', { sessionId: probe.sessionId }, { timeout: 15_000 }).catch(() => {})
+    }
     this.remember(probe)
-    const option = configOptionsOf(probe?.configOptions ?? [], 'model')
-    return (option?.options ?? []).map(entry => ({ id: String(entry.id ?? entry.value ?? entry.name), name: String(entry.name ?? entry.id ?? entry.value) }))
+    return modelsFromProbe(probe)
   }
 }
 
-const serversFor = mcp => (mcp === undefined ? [] : [{ type: 'http', name: MCP_SERVER, url: mcp.url, headers: [{ name: 'Authorization', value: `Bearer ${mcp.token}` }] }])
-// ACP has no field for the MCP server of a call, so each agent says it its own way:
-// Cursor in the call's input, Devin in the permission rule the request names.
-const ownToolCall = call => call?.rawInput?.providerIdentifier === MCP_SERVER
-  || String(call?._meta?.['cognition.ai/permissionRule'] ?? '').startsWith(`mcp__${MCP_SERVER}__`)
+export function modelsFromProbe(probe) {
+  const option = configOptionsOf(probe?.configOptions ?? [], 'model')
+  const available = probe?.models?.availableModels ?? []
+  const baseModels = (option?.options ?? []).length > 0
+    ? option.options.map(entry => ({ id: String(entry.id ?? entry.value ?? entry.name), name: String(entry.name ?? entry.id ?? entry.value) }))
+    : available.map(entry => ({ id: String(entry.modelId ?? entry.id ?? entry.name), name: String(entry.name ?? entry.modelId ?? entry.id) }))
+  const thought = configOptionsOf(probe?.configOptions ?? [], 'thought_level')
+  const thoughtOptions = (thought?.options ?? []).map(entry => ({
+    id: String(entry.id ?? entry.value ?? entry.name),
+    name: String(entry.name ?? entry.id ?? entry.value),
+    ...(entry.description ? { description: String(entry.description) } : {}),
+  }))
+  const thoughtById = new Map(thoughtOptions.map(entry => [entry.id, entry]))
+  const availableIds = new Set(available.map(entry => String(entry.modelId ?? entry.id ?? '')).filter(Boolean))
+  const knownEfforts = [...new Set([...EFFORT_ORDER, ...thoughtOptions.map(entry => entry.id)])]
+  const hasVariantMap = (option?.options ?? []).length > 0
+    && availableIds.size > 0
+    && baseModels.some(base => knownEfforts.some(effortId => availableIds.has(`${base.id}-${effortId}`)))
+  return baseModels.map((model) => {
+    // Leave defaultEffort unset so a Bot without a chosen level keeps the CLI's default.
+    if (hasVariantMap) {
+      const efforts = knownEfforts
+        .filter(effortId => availableIds.has(`${model.id}-${effortId}`))
+        .map(effortId => thoughtById.get(effortId) ?? { id: effortId, name: EFFORT_NAMES[effortId] ?? effortId })
+      return efforts.length > 0 ? { ...model, reasoning: { efforts } } : model
+    }
+    return thoughtOptions.length > 0 ? { ...model, reasoning: { efforts: thoughtOptions } } : model
+  })
+}
+
+function serversFor(mcp, mode = 'http') {
+  if (mcp === undefined || mode === 'none') return []
+  if (mode === 'stdio') {
+    return [{
+      name: MCP_SERVER,
+      command: process.execPath,
+      args: [stdioBridgePath()],
+      env: [
+        { name: 'ELECTRON_RUN_AS_NODE', value: '1' },
+        { name: 'DSBOT_MCP_URL', value: mcp.url },
+        { name: 'DSBOT_MCP_TOKEN', value: mcp.token },
+      ],
+    }]
+  }
+  return [{ type: 'http', name: MCP_SERVER, url: mcp.url, headers: [{ name: 'Authorization', value: `Bearer ${mcp.token}` }] }]
+}
+
+// ACP has no standard field for the MCP server of a call, so each CLI marks it
+// differently: provider/server fields in input/_meta, permissionRule, or name prefixes.
+const ownToolCall = (call) => {
+  const input = inputOf(call)
+  const args = call?.args !== null && typeof call?.args === 'object' ? call.args : {}
+  const name = String(call?.name ?? call?.toolName ?? '')
+  return input.providerIdentifier === MCP_SERVER
+    || input.serverName === MCP_SERVER
+    || input.mcpServer === MCP_SERVER
+    || call?._meta?.mcpServer === MCP_SERVER
+    || call?._meta?.serverName === MCP_SERVER
+    || String(call?._meta?.['cognition.ai/permissionRule'] ?? '').startsWith(`mcp__${MCP_SERVER}__`)
+    || name.startsWith(`mcp__${MCP_SERVER}__`)
+    || name.startsWith(`mcp_${MCP_SERVER}_`)
+    || name.startsWith(`${MCP_SERVER}__`)
+    || name.startsWith(`${MCP_SERVER}:`)
+    || name.startsWith(`${MCP_SERVER}/`)
+    || (name === 'call_mcp_tool' && (input.ServerName === MCP_SERVER || args.ServerName === MCP_SERVER))
+}
 const configOptionsOf = (options, category) => options.find(option => (option.category ?? option.id) === category)
 const textOf = content => (Array.isArray(content) ? content : [content]).filter(block => block?.type === 'text').map(block => block.text).join('')
 const planText = entries => (entries ?? []).map(entry => `- ${entry.content ?? entry.title ?? ''}`).join('\n')
@@ -296,13 +562,14 @@ const inputOf = call => (call.rawInput !== null && typeof call.rawInput === 'obj
 // One line a person can act on: what kind of action, on what.
 export const describeCall = (call) => {
   const input = inputOf(call)
-  const command = input.command ?? input.cmd
+  const command = input.command ?? input.cmd ?? input.CommandLine
   const target = typeof command === 'string' ? `\`${command.length > 160 ? `${command.slice(0, 157)}…` : command}\``
     : (call.locations ?? []).map(location => location?.path).filter(Boolean).join(', ')
-      || input.path || input.file_path || input.url || input.query || input.pattern || ''
+      || input.path || input.file_path || input.Path || input.TargetFile || input.url || input.query || input.pattern || ''
   const verb = VERBS[call.kind]
   const title = typeof call.title === 'string' && call.title.trim() !== '' ? call.title.trim() : undefined
-  if (title !== undefined && (target === '' || title.includes(String(target).replaceAll('`', '')))) return title
+  const rawTarget = String(target).replaceAll('`', '')
+  if (title !== undefined && (target === '' || (title.includes(rawTarget) && (verb === undefined || title !== rawTarget)))) return title
   if (verb !== undefined && target !== '') return `${verb} ${target}`
   return [title ?? verb ?? 'Use a tool', target].filter(Boolean).join(': ')
 }
@@ -318,16 +585,18 @@ const detailText = (call, action = '') => {
   if (paths.length > 0) lines.push(paths.join(', '))
   return lines.join('\n').slice(0, 4_000)
 }
-// A prompt's usage. ACP folds cached input into inputTokens (Devin: totalTokens is
-// inputTokens plus outputTokens); DSH counts it apart.
-const usageOf = (usage) => {
+// A prompt's usage. Some CLIs fold cached input into inputTokens (Devin: totalTokens is
+// inputTokens + outputTokens), while others (Antigravity) count cachedReadTokens apart.
+export const usageOf = (usage) => {
   if (typeof usage?.inputTokens !== 'number' && typeof usage?.outputTokens !== 'number') return undefined
   const read = usage.cachedReadTokens ?? 0
   const write = usage.cachedWriteTokens ?? 0
   const input = usage.inputTokens ?? 0
+  const output = usage.outputTokens ?? 0
+  const separate = typeof usage.totalTokens === 'number' && read + write > 0 && usage.totalTokens >= input + read + write + output
   return {
-    inputTokens: read + write <= input ? input - read - write : input,
-    outputTokens: usage.outputTokens ?? 0,
+    inputTokens: !separate && read + write <= input ? input - read - write : input,
+    outputTokens: output,
     ...(read > 0 ? { cacheReadTokens: read } : {}),
     ...(write > 0 ? { cacheWriteTokens: write } : {}),
     ...(usage.thoughtTokens ? { reasoningTokens: usage.thoughtTokens } : {}),

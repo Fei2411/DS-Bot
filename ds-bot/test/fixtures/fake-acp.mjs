@@ -21,12 +21,24 @@
 // lists no compact command, `--no-usage` reports no usage.
 // `--cursor-modes` lists the modes cursor-agent 2026.11.05 does (agent, plan, ask)
 // and refuses any other, as it does.
+import { spawn } from 'node:child_process'
+import { createInterface } from 'node:readline'
+
 const exitAfterTurn = process.argv.includes('--exit-after-turn')
 const cursorModes = process.argv.includes('--cursor-modes')
+const agyModes = process.argv.includes('--agy-modes')
+const thoughtLevels = process.argv.includes('--thought-levels')
+const omitMcpCaps = process.argv.includes('--omit-mcp-caps')
+const rejectHttpMcp = process.argv.includes('--reject-http-mcp')
+const rejectMcp = process.argv.includes('--reject-mcp')
+const noHttpMcp = process.argv.includes('--no-http-mcp')
+const failFirstInit = process.argv.includes('--fail-first-init')
+let initCount = 0
+const authRequired = process.argv.includes('--auth-required')
 const listsCompact = !process.argv.includes('--no-compact')
 const reportsUsage = !process.argv.includes('--no-usage')
 const WINDOW = 262_000
-const MODES = cursorModes ? ['agent', 'plan', 'ask'] : ['ask', 'accept-edits', 'bypass']
+const MODES = agyModes ? ['default', 'accept-edits', 'auto', 'plan'] : cursorModes ? ['agent', 'plan', 'ask'] : ['ask', 'accept-edits', 'bypass']
 let refusedModes = 0
 const sessions = new Map()
 let nextId = 0
@@ -42,7 +54,50 @@ const ask = (method, params) => {
   return new Promise(resolve => requests.set(id, resolve))
 }
 
+async function stdioMcpCall(server, name, args) {
+  if (server.type !== undefined) throw new Error('McpServerStdio must not include type')
+  if (!Array.isArray(server.env)) throw new Error('McpServerStdio must include env array')
+  const env = { ...process.env }
+  for (const item of server.env) env[item.name] = item.value
+  const child = spawn(server.command, server.args ?? [], { env, stdio: ['pipe', 'pipe', 'pipe'] })
+  const pending = new Map()
+  let stderr = ''
+  child.stderr.on('data', chunk => { stderr += chunk })
+  const lines = createInterface({ input: child.stdout })
+  lines.on('line', (line) => {
+    const trimmed = line.trim()
+    if (!trimmed) return
+    const msg = JSON.parse(trimmed)
+    if (msg.id !== undefined && pending.has(msg.id)) {
+      pending.get(msg.id)(msg)
+      pending.delete(msg.id)
+    }
+  })
+  const rpc = (id, method, params) => new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`stdio MCP ${method} timed out: ${stderr}`)), 5_000)
+    pending.set(id, (msg) => {
+      clearTimeout(timer)
+      if (msg.error) reject(new Error(msg.error.message ?? JSON.stringify(msg.error)))
+      else resolve(msg.result)
+    })
+    child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id, method, params })}\n`)
+  })
+  try {
+    await rpc(1, 'initialize', { protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 'fake-acp-stdio', version: '1' } })
+    child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' })}\n`)
+    const [callRes] = await Promise.all([
+      rpc(2, 'tools/call', { name, arguments: args }),
+      rpc(3, 'tools/list', {}),
+    ])
+    return callRes
+  } finally {
+    child.stdin.end()
+    child.kill()
+  }
+}
+
 async function mcpCall(server, name, args) {
+  if (server?.command !== undefined) return stdioMcpCall(server, name, args)
   const headers = { 'content-type': 'application/json', authorization: `Bearer ${server.token}` }
   const post = (body) => fetch(server.url, { method: 'POST', headers, body: JSON.stringify(body) })
   await post({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 'fake', version: '1' } } })
@@ -79,6 +134,7 @@ async function runPrompt(session, prompt, requestId) {
   }
   if (text.includes('count-sessions')) { finish(`sessions: ${sessions.size}`); return }
   if (/\bhang\b/.test(text)) return // session/cancel releases it below
+  if (text.includes('show-state')) { finish(`cwd: ${process.cwd()}; effort: ${session.thoughtLevel ?? 'default'}`); return }
   if (text.includes('show-mode')) { finish(`mode: ${session.mode}; refused: ${refusedModes}`); return }
   if (text.includes('ask-permission')) {
     // Like Devin: the call's kind and input arrive with its tool_call update;
@@ -145,6 +201,29 @@ async function runPrompt(session, prompt, requestId) {
     finish(`allowed via ${outcome.optionId}; tool said: ${(result.content ?? []).map(block => block.text).join('')}`)
     return
   }
+  if (text.includes('generic-mcp-')) {
+    const isTeam = text.includes('generic-mcp-team')
+    const name = text.includes('generic-mcp-team-colon') ? 'dsbot:message_bot'
+      : isTeam ? 'mcp__dsbot__message_bot'
+        : text.includes('generic-mcp-other-prefix') ? 'dsbot-unrelated'
+          : 'mcp__github__issue'
+    const toolCallId = 'gm-1'
+    update(sessionId, { sessionUpdate: 'tool_call', toolCallId, name, title: name, kind: 'other', rawInput: { to: 'River', message: 'ping' } })
+    const answer = await ask('session/request_permission', {
+      sessionId,
+      toolCall: { toolCallId, name, title: name, kind: 'other', rawInput: { to: 'River', message: 'ping' } },
+      options: [
+        { optionId: 'allow_once', name: 'Allow', kind: 'allow_once' },
+        { optionId: 'reject_once', name: 'Reject', kind: 'reject_once' },
+      ],
+    })
+    const outcome = answer?.result?.outcome
+    if (outcome?.outcome !== 'selected' || outcome.optionId.startsWith('reject')) { finish('denied'); return }
+    if (!isTeam) { finish(`allowed via ${outcome.optionId}`); return }
+    const result = await mcpCall(session.mcp, 'message_bot', { to: 'River', message: 'ping' })
+    finish(`allowed via ${outcome.optionId}; tool said: ${(result.content ?? []).map(block => block.text).join('')}`)
+    return
+  }
   if (text.includes('call-tool') || text.includes('two-calls')) {
     const server = session.mcp
     update(sessionId, { sessionUpdate: 'tool_call', toolCallId: 't1', title: 'mcp dsbot message_bot', kind: 'other', status: 'in_progress' })
@@ -182,39 +261,79 @@ process.stdin.on('data', (chunk) => {
     }
     const { id, method, params = {} } = message
     switch (method) {
-      case 'initialize':
-        reply(id, { protocolVersion: 1, agentCapabilities: { mcpCapabilities: { http: true, sse: false }, loadSession: true, sessionCapabilities: { close: {} } }, authMethods: [] })
+      case 'initialize': {
+        initCount += 1
+        if (failFirstInit && initCount === 1) { fail(id, 'init boom'); break }
+        const mcpCapabilities = noHttpMcp ? { http: false, sse: false } : omitMcpCaps ? undefined : { http: true, sse: false }
+        const agentCapabilities = {
+          ...(mcpCapabilities === undefined ? {} : { mcpCapabilities }),
+          loadSession: true,
+          sessionCapabilities: { close: {} },
+        }
+        reply(id, { protocolVersion: 1, agentCapabilities, authMethods: [] })
         break
+      }
       case 'session/new': {
-        const session = { id: `acp-${++nextId}`, mcp: undefined, mode: MODES[0] }
-        const server = (params.mcpServers ?? []).find(entry => entry.name === 'dsbot')
-        if (server !== undefined) session.mcp = { url: server.url, token: (server.headers ?? []).find(header => header.name === 'Authorization')?.value?.replace('Bearer ', '') }
+        if (authRequired) { send({ jsonrpc: '2.0', id, error: { code: -32000, message: 'Authentication required' } }); break }
+        const servers = params.mcpServers ?? []
+        if (rejectMcp && servers.length > 0) { fail(id, 'Invalid params: mcpServers unsupported'); break }
+        if (rejectHttpMcp && servers.some(entry => entry.type === 'http')) { fail(id, 'Invalid params: http mcp unsupported'); break }
+        const server = servers.find(entry => entry.name === 'dsbot')
+        if (server?.command !== undefined && (server.type !== undefined || !Array.isArray(server.env))) {
+          fail(id, 'Invalid params: McpServerStdio malformed'); break
+        }
+        const session = { id: `acp-${++nextId}`, mcp: undefined, mode: MODES[0], thoughtLevel: 'medium' }
+        if (server !== undefined) {
+          session.mcp = server.command !== undefined
+            ? { command: server.command, args: server.args ?? [], env: server.env }
+            : { url: server.url, token: (server.headers ?? []).find(header => header.name === 'Authorization')?.value?.replace('Bearer ', '') }
+        }
         sessions.set(session.id, session)
         // Devin lists its commands before it answers session/new.
         update(session.id, { sessionUpdate: 'available_commands_update', availableCommands: [{ name: 'status', description: 'Show status' }, ...(listsCompact ? [{ name: 'compact', description: 'Force conversation compaction' }] : [])] })
-        reply(id, {
-          sessionId: session.id,
-          configOptions: [
-            { id: 'model', category: 'model', name: 'Model', options: [{ id: 'fake-large', name: 'Fake Large' }, { id: 'fake-small', name: 'Fake Small' }] },
-            { id: 'mode', category: 'mode', name: 'Mode', currentValue: MODES[0], options: MODES.map(value => ({ value, name: value })) },
+        const configOptions = [
+          { id: 'model', category: 'model', name: 'Model', options: [{ id: 'fake-large', name: 'Fake Large' }, { id: 'fake-small', name: 'Fake Small' }] },
+          ...(thoughtLevels ? [{ id: 'thought_level', category: 'thought_level', name: 'Thinking Level', currentValue: 'medium', options: [{ value: 'low', name: 'Low' }, { value: 'medium', name: 'Medium' }, { value: 'high', name: 'High' }] }] : []),
+          { id: 'mode', category: 'mode', name: 'Mode', currentValue: MODES[0], options: MODES.map(value => ({ value, name: value })) },
+        ]
+        const models = thoughtLevels ? {
+          availableModels: [
+            { modelId: 'fake-large-low', name: 'Fake Large (Low)' },
+            { modelId: 'fake-large-medium', name: 'Fake Large (Medium)' },
+            { modelId: 'fake-large-high', name: 'Fake Large (High)' },
+            { modelId: 'fake-large-xhigh', name: 'Fake Large (XHigh)' },
+            { modelId: 'fake-small', name: 'Fake Small' },
           ],
-        })
+        } : undefined
+        reply(id, { sessionId: session.id, ...(models ? { models } : {}), configOptions })
         break
       }
       case 'session/load': {
+        const servers = params.mcpServers ?? []
+        if (rejectMcp && servers.length > 0) { fail(id, 'Invalid params: mcpServers unsupported'); break }
+        if (rejectHttpMcp && servers.some(entry => entry.type === 'http')) { fail(id, 'Invalid params: http mcp unsupported'); break }
+        const server = servers.find(entry => entry.name === 'dsbot')
+        if (server?.command !== undefined && (server.type !== undefined || !Array.isArray(server.env))) {
+          fail(id, 'Invalid params: McpServerStdio malformed'); break
+        }
         let session = sessions.get(params.sessionId)
         // Bare on purpose: some agents list no modes on load (cursor-agent does).
-        if (session === undefined) { session = { id: params.sessionId, mcp: undefined, mode: MODES[0] }; sessions.set(session.id, session) }
-        const server = (params.mcpServers ?? []).find(entry => entry.name === 'dsbot')
-        if (server !== undefined) session.mcp = { url: server.url, token: (server.headers ?? []).find(header => header.name === 'Authorization')?.value?.replace('Bearer ', '') }
+        if (session === undefined) { session = { id: params.sessionId, mcp: undefined, mode: MODES[0], thoughtLevel: 'medium' }; sessions.set(session.id, session) }
+        if (server !== undefined) {
+          session.mcp = server.command !== undefined
+            ? { command: server.command, args: server.args ?? [], env: server.env }
+            : { url: server.url, token: (server.headers ?? []).find(header => header.name === 'Authorization')?.value?.replace('Bearer ', '') }
+        }
         reply(id, { sessionId: params.sessionId })
         break
       }
       case 'session/set_config_option':
         if (params.configId === 'model' && !['fake-large', 'fake-small'].includes(params.value)) fail(id, `unknown model ${params.value}`)
         else if (params.configId === 'mode' && !MODES.includes(params.value)) { refusedModes++; fail(id, 'Invalid params') }
+        else if (params.configId === 'thought_level' && !['low', 'medium', 'high', 'xhigh'].includes(params.value)) fail(id, `unknown thought_level ${params.value}`)
         else {
           if (params.configId === 'mode') sessions.get(params.sessionId).mode = params.value
+          if (params.configId === 'thought_level') sessions.get(params.sessionId).thoughtLevel = params.value
           reply(id, {})
         }
         break
