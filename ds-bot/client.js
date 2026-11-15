@@ -26901,8 +26901,8 @@ function BotMention({ node, raw, interactive, sessionId, useRoster, actions }) {
   const roster = useRoster((value) => value);
   const bot = mentionableBots(roster, sessionId).find((item) => item.id === node.data.botId);
   if (!bot) return raw;
-  const mark2 = (0, import_react31.createElement)(BotMark, { bot, size: 16 });
-  return interactive ? (0, import_react31.createElement)("button", { type: "button", className: "bt-umention", title: `@${bot.name}`, onClick: () => actions.openSession(bot.id) }, mark2, node.data.label) : (0, import_react31.createElement)("span", { className: "bt-umention", "data-static": "", title: `@${bot.name}` }, mark2, node.data.label);
+  const mark2 = (0, import_react32.createElement)(BotMark, { bot, size: 16 });
+  return interactive ? (0, import_react32.createElement)("button", { type: "button", className: "bt-umention", title: `@${bot.name}`, onClick: () => actions.openSession(bot.id) }, mark2, node.data.label) : (0, import_react32.createElement)("span", { className: "bt-umention", "data-static": "", title: `@${bot.name}` }, mark2, node.data.label);
 }
 function Attachments({ attachments, renderMessageImages }) {
   const compact2 = attachments.length > 1;
@@ -36162,7 +36162,8 @@ function SettingsShell(props) {
     reconnect,
     openDesktopUpdate,
     openOnboarding,
-    finishOnboarding
+    finishOnboarding,
+    holdSeat
   } = props;
   const settings = useUi((state) => state.settings);
   const roster = useRoster((value) => value);
@@ -36194,6 +36195,7 @@ function SettingsShell(props) {
   const [kept, leaving] = useLinger(settings, DIALOG_EXIT_MS);
   const showing = Boolean(kept);
   (0, import_react50.useEffect)(() => showing ? actions.holdSettingsLook?.() : void 0, [showing]);
+  (0, import_react50.useLayoutEffect)(() => holdSeat?.(), []);
   const open = settings !== null && settings !== void 0;
   const openSettings = () => actions.openSettings("general");
   return (0, import_react50.createElement)(
@@ -36375,6 +36377,22 @@ function DeveloperToolsRow({ useDeveloperTools, setEnabled }) {
     }))
   );
 }
+function seatHold(held) {
+  let count = 0;
+  return {
+    hold: () => {
+      count += 1;
+      held?.set(true);
+      let released = false;
+      return () => {
+        if (released) return;
+        released = true;
+        count -= 1;
+        if (count === 0) held?.set(false);
+      };
+    }
+  };
+}
 function installSettingsShell(ctx, { face, actions, ui: ui2, held }) {
   const slots = ctx.slots;
   const locale = () => ctx.get("locale");
@@ -36399,6 +36417,7 @@ function installSettingsShell(ctx, { face, actions, ui: ui2, held }) {
   const sections = ledgerSource(slots, locale, "settings.section", sectionRows);
   const items = ledgerSource(slots, locale, "settings.general.item", itemRows);
   const steps = ledgerSource(slots, locale, "settings.onboarding", stepRows);
+  const seat = seatHold(held);
   const shellFace = () => {
     const base = face();
     return {
@@ -36407,6 +36426,7 @@ function installSettingsShell(ctx, { face, actions, ui: ui2, held }) {
       openDesktopUpdate: () => update.open(),
       openOnboarding,
       finishOnboarding,
+      holdSeat: seat.hold,
       hooks: {
         ...base.hooks,
         sections,
@@ -36423,20 +36443,21 @@ function installSettingsShell(ctx, { face, actions, ui: ui2, held }) {
     () => update.dispose(),
     // A profile that turned DSH's shell back on keeps it: the seat's child slots are then
     // declared already, and DS Bot's dialog stays on its own pages.
-    slots.inject("sidebar.settings", function* () {
+    // SettingsShell holds the seat itself while it is mounted (`holdSeat`).
+    slots.inject("sidebar.settings", () => {
       let off;
       try {
         off = slots.register({ name: "sidebar.settings", inject: shellFace, children: SETTINGS_CHILDREN }, SettingsShell);
       } catch (error) {
         console.warn("[ds-bot] DSH settings shell is on; DS Bot settings show its own pages only", error);
-        return;
+        return () => {
+        };
       }
-      held?.set(true);
-      yield () => {
-        held?.set(false);
+      const trigger = slots.inject("settings.trigger", () => slots.register({ name: "settings.trigger" }, TriggerContent));
+      return () => {
+        trigger();
         off();
       };
-      yield slots.inject("settings.trigger", () => slots.register({ name: "settings.trigger" }, TriggerContent));
     })
   ];
   if (carrier?.protocolVersion === 1) {
