@@ -13,6 +13,7 @@ async function fakeFeishu() {
   const calls = []
   const frames = []
   const replies = {}
+  const resources = {}
   const tokens = []
   let tokenValidUntil = 0
   let tokenReplyDelay = 0
@@ -58,7 +59,7 @@ async function fakeFeishu() {
       if (req.url.startsWith('/open-apis/im/v1/messages/') && req.url.includes('/resources/')) {
         if (failResources || !authorized(req)) { res.writeHead(401); res.end(); return }
         res.writeHead(200, { 'content-type': 'application/octet-stream' })
-        res.end(imageBytes)
+        res.end(resources[req.url] ?? imageBytes)
         return
       }
       if (req.url.startsWith('/open-apis/im/v1/messages')) {
@@ -82,7 +83,7 @@ async function fakeFeishu() {
   await new Promise(resolve => http.listen(0, '127.0.0.1', resolve))
   return {
     api: `http://127.0.0.1:${http.address().port}`,
-    calls, replies, frames, tokens, imageBytes,
+    calls, replies, resources, frames, tokens, imageBytes,
     sockets: wss.sockets,
     failDownloads: () => { failResources = true },
     slowTokens: (ms) => { tokenReplyDelay = ms },
@@ -182,6 +183,46 @@ test('a ping gets a pong, a p2p is direct, a group counts only with a mention, d
   assert.equal(messages[2].mentioned, false)
   // Each data frame was ACKed back with the {"code":200} payload.
   await until(() => fake.frames.filter(({ frame }) => frame.method === 1 && frame.headers.some(h => h.key === 'biz_rt')).length === 3)
+})
+
+for (const [mediaType, bytes] of [
+  ['image/png', Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])],
+  ['image/jpeg', Buffer.from([0xff, 0xd8, 0xff, 0xe0])],
+  ['image/gif', Buffer.from('GIF89a')],
+  ['image/webp', Buffer.from('RIFF\x04\x00\x00\x00WEBP')],
+]) {
+  test(`an inbound ${mediaType} keeps its bytes and declares their format`, async (t) => {
+    const fake = await fakeFeishu()
+    const messages = []
+    fake.resources['/open-apis/im/v1/messages/om_image/resources/img_1?type=image'] = bytes
+    const handle = feishu.connect(FIELDS, env(fake), { onMessage: async msg => { messages.push(msg) }, onAction() {}, onStatus() {} })
+    t.after(() => { handle.stop(); fake.close() })
+    const ws = await until(() => fake.sockets[0])
+    fake.push(ws, fake.dataFrame('event', message({
+      chat_type: 'p2p', chat_id: 'oc_1', message_id: 'om_image',
+      message_type: 'image', content: JSON.stringify({ image_key: 'img_1' }),
+    })))
+    await until(() => messages.length === 1)
+    assert.deepEqual(messages[0].images, [{ mediaType, data: bytes.toString('base64') }])
+  })
+}
+
+test('an unrecognized image is diagnosed instead of being declared as PNG', async (t) => {
+  const fake = await fakeFeishu()
+  const messages = []
+  const warnings = []
+  fake.resources['/open-apis/im/v1/messages/om_image/resources/img_1?type=image'] = Buffer.from('not an image')
+  const environment = { ...env(fake), log: { warn: (...args) => warnings.push(args.join(' ')) } }
+  const handle = feishu.connect(FIELDS, environment, { onMessage: async msg => { messages.push(msg) }, onAction() {}, onStatus() {} })
+  t.after(() => { handle.stop(); fake.close() })
+  const ws = await until(() => fake.sockets[0])
+  fake.push(ws, fake.dataFrame('event', message({
+    chat_type: 'p2p', chat_id: 'oc_1', message_id: 'om_image',
+    message_type: 'image', content: JSON.stringify({ image_key: 'img_1' }),
+  })))
+  await until(() => warnings.length > 0 || messages.length > 0)
+  assert.equal(messages.length, 0)
+  assert.match(warnings.join('\n'), /unsupported image format/i)
 })
 
 test('a card action reports the button data', async (t) => {
