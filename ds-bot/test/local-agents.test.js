@@ -1512,3 +1512,28 @@ test('offloaded or unreadable images degrade cleanly without calling readImage o
   assert.equal(reads, 1)
   assert.doesNotMatch(out.text, /images=/)
 })
+
+test('replay drops images outside the replay window without reading their attachments', async (t) => {
+  const readIds = []
+  const pngBytes = Buffer.from([137, 80, 78, 71, 1, 2, 3])
+  const oldRef = { attachmentId: 'att-too-old', mediaType: 'image/png', bytes: pngBytes.length, width: 1, height: 1 }
+  const recentRef = { attachmentId: 'att-recent', mediaType: 'image/png', bytes: pngBytes.length, width: 1, height: 1 }
+  const adapter = makeAdapter({
+    attachments: {
+      async readImage(ref) {
+        readIds.push(ref.attachmentId)
+        return { ref, data: pngBytes }
+      },
+    },
+  })
+  t.after(() => adapter.dispose())
+
+  const msgs = [
+    imageMsg('m0', 'ancient image', oldRef),
+    ...Array.from({ length: 13 }, (_, i) => user(`m${i + 1}`, `turn ${i + 1}`)),
+    imageMsg('m14', 'latest image', recentRef),
+  ]
+  const out = await collect(adapter.stream(options('s1', msgs, { provider: 'local-codex-cli', model: 'gpt-5.1-codex' })))
+  assert.equal(out.finish?.kind, 'stop')
+  assert.deepEqual(readIds, ['att-recent'])
+})

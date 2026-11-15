@@ -1019,12 +1019,12 @@ async function renderReplay(messages, system, resolveImage) {
     const whole = message === latest || message.source?.handoff === true
     const text = textOf(message.content)
     const prefix = `${message.role === 'assistant' ? 'You' : message.role === 'tool' ? `Tool result (${message.toolCallId ?? 'call'})` : 'User'}:`
-    const blocks = await blocksOfMessage(message, { maxText: whole ? Infinity : 2_000, resolveImage })
     const approxLen = prefix.length + 1 + (whole ? text.length : Math.min(text.length, 2_000))
     if (!whole) {
       full ||= picked.length >= REPLAY_MESSAGES || used + approxLen > REPLAY_BYTES
       if (full) continue
     }
+    const blocks = await blocksOfMessage(message, { maxText: whole ? Infinity : 2_000, resolveImage })
     const entry = blocks.length > 0 && blocks[0].type === 'text'
       ? [{ type: 'text', text: `${prefix} ${blocks[0].text}` }, ...blocks.slice(1)]
       : blocks.length > 0
