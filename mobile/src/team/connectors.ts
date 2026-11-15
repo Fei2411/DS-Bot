@@ -47,6 +47,13 @@ export function connectorActionOf(row: ConnectorRow): ConnectorConnectAction {
 }
 
 /**
+ * Whether the mobile Connectors screen can set up this connector ID directly.
+ * Mailbox ('mail') setup lives on the computer because it configures IMAP/SMTP
+ * or desktop localhost Google OAuth outside the connector catalog rows.
+ */
+export const connectorCanConnectOnMobile = (connectorId: string): boolean => connectorId !== 'mail'
+
+/**
  * The connector rows out of whatever `state.connectors` holds. The screen draws them with
  * `.map`; an object there ends the app, since a release build has nothing to catch the
  * TypeError. A bare list is read too, for a computer that sends one.

@@ -308,7 +308,7 @@ export function Connectors({ navigation, route }: any) {
   useEffect(() => {
     if (focusId === null || focusedRef.current === focusId || focused === undefined) return
     focusedRef.current = focusId
-    if (focused.state === 'off') {
+    if (focused.state === 'off' || focused.state === 'needs-sign-in') {
       const action = connectorActionOf(focused)
       if (action === 'key-form' || action === 'token-form') {
         setToken('')
@@ -367,7 +367,7 @@ export function Connectors({ navigation, route }: any) {
                   {hasPending || showingForm ? null
                     : item.state === 'needs-sign-in' ? (
                       <View style={{ flexDirection: 'row', gap: 12, alignItems: 'center' }}>
-                        <Pressable disabled={disabled} onPress={() => void run(item.id, call('connector-connect', { id: item.id }), view => openPending(pendingFromView(view, item.id)))}>
+                        <Pressable disabled={disabled} onPress={() => connect(item)}>
                           <Text style={{ color: p.accent }}>{t('Sign in again')}</Text>
                         </Pressable>
                         <Pressable disabled={disabled} onPress={() => void run(item.id, call('connector-disconnect', { id: item.id }))}>

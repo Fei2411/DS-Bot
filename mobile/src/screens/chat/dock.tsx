@@ -6,6 +6,7 @@ import { ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View, Pre
 import Animated, { useReducedMotion, useAnimatedStyle, withRepeat, withTiming, withSpring, useSharedValue, withSequence } from 'react-native-reanimated'
 import { useEffect } from 'react'
 import type { Approval, ConnectorRequest, Question, ShownView } from '../../connection.ts'
+import { connectorCanConnectOnMobile } from '../../team/connectors.ts'
 import { t } from '../../ui/i18n.ts'
 import { radius, shadow, SPRING_TAP, type as typeScale, type Palette } from '../../ui/tokens.ts'
 import { Avatar } from '../../ui/marks.tsx'
@@ -215,6 +216,8 @@ export function ConnectorRequestCard({ request, onConnect, call, p, bare = false
 }) {
   const [busy, setBusy] = useState(false)
   const [failed, setFailed] = useState(false)
+  const mobileSupported = connectorCanConnectOnMobile(request.connectorId)
+  const canConnect = mobileSupported && onConnect !== undefined
   const dismiss = async () => {
     if (busy) return
     setBusy(true)
@@ -227,13 +230,16 @@ export function ConnectorRequestCard({ request, onConnect, call, p, bare = false
     <View style={bare ? undefined : [styles.card, { backgroundColor: p.card, borderColor: p.line }]}>
       {bare ? null : <Text style={[type.settingsRow, { color: p.ink, fontWeight: '600' }]}>{t('{bot} needs {name}', { bot: t('the Bot'), name: request.name || request.connectorId })}</Text>}
       {request.purpose ? <Text style={[type.small, { color: p.ink2, marginTop: bare ? 0 : 4 }]}>{request.purpose}</Text> : null}
+      {!canConnect ? <Text style={[type.small, { color: p.ink2, marginTop: 8 }]}>{mobileSupported ? t('Answer on the computer.') : t('Set up your mailbox on the computer.')}</Text> : null}
       <View style={styles.answerRow}>
         <Pressable accessibilityRole="button" disabled={busy} onPress={() => void dismiss()} style={[styles.choice, { backgroundColor: p.hover, opacity: busy ? 0.35 : 1 }]}>
           <Text style={{ color: p.ink, fontSize: 14 }}>{t('Dismiss')}</Text>
         </Pressable>
-        <Pressable accessibilityRole="button" disabled={busy} onPress={() => onConnect?.(request.connectorId)} style={[styles.choice, { backgroundColor: p.accent, opacity: busy ? 0.35 : 1 }]}>
-          <Text style={{ color: p.accentInk, fontSize: 14, fontWeight: '600' }}>{t('Connect')}</Text>
-        </Pressable>
+        {canConnect ? (
+          <Pressable accessibilityRole="button" disabled={busy} onPress={() => onConnect(request.connectorId)} style={[styles.choice, { backgroundColor: p.accent, opacity: busy ? 0.35 : 1 }]}>
+            <Text style={{ color: p.accentInk, fontSize: 14, fontWeight: '600' }}>{t('Connect')}</Text>
+          </Pressable>
+        ) : null}
       </View>
       {failed ? <Text style={[type.small, { color: p.danger, marginTop: 8 }]}>{t('This approval is no longer open.')}</Text> : null}
     </View>
