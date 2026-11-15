@@ -39,6 +39,12 @@ export function defaultBrowserHeadless(platform, env = process.env) {
   return platform === 'linux' && !env.DISPLAY && !env.WAYLAND_DISPLAY
 }
 
+function optionalNumber(config, key) {
+  const value = config[key]
+  if (value !== undefined && (typeof value !== 'number' || !Number.isFinite(value) || value <= 0)) throw new TypeError(`${key} must be a positive number`)
+  return value
+}
+
 function optionalString(config, key) {
   const value = config[key]
   if (value !== undefined && typeof value !== 'string') throw new TypeError(`${key} must be a string`)
@@ -58,10 +64,12 @@ function grantAllows(bot, action) {
 }
 
 // A handoff card answers into the Bot's own chat. A group turn has no card, so its
-// hold keeps no call and the browser panel clears it without telling the Bot.
+// hold keeps no call and the browser panel clears it without telling the Bot. The part
+// that raised it is kept too, so the answer comes back to that thread, not to the
+// foreground chat the user happens to be reading.
 export function handoffHold(rt, botId, { sessionId, callId, ...hold }) {
   const own = sessionId !== undefined && rt.chatOwners.get(sessionId) === botId
-  return own && callId !== undefined ? { ...hold, callId } : hold
+  return own && callId !== undefined ? { ...hold, callId, sessionId } : hold
 }
 
 async function authorizeBrowserAction(rt, exec, botId, action) {
@@ -119,6 +127,7 @@ export function install(rt) {
   if (!plugin) throw new Error(`Unknown browser plugin "${name}". Choose ${NAMES.join(', ')}.`)
   const playwrightUrl = optionalString(rt.config, 'playwrightUrl')
   const executablePath = optionalString(rt.config, 'browserExecutablePath')
+  const downloadGraceMs = optionalNumber(rt.config, 'browserDownloadGraceMs')
   const headless = typeof rt.config.browserHeadless === 'boolean'
     ? rt.config.browserHeadless
     : defaultBrowserHeadless(process.platform)
@@ -147,6 +156,7 @@ export function install(rt) {
     headless,
     playwrightUrl,
     executablePath,
+    downloadGraceMs,
     connect: process.env.DS_BOT_APP === '1' && typeof process.send === 'function' ? appBrowserEndpoint : undefined,
     getHold: botId => rt.browserChannel?.holdOf(botId) ?? null,
     onHold: (botId, hold) => rt.browserChannel?.setHold(botId, hold && handoffHold(rt, botId, hold)),
