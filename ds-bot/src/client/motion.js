@@ -1,6 +1,11 @@
 import { createElement as h, useEffect, useLayoutEffect, useRef, useState } from 'react'
 
-export const reducedMotion = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true
+export const effectsTier = () => {
+  const tier = typeof document === 'undefined' ? undefined : (document.body?.dataset?.btEffects || document.documentElement?.dataset?.btEffects)
+  return tier === 'reduced' || tier === 'off' ? tier : 'full'
+}
+export const reducedMotion = () => effectsTier() === 'off' || (typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true)
+export const reducedEffects = () => effectsTier() !== 'full' || (typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true)
 // Touch devices never hover: controls revealed on hover need a tap path instead.
 export const noHover = () => window.matchMedia?.('(hover: none)').matches === true
 
@@ -200,7 +205,8 @@ export function useFlip(list, key, selector, id = node => node.dataset.flip) {
       if (!moving) continue
       const before = tops.current.get(name)
       if (before === undefined) {
-        node.animate([{ opacity: 0, filter: 'blur(4px)' }, { opacity: 1, filter: 'blur(0)' }], { duration: 180, easing: 'ease-out' })
+        const noBlur = reducedEffects()
+        node.animate([noBlur ? { opacity: 0 } : { opacity: 0, filter: 'blur(4px)' }, noBlur ? { opacity: 1 } : { opacity: 1, filter: 'blur(0)' }], { duration: 180, easing: 'ease-out' })
       } else if (Math.abs(before - top) > 0.5) {
         node.animate([{ transform: `translateY(${before - top}px)` }, { transform: 'none' }], { duration: SPRING_LIST.duration, easing: SPRING_LIST.easing })
       }
@@ -235,7 +241,7 @@ export function useMorph(box, key) {
     for (const animation of running) animation.cancel()
     const to = node.offsetHeight
     Object.assign(state, { key, height: to })
-    if (from === null || Math.abs(from - to) < 1 || reducedMotion()) return
+    if (from === null || Math.abs(from - to) < 1 || reducedEffects()) return
     node.dataset.morph = ''
     const animation = node.animate([{ height: `${from}px` }, { height: `${to}px` }], { duration: SPRING_SHAPE.duration, easing: SPRING_SHAPE.easing, id: 'bt-morph' })
     animation.onfinish = () => { delete node.dataset.morph }

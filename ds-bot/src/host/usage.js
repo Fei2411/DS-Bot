@@ -649,5 +649,7 @@ export function install(rt) {
     })()
   })
 
-  Object.assign(rt, { usageView, tagUsage, carryUsageTag, ownRequest })
+  // A request DS Bot makes of a local agent CLI outside the model stream.
+  const recordUsage = entry => record(entry)
+  Object.assign(rt, { usageView, tagUsage, carryUsageTag, ownRequest, recordUsage })
 }

@@ -204,7 +204,8 @@ function showCard(card) {
     delete layer.dataset.open
     layer.dataset.leaving = ''
     layer.inert = true
-    setTimeout(() => { layer.remove() }, 220)
+    const off = document.body?.dataset.btEffects === 'off' || document.documentElement?.dataset.effects === 'off'
+    setTimeout(() => { layer.remove() }, off ? 0 : 220)
     if (before instanceof HTMLElement && before.isConnected) before.focus({ preventScroll: true })
   }
   document.addEventListener('keydown', keys, true)
@@ -500,7 +501,8 @@ function showPicker(request) {
     delete layer.dataset.open
     layer.dataset.leaving = ''
     layer.inert = true
-    setTimeout(() => { layer.remove() }, 220)
+    const off = document.body?.dataset.btEffects === 'off' || document.documentElement?.dataset.effects === 'off'
+    setTimeout(() => { layer.remove() }, off ? 0 : 220)
     if (before instanceof HTMLElement && before.isConnected) before.focus({ preventScroll: true })
   }
   const quit = () => { close(true) }
@@ -557,10 +559,11 @@ function reportLook() {
   const report = () => {
     send('ds-bot:native-theme', root.getAttribute('data-ds-theme-source'))
     send('ds-bot:motion', document.body?.getAttribute('data-bt-motion') ?? null)
+    send('ds-bot:effects', document.body?.getAttribute('data-bt-effects') ?? null)
   }
   const observer = new MutationObserver(report)
   observer.observe(root, { attributeFilter: ['data-ds-theme-source'] })
-  if (document.body !== null) observer.observe(document.body, { attributeFilter: ['data-bt-motion'] })
+  if (document.body !== null) observer.observe(document.body, { attributeFilter: ['data-bt-motion', 'data-bt-effects'] })
   report()
 }
 
