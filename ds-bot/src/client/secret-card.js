@@ -282,12 +282,77 @@ function AddSecret({ actions, run, onDone }) {
       h('button', { type: 'button', className: 'bt-send bt-soft-sm', disabled: !ready, onClick: save }, t('Save key'))))
 }
 
+// The optional encryption card at the top of Settings → Secrets. Off is the default
+// and keeps today's file; on rewrites the same secrets.json as a passphrase-locked
+// envelope. A start without a passphrase shows the locked state here, with the way to
+// unlock it and the environment source for unattended runs.
+function SecretStoreCard({ store, actions, run, Section }) {
+  const mode = store?.mode ?? 'plaintext'
+  const locked = store?.locked === true
+  const [passphrase, setPassphrase] = useState('')
+  const [confirm, setConfirm] = useState('')
+  const [form, setForm] = useState(null)
+  const [busy, setBusy] = useState(false)
+  const reset = () => { setPassphrase(''); setConfirm(''); setForm(null) }
+  const submit = action => {
+    if (busy || passphrase.length < 8) return
+    setBusy(true)
+    void run(action(passphrase)).then(ok => { if (ok) reset() }).finally(() => setBusy(false))
+  }
+  const field = (label, value, onChange, autoFocus) => h('label', { className: 'bt-q-field bt-secret-field' },
+    h(MaskedInput, { value, onChange, label, autoFocus }))
+  const row = children => h('div', { className: 'bt-secret-row-actions' }, children)
+  const hint = key => h('div', { className: 'bt-set-row' }, h('span', { className: 'bt-set-hint' }, t(key)))
+  if (locked) {
+    const reason = store?.reason
+    const why = reason === 'passphrase-source'
+      ? t('The passphrase file named by DS_BOT_SECRETS_PASSPHRASE_FILE could not be read.')
+      : reason === 'wrong-passphrase'
+        ? t('The passphrase in the environment or the passphrase file did not unlock the secrets.')
+        : t('No passphrase was found at startup. Enter it here, or set DS_BOT_SECRETS_PASSPHRASE_FILE for unattended starts.')
+    return h(Section, { title: t('Encryption at rest') },
+      h('div', { className: 'bt-set-row bt-bs-stack' },
+        h('span', { className: 'bt-set-copy' },
+          h('span', { className: 'bt-bs-label' }, t('Secrets are locked')),
+          h('span', { className: 'bt-set-hint' }, why)),
+        field(t('Passphrase'), passphrase, setPassphrase, true),
+        row(h('button', { type: 'button', className: 'bt-send bt-soft-sm', disabled: busy || passphrase.length < 8, onClick: () => submit(actions.secretUnlock) }, t('Unlock')))))
+  }
+  if (mode === 'encrypted') {
+    return h(Section, { title: t('Encryption at rest') },
+      hint('Keys are stored encrypted. They stay decrypted in memory while DS Bot runs.'),
+      form === 'decrypt'
+        ? h('div', { className: 'bt-set-row bt-bs-stack' },
+          field(t('Passphrase'), passphrase, setPassphrase, true),
+          row([
+            h('button', { key: 'cancel', type: 'button', className: 'bt-soft bt-soft-sm', onClick: reset }, t('Cancel')),
+            h('button', { key: 'off', type: 'button', className: 'bt-soft bt-soft-sm', disabled: busy || passphrase.length < 8, onClick: () => submit(actions.secretDecrypt) }, t('Turn off encryption')),
+          ]))
+        : h('div', { className: 'bt-actions' },
+          h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => { setForm('decrypt'); setPassphrase('') } }, t('Turn off encryption'))))
+  }
+  return h(Section, { title: t('Encryption at rest') },
+    hint('Keys are stored in a file only this user can read, but the values are not encrypted.'),
+    form === 'encrypt'
+      ? h('div', { className: 'bt-set-row bt-bs-stack' },
+        field(t('Passphrase (at least 8 characters)'), passphrase, setPassphrase, true),
+        field(t('Repeat the passphrase'), confirm, setConfirm),
+        confirm !== '' && confirm !== passphrase ? h('div', { className: 'bt-set-hint' }, t('The passphrases do not match.')) : null,
+        row([
+          h('button', { key: 'cancel', type: 'button', className: 'bt-soft bt-soft-sm', onClick: reset }, t('Cancel')),
+          h('button', { key: 'on', type: 'button', className: 'bt-send bt-soft-sm', disabled: busy || passphrase.length < 8 || passphrase !== confirm, onClick: () => submit(actions.secretEncrypt) }, t('Turn on encryption')),
+        ]))
+      : h('div', { className: 'bt-actions' },
+        h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => setForm('encrypt') }, t('Encrypt keys at rest'))))
+}
+
 export function SecretsPage({ roster, actions, run, Section }) {
   const [open, setOpen] = useState(null)
   const [adding, setAdding] = useState(false)
   const secrets = roster.secrets ?? []
   const addBtn = adding ? null : h('button', { type: 'button', className: 'bt-soft bt-soft-sm bt-with-icon', onClick: () => setAdding(true) }, h(PlusIcon), t('Add a key'))
   return [
+    h(SecretStoreCard, { key: 'store', store: roster.secretStore, actions, run, Section }),
     h('p', { key: 'about', className: 'bt-secret-about' },
       t('Keys your Bots asked for. Bots never see the values: they use them as '), h('code', null, '$DSH_SECRET_NAME'),
       t(' in their shell, and every value is replaced by '), h('code', null, '[secret:NAME]'), t(' before anything goes to a model.')),

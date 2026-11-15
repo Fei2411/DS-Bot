@@ -167,3 +167,19 @@ test('the surface wins over the host bubble rule that reads the skin variable', 
   assert.equal(surface(body), 'var(--bt-user)!important')
   assert.equal(declared(body, 'color'), 'var(--bt-user-ink)!important')
 })
+
+// The wallpaper engine's glass (body[data-we-glass-page][data-we-thinking-glass]
+// [class*="_bubble"]) sets only background-color, with !important and a higher
+// specificity than the rule above. The text kept the user ink on a surface that was
+// now glass: 1.0:1 in dark mode, 1.4:1 in light mode. The user surface is also an
+// opaque image layer, which no background-color can replace.
+test('a skin that repaints only the bubble background-color leaves the user surface under the text', () => {
+  const { body } = ruleFor('[class*="_userRow"] [class*="_bubble"]')
+  assert.equal(declared(body, 'background-image'), 'linear-gradient(var(--bt-user),var(--bt-user))!important')
+  for (const [id, theme] of Object.entries(allThemes())) {
+    for (const dark of [false, true]) {
+      const vars = themeVars(theme, dark)
+      assert.equal(parse(vars['--bt-user']).alpha, 1, `${id} ${dark ? 'dark' : 'light'}: the user surface must be opaque`)
+    }
+  }
+})
