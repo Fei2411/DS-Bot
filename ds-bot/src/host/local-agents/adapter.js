@@ -500,7 +500,8 @@ export class LocalAgentAdapter extends LlmAdapter {
       // prompt as whatever else this call brought — runtime context, a further user
       // message — because context alone would carry the turn without the decision.
       const text = [settledText, promptText].filter(part => part !== '').join('\n\n')
-      live.events.length = 0
+      this.discardTurnOutput(live)
+      if (sentInstructions) live.promptHash = promptHash
       promptText = ''
       await this.startTurn(live, text, options.signal, options.reasoningEffort)
     } else if (settledText !== '') {
@@ -569,38 +570,43 @@ export class LocalAgentAdapter extends LlmAdapter {
       // without a turn at all. Start a turn of its own instead, without the events
       // the finished turn left behind: they would answer this one with the old reply.
       if (live.engine.canSteer?.(live.engineSession) === false) {
-        live.events.length = 0
+        this.discardTurnOutput(live)
         live.continuation = undefined
         return this.startTurn(live, body, signal, effort)
       }
       // The turn's id has to be known before the stream reads the CLI, or the finished
       // turn's own `done` would be read as this turn's end.
       const recover = () => {
-        live.events.length = 0
+        this.discardTurnOutput(live)
         live.continuation = undefined
         return this.startTurn(live, body, signal, effort)
       }
       try {
         return Promise.resolve(live.engine.steer?.(live.engineSession, text)).then(() => {}, recover)
       } catch {
-        recover()
-        return Promise.resolve()
+        return recover()
       }
     }
     this.startTurn(live, text, signal, effort)
     return Promise.resolve()
   }
 
-  // A prompt of its own: the CLI begins a turn that answers this text.
+  discardTurnOutput(live) {
+    // Requests retain their reply callbacks until surfaced and answered.
+    live.events = live.events.filter(event => event.type === 'permission' || event.type === 'call')
+  }
+
+  // Codex resolves on acceptance; ACP resolves only when the entire turn ends.
   startTurn(live, text, signal, effort) {
     live.state = 'running'
     // The turn an engine names is the one this stream reads: a finished turn's late
     // events carry another id and are dropped instead of answering this one (#1513).
     live.turnTag = undefined
     try {
-      return Promise.resolve(live.engine.prompt(live.engineSession, [{ type: 'text', text }], { signal, effort }))
-        .then((turnId) => { if (turnId !== undefined) live.turnTag = turnId })
+      const started = Promise.resolve(live.engine.prompt(live.engineSession, [{ type: 'text', text }], { signal, effort }))
+        .then((turnId) => { if (live.spec.kind === 'codex' && turnId !== undefined) live.turnTag = turnId })
         .catch(error => live.push({ type: 'error', error }))
+      return live.spec.kind === 'acp' ? Promise.resolve() : started
     } catch (error) {
       live.push({ type: 'error', error })
       return Promise.resolve()
@@ -655,8 +661,8 @@ export class LocalAgentAdapter extends LlmAdapter {
         return
       }
       // A finished turn's leftovers must not answer the turn this stream reads.
-    if (event.turnId !== undefined && live.turnTag !== undefined && event.turnId !== live.turnTag) continue
-    switch (event.type) {
+      if (event.type !== 'permission' && event.type !== 'call' && event.turnId !== undefined && live.turnTag !== undefined && event.turnId !== live.turnTag) continue
+      switch (event.type) {
         case 'text': {
           if (textIndex === -1) {
             if (thinkIndex !== -1) { yield { type: 'block-end', index: thinkIndex, block: { type: 'reasoning', text: thinkBuf } }; thinkIndex = -1; thinkBuf = '' }
@@ -711,7 +717,7 @@ export class LocalAgentAdapter extends LlmAdapter {
           if (live.continuation !== undefined && index === 0) {
             const continuation = live.continuation
             live.continuation = undefined
-            live.events.length = 0
+            this.discardTurnOutput(live)
             await this.startTurn(live, continuation, options.signal, options.reasoningEffort)
             break
           }

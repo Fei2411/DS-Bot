@@ -214,12 +214,17 @@ export class AcpEngine {
 
   async prompt(session, blocks, { signal }) {
     const peer = await this.ensure()
+    session.running = true
     const reply = peer.request('session/prompt', { sessionId: session.acpSessionId, prompt: blocks }, { signal, timeout: 0 })
     reply.then(
-      result => session.push({ type: 'done', reason: result?.stopReason ?? 'end_turn', ...(usageOf(result?.usage) ? { usage: usageOf(result.usage) } : {}) }),
-      error => session.push({ type: 'error', error }),
+      result => { session.running = false; session.push({ type: 'done', reason: result?.stopReason ?? 'end_turn', ...(usageOf(result?.usage) ? { usage: usageOf(result.usage) } : {}) }) },
+      error => { session.running = false; session.push({ type: 'error', error }) },
     )
     return reply
+  }
+
+  canSteer(session) {
+    return session.running === true
   }
 
   // The agent's own compaction, through the command it lists for it. False when it

@@ -66,6 +66,12 @@ async function elicitTurn(thread, turnId, text) {
 function runTurn(thread, turnId, text, effort) {
   if (/elicit \S+ \S+/.test(text)) return void elicitTurn(thread, turnId, text)
   // An approval request whose turn stays alive: an answer has to steer this turn.
+  if (text.includes('late-double')) {
+    for (let i = 0; i < 2; i++) void ask('item/commandExecution/requestApproval', { threadId: thread.id, turnId, reason: `Action ${i}`, availableDecisions: ['accept', 'decline'] })
+    thread.turn = undefined
+    notice('turn/completed', { threadId: thread.id, turn: { id: turnId, status: 'completed' } })
+    return
+  }
   if (text.includes('hold-ask')) {
     void ask('item/commandExecution/requestApproval', { threadId: thread.id, turnId, reason: 'hold approval', availableDecisions: ['accept', 'decline'] })
     return

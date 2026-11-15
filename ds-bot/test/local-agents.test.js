@@ -1037,3 +1037,46 @@ test('codex app-server: a steer names the turn it steers, and a finished turn ca
   assert.equal(engine.canSteer(thread), false, 'turn/completed cleared the live turn')
   await assert.rejects(() => engine.steer(thread, 'too late'), /already ended/)
 })
+
+
+test('Codex completion in the same JSON-RPC batch cannot resurrect a live turn', async () => {
+  const engine = new CodexEngine('local-codex-cli', {}, { findExecutable: value => value })
+  const thread = engine.threadFor('s1')
+  thread.threadId = 'thread'
+  const peer = new JsonRpcPeer(message => {
+    peer.handleLine(JSON.stringify({ jsonrpc: '2.0', id: message.id, result: { turn: { id: 'completed' } } }))
+    peer.handleLine(JSON.stringify({ jsonrpc: '2.0', method: 'turn/completed', params: { threadId: 'thread', turn: { id: 'completed', status: 'completed' } } }))
+  })
+  peer.notificationHandler = (method, params) => engine.onNotice(method, params)
+  engine.ensure = async () => peer
+  assert.equal(await engine.prompt(thread, [{ type: 'text', text: 'go' }], {}), 'completed')
+  assert.equal(engine.canSteer(thread), false)
+})
+
+test('a late ACP decision discards old output and drains a continuation that asks again', { timeout: 5000 }, async (t) => {
+  const adapter = makeAdapter()
+  t.after(() => adapter.dispose())
+  const messages = [user('m1', 'late-permission')]
+  const first = await collect(adapter.stream(options('s1', messages)))
+  await new Promise(resolve => setTimeout(resolve, 50))
+  messages.push(toolResult('m2', first.calls[0].id, '{"decision":"allow"}'))
+  const second = await collect(adapter.stream(options('s1', messages)))
+  assert.equal(second.finish.kind, 'tool-calls')
+  assert.equal(second.calls[0].name, 'approve_agent_action')
+  assert.doesNotMatch(second.text, /old output/)
+  messages.push(toolResult('m3', second.calls[0].id, '{"decision":"allow"}'))
+  const third = await collect(adapter.stream(options('s1', messages)))
+  assert.match(third.text, /allowed via allow-once/)
+})
+
+test('replacing a completed Codex turn retains another queued approval', { timeout: 5000 }, async (t) => {
+  const adapter = makeAdapter()
+  t.after(() => adapter.dispose())
+  const messages = [user('m1', 'late-double')]
+  const first = await collect(adapter.stream(options('s1', messages, { provider: 'local-codex-cli' })))
+  await new Promise(resolve => setTimeout(resolve, 50))
+  messages.push(toolResult('m2', first.calls[0].id, '{"decision":"allow"}'))
+  const second = await collect(adapter.stream(options('s1', messages, { provider: 'local-codex-cli' })))
+  assert.equal(second.calls[0].name, 'approve_agent_action')
+  assert.notEqual(second.calls[0].id, first.calls[0].id)
+})
