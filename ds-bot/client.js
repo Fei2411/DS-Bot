@@ -950,6 +950,7 @@ var JA = {
   "Cache hit {hit}%": "キャッシュヒット {hit}%",
   "Context {percent}%": "コンテキスト {percent}%",
   "{used} of {total} tokens of context in use": "コンテキスト使用量: {used} / {total} トークン",
+  "Annotate": "注釈",
   "Annotate quote": "引用に注釈",
   "Annotation": "注釈",
   "Add an annotation…": "注釈を入力…",
@@ -3369,11 +3370,12 @@ var KO = {
   "Context {percent}%": "컨텍스트 {percent}%",
   "{used} of {total} tokens of context in use": "컨텍스트 {total} 토큰 중 {used} 사용 중",
   // Transcript
+  Annotate: "주석 달기",
   "Annotate quote": "인용 주석",
   Annotation: "주석",
   "Add an annotation…": "주석을 입력하세요…",
   "Add quote and annotation to the composer · Enter": "인용과 주석을 입력창에 추가 · Enter",
-  "Send quote and annotation · Ctrl+Enter": "인용과 주석 볂기 · Ctrl+Enter",
+  "Send quote and annotation · Ctrl+Enter": "인용과 주석 보내기 · Ctrl+Enter",
   "Quote text": "텍스트 인용",
   Footnotes: "각주",
   "Remove reaction {emoji}": "{emoji} 반응 제거",
@@ -5804,6 +5806,7 @@ var ES = {
   "Context {percent}%": "Contexto {percent}%",
   "{used} of {total} tokens of context in use": "{used} de {total} tokens de contexto en uso",
   // Transcript
+  Annotate: "Anotar",
   "Annotate quote": "Anotar cita",
   Annotation: "Anotación",
   "Add an annotation…": "Añade una anotación…",
@@ -8210,6 +8213,7 @@ var FR = {
   "Cache hit {hit}%": "Cache {hit} %",
   "Context {percent}%": "Contexte {percent} %",
   "{used} of {total} tokens of context in use": "{used} sur {total} jetons de contexte utilisés",
+  "Annotate": "Annoter",
   "Annotate quote": "Annoter la citation",
   "Annotation": "Annotation",
   "Add an annotation…": "Ajouter une annotation…",
@@ -10629,6 +10633,7 @@ var DE = {
   "Context {percent}%": "Kontext {percent}%",
   "{used} of {total} tokens of context in use": "{used} von {total} Kontext-Tokens belegt",
   // Transcript
+  Annotate: "Kommentieren",
   "Annotate quote": "Zitat kommentieren",
   Annotation: "Anmerkung",
   "Add an annotation…": "Anmerkung hinzufügen…",
@@ -13059,6 +13064,7 @@ var ZH = {
   "Context {percent}%": "上下文 {percent}%",
   "{used} of {total} tokens of context in use": "上下文已用 {used} / {total} tokens",
   // Transcript
+  Annotate: "批注",
   "Annotate quote": "批注引用",
   Annotation: "批注",
   "Add an annotation…": "写下批注…",
@@ -44395,6 +44401,8 @@ function insertAnnotation(inputActions, text, annotation) {
 function TextSelectionAction({ sessionId, dismiss, readText, clearSelection, inputActions, useSession, useRoster, actions, t: hostT }) {
   const enabled = useSession((state) => !state.removed && (state.subagent === null || state.subagent.address.mode === "continuable" && state.subagent.parentAvailable === true));
   const team = useRoster((state) => state.byId[sessionId] !== void 0 || state.roomsById[sessionId] !== void 0);
+  const [editing, setEditing] = (0, import_react73.useState)(false);
+  const [excerpt, setExcerpt] = (0, import_react73.useState)(null);
   const [annotation, setAnnotation] = (0, import_react73.useState)("");
   const [sending, setSending] = (0, import_react73.useState)(false);
   const [closing, setClosing] = (0, import_react73.useState)(false);
@@ -44405,8 +44413,10 @@ function TextSelectionAction({ sessionId, dismiss, readText, clearSelection, inp
     if (!enabled) dismiss();
   }, [enabled, dismiss]);
   (0, import_react73.useEffect)(() => {
-    if (team && enabled) field.current?.focus();
-  }, [team, enabled]);
+    if (!team || !enabled || !editing) return;
+    field.current?.focus();
+    if (typeof window !== "undefined") window.dispatchEvent(new Event("resize"));
+  }, [team, enabled, editing]);
   (0, import_react73.useEffect)(() => () => clearTimeout(closeTimer.current), []);
   if (!enabled) return null;
   const close = () => {
@@ -44419,8 +44429,26 @@ function TextSelectionAction({ sessionId, dismiss, readText, clearSelection, inp
     clearSelection();
     dismiss();
   };
-  const add = () => {
+  const quoteText = () => excerpt ?? readText();
+  const quoteOnly = () => {
     const text = readText();
+    if (text === null) {
+      dismiss();
+      return;
+    }
+    if (inputActions.insertQuote(text)) closeNative();
+  };
+  const startAnnotate = () => {
+    const text = readText();
+    if (text === null) {
+      dismiss();
+      return;
+    }
+    setExcerpt(text);
+    setEditing(true);
+  };
+  const add = () => {
+    const text = quoteText();
     if (text === null) {
       close();
       return;
@@ -44429,7 +44457,7 @@ function TextSelectionAction({ sessionId, dismiss, readText, clearSelection, inp
     if (insertAnnotation(inputActions, text, annotation)) close();
   };
   const send = async () => {
-    const text = readText();
+    const text = quoteText();
     if (text === null) {
       close();
       return;
@@ -44461,25 +44489,33 @@ function TextSelectionAction({ sessionId, dismiss, readText, clearSelection, inp
     if (action === "add") add();
     else void send();
   };
-  if (!team) return (0, import_react73.createElement)("button", {
+  const quoteButton = (0, import_react73.createElement)("button", {
     type: "button",
     className: "bt-quote-plain",
     "aria-label": hostT("quote.add"),
     onPointerDown: (event) => event.preventDefault(),
-    onClick: () => {
-      const text = readText();
-      if (text === null) {
-        dismiss();
-        return;
-      }
-      if (inputActions.insertQuote(text)) closeNative();
-    }
+    onClick: quoteOnly
   }, hostT("quote.add"));
+  if (!team) return quoteButton;
+  if (!editing) {
+    return (0, import_react73.createElement)(
+      "div",
+      { className: "bt-selection-actions" },
+      quoteButton,
+      (0, import_react73.createElement)("button", {
+        type: "button",
+        className: "bt-quote-plain bt-quote-annotate",
+        "aria-label": t("Annotate"),
+        onPointerDown: (event) => event.preventDefault(),
+        onClick: startAnnotate
+      }, t("Annotate"))
+    );
+  }
   return (0, import_react73.createElement)(
     "section",
     { className: "bt-annotation", "aria-label": t("Annotate quote"), "data-leaving": closing || void 0, onPointerDown: (event) => event.stopPropagation() },
     (0, import_react73.createElement)("label", { className: "bt-annotation-label", htmlFor: "bt-annotation-field" }, t("Annotation")),
-    (0, import_react73.createElement)("blockquote", { className: "bt-annotation-quote" }, readText()),
+    (0, import_react73.createElement)("blockquote", { className: "bt-annotation-quote" }, quoteText()),
     (0, import_react73.createElement)("textarea", {
       id: "bt-annotation-field",
       ref: field,
@@ -44500,9 +44536,10 @@ function TextSelectionAction({ sessionId, dismiss, readText, clearSelection, inp
   );
 }
 var ANNOTATION_CSS = `
+.bt-selection-actions{display:inline-flex;align-items:center;gap:6px}
 .bt-quote-plain{corner-shape:round;background:var(--dsw-alias-button-floating-fill,var(--bt-card));--dsw-elevation-stroke-color:var(--dsw-alias-border-l3);box-shadow:var(--dsw-elevation-panel,var(--bt-glass-shadow));color:var(--dsw-alias-label-primary,var(--bt-ink));font:var(--dsw-font-xs-13,13px var(--bt-font));cursor:pointer;border:none;border-radius:999px;padding:5px 10px}
 .bt-quote-plain:focus-visible,.bt-quote-plain:hover{background:var(--dsw-alias-button-floating-hover,var(--bt-hover))}
-.bt-annotation{display:flex;flex-direction:column;gap:8px;width:min(360px,calc(100vw - 32px));box-sizing:border-box;padding:12px;background:var(--bt-card);border:.5px solid var(--bt-line-2);border-radius:12px;box-shadow:var(--bt-glass-shadow);color:var(--bt-ink);font:13px/18px var(--bt-font);animation:bt-annotation-in ${SPRING_TAP.duration}ms ${SPRING_TAP.easing}}
+.bt-annotation{display:flex;flex-direction:column;gap:8px;width:min(360px,calc(100vw - 32px));box-sizing:border-box;padding:12px;background:var(--bt-card);border:.5px solid var(--bt-line-2);border-radius:12px;box-shadow:var(--bt-glass-shadow);color:var(--bt-ink);font:13px/18px var(--bt-font);animation:bt-annotation-in ${SPRING_TAP.duration}ms ${SPRING_TAP.easing},bt-annotation-veil .14s ease-out}
 .bt-annotation[data-leaving]{animation:bt-annotation-out .16s cubic-bezier(.22,1,.36,1) forwards;pointer-events:none}
 .bt-annotation-label{font:500 12px/16px var(--bt-font);color:var(--bt-ink-2)}
 .bt-annotation-quote{margin:0;padding:6px 10px;border-left:2px solid var(--bt-accent);border-radius:6px;background:var(--bt-tag-bg);color:var(--bt-ink-2);font:12px/16px var(--bt-font);white-space:pre-wrap;overflow-wrap:anywhere;max-height:96px;overflow:auto}
@@ -44515,7 +44552,8 @@ var ANNOTATION_CSS = `
 .bt-annotation-actions .bt-annotation-send{background:var(--bt-accent);border-color:var(--bt-accent);color:var(--bt-accent-ink)}
 .bt-annotation-actions .bt-annotation-send:hover{filter:brightness(1.06)}
 .bt-annotation-actions button:disabled{opacity:.55;cursor:default}
-@keyframes bt-annotation-in{from{opacity:0;transform:translateY(3px) scale(.98)}to{opacity:1;transform:none}}
+@keyframes bt-annotation-in{from{transform:translateY(3px) scale(.98)}to{transform:none}}
+@keyframes bt-annotation-veil{from{opacity:0}to{opacity:1}}
 @keyframes bt-annotation-out{from{opacity:1;transform:none}to{opacity:0;transform:translateY(2px) scale(.98)}}
 @media (prefers-reduced-motion:reduce){.bt-annotation,.bt-annotation[data-leaving]{animation:none}}
 `;

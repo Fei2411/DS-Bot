@@ -827,6 +827,7 @@ export const JA = {
   "Cache hit {hit}%": "キャッシュヒット {hit}%",
   "Context {percent}%": "コンテキスト {percent}%",
   "{used} of {total} tokens of context in use": "コンテキスト使用量: {used} / {total} トークン",
+  "Annotate": "注釈",
   "Annotate quote": "引用に注釈",
   "Annotation": "注釈",
   "Add an annotation…": "注釈を入力…",

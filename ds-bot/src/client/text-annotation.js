@@ -13,11 +13,14 @@ export function insertAnnotation(inputActions, text, annotation) {
   return inputActions.insertQuote(withAnnotation(text, annotation))
 }
 
-// The host's quote interaction owns admission. This renderer adds the annotation
-// editor for team conversations and retains its quote action on a plain Session.
+// The host's quote interaction owns admission. This renderer keeps the host's
+// selection flow intact with both Quote and Annotate pills on team chats, and
+// opens the annotation editor only when the user chooses Annotate.
 export function TextSelectionAction({ sessionId, dismiss, readText, clearSelection, inputActions, useSession, useRoster, actions, t: hostT }) {
   const enabled = useSession(state => !state.removed && (state.subagent === null || state.subagent.address.mode === 'continuable' && state.subagent.parentAvailable === true))
   const team = useRoster(state => state.byId[sessionId] !== undefined || state.roomsById[sessionId] !== undefined)
+  const [editing, setEditing] = useState(false)
+  const [excerpt, setExcerpt] = useState(null)
   const [annotation, setAnnotation] = useState('')
   const [sending, setSending] = useState(false)
   const [closing, setClosing] = useState(false)
@@ -25,7 +28,11 @@ export function TextSelectionAction({ sessionId, dismiss, readText, clearSelecti
   const pending = useRef(false)
   const closeTimer = useRef(null)
   useEffect(() => { if (!enabled) dismiss() }, [enabled, dismiss])
-  useEffect(() => { if (team && enabled) field.current?.focus() }, [team, enabled])
+  useEffect(() => {
+    if (!team || !enabled || !editing) return
+    field.current?.focus()
+    if (typeof window !== 'undefined') window.dispatchEvent(new Event('resize'))
+  }, [team, enabled, editing])
   useEffect(() => () => clearTimeout(closeTimer.current), [])
   if (!enabled) return null
 
@@ -38,14 +45,26 @@ export function TextSelectionAction({ sessionId, dismiss, readText, clearSelecti
     closeTimer.current = setTimeout(dismiss, reducedMotion() ? 0 : 160)
   }
   const closeNative = () => { clearSelection(); dismiss() }
-  const add = () => {
+  const quoteText = () => excerpt ?? readText()
+  const quoteOnly = () => {
     const text = readText()
+    if (text === null) { dismiss(); return }
+    if (inputActions.insertQuote(text)) closeNative()
+  }
+  const startAnnotate = () => {
+    const text = readText()
+    if (text === null) { dismiss(); return }
+    setExcerpt(text)
+    setEditing(true)
+  }
+  const add = () => {
+    const text = quoteText()
     if (text === null) { close(); return }
     if (closing) return
     if (insertAnnotation(inputActions, text, annotation)) close()
   }
   const send = async () => {
-    const text = readText()
+    const text = quoteText()
     if (text === null) { close(); return }
     if (pending.current || closing) return
     pending.current = true
@@ -70,19 +89,27 @@ export function TextSelectionAction({ sessionId, dismiss, readText, clearSelecti
     else void send()
   }
 
-  if (!team) return h('button', {
+  const quoteButton = h('button', {
     type: 'button', className: 'bt-quote-plain', 'aria-label': hostT('quote.add'),
     onPointerDown: event => event.preventDefault(),
-    onClick: () => {
-      const text = readText()
-      if (text === null) { dismiss(); return }
-      if (inputActions.insertQuote(text)) closeNative()
-    },
+    onClick: quoteOnly,
   }, hostT('quote.add'))
+
+  if (!team) return quoteButton
+
+  if (!editing) {
+    return h('div', { className: 'bt-selection-actions' },
+      quoteButton,
+      h('button', {
+        type: 'button', className: 'bt-quote-plain bt-quote-annotate', 'aria-label': t('Annotate'),
+        onPointerDown: event => event.preventDefault(),
+        onClick: startAnnotate,
+      }, t('Annotate')))
+  }
 
   return h('section', { className: 'bt-annotation', 'aria-label': t('Annotate quote'), 'data-leaving': closing || undefined, onPointerDown: event => event.stopPropagation() },
     h('label', { className: 'bt-annotation-label', htmlFor: 'bt-annotation-field' }, t('Annotation')),
-    h('blockquote', { className: 'bt-annotation-quote' }, readText()),
+    h('blockquote', { className: 'bt-annotation-quote' }, quoteText()),
     h('textarea', {
       id: 'bt-annotation-field', ref: field, value: annotation, rows: 3,
       placeholder: t('Add an annotation…'), 'aria-label': t('Annotation'),
@@ -94,9 +121,10 @@ export function TextSelectionAction({ sessionId, dismiss, readText, clearSelecti
 }
 
 export const ANNOTATION_CSS = `
+.bt-selection-actions{display:inline-flex;align-items:center;gap:6px}
 .bt-quote-plain{corner-shape:round;background:var(--dsw-alias-button-floating-fill,var(--bt-card));--dsw-elevation-stroke-color:var(--dsw-alias-border-l3);box-shadow:var(--dsw-elevation-panel,var(--bt-glass-shadow));color:var(--dsw-alias-label-primary,var(--bt-ink));font:var(--dsw-font-xs-13,13px var(--bt-font));cursor:pointer;border:none;border-radius:999px;padding:5px 10px}
 .bt-quote-plain:focus-visible,.bt-quote-plain:hover{background:var(--dsw-alias-button-floating-hover,var(--bt-hover))}
-.bt-annotation{display:flex;flex-direction:column;gap:8px;width:min(360px,calc(100vw - 32px));box-sizing:border-box;padding:12px;background:var(--bt-card);border:.5px solid var(--bt-line-2);border-radius:12px;box-shadow:var(--bt-glass-shadow);color:var(--bt-ink);font:13px/18px var(--bt-font);animation:bt-annotation-in ${SPRING_TAP.duration}ms ${SPRING_TAP.easing}}
+.bt-annotation{display:flex;flex-direction:column;gap:8px;width:min(360px,calc(100vw - 32px));box-sizing:border-box;padding:12px;background:var(--bt-card);border:.5px solid var(--bt-line-2);border-radius:12px;box-shadow:var(--bt-glass-shadow);color:var(--bt-ink);font:13px/18px var(--bt-font);animation:bt-annotation-in ${SPRING_TAP.duration}ms ${SPRING_TAP.easing},bt-annotation-veil .14s ease-out}
 .bt-annotation[data-leaving]{animation:bt-annotation-out .16s cubic-bezier(.22,1,.36,1) forwards;pointer-events:none}
 .bt-annotation-label{font:500 12px/16px var(--bt-font);color:var(--bt-ink-2)}
 .bt-annotation-quote{margin:0;padding:6px 10px;border-left:2px solid var(--bt-accent);border-radius:6px;background:var(--bt-tag-bg);color:var(--bt-ink-2);font:12px/16px var(--bt-font);white-space:pre-wrap;overflow-wrap:anywhere;max-height:96px;overflow:auto}
@@ -109,7 +137,8 @@ export const ANNOTATION_CSS = `
 .bt-annotation-actions .bt-annotation-send{background:var(--bt-accent);border-color:var(--bt-accent);color:var(--bt-accent-ink)}
 .bt-annotation-actions .bt-annotation-send:hover{filter:brightness(1.06)}
 .bt-annotation-actions button:disabled{opacity:.55;cursor:default}
-@keyframes bt-annotation-in{from{opacity:0;transform:translateY(3px) scale(.98)}to{opacity:1;transform:none}}
+@keyframes bt-annotation-in{from{transform:translateY(3px) scale(.98)}to{transform:none}}
+@keyframes bt-annotation-veil{from{opacity:0}to{opacity:1}}
 @keyframes bt-annotation-out{from{opacity:1;transform:none}to{opacity:0;transform:translateY(2px) scale(.98)}}
 @media (prefers-reduced-motion:reduce){.bt-annotation,.bt-annotation[data-leaving]{animation:none}}
 `

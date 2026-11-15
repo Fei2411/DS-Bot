@@ -827,6 +827,7 @@ export const FR = {
   "Cache hit {hit}%": "Cache {hit} %",
   "Context {percent}%": "Contexte {percent} %",
   "{used} of {total} tokens of context in use": "{used} sur {total} jetons de contexte utilisés",
+  "Annotate": "Annoter",
   "Annotate quote": "Annoter la citation",
   "Annotation": "Annotation",
   "Add an annotation…": "Ajouter une annotation…",

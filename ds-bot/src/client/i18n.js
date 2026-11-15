@@ -845,6 +845,7 @@ const ZH = {
   '{used} of {total} tokens of context in use': '上下文已用 {used} / {total} tokens',
 
   // Transcript
+  Annotate: '批注',
   'Annotate quote': '批注引用',
   Annotation: '批注',
   'Add an annotation…': '写下批注…',

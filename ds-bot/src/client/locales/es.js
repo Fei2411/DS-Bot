@@ -839,6 +839,7 @@ export const ES = {
   '{used} of {total} tokens of context in use': '{used} de {total} tokens de contexto en uso',
 
   // Transcript
+  Annotate: 'Anotar',
   'Annotate quote': 'Anotar cita',
   Annotation: 'Anotación',
   'Add an annotation…': 'Añade una anotación…',
