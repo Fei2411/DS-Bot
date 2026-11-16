@@ -244,6 +244,78 @@ test('a failed group selection is retried without reselecting the own chat or su
   assert.deepEqual(selected, ['g1:deepseek/v4-flash', 'g2:deepseek/v4-flash'])
 })
 
+// The two services a start uses to read a stored Session's own model selection: the
+// listing of stored Sessions and their cached selection projections.
+function storedSessions(records) {
+  return {
+    sessionQuery: {
+      listSessions: async () => Object.entries(records).map(([id, { live = false }]) => ({ header: { id }, live, persisted: !live })),
+    },
+    sessionProjectionCache: {
+      cachedSnapshot: (header) => {
+        const selection = records[header.id]?.selection
+        return selection === undefined ? undefined : { values: { modelSelection: { lastUsed: selection, next: selection } } }
+      },
+    },
+  }
+}
+
+// Resuming a stored Session replays its whole log, so a start reads the selection the
+// Session records instead, and resumes only a Session that needs another one.
+test('a stored group Session on the Bot model is not resumed to select it', async () => {
+  const services = storedSessions({
+    g1: { selection: { provider: 'deepseek', model: 'v4-flash' } },
+    g2: { selection: { provider: 'deepseek', model: 'v4-pro' } },
+    g3: { selection: undefined },
+    // A live Session is read for what it is now: the composer's model picker can move
+    // it without telling this plugin.
+    g4: { live: true, selection: { provider: 'deepseek', model: 'v4-flash' } },
+  })
+  const { rt, selected } = bench({ services })
+  rt.groupSessionsOf = () => ['g1', 'g2', 'g3', 'g4']
+  const bot = { id: 'b1', model: 'deepseek/v4-flash', appliedModel: 'deepseek/v4-flash' }
+  await rt.applyModel(bot)
+  assert.deepEqual(selected, ['g2:deepseek/v4-flash', 'g3:deepseek/v4-flash', 'g4:deepseek/v4-flash'])
+  // Another model reaches every group Session, a matching record notwithstanding.
+  bot.model = 'stepfun/step-5'
+  await rt.applyModel(bot)
+  assert.deepEqual(selected.slice(3), ['b1:stepfun/step-5', 'g1:stepfun/step-5', 'g2:stepfun/step-5', 'g3:stepfun/step-5', 'g4:stepfun/step-5'])
+  // A forced selection runs even where the record and the Session both agree.
+  bot.model = 'deepseek/v4-flash'
+  await rt.applyModel(bot, { force: true })
+  assert.deepEqual(selected.slice(8), ['b1:deepseek/v4-flash', 'g1:deepseek/v4-flash', 'g2:deepseek/v4-flash', 'g3:deepseek/v4-flash', 'g4:deepseek/v4-flash'])
+})
+
+test('a stored Session recording another thinking level is resumed and reselected', async () => {
+  const services = storedSessions({
+    g1: { selection: { provider: 'deepseek', model: 'v4-flash', reasoningEffort: 'low' } },
+    g2: { selection: { provider: 'deepseek', model: 'v4-flash' } },
+  })
+  const { rt, selected } = bench({ services, reasoning: { 'deepseek/v4-flash': { reasoning: { efforts: [{ id: 'low' }, { id: 'high' }] } } } })
+  rt.groupSessionsOf = () => ['g1', 'g2']
+  const bot = { id: 'b1', model: 'deepseek/v4-flash', effort: 'high', appliedModel: 'deepseek/v4-flash', appliedEffort: 'high' }
+  await rt.applyModel(bot)
+  assert.deepEqual(selected, ['g1:deepseek/v4-flash:high', 'g2:deepseek/v4-flash:high'])
+})
+
+test('without a listing or a projection cache every Session is selected, as before', async () => {
+  const { rt, selected } = bench({ services: { sessionQuery: { listSessions: async () => [{ header: { id: 'g1' }, live: false }] } } })
+  rt.groupSessionsOf = () => ['g1']
+  await rt.applyModel({ id: 'b1', model: 'deepseek/v4-flash', appliedModel: 'deepseek/v4-flash' })
+  assert.deepEqual(selected, ['g1:deepseek/v4-flash'])
+})
+
+test('a read that fails selects the model rather than skipping it', async () => {
+  const services = storedSessions({ g1: { selection: { provider: 'deepseek', model: 'v4-flash' } } })
+  services.sessionProjectionCache.cachedSnapshot = () => {
+    throw new Error('the cache is closed')
+  }
+  const { rt, selected } = bench({ services })
+  rt.groupSessionsOf = () => ['g1']
+  await rt.applyModel({ id: 'b1', model: 'deepseek/v4-flash', appliedModel: 'deepseek/v4-flash' })
+  assert.deepEqual(selected, ['g1:deepseek/v4-flash'])
+})
+
 test('resolveEffort takes an id or a name, and refuses what the model has not', async () => {
   const { rt } = bench({ reasoning: {
     'deepseek/v4-flash': { reasoning: { efforts: [{ id: 'off', name: 'Off' }, { id: 'high', name: 'High' }] } },
