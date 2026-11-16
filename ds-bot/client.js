@@ -16012,6 +16012,10 @@ body[data-bt-motion=quiet] .bt-mark[data-poke]{cursor:default}
 .bt-tile[aria-current=page]{background:var(--bt-active)}
 .bt-tile-name{font-size:13px;line-height:18px;font-weight:500;max-width:84px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bt-chip{font-size:11px;line-height:16px;padding:1px 7px;border-radius:999px;background:var(--bt-tag-bg);border:.5px solid var(--bt-line);color:var(--bt-ink-2);white-space:nowrap;max-width:92px;overflow:hidden;text-overflow:ellipsis}
+.bt-side-kinds{display:flex;gap:4px;padding:0 10px 8px;align-items:center}
+.bt-kind{border:0;background:transparent;color:var(--bt-ink-2);font:inherit;font-size:12px;line-height:20px;padding:2px 8px;border-radius:999px;cursor:pointer;transition:background-color .12s ease,color .12s ease}
+.bt-kind:hover{color:var(--bt-ink)}
+.bt-kind[data-on]{background:color-mix(in srgb,currentColor 12%,transparent);color:var(--bt-ink)}
 .bt-row{display:flex;align-items:center;gap:8px;min-height:54px;padding:8px;border:0;border-radius:12px;background:transparent;color:var(--bt-ink);text-align:left;cursor:pointer;width:100%;box-sizing:border-box;font-family:inherit;transition:background-color .12s ease}
 .bt-row:hover{background:var(--bt-hover)}
 .bt-row[aria-current=page]{background:var(--bt-active)}
@@ -17715,6 +17719,23 @@ function RoomAvatar({ room: room2, roster, size = 36 }) {
 
 // src/client/dsh-primitives.js
 var import_dsh_client_ui_primitives = require("@deepseek-ai/dsh-client-ui-primitives");
+
+// src/client/sidebar-order.js
+function sidebarEntries(roster, stamps) {
+  const at = (id, fallback = 0) => stamps[id] ?? fallback;
+  const entries2 = [
+    ...roster.bots.filter((bot) => bot.id !== roster.mainBotId).map((bot) => ({ kind: "bot", item: bot, at: at(currentPart(bot), bot.createdAt) })),
+    ...roster.rooms.map((room2) => ({ kind: "room", item: room2, at: at(room2.sessionId ?? room2.id, room2.createdAt) })),
+    // An Agent sorts by its most recent Session, falling back to when it was added.
+    ...(roster.agents ?? []).map((agent) => ({ kind: "agent", item: agent, at: Math.max(0, ...agent.sessions.map((id) => at(id))) || agent.createdAt }))
+  ];
+  return entries2.sort((a, b) => Number(Boolean(b.item.pinned)) - Number(Boolean(a.item.pinned)) || b.at - a.at);
+}
+var SIDEBAR_KINDS = ["all", "bot", "room"];
+function filterSidebarEntries(entries2, kind) {
+  if (kind === void 0 || kind === "all") return entries2;
+  return entries2.filter((entry) => entry.kind === kind);
+}
 
 // src/client/icons.js
 var import_react3 = require("react");
@@ -30168,16 +30189,9 @@ function TeamSidebar(props) {
     for (const id of list.ids) stamps[id] = list.byId[id]?.updatedAt ?? 0;
     return JSON.stringify(stamps);
   });
-  const order = (0, import_react36.useMemo)(() => {
-    const stamps = JSON.parse(updated);
-    const entries2 = [
-      ...roster.bots.filter((bot) => bot.id !== roster.mainBotId).map((bot) => ({ kind: "bot", item: bot, at: stamps[currentPart(bot)] ?? bot.createdAt })),
-      ...roster.rooms.map((room2) => ({ kind: "room", item: room2, at: stamps[room2.id] ?? room2.createdAt })),
-      // The Agent sorts by its most recent Session, falling back to when it was added.
-      ...(roster.agents ?? []).map((agent) => ({ kind: "agent", item: agent, at: Math.max(0, ...agent.sessions.map((id) => stamps[id] ?? 0)) || agent.createdAt }))
-    ];
-    return entries2.sort((a, b) => Number(Boolean(b.item.pinned)) - Number(Boolean(a.item.pinned)) || b.at - a.at);
-  }, [roster, updated]);
+  const order = (0, import_react36.useMemo)(() => sidebarEntries(roster, JSON.parse(updated)), [roster, updated]);
+  const [kind, setKind] = (0, import_react36.useState)("all");
+  const kindEntries = (0, import_react36.useMemo)(() => filterSidebarEntries(order, kind), [order, kind]);
   const sections = roster.sections ?? [];
   const sectionSet = (0, import_react36.useMemo)(() => new Set(sections.map((sec) => sec.id)), [sections]);
   const ungrouped = (0, import_react36.useMemo)(
@@ -30444,10 +30458,24 @@ function TeamSidebar(props) {
     (0, import_react36.createElement)(AccountLauncher, { seat: false, actions }),
     (0, import_react36.createElement)(PluginsButton, { actions })
   );
+  const kinds = wideContent ? (0, import_react36.createElement)(
+    "div",
+    { className: "bt-side-kinds", role: "tablist", "aria-label": t("Bot list") },
+    SIDEBAR_KINDS.map((entryKind) => (0, import_react36.createElement)("button", {
+      key: entryKind,
+      type: "button",
+      role: "tab",
+      "aria-selected": kind === entryKind,
+      className: "bt-kind",
+      "data-on": kind === entryKind ? "true" : void 0,
+      onClick: () => setKind(entryKind)
+    }, entryKind === "all" ? t("All") : entryKind === "bot" ? t("Bots") : t("Group chat")))
+  ) : null;
   const content = (0, import_react36.createElement)(
     "div",
     { className: wideContent ? "bt-side" : "bt-side bt-rail", onKeyDown: typeToSearch },
     top,
+    kinds,
     wideContent && roster.readOnly ? (0, import_react36.createElement)("div", { className: "bt-hint bt-read-only", role: "status" }, hostText(roster.readOnly)) : null,
     (0, import_react36.createElement)(
       "div",
@@ -30465,14 +30493,15 @@ function TeamSidebar(props) {
         }
       },
       wideContent ? main ? (0, import_react36.createElement)(BotRow, { ...rowProps, bot: main, marked: markedUnread[main.id] === true }) : roster.ready ? null : bootFailed ? (0, import_react36.createElement)(BootFailed, { actions }) : (0, import_react36.createElement)("div", { className: "bt-hint" }, t("Setting up your Main Bot…")) : null,
-      sections.length > 0 && wideContent ? (0, import_react36.createElement)("div", {
+      kind !== "all" ? kindEntries.map((entry) => renderSidebarEntry(entry, rowProps, markedUnread, onDragStart)) : null,
+      kind === "all" && sections.length > 0 && wideContent ? (0, import_react36.createElement)("div", {
         className: "bt-sec-ungrouped",
         "data-dragging": dragId ? "true" : void 0,
         "data-drop": dropTarget === "__none__" ? "true" : void 0,
         onDragOver: (event) => onDragOverSec(event, "__none__"),
         onDrop: (event) => onDropSec(event, null)
-      }, ungrouped.map((entry) => renderSidebarEntry(entry, rowProps, markedUnread, onDragStart))) : ungrouped.map((entry) => renderSidebarEntry(entry, rowProps, markedUnread, onDragStart)),
-      sections.map((section) => (0, import_react36.createElement)(SectionBlock, {
+      }, ungrouped.map((entry) => renderSidebarEntry(entry, rowProps, markedUnread, onDragStart))) : kind === "all" ? ungrouped.map((entry) => renderSidebarEntry(entry, rowProps, markedUnread, onDragStart)) : null,
+      kind === "all" && sections.map((section) => (0, import_react36.createElement)(SectionBlock, {
         key: section.id,
         section,
         entries: order.filter((entry) => entry.item.sectionId === section.id),
