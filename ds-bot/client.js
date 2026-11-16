@@ -954,6 +954,13 @@ var JA = {
   "Cache hit {hit}%": "キャッシュヒット {hit}%",
   "Context {percent}%": "コンテキスト {percent}%",
   "{used} of {total} tokens of context in use": "コンテキスト使用量: {used} / {total} トークン",
+  "Annotate": "注釈",
+  "Annotate quote": "引用に注釈",
+  "Annotation": "注釈",
+  "Add an annotation…": "注釈を入力…",
+  "Add quote and annotation to the composer · Enter": "引用と注釈を入力欄に追加 · Enter",
+  "Send quote and annotation · Ctrl+Enter": "引用と注釈を送信 · Ctrl+Enter",
+  "Quote text": "テキストを引用",
   "Footnotes": "脚注",
   "Remove reaction {emoji}": "リアクション {emoji} を削除",
   "Add reaction": "リアクションを追加",
@@ -3392,6 +3399,13 @@ var KO = {
   "Context {percent}%": "컨텍스트 {percent}%",
   "{used} of {total} tokens of context in use": "컨텍스트 {total} 토큰 중 {used} 사용 중",
   // Transcript
+  Annotate: "주석 달기",
+  "Annotate quote": "인용 주석",
+  Annotation: "주석",
+  "Add an annotation…": "주석을 입력하세요…",
+  "Add quote and annotation to the composer · Enter": "인용과 주석을 입력창에 추가 · Enter",
+  "Send quote and annotation · Ctrl+Enter": "인용과 주석 보내기 · Ctrl+Enter",
+  "Quote text": "텍스트 인용",
   Footnotes: "각주",
   "Remove reaction {emoji}": "{emoji} 반응 제거",
   "Add reaction": "반응 추가",
@@ -5846,6 +5860,13 @@ var ES = {
   "Context {percent}%": "Contexto {percent}%",
   "{used} of {total} tokens of context in use": "{used} de {total} tokens de contexto en uso",
   // Transcript
+  Annotate: "Anotar",
+  "Annotate quote": "Anotar cita",
+  Annotation: "Anotación",
+  "Add an annotation…": "Añade una anotación…",
+  "Add quote and annotation to the composer · Enter": "Añadir la cita y la anotación al campo · Intro",
+  "Send quote and annotation · Ctrl+Enter": "Enviar la cita y la anotación · Ctrl+Intro",
+  "Quote text": "Citar texto",
   Footnotes: "Notas al pie",
   "Remove reaction {emoji}": "Quitar reacción {emoji}",
   "Add reaction": "Añadir reacción",
@@ -8271,6 +8292,13 @@ var FR = {
   "Cache hit {hit}%": "Cache {hit} %",
   "Context {percent}%": "Contexte {percent} %",
   "{used} of {total} tokens of context in use": "{used} sur {total} jetons de contexte utilisés",
+  "Annotate": "Annoter",
+  "Annotate quote": "Annoter la citation",
+  "Annotation": "Annotation",
+  "Add an annotation…": "Ajouter une annotation…",
+  "Add quote and annotation to the composer · Enter": "Ajouter la citation et l’annotation au champ · Entrée",
+  "Send quote and annotation · Ctrl+Enter": "Envoyer la citation et l’annotation · Ctrl+Entrée",
+  "Quote text": "Texte de citation",
   "Footnotes": "Notes de bas de page",
   "Remove reaction {emoji}": "Retirer la réaction {emoji}",
   "Add reaction": "Ajouter une réaction",
@@ -10709,6 +10737,13 @@ var DE = {
   "Context {percent}%": "Kontext {percent}%",
   "{used} of {total} tokens of context in use": "{used} von {total} Kontext-Tokens belegt",
   // Transcript
+  Annotate: "Kommentieren",
+  "Annotate quote": "Zitat kommentieren",
+  Annotation: "Anmerkung",
+  "Add an annotation…": "Anmerkung hinzufügen…",
+  "Add quote and annotation to the composer · Enter": "Zitat und Anmerkung zum Eingabefeld hinzufügen · Eingabe",
+  "Send quote and annotation · Ctrl+Enter": "Zitat und Anmerkung senden · Strg+Eingabe",
+  "Quote text": "Text zitieren",
   Footnotes: "Fußnoten",
   "Remove reaction {emoji}": "Reaktion {emoji} entfernen",
   "Add reaction": "Reaktion hinzufügen",
@@ -13158,6 +13193,13 @@ var ZH = {
   "Context {percent}%": "上下文 {percent}%",
   "{used} of {total} tokens of context in use": "上下文已用 {used} / {total} tokens",
   // Transcript
+  Annotate: "批注",
+  "Annotate quote": "批注引用",
+  Annotation: "批注",
+  "Add an annotation…": "写下批注…",
+  "Add quote and annotation to the composer · Enter": "将引用和批注添加到输入框 · Enter",
+  "Send quote and annotation · Ctrl+Enter": "发送引用和批注 · Ctrl+Enter",
+  "Quote text": "引用文本",
   Footnotes: "脚注",
   "Remove reaction {emoji}": "移除表情 {emoji}",
   "Add reaction": "添加表情",
@@ -14507,8 +14549,8 @@ function bodyOf(def, paint, flat = false) {
     return "";
   }
 }
-var eyeMarkup = ([cx, cy, w, h72, tilt]) => `<g transform="translate(${cx} ${cy}) rotate(${tilt})"><rect class="bt-eye" x="${-w / 2}" y="${-h72 / 2}" width="${w}" height="${h72}" rx="${w / 2}"/></g>`;
-var happyEyeMarkup = ([cx, cy, w, h72, tilt]) => `<g transform="translate(${cx} ${cy}) rotate(${tilt})"><path class="bt-eye-happy" opacity="0" d="M${-w * 0.62} ${h72 * 0.14}Q0 ${-h72 * 0.42} ${w * 0.62} ${h72 * 0.14}" fill="none" stroke="#000" stroke-width="${w * 0.5}" stroke-linecap="round"/></g>`;
+var eyeMarkup = ([cx, cy, w, h73, tilt]) => `<g transform="translate(${cx} ${cy}) rotate(${tilt})"><rect class="bt-eye" x="${-w / 2}" y="${-h73 / 2}" width="${w}" height="${h73}" rx="${w / 2}"/></g>`;
+var happyEyeMarkup = ([cx, cy, w, h73, tilt]) => `<g transform="translate(${cx} ${cy}) rotate(${tilt})"><path class="bt-eye-happy" opacity="0" d="M${-w * 0.62} ${h73 * 0.14}Q0 ${-h73 * 0.42} ${w * 0.62} ${h73 * 0.14}" fill="none" stroke="#000" stroke-width="${w * 0.5}" stroke-linecap="round"/></g>`;
 var maskBox = (size) => `maskUnits="userSpaceOnUse" x="${-size}" y="${-size}" width="${size * 3}" height="${size * 3}"`;
 var holes = (def, eyes) => `<rect x="${-def.size}" y="${-def.size}" width="${def.size * 3}" height="${def.size * 3}" fill="#fff"/>${eyes}`;
 var MASK_ID = "%MASK%";
@@ -15521,12 +15563,12 @@ function liveSprings(apply2) {
     const dt = Math.min(0.5, Math.max(1e-3, (now - last) / 1e3));
     last = now;
     const steps = Math.ceil(dt * 240);
-    const h72 = dt / steps;
+    const h73 = dt / steps;
     let moving = false;
     for (const [key, value] of values) {
       for (let index = 0; index < steps; index += 1) {
-        value.v += (-value.k * (value.x - value.to) - value.c * value.v) * h72;
-        value.x += value.v * h72;
+        value.v += (-value.k * (value.x - value.to) - value.c * value.v) * h73;
+        value.x += value.v * h73;
       }
       if (Math.abs(value.x - value.to) < 0.05 && Math.abs(value.v) < 1) {
         value.x = value.to;
@@ -17196,8 +17238,8 @@ div:has(> nav [class*="_marks"]){display:none!important}
    surface is also laid as an image layer: a skin's more specific background-color
    with !important (a glass fill) then changes the color under the layer, not the
    surface the text sits on. */
-[class*="_userRow"] [class*="_bubble"],[data-chat-flow-kind=question-reply] [class*="_bubble"],[data-chat-flow-kind=command-input] [class*="_bubble"]{background:var(--bt-user)!important;background-image:linear-gradient(var(--bt-user),var(--bt-user))!important;color:var(--bt-user-ink)!important;border-radius:18px!important;padding:7px 12px!important;font-size:var(--dsh-content-font-size,14px)!important;line-height:calc(var(--dsh-content-font-size,14px) + 8px)!important}
-[class*="_userRow"] [class*="_bubble"] [class*="_markdown"],[class*="_userRow"] [class*="_bubble"] a{color:inherit}
+[class*="_userRow"] [class*="_bubble"],.bt-uhost [class*="_bubble"],[data-chat-flow-kind=question-reply] [class*="_bubble"],[data-chat-flow-kind=command-input] [class*="_bubble"]{background:var(--bt-user)!important;background-image:linear-gradient(var(--bt-user),var(--bt-user))!important;color:var(--bt-user-ink)!important;border-radius:18px!important;padding:7px 12px!important;font-size:var(--dsh-content-font-size,14px)!important;line-height:calc(var(--dsh-content-font-size,14px) + 8px)!important}
+[class*="_userRow"] [class*="_bubble"] [class*="_markdown"],[class*="_userRow"] [class*="_bubble"] a,.bt-uhost [class*="_bubble"] a{color:inherit}
 /* Sent messages get the hover toolbar below; steering and unsent bubbles keep none. */
 [class*="_userRow"] [class*="_actions"]{display:none!important}
 /* A steering message the Bot has not read yet shows a small unread label under
@@ -27756,7 +27798,32 @@ var viaOf = (source) => typeof source?.rpcId === "string" && source.rpcId.starts
 // src/client/user-message.js
 var import_react33 = require("react");
 var ui = __toESM(require("@deepseek-ai/dsh-client-ui-primitives"), 1);
-var canDrawUserMessages = () => typeof ui.projectUserText === "function";
+var projects = typeof ui.projectUserText === "function";
+var canDrawUserMessages = (drawsUserContent = false) => projects || drawsUserContent;
+var USER_SOURCE_SLOT = "conversation.chat.user.before";
+function installUserBubble(slots, drawRows) {
+  let dispose;
+  const refresh = () => {
+    const marked2 = slots.entries(USER_SOURCE_SLOT).length > 0;
+    if (marked2 && dispose !== void 0) {
+      dispose();
+      dispose = void 0;
+    } else if (!marked2 && dispose === void 0) {
+      dispose = drawRows();
+    }
+  };
+  const unsubscribe = slots.subscribe(USER_SOURCE_SLOT, refresh);
+  try {
+    refresh();
+  } catch (error) {
+    unsubscribe();
+    throw error;
+  }
+  return () => {
+    unsubscribe();
+    dispose?.();
+  };
+}
 function contentParts(content) {
   const texts2 = [];
   const attachments = [];
@@ -27767,6 +27834,23 @@ function contentParts(content) {
     else rest.push(block);
   }
   return { text: texts2.join("\n"), attachments, rest };
+}
+function hostContent(content, { referenceLabels, skillNames } = {}) {
+  const texts2 = [];
+  const attachments = [];
+  const extraBlocks = [];
+  for (const block of Array.isArray(content) ? content : []) {
+    if (block?.type === "text" && typeof block.text === "string") texts2.push(block.text);
+    else if (block?.type === "image" && block.attachment !== void 0) attachments.push({ type: "image", image: { attachment: block.attachment } });
+    else if (block?.type === "file" && block.attachment !== void 0) attachments.push({ type: "file", file: block.attachment });
+    else extraBlocks.push(block);
+  }
+  return {
+    text: texts2.join(""),
+    attachments,
+    extraBlocks,
+    facts: { ...referenceLabels === void 0 ? {} : { sessionLabels: referenceLabels }, ...skillNames === void 0 ? {} : { skillNames } }
+  };
 }
 function mentionableBots(roster, sessionId) {
   const room2 = roster.roomsById[sessionId];
@@ -27792,6 +27876,13 @@ function UserText({ text, bots, referenceLabels, skillNames, references, actions
     (0, import_react33.createElement)(BotMark, { bot: part.bot, size: 16 }),
     part.label
   ) : (0, import_react33.createElement)(import_react33.Fragment, { key: index }, ui.projectUserText(part.text, referenceLabels, skillNames, "skill", references)));
+}
+function BotMention({ node, raw, interactive, sessionId, useRoster, actions }) {
+  const roster = useRoster((value) => value);
+  const bot = mentionableBots(roster, sessionId).find((item) => item.id === node.data.botId);
+  if (!bot) return raw;
+  const mark2 = (0, import_react33.createElement)(BotMark, { bot, size: 16 });
+  return interactive ? (0, import_react33.createElement)("button", { type: "button", className: "bt-umention", title: `@${bot.name}`, onClick: () => actions.openSession(bot.id) }, mark2, node.data.label) : (0, import_react33.createElement)("span", { className: "bt-umention", "data-static": "", title: `@${bot.name}` }, mark2, node.data.label);
 }
 function Attachments({ attachments, renderMessageImages }) {
   const compact2 = attachments.length > 1;
@@ -27822,17 +27913,54 @@ function CopyButton({ text }) {
 var clock3 = (time) => typeof time === "number" ? new Date(time).toLocaleTimeString(dateLocale(), { hour: "numeric", minute: "2-digit" }) : void 0;
 var viaOf2 = (source) => typeof source?.rpcId === "string" && source.rpcId.startsWith("im:") ? source.rpcId.split(":")[1] : void 0;
 var ViaTag = ({ via }) => (0, import_react33.createElement)("span", { className: "bt-uvia" }, t("via {platform}", { platform: t(imPlatform(via)?.name ?? via) }));
-function UserMessageCell({ node, sessionId, useRoster, actions, renderMessageImages, openFile, openSkill }) {
-  const roster = useRoster((value) => value);
-  const data = node.data ?? {};
-  const { text, attachments, rest } = contentParts(data.content);
+function ProjectedContent({ data, text, shown, folded, control, roster, sessionId, actions, renderMessageImages, openFile, openSkill, onClick }) {
+  const { attachments, rest } = contentParts(data.content);
   const referenceLabels = data.referenceLabels ?? [];
   const references = openFile && openSkill ? { openFile, openSkill } : void 0;
+  const body = (0, import_react33.createElement)(UserText, { text: shown, bots: mentionableBots(roster, sessionId), referenceLabels, skillNames: data.skillNames ?? [], references, actions });
+  return (0, import_react33.createElement)(
+    import_react33.Fragment,
+    null,
+    attachments.length > 0 ? (0, import_react33.createElement)(Attachments, { attachments, renderMessageImages }) : null,
+    text !== "" || rest.length > 0 ? (0, import_react33.createElement)(
+      "div",
+      { className: "bt-ubody", title: clock3(data.time), "data-folded": folded || void 0, "data-text-interaction-source": text !== "" ? "" : void 0, onClick },
+      control ? (0, import_react33.createElement)("div", { className: "bt-fold-body" }, body) : body,
+      control,
+      rest.map((block, index) => ui.JsonBlock ? (0, import_react33.createElement)(ui.JsonBlock, { key: index, label: t("Content"), payload: block }) : null)
+    ) : null,
+    referenceLabels.length > 0 ? (0, import_react33.createElement)("div", { className: "bt-urefs" }, t("Referenced {labels}", { labels: referenceLabels.join(t(", ")) })) : null
+  );
+}
+function HostContent({ data, prepared, shown, folded, control, loadImage, renderFactorySlot, onClick }) {
+  const referenceLabels = data.referenceLabels ?? [];
+  const content = renderFactorySlot("conversation.chat.user.content", {
+    content: { text: shown, attachments: prepared.attachments, extraBlocks: prepared.extraBlocks },
+    loadImage,
+    facts: prepared.facts,
+    interactive: true
+  });
+  return (0, import_react33.createElement)(
+    import_react33.Fragment,
+    null,
+    (0, import_react33.createElement)(
+      "div",
+      { className: "bt-uhost", title: clock3(data.time), "data-folded": folded || void 0, onClick },
+      control ? (0, import_react33.createElement)("div", { className: "bt-fold-body" }, content) : content,
+      control
+    ),
+    referenceLabels.length > 0 ? (0, import_react33.createElement)("div", { className: "bt-urefs" }, t("Referenced {labels}", { labels: referenceLabels.join(t(", ")) })) : null
+  );
+}
+function UserMessageCell({ node, sessionId, useRoster, actions, renderMessageImages, openFile, openSkill, loadImage, renderFactorySlot }) {
+  const roster = useRoster((value) => value);
+  const data = node.data ?? {};
+  const prepared = projects ? void 0 : hostContent(data.content, data);
+  const text = prepared?.text ?? contentParts(data.content).text;
   const steering = node.kind === "steering";
   const sentAt = Number.isFinite(data.time) ? messageClock(data.time) : void 0;
   const via = viaOf2(data.source) ?? roster.imVia?.[sessionId]?.[data.seq];
   const { shown, folded, control } = useFold(text, { markdown: false });
-  const body = (0, import_react33.createElement)(UserText, { text: shown, bots: mentionableBots(roster, sessionId), referenceLabels, skillNames: data.skillNames ?? [], references, actions });
   const row = (0, import_react33.useRef)(null);
   const [toolsOpen, setToolsOpen] = (0, import_react33.useState)(false);
   (0, import_react33.useEffect)(() => {
@@ -27851,21 +27979,14 @@ function UserMessageCell({ node, sessionId, useRoster, actions, renderMessageIma
     if (!noHover() || event.target instanceof Element && event.target.closest("a,button,input,textarea,select,pre,code,[role=button],[role=link]")) return;
     setToolsOpen((value) => !value);
   };
+  const fold = { data, text, shown, folded, control, onClick: tapTools };
   return (0, import_react33.createElement)(
     "div",
     { ref: row, className: "bt-umsg", "data-steering": steering || void 0 },
     (0, import_react33.createElement)(
       "div",
       { className: "bt-ustack" },
-      attachments.length > 0 ? (0, import_react33.createElement)(Attachments, { attachments, renderMessageImages }) : null,
-      text !== "" || rest.length > 0 ? (0, import_react33.createElement)(
-        "div",
-        { className: "bt-ubody", title: clock3(data.time), "data-folded": folded || void 0, "data-text-interaction-source": text !== "" ? "" : void 0, onClick: tapTools },
-        control ? (0, import_react33.createElement)("div", { className: "bt-fold-body" }, body) : body,
-        control,
-        rest.map((block, index) => ui.JsonBlock ? (0, import_react33.createElement)(ui.JsonBlock, { key: index, label: t("Content"), payload: block }) : null)
-      ) : null,
-      referenceLabels.length > 0 ? (0, import_react33.createElement)("div", { className: "bt-urefs" }, t("Referenced {labels}", { labels: referenceLabels.join(t(", ")) })) : null,
+      prepared === void 0 ? (0, import_react33.createElement)(ProjectedContent, { ...fold, roster, sessionId, actions, renderMessageImages, openFile, openSkill }) : (0, import_react33.createElement)(HostContent, { ...fold, prepared, loadImage, renderFactorySlot }),
       sentAt || via ? (0, import_react33.createElement)("div", { className: "bt-utime", title: clockLabel(data.time) }, ...via ? [(0, import_react33.createElement)(ViaTag, { key: "via", via })] : [], sentAt) : null
     ),
     text === "" ? null : (0, import_react33.createElement)("div", { className: "bt-utools", "data-open": toolsOpen || void 0 }, (0, import_react33.createElement)(CopyButton, { text }))
@@ -27876,8 +27997,16 @@ var USER_MESSAGE_CSS = `
 .bt-ustack{min-width:0;max-width:calc(var(--bt-msg-w) * 100%);display:flex;flex-direction:column;align-items:flex-end;gap:8px}
 .bt-ubody{max-width:100%;box-sizing:border-box;background:var(--bt-user);color:var(--bt-user-ink);border-radius:18px;padding:7px 12px;font-size:var(--dsh-content-font-size,14px);line-height:calc(var(--dsh-content-font-size,14px) + 10px);white-space:pre-wrap;word-break:break-word;text-wrap:pretty;text-autospace:normal}
 .bt-ubody a{color:inherit}
+/* The host's content stack sits in DS Bot's: the width follows --bt-msg-w (the user's
+   message width) through .bt-ustack, not the host's own cap. The fold control goes
+   under the stack, at its right edge. */
+.bt-uhost{max-width:100%;min-width:0;display:flex;flex-direction:column;align-items:flex-end}
+.bt-uhost [class*="_userStack"]{max-width:100%}
+.bt-uhost>.bt-fold{color:var(--bt-ink-3)}
 .bt-umention{display:inline-flex;align-items:center;gap:3px;vertical-align:-3px;max-width:100%;padding:0 1px;border:0;background:none;color:inherit;font:inherit;font-weight:600;line-height:inherit;cursor:pointer;border-radius:6px;white-space:nowrap}
 .bt-umention:hover{text-decoration:underline;text-underline-offset:2px}
+.bt-umention[data-static]{cursor:inherit}
+.bt-umention[data-static]:hover{text-decoration:none}
 .bt-umention>:first-child{flex:none}
 .bt-uattach{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px;max-width:100%}
 .bt-ufile{display:inline-flex;align-items:center;gap:10px;box-sizing:border-box;width:240px;min-height:64px;padding:8px 12px;border-radius:18px;border:.5px solid var(--bt-line-2);background:var(--bt-card)}
@@ -37411,7 +37540,8 @@ function SettingsShell(props) {
     reconnect,
     openDesktopUpdate,
     openOnboarding,
-    finishOnboarding
+    finishOnboarding,
+    holdSeat
   } = props;
   const settings = useUi((state) => state.settings);
   const roster = useRoster((value) => value);
@@ -37443,6 +37573,7 @@ function SettingsShell(props) {
   const [kept, leaving] = useLinger(settings, DIALOG_EXIT_MS);
   const showing = Boolean(kept);
   (0, import_react53.useEffect)(() => showing ? actions.holdSettingsLook?.() : void 0, [showing]);
+  (0, import_react53.useLayoutEffect)(() => holdSeat?.(), []);
   const open = settings !== null && settings !== void 0;
   const openSettings = () => actions.openSettings("general");
   return (0, import_react53.createElement)(
@@ -37624,6 +37755,22 @@ function DeveloperToolsRow({ useDeveloperTools, setEnabled }) {
     }))
   );
 }
+function seatHold(held) {
+  let count = 0;
+  return {
+    hold: () => {
+      count += 1;
+      held?.set(true);
+      let released = false;
+      return () => {
+        if (released) return;
+        released = true;
+        count -= 1;
+        if (count === 0) held?.set(false);
+      };
+    }
+  };
+}
 function installSettingsShell(ctx, { face, actions, ui: ui2, held }) {
   const slots = ctx.slots;
   const locale = () => ctx.get("locale");
@@ -37648,6 +37795,7 @@ function installSettingsShell(ctx, { face, actions, ui: ui2, held }) {
   const sections = ledgerSource(slots, locale, "settings.section", sectionRows);
   const items = ledgerSource(slots, locale, "settings.general.item", itemRows);
   const steps = ledgerSource(slots, locale, "settings.onboarding", stepRows);
+  const seat = seatHold(held);
   const shellFace = () => {
     const base = face();
     return {
@@ -37656,6 +37804,7 @@ function installSettingsShell(ctx, { face, actions, ui: ui2, held }) {
       openDesktopUpdate: () => update.open(),
       openOnboarding,
       finishOnboarding,
+      holdSeat: seat.hold,
       hooks: {
         ...base.hooks,
         sections,
@@ -37672,21 +37821,22 @@ function installSettingsShell(ctx, { face, actions, ui: ui2, held }) {
     () => update.dispose(),
     // A profile that turned DSH's shell back on keeps it: the seat's child slots are then
     // declared already, and DS Bot's dialog stays on its own pages.
+    // SettingsShell holds the seat itself while it is mounted (`holdSeat`).
     slots.inject("sidebar.settings", () => {
+      let off;
       try {
-        const off = slots.register({ name: "sidebar.settings", inject: shellFace, children: SETTINGS_CHILDREN }, SettingsShell);
-        held?.set(true);
-        return () => {
-          held?.set(false);
-          off();
-        };
+        off = slots.register({ name: "sidebar.settings", inject: shellFace, children: SETTINGS_CHILDREN }, SettingsShell);
       } catch (error) {
         console.warn("[ds-bot] DSH settings shell is on; DS Bot settings show its own pages only", error);
         return () => {
         };
       }
-    }),
-    slots.inject("settings.trigger", () => slots.register({ name: "settings.trigger" }, TriggerContent))
+      const trigger = slots.inject("settings.trigger", () => slots.register({ name: "settings.trigger" }, TriggerContent));
+      return () => {
+        trigger();
+        off();
+      };
+    })
   ];
   if (carrier?.protocolVersion === 1) {
     disposers.push(slots.inject("sidebar.toggle.badge", () => slots.register({
@@ -39067,6 +39217,14 @@ function SaveFileAction({ actionUrl, available = true, pending = false }) {
     ),
     error === null ? null : (0, import_react57.createElement)("span", { className: "bt-set-hint", role: "alert" }, error)
   );
+}
+
+// src/client/mention-source.js
+function fileMentionSource(ctx, sessionId) {
+  return (owner, getFileTriggerProps) => {
+    const service2 = ctx?.get?.("chatFileMentions");
+    return service2?.forClosing(owner, sessionId, getFileTriggerProps);
+  };
 }
 
 // src/client/turn-error.js
@@ -44570,6 +44728,42 @@ function createSwitchWindow(settle) {
   };
 }
 
+// src/client/user-text-rule.js
+var BOT_MENTION_ID = "bot-mention";
+var ORDER = 5;
+function botMentionRule(bots) {
+  const named = bots.filter((bot) => bot?.name);
+  return {
+    id: BOT_MENTION_ID,
+    order: ORDER,
+    match(text, from, context) {
+      if (named.length === 0) return void 0;
+      const references = context.read("sessionLabels") ?? [];
+      const span = mentionSpans(text, named, { references }).find((item) => item.bot !== void 0 && item.start >= from);
+      if (span === void 0) return void 0;
+      return { id: BOT_MENTION_ID, start: span.start, end: span.end, data: { botId: span.bot.id, label: text.slice(span.start + 1, span.end) } };
+    }
+  };
+}
+function installBotMentionRule(userText, roster) {
+  let key;
+  let off;
+  const sync = () => {
+    const bots = roster.getSnapshot().bots ?? [];
+    const next = JSON.stringify(bots.filter((bot) => bot?.name).map((bot) => [bot.id, bot.name]));
+    if (next === key) return;
+    key = next;
+    off?.();
+    off = userText.register(botMentionRule(bots));
+  };
+  sync();
+  const offRoster = roster.subscribe(sync);
+  return () => {
+    offRoster();
+    off?.();
+  };
+}
+
 // src/client/queue-dock.js
 var import_react74 = require("react");
 var OWN_QUEUE_KINDS = /* @__PURE__ */ new Set(["user", "schedule", "user-question-reply"]);
@@ -44885,6 +45079,126 @@ function needsIdleSample(computer, settings) {
   return Object.values(computer?.bots ?? {}).some((entry) => entry?.waitingFor === "user-idle") || Object.values(settings?.bots ?? {}).some((bot) => bot?.level === "foreground");
 }
 
+// src/client/motion-rest.js
+var REST_MS = 3e4;
+var INPUTS2 = ["pointermove", "pointerdown", "keydown", "wheel", "touchstart"];
+var CHANGES = ["animationstart", "animationcancel", "animationend"];
+var isLoop = (animation) => animation?.effect?.getTiming?.().iterations === Infinity;
+var boxOf2 = (target) => {
+  let element = target ?? null;
+  while (element?.ownerSVGElement) element = element.ownerSVGElement;
+  return element;
+};
+function installMotionRest({ doc = document, win = window, restMs = REST_MS, now = () => Date.now() } = {}) {
+  if (typeof doc?.getAnimations !== "function") return () => {
+  };
+  const loops = /* @__PURE__ */ new Map();
+  const held = /* @__PURE__ */ new Set();
+  const watched = /* @__PURE__ */ new Map();
+  const inView = /* @__PURE__ */ new WeakMap();
+  let last = now();
+  let resting = doc.hidden === true;
+  let timer = 0;
+  let queued = false;
+  let stopped = false;
+  const runs = (animation) => !resting && inView.get(loops.get(animation)) !== false;
+  const apply2 = () => {
+    for (const animation of loops.keys()) {
+      if (runs(animation)) {
+        if (held.delete(animation) && animation.playState === "paused") animation.play();
+      } else if (animation.playState === "running") {
+        animation.pause();
+        held.add(animation);
+      }
+    }
+  };
+  const observer = typeof win.IntersectionObserver === "function" ? new win.IntersectionObserver((entries2) => {
+    for (const entry of entries2) inView.set(entry.target, entry.isIntersecting);
+    apply2();
+  }) : null;
+  const watch = (element) => {
+    const count = watched.get(element) ?? 0;
+    watched.set(element, count + 1);
+    if (count === 0) observer?.observe(element);
+  };
+  const unwatch = (element) => {
+    const count = (watched.get(element) ?? 1) - 1;
+    if (count > 0) {
+      watched.set(element, count);
+      return;
+    }
+    watched.delete(element);
+    inView.delete(element);
+    observer?.unobserve(element);
+  };
+  const sync = () => {
+    queued = false;
+    if (stopped) return;
+    const current2 = new Set(doc.getAnimations().filter(isLoop));
+    for (const [animation, element] of loops) {
+      if (current2.has(animation)) continue;
+      loops.delete(animation);
+      if (held.delete(animation) && animation.playState === "paused") animation.play();
+      if (element) unwatch(element);
+    }
+    for (const animation of current2) {
+      if (loops.has(animation)) continue;
+      const element = boxOf2(animation.effect?.target);
+      loops.set(animation, element);
+      if (element) watch(element);
+    }
+    apply2();
+  };
+  const later = () => {
+    if (queued) return;
+    queued = true;
+    void Promise.resolve().then(sync);
+  };
+  const check = () => {
+    timer = 0;
+    const left = last + restMs - now();
+    if (left > 0) {
+      timer = win.setTimeout(check, left);
+      return;
+    }
+    resting = true;
+    sync();
+  };
+  const touch = () => {
+    last = now();
+    if (!timer) timer = win.setTimeout(check, restMs);
+    if (resting && doc.hidden !== true) {
+      resting = false;
+      sync();
+    }
+  };
+  const shown = () => {
+    if (doc.hidden === true) {
+      resting = true;
+      sync();
+    } else touch();
+  };
+  for (const type of INPUTS2) win.addEventListener(type, touch, { capture: true, passive: true });
+  win.addEventListener("focus", touch);
+  doc.addEventListener("visibilitychange", shown);
+  for (const type of CHANGES) doc.addEventListener(type, later, true);
+  timer = win.setTimeout(check, restMs);
+  sync();
+  return () => {
+    stopped = true;
+    for (const type of INPUTS2) win.removeEventListener(type, touch, { capture: true });
+    win.removeEventListener("focus", touch);
+    doc.removeEventListener("visibilitychange", shown);
+    for (const type of CHANGES) doc.removeEventListener(type, later, true);
+    if (timer) win.clearTimeout(timer);
+    observer?.disconnect();
+    for (const animation of held) if (animation.playState === "paused") animation.play();
+    held.clear();
+    loops.clear();
+    watched.clear();
+  };
+}
+
 // src/client/agent-new.js
 function agentSessionToReuse(list, latest, pending) {
   if (pending !== void 0 && list.byId[pending] === void 0) return pending;
@@ -44900,6 +45214,187 @@ function singleFlight(map, key, run2) {
   map.set(key, tracked);
   return tracked;
 }
+
+// src/client/text-annotation.js
+var import_react75 = require("react");
+var quoteMarkdown = (text) => text.replace(/\r\n?/gu, "\n").split("\n").map((line) => `> ${line}`).join("\n");
+var withAnnotation = (text, annotation) => annotation.trim() ? `${text}
+
+${annotation.trim()}` : text;
+var annotatedMessage = (text, annotation) => quoteMarkdown(withAnnotation(text, annotation));
+var annotationKey = (event) => event.key === "Enter" && !event.shiftKey && !event.isComposing && event.keyCode !== 229 ? event.ctrlKey || event.metaKey ? "send" : "add" : null;
+function insertAnnotation(inputActions, text, annotation) {
+  return inputActions.insertQuote(withAnnotation(text, annotation));
+}
+function TextSelectionAction({ sessionId, dismiss, readText, clearSelection, inputActions, useSession, useRoster, actions, t: hostT }) {
+  const enabled = useSession((state) => !state.removed && (state.subagent === null || state.subagent.address.mode === "continuable" && state.subagent.parentAvailable === true));
+  const team = useRoster((state) => state.byId[sessionId] !== void 0 || state.roomsById[sessionId] !== void 0);
+  const [editing, setEditing] = (0, import_react75.useState)(false);
+  const [excerpt, setExcerpt] = (0, import_react75.useState)(null);
+  const [annotation, setAnnotation] = (0, import_react75.useState)("");
+  const [sending, setSending] = (0, import_react75.useState)(false);
+  const [closing, setClosing] = (0, import_react75.useState)(false);
+  const field = (0, import_react75.useRef)(null);
+  const pending = (0, import_react75.useRef)(false);
+  const closeTimer = (0, import_react75.useRef)(null);
+  (0, import_react75.useEffect)(() => {
+    if (!enabled) dismiss();
+  }, [enabled, dismiss]);
+  (0, import_react75.useEffect)(() => {
+    if (!team || !enabled || !editing) return;
+    field.current?.focus();
+    if (typeof window !== "undefined") window.dispatchEvent(new Event("resize"));
+  }, [team, enabled, editing]);
+  (0, import_react75.useEffect)(() => () => clearTimeout(closeTimer.current), []);
+  if (!enabled) return null;
+  const close = () => {
+    clearSelection();
+    setClosing(true);
+    clearTimeout(closeTimer.current);
+    closeTimer.current = setTimeout(dismiss, reducedMotion() ? 0 : 160);
+  };
+  const closeNative = () => {
+    clearSelection();
+    dismiss();
+  };
+  const quoteText = () => excerpt ?? readText();
+  const quoteOnly = () => {
+    const text = readText();
+    if (text === null) {
+      dismiss();
+      return;
+    }
+    if (inputActions.insertQuote(text)) closeNative();
+  };
+  const startAnnotate = () => {
+    const text = readText();
+    if (text === null) {
+      dismiss();
+      return;
+    }
+    setExcerpt(text);
+    setEditing(true);
+  };
+  const add = () => {
+    const text = quoteText();
+    if (text === null) {
+      close();
+      return;
+    }
+    if (closing) return;
+    if (insertAnnotation(inputActions, text, annotation)) close();
+  };
+  const send = async () => {
+    const text = quoteText();
+    if (text === null) {
+      close();
+      return;
+    }
+    if (pending.current || closing) return;
+    pending.current = true;
+    setSending(true);
+    try {
+      await actions.send(sessionId, annotatedMessage(text, annotation));
+      close();
+    } catch (error) {
+      actions.reportError(error, "text-annotation");
+      setSending(false);
+      pending.current = false;
+      field.current?.focus();
+    }
+  };
+  const onKeyDown = (event) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();
+      close();
+      return;
+    }
+    const action = annotationKey(event);
+    if (action === null) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (action === "add") add();
+    else void send();
+  };
+  if (!team) {
+    return (0, import_react75.createElement)("button", {
+      type: "button",
+      className: "bt-quote-plain",
+      "aria-label": hostT("quote.add"),
+      onPointerDown: (event) => event.preventDefault(),
+      onClick: quoteOnly
+    }, hostT("quote.add"));
+  }
+  if (!editing) {
+    return (0, import_react75.createElement)(
+      "div",
+      { className: "bt-selection-actions" },
+      (0, import_react75.createElement)("button", {
+        type: "button",
+        className: "bt-selection-action",
+        "aria-label": hostT("quote.add"),
+        onPointerDown: (event) => event.preventDefault(),
+        onClick: quoteOnly
+      }, hostT("quote.add")),
+      (0, import_react75.createElement)("button", {
+        type: "button",
+        className: "bt-selection-action bt-quote-annotate",
+        "aria-label": t("Annotate"),
+        onPointerDown: (event) => event.preventDefault(),
+        onClick: startAnnotate
+      }, t("Annotate"))
+    );
+  }
+  return (0, import_react75.createElement)(
+    "section",
+    { className: "bt-annotation", "aria-label": t("Annotate quote"), "data-leaving": closing || void 0, onPointerDown: (event) => event.stopPropagation() },
+    (0, import_react75.createElement)("label", { className: "bt-annotation-label", htmlFor: "bt-annotation-field" }, t("Annotation")),
+    (0, import_react75.createElement)("blockquote", { className: "bt-annotation-quote" }, quoteText()),
+    (0, import_react75.createElement)("textarea", {
+      id: "bt-annotation-field",
+      ref: field,
+      value: annotation,
+      rows: 3,
+      placeholder: t("Add an annotation…"),
+      "aria-label": t("Annotation"),
+      disabled: sending || closing,
+      onChange: (event) => setAnnotation(event.target.value),
+      onKeyDown
+    }),
+    (0, import_react75.createElement)(
+      "div",
+      { className: "bt-annotation-actions" },
+      (0, import_react75.createElement)("button", { type: "button", className: "bt-annotation-add", disabled: sending || closing, onClick: add, title: t("Add quote and annotation to the composer · Enter") }, t("Add")),
+      (0, import_react75.createElement)("button", { type: "button", className: "bt-annotation-send", disabled: sending || closing, onClick: () => void send(), title: t("Send quote and annotation · Ctrl+Enter") }, sending ? t("Sending…") : t("Send"))
+    )
+  );
+}
+var ANNOTATION_CSS = `
+.bt-selection-actions{display:inline-flex;align-items:stretch;overflow:hidden;border-radius:10px;background:var(--dsw-alias-button-floating-fill,var(--bt-card));border:1px solid var(--bt-line-2);box-shadow:var(--dsw-elevation-panel,var(--bt-glass-shadow));animation:bt-annotation-in ${SPRING_TAP.duration}ms ${SPRING_TAP.easing},bt-annotation-veil .12s ease-out}
+.bt-selection-action{display:inline-flex;align-items:center;gap:5px;height:30px;border:0;border-radius:0;margin:0;padding:0 12px;background:transparent;color:var(--dsw-alias-label-primary,var(--bt-ink));font:500 13px/18px var(--bt-font);cursor:pointer;white-space:nowrap;touch-action:manipulation;transition:background-color .12s ease}
+.bt-selection-action+.bt-selection-action{border-left:1px solid var(--bt-line)}
+.bt-selection-action:focus-visible,.bt-selection-action:hover{background:var(--dsw-alias-button-floating-hover,var(--bt-hover));outline:none}
+.bt-quote-plain{corner-shape:round;background:var(--dsw-alias-button-floating-fill,var(--bt-card));--dsw-elevation-stroke-color:var(--dsw-alias-border-l3);box-shadow:var(--dsw-elevation-panel,var(--bt-glass-shadow));color:var(--dsw-alias-label-primary,var(--bt-ink));font:var(--dsw-font-xs-13,13px var(--bt-font));cursor:pointer;border:none;border-radius:999px;padding:5px 10px}
+.bt-quote-plain:focus-visible,.bt-quote-plain:hover{background:var(--dsw-alias-button-floating-hover,var(--bt-hover))}
+.bt-annotation{display:flex;flex-direction:column;gap:8px;width:min(360px,calc(100vw - 32px));box-sizing:border-box;padding:12px;background:var(--bt-card);border:.5px solid var(--bt-line-2);border-radius:12px;box-shadow:var(--bt-glass-shadow);color:var(--bt-ink);font:13px/18px var(--bt-font);animation:bt-annotation-in ${SPRING_TAP.duration}ms ${SPRING_TAP.easing},bt-annotation-veil .14s ease-out}
+.bt-annotation[data-leaving]{animation:bt-annotation-out .16s cubic-bezier(.22,1,.36,1) forwards;pointer-events:none}
+.bt-annotation-label{font:500 12px/16px var(--bt-font);color:var(--bt-ink-2)}
+.bt-annotation-quote{margin:0;padding:6px 10px;border-left:2px solid var(--bt-accent);border-radius:6px;background:var(--bt-tag-bg);color:var(--bt-ink-2);font:12px/16px var(--bt-font);white-space:pre-wrap;overflow-wrap:anywhere;max-height:96px;overflow:auto}
+.bt-annotation textarea{display:block;resize:vertical;width:100%;min-height:84px;max-height:180px;box-sizing:border-box;padding:8px 10px;border:1px solid var(--bt-line);border-radius:8px;outline:none;background:var(--bt-main);color:var(--bt-ink);font:14px/22px var(--bt-font)}
+.bt-annotation textarea:focus{border-color:var(--bt-accent);box-shadow:0 0 0 2px var(--bt-accent-soft)}
+.bt-annotation textarea::placeholder{color:var(--bt-ink-3)}
+.bt-annotation-actions{display:flex;justify-content:flex-end;gap:8px}
+.bt-annotation-actions button{height:28px;border:1px solid var(--bt-line-2);border-radius:999px;padding:0 12px;background:var(--bt-main);color:var(--bt-ink);font:12px/16px var(--bt-font);cursor:pointer;touch-action:manipulation}
+.bt-annotation-actions button:hover{background:var(--bt-hover)}
+.bt-annotation-actions .bt-annotation-send{background:var(--bt-accent);border-color:var(--bt-accent);color:var(--bt-accent-ink)}
+.bt-annotation-actions .bt-annotation-send:hover{filter:brightness(1.06)}
+.bt-annotation-actions button:disabled{opacity:.55;cursor:default}
+@keyframes bt-annotation-in{from{transform:translateY(3px) scale(.98)}to{transform:none}}
+@keyframes bt-annotation-veil{from{opacity:0}to{opacity:1}}
+@keyframes bt-annotation-out{from{opacity:1;transform:none}to{opacity:0;transform:translateY(2px) scale(.98)}}
+@media (prefers-reduced-motion:reduce){.bt-selection-actions,.bt-annotation,.bt-annotation[data-leaving]{animation:none}}
+`;
 
 // src/client/index.js
 var inject = ["sessions", "uiWorkspace", "uiConversation", "slots", "theme", "layout"];
@@ -45189,13 +45684,14 @@ function apply(ctx) {
   ctx.effect(() => () => {
     markupCache.clear();
   }, "ds-bot: character markup");
+  ctx.effect(() => installMotionRest(), "ds-bot: motion rest");
   const installMentions = () => {
     const style = installStyles("", "mentions");
     let last = "";
     const render = () => {
       const next = roster.getSnapshot().bots.map((bot) => {
         const anchor = `.bt-bubble a[href="${MENTION_ORIGIN}${bot.id}"]`;
-        const chip = /\s/.test(bot.name) ? "" : `[class*="_userRow"] [data-ref-chip="file"][title="@${bot.name.replace(/["\\]/g, "\\$&")}" i]`;
+        const chip = /\s/.test(bot.name) ? "" : `:is([class*="_userRow"],.bt-uhost) [data-ref-chip="file"][title="@${bot.name.replace(/["\\]/g, "\\$&")}" i]`;
         const look = lookOf(bot);
         const marks = chip ? `${anchor}::before,${chip}::before` : `${anchor}::before`;
         const mark2 = look.image ? `${marks}{background:center/cover url("${look.image}");-webkit-mask:none;mask:none;border-radius:50%}` : `${marks}{background:${paintCss(look.color)};-webkit-mask-image:${maskOf(look.shape)};mask-image:${maskOf(look.shape)}}`;
@@ -45763,6 +46259,7 @@ function apply(ctx) {
     });
   }
   const face = () => ({ actions, hooks: { roster, ui: ui2, activity, work, memoryNews, registry, turnClock, live, computer, cards, heldCards, browserPages, browserTabs, browserHolds, surface, update, frame, sidebarPref, settingsShellHeld } });
+  const hostDrawsUserText = typeof ctx.uiConversation.userText?.register === "function";
   ctx.effect(() => installCommandActions(ctx, { roster, actions }), "ds-bot: bot command actions");
   ctx.effect(() => {
     const offStyles = installCompiledStyles(SETTINGS_SHELL_CSS, "settings-shell");
@@ -45788,7 +46285,7 @@ function apply(ctx) {
     const binding = ctx.sessions.binding(sessionId);
     if (binding === void 0) throw new Error(`ds-bot: unknown session "${sessionId}"`);
     const chat = ctx.uiConversation.binding(binding).target("chat");
-    return { ...face(), keyedHooks: {
+    return { ...face(), fileMentions: fileMentionSource(ctx, sessionId), keyedHooks: {
       turnSteps: (turn) => {
         const snapshot = chat.getSnapshot();
         if (snapshot === void 0) throw new Error("ds-bot: Chat target is unavailable");
@@ -46021,9 +46518,11 @@ function apply(ctx) {
     () => installCompiledStyles(CONVERSATION_CSS + READ_ONLY_CSS, "conversation"),
     () => installCompiledStyles(TURN_ERROR_CSS, "turn-errors"),
     () => installCompiledStyles(QUEUE_CSS, "queue"),
+    () => installCompiledStyles(ANNOTATION_CSS, "text-annotation"),
     () => installMentions(),
     () => installAtMenu(),
     installHeader,
+    () => shadow("conversation.chat.text-interaction", { key: "quote", priority: BOT_PRIORITY, locale: "messageQuotes", inject: face }, TextSelectionAction),
     () => shadow("conversation.chat.node", { key: "assistant-step", priority: BOT_PRIORITY, locale: "chat", inject: assistantFace }, AssistantCell),
     () => shadow("conversation.chat.node", { key: "turn-trigger", priority: BOT_PRIORITY, locale: "chat", inject: face }, TriggerCell),
     () => shadow("conversation.chat.node", { key: "tool-call", priority: BOT_PRIORITY, locale: "chat", inject: face }, ToolCell),
@@ -46047,7 +46546,19 @@ function apply(ctx) {
     // A Bot chat leaves DSH's context lines (tool updates, injected context) out; a Bot
     // message spliced in mid-turn gets an event line from the step that reads it instead.
     () => shadow("conversation.chat.node", { key: "context", priority: BOT_PRIORITY, locale: "chat" }, CellEmpty),
-    ...canDrawUserMessages() ? ["user", "steering"].map((key) => () => shadow("conversation.chat.node", { key, priority: BOT_PRIORITY, locale: "chat", inject: face }, UserMessageCell)) : [],
+    ...canDrawUserMessages(hostDrawsUserText) ? [() => installUserBubble(ctx.slots, () => {
+      const offs = ["user", "steering"].map((key) => shadow("conversation.chat.node", { key, priority: BOT_PRIORITY, locale: "chat", inject: face }, UserMessageCell));
+      return () => {
+        for (const off of offs) off();
+      };
+    })] : [],
+    // DSH 0.2.2-rc.1 draws user text by rules, and its file rule cuts "@新 Bot" at the
+    // space. A rule of ours claims a whole Bot name first; releases that still have the
+    // text projection (above) have no such registry.
+    ...typeof ctx.uiConversation.userText?.register === "function" ? [
+      () => installBotMentionRule(ctx.uiConversation.userText, roster),
+      () => shadow("conversation.user.text.node", { key: BOT_MENTION_ID, inject: face }, BotMention)
+    ] : [],
     () => shadow("conversation.input.permission", { priority: BOT_PRIORITY }, Nothing),
     () => shadow("conversation.input.plan", { priority: BOT_PRIORITY }, Nothing),
     // The composer carries no model picker or run statistics; a Bot's model lives

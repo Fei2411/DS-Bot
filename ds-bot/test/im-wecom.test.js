@@ -175,11 +175,12 @@ test('a file message arrives as bytes with the name from content-disposition', a
 
   const fake = await fakeWecom()
   const messages = []
+  let disposition = `attachment; filename*=UTF-8''${encodeURIComponent('季度报告.pdf')}`
   const mediaEnv = {
     ...env(fake),
     fetch: async () => ({
       ok: true,
-      headers: { get: name => (name.toLowerCase() === 'content-disposition' ? `attachment; filename*=UTF-8''${encodeURIComponent('季度报告.pdf')}` : null) },
+      headers: { get: name => (name.toLowerCase() === 'content-disposition' ? disposition : null) },
       arrayBuffer: async () => encrypted,
     }),
   }
@@ -191,6 +192,12 @@ test('a file message arrives as bytes with the name from content-disposition', a
   assert.ok(delivered, 'the file reached onMessage')
   assert.equal(delivered.files[0].name, '季度报告.pdf')
   assert.equal(delivered.files[0].data.toString(), plain.toString())
+  // The header grammar allows a semicolon inside a quoted name, so the name must
+  // not be cut there and lose its extension.
+  disposition = 'attachment; filename="report;final.pdf"'
+  fake.push(ws, { cmd: 'aibot_msg_callback', headers: { req_id: 'req-f2' }, body: { msgid: 'm-f2', msgtype: 'file', chattype: 'single', from: { userid: 'u1' }, file: { url: 'https://cdn.invalid/f2', aeskey: key.toString('base64') } } })
+  const quoted = await until(() => messages.find(msg => msg.messageId === 'm-f2'))
+  assert.equal(quoted.files[0].name, 'report;final.pdf')
 })
 
 test('a video message arrives as a file, and a text message still carries none', async (t) => {
