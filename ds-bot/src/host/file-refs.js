@@ -6,6 +6,9 @@ const EXTENSION = /\.[a-z0-9]{1,8}$/i
 const CODE_SPAN = /`([^`\r\n]{1,400})`/g
 const FENCED_CODE = /```[^\n]*\n([\s\S]{1,4000}?)```/g
 const MARKDOWN_LINK = /\[([^\]\r\n]{1,200})\]\(\s*<?([^)\s>]{1,800})>?\s*\)/g
+// A path a Bot puts on its own line, often behind an icon or a bullet, ending the
+// line with the file name: "▣ Desktop/التقرير.pdf".
+const PLAIN_PATH = /(?:^|[\s(])((?:~\/|\/|(?:Desktop|Downloads|Documents)\/)[^\n]{1,600}?\.[a-z0-9]{1,8})[ \t]*$/gim
 const WEB = /^https?:\/\//i
 const SKIP = /^(?:mailto:|data:|javascript:|#)/i
 const LINK_BAD = /[\s*?"<>|]/
@@ -53,6 +56,11 @@ export function fileCandidates(text) {
       if (WEB.test(candidate) || SKIP.test(candidate) || !codePathLike(candidate)) continue
       add({ kind: 'path', value: candidate, name: nameOf(candidate) })
     }
+  }
+  for (const match of value.matchAll(PLAIN_PATH)) {
+    const candidate = match[1].trim()
+    if (WEB.test(candidate) || candidate.includes('://') || !codePathLike(candidate)) continue
+    add({ kind: 'path', value: candidate, name: nameOf(candidate) })
   }
   for (const match of value.matchAll(MARKDOWN_LINK)) {
     const label = match[1].trim()

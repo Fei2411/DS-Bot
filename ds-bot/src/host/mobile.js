@@ -6,7 +6,8 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { readFile, realpath, stat } from 'node:fs/promises'
-import { basename, extname, isAbsolute, resolve } from 'node:path'
+import { homedir } from 'node:os'
+import { basename, extname, isAbsolute, join, resolve } from 'node:path'
 import { FILE_MAX_BYTES, HANDOFF_ACK, HISTORY_TIMEOUT_MS, SOURCE_KIND } from './constants.js'
 import { fileCandidates } from './file-refs.js'
 import { within } from './folders.js'
@@ -443,6 +444,9 @@ export function install(rt) {
     // workspace to name; the default folder still applies.
     if (ctx.workspaceRegistry !== undefined) add(rt.teamFolder?.())
     add(rt.defaultTeamFolder?.())
+    // A Bot often hands a finished file over on the Desktop or in Downloads. Those
+    // folders are readable; the rest of the home, secrets included, is not.
+    for (const name of ['Desktop', 'Downloads', 'Documents']) add(join(homedir(), name))
     for (const bot of Object.values(state.bots ?? {})) {
       add(bot.workDir)
       // A Bot that moved its Session to a folder with working_directory wrote the
@@ -469,7 +473,9 @@ export function install(rt) {
   }
 
   async function resolveFile(value, roots) {
-    const attempts = isAbsolute(value) ? [value] : roots.map(root => resolve(root, value))
+    // A reply may name a user folder by itself ("Desktop/report.pdf"); resolving it
+    // from the home finds it, and the containment check below still holds.
+    const attempts = isAbsolute(value) ? [value] : [...roots, homedir()].map(root => resolve(root, value))
     for (const attempt of attempts) {
       const real = await realpath(attempt).catch(() => undefined)
       if (real === undefined || !roots.some(root => within(real, root))) continue

@@ -13,6 +13,11 @@ test('a path with spaces, brackets and Arabic in a code block is found', () => {
   assert.deepEqual(found, [{ kind: 'path', value: path, name: '(معدل) - تحت [إشراف] النظام الغذائي العلاجي .pdf' }])
 })
 
+test('a path on its own line, behind an icon, is found', () => {
+  const found = fileCandidates('بعته — وده نفس الملف:\n▣ Desktop/(معدل) - تحت [إشراف] النظام الغذائي العلاجي .pdf\nلو مش شايفه قولي.')
+  assert.deepEqual(found, [{ kind: 'path', value: 'Desktop/(معدل) - تحت [إشراف] النظام الغذائي العلاجي .pdf', name: '(معدل) - تحت [إشراف] النظام الغذائي العلاجي .pdf' }])
+})
+
 test('a markdown link to a local file drops sandbox: and names the real file', () => {
   const found = fileCandidates('اتفضل [التقرير النهائي](sandbox:/work/out/report.pdf)')
   assert.deepEqual(found, [{ kind: 'path', value: '/work/out/report.pdf', name: 'report.pdf' }])
