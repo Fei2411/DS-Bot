@@ -264,12 +264,6 @@ export function install(rt) {
         // again, so pin the version that is actually running.
         const oldSpec = await Promise.resolve(installSpecOf(ctx)).catch(() => undefined)
         const previous = typeof oldSpec === 'string' && sourceOf(oldSpec).kind === 'registry' ? `${PKG.name}@${PKG.version}` : oldSpec
-        mark()
-        const removed = await Promise.resolve(service.removeBundle(PKG.name)).catch((error) => { unmark(); throw error })
-        if (removed?.error) {
-          unmark()
-          return { error: removed.error }
-        }
         // The bundle is gone now; a failed install leaves no DS Bot unless the old one goes back.
         const restore = async (failed) => {
           if (typeof previous !== 'string' || previous === '') return failed
@@ -279,6 +273,26 @@ export function install(rt) {
             return failed
           }
           return `${failed}; ${previous} was reinstalled`
+        }
+        // A removal that fails can still have taken the bundle out of the profile
+        // (`changed`), or it threw with the profile in an unknown state. Selecting
+        // the bundle again is harmless when it never left; if the dependency is gone
+        // too, the old version is installed again.
+        const recover = async (failed) => {
+          const on = await Promise.resolve(service.setBundleEnabled?.(PKG.name, true)).catch(() => null)
+          if (on && !on.error && ['applied', 'restart-required'].includes(on.application)) return `${failed}; ${PKG.name} was enabled again`
+          return restore(failed)
+        }
+        mark()
+        const removed = await Promise.resolve(service.removeBundle(PKG.name)).catch(async (error) => {
+          mark(await recover(error?.message ?? String(error)))
+          throw error
+        })
+        if (removed?.error) {
+          const failed = removed.error.diagnostic ?? removed.error.code
+          if (removed.changed) mark(await recover(failed))
+          else unmark()
+          return { error: removed.error }
         }
         try {
           const again = await service.installBundle(chosen.spec, options)
