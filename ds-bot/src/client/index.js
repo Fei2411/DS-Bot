@@ -68,6 +68,7 @@ import { listedOpener } from './open-listed.js'
 import { needsIdleSample, pollDelay } from './polling.js'
 import { installMotionRest } from './motion-rest.js'
 import { agentSessionToReuse, singleFlight } from './agent-new.js'
+import { TextSelectionAction, ANNOTATION_CSS } from './text-annotation.js'
 
 export const inject = ['sessions', 'uiWorkspace', 'uiConversation', 'slots', 'theme', 'layout']
 
@@ -1233,9 +1234,11 @@ export function apply(ctx) {
     () => installCompiledStyles(CONVERSATION_CSS + READ_ONLY_CSS, 'conversation'),
     () => installCompiledStyles(TURN_ERROR_CSS, 'turn-errors'),
     () => installCompiledStyles(QUEUE_CSS, 'queue'),
+    () => installCompiledStyles(ANNOTATION_CSS, 'text-annotation'),
     () => installMentions(),
     () => installAtMenu(),
     installHeader,
+    () => shadow('conversation.chat.text-interaction', { key: 'quote', priority: BOT_PRIORITY, locale: 'messageQuotes', inject: face }, TextSelectionAction),
     () => shadow('conversation.chat.node', { key: 'assistant-step', priority: BOT_PRIORITY, locale: 'chat', inject: assistantFace }, AssistantCell),
     () => shadow('conversation.chat.node', { key: 'turn-trigger', priority: BOT_PRIORITY, locale: 'chat', inject: face }, TriggerCell),
     () => shadow('conversation.chat.node', { key: 'tool-call', priority: BOT_PRIORITY, locale: 'chat', inject: face }, ToolCell),
