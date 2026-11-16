@@ -11,19 +11,25 @@ import { estimateTokens } from './text.js'
 // For a model that declares no window.
 export const DEFAULT_WINDOW = 500_000
 export const DEFAULT_CHECK_RATIO = 0.8
+// Provider prefix caches stop helping above a few hundred thousand tokens, and a
+// request past that point pays a full prefill every time. A model with a very large
+// window would otherwise keep one part alive far past it, so the check line has an
+// absolute ceiling as well as its share of the window.
+export const DEFAULT_CHECK_TOKENS = 380_000
 // Context sizes between requests are estimates, so the hard line stays a little
 // below what the model can actually take.
 const HARD_SHARE = 0.95
 const STEWARD_TOKENS = 6_000
 const STEWARD_LINE_MAX = 1_500
 
-export function linesFor({ window, reserve, checkRatio }) {
+export function linesFor({ window, reserve, checkRatio, checkTokens }) {
   const declared = Number.isInteger(window) && window > 0 ? window : DEFAULT_WINDOW
   const room = Number.isInteger(reserve) && reserve > 0 ? reserve : 0
   const usable = Math.max(declared - room, Math.floor(declared / 2))
   const hard = Math.floor(usable * HARD_SHARE)
   const ratio = typeof checkRatio === 'number' && checkRatio > 0 && checkRatio < 1 ? checkRatio : DEFAULT_CHECK_RATIO
-  return { window: declared, usable, hard, check: Math.min(Math.floor(usable * ratio), hard) }
+  const cap = Number.isInteger(checkTokens) && checkTokens > 0 ? checkTokens : DEFAULT_CHECK_TOKENS
+  return { window: declared, usable, hard, check: Math.min(Math.floor(usable * ratio), hard, cap) }
 }
 
 export const STEWARD_SYSTEM = [

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
   RAIL_WIDTH, RAIL_SNAP, SIDEBAR_MIN, SIDEBAR_MAX, MIN_CHAT, FALLBACK_SIDEBAR_WIDTH,
-  frameLayout, dragColumn, toggledPref, userSidebarToggle, readSidebar, writeSidebar,
+  frameLayout, dragColumn, toggledPref, trackRoom, nextCollapsedWidth, userSidebarToggle, readSidebar, writeSidebar,
 } from '../src/client/frame-layout.js'
 import { createSource } from '../src/client/sources.js'
 import { teamActions } from '../src/client/team-actions.js'
@@ -214,4 +214,36 @@ test('opening new chat closes the floating drawer', () => {
   actions.openNewChat('new')
   assert.equal(ui.getSnapshot().newChat, 'new')
   assert.equal(ui.getSnapshot().leftDrawer, false)
+})
+
+test('only the part of the collapsed track inside the window counts as its room', () => {
+  // Desktop icon rail, frameless window, phone-width off-canvas sidebar, one still sliding out.
+  assert.equal(trackRoom({ width: 56, right: 56 }), 56)
+  assert.equal(trackRoom({ width: 0, right: 0 }), 0)
+  assert.equal(trackRoom({ width: 280, right: 0 }), 0)
+  assert.equal(trackRoom({ width: 280, right: 40 }), 40)
+  // A track offset from the window's edge still takes only its own width.
+  assert.equal(trackRoom({ width: 56, right: 64 }), 56)
+})
+
+// The collapsed track is subtracted from our rail's push, so a track the frame does not
+// have leaves the rail over the conversation: the narrow web shell on a phone keeps none,
+// and the 56px platform guess must not stand in for it (#1084).
+test('a frame with no sidebar column keeps no collapsed track', () => {
+  assert.equal(nextCollapsedWidth({ measured: null, collapsed: null, last: 56 }), 0)
+})
+
+test('a collapsed shell column counts its measured width, not a platform guess', () => {
+  assert.equal(nextCollapsedWidth({ measured: 56, collapsed: true, last: 56 }), 56)
+  assert.equal(nextCollapsedWidth({ measured: 0, collapsed: true, last: 56 }), 0)
+  // The column went away while the shell still reports itself collapsed: nothing to subtract.
+  assert.equal(nextCollapsedWidth({ measured: null, collapsed: true, last: 56 }), 0)
+})
+
+test('an open shell column keeps the last collapsed track', () => {
+  assert.equal(nextCollapsedWidth({ measured: 280, collapsed: false, last: 56 }), 56)
+})
+
+test('a sliding shell sidebar keeps its last settled width', () => {
+  assert.equal(nextCollapsedWidth({ measured: null, collapsed: true, animating: true, last: 56 }), 56)
 })

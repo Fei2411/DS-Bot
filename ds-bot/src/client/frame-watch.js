@@ -2,15 +2,18 @@
 // sidebar track, and the one CSS rule that writes the conversation column's
 // margins (our own column on the left, the Bot panel on the right).
 import { installStyles } from './styles.js'
+import { nextCollapsedWidth, trackRoom } from './frame-layout.js'
 
-export const sidebarTrackWidth = () =>
-  typeof document === 'undefined' ? null : document.querySelector('[class*="_sidebarCol"]')?.getBoundingClientRect().width ?? null
+export const sidebarTrackWidth = () => {
+  const box = typeof document === 'undefined' ? undefined : document.querySelector('[class*="_sidebarCol"]')?.getBoundingClientRect()
+  return box === undefined ? null : trackRoom(box)
+}
 
 // The shell frame marks itself [data-sidebar-collapsed]; null when no frame is found.
 export const dshCollapsed = () => {
   if (typeof document === 'undefined') return null
   const column = document.querySelector('[class*="_sidebarCol"]')
-  return column ? (column.parentElement?.hasAttribute('data-sidebar-collapsed') ?? false) : null
+  return column ? column.closest('[data-sidebar-collapsed]') !== null : null
 }
 
 // The track the collapsed shell sidebar keeps: nothing under a frameless window
@@ -79,7 +82,7 @@ export function installFrameWatch(frame) {
     const animating = column?.closest('[data-animating]') != null
     const width = animating ? null : sidebarTrackWidth()
     const collapsed = dshCollapsed()
-    if (width !== null && collapsed === true) collapsedWidth = width
+    collapsedWidth = nextCollapsedWidth({ measured: width, collapsed, animating, last: collapsedWidth })
     frame.set((state) => {
       const next = { ...state, viewport: window.innerWidth, collapsedWidth, collapsed: collapsed === true }
       return state.viewport === next.viewport && state.collapsedWidth === next.collapsedWidth && state.collapsed === next.collapsed ? state : next

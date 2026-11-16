@@ -1,18 +1,20 @@
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { test } from 'node:test'
 import { LocalAgentAdapter } from '../src/host/local-agents/adapter.js'
-import { AcpEngine } from '../src/host/local-agents/acp.js'
+import { AcpEngine, stdioBridgePath } from '../src/host/local-agents/acp.js'
 import { CodexEngine } from '../src/host/local-agents/codex.js'
 import { JsonRpcPeer, wireProcess } from '../src/host/local-agents/jsonrpc.js'
 import { ClaudeEngine } from '../src/host/local-agents/claude.js'
 import { LoopbackMcp, flattenSchema } from '../src/host/local-agents/mcp.js'
 import { cleanEnv } from '../src/host/local-agents/discover.js'
-import { validateCustom, isLocalAgentRoute, cliMode, acpMode } from '../src/host/local-agents/engines.js'
+import { ENGINES, validateCustom, isLocalAgentRoute, cliMode, acpMode } from '../src/host/local-agents/engines.js'
+import { AGENT_BADGES, agentAvatar, badgeOf, isLocalRoute } from '../src/client/agent-routes.js'
+import { INKS } from '../src/client/inks.js'
 import { install as partsInstall } from '../src/host/parts.js'
 import { install as modelsInstall } from '../src/host/models.js'
 import { fakeContext } from './fake-ctx.js'
@@ -25,11 +27,13 @@ const system = (id, text) => ({ id, role: 'system', content: [{ type: 'text', te
 const toolResult = (id, callId, text, isError = false) => ({ id, role: 'tool', content: [{ type: 'text', text }], toolCallId: callId, isError, source: { kind: 'tool', callId } })
 
 // An adapter wired to the fake CLIs: every engine route spawns `node fixture`.
-function makeAdapter({ records = {}, preset = 'workspace-write', acp = FIXTURES.acp, acpArgs = [], codex = FIXTURES.codex, codexArgs = [], claude = FIXTURES.claude, claudeArgs = [] } = {}) {
+function makeAdapter({ records = {}, preset = 'workspace-write', acp = FIXTURES.acp, acpArgs = [], codex = FIXTURES.codex, codexArgs = [], claude = FIXTURES.claude, claudeArgs = [], cwdFor, attachments, fs, rt } = {}) {
   const files = { acp, codex, claude }
   const spawned = []
   const adapter = new LocalAgentAdapter({
-    rt: { warn: () => {} },
+    rt: rt ?? { warn: () => {} },
+    attachments,
+    fs,
     customAgents: () => [{ id: 'fake', name: 'Fake ACP', command: 'x', args: [] }, { id: 'fake2', name: 'Fake ACP 2', command: 'x', args: [] }],
     findExecutable: path => path,
     spawnEngine: (kind, route, spec) => {
@@ -41,8 +45,8 @@ function makeAdapter({ records = {}, preset = 'workspace-write', acp = FIXTURES.
     },
     record: sessionId => records[sessionId],
     saveRecord: (sessionId, record) => { records[sessionId] = record },
-    presetFor: () => preset,
-    cwdFor: async () => mkdtempSync(join(tmpdir(), 'dsb-cwd-')),
+    presetFor: typeof preset === 'function' ? preset : () => preset,
+    cwdFor: cwdFor ?? (async () => mkdtempSync(join(tmpdir(), 'dsb-cwd-'))),
     probeCwd: () => mkdtempSync(join(tmpdir(), 'dsb-probe-')),
     toolsFor: () => [{ name: 'message_bot', description: 'Message another Bot', parameters: { type: 'object', properties: { bot: { type: 'string' }, text: { type: 'string' } } } }],
   })
@@ -289,6 +293,42 @@ test('acp: the preset picks among the modes the session lists', async (t) => {
   assert.match((await collect(write.stream(options('s1', [user('m1', 'show-mode')])))).text, /mode: agent; refused: 0/)
 })
 
+// #1503: a live CLI keeps the permission mode it opened with. Changing the
+// Bot's preset must reopen the CLI for the next turn, not wait for a restart.
+test('a changed permission preset reopens the local agent for the next turn', async () => {
+  let preset = 'workspace-write'
+  const adapter = makeAdapter({ preset: () => preset })
+  try {
+    const first = await collect(adapter.stream(options('s1', [user('m1', 'show-mode')])))
+    assert.match(first.text, /mode: accept-edits/)
+    preset = 'danger-full-access'
+    const second = await collect(adapter.stream(options('s1', [user('m2', 'show-mode')])))
+    assert.match(second.text, /mode: bypass/)
+  } finally {
+    await adapter.dispose()
+  }
+})
+
+test('codex: a changed permission preset resumes the thread with the new sandbox and approval', async () => {
+  let preset = 'workspace-write'
+  const record = join(mkdtempSync(join(tmpdir(), 'dsb-codex-preset-')), 'params.jsonl')
+  const records = {}
+  const adapter = makeAdapter({ preset: () => preset, records, codexArgs: ['--record', record] })
+  try {
+    const request = (id, text) => options('s1', [user(id, text)], { provider: 'local-codex-cli', model: 'gpt-5.1-codex' })
+    await collect(adapter.stream(request('m1', 'hello')))
+    preset = 'danger-full-access'
+    await collect(adapter.stream(request('m2', 'again')))
+  } finally {
+    await adapter.dispose()
+  }
+  const calls = readFileSync(record, 'utf8').trim().split('\n').map(line => JSON.parse(line))
+  const resumed = calls.filter(call => call.method === 'thread/resume')
+  assert.equal(resumed.length, 1)
+  assert.equal(resumed[0].params.sandbox, 'danger-full-access')
+  assert.equal(resumed[0].params.approvalPolicy, 'never')
+})
+
 test('probeModels reports the probe session\'s model options plus CLI default', async (t) => {
   const adapter = makeAdapter()
   t.after(() => adapter.dispose())
@@ -459,6 +499,28 @@ test('a write to a CLI that has exited does not throw out of DS Bot', async () =
     process.off('uncaughtException', hear)
   }
   assert.deepEqual(unheard.map(error => error.code), [])
+})
+
+// A CLI that exists but cannot run (a broken install, a missing interpreter)
+// fails spawn with 'error', not 'exit'; unheard it took the whole host down.
+test('a CLI that cannot start fails its probe as a typed error, not the host', async () => {
+  const broken = join(mkdtempSync(join(tmpdir(), 'dsb-broken-')), 'broken-cli')
+  writeFileSync(broken, '#!/missing/interpreter/never\nexit 1\n', { mode: 0o755 })
+  const unheard = []
+  const hear = error => unheard.push(error)
+  process.on('uncaughtException', hear)
+  try {
+    for (const Engine of [AcpEngine, CodexEngine]) {
+      const engine = new Engine('local-broken', { name: 'Broken CLI', command: broken, args: [] }, { findExecutable: () => broken })
+      await assert.rejects(() => engine.ensure(), error => error.code === 'LOCAL_AGENT_EXIT' && /could not start/.test(error.message))
+      // The failed process is let go of: the next ensure() tries a fresh one.
+      assert.equal(engine.peer, undefined)
+      assert.equal(engine.child, undefined)
+    }
+  } finally {
+    process.off('uncaughtException', hear)
+  }
+  assert.deepEqual(unheard, [])
 })
 
 test('claude: another model restarts only that conversation\'s process, with its new tool server', async (t) => {
@@ -729,7 +791,9 @@ test('flattenSchema removes unions, refs and const', () => {
 
 // The steward must never touch an abot's Session: the pre-step listener returns
 // early for a local-agent Bot, and checkContext leaves too.
-test('the steward leaves a local-agent Session alone', async () => {
+// A CLI condenses on its own inside a running turn: its part is checked when the turn
+// ends (test/local-agent-context.test.js), never before a step.
+test('a running turn of a local-agent part is not checked before its steps', async () => {
   const ctx = fakeContext()
   const bot = { id: 'b1', name: 'Kai', sessionId: 's1', model: 'local-acp-fake/default' }
   const rt = {
@@ -747,6 +811,8 @@ test('the steward leaves a local-agent Session alone', async () => {
     chatOf: () => 's1',
     isBotSession: id => id === 's1',
     isLocalAgentRef: ref => typeof ref === 'string' && ref.startsWith('local-acp-'),
+    isLocalAgentRoute: route => route.startsWith('local-acp-'),
+    localAgentContext: () => ({ used: 999_999, size: 200_000, compactions: 0 }),
     chatOwners: new Map([['s1', 'b1']]),
     groupOwners: new Map(),
     pastOwners: new Map(),
@@ -758,7 +824,7 @@ test('the steward leaves a local-agent Session alone', async () => {
   partsInstall(rt)
   const listener = ctx.listeners.get('agent/pre-step')?.[0]
   assert.ok(listener !== undefined)
-  const agent = { id: 's1', session: { id: 's1', deriveMessages: () => [] }, status: 'idle' }
+  const agent = { id: 's1', session: { id: 's1', deriveMessages: () => [], requestHeader: () => ({ config: { provider: 'local-acp-fake', model: 'default' } }) }, status: 'idle' }
   const next = async () => 'next-called'
   const result = await listener({ agent, messages: [] }, next)
   assert.equal(result, 'next-called')
@@ -857,4 +923,777 @@ test('an open-ended request outlives the default deadline', async () => {
   assert.equal(await settled, 'timeout', 'a positive timeout still fires')
   peer.handleLine(JSON.stringify({ jsonrpc: '2.0', id: 1, result: { stopReason: 'end_turn' } }))
   assert.deepEqual(await open, { stopReason: 'end_turn' }, 'a 0 timeout never expires')
+})
+
+// #1513: a card that suspends the stream can outlive the CLI's turn. The answer must
+// start a turn of its own, and the finished turn's leftover events must not answer it.
+test('codex app-server: an answer whose turn already ended starts a new turn', async (t) => {
+  const adapter = makeAdapter()
+  t.after(() => adapter.dispose())
+  const messages = [user('m1', 'late-ask')]
+  const first = await collect(adapter.stream(options('s1', messages, { provider: 'local-codex-cli' })))
+  const call = first.calls.find(entry => entry.name === 'approve_agent_action')
+  assert.ok(call, 'the approval came as a card')
+  // The CLI's turn completed while the card was open: its `done` is still queued.
+  await new Promise(resolve => setTimeout(resolve, 100))
+  const second = await collect(adapter.stream(options('s1', [...messages, toolResult('t1', call.id, '{"decision":"allow"}', false)], { provider: 'local-codex-cli' })))
+  // The answer opened a turn of its own, and the stream says what that turn said.
+  assert.match(second.text, /ok: /, JSON.stringify(second))
+  assert.equal(second.finish?.kind, 'stop')
+})
+
+test('codex app-server: a steer refused while the turn ends still gets a turn of its own', async (t) => {
+  const adapter = makeAdapter()
+  t.after(() => adapter.dispose())
+  const messages = [user('m1', 'hold-ask')]
+  const first = await collect(adapter.stream(options('s1', messages, { provider: 'local-codex-cli' })))
+  assert.ok(first.calls.some(entry => entry.name === 'approve_agent_action'), 'the card came through')
+  // The CLI refuses the steer and completes the turn in the same breath.
+  const second = await collect(adapter.stream(options('s1', [...messages, user('m2', 'race')], { provider: 'local-codex-cli' })))
+  assert.match(second.text, /ok: race/, JSON.stringify(second))
+})
+
+test('codex app-server: text answering a bridged call after the turn ended starts one', async (t) => {
+  const adapter = makeAdapter()
+  t.after(() => adapter.dispose())
+  const messages = [user('m1', 'late-ask')]
+  const first = await collect(adapter.stream(options('s1', messages, { provider: 'local-codex-cli' })))
+  assert.ok(first.calls.some(entry => entry.name === 'approve_agent_action'), 'the card came through')
+  // A loopback call is still open — browser_handoff and friends look like this — and
+  // the user answers it with plain text after the CLI's turn already ended.
+  const live = adapter.live.get('s1')
+  const answered = []
+  live.pending.set('bridged-1', { name: 'browser_handoff', resolve: result => answered.push(result) })
+  const second = await collect(adapter.stream(options('s1', [...messages, user('m2', 'yes, go ahead')], { provider: 'local-codex-cli' })))
+  assert.deepEqual(answered, [{ text: 'yes, go ahead' }], 'the answer reached the bridged call')
+  assert.match(second.text, /ok: The calls that were waiting on the user are settled/, JSON.stringify(second))
+})
+
+test('codex app-server: a late notice for an earlier turn keeps the running turn steerable', async (t) => {
+  const recordPath = join(mkdtempSync(join(tmpdir(), 'dsb-late-')), 'record.jsonl')
+  const engine = new CodexEngine('local-codex-cli', { name: 'Codex', command: process.execPath, args: [FIXTURES.codex, '--record', recordPath] }, { findExecutable: path => path })
+  t.after(() => { engine.close?.() })
+  const thread = await engine.open('s1', { cwd: mkdtempSync(join(tmpdir(), 'dsb-late-cwd-')), mode: 'workspace-write' })
+  const first = await engine.prompt(thread, [{ type: 'text', text: 'hold' }], {})
+  const second = await engine.prompt(thread, [{ type: 'text', text: 'hold' }], {})
+  assert.notEqual(first, second)
+  // The turn a steer replaced finishes late: its notice must not clear the live turn.
+  await engine.steer(thread, `emit-stale ${first}`)
+  assert.equal(engine.canSteer(thread), true, 'the running turn stays steerable')
+  await engine.steer(thread, 'next input')
+  const lines = readFileSync(recordPath, 'utf8').trim().split('\n').filter(line => line !== '').map(line => JSON.parse(line))
+  const starts = lines.filter(entry => entry.method === 'turn/start')
+  assert.equal(starts.length, 2, 'no turn was started to replace the live one')
+  const steer = lines.filter(entry => entry.method === 'turn/steer').at(-1)
+  assert.equal(steer.params.expectedTurnId, second, 'the next input steers the running turn')
+})
+
+test('codex app-server: the approval answer rides along with runtime context in the new turn', async (t) => {
+  const recordPath = join(mkdtempSync(join(tmpdir(), 'dsb-settled-')), 'record.jsonl')
+  const adapter = makeAdapter({ codexArgs: ['--record', recordPath] })
+  t.after(() => adapter.dispose())
+  const messages = [user('m1', 'late-ask')]
+  const first = await collect(adapter.stream(options('s1', messages, { provider: 'local-codex-cli' })))
+  const call = first.calls.find(entry => entry.name === 'approve_agent_action')
+  assert.ok(call, 'the approval came as a card')
+  // The CLI's turn is over. The answer arrives in the same call as runtime context, which
+  // used to become the whole prompt and leave the decision behind.
+  const context = { id: 'c1', role: 'user', content: [{ type: 'text', text: 'workspace note: the folder is /team' }], source: { kind: 'runtime-context' } }
+  await collect(adapter.stream(options('s1', [...messages, toolResult('t1', call.id, '{"decision":"allow"}', false), context], { provider: 'local-codex-cli' })))
+  const lines = readFileSync(recordPath, 'utf8').trim().split('\n').filter(line => line !== '').map(line => JSON.parse(line))
+  const starts = lines.filter(entry => entry.method === 'turn/start')
+  const last = starts.at(-1)
+  const text = (last?.params?.input ?? []).map(item => item.text ?? '').join('\n')
+  assert.match(text, /\{"decision":"allow"\}/, `the decision reached the turn: ${text}`)
+  assert.match(text, /workspace note: the folder is \/team/, `the context reached the turn: ${text}`)
+})
+
+test('codex app-server: a steer names the turn it steers, and a finished turn cannot be steered', async (t) => {
+  const recordPath = join(mkdtempSync(join(tmpdir(), 'dsb-steer-')), 'record.jsonl')
+  const engine = new CodexEngine('local-codex-cli', { name: 'Codex', command: process.execPath, args: [FIXTURES.codex, '--record', recordPath] }, { findExecutable: path => path })
+  t.after(() => { engine.close?.() })
+  const thread = await engine.open('s1', { cwd: mkdtempSync(join(tmpdir(), 'dsb-steer-cwd-')), mode: 'workspace-write' })
+  const turnId = await engine.prompt(thread, [{ type: 'text', text: 'hold' }], {})
+  assert.equal(engine.canSteer(thread), true, 'the turn is live')
+  await engine.steer(thread, 'steer me')
+  const lines = readFileSync(recordPath, 'utf8').trim().split('\n').filter(line => line !== '').map(line => JSON.parse(line))
+  const steer = lines.find(entry => entry.method === 'turn/steer')
+  assert.ok(steer, 'a steer was sent')
+  assert.equal(steer.params.expectedTurnId, turnId, 'the steer names the turn it steers')
+  assert.equal(steer.params.input[0].text, 'steer me')
+  // A turn the CLI ends has nothing to steer: it says so instead of dropping the input.
+  await engine.prompt(thread, [{ type: 'text', text: 'bye' }], {})
+  // The CLI's own turn/completed is the signal: read until it arrives, not for a clock.
+  const deadline = Date.now() + 30_000
+  for (;;) {
+    const event = await Promise.race([
+      thread.next(),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('no turn/completed')), 30_000)),
+    ])
+    if (event.type === 'done') break
+    if (Date.now() > deadline) throw new Error(`no turn/completed: ${JSON.stringify(event)}`)
+  }
+  // The engine clears its turn off the same notice; poll that, never wait for a second
+  // event that will not come.
+  for (let attempt = 0; attempt < 300 && engine.canSteer(thread); attempt += 1) {
+    await new Promise(resolve => setTimeout(resolve, 10))
+  }
+  assert.equal(engine.canSteer(thread), false, 'turn/completed cleared the live turn')
+  await assert.rejects(() => engine.steer(thread, 'too late'), /already ended/)
+})
+
+
+test('Codex completion in the same JSON-RPC batch cannot resurrect a live turn', async () => {
+  const engine = new CodexEngine('local-codex-cli', {}, { findExecutable: value => value })
+  const thread = engine.threadFor('s1')
+  thread.threadId = 'thread'
+  const peer = new JsonRpcPeer(message => {
+    peer.handleLine(JSON.stringify({ jsonrpc: '2.0', id: message.id, result: { turn: { id: 'completed' } } }))
+    peer.handleLine(JSON.stringify({ jsonrpc: '2.0', method: 'turn/completed', params: { threadId: 'thread', turn: { id: 'completed', status: 'completed' } } }))
+  })
+  peer.notificationHandler = (method, params) => engine.onNotice(method, params)
+  engine.ensure = async () => peer
+  assert.equal(await engine.prompt(thread, [{ type: 'text', text: 'go' }], {}), 'completed')
+  assert.equal(engine.canSteer(thread), false)
+})
+
+test('a late ACP decision discards old output and drains a continuation that asks again', { timeout: 5000 }, async (t) => {
+  const adapter = makeAdapter()
+  t.after(() => adapter.dispose())
+  const messages = [user('m1', 'late-permission')]
+  const first = await collect(adapter.stream(options('s1', messages)))
+  await new Promise(resolve => setTimeout(resolve, 50))
+  messages.push(toolResult('m2', first.calls[0].id, '{"decision":"allow"}'))
+  const second = await collect(adapter.stream(options('s1', messages)))
+  assert.equal(second.finish.kind, 'tool-calls')
+  assert.equal(second.calls[0].name, 'approve_agent_action')
+  assert.doesNotMatch(second.text, /old output/)
+  messages.push(toolResult('m3', second.calls[0].id, '{"decision":"allow"}'))
+  const third = await collect(adapter.stream(options('s1', messages)))
+  assert.match(third.text, /allowed via allow-once/)
+})
+
+test('replacing a completed Codex turn retains another queued approval', { timeout: 5000 }, async (t) => {
+  const adapter = makeAdapter()
+  t.after(() => adapter.dispose())
+  const messages = [user('m1', 'late-double')]
+  const first = await collect(adapter.stream(options('s1', messages, { provider: 'local-codex-cli' })))
+  await new Promise(resolve => setTimeout(resolve, 50))
+  messages.push(toolResult('m2', first.calls[0].id, '{"decision":"allow"}'))
+  const second = await collect(adapter.stream(options('s1', messages, { provider: 'local-codex-cli' })))
+  assert.equal(second.calls[0].name, 'approve_agent_action')
+  assert.notEqual(second.calls[0].id, first.calls[0].id)
+})
+
+test('antigravity route, badge, avatar, modes, sign-in hint, and env stripping', async (t) => {
+  const spec = ENGINES['local-antigravity']
+  assert.equal(spec.command, 'agy')
+  assert.deepEqual(spec.args, ['acp'])
+  assert.equal(spec.signIn, 'agy acp --login')
+  assert.equal(spec.cwdPerProcess, true)
+  const listedModes = ['default', 'accept-edits', 'auto', 'plan'].map(id => ({ id }))
+  assert.equal(acpMode('read-only', listedModes, spec.modes), 'default')
+  assert.equal(acpMode('workspace-write', listedModes, spec.modes), 'accept-edits')
+  assert.equal(acpMode('danger-full-access', listedModes, spec.modes), 'auto')
+  assert.equal(isLocalRoute('local-antigravity/gemini-4-carbon'), true)
+  assert.deepEqual(badgeOf('local-antigravity'), ['AG', 'sky'])
+  assert.match(agentAvatar('local-antigravity').image, /^data:image\/png;base64,/)
+
+  const prevAlias = process.env.ANTIGRAVITY_CLI_ALIAS
+  const prevAcc = process.env.AGY_ACCOUNT
+  process.env.ANTIGRAVITY_CLI_ALIAS = 'custom'
+  process.env.AGY_ACCOUNT = 'secret'
+  t.after(() => {
+    if (prevAlias === undefined) delete process.env.ANTIGRAVITY_CLI_ALIAS; else process.env.ANTIGRAVITY_CLI_ALIAS = prevAlias
+    if (prevAcc === undefined) delete process.env.AGY_ACCOUNT; else process.env.AGY_ACCOUNT = prevAcc
+  })
+  const cleaned = cleanEnv()
+  assert.equal(cleaned.ANTIGRAVITY_CLI_ALIAS, undefined)
+  assert.equal(cleaned.AGY_ACCOUNT, undefined)
+
+  const adapter = makeAdapter({ acpArgs: ['--omit-mcp-caps', '--auth-required'] })
+  t.after(() => adapter.dispose())
+  await assert.rejects(
+    collect(adapter.stream(options('s1', [user('m1', 'hi')], { provider: 'local-antigravity' }))),
+    err => err.code === 'LOCAL_AGENT_SIGNIN' && /agy acp --login/.test(err.message),
+  )
+})
+
+test('acp tries HTTP MCP when mcpCapabilities is omitted (#1073), bridges stdio MCP when HTTP is unsupported/rejected, and falls back to plain on total rejection (#1463)', async (t) => {
+  const omit = makeAdapter({ acpArgs: ['--omit-mcp-caps'] })
+  t.after(() => omit.dispose())
+  const call = await collect(omit.stream(options('s1', [user('m1', 'call-tool')])))
+  assert.equal(call.calls[0]?.name, 'message_bot')
+  const withTool = await collect(omit.stream(options('s1', [user('m1', 'call-tool'), toolResult('m2', call.calls[0].id, 'delivered to Chief')])))
+  assert.match(withTool.text, /tool said: delivered to Chief/)
+
+  const stdioOnly = makeAdapter({ acpArgs: ['--no-http-mcp'] })
+  t.after(() => stdioOnly.dispose())
+  const stdio1 = await collect(stdioOnly.stream(options('s-stdio', [user('m1', 'two-calls')])))
+  assert.equal(stdio1.calls.length, 1)
+  assert.equal(stdio1.calls[0]?.name, 'message_bot')
+  const msg1 = JSON.parse(stdio1.calls[0].arguments).message
+  const reply1 = msg1 === 'hi 0' ? 'zero' : 'one'
+  const stdio2 = await collect(stdioOnly.stream(options('s-stdio', [
+    user('m1', 'two-calls'),
+    toolResult('m2', stdio1.calls[0].id, reply1),
+  ])))
+  assert.equal(stdio2.calls.length, 1)
+  const msg2 = JSON.parse(stdio2.calls[0].arguments).message
+  assert.notEqual(msg1, msg2)
+  const reply2 = msg2 === 'hi 0' ? 'zero' : 'one'
+  const stdioDone = await collect(stdioOnly.stream(options('s-stdio', [
+    user('m1', 'two-calls'),
+    toolResult('m2', stdio1.calls[0].id, reply1),
+    toolResult('m3', stdio2.calls[0].id, reply2),
+  ])))
+  assert.match(stdioDone.text, /tool said: zero \| one/)
+
+  const records = {}
+  const httpRejected1 = makeAdapter({ records, acpArgs: ['--omit-mcp-caps', '--reject-http-mcp'] })
+  t.after(() => httpRejected1.dispose())
+  const fbCall = await collect(httpRejected1.stream(options('s-fb', [user('m1', 'call-tool')])))
+  assert.equal(fbCall.calls[0]?.name, 'message_bot')
+  const fbDone = await collect(httpRejected1.stream(options('s-fb', [user('m1', 'call-tool'), toolResult('m2', fbCall.calls[0].id, 'via stdio fallback')])))
+  assert.match(fbDone.text, /tool said: via stdio fallback/)
+  await httpRejected1.dispose()
+
+  const httpRejected2 = makeAdapter({ records, acpArgs: ['--omit-mcp-caps', '--reject-http-mcp'] })
+  t.after(() => httpRejected2.dispose())
+  const resumedCall = await collect(httpRejected2.stream(options('s-fb', [
+    user('m1', 'call-tool'),
+    toolResult('m2', fbCall.calls[0].id, 'via stdio fallback'),
+    user('m3', 'call-tool'),
+  ])))
+  assert.equal(resumedCall.calls[0]?.name, 'message_bot')
+  const resumedDone = await collect(httpRejected2.stream(options('s-fb', [
+    user('m1', 'call-tool'),
+    toolResult('m2', fbCall.calls[0].id, 'via stdio fallback'),
+    user('m3', 'call-tool'),
+    toolResult('m4', resumedCall.calls[0].id, 'resumed stdio'),
+  ])))
+  assert.match(resumedDone.text, /tool said: resumed stdio/)
+
+  const rejected = makeAdapter({ acpArgs: ['--omit-mcp-caps', '--reject-mcp'] })
+  t.after(() => rejected.dispose())
+  const fallback = await collect(rejected.stream(options('s2', [user('m1', 'hello')])))
+  assert.match(fallback.text, /^ok: [\s\S]*hello/)
+})
+
+test('LoopbackMcp answers JSON-RPC notifications with 202 and an empty body', async (t) => {
+  const mcp = new LoopbackMcp(() => [], async () => ({ text: 'ok' }))
+  await mcp.listen()
+  t.after(() => mcp.close())
+  const headers = { 'content-type': 'application/json', authorization: `Bearer ${mcp.token}` }
+  for (const payload of [
+    { jsonrpc: '2.0', method: 'notifications/initialized' },
+    { jsonrpc: '2.0', method: 'notifications/roots/list_changed' },
+    [{ jsonrpc: '2.0', method: 'notifications/initialized' }],
+  ]) {
+    const res = await fetch(mcp.url, { method: 'POST', headers, body: JSON.stringify(payload) })
+    assert.equal(res.status, 202)
+    assert.equal(await res.text(), '')
+  }
+})
+
+test('acp exposes per-model thought_level efforts, maps Antigravity presets, and switches/restores them per turn', async (t) => {
+  let currentPreset = 'workspace-write'
+  const adapter = makeAdapter({ acpArgs: ['--agy-modes', '--thought-levels'], preset: () => currentPreset })
+  t.after(() => adapter.dispose())
+  const catalog = await adapter.probeModels('local-antigravity')
+  const large = catalog.find(m => m.id === 'fake-large')
+  const small = catalog.find(m => m.id === 'fake-small')
+  assert.deepEqual(large.reasoning.efforts.map(e => e.id), ['low', 'medium', 'high', 'xhigh'])
+  assert.equal(large.reasoning.defaultEffort, undefined)
+  assert.equal(small.reasoning, undefined)
+
+  const modeWrite = await collect(adapter.stream(options('m0', [user('m1', 'show-mode')], { provider: 'local-antigravity', model: 'fake-large' })))
+  assert.match(modeWrite.text, /mode: accept-edits; refused: 0/)
+  currentPreset = 'read-only'
+  const modeRead = await collect(adapter.stream(options('m0', [user('m1', 'show-mode'), user('m2', 'show-mode')], { provider: 'local-antigravity', model: 'fake-large' })))
+  assert.match(modeRead.text, /mode: default; refused: 0/)
+  currentPreset = 'danger-full-access'
+  const modeAuto = await collect(adapter.stream(options('m0', [user('m1', 'show-mode'), user('m2', 'show-mode'), user('m3', 'show-mode')], { provider: 'local-antigravity', model: 'fake-large' })))
+  assert.match(modeAuto.text, /mode: auto; refused: 0/)
+
+  const high = await collect(adapter.stream(options('s1', [user('m1', 'show-state')], {
+    provider: 'local-antigravity',
+    model: 'fake-large',
+    reasoningEffort: 'high',
+  })))
+  assert.match(high.text, /effort: high/)
+
+  const restored = await collect(adapter.stream(options('s1', [user('m1', 'show-state'), user('m2', 'show-state')], {
+    provider: 'local-antigravity',
+    model: 'fake-large',
+    reasoningEffort: undefined,
+  })))
+  assert.match(restored.text, /effort: medium/)
+})
+
+test('cwdPerProcess isolates ACP child cwd per folder, shares within a folder, and closes probe workers', async (t) => {
+  const dirA = realpathSync(mkdtempSync(join(tmpdir(), 'dsb-agy-a-')))
+  const dirB = realpathSync(mkdtempSync(join(tmpdir(), 'dsb-agy-b-')))
+  const cwds = { sA1: dirA, sA2: dirA, sB: dirB }
+  const spawned = []
+  const adapter = new LocalAgentAdapter({
+    rt: { warn: () => {} },
+    customAgents: () => [],
+    findExecutable: path => path,
+    spawnEngine: (_kind, route, spec) => {
+      const engine = new AcpEngine(route, { ...spec, command: process.execPath, args: [FIXTURES.acp, '--agy-modes', '--thought-levels'] }, { findExecutable: path => path })
+      spawned.push(engine)
+      return engine
+    },
+    record: () => undefined,
+    saveRecord: () => {},
+    presetFor: () => 'workspace-write',
+    cwdFor: async sessionId => cwds[sessionId] ?? dirA,
+    probeCwd: () => dirA,
+    toolsFor: () => [],
+  })
+  t.after(() => adapter.dispose())
+
+  // Probe creates a temporary worker and closes it once models are read.
+  const models = await adapter.probeModels('local-antigravity')
+  assert.ok(models.length >= 2)
+  assert.equal(spawned[0].workers.size, 0)
+
+  const outA1 = await collect(adapter.stream(options('sA1', [user('m1', 'show-state')], { provider: 'local-antigravity', model: 'fake-large' })))
+  const outB = await collect(adapter.stream(options('sB', [user('m1', 'show-state')], { provider: 'local-antigravity', model: 'fake-large' })))
+  const outA2 = await collect(adapter.stream(options('sA2', [user('m1', 'show-state')], { provider: 'local-antigravity', model: 'fake-large' })))
+  assert.match(outA1.text, new RegExp(`cwd: ${dirA.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`))
+  assert.match(outB.text, new RegExp(`cwd: ${dirB.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`))
+  assert.match(outA2.text, new RegExp(`cwd: ${dirA.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`))
+  assert.equal(spawned[0].workers.size, 2)
+})
+
+test('every built-in CLI in ENGINES has valid metadata, badge, valid ink, avatar, and mode mapping', () => {
+  const routes = Object.keys(ENGINES)
+  assert.ok(routes.length >= 24)
+  for (const route of routes) {
+    const spec = ENGINES[route]
+    const cli = route.replace(/^local-/, '')
+    assert.ok(['acp', 'claude', 'codex'].includes(spec.kind), `${route} kind`)
+    assert.ok(typeof spec.name === 'string' && spec.name.length > 0, `${route} name`)
+    assert.ok(typeof spec.command === 'string' && spec.command.length > 0, `${route} command`)
+    assert.ok(typeof spec.signIn === 'string' && spec.signIn.length > 0, `${route} signIn`)
+    const badge = AGENT_BADGES[cli]
+    assert.ok(Array.isArray(badge) && badge.length === 2, `${route} AGENT_BADGES`)
+    assert.ok(INKS[badge[1]] !== undefined, `${route} ink ${badge[1]}`)
+    assert.ok(isLocalRoute(route), `${route} isLocalRoute`)
+    assert.deepEqual(badgeOf(route), badge, `${route} badgeOf`)
+    const avatar = agentAvatar(route)
+    assert.ok(avatar?.image?.startsWith('data:image/'), `${route} agentAvatar`)
+    if (spec.kind === 'acp') {
+      assert.equal(typeof acpMode('workspace-write', spec.modes?.['workspace-write'] ?? ['accept-edits'], spec.modes), 'string')
+    } else {
+      assert.equal(typeof cliMode(spec.kind, 'workspace-write'), 'string')
+    }
+  }
+})
+
+test('AcpEngine.ensure deduplicates concurrent startups and cleans up after failed initialize', async (t) => {
+  let findCalls = 0
+  const engine = new AcpEngine('local-test', {
+    name: 'Test ACP',
+    kind: 'acp',
+    command: process.execPath,
+    args: [FIXTURES.acp, '--fail-first-init'],
+  }, {
+    findExecutable: (name) => { findCalls += 1; return name },
+  })
+  t.after(() => engine.close())
+
+  await assert.rejects(() => Promise.all([engine.ensure(), engine.ensure()]), /init boom/)
+  assert.equal(findCalls, 1)
+  assert.equal(engine.child, undefined)
+  assert.equal(engine.peer, undefined)
+  assert.equal(engine.starting, undefined)
+
+  engine.engine = { ...engine.engine, args: [FIXTURES.acp] }
+  const [peerA, peerB] = await Promise.all([engine.ensure(), engine.ensure()])
+  assert.equal(peerA, peerB)
+  assert.equal(findCalls, 2)
+})
+
+test('ownToolCall auto-approves generic mcp__dsbot__ and dsbot: calls without leaking to unrelated names', async (t) => {
+  const adapter = makeAdapter()
+  t.after(() => adapter.dispose())
+
+  for (const trigger of ['generic-mcp-team', 'generic-mcp-team-colon']) {
+    const step1 = await collect(adapter.stream(options(`team-${trigger}`, [user('m1', trigger)])))
+    assert.equal(step1.calls[0]?.name, 'message_bot', JSON.stringify(step1))
+    const step2 = await collect(adapter.stream(options(`team-${trigger}`, [
+      user('m1', trigger),
+      toolResult('m2', step1.calls[0].id, 'delivered'),
+    ])))
+    assert.match(step2.text, /allowed via allow_once; tool said: delivered/)
+  }
+
+  for (const trigger of ['generic-mcp-other-github', 'generic-mcp-other-prefix']) {
+    const asked = await collect(adapter.stream(options(`other-${trigger}`, [user('m1', trigger)])))
+    assert.equal(asked.calls[0]?.name, 'approve_agent_action', JSON.stringify(asked))
+  }
+})
+
+test('ClaudeEngine can_use_tool deny sends required message string (#1539)', async (t) => {
+  const adapter = makeAdapter()
+  t.after(() => adapter.dispose())
+  const ask = await collect(adapter.stream(options('c1', [user('m1', 'ask-claude-perm')], { provider: 'local-claude-code' })))
+  assert.equal(ask.calls[0]?.name, 'approve_agent_action')
+  const denied = await collect(adapter.stream(options('c1', [
+    user('m1', 'ask-claude-perm'),
+    toolResult('m2', ask.calls[0].id, JSON.stringify({ decision: 'deny' })),
+  ], { provider: 'local-claude-code' })))
+  assert.equal(denied.text, 'perm:{"behavior":"deny","message":"The user denied this action."}')
+})
+
+
+test('stdioBridgePath extracts .asar bridges into a private directory and leaves unpacked files alone', (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsb-asar-'))
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  const asarDir = join(dir, 'app.asar')
+  const unpackedDir = join(dir, 'app.asar.unpacked')
+  mkdirSync(asarDir, { recursive: true })
+  mkdirSync(unpackedDir, { recursive: true })
+  const asarSource = join(asarDir, 'mcp-stdio.js')
+  const unpackedSource = join(unpackedDir, 'mcp-stdio.js')
+  writeFileSync(asarSource, '// bridge\n')
+  writeFileSync(unpackedSource, '// unpacked\n')
+
+  const extracted = stdioBridgePath(asarSource)
+  t.after(() => rmSync(dirname(extracted), { recursive: true, force: true }))
+  assert.notEqual(extracted, asarSource)
+  assert.equal(stdioBridgePath(asarSource), extracted)
+  assert.equal(readFileSync(extracted, 'utf8'), '// bridge\n')
+  if (process.platform !== 'win32') {
+    assert.equal(statSync(dirname(extracted)).mode & 0o777, 0o700)
+    assert.equal(statSync(extracted).mode & 0o777, 0o600)
+  }
+  assert.equal(stdioBridgePath(unpackedSource), unpackedSource)
+})
+
+test('ACP session/load falls back to stdio or plain sessions without dropping cliSessionId', async (t) => {
+  for (const flag of ['--reject-http-mcp', '--reject-mcp']) {
+    const records = {}
+    const first = makeAdapter({ records, acpArgs: [flag] })
+    const second = makeAdapter({ records, acpArgs: [flag] })
+    t.after(async () => {
+      await first.dispose()
+      await second.dispose()
+    })
+
+    const turn1 = await collect(first.stream(options('s1', [user('m1', 'first')])))
+    assert.equal(turn1.finish.kind, 'stop')
+    const cliId = records.s1?.cliSessionId
+    assert.ok(cliId)
+    await first.dispose()
+
+    const turn2 = await collect(second.stream(options('s1', [user('m1', 'first'), user('m2', 'second')])))
+    assert.equal(turn2.finish.kind, 'stop')
+    assert.equal(records.s1?.cliSessionId, cliId)
+  }
+})
+
+test('clearing reasoningEffort restores ACP thought_level after session/load and Host restart', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsb-effort-'))
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+
+  for (const [tag, extra] of [['bare', []], ['with-options', ['--load-thought-level']]]) {
+    const records = {}
+    const stateFile = join(dir, `${tag}.json`)
+    const args = ['--thought-levels', `--state-file=${stateFile}`, ...extra]
+    const first = makeAdapter({ records, acpArgs: args })
+    const second = makeAdapter({ records, acpArgs: args })
+    t.after(async () => {
+      await first.dispose()
+      await second.dispose()
+    })
+
+    const t1 = await collect(first.stream(options('s1', [user('m1', 'show-state')], { reasoningEffort: 'high' })))
+    assert.match(t1.text, /effort: high/)
+    assert.equal(records.s1?.defaultEffort, 'medium')
+    assert.equal(records.s1?.effort, 'high')
+    await first.dispose()
+
+    const t2 = await collect(second.stream(options('s1', [user('m1', 'show-state'), user('m2', 'show-state')])))
+    assert.match(t2.text, /effort: medium/)
+    assert.equal(records.s1?.defaultEffort, 'medium')
+    assert.equal(records.s1?.effort, undefined)
+
+    const t3 = await collect(second.stream(options('s1', [user('m1', 'show-state'), user('m2', 'show-state'), user('m3', 'show-state')], { reasoningEffort: 'low' })))
+    assert.match(t3.text, /effort: low/)
+    await second.closeSession('s1')
+
+    const t4 = await collect(second.stream(options('s1', [user('m1', 'show-state'), user('m2', 'show-state'), user('m3', 'show-state'), user('m4', 'show-state')])))
+    assert.match(t4.text, /effort: medium/)
+    assert.equal(records.s1?.effort, undefined)
+  }
+})
+
+test('legacy ACP agents switch models via session/set_model and fail on unknown models', async (t) => {
+  const records = {}
+  const adapter = makeAdapter({ records, acpArgs: ['--legacy-models'] })
+  t.after(() => adapter.dispose())
+
+  const probed = await adapter.probeModels('local-acp-fake')
+  assert.ok(probed.some(model => model.id === 'legacy-fast'))
+
+  const turn1 = await collect(adapter.stream(options('s1', [user('m1', 'show-state')], { model: 'legacy-fast' })))
+  assert.match(turn1.text, /model: legacy-fast/)
+
+  await adapter.closeSession('s1')
+  const turn2 = await collect(adapter.stream(options('s1', [user('m1', 'show-state'), user('m2', 'show-state')], { model: 'legacy-fast' })))
+  assert.match(turn2.text, /model: legacy-fast/)
+
+  await assert.rejects(
+    collect(adapter.stream(options('s2', [user('m1', 'show-state')], { model: 'legacy-missing' }))),
+    err => err?.code === 'LOCAL_AGENT_MODEL',
+  )
+})
+
+test('switching ACP models resets effort tracking cleanly and ignores unapplied efforts', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsb-model-effort-'))
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  const records = {}
+  const stateFile = join(dir, 'state.json')
+  const adapter = makeAdapter({ records, acpArgs: ['--thought-levels', '--load-thought-level', '--model-resets-thought', `--state-file=${stateFile}`] })
+  t.after(() => adapter.dispose())
+
+  const t1 = await collect(adapter.stream(options('s1', [user('m1', 'show-state')], { model: 'fake-large', reasoningEffort: 'high' })))
+  assert.match(t1.text, /effort: high/)
+  assert.equal(records.s1?.defaultEffort, 'medium')
+  assert.equal(records.s1?.effort, 'high')
+
+  const t2 = await collect(adapter.stream(options('s1', [user('m1', 'show-state'), user('m2', 'show-state')], { model: 'fake-small', reasoningEffort: 'high' })))
+  assert.match(t2.text, /effort: high/)
+  assert.equal(records.s1?.defaultEffort, 'low')
+  assert.equal(records.s1?.effort, 'high')
+
+  const t3 = await collect(adapter.stream(options('s1', [user('m1', 'show-state'), user('m2', 'show-state'), user('m3', 'show-state')], { model: 'fake-small' })))
+  assert.match(t3.text, /effort: low/)
+  assert.equal(records.s1?.defaultEffort, 'low')
+  assert.equal(records.s1?.effort, undefined)
+
+  const t4 = await collect(adapter.stream(options('s1', [user('m1', 'show-state'), user('m2', 'show-state'), user('m3', 'show-state'), user('m4', 'show-state')], { model: 'fake-small', reasoningEffort: 'bogus' })))
+  assert.match(t4.text, /effort: low/)
+  assert.equal(records.s1?.effort, undefined)
+})
+
+test('ACP compaction clears persisted effort so Host restart reapplies reasoningEffort cleanly', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsb-compact-effort-'))
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  const records = {}
+  const stateFile = join(dir, 'state.json')
+  const args = ['--thought-levels', `--state-file=${stateFile}`]
+  const first = makeAdapter({ records, acpArgs: args })
+  const second = makeAdapter({ records, acpArgs: args })
+  t.after(async () => {
+    await first.dispose()
+    await second.dispose()
+  })
+
+  const t1 = await collect(first.stream(options('s1', [user('m1', 'show-state')], { reasoningEffort: 'high' })))
+  assert.match(t1.text, /effort: high/)
+  assert.equal(records.s1?.effort, 'high')
+
+  const compacted = await first.compact('s1')
+  assert.equal(compacted, 'done')
+  assert.equal(records.s1?.effort, undefined)
+  await first.dispose()
+
+  const t2 = await collect(second.stream(options('s1', [user('m1', 'show-state'), user('m2', 'show-state')], { reasoningEffort: 'high' })))
+  assert.match(t2.text, /effort: high/)
+  assert.equal(records.s1?.effort, 'high')
+})
+
+test('resuming an ACP session keeps its saved defaultEffort over another workspace default for the same model', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsb-ws-effort-'))
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  const lowWs = join(dir, 'low-ws')
+  const normalWs = join(dir, 'normal-ws')
+  mkdirSync(lowWs, { recursive: true })
+  mkdirSync(normalWs, { recursive: true })
+  const records = {}
+  const stateFile = join(dir, 'state.json')
+  const args = ['--thought-levels', '--load-thought-level', '--preserve-thought-on-model', `--state-file=${stateFile}`]
+  const cwdFor = async id => (id === 'sA' ? lowWs : normalWs)
+  const first = makeAdapter({ records, acpArgs: args, cwdFor })
+  const second = makeAdapter({ records, acpArgs: args, cwdFor })
+  t.after(async () => {
+    await first.dispose()
+    await second.dispose()
+  })
+
+  const a1 = await collect(first.stream(options('sA', [user('m1', 'show-state')], { model: 'fake-large', reasoningEffort: 'high' })))
+  assert.match(a1.text, /effort: high/)
+  assert.equal(records.sA?.defaultEffort, 'low')
+  assert.equal(records.sA?.effort, 'high')
+  await first.dispose()
+
+  const b1 = await collect(second.stream(options('sB', [user('m1', 'show-state')], { model: 'fake-large' })))
+  assert.match(b1.text, /effort: medium/)
+  assert.equal(records.sB?.defaultEffort, 'medium')
+
+  const a2 = await collect(second.stream(options('sA', [user('m1', 'show-state'), user('m2', 'show-state')], { model: 'fake-large' })))
+  assert.match(a2.text, /effort: low/)
+  assert.equal(records.sA?.defaultEffort, 'low')
+  assert.equal(records.sA?.effort, undefined)
+})
+
+function makeMemoryAttachments(entries = {}) {
+  return {
+    async readImage(ref) {
+      const entry = entries[ref.attachmentId]
+      if (entry === undefined) throw new Error(`missing image ${ref.attachmentId}`)
+      if (entry instanceof Error) throw entry
+      return { ref: { ...ref, mediaType: entry.mediaType ?? ref.mediaType }, data: entry.data }
+    },
+    imageHostPath(ref) {
+      return entries[ref.attachmentId]?.hostPath
+    },
+  }
+}
+
+const imageMsg = (id, text, ref, { offloaded = false } = {}) => ({
+  id,
+  role: 'user',
+  content: [
+    ...(text === undefined ? [] : [{ type: 'text', text }]),
+    { type: 'image', attachment: ref, ...(offloaded ? { offloaded: true } : {}) },
+  ],
+  source: { kind: 'user' },
+})
+
+test('codex receives image blocks on first replay turn, delta turn, and image-only turns', async (t) => {
+  const pngBytes = Buffer.from([137, 80, 78, 71, 1, 2, 3, 4])
+  const jpgBytes = Buffer.from([255, 216, 255, 5, 6, 7])
+  const pngRef = { attachmentId: 'att-png', mediaType: 'image/png', bytes: pngBytes.length, width: 1, height: 1, name: 'photo.png' }
+  const jpgRef = { attachmentId: 'att-jpg', mediaType: 'image/jpeg', bytes: jpgBytes.length, width: 2, height: 2 }
+  const adapter = makeAdapter({
+    attachments: makeMemoryAttachments({
+      'att-png': { mediaType: 'image/png', data: pngBytes },
+      'att-jpg': { mediaType: 'image/jpeg', data: jpgBytes },
+    }),
+  })
+  t.after(() => adapter.dispose())
+
+  const first = await collect(adapter.stream(options('s1', [imageMsg('m1', 'describe this', pngRef)], { provider: 'local-codex-cli', model: 'gpt-5.1-codex' })))
+  assert.equal(first.finish?.kind, 'stop')
+  assert.match(first.text, new RegExp(`data:image/png;base64,${pngBytes.toString('base64')}`))
+
+  const second = await collect(adapter.stream(options('s1', [imageMsg('m1', 'describe this', pngRef), imageMsg('m2', undefined, jpgRef)], { provider: 'local-codex-cli', model: 'gpt-5.1-codex' })))
+  assert.equal(second.finish?.kind, 'stop')
+  assert.match(second.text, new RegExp(`data:image/jpeg;base64,${jpgBytes.toString('base64')}`))
+})
+
+test('claude receives Anthropic base64 image blocks for text+image and image-only turns', async (t) => {
+  const pngBytes = Buffer.from([137, 80, 78, 71, 9, 8, 7, 6])
+  const pngRef = { attachmentId: 'att-c1', mediaType: 'image/png', bytes: pngBytes.length, width: 1, height: 1 }
+  const adapter = makeAdapter({
+    attachments: makeMemoryAttachments({ 'att-c1': { mediaType: 'image/png', data: pngBytes } }),
+  })
+  t.after(() => adapter.dispose())
+
+  const first = await collect(adapter.stream(options('s1', [imageMsg('m1', 'check screenshot', pngRef)], { provider: 'local-claude-code', model: 'sonnet' })))
+  assert.equal(first.finish?.kind, 'stop')
+  assert.match(first.text, new RegExp(`"mediaType":"image/png".*"data":"${pngBytes.toString('base64')}"`))
+
+  const second = await collect(adapter.stream(options('s1', [imageMsg('m1', 'check screenshot', pngRef), imageMsg('m2', undefined, pngRef)], { provider: 'local-claude-code', model: 'sonnet' })))
+  assert.equal(second.finish?.kind, 'stop')
+  assert.match(second.text, new RegExp(`"data":"${pngBytes.toString('base64')}"`))
+})
+
+test('acp receives {type:"image", mimeType, data} when promptCapabilities.image is true', async (t) => {
+  const webpBytes = Buffer.from([82, 73, 70, 70, 1, 2, 3])
+  const ref = { attachmentId: 'att-a1', mediaType: 'image/webp', bytes: webpBytes.length, width: 1, height: 1 }
+  const adapter = makeAdapter({
+    attachments: makeMemoryAttachments({ 'att-a1': { mediaType: 'image/webp', data: webpBytes } }),
+  })
+  t.after(() => adapter.dispose())
+
+  const first = await collect(adapter.stream(options('s1', [imageMsg('m1', 'look', ref)])))
+  assert.equal(first.finish?.kind, 'stop')
+  assert.match(first.text, new RegExp(`"mimeType":"image/webp","data":"${webpBytes.toString('base64')}"`))
+
+  const second = await collect(adapter.stream(options('s1', [imageMsg('m1', 'look', ref), imageMsg('m2', undefined, ref)])))
+  assert.equal(second.finish?.kind, 'stop')
+  assert.match(second.text, new RegExp(`"mimeType":"image/webp","data":"${webpBytes.toString('base64')}"`))
+})
+
+test('acp without image capability degrades image to text and updates resolveModel inputModalities', async (t) => {
+  const pngBytes = Buffer.from([137, 80, 78, 71, 4, 5, 6])
+  const ref = { attachmentId: 'att-noimg', mediaType: 'image/png', bytes: pngBytes.length, width: 10, height: 20, name: 'shot.png' }
+  const adapter = makeAdapter({
+    acpArgs: ['--no-image'],
+    attachments: makeMemoryAttachments({
+      'att-noimg': { mediaType: 'image/png', data: pngBytes, hostPath: '/tmp/host-shot.png' },
+    }),
+    fs: { processPathFromHostPath: p => p.replace('/tmp/', '/guest/') },
+  })
+  t.after(() => adapter.dispose())
+
+  // Before any CLI starts, resolveModel must stay fast/lazy and optimistic.
+  const before = await adapter.resolveModel('local-acp-fake', 'default')
+  assert.deepEqual(before.inputModalities, ['text', 'image'])
+  assert.equal(adapter._spawned.length, 0)
+
+  // First turn sees promptCapabilities.image === false and must degrade instead of sending an invalid image block (-32602).
+  const first = await collect(adapter.stream(options('s1', [imageMsg('m1', 'what is this?', ref)])))
+  assert.equal(first.finish?.kind, 'stop')
+  assert.doesNotMatch(first.text, /"mimeType"/)
+  assert.match(first.text, /what is this\?/)
+
+  // Once known, resolveModel excludes 'image' so host OCR takes over on subsequent turns.
+  const after = await adapter.resolveModel('local-acp-fake', 'default')
+  assert.deepEqual(after.inputModalities, ['text'])
+})
+
+test('offloaded or unreadable images degrade cleanly without calling readImage on offloaded blocks', async (t) => {
+  let reads = 0
+  const ref1 = { attachmentId: 'att-off', mediaType: 'image/png', bytes: 12, width: 2, height: 2, name: 'old.png' }
+  const ref2 = { attachmentId: 'att-err', mediaType: 'image/png', bytes: 12, width: 2, height: 2, name: 'broken.png' }
+  const adapter = makeAdapter({
+    attachments: {
+      async readImage(ref) {
+        reads += 1
+        throw new Error(`read failed for ${ref.attachmentId}`)
+      },
+    },
+  })
+  t.after(() => adapter.dispose())
+
+  const out = await collect(adapter.stream(options('s1', [
+    imageMsg('m1', 'check both', ref1, { offloaded: true }),
+    imageMsg('m2', 'and this', ref2),
+  ], { provider: 'local-codex-cli', model: 'gpt-5.1-codex' })))
+  assert.equal(out.finish?.kind, 'stop')
+  assert.equal(reads, 1)
+  assert.doesNotMatch(out.text, /images=/)
+})
+
+test('replay drops images outside the replay window without reading their attachments', async (t) => {
+  const readIds = []
+  const pngBytes = Buffer.from([137, 80, 78, 71, 1, 2, 3])
+  const oldRef = { attachmentId: 'att-too-old', mediaType: 'image/png', bytes: pngBytes.length, width: 1, height: 1 }
+  const recentRef = { attachmentId: 'att-recent', mediaType: 'image/png', bytes: pngBytes.length, width: 1, height: 1 }
+  const adapter = makeAdapter({
+    attachments: {
+      async readImage(ref) {
+        readIds.push(ref.attachmentId)
+        return { ref, data: pngBytes }
+      },
+    },
+  })
+  t.after(() => adapter.dispose())
+
+  const msgs = [
+    imageMsg('m0', 'ancient image', oldRef),
+    ...Array.from({ length: 13 }, (_, i) => user(`m${i + 1}`, `turn ${i + 1}`)),
+    imageMsg('m14', 'latest image', recentRef),
+  ]
+  const out = await collect(adapter.stream(options('s1', msgs, { provider: 'local-codex-cli', model: 'gpt-5.1-codex' })))
+  assert.equal(out.finish?.kind, 'stop')
+  assert.deepEqual(readIds, ['att-recent'])
 })
