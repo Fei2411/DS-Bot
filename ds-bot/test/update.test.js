@@ -6,7 +6,9 @@ import { afterEach, test } from 'node:test'
 import { cleanVersion, install, newer, sourceOf } from '../src/host/update.js'
 
 const PKG = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
-const flush = async () => { for (let index = 0; index < 30; index += 1) await Promise.resolve() }
+const flush = async () => { for (let index = 0; index < 14; index += 1) await Promise.resolve() }
+// Longer chains than `flush` covers: wait until the update leaves 'installing'.
+const settle = async (rt) => { for (let index = 0; index < 200 && (await rt.updateCheck()).phase === 'installing'; index += 1) await Promise.resolve() }
 const realFetch = globalThis.fetch
 afterEach(() => { globalThis.fetch = realFetch })
 
@@ -327,19 +329,19 @@ test('a removal that fails after it took the bundle out of the profile selects i
     config: { updateRegistry: 'https://registry.example' },
     answers: { [`https://registry.example/${PKG.name}/latest`]: { version: '9.0.0' } },
     result: count => (count === 1 ? { error: { code: 'already-installed' } } : { application: 'applied', version: '9.0.0' }),
-    remove: { changed: true, error: { code: 'operation-error', diagnostic: 'pnpm: lock timeout' } },
+    remove: { changed: true, error: { code: 'operation-error', diagnostic: 'pnpm: remove failed' } },
     home,
   })
   await rt.updateCheck()
   rt.updateStart()
-  await flush()
+  await settle(rt)
   assert.deepEqual(removes, [PKG.name])
   assert.deepEqual(enables, [[PKG.name, true]])
   assert.equal(installs.length, 1)
   const view = await rt.updateCheck()
   assert.equal(view.phase, 'failed')
-  assert.equal(view.error, 'pnpm: lock timeout')
-  assert.equal(noteIn(home).error, `pnpm: lock timeout; ${PKG.name} was enabled again`)
+  assert.equal(view.error, 'pnpm: remove failed')
+  assert.equal(noteIn(home).error, `pnpm: remove failed; ${PKG.name} was enabled again`)
   rmSync(home, { recursive: true, force: true, maxRetries: 5 })
 })
 
@@ -356,7 +358,7 @@ test('when selecting the bundle again fails too, the old version is installed ag
   })
   await rt.updateCheck()
   rt.updateStart()
-  await flush()
+  await settle(rt)
   assert.equal(enables.length, 1)
   assert.equal(installs.length, 2)
   assert.equal(installs[1][0], `${PKG.name}@${PKG.version}`)
@@ -365,9 +367,9 @@ test('when selecting the bundle again fails too, the old version is installed ag
   rmSync(home, { recursive: true, force: true, maxRetries: 5 })
 })
 
-test('a removal that throws also gets the bundle selected again', async () => {
+test('a removal that throws ran nothing, so nothing is undone', async () => {
   const home = newHome()
-  const { rt, enables } = start({
+  const { rt, installs, enables } = start({
     source: `${PKG.name}@^${PKG.version}`,
     config: { updateRegistry: 'https://registry.example' },
     answers: { [`https://registry.example/${PKG.name}/latest`]: { version: '9.0.0' } },
@@ -377,12 +379,13 @@ test('a removal that throws also gets the bundle selected again', async () => {
   })
   await rt.updateCheck()
   rt.updateStart()
-  await flush()
-  assert.deepEqual(enables, [[PKG.name, true]])
+  await settle(rt)
+  assert.deepEqual(enables, [])
+  assert.equal(installs.length, 1)
   const view = await rt.updateCheck()
   assert.equal(view.phase, 'failed')
   assert.equal(view.error, 'lock timeout')
-  assert.equal(noteIn(home).error, `lock timeout; ${PKG.name} was enabled again`)
+  assert.equal(existsSync(join(home, 'update.json')), false)
   rmSync(home, { recursive: true, force: true, maxRetries: 5 })
 })
 

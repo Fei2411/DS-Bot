@@ -274,23 +274,19 @@ export function install(rt) {
           }
           return `${failed}; ${previous} was reinstalled`
         }
-        // A removal that fails can still have taken the bundle out of the profile
-        // (`changed`), or it threw with the profile in an unknown state. Selecting
-        // the bundle again is harmless when it never left; if the dependency is gone
-        // too, the old version is installed again.
+        // A removal deselects the bundle before it unloads and removes the package, so
+        // one that fails afterwards leaves the profile changed (`changed`) without DS Bot.
+        // Selecting the bundle again undoes that; if the package is gone too, the old
+        // version is installed again. A removal that throws ran nothing (lock timeout).
         const recover = async (failed) => {
           const on = await Promise.resolve(service.setBundleEnabled?.(PKG.name, true)).catch(() => null)
           if (on && !on.error && ['applied', 'restart-required'].includes(on.application)) return `${failed}; ${PKG.name} was enabled again`
           return restore(failed)
         }
         mark()
-        const removed = await Promise.resolve(service.removeBundle(PKG.name)).catch(async (error) => {
-          mark(await recover(error?.message ?? String(error)))
-          throw error
-        })
+        const removed = await Promise.resolve(service.removeBundle(PKG.name)).catch((error) => { unmark(); throw error })
         if (removed?.error) {
-          const failed = removed.error.diagnostic ?? removed.error.code
-          if (removed.changed) mark(await recover(failed))
+          if (removed.changed) mark(await recover(removed.error.diagnostic ?? removed.error.code))
           else unmark()
           return { error: removed.error }
         }
