@@ -4,7 +4,14 @@
 //   "elicit <server> <kind>" -> an MCP tool-call approval (mcpServer/elicitation/request)
 //                 from <server>, with _meta.codex_approval_kind <kind>; the answer
 //                 comes back as the agentMessage, as JSON
-//   otherwise  -> an activity item, an agentMessage, turn/completed
+//   "late-elicit <server> <kind>" -> the same request, sent before the turn completes:
+//                 the answer then arrives after the turn already ended
+//   "late-ask" -> an approval request whose answer likewise arrives after the turn ended
+//   "hold-ask" -> an approval request that keeps its turn alive, so the answer steers it
+//   otherwise  -> an activity item, an agentMessage, thread/tokenUsage/updated,
+//                 turn/completed
+// thread/compact/start condenses in a turn of its own. Usage and compaction take the
+// shapes Codex 0.166 sends (test/fixtures/recorded/codex-app-server-0.166.json).
 // `--exit-after-turn` exits once a turn completes, and `--text-only` sends no
 // activity items first: a test can then tell whether the one text event reached
 // the client. `--record <file>` appends the params of thread/start and thread/resume,
@@ -12,6 +19,7 @@
 import { appendFileSync } from 'node:fs'
 const exitAfterTurn = process.argv.includes('--exit-after-turn')
 const textOnly = process.argv.includes('--text-only')
+const holdCompact = process.argv.includes('--hold-compact')
 const recordAt = process.argv.indexOf('--record')
 const recordPath = recordAt === -1 ? undefined : process.argv[recordAt + 1]
 const record = (method, params) => {
@@ -51,25 +59,73 @@ async function elicitTurn(thread, turnId, text) {
     _meta: { codex_approval_kind: kind, tool_name: 'list_bots' },
   })
   const shown = answer.error !== undefined ? { error: answer.error.code } : answer.result
-  notice('item/completed', { threadId: thread.id, item: { id: 'i1', type: 'agentMessage', text: JSON.stringify(shown) } })
+  notice('item/completed', { threadId: thread.id, turnId, item: { id: 'i1', type: 'agentMessage', text: JSON.stringify(shown) } })
+  thread.turn = undefined
   notice('turn/completed', { threadId: thread.id, turn: { id: turnId, status: 'completed' } })
 }
 
-function runTurn(thread, turnId, text, effort) {
+function runTurn(thread, turnId, text, effort, images = []) {
   if (/elicit \S+ \S+/.test(text)) return void elicitTurn(thread, turnId, text)
+  // An approval request whose turn stays alive: an answer has to steer this turn.
+  if (text.includes('late-double')) {
+    for (let i = 0; i < 2; i++) void ask('item/commandExecution/requestApproval', { threadId: thread.id, turnId, reason: `Action ${i}`, availableDecisions: ['accept', 'decline'] })
+    thread.turn = undefined
+    notice('turn/completed', { threadId: thread.id, turn: { id: turnId, status: 'completed' } })
+    return
+  }
+  if (text.includes('hold-ask')) {
+    void ask('item/commandExecution/requestApproval', { threadId: thread.id, turnId, reason: 'hold approval', availableDecisions: ['accept', 'decline'] })
+    return
+  }
+  // The turn ends while the request is still open: the answer comes late.
+  if (text.includes('late-ask')) {
+    void ask('item/commandExecution/requestApproval', { threadId: thread.id, turnId, reason: 'late approval', availableDecisions: ['accept', 'decline'] })
+    thread.turn = undefined
+    notice('turn/completed', { threadId: thread.id, turn: { id: turnId, status: 'completed' } })
+    return
+  }
+  if (/late-elicit \S+ \S+/.test(text)) {
+    void elicitTurn(thread, turnId, text.replace(/^late-/, ''))
+    thread.turn = undefined
+    notice('turn/completed', { threadId: thread.id, turn: { id: turnId, status: 'completed' } })
+    return
+  }
   // What the thread was opened with, for a test that checks the fields.
+  // A turn that stays open until a steer lands on it.
+  if (text.includes('hold')) return
   if (text.includes('show-thread')) {
-    notice('item/completed', { threadId: thread.id, item: { id: 'i2', type: 'agentMessage', text: JSON.stringify(thread.params ?? {}) } })
+    notice('item/completed', { threadId: thread.id, turnId, item: { id: 'i2', type: 'agentMessage', text: JSON.stringify(thread.params ?? {}) } })
     notice('turn/completed', { threadId: thread.id, turn: { id: turnId, status: 'completed' } })
     return
   }
   if (!textOnly) {
-    notice('item/started', { threadId: thread.id, item: { id: 'i1', type: 'commandExecution', command: 'ls' } })
-    notice('item/completed', { threadId: thread.id, item: { id: 'i1', type: 'commandExecution', exitCode: 0 } })
+    notice('item/started', { threadId: thread.id, turnId, item: { id: 'i1', type: 'commandExecution', command: 'ls' } })
+    notice('item/completed', { threadId: thread.id, turnId, item: { id: 'i1', type: 'commandExecution', exitCode: 0 } })
   }
-  notice('item/completed', { threadId: thread.id, item: { id: 'i2', type: 'agentMessage', text: `ok: ${text.slice(0, 60)} effort=${effort ?? 'none'}` } })
+  const suffix = images.length > 0 ? ` images=${JSON.stringify(images)}` : ''
+  notice('item/completed', { threadId: thread.id, turnId, item: { id: 'i2', type: 'agentMessage', text: `ok: ${text.slice(0, 60)} effort=${effort ?? 'none'}${suffix}` } })
+  thread.used = (thread.used ?? 25_000) + 800 + Number(text.match(/grow:(\d+)/)?.[1] ?? 0)
+  usage(thread, turnId, { totalTokens: thread.used, inputTokens: thread.used - 6, cachedInputTokens: 12_288, cacheWriteInputTokens: 0, outputTokens: 6, reasoningOutputTokens: 0 })
+  thread.turn = undefined
   notice('turn/completed', { threadId: thread.id, turn: { id: turnId, status: 'completed' } })
   if (exitAfterTurn) setTimeout(() => process.exit(0), 50)
+}
+
+const ZERO = { totalTokens: 0, inputTokens: 0, cachedInputTokens: 0, cacheWriteInputTokens: 0, outputTokens: 0, reasoningOutputTokens: 0 }
+function usage(thread, turnId, last) {
+  const total = thread.total ?? ZERO
+  thread.total = Object.fromEntries(Object.keys(ZERO).map(key => [key, total[key] + last[key]]))
+  notice('thread/tokenUsage/updated', { threadId: thread.id, turnId, tokenUsage: { total: thread.total, last, modelContextWindow: 475_000 } })
+}
+
+function compactTurn(thread) {
+  const turnId = `turn-${++nextId}`
+  notice('turn/started', { threadId: thread.id, turn: { id: turnId, status: 'inProgress' } })
+  notice('item/started', { threadId: thread.id, turnId, item: { type: 'contextCompaction', id: 'cc1' } })
+  thread.used = 29_000
+  usage(thread, turnId, { ...ZERO, totalTokens: thread.used })
+  notice('item/completed', { threadId: thread.id, turnId, item: { type: 'contextCompaction', id: 'cc1' } })
+  notice('turn/completed', { threadId: thread.id, turn: { id: turnId, status: 'completed' } })
 }
 
 let rest = ''
@@ -127,15 +183,54 @@ process.stdin.on('data', (chunk) => {
       }
       case 'thread/inject_items': reply(id, {}); break
       case 'turn/start': {
+        record('turn/start', params)
+        const input = params.input ?? []
+        const badImage = input.find(item => item.type === 'image' && typeof item.url !== 'string' && typeof item.fileId !== 'string')
+        if (badImage !== undefined) { replyError(id, 'Invalid image input: missing url or fileId'); break }
+        const images = input.filter(item => item.type === 'image').map(item => ({ type: item.type, url: item.url }))
         const thread = threads.get(params.threadId)
         const turnId = `turn-${++nextId}`
+        if (thread !== undefined) thread.turn = turnId
         reply(id, { turn: { id: turnId } })
-        const text = (params.input ?? []).map(item => item.text ?? '').join('\n')
-        setImmediate(() => runTurn(thread ?? { id: params.threadId }, turnId, text, params.effort))
+        const text = input.filter(item => item.type === 'text').map(item => item.text ?? '').join('\n')
+        setImmediate(() => runTurn(thread ?? { id: params.threadId }, turnId, text, params.effort, images))
+        break
+      }
+      case 'thread/compact/start': {
+        reply(id, {})
+        if (holdCompact) break
+        const thread = threads.get(params.threadId) ?? { id: params.threadId }
+        threads.set(thread.id, thread)
+        setImmediate(() => compactTurn(thread))
         break
       }
       case 'turn/interrupt': reply(id, {}); break
-      case 'turn/steer': reply(id, {}); break
+      case 'turn/steer': {
+        // Codex's schema requires the turn being steered; a steer after that turn
+        // ended is refused, which is what the adapter must recover from.
+        record('turn/steer', params)
+        const thread = threads.get(params.threadId)
+        if (typeof params.expectedTurnId !== 'string') { replyError(id, 'missing field expectedTurnId'); break }
+        if (thread?.turn === undefined || thread.turn !== params.expectedTurnId) { replyError(id, `no live turn ${params.expectedTurnId}`); break }
+        const text = (params.input ?? []).map(item => item.text ?? '').join('\n')
+        // A late notice for an earlier turn: the turn this thread runs now stays live.
+        if (text.startsWith('emit-stale ')) {
+          notice('turn/completed', { threadId: thread.id, turn: { id: text.slice('emit-stale '.length), status: 'completed' } })
+          reply(id, {})
+          break
+        }
+        // A steer can be refused while the turn ends at the same moment: the client
+        // must recover by starting a turn of its own.
+        if (text === 'race') {
+          replyError(id, `no live turn ${params.expectedTurnId}`)
+          thread.turn = undefined
+          notice('turn/completed', { threadId: thread.id, turn: { id: params.expectedTurnId, status: 'completed' } })
+          break
+        }
+        notice('item/completed', { threadId: thread.id, turnId: params.expectedTurnId, item: { id: 'steer', type: 'agentMessage', text: `steered: ${text}` } })
+        reply(id, {})
+        break
+      }
       default: if (id !== undefined) fail(id, `method not found: ${method}`)
     }
   }

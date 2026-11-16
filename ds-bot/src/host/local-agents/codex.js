@@ -2,7 +2,7 @@
 // JSON-RPC process per route that multiplexes threads. DS Bot Sessions map to
 // threads; turns stream item notifications back.
 import { JsonRpcPeer, wireProcess, EventQueue } from './jsonrpc.js'
-import { cleanEnv, spawnAgent } from './discover.js'
+import { cleanEnv, findEngineExecutable, spawnAgent, terminateChild } from './discover.js'
 
 // The name the loopback MCP server is registered under in each thread's config.
 const MCP_SERVER = 'dsbot'
@@ -14,6 +14,7 @@ export class CodexEngine {
     this.findExecutable = findExecutable
     this.child = undefined
     this.peer = undefined
+    this.starting = undefined
     this.threads = new Map()
   }
 
@@ -30,8 +31,20 @@ export class CodexEngine {
   }
 
   async ensure() {
+    // A peer exists before its handshake has finished; other callers wait for it.
+    if (this.starting !== undefined) return this.starting
     if (this.peer !== undefined) return this.peer
-    const bin = this.findExecutable(this.engine.command)
+    const starting = this.startPeer()
+    this.starting = starting
+    try {
+      return await starting
+    } finally {
+      if (this.starting === starting) this.starting = undefined
+    }
+  }
+
+  async startPeer() {
+    const bin = findEngineExecutable(this.engine, name => this.findExecutable(name))
     if (bin === undefined) throw Object.assign(new Error(`${this.engine.name} is not installed`), { code: 'NO_ADAPTER' })
     const child = spawnAgent(bin, this.engine.args ?? [], {
       env: cleanEnv(this.engine.env ?? {}),
@@ -41,47 +54,99 @@ export class CodexEngine {
     this.child = child
     const peer = this.peer = new JsonRpcPeer(line => child.stdin.write(`${JSON.stringify(line)}\n`))
     wireProcess(child, peer)
-    child.on('exit', () => {
-      peer.close(new Error(`${this.engine.name} exited`))
+    const gone = (error) => {
+      peer.close(error)
       // A process close() let go of must not take the one that replaced it along.
       if (this.child !== child) return
       this.child = undefined
       this.peer = undefined
       for (const thread of this.threads.values()) {
+        this.releaseCompaction(thread)
         thread.dead = true
-        thread.push({ type: 'error', error: new Error(`${this.engine.name} exited`) })
+        thread.push({ type: 'error', error })
       }
-    })
+    }
+    child.on('exit', () => gone(new Error(`${this.engine.name} exited`)))
+    // A CLI that cannot start at all (a broken install, a missing interpreter)
+    // raises 'error', never 'exit'; unheard it takes the host down.
+    child.on('error', error => gone(Object.assign(new Error(`${this.engine.name} could not start: ${error.message}`), { code: 'LOCAL_AGENT_EXIT' })))
     peer.notificationHandler = (method, params) => this.onNotice(method, params)
     peer.requestHandler = (method, params) => this.onRequest(method, params)
-    await peer.request('initialize', { clientInfo: { name: 'ds-bot', title: null, version: '1' } }, { timeout: 30_000 })
-    peer.notify('initialized', {})
-    return peer
+    try {
+      await peer.request('initialize', { clientInfo: { name: 'ds-bot', title: null, version: '1' } }, { timeout: 30_000 })
+      if (this.child !== child) {
+        throw Object.assign(new Error(`${this.engine.name} closed while starting`), { code: 'LOCAL_AGENT_EXIT' })
+      }
+      peer.notify('initialized', {})
+      return peer
+    } catch (error) {
+      peer.close(error)
+      if (this.child === child) {
+        this.child = undefined
+        this.peer = undefined
+        terminateChild(child)
+      }
+      throw error
+    }
   }
 
   onNotice(method, params) {
     const thread = [...this.threads.values()].find(entry => entry.threadId === params?.threadId)
     switch (method) {
+      case 'turn/started':
+        if (thread !== undefined) this.activateTurn(thread, params?.turn?.id)
+        break
       case 'item/started':
       case 'item/completed': {
         const item = params?.item ?? {}
         if (thread === undefined) break
-        if (item.type === 'agentMessage' || item.type === 'agent_message') thread.push({ type: 'text', text: item.text ?? '' })
-        else if (item.type === 'reasoning') thread.push({ type: 'thought', text: (item.content ?? []).join('') || item.text || '' })
-        else if (method === 'item/started' && item.type !== undefined) thread.push({ type: 'activity', text: `▸ ${activityOf(item)}` })
+        // Codex 0.166 condenses as an item of its own, in a turn of its own or mid-turn.
+        if (item.type === 'contextCompaction') {
+          if (method === 'item/started') this.activateTurn(thread, params?.turnId)
+          thread.push({ type: 'compaction', status: method === 'item/started' ? 'started' : 'completed' })
+        }
+        // Every event names its turn, so the adapter can tell a finished turn's
+        // leftovers from the turn it reads now (#1513).
+        const turnId = params?.turnId
+        if (item.type === 'agentMessage' || item.type === 'agent_message') thread.push({ type: 'text', text: item.text ?? '', turnId })
+        else if (item.type === 'reasoning') thread.push({ type: 'thought', text: (item.content ?? []).join('') || item.text || '', turnId })
+        else if (method === 'item/started' && item.type !== undefined) thread.push({ type: 'activity', text: `▸ ${activityOf(item)}`, turnId })
         break
       }
       case 'turn/completed': {
         if (thread === undefined) break
         const turn = params?.turn ?? {}
-        if (turn.status === 'failed') thread.push({ type: 'error', error: new Error(turn.error?.message ?? 'the turn failed') })
-        else thread.push({ type: 'done', reason: 'stop' })
+        // Only the turn that finished is cleared. A late notice for an earlier turn —
+        // one a steer already replaced — must not clear the turn running now: that would
+        // make the next input start a turn instead of steering the live one (#1513).
+        thread.completedTurnId = turn.id
+        if (turn.id === undefined || thread.turnId === turn.id) thread.turnId = undefined
+        if (turn.status === 'failed') thread.push({ type: 'error', error: new Error(turn.error?.message ?? 'the turn failed'), turnId: turn.id })
+        else thread.push({ type: 'done', reason: 'stop', turnId: turn.id })
         break
       }
       case 'thread/tokenUsage/updated': {
-        if (thread === undefined) break
-        const usage = params?.tokenUsage ?? params?.usage
-        if (usage !== undefined) thread.push({ type: 'usage', usage: { inputTokens: usage.inputTokens ?? usage.input_tokens ?? 0, outputTokens: usage.outputTokens ?? usage.output_tokens ?? 0 } })
+        // {total, last, modelContextWindow}: `last` is the request that just ran, and
+        // its totalTokens is what the thread's context holds now (after a compaction,
+        // what is left).
+        const last = params?.tokenUsage?.last
+        if (thread === undefined || last === undefined) break
+        const size = params.tokenUsage.modelContextWindow
+        if (typeof last.totalTokens === 'number') thread.push({ type: 'context', used: last.totalTokens, ...(typeof size === 'number' ? { size } : {}), turnId: params?.turnId })
+        const cached = last.cachedInputTokens ?? 0
+        if (last.inputTokens > 0 || last.outputTokens > 0) {
+          thread.push({
+            type: 'usage',
+            turnId: params?.turnId,
+            usage: {
+              // Codex folds cached input into inputTokens; DSH counts it apart.
+              inputTokens: Math.max(0, (last.inputTokens ?? 0) - cached),
+              outputTokens: last.outputTokens ?? 0,
+              ...(cached > 0 ? { cacheReadTokens: cached } : {}),
+              ...(last.reasoningOutputTokens ? { reasoningTokens: last.reasoningOutputTokens } : {}),
+            },
+          })
+        }
         break
       }
       default: break
@@ -114,7 +179,7 @@ export class CodexEngine {
     return Promise.reject({ code: -32601, message: `method not found: ${method}` })
   }
 
-  async open(dshSessionId, { cwd, mcp, resumeId, mode, instructions, model }) {
+  async open(dshSessionId, { cwd, mcp, resumeId, mode, instructions, model, ephemeral }) {
     const peer = await this.ensure()
     const thread = this.threadFor(dshSessionId)
     if (resumeId !== undefined) thread.threadId = resumeId
@@ -139,7 +204,7 @@ export class CodexEngine {
         thread.threadId = undefined
       }
     }
-    const reply = await peer.request('thread/start', { ...params, ...(instructions ? { developerInstructions: instructions } : {}) }, { timeout: 60_000 })
+    const reply = await peer.request('thread/start', { ...params, ...(instructions ? { developerInstructions: instructions } : {}), ...(ephemeral ? { ephemeral: true } : {}) }, { timeout: 60_000 })
     thread.threadId = reply?.thread?.id ?? reply?.threadId
     return thread
   }
@@ -154,25 +219,72 @@ export class CodexEngine {
     const peer = await this.ensure()
     const reply = await peer.request('turn/start', {
       threadId: thread.threadId,
-      input: blocks.map(block => block.type === 'image' ? { type: 'image', url: block.url ?? block.data } : { type: 'text', text: block.text ?? '' }),
+      input: codexInput(blocks),
       // The app-server takes the level per turn and keeps it for the next ones.
       ...(effort === undefined ? {} : { effort }),
     }, { signal, timeout: 0 })
-    thread.turnId = reply?.turn?.id ?? reply?.id
-    return thread.turnId
+    const turnId = reply?.turn?.id ?? reply?.id
+    // Notifications in the response's stdout batch run before this continuation.
+    thread.turnId = thread.completedTurnId === turnId ? undefined : turnId
+    return turnId
   }
 
-  async steer(thread, text) {
-    await this.peer?.request('turn/steer', { threadId: thread.threadId, input: [{ type: 'text', text }] }, { timeout: 15_000 }).catch(() => {})
+  // Codex's app-server refuses a steer that does not name the turn it steers, and
+  // a refused steer must reach the adapter: it starts a turn of its own instead of
+  // dropping the user's answer. A thread with no live turn cannot be steered at all.
+  canSteer(thread) {
+    return thread?.turnId !== undefined
+  }
+
+  activateTurn(thread, turnId) {
+    if (turnId === undefined) return
+    thread.turnId = turnId
+    thread.pendingCompaction = false
+    const cancelled = thread.compactionCancel
+    thread.compactionCancel = undefined
+    if (cancelled !== undefined) Promise.resolve(this.cancel(thread)).then(cancelled.resolve, cancelled.reject)
+  }
+
+  releaseCompaction(thread) {
+    thread.pendingCompaction = false
+    thread.compactionCancel?.resolve()
+    thread.compactionCancel = undefined
+  }
+
+  // The thread's own compaction: a turn of its own, which ends with turn/completed.
+  compact(thread) {
+    if (this.peer === undefined) return false
+    thread.turnId = undefined
+    thread.pendingCompaction = true
+    this.peer.request('thread/compact/start', { threadId: thread.threadId }, { timeout: 30_000 })
+      .catch(error => {
+        this.releaseCompaction(thread)
+        thread.push({ type: 'error', error })
+      })
+    return true
+  }
+
+  async steer(thread, input) {
+    const expectedTurnId = thread?.turnId
+    if (expectedTurnId === undefined) throw new Error('the turn this input steers has already ended')
+    const blocks = Array.isArray(input) ? input : [{ type: 'text', text: input }]
+    await this.peer?.request('turn/steer', { threadId: thread.threadId, expectedTurnId, input: codexInput(blocks) }, { timeout: 15_000 })
   }
 
   cancel(thread) {
-    this.peer?.request('turn/interrupt', { threadId: thread.threadId, turnId: thread.turnId }, { timeout: 15_000 }).catch(() => {})
+    if (thread.pendingCompaction) {
+      thread.compactionCancel ??= Promise.withResolvers()
+      return thread.compactionCancel.promise
+    }
+    if (thread.turnId === undefined) return
+    return this.peer?.request('turn/interrupt', { threadId: thread.threadId, turnId: thread.turnId }, { timeout: 15_000 }).catch(() => {})
   }
 
   // The adapter stopped reading this thread: a later open starts a new queue, or
   // the pump that waits on this one would swallow its first event.
   forget(dshSessionId) {
+    const thread = this.threads.get(dshSessionId)
+    if (thread !== undefined) this.releaseCompaction(thread)
     this.threads.delete(dshSessionId)
   }
 
@@ -199,14 +311,34 @@ export class CodexEngine {
   }
 
   async close() {
+    for (const thread of this.threads.values()) this.releaseCompaction(thread)
     const child = this.child
     this.child = undefined
     this.peer = undefined
-    if (child !== undefined) {
+    this.starting = undefined
+    if (child === undefined) return this.closing
+    if (child.exitCode !== null || child.signalCode !== null) return
+    this.closing = new Promise(resolve => {
+      const timer = setTimeout(() => { try { child.kill('SIGKILL') } catch {} }, 5_000)
+      timer.unref?.()
+      child.once('close', () => { clearTimeout(timer); resolve() })
       child.kill('SIGTERM')
-      setTimeout(() => { try { child.kill('SIGKILL') } catch {} }, 5_000).unref?.()
+    })
+    return this.closing
+  }
+}
+
+function codexInput(blocks) {
+  const out = []
+  for (const block of blocks) {
+    if (block.type === 'image') {
+      const url = block.url ?? (block.data?.startsWith('data:') ? block.data : `data:${block.mediaType ?? block.mimeType ?? 'image/png'};base64,${block.data}`)
+      out.push({ type: 'image', url })
+    } else if ((block.text ?? '') !== '') {
+      out.push({ type: 'text', text: block.text })
     }
   }
+  return out.length > 0 ? out : [{ type: 'text', text: '' }]
 }
 
 const activityOf = item => {

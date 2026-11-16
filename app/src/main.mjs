@@ -5,9 +5,10 @@
 // the team window hides it; the tray brings it back and its Quit ends the app (shell.mjs). Only
 // what the start window and the tray need is imported up front; the rest loads once the start
 // window is up (docs/plans/2026-10-26-start-window.md §11).
-import { app, BrowserWindow, clipboard, ipcMain, Menu, nativeImage, nativeTheme, powerMonitor, screen, session, shell as electronShell, systemPreferences, Tray, WebContentsView } from 'electron'
+import { app, BrowserWindow, clipboard, ipcMain, Menu, nativeImage, nativeTheme, Notification, powerMonitor, screen, session, shell as electronShell, systemPreferences, Tray, WebContentsView } from 'electron'
 import { createComputerIndicator, indicatorHtml } from './computer-indicator.mjs'
 import { createComputerCursor } from './computer-cursor.mjs'
+import { badgeCount, createNotifications } from './notifications.mjs'
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { release } from 'node:os'
@@ -33,7 +34,7 @@ const { rm } = disk.promises
 const IPC = {
   caption: 'ds-bot:caption-colors', nativeTheme: 'ds-bot:native-theme', fullscreen: 'ds-bot:fullscreen',
   dataLocation: 'ds-bot:data-location', moveData: 'ds-bot:move-data', teamWorkspace: 'ds-bot:team-workspace',
-  ready: 'ds-bot:ready', handoffReady: 'ds-bot:handoff-ready', motion: 'ds-bot:motion',
+  ready: 'ds-bot:ready', handoffReady: 'ds-bot:handoff-ready', motion: 'ds-bot:motion', effects: 'ds-bot:effects',
   card: 'ds-bot:app-card', cardShown: 'ds-bot:app-card-shown', cardAnswer: 'ds-bot:app-card-answer',
   browserAcquire: 'ds-bot:browser-acquire', browserRelease: 'ds-bot:browser-release', browserForget: 'ds-bot:browser-forget',
   browserViewChanged: 'ds-bot:browser-view-changed', browserViewCreate: 'ds-bot:browser-view-create',
@@ -48,6 +49,7 @@ const IPC = {
   appUpdateInstall: 'ds-bot:app-update-install', appUpdateOpen: 'ds-bot:app-update-open',
   appUpdateChanged: 'ds-bot:app-update-changed',
   idleSeconds: 'ds-bot:idle-seconds', computer: 'ds-bot:computer', computerAction: 'ds-bot:computer-action', computerCursor: 'ds-bot:computer-cursor',
+  notify: 'ds-bot:notify', notifyStatus: 'ds-bot:notify-status', badge: 'ds-bot:badge', openSession: 'ds-bot:open-session',
 }
 // A cookie export larger than this is not a cookie export.
 const IMPORT_FILE_MAX = 32 * 1024 * 1024
@@ -78,7 +80,7 @@ const frameFile = join(app.getPath('userData'), 'start-frame.json')
 // Loaded once the start window is up (loadModules).
 let BotBrowserGuests, partitionOf, BotViews, isBotId, importFromBrowser, listSources, applyCookies, CookieImports, parseCookieFile
 let downloadSaver, chooseLocations, defaultPlaces, lang, pickerLabels, pickRoot, programFolder, saveLocations, teamIn, teamsAt, tx, HostProcess
-let copySessions, findTeam, importTeam, restoreSessions, teamInUse, teamSizes, userDshHome, copyData, copyReason, moveProblem, CHECK_PROFILE, PROFILE, ImportFlow
+let copySessions, findTeam, importTeam, restoreSessions, teamInUse, teamSizes, userDshHome, copyData, copyReason, moveProblem, BUNDLES, CHECK_PROFILE, PROFILE, ImportFlow
 let watchReleases, watchUpdates, RELEASE_PAGE, getDshRuntimeVersion, electronUpdater
 
 let mainWindow
@@ -101,6 +103,9 @@ let failed = false
 let places
 // Which of the places this start made, so that 「换个位置…」 can take them away again.
 let made = { dataDir: false, workspace: false, root: false }
+// A bundle of the app installed into the profile's own dependencies shadows the bundled copy
+// for good (#1305). The card about it is asked once per run, however the start retries.
+let shadowedAsked = false
 // The folder picker of 「换个位置…」 is open, and the root it proposed on the 「会放在…」 card.
 let picking = false
 let proposed
@@ -198,7 +203,7 @@ if (canonical !== undefined) {
     page: join(here, 'start', 'start.html'), preload: join(here, 'preload.cjs'), icon: iconFile, material, devTools: !app.isPackaged,
     css: readFileSync(join(here, 'page-card.css'), 'utf8'),
     // On Windows the locale is known only once the app is ready.
-    lang: () => langOf(app.getLocale()), motion: readStartFrame(frameFile).motion,
+    lang: () => langOf(app.getLocale()), motion: readStartFrame(frameFile).motion, effects: readStartFrame(frameFile).effects,
     version: app.getVersion(), program: [dirname(process.execPath), process.resourcesPath, app.getAppPath()], log: logs, mainWindow: () => mainWindow,
     onRetry: () => { retry().catch(fail) },
     onReload: () => { mainWindow?.webContents.reload() },
@@ -207,6 +212,8 @@ if (canonical !== undefined) {
     onClose: () => { app.quit() },
     // 「换个位置…」: a first start picks the place again; a later start moves the data there.
     onPick: () => {
+      // The question about a shadowing plugin copy has to be answered first.
+      if (asked === 'shadowed') return
       // On the import card and the cards of its own picker, the import picks the place itself.
       if (answering !== undefined && ['import', 'importSpace', 'rejected', 'picked'].includes(asked)) { answering('pick'); return }
       (startWindow.kind === 'later' ? moveFromStart() : changePlace()).catch(fail)
@@ -303,7 +310,7 @@ async function loadModules() {
   ;({ copySessions, findTeam, importTeam, restoreSessions, teamInUse, teamSizes, userDshHome } = imports)
   ;({ ImportFlow } = flows)
   ;({ copyData, copyReason, moveProblem } = moves)
-  ;({ CHECK_PROFILE, PROFILE } = profile)
+  ;({ BUNDLES, CHECK_PROFILE, PROFILE } = profile)
   ;({ watchReleases, watchUpdates, RELEASE_PAGE } = updatesModule)
   ;({ getDshRuntimeVersion } = boot)
   electronUpdater = updater.default
@@ -612,6 +619,21 @@ async function startEngine(mine) {
       if (newer.length > 0) console.warn(`DS Bot: this DSH cannot read ${newer.join(', ')}, which the import left out`)
     }, (error) => { console.error('DS Bot: the Sessions the import left out were not copied:', error) })
   }
+  if (!shadowedAsked) {
+    const { shadowedBundles, removeShadowed } = await import('./profile-shadow.mjs')
+    const shadowed = shadowedBundles(profileDir(), BUNDLES)
+    if (shadowed.length > 0 && mine === attempt) {
+      const names = shadowed.map(({ name, version }) => `${name} ${version}`).join(', ')
+      console.warn(`DS Bot: the profile carries its own ${names}, which shadows the bundled copy`)
+      if (await askCard({ kind: 'shadowed', names }) === 'remove' && mine === attempt) {
+        // A failed removal stops the start with the reason, and the next try asks again.
+        await removeShadowed(profileDir(), shadowed.map(entry => entry.name)).catch((error) => {
+          throw new Error(`Could not remove ${names} from the profile: ${error?.message ?? error}`, { cause: error })
+        })
+      }
+    }
+    shadowedAsked = true
+  }
   host = warm?.host ?? newHost()
   host.onMessage(message => {
     if (message?.type !== 'ds-bot:browser-endpoint' || typeof message.id !== 'string' || !isBotId(message.botId)) return
@@ -745,6 +767,25 @@ function handleIpc() {
     shell.setComputer(list)
   })
   ipcMain.handle(IPC.idleSeconds, (event) => (fromWindow(event) ? powerMonitor.getSystemIdleTime() : 0))
+  // The renderer knows which conversation is visible; focusing the window alone
+  // does not mean a reply in another conversation has been seen.
+  const notifications = createNotifications({ Notification, systemPreferences, platform: process.platform, log: logs })
+  ipcMain.handle(IPC.notifyStatus, (event) => (fromWindow(event) ? notifications.status() : 'unsupported'))
+  ipcMain.handle(IPC.notify, (event, notice) => {
+    if (!fromWindow(event)) return false
+    const sessionId = typeof notice?.sessionId === 'string' ? notice.sessionId : undefined
+    return notifications.show({ title: String(notice?.title ?? ''), body: String(notice?.body ?? '') }, {
+      open: () => {
+        toFront(mainWindow)
+        mainWindow?.webContents.send(IPC.openSession, sessionId)
+      },
+    })
+  })
+  ipcMain.on(IPC.badge, (event, count) => {
+    if (!fromWindow(event)) return
+    try { app.setBadgeCount(process.platform === 'darwin' || process.platform === 'linux' ? badgeCount(count) : 0) } catch { /* no dock here */ }
+  })
+  app.on('browser-window-focus', () => notifications.clear())
   const computerCursor = createComputerCursor({ BrowserWindow, screen, platform: process.platform, log: logs })
   ipcMain.on(IPC.computerCursor, (event, entry) => {
     if (!fromWindow(event)) return
@@ -765,6 +806,7 @@ function handleIpc() {
     writeStartFrame(frameFile, { themeSource: value })
   })
   ipcMain.on(IPC.motion, (event, tier) => { if (fromWindow(event)) writeStartFrame(frameFile, { motion: tier }) })
+  ipcMain.on(IPC.effects, (event, tier) => { if (fromWindow(event)) writeStartFrame(frameFile, { effects: tier }) })
   ipcMain.handle(IPC.dataLocation, (event) => {
     assertWindow(event)
     return { path: places.dataDir, fixed }
