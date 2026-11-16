@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { FishLogo } from './dsh-primitives.js'
 import { inkFill } from './inks.js'
 import { isMainOf } from './sources.js'
+import { sidebarEntries, filterSidebarEntries, SIDEBAR_KINDS } from './sidebar-order.js'
 import { currentPart, previewOf, relativeShort } from './text.js'
 import { PlusIcon, SearchIcon, SidebarIcon, GaugeIcon, ClockIcon, GearIcon, PinMarkIcon, ConnectorIcon, PlugIcon, SwitchIcon, CloudDownloadIcon, SignInIcon, SignOutIcon, SlidersIcon, ChevronRightIcon, DotsIcon, FolderIcon } from './icons.js'
 import { lookOf, MAIN_LOOK } from './characters.js'
@@ -521,16 +522,10 @@ export function TeamSidebar(props) {
     for (const id of list.ids) stamps[id] = list.byId[id]?.updatedAt ?? 0
     return JSON.stringify(stamps)
   })
-  const order = useMemo(() => {
-    const stamps = JSON.parse(updated)
-    const entries = [
-      ...roster.bots.filter(bot => bot.id !== roster.mainBotId).map(bot => ({ kind: 'bot', item: bot, at: stamps[currentPart(bot)] ?? bot.createdAt })),
-      ...roster.rooms.map(room => ({ kind: 'room', item: room, at: stamps[room.id] ?? room.createdAt })),
-      // The Agent sorts by its most recent Session, falling back to when it was added.
-      ...(roster.agents ?? []).map(agent => ({ kind: 'agent', item: agent, at: Math.max(0, ...agent.sessions.map(id => stamps[id] ?? 0)) || agent.createdAt })),
-    ]
-    return entries.sort((a, b) => Number(Boolean(b.item.pinned)) - Number(Boolean(a.item.pinned)) || b.at - a.at)
-  }, [roster, updated])
+  const order = useMemo(() => sidebarEntries(roster, JSON.parse(updated)), [roster, updated])
+  // A narrowed list drops the sections: the kinds are the grouping then.
+  const [kind, setKind] = useState('all')
+  const kindEntries = useMemo(() => filterSidebarEntries(order, kind), [order, kind])
   const sections = roster.sections ?? []
   const sectionSet = useMemo(() => new Set(sections.map(sec => sec.id)), [sections])
   const ungrouped = useMemo(
@@ -813,8 +808,21 @@ export function TeamSidebar(props) {
         h('button', { type: 'button', className: 'bt-round', 'aria-label': t('New…'), title: t('New…'), onClick: () => actions.openNewChat('new') }, h(PlusIcon)),
         h(AccountLauncher, { seat: false, actions }),
         h(PluginsButton, { actions }))
+  const kinds = wideContent
+    ? h('div', { className: 'bt-side-kinds', role: 'tablist', 'aria-label': t('Bot list') },
+        SIDEBAR_KINDS.map(entryKind => h('button', {
+          key: entryKind,
+          type: 'button',
+          role: 'tab',
+          'aria-selected': kind === entryKind,
+          className: 'bt-kind',
+          'data-on': kind === entryKind ? 'true' : undefined,
+          onClick: () => setKind(entryKind),
+        }, entryKind === 'all' ? t('All') : entryKind === 'bot' ? t('Bots') : t('Group chat'))))
+    : null
   const content = h('div', { className: wideContent ? 'bt-side' : 'bt-side bt-rail', onKeyDown: typeToSearch },
     top,
+    kinds,
     wideContent && roster.readOnly ? h('div', { className: 'bt-hint bt-read-only', role: 'status' }, hostText(roster.readOnly)) : null,
     h('div', {
       ref: listRef, className: 'bt-list', role: 'region', 'aria-label': t('Bot list'),
@@ -822,7 +830,10 @@ export function TeamSidebar(props) {
       onDragLeave: (event) => { if (!event.currentTarget.contains(event.relatedTarget)) setDropTarget(null) },
     },
       wideContent ? (main ? h(BotRow, { ...rowProps, bot: main, marked: markedUnread[main.id] === true }) : roster.ready ? null : bootFailed ? h(BootFailed, { actions }) : h('div', { className: 'bt-hint' }, t('Setting up your Main Bot…'))) : null,
-      sections.length > 0 && wideContent
+      kind !== 'all'
+        ? kindEntries.map(entry => renderSidebarEntry(entry, rowProps, markedUnread, onDragStart))
+        : null,
+      kind === 'all' && sections.length > 0 && wideContent
         ? h('div', {
             className: 'bt-sec-ungrouped',
             'data-dragging': dragId ? 'true' : undefined,
@@ -830,8 +841,8 @@ export function TeamSidebar(props) {
             onDragOver: event => onDragOverSec(event, '__none__'),
             onDrop: event => onDropSec(event, null),
           }, ungrouped.map(entry => renderSidebarEntry(entry, rowProps, markedUnread, onDragStart)))
-        : ungrouped.map(entry => renderSidebarEntry(entry, rowProps, markedUnread, onDragStart)),
-      sections.map(section => h(SectionBlock, {
+        : kind === 'all' ? ungrouped.map(entry => renderSidebarEntry(entry, rowProps, markedUnread, onDragStart)) : null,
+      kind === 'all' && sections.map(section => h(SectionBlock, {
         key: section.id,
         section,
         entries: order.filter(entry => entry.item.sectionId === section.id),
