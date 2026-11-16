@@ -52,6 +52,7 @@ const FAILURES = {
   MISSING_CREDENTIAL: 'The model has no API key',
   INVALID_CREDENTIAL: 'The API key is not in the right format',
   AUTH: 'The API key was rejected',
+  CONTENT_POLICY: 'The model service blocked the content',
   QUOTA: 'The account is out of quota',
   ACCOUNT_QUOTA: 'The account is out of quota',
   ACCOUNT_SIGN_IN_REQUIRED: 'The DeepSeek account needs a sign-in',
@@ -63,6 +64,7 @@ const FAILURES = {
   SERVER: 'The model service failed',
   TIMEOUT: 'The model took too long to answer',
   TRANSPORT: 'Could not reach the model service',
+  MODEL_SWITCH_COMPACTION_FAILED: "The conversation could not be compacted for the model switch",
   SESSION: 'Its group conversation could not open',
   SESSION_RESET: 'Its group conversation could not open, so it starts a new one next time',
 }

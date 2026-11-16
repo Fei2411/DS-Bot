@@ -402,6 +402,12 @@ function decide(body) {
     if (/来回/.test(userLine)) return [text(mentioner ? `@${mentioner} 回你` : leads && peer ? `@${peer} 来回` : '[PASS]')]
     if (mentioner) return [text('进度正常，今天能交。')]
     if (/安排/.test(userLine)) return [text(leads && peer ? `@${peer} 你先说说进度。` : '[PASS]')]
+    // 调用 <tool> <json> in a group: the same generic trigger as in a Bot's own chat,
+    // so a member's turn can drive a real tool (a write, a shell command) in the group.
+    if ((ask = /调用\s*(\S+)(?:\s+([\s\S]+))?/.exec(userLine))) {
+      if (!tools.has(ask[1])) return [text(`The tool ${ask[1]} is not in my tool list.`)]
+      try { return [tool(ask[1], ask[2] ? JSON.parse(ask[2]) : {})] } catch { return [text(`Bad JSON for ${ask[1]}.`)] }
+    }
     if (/讨论/.test(userLine)) return [text(leads ? '@all 大家各说一句。' : '我觉得可以。')]
     return [text(`${me}：${leads ? '我是群管理员，需要拍板时找我。' : '我负责自己那一摊，有需要直接点我。'}`)]
   }

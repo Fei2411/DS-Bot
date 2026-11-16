@@ -578,3 +578,53 @@ test('findBot unquotes a Bot ref before matching the name', async (t) => {
   assert.equal(rt.findBot('"Nobody"'), undefined)
   assert.equal(rt.findBot(undefined), undefined)
 })
+
+test('indexSessions normalizes missing ids, empty sessionId, switched segments, openParts, and group sessions', async (t) => {
+  const { rt } = runtime(t, {
+    version: 1,
+    mainBotIds: ['main'],
+    bots: {
+      main: { id: 'main', name: 'Chief', main: true },
+      'empty-sid': { id: 'empty-sid', name: 'Empty', sessionId: '' },
+      noId: { name: 'NoId', sessionId: '' },
+      coder: {
+        id: 'coder',
+        name: 'Coder',
+        sessionId: 'sess-coder-2',
+        segments: [null, {}, { sessionId: '' }, { sessionId: 'sess-coder-1', workDir: '/a' }],
+        openParts: [
+          { sessionId: '' },
+          { sessionId: 'sess-coder-open', segments: [{ sessionId: '' }, { sessionId: 'sess-coder-open-old' }] },
+        ],
+      },
+    },
+    rooms: {
+      r1: {
+        id: 'r1',
+        name: 'SecRoom',
+        sessionId: '',
+        members: ['main', 'coder'],
+        sessions: { main: 'grp-main-1', bad: '' },
+        segments: { coder: [{ sessionId: '' }, { sessionId: 'grp-coder-old' }] },
+        parts: [{ sessionId: '' }, { sessionId: 'room-old' }],
+      },
+    },
+  })
+  await rt.load()
+  assert.equal(rt.chatOf('main'), 'main')
+  assert.equal(rt.chatOf('empty-sid'), 'empty-sid')
+  assert.equal(rt.chatOf('noId'), 'noId')
+  assert.equal(rt.selfOf('main'), 'main')
+  assert.equal(rt.selfOf('empty-sid'), 'empty-sid')
+  assert.equal(rt.selfOf('noId'), 'noId')
+  assert.equal(rt.selfOf('sess-coder-2'), 'coder')
+  assert.equal(rt.selfOf('sess-coder-1'), 'coder')
+  assert.equal(rt.selfOf('sess-coder-open'), 'coder')
+  assert.equal(rt.selfOf('sess-coder-open-old'), 'coder')
+  assert.equal(rt.selfOf('grp-main-1'), 'main')
+  assert.equal(rt.selfOf('grp-coder-old'), 'coder')
+  assert.equal(rt.roomOf('r1')?.id, 'r1')
+  assert.equal(rt.selfOf(''), undefined)
+  assert.equal(rt.selfOf(undefined), undefined)
+  assert.equal(rt.roomOf(''), undefined)
+})

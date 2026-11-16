@@ -5,15 +5,17 @@ import { install } from '../src/host/permissions.js'
 const PRESETS = { 'workspace-write': {}, 'danger-full-access': {} }
 const SESSION_ONLY = ['auto']
 
-function runtime({ presets = true, auto = false, fail = false, hold = false } = {}) {
+function runtime({ presets = true, auto = false, fail = false, hold = false, more = [] } = {}) {
   const writes = []
   const releases = []
   const bots = {}
   const control = { fail }
+  const names = [...Object.keys(PRESETS), ...more]
   const service = {
-    catalog: () => ({ options: [...Object.keys(PRESETS), ...(auto ? SESSION_ONLY : [])].map(value => ({ value, name: value })), defaultOptions: [], defaultPreset: 'workspace-write' }),
-    resolve: (name) => { if (!(name in PRESETS) && !(auto && SESSION_ONLY.includes(name))) throw new Error(`permission: unknown preset "${name}"`); return PRESETS[name] },
-    set: (session, name) => { if (control.fail) throw new Error('permission: rejected'); writes.push(`${session}=${name}`) },
+    catalog: () => ({ options: [...names, ...(auto ? SESSION_ONLY : [])].map(value => ({ value, name: value })), defaultOptions: [], defaultPreset: 'workspace-write' }),
+    resolve: (name) => { if (!names.includes(name) && !(auto && SESSION_ONLY.includes(name))) throw new Error(`permission: unknown preset "${name}"`); return PRESETS[name] },
+    // `fail` is true, a predicate on the Session, or a Session name.
+    set: (session, name) => { if (control.fail === true || (typeof control.fail === 'function' && control.fail(session)) || control.fail === session) throw new Error('permission: rejected'); writes.push(`${session}=${name}`) },
   }
   const ctx = { get: name => (presets && name === 'permissionPresets' ? service : undefined) }
   const rt = {
@@ -39,7 +41,15 @@ function runtime({ presets = true, auto = false, fail = false, hold = false } = 
     reject(new Error('permission: session went away'))
     await new Promise(done => setImmediate(done))
   }
-  return { rt, writes, releases, bots, settle, drop, control }
+  // Settles the newest release of one Session, so a test can choose which request writes.
+  const settleAt = async (sessionId) => {
+    const at = releases.findLastIndex(release => release.sessionId === sessionId)
+    assert.notEqual(at, -1, `no pending resolve for ${sessionId}`)
+    const [{ resolve }] = releases.splice(at, 1)
+    resolve({ session: sessionId })
+    await new Promise(done => setImmediate(done))
+  }
+  return { rt, writes, releases, bots, settle, settleAt, drop, control }
 }
 
 test('a Bot\'s preset is set on its chat and its group Sessions', async () => {
@@ -168,4 +178,56 @@ test('the last preset asked for wins when two group changes overlap', async () =
   assert.equal(room.permission, 'danger-full-access')
   assert.equal(writes.length, 4)
   assert.ok(writes.every(write => write.endsWith('=danger-full-access')))
+})
+
+test('a change that fails on one part puts the parts already changed back', async () => {
+  // The Bot had no preset of its own: the chat takes the wider one, then the background
+  // part refuses it. Rolling the field back alone would leave the chat wide while the
+  // user is told the Bot is strict again.
+  const { rt, writes, releases, settle, control } = runtime({ hold: true })
+  const bot = { id: 'b1', name: 'Ada', openParts: [{ sessionId: 'b1-bg', segments: [] }] }
+  const change = rt.setPermission(bot, 'danger-full-access')
+  const refused = assert.rejects(change, /rejected/)
+  await settle(0) // the chat takes the wider preset
+  control.fail = session => session === 'b1-bg'
+  await settle(0) // the background part refuses it, so the change rolls back
+  control.fail = false
+  while (releases.length) await settle(0) // the chat, that part and the group go back
+  await refused
+  assert.equal(bot.permission, undefined)
+  assert.deepEqual(writes, ['b1-chat=danger-full-access', 'b1-chat=workspace-write', 'b1-bg=workspace-write', 'b1-group=workspace-write'])
+})
+
+test('a rollback that is still applying does not write over a newer, stricter request', async () => {
+  // The older request widens the Bot and fails on a background part. Its rollback waits
+  // on the chat's agent; a newer, stricter request applies to that chat meanwhile. The
+  // rollback's write must not land on it: the Bot and that Session would disagree.
+  const { rt, writes, releases, settle, settleAt, control } = runtime({ hold: true, more: ['read-only'] })
+  const bot = { id: 'b1', name: 'Ada', permission: 'workspace-write', openParts: [{ sessionId: 'b1-bg', segments: [] }] }
+  const first = rt.setPermission(bot, 'danger-full-access')
+  const firstFails = assert.rejects(first, /rejected/)
+  await settle(0) // the chat takes the wider preset
+  control.fail = 'b1-bg'
+  await settle(0) // the background part refuses it, so the rollback starts
+  assert.deepEqual(releases.map(release => release.sessionId), ['b1-chat'])
+  control.fail = false
+  const second = rt.setPermission(bot, 'read-only')
+  await settleAt('b1-chat') // the newer request takes the chat
+  await settleAt('b1-bg') // and the background part
+  await settleAt('b1-group')
+  await second
+  await settleAt('b1-chat') // the older rollback's first write resolves only now
+  await firstFails
+  assert.equal(bot.permission, 'read-only')
+  assert.deepEqual(writes, ['b1-chat=danger-full-access', 'b1-chat=read-only', 'b1-bg=read-only', 'b1-group=read-only'])
+})
+
+test('a stricter preset reaches the parts opened while the Bot was busy', async () => {
+  // Two Sessions running at once must not let the background one keep the old,
+  // wider preset after the user was told the Bot was made stricter.
+  const { rt, writes } = runtime()
+  const bot = { id: 'b1', name: 'Ada', openParts: [{ sessionId: 'b1-bg', segments: [] }] }
+  await rt.setPermission(bot, 'workspace-write')
+  assert.equal(bot.permission, 'workspace-write')
+  assert.deepEqual(writes, ['b1-chat=workspace-write', 'b1-bg=workspace-write', 'b1-group=workspace-write'])
 })
