@@ -16,7 +16,7 @@ import { join } from 'node:path'
 import { HISTORY_TIMEOUT_MS, MESSAGE_INLINE_MAX, SOURCE_KIND, STEER_CUT } from './constants.js'
 import { answerSender, cutOffText, failureLine, turnFailure } from './turns.js'
 import { textOf } from './text.js'
-import { threadCurrentOfPart } from './threads.js'
+import { threadCurrentOfPart, threadOfPart } from './threads.js'
 
 // Long enough for DSH to finish opening its workspaces after a start.
 export const RESUME_DELAY_MS = 3000
@@ -311,6 +311,24 @@ export function install(rt) {
     return Array.isArray(seen?.events) ? seen.events : undefined
   }
 
+  const isTerminalReason = reason => reason !== undefined && reason.kind !== 'interrupted'
+    && !(reason.kind === 'aborted' && reason.reason?.kind === 'disposed')
+
+  async function alreadyAnswered(botId, sender, where, back, workId) {
+    if (rt.wasReplyDelivered?.(botId, sender, workId) === true) return true
+    const sent = await logOf(where)
+    if (sent !== undefined && answeredIn(sent, workId)) return true
+    if (back === undefined) {
+      const segments = threadOfPart(rt.botOf(sender), where)?.segments ?? []
+      for (const segment of [...segments].reverse()) {
+        if (segment?.sessionId === undefined || segment.sessionId === where) continue
+        const earlier = await logOf(segment.sessionId)
+        if (earlier !== undefined && answeredIn(earlier, workId)) return true
+      }
+    }
+    return false
+  }
+
   // A turn that ended while DS Bot was not watching it: its answer may exist and never
   // have gone to the Bot that waits for it. The Session's durable log says what it did;
   // the work it was for is settled once, the way a finished turn settles it.
@@ -331,6 +349,10 @@ export function install(rt) {
     }
     const events = await logOf(sessionId)
     if (events === undefined) {
+      if (rt.wasReplyDelivered?.(record.botId, sender, workId) === true) {
+        rt.closeWork?.(workId, name, rt.answerText(workId, '', name))
+        return
+      }
       // The record of that work cannot be read: whether it answered cannot be
       // established. The sender is told that, and the work is not run again.
       const why = 'the record of that work could not be read'
@@ -352,14 +374,13 @@ export function install(rt) {
     // waiting for it keeps what it had.
     if (turn === undefined) return
     const said = turn.texts.join('\n\n')
-    // The answer went up in another run: the work closes with what it said, and
-    // nothing is sent twice.
+    // The answer went up in another run (even before a part switch): the work closes
+    // with what it said, and nothing is sent twice.
     const back = rt.roomOf(asker.senderRoomId)?.sessions?.[sender]
     // The answer would have gone to the part of the asking Bot's chat the request came
     // from, which is not its foreground chat when that part is a background one.
     const where = back ?? (asker.senderPart === undefined ? undefined : threadCurrentOfPart(rt.botOf(sender), asker.senderPart)) ?? rt.chatOf(sender)
-    const sent = await logOf(where)
-    if (sent !== undefined && answeredIn(sent, workId)) {
+    if (await alreadyAnswered(record.botId, sender, where, back, workId)) {
       rt.closeWork?.(workId, name, rt.answerText(workId, said, name))
       return
     }
@@ -374,7 +395,7 @@ export function install(rt) {
     }
     if (reason.kind === 'error') {
       const failure = turnFailure(reason.error)
-      answerSender(rt, sessionId, asker, `${name} could not answer your message: its model call failed (${failureLine(failure)}). Tell the user if it matters; do not retry right away.`)
+      answerSender(rt, sessionId, asker, `${name} could not answer your message: its model call failed (${failureLine(failure)}). Tell the user if it matters; do not retry right away.`, undefined, { failure })
       return
     }
     if (reason.kind === 'aborted') {
@@ -448,8 +469,29 @@ export function install(rt) {
         continue
       }
       // Still running: noted again, as if it had started here.
-      if (first === undefined && (await rt.resolveAgent(sessionId).catch(() => undefined))?.status === 'running') update(sessionId, () => record)
-      else cut.push([sessionId, record])
+      if (first === undefined && (await rt.resolveAgent(sessionId).catch(() => undefined))?.status === 'running') {
+        update(sessionId, () => record)
+        continue
+      }
+      // If inflight.json still held a turn whose durable log already shows a finished
+      // turn/end, settle from the log instead of re-running the request via resumeTurn.
+      if (first === undefined && record.roomId === undefined && record.trigger?.exchangeId !== undefined) {
+        const events = await logOf(sessionId)
+        const turn = events === undefined ? undefined : turnOf(events, record.trigger.exchangeId)
+        if (isTerminalReason(turn?.reason)) {
+          await reconcileEnded(sessionId, record, { reason: turn.reason }).catch(error => rt.warn('ds-bot: settling the work of %s failed: %s', sessionId, error))
+          continue
+        }
+        if (turn === undefined && record.trigger.senderSessionId !== undefined
+          && rt.wasReplyDelivered?.(record.botId, record.trigger.senderSessionId, record.trigger.exchangeId) === true) {
+          const workId = rt.workOf(record.trigger)
+          if (rt.ownsWork(record.botId, workId)) {
+            rt.closeWork?.(workId, rt.botOf(record.botId)?.name ?? 'The other Bot', '')
+          }
+          continue
+        }
+      }
+      cut.push([sessionId, record])
     }
     firstTurn = undefined
     for (const [sessionId, list] of Object.entries(dropped)) {

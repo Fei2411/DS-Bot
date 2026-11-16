@@ -92,6 +92,27 @@ export const openSessions = bot => (bot?.openParts ?? []).flatMap(part => [part.
 // ran and turned this one into a background thread.
 export const successorOfMovedPart = (bot, freshId) => (threadOf(bot, freshId)?.thread === 'open' ? freshId : undefined)
 
+// Whether two Session ids belong to the same Bot conversation thread or group membership.
+// Stays stable across part switches and open-part focus swaps, while isolating distinct
+// parallel openParts threads and distinct groups.
+export function sameConversation(state, botId, sessionA, sessionB) {
+  if (sessionA === sessionB) return true
+  if (sessionA === undefined || sessionB === undefined || botId === undefined) return false
+  for (const room of Object.values(state?.rooms ?? {})) {
+    const current = room?.sessions?.[botId]
+    const segments = room?.segments?.[botId] ?? []
+    const hasA = current === sessionA || segments.some(segment => segment?.sessionId === sessionA)
+    const hasB = current === sessionB || segments.some(segment => segment?.sessionId === sessionB)
+    if (hasA || hasB) return hasA && hasB
+  }
+  const bot = state?.bots?.[botId]
+  if (bot === undefined) return false
+  const threadA = threadOfPart(bot, sessionA)
+  const threadB = threadOfPart(bot, sessionB)
+  if (threadA === undefined || threadB === undefined) return false
+  return threadA.thread === threadB.thread && threadA.index === threadB.index
+}
+
 // Every live thread's current session. A change that must reach all of a Bot's own
 // chats (its run mode) walks these, so no thread can be left on the other side.
 export const ownChatSessions = bot => [currentSession(bot), ...(bot?.openParts ?? []).map(part => part.sessionId)].filter((id, index, list) => id !== undefined && list.indexOf(id) === index)

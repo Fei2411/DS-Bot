@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { HISTORY_TIMEOUT_MS, LONG_HEAD, MESSAGE_INLINE_MAX, READ_LINE_MAX, SOURCE_KIND, TEXT_KEPT, TEXT_SHOW_MAX } from './constants.js'
 import { headOf, textOf } from './text.js'
+import { sameConversation } from './threads.js'
 
 export function install(rt) {
   const { ctx, state } = rt
@@ -53,18 +54,41 @@ export function install(rt) {
     .map(entry => ({ ...entry, delivered: true })))
   // A message shows the text its delivery carried: the last record of its id written before
   // a delivery mark. A merged request whose replacement never went out keeps the text that did.
-  function pairMessages(a, b) {
+  function pairRecords(a, b) {
     const written = new Map()
     const shown = new Map()
+    const marks = []
     for (const record of rt.ledger.records(pairBook(a, b))) {
       if (record.event === 'delivered') {
         if (written.has(record.id)) shown.set(record.id, written.get(record.id))
+        marks.push(record)
       } else if (record.event === undefined) {
         written.set(record.id, record)
         if (record.delivered === true) shown.set(record.id, record)
       }
     }
-    return [...shown.values()]
+    return { written, shown, marks }
+  }
+  const pairMessages = (a, b) => [...pairRecords(a, b).shown.values()]
+
+  function wasReplyDelivered(fromId, toId, replyTo) {
+    if (typeof fromId !== 'string' || typeof toId !== 'string' || typeof replyTo !== 'string' || replyTo === '') return false
+    if (rt.botOf(fromId) === undefined || rt.botOf(toId) === undefined) {
+      return (state.exchanges ?? []).some(entry => entry.from === fromId && entry.to === toId && entry.role === 'reply' && entry.replyTo === replyTo)
+    }
+    return pairMessages(fromId, toId).some(record => record.from === fromId && record.to === toId && record.role === 'reply' && record.replyTo === replyTo)
+  }
+
+  function wasFailureRequestDelivered(fromId, toId, requestId, targetSessionId) {
+    if (typeof fromId !== 'string' || typeof toId !== 'string' || typeof requestId !== 'string' || requestId === '') return false
+    if (rt.botOf(fromId) === undefined || rt.botOf(toId) === undefined) return false
+    const { written, marks } = pairRecords(fromId, toId)
+    for (const mark of marks) {
+      if (mark.failureRequestId !== requestId) continue
+      const message = written.get(mark.id)
+      if (message?.from === fromId && message?.to === toId && sameConversation(state, toId, mark.sessionId, targetSessionId)) return true
+    }
+    return false
   }
 
   // `sessionId` defaults to the recipient's own chat; group turns name its group Session.
@@ -81,7 +105,7 @@ export function install(rt) {
   // result that came back goes on with. `merged`: a request that takes in an earlier
   // one its recipient had not read, under that one's exchange. `fromPart`: the Session
   // of the sending Bot, which a reply comes back to when that is a background part.
-  async function deliver({ fromId, fromName: senderName, toId, sessionId, text, role, replyTo, roomId, audience, note, exchangeId = randomUUID(), steer = false, deferred = false, resumed = false, retried = false, resent = false, merged = false, abandoned = false, recordExchange = true, askedBy, fromRoomId, fromPart, images = [], files = [], length, work }) {
+  async function deliver({ fromId, fromName: senderName, toId, sessionId, text, role, replyTo, roomId, audience, note, exchangeId = randomUUID(), steer = false, deferred = false, resumed = false, retried = false, resent = false, merged = false, abandoned = false, recordExchange = true, askedBy, fromRoomId, fromPart, images = [], files = [], length, work, failureRequestId }) {
     const from = rt.botOf(fromId)
     const to = rt.botOf(toId)
     if (to === undefined) throw new Error(`Unknown Bot ${toId}`)
@@ -133,7 +157,13 @@ export function install(rt) {
     else agent.followup(message)
     await ctx.sessions.flush(agent.session)
     if (book !== undefined) {
-      rt.ledger.append(book, { event: 'delivered', id: exchangeId, sessionId: targetSessionId, time: Date.now() })
+      rt.ledger.append(book, {
+        event: 'delivered',
+        id: exchangeId,
+        sessionId: targetSessionId,
+        time: Date.now(),
+        ...(typeof failureRequestId === 'string' && failureRequestId !== '' ? { failureRequestId } : {}),
+      })
       // The message went out either way; a mark that is lost only hides it from the dialog.
       await rt.ledger.written(book).catch(() => {})
     } else if (recordExchange && EXCHANGE_ROLES.has(role) && !deferred && !resumed && !retried) {
@@ -225,5 +255,5 @@ export function install(rt) {
     return { ...record, ledger: true }
   }
 
-  Object.assign(rt, { resolveAgent, deliver, exchangeText, attachLong, fileText, exchangesOf, exchangeOf })
+  Object.assign(rt, { resolveAgent, deliver, exchangeText, attachLong, fileText, exchangesOf, exchangeOf, wasReplyDelivered, wasFailureRequestDelivered })
 }
