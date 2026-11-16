@@ -1156,8 +1156,6 @@ export function install(rt) {
     for (const held of scoped.values()) {
       if (held.agent === undefined) continue
       try { maskConnectorTools(held.agent, held) } catch (error) { rt.warn('ds-bot: connector mask failed: %s', error) }
-      // A tool that arrived since the Session was scoped goes to the background too.
-      try { held.disposers.push(...(rt.shadowTools?.(held.agent) ?? [])) } catch (error) { rt.warn('ds-bot: background shadow failed: %s', error) }
     }
   }
 
@@ -1198,7 +1196,7 @@ export function install(rt) {
     const id = agent?.session?.id
     // The shell shadows go with the scope, so a reload or a Session that leaves
     // the team lifts them like the rest, and the Agent can be scoped again.
-    const shadows = [...(rt.shadowShells?.(agent) ?? []), ...(rt.shadowTools?.(agent) ?? [])]
+    const shadows = rt.shadowShells?.(agent) ?? []
     if (shadows.length > 0) {
       const held = scoped.get(id) ?? { relay: false, tools: false, restricted: false, filtered: false, disposers: [], unlisted: new Set() }
       held.agent = agent

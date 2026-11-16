@@ -2,7 +2,7 @@
 
 export const ES = {
   'Background work': 'Trabajo en segundo plano',
-  'Background tool calls after (seconds)': 'Pasar llamadas de herramientas a segundo plano tras (segundos)',
+  'Background commands after (seconds)': 'Pasar comandos a segundo plano tras (segundos)',
   'A new reply is waiting': "Tienes una nueva respuesta",
   'Opening…': 'Abriendo…',
   'Still opening…': 'Sigue abriendo…',

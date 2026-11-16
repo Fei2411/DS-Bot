@@ -2,7 +2,7 @@
 
 export const KO = {
   'Background work': '백그라운드 작업',
-  'Background tool calls after (seconds)': '도구 호출 백그라운드 전환(초)',
+  'Background commands after (seconds)': '명령 백그라운드 전환(초)',
   'A new reply is waiting': "새 답변이 도착했습니다",
   'Opening…': '여는 중…',
   'Still opening…': '아직 여는 중…',
