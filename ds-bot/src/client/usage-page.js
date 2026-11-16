@@ -151,7 +151,8 @@ function Stats({ range, total, previous }) {
   return h('section', { className: 'bt-us-stats', style: { '--i': 0 } },
     h('div', { className: 'bt-us-stat bt-us-stat-main' },
       h('span', { className: 'bt-us-stat-label' }, lastText(range)),
-      h('span', { className: 'bt-us-stat-value' }, compact(shown), h('small', null, t('tokens')),
+      h('span', { className: 'bt-us-stat-value' },
+        h('span', { className: 'bt-us-total' }, compact(shown), h('small', null, t('tokens'))),
         change === null ? null : h('span', { className: 'bt-us-delta', title: compareText(range) },
           `${change >= 0 ? '↑' : '↓'} ${Math.abs(change)}%`))),
     cell(t('Cache hit rate'), `${hitRate(total)}%`),
@@ -647,9 +648,10 @@ export const USAGE_CSS = `
 .bt-us-stat+.bt-us-stat{border-left:1px solid var(--bt-line)}
 .bt-us-stat-label{overflow:hidden;font-size:12px;line-height:16px;color:var(--bt-ink-3);white-space:nowrap;text-overflow:ellipsis}
 .bt-us-stat-value{display:flex;align-items:baseline;gap:6px;min-width:0;font-size:22px;line-height:28px;font-weight:600;letter-spacing:-.01em;font-variant-numeric:tabular-nums;white-space:nowrap}
-.bt-us-stat-main .bt-us-stat-value{font-size:34px;line-height:40px;letter-spacing:-.025em}
+.bt-us-stat-main .bt-us-stat-value{display:grid;grid-template-columns:minmax(0,1fr) auto;font-size:34px;line-height:40px;letter-spacing:-.025em}
+.bt-us-total{display:flex;align-items:baseline;flex-wrap:wrap;gap:0 6px;min-width:0;overflow-wrap:anywhere}
 .bt-us-stat-value small{font-size:13px;font-weight:400;letter-spacing:0;color:var(--bt-ink-3)}
-.bt-us-delta{align-self:center;margin-left:2px;padding:0 8px;border-radius:999px;background:var(--bt-tag-bg);color:var(--bt-ink-2);font-size:11px;line-height:20px;font-weight:500;letter-spacing:0}
+.bt-us-delta{align-self:baseline;margin-left:2px;padding:0 8px;border-radius:999px;background:var(--bt-tag-bg);color:var(--bt-ink-2);font-size:11px;line-height:20px;font-weight:500;letter-spacing:0;white-space:nowrap}
 .bt-us-card{display:flex;flex-direction:column;gap:12px;min-width:0;padding:14px 18px 16px;border-radius:16px;border:1px solid var(--bt-line);background:var(--bt-card);animation:bt-us-in .45s var(--bt-us-ease) backwards;animation-delay:calc(var(--i,0) * 45ms)}
 .bt-us-card-head{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:32px}
 .bt-us-card-head h3{display:flex;align-items:baseline;gap:8px;min-width:0;margin:0;font-size:13px;line-height:18px;font-weight:600}
