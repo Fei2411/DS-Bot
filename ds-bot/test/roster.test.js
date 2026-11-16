@@ -1443,3 +1443,14 @@ test('a window learns that the other dsh closed and takes the team over without 
   assert.notEqual(live.liveKey, first.liveKey, 'a changed read-only notice moves the live key')
   assert.equal((await call('create-bot', { name: 'Took over' })).ok, true)
 })
+
+// A copy keeps how the original writes; only a change in the settings moves it.
+test('a copied Bot keeps its reply style', async (t) => {
+  const { call, stop } = start(undefined, { models: ['deepseek-v4-flash'] })
+  t.after(stop)
+  const original = (await call('create-bot', { name: 'Terse' })).value
+  assert.equal(original.replyStyle, undefined)
+  assert.equal((await call('update-bot', { id: original.id, replyStyle: 'formal' })).ok, true)
+  const copy = (await call('duplicate-bot', { id: original.id })).value
+  assert.equal(copy.replyStyle, 'formal')
+})

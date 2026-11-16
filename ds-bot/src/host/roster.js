@@ -190,7 +190,7 @@ export function install(rt) {
     return holdName('bot', cleanName, () => buildBot(cleanName, options))
   }
 
-  async function buildBot(cleanName, { role = '', instructions = '', color, brief = '', createdBy, main = false, avatar, model, effort, workDir, copyOf, pickModel = false, section, sectionId }) {
+  async function buildBot(cleanName, { role = '', instructions = '', color, brief = '', createdBy, main = false, avatar, model, effort, workDir, copyOf, pickModel = false, section, sectionId, replyStyle }) {
     const cleanAvatarValue = cleanAvatar(avatar)
     // The model is fixed at creation, so a later change of the DSH default leaves it alone.
     const modelRef = model ? await rt.resolveModel(model) : pickModel ? undefined : await rt.defaultBotModel()
@@ -221,6 +221,7 @@ export function install(rt) {
         ...(dir ? { workDir: dir } : {}),
         ...(resolvedSecId ? { sectionId: resolvedSecId } : {}),
         instructions: String(instructions).trim(),
+        ...(isReplyStyle(replyStyle) ? { replyStyle } : {}),
         createdAt: Date.now(),
         createdBy: createdBy ?? null,
         capabilities: [],
@@ -360,6 +361,7 @@ export function install(rt) {
       effort: served ? (bot.effort ?? null) : undefined,
       workDir,
       sectionId: bot.sectionId,
+      replyStyle: bot.replyStyle,
       copyOf: bot.id,
     })
   }
