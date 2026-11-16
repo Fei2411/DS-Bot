@@ -77,6 +77,7 @@ export function install(rt) {
         sessionId: part.sessionId,
         startedAt: part.startedAt ?? 0,
         parts: (part.segments ?? []).map(segment => segment.sessionId),
+        ...(part.task === undefined ? {} : { task: { id: part.task.id, title: part.task.title, status: rt.taskStatusOf?.(part) ?? part.task.status } }),
       }))
       return {
         ...bot, sessionId: rt.chatOf(bot.id), parts: (segments ?? []).map(segment => segment.sessionId),
@@ -867,6 +868,14 @@ export function install(rt) {
           const bot = rt.botOf(String(body.botId ?? ''))
           if (bot === undefined) return fail('Unknown Bot', 'bot/not-found')
           return ok(await rt.newPart(rt.chatOf(bot.id)))
+        }
+        // Stop on a background task (bot-tasks.js): the user reads a task, and can stop it.
+        case 'bot-stop-task': {
+          await rt.load()
+          const bot = rt.botOf(String(body.botId ?? ''))
+          if (bot === undefined) return fail('Unknown Bot', 'bot/not-found')
+          await rt.stopTask(bot.id, String(body.taskId ?? ''))
+          return ok(true)
         }
         case 'bot-open-part': {
           await rt.load()

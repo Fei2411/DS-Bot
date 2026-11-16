@@ -71,6 +71,7 @@ test('apply registers listeners and effects in a fixed order', (t) => {
     'on agent/disposed',
     'on commands/change',
     'effect ds-bot: command shield cleanup',
+    'on session/event',
     'on approval/request (prepend)',
     'on agent/inbox/discarded',
     'on session/event',

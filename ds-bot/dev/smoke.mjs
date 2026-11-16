@@ -452,6 +452,19 @@ await step('detached capabilities disappear from Chief', () => send(chief().id, 
   return expect(report?.endsWith(seesNothing), `Chief reported ${report}`)
 })
 
+// Background tasks: Chief starts one from its chat; the task part is forked from the
+// chat, so it starts with what was said there, and its last reply comes back to the chat.
+await step('a background task forks the chat and reports back to it', () => send(chief().id, '调用 task_start {"title":"烟测任务","brief":"说一句做完了"}'), (_value, calls) => {
+  const part = (chief().openParts ?? []).find(item => item.task?.title === '烟测任务')
+  const briefed = calls.find(call => call.session === part?.sessionId && (call.last ?? '').includes('[Background task "烟测任务"'))
+  const reported = calls.some(call => call.session === (chief().sessionId ?? chief().id) && /\[Background task "烟测任务" \(k_[0-9a-f]{6}\) finished\]/.test(call.last ?? ''))
+  return expect(part !== undefined, 'no task part')
+    ?? expect(briefed !== undefined, 'the task part got no brief')
+    ?? expect(briefed.messages > 4, `the task part did not start from the chat (${briefed.messages} messages)`)
+    ?? expect(reported, 'no report reached the chat')
+    ?? expect(part.task.status === 'done', `task status ${part.task.status}`)
+})
+
 if (outFile) writeFileSync(outFile, `${JSON.stringify(transcript, null, 2)}\n`)
 console.log(failures.length === 0 ? `\nsmoke: all ${transcript.length} steps passed` : `\nsmoke: ${failures.length} failed\n${failures.join('\n')}`)
 process.exit(failures.length === 0 ? 0 : 1)

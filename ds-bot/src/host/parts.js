@@ -2050,6 +2050,32 @@ export function install(rt) {
     if (now !== undefined && (now.ref !== picked?.ref || now.effort !== picked?.effort)) await selectRoute({ name: bot.name }, freshId, now)
   }
 
+  // A background task of the Bot: a live part of its own chat that starts from the
+  // chat it came from. DSH forks that chat at its latest completed turn (also while a
+  // turn runs there), so the task reads everything the chat knew, on the same request
+  // prefix; a DSH without fork, or a fork that fails, gives the task a fresh part and
+  // its brief carries the work.
+  async function openTaskPart(bot, fromSessionId, task) {
+    const dir = rt.workDirOf({ botId: bot.id })
+    let freshId
+    if (typeof ctx.sessionController?.fork === 'function') {
+      try {
+        freshId = (await ctx.sessionController.fork({ sessionId: fromSessionId })).sessionId
+      } catch (error) {
+        rt.warn('ds-bot: the task of %s starts fresh, the fork failed: %s', bot.name, error)
+      }
+    }
+    freshId ??= await rt.createSession(bot.name, { dir })
+    const picked = await freshRoute(bot, (await rt.resolveAgent(fromSessionId)).session)
+    if (picked !== undefined) await selectRoute({ name: bot.name }, freshId, picked)
+    await rt.applyPermission(bot, freshId, undefined)
+      .catch(error => rt.warn('ds-bot: permission for the task of %s not applied: %s', bot.name, error))
+    ;(bot.openParts ??= []).push({ sessionId: freshId, segments: [], startedAt: Date.now(), task })
+    rt.chatOwners.set(freshId, bot.id)
+    await rt.save()
+    return freshId
+  }
+
   // Opening an earlier part again: it becomes the current one and the part that
   // was current joins the earlier ones where it sat.
   async function switchPart(botId, partId) {
@@ -2109,5 +2135,5 @@ export function install(rt) {
     return true
   }
 
-  Object.assign(rt, { clock, partsOf, partsOfThread, historyEntry, partLines, noteText, earlierPage, chatPage, displayItems, applySteps, followFolder, followEngine, heldBack, newPart, switchPart, sessionTokens: session => tokensOf(session), switchJobs: () => switches.values() })
+  Object.assign(rt, { clock, partsOf, partsOfThread, historyEntry, partLines, noteText, earlierPage, chatPage, displayItems, applySteps, followFolder, followEngine, heldBack, newPart, openTaskPart, switchPart, sessionTokens: session => tokensOf(session), switchJobs: () => switches.values() })
 }
