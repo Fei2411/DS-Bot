@@ -14,11 +14,29 @@ export const DSH_NARROW = 1024
 // What the shell's collapsed track takes from the window. A phone-width shell parks the
 // whole sidebar off-canvas: it keeps its full width but leaves no room to subtract.
 export const trackRoom = ({ width, right }) => Math.max(0, Math.min(width, right))
+
 // The open column's width range; a drag released short of RAIL_SNAP lands on the rail.
 export const SIDEBAR_MIN = 264
 export const SIDEBAR_MAX = 420
 export const FALLBACK_SIDEBAR_WIDTH = 280
 export const RAIL_SNAP = (RAIL_WIDTH + SIDEBAR_MIN) / 2
+
+/**
+ * The width the collapsed shell sidebar still takes, from what the frame shows.
+ * `measured` is the column's settled width while the shell reports itself collapsed.
+ * `collapsed === null` means the frame has no sidebar column at all, so there is no
+ * track to subtract: the narrow web shell on a phone keeps none, and a platform guess
+ * would push the chat short by the same amount, under our rail (#1084). While the
+ * shell slides its sidebar the widths in between are not settled, so the last stands.
+ * @param {{measured: number|null, collapsed: boolean|null, animating?: boolean, last: number}} input
+ * @returns {number}
+ */
+export const nextCollapsedWidth = ({ measured, collapsed, animating = false, last }) => {
+  if (animating) return last
+  if (collapsed === null) return 0
+  if (collapsed === true) return measured ?? 0
+  return last
+}
 
 /**
  * @param {{viewport: number, sidebarWidth: number,
