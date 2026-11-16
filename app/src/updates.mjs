@@ -142,6 +142,7 @@ export function watchReleases({ current, arch, fetch = globalThis.fetch, ask, op
   const check = () => { if (!UPDATE_BUSY.has(holder.state().phase)) run() }
   run()
   const timer = setInterval(check, CHECK_EVERY_MS)
+  timer.unref?.()
   return { stop: () => { clearInterval(timer) }, latest: () => latest, state: holder.state, subscribe: holder.subscribe, check }
 }
 
@@ -219,5 +220,6 @@ export function watchUpdates({ updater, beforeInstall, ask, feed, log = console 
   const check = () => { if (!UPDATE_BUSY.has(holder.state().phase)) run() }
   run()
   const timer = setInterval(check, CHECK_EVERY_MS)
+  timer.unref?.()
   return { stop: () => { clearInterval(timer) }, latest: () => latest, install, state: holder.state, subscribe: holder.subscribe, check }
 }
