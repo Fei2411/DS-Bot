@@ -52,8 +52,11 @@ function sign(gradle) {
 // Keep debug x86/x86_64 emulators working via default gradle.properties; only release strips
 // simulator ABIs (via androidComponents above and -PreactNativeArchitectures in CI) while
 // storing uncompressed, 16KB-aligned native libraries inside the APK (Android 15+ requirement).
+// AGP 9 stamps Expo 58 prebuilt AARs with minCompileSdk=37 when compiling against SDK 36;
+// disableCompileSdkChecks bypasses that metadata guard while compiling/linking against SDK 36.
 const GRADLE_OVERRIDES = [
   ['expo.useLegacyPackaging', 'false'],
+  ['android.experimental.disableCompileSdkChecks', 'true'],
 ]
 
 function applyArchs(properties) {

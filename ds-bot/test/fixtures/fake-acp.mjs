@@ -41,6 +41,7 @@ const noHttpMcp = process.argv.includes('--no-http-mcp')
 const failFirstInit = process.argv.includes('--fail-first-init')
 let initCount = 0
 const authRequired = process.argv.includes('--auth-required')
+const noImage = process.argv.includes('--no-image')
 const listsCompact = !process.argv.includes('--no-compact')
 const reportsUsage = !process.argv.includes('--no-usage')
 const WINDOW = 262_000
@@ -123,7 +124,20 @@ async function mcpCall(server, name, args) {
 }
 
 async function runPrompt(session, prompt, requestId) {
-  const text = (prompt ?? []).map(block => block.text ?? '').join('\n')
+  const blocks = prompt ?? []
+  const images = blocks.filter(block => block.type === 'image')
+  if (images.length > 0) {
+    if (noImage) {
+      send({ jsonrpc: '2.0', id: requestId, error: { code: -32602, message: 'Invalid params: image prompt content is unsupported' } })
+      return
+    }
+    const bad = images.find(block => typeof block.mimeType !== 'string' || typeof block.data !== 'string' || block.data.startsWith('data:'))
+    if (bad !== undefined) {
+      send({ jsonrpc: '2.0', id: requestId, error: { code: -32602, message: 'Invalid params: malformed ACP image block' } })
+      return
+    }
+  }
+  const text = blocks.filter(block => block.type === 'text').map(block => block.text ?? '').join('\n')
   const sessionId = session.id
   const finish = (textOut) => {
     update(sessionId, { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: textOut } })
@@ -151,6 +165,19 @@ async function runPrompt(session, prompt, requestId) {
   if (/\bhang\b/.test(text)) return // session/cancel releases it below
   if (text.includes('show-state')) { finish(`cwd: ${process.cwd()}; effort: ${session.thoughtLevel ?? 'default'}${legacyModels ? `; model: ${session.model ?? 'default'}` : ''}`); return }
   if (text.includes('show-mode')) { finish(`mode: ${session.mode}; refused: ${refusedModes}`); return }
+  if (text.includes('late-permission')) {
+    void ask('session/request_permission', {
+      sessionId, toolCall: { toolCallId: 'late', kind: 'execute', title: 'Late action' },
+      options: [{ optionId: 'allow-once', name: 'Allow once', kind: 'allow_once' }, { optionId: 'reject', name: 'Reject', kind: 'reject_once' }],
+    })
+    session.reask = true
+    finish('old output before the decision')
+    return
+  }
+  if (session.reask && text.includes('The calls that were waiting')) {
+    session.reask = false
+    return runPrompt(session, [{ type: 'text', text: 'ask-permission' }], requestId)
+  }
   if (text.includes('ask-permission')) {
     // Like Devin: the call's kind and input arrive with its tool_call update;
     // the permission request names it only by id.
@@ -255,7 +282,8 @@ async function runPrompt(session, prompt, requestId) {
   update(sessionId, { sessionUpdate: 'tool_call', toolCallId: 't0', kind: 'read', status: 'in_progress', locations: [{ path: 'src/a.js' }] })
   update(sessionId, { sessionUpdate: 'tool_call', toolCallId: 't1', kind: 'execute', status: 'in_progress', rawInput: { command: 'npm test' } })
   update(sessionId, { sessionUpdate: 'tool_call_update', toolCallId: 't1', status: 'completed' })
-  finish(`ok: ${text.slice(0, 60)}`)
+  const suffix = images.length > 0 ? ` images=${JSON.stringify(images.map(block => ({ mimeType: block.mimeType, data: block.data })))}` : ''
+  finish(`ok: ${text.slice(0, 60)}${suffix}`)
 }
 
 let rest = ''
@@ -283,6 +311,7 @@ process.stdin.on('data', (chunk) => {
         const agentCapabilities = {
           ...(mcpCapabilities === undefined ? {} : { mcpCapabilities }),
           loadSession: true,
+          promptCapabilities: { image: !noImage, audio: false, embeddedContext: false },
           sessionCapabilities: { close: {} },
         }
         reply(id, { protocolVersion: 1, agentCapabilities, authMethods: [] })

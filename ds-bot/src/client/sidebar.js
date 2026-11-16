@@ -725,7 +725,7 @@ export function TeamSidebar(props) {
         toggleRef.current()
       }
     }
-    if (collapsed) { requested.current = false; quiet(false); return undefined }
+    if (collapsed) { clearTimeout(requestLapse.current); requested.current = false; quiet(false); return undefined }
     if (requested.current) return undefined
     requested.current = true
     quiet(true)
@@ -733,7 +733,7 @@ export function TeamSidebar(props) {
     clearTimeout(requestLapse.current)
     requestLapse.current = setTimeout(() => { requested.current = false; quiet(false); setLapsed(value => value + 1) }, 300)
     return undefined
-  }, [wide, frameSnap.viewport, lapsed])
+  }, [wide, frameSnap.viewport, frameSnap.collapsed, lapsed])
 
   // The drawer closes on a row pick, on Escape and on a press outside it.
   useEffect(() => {

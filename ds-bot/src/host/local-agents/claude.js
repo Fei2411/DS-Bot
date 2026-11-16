@@ -29,6 +29,14 @@ export class ClaudeEngine {
     return session.prompt(blocks)
   }
 
+  canSteer(session) {
+    return session.running === true
+  }
+
+  steer(session, text) {
+    return session.prompt([{ type: 'text', text }])
+  }
+
   cancel(session) {
     session.cancel()
   }
@@ -225,6 +233,7 @@ class ClaudeSession {
           const size = (models.find(([name]) => name === this.model) ?? models.toSorted((a, b) => (b[1]?.contextWindow ?? 0) - (a[1]?.contextWindow ?? 0))[0])?.[1]?.contextWindow
           if (typeof size === 'number' && size > 0) this.emit({ type: 'context', size })
         }
+        this.running = false
         this.emit(event.subtype === 'success' || event.is_error !== true
           ? { type: 'done', reason: 'stop', usage: usageOf(event.usage) }
           : { type: 'error', error: new Error(event.result ?? 'the agent failed') })
@@ -242,12 +251,13 @@ class ClaudeSession {
   }
 
   prompt(blocks) {
-    this.write({ type: 'user', message: { role: 'user', content: blocks } })
+    this.running = true
+    this.write({ type: 'user', message: { role: 'user', content: claudeContent(blocks) } })
     return Promise.resolve()
   }
 
-  async steer(thread, text) {
-    this.prompt([{ type: 'text', text }])
+  async steer(thread, input) {
+    this.prompt(Array.isArray(input) ? input : [{ type: 'text', text: input }])
   }
 
   // `/compact` in stream-json runs the CLI's own compaction and ends with a result.
@@ -267,6 +277,25 @@ class ClaudeSession {
     setTimeout(() => { try { this.child?.kill('SIGKILL') } catch {} }, 5_000).unref?.()
     this.child = undefined
   }
+}
+
+function claudeContent(blocks) {
+  const out = []
+  for (const block of blocks) {
+    if (block.type === 'image') {
+      out.push({
+        type: 'image',
+        source: {
+          type: 'base64',
+          media_type: block.mediaType ?? block.mimeType ?? 'image/png',
+          data: block.data,
+        },
+      })
+    } else if ((block.text ?? '') !== '') {
+      out.push({ type: 'text', text: block.text })
+    }
+  }
+  return out.length > 0 ? out : [{ type: 'text', text: '' }]
 }
 
 const usageOf = usage => (usage === undefined ? undefined : {
