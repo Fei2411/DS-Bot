@@ -20,6 +20,7 @@ All notable changes to DS Bot are listed here. The format follows [Keep a Change
 - A Bot chat or group chat `/` menu shows DS Bot's own commands, and DSH slash commands no longer run there. ([#810](https://github.com/Fei2411/DS-Bot/issues/810), [#1541](https://github.com/Fei2411/DS-Bot/pull/1541))
 - The desktop app sends a system notification when a Bot finishes or a card waits for you while the window is behind other apps; the notification does not take focus, and clicking it opens that conversation. ([#1504](https://github.com/Fei2411/DS-Bot/issues/1504), [#1535](https://github.com/Fei2411/DS-Bot/pull/1535))
 - QQ replies are sent as Markdown messages (by @Menghuan1918), WeCom receives voice transcripts, files and video (by @johnhom1024), and the desktop import reads DSH's YAML profile patches (by @inchTodd). ([#1244](https://github.com/Fei2411/DS-Bot/issues/1244), [#1597](https://github.com/Fei2411/DS-Bot/pull/1597), [#1424](https://github.com/Fei2411/DS-Bot/issues/1424), [#1425](https://github.com/Fei2411/DS-Bot/issues/1425), [#1555](https://github.com/Fei2411/DS-Bot/pull/1555), [#1186](https://github.com/Fei2411/DS-Bot/issues/1186), [#1193](https://github.com/Fei2411/DS-Bot/pull/1193))
+- A long Bot reply shows a small reading pill under the header while you are inside it: a button back to the start of the reply and the title of the section you are in, with a menu of the reply's headings. (by @AdamPlatin123; [#1562](https://github.com/Fei2411/DS-Bot/issues/1562), [#1563](https://github.com/Fei2411/DS-Bot/pull/1563))
 
 ### Changed
 
@@ -46,6 +47,7 @@ All notable changes to DS Bot are listed here. The format follows [Keep a Change
 - A group falls back when its default model is retired instead of failing with `UNKNOWN_MODEL`. (by @GeJin0425; [#1310](https://github.com/Fei2411/DS-Bot/issues/1310), [#1353](https://github.com/Fei2411/DS-Bot/pull/1353))
 - Local agents: image attachments reach the CLI, a context hand-off or compaction that is cancelled leaves nothing behind, and a second caller waits for the CLI's initialize handshake instead of using an unready process. ([#1422](https://github.com/Fei2411/DS-Bot/issues/1422), [#1632](https://github.com/Fei2411/DS-Bot/pull/1632), [#1593](https://github.com/Fei2411/DS-Bot/issues/1593), [#1643](https://github.com/Fei2411/DS-Bot/pull/1643), [#1222](https://github.com/Fei2411/DS-Bot/issues/1222), [#1558](https://github.com/Fei2411/DS-Bot/pull/1558))
 - After a desktop shell restart, a Bot's shell receives its secrets again, and a second part of a Bot's chat keeps its routing across deferred turns. ([#670](https://github.com/Fei2411/DS-Bot/issues/670), [#1639](https://github.com/Fei2411/DS-Bot/pull/1639), [#1638](https://github.com/Fei2411/DS-Bot/pull/1638))
+- A failed in-app update in DSH Desktop no longer makes DS Bot disappear from the sidebar: when removing the old bundle fails after the profile changed, the update selects the bundle again, or installs the running version again. ([#1625](https://github.com/Fei2411/DS-Bot/issues/1625), [#1672](https://github.com/Fei2411/DS-Bot/pull/1672))
 
 ## [0.3.6] - 2026-11-12
 
