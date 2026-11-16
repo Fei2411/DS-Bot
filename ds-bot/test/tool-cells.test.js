@@ -14,7 +14,7 @@ const { outputFiles } = await build({
       "export { QuestionDock, SettledQuestion } from './src/client/questions.js'",
       "export { SecretDock } from './src/client/secret-card.js'",
       "export { countCards } from './src/client/sources.js'",
-      "export { ViewMenuList, WidgetView, WidgetDock } from './src/client/widget-cell.js'",
+      "export { ViewMenuList, WidgetView, WidgetDock, SettledView, AnsweredView, ClosedView } from './src/client/widget-cell.js'",
     ].join('\n'),
     resolveDir: fileURLToPath(new URL('..', import.meta.url)),
   },
@@ -70,7 +70,7 @@ runInNewContext(outputFiles[0].text, {
     throw new Error(`Unexpected platform module ${name}`)
   },
 })
-const { ToolCell, TriggerCell, callTree, stackReplies, CellEmpty, Bubbles, QuestionDock, SettledQuestion, SecretDock, countCards, ViewMenuList, WidgetView, WidgetDock } = module.exports
+const { ToolCell, TriggerCell, callTree, stackReplies, CellEmpty, Bubbles, QuestionDock, SettledQuestion, SecretDock, countCards, ViewMenuList, WidgetView, WidgetDock, SettledView, AnsweredView, ClosedView } = module.exports
 
 // Runs the effects collected since the last render; returns the cleanups.
 const mount = () => {
@@ -899,16 +899,23 @@ test('a reaction on a group post stays on that post, also after it draws again',
   assert.deepEqual([chips(draw(first)), chips(draw(sameTurn)), chips(draw(later))], [0, 0, 1])
 })
 
-test('a question or view card closed without an answer on it stays at its call, read-only, with how it closed', () => {
+test('a question or view card closed without an answer on it stays at its call, read-only, with how it closed and a fold toggle when detailed', () => {
   const asked = { question: 'Which draft?', detail: 'Pick one', options: [{ label: 'Short', description: 'One page' }, 'Long'] }
+  const bareAsked = { question: 'Ready?', options: [] }
   const pick = { title: 'Pick a lane', view: { type: 'options', id: 'lane', options: [{ label: 'Ship now' }, { label: 'One more pass' }] } }
-  const roster = team({ questions: {}, views: {}, closedCards: { [chief.id]: { 'q-dismissed': 'dismissed', 'q-replied': 'replied', 'v-dismissed': 'dismissed' } } })
+  const roster = team({ questions: {}, views: {}, closedCards: { [chief.id]: { 'q-dismissed': 'dismissed', 'q-bare': 'dismissed', 'q-replied': 'replied', 'v-dismissed': 'dismissed' } } })
   const dismissed = show(call('ask_user', 'q-dismissed', { args: asked }), { roster })
   assert.equal(find(dismissed, node => node.props?.className === 'bt-q-gone'), undefined)
   assert.equal(text(find(dismissed, node => node.props?.className === 'bt-q-badge')), 'Dismissed')
-  // Compact: the question and the badge, no options and nothing to press.
+  // Compact while folded: the question and badge only, plus the fold button (no dismiss/option buttons).
   assert.equal(text(dismissed), 'Which draft?Dismissed')
-  assert.equal(find(dismissed, node => node.type === 'button'), undefined)
+  const qButtons = findAll(dismissed, node => node.type === 'button')
+  assert.equal(qButtons.length, 1)
+  assert.equal(qButtons[0].props?.className, 'bt-q-head bt-q-fold')
+  assert.equal(qButtons[0].props?.['aria-expanded'], false)
+  // Without detail or options, no fold toggle is rendered.
+  const bare = show(call('ask_user', 'q-bare', { args: bareAsked }), { roster })
+  assert.equal(find(bare, node => node.type === 'button'), undefined)
   const replied = show(call('ask_user', 'q-replied', { args: asked }), { roster })
   assert.equal(text(find(replied, node => node.props?.className === 'bt-q-badge')), 'Answered by message')
   // Answered on the card: the reply message carries the card, the call leaves no gap.
@@ -916,7 +923,10 @@ test('a question or view card closed without an answer on it stays at its call, 
   assert.ok(find(answered, node => node.props?.className === 'bt-q-gone') !== undefined)
   const view = show(call('show_view', 'v-dismissed', { args: pick }), { roster })
   assert.equal(text(view), 'Pick a laneDismissed')
-  assert.equal(find(view, node => node.type === 'button'), undefined)
+  const vButtons = findAll(view, node => node.type === 'button')
+  assert.equal(vButtons.length, 1)
+  assert.equal(vButtons[0].props?.className, 'bt-q-head bt-q-fold')
+  assert.equal(vButtons[0].props?.['aria-expanded'], false)
   assert.ok(find(show(call('show_view', 'v-answered', { args: pick }), { roster }), node => node.props?.className === 'bt-q-gone') !== undefined)
 })
 
@@ -957,7 +967,7 @@ test('a hidden-turn card floats in the dock while pending, then leaves the dock 
   assert.equal(expand(QuestionDock(dockProps(store, closedRoster))), null)
   const settledCell = show(root, { roster: closedRoster })
   assert.equal(text(settledCell), 'Which draft?DismissedPick a laneAnswered by message')
-  assert.equal(find(settledCell, each => each.type === 'button'), undefined)
+  assert.deepEqual(findAll(settledCell, each => each.type === 'button').map(each => each.props?.className), ['bt-q-head bt-q-fold', 'bt-q-head bt-q-fold'])
 
   // A card carried from an earlier part stays in the dock even if the current part drew the same call id.
   store.noteCards(chief.id, ['same-call'], 1)
@@ -1186,4 +1196,100 @@ test('an attachment starts the clipboard write inside its click before loading t
   release({ text: full, whole: true })
   await copying
   assert.deepEqual(copiedTexts, [inner])
+})
+
+test('settled and answered views summarize every outcome cleanly and derive fallback prompts when untitled', () => {
+  const expandCard = (Component, props) => expand(h(Component, props))
+
+  // Options (multi-select with letter keys).
+  const optsView = {
+    type: 'options', id: 'pick', multi: true,
+    options: [{ label: 'Alpha', description: 'First' }, { label: 'Beta' }, { label: 'Gamma' }],
+  }
+  const optsCard = expandCard(AnsweredView, {
+    node: { data: { views: [{ id: 'v1', title: 'Choose items', view: optsView }], answers: [{ id: 'v1', action: 'pick', values: { selected: ['Beta', 'Alpha'] } }] } },
+  })
+  assert.equal(text(find(optsCard, node => node.props?.className === 'bt-q-title')), 'Choose items')
+  const pickedSummary = find(optsCard, node => node.props?.className?.includes('bt-q-summary'))
+  assert.ok(pickedSummary)
+  assert.deepEqual(findAll(pickedSummary, node => node.props?.className === 'bt-key').map(text), ['B', 'A'])
+  assert.deepEqual(findAll(pickedSummary, node => node.props?.className === 'bt-q-label').map(text), ['Beta', 'Alpha'])
+
+  // Confirm (confirmed -> accented badge; canceled -> neutral badge).
+  const confirmView = { type: 'confirm', id: 'c1', confirmLabel: 'Deploy', cancelLabel: 'Hold' }
+  const confirmed = expandCard(SettledView, { title: 'Ship build?', view: confirmView, answer: { action: 'c1', values: { confirmed: true } } })
+  const confirmBadge = find(confirmed, node => node.props?.className === 'bt-q-badge')
+  assert.equal(text(confirmBadge), 'Deploy')
+  assert.equal(confirmBadge.props['data-accent'], '')
+  const canceledConfirm = expandCard(SettledView, { title: 'Ship build?', view: confirmView, answer: { action: 'c1', values: { confirmed: false } } })
+  const cancelBadge = find(canceledConfirm, node => node.props?.className === 'bt-q-badge')
+  assert.equal(text(cancelBadge), 'Hold')
+  assert.equal(cancelBadge.props['data-accent'], undefined)
+
+  // Form (non-empty fields -> kv rows; empty submit -> accented badge; canceled -> neutral badge).
+  const formView = {
+    type: 'form', id: 'f1', submitLabel: 'Save', cancelLabel: 'Abort',
+    fields: [{ id: 'host', label: 'Host' }, { id: 'note', placeholder: 'Notes', multiline: true }],
+  }
+  const formDone = expandCard(SettledView, { title: 'Server', view: formView, answer: { action: 'f1', values: { fields: { host: 'api.local', note: 'line 1\nline 2' } } } })
+  const kvRows = findAll(formDone, node => node.props?.className === 'bt-q-kv-row')
+  assert.deepEqual(kvRows.map(row => [text(row.props.children[0]), text(row.props.children[1])]), [['Host', 'api.local'], ['Notes', 'line 1 line 2']])
+  assert.equal(find(formDone, node => node.props?.className === 'bt-q-badge'), undefined)
+  const formEmpty = expandCard(SettledView, { title: 'Server', view: formView, answer: { action: 'f1', values: { fields: {} } } })
+  assert.equal(text(find(formEmpty, node => node.props?.className === 'bt-q-badge')), 'Save')
+  assert.equal(find(formEmpty, node => node.props?.className === 'bt-q-badge').props['data-accent'], '')
+  const formCanceled = expandCard(SettledView, { title: 'Server', view: formView, answer: { action: 'f1', values: { canceled: true } } })
+  assert.equal(text(find(formCanceled, node => node.props?.className === 'bt-q-badge')), 'Abort')
+  assert.equal(find(formCanceled, node => node.props?.className === 'bt-q-badge').props['data-accent'], undefined)
+
+  // Submit + slider / choice / toggle inputs.
+  const inputsView = {
+    type: 'stack',
+    children: [
+      { type: 'slider', id: 'pct', label: 'Budget', min: 0, max: 100, unit: '%', value: 25 },
+      { type: 'choice', id: 'tier', label: 'Tier', options: [{ label: 'Fast', value: 'fast' }, { label: 'Safe', value: 'safe' }], value: 'fast' },
+      { type: 'toggle', id: 'dry', label: 'Dry run', value: true },
+      { type: 'submit', id: 'go', label: 'Run check' },
+    ],
+  }
+  const inputsCard = expandCard(SettledView, {
+    title: 'Run pipeline', view: inputsView,
+    answer: { action: 'go', values: { inputs: { pct: 80, tier: 'safe', dry: false } } },
+  })
+  const inputKv = findAll(inputsCard, node => node.props?.className === 'bt-q-kv-row')
+  assert.deepEqual(inputKv.map(row => [text(row.props.children[0]), text(row.props.children[1])]), [
+    ['Budget', '80 %'],
+    ['Tier', 'Safe'],
+    ['Dry run', '—'],
+  ])
+  const submitOnlyCard = expandCard(SettledView, {
+    title: 'Ping', view: { type: 'submit', id: 'go', label: 'Notify' }, answer: { action: 'go', values: {} },
+  })
+  assert.equal(text(find(submitOnlyCard, node => node.props?.className === 'bt-q-badge')), 'Notify')
+  assert.equal(find(submitOnlyCard, node => node.props?.className === 'bt-q-badge').props['data-accent'], '')
+
+  // Untitled fallback prompt & closed outcomes.
+  const mdPrompt = expandCard(ClosedView, { title: '', view: { type: 'stack', children: [{ type: 'text', text: '# **Review plan**\nMore lines' }, confirmView] }, closed: 'replied' })
+  assert.equal(text(find(mdPrompt, node => node.props?.className === 'bt-q-title')), 'Review plan')
+  assert.equal(text(find(mdPrompt, node => node.props?.className === 'bt-q-badge')), 'Answered by message')
+  const calloutPrompt = expandCard(SettledView, { title: '', view: { type: 'callout', text: '`heads up` details' }, closed: 'dismissed' })
+  assert.equal(text(find(calloutPrompt, node => node.props?.className === 'bt-q-title')), 'heads up details')
+  const formPrompt = expandCard(SettledView, { title: '', view: formView, closed: 'dismissed' })
+  assert.equal(text(find(formPrompt, node => node.props?.className === 'bt-q-title')), 'Host')
+  const metricPrompt = expandCard(SettledView, { title: '', view: { type: 'metric', label: 'Queue depth', value: 4 }, closed: 'dismissed' })
+  assert.equal(text(find(metricPrompt, node => node.props?.className === 'bt-q-title')), 'Queue depth')
+  const formulaView = {
+    type: 'stack',
+    children: [
+      { type: 'text', text: { '=': '"Budget: " + pct + "%"' } },
+      { type: 'slider', id: 'pct', label: 'Budget', min: 0, max: 100, unit: '%', value: 25 },
+      { type: 'submit', id: 'go', label: 'Run check' },
+    ],
+  }
+  const formulaAnswered = expandCard(SettledView, { title: '', view: formulaView, answer: { action: 'go', values: { inputs: { pct: 80 } } } })
+  assert.equal(text(find(formulaAnswered, node => node.props?.className === 'bt-q-title')), 'Budget: 80%')
+  const formulaDismissed = expandCard(SettledView, { title: '', view: formulaView, closed: 'dismissed' })
+  assert.equal(text(find(formulaDismissed, node => node.props?.className === 'bt-q-title')), 'Budget: 25%')
+  const fallbackPrompt = expandCard(SettledView, { title: '', view: { type: 'stack', children: [] }, closed: 'dismissed' })
+  assert.equal(text(find(fallbackPrompt, node => node.props?.className === 'bt-q-title')), 'View')
 })

@@ -1,7 +1,7 @@
 import { Component, createElement as h, useCallback, useEffect, useRef, useState } from 'react'
 import { ACCENT_INKS, INKS } from './inks.js'
 import { isMainOf } from './sources.js'
-import { MESSAGE_WIDTH, allThemes, flatWidthOf, layoutOf, thinkingShown, widthOf } from './themes.js'
+import { MESSAGE_WIDTH, allThemes, effectsOf, flatWidthOf, layoutOf, thinkingShown, widthOf } from './themes.js'
 import { CloseIcon, ChevronLeftIcon, ChevronRightIcon, ChatsIcon, ClockIcon, ConnectorIcon, GlobeIcon, InfoIcon, MonitorIcon, PhoneIcon, PlugIcon, PlusIcon, SlidersIcon, TerminalIcon, SETTINGS_ICONS } from './icons.js'
 import { IconAgentPresetOutlineMedium, IconArchiveOutlineMedium, IconPersonalizationOutlineMedium, IconSettingsOutlineMedium, IconUserOutlineMedium } from '@deepseek-ai/dsh-client-ui-primitives'
 import { AdminStar, BotAvatar, RoomAvatar } from './mark.js'
@@ -24,6 +24,7 @@ import { FeedbackIcon, FeedbackPage } from './feedback.js'
 import { AboutPage } from './about.js'
 import { ProvidersPage } from './providers-page.js'
 import { LocalAgentsPage } from './local-agents-page.js'
+import { BotModelsPage } from './bot-models-page.js'
 import { FolderMenu } from './folder-menu.js'
 import { ModelMenu } from './model-menu.js'
 import { isLocalRoute } from './agent-routes.js'
@@ -36,7 +37,7 @@ const capitalize = word => word[0].toUpperCase() + word.slice(1)
 // DS Bot's pages come first; below a rule, the pages DSH and other plugins register
 // (`settings.section`), then Feedback and About. DSH's General rows join General, and
 // its Models page opens from DS Bot's Models page as the advanced settings.
-const SETTINGS_PAGES = [['general', 'General'], ['models', 'Models'], ['local-agents', 'Local agents'], ['bots', 'Bots'], ['groups', 'Group chats'], ['connectors', 'Connectors'], ['im', 'IM'], ['phone', 'Phone'], ['capabilities', 'Capabilities'], ['browser', 'Browser'], ['computer', 'Computer use'], ['schedules', 'Scheduled tasks'], ['usage', 'Usage'], ['secrets', 'Secrets'], ['feedback', 'Feedback'], ['about', 'About DS Bot']]
+const SETTINGS_PAGES = [['general', 'General'], ['models', 'Models'], ['local-agents', 'Local agents'], ['bots', 'Bots'], ['bot-models', 'Bot models'], ['groups', 'Group chats'], ['connectors', 'Connectors'], ['im', 'IM'], ['phone', 'Phone'], ['capabilities', 'Capabilities'], ['browser', 'Browser'], ['computer', 'Computer use'], ['schedules', 'Scheduled tasks'], ['usage', 'Usage'], ['secrets', 'Secrets'], ['feedback', 'Feedback'], ['about', 'About DS Bot']]
 const LAST_PAGES = new Set(['feedback', 'about'])
 // DSH sections DS Bot's own pages already hold.
 const MERGED_SECTIONS = new Set(['general', 'models'])
@@ -46,7 +47,7 @@ const DSH_ICONS = { account: IconUserOutlineMedium, 'agent-presets': IconAgentPr
 export const dshPages = dsh => (dsh?.sections ?? []).filter(row => row.id !== '' && !MERGED_SECTIONS.has(row.id))
 const hasSection = (dsh, id) => (dsh?.sections ?? []).some(row => row.id === id)
 const dshItem = (dsh, id) => h('div', { key: id, className: 'bt-dsh-item', 'data-item': id }, dsh.renderSlot('settings.general.item', {}, { only: id }))
-const PAGE_ICONS = { ...SETTINGS_ICONS, models: SlidersIcon, 'local-agents': TerminalIcon, connectors: ConnectorIcon, im: ChatsIcon, phone: PhoneIcon, capabilities: PlugIcon, browser: GlobeIcon, computer: MonitorIcon, schedules: ClockIcon, secrets: KeyIcon, feedback: FeedbackIcon, about: InfoIcon }
+const PAGE_ICONS = { ...SETTINGS_ICONS, models: SlidersIcon, 'bot-models': IconPersonalizationOutlineMedium, 'local-agents': TerminalIcon, connectors: ConnectorIcon, im: ChatsIcon, phone: PhoneIcon, capabilities: PlugIcon, browser: GlobeIcon, computer: MonitorIcon, schedules: ClockIcon, secrets: KeyIcon, feedback: FeedbackIcon, about: InfoIcon }
 
 // What each MEMORY.md holds by default, in characters of entry text.
 const MEMORY_SIZES = [
@@ -77,6 +78,7 @@ function SetRow({ label, hint, children, className = '' }) {
 }
 
 const LAYOUTS = [['bubble', 'Bubble'], ['flat', 'Flat']]
+const EFFECTS = [['full', 'Full'], ['reduced', 'Reduced'], ['off', 'None']]
 
 function Choice({ label, value, options, pick }) {
   return h(Segmented, { label, value, className: 'bt-look-seg' }, options.map(([id, text]) => h('button', {
@@ -145,6 +147,7 @@ function GeneralPage({ roster, actions, run, dsh }) {
       // The flat layout's text has a width of its own; the bubble width stays for the user's messages.
       layoutOf(prefs) === 'flat' ? h(SetRow, { label: t('Text width') }, h(WidthSlider, { label: t('Text width'), value: flatWidthOf(prefs), save: flatWidth => run(actions.setPrefs({ flatWidth })) })) : null,
       h(SetRow, { label: t('Bubble width') }, h(WidthSlider, { label: t('Bubble width'), value: widthOf(prefs), save: width => run(actions.setPrefs({ width })) })),
+      h(SetRow, { label: t('Interface motion') }, h(Choice, { label: t('Interface motion'), value: effectsOf(prefs), options: EFFECTS, pick: id => run(actions.setPrefs({ effects: id })) })),
       h(SetRow, { label: t('Show thinking') }, h(Switch, { label: t('Show thinking'), on: thinkingShown(prefs), onChange: thinking => run(actions.setPrefs({ thinking })) })),
       look.map(id => dshItem(dsh, id))),
     h(SetSection, { key: 'new', title: t('New Bots') },
@@ -361,12 +364,13 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
           h(PageBoundary, null,
           shown === 'computer' ? h(ComputerPage, { roster, actions, run, Section: SetSection, Row: SetRow, Switch }) : null,
           shown === 'general' ? h(GeneralPage, { roster, actions, run, dsh }) : null,
-          shown === 'models' && !advanced ? h(ProvidersPage, { actions, run, Section: SetSection, advanced: hasSection(dsh, 'models') ? () => actions.openSettings('models', 'advanced') : null }) : null,
+          shown === 'models' && !advanced ? h(ProvidersPage, { actions, run, roster, Section: SetSection, advanced: hasSection(dsh, 'models') ? () => actions.openSettings('models', 'advanced') : null }) : null,
           advanced ? h('div', { className: 'bt-dsh-section' }, dsh.renderSlot('settings.section', { close }, { only: 'models' })) : null,
           section ? h('div', { className: 'bt-dsh-section' }, dsh.renderSlot('settings.section', { close }, { only: section.id })) : null,
           shown === 'local-agents' ? h(LocalAgentsPage, { run, Section: SetSection, Row: SetRow }) : null,
           bot ? h('div', { className: 'bt-settings-form' }, h(BotSettingsForm, { key: bot.id, bot, roster, actions, run })) : null,
           shown === 'bots' && !bot ? h(BotsPage, { roster, actions, run }) : null,
+          shown === 'bot-models' ? h(BotModelsPage, { roster, actions, run, Section: SetSection }) : null,
           room ? h('div', { className: 'bt-settings-form' }, h(GroupSettingsForm, { key: room.id, room, roster, actions, run })) : null,
           shown === 'groups' && !room ? h(GroupsPage, { roster, actions, run }) : null,
           shown === 'connectors' ? h(ConnectorsPage, { roster, actions }) : null,
