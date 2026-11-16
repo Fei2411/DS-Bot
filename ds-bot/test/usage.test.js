@@ -47,7 +47,7 @@ test('a fork does not count the calls it inherited from its parent', () => {
 const HOUR = 3_600_000
 const LONG_AGO = 1_000
 
-function start(home, { listedExtra, logsExtra, subagentsExtra } = {}) {
+function start(home, { listedExtra, logsExtra, subagentsExtra, background = false } = {}) {
   const fresh = home === undefined
   home ??= mkdtempSync(join(tmpdir(), 'ds-bot-usage-'))
   if (fresh) writeFileSync(join(home, 'state.json'), JSON.stringify({
@@ -55,7 +55,7 @@ function start(home, { listedExtra, logsExtra, subagentsExtra } = {}) {
     mainBotIds: ['b1'],
     revision: 1,
     bots: {
-      b1: { id: 'b1', sessionId: 's-b1', segments: [{ sessionId: 'b1', endedAt: LONG_AGO }], name: 'Chief', instructions: '', createdAt: 1 },
+      b1: { id: 'b1', sessionId: 's-b1', segments: [{ sessionId: 'b1', endedAt: LONG_AGO }], name: 'Chief', instructions: '', createdAt: 1, ...(background ? { openParts: [{ sessionId: 's-bg2', segments: [{ sessionId: 's-bg1', endedAt: LONG_AGO }] }] } : {}) },
       b2: { id: 'b2', sessionId: 'b2', name: 'Writer', instructions: '', createdAt: 2 },
     },
     rooms: { r1: { id: 'r1', name: '研发群', named: true, members: ['b1', 'b2'], admin: 'b1', mode: 'everyone', notice: '', sessions: { b1: 's-g1' }, log: [], createdAt: 3 } },
@@ -167,6 +167,24 @@ test('the usage view counts every Session under its owner, by hour in the asked 
   await drain(meter({ sessionId: 's-b1', purpose: 'compaction', provider: 'deepseek', model: 'v4-flash', messages: [] }, async function* () { yield chunk }))
   const again = (await call('usage', { timeZone: 'Asia/Shanghai' })).value
   assert.equal(totals(again)['Chief/compaction'], 1100)
+})
+
+// #1501: a Bot's own chat may keep a background thread that moved on. Both that
+// thread's Sessions are the Bot's, so their calls count for it, not for "other": the
+// Usage page must not show a Bot having spent nothing while it worked there.
+test('calls in a background thread count for the Bot they were made for', async (t) => {
+  const { call, stop } = start(undefined, {
+    background: true,
+    logsExtra: {
+      's-bg1': [header('deepseek', 'v4-flash'), message(1, 0, usage(11, 1), HOUR)],
+      's-bg2': [header('deepseek', 'v4-flash'), message(1, 0, usage(22, 2), HOUR)],
+    },
+  })
+  t.after(stop)
+  const view = (await call('usage', { timeZone: 'Asia/Shanghai' })).value
+  // Chief keeps the calls of both parts of its background thread; the unowned bucket
+  // still holds only the Session no Bot owns.
+  assert.deepEqual(totals(view), { 'Chief/chat': 160 + 220 + 10 + 12 + 24, 'Chief/group': 330, 'DSH Agent/chat': 77, 'other/chat': 44 })
 })
 
 test('a call made in a group chat stays group use after the room is gone', async (t) => {

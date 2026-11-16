@@ -47,3 +47,16 @@ export const createClock = (timeZone) => {
   })
   return time => (Number.isFinite(time) ? clockFormat.format(time).replace(',', '') : '?')
 }
+
+// The prompts in a due scheduled task's message. DSH frames it for the model: one
+// task as `reminder_prompt_json: "…"`, several as `reminders_json: [{reminder_prompt}]`.
+export function reminderPrompts(text) {
+  const one = /^reminder_prompt_json: (.*)$/m.exec(String(text ?? ''))
+  const batch = /^reminders_json: (.*)$/m.exec(String(text ?? ''))
+  try {
+    const prompts = [...(one ? [JSON.parse(one[1])] : []), ...(batch ? JSON.parse(batch[1]).map(entry => entry?.reminder_prompt) : [])]
+    return prompts.filter(prompt => typeof prompt === 'string' && prompt.trim() !== '')
+  } catch {
+    return []
+  }
+}

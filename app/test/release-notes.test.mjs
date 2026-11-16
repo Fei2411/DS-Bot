@@ -22,6 +22,7 @@ test('the packages carry the names electron-builder gives them, and copies drop 
     'DS-Bot-0.2.3-mac-x64.zip',
     'DS-Bot-0.2.3-linux-x86_64.AppImage',
     'DS-Bot-0.2.3-linux-amd64.deb',
+    'DS-Bot-0.2.3-android.apk',
   ])
   assert.deepEqual(PACKAGES.map(copyName), [
     'DS-Bot-win-x64.exe',
@@ -29,6 +30,7 @@ test('the packages carry the names electron-builder gives them, and copies drop 
     'DS-Bot-mac-x64.zip',
     'DS-Bot-linux-x86_64.AppImage',
     'DS-Bot-linux-amd64.deb',
+    'DS-Bot-android.apk',
   ])
 })
 
@@ -37,16 +39,17 @@ test('sizes are whole megabytes, as GitHub shows them', () => {
   assert.equal(formatSize(10), '1 MB')
 })
 
-test('the table lists Windows first, then macOS and Linux, and says which files are not for download', () => {
+test('the table lists Windows first, then macOS, Linux and Android, and says which files are not for download', () => {
   const sizes = Object.fromEntries(names('0.2.3').map((name, index) => [name, (index + 1) * 100 * MB]))
   const block = downloadBlock({ version: '0.2.3', sizes })
   const rows = block.split('\n').filter(line => line.startsWith('| ') && !line.startsWith('| System'))
-  assert.equal(rows.length, 5)
+  assert.equal(rows.length, 6)
   assert.match(rows[0], /^\| \*\*Windows 10\/11 \(64-bit \/ 64 位\)\*\*<br>Double-click to install \/ 双击安装 \| \[DS-Bot-0\.2\.3-win-x64\.exe\]\(https:\/\/github\.com\/Fei2411\/DS-Bot\/releases\/download\/v0\.2\.3\/DS-Bot-0\.2\.3-win-x64\.exe\) \| 100 MB \|$/u)
   assert.match(rows[1], /^\| macOS, Apple chip .*mac-arm64\.zip.*\| 200 MB \|$/u)
   assert.match(rows[2], /^\| macOS, Intel .*mac-x64\.zip.*\| 300 MB \|$/u)
   assert.match(rows[3], /^\| Linux, AppImage .*linux-x86_64\.AppImage.*\| 400 MB \|$/u)
   assert.match(rows[4], /^\| Linux, deb .*linux-amd64\.deb.*\| 500 MB \|$/u)
+  assert.match(rows[5], /^\| Android \(phone app \/ 手机 App\) .*android\.apk.*\| 600 MB \|$/u)
   assert.match(block, /^## Download \/ 下载$/mu)
   assert.match(block, /The `\.blockmap`, `latest\*\.yml` and `ds-bot-\*\.tgz` files and the source code archives are for updates and the plugin/u)
   assert.match(block, /\[SHA256SUMS\.txt\]\(https:\/\/github\.com\/Fei2411\/DS-Bot\/releases\/download\/v0\.2\.3\/SHA256SUMS\.txt\)/u)
@@ -64,16 +67,17 @@ test('SHA256SUMS.txt lists each package under both of its names, in the format s
   const hashes = Object.fromEntries(names('0.2.3').map((name, index) => [name, String(index).repeat(64)]))
   const lines = checksums('0.2.3', hashes).split('\n')
   assert.equal(lines.pop(), '')
-  assert.equal(lines.length, 10)
+  assert.equal(lines.length, 12)
   assert.equal(lines[0], `${'0'.repeat(64)}  DS-Bot-0.2.3-win-x64.exe`)
   assert.equal(lines[1], `${'0'.repeat(64)}  DS-Bot-win-x64.exe`)
   assert.equal(lines[9], `${'4'.repeat(64)}  DS-Bot-linux-amd64.deb`)
+  assert.equal(lines[11], `${'5'.repeat(64)}  DS-Bot-android.apk`)
 })
 
 test('a missing package is named; other files in the folder do not count', () => {
   const present = ['DS-Bot-0.2.3-win-x64.exe', 'DS-Bot-0.2.3-win-x64.exe.blockmap', 'DS-Bot-mac-arm64.zip', 'DS-Bot-0.2.2-mac-x64.zip',
     'DS-Bot-0.2.3-linux-x86_64.AppImage', 'DS-Bot-0.2.3-linux-amd64.deb', 'latest.yml']
-  assert.deepEqual(missingPackages('0.2.3', present), ['DS-Bot-0.2.3-mac-arm64.zip', 'DS-Bot-0.2.3-mac-x64.zip'])
+  assert.deepEqual(missingPackages('0.2.3', present), ['DS-Bot-0.2.3-mac-arm64.zip', 'DS-Bot-0.2.3-mac-x64.zip', 'DS-Bot-0.2.3-android.apk'])
   assert.deepEqual(missingPackages('0.2.3', names('0.2.3')), [])
 })
 

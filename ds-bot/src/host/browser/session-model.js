@@ -1,10 +1,11 @@
 import {
-  BlockAssembler,
   createAssistantMessage,
   createSystemMessage,
   createToolResultMessage,
   createUserMessage,
 } from '@deepseek-ai/dsh-llm'
+import { serviceOf } from '../services.js'
+import { assembleLlmStream } from '../models.js'
 
 const NO_SESSION_MODEL = 'browser_task needs a Bot session model'
 const OMITTED_IMAGE = '[Browser screenshot omitted.]'
@@ -151,9 +152,10 @@ function driverTools(tools) {
 
 async function routeReadsImages(ctx, config, rt) {
   if (rt?.config?.textOnlyModels?.includes?.(`${config.provider}/${config.model}`)) return false
-  if (typeof ctx.llm?.resolveModelInfo !== 'function') return true
+  const llm = serviceOf(ctx, 'llm')
+  if (typeof llm?.resolveModelInfo !== 'function') return true
   try {
-    const info = await ctx.llm.resolveModelInfo(config.provider, config.model)
+    const info = await llm.resolveModelInfo(config.provider, config.model)
     return info.inputModalities === undefined || info.inputModalities.includes('image')
   } catch {
     return true
@@ -171,14 +173,14 @@ export function sessionComplete(ctx, exec, rt) {
     const requestMessages = typeof rt?.tagUsage === 'function'
       ? rt.tagUsage(converted.messages, { sessionId, kind: 'browser-task' })
       : converted.messages
-    const assembler = new BlockAssembler()
-    for await (const chunk of ctx.llm.stream({
+    const callOptions = {
       ...header.config,
       messages: requestMessages,
       tools: driverTools(tools),
       sessionId,
       signal: exec.signal,
-    })) assembler.push(chunk)
+    }
+    const assembler = await (rt?.assembleLlm ? rt.assembleLlm(callOptions) : assembleLlmStream(ctx, callOptions, { backoff: rt?.config?.llmRetryBackoff }))
     const finish = assembler.finish
     if (finish.kind === 'error' || finish.kind === 'aborted') {
       throw new Error(finish.failure?.message ?? finish.kind)

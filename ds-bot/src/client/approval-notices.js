@@ -4,6 +4,7 @@ import { t } from './i18n.js'
 // the background or shows another conversation. Only where the platform already allows
 // notifications: DS Bot never asks for the permission.
 export function noticeApprovals({ work, roster, shownSession, openSession, since = Date.now() }) {
+  if (typeof window !== 'undefined' && typeof window.dsBotApp?.notify === 'function') return () => {}
   const told = new Set()
   const notify = () => {
     const approvals = work.getSnapshot().approvals ?? []
