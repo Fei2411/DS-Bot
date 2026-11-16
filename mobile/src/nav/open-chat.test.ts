@@ -62,6 +62,14 @@ function createContainer(initialParams?: { kind: 'bot' | 'room'; id: string }) {
   }
 }
 
+test('opening Settings twice merges into the sheet already on top', () => {
+  const container = createContainer({ kind: 'bot', id: 'b-chief' })
+  container.dispatch(CommonActions.navigate('Settings'))
+  container.dispatch(CommonActions.navigate('Settings'))
+  assert.equal(container.getState().routes.length, 2)
+  assert.equal(container.getState().routes.at(-1)?.name, 'Settings')
+})
+
 test('openChat switches Bots in place from a container-level caller without popTo method', () => {
   const container = createContainer({ kind: 'bot', id: 'b-chief' })
   assert.equal('popTo' in container, false)

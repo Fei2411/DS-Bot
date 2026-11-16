@@ -3,6 +3,7 @@ import { ActivityIndicator, Dimensions, FlatList, KeyboardAvoidingView, Linking,
 import { useNavigation } from '@react-navigation/native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import * as Haptics from 'expo-haptics'
+import * as FileSystem from 'expo-file-system/legacy'
 import type { Approval, Bot, Question, Room } from '../connection.ts'
 import { createChatCache } from '../team/chat-cache.ts'
 import { useTeam } from '../team/context.tsx'
@@ -13,7 +14,7 @@ import { Avatar, RoomAvatar } from '../ui/marks.tsx'
 import { ArrowDownIcon } from '../ui/icons.tsx'
 import { workPhrase } from '../ui/phrases.ts'
 import { ActionRow, Dock } from './chat/dock.tsx'
-import { Composer, type Photo } from './chat/composer.tsx'
+import { Composer, type Photo, type PickedFile } from './chat/composer.tsx'
 import { Actions, Item, keysOf, PhotoViewer, PhotoViewerCtx, type ChatItem, type ImageRef } from './chat/items.tsx'
 
 // Feed events refresh the chat as things happen; the poll only catches what a
@@ -51,7 +52,7 @@ const pages = createChatCache<ChatPage, ChatItem>(PAGES_KEPT)
 // for while the team state is still on its way, and the chat takes that answer.
 const reads = new Map<string, Promise<ChatPage>>()
 const readChat = (call: (endpoint: string, payload?: unknown) => Promise<unknown>, room: boolean, id: string) =>
-  (room ? call('room-chat', { roomId: id, steps: true }) : call('chat', { botId: id, steps: true })) as Promise<ChatPage>
+  (room ? call('room-chat', { roomId: id, steps: true, files: true }) : call('chat', { botId: id, steps: true, files: true })) as Promise<ChatPage>
 export function prefetchChat(call: (endpoint: string, payload?: unknown) => Promise<unknown>, computerId: string, target: { kind: 'bot' | 'room'; id: string }) {
   const key = `${computerId}:${target.kind}:${target.id}`
   if (pages.has(key) || reads.has(key)) return
@@ -62,7 +63,7 @@ export function prefetchChat(call: (endpoint: string, payload?: unknown) => Prom
 
 // Messages the phone sent that the chat has not shown back yet, per chat. They live
 // outside the screen so a send keeps going, and stays visible, across chat switches.
-interface Outgoing { item: ChatItem; photos: Photo[]; sessionId: string; known?: Set<string> }
+interface Outgoing { item: ChatItem; photos: Photo[]; files: PickedFile[]; sessionId: string; known?: Set<string> }
 const outbox = new Map<string, Outgoing[]>()
 const outboxListeners = new Set<() => void>()
 const EMPTY: Outgoing[] = []
@@ -74,10 +75,12 @@ function setOutbox(key: string, update: (list: Outgoing[]) => Outgoing[]) {
 }
 const subscribeOutbox = (listener: () => void) => { outboxListeners.add(listener); return () => { outboxListeners.delete(listener) } }
 
-// The same message as the phone sent: the text the computer keeps (trimmed) and as many photos.
+// The same message as the phone sent: the text the computer keeps (trimmed), as many photos
+// and as many files.
 const sameMessage = (item: ChatItem, sent: ChatItem) =>
   item.kind === 'user' && (item.text ?? '').trim() === (sent.text ?? '').trim()
   && (item.imageRefs?.length ?? item.images ?? 0) === (sent.localImages?.length ?? 0)
+  && (item.files?.length ?? 0) === (sent.localFiles?.length ?? 0)
 
 // The shared chat body for both shells: an inverted list (newest at the bottom, older
 // pages load as it scrolls up), the pending dock and the composer. `header` is the
@@ -177,8 +180,8 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
     setLoadingOlder(true)
     try {
       const next = (room !== undefined
-        ? await call('room-chat', { roomId: room.id, cursor: cursor.current, steps: true })
-        : await call('chat', { botId: id, cursor: cursor.current, steps: true })) as ChatPage
+        ? await call('room-chat', { roomId: room.id, cursor: cursor.current, steps: true, files: true })
+        : await call('chat', { botId: id, cursor: cursor.current, steps: true, files: true })) as ChatPage
       if (generation.current !== gen) return
       cursor.current = next.cursor
       setPageState(prev => (prev.key !== chatKey ? prev : { ...prev, older: [...next.items, ...prev.older] }))
@@ -256,8 +259,9 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
   const botMax = chatWidth === 0 ? 0 : Math.round(Math.min(botSpan * (narrow ? 0.93 : width / 100), botSpan - (narrow ? 8 : 40)))
   const userMax = Math.round(chatWidth * (narrow ? 0.86 : width / 100))
 
-  // Sending: the message shows at once and the composer clears; photos travel one
-  // by one, then the message names them. It stays until the chat shows it back.
+  // Sending: the message shows at once and the composer clears; photos and files
+  // travel one by one, then the message names them. It stays until the chat shows
+  // it back.
   const pending = useSyncExternalStore(subscribeOutbox, () => outboxOf(chatKey))
   const deliver = useCallback(async (key: string, entry: Outgoing) => {
     const localId = entry.item.localId!
@@ -266,7 +270,13 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
     try {
       const images: string[] = []
       for (const photo of entry.photos) images.push(((await call('stage-image', { mediaType: photo.mediaType, data: photo.data })) as { id: string }).id)
-      await call('send', { sessionId: entry.sessionId, text: entry.item.text ?? '', ...(images.length > 0 ? { images } : {}) })
+      const files: string[] = []
+      for (const file of entry.files) {
+        const data = await FileSystem.readAsStringAsync(file.uri, { encoding: FileSystem.EncodingType.Base64 })
+        const staged = await call('stage-file', { name: file.name, ...(file.mediaType !== undefined ? { mediaType: file.mediaType } : {}), data }) as { id: string }
+        files.push(staged.id)
+      }
+      await call('send', { sessionId: entry.sessionId, text: entry.item.text ?? '', ...(images.length > 0 ? { images } : {}), ...(files.length > 0 ? { files } : {}) })
       // What the chat already holds, so only a new row of the same text counts as this one.
       const kept = pages.get(key)
       const all = [...(kept?.older ?? []), ...(kept?.page.items ?? [])]
@@ -281,9 +291,16 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
   }, [call])
   const latestKey = useRef(chatKey)
   latestKey.current = chatKey
-  const send = async (text: string, photos: Photo[]) => {
+  const send = async (text: string, photos: Photo[], files: PickedFile[]) => {
     const localId = `${Date.now()}-${Math.random().toString(36).slice(2)}`
-    const entry: Outgoing = { item: { kind: 'user', text, local: 'sending', localId, time: Date.now(), ...(photos.length > 0 ? { localImages: photos.map(photo => photo.uri) } : {}) }, photos, sessionId }
+    const entry: Outgoing = {
+      item: {
+        kind: 'user', text, local: 'sending', localId, time: Date.now(),
+        ...(photos.length > 0 ? { localImages: photos.map(photo => photo.uri) } : {}),
+        ...(files.length > 0 ? { localFiles: files.map(file => ({ name: file.name, bytes: file.size > 0 ? file.size : undefined })) } : {}),
+      },
+      photos, files, sessionId,
+    }
     setOutbox(chatKey, list => [...list, entry])
     // Once the new row is laid out, bring the latest messages into view.
     setTimeout(() => list.current?.scrollToOffset({ offset: 0, animated: true }), 60)
@@ -383,7 +400,7 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
       <Dock question={question} sessionId={sessionId} approvals={approvals} secrets={secrets} btw={btw} handoff={browserHold} view={team?.views?.[sessionId]} call={call} p={p} expanded={expandedKey} onExpand={setExpandedKey} />
       {fileError ? <Text style={[type.small, { color: p.danger, textAlign: 'center', marginBottom: 4 }]} accessibilityRole="alert">{fileError}</Text> : null}
       {page !== null && loadError !== null ? <Text style={[type.small, { color: p.danger, textAlign: 'center', marginBottom: 4, marginHorizontal: 16 }]} accessibilityRole="alert">{loadError}</Text> : null}
-      <Composer name={bot?.name ?? room?.name ?? ''} running={running} canStop={canStop} canAttach={hello?.capabilities?.includes('send-images') === true} onSend={send} onStop={stop} p={p} />
+      <Composer name={bot?.name ?? room?.name ?? ''} running={running} canStop={canStop} canAttach={hello?.capabilities?.includes('send-images') === true} canFiles={hello?.capabilities?.includes('send-files') === true} maxFileBytes={hello?.maxFileBytes} onSend={send} onStop={stop} p={p} />
       <Actions visible={menuText !== null} text={menuText ?? ''} p={p}
         onClose={() => setMenuText(null)}
         onSelect={() => { setReaderTitle(null); setReaderText(menuText); setMenuText(null) }} />

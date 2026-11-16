@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { createRuntime } from '../index.js'
+import { FILE_MAX_BYTES, fileMaxFor } from '../src/host/constants.js'
 import { API_VERSION, CAPABILITIES, roomItems } from '../src/host/mobile.js'
 import { fakeAttachments, fakeContext } from './fake-ctx.js'
 import jpeg from 'jpeg-js'
@@ -373,6 +374,38 @@ test('a phone stages photos one by one, then send puts them in one message with 
   assert.equal((await call('send', { sessionId: chief, text: '', images: [third] })).ok, true)
   assert.deepEqual(sent.at(-1).prompt.content, [{ type: 'image', mediaType: 'image/jpeg', data: pixel }])
   assert.equal((await call('hello', {})).value.capabilities.includes('send-images'), true)
+  await stop()
+})
+
+test('a file cap leaves room for its base64 inside one secure message', () => {
+  const maxMessageBytes = 4 * 1024 * 1024
+  const bytes = fileMaxFor(maxMessageBytes)
+  assert.equal(bytes, 3121152)
+  // base64 uses four characters per three bytes; the envelope fits the headroom.
+  assert.ok(Math.ceil(bytes / 3) * 4 + 32 * 1024 <= maxMessageBytes)
+  assert.equal(fileMaxFor(undefined), FILE_MAX_BYTES)
+  assert.equal(fileMaxFor(64 * 1024 * 1024), FILE_MAX_BYTES)
+  assert.equal(fileMaxFor(1024), 0)
+})
+
+test('a phone learns the largest file its link can carry, and file-read enforces it', async () => {
+  const { rt, stop } = start()
+  const maxMessageBytes = 64 * 1024
+  const maxFileBytes = fileMaxFor(maxMessageBytes)
+  assert.equal(maxFileBytes, 24576)
+  const dir = join(rt.home, 'workspace')
+  mkdirSync(dir, { recursive: true })
+  const atLimit = join(dir, 'at-limit.bin')
+  writeFileSync(atLimit, Buffer.alloc(maxFileBytes))
+  const over = join(dir, 'over.bin')
+  writeFileSync(over, Buffer.alloc(maxFileBytes + 1))
+  assert.equal((await rt.mobileEndpoint('hello', {}, { maxFileBytes })).maxFileBytes, maxFileBytes)
+  const answer = await rt.mobileEndpoint('file-read', { path: atLimit }, { maxFileBytes })
+  assert.equal(answer.size, maxFileBytes)
+  assert.equal(Buffer.from(answer.data, 'base64').byteLength, maxFileBytes)
+  await assert.rejects(rt.mobileEndpoint('file-read', { path: over }, { maxFileBytes }), { code: 'bot/too-large' })
+  // A local HTTP client has no link limit and keeps the 25 MiB ceiling.
+  assert.equal((await rt.mobileEndpoint('hello', {})).maxFileBytes, FILE_MAX_BYTES)
   await stop()
 })
 

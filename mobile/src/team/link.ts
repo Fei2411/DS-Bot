@@ -16,7 +16,7 @@ const RETRY_MS = 2_000
 const photoCache = new Map<string, string>()
 const photoFetching = new Set<string>()
 
-export interface Hello { api: number | null; capabilities: string[]; boot: string; seq: number }
+export interface Hello { api: number | null; capabilities: string[]; boot: string; seq: number; maxFileBytes?: number }
 export type FeedHandler = (event: string, data: any) => void
 
 export function rejected(error: unknown): boolean {

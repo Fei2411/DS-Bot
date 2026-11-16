@@ -1,8 +1,10 @@
-import { Linking, Platform, Pressable, ScrollView, Text, View } from 'react-native'
-import { useRef, useState } from 'react'
+import { Image, Linking, Platform, Pressable, ScrollView, Text, View } from 'react-native'
+import { useEffect, useRef, useState } from 'react'
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg'
 import { lexer, type Token, type Tokens } from 'marked'
 import { MONO, radius, type Palette } from '../../ui/tokens.ts'
+import { t } from '../../ui/i18n.ts'
+import { isRemoteImageUrl, softBreakText } from './markdown-text.ts'
 
 // Markdown in Bot text: the marked lexer walks the block tokens; each block maps
 // to RN views. Tables and fenced code scroll horizontally.
@@ -65,12 +67,23 @@ function Block({ token, p, ink, textColor, fs, lh, first = false, last = false }
         </Text>
       )
     }
-    case 'paragraph':
+    case 'paragraph': {
+      const tokens = (token as Tokens.Paragraph).tokens ?? []
+      if (!tokens.some(inner => inner.type === 'image')) {
+        return (
+          <Text selectable style={[base, { marginTop: top(8), marginBottom: bottom(2) }]}>
+            <Inlines tokens={tokens} p={p} color={textColor} fs={fs} />
+          </Text>
+        )
+      }
+      // An Image cannot be a child of a Text in RN, so a paragraph with images is
+      // a column: runs of inline text, then each image under it.
       return (
-        <Text selectable style={[base, { marginTop: top(8), marginBottom: bottom(2) }]}>
-          <Inlines tokens={(token as Tokens.Paragraph).tokens ?? []} p={p} color={textColor} fs={fs} />
-        </Text>
+        <View style={{ marginTop: top(8), marginBottom: bottom(2) }}>
+          <TextOrImages tokens={tokens} p={p} ink={ink} textColor={textColor} fs={fs} lh={lh} />
+        </View>
       )
+    }
     case 'code': {
       const code = (token as Tokens.Code)
       return (
@@ -143,14 +156,64 @@ function Block({ token, p, ink, textColor, fs, lh, first = false, last = false }
       return null
     case 'text': {
       const text = token as Tokens.Text
+      if (Array.isArray(text.tokens) && text.tokens.some(inner => inner.type === 'image')) {
+        return <TextOrImages tokens={text.tokens} p={p} ink={ink} textColor={textColor} fs={fs} lh={lh} />
+      }
       return Array.isArray(text.tokens) && text.tokens.length > 0
         ? <Text selectable style={base}><Inlines tokens={text.tokens} p={p} color={textColor} fs={fs} /></Text>
-        : <Text selectable style={base}>{text.text}</Text>
+        : <Text selectable style={base}>{softBreakText(text.text)}</Text>
     }
     default:
       return 'raw' in token && typeof token.raw === 'string' && token.raw.trim() !== ''
         ? <Text selectable style={base}>{token.raw}</Text> : null
   }
+}
+
+// Runs of inline text with images between them. An Image cannot be a child of a
+// Text in RN, so each image becomes its own block under the text before it.
+function TextOrImages({ tokens, p, ink, textColor, fs, lh }: { tokens: Token[]; p: Palette; ink: Ink; textColor: string; fs: number; lh: number }) {
+  const runs: React.ReactNode[] = []
+  let inline: Token[] = []
+  const flush = (key: number) => {
+    if (inline.length === 0) return
+    runs.push(<Text selectable key={`t${key}`} style={{ color: textColor, fontSize: fs, lineHeight: lh }}><Inlines tokens={inline} p={p} color={textColor} fs={fs} /></Text>)
+    inline = []
+  }
+  tokens.forEach((token, index) => {
+    if (token.type === 'image') {
+      flush(index)
+      runs.push(<MarkdownImage key={`i${index}`} token={token as Tokens.Image} ink={ink} />)
+    } else {
+      inline.push(token)
+    }
+  })
+  flush(tokens.length)
+  return <View style={{ gap: 6 }}>{runs}</View>
+}
+
+const IMAGE_MAX_WIDTH = 260
+
+function MarkdownImage({ token, ink }: { token: Tokens.Image; ink: Ink }) {
+  const href = isRemoteImageUrl(token.href) ? token.href : undefined
+  const [size, setSize] = useState<{ width: number; height: number } | null>(null)
+  const [failed, setFailed] = useState(false)
+  const alt = token.text || t('Image')
+  useEffect(() => {
+    if (href === undefined) return
+    let live = true
+    Image.getSize(href, (width, height) => {
+      if (!live || width <= 0 || height <= 0) return
+      const capped = Math.min(IMAGE_MAX_WIDTH, width)
+      setSize({ width: capped, height: Math.max(40, Math.round((capped * height) / width)) })
+    }, () => { if (live) setFailed(true) })
+    return () => { live = false }
+  }, [href])
+  if (href === undefined || failed || size === null) return <Text selectable style={{ color: ink.muted }}>{alt}</Text>
+  return (
+    <Pressable accessibilityRole="imagebutton" accessibilityLabel={alt} onPress={() => void Linking.openURL(href).catch(() => {})}>
+      <Image source={{ uri: href }} style={{ width: size.width, height: size.height, borderRadius: radius.input, backgroundColor: ink.fill }} resizeMode="cover" />
+    </Pressable>
+  )
 }
 
 // A horizontal scroller whose right edge fades while content hides behind it.
@@ -163,7 +226,7 @@ function HScroll({ children, fade: background }: { children: React.ReactNode; fa
   const check = () => setFade(layout.current.content > layout.current.width + 1 && layout.current.x < layout.current.content - layout.current.width - 8)
   return (
     <View>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0 }}
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} nestedScrollEnabled directionalLockEnabled style={{ flexGrow: 0 }}
         onLayout={e => { layout.current.width = e.nativeEvent.layout.width; check() }}
         onContentSizeChange={w => { layout.current.content = w; check() }}
         onScroll={e => { layout.current.x = e.nativeEvent.contentOffset.x; check() }}
@@ -240,6 +303,6 @@ function Inline({ token, p, color, fs }: { token: Token; p: Palette; color: stri
       if ('tokens' in token && Array.isArray((token as { tokens?: Token[] }).tokens)) {
         return <Inlines tokens={(token as { tokens: Token[] }).tokens} p={p} color={color} fs={fs} />
       }
-      return 'text' in token ? String(token.text) : ('raw' in token ? String(token.raw) : null)
+      return 'text' in token ? softBreakText(String(token.text)) : ('raw' in token ? String(token.raw) : null)
   }
 }

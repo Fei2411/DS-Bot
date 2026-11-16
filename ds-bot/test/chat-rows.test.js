@@ -44,6 +44,46 @@ test('a Bot\'s messages in a row are one block', () => {
   assert.deepEqual(shape(ChatRows({ items, sessionId: 'b', roster, actions: {} })), ['EarlierUser', 'bot:one+two', 'EarlierUser', 'bot:three'])
 })
 
+test('a Bot message with files shows a card for each, downloadable only with a path or url', () => {
+  const items = [{
+    kind: 'bot', text: 'files', time: MINUTE, files: [
+      { name: 'report.pdf', bytes: 2048, path: '/tmp/report.pdf', mime: 'application/pdf' },
+      { name: 'link.csv', bytes: 10, url: 'https://example.com/link.csv' },
+      { name: 'unresolved.txt' },
+    ],
+  }]
+  const rows = [...ChatRows({ items, sessionId: 'b', roster, actions: {} })]
+  assert.equal(rows.length, 1)
+  const [bubbles, fileCards] = rows[0].children
+  assert.equal(bubbles.type.name, 'Bubbles')
+  const cards = fileCards.type(fileCards.props)
+  assert.equal(cards.props.className, 'bt-bfiles')
+  assert.deepEqual(cards.children.map(card => card.props.title), ['report.pdf', 'link.csv', 'unresolved.txt'])
+  assert.deepEqual(cards.children.map(card => card.children[2]?.props?.className ?? null), ['bt-bfile-get', 'bt-bfile-get', null])
+})
+
+test('a user message with files shows a read-only card for each', () => {
+  const items = [{
+    kind: 'user', text: 'here', time: MINUTE, files: [
+      { attachmentId: 'a1', name: 'brief.pdf', bytes: 2048 },
+      { attachmentId: 'a2', name: 'notes.txt' },
+    ],
+  }]
+  const rows = [...ChatRows({ items, sessionId: 'b', roster, actions: {} })]
+  assert.equal(rows.length, 1)
+  const userRow = rows[0].type(rows[0].props)
+  const [bubble] = userRow.children
+  assert.equal(bubble.props.className, 'bt-ububble')
+  const cardList = bubble.children.at(-1)
+  assert.equal(cardList.type.name, 'FileCards')
+  assert.equal(cardList.props.readOnly, true)
+  const cards = cardList.type(cardList.props)
+  assert.equal(cards.props.className, 'bt-bfiles bt-ufiles')
+  assert.deepEqual(cards.children.map(card => card.props.title), ['brief.pdf', 'notes.txt'])
+  // A file the user sent is already on the computer: no Download on it.
+  assert.deepEqual(cards.children.map(card => card.children[2]), [null, null])
+})
+
 test('a view row renders as a view card from its blueprint', () => {
   const items = [
     { kind: 'user', text: 'show me', time: MINUTE },

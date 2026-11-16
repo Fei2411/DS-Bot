@@ -22,9 +22,10 @@
 
 ### 版本和握手
 
-- `hello`：`{ client?: { name, version, platform }, api?: [1] }` → `{ api, apiMin, apiMax, plugin: { name, version }, capabilities, boot, seq, revision, readOnly, memory, feed }`。
+- `hello`：`{ client?: { name, version, platform }, api?: [1] }` → `{ api, apiMin, apiMax, plugin: { name, version }, capabilities, boot, seq, revision, readOnly, memory, feed, maxFileBytes }`。
   - `api` 是双方都会的最高版本；客户端不传时是服务端当前版本；没有交集时是 `null`，客户端提示更新。
   - `capabilities` 列出服务端会的东西（`room-chat`、`notices`、`avatar`、`memory-edit`、`usage-summary` 等）。
+  - `maxFileBytes` 是这条连接能带的最大文件。文件以 base64 放进一条 RPC 消息，所以它由链路的单条消息明文上限决定（手机链路约 3 MB，本机 HTTP 是 25 MiB）；客户端在选文件或下载之前按它提示，`stage-file` 和 `file-read` 超过它回 `bot/too-large`。
   - `boot` 每次 DSH 启动都换；`seq` 是最新一条提醒的序号。
 - 版本规则：
   - 只加东西（新接口、新字段、新的条目或提醒种类、新的 feed 事件）不升 `api`，写进 `capabilities`。客户端跳过不认识的字段、种类和事件。

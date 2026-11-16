@@ -1,5 +1,6 @@
 import { createElement as h, Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import * as ui from '@deepseek-ai/dsh-client-ui-primitives'
 import { MarkdownText, writeClipboard } from './dsh-primitives.js'
 import { inkText } from './inks.js'
 import { linkMentions, mentionTarget, dayLabel, contentText, stripHeader, isHiddenTurn, isRelayContext, relaysBefore, relayPart, commRunOf, toolName, toolArgs, reminderPrompts, elapsedLabel, clockLabel, messageClock } from './text.js'
@@ -339,7 +340,7 @@ function SpeakerHead({ bot, time }) {
     Number.isFinite(time) ? h('span', { className: 'bt-group-time', title: clockLabel(time) }, messageClock(time)) : null)
 }
 
-const CHAIN_BREAK_SEL = '.bt-group-msg, .bt-umsg, .bt-urow, [data-chat-flow-kind=user], [data-chat-flow-kind=command-input], .bt-q-inline, .bt-event, .bt-time-sep, .bt-new-sep, .bt-part-line, .bt-btw-card, .bt-learn-card'
+const CHAIN_BREAK_SEL = '.bt-group-msg, .bt-bfiles, .bt-umsg, .bt-urow, [data-chat-flow-kind=user], [data-chat-flow-kind=command-input], .bt-q-inline, .bt-event, .bt-time-sep, .bt-new-sep, .bt-part-line, .bt-btw-card, .bt-learn-card'
 export function syncGroupChains(flow) {
   const items = [...flow.querySelectorAll(CHAIN_BREAK_SEL)]
   for (let i = 0; i < items.length; i += 1) {
@@ -368,6 +369,49 @@ function scheduleGroupChains(flow) {
     pendingFlows.delete(flow)
     if (flow.isConnected !== false) syncGroupChains(flow)
   })
+}
+
+// A ref the host could not resolve (no path and no url) still shows its name, but it
+// is not offered as a download.
+function namedFiles(files) {
+  return (Array.isArray(files) ? files : []).filter(ref => typeof ref?.name === 'string' && ref.name !== '')
+}
+
+// The files attached to a message: a Bot's downloads, or the user's own files,
+// which are already on the computer and show without an action.
+function FileCards({ files, actions, readOnly = false }) {
+  const entries = namedFiles(files)
+  if (entries.length === 0) return null
+  const download = async (ref) => {
+    try {
+      if (typeof ref.url === 'string' && ref.url !== '') {
+        const link = Object.assign(document.createElement('a'), { href: ref.url, download: ref.name, target: '_blank', rel: 'noopener noreferrer' })
+        link.click()
+        return
+      }
+      const answer = await actions.fileBytes?.(ref.path)
+      if (typeof answer?.data !== 'string') return
+      const binary = atob(answer.data)
+      const bytes = new Uint8Array(binary.length)
+      for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i)
+      const url = URL.createObjectURL(new Blob([bytes], { type: answer.mime || 'application/octet-stream' }))
+      const link = Object.assign(document.createElement('a'), { href: url, download: ref.name })
+      link.click()
+      setTimeout(() => URL.revokeObjectURL(url), 1000)
+    } catch (error) {
+      actions?.reportError?.(error, 'download')
+    }
+  }
+  return h('div', { className: readOnly ? 'bt-bfiles bt-ufiles' : 'bt-bfiles' }, entries.map((ref, index) => {
+    const downloadable = !readOnly && ((typeof ref.path === 'string' && ref.path !== '') || (typeof ref.url === 'string' && ref.url !== ''))
+    const meta = [ui.fileExtension?.(ref.name)?.toUpperCase().slice(0, 8), ui.fileSizeText?.(ref.bytes)].filter(Boolean).join(' · ')
+    return h('div', { key: `${index}:${ref.name}`, className: 'bt-bfile', title: ref.name },
+      ui.FileTypeIcon ? h(ui.FileTypeIcon, { path: ref.name, className: 'bt-bfile-icon' }) : null,
+      h('span', { className: 'bt-bfile-text' },
+        h('span', { className: 'bt-bfile-name' }, ref.name),
+        meta ? h('span', { className: 'bt-bfile-meta' }, meta) : null),
+      downloadable ? h('button', { type: 'button', className: 'bt-bfile-get', 'aria-label': t('Download'), title: t('Download'), onClick: () => download(ref) }, h(DownloadIcon)) : null)
+  }))
 }
 
 // One Bot message inside a group chat: avatar, name (with its group role), when it ran
@@ -483,10 +527,12 @@ function EarlierUser({ row, actions }) {
   const { shown, folded, control, code, codeHead } = useFold(row.text ?? '')
   const body = row.text && shown !== '' ? h(MarkdownText, { text: shown, labels: mdLabels(), variant: 'compact' }) : null
   const area = foldArea(body, code, codeHead, actions)
+  const files = namedFiles(row.files)
   return h('div', { className: 'bt-urow' }, h('div', { className: 'bt-ububble', 'data-folded': folded || undefined },
     control ? h('div', { className: 'bt-fold-body' }, area) : area,
     control,
-    row.images ? h('span', { className: 'bt-uimages' }, row.images === 1 ? t('1 image') : t('{count} images', { count: row.images })) : null),
+    row.images ? h('span', { className: 'bt-uimages' }, row.images === 1 ? t('1 image') : t('{count} images', { count: row.images })) : null,
+    files.length > 0 ? h(FileCards, { files, readOnly: true }) : null),
     row.via ? h('div', { className: 'bt-utime' }, h(ViaTag, { via: row.via }), Number.isFinite(row.time) ? messageClock(row.time) : null) : null)
 }
 
@@ -581,7 +627,8 @@ export function ChatRows({ items, sessionId, roster, actions, useUi, clock = fal
     if (item.kind === 'bot' && last?.kind === 'bot') {
       last.texts.push(item.text)
       last.end = item.time
-    } else rows.push(item.kind === 'bot' ? { kind: 'bot', texts: [item.text], time: item.time, end: item.time } : item)
+      if (Array.isArray(item.files) && item.files.length > 0) last.files = [...(last.files ?? []), ...item.files]
+    } else rows.push(item.kind === 'bot' ? { kind: 'bot', texts: [item.text], time: item.time, end: item.time, files: item.files } : item)
   }
   let before
   return rows.flatMap((row, index) => {
@@ -613,18 +660,22 @@ function chatRow(row, key, { sessionId, selfId, roster, actions, useUi, onBtwDel
     case 'view': return h(WidgetCell, { key, sessionId, callId: row.callId, args: { text: name => name === 'title' ? row.title : undefined, value: name => name === 'view' ? row.view : undefined }, done: true, isError: false, roster, actions })
     case 'bot': {
       const bubbles = h(Bubbles, { key, texts: row.texts, roster, selfId, actions, sessionId: useUi ? sessionId : undefined, msgKey: useUi ? `${sessionId}:${row.time}` : undefined, useUi, fold: FOLD_HUGE })
+      const files = namedFiles(row.files).length > 0 ? h(FileCards, { files: row.files, actions }) : null
       const speaker = layoutOf(roster.prefs) === 'flat' ? roster.byId[selfId] : undefined
-      return speaker ? h(Fragment, { key }, h(SpeakerHead, { bot: speaker, time: row.time }), bubbles) : bubbles
+      if (speaker) return h(Fragment, { key }, h(SpeakerHead, { bot: speaker, time: row.time }), bubbles, files)
+      return files ? h(Fragment, { key }, bubbles, files) : bubbles
     }
     case 'btw': return h(BtwCardView, { key, card: row.card, sessionId, actions, onDeleted: onBtwDelete })
     case 'post': {
       // A member's message in a group's earlier part, as the live row shows it.
       const poster = roster.byId[row.botId] ?? { id: row.botId, name: row.name ?? t('a Bot'), color: 'gray' }
-      return h(GroupMessage, {
+      const message = h(GroupMessage, {
         key, bot: poster, text: row.file ? stripLongNote(row.text) : row.text, texts: row.texts, room: roster.roomsById[sessionId], roster, actions,
         msgKey: `${sessionId}:post:${row.seq ?? row.time}`, time: row.time, duration: row.duration,
         whole: row.file ? { length: row.length, load: () => actions.fileText(row.file) } : undefined,
       })
+      const files = namedFiles(row.files).length > 0 ? h(FileCards, { files: row.files, actions }) : null
+      return files ? h(Fragment, { key }, message, files) : message
     }
     case 'relay': {
       // A round notice from a group_relay result on an earlier part, the row the

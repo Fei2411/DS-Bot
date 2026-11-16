@@ -16,7 +16,9 @@ export function Sheet({ children }: { children: React.ReactNode }) {
 function SheetBody({ children }: { children: React.ReactNode }) {
   const { p } = useTheme()
   const insets = useSafeAreaInsets()
-  return <View style={{ flex: 1, backgroundColor: p.main, paddingTop: Platform.OS === 'ios' ? 0 : insets.top }}>{children}</View>
+  // The side insets matter in landscape on a tablet: a cutout or a side-mounted
+  // navigation bar would otherwise sit on top of the first and last column.
+  return <View style={{ flex: 1, backgroundColor: p.main, paddingTop: Platform.OS === 'ios' ? 0 : insets.top, paddingLeft: insets.left, paddingRight: insets.right }}>{children}</View>
 }
 
 interface HeaderAction { label: string; onPress: () => void; disabled?: boolean; strong?: boolean }

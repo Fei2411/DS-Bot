@@ -101,6 +101,32 @@ export function CloseIcon({ size = 18, color }: IconProps) {
   )
 }
 
+export function FileIcon({ size = 20, color }: IconProps) {
+  const { p } = useTheme()
+  const c = use(color, p.ink2)
+  return h(Svg, { width: size, height: size, viewBox: '0 0 20 20', fill: 'none', stroke: c, strokeWidth: 1.5, strokeLinecap: 'round', strokeLinejoin: 'round' },
+    h(Path, { d: 'M5.5 2.5h6.2l3.8 3.8v11.2h-10z' }),
+    h(Path, { d: 'M11.7 2.5v3.8h3.8' }))
+}
+
+export function DownloadIcon({ size = 18, color }: IconProps) {
+  const { p } = useTheme()
+  const c = use(color, p.ink2)
+  return h(Svg, { width: size, height: size, viewBox: '0 0 20 20', fill: 'none', stroke: c, strokeWidth: 1.6, strokeLinecap: 'round', strokeLinejoin: 'round' },
+    h(Path, { d: 'M10 3v9M6.5 8.5L10 12l3.5-3.5' }),
+    h(Path, { d: 'M4 14.5v2.2h12v-2.2' }))
+}
+
+export function ShareIcon({ size = 18, color }: IconProps) {
+  const { p } = useTheme()
+  const c = use(color, p.ink2)
+  return h(Svg, { width: size, height: size, viewBox: '0 0 20 20', fill: 'none', stroke: c, strokeWidth: 1.5, strokeLinecap: 'round', strokeLinejoin: 'round' },
+    h(Circle, { cx: 15, cy: 4.5, r: 2 }),
+    h(Circle, { cx: 5, cy: 10, r: 2 }),
+    h(Circle, { cx: 15, cy: 15.5, r: 2 }),
+    h(Path, { d: 'M6.8 9.1l6.4-3.6M6.8 10.9l6.4 3.6' }))
+}
+
 export function SideIcon({ size = 20, color }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 20 20" fill="none" stroke={color} strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round">

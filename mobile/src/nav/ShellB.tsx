@@ -1,11 +1,12 @@
 import { createNativeStackNavigator } from '@react-navigation/native-stack'
 import { useNavigation, type NavigationProp, type ParamListBase } from '@react-navigation/native'
 import { useEffect, useRef, useState } from 'react'
-import { ActivityIndicator, Dimensions, Modal, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
+import { ActivityIndicator, Modal, Platform, Pressable, StyleSheet, Text, TextInput, useWindowDimensions, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import * as SecureStore from 'expo-secure-store'
 import { onPrefsChange, readPrefs } from '../store.ts'
 import { Drawer, useDrawer } from './Drawer.tsx'
+import { drawerWidth } from './drawer-geometry.ts'
 import { useTeam } from '../team/context.tsx'
 import { t } from '../ui/i18n.ts'
 import { shadow, type as typeScale, useTheme } from '../ui/tokens.ts'
@@ -40,7 +41,7 @@ function DrawerContent() {
   const [searching, setSearching] = useState(false)
   const [query, setQuery] = useState('')
   const [newOpen, setNewOpen] = useState(false)
-  const create = (screen: 'NewBot' | 'NewGroup') => { setNewOpen(false); drawer.close(); navigation.navigate(screen) }
+  const create = (screen: 'NewBot' | 'NewGroup') => { setNewOpen(false); drawer.closeNow(); navigation.navigate(screen) }
   // The chat on screen is marked in the list, as the desktop marks its open chat. The
   // drawer sits outside the navigator, so it follows the container's own state.
   const [current, setCurrent] = useState<string | undefined>(undefined)
@@ -52,15 +53,17 @@ function DrawerContent() {
   // A chat replaces the one on screen; nothing stays stacked under it. Needs you and
   // Settings slide up over the chat and go back down to it.
   const open = (target: ChatTarget | { kind: 'needs' } | { kind: 'settings' }) => {
-    drawer.close()
-    if (target.kind === 'needs') navigation.navigate('Needs')
-    else if (target.kind === 'settings') navigation.navigate('Settings')
-    else openChat(navigation, target)
+    // A sheet covers the app in one frame; the drawer must be gone by then, or it
+    // paints over the sheet and its scrim takes the sheet's touches (Android
+    // presents a modal as a pushed screen, below this overlay).
+    if (target.kind === 'needs') { drawer.closeNow(); navigation.navigate('Needs') }
+    else if (target.kind === 'settings') { drawer.closeNow(); navigation.navigate('Settings') }
+    else { drawer.close(); openChat(navigation, target) }
   }
   return (
     <View style={{ flex: 1, backgroundColor: p.sidebar }}>
       {/* The desktop sidebar's head: the product name, search and New. */}
-      <View style={[styles.drawerHead, { paddingTop: insets.top + 6 }]}>
+      <View style={[styles.drawerHead, { paddingTop: insets.top + 6, paddingLeft: 16 + insets.left, paddingRight: 16 + insets.right }]}>
         <Text style={{ color: p.ink, fontSize: 17, fontWeight: '600', flex: 1 }}>DS Bot</Text>
         <Pressable accessibilityRole="button" accessibilityLabel={t('Search')} onPress={() => setSearching(on => !on)} hitSlop={4} style={[styles.round, { borderColor: p.line, backgroundColor: p.card }]}>
           <SearchIcon size={16} color={p.ink2} />
@@ -70,7 +73,7 @@ function DrawerContent() {
         </Pressable>
       </View>
       {searching ? (
-        <View style={[styles.search, { backgroundColor: p.hover }]}>
+        <View style={[styles.search, { backgroundColor: p.hover, marginLeft: 14 + insets.left, marginRight: 14 + insets.right }]}>
           <SearchIcon size={15} color={p.ink3} />
           <TextInput value={query} onChangeText={setQuery} placeholder={t('Search the team')} placeholderTextColor={p.ink3} autoFocus
             style={{ flex: 1, fontSize: 15, paddingVertical: 4, color: p.ink }} autoCapitalize="none" autoCorrect={false} />
@@ -78,7 +81,7 @@ function DrawerContent() {
       ) : null}
       {pending > 0 ? (
         <Pressable accessibilityRole="button" onPress={() => open({ kind: 'needs' })}
-          style={({ pressed }) => [styles.needsRow, { backgroundColor: pressed ? p.hover : 'transparent' }]}>
+          style={({ pressed }) => [styles.needsRow, { backgroundColor: pressed ? p.hover : 'transparent', marginLeft: 12 + insets.left, marginRight: 12 + insets.right }]}>
           <Text style={[typeScale.rowName, { color: p.accent, flex: 1 }]}>{t('Needs you')}</Text>
           <View style={[styles.badge, { backgroundColor: p.accent }]}><Text style={{ color: p.accentInk, fontSize: 12, fontWeight: '600' }}>{pending}</Text></View>
         </Pressable>
@@ -101,7 +104,7 @@ function DrawerContent() {
           </View>
         </Pressable>
       </Modal>
-      <View style={[styles.foot, { paddingBottom: insets.bottom + 8 }]}>
+      <View style={[styles.foot, { paddingBottom: insets.bottom + 8, paddingLeft: 14 + insets.left, paddingRight: 14 + insets.right }]}>
         <Pressable accessibilityRole="button" accessibilityLabel={t('Settings')} onPress={() => open({ kind: 'settings' })} hitSlop={4} style={[styles.round, { borderColor: p.line, backgroundColor: p.card }]}>
           <GearIcon size={18} color={p.ink2} />
         </Pressable>
@@ -311,7 +314,10 @@ function Inner({ initial }: { initial: ChatTarget | null }) {
 
 export default function ShellB() {
   const { p } = useTheme()
-  const width = Math.min(Dimensions.get('window').width * 0.85, 340)
+  // Live, so rotating the tablet or resizing a split-screen window updates the
+  // drawer width; the panel's position follows it (see Drawer.tsx).
+  const { width: windowWidth } = useWindowDimensions()
+  const width = drawerWidth(windowWidth)
   // Render the navigator only once the saved chat is known, so it can start on it.
   const [saved, setSaved] = useState<ChatTarget | null | undefined>(undefined)
   useEffect(() => {

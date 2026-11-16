@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
   MAX_CONTROL_FRAME_BYTES,
+  MAX_SECURE_MESSAGE_BYTES,
   NoiseIkSession,
   RpcClient,
   SecureMessageCodec,
@@ -79,6 +80,15 @@ test('secure codec splits and joins a large message', () => {
   assert.deepEqual(joined.slice(0, -1), [undefined, undefined, undefined, undefined])
   assert.deepEqual(joined.at(-1), message)
   assert.throws(() => new SecureMessageCodec().decode(frames[1]!))
+})
+
+test('the secure codec takes a message at the limit and refuses one above it', () => {
+  const atLimit = new Uint8Array(MAX_SECURE_MESSAGE_BYTES)
+  assert.ok(new SecureMessageCodec().encode(atLimit).length > 1)
+  assert.throws(
+    () => new SecureMessageCodec().encode(new Uint8Array(MAX_SECURE_MESSAGE_BYTES + 1)),
+    /Secure message exceeds/,
+  )
 })
 
 test('control frames enforce size limits', () => {

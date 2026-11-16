@@ -255,6 +255,21 @@ button.bt-lead{border:0;background:none;padding:0;cursor:pointer}
 .bt-group-name:has(>.bt-lead){display:flex;align-items:center;margin:0 0 2px;font-size:13px;line-height:22px;font-weight:600;color:var(--bt-ink)}
 .bt-group-name>.bt-lead{margin:0 8px 0 0}
 .bt-group-time,.bt-group-took{margin-left:6px;font-size:11px;line-height:16px;font-weight:400;color:var(--bt-ink-2);font-variant-numeric:tabular-nums;white-space:nowrap}
+/* Files a Bot attached: the user's upload card, with a Download on it. */
+.bt-bfiles{display:flex;flex-direction:column;align-items:flex-start;gap:6px;margin-top:4px;max-width:min(calc(var(--bt-msg-w) * 100%),calc(100% - 82px))}
+/* In a group the bubble starts past the avatar: 22px avatar + 8px gap. */
+body:not([data-bt-layout=flat]) .bt-group-msg+.bt-bfiles{margin-left:30px}
+.bt-bfile{display:inline-flex;align-items:center;gap:10px;box-sizing:border-box;width:240px;max-width:100%;min-height:64px;padding:8px 12px;border-radius:18px;border:.5px solid var(--bt-line-2);background:var(--bt-card)}
+.bt-bfile-icon{flex:none;width:28px;height:28px}
+.bt-bfile-text{display:flex;flex-direction:column;flex:1 1 auto;min-width:0}
+.bt-bfile-name{font-size:14px;line-height:22px;font-weight:500;color:var(--bt-ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bt-bfile-meta{font-size:12px;line-height:15px;color:var(--bt-ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bt-bfile-get{flex:none;display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;padding:0;border:0;border-radius:50%;background:var(--bt-hover);color:var(--bt-ink-2);cursor:pointer;transition:background-color .12s ease,color .12s ease}
+.bt-bfile-get:hover{background:var(--bt-active);color:var(--bt-ink)}
+.bt-bfile-get:focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px}
+/* The user's own files sit inside their bubble: the same card, with no action. */
+.bt-ufiles{margin-top:6px;max-width:100%}
+.bt-ufiles .bt-bfile{width:auto;min-width:180px;max-width:100%}
 .bt-x{border:0;background:none;color:var(--bt-ink-2);cursor:pointer;width:24px;height:24px;border-radius:6px;font-size:16px;line-height:24px;padding:0;transition:background-color .12s ease,color .12s ease,${spring(SPRING_TAP, 'scale')}}
 .bt-x:hover{background:var(--bt-hover);color:var(--bt-ink)}
 

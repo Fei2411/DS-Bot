@@ -7,7 +7,7 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { hostname } from 'node:os'
 import { join } from 'node:path'
-import { DeviceRegistry, HostLink, LINK_PATH, deviceIdFor, generateKeyPair, pairingUri, randomToken } from '../../link.js'
+import { DeviceRegistry, HostLink, LINK_PATH, MAX_SECURE_MESSAGE_BYTES, deviceIdFor, generateKeyPair, pairingUri, randomToken } from '../../link.js'
 
 const FILE = 'phone.json'
 const SERVER = /^wss?:\/\/[^\s/?#@]+(\/[^\s?#]*)?$/i
@@ -64,7 +64,9 @@ export function install(rt) {
     if (endpoint.startsWith('phone-')) return { ok: false, error: { code: 'bot/refused', message: 'Phones are paired and removed on the computer', details: {} } }
     const wanted = params?.state !== null && typeof params?.state === 'object' && !Array.isArray(params.state) ? params.state : undefined
     const before = rt.state.revision
-    const result = await serve(endpoint, params?.payload ?? null, signal)
+    // A file crosses this link inside one message, so the endpoint caps what this
+    // phone may stage or read back to what one message carries.
+    const result = await serve(endpoint, params?.payload ?? null, signal, { maxMessageBytes: MAX_SECURE_MESSAGE_BYTES })
     if (wanted === undefined || result?.ok !== true || rt.state.revision === before) return result
     const state = await serve('state', wanted, signal).then(answer => (answer?.ok === true ? answer.value : undefined), () => undefined)
     return state === undefined ? result : { ...result, state }

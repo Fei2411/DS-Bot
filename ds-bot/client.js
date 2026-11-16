@@ -13762,38 +13762,38 @@ function countCards(state, sessionId, callIds, delta) {
 }
 
 // src/client/team-actions.js
-function teamActions({ call: call2, after, partFor, roster, ui: ui2, live, cards, heldCards, turnClock, panelFolded }) {
+function teamActions({ call: call2, after, partFor, roster, ui: ui3, live, cards, heldCards, turnClock, panelFolded }) {
   const memoryOf = (id) => roster.getSnapshot().roomsById[id] ? { roomId: id } : { botId: id };
   const yieldTo = (state, view) => state.panelYield === true || panelFolded?.(view) === true;
   const openSideChat = (sessionId, chatId) => {
-    ui2.set((state) => ({ ...state, details: sessionId, view: "side", side: chatId ?? null, renaming: false, tab: null, panelYield: yieldTo(state, "side") }));
+    ui3.set((state) => ({ ...state, details: sessionId, view: "side", side: chatId ?? null, renaming: false, tab: null, panelYield: yieldTo(state, "side") }));
   };
   const openSettings = (page = "general", id = null) => {
-    ui2.set((state) => ({ ...state, settings: { page, id }, menu: null, palette: null, newChat: null }));
+    ui3.set((state) => ({ ...state, settings: { page, id }, menu: null, palette: null, newChat: null }));
   };
   return {
     // The pane starts at the rail's edge, so a floating drawer would stick out from under it.
     openNewChat: (mode, sectionId = null) => {
-      ui2.set((state) => ({ ...state, newChat: mode, newChatSection: sectionId ?? null, menu: null, palette: null, leftDrawer: false }));
+      ui3.set((state) => ({ ...state, newChat: mode, newChatSection: sectionId ?? null, menu: null, palette: null, leftDrawer: false }));
     },
     openPalette: (query = "") => {
-      ui2.set((state) => ({ ...state, palette: { query, token: Date.now() }, newChat: null, menu: null }));
+      ui3.set((state) => ({ ...state, palette: { query, token: Date.now() }, newChat: null, menu: null }));
     },
     // The token keeps a late exit timer from closing a palette opened again since.
     closePalette: (token) => {
-      ui2.set((state) => state.palette && (token === void 0 || state.palette.token === token) ? { ...state, palette: null } : state);
+      ui3.set((state) => state.palette && (token === void 0 || state.palette.token === token) ? { ...state, palette: null } : state);
     },
     openExchange: (a, b) => {
-      if (a && b) ui2.set((state) => ({ ...state, exchange: [a, b] }));
+      if (a && b) ui3.set((state) => ({ ...state, exchange: [a, b] }));
     },
     openVoice: (id) => {
-      if (id) ui2.set((state) => ({ ...state, voice: id, menu: null }));
+      if (id) ui3.set((state) => ({ ...state, voice: id, menu: null }));
     },
     closeVoice: () => {
-      ui2.set((state) => state.voice ? { ...state, voice: null } : state);
+      ui3.set((state) => state.voice ? { ...state, voice: null } : state);
     },
     toggleDetails: (id, force) => {
-      ui2.set((state) => {
+      ui3.set((state) => {
         const details = force || state.details !== id || state.view !== "details" ? id : null;
         if (details === null && panelFolded?.("details") === true) return { ...state, renaming: false, tab: null, details: id, view: "details", panelYield: true };
         return { ...state, renaming: false, tab: null, details, view: "details" };
@@ -13803,7 +13803,7 @@ function teamActions({ call: call2, after, partFor, roster, ui: ui2, live, cards
     // chat, an outside Session) settles on the details view. So does one that
     // does not own the open side chat.
     followPanel: (id) => {
-      ui2.set((state) => {
+      ui3.set((state) => {
         if (!state.details || state.details === id) return state;
         const snap = roster.getSnapshot();
         const view = state.view === "browser" && snap.byId[id] === void 0 ? "details" : state.view === "side" && !(snap.sideChats?.[snap.byId[id]?.id] ?? []).some((chat) => chat?.id === state.side) ? "details" : state.view;
@@ -13811,30 +13811,30 @@ function teamActions({ call: call2, after, partFor, roster, ui: ui2, live, cards
       });
     },
     showDetails: (id, tab = null) => {
-      ui2.set((state) => ({ ...state, details: id, view: "details", renaming: false, tab, panelYield: yieldTo(state, "details") }));
+      ui3.set((state) => ({ ...state, details: id, view: "details", renaming: false, tab, panelYield: yieldTo(state, "details") }));
     },
     // Opening the conversation would move focus to its composer and blur the name field.
     renameBot: (id) => {
-      ui2.set((state) => ({ ...state, details: id, view: "details", renaming: true, tab: null, panelYield: yieldTo(state, "details") }));
+      ui3.set((state) => ({ ...state, details: id, view: "details", renaming: true, tab: null, panelYield: yieldTo(state, "details") }));
     },
     openSettings,
     // DS Bot's own Models page: the providers DSH serves, their keys and models.
     openModels: () => openSettings("models"),
     closeSettings: () => {
-      ui2.set((state) => state.settings ? { ...state, settings: null } : state);
+      ui3.set((state) => state.settings ? { ...state, settings: null } : state);
     },
     openMemory: (id) => {
-      ui2.set((state) => ({ ...state, memory: id, menu: null, palette: null }));
+      ui3.set((state) => ({ ...state, memory: id, menu: null, palette: null }));
     },
     closeMemory: () => {
-      ui2.set((state) => state.memory ? { ...state, memory: null } : state);
+      ui3.set((state) => state.memory ? { ...state, memory: null } : state);
     },
     openConnectors: () => {
-      ui2.set((state) => ({ ...state, settings: { page: "connectors", id: null }, menu: null, palette: null, newChat: null }));
+      ui3.set((state) => ({ ...state, settings: { page: "connectors", id: null }, menu: null, palette: null, newChat: null }));
     },
     setPanelView: (view) => {
       if (view !== "details" && view !== "browser" && view !== "side") return;
-      ui2.set((state) => state.details && state.view !== view ? { ...state, view, panelYield: yieldTo(state, view) } : state);
+      ui3.set((state) => state.details && state.view !== view ? { ...state, view, panelYield: yieldTo(state, view) } : state);
     },
     // A side chat on the panel's own view, opened from the strip, the `···`
     // menus or `/side`. Closing the panel keeps the chats; only a tab's × deletes.
@@ -13850,29 +13850,29 @@ function teamActions({ call: call2, after, partFor, roster, ui: ui2, live, cards
     askSide: (sessionId, chatId, text) => after(call2("side-ask", { sessionId, chatId, text })),
     cancelSide: (chatId, entryId) => after(call2("side-cancel", { chatId, entryId })),
     closeSideChat: (chatId) => {
-      ui2.set((state) => state.details && state.view === "side" && state.side === chatId ? { ...state, view: "details", side: null } : state);
+      ui3.set((state) => state.details && state.view === "side" && state.side === chatId ? { ...state, view: "details", side: null } : state);
       return after(call2("side-close", { chatId }));
     },
     closePanel: () => {
-      ui2.set((state) => state.details ? { ...state, details: null, view: "details", renaming: false, tab: null, side: null } : state);
+      ui3.set((state) => state.details ? { ...state, details: null, view: "details", renaming: false, tab: null, side: null } : state);
     },
-    quote: (sessionId, text) => ui2.set((state) => ({ ...state, quote: { sessionId, text, token: Date.now() } })),
-    clearQuote: (token) => ui2.set((state) => state.quote?.token === token ? { ...state, quote: null } : state),
+    quote: (sessionId, text) => ui3.set((state) => ({ ...state, quote: { sessionId, text, token: Date.now() } })),
+    clearQuote: (token) => ui3.set((state) => state.quote?.token === token ? { ...state, quote: null } : state),
     setFlags: (id, flags) => after(call2("set-flags", { id, ...flags })),
     saveSection: (payload) => after(call2("section-save", payload)),
     reorderSections: (ids) => after(call2("section-order", { ids })),
     deleteSection: (id) => after(call2("section-delete", { id })),
-    beginSectionRename: (id) => ui2.set((state) => ({ ...state, renameSection: id })),
-    endSectionRename: () => ui2.set((state) => state.renameSection ? { ...state, renameSection: null } : state),
+    beginSectionRename: (id) => ui3.set((state) => ({ ...state, renameSection: id })),
+    endSectionRename: () => ui3.set((state) => state.renameSection ? { ...state, renameSection: null } : state),
     deleteRoom: (id) => after(call2("delete-room", { id })),
     openMenu: (menu) => {
-      ui2.set((state) => ({ ...state, menu, palette: null }));
+      ui3.set((state) => ({ ...state, menu, palette: null }));
     },
     closeMenu: () => {
-      ui2.set((state) => state.menu ? { ...state, menu: null } : state);
+      ui3.set((state) => state.menu ? { ...state, menu: null } : state);
     },
     closeOverlay: () => {
-      ui2.set((state) => ({ ...state, newChat: null, newChatSection: null, exchange: null, details: state.newChat || state.exchange ? state.details : null }));
+      ui3.set((state) => ({ ...state, newChat: null, newChatSection: null, exchange: null, details: state.newChat || state.exchange ? state.details : null }));
     },
     createBot: (payload) => after(call2("create-bot", payload)),
     // The avatar library: photos the user imported once, kept by the host.
@@ -13934,10 +13934,10 @@ function teamActions({ call: call2, after, partFor, roster, ui: ui2, live, cards
     goalControl: (roomId, goalId, action, stopWork) => after(call2("goal-control", { roomId, goalId, action, ...stopWork ? { stopWork: true } : {} })),
     // The goal island: `goalCompose` holds the room whose draft form is open,
     // `goalOpen` the room whose panel is open.
-    composeGoal: (roomId) => ui2.set((state) => ({ ...state, goalCompose: roomId, goalOpen: roomId })),
-    closeGoalCompose: () => ui2.set((state) => state.goalCompose ? { ...state, goalCompose: null } : state),
-    toggleGoal: (roomId) => ui2.set((state) => ({ ...state, goalOpen: state.goalOpen === roomId ? null : roomId })),
-    closeGoal: () => ui2.set((state) => state.goalOpen ? { ...state, goalOpen: null } : state),
+    composeGoal: (roomId) => ui3.set((state) => ({ ...state, goalCompose: roomId, goalOpen: roomId })),
+    closeGoalCompose: () => ui3.set((state) => state.goalCompose ? { ...state, goalCompose: null } : state),
+    toggleGoal: (roomId) => ui3.set((state) => ({ ...state, goalOpen: state.goalOpen === roomId ? null : roomId })),
+    closeGoal: () => ui3.set((state) => state.goalOpen ? { ...state, goalOpen: null } : state),
     // Values go out in these requests and never come back in a response.
     secretSet: (payload) => after(call2("secret-set", payload)),
     secretAllow: (requestId) => after(call2("secret-allow", { requestId })),
@@ -13984,6 +13984,7 @@ function teamActions({ call: call2, after, partFor, roster, ui: ui2, live, cards
     exchange: (a, b) => call2("exchange", { a, b }).catch(() => []),
     exchangeText: (id, a, b) => call2("exchange-text", { id, ...a !== void 0 && b !== void 0 ? { a, b } : {} }).catch(() => void 0),
     fileText: (file) => call2("file-text", { file }).catch(() => void 0),
+    fileBytes: (path2) => call2("file-read", { path: path2 }).catch(() => void 0),
     roomProgress: (roomId) => call2("room-progress", { roomId }).catch(() => []),
     groupRows: (roomId, from, to, anchor) => call2("group-rows", { roomId, from, ...to === void 0 ? {} : { to }, ...anchor === void 0 ? {} : { anchor } }).catch(() => null),
     earlier: (sessionId, cursor) => call2("earlier", { sessionId, cursor: cursor ?? null }),
@@ -14006,9 +14007,9 @@ function teamActions({ call: call2, after, partFor, roster, ui: ui2, live, cards
     // A failed action away from any form (a menu, the palette) shows as a toast.
     reportError: (error, where = "action") => {
       noteClientError(where, error);
-      ui2.set((state) => ({ ...state, toast: { text: error?.message ?? String(error), token: Date.now() } }));
+      ui3.set((state) => ({ ...state, toast: { text: error?.message ?? String(error), token: Date.now() } }));
     },
-    dismissToast: (token) => ui2.set((state) => state.toast && (token === void 0 || state.toast.token === token) ? { ...state, toast: null } : state),
+    dismissToast: (token) => ui3.set((state) => state.toast && (token === void 0 || state.toast.token === token) ? { ...state, toast: null } : state),
     noteTurnTime: (sessionId, turn, key, time) => {
       if (sessionId === void 0 || !Number.isFinite(turn) || !Number.isFinite(time)) return;
       turnClock.set((state) => {
@@ -15060,6 +15061,21 @@ button.bt-lead{border:0;background:none;padding:0;cursor:pointer}
 .bt-group-name:has(>.bt-lead){display:flex;align-items:center;margin:0 0 2px;font-size:13px;line-height:22px;font-weight:600;color:var(--bt-ink)}
 .bt-group-name>.bt-lead{margin:0 8px 0 0}
 .bt-group-time,.bt-group-took{margin-left:6px;font-size:11px;line-height:16px;font-weight:400;color:var(--bt-ink-2);font-variant-numeric:tabular-nums;white-space:nowrap}
+/* Files a Bot attached: the user's upload card, with a Download on it. */
+.bt-bfiles{display:flex;flex-direction:column;align-items:flex-start;gap:6px;margin-top:4px;max-width:min(calc(var(--bt-msg-w) * 100%),calc(100% - 82px))}
+/* In a group the bubble starts past the avatar: 22px avatar + 8px gap. */
+body:not([data-bt-layout=flat]) .bt-group-msg+.bt-bfiles{margin-left:30px}
+.bt-bfile{display:inline-flex;align-items:center;gap:10px;box-sizing:border-box;width:240px;max-width:100%;min-height:64px;padding:8px 12px;border-radius:18px;border:.5px solid var(--bt-line-2);background:var(--bt-card)}
+.bt-bfile-icon{flex:none;width:28px;height:28px}
+.bt-bfile-text{display:flex;flex-direction:column;flex:1 1 auto;min-width:0}
+.bt-bfile-name{font-size:14px;line-height:22px;font-weight:500;color:var(--bt-ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bt-bfile-meta{font-size:12px;line-height:15px;color:var(--bt-ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bt-bfile-get{flex:none;display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;padding:0;border:0;border-radius:50%;background:var(--bt-hover);color:var(--bt-ink-2);cursor:pointer;transition:background-color .12s ease,color .12s ease}
+.bt-bfile-get:hover{background:var(--bt-active);color:var(--bt-ink)}
+.bt-bfile-get:focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px}
+/* The user's own files sit inside their bubble: the same card, with no action. */
+.bt-ufiles{margin-top:6px;max-width:100%}
+.bt-ufiles .bt-bfile{width:auto;min-width:180px;max-width:100%}
 .bt-x{border:0;background:none;color:var(--bt-ink-2);cursor:pointer;width:24px;height:24px;border-radius:6px;font-size:16px;line-height:24px;padding:0;transition:background-color .12s ease,color .12s ease,${spring(SPRING_TAP, "scale")}}
 .bt-x:hover{background:var(--bt-hover);color:var(--bt-ink)}
 
@@ -19311,9 +19327,9 @@ var TableIcon = () => (0, import_react13.createElement)(
   (0, import_react13.createElement)("path", { d: "M3 8.5h14M8 8.5V16" })
 );
 function ChartTable({ data }) {
-  const ui2 = useViewUi();
+  const ui3 = useViewUi();
   const { categories, series, unit } = data;
-  const heads = series.map((item, index) => item.name || (series.length === 1 ? unit || ui2.t("Value") : `${ui2.t("Series")} ${index + 1}`));
+  const heads = series.map((item, index) => item.name || (series.length === 1 ? unit || ui3.t("Value") : `${ui3.t("Series")} ${index + 1}`));
   return (0, import_react13.createElement)(
     "div",
     { className: "dv-widget-table" },
@@ -19331,7 +19347,7 @@ function ChartTable({ data }) {
   );
 }
 function WidgetChart({ node, lookup, registerChart, refreshCharts }) {
-  const ui2 = useViewUi();
+  const ui3 = useViewUi();
   const data = chartData(node, lookup);
   const { kind, categories, series, unit } = data;
   const box = (0, import_react13.useRef)(null);
@@ -19350,7 +19366,7 @@ function WidgetChart({ node, lookup, registerChart, refreshCharts }) {
     if (hidden.includes(index)) setHidden(hidden.filter((item) => item !== index));
     else if (shown.filter(Boolean).length > 1) setHidden([...hidden, index]);
   };
-  const label = typeof node.caption === "string" && node.caption !== "" ? node.caption : ui2.t("Chart");
+  const label = typeof node.caption === "string" && node.caption !== "" ? node.caption : ui3.t("Chart");
   const isDonut = kind === "donut";
   const legendBeside = isDonut && width >= 360;
   const drawn = isDonut ? donut(data, legendBeside ? width - 200 : width, active, setActive) : kind === "hbar" ? rows(data, width, active, shown) : columns(data, width, active, shown);
@@ -19369,7 +19385,7 @@ function WidgetChart({ node, lookup, registerChart, refreshCharts }) {
   const share = (at) => unit === "%" ? withUnit(drawn.values[at], unit) : `${withUnit(drawn.values[at], unit)} · ${drawn.total > 0 ? Math.round(drawn.values[at] / drawn.total * 100) : 0}%`;
   const tipRows = active === null || isDonut ? [] : series.filter((_, index) => shown[index]).map((item) => ({ color: item.color, name: item.name, value: withUnit(item.values[active], unit) }));
   const copy2 = () => {
-    void navigator.clipboard?.writeText(chartCsv(data, ui2.t)).then(() => {
+    void navigator.clipboard?.writeText(chartCsv(data, ui3.t)).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 1200);
     });
@@ -19413,7 +19429,7 @@ function WidgetChart({ node, lookup, registerChart, refreshCharts }) {
     className: "dv-chart-key",
     "aria-pressed": shown[index],
     onClick: () => toggle(index)
-  }, (0, import_react13.createElement)("i", { style: { background: item.color } }), item.name || `${ui2.t("Series")} ${index + 1}`))) : null;
+  }, (0, import_react13.createElement)("i", { style: { background: item.color } }), item.name || `${ui3.t("Series")} ${index + 1}`))) : null;
   const plot = (0, import_react13.createElement)(
     "div",
     { className: "dv-chart-plot", style: isDonut ? { width: svgWidth } : void 0 },
@@ -19455,7 +19471,7 @@ function WidgetChart({ node, lookup, registerChart, refreshCharts }) {
     body,
     // The SVG stays mounted under the table, so the image can still be saved from it.
     asTable ? (0, import_react13.createElement)("div", { hidden: true }, plot) : null,
-    copied ? (0, import_react13.createElement)("span", { className: "dv-chart-copied", role: "status" }, ui2.t("Copied")) : null,
+    copied ? (0, import_react13.createElement)("span", { className: "dv-chart-copied", role: "status" }, ui3.t("Copied")) : null,
     typeof node.caption === "string" && node.caption !== "" ? (0, import_react13.createElement)("figcaption", { className: "dv-view-caption" }, node.caption) : null
   );
 }
@@ -19541,7 +19557,7 @@ function frameDocument(html, vars = {}) {
   return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${FRAME_POLICY}"><style>:root{${root}}html,body{margin:0;padding:0;background:transparent;color:var(--view-ink,var(--bt-ink));font:14px/22px -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif}*{box-sizing:border-box}</style><script>${report}<\/script></head><body>${html}</body></html>`;
 }
 function HtmlFrame({ node }) {
-  const ui2 = useViewUi();
+  const ui3 = useViewUi();
   const frame = (0, import_react14.useRef)(null);
   const loads = (0, import_react14.useRef)(0);
   const [height, setHeight] = (0, import_react14.useState)(Number.isFinite(node.height) ? node.height : 120);
@@ -19562,7 +19578,7 @@ function HtmlFrame({ node }) {
       observer?.disconnect();
     };
   }, []);
-  if (stopped) return (0, import_react14.createElement)("p", { className: "dv-view-frame-stopped" }, ui2.t("This view tried to open a page and was stopped."));
+  if (stopped) return (0, import_react14.createElement)("p", { className: "dv-view-frame-stopped" }, ui3.t("This view tried to open a page and was stopped."));
   return (0, import_react14.createElement)("iframe", {
     ref: frame,
     className: "dv-view-frame",
@@ -19584,7 +19600,7 @@ var HTML_CSS = `
 
 // node_modules/deep-view/src/react/card.js
 var import_react15 = require("react");
-var mdLabels = (ui2) => ({ code: { copyLabel: ui2.t("Copy"), copiedLabel: ui2.t("Copied") }, footnotes: ui2.t("Footnotes") });
+var mdLabels = (ui3) => ({ code: { copyLabel: ui3.t("Copy"), copiedLabel: ui3.t("Copied") }, footnotes: ui3.t("Footnotes") });
 var TONES2 = ["good", "warn", "bad"];
 var CALLOUT_TONES2 = ["info", "good", "warn", "bad"];
 var optionsOf2 = (node) => (Array.isArray(node?.options) ? node.options : []).map((option) => typeof option === "string" ? { label: option } : option).filter((option) => option !== null && typeof option === "object" && option.label !== void 0);
@@ -19604,7 +19620,7 @@ var hasControls = (node) => {
 };
 var answerValues = (answer, node) => answer?.action === node.id ? answer.values : void 0;
 function OptionsInput({ node, onSubmit, keys, busy = false }) {
-  const ui2 = useViewUi();
+  const ui3 = useViewUi();
   const [picked, setPicked] = (0, import_react15.useState)([]);
   const options = optionsOf2(node);
   const multi = node.multi === true;
@@ -19644,23 +19660,23 @@ function OptionsInput({ node, onSubmit, keys, busy = false }) {
           (0, import_react15.createElement)("span", { className: "dv-q-label" }, option.label),
           option.description ? (0, import_react15.createElement)("span", { className: "dv-q-desc" }, option.description) : null
         ),
-        selected ? (0, import_react15.createElement)("span", { className: "dv-q-check", title: ui2.t("Selected") }, (0, import_react15.createElement)(CheckIcon2)) : null
+        selected ? (0, import_react15.createElement)("span", { className: "dv-q-check", title: ui3.t("Selected") }, (0, import_react15.createElement)(CheckIcon2)) : null
       );
     })),
     multi ? (0, import_react15.createElement)(
       "div",
       { className: "dv-q-foot" },
-      (0, import_react15.createElement)("button", { type: "button", className: "dv-q-submit", disabled: busy || picked.length === 0, onClick: submit }, ui2.t("Submit"))
+      (0, import_react15.createElement)("button", { type: "button", className: "dv-q-submit", disabled: busy || picked.length === 0, onClick: submit }, ui3.t("Submit"))
     ) : null
   );
 }
 function SettledOptions({ node, answer }) {
-  const ui2 = useViewUi();
+  const ui3 = useViewUi();
   const selected = answerValues(answer, node)?.selected;
   const chosen = Array.isArray(selected) ? selected : [];
   return (0, import_react15.createElement)(
     "div",
-    { className: "dv-q-list", role: "group", "aria-label": ui2.t("Your answer") },
+    { className: "dv-q-list", role: "group", "aria-label": ui3.t("Your answer") },
     optionsOf2(node).map((option) => (0, import_react15.createElement)(
       "div",
       { key: option.label, className: "dv-q-opt" },
@@ -19670,36 +19686,36 @@ function SettledOptions({ node, answer }) {
         (0, import_react15.createElement)("span", { className: "dv-q-label" }, option.label),
         option.description ? (0, import_react15.createElement)("span", { className: "dv-q-desc" }, option.description) : null
       ),
-      chosen.includes(option.label) ? (0, import_react15.createElement)("span", { className: "dv-q-check", title: ui2.t("Selected") }, (0, import_react15.createElement)(CheckIcon2)) : null
+      chosen.includes(option.label) ? (0, import_react15.createElement)("span", { className: "dv-q-check", title: ui3.t("Selected") }, (0, import_react15.createElement)(CheckIcon2)) : null
     ))
   );
 }
 function ConfirmInput({ node, onSubmit, busy = false, footStart = null }) {
-  const ui2 = useViewUi();
+  const ui3 = useViewUi();
   return (0, import_react15.createElement)(
     "div",
     { className: "dv-q-foot" },
     footStart ? (0, import_react15.createElement)("div", { className: "dv-q-foot-start" }, footStart) : null,
-    (0, import_react15.createElement)("button", { type: "button", className: "dv-q-btn", disabled: busy, onClick: () => onSubmit?.(node.id, { confirmed: false }) }, node.cancelLabel ?? ui2.t("Cancel")),
-    (0, import_react15.createElement)("button", { type: "button", className: "dv-q-submit", disabled: busy, onClick: () => onSubmit?.(node.id, { confirmed: true }) }, node.confirmLabel ?? ui2.t("Confirm"))
+    (0, import_react15.createElement)("button", { type: "button", className: "dv-q-btn", disabled: busy, onClick: () => onSubmit?.(node.id, { confirmed: false }) }, node.cancelLabel ?? ui3.t("Cancel")),
+    (0, import_react15.createElement)("button", { type: "button", className: "dv-q-submit", disabled: busy, onClick: () => onSubmit?.(node.id, { confirmed: true }) }, node.confirmLabel ?? ui3.t("Confirm"))
   );
 }
 function SettledConfirm({ node, answer }) {
-  const ui2 = useViewUi();
+  const ui3 = useViewUi();
   const confirmed = answerValues(answer, node)?.confirmed;
   if (confirmed !== true && confirmed !== false) {
     return (0, import_react15.createElement)(
       "div",
       { className: "dv-q-foot" },
-      (0, import_react15.createElement)("button", { type: "button", className: "dv-q-btn", disabled: true }, node.cancelLabel ?? ui2.t("Cancel")),
-      (0, import_react15.createElement)("button", { type: "button", className: "dv-q-submit", disabled: true }, node.confirmLabel ?? ui2.t("Confirm"))
+      (0, import_react15.createElement)("button", { type: "button", className: "dv-q-btn", disabled: true }, node.cancelLabel ?? ui3.t("Cancel")),
+      (0, import_react15.createElement)("button", { type: "button", className: "dv-q-submit", disabled: true }, node.confirmLabel ?? ui3.t("Confirm"))
     );
   }
-  const label = confirmed ? node.confirmLabel ?? ui2.t("Confirm") : node.cancelLabel ?? ui2.t("Cancel");
+  const label = confirmed ? node.confirmLabel ?? ui3.t("Confirm") : node.cancelLabel ?? ui3.t("Cancel");
   return (0, import_react15.createElement)("span", { className: "dv-q-badge" }, label);
 }
 function FormInput({ node, onSubmit, busy = false, footStart = null }) {
-  const ui2 = useViewUi();
+  const ui3 = useViewUi();
   const fields = fieldsOf(node);
   const [draft, setDraft] = (0, import_react15.useState)(() => Object.fromEntries(fields.map((field) => [field.id, field.value ?? ""])));
   const submit = () => {
@@ -19781,17 +19797,17 @@ function FormInput({ node, onSubmit, busy = false, footStart = null }) {
       { className: "dv-q-foot" },
       footStart ? (0, import_react15.createElement)("div", { className: "dv-q-foot-start" }, footStart) : null,
       node.cancelLabel ? (0, import_react15.createElement)("button", { type: "button", className: "dv-q-btn", disabled: busy, onClick: cancel }, node.cancelLabel) : null,
-      (0, import_react15.createElement)("button", { type: "submit", className: "dv-q-submit", disabled: busy }, node.submitLabel ?? ui2.t("Submit"))
+      (0, import_react15.createElement)("button", { type: "submit", className: "dv-q-submit", disabled: busy }, node.submitLabel ?? ui3.t("Submit"))
     )
   );
 }
 function SettledForm({ node, answer }) {
-  const ui2 = useViewUi();
+  const ui3 = useViewUi();
   const ans = answerValues(answer, node);
   const fields = ans?.fields;
   const values = fields !== null && typeof fields === "object" ? fields : {};
   const canceled = ans?.canceled === true;
-  const badge = canceled ? node.cancelLabel ?? ui2.t("Cancel") : node.cancelLabel !== void 0 && ans !== void 0 ? node.submitLabel ?? ui2.t("Submit") : null;
+  const badge = canceled ? node.cancelLabel ?? ui3.t("Cancel") : node.cancelLabel !== void 0 && ans !== void 0 ? node.submitLabel ?? ui3.t("Submit") : null;
   return (0, import_react15.createElement)(
     "div",
     { className: "dv-widget-form" },
@@ -19823,12 +19839,12 @@ function SettledForm({ node, answer }) {
   );
 }
 function SubmitInput({ node, ctx }) {
-  const ui2 = useViewUi();
+  const ui3 = useViewUi();
   if (ctx.settled) return null;
   return (0, import_react15.createElement)(
     "div",
     { className: "dv-q-foot" },
-    (0, import_react15.createElement)("button", { type: "button", className: "dv-q-submit", disabled: ctx.busy, onClick: () => ctx.onSubmit?.(node.id, {}) }, node.label || ui2.t("Send"))
+    (0, import_react15.createElement)("button", { type: "button", className: "dv-q-submit", disabled: ctx.busy, onClick: () => ctx.onSubmit?.(node.id, {}) }, node.label || ui3.t("Send"))
   );
 }
 function WidgetTable({ node, lookup }) {
@@ -19854,7 +19870,7 @@ function WidgetTable({ node, lookup }) {
   );
 }
 function WidgetProgress({ node, lookup }) {
-  const ui2 = useViewUi();
+  const ui3 = useViewUi();
   let percent3;
   if (node.percent !== void 0) percent3 = Number(resolve(node.percent, lookup, 0));
   else {
@@ -19874,7 +19890,7 @@ function WidgetProgress({ node, lookup }) {
       "aria-valuenow": Math.round(percent3),
       "aria-valuemin": 0,
       "aria-valuemax": 100,
-      "aria-label": node.label ?? ui2.t("Progress"),
+      "aria-label": node.label ?? ui3.t("Progress"),
       "aria-valuetext": right
     }, (0, import_react15.createElement)("div", { className: "dv-widget-progress-fill", style: { width: `${percent3}%` } }))
   );
@@ -19891,13 +19907,13 @@ function WidgetMetric({ node, lookup }) {
   );
 }
 function WidgetCallout({ node, lookup }) {
-  const ui2 = useViewUi();
+  const ui3 = useViewUi();
   const tone = resolve(node.tone, lookup);
   return (0, import_react15.createElement)(
     "div",
     { className: "dv-view-callout", "data-tone": CALLOUT_TONES2.includes(tone) ? tone : "info" },
     (0, import_react15.createElement)("span", { className: "dv-view-callout-icon", "aria-hidden": true }, (0, import_react15.createElement)(InfoIcon2)),
-    (0, import_react15.createElement)("div", { className: "dv-view-callout-text" }, (0, import_react15.createElement)(ui2.Markdown, { text: asText(resolve(node.text, lookup, "")), labels: mdLabels(ui2), variant: "compact" }))
+    (0, import_react15.createElement)("div", { className: "dv-view-callout-text" }, (0, import_react15.createElement)(ui3.Markdown, { text: asText(resolve(node.text, lookup, "")), labels: mdLabels(ui3), variant: "compact" }))
   );
 }
 var LinkIcon = () => (0, import_react15.createElement)(
@@ -19908,11 +19924,11 @@ var LinkIcon = () => (0, import_react15.createElement)(
   (0, import_react15.createElement)("path", { d: "M13 10.5l1.5-1.5A2.5 2.5 0 0 0 11 5.5L9.5 7" })
 );
 function WidgetSources({ node }) {
-  const ui2 = useViewUi();
+  const ui3 = useViewUi();
   const items = (Array.isArray(node.items) ? node.items : []).filter((item) => typeof item?.url === "string" && /^https?:\/\//i.test(item.url));
   return (0, import_react15.createElement)(
     "div",
-    { className: "dv-view-sources", role: "list", "aria-label": ui2.t("Sources") },
+    { className: "dv-view-sources", role: "list", "aria-label": ui3.t("Sources") },
     items.map((item, index) => (0, import_react15.createElement)("a", { key: index, role: "listitem", className: "dv-view-source", href: item.url, target: "_blank", rel: "noopener noreferrer", title: item.url }, (0, import_react15.createElement)(LinkIcon), item.label))
   );
 }
@@ -20028,7 +20044,7 @@ function ToggleInput({ node, ctx }) {
   );
 }
 function WidgetNode({ node, ctx }) {
-  const ui2 = useViewUi();
+  const ui3 = useViewUi();
   if (node === null || typeof node !== "object") return null;
   const { lookup } = ctx;
   switch (node.type) {
@@ -20042,7 +20058,7 @@ function WidgetNode({ node, ctx }) {
       );
     }
     case "text": {
-      const text = (0, import_react15.createElement)(ui2.Markdown, { text: asText(resolve(node.text, lookup, "")), labels: mdLabels(ui2), variant: "compact" });
+      const text = (0, import_react15.createElement)(ui3.Markdown, { text: asText(resolve(node.text, lookup, "")), labels: mdLabels(ui3), variant: "compact" });
       return node.tone === "muted" ? (0, import_react15.createElement)("div", { className: "dv-view-muted" }, text) : text;
     }
     case "metric":
@@ -20122,7 +20138,7 @@ function useChartHandles() {
   return { charts: [...charts.current.values()], ...fns.current };
 }
 function ViewMenuList({ charts, pick: pick2 }) {
-  const ui2 = useViewUi();
+  const ui3 = useViewUi();
   return (0, import_react15.createElement)(
     "div",
     { className: "dv-menu dv-view-menu", role: "menu" },
@@ -20133,16 +20149,16 @@ function ViewMenuList({ charts, pick: pick2 }) {
         import_react15.Fragment,
         null,
         index > 0 ? (0, import_react15.createElement)("div", { className: "dv-menu-sep", role: "separator" }) : null,
-        (0, import_react15.createElement)("div", { className: "dv-view-menu-label" }, chart.label ?? ui2.t("Chart {n}", { n: index + 1 }))
+        (0, import_react15.createElement)("div", { className: "dv-view-menu-label" }, chart.label ?? ui3.t("Chart {n}", { n: index + 1 }))
       ) : null,
-      (0, import_react15.createElement)("button", { type: "button", role: "menuitem", onClick: pick2(chart.toggleTable) }, (0, import_react15.createElement)(TableIcon), chart.asTable ? ui2.t("View as chart") : ui2.t("View as table")),
-      (0, import_react15.createElement)("button", { type: "button", role: "menuitem", onClick: pick2(chart.copy) }, (0, import_react15.createElement)(CopyIcon2), ui2.t("Copy data")),
-      (0, import_react15.createElement)("button", { type: "button", role: "menuitem", onClick: pick2(chart.save) }, (0, import_react15.createElement)(DownloadIcon2), ui2.t("Download image"))
+      (0, import_react15.createElement)("button", { type: "button", role: "menuitem", onClick: pick2(chart.toggleTable) }, (0, import_react15.createElement)(TableIcon), chart.asTable ? ui3.t("View as chart") : ui3.t("View as table")),
+      (0, import_react15.createElement)("button", { type: "button", role: "menuitem", onClick: pick2(chart.copy) }, (0, import_react15.createElement)(CopyIcon2), ui3.t("Copy data")),
+      (0, import_react15.createElement)("button", { type: "button", role: "menuitem", onClick: pick2(chart.save) }, (0, import_react15.createElement)(DownloadIcon2), ui3.t("Download image"))
     ))
   );
 }
 function ViewMenu({ charts }) {
-  const ui2 = useViewUi();
+  const ui3 = useViewUi();
   const [open, setOpen] = (0, import_react15.useState)(false);
   const root = (0, import_react15.useRef)(null);
   (0, import_react15.useEffect)(() => {
@@ -20167,12 +20183,12 @@ function ViewMenu({ charts }) {
   return (0, import_react15.createElement)(
     "div",
     { ref: root, className: "dv-view-tools", "data-open": open ? "" : void 0 },
-    (0, import_react15.createElement)("button", { type: "button", className: "dv-view-more", "aria-label": ui2.t("Chart options"), "aria-haspopup": "menu", "aria-expanded": open, onClick: () => setOpen((value) => !value) }, (0, import_react15.createElement)(DotsIcon2)),
+    (0, import_react15.createElement)("button", { type: "button", className: "dv-view-more", "aria-label": ui3.t("Chart options"), "aria-haspopup": "menu", "aria-expanded": open, onClick: () => setOpen((value) => !value) }, (0, import_react15.createElement)(DotsIcon2)),
     open ? (0, import_react15.createElement)(ViewMenuList, { charts, pick: pick2 }) : null
   );
 }
 function WidgetCard({ title, icon: icon2, footStart, view, onSubmit, onDismiss, busy = false, raised = false, settled = false, answer = null }) {
-  const ui2 = useViewUi();
+  const ui3 = useViewUi();
   const titleId = (0, import_react15.useId)();
   const { charts, registerChart, refreshCharts } = useChartHandles();
   const framed = raised || hasControls(view);
@@ -20183,7 +20199,7 @@ function WidgetCard({ title, icon: icon2, footStart, view, onSubmit, onDismiss, 
     icon2 ? (0, import_react15.createElement)("span", { className: "dv-view-icon", "aria-hidden": true }, icon2) : null,
     title ? (0, import_react15.createElement)("p", { className: "dv-view-title", id: titleId }, title) : (0, import_react15.createElement)("span", { className: "dv-view-title" }),
     countType(view, "chart") > 0 ? (0, import_react15.createElement)(ViewMenu, { charts }) : null,
-    onDismiss ? (0, import_react15.createElement)("button", { type: "button", className: "dv-q-x", "aria-label": ui2.t("Dismiss view"), title: ui2.t("Dismiss"), onClick: onDismiss, disabled: busy }, (0, import_react15.createElement)(CloseIcon2)) : null
+    onDismiss ? (0, import_react15.createElement)("button", { type: "button", className: "dv-q-x", "aria-label": ui3.t("Dismiss view"), title: ui3.t("Dismiss"), onClick: onDismiss, disabled: busy }, (0, import_react15.createElement)(CloseIcon2)) : null
   ) : null;
   return (0, import_react15.createElement)(
     "div",
@@ -20191,7 +20207,7 @@ function WidgetCard({ title, icon: icon2, footStart, view, onSubmit, onDismiss, 
       className,
       role: "group",
       "aria-labelledby": title ? titleId : void 0,
-      "aria-label": title ? void 0 : ui2.t("View"),
+      "aria-label": title ? void 0 : ui3.t("View"),
       "aria-busy": busy || void 0
     },
     head,
@@ -25594,6 +25610,7 @@ var USER_MESSAGE_CSS = `
 // src/client/cells.js
 var import_react32 = require("react");
 var import_react_dom3 = require("react-dom");
+var ui2 = __toESM(require("@deepseek-ai/dsh-client-ui-primitives"), 1);
 var mdLabels3 = () => ({ code: { copyLabel: t("Copy"), copiedLabel: t("Copied") }, footnotes: t("Footnotes") });
 function Bubbles({ texts: texts2, roster, selfId, actions, streaming, sessionId, msgKey, useUi, lead, mentions, fold = FOLD_AT, whole, time }) {
   const onClick = (event) => {
@@ -25938,7 +25955,7 @@ function SpeakerHead({ bot, time }) {
     Number.isFinite(time) ? (0, import_react32.createElement)("span", { className: "bt-group-time", title: clockLabel(time) }, messageClock(time)) : null
   );
 }
-var CHAIN_BREAK_SEL = ".bt-group-msg, .bt-umsg, .bt-urow, [data-chat-flow-kind=user], [data-chat-flow-kind=command-input], .bt-q-inline, .bt-event, .bt-time-sep, .bt-new-sep, .bt-part-line, .bt-btw-card, .bt-learn-card";
+var CHAIN_BREAK_SEL = ".bt-group-msg, .bt-bfiles, .bt-umsg, .bt-urow, [data-chat-flow-kind=user], [data-chat-flow-kind=command-input], .bt-q-inline, .bt-event, .bt-time-sep, .bt-new-sep, .bt-part-line, .bt-btw-card, .bt-learn-card";
 function syncGroupChains(flow) {
   const items = [...flow.querySelectorAll(CHAIN_BREAK_SEL)];
   for (let i = 0; i < items.length; i += 1) {
@@ -25970,6 +25987,49 @@ function scheduleGroupChains(flow) {
     pendingFlows.delete(flow);
     if (flow.isConnected !== false) syncGroupChains(flow);
   });
+}
+function namedFiles(files) {
+  return (Array.isArray(files) ? files : []).filter((ref) => typeof ref?.name === "string" && ref.name !== "");
+}
+function FileCards({ files, actions, readOnly = false }) {
+  const entries2 = namedFiles(files);
+  if (entries2.length === 0) return null;
+  const download2 = async (ref) => {
+    try {
+      if (typeof ref.url === "string" && ref.url !== "") {
+        const link2 = Object.assign(document.createElement("a"), { href: ref.url, download: ref.name, target: "_blank", rel: "noopener noreferrer" });
+        link2.click();
+        return;
+      }
+      const answer = await actions.fileBytes?.(ref.path);
+      if (typeof answer?.data !== "string") return;
+      const binary2 = atob(answer.data);
+      const bytes = new Uint8Array(binary2.length);
+      for (let i = 0; i < binary2.length; i += 1) bytes[i] = binary2.charCodeAt(i);
+      const url = URL.createObjectURL(new Blob([bytes], { type: answer.mime || "application/octet-stream" }));
+      const link = Object.assign(document.createElement("a"), { href: url, download: ref.name });
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1e3);
+    } catch (error) {
+      actions?.reportError?.(error, "download");
+    }
+  };
+  return (0, import_react32.createElement)("div", { className: readOnly ? "bt-bfiles bt-ufiles" : "bt-bfiles" }, entries2.map((ref, index) => {
+    const downloadable = !readOnly && (typeof ref.path === "string" && ref.path !== "" || typeof ref.url === "string" && ref.url !== "");
+    const meta = [ui2.fileExtension?.(ref.name)?.toUpperCase().slice(0, 8), ui2.fileSizeText?.(ref.bytes)].filter(Boolean).join(" · ");
+    return (0, import_react32.createElement)(
+      "div",
+      { key: `${index}:${ref.name}`, className: "bt-bfile", title: ref.name },
+      ui2.FileTypeIcon ? (0, import_react32.createElement)(ui2.FileTypeIcon, { path: ref.name, className: "bt-bfile-icon" }) : null,
+      (0, import_react32.createElement)(
+        "span",
+        { className: "bt-bfile-text" },
+        (0, import_react32.createElement)("span", { className: "bt-bfile-name" }, ref.name),
+        meta ? (0, import_react32.createElement)("span", { className: "bt-bfile-meta" }, meta) : null
+      ),
+      downloadable ? (0, import_react32.createElement)("button", { type: "button", className: "bt-bfile-get", "aria-label": t("Download"), title: t("Download"), onClick: () => download2(ref) }, (0, import_react32.createElement)(DownloadIcon)) : null
+    );
+  }));
 }
 function GroupMessage({ bot, text, texts: texts2 = [text], room: room2, roster, actions, msgKey, useUi, whole, time, duration }) {
   const ref = (0, import_react32.useRef)(null);
@@ -26078,6 +26138,7 @@ function EarlierUser({ row, actions }) {
   const { shown, folded, control, code, codeHead } = useFold(row.text ?? "");
   const body = row.text && shown !== "" ? (0, import_react32.createElement)(import_dsh_client_ui_primitives.MarkdownText, { text: shown, labels: mdLabels3(), variant: "compact" }) : null;
   const area = foldArea(body, code, codeHead, actions);
+  const files = namedFiles(row.files);
   return (0, import_react32.createElement)(
     "div",
     { className: "bt-urow" },
@@ -26086,7 +26147,8 @@ function EarlierUser({ row, actions }) {
       { className: "bt-ububble", "data-folded": folded || void 0 },
       control ? (0, import_react32.createElement)("div", { className: "bt-fold-body" }, area) : area,
       control,
-      row.images ? (0, import_react32.createElement)("span", { className: "bt-uimages" }, row.images === 1 ? t("1 image") : t("{count} images", { count: row.images })) : null
+      row.images ? (0, import_react32.createElement)("span", { className: "bt-uimages" }, row.images === 1 ? t("1 image") : t("{count} images", { count: row.images })) : null,
+      files.length > 0 ? (0, import_react32.createElement)(FileCards, { files, readOnly: true }) : null
     ),
     row.via ? (0, import_react32.createElement)("div", { className: "bt-utime" }, (0, import_react32.createElement)(ViaTag, { via: row.via }), Number.isFinite(row.time) ? messageClock(row.time) : null) : null
   );
@@ -26176,7 +26238,8 @@ function ChatRows({ items, sessionId, roster, actions, useUi, clock: clock4 = fa
     if (item.kind === "bot" && last?.kind === "bot") {
       last.texts.push(item.text);
       last.end = item.time;
-    } else rows2.push(item.kind === "bot" ? { kind: "bot", texts: [item.text], time: item.time, end: item.time } : item);
+      if (Array.isArray(item.files) && item.files.length > 0) last.files = [...last.files ?? [], ...item.files];
+    } else rows2.push(item.kind === "bot" ? { kind: "bot", texts: [item.text], time: item.time, end: item.time, files: item.files } : item);
   }
   let before;
   return rows2.flatMap((row, index) => {
@@ -26207,14 +26270,16 @@ function chatRow(row, key, { sessionId, selfId, roster, actions, useUi, onBtwDel
       return (0, import_react32.createElement)(WidgetCell, { key, sessionId, callId: row.callId, args: { text: (name) => name === "title" ? row.title : void 0, value: (name) => name === "view" ? row.view : void 0 }, done: true, isError: false, roster, actions });
     case "bot": {
       const bubbles = (0, import_react32.createElement)(Bubbles, { key, texts: row.texts, roster, selfId, actions, sessionId: useUi ? sessionId : void 0, msgKey: useUi ? `${sessionId}:${row.time}` : void 0, useUi, fold: FOLD_HUGE });
+      const files = namedFiles(row.files).length > 0 ? (0, import_react32.createElement)(FileCards, { files: row.files, actions }) : null;
       const speaker = layoutOf(roster.prefs) === "flat" ? roster.byId[selfId] : void 0;
-      return speaker ? (0, import_react32.createElement)(import_react32.Fragment, { key }, (0, import_react32.createElement)(SpeakerHead, { bot: speaker, time: row.time }), bubbles) : bubbles;
+      if (speaker) return (0, import_react32.createElement)(import_react32.Fragment, { key }, (0, import_react32.createElement)(SpeakerHead, { bot: speaker, time: row.time }), bubbles, files);
+      return files ? (0, import_react32.createElement)(import_react32.Fragment, { key }, bubbles, files) : bubbles;
     }
     case "btw":
       return (0, import_react32.createElement)(BtwCardView, { key, card: row.card, sessionId, actions, onDeleted: onBtwDelete });
     case "post": {
       const poster = roster.byId[row.botId] ?? { id: row.botId, name: row.name ?? t("a Bot"), color: "gray" };
-      return (0, import_react32.createElement)(GroupMessage, {
+      const message = (0, import_react32.createElement)(GroupMessage, {
         key,
         bot: poster,
         text: row.file ? stripLongNote(row.text) : row.text,
@@ -26227,6 +26292,8 @@ function chatRow(row, key, { sessionId, selfId, roster, actions, useUi, onBtwDel
         duration: row.duration,
         whole: row.file ? { length: row.length, load: () => actions.fileText(row.file) } : void 0
       });
+      const files = namedFiles(row.files).length > 0 ? (0, import_react32.createElement)(FileCards, { files: row.files, actions }) : null;
+      return files ? (0, import_react32.createElement)(import_react32.Fragment, { key }, message, files) : message;
     }
     case "relay": {
       const reply = row.reply;
@@ -34602,7 +34669,7 @@ function DeveloperToolsRow({ useDeveloperTools, setEnabled }) {
     }))
   );
 }
-function installSettingsShell(ctx, { face, actions, ui: ui2, held }) {
+function installSettingsShell(ctx, { face, actions, ui: ui3, held }) {
   const slots = ctx.slots;
   const locale = () => ctx.get("locale");
   const request = snapshotStore(void 0);
@@ -34688,7 +34755,7 @@ function installSettingsShell(ctx, { face, actions, ui: ui2, held }) {
         regions: ["page", "editable", "terminal"],
         modals: ["settings"],
         resolve: ({ modal }) => {
-          if (ui2.getSnapshot().settings) return { status: "handled", run: () => actions.closeSettings() };
+          if (ui3.getSnapshot().settings) return { status: "handled", run: () => actions.closeSettings() };
           if (modal !== null && modal !== "settings") return { status: "blocked", reason: "modal" };
           return { status: "handled", run: () => actions.openSettings("general") };
         }
@@ -39116,7 +39183,7 @@ var DIALOG_EXIT_MS2 = 160;
 var MENU_EXIT_MS3 = 120;
 function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useActivity, useWork, useRegistry, useBrowserPages, useBrowserTabs, useBrowserHolds, useUpdate, useFrame, useSidebarPref, useSettingsShellHeld, actions }) {
   const roster = useRoster((value) => value);
-  const ui2 = useUi((value) => value);
+  const ui3 = useUi((value) => value);
   useRegistry((value) => value);
   const frameSnap = useFrame ? useFrame((value) => value) : { viewport: window.innerWidth, sidebarWidth: FALLBACK_SIDEBAR_WIDTH, collapsedWidth: 0 };
   const pref = useSidebarPref ? useSidebarPref((value) => value) : "open";
@@ -39127,13 +39194,13 @@ function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useActivity
     previous.current = current;
     if (current) actions.followPanel?.(current);
   }, [current]);
-  const open = ui2.details ? { id: ui2.details, view: ui2.view ?? "details", renaming: ui2.renaming, tab: ui2.tab, side: ui2.side } : null;
+  const open = ui3.details ? { id: ui3.details, view: ui3.view ?? "details", renaming: ui3.renaming, tab: ui3.tab, side: ui3.side } : null;
   const layout = frameLayout({
     viewport: frameSnap.viewport,
     sidebarWidth: frameSnap.sidebarWidth,
     pref,
-    drawer: ui2.leftDrawer === true,
-    panel: open ? { view: open.view, yielded: ui2.panelYield === true } : null
+    drawer: ui3.leftDrawer === true,
+    panel: open ? { view: open.view, yielded: ui3.panelYield === true } : null
   });
   const shown = open !== null && layout.panel !== "folded" ? open : null;
   const [kept, setKept] = (0, import_react62.useState)(shown);
@@ -39144,27 +39211,27 @@ function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useActivity
     }
     const timer = setTimeout(() => setKept(null), PANEL_LINGER_MS);
     return () => clearTimeout(timer);
-  }, [ui2.details, ui2.view, ui2.renaming, ui2.tab, shown === null]);
+  }, [ui3.details, ui3.view, ui3.renaming, ui3.tab, shown === null]);
   const pane = shown ?? kept;
   const shellHeld = useSettingsShellHeld ? useSettingsShellHeld((value) => value) : false;
-  const [settings, settingsLeaving] = useLinger(shellHeld ? null : ui2.settings, DIALOG_EXIT_MS2);
+  const [settings, settingsLeaving] = useLinger(shellHeld ? null : ui3.settings, DIALOG_EXIT_MS2);
   const memoryOwner = (id) => {
     const bot = roster.byId[id];
     if (bot) return { id: bot.id, name: bot.name };
     const room2 = roster.roomsById[id];
     return room2 ? { id: room2.id, name: room2.name, group: true } : null;
   };
-  const [memory, memoryLeaving] = useLinger(ui2.memory && memoryOwner(ui2.memory) ? ui2.memory : null, DIALOG_EXIT_MS2);
+  const [memory, memoryLeaving] = useLinger(ui3.memory && memoryOwner(ui3.memory) ? ui3.memory : null, DIALOG_EXIT_MS2);
   const owner = memory ? memoryOwner(memory) : null;
-  const [menu, menuLeaving] = useLinger(ui2.menu, MENU_EXIT_MS3);
+  const [menu, menuLeaving] = useLinger(ui3.menu, MENU_EXIT_MS3);
   return (0, import_react62.createElement)(
     import_react62.Fragment,
     null,
     pane ? (0, import_react_dom11.createPortal)((0, import_react62.createElement)(BotPanel, { pane, leaving: shown === null, room: layout.room, overlay: layout.panel === "overlay", roster, actions, useSessions, useSessionStatus, useActivity, useWork, useBrowserTabs, useBrowserPages, useBrowserHolds }), document.body) : null,
-    ui2.newChat ? (0, import_react_dom11.createPortal)((0, import_react62.createElement)(NewChat, { key: `${ui2.newChat}:${ui2.newChatSection ?? ""}`, mode: ui2.newChat, sectionId: ui2.newChatSection ?? null, paneLeft: layout.column, roster, actions }), document.body) : null,
-    ui2.palette ? (0, import_react_dom11.createPortal)((0, import_react62.createElement)(CommandPalette, { key: ui2.palette.token, start: ui2.palette.query, token: ui2.palette.token, roster, actions, useSessions }), document.body) : null,
-    ui2.exchange ? (0, import_react_dom11.createPortal)((0, import_react62.createElement)(ExchangeDialog, { pair: ui2.exchange, paneLeft: layout.column, roster, actions }), document.body) : null,
-    ui2.voice ? (0, import_react_dom11.createPortal)((0, import_react62.createElement)(VoiceMode, { key: ui2.voice, sessionId: ui2.voice, paneLeft: layout.column, roster, actions, useSessions, useSessionStatus }), document.body) : null,
+    ui3.newChat ? (0, import_react_dom11.createPortal)((0, import_react62.createElement)(NewChat, { key: `${ui3.newChat}:${ui3.newChatSection ?? ""}`, mode: ui3.newChat, sectionId: ui3.newChatSection ?? null, paneLeft: layout.column, roster, actions }), document.body) : null,
+    ui3.palette ? (0, import_react_dom11.createPortal)((0, import_react62.createElement)(CommandPalette, { key: ui3.palette.token, start: ui3.palette.query, token: ui3.palette.token, roster, actions, useSessions }), document.body) : null,
+    ui3.exchange ? (0, import_react_dom11.createPortal)((0, import_react62.createElement)(ExchangeDialog, { pair: ui3.exchange, paneLeft: layout.column, roster, actions }), document.body) : null,
+    ui3.voice ? (0, import_react_dom11.createPortal)((0, import_react62.createElement)(VoiceMode, { key: ui3.voice, sessionId: ui3.voice, paneLeft: layout.column, roster, actions, useSessions, useSessionStatus }), document.body) : null,
     menu ? (0, import_react_dom11.createPortal)((0, import_react62.createElement)(ContextMenu, { key: `${menu.kind ?? ""}:${menu.id}:${menu.x}:${menu.y}`, menu, roster, actions, useWork, leaving: menuLeaving }), document.body) : null,
     settings ? (0, import_react_dom11.createPortal)((0, import_react62.createElement)(SettingsDialog, { page: settings.page, id: settings.id, roster, actions, useUpdate, leaving: settingsLeaving }), document.body) : null,
     owner ? (0, import_react_dom11.createPortal)((0, import_react62.createElement)(MemoryDialog, { key: owner.id, owner, actions, leaving: memoryLeaving }), document.body) : null
@@ -40517,9 +40584,9 @@ function queueAttachments(content) {
   }
   return attachments;
 }
-var fileSizeText2 = (bytes) => typeof bytes !== "number" || !Number.isFinite(bytes) ? "" : bytes < 1024 ? `${bytes} B` : bytes < 1048576 ? `${(bytes / 1024).toFixed(1)} KB` : `${(bytes / 1048576).toFixed(1)} MB`;
+var fileSizeText3 = (bytes) => typeof bytes !== "number" || !Number.isFinite(bytes) ? "" : bytes < 1024 ? `${bytes} B` : bytes < 1048576 ? `${(bytes / 1024).toFixed(1)} KB` : `${(bytes / 1048576).toFixed(1)} MB`;
 function QueueFile({ attachment, label }) {
-  const size = fileSizeText2(attachment.bytes);
+  const size = fileSizeText3(attachment.bytes);
   return (0, import_react64.createElement)(
     "span",
     { className: "bt-queue-file", "aria-label": label, title: attachment.name },
@@ -40828,7 +40895,7 @@ function apply(ctx) {
   const reactionStore = sharedMap(STORAGE.reactions);
   const seenStore = sharedMap(STORAGE.seen);
   let seenAt = seenStore.read();
-  const ui2 = createSource({ details: null, view: "details", renaming: false, tab: null, side: null, newChat: null, exchange: null, menu: null, voice: null, palette: null, quote: null, settings: null, memory: null, toast: null, signIn: null, renameAgent: null, unread: unreadStore.read(), reactions: reactionStore.read(), visits: {}, panelYield: false, leftDrawer: false, bootFailed: false, goalCompose: null, goalOpen: null });
+  const ui3 = createSource({ details: null, view: "details", renaming: false, tab: null, side: null, newChat: null, exchange: null, menu: null, voice: null, palette: null, quote: null, settings: null, memory: null, toast: null, signIn: null, renameAgent: null, unread: unreadStore.read(), reactions: reactionStore.read(), visits: {}, panelYield: false, leftDrawer: false, bootFailed: false, goalCompose: null, goalOpen: null });
   let sidebarSaved = readSidebar();
   const sidebarPref = createSource(sidebarSaved.pref);
   const frame = createSource({ viewport: typeof window === "undefined" ? 0 : window.innerWidth, sidebarWidth: sidebarSaved.width, collapsedWidth: 0, collapsed: false });
@@ -40853,21 +40920,21 @@ function apply(ctx) {
   };
   let expected2 = null;
   const setPlain = (plain) => surface.set((state) => state.plain === plain ? state : { ...state, plain });
-  const dropPanels = () => ui2.set((state) => state.details || state.renaming ? { ...state, details: null, view: "details", renaming: false, tab: null } : state);
+  const dropPanels = () => ui3.set((state) => state.details || state.renaming ? { ...state, details: null, view: "details", renaming: false, tab: null } : state);
   const seenKey = (id) => roster.getSnapshot().byId?.[id]?.id ?? roster.getSnapshot().roomsById?.[id]?.id ?? id;
   const leaveVisits = (ids) => {
     seenAt = seenStore.update((seen) => noteLeft(seen, ids.map(seenKey), Date.now()), seenAt);
   };
   ctx.effect(() => {
-    const onPageHide = () => leaveVisits(Object.keys(ui2.getSnapshot().visits ?? {}));
+    const onPageHide = () => leaveVisits(Object.keys(ui3.getSnapshot().visits ?? {}));
     window.addEventListener("pagehide", onPageHide);
     return () => window.removeEventListener("pagehide", onPageHide);
   }, "ds-bot: remember visits on page hide");
   ctx.effect(() => {
     const onStorage = (event) => {
       if (event.storageArea !== localStorage) return;
-      if (event.key === null || event.key === unreadStore.key) ui2.set((state) => ({ ...state, unread: unreadStore.read(state.unread) }));
-      if (event.key === null || event.key === reactionStore.key) ui2.set((state) => ({ ...state, reactions: reactionStore.read(state.reactions) }));
+      if (event.key === null || event.key === unreadStore.key) ui3.set((state) => ({ ...state, unread: unreadStore.read(state.unread) }));
+      if (event.key === null || event.key === reactionStore.key) ui3.set((state) => ({ ...state, reactions: reactionStore.read(state.reactions) }));
       if (event.key === null || event.key === seenStore.key) seenAt = seenStore.read(seenAt);
     };
     window.addEventListener("storage", onStorage);
@@ -40897,8 +40964,8 @@ function apply(ctx) {
     ])));
   };
   const writeUnread = (id, value) => {
-    const unread = unreadStore.update((marks) => setUnread(marks, id, value), ui2.getSnapshot().unread);
-    ui2.set((state) => JSON.stringify(state.unread) === JSON.stringify(unread) ? state : { ...state, unread });
+    const unread = unreadStore.update((marks) => setUnread(marks, id, value), ui3.getSnapshot().unread);
+    ui3.set((state) => JSON.stringify(state.unread) === JSON.stringify(unread) ? state : { ...state, unread });
   };
   const refreshed = /* @__PURE__ */ new Set();
   let pulls = 0;
@@ -40978,13 +41045,13 @@ function apply(ctx) {
       try {
         await pull();
         misses = 0;
-        ui2.set((state) => state.bootFailed ? { ...state, bootFailed: false } : state);
+        ui3.set((state) => state.bootFailed ? { ...state, bootFailed: false } : state);
       } catch (error) {
         if (!stopped) {
           console.warn("[ds-bot] state", error);
           if (error?.code === "HTTP_404") {
             misses += 1;
-            if (misses >= 10 && !roster.getSnapshot().ready) ui2.set((state) => state.bootFailed ? state : { ...state, bootFailed: true });
+            if (misses >= 10 && !roster.getSnapshot().ready) ui3.set((state) => state.bootFailed ? state : { ...state, bootFailed: true });
           }
         }
       } finally {
@@ -41073,7 +41140,7 @@ function apply(ctx) {
           stopReads = null;
         }
         void browsers.retain(snapshot.bots.map((bot) => bot.id));
-        ui2.set((state) => state.details && state.view === "browser" && (!on || !snapshot.byId[state.details]) ? { ...state, view: "details" } : state);
+        ui3.set((state) => state.details && state.view === "browser" && (!on || !snapshot.byId[state.details]) ? { ...state, view: "details" } : state);
       };
       sync();
       const offRoster = roster.subscribe(sync);
@@ -41205,7 +41272,7 @@ function apply(ctx) {
     ctx.uiWorkspace.openSession(target);
   }, current: mainView });
   const panelFolded = (view) => {
-    const state = ui2.getSnapshot();
+    const state = ui3.getSnapshot();
     if (state.details === null) return false;
     const f = frame.getSnapshot();
     return frameLayout({ viewport: f.viewport, sidebarWidth: f.sidebarWidth, pref: sidebarPref.getSnapshot(), drawer: state.leftDrawer, panel: { view: view ?? state.view, yielded: state.panelYield === true } }).panel === "folded";
@@ -41230,14 +41297,14 @@ function apply(ctx) {
     }
   };
   const actions = {
-    ...teamActions({ call, after, partFor, roster, ui: ui2, live, cards, heldCards, turnClock, panelFolded }),
+    ...teamActions({ call, after, partFor, roster, ui: ui3, live, cards, heldCards, turnClock, panelFolded }),
     learningAnswer: (id, approve) => after(call("learning-answer", { id, approve })),
     // The full-pane overlays sit above the conversation, so opening one must dismiss them
     // or the click appears to do nothing.
     isAgentSession: (id) => isAgentSessionId(id),
     openSession: (id) => {
       if (isAgentSessionId(id)) return actions.openAgentSession(id);
-      ui2.set((state) => state.newChat || state.exchange || state.menu || state.palette ? { ...state, newChat: null, exchange: null, menu: null, palette: null } : state);
+      ui3.set((state) => state.newChat || state.exchange || state.menu || state.palette ? { ...state, newChat: null, exchange: null, menu: null, palette: null } : state);
       setPlain(false);
       const target = partFor(id);
       show2(target);
@@ -41245,7 +41312,7 @@ function apply(ctx) {
     // The conversation replacements withdraw for a plain Session; set the surface
     // before the navigation so the Bot skin never flashes.
     openAgentSession: (sessionId) => {
-      ui2.set((state) => ({ ...state, newChat: null, exchange: null, menu: null, palette: null, details: null, view: "details", renaming: false, tab: null }));
+      ui3.set((state) => ({ ...state, newChat: null, exchange: null, menu: null, palette: null, details: null, view: "details", renaming: false, tab: null }));
       setPlain(true);
       show2(sessionId);
     },
@@ -41291,8 +41358,8 @@ function apply(ctx) {
       else if (roster.getSnapshot().mainBotId) actions.openSession(roster.getSnapshot().mainBotId);
     },
     renameAgentSession: (agentId, sessionId, title) => after(call("agent-rename", { agentId, sessionId, title })),
-    beginAgentRename: (sessionId) => ui2.set((state) => ({ ...state, renameAgent: sessionId })),
-    endAgentRename: () => ui2.set((state) => state.renameAgent ? { ...state, renameAgent: null } : state),
+    beginAgentRename: (sessionId) => ui3.set((state) => ({ ...state, renameAgent: sessionId })),
+    endAgentRename: () => ui3.set((state) => state.renameAgent ? { ...state, renameAgent: null } : state),
     // Removing the Agent archives every Session it owns; one of them may fill the
     // main view, and it must not stay there wearing the Bot surface afterwards.
     removeAgent: async (agentId) => {
@@ -41328,7 +41395,7 @@ function apply(ctx) {
       sidebarPref.set(next);
     },
     toggleLeftHidden: () => {
-      ui2.set((state) => state.leftDrawer || state.panelYield ? { ...state, leftDrawer: false, panelYield: false } : state);
+      ui3.set((state) => state.leftDrawer || state.panelYield ? { ...state, leftDrawer: false, panelYield: false } : state);
       actions.setSidebarPref(toggledPref(sidebarPref.getSnapshot(), sidebarSaved.shown));
     },
     setSidebarWidth: (width) => {
@@ -41336,8 +41403,8 @@ function apply(ctx) {
       writeSidebar(sidebarSaved);
       frame.set((state) => state.sidebarWidth === width ? state : { ...state, sidebarWidth: width });
     },
-    setLeftDrawer: (on) => ui2.set((state) => state.leftDrawer === on ? state : { ...state, leftDrawer: on }),
-    setPanelYield: (on) => ui2.set((state) => state.panelYield === on ? state : { ...state, panelYield: on }),
+    setLeftDrawer: (on) => ui3.set((state) => state.leftDrawer === on ? state : { ...state, leftDrawer: on }),
+    setPanelYield: (on) => ui3.set((state) => state.panelYield === on ? state : { ...state, panelYield: on }),
     // Agent mode hands the surface back to the shell; everything open on the Bot
     // surface closes first so nothing stale reopens on the way back.
     surfaceMode: () => surface.getSnapshot().mode,
@@ -41348,7 +41415,7 @@ function apply(ctx) {
         return;
       }
       if (mode === "agent") {
-        ui2.set((state) => ({ ...state, details: null, view: "details", settings: null, palette: null, newChat: null, menu: null, voice: null, exchange: null, memory: null, toast: null }));
+        ui3.set((state) => ({ ...state, details: null, view: "details", settings: null, palette: null, newChat: null, menu: null, voice: null, exchange: null, memory: null, toast: null }));
       }
       writeMode(mode);
       surface.set((state) => ({ ...state, mode }));
@@ -41360,11 +41427,11 @@ function apply(ctx) {
     beginVisit: (id) => {
       const made = roster.getSnapshot().byId[id] ?? roster.getSnapshot().roomsById[id];
       const seen = seenAt[seenKey(id)] ?? (made?.createdBy && Number.isFinite(made.createdAt) ? made.createdAt : null);
-      ui2.set((state) => ({ ...state, visits: { ...state.visits, [id]: { seen, entered: Date.now() } } }));
+      ui3.set((state) => ({ ...state, visits: { ...state.visits, [id]: { seen, entered: Date.now() } } }));
     },
     endVisit: (id) => {
       leaveVisits([id]);
-      ui2.set((state) => {
+      ui3.set((state) => {
         if (!(id in (state.visits ?? {}))) return state;
         const visits = { ...state.visits };
         delete visits[id];
@@ -41372,8 +41439,8 @@ function apply(ctx) {
       });
     },
     toggleReaction: (key, index, emoji) => {
-      const reactions = reactionStore.update((saved) => toggleReaction(saved, key, index, emoji), ui2.getSnapshot().reactions);
-      ui2.set((state) => ({ ...state, reactions }));
+      const reactions = reactionStore.update((saved) => toggleReaction(saved, key, index, emoji), ui3.getSnapshot().reactions);
+      ui3.set((state) => ({ ...state, reactions }));
     },
     clearUnread: (id) => writeUnread(id, false)
   };
@@ -41385,7 +41452,7 @@ function apply(ctx) {
         if (!bot) return;
         browsers.ensureTabs(bot.id);
         if (browsers.tabs.getSnapshot()[bot.id]?.active == null) browsers.openTab(bot.id);
-        ui2.set((state) => ({ ...state, details: id, view: "browser", renaming: false, tab: null, panelYield: yieldBrowser(state) }));
+        ui3.set((state) => ({ ...state, details: id, view: "browser", renaming: false, tab: null, panelYield: yieldBrowser(state) }));
       },
       // '+' on the strip or the drawer's new-tab card: a blank tab in the browser view.
       browserNewTab: (id) => {
@@ -41393,7 +41460,7 @@ function apply(ctx) {
         if (!bot) return null;
         browsers.ensureTabs(bot.id);
         const tabId = browsers.openTab(bot.id);
-        ui2.set((state) => ({ ...state, details: id, view: "browser", renaming: false, tab: null, panelYield: yieldBrowser(state) }));
+        ui3.set((state) => ({ ...state, details: id, view: "browser", renaming: false, tab: null, panelYield: yieldBrowser(state) }));
         return tabId;
       },
       // A drawer card: its tab active, the panel on the browser view.
@@ -41401,7 +41468,7 @@ function apply(ctx) {
         const bot = roster.getSnapshot().byId[id];
         if (!bot) return;
         browsers.activate(bot.id, tabId);
-        ui2.set((state) => ({ ...state, details: id, view: "browser", panelYield: yieldBrowser(state) }));
+        ui3.set((state) => ({ ...state, details: id, view: "browser", panelYield: yieldBrowser(state) }));
       },
       browserEnsure: (botId) => browsers.ensureTabs(botId),
       browserCloseTab: (botId, tabId) => browsers.closeTab(botId, tabId),
@@ -41439,8 +41506,8 @@ function apply(ctx) {
   }
   actions.signInEntry = () => ctx.slots.entries?.("settings.models.sign-in")?.[0] ?? null;
   actions.canSignIn = () => Boolean(actions.signInEntry());
-  actions.signIn = () => ui2.set((state) => ({ ...state, signIn: (state.signIn ?? 0) + 1 }));
-  actions.closeSignIn = () => ui2.set((state) => ({ ...state, signIn: null }));
+  actions.signIn = () => ui3.set((state) => ({ ...state, signIn: (state.signIn ?? 0) + 1 }));
+  actions.closeSignIn = () => ui3.set((state) => ({ ...state, signIn: null }));
   actions.accountT = () => ctx.get("locale").bind("settings.account");
   actions.hasPlugins = () => ctx.get("pluginNavigation") !== void 0;
   actions.openPlugins = () => ctx.get("pluginNavigation")?.openList();
@@ -41461,7 +41528,7 @@ function apply(ctx) {
       return null;
     }
   };
-  actions.seatAccount = (on) => ui2.set((state) => state.accountSeated === on ? state : { ...state, accountSeated: on });
+  actions.seatAccount = (on) => ui3.set((state) => state.accountSeated === on ? state : { ...state, accountSeated: on });
   actions.installUpdate = async () => {
     const value = await call("update-install");
     update.set((previous) => ({ ...previous, ...value }));
@@ -41574,10 +41641,10 @@ function apply(ctx) {
       else if (kind === "letgo") void actions.computerAllowForeground(botId);
     });
   }
-  const face = () => ({ actions, hooks: { roster, ui: ui2, activity, work, memoryNews, registry, turnClock, live, computer, cards, heldCards, browserPages, browserTabs, browserHolds, surface, update, frame, sidebarPref, settingsShellHeld } });
+  const face = () => ({ actions, hooks: { roster, ui: ui3, activity, work, memoryNews, registry, turnClock, live, computer, cards, heldCards, browserPages, browserTabs, browserHolds, surface, update, frame, sidebarPref, settingsShellHeld } });
   ctx.effect(() => {
     const offStyles = installCompiledStyles(SETTINGS_SHELL_CSS, "settings-shell");
-    settingsShell = installSettingsShell(ctx, { face, actions, ui: ui2, held: settingsShellHeld });
+    settingsShell = installSettingsShell(ctx, { face, actions, ui: ui3, held: settingsShellHeld });
     return () => {
       settingsShell?.dispose();
       settingsShell = null;
@@ -41681,7 +41748,7 @@ function apply(ctx) {
       const next = rightColumnOpen(document);
       const opening = next && !open;
       open = next;
-      const verdict = opening ? columnOpened(ui2.getSnapshot().details !== null, switchWindow.pending) : null;
+      const verdict = opening ? columnOpened(ui3.getSnapshot().details !== null, switchWindow.pending) : null;
       if (verdict === "close-drawer") actions.closePanel();
       else if (verdict === "collapse-column") collapseColumn();
     });
@@ -41691,9 +41758,9 @@ function apply(ctx) {
       attributeFilter: RIGHTBAR_ATTRIBUTES
     });
     const offMounted = sidebar.mounted.subscribe(() => switchWindow.moved());
-    let drawer = ui2.getSnapshot().details !== null;
-    const offUi = ui2.subscribe(() => {
-      const next = ui2.getSnapshot().details !== null;
+    let drawer = ui3.getSnapshot().details !== null;
+    const offUi = ui3.subscribe(() => {
+      const next = ui3.getSnapshot().details !== null;
       if (next && !drawer && drawerOpened(rightColumnOpen(document)) === "collapse-column") collapseColumn();
       drawer = next;
     });
@@ -41740,9 +41807,9 @@ function apply(ctx) {
     controller.toggleSource(CHATS_SOURCE, { trigger: "@", query: "", quoted: false, position: "inline", span });
   };
   const installFrameSync = () => {
-    let lastDetails = ui2.getSnapshot().details;
+    let lastDetails = ui3.getSnapshot().details;
     const sync = () => {
-      const s = ui2.getSnapshot();
+      const s = ui3.getSnapshot();
       const f = frame.getSnapshot();
       const opened = s.details !== null && lastDetails === null;
       lastDetails = s.details;
@@ -41753,7 +41820,7 @@ function apply(ctx) {
       else if (s.panelYield && layout.panel === "shown") actions.setPanelYield(false);
       if (s.leftDrawer === true && layout.left !== "drawer") actions.setLeftDrawer(false);
     };
-    const offs = [ui2.subscribe(sync), frame.subscribe(sync), sidebarPref.subscribe(sync)];
+    const offs = [ui3.subscribe(sync), frame.subscribe(sync), sidebarPref.subscribe(sync)];
     return () => {
       for (const off of offs) off();
     };

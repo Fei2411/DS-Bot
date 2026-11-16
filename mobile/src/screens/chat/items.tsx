@@ -1,9 +1,11 @@
 import { createContext, memo, useContext, useEffect, useState } from 'react'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { ActivityIndicator, Dimensions, Image, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
+import { ActivityIndicator, Image, Modal, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native'
 import * as Clipboard from 'expo-clipboard'
 import * as Haptics from 'expo-haptics'
 import { t, clockLabel, messageClock } from '../../ui/i18n.ts'
+import { FileCard, type FileCardFile } from './file-card.tsx'
+import { webFileLinks } from './markdown-text.ts'
 import { CheckIcon } from '../../ui/icons.tsx'
 import { Avatar } from '../../ui/marks.tsx'
 import type { Bot } from '../../connection.ts'
@@ -17,7 +19,7 @@ import { viewAnswerText } from 'deep-view/core'
 
 export interface ImageRef { attachmentId: string; mime?: string; name?: string }
 
-export interface FileRef { name: string; bytes?: number; attachmentId?: string }
+export interface FileRef { name: string; bytes?: number; attachmentId?: string; mime?: string; path?: string; url?: string }
 
 export type { SettledQuestionData }
 
@@ -38,6 +40,8 @@ export interface ChatItem {
   via?: string
   imageRefs?: ImageRef[]
   files?: FileRef[]
+  // Files picked on this phone, shown from the device until the computer has them.
+  localFiles?: { name: string; bytes?: number }[]
   file?: FileRef
   whole?: { file?: FileRef; length?: number }
   length?: number
@@ -87,15 +91,27 @@ const dataUri = (value: unknown) => `data:${(value as { mime?: string })?.mime ?
 export const Item = memo(function Item({ item, p, flat, maxWidth, inRoom, sessionId, open, onToggle, onLongPress, onOpenFile, onRetry, stamp, author, admin }: { item: ChatItem; p: Palette; flat: boolean; maxWidth: number | string; inRoom: boolean; sessionId?: string; open?: boolean; onToggle?: () => void; stamp?: string; author?: Bot; admin?: boolean; onLongPress?: (text: string) => void; onOpenFile?: (file: { name: string; attachmentId?: string }) => void; onRetry?: (localId: string, discard?: boolean) => void }) {
   const { dark } = useTheme()
   const wholeFile = item.file?.attachmentId !== undefined ? item.file : item.whole?.file?.attachmentId !== undefined ? item.whole.file : undefined
-  const chips = (item.files ?? []).map(file => (
-    <Pressable key={file.attachmentId ?? file.name} accessibilityRole="button" onPress={() => onOpenFile?.(file)}
-      style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 6, minHeight: 44, paddingHorizontal: 10, paddingVertical: 8, borderRadius: 12, borderWidth: StyleSheet.hairlineWidth, borderColor: p.line2, backgroundColor: p.card }}>
-      <View style={{ flex: 1, minWidth: 0 }}>
-        <Text style={[type.small, { color: p.ink, fontWeight: '500' }]} numberOfLines={1}>{file.name}</Text>
-        <Text style={[type.caption, { color: p.ink3 }]}>{[(file.name.split('.').pop() ?? '').toUpperCase(), file.bytes !== undefined ? `${Math.max(1, Math.round(file.bytes / 1024))} KB` : ''].filter(Boolean).join(' · ')}</Text>
-      </View>
-    </Pressable>
+  // The computer names the local files a reply points at; a web link that names a
+  // file the phone can fetch itself, so it shows either way.
+  const itemFiles = item.files ?? []
+  const linkedFiles = webFileLinks(item.text ?? '').filter(link => !itemFiles.some(file => file.url === link.url))
+  const files: FileCardFile[] = [...itemFiles, ...linkedFiles]
+  const chips = files.map(file => (
+    <FileCard key={file.attachmentId ?? file.path ?? file.url ?? file.name} file={file} onOpenText={() => onOpenFile?.(file)} />
   ))
+  // A message the user sent shows its files as cards with no actions: the file is
+  // already on the computer, and a phone copy is not offered for it.
+  const userChips = item.kind !== 'user' ? [] : [
+    ...itemFiles.map((file, index) => (
+      <FileCard key={`sent-${file.attachmentId ?? file.name}-${index}`} file={file} readOnly />
+    )),
+    ...(item.localFiles ?? []).map((file, index) => (
+      <FileCard key={`local-${file.name}-${index}`} file={file} readOnly />
+    )),
+    ...linkedFiles.map(file => (
+      <FileCard key={file.url ?? file.name} file={file} onOpenText={() => onOpenFile?.(file)} />
+    )),
+  ]
   const fullMessageLink = wholeFile !== undefined ? (
     <Pressable accessibilityRole="button" onPress={() => onOpenFile?.(wholeFile)} style={{ alignSelf: 'flex-start', marginTop: 6, paddingVertical: 2 }}>
       <Text style={[type.small, { color: p.accent, fontWeight: '500' }]}>{t('Read full message')}</Text>
@@ -229,13 +245,13 @@ export const Item = memo(function Item({ item, p, flat, maxWidth, inRoom, sessio
     // a bubble sized to its content cannot hold a block that scrolls sideways.
     const wide = hasBlockContent(item.text ?? '')
     // Photos with no text show as photos, without a bubble around them.
-    const photosOnly = (item.text ?? '') === '' && chips.length === 0 && ((item.imageRefs?.length ?? 0) > 0 || (item.localImages?.length ?? 0) > 0)
+    const photosOnly = (item.text ?? '') === '' && userChips.length === 0 && ((item.imageRefs?.length ?? 0) > 0 || (item.localImages?.length ?? 0) > 0)
     const bubble = (
       <Pressable onLongPress={longPress} onPress={item.local === 'failed' && item.localId !== undefined ? () => onRetry?.(item.localId!) : undefined}
         style={[styles.bubble, styles.userBubble, { backgroundColor: p.user, maxWidth, width: wide ? maxWidth : undefined, opacity: item.local === 'sending' ? 0.7 : 1 },
           photosOnly ? { backgroundColor: 'transparent', paddingHorizontal: 0, paddingVertical: 0 } : null]}>
         {item.text ? <Markdown text={item.text} p={p} textColor={p.userInk} bg={p.user} /> : null}
-        {chips}
+        {userChips}
         {item.localImages !== undefined && item.localImages.length > 0
           ? <LocalImages uris={item.localImages} />
           : item.imageRefs !== undefined && item.imageRefs.length > 0 && sessionId !== undefined
@@ -383,7 +399,8 @@ function ImageGrid({ refs, sessionId, p }: { refs: ImageRef[]; sessionId: string
 // Full-screen photos, swiped side to side: the preview at once, the original once it arrives.
 export function PhotoViewer({ open, onClose }: { open: { sessionId: string; refs: ImageRef[]; index: number } | null; onClose: () => void }) {
   const insets = useSafeAreaInsets()
-  const width = Dimensions.get('window').width
+  // Live: a rotated or resized window must page by the width on screen now.
+  const { width } = useWindowDimensions()
   const [at, setAt] = useState(0)
   useEffect(() => { if (open !== null) setAt(open.index) }, [open])
   const refs = open?.refs ?? []

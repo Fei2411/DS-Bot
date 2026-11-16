@@ -5,6 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { confirmDanger, Sheet, SheetHeader, useInSheet } from '../nav/sheet.tsx'
 import * as Clipboard from 'expo-clipboard'
 import { useTeam } from '../team/context.tsx'
+import { capabilityStatusFor, connectorList } from '../team/selectors.ts'
 import { t } from '../ui/i18n.ts'
 import { ChevronLeftIcon, ChevronRightIcon } from '../ui/icons.tsx'
 import { radius, shadow, type as typeScale, useTheme } from '../ui/tokens.ts'
@@ -247,7 +248,7 @@ export function Connectors({ navigation }: any) {
   const [token, setToken] = useState('')
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const connectors = (team as { connectors?: { id: string; name: string; state?: string; account?: string; error?: string }[] } | null)?.connectors ?? []
+  const connectors = connectorList(team)
   const run = (id: string, task: Promise<unknown>, after?: () => void) => {
     setBusy(id)
     return task.then(() => { setError(null); after?.() }, (f: { code?: string; message?: string }) => { if (f?.code !== 'unlock/canceled') setError(f?.message ?? String(f)) }).finally(() => setBusy(null))
@@ -325,7 +326,6 @@ export function Capabilities({ navigation }: any) {
     setError(null)
     void call('capability-save', payload).then(() => setEditing(null), (f: { code?: string; message?: string }) => { if (f?.code !== 'unlock/canceled') setError(f?.message ?? String(f)) })
   }
-  const statuses = (team as { capabilityStatuses?: Record<string, { state?: string; error?: string }> } | null)?.capabilityStatuses ?? {}
   const statusText = capabilityStatusText
   const detail = (item: { kind?: string; transport?: string; items?: string[] }) =>
     item.kind === 'pack' ? `${t('Pack')}: ${(item.items ?? []).join(', ') || t('No items')}`
@@ -340,7 +340,7 @@ export function Capabilities({ navigation }: any) {
         {error ? <Text style={[typeScale.small, { color: p.danger, margin: 18 }]}>{error}</Text> : null}
         <Section label={t('Capabilities')}>
           {items.map(item => {
-            const status = statuses[item.name]
+            const status = capabilityStatusFor(team, item.name)
             const text = statusText(status)
             return (
               <View key={item.name}>

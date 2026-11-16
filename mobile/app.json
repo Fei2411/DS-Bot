@@ -25,6 +25,7 @@
     "scheme": "dsbot",
     "plugins": [
       "expo-secure-store",
+      "expo-sharing",
       [
         "expo-camera",
         {

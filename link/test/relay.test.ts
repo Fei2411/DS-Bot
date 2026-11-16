@@ -4,6 +4,7 @@ import { WebSocket as WsClient } from 'ws'
 import {
   DeviceRegistry,
   HostLink,
+  MAX_SECURE_MESSAGE_BYTES,
   PROTOCOL_VERSION,
   RelayTransport,
   RpcClient,
@@ -64,7 +65,10 @@ function phone(host: { deviceId: string; publicKey: string }, hello: HandshakeHe
 }
 
 test('a phone pairs with the QR code, calls the computer, and comes back without the code', async () => {
-  const desk = await computer()
+  const desk = await computer(async (method, params) => {
+    const large = params !== null && typeof params === 'object' ? (params as { large?: number }).large : undefined
+    return large === undefined ? { method, params } : { data: 'x'.repeat(large) }
+  })
   const { code } = desk.registry.openPairing()
   const offer = parsePairingUri(pairingUri({ server: server.url, hostDeviceId: desk.self.deviceId, hostKey: desk.self.publicKey, code, name: 'Desk' }))
   const first = phone({ deviceId: offer.hostDeviceId, publicKey: offer.hostKey }, { pairingCode: offer.code, name: 'Phone' })
@@ -73,6 +77,9 @@ test('a phone pairs with the QR code, calls the computer, and comes back without
   assert.deepEqual(await first.client.rpc('bot.call', { endpoint: 'state' }), { method: 'bot.call', params: { endpoint: 'state' } })
   const big = 'z'.repeat(300_000)
   assert.deepEqual(await first.client.rpc('bot.call', { big }), { method: 'bot.call', params: { big } })
+  // A reply too large for one message fails that call alone; the link stays up.
+  await assert.rejects(first.client.rpc('bot.call', { large: MAX_SECURE_MESSAGE_BYTES + 1 }), { code: 'MESSAGE_TOO_LARGE' })
+  assert.deepEqual(await first.client.rpc('bot.call', { endpoint: 'state' }), { method: 'bot.call', params: { endpoint: 'state' } })
   assert.deepEqual(desk.registry.list().map(device => [device.deviceId, device.name]), [[first.self.deviceId, 'Phone']])
   assert.equal(desk.registry.pairingOpen(), false)
   await first.client.close()
@@ -80,7 +87,7 @@ test('a phone pairs with the QR code, calls the computer, and comes back without
   const again = phone(desk.self, {}, first.self, first.token)
   await again.client.connect()
   assert.deepEqual(await again.client.rpc('ping', null), { method: 'ping', params: null })
-  assert.equal(desk.calls(), 3)
+  assert.equal(desk.calls(), 5)
 })
 
 test('an unpaired phone is refused', async () => {

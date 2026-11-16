@@ -19,6 +19,18 @@ export const OCR_TIMEOUT_MS = 120_000
 export const OCR_RETRY_MS = 120_000
 export const OCR_CACHE_MAX = 500
 export const MAX_AVATAR_IMAGE = 160_000
+// A file crosses the phone link as base64 inside one RPC message, so its cap depends
+// on that message's plaintext limit. The headroom holds the JSON envelope and name.
+export const MESSAGE_FILE_HEADROOM_BYTES = 32 * 1024
+// The ceiling for a file on a transport that is not the phone link.
+export const FILE_MAX_BYTES = 25 * 1024 * 1024
+
+/** The largest file one message of `maxMessageBytes` plaintext can carry, base64 included. */
+export function fileMaxFor(maxMessageBytes) {
+  if (maxMessageBytes === undefined) return FILE_MAX_BYTES
+  if (!Number.isSafeInteger(maxMessageBytes) || maxMessageBytes <= MESSAGE_FILE_HEADROOM_BYTES) return 0
+  return Math.min(FILE_MAX_BYTES, Math.floor((maxMessageBytes - MESSAGE_FILE_HEADROOM_BYTES) * 3 / 4))
+}
 export const ROUTE = '/api/bot'
 export const MAX_EXCHANGES = 600
 // state.json is written whole on every save, so a long message between Bots or a long

@@ -10,6 +10,7 @@ import { loadComputer, loadIdentity, onPrefsChange, readPrefs, setActiveComputer
 import { ComputersCtx, type ComputerActions } from './src/nav/computers.ts'
 import { errorText } from './src/team/link.ts'
 import { DEMO, DemoProvider, TeamProvider, useTeam } from './src/team/context.tsx'
+import { loadSeen } from './src/team/seen.ts'
 import { palette, ThemeContext, useTheme } from './src/ui/tokens.ts'
 import { Pair } from './src/screens/Pair.tsx'
 import ShellB from './src/nav/ShellB.tsx'
@@ -97,7 +98,13 @@ function Boot() {
 
   useEffect(() => {
     Promise.all([loadIdentity(), loadComputer()])
-      .then(([nextIdentity, saved]) => { setIdentity(nextIdentity); setComputer(saved ?? null) })
+      // The read marks are per computer and are needed for the first team list,
+      // so they load before the app renders it.
+      .then(async ([nextIdentity, saved]) => {
+        if (saved != null) await loadSeen(saved.hostDeviceId)
+        setIdentity(nextIdentity)
+        setComputer(saved ?? null)
+      })
       .catch(failure => setBootError(errorText(failure)))
   }, [])
 
@@ -111,10 +118,20 @@ function Boot() {
 
   const actions = useMemo<ComputerActions>(() => ({
     add: () => setAdding(true),
-    switchTo: id => void setActiveComputer(id).then(loadComputer).then(next => setComputer(next ?? null)),
-    reload: () => void loadComputer().then(next => setComputer(next ?? null)),
+    switchTo: id => void setActiveComputer(id).then(loadComputer).then(async next => {
+      if (next != null) await loadSeen(next.hostDeviceId)
+      setComputer(next ?? null)
+    }),
+    reload: () => void loadComputer().then(async next => {
+      if (next != null) await loadSeen(next.hostDeviceId)
+      setComputer(next ?? null)
+    }),
   }), [])
-  const paired = useCallback((next: SavedComputer) => { setAdding(false); setOffer(null); setComputer(next) }, [])
+  const paired = useCallback((next: SavedComputer) => {
+    setAdding(false)
+    setOffer(null)
+    void loadSeen(next.hostDeviceId).then(() => setComputer(next))
+  }, [])
 
   if (DEMO && lang !== undefined) {
     return <ComputersCtx.Provider value={actions}><DemoProvider><ThemedShell lang={lang} /></DemoProvider></ComputersCtx.Provider>

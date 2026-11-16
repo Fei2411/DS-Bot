@@ -1,17 +1,21 @@
 import * as SecureStore from 'expo-secure-store'
+import { parseSeen, seenKey } from './seen-core.ts'
 
-const KEY = 'dsbot.seenAt'
 // Last-read time per bot or room id, kept in memory and on the phone. A row is
-// unread when its lastAt is newer than this and its chat is not open.
+// unread when its lastAt is newer than this and its chat is not open. The store
+// belongs to the computer the app is linked to, so it is loaded before the team
+// first renders.
 const seen = new Map<string, number>()
-let loaded = false
+let activeKey = seenKey('')
+let loadedFor: string | null = null
 
-export async function loadSeen(): Promise<void> {
-  if (loaded) return
-  loaded = true
+export async function loadSeen(hostDeviceId: string): Promise<void> {
+  if (loadedFor === hostDeviceId) return
+  loadedFor = hostDeviceId
+  activeKey = seenKey(hostDeviceId)
+  seen.clear()
   try {
-    const text = await SecureStore.getItemAsync(KEY)
-    if (text !== null) for (const [id, at] of Object.entries(JSON.parse(text) as Record<string, number>)) seen.set(id, at)
+    for (const [id, at] of Object.entries(parseSeen(await SecureStore.getItemAsync(activeKey)))) seen.set(id, at)
   } catch { /* start fresh */ }
 }
 
@@ -21,7 +25,7 @@ export function seenAt(id: string): number {
 
 export function markSeen(id: string, at = Date.now()): void {
   seen.set(id, at)
-  void SecureStore.setItemAsync(KEY, JSON.stringify(Object.fromEntries(seen)))
+  void SecureStore.setItemAsync(activeKey, JSON.stringify(Object.fromEntries(seen)))
 }
 
 export function isUnread(id: string, lastAt: number | undefined, open: boolean): boolean {

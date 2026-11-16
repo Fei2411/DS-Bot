@@ -4,8 +4,8 @@ import { t } from '../ui/i18n.ts'
 import { type as typeScale, useTheme, radius } from '../ui/tokens.ts'
 import { Avatar } from '../ui/marks.tsx'
 import type { ChatTarget } from './TeamList.tsx'
+import { pendingSectionsOf, type PendingRow } from '../nav/pending.ts'
 
-interface PendingRow { key: string; botId: string; roomId?: string; summary: string }
 interface Section { title: string; mark: string; data: PendingRow[] }
 
 // Pending things grouped the way the desktop groups them: questions, approvals,
@@ -15,32 +15,15 @@ export function NeedsYou({ onOpen }: { onOpen: (target: ChatTarget) => void }) {
   const { p, dark } = useTheme()
   const bots = team?.bots ?? []
   const rooms = team?.rooms ?? []
-  const botOfSession = (sessionId: string) => bots.find(b => b.sessionId === sessionId || b.id === sessionId)
-
-  const questions = Object.entries(team?.questions ?? {}).flatMap(([sessionId, question]) => {
-    const bot = botOfSession(sessionId)
-    return bot ? [{ key: `q-${question.id}`, botId: bot.id, summary: question.question }] : []
-  })
-  const approvals = (team?.work?.approvals ?? []).map(a => ({
-    key: `a-${a.id}`, botId: a.botId, roomId: a.roomId,
-    summary: [a.tool, a.reason].filter(Boolean).join(' · '),
-  }))
-  const secrets = Object.entries(team?.secretRequests ?? {}).flatMap(([botId, list]) =>
-    (list ?? []).filter(r => r.status === 'pending').map(r => ({ key: `s-${r.id}`, botId, summary: r.name ? t('Asks for the secret {name}', { name: r.name }) : t('A secret is needed') })))
-  const handoffs = Object.entries((team as { browserHolds?: Record<string, { callId?: string; note?: string; reason?: string }> } | null)?.browserHolds ?? {})
-    .filter(([, hold]) => hold.callId !== undefined)
-    .map(([botId, hold]) => ({ key: `h-${hold.callId}`, botId, summary: hold.note ?? hold.reason ?? t('Browser handoff') }))
-  const views = Object.entries(team?.views ?? {}).flatMap(([sessionId, view]) => {
-    const bot = botOfSession(sessionId)
-    return bot ? [{ key: `v-${view?.id ?? sessionId}`, botId: bot.id, summary: view?.title ?? 'View' }] : []
-  })
+  // The badge in the drawer counts the rows this builds, so the two cannot drift.
+  const rows = pendingSectionsOf(team)
 
   const sections: Section[] = [
-    { title: t('Questions'), mark: '?', data: questions },
-    { title: t('Approvals'), mark: '!', data: approvals },
-    { title: t('Secret requests'), mark: '🔑', data: secrets },
-    { title: t('Browser handoffs'), mark: '🌐', data: handoffs },
-    { title: t('Cards'), mark: '▣', data: views },
+    { title: t('Questions'), mark: '?', data: rows.questions },
+    { title: t('Approvals'), mark: '!', data: rows.approvals },
+    { title: t('Secret requests'), mark: '🔑', data: rows.secrets },
+    { title: t('Browser handoffs'), mark: '🌐', data: rows.handoffs },
+    { title: t('Cards'), mark: '▣', data: rows.views },
   ].filter(section => section.data.length > 0)
 
   const look = (row: PendingRow) => {

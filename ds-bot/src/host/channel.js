@@ -5,10 +5,14 @@ import { install as installBtw } from './btw.js'
 import { install as installSide } from './side.js'
 import { handoffReply, questionReply, viewReply } from './parts.js'
 import { validateViewAnswer } from 'deep-view/core'
-import { COLORS, EXTRA_COLORS, ROUTE } from './constants.js'
+import { COLORS, EXTRA_COLORS, ROUTE, fileMaxFor } from './constants.js'
 
 const STAGED_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif'])
 const STAGED_MS = 30 * 60_000
+const FILE_NAME_MAX = 255
+// Canonical base64: one character class (a nested group of millions of matches
+// overflows V8's regexp stack), padded to a multiple of four.
+const BASE64 = /^[A-Za-z0-9+/]*={0,2}$/
 
 const LANGUAGES = {
   zh: 'Chinese (简体中文)',
@@ -52,8 +56,16 @@ export function install(rt) {
     return LANGUAGES[lower] ?? LANGUAGES[lower.split('-')[0]] ?? uiLocale
   }
 
-  // Photos staged by `stage-image`, kept until the message that names them is sent.
+  // Photos and files staged by `stage-image` and `stage-file`, kept until the
+  // message that names them is sent.
   const staged = new Map()
+  const stage = (entry) => {
+    const now = Date.now()
+    for (const [id, held] of staged) if (held.at < now - STAGED_MS) staged.delete(id)
+    const id = randomUUID()
+    staged.set(id, { ...entry, at: now })
+    return id
+  }
   const ok = value => ({ ok: true, value })
   const fail = (message, code = 'bot/error') => ({ ok: false, error: { code, message, details: {} } })
   // Models come from DSH, not state.json, so a provider added on the Models pages of Settings
@@ -228,9 +240,12 @@ export function install(rt) {
     return rt.save()
   }
 
-  const handle = async (endpoint, payload, signal) => {
+  const handle = async (endpoint, payload, signal, context = {}) => {
     try {
       const body = payload ?? {}
+      // A phone's message limit caps the file it can stage or read back; a local
+      // HTTP client has no such limit, so `fileMaxFor(undefined)` is the plain cap.
+      const fileMax = fileMaxFor(context.maxMessageBytes)
       await rt.refresh()
       const readOnly = rt.readOnly()
       if (readOnly !== undefined && !READS.has(endpoint)) return fail(readOnly, 'bot/read-only')
@@ -304,9 +319,13 @@ export function install(rt) {
         case 'earlier':
           await rt.load()
           return ok(await rt.earlierPage(String(body.sessionId ?? ''), body.cursor ?? undefined))
-        case 'chat':
+        case 'chat': {
           await rt.load()
-          return ok(await rt.chatPage(String(body.botId ?? ''), body.cursor ?? undefined, body.steps === true))
+          const page = await rt.chatPage(String(body.botId ?? ''), body.cursor ?? undefined, body.steps === true)
+          // A reply that names a file gets it beside the text, for every client that draws files.
+          await rt.attachFileRefs?.(page.items)
+          return ok(page)
+        }
         // DSH's own whole-log figures for the current part of a Bot's chat, the ones its
         // status bar shows; a window without that bar shows them in the Bot's details.
         case 'run-stats': {
@@ -562,11 +581,12 @@ export function install(rt) {
         case 'avatar':
         case 'room-chat':
         case 'image':
+        case 'file-read':
         case 'usage-summary':
         case 'memory-edit':
         case 'memory-add':
           await rt.load()
-          return ok(await rt.mobileEndpoint(endpoint, body))
+          return ok(await rt.mobileEndpoint(endpoint, body, { maxFileBytes: fileMax }))
         case 'answer-question': {
           if (typeof body.sessionId !== 'string') return fail('Nothing to send', 'bot/invalid')
           await rt.load()
@@ -603,27 +623,51 @@ export function install(rt) {
           const mediaType = String(body.mediaType ?? '')
           const data = typeof body.data === 'string' ? body.data : ''
           if (!STAGED_TYPES.has(mediaType) || data === '' || !/^[A-Za-z0-9+/]+={0,2}$/.test(data)) return fail('This is not a photo DS Bot can send', 'bot/invalid')
-          const now = Date.now()
-          for (const [id, entry] of staged) if (entry.at < now - STAGED_MS) staged.delete(id)
-          const id = randomUUID()
-          staged.set(id, { mediaType, data, at: now })
-          return ok({ id })
+          const padding = data.endsWith('==') ? 2 : data.endsWith('=') ? 1 : 0
+          if (data.length / 4 * 3 - padding > fileMax) return fail('That photo is too large to send', 'bot/too-large')
+          return ok({ id: stage({ kind: 'image', mediaType, data }) })
+        }
+        // Any other file for the next `send`, as base64 of its exact bytes.
+        case 'stage-file': {
+          const name = typeof body.name === 'string' ? body.name.trim() : ''
+          const data = typeof body.data === 'string' ? body.data : ''
+          if (name === '' || name.length > FILE_NAME_MAX || data === '' || data.length % 4 !== 0 || !BASE64.test(data)) return fail('This is not a file DS Bot can send', 'bot/invalid')
+          // Exact decoded size without decoding: three bytes per four characters, less the padding.
+          const padding = data.endsWith('==') ? 2 : data.endsWith('=') ? 1 : 0
+          if (data.length / 4 * 3 - padding > fileMax) return fail('That file is too large to send', 'bot/too-large')
+          const mediaType = typeof body.mediaType === 'string' && body.mediaType !== '' ? body.mediaType : 'application/octet-stream'
+          if (mediaType.length > FILE_NAME_MAX) return fail('This is not a file DS Bot can send', 'bot/invalid')
+          return ok({ id: stage({ kind: 'file', name, mediaType, data }) })
         }
         case 'send': {
           const text = String(body.text ?? '').trim()
           const ids = Array.isArray(body.images) ? body.images.map(String) : []
-          if ((text === '' && ids.length === 0) || typeof body.sessionId !== 'string') return fail('Nothing to send', 'bot/invalid')
+          const fileIds = Array.isArray(body.files) ? body.files.map(String) : []
+          if ((text === '' && ids.length === 0 && fileIds.length === 0) || typeof body.sessionId !== 'string') return fail('Nothing to send', 'bot/invalid')
           const images = ids.map(id => staged.get(id))
-          if (images.some(entry => entry === undefined)) return fail('A photo did not arrive. Send it again.', 'bot/stale')
+          if (images.some(entry => entry?.kind !== 'image')) return fail('A photo did not arrive. Send it again.', 'bot/stale')
+          const files = fileIds.map(id => staged.get(id))
+          if (files.some(entry => entry?.kind !== 'file')) return fail('A file did not arrive. Send it again.', 'bot/stale')
+          const uploads = fileIds.length > 0 ? ctx.get?.('fileUploads') : undefined
+          if (fileIds.length > 0 && typeof uploads?.uploadStream !== 'function') return fail('Files cannot be sent on this host', 'bot/unavailable')
           await rt.load()
-          await rt.sendUser({
-            sessionId: body.sessionId,
-            content: [
-              ...(text === '' ? [] : [{ type: 'text', text }]),
-              ...images.map(({ mediaType, data }) => ({ type: 'image', mediaType, data })),
-            ],
-          })
-          for (const id of ids) staged.delete(id)
+          const content = [
+            ...(text === '' ? [] : [{ type: 'text', text }]),
+            ...images.map(({ mediaType, data }) => ({ type: 'image', mediaType, data })),
+          ]
+          if (files.length > 0) {
+            const sessionId = sessionFor(body.sessionId)
+            for (const file of files) {
+              const { receiptId } = await uploads.uploadStream({
+                sessionId,
+                data: (async function* () { yield Buffer.from(file.data, 'base64') })(),
+                name: file.name,
+              })
+              content.push({ type: 'file', receiptId })
+            }
+          }
+          await rt.sendUser({ sessionId: body.sessionId, content })
+          for (const id of [...ids, ...fileIds]) staged.delete(id)
           return ok(true)
         }
         case 'btw-delete': {
@@ -799,13 +843,17 @@ export function install(rt) {
   // How a user message reaches a Session: a Bot id, a group chat's id, or an earlier
   // part of either resolves to its current part. `content` is the prompt blocks DSH
   // takes (text, image, file receipts); `requestId` lands on the message's source.
-  async function sendUser({ sessionId: ref, content, requestId = randomUUID() }) {
+  function sessionFor(ref) {
     const past = rt.pastOwners.get(ref)
     const room = rt.roomOf(ref)
-    const sessionId = rt.botOf(ref) ? rt.chatOf(ref)
+    return rt.botOf(ref) ? rt.chatOf(ref)
       : room !== undefined ? rt.sessionOfRoom(room)
         : past?.roomId === undefined && past !== undefined ? rt.chatOf(past.botId)
           : past !== undefined ? rt.sessionOfRoom(rt.roomOf(past.roomId)) : ref
+  }
+
+  async function sendUser({ sessionId: ref, content, requestId = randomUUID() }) {
+    const sessionId = sessionFor(ref)
     await rt.ensureCapabilities(sessionId)
     await ctx.sessionController.prompt({
       requestId,

@@ -1,4 +1,5 @@
 import {
+  MAX_SECURE_MESSAGE_BYTES,
   PROTOCOL_VERSION,
   SecureMessageCodec,
   acceptNegotiatedCapabilities,
@@ -381,7 +382,19 @@ export class HostLink {
       if (controller.signal.aborted) return
     }
     if (this.tunnels.get(tunnel.connectionId) !== tunnel) return
-    await this.sendSecure(tunnel, encodeMessage(reply)).catch(() => this.dropTunnel(tunnel, 'SEND_FAILED'))
+    await this.sendSecure(tunnel, this.fitReply(reply, requestId)).catch(() => this.dropTunnel(tunnel, 'SEND_FAILED'))
+  }
+
+  // A reply that cannot cross the link fails its own call instead of closing the
+  // tunnel, which would take every other chat on this phone with it.
+  private fitReply(reply: RemoteMessage, requestId: string): Uint8Array {
+    const encoded = encodeMessage(reply)
+    if (encoded.byteLength <= MAX_SECURE_MESSAGE_BYTES) return encoded
+    return encodeMessage(createMessage('rpc.error', {
+      requestId,
+      code: 'MESSAGE_TOO_LARGE',
+      message: 'The answer is too large for the phone link.',
+    }))
   }
 
   /** Noise counters are not re-entrant, so each tunnel sends one message at a time. */

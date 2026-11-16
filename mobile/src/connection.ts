@@ -90,12 +90,12 @@ export interface TeamState {
   questions?: Record<string, Question>
   views?: Record<string, ShownView>
   secretRequests?: Record<string, SecretRequest[]>
-  connectors?: { id: string; name: string; state?: string; account?: string; error?: string }[]
+  connectors?: { connectors?: { id: string; name: string; state?: string; account?: string; error?: string }[]; mail?: unknown }
   capabilities?: { name: string; description?: string; kind?: string; transport?: string; command?: string; url?: string; content?: string; items?: string[]; status?: string }[]
   browserHolds?: Record<string, { by?: string; reason?: string; note?: string; callId?: string }>
   btwCards?: Record<string, { id: string; partId?: string; question?: string; answer?: string; failure?: string; status?: string }[]>
   sideChats?: Record<string, { chatId: string; entries?: { id: string; question?: string; answer?: string; status?: string; failure?: string }[] }[]>
-  capabilityStatuses?: Record<string, Record<string, { state?: string; error?: string }> | { state?: string; error?: string }>
+  capabilityStatuses?: Record<string, Record<string, { state?: string; error?: string }>>
   workspace?: string
   dataPath?: string
   version?: string

@@ -5,7 +5,11 @@
 // profile photos by reference, direct memory edits, and usage totals for one Bot.
 import { createHash, randomUUID } from 'node:crypto'
 import { readFileSync } from 'node:fs'
-import { HANDOFF_ACK, HISTORY_TIMEOUT_MS, SOURCE_KIND } from './constants.js'
+import { readFile, realpath, stat } from 'node:fs/promises'
+import { basename, extname, isAbsolute, resolve } from 'node:path'
+import { FILE_MAX_BYTES, HANDOFF_ACK, HISTORY_TIMEOUT_MS, SOURCE_KIND } from './constants.js'
+import { fileCandidates } from './file-refs.js'
+import { within } from './folders.js'
 import { PREVIEW_EDGE, previewImage } from './preview.js'
 import { relayRange } from '../shared/group-replies.js'
 import { textOf } from './text.js'
@@ -26,6 +30,7 @@ export const CAPABILITIES = [
   'room-chat',
   'send',
   'send-images',
+  'send-files',
   'feed',
   'feed-room',
   'notices',
@@ -43,6 +48,7 @@ export const CAPABILITIES = [
   'images',
   'image-preview',
   'write-state',
+  'files',
 ]
 export const NOTICE_KINDS = ['message', 'group', 'done', 'question', 'view', 'approval']
 
@@ -111,7 +117,14 @@ export function roomItems(events, rowsOf = () => []) {
       if (source?.kind === 'user') {
         const imageBlocks = content.filter(block => block?.type === 'image' && block.attachment !== undefined)
         const imageRefs = imageBlocks.map(block => ({ attachmentId: block.attachment.attachmentId, mime: mediaOf(block.attachment), name: block.attachment.name }))
-        items.push({ id: `${seq}`, kind: 'user', text: textOf(content), ...(imageBlocks.length > 0 ? { images: imageBlocks.length, imageRefs } : {}), time: event.time ?? null })
+        const fileBlocks = content.filter(block => block?.type === 'file' && block.attachment !== undefined)
+        const files = fileBlocks.map(block => ({ attachmentId: block.attachment.attachmentId, name: block.attachment.name, bytes: block.attachment.bytes }))
+        items.push({
+          id: `${seq}`, kind: 'user', text: textOf(content),
+          ...(imageBlocks.length > 0 ? { images: imageBlocks.length, imageRefs } : {}),
+          ...(files.length > 0 ? { files } : {}),
+          time: event.time ?? null,
+        })
       } else if (source?.kind === 'schedule') {
         items.push({ id: `${seq}`, kind: 'event', event: 'schedule', text: reminderText(textOf(content)), time: event.time ?? null })
       } else if (source?.kind === SOURCE_KIND && source.role === 'post') {
@@ -236,7 +249,7 @@ export function install(rt) {
   rt.apiVersion = API_VERSION
   rt.noticeCursor = () => ({ boot, seq })
 
-  function hello(body) {
+  function hello(body, options = {}) {
     const offered = Array.isArray(body.api) ? body.api.filter(Number.isInteger) : [API_VERSION]
     const common = offered.filter(version => version >= API_MIN && version <= API_VERSION)
     return {
@@ -251,6 +264,9 @@ export function install(rt) {
       readOnly: rt.readOnly() ?? null,
       memory: rt.memoryEnabled !== false,
       feed: 'api/bot/feed',
+      // A file is staged and read back inside one message, so the phone learns the
+      // largest file this transport carries before it picks or requests one.
+      maxFileBytes: options.maxFileBytes ?? FILE_MAX_BYTES,
     }
   }
 
@@ -296,6 +312,7 @@ export function install(rt) {
     const events = page.records.map(record => record.event)
     const { items, open } = roomItems(events, range => rt.groupRows?.(room.id, range.from, range.to, range.anchor) ?? [])
     if (body.steps === true) await rt.applySteps?.(items, events, part.sessionId)
+    await attachFileRefs(items)
     const running = [...rt.roomProgress.entries()].filter(([, round]) => round.roomId === room.id)
     // The newest page shows what the running round has said so far, where its call sits.
     if (cursor === undefined) {
@@ -398,13 +415,122 @@ export function install(rt) {
     throw Object.assign(new Error('Unknown attachment'), { code: 'bot/not-found' })
   }
 
-  async function mobileEndpoint(endpoint, body) {
+  // A Bot writes a file where it works, then names it in its reply. The phone can
+  // only reach files in a folder the team may use, so those are the only ones a
+  // reply may point at and the only ones `file-read` sends.
+  const ROOTS_KEPT_MS = 30_000
+  const FILE_MIME = {
+    pdf: 'application/pdf', doc: 'application/msword',
+    docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    xls: 'application/vnd.ms-excel',
+    xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    ppt: 'application/vnd.ms-powerpoint',
+    pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    zip: 'application/zip', txt: 'text/plain', md: 'text/markdown', csv: 'text/csv',
+    json: 'application/json', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg',
+    gif: 'image/gif', webp: 'image/webp', svg: 'image/svg+xml', mp4: 'video/mp4',
+    mp3: 'audio/mpeg', epub: 'application/epub+zip',
+  }
+  const mimeOfName = name => FILE_MIME[extname(name).slice(1).toLowerCase()] ?? 'application/octet-stream'
+
+  let rootsAt = 0
+  let rootsKept = []
+  async function fileRoots() {
+    if (Date.now() - rootsAt < ROOTS_KEPT_MS) return rootsKept
+    const paths = new Set()
+    const add = value => { if (typeof value === 'string' && value !== '') paths.add(value) }
+    // A host without the workspace service (a window that only reads the team) has no
+    // workspace to name; the default folder still applies.
+    if (ctx.workspaceRegistry !== undefined) add(rt.teamFolder?.())
+    add(rt.defaultTeamFolder?.())
+    for (const bot of Object.values(state.bots ?? {})) {
+      add(bot.workDir)
+      // A Bot that moved its Session to a folder with working_directory wrote the
+      // file there, not in its own folder.
+      const agent = await rt.resolveAgent(rt.chatOf(bot.id)).catch(() => undefined)
+      add(agent?.session?.header?.cwd)
+    }
+    for (const room of Object.values(state.rooms ?? {})) {
+      add(room.workDir)
+      const session = rt.sessionOfRoom?.(room)
+      if (typeof session === 'string') {
+        const agent = await rt.resolveAgent(session).catch(() => undefined)
+        add(agent?.session?.header?.cwd)
+      }
+    }
+    const roots = []
+    for (const path of paths) {
+      const real = await realpath(path).catch(() => undefined)
+      if (real !== undefined) roots.push(real)
+    }
+    rootsAt = Date.now()
+    rootsKept = roots
+    return roots
+  }
+
+  async function resolveFile(value, roots) {
+    const attempts = isAbsolute(value) ? [value] : roots.map(root => resolve(root, value))
+    for (const attempt of attempts) {
+      const real = await realpath(attempt).catch(() => undefined)
+      if (real === undefined || !roots.some(root => within(real, root))) continue
+      const info = await stat(real).catch(() => undefined)
+      if (info === undefined || !info.isFile()) continue
+      return { name: basename(real), path: real, bytes: info.size, mime: mimeOfName(real) }
+    }
+    return undefined
+  }
+
+  // Bot replies that name a file get it beside the text: a local file the phone can
+  // ask for, or a web link it can fetch itself. The text stays as the Bot wrote it.
+  // A post is a Bot's message too, whether it was logged as `bot` or `post`.
+  async function attachFileRefs(items) {
+    if (!Array.isArray(items) || items.length === 0) return items
+    const roots = await fileRoots()
+    for (const item of items) {
+      if (item?.kind !== 'bot' && item?.kind !== 'post') continue
+      if (typeof item.text !== 'string') continue
+      if (Array.isArray(item.files) && item.files.length > 0) continue
+      const found = []
+      const seen = new Set()
+      for (const candidate of fileCandidates(item.text)) {
+        if (candidate.kind === 'url') {
+          if (seen.has(candidate.value)) continue
+          seen.add(candidate.value)
+          found.push({ name: candidate.name, url: candidate.value })
+          continue
+        }
+        const file = await resolveFile(candidate.value, roots)
+        if (file === undefined || seen.has(file.path)) continue
+        seen.add(file.path)
+        found.push(file)
+      }
+      if (found.length > 0) item.files = found
+    }
+    return items
+  }
+
+  async function fileRead(body, options = {}) {
+    const named = typeof body?.path === 'string' ? body.path : ''
+    if (named === '') throw Object.assign(new Error('No file named'), { code: 'bot/invalid' })
+    const roots = await fileRoots()
+    const real = await realpath(named).catch(() => undefined)
+    if (real === undefined || !roots.some(root => within(real, root))) {
+      throw Object.assign(new Error('That file is not in the team workspace'), { code: 'bot/not-found' })
+    }
+    const info = await stat(real).catch(() => undefined)
+    if (info === undefined || !info.isFile()) throw Object.assign(new Error('That file is gone'), { code: 'bot/not-found' })
+    if (info.size > (options.maxFileBytes ?? FILE_MAX_BYTES)) throw Object.assign(new Error('That file is too large for the phone'), { code: 'bot/too-large' })
+    return { name: basename(real), mime: mimeOfName(real), size: info.size, data: (await readFile(real)).toString('base64') }
+  }
+
+  async function mobileEndpoint(endpoint, body, options = {}) {
     switch (endpoint) {
-      case 'hello': return hello(body)
+      case 'hello': return hello(body, options)
       case 'notices': return notices(body)
       case 'avatar': return avatar(body)
       case 'room-chat': return roomChat(body)
       case 'image': return image(body)
+      case 'file-read': return fileRead(body, options)
       case 'usage-summary': return usageSummary(body)
       case 'memory-edit': return rt.memoryEdit({ ...memoryTarget(body), scope: body.scope, topic: body.topic, text: body.text, next: body.next })
       case 'memory-add': return rt.memoryAdd({ ...memoryTarget(body), scope: body.scope, topic: body.topic, text: body.text })
@@ -412,5 +538,5 @@ export function install(rt) {
     }
   }
 
-  Object.assign(rt, { addNotice, mobileEndpoint })
+  Object.assign(rt, { addNotice, attachFileRefs, mobileEndpoint })
 }
