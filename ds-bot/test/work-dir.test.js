@@ -234,6 +234,26 @@ test('an idle Bot\'s own chat moves to its new folder at once, and back', async 
   assert.match(handoffOf(agentOf('s2')), new RegExp(`because your working folder changed to ${escapeRegExp(team)}\\.`))
 })
 
+// #1501: a Bot's own chat may keep a part live in the background. Changing its folder
+// moves every part: a background part left behind would keep working in the old one.
+test('a background part moves to the new folder with the rest of the chat', async (t) => {
+  const saved = { ...TEAM, bots: { ...TEAM.bots, b: { ...TEAM.bots.b, openParts: [{ sessionId: 'b-bg', segments: [] }] } } }
+  const { call, created, agentOf, project, state, stop } = await start({ team: saved })
+  t.after(stop)
+  assert.equal((await call('update-bot', { id: 'b', workDir: project })).ok, true)
+  // Both threads move on to a fresh part made in the new folder.
+  await until(() => state().bots.b.sessionId.startsWith('s') && state().bots.b.openParts[0].sessionId.startsWith('s'))
+  await settle()
+  assert.deepEqual(created.map(options => options.cwd), [project, project])
+  const writer = state().bots.b
+  assert.deepEqual([writer.sessionId, writer.openParts[0].sessionId].sort(), ['s1', 's2'])
+  // Each thread keeps its own chain: the old foreground part and the old background one.
+  assert.deepEqual(writer.segments.map(segment => segment.sessionId), ['b'])
+  assert.deepEqual(writer.openParts[0].segments.map(segment => segment.sessionId), ['b-bg'])
+  assert.equal(agentOf(writer.sessionId).session.header.cwd, project)
+  assert.equal(agentOf(writer.openParts[0].sessionId).session.header.cwd, project)
+})
+
 test('a running Bot moves at its next step and carries that step\'s input along', async (t) => {
   const { requests, services } = approvalServices('allowed-once')
   const { tool, preStep, agentOf, created, project, state, stop } = await start({ services })
@@ -1251,15 +1271,17 @@ test('a group\'s earlier parts page like a Bot\'s own chat', async (t) => {
     source: { kind: SOURCE_KIND, form: 'relay', role: 'post', senderName: 'Writer', senderSessionId: 'b', roomId: 'r1' },
     content: [{ type: 'text', text: '[Group post from Writer]\nDone.' }],
   }), { surfaceOp: 'append' })
-  const relay = record('tool/call', { turn: 1, step: 1, callId: 'toolu_relay_1', name: 'group_relay', arguments: '{}' })
-  record('tool/result', {
-    turn: 1, step: 1,
-    message: createToolResultMessage({
-      callId: 'toolu_relay_1',
-      isError: false,
-      content: [{ type: 'text', text: JSON.stringify({ replies: [{ botId: 'b', name: 'Writer', color: 'blue', text: '在 docs/ 下面', time: 1000 }, { kind: 'missed', botId: 'a', name: 'Chief', color: 'gray', time: 2000 }] }) }],
-    }),
-  }, { surfaceOp: 'append', sourceEventSeqs: [relay.seq] })
+  for (const [step, callId, arguments_] of [[1, 'toolu_relay_1', '{}'], [3, 'toolu_relay_2', '{"roundId":"1-round-2"}']]) {
+    const relay = record('tool/call', { turn: 1, step, callId, name: 'group_relay', arguments: arguments_ })
+    record('tool/result', {
+      turn: 1, step,
+      message: createToolResultMessage({
+        callId,
+        isError: false,
+        content: [{ type: 'text', text: JSON.stringify({ replies: [{ botId: 'b', name: 'Writer', color: 'blue', text: '在 docs/ 下面', time: 1000 }, { kind: 'missed', botId: 'a', name: 'Chief', color: 'gray', time: 2000 }] }) }],
+      }),
+    }, { surfaceOp: 'append', sourceEventSeqs: [relay.seq] })
+  }
   // A result whose call named another tool is not the group's conversation.
   const other = record('tool/call', { turn: 1, step: 2, callId: 'toolu_2', name: 'remember', arguments: '{}' })
   record('tool/result', {
@@ -1276,6 +1298,8 @@ test('a group\'s earlier parts page like a Bot\'s own chat', async (t) => {
   assert.deepEqual(page.items.map(item => [item.kind, item.name ?? item.reply?.kind ?? null, item.text ?? item.texts?.[0] ?? null]), [
     ['user', null, '@Writer 文档在哪'],
     ['post', 'Writer', 'Done.'],
+    ['post', 'Writer', '在 docs/ 下面'],
+    ['relay', 'missed', null],
     ['post', 'Writer', '在 docs/ 下面'],
     ['relay', 'missed', null],
   ])

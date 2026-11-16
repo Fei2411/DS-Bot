@@ -30,6 +30,7 @@ runInNewContext(bundle.outputFiles[0].text, {
         useContext: ctx => ctx.value, Fragment: 'fragment',
       },
       'react-dom': { createPortal: node => node },
+      // The text projection of a DSH before 0.2.1-alpha.3; user-message.test.js covers later ones.
       '@deepseek-ai/dsh-client-ui-primitives': { MarkdownText: () => null, projectUserText: text => text },
     }
     if (!(name in platform)) throw new Error('no platform module ' + name)

@@ -62,7 +62,7 @@ export function ExchangeDialog({ pair, paneLeft, roster, actions }) {
               const showDay = entry.time - lastDay > 30 * 60 * 1000
               lastDay = entry.time
               // A long message comes with its start only; the rest is read on request.
-              const whole = entry.length === undefined ? undefined : { length: entry.length, load: () => actions.exchangeText(entry.id) }
+              const whole = entry.length === undefined ? undefined : { length: entry.length, load: () => actions.exchangeText(entry.id, entry.from, entry.to) }
               const lead = h('span', { className: 'bt-lead' }, h(BotMark, { bot: bot, size: 22 }))
               return h(Fragment, { key: entry.id },
                 showDay ? h('time', { className: 'bt-time' }, dayLabel(entry.time)) : null,

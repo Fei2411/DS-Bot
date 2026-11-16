@@ -32,6 +32,17 @@ export function install(rt) {
     if (entry === undefined) state.set(id, entry = { phase: 'boundary', jobsByCall: new Map(), jobWaiters: new Map(), steerWaiters: new Set(), killedJobs: new Set(), cutting: false })
     return entry
   }
+  // Background jobs still running for a Session. A reply that announces work while
+  // this is empty and no subagent runs is marked in the group view (#977).
+  rt.runningJobs = (sessionId) => {
+    if (jobs === undefined || sessionId === undefined) return []
+    try {
+      return jobs.list(sessionId).filter(job => job.status === 'running' || job.status === 'stopping')
+    } catch {
+      return undefined
+    }
+  }
+
   const isUserSteer = (event) => event?.data?.target === 'next-step'
     && (event.data.inserted ?? []).some(message => message?.source?.kind === 'user')
   const wake = (set, value) => { const waiters = [...set]; set.clear(); for (const fn of waiters) fn(value) }

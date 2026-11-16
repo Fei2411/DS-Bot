@@ -1,5 +1,5 @@
 // Feishu / Lark: the long connection speaks protobuf pbbp2 frames — control
-// pings answered with pong, data frames ACKed by sending the frame back with a
+// pings sent at the server's interval, data frames ACKed by sending the frame back with a
 // {"code":200} payload and a biz_rt header; split payloads reassemble by
 // sum/seq. p2p messages are direct; a group message counts when the bot's
 // open_id is in its mentions. Sends go through the OpenAPI with a tenant
@@ -10,6 +10,11 @@ import { chunkMarkdown } from '../format.js'
 import { retryDelay, retryWait } from './retry.js'
 
 const TEXT_LIMIT = 4000
+const SOCKET_TIMEOUT = 30_000
+const pingInterval = seconds => {
+  const ms = Number(seconds) * 1000
+  return Number.isFinite(ms) && ms >= 1000 && ms <= 2_147_483_647 ? ms : undefined
+}
 
 const apiBase = (env, fields) => String(env.config?.api ?? (fields.domain === 'lark' ? 'https://open.larksuite.com' : 'https://open.feishu.cn')).replace(/\/+$/, '')
 
@@ -136,20 +141,31 @@ export default {
     let socket
     let generation = 0
     let reconnectTimer
+    let connectTimer
+    let pingTimer
+    let heartbeatTimer
     let token
     let tokenExpiresAt = 0
+    let refreshing
     let botOpenId = ''
     // Split data frames reassemble by (sum, seq) until all parts arrive.
     const parts = new Map()
 
-    const rest = async (path, { method = 'POST', body } = {}) => {
+    // Inbound downloads share the expiry check: a socket that only receives
+    // still needs a live token. Callers wait on the one in-flight refresh —
+    // two images arriving together must not race two tokens.
+    const freshToken = async () => {
       if (token === undefined || Date.now() > tokenExpiresAt - 30_000) {
-        const got = await tenantToken({ appId, appSecret }, env)
-        token = got.token
-        tokenExpiresAt = got.expiresAt
+        refreshing ??= tenantToken({ appId, appSecret }, env)
+          .then(got => { token = got.token; tokenExpiresAt = got.expiresAt })
+          .finally(() => { refreshing = undefined })
+        await refreshing
       }
-      return api(env, apiBase(env, fields), token, path, { method, body })
+      return token
     }
+
+    const rest = async (path, { method = 'POST', body } = {}) =>
+      api(env, apiBase(env, fields), await freshToken(), path, { method, body })
 
     const sendFrame = (buffer) => { if (socket?.readyState === 1) socket.send(buffer) }
     const pong = (frame) => sendFrame(encodeFrame({ ...frame, headers: frame.headers.map(h => h.key === 'type' ? { key: 'type', value: 'pong' } : h), payload: Buffer.from('pong') }))
@@ -171,8 +187,13 @@ export default {
         const text = String(content.text ?? '').replace(/@_user_\d+/g, '').trim()
         const images = []
         if (message.message_type === 'image' && content.image_key !== undefined) {
-          const bytes = await resource(env, apiBase(env, fields), token, message.message_id, content.image_key, 'image').catch(() => undefined)
-          if (bytes !== undefined) images.push({ mediaType: 'image/png', data: Buffer.from(bytes).toString('base64') })
+          const bytes = await freshToken()
+            .then(bearer => resource(env, apiBase(env, fields), bearer, message.message_id, content.image_key, 'image'))
+            .catch(() => undefined)
+          if (bytes !== undefined) {
+            const buffer = Buffer.from(bytes)
+            images.push({ mediaType: imageMediaType(buffer), data: buffer.toString('base64') })
+          } else env.log?.warn?.('ds-bot im: feishu image download failed for %s', String(message.message_id ?? ''))
         }
         const sender = event.sender?.sender_id?.open_id ?? event.sender?.user_id ?? ''
         await handlers.onMessage({
@@ -195,19 +216,35 @@ export default {
       }
     }
 
+    const clearSocketTimers = () => {
+      clearTimeout(connectTimer)
+      clearTimeout(pingTimer)
+      clearTimeout(heartbeatTimer)
+      connectTimer = pingTimer = heartbeatTimer = undefined
+    }
     let openFailures = 0
+    const retry = (gen, error) => {
+      if (stopped || generation !== gen) return
+      generation += 1
+      clearSocketTimers()
+      const previous = socket
+      socket = undefined
+      try { previous?.close(4001, 'reconnect') } catch { /* already gone */ }
+      handlers.onStatus({ state: 'retrying', error })
+      clearTimeout(reconnectTimer)
+      reconnectTimer = setTimeout(() => { if (!stopped) void open() }, retryDelay(openFailures))
+      reconnectTimer.unref?.()
+      openFailures += 1
+    }
     const open = async () => {
-      const gen = generation
+      if (stopped) return
+      const gen = ++generation
       let url
+      let pingEvery = 90_000
       try {
-        if (token === undefined || Date.now() > tokenExpiresAt - 30_000) {
-          const got = await tenantToken({ appId, appSecret }, env)
-          token = got.token
-          tokenExpiresAt = got.expiresAt
-        }
         const answer = await env.fetch(`${apiBase(env, fields)}/callback/ws/endpoint`, {
           method: 'POST',
-          headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+          headers: { 'content-type': 'application/json', authorization: `Bearer ${await freshToken()}` },
           body: JSON.stringify({ AppID: appId, AppSecret: appSecret }),
         })
         const body = await answer.json().catch(() => ({}))
@@ -215,11 +252,12 @@ export default {
         if (url === undefined || (body.code !== undefined && body.code !== 0)) {
           const reason = body.msg ?? `Feishu answered ${answer.status}`
           const error = new Error(body.code === undefined ? reason : `${reason} (code ${body.code})`)
+          error.status = answer.status
           // A 200 that carries no WebSocket URL is the platform refusing the app.
           error.permanent = answer.ok || (answer.status >= 400 && answer.status < 500 && answer.status !== 429)
           throw error
         }
-        openFailures = 0
+        pingEvery = pingInterval(body.data?.ClientConfig?.PingInterval) ?? pingEvery
       } catch (error) {
         if (stopped || generation !== gen) return
         if (error?.permanent === true) {
@@ -228,32 +266,58 @@ export default {
         }
         // The handshake is retried, also when this is the first one: a connection
         // started before the network is up is not over (#1119).
-        handlers.onStatus({ state: 'retrying', error: error.message })
-        clearTimeout(reconnectTimer)
-        reconnectTimer = setTimeout(() => { if (!stopped) void open() }, retryDelay(openFailures))
-        reconnectTimer.unref?.()
-        openFailures += 1
+        retry(gen, error.message)
         return
       }
+      if (stopped || generation !== gen) return
+      let next
+      let service
       try {
-        socket = new env.WebSocket(url)
-        socket.binaryType = 'arraybuffer'
+        const id = Number(new URL(url).searchParams.get('service_id') ?? 0)
+        service = Number.isSafeInteger(id) && id >= 0 ? id : 0
+        next = new env.WebSocket(url)
+        next.binaryType = 'arraybuffer'
+        socket = next
       } catch (error) {
-        if (stopped || generation !== gen) return
-        handlers.onStatus({ state: 'retrying', error: `Feishu could not open a socket: ${error?.message ?? error}` })
-        clearTimeout(reconnectTimer)
-        reconnectTimer = setTimeout(() => { if (!stopped) void open() }, retryDelay(openFailures))
-        reconnectTimer.unref?.()
-        openFailures += 1
+        retry(gen, `Feishu could not open a socket: ${error?.message ?? error}`)
         return
       }
-      socket.addEventListener('message', (event) => {
-        if (stopped || generation !== gen) return
+      const current = () => !stopped && generation === gen && socket === next
+      const schedulePing = () => {
+        clearTimeout(pingTimer)
+        pingTimer = setTimeout(ping, pingEvery)
+        pingTimer.unref?.()
+      }
+      const ping = () => {
+        if (!current() || next.readyState !== 1) return
+        if (heartbeatTimer === undefined) {
+          heartbeatTimer = setTimeout(() => retry(gen, 'Feishu heartbeat timed out'), SOCKET_TIMEOUT)
+          heartbeatTimer.unref?.()
+        }
+        try {
+          next.send(encodeFrame({ SeqID: 0, LogID: 0, service, method: 0, headers: [{ key: 'type', value: 'ping' }] }))
+        } catch {
+          retry(gen, 'Feishu could not send a heartbeat')
+          return
+        }
+        schedulePing()
+      }
+      next.addEventListener('message', (event) => {
+        if (!current()) return
+        // Any inbound frame answers the liveness probe. The next scheduled
+        // ping arms it again; healthy idle time must not start a short timeout.
+        clearTimeout(heartbeatTimer)
+        heartbeatTimer = undefined
         let frame
         try { frame = decodeFrame(Buffer.from(event.data)) } catch { return }
         const type = frame.headers.find(h => h.key === 'type')?.value
         if (frame.method === 0 && type === 'ping') { pong(frame); return }
-        if (frame.method === 1 && type === 'reconnect') { socket.close(4000, 'Reconnect requested'); return }
+        if (frame.method === 0 && type === 'pong') {
+          const interval = pingInterval(safeJson(frame.payload?.toString('utf8'))?.PingInterval)
+          if (interval !== undefined) { pingEvery = interval; schedulePing() }
+          return
+        }
+        if (frame.method === 1 && type === 'reconnect') { retry(gen, 'Feishu requested a reconnect'); return }
         if (frame.method !== 1 || (type !== 'event' && type !== 'card')) return
         const messageId = frame.headers.find(h => h.key === 'message_id')?.value ?? ''
         const sum = Number(frame.headers.find(h => h.key === 'sum')?.value ?? 1)
@@ -269,14 +333,17 @@ export default {
         }
         void dispatch(type, frame.payload).catch(error => env.log?.warn?.('ds-bot im: feishu event failed: %s', error?.message ?? error))
       })
-      socket.addEventListener('open', () => { openFailures = 0; handlers.onStatus({ state: 'ready' }) })
-      socket.addEventListener('close', () => {
-        if (stopped || generation !== gen) return
-        handlers.onStatus({ state: 'connecting' })
-        reconnectTimer = setTimeout(() => { if (!stopped) void open() }, 2000)
-        reconnectTimer.unref?.()
+      next.addEventListener('open', () => {
+        if (!current()) return
+        clearTimeout(connectTimer)
+        openFailures = 0
+        handlers.onStatus({ state: 'ready' })
+        ping()
       })
-      socket.addEventListener('error', () => {})
+      next.addEventListener('close', () => retry(gen, 'Feishu socket closed'))
+      next.addEventListener('error', () => retry(gen, 'Feishu socket error'))
+      connectTimer = setTimeout(() => retry(gen, 'Feishu socket opening timed out'), SOCKET_TIMEOUT)
+      connectTimer.unref?.()
     }
 
     handlers.onStatus({ state: 'connecting' })
@@ -351,7 +418,11 @@ export default {
         stopped = true
         generation += 1
         clearTimeout(reconnectTimer)
-        try { socket?.close(1000, 'stop') } catch { /* not open */ }
+        clearSocketTimers()
+        parts.clear()
+        const previous = socket
+        socket = undefined
+        try { previous?.close(1000, 'stop') } catch { /* not open */ }
       },
     }
   },
@@ -359,6 +430,15 @@ export default {
 
 const safeJson = (text) => { try { return JSON.parse(text ?? '{}') } catch { return {} } }
 const toMarkdown = text => String(text ?? '')
+
+function imageMediaType(bytes) {
+  if (bytes.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return 'image/png'
+  if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return 'image/jpeg'
+  const header = bytes.toString('latin1', 0, 6)
+  if (header === 'GIF87a' || header === 'GIF89a') return 'image/gif'
+  if (bytes.toString('latin1', 0, 4) === 'RIFF' && bytes.toString('latin1', 8, 12) === 'WEBP') return 'image/webp'
+  throw new Error('Feishu returned an unsupported image format')
+}
 
 async function tenantToken(fields, env) {
   const response = await env.fetch(`${apiBase(env, fields)}/open-apis/auth/v3/tenant_access_token/internal`, {
@@ -369,6 +449,7 @@ async function tenantToken(fields, env) {
   const body = await response.json().catch(() => ({}))
   if (body.tenant_access_token === undefined) {
     const error = new Error(body.msg ?? 'Feishu refused these credentials')
+    error.status = response.status
     // A 5xx or a 429 is the service, not the credentials: retry those.
     error.permanent = !(response.status >= 500 || response.status === 429)
     throw error
@@ -385,6 +466,7 @@ async function api(env, base, token, path, { method = 'GET', body } = {}) {
   const json = await response.json().catch(() => ({}))
   if (!response.ok || (json.code !== undefined && json.code !== 0)) {
     const error = new Error(String(json.msg ?? `Feishu answered ${response.status}`))
+    error.status = response.status
     error.permanent = response.status >= 400 && response.status < 500 && response.status !== 429
     throw error
   }

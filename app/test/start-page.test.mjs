@@ -252,10 +252,16 @@ const layerOf = key => key.split('.')[0]
 // {name} and {name|one|many} (an English count) both name one placeholder.
 const PLACEHOLDER = /\{(\w+)(?:\|[^}]*)?\}/gu
 
-test('zh and en carry the same keys and the same placeholders', () => {
+test('all locales carry the same keys and the same placeholders', () => {
   const placeholders = text => [...text.matchAll(PLACEHOLDER)].map(match => match[1]).sort().join()
-  assert.deepEqual(Object.keys(TEXT.en).sort(), Object.keys(TEXT.zh).sort())
-  for (const [key, zh] of Object.entries(TEXT.zh)) assert.equal(placeholders(TEXT.en[key]), placeholders(zh), `${key}: placeholders differ`)
+  const zhKeys = Object.keys(TEXT.zh).sort()
+  for (const [lang, table] of Object.entries(TEXT)) {
+    if (lang === 'zh') continue
+    assert.deepEqual(Object.keys(table).sort(), zhKeys, `${lang}: keys differ`)
+    for (const [key, zh] of Object.entries(TEXT.zh)) {
+      assert.equal(placeholders(table[key]), placeholders(zh), `${lang}.${key}: placeholders differ`)
+    }
+  }
 })
 
 test('every text key starts with one of the eleven layers', () => {
@@ -382,9 +388,15 @@ test('the main process uses only keys of the table and keeps no table of its own
 
 test('t fills placeholders and falls back to zh, then to the key', () => {
   assert.equal(t('zh', 'hint.space', { drive: 'C', free: '1.2 GB' }), 'C 盘只剩 1.2 GB')
+  assert.equal(t('zh-TW', 'hint.space', { drive: 'C', free: '1.2 GB' }), 'C 槽只剩 1.2 GB')
   assert.equal(t('en', 'hint.space', { drive: 'C', free: '1.2 GB' }), 'Only 1.2 GB left on drive C')
+  assert.equal(t('ja', 'btn.retry'), '再試行')
+  assert.equal(t('ko', 'btn.retry'), '다시 시도')
+  assert.equal(t('es', 'btn.retry'), 'Reintentar')
+  assert.equal(t('fr', 'btn.retry'), 'Réessayer')
+  assert.equal(t('de', 'btn.retry'), 'Erneut versuchen')
   assert.equal(t('en', 'btn.useRec', { rec: 'D' }), 'Put it on drive D')
-  assert.equal(t('fr', 'btn.retry'), '重试')
+  assert.equal(t('nl', 'btn.retry'), '重试')
   assert.equal(t('en', 'hint.space', { drive: 'C' }), 'Only {free} left on drive C')
   assert.equal(t('zh', 'no.such.key'), 'no.such.key')
 })
@@ -396,11 +408,19 @@ test('t picks the English singular or plural by the value', () => {
   assert.equal(t('en', 'card.import.line', { bots: 1 }), 'Found your old team: 1 Bot, {groups|group chat|group chats}')
 })
 
-test('langOf gives zh for every Chinese locale and en otherwise', () => {
+test('langOf resolves supported locales and falls back to en', () => {
   assert.equal(langOf('zh-CN'), 'zh')
-  assert.equal(langOf('ZH-tw'), 'zh')
+  assert.equal(langOf('zh-SG'), 'zh')
+  assert.equal(langOf('ZH-tw'), 'zh-TW')
+  assert.equal(langOf('zh-HK'), 'zh-TW')
+  assert.equal(langOf('zh-Hant-TW'), 'zh-TW')
   assert.equal(langOf('en-US'), 'en')
-  assert.equal(langOf('fr'), 'en')
+  assert.equal(langOf('ja-JP'), 'ja')
+  assert.equal(langOf('ko-KR'), 'ko')
+  assert.equal(langOf('es-MX'), 'es')
+  assert.equal(langOf('fr-FR'), 'fr')
+  assert.equal(langOf('de-DE'), 'de')
+  assert.equal(langOf('nl'), 'en')
   assert.equal(langOf(''), 'en')
 })
 
