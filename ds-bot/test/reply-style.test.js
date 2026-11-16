@@ -18,3 +18,12 @@ test('a Bot follows the team unless it chose its own', () => {
   assert.equal(isReplyStyle('natural'), true)
   assert.equal(isReplyStyle('inherit'), false)
 })
+
+// Silence is for a group, a scheduled task or an IM chat; a direct question is answered.
+test('only the silent conversations are told to stay silent', () => {
+  for (const style of ['natural', 'concise']) {
+    assert.match(replyStyleText(style), /group chat, a scheduled task or an IM chat, say nothing/)
+  }
+  assert.match(replyStyleText('concise'), /in a direct chat, answer even when nothing changed/)
+  assert.match(replyStyleText('natural'), /two or three short messages instead of one long one/)
+})

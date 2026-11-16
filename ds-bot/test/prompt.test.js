@@ -84,6 +84,10 @@ test('the prompt carries the team reply style, and a Bot may pick its own', (t) 
   const formal = prompt('worker')
   assert.match(formal, /## How you write\nWrite plain professional prose/)
   assert.ok(formal.indexOf('## How you write') < formal.indexOf('Check files.'))
+  // The team rules defer to the style; they must not tell a formal Bot to text like a teammate.
+  assert.doesNotMatch(formal, /Chat like a teammate texting/)
+  assert.match(formal, /decides your tone and length/)
+  assert.match(formal, /write it out in full in the chat/)
   state.prefs.replyStyle = 'concise'
   assert.match(prompt('main'), /## How you write\nLead with the conclusion, then at most two sentences/)
   assert.match(prompt('worker'), /## How you write\nWrite plain professional prose/)

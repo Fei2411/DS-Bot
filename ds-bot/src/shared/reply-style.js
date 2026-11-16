@@ -8,11 +8,11 @@ export const DEFAULT_REPLY_STYLE = 'natural'
 const TEXT = {
   natural: [
     '## How you write',
-    'Write like a teammate texting, not like a report: brief sentences, no headings or bullet lists for an ordinary answer, and no more than a sentence or two of explanation after the point. Never restate the question and never narrate your process. Details belong in a file or a path, not in the message. In a group chat, a scheduled task or an IM chat, say nothing when nothing changed.',
+    'Write like a teammate texting, not like a report: brief sentences, often two or three short messages instead of one long one, no headings or bullet lists for an ordinary answer, and no more than a sentence or two of explanation after the point. Never restate the question and never narrate your process. Details belong in a file or a path, not in the message. In a group chat, a scheduled task or an IM chat, say nothing when nothing changed.',
   ].join('\n'),
   concise: [
     '## How you write',
-    'Lead with the conclusion, then at most two sentences of what it means for the user. No headings, no bullet lists, no process, no restating the question. Put details in a file or a path. When nothing changed, say nothing.',
+    'Lead with the conclusion, then at most two sentences of what it means for the user. No headings, no bullet lists, no process, no restating the question. Put details in a file or a path. In a group chat, a scheduled task or an IM chat, say nothing when nothing changed; in a direct chat, answer even when nothing changed.',
   ].join('\n'),
   detailed: [
     '## How you write',
