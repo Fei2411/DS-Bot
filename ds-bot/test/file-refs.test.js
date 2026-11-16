@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { fileCandidates } from '../src/host/file-refs.js'
+import { fileCandidates, handoffFile } from '../src/host/file-refs.js'
 
 test('a path in inline code is a file the reply points at', () => {
   const found = fileCandidates('الملف الجاهز: `pdf-edit2/التقرير.pdf` — تحت إشراف')
@@ -11,6 +11,13 @@ test('a path with spaces, brackets and Arabic in a code block is found', () => {
   const path = '/home/mahmoud/DS Bot/pdf-edit/(معدل) - تحت [إشراف] النظام الغذائي العلاجي .pdf'
   const found = fileCandidates(`الملف قدامك 👇 وده المسار المباشر:\n\`\`\`\n${path}\n\`\`\``)
   assert.deepEqual(found, [{ kind: 'path', value: path, name: '(معدل) - تحت [إشراف] النظام الغذائي العلاجي .pdf' }])
+})
+
+test('a send_file call names the file it hands over', () => {
+  assert.deepEqual(handoffFile({ path: ' Desktop/report.pdf ', name: ' التقرير.pdf ' }), { path: 'Desktop/report.pdf', name: 'التقرير.pdf' })
+  assert.deepEqual(handoffFile({ path: '/home/u/out.pdf' }), { path: '/home/u/out.pdf' })
+  assert.equal(handoffFile({}), undefined)
+  assert.equal(handoffFile({ path: '   ' }), undefined)
 })
 
 test('a path on its own line, behind an icon, is found', () => {

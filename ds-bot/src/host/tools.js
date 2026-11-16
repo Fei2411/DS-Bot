@@ -295,6 +295,29 @@ export function install(rt) {
   }))
 
   rt.teamTools.push(defineTool({
+    name: 'send_file',
+    description: 'Hand the user a file in this chat as a card they can download or share. Call it whenever the user asks for a file (a PDF, a spreadsheet, an image, an archive) or when you finish one for them. Give the path of the file you made; writing a path in your reply does not attach anything.',
+    parameters: {
+      path: { type: 'string', required: true, description: 'Full path of the file, or a path relative to your working folder' },
+      name: { type: 'string', description: 'The name the user sees; defaults to the file name' },
+    },
+    output,
+    async execute(args, exec) {
+      await rt.load()
+      const value = unquote(String(args?.path ?? '').trim())
+      if (value === '') throw new Error('Give the path of the file to send.')
+      if (typeof rt.resolveUserFile !== 'function') throw new Error('This computer cannot send files.')
+      const folder = rt.sessionFolder?.(exec.agent?.session ?? exec.agent)
+      const file = await rt.resolveUserFile(value, folder)
+      if (file === undefined) {
+        throw new Error(`No file exists at ${value}. Give the full path of a file you made, inside your working folder, the team workspace, or the user's Desktop, Downloads or Documents.`)
+      }
+      const shown = String(args?.name ?? '').trim().slice(0, 200) || file.name
+      return `Sent ${shown} to the user as a download card (${file.bytes} bytes).`
+    },
+  }))
+
+  rt.teamTools.push(defineTool({
     name: 'stop_bot',
     description: 'Main Bot only. Stop another Bot\'s running turn immediately — when it must not finish a dangerous action and a message_bot warning is not enough. Its queued messages are dropped with the turn. It is then told why in a new turn, whose reply comes back to you.',
     parameters: {

@@ -34,6 +34,15 @@ function nameOf(value, label) {
   }
 }
 
+// The file a `send_file` tool call hands over, from the arguments the call was made
+// with. A card built from this is the Bot saying what it sends, not a guess.
+export function handoffFile(args) {
+  const value = typeof args?.path === 'string' ? args.path.trim() : ''
+  if (value === '') return undefined
+  const name = typeof args?.name === 'string' ? args.name.trim() : ''
+  return { path: value, ...(name !== '' ? { name } : {}) }
+}
+
 export function fileCandidates(text) {
   const value = String(text ?? '')
   const found = []

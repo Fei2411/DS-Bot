@@ -472,13 +472,22 @@ export function install(rt) {
     return roots
   }
 
-  async function resolveFile(value, roots) {
+  // The file a path names, from the folders the phone may read and, when a Bot hands
+  // one over, the folder its Session works in. Undefined when nothing is there.
+  async function resolveUserFile(value, base) {
+    const roots = await fileRoots()
+    const allowed = [...roots]
+    if (typeof base === 'string' && base !== '') {
+      const realBase = await realpath(base).catch(() => undefined)
+      if (realBase !== undefined) allowed.push(realBase)
+    }
     // A reply may name a user folder by itself ("Desktop/report.pdf"); resolving it
-    // from the home finds it, and the containment check below still holds.
-    const attempts = isAbsolute(value) ? [value] : [...roots, homedir()].map(root => resolve(root, value))
+    // from the home finds it, and the containment check still holds.
+    const bases = [...(typeof base === 'string' && base !== '' ? [base] : []), ...roots, homedir()]
+    const attempts = isAbsolute(value) ? [value] : bases.map(root => resolve(root, value))
     for (const attempt of attempts) {
       const real = await realpath(attempt).catch(() => undefined)
-      if (real === undefined || !roots.some(root => within(real, root))) continue
+      if (real === undefined || !allowed.some(root => within(real, root))) continue
       const info = await stat(real).catch(() => undefined)
       if (info === undefined || !info.isFile()) continue
       return { name: basename(real), path: real, bytes: info.size, mime: mimeOfName(real) }
@@ -491,11 +500,24 @@ export function install(rt) {
   // A post is a Bot's message too, whether it was logged as `bot` or `post`.
   async function attachFileRefs(items) {
     if (!Array.isArray(items) || items.length === 0) return items
-    const roots = await fileRoots()
     for (const item of items) {
+      // A `send_file` call names a path and no size yet: resolve it here, so the card
+      // the Bot asked for shows what the user actually gets.
+      if (Array.isArray(item.files) && item.files.length > 0) {
+        const resolved = []
+        for (const ref of item.files) {
+          if (typeof ref?.path !== 'string' || ref.path === '' || Number.isFinite(ref.bytes)) {
+            resolved.push(ref)
+            continue
+          }
+          const file = await resolveUserFile(ref.path)
+          resolved.push(file === undefined ? ref : { ...file, ...(typeof ref.name === 'string' && ref.name !== '' ? { name: ref.name } : {}) })
+        }
+        item.files = resolved
+        continue
+      }
       if (item?.kind !== 'bot' && item?.kind !== 'post') continue
       if (typeof item.text !== 'string') continue
-      if (Array.isArray(item.files) && item.files.length > 0) continue
       const found = []
       const seen = new Set()
       for (const candidate of fileCandidates(item.text)) {
@@ -505,7 +527,7 @@ export function install(rt) {
           found.push({ name: candidate.name, url: candidate.value })
           continue
         }
-        const file = await resolveFile(candidate.value, roots)
+        const file = await resolveUserFile(candidate.value)
         if (file === undefined || seen.has(file.path)) continue
         seen.add(file.path)
         found.push(file)
@@ -544,5 +566,5 @@ export function install(rt) {
     }
   }
 
-  Object.assign(rt, { addNotice, attachFileRefs, mobileEndpoint })
+  Object.assign(rt, { addNotice, attachFileRefs, mobileEndpoint, resolveUserFile })
 }

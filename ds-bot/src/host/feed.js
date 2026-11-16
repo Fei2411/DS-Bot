@@ -9,6 +9,7 @@
 // `hello` carries the team's revision and, for the mobile API, its version and the
 // latest notice, so a client that reconnects knows what it missed.
 import { ROUTE } from './constants.js'
+import { handoffFile } from './file-refs.js'
 
 export const FEED_ROUTE = `${ROUTE}/feed`
 // A comment line now and then keeps an idle connection open.
@@ -64,15 +65,33 @@ export function install(rt) {
     if (rt.selfOf(agent.id) !== undefined) live()
   })
 
+  // The turn each Session is in, and the files a `send_file` call handed over in it.
+  // The call's own event carries no item, so the reply that follows takes them.
+  const turns = new Map()
+  const handed = new Map()
+
   ctx.on('session/event', (session, event) => {
     if (!listening()) return
     const botId = rt.chatOwners.get(session.id)
     if (botId === undefined) return
-    const items = rt.displayItems(session.id, [event])
+    if (event.type === 'turn/start' && Number.isInteger(event.data?.turn)) {
+      turns.set(session.id, event.data.turn)
+      handed.delete(session.id)
+    }
+    if (event.type === 'tool/call' && event.data?.name === 'send_file') {
+      const sent = handoffFile(event.data?.arguments)
+      if (sent !== undefined) handed.set(session.id, [...(handed.get(session.id) ?? []), sent])
+    }
+    const items = rt.displayItems(session.id, [event], session, turns.get(session.id))
     // A reply that names a file gets its card at once, the same as a fetched page;
     // the items keep their order because they publish one after another.
     void (async () => {
       for (const item of items) {
+        const files = item.kind === 'bot' ? handed.get(session.id) : undefined
+        if (files !== undefined) {
+          item.files = files
+          handed.delete(session.id)
+        }
         await rt.attachFileRefs?.([item])
         publish('message', { botId, sessionId: session.id, item })
       }

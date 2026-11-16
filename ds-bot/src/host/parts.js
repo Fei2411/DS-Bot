@@ -18,6 +18,7 @@ import { randomUUID } from 'node:crypto'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { openTurnAt } from './btw.js'
 import { HANDOFF_ACK, HISTORY_TIMEOUT_MS, REPLY_KIND, SOURCE_KIND } from './constants.js'
+import { handoffFile } from './file-refs.js'
 import { assembleLlmStream } from './models.js'
 import { parseReplies, relayRange, stackReplies } from '../shared/group-replies.js'
 import { CHECKPOINT_PROMPT, STEWARD_SYSTEM, checkpointCount, checkpointTail, checkpointTailNote, checkpointText, linesFor, parseDecision, stewardRequest } from './steward.js'
@@ -1529,6 +1530,9 @@ export function install(rt) {
     // round's replies. A result without its call on the page (the page cut between
     // them) draws nothing rather than guessing.
     const relayCalls = new Set()
+    // Files a `send_file` call hands over, by turn: the reply that follows carries
+    // them as a card, so the Bot says what it sends instead of the page guessing.
+    const handoff = new Map()
     const items = []
     // The turn/start still in effect. A steered or queued user message stays in
     // it; only another turn/start moves on. A later page does not repeat the
@@ -1550,7 +1554,10 @@ export function install(rt) {
         // One entry per text block: the chat shows each block in a bubble of its own.
         const content = Array.isArray(event.data?.message?.content) ? event.data.message.content : []
         for (const block of content) {
-          if (block?.type === 'text' && typeof block.text === 'string' && block.text.trim() !== '') stamp(event, { kind: 'bot', text: block.text, time: event.time })
+          if (block?.type !== 'text' || typeof block.text !== 'string' || block.text.trim() === '') continue
+          const files = handoff.get(turn)
+          handoff.delete(turn)
+          stamp(event, { kind: 'bot', text: block.text, time: event.time, ...(files === undefined ? {} : { files }) })
         }
         continue
       }
@@ -1558,6 +1565,18 @@ export function install(rt) {
         // A group_relay call's result is paired back to it by call id — the tool
         // name is on the call, never on the result.
         if (event.data?.name === 'group_relay') relayCalls.add(event.data?.callId)
+        // A file the Bot hands over belongs to the reply of this turn, not to a step.
+        if (event.data?.name === 'send_file') {
+          const sent = handoffFile(event.data?.arguments)
+          if (sent !== undefined) {
+            const files = [...(handoff.get(turn) ?? []), sent]
+            // A Bot that writes first and calls afterwards: the reply is already
+            // stamped, so the card goes on its last bubble.
+            const last = [...items].reverse().find(entry => entry.kind === 'bot' && entry.turn === turn)
+            if (last === undefined) handoff.set(turn, files)
+            else last.files = [...(last.files ?? []), ...files]
+          }
+        }
         // Hidden turns and refused calls never showed a display card. Closed cards
         // stay at the call that asked them, including in a hidden Bot-to-Bot turn.
         const named = event.data?.name
