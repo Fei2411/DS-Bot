@@ -1241,7 +1241,7 @@ export function install(rt) {
           if (cutOff) return reply === '' && wroteText ? CUT_OFF_NOTE : cutOffText(reply)
           return reply
         }
-        const groupReply = () => rt.withRoomSteps?.(held, replyText()) ?? replyText()
+        const groupReply = () => rt.withRoomSteps?.(id, held, replyText()) ?? replyText()
         // Whoever the turn answers gets the same three-way rule: a failure notice,
         // the turn's text (or a stopped-before-answer line), or nothing.
         const name = rt.botOf(rt.selfOf(id))?.name ?? 'The other Bot'
