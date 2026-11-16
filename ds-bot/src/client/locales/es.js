@@ -393,6 +393,7 @@ export const ES = {
   'Message {name}': 'Enviar mensaje a {name}',
   Message: 'Mensaje',
   'Press Enter to steer queued messages': 'Pulsa Enter para enviar ahora los mensajes en cola',
+  'This chat moved to a new session, so the images you attached were not kept.': 'Este chat pasó a una sesión nueva, así que las imágenes adjuntas no se conservaron.',
   'Couldn’t steer the queued messages. Try again.': 'No se pudieron adelantar los mensajes en cola. Inténtalo de nuevo.',
   '{n} queued messages': '{n} mensajes en cola',
   'Sending…': 'Enviando…',

@@ -384,6 +384,7 @@ export const FR = {
   "Message {name}": "Message à {name}",
   "Message": "Message",
   "Press Enter to steer queued messages": "Appuyez sur Entrée pour envoyer immédiatement les messages en file d’attente",
+  "This chat moved to a new session, so the images you attached were not kept.": "Cette conversation a été déplacée vers une nouvelle session, les images jointes n’ont donc pas été conservées.",
   "Couldn’t steer the queued messages. Try again.": "Impossible d’envoyer immédiatement les messages en file d’attente. Réessayez.",
   "{n} queued messages": "{n} messages en file d’attente",
   "Sending…": "Envoi…",

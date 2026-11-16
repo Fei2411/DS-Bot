@@ -393,6 +393,7 @@ export const KO = {
   'Message {name}': '{name}에게 메시지 보내기',
   Message: '메시지 보내기',
   'Press Enter to steer queued messages': 'Enter를 눌러 대기 중인 메시지 즉시 전송',
+  'This chat moved to a new session, so the images you attached were not kept.': '이 대화가 새 세션으로 옮겨져 첨부한 이미지는 유지되지 않았습니다.',
   'Couldn’t steer the queued messages. Try again.': '대기 중인 메시지를 즉시 전송하지 못했습니다. 다시 시도하세요.',
   '{n} queued messages': '대기 중인 메시지 {n}개',
   'Sending…': '전송 중…',

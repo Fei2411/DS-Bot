@@ -384,6 +384,7 @@ export const JA = {
   "Message {name}": "{name} にメッセージを送信",
   "Message": "メッセージ",
   "Press Enter to steer queued messages": "Enter キーで待機中のメッセージを割り込み送信",
+  "This chat moved to a new session, so the images you attached were not kept.": "このチャットは新しいセッションに移ったため、添付した画像は引き継がれませんでした。",
   "Couldn’t steer the queued messages. Try again.": "待機中のメッセージを割り込み送信できませんでした。再試行してください。",
   "{n} queued messages": "待機中のメッセージ {n} 件",
   "Sending…": "送信中…",

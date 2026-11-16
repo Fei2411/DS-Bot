@@ -393,6 +393,7 @@ export const DE = {
   'Message {name}': 'Nachricht an {name}',
   Message: 'Nachricht senden',
   'Press Enter to steer queued messages': 'Drücke Enter, um eingereihte Nachrichten sofort einzuschieben',
+  'This chat moved to a new session, so the images you attached were not kept.': 'Dieser Chat wurde in eine neue Sitzung verschoben, daher wurden die angehängten Bilder nicht übernommen.',
   'Couldn’t steer the queued messages. Try again.': 'Eingereihte Nachrichten konnten nicht eingeschoben werden. Bitte erneut versuchen.',
   '{n} queued messages': '{n} eingereihte Nachrichten',
   'Sending…': 'Wird gesendet…',
