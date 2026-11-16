@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { test } from 'node:test'
-import { offloadTargets } from '../src/host/images.js'
+import { install as imagesInstall, offloadTargets } from '../src/host/images.js'
+import { assembleLlmStream } from '../src/host/models.js'
 
 test('offloadTargets selects live images from prior user and tool messages', () => {
   const events = [
@@ -32,3 +36,73 @@ test('offloadTargets selects live images from prior user and tool messages', () 
     { seq: 2, imageIndexes: [0] },
   ])
 })
+
+test('image OCR retries transient TRANSPORT failures instead of caching a 2-minute failure', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'dsb-images-'))
+  t.after(() => rmSync(home, { recursive: true, force: true }))
+  let calls = 0
+  const ctx = {
+    on: () => () => {},
+    llm: {
+      providerRetryPolicy: () => ({ mode: 'normal', maxRetries: 2, retryableCodes: ['TRANSPORT'], initialDelayMs: 1, maxDelayMs: 5, jitterRatio: 0 }),
+      resolveModelInfo: async () => ({ inputModalities: ['text', 'image'] }),
+      async *stream() {
+        calls += 1
+        if (calls === 1) {
+          yield { type: 'finish', reason: { kind: 'error', failure: { code: 'TRANSPORT', message: 'DeepSeek Messages transport failed' } } }
+          return
+        }
+        yield { type: 'text-delta', index: 0, text: 'Image: Retry banner.' }
+        yield { type: 'finish', reason: { kind: 'stop' } }
+      },
+    },
+  }
+  const rt = {
+    ctx,
+    config: {},
+    home,
+    warn: () => {},
+    catalog: async () => [{ ref: 'deepseek-account/deepseek-flash', name: 'DeepSeek-V4.1-Flash', input: ['text', 'image'] }],
+    defaultRef: () => 'deepseek-account/deepseek-flash',
+    isLocalAgentRef: () => false,
+    ownRequest: () => false,
+    tagUsage: messages => messages,
+  }
+  imagesInstall(rt)
+  const [line] = await rt.imagesForGroup([{ attachmentId: 'sha256:abcdef1234567890', name: 'shot.png' }], 'g1')
+  assert.equal(calls, 2)
+  assert.match(line, /Image: Retry banner\./)
+})
+
+test('assembleLlmStream forwards lifetime disposal signal to in-flight streams and stops on disabled retry policies', async () => {
+  const lifetime = new AbortController()
+  let seenSignal
+  const streaming = assembleLlmStream({
+    llm: {
+      async *stream(options) {
+        seenSignal = options.signal
+        await new Promise(resolve => options.signal.addEventListener('abort', resolve, { once: true }))
+        yield { type: 'finish', reason: { kind: 'aborted', failure: { code: 'ABORTED', message: 'disposed' } } }
+      },
+    },
+  }, { provider: 'deepseek', model: 'v4', messages: [], signal: AbortSignal.timeout(60_000) }, { signal: lifetime.signal })
+  lifetime.abort()
+  const aborted = await streaming
+  assert.equal(seenSignal.aborted, true)
+  assert.equal(aborted.finish.kind, 'aborted')
+
+  let disabledCalls = 0
+  const disabled = await assembleLlmStream({
+    llm: {
+      providerRetryPolicy: () => ({ mode: 'disabled', initialDelayMs: 1, maxDelayMs: 5, jitterRatio: 0 }),
+      async *stream() {
+        disabledCalls += 1
+        yield { type: 'finish', reason: { kind: 'error', failure: { code: 'TRANSPORT', message: 'DeepSeek Messages transport failed' } } }
+      },
+    },
+  }, { provider: 'deepseek', model: 'v4', messages: [] })
+  assert.equal(disabledCalls, 1)
+  assert.equal(disabled.finish.kind, 'error')
+})
+
+

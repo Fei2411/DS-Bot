@@ -23,7 +23,10 @@ function setup(t) {
     state: { bots: { b: { model: 'local-claude-code/default' } } },
     ctx: {
       llm: { registerAdapter(routes, value) { adapter = value; return Object.assign(() => {}, { replace() {} }) } },
-      effect() {}, get: () => ({}),
+      effect() {},
+      // serviceOf prefers get(). The llm must be the real adapter registrar;
+      // other lookups stay present so approval requests are not refused.
+      get(name) { return name === 'llm' ? this.llm : {} },
     },
     requestActionApproval: async (req, value) => { evidence.push(value); return 'rejected' },
   }

@@ -103,6 +103,20 @@ test('without the schedule service the page says so and creating is refused', as
   assert.match(refused.error.message, /Automation tasks are off/)
 })
 
+test('a time with seconds, as a browser\'s time picker can report it, is accepted', async (t) => {
+  const schedule = scheduleService()
+  const { ctx, home, call } = setup({ schedule })
+  t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
+  for (const [when, timing] of [
+    [{ kind: 'weekly', time: '18:25:00', timeZone: 'UTC', weekdays: [1] }, { time: '18:25:00', time_zone: 'UTC', weekdays: [1] }],
+    [{ kind: 'daily', time: '07:05:30', timeZone: 'UTC' }, { time: '07:05:30', time_zone: 'UTC' }],
+  ]) {
+    const created = await call('schedule-create', { target: 'm1', title: 'Seconds', prompt: 'Plan', when })
+    assert.equal(created.ok, true, JSON.stringify(created))
+    assert.deepEqual([...schedule.tasks.values()].at(-1).record.timing, timing)
+  }
+})
+
 test('tasks are created on the Bot’s current part, listed by Bot, and deleted', async (t) => {
   const schedule = scheduleService()
   const { ctx, home, call } = setup({ schedule })
@@ -133,6 +147,8 @@ test('tasks are created on the Bot’s current part, listed by Bot, and deleted'
   for (const [when, message] of [
     [{ kind: 'at', at: '2000-01-01T00:00:00Z' }, /future/],
     [{ kind: 'weekly', time: '09:00', weekdays: [] }, /at least one day/],
+    [{ kind: 'daily', time: '24:00:00' }, /time of day/],
+    [{ kind: 'daily', time: '09:00:61' }, /time of day/],
     [{ kind: 'daily', time: '9am' }, /time of day/],
     [{ kind: 'every', minutes: 0 }, /1 minute to 7 days/],
   ]) {

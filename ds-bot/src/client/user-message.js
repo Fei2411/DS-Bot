@@ -116,7 +116,7 @@ export function UserMessageCell({ node, sessionId, useRoster, actions, renderMes
   return h('div', { ref: row, className: 'bt-umsg', 'data-steering': steering || undefined },
     h('div', { className: 'bt-ustack' },
       attachments.length > 0 ? h(Attachments, { attachments, renderMessageImages }) : null,
-      text !== '' || rest.length > 0 ? h('div', { className: 'bt-ubody', title: clock(data.time), 'data-folded': folded || undefined, onClick: tapTools },
+      text !== '' || rest.length > 0 ? h('div', { className: 'bt-ubody', title: clock(data.time), 'data-folded': folded || undefined, 'data-text-interaction-source': text !== '' ? '' : undefined, onClick: tapTools },
         control ? h('div', { className: 'bt-fold-body' }, body) : body,
         control,
         rest.map((block, index) => (ui.JsonBlock ? h(ui.JsonBlock, { key: index, label: t('Content'), payload: block }) : null))) : null,
