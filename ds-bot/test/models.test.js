@@ -170,6 +170,33 @@ test('a Bot model applies its thinking level, and only re-selects on a change', 
   assert.equal(bot.appliedEffort, undefined)
 })
 
+// #1501: a Bot's own chat may keep a part running in the background. The Bot's model is
+// every part's model, so a change that reached only the foreground would leave that part
+// answering on the old route while the settings show the new one.
+test('a model change reaches the part of the own chat running in the background', async () => {
+  const { rt, selected } = bench()
+  const bot = { id: 'b1', sessionId: 'b1', model: 'deepseek/v4-flash', openParts: [{ sessionId: 'b1-bg', segments: [] }] }
+  assert.equal(await rt.applyModel(bot), 'deepseek/v4-flash')
+  assert.deepEqual(selected, ['b1:deepseek/v4-flash', 'b1-bg:deepseek/v4-flash'])
+  // The same values again write nothing.
+  await rt.applyModel(bot)
+  assert.equal(selected.length, 2)
+})
+
+test('a thinking-level change reaches the background part too', async () => {
+  const { rt, selected } = bench({ reasoning: { 'deepseek/v4-flash': { reasoning: { efforts: [{ id: 'low', name: 'Low' }, { id: 'high', name: 'High' }], defaultEffort: 'low' } } } })
+  const bot = { id: 'b1', sessionId: 'b1', model: 'deepseek/v4-flash', effort: 'high', openParts: [{ sessionId: 'b1-bg', segments: [] }] }
+  await rt.applyModel(bot)
+  assert.deepEqual(selected, ['b1:deepseek/v4-flash:high', 'b1-bg:deepseek/v4-flash:high'])
+  bot.effort = 'low'
+  await rt.applyModel(bot)
+  assert.deepEqual(selected.slice(2), ['b1:deepseek/v4-flash:low', 'b1-bg:deepseek/v4-flash:low'])
+  assert.equal(bot.appliedEffort, 'low')
+  // The same level again writes nothing more.
+  await rt.applyModel(bot)
+  assert.equal(selected.length, 4)
+})
+
 test('group selections sync per Session even when the Bot-level fields already match', async () => {
   const { rt, selected } = bench({ reasoning: { 'deepseek/v4-flash': { reasoning: { efforts: [{ id: 'low' }, { id: 'high' }], defaultEffort: 'high' } } } })
   const bot = { id: 'b1', model: 'deepseek/v4-flash', effort: 'low', appliedModel: 'deepseek/v4-flash', appliedEffort: 'low' }

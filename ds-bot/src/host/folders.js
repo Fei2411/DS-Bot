@@ -2,6 +2,7 @@
 // there, else a Bot works in its own folder, else in the team workspace. A Session's
 // folder is fixed when it is made, so a change moves the conversation on to a fresh
 // part (parts.js).
+import { openSessions } from './threads.js'
 import { mkdir, realpath, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path'
@@ -145,8 +146,10 @@ export function install(rt) {
     return path
   }
 
+  // A Bot's own chat covers every thread it still has open. A group session is that
+  // member's conversation there. Presets are what the Sessions made later inherit.
   const folderPermissions = (botIds, room) => ({
-    sessions: botIds.map(id => room === undefined ? rt.chatOf(id) : room.sessions?.[id]).filter(Boolean),
+    sessions: botIds.flatMap(id => room === undefined ? [rt.chatOf(id), ...openSessions(rt.botOf(id))] : [room.sessions?.[id]]).filter(Boolean),
     presets: botIds.map(id => room?.permission ?? rt.botOf(id)?.permission ?? rt.permissionCatalog()?.defaultPreset).filter(Boolean),
   })
 

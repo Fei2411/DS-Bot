@@ -171,7 +171,7 @@ html[data-shimmer] .voice[data-on]>span{color:transparent;background:linear-grad
 .caption{position:absolute;left:48px;top:358px;width:624px;height:28px;display:flex;align-items:center;justify-content:center;gap:8px;font-size:13px;line-height:18px;color:var(--bt-ink-2);transition:opacity .16s}
 html[data-up] .caption{opacity:0;pointer-events:none}
 .caption-text{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.caption>*{opacity:0;filter:blur(6px);transition:opacity .16s,filter .16s}
+.caption>*{opacity:0;filter:var(--bt-fx-blur-6,blur(6px));transition:opacity .16s,filter .16s}
 .caption>[data-on]{opacity:1;filter:none;transition:opacity .22s ease-out,filter .22s ease-out}
 
 /* sheet: one surface that every card morphs in and out of */
@@ -187,7 +187,7 @@ html[data-sheet=none] .sheet{pointer-events:none}
 .ink{color:var(--bt-ink)}
 .danger{color:var(--bt-danger)}
 .card{position:absolute;inset:0 0 auto;max-height:100%;box-sizing:border-box;padding:14px 16px;display:flex;flex-direction:column;transition:opacity .22s ease-out .07s,filter .22s ease-out .07s}
-@starting-style{.card{opacity:0;filter:blur(6px)}}
+@starting-style{.card{opacity:0;filter:var(--bt-fx-blur-6,blur(6px))}}
 .card-scroll,.log{scrollbar-width:thin;scrollbar-color:var(--bt-line-2) transparent}
 /* The padding keeps the 2px + 2px focus rings inside the scroll clip; the negative margin keeps the layout where it was. */
 .card-scroll{position:relative;min-height:0;flex:0 1 auto;overflow:auto;padding:4px;margin:-4px}
@@ -201,7 +201,7 @@ html[data-sheet=none] .sheet{pointer-events:none}
 .card>.foot,.miss{margin-top:8px}
 .miss{font-size:13px;line-height:18px;color:var(--bt-danger)}
 :is(.miss,.banner,.log,.confirm,.models,.more,[data-u]):not([hidden]){transition:opacity .22s ease-out,filter .22s ease-out}
-@starting-style{:is(.miss,.banner,.log,.confirm,.models,.more,[data-u]):not([hidden]){opacity:0;filter:blur(6px)}}
+@starting-style{:is(.miss,.banner,.log,.confirm,.models,.more,[data-u]):not([hidden]){opacity:0;filter:var(--bt-fx-blur-6,blur(6px))}}
 /* Opened, the import card's body fits the sheet at 540 px with these gaps; a model list
    opened under it scrolls inside the card. */
 .more{margin-top:4px;padding-top:5px;border-top:1px solid var(--bt-line)}
@@ -261,7 +261,7 @@ html[data-start=moving] .footrow{display:none}
 /* entrance, keyed on data-start (no JS timing); the ring draws itself in as the whale surfaces */
 /* held at its first frame until the window is on screen (start.js data-held) */
 html[data-held] *{animation-play-state:paused!important}
-@keyframes bt-veil{from{opacity:0;filter:blur(6px)}}
+@keyframes bt-veil{from{opacity:0;filter:var(--bt-fx-blur-6,blur(6px))}}
 @keyframes bt-enter-first{from{transform:translateY(96px) rotate(-12deg)}}
 @keyframes bt-enter-later{from{transform:translateY(84px)}}
 @keyframes bt-ring-draw{from{stroke-dashoffset:101}}
@@ -310,6 +310,7 @@ html[data-hidden] *{animation-play-state:paused!important}
 :root[data-eyes=happy] .bt-eye{transform:scaleY(0)}
 :root[data-eyes=happy] .bt-eye-happy{opacity:1}
 @media (prefers-reduced-motion:reduce){
+:root{--bt-fx-blur-6:none}
 :root :is(.whale-x,.whale-gaze,.whale,.whale-move,.whale-loop,#tail,#gaze,#eye-pair,.bt-eye,.bt-eye-happy,.ripple,.stage){animation:none!important;transition:none!important}
 :root :is(.voice,.water,.place,.arc-base,.arc-glow,.ring,.props,.props *){animation:none!important}
 :root .props>g{scale:none!important;transition:opacity .12s!important}
@@ -319,5 +320,11 @@ html[data-hidden] *{animation-play-state:paused!important}
 :root .btn:active{scale:none}
 :root[data-exit~=lane] .lane{opacity:0;transition:opacity .12s}
 }
+:root[data-effects=reduced],:root[data-effects=off]{--bt-fx-blur-6:none}
+:root:is([data-effects=reduced],[data-effects=off]) .voice>span{animation:none!important;background:none!important;color:var(--bt-ink)!important}
+:root:is([data-effects=reduced],[data-effects=off]) :is(.arc-glow,.page,.gear-big,.gear-small,[data-p=engine],.box-moving,.mate),:root:is([data-effects=reduced],[data-effects=off])[data-whale] :is(.whale-loop,#eye-pair,.bt-eye),:root:is([data-effects=reduced],[data-effects=off])[data-tail] #tail{animation:none!important}
+:root[data-effects=off] :is(*,::before,::after){animation:none!important;transition:none!important}
+:root[data-effects=off] .props>g,:root[data-effects=off] .btn:active{scale:none!important}
+:root[data-effects=off] :is(.voice,.caption>*,.card,.miss,.banner,.log,.confirm,.models,[data-u]){filter:none!important;scale:none!important}
 
 @media (forced-colors:active){.sheet-edge{background:CanvasText}.sheet-fill{background:Canvas}.btn{border:1px solid ButtonText}.bar-fill{background:Highlight}.water{background:CanvasText}.arc .arc-base{stroke:GrayText!important}.arc-fill,.ring-full,.arc-glow,.plume path{stroke:Highlight}.props :is(.folder-back,.folder-front,.gear,.mate circle,.box rect){fill:CanvasText}.page rect,.mate rect{fill:Canvas}.drop{forced-color-adjust:none;background:Highlight}}
