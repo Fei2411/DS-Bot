@@ -82,7 +82,9 @@ async function boot(t, { waitSec = 0.2, bot = true, room = false } = {}) {
   const say = text => agent.followup(createUserMessage({ content: [{ type: 'text', text }], source: { kind: 'user' } }))
   const turns = () => agent.session.snapshotEvents().filter(event => event.type === 'turn/end').length
   const jobRecords = () => agent.session.snapshotEvents().filter(event => event.type?.startsWith('job/')).map(event => event.type)
-  return { root, agent, model, statuses, say, turns, jobRecords, stopped }
+  // An older DSH (0.2.0) has no definitions() view to shadow from: calls stay in the step.
+  const supported = typeof root.tools.definitions === 'function' && typeof rt.shadowTools(agent) !== 'undefined' && agent.ctx.tools.get?.('fetch_slow') !== undefined
+  return { root, agent, model, statuses, say, turns, jobRecords, stopped, supported }
 }
 
 const until = async (check, ms = 4000) => {
@@ -92,7 +94,8 @@ const until = async (check, ms = 4000) => {
 }
 
 test('a slow call goes to the background after the wait, the turn ends, and its result wakes the Session', async (t) => {
-  const { model, statuses, say, turns, jobRecords } = await boot(t)
+  const { model, statuses, say, turns, jobRecords, supported } = await boot(t)
+  if (!supported) return t.skip('this DSH cannot shadow tools per Session')
   say('call fetch_slow')
   await until(() => turns() >= 1)
   // The step came back before the tool did: the first turn ended with the job running.
@@ -117,7 +120,8 @@ test('a call that ends within the wait comes back in the step and leaves no job 
 })
 
 test('a tool with a structured result takes the background note and still renders its own result in time', async (t) => {
-  const { model, say, turns } = await boot(t)
+  const { model, say, turns, supported } = await boot(t)
+  if (!supported) return t.skip('this DSH cannot shadow tools per Session')
   say('call report_slow')
   await until(() => turns() >= 2)
   assert.match(model.requests[1].at(-1), /it goes on as background job tool-/)
