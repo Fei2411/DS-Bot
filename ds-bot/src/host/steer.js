@@ -6,7 +6,7 @@
 //    the front of next-turn, so a fresh turn claims it at once.
 import { isAbsolute, resolve } from 'node:path'
 import { boundContextSummary, createUserMessage } from '@deepseek-ai/dsh-llm'
-import { STEER_CUT } from './constants.js'
+import { BACKGROUND_WAIT_MS, STEER_CUT } from './constants.js'
 
 const SHELL_TOOLS = ['pwsh', 'bash']
 const STEER_GRACE_MS = 1000
@@ -34,6 +34,12 @@ export function install(rt) {
   }
   // Background jobs still running for a Session. A reply that announces work while
   // this is empty and no subagent runs is marked in the group view (#977).
+  // How long a Bot's own chat waits for a shell call before it goes on as a background
+  // job and the step moves on (Settings > Background work).
+  rt.backgroundWaitMs = () => {
+    const seconds = rt.state?.prefs?.backgroundAfterSec
+    return Number.isFinite(seconds) && seconds >= 0 ? seconds * 1000 : BACKGROUND_WAIT_MS
+  }
   rt.runningJobs = (sessionId) => {
     if (jobs === undefined || sessionId === undefined) return []
     try {

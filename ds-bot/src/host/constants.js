@@ -83,8 +83,8 @@ export const TEAM_TOOLS = [
 // Consecutive automatic admin wakes with no goal progress before the goal waits
 // for the user instead of waking the admin again.
 export const GOAL_IDLE_NUDGES = 2
-// How long a Bot's own chat waits for one tool call before the call goes on as a
-// background job and the step moves on (settings can change it; 0 hands every call over).
+// How long a Bot's own chat waits for a shell call before it goes on as a background
+// job and the step moves on (settings can change it; 0 hands every call over).
 export const BACKGROUND_WAIT_MS = 5_000
 export const BACKGROUND_AFTER_MAX_SEC = 600
 // A member still at work this long after its first tool call lets the round go on; it

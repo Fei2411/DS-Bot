@@ -2,7 +2,7 @@
 
 export const DE = {
   'Background work': 'Hintergrundarbeit',
-  'Background tool calls after (seconds)': 'Tool-Aufrufe in den Hintergrund nach (Sekunden)',
+  'Background commands after (seconds)': 'Befehle in den Hintergrund nach (Sekunden)',
   'A new reply is waiting': "Eine neue Antwort wartet auf dich",
   'Opening…': 'Wird geöffnet…',
   'Still opening…': 'Wird noch geöffnet…',
