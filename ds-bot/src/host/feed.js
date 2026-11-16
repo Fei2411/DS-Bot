@@ -68,7 +68,15 @@ export function install(rt) {
     if (!listening()) return
     const botId = rt.chatOwners.get(session.id)
     if (botId === undefined) return
-    for (const item of rt.displayItems(session.id, [event])) publish('message', { botId, sessionId: session.id, item })
+    const items = rt.displayItems(session.id, [event])
+    // A reply that names a file gets its card at once, the same as a fetched page;
+    // the items keep their order because they publish one after another.
+    void (async () => {
+      for (const item of items) {
+        await rt.attachFileRefs?.([item])
+        publish('message', { botId, sessionId: session.id, item })
+      }
+    })()
     if (event.type === 'tool/call') live()
   })
 
