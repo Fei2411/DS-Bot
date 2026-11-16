@@ -52,13 +52,15 @@ function bench({ team = true, sessionId = 'bot' } = {}) {
   const inserted = []
   const errors = []
   const calls = { clear: 0, dismiss: 0 }
+  let selectedText = 'The selected text'
   const roster = { byId: team && sessionId === 'bot' ? { bot: {} } : {}, roomsById: team && sessionId === 'room' ? { room: {} } : {} }
   const props = {
     sessionId,
     useSession: select => select({ removed: false, subagent: null }),
     useRoster: select => select(roster),
-    readText: () => 'The selected text',
-    clearSelection: () => { calls.clear += 1 },
+    readText: () => selectedText,
+    setSelectedText(next) { selectedText = next },
+    clearSelection: () => { calls.clear += 1; selectedText = null },
     dismiss: () => { calls.dismiss += 1 },
     inputActions: {
       insertQuote: text => { inserted.push(['quote', text]); return true },
@@ -71,7 +73,15 @@ function bench({ team = true, sessionId = 'bot' } = {}) {
     },
     t: key => key === 'quote.add' ? 'Quote text' : key,
   }
-  return { props, sent, inserted, errors, calls, render: () => runtime.render(TextSelectionAction, props) }
+  const render = () => runtime.render(TextSelectionAction, props)
+  const openEditor = () => {
+    const buttons = findAll(render(), 'button')
+    const annotate = buttons.find(button => button.children[0] === 'Annotate')
+    assert.ok(annotate)
+    annotate.props.onClick()
+    return render()
+  }
+  return { props, sent, inserted, errors, calls, render, openEditor, setSelectedText(next) { selectedText = next } }
 }
 const key = patch => ({ key: 'Enter', prevented: 0, stopped: 0, preventDefault() { this.prevented += 1 }, stopPropagation() { this.stopped += 1 }, ...patch })
 
@@ -109,9 +119,29 @@ test('Enter adds, Ctrl or Command+Enter sends, and Shift+Enter or IME compositio
   assert.equal(annotationKey(key({ key: 'a' })), null)
 })
 
-test('adding from a Bot selection sends quote and annotation to the current composer', async () => {
+test('selecting text in a Bot chat first offers Quote and Annotate without opening the editor', () => {
   const app = bench()
-  const field = findAll(app.render(), 'textarea')[0]
+  const tree = app.render()
+  assert.equal(findAll(tree, 'textarea').length, 0)
+  const buttons = findAll(tree, 'button')
+  assert.deepEqual(buttons.map(button => button.children[0]), ['Quote text', 'Annotate'])
+  for (const button of buttons) {
+    let prevented = 0
+    button.props.onPointerDown({ preventDefault() { prevented += 1 } })
+    assert.equal(prevented, 1)
+  }
+  buttons[0].props.onClick()
+  assert.deepEqual(app.inserted, [['quote', 'The selected text']])
+  assert.deepEqual(app.sent, [])
+  assert.deepEqual(app.calls, { clear: 1, dismiss: 1 })
+})
+
+test('adding from a Bot selection sends quote and annotation to the current composer after choosing Annotate', async () => {
+  const app = bench()
+  const editor = app.openEditor()
+  // Focusing the annotation textarea may collapse the browser selection later.
+  app.setSelectedText(null)
+  const field = findAll(editor, 'textarea')[0]
   field.props.onChange({ target: { value: 'Explain this' } })
   const event = key({})
   findAll(app.render(), 'textarea')[0].props.onKeyDown(event)
@@ -126,7 +156,7 @@ test('adding from a Bot selection sends quote and annotation to the current comp
 
 test('Ctrl+Enter sends the annotated quote to a group through the existing send action', async () => {
   const app = bench({ sessionId: 'room' })
-  findAll(app.render(), 'textarea')[0].props.onChange({ target: { value: 'Check this part' } })
+  findAll(app.openEditor(), 'textarea')[0].props.onChange({ target: { value: 'Check this part' } })
   findAll(app.render(), 'textarea')[0].props.onKeyDown(key({ ctrlKey: true }))
   await settle()
   assert.deepEqual(app.sent, [['room', '> The selected text\n> \n> Check this part']])
@@ -137,6 +167,7 @@ test('Ctrl+Enter sends the annotated quote to a group through the existing send 
 
 test('an empty annotation is a normal quote, including on direct send', async () => {
   const app = bench()
+  app.openEditor()
   findAll(app.render(), 'textarea')[0].props.onKeyDown(key({ ctrlKey: true }))
   await settle()
   assert.deepEqual(app.sent, [['bot', '> The selected text']])
@@ -144,7 +175,7 @@ test('an empty annotation is a normal quote, including on direct send', async ()
 
 test('Shift+Enter leaves the annotation open and Escape dismisses it without sending', async () => {
   const app = bench()
-  const field = findAll(app.render(), 'textarea')[0]
+  const field = findAll(app.openEditor(), 'textarea')[0]
   const newline = key({ shiftKey: true })
   field.props.onKeyDown(newline)
   assert.equal(newline.prevented, 0)
@@ -159,7 +190,7 @@ test('Shift+Enter leaves the annotation open and Escape dismisses it without sen
 test('a failed send reports the error and retains the annotation editor', async () => {
   const app = bench()
   app.props.actions.send = async () => { throw new Error('offline') }
-  const field = findAll(app.render(), 'textarea')[0]
+  const field = findAll(app.openEditor(), 'textarea')[0]
   field.props.onChange({ target: { value: 'Keep this draft' } })
   findAll(app.render(), 'textarea')[0].props.onKeyDown(key({ ctrlKey: true }))
   await settle()

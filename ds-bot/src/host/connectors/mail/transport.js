@@ -1,7 +1,6 @@
 // Mail transports. `connectAccount(account, deps)` returns one account session
 // behind a small interface the tools and tests share; tests inject fakes
 // through rt.config.mail.connect.
-import { simpleParser } from 'mailparser'
 import { Socket } from 'node:net'
 import { IMAP_ID } from './presets.js'
 
@@ -102,6 +101,8 @@ export async function connectImap(account, deps = {}) {
     try {
       const message = await imap.fetchOne(uid, { source: true, envelope: true, bodyStructure: true }, { uid: true })
       if (message === false) throw new Error('No such message')
+      // Keep optional mail decoding out of plugin activation.
+      const { simpleParser } = await import('mailparser')
       const parsed = await simpleParser(message.source)
       return {
         uid, folder,

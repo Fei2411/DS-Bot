@@ -110,11 +110,11 @@ export function EffortBar({ reasoning, current, onPick }: { reasoning: Reasoning
       accessibilityValue={{ text: stops[activeIndex].label }}
       accessibilityActions={[{ name: 'increment' }, { name: 'decrement' }]}
       onAccessibilityAction={event => commit(stops[Math.max(0, Math.min(stops.length - 1, activeIndex + (event.nativeEvent.actionName === 'increment' ? 1 : -1)))].effort)}>
-      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: 28 }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8, minHeight: 28 }}>
         <Text style={[typeScale.caption, { color: p.ink3, fontWeight: '500' }]}>{t('Thinking level')}</Text>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexShrink: 1 }}>
           {picked === undefined && hasDefault ? <Text style={[typeScale.caption, { color: p.ink3 }]}>{t('Default')}</Text> : null}
-          <Text style={{ fontSize: 13, lineHeight: 18, fontWeight: '600', color: p.accent }}>{stops[activeIndex].label}</Text>
+          <Text style={{ fontSize: 13, lineHeight: 18, fontWeight: '600', color: p.accent, flexShrink: 1 }} numberOfLines={1}>{stops[activeIndex].label}</Text>
           {picked !== undefined || !hasDefault ? (
             <Pressable accessibilityRole="button" accessibilityLabel={t('Default')} disabled={picked === undefined} onPress={() => commit(undefined)} hitSlop={10}
               style={{ width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: p.hover, opacity: picked === undefined ? 0.35 : 1 }}>
@@ -176,7 +176,7 @@ export function ModelPicker({ current, onPick }: { current?: string; onPick: (re
     <>
       <Pressable accessibilityRole="button" accessibilityLabel={t('Model')} onPress={() => setOpen(true)}
         style={[styles.trigger, { backgroundColor: p.card, borderColor: p.line }]}>
-        <View style={{ flex: 1 }}>
+        <View style={{ flex: 1, minWidth: 0 }}>
           <Text style={[typeScale.settingsRow, { color: p.ink, fontWeight: '500' }]} numberOfLines={1}>{model?.name ?? t('Choose a model')}</Text>
           {model ? <Text style={[typeScale.caption, { color: p.ink3 }]} numberOfLines={1}>{model.providerName ?? model.ref.split('/')[0]}</Text> : null}
         </View>
@@ -211,7 +211,7 @@ export function ModelMenu({ bot, onManage }: { bot: Bot; onManage: () => void })
     <>
       <Pressable accessibilityRole="button" accessibilityLabel={t('Model')} onPress={() => setOpen(true)}
         style={[styles.trigger, { backgroundColor: p.card, borderColor: p.line }]}>
-        <View style={{ flex: 1 }}>
+        <View style={{ flex: 1, minWidth: 0 }}>
           <Text style={[typeScale.settingsRow, { color: p.ink, fontWeight: '500' }]} numberOfLines={1}>{model?.name ?? t('Choose a model')}</Text>
           {model ? <Text style={[typeScale.caption, { color: p.ink3 }]} numberOfLines={1}>{[model.provider, level].filter(Boolean).join(' · ')}</Text> : null}
         </View>

@@ -36,17 +36,19 @@ function setup({ team = TEAM, services = {} } = {}) {
 
 test('the catalog classifies every provider call into observe, background, foreground', () => {
   // cua observe
-  for (const method of ['getCapabilities', 'listApps', 'findApps', 'getApp', 'listWindows', 'getState', 'screenshot', 'permissionStatus', 'applicationIcons']) {
+  for (const method of ['getCapabilities', 'listApps', 'findApps', 'getApp', 'listWindows', 'getState', 'listActions', 'screenshot', 'permissionStatus', 'applicationIcons']) {
     assert.deepEqual(classify('cua', { method }), { provider: 'cua', kind: 'observe', method })
   }
-  // cua foreground: activate, hover and the permission UI
+  // cua foreground: activate, hover, mouseMove with useSystemPointer, and the permission UI
   for (const method of ['activate', 'hover', 'requestPermission', 'openPermissionSettings']) {
     assert.equal(classify('cua', { method }).kind, 'foreground')
   }
-  // cua background input
-  for (const method of ['click', 'scroll', 'drag', 'setValue', 'selectText', 'performSecondaryAction', 'typeText', 'paste', 'pressKey', 'show', 'launchApp']) {
+  assert.equal(classify('cua', { method: 'mouseMove', params: { useSystemPointer: true } }).kind, 'foreground')
+  // cua background input (including AX-only mouseMove)
+  for (const method of ['click', 'scroll', 'drag', 'setValue', 'selectText', 'invoke', 'performAction', 'performSecondaryAction', 'typeText', 'paste', 'pressKey', 'sendKeyEvent', 'show', 'launchApp', 'mouseMove']) {
     assert.equal(classify('cua', { method }).kind, 'background')
   }
+  assert.equal(classify('cua', { method: 'mouseMove', params: { useSystemPointer: false } }).kind, 'background')
   // unknown methods fail closed to foreground
   assert.equal(classify('cua', { method: 'reboot' }).kind, 'foreground')
   assert.equal(classify('cua', {}).kind, 'foreground')
@@ -106,10 +108,12 @@ test('leases: one Bot per app, release on turn end, idle and release', async () 
 test('protected apps match by id, name and executable', () => {
   for (const app of [
     { id: 'io.github.fei2411.dsbot' },
+    { id: 'com.deepseek.harness.computer-use.dev' },
     { id: 'com.apple.systempreferences' },
     { id: 'com.apple.keychainaccess' },
     { name: 'DS Bot' },
     { name: 'DSH Computer Use' },
+    { name: 'DSH Computer Use Dev' },
     { name: 'DeepSeek Harness' },
     { name: 'Keychain Access' },
     { name: 'Credential Manager' },
@@ -242,6 +246,15 @@ test('macOS consent answerer: grants allow, the card answers, Always records, DS
   // a later ask for the same app is auto-allowed by the grant
   assert.deepEqual(await ask('w1', 'Mail'), { answers: [{ id: 'cua-app-access', selected: ['Allow for this session'] }] })
   assert.equal(rt.botOf('w1').computer.apps['mail']?.name, 'Mail')
+  // 0.2.2-rc.2 mouse-control consent follows the Bot's foreground level without hanging on DSH's card
+  const askMouse = sessionId => answerer({
+    agent: { id: sessionId },
+    questions: [{ id: 'cua-mouse-control', intent: { kind: 'approval', approve: 'Allow for this session', reject: 'Deny' }, options: [{ label: 'Allow for this session' }, { label: 'Deny' }] }],
+  }, async () => 'next')
+  assert.equal(await askMouse('plain'), 'next')
+  assert.deepEqual(await askMouse('w1'), { answers: [{ id: 'cua-mouse-control', selected: ['Deny'] }] })
+  await rt.computerEndpoint('set-level', { botId: 'w1', level: 'foreground' })
+  assert.deepEqual(await askMouse('w1'), { answers: [{ id: 'cua-mouse-control', selected: ['Allow for this session'] }] })
 })
 
 // A fake Cordis plugin mount + the registry the provider registers on.

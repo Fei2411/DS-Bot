@@ -17,6 +17,7 @@ export function workPhrase(doing: { tool?: string; said?: string; note?: string;
   const own = (said || note)?.replace(/[\s.。…]+$/u, '')
   if (own) return own
   if (!tool) return t('Thinking about it')
-  const label = TOOL_PHRASES.find(([pattern]) => pattern.test(tool))?.[1] ?? t('On it')
+  const matched = TOOL_PHRASES.find(([pattern]) => pattern.test(tool))?.[1]
+  const label = matched !== undefined ? t(matched) : t('On it')
   return target ? `${label} · ${target}` : label
 }

@@ -1,5 +1,6 @@
 import { useMemo, useRef, useState } from 'react'
-import { Linking, PanResponder, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native'
+import { Linking, PanResponder, Platform, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native'
+import { ScrollView as GHScrollView } from 'react-native-gesture-handler'
 import * as Clipboard from 'expo-clipboard'
 import * as Haptics from 'expo-haptics'
 import { INKS } from '../../../../ds-bot/src/client/inks.js'
@@ -8,6 +9,7 @@ import { compileFormula, createScope, evaluate, isFormula, choiceValue, show } f
 import { t } from '../../ui/i18n.ts'
 import { radius, type as typeScale, type Palette } from '../../ui/tokens.ts'
 import { Markdown } from './markdown.tsx'
+import { computeTableWidths } from './markdown-model.ts'
 import { useTeam } from '../../team/context.tsx'
 
 const type = typeScale
@@ -121,10 +123,10 @@ function Node({ node, val, p, readOnly, inputs, setInputs, answer, done }: {
       const percent = val(n.percent)
       const pct = percent !== undefined ? Number(percent) : Number(val(n.value) ?? 0) / Math.max(1, Number(val(n.max) ?? 1)) * 100
       return (
-        <View>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-            <Text style={[type.caption, { color: p.ink2 }]}>{String(val(n.label) ?? '')}</Text>
-            <Text style={[type.caption, { color: p.ink3 }]}>{n.valueLabel !== undefined ? String(val(n.valueLabel)) : `${Math.round(pct)}%`}</Text>
+        <View style={{ gap: 4 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
+            <Text style={[type.caption, { color: p.ink2, flex: 1, minWidth: 0 }]}>{String(val(n.label) ?? '')}</Text>
+            <Text style={[type.caption, { color: p.ink3, flexShrink: 0 }]}>{n.valueLabel !== undefined ? String(val(n.valueLabel)) : `${Math.round(pct)}%`}</Text>
           </View>
           <View style={[styles.track, { backgroundColor: p.hover }]}>
             <View style={{ width: `${Math.min(100, Math.max(0, pct))}%`, height: '100%', borderRadius: 3, backgroundColor: p.accent }} />
@@ -165,9 +167,9 @@ function Node({ node, val, p, readOnly, inputs, setInputs, answer, done }: {
       const set = (v: number) => { if (!readOnly) setInputs(prev => new Map(prev).set(id, snap(v))) }
       return (
         <View style={{ gap: 2 }}>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-            <Text style={[type.caption, { color: p.ink2 }]}>{String(val(n.label) ?? '')}</Text>
-            <Text style={[type.caption, { color: p.ink }]}>{value}{n.unit !== undefined ? ` ${String(val(n.unit) ?? '')}` : ''}</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
+            <Text style={[type.caption, { color: p.ink2, flex: 1, minWidth: 0 }]}>{String(val(n.label) ?? '')}</Text>
+            <Text style={[type.caption, { color: p.ink, flexShrink: 0 }]}>{value}{n.unit !== undefined ? ` ${String(val(n.unit) ?? '')}` : ''}</Text>
           </View>
           <SliderTrack p={p} percent={(value - min) / Math.max(1e-9, max - min) * 100} disabled={readOnly} onPercent={set} />
         </View>
@@ -179,9 +181,9 @@ function Node({ node, val, p, readOnly, inputs, setInputs, answer, done }: {
       const step = Number(n.step ?? 1), value = Number(inputs.get(id) ?? n.value ?? 0)
       const bump = (d: number) => { if (!readOnly) setInputs(prev => new Map(prev).set(id, Math.min(max, Math.max(min, value + d * step)))) }
       return (
-        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-          <Text style={[type.caption, { color: p.ink2 }]}>{String(val(n.label) ?? '')}</Text>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+          <Text style={[type.caption, { color: p.ink2, flex: 1, minWidth: 0 }]}>{String(val(n.label) ?? '')}</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flexShrink: 0 }}>
             <Pressable accessibilityRole="button" disabled={readOnly} onPress={() => bump(-1)} style={[styles.stepper, { borderColor: p.line }]}><Text style={{ color: p.ink, fontSize: 16 }}>−</Text></Pressable>
             <Text style={[type.settingsRow, { color: p.ink, minWidth: 36, textAlign: 'center' }]}>{value}{n.unit !== undefined ? ` ${String(val(n.unit) ?? '')}` : ''}</Text>
             <Pressable accessibilityRole="button" disabled={readOnly} onPress={() => bump(1)} style={[styles.stepper, { borderColor: p.line }]}><Text style={{ color: p.ink, fontSize: 16 }}>+</Text></Pressable>
@@ -214,9 +216,9 @@ function Node({ node, val, p, readOnly, inputs, setInputs, answer, done }: {
     case 'toggle': {
       const id = String(n.id), on = Boolean(inputs.get(id) ?? n.value)
       return (
-        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-          <Text style={[type.caption, { color: p.ink2 }]}>{String(val(n.label) ?? '')}</Text>
-          <Switch value={on} disabled={readOnly} onValueChange={v => setInputs(prev => new Map(prev).set(id, v))} trackColor={{ true: p.accent }} />
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+          <Text style={[type.caption, { color: p.ink2, flex: 1, minWidth: 0 }]}>{String(val(n.label) ?? '')}</Text>
+          <Switch value={on} disabled={readOnly} onValueChange={v => setInputs(prev => new Map(prev).set(id, v))} trackColor={{ false: p.line2, true: p.accent }} thumbColor={p.knob} />
         </View>
       )
     }
@@ -225,9 +227,9 @@ function Node({ node, val, p, readOnly, inputs, setInputs, answer, done }: {
     case 'confirm': {
       const id = String(n.id)
       return (
-        <View style={{ flexDirection: 'row', gap: 8, marginTop: 4 }}>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 4 }}>
           <Pressable accessibilityRole="button" disabled={readOnly} onPress={() => answer(id, 'confirm', { confirmed: false })} style={[styles.choice, { backgroundColor: p.hover }]}><Text style={[type.settingsRow, { color: p.ink2, textAlign: 'center' }]}>{String(val(n.cancelLabel) ?? t('Cancel'))}</Text></Pressable>
-          <Pressable accessibilityRole="button" disabled={readOnly} onPress={() => answer(id, 'confirm', { confirmed: true })} style={[styles.choice, { backgroundColor: p.accent }]}><Text style={[type.settingsRow, { color: p.accentInk, textAlign: 'center' }]}>{String(val(n.confirmLabel) ?? t('Confirm'))}</Text></Pressable>
+          <Pressable accessibilityRole="button" disabled={readOnly} onPress={() => answer(id, 'confirm', { confirmed: true })} style={[styles.choice, { backgroundColor: p.accent }]}><Text style={[type.settingsRow, { color: p.accentInk, textAlign: 'center', fontWeight: '600' }]}>{String(val(n.confirmLabel) ?? t('Confirm'))}</Text></Pressable>
         </View>
       )
     }
@@ -400,26 +402,31 @@ function Donut({ rows, pinned, p }: { rows: { name: string; values: number[]; co
   )
 }
 
-// Columns share the card's width; a table too wide for it scrolls sideways.
+// Columns align across rows and scroll smoothly sideways when wider than the card.
 function DataTable({ columns, rows, p }: { columns: string[]; rows: unknown[][]; p: Palette }) {
   const [width, setWidth] = useState(0)
-  const cellWidth = Math.max(88, columns.length === 0 ? 0 : Math.floor(width / columns.length))
-  const cellStyle = { width: cellWidth, paddingHorizontal: 8, paddingVertical: 7 }
+  const strRows = useMemo(() => rows.map(row => columns.map((_, ci) => String(row[ci] ?? ''))), [columns, rows])
+  const colWidths = useMemo(() => computeTableWidths(columns, strRows, { containerWidth: width }), [columns, strRows, width])
+  const selectableCell = Platform.OS !== 'android'
   return (
-    <View onLayout={event => setWidth(event.nativeEvent.layout.width - 2)} style={{ borderWidth: 1, borderColor: p.line, borderRadius: radius.item, overflow: 'hidden' }}>
+    <View onLayout={event => setWidth(Math.max(0, event.nativeEvent.layout.width - 2))} style={{ borderWidth: 1, borderColor: p.line, borderRadius: radius.item, overflow: 'hidden' }}>
       {width === 0 ? null : (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0 }}>
+        <GHScrollView horizontal nestedScrollEnabled directionalLockEnabled showsHorizontalScrollIndicator style={{ flexGrow: 0 }}>
           <View>
             <View style={{ flexDirection: 'row', backgroundColor: p.hover }}>
-              {columns.map((c, i) => <Text key={i} style={[type.caption, cellStyle, { color: p.ink2, fontWeight: '500' }]}>{c}</Text>)}
+              {columns.map((c, i) => (
+                <Text selectable={selectableCell} key={i} style={[type.caption, { width: colWidths[i] ?? 88, paddingHorizontal: 8, paddingVertical: 7, color: p.ink2, fontWeight: '500', borderLeftWidth: i > 0 ? StyleSheet.hairlineWidth : 0, borderLeftColor: p.line }]}>{c}</Text>
+              ))}
             </View>
-            {rows.map((row, ri) => (
+            {strRows.map((row, ri) => (
               <View key={ri} style={{ flexDirection: 'row', borderTopWidth: 1, borderTopColor: p.line }}>
-                {columns.map((_, ci) => <Text key={ci} style={[type.small, cellStyle, { color: p.ink }]}>{String(row[ci] ?? '')}</Text>)}
+                {row.map((cell, ci) => (
+                  <Text selectable={selectableCell} key={ci} style={[type.small, { width: colWidths[ci] ?? 88, paddingHorizontal: 8, paddingVertical: 7, color: p.ink, borderLeftWidth: ci > 0 ? StyleSheet.hairlineWidth : 0, borderLeftColor: p.line }]}>{cell}</Text>
+                ))}
               </View>
             ))}
           </View>
-        </ScrollView>
+        </GHScrollView>
       )}
     </View>
   )
@@ -433,8 +440,8 @@ const styles = StyleSheet.create({
   segment: { flexDirection: 'row', gap: 4 },
   segmentRow: { borderWidth: 1, borderRadius: radius.input, paddingVertical: 7, paddingHorizontal: 10 },
   optionRow: { borderWidth: 1, borderRadius: radius.option, paddingVertical: 10, paddingHorizontal: 12 },
-  submit: { borderRadius: radius.pill, paddingVertical: 10, paddingHorizontal: 16 },
-  choice: { flex: 1, borderRadius: radius.pill, paddingVertical: 10 },
+  submit: { borderRadius: radius.pill, minHeight: 42, paddingVertical: 10, paddingHorizontal: 16, alignItems: 'center', justifyContent: 'center' },
+  choice: { flex: 1, minWidth: 110, minHeight: 42, borderRadius: radius.pill, paddingVertical: 10, paddingHorizontal: 14, alignItems: 'center', justifyContent: 'center' },
   field: { borderRadius: radius.input, paddingHorizontal: 10, paddingVertical: 8, fontSize: 15 },
   stepper: { width: 32, height: 32, borderRadius: 16, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
   chartTouch: { position: 'absolute', top: 0, left: 0, right: 0, height: '100%', flexDirection: 'row' },

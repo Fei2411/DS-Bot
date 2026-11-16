@@ -13,6 +13,7 @@
 import { randomUUID } from 'node:crypto'
 import { mkdir, unlink } from 'node:fs/promises'
 import { join } from 'node:path'
+import { openSessions } from './threads.js'
 
 const LEDGER_VERSION = 3
 const PAGE_MESSAGES = 400
@@ -29,7 +30,7 @@ const SLOT_MS = 15 * 60_000
 
 const count = value => (Number.isSafeInteger(value) && value > 0 ? value : 0)
 
-function usageChunk(stream) {
+export function usageChunk(stream) {
   if (!Array.isArray(stream)) return undefined
   for (let index = stream.length - 1; index >= 0; index -= 1) {
     const record = stream[index]
@@ -304,7 +305,10 @@ export function install(rt) {
     const owners = new Map()
     const botOwner = bot => ({ owner: bot.id, name: bot.name })
     for (const bot of Object.values(state.bots)) {
-      for (const sessionId of [bot.id, rt.chatOf(bot.id), ...(bot.segments ?? []).map(segment => segment.sessionId)]) owners.set(sessionId, botOwner(bot))
+      // Every part of the Bot's own chat: the foreground chain, and the parts opened
+      // while it was busy with their own earlier parts. A Session missing here would
+      // make its calls look like DSH's own, so the Bot would seem not to have spent them.
+      for (const sessionId of [bot.id, rt.chatOf(bot.id), ...(bot.segments ?? []).map(segment => segment.sessionId), ...openSessions(bot)]) owners.set(sessionId, botOwner(bot))
     }
     for (const room of Object.values(state.rooms)) {
       for (const sessionId of [rt.sessionOfRoom(room), ...(room.parts ?? []).map(segment => segment.sessionId)].filter(Boolean)) owners.set(sessionId, { owner: `room:${room.id}`, name: room.name })
@@ -649,5 +653,7 @@ export function install(rt) {
     })()
   })
 
-  Object.assign(rt, { usageView, tagUsage, carryUsageTag, ownRequest })
+  // A request DS Bot makes of a local agent CLI outside the model stream.
+  const recordUsage = entry => record(entry)
+  Object.assign(rt, { usageView, tagUsage, carryUsageTag, ownRequest, recordUsage })
 }

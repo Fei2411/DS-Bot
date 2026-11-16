@@ -53,9 +53,9 @@ export function Side({ bot, sessionId, navigation }: { bot: Bot; sessionId: stri
         <View style={styles.head}>
           <Pressable accessibilityRole="button" accessibilityLabel={t('Back')} onPress={() => navigation.goBack()} hitSlop={8} style={styles.headBtn}><ChevronLeftIcon size={20} color={p.ink2} /></Pressable>
           <Avatar bot={bot} dark={dark} size={28} ring={p.main} />
-          <View style={{ flex: 1 }}>
-            <Text style={[typeScale.rowName, { color: p.ink }]}>{bot.name}</Text>
-            <Text style={[typeScale.caption, { color: p.ink3 }]}>{t('Side chat')}</Text>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Text style={[typeScale.rowName, { color: p.ink }]} numberOfLines={1}>{bot.name}</Text>
+            <Text style={[typeScale.caption, { color: p.ink3 }]} numberOfLines={1}>{t('Side chat')}</Text>
           </View>
           {chat !== undefined ? (
             <Pressable accessibilityRole="button" accessibilityLabel={t('Close')} onPress={() => { void call('side-close', { chatId: chat.chatId }).then(() => setOpenId(null)).catch(() => {}) }} style={styles.headBtn}>
@@ -87,7 +87,7 @@ export function Side({ bot, sessionId, navigation }: { bot: Bot; sessionId: stri
                   <Text style={[typeScale.settingsRow, { color: p.ink }]}>{entry.question}</Text>
                 </View>
                 {entry.status === 'answering' ? (
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 6 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 10, marginTop: 6 }}>
                     <Text style={[typeScale.small, { color: p.ink3 }]}>{t('Answering…')}</Text>
                     <Pressable onPress={() => void call('side-cancel', { chatId: chat.chatId, entryId: entry.id })}><Text style={{ color: p.ink2, fontSize: 13 }}>{t('Cancel this side question')}</Text></Pressable>
                   </View>

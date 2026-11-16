@@ -4,6 +4,8 @@ export const LINK_PATH = '/v1/link'
 export const MAX_CONTROL_FRAME_BYTES = 64 * 1024
 export const MAX_RELAY_FRAME_BYTES = 1024 * 1024
 export const SECURE_FRAGMENT_CHUNK_BYTES = 48 * 1024
+export const MAX_RELAY_BYTES_PER_SECOND = 8 * MAX_RELAY_FRAME_BYTES
+export const MAX_RELAY_FRAMES_PER_SECOND = 512
 export const MAX_SECURE_MESSAGE_BYTES = 4 * 1024 * 1024
 
 const SECURE_FRAGMENT_MAGIC = new Uint8Array([0x44, 0x53, 0x42, 0x46]) // DSBF

@@ -1,0 +1,907 @@
+{
+  "source": "agy acp 1.5.9: initialize, session/new, set_config_option, and one prompt calling mcp_dsbot and run_command (personal skills, tier, and paths scrubbed)",
+  "initialize": {
+    "protocolVersion": 1,
+    "agentCapabilities": {
+      "loadSession": true,
+      "load_session": true,
+      "promptCapabilities": {
+        "image": true,
+        "audio": false,
+        "embeddedContext": true
+      },
+      "sessionCapabilities": {
+        "resume": {},
+        "close": {},
+        "load": {},
+        "list": {},
+        "additionalDirectories": {}
+      },
+      "session_capabilities": {
+        "resume": {},
+        "close": {},
+        "load": {},
+        "list": {},
+        "additionalDirectories": {}
+      },
+      "auth": {
+        "logout": {}
+      },
+      "_meta": {
+        "antigravity": {
+          "tier": true,
+          "systemPrompt": {
+            "append": true
+          }
+        }
+      }
+    },
+    "agentInfo": {
+      "name": "Antigravity ACP Server",
+      "version": "1.5.9"
+    },
+    "authMethods": [
+      {
+        "id": "oauth-personal",
+        "name": "Log in with Google",
+        "description": "Log in with your Google account"
+      },
+      {
+        "id": "oauth-business",
+        "name": "Log in with Gemini Enterprise",
+        "description": "Log in with your Gemini Enterprise account"
+      },
+      {
+        "id": "gemini-api-key",
+        "name": "Gemini API key",
+        "description": "Use an API key with Gemini Developer API"
+      },
+      {
+        "id": "agent-platform",
+        "name": "Gemini Enterprise Agent Platform",
+        "description": "Use Gemini Enterprise Agent Platform (formerly Vertex AI) with Application Default Credentials"
+      }
+    ]
+  },
+  "sessionNew": {
+    "sessionId": "agy-session-1",
+    "models": {
+      "availableModels": [
+        {
+          "modelId": "gemini-4-carbon-medium",
+          "name": "Gemini 4 Carbon (Medium)"
+        },
+        {
+          "modelId": "gemini-4-carbon-high",
+          "name": "Gemini 4 Carbon (High)"
+        },
+        {
+          "modelId": "gemini-4-carbon-low",
+          "name": "Gemini 4 Carbon (Low)"
+        },
+        {
+          "modelId": "gemini-4-argon-medium",
+          "name": "Gemini 4 Argon (Medium)"
+        },
+        {
+          "modelId": "gemini-4-argon-high",
+          "name": "Gemini 4 Argon (High)"
+        },
+        {
+          "modelId": "gemini-4-argon-low",
+          "name": "Gemini 4 Argon (Low)"
+        },
+        {
+          "modelId": "gemini-4-hydrogen-high",
+          "name": "Gemini 4 Hydrogen (High)"
+        },
+        {
+          "modelId": "gemini-4-hydrogen-xhigh",
+          "name": "Gemini 4 Hydrogen (XHigh)"
+        },
+        {
+          "modelId": "gemini-4-hydrogen-medium",
+          "name": "Gemini 4 Hydrogen (Medium)"
+        },
+        {
+          "modelId": "gemini-4-hydrogen-low",
+          "name": "Gemini 4 Hydrogen (Low)"
+        },
+        {
+          "modelId": "gemini-pro-orchestrator",
+          "name": "Orchestrator (Carbon)"
+        },
+        {
+          "modelId": "gemini-pro-orchestrator-argon",
+          "name": "Orchestrator (Argon)"
+        },
+        {
+          "modelId": "gemini-3.8-flash-high",
+          "name": "Gemini 3.8 Flash (High)"
+        },
+        {
+          "modelId": "gemini-3.8-flash-medium",
+          "name": "Gemini 3.8 Flash (Medium)"
+        },
+        {
+          "modelId": "gemini-3.8-flash-low",
+          "name": "Gemini 3.8 Flash (Low)"
+        },
+        {
+          "modelId": "claude-opus-5-5-low",
+          "name": "Claude Opus 5.5 (Low)"
+        },
+        {
+          "modelId": "claude-opus-5-5-medium",
+          "name": "Claude Opus 5.5 (Medium)"
+        },
+        {
+          "modelId": "claude-opus-5-5-high",
+          "name": "Claude Opus 5.5 (High)"
+        },
+        {
+          "modelId": "claude-sonnet-5-5-low",
+          "name": "Claude Sonnet 5.5 (Low)"
+        },
+        {
+          "modelId": "claude-sonnet-5-5-medium",
+          "name": "Claude Sonnet 5.5 (Medium)"
+        },
+        {
+          "modelId": "claude-sonnet-5-5-high",
+          "name": "Claude Sonnet 5.5 (High)"
+        },
+        {
+          "modelId": "gpt-oss-120b-medium",
+          "name": "GPT-OSS 120B (Medium)"
+        }
+      ],
+      "currentModelId": "gemini-4-carbon-medium"
+    },
+    "modes": {
+      "currentModeId": "default",
+      "availableModes": [
+        {
+          "id": "default",
+          "name": "Default",
+          "description": "Ask before edits and commands, per your permission settings."
+        },
+        {
+          "id": "accept-edits",
+          "name": "Accept edits",
+          "description": "Approve file edits in the workspace without asking."
+        },
+        {
+          "id": "auto",
+          "name": "Auto",
+          "description": "Approve edits and safe commands; ask before irreversible actions."
+        },
+        {
+          "id": "plan",
+          "name": "Plan",
+          "description": "Plan carefully before executing a task."
+        }
+      ]
+    },
+    "configOptions": [
+      {
+        "id": "model",
+        "name": "Model",
+        "category": "model",
+        "type": "select",
+        "currentValue": "gemini-4-carbon",
+        "options": [
+          {
+            "value": "gemini-4-carbon",
+            "name": "Gemini 4 Carbon"
+          },
+          {
+            "value": "gemini-4-argon",
+            "name": "Gemini 4 Argon"
+          },
+          {
+            "value": "gemini-4-hydrogen",
+            "name": "Gemini 4 Hydrogen"
+          },
+          {
+            "value": "gemini-pro-orchestrator",
+            "name": "Orchestrator (Carbon)"
+          },
+          {
+            "value": "gemini-pro-orchestrator-argon",
+            "name": "Orchestrator (Argon)"
+          },
+          {
+            "value": "gemini-3.8-flash",
+            "name": "Gemini 3.8 Flash"
+          },
+          {
+            "value": "claude-opus-5-5",
+            "name": "Claude Opus 5.5"
+          },
+          {
+            "value": "claude-sonnet-5-5",
+            "name": "Claude Sonnet 5.5"
+          },
+          {
+            "value": "gpt-oss-120b-medium",
+            "name": "GPT-OSS 120B (Medium)"
+          }
+        ]
+      },
+      {
+        "id": "thought_level",
+        "name": "Thinking Level",
+        "category": "thought_level",
+        "type": "select",
+        "currentValue": "medium",
+        "options": [
+          {
+            "value": "low",
+            "name": "Low"
+          },
+          {
+            "value": "medium",
+            "name": "Medium"
+          },
+          {
+            "value": "high",
+            "name": "High"
+          }
+        ]
+      },
+      {
+        "id": "mode",
+        "name": "Mode",
+        "category": "mode",
+        "type": "select",
+        "currentValue": "default",
+        "options": [
+          {
+            "value": "default",
+            "name": "Default",
+            "description": "Ask before edits and commands, per your permission settings."
+          },
+          {
+            "value": "accept-edits",
+            "name": "Accept edits",
+            "description": "Approve file edits in the workspace without asking."
+          },
+          {
+            "value": "auto",
+            "name": "Auto",
+            "description": "Approve edits and safe commands; ask before irreversible actions."
+          },
+          {
+            "value": "plan",
+            "name": "Plan",
+            "description": "Plan carefully before executing a task."
+          }
+        ]
+      }
+    ]
+  },
+  "requests": [
+    {
+      "method": "session/request_permission",
+      "params": {
+        "sessionId": "agy-session-1",
+        "toolCall": {
+          "sessionUpdate": "tool_call",
+          "toolCallId": "call_17689061237362155564",
+          "name": "mcp_dsbot_ping_team",
+          "args": {
+            "tag": "rec1",
+            "toolSummary": "Ping team"
+          },
+          "status": "pending",
+          "kind": "other",
+          "title": "Run mcp_dsbot_ping_team",
+          "rawInput": {
+            "tag": "rec1",
+            "toolSummary": "Ping team"
+          }
+        },
+        "options": [
+          {
+            "optionId": "allow",
+            "name": "Allow",
+            "kind": "allow_once"
+          },
+          {
+            "optionId": "deny",
+            "name": "Deny",
+            "kind": "reject_once"
+          }
+        ]
+      }
+    },
+    {
+      "method": "session/request_permission",
+      "params": {
+        "sessionId": "agy-session-1",
+        "toolCall": {
+          "sessionUpdate": "tool_call",
+          "toolCallId": "call_17689061237362156937",
+          "name": "run_command",
+          "args": {
+            "CommandLine": "pwd",
+            "WaitMsBeforeAsync": 5000,
+            "toolSummary": "Check current working directory"
+          },
+          "status": "pending",
+          "kind": "execute",
+          "title": "pwd",
+          "rawInput": {
+            "CommandLine": "pwd",
+            "WaitMsBeforeAsync": 5000,
+            "toolSummary": "Check current working directory"
+          }
+        },
+        "options": [
+          {
+            "optionId": "allow",
+            "name": "Allow",
+            "kind": "allow_once"
+          },
+          {
+            "optionId": "deny",
+            "name": "Deny",
+            "kind": "reject_once"
+          }
+        ]
+      }
+    }
+  ],
+  "promptResult": {
+    "stopReason": "end_turn",
+    "usage": {
+      "inputTokens": 17436,
+      "outputTokens": 137,
+      "cachedReadTokens": 8112,
+      "cachedWriteTokens": 0,
+      "thoughtTokens": 0,
+      "totalTokens": 25685
+    }
+  },
+  "messages": [
+    {
+      "method": "session/update",
+      "params": {
+        "sessionId": "agy-session-1",
+        "update": {
+          "sessionUpdate": "config_option_update",
+          "configOptions": [
+            {
+              "id": "model",
+              "name": "Model",
+              "category": "model",
+              "type": "select",
+              "currentValue": "gemini-3.8-flash",
+              "options": [
+                {
+                  "value": "gemini-4-carbon",
+                  "name": "Gemini 4 Carbon"
+                },
+                {
+                  "value": "gemini-4-argon",
+                  "name": "Gemini 4 Argon"
+                },
+                {
+                  "value": "gemini-4-hydrogen",
+                  "name": "Gemini 4 Hydrogen"
+                },
+                {
+                  "value": "gemini-pro-orchestrator",
+                  "name": "Orchestrator (Carbon)"
+                },
+                {
+                  "value": "gemini-pro-orchestrator-argon",
+                  "name": "Orchestrator (Argon)"
+                },
+                {
+                  "value": "gemini-3.8-flash",
+                  "name": "Gemini 3.8 Flash"
+                },
+                {
+                  "value": "claude-opus-5-5",
+                  "name": "Claude Opus 5.5"
+                },
+                {
+                  "value": "claude-sonnet-5-5",
+                  "name": "Claude Sonnet 5.5"
+                },
+                {
+                  "value": "gpt-oss-120b-medium",
+                  "name": "GPT-OSS 120B (Medium)"
+                }
+              ]
+            },
+            {
+              "id": "thought_level",
+              "name": "Thinking Level",
+              "category": "thought_level",
+              "type": "select",
+              "currentValue": "medium",
+              "options": [
+                {
+                  "value": "low",
+                  "name": "Low"
+                },
+                {
+                  "value": "medium",
+                  "name": "Medium"
+                },
+                {
+                  "value": "high",
+                  "name": "High"
+                }
+              ]
+            },
+            {
+              "id": "mode",
+              "name": "Mode",
+              "category": "mode",
+              "type": "select",
+              "currentValue": "default",
+              "options": [
+                {
+                  "value": "default",
+                  "name": "Default",
+                  "description": "Ask before edits and commands, per your permission settings."
+                },
+                {
+                  "value": "accept-edits",
+                  "name": "Accept edits",
+                  "description": "Approve file edits in the workspace without asking."
+                },
+                {
+                  "value": "auto",
+                  "name": "Auto",
+                  "description": "Approve edits and safe commands; ask before irreversible actions."
+                },
+                {
+                  "value": "plan",
+                  "name": "Plan",
+                  "description": "Plan carefully before executing a task."
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "method": "session/update",
+      "params": {
+        "sessionId": "agy-session-1",
+        "update": {
+          "sessionUpdate": "config_option_update",
+          "configOptions": [
+            {
+              "id": "model",
+              "name": "Model",
+              "category": "model",
+              "type": "select",
+              "currentValue": "gemini-3.8-flash",
+              "options": [
+                {
+                  "value": "gemini-4-carbon",
+                  "name": "Gemini 4 Carbon"
+                },
+                {
+                  "value": "gemini-4-argon",
+                  "name": "Gemini 4 Argon"
+                },
+                {
+                  "value": "gemini-4-hydrogen",
+                  "name": "Gemini 4 Hydrogen"
+                },
+                {
+                  "value": "gemini-pro-orchestrator",
+                  "name": "Orchestrator (Carbon)"
+                },
+                {
+                  "value": "gemini-pro-orchestrator-argon",
+                  "name": "Orchestrator (Argon)"
+                },
+                {
+                  "value": "gemini-3.8-flash",
+                  "name": "Gemini 3.8 Flash"
+                },
+                {
+                  "value": "claude-opus-5-5",
+                  "name": "Claude Opus 5.5"
+                },
+                {
+                  "value": "claude-sonnet-5-5",
+                  "name": "Claude Sonnet 5.5"
+                },
+                {
+                  "value": "gpt-oss-120b-medium",
+                  "name": "GPT-OSS 120B (Medium)"
+                }
+              ]
+            },
+            {
+              "id": "thought_level",
+              "name": "Thinking Level",
+              "category": "thought_level",
+              "type": "select",
+              "currentValue": "low",
+              "options": [
+                {
+                  "value": "low",
+                  "name": "Low"
+                },
+                {
+                  "value": "medium",
+                  "name": "Medium"
+                },
+                {
+                  "value": "high",
+                  "name": "High"
+                }
+              ]
+            },
+            {
+              "id": "mode",
+              "name": "Mode",
+              "category": "mode",
+              "type": "select",
+              "currentValue": "default",
+              "options": [
+                {
+                  "value": "default",
+                  "name": "Default",
+                  "description": "Ask before edits and commands, per your permission settings."
+                },
+                {
+                  "value": "accept-edits",
+                  "name": "Accept edits",
+                  "description": "Approve file edits in the workspace without asking."
+                },
+                {
+                  "value": "auto",
+                  "name": "Auto",
+                  "description": "Approve edits and safe commands; ask before irreversible actions."
+                },
+                {
+                  "value": "plan",
+                  "name": "Plan",
+                  "description": "Plan carefully before executing a task."
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "method": "session/update",
+      "params": {
+        "sessionId": "agy-session-1",
+        "update": {
+          "sessionUpdate": "available_commands_update",
+          "availableCommands": [
+            {
+              "name": "goal",
+              "description": "Run until the specified goal is completely finished."
+            },
+            {
+              "name": "compact",
+              "description": "Compact the conversation now (summarize history to free up the context window)."
+            },
+            {
+              "name": "schedule",
+              "description": "Run an instruction on a recurring schedule or as a one-time timer."
+            },
+            {
+              "name": "browser",
+              "description": "Invoke a browser agent for web tasks."
+            },
+            {
+              "name": "plan",
+              "description": "Plan carefully before executing a task."
+            },
+            {
+              "name": "grill-me",
+              "description": "Interview me to align on a plan."
+            },
+            {
+              "name": "teamwork",
+              "description": "Invoke a team of agents to autonomously tackle large projects."
+            },
+            {
+              "name": "learn",
+              "description": "Reflect on recent successes or corrections to capture reusable skills or rules."
+            },
+            {
+              "name": "boost",
+              "description": "Invoke the Boost multi-agent orchestrator for complex tasks."
+            }
+          ]
+        }
+      }
+    },
+    {
+      "method": "session/update",
+      "params": {
+        "sessionId": "agy-session-1",
+        "update": {
+          "sessionUpdate": "usage_update",
+          "used": 0,
+          "size": 1048576
+        }
+      }
+    },
+    {
+      "method": "session/update",
+      "params": {
+        "sessionId": "agy-session-1",
+        "update": {
+          "sessionUpdate": "session_info_update",
+          "title": "MCP Tool Ping and Pwd"
+        }
+      }
+    },
+    {
+      "method": "session/update",
+      "params": {
+        "sessionId": "agy-session-1",
+        "update": {
+          "sessionUpdate": "user_message_chunk",
+          "content": {
+            "type": "text",
+            "text": "Call the MCP tool ping_team with tag=\"rec1\" AND also run shell command `pwd` once, then reply briefly with both results."
+          }
+        }
+      }
+    },
+    {
+      "method": "session/update",
+      "params": {
+        "sessionId": "agy-session-1",
+        "update": {
+          "sessionUpdate": "usage_update",
+          "used": 12701,
+          "size": 1048576
+        }
+      }
+    },
+    {
+      "method": "session/update",
+      "params": {
+        "sessionId": "agy-session-1",
+        "update": {
+          "sessionUpdate": "tool_call",
+          "toolCallId": "call_17689061237362155564",
+          "name": "mcp_dsbot_ping_team",
+          "args": {
+            "tag": "rec1",
+            "toolSummary": "Ping team"
+          },
+          "status": "in_progress",
+          "kind": "other",
+          "title": "Run mcp_dsbot_ping_team",
+          "rawInput": {
+            "tag": "rec1",
+            "toolSummary": "Ping team"
+          }
+        }
+      }
+    },
+    {
+      "method": "session/update",
+      "params": {
+        "sessionId": "agy-session-1",
+        "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "call_17689061237362155564",
+          "name": "mcp_dsbot_ping_team",
+          "args": {
+            "tag": "rec1",
+            "toolSummary": "Ping team"
+          },
+          "status": "pending",
+          "kind": "other",
+          "title": "Run mcp_dsbot_ping_team",
+          "rawInput": {
+            "tag": "rec1",
+            "toolSummary": "Ping team"
+          }
+        }
+      }
+    },
+    {
+      "method": "session/update",
+      "params": {
+        "sessionId": "agy-session-1",
+        "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "call_17689061237362155564",
+          "name": "mcp_dsbot_ping_team",
+          "args": {
+            "tag": "rec1",
+            "toolSummary": "Ping team"
+          },
+          "status": "in_progress",
+          "kind": "other",
+          "title": "Run mcp_dsbot_ping_team",
+          "rawInput": {
+            "tag": "rec1",
+            "toolSummary": "Ping team"
+          }
+        }
+      }
+    },
+    {
+      "method": "session/update",
+      "params": {
+        "sessionId": "agy-session-1",
+        "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "call_17689061237362155564",
+          "name": "mcp_dsbot_ping_team",
+          "args": {
+            "tag": "rec1",
+            "toolSummary": "Ping team"
+          },
+          "status": "completed",
+          "kind": "other",
+          "title": "Run mcp_dsbot_ping_team",
+          "rawInput": {
+            "tag": "rec1",
+            "toolSummary": "Ping team"
+          }
+        }
+      }
+    },
+    {
+      "method": "session/update",
+      "params": {
+        "sessionId": "agy-session-1",
+        "update": {
+          "sessionUpdate": "tool_call",
+          "toolCallId": "call_17689061237362156937",
+          "name": "run_command",
+          "args": {
+            "CommandLine": "pwd",
+            "WaitMsBeforeAsync": 5000,
+            "toolSummary": "Check current working directory"
+          },
+          "status": "in_progress",
+          "kind": "execute",
+          "title": "pwd",
+          "rawInput": {
+            "CommandLine": "pwd",
+            "WaitMsBeforeAsync": 5000,
+            "toolSummary": "Check current working directory"
+          }
+        }
+      }
+    },
+    {
+      "method": "session/update",
+      "params": {
+        "sessionId": "agy-session-1",
+        "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "call_17689061237362156937",
+          "name": "run_command",
+          "args": {
+            "CommandLine": "pwd",
+            "WaitMsBeforeAsync": 5000,
+            "toolSummary": "Check current working directory"
+          },
+          "status": "pending",
+          "kind": "execute",
+          "title": "pwd",
+          "rawInput": {
+            "CommandLine": "pwd",
+            "WaitMsBeforeAsync": 5000,
+            "toolSummary": "Check current working directory"
+          }
+        }
+      }
+    },
+    {
+      "method": "session/update",
+      "params": {
+        "sessionId": "agy-session-1",
+        "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "call_17689061237362156937",
+          "name": "run_command",
+          "args": {
+            "CommandLine": "pwd",
+            "WaitMsBeforeAsync": 5000,
+            "toolSummary": "Check current working directory"
+          },
+          "status": "in_progress",
+          "kind": "execute",
+          "title": "pwd",
+          "rawInput": {
+            "CommandLine": "pwd",
+            "WaitMsBeforeAsync": 5000,
+            "toolSummary": "Check current working directory"
+          }
+        }
+      }
+    },
+    {
+      "method": "session/update",
+      "params": {
+        "sessionId": "agy-session-1",
+        "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "call_17689061237362156937",
+          "name": "run_command",
+          "args": {
+            "CommandLine": "pwd",
+            "WaitMsBeforeAsync": 5000,
+            "toolSummary": "Check current working directory"
+          },
+          "status": "completed",
+          "kind": "execute",
+          "title": "pwd",
+          "rawInput": {
+            "CommandLine": "pwd",
+            "WaitMsBeforeAsync": 5000,
+            "toolSummary": "Check current working directory"
+          },
+          "rawOutput": {
+            "output": "Created At: 2026-11-14T08:46:45-08:00\nCompleted At: 2026-11-14T08:46:45-08:00\nCommand exited with code 0.\n\nCommand output:\n/tmp/agy-sample-work\r\n",
+            "exit_code": 0
+          },
+          "content": [
+            {
+              "type": "content",
+              "content": {
+                "type": "text",
+                "text": "Created At: 2026-11-14T08:46:45-08:00\nCompleted At: 2026-11-14T08:46:45-08:00\nCommand exited with code 0.\n\nCommand output:\n/tmp/agy-sample-work\r\n"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "method": "session/update",
+      "params": {
+        "sessionId": "agy-session-1",
+        "update": {
+          "sessionUpdate": "agent_message_chunk",
+          "content": {
+            "type": "text",
+            "text": "-"
+          }
+        }
+      }
+    },
+    {
+      "method": "session/update",
+      "params": {
+        "sessionId": "agy-session-1",
+        "update": {
+          "sessionUpdate": "agent_message_chunk",
+          "content": {
+            "type": "text",
+            "text": " **`ping_team` result**: `pong:rec1`\n- **`pwd` result**: `/tmp/agy-sample-work`"
+          }
+        }
+      }
+    },
+    {
+      "method": "session/update",
+      "params": {
+        "sessionId": "agy-session-1",
+        "update": {
+          "sessionUpdate": "usage_update",
+          "used": 12984,
+          "size": 1048576
+        }
+      }
+    }
+  ]
+}
