@@ -1,7 +1,3 @@
-# Builds the two installers a device check needs, on a runner rather than on a
-# user's machine: the Linux AppImage with this checkout's plugin, and the Android
-# APK signed with the debug key (no release secrets involved). Run it by hand from
-# the Actions tab; both files land under the run's artifacts.
 name: Linux app image and Android APK
 
 on:
@@ -24,11 +20,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-      # The plugin's bundles are generated from src; build them before the app
-      # copies the package, so the app ships this branch's host and client code.
       - name: Build the plugin bundles
         working-directory: ds-bot
         run: |
+          npm ci --no-fund --no-audit --prefix ../link
           npm ci --no-fund --no-audit
           npm run build
       - run: npm ci --no-fund --no-audit
