@@ -13,8 +13,10 @@
 import { BACKGROUND_WAIT_MS, TEAM_TOOLS } from './constants.js'
 
 const SHELL_TOOLS = new Set(['bash', 'pwsh'])
-// Calls that wait for a person or another Bot by design, and the job controls.
-const KEEP_WAITING = new Set([...TEAM_TOOLS, 'job_output', 'job_list', 'job_kill', 'run_code', 'ask_user_question'])
+// Calls that wait for a person or another Bot by design, and the job controls. `skill`
+// lists what each Session has attached at the time it is asked, so a copy of it would
+// keep an old list.
+const KEEP_WAITING = new Set([...TEAM_TOOLS, 'job_output', 'job_list', 'job_kill', 'run_code', 'ask_user_question', 'skill'])
 const LABEL_MAX = 120
 // What a call that went on in the background returns. Its own key keeps it apart from
 // every value the tool itself returns, so `oneOf` with the tool's schema stays exact.
