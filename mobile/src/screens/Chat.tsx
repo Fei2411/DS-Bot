@@ -1,20 +1,25 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { ActivityIndicator, Dimensions, FlatList, KeyboardAvoidingView, Linking, Modal, Pressable, StyleSheet, Text, View, ScrollView, type ListRenderItem } from 'react-native'
-import { useNavigation } from '@react-navigation/native'
+import { useIsFocused, useNavigation } from '@react-navigation/native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import * as Haptics from 'expo-haptics'
+import { downloadFile } from '../team/file-download.ts'
+import * as Sharing from 'expo-sharing'
 import type { Approval, Bot, Question, Room } from '../connection.ts'
 import { createChatCache } from '../team/chat-cache.ts'
+import { connectorCanConnectOnMobile } from '../team/connectors.ts'
 import { useTeam } from '../team/context.tsx'
 import { markSeen } from '../team/seen.ts'
 import { messageClock, t } from '../ui/i18n.ts'
+import { ErrorBoundary } from '../ui/error-boundary.tsx'
 import { shadow, useTheme } from '../ui/tokens.ts'
 import { Avatar, RoomAvatar } from '../ui/marks.tsx'
 import { ArrowDownIcon } from '../ui/icons.tsx'
 import { workPhrase } from '../ui/phrases.ts'
 import { ActionRow, Dock } from './chat/dock.tsx'
 import { Composer, type Photo } from './chat/composer.tsx'
-import { Actions, Item, keysOf, PhotoViewer, PhotoViewerCtx, type ChatItem, type ImageRef } from './chat/items.tsx'
+import { Actions, Item, keysOf, PhotoViewer, PhotoViewerCtx, type ChatItem, type FileRef, type ImageRef } from './chat/items.tsx'
+import { bumpMarkdownImageCache } from './chat/markdown.tsx'
 
 // Feed events refresh the chat as things happen; the poll only catches what a
 // dropped event missed, so it runs rarely.
@@ -46,6 +51,19 @@ function keepSame(prev: ChatItem[], next: ChatItem[]): ChatItem[] {
 // once and the read only brings what changed. Kept in memory only.
 const PAGES_KEPT = 16
 const pages = createChatCache<ChatPage, ChatItem>(PAGES_KEPT)
+
+// Remember scroll positions across chat switches and reconnects so reading history
+// stays where the user scrolled when new replies or state refreshes land.
+const SCROLL_OFFSETS_KEPT = 50
+const scrollOffsets = new Map<string, number>()
+function keepScrollOffset(key: string, offset: number): void {
+  scrollOffsets.delete(key)
+  scrollOffsets.set(key, Math.max(0, offset))
+  if (scrollOffsets.size > SCROLL_OFFSETS_KEPT) {
+    const oldest = scrollOffsets.keys().next().value
+    if (oldest !== undefined) scrollOffsets.delete(oldest)
+  }
+}
 
 // A chat read started before the chat is on screen: on launch the last chat is asked
 // for while the team state is still on its way, and the chat takes that answer.
@@ -83,7 +101,8 @@ const sameMessage = (item: ChatItem, sent: ChatItem) =>
 // pages load as it scrolls up), the pending dock and the composer. `header` is the
 // shell's own (back row or pill).
 export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: Room; header: React.ReactNode; onMissing?: () => void }) {
-  const { team, call, computer, hello } = useTeam()
+  const navigation = useNavigation<any>()
+  const { team, call, refresh: refreshTeam, computer, hello } = useTeam()
   const { p, dark } = useTheme()
   const insets = useSafeAreaInsets()
   const id = bot?.id ?? room?.id ?? ''
@@ -102,12 +121,21 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
   // A failed load clears itself on the next good one.
   const [loadError, setLoadError] = useState<string | null>(null)
   const [loadingOlder, setLoadingOlder] = useState(false)
-  const [awayFromLatest, setAwayFromLatest] = useState(false)
+  const [awayFromLatest, setAwayFromLatest] = useState(() => (scrollOffsets.get(chatKey) ?? 0) > 600)
+  const [unreadBelow, setUnreadBelow] = useState(0)
   // Each poll loop owns a generation number; a chat switch bumps it so stale
   // loops and in-flight refreshes stop writing instead of fighting the new chat.
   const generation = useRef(0)
   const list = useRef<FlatList<Row>>(null)
   const loading = useRef(false)
+  const offsetRef = useRef(scrollOffsets.get(chatKey) ?? 0)
+  const restoredForRef = useRef<string | null>(null)
+  const prevPageItemsLenRef = useRef(0)
+  const prevSigRef = useRef('')
+
+  useEffect(() => {
+    prevSigRef.current = ''
+  }, [chatKey])
 
   // One chat read at a time, like the team state: a burst of messages becomes one
   // read now and at most one more after it.
@@ -122,6 +150,18 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
       reads.delete(chatKey)
       const next = await (early ?? readChat(call, room !== undefined, id))
       if (generation.current === gen) {
+        let lastBot: ChatItem | undefined
+        let botCount = 0
+        for (let i = next.items.length - 1; i >= 0; i -= 1) {
+          const entry = next.items[i]
+          if (entry.kind === 'bot' || entry.kind === 'post') {
+            if (lastBot === undefined) lastBot = entry
+            botCount += 1
+          }
+        }
+        const sig = `${next.sessionId ?? ''}:${botCount}:${lastBot?.id ?? lastBot?.seq ?? ''}:${lastBot?.text?.length ?? ''}`
+        if (prevSigRef.current !== '' && prevSigRef.current !== sig) bumpMarkdownImageCache()
+        prevSigRef.current = sig
         setPageState(prev => ({
           key: chatKey,
           older: prev.key === chatKey ? prev.older : [],
@@ -153,7 +193,12 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
     setPageState({ key: chatKey, page: kept?.page ?? null, older: kept?.older ?? [] })
     cursor.current = kept?.cursor
     setGone(false)
-    setAwayFromLatest(false)
+    const saved = scrollOffsets.get(chatKey) ?? 0
+    offsetRef.current = saved
+    restoredForRef.current = null
+    prevPageItemsLenRef.current = kept?.page?.items.length ?? 0
+    setAwayFromLatest(saved > 600)
+    setUnreadBelow(0)
     let timer: ReturnType<typeof setTimeout> | undefined
     const loop = async () => {
       await refresh(gen)
@@ -162,6 +207,16 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
     void loop()
     return () => { clearTimeout(timer); if (generation.current === gen) generation.current += 1 }
   }, [refresh, chatKey])
+
+  // Track newly appended messages while scrolled up reading history.
+  const latestItemsLen = page?.items.length ?? 0
+  useEffect(() => {
+    const prev = prevPageItemsLenRef.current
+    if (prev > 0 && latestItemsLen > prev && awayFromLatest) {
+      setUnreadBelow(n => n + (latestItemsLen - prev))
+    }
+    prevPageItemsLenRef.current = latestItemsLen
+  }, [latestItemsLen, awayFromLatest])
 
   // What this chat shows is kept for the next visit.
   useEffect(() => {
@@ -191,6 +246,7 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
   const approvals = (team?.work?.approvals ?? []).filter((entry: Approval) => entry.sessionId === sessionId || (entry.roomId !== undefined && entry.roomId === room?.id))
   const doing = bot !== undefined ? team?.work?.bots?.[bot.id] ?? team?.activity?.[bot.id] : undefined
   const secrets = (team?.secretRequests?.[bot?.id ?? ''] ?? []).filter((r: { status?: string }) => r.status === 'pending')
+  const connectorRequests = (team?.connectorRequests?.[bot?.id ?? ''] ?? []).filter((r: { status?: string }) => r.status === 'pending')
   const handoff = (team as { browserHolds?: Record<string, { callId?: string; reason?: string; note?: string }> } | null)?.browserHolds?.[bot?.id ?? '']
   const browserHold = handoff !== undefined && handoff.callId !== undefined ? { callId: handoff.callId, reason: handoff.reason, note: handoff.note } : undefined
   const btw = ((team as { btwCards?: Record<string, { id: string; partId?: string; question?: string; answer?: string; failure?: string }[]> } | null)?.btwCards?.[bot?.id ?? ''] ?? []).filter(card => card.partId === undefined || card.partId === sessionId)
@@ -207,6 +263,26 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
   const [readerTitle, setReaderTitle] = useState<string | null>(null)
   const [fileError, setFileError] = useState<string | null>(null)
   const [photos, setPhotos] = useState<{ sessionId: string; refs: ImageRef[]; index: number } | null>(null)
+  // Save hands the file to the phone: the host sends its bytes, the app writes them
+  // to a cache file, and the system share sheet lets Android put it in Downloads or
+  // open it in a viewer. A refusal names the reason in the same line as file errors.
+  const saveFile = useCallback((file: FileRef) => {
+    setFileError(null)
+    const targetSession = file.sessionId ?? sessionId
+    const payload = file.attachmentId !== undefined
+      ? { sessionId: targetSession, attachmentId: file.attachmentId }
+      : { sessionId: targetSession, seq: file.seq, index: file.index }
+    void (async () => {
+      try {
+        const saved = await downloadFile(call, payload)
+        if (!(await Sharing.isAvailableAsync())) throw new Error(t('Saving to the device is not available on this phone'))
+        await Sharing.shareAsync(saved.uri, { mimeType: saved.mime, dialogTitle: saved.name })
+      } catch (failure) {
+        const msg = (failure as { message?: string })?.message
+        setFileError(msg ?? t('Could not save this file'))
+      }
+    })()
+  }, [call, sessionId])
   const openFile = useCallback((file: { name: string; attachmentId?: string }) => {
     void call('file-text', { file }).then(result => {
       const read = result as { text?: string; truncated?: boolean } | string
@@ -222,31 +298,51 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
     return toggle
   }
   const { onFeed, online } = useTeam()
-  useEffect(() => { markSeen(id) }, [id])
-  // Back online after a drop: read what was missed. Not on mount, which reads already.
+  const hostId = computer?.hostDeviceId ?? ''
+  const isFocused = useIsFocused()
+  const focusedRef = useRef(isFocused)
+  focusedRef.current = isFocused
+  const latestAt = useMemo(() => {
+    let max = bot?.lastAt ?? room?.lastAt ?? 0
+    for (const item of page?.items ?? []) {
+      if (typeof item.time === 'number' && Number.isFinite(item.time) && item.time > max) max = item.time
+    }
+    return max
+  }, [bot?.lastAt, room?.lastAt, page?.items])
+  useEffect(() => {
+    if (isFocused && hostId !== '' && id !== '' && (bot !== undefined || room !== undefined) && latestAt > 0) {
+      void markSeen(hostId, id, latestAt)
+    }
+  }, [isFocused, hostId, id, bot !== undefined, room !== undefined, latestAt])
+  // Back online after a drop or opening a chat: read what was missed and reconcile team pending state.
+  useEffect(() => { refreshTeam?.() }, [refreshTeam, chatKey])
   const wasOnline = useRef(online)
   useEffect(() => {
-    if (online && !wasOnline.current) void refresh(generation.current)
+    if (online && !wasOnline.current) { void refresh(generation.current); refreshTeam?.() }
     wasOnline.current = online
-  }, [online, refresh])
+  }, [online, refresh, refreshTeam])
+  const hasChatPending = question !== undefined || team?.views?.[sessionId] !== undefined || approvals.length > 0 || secrets.length > 0 || browserHold !== undefined
   useEffect(() => {
     if (onFeed === undefined) return
     const gen = generation.current
     return onFeed((event, data) => {
       if (generation.current !== gen) return
-      if (event === 'room' && room !== undefined && data?.roomId === room.id) void refresh(gen)
+      if (event === 'room' && room !== undefined && data?.roomId === room.id) { void refresh(gen); if (hasChatPending) refreshTeam?.() }
       if (event === 'message' && data?.sessionId === sessionId) {
         const item = data.item
         if (item !== undefined) {
           setPageState(prev => prev.key !== chatKey || prev.page === null || prev.page.items.some(it => it.seq !== undefined && it.seq === item.seq)
             ? prev
             : { ...prev, page: { ...prev.page, items: [...prev.page.items, item] } })
+          if (focusedRef.current && hostId !== '' && id !== '' && typeof item.time === 'number' && Number.isFinite(item.time) && item.time > 0) {
+            void markSeen(hostId, id, item.time)
+          }
         }
-        markSeen(id)
         void refresh(gen)
+        if (hasChatPending) refreshTeam?.()
       }
     })
-  }, [onFeed, room, sessionId, refresh, id])
+  }, [onFeed, room, sessionId, refresh, refreshTeam, hasChatPending, id, hostId])
   // Bubble caps in px — RN cannot parse CSS min(). Narrow phone screens ignore the
   // desktop's wide-window column slider so bubbles do not waste a third of the screen;
   // group rows reserve 30px (22px avatar + 8px gap) on the left.
@@ -327,9 +423,13 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
   const renderRow = useCallback<ListRenderItem<Row>>(({ item: row }) => {
     const { item } = row
     const skey = item.kind === 'steps' ? row.key : row.key
-    return <Item stamp={row.stamp} author={inRoom && item.botId !== undefined ? botsById.get(item.botId) : undefined} admin={inRoom && item.botId !== undefined && item.botId === admin}
-      item={item} p={p} flat={flat} maxWidth={item.kind === 'bot' || item.kind === 'post' ? botMax : userMax} inRoom={inRoom} sessionId={sessionId}
-      onLongPress={setMenuText} onOpenFile={openFile} onRetry={retry} open={openSteps[skey]} onToggle={toggleOf(skey)} />
+    return (
+      <ErrorBoundary inline>
+        <Item stamp={row.stamp} author={inRoom && item.botId !== undefined ? botsById.get(item.botId) : undefined} admin={inRoom && item.botId !== undefined && item.botId === admin}
+          item={item} p={p} flat={flat} maxWidth={item.kind === 'bot' || item.kind === 'post' ? botMax : userMax} inRoom={inRoom} sessionId={sessionId}
+          onLongPress={setMenuText} onOpenFile={openFile} onSaveFile={saveFile} onRetry={retry} open={openSteps[skey]} onToggle={toggleOf(skey)} />
+      </ErrorBoundary>
+    )
   }, [inRoom, botsById, admin, p, flat, botMax, userMax, sessionId, openFile, retry, openSteps])
 
   const empty = page !== null && rows.length === 0
@@ -363,24 +463,40 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
                 windowSize={11}
                 onEndReached={() => void loadMore()}
                 onEndReachedThreshold={0.6}
-                maintainVisibleContentPosition={{ minIndexForVisible: 0, autoscrollToTopThreshold: 120 }}
-                onScroll={event => { const away = event.nativeEvent.contentOffset.y > 600; if (away !== awayFromLatest) setAwayFromLatest(away) }}
+                maintainVisibleContentPosition={{ minIndexForVisible: 0, autoscrollToTopThreshold: awayFromLatest ? undefined : 60 }}
+                onContentSizeChange={() => {
+                  const saved = scrollOffsets.get(chatKey) ?? 0
+                  if (saved > 0 && restoredForRef.current !== chatKey && rows.length > 0) {
+                    restoredForRef.current = chatKey
+                    requestAnimationFrame(() => list.current?.scrollToOffset({ offset: saved, animated: false }))
+                  }
+                }}
+                onScroll={event => {
+                  const y = event.nativeEvent.contentOffset.y
+                  offsetRef.current = y
+                  keepScrollOffset(chatKey, y)
+                  const away = y > 600
+                  if (away !== awayFromLatest) setAwayFromLatest(away)
+                  if (y <= 80 && unreadBelow > 0) setUnreadBelow(0)
+                }}
                 scrollEventThrottle={100}
                 ListHeaderComponent={<Streaming key={sessionId} sessionId={sessionId} p={p} flat={flat} maxWidth={botMax} inRoom={inRoom} />}
                 ListFooterComponent={loadingOlder ? <ActivityIndicator style={{ marginVertical: 12 }} color={p.ink3} /> : undefined}
               />}
         {empty && !gone ? <EmptyChat bot={bot} room={room} bots={team?.bots ?? []} p={p} dark={dark} /> : null}
-        {awayFromLatest ? (
-          <Pressable accessibilityRole="button" accessibilityLabel={t('Latest messages')} onPress={() => list.current?.scrollToOffset({ offset: 0, animated: true })}
-            style={[styles.toLatest, { backgroundColor: p.card, borderColor: p.line2 }, shadow(2)]}>
-            <ArrowDownIcon size={18} color={p.ink2} />
+        {awayFromLatest || unreadBelow > 0 ? (
+          <Pressable accessibilityRole="button" accessibilityLabel={t('Latest messages')}
+            onPress={() => { setUnreadBelow(0); keepScrollOffset(chatKey, 0); list.current?.scrollToOffset({ offset: 0, animated: true }) }}
+            style={[unreadBelow > 0 ? styles.toLatestPill : styles.toLatest, { backgroundColor: unreadBelow > 0 ? p.accent : p.card, borderColor: unreadBelow > 0 ? p.accent : p.line2 }, shadow(2)]}>
+            {unreadBelow > 0 ? <Text style={[type.caption, { color: p.accentInk, fontWeight: '600' }]}>{t('{count} new', { count: unreadBelow })}</Text> : null}
+            <ArrowDownIcon size={16} color={unreadBelow > 0 ? p.accentInk : p.ink2} />
           </Pressable>
         ) : null}
       </View>
       {bot?.blocked !== undefined ? <BlockedCard bot={bot} p={p} /> : null}
       {bot !== undefined ? <ComputerCards bot={bot} p={p} /> : null}
       {running && doingBot ? <ActionRow bot={doingBot} doing={doingText} p={p} dark={dark} /> : null}
-      <Dock question={question} sessionId={sessionId} approvals={approvals} secrets={secrets} btw={btw} handoff={browserHold} view={team?.views?.[sessionId]} call={call} p={p} expanded={expandedKey} onExpand={setExpandedKey} />
+      <Dock question={question} sessionId={sessionId} approvals={approvals} secrets={secrets} connectorRequests={connectorRequests} botName={bot?.name} onOpenConnector={connectorId => { if (connectorCanConnectOnMobile(connectorId)) navigation.navigate('Settings', { screen: 'Connectors', params: { focusId: connectorId }, initial: false }) }} btw={btw} handoff={browserHold} view={team?.views?.[sessionId]} call={call} p={p} expanded={expandedKey} onExpand={setExpandedKey} />
       {fileError ? <Text style={[type.small, { color: p.danger, textAlign: 'center', marginBottom: 4 }]} accessibilityRole="alert">{fileError}</Text> : null}
       {page !== null && loadError !== null ? <Text style={[type.small, { color: p.danger, textAlign: 'center', marginBottom: 4, marginHorizontal: 16 }]} accessibilityRole="alert">{loadError}</Text> : null}
       <Composer name={bot?.name ?? room?.name ?? ''} running={running} canStop={canStop} canAttach={hello?.capabilities?.includes('send-images') === true} onSend={send} onStop={stop} p={p} />
@@ -565,6 +681,7 @@ const styles = StyleSheet.create({
   reader: { flex: 1 },
   empty: { position: 'absolute', left: 24, right: 24, top: '28%', alignItems: 'center' },
   toLatest: { position: 'absolute', right: 14, bottom: 10, width: 38, height: 38, borderRadius: 19, borderWidth: StyleSheet.hairlineWidth, alignItems: 'center', justifyContent: 'center' },
+  toLatestPill: { position: 'absolute', right: 14, bottom: 10, height: 36, paddingHorizontal: 12, borderRadius: 18, borderWidth: StyleSheet.hairlineWidth, flexDirection: 'row', alignItems: 'center', gap: 6 },
   goal: { marginHorizontal: 12, marginBottom: 6, borderRadius: 16, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 14, paddingVertical: 10 },
   blocked: { marginHorizontal: 12, marginBottom: 8, borderRadius: 16, borderWidth: StyleSheet.hairlineWidth, padding: 14 },
   fix: { minHeight: 40, borderRadius: 20, paddingHorizontal: 16, alignItems: 'center', justifyContent: 'center' },

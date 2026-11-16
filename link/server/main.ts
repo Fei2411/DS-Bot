@@ -3,6 +3,7 @@ import { startRelayServer } from './server.ts'
 const env = process.env
 const number = (name: string): number | undefined => env[name] === undefined ? undefined : Number(env[name])
 const ttlDays = number('DSBOT_LINK_DEVICE_TTL_DAYS')
+const mbPerHour = number('DSBOT_LINK_MAX_MB_PER_HOUR')
 
 const server = await startRelayServer({
   port: Number(env.PORT ?? 8787),
@@ -13,6 +14,7 @@ const server = await startRelayServer({
   maxLinks: number('DSBOT_LINK_MAX_LINKS'),
   maxSocketsPerAddress: number('DSBOT_LINK_MAX_SOCKETS_PER_ADDRESS'),
   maxNewDevicesPerHour: number('DSBOT_LINK_MAX_NEW_DEVICES_PER_HOUR'),
+  maxBytesPerHour: mbPerHour === undefined ? undefined : mbPerHour * 1024 * 1024,
   deviceTtlMs: ttlDays === undefined ? undefined : ttlDays * 86_400_000,
 })
 console.log(`DS Bot link Server: ${server.url}`)

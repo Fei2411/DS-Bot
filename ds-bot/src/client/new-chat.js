@@ -7,6 +7,7 @@ import { CreateBot } from './create-bot.js'
 import { QUICK_EDGES, useFlip, useGlide, useMorph } from './motion.js'
 import { t } from './i18n.js'
 import { sendsOnEnter } from './enter-key.js'
+import { PasteCard, foldPastedText } from './paste-card.js'
 
 export function NewChat({ mode, sectionId = null, paneLeft, roster, actions }) {
   const [query, setQuery] = useState('')
@@ -15,12 +16,16 @@ export function NewChat({ mode, sectionId = null, paneLeft, roster, actions }) {
   // A new group chat picks its admin first, then the other members.
   const [admin, setAdmin] = useState(null)
   const [message, setMessage] = useState('')
+  // A long paste waits here as a card; it goes with the message whole.
+  const [pasted, setPasted] = useState(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [cursor, setCursor] = useState(0)
   // The Create Bot form, opened straight from 'create' mode or from the list.
   const [draft, setDraft] = useState(mode === 'create' ? { name: '', fromList: false, sectionId } : null)
   const inputRef = useRef(null)
+  const messageRef = useRef(null)
+  const draftText = () => `${message}${pasted?.text ?? ''}`
   const close = () => actions.closeOverlay()
   useEscape(close)
   const wanted = query.trim().toLowerCase()
@@ -52,7 +57,7 @@ export function NewChat({ mode, sectionId = null, paneLeft, roster, actions }) {
     if (bot.hidden || (sectionId && bot.sectionId !== sectionId)) {
       await actions.setFlags(bot.id, { ...(bot.hidden ? { hidden: false } : {}), ...(sectionId ? { sectionId } : {}) })
     }
-    if (message.trim()) await actions.send(bot.id, message.trim())
+    if (draftText().trim()) await actions.send(bot.id, draftText().trim())
     actions.openSession(bot.id)
     close()
   })
@@ -72,7 +77,7 @@ export function NewChat({ mode, sectionId = null, paneLeft, roster, actions }) {
   // else the admin opens by asking what the group is for.
   const makeGroup = async () => {
     if (admin === null || picked.length === 0) return
-    const text = message.trim()
+    const text = draftText().trim()
     const room = await actions.createRoom([admin, ...picked], { admin, ...(sectionId ? { sectionId } : {}), ...(text ? {} : { greet: true }) })
     if (text) await actions.send(room.id, text)
     actions.openSession(room.id)
@@ -80,7 +85,7 @@ export function NewChat({ mode, sectionId = null, paneLeft, roster, actions }) {
   }
   const createGroup = () => run(makeGroup)
   const sendMessage = () => run(async () => {
-    const text = message.trim()
+    const text = draftText().trim()
     if (group && admin !== null) { await makeGroup(); return }
     if (text === '' || picked.length === 0) return
     if (picked.length === 1) {
@@ -117,7 +122,7 @@ export function NewChat({ mode, sectionId = null, paneLeft, roster, actions }) {
   if (draft) {
     return h('div', { className: 'bt-pane', style: { left: paneLeft } },
       h(CreateBot, {
-        roster, actions, start: draft, brief: message.trim(), canGoBack: draft.fromList,
+        roster, actions, start: draft, brief: draftText().trim(), canGoBack: draft.fromList,
         onBack: draft.fromList ? () => { setDraft(null); setTimeout(() => inputRef.current?.focus()) } : close,
         onCreated: created,
       }))
@@ -170,14 +175,26 @@ export function NewChat({ mode, sectionId = null, paneLeft, roster, actions }) {
       h('div', { className: 'bt-nc-spacer' }),
       error ? h('div', { className: 'bt-error' }, error) : null,
       h('div', { className: 'bt-nc-compose' },
+        pasted === null ? null : h('div', { className: 'bt-paste-dock' }, h(PasteCard, {
+          text: pasted.text,
+          onPutBack: () => { setMessage(current => `${current}${pasted.text}`); setPasted(null); messageRef.current?.focus() },
+          onRemove: () => setPasted(null),
+        })),
         h('div', { className: 'bt-nc-card' },
           h('span', { className: 'bt-nc-plus', 'aria-hidden': true }, h(PlusIcon)),
           h('textarea', {
-            rows: 1, value: message, placeholder, 'aria-label': placeholder,
+            ref: messageRef, rows: 1, value: message, placeholder, 'aria-label': placeholder,
             onChange: event => setMessage(event.target.value),
+            onPaste: (event) => {
+              if ((event.clipboardData?.files?.length ?? 0) > 0) return
+              const kept = foldPastedText(event.clipboardData?.getData('text/plain') ?? '')
+              if (kept === null) return
+              event.preventDefault()
+              setPasted({ text: kept })
+            },
             onKeyDown: (event) => {
               if (event.key === 'Enter' && sendsOnEnter(roster.prefs) && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); sendMessage() }
             },
           }),
-          h('button', { type: 'button', className: 'bt-nc-send', 'aria-label': t('Send message'), disabled: busy || message.trim() === '' || picked.length === 0, onClick: sendMessage }, h(ArrowUpIcon))))))
+          h('button', { type: 'button', className: 'bt-nc-send', 'aria-label': t('Send message'), disabled: busy || draftText().trim() === '' || picked.length === 0, onClick: sendMessage }, h(ArrowUpIcon))))))
 }

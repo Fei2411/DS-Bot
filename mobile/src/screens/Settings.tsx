@@ -1,6 +1,7 @@
-import { Children, Fragment, useEffect, useState } from 'react'
-import { Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native'
+import { Children, Fragment, useCallback, useEffect, useState } from 'react'
+import { AppState, Linking, PermissionsAndroid, Platform, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native'
 import { useTeam } from '../team/context.tsx'
+import { androidNotificationStatus } from '../team/notifications.ts'
 import { t, getLang, setLang } from '../ui/i18n.ts'
 import { ChevronRightIcon } from '../ui/icons.tsx'
 import { readPrefs, writePrefs } from '../store.ts'
@@ -63,10 +64,31 @@ export function Settings({ navigation }: { navigation?: any }) {
   const { team, computer } = useTeam()
   const [prefs, setPrefs] = useState<Record<string, string>>({})
   const [, bump] = useState(0)
-  useEffect(() => { void readPrefs().then(setPrefs) }, [])
+  const androidSdk = Platform.OS === 'android' ? Number(Platform.Version) : 0
+  const [notifAllowed, setNotifAllowed] = useState(false)
+  const refreshNotif = useCallback(() => {
+    if (Platform.OS !== 'android' || androidSdk < 33) return
+    void PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS).then(setNotifAllowed, () => {})
+  }, [androidSdk])
+  useEffect(() => {
+    void readPrefs().then(setPrefs)
+    refreshNotif()
+    if (Platform.OS !== 'android') return
+    const sub = AppState.addEventListener('change', next => { if (next === 'active') refreshNotif() })
+    return () => sub.remove()
+  }, [refreshNotif])
   const set = (key: string, value: string) => { const next = { ...prefs, [key]: value }; setPrefs(next); void writePrefs({ [key]: value }) }
+  const openNotifications = () => {
+    if (Platform.OS !== 'android') return
+    if (notifAllowed || androidSdk < 33) { void Linking.openSettings(); return }
+    void PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS).then(result => {
+      if (result === PermissionsAndroid.RESULTS.GRANTED) setNotifAllowed(true)
+      else if (result === PermissionsAndroid.RESULTS.NEVER_ASK_AGAIN) void Linking.openSettings()
+    }, () => void Linking.openSettings())
+  }
   const theme = prefs.theme ?? 'system'
   const lang = getLang()
+  const notifStatus = androidNotificationStatus(androidSdk, notifAllowed)
   return (
     <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
       <Section label={t('Phone')}>
@@ -76,6 +98,7 @@ export function Settings({ navigation }: { navigation?: any }) {
         <Choice label={t('Language')} value={lang as 'system' | 'zh' | 'en'} onPick={next => { set('lang', next); setLang(next); bump(v => v + 1) }}
           options={[{ id: 'system', label: t('Follow system') }, { id: 'zh', label: '简体中文' }, { id: 'en', label: 'English' }]} />
         <Row label={t('In-app banners')} end={<Switch value={prefs.banners !== 'off'} onValueChange={on => set('banners', on ? 'on' : 'off')} trackColor={{ false: p.line2, true: p.accent }} thumbColor={p.knob} />} />
+        {Platform.OS === 'android' ? <Row label={t('Notifications')} value={notifStatus !== undefined ? t(notifStatus) : undefined} onPress={openNotifications} /> : null}
       </Section>
       {/* The desktop settings pages, in the desktop's order. */}
       <Section label={t('Team')}>

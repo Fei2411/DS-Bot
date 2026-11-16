@@ -1,6 +1,7 @@
 import { Platform } from 'react-native'
 import { RelayTransport, RpcClient, SecureTransport } from '../../link/src/index.ts'
 import type { PhoneIdentity, SavedComputer } from './store.ts'
+import type { ConnectorsView } from './team/connectors.ts'
 
 type BotResult<T> = { ok: true; value: T } | { ok: false; error: { code: string; message: string } }
 
@@ -76,6 +77,25 @@ export interface SecretRequest {
   status?: string
 }
 
+export interface ConnectorRequest {
+  id: string
+  connectorId: string
+  name?: string
+  purpose?: string
+  callId?: string
+  sessionId?: string
+  status?: string
+}
+
+export interface CapabilityStatus { state?: string; error?: string }
+
+export interface CapabilityItem {
+  name: string; description?: string; kind?: string; transport?: string
+  command?: string; args?: string[]; env?: Record<string, string>
+  url?: string; headers?: Record<string, string>
+  content?: string; items?: string[]; status?: string; approved?: boolean
+}
+
 export interface TeamState {
   revision: number
   unchanged?: boolean
@@ -90,12 +110,13 @@ export interface TeamState {
   questions?: Record<string, Question>
   views?: Record<string, ShownView>
   secretRequests?: Record<string, SecretRequest[]>
-  connectors?: { id: string; name: string; state?: string; account?: string; error?: string }[]
-  capabilities?: { name: string; description?: string; kind?: string; transport?: string; command?: string; url?: string; content?: string; items?: string[]; status?: string }[]
+  connectorRequests?: Record<string, ConnectorRequest[]>
+  connectors?: ConnectorsView
+  capabilities?: CapabilityItem[]
   browserHolds?: Record<string, { by?: string; reason?: string; note?: string; callId?: string }>
   btwCards?: Record<string, { id: string; partId?: string; question?: string; answer?: string; failure?: string; status?: string }[]>
   sideChats?: Record<string, { chatId: string; entries?: { id: string; question?: string; answer?: string; status?: string; failure?: string }[] }[]>
-  capabilityStatuses?: Record<string, Record<string, { state?: string; error?: string }> | { state?: string; error?: string }>
+  capabilityStatuses?: Record<string, Record<string, CapabilityStatus> | CapabilityStatus>
   workspace?: string
   dataPath?: string
   version?: string

@@ -1,9 +1,11 @@
-import { Children, Fragment, useEffect, useState } from 'react'
+import { Children, Fragment, useEffect, useRef, useState } from 'react'
 import { useIsFocused } from '@react-navigation/native'
 import { Linking, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { confirmDanger, Sheet, SheetHeader, useInSheet } from '../nav/sheet.tsx'
 import * as Clipboard from 'expo-clipboard'
+import { connectorActionOf, connectorRows, type ConnectorPending, type ConnectorRow } from '../team/connectors.ts'
+import { capabilityStatusFor, capabilityStatusText, unapprovedCapabilitiesFor } from '../team/capabilities.ts'
 import { useTeam } from '../team/context.tsx'
 import { t } from '../ui/i18n.ts'
 import { ChevronLeftIcon, ChevronRightIcon } from '../ui/icons.tsx'
@@ -82,8 +84,10 @@ export function LabeledInput({ label, ...props }: React.ComponentProps<typeof Te
 
 export function Providers({ navigation }: any) {
   const { p } = useTheme()
-  const { call } = useTeam()
+  const { call, online } = useTeam()
   const [view, setView] = useState<ProvidersView | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [open, setOpen] = useState<string | null>(null)
   const [adding, setAdding] = useState(false)
   const [mode, setMode] = useState<'known' | 'custom'>('known')
@@ -94,14 +98,36 @@ export function Providers({ navigation }: any) {
   const [confirm, setConfirm] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [saved, setSaved] = useState<string | null>(null)
-  const load = () => void call('providers').then(v => setView(v as ProvidersView)).catch(() => {})
-  useState(() => { load(); return null })
+  const load = () => {
+    setLoading(true)
+    setLoadError(null)
+    void call('providers').then(
+      v => { setView(v as ProvidersView); setLoadError(null) },
+      (f: { message?: string }) => { setLoadError(f?.message ?? String(f)) },
+    ).finally(() => setLoading(false))
+  }
+  useEffect(() => { load() }, [])
+  useEffect(() => { if (online && view === null) load() }, [online])
   const apply = (task: Promise<unknown>, after?: () => void) => task.then(() => { setError(null); after?.() }, (f: { code?: string; message?: string }) => { if (f?.code !== 'unlock/canceled') setError(f?.message ?? String(f)) })
   const saveKey = (id: string) => { if (key === '') return; const next = key; setKey(''); void apply(call('provider-key', { provider: id, value: next }), () => { setSaved(id); load() }) }
   const typed = draft.typed.split(/[\s,]+/).map(s => s.trim()).filter(Boolean)
   const models = [...(found ?? []).filter(m => picked.includes(m.id)), ...typed.filter(id => !picked.includes(id)).map(id => ({ id }))]
   const ready = draft.provider.trim() !== '' && draft.baseURL.trim() !== '' && models.length > 0
-  const discover = () => { if (draft.baseURL.trim() === '') return; void apply(call('provider-models', { baseURL: draft.baseURL, api: draft.api || (view?.protocols ?? [])[0], key: draft.key }), () => {}) .then(() => {}) }
+  const discover = () => {
+    if (draft.baseURL.trim() === '') return
+    void call('provider-models', { baseURL: draft.baseURL, api: draft.api || (view?.protocols ?? [])[0], key: draft.key })
+      .then(value => {
+        setError(null)
+        const raw = Array.isArray(value) ? value : Array.isArray((value as { models?: unknown })?.models) ? (value as { models: unknown[] }).models : []
+        const list = raw
+          .map((entry: unknown) => (typeof entry === 'string' ? { id: entry } : entry as { id?: string; name?: string }))
+          .filter((entry): entry is { id: string; name?: string } => typeof entry?.id === 'string' && entry.id !== '')
+        setFound(list)
+        setPicked(list.map(m => m.id))
+      }, (f: { code?: string; message?: string }) => {
+        if (f?.code !== 'unlock/canceled') setError(f?.message ?? String(f))
+      })
+  }
   const addKnown = () => { if (draft.provider === '') return; void apply(call('provider-add', { provider: draft.provider, key: draft.key }), () => { setAdding(false); setDraft(d => ({ ...d, provider: '', key: '' })); load() }) }
   const addCustom = () => { if (!ready) return; void apply(call('provider-add', { custom: true, provider: draft.provider.trim(), name: draft.name, baseURL: draft.baseURL, api: draft.api || (view?.protocols ?? [])[0], key: draft.key, models }), () => { setAdding(false); setFound(null); setPicked([]); setDraft({ provider: '', name: '', baseURL: '', api: '', key: '', typed: '' }); load() }) }
   return (
@@ -110,6 +136,19 @@ export function Providers({ navigation }: any) {
       <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
         {view?.available === false ? <Text style={[typeScale.small, { color: p.ink3, margin: 18 }]}>{t('This DSH cannot set up model providers.')}</Text> : null}
         {error ? <Text style={[typeScale.small, { color: p.danger, margin: 18 }]}>{error}</Text> : null}
+        {view === null && loadError !== null ? (
+          <View style={{ margin: 18, gap: 10 }}>
+            <Text style={[typeScale.small, { color: p.danger }]}>{loadError}</Text>
+            <Pressable accessibilityRole="button" onPress={load} style={[styles.smallBtn, { backgroundColor: p.accent, alignSelf: 'flex-start' }]}>
+              <Text style={{ color: p.accentInk, fontSize: 14, fontWeight: '600' }}>{t('Try again')}</Text>
+            </Pressable>
+          </View>
+        ) : view === null && loading ? (
+          <Section label={t('Model providers')}>
+            <Row label={t('Connecting…')} />
+          </Section>
+        ) : (
+        <Fragment>
         <Section label={t('Model providers · {count}', { count: view?.providers?.length ?? 0 })}>
           {(view?.providers ?? []).map(provider => (
             <View key={provider.id}>
@@ -223,6 +262,8 @@ export function Providers({ navigation }: any) {
             </Pressable>
           </View>
         )}
+        </Fragment>
+        )}
       </ScrollView>
     </Screen>
   )
@@ -233,52 +274,233 @@ export function Providers({ navigation }: any) {
 const CONNECTOR_ABOUT: Record<string, string> = { github: 'Repositories, issues, and pull requests' }
 const TOKEN_URLS: Record<string, string> = { github: 'https://github.com/settings/personal-access-tokens/new' }
 
-const connectorStatus = (item: { id: string; name: string; state?: string; account?: string; error?: string }) => {
-  if (item.state === 'connecting') return t('Connecting…')
+const connectorStatus = (item: ConnectorRow) => {
+  if (item.state === 'connecting') return item.pending ? t('Waiting for sign-in…') : t('Connecting…')
+  if (item.state === 'needs-sign-in') return t('Sign in again')
+  if (item.state === 'needs-client') return t('This service needs an app client ID')
   if (item.state === 'error') return t('Could not connect: {error}', { error: item.error ?? '' })
-  if (item.state === 'ready') return item.account ? t('Connected as {account}', { account: item.account }) : t('Connected')
-  return CONNECTOR_ABOUT[item.id] !== undefined ? t(CONNECTOR_ABOUT[item.id]) : ''
+  if (item.state === 'ready') {
+    const who = item.account ? t('Connected as {account}', { account: item.account }) : t('Connected')
+    return item.tools && item.tools > 0 ? `${who} · ${t('{count} tools', { count: item.tools })}` : who
+  }
+  const about = item.about ?? CONNECTOR_ABOUT[item.id]
+  return about !== undefined ? t(about) : ''
 }
 
-export function Connectors({ navigation }: any) {
+export function Connectors({ navigation, route }: any) {
   const { p } = useTheme()
   const { team, call } = useTeam()
-  const [form, setForm] = useState<string | null>(null)
+  const focusId = typeof route?.params?.focusId === 'string' ? route.params.focusId : null
+  const focusedRef = useRef<string | null>(null)
+  const [form, setForm] = useState<{ id: string; mode: 'key' | 'token' } | null>(null)
   const [token, setToken] = useState('')
+  const [pastingId, setPastingId] = useState<string | null>(null)
+  const [callbackInput, setCallbackInput] = useState('')
+  const [clientDrafts, setClientDrafts] = useState<Record<string, { id: string; secret: string }>>({})
+  const [copiedCode, setCopiedCode] = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const connectors = (team as { connectors?: { id: string; name: string; state?: string; account?: string; error?: string }[] } | null)?.connectors ?? []
-  const run = (id: string, task: Promise<unknown>, after?: () => void) => {
-    setBusy(id)
-    return task.then(() => { setError(null); after?.() }, (f: { code?: string; message?: string }) => { if (f?.code !== 'unlock/canceled') setError(f?.message ?? String(f)) }).finally(() => setBusy(null))
+
+  const rawConnectors = connectorRows(team?.connectors)
+  const focused = focusId !== null ? rawConnectors.find(r => r.id === focusId) : undefined
+  const connectors = focused !== undefined ? [focused, ...rawConnectors.filter(r => r.id !== focusId)] : rawConnectors
+
+  useEffect(() => {
+    if (focusId === null || focusedRef.current === focusId || focused === undefined) return
+    focusedRef.current = focusId
+    if (focused.state === 'off' || focused.state === 'needs-sign-in') {
+      const action = connectorActionOf(focused)
+      if (action === 'key-form' || action === 'token-form') {
+        setToken('')
+        setForm({ id: focused.id, mode: action === 'key-form' ? 'key' : 'token' })
+      }
+    }
+  }, [focusId, focused])
+
+  const openPending = (pending?: ConnectorPending) => {
+    if (pending?.kind === 'browser' && pending.url) {
+      void Linking.openURL(pending.url)
+    } else if (pending?.kind === 'device' && pending.verificationUri) {
+      if (pending.userCode) void Clipboard.setStringAsync(pending.userCode).then(() => setCopiedCode(pending.userCode!))
+      void Linking.openURL(pending.verificationUri)
+    }
   }
+  const pendingFromView = (view: unknown, id: string) => connectorRows(view).find(row => row.id === id)?.pending
+  const run = (id: string, task: Promise<unknown>, after?: (value: unknown) => void) => {
+    setBusy(id)
+    return task.then(value => { setError(null); after?.(value) }, (f: { code?: string; message?: string }) => { if (f?.code !== 'unlock/canceled') setError(f?.message ?? String(f)) }).finally(() => setBusy(null))
+  }
+  const connect = (item: ConnectorRow) => {
+    const action = connectorActionOf(item)
+    if (action === 'connect-now') {
+      void run(item.id, call('connector-connect', { id: item.id }))
+    } else if (action === 'oauth-signin') {
+      void run(item.id, call('connector-connect', { id: item.id }), view => { setForm(null); openPending(pendingFromView(view, item.id)) })
+    } else {
+      setToken('')
+      setForm({ id: item.id, mode: action === 'key-form' ? 'key' : 'token' })
+    }
+  }
+
   return (
     <Screen><Back title={t('Connectors')} onBack={() => navigation.goBack()} />
-      <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
+      <ScrollView contentContainerStyle={{ paddingBottom: 40 }} keyboardShouldPersistTaps="handled">
         {error ? <Text style={[typeScale.small, { color: p.danger, margin: 18 }]}>{error}</Text> : null}
         <Section label={t('Connectors')}>
           {connectors.map(item => {
-            const on = item.state !== 'off'
-            const connecting = form === item.id
+            const on = item.state !== 'off' && item.state !== 'needs-client'
+            const pending = item.pending
+            const hasPending = pending?.kind === 'browser' || pending?.kind === 'device'
+            const showingForm = form?.id === item.id
+            const disabled = busy === item.id
+            const draft = clientDrafts[item.id] ?? { id: '', secret: '' }
+            const setDraft = (patch: Partial<{ id: string; secret: string }>) =>
+              setClientDrafts(prev => ({ ...prev, [item.id]: { ...(prev[item.id] ?? { id: '', secret: '' }), ...patch } }))
+            const disconnectLabel = item.custom !== undefined ? t('Remove') : t('Disconnect')
             return (
-              <View key={item.id}>
+              <View key={item.id} style={item.id === focusId ? { backgroundColor: p.hover } : undefined}>
                 <View style={styles.row}>
-                  <View style={{ flex: 1 }}>
+                  <View style={{ flex: 1, minWidth: 0 }}>
                     <Text style={[typeScale.settingsRow, { color: p.ink }]}>{item.name}</Text>
                     <Text style={[typeScale.small, { color: item.state === 'error' ? p.danger : p.ink3, marginTop: 2 }]}>{connectorStatus(item)}</Text>
                   </View>
-                  {item.state === 'error' ? <Pressable onPress={() => void run(item.id, call('connector-retry', { id: item.id }))}><Text style={{ color: p.accent }}>{t('Try again')}</Text></Pressable> : null}
-                  {on ? <Pressable onPress={() => void run(item.id, call('connector-disconnect', { id: item.id }))}><Text style={{ color: p.ink2 }}>{t('Disconnect')}</Text></Pressable>
-                    : connecting ? null : <Pressable onPress={() => setForm(item.id)}><Text style={{ color: p.accent }}>{t('Connect')}</Text></Pressable>}
+                  {hasPending || showingForm ? null
+                    : item.state === 'needs-sign-in' ? (
+                      <View style={{ flexDirection: 'row', gap: 12, alignItems: 'center' }}>
+                        <Pressable disabled={disabled} onPress={() => connect(item)}>
+                          <Text style={{ color: p.accent }}>{t('Sign in again')}</Text>
+                        </Pressable>
+                        <Pressable disabled={disabled} onPress={() => void run(item.id, call('connector-disconnect', { id: item.id }))}>
+                          <Text style={{ color: p.ink2 }}>{disconnectLabel}</Text>
+                        </Pressable>
+                      </View>
+                    ) : item.state === 'error' ? (
+                      <View style={{ flexDirection: 'row', gap: 12, alignItems: 'center' }}>
+                        <Pressable disabled={disabled} onPress={() => void run(item.id, call('connector-retry', { id: item.id }))}>
+                          <Text style={{ color: p.accent }}>{t('Try again')}</Text>
+                        </Pressable>
+                        <Pressable disabled={disabled} onPress={() => void run(item.id, call('connector-disconnect', { id: item.id }))}>
+                          <Text style={{ color: p.ink2 }}>{disconnectLabel}</Text>
+                        </Pressable>
+                      </View>
+                    ) : on ? (
+                      <Pressable disabled={disabled} onPress={() => void run(item.id, call('connector-disconnect', { id: item.id }))}>
+                        <Text style={{ color: p.ink2 }}>{disconnectLabel}</Text>
+                      </Pressable>
+                    ) : (
+                      <View style={{ flexDirection: 'row', gap: 12, alignItems: 'center' }}>
+                        {item.auth?.kind === 'oauth' && item.auth.token === true && item.auth.client?.id ? (
+                          <Pressable disabled={disabled} onPress={() => { setToken(''); setForm({ id: item.id, mode: 'token' }) }}>
+                            <Text style={[typeScale.small, { color: p.accent }]}>{t('Use a token instead')}</Text>
+                          </Pressable>
+                        ) : null}
+                        <Pressable disabled={disabled} onPress={() => connect(item)}>
+                          <Text style={{ color: p.accent, fontWeight: '600' }}>{disabled ? t('Connecting…') : t('Connect')}</Text>
+                        </Pressable>
+                      </View>
+                    )}
                 </View>
-                {!on && connecting ? (
+
+                {pending?.kind === 'browser' ? (
                   <View style={{ borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: p.line, paddingHorizontal: 16, paddingVertical: 10, gap: 8 }}>
-                    <LabeledInput label={t('{name} token', { name: item.name })} style={[typeScale.settingsRow, { color: p.ink, borderWidth: 1, borderColor: p.line, borderRadius: 10, paddingHorizontal: 12, minHeight: 40, paddingVertical: 6 }]} value={token} onChangeText={setToken} placeholder={t('{name} token', { name: item.name })} placeholderTextColor={p.ink3} autoCapitalize="none" autoCorrect={false} secureTextEntry />
-                    {TOKEN_URLS[item.id] !== undefined ? <Text style={[typeScale.small, { color: p.accent }]} onPress={() => void Linking.openURL(TOKEN_URLS[item.id])}>{t('Create a token on {name}', { name: item.name })}</Text> : null}
+                    <Text style={[typeScale.small, { color: p.ink2 }]}>{t('Finish signing in in your browser.')}</Text>
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12, alignItems: 'center' }}>
+                      {pending.url ? (
+                        <Pressable onPress={() => void Linking.openURL(pending.url!)}>
+                          <Text style={[typeScale.small, { color: p.accent }]}>{t('Open again')}</Text>
+                        </Pressable>
+                      ) : null}
+                      <Pressable onPress={() => { setPastingId(pastingId === item.id ? null : item.id); setCallbackInput('') }}>
+                        <Text style={[typeScale.small, { color: p.accent }]}>{t('Did not come back here?')}</Text>
+                      </Pressable>
+                      <Pressable disabled={disabled} onPress={() => void run(item.id, call('connector-cancel', { id: item.id }), () => setPastingId(null))}>
+                        <Text style={[typeScale.small, { color: p.ink2 }]}>{t('Cancel')}</Text>
+                      </Pressable>
+                    </View>
+                    {pastingId === item.id ? (
+                      <View style={{ gap: 8 }}>
+                        <TextInput style={[typeScale.settingsRow, styles.field, { color: p.ink, borderColor: p.line }]} value={callbackInput} onChangeText={setCallbackInput}
+                          placeholder={t('Paste the address you land on')} placeholderTextColor={p.ink3} autoCapitalize="none" autoCorrect={false} />
+                        <View style={{ flexDirection: 'row', justifyContent: 'flex-end' }}>
+                          <Pressable disabled={disabled || callbackInput.trim() === ''} onPress={() => { const next = callbackInput.trim(); void run(item.id, call('connector-sign-in-code', { id: item.id, input: next }), () => { setCallbackInput(''); setPastingId(null) }) }}>
+                            <Text style={{ color: callbackInput.trim() === '' ? p.ink3 : p.accent, fontWeight: '600' }}>{t('Finish sign-in')}</Text>
+                          </Pressable>
+                        </View>
+                      </View>
+                    ) : null}
+                  </View>
+                ) : null}
+
+                {pending?.kind === 'device' ? (
+                  <View style={{ borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: p.line, paddingHorizontal: 16, paddingVertical: 10, gap: 8 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                      <Text selectable style={[typeScale.settingsRow, { color: p.ink, fontFamily: 'monospace', fontWeight: '600' }]}>{pending.userCode}</Text>
+                      {pending.userCode ? (
+                        <Pressable onPress={() => void Clipboard.setStringAsync(pending.userCode!).then(() => setCopiedCode(pending.userCode!))}
+                          style={[styles.smallBtn, { backgroundColor: p.hover }]}>
+                          <Text style={[typeScale.small, { color: p.ink }]}>{t('Copy')}</Text>
+                        </Pressable>
+                      ) : null}
+                      {copiedCode !== null && copiedCode === pending.userCode ? <Text style={[typeScale.small, { color: p.accent }]}>{t('Copied to clipboard')}</Text> : null}
+                    </View>
+                    {pending.verificationUri ? (
+                      <Text style={[typeScale.small, { color: p.ink2 }]}>{t('Paste the code on {host} and authorize.', { host: pending.verificationUri.replace(/^https?:\/\//, '') })}</Text>
+                    ) : null}
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12, alignItems: 'center' }}>
+                      {pending.verificationUri ? (
+                        <Pressable onPress={() => void Linking.openURL(pending.verificationUri!)}>
+                          <Text style={[typeScale.small, { color: p.accent }]}>{t('Open again')}</Text>
+                        </Pressable>
+                      ) : null}
+                      {item.auth?.token === true ? (
+                        <Pressable disabled={disabled} onPress={() => void run(item.id, call('connector-cancel', { id: item.id }), () => { setToken(''); setForm({ id: item.id, mode: 'token' }) })}>
+                          <Text style={[typeScale.small, { color: p.accent }]}>{t('Use a token instead')}</Text>
+                        </Pressable>
+                      ) : null}
+                      <Pressable disabled={disabled} onPress={() => void run(item.id, call('connector-cancel', { id: item.id }))}>
+                        <Text style={[typeScale.small, { color: p.ink2 }]}>{t('Cancel')}</Text>
+                      </Pressable>
+                    </View>
+                  </View>
+                ) : null}
+
+                {item.state === 'needs-client' && !hasPending ? (
+                  <View style={{ borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: p.line, paddingHorizontal: 16, paddingVertical: 10, gap: 8 }}>
+                    <LabeledInput label={t('Client ID')} style={[typeScale.settingsRow, styles.field, { color: p.ink, borderColor: p.line }]} value={draft.id} onChangeText={v => setDraft({ id: v })} placeholder={t('Client ID')} placeholderTextColor={p.ink3} autoCapitalize="none" autoCorrect={false} />
+                    <LabeledInput label={t('Client secret (optional)')} style={[typeScale.settingsRow, styles.field, { color: p.ink, borderColor: p.line }]} value={draft.secret} onChangeText={v => setDraft({ secret: v })} placeholder={t('Client secret (optional)')} placeholderTextColor={p.ink3} autoCapitalize="none" autoCorrect={false} secureTextEntry />
+                    <View style={{ flexDirection: 'row', gap: 14, alignItems: 'center', justifyContent: 'flex-end' }}>
+                      <Pressable disabled={disabled} onPress={() => void run(item.id, call('connector-cancel', { id: item.id }))}>
+                        <Text style={{ color: p.ink2 }}>{t('Cancel')}</Text>
+                      </Pressable>
+                      <Pressable disabled={disabled || draft.id.trim() === ''} onPress={() => void run(item.id, call('connector-client', { id: item.id, clientId: draft.id.trim(), clientSecret: draft.secret.trim() || undefined }), view => openPending(pendingFromView(view, item.id)))}>
+                        <Text style={{ color: draft.id.trim() === '' ? p.ink3 : p.accent, fontWeight: '600' }}>{t('Continue')}</Text>
+                      </Pressable>
+                    </View>
+                  </View>
+                ) : null}
+
+                {showingForm ? (
+                  <View style={{ borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: p.line, paddingHorizontal: 16, paddingVertical: 10, gap: 8 }}>
+                    <LabeledInput
+                      label={form.mode === 'key' ? t('{name} key', { name: item.name }) : t('{name} token', { name: item.name })}
+                      style={[typeScale.settingsRow, styles.field, { color: p.ink, borderColor: p.line }]}
+                      value={token} onChangeText={setToken}
+                      placeholder={form.mode === 'key' ? t('{name} key', { name: item.name }) : t('{name} token', { name: item.name })}
+                      placeholderTextColor={p.ink3} autoCapitalize="none" autoCorrect={false} secureTextEntry />
+                    {item.id === 'github' ? (
+                      <Text style={[typeScale.small, { color: p.accent }]} onPress={() => void Linking.openURL(TOKEN_URLS.github)}>{t('Create a token on GitHub')}</Text>
+                    ) : item.auth?.keyUrl ? (
+                      <Text style={[typeScale.small, { color: p.accent }]} onPress={() => void Linking.openURL(item.auth!.keyUrl!)}>{t('Get a key')}</Text>
+                    ) : null}
                     <View style={{ flexDirection: 'row', gap: 14, alignItems: 'center', justifyContent: 'flex-end' }}>
                       <Pressable onPress={() => { setForm(null); setToken('') }}><Text style={{ color: p.ink2 }}>{t('Cancel')}</Text></Pressable>
-                      <Pressable disabled={busy === item.id || token.trim() === ''} onPress={() => { const next = token; setToken(''); void run(item.id, call('connector-connect', { id: item.id, token: next }), () => setForm(null)) }}>
-                        <Text style={{ color: token.trim() === '' ? p.ink3 : p.accent, fontWeight: '600' }}>{busy === item.id ? t('Connecting…') : t('Connect')}</Text>
+                      <Pressable disabled={disabled || token.trim() === ''} onPress={() => {
+                        const next = token.trim()
+                        setToken('')
+                        const body = form.mode === 'key' ? { id: item.id, key: next } : { id: item.id, token: next }
+                        void run(item.id, call('connector-connect', body), () => setForm(null))
+                      }}>
+                        <Text style={{ color: token.trim() === '' ? p.ink3 : p.accent, fontWeight: '600' }}>{disabled ? t('Connecting…') : t('Connect')}</Text>
                       </Pressable>
                     </View>
                   </View>
@@ -292,13 +514,6 @@ export function Connectors({ navigation }: any) {
     </Screen>
   )
 }
-
-export const capabilityStatusText = (status?: { state?: string; error?: string }) =>
-  status === undefined ? undefined
-  : status.state === 'ready' ? t('Ready')
-  : status.state === 'needs-approval' ? t('Needs approval')
-  : status.state === 'error' ? t('Could not connect: {error}', { error: status.error ?? '' })
-  : t('Connecting…')
 
 export function Capabilities({ navigation }: any) {
   const { p } = useTheme()
@@ -325,7 +540,7 @@ export function Capabilities({ navigation }: any) {
     setError(null)
     void call('capability-save', payload).then(() => setEditing(null), (f: { code?: string; message?: string }) => { if (f?.code !== 'unlock/canceled') setError(f?.message ?? String(f)) })
   }
-  const statuses = (team as { capabilityStatuses?: Record<string, { state?: string; error?: string }> } | null)?.capabilityStatuses ?? {}
+  const statuses = team?.capabilityStatuses
   const statusText = capabilityStatusText
   const detail = (item: { kind?: string; transport?: string; items?: string[] }) =>
     item.kind === 'pack' ? `${t('Pack')}: ${(item.items ?? []).join(', ') || t('No items')}`
@@ -334,30 +549,42 @@ export function Capabilities({ navigation }: any) {
     : ''
   const act = (endpoint: string, payload: Record<string, unknown>) =>
     call(endpoint, payload).catch((f: { code?: string; message?: string }) => { if (f?.code !== 'unlock/canceled') setError(f?.message ?? String(f)) })
+  const mapText = (map?: Record<string, string>) => (map && Object.keys(map).length > 0 ? JSON.stringify(map, null, 2) : '')
   return (
     <Screen><Back title={t('Capabilities')} onBack={() => navigation.goBack()} />
       <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
         {error ? <Text style={[typeScale.small, { color: p.danger, margin: 18 }]}>{error}</Text> : null}
         <Section label={t('Capabilities')}>
           {items.map(item => {
-            const status = statuses[item.name]
+            const status = capabilityStatusFor(statuses, item.name, { bots: team?.bots, item })
+            const approvable = unapprovedCapabilitiesFor(items, statuses, item, team?.bots)
             const text = statusText(status)
+            const approveAll = () => {
+              void (async () => {
+                setError(null)
+                for (const name of approvable) {
+                  await call('capability-approve', { name })
+                }
+              })().catch((f: { code?: string; message?: string }) => {
+                if (f?.code !== 'unlock/canceled') setError(f?.message ?? String(f))
+              })
+            }
             return (
               <View key={item.name}>
                 <Pressable accessibilityRole="button" onPress={() => setOpen(open === item.name ? null : item.name)} style={styles.row}>
                   <View style={{ flex: 1 }}>
                     <Text style={[typeScale.settingsRow, { color: p.ink }]}>{item.name}</Text>
                     {item.description ? <Text style={[typeScale.small, { color: p.ink3, marginTop: 2 }]} numberOfLines={2}>{item.description}</Text> : null}
-                    <Text style={[typeScale.small, { color: status?.state === 'needs-approval' ? p.accent : status?.state === 'error' ? p.danger : p.ink3, marginTop: 2 }]}>{[detail(item as { kind?: string; transport?: string; items?: string[] }), text].filter(Boolean).join(' · ')}</Text>
+                    <Text style={[typeScale.small, { color: status?.state === 'needs-approval' ? p.accent : status?.state === 'error' ? p.danger : p.ink3, marginTop: 2 }]}>{[detail(item), text].filter(Boolean).join(' · ')}</Text>
                   </View>
                   <ChevronRightIcon size={16} color={p.ink3} />
                 </Pressable>
                 {open === item.name ? (
                   <View style={{ borderTopWidth: 1, borderTopColor: p.line, paddingHorizontal: 16, paddingVertical: 10 }}>
-                    <ScrollView style={{ maxHeight: 180 }}><Text selectable style={[typeScale.small, { color: p.ink2 }]}>{(item as { content?: string }).content ?? item.description ?? ''}</Text></ScrollView>
+                    <ScrollView style={{ maxHeight: 180 }}><Text selectable style={[typeScale.small, { color: p.ink2 }]}>{item.content ?? item.description ?? ''}</Text></ScrollView>
                     <View style={{ flexDirection: 'row', gap: 14, marginTop: 10, justifyContent: 'flex-end' }}>
-                      <Pressable onPress={() => setEditing({ name: item.name, kind: item.kind ?? 'mcp', description: item.description ?? '', transport: item.transport ?? 'stdio', command: item.command ?? '', argsText: '', envText: '', url: item.url ?? '', headersText: '', content: item.content ?? '', items: item.items ?? [], originalName: item.name })}><Text style={{ color: p.ink2 }}>{t('Edit')}</Text></Pressable>
-                      {status?.state === 'needs-approval' ? <Pressable onPress={() => void act('capability-approve', { name: item.name })}><Text style={{ color: p.accent }}>{t('Approve')}</Text></Pressable> : null}
+                      <Pressable onPress={() => setEditing({ name: item.name, kind: item.kind ?? 'mcp', description: item.description ?? '', transport: item.transport ?? 'stdio', command: item.command ?? '', argsText: (item.args ?? []).join('\n'), envText: mapText(item.env), url: item.url ?? '', headersText: mapText(item.headers), content: item.content ?? '', items: item.items ?? [], originalName: item.name })}><Text style={{ color: p.ink2 }}>{t('Edit')}</Text></Pressable>
+                      {approvable.length > 0 ? <Pressable onPress={approveAll}><Text style={{ color: p.accent, fontWeight: '600' }}>{t('Approve')}</Text></Pressable> : null}
                       <Pressable onPress={() => confirmDanger(t('Delete {name}?', { name: item.name }), t('Delete'), () => void act('capability-delete', { name: item.name }))}><Text style={{ color: p.danger }}>{t('Delete')}</Text></Pressable>
                     </View>
                   </View>
@@ -438,7 +665,9 @@ export function TeamUsage({ navigation }: any) {
   // The computer's usage view (usage.js): hourly rows of
   // [hour, owner, model, kind, input, cacheRead, cacheWrite, output, calls].
   const [view, setView] = useState<{ owners?: { name: string; kind: string; deleted?: boolean }[]; models?: { name: string }[]; rows?: number[][] } | null>(null)
-  useState(() => { void call('usage', { timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }).then(v => setView(v as typeof view)).catch(() => {}); return null })
+  useEffect(() => {
+    void call('usage', { timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }).then(v => setView(v as typeof view)).catch(() => {})
+  }, [])
   const rows = (view?.rows ?? []) as unknown as [string, number, number, string, number, number, number, number, number][]
   const sum = (pick: (row: typeof rows[number]) => boolean) => rows.filter(pick).reduce((total, row) => ({ input: total.input + row[4] + row[5] + row[6], output: total.output + row[7] }), { input: 0, output: 0 })
   const all = sum(() => true)
@@ -494,7 +723,10 @@ export function Updates({ navigation }: any) {
   const [copied, setCopied] = useState(false)
   const [busy, setBusy] = useState(false)
   const check = () => { setBusy(true); void call('update-check').then(v => { const r = v as { update?: typeof update; dsh?: typeof dsh } | typeof update; setUpdate((r as { update?: typeof update }).update ?? (r as typeof update)); setDsh((r as { dsh?: typeof dsh }).dsh ?? null) }).catch(() => {}).finally(() => setBusy(false)) }
-  useState(() => { check(); void call('diagnostics').then(v => setDiag(v as typeof diag)).catch(() => {}); return null })
+  useEffect(() => {
+    check()
+    void call('diagnostics').then(v => setDiag(v as typeof diag)).catch(() => {})
+  }, [])
   const updateText = (u: typeof update) => {
     if (u === null) return '—'
     if (u.phase === 'installing') return t('Updating DS Bot…')
@@ -557,9 +789,11 @@ export function About({ navigation }: any) {
   const { p } = useTheme()
   const { call, computer } = useTeam()
   // The state carries no versions; the update check knows both.
-  const [versions, setVersions] = useState<{ current?: string; dsh?: { current?: string } | null } | null>(null)
-  useState(() => { void call('update-check').then(v => setVersions(v as typeof versions)).catch(() => {}); return null })
-  const version = versions?.current ?? '—'
+  const [versions, setVersions] = useState<{ update?: { current?: string }; current?: string; dsh?: { current?: string } | null } | null>(null)
+  useEffect(() => {
+    void call('update-check').then(v => setVersions(v as typeof versions)).catch(() => {})
+  }, [])
+  const version = versions?.update?.current ?? versions?.current ?? '—'
   const dsh = versions?.dsh?.current
   const appVersion = require('expo-constants').default.expoConfig?.version ?? require('expo-constants').default.manifest?.version ?? '—'
   return (

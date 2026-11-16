@@ -2,7 +2,7 @@ const assert = require('node:assert/strict')
 const { readFileSync } = require('node:fs')
 const { join } = require('node:path')
 const { test } = require('node:test')
-const { sign } = require('./android-release-signing.js')
+const { applyArchs, sign } = require('./android-release-signing.js')
 const { versionCode } = require('../app.config.js')
 
 // app/build.gradle as `expo prebuild` of Expo 58 writes it.
@@ -14,6 +14,7 @@ test('the release build signs with the upload key when the build names one, else
   const release = signed.slice(signed.indexOf('buildTypes {'))
   assert.match(release, /release \{[\s\S]*signingConfig System\.getenv\('DSBOT_ANDROID_KEYSTORE'\) \? signingConfigs\.release : signingConfigs\.debug/)
   assert.match(release, /debug \{\n\s*signingConfig signingConfigs\.debug\n/)
+  assert.match(signed, /withBuildType\("release"\)[\s\S]*variant\.packaging\.jniLibs\.excludes\.addAll\(\["\*\*\/x86\/\*\*", "\*\*\/x86_64\/\*\*"\]\)/)
   assert.equal(sign(signed), signed)
 })
 
@@ -34,4 +35,30 @@ test('versionCode grows with the version, and a pre-release stays below its rele
   assert.deepEqual([...codes].sort((a, b) => a - b), codes)
   assert.equal(versionCode('0.3.2'), 300299)
   assert.throws(() => versionCode('0.3'), /cannot make/)
+})
+
+test('applyArchs preserves debug architectures while enabling uncompressed 16KB packaging', () => {
+  const existing = [
+    { type: 'property', key: 'reactNativeArchitectures', value: 'armeabi-v7a,arm64-v8a,x86,x86_64' },
+    { type: 'property', key: 'expo.useLegacyPackaging', value: 'true' },
+  ]
+  assert.deepEqual(applyArchs(existing), [
+    { type: 'property', key: 'reactNativeArchitectures', value: 'armeabi-v7a,arm64-v8a,x86,x86_64' },
+    { type: 'property', key: 'expo.useLegacyPackaging', value: 'false' },
+    { type: 'property', key: 'android.experimental.disableCompileSdkChecks', value: 'true' },
+  ])
+  assert.deepEqual(applyArchs([]), [
+    { type: 'property', key: 'expo.useLegacyPackaging', value: 'false' },
+    { type: 'property', key: 'android.experimental.disableCompileSdkChecks', value: 'true' },
+  ])
+})
+
+test('Android config pins compileSdkVersion <= targetSdkVersion (36) and declares POST_NOTIFICATIONS', () => {
+  const { expo } = JSON.parse(readFileSync(join(__dirname, '..', 'app.json'), 'utf8'))
+  assert.ok(Array.isArray(expo.android.permissions))
+  assert.ok(expo.android.permissions.includes('android.permission.POST_NOTIFICATIONS'))
+  const buildProps = expo.plugins.find(entry => Array.isArray(entry) && entry[0] === 'expo-build-properties')?.[1]
+  assert.equal(buildProps?.android?.targetSdkVersion, 36)
+  assert.equal(buildProps?.android?.compileSdkVersion, 36)
+  assert.ok(buildProps.android.compileSdkVersion <= buildProps.android.targetSdkVersion)
 })

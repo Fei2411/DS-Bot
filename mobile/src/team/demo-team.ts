@@ -72,11 +72,14 @@ export function demoData(): DemoData {
         ] },
       ],
     },
-    connectors: [
-      { id: 'github', name: 'GitHub', state: 'ready', account: 'you' },
-      { id: 'linear', name: 'Linear', state: 'off' },
-      { id: 'notion', name: 'Notion', state: 'error', error: 'Token expired' },
-    ],
+    connectors: {
+      connectors: [
+        { id: 'github', name: 'GitHub', state: 'ready', account: 'you' },
+        { id: 'linear', name: 'Linear', state: 'off', account: null },
+        { id: 'notion', name: 'Notion', state: 'error', account: null, error: 'Token expired' },
+      ],
+      mail: { accounts: [], google: false },
+    },
     capabilityStatuses: {
       'b-chief': { 'Run shell commands': { state: 'ready' }, 'Read files': { state: 'ready' } },
       'b-coder': { 'Write files': { state: 'needs-approval' }, 'Browse the web': { state: 'error', error: 'Token expired' } },

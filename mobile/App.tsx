@@ -9,7 +9,9 @@ import { SafeAreaProvider } from 'react-native-safe-area-context'
 import { loadComputer, loadIdentity, onPrefsChange, readPrefs, setActiveComputer, type PhoneIdentity, type SavedComputer } from './src/store.ts'
 import { ComputersCtx, type ComputerActions } from './src/nav/computers.ts'
 import { errorText } from './src/team/link.ts'
+import { loadSeen } from './src/team/seen.ts'
 import { DEMO, DemoProvider, TeamProvider, useTeam } from './src/team/context.tsx'
+import { ErrorBoundary } from './src/ui/error-boundary.tsx'
 import { palette, ThemeContext, useTheme } from './src/ui/tokens.ts'
 import { Pair } from './src/screens/Pair.tsx'
 import ShellB from './src/nav/ShellB.tsx'
@@ -72,7 +74,9 @@ function ThemedShell({ lang }: { lang?: string }) {
   return (
     <ThemeContext.Provider value={value}>
       <NavigationContainer key={lang} theme={navTheme} initialState={navState.current} onStateChange={state => { navState.current = state }}>
-        <ShellB />
+        <ErrorBoundary>
+          <ShellB />
+        </ErrorBoundary>
       </NavigationContainer>
     </ThemeContext.Provider>
   )
@@ -93,9 +97,12 @@ function Boot() {
   const [bootError, setBootError] = useState<string | null>(null)
   const [adding, setAdding] = useState(false)
   const [offer, setOffer] = useState<string | null>(null)
+  const [seenReady, setSeenReady] = useState(false)
   const lang = useLang()
 
   useEffect(() => {
+    void loadSeen().finally(() => setSeenReady(true))
+    if (DEMO) return
     Promise.all([loadIdentity(), loadComputer()])
       .then(([nextIdentity, saved]) => { setIdentity(nextIdentity); setComputer(saved ?? null) })
       .catch(failure => setBootError(errorText(failure)))
@@ -116,11 +123,11 @@ function Boot() {
   }), [])
   const paired = useCallback((next: SavedComputer) => { setAdding(false); setOffer(null); setComputer(next) }, [])
 
-  if (DEMO && lang !== undefined) {
+  if (DEMO && lang !== undefined && seenReady) {
     return <ComputersCtx.Provider value={actions}><DemoProvider><ThemedShell lang={lang} /></DemoProvider></ComputersCtx.Provider>
   }
   if (bootError !== null) return <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: p.main }}><Text style={{ color: p.danger }}>{bootError}</Text></View>
-  if (identity === null || computer === undefined || lang === undefined) return <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: p.main }}><ActivityIndicator color={p.accent} /></View>
+  if (identity === null || computer === undefined || lang === undefined || !seenReady) return <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: p.main }}><ActivityIndicator color={p.accent} /></View>
   if (computer === null || adding) return <ThemeProvider><Pair identity={identity} offer={offer} onPaired={paired} onCancel={computer !== null ? () => { setAdding(false); setOffer(null) } : undefined} /></ThemeProvider>
   return <ComputersCtx.Provider value={actions}><Linked computer={computer} identity={identity} lang={lang} /></ComputersCtx.Provider>
 }
@@ -130,7 +137,9 @@ export default function App() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
-        <Boot />
+        <ErrorBoundary>
+          <Boot />
+        </ErrorBoundary>
         <StatusBar style={dark ? 'light' : 'dark'} />
       </SafeAreaProvider>
     </GestureHandlerRootView>

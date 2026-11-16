@@ -3,8 +3,11 @@
 import { chunkTelegram } from '../format.js'
 import { retryDelay, retryWait } from './retry.js'
 
+const CLOUD_API = 'https://api.telegram.org'
 const TEXT_LIMIT = 4096
 const POLL_TIMEOUT = 50
+// Cloud Bot API `getFile` rejects files larger than 20 MiB.
+const TELEGRAM_MAX_FILE_BYTES = 20 * 1024 * 1024
 const UPDATES = ['message', 'callback_query']
 
 const reason = (error) => {
@@ -30,8 +33,10 @@ export default {
 
   connect(fields, env, handlers) {
     const token = String(fields.token ?? '').trim()
-    const base = `${apiBase(env)}/bot${token}`
-    const fileBase = `${apiBase(env)}/file/bot${token}`
+    const api = apiBase(env)
+    const isCloudApi = api === CLOUD_API
+    const base = `${api}/bot${token}`
+    const fileBase = `${api}/file/bot${token}`
     let stopped = false
     // Every call in flight keeps its own controller, so stop() ends them all —
     // a long poll must not outlive the adapter by ~65 s and collide with the
@@ -90,26 +95,60 @@ export default {
       return text.replaceAll(selfName, ' ').replace(/\s+/g, ' ').trim()
     }
 
+    const fetchMedia = async (item, kind) => {
+      const label = item.file_name ? `${kind} "${item.file_name}"` : kind
+      const sizeNote = typeof item.file_size === 'number' && item.file_size > 0
+        ? ` (${(item.file_size / (1024 * 1024)).toFixed(1)} MB)`
+        : ''
+      if (isCloudApi && typeof item.file_size === 'number' && item.file_size > TELEGRAM_MAX_FILE_BYTES) {
+        env.log?.warn?.('ds-bot im: telegram %s not fetched: file is too big (%s bytes)', kind, item.file_size)
+        return { note: `[Telegram ${label}${sizeNote} could not be downloaded: exceeds Telegram Bot API 20 MB download limit. Tell the user.]` }
+      }
+      try {
+        const file = await call('getFile', { file_id: item.file_id })
+        if (!file?.file_path) throw new Error('Telegram did not return a file path')
+        const data = await call(file.file_path, {}, { download: true, timeout: 60_000 })
+        return { file, data }
+      } catch (error) {
+        if (error?.stopped || stopped) throw error
+        const why = reason(error)
+        env.log?.warn?.('ds-bot im: telegram %s not fetched: %s', kind, why)
+        const detail = /file is too big/i.test(why)
+          ? 'exceeds Telegram Bot API 20 MB download limit'
+          : why
+        return { note: `[Telegram ${label}${sizeNote} could not be downloaded: ${detail}. Tell the user.]` }
+      }
+    }
+
     const fileBlocks = async (message) => {
       const images = []
       const files = []
+      const notes = []
       const photo = Array.isArray(message.photo) && message.photo.length > 0 ? message.photo.reduce((a, b) => ((b.file_size ?? 0) > (a.file_size ?? 0) ? b : a)) : undefined
-      if (photo !== undefined) {
-        try {
-          const file = await call('getFile', { file_id: photo.file_id })
-          const data = await call(file.file_path, {}, { download: true, timeout: 60_000 })
-          images.push({ mediaType: 'image/jpeg', data: Buffer.from(data).toString('base64') })
-        } catch (error) { env.log?.warn?.('ds-bot im: telegram photo not fetched: %s', reason(error)) }
+      if (photo?.file_id !== undefined) {
+        const got = await fetchMedia(photo, 'photo')
+        if (got.data !== undefined) images.push({ mediaType: 'image/jpeg', data: Buffer.from(got.data).toString('base64') })
+        else if (got.note !== undefined) notes.push(got.note)
       }
-      const doc = message.document ?? message.voice ?? message.audio
-      if (doc?.file_id !== undefined) {
-        try {
-          const file = await call('getFile', { file_id: doc.file_id })
-          const data = await call(file.file_path, {}, { download: true, timeout: 60_000 })
-          files.push({ name: doc.file_name ?? file.file_path?.split('/').pop() ?? 'file', data })
-        } catch (error) { env.log?.warn?.('ds-bot im: telegram file not fetched: %s', reason(error)) }
+      // Check animation before document: Telegram also sets document on animations for compatibility.
+      const media = [
+        ['video', message.video],
+        ['animation', message.animation],
+        ['video_note', message.video_note],
+        ['document', message.document],
+        ['voice', message.voice],
+        ['audio', message.audio],
+      ].find(([, item]) => item?.file_id !== undefined)
+      if (media !== undefined) {
+        const [kind, item] = media
+        const got = await fetchMedia(item, kind)
+        if (got.data !== undefined) {
+          files.push({ name: item.file_name ?? got.file.file_path?.split('/').pop() ?? kind, data: got.data })
+        } else if (got.note !== undefined) {
+          notes.push(got.note)
+        }
       }
-      return { images, files }
+      return { images, files, notes }
     }
 
     const onUpdate = async (update) => {
@@ -125,11 +164,12 @@ export default {
           || message.reply_to_message?.from?.is_bot === true && selfName !== '' && message.reply_to_message?.from?.username === selfName.slice(1)
           || /^\/\w+@/.test(raw) && raw.toLowerCase().includes(selfName.toLowerCase())
         )
-        const { images, files } = await fileBlocks(message)
+        const { images, files, notes } = await fileBlocks(message)
+        const body = kind === 'group' ? strip(raw) : raw
         await handlers.onMessage({
           chat: { key: String(chat.id), kind, title: chat.title ?? nameOf(from) },
           sender: { id: String(from.id ?? ''), name: nameOf(from) },
-          text: kind === 'group' ? strip(raw) : raw,
+          text: [body, ...notes].filter(Boolean).join('\n'),
           images,
           files,
           mentioned,

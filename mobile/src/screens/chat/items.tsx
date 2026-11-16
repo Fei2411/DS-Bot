@@ -17,11 +17,12 @@ import { viewAnswerText } from 'deep-view/core'
 
 export interface ImageRef { attachmentId: string; mime?: string; name?: string }
 
-export interface FileRef { name: string; bytes?: number; attachmentId?: string }
+export interface FileRef { name: string; bytes?: number; sessionId?: string; attachmentId?: string; seq?: number; index?: number }
 
 export type { SettledQuestionData }
 
 export interface ChatItem {
+  id?: string
   kind: 'bot' | 'user' | 'event' | 'answer' | 'view' | 'divider' | 'steps' | 'closed' | 'post' | 'relay'
   text?: string
   time?: number
@@ -33,6 +34,7 @@ export interface ChatItem {
   code?: string
   name?: string
   botId?: string
+  sessionId?: string
   images?: number
   // The IM platform a user message came in over (parts.js viaOf).
   via?: string
@@ -84,17 +86,26 @@ const dataUri = (value: unknown) => `data:${(value as { mime?: string })?.mime ?
 // One displayItems row (parts.js). Bubbles: radius 18, padding 7×12, Bot on the
 // theme's bubble color, the user on user/userInk. `prefs.width` caps the Bot
 // bubble at min(width%, 100% - 40); flat layout draws Bot text full width.
-export const Item = memo(function Item({ item, p, flat, maxWidth, inRoom, sessionId, open, onToggle, onLongPress, onOpenFile, onRetry, stamp, author, admin }: { item: ChatItem; p: Palette; flat: boolean; maxWidth: number | string; inRoom: boolean; sessionId?: string; open?: boolean; onToggle?: () => void; stamp?: string; author?: Bot; admin?: boolean; onLongPress?: (text: string) => void; onOpenFile?: (file: { name: string; attachmentId?: string }) => void; onRetry?: (localId: string, discard?: boolean) => void }) {
+export const Item = memo(function Item({ item, p, flat, maxWidth, inRoom, sessionId, open, onToggle, onLongPress, onOpenFile, onSaveFile, onRetry, stamp, author, admin }: { item: ChatItem; p: Palette; flat: boolean; maxWidth: number | string; inRoom: boolean; sessionId?: string; open?: boolean; onToggle?: () => void; stamp?: string; author?: Bot; admin?: boolean; onLongPress?: (text: string) => void; onOpenFile?: (file: FileRef) => void; onSaveFile?: (file: FileRef) => void; onRetry?: (localId: string, discard?: boolean) => void }) {
   const { dark } = useTheme()
+  const rowSessionId = item.sessionId ?? sessionId
+  const authorBotId = item.botId ?? author?.id
   const wholeFile = item.file?.attachmentId !== undefined ? item.file : item.whole?.file?.attachmentId !== undefined ? item.whole.file : undefined
   const chips = (item.files ?? []).map(file => (
-    <Pressable key={file.attachmentId ?? file.name} accessibilityRole="button" onPress={() => onOpenFile?.(file)}
-      style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 6, minHeight: 44, paddingHorizontal: 10, paddingVertical: 8, borderRadius: 12, borderWidth: StyleSheet.hairlineWidth, borderColor: p.line2, backgroundColor: p.card }}>
-      <View style={{ flex: 1, minWidth: 0 }}>
+    <View key={file.attachmentId ?? `${file.seq}:${file.index}:${file.name}`}
+      style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 6, borderRadius: 12, borderWidth: StyleSheet.hairlineWidth, borderColor: p.line2, backgroundColor: p.card }}>
+      <Pressable accessibilityRole="button" onPress={() => onOpenFile?.(file)}
+        style={{ flex: 1, minWidth: 0, minHeight: 44, justifyContent: 'center', paddingHorizontal: 10, paddingVertical: 8 }}>
         <Text style={[type.small, { color: p.ink, fontWeight: '500' }]} numberOfLines={1}>{file.name}</Text>
         <Text style={[type.caption, { color: p.ink3 }]}>{[(file.name.split('.').pop() ?? '').toUpperCase(), file.bytes !== undefined ? `${Math.max(1, Math.round(file.bytes / 1024))} KB` : ''].filter(Boolean).join(' · ')}</Text>
-      </View>
-    </Pressable>
+      </Pressable>
+      {onSaveFile === undefined ? null : (
+        <Pressable accessibilityRole="button" accessibilityLabel={t('Save {name}', { name: file.name })} onPress={() => onSaveFile(file)}
+          style={({ pressed }) => ({ minHeight: 44, justifyContent: 'center', paddingHorizontal: 12, opacity: pressed ? 0.6 : 1 })}>
+          <Text style={[type.small, { color: p.accent, fontWeight: '600' }]}>{t('Save')}</Text>
+        </Pressable>
+      )}
+    </View>
   ))
   const fullMessageLink = wholeFile !== undefined ? (
     <Pressable accessibilityRole="button" onPress={() => onOpenFile?.(wholeFile)} style={{ alignSelf: 'flex-start', marginTop: 6, paddingVertical: 2 }}>
@@ -126,6 +137,7 @@ export const Item = memo(function Item({ item, p, flat, maxWidth, inRoom, sessio
   }
   if (item.kind === 'event') {
     if (item.role === 'paused') return <Text style={[type.caption, { color: p.ink3, alignSelf: 'center', marginVertical: 4, paddingHorizontal: 12, textAlign: 'center' }]}>{t('Paused after {count} Bot relays. Waiting: {names}', { count: item.ms ?? 0, names: item.text ?? '' })}</Text>
+    if (item.role === 'schedule') return <Text style={[type.caption, { color: p.ink3, alignSelf: 'center', marginVertical: 4, paddingHorizontal: 12, textAlign: 'center' }]}>{item.text ? t('Scheduled task: {text}', { text: item.text }) : t('Routine started')}</Text>
     const name = item.name ?? t('a Bot')
     const round = roundEventText(name, item.event, item.text, item.code)
     if (round !== undefined) return <Text style={[type.caption, { color: p.ink3, alignSelf: 'center', marginVertical: 4, paddingHorizontal: 12, textAlign: 'center' }]}>{round}</Text>
@@ -148,7 +160,7 @@ export const Item = memo(function Item({ item, p, flat, maxWidth, inRoom, sessio
   }
   if (item.kind === 'view') {
     return item.view !== undefined
-      ? <ViewCard sessionId={sessionId ?? ''} title={item.title} root={item.view} p={p} readOnly />
+      ? <ViewCard sessionId={rowSessionId ?? ''} title={item.title} root={item.view} p={p} readOnly />
       : <View style={[styles.settledCard, { backgroundColor: p.card, borderColor: p.line }]}>
           <Text style={[type.settingsRow, { color: p.ink, fontWeight: '600' }]}>{item.title ?? 'View'}</Text>
         </View>
@@ -234,12 +246,12 @@ export const Item = memo(function Item({ item, p, flat, maxWidth, inRoom, sessio
       <Pressable onLongPress={longPress} onPress={item.local === 'failed' && item.localId !== undefined ? () => onRetry?.(item.localId!) : undefined}
         style={[styles.bubble, styles.userBubble, { backgroundColor: p.user, maxWidth, width: wide ? maxWidth : undefined, opacity: item.local === 'sending' ? 0.7 : 1 },
           photosOnly ? { backgroundColor: 'transparent', paddingHorizontal: 0, paddingVertical: 0 } : null]}>
-        {item.text ? <Markdown text={item.text} p={p} textColor={p.userInk} bg={p.user} /> : null}
+        {item.text ? <Markdown text={item.text} p={p} textColor={p.userInk} bg={p.user} sessionId={rowSessionId} botId={authorBotId} /> : null}
         {chips}
         {item.localImages !== undefined && item.localImages.length > 0
           ? <LocalImages uris={item.localImages} />
-          : item.imageRefs !== undefined && item.imageRefs.length > 0 && sessionId !== undefined
-            ? <ImageGrid refs={item.imageRefs} sessionId={sessionId} p={p} />
+          : item.imageRefs !== undefined && item.imageRefs.length > 0 && rowSessionId !== undefined
+            ? <ImageGrid refs={item.imageRefs} sessionId={rowSessionId} p={p} />
             : item.images ? <Text style={[type.caption, { color: p.userInk, opacity: 0.8, marginTop: 4 }]}>{t('{count} images', { count: item.images })}</Text> : null}
       </Pressable>
     )
@@ -263,7 +275,7 @@ export const Item = memo(function Item({ item, p, flat, maxWidth, inRoom, sessio
       </View>
     ) : bubble
   }
-  const hasImages = item.imageRefs !== undefined && item.imageRefs.length > 0 && sessionId !== undefined
+  const hasImages = item.imageRefs !== undefined && item.imageRefs.length > 0 && rowSessionId !== undefined
   if (bodyTexts.length === 0 && !hasImages && chips.length === 0 && fullMessageLink === null) return null
   // In a group each reply carries its member: avatar, name in the member's color, the
   // admin tag and the time, as the desktop's group rows do.
@@ -282,8 +294,8 @@ export const Item = memo(function Item({ item, p, flat, maxWidth, inRoom, sessio
             const last = bi === bodyTexts.length - 1
             return (
               <View key={bi} style={[styles.bubble, { backgroundColor: p.bubble, alignSelf: hasBlockContent(partText) || (last && hasImages) ? 'stretch' : 'flex-start', maxWidth: '100%' }]}>
-                <Markdown text={partText} p={p} textColor={p.ink} bg={p.bubble} />
-                {last && hasImages ? <ImageGrid refs={item.imageRefs!} sessionId={sessionId!} p={p} /> : null}
+                <Markdown text={partText} p={p} textColor={p.ink} bg={p.bubble} sessionId={rowSessionId} botId={authorBotId} />
+                {last && hasImages ? <ImageGrid refs={item.imageRefs!} sessionId={rowSessionId!} p={p} /> : null}
                 {last ? chips : null}
                 {last ? fullMessageLink : null}
               </View>
@@ -291,7 +303,7 @@ export const Item = memo(function Item({ item, p, flat, maxWidth, inRoom, sessio
           })}
           {bodyTexts.length === 0 ? (
             <View style={[styles.bubble, { backgroundColor: p.bubble, alignSelf: 'flex-start', maxWidth: '100%' }]}>
-              {hasImages ? <ImageGrid refs={item.imageRefs!} sessionId={sessionId!} p={p} /> : null}
+              {hasImages ? <ImageGrid refs={item.imageRefs!} sessionId={rowSessionId!} p={p} /> : null}
               {chips}
               {fullMessageLink}
             </View>
@@ -306,8 +318,8 @@ export const Item = memo(function Item({ item, p, flat, maxWidth, inRoom, sessio
     return (
       <Pressable onLongPress={longPress} style={{ alignSelf: 'stretch', marginVertical: 4 }}>
         {name}
-        {bodyTexts.length > 0 ? <Markdown text={bodyJoined} p={p} textColor={p.ink} bg={p.main} /> : null}
-        {hasImages ? <ImageGrid refs={item.imageRefs!} sessionId={sessionId!} p={p} /> : null}
+        {bodyTexts.length > 0 ? <Markdown text={bodyJoined} p={p} textColor={p.ink} bg={p.main} sessionId={rowSessionId} botId={authorBotId} /> : null}
+        {hasImages ? <ImageGrid refs={item.imageRefs!} sessionId={rowSessionId!} p={p} /> : null}
         {chips}
         {fullMessageLink}
         {stamp ? <Text style={[type.caption, { color: p.ink3, marginTop: 4 }]}>{stamp}</Text> : null}
@@ -318,8 +330,8 @@ export const Item = memo(function Item({ item, p, flat, maxWidth, inRoom, sessio
     <Pressable onLongPress={longPress} style={{ alignSelf: 'flex-start', maxWidth, width: wide ? maxWidth : undefined }}>
       {name}
       <View style={[styles.bubble, { backgroundColor: p.bubble, maxWidth: '100%' }]}>
-        {bodyTexts.length > 0 ? <Markdown text={bodyJoined} p={p} textColor={p.ink} bg={p.bubble} /> : null}
-        {hasImages ? <ImageGrid refs={item.imageRefs!} sessionId={sessionId!} p={p} /> : null}
+        {bodyTexts.length > 0 ? <Markdown text={bodyJoined} p={p} textColor={p.ink} bg={p.bubble} sessionId={rowSessionId} botId={authorBotId} /> : null}
+        {hasImages ? <ImageGrid refs={item.imageRefs!} sessionId={rowSessionId!} p={p} /> : null}
         {chips}
         {fullMessageLink}
       </View>

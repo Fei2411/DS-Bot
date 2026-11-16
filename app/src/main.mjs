@@ -5,9 +5,10 @@
 // the team window hides it; the tray brings it back and its Quit ends the app (shell.mjs). Only
 // what the start window and the tray need is imported up front; the rest loads once the start
 // window is up (docs/plans/2026-10-26-start-window.md §11).
-import { app, BrowserWindow, clipboard, ipcMain, Menu, nativeImage, nativeTheme, powerMonitor, screen, session, shell as electronShell, systemPreferences, Tray, WebContentsView } from 'electron'
+import { app, BrowserWindow, clipboard, ipcMain, Menu, nativeImage, nativeTheme, Notification, powerMonitor, screen, session, shell as electronShell, systemPreferences, Tray, WebContentsView } from 'electron'
 import { createComputerIndicator, indicatorHtml } from './computer-indicator.mjs'
 import { createComputerCursor } from './computer-cursor.mjs'
+import { badgeCount, createNotifications } from './notifications.mjs'
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { release } from 'node:os'
@@ -33,7 +34,7 @@ const { rm } = disk.promises
 const IPC = {
   caption: 'ds-bot:caption-colors', nativeTheme: 'ds-bot:native-theme', fullscreen: 'ds-bot:fullscreen',
   dataLocation: 'ds-bot:data-location', moveData: 'ds-bot:move-data', teamWorkspace: 'ds-bot:team-workspace',
-  ready: 'ds-bot:ready', handoffReady: 'ds-bot:handoff-ready', motion: 'ds-bot:motion',
+  ready: 'ds-bot:ready', handoffReady: 'ds-bot:handoff-ready', motion: 'ds-bot:motion', effects: 'ds-bot:effects',
   card: 'ds-bot:app-card', cardShown: 'ds-bot:app-card-shown', cardAnswer: 'ds-bot:app-card-answer',
   browserAcquire: 'ds-bot:browser-acquire', browserRelease: 'ds-bot:browser-release', browserForget: 'ds-bot:browser-forget',
   browserViewChanged: 'ds-bot:browser-view-changed', browserViewCreate: 'ds-bot:browser-view-create',
@@ -48,6 +49,7 @@ const IPC = {
   appUpdateInstall: 'ds-bot:app-update-install', appUpdateOpen: 'ds-bot:app-update-open',
   appUpdateChanged: 'ds-bot:app-update-changed',
   idleSeconds: 'ds-bot:idle-seconds', computer: 'ds-bot:computer', computerAction: 'ds-bot:computer-action', computerCursor: 'ds-bot:computer-cursor',
+  notify: 'ds-bot:notify', notifyStatus: 'ds-bot:notify-status', badge: 'ds-bot:badge', openSession: 'ds-bot:open-session',
 }
 // A cookie export larger than this is not a cookie export.
 const IMPORT_FILE_MAX = 32 * 1024 * 1024
@@ -201,7 +203,7 @@ if (canonical !== undefined) {
     page: join(here, 'start', 'start.html'), preload: join(here, 'preload.cjs'), icon: iconFile, material, devTools: !app.isPackaged,
     css: readFileSync(join(here, 'page-card.css'), 'utf8'),
     // On Windows the locale is known only once the app is ready.
-    lang: () => langOf(app.getLocale()), motion: readStartFrame(frameFile).motion,
+    lang: () => langOf(app.getLocale()), motion: readStartFrame(frameFile).motion, effects: readStartFrame(frameFile).effects,
     version: app.getVersion(), program: [dirname(process.execPath), process.resourcesPath, app.getAppPath()], log: logs, mainWindow: () => mainWindow,
     onRetry: () => { retry().catch(fail) },
     onReload: () => { mainWindow?.webContents.reload() },
@@ -765,6 +767,25 @@ function handleIpc() {
     shell.setComputer(list)
   })
   ipcMain.handle(IPC.idleSeconds, (event) => (fromWindow(event) ? powerMonitor.getSystemIdleTime() : 0))
+  // The renderer knows which conversation is visible; focusing the window alone
+  // does not mean a reply in another conversation has been seen.
+  const notifications = createNotifications({ Notification, systemPreferences, platform: process.platform, log: logs })
+  ipcMain.handle(IPC.notifyStatus, (event) => (fromWindow(event) ? notifications.status() : 'unsupported'))
+  ipcMain.handle(IPC.notify, (event, notice) => {
+    if (!fromWindow(event)) return false
+    const sessionId = typeof notice?.sessionId === 'string' ? notice.sessionId : undefined
+    return notifications.show({ title: String(notice?.title ?? ''), body: String(notice?.body ?? '') }, {
+      open: () => {
+        toFront(mainWindow)
+        mainWindow?.webContents.send(IPC.openSession, sessionId)
+      },
+    })
+  })
+  ipcMain.on(IPC.badge, (event, count) => {
+    if (!fromWindow(event)) return
+    try { app.setBadgeCount(process.platform === 'darwin' || process.platform === 'linux' ? badgeCount(count) : 0) } catch { /* no dock here */ }
+  })
+  app.on('browser-window-focus', () => notifications.clear())
   const computerCursor = createComputerCursor({ BrowserWindow, screen, platform: process.platform, log: logs })
   ipcMain.on(IPC.computerCursor, (event, entry) => {
     if (!fromWindow(event)) return
@@ -785,6 +806,7 @@ function handleIpc() {
     writeStartFrame(frameFile, { themeSource: value })
   })
   ipcMain.on(IPC.motion, (event, tier) => { if (fromWindow(event)) writeStartFrame(frameFile, { motion: tier }) })
+  ipcMain.on(IPC.effects, (event, tier) => { if (fromWindow(event)) writeStartFrame(frameFile, { effects: tier }) })
   ipcMain.handle(IPC.dataLocation, (event) => {
     assertWindow(event)
     return { path: places.dataDir, fixed }

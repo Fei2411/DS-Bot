@@ -30,6 +30,7 @@ import { appendFile, mkdir, rename, unlink, writeFile } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
 import { HarnessError, createUserMessage } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
+import { openSessions } from './threads.js'
 import { replaceFile } from './files.js'
 import { assembleLlmStream } from './models.js'
 import { inside, pendingPath, read as readPending, record as pendingRecord, relativePath, serialize as serializePending } from './memory-pending.js'
@@ -626,7 +627,7 @@ export function install(rt) {
   // A deleted Bot's memory moves to the archive, whole.
   function archiveBotMemory(botId) {
     const bot = rt.botOf(botId)
-    for (const sessionId of [botId, rt.chatOf(botId), ...(bot?.segments ?? []).map(segment => segment.sessionId), ...rt.groupSessionsOf(botId)]) renewMemory(sessionId)
+    for (const sessionId of [botId, rt.chatOf(botId), ...(bot?.segments ?? []).map(segment => segment.sessionId), ...openSessions(bot), ...rt.groupSessionsOf(botId)]) renewMemory(sessionId)
     summaries.delete(botId)
     news.delete(botId)
     return queued(async () => {
@@ -1015,7 +1016,7 @@ export function install(rt) {
       const room = rt.roomOf(owner.roomId)
       return room === undefined ? 'group ?' : `group "${room.name}" #${room.seq}`
     }
-    const parts = rt.partsOf(rt.selfOf(sessionId))
+    const parts = rt.partsOfThread(rt.selfOf(sessionId), sessionId)
     const at = parts.findIndex(part => part.sessionId === sessionId)
     const number = at === -1 ? Math.max(parts.length, 1) : at + 1
     let seq
@@ -1235,10 +1236,11 @@ export function install(rt) {
   async function modelFor(bot) {
     const desired = await rt.desiredModel(bot)
     // A local agent CLI answers through its own subscription, not a model API:
-    // its memory reads the team's default model when one is set.
+    // its memory reads the team's default model when one is set, and the profile
+    // default when it is not, like any other Bot with no model of its own.
     const team = rt.isLocalAgentRef?.(state.prefs.defaultBotModel) === true ? undefined : state.prefs.defaultBotModel
-    const ref = rt.isLocalAgentRef?.(desired) === true ? (team ?? null) : desired ?? await rt.defaultModel()
-    const route = ref === null ? undefined : splitRef(ref)
+    const ref = rt.isLocalAgentRef?.(desired) === true ? (team ?? await rt.defaultModel()) : desired ?? await rt.defaultModel()
+    const route = splitRef(ref)
     if (route === undefined) throw new Error('No model is available. Add one in Settings > Models.')
     return route
   }
