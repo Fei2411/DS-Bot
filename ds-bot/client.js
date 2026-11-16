@@ -17092,6 +17092,13 @@ header[class*="_header"]:has(.bt-head){position:absolute!important;top:0;left:0;
 header[class*="_header"]:has(.bt-head)::before{content:"";position:absolute;inset:0 0 auto;height:calc(60px + env(safe-area-inset-top,0px));background:linear-gradient(to bottom,var(--bt-main),color-mix(in srgb,var(--bt-main) 0%,transparent));pointer-events:none;z-index:-1}
 header[class*="_header"]:has(.bt-head)>[class*="_headerLeading"]{position:absolute;left:12px;top:10px;pointer-events:auto}
 header[class*="_header"] .bt-head{flex:1 1 auto;width:100%}
+/* In a native mobile shell, the floating ::before gradient does not reliably occlude
+   scrolled cards behind the Bot title and passes hits through; give the bar an opaque
+   theme fill that captures pointer events across its full width. */
+html.dsh-native-mobile-active header[class*="_header"]:has(.bt-head),header[class*="_header"][data-dsh-mobile-header]:has(.bt-head){width:auto!important;margin:0!important;padding:calc(10px + env(safe-area-inset-top,0px)) 0 10px!important;background:var(--bt-main)!important;pointer-events:auto}
+html.dsh-native-mobile-active header[class*="_header"]:has(.bt-head)::before,header[class*="_header"][data-dsh-mobile-header]:has(.bt-head)::before{content:none}
+html.dsh-native-mobile-active header[class*="_header"]:has(.bt-head)>[class*="_headerLeading"],header[class*="_header"][data-dsh-mobile-header]:has(.bt-head)>[class*="_headerLeading"]{top:calc(10px + env(safe-area-inset-top,0px))}
+html.dsh-native-mobile-active header[class*="_header"]:has(.bt-head) .bt-head,header[class*="_header"][data-dsh-mobile-header]:has(.bt-head) .bt-head{pointer-events:auto}
 /* On macOS the shell's header row is the window's drag strip (data-window-drag
    becomes -webkit-app-region:drag). The floating header stays click-through, so
    the transcript under it still takes links and the wheel. Only the 40px .bt-head
