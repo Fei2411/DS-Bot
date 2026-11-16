@@ -39,10 +39,11 @@ for (const kind of ['acp', 'codex']) {
     const engine = makeEngine(kind)
     t.after(() => engine.close())
     const starting = engine.ensure()
+    const refused = assert.rejects(starting)
     const child = engine.child
     const exited = once(child, 'exit')
     await engine.close()
-    await assert.rejects(starting)
+    await refused
     const peer = await engine.ensure()
     await exited
     assert.equal(engine.peer, peer)

@@ -236,8 +236,15 @@ test('browserDownloadGraceMs from the config reaches the browser session', async
     async delete() {},
   }
   let timer
+  let clock = false
+  const clicked = Promise.withResolvers()
   const { context } = fakeBrowserPage({
-    onClick: clicked => { timer = setTimeout(() => clicked.emit('download', incoming), 200) },
+    onClick: page => {
+      t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: Date.now() })
+      clock = true
+      timer = setTimeout(() => page.emit('download', incoming), 200)
+      clicked.resolve()
+    },
   })
   const key = Symbol.for('ds-bot.test.browser-context')
   globalThis[key] = context
@@ -268,19 +275,32 @@ test('browserDownloadGraceMs from the config reaches the browser session', async
   // exposes services through get(), so give it the registry teamFolder() reads.
   ctx.workspaceRegistry = { get: () => ({ path: join(stub, 'workspace') }) }
   t.after(async () => {
-    clearTimeout(timer)
+    if (clock) {
+      t.mock.timers.tick(300)
+      await new Promise(setImmediate)
+      clearTimeout(timer)
+      t.mock.timers.reset()
+    }
     await ctx.dispose()
     stop()
     delete globalThis[key]
     rmSync(stub, { recursive: true, force: true })
   })
-  const started = Date.now()
   const tool = runtime.teamTools.find(entry => entry.name === 'browser_probe')
-  const result = await tool.execute({}, browserExec())
-  const elapsed = Date.now() - started
+  let finished = false
+  const action = tool.execute({}, browserExec()).then(result => { finished = true; return result })
+  action.catch(() => {})
+  await clicked.promise
+  await new Promise(setImmediate)
+  t.mock.timers.tick(150)
+  await new Promise(setImmediate)
+  t.mock.timers.tick(0)
+  await new Promise(setImmediate)
+  assert.equal(finished, true, 'the configured grace elapsed during the click settle')
+  const result = await action
   assert.equal(typeof result.click, 'string')
   assert.doesNotMatch(result.click, /Download "report\.csv"/, 'the click did not wait for the late download')
-  assert.ok(elapsed < 500, `a click with a 20 ms configured grace returned in ${elapsed} ms`)
+  t.mock.timers.tick(50)
   await wasCanceled
   assert.equal(saved, false, 'the late download was not saved')
   assert.equal(canceled, 1)

@@ -61,6 +61,7 @@ export class CodexEngine {
       this.child = undefined
       this.peer = undefined
       for (const thread of this.threads.values()) {
+        this.releaseCompaction(thread)
         thread.dead = true
         thread.push({ type: 'error', error })
       }
@@ -92,12 +93,18 @@ export class CodexEngine {
   onNotice(method, params) {
     const thread = [...this.threads.values()].find(entry => entry.threadId === params?.threadId)
     switch (method) {
+      case 'turn/started':
+        if (thread !== undefined) this.activateTurn(thread, params?.turn?.id)
+        break
       case 'item/started':
       case 'item/completed': {
         const item = params?.item ?? {}
         if (thread === undefined) break
         // Codex 0.166 condenses as an item of its own, in a turn of its own or mid-turn.
-        if (item.type === 'contextCompaction') thread.push({ type: 'compaction', status: method === 'item/started' ? 'started' : 'completed' })
+        if (item.type === 'contextCompaction') {
+          if (method === 'item/started') this.activateTurn(thread, params?.turnId)
+          thread.push({ type: 'compaction', status: method === 'item/started' ? 'started' : 'completed' })
+        }
         // Every event names its turn, so the adapter can tell a finished turn's
         // leftovers from the turn it reads now (#1513).
         const turnId = params?.turnId
@@ -229,11 +236,31 @@ export class CodexEngine {
     return thread?.turnId !== undefined
   }
 
+  activateTurn(thread, turnId) {
+    if (turnId === undefined) return
+    thread.turnId = turnId
+    thread.pendingCompaction = false
+    const cancelled = thread.compactionCancel
+    thread.compactionCancel = undefined
+    if (cancelled !== undefined) Promise.resolve(this.cancel(thread)).then(cancelled.resolve, cancelled.reject)
+  }
+
+  releaseCompaction(thread) {
+    thread.pendingCompaction = false
+    thread.compactionCancel?.resolve()
+    thread.compactionCancel = undefined
+  }
+
   // The thread's own compaction: a turn of its own, which ends with turn/completed.
   compact(thread) {
     if (this.peer === undefined) return false
+    thread.turnId = undefined
+    thread.pendingCompaction = true
     this.peer.request('thread/compact/start', { threadId: thread.threadId }, { timeout: 30_000 })
-      .catch(error => thread.push({ type: 'error', error }))
+      .catch(error => {
+        this.releaseCompaction(thread)
+        thread.push({ type: 'error', error })
+      })
     return true
   }
 
@@ -245,12 +272,19 @@ export class CodexEngine {
   }
 
   cancel(thread) {
-    this.peer?.request('turn/interrupt', { threadId: thread.threadId, turnId: thread.turnId }, { timeout: 15_000 }).catch(() => {})
+    if (thread.pendingCompaction) {
+      thread.compactionCancel ??= Promise.withResolvers()
+      return thread.compactionCancel.promise
+    }
+    if (thread.turnId === undefined) return
+    return this.peer?.request('turn/interrupt', { threadId: thread.threadId, turnId: thread.turnId }, { timeout: 15_000 }).catch(() => {})
   }
 
   // The adapter stopped reading this thread: a later open starts a new queue, or
   // the pump that waits on this one would swallow its first event.
   forget(dshSessionId) {
+    const thread = this.threads.get(dshSessionId)
+    if (thread !== undefined) this.releaseCompaction(thread)
     this.threads.delete(dshSessionId)
   }
 
@@ -277,11 +311,20 @@ export class CodexEngine {
   }
 
   async close() {
+    for (const thread of this.threads.values()) this.releaseCompaction(thread)
     const child = this.child
     this.child = undefined
     this.peer = undefined
     this.starting = undefined
-    terminateChild(child)
+    if (child === undefined) return this.closing
+    if (child.exitCode !== null || child.signalCode !== null) return
+    this.closing = new Promise(resolve => {
+      const timer = setTimeout(() => { try { child.kill('SIGKILL') } catch {} }, 5_000)
+      timer.unref?.()
+      child.once('close', () => { clearTimeout(timer); resolve() })
+      child.kill('SIGTERM')
+    })
+    return this.closing
   }
 }
 
