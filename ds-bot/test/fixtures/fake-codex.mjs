@@ -19,6 +19,7 @@
 import { appendFileSync } from 'node:fs'
 const exitAfterTurn = process.argv.includes('--exit-after-turn')
 const textOnly = process.argv.includes('--text-only')
+const holdCompact = process.argv.includes('--hold-compact')
 const recordAt = process.argv.indexOf('--record')
 const recordPath = recordAt === -1 ? undefined : process.argv[recordAt + 1]
 const record = (method, params) => {
@@ -197,6 +198,7 @@ process.stdin.on('data', (chunk) => {
       }
       case 'thread/compact/start': {
         reply(id, {})
+        if (holdCompact) break
         const thread = threads.get(params.threadId) ?? { id: params.threadId }
         threads.set(thread.id, thread)
         setImmediate(() => compactTurn(thread))

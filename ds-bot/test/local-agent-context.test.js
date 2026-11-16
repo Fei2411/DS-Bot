@@ -58,15 +58,19 @@ test('Codex 0.166, as recorded: the last request is the context, its usage count
 const user = (id, text) => ({ id, role: 'user', content: [{ type: 'text', text }], source: { kind: 'user' } })
 const system = (id, text) => ({ id, role: 'system', content: [{ type: 'text', text }], source: { kind: 'system-prompt' } })
 
-function makeAdapter({ kind = 'acp', args = [], records = {}, usage = [] } = {}) {
+function makeAdapter({ kind = 'acp', args = [], records = {}, usage = [], engines = [] } = {}) {
   const file = FIXTURE(kind === 'acp' ? 'fake-acp.mjs' : 'fake-codex.mjs')
   return new LocalAgentAdapter({
     rt: { warn: () => {} },
     customAgents: () => [{ id: 'fake', name: 'Fake ACP', command: 'x', args: [] }],
     findExecutable: path => path,
-    spawnEngine: (engineKind, route, spec) => (engineKind === 'acp'
-      ? new AcpEngine(route, { ...spec, command: process.execPath, args: [file, ...args] }, { findExecutable: path => path })
-      : new CodexEngine(route, { ...spec, command: process.execPath, args: [file, ...args] }, { findExecutable: path => path })),
+    spawnEngine: (engineKind, route, spec) => {
+      const engine = engineKind === 'acp'
+        ? new AcpEngine(route, { ...spec, command: process.execPath, args: [file, ...args] }, { findExecutable: path => path })
+        : new CodexEngine(route, { ...spec, command: process.execPath, args: [file, ...args] }, { findExecutable: path => path })
+      engines.push(engine)
+      return engine
+    },
     record: sessionId => records[sessionId],
     saveRecord: (sessionId, record) => { records[sessionId] = record },
     patchRecord: (sessionId, patch) => { if (records[sessionId]) Object.assign(records[sessionId], patch) },
@@ -118,6 +122,110 @@ test('an ACP agent that lists no compact command condenses only on its own', asy
   assert.equal(adapter.contextOf('s1').compactions, 0)
 })
 
+test('cancelling an ACP compaction after its prompt ended still cancels the native work', async t => {
+  const adapter = makeAdapter()
+  t.after(() => adapter.dispose())
+  await turn(adapter, 's1', [user('m1', 'hello')])
+  const live = adapter.live.get('s1')
+  const controller = new AbortController()
+  const completed = Promise.withResolvers()
+  const notice = live.engine.onNotice.bind(live.engine)
+  const cancel = live.engine.cancel.bind(live.engine)
+  let cancellations = 0
+  live.engine.onNotice = (method, params) => {
+    notice(method, params)
+    if (method !== '_cognition.ai/compaction') return
+    if (params.status === 'started') controller.abort(new Error('stopped during compaction'))
+    if (params.status === 'completed') completed.resolve()
+  }
+  live.engine.cancel = session => { cancellations += 1; return cancel(session) }
+  await assert.rejects(adapter.compact('s1', controller.signal), /stopped during compaction/)
+  assert.equal(cancellations, 1)
+  assert.equal(live.state, 'idle')
+  assert.equal(live.waiters.length, 0)
+  await completed.promise
+})
+
+test('Codex compaction cancellation uses the compaction item turn, including cancellation before it starts', async () => {
+  const message = recorded('codex-app-server-0.166.json').find(message => message.method === 'item/started' && message.params.item.type === 'contextCompaction')
+  for (const beforeStart of [false, true]) {
+    const engine = new CodexEngine('local-codex-cli', { name: 'Codex' }, { findExecutable: () => undefined })
+    const thread = engine.threadFor('s1')
+    thread.threadId = message.params.threadId
+    thread.turnId = 'previous-turn'
+    const calls = []
+    engine.peer = { request: async (method, params) => { calls.push({ method, params }); return {} } }
+    engine.compact(thread)
+    const cancelled = beforeStart ? engine.cancel(thread) : undefined
+    engine.onNotice(message.method, message.params)
+    await (beforeStart ? cancelled : engine.cancel(thread))
+    assert.deepEqual(calls.filter(call => call.method === 'turn/interrupt'), [{
+      method: 'turn/interrupt',
+      params: { threadId: thread.threadId, turnId: message.params.turnId },
+    }])
+  }
+})
+
+test('a refused Codex compaction releases a cancellation waiting for its turn id', async () => {
+  const engine = new CodexEngine('local-codex-cli', { name: 'Codex' }, { findExecutable: () => undefined })
+  const thread = engine.threadFor('s1')
+  thread.threadId = 'thread'
+  const rejected = Promise.withResolvers()
+  engine.peer = { request: () => rejected.promise }
+  engine.compact(thread)
+  const cancelled = engine.cancel(thread)
+  rejected.reject(new Error('compaction refused'))
+  await cancelled
+  assert.equal((await thread.next()).type, 'error')
+  assert.equal(thread.turnId, undefined)
+})
+
+for (const terminal of ['exit', 'close', 'forget']) {
+  test(`an accepted Codex compaction releases pending cancellation on ${terminal}`, async t => {
+    const adapter = makeAdapter({ kind: 'codex', args: ['--hold-compact'] })
+    let exited
+    t.after(async () => { await adapter.dispose(); await exited })
+    await turn(adapter, 's1', [user('m1', 'hello')], 'local-codex-cli')
+    const live = adapter.live.get('s1')
+    const engine = live.engine
+    const thread = live.engineSession
+    const child = engine.child
+    exited = new Promise(resolve => child.once('close', resolve))
+    const accepted = Promise.withResolvers()
+    const waiting = Promise.withResolvers()
+    const request = engine.peer.request.bind(engine.peer)
+    engine.peer.request = (method, params, options) => {
+      const result = request(method, params, options)
+      if (method === 'thread/compact/start') result.then(accepted.resolve, accepted.reject)
+      return result
+    }
+    const cancel = engine.cancel.bind(engine)
+    engine.cancel = session => {
+      const result = cancel(session)
+      waiting.resolve()
+      return result
+    }
+    const controller = new AbortController()
+    let settled = false
+    const failed = assert.rejects(adapter.compact('s1', controller.signal), /stopped/).then(() => { settled = true })
+    await accepted.promise
+    controller.abort(new Error('stopped before the turn id'))
+    await waiting.promise
+    assert.ok(thread.compactionCancel)
+    if (terminal === 'exit') {
+      child.kill('SIGTERM')
+      await exited
+    } else if (terminal === 'close') await engine.close()
+    else engine.forget('s1')
+    await new Promise(setImmediate)
+    assert.equal(settled, true)
+    await failed
+    assert.equal(thread.pendingCompaction, false)
+    assert.equal(thread.compactionCancel, undefined)
+    assert.equal(live.waiters.length, 0)
+  })
+}
+
 test('the handoff note is one more prompt in the CLI session; the next turn sends only what is new', async (t) => {
   const usage = []
   const adapter = makeAdapter({ usage })
@@ -158,6 +266,111 @@ test('a one-off request the CLI refuses ends at once', async () => {
   const started = Date.now()
   await assert.rejects(adapter.ask('s1', { system: 'decide', prompt: 'now', signal: AbortSignal.timeout(5_000) }), /refused/)
   assert.ok(Date.now() - started < 1_000)
+})
+
+test('Codex one-off requests exit their own processes while the conversation keeps its process', async t => {
+  const engines = []
+  const closed = []
+  const adapter = makeAdapter({ kind: 'codex', engines })
+  t.after(() => adapter.dispose())
+  const spawn = adapter.deps.spawnEngine
+  adapter.deps.spawnEngine = (...args) => {
+    const engine = spawn(...args)
+    const close = engine.close.bind(engine)
+    engine.close = async () => {
+      const child = engine.child
+      await close()
+      if (child !== undefined) closed.push(child)
+    }
+    return engine
+  }
+  const history = [user('m1', 'hello')]
+  await turn(adapter, 's1', history, 'local-codex-cli')
+  const main = engines[0].child
+  for (let at = 0; at < 3; at += 1) {
+    assert.match(await adapter.ask('s1', { system: 'Decide.', prompt: 'answer', signal: AbortSignal.timeout(30_000) }), /ok: answer/)
+  }
+  assert.equal(engines.length, 4)
+  assert.equal(closed.length, 3)
+  assert.ok(closed.every(child => child.exitCode !== null || child.signalCode !== null))
+  assert.equal(main.exitCode, null)
+  assert.equal(main.signalCode, null)
+  assert.match((await turn(adapter, 's1', [...history, user('m2', 'next')], 'local-codex-cli')).text, /ok: next/)
+})
+
+test('disposing the adapter cancels an in-flight Codex one-off and waits for its process to exit', async t => {
+  const engines = []
+  const adapter = makeAdapter({ kind: 'codex', records: { s1: { route: 'local-codex-cli', model: 'default' } }, engines })
+  t.after(() => adapter.dispose())
+  const started = Promise.withResolvers()
+  const spawn = adapter.deps.spawnEngine
+  adapter.deps.spawnEngine = (...args) => {
+    const engine = spawn(...args)
+    const prompt = engine.prompt.bind(engine)
+    engine.prompt = async (...args) => {
+      const turnId = await prompt(...args)
+      started.resolve(engine.child)
+      return turnId
+    }
+    return engine
+  }
+  const rejected = assert.rejects(adapter.ask('s1', { system: 'Decide.', prompt: 'hold' }), /disposed/)
+  const child = await started.promise
+  await adapter.dispose()
+  await rejected
+  assert.ok(child.exitCode !== null || child.signalCode !== null)
+  assert.equal(adapter.sideRequests.size, 0)
+  await assert.rejects(adapter.ask('s1', { system: 'Decide.', prompt: 'next' }), /disposed/)
+  assert.equal(engines.length, 1)
+})
+
+test('a one-off session that opens after disposal is closed without starting its prompt', async t => {
+  const adapter = makeAdapter({ kind: 'codex', records: { s1: { route: 'local-codex-cli', model: 'default' } } })
+  t.after(() => adapter.dispose())
+  const opening = Promise.withResolvers()
+  const opened = Promise.withResolvers()
+  let prompts = 0
+  let closes = 0
+  const engine = {
+    open: () => { opening.resolve(); return opened.promise },
+    prompt: () => { prompts += 1 },
+    close: async () => { closes += 1; opened.resolve({}) },
+  }
+  adapter.deps.spawnEngine = () => engine
+  const rejected = assert.rejects(adapter.ask('s1', { system: 'Decide.', prompt: 'next' }), /disposed/)
+  await opening.promise
+  await adapter.dispose()
+  await rejected
+  assert.equal(prompts, 0)
+  assert.equal(closes, 2)
+  assert.equal(adapter.sideRequests.size, 0)
+})
+
+test('overlapping ACP one-off requests retain their shared process until both finish', async t => {
+  const adapter = makeAdapter({ records: { s1: { route: 'local-acp-fake', model: 'default' } } })
+  t.after(() => adapter.dispose())
+  const engine = adapter.engine('local-acp-fake')
+  const started = Promise.withResolvers()
+  const prompt = engine.prompt.bind(engine)
+  engine.prompt = (session, blocks, options) => {
+    const result = prompt(session, blocks, options)
+    if (blocks.some(block => block.text?.endsWith('hang'))) started.resolve()
+    return result
+  }
+  const controller = new AbortController()
+  const rejected = assert.rejects(adapter.ask('s1', { system: 'Decide.', prompt: 'hang', signal: controller.signal }), /stopped/)
+  await started.promise
+  const child = engine.child
+  const exited = new Promise(resolve => child.once('close', resolve))
+  t.after(async () => { controller.abort(new Error('stopped')); await adapter.dispose(); await exited })
+  assert.match(await adapter.ask('s1', { system: 'Decide.', prompt: 'answer' }), /ok:/)
+  assert.equal(adapter.sideRequests.size, 1)
+  assert.equal(child.exitCode, null)
+  assert.equal(child.signalCode, null)
+  controller.abort(new Error('stopped'))
+  await rejected
+  await exited
+  assert.equal(adapter.sideRequests.size, 0)
 })
 
 test('Codex condenses in a turn of its own and reports what is left', async (t) => {
@@ -354,6 +567,56 @@ test('a note the CLI could not write: the part still moves on, with the package'
   await run.settle()
   assert.equal(run.bot.sessionId, 's2', run.warnings.join(' | '))
   assert.match(packageOf(run), /did not write a usable note/)
+})
+
+test('a busy DSH maintenance owner defers local compaction without scheduling a switch', async t => {
+  const { Context } = await import('@deepseek-ai/cordis')
+  const { SessionId } = await import('@deepseek-ai/dsh-session')
+  const { mountAgentLoopTestDependencies, mountAgentLoopTestHarness } = await import('@deepseek-ai/dsh-agent-loop-testkit')
+  const ctx = new Context()
+  const held = Promise.withResolvers()
+  let work
+  t.after(async () => { held.resolve(); await work; await ctx.fiber.dispose() })
+  await mountAgentLoopTestDependencies(ctx)
+  await mountAgentLoopTestHarness(ctx)
+  const actual = await ctx.agentLoop.create(SessionId('busy-maintenance'), { provider: 'test', model: 'test' })
+  work = actual.runMaintenance(() => held.promise)
+  const run = localPart({ context: { used: 220_000, size: 262_000, compactions: 0 }, decision: 'compact', after: { used: 30_000 } })
+  const agent = await run.rt.resolveAgent('s1')
+  const admission = Promise.withResolvers()
+  agent.runMaintenance = job => {
+    admission.resolve()
+    return actual.runMaintenance(job)
+  }
+  run.idle()
+  await admission.promise
+  await new Promise(setImmediate)
+  assert.equal(run.rt.state.switching.s1, undefined)
+  assert.deepEqual(run.warnings, [])
+  held.resolve()
+  await work
+  run.idle()
+  await new Promise(setImmediate)
+  assert.equal(run.calls.compacts.length, 1)
+  assert.equal(run.bot.sessionId, 's1')
+})
+
+test('cancelling local compaction does not trigger a background switch', async () => {
+  const run = localPart({ context: { used: 220_000, size: 262_000, compactions: 0 }, decision: 'compact' })
+  const agent = await run.rt.resolveAgent('s1')
+  const controller = new AbortController()
+  const compacting = Promise.withResolvers()
+  agent.runMaintenance = job => job(controller.signal)
+  run.rt.localAgentCompact = async (id, signal) => {
+    compacting.resolve()
+    return new Promise((resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }))
+  }
+  run.idle()
+  await compacting.promise
+  controller.abort(new Error('user stopped'))
+  await new Promise(setImmediate)
+  assert.equal(run.rt.state.switching.s1, undefined)
+  assert.deepEqual(run.warnings, [])
 })
 
 test('Antigravity 1.5.9, as recorded: models with per-model thinking levels, context window, commands, permissions, and separate cached usage', async () => {
