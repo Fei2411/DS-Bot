@@ -506,3 +506,23 @@ test('steer resume: turnOf follows a steer cut to its continuation', async () =>
   ], 'x1')
   assert.deepEqual(stopped?.reason, { kind: 'aborted', reason: { kind: 'user' } })
 })
+
+test('shell shadow: a call past the background wait detaches without a steer', async () => {
+  const { emit, stop, rt, agent, shadowOf } = await start({ services: { jobs: jobsService(jobId => ({
+    job: { id: jobId, status: 'running', output: {} },
+    lossy: false,
+    chunks: [{ text: 'building', channel: 'stdout' }],
+  })) } })
+  rt.state.prefs.backgroundAfterSec = 0.05
+  await emit('dm-a', 'turn/start', { turn: 1 })
+  rt.shadowShells(agent)
+  const shadow = shadowOf()
+  const pending = shadow.execute({ command: 'npm run build' }, execOf(agent))
+  await emit('dm-a', 'job/registered', { jobId: 'j2', toolCall: { callId: 'c1' } })
+  const value = await pending
+  assert.equal(value.kind, 'promoted')
+  assert.equal(value.jobId, 'j2')
+  assert.equal(value.output, 'building')
+  shadow.calls[0].res({ kind: 'foreground', exitCode: 0, stdout: { text: 'built' } })
+  await stop()
+})

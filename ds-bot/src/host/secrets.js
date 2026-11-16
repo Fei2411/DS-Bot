@@ -733,6 +733,8 @@ export function install(rt) {
   // field is redacted — a wrapper further out in the pipeline still sees a whole
   // result (its `content`, `meta`, and `additionalContexts` too), and the registry
   // re-renders a changed success result from its redacted value.
+  // A background job's result reaches the model as a message, past the pipeline above.
+  rt.redactText = text => (secrets.size === 0 ? text : redact(text))
   ctx.on('tools/execute', async (exec, next) => {
     const result = await next()
     if (secrets.size === 0 || result === null || typeof result !== 'object') return result

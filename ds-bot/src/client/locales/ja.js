@@ -1,6 +1,8 @@
 // Japanese (ja) localization for DS Bot client and DSH settings namespaces.
 
 export const JA = {
+  "Background work": "バックグラウンド作業",
+  "Background tool calls after (seconds)": "ツール呼び出しをバックグラウンドへ（秒後）",
   'A new reply is waiting': "新しい返信があります",
   "Opening…": "開いています…",
   "Still opening…": "まだ開いています…",

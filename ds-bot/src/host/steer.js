@@ -156,18 +156,24 @@ export function install(rt) {
         let steerResolve
         let jobResolve
         let graceTimer
+        let waitTimer
         try {
           // A user steer ends the wait: first for the steer event itself, then a
           // short grace for a fast command, then for the job id the native call
-          // registers (it may not exist yet while approval is pending).
+          // registers (it may not exist yet while approval is pending). The
+          // background wait (background.js) ends it the same way, without the grace.
           const steerSeen = () => {
             if ((exec.agent.inbox?.nextStep ?? []).some(message => message?.source?.kind === 'user')) return Promise.resolve('steered')
             return new Promise(resolve => { steerResolve = resolve; track.steerWaiters.add(resolve) }).then(() => 'steered')
           }
-          const first = await Promise.race([native, steerSeen()])
-          if (first !== 'steered') return await native
-          const graced = await Promise.race([native, new Promise(resolve => { graceTimer = setTimeout(() => resolve('grace'), STEER_GRACE_MS) })])
-          if (graced !== 'grace') return await native
+          const waitMs = rt.backgroundWaitMs?.()
+          const waited = new Promise((resolve) => { if (Number.isFinite(waitMs)) waitTimer = setTimeout(() => resolve('waited'), waitMs) })
+          const first = await Promise.race([native, steerSeen(), waited])
+          if (first !== 'steered' && first !== 'waited') return await native
+          if (first === 'steered') {
+            const graced = await Promise.race([native, new Promise(resolve => { graceTimer = setTimeout(() => resolve('grace'), STEER_GRACE_MS) })])
+            if (graced !== 'grace') return await native
+          }
           const known = track.jobsByCall.get(exec.callId)
           const jobWait = known !== undefined ? Promise.resolve(known) : new Promise(resolve => {
             jobResolve = resolve
@@ -188,6 +194,7 @@ export function install(rt) {
             if (set?.size === 0) track.jobWaiters.delete(exec.callId)
           }
           clearTimeout(graceTimer)
+          clearTimeout(waitTimer)
         }
         const jobId = track.jobsByCall.get(exec.callId)
         let read

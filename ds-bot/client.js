@@ -124,6 +124,8 @@ function convertHostErrors(pairs) {
 
 // src/client/locales/ja.js
 var JA = {
+  "Background work": "バックグラウンド作業",
+  "Background tool calls after (seconds)": "ツール呼び出しをバックグラウンドへ（秒後）",
   "A new reply is waiting": "新しい返信があります",
   "Opening…": "開いています…",
   "Still opening…": "まだ開いています…",
@@ -2528,6 +2530,8 @@ var DSH_JA = {
 
 // src/client/locales/ko.js
 var KO = {
+  "Background work": "백그라운드 작업",
+  "Background tool calls after (seconds)": "도구 호출 백그라운드 전환(초)",
   "A new reply is waiting": "새 답변이 도착했습니다",
   "Opening…": "여는 중…",
   "Still opening…": "아직 여는 중…",
@@ -4977,6 +4981,8 @@ var DSH_KO = {
 
 // src/client/locales/es.js
 var ES = {
+  "Background work": "Trabajo en segundo plano",
+  "Background tool calls after (seconds)": "Pasar llamadas de herramientas a segundo plano tras (segundos)",
   "A new reply is waiting": "Tienes una nueva respuesta",
   "Opening…": "Abriendo…",
   "Still opening…": "Sigue abriendo…",
@@ -7426,6 +7432,8 @@ var DSH_ES = {
 
 // src/client/locales/fr.js
 var FR = {
+  "Background work": "Travail en arrière-plan",
+  "Background tool calls after (seconds)": "Passer les appels d’outils en arrière-plan après (secondes)",
   "A new reply is waiting": "Une nouvelle réponse vous attend",
   "Opening…": "Ouverture…",
   "Still opening…": "Toujours en cours d’ouverture…",
@@ -9830,6 +9838,8 @@ var DSH_FR = {
 
 // src/client/locales/de.js
 var DE = {
+  "Background work": "Hintergrundarbeit",
+  "Background tool calls after (seconds)": "Tool-Aufrufe in den Hintergrund nach (Sekunden)",
   "A new reply is waiting": "Eine neue Antwort wartet auf dich",
   "Opening…": "Wird geöffnet…",
   "Still opening…": "Wird noch geöffnet…",
@@ -12953,6 +12963,8 @@ var ZH = {
   "Text width": "正文宽度",
   "Show thinking": "显示思考过程",
   "Enter sends message": "回车发送消息",
+  "Background work": "后台工作",
+  "Background tool calls after (seconds)": "工具调用转后台（秒）",
   "Bring up related memory": "自动带上相关记忆",
   "Group memory size": "群记忆容量",
   "Bot memory size": "Bot 记忆容量",
@@ -36304,6 +36316,19 @@ function MemorySize({ label, value, save }) {
     if (event.key === "Enter") event.target.blur();
   } });
 }
+var BACKGROUND_AFTER_SEC = 5;
+function SecondsField({ label, value, save }) {
+  const [text, setText] = (0, import_react50.useState)(String(value));
+  (0, import_react50.useEffect)(() => setText(String(value)), [value]);
+  const commit = () => {
+    const number = Number(text);
+    if (text.trim() !== "" && Number.isFinite(number) && number >= 0 && number <= 600 && number !== value) save(number);
+    else setText(String(value));
+  };
+  return (0, import_react50.createElement)("input", { className: "bt-input bt-set-number", type: "number", min: 0, max: 600, step: 1, "aria-label": label, value: text, onChange: (event) => setText(event.target.value), onBlur: commit, onKeyDown: (event) => {
+    if (event.key === "Enter") event.target.blur();
+  } });
+}
 function SetSection({ title, action = null, className = "", children }) {
   return (0, import_react50.createElement)(
     "section",
@@ -36449,6 +36474,15 @@ function GeneralPage({ roster, actions, run: run2, dsh }) {
         SetRow,
         { label: t("Enter sends message") },
         (0, import_react50.createElement)(Switch, { label: t("Enter sends message"), on: prefs.enterToSend !== false, onChange: (enterToSend) => run2(actions.setPrefs({ enterToSend })) })
+      )
+    ),
+    (0, import_react50.createElement)(
+      SetSection,
+      { key: "background", title: t("Background work") },
+      (0, import_react50.createElement)(
+        SetRow,
+        { label: t("Background tool calls after (seconds)") },
+        (0, import_react50.createElement)(SecondsField, { label: t("Background tool calls after (seconds)"), value: prefs.backgroundAfterSec ?? BACKGROUND_AFTER_SEC, save: (backgroundAfterSec) => run2(actions.setPrefs({ backgroundAfterSec })) })
       )
     ),
     (0, import_react50.createElement)(
