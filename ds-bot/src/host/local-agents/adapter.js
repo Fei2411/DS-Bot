@@ -67,6 +67,7 @@ export class LocalAgentAdapter extends LlmAdapter {
     this.live = new Map()      // sessionId -> live session
     this.modelCache = new Map()
     this.probes = new Map()    // route -> the probe under way
+    this.sideRequests = new Set()
     this.disposed = false
   }
 
@@ -118,7 +119,7 @@ export class LocalAgentAdapter extends LlmAdapter {
       this.modelCache.set(route, (models ?? []).filter(model => model.id !== 'default')
         .map(model => ({ provider: route, id: model.id, name: model.name ?? model.id, ...(model.reasoning ? { reasoning: model.reasoning } : {}) })))
     } catch { /* the menu still has the CLI's default */ }
-    if (![...this.live.values()].some(other => other.engine === engine && !other.dead)) await engine.close?.().catch(() => {})
+    if (!this.engineInUse(engine)) await engine.close?.().catch(() => {})
   }
 
   dropModelCache(route) {
@@ -286,6 +287,11 @@ export class LocalAgentAdapter extends LlmAdapter {
     }
   }
 
+  engineInUse(engine, except) {
+    return [...this.live.values()].some(other => other.engine === engine && !other.dead)
+      || [...this.sideRequests].some(request => request !== except && request.engine === engine)
+  }
+
   async closeLive(live, { idle = false } = {}) {
     if (live.dead) return
     live.dead = true
@@ -300,7 +306,7 @@ export class LocalAgentAdapter extends LlmAdapter {
       live.started = false
     }
     for (const waiter of live.waiters.splice(0)) waiter({ type: 'done', reason: 'stop' })
-    const stillUsed = [...this.live.values()].some(other => other.engine === live.engine && !other.dead)
+    const stillUsed = this.engineInUse(live.engine)
     if (!stillUsed) await live.engine.close?.().catch(() => {})
   }
 
@@ -308,10 +314,11 @@ export class LocalAgentAdapter extends LlmAdapter {
   stopTurn(live, reason) {
     live.state = 'idle'
     live.queue.length = 0
-    if (live.engineSession !== undefined) live.engine.cancel?.(live.engineSession)
+    const stopped = live.engineSession === undefined ? undefined : live.engine.cancel?.(live.engineSession)
     live.mcp?.failAll(new Error(reason))
     for (const pending of live.pending.values()) pending.resolve({ text: reason, isError: true })
     live.pending.clear()
+    return stopped
   }
 
   // The Session left this CLI: its part moved on. Its process leaves; the CLI session
@@ -833,7 +840,7 @@ export class LocalAgentAdapter extends LlmAdapter {
   // context, answered with text and no tools: the handoff note.
   async note(sessionId, text, signal) {
     return this.maintain(sessionId, signal, async (live) => {
-      this.sendInput(live, text, signal)
+      await this.sendInput(live, text, signal)
       return this.meter(live, await this.collect(live, () => this.take(live), signal)).text
     })
   }
@@ -855,9 +862,10 @@ export class LocalAgentAdapter extends LlmAdapter {
     // What a finished turn left behind is not this request's answer.
     live.events.length = 0
     try {
+      signal?.throwIfAborted()
       return await work(live)
     } finally {
-      if (live.state !== 'idle') this.stopTurn(live, 'the request was stopped')
+      if (live.state !== 'idle') await this.stopTurn(live, 'the request was stopped')
       live.events.length = 0
       live.mute = true
       if (opened) await this.closeLive(live, { idle: true })
@@ -922,7 +930,11 @@ export class LocalAgentAdapter extends LlmAdapter {
     else signal?.addEventListener('abort', onAbort)
     try {
       for (;;) {
-        if (ended && (!compaction || condensed)) return { text, usage }
+        signal?.throwIfAborted()
+        if (ended && (!compaction || condensed)) {
+          live.state = 'idle'
+          return { text, usage }
+        }
         const next = take()
         const waits = [next.event, aborted]
         // Nothing said it started: the CLI condensed without a word, or not at all.
@@ -949,12 +961,14 @@ export class LocalAgentAdapter extends LlmAdapter {
             else if (event.status === 'completed') condensed = true
             else throw new LlmError('the local agent did not condense its context', 'LOCAL_AGENT_ERROR')
             break
-          case 'quiet': return { text, usage }
+          case 'quiet':
+            live.state = 'idle'
+            return { text, usage }
           case 'usage': add(event.usage); break
           case 'done':
             add(event.usage)
             ended = true
-            live.state = 'idle'
+            if (!compaction) live.state = 'idle'
             break
           case 'error':
             live.state = 'idle'
@@ -977,19 +991,26 @@ export class LocalAgentAdapter extends LlmAdapter {
   // team tools and read-only access, which is let go of after: the context steward's
   // call for a Bot whose team has no model of its own.
   async ask(sessionId, { system, prompt, signal }) {
+    if (this.disposed) throw new LlmError('the local agents adapter is disposed', 'NO_ADAPTER')
     const record = this.live.get(sessionId) ?? this.deps.record(sessionId)
     const route = record?.route
     const spec = route === undefined ? undefined : engineOf(route, this.deps.customAgents())
     if (spec === undefined) throw new LlmError('this conversation has no local agent', 'LOCAL_AGENT_MISSING')
-    const engine = this.engine(route)
+    const isolated = spec.kind === 'codex'
+    const engine = isolated ? this.deps.spawnEngine(spec.kind, route, spec) : this.engine(route)
+    const request = { controller: new AbortController(), done: Promise.withResolvers(), engine, isolated }
+    this.sideRequests.add(request)
+    signal = AbortSignal.any([request.controller.signal, ...(signal === undefined ? [] : [signal])])
     const sideId = `dsbot-side-${randomUUID()}`
     let session
     try {
+      signal.throwIfAborted()
       session = await engine.open(sideId, {
         cwd: this.deps.probeCwd(), mcp: undefined, mode: cliMode(spec.kind, 'read-only'), preset: 'read-only', model: record.model, ephemeral: true,
         instructions: spec.kind === 'codex' ? system : undefined,
         system: spec.kind === 'claude' ? system : undefined,
       }).catch(error => { throw toLlmError(error, { spec }) })
+      signal.throwIfAborted()
       const side = { state: 'running', pending: new Map(), spec }
       // A decision needs no long thinking: the least the model offers, when it lists any.
       const efforts = (this.modelCache.get(route) ?? []).find(model => model.id === record.model)?.reasoning?.efforts ?? []
@@ -1001,17 +1022,26 @@ export class LocalAgentAdapter extends LlmAdapter {
       const result = await this.collect(side, () => ({ event: Promise.race([session.next(), refused]), drop: () => {} }), signal)
       return this.meter({ sessionId, route, model: record.model }, result).text
     } finally {
-      if (session !== undefined) {
-        if (signal?.aborted) engine.cancel?.(session)
-        await engine.closeSession?.(session)
+      try {
+        if (session !== undefined) {
+          if (signal.aborted) await engine.cancel?.(session)
+          await engine.closeSession?.(session)
+        }
+      } finally {
+        engine.forget?.(sideId)
+        if (isolated || !this.engineInUse(engine, request)) await engine.close?.().catch(() => {})
+        this.sideRequests.delete(request)
+        request.done.resolve()
       }
-      engine.forget?.(sideId)
-      if (![...this.live.values()].some(other => other.engine === engine && !other.dead)) await engine.close?.().catch(() => {})
     }
   }
 
   async dispose() {
     this.disposed = true
+    const requests = [...this.sideRequests]
+    for (const request of requests) request.controller.abort(new LlmError('the local agents adapter is disposed', 'NO_ADAPTER'))
+    await Promise.all(requests.filter(request => request.isolated).map(request => request.engine.close?.().catch(() => {})))
+    await Promise.all(requests.map(request => request.done.promise))
     for (const live of Array.from(this.live.values())) await this.closeLive(live)
     for (const engine of Array.from(this.engines.values())) await engine.close?.().catch(() => {})
     this.engines.clear()
