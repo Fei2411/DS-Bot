@@ -6,11 +6,15 @@
 // access token: interactive cards with a markdown element and buttons, edited
 // by PATCH. The tiny protobuf codec below implements only this frame shape.
 // Protocol ported from @larksuiteoapi/node-sdk (MIT, see NOTICE).
+import { randomUUID } from 'node:crypto'
 import { chunkMarkdown } from '../format.js'
 import { retryDelay, retryWait } from './retry.js'
+import { replyImages } from '../reply-images.js'
 
 const TEXT_LIMIT = 4000
 const SOCKET_TIMEOUT = 30_000
+// A replacement runner can retry the same queued job after a disconnect.
+const deliveries = new WeakMap()
 const pingInterval = seconds => {
   const ms = Number(seconds) * 1000
   return Number.isFinite(ms) && ms >= 1000 && ms <= 2_147_483_647 ? ms : undefined
@@ -391,22 +395,52 @@ export default {
       },
     })
 
+    // The common send queue retries the same job object. Keep completed chunks
+    // and uploaded keys so a later image failure does not resend earlier replies.
     return {
-      send: async (chat, { text, buttons }) => {
-        const chunks = chunkMarkdown(String(text ?? ''), TEXT_LIMIT)
-        let messageId
-        for (const [index, chunk] of chunks.entries()) {
-          const interactive = buttons !== undefined && index === chunks.length - 1
-          const sent = await rest('/open-apis/im/v1/messages?receive_id_type=chat_id', {
-            body: {
-              receive_id: chat.key,
-              msg_type: interactive ? 'interactive' : 'text',
-              content: interactive ? card(chunk, buttons) : JSON.stringify({ text: chunk }),
-            },
-          })
-          messageId = String(sent?.data?.message_id ?? messageId ?? '')
+      send: async (chat, job) => {
+        let delivery = deliveries.get(job)
+        if (delivery === undefined) {
+          const parsed = job.imageContext === undefined ? { text: job.text, images: [] } : replyImages(job.text)
+          delivery = { chunks: chunkMarkdown(String(parsed.text ?? ''), TEXT_LIMIT), images: parsed.images, next: 0, messageId: undefined }
+          deliveries.set(job, delivery)
         }
-        return { messageId }
+        const { chunks, images } = delivery
+        while (delivery.next < chunks.length + images.length) {
+          const index = delivery.next
+          let body
+          if (index < chunks.length) {
+            const interactive = job.buttons !== undefined && index === chunks.length - 1
+            body = { msg_type: interactive ? 'interactive' : 'text', content: interactive ? card(chunks[index], job.buttons) : JSON.stringify({ text: chunks[index] }) }
+          } else {
+            const image = images[index - chunks.length]
+            if (image.key === undefined) {
+              const file = await env.readImage(job.imageContext, image.path)
+              const bytes = Buffer.from(file.bytes, 'base64')
+              let mime
+              try { mime = imageMediaType(bytes) } catch (error) { throw Object.assign(error, { permanent: true }) }
+              if (bytes.length > 8 * 1024 * 1024) throw Object.assign(new Error('Feishu image is too large (over 8 MB)'), { permanent: true })
+              const form = new FormData()
+              form.set('image_type', 'message')
+              form.set('image', new Blob([bytes], { type: mime }), `image.${mime.split('/')[1]}`)
+              const response = await env.fetch(`${apiBase(env, fields)}/open-apis/im/v1/images`, {
+                method: 'POST', headers: { authorization: `Bearer ${await freshToken()}` }, body: form,
+              })
+              const uploaded = await response.json().catch(() => ({}))
+              if (!response.ok || uploaded.code !== 0 || !uploaded.data?.image_key) {
+                throw Object.assign(new Error(`Feishu image upload failed: ${uploaded.msg ?? response.status}`), { status: response.status, permanent: response.status >= 400 && response.status < 500 && response.status !== 429 })
+              }
+              image.key = uploaded.data.image_key
+            }
+            body = { msg_type: 'image', content: JSON.stringify({ image_key: image.key }) }
+          }
+          delivery.uuid ??= randomUUID()
+          const sent = await rest('/open-apis/im/v1/messages?receive_id_type=chat_id', { body: { receive_id: chat.key, uuid: delivery.uuid, ...body } })
+          delivery.messageId = String(sent?.data?.message_id ?? delivery.messageId ?? '')
+          delivery.next += 1
+          delivery.uuid = undefined
+        }
+        return { messageId: delivery.messageId }
       },
       edit: async (chat, messageId, { text, buttons }) => {
         await rest(`/open-apis/im/v1/messages/${messageId}`, {

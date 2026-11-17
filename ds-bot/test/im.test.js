@@ -234,6 +234,11 @@ test('outbound: assistant text and member lines go out; hidden turns, user and s
   s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'visible reply' }] } })
   assert.equal(s.fake.sent.length, 1)
   assert.equal(s.fake.sent[0].text, 'visible reply')
+  assert.deepEqual(s.fake.sent[0].imageContext, { sessionId: 'a' })
+  const readerCalls = []
+  s.rt.mobileEndpoint = async (endpoint, body) => { readerCalls.push({ endpoint, body }); return { bytes: 'image-bytes' } }
+  assert.deepEqual(await s.fake.env.readImage(s.fake.sent[0].imageContext, 'screen.png'), { bytes: 'image-bytes' })
+  assert.deepEqual(readerCalls, [{ endpoint: 'markdown-image', body: { sessionId: 'a', path: 'screen.png' } }])
   s.rt.state.exchangeTurns.a = [7]
   s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'hidden' }] }, turn: 7 })
   s.emitEvent('a', 'user/message', { source: { kind: 'user' }, content: [{ type: 'text', text: 'user typed' }] })
@@ -251,6 +256,7 @@ test('outbound: assistant text and member lines go out; hidden turns, user and s
   assert.equal(s.fake.sent.length, 2)
   assert.equal(s.fake.sent[1].text, '**Writer**: member spoke')
   assert.equal(s.fake.sent[1].chat.key, 'g1')
+  assert.deepEqual(s.fake.sent[1].imageContext, { sessionId: 'r1', botId: 'b' })
 })
 
 test('IM user messages are tagged by seq for the current part; a part that is no longer current drops out', async (t) => {

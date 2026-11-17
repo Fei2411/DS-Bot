@@ -336,6 +336,7 @@ export function install(rt) {
     config: rt.config.im?.[conn.platform],
     runtime: runtime ?? await runtimeEnv(conn.id),
     log: { warn: (template, ...args) => rt.warn(template, ...args) },
+    readImage: (context, path) => rt.mobileEndpoint('markdown-image', { ...context, path }),
     uploadFile: async (sessionId, file) => {
       const uploads = ctx.get?.('fileUploads')
       if (typeof uploads?.uploadStream !== 'function') throw new Error('no upload service')
@@ -656,6 +657,10 @@ export function install(rt) {
   }
   const sendText = (conn, chat, body, buttons, after) => enqueue(conn, chat.key, { chat, text: body, buttons, after })
   const sendTo = (conn, chatKey, chat, body, buttons, after) => enqueue(conn, chatKey, { chat, text: body, buttons, after })
+  const sendReply = (origin, body, imageContext) => enqueue(origin.conn, origin.chatKey, {
+    chat: { key: origin.chatKey, kind: origin.chat.kind, title: origin.chat.title }, text: body,
+    ...(imageContext === undefined ? {} : { imageContext }),
+  })
 
   // ----------------------------------------------------------------- inbound
   const requested = (conn, msg) => {
@@ -1494,7 +1499,7 @@ export function install(rt) {
     for (const item of rt.displayItems(session.id, [event])) {
       if (item.kind !== 'bot' && item.kind !== 'view') continue
       const body = item.kind === 'bot' ? item.text : viewCardText({ title: item.title, view: item.view }) || (item.title ?? '')
-      sendTo(origin.conn, origin.chatKey, { key: origin.chatKey, kind: origin.chat.kind, title: origin.chat.title }, body)
+      sendReply(origin, body, item.kind === 'bot' ? { sessionId: session.id } : undefined)
     }
   })
 
@@ -1503,7 +1508,7 @@ export function install(rt) {
     const origin = originOf(room.sessionId ?? room.id)
     if (origin === undefined) return
     const body = `**${line.who}**: ${line.text}`
-    sendTo(origin.conn, origin.chatKey, { key: origin.chatKey, kind: origin.chat.kind, title: origin.chat.title }, body)
+    sendReply(origin, body, { sessionId: room.sessionId ?? room.id, botId: line.botId })
   })
 
   rt.onApproval((kind, data) => {
