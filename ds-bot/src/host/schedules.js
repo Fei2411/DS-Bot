@@ -152,9 +152,17 @@ export function install(rt) {
       if (service === null) throw invalid('Automation tasks are off in DSH')
       if (!hostWide(service)) throw invalid('This DSH cannot pause a task')
       if (typeof body.active !== 'boolean') throw invalid('Say whether the task runs')
+      if (ownerOf(body.sessionId) === undefined) throw invalid('No such task')
       const entry = (await service.catalog()).find(task => task.id === body.id)
       if (entry === undefined || sessionOf(entry) !== body.sessionId) throw invalid('No such task')
-      await service.edit({ id: body.id, action: 'update', patch: { active: body.active } })
+      // The row the page showed is the one to change: if the task moved since the
+      // catalog read, say so instead of overwriting it.
+      const result = await service.edit({
+        id: body.id, action: 'update', patch: { active: body.active },
+        expectedUpdatedAt: entry.updatedAt ?? null,
+      })
+      if (result.code === 'schedule_not_found') throw invalid('No such task')
+      if (result.code === 'schedule_conflict') throw invalid('This task changed since the page was read. Open the list again')
       return schedulesView()
     },
     async 'schedule-delete'(body) {

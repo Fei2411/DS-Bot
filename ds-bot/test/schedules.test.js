@@ -62,6 +62,7 @@ function hostSchedule() {
   const tasks = new Map()
   let next = 1
   const edits = []
+  let conflict = false
   return {
     tasks,
     edits,
@@ -76,10 +77,12 @@ function hostSchedule() {
     },
     async edit(request) {
       edits.push(request)
+      if (conflict) return { id: request.id, code: 'schedule_conflict' }
       if (request.action === 'delete') tasks.delete(request.id)
       else Object.assign(tasks.get(request.id), request.patch)
       return { id: request.id }
     },
+    set conflict(value) { conflict = value },
   }
 }
 
@@ -222,12 +225,17 @@ test('on DSH 0.2.2 tasks target the Bot’s current part, list by target, delete
   // Pausing and resuming go through the same edit, with the running flag.
   const paused = await call('schedule-set', { sessionId: 'm1', id: 'schedule-2', active: false })
   assert.equal(paused.ok, true, JSON.stringify(paused))
-  assert.deepEqual(schedule.edits.at(-1), { id: 'schedule-2', action: 'update', patch: { active: false } })
+  assert.deepEqual(schedule.edits.at(-1), { id: 'schedule-2', action: 'update', patch: { active: false }, expectedUpdatedAt: null })
   assert.equal(paused.value.editable, true)
   await call('schedule-set', { sessionId: 'm1', id: 'schedule-2', active: true })
-  assert.deepEqual(schedule.edits.at(-1), { id: 'schedule-2', action: 'update', patch: { active: true } })
+  assert.deepEqual(schedule.edits.at(-1), { id: 'schedule-2', action: 'update', patch: { active: true }, expectedUpdatedAt: null })
   assert.match((await call('schedule-set', { sessionId: 'w2', id: 'schedule-2', active: false })).error.message, /No such task/)
+  assert.match((await call('schedule-set', { sessionId: 'outside-the-team', id: 'schedule-2', active: false })).error.message, /No such task/)
   assert.match((await call('schedule-set', { sessionId: 'm1', id: 'schedule-2', active: 'no' })).error.message, /whether the task runs/)
+  // A task that moved since the list was read is not overwritten silently.
+  schedule.conflict = true
+  assert.match((await call('schedule-set', { sessionId: 'm1', id: 'schedule-2', active: false })).error.message, /changed since/)
+  schedule.conflict = false
 
   const removed = await call('schedule-delete', { sessionId: 'm1', id: 'schedule-2' })
   assert.equal(removed.ok, true, JSON.stringify(removed))
