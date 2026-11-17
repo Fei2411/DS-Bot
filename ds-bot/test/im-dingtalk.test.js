@@ -105,7 +105,7 @@ test('system pings get a pong, a single chat and an @ group message land, every 
   assert.equal(messages[2].mentioned, false)
 })
 
-test('send replies through the sessionWebhook when live, else the robot API', async (t) => {
+test('send replies through the sessionWebhook when live, else the robot API with msgParam as a JSON string', async (t) => {
   const fake = await fakeDingtalk()
   const messages = []
   const handle = dingtalk.connect(FIELDS, env(fake), { onMessage: async msg => { messages.push(msg) }, onAction: () => {}, onStatus: () => {} })
@@ -121,6 +121,15 @@ test('send replies through the sessionWebhook when live, else the robot API', as
   const post = fake.calls.find(call => call.path === '/v1.0/robot/oToMessages/batchSend')
   assert.equal(post.params.msgKey, 'sampleMarkdown')
   assert.deepEqual(post.params.userIds, ['u9'])
+  assert.equal(typeof post.params.msgParam, 'string')
+  assert.deepEqual(JSON.parse(post.params.msgParam), { title: 'push', text: 'push' })
+  // A group without a sessionWebhook goes through groupMessages/send.
+  await handle.send({ key: 'g1', kind: 'group' }, { text: 'group push' })
+  const group = fake.calls.find(call => call.path === '/v1.0/robot/groupMessages/send')
+  assert.equal(group.params.openConversationId, 'g1')
+  assert.equal(group.params.msgKey, 'sampleMarkdown')
+  assert.equal(typeof group.params.msgParam, 'string')
+  assert.deepEqual(JSON.parse(group.params.msgParam), { title: 'group push', text: 'group push' })
 })
 
 test('a dropped socket reconnects', async (t) => {
@@ -131,4 +140,70 @@ test('a dropped socket reconnects', async (t) => {
   ws.close()
   await until(() => fake.sockets.length === 2)
   assert.ok(fake.calls.filter(call => call.path === '/v1.0/gateway/connections/open').length >= 2)
+})
+
+test('a network failure at start is retried until the platform answers (#1119)', async (t) => {
+  const fake = await fakeDingtalk()
+  const statuses = []
+  const base = env(fake)
+  let down = true
+  const fetch = async (...args) => {
+    if (down) throw new TypeError('fetch failed')
+    return base.fetch(...args)
+  }
+  const handle = dingtalk.connect(FIELDS, { ...base, fetch }, { onMessage: () => {}, onAction: () => {}, onStatus: next => statuses.push(next) })
+  t.after(() => { handle.stop(); fake.close() })
+  const failed = await until(() => statuses.find(status => status.state === 'retrying'))
+  assert.match(failed.error, /fetch failed/)
+  down = false
+  await until(() => statuses.some(status => status.state === 'ready'), 160)
+  assert.ok(fake.calls.some(call => call.path.startsWith('/gettoken')))
+  assert.ok(fake.calls.some(call => call.path === '/v1.0/gateway/connections/open'))
+  assert.equal(fake.sockets.length, 1)
+})
+
+test('a connections/open failure after the token is accepted is retried (#1119)', async (t) => {
+  const fake = await fakeDingtalk()
+  const statuses = []
+  const base = env(fake)
+  let down = true
+  let opens = 0
+  const fetch = async (url, ...rest) => {
+    if (String(url).endsWith('/v1.0/gateway/connections/open')) {
+      opens += 1
+      if (down) throw new TypeError('fetch failed')
+    }
+    return base.fetch(url, ...rest)
+  }
+  const handle = dingtalk.connect(FIELDS, { ...base, fetch }, { onMessage: () => {}, onAction: () => {}, onStatus: next => statuses.push(next) })
+  t.after(() => { handle.stop(); fake.close() })
+  const failed = await until(() => statuses.find(status => status.state === 'retrying'))
+  assert.match(failed.error, /fetch failed/)
+  // The token was accepted first, so this covers the handshake and not a second
+  // token failure.
+  assert.equal(fake.calls.filter(call => call.path.startsWith('/gettoken')).length, 1)
+  assert.equal(fake.sockets.length, 0)
+  down = false
+  const ready = await until(() => statuses.slice(statuses.indexOf(failed) + 1).find(status => status.state === 'ready'), 160)
+  assert.ok(ready !== undefined, 'the connection became ready after the retry')
+  assert.equal(opens, 2)
+  assert.equal(fake.sockets.length, 1, 'the retry opened one socket, not one per attempt')
+})
+
+test('a socket that cannot be built at the handshake is retried (#1119)', async (t) => {
+  const fake = await fakeDingtalk()
+  const statuses = []
+  const base = env(fake)
+  let failures = 1
+  const WebSocket = function (...args) {
+    if (failures > 0) { failures -= 1; throw new TypeError('socket unavailable') }
+    return new base.WebSocket(...args)
+  }
+  const handle = dingtalk.connect(FIELDS, { ...base, WebSocket }, { onMessage: () => {}, onAction: () => {}, onStatus: next => statuses.push(next) })
+  t.after(() => { handle.stop(); fake.close() })
+  const failed = await until(() => statuses.find(status => status.state === 'retrying'))
+  assert.match(failed.error, /could not open a socket/)
+  const ready = await until(() => statuses.slice(statuses.indexOf(failed) + 1).find(status => status.state === 'ready'), 160)
+  assert.ok(ready !== undefined, 'the connection became ready after a new socket')
+  assert.equal(fake.sockets.length, 1)
 })

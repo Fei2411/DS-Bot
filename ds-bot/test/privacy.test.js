@@ -12,7 +12,7 @@ let rt
 const P = 'd1a40000-1111-4222-8333-444444444444'
 
 // Chief (Main), Writer in the group Ops, and Diary, a Bot with a folder of its own.
-function seed({ diary, privateBot, archives = [], picked }) {
+function seed({ diary, privateBot, archives = [], picked, openPart = false }) {
   return {
     version: 1,
     mainBotIds: ['a'],
@@ -21,7 +21,7 @@ function seed({ diary, privateBot, archives = [], picked }) {
     bots: {
       a: { id: 'a', name: 'Chief', role: 'Boss', sessionId: 'a', createdAt: 1 },
       b: { id: 'b', name: 'Writer', role: 'Write', sessionId: 'b', createdAt: 2 },
-      [P]: { id: P, name: 'Diary', role: 'Notes', sessionId: P, createdAt: 3, instructions: 'Keep the diary of the user.', workDir: diary, ...(privateBot ? { private: true } : {}) },
+      [P]: { id: P, name: 'Diary', role: 'Notes', sessionId: P, createdAt: 3, instructions: 'Keep the diary of the user.', workDir: diary, ...(privateBot ? { private: true } : {}), ...(openPart ? { openParts: [{ sessionId: 'p-bg', segments: [] }] } : {}) },
     },
     rooms: { r1: { id: 'r1', name: 'Ops', members: ['a', 'b'], mode: 'admin', admin: 'a', named: true, sessions: { b: 'gb' }, ...(picked === undefined ? {} : { memberDirs: { b: picked } }) } },
     agents: {},
@@ -33,7 +33,7 @@ function seed({ diary, privateBot, archives = [], picked }) {
   }
 }
 
-async function start({ services = {}, privateBot = true, archives, memberPick = false } = {}) {
+async function start({ services = {}, privateBot = true, archives, memberPick = false, openPart = false } = {}) {
   // The native realpath, as fs/promises uses: on Windows the JS one keeps 8.3 short names.
   const root = realpathSync.native(mkdtempSync(join(tmpdir(), 'ds-bot-privacy-')))
   const dsh = join(root, 'dsh')
@@ -44,7 +44,7 @@ async function start({ services = {}, privateBot = true, archives, memberPick = 
   const picked = join(root, 'picked')
   for (const dir of [team, project, diary, ...(memberPick ? [picked] : [])]) mkdirSync(dir, { recursive: true })
   writeFileSync(join(diary, 'notes.txt'), 'secret')
-  writeFileSync(join(home, 'state.json'), JSON.stringify(seed({ diary, privateBot, archives, picked: memberPick ? picked : undefined })))
+  writeFileSync(join(home, 'state.json'), JSON.stringify(seed({ diary, privateBot, archives, picked: memberPick ? picked : undefined, openPart })))
   const previousHome = process.env.DSH_HOME
   process.env.DSH_HOME = dsh
 
@@ -240,6 +240,19 @@ test('other Bots cannot reach a private Bot through the tools between Bots', asy
   assert.deepEqual(await run('recall', { scope: 'team', query: 'x' }, 'b'), { ran: true })
   assert.deepEqual(await run('recall', { scope: 'own' }, P), { ran: true })
   assert.deepEqual(await run('update_bot', { bot: 'Diary', role: 'x' }, P), { ran: true })
+})
+
+// #1501: a private Bot may keep a part live in the background while the user reads
+// another. What that part says and reads is the private Bot's as much as its chat is.
+test('a private Bot\'s background part stays closed to other Bots', async (t) => {
+  const { run, stop } = await start({ openPart: true })
+  t.after(stop)
+  const denied = await run('session_trace', { session_id: 'p-bg' }, 'b')
+  assert.equal(denied.ran, false)
+  assert.match(denied.error, CLOSED)
+  // Its own Bot still reads that part, and so does a search that names it.
+  assert.deepEqual(await run('session_trace', { session_id: 'p-bg' }, P), { ran: true })
+  assert.deepEqual(await run('session_search', { query: 'x', session_ids: ['p-bg'] }, P), { ran: true })
 })
 
 test('other Bots cannot read, write or search what a private Bot keeps', async (t) => {
@@ -443,12 +456,16 @@ test('one private Bot reads its own data but not another private Bot\'s', async 
 })
 
 test('a private Bot reads public memory and keeps its own journal out of the shared log', async (t) => {
-  const { tool, home, stop } = await start()
+  const { tool, run, home, stop } = await start()
   t.after(stop)
   await tool('remember', { text: 'a public fact', scope: 'own' }, 'b')
   await tool('remember', { text: 'a private fact', scope: 'own' }, P)
   const recalled = await tool('recall', { scope: 'Writer', query: 'public fact' }, P)
   assert.match(recalled, /a public fact/)
+  assert.match(await tool('recall', { scope: 'Diary' }, 'a'), /That Bot is private/)
+  const denied = await run('recall', { scope: 'Diary' }, 'a')
+  assert.equal(denied.ran, false)
+  assert.match(denied.error, CLOSED)
   const shared = readFileSync(join(home, 'memory', 'journal.jsonl'), 'utf8')
   assert.match(shared, /a public fact/)
   assert.doesNotMatch(shared, /a private fact/)

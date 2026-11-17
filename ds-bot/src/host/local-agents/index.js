@@ -6,6 +6,7 @@ import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { defineTool } from '@deepseek-ai/dsh-tools'
+import { serviceOf } from '../services.js'
 import { splitRef } from '../text.js'
 import { output } from '../tools.js'
 import { LocalAgentAdapter } from './adapter.js'
@@ -13,20 +14,7 @@ import { AcpEngine } from './acp.js'
 import { CodexEngine } from './codex.js'
 import { ClaudeEngine } from './claude.js'
 import { ENGINES, customRoute, isLocalAgentRoute, validateCustom } from './engines.js'
-import { cleanEnv, findExecutable, probeSignIn, probeVersion, refreshSearchDirs } from './discover.js'
-
-const SIGN_IN = {
-  'devin-cli': 'devin auth login',
-  'claude-code': 'claude',
-  'codex-cli': 'codex login',
-  'opencode': 'opencode auth login',
-  'cursor-cli': 'cursor-agent login',
-  'gemini-cli': 'gemini',
-  'grok-cli': 'grok',
-  'cline': 'cline auth',
-  'qwen-code': 'qwen',
-  'goose': 'goose configure',
-}
+import { cleanEnv, findEngineExecutable, findExecutable, probeSignIn, probeVersion, refreshSearchDirs } from './discover.js'
 
 const SIGNED_IN_TTL_MS = 60_000
 
@@ -51,13 +39,15 @@ export function install(rt) {
 
   // Only CLIs found on this machine get a route; the scan result feeds the page.
   const found = new Map()
+  let disposed = false
   async function scan() {
     await refreshSearchDirs()
+    if (disposed) return []
     for (const route of Object.keys(ENGINES)) {
       const spec = ENGINES[route]
-      const path = findExecutable(spec.command)
+      const path = findEngineExecutable(spec, findExecutable)
       if (path === undefined) found.delete(route)
-      else if (found.get(route)?.path !== path) found.set(route, { route, name: spec.name, path, version: undefined, signIn: SIGN_IN[spec.id] })
+      else if (found.get(route)?.path !== path) found.set(route, { route, name: spec.name, path, version: undefined, signIn: spec.signIn })
     }
     applyRoutes()
     return [...found.values()]
@@ -95,6 +85,13 @@ export function install(rt) {
       store().sessions[sessionId] = record
       void rt.save().catch(() => {})
     },
+    recordUsage: entry => rt.recordUsage?.(entry),
+    // A change that rides along with the next save: the CLI reports its context on
+    // every model call.
+    patchRecord: (sessionId, patch) => {
+      const record = store().sessions[sessionId]
+      if (record !== undefined) Object.assign(record, patch)
+    },
     presetFor: (sessionId) => {
       const bot = rt.botOf(rt.selfOf(sessionId))
       const room = rt.roomOf(rt.groupOwners.get(sessionId)?.roomId)
@@ -117,7 +114,8 @@ export function install(rt) {
   })
 
   let registration
-  const supported = () => typeof ctx.llm?.registerAdapter === 'function'
+  const llm = () => serviceOf(ctx, 'llm')
+  const supported = () => typeof llm()?.registerAdapter === 'function'
   const usedRefs = () => [...new Set(Object.values(state.bots ?? {}).flatMap(bot => [bot.model, bot.appliedModel]).filter(Boolean))]
   // A route a Bot runs on stays registered when its CLI goes away: the turn then fails
   // with the repair card, and nothing moves the Bot to another run mode by itself.
@@ -129,20 +127,21 @@ export function install(rt) {
     // is legal and keeps the adapter registered with zero routes.
     if (registration === undefined) {
       if (routes.length === 0) return
-      registration = ctx.llm.registerAdapter(routes, adapter)
+      registration = llm().registerAdapter(routes, adapter)
     } else registration.replace(routes)
   }
   // Custom agents hold a route whether or not their command resolves yet; a
   // missing one fails at prompt time with a typed error.
   applyRoutes()
-  void scan()
+  const initialScan = scan()
   // Custom agents arrive with the state load; their routes register then too.
-  void rt.load?.().then(() => applyRoutes()).catch(() => {})
+  void rt.load?.().then(() => { if (!disposed) applyRoutes() }).catch(() => {})
   // The callback returns the disposer: running adapter.dispose() inside the
   // setup would leave the adapter disposed from the moment it installs.
-  ctx.effect(() => () => {
-    void adapter.dispose()
+  ctx.effect(() => async () => {
+    disposed = true
     registration?.()
+    await Promise.all([initialScan, adapter.dispose()])
   }, 'ds-bot: local agents')
 
   // ---------------------------------------------------------------------------
@@ -265,6 +264,13 @@ export function install(rt) {
     localAgentRoutes: allRoutes, localAgentsEndpoint, localAgentModels,
     engineNameOf: ref => (isLocalAgentRef(ref) ? adapter.providerInfo(splitRef(ref).provider).name : `the model ${ref}`),
     closeLocalAgentSession: (sessionId, reason) => adapter.closeSession(sessionId, reason),
+    // The parts module's view of a CLI session's context, and the requests it makes of
+    // the CLI when the conversation grows long: condense, write the handoff note, and
+    // answer the context steward when the team has no model of its own.
+    localAgentContext: sessionId => adapter.contextOf(String(sessionId)),
+    localAgentCompact: (sessionId, signal) => adapter.compact(String(sessionId), signal),
+    localAgentNote: (sessionId, text, signal) => adapter.note(String(sessionId), text, signal),
+    localAgentAsk: (sessionId, request) => adapter.ask(String(sessionId), request),
     localAgentBadge: (ref) => {
       const provider = splitRef(ref)?.provider
       return provider !== undefined && isLocalAgentRoute(provider) ? provider : undefined

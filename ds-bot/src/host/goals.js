@@ -508,13 +508,10 @@ export function install(rt) {
     return memberLines(room, goal, member).lines.join('\n')
   }
 
-  // Every non-task change is a group event: a notice in the log the members read,
-  // and a goal reply in every running round of the room for the client.
+  // Every non-task change is a group event: a notice the members read, which the
+  // group chat shows as a goal row.
   const announce = (room, reply) => {
     rt.logRoom?.(room, { who: 'DS Bot', kind: 'notice', reason: 'goal', ...reply })
-    for (const round of rt.roomProgress.values()) {
-      if (round.roomId === room.id) round.replies.push({ kind: 'goal', ...reply, time: Date.now() })
-    }
   }
 
   // A goal message into the room's own Session, which relays it as a new round:

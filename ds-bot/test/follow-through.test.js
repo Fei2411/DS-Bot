@@ -3,6 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'no
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
+import { afterRound } from './relay-rows.js'
 import { setTimeout as realDelay } from 'node:timers/promises'
 import { createRuntime } from '../index.js'
 import { fakeContext } from './fake-ctx.js'
@@ -134,7 +135,7 @@ async function openRoomTurn(t, host) {
   let result
   const stop = new AbortController()
   t.after(() => stop.abort())
-  void host.tool('group_relay', {}, 'r1', { callId: 'c1', signal: stop.signal }).then((value) => { result = JSON.parse(value) })
+  void host.tool('group_relay', {}, 'r1', { callId: 'c1', signal: stop.signal }).then(async (value) => { result = await afterRound(rt, 'r1', value) })
   await settle(() => host.agentOf('gb').calls.length === 1)
   run(host, 'gb', 1, host.agentOf('gb').calls[0])
   return () => result
@@ -163,7 +164,7 @@ test('a group turn cut off by a restart is picked up once, and the group is told
 
   // The group shows the event, and the admin reads it on its next turn.
   second.emit('r1', 'user/message', { content: post.content, source: post.source })
-  const relay = JSON.parse(await second.tool('group_relay', {}, 'r1', { callId: 'c2', signal: new AbortController().signal }))
+  const relay = await afterRound(rt, 'r1', await second.tool('group_relay', {}, 'r1', { callId: 'c2', signal: new AbortController().signal }))
   assert.deepEqual(relay.replies.map(reply => [reply.kind, reply.name]), [['resumed', 'Writer']])
   const state = JSON.parse(readFileSync(join(home, 'state.json'), 'utf8'))
   assert.equal(state.rooms.r1.log.at(-1).kind, 'resumed')
@@ -199,6 +200,33 @@ test('a request cut off by a restart goes on under the same exchange; own-chat w
   assert.match(text(own), /^\[DeepSeek Harness restarted while you were working\]/)
   const state = JSON.parse(readFileSync(join(home, 'state.json'), 'utf8'))
   assert.equal(state.exchanges.length, 0)
+})
+
+// #1501: a Bot may keep a part live in the background while the user reads the
+// foreground chat. Work a restart cut off in that part goes on there, not in the part
+// the user is reading.
+test('a restart picks a background part up in that part, not in the foreground chat', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const team = seed()
+  const home = freshHome(t, {
+    ...team,
+    bots: { ...team.bots, b: { ...team.bots.b, openParts: [{ sessionId: 'bb1', segments: [] }, { sessionId: 'bb2', segments: [] }] } },
+  })
+  const first = await start(home)
+  // Writer's own work in one background part, and Chief's request in another.
+  run(first, 'bb1', 1, { content: [{ type: 'text', text: 'sort the notes' }], source: { kind: 'user' } })
+  run(first, 'bb2', 1, { content: [{ type: 'text', text: '[Message from Chief]\nDraft the plan' }], source: { kind: 'bot', form: 'relay', role: 'request', exchangeId: 'x1', senderName: 'Chief', senderSessionId: 'a', senderPart: 'a', hop: 0 } })
+  await settle(() => inflight(home).bb1 !== undefined && inflight(home).bb2?.trigger !== undefined)
+  await first.stop()
+
+  const second = await start(home)
+  t.mock.timers.tick(3000)
+  await settle(() => second.agentOf('bb1').calls.length === 1 && second.agentOf('bb2').calls.length === 1)
+  assert.equal(second.agentOf('b').calls.length, 0)
+  const own = second.agentOf('bb1').calls[0]
+  assert.deepEqual([own.source.role, own.source.resumed], ['resume', true])
+  const request = second.agentOf('bb2').calls[0]
+  assert.deepEqual([request.source.role, request.source.exchangeId, request.source.senderPart, request.source.resumed], ['request', 'x1', 'a', true])
 })
 
 test('when only DS Bot restarts, a turn still running or finished meanwhile is not picked up', async (t) => {
@@ -837,14 +865,19 @@ test('a resend whose first send never landed records the exchange once it arrive
   const second = await start(home)
   t.mock.timers.tick(3000)
   await settle(() => second.agentOf('b').calls.length === 1)
-  // The first send never reached the Session, so the resend records the exchange.
+  // The first send never reached the Session: the exchange shows once the resend lands.
   const [again] = second.agentOf('b').calls
-  await settleState(t, home, () => (stateOf(home).exchanges ?? []).length === 1)
-  const [entry] = stateOf(home).exchanges
+  const listed = async () => (await second.call('exchange', { a: 'a', b: 'b' })).value
+  for (let at = 0; at < 50 && (await listed()).length === 0; at += 1) await new Promise(resolve => setImmediate(resolve))
+  const [entry] = await listed()
   assert.deepEqual([entry.id, entry.role, entry.from, entry.to], [again.source.exchangeId, 'request', 'a', 'b'])
 })
 
 const WRITTEN = 'Checking now.\n<tool_call>\n<function=pwsh>\n<parameter=command>\nGet-ChildItem E:\\\n</parameter>\n</function>\n</tool_call>'
+// A reply cut off inside the model's own call template keeps only its closing tags,
+// as the group report shows (it pasted the CJK brackets the model wrote).
+const ORPHAN_TAGS = '＜/parameter＞\n＜/function＞\n＜/tool_call＞'
+const MIXED_TAGS = '＜/parameter＞ ＜parameter=name＞length"＞15 Hi, everyone.'
 
 test('a tool call written as text gets one more turn on the same round slot', async (t) => {
   const home = freshHome(t)
@@ -865,6 +898,48 @@ test('a tool call written as text gets one more turn on the same round slot', as
   await settle(() => result() !== undefined)
   assert.deepEqual(result().replies.map(reply => reply.text), ['Checking now.'])
   assert.equal(host.agentOf('gb').calls.length, 2)
+})
+
+test('a group member that leaves only the call tags gets the same retry, and never posts the tags', async (t) => {
+  const home = freshHome(t)
+  const host = await start(home)
+  const result = await openRoomTurn(t, host)
+  host.emit('gb', 'assistant/message', { message: { content: [{ type: 'text', text: ORPHAN_TAGS }] } })
+  host.emit('gb', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  await settle(() => host.agentOf('gb').calls.length === 2)
+  const retry = host.agentOf('gb').calls[1]
+  assert.deepEqual([retry.source.role, retry.source.retried, retry.source.exchangeId], ['room', true, host.agentOf('gb').calls[0].source.exchangeId])
+  assert.match(text(retry), /^\[Group chat "Ops" · your tool call did not run\]/)
+  assert.equal(result(), undefined)
+
+  // Leftover tags again: the round gets one readable line, no markup.
+  run(host, 'gb', 2, retry)
+  host.emit('gb', 'assistant/message', { message: { content: [{ type: 'text', text: ORPHAN_TAGS }] } })
+  host.emit('gb', 'turn/end', { turn: 2, reason: { kind: 'completed' } })
+  await settle(() => result() !== undefined)
+  assert.deepEqual(result().replies.map(reply => reply.text), ['Tried to run a tool but wrote the call as text, so it did not run.'])
+  assert.equal(host.agentOf('gb').calls.length, 2)
+})
+
+test('call tags mixed into the text are stripped, and the readable part still goes out', async (t) => {
+  const home = freshHome(t)
+  const host = await start(home)
+  const result = await openRoomTurn(t, host)
+  host.emit('gb', 'assistant/message', { message: { content: [{ type: 'text', text: MIXED_TAGS }] } })
+  host.emit('gb', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  await settle(() => host.agentOf('gb').calls.length === 2)
+  const retry = host.agentOf('gb').calls[1]
+  assert.equal(retry.source.retried, true)
+  assert.equal(result(), undefined)
+
+  // Written again: what was said around the tags goes on, without them.
+  run(host, 'gb', 2, retry)
+  host.emit('gb', 'assistant/message', { message: { content: [{ type: 'text', text: MIXED_TAGS }] } })
+  host.emit('gb', 'turn/end', { turn: 2, reason: { kind: 'completed' } })
+  await settle(() => result() !== undefined)
+  const [reply] = result().replies.map(entry => entry.text)
+  assert.match(reply, /Hi, everyone\./)
+  assert.doesNotMatch(reply, /parameter|function|tool_call/)
 })
 
 test('a group member cut off on the token limit is not counted as a silent pass', async (t) => {
@@ -909,4 +984,18 @@ test('a written tool call is told apart from text about one', () => {
   assert.equal(writesToolCall('Models such as Step write `<tool_call>` tags in their template.'), false)
   assert.equal(writesToolCall(undefined), false)
   assert.equal(stripWrittenCalls(WRITTEN), 'Checking now.')
+
+  // A call cut off before its opening tags is still one.
+  assert.equal(writesToolCall('</parameter>\n</function>\n</tool_call>'), true)
+  assert.equal(writesToolCall(ORPHAN_TAGS), true)
+  assert.equal(writesToolCall(MIXED_TAGS), true)
+  assert.equal(stripWrittenCalls('</parameter>\n</function>\n</tool_call>'), '')
+  assert.equal(stripWrittenCalls(ORPHAN_TAGS), '')
+  assert.equal(stripWrittenCalls(MIXED_TAGS), 'length"＞15 Hi, everyone.')
+  assert.equal(stripWrittenCalls('Checking </parameter> now.'), 'Checking now.')
+
+  // Ordinary text keeps its marks, also when it talks about the tags.
+  assert.equal(stripWrittenCalls('plain <text> with an angle or two'), 'plain <text> with an angle or two')
+  assert.equal(writesToolCall('plain <text> with an angle or two'), false)
+  assert.equal(stripWrittenCalls('a < b or c > d'), 'a < b or c > d')
 })

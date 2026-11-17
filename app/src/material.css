@@ -1,0 +1,52 @@
+/* Windows 11 with Mica, and macOS with its sidebar vibrancy: the sidebar shows the material
+   for the full window height, and the conversation reaches the top edge. The Windows caption
+   buttons stand on the conversation, because Windows paints them opaque; the traffic lights
+   stand on the sidebar. Theme variables only. */
+
+/* The sidebar's coat lies on the whole frame, once: the conversation's rounded top corner
+   then stands on the same coat as the sidebar beside it, not on the bare material. */
+body {
+  background: transparent !important;
+}
+div[class*="_frame"]:has(> div[class*="_sidebarCol"]) {
+  padding-top: 0 !important;
+  background: color-mix(in srgb, var(--dsw-specific-sidebar-fill) 45%, transparent) !important;
+}
+/* The band stays the drag area, but it no longer paints. */
+div[class*="_frame"]:has(> div[class*="_sidebarCol"])::before {
+  background: transparent !important;
+}
+div[class*="_sidebarCol"] {
+  padding-top: var(--dsh-windows-titlebar-height) !important;
+  background: transparent !important;
+}
+/* The sidebar's own root paints the same fill again; only the frame's coat stays. */
+div[class*="_sidebarCol"] > div[class*="_root"],
+div[class*="_sidebarCol"] > * > div[class*="_root"] {
+  background: transparent !important;
+}
+/* The session tree fades out above the footer with a gradient to the opaque sidebar fill, a
+   dark bar on the material; the list fades itself out instead (0.2.2-rc.1 `_treeBody`, rc.2 `_scrollRegion`). */
+div[class*="_sidebarCol"] [class*="_treeBody"] > [class*="_fade"],
+div[class*="_sidebarCol"] [class*="_scrollRegion"] > [class*="_scrollFade"] {
+  display: none !important;
+}
+div[class*="_sidebarCol"] [class*="_treeBody"]:has(> [class*="_fade"]) > [class*="_list"],
+div[class*="_sidebarCol"] [class*="_scrollRegion"]:has(> [class*="_scrollFade"]) [class*="_listArea"] {
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 24px), transparent);
+}
+/* ds-bot's own docked column (.bt-leftcol) reaches the window's top edge and shows the
+   frame's coat; its floating drawer keeps its own opaque fill. */
+body {
+  --bt-leftcol-fill: transparent;
+}
+div[class*="_centerCol"] {
+  padding-top: var(--dsh-windows-titlebar-height) !important;
+}
+/* The caption buttons stand on the right sidebar while it is open. Its panel is placed
+   absolutely, which padding does not move, but a border does. */
+div[class*="_rightbarCol"] {
+  box-sizing: border-box !important;
+  border-top: var(--dsh-windows-titlebar-height) solid var(--dsw-alias-bg-base) !important;
+  background: var(--dsw-alias-bg-base) !important;
+}

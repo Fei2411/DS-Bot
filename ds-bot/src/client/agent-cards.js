@@ -20,15 +20,40 @@ export function useLocalAgents(wanted) {
     return call(endpoint).then(setView).catch(() => setView({ detected: [], custom: [] })).finally(() => setScanning(false))
   }
   useEffect(() => { if (wanted && view === null) void load('local-agents') }, [wanted])
-  const agents = view === null ? [] : [...view.detected, ...view.custom.map(agent => ({ route: agent.route, name: agent.name, signedIn: null }))]
+  const agents = view === null ? [] : [...view.detected, ...view.custom.map(agent => ({ route: agent.route, name: agent.name, command: agent.command, args: agent.args, signedIn: null }))]
   return { agents, known: view !== null, scanning, refresh: () => load('local-agent-refresh') }
+}
+
+// Strips a repeated CLI name ("codex-cli 0.166.0") and trailing build hash ("(91c3aec)")
+// from a `--version` line so it sits cleanly beside the agent's name.
+export const shortVersion = (version) => {
+  if (!version) return ''
+  return String(version)
+    .replace(/\s*\([^)]*\)\s*$/u, '')
+    .replace(/^[a-z][\w-]*\s+(?=v?\d)/iu, '')
+    .trim()
+}
+
+export function AgentLogo({ route, name = '', size = 28, className = 'bt-cli-logo' }) {
+  const logo = agentAvatar(route)?.image
+  if (logo) return h('img', { className, src: logo, width: size, height: size, alt: '' })
+  return h('span', { className: `${className} bt-cli-mono`, style: { width: size, height: size }, 'aria-hidden': true },
+    (name.trim() || '?').slice(0, 2).toUpperCase())
 }
 
 const SIGNED_IN = { true: 'Signed in', false: 'Not signed in', null: 'Sign-in unknown' }
 
+function cliMeta(agent) {
+  if (agent.signedIn === true || agent.signedIn === false || agent.signIn) {
+    return h('span', { className: 'bt-cli-meta', 'data-state': String(agent.signedIn) },
+      h('i', { className: 'bt-cli-dot', 'aria-hidden': true }), t(SIGNED_IN[agent.signedIn]))
+  }
+  const detail = shortVersion(agent.version) || [agent.command, ...(agent.args ?? [])].filter(Boolean).join(' ')
+  return detail ? h('span', { className: 'bt-cli-meta' }, detail) : null
+}
+
 function CliCard({ agent, selected, onPick }) {
   const [copied, setCopied] = useState(false)
-  const logo = agentAvatar(agent.route)?.image
   const copySignIn = () => {
     void navigator.clipboard?.writeText(agent.signIn)?.catch(() => {})
     setCopied(true)
@@ -36,11 +61,10 @@ function CliCard({ agent, selected, onPick }) {
   }
   return h('div', { className: 'bt-cli', 'data-selected': selected ? '' : undefined },
     h('button', { type: 'button', className: 'bt-cli-pick', 'aria-pressed': selected, onClick: onPick },
-      logo ? h('img', { className: 'bt-cli-logo', src: logo, alt: '' }) : h(AgentBadge, { engine: agent.route, size: 28 }),
+      h(AgentLogo, { route: agent.route, name: agent.name, size: 28 }),
       h('span', { className: 'bt-cli-copy' },
         h('span', { className: 'bt-cli-name' }, agent.name),
-        h('span', { className: 'bt-cli-meta', 'data-state': String(agent.signedIn) },
-          h('i', { className: 'bt-cli-dot', 'aria-hidden': true }), t(SIGNED_IN[agent.signedIn]))),
+        cliMeta(agent)),
       selected ? h('span', { className: 'bt-cli-check', 'aria-hidden': true }, h(CheckIcon)) : null),
     agent.signedIn === false && agent.signIn
       ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm bt-cli-login', title: t('Copies the sign-in command'), onClick: copySignIn }, copied ? t('Copied') : t('Sign in'))
@@ -114,7 +138,8 @@ export const AGENT_CARDS_CSS = `
 .bt-cli[data-selected]{box-shadow:inset 0 0 0 1.5px var(--bt-accent)}
 .bt-cli-pick{display:flex;align-items:center;gap:10px;flex:1;min-width:0;min-height:42px;padding:2px 4px;border:0;border-radius:8px;background:none;color:var(--bt-ink);font:inherit;text-align:left;cursor:pointer}
 .bt-cli-pick:focus-visible{outline:2px solid var(--bt-accent);outline-offset:1px}
-.bt-cli-logo{flex:none;width:28px;height:28px;border-radius:8px}
+.bt-cli-logo{flex:none;width:28px;height:28px;border-radius:8px;box-shadow:0 0 0 .5px var(--bt-line-2);object-fit:cover}
+.bt-cli-mono{display:inline-flex;align-items:center;justify-content:center;background:var(--bt-hover);color:var(--bt-ink-2);font-size:11px;font-weight:600}
 .bt-cli-copy{display:flex;flex:1;flex-direction:column;min-width:0}
 .bt-cli-name{font-size:13px;line-height:18px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bt-cli-meta{display:inline-flex;align-items:center;gap:5px;font-size:12px;line-height:16px;color:var(--bt-ink-2)}

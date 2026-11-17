@@ -7336,6 +7336,7 @@ function hasIdAnywhere(doc, tag, id) {
 }
 
 // src/office/docx.js
+var RUN_MARKS = { "w:tab": "	", "w:br": "\n", "w:cr": "\n" };
 var parts = (pkg) => [...pkg.parts.keys()].filter((name) => name === "word/document.xml" || /^word\/(header|footer)\d+\.xml$/.test(name) || /^word\/(footnotes|endnotes|comments)\.xml$/.test(name));
 function blockText(el, changes = false) {
   let out = "";
@@ -7346,6 +7347,10 @@ function blockText(el, changes = false) {
     }
     if (node.nodeType !== 1) return;
     const tag = node.tagName;
+    if (tag in RUN_MARKS) {
+      if (node.parentNode?.tagName === "w:r") out += RUN_MARKS[tag];
+      return;
+    }
     if (!changes) {
       for (const child2 of [...node.childNodes]) {
         if (tag === "w:del" || tag === "w:moveFrom") continue;
@@ -7682,51 +7687,52 @@ function replaceInDoc(doc, re, withText) {
   let total = 0;
   const global = new RegExp(re.source, re.flags.includes("g") ? re.flags : re.flags + "g");
   for (const p of elementsOf(doc.documentElement, "w:p")) {
-    const runs = elementsOf(p, "w:r").filter((r) => !isDeleted(p, r) && nearestPara(r) === p);
-    const texts = runs.map((r) => elementsOf(r, "w:t").map((t) => t.textContent).join(""));
-    const joined = texts.join("");
+    let joined = "";
+    const spans = [];
+    for (const node of elementsOf(p)) {
+      if (node.parentNode?.tagName !== "w:r" || nearestPara(node) !== p || isDeleted(p, node)) continue;
+      const value = node.tagName === "w:t" ? node.textContent : RUN_MARKS[node.tagName];
+      if (value === void 0) continue;
+      const start = joined.length;
+      joined += value;
+      spans.push({ node, start, end: joined.length });
+    }
     const matches = [...joined.matchAll(global)];
     if (matches.length === 0) continue;
-    if (runs.length === 0) {
+    if (spans.length === 0) {
       const run = doc.createElement("w:r");
-      run.appendChild(doc.createElement("w:t"));
+      const node = doc.createElement("w:t");
+      run.appendChild(node);
       p.appendChild(run);
-      runs.push(run);
-      texts.push("");
+      spans.push({ node, start: 0, end: 0 });
     }
-    const bounds = [];
-    let cursor = 0;
-    for (const t of texts) {
-      bounds.push([cursor, cursor + t.length]);
-      cursor += t.length;
+    if (spans.at(-1).node.tagName !== "w:t") {
+      const last = spans.at(-1).node;
+      const node = doc.createElement("w:t");
+      last.parentNode.insertBefore(node, last.nextSibling);
+      spans.push({ node, start: joined.length, end: joined.length });
     }
-    for (let i = 0; i < runs.length; i++) {
-      const [rs, rend] = bounds[i];
-      const startsHere = (m) => m.index >= rs && (m.index < rend || i === runs.length - 1 && m.index === rend);
-      const covers = matches.filter((m) => startsHere(m) || m.index < rend && m.index + m[0].length > rs);
-      if (covers.length === 0) continue;
-      const pieces = [];
-      let pos = 0;
-      for (const m of covers) {
-        const cs = Math.max(0, m.index - rs);
-        const ce = Math.min(texts[i].length, m.index + m[0].length - rs);
-        if (cs > pos) pieces.push({ text: texts[i].slice(pos, cs) });
-        if (startsHere(m)) pieces.push({ repl: expand(m, withText) });
-        pos = ce;
-      }
-      if (pos < texts[i].length || pieces.length === 0) pieces.push({ text: texts[i].slice(pos) });
-      const run = runs[i];
-      let anchor = run;
-      for (const [k, piece] of pieces.entries()) {
-        if (k === 0) {
-          setRunText(run, piece.text ?? "");
-          if (piece.text !== void 0) continue;
+    for (const match of matches.reverse()) {
+      const start = match.index, end = start + match[0].length;
+      const first = spans.find((span) => span.end > start) ?? spans.at(-1);
+      for (const span of spans) {
+        if (span !== first && (span.end <= start || span.start >= end)) continue;
+        const { node } = span;
+        const replacement = span === first ? expand(match, withText) : "";
+        if (node.tagName === "w:t") {
+          const before = node.textContent.slice(0, Math.max(0, start - span.start));
+          const after = node.textContent.slice(Math.max(0, end - span.start));
+          node.textContent = before + replacement + after;
+          if (node.textContent !== node.textContent.trim()) node.setAttribute("xml:space", "preserve");
+        } else {
+          const text = doc.createElement("w:t");
+          text.setAttribute("xml:space", "preserve");
+          text.textContent = replacement;
+          node.parentNode.insertBefore(text, node);
+          if (end > span.start) node.parentNode.removeChild(node);
         }
-        const clone = cloneRun(doc, run, piece.repl ?? piece.text);
-        anchor.parentNode.insertBefore(clone, anchor.nextSibling);
-        anchor = clone;
       }
-      total += covers.filter(startsHere).length;
+      total++;
     }
   }
   return total;
@@ -8044,7 +8050,7 @@ function phOf(sp) {
 }
 var shapeName = (sp) => child(child(sp, "p:nvSpPr") ?? child(sp, "p:nvPicPr") ?? child(sp, "p:nvGrpSpPr") ?? child(sp, "p:nvCxnSpPr") ?? child(sp, "p:nvGraphicFramePr") ?? sp, "p:cNvPr")?.getAttribute("name");
 var shapeId = (sp) => child(child(sp, "p:nvSpPr") ?? child(sp, "p:nvPicPr") ?? child(sp, "p:nvGrpSpPr") ?? child(sp, "p:nvCxnSpPr") ?? child(sp, "p:nvGraphicFramePr") ?? sp, "p:cNvPr")?.getAttribute("id");
-var xfrmOf = (sp) => child(child(sp, "p:spPr") ?? sp, "a:xfrm");
+var xfrmOf = (sp) => sp.tagName === "p:graphicFrame" ? child(sp, "p:xfrm") : child(child(sp, "p:spPr") ?? sp, "a:xfrm");
 var off = (xfrm) => ({ x: Number(firstOf(xfrm, "a:off")?.getAttribute("x") ?? 0), y: Number(firstOf(xfrm, "a:off")?.getAttribute("y") ?? 0) });
 var ext = (xfrm) => ({ cx: Number(firstOf(xfrm, "a:ext")?.getAttribute("cx") ?? 0), cy: Number(firstOf(xfrm, "a:ext")?.getAttribute("cy") ?? 0) });
 function applyGroup(box, grpSp) {
@@ -8396,7 +8402,20 @@ function pptxClean(pkg, { dryRun = false } = {}) {
 
 // src/office/xlsx.js
 var DATE_FORMATS = /* @__PURE__ */ new Set([14, 15, 16, 17, 22, 45, 46, 47]);
-var dateLike = (code) => /(^|[^\\])[ymdhs]/i.test(code ?? "");
+function dateLike(code, value) {
+  const sections = (code ?? "").replace(/"[^"]*"|\\.|_.|\*./g, "").split(";").slice(0, 3);
+  const condition = (part) => /\[(<=|>=|<>|=|<|>)(-?\d+(?:\.\d+)?)\]/.exec(part);
+  let section;
+  if (sections.some(condition)) {
+    section = sections.find((part) => {
+      const test = condition(part);
+      if (!test) return true;
+      const n = Number(test[2]);
+      return { "<": value < n, ">": value > n, "<=": value <= n, ">=": value >= n, "=": value === n, "<>": value !== n }[test[1]];
+    }) ?? "";
+  } else section = sections[value < 0 && sections.length > 1 ? 1 : value === 0 && sections.length > 2 ? 2 : 0];
+  return /[ymdhs]/i.test(section.replace(/\[(?![hms]+\])[^\]]*\]/gi, ""));
+}
 function numFmts(pkg) {
   const map = /* @__PURE__ */ new Map();
   if (!pkg.parts.has("xl/styles.xml")) return map;
@@ -8407,7 +8426,7 @@ function numFmts(pkg) {
   let i = 0;
   for (const xf of childrenOf(cellXfs)) {
     const id = Number(xf.getAttribute("numFmtId") ?? 0);
-    map.set(i++, DATE_FORMATS.has(id) || dateLike(custom.get(id)) ? "date" : void 0);
+    map.set(i++, DATE_FORMATS.has(id) ? "date" : custom.get(id));
   }
   return map;
 }
@@ -8437,7 +8456,7 @@ function cellValue(c, shared, fmt, epoch = 25569) {
   else if (t === "b") value = value === "1";
   else if (t === "str" || t === "inlineStr") value = t === "inlineStr" ? textOf(firstOf(c, "is") ?? c) : value;
   else if (t === "e") value = value;
-  else if (value !== void 0 && fmt.get(Number(c.getAttribute("s") ?? 0)) === "date" && !Number.isNaN(Number(value))) {
+  else if (value !== void 0 && (fmt.get(Number(c.getAttribute("s") ?? 0)) === "date" || dateLike(fmt.get(Number(c.getAttribute("s") ?? 0)), Number(value))) && !Number.isNaN(Number(value))) {
     const days = Number(value) - epoch;
     value = new Date(days * 864e5).toISOString().slice(0, value.includes(".") ? 19 : 10);
   }

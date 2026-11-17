@@ -16,7 +16,7 @@ export function createSource(initial) {
   }
 }
 
-export const EMPTY_ROSTER = { revision: -1, mainBotId: null, mainBotIds: [], bots: [], rooms: [], agents: [], exchangeTurns: {}, questions: {}, btwCards: {}, sideChats: {}, learning: {}, secrets: [], capabilities: [], capabilityStatuses: {}, secretRequests: {}, models: [], defaultModel: null, modelsKey: null, prefs: {}, byId: {}, roomsById: {}, agentsById: {}, agentOf: {}, ready: false }
+export const EMPTY_ROSTER = { revision: -1, mainBotId: null, mainBotIds: [], bots: [], rooms: [], agents: [], sections: [], exchangeTurns: {}, questions: {}, btwCards: {}, sideChats: {}, learning: {}, secrets: [], capabilities: [], capabilityStatuses: {}, phone: null, secretRequests: {}, models: [], defaultModel: null, modelsKey: null, prefs: {}, byId: {}, roomsById: {}, agentsById: {}, agentOf: {}, ready: false }
 // Any Main Bot holds the Main Bot powers; `mainBotId`, the first one, is the sidebar tile.
 export const isMainOf = (roster, id) => id !== undefined && (roster.mainBotIds ?? []).includes(id)
 
@@ -26,7 +26,10 @@ export const isMainOf = (roster, id) => id !== undefined && (roster.mainBotIds ?
 export function indexRoster(value) {
   const byId = {}
   for (const bot of value.bots) {
-    for (const id of [...(bot.parts ?? []), bot.sessionId ?? bot.id, bot.id]) byId[id] = bot
+    // A part opened while the Bot was busy is still its own chat: the panel opened on
+    // it keeps working after another part becomes current.
+    const open = (bot.openParts ?? []).flatMap(part => [part.sessionId, ...(part.parts ?? [])])
+    for (const id of [...(bot.parts ?? []), ...open, bot.sessionId ?? bot.id, bot.id]) byId[id] = bot
   }
   const roomsById = {}
   // A group's own Session is a chain of parts like a Bot's chat: `room.id` is its
@@ -41,7 +44,7 @@ export function indexRoster(value) {
     agentsById[agent.id] = agent
     for (const sessionId of agent.sessions ?? []) agentOf[sessionId] = agent.id
   }
-  return { ...value, agents: value.agents ?? [], byId, roomsById, agentsById, agentOf, ready: true }
+  return { ...value, agents: value.agents ?? [], sections: value.sections ?? [], byId, roomsById, agentsById, agentOf, ready: true }
 }
 
 // Whether a main-view Session id belongs to the team's DSH Agent: the conversation

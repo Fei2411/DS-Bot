@@ -39,7 +39,7 @@ function nodes(tree, match) {
   return [...(match(tree) ? [tree] : []), ...(tree.children ?? []).flatMap(child => nodes(child, match))]
 }
 
-// `harness`: the window has DSH's own settings to send the user to, as the plugin does.
+// `harness`: the window has Settings and DSH's onboarding editors to send the user to.
 function dock(models, { model, ready = true, harness = true } = {}) {
   const picked = []
   const bot = { id: 'chief', name: 'Chief', model }
@@ -48,7 +48,7 @@ function dock(models, { model, ready = true, harness = true } = {}) {
     sessionId: bot.id, useRoster: select => select(roster),
     actions: {
       updateBot: (id, patch) => { picked.push([id, patch.model]); return Promise.resolve() },
-      ...(harness ? { openHarnessSettings: () => {}, openHarnessOnboarding: () => {} } : {}),
+      ...(harness ? { openSettings: () => {}, openHarnessOnboarding: () => {} } : {}),
     },
   })
   return { tree, picked }
@@ -204,15 +204,15 @@ test('the DeepSeek API key card links to the key page and says the API is billed
   assert.equal(nodes(other, node => node.props.className === 'bt-model-key-help').length, 0)
 })
 
-test('setting up a custom model opens DS Bot\'s Models page, else DSH\'s own Models page', () => {
+test('setting up a custom model opens the Models page of Settings', () => {
   const opened = []
   const choices = actions => nodes(ModelChoiceDock({
     sessionId: 'chief', useRoster: select => select({ ready: true, byId: { chief: { id: 'chief', name: 'Chief' } }, models: [] }), actions,
   }), node => node.type === 'button')
   const custom = list => list.find(button => button.children[0] === 'Open settings to set up a custom model')
-  custom(choices({ openModels: () => opened.push('models'), openHarnessModels: () => opened.push('harness models'), openHarnessSettings: () => opened.push('harness') })).props.onClick()
-  custom(choices({ openHarnessModels: () => opened.push('harness models'), openHarnessSettings: () => opened.push('harness') })).props.onClick()
-  assert.deepEqual(opened, ['models', 'harness models'])
+  custom(choices({ openModels: () => opened.push('models'), openSettings: page => opened.push(`settings:${page}`) })).props.onClick()
+  custom(choices({ openSettings: page => opened.push(`settings:${page}`) })).props.onClick()
+  assert.deepEqual(opened, ['models', 'settings:models'])
 })
 
 // The provider groups of the Bot model menu: a heading opens and closes its group, and

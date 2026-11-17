@@ -74,13 +74,14 @@ export function ImMark({ id, size = 36 }) {
 
 function stateOf(conn, status) {
   if (!conn.enabled) return 'off'
-  return status?.state === 'ready' || status?.state === 'error' || status?.state === 'connecting' ? status.state : 'connecting'
+  return status?.state === 'ready' || status?.state === 'error' || status?.state === 'retrying' || status?.state === 'connecting' ? status.state : 'connecting'
 }
 
 function stateText(conn, status) {
   const state = stateOf(conn, status)
   if (state === 'off') return t('Disabled')
   if (state === 'ready') return t('Connected')
+  if (state === 'retrying') return t('Retrying…')
   if (state === 'error') return t('Could not connect: {error}', { error: hostText(status.error ?? '') })
   return t('Connecting…')
 }
@@ -380,6 +381,7 @@ export const IM_CSS = `
 .bt-im-dot{flex:none;width:7px;height:7px;border-radius:50%;corner-shape:round;background:var(--bt-ink-3)}
 .bt-im-dot[data-state=ready]{background:var(--bt-green)}
 .bt-im-dot[data-state=error]{background:var(--bt-danger)}
+.bt-im-dot[data-state=retrying]{background:var(--bt-star)}
 .bt-im-dot[data-state=off]{background:none;box-shadow:inset 0 0 0 1.5px var(--bt-ink-3)}
 .bt-im-dot[data-state=connecting]{animation:bt-im-breathe 1.4s ease-in-out infinite}
 @keyframes bt-im-breathe{50%{opacity:.35}}

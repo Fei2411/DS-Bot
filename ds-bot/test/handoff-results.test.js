@@ -419,6 +419,50 @@ test('a subagent a Bot delegated to hands its result into the work the turn answ
   assert.equal(Object.keys(after).length, 0)
 })
 
+// The user can give up the wait for a subagent run. When the run ends afterwards, its
+// closing text still reaches the Bot that waited, marked late, and settles nothing a
+// second time.
+test('a subagent that ends after its wait was given up still hands over its closing text', async (t) => {
+  const { start } = bench(t)
+  const first = await start(seed())
+  const { agents, emit, emitScoped, tool, call } = first
+  const turns = turnTaker(agents, emit)
+  turns.userTurn('a', 'have Writer do it')
+  await tool('message_bot', { to: 'Writer', message: 'carry out the plan' }, 'a')
+  turns.end('a', 'asked Writer')
+  turns.take('b')
+  emit('b', 'tool/call', { callId: 'call1', name: 'subagent', arguments: JSON.stringify({ description: 'deep review', prompt: 'review the plan' }) })
+  emitScoped('b', 'subagent/start', { runId: 'r1', provider: 'spawn', id: 'sub1', local: true })
+  emitScoped('b', 'tools/result', { callId: 'call1', name: 'subagent', arguments: { description: 'deep review', prompt: 'review the plan' }, agent: agents.get('b') }, { isError: false, value: { kind: 'activation', subagentId: 'sub1' } })
+  emit('b', 'tool/result', { callId: 'call1', message: { callId: 'call1', content: textBlock('started subagent sub1'), isError: false } })
+  turns.end('b', 'subagent is on it')
+  const before = callsOf(agents, 'b').length
+  const started = await worksIn(first)
+  const [parentId] = Object.entries(started).find(([, work]) => work.to === 'b')
+  assert.deepEqual(started[parentId].open, ['r1'])
+
+  // The user gives up the wait for the run.
+  assert.equal((await call('abandon-work', { id: 'r1' })).ok, true)
+  await settled(() => callsOf(agents, 'b').length === before + 1)
+  assert.match(textOf(callsOf(agents, 'b').at(-1)[1].content), /^\[Waiting given up · subagent deep review did not hand back this work/)
+
+  // The run finishes after that: its closing text arrives, marked late.
+  emitScoped('b', 'subagent/end', { runId: 'r1', provider: 'spawn', id: 'sub1', local: true, stopReason: 'completed', lastAssistantMessage: textBlock('reviewed: three findings') })
+  await settled(() => callsOf(agents, 'b').length === before + 2)
+  const late = callsOf(agents, 'b').at(-1)[1]
+  const body = textOf(late.content)
+  assert.match(body, /^\[Reply from subagent deep review\]\n\[Late answer: the user had already given up waiting for this work/)
+  assert.match(body, /reviewed: three findings/)
+  assert.equal(late.source.work, undefined)
+  // It settles nothing twice: the one given-up result stays, and no wait is back.
+  const after = await worksIn(first)
+  assert.equal(after.r1, undefined)
+  assert.equal(after[parentId].results.length, 1)
+  assert.equal(after[parentId].results[0].abandoned, true)
+  assert.deepEqual(after.abandonedWorks ?? {}, {})
+  assert.equal((await call('state', {})).value.work.waiting.b, undefined)
+})
+
 test('a subagent started on a turn that answers no work changes nothing', async (t) => {
   const { start } = bench(t)
   const first = await start(seed())

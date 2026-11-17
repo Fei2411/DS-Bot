@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict'
+import { spawn } from 'node:child_process'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import fsp from 'node:fs/promises'
 import { syncBuiltinESMExports } from 'node:module'
 import { hostname, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
+import { afterRound } from './relay-rows.js'
 import { format } from 'node:util'
 import { createRuntime } from '../index.js'
 import { fakeContext } from './fake-ctx.js'
@@ -27,9 +29,11 @@ function keyed(ctx, stored, records) {
 // Enough of the dsh services for the roster to make Sessions; kickoff messages are dropped.
 // With `keys`, the models' route takes an API key and these are the ones set.
 let rt
-function start(team, { models = [], reasoning = {}, archiveError, keys, selection } = {}) {
+function start(team, { models = [], reasoning = {}, archiveError, keys, selection, lock } = {}) {
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-roster-'))
   if (team !== undefined) writeFileSync(join(home, 'state.json'), JSON.stringify(team))
+  // A lock another dsh holds, written before this host loads the team.
+  if (lock !== undefined) writeFileSync(join(home, 'state.lock'), JSON.stringify(lock))
   const services = {}
   const ctx = fakeContext({ services })
   const records = new Set()
@@ -218,11 +222,11 @@ test('a group the user makes without a first message opens with its admin asking
 
   // The relay gives the admin alone a turn, and the cue adds no line to the group.
   for (const listener of ctx.listeners.get('session/event')) listener({ id: room.id }, { type: 'user/message', data: sent[0].message })
-  const controller = new AbortController()
-  const relay = rt.teamTools.find(d => d.name === 'group_relay').execute({}, { agent: { id: room.id }, callId: 'relay', signal: controller.signal })
+  const relay = rt.teamTools.find(d => d.name === 'group_relay').execute({}, { agent: { id: room.id }, callId: 'relay', signal: new AbortController().signal })
+    .then(value => afterRound(rt, room.id, value))
   await until(() => sent.length > 1)
-  controller.abort()
-  const result = JSON.parse(await relay)
+  rt.stopRoomRound(room.id)
+  const result = await relay
   const turns = sent.slice(1)
   assert.equal(turns.length, 1)
   const text = turns[0].message.content[0].text
@@ -1336,6 +1340,35 @@ test('create_bot uses a named model, then the team default, then its creator’s
   assert.equal((await botNamed('Inherited')).model, 'deepseek/deepseek-v4-pro')
 })
 
+// A Bot created from inside another Bot's turn is the one path a user reported as
+// sharing history (#1196). Its Session, its greeting and its transcript stay its own.
+test('a Bot created inside another Bot’s turn gets a Session of its own', async (t) => {
+  const { call, stop, sent } = start(TEAM_MODEL, { models: ['deepseek-v4-flash', 'deepseek-v4-pro'] })
+  t.after(stop)
+  const before = (await call('state', {})).value
+  const chief = before.bots.find(bot => bot.id === before.mainBotId)
+  assert.match(await createBotAs('Isolated'), /^Created Isolated/)
+
+  const after = (await call('state', {})).value
+  const created = after.bots.find(bot => bot.name === 'Isolated')
+  const keptChief = after.bots.find(bot => bot.id === chief.id)
+  // Its own chat, not the chat whose turn made it.
+  assert.notEqual(created.id, chief.id)
+  assert.equal(created.sessionId, created.id)
+  assert.ok(!(created.parts ?? []).includes(chief.id))
+  // The greeting goes to the new Bot's Session and nowhere else.
+  await until(() => sent.length > 0)
+  assert.deepEqual([...new Set(sent.map(entry => entry.sessionId))], [created.id])
+  // The creator keeps its own chat, and the new Bot's Session is not part of it.
+  assert.equal(keptChief.sessionId, chief.sessionId)
+  assert.ok(!(keptChief.parts ?? []).includes(created.id))
+  // Nothing of the creator's conversation is reachable from the new Bot's chat: it
+  // answers with its own Session and no lines, never with the chat that made it.
+  const chat = await call('chat', { botId: created.id })
+  assert.ok(chat.value === undefined || chat.value.sessionId === created.id, `chat answered for ${chat.value?.sessionId}`)
+  assert.deepEqual(chat.value?.items ?? [], [])
+})
+
 test('create_bot inherits the creator’s model when no team default is set', async (t) => {
   const { stop } = start(TEAM_MODEL, { models: ['deepseek-v4-flash', 'deepseek-v4-pro'] })
   t.after(stop)
@@ -1379,4 +1412,34 @@ test('a model-less create-bot starts the Bot on the saved team default model', a
   await call('set-prefs', { defaultBotModel: null })
   const plain = (await call('create-bot', { name: 'Plain' })).value
   assert.equal(plain.model, 'deepseek/deepseek-v4-flash')
+})
+
+// A window opened while the old dsh was still running reads the team read-only. When
+// that dsh goes away this host takes the lock over on its next poll, and the answer's
+// live fields say so: the window goes writable without a reload.
+test('a window learns that the other dsh closed and takes the team over without a reload', async (t) => {
+  const holder = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'])
+  t.after(() => holder.kill())
+  const { call, stop } = start({ version: 1, mainBotIds: ['chief'], bots: { chief: { id: 'chief', sessionId: 'chief', name: 'Chief' } } }, {
+    models: ['deepseek-v4-flash'],
+    lock: { pid: holder.pid, host: hostname(), token: 'other', since: Date.now() },
+  })
+  t.after(stop)
+
+  const first = (await call('state', {})).value
+  assert.match(first.readOnly ?? '', /open in another dsh/)
+  const refused = await call('create-bot', { name: 'Refused' })
+  assert.equal(refused.ok, false)
+  assert.equal(refused.error.code, 'bot/read-only')
+
+  // The other dsh closes; the next poll takes the lock over and says so in the same
+  // unchanged answer a window with this live key receives.
+  const exited = new Promise(resolve => holder.once('exit', resolve))
+  holder.kill()
+  await exited
+  const live = (await call('state', { since: first.revision, models: first.modelsKey, live: first.liveKey })).value
+  assert.equal(live.unchanged, true)
+  assert.equal(live.readOnly, null)
+  assert.notEqual(live.liveKey, first.liveKey, 'a changed read-only notice moves the live key')
+  assert.equal((await call('create-bot', { name: 'Took over' })).ok, true)
 })

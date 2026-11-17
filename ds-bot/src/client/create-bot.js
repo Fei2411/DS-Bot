@@ -52,7 +52,7 @@ export function CreateBot({ roster, actions, start, brief = '', onBack, canGoBac
     setError('')
     setBusy(true)
     try {
-      const bot = await actions.createBot(createPayload({ name: finalName, look, image, model: chosen, effort: local ? undefined : effort, brief, ownLook }))
+      const bot = await actions.createBot(createPayload({ name: finalName, look, image, model: chosen, effort: local ? undefined : effort, brief, ownLook, sectionId: start?.sectionId }))
       onCreated(bot)
     } catch (failure) {
       setError(failure?.message ?? String(failure))
