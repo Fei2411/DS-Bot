@@ -1153,8 +1153,6 @@ const ZH = {
   '{count} files changed': '{count} 个文件改动',
   '{count} file changed': '{count} 个文件改动',
   'File': '文件',
-  'Binary file': '二进制文件',
-  'This file is too large to preview': '文件过大，无法预览',
   'Review these changes': '打开这次改动审查',
   'These changes are no longer available': '这些改动已经不可用：会话已归档或改动已被重置',
   'This window cannot open the change review': '当前窗口无法打开改动审查',

@@ -1147,8 +1147,6 @@ export const KO = {
   '{count} file changed': '파일 {count}개 변경됨',
   '{count} files changed': '파일 {count}개 변경됨',
   'File': '파일',
-  'Binary file': '바이너리 파일',
-  'This file is too large to preview': '파일이 너무 커서 미리 볼 수 없습니다',
   'Review these changes': '이 변경 사항 검토',
   'These changes are no longer available': '이 변경 사항은 더 이상 사용할 수 없습니다',
   'This window cannot open the change review': '이 창에서는 변경 검토를 열 수 없습니다',

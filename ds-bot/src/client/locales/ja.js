@@ -1126,8 +1126,6 @@ export const JA = {
   '{count} file changed': '{count} 個のファイルを変更',
   '{count} files changed': '{count} 個のファイルを変更',
   'File': 'ファイル',
-  'Binary file': 'バイナリファイル',
-  'This file is too large to preview': 'ファイルが大きすぎるためプレビューできません',
   'Review these changes': 'この変更を確認',
   'These changes are no longer available': 'この変更はもう利用できません',
   'This window cannot open the change review': 'このウィンドウでは変更レビューを開けません',

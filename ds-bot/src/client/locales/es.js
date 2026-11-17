@@ -1147,8 +1147,6 @@ export const ES = {
   '{count} file changed': '{count} archivo modificado',
   '{count} files changed': '{count} archivos modificados',
   'File': 'Archivo',
-  'Binary file': 'Archivo binario',
-  'This file is too large to preview': 'Este archivo es demasiado grande para previsualizarlo',
   'Review these changes': 'Revisar estos cambios',
   'These changes are no longer available': 'Estos cambios ya no están disponibles',
   'This window cannot open the change review': 'Esta ventana no puede abrir la revisión de cambios',

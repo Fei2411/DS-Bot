@@ -1147,8 +1147,6 @@ export const DE = {
   '{count} file changed': '{count} Datei geändert',
   '{count} files changed': '{count} Dateien geändert',
   'File': 'Datei',
-  'Binary file': 'Binärdatei',
-  'This file is too large to preview': 'Diese Datei ist zu groß für die Vorschau',
   'Review these changes': 'Änderungen prüfen',
   'These changes are no longer available': 'Diese Änderungen sind nicht mehr verfügbar',
   'This window cannot open the change review': 'Dieses Fenster kann die Änderungsprüfung nicht öffnen',
