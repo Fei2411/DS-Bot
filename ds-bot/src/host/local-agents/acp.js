@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { JsonRpcPeer, wireProcess, EventQueue } from './jsonrpc.js'
-import { cleanEnv, findEngineExecutable, spawnAgent } from './discover.js'
+import { cleanEnv, findEngineExecutable, spawnAgent, terminateChild } from './discover.js'
 import { acpMode } from './engines.js'
 
 const CLIENT = { name: 'ds-bot', version: '1' }
@@ -33,11 +33,6 @@ export function stdioBridgePath(source = BUNDLED_MCP_STDIO) {
   return target
 }
 
-function terminateChild(child) {
-  if (child === undefined) return
-  try { child.kill('SIGTERM') } catch {}
-  setTimeout(() => { try { child.kill('SIGKILL') } catch {} }, 5_000).unref?.()
-}
 const EFFORT_ORDER = ['minimal', 'low', 'medium', 'high', 'xhigh', 'max']
 const EFFORT_NAMES = { off: 'Off', minimal: 'Minimal', low: 'Low', medium: 'Medium', high: 'High', xhigh: 'Extra high', max: 'Max' }
 
@@ -88,8 +83,9 @@ export class AcpEngine {
   }
 
   async ensure() {
-    if (this.peer !== undefined) return this.peer
+    // A peer exists before its handshake has finished; other callers wait for it.
     if (this.starting !== undefined) return this.starting
+    if (this.peer !== undefined) return this.peer
     const starting = this.startPeer()
     this.starting = starting
     try {

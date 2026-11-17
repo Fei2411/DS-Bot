@@ -339,9 +339,12 @@ function filenameOf(contentDisposition) {
   if (utf8 !== null) {
     try { return decodeURIComponent(utf8[1]) } catch { /* a malformed escape keeps the plain name */ }
   }
-  const plain = header.match(/filename="?([^";]+)"?/i)
-  if (plain === null) return ''
-  try { return decodeURIComponent(plain[1].trim()) } catch { return plain[1].trim() }
+  // A quoted filename may itself contain a semicolon, so it runs to its closing
+  // quote; an unquoted one ends at the first semicolon, as the header grammar says.
+  const plain = header.match(/(?:^|;)\s*filename\s*=\s*(?:"([^"]*)"|([^;\s]+))/i)
+  const name = (plain?.[1] ?? plain?.[2] ?? '').trim()
+  if (name === '') return ''
+  try { return decodeURIComponent(name) } catch { return name }
 }
 
 // WeCom does not say what an image is: declare what the bytes actually are, since a

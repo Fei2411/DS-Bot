@@ -299,6 +299,37 @@ export function install(rt) {
     for (const [key, name] of Object.entries(conn.secrets ?? {})) fields[key] = rt.secretValue(name)
     return fields
   }
+  // The reason a request failed, with the chain under it: `fetch failed` alone
+  // hides the DNS, TLS or connection error that the user needs (#1120).
+  const reasonOf = (error) => {
+    const parts = []
+    for (let at = error, depth = 0; at !== undefined && at !== null && depth < 4; at = at.cause, depth += 1) {
+      const text = typeof at === 'string' ? at : at?.message
+      if (typeof text === 'string' && text.trim() !== '' && !parts.includes(text.trim())) parts.push(text.trim())
+    }
+    return parts.length === 0 ? 'The connection failed' : parts.join(': ')
+  }
+
+  // The reason can quote the request URL, and a platform URL carries the token:
+  // keep the secret field values, also as they appear in a URL, out of the text before it
+  // reaches the UI or the log.
+  const scrub = (text, fields, platform) => {
+    let out = text
+    for (const field of platform.fields) {
+      const value = fields[field.key]
+      if (!field.secret || typeof value !== 'string' || value.length < 4) continue
+      for (const form of new Set([value, encodeURIComponent(value)])) out = out.split(form).join('***')
+    }
+    return out
+  }
+  const checkAccount = async (platform, fields, env) => {
+    try {
+      return await adapters[platform.id].check(fields, env)
+    } catch (error) {
+      throw new Error(scrub(rt.redactSecrets(reasonOf(error)), fields, platform))
+    }
+  }
+
   const envFor = async (conn, runtime) => ({
     fetch: globalThis.fetch,
     WebSocket: globalThis.WebSocket,
@@ -781,13 +812,20 @@ export function install(rt) {
       return
     }
     const sessionId = target.botId ?? target.roomId
+    // The receipt has to sit on the Session that takes the message. A group's own
+    // Session moves on to a fresh part (`room.sessionId`) while `room.id` stays the
+    // first one, so uploading under the id leaves the receipt on a Session the
+    // message never reaches and DSH drops the file (#1121).
+    const uploadTo = target.botId !== undefined
+      ? rt.chatOf(target.botId)
+      : rt.sessionOfRoom(rt.roomOf(target.roomId))
     const content = []
     if (body !== '') content.push({ type: 'text', text: body })
     for (const image of msg.images ?? []) content.push({ type: 'image', mediaType: image.mediaType, data: image.data })
     const env = await envFor(conn)
     for (const file of msg.files ?? []) {
       try {
-        const receiptId = await env.uploadFile(rt.botOf(sessionId) ? rt.chatOf(sessionId) : sessionId, file)
+        const receiptId = await env.uploadFile(uploadTo, file)
         content.push({ type: 'file', receiptId })
       } catch {
         await sendText(conn, msg.chat, text('noFile'))
@@ -1033,8 +1071,8 @@ export function install(rt) {
       for (const chatKey of runner.queues.keys()) void drain(conn, chatKey)
       if (typeof runner.handle?.typing === 'function') {
         runner.typing = setInterval(() => {
-          for (const { chat, target } of targetsOf(fresh(conn.id) ?? conn)) {
-            if (target !== undefined && busyOf(target)) void runner.handle.typing({ key: chat.key ?? chat, kind: chat.kind, title: chat.title }).catch?.(() => {})
+          for (const { chatKey, chat, target } of targetsOf(fresh(conn.id) ?? conn)) {
+            if (target !== undefined && busyOf(target)) void runner.handle.typing({ key: chat.key ?? chatKey, kind: chat.kind, title: chat.title }).catch?.(() => {})
           }
         }, TYPING_MS)
         runner.typing.unref?.()
@@ -1180,7 +1218,7 @@ export function install(rt) {
         if (!field.options && (fields[field.key] === undefined || String(fields[field.key]).trim() === '')) throw new Error(`${field.label} is required`)
       }
       const env = await envFor({ id: 'im_check', platform: platform.id, settings: fields, secrets: {} }, { get: () => ({}), set: () => {} })
-      const { account } = await adapters[platform.id].check(fields, env)
+      const { account } = await checkAccount(platform, fields, env)
       const conn = {
         id: `im_${randomBytes(4).toString('hex')}`,
         platform: platform.id,
@@ -1218,7 +1256,7 @@ export function install(rt) {
         for (const field of platform.fields) {
           if (field.secret && check[field.key] === undefined) check[field.key] = rt.secretValue(conn.secrets[field.key])
         }
-        const { account } = await adapters[conn.platform].check(check, env)
+        const { account } = await checkAccount(platform, check, env)
         conn.account = account
         await saveSecrets(conn, platform, fields)
         for (const field of platform.fields) {
