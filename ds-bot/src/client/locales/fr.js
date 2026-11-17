@@ -1222,6 +1222,8 @@ export const FR = {
   "In progress": "En cours",
   "Awaiting review": "En attente de relecture",
   "Blocked": "Bloquée",
+  "Stopped by the user": "Arrêté par l’utilisateur",
+  "Its model call failed ({code})": "Échec de l’appel au modèle ({code})",
   "Add a note": "Ajouter une note",
   "Cancel task": "Annuler la tâche",
   "Click again to cancel": "Cliquez encore pour annuler",

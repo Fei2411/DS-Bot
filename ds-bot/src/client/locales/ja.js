@@ -1222,6 +1222,8 @@ export const JA = {
   "In progress": "進行中",
   "Awaiting review": "レビュー待ち",
   "Blocked": "ブロック中",
+  "Stopped by the user": "ユーザーが停止",
+  "Its model call failed ({code})": "モデル呼び出しに失敗（{code}）",
   "Add a note": "メモを追加",
   "Cancel task": "タスクをキャンセル",
   "Click again to cancel": "もう一度クリックでキャンセル",

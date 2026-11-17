@@ -21,6 +21,12 @@ export const openTasksOf = room => listOf(room).filter(task => OPEN_STATUSES.inc
 export const pastTasksOf = room => listOf(room).filter(task => !OPEN_STATUSES.includes(task.status))
 const newId = () => `t_${randomBytes(4).toString('hex')}`
 
+// Why DS Bot blocked a task: the member's turn failed, or the user stopped it. The panel
+// words the same facts in the user's language.
+export const blockedLine = blocked => blocked.cause === 'stopped'
+  ? 'stopped by the user'
+  : `its model call failed (${blocked.code}${blocked.status ? ` ${blocked.status}` : ''})`
+
 // The task an update names: its id, or the caller's own newest open task when no id is
 // given (the common case: one Bot working on one thing).
 function pickTask(room, id, botId) {
@@ -44,6 +50,11 @@ export function install(rt) {
     if (task.botId !== botId) return { error: `Task ${task.id} belongs to another member.` }
     if (status !== undefined && !OPEN_STATUSES.includes(status)) {
       return { error: `A running task\'s status is ${OPEN_STATUSES.join(', ')}; finish it with complete or cancel.` }
+    }
+    // The Bot is back on the work, whether or not it saw the block.
+    if (task.blocked !== undefined) {
+      task.status = task.blocked.from
+      delete task.blocked
     }
     if (status !== undefined) task.status = status
     if (progress !== undefined) task.progress = oneLine(progress, PROGRESS_MAX)
@@ -91,7 +102,8 @@ export function install(rt) {
       const bot = owner(task)
       const mine = task.botId === self ? ' (yours)' : ''
       const progress = task.progress === '' ? '' : `\n  progress: ${task.progress}`
-      return `- ${task.id} · ${bot?.name ?? task.botId} · ${task.status} · ${task.goal}${mine}${progress}`
+      const blocked = task.blocked === undefined ? '' : `\n  blocked by DS Bot: ${blockedLine(task.blocked)}`
+      return `- ${task.id} · ${bot?.name ?? task.botId} · ${task.status} · ${task.goal}${mine}${progress}${blocked}`
     })
     const past = pastTasksOf(room_)
     const lines = [`Tasks in "${room_.name}"${open.length === 0 ? ': none open.' : ':'}`, ...open]
@@ -138,8 +150,40 @@ export function install(rt) {
     },
   }))
 
+  // The board follows how the member's work in the group really ended (#1663): a failed
+  // turn or the user's stop blocks its running tasks, and its next completed turn there
+  // puts them back. A block the Bot set itself is the Bot's to lift.
+  const blockTasks = (roomId, botId, cause) => {
+    const room = rt.roomOf(roomId)
+    if (room === undefined) return
+    const running = openTasksOf(room).filter(task => task.botId === botId && task.status !== 'blocked')
+    if (running.length === 0) return
+    const at = Date.now()
+    for (const task of running) {
+      task.blocked = { by: 'system', ...cause, from: task.status, at }
+      task.status = 'blocked'
+      task.updatedAt = at
+    }
+    void rt.save().catch(() => {})
+  }
+  const unblockTasks = (roomId, botId) => {
+    const room = rt.roomOf(roomId)
+    if (room === undefined) return
+    const blocked = openTasksOf(room).filter(task => task.botId === botId && task.blocked !== undefined)
+    if (blocked.length === 0) return
+    const at = Date.now()
+    for (const task of blocked) {
+      task.status = task.blocked.from
+      delete task.blocked
+      task.updatedAt = at
+    }
+    void rt.save().catch(() => {})
+  }
+
   // For the group overview. The endpoint adds the user's note and posts it to the room.
   Object.assign(rt, {
+    blockTasks,
+    unblockTasks,
     taskNote: (roomId, id, text) => {
       const room = rt.roomOf(roomId)
       if (room === undefined) return { error: 'No such group.' }

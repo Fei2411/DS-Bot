@@ -10,6 +10,10 @@ import { t } from './i18n.js'
 
 const OPEN = ['active', 'review', 'blocked']
 const STATUS_KEY = { active: 'In progress', review: 'Awaiting review', blocked: 'Blocked', done: 'Done', cancelled: 'Cancelled' }
+// A block DS Bot set from how the member's work ended, not one the Bot reported.
+const blockedLine = blocked => blocked.cause === 'stopped'
+  ? t('Stopped by the user')
+  : t('Its model call failed ({code})', { code: `${blocked.code}${blocked.status ? ` ${blocked.status}` : ''}` })
 
 function TaskRow({ task, bot, room, actions }) {
   const [writing, setWriting] = useState(false)
@@ -48,6 +52,7 @@ function TaskRow({ task, bot, room, actions }) {
       h('span', { className: 'bt-task-time' }, clockLabel(task.startedAt))),
     h('div', { className: 'bt-task-goal' }, task.goal),
     open && task.progress ? h('div', { className: 'bt-task-progress' }, task.progress) : null,
+    task.status === 'blocked' && task.blocked ? h('div', { className: 'bt-task-reason' }, blockedLine(task.blocked)) : null,
     !open && task.result ? h('div', { className: 'bt-task-result' }, task.result) : null,
     !open && task.reason ? h('div', { className: 'bt-task-reason' }, task.reason) : null,
     lastNote ? h('div', { className: 'bt-task-note' }, t('Note: {text}', { text: lastNote.text })) : null,
