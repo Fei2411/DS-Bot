@@ -111,7 +111,7 @@ export function install(rt) {
   const known = owner => owner !== undefined && (owner.botId === undefined ? rt.roomOf(owner.roomId) !== undefined : rt.botOf(owner.botId) !== undefined)
 
   async function schedulesView() {
-    if (service === null) return { available: false, tasks: [] }
+    if (service === null) return { available: false, editable: false, tasks: [] }
     const now = Date.now()
     const tasks = []
     for (const entry of await service.catalog()) {
@@ -125,7 +125,7 @@ export function install(rt) {
         : entry.status === 'paused' ? 'paused' : 'finished'
       tasks.push({ ...entry, sessionId, ...owner, state })
     }
-    return { available: true, tasks }
+    return { available: true, editable: hostWide(service), tasks }
   }
 
   const endpoints = {
@@ -144,6 +144,17 @@ export function install(rt) {
       const selector = selectorOf(body.when)
       if (hostWide(service)) await service.create({ title, prompt, timing: timingOf(selector), target: { kind: 'session', sessionId } })
       else await service.create(sessionId, { title, prompt, ...selector })
+      return schedulesView()
+    },
+    // Only the Host-wide service can change a task in place; the per-Session one has
+    // no edit, so the page hides the control there.
+    async 'schedule-set'(body) {
+      if (service === null) throw invalid('Automation tasks are off in DSH')
+      if (!hostWide(service)) throw invalid('This DSH cannot pause a task')
+      if (typeof body.active !== 'boolean') throw invalid('Say whether the task runs')
+      const entry = (await service.catalog()).find(task => task.id === body.id)
+      if (entry === undefined || sessionOf(entry) !== body.sessionId) throw invalid('No such task')
+      await service.edit({ id: body.id, action: 'update', patch: { active: body.active } })
       return schedulesView()
     },
     async 'schedule-delete'(body) {

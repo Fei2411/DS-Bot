@@ -90,7 +90,7 @@ const nextRunsText = (task, format) => {
   return t('Next: {time}', { time: runs.slice(1).map(at => format(at, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })).join(' · ') })
 }
 
-function TaskRow({ task, actions, onView, showBot, roster }) {
+function TaskRow({ task, actions, onView, showBot, roster, canPause }) {
   const [confirming, setConfirming] = useState(false)
   const [expanded, setExpanded] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -99,6 +99,10 @@ function TaskRow({ task, actions, onView, showBot, roster }) {
     const timer = setTimeout(() => setConfirming(false), 3000)
     return () => clearTimeout(timer)
   }, [confirming])
+  const toggle = () => {
+    setBusy(true)
+    void actions.scheduleSet(task.sessionId, task.id, task.status !== 'active').then(onView, () => setBusy(false))
+  }
   const remove = () => {
     if (!confirming) { setConfirming(true); return }
     setBusy(true)
@@ -113,6 +117,11 @@ function TaskRow({ task, actions, onView, showBot, roster }) {
       task.prompt && task.prompt !== task.title ? h('span', { className: 'bt-task-prompt', 'data-open': expanded || undefined }, task.prompt) : null,
       expanded ? h('span', { className: 'bt-set-hint' }, nextRunsText(task, when)) : null),
     h('span', { className: 'bt-task-next', 'data-state': task.state === 'overdue' ? 'overdue' : undefined }, nextText(task)),
+    canPause && task.status !== 'ended' ? h('button', {
+      type: 'button', className: 'bt-mini', disabled: busy,
+      'aria-label': task.status === 'active' ? t('Pause') : t('Resume'),
+      title: task.status === 'active' ? t('Pause') : t('Resume'), onClick: toggle,
+    }, task.status === 'active' ? t('Pause') : t('Resume')) : null,
     h('button', {
       type: 'button', className: 'bt-mini bt-task-remove', 'data-confirm': confirming || undefined, disabled: busy,
       'aria-label': confirming ? t('Click again to delete') : t('Delete task'), title: confirming ? undefined : t('Delete task'), onClick: remove,
@@ -225,7 +234,7 @@ export function SchedulesPage({ roster, actions, start }) {
           index === 0
             ? h('div', { className: 'bt-la-sec-head' }, h('h3', { className: 'bt-task-head' }, avatar, name), addBar)
             : h('h3', { className: 'bt-task-head' }, avatar, name),
-          h('div', { className: 'bt-set-card' }, tasks.map(task => h(TaskRow, { key: task.id, task, actions, roster, onView: publish }))))),
+          h('div', { className: 'bt-set-card' }, tasks.map(task => h(TaskRow, { key: task.id, task, actions, roster, onView: publish, canPause: view.editable === true }))))),
   ]
 }
 
@@ -242,7 +251,7 @@ export function BotSchedules({ bot, roster, actions }) {
             h('span', { className: 'bt-set-copy' }, h('span', { className: 'bt-set-hint' }, t('Switch on Automation tasks on the Plugins page in Settings.'))),
             h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => actions.openSettings('dsh', 'plugins') }, t('Open Plugins')))
         : [
-            ...tasks.map(task => h(TaskRow, { key: task.id, task, actions, roster, onView: publish })),
+            ...tasks.map(task => h(TaskRow, { key: task.id, task, actions, roster, onView: publish, canPause: view.editable === true })),
             h('button', { key: 'new', type: 'button', className: 'bt-set-row bt-bs-row bt-gs-add', onClick: () => actions.openSettings('schedules', bot.id) }, h(PlusIcon), t('New task')),
           ]))
 }

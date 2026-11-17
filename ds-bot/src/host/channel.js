@@ -633,6 +633,7 @@ export function install(rt) {
           return ok(await rt.capabilityEndpoint(endpoint, body))
         case 'schedules':
         case 'schedule-create':
+        case 'schedule-set':
         case 'schedule-delete':
           await rt.load()
           return ok(await rt.scheduleEndpoint(endpoint, body))

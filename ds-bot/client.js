@@ -14919,6 +14919,7 @@ function teamActions({ call: call2, after, partFor, roster, ui: ui2, live, cards
     schedules: () => call2("schedules"),
     scheduleCreate: (task) => call2("schedule-create", task),
     scheduleDelete: (sessionId, id) => call2("schedule-delete", { sessionId, id }),
+    scheduleSet: (sessionId, id, active) => call2("schedule-set", { sessionId, id, active }),
     exchange: (a, b) => call2("exchange", { a, b }).catch(() => []),
     exchangeText: (id, a, b) => call2("exchange-text", { id, ...a !== void 0 && b !== void 0 ? { a, b } : {} }).catch(() => void 0),
     fileText: (file) => call2("file-text", { file }).catch(() => void 0),
@@ -24327,7 +24328,7 @@ var nextRunsText = (task, format) => {
   if (runs.length <= 1) return null;
   return t("Next: {time}", { time: runs.slice(1).map((at) => format(at, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })).join(" · ") });
 };
-function TaskRow2({ task, actions, onView, showBot, roster }) {
+function TaskRow2({ task, actions, onView, showBot, roster, canPause }) {
   const [confirming, setConfirming] = (0, import_react23.useState)(false);
   const [expanded, setExpanded] = (0, import_react23.useState)(false);
   const [busy, setBusy] = (0, import_react23.useState)(false);
@@ -24336,6 +24337,10 @@ function TaskRow2({ task, actions, onView, showBot, roster }) {
     const timer = setTimeout(() => setConfirming(false), 3e3);
     return () => clearTimeout(timer);
   }, [confirming]);
+  const toggle = () => {
+    setBusy(true);
+    void actions.scheduleSet(task.sessionId, task.id, task.status !== "active").then(onView, () => setBusy(false));
+  };
   const remove = () => {
     if (!confirming) {
       setConfirming(true);
@@ -24358,6 +24363,14 @@ function TaskRow2({ task, actions, onView, showBot, roster }) {
       expanded ? (0, import_react23.createElement)("span", { className: "bt-set-hint" }, nextRunsText(task, when2)) : null
     ),
     (0, import_react23.createElement)("span", { className: "bt-task-next", "data-state": task.state === "overdue" ? "overdue" : void 0 }, nextText(task)),
+    canPause && task.status !== "ended" ? (0, import_react23.createElement)("button", {
+      type: "button",
+      className: "bt-mini",
+      disabled: busy,
+      "aria-label": task.status === "active" ? t("Pause") : t("Resume"),
+      title: task.status === "active" ? t("Pause") : t("Resume"),
+      onClick: toggle
+    }, task.status === "active" ? t("Pause") : t("Resume")) : null,
     (0, import_react23.createElement)("button", {
       type: "button",
       className: "bt-mini bt-task-remove",
@@ -24519,7 +24532,7 @@ function SchedulesPage({ roster, actions, start }) {
       "section",
       { key: id, className: "bt-set-section" },
       index === 0 ? (0, import_react23.createElement)("div", { className: "bt-la-sec-head" }, (0, import_react23.createElement)("h3", { className: "bt-task-head" }, avatar, name), addBar) : (0, import_react23.createElement)("h3", { className: "bt-task-head" }, avatar, name),
-      (0, import_react23.createElement)("div", { className: "bt-set-card" }, tasks.map((task) => (0, import_react23.createElement)(TaskRow2, { key: task.id, task, actions, roster, onView: publish })))
+      (0, import_react23.createElement)("div", { className: "bt-set-card" }, tasks.map((task) => (0, import_react23.createElement)(TaskRow2, { key: task.id, task, actions, roster, onView: publish, canPause: view.editable === true })))
     ))
   ];
 }
@@ -24540,7 +24553,7 @@ function BotSchedules({ bot, roster, actions }) {
         (0, import_react23.createElement)("span", { className: "bt-set-copy" }, (0, import_react23.createElement)("span", { className: "bt-set-hint" }, t("Switch on Automation tasks on the Plugins page in Settings."))),
         (0, import_react23.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => actions.openSettings("dsh", "plugins") }, t("Open Plugins"))
       ) : [
-        ...tasks.map((task) => (0, import_react23.createElement)(TaskRow2, { key: task.id, task, actions, roster, onView: publish })),
+        ...tasks.map((task) => (0, import_react23.createElement)(TaskRow2, { key: task.id, task, actions, roster, onView: publish, canPause: view.editable === true })),
         (0, import_react23.createElement)("button", { key: "new", type: "button", className: "bt-set-row bt-bs-row bt-gs-add", onClick: () => actions.openSettings("schedules", bot.id) }, (0, import_react23.createElement)(PlusIcon), t("New task"))
       ]
     )

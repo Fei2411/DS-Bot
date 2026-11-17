@@ -94,10 +94,20 @@ function setup(services = {}) {
   return { ctx, home, call, rt }
 }
 
+test('a per-Session schedule service offers no pause', async (t) => {
+  const schedule = scheduleService()
+  const { ctx, home, call } = setup({ schedule })
+  t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
+  const made = await call('schedule-create', { target: 'm1', title: 'Briefing', prompt: 'Sum up', when: { kind: 'daily', time: '09:00', timeZone: 'Asia/Shanghai' } })
+  assert.equal(made.ok, true, JSON.stringify(made))
+  assert.equal(made.value.editable, false)
+  assert.match((await call('schedule-set', { sessionId: 'm1', id: 'schedule-1', active: false })).error.message, /cannot pause/)
+})
+
 test('without the schedule service the page says so and creating is refused', async (t) => {
   const { ctx, home, call } = setup()
   t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
-  assert.deepEqual((await call('schedules', {})).value, { available: false, tasks: [] })
+  assert.deepEqual((await call('schedules', {})).value, { available: false, editable: false, tasks: [] })
   const refused = await call('schedule-create', { target: 'm1', title: 'Briefing', prompt: 'Sum up', when: { kind: 'daily', time: '09:00', timeZone: 'Asia/Shanghai' } })
   assert.equal(refused.ok, false)
   assert.match(refused.error.message, /Automation tasks are off/)
@@ -209,6 +219,16 @@ test('on DSH 0.2.2 tasks target the Bot’s current part, list by target, delete
 
   assert.match((await call('schedule-delete', { sessionId: 'w2', id: 'schedule-1' })).error.message, /No such task/)
   assert.match((await call('schedule-delete', { sessionId: 'm1', id: 'schedule-new' })).error.message, /No such task/)
+  // Pausing and resuming go through the same edit, with the running flag.
+  const paused = await call('schedule-set', { sessionId: 'm1', id: 'schedule-2', active: false })
+  assert.equal(paused.ok, true, JSON.stringify(paused))
+  assert.deepEqual(schedule.edits.at(-1), { id: 'schedule-2', action: 'update', patch: { active: false } })
+  assert.equal(paused.value.editable, true)
+  await call('schedule-set', { sessionId: 'm1', id: 'schedule-2', active: true })
+  assert.deepEqual(schedule.edits.at(-1), { id: 'schedule-2', action: 'update', patch: { active: true } })
+  assert.match((await call('schedule-set', { sessionId: 'w2', id: 'schedule-2', active: false })).error.message, /No such task/)
+  assert.match((await call('schedule-set', { sessionId: 'm1', id: 'schedule-2', active: 'no' })).error.message, /whether the task runs/)
+
   const removed = await call('schedule-delete', { sessionId: 'm1', id: 'schedule-2' })
   assert.equal(removed.ok, true, JSON.stringify(removed))
   assert.equal(schedule.tasks.has('schedule-2'), false)
