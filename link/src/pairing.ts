@@ -16,6 +16,7 @@ export interface PairedDevice {
 
 /** What the computer's pairing QR code carries to the phone. */
 export interface PairingOffer {
+  device?: 'browser'
   server: string
   hostDeviceId: string
   hostKey: string
@@ -62,6 +63,7 @@ export function pairingUri(offer: PairingOffer): string {
     code: offer.code,
     name: offer.name,
   })
+  if (offer.device !== undefined) query.set('device', offer.device)
   return `${PAIRING_SCHEME}//pair?${query}`
 }
 
@@ -84,6 +86,9 @@ export function parsePairingUri(uri: string): PairingOffer {
     code: field('code'),
     name: (url.searchParams.get('name') ?? '').slice(0, MAX_NAME),
   }
+  const device = url.searchParams.get('device')
+  if (device !== null && device !== 'browser') throw new Error('The pairing device is invalid.')
+  if (device === 'browser') offer.device = device
   if (deviceIdFor(offer.hostKey) !== offer.hostDeviceId) throw new Error('The pairing code does not match its computer.')
   return offer
 }

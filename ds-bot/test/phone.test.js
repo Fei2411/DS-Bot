@@ -67,6 +67,8 @@ test('a phone pairs with the QR code and calls the same endpoints as the window'
 
   const paired = await desk.call('phone-pair', {})
   const offer = parsePairingUri(paired.value.pairing.uri)
+  assert.equal(offer.device, undefined)
+  assert.equal(parsePairingUri(paired.value.pairing.browserUri).device, 'browser')
   assert.notEqual(parsePairingUri(paired.value.pairing.browserUri).code, offer.code)
   const link = phone(offer, { pairingCode: offer.code, name: 'Pixel' })
   await link.client.connect()

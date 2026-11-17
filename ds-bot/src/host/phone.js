@@ -169,7 +169,7 @@ export function install(rt) {
         if (link === null) throw invalid(blocked ?? 'Turn on phone access first')
         const { code, browserCode, expiresAt } = registry.openPairing()
         const offer = { server: serverUrl(), hostDeviceId: data.identity.deviceId, hostKey: data.identity.publicKey, name: hostname() }
-        pairing = { uri: pairingUri({ ...offer, code }), browserUri: pairingUri({ ...offer, code: browserCode }), expiresAt }
+        pairing = { uri: pairingUri({ ...offer, code }), browserUri: pairingUri({ ...offer, code: browserCode, device: 'browser' }), expiresAt }
         break
       }
       case 'phone-pair-cancel':

@@ -7383,6 +7383,7 @@ function pairingUri(offer) {
     code: offer.code,
     name: offer.name
   });
+  if (offer.device !== void 0) query.set("device", offer.device);
   return `${PAIRING_SCHEME}//pair?${query}`;
 }
 function parsePairingUri(uri) {
@@ -7404,6 +7405,9 @@ function parsePairingUri(uri) {
     code: field("code"),
     name: (url.searchParams.get("name") ?? "").slice(0, MAX_NAME)
   };
+  const device = url.searchParams.get("device");
+  if (device !== null && device !== "browser") throw new Error("The pairing device is invalid.");
+  if (device === "browser") offer.device = device;
   if (deviceIdFor(offer.hostKey) !== offer.hostDeviceId) throw new Error("The pairing code does not match its computer.");
   return offer;
 }

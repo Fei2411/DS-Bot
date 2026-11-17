@@ -10,3 +10,9 @@ export function parsePairingInput(input: string) {
     throw new Error('This is not a DS Bot pairing code.')
   }
 }
+
+export function parseWebPairingInput(input: string) {
+  const offer = parsePairingInput(input)
+  if (offer.device !== 'browser') throw new Error("This is the phone app's code. In Settings → Phone on the computer, use Open in a browser or Copy browser link.")
+  return offer
+}

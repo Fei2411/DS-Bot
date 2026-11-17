@@ -1,12 +1,31 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { deviceIdFor, generateKeyPair, pairingUri } from '../../../link/src/index.ts'
-import { parsePairingInput } from './pair-input.ts'
+import { parsePairingInput, parseWebPairingInput } from './pair-input.ts'
+import { takePairingFragment } from './pair-fragment.ts'
 import { getLang, setLang, t } from '../ui/i18n.ts'
 
 const keys = generateKeyPair()
 const offer = { server: 'wss://relay.test/prefix/v1/link', hostKey: keys.publicKey, hostDeviceId: deviceIdFor(keys.publicKey), code: 'one-time', name: '电脑 + 100% & team' }
 const uri = pairingUri(offer)
+
+test('web paste and startup fragment paths accept browser offers and refuse phone offers', context => {
+  const previous = getLang()
+  context.after(() => setLang(previous))
+  const browser = { ...offer, device: 'browser' as const }
+  for (const lang of ['en', 'zh'] as const) {
+    setLang(lang)
+    for (const candidate of [offer, browser]) {
+      const raw = pairingUri(candidate)
+      const fragment = takePairingFragment({ hash: `#pair=${encodeURIComponent(raw)}`, pathname: '/web/', search: '' }, { state: null, replaceState() {} })!
+      for (const input of [raw, `https://relay.test/web/#pair=${encodeURIComponent(raw)}`, fragment]) {
+        if (candidate === browser) assert.deepEqual(parseWebPairingInput(input), browser)
+        else assert.throws(() => parseWebPairingInput(input), error => error instanceof Error && t(error.message) === (lang === 'en' ? "This is the phone app's code. In Settings → Phone on the computer, use Open in a browser or Copy browser link." : '这是手机 App 的配对码。请在电脑的设置 → 手机中选择“在浏览器中打开”或“复制浏览器链接”。'))
+      }
+    }
+  }
+  assert.deepEqual(parsePairingInput(uri), offer)
+})
 
 test('pair input accepts raw pairing URIs and copied browser links without changing the offer', () => {
   for (const input of [uri, `https://relay.test/prefix/web/#pair=${encodeURIComponent(uri)}`, `http://localhost:8787/web/#pair=${encodeURIComponent(uri)}`]) {
