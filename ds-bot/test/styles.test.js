@@ -217,3 +217,30 @@ test('an active message toolbar stacks above the next message', () => {
   // so without a z-index they paint over a toolbar that hangs below this message.
   assert.match(css, /\.bt-msg:hover,\.bt-msg:focus-within,\.bt-msg:has\(>\.bt-msg-line>\.bt-tools\[data-open\]\)\{z-index:2\}/)
 })
+
+// #1571: on macOS the side panel is a body child the shell marks no-drag, and it reaches
+// the window's top edge. Its tab strip is the window drag row there; without it an open
+// browser panel covers the title bar's drag area and the window cannot be moved. The row
+// is the strip only: the panel and the chips in it stay clickable.
+test('a macOS side panel keeps a window drag row over its tab strip', () => {
+  const css = readFileSync(new URL('../src/client/styles.js', import.meta.url), 'utf8')
+  const rule = /(html\[data-platform=darwin\] \.bt-panel>\.bt-ptabs)\{([^}]*)\}/.exec(css)
+  assert.ok(rule, 'the macOS panel-strip rule exists')
+  const [selector, body] = [rule[1], rule[2]]
+  assert.match(body, /-webkit-app-region:drag/)
+  const { window } = new JSDOM('<!doctype html><html data-platform="darwin"><body><aside class="bt-panel"><div class="bt-ptabs"><div class="bt-ptabs-in"><button class="bt-ptab">Tab</button></div></div><div class="bt-panel-view"></div></aside></body></html>')
+  const { document } = window
+  // The selector matches the strip above the panel content, and only it.
+  assert.equal(document.querySelector('.bt-ptabs').matches(selector), true)
+  assert.equal(document.querySelector('.bt-panel').matches(selector), false)
+  assert.equal(document.querySelector('.bt-ptab').matches(selector), false)
+  // The panel keeps its own no-drag (DSH's darwin body-child rule); only the row drags.
+  assert.doesNotMatch(css, /html\[data-platform=darwin\] \.bt-panel\{[^}]*-webkit-app-region:drag/)
+})
+
+// #1571: the strip also carries the shell's window drag-row mark, so the shell's watcher
+// re-collects the window's drag geometry while the panel slides in.
+test('the panel strip carries the shell window drag mark', () => {
+  const source = readFileSync(new URL('../src/client/browser-pane.js', import.meta.url), 'utf8')
+  assert.match(source, /className: 'bt-ptabs'[^}]*'data-window-drag': true/)
+})

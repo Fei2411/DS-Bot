@@ -16262,6 +16262,12 @@ body[data-ds-dark-theme] .bt-q.bt-q-settled[data-expandable]:not([data-open]):ho
    window. Where the chrome top already clears the title bar the band is 0. */
 html[data-windows-titlebar]:not([data-fullscreen]) :is(.bt-pane,.bt-panel){--bt-caption-band:calc(var(--dsh-windows-titlebar-height,0px) - var(--dsh-frame-chrome-top,0px));padding-top:var(--bt-caption-band)}
 html[data-windows-titlebar]:not([data-fullscreen]) :is(.bt-pane,.bt-panel)::before{content:"";position:absolute;top:0;left:0;right:0;height:var(--bt-caption-band);-webkit-app-region:drag}
+/* On macOS a side panel reaches the window's top edge, where the window drag strip is.
+   Its tab row is that strip, as DSH's own right sidebar row is: the row drags the window
+   where no chip or control covers it, and DSH's darwin rule subtracts the controls drawn
+   in it. Without this the open panel (a body child the shell marks no-drag) covers the
+   title bar's drag area, and the window cannot be moved. */
+html[data-platform=darwin] .bt-panel>.bt-ptabs{-webkit-app-region:drag}
 .bt-pane{position:fixed;top:var(--dsh-frame-chrome-top,0px);right:0;bottom:0;z-index:45;pointer-events:auto;background:var(--bt-main);color:var(--bt-ink);display:flex;font-family:var(--bt-font)}
 .bt-dialog{flex:1;display:flex;flex-direction:column;min-width:0}
 .bt-dialog .bt-head{height:62px}
@@ -41940,7 +41946,7 @@ function PanelStrip({ bot, subject, view, ids, active, sides, side, canBrowse, r
   }).map((key) => menuItemFor(key, actions, subject));
   return (0, import_react68.createElement)(
     "div",
-    { className: "bt-ptabs", role: "tablist", "aria-label": t("Panel tabs") },
+    { className: "bt-ptabs", role: "tablist", "data-window-drag": true, "aria-label": t("Panel tabs") },
     (0, import_react68.createElement)(
       "div",
       { className: "bt-ptabs-in", ref: wrap },
