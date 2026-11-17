@@ -25,6 +25,14 @@ const NUMBERS = /^\s*\d+(\s+\d+)*\s*$/
 const SENT_KEEP = 20
 const SENT_TEXT_LIMIT = 1_000
 const QUOTE_LIMIT = 500
+// A platform may report several id aliases and a long text. Bound each entry
+// too, so no single message can by itself fill the whole store.
+const SENT_ID_LIMIT = 16
+const SENT_ID_LEN = 100
+// The runtime file is written as one blob. Keep the whole sent-message store
+// bounded even with many chats, so a connection with lots of chats cannot grow
+// it without limit (#1306 review).
+const SENT_STORE_LIMIT = 200_000
 
 const secretField = key => key.replace(/[A-Z]/g, char => `_${char}`).toUpperCase()
 
@@ -323,22 +331,51 @@ export function install(rt) {
     const parts = Array.isArray(sent?.parts) && sent.parts.length > 0
       ? sent.parts
       : [{ ids: [sent?.messageId, ...(Array.isArray(sent?.ids) ? sent.ids : [])], text }]
+    const at = Date.now()
     const entries = []
     for (const part of parts) {
       const ids = []
       for (const value of Array.isArray(part?.ids) ? part.ids : []) {
-        const one = String(value ?? '').trim()
+        const one = String(value ?? '').trim().slice(0, SENT_ID_LEN)
         if (one !== '' && !ids.includes(one)) ids.push(one)
+        if (ids.length >= SENT_ID_LIMIT) break
       }
       const body = String(part?.text ?? '').slice(0, SENT_TEXT_LIMIT).trim()
       if (ids.length === 0 || body === '') continue
-      entries.push({ ids, text: body })
+      entries.push({ ids, text: body, at })
     }
     if (entries.length === 0) return
     const data = await dataOf(id)
     const kept = data.sent[chatKey] ?? []
     data.sent[chatKey] = [...kept, ...entries].slice(-SENT_KEEP)
+    capSentStore(data.sent)
     scheduleWrite(id)
+  }
+  // The runtime file is one blob, so bound the whole sent store, not just each
+  // chat's list. Collect every entry with its age and drop the oldest first —
+  // a chat's last message is the one a quoted reply is most likely to name, so
+  // it must survive even when older chats have to go. A single entry is already
+  // bounded above (text, id count and id length), so the store always converges.
+  const capSentStore = (sent) => {
+    let size = JSON.stringify(sent).length
+    if (size <= SENT_STORE_LIMIT) return
+    const byAge = []
+    for (const [chatKey, list] of Object.entries(sent)) {
+      if (!Array.isArray(list)) continue
+      for (const entry of list) byAge.push({ chatKey, entry, age: Number(entry?.at) || 0 })
+    }
+    byAge.sort((a, b) => a.age - b.age)
+    for (const { chatKey, entry } of byAge) {
+      if (size <= SENT_STORE_LIMIT) break
+      const list = sent[chatKey]
+      const at = list.indexOf(entry)
+      if (at === -1) continue
+      list.splice(at, 1)
+      size = JSON.stringify(sent).length
+    }
+    for (const [chatKey, list] of Object.entries(sent)) {
+      if (Array.isArray(list) && list.length === 0) delete sent[chatKey]
+    }
   }
   // The text a quoted reply answers: the first of its ids that names a message
   // this chat sent, else the text the platform kept of that message. An id only
@@ -992,7 +1029,7 @@ export function install(rt) {
     for (const conn of Object.values(connections())) {
       const runner = runners.get(conn.id)
       if (runner === undefined) continue
-      const data = await dataOf(conn.id)
+      await dataOf(conn.id)
       // Questions: one card per open question id, on the connection whose chat asked.
       for (const [sessionId, question] of Object.entries(state.questions ?? {})) {
         const cardKey = `q:${question.id}`

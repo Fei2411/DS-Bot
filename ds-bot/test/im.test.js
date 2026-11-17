@@ -265,6 +265,7 @@ test('a quoted reply carries the message it answers into the Bot', async (t) => 
   one.paired.push({ id: 'u1', name: 'U1', at: 1 })
   await s.rt.save()
   await dm(s, 'u1', 'hi')
+  s.imTurn('a')
   s.fake.sent.length = 0
   s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'Project A is done' }] } })
   await s.flush()
@@ -309,6 +310,7 @@ test('a quote of a later chunk shows that chunk, not the start of the reply', as
   one.paired.push({ id: 'u1', name: 'U1', at: 1 })
   await s.rt.save()
   await dm(s, 'u1', 'hi')
+  s.imTurn('a')
   s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'Project A is done\n\nProject B is done' }] } })
   await s.flush()
   await dm(s, 'u1', 'do that', { quote: { ids: ['chunk-b'] } })
@@ -323,6 +325,7 @@ test('a quote resolves by its ids, then by the platform text, and says when both
   one.paired.push({ id: 'u1', name: 'U1', at: 1 })
   await s.rt.save()
   await dm(s, 'u1', 'hi')
+  s.imTurn('a')
   s.fake.sent.length = 0
   s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'Project A is done' }] } })
   await s.flush()
@@ -336,6 +339,9 @@ test('a quote resolves by its ids, then by the platform text, and says when both
   await dm(s, 'u1', 'the other one', { quote: { ids: ['gone'] } })
   assert.equal(s.prompts[3].content[0].text, 'Replying to an earlier message (its text is not available).\n\nthe other one')
   // A command is read from the reply alone, never from the quote.
+  // A command is read from the reply alone, never from the quote. End the turn
+  // first so /stop has nothing running and answers the deterministic idle text.
+  s.emitEvent('a', 'turn/end', {})
   await dm(s, 'u1', '/stop', { quote: { ids: [sentId] } })
   assert.equal(s.prompts.length, 4)
   assert.equal(s.fake.sent.at(-1).text, 'Nothing is running.')
@@ -349,6 +355,7 @@ test('only the last messages sent to a chat are kept for quoting', async (t) => 
   one.paired.push({ id: 'u1', name: 'U1', at: 1 })
   await s.rt.save()
   await dm(s, 'u1', 'hi')
+  s.imTurn('a')
   s.fake.sent.length = 0
   for (let at = 0; at < 21; at += 1) {
     s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: `Report ${at}` }] } })
@@ -380,12 +387,66 @@ test('removing a chat drops the messages kept for quoting it', async (t) => {
     return false
   }
   await dm(s, 'u1', 'hi')
+  s.imTurn('a')
   s.fake.sent.length = 0
   s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'Project A is done' }] } })
   await s.flush()
   assert.ok(await until(sent => sent?.['dm-u1']?.length > 0), 'the sent message is kept')
   await s.rt.imEndpoint('im-chat', { id: conn.id, chatKey: 'dm-u1', remove: true })
   assert.ok(await until(sent => sent !== undefined && sent['dm-u1'] === undefined), 'the removed chat leaves nothing behind')
+})
+
+test('a runtime file written before sent existed still loads and behaves unchanged', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'dsb-im-'))
+  t.after(() => rmSync(home, { recursive: true, force: true, maxRetries: 5 }))
+  const seed = TEAM()
+  seed.im = { connections: {
+    im_legacy: { id: 'im_legacy', platform: 'telegram', botId: 'a', account: { id: 'bot1', name: '@fakebot' }, settings: { token: 'tok' }, secrets: {}, enabled: false, paired: [], requests: [], chats: { 'dm-u1': { kind: 'direct', title: 'u1', at: 1 } }, createdAt: 1 },
+  } }
+  writeFileSync(join(home, 'state.json'), JSON.stringify(seed))
+  // An older DS Bot wrote { runtime, cards } with no `sent` field. A fresh host
+  // reading it must default `sent` to {} and behave exactly as before.
+  mkdirSync(join(home, 'im'), { recursive: true })
+  writeFileSync(join(home, 'im', 'im_legacy.json'), JSON.stringify({ runtime: {}, cards: {} }))
+  const original = adapters.telegram
+  adapters.telegram = fakeAdapter()
+  const fresh = createRuntime(fakeContext(), { home })
+  try {
+    // This endpoint calls dataOf(), which reads the legacy file and must not throw.
+    await fresh.imEndpoint('im-chat', { id: 'im_legacy', chatKey: 'dm-u1', remove: true })
+    assert.equal(fresh.state.im.connections.im_legacy.chats['dm-u1'], undefined)
+  } finally {
+    await fresh.ctx.dispose()
+    adapters.telegram = original
+  }
+})
+
+test('the sent store is bounded across chats so the runtime file cannot grow without limit', async (t) => {
+  const s = await start()
+  t.after(s.stop)
+  const conn = await add(s)
+  const one = s.rt.state.im.connections[conn.id]
+  for (let chat = 0; chat < 12; chat += 1) one.paired.push({ id: `u${chat}`, name: `U${chat}`, at: 1 })
+  await s.rt.save()
+  // Fill many chats so the whole `sent` store (not just one chat's 20 entries)
+  // crosses the cap; the oldest chats' entries must then be dropped, while the
+  // most recent message (written to the last chat) survives.
+  for (let chat = 0; chat < 12; chat += 1) {
+    await dm(s, `u${chat}`, 'hi')
+    s.imTurn('a')
+    for (let at = 0; at < 20; at += 1) {
+      s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: `Report ${chat}-${at} ${'x'.repeat(9_000)}` }] } })
+    }
+  }
+  await s.flush()
+  await delay(600)
+  const runtime = JSON.parse(readFileSync(join(s.home, 'im', `${conn.id}.json`), 'utf8'))
+  const size = JSON.stringify(runtime.sent).length
+  assert.ok(size <= 200_000, `sent store stays bounded (${size} bytes)`)
+  const lists = Object.values(runtime.sent)
+  assert.ok(lists.length > 0 && lists.length < 12, 'the oldest chats were trimmed away')
+  assert.ok(lists.every(list => list.length <= 20), 'each remaining chat keeps at most 20')
+  assert.ok(lists.some(list => list.some(entry => entry.text.startsWith('Report 11-19'))), 'the newest message survives the trim')
 })
 
 test('IM user messages are tagged by seq for the current part; a part that is no longer current drops out', async (t) => {
