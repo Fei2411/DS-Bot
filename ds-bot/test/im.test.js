@@ -1938,10 +1938,10 @@ test('a failed update keeps the network reason and redacts a secret as it appear
   })
 })
 
-for (const kind of ['runtime-context', 'time-context']) {
+for (const kind of ['runtime-context', 'time-context', 'model-selection']) {
   for (const group of [false, true]) {
     for (const before of [false, true]) {
-      test(`reply origin ignores ${kind} snapshots ${before ? 'before' : 'after'} an IM ${group ? 'group' : 'direct'} message`, async t => {
+      test(`reply origin ignores ${kind} metadata ${before ? 'before' : 'after'} an IM ${group ? 'group' : 'direct'} message`, async t => {
         const s = await start()
         t.after(s.stop)
         const conn = await add(s)
@@ -1952,7 +1952,7 @@ for (const kind of ['runtime-context', 'time-context']) {
         if (group) await gm(s, 'u1', 'hi')
         else await dm(s, 'u1', 'hi')
         const sessionId = group ? 'r1' : 'a'
-        const context = () => s.emitEvent(sessionId, 'user/message', { source: { kind, form: 'snapshot', sections: [] }, content: [] })
+        const context = () => s.emitEvent(sessionId, 'user/message', { source: { kind, form: kind === 'model-selection' ? 'notice' : 'snapshot', sections: [] }, content: [] })
         if (before) {
           s.emitEvent(sessionId, 'turn/start', { turn: 1 })
           context()
@@ -1979,11 +1979,82 @@ test('reply origin does not ignore unknown or non-snapshot context messages', as
   const conn = await add(s)
   s.rt.state.im.connections[conn.id].paired.push({ id: 'u1', at: 1 })
   await s.rt.save()
-  for (const source of [{ kind: 'runtime-context', form: 'other' }, { kind: 'unknown-context', form: 'snapshot' }, { kind: 'user' }]) {
+  for (const source of [{ kind: 'runtime-context', form: 'other' }, { kind: 'unknown-context', form: 'snapshot' }, { kind: 'model-selection', form: 'snapshot' }, { kind: 'user' }]) {
     await dm(s, 'u1', 'hi')
     s.imTurn('a')
     s.emitEvent('a', 'user/message', { source, content: [] })
     s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'must stay local' }] } })
   }
+  assert.equal(s.fake.sent.length, 0)
+})
+
+const goalSource = overrides => ({ kind: 'bot', form: 'relay', role: 'goal', goal: 'nudge', goalId: 'goal-one', roomId: 'r1', ...overrides })
+async function goalChat(t) {
+  const s = await start()
+  t.after(s.stop)
+  const { one } = await pairedConn(s)
+  one.chats.g1 = { kind: 'group', title: 'G', target: { roomId: 'r1' }, at: 1 }
+  await s.rt.save()
+  const room = s.rt.roomOf('r1')
+  room.goal = { id: 'goal-one', status: 'active', stages: [], current: 0, revision: 1, nudges: 0 }
+  return { s, room, one }
+}
+
+test('reply origin: the active goal nudge and later member posts retain the original IM group', async t => {
+  const { s, room } = await goalChat(t)
+  await gm(s, 'u1', 'continue this goal')
+  s.imTurn('r1')
+  s.emitEvent('r1', 'turn/end', {})
+  s.emitEvent('r1', 'turn/start', { turn: 2 })
+  s.emitEvent('r1', 'user/message', { source: goalSource(), content: [{ type: 'text', text: '[Goal check]' }] })
+  s.rt.logRoom(room, { who: 'Writer', botId: 'b', text: 'goal progress' })
+  s.emitEvent('r1', 'turn/end', {})
+  s.emitEvent('r1', 'turn/start', { turn: 3 })
+  s.emitEvent('r1', 'user/message', { source: { kind: 'bot', form: 'relay', role: 'post', roomId: 'r1' }, content: [] })
+  s.rt.logRoom(room, { who: 'Writer', botId: 'b', text: 'late progress' })
+  await s.flush()
+  assert.deepEqual(s.fake.sent.map(x => [x.chat.key, x.text]), [['g1', '**Writer**: goal progress'], ['g1', '**Writer**: late progress']])
+})
+
+for (const invalid of [
+  { goal: 'draft' }, { goal: 'resume' }, { goalId: 'old-goal' }, { goalId: undefined }, { roomId: 'other-room' }, { form: 'other' },
+]) {
+  test(`reply origin: an unrelated goal event stays local (${JSON.stringify(invalid)})`, async t => {
+    const { s, room } = await goalChat(t)
+    await gm(s, 'u1', 'hi')
+    s.imTurn('r1')
+    s.emitEvent('r1', 'turn/end', {})
+    s.emitEvent('r1', 'turn/start', { turn: 2 })
+    s.emitEvent('r1', 'user/message', { source: goalSource(invalid), content: [] })
+    s.rt.logRoom(room, { who: 'Writer', botId: 'b', text: 'must stay local' })
+    await s.flush()
+    assert.equal(s.fake.sent.length, 0)
+  })
+}
+
+test('reply origin: a goal nudge cannot invent a destination or restore a mixed user turn', async t => {
+  const { s, room } = await goalChat(t)
+  s.emitEvent('r1', 'turn/start', { turn: 1 })
+  s.emitEvent('r1', 'user/message', { source: goalSource(), content: [] })
+  s.rt.logRoom(room, { who: 'Writer', botId: 'b', text: 'no origin' })
+  await gm(s, 'u1', 'hi')
+  s.imTurn('r1')
+  s.emitEvent('r1', 'user/message', { source: { kind: 'user', rpcId: 'web-request' }, content: [] })
+  s.emitEvent('r1', 'user/message', { source: goalSource(), content: [] })
+  s.rt.logRoom(room, { who: 'Writer', botId: 'b', text: 'mixed turn' })
+  await s.flush()
+  assert.equal(s.fake.sent.length, 0)
+})
+
+test('reply origin: a completed goal check cannot keep an old destination', async t => {
+  const { s, room } = await goalChat(t)
+  await gm(s, 'u1', 'hi')
+  s.imTurn('r1')
+  s.emitEvent('r1', 'turn/end', {})
+  room.goal.status = 'complete'
+  s.emitEvent('r1', 'turn/start', { turn: 2 })
+  s.emitEvent('r1', 'user/message', { source: goalSource(), content: [] })
+  s.rt.logRoom(room, { who: 'Writer', botId: 'b', text: 'must stay local' })
+  await s.flush()
   assert.equal(s.fake.sent.length, 0)
 })

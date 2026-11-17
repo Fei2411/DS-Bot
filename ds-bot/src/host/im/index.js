@@ -1427,6 +1427,15 @@ export function install(rt) {
   }
 
   // ----------------------------------------------------------------- outbound
+  const roomContinuation = (sessionId, source) => {
+    if (source?.kind !== SOURCE_KIND) return false
+    if (source.role === 'post') return true
+    const room = rt.roomOf(sessionId)
+    return room !== undefined && source.form === 'relay' && source.role === 'goal' && source.goal === 'nudge'
+      && source.roomId === room.id && typeof source.goalId === 'string' && source.goalId === room.goal?.id
+      && room.goal.status === 'active'
+  }
+
   ctx.on('session/event', (session, event) => {
     if (event.type === 'turn/start') {
       const room = rt.roomOf(session.id)
@@ -1442,14 +1451,15 @@ export function install(rt) {
     }
     if (event.type === 'user/message') {
       const source = event.data?.source
-      // DSH emits these as user/message records, but they are harness metadata,
-      // not another user's input and must not consume or invalidate an IM origin.
-      if (source?.form === 'snapshot' && (source.kind === 'runtime-context' || source.kind === 'time-context')) return
+      // These records describe the running harness, rather than new user input.
+      if ((source?.form === 'snapshot' && (source.kind === 'runtime-context' || source.kind === 'time-context'))
+        || (source?.kind === 'model-selection' && source.form === 'notice')) return
       const imOrigin = source?.imOrigin
       const rpcId = source?.rpcId
+      const continuing = roomContinuation(session.id, source)
       // A late member result or part-switch handoff continues the work the chat asked for;
       // any other first message starts a fresh turn, which clears the previous turn's origin.
-      if (pendingReset.delete(session.id) && !(typeof imOrigin === 'string' || (source?.kind === SOURCE_KIND && source.role === 'post'))) resetOrigin(session.id)
+      if (pendingReset.delete(session.id) && !(typeof imOrigin === 'string' || continuing)) resetOrigin(session.id)
       if (typeof imOrigin === 'string') {
         const resumed = resumedOrigins.get(imOrigin)
         resumedOrigins.delete(imOrigin)
@@ -1466,9 +1476,9 @@ export function install(rt) {
       } else if (source?.kind === REPLY_KIND) {
         // Web and phone answers carry no registered IM request.
         dropOrigin(session.id)
-      } else if (source?.kind === SOURCE_KIND && source.role === 'post') {
-        // A member's late result relayed into the group's own Session. The group's work
-        // is still the answer to the chat that asked, wherever the member runs.
+      } else if (continuing) {
+        // Late member results and the same active goal's idle checks continue
+        // the group's work; they cannot create an origin that is already gone.
       } else {
         // A message from the Web UI, a peer Bot or a scheduled task: this turn is not an
         // IM chat's to answer, even when an earlier turn of this Session was.
