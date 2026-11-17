@@ -731,6 +731,45 @@ test('reply origin: another source in the same turn withdraws the IM origin', as
   assert.equal(s.fake.sent.length, 0, 'a mixed turn sends nothing')
 })
 
+test('reply origin: a context note in the turn does not withdraw the IM origin', async (t) => {
+  const s = await start()
+  t.after(s.stop)
+  await pairedConn(s)
+  await dm(s, 'u1', 'hi')
+  s.imTurn('a')
+  // The clock, memory, the skill catalog and notices ride along in the same turn.
+  for (const source of [
+    { kind: 'time-context', form: 'snapshot' },
+    { kind: 'ds-bot-memory-update', form: 'snapshot' },
+    { kind: 'skill-catalog', form: 'catalog' },
+    { kind: 'model-selection', form: 'notice' },
+    { kind: 'plugin:hindsight', form: 'recall' },
+    { kind: 'plugin:openviking-memory', form: 'instructions' },
+    { kind: 'compact-checkpoint' },
+  ]) {
+    s.emitEvent('a', 'user/message', { source, content: [{ type: 'text', text: 'context' }] })
+  }
+  s.fake.sent.length = 0
+  s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'reply' }] } })
+  await s.flush()
+  assert.deepEqual(s.fake.sent.map(entry => entry.chat.key), ['dm-u1'])
+})
+
+test('reply origin: a context note put in before the IM message still answers its chat', async (t) => {
+  const s = await start()
+  t.after(s.stop)
+  await pairedConn(s)
+  await dm(s, 'u1', 'hi')
+  const requestId = s.prompts.at(-1)?.requestId
+  s.emitEvent('a', 'turn/start', { turn: 1 })
+  s.emitEvent('a', 'user/message', { source: { kind: 'ds-bot-memory-update', form: 'snapshot' }, content: [{ type: 'text', text: 'memory' }] })
+  s.emitEvent('a', 'user/message', { source: { kind: 'user', rpcId: requestId }, content: [{ type: 'text', text: 'from the chat' }] })
+  s.fake.sent.length = 0
+  s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'reply' }] } })
+  await s.flush()
+  assert.deepEqual(s.fake.sent.map(entry => entry.chat.key), ['dm-u1'])
+})
+
 test('reply origin: the turn ending stops later output from going out', async (t) => {
   const s = await start()
   t.after(s.stop)
