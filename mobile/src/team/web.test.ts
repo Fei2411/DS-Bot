@@ -46,7 +46,7 @@ test('web storage persists, deletes, and surfaces storage failures', async t => 
   assert.equal(await storage.getItemAsync('key'), null)
   t.mock.method(localStorage, 'setItem', () => { throw new Error('quota') })
   await assert.rejects(storage.setItemAsync('key', 'value'), /quota/)
-  await ensureUnlock('secret-set')
+  await ensureUnlock('state')
 })
 
 test('web downloads assemble chunks, handle empty files and refuse failed transfers', async () => {
