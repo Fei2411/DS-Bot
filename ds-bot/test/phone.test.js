@@ -119,6 +119,45 @@ test('a browser pairs with its own code and is listed by authenticated kind', as
   await link.client.close()
 })
 
+test('remote state and live polls never disclose pairing offers, including attached state', async t => {
+  const home = mkdtempSync(join(tmpdir(), 'dsb-private-pairing-'))
+  writeFileSync(join(home, 'state.json'), JSON.stringify(TEAM))
+  const desk = open(home)
+  t.after(async () => { await desk.ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
+  await desk.call('phone-set', { server: server.url, on: true })
+  await until(() => desk.call('state', {}), state => state.value.phone.status === 'online')
+  for (const kind of ['browser', 'phone']) {
+    const paired = await desk.call('phone-pair', {})
+    const offer = parsePairingUri(kind === 'browser' ? paired.value.pairing.browserUri : paired.value.pairing.uri)
+    const link = phone(offer, { pairingCode: offer.code })
+    await link.client.connect()
+    const before = (await link.client.rpc('bot', { endpoint: 'state', payload: {} })).value
+    const opened = (await desk.call('phone-pair', {})).value.pairing
+    const desktop = (await desk.call('state', {})).value
+    assert.deepEqual(desktop.phone.pairing, opened)
+    for (const uri of [opened.uri, opened.browserUri]) assert.ok(parsePairingUri(uri).code)
+    const answers = [
+      await link.client.rpc('bot', { endpoint: 'state', payload: {} }),
+      await link.client.rpc('bot', { endpoint: 'state', payload: { since: before.revision, live: before.liveKey } }),
+      await link.client.rpc('bot', { endpoint: 'update-bot', payload: { id: 'm1', color: kind === 'browser' ? '#112233' : '#334455' }, state: { since: before.revision } }),
+    ]
+    assert.equal(answers[1].value.unchanged, true)
+    assert.equal(answers[2].state.revision, before.revision + 1)
+    for (const answer of answers) {
+      assert.equal(answer.ok, true)
+      const view = answer.state ?? answer.value
+      assert.ok(view.phone)
+      assert.equal(Object.hasOwn(view.phone, 'pairing'), false)
+      for (const uri of [opened.uri, opened.browserUri]) {
+        assert.equal(JSON.stringify(answer).includes(uri), false)
+        assert.equal(JSON.stringify(answer).includes(parsePairingUri(uri).code), false)
+      }
+    }
+    assert.deepEqual((await desk.call('state', {})).value.phone.pairing, opened)
+    await link.client.close()
+  }
+})
+
 test('the host refuses every gated endpoint for browsers, but still serves phones', async t => {
   const home = mkdtempSync(join(tmpdir(), 'dsb-gated-'))
   const ctx = fakeContext()
@@ -143,6 +182,39 @@ test('the host refuses every gated endpoint for browsers, but still serves phone
     await link.client.close()
   }
   assert.deepEqual(served, ['state', ...BROWSER_GATED, 'state'])
+})
+
+test('the link strips pairing offers from feed events without changing the desktop payload', async t => {
+  const home = mkdtempSync(join(tmpdir(), 'dsb-private-feed-'))
+  const ctx = fakeContext()
+  let tap
+  const rt = { home, ctx, state: { revision: 0 }, load: async () => {}, readOnly: () => undefined, feedTap: listener => { tap = listener; return () => { tap = undefined } } }
+  installPhone(rt)
+  rt.phoneServe(async () => ({ ok: true, value: null }))
+  t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
+  await rt.phoneEndpoint('phone-set', { server: server.url, on: true })
+  await until(async () => rt.phoneView(), view => view.status === 'online')
+  for (const kind of ['browser', 'phone']) {
+    const paired = await rt.phoneEndpoint('phone-pair', {})
+    const offer = parsePairingUri(kind === 'browser' ? paired.pairing.browserUri : paired.pairing.uri)
+    const link = phone(offer, { pairingCode: offer.code })
+    await link.client.connect()
+    await until(async () => tap, callback => typeof callback === 'function')
+    const desktop = await rt.phoneEndpoint('phone-pair', {})
+    const data = { phone: desktop, nested: [{ phone: desktop }], empty: null }
+    const events = []
+    const off = link.client.onEvent(event => events.push(event))
+    tap('live', data)
+    const event = await until(async () => events[0], Boolean)
+    off()
+    assert.equal(event.event, 'live')
+    const { pairing, ...remote } = desktop
+    assert.deepEqual(event.data, { phone: remote, nested: [{ phone: remote }], empty: null })
+    assert.ok(data.phone.pairing.uri)
+    assert.ok(data.phone.pairing.browserUri)
+    for (const uri of [pairing.uri, pairing.browserUri]) assert.equal(JSON.stringify(event).includes(parsePairingUri(uri).code), false)
+    await link.client.close()
+  }
 })
 
 test('a phone write that moved the team carries the new state in its reply', async (t) => {

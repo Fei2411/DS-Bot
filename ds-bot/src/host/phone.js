@@ -25,6 +25,13 @@ export const BROWSER_GATED = new Set([
 
 const invalid = message => Object.assign(new Error(message), { code: 'bot/invalid' })
 
+// Pairing stays on the computer, even inside attached state or feed payloads.
+function remoteData(value) {
+  if (Array.isArray(value)) return value.map(remoteData)
+  if (value === null || typeof value !== 'object') return value
+  return Object.fromEntries(Object.entries(value).filter(([key]) => key !== 'pairing').map(([key, item]) => [key, remoteData(item)]))
+}
+
 export function install(rt) {
   const path = join(rt.home, FILE)
   let data
@@ -106,13 +113,13 @@ export function install(rt) {
       name: hostname(),
       admits: (deviceId, key) => registry.admits(deviceId, key),
       authorize: (deviceId, key, hello) => registry.authorize(deviceId, key, hello),
-      handle: (method, params, request) => method === 'bot' ? callBot(params, request.signal, request.deviceId) : Promise.reject(Object.assign(new Error(`Unknown method ${method}`), { code: 'METHOD_NOT_FOUND' })),
+      handle: (method, params, request) => method === 'bot' ? callBot(params, request.signal, request.deviceId).then(remoteData) : Promise.reject(Object.assign(new Error(`Unknown method ${method}`), { code: 'METHOD_NOT_FOUND' })),
       // Feed events ride the link instead of SSE, but only while a phone is
       // actually ready to hear them — no tunnel, no feed work on the host.
       onReadyCount: count => {
         if (count > 0 && feedUntap === null) {
           const running = link
-          feedUntap = rt.feedTap((event, data) => running.emit(event, data))
+          feedUntap = rt.feedTap((event, data) => running.emit(event, remoteData(data)))
         } else if (count === 0 && feedUntap !== null) {
           feedUntap()
           feedUntap = null
