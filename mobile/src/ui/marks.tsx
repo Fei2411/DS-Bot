@@ -1,6 +1,6 @@
 import { Image, StyleSheet, Text, View } from 'react-native'
 import { SvgXml } from 'react-native-svg'
-import { characterMarkup, lookOf, MAIN_LOOK, MASK_ID, shapeOf } from '../../../ds-bot/src/client/characters.js'
+import { characterMarkup, lookOf, MASK_ID, shapeOf } from '../../../ds-bot/src/client/characters.js'
 import { INKS } from '../../../ds-bot/src/client/inks.js'
 import type { Bot, Room } from '../connection.ts'
 import { MainStarIcon } from './icons.tsx'
@@ -49,11 +49,6 @@ export function Mark({ look, dark, size = 24 }: { look: { shape: string; color: 
 
 export function BotMark({ bot, dark, size = 36 }: { bot: unknown; dark: boolean; size?: number }) {
   return <Mark look={lookOf(bot)} dark={dark} size={size} />
-}
-
-// The "You" avatar of the desktop sidebar's footer (YouAvatar): the whale mark.
-export function YouMark({ dark, size = 24 }: { dark: boolean; size?: number }) {
-  return <Mark look={MAIN_LOOK} dark={dark} size={size} />
 }
 
 // Status badges per ui-standard 8.2, scaled to the row's 44px avatar: a working
