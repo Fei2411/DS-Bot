@@ -4,7 +4,7 @@
 // adapter turns each request into a prompt for the CLI session the Session is
 // mapped to, and the CLI's output back into stream chunks.
 import { createHash, randomUUID } from 'node:crypto'
-import { LlmAdapter, LlmError } from '@deepseek-ai/dsh-llm'
+import { LlmAdapter, LlmError, offloadedImageText, resolveImageAttachmentAccess, textOnlyImageText } from '@deepseek-ai/dsh-llm'
 import { textOf } from '../text.js'
 import { engineOf, cliMode } from './engines.js'
 import { LoopbackMcp } from './mcp.js'
@@ -67,6 +67,7 @@ export class LocalAgentAdapter extends LlmAdapter {
     this.live = new Map()      // sessionId -> live session
     this.modelCache = new Map()
     this.probes = new Map()    // route -> the probe under way
+    this.sideRequests = new Set()
     this.disposed = false
   }
 
@@ -118,7 +119,7 @@ export class LocalAgentAdapter extends LlmAdapter {
       this.modelCache.set(route, (models ?? []).filter(model => model.id !== 'default')
         .map(model => ({ provider: route, id: model.id, name: model.name ?? model.id, ...(model.reasoning ? { reasoning: model.reasoning } : {}) })))
     } catch { /* the menu still has the CLI's default */ }
-    if (![...this.live.values()].some(other => other.engine === engine && !other.dead)) await engine.close?.().catch(() => {})
+    if (!this.engineInUse(engine)) await engine.close?.().catch(() => {})
   }
 
   dropModelCache(route) {
@@ -129,11 +130,12 @@ export class LocalAgentAdapter extends LlmAdapter {
   async resolveModel(route, model) {
     const spec = engineOf(route, this.deps.customAgents())
     const listed = (await this.listModels(route).catch(() => [])).find(entry => entry.id === model)
+    const supportsImage = spec?.kind !== 'acp' || this.engines.get(route)?.supportsImages?.() !== false
     return {
       provider: route,
       id: model,
       name: listed?.name ?? model,
-      inputModalities: ['text', 'image'],
+      inputModalities: supportsImage ? ['text', 'image'] : ['text'],
       context: { contextWindow: spec?.contextWindow ?? DEFAULT_CONTEXT_WINDOW },
       // The thinking levels the engine advertises for this model, if any.
       ...(listed?.reasoning ? { reasoning: listed.reasoning } : {}),
@@ -173,6 +175,8 @@ export class LocalAgentAdapter extends LlmAdapter {
       cliSessionId: record?.cliSessionId,
       handed: record?.handedId,
       promptHash: record?.promptHash,
+      defaultEffort: record?.model === options.model ? record?.defaultEffort : undefined,
+      effort: record?.effort,
       engineSession: undefined,
       mcp: undefined,
       events: [],
@@ -222,6 +226,8 @@ export class LocalAgentAdapter extends LlmAdapter {
       handedId: live.handed,
       promptHash: live.promptHash,
       model: live.model,
+      ...(live.defaultEffort === undefined ? {} : { defaultEffort: live.defaultEffort }),
+      ...(live.effort === undefined ? {} : { effort: live.effort }),
       ...(live.context === undefined ? {} : { context: live.context }),
       ...(live.compactions > 0 ? { compactions: live.compactions } : {}),
       ...extra,
@@ -232,6 +238,12 @@ export class LocalAgentAdapter extends LlmAdapter {
   // window; a compaction makes the last figure stale until the CLI reports again,
   // except where it reported during the compaction itself (Codex).
   observe(live, event) {
+    if (event?.type === 'effort') {
+      if (event.defaultEffort !== undefined) live.defaultEffort = event.defaultEffort
+      live.effort = event.effort
+      this.deps.saveRecord(live.sessionId, this.recordOf(live))
+      return
+    }
     if (event?.type === 'context') {
       const size = Number.isFinite(event.size) && event.size > 0 ? event.size : live.context?.size
       live.context = Number.isFinite(event.used)
@@ -275,6 +287,11 @@ export class LocalAgentAdapter extends LlmAdapter {
     }
   }
 
+  engineInUse(engine, except) {
+    return [...this.live.values()].some(other => other.engine === engine && !other.dead)
+      || [...this.sideRequests].some(request => request !== except && request.engine === engine)
+  }
+
   async closeLive(live, { idle = false } = {}) {
     if (live.dead) return
     live.dead = true
@@ -289,7 +306,7 @@ export class LocalAgentAdapter extends LlmAdapter {
       live.started = false
     }
     for (const waiter of live.waiters.splice(0)) waiter({ type: 'done', reason: 'stop' })
-    const stillUsed = [...this.live.values()].some(other => other.engine === live.engine && !other.dead)
+    const stillUsed = this.engineInUse(live.engine)
     if (!stillUsed) await live.engine.close?.().catch(() => {})
   }
 
@@ -297,10 +314,11 @@ export class LocalAgentAdapter extends LlmAdapter {
   stopTurn(live, reason) {
     live.state = 'idle'
     live.queue.length = 0
-    if (live.engineSession !== undefined) live.engine.cancel?.(live.engineSession)
+    const stopped = live.engineSession === undefined ? undefined : live.engine.cancel?.(live.engineSession)
     live.mcp?.failAll(new Error(reason))
     for (const pending of live.pending.values()) pending.resolve({ text: reason, isError: true })
     live.pending.clear()
+    return stopped
   }
 
   // The Session left this CLI: its part moved on. Its process leaves; the CLI session
@@ -379,12 +397,15 @@ export class LocalAgentAdapter extends LlmAdapter {
     // A user message never resolves an approve_agent_action pending: only that
     // tool's own result may. User text may answer a pending bridged MCP call
     // whose DSH tool concluded the turn (a question-type card).
+    const settled = []
     for (const message of delta) {
       if (message.role !== 'tool') continue
       const pending = live.pending.get(message.toolCallId)
       if (pending === undefined) continue
       live.pending.delete(message.toolCallId)
-      pending.resolve({ text: textOf(message.content) || (message.isError ? 'the call failed' : ''), isError: message.isError === true })
+      const text = textOf(message.content) || (message.isError ? 'the call failed' : '')
+      pending.resolve({ text, isError: message.isError === true })
+      settled.push({ name: pending.name, text, isError: message.isError === true })
     }
     // The loop's runtime-context user messages are context, not input: they
     // fold into the next prompt or steer, never start a prompt on their own.
@@ -401,7 +422,11 @@ export class LocalAgentAdapter extends LlmAdapter {
       if (!answered && openCall !== undefined) {
         const [id, pending] = openCall
         live.pending.delete(id)
-        pending.resolve({ text: textOf(message.content) })
+        const answer = textOf(message.content)
+        pending.resolve({ text: answer })
+        // The CLI may have finished while this call waited; the answer is then a
+        // settled result the turn below has to carry, like a tool result (#1513).
+        settled.push({ name: openCall[1].name, text: answer, isError: false })
         answered = true
       } else {
         remaining.push(message)
@@ -426,6 +451,8 @@ export class LocalAgentAdapter extends LlmAdapter {
         mode,
         preset,
         model: options.model,
+        defaultEffort: live.defaultEffort,
+        effort: live.effort,
         // Codex carries the team instructions as developer config on a new
         // thread; Claude gets them appended at spawn; ACP reads them in the
         // first prompt below.
@@ -438,6 +465,10 @@ export class LocalAgentAdapter extends LlmAdapter {
       // in the meantime, or a resume that fails would erase it.
       const reportedId = live.engineSession.acpSessionId ?? live.engineSession.threadId ?? live.engineSession.cliSessionId
       if (reportedId !== undefined) live.cliSessionId = reportedId
+      if (live.spec.kind === 'acp') {
+        if (live.engineSession.defaultEffort !== undefined) live.defaultEffort = live.engineSession.defaultEffort
+        live.effort = live.engineSession.effort
+      }
       live.started = true
       // The session's events feed this Session's queue: a call from any engine
       // kind reaches drain() through live.next().
@@ -464,8 +495,11 @@ export class LocalAgentAdapter extends LlmAdapter {
       }
     }
 
-    let promptText = fresh ? renderReplay(messages, system)
-      : [contextText, ...remaining.map(message => textOf(message.content))].filter(text => text !== '').join('\n\n')
+    const supportsImages = live.spec.kind !== 'acp' || live.engine.supportsImages?.(live.engineSession) !== false
+    const resolveImage = block => this.resolveImageBlock(block, { supportsImages, signal: options.signal })
+    let promptBlocks = fresh
+      ? await renderReplay(messages, system, resolveImage)
+      : await renderDelta(contextText, remaining, resolveImage)
     let sentInstructions = live.spec.kind !== 'acp' && freshCli && instructions !== undefined
     // A new CLI session gets its instructions in the open args or the replay;
     // the "updated" line is only for a session that saw older ones.
@@ -474,19 +508,42 @@ export class LocalAgentAdapter extends LlmAdapter {
       if (live.spec.kind === 'codex') {
         await live.engine.instruct?.(live.engineSession, updated)
         sentInstructions = true
-      } else if (promptText !== '' || live.spec.kind === 'acp' || live.spec.kind === 'claude') {
-        promptText = `${updated}\n\n${promptText}`
+      } else if (promptBlocks.length > 0 || live.spec.kind === 'acp' || live.spec.kind === 'claude') {
+        promptBlocks = mergeTextBlocks([{ type: 'text', text: updated }, ...promptBlocks])
         sentInstructions = true
       }
     }
-    if (promptText !== '') {
-      this.sendInput(live, promptText, options.signal, options.reasoningEffort)
+    // A card can outlive the CLI's turn: the CLI finished — often by timing out on the
+    // call it bridged out — while the user was still deciding. The answer then has to
+    // start a turn of its own, or the user's decision never reaches the agent and the
+    // stream ends by reading the finished turn's old reply (#1513).
+    let settledText = ''
+    if (settled.length > 0) {
+      const answer = settled.map(entry => `${entry.name} → ${entry.text === '' ? (entry.isError ? 'failed' : 'no result') : entry.text}`).join('\n')
+      settledText = `The calls that were waiting on the user are settled:\n\n${answer}\n\nContinue from where the turn stopped.`
+    }
+    if (settledText !== '' && live.engine.canSteer?.(live.engineSession) === false) {
+      // The turn this answer belongs to is over: it needs a turn of its own, in the same
+      // prompt as whatever else this call brought — runtime context, a further user
+      // message — because context alone would carry the turn without the decision.
+      const blocks = mergeTextBlocks([{ type: 'text', text: settledText }, ...promptBlocks])
+      this.discardTurnOutput(live)
+      if (sentInstructions) live.promptHash = promptHash
+      promptBlocks = []
+      await this.startTurn(live, blocks, options.signal, options.reasoningEffort)
+    } else if (settledText !== '') {
+      // The turn still looks alive; if it ends without reading the answer, the drain
+      // starts the turn that carries it.
+      live.continuation = settledText
+    }
+    if (promptBlocks.length > 0) {
+      await this.sendInput(live, promptBlocks, options.signal, options.reasoningEffort, settledText)
       if (sentInstructions) live.promptHash = promptHash
       // ACP only counts instructions once they reach the agent with a prompt.
       if (live.spec.kind === 'acp' && (freshCli || sentInstructions)) live.promptHash = promptHash
     }
-    if (live.spec.kind === 'acp' && freshCli && promptText === '' && instructions !== undefined) {
-      this.sendInput(live, `Follow these instructions from the user's team for everything you do here. They sit on top of your own; when they conflict, these win.\n\n${instructions}`, options.signal, options.reasoningEffort)
+    if (live.spec.kind === 'acp' && freshCli && promptBlocks.length === 0 && instructions !== undefined) {
+      await this.sendInput(live, `Follow these instructions from the user's team for everything you do here. They sit on top of your own; when they conflict, these win.\n\n${instructions}`, options.signal, options.reasoningEffort)
       live.promptHash = promptHash
     }
 
@@ -523,24 +580,105 @@ export class LocalAgentAdapter extends LlmAdapter {
   // ends, inside the same stream). The prompt request itself stays open for
   // the whole turn (ACP session/prompt ends when the agent's turn does), so it
   // is sent but not awaited; a send failure lands in the queue as an error.
-  sendInput(live, text, signal, effort) {
+  // Resolves once the input is settled: the CLI took the steer, a turn of its own
+  // started, or the prompt is away. The caller waits for it before reading the CLI,
+  // so a steer that fails after the finished turn's `done` arrived still gets a turn
+  // of its own instead of being read as this turn's end (#1513).
+  sendInput(live, input, signal, effort, settled) {
+    const blocks = typeof input === 'string' ? [{ type: 'text', text: input }] : input
+    const steerInput = typeof input === 'string' ? input : blocks
     live.mute = false
+    // A settled answer rides with the input: if this input cannot land as a steer, the
+    // turn that replaces it must still carry what the user decided (#1513).
+    const body = settled === undefined || settled === ''
+      ? blocks
+      : mergeTextBlocks([{ type: 'text', text: settled }, ...blocks])
     if (live.state !== 'idle') {
-      if (live.spec.kind === 'acp') { live.queue.push(text); return }
-      try {
-        Promise.resolve(live.engine.steer?.(live.engineSession, text))
-          .catch(error => live.push({ type: 'error', error }))
-      } catch (error) {
-        live.push({ type: 'error', error })
+      if (live.spec.kind === 'acp') { live.queue.push(blocks); return Promise.resolve() }
+      // Steering lands on a turn that is still running. When the CLI finished the
+      // turn behind a card — the usual case for an answer that arrives late — the
+      // steer has nothing to land on, and dropping it leaves the user's answer
+      // without a turn at all. Start a turn of its own instead, without the events
+      // the finished turn left behind: they would answer this one with the old reply.
+      if (live.engine.canSteer?.(live.engineSession) === false) {
+        this.discardTurnOutput(live)
+        live.continuation = undefined
+        return this.startTurn(live, body, signal, effort)
       }
-      return
+      // The turn's id has to be known before the stream reads the CLI, or the finished
+      // turn's own `done` would be read as this turn's end.
+      const recover = () => {
+        this.discardTurnOutput(live)
+        live.continuation = undefined
+        return this.startTurn(live, body, signal, effort)
+      }
+      try {
+        return Promise.resolve(live.engine.steer?.(live.engineSession, steerInput)).then(() => {}, recover)
+      } catch {
+        return recover()
+      }
     }
+    this.startTurn(live, blocks, signal, effort)
+    return Promise.resolve()
+  }
+
+  discardTurnOutput(live) {
+    // Requests retain their reply callbacks until surfaced and answered.
+    live.events = live.events.filter(event => event.type === 'permission' || event.type === 'call')
+  }
+
+  // Codex resolves on acceptance; ACP resolves only when the entire turn ends.
+  startTurn(live, input, signal, effort) {
+    const blocks = typeof input === 'string' ? [{ type: 'text', text: input }] : input
     live.state = 'running'
+    // The turn an engine names is the one this stream reads: a finished turn's late
+    // events carry another id and are dropped instead of answering this one (#1513).
+    live.turnTag = undefined
     try {
-      Promise.resolve(live.engine.prompt(live.engineSession, [{ type: 'text', text }], { signal, effort }))
+      const started = Promise.resolve(live.engine.prompt(live.engineSession, blocks, { signal, effort }))
+        .then((turnId) => { if (live.spec.kind === 'codex' && turnId !== undefined) live.turnTag = turnId })
         .catch(error => live.push({ type: 'error', error }))
+      return live.spec.kind === 'acp' ? Promise.resolve() : started
     } catch (error) {
       live.push({ type: 'error', error })
+      return Promise.resolve()
+    }
+  }
+
+  async resolveImageBlock(block, { supportsImages, signal }) {
+    const ref = block?.attachment
+    if (ref === undefined) return { type: 'text', text: '[image unavailable]' }
+    const attachments = this.deps.attachments ?? this.deps.rt?.ctx?.get?.('attachments')
+    const fsService = this.deps.fs ?? this.deps.rt?.ctx?.get?.('fs')
+    let access
+    if (attachments !== undefined) {
+      try {
+        const mapHostPath = path => (fsService?.processPathFromHostPath ? fsService.processPathFromHostPath(path) : path)
+        access = resolveImageAttachmentAccess(attachments, mapHostPath, ref)
+      } catch {}
+    }
+    if (block.offloaded === true) return { type: 'text', text: offloadedImageText(ref, access) }
+    if (!supportsImages) {
+      const base = textOnlyImageText(ref)
+      return { type: 'text', text: access?.readonlyPath ? `${base} (file: ${access.readonlyPath})` : base }
+    }
+    if (attachments === undefined || typeof attachments.readImage !== 'function') {
+      this.deps.rt?.warn?.('local-agents: attachments service unavailable; cannot forward image')
+      const base = textOnlyImageText(ref)
+      return { type: 'text', text: access?.readonlyPath ? `${base} (file: ${access.readonlyPath})` : base }
+    }
+    try {
+      const got = await attachments.readImage(ref, signal)
+      return {
+        type: 'image',
+        mediaType: got.ref?.mediaType ?? ref.mediaType ?? 'image/png',
+        data: Buffer.from(got.data).toString('base64'),
+      }
+    } catch (error) {
+      if (signal?.aborted) throw error
+      this.deps.rt?.warn?.(`local-agents: failed to read image ${ref.attachmentId ?? ''}: ${error?.message ?? error}`)
+      const base = textOnlyImageText(ref)
+      return { type: 'text', text: access?.readonlyPath ? `${base} (file: ${access.readonlyPath})` : base }
     }
   }
 
@@ -591,6 +729,8 @@ export class LocalAgentAdapter extends LlmAdapter {
         yield { type: 'finish', reason: { kind: 'aborted', failure: { code: 'ABORTED', message: 'the turn was stopped' } } }
         return
       }
+      // A finished turn's leftovers must not answer the turn this stream reads.
+      if (event.type !== 'permission' && event.type !== 'call' && event.turnId !== undefined && live.turnTag !== undefined && event.turnId !== live.turnTag) continue
       switch (event.type) {
         case 'text': {
           if (textIndex === -1) {
@@ -640,6 +780,17 @@ export class LocalAgentAdapter extends LlmAdapter {
           return
         }
         case 'done': {
+          // The answer resolved a call this turn never read — it ended while the user
+          // was still deciding. Nothing was said after that answer, so start the turn
+          // that carries it instead of ending on the finished turn's old reply (#1513).
+          if (live.continuation !== undefined && index === 0) {
+            const continuation = live.continuation
+            live.continuation = undefined
+            this.discardTurnOutput(live)
+            await this.startTurn(live, continuation, options.signal, options.reasoningEffort)
+            break
+          }
+          live.continuation = undefined
           yield* closeBlocks()
           if (event.usage !== undefined) yield addUsage(event.usage)
           live.state = 'idle'
@@ -689,7 +840,7 @@ export class LocalAgentAdapter extends LlmAdapter {
   // context, answered with text and no tools: the handoff note.
   async note(sessionId, text, signal) {
     return this.maintain(sessionId, signal, async (live) => {
-      this.sendInput(live, text, signal)
+      await this.sendInput(live, text, signal)
       return this.meter(live, await this.collect(live, () => this.take(live), signal)).text
     })
   }
@@ -711,9 +862,10 @@ export class LocalAgentAdapter extends LlmAdapter {
     // What a finished turn left behind is not this request's answer.
     live.events.length = 0
     try {
+      signal?.throwIfAborted()
       return await work(live)
     } finally {
-      if (live.state !== 'idle') this.stopTurn(live, 'the request was stopped')
+      if (live.state !== 'idle') await this.stopTurn(live, 'the request was stopped')
       live.events.length = 0
       live.mute = true
       if (opened) await this.closeLive(live, { idle: true })
@@ -723,8 +875,21 @@ export class LocalAgentAdapter extends LlmAdapter {
   async openFor(live, sessionId) {
     const cwd = live.cwd ?? await this.deps.cwdFor(sessionId)
     live.cwd = cwd
-    live.engineSession = await live.engine.open(sessionId, { cwd, mcp: undefined, resumeId: live.cliSessionId, mode: cliMode(live.spec.kind, live.preset), preset: live.preset, model: live.model })
+    live.engineSession = await live.engine.open(sessionId, {
+      cwd,
+      mcp: undefined,
+      resumeId: live.cliSessionId,
+      mode: cliMode(live.spec.kind, live.preset),
+      preset: live.preset,
+      model: live.model,
+      defaultEffort: live.record === undefined || live.record.model === live.model ? live.defaultEffort : undefined,
+      effort: live.effort,
+    })
       .catch(error => { throw toLlmError(error, live) })
+    if (live.spec.kind === 'acp') {
+      if (live.engineSession.defaultEffort !== undefined) live.defaultEffort = live.engineSession.defaultEffort
+      live.effort = live.engineSession.effort
+    }
     const session = live.engineSession
     const token = live.pumpToken = {}
     void (async () => {
@@ -765,7 +930,11 @@ export class LocalAgentAdapter extends LlmAdapter {
     else signal?.addEventListener('abort', onAbort)
     try {
       for (;;) {
-        if (ended && (!compaction || condensed)) return { text, usage }
+        signal?.throwIfAborted()
+        if (ended && (!compaction || condensed)) {
+          live.state = 'idle'
+          return { text, usage }
+        }
         const next = take()
         const waits = [next.event, aborted]
         // Nothing said it started: the CLI condensed without a word, or not at all.
@@ -792,12 +961,14 @@ export class LocalAgentAdapter extends LlmAdapter {
             else if (event.status === 'completed') condensed = true
             else throw new LlmError('the local agent did not condense its context', 'LOCAL_AGENT_ERROR')
             break
-          case 'quiet': return { text, usage }
+          case 'quiet':
+            live.state = 'idle'
+            return { text, usage }
           case 'usage': add(event.usage); break
           case 'done':
             add(event.usage)
             ended = true
-            live.state = 'idle'
+            if (!compaction) live.state = 'idle'
             break
           case 'error':
             live.state = 'idle'
@@ -820,19 +991,26 @@ export class LocalAgentAdapter extends LlmAdapter {
   // team tools and read-only access, which is let go of after: the context steward's
   // call for a Bot whose team has no model of its own.
   async ask(sessionId, { system, prompt, signal }) {
+    if (this.disposed) throw new LlmError('the local agents adapter is disposed', 'NO_ADAPTER')
     const record = this.live.get(sessionId) ?? this.deps.record(sessionId)
     const route = record?.route
     const spec = route === undefined ? undefined : engineOf(route, this.deps.customAgents())
     if (spec === undefined) throw new LlmError('this conversation has no local agent', 'LOCAL_AGENT_MISSING')
-    const engine = this.engine(route)
+    const isolated = spec.kind === 'codex'
+    const engine = isolated ? this.deps.spawnEngine(spec.kind, route, spec) : this.engine(route)
+    const request = { controller: new AbortController(), done: Promise.withResolvers(), engine, isolated }
+    this.sideRequests.add(request)
+    signal = AbortSignal.any([request.controller.signal, ...(signal === undefined ? [] : [signal])])
     const sideId = `dsbot-side-${randomUUID()}`
     let session
     try {
+      signal.throwIfAborted()
       session = await engine.open(sideId, {
         cwd: this.deps.probeCwd(), mcp: undefined, mode: cliMode(spec.kind, 'read-only'), preset: 'read-only', model: record.model, ephemeral: true,
         instructions: spec.kind === 'codex' ? system : undefined,
         system: spec.kind === 'claude' ? system : undefined,
       }).catch(error => { throw toLlmError(error, { spec }) })
+      signal.throwIfAborted()
       const side = { state: 'running', pending: new Map(), spec }
       // A decision needs no long thinking: the least the model offers, when it lists any.
       const efforts = (this.modelCache.get(route) ?? []).find(model => model.id === record.model)?.reasoning?.efforts ?? []
@@ -844,17 +1022,26 @@ export class LocalAgentAdapter extends LlmAdapter {
       const result = await this.collect(side, () => ({ event: Promise.race([session.next(), refused]), drop: () => {} }), signal)
       return this.meter({ sessionId, route, model: record.model }, result).text
     } finally {
-      if (session !== undefined) {
-        if (signal?.aborted) engine.cancel?.(session)
-        await engine.closeSession?.(session)
+      try {
+        if (session !== undefined) {
+          if (signal.aborted) await engine.cancel?.(session)
+          await engine.closeSession?.(session)
+        }
+      } finally {
+        engine.forget?.(sideId)
+        if (isolated || !this.engineInUse(engine, request)) await engine.close?.().catch(() => {})
+        this.sideRequests.delete(request)
+        request.done.resolve()
       }
-      engine.forget?.(sideId)
-      if (![...this.live.values()].some(other => other.engine === engine && !other.dead)) await engine.close?.().catch(() => {})
     }
   }
 
   async dispose() {
     this.disposed = true
+    const requests = [...this.sideRequests]
+    for (const request of requests) request.controller.abort(new LlmError('the local agents adapter is disposed', 'NO_ADAPTER'))
+    await Promise.all(requests.filter(request => request.isolated).map(request => request.engine.close?.().catch(() => {})))
+    await Promise.all(requests.map(request => request.done.promise))
     for (const live of Array.from(this.live.values())) await this.closeLive(live)
     for (const engine of Array.from(this.engines.values())) await engine.close?.().catch(() => {})
     this.engines.clear()
@@ -885,10 +1072,59 @@ function presetAnswer(preset, event) {
   return undefined
 }
 
+// Collapse consecutive text blocks with paragraph breaks while keeping non-text blocks in place.
+function mergeTextBlocks(blocks) {
+  const out = []
+  for (const block of blocks) {
+    if (block.type === 'text') {
+      if (block.text === '') continue
+      const prev = out.at(-1)
+      if (prev?.type === 'text') prev.text = `${prev.text}\n\n${block.text}`
+      else out.push({ type: 'text', text: block.text })
+    } else {
+      out.push(block)
+    }
+  }
+  return out
+}
+
+async function blocksOfMessage(message, { maxText, resolveImage }) {
+  const raw = Array.isArray(message.content) ? message.content : []
+  const out = []
+  let textParts = []
+  let textLeft = maxText ?? Infinity
+  const flushText = () => {
+    const text = textParts.join('\n').trim()
+    textParts = []
+    if (text !== '') out.push({ type: 'text', text })
+  }
+  for (const block of raw) {
+    if (block?.type === 'text' && typeof block.text === 'string') {
+      const piece = textLeft === Infinity ? block.text : block.text.slice(0, textLeft)
+      if (textLeft !== Infinity) textLeft = Math.max(0, textLeft - piece.length)
+      textParts.push(piece)
+    } else if (block?.type === 'image') {
+      flushText()
+      out.push(await resolveImage(block))
+    }
+  }
+  flushText()
+  return out
+}
+
+async function renderDelta(contextText, remaining, resolveImage) {
+  const parts = []
+  if (contextText !== '') parts.push({ type: 'text', text: contextText })
+  for (const message of remaining) {
+    parts.push(...await blocksOfMessage(message, { resolveImage }))
+  }
+  return mergeTextBlocks(parts)
+}
+
 // The replay a fresh CLI session stands up on: the system prompt, then the
-// recent messages rendered as text, newest first, always with the latest input
+// recent messages rendered as text and images, newest first, always with the latest input
 // and the handoff a new part opens with, both word for word.
-function renderReplay(messages, system) {
+async function renderReplay(messages, system, resolveImage) {
   const picked = []
   let used = 0
   const body = (messages ?? []).filter(message => message.role !== 'system')
@@ -897,16 +1133,24 @@ function renderReplay(messages, system) {
   for (const message of [...body].reverse()) {
     const whole = message === latest || message.source?.handoff === true
     const text = textOf(message.content)
-    const line = `${message.role === 'assistant' ? 'You' : message.role === 'tool' ? `Tool result (${message.toolCallId ?? 'call'})` : 'User'}: ${whole ? text : text.slice(0, 2_000)}`
-    if (whole) { picked.unshift(line); used += line.length; continue }
-    full ||= picked.length >= REPLAY_MESSAGES || used + line.length > REPLAY_BYTES
-    if (full) continue
-    picked.unshift(line)
-    used += line.length
+    const prefix = `${message.role === 'assistant' ? 'You' : message.role === 'tool' ? `Tool result (${message.toolCallId ?? 'call'})` : 'User'}:`
+    const approxLen = prefix.length + 1 + (whole ? text.length : Math.min(text.length, 2_000))
+    if (!whole) {
+      full ||= picked.length >= REPLAY_MESSAGES || used + approxLen > REPLAY_BYTES
+      if (full) continue
+    }
+    const blocks = await blocksOfMessage(message, { maxText: whole ? Infinity : 2_000, resolveImage })
+    const entry = blocks.length > 0 && blocks[0].type === 'text'
+      ? [{ type: 'text', text: `${prefix} ${blocks[0].text}` }, ...blocks.slice(1)]
+      : blocks.length > 0
+        ? [{ type: 'text', text: prefix }, ...blocks]
+        : [{ type: 'text', text: `${prefix} ` }]
+    picked.unshift(entry)
+    used += approxLen
   }
-  if (picked.length === 0) return ''
+  if (picked.length === 0) return []
   const head = system === '' ? '' : `The team instructions for this conversation:\n${system}\n\n`
-  return `${head}The conversation so far (oldest first):\n\n${picked.join('\n\n')}`
+  return mergeTextBlocks([{ type: 'text', text: `${head}The conversation so far (oldest first):` }, ...picked.flat()])
 }
 
 // Process exits, missing CLIs, quota and sign-in failures get typed codes so DS

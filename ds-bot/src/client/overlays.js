@@ -1,9 +1,9 @@
 import { createElement as h, Fragment, useEffect, useRef, useState } from 'react'
+import { NotificationWatcher } from './notifications.js'
 import { createPortal } from 'react-dom'
 import { CommandPalette } from './palette.js'
 import { GroupSearch } from './group-search.js'
 import { NewChat } from './new-chat.js'
-import { ChangesReview } from './changes-review.js'
 import { ExchangeDialog } from './exchange.js'
 import { VoiceMode } from './voice.js'
 import { SettingsDialog } from './settings.js'
@@ -67,6 +67,7 @@ export function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useA
   // Bot fills the conversation area instead of the chat that was there before.
   const opening = openingModel({ pending: ui.pendingOpen ?? null, current, roster })
   return h(Fragment, null,
+    h(NotificationWatcher, { key: 'ds-bot:notifications', useSessions, useSessionStatus, useRoster, useWork, actions }),
     opening ? createPortal(h(OpeningCover, { model: opening, column: layout.column }), document.body) : null,
     pane ? createPortal(h(BotPanel, { pane, leaving: shown === null, room: layout.room, overlay: layout.panel === 'overlay', roster, actions, useSessions, useSessionStatus, useActivity, useWork, useBrowserTabs, useBrowserPages, useBrowserHolds }), document.body) : null,
     ui.newChat ? createPortal(h(NewChat, { key: `${ui.newChat}:${ui.newChatSection ?? ''}`, mode: ui.newChat, sectionId: ui.newChatSection ?? null, paneLeft: layout.column, roster, actions }), document.body) : null,
@@ -74,7 +75,6 @@ export function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useA
     ui.groupSearch && roster.roomsById[ui.groupSearch.roomId]
       ? createPortal(h(GroupSearch, { key: ui.groupSearch.token, room: roster.roomsById[ui.groupSearch.roomId], roster, token: ui.groupSearch.token, actions }), document.body)
       : null,
-    ui.changes ? createPortal(h(ChangesReview, { key: `${ui.changes.sessionId}:${ui.changes.seq}`, changes: ui.changes, paneLeft: layout.column, actions }), document.body) : null,
     ui.exchange ? createPortal(h(ExchangeDialog, { pair: ui.exchange, paneLeft: layout.column, roster, actions }), document.body) : null,
     ui.voice ? createPortal(h(VoiceMode, { key: ui.voice, sessionId: ui.voice, paneLeft: layout.column, roster, actions, useSessions, useSessionStatus }), document.body) : null,
     menu ? createPortal(h(ContextMenu, { key: `${menu.kind ?? ''}:${menu.id}:${menu.x}:${menu.y}`, menu, roster, actions, useWork, leaving: menuLeaving }), document.body) : null,

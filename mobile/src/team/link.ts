@@ -11,6 +11,20 @@ import type { PhoneIdentity, SavedComputer } from '../store.ts'
 // Feed events keep the app live; the poll only stays as a foreground fallback.
 const POLL_MS = 15_000
 const RETRY_MS = 2_000
+// Writes that settle pending items without always bumping state.revision.
+const PENDING_MUTATING = new Set([
+  'approval-answer',
+  'browser-give-back',
+  'browser-takeover',
+  'browser-stop',
+  'answer-question',
+  'view-reply',
+  'dismiss-question',
+  'dismiss-view',
+  'secret-set',
+  'secret-allow',
+  'secret-cancel',
+])
 
 // Profile photos travel by reference and are fetched once per content hash
 // (`avatars: 'ref'` on `state`, then the `avatar` endpoint per new ref).
@@ -23,6 +37,10 @@ export type FeedHandler = (event: string, data: any) => void
 export function rejected(error: unknown): boolean {
   const code = (error as { code?: unknown })?.code
   return code === 'NOT_PAIRED' || code === 'PAIRING_REJECTED'
+}
+
+export function reconnectDelayMs(hadLink: boolean, failStreak: number): number {
+  return hadLink && failStreak === 0 ? 0 : RETRY_MS
 }
 
 // Keeps the link up and the team state fresh. `call` runs one /api/bot endpoint.
@@ -120,6 +138,7 @@ export function useTeamLink(computer: SavedComputer, identity: PhoneIdentity) {
         const answer = await callBotState<unknown>(client, endpoint, payload, { since: revision.current, avatars: 'ref', live: liveKey.current })
         writes.current = writes.current.filter(entry => entry !== write)
         if (answer.state !== undefined && clientRef.current === client) apply(answer.state)
+        else if (PENDING_MUTATING.has(endpoint) && clientRef.current === client) pollRef.current()
         return answer.value
       } finally {
         writes.current = writes.current.filter(entry => entry !== write)
@@ -136,6 +155,9 @@ export function useTeamLink(computer: SavedComputer, identity: PhoneIdentity) {
 
   useEffect(() => {
     let stopped = false
+    let connecting = false
+    let hadLink = false
+    let failStreak = 0
     let activeClient: RpcClient | undefined
     let timer: ReturnType<typeof setTimeout> | undefined
     revision.current = -1
@@ -149,6 +171,11 @@ export function useTeamLink(computer: SavedComputer, identity: PhoneIdentity) {
     setHello(null)
     // One pending timer: every feed event polls, and each poll would otherwise start another loop.
     const later = (run: () => void, ms: number) => { clearTimeout(timer); if (!stopped) timer = setTimeout(run, ms) }
+    const scheduleReconnect = () => {
+      const delay = reconnectDelayMs(hadLink, failStreak)
+      failStreak += 1
+      later(() => void connect(), delay)
+    }
     // One read at a time: a burst of feed events while a Bot works becomes one
     // read now and at most one more after it, not a pile of reads over a slow link.
     let reading = false
@@ -163,16 +190,22 @@ export function useTeamLink(computer: SavedComputer, identity: PhoneIdentity) {
         if (stopped || clientRef.current !== client) return
         apply(next)
         setError(null)
-        later(() => void poll(), POLL_MS)
       } catch (failure) {
         if (!stopped && clientRef.current === client) setError(errorText(failure))
       } finally {
         reading = false
-        if (again && !stopped) { again = false; void poll() }
+        if (!stopped && clientRef.current === client) {
+          if (again) { again = false; void poll() }
+          else later(() => void poll(), POLL_MS)
+        } else {
+          again = false
+        }
       }
     }
     pollRef.current = () => void poll()
     const connect = async () => {
+      if (stopped || connecting || clientRef.current !== undefined) return
+      connecting = true
       try {
         const client = await openLink(computer, identity)
         if (stopped) { void client.close(); return }
@@ -186,12 +219,17 @@ export function useTeamLink(computer: SavedComputer, identity: PhoneIdentity) {
         const helloResult = await callBot<Hello>(client, 'hello', {}).catch(() => null)
         if (stopped) { void client.close(); return }
         if (helloResult === null || helloResult.api === null) {
+          if (activeClient === client) activeClient = undefined
+          if (clientRef.current === client) clientRef.current = undefined
           setError(t('Update DS Bot on the computer to use this phone.'))
           setLinked(false)
           void client.close()
-          later(() => void connect(), RETRY_MS)
+          connecting = false
+          scheduleReconnect()
           return
         }
+        hadLink = true
+        failStreak = 0
         setHello(helloResult)
         setOnline(true)
         setError(null)
@@ -207,6 +245,7 @@ export function useTeamLink(computer: SavedComputer, identity: PhoneIdentity) {
           const { reset, replay } = noticeCursor.acceptCatchUp(helloResult.boot, sameBoot, answer as NoticeCursorAnswer)
           if (reset) void poll()
           else {
+            if (replay.length > 0) void poll()
             for (const entry of replay) {
               for (const handler of feedHandlers.current) handler('notice', entry)
             }
@@ -219,21 +258,27 @@ export function useTeamLink(computer: SavedComputer, identity: PhoneIdentity) {
           setOnline(false)
           setLinked(false)
           clearTimeout(timer)
-          later(() => void connect(), RETRY_MS)
+          scheduleReconnect()
         })
       } catch (failure) {
         if (stopped) return
         setError(errorText(failure))
         if (rejected(failure)) setTeam(null)
-        else later(() => void connect(), RETRY_MS)
+        else { connecting = false; scheduleReconnect() }
+      } finally {
+        connecting = false
       }
     }
     void connect()
     const foreground = AppState.addEventListener('change', status => {
-      // Waking is the common half-open case: probe first so a dead socket
+      if (status !== 'active') { clearTimeout(timer); return }
+      failStreak = 0
+      const client = clientRef.current
+      if (client === undefined) { clearTimeout(timer); void connect(); return }
+      // Waking is the common half-open case: probe quickly so a dead socket
       // declares itself instead of letting the poll hang.
-      if (status === 'active') { clientRef.current?.probe(); void poll() }
-      else clearTimeout(timer)
+      client.probe(2_500)
+      void poll()
     })
     return () => {
       stopped = true
@@ -244,12 +289,15 @@ export function useTeamLink(computer: SavedComputer, identity: PhoneIdentity) {
     }
   }, [computer, identity, apply])
 
+  const refresh = useCallback(() => pollRef.current(), [])
+
   return {
     team: switched ? null : team,
     online: switched ? false : online,
     linked: switched ? false : linked,
     error: switched ? null : error,
     call,
+    refresh,
     clientRef,
     hello: switched ? null : hello,
     onFeed,

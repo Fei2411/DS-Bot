@@ -1,7 +1,7 @@
 // The Claude Code engine: one process per session, stream-json both ways.
 // stdin takes user/control JSON messages; stdout streams the assistant's
 // events until a `result` ends the turn.
-import { cleanEnv, spawnAgent } from './discover.js'
+import { cleanEnv, findEngineExecutable, spawnAgent } from './discover.js'
 
 // Claude Code tools that only read; the rest may change files or run something.
 const READ_TOOLS = new Set(['Read', 'Glob', 'Grep', 'LS', 'WebFetch', 'WebSearch', 'TodoWrite', 'NotebookRead'])
@@ -27,6 +27,14 @@ export class ClaudeEngine {
 
   prompt(session, blocks) {
     return session.prompt(blocks)
+  }
+
+  canSteer(session) {
+    return session.running === true
+  }
+
+  steer(session, text) {
+    return session.prompt([{ type: 'text', text }])
   }
 
   cancel(session) {
@@ -79,7 +87,7 @@ class ClaudeSession {
 
   async start({ cwd, resumeId, system, mode, mcp, model }) {
     if (this.child !== undefined) return this
-    const bin = this.engine.findExecutable(this.engine.engine.command)
+    const bin = findEngineExecutable(this.engine.engine, name => this.engine.findExecutable(name))
     if (bin === undefined) throw Object.assign(new Error(`${this.engine.engine.name} is not installed`), { code: 'NO_ADAPTER' })
     // Fixture scripts in tests ride in spec.args ahead of the real CLI flags.
     // The stream-json formats only exist in print mode: without `--print` the
@@ -199,7 +207,7 @@ class ClaudeSession {
             type: 'permission', id: event.request_id,
             reply: (optionId) => this.write({
               type: 'control_response',
-              response: { subtype: 'success', request_id: event.request_id, response: optionId === 'allow' ? { behavior: 'allow', updatedInput: request.input ?? {} } : { behavior: 'deny' } },
+              response: { subtype: 'success', request_id: event.request_id, response: optionId === 'allow' ? { behavior: 'allow', updatedInput: request.input ?? {} } : { behavior: 'deny', message: 'The user denied this action.' } },
             }),
             action: `Run ${tool}`,
             detail: JSON.stringify(request.input ?? {}).slice(0, 4_000),
@@ -225,6 +233,7 @@ class ClaudeSession {
           const size = (models.find(([name]) => name === this.model) ?? models.toSorted((a, b) => (b[1]?.contextWindow ?? 0) - (a[1]?.contextWindow ?? 0))[0])?.[1]?.contextWindow
           if (typeof size === 'number' && size > 0) this.emit({ type: 'context', size })
         }
+        this.running = false
         this.emit(event.subtype === 'success' || event.is_error !== true
           ? { type: 'done', reason: 'stop', usage: usageOf(event.usage) }
           : { type: 'error', error: new Error(event.result ?? 'the agent failed') })
@@ -242,12 +251,13 @@ class ClaudeSession {
   }
 
   prompt(blocks) {
-    this.write({ type: 'user', message: { role: 'user', content: blocks } })
+    this.running = true
+    this.write({ type: 'user', message: { role: 'user', content: claudeContent(blocks) } })
     return Promise.resolve()
   }
 
-  async steer(thread, text) {
-    this.prompt([{ type: 'text', text }])
+  async steer(thread, input) {
+    this.prompt(Array.isArray(input) ? input : [{ type: 'text', text: input }])
   }
 
   // `/compact` in stream-json runs the CLI's own compaction and ends with a result.
@@ -267,6 +277,25 @@ class ClaudeSession {
     setTimeout(() => { try { this.child?.kill('SIGKILL') } catch {} }, 5_000).unref?.()
     this.child = undefined
   }
+}
+
+function claudeContent(blocks) {
+  const out = []
+  for (const block of blocks) {
+    if (block.type === 'image') {
+      out.push({
+        type: 'image',
+        source: {
+          type: 'base64',
+          media_type: block.mediaType ?? block.mimeType ?? 'image/png',
+          data: block.data,
+        },
+      })
+    } else if ((block.text ?? '') !== '') {
+      out.push({ type: 'text', text: block.text })
+    }
+  }
+  return out.length > 0 ? out : [{ type: 'text', text: '' }]
 }
 
 const usageOf = usage => (usage === undefined ? undefined : {
