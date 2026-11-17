@@ -1442,6 +1442,9 @@ export function install(rt) {
     }
     if (event.type === 'user/message') {
       const source = event.data?.source
+      // DSH emits these as user/message records, but they are harness metadata,
+      // not another user's input and must not consume or invalidate an IM origin.
+      if (source?.form === 'snapshot' && (source.kind === 'runtime-context' || source.kind === 'time-context')) return
       const imOrigin = source?.imOrigin
       const rpcId = source?.rpcId
       // A late member result or part-switch handoff continues the work the chat asked for;

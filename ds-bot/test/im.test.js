@@ -1937,3 +1937,53 @@ test('a failed update keeps the network reason and redacts a secret as it appear
     return true
   })
 })
+
+for (const kind of ['runtime-context', 'time-context']) {
+  for (const group of [false, true]) {
+    for (const before of [false, true]) {
+      test(`reply origin ignores ${kind} snapshots ${before ? 'before' : 'after'} an IM ${group ? 'group' : 'direct'} message`, async t => {
+        const s = await start()
+        t.after(s.stop)
+        const conn = await add(s)
+        const one = s.rt.state.im.connections[conn.id]
+        one.paired.push({ id: 'u1', name: 'U1', at: 1 })
+        if (group) one.chats.g1 = { kind: 'group', title: 'G', target: { roomId: 'r1' }, at: 1 }
+        await s.rt.save()
+        if (group) await gm(s, 'u1', 'hi')
+        else await dm(s, 'u1', 'hi')
+        const sessionId = group ? 'r1' : 'a'
+        const context = () => s.emitEvent(sessionId, 'user/message', { source: { kind, form: 'snapshot', sections: [] }, content: [] })
+        if (before) {
+          s.emitEvent(sessionId, 'turn/start', { turn: 1 })
+          context()
+          s.emitEvent(sessionId, 'user/message', { source: { kind: 'user', rpcId: s.prompts.at(-1).requestId }, content: [{ type: 'text', text: 'hi' }] })
+        } else {
+          s.imTurn(sessionId)
+          context()
+        }
+        await s.flush()
+        s.fake.sent.length = 0
+        if (group) s.rt.logRoom(s.rt.roomOf('r1'), { who: 'Writer', botId: 'b', text: 'reply' })
+        else s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'reply' }] } })
+        await s.flush()
+        assert.equal(s.fake.sent.length, 1)
+        assert.equal(s.fake.sent[0].chat.key, group ? 'g1' : 'dm-u1')
+      })
+    }
+  }
+}
+
+test('reply origin does not ignore unknown or non-snapshot context messages', async t => {
+  const s = await start()
+  t.after(s.stop)
+  const conn = await add(s)
+  s.rt.state.im.connections[conn.id].paired.push({ id: 'u1', at: 1 })
+  await s.rt.save()
+  for (const source of [{ kind: 'runtime-context', form: 'other' }, { kind: 'unknown-context', form: 'snapshot' }, { kind: 'user' }]) {
+    await dm(s, 'u1', 'hi')
+    s.imTurn('a')
+    s.emitEvent('a', 'user/message', { source, content: [] })
+    s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'must stay local' }] } })
+  }
+  assert.equal(s.fake.sent.length, 0)
+})
