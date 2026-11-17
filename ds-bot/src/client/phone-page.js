@@ -66,7 +66,7 @@ export function PhonePage({ roster, actions, Section, Row }) {
     h(Section, { title: t('Connection') },
       h(Row, { label: t('Phone access'), hint: statusText(phone), className: phone.error || phone.status === 'offline' ? 'bt-phone-warn' : '' },
         h(Switch, { on: phone.on, label: t('Phone access'), disabled: busy, onChange: on => void run(actions.phoneSet({ on })) })),
-      h(Row, { label: t('Server'), hint: t('The Relay Server that passes encrypted messages between your phone and this computer. It cannot read them.') }),
+      h(Row, { label: t('Server'), hint: t('The Server forwards encrypted messages. Browser access also trusts the page it serves.') }),
       h('div', { className: 'bt-set-row bt-phone-server' },
         h('input', { className: 'bt-input', value: server, placeholder: 'wss://relay.dsbot.app/v1/link', spellCheck: false, 'aria-label': t('Server'), onChange: event => setServer(event.target.value), onKeyDown: event => { if (event.key === 'Enter') saveServer() } }),
         h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: busy || server.trim() === phone.server, onClick: saveServer }, t('Save')))),
@@ -83,6 +83,7 @@ export function PhonePage({ roster, actions, Section, Row }) {
           h('div', null,
             h('a', { className: 'bt-soft bt-soft-sm', href: browserUrl, target: '_blank', rel: 'noopener noreferrer' }, t('Open in a browser')),
             h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: busy, onClick: () => void run(navigator.clipboard?.writeText(browserUrl) ?? Promise.reject(new Error(t('Clipboard is not available')))) }, t('Copy browser link'))),
+          h('span', { className: 'bt-set-hint' }, t('The browser runs the page the Server sends. Only use a Server you trust.')),
           h('div', null, h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: busy, onClick: () => void run(actions.phonePairCancel()) }, t('Cancel')))))
       : h(Row, { label: t('Show a QR code'), hint: online ? t('Your phone scans it once. After that it connects by itself.') : t('Turn on phone access first') },
         h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: busy || !online, onClick: () => void run(actions.phonePair()) }, t('Show')))),
