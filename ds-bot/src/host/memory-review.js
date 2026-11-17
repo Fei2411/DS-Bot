@@ -9,7 +9,6 @@ import { join } from 'node:path'
 import { GONE, REVIEW_MEMORY_MAX, ROUTED, TEAM_SHARED, bodySize, cleanDay, cleanEntry, cleanTopic, isPinned, parseReview, reviewEntries } from './memory-entries.js'
 import { REVIEW_CHANGES_MAX, reviewRequest, reviewSystem, writtenIn } from './memory-copy.js'
 import { speakerOf } from '../shared/mentions.js'
-import { HISTORY_SCAN_PAGES } from './constants.js'
 
 // The memory review reads at most this much of what is new, newest kept first.
 const REVIEW_DELAY_MS = 2_000
@@ -54,19 +53,30 @@ export function installReview(rt, memory) {
     const fresh = []
     const earlier = []
     let through
-    // Reading goes back to the cursor, or for a first review to the user's latest
-    // line, but no further than HISTORY_SCAN_PAGES: the rest of a long log would only
-    // be carried in memory and dropped.
-    for await (const line of rt.partLines(sessionId, AbortSignal.timeout(REVIEW_READ_MS), { pages: HISTORY_SCAN_PAGES })) {
+    let size = 0
+    let more = false
+    // A page cap could advance the cursor past unread user messages.
+    for await (const line of rt.partLines(sessionId, AbortSignal.timeout(REVIEW_READ_MS), { pages: Infinity })) {
       through ??= line.seq
       // A first review reads back at least to the user's latest line.
-      if (since === undefined ? fresh.length < REVIEW_FIRST_LINES || !fresh.some(seen => seen.who === 'user') : line.seq > since) fresh.push(line)
+      if (since === undefined ? fresh.length < REVIEW_FIRST_LINES || !fresh.some(seen => seen.who === 'user') : line.seq > since) {
+        const text = line.who === 'user' ? ends(line.text, REVIEW_USER_LINE_MAX) : clip(line.text, REVIEW_OTHER_LINE_MAX)
+        fresh.push({ ...line, text })
+        size += text.length
+        // Retain an oldest-first batch, not the entire backlog. Newer lines stay
+        // ahead of the saved cursor and are read on the next pass.
+        while (fresh.length > 1 && size > REVIEW_TEXT_MAX * 2) {
+          size -= fresh.shift().text.length
+          more = true
+        }
+      }
       else if (earlier.push(line) >= REVIEW_CONTEXT_LINES) break
     }
     const parts = rt.partsOfThread(bot.id, sessionId)
     const at = parts.findIndex(part => part.sessionId === sessionId)
     return {
       through,
+      more,
       fresh: fresh.reverse(),
       earlier: earlier.reverse(),
       where: 'its own chat with the user',
@@ -279,7 +289,7 @@ export function installReview(rt, memory) {
     // only passes lines the model has seen.
     const fresh = fitted(batch.fresh, keeper)
     const read = batch.fresh.slice(0, fresh.count)
-    const more = fresh.count < batch.fresh.length
+    const more = batch.more === true || fresh.count < batch.fresh.length
     let through = more ? read.at(-1).seq : batch.through
     let again = more
     // A first review fixes where it starts before the model call, so a failure
