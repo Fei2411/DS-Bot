@@ -1,10 +1,11 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
-import { BackHandler, I18nManager, Pressable, StyleSheet, View } from 'react-native'
+import { BackHandler, Pressable, StyleSheet, View } from 'react-native'
 import { Gesture, GestureDetector } from 'react-native-gesture-handler'
 import Animated, { runOnJS, useAnimatedStyle, useReducedMotion, useSharedValue, withSpring } from 'react-native-reanimated'
 import { ErrorBoundary } from '../ui/error-boundary.tsx'
 import { SPRING_SHAPE } from '../ui/tokens.ts'
 import { t } from '../ui/i18n.ts'
+import { rightToLeft } from '../ui/direction.ts'
 import { clampedDrag, panelOffset, snapOnFlick } from './drawer-geometry.ts'
 
 const DrawerCtx = createContext({ open: () => {}, close: () => {}, closeNow: () => {} })
@@ -16,7 +17,9 @@ export const useDrawer = () => useContext(DrawerCtx)
 // closes it first.
 export function Drawer({ width, edgeWidth = 24, edgeEnabled = true, content, children }: { width: number; edgeWidth?: number; edgeEnabled?: boolean; content: ReactNode; children: ReactNode }) {
   const reduced = useReducedMotion()
-  const rtl = I18nManager.isRTL
+  // The side comes from the device's language too: the panel, its offsets and the
+  // gesture signs must all agree, or a closed panel parks beside the screen (#RTL).
+  const rtl = rightToLeft()
   const x = useSharedValue(panelOffset(0, width, rtl))
   const [shown, setShown] = useState(false)
 
