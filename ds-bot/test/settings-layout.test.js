@@ -22,7 +22,7 @@ const { SHELL_CSS, botOwnCss } = module.exports
 
 // Match SettingsDialog and DSH's boxless slot wrapper. The plugin styles are a
 // minimal size-contained / self-scrolling page, not a third-party plugin copy.
-const fixture = (content, error = '') => `<!doctype html><style>
+const fixture = (content, error = '', after = '') => `<!doctype html><style>
   ${botOwnCss(SHELL_CSS)}
   *{animation:none!important;transition:none!important}
   [data-slot]{display:contents}
@@ -36,7 +36,7 @@ const fixture = (content, error = '') => `<!doctype html><style>
   <div class="bt-settings-main">
     <div class="bt-settings-head"><h2>Plugin settings</h2></div>
     <div class="bt-settings-scroll bt-settings-page">${error}
-      <div class="bt-dsh-section"><div data-slot="settings.section">${content}</div></div>
+      <div class="bt-dsh-section"><div data-slot="settings.section">${content}</div></div>${after}
     </div>
   </div>
 </div></div>`
@@ -108,16 +108,29 @@ test('DSH settings pages keep usable height and scrolling (#1359)', async (t) =>
         await page.setContent(fixture('<div id="natural" style="height:80px">Short settings</div>'))
         assert.equal(await page.locator('#natural').evaluate(node => node.clientHeight), 80)
         await page.setContent(fixture('<div id="natural"><div style="height:1200px">Advanced models</div><button id="last">Last model</button></div>'))
-        await page.locator('#last').scrollIntoViewIfNeeded()
+        await page.locator('.bt-settings-scroll').evaluate(node => { node.scrollTop = node.scrollHeight })
         const layout = await page.evaluate(() => {
           const outer = document.querySelector('.bt-settings-scroll')
           const last = document.querySelector('#last').getBoundingClientRect()
           const box = outer.getBoundingClientRect()
-          return { height: document.querySelector('#natural').clientHeight, scroll: outer.scrollTop, lastTop: last.top, lastBottom: last.bottom, top: box.top, bottom: box.bottom }
+          return { height: document.querySelector('#natural').clientHeight, section: document.querySelector('.bt-dsh-section').clientHeight, scroll: outer.scrollTop, lastTop: last.top, lastBottom: last.bottom, top: box.top, bottom: box.bottom, padding: parseFloat(getComputedStyle(outer).paddingBottom) }
         })
         assert.ok(layout.height > 1200, JSON.stringify(layout))
+        assert.ok(layout.section >= layout.height, JSON.stringify(layout))
         assert.ok(layout.scroll > 0, JSON.stringify(layout))
         assert.ok(layout.lastTop >= layout.top && layout.lastBottom <= layout.bottom, JSON.stringify(layout))
+        assert.ok(Math.abs(layout.bottom - layout.lastBottom - layout.padding) <= 1, JSON.stringify(layout))
+      } finally { await page.close() }
+    })
+    await t.test('content after a natural-height section does not overlap it', async () => {
+      const page = await browser.newPage({ viewport: { width: 800, height: 600 } })
+      try {
+        await page.setContent(fixture('<div id="natural" style="height:1200px;flex:none">Long settings</div>', '', '<button id="following" style="flex:none">Following action</button>'))
+        const layout = await page.evaluate(() => ({
+          contentBottom: document.querySelector('#natural').getBoundingClientRect().bottom,
+          followingTop: document.querySelector('#following').getBoundingClientRect().top,
+        }))
+        assert.ok(layout.followingTop >= layout.contentBottom, JSON.stringify(layout))
       } finally { await page.close() }
     })
   } finally { await browser.close() }

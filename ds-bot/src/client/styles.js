@@ -582,8 +582,8 @@ body[data-ds-dark-theme] .bt-scrim{background:rgba(0,0,0,.5)}
 .bt-settings-actions{margin-left:auto;display:flex;align-items:center;gap:8px;min-width:0}
 .bt-settings-actions:empty{display:none}
 /* Give height:100% plugin pages a definite flex height through DSH's boxless slot.
-   Natural-height pages can still overflow into the settings scroller. */
-.bt-dsh-section{min-width:0;min-height:0;display:flex;flex-direction:column;flex:1}
+   An auto basis without shrinking keeps natural-height content inside its section. */
+.bt-dsh-section{min-width:0;display:flex;flex-direction:column;flex:1 0 auto}
 /* A DSH page opens on its own title, which the dialog head already shows. */
 .bt-dsh-section>[data-slot]>*>h2:first-child,.bt-dsh-section>[data-slot]>*>:first-child>h2:first-child{display:none}
 .bt-dsh-item{min-width:0}
