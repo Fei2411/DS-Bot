@@ -30460,12 +30460,11 @@ function TeamSidebar(props) {
   );
   const kinds = wideContent ? (0, import_react36.createElement)(
     "div",
-    { className: "bt-side-kinds", role: "tablist", "aria-label": t("Bot list") },
+    { className: "bt-side-kinds", role: "group", "aria-label": t("Bot list") },
     SIDEBAR_KINDS.map((entryKind) => (0, import_react36.createElement)("button", {
       key: entryKind,
       type: "button",
-      role: "tab",
-      "aria-selected": kind === entryKind,
+      "aria-pressed": kind === entryKind,
       className: "bt-kind",
       "data-on": kind === entryKind ? "true" : void 0,
       onClick: () => setKind(entryKind)

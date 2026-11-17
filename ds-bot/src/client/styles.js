@@ -137,6 +137,10 @@ body[data-bt-motion=quiet] .bt-mark[data-poke]{cursor:default}
 .bt-tile[aria-current=page]{background:var(--bt-active)}
 .bt-tile-name{font-size:13px;line-height:18px;font-weight:500;max-width:84px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bt-chip{font-size:11px;line-height:16px;padding:1px 7px;border-radius:999px;background:var(--bt-tag-bg);border:.5px solid var(--bt-line);color:var(--bt-ink-2);white-space:nowrap;max-width:92px;overflow:hidden;text-overflow:ellipsis}
+.bt-side-kinds{display:flex;gap:4px;padding:0 10px 8px;align-items:center}
+.bt-kind{border:0;background:transparent;color:var(--bt-ink-2);font:inherit;font-size:12px;line-height:20px;padding:2px 8px;border-radius:999px;cursor:pointer;transition:background-color .12s ease,color .12s ease}
+.bt-kind:hover{color:var(--bt-ink)}
+.bt-kind[data-on]{background:color-mix(in srgb,currentColor 12%,transparent);color:var(--bt-ink)}
 .bt-row{display:flex;align-items:center;gap:8px;min-height:54px;padding:8px;border:0;border-radius:12px;background:transparent;color:var(--bt-ink);text-align:left;cursor:pointer;width:100%;box-sizing:border-box;font-family:inherit;transition:background-color .12s ease}
 .bt-row:hover{background:var(--bt-hover)}
 .bt-row[aria-current=page]{background:var(--bt-active)}

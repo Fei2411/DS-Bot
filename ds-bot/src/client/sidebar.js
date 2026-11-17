@@ -809,12 +809,11 @@ export function TeamSidebar(props) {
         h(AccountLauncher, { seat: false, actions }),
         h(PluginsButton, { actions }))
   const kinds = wideContent
-    ? h('div', { className: 'bt-side-kinds', role: 'tablist', 'aria-label': t('Bot list') },
+    ? h('div', { className: 'bt-side-kinds', role: 'group', 'aria-label': t('Bot list') },
         SIDEBAR_KINDS.map(entryKind => h('button', {
           key: entryKind,
           type: 'button',
-          role: 'tab',
-          'aria-selected': kind === entryKind,
+          'aria-pressed': kind === entryKind,
           className: 'bt-kind',
           'data-on': kind === entryKind ? 'true' : undefined,
           onClick: () => setKind(entryKind),
