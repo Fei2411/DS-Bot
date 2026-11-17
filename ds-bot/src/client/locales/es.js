@@ -1391,6 +1391,8 @@ export const ES = {
   'Its group conversation could not open, so it starts a new one next time': 'No se pudo abrir su conversación grupal, por lo que iniciará una nueva la próxima vez',
   // The composer's +
   'Pasted text · {count} characters': 'Texto pegado · {count} caracteres',
+  // A draft kept while its chat is off the screen (#1248)
+  'The files in this draft could not be kept across chats': 'Los archivos de este borrador no se pudieron conservar entre chats',
   'Put back': 'Devolver',
   'Put back into the box': 'Devolver al cuadro de texto',
   'Remove pasted text': 'Quitar el texto pegado',

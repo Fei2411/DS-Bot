@@ -1361,6 +1361,8 @@ export const FR = {
   "Its group conversation could not open": "Sa discussion de groupe n’a pas pu s’ouvrir",
   "Its group conversation could not open, so it starts a new one next time": "Sa discussion de groupe n’a pas pu s’ouvrir ; une nouvelle sera créée la prochaine fois",
   "Pasted text · {count} characters": "Texte collé · {count} caractères",
+  // A draft kept while its chat is off the screen (#1248)
+  "The files in this draft could not be kept across chats": "Les fichiers de ce brouillon n’ont pas pu être conservés d’une discussion à l’autre",
   "Put back": "Remettre",
   "Put back into the box": "Remettre dans le champ",
   "Remove pasted text": "Supprimer le texte collé",

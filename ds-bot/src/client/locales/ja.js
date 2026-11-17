@@ -1361,6 +1361,8 @@ export const JA = {
   "Its group conversation could not open": "グループ会話を開けませんでした",
   "Its group conversation could not open, so it starts a new one next time": "グループ会話を開けなかったため、次回新しい会話を開始します",
   "Pasted text · {count} characters": "貼り付けたテキスト · {count} 文字",
+  // A draft kept while its chat is off the screen (#1248)
+  "The files in this draft could not be kept across chats": "この下書きのファイルはチャットをまたいで保持できませんでした",
   "Put back": "戻す",
   "Put back into the box": "入力欄に戻す",
   "Remove pasted text": "貼り付けたテキストを削除",

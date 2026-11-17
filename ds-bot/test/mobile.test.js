@@ -655,9 +655,15 @@ test('a member turn that presents a file shows the file on its group row', async
   const result = await running
   history[room.id].push(relayResult(3, 'call-1', result))
 
-  const done = (await call('room-chat', { roomId: room.id })).value
-  const row = done.items.find(item => item.kind === 'bot' && item.text === 'The report is ready.')
-  assert.deepEqual(row.files, [{ name: 'quarterly.pdf', sessionId: second.sessionId, seq: 3, index: 0 }])
+  // The presented file reaches the room row once the member's write has landed, so the
+  // page is read again while that write is still in flight.
+  let row
+  for (let at = 0; at < 100 && row?.files === undefined; at += 1) {
+    const done = (await call('room-chat', { roomId: room.id })).value
+    row = done.items.find(item => item.kind === 'bot' && item.text === 'The report is ready.')
+    if (row?.files === undefined) await settle()
+  }
+  assert.deepEqual(row.files, [{ name: 'quarterly.pdf', sessionId: second.sessionId, seq: 3, index: 0, bytes: 18 }])
   const saved = await call('file-download', { sessionId: second.sessionId, seq: 3, index: 0 })
   assert.equal(saved.ok, true)
   assert.equal(saved.value.name, 'quarterly.pdf')
