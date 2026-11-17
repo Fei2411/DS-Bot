@@ -9,6 +9,7 @@ import { clockLabel, openingTurn, unseenSince } from './cells.js'
 import { GoalIsland, goalView } from './goal.js'
 import { viewBottom } from './motion.js'
 import { t } from './i18n.js'
+import { LEVELS, levelId } from './computer.js'
 
 // -------------------------------------------------------------------------
 // Conversation header
@@ -142,6 +143,13 @@ export function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus
         type: 'button', className: 'bt-icon-btn bt-head-search', 'aria-label': t('Search this group'), title: t('Search this group'),
         onClick: () => actions.openGroupSearch(room.id),
       }, h(SearchIcon))
+      : null,
+    bot !== undefined && room === undefined
+      ? h('select', {
+        className: 'bt-select bt-head-level', 'aria-label': t('Computer use level'), title: t('Computer use level'),
+        value: levelId(bot),
+        onChange: (event) => { void Promise.resolve(actions.computerSetLevel(bot.id, event.target.value)).catch(error => actions.reportError?.(error, 'computer')) },
+      }, LEVELS.map(([id, label]) => h('option', { key: id, value: id }, t(label))))
       : null,
     h(NewMessagePills, { key: sessionId, sessionId, useSessions, useUi, useTurnClock }),
     h(ActivityIndicator, { key: `activity:${sessionId}`, sessionId, useRoster, useSessionStatus, useSession, useLive, useWork, actions }))

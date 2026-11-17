@@ -38084,6 +38084,15 @@ function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus, useSe
       title: t("Search this group"),
       onClick: () => actions.openGroupSearch(room2.id)
     }, (0, import_react54.createElement)(SearchIcon)) : null,
+    bot !== void 0 && room2 === void 0 ? (0, import_react54.createElement)("select", {
+      className: "bt-select bt-head-level",
+      "aria-label": t("Computer use level"),
+      title: t("Computer use level"),
+      value: levelId(bot),
+      onChange: (event) => {
+        void Promise.resolve(actions.computerSetLevel(bot.id, event.target.value)).catch((error) => actions.reportError?.(error, "computer"));
+      }
+    }, LEVELS.map(([id, label]) => (0, import_react54.createElement)("option", { key: id, value: id }, t(label)))) : null,
     (0, import_react54.createElement)(NewMessagePills, { key: sessionId, sessionId, useSessions, useUi, useTurnClock }),
     (0, import_react54.createElement)(ActivityIndicator, { key: `activity:${sessionId}`, sessionId, useRoster, useSessionStatus, useSession, useLive, useWork, actions })
   );

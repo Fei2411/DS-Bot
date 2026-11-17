@@ -18,7 +18,7 @@ export const LEVELS = [
   ['background', 'Background'],
   ['foreground', 'Foreground'],
 ]
-const levelId = bot => LEVELS.some(([id]) => id === bot?.computer?.level) ? bot.computer.level : 'background'
+export const levelId = bot => LEVELS.some(([id]) => id === bot?.computer?.level) ? bot.computer.level : 'background'
 
 export function LevelPicker({ bot, actions, run, disabled }) {
   const level = levelId(bot)
