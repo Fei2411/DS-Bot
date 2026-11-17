@@ -56,6 +56,42 @@ test('local image links accept relative, encoded, Windows and file URL paths', (
   assert.deepEqual(replyImages('![a](./a%20b.png) ![b](C:/work/b.png) ![c](file:///work/c.png)').images.map(x => x.path), ['./a%20b.png', 'C:/work/b.png', 'file:///work/c.png'])
 })
 
+test('literal images in code blocks, variable backtick spans and escaped markers are never uploaded', () => {
+  for (const text of [
+    '    ![example](secret.png)',
+    '\t![example](secret.png)',
+    '``literal ` ![example](secret.png)``',
+    '\\![example](secret.png)',
+    '````md\n![example](secret.png)\n````',
+    '<!-- ![example](secret.png) -->',
+  ]) {
+    assert.deepEqual(replyImages(text).images, [], text)
+    assert.equal(replyImages(text).text, text)
+  }
+})
+
+test('balanced parenthesis and reference images are resolved as Markdown images', () => {
+  const text = '![plot](output/plot(1).png)\n![plot][Chart]\n![Chart][]\n![Chart]\n\n[chart]: output/plot.png "Plot"'
+  assert.deepEqual(replyImages(text).images.map(image => image.path), [
+    'output/plot(1).png', 'output/plot.png', 'output/plot.png', 'output/plot.png',
+  ])
+})
+
+test('replacing a real image does not edit the identical source in a code example', () => {
+  const text = '`![same](same.png)` then ![same](same.png)'
+  assert.equal(replyImages(text).text, '`![same](same.png)` then same')
+})
+
+test('undefined references and code-only definitions never trigger a read', () => {
+  assert.deepEqual(replyImages('![unknown][missing]').images, [])
+  assert.deepEqual(replyImages('![unknown][missing]\n\n    [missing]: secret.png').images, [])
+})
+
+test('reference-style remote images remain text', () => {
+  const text = '![remote][image]\n\n[image]: https://example.test/image.png'
+  assert.deepEqual(replyImages(text), { text, images: [] })
+})
+
 test('Bot reply images are read through the workspace endpoint, uploaded, then sent natively', async t => {
   const s = await sender(t)
   const job = { text: 'Here is ![screenshot](./output/screenshot.png)', imageContext: { sessionId: 'part-a' } }

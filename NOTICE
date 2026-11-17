@@ -204,6 +204,11 @@ MIT License, Copyright (c) 2026 xmanrui
   OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
   SOFTWARE.
 
+The plugin uses mdast-util-from-markdown from npm
+(https://github.com/syntax-tree/mdast-util-from-markdown), MIT License,
+Copyright (c) Titus Wormer, to recognize actual Markdown image nodes.
+The package and its dependencies retain their own license notices.
+
 No other third-party code is copied into this repository. At run time the
 plugin uses the @deepseek-ai/* packages of the DeepSeek Harness install it
 runs in; they are not bundled. The bundled ds-bot/office.js includes
