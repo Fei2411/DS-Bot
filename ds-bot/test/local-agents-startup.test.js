@@ -109,8 +109,8 @@ test('taken routes cannot be selected or probed as local agents (#1390)', async 
     await assert.rejects(rt.resolveModel('local-acp-taken/cli-model'), /not available/)
     assert.equal(await rt.resolveModel('local-codex-cli/default'), 'local-codex-cli/default')
     const catalog = await rt.catalog()
-    assert.ok(catalog.some(entry => entry.ref === 'local-opencode/other-model'))
-    assert.ok(catalog.some(entry => entry.ref === 'local-acp-taken/other-model'))
+    assert.ok(!catalog.some(entry => entry.provider === 'local-opencode'))
+    assert.ok(!catalog.some(entry => entry.provider === 'local-acp-taken'))
   })
   await t.test('local agent lists hide taken built-ins but retain custom agents for management', async () => {
     const list = await rt.localAgentsEndpoint('local-agents', {})
