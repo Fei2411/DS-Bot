@@ -142,7 +142,7 @@ export function install(rt) {
   }
   // Custom agents hold a route whether or not their command resolves yet; a
   // missing one fails at prompt time with a typed error.
-  applyRoutes()
+  try { applyRoutes() } catch (error) { rt.warn?.('ds-bot: initial local agent registration failed: %s', error) }
   const initialScan = scan().catch(error => rt.warn?.('ds-bot: initial local agent scan failed: %s', error))
   // Custom agents arrive with the state load; their routes register then too.
   void rt.load?.().then(() => { if (!disposed) applyRoutes() }).catch(() => {})

@@ -84,6 +84,16 @@ test('initial scan failures are logged rather than unhandled (#1390)', async (t)
   assert.ok(warnings.some(args => args.join(' ').includes('registry unavailable')))
 })
 
+test('synchronous route registration failures do not abort installation (#1390)', async (t) => {
+  const { llm, rt, warnings } = await localHost(t)
+  rt.state.bots.saved = { model: 'local-acp-saved/default' }
+  t.mock.method(llm, 'registerAdapter', () => { throw new Error('registry unavailable') })
+  assert.doesNotThrow(() => install(rt))
+  await setImmediate()
+  assert.ok(warnings.some(args => args.join(' ').includes('registry unavailable')))
+  assert.equal(typeof rt.localAgentsEndpoint, 'function')
+})
+
 test('taken routes cannot be selected or probed as local agents (#1390)', async (t) => {
   const { llm, rt } = await localHost(t)
   const other = new LlmAdapter()
