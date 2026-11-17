@@ -252,6 +252,29 @@ test('the library answers page by page, so a big library is not one huge reply',
   assert.equal((await call('avatar-library', { offset: 60 })).value.items.length, 0)
 })
 
+test('a page keeps the newest-first order when some photo files are missing', async (t) => {
+  let now = 1_800_000_000_000
+  t.mock.method(Date, 'now', () => now++)
+  const home = makeHome()
+  t.after(() => rmSync(home, { recursive: true, force: true, maxRetries: 5 }))
+  const { call, stop } = start(home)
+  t.after(stop)
+
+  const photos = Array.from({ length: 20 }, (_, index) => ({
+    name: `photo-${index}.png`,
+    image: asDataUrl('image/png', Buffer.concat([PNG.subarray(0, 8), Buffer.alloc(index + 1, index + 1)])),
+  }))
+  const { imported } = (await call('avatar-import', { items: photos })).value
+  const gone = new Set([3, 4, 11, 19])
+  for (const index of gone) rmSync(join(home, 'avatars', 'files', `${imported[index].id}.png`))
+
+  const page = (await call('avatar-library', { limit: 20 })).value
+  const expected = photos.map(photo => photo.name).filter((_, index) => !gone.has(index)).reverse()
+  assert.deepEqual(page.items.map(item => item.name), expected)
+  assert.equal(page.items.every(item => item.image === photos[Number(item.name.match(/\d+/)[0])].image), true)
+  assert.equal(page.next, 20)
+})
+
 test('another dsh that holds the team cannot change the library, but may read it', async (t) => {
   const home = makeHome()
   t.after(() => rmSync(home, { recursive: true, force: true, maxRetries: 5 }))
