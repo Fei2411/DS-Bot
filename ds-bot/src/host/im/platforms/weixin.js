@@ -270,7 +270,10 @@ export default {
             },
           })
           if (Number(answer.ret) !== 0 && answer.ret !== undefined) {
-            throw fail(`WeChat refused the reply (${answer.errmsg ?? answer.ret})`, { permanent: true })
+            // WeChat may already have accepted earlier chunks. Hand them back on
+            // the error so the host can still remember them for quoted replies:
+            // a later failure must not lose the ids of delivered messages.
+            throw fail(`WeChat refused the reply (${answer.errmsg ?? answer.ret})`, { permanent: true, parts })
           }
           messageId = clientId
           addId(ids, clientId)

@@ -704,6 +704,12 @@ export function install(rt) {
           sent = await runner.handle.send(job.chat, job)
         } catch (error) {
           queue.sending = false
+          // A partial send (e.g. WeChat accepted earlier chunks before one failed)
+          // carries the delivered parts on the error. Remember them so quoting a
+          // delivered message still works, without treating the send as successful.
+          if (Array.isArray(error?.parts) && error.parts.length > 0) {
+            await rememberSent(conn.id, chatKey, job.text, { parts: error.parts }).catch(e => rt.warn('ds-bot: im partial sent message not remembered: %s', e))
+          }
           const settled = queue.stoppedSend
           queue.stoppedSend = undefined
           const how = failClass(error)

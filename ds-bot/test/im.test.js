@@ -317,6 +317,49 @@ test('a quote of a later chunk shows that chunk, not the start of the reply', as
   assert.equal(s.prompts[1].content[0].text, 'Replying to an earlier message:\n> Project B is done\n\ndo that')
 })
 
+test('a partial send still remembers the chunks the platform accepted before failing', async (t) => {
+  // A long reply is sent as chunks; the platform accepts the first, then refuses
+  // the second. The accepted chunk must stay quotable even though the send failed.
+  const adapter = {
+    id: 'fake',
+    handlers: null,
+    async check() { return { account: { id: 'bot1', name: '@fakebot' } } },
+    connect(fields, env, handlers) {
+      adapter.handlers = handlers
+      handlers.onStatus({ state: 'ready', account: { id: 'bot1', name: '@fakebot' } })
+      let sendCount = 0
+      return {
+        send: async () => {
+          sendCount += 1
+          adapter.sentCount = sendCount
+          // The reply: first chunk accepted, second refused.
+          const error = new Error('WeChat refused the reply (quota)')
+          error.permanent = true
+          error.parts = [{ ids: ['accepted-first'], text: 'Project A is done' }]
+          throw error
+        },
+        typing: async () => {},
+        stop: () => {},
+      }
+    },
+  }
+  const s = await start({ adapter })
+  t.after(s.stop)
+  const conn = await add(s)
+  const one = s.rt.state.im.connections[conn.id]
+  one.paired.push({ id: 'u1', name: 'U1', at: 1 })
+  await s.rt.save()
+  await dm(s, 'u1', 'hi')
+  s.imTurn('a')
+  s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'Project A is done\n\nProject B is done' }] } })
+  await s.flush()
+  assert.ok(adapter.sentCount >= 1, 'the adapter send was called')
+  // A later quote naming only the accepted chunk, with no platform text, still
+  // resolves to that chunk's text rather than "content unavailable".
+  await dm(s, 'u1', 'do that', { quote: { ids: ['accepted-first'] } })
+  assert.equal(s.prompts.at(-1).content[0].text, 'Replying to an earlier message:\n> Project A is done\n\ndo that')
+})
+
 test('a quote resolves by its ids, then by the platform text, and says when both are gone', async (t) => {
   const s = await start()
   t.after(s.stop)

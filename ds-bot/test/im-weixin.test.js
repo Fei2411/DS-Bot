@@ -67,7 +67,8 @@ async function fakeIlink() {
         res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify(answer))
         return
       }
-      const answer = replies[req.url] ?? { ret: 0 }
+      let answer = replies[req.url] ?? { ret: 0 }
+      if (typeof answer === 'function') answer = answer(params)
       res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify(answer))
     })
   })
@@ -235,6 +236,32 @@ test('a refused send is permanent, and the auth header carries the token', async
   await assert.rejects(() => handle.send({ key: 'u1', kind: 'direct' }, { text: 'late' }),
     error => error.permanent === true && /window/.test(error.message))
   assert.equal(fake.calls[0].auth, 'Bearer wx-tok')
+})
+
+test('a failed later chunk returns the accepted chunks on the error', async (t) => {
+  const fake = await fakeIlink()
+  const runtime = { cursor: 'c1', contextTokens: { u1: 'tok-u1' } }
+  fake.replies.updates = { ret: 0, msgs: [], get_updates_buf: 'c1' }
+  let sendCount = 0
+  fake.replies['/ilink/bot/sendmessage'] = () => {
+    sendCount += 1
+    if (sendCount === 1) return { ret: 0, message_id: 'accepted-first' }
+    return { ret: -2, errmsg: 'quota exhausted' }
+  }
+  const handle = weixin.connect(FIELDS, env(fake, runtime), { onMessage: () => {}, onAction: () => {}, onStatus: () => {} })
+  t.after(() => { handle.stop(); fake.close() })
+  await until(() => fake.calls.some(call => call.path === '/ilink/bot/getupdates'))
+  await assert.rejects(
+    () => handle.send({ key: 'u1', kind: 'direct' }, { text: 'A'.repeat(1800) + 'B'.repeat(1800) }),
+    error => {
+      assert.equal(error.permanent, true)
+      assert.ok(Array.isArray(error.parts), 'the error carries accepted parts')
+      assert.equal(error.parts.length, 1, 'only the accepted chunk is returned')
+      assert.ok(error.parts[0].ids.some(id => id === 'accepted-first'), 'the accepted chunk keeps its platform id')
+      assert.equal(error.parts[0].text, 'A'.repeat(1800))
+      return true
+    },
+  )
 })
 
 // The client identity iLink expects: app id "bot", client version 2.4.6 packed
