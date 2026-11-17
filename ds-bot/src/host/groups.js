@@ -1883,11 +1883,13 @@ export function install(rt) {
     entry.last = Date.now()
     return entry.lines.splice(0).join('\n\n')
   }
-  // A closing reply that repeats this turn's last line, or the text just posted, is
-  // already in the group. Appending it would show the same words again.
+  // The closing reply repeats a line already in the group when it matches the line
+  // still held, or the text just posted when nothing newer is held. A final that
+  // matches an older flush while a newer line is still held is a different line.
   rt.withRoomSteps = (sessionId, lines, reply) => {
     const entry = held.get(sessionId)
-    const repeated = typeof reply === 'string' && reply !== '' && (reply === entry?.lastLine || reply === entry?.posted)
+    const text = typeof reply === 'string' ? reply : ''
+    const repeated = text !== '' && (text === entry?.lastLine || (lines === '' && text === entry?.posted))
     if (entry !== undefined) {
       entry.lastLine = undefined
       entry.posted = undefined
@@ -1895,6 +1897,15 @@ export function install(rt) {
     if (lines === '') return repeated ? '' : reply
     if (isPass(reply) || repeated) return lines
     return `${lines}\n\n${reply}`
+  }
+  // withRoomSteps is what forgets the line just shown. A turn that fails or stops
+  // never calls it; the next turn then has only its final, and that final is dropped
+  // when it repeats the line.
+  rt.dropRoomStepEcho = (sessionId) => {
+    const entry = held.get(sessionId)
+    if (entry === undefined) return
+    entry.lastLine = undefined
+    entry.posted = undefined
   }
 
   // The user stops a member's work in this group from the group's details, including
