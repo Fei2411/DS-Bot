@@ -509,7 +509,7 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
       <Dock question={question} sessionId={sessionId} approvals={approvals} secrets={secrets} connectorRequests={connectorRequests} botName={bot?.name} onOpenConnector={connectorId => { if (connectorCanConnectOnMobile(connectorId)) navigation.navigate('Settings', { screen: 'Connectors', params: { focusId: connectorId }, initial: false }) }} btw={btw} handoff={browserHold} view={team?.views?.[sessionId]} call={call} p={p} expanded={expandedKey} onExpand={setExpandedKey} />
       {fileError ? <Text style={[type.small, { color: p.danger, textAlign: 'center', marginBottom: 4 }]} accessibilityRole="alert">{fileError}</Text> : null}
       {page !== null && loadError !== null ? <Text style={[type.small, { color: p.danger, textAlign: 'center', marginBottom: 4, marginHorizontal: 16 }]} accessibilityRole="alert">{loadError}</Text> : null}
-      <Composer name={bot?.name ?? room?.name ?? ''} running={running} canStop={canStop} canAttach={hello?.capabilities?.includes('send-images') === true} onSend={send} onStop={stop} p={p} />
+      <Composer chatKey={room ? `room:${room.id}` : `bot:${bot?.id ?? id}`} name={bot?.name ?? room?.name ?? ''} running={running} canStop={canStop} canAttach={hello?.capabilities?.includes('send-images') === true} onSend={send} onStop={stop} p={p} />
       <Actions visible={menuText !== null} text={menuText ?? ''} p={p}
         onClose={() => setMenuText(null)}
         onSelect={() => { setReaderTitle(null); setReaderText(menuText); setMenuText(null) }} />
