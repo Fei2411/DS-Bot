@@ -1223,6 +1223,7 @@ export const JA = {
   "Awaiting review": "レビュー待ち",
   "Blocked": "ブロック中",
   "Stopped by the user": "ユーザーが停止",
+  "Not updated after a restart": "再起動後に未更新",
   "Its model call failed ({code})": "モデル呼び出しに失敗（{code}）",
   "Add a note": "メモを追加",
   "Cancel task": "タスクをキャンセル",

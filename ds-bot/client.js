@@ -1346,6 +1346,7 @@ var JA = {
   "Awaiting review": "レビュー待ち",
   "Blocked": "ブロック中",
   "Stopped by the user": "ユーザーが停止",
+  "Not updated after a restart": "再起動後に未更新",
   "Its model call failed ({code})": "モデル呼び出しに失敗（{code}）",
   "Add a note": "メモを追加",
   "Cancel task": "タスクをキャンセル",
@@ -3801,6 +3802,7 @@ var KO = {
   "Awaiting review": "검토 대기",
   Blocked: "막힘",
   "Stopped by the user": "사용자가 중지함",
+  "Not updated after a restart": "재시작 후 업데이트되지 않음",
   "Its model call failed ({code})": "모델 호출 실패({code})",
   "Add a note": "메모 추가",
   "Cancel task": "작업 취소",
@@ -6264,6 +6266,7 @@ var ES = {
   "Awaiting review": "Pendiente de revisión",
   Blocked: "Bloqueada",
   "Stopped by the user": "Detenido por el usuario",
+  "Not updated after a restart": "Sin actualizar tras el reinicio",
   "Its model call failed ({code})": "Falló la llamada al modelo ({code})",
   "Add a note": "Añadir una nota",
   "Cancel task": "Cancelar tarea",
@@ -8690,6 +8693,7 @@ var FR = {
   "Awaiting review": "En attente de relecture",
   "Blocked": "Bloquée",
   "Stopped by the user": "Arrêté par l’utilisateur",
+  "Not updated after a restart": "Pas mis à jour après le redémarrage",
   "Its model call failed ({code})": "Échec de l’appel au modèle ({code})",
   "Add a note": "Ajouter une note",
   "Cancel task": "Annuler la tâche",
@@ -11145,6 +11149,7 @@ var DE = {
   "Awaiting review": "Wartet auf Prüfung",
   Blocked: "Blockiert",
   "Stopped by the user": "Vom Nutzer gestoppt",
+  "Not updated after a restart": "Nach dem Neustart nicht aktualisiert",
   "Its model call failed ({code})": "Modellaufruf fehlgeschlagen ({code})",
   "Add a note": "Notiz hinzufügen",
   "Cancel task": "Aufgabe abbrechen",
@@ -13604,6 +13609,7 @@ var ZH = {
   "Awaiting review": "待审",
   Blocked: "阻塞",
   "Stopped by the user": "用户停止",
+  "Not updated after a restart": "重启后未更新",
   "Its model call failed ({code})": "模型调用失败（{code}）",
   "Add a note": "补一句",
   "Cancel task": "取消任务",
@@ -41457,7 +41463,7 @@ body[data-ds-dark-theme] .bt-member-state.bt-mw-ask{color:#f0b84a}
 var import_react67 = require("react");
 var OPEN = ["active", "review", "blocked"];
 var STATUS_KEY = { active: "In progress", review: "Awaiting review", blocked: "Blocked", done: "Done", cancelled: "Cancelled" };
-var blockedLine = (blocked) => blocked.cause === "stopped" ? t("Stopped by the user") : t("Its model call failed ({code})", { code: `${blocked.code}${blocked.status ? ` ${blocked.status}` : ""}` });
+var blockedLine = (blocked) => blocked.cause === "stopped" ? t("Stopped by the user") : blocked.cause === "restarted" ? t("Not updated after a restart") : t("Its model call failed ({code})", { code: `${blocked.code}${blocked.status ? ` ${blocked.status}` : ""}` });
 function TaskRow3({ task, bot, room: room2, actions }) {
   const [writing, setWriting] = (0, import_react67.useState)(false);
   const [text, setText] = (0, import_react67.useState)("");

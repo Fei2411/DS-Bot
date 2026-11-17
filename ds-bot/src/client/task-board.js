@@ -11,8 +11,8 @@ import { t } from './i18n.js'
 const OPEN = ['active', 'review', 'blocked']
 const STATUS_KEY = { active: 'In progress', review: 'Awaiting review', blocked: 'Blocked', done: 'Done', cancelled: 'Cancelled' }
 // A block DS Bot set from how the member's work ended, not one the Bot reported.
-const blockedLine = blocked => blocked.cause === 'stopped'
-  ? t('Stopped by the user')
+const blockedLine = blocked => blocked.cause === 'stopped' ? t('Stopped by the user')
+  : blocked.cause === 'restarted' ? t('Not updated after a restart')
   : t('Its model call failed ({code})', { code: `${blocked.code}${blocked.status ? ` ${blocked.status}` : ''}` })
 
 function TaskRow({ task, bot, room, actions }) {

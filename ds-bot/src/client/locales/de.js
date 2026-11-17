@@ -1250,6 +1250,7 @@ export const DE = {
   'Awaiting review': 'Wartet auf Prüfung',
   Blocked: 'Blockiert',
   'Stopped by the user': 'Vom Nutzer gestoppt',
+  'Not updated after a restart': 'Nach dem Neustart nicht aktualisiert',
   'Its model call failed ({code})': 'Modellaufruf fehlgeschlagen ({code})',
   'Add a note': 'Notiz hinzufügen',
   'Cancel task': 'Aufgabe abbrechen',

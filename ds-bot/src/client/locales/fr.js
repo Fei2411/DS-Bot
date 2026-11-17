@@ -1223,6 +1223,7 @@ export const FR = {
   "Awaiting review": "En attente de relecture",
   "Blocked": "Bloquée",
   "Stopped by the user": "Arrêté par l’utilisateur",
+  "Not updated after a restart": "Pas mis à jour après le redémarrage",
   "Its model call failed ({code})": "Échec de l’appel au modèle ({code})",
   "Add a note": "Ajouter une note",
   "Cancel task": "Annuler la tâche",

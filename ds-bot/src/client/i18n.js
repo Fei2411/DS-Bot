@@ -1257,6 +1257,7 @@ const ZH = {
   'Awaiting review': '待审',
   Blocked: '阻塞',
   'Stopped by the user': '用户停止',
+  'Not updated after a restart': '重启后未更新',
   'Its model call failed ({code})': '模型调用失败（{code}）',
   'Add a note': '补一句',
   'Cancel task': '取消任务',

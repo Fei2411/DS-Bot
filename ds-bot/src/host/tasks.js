@@ -23,8 +23,8 @@ const newId = () => `t_${randomBytes(4).toString('hex')}`
 
 // Why DS Bot blocked a task: the member's turn failed, or the user stopped it. The panel
 // words the same facts in the user's language.
-export const blockedLine = blocked => blocked.cause === 'stopped'
-  ? 'stopped by the user'
+export const blockedLine = blocked => blocked.cause === 'stopped' ? 'stopped by the user'
+  : blocked.cause === 'restarted' ? 'not updated after DeepSeek Harness restarted'
   : `its model call failed (${blocked.code}${blocked.status ? ` ${blocked.status}` : ''})`
 
 // The task an update names: its id, or the caller's own newest open task when no id is
@@ -69,6 +69,7 @@ export function install(rt) {
     const text = oneLine(result, RESULT_MAX)
     if (text === '') return { error: 'A finished task needs a result summary.' }
     task.status = 'done'
+    delete task.blocked
     task.result = text
     task.updatedAt = Date.now()
     return { task }
@@ -79,6 +80,7 @@ export function install(rt) {
     if (!OPEN_STATUSES.includes(task.status)) return { error: 'That task is already finished.' }
     if (task.botId !== botId && !isAdmin) return { error: `Task ${task.id} belongs to another member; only its owner, the admin or a Main Bot cancels it.` }
     task.status = 'cancelled'
+    delete task.blocked
     const why = oneLine(reason, REASON_MAX)
     if (why !== '') task.reason = why
     task.updatedAt = Date.now()
@@ -153,11 +155,13 @@ export function install(rt) {
   // The board follows how the member's work in the group really ended (#1663): a failed
   // turn or the user's stop blocks its running tasks, and its next completed turn there
   // puts them back. A block the Bot set itself is the Bot's to lift.
-  const blockTasks = (roomId, botId, cause) => {
+  // `since`: only tasks the member has not updated since then.
+  const blockTasks = (roomId, botId, cause, since) => {
     const room = rt.roomOf(roomId)
     if (room === undefined) return
     // A system block is renewed with the latest cause; a block the Bot set stays its own.
-    const running = openTasksOf(room).filter(task => task.botId === botId && (task.status !== 'blocked' || task.blocked !== undefined))
+    const running = openTasksOf(room).filter(task => task.botId === botId && (task.status !== 'blocked' || task.blocked !== undefined)
+      && (since === undefined || task.updatedAt < since))
     if (running.length === 0) return
     const at = Date.now()
     for (const task of running) {
@@ -201,6 +205,7 @@ export function install(rt) {
       if (task === undefined) return { error: 'No such task.' }
       if (!OPEN_STATUSES.includes(task.status)) return { error: 'That task is already finished.' }
       task.status = 'cancelled'
+      delete task.blocked
       task.updatedAt = Date.now()
       return { task }
     },

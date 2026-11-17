@@ -1250,6 +1250,7 @@ export const ES = {
   'Awaiting review': 'Pendiente de revisión',
   Blocked: 'Bloqueada',
   'Stopped by the user': 'Detenido por el usuario',
+  'Not updated after a restart': 'Sin actualizar tras el reinicio',
   'Its model call failed ({code})': 'Falló la llamada al modelo ({code})',
   'Add a note': 'Añadir una nota',
   'Cancel task': 'Cancelar tarea',
