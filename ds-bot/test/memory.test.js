@@ -988,6 +988,25 @@ for (const privateBot of [false, true]) test(`a ${privateBot ? 'private' : 'regu
   assert.equal(second.section('b2'), current)
 })
 
+for (const review of [true, false]) test(`changing memoryReview from ${review} refreshes an existing Session's frozen section`, async (t) => {
+  const first = start({ config: { memoryReview: review } })
+  t.after(() => first.stop())
+  await first.tool('bot_remember', { text: 'Likes tea' }, 'b2')
+  const frozen = first.section('b2')
+  await first.tool('bot_remember', { text: 'Lives in Hangzhou' }, 'b2')
+  assert.equal(first.section('b2'), frozen)
+  await first.stop({ keep: true })
+  const second = start({ home: first.home, config: { memoryReview: !review } })
+  t.after(() => second.stop())
+  const refreshed = second.section('b2')
+  assert.notEqual(refreshed, frozen)
+  assert.match(refreshed, /Lives in Hangzhou/)
+  assert.equal(refreshed.includes('After each of your turns, a memory review'), !review)
+  assert.equal(readFileSync(join(first.home, 'memory', 'snapshots', 'b2.md'), 'utf8'), refreshed)
+  await second.tool('bot_remember', { text: 'Prefers short replies' }, 'b2')
+  assert.equal(second.section('b2'), refreshed)
+})
+
 test('a memory file that cannot be read is left alone, and the section says so', async (t) => {
   const { home, tool, section, stop } = start()
   t.after(() => stop())

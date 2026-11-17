@@ -288,6 +288,7 @@ test('Bot memory tools coexist with another plugin memory tools in a Bot Session
   for (const name of ['bot_remember', 'bot_forget', 'bot_recall']) {
     assert.equal(typeof registered.get(name)?.execute, 'function', name)
   }
+  // No Bot memory tool may collide with the foreign registrations.
   assert.deepEqual(collisions, [])
   for (const [name, def] of foreign) assert.equal(registered.get(name), def)
 })
