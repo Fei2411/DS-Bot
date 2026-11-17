@@ -264,12 +264,6 @@ export function install(rt) {
         // again, so pin the version that is actually running.
         const oldSpec = await Promise.resolve(installSpecOf(ctx)).catch(() => undefined)
         const previous = typeof oldSpec === 'string' && sourceOf(oldSpec).kind === 'registry' ? `${PKG.name}@${PKG.version}` : oldSpec
-        mark()
-        const removed = await Promise.resolve(service.removeBundle(PKG.name)).catch((error) => { unmark(); throw error })
-        if (removed?.error) {
-          unmark()
-          return { error: removed.error }
-        }
         // The bundle is gone now; a failed install leaves no DS Bot unless the old one goes back.
         const restore = async (failed) => {
           if (typeof previous !== 'string' || previous === '') return failed
@@ -279,6 +273,22 @@ export function install(rt) {
             return failed
           }
           return `${failed}; ${previous} was reinstalled`
+        }
+        // A removal deselects the bundle before it unloads and removes the package, so
+        // one that fails afterwards leaves the profile changed (`changed`) without DS Bot.
+        // Selecting the bundle again undoes that; if the package is gone too, the old
+        // version is installed again. A removal that throws ran nothing (lock timeout).
+        const recover = async (failed) => {
+          const on = await Promise.resolve(service.setBundleEnabled?.(PKG.name, true)).catch(() => null)
+          if (on && !on.error && ['applied', 'restart-required'].includes(on.application)) return `${failed}; ${PKG.name} was enabled again`
+          return restore(failed)
+        }
+        mark()
+        const removed = await Promise.resolve(service.removeBundle(PKG.name)).catch((error) => { unmark(); throw error })
+        if (removed?.error) {
+          if (removed.changed) mark(await recover(removed.error.diagnostic ?? removed.error.code))
+          else unmark()
+          return { error: removed.error }
         }
         try {
           const again = await service.installBundle(chosen.spec, options)
