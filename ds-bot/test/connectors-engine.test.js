@@ -142,6 +142,33 @@ test('a refused dynamic registration falls back to asking for a registered clien
   assert.equal(resolved, null, 'the row asks for an app client ID instead of ending the sign-in')
 })
 
+test('a stored manual client keeps its secret for the token request', async () => {
+  const discovery = { authorizationServerUrl: 'https://as.test', metadata: { authorization_endpoint: 'https://as.test/auth', token_endpoint: 'https://as.test/token' }, resource: 'r' }
+  const entry = { auth: { kind: 'oauth' } }
+  const stored = { via: 'manual', clientId: 'manual-id', clientSecret: 'manual-secret' }
+  const reused = await oauth.resolveClient(entry, discovery, 'http://127.0.0.1:38517/callback', true, stored)
+  assert.equal(reused.via, 'manual')
+  assert.deepEqual(reused.clientInformation, { client_id: 'manual-id', client_secret: 'manual-secret' })
+  let sent
+  const request = async (url, init) => {
+    url = String(url?.url ?? url)
+    if (url === 'https://as.test/token') { sent = init.headers.get('authorization'); return json({ access_token: 'AT', token_type: 'Bearer' }) }
+    throw new Error(`unfaked ${url}`)
+  }
+  await oauth.exchange(discovery, reused.clientInformation, { code: 'C', codeVerifier: 'v', redirectUri: 'http://127.0.0.1:38517/callback' }, { fetch: request })
+  assert.equal(sent, `Basic ${Buffer.from('manual-id:manual-secret').toString('base64')}`)
+  const publicClient = await oauth.resolveClient(entry, discovery, 'http://127.0.0.1:38517/callback', true, { via: 'manual', clientId: 'public-id' })
+  assert.deepEqual(publicClient.clientInformation, { client_id: 'public-id' })
+})
+
+test('a CIMD client never carries the secret of the client before it', async () => {
+  const discovery = { authorizationServerUrl: 'https://as.test', metadata: { ...AS, client_id_metadata_document_supported: true }, resource: 'r' }
+  const stale = { via: 'cimd', clientId: oauth.CIMD_CLIENT_ID, clientSecret: 'dcr-secret' }
+  const reused = await oauth.resolveClient({ auth: { kind: 'oauth' } }, discovery, 'http://127.0.0.1:38517/callback', true, stale)
+  assert.equal(reused.via, 'cimd')
+  assert.deepEqual(reused.clientInformation, { client_id: oauth.CIMD_CLIENT_ID })
+})
+
 test('browser PKCE carries state, code challenge, and resource; tokens exchange and refresh', async () => {
   const discovery = { authorizationServerUrl: 'https://as.test', metadata: AS, scope: 'mcp:all', resource: 'https://mcp.test/mcp' }
   const client = { client_id: 'dcr-1' }

@@ -150,6 +150,12 @@ export function launchOf(executable, args, { platform = process.platform, readFi
 }
 
 // spawn() for an agent CLI, also when Windows found it as a `.cmd` shim.
+export function terminateChild(child) {
+  if (child === undefined) return
+  try { child.kill('SIGTERM') } catch {}
+  setTimeout(() => { try { child.kill('SIGKILL') } catch {} }, 5_000).unref?.()
+}
+
 export function spawnAgent(executable, args, options) {
   const launch = launchOf(executable, args)
   return spawn(launch.file, launch.args, { ...options, ...launch.options })
