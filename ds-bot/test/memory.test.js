@@ -2667,3 +2667,159 @@ test('a memory call names the current part of the Bot chat', async (t) => {
   assert.equal(answer.ok, true)
   assert.equal(requests[0].sessionId, 'b2-part2')
 })
+
+function legacyGroupEvents(lines, { ptc = false } = {}) {
+  const events = []
+  let seq = 1
+  for (let at = 0; at < lines.length; at += 2) {
+    const userLine = lines[at]
+    const botLine = lines[at + 1]
+    events.push({ event: { seq: seq++, time: userLine.time, type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text: userLine.text }] } } })
+    const callId = `relay-${at / 2 + 1}`
+    if (ptc) {
+      events.push({ event: { seq: seq++, time: userLine.time, type: 'tool/call', data: { callId, name: 'run_code', arguments: JSON.stringify({ code: 'return await tools.group_relay({ roundId: "r" })' }) } } })
+    } else {
+      events.push({ event: { seq: seq++, time: userLine.time, type: 'tool/call', data: { callId, name: 'group_relay', arguments: '{}' } } })
+    }
+    const replies = botLine === undefined ? [] : [{ botId: botLine.botId, name: botLine.who, text: botLine.text, time: botLine.time }]
+    events.push({ event: { seq: seq++, time: (botLine ?? userLine).time, type: 'tool/result', data: { message: { toolCallId: callId, content: [{ type: 'text', text: JSON.stringify({ replies, passed: [] }) }] } } } })
+  }
+  return events
+}
+
+test('a group memory review recovers lines that left the 60-line room log before the ledger existed from the group Session', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'ds-bot-memory-'))
+  mkdirSync(join(home, 'memory'), { recursive: true })
+  writeFileSync(join(home, 'memory', 'reviewed.json'), JSON.stringify({ 'group:r1': 3 }))
+  const allLines = Array.from({ length: 80 }, (_, index) => {
+    const seq = index + 1
+    return seq % 2 === 1
+      ? { who: 'User', text: seq === 5 ? 'Ship everything under MIT license' : `User turn ${seq}`, seq, time: 1_000_000 + seq * 1000 }
+      : { who: 'Coder', botId: 'b3', text: `Coder reply ${seq}`, seq, time: 1_000_000 + seq * 1000 }
+  })
+  const team = structuredClone(TEAM)
+  team.rooms.r1.seq = 80
+  team.rooms.r1.log = allLines.slice(-60)
+  writeFileSync(join(home, 'state.json'), JSON.stringify(team))
+  const history = { r1: legacyGroupEvents(allLines) }
+  const { ctx, tool, call, read, requests, warnings, stop } = start({
+    home, history,
+    replies: [JSON.stringify({ changes: [{ op: 'add', text: 'Ship everything under MIT license' }] })],
+    config: { memoryReviewDelayMs: 0 },
+  })
+  t.after(() => stop())
+  await call('state', {})
+  // A new message after upgrade opens the ledger from room.log before the review runs.
+  rt.logRoom(rt.roomOf('r1'), { who: 'User', text: 'Post-upgrade message 81' })
+  ctx.emit('agent/status', { agent: { id: 'g3' }, status: 'idle' })
+  await reviewed(call)
+  assert.equal(requests.length, 1)
+  assert.match(requests[0].messages[0].content[0].text, /\nUser: Ship everything under MIT license\n/)
+  assert.doesNotMatch(requests[0].messages[0].content[0].text, /\nUser: User turn 1\n/)
+  assert.doesNotMatch(requests[0].messages[0].content[0].text, /\nUser: User turn 3\n/)
+  assert.match(requests[0].messages[0].content[0].text, /\nUser: Post-upgrade message 81\n/)
+  assert.deepEqual(JSON.parse(read('reviewed.json')), { 'group:r1': 81 })
+  assert.match(await tool('read_group_chat', { group: 'Launch', seq: 5 }, 'g3'), /Ship everything under MIT license/)
+  assert.deepEqual(warnings.filter(line => line.includes('left its log')), [])
+})
+
+test('when a group Session is gone, an old pre-ledger gap warns instead of silently skipping', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'ds-bot-memory-'))
+  mkdirSync(join(home, 'memory'), { recursive: true })
+  writeFileSync(join(home, 'memory', 'reviewed.json'), JSON.stringify({ 'group:r1': 3 }))
+  const allLines = Array.from({ length: 80 }, (_, index) => {
+    const seq = index + 1
+    return seq % 2 === 1
+      ? { who: 'User', text: `User turn ${seq}`, seq, time: 1_000_000 + seq * 1000 }
+      : { who: 'Coder', botId: 'b3', text: `Coder reply ${seq}`, seq, time: 1_000_000 + seq * 1000 }
+  })
+  const team = structuredClone(TEAM)
+  team.rooms.r1.seq = 80
+  team.rooms.r1.log = allLines.slice(-60)
+  writeFileSync(join(home, 'state.json'), JSON.stringify(team))
+  const { ctx, call, read, requests, warnings, stop } = start({
+    home,
+    replies: [JSON.stringify({ changes: [] })],
+    config: { memoryReviewDelayMs: 0 },
+  })
+  t.after(() => stop())
+  const gone = () => Object.assign(new Error('Session r1 not found'), { code: 'session/not-found' })
+  ctx.sessionController.resolveAgent = async (sessionId) => {
+    if (sessionId === 'r1') throw gone()
+    return { agent: { session: { id: sessionId, seq: ownChat.at(-1).event.seq + 1 } } }
+  }
+  ctx.sessionController.page = async ({ address }) => {
+    if (address.sessionId === 'r1') throw gone()
+    return { records: ownChat, hasMore: false }
+  }
+  await call('state', {})
+  ctx.emit('agent/status', { agent: { id: 'g3' }, status: 'idle' })
+  await reviewed(call)
+  assert.equal(requests.length, 1)
+  assert.match(requests[0].messages[0].content[0].text, /\nUser: User turn 21\n/)
+  assert.ok(warnings.some(line => line.includes('17 lines of group "Launch"') && line.includes('left its log')), warnings.join('\n'))
+  assert.deepEqual(JSON.parse(read('reviewed.json')), { 'group:r1': 80 })
+})
+
+test('a group memory review recovers pre-ledger lines across multiple Session parts and PTC relays', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'ds-bot-memory-'))
+  mkdirSync(join(home, 'memory'), { recursive: true })
+  writeFileSync(join(home, 'memory', 'reviewed.json'), JSON.stringify({ 'group:r1': 3 }))
+  const allLines = Array.from({ length: 80 }, (_, index) => {
+    const seq = index + 1
+    return seq % 2 === 1
+      ? { who: 'User', text: seq === 5 ? 'Deploy only on Tuesdays' : `User turn ${seq}`, seq, time: 2_000_000 + seq * 1000 }
+      : { who: 'Coder', botId: 'b3', text: `Coder reply ${seq}`, seq, time: 2_000_000 + seq * 1000 }
+  })
+  const team = structuredClone(TEAM)
+  team.rooms.r1.seq = 80
+  team.rooms.r1.log = allLines.slice(-60)
+  team.rooms.r1.parts = [{ sessionId: 'r1-part1', endedAt: 2_010_000 }]
+  writeFileSync(join(home, 'state.json'), JSON.stringify(team))
+  const history = {
+    'r1-part1': legacyGroupEvents(allLines.slice(0, 10), { ptc: true }),
+    r1: legacyGroupEvents(allLines.slice(10), { ptc: true }),
+  }
+  const { ctx, call, read, requests, warnings, stop } = start({
+    home, history,
+    replies: [JSON.stringify({ changes: [{ op: 'add', text: 'Deploy only on Tuesdays' }] })],
+    config: { memoryReviewDelayMs: 0 },
+  })
+  t.after(() => stop())
+  await call('state', {})
+  ctx.emit('agent/status', { agent: { id: 'g3' }, status: 'idle' })
+  await reviewed(call)
+  assert.equal(requests.length, 1)
+  assert.match(requests[0].messages[0].content[0].text, /\nUser: Deploy only on Tuesdays\n/)
+  assert.deepEqual(JSON.parse(read('reviewed.json')), { 'group:r1': 80 })
+  assert.deepEqual(warnings.filter(line => line.includes('left its log')), [])
+})
+
+test('lines still in the 60-line room log at upgrade stay in the ledger even if 70 more lines arrive before the first review', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'ds-bot-memory-'))
+  mkdirSync(join(home, 'memory'), { recursive: true })
+  writeFileSync(join(home, 'memory', 'reviewed.json'), JSON.stringify({ 'group:r1': 3 }))
+  const initial = Array.from({ length: 20 }, (_, index) => {
+    const seq = index + 1
+    return seq % 2 === 1
+      ? { who: 'User', text: seq === 5 ? 'Keep backups for 30 days' : `Initial turn ${seq}`, seq, time: 3_000_000 + seq * 1000 }
+      : { who: 'Coder', botId: 'b3', text: `Initial reply ${seq}`, seq, time: 3_000_000 + seq * 1000 }
+  })
+  const team = structuredClone(TEAM)
+  team.rooms.r1.seq = 20
+  team.rooms.r1.log = initial
+  writeFileSync(join(home, 'state.json'), JSON.stringify(team))
+  const { ctx, call, read, requests, stop } = start({
+    home,
+    replies: [JSON.stringify({ changes: [{ op: 'add', text: 'Keep backups for 30 days' }] })],
+    config: { memoryReviewDelayMs: 0 },
+  })
+  t.after(() => stop())
+  await call('state', {})
+  for (let at = 0; at < 70; at += 1) rt.logRoom(rt.roomOf('r1'), { who: 'Coder', botId: 'b3', text: `Flood ${at + 1}` })
+  ctx.emit('agent/status', { agent: { id: 'g3' }, status: 'idle' })
+  await reviewed(call)
+  assert.equal(requests.length, 1)
+  assert.match(requests[0].messages[0].content[0].text, /\nUser: Keep backups for 30 days\n/)
+  assert.deepEqual(JSON.parse(read('reviewed.json')), { 'group:r1': 90 })
+})
