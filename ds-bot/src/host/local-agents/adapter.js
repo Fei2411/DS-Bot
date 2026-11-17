@@ -1167,7 +1167,8 @@ function toLlmError(error, live) {
           : /exited|spawn|ENOENT/i.test(text) ? 'LOCAL_AGENT_EXIT'
             : typeof error?.code === 'string' && error.code !== '' ? error.code : 'LOCAL_AGENT_ERROR'
   const hint = code === 'LOCAL_AGENT_SIGNIN' ? ` Sign in with: ${live?.spec?.signIn ?? `${live?.spec?.command ?? 'the CLI'} login`}.` : ''
-  return new LlmError(`${text}${hint}`, code, error?.status === undefined ? {} : { status: error.status })
+  const rpcCode = code === 'LOCAL_AGENT_ERROR' && typeof error?.code === 'number' ? ` (JSON-RPC ${error.code})` : ''
+  return new LlmError(`${text}${rpcCode}${hint}`, code, error?.status === undefined ? {} : { status: error.status })
 }
 
 // JSON-RPC errors carry numeric codes and may arrive as plain objects; LlmError
@@ -1178,6 +1179,7 @@ function errorText(error) {
   if (typeof error === 'string' && error !== '') return error
   if (message !== undefined && message !== null && typeof message !== 'string') return safeJson(message)
   if (error !== null && typeof error === 'object' && !(error instanceof Error)) return safeJson(error)
+  if (error !== undefined && error !== null && typeof error !== 'object' && error !== '') return String(error)
   return 'The local agent failed without an error message.'
 }
 

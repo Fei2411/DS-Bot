@@ -1703,7 +1703,7 @@ test('ACP errors with numeric, empty or object codes keep their message and get 
   t.after(() => adapter.dispose())
   await assert.rejects(
     collect(adapter.stream(options('s1', [user('m1', 'rpc-error-number')]))),
-    err => err.code === 'LOCAL_AGENT_ERROR' && /approval was cancelled/.test(err.message),
+    err => err.code === 'LOCAL_AGENT_ERROR' && /approval was cancelled \(JSON-RPC -32603\)/.test(err.message),
   )
   await assert.rejects(
     collect(adapter.stream(options('s2', [user('m1', 'rpc-error-empty')]))),
