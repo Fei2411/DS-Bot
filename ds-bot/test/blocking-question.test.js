@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
-import { RRule } from '@deepseek-ai/dsh-util-time'
+import * as time from '@deepseek-ai/dsh-util-time'
 import { createRuntime } from '../index.js'
 import { fakeContext } from './fake-ctx.js'
 
@@ -343,18 +343,24 @@ test('a Bot refuses schedule update fields DSH would silently ignore', async (t)
       assert.match(reason, /not editable/)
       assert.match(reason, /rrule/)
       assert.match(reason, /RRULE:FREQ=HOURLY;INTERVAL=3/)
-      const example = /"(DTSTART[^"]+)"/.exec(reason)?.[1]
-      assert.ok(example)
-      assert.equal(RRule.parse(example, { rejectIneffectiveSetPositions: true }).kind, 'accepted')
       assert.match(reason, /kind rrule/)
     }
   }
   const valid = { id: 's1', action: 'update', title: 'Task', prompt: 'Do it', rrule: 'DTSTART;TZID=Asia/Taipei:20261118T090000\nRRULE:FREQ=HOURLY;INTERVAL=3', target: 'this_session', active: false, expectedUpdatedAt: '2026-11-01T00:00:00.000Z' }
-  assert.equal(RRule.parse(valid.rrule).kind, 'accepted')
   for (const args of [valid, { id: 's1', action: 'update' }, { id: 's1', action: 'delete' }, undefined]) assert.equal(guard(args), undefined)
   const unsupported = { id: 's1', action: 'update', prompt: 'Unchanged prompt', everySeconds: 10800 }
   assert.equal(guard(unsupported, 'plain'), undefined)
   assert.equal(guard(unsupported, 'writer', 'schedule_create'), undefined)
+})
+
+test('schedule edit recovery gives a recurrence accepted by DSH', { skip: time.RRule === undefined && 'DSH does not support rrule yet' }, async (t) => {
+  const { ctx, stop } = await setup()
+  t.after(stop)
+  const exec = { name: 'schedule_edit', agent: { id: 'writer' }, arguments: { id: 's1', action: 'update', prompt: 'Unchanged prompt', everySeconds: 10800 } }
+  const reason = ctx.guards.map(check => check(exec)).find(reason => reason !== undefined)
+  const example = /"(DTSTART[^"]+)"/.exec(reason)?.[1]
+  assert.ok(example)
+  assert.equal(time.RRule.parse(example, { rejectIneffectiveSetPositions: true }).kind, 'accepted')
 })
 
 // DSH 0.2.2's schedule tools can deliver to a new Session, outside the team.
