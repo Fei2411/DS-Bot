@@ -16,6 +16,7 @@ import { ErrorBoundary } from './src/ui/error-boundary.tsx'
 import { palette, ThemeContext, useTheme } from './src/ui/tokens.ts'
 import { Pair } from './src/screens/Pair.tsx'
 import ShellB from './src/nav/ShellB.tsx'
+import { BrowserSession } from './src/team/BrowserSession'
 
 // Colors follow the computer's prefs plus the phone's light/dark mode. The
 // local appearance pref overrides the system scheme.
@@ -144,7 +145,7 @@ export default function App() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
         <ErrorBoundary>
-          <Boot />
+          <BrowserSession><Boot /></BrowserSession>
         </ErrorBoundary>
         <StatusBar style={dark ? 'light' : 'dark'} />
       </SafeAreaProvider>
