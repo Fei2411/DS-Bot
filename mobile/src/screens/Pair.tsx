@@ -2,7 +2,7 @@ import { PairCamera } from './PairCamera'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { parsePairingUri } from '../../../link/src/index.ts'
+import { parsePairingInput } from '../team/pair-input.ts'
 import { openLink } from '../connection.ts'
 import { addComputer, type PhoneIdentity, type SavedComputer } from '../store.ts'
 import { errorText } from '../team/link.ts'
@@ -21,7 +21,7 @@ export function Pair({ identity, offer, onPaired, onCancel }: { identity: PhoneI
     if (busyRef.current) return
     busyRef.current = true; setBusy(true); setError(null)
     try {
-      const offer = parsePairingUri(uri.trim())
+      const offer = parsePairingInput(uri)
       const client = await openLink(offer, identity, offer.code)
       await client.close()
       onPaired(await addComputer(offer))
