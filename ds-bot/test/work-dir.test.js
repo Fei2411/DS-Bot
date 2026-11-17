@@ -1623,6 +1623,23 @@ test('group membership and folder resets check inherited Bot folders', async (t)
   }
 })
 
+test('an explicit Full-access Bot is not blocked by a workspace-write default', async (t) => {
+  for (const change of ['extra_dirs', 'work_dir']) {
+    await t.test(change, async (t) => {
+      const { requests, services } = approvalServices('rejected', { mode: 'danger-full-access' })
+      const saved = structuredClone(TEAM)
+      saved.bots.b.permission = 'danger-full-access'
+      const env = await start({ services: { ...services, permissionPresets: folderPresets('workspace-write') }, team: saved })
+      t.after(env.stop)
+      const patch = change === 'extra_dirs' ? { extra_dirs: [env.project] } : { work_dir: env.project }
+      assert.match(await env.tool('update_bot', { ...patch }, 'b'), /^Updated Writer/)
+      assert.equal(requests.length, 0)
+      if (change === 'extra_dirs') assert.deepEqual(env.state().bots.b.extraDirs, [env.project])
+      else await env.workingIn('b', env.project)
+    })
+  }
+})
+
 test('new Bot folders use the configured default preset, not only the deployment sandbox', async (t) => {
   const { requests, services } = approvalServices('rejected', { mode: 'danger-full-access' })
   const env = await start({ services: { ...services, permissionPresets: folderPresets('bounded') } })

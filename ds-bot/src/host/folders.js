@@ -170,17 +170,18 @@ export function install(rt) {
   // A folder outside the team workspace widens where a Bot may write, so a Bot that
   // sets one for Bots whose writes are bounded by their folder asks the user first.
   // Existing Sessions and the presets their future replacements inherit both count.
-  // The default policy also covers callers that have no preset.
+  // The deployment policy and the default preset apply only when a place has no explicit preset.
   async function approveFolder(exec, { path, sessions = [], presets = [], who }) {
     const team = await realTeam()
     const policy = ctx.get?.('sandboxPolicy')
     if (path === undefined || (team !== undefined && within(path, team))) return
     if (policy !== undefined) {
       const agents = await Promise.all(sessions.map(id => rt.resolveAgent(id)))
-      const modes = [policy.resolve(), ...agents.map(agent => policy.resolve({ session: agent.session }))].map(entry => entry.mode)
+      const modes = agents.map(agent => policy.resolve({ session: agent.session })).map(entry => entry.mode)
       const service = ctx.get?.('permissionPresets')
-      const future = [rt.permissionCatalog()?.defaultPreset, ...presets].filter(Boolean)
+      const future = presets.length > 0 ? presets : [rt.permissionCatalog()?.defaultPreset].filter(Boolean)
       modes.push(...future.map(name => service?.resolve(name)?.sandbox))
+      if (future.length === 0) modes.push(policy.resolve().mode)
       // An unavailable preset service cannot establish that a future Session is unbounded.
       if (modes.every(mode => mode === 'read-only' || mode === 'danger-full-access')) return
     }
