@@ -141,6 +141,9 @@ var JA = {
   "Scan this code with the DS Bot app on your phone.": "スマートフォンの DS Bot アプリでこのコードをスキャンしてください。",
   "Server": "サーバー",
   "Show a QR code": "QR コードを表示",
+  "Open in a browser": "ブラウザーで開く",
+  "Copy browser link": "ブラウザーのリンクをコピー",
+  "Clipboard is not available": "クリップボードを利用できません",
   "The Relay Server that passes encrypted messages between your phone and this computer. It cannot read them.": "スマートフォンとこのコンピューターの間で暗号化されたメッセージを中継するサーバーです。内容は読めません。",
   "The code works once. It stops working in {count} min.": "このコードは 1 回だけ使えます。{count} 分後に無効になります。",
   "Turn on phone access first": "先にスマートフォンからのアクセスをオンにしてください",
@@ -2557,6 +2560,9 @@ var KO = {
   "Scan this code with the DS Bot app on your phone.": "휴대폰의 DS Bot 앱으로 이 코드를 스캔하세요.",
   "Server": "서버",
   "Show a QR code": "QR 코드 표시",
+  "Open in a browser": "브라우저에서 열기",
+  "Copy browser link": "브라우저 링크 복사",
+  "Clipboard is not available": "클립보드를 사용할 수 없습니다",
   "The Relay Server that passes encrypted messages between your phone and this computer. It cannot read them.": "휴대폰과 이 컴퓨터 사이에서 암호화된 메시지를 전달하는 중계 서버입니다. 내용은 읽을 수 없습니다.",
   "The code works once. It stops working in {count} min.": "이 코드는 한 번만 사용할 수 있으며 {count}분 후에 만료됩니다.",
   "Turn on phone access first": "먼저 휴대폰 접근을 켜세요",
@@ -5018,6 +5024,9 @@ var ES = {
   "Scan this code with the DS Bot app on your phone.": "Escanea este código con la app DS Bot de tu teléfono.",
   "Server": "Servidor",
   "Show a QR code": "Mostrar un código QR",
+  "Open in a browser": "Abrir en un navegador",
+  "Copy browser link": "Copiar enlace del navegador",
+  "Clipboard is not available": "El portapapeles no está disponible",
   "The Relay Server that passes encrypted messages between your phone and this computer. It cannot read them.": "El servidor de retransmisión que pasa los mensajes cifrados entre tu teléfono y este ordenador. No puede leerlos.",
   "The code works once. It stops working in {count} min.": "El código sirve una sola vez. Caduca en {count} min.",
   "Turn on phone access first": "Activa primero el acceso desde el teléfono",
@@ -7479,6 +7488,9 @@ var FR = {
   "Scan this code with the DS Bot app on your phone.": "Scannez ce code avec l’app DS Bot sur votre téléphone.",
   "Server": "Serveur",
   "Show a QR code": "Afficher un code QR",
+  "Open in a browser": "Ouvrir dans un navigateur",
+  "Copy browser link": "Copier le lien du navigateur",
+  "Clipboard is not available": "Le presse-papiers n’est pas disponible",
   "The Relay Server that passes encrypted messages between your phone and this computer. It cannot read them.": "Le serveur relais qui transmet les messages chiffrés entre votre téléphone et cet ordinateur. Il ne peut pas les lire.",
   "The code works once. It stops working in {count} min.": "Le code ne sert qu’une fois. Il expire dans {count} min.",
   "Turn on phone access first": "Activez d’abord l’accès depuis le téléphone",
@@ -9895,6 +9907,9 @@ var DE = {
   "Scan this code with the DS Bot app on your phone.": "Scanne diesen Code mit der DS Bot-App auf deinem Telefon.",
   "Server": "Server",
   "Show a QR code": "QR-Code anzeigen",
+  "Open in a browser": "Im Browser öffnen",
+  "Copy browser link": "Browser-Link kopieren",
+  "Clipboard is not available": "Die Zwischenablage ist nicht verfügbar",
   "The Relay Server that passes encrypted messages between your phone and this computer. It cannot read them.": "Der Relay-Server, der verschlüsselte Nachrichten zwischen deinem Telefon und diesem Computer weiterleitet. Er kann sie nicht lesen.",
   "The code works once. It stops working in {count} min.": "Der Code funktioniert einmal. Er läuft in {count} Min. ab.",
   "Turn on phone access first": "Schalte zuerst den Telefonzugriff ein",
@@ -13086,6 +13101,9 @@ var ZH = {
   "Scan this code with the DS Bot app on your phone.": "用手机上的 DS Bot App 扫这个码。",
   "The code works once. It stops working in {count} min.": "这个码只能用一次，{count} 分钟后失效。",
   "Show a QR code": "显示二维码",
+  "Open in a browser": "在浏览器中打开",
+  "Copy browser link": "复制浏览器链接",
+  "Clipboard is not available": "剪贴板不可用",
   "Your phone scans it once. After that it connects by itself.": "手机扫一次就行，以后会自动连接。",
   "Turn on phone access first": "请先打开手机访问",
   Phones: "手机",
@@ -34598,6 +34616,17 @@ var createDataURL = function(width, height, getPixel) {
 var qrcode_default = qrcode;
 var stringToBytes = qrcode.stringToBytes;
 
+// src/client/phone-browser.js
+function browserPairingUrl(server, pairingUri) {
+  const url = new URL(server);
+  if (url.protocol !== "ws:" && url.protocol !== "wss:") throw new Error("The Server address must start with ws:// or wss://");
+  url.protocol = url.protocol === "wss:" ? "https:" : "http:";
+  url.pathname = `${url.pathname.replace(/\/v1\/link\/?$/, "").replace(/\/+$/, "")}/web/`;
+  url.search = "";
+  url.hash = `pair=${encodeURIComponent(pairingUri)}`;
+  return url.href;
+}
+
 // src/client/phone-page.js
 var import_react43 = require("react");
 var OFF = { server: "", on: false, status: "off", phones: [], pairing: null };
@@ -34654,6 +34683,7 @@ function PhonePage({ roster, actions, Section: Section2, Row: Row4 }) {
     void run2(actions.phoneSet({ server }));
   };
   const online = phone.on && phone.status === "online";
+  const browserUrl = phone.pairing ? browserPairingUrl(phone.server, phone.pairing.uri) : null;
   return (0, import_react43.createElement)(
     "div",
     { className: "bt-phone" },
@@ -34694,6 +34724,12 @@ function PhonePage({ roster, actions, Section: Section2, Row: Row4 }) {
         { className: "bt-phone-pair-copy" },
         (0, import_react43.createElement)("span", null, t("Scan this code with the DS Bot app on your phone.")),
         (0, import_react43.createElement)("span", { className: "bt-set-hint" }, t("The code works once. It stops working in {count} min.", { count: minutesLeft(phone.pairing.expiresAt) })),
+        (0, import_react43.createElement)(
+          "div",
+          null,
+          (0, import_react43.createElement)("a", { className: "bt-soft bt-soft-sm", href: browserUrl, target: "_blank", rel: "noopener noreferrer" }, t("Open in a browser")),
+          (0, import_react43.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: busy, onClick: () => void run2(navigator.clipboard?.writeText(browserUrl) ?? Promise.reject(new Error(t("Clipboard is not available")))) }, t("Copy browser link"))
+        ),
         (0, import_react43.createElement)("div", null, (0, import_react43.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: busy, onClick: () => void run2(actions.phonePairCancel()) }, t("Cancel")))
       )
     ) : (0, import_react43.createElement)(

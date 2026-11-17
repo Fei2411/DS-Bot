@@ -5,6 +5,15 @@ import * as storage from '../storage.web.ts'
 import { downloadFile } from './file-download.web.ts'
 import { shareFile } from './share-file.web.ts'
 import { ensureUnlock } from './gate.web.ts'
+import { phoneName } from '../phone-name.ts'
+
+test('device names support a browser without native platform constants', () => {
+  assert.equal(phoneName('web'), 'Web browser')
+  assert.equal(phoneName('android', { Manufacturer: 'Maker', Model: 'Phone' }), 'Maker Phone')
+  assert.equal(phoneName('android', {}), 'Android phone')
+  assert.equal(phoneName('ios', { interfaceIdiom: 'pad' }), 'iPad')
+  assert.equal(phoneName('ios', {}), 'iPhone')
+})
 
 function browserGlobal(t: { after: (fn: () => void) => void }, key: string, value: unknown) {
   const previous = Object.getOwnPropertyDescriptor(globalThis, key)

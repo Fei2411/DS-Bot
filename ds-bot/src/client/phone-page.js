@@ -2,6 +2,7 @@ import { createElement as h, useEffect, useState } from 'react'
 import qrcode from 'qrcode-generator'
 import { Switch } from './bot-settings.js'
 import { dateLocale, t } from './i18n.js'
+import { browserPairingUrl } from './phone-browser.js'
 
 const OFF = { server: '', on: false, status: 'off', phones: [], pairing: null }
 // The quiet zone around a QR code is part of the code: scanners need it to find the edges.
@@ -60,6 +61,7 @@ export function PhonePage({ roster, actions, Section, Row }) {
     void run(actions.phoneSet({ server }))
   }
   const online = phone.on && phone.status === 'online'
+  const browserUrl = phone.pairing ? browserPairingUrl(phone.server, phone.pairing.uri) : null
   return h('div', { className: 'bt-phone' },
     h(Section, { title: t('Connection') },
       h(Row, { label: t('Phone access'), hint: statusText(phone), className: phone.error || phone.status === 'offline' ? 'bt-phone-warn' : '' },
@@ -78,6 +80,9 @@ export function PhonePage({ roster, actions, Section, Row }) {
         h('div', { className: 'bt-phone-pair-copy' },
           h('span', null, t('Scan this code with the DS Bot app on your phone.')),
           h('span', { className: 'bt-set-hint' }, t('The code works once. It stops working in {count} min.', { count: minutesLeft(phone.pairing.expiresAt) })),
+          h('div', null,
+            h('a', { className: 'bt-soft bt-soft-sm', href: browserUrl, target: '_blank', rel: 'noopener noreferrer' }, t('Open in a browser')),
+            h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: busy, onClick: () => void run(navigator.clipboard?.writeText(browserUrl) ?? Promise.reject(new Error(t('Clipboard is not available')))) }, t('Copy browser link'))),
           h('div', null, h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: busy, onClick: () => void run(actions.phonePairCancel()) }, t('Cancel')))))
       : h(Row, { label: t('Show a QR code'), hint: online ? t('Your phone scans it once. After that it connects by itself.') : t('Turn on phone access first') },
         h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: busy || !online, onClick: () => void run(actions.phonePair()) }, t('Show')))),
