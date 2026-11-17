@@ -23059,13 +23059,6 @@ function useEfforts(served, ref, actions) {
   }, [ref, served?.reasoning !== void 0, actions]);
   return served?.reasoning ?? fetched;
 }
-function effortRows(reasoning) {
-  if (reasoning?.efforts === void 0 || reasoning.efforts.length === 0) return [];
-  return [
-    { effort: void 0, label: t("Default") },
-    ...reasoning.efforts.map((effort) => ({ effort: effort.id, label: effort.name }))
-  ];
-}
 function effortStops(reasoning) {
   const efforts = reasoning?.efforts ?? [];
   if (efforts.length === 0) return [];
@@ -27151,9 +27144,6 @@ ${opened.marker}`,
     codeHead: lines.slice(opened.line + 1).join("\n"),
     code: blockCode(body, opened.line, opened.marker)
   };
-}
-function foldPreview(text, limit = FOLD_AT, markdown = true) {
-  return foldView(text, limit, markdown)?.head ?? null;
 }
 var stripLongNote = (text) => text.replace(/^\[A long message: \d+ characters\.[^\]\n]*\]\n/, "");
 function useFold(text, { limit = FOLD_AT, whole, live = false, markdown = true } = {}) {
