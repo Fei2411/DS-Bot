@@ -24205,6 +24205,44 @@ var FOLDER_CSS = `
 @media (prefers-reduced-motion:reduce){.bt-folder-view{animation:none}}
 `;
 
+// src/client/schedule-next.js
+var localZone = () => Intl.DateTimeFormat().resolvedOptions().timeZone;
+function nextRuns(task, from = Date.now(), count = 3) {
+  if (task.status !== "active") return [];
+  if (task.timeZone && task.timeZone !== localZone()) return [];
+  const first = Date.parse(task.scheduledAt);
+  if (!Number.isFinite(first)) return [];
+  if (task.kind === "at" || task.kind === "after") return first > from ? [first] : [];
+  if (task.kind === "every") {
+    const step = Number(task.everySeconds) * 1e3;
+    if (!(step > 0)) return [];
+    let next = first;
+    if (next <= from) next += Math.ceil((from - next) / step) * step;
+    return Array.from({ length: count }, (_, index) => next + index * step);
+  }
+  const clockOf = (text) => {
+    const [, hours, minutes, seconds] = /^(\d\d):(\d\d)(?::(\d\d))?/.exec(String(text ?? "")) ?? [];
+    return hours === void 0 ? null : [Number(hours), Number(minutes), Number(seconds ?? "0")];
+  };
+  if (task.kind === "daily" || task.kind === "weekly") {
+    const [hours, minutes, seconds] = clockOf(task.time) ?? [];
+    if (hours === void 0) return [];
+    const days = task.kind === "weekly" ? new Set((task.weekdays ?? []).map(Number)) : null;
+    const out = [];
+    const day = new Date(first);
+    day.setHours(hours, minutes, seconds, 0);
+    for (let step = 0; step < 366 && out.length < count; step += 1) {
+      const at = new Date(day);
+      at.setDate(day.getDate() + step);
+      const weekday = at.getDay() === 0 ? 7 : at.getDay();
+      if (days !== null && !days.has(weekday)) continue;
+      if (at.getTime() > from) out.push(at.getTime());
+    }
+    return out;
+  }
+  return [];
+}
+
 // src/client/schedules.js
 var import_react23 = require("react");
 var POLL_MS = 3e4;
@@ -24235,7 +24273,7 @@ function useSchedules(actions) {
   }, []);
   return view;
 }
-var localZone = () => Intl.DateTimeFormat().resolvedOptions().timeZone;
+var localZone2 = () => Intl.DateTimeFormat().resolvedOptions().timeZone;
 var clock2 = (time) => {
   const text = String(time ?? "");
   const [, minutes, seconds] = /^(\d\d:\d\d)(?::(\d\d))?/.exec(text) ?? [];
@@ -24257,7 +24295,7 @@ function everyText(seconds) {
   return t("Every {count} minutes", { count: Math.round(seconds / 60) });
 }
 function timingText(task) {
-  const zone = task.timeZone && task.timeZone !== localZone() ? ` (${task.timeZone})` : "";
+  const zone = task.timeZone && task.timeZone !== localZone2() ? ` (${task.timeZone})` : "";
   switch (task.kind) {
     case "after":
     case "at":
@@ -24283,6 +24321,11 @@ var nextText = (task) => {
   if (task.state === "overdue" || task.state === void 0 && task.status === "active" && Date.parse(task.scheduledAt) <= Date.now()) return t("Overdue: {time}", { time: dayAndTime(Date.parse(task.scheduledAt)) });
   if (task.status === "paused") return t("Paused");
   return task.status === "active" ? t("Next: {time}", { time: dayAndTime(Date.parse(task.scheduledAt)) }) : t("Finished");
+};
+var nextRunsText = (task, format) => {
+  const runs = nextRuns(task);
+  if (runs.length <= 1) return null;
+  return t("Next: {time}", { time: runs.slice(1).map((at) => format(at, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })).join(" · ") });
 };
 function TaskRow2({ task, actions, onView, showBot, roster }) {
   const [confirming, setConfirming] = (0, import_react23.useState)(false);
@@ -24311,7 +24354,8 @@ function TaskRow2({ task, actions, onView, showBot, roster }) {
       { type: "button", className: "bt-set-copy bt-task-copy", "aria-expanded": expanded || void 0, onClick: () => setExpanded((open) => !open) },
       (0, import_react23.createElement)("span", { className: "bt-task-title" }, task.title),
       (0, import_react23.createElement)("span", { className: "bt-set-hint" }, [timingText(task), room2 ? t("in {name}", { name: room2.name }) : ""].filter(Boolean).join(" · ")),
-      task.prompt && task.prompt !== task.title ? (0, import_react23.createElement)("span", { className: "bt-task-prompt", "data-open": expanded || void 0 }, task.prompt) : null
+      task.prompt && task.prompt !== task.title ? (0, import_react23.createElement)("span", { className: "bt-task-prompt", "data-open": expanded || void 0 }, task.prompt) : null,
+      expanded ? (0, import_react23.createElement)("span", { className: "bt-set-hint" }, nextRunsText(task, when2)) : null
     ),
     (0, import_react23.createElement)("span", { className: "bt-task-next", "data-state": task.state === "overdue" ? "overdue" : void 0 }, nextText(task)),
     (0, import_react23.createElement)("button", {
@@ -24348,7 +24392,7 @@ function TaskForm({ roster, actions, start, onDone, onCancel }) {
   const timing = () => {
     if (kind === "at") return { kind, at: new Date(at).toISOString() };
     if (kind === "every") return { kind, minutes: Math.round(Number(count) * UNITS.find(([id]) => id === unit)[1]) };
-    return { kind, time, timeZone: localZone(), ...kind === "weekly" ? { weekdays } : {} };
+    return { kind, time, timeZone: localZone2(), ...kind === "weekly" ? { weekdays } : {} };
   };
   const submit = (event) => {
     event.preventDefault();

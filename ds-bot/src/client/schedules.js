@@ -6,6 +6,7 @@ import { BotAvatar, RoomAvatar } from './mark.js'
 import { ClockIcon, PlusIcon, TrashIcon } from './icons.js'
 import { Segmented } from './motion.js'
 import { dateLocale, hostText, t } from './i18n.js'
+import { nextRuns } from './schedule-next.js'
 
 const POLL_MS = 30_000
 
@@ -83,6 +84,12 @@ const nextText = (task) => {
   return task.status === 'active' ? t('Next: {time}', { time: dayAndTime(Date.parse(task.scheduledAt)) }) : t('Finished')
 }
 
+const nextRunsText = (task, format) => {
+  const runs = nextRuns(task)
+  if (runs.length <= 1) return null
+  return t('Next: {time}', { time: runs.slice(1).map(at => format(at, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })).join(' · ') })
+}
+
 function TaskRow({ task, actions, onView, showBot, roster }) {
   const [confirming, setConfirming] = useState(false)
   const [expanded, setExpanded] = useState(false)
@@ -103,7 +110,8 @@ function TaskRow({ task, actions, onView, showBot, roster }) {
     h('button', { type: 'button', className: 'bt-set-copy bt-task-copy', 'aria-expanded': expanded || undefined, onClick: () => setExpanded(open => !open) },
       h('span', { className: 'bt-task-title' }, task.title),
       h('span', { className: 'bt-set-hint' }, [timingText(task), room ? t('in {name}', { name: room.name }) : ''].filter(Boolean).join(' · ')),
-      task.prompt && task.prompt !== task.title ? h('span', { className: 'bt-task-prompt', 'data-open': expanded || undefined }, task.prompt) : null),
+      task.prompt && task.prompt !== task.title ? h('span', { className: 'bt-task-prompt', 'data-open': expanded || undefined }, task.prompt) : null,
+      expanded ? h('span', { className: 'bt-set-hint' }, nextRunsText(task, when)) : null),
     h('span', { className: 'bt-task-next', 'data-state': task.state === 'overdue' ? 'overdue' : undefined }, nextText(task)),
     h('button', {
       type: 'button', className: 'bt-mini bt-task-remove', 'data-confirm': confirming || undefined, disabled: busy,
