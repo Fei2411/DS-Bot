@@ -122,12 +122,6 @@ export function install(rt) {
     // `computer` is the computer-use switch; absent or corrupt means off.
     if (state.computer === null || typeof state.computer !== 'object' || Array.isArray(state.computer)) state.computer = {}
     let migrated = !hadCapabilities
-    for (const target of [...Object.values(state.bots), ...Object.values(state.rooms)]) {
-      if (!Object.hasOwn(target, 'autoApprove')) continue
-      if (target.autoApprove === true) target.permission = 'review'
-      delete target.autoApprove
-      migrated = true
-    }
     if (state.capabilities === null || typeof state.capabilities !== 'object' || Array.isArray(state.capabilities)) {
       state.capabilities = { items: {} }
       migrated = true
@@ -171,6 +165,14 @@ export function install(rt) {
       }
       if (sessionIdOf(room.id) === undefined) room.id = id
       if (!Array.isArray(room.members)) room.members = []
+    }
+    // Null maps and null entries are repaired above. Migrating before that
+    // threw on archives that previously still loaded.
+    for (const target of [...Object.values(state.bots), ...Object.values(state.rooms)]) {
+      if (!Object.hasOwn(target, 'autoApprove')) continue
+      if (target.autoApprove === true) target.permission = 'review'
+      delete target.autoApprove
+      migrated = true
     }
     if (migrateLocalRoutes(state)) migrated = true
     // A team from before several Main Bots were allowed names a single one.

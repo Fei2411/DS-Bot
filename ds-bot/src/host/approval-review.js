@@ -100,6 +100,12 @@ export async function reviewContext(rt, owner, signal) {
     if (!room) throw new Error('The group context is unavailable')
     const lines = (await rt.groupLinesAfter(owner.roomId)).slice(-24)
     if (lines.some(line => line.length > (line.text?.length ?? 0))) throw new Error('Some group messages are incomplete')
+    // After a relay rotation the current Session no longer has the original file or
+    // image event. The log line keeps the filename only, so an earlier text grant
+    // must not be allowed to approve over an attachment the reviewer cannot read.
+    if (lines.some(line => (Array.isArray(line.files) && line.files.length > 0) || (Array.isArray(line.images) && line.images.length > 0))) {
+      throw new Error('Group attachments need manual review')
+    }
     const context = lines.filter(line => typeof line.text === 'string' && line.text).map(line => ({
       source: line.botId ? 'bot' : line.kind === 'user' || line.who === 'User' ? 'user' : 'context', text: line.text,
     }))

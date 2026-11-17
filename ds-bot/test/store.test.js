@@ -78,6 +78,18 @@ test('legacy review switches migrate into the permission mode and keep the team 
   assert.equal(rt.state.approvalPolicies.child, 'never')
 })
 
+test('a previously repairable null-map and null-entry team still loads', async t => {
+  const { rt } = runtime(t, { version: 1,
+    bots: { ghost: null, chief: { id: 'chief', name: 'Chief', autoApprove: true } },
+    rooms: null,
+  })
+  await rt.load()
+  assert.equal(rt.state.bots.ghost, undefined)
+  assert.equal(rt.state.bots.chief.permission, 'review')
+  assert.equal(Object.hasOwn(rt.state.bots.chief, 'autoApprove'), false)
+  assert.deepEqual(rt.state.rooms, {})
+})
+
 test('a failed state write rejects and leaves the saved file unchanged', async (t) => {
   const { rt, statePath } = runtime(t)
   await rt.load()

@@ -191,7 +191,12 @@ export function install(rt) {
       const timeout = new Promise((_, fail) => {
         const interrupted = () => fail(new Error('Automatic review stopped; review this action manually'))
         reviewer.signal.addEventListener('abort', interrupted, { once: true })
-        timer = setTimeout(() => reviewer.abort(), REVIEW_TIMEOUT_MS)
+        // Once the model wins the race, a stalled save no longer rejects it.
+        // Open the card from the timer itself so persistence cannot block it.
+        timer = setTimeout(() => {
+          reviewer.abort()
+          if (pending.has(id)) manual('Automatic review could not decide. Review this action manually.')
+        }, REVIEW_TIMEOUT_MS)
       })
       void Promise.race([reviewApproval(rt, {
         request, owner, evidence, validateEvidence, signal: reviewer.signal,

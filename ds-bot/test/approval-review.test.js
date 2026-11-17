@@ -440,6 +440,25 @@ test('a newer logged restriction cannot be followed by an old relay grant', asyn
   assert.equal(await result, 'rejected')
 })
 
+for (const extra of [
+  { files: [{ name: 'restriction.pdf', bytes: 128 }] },
+  { images: [{ attachmentId: 'restriction' }] },
+]) test('rotated relay keeps a group ' + Object.keys(extra)[0] + ' attachment manual', async t => {
+  const { rt, ask, calls, waitManual } = setup(t)
+  // The current relay has no original non-text event, so only the ledger still
+  // carries the attachment behind the filename.
+  rt.groupLinesAfter = async () => [
+    { who: 'User', text: 'Create the report' },
+    { who: 'User', text: 'restriction.pdf', ...extra },
+  ]
+  const result = ask({ sessionId: 'g' })
+  const entry = await waitManual()
+  assert.equal(calls.length, 0)
+  await assert.rejects(reviewContext(rt, { roomId: 'r', ownerSessionId: 'g', sessionId: 'g' }), /manual review/)
+  rt.answerApproval(entry.id, 'reject')
+  assert.equal(await result, 'rejected')
+})
+
 test('aligned raw messages preserve the group log order without duplicates', async t => {
   const { rt, groupEvents } = setup(t)
   const texts = ['Publish the report.', 'Stop. Do not publish.']
@@ -556,6 +575,30 @@ for (const stage of ['manual', 'model', 'save']) test('dropping a group owner ca
   for (const entry of rt.approvalsView()) rt.answerApproval(entry.id, 'reject')
   assert.equal(await other, stage === 'model' ? 'allowed-once' : 'rejected')
   assert.equal(await own, stage === 'model' ? 'allowed-once' : 'rejected')
+})
+
+test('stalled persistence after an allow still opens the own-chat host card', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  let release
+  let saved
+  const saving = new Promise(resolve => { saved = resolve })
+  const gate = new Promise(resolve => { release = resolve })
+  let hostCalls = 0
+  const { rt, ask } = setup(t, { next: async () => { hostCalls++; return 'rejected' } })
+  rt.save = () => { saved(); return gate }
+  t.after(() => release?.())
+  const result = ask()
+  await saving
+  assert.equal(hostCalls, 0)
+  assert.equal(rt.approvalReviewsView()[0].outcome, 'allow')
+  t.mock.timers.tick(30_001)
+  assert.equal(rt.approvalsView()[0].review.status, 'manual')
+  assert.equal(await result, 'rejected')
+  assert.equal(hostCalls, 1)
+  assert.equal(rt.approvalReviewsView()[0].outcome, 'cancelled')
+  release()
+  await tick()
+  assert.notEqual(rt.approvalReviewsView()[0].outcome, 'allow')
 })
 
 test('manual rejection during audit persistence withdraws the model decision', async t => {
