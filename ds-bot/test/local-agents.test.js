@@ -1697,3 +1697,89 @@ test('replay drops images outside the replay window without reading their attach
   assert.equal(out.finish?.kind, 'stop')
   assert.deepEqual(readIds, ['att-recent'])
 })
+
+test('AcpEngine cwdPerProcess does not close a worker while another open is in-flight or a non-ephemeral session shared it', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsb-acp-worker-'))
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  const dirA = join(dir, 'ws-a')
+  const dirHold = join(dir, 'ws-hold')
+  const dirRace = join(dir, 'ws-race')
+  mkdirSync(dirA, { recursive: true })
+  mkdirSync(dirHold, { recursive: true })
+  mkdirSync(dirRace, { recursive: true })
+
+  const script = `
+    let buf = '', next = 0
+    const held = [], race = []
+    const send = obj => process.stdout.write(JSON.stringify(obj) + '\\n')
+    process.stdin.setEncoding('utf8')
+    process.stdin.on('data', chunk => {
+      buf += chunk
+      let i
+      while ((i = buf.indexOf('\\n')) !== -1) {
+        const line = buf.slice(0, i).trim(); buf = buf.slice(i + 1)
+        if (!line) continue
+        const { id, method, params = {} } = JSON.parse(line)
+        if (method === 'initialize') {
+          send({ jsonrpc: '2.0', id, result: { protocolVersion: 1, agentCapabilities: { sessionCapabilities: { close: {} } }, authMethods: [] } })
+        } else if (method === 'session/new') {
+          if (String(params.cwd || '').endsWith('ws-hold')) { held.push(id); continue }
+          if (String(params.cwd || '').endsWith('ws-race')) {
+            race.push(id)
+            if (race.length === 2) {
+              const [firstId, secondId] = race
+              send({ jsonrpc: '2.0', id: firstId, error: { code: -32000, message: 'first failed' } })
+              setTimeout(() => send({ jsonrpc: '2.0', id: secondId, result: { sessionId: 'acp-race-2', configOptions: [] } }), 30)
+            }
+            continue
+          }
+          send({ jsonrpc: '2.0', id, result: { sessionId: 'acp-' + (++next), configOptions: [] } })
+        } else if (method === 'session/close') {
+          send({ jsonrpc: '2.0', id, result: {} })
+          if (held.length > 0) {
+            const heldId = held.shift()
+            setTimeout(() => send({ jsonrpc: '2.0', id: heldId, result: { sessionId: 'acp-' + (++next), configOptions: [] } }), 250)
+          }
+        } else if (id !== undefined) {
+          send({ jsonrpc: '2.0', id, error: { code: -32601, message: 'method not found' } })
+        }
+      }
+    })
+  `
+  const engine = new AcpEngine('local-cursor-agent', {
+    name: 'Cursor',
+    kind: 'acp',
+    cwdPerProcess: true,
+    command: process.execPath,
+    args: ['-e', script],
+  }, { findExecutable: p => p })
+  t.after(() => engine.close())
+
+  // Case 1: first ephemeral session closes while a second ephemeral open on the same worker is still pending.
+  const s1 = await engine.open('side-1', { cwd: dirA, ephemeral: true })
+  const worker = engine.workerOf(s1)
+  const p2 = engine.open('side-2', { cwd: dirHold, ephemeral: true })
+  while ((worker.peer?.pending?.size ?? 0) < 1) await new Promise(resolve => setTimeout(resolve, 10))
+  await engine.closeSession(s1)
+  const s2 = await p2
+  assert.ok(s2.acpSessionId)
+  await engine.closeSession(s2)
+  assert.equal(engine.workers.size, 0)
+
+  // Case 2: a non-ephemeral session shares an existing ephemeral worker and keeps it reusable after closing.
+  const s3 = await engine.open('side-3', { cwd: dirA, ephemeral: true })
+  const sharedWorker = engine.workerOf(s3)
+  const p4 = engine.open('main-4', { cwd: dirA, ephemeral: false })
+  await engine.closeSession(s3)
+  const s4 = await p4
+  assert.equal(engine.workerOf(s4), sharedWorker)
+  await engine.closeSession(s4)
+  assert.equal(engine.workers.size, 1)
+
+  // Case 3: concurrent opens on a fresh cwd worker where the first fails must not kill the second in-flight open.
+  const pFail = engine.open('race-1', { cwd: dirRace })
+  const pOk = engine.open('race-2', { cwd: dirRace })
+  await assert.rejects(pFail, /first failed/)
+  const sOk = await pOk
+  assert.equal(sOk.acpSessionId, 'acp-race-2')
+})

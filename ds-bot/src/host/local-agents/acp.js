@@ -259,26 +259,33 @@ export class AcpEngine {
   async openInWorker(dshSessionId, openArgs) {
     const existing = openArgs.ephemeral === true ? this.activeWorker() : undefined
     const key = openArgs.cwd ? resolve(openArgs.cwd) : ''
-    const reused = existing !== undefined
     let worker = existing ?? this.workers.get(key)
     const created = worker === undefined
     if (created) {
       worker = this.spawnWorker(key)
       if (openArgs.ephemeral === true) worker.ephemeral = true
       this.workers.set(key, worker)
+    } else if (openArgs.ephemeral !== true) {
+      worker.ephemeral = false
     }
+    worker.opening = (worker.opening ?? 0) + 1
+    let failed = false
     try {
       const session = await worker.open(dshSessionId, openArgs)
+      worker.opened = true
       session._worker = worker
       this.sessionWorkers.set(dshSessionId, worker)
       this.caps.image = worker.caps.image
       return session
     } catch (error) {
-      if (created && !reused && ![...this.sessionWorkers.values()].includes(worker)) {
-        this.workers.delete(key)
+      failed = true
+      throw error
+    } finally {
+      worker.opening -= 1
+      if (failed && worker.opening === 0 && worker.sessions.size === 0 && ![...this.sessionWorkers.values()].includes(worker) && (!worker.opened || worker.ephemeral)) {
+        for (const [entryKey, entry] of this.workers) if (entry === worker) this.workers.delete(entryKey)
         await worker.close().catch(() => {})
       }
-      throw error
     }
   }
 
@@ -470,7 +477,7 @@ export class AcpEngine {
       await worker.closeSession(session)
       worker.forget(session.dshSessionId)
       this.sessionWorkers.delete(session.dshSessionId)
-      if (worker.ephemeral && worker.sessions.size === 0) {
+      if (worker.ephemeral && worker.sessions.size === 0 && (worker.opening ?? 0) === 0) {
         for (const [key, entry] of this.workers) if (entry === worker) this.workers.delete(key)
         await worker.close()
       }
