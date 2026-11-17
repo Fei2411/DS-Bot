@@ -156,11 +156,12 @@ export function install(rt) {
   const blockTasks = (roomId, botId, cause) => {
     const room = rt.roomOf(roomId)
     if (room === undefined) return
-    const running = openTasksOf(room).filter(task => task.botId === botId && task.status !== 'blocked')
+    // A system block is renewed with the latest cause; a block the Bot set stays its own.
+    const running = openTasksOf(room).filter(task => task.botId === botId && (task.status !== 'blocked' || task.blocked !== undefined))
     if (running.length === 0) return
     const at = Date.now()
     for (const task of running) {
-      task.blocked = { by: 'system', ...cause, from: task.status, at }
+      task.blocked = { by: 'system', ...cause, from: task.blocked?.from ?? task.status, at }
       task.status = 'blocked'
       task.updatedAt = at
     }
