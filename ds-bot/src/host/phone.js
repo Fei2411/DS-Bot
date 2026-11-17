@@ -25,11 +25,11 @@ export const BROWSER_GATED = new Set([
 
 const invalid = message => Object.assign(new Error(message), { code: 'bot/invalid' })
 
-// Pairing stays on the computer, even inside attached state or feed payloads.
-function remoteData(value) {
-  if (Array.isArray(value)) return value.map(remoteData)
-  if (value === null || typeof value !== 'object') return value
-  return Object.fromEntries(Object.entries(value).filter(([key]) => key !== 'pairing').map(([key, item]) => [key, remoteData(item)]))
+function remoteState(state) {
+  if (!state?.phone || !Object.hasOwn(state.phone, 'pairing')) return state
+  const phone = { ...state.phone }
+  delete phone.pairing
+  return { ...state, phone }
 }
 
 export function install(rt) {
@@ -84,10 +84,11 @@ export function install(rt) {
     }
     const wanted = params?.state !== null && typeof params?.state === 'object' && !Array.isArray(params.state) ? params.state : undefined
     const before = rt.state.revision
-    const result = await serve(endpoint, params?.payload ?? null, signal)
+    const answer = await serve(endpoint, params?.payload ?? null, signal)
+    const result = endpoint === 'state' && answer?.ok === true ? { ...answer, value: remoteState(answer.value) } : answer
     if (wanted === undefined || result?.ok !== true || rt.state.revision === before) return result
     const state = await serve('state', wanted, signal).then(answer => (answer?.ok === true ? answer.value : undefined), () => undefined)
-    return state === undefined ? result : { ...result, state }
+    return state === undefined ? result : { ...result, state: remoteState(state) }
   }
 
   const stop = () => {
@@ -113,13 +114,13 @@ export function install(rt) {
       name: hostname(),
       admits: (deviceId, key) => registry.admits(deviceId, key),
       authorize: (deviceId, key, hello) => registry.authorize(deviceId, key, hello),
-      handle: (method, params, request) => method === 'bot' ? callBot(params, request.signal, request.deviceId).then(remoteData) : Promise.reject(Object.assign(new Error(`Unknown method ${method}`), { code: 'METHOD_NOT_FOUND' })),
+      handle: (method, params, request) => method === 'bot' ? callBot(params, request.signal, request.deviceId) : Promise.reject(Object.assign(new Error(`Unknown method ${method}`), { code: 'METHOD_NOT_FOUND' })),
       // Feed events ride the link instead of SSE, but only while a phone is
       // actually ready to hear them — no tunnel, no feed work on the host.
       onReadyCount: count => {
         if (count > 0 && feedUntap === null) {
           const running = link
-          feedUntap = rt.feedTap((event, data) => running.emit(event, remoteData(data)))
+          feedUntap = rt.feedTap((event, data) => running.emit(event, event === 'live' ? remoteState(data) : data))
         } else if (count === 0 && feedUntap !== null) {
           feedUntap()
           feedUntap = null

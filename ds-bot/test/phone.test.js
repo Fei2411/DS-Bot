@@ -121,7 +121,8 @@ test('a browser pairs with its own code and is listed by authenticated kind', as
 
 test('remote state and live polls never disclose pairing offers, including attached state', async t => {
   const home = mkdtempSync(join(tmpdir(), 'dsb-private-pairing-'))
-  writeFileSync(join(home, 'state.json'), JSON.stringify(TEAM))
+  const view = { type: 'text', let: { pairing: 'ready', phone: { pairing: 'application data' } }, value: '$pairing' }
+  writeFileSync(join(home, 'state.json'), JSON.stringify({ ...TEAM, views: { m1: { id: 'view-1', callId: 'call-1', callSessionId: 'm1', title: 'Status', view, askedAt: 1 } } }))
   const desk = open(home)
   t.after(async () => { await desk.ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
   await desk.call('phone-set', { server: server.url, on: true })
@@ -143,6 +144,8 @@ test('remote state and live polls never disclose pairing offers, including attac
     ]
     assert.equal(answers[1].value.unchanged, true)
     assert.equal(answers[2].state.revision, before.revision + 1)
+    assert.deepEqual(answers[0].value.views.m1.view, view)
+    assert.deepEqual(answers[2].state.views.m1.view, view)
     for (const answer of answers) {
       assert.equal(answer.ok, true)
       const view = answer.state ?? answer.value
@@ -190,7 +193,8 @@ test('the link strips pairing offers from feed events without changing the deskt
   let tap
   const rt = { home, ctx, state: { revision: 0 }, load: async () => {}, readOnly: () => undefined, feedTap: listener => { tap = listener; return () => { tap = undefined } } }
   installPhone(rt)
-  rt.phoneServe(async () => ({ ok: true, value: null }))
+  const application = { pairing: 'user value', phone: { pairing: 'not a phone view' }, view: { let: { pairing: 'ready' } } }
+  rt.phoneServe(async () => ({ ok: true, value: application }))
   t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
   await rt.phoneEndpoint('phone-set', { server: server.url, on: true })
   await until(async () => rt.phoneView(), view => view.status === 'online')
@@ -201,18 +205,22 @@ test('the link strips pairing offers from feed events without changing the deskt
     await link.client.connect()
     await until(async () => tap, callback => typeof callback === 'function')
     const desktop = await rt.phoneEndpoint('phone-pair', {})
-    const data = { phone: desktop, nested: [{ phone: desktop }], empty: null }
+    const data = { phone: desktop, views: { m1: application }, empty: null }
     const events = []
     const off = link.client.onEvent(event => events.push(event))
     tap('live', data)
     const event = await until(async () => events[0], Boolean)
-    off()
     assert.equal(event.event, 'live')
     const { pairing, ...remote } = desktop
-    assert.deepEqual(event.data, { phone: remote, nested: [{ phone: remote }], empty: null })
+    assert.deepEqual(event.data, { ...data, phone: remote })
     assert.ok(data.phone.pairing.uri)
     assert.ok(data.phone.pairing.browserUri)
     for (const uri of [pairing.uri, pairing.browserUri]) assert.equal(JSON.stringify(event).includes(parsePairingUri(uri).code), false)
+    tap('message', application)
+    const message = await until(async () => events[1], Boolean)
+    assert.deepEqual(message, { event: 'message', data: application })
+    off()
+    assert.deepEqual(await link.client.rpc('bot', { endpoint: 'chat' }), { ok: true, value: application })
     await link.client.close()
   }
 })
