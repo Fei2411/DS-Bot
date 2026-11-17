@@ -37,6 +37,30 @@ jobs:
       - name: Pack the AppImage
         run: npm run dist
         working-directory: app
+      - name: Repack the AppImage smaller
+        # electron-builder writes the squashfs with gzip; repacking the same tree with
+        # xz (and dropping source maps and unused Chromium locales) turns 371 MB into
+        # about 267 MB without removing anything the app loads at run time.
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq squashfs-tools
+          version="$(node -p "require('./package.json').version")"
+          img="dist-pack/DS-Bot-$version-linux-x86_64.AppImage"
+          chmod +x "$img"
+          offset="$("$img" --appimage-offset)"
+          rm -rf squashfs-root
+          "$img" --appimage-extract >/dev/null
+          find squashfs-root -name '*.map' -type f -delete
+          (cd squashfs-root/locales && ls | grep -vE '^(ar|en-US)\.pak$' | xargs -r rm -f)
+          rm -f /tmp/appimage.squashfs
+          mksquashfs squashfs-root /tmp/appimage.squashfs -comp xz -b 1M -Xdict-size 100% -noappend -no-progress -processors "$(nproc)" >/dev/null
+          head -c "$offset" "$img" > "$img.new"
+          cat /tmp/appimage.squashfs >> "$img.new"
+          chmod +x "$img.new"
+          mv "$img.new" "$img"
+          rm -rf squashfs-root /tmp/appimage.squashfs
+          "$img" --appimage-offset >/dev/null
+          ls -l "$img"
+        working-directory: app
       - name: Keep the AppImage
         # The AppImage is already a compressed squashfs image and the deb is the same
         # app packed a second time, so the deb stays out: one file, half the download.
