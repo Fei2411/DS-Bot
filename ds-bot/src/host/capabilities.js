@@ -232,6 +232,7 @@ export function install(rt) {
     return values.length > 0 ? { state: 'ready' } : undefined
   }
   const capabilityStatusesView = () => {
+    // The returned view is shared and cached; callers must not mutate it.
     // Store adoption and in-place attachment/pack edits need no separate notification.
     const key = JSON.stringify(Object.values(state.bots).map(bot => [bot.id,
       (bot.capabilities ?? []).map(name => {
