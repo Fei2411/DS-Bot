@@ -60,8 +60,8 @@ export function installReview(rt, memory) {
       through ??= line.seq
       // A first review reads back at least to the user's latest line.
       if (since === undefined ? fresh.length < REVIEW_FIRST_LINES || !fresh.some(seen => seen.who === 'user') : line.seq > since) {
-        const text = line.who === 'user' ? ends(line.text, REVIEW_USER_LINE_MAX) : clip(line.text, REVIEW_OTHER_LINE_MAX)
-        fresh.push({ ...line, text })
+        const text = reviewLine(line.who, line.text, bot)
+        fresh.push({ ...line, text, formatted: true })
         size += text.length
         // Retain an oldest-first batch, not the entire backlog. Newer lines stay
         // ahead of the saved cursor and are read on the next pass.
@@ -119,7 +119,7 @@ export function installReview(rt, memory) {
     const kept = []
     let used = 0
     for (const line of lines) {
-      const text = reviewLine(line.who, line.text, bot)
+      const text = line.formatted === true ? line.text : reviewLine(line.who, line.text, bot)
       if (kept.length > 0 && used + text.length > REVIEW_TEXT_MAX) break
       kept.push(text)
       used += text.length
