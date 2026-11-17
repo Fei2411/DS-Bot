@@ -31,10 +31,19 @@ const PENDING_MUTATING = new Set([
 const photoCache = new Map<string, string>()
 const photoFetching = new Set<string>()
 
+// The api/bot version this app speaks. A computer answering a lower `api` is too old
+// for this app; one whose `apiMax` is higher speaks a newer protocol, and then the app
+// on this phone is the side to update.
+const PHONE_API = 1
 // `maxFileBytes` is the host's own whole-file read limit (mobile.js hello), so a save
 // refuses before the bytes travel.
-export interface Hello { api: number | null; capabilities: string[]; boot: string; seq: number; maxFileBytes?: number }
+export interface Hello { api: number | null; apiMax?: number | null; capabilities: string[]; boot: string; seq: number; maxFileBytes?: number }
 export type FeedHandler = (event: string, data: any) => void
+
+/** Whether a call's answer is a hello (an Error and an empty object both are not). */
+function isHelloAnswer(value: unknown): value is Hello {
+  return typeof value === 'object' && value !== null && 'boot' in value && 'api' in value
+}
 
 export function rejected(error: unknown): boolean {
   const code = (error as { code?: unknown })?.code
@@ -218,12 +227,28 @@ export function useTeamLink(computer: SavedComputer, identity: PhoneIdentity) {
         // this app. The team read goes out with it, not after it: each is a round
         // trip through the relay.
         void poll()
-        const helloResult = await callBot<Hello>(client, 'hello', {}).catch(() => null)
+        const helloResult = await callBot<Hello>(client, 'hello', {}).catch((failure: unknown) => failure)
         if (stopped) { void client.close(); return }
-        if (helloResult === null || helloResult.api === null) {
+        // A failed call is not an old computer: say what happened and retry, so a
+        // dropped tunnel stops reading as "update the computer" (it did before).
+        if (!isHelloAnswer(helloResult)) {
           if (activeClient === client) activeClient = undefined
           if (clientRef.current === client) clientRef.current = undefined
-          setError(t('Update DS Bot on the computer to use this phone.'))
+          setError(errorText(helloResult))
+          setLinked(false)
+          void client.close()
+          connecting = false
+          scheduleReconnect()
+          return
+        }
+        const helloAnswer = helloResult as Hello
+        if (helloAnswer.api === null) {
+          // Both sides answered, but they share no protocol version. `apiMax` says which
+          // side is ahead, so a newer computer asks for a newer app on the phone.
+          const hostMax = typeof helloAnswer.apiMax === 'number' ? helloAnswer.apiMax : null
+          if (activeClient === client) activeClient = undefined
+          if (clientRef.current === client) clientRef.current = undefined
+          setError(t(hostMax !== null && hostMax > PHONE_API ? 'Update DS Bot on this phone to use this computer.' : 'Update DS Bot on the computer to use this phone.'))
           setLinked(false)
           void client.close()
           connecting = false
@@ -232,19 +257,19 @@ export function useTeamLink(computer: SavedComputer, identity: PhoneIdentity) {
         }
         hadLink = true
         failStreak = 0
-        setHello(helloResult)
+        setHello(helloAnswer)
         setOnline(true)
         setError(null)
-        const { sameBoot, since } = noticeCursor.connect(helloResult)
+        const { sameBoot, since } = noticeCursor.connect(helloAnswer)
         client.onEvent(({ event, data }: { event: string; data: any }) => {
           if (stopped || clientRef.current !== client) return
-          if (event === 'notice' && !noticeCursor.acceptLive(helloResult.boot, data)) return
+          if (event === 'notice' && !noticeCursor.acceptLive(helloAnswer.boot, data)) return
           if (event === 'revision' || event === 'live') void poll()
           for (const handler of feedHandlers.current) handler(event, data)
         })
-        void callBot(client, 'notices', { boot: helloResult.boot, since }).then(answer => {
+        void callBot(client, 'notices', { boot: helloAnswer.boot, since }).then(answer => {
           if (stopped || clientRef.current !== client) return
-          const { reset, replay } = noticeCursor.acceptCatchUp(helloResult.boot, sameBoot, answer as NoticeCursorAnswer)
+          const { reset, replay } = noticeCursor.acceptCatchUp(helloAnswer.boot, sameBoot, answer as NoticeCursorAnswer)
           if (reset) void poll()
           else {
             if (replay.length > 0) void poll()
