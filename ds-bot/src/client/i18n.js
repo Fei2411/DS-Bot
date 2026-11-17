@@ -1792,7 +1792,7 @@ const HOST_ZH = {
   'Off': '关',
   'View only': '只看',
   'Background': '后台操作',
-  'Foreground': '可以动前台',
+  'Foreground': '前台操作',
   'In the foreground': '前台',
   'Computer use level': '电脑操控等级',
   'Computer provider': '提供方',
