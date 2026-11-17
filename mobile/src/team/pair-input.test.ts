@@ -15,7 +15,7 @@ test('pair input accepts raw pairing URIs and copied browser links without chang
 
 test('pair input refuses empty, malformed and non-pairing browser links', () => {
   for (const input of ['', 'not a URL', 'https://relay.test/web/', 'https://relay.test/web/#pair=', 'https://relay.test/web/#pair=%ZZ', `https://relay.test/web/?pair=${encodeURIComponent(uri)}`, `javascript:ignored#pair=${encodeURIComponent(uri)}`, `https://relay.test/web/#pair=${encodeURIComponent('https://other.test')}`]) {
-    assert.throws(() => parsePairingInput(input), undefined, input)
+    assert.throws(() => parsePairingInput(input), Error, input)
   }
 })
 
