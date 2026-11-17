@@ -11,6 +11,7 @@ const ROUTE_WAIT_MS = 30_000
 // The DeepSeek account's sign-in grant (dsh-deepseek-account-platform).
 const ACCOUNT_RECORD = 'deepseek-account-platform/default'
 const TRANSIENT_LLM_CODES = new Set(['TRANSPORT', 'TIMEOUT', 'MALFORMED_RESPONSE'])
+const MALFORMED_RETRIES = 2
 
 function retryPolicyOf(ctx, provider) {
   try {
@@ -56,7 +57,8 @@ function abortedAssembler(failure) {
 }
 
 function canRetryPolicy(policy, code, retry) {
-  if (code === 'MALFORMED_RESPONSE') return (policy.mode === 'normal' || policy.mode === 'always') && retry <= 2
+  if (policy?.mode !== 'normal' && policy?.mode !== 'always') return false
+  if (code === 'MALFORMED_RESPONSE') return retry <= (policy.mode === 'normal' ? Math.min(MALFORMED_RETRIES, policy.maxRetries) : MALFORMED_RETRIES)
   if (policy.mode === 'always') return true
   if (policy.mode !== 'normal') return false
   return Array.isArray(policy.retryableCodes) && policy.retryableCodes.includes(code) && retry <= policy.maxRetries
@@ -116,9 +118,10 @@ export function install(rt) {
       retries = { turn, step, count: 0 }
       malformedRetries.set(agent, retries)
     }
-    if (retries.count >= 2) return undefined
+    const policy = payload.retryPolicy ?? retryPolicyOf(ctx, payload.provider)
+    if (!canRetryPolicy(policy, failure.code, retries.count + 1)) return undefined
     retries.count += 1
-    rt.warn(`Retrying malformed model response for ${agent.id} (turn ${turn}, step ${step}, retry ${retries.count}/2)`)
+    rt.warn(`Retrying malformed model response for ${agent.id} (turn ${turn}, step ${step}, retry ${retries.count}/${MALFORMED_RETRIES})`)
     if (!await waitRetryDelay(250, signal)) return undefined
     return { kind: 'retry' }
   }, { prepend: true })

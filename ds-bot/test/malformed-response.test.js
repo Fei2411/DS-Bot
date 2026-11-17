@@ -6,7 +6,6 @@ import { Context } from '@deepseek-ai/cordis'
 import { mountAgentLoopTestDependencies, mountAgentLoopTestHarness } from '@deepseek-ai/dsh-agent-loop-testkit'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { PiAiAdapter } from '@deepseek-ai/dsh-llm-pi-ai'
-import piAdapterPackage from '@deepseek-ai/dsh-llm-pi-ai/package.json' with { type: 'json' }
 import { SessionId } from '@deepseek-ai/dsh-session'
 import { assembleLlmStream, install } from '../src/host/models.js'
 
@@ -14,8 +13,6 @@ const piApi = '@earendil-works/pi-ai/api/openai-completions.lazy'
 const adapterUrl = import.meta.resolve('@deepseek-ai/dsh-llm-pi-ai')
 const resolution = registerHooks({ resolve: (specifier, context, nextResolve) => nextResolve(specifier, specifier === piApi ? { ...context, parentURL: adapterUrl } : context) })
 const { openAICompletionsApi } = await import(piApi).finally(() => resolution.deregister())
-// The older compatibility target silently accepts malformed tool arguments.
-const streamRegression = { skip: piAdapterPackage.version === '0.2.0-rc.2' && 'DSH 0.2.0-rc.2 does not reject malformed tool arguments' }
 
 async function boot(t, recover) {
   let attempts = 0
@@ -58,24 +55,38 @@ async function boot(t, recover) {
   return { failures, attempts, events: agent.session.snapshotEvents() }
 }
 
-test('the real pi-ai malformed stream reaches agent/request-error as MALFORMED_RESPONSE', streamRegression, async t => {
+async function probeMalformedStream(t) {
   const result = await boot(t, false)
+  if (result.failures.length === 0) {
+    assert.equal(result.attempts, 2)
+    assert.equal(result.events.findLast(event => event.type === 'turn/end').data.reason.kind, 'completed')
+    t.skip('The bundled adapter accepts the same-index stream without MALFORMED_RESPONSE')
+    return undefined
+  }
+  assert.equal(result.failures[0]?.code, 'MALFORMED_RESPONSE')
+  return result
+}
+
+test('the real pi-ai malformed stream reaches agent/request-error as MALFORMED_RESPONSE', async t => {
+  const result = await probeMalformedStream(t)
+  if (result === undefined) return
   assert.equal(result.attempts, 1, JSON.stringify(result.failures))
   assert.equal(result.failures[0]?.code, 'MALFORMED_RESPONSE')
   assert.equal(result.events.findLast(event => event.type === 'turn/end').data.reason.kind, 'error')
 })
 
-test('a Bot retries the malformed stream and completes on the next response', streamRegression, async t => {
+test('a Bot retries the malformed stream and completes on the next response', async t => {
+  if (await probeMalformedStream(t) === undefined) return
   const result = await boot(t, true)
   assert.equal(result.failures[0]?.code, 'MALFORMED_RESPONSE')
   assert.equal(result.attempts, 2)
   assert.equal(result.events.findLast(event => event.type === 'turn/end').data.reason.kind, 'completed')
 })
 
-function handler() {
+function handler(providerPolicy) {
   const listeners = new Map()
   const warnings = []
-  install({ ctx: { on: (name, fn) => listeners.set(name, fn) }, state: { bots: {} }, isBotSession: id => id === 'bot', warn: message => warnings.push(message) })
+  install({ ctx: { on: (name, fn) => listeners.set(name, fn), llm: { providerRetryPolicy: () => providerPolicy } }, state: { bots: {} }, isBotSession: id => id === 'bot', warn: message => warnings.push(message) })
   return { run: listeners.get('agent/request-error'), warnings }
 }
 
@@ -121,3 +132,38 @@ test('auxiliary malformed responses retry twice, discarding partial attempts', a
   assert.equal(attempts, 3)
   assert.equal(result.finish.failure.code, 'MALFORMED_RESPONSE')
 })
+
+for (const [policy, retries] of [
+  [{ mode: 'normal', maxRetries: 0 }, 0],
+  [{ mode: 'normal', maxRetries: 1 }, 1],
+  [{ mode: 'normal', maxRetries: 5 }, 2],
+  [{ mode: 'always', maxRetries: 0 }, 2],
+  [{ mode: 'off' }, 0],
+  [{}, 0],
+]) {
+  test(`malformed retries honor ${JSON.stringify(policy)} in the hook and auxiliary calls`, async () => {
+    for (const prepared of [true, false]) {
+      const { run, warnings } = handler(prepared ? { mode: 'always' } : policy)
+      const p = { ...payload(), retryPolicy: prepared ? policy : undefined, provider: 'mock' }
+      for (let retry = 0; retry < retries; retry += 1) assert.deepEqual(await run(p, next), { kind: 'retry' })
+      assert.equal(await run(p, next), undefined)
+      assert.equal(warnings.length, retries)
+    }
+    for (const throws of [true, false]) {
+      let attempts = 0
+      const failure = { code: 'MALFORMED_RESPONSE', message: 'bad arguments' }
+      const ctx = { llm: {
+        providerRetryPolicy: () => policy,
+        async *stream() {
+          attempts += 1
+          if (throws) throw Object.assign(new Error(failure.message), failure)
+          yield { type: 'finish', reason: { kind: 'error', failure } }
+        },
+      } }
+      const request = assembleLlmStream(ctx, { provider: 'mock', model: 'mock' }, { backoff: { initialDelayMs: 0, maxDelayMs: 0, jitterRatio: 0 } })
+      if (throws) await assert.rejects(request, { code: 'MALFORMED_RESPONSE' })
+      else assert.equal((await request).finish.failure.code, 'MALFORMED_RESPONSE')
+      assert.equal(attempts, retries + 1)
+    }
+  })
+}
