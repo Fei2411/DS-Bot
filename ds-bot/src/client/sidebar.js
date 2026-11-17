@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import { FishLogo } from './dsh-primitives.js'
 import { inkFill } from './inks.js'
 import { isMainOf } from './sources.js'
-import { sidebarEntries, filterSidebarEntries, sectionsByActivity, SIDEBAR_KINDS } from './sidebar-order.js'
+import { sidebarEntries, filterSidebarEntries, orderedSections, SIDEBAR_KINDS } from './sidebar-order.js'
 import { currentPart, previewOf, relativeShort } from './text.js'
 import { PlusIcon, SearchIcon, SidebarIcon, GaugeIcon, ClockIcon, GearIcon, PinMarkIcon, ConnectorIcon, PlugIcon, SwitchIcon, CloudDownloadIcon, SignInIcon, SignOutIcon, SlidersIcon, ChevronRightIcon, DotsIcon, FolderIcon } from './icons.js'
 import { lookOf, MAIN_LOOK } from './characters.js'
@@ -841,7 +841,7 @@ export function TeamSidebar(props) {
             onDrop: event => onDropSec(event, null),
           }, ungrouped.map(entry => renderSidebarEntry(entry, rowProps, markedUnread, onDragStart)))
         : kind === 'all' ? ungrouped.map(entry => renderSidebarEntry(entry, rowProps, markedUnread, onDragStart)) : null,
-      kind === 'all' && sectionsByActivity(sections, order).map(section => h(SectionBlock, {
+      kind === 'all' && orderedSections(sections, order, roster.prefs?.sectionAutoOrder !== false).map(section => h(SectionBlock, {
         key: section.id,
         section,
         entries: order.filter(entry => entry.item.sectionId === section.id),

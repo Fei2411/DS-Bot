@@ -665,7 +665,7 @@ const ZH = {
   'Group memory size': '群记忆容量',
   'Bot memory size': 'Bot 记忆容量',
   'Team memory size': '团队记忆容量',
-  'Bots · {count}': 'Bot · {count}',
+  'Bots · {count}': '机器人 · {count}',
   'First in the sidebar. Pick another Bot to hand it the role; {name} then stops being a Main Bot.': '排在侧栏最上面。选另一个 Bot 就会把主 Bot 交给它，{name} 随之不再是主 Bot。',
   'Choose a Bot…': '选择一个 Bot…',
   'Also a Main Bot.': '也是主 Bot。',

@@ -558,6 +558,9 @@ export function install(rt) {
 
   async function reorderSections(ids) {
     if (!Array.isArray(ids)) throw new Error('Section order must be an array of section ids')
+    // From here the saved order is the one the user chose; the list stops following
+    // activity, or a Move up/down would be undone on the next message.
+    ;(state.prefs ??= {}).sectionAutoOrder = false
     const list = (state.sections ??= [])
     const byId = new Map(list.map(sec => [sec.id, sec]))
     const next = []

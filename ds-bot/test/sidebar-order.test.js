@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { SIDEBAR_KINDS, filterSidebarEntries, sectionsByActivity, sidebarEntries } from '../src/client/sidebar-order.js'
+import { SIDEBAR_KINDS, filterSidebarEntries, orderedSections, sectionsByActivity, sidebarEntries } from '../src/client/sidebar-order.js'
 
 const bot = (id, extra = {}) => ({ id, name: id, sessionId: id, createdAt: 1, ...extra })
 const room = (id, extra = {}) => ({ id, name: id, createdAt: 1, ...extra })
@@ -58,4 +58,17 @@ test('a section follows its newest member', () => {
   ]
   assert.deepEqual(sectionsByActivity(sections, entries).map(s => s.id), ['a', 'b'])
   assert.deepEqual(sectionsByActivity(sections, []).map(s => s.id), ['b', 'a'])
+})
+
+// Move up/down writes the saved order; a message must not undo it.
+test('a saved order beats activity once the user has moved a section', () => {
+  const sections = [{ id: 'a', createdAt: 1 }, { id: 'b', createdAt: 2 }]
+  const entries = [
+    { kind: 'bot', item: { id: 'x', sectionId: 'a' }, at: 99 },
+    { kind: 'bot', item: { id: 'y', sectionId: 'b' }, at: 5 },
+  ]
+  assert.deepEqual(orderedSections(sections, entries, true).map(s => s.id), ['a', 'b'])
+  assert.deepEqual(orderedSections(sections, entries, false).map(s => s.id), ['a', 'b'])
+  const flipped = [sections[1], sections[0]]
+  assert.deepEqual(orderedSections(flipped, entries, false).map(s => s.id), ['b', 'a'])
 })

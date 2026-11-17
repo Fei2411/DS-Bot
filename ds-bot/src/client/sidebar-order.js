@@ -33,3 +33,9 @@ export function sectionsByActivity(sections, entries) {
   }
   return [...sections].sort((a, b) => (newest.get(b.id) ?? b.createdAt ?? 0) - (newest.get(a.id) ?? a.createdAt ?? 0))
 }
+
+// The saved order wins once the user has moved a section; until then the list
+// follows activity.
+export function orderedSections(sections, entries, autoOrder = true) {
+  return autoOrder ? sectionsByActivity(sections, entries) : sections
+}
