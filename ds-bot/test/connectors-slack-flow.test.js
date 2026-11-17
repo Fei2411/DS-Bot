@@ -4,6 +4,8 @@
 // The steps a user retries -- reopen the form, sign in again -- must keep one
 // callback address, or Slack refuses the redirect the app has configured.
 import assert from 'node:assert/strict'
+import { once } from 'node:events'
+import net from 'node:net'
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -24,7 +26,6 @@ const CLIENT_ID = '126049596329.1234567890'
 const CLIENT_SECRET = 'slack-client-secret'
 const CODE = 'slack-auth-code'
 const json = body => new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } })
-const portOf = uri => new URL(uri).port
 const teamHome = () => {
   const home = mkdtempSync(join(tmpdir(), 'dsb-slack-'))
   writeFileSync(join(home, 'state.json'), JSON.stringify(TEAM))
@@ -70,6 +71,16 @@ const slackServer = () => {
     return new Response('not found', { status: 404 })
   }
   return { fetch, tokens }
+}
+
+const callbackPortFree = async () => {
+  const probe = net.createServer(() => {})
+  const free = await new Promise(resolve => {
+    probe.once('error', () => resolve(false))
+    probe.listen(oauth.FIXED_CALLBACK_PORT, '127.0.0.1', () => resolve(true))
+  })
+  if (free) await new Promise(resolve => probe.close(resolve))
+  return free
 }
 
 const within = async (check, timeout = 5000) => {
@@ -140,35 +151,47 @@ test('a hand-typed Slack client signs the token request and the flow connects', 
   assert.equal(rt.secretValue('CONNECTOR_SLACK_CLIENT_SECRET'), CLIENT_SECRET)
 })
 
-test('reopening the form replaces the listener instead of squatting the callback port', async (t) => {
+test('reopening the form keeps the one callback address and the one listener', async (t) => {
   const { rt, internals } = await setup(t)
   await rt.connectorEndpoint('connector-connect', { id: 'slack' })
   const first = internals.pendings.get('slack')
-  // A leak shows up here: the replaced attempt keeps the port, so the next one
-  // cannot have the same address.
+  // The attempt that shows the client form already holds the listener, so the
+  // browser sign-in answers on the address the form named.
   await rt.connectorEndpoint('connector-client', { id: 'slack', clientId: CLIENT_ID, clientSecret: CLIENT_SECRET })
-  assert.equal(first.listener.listening, false)
-  assert.equal(first.listener.address(), null)
   const second = internals.pendings.get('slack')
   assert.equal(second.kind, 'browser')
-  // A second retry replaces a browser attempt, whose timeout must not survive to
-  // end the attempt that took its place.
+  assert.equal(second.listener, first.listener)
+  assert.equal(second.redirectUri, first.redirectUri)
+  // A second retry replaces a browser attempt: its timeout must not survive to
+  // end the attempt that took its place, and the address stays put.
   await rt.connectorEndpoint('connector-client', { id: 'slack', clientId: CLIENT_ID, clientSecret: CLIENT_SECRET })
-  assert.equal(second.listener.listening, false)
-  assert.equal(second.timer._destroyed, true)
   const third = internals.pendings.get('slack')
-  if (portOf(first.redirectUri) !== String(oauth.FIXED_CALLBACK_PORT)) {
-    // Something else on this host holds the documented port: the flow keeps one
-    // fallback address (see the engine test), which is not this test's subject.
-    t.skip('the fixed callback port is in use on this host')
-    return
-  }
-  assert.equal(portOf(second.redirectUri), String(oauth.FIXED_CALLBACK_PORT))
-  assert.equal(portOf(third.redirectUri), String(oauth.FIXED_CALLBACK_PORT))
+  assert.equal(second.timer._destroyed, true)
+  assert.equal(third.listener, first.listener)
+  assert.equal(third.redirectUri, first.redirectUri)
+  assert.equal(third.listener.listening, true)
   // And the sign-in still finishes from that address.
   const back = new URL(third.redirectUri)
   back.searchParams.set('code', CODE)
   back.searchParams.set('state', third.expectedState)
-  await fetch(back)
+  assert.equal((await fetch(back)).status, 200)
   assert.ok(await within(() => rt.secretValue('CONNECTOR_SLACK_TOKEN') !== undefined))
+})
+
+test('ending a sign-in does not wait for a browser connection left open', async (t) => {
+  const { rt, internals } = await setup(t)
+  if (!await callbackPortFree()) { t.skip('the callback port is in use on this host'); return }
+  await rt.connectorEndpoint('connector-connect', { id: 'slack' })
+  const pending = internals.pendings.get('slack')
+  const socket = net.connect({ port: Number(new URL(pending.redirectUri).port), host: '127.0.0.1' })
+  await once(socket, 'connect')
+  t.after(() => socket.destroy())
+  // close() waits for the connections still open on it; without tearing the
+  // socket down first, cancelling would hang until the browser let go.
+  const cancelled = await Promise.race([
+    rt.connectorEndpoint('connector-cancel', { id: 'slack' }).then(() => true),
+    new Promise(resolve => setTimeout(() => resolve(false), 3000)),
+  ])
+  assert.equal(cancelled, true)
+  assert.equal(await callbackPortFree(), true)
 })

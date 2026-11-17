@@ -8,6 +8,7 @@ import { HANDOFF_ACK, LATE_ANSWER, MESSAGE_INLINE_MAX, REFERENCE_KIND, REPLY_KIN
 import { cleanText } from './diagnostics.js'
 import { absoluteLinks } from './links.js'
 import { splitRef, textOf } from './text.js'
+import { threadCurrentOfPart } from './threads.js'
 import { viaOf } from '../shared/im-platforms.js'
 import { reminderText } from './schedules.js'
 import { usageChunk } from './usage.js'
@@ -55,6 +56,12 @@ export const failureLine = failure => `${failure.code}${failure.status ? ` ${fai
 // answer comes from; `source` is the trigger the turn answered.
 export function answerSender(rt, id, source, text, long) {
   const back = rt.roomOf(source.senderRoomId)?.sessions?.[source.senderSessionId]
+  // The asking Bot may have written from a background part of its own chat: its reply
+  // goes back to that part's thread, not to the part the user is reading. When the part
+  // is gone, or no part was recorded, the reply goes to the Bot's current chat, as before.
+  const asker = source.senderPart === undefined ? undefined : rt.botOf(source.senderSessionId)
+  const part = back === undefined && asker !== undefined ? threadCurrentOfPart(asker, source.senderPart) : undefined
+  const target = back ?? part
   const name = rt.botOf(rt.selfOf(id))?.name ?? 'The other Bot'
   const work = rt.closeWork?.(source.exchangeId, name, text)
   // A reply that arrives after the user gave up the wait is a late answer: it closes
@@ -67,7 +74,7 @@ export function answerSender(rt, id, source, text, long) {
   void rt.deliver({
     fromId: rt.selfOf(id),
     toId: source.senderSessionId,
-    ...(back ? { sessionId: back } : {}),
+    ...(target ? { sessionId: target } : {}),
     text: body,
     ...(length === undefined ? {} : { files: long.files, length }),
     role: 'reply',
@@ -86,7 +93,7 @@ export function answerSender(rt, id, source, text, long) {
     void rt.deliver({
       fromId: rt.selfOf(id),
       toId: source.senderSessionId,
-      ...(back ? { sessionId: back } : {}),
+      ...(target ? { sessionId: target } : {}),
       text: `${said}${long?.text ?? text}`,
       ...(long?.length === undefined ? {} : { files: long.files, length: said.length + long.length }),
       role: 'reply',
@@ -204,6 +211,7 @@ export function install(rt) {
       ...(keeps && info.audience ? { audience: info.audience } : {}),
       ...(keeps && info.askedBy ? { askedBy: info.askedBy } : {}),
       ...(keeps && info.senderRoomId ? { fromRoomId: info.senderRoomId } : {}),
+      ...(keeps && info.senderPart ? { fromPart: info.senderPart } : {}),
       note,
       retried: true,
       text,
@@ -804,10 +812,24 @@ export function install(rt) {
     void rt.goalSettled?.(rt.roomOf(owner.roomId)).catch(error => rt.warn('ds-bot: goal settle failed: %s', error))
   })
 
+  const laterTarget = (id) => {
+    if (rt.chatOwners.has(id)) return id
+    const group = rt.groupOwners.get(id)
+    if (group !== undefined) return rt.roomOf(group.roomId)?.sessions?.[group.botId]
+    const past = rt.pastOwners?.get(id)
+    if (past !== undefined) {
+      if (past.roomId !== undefined) return rt.roomOf(past.roomId)?.sessions?.[past.botId]
+      const bot = rt.botOf(past.botId)
+      return bot === undefined ? undefined : (threadCurrentOfPart(bot, id) ?? rt.chatOf?.(past.botId))
+    }
+    return undefined
+  }
+
   ctx.on('session/event', (session, event) => {
     const id = session?.id
     if (id === undefined) return
-    if (!rt.isBotSession(id) && !rt.roomOf(id)) {
+    const switchedEnd = event.type === 'turn/end' && live.get(id)?.switched === true && rt.pastOwners?.has(id)
+    if (!rt.isBotSession(id) && !rt.roomOf(id) && !switchedEnd) {
       // A deleted Bot's Session can still be ending its turn; nothing of it stays.
       if (live.delete(id)) setActivity(id, undefined)
       return
@@ -954,6 +976,9 @@ export function install(rt) {
             name: source.senderName,
             reportBack: source.reportBack === true,
             ...(source.claims === undefined ? {} : { claims: source.claims }),
+            // The turn's change line travels with its post; without it a completion
+            // notice that arrives after the round closed has nothing to show.
+            ...(source.changes === undefined ? {} : { changes: source.changes }),
             ...(source.member ? { member: true } : {}),
             // Who the whole post called. `text` may be only its opening (attachLong).
             ...(source.mentions ? { mentions: source.mentions } : {}),
@@ -1138,9 +1163,13 @@ export function install(rt) {
         entry.later = []
         if (steerCut || suppressedSubagent) break
         for (const result of later) {
+          const targetSessionId = laterTarget(id)
+          if (targetSessionId === undefined && (rt.groupOwners.has(id) || rt.pastOwners?.has(id))) continue
           void rt.deliver({
             fromId: result.info.senderSessionId,
             toId: rt.selfOf(id),
+            // A result handed back to the turn's own part, or to the successor part after a switch.
+            ...(targetSessionId !== undefined ? { sessionId: targetSessionId } : {}),
             text: result.text,
             role: result.info.role,
             exchangeId: result.info.exchangeId,
@@ -1284,6 +1313,7 @@ export function install(rt) {
             exchangeId: request.info.exchangeId,
             ...(request.info.role === 'room' ? { roomId: request.info.roomId, askedBy: request.info.askedBy, note: 'you read this call during your last task; answer it now' } : {}),
             ...(request.info.senderRoomId ? { fromRoomId: request.info.senderRoomId } : {}),
+            ...(request.info.senderPart ? { fromPart: request.info.senderPart } : {}),
             deferred: true,
           }).catch(error => rt.warn('ds-bot: deferred request delivery failed: %s', error))
         }

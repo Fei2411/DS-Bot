@@ -206,6 +206,29 @@ test('a request steered into a running turn is recorded once and answered in a t
   assert.deepEqual((await exchanges()).map(entry => entry.role), ['request', 'reply'])
 })
 
+// #1501: a Bot may ask from a background part of its own chat while the user reads the
+// foreground one. The answer comes back to the thread it was asked from.
+test('a reply to a Bot that asked from a background part comes back to that part', async (t) => {
+  const seed = team()
+  seed.bots.a.openParts = [{ sessionId: 'a-bg', segments: [] }]
+  const { agents, emit, tool, stop } = await start(seed)
+  t.after(stop)
+  assert.match(await tool('message_bot', { to: 'Writer', message: 'check the data' }, 'a-bg'), /^Delivered to Writer/)
+  const request = agents.get('b').calls[0][1]
+  assert.equal(request.source.senderPart, 'a-bg')
+
+  // Writer takes the request up and answers it.
+  emit('b', 'turn/start', { turn: 1 })
+  emit('b', 'user/message', { content: request.content, source: request.source })
+  emit('b', 'assistant/message', assistantText('data checked'))
+  emit('b', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  for (let count = 0; count < 200 && (agents.get('a-bg')?.calls ?? []).length < 1; count += 1) await delay(5)
+  const reply = agents.get('a-bg').calls[0][1]
+  assert.equal(textOf(reply.content), '[Reply from Writer]\ndata checked')
+  // The foreground chat, where the user is, got none of it.
+  assert.equal(agents.get('a')?.calls.length ?? 0, 0)
+})
+
 // Issue #580: a queued message the user steers into the running turn restarts
 // the activity row's clock from when it landed, not from the turn's start.
 test('a user message steered into the running steps marks when it landed', async (t) => {
@@ -233,6 +256,35 @@ test('a user message steered into the running steps marks when it landed', async
   spliced('next-step', [userMessage('m3')], 5000)
   emit('b', 'turn/start', { turn: 3 })
   assert.deepEqual(await steered(), {})
+})
+
+// #1501: two parts of the sender's own chat are two conversations. One answer could come
+// back to only one of them, so their unread requests are not merged; each is answered.
+test('requests from two parts of one Bot are answered apart, not merged', async (t) => {
+  const seed = team()
+  seed.bots.a.openParts = [{ sessionId: 'a-bg', segments: [] }]
+  const { agentOf, agents, emit, tool, stop } = await start(seed)
+  t.after(stop)
+  // What Writer is sent waits unread in its inbox.
+  const writer = agentOf('b')
+  writer.steer = (message) => { writer.calls.push(['steer', message]); writer.inbox.nextStep.push(message) }
+  emit('b', 'turn/start', { turn: 1 })
+  assert.doesNotMatch(await tool('message_bot', { to: 'Writer', message: 'check the data' }, 'a'), /added to it/)
+  assert.doesNotMatch(await tool('message_bot', { to: 'Writer', message: 'check the docs' }, 'a-bg'), /added to it/)
+  const waiting = [...writer.inbox.nextStep]
+  assert.equal(waiting.length, 2)
+  assert.deepEqual(waiting.map(message => message.source.senderPart), ['a', 'a-bg'])
+  assert.notEqual(waiting[0].source.exchangeId, waiting[1].source.exchangeId)
+  // Each is answered in the part that asked.
+  for (const [turn, message, said, asked] of [[1, waiting[0], 'data checked', 'a'], [2, waiting[1], 'docs checked', 'a-bg']]) {
+    emit('b', 'turn/start', { turn })
+    emit('b', 'user/message', { content: message.content, source: message.source })
+    emit('b', 'assistant/message', assistantText(said))
+    emit('b', 'turn/end', { turn, reason: { kind: 'completed' } })
+    for (let count = 0; count < 200 && (agents.get(asked)?.calls ?? []).length < 1; count += 1) await delay(5)
+  }
+  assert.equal(textOf(agents.get('a').calls[0][1].content), '[Reply from Writer]\ndata checked')
+  assert.equal(textOf(agents.get('a-bg').calls[0][1].content), '[Reply from Writer]\ndocs checked')
 })
 
 test('a request from a name with brackets keeps its body when replayed after the current work', async (t) => {
@@ -334,6 +386,32 @@ test('stop_bot cancels the running turns and tells the Bot why in a new turn', a
   const notice = agents.get('b').calls[1][1]
   assert.match(textOf(notice.content), /^\[Stopped by Chief\]\nthat command deletes data$/)
   assert.equal(notice.source.role, 'stopped')
+})
+
+test('stop_bot stops a turn running in a background part of the Bot\'s chat', async (t) => {
+  const seed = team()
+  seed.bots.b.openParts = [{ sessionId: 'b-bg', segments: [] }]
+  const { agents, emit, tool, stop } = await start(seed)
+  t.after(stop)
+  // The foreground chat is idle; only the background part runs.
+  emit('b-bg', 'turn/start', { turn: 1 })
+  const out = await tool('stop_bot', { bot: 'Writer', reason: 'that command deletes data' }, 'a')
+  assert.equal(out, 'Stopped Writer in another of its conversations. It is told why in a new turn, whose reply comes back to you.')
+  assert.deepEqual(agents.get('b-bg').calls.map(([kind]) => kind), ['cancel'])
+  assert.deepEqual(agents.get('b-bg').calls[0][1], { kind: 'hook', reason: 'ds-bot/stopped' })
+  // The foreground chat was not cancelled; it gets the notice.
+  assert.deepEqual(agents.get('b').calls.map(([kind]) => kind), ['followup'])
+  assert.equal(agents.get('b').calls[0][1].source.role, 'stopped')
+})
+
+test('message_bot names a running background part as another conversation', async (t) => {
+  const seed = team()
+  seed.bots.b.openParts = [{ sessionId: 'b-bg', segments: [] }]
+  const { emit, tool, stop } = await start(seed)
+  t.after(stop)
+  emit('b-bg', 'turn/start', { turn: 1 })
+  const out = await tool('message_bot', { to: 'Writer', message: 'hi' }, 'a')
+  assert.match(out, /Your message does not reach its work in another of its conversations\. If it must not go on there, use stop_bot\.$/)
 })
 
 test('stop_bot belongs to a Main Bot', async (t) => {
@@ -1043,6 +1121,27 @@ test('earlier-part rows carry seq and the turn that turn/start opened', () => {
   assert.equal(items[5].name, 'Chief')
 })
 
+// parts.js: an earlier group page stacks the replies of one turn. The change line must
+// come from the stacked row (the wrapper carries the last reply's `changes`), not from
+// the first reply of the turn.
+test('an earlier group page takes the change line of the last stacked reply', () => {
+  const rt = earlierParts([])
+  rt.roomOf = id => (id === 'g1' ? { id: 'g1', name: 'Launch' } : undefined)
+  const early = { sessionId: 'w1', seq: 3, turn: 1, total: 1, added: 1, deleted: 0, files: [{ path: 'early.js', added: 1, deleted: 0 }] }
+  const last = { sessionId: 'w1', seq: 9, turn: 1, total: 1, added: 2, deleted: 1, files: [{ path: 'final.js', added: 2, deleted: 1 }] }
+  rt.groupRows = () => [
+    { botId: 'b', name: 'Writer', text: 'Working…', time: 5, changes: early },
+    { botId: 'b', name: 'Writer', text: 'Done.', time: 6, changes: last },
+  ]
+  const items = rt.displayItems('g1', [
+    { seq: 1, type: 'tool/call', time: 1, data: { name: 'group_relay', callId: 'c1' } },
+    { seq: 2, type: 'tool/result', time: 2, data: { message: { toolCallId: 'c1', content: [{ type: 'text', text: '{"from":1,"to":9}' }] } } },
+  ])
+  const post = items.find(item => item.kind === 'post')
+  assert.deepEqual(post.texts, ['Working…', 'Done.'])
+  assert.deepEqual(post.changes, last)
+})
+
 // One turn opened on the older page and still running on the newer one.
 // The page holds 60 events, so the newer page starts after that turn/start.
 test('one turn keeps its identity across two earlier pages', async (t) => {
@@ -1482,4 +1581,82 @@ test('a message between Bots that the book cannot keep is not sent', { skip: pro
     chmodSync(join(home, 'ledger'), 0o700)
   }
   assert.deepEqual(await exchanges(), [])
+})
+
+
+test('a deferred request from a background part sends its reply back to that part', async (t) => {
+  const seed = team()
+  seed.bots.a.openParts = [{ sessionId: 'a-bg', segments: [] }]
+  const { agents, agentOf, emit, tool, stop } = await start(seed)
+  t.after(stop)
+
+  // Writer is in a user-started turn, reads Chief's steered request from 'a-bg',
+  // and ends the user turn without having answered the joined request yet.
+  emit('b', 'turn/start', { turn: 1 })
+  emit('b', 'user/message', { content: textBlock('Draft first'), source: { kind: 'user' } })
+  await tool('message_bot', { to: 'Writer', message: 'Check appendix' }, 'a-bg')
+  const [, steered] = agentOf('b').calls.at(-1)
+  emit('b', 'user/message', { content: steered.content, source: steered.source })
+  emit('b', 'assistant/message', assistantText('User draft done'))
+  emit('b', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  await settled(() => agentOf('b').calls.some(([kind]) => kind === 'followup'))
+  const [, deferred] = agentOf('b').calls.find(([kind]) => kind === 'followup')
+  assert.equal(deferred.source.senderPart, 'a-bg')
+
+  // When Writer answers that deferred turn, the reply must return to Chief's background part.
+  emit('b', 'turn/start', { turn: 2 })
+  emit('b', 'user/message', { content: deferred.content, source: deferred.source })
+  emit('b', 'assistant/message', assistantText('Appendix looks good'))
+  emit('b', 'turn/end', { turn: 2, reason: { kind: 'completed' } })
+  await settled(() => callsOf(agents, 'a-bg').length === 1)
+  assert.equal(callsOf(agents, 'a').length, 0)
+})
+
+test('a deferred later result follows a switched background openPart instead of leaking to foreground', async (t) => {
+  const seed = threeBots()
+  seed.bots.b = { id: 'b', name: 'Writer', role: 'Write', sessionId: 'b-bg', createdAt: 2, openParts: [{ sessionId: 'b-fg', segments: [] }] }
+  const teamCtx = await start(seed)
+  t.after(teamCtx.stop)
+  const { ctx, agents, agentOf, emit, fire, tool, call } = teamCtx
+  const turns = turnTaker(agents, emit)
+
+  let made = 0
+  ctx.sessionController.create = async () => ({ sessionId: `s${++made}` })
+  const get = ctx.get
+  ctx.get = name => name === 'tokenMeter' ? {
+    measure: () => ({ totalTokens: 272_000 }),
+    estimateMessage: message => estimateTokens(textOf(message.content)),
+  } : get(name)
+  ctx.llm.resolveModelInfo = async () => ({ context: { contextWindow: 192_000 } })
+
+  // Chief asks Writer (foreground is 'b-bg'), and Writer hands part of that work on to Tester.
+  turns.userTurn('a', 'have Writer do it')
+  await tool('message_bot', { to: 'Writer', message: 'carry out the plan' }, 'a')
+  turns.end('a', 'asked Writer')
+  turns.take('b-bg')
+  await tool('message_bot', { to: 'Tester', message: 'review my work' }, 'b-bg')
+  turns.end('b-bg', 'handed to Tester')
+
+  turns.take('c')
+  turns.end('c', 'background reviewed')
+  await settled(() => callsOf(agents, 'b-bg').length === 2)
+  const [, replyMsg] = callsOf(agents, 'b-bg')[1]
+
+  // User opens 'b-fg' as Writer's foreground, moving 'b-bg' into a background openPart.
+  assert.equal((await call('bot-open-part', { botId: 'b', sessionId: 'b-fg' })).ok, true)
+
+  // During an unrelated turn in background 'b-bg', Writer reads Tester's reply, then hits a
+  // context-window switch ('b-bg' -> 's1', into pastOwners) before turn/end drains `later`.
+  emit('b-bg', 'turn/start', { turn: 2 })
+  emit('b-bg', 'user/message', { content: textBlock('unrelated question'), source: { kind: 'user' } })
+  emit('b-bg', 'user/message', { content: replyMsg.content, source: replyMsg.source })
+  emit('b-bg', 'assistant/message', assistantText('answered unrelated'))
+  agentOf('b-bg').session.requestHeader = () => ({ config: { provider: 'custom', model: 'model' } })
+  await fire('agent/request-error', { agent: agentOf('b-bg'), failure: { code: 'CONTEXT_WINDOW_EXCEEDED', message: 'over' }, signal: AbortSignal.timeout(60_000) })
+  await settled(() => callsOf(agents, 's1').length === 1)
+  emit('b-bg', 'turn/end', { turn: 2, reason: { kind: 'completed' } })
+
+  await settled(() => [...callsOf(agents, 's1'), ...callsOf(agents, 'b-fg')].some(([, msg]) => textOf(msg?.content).includes('background reviewed')))
+  assert.equal(callsOf(agents, 'b-fg').length, 0)
+  assert.ok(callsOf(agents, 's1').some(([, msg]) => textOf(msg?.content).includes('background reviewed')))
 })

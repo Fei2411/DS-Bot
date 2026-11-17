@@ -2,6 +2,7 @@
 // there, else a Bot works in its own folder, else in the team workspace. A Session's
 // folder is fixed when it is made, so a change moves the conversation on to a fresh
 // part (parts.js).
+import { openSessions } from './threads.js'
 import { mkdir, realpath, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path'
@@ -145,8 +146,9 @@ export function install(rt) {
     return path
   }
 
-  // Every Session of a Bot: its own chat and its conversation in each of its groups.
-  const sessionsOfBot = botId => [rt.chatOf(botId), ...Object.values(state.rooms)
+  // Every Session of a Bot: its own chat (each of its threads) and its conversation in
+  // each of its groups.
+  const sessionsOfBot = botId => [rt.chatOf(botId), ...openSessions(rt.botOf(botId)), ...Object.values(state.rooms)
     .filter(room => room.members.includes(botId)).map(room => room.sessions?.[botId])].filter(Boolean)
 
   // A folder outside the team workspace widens where a Bot may write, so a Bot that

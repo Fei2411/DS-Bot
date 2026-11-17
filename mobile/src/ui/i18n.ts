@@ -3,9 +3,10 @@ import { DICTIONARY } from '../../../ds-bot/src/client/i18n.js'
 // Phone copy shares the desktop dictionary. Mobile-only strings have their own
 // Chinese entries here; the English source stays the key, as on the desktop.
 const ZH = DICTIONARY.zh as Record<string, string>
-// Words the desktop uses in another sense (its "New" badge, "Light" motion,
-// the browser's "Back"); the phone's own meaning wins for these.
-const MOBILE_SENSE = new Set(['New', 'Light', 'Back'])
+// Words the desktop uses in another sense (its "New" badge, "Light" motion, the
+// browser's "Back", the "Not parsed" meaning of "Unknown"); the phone's own meaning
+// wins for these.
+const MOBILE_SENSE = new Set(['New', 'Light', 'Back', 'Unknown'])
 
 const MOBILE_ZH: Record<string, string> = {
   'Asks for the secret {name}': '请求密钥 {name}',
@@ -43,6 +44,7 @@ const MOBILE_ZH: Record<string, string> = {
   'Message {name}': '发消息给 {name}',
   'Your answer': '你的回答',
   'No messages yet': '还没有消息',
+  '{count} new': '{count} 条新消息',
   'asked for work': '来要工作',
   'replied': '回复了',
   'reported back': '交回了工作',
@@ -118,7 +120,7 @@ const MOBILE_ZH: Record<string, string> = {
   'Arguments (one per line)': '参数（一行一个）', 'Environment': '环境', 'Headers': '请求头',
   'URL': '地址', 'Skill instructions': '技能说明', '{label} must be a JSON object.': '{label} 必须是 JSON 对象。',
   'Save changes': '保存修改', 'Error': '出错',
-  'Ready': '就绪', 'Needs approval': '需要批准', 'Pack': '套件', 'No items': '没有项目',
+  'Ready': '就绪', 'Needs approval': '需要批准', 'Unknown': '未知', 'Pack': '套件', 'No items': '没有项目',
   'Local command': '本地命令', 'HTTP server': 'HTTP 服务', 'Skill': '技能',
   'Approve': '批准', 'Save an MCP server or skill first.': '先保存一个 MCP 服务或技能。',
   'Updating DS Bot…': '正在更新 DS Bot…', 'Restart DSH to start using DS Bot {version}.': '重启 DSH 后开始用 DS Bot {version}。',
@@ -207,6 +209,7 @@ const MOBILE_ZH: Record<string, string> = {
   'Allow': '允许',
   'Reject': '拒绝',
   'Answer on the computer.': '在电脑上回答。',
+  'Set up your mailbox on the computer.': '请在电脑上设置邮箱。',
   'This question is no longer open.': '这个问题已经关闭了。',
   'This approval is no longer open.': '这项批准已经关闭了。',
   'Submit': '提交',

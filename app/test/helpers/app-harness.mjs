@@ -33,6 +33,9 @@ export const startApp = async ({ packaged = true, saved = {}, acknowledged = tru
   if (!firstRun) writeFileSync(join(paths.userData, 'locations.json'), JSON.stringify({ dataDir: home, workspace, ...saved }))
   if (acknowledged) writeFileSync(join(paths.userData, 'tray-close-acknowledged'), '')
   hold()
+  // macOS asks GitHub Releases unless a feed is given, which a test must never fetch. Keep any
+  // feed a test set itself, and answer with an empty release list otherwise.
+  if (process.platform === 'darwin') process.env.DS_BOT_UPDATE_URL ??= 'data:application/json,%5B%5D'
   await import('../../src/main.mjs')
   // The app is a packaged one, so that it has an updater. The flag comes after the start,
   // because a packaged app starts on the canonical path of its own.
