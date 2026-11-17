@@ -80,3 +80,27 @@ test('an added server signs in with OAuth, and the ones added before do not chan
   await assert.rejects(rt.connectorEndpoint('connector-add', { name: 'Spawn', command: 'npx -y mcp', oauth: true }), /OAuth sign-in needs an address/)
   assert.equal(rt.state.connectors.spawn, undefined)
 })
+
+// A sign-in token is the connector's own credential, so it replaces an Authorization
+// header the user typed. Other headers they typed stay as they are.
+test('the sign-in token wins over a header the user typed', async (t) => {
+  const home = teamHome()
+  const ctx = fakeContext()
+  const rt = createRuntime(ctx, { home, github: false })
+  t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true }) })
+  await rt.load()
+  await rt.loadSecrets()
+  const view = await rt.connectorEndpoint('connector-add', {
+    name: 'Simular Box',
+    url: 'https://mcp.box.simular.ai/mcp',
+    oauth: true,
+    headers: { Authorization: 'Bearer MINE', 'X-Team': 'one' },
+  })
+  // "Box" alone would be the catalog entry; the added row is the custom one.
+  const id = view.connectors.find(row => row.custom === true && row.name === 'Simular Box').id
+  await rt.secretEndpoint('secret-set', { name: `CONNECTOR_${id.toUpperCase().replace(/[^A-Z0-9]/g, '_')}_TOKEN`, value: 'AT-FROM-SIGN-IN', scope: [] })
+  await rt.loadSecrets()
+  const headers = rt.connectorsInternals.upstreamOf(id).headers
+  assert.equal(headers.Authorization, 'Bearer AT-FROM-SIGN-IN', 'the token replaces the typed Authorization')
+  assert.equal(headers['X-Team'], 'one', 'other typed headers stay')
+})
