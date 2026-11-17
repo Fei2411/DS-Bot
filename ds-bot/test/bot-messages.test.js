@@ -1281,6 +1281,75 @@ test('a failed turn past the hard line keeps the real error instead of switching
   assert.equal(agent.session.eventAt(1).data.reason.error, error)
 })
 
+// #1716: an endpoint behind a gateway or compatible proxy turns an oversized request
+// down without DSH's overflow code. The part moves on the way an overflow moves it.
+for (const id of ['b', 'gb']) {
+  test(`a request turned down as too large moves the part on without a model call (${id})`, async (t) => {
+    const { ctx, agentOf, emit, fire, stop } = await start(team({ group: true }))
+    t.after(stop)
+    let made = 0
+    ctx.sessionController.create = async () => ({ sessionId: `s${++made}` })
+    let tokens = 10_000
+    const get = ctx.get
+    ctx.get = name => name === 'tokenMeter' ? { measure: () => ({ totalTokens: tokens }) } : get(name)
+    ctx.llm.resolveModelInfo = async () => ({ context: { contextWindow: 100_000 } })
+    let streamed = 0
+    ctx.llm.stream = async function* () {
+      streamed += 1
+      yield { type: 'finish', reason: { kind: 'stop' } }
+    }
+    const agent = agentOf(id)
+    agent.session.requestHeader = () => ({ config: { provider: 'custom', model: 'model' } })
+    emit(id, 'assistant/message', assistantText('Earlier work'))
+    const refuse = failure => fire('agent/request-error', { agent, failure, signal: AbortSignal.timeout(60_000) })
+
+    // A generic refusal of a part below its hard line says nothing about its size.
+    await refuse({ code: 'INVALID_REQUEST', status: 400, message: 'invalid tool schema' })
+    await delay(30)
+    assert.equal(made, 0)
+
+    await refuse({ code: 'INVALID_REQUEST', message: '413 Payload Too Large' })
+    for (let at = 0; at < 200 && made === 0; at += 1) await delay(5)
+    assert.equal(made, 1)
+    assert.equal(streamed, 0)
+  })
+}
+
+test('a generic refusal of a part past its hard line moves it on; one below does not', async (t) => {
+  const { ctx, agentOf, emit, fire, stop } = await start(team())
+  t.after(stop)
+  let made = 0
+  ctx.sessionController.create = async () => ({ sessionId: `s${++made}` })
+  let tokens = 10_000
+  const get = ctx.get
+  ctx.get = name => name === 'tokenMeter' ? { measure: () => ({ totalTokens: tokens }) } : get(name)
+  ctx.llm.resolveModelInfo = async () => ({ context: { contextWindow: 100_000 } })
+  const agent = agentOf('b')
+  agent.session.requestHeader = () => ({ config: { provider: 'custom', model: 'model' } })
+  emit('b', 'assistant/message', assistantText('Earlier work'))
+  const failure = { code: 'INVALID_REQUEST', status: 400, message: 'Bad Request' }
+  await fire('agent/request-error', { agent, failure, signal: AbortSignal.timeout(60_000) })
+  await delay(30)
+  assert.equal(made, 0)
+  tokens = 120_000
+  await fire('agent/request-error', { agent, failure, signal: AbortSignal.timeout(60_000) })
+  for (let at = 0; at < 200 && made === 0; at += 1) await delay(5)
+  assert.equal(made, 1)
+})
+
+test('New session on a group member moves its group conversation on; a non-member is refused', async (t) => {
+  const { rt: runtime, ctx, call, stop } = await start(team({ group: true }))
+  t.after(stop)
+  let made = 0
+  ctx.sessionController.create = async () => ({ sessionId: `s${++made}` })
+  assert.equal((await call('bot-new-part', { botId: 'a', roomId: 'r1' })).ok, false)
+  const moved = await call('bot-new-part', { botId: 'b', roomId: 'r1' })
+  assert.equal(moved.ok, true, JSON.stringify(moved))
+  for (let at = 0; at < 200 && runtime.state.rooms.r1.sessions.b === 'gb'; at += 1) await delay(5)
+  assert.equal(runtime.state.rooms.r1.sessions.b, 's1')
+  assert.equal(runtime.state.bots.b.sessionId, 'b')
+})
+
 for (const id of ['b', 'gb']) {
   test(`model-priced images after a handoff can make room by switching (${id})`, async (t) => {
     const seed = team({ group: true })
