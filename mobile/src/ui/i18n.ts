@@ -9,6 +9,7 @@ const ZH = DICTIONARY.zh as Record<string, string>
 const MOBILE_SENSE = new Set(['New', 'Light', 'Back', 'Unknown'])
 
 const MOBILE_ZH: Record<string, string> = {
+  'This is not a DS Bot pairing code.': '这不是 DS Bot 配对码。',
   'DS Bot is open in another tab': 'DS Bot 已在另一个标签页中打开',
   'This browser cannot keep a single DS Bot tab active. Use a browser with Web Locks over HTTPS or localhost.': '此浏览器无法确保只有一个 DS Bot 标签页处于活动状态。请使用支持 Web Locks 的浏览器，并通过 HTTPS 或 localhost 访问。',
   'On the computer, open DS Bot, go to Settings → Phone and copy the pairing link. Paste it here.': '在电脑上打开 DS Bot，进入设置 → 手机，复制配对链接并粘贴到这里。',
