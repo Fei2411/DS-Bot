@@ -1,4 +1,5 @@
 import { createElement as h, useEffect, useRef } from 'react'
+import { dropDraft, keepDraft, keptDraft } from './drafts.js'
 import { TextIcon } from './icons.js'
 import { t } from './i18n.js'
 
@@ -118,13 +119,34 @@ export function PasteDock({ sessionId, inputActions, useUi, useInput, actions })
 }
 
 // The composer's paste listener and the bookkeeping that ties a card to the shell's own
-// attachment for it. It draws nothing: it sits beside the "+" to find that card.
+// attachment for it. It draws nothing: it sits beside the "+" to find that card. The
+// same seat carries the chat's draft across switches (#1248).
 export function PasteGuard({ sessionId, inputActions, useInput, useUi, actions }) {
   const anchor = useRef(null)
   const blocks = useUi(state => state.paste?.[sessionId]) ?? NO_BLOCKS
   const ids = useInput?.(state => state.attachmentIds) ?? NO_IDS
+  const draft = useInput?.(state => state.draft) ?? ''
   const latest = useRef({ blocks, ids })
   latest.current = { blocks, ids }
+  // Coming back to a chat puts its kept draft in the box unless one is already there,
+  // and says which staged files did not survive the switch rather than dropping them
+  // silently. One attempt per return: the kept entry is consumed either way.
+  useEffect(() => {
+    if (inputActions === undefined || useInput === undefined) return
+    const kept = keptDraft(sessionId)
+    if (kept === undefined) return
+    dropDraft(sessionId)
+    if (kept.draft !== '' && draft === '') inputActions.setDraft?.(kept.draft)
+    if (kept.attachmentIds.some(id => !ids.includes(id))) actions.notice?.(t('The files in this draft could not be kept across chats'))
+  }, [sessionId, inputActions])
+  // The box mirrors into the chat's kept draft as it changes, so leaving with text or
+  // files keeps them, and sending (which empties the box) keeps nothing. Declared
+  // after the restore: a fresh mount restores before this first save could delete
+  // what the chat kept.
+  useEffect(() => {
+    if (useInput === undefined) return
+    keepDraft(sessionId, { draft, attachmentIds: ids })
+  }, [sessionId, draft, ids])
   // Bind a waiting card only when its own file shows up in the rail. A file the user
   // attaches while the card waits keeps its id, so dismissing the card cannot delete it.
   // The rail draws after the id lands, and again while the file uploads.

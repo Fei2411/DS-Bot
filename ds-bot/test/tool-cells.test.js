@@ -1198,6 +1198,45 @@ test('an attachment starts the clipboard write inside its click before loading t
   assert.deepEqual(copiedTexts, [inner])
 })
 
+// #975: the files a member's turn delivered show under its group reply as cards.
+test('a group reply draws the delivered-file cards its row carries', () => {
+  const files = [{ sessionId: 'room', seq: 9, index: 0, name: 'notes.md', bytes: 11 }]
+  const out = show(call('group_relay', 'direct', { content: { replies: [{ botId: 'writer', text: 'Done.', files }] } }), { sessionId: 'room' })
+  assert.deepEqual(findAll(out, node => node.props?.className === 'bt-dfile-name').map(text), ['notes.md'])
+  assert.equal(findAll(out, node => node.props?.className === 'bt-soft bt-soft-sm').length, 1)
+})
+
+// #1627: a bubble that repeats the one right before it draws nothing, while every
+// bubble keeps its place so reactions do not move.
+test('a repeated bubble keeps its place and draws hidden', () => {
+  const toggles = []
+  const render = texts => expand(Bubbles({
+    texts, roster: team(), selfId: chief.id, sessionId: chief.id, msgKey: 'm1',
+    actions: { toggleReaction: (...args) => toggles.push(args) },
+    useUi: select => select({ reactions: { m1: { 0: ['👍'], 2: ['❤️'], 3: ['😂'] } } }),
+  }))
+  const rows = out => findAll(out, node => node.props?.className === 'bt-msg')
+  const rowText = node => text(findAll(node, entry => entry.props?.className === 'bt-bubble')[0])
+  const hidden = node => node.props?.['data-dup'] === ''
+  const shown = out => rows(out).filter(node => !hidden(node))
+
+  // [a, a, b, a]: the first a and the later a both show; only the repeat beside it goes.
+  const one = render(['a', 'a', 'b', 'a'])
+  assert.deepEqual(rows(one).map(rowText), ['a', 'a', 'b', 'a'])
+  assert.deepEqual(rows(one).map(hidden), [false, true, false, false])
+  assert.deepEqual(shown(one).map(rowText), ['a', 'b', 'a'])
+  // The hidden row keeps its index, so a reaction on b still toggles bubble 2.
+  const reacts = findAll(one, node => node.props?.className === 'bt-react')
+  assert.equal(reacts.length, 3)
+  reacts[1].props.onClick()
+  assert.deepEqual(toggles, [['m1', 2, '❤️']])
+
+  // [a, a, a]: one a shows and the two repeats draw behind it.
+  const all = render(['a', 'a', 'a'])
+  assert.deepEqual(rows(all).map(hidden), [false, true, true])
+  assert.equal(shown(all).length, 1)
+})
+
 test('settled and answered views summarize every outcome cleanly and derive fallback prompts when untitled', () => {
   const expandCard = (Component, props) => expand(h(Component, props))
 

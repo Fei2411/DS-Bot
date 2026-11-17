@@ -857,3 +857,79 @@ test('TeamSidebar leaves an already-collapsed DSH Desktop sidebar alone', async 
     }
   })
 })
+
+// The sidebar's own props for a roster, so the empty state and the row labels can be
+// read off the vnodes without running the whole column.
+function sidebarFor(roster, pref = 'open') {
+  return TeamSidebar({
+    wide: true,
+    actions: Object.fromEntries(['openSession', 'openMenu', 'openPalette', 'openNewChat', 'toggleSidebar', 'clearUnread'].map(name => [name, () => {}])),
+    useSidebarPref: pick => pick(pref),
+    useRoster: pick => pick(roster), useUi: pick => pick({ unread: {} }), useRegistry: pick => pick({}),
+    useSessions: pick => pick({ ids: [], byId: {} }), useUpdate: () => ({}),
+    useSessionStatus: pick => pick(new Map()), useSessionRetainInfo: () => null,
+    useActivity: pick => pick({}), useWork: pick => pick({ waiting: {}, rooms: {}, approvals: [] }),
+  })
+}
+
+const namedNodes = (node, name, out = []) => {
+  if (Array.isArray(node)) { for (const child of node) namedNodes(child, name, out); return out }
+  if (node === null || typeof node !== 'object') return out
+  if (node.type?.name === name) out.push(node)
+  namedNodes(node.props?.children, name, out)
+  return out
+}
+
+const nodesByClass = (node, className, out = []) => {
+  if (Array.isArray(node)) { for (const child of node) nodesByClass(child, className, out); return out }
+  if (node === null || typeof node !== 'object') return out
+  if (typeof node.props?.className === 'string' && node.props.className.split(/\s+/).includes(className)) out.push(node)
+  nodesByClass(node.props?.children, className, out)
+  return out
+}
+
+const teamWith = (extra = {}) => {
+  const main = { id: 'chief', name: 'Chief', createdAt: 1 }
+  return {
+    bots: [main], rooms: [], agents: [], byId: { chief: main }, roomsById: {},
+    mainBotId: 'chief', ready: true, exchangeTurns: {}, ...extra,
+  }
+}
+
+test('a team with only its Main Bot shows where the other Bots will appear', () => {
+  viewport.innerWidth = 1280
+  const hint = namedNodes(sidebarFor(teamWith()), 'ListEmpty')
+  assert.equal(hint.length, 1)
+})
+
+test('the empty hint leaves as soon as a Bot, group or Agent joins the team', () => {
+  viewport.innerWidth = 1280
+  const base = teamWith()
+  const second = { id: 'writer', name: 'Writer', createdAt: 2 }
+  const room = { id: 'room', name: 'Team', members: ['chief'], createdAt: 2 }
+  const agent = { id: 'agent', sessions: [], createdAt: 2 }
+  assert.equal(namedNodes(sidebarFor({ ...base, bots: [...base.bots, second], byId: { ...base.byId, writer: second } }), 'ListEmpty').length, 0)
+  assert.equal(namedNodes(sidebarFor({ ...base, rooms: [room], roomsById: { room } }), 'ListEmpty').length, 0)
+  assert.equal(namedNodes(sidebarFor({ ...base, agents: [agent] }), 'ListEmpty').length, 0)
+})
+
+test('the empty hint never shows in the rail', () => {
+  viewport.innerWidth = 1280
+  assert.equal(namedNodes(sidebarFor(teamWith(), 'rail'), 'ListEmpty').length, 0)
+})
+
+test('a Bot\'s role label sits beside its name in the wide list, not in the rail', () => {
+  viewport.innerWidth = 1280
+  const bot = { id: 'writer', name: 'Writer', role: 'Editor', createdAt: 1 }
+  const roster = { bots: [bot], rooms: [], agents: [], byId: { writer: bot }, mainBotId: 'chief', ready: true, exchangeTurns: {} }
+  const [row] = namedNodes(sidebarFor(roster), 'BotRow')
+  assert.ok(row)
+  const wide = row.type({ ...row.props, wide: true })
+  const chip = nodesByClass(wide, 'bt-chip')
+  assert.equal(chip.length, 1)
+  assert.deepEqual(chip[0].props.children, ['Editor'])
+  assert.match(wide.props['aria-label'], /^Writer, Editor/)
+  const rail = row.type({ ...row.props, wide: false })
+  assert.equal(nodesByClass(rail, 'bt-chip').length, 0)
+  assert.match(rail.props['aria-label'], /^Writer, Editor/)
+})

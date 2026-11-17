@@ -16,7 +16,7 @@ export interface TeamCtx {
   call: (endpoint: string, payload?: unknown) => Promise<unknown>
   refresh?: () => void
   computer: SavedComputer | null
-  hello?: { api: number | null; capabilities: string[]; boot: string; seq: number } | null
+  hello?: { api: number | null; capabilities: string[]; boot: string; seq: number; maxFileBytes?: number } | null
   onFeed?: (handler: (event: string, data: any) => void) => () => void
 }
 

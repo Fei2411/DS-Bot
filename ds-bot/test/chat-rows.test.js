@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { stackReplies } from '../src/shared/group-replies.js'
+import { drawnReplies, stackReplies } from '../src/shared/group-replies.js'
 import { fileURLToPath } from 'node:url'
 import { runInNewContext } from 'node:vm'
 import { build } from 'esbuild'
@@ -172,4 +172,44 @@ test('a marked final reply stacks onto earlier progress and keeps later messages
   assert.deepEqual(stacked[0].claims, claims)
   assert.deepEqual(stacked[1].texts, ['Follow-up'])
   assert.equal(stacked[1].claims, undefined)
+})
+
+// #1443: the files an earlier Bot turn delivered ride its closing row, so its chat row
+// draws the same delivered-file cards a group row does.
+test('a Bot row keeps the files its turn delivered and draws their cards', () => {
+  const files = [{ sessionId: 'b', seq: 9, index: 0, name: 'notes.md', bytes: 11 }]
+  const items = [
+    { kind: 'bot', text: 'one', time: MINUTE },
+    { kind: 'bot', text: 'two', time: 2 * MINUTE, files },
+  ]
+  const rows = [...ChatRows({ items, sessionId: 'b', roster, actions: {} })]
+  assert.equal(rows.length, 1)
+  const cards = rows[0].children.find(child => child?.type?.name === 'FileCards')
+  assert.deepEqual([...cards.props.files], files)
+})
+
+// #1624: one work-start chip per episode — a start whose episode a later row of the
+// same member ended draws nothing, and a run of starts of one member draws once, counted.
+test('a work start a later row of the same member ended draws nothing, and a run of starts draws once counted', () => {
+  const atWork = drawnReplies([{ kind: 'working', botId: 'b', time: 1 }])
+  assert.deepEqual(atWork.map(item => [item.reply.kind, item.reply.starts ?? null]), [['working', null]])
+
+  const posted = drawnReplies([
+    { kind: 'working', botId: 'b', time: 1 },
+    { botId: 'b', text: 'The report is ready.', time: 2 },
+  ])
+  assert.deepEqual(posted.map(item => item.reply.text ?? item.reply.kind), ['The report is ready.'])
+
+  const failed = drawnReplies([
+    { kind: 'working', botId: 'b', time: 1 },
+    { kind: 'failed', botId: 'b', code: 'HTTP', text: '429', time: 2 },
+  ])
+  assert.deepEqual(failed.map(item => item.reply.kind), ['failed'])
+
+  const runs = drawnReplies([
+    { kind: 'working', botId: 'b', time: 1 },
+    { kind: 'working', botId: 'b', time: 2 },
+    { kind: 'working', botId: 'c', time: 3 },
+  ])
+  assert.deepEqual(runs.map(item => [item.reply.botId, item.reply.starts ?? null]), [['b', 2], ['c', null]])
 })

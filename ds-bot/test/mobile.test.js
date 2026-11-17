@@ -2,12 +2,12 @@ import { fileChunks } from '../src/shared/file-chunks.js'
 import assert from 'node:assert/strict'
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { test } from 'node:test'
 import { createRuntime } from '../index.js'
-import { API_VERSION, CAPABILITIES, roomItems } from '../src/host/mobile.js'
+import { API_MESSAGE_BYTES, API_VERSION, CAPABILITIES, fileMaxFor, roomItems } from '../src/host/mobile.js'
 import { fakeAttachments, fakeContext } from './fake-ctx.js'
 import jpeg from 'jpeg-js'
 import { PNG } from 'pngjs'
@@ -627,6 +627,55 @@ test('file-download resolves presented files in active and archived group member
   assert.equal(Buffer.from(savedActive.value.bytes, 'base64').toString(), 'from active member session')
 })
 
+// #975: the files a member's turn presented reach the group chat, on its live rows and
+// on the posts it makes from outside a round, as refs file-download resolves.
+test('a member turn that presents a file shows the file on its group row', async (t) => {
+  const { call, emit, relay, answer, sent, history, rt, ctx, stop } = start()
+  t.after(stop)
+  const { room } = await team(call)
+  const dir = mkdtempSync(join(tmpdir(), 'ds-bot-group-row-file-'))
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  const path = join(dir, 'quarterly.pdf')
+  writeFileSync(path, Buffer.from('%PDF-1.4 quarterly'))
+
+  for (const def of rt.teamTools) ctx.tools.register(def)
+  sent.length = 0
+  history[room.id] = [user(1, 'Draft the quarterly report'), relayCall(2, 'call-1')]
+  await emit(room.id, history[room.id][0])
+  const running = relay(room.id, 'call-1')
+  const first = await turnFor(sent)
+  await answer(first.sessionId, first.message.source.exchangeId, '[PASS]', 1)
+  const second = await turnFor(sent, first)
+  // The files Writer's turn presented, in its group Session's log.
+  history[second.sessionId] = [
+    { seq: 3, type: 'deliverables/presented', data: { turn: 1, files: [{ path }] } },
+    { seq: 4, type: 'turn/end', data: { turn: 1 } },
+  ]
+  await answer(second.sessionId, second.message.source.exchangeId, 'The report is ready.', 1)
+  const result = await running
+  history[room.id].push(relayResult(3, 'call-1', result))
+
+  const done = (await call('room-chat', { roomId: room.id })).value
+  const row = done.items.find(item => item.kind === 'bot' && item.text === 'The report is ready.')
+  assert.deepEqual(row.files, [{ name: 'quarterly.pdf', sessionId: second.sessionId, seq: 3, index: 0 }])
+  const saved = await call('file-download', { sessionId: second.sessionId, seq: 3, index: 0 })
+  assert.equal(saved.ok, true)
+  assert.equal(saved.value.name, 'quarterly.pdf')
+  assert.equal(Buffer.from(saved.value.bytes, 'base64').toString(), '%PDF-1.4 quarterly')
+})
+
+test('a member post that carries delivered file refs shows them on its row (#975)', () => {
+  const events = [
+    { seq: 4, time: 20, type: 'user/message', data: { source: { kind: 'bot', role: 'post', senderSessionId: 'b2', senderName: 'Writer', delivered: [{ name: 'draft.md', sessionId: 'b2', seq: 9, index: 0 }] }, content: [{ type: 'text', text: '[Group post from Writer]\nDraft is ready' }] } },
+    { seq: 5, time: 21, type: 'user/message', data: { source: { kind: 'bot', role: 'post', senderSessionId: 'b2', senderName: 'Writer', done: true }, content: [{ type: 'text', text: 'done' }] } },
+  ]
+  const { items } = roomItems(events)
+  // A finished-work notice is an event of the round it opens, and draws no row here.
+  assert.deepEqual(items.map(item => [item.kind, item.text, item.files ?? null]), [
+    ['bot', 'Draft is ready', [{ name: 'draft.md', sessionId: 'b2', seq: 9, index: 0 }]],
+  ])
+})
+
 test('displayItems extracts prompt text for scheduled task user messages (#1498)', async (t) => {
   const { rt, stop } = start()
   t.after(stop)
@@ -789,6 +838,95 @@ test('markdown-image resolves archived part workspaces, returns rev, allows grou
   const readOnlyImg = await call('markdown-image', { sessionId: part2, path: './charts/plot.png' })
   assert.equal(readOnlyImg.ok, true)
   assert.equal(Buffer.from(readOnlyImg.value.bytes, 'base64').equals(updatedBytes), true)
+})
+
+test('file-read reads a whole file from the readable folders and blocks everything else (#1443)', async (t) => {
+  const { call, rt, stop } = start()
+  t.after(stop)
+  const { chief } = await team(call)
+  const workDir = mkdtempSync(join(tmpdir(), 'ds-bot-file-read-'))
+  t.after(() => rmSync(workDir, { recursive: true, force: true }))
+  const outsideFile = join(tmpdir(), `ds-bot-outside-${Date.now()}.txt`)
+  writeFileSync(outsideFile, 'outside every readable folder')
+  t.after(() => rmSync(outsideFile, { force: true }))
+
+  mkdirSync(join(workDir, 'charts'), { recursive: true })
+  writeFileSync(join(workDir, 'charts', 'notes.txt'), 'team notes')
+  rt.state.bots[chief].workDir = workDir
+  const sessionId = (await call('state', {})).value.bots.find(bot => bot.id === chief).sessionId
+
+  const ok = await call('file-read', { sessionId, path: './charts/notes.txt' })
+  assert.equal(ok.ok, true)
+  assert.equal(ok.value.name, 'notes.txt')
+  assert.equal(ok.value.mime, 'text/plain')
+  assert.equal(ok.value.size, 'team notes'.length)
+  assert.equal(Buffer.from(ok.value.bytes, 'base64').toString(), 'team notes')
+
+  // A user folder is a readable root: the ask passes containment and finds no file.
+  for (const folder of ['Desktop', 'Downloads', 'Documents']) {
+    const probe = await call('file-read', { sessionId, path: join(homedir(), folder, `ds-bot-no-such-${Date.now()}.txt`) })
+    assert.deepEqual([probe.ok, probe.error.code], [false, 'bot/not-found'])
+  }
+
+  const escapeLink = join(workDir, 'charts', 'escape-link.txt')
+  symlinkSync(outsideFile, escapeLink)
+  const escape = await call('file-read', { sessionId, path: './charts/escape-link.txt' })
+  assert.deepEqual([escape.ok, escape.error.code], [false, 'bot/forbidden'])
+
+  const traversal = await call('file-read', { sessionId, path: '../outside.txt' })
+  assert.deepEqual([traversal.ok, traversal.error.code], [false, 'bot/forbidden'])
+
+  const foreign = await call('file-read', { sessionId, path: outsideFile })
+  assert.deepEqual([foreign.ok, foreign.error.code], [false, 'bot/forbidden'])
+
+  const missing = await call('file-read', { sessionId, path: './charts/no-such.txt' })
+  assert.deepEqual([missing.ok, missing.error.code], [false, 'bot/not-found'])
+
+  const unowned = await call('file-read', { sessionId: 's-other', path: './charts/notes.txt' })
+  assert.deepEqual([unowned.ok, unowned.error.code], [false, 'bot/not-found'])
+
+  // The registered team workspace may lie in the host's own data, and its files stay
+  // readable there (the inData exception); a folder of the host's own that is no team
+  // workspace stays closed even when a Bot's workDir names it.
+  const dataDir = join(rt.home, 'botdata')
+  mkdirSync(dataDir, { recursive: true })
+  writeFileSync(join(dataDir, 'secret.txt'), 'host data')
+  rt.state.bots[chief].workDir = dataDir
+  const inData = await call('file-read', { sessionId, path: './secret.txt' })
+  assert.deepEqual([inData.ok, inData.error.code], [false, 'bot/forbidden'])
+  rt.state.bots[chief].workDir = workDir
+
+  const workspace = join(rt.home, 'workspace')
+  mkdirSync(workspace, { recursive: true })
+  writeFileSync(join(workspace, 'handoff.txt'), 'workspace handoff')
+  const open = await call('file-read', { sessionId, path: join(workspace, 'handoff.txt') })
+  assert.equal(open.ok, true)
+  assert.equal(Buffer.from(open.value.bytes, 'base64').toString(), 'workspace handoff')
+})
+
+test('file-read refuses files past maxFileBytes, which hello names beside send-files (#1443)', async (t) => {
+  const { call, rt, stop } = start()
+  t.after(stop)
+  const hello = (await call('hello', {})).value
+  assert.equal(hello.maxFileBytes, fileMaxFor(API_MESSAGE_BYTES))
+  assert.equal(hello.capabilities.includes('send-files'), true)
+
+  const { chief } = await team(call)
+  const workDir = mkdtempSync(join(tmpdir(), 'ds-bot-file-cap-'))
+  t.after(() => rmSync(workDir, { recursive: true, force: true }))
+  const path = join(workDir, 'big.txt')
+  writeFileSync(path, Buffer.alloc(fileMaxFor(API_MESSAGE_BYTES) + 1, 97))
+  rt.state.bots[chief].workDir = workDir
+  const sessionId = (await call('state', {})).value.bots.find(bot => bot.id === chief).sessionId
+
+  const refused = await call('file-read', { sessionId, path: './big.txt' })
+  assert.deepEqual([refused.ok, refused.error.code], [false, 'bot/refused'])
+
+  writeFileSync(path, Buffer.alloc(1024, 97))
+  const fits = await call('file-read', { sessionId, path: './big.txt' })
+  assert.equal(fits.ok, true)
+  assert.equal(fits.value.size, 1024)
+  assert.equal(fits.value.mime, 'text/plain')
 })
 
 test('files larger than the secure message limit download through bounded chunks without a total-size cap', async t => {

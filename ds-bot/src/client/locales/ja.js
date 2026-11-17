@@ -98,6 +98,8 @@ export const JA = {
   "Default model": "デフォルトモデル",
   "Bot list": "Bot 一覧",
   "Setting up your Main Bot…": "メイン Bot を準備しています…",
+  "Your Bots will swim here": "Bot たちはここを泳ぎます",
+  "Mention {name}": "{name} をメンション",
   "The Bot team could not start. The engine’s startup output — its console, or the app’s startup error box — has the cause.": "Bot チームを起動できませんでした。原因はエンジンの起動出力（コンソールまたはアプリの起動エラー画面）を確認してください。",
   "The Bot team could not start. {error}. The engine’s startup output — its console, or the app’s startup error box — has the cause.": "Bot チームを起動できませんでした。{error}。原因はエンジンの起動出力（コンソールまたはアプリの起動エラー画面）を確認してください。",
   "Automation tasks": "自動化タスク",

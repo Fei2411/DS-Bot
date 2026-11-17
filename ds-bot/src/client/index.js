@@ -13,7 +13,7 @@ import { installSettingsShell, SETTINGS_SHELL_CSS } from './settings-shell.js'
 import { frameLayout, readSidebar, writeSidebar, toggledPref, DSH_NARROW } from './frame-layout.js'
 import { installFrameWatch } from './frame-watch.js'
 import { HeaderPill } from './header.js'
-import { ComposerPlus, ComposerVoice, menuIcons } from './composer.js'
+import { ComposerPlus, ComposerVoice, insertMention, menuIcons } from './composer.js'
 import { CHATS_SOURCE, atSources } from './at-menu.js'
 import { BtwDock, BtwTurnTail } from './btw.js'
 import { SIDE_CSS, sideSource } from './side-chat.js'
@@ -27,6 +27,7 @@ import { AppAccessDock, ComputerHandoffDock, ComputerIndicator, COMPUTER_CSS } f
 import { installHeaderNavigation } from './header-navigation.js'
 import { AssistantCell, TriggerCell, TurnProcessCell, Nothing, CellEmpty, TurnTailCell, ToolCell } from './cells.js'
 import { SaveFileAction } from './file-save.js'
+import { FILE_CARD_CSS } from './file-card.js'
 import { fileMentionSource } from './mention-source.js'
 import { FailureCell, TURN_ERROR_CSS } from './turn-error.js'
 import { Overlays } from './overlays.js'
@@ -1135,6 +1136,9 @@ export function apply(ctx) {
     return () => fiber.dispose()
   }
   actions.canReferenceChat = () => atMenu !== null
+  // A group member's name in the details panel mentions that member in the group's
+  // own composer, where the user last left the caret.
+  actions.insertMention = (sessionId, name) => insertMention(sessionId, name)
   actions.referenceChat = (sessionId, span) => {
     const controller = atMenu?.controllerOf(sessionId)
     if (controller === undefined || span === undefined) return
@@ -1187,6 +1191,7 @@ export function apply(ctx) {
     [IM_CSS, 'im'],
     [GOAL_CSS, 'goal'],
     [USER_MESSAGE_CSS, 'user-messages'],
+    [FILE_CARD_CSS, 'file-cards'],
     [WIDGET_CSS, 'widgets'],
     [CHANGES_CSS, 'changes'],
     [HANDOFF_CSS, 'handoff'],

@@ -98,6 +98,8 @@ export const FR = {
   "Default model": "Modèle par défaut",
   "Bot list": "Liste des Bots",
   "Setting up your Main Bot…": "Configuration de votre Bot principal…",
+  "Your Bots will swim here": "Vos Bots nageront ici",
+  "Mention {name}": "Mentionner {name}",
   "The Bot team could not start. The engine’s startup output — its console, or the app’s startup error box — has the cause.": "L’équipe de Bots n’a pas pu démarrer. La sortie de démarrage du moteur — sa console ou la boîte d’erreur de l’application — en indique la cause.",
   "The Bot team could not start. {error}. The engine’s startup output — its console, or the app’s startup error box — has the cause.": "L’équipe de Bots n’a pas pu démarrer. {error}. La sortie de démarrage du moteur — sa console ou la boîte d’erreur de l’application — en indique la cause.",
   "Automation tasks": "Tâches d’automatisation",

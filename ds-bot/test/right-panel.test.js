@@ -226,9 +226,52 @@ const hostStrings = (node, out = []) => {
   for (const child of node.children ?? []) hostStrings(child, out)
   return out
 }
+const classNodes = (node, className, out = []) => {
+  if (Array.isArray(node)) { for (const child of node) classNodes(child, className, out); return out }
+  if (node === null || typeof node !== 'object') return out
+  if (typeof node.type === 'function') return classNodes(node.type(node.props), className, out)
+  if (node.props?.className === className) out.push(node)
+  for (const child of node.children ?? []) classNodes(child, className, out)
+  return out
+}
 const editable = (patch, actions = {}) => drawer('a', actions, { ...roster, byId: { a: { ...bot, ...patch } } })
 const aboutOf = (tree) => { const [about] = named(tree, 'About'); return about.type(about.props) }
 const fieldOf = about => about.children.find(child => child?.props?.onSave)
+
+test('a group member name mentions the member, and the row still opens its chat', () => {
+  const calls = []
+  const tree = drawer('g', {
+    insertMention: (id, name) => { calls.push(['mention', id, name]); return true },
+    openSession: id => { calls.push(['open', id]) },
+  })
+  const [member] = named(tree, 'MemberRow', true)
+  assert.ok(member, 'the group lists its member')
+  const row = member.type(member.props)
+  const [name] = classNodes(row, 'bt-member-name')
+  assert.ok(name, 'the member name is its own target')
+  let stopped = 0
+  name.props.onClick({ preventDefault() {}, stopPropagation() { stopped += 1 } })
+  assert.equal(stopped, 1, 'the name does not also open the chat')
+  name.props.onKeyDown({ key: 'Enter', preventDefault() {}, stopPropagation() { stopped += 1 } })
+  assert.deepEqual(calls, [['mention', 'g', 'Chief'], ['mention', 'g', 'Chief']])
+  const [open] = classNodes(row, 'bt-member-open')
+  assert.ok(open)
+  open.props.onClick()
+  assert.deepEqual(calls.at(-1), ['open', 'a'])
+})
+
+// A folder change moves the group's own Session to a fresh part: the mention goes to
+// the composer of that part, not to the group id the row keeps.
+test('a group mention follows the moved Session', () => {
+  const calls = []
+  const movedRoom = { ...room, sessionId: 'g-part2' }
+  const moved = { ...roster, roomsById: { g: movedRoom, 'g-part2': movedRoom } }
+  const tree = drawer('g-part2', { insertMention: id => calls.push(id) }, moved)
+  const [member] = named(tree, 'MemberRow', true)
+  const row = member.type(member.props)
+  classNodes(row, 'bt-member-name')[0].props.onClick({ preventDefault() {}, stopPropagation() {} })
+  assert.deepEqual(calls, ['g-part2'])
+})
 
 test('the drawer label is a field that saves the Bot role, like the Settings page', async () => {
   const saved = []

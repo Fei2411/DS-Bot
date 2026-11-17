@@ -41,7 +41,7 @@ function DrawerContent() {
   const [searching, setSearching] = useState(false)
   const [query, setQuery] = useState('')
   const [newOpen, setNewOpen] = useState(false)
-  const create = (screen: 'NewBot' | 'NewGroup') => { setNewOpen(false); drawer.close(); navigation.navigate(screen) }
+  const create = (screen: 'NewBot' | 'NewGroup') => { setNewOpen(false); drawer.closeNow(); navigation.navigate(screen) }
   // The chat on screen is marked in the list, as the desktop marks its open chat. The
   // drawer sits outside the navigator, so it follows the container's own state.
   const [current, setCurrent] = useState<string | undefined>(undefined)
@@ -53,7 +53,9 @@ function DrawerContent() {
   // A chat replaces the one on screen; nothing stays stacked under it. Needs you and
   // Settings slide up over the chat and go back down to it.
   const open = (target: ChatTarget | { kind: 'needs' } | { kind: 'settings' }) => {
-    drawer.close()
+    // Immediate close, not the spring: the drawer must stop being interactive
+    // the moment the other screen starts opening.
+    drawer.closeNow()
     if (target.kind === 'needs') navigation.navigate('Needs')
     else if (target.kind === 'settings') navigation.navigate('Settings')
     else openChat(navigation, target)
