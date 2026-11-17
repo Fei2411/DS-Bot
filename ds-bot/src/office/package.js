@@ -6,8 +6,6 @@ import { dirname, join, posix, resolve, sep } from 'node:path'
 import { parseXml, serializeXml, childrenOf } from './xml.js'
 import { readZip, writeZip } from './zip.js'
 
-export const CT = 'http://schemas.openxmlformats.org/package/2006/content-types'
-
 function fail(message) { const error = new Error(message); error.code = 'package'; throw error }
 
 const absTarget = (base, target) => {
