@@ -9,6 +9,7 @@ const ZH = DICTIONARY.zh as Record<string, string>
 const MOBILE_SENSE = new Set(['New', 'Light', 'Back', 'Unknown'])
 
 const MOBILE_ZH: Record<string, string> = {
+  'On the computer, open DS Bot, go to Settings → Phone and copy the pairing link. Paste it here.': '在电脑上打开 DS Bot，进入设置 → 手机，复制配对链接并粘贴到这里。',
   'Asks for the secret {name}': '请求密钥 {name}',
   '{bot} asks for the secret {name}': '{bot} 请求密钥 {name}',
   'Pair with your computer': '与电脑配对',

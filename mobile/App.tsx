@@ -1,7 +1,8 @@
 import 'react-native-gesture-handler'
 import { StatusBar } from 'expo-status-bar'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ActivityIndicator, Linking, Text, useColorScheme, View } from 'react-native'
+import { ActivityIndicator, Linking, Platform, Text, useColorScheme, View } from 'react-native'
+import { takePairingFragment } from './src/team/pair-fragment.ts'
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import { DefaultTheme, NavigationContainer, type NavigationState } from '@react-navigation/native'
 import { setLang } from './src/ui/i18n.ts'
@@ -111,6 +112,11 @@ function Boot() {
   // A pairing link opened from the system camera arrives on whatever screen is showing.
   useEffect(() => {
     const open = (url?: string | null) => { if (url?.startsWith('dsbot://pair')) { setOffer(url); setAdding(true) } }
+    if (Platform.OS === 'web') {
+      const uri = takePairingFragment(window.location, window.history)
+      if (uri !== undefined) { setOffer(uri); setAdding(true) }
+      return
+    }
     void Linking.getInitialURL().then(open)
     const subscription = Linking.addEventListener('url', event => open(event.url))
     return () => subscription.remove()

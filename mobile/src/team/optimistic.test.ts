@@ -100,7 +100,7 @@ test('switching to a computer with a lower revision clears the old team and acce
 
   const hooks = registerHooks({
     resolve(specifier, context, nextResolve) {
-      if (specifier === 'react' || specifier === 'react-native' || specifier === '../connection.ts' || specifier === './gate.ts' || specifier === '../ui/i18n.ts') {
+      if (specifier === 'react' || specifier === 'react-native' || specifier === '../connection.ts' || specifier === './gate' || specifier === '../ui/i18n.ts') {
         return { url: `mock:${specifier}`, shortCircuit: true }
       }
       return nextResolve(specifier, context)
@@ -132,7 +132,7 @@ test('switching to a computer with a lower revision clears the old team and acce
           `,
         }
       }
-      if (url === 'mock:./gate.ts') {
+      if (url === 'mock:./gate') {
         return { format: 'module', shortCircuit: true, source: `export const ensureUnlock = async () => {}` }
       }
       if (url === 'mock:../ui/i18n.ts') {
@@ -238,4 +238,3 @@ test('switching to a computer with a lower revision clears the old team and acce
     delete (globalThis as any).__linkTestHooks
   }
 })
-
