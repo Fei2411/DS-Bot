@@ -120,7 +120,7 @@ export function install(rt) {
       on: data.on === true,
       status: link?.status ?? 'off',
       ...(reason === undefined ? {} : { error: reason }),
-      phones: registry.list().map(({ deviceId, name, pairedAt }) => ({ id: deviceId, name, pairedAt, connected: connected.has(deviceId) })),
+      phones: registry.list().map(({ deviceId, name, pairedAt, kind }) => ({ id: deviceId, name, pairedAt, kind, connected: connected.has(deviceId) })),
       pairing,
     }
   }
@@ -146,8 +146,9 @@ export function install(rt) {
       case 'phone-pair': {
         reconcile()
         if (link === null) throw invalid(blocked ?? 'Turn on phone access first')
-        const { code, expiresAt } = registry.openPairing()
-        pairing = { uri: pairingUri({ server: serverUrl(), hostDeviceId: data.identity.deviceId, hostKey: data.identity.publicKey, code, name: hostname() }), expiresAt }
+        const { code, browserCode, expiresAt } = registry.openPairing()
+        const offer = { server: serverUrl(), hostDeviceId: data.identity.deviceId, hostKey: data.identity.publicKey, name: hostname() }
+        pairing = { uri: pairingUri({ ...offer, code }), browserUri: pairingUri({ ...offer, code: browserCode }), expiresAt }
         break
       }
       case 'phone-pair-cancel':

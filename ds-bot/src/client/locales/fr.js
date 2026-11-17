@@ -19,6 +19,7 @@ export const FR = {
   "Server": "Serveur",
   "Show a QR code": "Afficher un code QR",
   "Open in a browser": "Ouvrir dans un navigateur",
+  "Web browser": "Navigateur web",
   "Copy browser link": "Copier le lien du navigateur",
   "Clipboard is not available": "Le presse-papiers n’est pas disponible",
   "The Relay Server that passes encrypted messages between your phone and this computer. It cannot read them.": "Le serveur relais qui transmet les messages chiffrés entre votre téléphone et cet ordinateur. Il ne peut pas les lire.",

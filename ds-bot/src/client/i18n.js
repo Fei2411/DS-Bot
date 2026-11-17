@@ -736,6 +736,7 @@ const ZH = {
   'The code works once. It stops working in {count} min.': '这个码只能用一次，{count} 分钟后失效。',
   'Show a QR code': '显示二维码',
   'Open in a browser': '在浏览器中打开',
+  'Web browser': '网页浏览器',
   'Copy browser link': '复制浏览器链接',
   'Clipboard is not available': '剪贴板不可用',
   'Your phone scans it once. After that it connects by itself.': '手机扫一次就行，以后会自动连接。',

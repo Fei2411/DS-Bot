@@ -61,7 +61,7 @@ export function PhonePage({ roster, actions, Section, Row }) {
     void run(actions.phoneSet({ server }))
   }
   const online = phone.on && phone.status === 'online'
-  const browserUrl = phone.pairing ? browserPairingUrl(phone.server, phone.pairing.uri) : null
+  const browserUrl = phone.pairing ? browserPairingUrl(phone.server, phone.pairing.browserUri) : null
   return h('div', { className: 'bt-phone' },
     h(Section, { title: t('Connection') },
       h(Row, { label: t('Phone access'), hint: statusText(phone), className: phone.error || phone.status === 'offline' ? 'bt-phone-warn' : '' },
@@ -90,7 +90,7 @@ export function PhonePage({ roster, actions, Section, Row }) {
       ? h(Row, { label: t('No phones yet') })
       : phone.phones.map(entry => h(Row, {
         key: entry.id,
-        label: entry.name || t('Phone'),
+        label: entry.kind === 'browser' ? t('Web browser') : entry.name || t('Phone'),
         hint: entry.connected ? t('Connected') : t('Paired on {date}', { date: new Date(entry.pairedAt).toLocaleDateString(dateLocale(), { dateStyle: 'medium' }) }),
       }, h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: busy, onClick: () => void run(actions.phoneRemove(entry.id)) }, t('Remove'))))))
 }

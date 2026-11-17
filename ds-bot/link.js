@@ -7413,7 +7413,7 @@ var DeviceRegistry = class {
   onChange;
   now;
   constructor(devices = [], onChange, now = Date.now) {
-    for (const device of devices) this.devices.set(device.deviceId, { ...device });
+    for (const device of devices) this.devices.set(device.deviceId, { ...device, kind: device.kind === "browser" ? "browser" : "phone" });
     this.onChange = onChange;
     this.now = now;
   }
@@ -7421,8 +7421,8 @@ var DeviceRegistry = class {
     return [...this.devices.values()].map((device) => ({ ...device }));
   }
   openPairing(ttlMs = 5 * 6e4) {
-    this.pairing = { code: randomToken(18), expiresAt: this.now() + ttlMs, misses: 0 };
-    return { code: this.pairing.code, expiresAt: this.pairing.expiresAt };
+    this.pairing = { code: randomToken(18), browserCode: randomToken(18), expiresAt: this.now() + ttlMs, misses: 0 };
+    return { code: this.pairing.code, browserCode: this.pairing.browserCode, expiresAt: this.pairing.expiresAt };
   }
   closePairing() {
     this.pairing = void 0;
@@ -7440,13 +7440,14 @@ var DeviceRegistry = class {
     if (this.matches(deviceId, identityKey)) return true;
     if (hello.pairingCode === void 0 || !this.pairingOpen()) return false;
     const pairing = this.pairing;
-    if (!sameText(hello.pairingCode, pairing.code)) {
+    const kind = sameText(hello.pairingCode, pairing.browserCode) ? "browser" : "phone";
+    if (kind === "phone" && !sameText(hello.pairingCode, pairing.code)) {
       pairing.misses += 1;
       if (pairing.misses >= 5) this.pairing = void 0;
       return false;
     }
     this.pairing = void 0;
-    this.devices.set(deviceId, { deviceId, identityKey, name: hello.name ?? "", pairedAt: this.now() });
+    this.devices.set(deviceId, { deviceId, identityKey, name: hello.name ?? "", pairedAt: this.now(), kind });
     this.onChange?.(this.list());
     return true;
   }

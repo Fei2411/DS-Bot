@@ -67,6 +67,7 @@ test('a phone pairs with the QR code and calls the same endpoints as the window'
 
   const paired = await desk.call('phone-pair', {})
   const offer = parsePairingUri(paired.value.pairing.uri)
+  assert.notEqual(parsePairingUri(paired.value.pairing.browserUri).code, offer.code)
   const link = phone(offer, { pairingCode: offer.code, name: 'Pixel' })
   await link.client.connect()
   const state = await link.client.rpc('bot', { endpoint: 'state', payload: {} })
@@ -78,6 +79,7 @@ test('a phone pairs with the QR code and calls the same endpoints as the window'
   const listed = (await desk.call('state', {})).value.phone
   assert.equal(listed.pairing, null)
   assert.deepEqual(listed.phones.map(entry => [entry.name, entry.connected]), [['Pixel', true]])
+  assert.equal(listed.phones[0].kind, 'phone')
   await link.client.close()
 
   // The computer keeps its identity across restarts, so the phone comes back without a code.
@@ -96,6 +98,25 @@ test('a phone pairs with the QR code and calls the same endpoints as the window'
 
   await desk.call('phone-set', { on: false })
   assert.equal((await desk.call('state', {})).value.phone.status, 'off')
+})
+
+test('a browser pairs with its own code and is listed by authenticated kind', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'dsb-browser-'))
+  writeFileSync(join(home, 'state.json'), JSON.stringify(TEAM))
+  const desk = open(home)
+  t.after(async () => { await desk.ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
+  await desk.call('phone-set', { server: server.url, on: true })
+  await until(() => desk.call('state', {}), state => state.value.phone.status === 'online')
+  const paired = await desk.call('phone-pair', {})
+  const offer = parsePairingUri(paired.value.pairing.browserUri)
+  const link = phone(offer, { pairingCode: offer.code, name: 'iPhone' })
+  await link.client.connect()
+  const listed = (await desk.call('state', {})).value.phone
+  assert.equal(listed.pairing, null)
+  assert.equal(listed.phones[0].kind, 'browser')
+  assert.equal(listed.phones[0].name, 'iPhone')
+  assert.equal((await link.client.rpc('bot', { endpoint: 'state' })).ok, true)
+  await link.client.close()
 })
 
 test('a phone write that moved the team carries the new state in its reply', async (t) => {

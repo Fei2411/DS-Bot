@@ -19,6 +19,7 @@ export const KO = {
   "Server": "서버",
   "Show a QR code": "QR 코드 표시",
   "Open in a browser": "브라우저에서 열기",
+  "Web browser": "웹 브라우저",
   "Copy browser link": "브라우저 링크 복사",
   "Clipboard is not available": "클립보드를 사용할 수 없습니다",
   "The Relay Server that passes encrypted messages between your phone and this computer. It cannot read them.": "휴대폰과 이 컴퓨터 사이에서 암호화된 메시지를 전달하는 중계 서버입니다. 내용은 읽을 수 없습니다.",

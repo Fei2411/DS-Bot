@@ -19,6 +19,7 @@ export const JA = {
   "Server": "サーバー",
   "Show a QR code": "QR コードを表示",
   "Open in a browser": "ブラウザーで開く",
+  "Web browser": "ウェブブラウザー",
   "Copy browser link": "ブラウザーのリンクをコピー",
   "Clipboard is not available": "クリップボードを利用できません",
   "The Relay Server that passes encrypted messages between your phone and this computer. It cannot read them.": "スマートフォンとこのコンピューターの間で暗号化されたメッセージを中継するサーバーです。内容は読めません。",

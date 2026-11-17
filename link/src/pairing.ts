@@ -11,6 +11,7 @@ export interface PairedDevice {
   identityKey: string
   name: string
   pairedAt: number
+  kind?: 'phone' | 'browser'
 }
 
 /** What the computer's pairing QR code carries to the phone. */
@@ -89,6 +90,7 @@ export function parsePairingUri(uri: string): PairingOffer {
 
 interface OpenPairing {
   code: string
+  browserCode: string
   expiresAt: number
   misses: number
 }
@@ -104,16 +106,16 @@ export class DeviceRegistry {
   private readonly now: () => number
 
   constructor(devices: PairedDevice[] = [], onChange?: (devices: PairedDevice[]) => void, now: () => number = Date.now) {
-    for (const device of devices) this.devices.set(device.deviceId, { ...device })
+    for (const device of devices) this.devices.set(device.deviceId, { ...device, kind: device.kind === 'browser' ? 'browser' : 'phone' })
     this.onChange = onChange
     this.now = now
   }
 
   list(): PairedDevice[] { return [...this.devices.values()].map(device => ({ ...device })) }
 
-  openPairing(ttlMs = 5 * 60_000): { code: string; expiresAt: number } {
-    this.pairing = { code: randomToken(18), expiresAt: this.now() + ttlMs, misses: 0 }
-    return { code: this.pairing.code, expiresAt: this.pairing.expiresAt }
+  openPairing(ttlMs = 5 * 60_000): { code: string; browserCode: string; expiresAt: number } {
+    this.pairing = { code: randomToken(18), browserCode: randomToken(18), expiresAt: this.now() + ttlMs, misses: 0 }
+    return { code: this.pairing.code, browserCode: this.pairing.browserCode, expiresAt: this.pairing.expiresAt }
   }
 
   closePairing(): void { this.pairing = undefined }
@@ -133,13 +135,14 @@ export class DeviceRegistry {
     if (this.matches(deviceId, identityKey)) return true
     if (hello.pairingCode === undefined || !this.pairingOpen()) return false
     const pairing = this.pairing!
-    if (!sameText(hello.pairingCode, pairing.code)) {
+    const kind = sameText(hello.pairingCode, pairing.browserCode) ? 'browser' : 'phone'
+    if (kind === 'phone' && !sameText(hello.pairingCode, pairing.code)) {
       pairing.misses += 1
       if (pairing.misses >= 5) this.pairing = undefined
       return false
     }
     this.pairing = undefined
-    this.devices.set(deviceId, { deviceId, identityKey, name: hello.name ?? '', pairedAt: this.now() })
+    this.devices.set(deviceId, { deviceId, identityKey, name: hello.name ?? '', pairedAt: this.now(), kind })
     this.onChange?.(this.list())
     return true
   }

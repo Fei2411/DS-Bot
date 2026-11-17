@@ -142,6 +142,7 @@ var JA = {
   "Server": "サーバー",
   "Show a QR code": "QR コードを表示",
   "Open in a browser": "ブラウザーで開く",
+  "Web browser": "ウェブブラウザー",
   "Copy browser link": "ブラウザーのリンクをコピー",
   "Clipboard is not available": "クリップボードを利用できません",
   "The Relay Server that passes encrypted messages between your phone and this computer. It cannot read them.": "スマートフォンとこのコンピューターの間で暗号化されたメッセージを中継するサーバーです。内容は読めません。",
@@ -2561,6 +2562,7 @@ var KO = {
   "Server": "서버",
   "Show a QR code": "QR 코드 표시",
   "Open in a browser": "브라우저에서 열기",
+  "Web browser": "웹 브라우저",
   "Copy browser link": "브라우저 링크 복사",
   "Clipboard is not available": "클립보드를 사용할 수 없습니다",
   "The Relay Server that passes encrypted messages between your phone and this computer. It cannot read them.": "휴대폰과 이 컴퓨터 사이에서 암호화된 메시지를 전달하는 중계 서버입니다. 내용은 읽을 수 없습니다.",
@@ -5025,6 +5027,7 @@ var ES = {
   "Server": "Servidor",
   "Show a QR code": "Mostrar un código QR",
   "Open in a browser": "Abrir en un navegador",
+  "Web browser": "Navegador web",
   "Copy browser link": "Copiar enlace del navegador",
   "Clipboard is not available": "El portapapeles no está disponible",
   "The Relay Server that passes encrypted messages between your phone and this computer. It cannot read them.": "El servidor de retransmisión que pasa los mensajes cifrados entre tu teléfono y este ordenador. No puede leerlos.",
@@ -7489,6 +7492,7 @@ var FR = {
   "Server": "Serveur",
   "Show a QR code": "Afficher un code QR",
   "Open in a browser": "Ouvrir dans un navigateur",
+  "Web browser": "Navigateur web",
   "Copy browser link": "Copier le lien du navigateur",
   "Clipboard is not available": "Le presse-papiers n’est pas disponible",
   "The Relay Server that passes encrypted messages between your phone and this computer. It cannot read them.": "Le serveur relais qui transmet les messages chiffrés entre votre téléphone et cet ordinateur. Il ne peut pas les lire.",
@@ -9908,6 +9912,7 @@ var DE = {
   "Server": "Server",
   "Show a QR code": "QR-Code anzeigen",
   "Open in a browser": "Im Browser öffnen",
+  "Web browser": "Webbrowser",
   "Copy browser link": "Browser-Link kopieren",
   "Clipboard is not available": "Die Zwischenablage ist nicht verfügbar",
   "The Relay Server that passes encrypted messages between your phone and this computer. It cannot read them.": "Der Relay-Server, der verschlüsselte Nachrichten zwischen deinem Telefon und diesem Computer weiterleitet. Er kann sie nicht lesen.",
@@ -13102,6 +13107,7 @@ var ZH = {
   "The code works once. It stops working in {count} min.": "这个码只能用一次，{count} 分钟后失效。",
   "Show a QR code": "显示二维码",
   "Open in a browser": "在浏览器中打开",
+  "Web browser": "网页浏览器",
   "Copy browser link": "复制浏览器链接",
   "Clipboard is not available": "剪贴板不可用",
   "Your phone scans it once. After that it connects by itself.": "手机扫一次就行，以后会自动连接。",
@@ -34617,13 +34623,13 @@ var qrcode_default = qrcode;
 var stringToBytes = qrcode.stringToBytes;
 
 // src/client/phone-browser.js
-function browserPairingUrl(server, pairingUri) {
+function browserPairingUrl(server, browserUri) {
   const url = new URL(server);
   if (url.protocol !== "ws:" && url.protocol !== "wss:") throw new Error("The Server address must start with ws:// or wss://");
   url.protocol = url.protocol === "wss:" ? "https:" : "http:";
   url.pathname = `${url.pathname.replace(/\/v1\/link\/?$/, "").replace(/\/+$/, "")}/web/`;
   url.search = "";
-  url.hash = `pair=${encodeURIComponent(pairingUri)}`;
+  url.hash = `pair=${encodeURIComponent(browserUri)}`;
   return url.href;
 }
 
@@ -34683,7 +34689,7 @@ function PhonePage({ roster, actions, Section: Section2, Row: Row4 }) {
     void run2(actions.phoneSet({ server }));
   };
   const online = phone.on && phone.status === "online";
-  const browserUrl = phone.pairing ? browserPairingUrl(phone.server, phone.pairing.uri) : null;
+  const browserUrl = phone.pairing ? browserPairingUrl(phone.server, phone.pairing.browserUri) : null;
   return (0, import_react43.createElement)(
     "div",
     { className: "bt-phone" },
@@ -34739,7 +34745,7 @@ function PhonePage({ roster, actions, Section: Section2, Row: Row4 }) {
     )),
     (0, import_react43.createElement)(Section2, { title: t("Phones") }, phone.phones.length === 0 ? (0, import_react43.createElement)(Row4, { label: t("No phones yet") }) : phone.phones.map((entry) => (0, import_react43.createElement)(Row4, {
       key: entry.id,
-      label: entry.name || t("Phone"),
+      label: entry.kind === "browser" ? t("Web browser") : entry.name || t("Phone"),
       hint: entry.connected ? t("Connected") : t("Paired on {date}", { date: new Date(entry.pairedAt).toLocaleDateString(dateLocale(), { dateStyle: "medium" }) })
     }, (0, import_react43.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: busy, onClick: () => void run2(actions.phoneRemove(entry.id)) }, t("Remove")))))
   );
