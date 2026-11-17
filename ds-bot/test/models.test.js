@@ -373,6 +373,42 @@ test('a successful real selection persists a witness that a cold restart can use
   assert.deepEqual(second.selected, [])
 })
 
+test('a resolved default thinking level does not change the requested route witness', async () => {
+  const route = { provider: 'deepseek', model: 'v4-flash' }
+  const services = storedSessions({ g1: { selection: route } })
+  const first = bench({ services })
+  const select = first.rt.ctx.sessionController.selectModel
+  first.rt.ctx.sessionController.selectModel = async (request) => {
+    await select(request)
+    return { selected: { ...route, reasoningEffort: 'high' } }
+  }
+  let persisted
+  first.rt.save = async () => { persisted = JSON.parse(JSON.stringify(first.rt.state)) }
+  await first.rt.selectSessionModel('g1', route)
+  assert.deepEqual(first.selected, ['g1:deepseek/v4-flash'])
+  assert.deepEqual(persisted.sessionModelSelections.g1, route)
+  const second = bench({ services })
+  Object.assign(second.rt.state, persisted)
+  await second.rt.selectSessionModel('g1', route)
+  assert.deepEqual(second.selected, [])
+})
+
+test('a witness save failure leaves a successful selection and the restored user default', async () => {
+  const { rt, selected, current, saved } = bench()
+  const before = current()
+  let saves = 0
+  rt.save = async () => {
+    saves += 1
+    assert.deepEqual(current(), before)
+    throw new Error('read-only host')
+  }
+  await assert.doesNotReject(rt.selectSessionModel('g1', { provider: 'deepseek', model: 'v4-flash' }))
+  assert.equal(saves, 1)
+  assert.deepEqual(selected, ['g1:deepseek/v4-flash'])
+  assert.deepEqual(saved, [before])
+  assert.deepEqual(current(), before)
+})
+
 test('a failed real selection does not create a durable witness', async () => {
   const { rt } = bench()
   rt.ctx.sessionController.selectModel = async () => { throw new Error('unavailable') }
