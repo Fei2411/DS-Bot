@@ -17,16 +17,6 @@ export const COLOR_PAINT: Record<string, string> = {
   aurora: '#5cc8a0',
 }
 
-export function botSvg(bot: unknown, dark: boolean): string {
-  const look = lookOf(bot)
-  const box = shapeOf(look.shape).size
-  const id = `pm${serial += 1}`
-  const inner = characterMarkup(look.shape, look.color).replaceAll(MASK_ID, id)
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${box} ${box}">${inner}</svg>`
-  const inks = INKS as Record<string, string[]>
-  return svg.replace(/var\(--bt-ink-(\w+)\)/g, (_match, name: string) => (inks[name] ?? inks.gray)[dark ? 1 : 0])
-}
-
 const lookSvg = (look: { shape: string; color: string; image?: string }, dark: boolean): string => {
   const box = shapeOf(look.shape).size
   const id = `pm${serial += 1}`
