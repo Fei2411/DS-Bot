@@ -42,6 +42,14 @@ test('no ds-bot text color sits on a surface that a skin owns', () => {
   }
 })
 
+// Since DSH 0.2.1-alpha.3 DSH draws the contents of DS Bot's user bubble (.bt-uhost), so
+// what DS Bot puts on the host's own user row reaches that bubble too (#1616).
+test('the host user row and DS Bot\'s user bubble wear the same surface and Bot marks', () => {
+  const surfaceRule = rulesWith(/(?<=[{;])color:var\(--bt-user-ink\)/g).find(item => item.selector.includes('[class*="_userRow"] [class*="_bubble"]'))
+  assert.ok(surfaceRule?.selector.includes('.bt-uhost [class*="_bubble"]'), surfaceRule?.selector)
+  assert.match(bundle, /:is\(\[class\*="_userRow"\],\.bt-uhost\) \[data-ref-chip="file"\]/)
+})
+
 test('ds-bot leaves the host bubble variables to the host and its skins', () => {
   assert.doesNotMatch(bundle, /--dsw-specific-bubble/)
   assert.doesNotMatch(bundle, /conversationTokens|installBubbleTokens/)

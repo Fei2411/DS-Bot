@@ -2,7 +2,7 @@
 
 The DS Bot app for iOS and Android. It controls the Bot team that runs on your computer; nothing runs on the phone. The design is in [docs/plans/2026-10-24-mobile-app.md](../docs/plans/2026-10-24-mobile-app.md).
 
-This is the first skeleton: it opens one screen and does not connect yet. The encrypted link to the computer is in [../link](../link); run `npm ci` there too before you build.
+Pair the app with your computer by scanning the QR code in DS Bot's Settings → Phone. The encrypted link to the computer is in [../link](../link); run `npm ci` there too before you build.
 
 ## Run
 
@@ -15,14 +15,10 @@ npm run android      # build and open in the Android emulator
 npm run typecheck
 ```
 
-Two bundles can be built side by side; both are chosen at bundle time:
-
-  left drawer and opens on the last chat.
-- `EXPO_PUBLIC_DSB_DEMO=1` — skips pairing and fills the app with a demo team.
-  Only active when the flag is set while the bundle is built.
+`EXPO_PUBLIC_DSB_DEMO=1` skips pairing and fills the app with a demo team. It is only active when the flag is set while the bundle is built.
 
 ```sh
-EXPO_PUBLIC_DSB_DEMO=1 npx expo start   # variant B, demo data
+EXPO_PUBLIC_DSB_DEMO=1 npx expo start                       # demo data
 npx expo run:android --device <emulator>                    # native build when deps change
 ```
 
