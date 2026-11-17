@@ -13,11 +13,13 @@ import { adapters } from '../src/host/im/platforms/index.js'
 const fakeAdapter = ({ buttons = true } = {}) => {
   const sent = []
   const edited = []
+  const typed = []
   const fails = []
   const adapter = {
     id: 'fake',
     sent,
     edited,
+    typed,
     handlers: null,
     async check(fields) {
       if (fields.token === 'bad-token') throw new Error('platform refused the token')
@@ -36,7 +38,7 @@ const fakeAdapter = ({ buttons = true } = {}) => {
           return { messageId: sent.length }
         },
         edit: async (chat, messageId, body) => { edited.push({ chat, messageId, ...body }) },
-        typing: async () => {},
+        typing: async (chat) => { typed.push(chat) },
         stop: () => { adapter.stopped = (adapter.stopped ?? 0) + 1 },
       }
     },
@@ -62,10 +64,10 @@ const TEAM = () => ({
   revision: 0,
 })
 
-async function start({ platform = 'telegram', adapter, seed } = {}) {
+async function start({ platform = 'telegram', adapter, seed, services = {} } = {}) {
   const home = mkdtempSync(join(tmpdir(), 'dsb-im-'))
   writeFileSync(join(home, 'state.json'), JSON.stringify(seed ?? TEAM()))
-  const ctx = fakeContext()
+  const ctx = fakeContext({ services })
   const prompts = []
   const agents = new Map()
   const agentOf = id => {
@@ -140,6 +142,22 @@ test('two concurrent syncs start exactly one adapter', async (t) => {
   await s.flush()
   assert.equal(s.fake.connects, 1)
   assert.equal(s.rt.imStatusView()[conn.id].state, 'ready')
+})
+
+test('typing carries the chat key, not the chat record', async (t) => {
+  t.mock.timers.enable({ apis: ['setInterval'] })
+  const s = await start()
+  t.after(s.stop)
+  const conn = await add(s)
+  const one = s.rt.state.im.connections[conn.id]
+  one.paired.push({ id: 'u1', name: 'U1', at: 1 })
+  await s.rt.save()
+  await dm(s, 'u1', 'hi')
+  s.imTurn('a')
+  t.mock.timers.tick(4000)
+  await s.flush()
+  assert.ok(s.fake.typed.length > 0, 'typing is sent while the turn runs')
+  assert.deepEqual(s.fake.typed[0], { key: 'dm-u1', kind: 'direct', title: 'u1' })
 })
 
 test('im-update applies only the fields it is given and keeps the rest', async (t) => {
@@ -1837,4 +1855,85 @@ test('im-retry clears retrying status when an interrupted single send drops afte
   releaseSend()
   await delay(30)
   assert.equal(s.rt.imStatusView()[conn.id].state, 'ready')
+})
+
+test('a group attachment uploads under the group current Session, not the id it started with', async (t) => {
+  // A group's own Session moves on to a fresh part when its folder changes:
+  // `room.id` stays the first Session's id and `room.sessionId` the current one.
+  const seed = TEAM()
+  seed.rooms.r1.sessionId = 'r1-part2'
+  const uploads = []
+  const s = await start({
+    seed,
+    services: {
+      fileUploads: {
+        uploadStream: async ({ sessionId, name }) => {
+          uploads.push({ sessionId, name })
+          return { receiptId: `receipt-${name}` }
+        },
+      },
+    },
+  })
+  t.after(s.stop)
+  const conn = await add(s)
+  s.rt.state.im.connections[conn.id].paired.push({ id: 'u1', name: 'User u1', at: 1 })
+  await s.rt.save()
+  // The chat is recorded by the first mention; binding then points it at the group.
+  await gm(s, 'u1', '@fakebot hello group')
+  await s.rt.imEndpoint('im-chat', { id: conn.id, chatKey: 'g1', target: { roomId: 'r1' } })
+  await gm(s, 'u1', 'see the plan', { files: [{ name: 'plan.txt', data: Buffer.from('plan') }] })
+  assert.deepEqual(uploads, [{ sessionId: 'r1-part2', name: 'plan.txt' }], 'the receipt goes to the Session that takes the message')
+  assert.equal(s.prompts.length, 1)
+  assert.equal(s.prompts[0].sessionId, 'r1-part2', 'the message itself goes to the current part')
+  assert.deepEqual(s.prompts[0].content.at(-1), { type: 'file', receiptId: 'receipt-plan.txt' })
+})
+
+test('a failed add keeps the network reason under "fetch failed"', async (t) => {
+  // #1120: the outlet printed only error.message, so a DNS failure read as
+  // "im-add: fetch failed" and the user could not tell it from a bad token.
+  const adapter = fakeAdapter()
+  adapter.check = async () => {
+    throw Object.assign(new TypeError('fetch failed'), {
+      cause: Object.assign(new Error('getaddrinfo ENOTFOUND api.telegram.org'), { code: 'ENOTFOUND' }),
+    })
+  }
+  const s = await start({ adapter })
+  t.after(s.stop)
+  await assert.rejects(() => add(s), error => {
+    assert.match(error.message, /fetch failed: getaddrinfo ENOTFOUND api\.telegram\.org/)
+    return true
+  })
+})
+
+test('a failed add does not echo the token back', async (t) => {
+  const adapter = fakeAdapter()
+  adapter.check = async () => {
+    throw Object.assign(new TypeError('fetch failed'), {
+      cause: new Error('connect ECONNREFUSED https://api.telegram.org/bottok-1234/getMe'),
+    })
+  }
+  const s = await start({ adapter })
+  t.after(s.stop)
+  await assert.rejects(() => add(s), error => {
+    assert.match(error.message, /ECONNREFUSED/)
+    assert.ok(!error.message.includes('tok-1234'), 'the token is redacted')
+    return true
+  })
+})
+
+test('a failed update keeps the network reason and redacts a secret as it appears in a URL', async (t) => {
+  const adapter = fakeAdapter()
+  const s = await start({ adapter })
+  t.after(s.stop)
+  const conn = await add(s)
+  adapter.check = async () => {
+    throw Object.assign(new TypeError('fetch failed'), {
+      cause: new Error('connect ECONNREFUSED https://api.telegram.org/botnew%2Btok%2F1/getMe'),
+    })
+  }
+  await assert.rejects(() => s.rt.imEndpoint('im-update', { id: conn.id, fields: { token: 'new+tok/1' } }), error => {
+    assert.match(error.message, /fetch failed: connect ECONNREFUSED/)
+    assert.ok(!error.message.includes('new%2Btok%2F1'), 'the encoded token is redacted')
+    return true
+  })
 })
