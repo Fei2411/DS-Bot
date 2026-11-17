@@ -13,6 +13,16 @@ const FILE = 'phone.json'
 const SERVER = /^wss?:\/\/[^\s/?#@]+(\/[^\s?#]*)?$/i
 export const DEFAULT_SERVER = `wss://relay.dsbot.app${LINK_PATH}`
 
+// Keep aligned with mobile/src/team/gated.ts; browsers cannot satisfy the native unlock gate.
+export const BROWSER_GATED = new Set([
+  'provider-key', 'provider-add', 'provider-remove',
+  'secret-set', 'secret-update', 'secret-delete', 'secret-allow',
+  'connector-connect', 'connector-disconnect', 'connector-retry',
+  'connector-client', 'connector-sign-in-code',
+  'capability-save', 'capability-delete', 'capability-approve', 'bot-capability',
+  'update-install', 'dsh-update-install',
+])
+
 const invalid = message => Object.assign(new Error(message), { code: 'bot/invalid' })
 
 export function install(rt) {
@@ -59,9 +69,12 @@ export function install(rt) {
   // When the call carries `state` (the payload the phone would send `state`) and
   // it moved the team, the reply carries the new state too — one round trip
   // through the relay instead of waiting for the revision event and a read.
-  const callBot = async (params, signal) => {
+  const callBot = async (params, signal, deviceId) => {
     const endpoint = String(params?.endpoint ?? '')
     if (endpoint.startsWith('phone-')) return { ok: false, error: { code: 'bot/refused', message: 'Phones are paired and removed on the computer', details: {} } }
+    if (BROWSER_GATED.has(endpoint) && registry.list().some(device => device.deviceId === deviceId && device.kind === 'browser')) {
+      return { ok: false, error: { code: 'bot/refused', message: 'Not available from a browser. Use the phone app or the computer.', details: {} } }
+    }
     const wanted = params?.state !== null && typeof params?.state === 'object' && !Array.isArray(params.state) ? params.state : undefined
     const before = rt.state.revision
     const result = await serve(endpoint, params?.payload ?? null, signal)
@@ -93,7 +106,7 @@ export function install(rt) {
       name: hostname(),
       admits: (deviceId, key) => registry.admits(deviceId, key),
       authorize: (deviceId, key, hello) => registry.authorize(deviceId, key, hello),
-      handle: (method, params, request) => method === 'bot' ? callBot(params, request.signal) : Promise.reject(Object.assign(new Error(`Unknown method ${method}`), { code: 'METHOD_NOT_FOUND' })),
+      handle: (method, params, request) => method === 'bot' ? callBot(params, request.signal, request.deviceId) : Promise.reject(Object.assign(new Error(`Unknown method ${method}`), { code: 'METHOD_NOT_FOUND' })),
       // Feed events ride the link instead of SSE, but only while a phone is
       // actually ready to hear them — no tunnel, no feed work on the host.
       onReadyCount: count => {

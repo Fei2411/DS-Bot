@@ -7,7 +7,7 @@ import { apply } from '../index.js'
 import { RelayTransport, RpcClient, SecureTransport, deviceIdFor, generateKeyPair, parsePairingUri, randomToken } from '../link.js'
 import { startRelayServer } from '../../link/server/server.ts'
 import { fakeContext } from './fake-ctx.js'
-import { DEFAULT_SERVER } from '../src/host/phone.js'
+import { BROWSER_GATED, DEFAULT_SERVER, install as installPhone } from '../src/host/phone.js'
 
 const TEAM = {
   version: 1,
@@ -117,6 +117,32 @@ test('a browser pairs with its own code and is listed by authenticated kind', as
   assert.equal(listed.phones[0].name, 'iPhone')
   assert.equal((await link.client.rpc('bot', { endpoint: 'state' })).ok, true)
   await link.client.close()
+})
+
+test('the host refuses every gated endpoint for browsers, but still serves phones', async t => {
+  const home = mkdtempSync(join(tmpdir(), 'dsb-gated-'))
+  const ctx = fakeContext()
+  const rt = { home, ctx, state: { revision: 0 }, load: async () => {}, readOnly: () => undefined, feedTap: () => () => {} }
+  installPhone(rt)
+  const served = []
+  rt.phoneServe(async endpoint => { served.push(endpoint); return { ok: true, value: endpoint } })
+  t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
+  await rt.phoneEndpoint('phone-set', { server: server.url, on: true })
+  await until(async () => rt.phoneView(), view => view.status === 'online')
+  for (const kind of ['browser', 'phone']) {
+    const view = await rt.phoneEndpoint('phone-pair', {})
+    const offer = parsePairingUri(kind === 'browser' ? view.pairing.browserUri : view.pairing.uri)
+    const link = phone(offer, { pairingCode: offer.code, name: kind === 'browser' ? 'iPhone' : 'Web browser' })
+    await link.client.connect()
+    for (const endpoint of BROWSER_GATED) {
+      const answer = await link.client.rpc('bot', { endpoint })
+      if (kind === 'browser') assert.deepEqual(answer, { ok: false, error: { code: 'bot/refused', message: 'Not available from a browser. Use the phone app or the computer.', details: {} } })
+      else assert.deepEqual(answer, { ok: true, value: endpoint })
+    }
+    assert.equal((await link.client.rpc('bot', { endpoint: 'state' })).ok, true)
+    await link.client.close()
+  }
+  assert.deepEqual(served, ['state', ...BROWSER_GATED, 'state'])
 })
 
 test('a phone write that moved the team carries the new state in its reply', async (t) => {
