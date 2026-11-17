@@ -431,6 +431,75 @@ test('a stale preset check preserves a newer opaque clear', async t => {
   assert.equal(host.headers.get(host.chatOf(writer.id)), undefined)
 })
 
+test('a new session opened during a running turn runs its first turn on the selected preset', async (t) => {
+  const host = start()
+  t.after(host.stop)
+  await host.call('state')
+  const writer = (await host.call('create-bot', { name: 'Writer', agentPreset: 'research' })).value
+  const running = writer.id
+  host.agentOf(running).status = 'running'
+  assert.equal(await host.rt.newPart(running), true)
+  const fresh = host.chatOf(writer.id)
+  assert.notEqual(fresh, running)
+  // The part that was working stays live in the background; this path does not archive it.
+  assert.equal(host.state().bots[writer.id].openParts.at(-1).sessionId, running)
+  assert.equal(host.archived.some(([id]) => id === running), false)
+  assert.equal(host.created.at(-1).agentPreset, 'research')
+  assert.equal(host.headers.get(fresh), 'research')
+  // The first step is the new session's first turn, before an idle check can replace it.
+  assert.equal(await host.step(fresh), 'next')
+  assert.equal(host.chatOf(writer.id), fresh)
+  assert.equal(host.headers.get(fresh), 'research')
+  const made = host.created.length
+  host.idle(fresh)
+  await settle()
+  assert.equal(host.chatOf(writer.id), fresh, 'the first turn does not roll onto the default composition')
+  assert.equal(host.created.length, made)
+  assert.equal(host.headers.get(fresh), 'research')
+})
+
+test('an opaque default clear moves a background part with the foreground', async (t) => {
+  const host = start({ presets: [{ id: 'research' }, { id: 'custom' }] })
+  t.after(host.stop)
+  host.presetService.defaultId = undefined
+  await host.call('state')
+  const writer = (await host.call('create-bot', { name: 'Writer', agentPreset: 'research' })).value
+  host.agentOf(writer.id).status = 'running'
+  assert.equal(await host.rt.newPart(writer.id), true)
+  const foreground = host.chatOf(writer.id)
+  const background = writer.id
+  assert.equal(host.state().bots[writer.id].openParts.at(-1).sessionId, background)
+  assert.equal(host.headers.get(foreground), 'research')
+  assert.equal(host.headers.get(background), 'research')
+  host.agentOf(foreground).status = 'running'
+  host.agentOf(background).status = 'running'
+  assert.equal((await host.call('update-bot', { id: writer.id, agentPreset: null })).ok, true)
+  await settle()
+  assert.deepEqual([...(host.state().bots[writer.id].agentPresetDefaultPending ?? [])].sort(), [background, foreground].sort())
+  assert.equal(host.chatOf(writer.id), foreground, 'a running turn finishes before the clear moves it')
+  assert.equal(host.state().bots[writer.id].openParts.some(part => part.sessionId === background), true)
+  host.agentOf(foreground).status = 'idle'
+  host.agentOf(background).status = 'idle'
+  await host.rt.applyBotPreset(host.rt.botOf(writer.id))
+  await until(() => [foreground, background].every(id => host.archived.some(([archived]) => archived === id)))
+  const saved = host.state().bots[writer.id]
+  const freshForeground = saved.sessionId
+  const freshBackground = saved.openParts.find(part => (part.segments ?? []).some(segment => segment.sessionId === background))?.sessionId
+  assert.notEqual(freshForeground, foreground)
+  assert.ok(freshBackground !== undefined && freshBackground !== background)
+  for (const id of [freshForeground, freshBackground]) {
+    assert.equal(host.headers.get(id), undefined, 'DSH composes its default without an explicit preset')
+    assert.match(host.agentOf(id).calls.map(([, message]) => text(message)).join('\n'), /agent preset changed/)
+  }
+  assert.equal(saved.agentPresetDefaultPending, undefined)
+  const count = host.created.length
+  await host.rt.applyBotPreset(host.rt.botOf(writer.id))
+  host.idle(freshForeground)
+  host.idle(freshBackground)
+  await settle()
+  assert.equal(host.created.length, count, 'the default-composed parts do not keep rolling over')
+})
+
 test('a new Bot is made with the preset the user picked and keeps it', async (t) => {
   const host = start()
   t.after(host.stop)

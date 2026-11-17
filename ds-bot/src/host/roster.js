@@ -1,6 +1,6 @@
 // Roster: creating, changing, and deleting Bots and group chats, the Main Bot role, and
 // the first Main Bot of a new team.
-import { openSessions } from './threads.js'
+import { openSessions, ownChatSessions } from './threads.js'
 import { randomUUID } from 'node:crypto'
 import { mkdir } from 'node:fs/promises'
 import { MAX_AVATAR_IMAGE, ROOM_MAX_MEMBERS, ROOM_MODES, ROOM_NAME_MAX, ROOM_NOTICE_MAX, ROOM_TODO_MAX, ROOM_TODO_TEXT_MAX, SECTION_COLORS, SECTION_NAME_MAX } from './constants.js'
@@ -601,7 +601,10 @@ export function install(rt) {
         // The default is now the user's own choice, not an old team's silence: a switch
         // that fails is retried on the next turn instead of leaving the old preset.
         bot.agentPresetDefault = true
-        if (presetBefore !== undefined) bot.agentPresetDefaultPending = [...new Set([rt.chatOf(bot.id), ...rt.groupSessionsOf(bot.id)].filter(Boolean))]
+        if (presetBefore !== undefined) bot.agentPresetDefaultPending = [...new Set([
+          ...ownChatSessions(bot),
+          ...rt.groupSessionsOf(bot.id),
+        ].filter(Boolean))]
       } else {
         bot.agentPreset = presetId
         delete bot.agentPresetDefault

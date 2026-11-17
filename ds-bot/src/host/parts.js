@@ -2026,8 +2026,8 @@ export function install(rt) {
     return true
   }
 
-  // The Sessions a Bot speaks from right now: its own chat and each group it is in.
-  const presetSessionsOf = bot => [...new Set([rt.chatOf(bot.id), ...rt.groupSessionsOf(bot.id)].filter(Boolean))]
+  // The Sessions a Bot speaks from right now: every live own-chat thread and each group it is in.
+  const presetSessionsOf = bot => [...new Set([...ownChatSessions(bot), ...rt.groupSessionsOf(bot.id)].filter(Boolean))]
 
   // A part keeps the preset it was made with. A part that does not run the Bot's pick
   // moves on to a fresh part at its next idle moment; its history stays readable and
@@ -2076,7 +2076,13 @@ export function install(rt) {
     if (rt.botOf(botId) !== bot || bot.agentPreset !== pick || bot.agentPresetDefault !== cleared
       || bot.agentPresetDefaultPending !== pending) return undefined
     // A clear still needs a default-composed part when DSH cannot name that default.
-    if (wanted === undefined) return bot.agentPresetDefaultPending?.includes(agent.id) ? botId : undefined
+    // Background threads are own chats too, so a live one recorded at the clear qualifies.
+    if (wanted === undefined) {
+      const recorded = bot.agentPresetDefaultPending ?? []
+      if (!recorded.includes(agent.id)) return undefined
+      const live = [...ownChatSessions(bot), ...rt.groupSessionsOf(bot.id)]
+      return live.includes(agent.id) ? botId : undefined
+    }
     if (!wanted.usable) {
       rt.presetProblem?.(bot, wanted.id)
       return undefined
@@ -2112,7 +2118,7 @@ export function install(rt) {
   // turn. It keeps its own earlier parts with it (threads.js).
   async function openPartNow(bot, agent) {
     const dir = rt.workDirOf({ botId: bot.id })
-    const freshId = await rt.createSession(bot.name, { dir })
+    const freshId = await rt.createSession(bot.name, { dir, bot })
     const picked = await freshRoute(bot, agent.session)
     if (picked !== undefined) await selectRoute({ name: bot.name }, freshId, picked)
     await rt.applyPermission(bot, freshId, undefined)
