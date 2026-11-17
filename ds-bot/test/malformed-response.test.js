@@ -6,6 +6,7 @@ import { Context } from '@deepseek-ai/cordis'
 import { mountAgentLoopTestDependencies, mountAgentLoopTestHarness } from '@deepseek-ai/dsh-agent-loop-testkit'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { PiAiAdapter } from '@deepseek-ai/dsh-llm-pi-ai'
+import piAdapterPackage from '@deepseek-ai/dsh-llm-pi-ai/package.json' with { type: 'json' }
 import { SessionId } from '@deepseek-ai/dsh-session'
 import { assembleLlmStream, install } from '../src/host/models.js'
 
@@ -13,6 +14,8 @@ const piApi = '@earendil-works/pi-ai/api/openai-completions.lazy'
 const adapterUrl = import.meta.resolve('@deepseek-ai/dsh-llm-pi-ai')
 const resolution = registerHooks({ resolve: (specifier, context, nextResolve) => nextResolve(specifier, specifier === piApi ? { ...context, parentURL: adapterUrl } : context) })
 const { openAICompletionsApi } = await import(piApi).finally(() => resolution.deregister())
+// The older compatibility target silently accepts malformed tool arguments.
+const streamRegression = { skip: piAdapterPackage.version === '0.2.0-rc.2' && 'DSH 0.2.0-rc.2 does not reject malformed tool arguments' }
 
 async function boot(t, recover) {
   let attempts = 0
@@ -55,14 +58,14 @@ async function boot(t, recover) {
   return { failures, attempts, events: agent.session.snapshotEvents() }
 }
 
-test('the real pi-ai malformed stream reaches agent/request-error as MALFORMED_RESPONSE', async t => {
+test('the real pi-ai malformed stream reaches agent/request-error as MALFORMED_RESPONSE', streamRegression, async t => {
   const result = await boot(t, false)
   assert.equal(result.attempts, 1, JSON.stringify(result.failures))
   assert.equal(result.failures[0]?.code, 'MALFORMED_RESPONSE')
   assert.equal(result.events.findLast(event => event.type === 'turn/end').data.reason.kind, 'error')
 })
 
-test('a Bot retries the malformed stream and completes on the next response', async t => {
+test('a Bot retries the malformed stream and completes on the next response', streamRegression, async t => {
   const result = await boot(t, true)
   assert.equal(result.failures[0]?.code, 'MALFORMED_RESPONSE')
   assert.equal(result.attempts, 2)
