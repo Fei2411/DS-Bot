@@ -731,6 +731,36 @@ test('reply origin: another source in the same turn withdraws the IM origin', as
   assert.equal(s.fake.sent.length, 0, 'a mixed turn sends nothing')
 })
 
+test('reply origin: a context snapshot in the same turn keeps the IM origin', async (t) => {
+  const s = await start()
+  t.after(s.stop)
+  await pairedConn(s)
+  await dm(s, 'u1', 'hi')
+  s.imTurn('a')
+  // The clock and memory recall append their snapshot after the chat's message (#1735).
+  for (const kind of ['time-context', 'ds-bot-time-context', 'ds-bot-memory-recall']) {
+    s.emitEvent('a', 'user/message', { source: { kind, form: 'snapshot', sections: [] }, content: [{ type: 'text', text: 'Current time: now' }] })
+  }
+  s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'reply' }] } })
+  await s.flush()
+  assert.deepEqual(s.fake.sent.map(entry => [entry.chat.key, entry.text]), [['dm-u1', 'reply']])
+})
+
+test('reply origin: a context snapshot does not open a Web turn to IM', async (t) => {
+  const s = await start()
+  t.after(s.stop)
+  await pairedConn(s)
+  await dm(s, 'u1', 'hi')
+  s.imTurn('a')
+  s.emitEvent('a', 'turn/end', {})
+  s.emitEvent('a', 'turn/start', {})
+  s.emitEvent('a', 'user/message', { source: { kind: 'web' }, content: [{ type: 'text', text: 'typed in the browser' }] })
+  s.emitEvent('a', 'user/message', { source: { kind: 'time-context', form: 'snapshot', sections: [] }, content: [{ type: 'text', text: 'Current time: now' }] })
+  s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'answer to the browser' }] } })
+  await s.flush()
+  assert.equal(s.fake.sent.length, 0)
+})
+
 test('reply origin: the turn ending stops later output from going out', async (t) => {
   const s = await start()
   t.after(s.stop)

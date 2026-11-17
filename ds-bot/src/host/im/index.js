@@ -1444,6 +1444,9 @@ export function install(rt) {
       const source = event.data?.source
       const imOrigin = source?.imOrigin
       const rpcId = source?.rpcId
+      // A context snapshot (the clock, a memory recall) joins the turn it was added to
+      // and says nothing about who asked; it neither claims nor withdraws the origin.
+      if (source?.form === 'snapshot') return
       // A late member result or part-switch handoff continues the work the chat asked for;
       // any other first message starts a fresh turn, which clears the previous turn's origin.
       if (pendingReset.delete(session.id) && !(typeof imOrigin === 'string' || (source?.kind === SOURCE_KIND && source.role === 'post'))) resetOrigin(session.id)
