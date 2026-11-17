@@ -6,6 +6,12 @@ name: Branch artifacts
 
 on:
   workflow_dispatch:
+    inputs:
+      target:
+        description: What to build
+        type: choice
+        options: [all, apk, appimage]
+        default: all
 
 permissions:
   contents: read
@@ -13,6 +19,7 @@ permissions:
 jobs:
   linux-appimage:
     name: Linux AppImage
+    if: github.event.inputs.target != 'apk'
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
@@ -74,6 +81,7 @@ jobs:
 
   android-apk:
     name: Android APK
+    if: github.event.inputs.target != 'appimage'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
