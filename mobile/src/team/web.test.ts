@@ -90,6 +90,52 @@ test('web storage refuses plaintext, missing or changed keys, tampering and swap
   await assert.rejects(broken.setItemAsync('new', 'value'), /IndexedDB unavailable/)
 })
 
+test('overlapping web storage writes and deletes finish in call order per key', async () => {
+  const key = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt'])
+  for (const last of ['set', 'delete']) {
+    const values = new Map<string, string>()
+    const store = { getItem: (name: string) => values.get(name) ?? null, setItem: (name: string, value: string) => { values.set(name, value) }, removeItem: (name: string) => { values.delete(name) } }
+    const delayed = Promise.withResolvers<CryptoKey>()
+    let loads = 0
+    const encrypted = storage.createEncryptedStorage(store, async () => ++loads === 1 ? delayed.promise : key)
+    const completed: string[] = []
+    const first = encrypted.setItemAsync('identity', 'old').then(() => { completed.push('first') })
+    const second = (last === 'set' ? encrypted.setItemAsync('identity', 'new') : encrypted.deleteItemAsync('identity')).then(() => { completed.push('second') })
+    await Promise.resolve()
+    assert.equal(loads, 1)
+    await encrypted.setItemAsync('other', 'independent')
+    assert.deepEqual(completed, [])
+    delayed.resolve(key)
+    await Promise.all([first, second])
+    assert.deepEqual(completed, ['first', 'second'])
+    assert.equal(await encrypted.getItemAsync('identity'), last === 'set' ? 'new' : null)
+    assert.equal(await encrypted.getItemAsync('other'), 'independent')
+  }
+})
+
+test('web storage queues reads too, and a failed mutation does not block later calls', async () => {
+  const values = new Map<string, string>()
+  let fail = false
+  const store = {
+    getItem: (name: string) => values.get(name) ?? null,
+    setItem: (name: string, value: string) => { if (fail) { fail = false; throw new Error('quota') }; values.set(name, value) },
+    removeItem: (name: string) => { values.delete(name) },
+  }
+  const key = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt'])
+  const encrypted = storage.createEncryptedStorage(store, async () => key)
+  assert.deepEqual(await Promise.all([
+    encrypted.setItemAsync('key', 'one'), encrypted.getItemAsync('key'),
+    encrypted.setItemAsync('key', 'two'), encrypted.getItemAsync('key'),
+    encrypted.deleteItemAsync('key'), encrypted.getItemAsync('key'),
+  ]), [undefined, 'one', undefined, 'two', undefined, null])
+  fail = true
+  const failed = encrypted.setItemAsync('key', 'lost')
+  const retry = encrypted.setItemAsync('key', 'saved')
+  await assert.rejects(failed, /quota/)
+  await retry
+  assert.equal(await encrypted.getItemAsync('key'), 'saved')
+})
+
 test('web downloads assemble chunks, handle empty files and refuse failed transfers', async () => {
   let calls = 0
   const saved = await downloadFile(async (_, payload) => {
