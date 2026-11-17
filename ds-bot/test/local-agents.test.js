@@ -1700,17 +1700,16 @@ test('replay drops images outside the replay window without reading their attach
 
 test('AcpEngine cwdPerProcess does not close a worker while another open is in-flight or a non-ephemeral session shared it', async (t) => {
   const dir = mkdtempSync(join(tmpdir(), 'dsb-acp-worker-'))
-  t.after(() => rmSync(dir, { recursive: true, force: true }))
   const dirA = join(dir, 'ws-a')
   const dirHold = join(dir, 'ws-hold')
   const dirRace = join(dir, 'ws-race')
-  mkdirSync(dirA, { recursive: true })
-  mkdirSync(dirHold, { recursive: true })
-  mkdirSync(dirRace, { recursive: true })
+  const dirFailOne = join(dir, 'ws-fail-one')
+  const dirFailBoth = join(dir, 'ws-fail-both')
+  for (const d of [dirA, dirHold, dirRace, dirFailOne, dirFailBoth]) mkdirSync(d, { recursive: true })
 
   const script = `
     let buf = '', next = 0
-    const held = [], race = []
+    const held = [], race = [], failBoth = []
     const send = obj => process.stdout.write(JSON.stringify(obj) + '\\n')
     process.stdin.setEncoding('utf8')
     process.stdin.on('data', chunk => {
@@ -1723,8 +1722,22 @@ test('AcpEngine cwdPerProcess does not close a worker while another open is in-f
         if (method === 'initialize') {
           send({ jsonrpc: '2.0', id, result: { protocolVersion: 1, agentCapabilities: { sessionCapabilities: { close: {} } }, authMethods: [] } })
         } else if (method === 'session/new') {
-          if (String(params.cwd || '').endsWith('ws-hold')) { held.push(id); continue }
-          if (String(params.cwd || '').endsWith('ws-race')) {
+          const cwd = String(params.cwd || '')
+          if (cwd.endsWith('ws-hold')) { held.push(id); continue }
+          if (cwd.endsWith('ws-fail-one')) {
+            send({ jsonrpc: '2.0', id, error: { code: -32000, message: 'not signed in' } })
+            continue
+          }
+          if (cwd.endsWith('ws-fail-both')) {
+            failBoth.push(id)
+            if (failBoth.length === 2) {
+              for (const reqId of failBoth.splice(0)) {
+                send({ jsonrpc: '2.0', id: reqId, error: { code: -32000, message: 'both failed' } })
+              }
+            }
+            continue
+          }
+          if (cwd.endsWith('ws-race')) {
             race.push(id)
             if (race.length === 2) {
               const [firstId, secondId] = race
@@ -1753,7 +1766,31 @@ test('AcpEngine cwdPerProcess does not close a worker while another open is in-f
     command: process.execPath,
     args: ['-e', script],
   }, { findExecutable: p => p })
-  t.after(() => engine.close())
+  const children = new Set()
+  const waitExited = child => (child.exitCode !== null || child.signalCode !== null
+    ? Promise.resolve()
+    : new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('worker child did not exit')), 2_000)
+      child.once('close', () => { clearTimeout(timer); resolve() })
+    }))
+  const origSpawnWorker = engine.spawnWorker.bind(engine)
+  engine.spawnWorker = (key) => {
+    const worker = origSpawnWorker(key)
+    const origEnsure = worker.ensure.bind(worker)
+    worker.ensure = async () => {
+      try {
+        return await origEnsure()
+      } finally {
+        if (worker.child) children.add(worker.child)
+      }
+    }
+    return worker
+  }
+  t.after(async () => {
+    await engine.close()
+    await Promise.all([...children].map(child => waitExited(child).catch(() => {})))
+    rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 })
+  })
 
   // Case 1: first ephemeral session closes while a second ephemeral open on the same worker is still pending.
   const s1 = await engine.open('side-1', { cwd: dirA, ephemeral: true })
@@ -1782,4 +1819,26 @@ test('AcpEngine cwdPerProcess does not close a worker while another open is in-f
   await assert.rejects(pFail, /first failed/)
   const sOk = await pOk
   assert.equal(sOk.acpSessionId, 'acp-race-2')
+
+  // Case 4: a single failed session/new cleans up the placeholder, removes the worker, and terminates its child.
+  const beforeFailOne = new Set(children)
+  await assert.rejects(engine.open('fail-1', { cwd: dirFailOne }), /not signed in/)
+  assert.equal(engine.workers.has(dirFailOne), false)
+  engine.forget('fail-1')
+  const failOneChildren = [...children].filter(child => !beforeFailOne.has(child))
+  assert.equal(failOneChildren.length, 1)
+  await waitExited(failOneChildren[0])
+
+  // Case 5: concurrent opens on a fresh worker that all fail clean up the worker and terminate its child.
+  const beforeFailBoth = new Set(children)
+  const [rA, rB] = await Promise.allSettled([
+    engine.open('fail-both-1', { cwd: dirFailBoth }),
+    engine.open('fail-both-2', { cwd: dirFailBoth }),
+  ])
+  assert.equal(rA.status, 'rejected')
+  assert.equal(rB.status, 'rejected')
+  assert.equal(engine.workers.has(dirFailBoth), false)
+  const failBothChildren = [...children].filter(child => !beforeFailBoth.has(child))
+  assert.equal(failBothChildren.length, 1)
+  await waitExited(failBothChildren[0])
 })

@@ -268,21 +268,24 @@ export class AcpEngine {
     } else if (openArgs.ephemeral !== true) {
       worker.ephemeral = false
     }
+    const hadSession = worker.sessions.has(dshSessionId)
     worker.opening = (worker.opening ?? 0) + 1
     let failed = false
     try {
       const session = await worker.open(dshSessionId, openArgs)
       worker.opened = true
+      worker.retirePending = false
       session._worker = worker
       this.sessionWorkers.set(dshSessionId, worker)
       this.caps.image = worker.caps.image
       return session
     } catch (error) {
       failed = true
+      if (!hadSession) worker.forget(dshSessionId)
       throw error
     } finally {
       worker.opening -= 1
-      if (failed && worker.opening === 0 && worker.sessions.size === 0 && ![...this.sessionWorkers.values()].includes(worker) && (!worker.opened || worker.ephemeral)) {
+      if (failed && worker.opening === 0 && worker.sessions.size === 0 && ![...this.sessionWorkers.values()].includes(worker) && (!worker.opened || worker.ephemeral || worker.retirePending)) {
         for (const [entryKey, entry] of this.workers) if (entry === worker) this.workers.delete(entryKey)
         await worker.close().catch(() => {})
       }
@@ -504,6 +507,7 @@ export class AcpEngine {
       this.sessionWorkers.delete(dshSessionId)
       worker.forget(dshSessionId)
       if (worker.sessions.size === 0) {
+        if ((worker.opening ?? 0) > 0) { worker.retirePending = true; return }
         for (const [key, entry] of this.workers) if (entry === worker) this.workers.delete(key)
         void worker.close().catch(() => {})
       }
