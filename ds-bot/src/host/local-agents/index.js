@@ -114,6 +114,7 @@ export function install(rt) {
   })
 
   let registration
+  let registeredRoutes = new Set()
   const llm = () => serviceOf(ctx, 'llm')
   const supported = () => typeof llm()?.registerAdapter === 'function'
   const usedRefs = () => [...new Set(Object.values(state.bots ?? {}).flatMap(bot => [bot.model, bot.appliedModel]).filter(Boolean))]
@@ -122,18 +123,26 @@ export function install(rt) {
   const servedRoutes = () => [...new Set([...found.keys(), ...customRouteId(), ...usedRefs().map(ref => splitRef(ref)?.provider).filter(isLocalAgentRoute)])]
   function applyRoutes() {
     if (!supported()) return
-    const routes = servedRoutes()
+    const candidates = servedRoutes()
+    if (registration === undefined && candidates.length === 0) return
+    const taken = new Set(llm().listProviders().map(provider => provider.id).filter(route => !registeredRoutes.has(route)))
+    const routes = candidates.filter(route => {
+      if (!taken.has(route)) return true
+      rt.warn?.('ds-bot: skipping local agent route "%s": another adapter is registered', route)
+      return false
+    })
     // The initial registration needs at least one provider; an empty replace
     // is legal and keeps the adapter registered with zero routes.
     if (registration === undefined) {
       if (routes.length === 0) return
       registration = llm().registerAdapter(routes, adapter)
     } else registration.replace(routes)
+    registeredRoutes = new Set(routes)
   }
   // Custom agents hold a route whether or not their command resolves yet; a
   // missing one fails at prompt time with a typed error.
   applyRoutes()
-  const initialScan = scan()
+  const initialScan = scan().catch(error => rt.warn?.('ds-bot: initial local agent scan failed: %s', error))
   // Custom agents arrive with the state load; their routes register then too.
   void rt.load?.().then(() => { if (!disposed) applyRoutes() }).catch(() => {})
   // The callback returns the disposer: running adapter.dispose() inside the

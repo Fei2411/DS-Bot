@@ -2,14 +2,85 @@ import assert from 'node:assert/strict'
 import { once } from 'node:events'
 import { fileURLToPath } from 'node:url'
 import { test } from 'node:test'
+import { setImmediate } from 'node:timers/promises'
+import { Context } from '@deepseek-ai/cordis'
+import { LlmAdapter, LlmRuntime } from '@deepseek-ai/dsh-llm'
 import { AcpEngine } from '../src/host/local-agents/acp.js'
 import { CodexEngine } from '../src/host/local-agents/codex.js'
+import { install } from '../src/host/local-agents/index.js'
+import { ENGINES } from '../src/host/local-agents/engines.js'
+import { refreshSearchDirs } from '../src/host/local-agents/discover.js'
+import { fakeContext } from './fake-ctx.js'
 
 const fixture = name => fileURLToPath(new URL(`./fixtures/${name}`, import.meta.url))
 const makeEngine = (kind, args = []) => new (kind === 'acp' ? AcpEngine : CodexEngine)(
   'local-test', { name: 'Test CLI', command: process.execPath, args: [fixture('fake-local-startup.mjs'), ...args] },
   { findExecutable: path => path },
 )
+
+async function localHost(t) {
+  await refreshSearchDirs()
+  for (const [route, spec] of Object.entries(ENGINES)) {
+    ENGINES[route] = { ...spec, command: process.execPath, commands: [process.execPath] }
+    t.after(() => { ENGINES[route] = spec })
+  }
+  const owner = new Context()
+  const llm = new LlmRuntime(owner)
+  const ctx = fakeContext({ services: { llm } })
+  const warnings = []
+  const rt = { ctx, state: { bots: {}, localAgents: { custom: [], sessions: {} } }, warn: (...args) => warnings.push(args), save: async () => {} }
+  t.after(async () => { await ctx.dispose(); await owner.fiber.dispose() })
+  return { llm, rt, warnings }
+}
+
+test('startup skips a taken CLI route and registers the other routes (#1390)', async (t) => {
+  const { llm, rt, warnings } = await localHost(t)
+  const other = new LlmAdapter()
+  other.providerInfo = id => ({ id, name: 'Other adapter' })
+  llm.registerAdapter(['local-opencode'], other)
+  assert.doesNotThrow(() => install(rt))
+  await setImmediate()
+  assert.equal(llm.listProviders().find(p => p.id === 'local-opencode').name, 'Other adapter')
+  assert.ok(llm.listProviders().some(p => p.id === 'local-codex-cli'))
+  assert.ok(warnings.some(args => args.join(' ').includes('local-opencode')))
+})
+
+test('OpenCode provider and detected local OpenCode CLI coexist (#1390)', async (t) => {
+  const { llm, rt } = await localHost(t)
+  llm.registerAdapter(['opencode'], new LlmAdapter())
+  install(rt)
+  await setImmediate()
+  assert.ok(llm.listProviders().some(p => p.id === 'opencode'))
+  assert.ok(llm.listProviders().some(p => p.id === 'local-opencode'))
+})
+
+test('replace skips a newly taken custom route and retains its own routes (#1390)', async (t) => {
+  const { llm, rt } = await localHost(t)
+  install(rt)
+  await setImmediate()
+  llm.registerAdapter(['local-acp-taken'], new LlmAdapter())
+  rt.state.localAgents.custom.push({ id: 'taken', name: 'Taken', command: process.execPath, args: [] }, { id: 'remove', name: 'Remove', command: process.execPath, args: [] })
+  await assert.doesNotReject(rt.localAgentsEndpoint('local-agent-remove', { id: 'remove' }))
+  assert.ok(llm.listProviders().some(p => p.id === 'local-codex-cli'))
+  assert.equal(llm.listProviders().find(p => p.id === 'local-acp-taken').name, 'local-acp-taken')
+})
+
+test('startup with every detected route taken leaves the other adapter intact (#1390)', async (t) => {
+  const { llm, rt } = await localHost(t)
+  llm.registerAdapter(Object.keys(ENGINES), new LlmAdapter())
+  install(rt)
+  await setImmediate()
+  assert.deepEqual(llm.listProviders().map(p => p.id), Object.keys(ENGINES))
+  assert.ok(llm.listProviders().every(p => p.name === p.id))
+})
+
+test('initial scan failures are logged rather than unhandled (#1390)', async (t) => {
+  const { llm, rt, warnings } = await localHost(t)
+  t.mock.method(llm, 'registerAdapter', () => { throw new Error('registry unavailable') })
+  install(rt)
+  await setImmediate()
+  assert.ok(warnings.some(args => args.join(' ').includes('registry unavailable')))
+})
 
 for (const kind of ['acp', 'codex']) {
   test(`${kind}: concurrent opens wait for the same initialization (#1222)`, async (t) => {
