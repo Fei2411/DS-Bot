@@ -21,12 +21,12 @@ runInNewContext(outputFiles[0].text, {
 const { SHELL_CSS, botOwnCss } = module.exports
 
 // Match SettingsDialog and DSH's boxless slot wrapper. The plugin styles are a
-// minimal height:100% / self-scrolling page, not a copy of a third-party plugin.
+// minimal size-contained / self-scrolling page, not a third-party plugin copy.
 const fixture = (content, error = '') => `<!doctype html><style>
   ${botOwnCss(SHELL_CSS)}
   *{animation:none!important;transition:none!important}
   [data-slot]{display:contents}
-  .plugin-page{height:100%;min-height:0;display:flex;flex-direction:column}
+  .plugin-page{height:100%;min-height:0;display:flex;flex-direction:column;container-type:size}
   .plugin-body{flex:1;min-height:0;overflow-y:auto;padding:8px}
   .plugin-actions{flex:none;height:32px}
   .plugin-panel{height:1200px}
