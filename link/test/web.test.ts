@@ -19,8 +19,8 @@ test('relay optionally serves the web app with confined paths and security heade
   const server = await startRelayServer({ webDir })
   t.after(() => server.close())
   const origin = new URL(server.url.replace('ws:', 'http:')).origin
-  const get = (path: string, method = 'GET') => new Promise<{ status: number, headers: import('node:http').IncomingHttpHeaders, body: string }>((resolve, reject) => {
-    const req = request(origin, { method, path }, res => {
+  const get = (path: string, method = 'GET', host?: string) => new Promise<{ status: number, headers: import('node:http').IncomingHttpHeaders, body: string }>((resolve, reject) => {
+    const req = request(origin, { method, path, ...(host === undefined ? {} : { headers: { Host: host } }) }, res => {
       let body = ''
       res.setEncoding('utf8')
       res.on('data', chunk => { body += chunk })
@@ -38,6 +38,16 @@ test('relay optionally serves the web app with confined paths and security heade
   assert.equal(index.headers['referrer-policy'], 'no-referrer')
   const host = new URL(origin).host
   assert.equal(index.headers['content-security-policy'], `default-src 'self'; connect-src 'self' ws://${host} wss://${host}; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'; object-src 'none'; base-uri 'none'`)
+  for (const host of ['localhost', 'relay.example:443', '127.0.0.1:18787', '[::1]:8787', '[2001:db8::1]', 'relay.example.']) {
+    const response = await get('/web/', 'GET', host)
+    assert.equal(response.status, 200, host)
+    assert.ok(response.headers['content-security-policy']?.includes(`ws://${host} wss://${host}`))
+  }
+  for (const host of ['', 'x;script-src *', 'user@host', 'host/path', 'host?query', 'host:65536', 'host:abc', '[not-ipv6]', '999.999.999.999', '-bad.example', 'a..example']) {
+    const response = await get('/web/', 'GET', host)
+    assert.equal(response.status, 400, host)
+    assert.equal(response.headers['content-security-policy'], undefined)
+  }
   const redirect = await get('/web')
   assert.equal(redirect.status, 308)
   assert.equal(redirect.headers.location, '/web/')

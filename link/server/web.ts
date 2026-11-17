@@ -1,6 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { readFile, realpath, stat } from 'node:fs/promises'
 import { extname, isAbsolute, relative, resolve, sep } from 'node:path'
+import { isIP } from 'node:net'
 
 const contentTypes: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -28,15 +29,22 @@ function inside(root: string, file: string): boolean {
   return path !== '..' && !path.startsWith(`..${sep}`) && !isAbsolute(path)
 }
 
+function plainHost(host: string): boolean {
+  const match = /^(\[[0-9a-f:.]+\]|[a-z0-9.-]+)(?::([0-9]{1,5}))?$/i.exec(host)
+  if (!match || (match[2] !== undefined && Number(match[2]) > 65535)) return false
+  const name = match[1]
+  if (name.startsWith('[')) return isIP(name.slice(1, -1)) === 6
+  if (/^[0-9.]+$/.test(name)) return isIP(name) === 4
+  return name.length <= 253 && name.replace(/\.$/, '').split('.').every(label => /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/i.test(label))
+}
+
 export function serveWeb(req: IncomingMessage, res: ServerResponse, directory: string): boolean {
   const pathname = (req.url ?? '').split('?')[0]
   if ((req.method !== 'GET' && req.method !== 'HEAD') || (pathname !== '/web' && !pathname.startsWith('/web/'))) return false
   res.setHeader('X-Content-Type-Options', 'nosniff')
   res.setHeader('Referrer-Policy', 'no-referrer')
-  let host: string
-  try {
-    host = new URL(`http://${req.headers.host}`).host
-  } catch {
+  const host = req.headers.host ?? ''
+  if (!plainHost(host)) {
     res.writeHead(400).end()
     return true
   }
