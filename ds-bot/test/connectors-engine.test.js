@@ -124,6 +124,51 @@ test('client resolution: CIMD only on the fixed port, DCR fallback, re-registrat
   assert.equal(catalog.clientInformation.client_id, 'ghc')
 })
 
+// public#1485: Figma's authorization server answers the SDK's RFC 7591 registration with
+// a rejection. The sign-in then showed the SDK's raw text on the row and stopped, instead
+// of asking for the client ID of an app the user registered — the fallback the client
+// resolution already names for servers that offer no registration at all.
+test('a refused dynamic registration falls back to asking for a registered client', async () => {
+  const discovery = { authorizationServerUrl: 'https://as.test', metadata: AS, scope: 's', resource: 'r' }
+  const calls = []
+  const request = async (url) => {
+    url = String(url?.url ?? url)
+    calls.push(url)
+    if (url === 'https://as.test/register') return json({ error: 'invalid_client_metadata', error_description: 'Dynamic registration is not supported' }, 400)
+    throw new Error(`unfaked ${url}`)
+  }
+  const resolved = await oauth.resolveClient({ auth: { kind: 'oauth' } }, discovery, 'http://127.0.0.1:9/callback', false, undefined, { fetch: request })
+  assert.deepEqual(calls, ['https://as.test/register'])
+  assert.equal(resolved, null, 'the row asks for an app client ID instead of ending the sign-in')
+})
+
+test('a stored manual client keeps its secret for the token request', async () => {
+  const discovery = { authorizationServerUrl: 'https://as.test', metadata: { authorization_endpoint: 'https://as.test/auth', token_endpoint: 'https://as.test/token' }, resource: 'r' }
+  const entry = { auth: { kind: 'oauth' } }
+  const stored = { via: 'manual', clientId: 'manual-id', clientSecret: 'manual-secret' }
+  const reused = await oauth.resolveClient(entry, discovery, 'http://127.0.0.1:38517/callback', true, stored)
+  assert.equal(reused.via, 'manual')
+  assert.deepEqual(reused.clientInformation, { client_id: 'manual-id', client_secret: 'manual-secret' })
+  let sent
+  const request = async (url, init) => {
+    url = String(url?.url ?? url)
+    if (url === 'https://as.test/token') { sent = init.headers.get('authorization'); return json({ access_token: 'AT', token_type: 'Bearer' }) }
+    throw new Error(`unfaked ${url}`)
+  }
+  await oauth.exchange(discovery, reused.clientInformation, { code: 'C', codeVerifier: 'v', redirectUri: 'http://127.0.0.1:38517/callback' }, { fetch: request })
+  assert.equal(sent, `Basic ${Buffer.from('manual-id:manual-secret').toString('base64')}`)
+  const publicClient = await oauth.resolveClient(entry, discovery, 'http://127.0.0.1:38517/callback', true, { via: 'manual', clientId: 'public-id' })
+  assert.deepEqual(publicClient.clientInformation, { client_id: 'public-id' })
+})
+
+test('a CIMD client never carries the secret of the client before it', async () => {
+  const discovery = { authorizationServerUrl: 'https://as.test', metadata: { ...AS, client_id_metadata_document_supported: true }, resource: 'r' }
+  const stale = { via: 'cimd', clientId: oauth.CIMD_CLIENT_ID, clientSecret: 'dcr-secret' }
+  const reused = await oauth.resolveClient({ auth: { kind: 'oauth' } }, discovery, 'http://127.0.0.1:38517/callback', true, stale)
+  assert.equal(reused.via, 'cimd')
+  assert.deepEqual(reused.clientInformation, { client_id: oauth.CIMD_CLIENT_ID })
+})
+
 test('browser PKCE carries state, code challenge, and resource; tokens exchange and refresh', async () => {
   const discovery = { authorizationServerUrl: 'https://as.test', metadata: AS, scope: 'mcp:all', resource: 'https://mcp.test/mcp' }
   const client = { client_id: 'dcr-1' }
@@ -1025,4 +1070,31 @@ test('mail_send refuses attachments outside the working folder', async (t) => {
   const send = rt.teamTools.find(d => d.name === 'mail_send')
   const answer = await send.execute({ to: 'x@y', subject: 'S', body: 'B', attachments: ['../../etc/passwd'] }, { agent: { id: 'm1' }, callId: 'c1', concludeTurn: () => {} })
   assert.match(String(answer), /working folder/)
+})
+
+
+test('manual client fallback keeps and closes the original OAuth callback listener', async (t) => {
+  const real = globalThis.fetch
+  globalThis.fetch = async (url) => {
+    url = String(url?.url ?? url)
+    if (url.includes('oauth-authorization-server')) return json(AS)
+    if (url === AS.registration_endpoint) return json({ error: 'invalid_client_metadata' }, 400)
+    if (url.includes('oauth-protected-resource')) return json({ resource: 'https://mcp.notion.com/mcp', authorization_servers: ['https://as.test'] })
+    return new Response('', { status: 401 })
+  }
+  t.after(() => { globalThis.fetch = real })
+  const home = teamHome()
+  const ctx = fakeContext()
+  const rt = createRuntime(ctx, { home, github: false })
+  t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true }) })
+  await rt.load()
+  await rt.connectorEndpoint('connector-connect', { id: 'notion' })
+  const first = rt.connectorsInternals.pendings.get('notion')
+  assert.ok(first.listener.listening)
+  await rt.connectorEndpoint('connector-client', { id: 'notion', clientId: 'registered-app' })
+  const second = rt.connectorsInternals.pendings.get('notion')
+  assert.equal(second.listener, first.listener)
+  assert.equal(new URL(second.row.url).searchParams.get('redirect_uri'), first.redirectUri)
+  await rt.connectorEndpoint('connector-cancel', { id: 'notion' })
+  assert.equal(first.listener.listening, false)
 })

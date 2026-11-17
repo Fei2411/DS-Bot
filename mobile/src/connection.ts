@@ -77,6 +77,16 @@ export interface SecretRequest {
   status?: string
 }
 
+export interface ConnectorRequest {
+  id: string
+  connectorId: string
+  name?: string
+  purpose?: string
+  callId?: string
+  sessionId?: string
+  status?: string
+}
+
 export interface CapabilityStatus { state?: string; error?: string }
 
 export interface CapabilityItem {
@@ -100,6 +110,7 @@ export interface TeamState {
   questions?: Record<string, Question>
   views?: Record<string, ShownView>
   secretRequests?: Record<string, SecretRequest[]>
+  connectorRequests?: Record<string, ConnectorRequest[]>
   connectors?: ConnectorsView
   capabilities?: CapabilityItem[]
   browserHolds?: Record<string, { by?: string; reason?: string; note?: string; callId?: string }>

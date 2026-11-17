@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:http'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { test } from 'node:test'
+import { createRuntime } from '../index.js'
 import telegram from '../src/host/im/platforms/telegram.js'
+import { fakeContext } from './fake-ctx.js'
 
 // A fake Bot API: requests are recorded and answered from `replies`; updates the
 // adapter polls come from `updates`, newest first.
@@ -237,4 +242,200 @@ test('a drop after getMe succeeds is retried, not reported as an error (#1119)',
   assert.equal(api.calls.filter(call => call.method === 'getMe').length, 1, 'the identity is not fetched again')
   assert.ok(polls >= 2, 'a new long poll went out after the failure')
   assert.equal(statuses.filter(status => status.state === 'error').length, 0, 'a network drop is not shown as an error while it retries')
+})
+
+test('video, animation and video_note are fetched and passed as files (#1603)', async (t) => {
+  const api = await fakeApi()
+  const got = { messages: [] }
+  api.replies.getFile = ({ file_id }) => {
+    if (file_id === 'v1') return { result: { file_id, file_path: 'videos/clip.mp4' } }
+    if (file_id === 'a1') return { result: { file_id, file_path: 'animations/loop.mp4' } }
+    if (file_id === 'vn1') return { result: { file_id, file_path: 'video_notes/round.mp4' } }
+    return { result: { file_id, file_path: 'photos/p1.jpg' } }
+  }
+  api.files['videos/clip.mp4'] = Buffer.from('video-bytes')
+  api.files['animations/loop.mp4'] = Buffer.from('anim-bytes')
+  api.files['video_notes/round.mp4'] = Buffer.from('note-bytes')
+  const handle = telegram.connect({ token: 'TOKEN' }, env(api.api), {
+    onMessage: msg => got.messages.push(msg),
+    onAction: () => {},
+    onStatus: () => {},
+  })
+  t.after(() => { handle.stop(); api.close() })
+  api.updates.push({
+    update_id: 10,
+    message: { message_id: 21, chat: { id: 5, type: 'private' }, from: { id: 9, first_name: 'Ann' }, video: { file_id: 'v1', file_name: 'clip.mp4', file_size: 11 } },
+  })
+  api.updates.push({
+    update_id: 11,
+    message: {
+      message_id: 22,
+      chat: { id: 5, type: 'private' },
+      from: { id: 9, first_name: 'Ann' },
+      // Telegram populates document alongside animation for backward compatibility.
+      animation: { file_id: 'a1', file_name: 'loop.mp4', file_size: 10 },
+      document: { file_id: 'a1', file_name: 'loop.mp4', file_size: 10 },
+    },
+  })
+  api.updates.push({
+    update_id: 12,
+    message: { message_id: 23, chat: { id: 5, type: 'private' }, from: { id: 9, first_name: 'Ann' }, video_note: { file_id: 'vn1', file_size: 10 } },
+  })
+  await until(() => got.messages.length >= 3)
+  const [vid, anim, vnote] = got.messages
+  assert.equal(vid.files.length, 1)
+  assert.equal(vid.files[0].name, 'clip.mp4')
+  assert.deepEqual(Buffer.from(vid.files[0].data), Buffer.from('video-bytes'))
+  assert.equal(anim.files.length, 1)
+  assert.equal(anim.files[0].name, 'loop.mp4')
+  assert.deepEqual(Buffer.from(anim.files[0].data), Buffer.from('anim-bytes'))
+  assert.equal(api.calls.filter(call => call.method === 'getFile' && call.params.file_id === 'a1').length, 1, 'animation is fetched once even when document is also set')
+  assert.equal(vnote.files.length, 1)
+  assert.equal(vnote.files[0].name, 'round.mp4')
+  assert.deepEqual(Buffer.from(vnote.files[0].data), Buffer.from('note-bytes'))
+})
+
+test('over-20MB files and download failures produce a note instead of dropping silently (#1603)', async (t) => {
+  const api = await fakeApi()
+  const got = { messages: [] }
+  const cloudBase = env(api.api)
+  const cloudEnv = {
+    ...cloudBase,
+    config: {},
+    fetch: (url, init) => cloudBase.fetch(String(url).replace('https://api.telegram.org', api.api), init),
+  }
+  api.replies.getFile = ({ file_id }) => {
+    if (file_id === 'too-big-unknown') return { error: 400, description: 'Bad Request: file is too big' }
+    return { result: { file_id, file_path: 'photos/missing.jpg' } }
+  }
+  const handle = telegram.connect({ token: 'TOKEN' }, cloudEnv, {
+    onMessage: msg => got.messages.push(msg),
+    onAction: () => {},
+    onStatus: () => {},
+  })
+  t.after(() => { handle.stop(); api.close() })
+  api.updates.push({
+    update_id: 20,
+    message: { message_id: 31, chat: { id: 5, type: 'private' }, from: { id: 9, first_name: 'Ann' }, video: { file_id: 'big-vid', file_name: 'movie.mp4', file_size: 25 * 1024 * 1024 } },
+  })
+  api.updates.push({
+    update_id: 21,
+    message: { message_id: 32, chat: { id: 5, type: 'private' }, from: { id: 9, first_name: 'Ann' }, caption: 'check this', document: { file_id: 'too-big-unknown', file_name: 'archive.zip' } },
+  })
+  api.updates.push({
+    update_id: 22,
+    message: { message_id: 33, chat: { id: 5, type: 'private' }, from: { id: 9, first_name: 'Ann' }, photo: [{ file_id: 'missing-photo', file_size: 500 }] },
+  })
+  await until(() => got.messages.length >= 3)
+  const [bigVid, bigDoc, missingPhoto] = got.messages
+  assert.equal(bigVid.files.length, 0)
+  assert.match(bigVid.text, /movie\.mp4/)
+  assert.match(bigVid.text, /20 MB/)
+  assert.equal(api.calls.some(call => call.method === 'getFile' && call.params.file_id === 'big-vid'), false, 'cloud API skips getFile when file_size exceeds 20 MB')
+  assert.equal(bigDoc.files.length, 0)
+  assert.match(bigDoc.text, /^check this\n/)
+  assert.match(bigDoc.text, /archive\.zip/)
+  assert.match(bigDoc.text, /20 MB/)
+  assert.equal(missingPhoto.images.length, 0)
+  assert.match(missingPhoto.text, /photo/i)
+  assert.match(missingPhoto.text, /404/)
+})
+
+test('custom Bot API server is not restricted by the 20 MB cloud pre-check (#1603)', async (t) => {
+  const api = await fakeApi()
+  const got = { messages: [] }
+  api.replies.getFile = ({ file_id }) => ({ result: { file_id, file_path: 'videos/large.mp4' } })
+  api.files['videos/large.mp4'] = Buffer.from('local-server-video')
+  const handle = telegram.connect({ token: 'TOKEN' }, env(api.api), {
+    onMessage: msg => got.messages.push(msg),
+    onAction: () => {},
+    onStatus: () => {},
+  })
+  t.after(() => { handle.stop(); api.close() })
+  api.updates.push({
+    update_id: 25,
+    message: { message_id: 35, chat: { id: 5, type: 'private' }, from: { id: 9, first_name: 'Ann' }, video: { file_id: 'local-big', file_name: 'large.mp4', file_size: 25 * 1024 * 1024 } },
+  })
+  await until(() => got.messages.length >= 1)
+  assert.equal(got.messages[0].files.length, 1)
+  assert.equal(got.messages[0].files[0].name, 'large.mp4')
+  assert.deepEqual(Buffer.from(got.messages[0].files[0].data), Buffer.from('local-server-video'))
+  assert.equal(got.messages[0].text, '')
+})
+
+test('IM runtime forwards captionless video and notifies Bot when >20MB Telegram file fails (#1603)', async (t) => {
+  const api = await fakeApi()
+  const home = mkdtempSync(join(tmpdir(), 'dsb-tg-e2e-'))
+  writeFileSync(join(home, 'state.json'), JSON.stringify({
+    version: 1,
+    mainBotIds: ['a'],
+    bots: { a: { id: 'a', name: 'Chief', role: 'Boss', sessionId: 'a', createdAt: 1 } },
+    rooms: {},
+    agents: {},
+    exchanges: [],
+    exchangeTurns: {},
+    questions: {},
+    prefs: {},
+    revision: 0,
+  }))
+  const prompts = []
+  const uploads = []
+  const ctx = fakeContext({
+    services: {
+      fileUploads: {
+        async uploadStream({ sessionId, data, name }) {
+          const chunks = []
+          for await (const chunk of data) chunks.push(chunk)
+          uploads.push({ sessionId, name, bytes: Buffer.concat(chunks) })
+          return { receiptId: `rcpt-${uploads.length}` }
+        },
+      },
+    },
+  })
+  Object.assign(ctx, {
+    llm: { listProviders: () => [] },
+    workspaceRegistry: { get: () => undefined, resolveByPath: async () => undefined, create: async () => ({ id: 'w1' }), archiveSession: async () => {} },
+    sessionController: {
+      prompt: async (request) => { prompts.push(request); return { ok: true } },
+      resolveAgent: async sessionId => ({ agent: { id: sessionId, session: { id: sessionId, requestHeader: () => undefined }, followup() {}, cancel() {}, inbox: { nextStep: [], nextTurn: [], remove: () => false }, async whenIdle() {} } }),
+      selectModel: async () => {},
+    },
+    sessions: { flush: async () => {} },
+  })
+  const rt = createRuntime(ctx, { home })
+  rt.config.im = { telegram: { api: api.api } }
+  t.after(async () => {
+    await ctx.dispose()
+    api.close()
+    rmSync(home, { recursive: true, force: true, maxRetries: 5 })
+  })
+  api.replies.getFile = ({ file_id }) => {
+    if (file_id === 'v-ok') return { result: { file_id, file_path: 'videos/demo.mp4' } }
+    if (file_id === 'doc-big') return { error: 400, description: 'Bad Request: file is too big' }
+    return { result: { file_id, file_path: 'photos/p1.jpg' } }
+  }
+  api.files['videos/demo.mp4'] = Buffer.from('mp4-payload')
+  const conn = await rt.imEndpoint('im-add', { platform: 'telegram', botId: 'a', fields: { token: 'TOKEN' } })
+  rt.state.im.connections[conn.id].paired.push({ id: '9', name: '@ann', at: 1 })
+  await rt.save()
+  await until(() => rt.imStatusView()[conn.id]?.state === 'ready')
+
+  api.updates.push({
+    update_id: 30,
+    message: { message_id: 41, chat: { id: 5, type: 'private' }, from: { id: 9, first_name: 'Ann', username: 'ann' }, video: { file_id: 'v-ok', file_name: 'demo.mp4', file_size: 11 } },
+  })
+  api.updates.push({
+    update_id: 31,
+    message: { message_id: 42, chat: { id: 5, type: 'private' }, from: { id: 9, first_name: 'Ann', username: 'ann' }, document: { file_id: 'doc-big', file_name: 'huge.tar.gz', file_size: 25 * 1024 * 1024 } },
+  })
+
+  await until(() => prompts.length >= 2)
+  assert.equal(uploads.length, 1)
+  assert.equal(uploads[0].name, 'demo.mp4')
+  assert.deepEqual(uploads[0].bytes, Buffer.from('mp4-payload'))
+  assert.deepEqual(prompts[0].content, [{ type: 'file', receiptId: 'rcpt-1' }])
+  assert.equal(prompts[1].content.length, 1)
+  assert.equal(prompts[1].content[0].type, 'text')
+  assert.match(prompts[1].content[0].text, /huge\.tar\.gz/)
+  assert.match(prompts[1].content[0].text, /20 MB/)
 })

@@ -88,6 +88,103 @@ test('the bundle patch turns off the DSH settings shell row that dsh-web-app mou
   assert.ok(ours.some(row => row.id === 'ui-settings-general' && row.disabled === true))
 })
 
+// The public slot contract: child declarations have one owner, duplicate entry
+// ids fail, and an injected iterable rolls back and disposes in reverse order.
+function settingsInstall({ dsh = false, ready = true } = {}) {
+  const declared = new Map(ready ? [['sidebar.settings', {}]] : [])
+  const entries = new Map()
+  const waits = new Set()
+  const held = []
+  const activate = (wait) => {
+    if (wait.stopped || wait.active || !declared.has(wait.name)) return
+    wait.active = true
+    const offs = []
+    try {
+      const effect = wait.setup()
+      if (typeof effect === 'function') offs.push(effect)
+      else if (effect) for (const off of effect) offs.push(off)
+    } catch (error) {
+      for (const off of offs.reverse()) off()
+      throw error
+    }
+    wait.off = () => { for (const off of offs.reverse()) off() }
+  }
+  const declare = (name, spec) => {
+    declared.set(name, spec)
+    for (const wait of waits) activate(wait)
+  }
+  const slots = {
+    register(options, component) {
+      const { name, children = {} } = options
+      if (!declared.has(name)) throw new Error(`undeclared slot: ${name}`)
+      const id = `${name}:${options.id ?? ''}`
+      if (entries.has(id)) throw new Error(`duplicate entry: ${id}`)
+      for (const child of Object.keys(children)) {
+        if (declared.has(child)) throw new Error(`duplicate declaration: ${child}`)
+      }
+      entries.set(id, component)
+      for (const [child, spec] of Object.entries(children)) declare(child, spec)
+      return () => {
+        entries.delete(id)
+        for (const child of Object.keys(children)) declared.delete(child)
+      }
+    },
+    inject(name, setup) {
+      const wait = { name, setup }
+      waits.add(wait)
+      activate(wait)
+      return () => { wait.stopped = true; wait.off?.(); waits.delete(wait) }
+    },
+  }
+  const dshTrigger = () => null
+  const dshSeat = () => null
+  if (dsh) {
+    slots.register({ name: 'sidebar.settings', children: shell.SETTINGS_CHILDREN }, dshSeat)
+    slots.register({ name: 'settings.trigger' }, dshTrigger)
+  }
+  const ctx = { slots, get: () => undefined, inject: () => ({ dispose() {} }), effect: (fn) => { const off = fn(); return { dispose: off } } }
+  const install = () => shell.installSettingsShell(ctx, {
+    face: () => ({}), actions: {}, ui: { getSnapshot: () => ({}) }, held: { set: value => held.push(value) },
+  })
+  return { entries, declared, held, dshTrigger, dshSeat, install, declare }
+}
+
+test('an enabled DSH settings shell keeps its trigger and DS Bot installs without a collision (#1245)', () => {
+  const rig = settingsInstall({ dsh: true })
+  const installed = rig.install()
+  assert.equal(rig.entries.get('settings.trigger:'), rig.dshTrigger)
+  assert.equal(rig.entries.get('sidebar.settings:'), rig.dshSeat)
+  assert.ok(!rig.held.includes(true))
+  installed.dispose()
+  assert.equal(rig.entries.get('sidebar.settings:'), rig.dshSeat)
+  assert.equal(rig.entries.get('settings.trigger:'), rig.dshTrigger)
+  for (const name of Object.keys(shell.SETTINGS_CHILDREN)) assert.ok(rig.declared.has(name))
+})
+
+test('DS Bot owns its default settings trigger only for its settings seat lifetime', () => {
+  const rig = settingsInstall()
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const installed = rig.install()
+    assert.ok(rig.entries.has('sidebar.settings:'))
+    assert.ok(rig.entries.has('settings.trigger:'))
+    installed.dispose()
+    assert.equal(rig.entries.size, 0)
+    assert.ok(!rig.declared.has('settings.trigger'))
+  }
+})
+
+test('the settings trigger waits for the seat and a disposed pending install stays inactive', () => {
+  const rig = settingsInstall({ ready: false })
+  const first = rig.install()
+  first.dispose()
+  rig.declare('sidebar.settings', {})
+  assert.equal(rig.entries.size, 0)
+  const second = rig.install()
+  assert.ok(rig.entries.has('settings.trigger:'))
+  second.dispose()
+  assert.equal(rig.entries.size, 0)
+})
+
 test('onboarding skips DSH\'s preview notice and keeps the ledger order', () => {
   const entries = [
     { options: { id: 'deepseek-official', order: 0 } },
@@ -223,6 +320,108 @@ test('General settings keeps the Classic Agent mode switch', () => {
   const [button] = walk(row, node => node.type === 'button' && textOf(node) === 'Switch')
   button.props.onClick()
   assert.deepEqual(calls, ['agent'])
+})
+
+// The seat is `single`: DSH draws only the lowest-priority entry, and an entry whose
+// component crashed is set aside. A registration that succeeds is not a shell on screen.
+const fakeSlots = () => {
+  const registered = []
+  return {
+    registered,
+    inject: (_, fn) => { const off = fn(); return () => off?.() },
+    register: (options, component) => { const row = { options, component }; registered.push(row); return () => registered.splice(registered.indexOf(row), 1) },
+    entries: () => [], getVersion: () => 0, subscribe: () => () => {},
+  }
+}
+const installShell = (held) => {
+  const slots = fakeSlots()
+  const ctx = { slots, get: () => undefined, inject: () => ({ dispose() {} }), effect: (fn) => { const off = fn(); return { dispose: off } } }
+  const ui = { getSnapshot: () => ({}) }
+  const installed = shell.installSettingsShell(ctx, { face: () => ({ actions: {}, hooks: {} }), actions: { closeSettings() {} }, ui, held })
+  return { slots, installed }
+}
+const heldSource = () => {
+  let value = false
+  return { getSnapshot: () => value, set: (next) => { value = next } }
+}
+
+test('a seat registration that DSH does not draw leaves DS Bot\'s own Settings dialog on', () => {
+  const held = heldSource()
+  const { slots, installed } = installShell(held)
+  assert.ok(slots.registered.some(row => row.options.name === 'sidebar.settings'))
+  // Another entry holds the seat at a lower priority, so SettingsShell never mounts.
+  assert.equal(held.getSnapshot(), false)
+  installed.dispose()
+  assert.equal(held.getSnapshot(), false)
+})
+
+// SettingsShell drawn with its layout effects run, as React runs them on mount and
+// unmount.
+const mounted = async () => {
+  const effects = []
+  const recording = { ...react, useLayoutEffect: (fn) => effects.push(fn), useEffect() {} }
+  const module = { exports: {} }
+  runInNewContext(await bundle("export * from './src/client/settings-shell.js'"), {
+    module, exports: module.exports,
+    window: { innerWidth: 1280, matchMedia: () => ({ matches: false }) },
+    requestAnimationFrame: () => 0, cancelAnimationFrame() {}, setTimeout, clearTimeout, Promise,
+    require: name => (name === 'react' ? recording : name === 'react-dom' ? { createPortal: node => node } : new Proxy({}, { get: (_, key) => key })),
+  })
+  const shellModule = module.exports
+  const pick = value => fn => fn(value)
+  const props = (holdSeat) => ({
+    wide: true, renderSlot: () => null, actions: { closeSettings() {}, openSettings() {} },
+    useUi: pick({ settings: null }), useRoster: pick(roster), useUpdate: pick({}), useSessions: pick({}),
+    useSections: pick([]), useGeneralItems: pick([]), useOnboardingSteps: pick([]), useOnboardingRequest: pick(undefined),
+    useConnectionState: pick('connected'), useDesktopUpdate: pick({}), useSettingsShortcut: pick(undefined),
+    reconnect() {}, openDesktopUpdate() {}, openOnboarding() {}, finishOnboarding() {}, holdSeat,
+  })
+  // Each render returns the cleanups of the layout effects it ran, like one mount.
+  const mount = (holdSeat) => {
+    effects.length = 0
+    shellModule.SettingsShell(props(holdSeat))
+    return effects.splice(0).map(fn => fn()).filter(cleanup => typeof cleanup === 'function')
+  }
+  return { shellModule, mount }
+}
+
+test('DS Bot holds the seat only while SettingsShell is on screen', async () => {
+  const { shellModule, mount } = await mounted()
+  const held = heldSource()
+  const seat = shellModule.seatHold(held)
+  const cleanups = mount(seat.hold)
+  assert.equal(held.getSnapshot(), true)
+  for (const cleanup of cleanups) cleanup()
+  assert.equal(held.getSnapshot(), false)
+})
+
+test('a remount that overlaps the old shell keeps the seat held until the last one leaves', async () => {
+  const { shellModule, mount } = await mounted()
+  const held = heldSource()
+  const seat = shellModule.seatHold(held)
+  const first = mount(seat.hold)
+  const second = mount(seat.hold)
+  for (const cleanup of first) cleanup()
+  assert.equal(held.getSnapshot(), true)
+  for (const cleanup of second) cleanup()
+  assert.equal(held.getSnapshot(), false)
+  // A release that runs twice does not take another mount's hold with it.
+  const third = mount(seat.hold)
+  for (const cleanup of first) cleanup()
+  assert.equal(held.getSnapshot(), true)
+  for (const cleanup of third) cleanup()
+  assert.equal(held.getSnapshot(), false)
+})
+
+test('the installer hands SettingsShell the hold through the seat\'s face', () => {
+  const held = heldSource()
+  const { slots, installed } = installShell(held)
+  const seat = slots.registered.find(row => row.options.name === 'sidebar.settings')
+  const release = seat.options.inject().holdSeat()
+  assert.equal(held.getSnapshot(), true)
+  release()
+  assert.equal(held.getSnapshot(), false)
+  installed.dispose()
 })
 
 // Settings in Agent mode carries DS Bot's own rules only: the DSH page around it keeps its look.

@@ -8,6 +8,7 @@ import { HANDOFF_ACK, LATE_ANSWER, MESSAGE_INLINE_MAX, REFERENCE_KIND, REPLY_KIN
 import { cleanText } from './diagnostics.js'
 import { absoluteLinks } from './links.js'
 import { splitRef, textOf } from './text.js'
+import { threadCurrentOfPart } from './threads.js'
 import { viaOf } from '../shared/im-platforms.js'
 import { reminderText } from './schedules.js'
 import { usageChunk } from './usage.js'
@@ -22,14 +23,29 @@ const SIGN_IN_CODES = new Set(['ACCOUNT_SIGN_IN_REQUIRED', 'ACCOUNT_SIGNED_OUT',
 
 // A failed turn's `LlmFailure`, kept to what can be shown and logged. Like DSH's own
 // error row, an AUTH failure loses its message: providers may echo part of the key.
+// DSH maps every HTTP 403 to AUTH, but an upstream also uses 403 for a content audit,
+// and the body says which one it is. A rekey cannot fix an audit, so it keeps its own
+// code; the audit body and request id stay for the card and the diagnostics.
+const CONTENT_POLICY = /content[\s_-]?polic|content[\s_-]?violation|content[\s_-]?filter|内容审计|内容安全|风险规则/i
+const REQUEST_ID = /(?:request[-_ ]?id|x-request-id)["'\s:=]+([A-Za-z0-9._:-]{6,})/i
+
+const requestIdOf = (message) => {
+  const found = REQUEST_ID.exec(message)
+  return found === null ? undefined : found[1].replace(/[.,;:)+]+$/, '')
+}
+
 export function turnFailure(error) {
-  const code = typeof error?.code === 'string' && error.code !== '' ? error.code : 'UNKNOWN'
-  const message = code === 'AUTH' || typeof error?.message !== 'string' ? '' : error.message.trim().slice(0, 500)
+  const rawCode = typeof error?.code === 'string' && error.code !== '' ? error.code : 'UNKNOWN'
+  const raw = typeof error?.message === 'string' ? error.message.trim() : ''
+  const contentPolicy = rawCode === 'AUTH' && error?.status === 403 && CONTENT_POLICY.test(raw)
+  const code = contentPolicy ? 'CONTENT_POLICY' : rawCode
+  const message = code === 'AUTH' || raw === '' ? '' : cleanText(raw).slice(0, 500)
+  const requestId = typeof error?.requestId === 'string' && error.requestId !== '' ? error.requestId : requestIdOf(raw)
   return {
     code,
     message,
     ...(typeof error?.status === 'number' ? { status: error.status } : {}),
-    ...(typeof error?.requestId === 'string' ? { requestId: error.requestId } : {}),
+    ...(requestId === undefined ? {} : { requestId }),
   }
 }
 
@@ -40,6 +56,12 @@ export const failureLine = failure => `${failure.code}${failure.status ? ` ${fai
 // answer comes from; `source` is the trigger the turn answered.
 export function answerSender(rt, id, source, text, long) {
   const back = rt.roomOf(source.senderRoomId)?.sessions?.[source.senderSessionId]
+  // The asking Bot may have written from a background part of its own chat: its reply
+  // goes back to that part's thread, not to the part the user is reading. When the part
+  // is gone, or no part was recorded, the reply goes to the Bot's current chat, as before.
+  const asker = source.senderPart === undefined ? undefined : rt.botOf(source.senderSessionId)
+  const part = back === undefined && asker !== undefined ? threadCurrentOfPart(asker, source.senderPart) : undefined
+  const target = back ?? part
   const name = rt.botOf(rt.selfOf(id))?.name ?? 'The other Bot'
   const work = rt.closeWork?.(source.exchangeId, name, text)
   // A reply that arrives after the user gave up the wait is a late answer: it closes
@@ -52,7 +74,7 @@ export function answerSender(rt, id, source, text, long) {
   void rt.deliver({
     fromId: rt.selfOf(id),
     toId: source.senderSessionId,
-    ...(back ? { sessionId: back } : {}),
+    ...(target ? { sessionId: target } : {}),
     text: body,
     ...(length === undefined ? {} : { files: long.files, length }),
     role: 'reply',
@@ -71,7 +93,7 @@ export function answerSender(rt, id, source, text, long) {
     void rt.deliver({
       fromId: rt.selfOf(id),
       toId: source.senderSessionId,
-      ...(back ? { sessionId: back } : {}),
+      ...(target ? { sessionId: target } : {}),
       text: `${said}${long?.text ?? text}`,
       ...(long?.length === undefined ? {} : { files: long.files, length: said.length + long.length }),
       role: 'reply',
@@ -189,6 +211,7 @@ export function install(rt) {
       ...(keeps && info.audience ? { audience: info.audience } : {}),
       ...(keeps && info.askedBy ? { askedBy: info.askedBy } : {}),
       ...(keeps && info.senderRoomId ? { fromRoomId: info.senderRoomId } : {}),
+      ...(keeps && info.senderPart ? { fromPart: info.senderPart } : {}),
       note,
       retried: true,
       text,
@@ -654,6 +677,31 @@ export function install(rt) {
     })
   }
 
+  // The repair card reads DSH's own failure row, which can carry a code DS Bot has
+  // corrected (a 403 content audit arrives as AUTH). Keep the corrected failure with
+  // the part and turn it belongs to; the view sends it to the card, and the next
+  // completed turn in that part drops it.
+  const rememberFailure = (id, turn, failure, session) => {
+    const bot = rt.botOf(rt.selfOf(id))
+    if (bot === undefined || turn === undefined) return
+    const provider = session?.requestHeader?.()?.config?.provider
+    const message = failure.message ? cleanText(failure.message, { redact: rt.redactSecrets }).slice(0, 500) : ''
+    const failures = bot.failures ??= {}
+    failures[id] = { turn, ...failure, message, ...(provider ? { provider } : {}), at: Date.now() }
+    const keys = Object.keys(failures)
+    if (keys.length > 6) {
+      for (const key of keys.sort((a, b) => (failures[a].at ?? 0) - (failures[b].at ?? 0)).slice(0, keys.length - 6)) delete failures[key]
+    }
+    void rt.save().catch(() => {})
+  }
+  const forgetFailure = (id) => {
+    const bot = rt.botOf(rt.selfOf(id))
+    if (bot?.failures?.[id] === undefined) return
+    delete bot.failures[id]
+    if (Object.keys(bot.failures).length === 0) delete bot.failures
+    void rt.save().catch(() => {})
+  }
+
   // A turn cut off at the output limit is not a finish, but no failure either. The
   // record names the route and the size of the input, so a route whose declared
   // window is larger than the service really serves can be found from it. A cut-off
@@ -764,10 +812,24 @@ export function install(rt) {
     void rt.goalSettled?.(rt.roomOf(owner.roomId)).catch(error => rt.warn('ds-bot: goal settle failed: %s', error))
   })
 
+  const laterTarget = (id) => {
+    if (rt.chatOwners.has(id)) return id
+    const group = rt.groupOwners.get(id)
+    if (group !== undefined) return rt.roomOf(group.roomId)?.sessions?.[group.botId]
+    const past = rt.pastOwners?.get(id)
+    if (past !== undefined) {
+      if (past.roomId !== undefined) return rt.roomOf(past.roomId)?.sessions?.[past.botId]
+      const bot = rt.botOf(past.botId)
+      return bot === undefined ? undefined : (threadCurrentOfPart(bot, id) ?? rt.chatOf?.(past.botId))
+    }
+    return undefined
+  }
+
   ctx.on('session/event', (session, event) => {
     const id = session?.id
     if (id === undefined) return
-    if (!rt.isBotSession(id) && !rt.roomOf(id)) {
+    const switchedEnd = event.type === 'turn/end' && live.get(id)?.switched === true && rt.pastOwners?.has(id)
+    if (!rt.isBotSession(id) && !rt.roomOf(id) && !switchedEnd) {
       // A deleted Bot's Session can still be ending its turn; nothing of it stays.
       if (live.delete(id)) setActivity(id, undefined)
       return
@@ -914,6 +976,9 @@ export function install(rt) {
             name: source.senderName,
             reportBack: source.reportBack === true,
             ...(source.claims === undefined ? {} : { claims: source.claims }),
+            // The turn's change line travels with its post; without it a completion
+            // notice that arrives after the round closed has nothing to show.
+            ...(source.changes === undefined ? {} : { changes: source.changes }),
             ...(source.member ? { member: true } : {}),
             // Who the whole post called. `text` may be only its opening (attachLong).
             ...(source.mentions ? { mentions: source.mentions } : {}),
@@ -1077,6 +1142,7 @@ export function install(rt) {
         // A turn the plugin watched start. A turn/end replayed after a restart, whose
         // turn is settled from the Session's log, is not one (resume.js does that).
         const watched = entry.turn !== undefined
+        const turn = entry.turn
         entry.turn = undefined
         entry.info = undefined
         entry.texts = []
@@ -1097,9 +1163,13 @@ export function install(rt) {
         entry.later = []
         if (steerCut || suppressedSubagent) break
         for (const result of later) {
+          const targetSessionId = laterTarget(id)
+          if (targetSessionId === undefined && (rt.groupOwners.has(id) || rt.pastOwners?.has(id))) continue
           void rt.deliver({
             fromId: result.info.senderSessionId,
             toId: rt.selfOf(id),
+            // A result handed back to the turn's own part, or to the successor part after a switch.
+            ...(targetSessionId !== undefined ? { sessionId: targetSessionId } : {}),
             text: result.text,
             role: result.info.role,
             exchangeId: result.info.exchangeId,
@@ -1135,8 +1205,10 @@ export function install(rt) {
         rt.noteCutOffTurn?.(id, { withoutText: wroteNothing, premature })
         if (cutOff) noteCutOffTurn(id, { session, wroteNothing, ...(premature ? { outputTokens } : {}) })
         if (failure !== undefined) {
+          if (watched) rememberFailure(id, turn, failure, session)
           if (blockBot(id, session, failure) && owner !== undefined && info?.role === 'kickoff') rt.holdKickoffAgain(owner)
         } else if (reason?.kind === 'completed') {
+          forgetFailure(id)
           unblockBot(rt.selfOf(id))
           // A turn the user opened, or the Retry that answers the user.
           if (owner !== undefined && (info === undefined || info.role === 'continue')) rt.userAnswered(owner)
@@ -1241,6 +1313,7 @@ export function install(rt) {
             exchangeId: request.info.exchangeId,
             ...(request.info.role === 'room' ? { roomId: request.info.roomId, askedBy: request.info.askedBy, note: 'you read this call during your last task; answer it now' } : {}),
             ...(request.info.senderRoomId ? { fromRoomId: request.info.senderRoomId } : {}),
+            ...(request.info.senderPart ? { fromPart: request.info.senderPart } : {}),
             deferred: true,
           }).catch(error => rt.warn('ds-bot: deferred request delivery failed: %s', error))
         }

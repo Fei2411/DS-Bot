@@ -22,8 +22,10 @@ export function install(rt) {
   /** @type {{version:1, workspaceId?:string, mainBotIds:string[], bots:Record<string,any>, privateArchives:any[], rooms:Record<string,any>, agents:Record<string,any>, sections:any[], capabilities:{items:Record<string,any>}, exchanges:any[], exchangeTurns:Record<string,number[]>, revision:number}} */
   const state = { version: 1, mainBotIds: [], bots: {}, privateArchives: [], rooms: {}, agents: {}, sections: [], capabilities: { items: {} }, exchanges: [], exchangeTurns: {}, works: {}, requests: {}, questions: {}, views: {}, closedCards: {}, prefs: {}, switching: {}, revision: 0 }
   let loaded = null
+  let storeReady = false
   let writing = Promise.resolve()
   const { warn } = rt
+  const sessionIdOf = id => (typeof id === 'string' && id !== '' ? id : undefined)
 
   const EMPTY = JSON.stringify(state)
   // The other dsh host that holds state.lock while this one only reads (see home-lock.js);
@@ -127,7 +129,15 @@ export function install(rt) {
       state.capabilities.items = {}
       migrated = true
     }
-    for (const bot of Object.values(state.bots)) {
+    if (state.bots === null || typeof state.bots !== 'object' || Array.isArray(state.bots)) state.bots = {}
+    if (state.rooms === null || typeof state.rooms !== 'object' || Array.isArray(state.rooms)) state.rooms = {}
+    for (const [id, bot] of Object.entries(state.bots)) {
+      if (!bot || typeof bot !== 'object' || Array.isArray(bot)) {
+        delete state.bots[id]
+        migrated = true
+        continue
+      }
+      if (sessionIdOf(bot.id) === undefined) bot.id = id
       if (!Array.isArray(bot.capabilities)) {
         bot.capabilities = []
         migrated = true
@@ -146,6 +156,15 @@ export function install(rt) {
         delete bot.lab
         migrated = true
       }
+    }
+    for (const [id, room] of Object.entries(state.rooms)) {
+      if (!room || typeof room !== 'object' || Array.isArray(room)) {
+        delete state.rooms[id]
+        migrated = true
+        continue
+      }
+      if (sessionIdOf(room.id) === undefined) room.id = id
+      if (!Array.isArray(room.members)) room.members = []
     }
     if (migrateLocalRoutes(state)) migrated = true
     // A team from before several Main Bots were allowed names a single one.
@@ -271,10 +290,20 @@ export function install(rt) {
     return { migrated: migrated || stale.length > 0, stale }
   }
 
+  const hasLoaded = () => storeReady
+  const syncReadOnly = () => {
+    if (storeReady && adopting === undefined && (stuck !== undefined || holder !== undefined) && stamp() !== seen) {
+      adopt(readFileState())
+      rt.onStoreSync?.()
+    }
+  }
+
   const load = () => loaded ??= (async () => {
     claimLock()
     if (holder !== undefined) warn('ds-bot: %s', readOnly())
     const { migrated, stale } = adopt(readFileState())
+    storeReady = true
+    rt.onStoreSync?.()
     if (holder !== undefined) return
     if (migrated && stuck === undefined) {
       // A failed write must not poison `loaded`: the migrated state stays in
@@ -334,6 +363,7 @@ export function install(rt) {
         warn('ds-bot: the other dsh has closed; this one now saves the Bot team')
         warnedReadOnly = false
         adopt(readFileState())
+        rt.onStoreSync?.()
         return
       }
     } else if (!lockBroken && !lock.owns()) {
@@ -344,12 +374,18 @@ export function install(rt) {
       if (lockBroken) return
       if (holder === undefined) {
         await reclaimHeld()
+        rt.onStoreSync?.()
         return
       }
       warn('ds-bot: %s', readOnly())
     }
-    if (adopting !== undefined) return adopting
+    if (adopting !== undefined) {
+      await adopting
+      rt.onStoreSync?.()
+      return
+    }
     if ((stuck !== undefined || holder !== undefined) && stamp() !== seen) adopt(readFileState())
+    rt.onStoreSync?.()
   }
 
   const warnReadOnly = () => {
@@ -468,8 +504,8 @@ export function install(rt) {
   const roomOwners = new Map()
   /** @type {Map<string, {botId?:string, roomId?:string}>} */
   const pastOwners = new Map()
-  const chatOf = botId => botOf(botId)?.sessionId ?? botId
-  const sessionOfRoom = room => (room === undefined ? undefined : room.sessionId ?? room.id)
+  const chatOf = botId => sessionIdOf(botOf(botId)?.sessionId) ?? botId
+  const sessionOfRoom = room => (room === undefined ? undefined : sessionIdOf(room.sessionId) ?? room.id)
   // DSH turns away every step of an archived Session and every task aimed at it, so a
   // Session the team speaks from now leaves the archive: an earlier open of an old part
   // could leave one there, and DSH's own Session list can archive one. Earlier parts
@@ -499,18 +535,39 @@ export function install(rt) {
     groupOwners.clear()
     roomOwners.clear()
     pastOwners.clear()
-    for (const bot of Object.values(state.bots)) {
-      for (const segment of bot.segments ?? []) pastOwners.set(segment.sessionId, { botId: bot.id })
-      chatOwners.set(chatOf(bot.id), bot.id)
-    }
-    for (const room of Object.values(state.rooms)) {
-      const sessionId = sessionOfRoom(room)
-      if (sessionId !== undefined) roomOwners.set(sessionId, room.id)
-      for (const segment of room.parts ?? []) pastOwners.set(segment.sessionId, { roomId: room.id })
-      for (const [botId, segments] of Object.entries(room.segments ?? {})) {
-        for (const segment of segments) pastOwners.set(segment.sessionId, { botId, roomId: room.id })
+    const indexPast = (segments, owner) => {
+      if (!Array.isArray(segments)) return
+      for (const segment of segments) {
+        const sid = sessionIdOf(segment?.sessionId)
+        if (sid !== undefined) pastOwners.set(sid, owner)
       }
-      for (const [botId, sessionId] of Object.entries(room.sessions ?? {})) groupOwners.set(sessionId, { botId, roomId: room.id })
+    }
+    for (const [id, bot] of Object.entries(state.bots)) {
+      const botId = sessionIdOf(bot?.id) ?? sessionIdOf(id)
+      if (botId === undefined) continue
+      indexPast(bot.segments, { botId })
+      const currentSid = chatOf(botId)
+      if (sessionIdOf(currentSid) !== undefined) chatOwners.set(currentSid, botId)
+      // Parts opened while the Bot was busy are its own chat too: a turn there may use
+      // the team tools, and the phone still sees only the current part. Their earlier
+      // parts stay the Bot's as well, so their history still reads on that thread.
+      for (const part of bot.openParts ?? []) {
+        const partSid = sessionIdOf(part?.sessionId)
+        if (partSid !== undefined) chatOwners.set(partSid, botId)
+        indexPast(part?.segments, { botId })
+      }
+    }
+    for (const [id, room] of Object.entries(state.rooms)) {
+      const roomId = sessionIdOf(room?.id) ?? sessionIdOf(id)
+      if (roomId === undefined) continue
+      const sessionId = sessionOfRoom(room)
+      if (sessionId !== undefined) roomOwners.set(sessionId, roomId)
+      indexPast(room.parts, { roomId })
+      for (const [botId, segments] of Object.entries(room.segments ?? {})) indexPast(segments, { botId, roomId })
+      for (const [botId, sessionId] of Object.entries(room.sessions ?? {})) {
+        const sid = sessionIdOf(sessionId)
+        if (sid !== undefined) groupOwners.set(sid, { botId, roomId })
+      }
     }
     // The agents module owns the DSH Agent session index, and tools.js re-syncs
     // the scoped tools with this ownership (drops Sessions that left, scopes
@@ -583,7 +640,7 @@ export function install(rt) {
   }
 
   Object.assign(rt, {
-    state, load, save, refresh, readOnly, own, onSaved, closeCard,
+    state, load, save, refresh, readOnly, hasLoaded, syncReadOnly, own, onSaved, closeCard,
     botOf, roomOf, isMain, chatOf, sessionOfRoom, selfOf, isBotSession,
     chatOwners, groupOwners, roomOwners, pastOwners,
     groupSessionsOf, dropGroupSession, retireGroupSession, findBot, findRooms, isAdminOf,

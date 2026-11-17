@@ -70,17 +70,22 @@ export function stackReplies(replies) {
   replies.forEach((reply, index) => {
     const last = items.at(-1)
     if (reply.kind === undefined && last?.reply.kind === undefined && last?.reply.botId === reply.botId
-      && last.claims === undefined) {
+      && last.claims === undefined && (last.changes === undefined
+        || (reply.changes?.sessionId === last.changes.sessionId && reply.changes?.turn === last.changes.turn))) {
       last.texts.push(reply.text)
       last.time = reply.time
       last.duration = reply.duration
       if (reply.claims !== undefined) last.claims = reply.claims
+      // The change line belongs to the turn, so a later message of the same turn replaces
+      // it rather than stacking a second one.
+      if (reply.changes !== undefined) last.changes = reply.changes
     } else {
       items.push({
         reply, index,
         texts: reply.kind === undefined ? [reply.text] : [],
         time: reply.time, duration: reply.duration,
         ...(reply.claims === undefined ? {} : { claims: reply.claims }),
+        ...(reply.changes === undefined ? {} : { changes: reply.changes }),
       })
     }
   })

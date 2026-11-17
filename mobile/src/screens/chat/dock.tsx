@@ -5,7 +5,8 @@ import { ViewCard } from './view.tsx'
 import { ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View, Pressable } from 'react-native'
 import Animated, { useReducedMotion, useAnimatedStyle, withRepeat, withTiming, withSpring, useSharedValue, withSequence } from 'react-native-reanimated'
 import { useEffect } from 'react'
-import type { Approval, Question, ShownView } from '../../connection.ts'
+import type { Approval, ConnectorRequest, Question, ShownView } from '../../connection.ts'
+import { connectorCanConnectOnMobile } from '../../team/connectors.ts'
 import { t } from '../../ui/i18n.ts'
 import { radius, shadow, SPRING_TAP, type as typeScale, type Palette } from '../../ui/tokens.ts'
 import { Avatar } from '../../ui/marks.tsx'
@@ -39,9 +40,10 @@ function AccordionCard({ title, dot, expanded, onToggle, p, children }: { title:
   )
 }
 
-export function Dock({ question, sessionId, approvals, secrets = [], btw = [], handoff, onViewBrowser, view, call, p, maxHeight, expanded, onExpand }: {
+export function Dock({ question, sessionId, approvals, secrets = [], connectorRequests = [], botName, onOpenConnector, btw = [], handoff, onViewBrowser, view, call, p, maxHeight, expanded, onExpand }: {
   view?: ShownView
-  secrets?: SecretRequest[]; btw?: BtwCardData[]; handoff?: HandoffData; onViewBrowser?: () => void
+  secrets?: SecretRequest[]; connectorRequests?: ConnectorRequest[]; botName?: string; onOpenConnector?: (connectorId: string) => void
+  btw?: BtwCardData[]; handoff?: HandoffData; onViewBrowser?: () => void
   maxHeight?: number; expanded: string | null; onExpand: (key: string | null) => void
   question?: Question; sessionId: string; approvals: Approval[]; call: Call; p: Palette
 }) {
@@ -52,6 +54,15 @@ export function Dock({ question, sessionId, approvals, secrets = [], btw = [], h
   for (const approval of approvals) cards.push({ key: `approval-${approval.id}`, title: approval.tool ?? t('Approval'), needs: true, order: 0, body: <ApprovalCard approval={approval} call={call} p={p} bare /> })
   if (question !== undefined) cards.push({ key: 'question', title: question.question ?? t('Question'), needs: true, order: 1, body: <QuestionCard question={question} sessionId={sessionId} call={call} p={p} bare /> })
   for (const secret of secrets) cards.push({ key: `secret-${secret.id}`, title: secret.kind === 'allow' ? t('Allow a secret') : (secret.name ? t('{name} needs a key', { name: secret.name }) : t('A secret is needed')), needs: true, order: 2, body: <SecretCard secret={secret} call={call} p={p} bare /> })
+  for (const request of connectorRequests) {
+    cards.push({
+      key: `connector-${request.id}`,
+      title: t('{bot} needs {name}', { bot: botName || t('the Bot'), name: request.name || request.connectorId }),
+      needs: true,
+      order: 2,
+      body: <ConnectorRequestCard request={request} onConnect={onOpenConnector} call={call} p={p} bare />,
+    })
+  }
   if (handoff !== undefined) cards.push({ key: 'handoff', title: t('Browser handoff'), needs: true, order: 3, body: <HandoffCard handoff={handoff} botId={sessionId.split(':')[0]} onView={onViewBrowser} call={call} p={p} bare /> })
   if (view !== undefined) cards.push({ key: `view-${view.id ?? 'view'}`, title: view.title || t('Card'), needs: true, order: 4, body: <ViewCard sessionId={sessionId} id={view.id} title={view.title} root={view.view} p={p} bare /> })
   for (const card of btw) cards.push({ key: `btw-${card.id}`, title: card.question ?? t('Aside'), needs: false, order: 5, body: <BtwCard card={card} sessionId={sessionId} call={call} p={p} bare /> })
@@ -190,6 +201,45 @@ export function SecretCard({ secret, call, p , bare = false }: { secret: SecretR
             <Text style={{ color: p.accentInk, fontSize: 14, fontWeight: '600' }}>{busy ? t('Saving…') : t('Save')}</Text>
           </Pressable>
         )}
+      </View>
+      {failed ? <Text style={[type.small, { color: p.danger, marginTop: 8 }]}>{t('This approval is no longer open.')}</Text> : null}
+    </View>
+  )
+}
+
+export function ConnectorRequestCard({ request, onConnect, call, p, bare = false }: {
+  request: ConnectorRequest
+  onConnect?: (connectorId: string) => void
+  call: Call
+  p: Palette
+  bare?: boolean
+}) {
+  const [busy, setBusy] = useState(false)
+  const [failed, setFailed] = useState(false)
+  const mobileSupported = connectorCanConnectOnMobile(request.connectorId)
+  const canConnect = mobileSupported && onConnect !== undefined
+  const dismiss = async () => {
+    if (busy) return
+    setBusy(true)
+    setFailed(false)
+    try { await call('connector-request-cancel', { requestId: request.id }) }
+    catch { setFailed(true) }
+    finally { setBusy(false) }
+  }
+  return (
+    <View style={bare ? undefined : [styles.card, { backgroundColor: p.card, borderColor: p.line }]}>
+      {bare ? null : <Text style={[type.settingsRow, { color: p.ink, fontWeight: '600' }]}>{t('{bot} needs {name}', { bot: t('the Bot'), name: request.name || request.connectorId })}</Text>}
+      {request.purpose ? <Text style={[type.small, { color: p.ink2, marginTop: bare ? 0 : 4 }]}>{request.purpose}</Text> : null}
+      {!canConnect ? <Text style={[type.small, { color: p.ink2, marginTop: 8 }]}>{mobileSupported ? t('Answer on the computer.') : t('Set up your mailbox on the computer.')}</Text> : null}
+      <View style={styles.answerRow}>
+        <Pressable accessibilityRole="button" disabled={busy} onPress={() => void dismiss()} style={[styles.choice, { backgroundColor: p.hover, opacity: busy ? 0.35 : 1 }]}>
+          <Text style={{ color: p.ink, fontSize: 14 }}>{t('Dismiss')}</Text>
+        </Pressable>
+        {canConnect ? (
+          <Pressable accessibilityRole="button" disabled={busy} onPress={() => onConnect(request.connectorId)} style={[styles.choice, { backgroundColor: p.accent, opacity: busy ? 0.35 : 1 }]}>
+            <Text style={{ color: p.accentInk, fontSize: 14, fontWeight: '600' }}>{t('Connect')}</Text>
+          </Pressable>
+        ) : null}
       </View>
       {failed ? <Text style={[type.small, { color: p.danger, marginTop: 8 }]}>{t('This approval is no longer open.')}</Text> : null}
     </View>
