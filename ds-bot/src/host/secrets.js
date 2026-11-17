@@ -3,10 +3,12 @@
 // their shell, tool results lose it before they are saved, and every model request
 // has it replaced by [secret:<NAME>] before it leaves.
 import { randomUUID } from 'node:crypto'
-import { chmodSync, copyFileSync, readFileSync } from 'node:fs'
+import { chmodSync, copyFileSync, readFileSync, statSync } from 'node:fs'
 import { chmod, mkdir, unlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { defineTool } from '@deepseek-ai/dsh-tools'
+import { cleanPassphrase, decryptSecrets, encryptSecrets, isEncryptedSecretsFile, passphraseFromEnv } from './secrets-crypto.js'
+import { serviceOf } from './services.js'
 import { replaceFile } from './files.js'
 import { output } from './tools.js'
 
@@ -91,26 +93,65 @@ export function install(rt) {
   const { ctx, home, state } = rt
   const path = join(home, 'secrets.json')
 
+  // How the file holds the values. `plaintext` is the default and the format older
+  // versions wrote; `encrypted` is the optional envelope. The passphrase lives only in
+  // this process: never in state.json, a log, or the view.
+  const store = { mode: 'plaintext', locked: false, source: null, reason: null, passphrase: null }
+  const secretStoreStatus = () => ({
+    mode: store.mode,
+    locked: store.locked === true,
+    source: store.locked ? null : store.source,
+    ...(store.locked && store.reason ? { reason: store.reason } : {}),
+  })
+  const LOCKED = 'The secrets store is locked. Unlock it in Settings → Secrets, or start DS Bot with DS_BOT_SECRETS_PASSPHRASE_FILE set to a file that holds the passphrase.'
+
   /** @type {Map<string, {name:string, value:string, purpose:string, scope:'all'|string[], requestedBy:string|null, createdAt:number, updatedAt:number, lastUsedAt?:number}>} */
   const secrets = new Map()
   let loaded = null
   let writing = Promise.resolve()
+  let mutating = Promise.resolve()
+  const mutate = (run) => {
+    const job = mutating.then(run)
+    mutating = job.catch(() => {})
+    return job
+  }
   let redact = text => text
   let refreshEnv = () => {}
+  let refreshQueued = false
+  let seenStamp = ''
+  const fileStamp = () => {
+    try {
+      const { ctimeMs, mtimeMs, size } = statSync(path)
+      return `${ctimeMs}:${mtimeMs}:${size}`
+    } catch {
+      return ''
+    }
+  }
+  const scheduleRefreshEnv = () => {
+    if (refreshQueued) return
+    refreshQueued = true
+    queueMicrotask(() => {
+      refreshQueued = false
+      refreshEnv()
+    })
+  }
 
-  const changed = () => {
+  const notify = ({ declare = true } = {}) => {
     redact = redactor([...secrets.values()])
-    refreshEnv()
+    if (declare) refreshEnv()
+    else scheduleRefreshEnv()
     rt.secretsChanged?.()
   }
+  const changed = () => notify({ declare: true })
 
   // Error messages from JSON.parse quote the file, so only the code or name is logged.
   const reason = error => error?.code ?? error?.name ?? 'error'
 
-  // While another dsh holds the team, that host writes secrets.json, so a reading host
-  // reads it again each time; a copy read then is also read again after taking over,
-  // before this host saves anything.
+  // While another dsh holds the team (or before store.load() has checked the lock),
+  // that host owns secrets.json, so this host neither chmods nor writes backups and
+  // re-reads before resolving or changing keys.
   let loadedReadOnly = false
+  const readOnlyNow = () => rt.readOnly() !== undefined || rt.hasLoaded?.() === false
   // An existing secrets file that cannot be read is not an empty one: writing over it
   // would lose every key in it. While `blocked` holds the reason nothing is written,
   // and each load reads the file again (a busy file may only be briefly unreadable).
@@ -119,47 +160,8 @@ export function install(rt) {
     if (loaded !== null && (loadedReadOnly || rt.readOnly() !== undefined || blocked !== undefined)) loaded = null
     return loaded ??= readSecrets()
   }
-  // Synchronous on purpose: a shell resolves its environment without an await, so the
-  // map must be full before the first resolve after a start reads it.
-  const readSecrets = async () => {
-    loadedReadOnly = rt.readOnly() !== undefined
-    let contents
-    try {
-      contents = readFileSync(path, 'utf8')
-    } catch (error) {
-      if (error?.code === 'ENOENT') {
-        blocked = undefined
-        secrets.clear()
-      } else {
-        blocked = reason(error)
-        rt.warn('ds-bot: unreadable secrets file %s (%s)', path, blocked)
-      }
-      changed()
-      return
-    }
-    let parsed
-    try {
-      parsed = JSON.parse(contents)
-    } catch {
-      parsed = null
-    }
-    if (parsed === null || typeof parsed !== 'object' || !Array.isArray(parsed.secrets)) {
-      // A file that is not a secrets file is kept aside, like a broken state.json, then
-      // the store goes on with an empty one.
-      const backup = `${path}.broken-${Date.now()}`
-      try {
-        copyFileSync(path, backup)
-        blocked = undefined
-        secrets.clear()
-        rt.warn('ds-bot: unreadable secrets file %s; backed up as %s', path, backup)
-      } catch (error) {
-        blocked = reason(error)
-        rt.warn('ds-bot: unreadable secrets file %s; backup failed: %s', path, error)
-      }
-      changed()
-      return
-    }
-    blocked = undefined
+  // The parsed body becomes the map. Only entries that name a key are kept.
+  const fillSecrets = (parsed) => {
     secrets.clear()
     for (const entry of parsed.secrets) {
       if (!SECRET_NAME.test(entry?.name ?? '') || typeof entry.value !== 'string') continue
@@ -174,8 +176,141 @@ export function install(rt) {
         ...(Number.isFinite(entry.lastUsedAt) ? { lastUsedAt: entry.lastUsedAt } : {}),
       })
     }
+  }
+  const setPlaintext = () => {
+    store.mode = 'plaintext'
+    store.locked = false
+    store.source = null
+    store.reason = null
+    store.passphrase = null
+  }
+
+  // Synchronous on purpose: a shell resolves its environment without an await, so the
+  // map must be full before the first resolve after a start reads it.
+  const readSecretsSync = ({ declare = true } = {}) => {
+    loadedReadOnly = readOnlyNow()
+    let contents
+    try {
+      contents = readFileSync(path, 'utf8')
+      seenStamp = fileStamp()
+    } catch (error) {
+      seenStamp = fileStamp()
+      if (error?.code === 'ENOENT') {
+        blocked = undefined
+        // A store this process knew as encrypted keeps its mode: losing the file must
+        // not make the next write plaintext. A fresh process has no file and starts
+        // plaintext, which is the default.
+        if (store.mode === 'encrypted') {
+          store.locked = true
+          store.reason = 'missing-passphrase'
+        } else {
+          setPlaintext()
+        }
+        secrets.clear()
+      } else {
+        blocked = reason(error)
+        rt.warn('ds-bot: unreadable secrets file %s (%s)', path, blocked)
+      }
+      notify({ declare })
+      return
+    }
+    let parsed
+    try {
+      parsed = JSON.parse(contents)
+    } catch {
+      parsed = null
+    }
+    if (isEncryptedSecretsFile(parsed)) {
+      store.mode = 'encrypted'
+      store.locked = false
+      store.reason = null
+      let passphrase = store.passphrase
+      let source = store.source
+      if (passphrase === null) {
+        const fromEnv = passphraseFromEnv()
+        if (fromEnv?.passphrase !== undefined) {
+          passphrase = fromEnv.passphrase
+          source = fromEnv.source
+        } else if (fromEnv?.error !== undefined) {
+          store.locked = true
+          store.reason = 'passphrase-source'
+          secrets.clear()
+          notify({ declare })
+          rt.warn('ds-bot: %s Secrets stay locked until it is fixed.', fromEnv.error)
+          return
+        }
+      }
+      if (passphrase === null) {
+        store.locked = true
+        store.reason = 'missing-passphrase'
+        secrets.clear()
+        notify({ declare })
+        rt.warn('ds-bot: secrets are encrypted and locked. Unlock them in Settings → Secrets, or set DS_BOT_SECRETS_PASSPHRASE_FILE.')
+        return
+      }
+      let payload
+      try {
+        payload = decryptSecrets(parsed, passphrase)
+      } catch (error) {
+        store.locked = true
+        store.reason = 'wrong-passphrase'
+        store.passphrase = null
+        secrets.clear()
+        notify({ declare })
+        rt.warn('ds-bot: the secrets file could not be unlocked (%s). Unlock it in Settings → Secrets or fix the passphrase source.', error?.message ?? error)
+        return
+      }
+      store.locked = false
+      store.passphrase = passphrase
+      store.source = source ?? 'user'
+      blocked = undefined
+      fillSecrets(payload)
+      if (!loadedReadOnly) try { chmodSync(path, 0o600) } catch {}
+      notify({ declare })
+      return
+    }
+    if (parsed !== null && typeof parsed === 'object' && (parsed.encrypted === true || typeof parsed.ciphertext === 'string')) {
+      blocked = 'secrets/format'
+      store.mode = 'encrypted'
+      store.locked = true
+      store.reason = 'format'
+      secrets.clear()
+      notify({ declare })
+      return
+    }
+    if (parsed === null || typeof parsed !== 'object' || !Array.isArray(parsed.secrets)) {
+      if (loadedReadOnly) {
+        blocked = 'secrets/format'
+        setPlaintext()
+        secrets.clear()
+        rt.warn('ds-bot: unreadable secrets file %s (read-only mode)', path)
+        notify({ declare })
+        return
+      }
+      // A file that is not a secrets file is kept aside, like a broken state.json, then
+      // the store goes on with an empty one.
+      const backup = `${path}.broken-${Date.now()}`
+      try {
+        copyFileSync(path, backup)
+        blocked = undefined
+        setPlaintext()
+        secrets.clear()
+        rt.warn('ds-bot: unreadable secrets file %s; backed up as %s', path, backup)
+      } catch (error) {
+        blocked = reason(error)
+        rt.warn('ds-bot: unreadable secrets file %s; backup failed: %s', path, error)
+      }
+      notify({ declare })
+      return
+    }
+    blocked = undefined
+    setPlaintext()
+    fillSecrets(parsed)
     if (!loadedReadOnly) try { chmodSync(path, 0o600) } catch {}
-    changed()
+    notify({ declare })
+  }
+  const readSecrets = async () => {
+    readSecretsSync({ declare: true })
   }
 
   // Resolves once secrets.json holds the current map; rejects when the write failed.
@@ -183,7 +318,14 @@ export function install(rt) {
     if (blocked !== undefined) return Promise.reject(new Error(`The secrets file ${path} could not be read (${blocked}). DS Bot does not change it; fix or move the file and reload.`))
     const readOnly = rt.readOnly()
     if (readOnly !== undefined) return Promise.reject(new Error(readOnly))
-    const snapshot = JSON.stringify({ version: 1, secrets: [...secrets.values()] }, null, 2)
+    if (store.mode === 'encrypted' && (store.locked || store.passphrase === null)) return Promise.reject(new Error(LOCKED))
+    const payload = { version: 1, secrets: [...secrets.values()] }
+    let snapshot
+    try {
+      snapshot = JSON.stringify(store.mode === 'encrypted' ? encryptSecrets(payload, store.passphrase) : payload, null, 2)
+    } catch (error) {
+      return Promise.reject(error)
+    }
     const job = writing.then(async () => {
       await mkdir(home, { recursive: true })
       const temp = `${path}.${process.pid}.${randomUUID()}.tmp`
@@ -206,7 +348,7 @@ export function install(rt) {
     usedTimer = setTimeout(() => {
       usedTimer = null
       if (loadedReadOnly || rt.readOnly() !== undefined || blocked !== undefined) return
-      void persist().then(() => rt.save()).catch(() => {})
+      void mutate(() => persist().then(() => rt.save())).catch(() => {})
     }, USED_SAVE_MS)
     usedTimer.unref?.()
   }
@@ -310,7 +452,90 @@ export function install(rt) {
   })
   const secretsView = () => [...secrets.values()].sort((a, b) => a.name.localeCompare(b.name)).map(secretView)
 
+  // The encrypted envelope on disk, for unlock and rollback. A plaintext file stays a
+  // valid plaintext file; only the two explicit actions move between the modes.
+  const readEnvelope = () => {
+    let parsed
+    try { parsed = JSON.parse(readFileSync(path, 'utf8')) } catch { parsed = null }
+    if (!isEncryptedSecretsFile(parsed)) throw new Error('The secrets file is not encrypted.')
+    return parsed
+  }
+
   const endpoints = {
+    // The settings card: the mode, whether this process can read the values, and why not.
+    async 'secret-store'() {
+      return secretStoreStatus()
+    },
+    // A typed passphrase unlocks the store for this process; the file is unchanged.
+    async 'secret-unlock'(body) {
+      const passphrase = cleanPassphrase(body.passphrase)
+      await writing
+      const payload = decryptSecrets(readEnvelope(), passphrase)
+      store.mode = 'encrypted'
+      store.locked = false
+      store.reason = null
+      store.source = 'user'
+      store.passphrase = passphrase
+      blocked = undefined
+      fillSecrets(payload)
+      changed()
+      // A reading host cannot save; unlocking still works in this process.
+      await rt.save().catch(() => {})
+      return secretStoreStatus()
+    },
+    // Rewrite the same file as an envelope. The plaintext file is replaced atomically,
+    // so the two forms never sit on disk together.
+    async 'secret-encrypt'(body) {
+      const passphrase = cleanPassphrase(body.passphrase)
+      if (store.mode === 'encrypted') throw new Error('Secrets are already encrypted.')
+      const readOnly = rt.readOnly()
+      if (readOnly !== undefined) throw new Error(readOnly)
+      const previous = { ...store }
+      store.mode = 'encrypted'
+      store.passphrase = passphrase
+      store.source = 'user'
+      store.locked = false
+      store.reason = null
+      try {
+        await persist()
+      } catch (error) {
+        Object.assign(store, previous)
+        throw error
+      }
+      changed()
+      await rt.save()
+      return secretStoreStatus()
+    },
+    // Write the values back as the plaintext file, after proving the passphrase against
+    // the current envelope. This is also the recovery path while the store is locked.
+    async 'secret-decrypt'(body) {
+      const passphrase = cleanPassphrase(body.passphrase)
+      if (store.mode !== 'encrypted') throw new Error('Secrets are not encrypted.')
+      const readOnly = rt.readOnly()
+      if (readOnly !== undefined) throw new Error(readOnly)
+      await writing
+      const payload = decryptSecrets(readEnvelope(), passphrase)
+      const previous = { ...store }
+      const before = [...secrets.values()]
+      fillSecrets(payload)
+      store.mode = 'plaintext'
+      store.locked = false
+      store.reason = null
+      store.source = null
+      store.passphrase = null
+      try {
+        await persist()
+      } catch (error) {
+        Object.assign(store, previous)
+        secrets.clear()
+        for (const secret of before) secrets.set(secret.name, secret)
+        changed()
+        throw error
+      }
+      changed()
+      await rt.save()
+      return secretStoreStatus()
+    },
     // From a card (requestId) or from the settings page (name).
     async 'secret-set'(body) {
       const value = cleanValue(body.value)
@@ -395,29 +620,45 @@ export function install(rt) {
     },
   }
 
-  async function secretEndpoint(endpoint, body) {
-    await loadSecrets()
-    return endpoints[endpoint](body ?? {})
+  // A locked store has no values to change; a write would also replace the encrypted
+  // file with an empty one. Unlocking and rolling back are the exceptions.
+  const LOCKED_ENDPOINTS = new Set(['secret-set', 'secret-allow', 'secret-update', 'secret-delete'])
+  function secretEndpoint(endpoint, body) {
+    return mutate(async () => {
+      await loadSecrets()
+      if (store.locked && LOCKED_ENDPOINTS.has(endpoint)) throw new Error(LOCKED)
+      return endpoints[endpoint](body ?? {})
+    })
   }
 
   // A deleted Bot leaves every list it was on, and its cards go with it.
-  async function forgetBotSecrets(botId) {
-    await loadSecrets()
-    if (state.secretRequests !== undefined) delete state.secretRequests[botId]
-    let touched = false
-    for (const secret of secrets.values()) {
-      if (Array.isArray(secret.scope) && secret.scope.includes(botId)) {
-        secret.scope = secret.scope.filter(id => id !== botId)
-        touched = true
+  function forgetBotSecrets(botId) {
+    return mutate(async () => {
+      await loadSecrets()
+      if (state.secretRequests !== undefined) delete state.secretRequests[botId]
+      let touched = false
+      for (const secret of secrets.values()) {
+        if (Array.isArray(secret.scope) && secret.scope.includes(botId)) {
+          secret.scope = secret.scope.filter(id => id !== botId)
+          touched = true
+        }
       }
-    }
-    if (touched) {
-      changed()
-      await persist().catch(() => {})
-    }
+      if (touched) {
+        changed()
+        await persist().catch(() => {})
+      }
+    })
   }
 
-  const callerOf = exec => rt.selfOf(exec.agent?.session?.header?.id ?? exec.agent?.id)
+  const resolveBotId = (execution) => {
+    for (const id of [execution?.agent?.session?.header?.id, execution?.agent?.session?.id, execution?.agent?.id]) {
+      if (typeof id !== 'string' || id === '') continue
+      const botId = rt.selfOf(id)
+      if (botId !== undefined) return botId
+    }
+    return undefined
+  }
+  const callerOf = exec => resolveBotId(exec)
 
   rt.teamTools.push(defineTool({
     name: 'request_secret',
@@ -430,6 +671,7 @@ export function install(rt) {
     async execute(args, exec) {
       await rt.load()
       await loadSecrets()
+      if (store.locked) return LOCKED
       const id = exec.agent?.id
       const bot = rt.botOf(callerOf(exec))
       if (bot === undefined) return 'Only Bots on the team can use request_secret.'
@@ -476,6 +718,7 @@ export function install(rt) {
     async execute(_args, exec) {
       await rt.load()
       await loadSecrets()
+      if (store.locked) return LOCKED
       const self = callerOf(exec)
       if (rt.botOf(self) === undefined) return 'Only Bots on the team can use list_secrets.'
       if (secrets.size === 0) return 'No keys are saved yet. Ask for one with request_secret.'
@@ -510,19 +753,34 @@ export function install(rt) {
     const fresh = [...(messages ?? [])]
     rewritten.add(fresh)
     rt.carryUsageTag(options.messages, fresh)
-    return ctx.llm.stream({ ...options, messages: fresh, ...(system !== undefined ? { system } : {}) })
+    const llm = serviceOf(ctx, 'llm')
+    if (llm === undefined) return next()
+    return llm.stream({ ...options, messages: fresh, ...(system !== undefined ? { system } : {}) })
   })
 
-  function resolveEnv(execution) {
-    const botId = rt.selfOf(execution?.agent?.session?.header?.id ?? execution?.agent?.id)
+  function resolveEnv(execution, declaredKeys) {
+    if (rt.hasLoaded?.() === false) void rt.load()
+    if (loaded === null || loadedReadOnly || rt.readOnly() !== undefined || blocked !== undefined) {
+      if (loaded === null || fileStamp() !== seenStamp || (loadedReadOnly && rt.readOnly() === undefined && rt.hasLoaded?.() !== false)) {
+        readSecretsSync({ declare: declaredKeys === undefined })
+        loaded = Promise.resolve()
+      }
+    }
+    let botId = resolveBotId(execution)
+    if (botId === undefined && rt.readOnly() !== undefined) {
+      rt.syncReadOnly?.()
+      botId = resolveBotId(execution)
+    }
     if (rt.botOf(botId) === undefined) return {}
     const command = typeof execution.arguments?.command === 'string' ? execution.arguments.command : ''
     const values = {}
     let used = false
     for (const secret of secrets.values()) {
       if (!canUse(secret, botId)) continue
-      values[envName(secret.name)] = secret.value
-      if (command.includes(envName(secret.name))) {
+      const key = envName(secret.name)
+      if (declaredKeys !== undefined && !declaredKeys.has(key)) continue
+      values[key] = secret.value
+      if (command.includes(key)) {
         secret.lastUsedAt = Date.now()
         used = true
       }
@@ -544,11 +802,13 @@ export function install(rt) {
       unregister = null
       declared = key
       if (list.length === 0) return
+      const variables = Object.fromEntries(list.map(secret => [envName(secret.name), { description: `DS Bot secret ${secret.name}${secret.purpose ? `: ${secret.purpose}` : ''}` }]))
+      const declaredKeys = new Set(Object.keys(variables))
       try {
         unregister = sub.shellEnv.register({
           name: 'ds-bot-secrets',
-          variables: Object.fromEntries(list.map(secret => [envName(secret.name), { description: `DS Bot secret ${secret.name}${secret.purpose ? `: ${secret.purpose}` : ''}` }])),
-          resolve: resolveEnv,
+          variables,
+          resolve: execution => resolveEnv(execution, declaredKeys),
         })
       } catch (error) {
         declared = ''
@@ -569,6 +829,10 @@ export function install(rt) {
     attachShellEnv({ shellEnv: ctx.get('shellEnv'), effect: (execute, label) => ctx.effect(execute, label) })
   }
 
+  rt.onStoreSync = () => {
+    if (loaded === null || loadedReadOnly || rt.readOnly() !== undefined || blocked !== undefined) void loadSecrets()
+  }
+
   ctx.effect(() => {
     void loadSecrets()
     return () => { if (usedTimer !== null) clearTimeout(usedTimer) }
@@ -576,6 +840,7 @@ export function install(rt) {
 
   Object.assign(rt, {
     secretsView,
+    secretStoreStatus,
     secretValue: name => secrets.get(name)?.value,
     canUseSecret: (name, botId) => canUse(secrets.get(name), botId),
     secretEndpoint,

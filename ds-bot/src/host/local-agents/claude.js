@@ -1,7 +1,7 @@
 // The Claude Code engine: one process per session, stream-json both ways.
 // stdin takes user/control JSON messages; stdout streams the assistant's
 // events until a `result` ends the turn.
-import { cleanEnv, spawnAgent } from './discover.js'
+import { cleanEnv, findEngineExecutable, spawnAgent } from './discover.js'
 
 // Claude Code tools that only read; the rest may change files or run something.
 const READ_TOOLS = new Set(['Read', 'Glob', 'Grep', 'LS', 'WebFetch', 'WebSearch', 'TodoWrite', 'NotebookRead'])
@@ -29,8 +29,20 @@ export class ClaudeEngine {
     return session.prompt(blocks)
   }
 
+  canSteer(session) {
+    return session.running === true
+  }
+
+  steer(session, text) {
+    return session.prompt([{ type: 'text', text }])
+  }
+
   cancel(session) {
     session.cancel()
+  }
+
+  compact(session) {
+    return session.compact()
   }
 
   // The adapter stopped reading this session. A process takes its model and tool
@@ -75,7 +87,7 @@ class ClaudeSession {
 
   async start({ cwd, resumeId, system, mode, mcp, model }) {
     if (this.child !== undefined) return this
-    const bin = this.engine.findExecutable(this.engine.engine.command)
+    const bin = findEngineExecutable(this.engine.engine, name => this.engine.findExecutable(name))
     if (bin === undefined) throw Object.assign(new Error(`${this.engine.engine.name} is not installed`), { code: 'NO_ADAPTER' })
     // Fixture scripts in tests ride in spec.args ahead of the real CLI flags.
     // The stream-json formats only exist in print mode: without `--print` the
@@ -167,10 +179,19 @@ class ClaudeSession {
       case 'system':
         if (event.subtype === 'init') {
           this.cliSessionId = event.session_id
+          this.model = event.model
           for (const resolve of this.idWaiters.splice(0)) resolve(this.cliSessionId)
-        }
+        } else if (event.subtype === 'compact_boundary') this.emit({ type: 'compaction', status: 'completed' })
+        else if (event.subtype === 'status' && event.status === 'compacting') this.emit({ type: 'compaction', status: 'started' })
         break
       case 'assistant': {
+        // Each response carries its usage, and what it read plus what it wrote is
+        // what the context holds now. A subagent's (parent_tool_use_id) is its own.
+        const usage = event.message?.usage
+        if (usage !== undefined && event.parent_tool_use_id == null) {
+          const used = ['input_tokens', 'cache_creation_input_tokens', 'cache_read_input_tokens', 'output_tokens'].reduce((sum, key) => sum + (usage[key] ?? 0), 0)
+          if (used > 0) this.emit({ type: 'context', used })
+        }
         for (const block of event.message?.content ?? []) {
           if (block.type === 'text') this.emit({ type: 'text', text: block.text ?? '' })
           else if (block.type === 'thinking') this.emit({ type: 'thought', text: block.thinking ?? '' })
@@ -186,7 +207,7 @@ class ClaudeSession {
             type: 'permission', id: event.request_id,
             reply: (optionId) => this.write({
               type: 'control_response',
-              response: { subtype: 'success', request_id: event.request_id, response: optionId === 'allow' ? { behavior: 'allow', updatedInput: request.input ?? {} } : { behavior: 'deny' } },
+              response: { subtype: 'success', request_id: event.request_id, response: optionId === 'allow' ? { behavior: 'allow', updatedInput: request.input ?? {} } : { behavior: 'deny', message: 'The user denied this action.' } },
             }),
             action: `Run ${tool}`,
             detail: JSON.stringify(request.input ?? {}).slice(0, 4_000),
@@ -206,6 +227,13 @@ class ClaudeSession {
           this.emit({ type: 'error', error: Object.assign(new Error(`${this.engine.engine.name} no longer has this conversation`), { code: 'LOCAL_AGENT_EXIT' }) })
           break
         }
+        {
+          // modelUsage names each model's window; the session's own model decides.
+          const models = Object.entries(event.modelUsage ?? {})
+          const size = (models.find(([name]) => name === this.model) ?? models.toSorted((a, b) => (b[1]?.contextWindow ?? 0) - (a[1]?.contextWindow ?? 0))[0])?.[1]?.contextWindow
+          if (typeof size === 'number' && size > 0) this.emit({ type: 'context', size })
+        }
+        this.running = false
         this.emit(event.subtype === 'success' || event.is_error !== true
           ? { type: 'done', reason: 'stop', usage: usageOf(event.usage) }
           : { type: 'error', error: new Error(event.result ?? 'the agent failed') })
@@ -223,12 +251,19 @@ class ClaudeSession {
   }
 
   prompt(blocks) {
-    this.write({ type: 'user', message: { role: 'user', content: blocks } })
+    this.running = true
+    this.write({ type: 'user', message: { role: 'user', content: claudeContent(blocks) } })
     return Promise.resolve()
   }
 
-  async steer(thread, text) {
-    this.prompt([{ type: 'text', text }])
+  async steer(thread, input) {
+    this.prompt(Array.isArray(input) ? input : [{ type: 'text', text: input }])
+  }
+
+  // `/compact` in stream-json runs the CLI's own compaction and ends with a result.
+  compact() {
+    this.prompt([{ type: 'text', text: '/compact' }])
+    return true
   }
 
   cancel() {
@@ -244,8 +279,28 @@ class ClaudeSession {
   }
 }
 
+function claudeContent(blocks) {
+  const out = []
+  for (const block of blocks) {
+    if (block.type === 'image') {
+      out.push({
+        type: 'image',
+        source: {
+          type: 'base64',
+          media_type: block.mediaType ?? block.mimeType ?? 'image/png',
+          data: block.data,
+        },
+      })
+    } else if ((block.text ?? '') !== '') {
+      out.push({ type: 'text', text: block.text })
+    }
+  }
+  return out.length > 0 ? out : [{ type: 'text', text: '' }]
+}
+
 const usageOf = usage => (usage === undefined ? undefined : {
   inputTokens: usage.input_tokens ?? 0,
   outputTokens: usage.output_tokens ?? 0,
   ...(usage.cache_read_input_tokens ? { cacheReadTokens: usage.cache_read_input_tokens } : {}),
+  ...(usage.cache_creation_input_tokens ? { cacheWriteTokens: usage.cache_creation_input_tokens } : {}),
 })

@@ -47,12 +47,13 @@ const LEVEL_LABEL = { view: 'view only', background: 'background control', foreg
 const PROTECTED_IDS = new Set([
   'io.github.fei2411.dsbot',
   'com.deepseek.harness.computer-use',
+  'com.deepseek.harness.computer-use.dev',
   'com.apple.systempreferences',
   'com.apple.settings',
   'com.apple.keychainaccess',
   'com.apple.passwords',
 ])
-const PROTECTED_NAMES = new Set(['ds bot', 'deepseek harness', 'dsh', 'dsh desktop', 'dsh computer use', 'system settings', 'settings', 'keychain access', 'passwords', 'credential manager', 'control panel', LEGACY_NAME])
+const PROTECTED_NAMES = new Set(['ds bot', 'deepseek harness', 'dsh', 'dsh desktop', 'dsh computer use', 'dsh computer use dev', 'system settings', 'settings', 'keychain access', 'passwords', 'credential manager', 'control panel', LEGACY_NAME])
 const PROTECTED_EXES = new Set(['dsbot', 'dsh', 'dsh-desktop', 'dsh-cua-native', 'dsh computer use', 'systemsettings', 'keychain access', 'passwords', 'credentialmanager', 'credwiz', 'control', ...LEGACY_EXECUTABLES])
 
 export function isProtectedApp(app) {
@@ -87,8 +88,9 @@ export function install(rt) {
   const holds = new Map()
   /** @type {Map<string, {botId:string, sessionId:string, appKey?:string, abort:AbortController}>} callId -> in-flight call */
   const inFlight = new Map()
-  /** @type {Map<string, {agent:any, mode:string, lifts:Array<()=>void>, handoffLift?:()=>void}>} */
+  /** @type {Map<string, {agent:any, mode:string, lifts:Array<()=>void>, handoffLift?:()=>void, triedDeny:Set<string>}>} */
   const applied = new Map()
+  const disposedAgents = new WeakSet()
   let userActive
   let providerStatus = { state: 'off' }
   // The provider status is volatile, but it rides in the view payload: the poll
@@ -235,21 +237,38 @@ export function install(rt) {
   // Every agent gets one application record: 'allow' means the tools and the
   // provider guidance stay, 'deny' means both are masked and the section is
   // filtered out of the assembled prompt.
+  const liftHeld = (held) => {
+    for (const lift of held.lifts.splice(0)) { try { lift() } catch {} }
+    try { held.handoffLift?.() } catch {}
+    held.handoffLift = undefined
+    held.triedDeny.clear()
+  }
+  const restrictComputerTools = (agent, held) => {
+    for (const name of denyNames(agent)) {
+      if (held.triedDeny.has(name)) continue
+      held.triedDeny.add(name)
+      try {
+        const lift = agent.ctx.tools?.restrict?.({ deny: [name] })
+        if (typeof lift === 'function') held.lifts.push(lift)
+      } catch {}
+    }
+  }
   function applyComputer(agent) {
     const id = agent?.session?.id ?? agent?.id
-    if (typeof id !== 'string' || agent?.ctx === undefined) return
+    if (stopped || disposedAgents.has(agent) || typeof id !== 'string' || agent?.ctx === undefined) return
     // DS Bot governs Bots, and any Session on the provider it mounted itself. A plain DSH
     // Session on DSH's own Computer Use plugin is not DS Bot's to touch (#1101).
     const want = maskable(agent) ? 'allow' : isBotAt(id) || mountedByUs ? 'deny' : 'leave'
     let held = applied.get(id)
-    if (held !== undefined && held.agent === agent && held.mode === want) return
+    if (held !== undefined && held.agent === agent && held.mode === want) {
+      if (want === 'deny') restrictComputerTools(agent, held)
+      return
+    }
     if (held?.agent === agent) {
-      for (const lift of held.lifts.splice(0)) { try { lift() } catch {} }
-      held.handoffLift?.()
-      held.handoffLift = undefined
+      liftHeld(held)
     } else {
-      held?.lifts?.forEach((lift) => { try { lift() } catch {} })
-      held = { agent, mode: '', lifts: [] }
+      if (held !== undefined) liftHeld(held)
+      held = { agent, mode: '', lifts: [], triedDeny: new Set() }
       applied.set(id, held)
     }
     held.mode = want
@@ -264,12 +283,7 @@ export function install(rt) {
       // exists on the deny path.
       return
     }
-    for (const name of denyNames(agent)) {
-      try {
-        const lift = agent.ctx.tools?.restrict?.({ deny: [name] })
-        if (typeof lift === 'function') held.lifts.push(lift)
-      } catch {}
-    }
+    restrictComputerTools(agent, held)
     if (typeof agent.ctx.on === 'function') {
       try {
         const lift = agent.ctx.on('system-prompt/assemble', async (_assembly, _context, next) => {
@@ -284,9 +298,36 @@ export function install(rt) {
       } catch {}
     }
   }
+  let refreshing = false
+  let refreshQueued = false
   function refreshComputer() {
-    for (const agent of service('agents')?.list?.() ?? []) {
-      try { applyComputer(agent) } catch (error) { rt.warn('ds-bot: computer-use masking on %s failed: %s', agent?.session?.id, error) }
+    if (refreshing) {
+      refreshQueued = true
+      return
+    }
+    refreshing = true
+    try {
+      do {
+        refreshQueued = false
+        const byId = new Map()
+        const extra = []
+        for (const agent of service('agents')?.list?.() ?? []) {
+          if (disposedAgents.has(agent)) continue
+          const id = agent?.session?.id ?? agent?.id
+          if (typeof id === 'string') byId.set(id, agent)
+          else extra.push(agent)
+        }
+        for (const [id, held] of applied) {
+          if (held?.agent !== undefined && !disposedAgents.has(held.agent) && !byId.has(id)) {
+            byId.set(id, held.agent)
+          }
+        }
+        for (const agent of [...byId.values(), ...extra]) {
+          try { applyComputer(agent) } catch (error) { rt.warn('ds-bot: computer-use masking on %s failed: %s', agent?.session?.id, error) }
+        }
+      } while (refreshQueued && !stopped)
+    } finally {
+      refreshing = false
     }
   }
   ctx.on('agent/created', async ({ agent }) => {
@@ -298,15 +339,21 @@ export function install(rt) {
     }
   })
   ctx.on('agent/disposed', ({ agent }) => {
+    if (agent !== undefined && agent !== null) disposedAgents.add(agent)
     const id = agent?.session?.id ?? agent?.id
     sessionApps.delete(id)
     const held = applied.get(id)
-    if (held?.agent === agent) applied.delete(id)
-    if (held) {
-      for (const lift of held.lifts) { try { lift() } catch {} }
-      held.handoffLift?.()
+    if (held?.agent === agent) {
+      applied.delete(id)
+      liftHeld(held)
     }
   })
+  ctx.on('tools/change', () => {
+    if (!stopped) refreshComputer()
+  })
+  const offSaved = typeof rt.onSaved === 'function'
+    ? rt.onSaved(() => { if (!stopped) refreshComputer() })
+    : undefined
   rt.closeComputerWaiters = () => {
     for (const waiter of [...cursorWaiters]) {
       cursorWaiters.delete(waiter)
@@ -501,7 +548,7 @@ export function install(rt) {
     for (const waiter of [...cursorWaiters]) waiter.wake()
   }
   // Click-type calls ripple; index and keyboard calls only name their window.
-  const RIPPLE_METHODS = new Set(['click', 'double_click', 'performSecondaryAction', 'drag'])
+  const RIPPLE_METHODS = new Set(['click', 'double_click', 'invoke', 'performAction', 'performSecondaryAction', 'drag'])
   const recordGeo = (sessionId, result) => {
     if (sessionId === undefined || result === null || typeof result !== 'object') return
     if (typeof result.appHandle === 'string') {
@@ -663,18 +710,26 @@ export function install(rt) {
     entry.resolve(['always', 'once', 'deny'].includes(answer) ? answer : 'deny')
     return true
   }
-  // macOS: the provider's own getApp consent reaches us as a user-questions request.
-  // For Bot Sessions DS Bot answers it itself, by the card's rules; anything else
-  // passes to the next answerer. Prepend like approvals.js: DSH's own answerer is
-  // registered first and would hold the request on a card DS Bot never draws.
+  // macOS: the provider's own getApp and system-pointer consent questions reach us as
+  // user-questions requests. For Bot Sessions DS Bot answers them itself, by the Bot's
+  // level and card rules; anything else passes to the next answerer. Prepend like
+  // approvals.js: DSH's own answerer is registered first and would hold the request on
+  // a card DS Bot never draws.
   ctx.on('user-questions/request', async function computerConsent(request, next) {
-    const question = request?.questions?.find(item => item?.id === 'cua-app-access')
+    const pointerQuestion = request?.questions?.find(item => item?.id === 'cua-mouse-control')
+    const question = pointerQuestion ?? request?.questions?.find(item => item?.id === 'cua-app-access')
     const agent = request?.agent
     if (question === undefined || agent === undefined) return next()
     const sessionId = agent.session?.id ?? agent.id
     await rt.load()
     const bot = rt.botOf(rt.selfOf(sessionId))
-    if (bot === undefined || !rt.isBotSession(sessionId) || !enabled()) return next()
+    if (bot === undefined || !rt.isBotSession(sessionId)) return next()
+    if (pointerQuestion !== undefined) {
+      const allowed = enabled() && levelAllows(levelOf(bot), 'foreground')
+      const choice = allowed ? (pointerQuestion.intent?.approve ?? ALLOW_LABEL) : (pointerQuestion.intent?.reject ?? DENY_LABEL)
+      return { answers: [{ id: 'cua-mouse-control', selected: [choice] }] }
+    }
+    if (!enabled()) return next()
     const app = { name: String(question.intent?.subject?.name ?? ''), icon: question.intent?.subject?.icon }
     app.key = appKeyOf(app)
     const deny = () => ({ answers: [{ id: 'cua-app-access', selected: [DENY_LABEL] }] })
@@ -1026,7 +1081,7 @@ export function install(rt) {
       leases.releaseBot(bot.id)
       settleControl(bot.id)
     }
-    for (const agent of service('agents')?.list?.() ?? []) applyComputer(agent)
+    refreshComputer()
     return true
   }
   const revokeApp = async (botId, appKey) => {
@@ -1254,6 +1309,7 @@ export function install(rt) {
 
   ctx.effect(() => () => {
     stopped = true
+    offSaved?.()
     leases.dispose()
     rt.closeComputerWaiters()
     for (const { resolve } of pendingAsks.values()) resolve('deny')
