@@ -1,12 +1,13 @@
 import * as Haptics from 'expo-haptics'
 import * as ImagePicker from 'expo-image-picker'
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { t } from '../../ui/i18n.ts'
 import { ArrowUpIcon, CloseIcon, PlusIcon, StopIcon } from '../../ui/icons.tsx'
 import { radius, shadow, type as typeScale, type Palette } from '../../ui/tokens.ts'
+import { readDraft, writeDraft } from './drafts.ts'
 
 // A photo ready to send: shown from `uri`, sent as base64 JPEG.
 export interface Photo { uri: string; mediaType: string; data: string }
@@ -26,14 +27,17 @@ async function prepare(asset: ImagePicker.ImagePickerAsset): Promise<Photo> {
 // shadow; send is a 36px accent circle. While the Bot runs and the draft is
 // empty a stop button shows instead of send. "+" adds photos when the
 // computer takes them.
-export function Composer({ name, running, canStop, canAttach, onSend, onStop, p }: {
+export function Composer({ chatKey, name, running, canStop, canAttach, onSend, onStop, p }: {
+  chatKey: string
   name: string; running: boolean; canStop: boolean; canAttach: boolean
   onSend: (text: string, photos: Photo[]) => Promise<void>; onStop: () => void; p: Palette
 }) {
-  const [text, setText] = useState('')
-  const [photos, setPhotos] = useState<Photo[]>([])
+  // A draft kept for this chat comes back when the chat is opened again (#1248).
+  const [text, setText] = useState(() => readDraft(chatKey)?.text ?? '')
+  const [photos, setPhotos] = useState<Photo[]>(() => readDraft(chatKey)?.photos ?? [])
   const [preparing, setPreparing] = useState(false)
   const [pickError, setPickError] = useState<string | null>(null)
+  useEffect(() => { writeDraft(chatKey, { text, photos }) }, [chatKey, text, photos])
   // Float above the home indicator (iOS) or the gesture bar (Android, drawn edge to
   // edge). The matching negative keyboardVerticalOffset in ChatView keeps the card
   // hugging the keyboard.
