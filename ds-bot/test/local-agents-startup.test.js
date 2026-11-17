@@ -108,13 +108,20 @@ test('taken routes cannot be selected or probed as local agents (#1390)', async 
     await assert.rejects(rt.resolveModel('local-opencode/other-model'), /not available/)
     await assert.rejects(rt.resolveModel('local-acp-taken/cli-model'), /not available/)
     assert.equal(await rt.resolveModel('local-codex-cli/default'), 'local-codex-cli/default')
-    assert.ok(!(await rt.catalog()).some(entry => ['local-opencode', 'local-acp-taken'].includes(entry.provider)))
+    const catalog = await rt.catalog()
+    assert.ok(catalog.some(entry => entry.ref === 'local-opencode/other-model'))
+    assert.ok(catalog.some(entry => entry.ref === 'local-acp-taken/other-model'))
   })
-  await t.test('local agent lists hide taken built-in and custom routes', async () => {
+  await t.test('local agent lists hide taken built-ins but retain custom agents for management', async () => {
     const list = await rt.localAgentsEndpoint('local-agents', {})
     assert.ok(!list.detected.some(entry => entry.route === 'local-opencode'))
-    assert.deepEqual(list.custom, [])
+    assert.equal(list.custom[0].id, 'taken')
+    assert.equal(list.custom[0].available, false)
     assert.ok(list.detected.some(entry => entry.route === 'local-codex-cli'))
+    await rt.localAgentsEndpoint('local-agent-update', { id: 'taken', name: 'Renamed' })
+    assert.equal(rt.state.localAgents.custom[0].name, 'Renamed')
+    await rt.localAgentsEndpoint('local-agent-remove', { id: 'taken' })
+    assert.deepEqual(rt.state.localAgents.custom, [])
   })
 })
 

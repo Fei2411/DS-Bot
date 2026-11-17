@@ -188,7 +188,6 @@ export function install(rt) {
     if (service === undefined) return answerable(catalogCache.value)
     const entries = []
     for (const provider of service.listProviders()) {
-      if (rt.isLocalAgentRoute?.(provider.id) && rt.isLocalAgentAvailable?.(provider.id) === false) continue
       let models = []
       try { models = await service.listModels(provider.id) } catch { continue }
       for (const model of models) {
