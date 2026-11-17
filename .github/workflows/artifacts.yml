@@ -38,15 +38,15 @@ jobs:
         run: npm run dist
         working-directory: app
       - name: Keep the AppImage
+        # The AppImage is already a compressed squashfs image and the deb is the same
+        # app packed a second time, so the deb stays out: one file, half the download.
         uses: actions/upload-artifact@v4
         with:
           name: DS-Bot-linux-x64
-          path: |
-            app/dist-pack/DS-Bot-*-linux-x86_64.AppImage
-            app/dist-pack/DS-Bot-*-linux-amd64.deb
+          path: app/dist-pack/DS-Bot-*-linux-x86_64.AppImage
           retention-days: 7
           if-no-files-found: error
-          compression-level: 0
+          compression-level: 9
 
   android-apk:
     name: Android APK
@@ -90,4 +90,4 @@ jobs:
           path: mobile/dist/DS-Bot-*-android.apk
           retention-days: 7
           if-no-files-found: error
-          compression-level: 0
+          compression-level: 9
