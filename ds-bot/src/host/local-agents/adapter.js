@@ -1157,7 +1157,7 @@ async function renderReplay(messages, system, resolveImage) {
 // Bot's repair card can act on them.
 function toLlmError(error, live) {
   if (error instanceof LlmError) return error
-  const text = String(error?.message ?? error)
+  const text = errorText(error)
   // A CLI whose context is past its window: the part moves on the way an overflow does.
   const overflow = /prompt is too long|context.?(window|length).?(exceeded|is full)|context_length_exceeded|exceeds the (model's )?(maximum )?context|too many tokens/i
   const code = error?.code === 'NO_ADAPTER' ? 'LOCAL_AGENT_MISSING'
@@ -1165,7 +1165,22 @@ function toLlmError(error, live) {
       : /not signed in|not logged in|login required|unauthorized|authentication/i.test(text) ? 'LOCAL_AGENT_SIGNIN'
         : /quota|rate.?limit|usage limit|exceeded/i.test(text) ? 'LOCAL_AGENT_QUOTA'
           : /exited|spawn|ENOENT/i.test(text) ? 'LOCAL_AGENT_EXIT'
-            : error?.code ?? 'LOCAL_AGENT_ERROR'
+            : typeof error?.code === 'string' && error.code !== '' ? error.code : 'LOCAL_AGENT_ERROR'
   const hint = code === 'LOCAL_AGENT_SIGNIN' ? ` Sign in with: ${live?.spec?.signIn ?? `${live?.spec?.command ?? 'the CLI'} login`}.` : ''
   return new LlmError(`${text}${hint}`, code, error?.status === undefined ? {} : { status: error.status })
+}
+
+// JSON-RPC errors carry numeric codes and may arrive as plain objects; LlmError
+// needs a non-empty string message and code, or it throws and hides the cause.
+function errorText(error) {
+  const message = error?.message
+  if (typeof message === 'string' && message !== '') return message
+  if (typeof error === 'string' && error !== '') return error
+  if (message !== undefined && message !== null && typeof message !== 'string') return safeJson(message)
+  if (error !== null && typeof error === 'object' && !(error instanceof Error)) return safeJson(error)
+  return 'The local agent failed without an error message.'
+}
+
+function safeJson(value) {
+  try { return JSON.stringify(value) || String(value) } catch { return String(value) }
 }

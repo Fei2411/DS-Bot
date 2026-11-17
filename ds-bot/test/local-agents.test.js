@@ -1697,3 +1697,20 @@ test('replay drops images outside the replay window without reading their attach
   assert.equal(out.finish?.kind, 'stop')
   assert.deepEqual(readIds, ['att-recent'])
 })
+
+test('ACP errors with numeric, empty or object codes keep their message and get a string code (#1777)', async (t) => {
+  const adapter = makeAdapter()
+  t.after(() => adapter.dispose())
+  await assert.rejects(
+    collect(adapter.stream(options('s1', [user('m1', 'rpc-error-number')]))),
+    err => err.code === 'LOCAL_AGENT_ERROR' && /approval was cancelled/.test(err.message),
+  )
+  await assert.rejects(
+    collect(adapter.stream(options('s2', [user('m1', 'rpc-error-empty')]))),
+    err => err.code === 'LOCAL_AGENT_ERROR' && /empty code/.test(err.message),
+  )
+  await assert.rejects(
+    collect(adapter.stream(options('s3', [user('m1', 'rpc-error-object')]))),
+    err => err.code === 'LOCAL_AGENT_ERROR' && /"reason":"stopped"/.test(err.message) && !/\[object Object\]/.test(err.message),
+  )
+})
