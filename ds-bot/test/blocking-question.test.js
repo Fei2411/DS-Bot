@@ -329,6 +329,29 @@ test('Bot Sessions filter the hidden tools and their guidance out of the prompt 
   for (const record of scopedListeners) assert.equal(record.disposed, true)
 })
 
+test('a Bot refuses schedule update fields DSH would silently ignore', async (t) => {
+  const { ctx, stop } = await setup()
+  t.after(stop)
+  const guard = (args, sessionId = 'writer', name = 'schedule_edit') => ctx.guards.map(check => check({ name, arguments: args, agent: { id: sessionId } })).find(reason => reason !== undefined)
+  for (const sessionId of ['writer', 'room-writer', 'chief']) {
+    for (const field of ['everySeconds', 'every_seconds', 'scheduledAt', 'timing', 'unknown']) {
+      const args = { id: 's1', action: 'update', prompt: 'Unchanged prompt', [field]: 10800 }
+      const reason = guard(args, sessionId)
+      assert.equal(typeof reason, 'string')
+      assert.ok(reason.includes(field))
+      assert.match(reason, /not editable/)
+      assert.match(reason, /rrule/)
+      assert.match(reason, /RRULE:FREQ=HOURLY;INTERVAL=3/)
+      assert.match(reason, /kind rrule/)
+    }
+  }
+  const valid = { id: 's1', action: 'update', title: 'Task', prompt: 'Do it', rrule: 'RRULE:FREQ=HOURLY;INTERVAL=3', target: 'this_session', active: false, expectedUpdatedAt: '2026-11-01T00:00:00.000Z' }
+  for (const args of [valid, { id: 's1', action: 'update' }, { id: 's1', action: 'delete' }, undefined]) assert.equal(guard(args), undefined)
+  const unsupported = { id: 's1', action: 'update', prompt: 'Unchanged prompt', everySeconds: 10800 }
+  assert.equal(guard(unsupported, 'plain'), undefined)
+  assert.equal(guard(unsupported, 'writer', 'schedule_create'), undefined)
+})
+
 // DSH 0.2.2's schedule tools can deliver to a new Session, outside the team.
 test('a Bot schedules only into its own chat', async (t) => {
   const { ctx, stop } = await setup()
