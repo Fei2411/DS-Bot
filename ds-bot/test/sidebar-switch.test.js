@@ -742,7 +742,7 @@ async function withDom(html, run) {
 test('chat margins own auto width until both overrides are released', async () => {
   await withDom('<!doctype html><body><div class="x_centerCol"></div></body>', ({ document }) => {
     chatRoom.setLeft(88)
-    const style = document.querySelector('style[data-dsh-bot="chat-room"]').sheet.cssRules[0].style
+    const style = document.querySelector('style[data-dsh-bot="chat-room"]').sheet.cssRules[0].style // Legacy style-owner attribute.
     assert.equal(style.getPropertyValue('width'), 'auto')
     chatRoom.setRight(320)
     chatRoom.setLeft(null)
