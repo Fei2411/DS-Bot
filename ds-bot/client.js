@@ -24326,7 +24326,7 @@ var nextText = (task) => {
 var nextRunsText = (task, format) => {
   const runs = nextRuns(task);
   if (runs.length <= 1) return null;
-  return t("Next: {time}", { time: runs.slice(1).map((at) => format(at, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })).join(" · ") });
+  return t("Next: {time}", { time: runs.slice(0, 3).map((at) => format(at, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })).join(" → ") });
 };
 function TaskRow2({ task, actions, onView, showBot, roster, canPause }) {
   const [confirming, setConfirming] = (0, import_react23.useState)(false);
@@ -24350,19 +24350,24 @@ function TaskRow2({ task, actions, onView, showBot, roster, canPause }) {
     void actions.scheduleDelete(task.sessionId, task.id).then(onView, () => setBusy(false));
   };
   const room2 = task.roomId ? roster.roomsById[task.roomId] : void 0;
+  const upcoming = nextRunsText(task, when2);
   return (0, import_react23.createElement)(
     "div",
     { className: "bt-set-row bt-task", "data-done": task.status === "active" ? void 0 : "", "data-busy": busy || void 0 },
     showBot ? (0, import_react23.createElement)(BotAvatar, { bot: roster.byId[task.botId], size: 28, badge: false, live: false }) : null,
     (0, import_react23.createElement)(
-      "button",
-      { type: "button", className: "bt-set-copy bt-task-copy", "aria-expanded": expanded || void 0, onClick: () => setExpanded((open) => !open) },
-      (0, import_react23.createElement)("span", { className: "bt-task-title" }, task.title),
-      (0, import_react23.createElement)("span", { className: "bt-set-hint" }, [timingText(task), room2 ? t("in {name}", { name: room2.name }) : ""].filter(Boolean).join(" · ")),
-      task.prompt && task.prompt !== task.title ? (0, import_react23.createElement)("span", { className: "bt-task-prompt", "data-open": expanded || void 0 }, task.prompt) : null,
-      expanded ? (0, import_react23.createElement)("span", { className: "bt-set-hint" }, nextRunsText(task, when2)) : null
+      "div",
+      { className: "bt-task-main" },
+      (0, import_react23.createElement)(
+        "button",
+        { type: "button", className: "bt-set-copy bt-task-copy", "aria-expanded": expanded || void 0, onClick: () => setExpanded((open) => !open) },
+        (0, import_react23.createElement)("span", { className: "bt-task-title" }, task.title),
+        (0, import_react23.createElement)("span", { className: "bt-set-hint" }, [timingText(task), room2 ? t("in {name}", { name: room2.name }) : ""].filter(Boolean).join(" · ")),
+        task.prompt && task.prompt !== task.title ? (0, import_react23.createElement)("span", { className: "bt-task-prompt", "data-open": expanded || void 0 }, task.prompt) : null
+      ),
+      expanded && upcoming !== null ? (0, import_react23.createElement)("span", { className: "bt-task-runs" }, upcoming) : null
     ),
-    (0, import_react23.createElement)("span", { className: "bt-task-next", "data-state": task.state === "overdue" ? "overdue" : void 0 }, nextText(task)),
+    expanded && upcoming !== null ? null : (0, import_react23.createElement)("span", { className: "bt-task-next", "data-state": task.state === "overdue" ? "overdue" : void 0 }, nextText(task)),
     canPause && task.status !== "ended" ? (0, import_react23.createElement)("button", {
       type: "button",
       className: "bt-mini",
@@ -24583,9 +24588,17 @@ var SCHEDULE_CSS = `
 .bt-task-prompt{font-size:12px;line-height:16px;color:var(--bt-ink-2);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .bt-task-prompt[data-open]{display:block;-webkit-line-clamp:unset;overflow:visible;overflow-wrap:anywhere;white-space:pre-wrap}
 .bt-task-copy{padding:0;border:0;background:none;font:inherit;text-align:left;cursor:pointer}
-.bt-task-next{flex:none;font-size:12px;line-height:16px;color:var(--bt-ink-3);font-variant-numeric:tabular-nums;white-space:nowrap}
+.bt-task-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
+.bt-task-copy{width:100%}
+.bt-task-runs,.bt-task-next{font-size:12px;line-height:16px;color:color-mix(in srgb,var(--bt-ink) 65%,transparent);font-variant-numeric:tabular-nums}
+.bt-task-next{flex:none;white-space:nowrap}
 .bt-task-next[data-state=overdue]{color:var(--bt-danger)}
-.bt-task-remove{display:inline-flex;align-items:center;justify-content:center;min-width:26px;height:26px;color:var(--bt-ink-3)}
+.bt-task-remove{display:inline-flex;align-items:center;justify-content:center;min-width:26px;height:26px;margin-left:10px;color:var(--bt-ink-3)}
+@media(max-width:640px){
+  .bt-task{flex-direction:row;flex-wrap:wrap;align-items:center;row-gap:6px}
+  .bt-task>.bt-task-main{width:100%;flex:1 1 100%}
+  .bt-task>.bt-task-next{flex:1 1 auto;text-align:right}
+}
 .bt-task-remove svg{width:14px;height:14px}
 .bt-task-remove[data-confirm]{background:color-mix(in srgb,var(--bt-danger) 10%,transparent);color:var(--bt-danger)}
 .bt-task-head{display:flex;align-items:center;gap:6px}
