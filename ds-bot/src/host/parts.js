@@ -403,10 +403,10 @@ export function install(rt) {
   }
 
   // What was said in one part, newest first: the user, other Bots, and the Bot itself.
-  async function* partLines(sessionId, signal, { group = false, pages } = {}) {
+  async function* partLines(sessionId, signal, { group = false, pages, read } = {}) {
     // Read backwards, a Bot's answers come before the message they answer.
     let answers = []
-    for await (const event of rt.eventsBackwards(sessionId, signal, pages)) {
+    for await (const event of rt.eventsBackwards(sessionId, signal, pages, read)) {
       const entry = historyEntry(event, group)
       if (entry === undefined) continue
       if (entry.answer) {
@@ -432,9 +432,10 @@ export function install(rt) {
     let listed = 0
     let unlisted = 0
     let complete = true
+    const read = {}
     const stamp = line => (group ? `[${clock(line.time)}]` : `[part ${number} #${line.seq} · ${clock(line.time)}]`)
     try {
-      for await (const line of partLines(sessionId, AbortSignal.timeout(HANDOFF_READ_MS), { group, pages: HISTORY_SCAN_PAGES })) {
+      for await (const line of partLines(sessionId, AbortSignal.timeout(HANDOFF_READ_MS), { group, pages: HISTORY_SCAN_PAGES, read })) {
         if (!full) {
           const text = clip(line.text, RECENT_LINE_MAX, group ? 'the full text is in the saved record' : `read_own_chat around "part ${number} #${line.seq}" shows all of it`)
           const cost = estimateTokens(text)
@@ -463,6 +464,7 @@ export function install(rt) {
       rt.warn('ds-bot: reading %s for its handoff stopped early: %s', sessionId, error)
     }
     // `whole`: every message of the part is in `recent`.
+    complete &&= read.complete === true
     return { recent: recent.reverse(), earlier: earlier.reverse(), unlisted, complete, whole: complete && !full }
   }
 
@@ -599,7 +601,8 @@ export function install(rt) {
     const kept = []
     let used = 0
     let more = false
-    for await (const line of partLines(sessionId, AbortSignal.timeout(HANDOFF_READ_MS), { group, pages: HISTORY_SCAN_PAGES })) {
+    const read = { continue: () => kept.length === 0 }
+    for await (const line of partLines(sessionId, AbortSignal.timeout(HANDOFF_READ_MS), { group, pages: HISTORY_SCAN_PAGES, read })) {
       if (line.who === 'you') continue
       const text = `${group ? `[${clock(line.time)}]` : `[part ${number} #${line.seq} · ${clock(line.time)}]`} ${clip(line.text, RECENT_LINE_MAX, 'read_own_chat shows all of it')}`
       const cost = estimateTokens(text)
@@ -609,7 +612,12 @@ export function install(rt) {
       }
       kept.push(text)
       used += cost
+      if (read.capped) {
+        more = true
+        break
+      }
     }
+    more ||= read.complete !== true
     return { kept: kept.reverse(), more }
   }
 
@@ -860,7 +868,7 @@ export function install(rt) {
     const { recent, earlier, unlisted, complete } = lines
     const omitted = [
       ...(unlisted > 0 ? [`(${unlisted} older messages are not listed.)`] : []),
-      ...(!complete ? ['(The oldest part of the record could not be read in time, so some messages may be missing.)'] : []),
+      ...(!complete ? ['(Older messages were not carried; the full record stays saved.)'] : []),
     ]
     return [
       `[Handoff · part ${number}]`,
@@ -882,6 +890,7 @@ export function install(rt) {
       '',
       '## Latest messages (oldest first)',
       recent.length > 0 ? recent.join('\n') : '(none)',
+      ...(room ? omitted : []),
       '',
       !resume ? 'Every message above has had its answer. Nothing needs an answer now; wait for the next message.'
         : bare ? `Your last turn could not finish because the model request kept failing, also in a fresh conversation with the latest messages carried over, so they are left out this time. First tell ${room ? 'the group' : 'the user'} in one short sentence that the last message could not be sent, and ask for it again.`
