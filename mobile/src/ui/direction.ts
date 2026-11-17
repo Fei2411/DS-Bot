@@ -6,8 +6,13 @@ let known: string | null = null
 /** The device's locale, read once: it does not change while the app runs. */
 export function deviceLocale(): string {
   if (known !== null) return known
-  const manager = NativeModules.I18nManager as { getConstants?: () => { localeIdentifier?: string } } | undefined
-  known = manager?.getConstants?.()?.localeIdentifier ?? ''
+  // Intl knows the device language through the platform's ICU data, which the app
+  // already relies on for its Chinese check; the native constant is the fallback.
+  try { known = Intl.DateTimeFormat().resolvedOptions().locale ?? '' } catch { known = '' }
+  if (known === '') {
+    const manager = NativeModules.I18nManager as { getConstants?: () => { localeIdentifier?: string } } | undefined
+    known = manager?.getConstants?.()?.localeIdentifier ?? ''
+  }
   return known
 }
 
