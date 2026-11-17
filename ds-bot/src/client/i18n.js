@@ -84,6 +84,8 @@ const ZH = {
   // Sidebar and account menu
   'Bot list': 'Bot 列表',
   'Setting up your Main Bot…': '正在设置你的主 Bot…',
+  'Your Bots will swim here': '你的 Bot 会在这里游动',
+  'Mention {name}': '提及 {name}',
   'The Bot team could not start. The engine’s startup output — its console, or the app’s startup error box — has the cause.': 'Bot 团队启动失败。原因在引擎的启动输出里——它的控制台，或应用的启动错误框。',
   'The Bot team could not start. {error}. The engine’s startup output — its console, or the app’s startup error box — has the cause.': 'Bot 团队启动失败。{error}。原因在引擎的启动输出里——它的控制台，或应用的启动错误框。',
   'Automation tasks': '自动化任务',
@@ -1399,6 +1401,8 @@ const ZH = {
   'Put back': '放回',
   'Put back into the box': '放回输入框',
   'Remove pasted text': '删除粘贴的文本',
+  // A draft kept while its chat is off the screen (#1248)
+  'The files in this draft could not be kept across chats': '这个输入稿里的文件没能跨对话保留',
   // The composer's +
   // A Session that is still landing
   'Opening…': '正在打开…',

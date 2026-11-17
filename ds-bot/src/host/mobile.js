@@ -6,7 +6,8 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { open, readFile, stat } from 'node:fs/promises'
-import { extname, isAbsolute, resolve } from 'node:path'
+import { homedir } from 'node:os'
+import { extname, isAbsolute, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { HANDOFF_ACK, HISTORY_TIMEOUT_MS, SOURCE_KIND } from './constants.js'
 import { within } from './folders.js'
@@ -22,6 +23,12 @@ const PKG = JSON.parse(readFileSync(new URL('../../package.json', import.meta.ur
 // is named in CAPABILITIES instead, and clients skip what they do not know.
 export const API_VERSION = 1
 export const API_MIN = 1
+// One api/bot answer is one JSON message, sized for `API_MESSAGE_BYTES`. A file read
+// whole travels inside one as base64, a third larger than its bytes, so a message of
+// that size carries at most what `fileMaxFor` reads off it.
+export const API_MESSAGE_BYTES = 16 * 1024 * 1024
+export const fileMaxFor = maxMessageBytes => Math.floor((maxMessageBytes * 3) / 4)
+const FILE_READ_MAX = fileMaxFor(API_MESSAGE_BYTES)
 export const CAPABILITIES = [
   'state',
   'state-avatar-refs',
@@ -49,6 +56,7 @@ export const CAPABILITIES = [
   'file-download',
   'markdown-image',
   'file-download-chunks',
+  'send-files',
   'write-state',
 ]
 export const NOTICE_KINDS = ['message', 'group', 'done', 'question', 'view', 'approval']
@@ -95,7 +103,9 @@ function replyItem(reply, id, extra = {}) {
   const who = { ...(reply.botId ? { botId: reply.botId } : {}), ...(reply.name ? { name: reply.name } : {}), ...(reply.color ? { color: reply.color } : {}) }
   const time = Number.isFinite(reply.time) ? reply.time : null
   if (reply.kind === 'user') return { id, kind: 'user', text: String(reply.text ?? ''), time, ...extra }
-  if (reply.kind === undefined) return { id, kind: 'bot', ...who, text: String(reply.text ?? ''), time, ...(Number.isFinite(reply.duration) ? { duration: reply.duration } : {}), ...extra }
+  // `files` are the refs of the files the member's turn presented; the phone saves
+  // them by sessionId, seq and index over file-download (#975).
+  if (reply.kind === undefined) return { id, kind: 'bot', ...who, text: String(reply.text ?? ''), time, ...(Number.isFinite(reply.duration) ? { duration: reply.duration } : {}), ...(reply.files === undefined ? {} : { files: reply.files }), ...extra }
   if (!ROUND_EVENTS.has(reply.kind)) return undefined
   return {
     id, kind: 'event', event: reply.kind, ...who,
@@ -132,6 +142,7 @@ export function roomItems(events, rowsOf = () => []) {
           id: `${seq}`, kind: 'bot', botId: source.senderSessionId ?? null, name: source.senderName ?? null,
           text: textOf(content).replace(POST_HEADER, ''), time: event.time ?? null,
           ...(file ? { whole: { length: source.length, file } } : {}),
+          ...(Array.isArray(source.delivered) && source.delivered.length > 0 ? { files: source.delivered } : {}),
         })
       }
       continue
@@ -270,6 +281,7 @@ export function install(rt) {
       apiMax: API_VERSION,
       plugin: { name: PKG.name, version: PKG.version },
       capabilities: rpc ? [...CAPABILITIES, 'rpc'] : CAPABILITIES,
+      maxFileBytes: FILE_READ_MAX,
       boot,
       seq,
       revision: state.revision,
@@ -638,6 +650,65 @@ export function install(rt) {
     }
   }
 
+  // A file the chat names by path, read whole for the client to save (#1443): the
+  // folders the team works in and the user's Desktop, Downloads and Documents only,
+  // by the same real-path containment markdown-image reads images with.
+  const READABLE_USER_FOLDERS = ['Desktop', 'Downloads', 'Documents']
+  const fileTooLarge = () => Object.assign(new Error(`This file is too large to read here (over ${Math.round(FILE_READ_MAX / (1024 * 1024))} MB)`), { code: 'bot/refused' })
+  const folderReal = async (dir) => {
+    if (typeof dir !== 'string' || dir === '') return undefined
+    const real = await rt.real(dir)
+    return real === '' ? undefined : real
+  }
+
+  async function fileRead(body) {
+    const sessionId = String(body.sessionId ?? '')
+    const raw = typeof body.path === 'string' ? body.path.trim() : ''
+    if (raw === '') throw Object.assign(new Error('No file named'), { code: 'bot/invalid' })
+    const groupOwner = rt.groupOwners?.get(sessionId)
+    const pastOwner = rt.pastOwners.get(sessionId)
+    const room = rt.roomOf(sessionId) ?? rt.roomOf(groupOwner?.roomId ?? pastOwner?.roomId)
+    const botId = groupOwner?.botId ?? (pastOwner?.roomId !== undefined ? pastOwner.botId : undefined)
+      ?? (room === undefined ? rt.chatOwners.get(sessionId) ?? pastOwner?.botId ?? rt.botOf(sessionId)?.id : undefined)
+    if (botId === undefined && room === undefined) throw Object.assign(new Error('Unknown session'), { code: 'bot/not-found' })
+    const agent = await rt.resolveAgent(sessionId).catch(() => undefined)
+    const baseDir = rt.sessionFolder?.(agent?.session) ?? rt.workDirOf?.({ botId, roomId: room?.id }) ?? rt.teamFolder?.() ?? rt.defaultTeamFolder?.()
+    if (!baseDir) throw Object.assign(new Error('Workspace unavailable'), { code: 'bot/not-found' })
+    const realBase = await rt.real(baseDir)
+    const candidate = resolve(realBase, raw)
+    const realPath = await (rt.realBeyond?.(candidate) ?? rt.real(candidate))
+    let allowed = within(realPath, realBase)
+    if (!allowed) {
+      const extraDirs = [
+        rt.teamFolder?.(),
+        rt.defaultTeamFolder?.(),
+        rt.workDirOf?.({ botId, roomId: room?.id }),
+        rt.workDirOf?.({ botId }),
+        ...READABLE_USER_FOLDERS.map(name => join(homedir(), name)),
+      ]
+      for (const dir of extraDirs) {
+        const real = await folderReal(dir)
+        if (real !== undefined && within(realPath, real)) { allowed = true; break }
+      }
+      if (!allowed) {
+        const partIds = new Set([...rt.partsOf(botId, room?.id).map(part => part.sessionId), ...rt.partsOf(botId).map(part => part.sessionId)])
+        for (const partSessionId of partIds) {
+          const partAgent = await rt.resolveAgent(partSessionId).catch(() => undefined)
+          const partDir = await folderReal(rt.sessionFolder?.(partAgent?.session))
+          if (partDir !== undefined && within(realPath, partDir)) { allowed = true; break }
+        }
+      }
+    }
+    if (!allowed || await rt.inData?.(realPath)) {
+      throw Object.assign(new Error('File outside the readable folders'), { code: 'bot/forbidden' })
+    }
+    const info = await stat(realPath).catch(() => undefined)
+    if (info?.isFile() !== true) throw Object.assign(new Error('File not found'), { code: 'bot/not-found' })
+    if (info.size > FILE_READ_MAX) throw fileTooLarge()
+    const bytes = await readFile(realPath)
+    return { name: nameOf(realPath), mime: mimeOf(realPath), bytes: bytes.toString('base64'), size: bytes.length }
+  }
+
   async function mobileEndpoint(endpoint, body) {
     switch (endpoint) {
       case 'hello': return hello(body)
@@ -647,6 +718,7 @@ export function install(rt) {
       case 'image': return image(body)
       case 'file-download': return fileDownload(body)
       case 'markdown-image': return markdownImage(body)
+      case 'file-read': return fileRead(body)
       case 'usage-summary': return usageSummary(body)
       case 'memory-edit': return rt.memoryEdit({ ...memoryTarget(body), scope: body.scope, topic: body.topic, text: body.text, next: body.next })
       case 'memory-add': return rt.memoryAdd({ ...memoryTarget(body), scope: body.scope, topic: body.topic, text: body.text })

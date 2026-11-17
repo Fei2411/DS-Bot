@@ -27,7 +27,7 @@ runInNewContext(outputFiles[0].text, {
   module, exports: module.exports, document: { body: {} },
   require: name => (name === 'react' ? react : name === 'react-dom' ? { createPortal: node => node } : {}),
 })
-const { ComposerPlus } = module.exports
+const { ComposerPlus, insertMention, trackComposerInput } = module.exports
 
 // Renders the "+" for a chat whose Bot is in the roster as `roster` says, and counts its hook calls.
 function render(roster) {
@@ -85,4 +85,19 @@ test('the "+" calls the same hooks whether or not its roster knows the Bot yet',
   assert.equal(forgotten.tree, null)
   assert.equal(known.hooks, unknown.hooks)
   assert.equal(forgotten.hooks, unknown.hooks)
+})
+
+// A member's name in the group details reaches this same composer: the mention is the
+// text the "@" menu would insert, put at the caret the user last held.
+test('a member mention goes into the composer at the caret', () => {
+  const span = { start: 3, end: 3, draftRev: 7 }
+  const calls = []
+  const off = trackComposerInput('g', {
+    captureInsertion: () => span,
+    insertText: (text, at) => { calls.push([text, at]); return true },
+  })
+  assert.equal(insertMention('g', 'Chief'), true)
+  assert.deepEqual(calls, [['@Chief ', span]])
+  off()
+  assert.equal(insertMention('g', 'Chief'), false)
 })

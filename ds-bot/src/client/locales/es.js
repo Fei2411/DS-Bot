@@ -101,6 +101,8 @@ export const ES = {
   // Sidebar and account menu
   'Bot list': 'Lista de Bots',
   'Setting up your Main Bot…': 'Configurando tu Bot principal…',
+  'Your Bots will swim here': 'Tus Bots nadarán aquí',
+  'Mention {name}': 'Mencionar a {name}',
   'The Bot team could not start. The engine’s startup output — its console, or the app’s startup error box — has the cause.': 'El equipo de Bots no pudo iniciarse. La salida de inicio del motor —su consola o el cuadro de error de inicio de la aplicación— indica la causa.',
   'The Bot team could not start. {error}. The engine’s startup output — its console, or the app’s startup error box — has the cause.': 'El equipo de Bots no pudo iniciarse. {error}. La salida de inicio del motor —su consola o el cuadro de error de inicio de la aplicación— indica la causa.',
   'Automation tasks': 'Tareas de automatización',

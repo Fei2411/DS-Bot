@@ -232,7 +232,9 @@ body[data-ds-dark-theme] .bt-mw-ask{color:#f0b84a}
 .bt-member-open>.bt-mark{flex:none}
 .bt-member-text{display:flex;flex-direction:column;min-width:0;gap:1px}
 .bt-member-line{display:flex;align-items:center;gap:6px;min-width:0}
-.bt-member-name{min-width:0;font-size:14px;line-height:20px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bt-member-name{min-width:0;font-size:14px;line-height:20px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;border-radius:4px}
+.bt-member-name:hover{color:var(--bt-ink);text-decoration:underline;text-underline-offset:2px}
+.bt-member-name:focus-visible{outline:2px solid var(--bt-accent);outline-offset:1px}
 .bt-member-line>.bt-tag{font-size:11px;line-height:15px;padding:0 5px}
 .bt-member-state{display:flex;min-width:0;font-size:12px;line-height:16px;color:var(--bt-ink-3);white-space:nowrap}
 .bt-member-what{min-width:0;overflow:hidden;text-overflow:ellipsis}

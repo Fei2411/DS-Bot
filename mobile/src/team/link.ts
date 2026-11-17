@@ -31,7 +31,9 @@ const PENDING_MUTATING = new Set([
 const photoCache = new Map<string, string>()
 const photoFetching = new Set<string>()
 
-export interface Hello { api: number | null; capabilities: string[]; boot: string; seq: number }
+// `maxFileBytes` is the host's own whole-file read limit (mobile.js hello), so a save
+// refuses before the bytes travel.
+export interface Hello { api: number | null; capabilities: string[]; boot: string; seq: number; maxFileBytes?: number }
 export type FeedHandler = (event: string, data: any) => void
 
 export function rejected(error: unknown): boolean {

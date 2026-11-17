@@ -979,6 +979,8 @@ export function install(rt) {
             // The turn's change line travels with its post; without it a completion
             // notice that arrives after the round closed has nothing to show.
             ...(source.changes === undefined ? {} : { changes: source.changes }),
+            // The refs of the files the turn presented ride its post (#975).
+            ...(source.delivered === undefined ? {} : { delivered: source.delivered }),
             ...(source.member ? { member: true } : {}),
             // Who the whole post called. `text` may be only its opening (attachLong).
             ...(source.mentions ? { mentions: source.mentions } : {}),

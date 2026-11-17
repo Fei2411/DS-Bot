@@ -16,6 +16,21 @@ import { enterSteers, steerable } from './enter-steer.js'
 export const speechApi = () => window.SpeechRecognition ?? window.webkitSpeechRecognition
 const keepComposerFocus = event => event.preventDefault()
 
+// The composer's slot is the only holder of a Session's InputActions. The details
+// panel reaches the same composer through this registry, keyed by Session id.
+const composerInputs = new Map()
+export function trackComposerInput(sessionId, inputActions) {
+  composerInputs.set(sessionId, inputActions)
+  return () => { if (composerInputs.get(sessionId) === inputActions) composerInputs.delete(sessionId) }
+}
+// A member's name in a group's details puts "@Name " where the caret was, the same
+// text the "@" menu inserts.
+export function insertMention(sessionId, name) {
+  const input = composerInputs.get(sessionId)
+  if (input === undefined) return false
+  return input.insertText(`@${name} `, input.captureInsertion())
+}
+
 export function useDictation(onText) {
   const [listening, setListening] = useState(false)
   const [note, setNote] = useState('')
@@ -125,6 +140,7 @@ export function ComposerPlus({ sessionId, inputActions, useInput, useRoster, act
   const button = useRef(null)
   const menu = useRef(null)
   const tick = useViewport()
+  useEffect(() => (sessionId === undefined || inputActions === undefined ? undefined : trackComposerInput(sessionId, inputActions)), [sessionId, inputActions])
   // The selector runs on every input change, so inputNow stays live for the key
   // handler while `ready` re-renders only when steerability flips.
   const inputNow = useRef(undefined)

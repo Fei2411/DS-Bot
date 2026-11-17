@@ -79,6 +79,8 @@ export function stackReplies(replies) {
       // The change line belongs to the turn, so a later message of the same turn replaces
       // it rather than stacking a second one.
       if (reply.changes !== undefined) last.changes = reply.changes
+      // Delivered files of the same turn's messages draw on the one block (#975).
+      if (reply.files !== undefined) last.files = [...(last.files ?? []), ...reply.files]
     } else {
       items.push({
         reply, index,
@@ -86,8 +88,31 @@ export function stackReplies(replies) {
         time: reply.time, duration: reply.duration,
         ...(reply.claims === undefined ? {} : { claims: reply.claims }),
         ...(reply.changes === undefined ? {} : { changes: reply.changes }),
+        ...(reply.files === undefined ? {} : { files: reply.files }),
       })
     }
   })
   return items
+}
+
+// Whether a row ends the work episode a working row opened for its member: it posted,
+// finished, stopped, paused for the user, or failed after it.
+const endsWorkEpisode = reply => reply.kind === undefined
+  || ['done', 'stopped', 'approval', 'resumed', 'cut', 'failed', 'helper-failed', 'missed'].includes(reply.kind)
+
+// The rows the chat draws from a round's replies: a work start whose episode a later
+// row of the same member already ended says nothing the rows after it do not (#1624),
+// and a run of starts of one member still at work draws once, counted. The live chat
+// (client/cells.js) and the earlier-parts page (host/parts.js) read through this.
+export function drawnReplies(replies) {
+  const kept = []
+  for (const reply of replies) {
+    if (reply?.kind !== 'working') { kept.push(reply); continue }
+    const botId = reply.botId
+    if (replies.some(later => later !== reply && later?.botId === botId && endsWorkEpisode(later))) continue
+    const last = kept.at(-1)
+    if (last?.kind === 'working' && last.botId === botId) kept[kept.length - 1] = { ...last, starts: (last.starts ?? 1) + 1 }
+    else kept.push(reply)
+  }
+  return stackReplies(kept)
 }

@@ -171,15 +171,26 @@ function MemberPile({ room, roster }) {
 const markOf = entry => (entry?.state === 'ask' ? 'alert' : entry?.state === 'work' ? workState(entry.doing) : 'idle')
 
 // One member: its mark, name and what it is doing on one surface that opens its chat;
-// Stop beside it while it works here, and the approvals it waits on below.
+// the name itself mentions the member in the group's composer. Stop beside it while it
+// works here, and the approvals it waits on below.
 function MemberRow({ member, entry, room, roster, actions }) {
+  const mention = (event) => {
+    event.preventDefault()
+    event.stopPropagation()
+    actions.insertMention?.(room.sessionId ?? room.id, member.name)
+  }
   return h('div', { role: 'listitem', className: 'bt-member' },
     h('div', { className: 'bt-member-row' },
       h('button', { type: 'button', className: 'bt-member-open', title: t("Open {name}'s chat", { name: member.name }), onClick: () => actions.openSession(member.id) },
         h(BotMark, { bot: member, size: 32, state: markOf(entry) }),
         h('span', { className: 'bt-member-text' },
           h('span', { className: 'bt-member-line' },
-            h('span', { className: 'bt-member-name' }, member.name),
+            h('span', {
+              className: 'bt-member-name', role: 'button', tabIndex: 0,
+              title: t('Mention {name}', { name: member.name }),
+              onClick: mention,
+              onKeyDown: (event) => { if (event.key === 'Enter' || event.key === ' ') mention(event) },
+            }, member.name),
             room.admin === member.id ? h('span', { className: 'bt-tag' }, t('Admin')) : null),
           h(MemberState, { entry, bot: member, room, roster }))),
       h(StopMemberWork, { entry, bot: member, room, actions })),

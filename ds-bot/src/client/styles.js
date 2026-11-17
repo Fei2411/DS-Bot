@@ -136,7 +136,7 @@ body[data-bt-motion=quiet] .bt-mark[data-poke]{cursor:default}
 .bt-tile:hover{background:var(--bt-hover)}
 .bt-tile[aria-current=page]{background:var(--bt-active)}
 .bt-tile-name{font-size:13px;line-height:18px;font-weight:500;max-width:84px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.bt-chip{font-size:11px;line-height:16px;padding:1px 7px;border-radius:999px;background:var(--bt-tag-bg);border:.5px solid var(--bt-line);color:var(--bt-ink-2);white-space:nowrap;max-width:92px;overflow:hidden;text-overflow:ellipsis}
+.bt-chip{flex:none;font-size:11px;line-height:16px;padding:1px 7px;border-radius:999px;background:var(--bt-tag-bg);border:.5px solid var(--bt-line);color:var(--bt-ink-2);white-space:nowrap;max-width:92px;overflow:hidden;text-overflow:ellipsis}
 .bt-row{display:flex;align-items:center;gap:8px;min-height:54px;padding:8px;border:0;border-radius:12px;background:transparent;color:var(--bt-ink);text-align:left;cursor:pointer;width:100%;box-sizing:border-box;font-family:inherit;transition:background-color .12s ease}
 .bt-row:hover{background:var(--bt-hover)}
 .bt-row[aria-current=page]{background:var(--bt-active)}
@@ -259,6 +259,9 @@ button.bt-lead{border:0;background:none;padding:0;cursor:pointer}
 body[data-bt-layout=flat] .bt-claim{margin-left:0}
 .bt-claim-file{color:var(--bt-danger)}
 .bt-claim-inProgress{color:var(--bt-ink-2)}
+/* The delivered-file cards under a group reply sit past the avatar (file-card.js). */
+.bt-group-files{margin-left:30px}
+body[data-bt-layout=flat] .bt-group-files{margin-left:0}
 .bt-x{border:0;background:none;color:var(--bt-ink-2);cursor:pointer;width:24px;height:24px;border-radius:6px;font-size:16px;line-height:24px;padding:0;transition:background-color .12s ease,color .12s ease,${spring(SPRING_TAP, 'scale')}}
 .bt-x:hover{background:var(--bt-hover);color:var(--bt-ink)}
 
@@ -489,6 +492,14 @@ html[data-windows-titlebar]:not([data-fullscreen]) :is(.bt-pane,.bt-panel)::befo
 .bt-tabs[data-glide] .bt-tab[aria-selected=true]{background:transparent}
 .bt-drawer-body{flex:1;overflow-y:auto;padding:20px 16px 16px;font-size:13px;line-height:18px;display:flex;flex-direction:column;gap:16px}
 .bt-empty{text-align:center;color:var(--bt-ink-3);font-size:13px;line-height:18px;padding:8px 12px}
+.bt-list-empty{display:flex;flex-direction:column;align-items:center;gap:6px;padding:14px 12px 8px;color:var(--bt-ink-3);font-size:13px;line-height:18px;text-align:center;animation:bt-fade .2s ease-out}
+.bt-swim{flex:none;width:100px;height:30px;color:var(--bt-ink-3)}
+.bt-swim path{fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+.bt-swim-back{opacity:.35}
+.bt-swim-line{stroke-dasharray:5 7}
+body[data-bt-motion=lively] .bt-swim-line{animation:bt-swim 7s linear infinite}
+@keyframes bt-swim{to{stroke-dashoffset:-48}}
+@media (prefers-reduced-motion:reduce){.bt-swim-line{animation:none!important}}
 .bt-section-title{font-size:12px;color:var(--bt-ink-2);margin-bottom:6px}
 .bt-muted{color:var(--bt-ink-2)}
 .bt-swatches{display:flex;flex-wrap:wrap;gap:6px}
@@ -802,6 +813,8 @@ html:not([data-windows-titlebar]) [class*="_footArea"],:not([class*="_collapsed"
 /* A bubble takes the set share of the column, as the user's does; 82px stays free for
    the hover toolbar beside it: a 6px margin and three 24px tools 2px apart. */
 .bt-msg{display:flex;flex-direction:column;align-items:flex-start;max-width:min(calc(var(--bt-msg-w) * 100%),calc(100% - 82px))}
+/* A repeated bubble keeps its place for reactions but draws nothing (#1627). */
+.bt-msg[data-dup]{display:none}
 /* The bubble's row: reactions hang below it, so the hover toolbar (and a group
    sender's avatar) line up with the bubble alone. */
 .bt-msg-line{position:relative;display:flex;align-items:flex-end;gap:8px;max-width:100%}
@@ -1405,6 +1418,12 @@ div:has(> nav [class*="_marks"]){display:none!important}
 .bt-q-opt-label,.bt-q-inline .dv-q-label{white-space:normal;overflow-wrap:anywhere}
 .bt-dialog-log{padding-left:12px;padding-right:12px}
 .bt-exchange .bt-dialog-log{padding-left:12px;padding-right:12px}
+/* The floating header reads as transparent on a phone: what scrolls under it
+   shows through the fade beneath the title (issue 1669). Both layers take the
+   main background there; the cover keeps the height the transcript's top
+   padding clears, so the first message meets its bottom edge with no gap. */
+header[class*="_header"]:has(.bt-head){background:var(--bt-main)!important}
+header[class*="_header"]:has(.bt-head)::before{background:var(--bt-main)!important}
 }
 [class*="_toBottomSlot"]{justify-content:center!important;padding-right:0!important}
 [data-conversation-scroll] [class*="_toBottomSlot"]{bottom:calc(var(--dsh-composer-height,152px) + 8px)!important}

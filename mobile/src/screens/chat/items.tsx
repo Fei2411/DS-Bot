@@ -17,7 +17,9 @@ import { viewAnswerText } from 'deep-view/core'
 
 export interface ImageRef { attachmentId: string; mime?: string; name?: string }
 
-export interface FileRef { name: string; bytes?: number; sessionId?: string; attachmentId?: string; seq?: number; index?: number }
+// `url` names a web file the chat hands over; it saves from the web instead of the
+// chat's file endpoints. Host files save by attachment id or by seq/index.
+export interface FileRef { name: string; bytes?: number; url?: string; sessionId?: string; attachmentId?: string; seq?: number; index?: number }
 
 export type { SettledQuestionData }
 
@@ -86,7 +88,7 @@ const dataUri = (value: unknown) => `data:${(value as { mime?: string })?.mime ?
 // One displayItems row (parts.js). Bubbles: radius 18, padding 7×12, Bot on the
 // theme's bubble color, the user on user/userInk. `prefs.width` caps the Bot
 // bubble at min(width%, 100% - 40); flat layout draws Bot text full width.
-export const Item = memo(function Item({ item, p, flat, maxWidth, inRoom, sessionId, open, onToggle, onLongPress, onOpenFile, onSaveFile, onRetry, stamp, author, admin }: { item: ChatItem; p: Palette; flat: boolean; maxWidth: number | string; inRoom: boolean; sessionId?: string; open?: boolean; onToggle?: () => void; stamp?: string; author?: Bot; admin?: boolean; onLongPress?: (text: string) => void; onOpenFile?: (file: FileRef) => void; onSaveFile?: (file: FileRef) => void; onRetry?: (localId: string, discard?: boolean) => void }) {
+export const Item = memo(function Item({ item, p, flat, maxWidth, inRoom, sessionId, open, onToggle, onLongPress, onOpenFile, onSaveFile, onShareFile, onRetry, stamp, author, admin }: { item: ChatItem; p: Palette; flat: boolean; maxWidth: number | string; inRoom: boolean; sessionId?: string; open?: boolean; onToggle?: () => void; stamp?: string; author?: Bot; admin?: boolean; onLongPress?: (text: string) => void; onOpenFile?: (file: FileRef) => void; onSaveFile?: (file: FileRef) => void; onShareFile?: (file: FileRef) => void; onRetry?: (localId: string, discard?: boolean) => void }) {
   const { dark } = useTheme()
   const rowSessionId = item.sessionId ?? sessionId
   const authorBotId = item.botId ?? author?.id
@@ -103,6 +105,12 @@ export const Item = memo(function Item({ item, p, flat, maxWidth, inRoom, sessio
         <Pressable accessibilityRole="button" accessibilityLabel={t('Save {name}', { name: file.name })} onPress={() => onSaveFile(file)}
           style={({ pressed }) => ({ minHeight: 44, justifyContent: 'center', paddingHorizontal: 12, opacity: pressed ? 0.6 : 1 })}>
           <Text style={[type.small, { color: p.accent, fontWeight: '600' }]}>{t('Save')}</Text>
+        </Pressable>
+      )}
+      {onShareFile === undefined ? null : (
+        <Pressable accessibilityRole="button" accessibilityLabel={t('Share {name}', { name: file.name })} onPress={() => onShareFile(file)}
+          style={({ pressed }) => ({ minHeight: 44, justifyContent: 'center', paddingHorizontal: 12, opacity: pressed ? 0.6 : 1 })}>
+          <Text style={[type.small, { color: p.accent, fontWeight: '600' }]}>{t('Share')}</Text>
         </Pressable>
       )}
     </View>

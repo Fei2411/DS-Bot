@@ -39,6 +39,8 @@ async function start(t, room, services, extraRooms, bots, llm, top, files = {}) 
   const selected = []
   const ctx = fakeContext({ services })
   const agents = new Map()
+  // Session log tails a turn's deliverable reader (parts.js turnDeliverables) pages.
+  const history = {}
   const agentOf = (sessionId) => {
     if (!agents.has(sessionId)) {
       const calls = []
@@ -64,7 +66,12 @@ async function start(t, room, services, extraRooms, bots, llm, top, files = {}) 
   Object.assign(ctx, {
     llm: llm ?? { listProviders: () => [], listModels: async () => [], resolveModelInfo: async () => ({}) },
     workspaceRegistry: { get: () => undefined, resolveByPath: async () => undefined, create: async path => ({ id: 'w1', path }), archiveSession: async () => {} },
-    sessionController: { create: async () => ({ sessionId: 's1' }), resolveAgent: async sessionId => ({ agent: agentOf(sessionId) }), selectModel: async (request) => { selected.push(request) } },
+    sessionController: {
+      create: async () => ({ sessionId: 's1' }),
+      resolveAgent: async sessionId => ({ agent: agentOf(sessionId) }),
+      selectModel: async (request) => { selected.push(request) },
+      page: async ({ address }) => ({ records: (history[address.sessionId] ?? []).map(event => ({ event })), hasMore: false }),
+    },
     sessionTitle: { rename: async () => {} },
     sessions: { flush: async () => {} },
   })
@@ -122,7 +129,7 @@ async function start(t, room, services, extraRooms, bots, llm, top, files = {}) 
     return { content: post.content, source: post.source }
   }
   await tool('list_bots', {}, 'a')
-  return { home, ctx, agentOf, emit, emitScoped, tool, call, begin, finish, round, say, takePost, selected }
+  return { home, ctx, agentOf, emit, emitScoped, tool, call, begin, finish, round, say, takePost, selected, history }
 }
 
 // The save before a group post runs on a timer; waiting with setImmediate starves it.
@@ -485,6 +492,63 @@ test('a steered group call keeps the later caller when the earlier work ends', a
   await settle(() => host.agentOf('r1').calls.some(message => message.source.askedBy === 'a'))
   const report = host.agentOf('r1').calls.find(message => message.source.askedBy === 'a')
   assert.match(text(report), /已换成新模板/)
+})
+
+// #975: the files a member's turn presented ride its group row, as refs its own chat
+// rows carry, so the group chat can save them by sessionId, seq and index.
+test('a member turn that presents a file posts the file ref on its group row', async (t) => {
+  const host = await start(t)
+  const result = host.round('c1', host.say('@Writer 写报告'))
+  await settle(() => host.agentOf('gb').calls.length === 1)
+  host.begin('gb')
+  host.history.gb = [
+    { seq: 4, type: 'deliverables/presented', data: { turn: 1, files: [{ path: '/tmp/reports/quarterly.md' }] } },
+    { seq: 5, type: 'turn/end', data: { turn: 1 } },
+  ]
+  host.finish('gb', '报告写好了。')
+  await settle(() => result() !== undefined)
+  const row = result().replies.find(reply => reply.name === 'Writer')
+  assert.deepEqual(row.files, [{ name: 'quarterly.md', sessionId: 'gb', seq: 4, index: 0 }])
+})
+
+// #1624: one "started on it" chip per connected work episode — the steers that land
+// while the member is still at work say nothing new, and the next episode chips again.
+test('a member steered again while it works logs one started chip per episode', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const host = await start(t)
+  const first = host.round('c1', host.say('@Writer 整理文档'))
+  await settle(() => host.agentOf('gb').calls.length === 1)
+  host.begin('gb')
+  host.emit('gb', 'tool/call', { callId: 'k1', name: 'write', arguments: '{}' })
+  t.mock.timers.tick(ROOM_WORK_GRACE_MS)
+  await settle(() => first() !== undefined)
+  assert.deepEqual(kinds(first()).filter(([kind]) => kind === 'working'), [['working', 'Writer']])
+
+  // The same work steered again before anything of Writer's own is posted: no new chip.
+  // The post itself is a line of the group's own Session, so the round rows stay empty.
+  await host.tool('post_to_group', { group: 'Ops', message: '@Writer 再快一点' }, 'a')
+  const second = host.round('c2', host.takePost())
+  await settle(() => second() !== undefined)
+  assert.deepEqual(kinds(second()), [])
+
+  // Writer's work ends with a late post of work the user asked for, which enters the
+  // group's book (a line of the group's own Session) and closes the episode; it is
+  // left for the user to read, so it calls nobody.
+  host.emit('gb', 'tool/result', { callId: 'k1' })
+  host.finish('gb', '整理好了。')
+  await settle(() => host.agentOf('r1').calls.length === 1)
+  const late = host.round('c3', host.takePost())
+  await settle(() => late() !== undefined)
+
+  // The next start of work logs a fresh chip.
+  await host.tool('post_to_group', { group: 'Ops', message: '@Writer 补一节结论' }, 'a')
+  const third = host.round('c4', host.takePost())
+  await settle(() => host.agentOf('gb').calls.length === 3)
+  host.begin('gb')
+  host.emit('gb', 'tool/call', { callId: 'k2', name: 'write', arguments: '{}' })
+  t.mock.timers.tick(ROOM_WORK_GRACE_MS)
+  await settle(() => third() !== undefined)
+  assert.deepEqual(kinds(third()).filter(([kind]) => kind === 'working'), [['working', 'Writer']])
 })
 
 test('a quick team tool does not let the round go on', async (t) => {
@@ -1974,12 +2038,13 @@ test('a member two Bots called wakes each of them for its own call when it finis
   t.mock.timers.tick(ROOM_WORK_GRACE_MS)
   await settle(() => first() !== undefined)
 
-  // Tester calls Writer for a log of its own while Writer reads the build log.
+  // Tester calls Writer for a log of its own while Writer reads the build log. The
+  // steer joins the episode round c1 already chipped (#1624): no second "started" chip.
   step(host, 'gc', '@Writer 也帮我查一下磁盘空间', 'p1')
   await settle(() => host.agentOf('r1').calls.length === 1)
   const call = host.round('c2', host.takePost())
   await settle(() => call() !== undefined)
-  assert.deepEqual(kinds(call()).filter(([kind]) => kind === 'working'), [['working', 'Writer']])
+  assert.deepEqual(kinds(call()).filter(([kind]) => kind === 'working'), [])
   const inbox = host.agentOf('gb').inbox
   const correction = inbox.nextStep[0]
   assert.equal(correction.source.askedBy, 'c')

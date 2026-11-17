@@ -54,3 +54,16 @@ test('the desktop widths stay outside the phone breakpoint', () => {
   assert.ok(SHELL_CSS.includes('.bt-bubble{max-width:min(calc(var(--bt-msg-w) * 100%),calc(100% - 82px))'))
   assert.ok(CONVERSATION_CSS.includes('.bt-q-inline .bt-q{margin:0;max-width:min(550px,86%);order:0}'))
 })
+
+test('the phone floating header paints solid so the transcript does not show through it', () => {
+  // What scrolls under the header showed through the fade beneath the title
+  // (issue 1669): on the phone both the header and its cover layer take the
+  // main background, while the desktop keeps the floating transparent look.
+  assert.match(phone, /header\[class\*="_header"\]:has\(\.bt-head\)\{background:var\(--bt-main\)!important\}/)
+  assert.match(phone, /header\[class\*="_header"\]:has\(\.bt-head\)::before\{background:var\(--bt-main\)!important\}/)
+  // The cover keeps the height the transcript's top padding clears, so the first
+  // message meets the bar's bottom edge with no gap and no see-through band left.
+  assert.match(CONVERSATION_CSS, /header\[class\*="_header"\]:has\(\.bt-head\)::before\{content:"";position:absolute;inset:0 0 auto;height:calc\(60px \+ env\(safe-area-inset-top,0px\)\)/)
+  // The bar stays click-through on the phone: only its controls take taps.
+  assert.doesNotMatch(phone, /header\[class\*="_header"\]:has\(\.bt-head\)\{background:var\(--bt-main\)!important;[^}]*pointer-events/)
+})
