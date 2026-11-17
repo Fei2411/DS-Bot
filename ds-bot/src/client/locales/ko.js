@@ -762,6 +762,7 @@ export const KO = {
   'Add DSH Agent': 'DSH Agent 추가',
   'Remove DSH Agent': 'DSH Agent 제거',
   'New session': '새 세션',
+  'Start a new session for {name} in this group': '이 그룹에서 {name}의 새 세션 시작',
   Archive: '보관',
   'Session actions': '세션 작업',
   'Plugins': '플러그인',

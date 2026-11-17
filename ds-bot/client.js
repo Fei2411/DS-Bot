@@ -883,6 +883,7 @@ var JA = {
   "Add DSH Agent": "DSH Agent を追加",
   "Remove DSH Agent": "DSH Agent を削除",
   "New session": "新しいセッション",
+  "Start a new session for {name} in this group": "このグループで {name} の新しいセッションを開始",
   "Archive": "アーカイブ",
   "Session actions": "セッションの操作",
   "Plugins": "プラグイン",
@@ -3323,6 +3324,7 @@ var KO = {
   "Add DSH Agent": "DSH Agent 추가",
   "Remove DSH Agent": "DSH Agent 제거",
   "New session": "새 세션",
+  "Start a new session for {name} in this group": "이 그룹에서 {name}의 새 세션 시작",
   Archive: "보관",
   "Session actions": "세션 작업",
   "Plugins": "플러그인",
@@ -5784,6 +5786,7 @@ var ES = {
   "Add DSH Agent": "Añadir DSH Agent",
   "Remove DSH Agent": "Quitar DSH Agent",
   "New session": "Nueva sesión",
+  "Start a new session for {name} in this group": "Iniciar una nueva sesión para {name} en este grupo",
   Archive: "Archivar",
   "Session actions": "Acciones de sesión",
   "Plugins": "Complementos",
@@ -8221,6 +8224,7 @@ var FR = {
   "Add DSH Agent": "Ajouter DSH Agent",
   "Remove DSH Agent": "Retirer DSH Agent",
   "New session": "Nouvelle session",
+  "Start a new session for {name} in this group": "Démarrer une nouvelle session pour {name} dans ce groupe",
   "Archive": "Archiver",
   "Session actions": "Actions de session",
   "Plugins": "Plugins",
@@ -10661,6 +10665,7 @@ var DE = {
   "Add DSH Agent": "DSH Agent hinzufügen",
   "Remove DSH Agent": "DSH Agent entfernen",
   "New session": "Neue Sitzung",
+  "Start a new session for {name} in this group": "Eine neue Sitzung für {name} in dieser Gruppe starten",
   Archive: "Archivieren",
   "Session actions": "Sitzungsaktionen",
   "Plugins": "Plugins",
@@ -13116,6 +13121,7 @@ var ZH = {
   "Add DSH Agent": "添加 DSH Agent",
   "Remove DSH Agent": "移除 DSH Agent",
   "New session": "新会话",
+  "Start a new session for {name} in this group": "为 {name} 在本群开始新会话",
   Archive: "归档",
   "Session actions": "会话操作",
   Plugins: "插件",
@@ -14847,7 +14853,7 @@ function teamActions({ call: call2, after, partFor, roster, ui: ui2, live, cards
     computerUserActive: (idleSeconds) => call2("computer-user-active", { idleSeconds }),
     stopMemberWork: (roomId, botId) => after(call2("stop-member-work", { roomId, botId })),
     // A running part opened from the session list takes no input until it ends.
-    newPart: (botId) => after(call2("bot-new-part", { botId })),
+    newPart: (botId, roomId) => after(call2("bot-new-part", roomId === void 0 ? { botId } : { botId, roomId })),
     openPart: (botId, sessionId, running = false) => {
       ui2.set((state) => ({ ...state, readOnlyPart: running ? sessionId : null }));
       return after(call2("bot-open-part", { botId, sessionId })).catch((error) => {
@@ -41366,6 +41372,22 @@ function StopMemberWork({ entry, bot, room: room2, actions }) {
   };
   return (0, import_react66.createElement)("button", { type: "button", className: "bt-member-stop", disabled: stopping, "aria-label": `${t("Stop")} · ${bot.name}`, onClick: stop }, t("Stop"));
 }
+function FreshMemberPart({ entry, bot, room: room2, actions }) {
+  const [starting, setStarting] = (0, import_react66.useState)(false);
+  if (actions.newPart === void 0 || entry !== void 0 && entry.state !== "idle") return null;
+  const start = () => {
+    setStarting(true);
+    void Promise.resolve(actions.newPart(bot.id, room2.id)).catch((error) => actions.reportError(error, "new-part")).finally(() => setStarting(false));
+  };
+  return (0, import_react66.createElement)("button", {
+    type: "button",
+    className: "bt-member-stop bt-member-fresh",
+    disabled: starting,
+    title: t("Start a new session for {name} in this group", { name: bot.name }),
+    "aria-label": `${t("New session")} · ${bot.name}`,
+    onClick: start
+  }, t("New session"));
+}
 function StopRoomWork({ room: room2, entries: entries2, actions }) {
   const [stopping, setStopping] = (0, import_react66.useState)(false);
   if (!entries2.some((entry) => entry.here)) return null;
@@ -41429,6 +41451,9 @@ body[data-ds-dark-theme] .bt-member-state.bt-mw-ask{color:#f0b84a}
 .bt-member-stop:hover{background:var(--bt-active);color:var(--bt-ink)}
 .bt-member-stop:active:not(:disabled){scale:.94}
 .bt-member-stop:disabled{opacity:.5;cursor:default}
+.bt-member-fresh{opacity:0;transition:opacity .12s ease,background-color .12s ease,color .12s ease,${spring(SPRING_TAP, "scale")}}
+.bt-member-row:hover>.bt-member-fresh,.bt-member-fresh:focus-visible,.bt-member-fresh:disabled{opacity:1}
+@media (hover:none){.bt-member-fresh{opacity:1}}
 .bt-member-cards{display:flex;flex-direction:column;gap:6px;padding:2px 8px 8px 50px}
 .bt-mw-card{display:flex;flex-direction:column;gap:4px;padding:10px 12px;border-radius:12px;background:var(--bt-hover);font-size:12px;line-height:17px;color:var(--bt-ink-2);animation:bt-rise .2s ease-out backwards}
 .bt-mw-tool{font-weight:600;color:var(--bt-ink)}
@@ -41807,7 +41832,8 @@ function MemberRow({ member, entry, room: room2, roster, actions }) {
           (0, import_react68.createElement)(MemberState, { entry, bot: member, room: room2, roster })
         )
       ),
-      (0, import_react68.createElement)(StopMemberWork, { entry, bot: member, room: room2, actions })
+      (0, import_react68.createElement)(StopMemberWork, { entry, bot: member, room: room2, actions }),
+      (0, import_react68.createElement)(FreshMemberPart, { entry, bot: member, room: room2, actions })
     ),
     (0, import_react68.createElement)(MemberApprovals, { entry, bot: member, actions })
   );

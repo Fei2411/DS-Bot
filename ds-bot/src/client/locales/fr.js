@@ -760,6 +760,7 @@ export const FR = {
   "Add DSH Agent": "Ajouter DSH Agent",
   "Remove DSH Agent": "Retirer DSH Agent",
   "New session": "Nouvelle session",
+  "Start a new session for {name} in this group": "Démarrer une nouvelle session pour {name} dans ce groupe",
   "Archive": "Archiver",
   "Session actions": "Actions de session",
   "Plugins": "Plugins",

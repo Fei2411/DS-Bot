@@ -173,6 +173,24 @@ export function StopMemberWork({ entry, bot, room, actions }) {
   return h('button', { type: 'button', className: 'bt-member-stop', disabled: stopping, 'aria-label': `${t('Stop')} · ${bot.name}`, onClick: stop }, t('Stop'))
 }
 
+// A member stuck in this group, on an error its own chat cannot reach, starts a fresh
+// part of its group conversation from here, as New session does in its own chat.
+export function FreshMemberPart({ entry, bot, room, actions }) {
+  const [starting, setStarting] = useState(false)
+  if (actions.newPart === undefined || (entry !== undefined && entry.state !== 'idle')) return null
+  const start = () => {
+    setStarting(true)
+    void Promise.resolve(actions.newPart(bot.id, room.id))
+      .catch(error => actions.reportError(error, 'new-part'))
+      .finally(() => setStarting(false))
+  }
+  return h('button', {
+    type: 'button', className: 'bt-member-stop bt-member-fresh', disabled: starting,
+    title: t('Start a new session for {name} in this group', { name: bot.name }),
+    'aria-label': `${t('New session')} · ${bot.name}`, onClick: start,
+  }, t('New session'))
+}
+
 // The group's work stops all at once from its details: DSH's own stop reaches only the
 // round, and a member the round moved on from keeps working.
 export function StopRoomWork({ room, entries, actions }) {
@@ -243,6 +261,9 @@ body[data-ds-dark-theme] .bt-member-state.bt-mw-ask{color:#f0b84a}
 .bt-member-stop:hover{background:var(--bt-active);color:var(--bt-ink)}
 .bt-member-stop:active:not(:disabled){scale:.94}
 .bt-member-stop:disabled{opacity:.5;cursor:default}
+.bt-member-fresh{opacity:0;transition:opacity .12s ease,background-color .12s ease,color .12s ease,${spring(SPRING_TAP, 'scale')}}
+.bt-member-row:hover>.bt-member-fresh,.bt-member-fresh:focus-visible,.bt-member-fresh:disabled{opacity:1}
+@media (hover:none){.bt-member-fresh{opacity:1}}
 .bt-member-cards{display:flex;flex-direction:column;gap:6px;padding:2px 8px 8px 50px}
 .bt-mw-card{display:flex;flex-direction:column;gap:4px;padding:10px 12px;border-radius:12px;background:var(--bt-hover);font-size:12px;line-height:17px;color:var(--bt-ink-2);animation:bt-rise .2s ease-out backwards}
 .bt-mw-tool{font-weight:600;color:var(--bt-ink)}

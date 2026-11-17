@@ -766,6 +766,7 @@ const ZH = {
   'Add DSH Agent': '添加 DSH Agent',
   'Remove DSH Agent': '移除 DSH Agent',
   'New session': '新会话',
+  'Start a new session for {name} in this group': '为 {name} 在本群开始新会话',
   Archive: '归档',
   'Session actions': '会话操作',
   Plugins: '插件',

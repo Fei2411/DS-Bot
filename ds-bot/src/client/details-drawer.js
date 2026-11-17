@@ -14,7 +14,7 @@ import { FolderMenu } from './folder-menu.js'
 import { MemoryRow } from './memory-panel.js'
 import { ScheduleSummary } from './schedules.js'
 import { useGlide, useMorph } from './motion.js'
-import { MemberApprovals, MemberState, StopMemberWork, StopRoomWork, useMemberWork, workState } from './member-status.js'
+import { FreshMemberPart, MemberApprovals, MemberState, StopMemberWork, StopRoomWork, useMemberWork, workState } from './member-status.js'
 import { canSetGoal, goalView, hasGoalAdmin } from './goal.js'
 import { PermissionPicker, presetDanger, presetName } from './permission-picker.js'
 import { TaskBoard } from './task-board.js'
@@ -182,7 +182,8 @@ function MemberRow({ member, entry, room, roster, actions }) {
             h('span', { className: 'bt-member-name' }, member.name),
             room.admin === member.id ? h('span', { className: 'bt-tag' }, t('Admin')) : null),
           h(MemberState, { entry, bot: member, room, roster }))),
-      h(StopMemberWork, { entry, bot: member, room, actions })),
+      h(StopMemberWork, { entry, bot: member, room, actions }),
+      h(FreshMemberPart, { entry, bot: member, room, actions })),
     h(MemberApprovals, { entry, bot: member, actions }))
 }
 

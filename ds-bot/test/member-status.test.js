@@ -22,7 +22,7 @@ runInNewContext(bundle.outputFiles[0].text, {
     return platform[name]
   },
 })
-const { busyMembers, summaryText, MemberDock, MemberState, StopMemberWork, StopRoomWork, memberWork } = module.exports
+const { busyMembers, summaryText, FreshMemberPart, MemberDock, MemberState, StopMemberWork, StopRoomWork, memberWork } = module.exports
 // Values from the bundle's realm compare by content only.
 const plain = value => JSON.parse(JSON.stringify(value))
 // The dock's capsule in an element tree.
@@ -169,4 +169,35 @@ test('a member\'s line runs a clock from its turn\'s start or its approval\'s', 
   assert.equal(stateText({ state: 'work', doing: { roomId: 'r1', tool: 'pwsh', since: 1_000 } }), 'Running shell commands…{1000}')
   assert.equal(stateText({ state: 'ask', approvals: [{ at: 2_000 }] }), 'Waiting for your approval{2000}')
   assert.equal(flat(MemberState({ entry: { state: 'idle' }, bot: { id: 'a', name: 'Anvil', role: 'Writer' }, room: { id: 'r1' }, roster: team })), 'Writer')
+})
+
+// #1716: a member stuck in a group gets a fresh part of that group conversation from
+// the group's details; a member at work there is stopped first.
+test('an idle member offers a new session of its group conversation; a busy one does not', async () => {
+  const room = team.roomsById.r1
+  const started = []
+  const actions = { newPart: (...args) => { started.push(args) } }
+  const idle = memberWork(room, { rooms: {}, approvals: [] }).find(entry => entry.id === 'a')
+  const node = FreshMemberPart({ entry: idle, bot: team.byId.a, room, actions })
+  assert.ok(node)
+  assert.equal(node.props['aria-label'], `New session · ${team.byId.a.name}`)
+  node.props.onClick()
+  await Promise.resolve()
+  assert.deepEqual(started, [['a', 'r1']])
+  const working = busyMembers(room, { rooms: { r1: [{ botId: 'a', since: 1 }] }, approvals: [] }, team)[0]
+  assert.equal(FreshMemberPart({ entry: working, bot: team.byId.a, room, actions }), null)
+  const asking = busyMembers(room, { rooms: { r1: [{ botId: 'a', since: 1 }] }, approvals: [{ botId: 'a', roomId: 'r1', at: 1 }] }, team)[0]
+  assert.equal(FreshMemberPart({ entry: asking, bot: team.byId.a, room, actions }), null)
+})
+
+test('a failed new session for a member is reported', async () => {
+  const reported = []
+  const room = team.roomsById.r1
+  const node = FreshMemberPart({ entry: undefined, bot: team.byId.a, room, actions: {
+    newPart: () => Promise.reject(new Error('The Bot is working')),
+    reportError: (error, action) => reported.push([error.message, action]),
+  } })
+  node.props.onClick()
+  await new Promise(done => setTimeout(done, 0))
+  assert.deepEqual(reported, [['The Bot is working', 'new-part']])
 })
