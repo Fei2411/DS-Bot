@@ -99,7 +99,9 @@ function measureScroll() {
   const news = document.querySelector('.bt-news[data-direction=up]')?.getBoundingClientRect()
   for (const [scroller, listeners] of followers) {
     const band = readingBand(scroller)
-    listeners.forEach(listener => listener(band, news))
+    listeners.forEach(listener => {
+      try { listener(band, news) } catch (error) { reportError(error) }
+    })
   }
 }
 function scheduleScroll() {

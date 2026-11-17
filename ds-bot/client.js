@@ -27281,7 +27281,13 @@ function measureScroll() {
   const news = document.querySelector(".bt-news[data-direction=up]")?.getBoundingClientRect();
   for (const [scroller, listeners3] of followers) {
     const band = readingBand(scroller);
-    listeners3.forEach((listener) => listener(band, news));
+    listeners3.forEach((listener) => {
+      try {
+        listener(band, news);
+      } catch (error) {
+        reportError(error);
+      }
+    });
   }
 }
 function scheduleScroll() {

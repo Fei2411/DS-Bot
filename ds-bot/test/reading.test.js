@@ -24,11 +24,13 @@ const react = {
 }
 const module = { exports: {} }
 const frames = new Map()
+const reported = []
 let frameId = 0
 runInNewContext(outputFiles[0].text, {
   module, exports: module.exports, document, window: dom.window, getComputedStyle: node => dom.window.getComputedStyle(node),
   requestAnimationFrame: callback => { frames.set(++frameId, callback); return frameId },
   cancelAnimationFrame: id => frames.delete(id),
+  reportError: error => reported.push(error),
   require: name => (name === 'react' ? react : name === 'react-dom' ? { createPortal: node => node } : {}),
 })
 const { fillsBand, followScroll, headingsIn, outlineOf: outlineIn, pillPlace: placeIn, readingBand: bandIn, sectionAt } = module.exports
@@ -185,6 +187,22 @@ test('scroll followers share listeners, frames and measurements until the last c
   assert.equal(frames.size, 1)
   stop()
   assert.equal(frames.size, 0)
+})
+
+test('a failed scroll follower reports its error without stopping the next follower', (t) => {
+  const scroller = document.createElement('div')
+  const error = new Error('failed follower')
+  let calls = 0
+  const stops = [
+    followScroll(scroller, () => { throw error }),
+    followScroll(scroller, () => { calls += 1 }),
+  ]
+  t.after(() => { stops.forEach(stop => stop()); reported.length = 0 })
+  const pending = [...frames.values()]
+  frames.clear()
+  assert.doesNotThrow(() => pending.forEach(callback => callback()))
+  assert.equal(calls, 1)
+  assert.deepEqual(reported, [error])
 })
 
 test('the pill is a glass surface that pops in with the tap spring and stays still with reduced motion', () => {
