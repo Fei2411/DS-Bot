@@ -86,6 +86,11 @@ function bench({ team = true, sessionId = 'bot' } = {}) {
 const key = patch => ({ key: 'Enter', prevented: 0, stopped: 0, preventDefault() { this.prevented += 1 }, stopPropagation() { this.stopped += 1 }, ...patch })
 
 const settle = () => new Promise(resolve => setTimeout(resolve, 5))
+// The editor runs in a vm, and its await of the host send resumes as a job of
+// that realm. A fixed 5 ms timer can observe the recorded message before that
+// job calls close(), which is what left clear at 0 on DSH 0.2.0-rc.2 / Node 24.
+const turn = () => new Promise(resolve => setTimeout(resolve, 0))
+const afterSend = async () => { for (let i = 0; i < 8; i += 1) await turn() }
 
 test('an annotation becomes one Markdown message with a multiline quote', () => {
   assert.equal(quoteMarkdown('First\r\nSecond\rThird'), '> First\n> Second\n> Third')
@@ -156,9 +161,14 @@ test('adding from a Bot selection sends quote and annotation to the current comp
 
 test('Ctrl+Enter sends the annotated quote to a group through the existing send action', async () => {
   const app = bench({ sessionId: 'room' })
+  let release
+  app.props.actions.send = (...args) => new Promise(resolve => { app.sent.push(args); release = resolve })
   findAll(app.openEditor(), 'textarea')[0].props.onChange({ target: { value: 'Check this part' } })
   findAll(app.render(), 'textarea')[0].props.onKeyDown(key({ ctrlKey: true }))
-  await settle()
+  assert.equal(release !== undefined, true)
+  assert.equal(app.calls.clear, 0)
+  release()
+  await afterSend()
   assert.deepEqual(app.sent, [['room', '> The selected text\n> \n> Check this part']])
   assert.deepEqual(app.inserted, [])
   assert.equal(app.calls.clear, 1)
@@ -167,10 +177,15 @@ test('Ctrl+Enter sends the annotated quote to a group through the existing send 
 
 test('an empty annotation is a normal quote, including on direct send', async () => {
   const app = bench()
+  let release
+  app.props.actions.send = (...args) => new Promise(resolve => { app.sent.push(args); release = resolve })
   app.openEditor()
   findAll(app.render(), 'textarea')[0].props.onKeyDown(key({ ctrlKey: true }))
-  await settle()
+  assert.equal(app.calls.clear, 0)
+  release()
+  await afterSend()
   assert.deepEqual(app.sent, [['bot', '> The selected text']])
+  assert.equal(app.calls.clear, 1)
 })
 
 test('Shift+Enter leaves the annotation open and Escape dismisses it without sending', async () => {
