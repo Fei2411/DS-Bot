@@ -175,12 +175,14 @@ export function install(rt) {
     return bot !== undefined && localAgentOf(bot) !== undefined
   }
 
-  ctx.on('agent/pre-step', async ({ agent }, next) => {
-    await rt.load?.()
-    const ref = localAgentOf(rt.botOf(rt.selfOf(agent.id)))
+  ctx.on('llm/stream', (options, next) => {
+    if (options.sessionId === undefined) return next()
+    const ref = localAgentOf(rt.botOf(rt.selfOf(options.sessionId)))
     const route = splitRef(ref)?.provider
     if (route !== undefined && rt.isLocalAgentAvailable(route) === false) {
-      throw new LlmError(`Local agent ${route} is unavailable: its route is owned by another adapter`, 'LOCAL_AGENT_MISSING')
+      return (async function* unavailable() {
+        throw new LlmError(`Local agent ${route} is unavailable: its route is owned by another adapter`, 'LOCAL_AGENT_MISSING')
+      })()
     }
     return next()
   }, { prepend: true })
