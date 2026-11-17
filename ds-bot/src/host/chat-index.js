@@ -275,15 +275,18 @@ export function install(rt) {
     const parts = askingId === undefined ? rt.partsOf(botId) : rt.partsOfThread(botId, askingId)
     const signal = AbortSignal.timeout(HISTORY_TIMEOUT_MS)
     const lines = []
+    let capped = false
     for (const part of [...parts].reverse()) {
-      for await (const line of rt.partLines(part.sessionId, signal, { pages: HISTORY_SCAN_PAGES })) {
+      const read = {}
+      for await (const line of rt.partLines(part.sessionId, signal, { pages: HISTORY_SCAN_PAGES, read })) {
         if (wanted !== '' && !line.text.toLowerCase().includes(wanted)) continue
         lines.push(`[${parts.length > 1 ? `part ${part.number} · ` : ''}${rt.clock(line.time)}] ${excerpt(line.text, wanted)}`)
         if (lines.length >= limit) break
       }
+      capped ||= read.capped === true && read.complete !== true
       if (lines.length >= limit) break
     }
-    return lines.reverse()
+    return [...lines.reverse(), ...(capped ? ['(Older messages were not searched.)'] : [])]
   }
 
   // The parts of a Bot's own chat, for the model: when each ran.
