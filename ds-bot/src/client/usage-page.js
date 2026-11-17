@@ -1,11 +1,11 @@
-import { createElement as h, startTransition, useEffect, useMemo, useRef, useState } from 'react'
+import { createElement as h, startTransition, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { colorOf, MAIN_LOOK } from './characters.js'
 import { GRADIENTS, paintCss } from './inks.js'
 import { BotAvatar, BotMark, RoomAvatar } from './mark.js'
 import { CalendarIcon, ChatsIcon, ChevronLeftIcon, ChevronRightIcon } from './icons.js'
 import { reducedMotion, useGlide } from './motion.js'
 import { dateLocale, t } from './i18n.js'
-import { DAY_MS, HOUR, HOUR_MS, MODEL, OWNER, RANGES, compact, dayKey, hourMs, mondayOf, percent, spanRange, summarize, tokensOf } from './usage-data.js'
+import { DAY_MS, HOUR, HOUR_MS, MODEL, OWNER, RANGES, compact, dayKey, hourMs, mondayOf, percent, spanRange, summarize, tokensOf, tweenValue } from './usage-data.js'
 
 // Usage page: the host's ledger as hourly rows, summed here by hour, day, week, or
 // month, over a preset range or days picked on a calendar. The overview stacks the
@@ -71,10 +71,20 @@ function titleOf(range, bucket) {
 }
 
 // The number eases to each new value.
-function useTween(value) {
+function useTween(value, rangeKey) {
   const [shown, setShown] = useState(0)
   const from = useRef(0)
-  useEffect(() => {
+  const key = useRef(rangeKey)
+  useLayoutEffect(() => {
+    // A different range is a different set of numbers, not this total growing: it shows
+    // its total at once, so the digits do not count from the old range's total and drag
+    // the delta badge along (#1547). Within one range the total still counts up.
+    if (key.current !== rangeKey) {
+      key.current = rangeKey
+      from.current = value
+      setShown(tweenValue({ from: value, to: value, progress: 1, rangeChanged: true }))
+      return undefined
+    }
     if (reducedMotion() || typeof requestAnimationFrame !== 'function') {
       from.current = value
       setShown(value)
@@ -85,13 +95,13 @@ function useTween(value) {
     let frame
     const step = (now) => {
       const progress = Math.min(1, (now - started) / 650)
-      from.current = begin + (value - begin) * (1 - (1 - progress) ** 3)
+      from.current = tweenValue({ from: begin, to: value, progress, rangeChanged: false })
       setShown(from.current)
       if (progress < 1) frame = requestAnimationFrame(step)
     }
     frame = requestAnimationFrame(step)
     return () => cancelAnimationFrame(frame)
-  }, [value])
+  }, [value, rangeKey])
   return shown
 }
 
@@ -145,7 +155,8 @@ function Tabs({ label, value, options, onChange, boxRef }) {
 }
 
 function Stats({ range, total, previous }) {
-  const shown = useTween(total.total)
+  const rangeKey = `${range.id}:${range.from ?? ''}:${range.to ?? ''}`
+  const shown = useTween(total.total, rangeKey)
   const change = previous > 0 ? Math.round(((total.total - previous) / previous) * 100) : null
   const cell = (label, value) => h('div', { className: 'bt-us-stat' }, h('span', { className: 'bt-us-stat-label' }, label), h('span', { className: 'bt-us-stat-value' }, value))
   return h('section', { className: 'bt-us-stats', style: { '--i': 0 } },

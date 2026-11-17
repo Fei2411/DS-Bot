@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { RANGES, bucketsOf, compact, percent, spanOf, spanRange, summarize } from '../src/client/usage-data.js'
+import { RANGES, bucketsOf, compact, percent, spanOf, spanRange, summarize, tweenValue } from '../src/client/usage-data.js'
 
 const range = id => RANGES.find(item => item.id === id)
 // [hour, owner, model, kind, input, cacheRead, cacheWrite, output, calls]
@@ -121,4 +121,17 @@ test('counts read short and shares round', () => {
   assert.equal(percent(0, 300), '0')
   assert.equal(percent(1, 3), '33')
   assert.equal(percent(5, 0), '0')
+})
+
+// #1547: the stats number counts up when the same range's total grows, but a range
+// switch shows its total at once — counting from the old range's total slid the delta
+// badge left and right under the moving number.
+test('a switched range shows its total at once, while one range still counts up', () => {
+  assert.equal(tweenValue({ from: 123, to: 4_330_000_000, progress: 0.01, rangeChanged: true }), 4_330_000_000)
+  assert.equal(tweenValue({ from: 123, to: 4_330_000_000, progress: 0, rangeChanged: true }), 4_330_000_000)
+  assert.equal(tweenValue({ from: 1000, to: 2000, progress: 0, rangeChanged: false }), 1000)
+  assert.equal(tweenValue({ from: 1000, to: 2000, progress: 1, rangeChanged: false }), 2000)
+  const midway = tweenValue({ from: 1000, to: 2000, progress: 0.5, rangeChanged: false })
+  assert.ok(midway > 1000 && midway < 2000, String(midway))
+  assert.equal(tweenValue({ from: 1000, to: 2000, progress: 2, rangeChanged: false }), 2000)
 })

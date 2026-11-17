@@ -31435,6 +31435,11 @@ function trimmed(value) {
   const text = value >= 100 ? value.toFixed(0) : value >= 10 ? value.toFixed(1) : value.toFixed(2);
   return text.includes(".") ? text.replace(/\.?0+$/, "") : text;
 }
+function tweenValue({ from, to, progress, rangeChanged }) {
+  if (rangeChanged) return to;
+  const part = Math.min(1, Math.max(0, progress));
+  return from + (to - from) * (1 - (1 - part) ** 3);
+}
 function compact(count) {
   for (const [size, unit] of [[1e9, "B"], [1e6, "M"], [1e3, "K"]]) {
     if (count >= size * 0.9995) return `${trimmed(count / size)}${unit}`;
@@ -31494,10 +31499,17 @@ function titleOf2(range, bucket) {
   if (bucket.end && (new Date(bucket.start).getUTCDate() !== 1 || new Date(bucket.end).getUTCDate() !== 1)) return spanText(dayKey(bucket.start), dayKey(bucket.end - DAY_MS));
   return dates({ year: "numeric", month: "long" }).format(bucket.start);
 }
-function useTween(value) {
+function useTween(value, rangeKey) {
   const [shown, setShown] = (0, import_react40.useState)(0);
   const from = (0, import_react40.useRef)(0);
-  (0, import_react40.useEffect)(() => {
+  const key = (0, import_react40.useRef)(rangeKey);
+  (0, import_react40.useLayoutEffect)(() => {
+    if (key.current !== rangeKey) {
+      key.current = rangeKey;
+      from.current = value;
+      setShown(tweenValue({ from: value, to: value, progress: 1, rangeChanged: true }));
+      return void 0;
+    }
     if (reducedMotion() || typeof requestAnimationFrame !== "function") {
       from.current = value;
       setShown(value);
@@ -31508,13 +31520,13 @@ function useTween(value) {
     let frame;
     const step = (now) => {
       const progress = Math.min(1, (now - started) / 650);
-      from.current = begin + (value - begin) * (1 - (1 - progress) ** 3);
+      from.current = tweenValue({ from: begin, to: value, progress, rangeChanged: false });
       setShown(from.current);
       if (progress < 1) frame = requestAnimationFrame(step);
     };
     frame = requestAnimationFrame(step);
     return () => cancelAnimationFrame(frame);
-  }, [value]);
+  }, [value, rangeKey]);
   return shown;
 }
 var glyphBox = (size, icon2) => (0, import_react40.createElement)("span", { className: "bt-us-glyph", style: { width: size, height: size } }, (0, import_react40.createElement)(icon2));
@@ -31576,7 +31588,8 @@ ${names}`, { box: boxRef });
   );
 }
 function Stats({ range, total, previous }) {
-  const shown = useTween(total.total);
+  const rangeKey = `${range.id}:${range.from ?? ""}:${range.to ?? ""}`;
+  const shown = useTween(total.total, rangeKey);
   const change = previous > 0 ? Math.round((total.total - previous) / previous * 100) : null;
   const cell = (label, value) => (0, import_react40.createElement)("div", { className: "bt-us-stat" }, (0, import_react40.createElement)("span", { className: "bt-us-stat-label" }, label), (0, import_react40.createElement)("span", { className: "bt-us-stat-value" }, value));
   return (0, import_react40.createElement)(
