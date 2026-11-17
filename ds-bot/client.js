@@ -15557,7 +15557,7 @@ var spring = (curve, ...properties) => properties.map((property) => `${property}
 function liveSprings(apply2) {
   const values = /* @__PURE__ */ new Map();
   const current2 = {};
-  let frame = 0;
+  let frame2 = 0;
   let last = 0;
   const step = (now) => {
     const dt = Math.min(0.5, Math.max(1e-3, (now - last) / 1e3));
@@ -15577,7 +15577,7 @@ function liveSprings(apply2) {
       current2[key] = value.x;
     }
     apply2(current2);
-    frame = moving ? requestAnimationFrame(step) : 0;
+    frame2 = moving ? requestAnimationFrame(step) : 0;
   };
   return {
     target: () => {
@@ -15596,17 +15596,17 @@ function liveSprings(apply2) {
         } else Object.assign(value, { to, k, c });
       }
       if (jump) {
-        cancelAnimationFrame(frame);
-        frame = 0;
+        cancelAnimationFrame(frame2);
+        frame2 = 0;
         apply2(current2);
         return;
       }
-      if (!frame) {
+      if (!frame2) {
         last = performance.now();
-        frame = requestAnimationFrame(step);
+        frame2 = requestAnimationFrame(step);
       }
     },
-    stop: () => cancelAnimationFrame(frame)
+    stop: () => cancelAnimationFrame(frame2)
   };
 }
 var CHOSEN = '[aria-pressed="true"],[aria-selected="true"],[aria-current="page"]';
@@ -17531,20 +17531,20 @@ var toolState = (name) => /^(message_bot|stop_bot|create_bot|update_bot|create_g
 function useGaze(ref, enabled) {
   (0, import_react2.useEffect)(() => {
     if (!enabled) return void 0;
-    let frame = 0;
+    let frame2 = 0;
     let point = null;
     let active = false;
     const clear = () => {
       point = null;
-      if (frame) {
-        cancelAnimationFrame(frame);
-        frame = 0;
+      if (frame2) {
+        cancelAnimationFrame(frame2);
+        frame2 = 0;
       }
       ref.current?.style.removeProperty("--bt-gx");
       ref.current?.style.removeProperty("--bt-gy");
     };
     const place = () => {
-      frame = 0;
+      frame2 = 0;
       const node = ref.current;
       if (!node || !point || reducedEffects()) return;
       const box = node.getBoundingClientRect();
@@ -17555,7 +17555,7 @@ function useGaze(ref, enabled) {
     const onMove = (event) => {
       if (reducedEffects() || document.body?.dataset.btMotion === "quiet") return;
       point = { x: event.clientX, y: event.clientY };
-      if (!frame) frame = requestAnimationFrame(place);
+      if (!frame2) frame2 = requestAnimationFrame(place);
     };
     const onLeave = () => {
       point = null;
@@ -17673,15 +17673,15 @@ function BotAvatar({ bot, size, state = "idle", main, admin, badge = true, live 
     badgeKind === "main" ? (0, import_react2.createElement)("span", { className: "bt-badge bt-badge-main", "aria-label": t("Main Bot"), role: "img" }, (0, import_react2.createElement)(MainStar)) : null
   );
 }
-function clusterSeats(count, frame) {
-  if (count === 1) return [[0, 0, frame]];
-  if (count === 2) return [[0, 0, frame * 2 / 3], [frame / 3, frame / 3, frame * 2 / 3]];
+function clusterSeats(count, frame2) {
+  if (count === 1) return [[0, 0, frame2]];
+  if (count === 2) return [[0, 0, frame2 * 2 / 3], [frame2 / 3, frame2 / 3, frame2 * 2 / 3]];
   if (count === 3) {
-    const size = frame * 5 / 9;
-    const rest = frame - size;
+    const size = frame2 * 5 / 9;
+    const rest = frame2 - size;
     return [[rest / 2, 0, size], [0, rest, size], [rest, rest, size]];
   }
-  const half = frame / 2;
+  const half = frame2 / 2;
   return [[0, 0, half], [half, 0, half], [0, half, half], [half, half, half]];
 }
 function RoomAvatar({ room: room2, roster, size = 36 }) {
@@ -21129,19 +21129,19 @@ function frameDocument(html, vars = {}) {
 }
 function HtmlFrame({ node }) {
   const ui2 = useViewUi();
-  const frame = (0, import_react15.useRef)(null);
+  const frame2 = (0, import_react15.useRef)(null);
   const loads = (0, import_react15.useRef)(0);
   const [height, setHeight] = (0, import_react15.useState)(Number.isFinite(node.height) ? node.height : 120);
   const [stopped, setStopped] = (0, import_react15.useState)(false);
   const doc = (0, import_react15.useMemo)(() => frameDocument(String(node.html ?? ""), themeVars2()), [node.html]);
   (0, import_react15.useEffect)(() => {
     const onMessage = (event) => {
-      if (event.source !== frame.current?.contentWindow || event.data?.type !== HEIGHT) return;
+      if (event.source !== frame2.current?.contentWindow || event.data?.type !== HEIGHT) return;
       const next = Number(event.data.height);
       if (Number.isFinite(next)) setHeight(Math.max(MIN_HEIGHT, Math.ceil(next)));
     };
     window.addEventListener("message", onMessage);
-    const retheme = () => frame.current?.contentWindow?.postMessage({ type: THEME, vars: themeVars2() }, "*");
+    const retheme = () => frame2.current?.contentWindow?.postMessage({ type: THEME, vars: themeVars2() }, "*");
     const observer = typeof MutationObserver === "function" ? new MutationObserver(retheme) : null;
     observer?.observe(document.body, { attributes: true, attributeFilter: ["data-ds-dark-theme", "style", "class"] });
     return () => {
@@ -21151,7 +21151,7 @@ function HtmlFrame({ node }) {
   }, []);
   if (stopped) return (0, import_react15.createElement)("p", { className: "dv-view-frame-stopped" }, ui2.t("This view tried to open a page and was stopped."));
   return (0, import_react15.createElement)("iframe", {
-    ref: frame,
+    ref: frame2,
     className: "dv-view-frame",
     title: String(node.summary ?? ""),
     sandbox: "allow-scripts",
@@ -27274,6 +27274,39 @@ function watchSize(node, onSize) {
     }
   };
 }
+var followers = /* @__PURE__ */ new Map();
+var frame = 0;
+function measureScroll() {
+  frame = 0;
+  const news = document.querySelector(".bt-news[data-direction=up]")?.getBoundingClientRect();
+  for (const [scroller, listeners3] of followers) {
+    const band = readingBand(scroller);
+    listeners3.forEach((listener) => listener(band, news));
+  }
+}
+function scheduleScroll() {
+  if (!frame) frame = requestAnimationFrame(measureScroll);
+}
+function followScroll(scroller, onFrame) {
+  if (followers.size === 0) window.addEventListener("resize", scheduleScroll);
+  const listeners3 = followers.get(scroller) ?? /* @__PURE__ */ new Set();
+  followers.set(scroller, listeners3);
+  listeners3.add(onFrame);
+  if (listeners3.size === 1) scroller.addEventListener("scroll", scheduleScroll, { passive: true });
+  scheduleScroll();
+  return () => {
+    listeners3.delete(onFrame);
+    if (listeners3.size === 0) {
+      followers.delete(scroller);
+      scroller.removeEventListener("scroll", scheduleScroll);
+    }
+    if (followers.size === 0) {
+      window.removeEventListener("resize", scheduleScroll);
+      cancelAnimationFrame(frame);
+      frame = 0;
+    }
+  };
+}
 var glide = (scroller, by) => scroller.scrollTo({ top: Math.max(0, scroller.scrollTop + by), behavior: reducedMotion() ? "auto" : "smooth" });
 function ReplyGuide({ box, active }) {
   const [scroller, setScroller] = (0, import_react31.useState)(null);
@@ -27299,29 +27332,15 @@ function ReplyGuide({ box, active }) {
       setView(null);
       return void 0;
     }
-    let frame = 0;
-    const measure = () => {
-      frame = 0;
+    return followScroll(scroller, (band, news) => {
       const node = box.current;
       if (!node) return;
-      const news = document.querySelector(".bt-news[data-direction=up]")?.getBoundingClientRect();
-      const place = pillPlace(node.getBoundingClientRect(), readingBand(scroller), news);
+      const place = pillPlace(node.getBoundingClientRect(), band, news);
       const headings2 = place ? headingsIn(node) : [];
       const current2 = sectionAt(headings2.map((heading) => heading.getBoundingClientRect().top), place ? place.top + PILL + SLACK : 0);
       const next = place && { ...place, current: current2 };
       setView((prev) => prev && next && Object.keys(next).every((key) => prev[key] === next[key]) ? prev : next);
-    };
-    const schedule = () => {
-      if (!frame) frame = requestAnimationFrame(measure);
-    };
-    scroller.addEventListener("scroll", schedule, { passive: true });
-    window.addEventListener("resize", schedule);
-    schedule();
-    return () => {
-      cancelAnimationFrame(frame);
-      scroller.removeEventListener("scroll", schedule);
-      window.removeEventListener("resize", schedule);
-    };
+    });
   }, [long, scroller]);
   (0, import_react31.useEffect)(() => {
     if (view === null) setMenu(false);
@@ -29318,21 +29337,21 @@ function useRunningHost(active) {
       setHost(null);
       return void 0;
     }
-    let frame = 0;
+    let frame2 = 0;
     const find = () => {
-      frame = 0;
+      frame2 = 0;
       setHost((prev) => {
         const node = findHost();
         return prev === node ? prev : node;
       });
     };
     const observer = new MutationObserver(() => {
-      if (!frame) frame = requestAnimationFrame(find);
+      if (!frame2) frame2 = requestAnimationFrame(find);
     });
     observer.observe(document.querySelector("[data-conversation-scroll]") ?? document.body, { childList: true, subtree: true });
     find();
     return () => {
-      cancelAnimationFrame(frame);
+      cancelAnimationFrame(frame2);
       observer.disconnect();
     };
   }, [active]);
@@ -29345,14 +29364,14 @@ function useRowEntrances(replacing) {
     const seen = /* @__PURE__ */ new WeakSet();
     const started = Date.now();
     let column = null;
-    let frame = 0;
+    let frame2 = 0;
     const settle = (event) => {
       if (event.target !== event.currentTarget || !/^bt-row/.test(event.animationName)) return;
       delete event.currentTarget.dataset.btEnter;
       event.currentTarget.removeEventListener("animationend", settle);
     };
     const scan = () => {
-      frame = 0;
+      frame2 = 0;
       const next = document.querySelector("[data-chat-flow]");
       if (next !== column) {
         observer.disconnect();
@@ -29377,11 +29396,11 @@ function useRowEntrances(replacing) {
       }
     };
     const observer = new MutationObserver(() => {
-      if (!frame) frame = requestAnimationFrame(scan);
+      if (!frame2) frame2 = requestAnimationFrame(scan);
     });
     scan();
     return () => {
-      cancelAnimationFrame(frame);
+      cancelAnimationFrame(frame2);
       observer.disconnect();
     };
   }, []);
@@ -29540,7 +29559,7 @@ var chatRoom = {
     return room.selector ? [...document.querySelectorAll(room.selector)] : [];
   }
 };
-function installFrameWatch(frame) {
+function installFrameWatch(frame2) {
   let collapsedWidth = collapsedTrackWidth();
   let raf = 0;
   const watched = /* @__PURE__ */ new Set();
@@ -29551,7 +29570,7 @@ function installFrameWatch(frame) {
     const width = animating ? null : sidebarTrackWidth();
     const collapsed = dshCollapsed();
     collapsedWidth = nextCollapsedWidth({ measured: width, collapsed, animating, last: collapsedWidth });
-    frame.set((state) => {
+    frame2.set((state) => {
       const next = { ...state, viewport: window.innerWidth, collapsedWidth, collapsed: collapsed === true };
       return state.viewport === next.viewport && state.collapsedWidth === next.collapsedWidth && state.collapsed === next.collapsed ? state : next;
     });
@@ -31460,14 +31479,14 @@ function CreateBot({ roster, actions, start, brief = "", onBack, canGoBack, onCr
   const [busy, setBusy] = (0, import_react39.useState)(false);
   const [error, setError] = (0, import_react39.useState)("");
   const fileRef = (0, import_react39.useRef)(null);
-  const frame = (0, import_react39.useRef)(null);
+  const frame2 = (0, import_react39.useRef)(null);
   const localAgents = useLocalAgents(mode === "local");
   const [reading, readModels] = useAgentModels(actions);
   const local = mode === "local";
   const chosen = local ? agentModel : model;
   useEscape(onBack);
   (0, import_react39.useEffect)(() => {
-    if (inline) frame.current?.scrollIntoView({ block: "start", behavior: "smooth" });
+    if (inline) frame2.current?.scrollIntoView({ block: "start", behavior: "smooth" });
   }, []);
   const fallbackName = freshBotName(roster, t("New Bot"));
   const finalName = name.trim() || fallbackName;
@@ -31602,7 +31621,7 @@ function CreateBot({ roster, actions, start, brief = "", onBack, canGoBack, onCr
       (0, import_react39.createElement)("button", { type: "button", className: "bt-send bt-create-go", disabled: blocked, onClick: () => void create() }, busy ? t("Creating…") : t("Create"))
     )
   );
-  if (inline) return (0, import_react39.createElement)("div", { ref: frame, className: "bt-create-inline", role: "group", "aria-label": t("Create Bot") }, card);
+  if (inline) return (0, import_react39.createElement)("div", { ref: frame2, className: "bt-create-inline", role: "group", "aria-label": t("Create Bot") }, card);
   return (0, import_react39.createElement)(
     "div",
     { className: "bt-create", role: "dialog", "aria-label": t("Create Bot") },
@@ -31837,15 +31856,15 @@ function useTween(value) {
     }
     const begin = from.current;
     const started = performance.now();
-    let frame;
+    let frame2;
     const step = (now) => {
       const progress = Math.min(1, (now - started) / 650);
       from.current = begin + (value - begin) * (1 - (1 - progress) ** 3);
       setShown(from.current);
-      if (progress < 1) frame = requestAnimationFrame(step);
+      if (progress < 1) frame2 = requestAnimationFrame(step);
     };
-    frame = requestAnimationFrame(step);
-    return () => cancelAnimationFrame(frame);
+    frame2 = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(frame2);
   }, [value]);
   return shown;
 }
@@ -38095,11 +38114,11 @@ function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus, useSe
 function useTranscriptView() {
   const [view, setView] = (0, import_react54.useState)(null);
   (0, import_react54.useEffect)(() => {
-    let frame = 0;
+    let frame2 = 0;
     let watched = null;
     const observer = new MutationObserver(() => schedule());
     const measure = () => {
-      frame = 0;
+      frame2 = 0;
       const scroller = document.querySelector("[data-conversation-scroll]");
       if (scroller !== watched) {
         observer.disconnect();
@@ -38129,7 +38148,7 @@ function useTranscriptView() {
       setView((prev) => prev && Object.keys(next).every((key) => prev[key] === next[key]) ? prev : next);
     };
     const schedule = () => {
-      if (!frame) frame = requestAnimationFrame(measure);
+      if (!frame2) frame2 = requestAnimationFrame(measure);
     };
     document.addEventListener("scroll", schedule, true);
     window.addEventListener("resize", schedule);
@@ -38137,7 +38156,7 @@ function useTranscriptView() {
     window.visualViewport?.addEventListener("scroll", schedule);
     schedule();
     return () => {
-      cancelAnimationFrame(frame);
+      cancelAnimationFrame(frame2);
       observer.disconnect();
       document.removeEventListener("scroll", schedule, true);
       window.removeEventListener("resize", schedule);
@@ -38953,7 +38972,7 @@ async function openCapture() {
   const analyser = audio.createAnalyser();
   analyser.fftSize = 512;
   audio.createMediaStreamSource(stream).connect(analyser);
-  const frame = new Float32Array(analyser.fftSize);
+  const frame2 = new Float32Array(analyser.fftSize);
   const recorder = new MediaRecorder(stream);
   const chunks = [];
   recorder.ondataavailable = (event) => {
@@ -38972,10 +38991,10 @@ async function openCapture() {
   return {
     level() {
       if (closed) return 0;
-      analyser.getFloatTimeDomainData(frame);
+      analyser.getFloatTimeDomainData(frame2);
       let sum = 0;
-      for (const sample of frame) sum += sample * sample;
-      return Math.min(1, Math.sqrt(sum / frame.length) * 4);
+      for (const sample of frame2) sum += sample * sample;
+      return Math.min(1, Math.sqrt(sum / frame2.length) * 4);
     },
     cancel: close,
     async finish(maxSeconds) {
@@ -40485,7 +40504,7 @@ function useMicLevel(enabled) {
     if (!enabled || !navigator.mediaDevices?.getUserMedia) return void 0;
     let stream = null;
     let audio = null;
-    let frame = 0;
+    let frame2 = 0;
     let stopped = false;
     navigator.mediaDevices.getUserMedia({ audio: true }).then((media) => {
       if (stopped) {
@@ -40505,14 +40524,14 @@ function useMicLevel(enabled) {
         for (const value of data) sum += ((value - 128) / 128) ** 2;
         smooth = smooth * 0.8 + Math.min(1, Math.sqrt(sum / data.length) * 4) * 0.2;
         setLevel(Math.round(smooth * 100) / 100);
-        frame = requestAnimationFrame(tick);
+        frame2 = requestAnimationFrame(tick);
       };
       tick();
     }).catch(() => {
     });
     return () => {
       stopped = true;
-      cancelAnimationFrame(frame);
+      cancelAnimationFrame(frame2);
       stream?.getTracks().forEach((track) => track.stop());
       void audio?.close().catch(() => {
       });
@@ -40594,7 +40613,7 @@ function VoiceMode({ sessionId, paneLeft, roster, actions, useSessions, useSessi
     if (!speech || !catalog || !listen) return void 0;
     const own = turn.current;
     let capture = null;
-    let frame = 0;
+    let frame2 = 0;
     let stopped = false;
     let smooth = 0;
     const detect = turnDetector();
@@ -40637,7 +40656,7 @@ function VoiceMode({ sessionId, paneLeft, roster, actions, useSessions, useSessi
           setCycle((value) => value + 1);
           return;
         }
-        frame = requestAnimationFrame(tick);
+        frame2 = requestAnimationFrame(tick);
       };
       tick();
     }, (error) => {
@@ -40647,7 +40666,7 @@ function VoiceMode({ sessionId, paneLeft, roster, actions, useSessions, useSessi
     });
     return () => {
       stopped = true;
-      cancelAnimationFrame(frame);
+      cancelAnimationFrame(frame2);
       capture?.cancel();
       setServiceLevel(0);
     };
@@ -41141,7 +41160,7 @@ function uniqueIds(root) {
 function createFlight(env) {
   const {
     shape,
-    frame = (run2) => requestAnimationFrame(run2),
+    frame: frame2 = (run2) => requestAnimationFrame(run2),
     unframe = (id) => cancelAnimationFrame(id),
     later = (run2, ms) => setTimeout(run2, ms),
     unlater = (id) => clearTimeout(id)
@@ -41175,7 +41194,7 @@ function createFlight(env) {
     const y = box.top - edge.top - (parseFloat(border.borderTopWidth) || 0);
     node.style.transform = `translate(${x}px, ${y}px) scale(${box.width / size.width}, ${box.height / size.height})`;
     if (done) finish();
-    else live.step = frame(place);
+    else live.step = frame2(place);
   }
   const arm = () => later(finish, shape.duration + SAFETY_MS);
   return {
@@ -42399,7 +42418,7 @@ function PanelStrip({ bot, subject, view, ids, active, sides, side, canBrowse, r
 }
 function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPages, hold }) {
   const page = useBrowserPages((pages) => pages[tabId ?? ""]) ?? EMPTY_PAGE;
-  const frame = (0, import_react69.useRef)(null);
+  const frame2 = (0, import_react69.useRef)(null);
   const input = (0, import_react69.useRef)(null);
   const [draft, setDraft] = (0, import_react69.useState)(null);
   const [covered, setCovered] = (0, import_react69.useState)(false);
@@ -42415,7 +42434,7 @@ function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPages, ho
   const showGuest = landed && !leaving && !covered && Boolean(page.url) && !page.error && flow === null;
   (0, import_react69.useEffect)(() => {
     const update = () => {
-      const panel = frame.current?.getBoundingClientRect();
+      const panel = frame2.current?.getBoundingClientRect();
       const overlaps2 = panel && [...document.querySelectorAll('[role="dialog"],[role="menu"],[role="listbox"]')].some((element) => rectsOverlap(panel, element.getBoundingClientRect()));
       setCovered(Boolean(overlaps2));
     };
@@ -42473,7 +42492,7 @@ function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPages, ho
     });
   };
   (0, import_react69.useLayoutEffect)(() => {
-    const element = frame.current;
+    const element = frame2.current;
     if (!element || leaving || !tabId) {
       void actions.browserShow(null);
       return void 0;
@@ -42592,7 +42611,7 @@ function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPages, ho
     ),
     (0, import_react69.createElement)(
       "div",
-      { ref: frame, className: "bt-browser-frame", "data-guest": showGuest || void 0 },
+      { ref: frame2, className: "bt-browser-frame", "data-guest": showGuest || void 0 },
       flow === "menu" ? (0, import_react69.createElement)(ImportMenu, { sources, busy, onFile: pickFile, onSource: pickSource, onClose: () => setFlowTracked(null) }) : null,
       typeof flow === "object" && flow !== null ? (0, import_react69.createElement)(ImportCard, { flow, page, busy, onApply: applyImport, onCancel: cancelImport, onCloseAndImport: closeAndImport, onDone: () => setFlowTracked(null), onReload: () => actions.browserCommand(tabId, "reload") }) : null,
       flow === null && page.error ? (0, import_react69.createElement)(
@@ -43454,7 +43473,7 @@ ${caption}
 
 Table: ${caption}` : ""}${keep(out.join("\n"))}`;
   };
-  const frame = (el, ctx) => {
+  const frame2 = (el, ctx) => {
     let doc = null;
     try {
       doc = el.contentDocument;
@@ -43529,7 +43548,7 @@ ${body2 || "(no text)"}
     }
     if (tag === "iframe" || tag === "frame") {
       const box = el.getBoundingClientRect();
-      return tag === "iframe" && (box.width < 2 || box.height < 2) ? "" : frame(el, next);
+      return tag === "iframe" && (box.width < 2 || box.height < 2) ? "" : frame2(el, next);
     }
     const found = itemFor(el, style);
     const mark2 = found ? `[#${found.number}]` : "";
@@ -45420,7 +45439,7 @@ function apply(ctx) {
   const ui2 = createSource({ details: null, view: "details", readOnlyPart: null, renaming: false, tab: null, side: null, newChat: null, exchange: null, menu: null, voice: null, palette: null, quote: null, paste: {}, pendingOpen: null, settings: null, memory: null, toast: null, signIn: null, renameAgent: null, unread: unreadStore.read(), reactions: reactionStore.read(), visits: {}, panelYield: false, leftDrawer: false, bootFailed: false, goalCompose: null, goalOpen: null });
   let sidebarSaved = readSidebar();
   const sidebarPref = createSource(sidebarSaved.pref);
-  const frame = createSource({ viewport: typeof window === "undefined" ? 0 : window.innerWidth, sidebarWidth: sidebarSaved.width, collapsedWidth: 0, collapsed: false });
+  const frame2 = createSource({ viewport: typeof window === "undefined" ? 0 : window.innerWidth, sidebarWidth: sidebarSaved.width, collapsedWidth: 0, collapsed: false });
   const surface = createSource({ mode: readMode(), plain: false });
   const settingsShellHeld = createSource(false);
   let settingsShell = null;
@@ -45869,7 +45888,7 @@ function apply(ctx) {
   const panelFolded = (view) => {
     const state = ui2.getSnapshot();
     if (state.details === null) return false;
-    const f = frame.getSnapshot();
+    const f = frame2.getSnapshot();
     return frameLayout({ viewport: f.viewport, sidebarWidth: f.sidebarWidth, pref: sidebarPref.getSnapshot(), drawer: state.leftDrawer, panel: { view: view ?? state.view, yielded: state.panelYield === true } }).panel === "folded";
   };
   const yieldBrowser = (state) => state.panelYield === true || panelFolded("browser");
@@ -46020,7 +46039,7 @@ function apply(ctx) {
     setSidebarWidth: (width) => {
       sidebarSaved = { ...sidebarSaved, width };
       writeSidebar(sidebarSaved);
-      frame.set((state) => state.sidebarWidth === width ? state : { ...state, sidebarWidth: width });
+      frame2.set((state) => state.sidebarWidth === width ? state : { ...state, sidebarWidth: width });
     },
     setLeftDrawer: (on) => ui2.set((state) => state.leftDrawer === on ? state : { ...state, leftDrawer: on }),
     setPanelYield: (on) => ui2.set((state) => state.panelYield === on ? state : { ...state, panelYield: on }),
@@ -46038,7 +46057,7 @@ function apply(ctx) {
       }
       writeMode(mode);
       surface.set((state) => ({ ...state, mode }));
-      if (mode === "agent" && window.innerWidth >= DSH_NARROW && frame.getSnapshot().collapsed) ctx.layout.toggleSidebar();
+      if (mode === "agent" && window.innerWidth >= DSH_NARROW && frame2.getSnapshot().collapsed) ctx.layout.toggleSidebar();
       if (mode !== "bot") return;
       ensureBotHome();
     },
@@ -46262,7 +46281,7 @@ function apply(ctx) {
       else if (kind === "letgo") void actions.computerAllowForeground(botId);
     });
   }
-  const face = () => ({ actions, hooks: { roster, ui: ui2, activity, work, memoryNews, registry, turnClock, live, computer, cards, heldCards, browserPages, browserTabs, browserHolds, surface, update, frame, sidebarPref, settingsShellHeld } });
+  const face = () => ({ actions, hooks: { roster, ui: ui2, activity, work, memoryNews, registry, turnClock, live, computer, cards, heldCards, browserPages, browserTabs, browserHolds, surface, update, frame: frame2, sidebarPref, settingsShellHeld } });
   const hostDrawsUserText = typeof ctx.uiConversation.userText?.register === "function";
   ctx.effect(() => installCommandActions(ctx, { roster, actions }), "ds-bot: bot command actions");
   ctx.effect(() => {
@@ -46433,7 +46452,7 @@ function apply(ctx) {
     let lastDetails = ui2.getSnapshot().details;
     const sync = () => {
       const s = ui2.getSnapshot();
-      const f = frame.getSnapshot();
+      const f = frame2.getSnapshot();
       const opened = s.details !== null && lastDetails === null;
       lastDetails = s.details;
       const layout = frameLayout({ viewport: f.viewport, sidebarWidth: f.sidebarWidth, pref: sidebarPref.getSnapshot(), drawer: s.leftDrawer === true, panel: s.details === null ? null : { view: s.view, yielded: false } });
@@ -46443,7 +46462,7 @@ function apply(ctx) {
       else if (s.panelYield && layout.panel === "shown") actions.setPanelYield(false);
       if (s.leftDrawer === true && layout.left !== "drawer") actions.setLeftDrawer(false);
     };
-    const offs = [ui2.subscribe(sync), frame.subscribe(sync), sidebarPref.subscribe(sync)];
+    const offs = [ui2.subscribe(sync), frame2.subscribe(sync), sidebarPref.subscribe(sync)];
     return () => {
       for (const off of offs) off();
     };
@@ -46502,7 +46521,7 @@ function apply(ctx) {
       };
     },
     ...SHELL_SHEETS.map(([text, tag]) => () => installCompiledStyles(text, tag)),
-    () => installFrameWatch(frame),
+    () => installFrameWatch(frame2),
     () => installFrameSync(),
     () => installTheme(),
     () => shadow("sidebar.workspaces", { priority: BOT_PRIORITY, inject: face }, TeamSidebar),
