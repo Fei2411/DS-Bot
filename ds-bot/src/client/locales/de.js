@@ -99,6 +99,7 @@ export const DE = {
   'Default model': 'Standardmodell',
 
   // Sidebar and account menu
+  'Bots filter': 'Bots',
   'Bot list': 'Bot-Liste',
   'Setting up your Main Bot…': 'Dein Haupt-Bot wird eingerichtet…',
   'The Bot team could not start. The engine’s startup output — its console, or the app’s startup error box — has the cause.': 'Das Bot-Team konnte nicht starten. Die Ursache steht in der Startausgabe der Engine – in ihrer Konsole oder im Startfehlerfenster der App.',

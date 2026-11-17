@@ -83,6 +83,7 @@ const ZH = {
 
   // Sidebar and account menu
   'Bot list': 'Bot 列表',
+  'Bots filter': '机器人',
   'Setting up your Main Bot…': '正在设置你的主 Bot…',
   'The Bot team could not start. The engine’s startup output — its console, or the app’s startup error box — has the cause.': 'Bot 团队启动失败。原因在引擎的启动输出里——它的控制台，或应用的启动错误框。',
   'The Bot team could not start. {error}. The engine’s startup output — its console, or the app’s startup error box — has the cause.': 'Bot 团队启动失败。{error}。原因在引擎的启动输出里——它的控制台，或应用的启动错误框。',
@@ -644,7 +645,7 @@ const ZH = {
 
   // Settings dialog
   General: '通用',
-  Bots: '机器人',
+  Bots: 'Bot',
   'Group chats': '群聊',
   Secrets: '密钥',
   Appearance: '外观',
@@ -665,7 +666,7 @@ const ZH = {
   'Group memory size': '群记忆容量',
   'Bot memory size': 'Bot 记忆容量',
   'Team memory size': '团队记忆容量',
-  'Bots · {count}': '机器人 · {count}',
+  'Bots · {count}': 'Bot · {count}',
   'First in the sidebar. Pick another Bot to hand it the role; {name} then stops being a Main Bot.': '排在侧栏最上面。选另一个 Bot 就会把主 Bot 交给它，{name} 随之不再是主 Bot。',
   'Choose a Bot…': '选择一个 Bot…',
   'Also a Main Bot.': '也是主 Bot。',

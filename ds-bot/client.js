@@ -219,6 +219,7 @@ var JA = {
   "New Bot": "新しい Bot",
   "New Bots": "新しい Bot",
   "Default model": "デフォルトモデル",
+  "Bots filter": "ボット",
   "Bot list": "Bot 一覧",
   "Setting up your Main Bot…": "メイン Bot を準備しています…",
   "The Bot team could not start. The engine’s startup output — its console, or the app’s startup error box — has the cause.": "Bot チームを起動できませんでした。原因はエンジンの起動出力（コンソールまたはアプリの起動エラー画面）を確認してください。",
@@ -2637,6 +2638,7 @@ var KO = {
   "New Bots": "새 Bot",
   "Default model": "기본 모델",
   // Sidebar and account menu
+  "Bots filter": "봇",
   "Bot list": "Bot 목록",
   "Setting up your Main Bot…": "메인 Bot을 설정하는 중…",
   "The Bot team could not start. The engine’s startup output — its console, or the app’s startup error box — has the cause.": "Bot 팀을 시작할 수 없습니다. 엔진의 시작 출력(콘솔 또는 앱의 시작 오류 창)에서 원인을 확인할 수 있습니다.",
@@ -5098,6 +5100,7 @@ var ES = {
   "New Bots": "Nuevos Bots",
   "Default model": "Modelo predeterminado",
   // Sidebar and account menu
+  "Bots filter": "Bots",
   "Bot list": "Lista de Bots",
   "Setting up your Main Bot…": "Configurando tu Bot principal…",
   "The Bot team could not start. The engine’s startup output — its console, or the app’s startup error box — has the cause.": "El equipo de Bots no pudo iniciarse. La salida de inicio del motor —su consola o el cuadro de error de inicio de la aplicación— indica la causa.",
@@ -7557,6 +7560,7 @@ var FR = {
   "New Bot": "Nouveau Bot",
   "New Bots": "Nouveaux Bots",
   "Default model": "Modèle par défaut",
+  "Bots filter": "Bots",
   "Bot list": "Liste des Bots",
   "Setting up your Main Bot…": "Configuration de votre Bot principal…",
   "The Bot team could not start. The engine’s startup output — its console, or the app’s startup error box — has the cause.": "L’équipe de Bots n’a pas pu démarrer. La sortie de démarrage du moteur — sa console ou la boîte d’erreur de l’application — en indique la cause.",
@@ -9975,6 +9979,7 @@ var DE = {
   "New Bots": "Neue Bots",
   "Default model": "Standardmodell",
   // Sidebar and account menu
+  "Bots filter": "Bots",
   "Bot list": "Bot-Liste",
   "Setting up your Main Bot…": "Dein Haupt-Bot wird eingerichtet…",
   "The Bot team could not start. The engine’s startup output — its console, or the app’s startup error box — has the cause.": "Das Bot-Team konnte nicht starten. Die Ursache steht in der Startausgabe der Engine – in ihrer Konsole oder im Startfehlerfenster der App.",
@@ -12411,6 +12416,7 @@ var ZH = {
   "Default model": "默认模型",
   // Sidebar and account menu
   "Bot list": "Bot 列表",
+  "Bots filter": "机器人",
   "Setting up your Main Bot…": "正在设置你的主 Bot…",
   "The Bot team could not start. The engine’s startup output — its console, or the app’s startup error box — has the cause.": "Bot 团队启动失败。原因在引擎的启动输出里——它的控制台，或应用的启动错误框。",
   "The Bot team could not start. {error}. The engine’s startup output — its console, or the app’s startup error box — has the cause.": "Bot 团队启动失败。{error}。原因在引擎的启动输出里——它的控制台，或应用的启动错误框。",
@@ -12996,7 +13002,7 @@ var ZH = {
   Moonlight: "月光",
   // Settings dialog
   General: "通用",
-  Bots: "机器人",
+  Bots: "Bot",
   "Group chats": "群聊",
   Secrets: "密钥",
   Appearance: "外观",
@@ -13017,7 +13023,7 @@ var ZH = {
   "Group memory size": "群记忆容量",
   "Bot memory size": "Bot 记忆容量",
   "Team memory size": "团队记忆容量",
-  "Bots · {count}": "机器人 · {count}",
+  "Bots · {count}": "Bot · {count}",
   "First in the sidebar. Pick another Bot to hand it the role; {name} then stops being a Main Bot.": "排在侧栏最上面。选另一个 Bot 就会把主 Bot 交给它，{name} 随之不再是主 Bot。",
   "Choose a Bot…": "选择一个 Bot…",
   "Also a Main Bot.": "也是主 Bot。",
@@ -29908,7 +29914,7 @@ function AgentRow({ agent, actions, useSessions, useSessionStatus, useUi, wide, 
 function renderSidebarEntry(entry, rowProps, markedUnread, onDragStart) {
   return entry.kind === "bot" ? (0, import_react36.createElement)(BotRow, { key: entry.item.id, ...rowProps, bot: entry.item, marked: markedUnread[entry.item.id] === true, onDragStart }) : entry.kind === "room" ? (0, import_react36.createElement)(RoomRow, { key: entry.item.id, ...rowProps, room: entry.item, marked: markedUnread[entry.item.id] === true, onDragStart }) : (0, import_react36.createElement)(AgentRow, { key: entry.item.id, ...rowProps, agent: entry.item, marked: markedUnread[entry.item.id] === true, onDragStart });
 }
-function SectionBlock({ section, entries: entries2, rowProps, markedUnread, renaming, dropTarget, onDragStart, onDragOverSec, onDropSec }) {
+function SectionBlock({ section, entries: entries2, sectionOrder, rowProps, markedUnread, renaming, dropTarget, onDragStart, onDragOverSec, onDropSec }) {
   const { roster, actions, useSessions, useSessionStatus, useWork, wide } = rowProps;
   const input = (0, import_react36.useRef)(null);
   (0, import_react36.useLayoutEffect)(() => {
@@ -29966,7 +29972,7 @@ function SectionBlock({ section, entries: entries2, rowProps, markedUnread, rena
   const toggle = () => {
     void Promise.resolve(actions.saveSection({ id: section.id, collapsed: !section.collapsed })).catch((error) => actions.reportError(error, "section"));
   };
-  const openSecMenu = (kind, x, y) => actions.openMenu({ kind, id: section.id, x, y });
+  const openSecMenu = (kind, x, y) => actions.openMenu({ kind, id: section.id, x, y, order: sectionOrder });
   if (!wide) {
     if (section.collapsed) {
       const folderRoom = { id: section.id, name: section.name, members: botsInSec.map((bot) => bot.id) };
@@ -30205,6 +30211,10 @@ function TeamSidebar(props) {
   const [kind, setKind] = (0, import_react36.useState)("all");
   const kindEntries = (0, import_react36.useMemo)(() => filterSidebarEntries(order, kind), [order, kind]);
   const sections = roster.sections ?? [];
+  const sectionOrder = (0, import_react36.useMemo)(
+    () => orderedSections(sections, order, roster.prefs?.sectionAutoOrder !== false).map((sec) => sec.id),
+    [sections, order, roster.prefs?.sectionAutoOrder]
+  );
   const sectionSet = (0, import_react36.useMemo)(() => new Set(sections.map((sec) => sec.id)), [sections]);
   const ungrouped = (0, import_react36.useMemo)(
     () => order.filter((entry) => !entry.item.sectionId || !sectionSet.has(entry.item.sectionId)),
@@ -30480,7 +30490,7 @@ function TeamSidebar(props) {
       className: "bt-kind",
       "data-on": kind === entryKind ? "true" : void 0,
       onClick: () => setKind(entryKind)
-    }, entryKind === "all" ? t("All") : entryKind === "bot" ? t("Bots") : t("Group chat")))
+    }, entryKind === "all" ? t("All") : entryKind === "bot" ? t("Bots filter") : t("Group chat")))
   ) : null;
   const content = (0, import_react36.createElement)(
     "div",
@@ -30515,6 +30525,7 @@ function TeamSidebar(props) {
       kind === "all" && orderedSections(sections, order, roster.prefs?.sectionAutoOrder !== false).map((section) => (0, import_react36.createElement)(SectionBlock, {
         key: section.id,
         section,
+        sectionOrder,
         entries: order.filter((entry) => entry.item.sectionId === section.id),
         rowProps,
         markedUnread,
@@ -40947,7 +40958,8 @@ function SectionMenu({ menu, roster, actions, leaving }) {
     if (!box) return;
     setPlace({ left: Math.max(8, Math.min(menu.x, window.innerWidth - box.width - 8)), top: Math.max(8, Math.min(menu.y, viewBottom() - box.height - 8)) });
   }, [menu.x, menu.y, tick]);
-  const sections = roster.sections ?? [];
+  const saved = roster.sections ?? [];
+  const sections = menu.order === void 0 ? saved : [...saved].sort((a, b) => menu.order.indexOf(a.id) - menu.order.indexOf(b.id));
   const index = sections.findIndex((sec2) => sec2.id === menu.id);
   const sec = sections[index];
   if (sec === void 0) return null;

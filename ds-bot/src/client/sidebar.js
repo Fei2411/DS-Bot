@@ -270,7 +270,7 @@ function renderSidebarEntry(entry, rowProps, markedUnread, onDragStart) {
       : h(AgentRow, { key: entry.item.id, ...rowProps, agent: entry.item, marked: markedUnread[entry.item.id] === true, onDragStart })
 }
 
-function SectionBlock({ section, entries, rowProps, markedUnread, renaming, dropTarget, onDragStart, onDragOverSec, onDropSec }) {
+function SectionBlock({ section, entries, sectionOrder, rowProps, markedUnread, renaming, dropTarget, onDragStart, onDragOverSec, onDropSec }) {
   const { roster, actions, useSessions, useSessionStatus, useWork, wide } = rowProps
   const input = useRef(null)
   useLayoutEffect(() => {
@@ -333,7 +333,7 @@ function SectionBlock({ section, entries, rowProps, markedUnread, renaming, drop
   const toggle = () => {
     void Promise.resolve(actions.saveSection({ id: section.id, collapsed: !section.collapsed })).catch(error => actions.reportError(error, 'section'))
   }
-  const openSecMenu = (kind, x, y) => actions.openMenu({ kind, id: section.id, x, y })
+  const openSecMenu = (kind, x, y) => actions.openMenu({ kind, id: section.id, x, y, order: sectionOrder })
   if (!wide) {
     if (section.collapsed) {
       const folderRoom = { id: section.id, name: section.name, members: botsInSec.map(bot => bot.id) }
@@ -527,6 +527,10 @@ export function TeamSidebar(props) {
   const [kind, setKind] = useState('all')
   const kindEntries = useMemo(() => filterSidebarEntries(order, kind), [order, kind])
   const sections = roster.sections ?? []
+  const sectionOrder = useMemo(
+    () => orderedSections(sections, order, roster.prefs?.sectionAutoOrder !== false).map(sec => sec.id),
+    [sections, order, roster.prefs?.sectionAutoOrder],
+  )
   const sectionSet = useMemo(() => new Set(sections.map(sec => sec.id)), [sections])
   const ungrouped = useMemo(
     () => order.filter(entry => !entry.item.sectionId || !sectionSet.has(entry.item.sectionId)),
@@ -817,7 +821,7 @@ export function TeamSidebar(props) {
           className: 'bt-kind',
           'data-on': kind === entryKind ? 'true' : undefined,
           onClick: () => setKind(entryKind),
-        }, entryKind === 'all' ? t('All') : entryKind === 'bot' ? t('Bots') : t('Group chat'))))
+        }, entryKind === 'all' ? t('All') : entryKind === 'bot' ? t('Bots filter') : t('Group chat'))))
     : null
   const content = h('div', { className: wideContent ? 'bt-side' : 'bt-side bt-rail', onKeyDown: typeToSearch },
     top,
@@ -844,6 +848,7 @@ export function TeamSidebar(props) {
       kind === 'all' && orderedSections(sections, order, roster.prefs?.sectionAutoOrder !== false).map(section => h(SectionBlock, {
         key: section.id,
         section,
+        sectionOrder,
         entries: order.filter(entry => entry.item.sectionId === section.id),
         rowProps,
         markedUnread,

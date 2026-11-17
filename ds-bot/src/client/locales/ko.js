@@ -99,6 +99,7 @@ export const KO = {
   'Default model': '기본 모델',
 
   // Sidebar and account menu
+  'Bots filter': '봇',
   'Bot list': 'Bot 목록',
   'Setting up your Main Bot…': '메인 Bot을 설정하는 중…',
   'The Bot team could not start. The engine’s startup output — its console, or the app’s startup error box — has the cause.': 'Bot 팀을 시작할 수 없습니다. 엔진의 시작 출력(콘솔 또는 앱의 시작 오류 창)에서 원인을 확인할 수 있습니다.',

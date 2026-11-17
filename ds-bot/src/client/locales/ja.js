@@ -96,6 +96,7 @@ export const JA = {
   "New Bot": "新しい Bot",
   "New Bots": "新しい Bot",
   "Default model": "デフォルトモデル",
+  "Bots filter": "ボット",
   "Bot list": "Bot 一覧",
   "Setting up your Main Bot…": "メイン Bot を準備しています…",
   "The Bot team could not start. The engine’s startup output — its console, or the app’s startup error box — has the cause.": "Bot チームを起動できませんでした。原因はエンジンの起動出力（コンソールまたはアプリの起動エラー画面）を確認してください。",

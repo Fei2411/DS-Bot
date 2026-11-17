@@ -106,7 +106,10 @@ function SectionMenu({ menu, roster, actions, leaving }) {
     if (!box) return
     setPlace({ left: Math.max(8, Math.min(menu.x, window.innerWidth - box.width - 8)), top: Math.max(8, Math.min(menu.y, viewBottom() - box.height - 8)) })
   }, [menu.x, menu.y, tick])
-  const sections = roster.sections ?? []
+  // `menu.order` is the order on screen: with sections following activity it can
+  // differ from the saved array, and a Move up/down must move what the user sees.
+  const saved = roster.sections ?? []
+  const sections = menu.order === undefined ? saved : [...saved].sort((a, b) => menu.order.indexOf(a.id) - menu.order.indexOf(b.id))
   const index = sections.findIndex(sec => sec.id === menu.id)
   const sec = sections[index]
   if (sec === undefined) return null
