@@ -965,6 +965,29 @@ test('a Session keeps the memory it began with, across restarts, until its snaps
   assert.match(renewed.section('b2'), /- Likes tea \[.*\]\nTopic \[\[home\]\]\n/)
 })
 
+for (const privateBot of [false, true]) test(`a ${privateBot ? 'private' : 'regular'} Bot refreshes a snapshot with legacy memory tool rules`, async (t) => {
+  const first = start()
+  t.after(() => first.stop())
+  if (privateBot) {
+    const team = JSON.parse(readFileSync(join(first.home, 'state.json'), 'utf8'))
+    team.bots.b2.private = true
+    writeFileSync(join(first.home, 'state.json'), JSON.stringify(team))
+  }
+  await first.tool('bot_remember', { text: 'Likes tea' }, 'b2')
+  const current = first.section('b2')
+  const legacy = current.replace(/\bbot_(remember|forget|recall)\b/g, '$1')
+  assert.notEqual(legacy, current)
+  await first.stop({ keep: true })
+  const path = join(first.home, 'memory', 'snapshots', 'b2.md')
+  writeFileSync(path, legacy)
+  const second = start({ home: first.home })
+  t.after(() => second.stop())
+  assert.equal(second.section('b2'), current)
+  assert.equal(readFileSync(path, 'utf8'), current)
+  await second.tool('bot_remember', { text: 'Lives in Hangzhou' }, 'b2')
+  assert.equal(second.section('b2'), current)
+})
+
 test('a memory file that cannot be read is left alone, and the section says so', async (t) => {
   const { home, tool, section, stop } = start()
   t.after(() => stop())

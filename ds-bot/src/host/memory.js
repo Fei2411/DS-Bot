@@ -806,7 +806,7 @@ export function install(rt) {
     // A group Session's section is the Bot's own; its group's memory comes as a message
     // (see the agent/pre-step below), so both share the provider's cached prefix, tools
     // included: the provider puts the tools after the whole system prompt.
-    const marks = [teamRule(rt.isMain(bot.id), writesTeam(bot.id), rt.isPrivate(bot.id))]
+    const marks = [memoryRules(reviewOn), teamRule(rt.isMain(bot.id), writesTeam(bot.id), rt.isPrivate(bot.id))]
     const holds = text => marks.every(mark => text.includes(mark))
     const kept = frozen.get(sessionId)
     if (kept !== undefined && holds(kept)) return kept
@@ -817,7 +817,7 @@ export function install(rt) {
       if (pending.pending === true) void recover().catch(error => rt.warn('ds-bot: memory recovery failed: %s', error?.message ?? error))
       // Only a previously committed snapshot is safe while files may be half-written.
       if (snap.text !== '' && holds(snap.text)) return snap.text
-      return ['# Your memory', memoryRules(reviewOn), ...marks, '', 'Memory is unavailable until its pending change has been recovered. Use bot_recall after recovery.'].join('\n')
+      return ['# Your memory', ...marks, '', 'Memory is unavailable until its pending change has been recovered. Use bot_recall after recovery.'].join('\n')
     }
     let text = snap.text
     // A render that could not read everything is used but not kept: it is written
