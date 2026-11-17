@@ -4,7 +4,7 @@ import { HeaderPill } from '../../../ds-bot/src/client/header.js'
 import { t } from '../../../ds-bot/src/client/i18n.js'
 import { Overlays } from '../../../ds-bot/src/client/overlays.js'
 import { BrandMark, TeamSidebar, YouAvatar } from '../../../ds-bot/src/client/sidebar.js'
-import { allThemes, themeCss } from '../../../ds-bot/src/client/themes.js'
+import { allThemes, effectsOf, themeCss } from '../../../ds-bot/src/client/themes.js'
 import { Chat } from './chat.js'
 import { createTeam } from './team.js'
 
@@ -17,8 +17,9 @@ function useTheme(prefs) {
     document.head.append(style)
     if (prefs?.motion) document.body.dataset.btMotion = prefs.motion
     else delete document.body.dataset.btMotion
-    return () => { style.remove() }
-  }, [prefs?.theme, prefs?.accent, prefs?.motion])
+    document.body.dataset.btEffects = effectsOf(prefs)
+    return () => { delete document.body.dataset.btEffects; style.remove() }
+  }, [prefs?.theme, prefs?.accent, prefs?.motion, prefs?.effects])
 }
 
 // A dialog or panel that fails closes, and the failure shows as a toast; the window stays.
@@ -72,7 +73,7 @@ export function App() {
       h('div', { className: 'dsb-band' }),
       shown ? h(Fragment, { key: shown },
         h('div', { className: 'dsb-head' }, h(HeaderPill, { ...views, sessionId: shown, useSession: team.sessionHook(shown) })),
-        h(Chat, { sessionId: shown, team })) : null),
+        h(Chat, { key: shown, sessionId: shown, team })) : null),
     h(Contain, { onError: closeOverlays }, h(Overlays, views)),
     h(ErrorToast, views))
 }

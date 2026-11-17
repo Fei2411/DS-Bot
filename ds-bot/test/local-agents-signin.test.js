@@ -1,10 +1,14 @@
 import assert from 'node:assert/strict'
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { test } from 'node:test'
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { runInNewContext } from 'node:vm'
 import { build } from 'esbuild'
+import { ENGINES } from '../src/host/local-agents/engines.js'
+import { probeSignIn } from '../src/host/local-agents/discover.js'
 
 // jsdom comes from the harness that test/harness-resolve.mjs found, like the dsh packages.
 const PLUGIN = dirname(dirname(fileURLToPath(import.meta.url)))
@@ -14,7 +18,7 @@ const { JSDOM } = createRequire(join(process.env.DSH_HARNESS ?? join(PLUGIN, '..
 // React stand-in whose useState survives re-renders (#1083).
 const { outputFiles } = await build({
   stdin: {
-    contents: "export { AgentSignInRow } from './src/client/local-agents-page.js'",
+    contents: "export { AgentSignInRow } from './src/client/local-agents-page.js'\nexport { shortVersion } from './src/client/agent-cards.js'\nexport { AgentBadge } from './src/client/agent-badge.js'",
     resolveDir: PLUGIN,
   },
   bundle: true, format: 'cjs', platform: 'browser', write: false, logLevel: 'silent',
@@ -60,12 +64,13 @@ const module = { exports: {} }
 const nav = { clipboard: { writeText: async () => {} } }
 runInNewContext(outputFiles[0].text, {
   module, exports: module.exports,
+  btoa,
   document: dom.window.document,
   navigator: nav,
   window: { matchMedia: () => ({ matches: false }), dshDesktop: {}, open: () => null },
   require: name => (name === 'react' ? react : name === 'react-dom' ? { createPortal: node => node } : {}),
 })
-const { AgentSignInRow } = module.exports
+const { AgentSignInRow, shortVersion, AgentBadge } = module.exports
 
 // The settings Row the page passes in: label and hint on the left, controls on the right.
 const Row = ({ label, hint, children }) => ({
@@ -147,4 +152,100 @@ test('a browser without a clipboard shows the error instead of doing nothing', a
   const line = note('alert')
   assert.ok(line, 'no clipboard is reported')
   assert.match(text(line), /cursor-agent login/)
+})
+
+test('an agent that is already signed in shows Signed in without a Sign in button', () => {
+  props = {
+    agent: { route: 'local-devin-cli', name: 'Devin CLI', path: '/bench/bin/devin', version: 'devin 3000.12.28 (91c3aec41579)', signIn: 'devin auth login', signedIn: true },
+    Row,
+  }
+  render()
+  assert.equal(collect(n => n.type === 'button' && flatten(n).join('') === 'Sign in').length, 0, 'no Sign in button when already signed in')
+  const state = collect(n => String(n.props?.className ?? '').includes('bt-la-state'))[0]
+  assert.ok(state, 'shows sign-in state')
+  assert.equal(text(state), 'Signed in')
+  const logo = collect(n => n.type === 'img' && String(n.props?.className ?? '').includes('bt-cli-logo'))[0]
+  assert.ok(logo, 'renders the agent logo')
+  const ver = collect(n => String(n.props?.className ?? '').includes('bt-la-ver'))[0]
+  const path = collect(n => String(n.props?.className ?? '').includes('bt-la-path'))[0]
+  assert.equal(text(ver), '3000.12.28')
+  assert.equal(text(path), '/bench/bin/devin')
+})
+
+test('OpenCode has no sign-in check or Sign in button', () => {
+  assert.equal(ENGINES['local-opencode'].signedIn, undefined)
+  props = {
+    agent: { route: 'local-opencode', name: 'OpenCode', path: '/opt/homebrew/bin/opencode', version: 'opencode v2.2.5', signIn: undefined, signedIn: null },
+    Row,
+  }
+  render()
+  assert.equal(collect(n => n.type === 'button' && flatten(n).join('') === 'Sign in').length, 0, 'no Sign in button for OpenCode')
+  assert.equal(collect(n => String(n.props?.className ?? '').includes('bt-la-state')).length, 0, 'no Found tag or sign-in state for OpenCode')
+  assert.equal(shortVersion('opencode v2.2.5'), 'v2.2.5')
+  assert.equal(shortVersion('codex-cli 0.166.0'), '0.166.0')
+  assert.equal(shortVersion('1.5.9'), '1.5.9')
+})
+
+test('Antigravity with unknown sign-in renders its logo, Sign in button, no state label, and copies agy acp --login', async () => {
+  assert.equal(ENGINES['local-antigravity'].signedIn, undefined)
+  assert.equal(ENGINES['local-antigravity'].signIn, 'agy acp --login')
+  const written = []
+  nav.clipboard = { writeText: async (value) => { written.push(value) } }
+  props = {
+    agent: { route: 'local-antigravity', name: 'Antigravity', path: '/usr/local/bin/agy', version: '1.5.9', signIn: 'agy acp --login', signedIn: null },
+    Row,
+  }
+  render()
+  assert.equal(collect(n => String(n.props?.className ?? '').includes('bt-la-state')).length, 0, 'no status label when signedIn is unknown (null)')
+  assert.equal(collect(n => n.type === 'button' && flatten(n).join('') === 'Sign in').length, 1, 'shows Sign in button')
+  const logo = collect(n => n.type === 'img' && String(n.props?.className ?? '').includes('bt-cli-logo'))[0]
+  assert.ok(logo?.props?.src?.startsWith('data:image/png;base64,'), 'renders the Antigravity PNG logo')
+  const ver = collect(n => String(n.props?.className ?? '').includes('bt-la-ver'))[0]
+  assert.equal(text(ver), '1.5.9')
+  click('Sign in')
+  await flush()
+  assert.deepEqual(written, ['agy acp --login'])
+})
+
+test('AgentBadge adapts dark monochrome SVG logos to theme ink and preserves brand colors', () => {
+  const copilot = AgentBadge({ engine: 'local-copilot-cli' })
+  const kimi = AgentBadge({ engine: 'local-kimi-cli' })
+  const minimax = AgentBadge({ engine: 'local-minimax-code' })
+  const mistral = AgentBadge({ engine: 'local-mistral-vibe' })
+  assert.equal(copilot.props.style.color, 'var(--bt-ink, currentColor)')
+  assert.equal(kimi.props.style.color, 'var(--bt-ink, currentColor)')
+  assert.equal(minimax.props.style.color, '#E73562')
+  assert.equal(mistral.props.style.color, '#FA520F')
+})
+
+test('probeSignIn parses JSON status, auth error phrases, and credential file fallback (#1439)', async (t) => {
+  const root = mkdtempSync(join(tmpdir(), 'dsb-signin-'))
+  t.after(() => rmSync(root, { recursive: true, force: true }))
+  const makeScript = (name, body) => {
+    const file = join(root, name)
+    writeFileSync(file, `#!/usr/bin/env node\n${body}\n`)
+    chmodSync(file, 0o755)
+    if (process.platform === 'win32') {
+      const cmd = `${file}.cmd`
+      writeFileSync(cmd, `@ECHO off\r\n"${process.execPath}" "${file}" %*\r\n`)
+      return cmd
+    }
+    return file
+  }
+  const okJson = makeScript('ok.mjs', 'console.log(JSON.stringify({ loggedIn: true }))')
+  const noJson = makeScript('no.mjs', 'console.log(JSON.stringify({ loggedIn: false }))')
+  const silent = makeScript('silent.mjs', 'console.log("ok")')
+  const unauth = makeScript('unauth.mjs', 'console.error("Not authenticated")')
+
+  assert.equal(await probeSignIn(okJson, { args: [] }), true)
+  assert.equal(await probeSignIn(noJson, { args: [] }), false)
+  assert.equal(await probeSignIn(unauth, { args: [] }), false)
+  assert.equal(await probeSignIn(silent, { args: [], nonEmpty: true }), true)
+
+  const home = join(root, 'home')
+  mkdirSync(join(home, '.claude'), { recursive: true })
+  writeFileSync(join(home, '.claude', '.credentials.json'), '{}')
+  const check = { args: [], fallback: { file: ['.claude', '.credentials.json'] } }
+  assert.equal(await probeSignIn(silent, check, { home }), true)
+  assert.equal(await probeSignIn(silent, check, { home: join(root, 'empty-home') }), null)
 })

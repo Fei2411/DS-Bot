@@ -1,6 +1,12 @@
-// Interface copy follows the DSH language. Keys are the English text; `zh` maps them.
-// Copy is looked up at render time and every slot outlet re-renders on a language
-// switch, so nothing caches a translated string.
+// Interface copy follows the DSH language. Keys are the English text; `zh`, `zh-TW`,
+// `ja`, `ko`, `es`, `fr` and `de` map them. Copy is looked up at render time and every
+// slot outlet re-renders on a language switch, so nothing caches a translated string.
+import { convertDict, convertHostErrors, toTraditional } from './locales/zh-tw.js'
+import { DSH_JA, HOST_ERRORS_JA, JA } from './locales/ja.js'
+import { DSH_KO, HOST_ERRORS_KO, KO } from './locales/ko.js'
+import { DSH_ES, HOST_ERRORS_ES, ES } from './locales/es.js'
+import { DSH_FR, HOST_ERRORS_FR, FR } from './locales/fr.js'
+import { DSH_DE, HOST_ERRORS_DE, DE } from './locales/de.js'
 
 export const NAMESPACE = 'ds-bot'
 
@@ -8,6 +14,7 @@ const ZH = {
   // Shared
   'Main Bot': '主 Bot',
   Working: '进行中',
+  'A new reply is waiting': "有一条新回复",
   'Waiting for your answer': '等你回答',
   'Waiting for {names}': '等 {names} 交回',
   'Unread activity': '有未读',
@@ -32,6 +39,9 @@ const ZH = {
   'Resize sidebar': '调整侧边栏宽度',
   'Animation': '动画',
   'Bot animation': 'Bot 动画',
+  'Interface motion': '界面动效',
+  Full: '标准',
+  Reduced: '精简',
   'Quiet': '安静',
   'Normal': '正常',
   'Lively': '活泼',
@@ -205,8 +215,10 @@ const ZH = {
   'This DSH cannot load connectors': '这个 DSH 不能加载连接器',
   'No such connector': '没有这个连接器',
   'Classic Agent mode': '经典 Agent 模式',
+  'Switch to classic Agent mode': '切换到经典 Agent 模式',
   'Bot mode': 'Bot 模式',
   'Switch': '切换',
+  'Back to DS Bot': '返回 DS Bot',
   '{model} is not available anymore. Pick another model for me.': '{model} 已经不可用了。给我换一个模型吧。',
   "Hi, I'm {name}. I don't have a model yet. How do you want to set one up?": '你好，我是 {name}。我还没有可用的模型。你想怎么配置？',
   "Hi, I'm {name}. Pick a model for me first. You can change it later in my details.": '你好，我是 {name}。先给我选一个模型吧，以后可以在我的详情里换。',
@@ -227,6 +239,18 @@ const ZH = {
   'Key set outside DS Bot': 'key 在 DS Bot 之外设置',
   'No models': '没有模型',
   '{count} models': '{count} 个模型',
+  'Refresh models': '刷新模型列表',
+  'Refreshing…': '正在刷新…',
+  'Models from the endpoint': '接口返回的模型',
+  "Upstream didn't return": '上游未返回',
+  'Keep the ids you still want by hand.': '想保留的 ID 请手动勾选。',
+  '{added} added · {removed} removed · {count} selected': '新增 {added} · 移除 {removed} · 已选 {count}',
+  'Select at least one model': '至少选择一个模型',
+  'Save anyway': '仍要保存',
+  'The endpoint lists no models.': '这个接口没有列出模型。',
+  '{name} will switch to {model} on its next turn.': '{name} 下一轮会改用 {model}。',
+  '{name} has no model to fall back to; its next turn will fail.': '{name} 没有可回落的模型，下一轮会失败。',
+  'Local agent, not affected: {names}': '本地 Agent，不受影响：{names}',
   // What a Bot runs on
   'Runs on': '运行方式',
   'DS Bot model': 'DS Bot 模型',
@@ -249,6 +273,9 @@ const ZH = {
   'Change and start a new part': '更换并开新的一段',
   // Local agents page
   'Local agents': '本地 Agent',
+  // Add-provider form
+  'Still needed: {fields}': '还差：{fields}',
+  'At least one model': '至少一个模型',
   'This DSH cannot register local agent routes.': '这个 DSH 不能注册本地 Agent 路由。',
   'Detected agents': '已检测到的 Agent',
   Refresh: '刷新',
@@ -311,6 +338,9 @@ const ZH = {
   'This API key is not in the right format.': '这个 API Key 的格式不对。',
   '{provider} did not accept the current API key.': '{provider} 不接受现在的 API Key。',
   '{provider} did not accept the current API key ({status}).': '{provider} 不接受现在的 API Key（{status}）。',
+  'The model service blocked the content': '模型服务的内容审核拦截了这条内容',
+  '{provider} blocked this request with its content filter. The API key is not the problem; edit the input or start a new chat.': '{provider} 的内容审核拦截了这次请求。问题不在 API Key；请修改输入内容或新开一个对话。',
+  '{provider} blocked this request with its content filter ({status}). The API key is not the problem; edit the input or start a new chat.': '{provider} 的内容审核拦截了这次请求（{status}）。问题不在 API Key；请修改输入内容或新开一个对话。',
   '{provider} is out of balance or quota.': '{provider} 的余额或额度不够了。',
   '{provider} is out of balance or quota ({status}).': '{provider} 的余额或额度不够了（{status}）。',
   'The DeepSeek account balance is too low.': 'DeepSeek 账号余额不足。',
@@ -320,6 +350,8 @@ const ZH = {
   'The model service failed.': '模型服务出错了。',
   'DeepSeek Harness stopped before this turn finished.': '这一轮还没完成，DeepSeek Harness 就停下了。',
   'This turn failed.': '这一轮运行失败了。',
+  "The conversation could not be compacted for this model. Try again or choose another model.": "无法为这个模型压缩对话。请重试或选择其他模型。",
+  'Open model settings': '打开模型设置',
   'The model service': '模型服务',
   'DeepSeek account': 'DeepSeek 账号',
   'This Bot': '这个 Bot',
@@ -386,7 +418,11 @@ const ZH = {
   Details: '详情',
   Browser: '浏览器',
   'Browser access': '浏览器权限',
-  'Bots browse, click and fill in forms freely. Posting, uploading, downloading and deleting ask you first unless you allow them here. Payments are always yours: the Bot hands the page to you.': 'Bot 可以自由浏览、点击和填写表单。发布、上传、下载和删除会先征求你的同意，除非你在这里预先允许。付款始终由你自己完成：Bot 会把页面交给你。',
+  'A Bot can read the page you have open: its title, address and visible text. By default it cannot click, type, scroll or open pages.': 'Bot 可以读取你打开的页面：标题、地址和可见文字。默认不能点击、输入、滚动或打开页面。',
+  'How to enable interactive browsing': '如何开启交互式浏览',
+  'In this DSH profile, set browserPlugin to refs, script or task, then restart DS Bot.': '在这个 DSH profile 里把 browserPlugin 设为 refs、script 或 task，然后重启 DS Bot。',
+  'With an interactive plugin, Bots browse, click and fill in forms. Posting, uploading, downloading and deleting ask you first unless you allow them here. Payments are always yours: the Bot hands the page to you.': '启用交互插件后，Bot 可以浏览、点击和填写表单。发布、上传、下载和删除会先征求你的同意，除非你在这里预先允许。付款始终由你自己完成：Bot 会把页面交给你。',
+  'These grants apply only after an interactive browser plugin is enabled.': '这些授权只在启用交互式浏览器插件后生效。',
   'Allowed actions': '已允许的操作',
   'Nothing allowed yet.': '还没有允许的操作。',
   'All sites': '所有网站',
@@ -438,7 +474,6 @@ const ZH = {
   'Name after members': '按成员命名',
   'Rename {name}': '重命名 {name}',
   Rename: '重命名',
-  'Add instructions in Bot settings': '在 Bot 设置里添加说明',
   'No scheduled tasks yet. To add one, tell the Bot in its chat what to do and when.': '还没有定时任务。要添加，在对话里告诉 Bot 做什么、什么时候做。',
   'The browser is in DSH Desktop and the DS Bot app.': '浏览器在 DSH 桌面版和 DS Bot 应用里。',
   'New tab': '新标签页',
@@ -474,7 +509,6 @@ const ZH = {
   'Closing…': '正在关闭…',
   'Import {count} cookies': '导入 {count} 个 cookie',
   'the browser was restarted': '浏览器已重新打开',
-  '{count} skipped': '跳过 {count} 个',
   '{count} session': '{count} 个会话',
   '{count} adjusted': '调整了 {count} 个',
   'Cookies without an expiry stay until the app closes.': '没有过期时间的 cookie 会保留到应用关闭。',
@@ -516,6 +550,7 @@ const ZH = {
   'Applies from the next message.': '从下一条消息开始生效。',
   Profile: '资料',
   Label: '标签',
+  'Add a label': '添加标签',
   'Optional. Shown under the name.': '可选，显示在名字下方。',
   'Research, admin…': '研究、行政…',
   'What this Bot does': '这个 Bot 做什么',
@@ -685,13 +720,43 @@ const ZH = {
   'Back to Bots': '返回 Bot 列表',
   'Close settings': '关闭设置',
 
+  // Phone
+  Phone: '手机',
+  'Off. Phones cannot reach this computer.': '已关闭。手机连不上这台电脑。',
+  'On. Paired phones can use DS Bot here.': '已开启。配对过的手机可以用这台电脑上的 DS Bot。',
+  'Cannot reach the Server. Trying again…': '连不上服务器，正在重试…',
+  'Phone access': '手机访问',
+  'Beta': '测试版',
+  'Phone app': '手机 App',
+  'Android beta': 'Android 测试版',
+  Server: '服务器',
+  'The Relay Server that passes encrypted messages between your phone and this computer. It cannot read them.': '在手机和这台电脑之间转发加密消息的中转服务器。它读不到消息内容。',
+  'Pair a phone': '配对手机',
+  'Scan this code with the DS Bot app on your phone.': '用手机上的 DS Bot App 扫这个码。',
+  'The code works once. It stops working in {count} min.': '这个码只能用一次，{count} 分钟后失效。',
+  'Show a QR code': '显示二维码',
+  'Your phone scans it once. After that it connects by itself.': '手机扫一次就行，以后会自动连接。',
+  'Turn on phone access first': '请先打开手机访问',
+  Phones: '手机',
+  'No phones yet': '还没有配对的手机',
+  'Paired on {date}': '{date} 配对',
+
   // Context menu
   Unpin: '取消置顶',
   Pin: '置顶',
   Pinned: '已置顶',
   'Mark as Unread': '标为未读',
+  'Mute notifications': '静音通知',
+  'Unmute notifications': '取消静音',
+  Notifications: '通知',
+  'Tell me when a Bot answers while I am looking elsewhere.': 'Bot 在你没看着时回复，提醒我。',
+  'System notifications are turned off for DS Bot. Unread marks still show them.': 'DS Bot 的系统通知已被关闭，仍会用未读标记提示。',
   'Rename Bot': '重命名 Bot',
   'Group settings': '群设置',
+  'Shared to-do': '共享待办',
+  '{count} open': '{count} 项未完成',
+  'No shared to-dos yet. Ask a Bot in this group to add one.': '还没有共享待办。让群里的一个 Bot 加一条。',
+  'Clear completed': '清除已完成',
   'Rename group': '重命名群聊',
   'Copy conversation ID': '复制对话 ID',
   'Hide from sidebar': '从侧栏隐藏',
@@ -703,6 +768,7 @@ const ZH = {
   'New session': '新会话',
   Archive: '归档',
   'Session actions': '会话操作',
+  Plugins: '插件',
   'Plain dsh session': '原生 dsh 会话',
   'just now': '刚刚',
   '{n} min': '{n} 分钟',
@@ -739,6 +805,20 @@ const ZH = {
   'No results': '没有结果',
   'Try a Bot name or words from a message': '试试 Bot 名字或消息里的词',
 
+  // Group history search
+  'Search this group': '搜索这个群',
+  'Search this group’s messages': '搜索这个群的消息',
+  'Search messages in {name}': '在 {name} 里搜索消息',
+  'Type at least two characters': '至少输入两个字',
+  'No messages found': '没有找到消息',
+  'Try a different word': '换个词试试',
+  'Searching…': '搜索中…',
+  'Back to results': '返回结果',
+  'Around this message': '这条消息的前后',
+  '1 match': '1 条结果',
+  '{count} matches': '{count} 条结果',
+  'Showing the {count} newest': '只显示最新 {count} 条',
+
   // Bot exchange
   'Bot exchange': 'Bot 间对话',
   'Bot exchange transcript': 'Bot 间对话记录',
@@ -747,11 +827,19 @@ const ZH = {
   'Show all · {count} characters': '显示全部 · {count} 字',
   'Showing the first {count} characters': '只显示前 {count} 字',
   'Only the start of this message is kept here': '这里只保留了这条消息的开头',
+  'Start of reply': '回复开头',
+  'Back to the start of this reply': '回到这条回复的开头',
+  Contents: '目录',
+  'Sections in this reply': '这条回复的目录',
+  'Sections in this reply: {section}': '这条回复的目录：{section}',
 
   // Time and usage
   'Today {time}': '今天 {time}',
   'Yesterday {time}': '昨天 {time}',
   'Ran for {duration}': '本次用时 {duration}',
+  "No background work detected": "未检测到后台任务",
+  "DS Bot has no recorded tool call or active background task for this reply.": "DS Bot 未记录到这条回复的工具调用或正在运行的后台任务。",
+  'File not found: {path}': '文件不存在：{path}',
   '{tokens} tok · Cache hit {hit}%': '{tokens} tok · 缓存命中 {hit}%',
   '1 turn': '1 轮',
   '{count} turns': '{count} 轮',
@@ -761,6 +849,13 @@ const ZH = {
   '{used} of {total} tokens of context in use': '上下文已用 {used} / {total} tokens',
 
   // Transcript
+  Annotate: '批注',
+  'Annotate quote': '批注引用',
+  Annotation: '批注',
+  'Add an annotation…': '写下批注…',
+  'Add quote and annotation to the composer · Enter': '将引用和批注添加到输入框 · Enter',
+  'Send quote and annotation · Ctrl+Enter': '发送引用和批注 · Ctrl+Enter',
+  'Quote text': '引用文本',
   Footnotes: '脚注',
   'Remove reaction {emoji}': '移除表情 {emoji}',
   'Add reaction': '添加表情',
@@ -947,6 +1042,7 @@ const ZH = {
   'At least {count} characters.': '至少 {count} 个字符。',
   'Replace value': '替换值',
   'Saving…': '保存中…',
+  'Could not save this file': '保存这个文件失败',
   Save: '保存',
   'Allowing…': '允许中…',
   Allow: '允许',
@@ -981,6 +1077,21 @@ const ZH = {
   ' in their shell, and every value is replaced by ': ' 使用，而且发给模型之前，每个值都会被替换成 ',
   ' before anything goes to a model.': '。',
   'Secrets · {count}': '密钥 · {count}',
+  'Encryption at rest': '静态加密',
+  'Keys are stored in a file only this user can read, but the values are not encrypted.': '密钥存在只有该用户能读的文件里，但值没有加密。',
+  'Encrypt keys at rest': '加密存储密钥',
+  'Passphrase (at least 8 characters)': '口令（至少 8 个字符）',
+  'Repeat the passphrase': '再输一次口令',
+  'The passphrases do not match.': '两次输入的口令不一致。',
+  'Turn on encryption': '开启加密',
+  'Keys are stored encrypted. They stay decrypted in memory while DS Bot runs.': '密钥加密存放；DS Bot 运行期间解密后的值只在内存里。',
+  'Turn off encryption': '关闭加密',
+  'Secrets are locked': '密钥已锁定',
+  'Passphrase': '口令',
+  'Unlock': '解锁',
+  'The passphrase file named by DS_BOT_SECRETS_PASSPHRASE_FILE could not be read.': 'DS_BOT_SECRETS_PASSPHRASE_FILE 指向的口令文件读不到。',
+  'The passphrase in the environment or the passphrase file did not unlock the secrets.': '环境变量或口令文件里的口令解不开密钥。',
+  'No passphrase was found at startup. Enter it here, or set DS_BOT_SECRETS_PASSPHRASE_FILE for unattended starts.': '启动时没有找到口令。在这里输入，或为无人值守启动设置 DS_BOT_SECRETS_PASSPHRASE_FILE。',
   'No keys yet. When a Bot needs one, it shows a card in its chat.': '还没有密钥。Bot 需要时，会在对话里弹出一张卡片。',
   'Add a key': '添加密钥',
 
@@ -1039,6 +1150,14 @@ const ZH = {
   'Removed: {text}': '已删除：{text}',
   'Removed from team memory: {text}': '已从团队记忆删除：{text}',
   'Not changed: {text} ({reason})': '没有改动：{text}（{reason}）',
+  '{count} files changed': '{count} 个文件改动',
+  '{count} file changed': '{count} 个文件改动',
+  'File': '文件',
+  'Binary file': '二进制文件',
+  'This file is too large to preview': '文件过大，无法预览',
+  'Review these changes': '打开这次改动审查',
+  'These changes are no longer available': '这些改动已经不可用：会话已归档或改动已被重置',
+  'This window cannot open the change review': '当前窗口无法打开改动审查',
   'Saving to memory': '正在记下',
   'Updating memory': '正在更新记忆',
   'Checking memory': '正在查看记忆',
@@ -1132,6 +1251,19 @@ const ZH = {
   'Ask about the work so far': '问问目前做到哪了',
   'Answering…': '正在回答…',
   Cancelled: '已取消',
+  // The group task board
+  Tasks: '任务',
+  'In progress': '进行中',
+  'Awaiting review': '待审',
+  Blocked: '阻塞',
+  'Add a note': '补一句',
+  'Cancel task': '取消任务',
+  'Click again to cancel': '再点一次取消',
+  'History ({count})': '历史（{count}）',
+  'Hide history': '收起历史',
+  'No task is running in this group.': '这个群还没有进行中的任务。',
+  'What should change?': '要补什么？',
+  'Note: {text}': '备注：{text}',
   'Answered from progress so far; nothing was run': '基于目前已有进展的回答，没有执行任何操作',
   'Could not answer.': '没能答上。',
   'Cancel this side question': '取消这次旁路提问',
@@ -1240,6 +1372,11 @@ const ZH = {
   'Settings → Feedback has the details.': '详情见 设置 → 反馈。',
   'Could not reach DSH. Check that it is still running.': '连不上 DSH，请确认它还在运行。',
   '{name} stopped: {reason}. Switch its model or ask it to go on.': '{name} 停下了：{reason}。换个模型，或让它继续。',
+  "{name}'s background helper did not finish: {reason}. Ask it to go on if it still matters.": "{name} 的后台子代理没做完：{reason}。如果还需要，让它继续。",
+  'Run failed': '运行出错',
+  'Reached the output limit': '达到输出上限',
+  'Stopped before finishing': '未完成即停止',
+  'Declined the task': '拒绝了任务',
   'Unknown error': '未知错误',
   'The model has no API key': '模型还没有 API Key',
   'The API key is not in the right format': 'API Key 格式不对',
@@ -1254,13 +1391,23 @@ const ZH = {
   'The model service failed': '模型服务出错',
   'The model took too long to answer': '模型响应超时',
   'Could not reach the model service': '连不上模型服务',
+  "The conversation could not be compacted for the model switch": "切换模型时无法压缩对话",
   'Its group conversation could not open': '它的群聊会话打不开',
   'Its group conversation could not open, so it starts a new one next time': '它的群聊会话打不开，下次会换一个新的',
+  // A long paste, folded into a card
+  'Pasted text · {count} characters': '粘贴的文本 · {count} 字',
+  'Put back': '放回',
+  'Put back into the box': '放回输入框',
+  'Remove pasted text': '删除粘贴的文本',
   // The composer's +
+  // A Session that is still landing
+  'Opening…': '正在打开…',
+  'Still opening…': '还在打开…',
   'Add files': '添加文件',
   'Reference a chat': '引用对话',
   'Chat with {name}': '与 {name} 的对话',
   'Scheduled task': '定时任务',
+  'Open the scheduled tasks of this chat': '打开这个会话的定时任务',
   'Send to': '发给',
   'Scheduled task: {text}': '定时任务：{text}',
   // New group chats
@@ -1382,6 +1529,7 @@ const ZH = {
   'Finish signing in in your browser.': '在浏览器里完成登录。',
   'Open again': '重新打开',
   'Did not come back here?': '登录后没有回到这里？',
+  'Copied to clipboard': '已复制到剪贴板',
   'Paste the code on {host} and authorize.': '在 {host} 粘贴这个码并授权。',
   'Add another': '再添加一个',
   'QQ, 163, 126, Gmail, iCloud, and other IMAP mail': 'QQ、163、126、Gmail、iCloud 等 IMAP 邮箱',
@@ -1491,6 +1639,32 @@ const ZH = {
   'Sent': '已发送',
   'Failed': '失败',
 
+  "Bot models": "Bot 模型",
+  "Change several Bots": "批量更换 Bot 模型",
+  "{selected} of {total} selected": "已选 {selected} / {total}",
+  "Bots on a local agent keep their own model.": "跑在本地 Agent 上的 Bot 保持自己的模型。",
+  "Select all": "全选",
+  "Changing…": "正在更换…",
+  "Selected Bots": "选中的 Bot",
+  "{model} (not available)": "{model}（当前不可用）",
+  "Changed": "已更换",
+  "Already on this model": "已在使用此模型",
+  "Skipped: runs on a local agent": "已跳过：跑在本地 Agent 上",
+  "Skipped: not available now": "已跳过：当前不可用",
+  "Could not change: {error}": "更换失败：{error}",
+  "Changed {count} of {total} Bots.": "已更换 {count} / {total} 个 Bot。",
+  "Select {name}": "选择 {name}",
+  "Change it in the Bot's settings.": "在 Bot 自己的设置里更换。",
+  "Already on this model: {count}": "已在使用此模型：{count} 个",
+  "Skipped: {count}": "已跳过：{count} 个",
+  "Failed: {count}": "失败：{count} 个",
+  "{count} skipped": "跳过 {count} 个",
+  "No model picked yet": "还没有选模型",
+  "Running": "运行中",
+  "Open this session": "打开这个会话",
+  "Open this running session": "打开这个正在运行的会话",
+  "A running session keeps using model calls in the background.": "运行中的会话会在后台继续消耗模型调用。",
+  "This session is still running. Wait for it to finish, or stop it.": "这个会话还在运行。等它结束，或先停止它。",
 }
 
 // Host errors stay English, since Bots read them too; they are translated where the
@@ -1553,6 +1727,13 @@ const HOST_ERRORS = [
   [/^Memory cannot change now: [\s\S]*$/, '现在不能修改记忆：另一个 dsh 正在使用这个 Bot 团队'],
 ]
 const HOST_ZH = {
+  'The Server address must start with ws:// or wss://': '服务器地址必须以 ws:// 或 wss:// 开头',
+  'Enter the Server address first': '请先填服务器地址',
+  'Turn on phone access first': '请先打开手机访问',
+  'This phone is not paired': '这台手机没有配对',
+  'Another dsh has this Bot team open, so phones connect to that one': '另一个 dsh 打开了这个 Bot 团队，手机会连到那一个',
+  'This dsh runs on a Node without WebSocket': '这个 dsh 用的 Node 不支持 WebSocket',
+  'Phones are paired and removed on the computer': '配对和删除手机只能在电脑上做',
   'Request failed': '请求失败',
   'Permissions are not available in this DeepSeek Harness': '这个 DeepSeek Harness 不支持权限设置',
   'Avatar images must be PNG, JPEG, WebP, or GIF': '头像图片必须是 PNG、JPEG、WebP 或 GIF',
@@ -1652,6 +1833,65 @@ const HOST_ZH = {
 }
 Object.assign(ZH, HOST_ZH)
 
+const ZH_TW = convertDict(ZH)
+const HOST_ERRORS_ZH_TW = convertHostErrors(HOST_ERRORS)
+
+export const LANGUAGES = [
+  { id: 'zh-TW', label: '繁體中文', fallback: 'zh' },
+  { id: 'ja', label: '日本語', fallback: 'en' },
+  { id: 'ko', label: '한국어', fallback: 'en' },
+  { id: 'es', label: 'Español', fallback: 'en' },
+  { id: 'fr', label: 'Français', fallback: 'en' },
+  { id: 'de', label: 'Deutsch', fallback: 'en' },
+]
+
+export const DICTIONARY = {
+  zh: ZH,
+  'zh-TW': ZH_TW,
+  ja: JA,
+  ko: KO,
+  es: ES,
+  fr: FR,
+  de: DE,
+}
+
+const HOST_ERROR_TABLE = {
+  zh: HOST_ERRORS,
+  'zh-TW': HOST_ERRORS_ZH_TW,
+  ja: HOST_ERRORS_JA,
+  ko: HOST_ERRORS_KO,
+  es: HOST_ERRORS_ES,
+  fr: HOST_ERRORS_FR,
+  de: HOST_ERRORS_DE,
+}
+
+const DSH_LOCALE_PACKS = {
+  ja: DSH_JA,
+  ko: DSH_KO,
+  es: ES && DSH_ES,
+  fr: DSH_FR,
+  de: DSH_DE,
+}
+
+const DATE_LOCALES = {
+  zh: 'zh-CN',
+  'zh-TW': 'zh-TW',
+  ja: 'ja-JP',
+  ko: 'ko-KR',
+  es: 'es-ES',
+  fr: 'fr-FR',
+  de: 'de-DE',
+  en: 'en-US',
+}
+
+function resolveLangKey(tag) {
+  const lower = String(tag ?? '').toLowerCase()
+  if (lower === 'zh-tw' || lower === 'zh-hk' || lower === 'zh-mo' || lower.startsWith('zh-hant')) return 'zh-TW'
+  if (lower.startsWith('zh')) return 'zh'
+  const primary = lower.split('-')[0]
+  return Object.hasOwn(DICTIONARY, primary) ? primary : 'en'
+}
+
 const fill = (text, params) => (params
   ? text.replace(/\{(\w+)\}/g, (match, name) => (name in params ? String(params[name]) : match))
   : text)
@@ -1664,10 +1904,68 @@ export function installLocale(locale) {
   if (!locale || typeof locale.register !== 'function' || typeof locale.bind !== 'function') return () => {}
   service = locale
   bound = locale.bind(NAMESPACE)
-  const off = locale.register(NAMESPACE, 'zh', ZH)
+  const offs = []
+  const pushOff = (fn) => { if (typeof fn === 'function') offs.push(fn) }
+
+  if (typeof locale.addLanguage === 'function') {
+    const existing = new Set((locale.getLocale?.()?.locales ?? []).map(item => String(item.id).toLowerCase()))
+    for (const def of LANGUAGES) {
+      if (!existing.has(def.id.toLowerCase())) {
+        try { pushOff(locale.addLanguage(def)) } catch { /* already added */ }
+      }
+    }
+  }
+
+  for (const [langId, dict] of Object.entries(DICTIONARY)) {
+    pushOff(locale.register(NAMESPACE, langId, dict))
+  }
+
+  // Register DSH settings/common namespace translations only after each owning DSH plugin registers its namespace.
+  let syncing = false
+  let disposed = false
+  const syncDshNamespaces = () => {
+    if (disposed || syncing || !(locale.dicts instanceof Map)) return
+    syncing = true
+    try {
+      for (const [langId, namespaces] of Object.entries(DSH_LOCALE_PACKS)) {
+        for (const [ns, dict] of Object.entries(namespaces ?? {})) {
+          const map = locale.dicts.get(ns)
+          if (!map || map.has(langId.toLowerCase())) continue
+          try { pushOff(locale.register(ns, langId, dict)) } catch { /* already registered */ }
+        }
+      }
+      for (const [ns, map] of locale.dicts.entries()) {
+        if (ns === NAMESPACE || map.has('zh-tw')) continue
+        const zhDict = map.get('zh')
+        if (zhDict) {
+          try { pushOff(locale.register(ns, 'zh-TW', convertDict(zhDict))) } catch { /* ignore */ }
+        }
+      }
+    } finally {
+      syncing = false
+    }
+  }
+  syncDshNamespaces()
+  if (typeof locale.subscribe === 'function') {
+    pushOff(locale.subscribe(syncDshNamespaces))
+  }
+
+  const origResolveText = typeof locale.resolveText === 'function' ? locale.resolveText.bind(locale) : null
+  if (origResolveText) {
+    locale.resolveText = (text) => {
+      const resolved = origResolveText(text)
+      if (resolveLangKey(language()) === 'zh-TW' && typeof text === 'object' && text !== null && !('zh-tw' in text)) {
+        return toTraditional(resolved)
+      }
+      return resolved
+    }
+    offs.push(() => { locale.resolveText = origResolveText })
+  }
+
   return () => {
+    disposed = true
     if (service === locale) { service = null; bound = null }
-    if (typeof off === 'function') off()
+    for (let i = offs.length - 1; i >= 0; i--) offs[i]()
   }
 }
 
@@ -1677,9 +1975,10 @@ export function t(key, params) {
 
 // A message from the host, in the interface language.
 export function hostText(message) {
-  if (!language().startsWith('zh')) return message
+  const lang = resolveLangKey(language())
+  if (lang === 'en') return message
   if (Object.hasOwn(ZH, message)) return t(message)
-  for (const [pattern, template] of HOST_ERRORS) {
+  for (const [pattern, template] of HOST_ERROR_TABLE[lang] ?? []) {
     if (pattern.test(message)) return message.replace(pattern, template)
   }
   return message
@@ -1691,7 +1990,15 @@ export function language() {
   return typeof active === 'string' ? active : 'en'
 }
 
-export const dateLocale = () => (language().startsWith('zh') ? 'zh-CN' : 'en-US')
+export const dateLocale = () => DATE_LOCALES[resolveLangKey(language())] ?? 'en-US'
 
-// Translations for the tests: the Chinese dictionary itself.
-export const DICTIONARY = { zh: ZH }
+// MarkdownText re-parses when `labels` changes identity, and a streaming message starts
+// over, so one object serves until the language changes the text.
+let labels = null
+export function mdLabels() {
+  const [copyLabel, copiedLabel, footnotes] = [t('Copy'), t('Copied'), t('Footnotes')]
+  if (labels?.code.copyLabel !== copyLabel || labels.code.copiedLabel !== copiedLabel || labels.footnotes !== footnotes) {
+    labels = { code: { copyLabel, copiedLabel }, footnotes }
+  }
+  return labels
+}
