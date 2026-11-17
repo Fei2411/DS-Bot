@@ -210,11 +210,11 @@ export function install(rt) {
   // ---------------------------------------------------------------------------
   // The Settings page's endpoints.
 
-  const detected = () => [...found.values()].map(entry => ({ route: entry.route, name: entry.name, path: entry.path, version: entry.version ?? null, signIn: entry.signIn, signedIn: entry.signedIn ?? null }))
-  const customView = () => store().custom.map(agent => ({ ...agent, route: customRoute(agent.id) }))
+  const detected = () => [...found.values()].filter(entry => registeredRoutes.has(entry.route)).map(entry => ({ route: entry.route, name: entry.name, path: entry.path, version: entry.version ?? null, signIn: entry.signIn, signedIn: entry.signedIn ?? null }))
+  const customView = () => store().custom.filter(agent => registeredRoutes.has(customRoute(agent.id))).map(agent => ({ ...agent, route: customRoute(agent.id) }))
 
   // One CLI's models: the first look starts that CLI, later ones read what it said.
-  const localAgentModels = route => (servedRoutes().includes(route) ? adapter.probeModels(route) : Promise.resolve([]))
+  const localAgentModels = route => (registeredRoutes.has(route) ? adapter.probeModels(route) : Promise.resolve([]))
 
   async function localAgentsEndpoint(endpoint, body) {
     switch (endpoint) {
@@ -271,6 +271,7 @@ export function install(rt) {
   Object.assign(rt, {
     isLocalAgentRoute, isLocalAgentRef, engineOf, engineOfBot, localAgentOf, isLocalAgentSession,
     localAgentRoutes: allRoutes, localAgentsEndpoint, localAgentModels,
+    isLocalAgentAvailable: route => registeredRoutes.has(route),
     engineNameOf: ref => (isLocalAgentRef(ref) ? adapter.providerInfo(splitRef(ref).provider).name : `the model ${ref}`),
     closeLocalAgentSession: (sessionId, reason) => adapter.closeSession(sessionId, reason),
     // The parts module's view of a CLI session's context, and the requests it makes of

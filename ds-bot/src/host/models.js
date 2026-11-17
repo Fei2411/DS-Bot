@@ -188,6 +188,7 @@ export function install(rt) {
     if (service === undefined) return answerable(catalogCache.value)
     const entries = []
     for (const provider of service.listProviders()) {
+      if (rt.isLocalAgentRoute?.(provider.id) && rt.isLocalAgentAvailable?.(provider.id) === false) continue
       let models = []
       try { models = await service.listModels(provider.id) } catch { continue }
       for (const model of models) {
@@ -258,6 +259,7 @@ export function install(rt) {
   // a CLI. Its CLI is asked only when DS Bot does not know the model yet.
   async function resolveLocalModel(ref) {
     const { provider, model } = splitRef(ref)
+    if (rt.isLocalAgentAvailable?.(provider) === false) throw new Error(`Model ${ref} is not available: its local agent route is not registered`)
     const service = llm()
     if (service === undefined) throw new Error('DS Bot is shutting down')
     const known = await service.listModels(provider).catch(() => [])

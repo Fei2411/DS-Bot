@@ -11,6 +11,8 @@ import { install } from '../src/host/local-agents/index.js'
 import { ENGINES } from '../src/host/local-agents/engines.js'
 import { refreshSearchDirs } from '../src/host/local-agents/discover.js'
 import { fakeContext } from './fake-ctx.js'
+import { LocalAgentAdapter } from '../src/host/local-agents/adapter.js'
+import { install as modelsInstall } from '../src/host/models.js'
 
 const fixture = name => fileURLToPath(new URL(`./fixtures/${name}`, import.meta.url))
 const makeEngine = (kind, args = []) => new (kind === 'acp' ? AcpEngine : CodexEngine)(
@@ -80,6 +82,40 @@ test('initial scan failures are logged rather than unhandled (#1390)', async (t)
   install(rt)
   await setImmediate()
   assert.ok(warnings.some(args => args.join(' ').includes('registry unavailable')))
+})
+
+test('taken routes cannot be selected or probed as local agents (#1390)', async (t) => {
+  const { llm, rt } = await localHost(t)
+  const other = new LlmAdapter()
+  other.listModels = async provider => [{ provider, id: 'other-model', name: 'Other model' }]
+  llm.registerAdapter(['local-opencode', 'local-acp-taken'], other)
+  rt.state.localAgents.custom.push({ id: 'taken', name: 'Taken', command: process.execPath, args: [] })
+  const probes = []
+  t.mock.method(LocalAgentAdapter.prototype, 'probeModels', async route => {
+    probes.push(route)
+    return [{ provider: route, id: 'cli-model', name: 'CLI model' }]
+  })
+  install(rt)
+  modelsInstall(rt)
+  await setImmediate()
+  await t.test('model probes skip routes owned by another adapter', async () => {
+    assert.deepEqual(await rt.localAgentModels('local-opencode'), [])
+    assert.deepEqual(await rt.localAgentModels('local-acp-taken'), [])
+    assert.deepEqual(probes, [])
+    assert.equal((await rt.localAgentModels('local-codex-cli'))[0].id, 'cli-model')
+  })
+  await t.test('resolution rejects both the other adapter and CLI models', async () => {
+    await assert.rejects(rt.resolveModel('local-opencode/other-model'), /not available/)
+    await assert.rejects(rt.resolveModel('local-acp-taken/cli-model'), /not available/)
+    assert.equal(await rt.resolveModel('local-codex-cli/default'), 'local-codex-cli/default')
+    assert.ok(!(await rt.catalog()).some(entry => ['local-opencode', 'local-acp-taken'].includes(entry.provider)))
+  })
+  await t.test('local agent lists hide taken built-in and custom routes', async () => {
+    const list = await rt.localAgentsEndpoint('local-agents', {})
+    assert.ok(!list.detected.some(entry => entry.route === 'local-opencode'))
+    assert.deepEqual(list.custom, [])
+    assert.ok(list.detected.some(entry => entry.route === 'local-codex-cli'))
+  })
 })
 
 for (const kind of ['acp', 'codex']) {
