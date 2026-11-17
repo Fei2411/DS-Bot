@@ -192,8 +192,8 @@ test('a Bot assembly can omit sections and tools', async (t) => {
   agent.ctx.on = (name, listener) => { if (name === 'system-prompt/assemble' && String(listener).includes('HIDDEN_SECTIONS')) filter = listener; return () => {} }
   await host.agentCreated('a')
   assert.deepEqual(await filter({}, {}, async () => ({})), {})
-  const result = await filter({}, {}, async () => ({ sections: [{ name: 'team:policy' }, { name: 'keep' }], tools: [{ name: 'subagent' }, { name: 'remember' }] }))
-  assert.deepEqual(result, { sections: [{ name: 'keep' }], tools: [{ name: 'remember' }] })
+  const result = await filter({}, {}, async () => ({ sections: [{ name: 'team:policy' }, { name: 'keep' }], tools: [{ name: 'subagent' }, { name: 'list_bots' }] }))
+  assert.deepEqual(result, { sections: [{ name: 'keep' }], tools: [{ name: 'list_bots' }] })
 })
 
 test('team tools retry without a step, without registering successful tools twice', async (t) => {
@@ -206,11 +206,11 @@ test('team tools retry without a step, without registering successful tools twic
   await host.agentCreated('a')
   let refused = false
   agent.ctx.tools.register = tool => {
-    if (tool.name === 'remember' && !refused) { refused = true; throw new Error('not ready') }
+    if (tool.name === 'list_bots' && !refused) { refused = true; throw new Error('not ready') }
     return register(tool)
   }
-  await until(() => scopedNames(host, 'a').includes('remember'), 5000)
-  for (const name of ['remember', 'recall', 'forget']) assert.equal(scopedNames(host, 'a').filter(n => n === name).length, 1)
+  await until(() => scopedNames(host, 'a').includes('list_bots'), 5000)
+  for (const name of TEAM_TOOLS.filter(name => name !== 'read_browser')) assert.equal(scopedNames(host, 'a').filter(n => n === name).length, 1)
 })
 
 test('team tool retries stop at a bound and are cleaned up with their scope', async (t) => {
