@@ -1391,6 +1391,8 @@ export const KO = {
   'Its group conversation could not open, so it starts a new one next time': '그룹 대화 세션을 열 수 없어 다음번에 새 세션을 시작합니다',
   // The composer's +
   'Pasted text · {count} characters': '붙여넣은 텍스트 · {count}자',
+  // A draft kept while its chat is off the screen (#1248)
+  'The files in this draft could not be kept across chats': '이 임시 저장의 파일은 대화 간에 유지되지 못했습니다',
   'Put back': '되돌리기',
   'Put back into the box': '입력창에 되돌리기',
   'Remove pasted text': '붙여넣은 텍스트 삭제',

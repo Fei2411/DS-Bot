@@ -106,10 +106,13 @@ const endsWorkEpisode = reply => reply.kind === undefined
 // (client/cells.js) and the earlier-parts page (host/parts.js) read through this.
 export function drawnReplies(replies) {
   const kept = []
-  for (const reply of replies) {
+  for (let index = 0; index < replies.length; index += 1) {
+    const reply = replies[index]
     if (reply?.kind !== 'working') { kept.push(reply); continue }
     const botId = reply.botId
-    if (replies.some(later => later !== reply && later?.botId === botId && endsWorkEpisode(later))) continue
+    // Only a row after this one can end the episode it opens; an earlier post of the
+    // same member says nothing about work that started later.
+    if (replies.slice(index + 1).some(later => later?.botId === botId && endsWorkEpisode(later))) continue
     const last = kept.at(-1)
     if (last?.kind === 'working' && last.botId === botId) kept[kept.length - 1] = { ...last, starts: (last.starts ?? 1) + 1 }
     else kept.push(reply)

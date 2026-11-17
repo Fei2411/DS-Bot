@@ -25,8 +25,10 @@ export const API_VERSION = 1
 export const API_MIN = 1
 // One api/bot answer is one JSON message, sized for `API_MESSAGE_BYTES`. A file read
 // whole travels inside one as base64, a third larger than its bytes, so a message of
-// that size carries at most what `fileMaxFor` reads off it.
-export const API_MESSAGE_BYTES = 16 * 1024 * 1024
+// that size carries at most what `fileMaxFor` reads off it. The phone link reassembles
+// at most MAX_SECURE_MESSAGE_BYTES (link/src/frames.ts), so that is the ceiling: a
+// larger answer never crosses the link, whatever this route would accept.
+export const API_MESSAGE_BYTES = 4 * 1024 * 1024
 export const fileMaxFor = maxMessageBytes => Math.floor((maxMessageBytes * 3) / 4)
 const FILE_READ_MAX = fileMaxFor(API_MESSAGE_BYTES)
 export const CAPABILITIES = [

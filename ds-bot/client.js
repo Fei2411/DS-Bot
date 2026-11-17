@@ -1484,6 +1484,8 @@ var JA = {
   "Its group conversation could not open": "グループ会話を開けませんでした",
   "Its group conversation could not open, so it starts a new one next time": "グループ会話を開けなかったため、次回新しい会話を開始します",
   "Pasted text · {count} characters": "貼り付けたテキスト · {count} 文字",
+  // A draft kept while its chat is off the screen (#1248)
+  "The files in this draft could not be kept across chats": "この下書きのファイルはチャットをまたいで保持できませんでした",
   "Put back": "戻す",
   "Put back into the box": "入力欄に戻す",
   "Remove pasted text": "貼り付けたテキストを削除",
@@ -3942,6 +3944,8 @@ var KO = {
   "Its group conversation could not open, so it starts a new one next time": "그룹 대화 세션을 열 수 없어 다음번에 새 세션을 시작합니다",
   // The composer's +
   "Pasted text · {count} characters": "붙여넣은 텍스트 · {count}자",
+  // A draft kept while its chat is off the screen (#1248)
+  "The files in this draft could not be kept across chats": "이 임시 저장의 파일은 대화 간에 유지되지 못했습니다",
   "Put back": "되돌리기",
   "Put back into the box": "입력창에 되돌리기",
   "Remove pasted text": "붙여넣은 텍스트 삭제",
@@ -6405,6 +6409,8 @@ var ES = {
   "Its group conversation could not open, so it starts a new one next time": "No se pudo abrir su conversación grupal, por lo que iniciará una nueva la próxima vez",
   // The composer's +
   "Pasted text · {count} characters": "Texto pegado · {count} caracteres",
+  // A draft kept while its chat is off the screen (#1248)
+  "The files in this draft could not be kept across chats": "Los archivos de este borrador no se pudieron conservar entre chats",
   "Put back": "Devolver",
   "Put back into the box": "Devolver al cuadro de texto",
   "Remove pasted text": "Quitar el texto pegado",
@@ -8828,6 +8834,8 @@ var FR = {
   "Its group conversation could not open": "Sa discussion de groupe n’a pas pu s’ouvrir",
   "Its group conversation could not open, so it starts a new one next time": "Sa discussion de groupe n’a pas pu s’ouvrir ; une nouvelle sera créée la prochaine fois",
   "Pasted text · {count} characters": "Texte collé · {count} caractères",
+  // A draft kept while its chat is off the screen (#1248)
+  "The files in this draft could not be kept across chats": "Les fichiers de ce brouillon n’ont pas pu être conservés d’une discussion à l’autre",
   "Put back": "Remettre",
   "Put back into the box": "Remettre dans le champ",
   "Remove pasted text": "Supprimer le texte collé",
@@ -11286,6 +11294,8 @@ var DE = {
   "Its group conversation could not open, so it starts a new one next time": "Seine Gruppensitzung konnte nicht geöffnet werden; beim nächsten Mal wird eine neue gestartet",
   // The composer's +
   "Pasted text · {count} characters": "Eingefügter Text · {count} Zeichen",
+  // A draft kept while its chat is off the screen (#1248)
+  "The files in this draft could not be kept across chats": "Die Dateien in diesem Entwurf konnten nicht über Chats hinweg behalten werden",
   "Put back": "Zurückholen",
   "Put back into the box": "Zurück ins Eingabefeld",
   "Remove pasted text": "Eingefügten Text entfernen",
@@ -27124,13 +27134,14 @@ function stackReplies(replies) {
 var endsWorkEpisode = (reply) => reply.kind === void 0 || ["done", "stopped", "approval", "resumed", "cut", "failed", "helper-failed", "missed"].includes(reply.kind);
 function drawnReplies(replies) {
   const kept = [];
-  for (const reply of replies) {
+  for (let index = 0; index < replies.length; index += 1) {
+    const reply = replies[index];
     if (reply?.kind !== "working") {
       kept.push(reply);
       continue;
     }
     const botId = reply.botId;
-    if (replies.some((later) => later !== reply && later?.botId === botId && endsWorkEpisode(later))) continue;
+    if (replies.slice(index + 1).some((later) => later?.botId === botId && endsWorkEpisode(later))) continue;
     const last = kept.at(-1);
     if (last?.kind === "working" && last.botId === botId) kept[kept.length - 1] = { ...last, starts: (last.starts ?? 1) + 1 };
     else kept.push(reply);
