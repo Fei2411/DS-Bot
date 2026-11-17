@@ -6,7 +6,6 @@ import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import { LlmError } from '@deepseek-ai/dsh-llm'
 import { serviceOf } from '../services.js'
 import { splitRef } from '../text.js'
 import { output } from '../tools.js'
@@ -174,18 +173,6 @@ export function install(rt) {
     const bot = rt.botOf(rt.selfOf(sessionId))
     return bot !== undefined && localAgentOf(bot) !== undefined
   }
-
-  ctx.on('llm/stream', (options, next) => {
-    if (options.sessionId === undefined) return next()
-    const ref = localAgentOf(rt.botOf(rt.selfOf(options.sessionId)))
-    const route = splitRef(ref)?.provider
-    if (route !== undefined && rt.isLocalAgentAvailable(route) === false) {
-      return (async function* unavailable() {
-        throw new LlmError(`Local agent ${route} is unavailable: its route is owned by another adapter`, 'LOCAL_AGENT_MISSING')
-      })()
-    }
-    return next()
-  }, { prepend: true })
 
   // ---------------------------------------------------------------------------
   // approve_agent_action: served only to abot sessions; the CLI's permission

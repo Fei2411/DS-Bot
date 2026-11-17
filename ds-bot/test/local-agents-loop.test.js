@@ -15,6 +15,7 @@ import { LocalAgentAdapter } from '../src/host/local-agents/adapter.js'
 import { AcpEngine } from '../src/host/local-agents/acp.js'
 import { output } from '../src/host/tools.js'
 import { install as installLocalAgents } from '../src/host/local-agents/index.js'
+import { install as installParts } from '../src/host/parts.js'
 
 const FIXTURE = fileURLToPath(new URL('./fixtures/fake-acp.mjs', import.meta.url))
 const TEAM = ['message_bot', 'approve_agent_action']
@@ -73,10 +74,15 @@ test('a stored Bot on a taken local route fails without calling the owning adapt
   }
   ctx.llm.registerAdapter(['local-acp-taken'], other)
   const bot = { id: 's1', model: 'local-acp-taken/default' }
-  installLocalAgents({
+  const rt = {
     ctx, state: { bots: { s1: bot } }, teamTools: [], warn() {},
     selfOf: id => id, botOf: id => id === bot.id ? bot : undefined,
-  })
+    config: {}, load: async () => {}, readOnly: () => undefined,
+    pastOwners: new Map(), chatOwners: new Map(), groupOwners: new Map(), roomOwners: new Map(),
+    isBotSession: () => false, ownRequest: () => true,
+  }
+  installLocalAgents(rt)
+  installParts(rt)
   await mountAgentLoopTestHarness(ctx)
   const agent = await ctx.agentLoop.create(SessionId('s1'), { provider: 'local-acp-taken', model: 'default' })
   send(agent, 'Do not send my input to another adapter')
