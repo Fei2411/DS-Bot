@@ -200,9 +200,77 @@ const fileLine = file => `[File "${file.name}" (${file.bytes} bytes) attached]`
 const POST_HEADER = /^\[Group post from (?:[^\r\n]*\]\r?\n|[^\]\r\n]*\])/
 const BACKFILL_WINDOW = 5
 
+function legacyNoticeRecord(reply, time) {
+  const botId = reply.botId
+  if (reply.kind === 'goal') {
+    const { who: _who, kind: _kind, seq: _seq, time: _time, about: _about, botId: _botId, name: _name, color: _color, ...fields } = reply
+    return { who: 'DS Bot', kind: 'notice', reason: 'goal', ...fields, ...time }
+  }
+  if (reply.kind === 'paused') {
+    return {
+      who: 'DS Bot', kind: 'notice', reason: 'paused',
+      ...(reply.idle !== undefined ? { idle: reply.idle } : {}),
+      ...(reply.name ? { from: reply.name } : {}),
+      ...(botId ? { about: botId } : {}),
+      ...(reply.count !== undefined ? { count: reply.count } : {}),
+      ...(reply.limit !== undefined ? { limit: reply.limit } : {}),
+      ...(Array.isArray(reply.names) ? { names: reply.names } : {}),
+      ...time,
+    }
+  }
+  if (reply.kind === 'failed') {
+    return {
+      who: 'DS Bot', kind: 'notice', reason: 'failed',
+      ...(reply.name ? { names: [reply.name] } : {}),
+      ...(botId ? { about: botId } : {}),
+      ...(reply.code !== undefined ? { code: reply.code } : {}),
+      ...(reply.status !== undefined ? { status: reply.status } : {}),
+      ...(reply.text !== undefined ? { message: reply.text, detail: reply.text } : {}),
+      ...time,
+    }
+  }
+  if (reply.kind === 'helper-failed') {
+    return {
+      who: 'DS Bot', kind: 'notice', reason: 'helper-failed',
+      ...(reply.name ? { names: [reply.name] } : {}),
+      ...(botId ? { about: botId } : {}),
+      ...(reply.stopReason ? { stopReason: reply.stopReason } : {}),
+      ...(reply.helper ? { helper: reply.helper } : {}),
+      ...(reply.text !== undefined ? { detail: reply.text } : {}),
+      ...time,
+    }
+  }
+  if (reply.kind === 'missed' || reply.kind === 'admin-passed') {
+    return {
+      who: 'DS Bot', kind: 'notice', reason: reply.kind,
+      ...(reply.name ? { names: [reply.name] } : {}),
+      ...(botId ? { about: botId } : {}),
+      ...(reply.kind === 'missed' ? { minutes: reply.minutes ?? Math.round(ROOM_REPLY_TIMEOUT_MS / 60000) } : {}),
+      ...time,
+    }
+  }
+  if (reply.kind === 'folder') {
+    return {
+      who: 'DS Bot', kind: 'notice', reason: 'folder',
+      ...(reply.path ? { path: reply.path } : {}),
+      ...(reply.text !== undefined ? { text: reply.text } : {}),
+      ...time,
+    }
+  }
+  return {
+    who: 'DS Bot', kind: 'notice', reason: reply.kind,
+    ...(reply.name ? { names: [reply.name] } : {}),
+    ...(botId ? { about: botId } : {}),
+    ...(reply.text !== undefined ? { text: reply.text } : {}),
+    ...time,
+  }
+}
+
 // Extracts group log lines in chronological order from the group's own Session events.
 // Rounds from before the ledger carry their replies inline on the group_relay tool result;
 // rounds after the ledger carry only { from, anchor } and are already in the ledger.
+// A pruned tool result marks a `{ gap: true }` boundary around itself so lines before an
+// unknown drop are never given shifted sequence numbers.
 export function extractGroupSessionLines(events, botNameOf = () => undefined) {
   const lines = []
   const relayCalls = new Set()
@@ -242,7 +310,9 @@ export function extractGroupSessionLines(events, botNameOf = () => undefined) {
     relayCalls.delete(callId)
     const raw = textOf(event.data?.message?.content)
     if (relayRange(raw) !== undefined) continue
-    for (const reply of parseReplies(raw).replies) {
+    const parsed = parseReplies(raw)
+    if (parsed.broken) lines.push({ gap: true })
+    for (const reply of parsed.replies) {
       if (!reply || typeof reply !== 'object' || reply.kind === 'working' || reply.kind === 'approval') continue
       const time = Number.isFinite(reply.time) ? { time: reply.time } : {}
       if (reply.kind === 'user') {
@@ -256,23 +326,16 @@ export function extractGroupSessionLines(events, botNameOf = () => undefined) {
         const who = reply.name ?? botNameOf(botId) ?? 'Bot'
         lines.push({ who, ...(botId ? { botId } : {}), kind: reply.kind, text: reply.text ?? '', ...time })
       } else {
-        const botId = reply.botId
-        lines.push({
-          who: 'DS Bot',
-          kind: 'notice',
-          reason: reply.kind,
-          ...(reply.name ? { names: [reply.name] } : {}),
-          ...(botId ? { about: botId } : {}),
-          ...(reply.text !== undefined ? { text: reply.text } : {}),
-          ...time,
-        })
+        lines.push(legacyNoticeRecord(reply, time))
       }
     }
+    if (parsed.broken) lines.push({ gap: true })
   }
   return lines
 }
 
 function sameSessionLine(a, b) {
+  if (a?.gap === true || b?.gap === true) return false
   if ((a.kind ?? undefined) !== (b.kind ?? undefined)) return false
   if (a.kind !== undefined) {
     if (a.kind === 'notice' && a.reason !== b.reason) return false
@@ -291,11 +354,16 @@ function sameSessionLine(a, b) {
 }
 
 // Aligns extracted Session lines against the oldest kept records in the group's ledger,
-// returning the lines before `kept[0].seq` with their recovered seq numbers.
+// returning the contiguous lines immediately before `kept[0].seq` without crossing any
+// discontinuity (`{ gap: true }`).
 export function alignGroupSessionLines(sessionLines, kept) {
   if (sessionLines.length === 0) return []
   const sorted = [...kept].filter(record => Number.isInteger(record?.seq)).sort((a, b) => a.seq - b.seq)
-  if (sorted.length === 0) return sessionLines.map((line, index) => ({ ...line, seq: index + 1 }))
+  if (sorted.length === 0) {
+    const end = sessionLines.findIndex(line => line.gap === true)
+    const prefix = end === -1 ? sessionLines : sessionLines.slice(0, end)
+    return prefix.map((line, index) => ({ ...line, seq: index + 1 }))
+  }
   const oldestSeq = sorted[0].seq
   const anchors = [0]
   const firstMessage = sorted.findIndex(line => line.kind === undefined)
@@ -322,11 +390,12 @@ export function alignGroupSessionLines(sessionLines, kept) {
       return gap < pickGap ? idx : pick
     })
     const recovered = []
-    for (let i = 0; i < best; i += 1) {
+    for (let i = best - 1; i >= 0; i -= 1) {
+      if (sessionLines[i]?.gap === true) break
       const seq = target.seq - (best - i)
       if (seq >= 1 && seq < oldestSeq) recovered.push({ ...sessionLines[i], seq })
     }
-    return recovered
+    return recovered.reverse()
   }
   return undefined
 }
@@ -456,22 +525,23 @@ export function install(rt) {
       if (typeof ctx.sessionController?.page !== 'function') return
       const partIds = [...(room.parts ?? []).map(segment => segment.sessionId), rt.sessionOfRoom(room)].filter(Boolean)
       const signal = AbortSignal.timeout(HISTORY_TIMEOUT_MS)
-      const partEvents = []
+      const botNameOf = botId => rt.botOf(botId)?.name
+      const partLines = []
       let lostError
       for (let i = partIds.length - 1; i >= 0; i -= 1) {
         try {
-          partEvents.unshift(await sessionEvents(partIds[i], signal))
+          partLines.unshift(extractGroupSessionLines(await sessionEvents(partIds[i], signal), botNameOf))
         } catch (error) {
           if (lostSession(error)) {
-            lostError = error
-            break
+            lostError ??= error
+            partLines.unshift([{ gap: true }])
+            continue
           }
           rt.warn('ds-bot: the Session of group "%s" could not be read: %s', room.name, error?.message ?? error)
           return
         }
       }
-      const events = partEvents.flat()
-      const sessionLines = extractGroupSessionLines(events, botId => rt.botOf(botId)?.name)
+      const sessionLines = partLines.flat()
       const kept = records.filter(record => Number.isInteger(record.seq))
       const recovered = alignGroupSessionLines(sessionLines, kept)
       if (recovered !== undefined && recovered.length > 0) rt.ledger.prepend(book, recovered)

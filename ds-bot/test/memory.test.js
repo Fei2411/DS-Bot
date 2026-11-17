@@ -2823,3 +2823,150 @@ test('lines still in the 60-line room log at upgrade stay in the ledger even if 
   assert.match(requests[0].messages[0].content[0].text, /\nUser: Keep backups for 30 days\n/)
   assert.deepEqual(JSON.parse(read('reviewed.json')), { 'group:r1': 90 })
 })
+
+test('pruned relay replies stop backfill numbering at the gap and warn for the uncertain span', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'ds-bot-memory-'))
+  mkdirSync(join(home, 'memory'), { recursive: true })
+  writeFileSync(join(home, 'memory', 'reviewed.json'), JSON.stringify({ 'group:r1': 3 }))
+  const allLines = Array.from({ length: 80 }, (_, index) => {
+    const seq = index + 1
+    return seq % 2 === 1
+      ? { who: 'User', text: `User turn ${seq}`, seq, time: 4_000_000 + seq * 1000 }
+      : { who: 'Coder', botId: 'b3', text: `Coder reply ${seq}`, seq, time: 4_000_000 + seq * 1000 }
+  })
+  const team = structuredClone(TEAM)
+  team.rooms.r1.seq = 80
+  team.rooms.r1.log = allLines.slice(-60)
+  writeFileSync(join(home, 'state.json'), JSON.stringify(team))
+  // Replace round 5 (lines 9..10) with a pruned tool/result that dropped an earlier reply.
+  const events = legacyGroupEvents(allLines)
+  const prunedIdx = events.findIndex(item => item.event.type === 'tool/result' && item.event.data.message.toolCallId === 'relay-5')
+  events[prunedIdx] = {
+    event: {
+      seq: events[prunedIdx].event.seq,
+      time: events[prunedIdx].event.time,
+      type: 'tool/result',
+      data: {
+        message: {
+          toolCallId: 'relay-5',
+          content: [{ type: 'text', text: '{"replies":[... tool result middle pruned ...{"botId":"b3","name":"Coder","text":"Coder reply 10","time":4010000}],"passed":[]}' }],
+        },
+      },
+    },
+  }
+  const { ctx, tool, call, read, requests, warnings, stop } = start({
+    home, history: { r1: events },
+    replies: [JSON.stringify({ changes: [] })],
+    config: { memoryReviewDelayMs: 0 },
+  })
+  t.after(() => stop())
+  await call('state', {})
+  ctx.emit('agent/status', { agent: { id: 'g3' }, status: 'idle' })
+  await reviewed(call)
+  assert.equal(requests.length, 1)
+  const prompt = requests[0].messages[0].content[0].text
+  assert.match(prompt, /\nUser: User turn 11\n/)
+  assert.doesNotMatch(prompt, /\nUser: User turn 7\n/)
+  assert.match(await tool('read_group_chat', { group: 'Launch', seq: 11 }, 'g3'), /User turn 11/)
+  assert.match(await tool('read_group_chat', { group: 'Launch', seq: 5 }, 'g3'), /has no message 5/)
+  assert.ok(warnings.some(line => line.includes('7 lines of group "Launch"') && line.includes('were not in its Session')), warnings.join('\n'))
+  assert.deepEqual(JSON.parse(read('reviewed.json')), { 'group:r1': 80 })
+})
+
+test('backfill preserves structured goal, pause, and failure notice fields for read_group_chat', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'ds-bot-memory-'))
+  mkdirSync(join(home, 'memory'), { recursive: true })
+  writeFileSync(join(home, 'memory', 'reviewed.json'), JSON.stringify({ 'group:r1': 1 }))
+  const rest = Array.from({ length: 60 }, (_, index) => {
+    const seq = index + 6
+    return seq % 2 === 0
+      ? { who: 'User', text: `User turn ${seq}`, seq, time: 5_000_000 + seq * 1000 }
+      : { who: 'Coder', botId: 'b3', text: `Coder reply ${seq}`, seq, time: 5_000_000 + seq * 1000 }
+  })
+  const team = structuredClone(TEAM)
+  team.rooms.r1.seq = 65
+  team.rooms.r1.log = rest
+  writeFileSync(join(home, 'state.json'), JSON.stringify(team))
+  const earlyEvents = [
+    { event: { seq: 1, time: 5_001_000, type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text: 'Opening ask' }] } } },
+    { event: { seq: 2, time: 5_001_000, type: 'tool/call', data: { callId: 'relay-early', name: 'group_relay', arguments: '{}' } } },
+    {
+      event: {
+        seq: 3, time: 5_002_000, type: 'tool/result',
+        data: {
+          message: {
+            toolCallId: 'relay-early',
+            content: [{
+              type: 'text',
+              text: JSON.stringify({
+                replies: [
+                  { kind: 'goal', event: 'start', title: 'Launch', count: 2, next: 'Build', time: 5_002_000 },
+                  { kind: 'paused', idle: true, botId: 'b3', name: 'Coder', limit: 6, names: ['Writer'], time: 5_003_000 },
+                  { kind: 'failed', botId: 'b3', name: 'Coder', code: 'RATE_LIMIT', text: 'slow down', time: 5_004_000 },
+                  { botId: 'b3', name: 'Coder', text: 'Recovered reply 5', time: 5_005_000 },
+                ],
+                passed: [],
+              }),
+            }],
+          },
+        },
+      },
+    },
+  ]
+  const laterEvents = legacyGroupEvents(rest).map((item, idx) => ({ event: { ...item.event, seq: idx + 10 } }))
+  const { ctx, tool, call, stop } = start({
+    home, history: { r1: [...earlyEvents, ...laterEvents] },
+    replies: [JSON.stringify({ changes: [] })],
+    config: { memoryReviewDelayMs: 0 },
+  })
+  t.after(() => stop())
+  await call('state', {})
+  ctx.emit('agent/status', { agent: { id: 'g3' }, status: 'idle' })
+  await reviewed(call)
+  assert.match(await tool('read_group_chat', { group: 'Launch', seq: 2 }, 'g3'), /Goal "Launch" started with 2 stages; stage 1 "Build" is current\./)
+  assert.match(await tool('read_group_chat', { group: 'Launch', seq: 3 }, 'g3'), /Paused: Coder and Writer went back and forth 6 times without progress/)
+  assert.match(await tool('read_group_chat', { group: 'Launch', seq: 4 }, 'g3'), /Coder stopped: its model call failed \(slow down\)/)
+})
+
+test('backfill still reads archived parts when the current group Session is gone', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'ds-bot-memory-'))
+  mkdirSync(join(home, 'memory'), { recursive: true })
+  writeFileSync(join(home, 'memory', 'reviewed.json'), JSON.stringify({ 'group:r1': 3 }))
+  const allLines = Array.from({ length: 80 }, (_, index) => {
+    const seq = index + 1
+    return seq % 2 === 1
+      ? { who: 'User', text: seq === 5 ? 'Keep everything in UTC' : `User turn ${seq}`, seq, time: 6_000_000 + seq * 1000 }
+      : { who: 'Coder', botId: 'b3', text: `Coder reply ${seq}`, seq, time: 6_000_000 + seq * 1000 }
+  })
+  const team = structuredClone(TEAM)
+  team.rooms.r1.seq = 80
+  team.rooms.r1.log = allLines.slice(-60)
+  team.rooms.r1.parts = [{ sessionId: 'r1-part1', endedAt: 6_040_000 }]
+  writeFileSync(join(home, 'state.json'), JSON.stringify(team))
+  const archived = legacyGroupEvents(allLines.slice(0, 40))
+  const { ctx, call, read, requests, warnings, stop } = start({
+    home,
+    replies: [JSON.stringify({ changes: [{ op: 'add', text: 'Keep everything in UTC' }] })],
+    config: { memoryReviewDelayMs: 0 },
+  })
+  t.after(() => stop())
+  const gone = () => Object.assign(new Error('Session r1 not found'), { code: 'session/not-found' })
+  ctx.sessionController.resolveAgent = async (sessionId) => {
+    if (sessionId === 'r1') throw gone()
+    if (sessionId === 'r1-part1') return { agent: { session: { id: 'r1-part1', seq: archived.at(-1).event.seq + 1 } } }
+    return { agent: { session: { id: sessionId, seq: ownChat.at(-1).event.seq + 1 } } }
+  }
+  ctx.sessionController.page = async ({ address, beforeSeq, maxMessages }) => {
+    if (address.sessionId === 'r1') throw gone()
+    const all = (address.sessionId === 'r1-part1' ? archived : ownChat).filter(record => beforeSeq === undefined || record.event.seq < beforeSeq)
+    const records = maxMessages === undefined ? all : all.slice(-maxMessages)
+    return { records, hasMore: records.length < all.length }
+  }
+  await call('state', {})
+  ctx.emit('agent/status', { agent: { id: 'g3' }, status: 'idle' })
+  await reviewed(call)
+  assert.equal(requests.length, 1)
+  assert.match(requests[0].messages[0].content[0].text, /\nUser: Keep everything in UTC\n/)
+  assert.deepEqual(JSON.parse(read('reviewed.json')), { 'group:r1': 80 })
+  assert.deepEqual(warnings.filter(line => line.includes('left its log')), [])
+})
