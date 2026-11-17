@@ -1283,8 +1283,13 @@ test('a failed turn past the hard line keeps the real error instead of switching
 
 // #1716: an endpoint behind a gateway or compatible proxy turns an oversized request
 // down without DSH's overflow code. The part moves on the way an overflow moves it.
-for (const id of ['b', 'gb']) {
-  test(`a request turned down as too large moves the part on without a model call (${id})`, async (t) => {
+for (const [id, failure] of [
+  ['b', { code: 'INVALID_REQUEST', message: '413 Payload Too Large' }],
+  ['b', { code: 'INVALID_REQUEST', status: 413, message: 'Request failed' }],
+  ['b', { code: 'INVALID_REQUEST', message: '413 status code (no body)' }],
+  ['gb', { code: 'INVALID_REQUEST', message: 'failed to buffer the request body: length limit exceeded' }],
+]) {
+  test(`a request turned down as too large moves the part on without a model call (${id}, ${failure.status ?? failure.message})`, async (t) => {
     const { ctx, agentOf, emit, fire, stop } = await start(team({ group: true }))
     t.after(stop)
     let made = 0
@@ -1308,7 +1313,7 @@ for (const id of ['b', 'gb']) {
     await delay(30)
     assert.equal(made, 0)
 
-    await refuse({ code: 'INVALID_REQUEST', message: '413 Payload Too Large' })
+    await refuse(failure)
     for (let at = 0; at < 200 && made === 0; at += 1) await delay(5)
     assert.equal(made, 1)
     assert.equal(streamed, 0)
@@ -1337,12 +1342,15 @@ test('a generic refusal of a part past its hard line moves it on; one below does
   assert.equal(made, 1)
 })
 
-test('New session on a group member moves its group conversation on; a non-member is refused', async (t) => {
-  const { rt: runtime, ctx, call, stop } = await start(team({ group: true }))
+test('New session on an idle group member moves its group conversation on; a working member or a non-member is refused', async (t) => {
+  const { rt: runtime, ctx, agentOf, call, stop } = await start(team({ group: true }))
   t.after(stop)
   let made = 0
   ctx.sessionController.create = async () => ({ sessionId: `s${++made}` })
   assert.equal((await call('bot-new-part', { botId: 'a', roomId: 'r1' })).ok, false)
+  agentOf('gb').status = 'working'
+  assert.equal((await call('bot-new-part', { botId: 'b', roomId: 'r1' })).ok, false)
+  agentOf('gb').status = 'idle'
   const moved = await call('bot-new-part', { botId: 'b', roomId: 'r1' })
   assert.equal(moved.ok, true, JSON.stringify(moved))
   for (let at = 0; at < 200 && runtime.state.rooms.r1.sessions.b === 'gb'; at += 1) await delay(5)

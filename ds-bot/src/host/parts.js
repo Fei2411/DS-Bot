@@ -190,7 +190,7 @@ export function install(rt) {
   const OVERFLOW = 'CONTEXT_WINDOW_EXCEEDED'
   // A gateway or compatible endpoint that turns a request down for its size, without
   // DSH's own overflow code (#1716).
-  const TOO_LARGE = /\b413\b|payload too large|request (?:body|entity) too large|length limit exceeded/i
+  const TOO_LARGE = /\b413 status code\b|payload too large|request (?:body|entity) too large|length limit exceeded/i
   // A checkpoint DSH asked for so a model switch could go ahead, written while no route
   // could produce a summary. It is honest about that and points at the messages.
   const NO_SUMMARY = '(No summary was written: no model was free to write it, so the messages the earlier part sent you are carried over word for word below. Read it from them, and read_own_chat finds the rest.)'
@@ -1557,7 +1557,8 @@ export function install(rt) {
 
   // A request the endpoint turned down as too large: DSH's overflow code, a 413 or
   // overflow wording under a generic code, or a generic refusal of a part already past
-  // its hard line.
+  // its hard line. A real bad request on such a part costs one move: the fresh part is
+  // below the line, so the same refusal then keeps its real error there.
   async function overflowed(agent, failure) {
     if (failure?.code === OVERFLOW) return true
     if (failure?.code !== 'INVALID_REQUEST') return false
