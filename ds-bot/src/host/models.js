@@ -395,14 +395,16 @@ export function install(rt) {
         sessionId, provider, model,
         ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
       })
-      const saved = result?.selected ?? { provider, model, ...(reasoningEffort === undefined ? {} : { reasoningEffort }) }
+      const saved = result?.selected ?? route
+      // The witness keeps the requested route: DSH may fill in a default thinking
+      // level, which the next start's route would never match.
       state.sessionModelSelections ??= {}
-      state.sessionModelSelections[sessionId] = { ...saved }
-      await rt.save()
-      if (llm() === undefined) return result
-      if (before?.provider && before?.model && !sameSelection(before, saved)) {
+      state.sessionModelSelections[sessionId] = { ...route }
+      if (llm() !== undefined && before?.provider && before?.model && !sameSelection(before, saved)) {
         await defaults.saveSelection(before).catch(error => rt.warn('ds-bot: the default model was not restored: %s', error))
       }
+      await rt.save().catch(error => rt.warn?.('ds-bot: the model selection of %s was not saved: %s', sessionId, error))
+      if (llm() === undefined) return result
       sessionSelections.set(sessionId, { provider, model, reasoningEffort })
       return result
     })
