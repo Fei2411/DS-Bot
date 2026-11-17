@@ -333,14 +333,11 @@ export function install(rt) {
   // Recheck group Sessions after every restart: Bot-level applied fields cannot
   // prove that an older group Session received the member's thinking level.
   const sessionSelections = new Map()
+  const selectedSessions = new Set()
 
-  // A stored Session keeps its own model selection, so a start can read the selection
-  // it would run on instead of resuming the Session to select the model it already
-  // has: resuming replays the whole log (selectModel → resolveAgent → observeSession),
-  // and a team that has been talking for weeks keeps Sessions of tens of megabytes,
-  // which is what exhausted the host's heap. The listing stats the stored logs and
-  // decodes none of them; the projection cache answers from its checkpoint without
-  // I/O. Either may be absent, and then the selection runs as it did before.
+  // Cold Sessions avoid replay only when the checkpoint and our durable selection
+  // agree. A composer change lost before a crash flushed the checkpoint remains
+  // undetectable without a DSH freshness witness.
   const LISTING_TTL_MS = 15_000
   let listing
   async function listedSessions() {
@@ -349,6 +346,13 @@ export function install(rt) {
     if (query?.listSessions === undefined) return undefined
     const records = new Map()
     for (const record of await query.listSessions()) records.set(record.header.id, record)
+    let pruned = false
+    for (const id of Object.keys(state.sessionModelSelections ?? {})) {
+      if (records.has(id)) continue
+      delete state.sessionModelSelections[id]
+      pruned = true
+    }
+    if (pruned) await rt.save()
     listing = { at: Date.now(), records }
     return records
   }
@@ -358,10 +362,12 @@ export function install(rt) {
   // model picker can move it at any time, and loading it costs nothing.
   async function recordedSelection(sessionId) {
     try {
+      if (selectedSessions.has(sessionId)) return undefined
       const cache = serviceOf(ctx, 'sessionProjectionCache')
       if (cache?.cachedSnapshot === undefined) return undefined
       const record = (await listedSessions())?.get(sessionId)
-      if (record === undefined || record.live) return undefined
+      if (record === undefined || !record.persisted || record.live) return undefined
+      if (ctx.sessions?.get?.(sessionId) !== undefined || ctx.agents?.get?.(sessionId) !== undefined) return undefined
       const state = cache.cachedSnapshot(record.header, ['modelSelection'])?.values?.modelSelection
       return state?.next ?? state?.lastUsed ?? undefined
     } catch (error) {
@@ -376,18 +382,23 @@ export function install(rt) {
       const route = { provider, model, ...(reasoningEffort === undefined ? {} : { reasoningEffort }) }
       if (!force) {
         const recorded = await recordedSelection(sessionId)
-        if (recorded !== undefined && sameSelection(recorded, route)) {
+        const witnessed = state.sessionModelSelections?.[sessionId]
+        if (recorded !== undefined && witnessed !== undefined && sameSelection(recorded, route) && sameSelection(witnessed, route)) {
           sessionSelections.set(sessionId, route)
           return { selected: route }
         }
       }
       const defaults = ctx.get?.('agentDefaultModel')
       const before = defaults?.currentSelection?.()
+      selectedSessions.add(sessionId)
       const result = await ctx.sessionController.selectModel({
         sessionId, provider, model,
         ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
       })
       const saved = result?.selected ?? { provider, model, ...(reasoningEffort === undefined ? {} : { reasoningEffort }) }
+      state.sessionModelSelections ??= {}
+      state.sessionModelSelections[sessionId] = { ...saved }
+      await rt.save()
       if (llm() === undefined) return result
       if (before?.provider && before?.model && !sameSelection(before, saved)) {
         await defaults.saveSelection(before).catch(error => rt.warn('ds-bot: the default model was not restored: %s', error))

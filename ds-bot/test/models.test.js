@@ -81,7 +81,7 @@ test('choosing a Bot model leaves the user\'s DSH default model as it was', asyn
     // Like DSH: the selection is also saved as the default, in the background.
     sessionController: { selectModel: async ({ provider, model }) => { void defaults.saveSelection({ provider, model }) } },
   }
-  const rt = { ctx, state: { bots: {} }, warn() {} }
+  const rt = { ctx, state: { bots: {} }, save: async () => {}, warn() {} }
   install(rt)
   await Promise.all([
     rt.selectSessionModel('s1', { provider: 'deepseek', model: 'deepseek-v4-pro' }),
@@ -117,6 +117,8 @@ function bench({ providers = { deepseek: ['v4-flash'], stepfun: ['step-5'] }, fa
       listModels: async id => providers[id].map(model => ({ id: model, name: model, inputModalities: ['text'] })),
       resolveModelInfo: async (provider, model) => reasoning[`${provider}/${model}`] ?? {},
     },
+    sessions: { get: () => undefined },
+    agents: { get: () => undefined },
     sessionController: {
       selectModel: async ({ sessionId, provider, model, reasoningEffort }) => {
         selected.push(`${sessionId}:${provider}/${model}${reasoningEffort === undefined ? '' : `:${reasoningEffort}`}`)
@@ -272,6 +274,7 @@ test('a stored group Session on the Bot model is not resumed to select it', asyn
     g4: { live: true, selection: { provider: 'deepseek', model: 'v4-flash' } },
   })
   const { rt, selected } = bench({ services })
+  rt.state.sessionModelSelections = { g1: { provider: 'deepseek', model: 'v4-flash' } }
   rt.groupSessionsOf = () => ['g1', 'g2', 'g3', 'g4']
   const bot = { id: 'b1', model: 'deepseek/v4-flash', appliedModel: 'deepseek/v4-flash' }
   await rt.applyModel(bot)
@@ -311,9 +314,78 @@ test('a read that fails selects the model rather than skipping it', async () => 
     throw new Error('the cache is closed')
   }
   const { rt, selected } = bench({ services })
+  rt.state.sessionModelSelections = { g1: { provider: 'deepseek', model: 'v4-flash' } }
   rt.groupSessionsOf = () => ['g1']
   await rt.applyModel({ id: 'b1', model: 'deepseek/v4-flash', appliedModel: 'deepseek/v4-flash' })
   assert.deepEqual(selected, ['g1:deepseek/v4-flash'])
+})
+
+test('a matching checkpoint needs a matching durable selection witness', async () => {
+  const route = { provider: 'deepseek', model: 'v4-flash' }
+  for (const witness of [undefined, { provider: 'stepfun', model: 'step-5' }, route]) {
+    const { rt, selected } = bench({ services: storedSessions({ g1: { selection: route } }) })
+    if (witness !== undefined) rt.state.sessionModelSelections = { g1: witness }
+    await rt.selectSessionModel('g1', route)
+    assert.deepEqual(selected, witness === route ? [] : ['g1:deepseek/v4-flash'])
+  }
+})
+
+test('an attached Session or Agent cannot use a cold listing and matching witness', async () => {
+  const route = { provider: 'deepseek', model: 'v4-flash' }
+  for (const registry of ['sessions', 'agents']) {
+    const { rt, selected } = bench({ services: storedSessions({ g1: { selection: route } }) })
+    rt.state.sessionModelSelections = { g1: route }
+    rt.ctx[registry].get = () => ({})
+    await rt.selectSessionModel('g1', route)
+    assert.deepEqual(selected, ['g1:deepseek/v4-flash'])
+  }
+})
+
+test('a provider registering after fallback selection cannot reuse its stale checkpoint', async () => {
+  const route = { provider: 'late', model: 'a' }
+  const { rt, selected, providers } = bench({
+    providers: { fallback: ['b'] }, fallback: { provider: 'fallback', model: 'b' },
+    services: storedSessions({ g1: { selection: route } }),
+  })
+  rt.state.sessionModelSelections = { g1: route }
+  const bot = { id: 'g1', model: 'late/a' }
+  await rt.applyModel(bot)
+  providers.late = ['a']
+  rt.dropCatalog()
+  await rt.applyModel(bot)
+  assert.deepEqual(selected, ['g1:fallback/b', 'g1:late/a'])
+  await rt.selectSessionModel('g1', route)
+  assert.deepEqual(selected, ['g1:fallback/b', 'g1:late/a', 'g1:late/a'])
+})
+
+test('a successful real selection persists a witness that a cold restart can use', async () => {
+  const route = { provider: 'deepseek', model: 'v4-flash' }
+  const services = storedSessions({ g1: { selection: route } })
+  const first = bench({ services })
+  let persisted
+  first.rt.save = async () => { persisted = JSON.parse(JSON.stringify(first.rt.state)) }
+  await first.rt.selectSessionModel('g1', route)
+  assert.deepEqual(first.selected, ['g1:deepseek/v4-flash'])
+  assert.deepEqual(persisted.sessionModelSelections.g1, route)
+  const second = bench({ services })
+  Object.assign(second.rt.state, persisted)
+  await second.rt.selectSessionModel('g1', route)
+  assert.deepEqual(second.selected, [])
+})
+
+test('a failed real selection does not create a durable witness', async () => {
+  const { rt } = bench()
+  rt.ctx.sessionController.selectModel = async () => { throw new Error('unavailable') }
+  await assert.rejects(rt.selectSessionModel('g1', { provider: 'deepseek', model: 'v4-flash' }), /unavailable/)
+  assert.equal(rt.state.sessionModelSelections, undefined)
+})
+
+test('a fresh listing prunes witnesses for Sessions that no longer exist', async () => {
+  const route = { provider: 'deepseek', model: 'v4-flash' }
+  const { rt } = bench({ services: storedSessions({}) })
+  rt.state.sessionModelSelections = { gone: route }
+  await rt.selectSessionModel('g1', route)
+  assert.deepEqual(rt.state.sessionModelSelections, { g1: route })
 })
 
 test('resolveEffort takes an id or a name, and refuses what the model has not', async () => {
