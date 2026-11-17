@@ -1222,6 +1222,7 @@ export const JA = {
   "In progress": "進行中",
   "Awaiting review": "レビュー待ち",
   "Blocked": "ブロック中",
+  "Stopped: {reason}": "停止：{reason}",
   "Add a note": "メモを追加",
   "Cancel task": "タスクをキャンセル",
   "Click again to cancel": "もう一度クリックでキャンセル",

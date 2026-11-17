@@ -1345,6 +1345,7 @@ var JA = {
   "In progress": "進行中",
   "Awaiting review": "レビュー待ち",
   "Blocked": "ブロック中",
+  "Stopped: {reason}": "停止：{reason}",
   "Add a note": "メモを追加",
   "Cancel task": "タスクをキャンセル",
   "Click again to cancel": "もう一度クリックでキャンセル",
@@ -3798,6 +3799,7 @@ var KO = {
   "In progress": "진행 중",
   "Awaiting review": "검토 대기",
   Blocked: "막힘",
+  "Stopped: {reason}": "중지됨: {reason}",
   "Add a note": "메모 추가",
   "Cancel task": "작업 취소",
   "Click again to cancel": "다시 클릭하면 취소",
@@ -6259,6 +6261,7 @@ var ES = {
   "In progress": "En curso",
   "Awaiting review": "Pendiente de revisión",
   Blocked: "Bloqueada",
+  "Stopped: {reason}": "Detenido: {reason}",
   "Add a note": "Añadir una nota",
   "Cancel task": "Cancelar tarea",
   "Click again to cancel": "Haz clic otra vez para cancelar",
@@ -8683,6 +8686,7 @@ var FR = {
   "In progress": "En cours",
   "Awaiting review": "En attente de relecture",
   "Blocked": "Bloquée",
+  "Stopped: {reason}": "Arrêtée : {reason}",
   "Add a note": "Ajouter une note",
   "Cancel task": "Annuler la tâche",
   "Click again to cancel": "Cliquez encore pour annuler",
@@ -11136,6 +11140,7 @@ var DE = {
   "In progress": "In Arbeit",
   "Awaiting review": "Wartet auf Prüfung",
   Blocked: "Blockiert",
+  "Stopped: {reason}": "Gestoppt: {reason}",
   "Add a note": "Notiz hinzufügen",
   "Cancel task": "Aufgabe abbrechen",
   "Click again to cancel": "Erneut klicken zum Abbrechen",
@@ -13593,6 +13598,7 @@ var ZH = {
   "In progress": "进行中",
   "Awaiting review": "待审",
   Blocked: "阻塞",
+  "Stopped: {reason}": "已停止：{reason}",
   "Add a note": "补一句",
   "Cancel task": "取消任务",
   "Click again to cancel": "再点一次取消",
@@ -41496,6 +41502,7 @@ function TaskRow3({ task, bot, room: room2, actions }) {
       (0, import_react67.createElement)("span", { className: "bt-task-time" }, clockLabel(task.startedAt))
     ),
     (0, import_react67.createElement)("div", { className: "bt-task-goal" }, task.goal),
+    open && task.status === "blocked" && task.blockedReason ? (0, import_react67.createElement)("div", { className: "bt-task-blocked" }, t("Stopped: {reason}", { reason: task.blockedReason })) : null,
     open && task.progress ? (0, import_react67.createElement)("div", { className: "bt-task-progress" }, task.progress) : null,
     !open && task.result ? (0, import_react67.createElement)("div", { className: "bt-task-result" }, task.result) : null,
     !open && task.reason ? (0, import_react67.createElement)("div", { className: "bt-task-reason" }, task.reason) : null,
@@ -41584,6 +41591,7 @@ var TASK_CSS = `
 .bt-task[data-status=blocked] .bt-task-status{color:var(--bt-danger)}
 .bt-task-time{flex:none;margin-left:auto;font-size:12px;line-height:16px;color:var(--bt-ink-3);font-variant-numeric:tabular-nums}
 .bt-task-goal{margin-top:2px;font-size:13px;line-height:18px;color:var(--bt-ink)}
+.bt-task-blocked{margin-top:2px;font-size:12px;line-height:17px;color:var(--bt-danger)}
 .bt-task-progress{margin-top:2px;font-size:12px;line-height:17px;color:var(--bt-ink-2)}
 .bt-task-result{margin-top:2px;font-size:12px;line-height:17px;color:var(--bt-ink-2);white-space:pre-wrap}
 .bt-task-reason{margin-top:2px;font-size:12px;line-height:17px;color:var(--bt-ink-3)}

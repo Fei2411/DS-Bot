@@ -223,3 +223,37 @@ test('finished tasks stay in the board history beyond two hundred deliveries', a
   assert.equal(host.tasks().length, 205)
   assert.ok(host.tasks().some(task => task.goal === 'Deliver 0'))
 })
+
+// #1663: a member that failed, was stopped, or was cut off by a restart must not keep
+// reading as "in progress" on the board.
+test('a stopped member\'s open work is blocked with the reason, and its owner clears it', async () => {
+  const { rt, tool, tasks } = fakeHost()
+  await tool({ action: 'open', goal: 'Write the draft' })
+  await tool({ action: 'open', goal: 'Review the draft' }, 'ga')
+
+  assert.equal(rt.taskBlocked('r1', 'b', 'Model call failed (TRANSPORT)'), true)
+  const writer = tasks().find(task => task.goal === 'Write the draft')
+  assert.equal(writer.status, 'blocked')
+  assert.equal(writer.blockedBy, 'system')
+  assert.equal(writer.blockedReason, 'Model call failed (TRANSPORT)')
+  // The other member's work is still running.
+  assert.equal(tasks().find(task => task.goal === 'Review the draft').status, 'active')
+  // The board shows the reason, so the user is not left guessing.
+  assert.match(await tool({ action: 'show' }), /stopped: Model call failed \(TRANSPORT\)/)
+
+  // Back at work: the owner's own update drops the system's reason.
+  await tool({ action: 'update', status: 'active', progress: 'Back on it' })
+  assert.equal(writer.status, 'active')
+  assert.equal(writer.blockedReason, undefined)
+  assert.equal(writer.blockedBy, undefined)
+})
+
+test('a stopped member changes nothing on finished work or in another group', async () => {
+  const { rt, tool, tasks, state } = fakeHost()
+  await tool({ action: 'open', goal: 'Write the draft' })
+  await tool({ action: 'complete', result: 'Done' })
+  assert.equal(rt.taskBlocked('r1', 'b', 'Stopped by the user'), false)
+  assert.equal(tasks()[0].status, 'done')
+  assert.equal(rt.taskBlocked('r9', 'b', 'Stopped by the user'), false)
+  assert.deepEqual(state.rooms.r1.tasks[Object.keys(state.rooms.r1.tasks)[0]].status, 'done')
+})

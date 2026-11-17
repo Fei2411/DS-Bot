@@ -1256,6 +1256,7 @@ const ZH = {
   'In progress': '进行中',
   'Awaiting review': '待审',
   Blocked: '阻塞',
+  'Stopped: {reason}': '已停止：{reason}',
   'Add a note': '补一句',
   'Cancel task': '取消任务',
   'Click again to cancel': '再点一次取消',

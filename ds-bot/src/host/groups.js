@@ -372,6 +372,8 @@ export function install(rt) {
   // the round is.
   const noteFailure = (room, member, failure) => {
     const { code, status, message } = failure
+    // The member's open work here stopped with it; the board must not keep saying it runs.
+    rt.taskBlocked?.(room.id, member.id, `Model call failed (${code}${status ? ` ${status}` : ''})`)
     say(room, { who: 'DS Bot', kind: 'notice', reason: 'failed', names: [member.name], about: member.id, detail: failureLine(failure), code, ...(status ? { status } : {}), message })
   }
 
@@ -1889,6 +1891,8 @@ export function install(rt) {
       agent.cancel({ kind: 'user' })
     }
     rt.goalTaskReset?.(roomId, botId, 'Stopped by the user')
+    // Stopped, not cancelled: the user may want the same work to go on.
+    rt.taskBlocked?.(roomId, botId, 'Stopped by the user')
     await postToRoom(room, member, '', { quiet: true, stopped: true })
     return true
   }

@@ -250,6 +250,9 @@ export function install(rt) {
     if (record.roomId !== undefined) {
       const room = rt.roomOf(record.roomId)
       if (room === undefined || !room.members.includes(bot.id)) return
+      // Nothing updates the board on the Bot's behalf, so until the resumed turn says
+      // otherwise the work reads as stopped, not as running (#1663).
+      rt.taskBlocked?.(room.id, bot.id, 'DeepSeek Harness restarted while this was running; it has not been updated since')
       await rt.postToRoom(room, bot, '', { resumed: true, quiet: true, ...(record.resumed ? { again: true } : {}) })
       // A turn already picked up once and cut off again stays stopped: a restart loop
       // must not run it forever.

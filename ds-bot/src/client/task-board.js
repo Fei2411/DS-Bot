@@ -47,6 +47,7 @@ function TaskRow({ task, bot, room, actions }) {
       h('span', { className: 'bt-task-status' }, t(STATUS_KEY[task.status] ?? task.status)),
       h('span', { className: 'bt-task-time' }, clockLabel(task.startedAt))),
     h('div', { className: 'bt-task-goal' }, task.goal),
+    open && task.status === 'blocked' && task.blockedReason ? h('div', { className: 'bt-task-blocked' }, t('Stopped: {reason}', { reason: task.blockedReason })) : null,
     open && task.progress ? h('div', { className: 'bt-task-progress' }, task.progress) : null,
     !open && task.result ? h('div', { className: 'bt-task-result' }, task.result) : null,
     !open && task.reason ? h('div', { className: 'bt-task-reason' }, task.reason) : null,
@@ -105,6 +106,7 @@ export const TASK_CSS = `
 .bt-task[data-status=blocked] .bt-task-status{color:var(--bt-danger)}
 .bt-task-time{flex:none;margin-left:auto;font-size:12px;line-height:16px;color:var(--bt-ink-3);font-variant-numeric:tabular-nums}
 .bt-task-goal{margin-top:2px;font-size:13px;line-height:18px;color:var(--bt-ink)}
+.bt-task-blocked{margin-top:2px;font-size:12px;line-height:17px;color:var(--bt-danger)}
 .bt-task-progress{margin-top:2px;font-size:12px;line-height:17px;color:var(--bt-ink-2)}
 .bt-task-result{margin-top:2px;font-size:12px;line-height:17px;color:var(--bt-ink-2);white-space:pre-wrap}
 .bt-task-reason{margin-top:2px;font-size:12px;line-height:17px;color:var(--bt-ink-3)}

@@ -1222,6 +1222,7 @@ export const FR = {
   "In progress": "En cours",
   "Awaiting review": "En attente de relecture",
   "Blocked": "Bloquée",
+  "Stopped: {reason}": "Arrêtée : {reason}",
   "Add a note": "Ajouter une note",
   "Cancel task": "Annuler la tâche",
   "Click again to cancel": "Cliquez encore pour annuler",

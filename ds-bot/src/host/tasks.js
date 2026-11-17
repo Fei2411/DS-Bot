@@ -45,7 +45,12 @@ export function install(rt) {
     if (status !== undefined && !OPEN_STATUSES.includes(status)) {
       return { error: `A running task\'s status is ${OPEN_STATUSES.join(', ')}; finish it with complete or cancel.` }
     }
-    if (status !== undefined) task.status = status
+    if (status !== undefined) {
+      task.status = status
+      // The owner is working on it again, so the system's reason no longer applies.
+      delete task.blockedReason
+      delete task.blockedBy
+    }
     if (progress !== undefined) task.progress = oneLine(progress, PROGRESS_MAX)
     task.updatedAt = Date.now()
     return { task }
@@ -73,6 +78,21 @@ export function install(rt) {
     task.updatedAt = Date.now()
     return { task }
   }
+  // The member stopped working on it: its turn failed, the user stopped it, or the Host
+  // restarted before the turn finished. The board says so, instead of leaving the work
+  // 'in progress' while nothing runs (#1663). The owner clears it by moving the task on.
+  const block = (room, botId, reason, by) => {
+    let changed = false
+    for (const task of openTasksOf(room)) {
+      if (task.botId !== botId) continue
+      task.status = 'blocked'
+      task.blockedBy = by
+      task.blockedReason = oneLine(reason, REASON_MAX)
+      task.updatedAt = Date.now()
+      changed = true
+    }
+    return changed
+  }
   const note = (room, id, text, by) => {
     const task = tasksOf(room)[String(id ?? '')]
     if (task === undefined) return undefined
@@ -91,7 +111,8 @@ export function install(rt) {
       const bot = owner(task)
       const mine = task.botId === self ? ' (yours)' : ''
       const progress = task.progress === '' ? '' : `\n  progress: ${task.progress}`
-      return `- ${task.id} · ${bot?.name ?? task.botId} · ${task.status} · ${task.goal}${mine}${progress}`
+      const stopped = task.blockedReason === undefined ? '' : `\n  stopped: ${task.blockedReason}`
+      return `- ${task.id} · ${bot?.name ?? task.botId} · ${task.status} · ${task.goal}${mine}${progress}${stopped}`
     })
     const past = pastTasksOf(room_)
     const lines = [`Tasks in "${room_.name}"${open.length === 0 ? ': none open.' : ':'}`, ...open]
@@ -137,6 +158,16 @@ export function install(rt) {
       return `${action === 'open' ? `Opened ${task.id}: ${task.goal}` : `Updated ${task.id} (${task.status}).`}${done}\n\n${ledger(room, self)}`
     },
   }))
+
+  // For the turns and the resume path: a member's open work in this group stopped.
+  // `by` keeps the system's answer apart from a Bot that reports itself stuck.
+  rt.taskBlocked = (roomId, botId, reason, by = 'system') => {
+    const room = rt.roomOf(roomId)
+    if (room === undefined) return false
+    if (!block(room, botId, reason, by)) return false
+    void rt.save().catch(() => {})
+    return true
+  }
 
   // For the group overview. The endpoint adds the user's note and posts it to the room.
   Object.assign(rt, {

@@ -1249,6 +1249,7 @@ export const ES = {
   'In progress': 'En curso',
   'Awaiting review': 'Pendiente de revisión',
   Blocked: 'Bloqueada',
+  'Stopped: {reason}': 'Detenido: {reason}',
   'Add a note': 'Añadir una nota',
   'Cancel task': 'Cancelar tarea',
   'Click again to cancel': 'Haz clic otra vez para cancelar',

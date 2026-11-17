@@ -1249,6 +1249,7 @@ export const KO = {
   'In progress': '진행 중',
   'Awaiting review': '검토 대기',
   Blocked: '막힘',
+  'Stopped: {reason}': '중지됨: {reason}',
   'Add a note': '메모 추가',
   'Cancel task': '작업 취소',
   'Click again to cancel': '다시 클릭하면 취소',
