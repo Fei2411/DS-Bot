@@ -112,7 +112,7 @@ function TaskRow({ task, actions, onView, showBot, roster, canPause }) {
   // The open row lists the next runs from the one the closed row shows, in order;
   // it sits outside the button so a screen reader reads it as text, not as the name.
   const upcoming = nextRunsText(task, when)
-  return h('div', { className: 'bt-set-row bt-task', 'data-done': task.status === 'active' ? undefined : '', 'data-busy': busy || undefined },
+  return h('div', { className: 'bt-set-row bt-sched-row', 'data-done': task.status === 'active' ? undefined : '', 'data-busy': busy || undefined },
     showBot ? h(BotAvatar, { bot: roster.byId[task.botId], size: 28, badge: false, live: false }) : null,
     h('div', { className: 'bt-task-main' },
       h('button', { type: 'button', className: 'bt-set-copy bt-task-copy', 'aria-expanded': expanded || undefined, onClick: () => setExpanded(open => !open) },
@@ -190,7 +190,7 @@ function TaskForm({ roster, actions, start, onDone, onCancel }) {
         kind === 'weekly' ? h('div', { className: 'bt-task-days', role: 'group', 'aria-label': t('Days') }, [1, 2, 3, 4, 5, 6, 7].map(day => h('button', {
           key: day, type: 'button', className: 'bt-task-day', 'aria-pressed': weekdays.includes(day), onClick: () => toggleDay(day),
         }, when(Date.UTC(2024, 0, day), { weekday: 'narrow', timeZone: 'UTC' })))) : null,
-        kind === 'daily' || kind === 'weekly' ? h('input', { className: 'bt-input bt-task-time', type: 'time', value: time, 'aria-label': t('Time'), onChange: event => setTime(event.target.value) }) : null,
+        kind === 'daily' || kind === 'weekly' ? h('input', { className: 'bt-input bt-sched-time', type: 'time', value: time, 'aria-label': t('Time'), onChange: event => setTime(event.target.value) }) : null,
         kind === 'every' ? h(Fragment, null,
           h('span', { className: 'bt-task-every' }, t('Every')),
           h('input', { className: 'bt-input bt-task-count', type: 'number', min: 1, value: count, 'aria-label': t('How many'), onChange: event => setCount(event.target.value) }),
@@ -236,8 +236,8 @@ export function SchedulesPage({ roster, actions, start }) {
           h('div', { className: 'bt-set-card' }, h('div', { className: 'bt-set-row' }, h('span', { className: 'bt-set-hint' }, t('No scheduled tasks yet.'))))) : null)
       : byChat.map(([id, avatar, name, tasks], index) => h('section', { key: id, className: 'bt-set-section' },
           index === 0
-            ? h('div', { className: 'bt-la-sec-head' }, h('h3', { className: 'bt-task-head' }, avatar, name), addBar)
-            : h('h3', { className: 'bt-task-head' }, avatar, name),
+            ? h('div', { className: 'bt-la-sec-head' }, h('h3', { className: 'bt-sched-head' }, avatar, name), addBar)
+            : h('h3', { className: 'bt-sched-head' }, avatar, name),
           h('div', { className: 'bt-set-card' }, tasks.map(task => h(TaskRow, { key: task.id, task, actions, roster, onView: publish, canPause: view.editable === true }))))),
   ]
 }
@@ -268,15 +268,15 @@ export function ScheduleSummary({ bot, actions }) {
     h('div', { className: 'bt-section-title' }, tasks.length === 0 ? t('Scheduled tasks') : t('Scheduled tasks · {count}', { count: tasks.length })),
     tasks.length === 0
       ? h('button', { type: 'button', className: 'bt-more', onClick: () => actions.openSettings('schedules', bot.id) }, view?.available === false ? t('Switch on Automation tasks on the Plugins page in Settings.') : t('No scheduled tasks yet. Add one'))
-      : h('div', { className: 'bt-task-list' }, tasks.slice(0, 3).map(task => h('button', { key: task.id, type: 'button', className: 'bt-task-line', onClick: () => actions.openSettings('schedules', `bot:${bot.id}`) },
+      : h('div', { className: 'bt-sched-list' }, tasks.slice(0, 3).map(task => h('button', { key: task.id, type: 'button', className: 'bt-task-line', onClick: () => actions.openSettings('schedules', `bot:${bot.id}`) },
 
           h(ClockIcon), h('span', { className: 'bt-task-line-title' }, task.title), h('span', { className: 'bt-task-line-when' }, timingText(task))))))
 }
 
 export const SCHEDULE_CSS = `
-.bt-task{gap:10px}
-.bt-task[data-done]{opacity:.6}
-.bt-task[data-busy]{opacity:.4}
+.bt-sched-row{gap:10px}
+.bt-sched-row[data-done]{opacity:.6}
+.bt-sched-row[data-busy]{opacity:.4}
 .bt-task-title{font-size:13px;line-height:18px;font-weight:500;overflow-wrap:anywhere}
 .bt-task-prompt{font-size:12px;line-height:16px;color:var(--bt-ink-2);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .bt-task-prompt[data-open]{display:block;-webkit-line-clamp:unset;overflow:visible;overflow-wrap:anywhere;white-space:pre-wrap}
@@ -288,19 +288,19 @@ export const SCHEDULE_CSS = `
 .bt-task-next[data-state=overdue]{color:var(--bt-danger)}
 .bt-task-remove{display:inline-flex;align-items:center;justify-content:center;min-width:26px;height:26px;margin-left:10px;color:var(--bt-ink-3)}
 @media(max-width:640px){
-  .bt-task{flex-direction:row;flex-wrap:wrap;align-items:center;row-gap:6px}
-  .bt-task>.bt-task-main{width:100%;flex:1 1 100%}
-  .bt-task>.bt-task-next{flex:1 1 auto;text-align:right}
+  .bt-sched-row{flex-direction:row;flex-wrap:wrap;align-items:center;row-gap:6px}
+  .bt-sched-row>.bt-task-main{width:100%;flex:1 1 100%}
+  .bt-sched-row>.bt-task-next{flex:1 1 auto;text-align:right}
 }
 .bt-task-remove svg{width:14px;height:14px}
 .bt-task-remove[data-confirm]{background:color-mix(in srgb,var(--bt-danger) 10%,transparent);color:var(--bt-danger)}
-.bt-task-head{display:flex;align-items:center;gap:6px}
+.bt-sched-head{display:flex;align-items:center;gap:6px}
 .bt-task-form{animation:bt-q-in .4s cubic-bezier(.22,1,.36,1),bt-veil-in .2s ease-out}
 .bt-task-form .bt-bs-input:not(.bt-bs-area){flex:0 1 320px}
 .bt-task-bot{width:auto;min-width:160px;max-width:58%}
 .bt-task-when{display:flex;align-items:center;flex-wrap:wrap;gap:10px;padding-top:4px}
 .bt-task-when .bt-input{width:auto;height:34px}
-.bt-task-time{min-width:116px}
+.bt-sched-time{min-width:116px}
 .bt-task-count{width:76px!important}
 .bt-task-unit{width:auto;height:34px}
 .bt-task-every{font-size:13px;color:var(--bt-ink-2)}
@@ -316,7 +316,7 @@ export const SCHEDULE_CSS = `
 .bt-task-off-mark svg{width:20px;height:20px}
 .bt-task-off-title{font-size:14px;line-height:20px;font-weight:600}
 .bt-task-off .bt-set-hint{max-width:380px}
-.bt-task-list{display:flex;flex-direction:column;gap:2px}
+.bt-sched-list{display:flex;flex-direction:column;gap:2px}
 .bt-task-line{display:flex;align-items:center;gap:8px;width:100%;min-width:0;padding:6px 8px;border:0;border-radius:8px;background:none;color:var(--bt-ink);font:inherit;font-size:13px;text-align:left;cursor:pointer;transition:background-color .12s ease}
 .bt-task-line:hover{background:var(--bt-hover)}
 .bt-task-line svg{flex:none;color:var(--bt-ink-3)}
@@ -327,7 +327,7 @@ export const SCHEDULE_CSS = `
    fields wrap and share the row. */
 @media (max-width:640px){
   .bt-task-bot{min-width:0;width:100%}
-  .bt-task-time{min-width:0;flex:1 1 110px}
+  .bt-sched-time{min-width:0;flex:1 1 110px}
   .bt-task-count{width:auto!important;flex:1 1 72px}
 }
 `

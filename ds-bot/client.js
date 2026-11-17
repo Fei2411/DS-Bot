@@ -24353,7 +24353,7 @@ function TaskRow2({ task, actions, onView, showBot, roster, canPause }) {
   const upcoming = nextRunsText(task, when2);
   return (0, import_react23.createElement)(
     "div",
-    { className: "bt-set-row bt-task", "data-done": task.status === "active" ? void 0 : "", "data-busy": busy || void 0 },
+    { className: "bt-set-row bt-sched-row", "data-done": task.status === "active" ? void 0 : "", "data-busy": busy || void 0 },
     showBot ? (0, import_react23.createElement)(BotAvatar, { bot: roster.byId[task.botId], size: 28, badge: false, live: false }) : null,
     (0, import_react23.createElement)(
       "div",
@@ -24473,7 +24473,7 @@ function TaskForm({ roster, actions, start, onDone, onCancel }) {
           "aria-pressed": weekdays.includes(day),
           onClick: () => toggleDay(day)
         }, when2(Date.UTC(2024, 0, day), { weekday: "narrow", timeZone: "UTC" })))) : null,
-        kind === "daily" || kind === "weekly" ? (0, import_react23.createElement)("input", { className: "bt-input bt-task-time", type: "time", value: time, "aria-label": t("Time"), onChange: (event) => setTime(event.target.value) }) : null,
+        kind === "daily" || kind === "weekly" ? (0, import_react23.createElement)("input", { className: "bt-input bt-sched-time", type: "time", value: time, "aria-label": t("Time"), onChange: (event) => setTime(event.target.value) }) : null,
         kind === "every" ? (0, import_react23.createElement)(
           import_react23.Fragment,
           null,
@@ -24536,7 +24536,7 @@ function SchedulesPage({ roster, actions, start }) {
     ) : null : byChat.map(([id, avatar, name, tasks], index) => (0, import_react23.createElement)(
       "section",
       { key: id, className: "bt-set-section" },
-      index === 0 ? (0, import_react23.createElement)("div", { className: "bt-la-sec-head" }, (0, import_react23.createElement)("h3", { className: "bt-task-head" }, avatar, name), addBar) : (0, import_react23.createElement)("h3", { className: "bt-task-head" }, avatar, name),
+      index === 0 ? (0, import_react23.createElement)("div", { className: "bt-la-sec-head" }, (0, import_react23.createElement)("h3", { className: "bt-sched-head" }, avatar, name), addBar) : (0, import_react23.createElement)("h3", { className: "bt-sched-head" }, avatar, name),
       (0, import_react23.createElement)("div", { className: "bt-set-card" }, tasks.map((task) => (0, import_react23.createElement)(TaskRow2, { key: task.id, task, actions, roster, onView: publish, canPause: view.editable === true })))
     ))
   ];
@@ -24571,7 +24571,7 @@ function ScheduleSummary({ bot, actions }) {
     "div",
     null,
     (0, import_react23.createElement)("div", { className: "bt-section-title" }, tasks.length === 0 ? t("Scheduled tasks") : t("Scheduled tasks · {count}", { count: tasks.length })),
-    tasks.length === 0 ? (0, import_react23.createElement)("button", { type: "button", className: "bt-more", onClick: () => actions.openSettings("schedules", bot.id) }, view?.available === false ? t("Switch on Automation tasks on the Plugins page in Settings.") : t("No scheduled tasks yet. Add one")) : (0, import_react23.createElement)("div", { className: "bt-task-list" }, tasks.slice(0, 3).map((task) => (0, import_react23.createElement)(
+    tasks.length === 0 ? (0, import_react23.createElement)("button", { type: "button", className: "bt-more", onClick: () => actions.openSettings("schedules", bot.id) }, view?.available === false ? t("Switch on Automation tasks on the Plugins page in Settings.") : t("No scheduled tasks yet. Add one")) : (0, import_react23.createElement)("div", { className: "bt-sched-list" }, tasks.slice(0, 3).map((task) => (0, import_react23.createElement)(
       "button",
       { key: task.id, type: "button", className: "bt-task-line", onClick: () => actions.openSettings("schedules", `bot:${bot.id}`) },
       (0, import_react23.createElement)(ClockIcon),
@@ -24581,9 +24581,9 @@ function ScheduleSummary({ bot, actions }) {
   );
 }
 var SCHEDULE_CSS = `
-.bt-task{gap:10px}
-.bt-task[data-done]{opacity:.6}
-.bt-task[data-busy]{opacity:.4}
+.bt-sched-row{gap:10px}
+.bt-sched-row[data-done]{opacity:.6}
+.bt-sched-row[data-busy]{opacity:.4}
 .bt-task-title{font-size:13px;line-height:18px;font-weight:500;overflow-wrap:anywhere}
 .bt-task-prompt{font-size:12px;line-height:16px;color:var(--bt-ink-2);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .bt-task-prompt[data-open]{display:block;-webkit-line-clamp:unset;overflow:visible;overflow-wrap:anywhere;white-space:pre-wrap}
@@ -24595,19 +24595,19 @@ var SCHEDULE_CSS = `
 .bt-task-next[data-state=overdue]{color:var(--bt-danger)}
 .bt-task-remove{display:inline-flex;align-items:center;justify-content:center;min-width:26px;height:26px;margin-left:10px;color:var(--bt-ink-3)}
 @media(max-width:640px){
-  .bt-task{flex-direction:row;flex-wrap:wrap;align-items:center;row-gap:6px}
-  .bt-task>.bt-task-main{width:100%;flex:1 1 100%}
-  .bt-task>.bt-task-next{flex:1 1 auto;text-align:right}
+  .bt-sched-row{flex-direction:row;flex-wrap:wrap;align-items:center;row-gap:6px}
+  .bt-sched-row>.bt-task-main{width:100%;flex:1 1 100%}
+  .bt-sched-row>.bt-task-next{flex:1 1 auto;text-align:right}
 }
 .bt-task-remove svg{width:14px;height:14px}
 .bt-task-remove[data-confirm]{background:color-mix(in srgb,var(--bt-danger) 10%,transparent);color:var(--bt-danger)}
-.bt-task-head{display:flex;align-items:center;gap:6px}
+.bt-sched-head{display:flex;align-items:center;gap:6px}
 .bt-task-form{animation:bt-q-in .4s cubic-bezier(.22,1,.36,1),bt-veil-in .2s ease-out}
 .bt-task-form .bt-bs-input:not(.bt-bs-area){flex:0 1 320px}
 .bt-task-bot{width:auto;min-width:160px;max-width:58%}
 .bt-task-when{display:flex;align-items:center;flex-wrap:wrap;gap:10px;padding-top:4px}
 .bt-task-when .bt-input{width:auto;height:34px}
-.bt-task-time{min-width:116px}
+.bt-sched-time{min-width:116px}
 .bt-task-count{width:76px!important}
 .bt-task-unit{width:auto;height:34px}
 .bt-task-every{font-size:13px;color:var(--bt-ink-2)}
@@ -24623,7 +24623,7 @@ var SCHEDULE_CSS = `
 .bt-task-off-mark svg{width:20px;height:20px}
 .bt-task-off-title{font-size:14px;line-height:20px;font-weight:600}
 .bt-task-off .bt-set-hint{max-width:380px}
-.bt-task-list{display:flex;flex-direction:column;gap:2px}
+.bt-sched-list{display:flex;flex-direction:column;gap:2px}
 .bt-task-line{display:flex;align-items:center;gap:8px;width:100%;min-width:0;padding:6px 8px;border:0;border-radius:8px;background:none;color:var(--bt-ink);font:inherit;font-size:13px;text-align:left;cursor:pointer;transition:background-color .12s ease}
 .bt-task-line:hover{background:var(--bt-hover)}
 .bt-task-line svg{flex:none;color:var(--bt-ink-3)}
@@ -24634,7 +24634,7 @@ var SCHEDULE_CSS = `
    fields wrap and share the row. */
 @media (max-width:640px){
   .bt-task-bot{min-width:0;width:100%}
-  .bt-task-time{min-width:0;flex:1 1 110px}
+  .bt-sched-time{min-width:0;flex:1 1 110px}
   .bt-task-count{width:auto!important;flex:1 1 72px}
 }
 `;
