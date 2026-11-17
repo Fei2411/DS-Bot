@@ -368,8 +368,8 @@ export function install(rt) {
       const record = (await listedSessions())?.get(sessionId)
       if (record === undefined || !record.persisted || record.live) return undefined
       if (ctx.sessions?.get?.(sessionId) !== undefined || ctx.agents?.get?.(sessionId) !== undefined) return undefined
-      const state = cache.cachedSnapshot(record.header, ['modelSelection'])?.values?.modelSelection
-      return state?.next ?? state?.lastUsed ?? undefined
+      const selection = cache.cachedSnapshot(record.header, ['modelSelection'])?.values?.modelSelection
+      return selection?.next ?? selection?.lastUsed ?? undefined
     } catch (error) {
       rt.warn?.('ds-bot: the model selection %s runs on was not read: %s', sessionId, error)
       return undefined
@@ -383,7 +383,9 @@ export function install(rt) {
       if (!force) {
         const recorded = await recordedSelection(sessionId)
         const witnessed = state.sessionModelSelections?.[sessionId]
-        if (recorded !== undefined && witnessed !== undefined && sameSelection(recorded, route) && sameSelection(witnessed, route)) {
+        const requested = witnessed?.requested ?? witnessed
+        const resolved = witnessed?.resolved ?? witnessed
+        if (recorded !== undefined && requested !== undefined && sameSelection(requested, route) && (sameSelection(recorded, resolved) || sameSelection(recorded, route))) {
           sessionSelections.set(sessionId, route)
           return { selected: route }
         }
@@ -396,10 +398,8 @@ export function install(rt) {
         ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
       })
       const saved = result?.selected ?? route
-      // The witness keeps the requested route: DSH may fill in a default thinking
-      // level, which the next start's route would never match.
       state.sessionModelSelections ??= {}
-      state.sessionModelSelections[sessionId] = { ...route }
+      state.sessionModelSelections[sessionId] = { requested: { ...route }, resolved: { ...saved } }
       if (llm() !== undefined && before?.provider && before?.model && !sameSelection(before, saved)) {
         await defaults.saveSelection(before).catch(error => rt.warn('ds-bot: the default model was not restored: %s', error))
       }

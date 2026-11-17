@@ -366,7 +366,7 @@ test('a successful real selection persists a witness that a cold restart can use
   first.rt.save = async () => { persisted = JSON.parse(JSON.stringify(first.rt.state)) }
   await first.rt.selectSessionModel('g1', route)
   assert.deepEqual(first.selected, ['g1:deepseek/v4-flash'])
-  assert.deepEqual(persisted.sessionModelSelections.g1, route)
+  assert.deepEqual(persisted.sessionModelSelections.g1, { requested: route, resolved: route })
   const second = bench({ services })
   Object.assign(second.rt.state, persisted)
   await second.rt.selectSessionModel('g1', route)
@@ -386,11 +386,27 @@ test('a resolved default thinking level does not change the requested route witn
   first.rt.save = async () => { persisted = JSON.parse(JSON.stringify(first.rt.state)) }
   await first.rt.selectSessionModel('g1', route)
   assert.deepEqual(first.selected, ['g1:deepseek/v4-flash'])
-  assert.deepEqual(persisted.sessionModelSelections.g1, route)
+  assert.deepEqual(persisted.sessionModelSelections.g1, { requested: route, resolved: { ...route, reasoningEffort: 'high' } })
   const second = bench({ services })
   Object.assign(second.rt.state, persisted)
   await second.rt.selectSessionModel('g1', route)
   assert.deepEqual(second.selected, [])
+})
+
+test('a resolved checkpoint must match the last resolved selection or requested route', async () => {
+  const route = { provider: 'deepseek', model: 'v4-flash' }
+  for (const effort of ['high', 'low']) {
+    const services = storedSessions({ g1: { selection: { ...route, reasoningEffort: effort } } })
+    const first = bench({ services })
+    first.rt.ctx.sessionController.selectModel = async () => ({ selected: { ...route, reasoningEffort: 'high' } })
+    let persisted
+    first.rt.save = async () => { persisted = JSON.parse(JSON.stringify(first.rt.state)) }
+    await first.rt.selectSessionModel('g1', route)
+    const second = bench({ services })
+    Object.assign(second.rt.state, persisted)
+    await second.rt.selectSessionModel('g1', route)
+    assert.deepEqual(second.selected, effort === 'high' ? [] : ['g1:deepseek/v4-flash'])
+  }
 })
 
 test('a witness save failure leaves a successful selection and the restored user default', async () => {
@@ -421,7 +437,7 @@ test('a fresh listing prunes witnesses for Sessions that no longer exist', async
   const { rt } = bench({ services: storedSessions({}) })
   rt.state.sessionModelSelections = { gone: route }
   await rt.selectSessionModel('g1', route)
-  assert.deepEqual(rt.state.sessionModelSelections, { g1: route })
+  assert.deepEqual(rt.state.sessionModelSelections, { g1: { requested: route, resolved: route } })
 })
 
 test('resolveEffort takes an id or a name, and refuses what the model has not', async () => {
