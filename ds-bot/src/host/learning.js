@@ -11,6 +11,7 @@ import { dirname, join } from 'node:path'
 import { replaceFile } from './files.js'
 import { looksLikeKey, looksSecret, writtenIn } from './memory.js'
 import { validateCapabilityName } from './capabilities.js'
+import { HISTORY_SCAN_PAGES } from './constants.js'
 
 export const LEARNING = {
   minTurnMs: 3 * 60_000,
@@ -365,7 +366,8 @@ export function install(rt) {
     void persist()
   })
 
-  // After the text budget, keep scanning to the cursor for user corrections.
+  // After the text budget, keep scanning to the cursor for user corrections, within
+  // HISTORY_SCAN_PAGES.
   async function linesSince(sessionId) {
     const cursor = data().cursors[sessionId]
     const kept = []
@@ -376,7 +378,7 @@ export function install(rt) {
     let userUsed = 0
     let overBudget = false
     let through
-    for await (const line of rt.partLines(sessionId, AbortSignal.timeout(settings.readMs), { pages: Infinity })) {
+    for await (const line of rt.partLines(sessionId, AbortSignal.timeout(settings.readMs), { pages: HISTORY_SCAN_PAGES })) {
       through ??= line.seq
       if (cursor !== undefined && line.seq <= cursor) break
       const text = clip(line.text, line.who === 'user' ? settings.userLineMax : settings.botLineMax)

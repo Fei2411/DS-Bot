@@ -9,7 +9,7 @@
 // rebuild. Without SQLite, read_own_chat scans the logs as before.
 import { mkdir, unlink } from 'node:fs/promises'
 import { join } from 'node:path'
-import { ANCHOR_LINE_MAX, HISTORY_PAGE, HISTORY_PAGES_MAX, HISTORY_TIMEOUT_MS, OWN_CHAT_BRIEF, OWN_CHAT_LINE_MAX, OWN_CHAT_READ, OWN_CHAT_SEARCH } from './constants.js'
+import { ANCHOR_LINE_MAX, HISTORY_PAGE, HISTORY_PAGES_MAX, HISTORY_SCAN_PAGES, HISTORY_TIMEOUT_MS, OWN_CHAT_BRIEF, OWN_CHAT_LINE_MAX, OWN_CHAT_READ, OWN_CHAT_SEARCH } from './constants.js'
 import { excerpt } from './text.js'
 
 const INDEX_VERSION = 3
@@ -266,7 +266,7 @@ export function install(rt) {
     const signal = AbortSignal.timeout(HISTORY_TIMEOUT_MS)
     const lines = []
     for (const part of [...parts].reverse()) {
-      for await (const line of rt.partLines(part.sessionId, signal)) {
+      for await (const line of rt.partLines(part.sessionId, signal, { pages: HISTORY_SCAN_PAGES })) {
         if (wanted !== '' && !line.text.toLowerCase().includes(wanted)) continue
         lines.push(`[${parts.length > 1 ? `part ${part.number} · ` : ''}${rt.clock(line.time)}] ${excerpt(line.text, wanted)}`)
         if (lines.length >= limit) break
