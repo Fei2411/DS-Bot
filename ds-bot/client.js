@@ -15276,6 +15276,135 @@ function linkMentions(text, bots, selfId) {
   }
   return cursor === 0 ? text : out + text.slice(cursor);
 }
+var atLineStart = (text, i) => i === 0 || text[i - 1] === "\n" || text[i - 1] === "\r";
+var FENCE = 3;
+function fenceOpenAt(text, i) {
+  if (!atLineStart(text, i)) return null;
+  let j = i;
+  let indent = 0;
+  while (indent < FENCE && text[j] === " ") {
+    indent += 1;
+    j += 1;
+  }
+  const mark2 = text[j];
+  if (mark2 !== "`" && mark2 !== "~") return null;
+  let k = j;
+  while (text[k] === mark2) k += 1;
+  const length = k - j;
+  if (length < FENCE) return null;
+  let eol = k;
+  while (eol < text.length && text[eol] !== "\n") eol += 1;
+  if (mark2 === "`" && text.slice(k, eol).includes("`")) return null;
+  return { mark: mark2, length, next: eol < text.length ? eol + 1 : eol };
+}
+function fenceCloseEnd(text, start, fence) {
+  let i = start;
+  while (i < text.length) {
+    const line = i;
+    let j = i;
+    let indent = 0;
+    while (indent < FENCE && text[j] === " ") {
+      indent += 1;
+      j += 1;
+    }
+    let k = j;
+    while (text[k] === fence.mark) k += 1;
+    if (k - j >= fence.length) {
+      let rest = k;
+      while (rest < text.length && (text[rest] === " " || text[rest] === "	")) rest += 1;
+      if (rest === text.length || text[rest] === "\n") return rest === text.length ? rest : rest + 1;
+    }
+    const nl = text.indexOf("\n", line);
+    if (nl === -1) return text.length;
+    i = nl + 1;
+  }
+  return text.length;
+}
+function inlineCodeEnd(text, i) {
+  let n = 0;
+  while (text[i + n] === "`") n += 1;
+  let j = i + n;
+  while (j < text.length && text[j] !== "\n") {
+    if (text[j] !== "`") {
+      j += 1;
+      continue;
+    }
+    let m = 0;
+    while (text[j + m] === "`") m += 1;
+    if (m === n) return j + m;
+    j += m;
+  }
+  return null;
+}
+function markdownLinkAt(text, i) {
+  if (text[i + 1] !== "(") return null;
+  let j = i + 2;
+  while (text[j] === " " || text[j] === "	") j += 1;
+  let destFrom;
+  let destTo;
+  if (text[j] === "<") {
+    destFrom = j + 1;
+    const gt = text.indexOf(">", destFrom);
+    if (gt === -1 || /[\n\r]/.test(text.slice(destFrom, gt))) return null;
+    destTo = gt;
+    j = gt + 1;
+  } else {
+    destFrom = j;
+    while (j < text.length) {
+      const ch = text[j];
+      if (ch === ")" || ch === " " || ch === "	" || ch === "\n" || ch === "\r") break;
+      j += 1;
+    }
+    if (j === destFrom) return null;
+    destTo = j;
+  }
+  while (text[j] === " " || text[j] === "	") j += 1;
+  if (text[j] === '"' || text[j] === "'" || text[j] === "(") {
+    const close = text[j] === "(" ? ")" : text[j];
+    j += 1;
+    while (j < text.length && text[j] !== "\n" && text[j] !== close) j += 1;
+    if (text[j] !== close) return null;
+    j += 1;
+    while (text[j] === " " || text[j] === "	") j += 1;
+  }
+  if (text[j] !== ")") return null;
+  return { destFrom, destTo, end: j + 1 };
+}
+function normalizeFileLinks(text) {
+  if (!text || !text.includes("](")) return text;
+  let out = "";
+  let i = 0;
+  while (i < text.length) {
+    const fence = fenceOpenAt(text, i);
+    if (fence) {
+      const end = fenceCloseEnd(text, fence.next, fence);
+      out += text.slice(i, end);
+      i = end;
+      continue;
+    }
+    if (text[i] === "`") {
+      const end = inlineCodeEnd(text, i);
+      if (end !== null) {
+        out += text.slice(i, end);
+        i = end;
+        continue;
+      }
+    }
+    if (text[i] === "]" && text[i + 1] === "(") {
+      const link = markdownLinkAt(text, i);
+      if (link) {
+        const dest = text.slice(link.destFrom, link.destTo);
+        const next = /^[A-Za-z]:\\/.test(dest) ? dest.replace(/\\/g, "/") : dest;
+        out += text.slice(i, link.destFrom) + next + text.slice(link.destTo, link.end);
+        i = link.end;
+        continue;
+      }
+    }
+    out += text[i];
+    i += 1;
+  }
+  return out;
+}
 function mentionTarget(event) {
   const anchor = event.target instanceof Element ? event.target.closest(`a[href^="${MENTION_ORIGIN}"]`) : null;
   return anchor ? anchor.getAttribute("href").slice(MENTION_ORIGIN.length) : null;
@@ -27094,7 +27223,7 @@ var FOLD_HUGE = { chars: 2e4, lines: Infinity };
 var ALWAYS = { chars: -1, lines: 0 };
 var PREVIEW_LINES = 10;
 var PREVIEW_CHARS = 600;
-var FENCE = /^ {0,3}(`{3,}|~{3,})/;
+var FENCE2 = /^ {0,3}(`{3,}|~{3,})/;
 var CLOSE = /^ {0,3}(`{3,}|~{3,})\s*$/;
 var closes = (line, open) => {
   const marker = CLOSE.exec(line)?.[1];
@@ -27115,7 +27244,7 @@ function openedFence(lines) {
   let open = null;
   let openLine = -1;
   for (let i = 0; i < lines.length; i += 1) {
-    const marker = FENCE.exec(lines[i])?.[1];
+    const marker = FENCE2.exec(lines[i])?.[1];
     if (marker === void 0) continue;
     if (open === null) {
       open = marker;
@@ -28088,7 +28217,7 @@ var foldArea = (body, code, codeHead, actions) => code === void 0 ? body : (0, i
 function Bubble({ text, index, roster, selfId, actions, sessionId, msgKey, mentions, fold, picked, live, lead, whole, textInteractionSource }) {
   const { shown, folded, control, code, codeHead } = useFold(text, { limit: fold, whole, live });
   const key = msgKey ? `${msgKey}:${index}` : void 0;
-  const body = shown === "" ? null : (0, import_react34.createElement)(import_dsh_client_ui_primitives.MarkdownText, { text: linkMentions(shown, roster.bots, selfId), streaming: live, labels: mdLabels(), variant: "compact", fileMentions: mentions });
+  const body = shown === "" ? null : (0, import_react34.createElement)(import_dsh_client_ui_primitives.MarkdownText, { text: linkMentions(normalizeFileLinks(shown), roster.bots, selfId), streaming: live, labels: mdLabels(), variant: "compact", fileMentions: mentions });
   const row = (0, import_react34.useRef)(null);
   const [toolsOpen, setToolsOpen] = (0, import_react34.useState)(false);
   useDismiss(toolsOpen, () => setToolsOpen(false), [row]);
