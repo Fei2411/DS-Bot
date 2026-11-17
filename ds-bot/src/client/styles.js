@@ -1197,6 +1197,12 @@ body[data-bt-layout=flat] .bt-think{max-width:calc(var(--bt-flat-w) * 100%)}
 .bt-time-sep{display:flex;justify-content:center;align-items:center;height:28px;margin:14px 0 8px;font-size:12px;line-height:16px;color:var(--bt-ink-2);white-space:nowrap}
 [class*="_scroll"]>[class*="_column"]::before{content:var(--bt-first-sep,none);display:block;flex:none;height:28px;margin:17px 0 12px;font-size:12px;line-height:28px;text-align:center;color:var(--bt-ink-2);white-space:nowrap}
 .bt-activity{display:flex;align-items:center;gap:10px;margin:8px 0 4px 2px;font-size:14px;color:var(--bt-ink-2)}
+/* A member waits on an approval whose card lives in its own chat (#1623). */
+.bt-group-approvals{display:flex;flex-direction:column;gap:6px;margin:8px 0 4px 2px}
+.bt-group-approval{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:8px 12px;border-radius:12px;background:var(--bt-hover);font-size:14px;color:var(--bt-ink)}
+.bt-group-approval-text{flex:1 1 220px;min-width:0}
+.bt-group-approval-open{flex:none;padding:4px 10px;border:1px solid var(--bt-line);border-radius:999px;background:var(--bt-card);color:var(--bt-ink);font:inherit;font-size:13px;cursor:pointer}
+.bt-group-approval-open:hover{background:var(--bt-accent-soft)}
 .bt-group-replies{display:contents}
 /* A Bot chat is flat in every work-details mode, without changing the user's mode
    (it is a DSH-wide setting): step groups lose their header and stay open, and what a

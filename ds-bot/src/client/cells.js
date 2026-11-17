@@ -6,6 +6,7 @@ import { linkMentions, mentionTarget, dayLabel, contentText, stripHeader, stripT
 import { SmileIcon, ReplyIcon, DotsIcon, CheckIcon, DownloadIcon, CopyIcon, GoalIcon, MemoryIcon } from './icons.js'
 import { ChangesCard } from './changes-card.js'
 import { goalEventText } from './goal.js'
+import { GroupApprovalHints, groupApprovals } from './group-approvals.js'
 import { colorOf, toolState, BotMark, RoomAvatar } from './mark.js'
 import { CellEmpty } from './cell-empty.js'
 import { AskUserCell, SettledQuestion } from './questions.js'
@@ -1017,7 +1018,7 @@ function RelayEvent({ reply, bot, sessionId, actions }) {
 // Rows a later call closed do not change: each is read from the group's book once per page.
 const settledRows = new Map()
 
-function GroupReplies({ sessionId, callId, done, content, roster, actions, useUi, useWork }) {
+export function GroupReplies({ sessionId, callId, done, content, roster, actions, useUi, useWork }) {
   const [live, setLive] = useState({ replies: [], speaking: [] })
   useEffect(() => {
     if (done) return undefined
@@ -1082,13 +1083,17 @@ function GroupReplies({ sessionId, callId, done, content, roster, actions, useUi
     const tool = work.bots?.[id]?.tool
     return tool ? [tool, workPhrase(work.bots[id])] : []
   }))) ?? '[]')
-  if (replies.length === 0 && pending.length === 0) {
+  const room = roster.roomsById[sessionId]
+  // A member Bot's approval card lives in its own Session, so the group says what it is
+  // waiting on instead of looking stuck (#1623).
+  const waiting = groupApprovals({ sessionId, roster, approvals: useWork?.(work => work?.approvals ?? []) ?? [] })
+  if (replies.length === 0 && pending.length === 0 && waiting.length === 0) {
     // A pruned tool result left nothing to draw; keep a marker row instead of an
     // empty turn, which reads as a blank gap on a narrow first paint.
     return broken ? h('div', { className: 'bt-group-replies' }, h('div', { className: 'bt-event' }, t('The group replies could not be shown'))) : h(CellEmpty)
   }
-  const room = roster.roomsById[sessionId]
   return h('div', { className: 'bt-group-replies' },
+    h(GroupApprovalHints, { key: 'approvals', sessionId, roster, actions, useWork }),
     stackReplies(replies).map(({ reply, index, texts, time, duration, claims, changes }) => {
       const bot = roster.byId[reply.botId] ?? { id: reply.botId, name: reply.name, color: reply.color ?? 'gray' }
       if (reply.kind === 'user') {
