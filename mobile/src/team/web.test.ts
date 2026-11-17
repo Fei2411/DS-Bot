@@ -39,14 +39,55 @@ test('pair fragments are decoded and removed, including malformed links', () => 
 test('web storage persists, deletes, and surfaces storage failures', async t => {
   const values = new Map<string, string>()
   browserGlobal(t, 'localStorage', { getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => { values.set(key, value) }, removeItem: (key: string) => { values.delete(key) } })
-  assert.equal(await storage.getItemAsync('key'), null)
-  await storage.setItemAsync('key', 'value')
-  assert.equal(await storage.getItemAsync('key'), 'value')
-  await storage.deleteItemAsync('key')
-  assert.equal(await storage.getItemAsync('key'), null)
+  const key = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt'])
+  const encrypted = storage.createEncryptedStorage(localStorage, async () => key)
+  assert.equal(key.extractable, false)
+  await assert.rejects(crypto.subtle.exportKey('raw', key))
+  assert.equal(await encrypted.getItemAsync('key'), null)
+  await encrypted.setItemAsync('key', 'value')
+  assert.equal(values.get('key')!.includes('value'), false)
+  assert.equal(await encrypted.getItemAsync('key'), 'value')
+  await encrypted.deleteItemAsync('key')
+  assert.equal(await encrypted.getItemAsync('key'), null)
   t.mock.method(localStorage, 'setItem', () => { throw new Error('quota') })
-  await assert.rejects(storage.setItemAsync('key', 'value'), /quota/)
+  await assert.rejects(encrypted.setItemAsync('key', 'value'), /quota/)
   await ensureUnlock('state')
+})
+
+test('web storage refuses plaintext, missing or changed keys, tampering and swapped records', async () => {
+  const values = new Map<string, string>()
+  const store = { getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => { values.set(key, value) }, removeItem: (key: string) => { values.delete(key) } }
+  let key: CryptoKey | undefined = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt'])
+  const encrypted = storage.createEncryptedStorage(store, async () => key)
+  for (const old of ['plaintext', '{"privateKey":"old-key"}', 'null', '{"version":1}']) {
+    values.set('identity', old)
+    assert.equal(await encrypted.getItemAsync('identity'), null)
+  }
+  await encrypted.setItemAsync('identity', '')
+  assert.equal(await encrypted.getItemAsync('identity'), '')
+  await encrypted.setItemAsync('identity', 'private-key')
+  const original = values.get('identity')!
+  await encrypted.setItemAsync('identity', 'private-key')
+  assert.notEqual(values.get('identity'), original)
+  values.set('other', original)
+  assert.equal(await encrypted.getItemAsync('other'), null)
+  const envelope = JSON.parse(original)
+  values.set('identity', JSON.stringify({ ...envelope, ciphertext: 'AAAA' }))
+  assert.equal(await encrypted.getItemAsync('identity'), null)
+  values.set('identity', original)
+  const savedKey = key
+  key = undefined
+  assert.equal(await encrypted.getItemAsync('identity'), null)
+  await assert.rejects(encrypted.setItemAsync('new', 'value'), /key storage failed/)
+  key = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt'])
+  assert.equal(await encrypted.getItemAsync('identity'), null)
+  key = savedKey
+  assert.equal(await encrypted.getItemAsync('identity'), 'private-key')
+  const reopened = storage.createEncryptedStorage(store, async () => savedKey)
+  assert.equal(await reopened.getItemAsync('identity'), 'private-key')
+  const broken = storage.createEncryptedStorage(store, async () => { throw new Error('IndexedDB unavailable') })
+  await assert.rejects(broken.getItemAsync('identity'), /IndexedDB unavailable/)
+  await assert.rejects(broken.setItemAsync('new', 'value'), /IndexedDB unavailable/)
 })
 
 test('web downloads assemble chunks, handle empty files and refuse failed transfers', async () => {
