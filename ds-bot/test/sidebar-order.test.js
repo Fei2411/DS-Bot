@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { SIDEBAR_KINDS, filterSidebarEntries, sidebarEntries } from '../src/client/sidebar-order.js'
+import { SIDEBAR_KINDS, filterSidebarEntries, sectionsByActivity, sidebarEntries } from '../src/client/sidebar-order.js'
 
 const bot = (id, extra = {}) => ({ id, name: id, sessionId: id, createdAt: 1, ...extra })
 const room = (id, extra = {}) => ({ id, name: id, createdAt: 1, ...extra })
@@ -46,4 +46,16 @@ test('narrowing keeps one kind and drops the rest', () => {
   assert.deepEqual(ids(filterSidebarEntries(entries, 'bot')), ['b'])
   assert.deepEqual(ids(filterSidebarEntries(entries, 'room')), ['r'])
   assert.equal(filterSidebarEntries(entries, undefined), entries)
+})
+
+// Inside an old section a Bot can still be the one that just answered; the section
+// holding it belongs above an older one.
+test('a section follows its newest member', () => {
+  const sections = [{ id: 'a', createdAt: 1 }, { id: 'b', createdAt: 2 }]
+  const entries = [
+    { kind: 'bot', item: { id: 'x', sectionId: 'a' }, at: 99 },
+    { kind: 'bot', item: { id: 'y', sectionId: 'b' }, at: 5 },
+  ]
+  assert.deepEqual(sectionsByActivity(sections, entries).map(s => s.id), ['a', 'b'])
+  assert.deepEqual(sectionsByActivity(sections, []).map(s => s.id), ['b', 'a'])
 })

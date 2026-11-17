@@ -21,3 +21,15 @@ export function filterSidebarEntries(entries, kind) {
   if (kind === undefined || kind === 'all') return entries
   return entries.filter(entry => entry.kind === kind)
 }
+
+// A section rises with its busiest member: the list is ordered by what was said
+// last, so a group holding the newest reply belongs at the top too.
+export function sectionsByActivity(sections, entries) {
+  const newest = new Map()
+  for (const entry of entries) {
+    const id = entry.item.sectionId
+    if (id === undefined) continue
+    newest.set(id, Math.max(newest.get(id) ?? 0, entry.at))
+  }
+  return [...sections].sort((a, b) => (newest.get(b.id) ?? b.createdAt ?? 0) - (newest.get(a.id) ?? a.createdAt ?? 0))
+}

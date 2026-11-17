@@ -644,7 +644,7 @@ const ZH = {
 
   // Settings dialog
   General: '通用',
-  Bots: 'Bot',
+  Bots: '机器人',
   'Group chats': '群聊',
   Secrets: '密钥',
   Appearance: '外观',

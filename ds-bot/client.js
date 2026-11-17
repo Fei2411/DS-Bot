@@ -12996,7 +12996,7 @@ var ZH = {
   Moonlight: "月光",
   // Settings dialog
   General: "通用",
-  Bots: "Bot",
+  Bots: "机器人",
   "Group chats": "群聊",
   Secrets: "密钥",
   Appearance: "外观",
@@ -16012,8 +16012,8 @@ body[data-bt-motion=quiet] .bt-mark[data-poke]{cursor:default}
 .bt-tile[aria-current=page]{background:var(--bt-active)}
 .bt-tile-name{font-size:13px;line-height:18px;font-weight:500;max-width:84px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bt-chip{font-size:11px;line-height:16px;padding:1px 7px;border-radius:999px;background:var(--bt-tag-bg);border:.5px solid var(--bt-line);color:var(--bt-ink-2);white-space:nowrap;max-width:92px;overflow:hidden;text-overflow:ellipsis}
-.bt-side-kinds{display:flex;gap:4px;padding:0 10px 8px;align-items:center}
-.bt-kind{border:0;background:transparent;color:var(--bt-ink-2);font:inherit;font-size:12px;line-height:20px;padding:2px 8px;border-radius:999px;cursor:pointer;transition:background-color .12s ease,color .12s ease}
+.bt-side-kinds{display:flex;gap:4px;padding:0 10px 4px;align-items:center}
+.bt-kind{border:0;background:transparent;color:var(--bt-ink-2);font:inherit;font-size:12px;line-height:18px;padding:1px 8px;border-radius:999px;cursor:pointer;transition:background-color .12s ease,color .12s ease}
 .bt-kind:hover{color:var(--bt-ink)}
 .bt-kind[data-on]{background:color-mix(in srgb,currentColor 12%,transparent);color:var(--bt-ink)}
 .bt-row{display:flex;align-items:center;gap:8px;min-height:54px;padding:8px;border:0;border-radius:12px;background:transparent;color:var(--bt-ink);text-align:left;cursor:pointer;width:100%;box-sizing:border-box;font-family:inherit;transition:background-color .12s ease}
@@ -17735,6 +17735,15 @@ var SIDEBAR_KINDS = ["all", "bot", "room"];
 function filterSidebarEntries(entries2, kind) {
   if (kind === void 0 || kind === "all") return entries2;
   return entries2.filter((entry) => entry.kind === kind);
+}
+function sectionsByActivity(sections, entries2) {
+  const newest = /* @__PURE__ */ new Map();
+  for (const entry of entries2) {
+    const id = entry.item.sectionId;
+    if (id === void 0) continue;
+    newest.set(id, Math.max(newest.get(id) ?? 0, entry.at));
+  }
+  return [...sections].sort((a, b) => (newest.get(b.id) ?? b.createdAt ?? 0) - (newest.get(a.id) ?? a.createdAt ?? 0));
 }
 
 // src/client/icons.js
@@ -30500,7 +30509,7 @@ function TeamSidebar(props) {
         onDragOver: (event) => onDragOverSec(event, "__none__"),
         onDrop: (event) => onDropSec(event, null)
       }, ungrouped.map((entry) => renderSidebarEntry(entry, rowProps, markedUnread, onDragStart))) : kind === "all" ? ungrouped.map((entry) => renderSidebarEntry(entry, rowProps, markedUnread, onDragStart)) : null,
-      kind === "all" && sections.map((section) => (0, import_react36.createElement)(SectionBlock, {
+      kind === "all" && sectionsByActivity(sections, order).map((section) => (0, import_react36.createElement)(SectionBlock, {
         key: section.id,
         section,
         entries: order.filter((entry) => entry.item.sectionId === section.id),
