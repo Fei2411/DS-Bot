@@ -530,7 +530,10 @@ export function install(rt) {
       entry.joined = info.joined.filter(item => item?.info !== undefined && item.info !== null)
     }
     if (rt.groupOwners.has(sessionId)) return
-    if ((expectsReply(info) && !answersUser(info)) || info.role === 'room' || (info.role === 'handoff' && info.resume !== true)) {
+    const work = rt.workOf?.(info)
+    const internalWork = !answersUser(info) && rt.ownsWork?.(rt.selfOf(sessionId), work)
+      && rt.workAsker(work)?.senderSessionId !== undefined
+    if (internalWork || (expectsReply(info) && !answersUser(info)) || info.role === 'room' || (info.role === 'handoff' && info.resume !== true)) {
       markExchangeTurn(sessionId, entry.turn)
     }
   }
