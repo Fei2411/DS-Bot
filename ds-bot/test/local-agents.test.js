@@ -421,6 +421,93 @@ test('a tool call that arrives after the turn was stopped does not consume the n
   assert.match(next.text, /are you there/)
 })
 
+// Wait for the engine behind a cancelled ACP turn to report its prompt over.
+async function untilSettled(adapter, sessionId = 's1') {
+  for (let attempt = 0; attempt < 500; attempt += 1) {
+    if (adapter.live.get(sessionId)?.engineSession?.running === false) return
+    await delay(10)
+  }
+  throw new Error('the cancelled turn did not settle')
+}
+
+// The same late call from a cancelled Claude turn: the guard must cover every
+// engine, not only ACP.
+test('a late tool call from a cancelled Claude turn does not consume the next message', async (t) => {
+  const adapter = makeAdapter({ claudeArgs: ['--defer-cancel=400'] })
+  t.after(() => adapter.dispose())
+  const control = new AbortController()
+  const stream = collect(adapter.stream(options('s1', [user('m1', 'hang')], { provider: 'local-claude-code', signal: control.signal })))
+  setTimeout(() => control.abort(), 200)
+  const aborted = await stream
+  assert.equal(aborted.finish.kind, 'aborted')
+  const live = adapter.live.get('s1')
+  const call = await fetch(live.mcp.url, {
+    method: 'POST',
+    signal: AbortSignal.timeout(2_000),
+    headers: { authorization: `Bearer ${live.mcp.token}`, 'content-type': 'application/json', accept: 'text/event-stream' },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 7, method: 'tools/call', params: { name: 'message_bot', arguments: { to: 'Chief', message: 'late' } } }),
+  })
+  const body = await call.text()
+  assert.match(body, /the turn was stopped/)
+  assert.equal(live.pending.size, 0)
+  const next = await collect(adapter.stream(options('s1', [user('m1', 'hang'), user('m2', 'are you there')], { provider: 'local-claude-code', signal: AbortSignal.timeout(10_000) })))
+  assert.equal(next.finish.kind, 'stop')
+  assert.equal(next.calls.length, 0)
+  assert.match(next.text, /are you there/)
+})
+
+test('a late tool call from a cancelled Codex turn does not consume the next message', async (t) => {
+  const adapter = makeAdapter({ codexArgs: ['--defer-cancel=400'] })
+  t.after(() => adapter.dispose())
+  const control = new AbortController()
+  const stream = collect(adapter.stream(options('s1', [user('m1', 'hang')], { provider: 'local-codex-cli', signal: control.signal })))
+  setTimeout(() => control.abort(), 200)
+  const aborted = await stream
+  assert.equal(aborted.finish.kind, 'aborted')
+  const live = adapter.live.get('s1')
+  const call = await fetch(live.mcp.url, {
+    method: 'POST',
+    signal: AbortSignal.timeout(2_000),
+    headers: { authorization: `Bearer ${live.mcp.token}`, 'content-type': 'application/json', accept: 'text/event-stream' },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 7, method: 'tools/call', params: { name: 'message_bot', arguments: { to: 'Chief', message: 'late' } } }),
+  })
+  const body = await call.text()
+  assert.match(body, /the turn was stopped/)
+  assert.equal(live.pending.size, 0)
+  const next = await collect(adapter.stream(options('s1', [user('m1', 'hang'), user('m2', 'are you there')], { provider: 'local-codex-cli', signal: AbortSignal.timeout(10_000) })))
+  assert.equal(next.finish.kind, 'stop')
+  assert.equal(next.calls.length, 0)
+  assert.match(next.text, /are you there/)
+})
+
+test('maintenance runs once a cancelled ACP turn has settled', async (t) => {
+  const adapter = makeAdapter({ acpArgs: ['--defer-cancel=300'] })
+  t.after(() => adapter.dispose())
+  const control = new AbortController()
+  const stream = collect(adapter.stream(options('s1', [user('m1', 'hang')], { signal: control.signal })))
+  setTimeout(() => control.abort(), 200)
+  const aborted = await stream
+  assert.equal(aborted.finish.kind, 'aborted')
+  await untilSettled(adapter)
+  const compacted = await adapter.compact('s1', AbortSignal.timeout(10_000))
+  assert.equal(compacted, 'done')
+})
+
+test('a model change right after a cancelled ACP turn settles starts the next prompt on it', async (t) => {
+  const adapter = makeAdapter({ acpArgs: ['--defer-cancel=300'] })
+  t.after(() => adapter.dispose())
+  const control = new AbortController()
+  const stream = collect(adapter.stream(options('s1', [user('m1', 'hang')], { signal: control.signal })))
+  setTimeout(() => control.abort(), 200)
+  const aborted = await stream
+  assert.equal(aborted.finish.kind, 'aborted')
+  await untilSettled(adapter)
+  const next = await collect(adapter.stream(options('s1', [user('m1', 'hang'), user('m2', 'hello')], { model: 'fake-small', signal: AbortSignal.timeout(10_000) })))
+  assert.equal(next.finish.kind, 'stop')
+  assert.match(next.text, /hello/)
+  assert.equal(adapter.live.get('s1').model, 'fake-small')
+})
+
 test('a plain-object agent failure is a readable LOCAL_AGENT_ERROR', async (t) => {
   const fail = (error) => makeAdapter({
     engine: {
