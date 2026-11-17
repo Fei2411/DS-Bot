@@ -1921,6 +1921,7 @@ export function install(rt) {
     delete_group: 'Deleting the group', post_to_group: 'Posting in the group',
     list_bots: 'Checking the team', read_group_chat: 'Reading a group chat',
     read_own_chat: 'Looking back through the chat',
+    bot_remember: 'Saving to memory', bot_forget: 'Updating memory', bot_recall: 'Checking memory',
     remember: 'Saving to memory', forget: 'Updating memory', recall: 'Checking memory',
   }
   const toolLabel = name => STEP_LABELS[name] ?? TOOL_PHRASES.find(([pattern]) => pattern.test(name))?.[1]
