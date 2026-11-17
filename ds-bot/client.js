@@ -16279,7 +16279,12 @@ function ComposerPlus({ sessionId, inputActions, useInput, useRoster, actions })
   };
   const reference = () => {
     setOpen(null);
-    actions.referenceChat(sessionId, inputActions?.captureInsertion?.());
+    const span = inputActions?.captureInsertion?.();
+    if (span !== void 0 && typeof inputActions?.insertText === "function") {
+      inputActions.insertText("@", span);
+      return;
+    }
+    actions.referenceChat(sessionId, span);
   };
   const canReference = typeof inputActions?.captureInsertion === "function" && actions.canReferenceChat();
   const room2 = roster.roomsById?.[sessionId];
@@ -16324,6 +16329,7 @@ var BOTS_SOURCE = "ds-bot";
 var CHATS_SOURCE = "ds-bot-chats";
 var ROOM_ALL = ["all", "everyone", "所有人", "全体"];
 var OTHER_CHATS_MAX = 8;
+var MAX_CHATS_WITH_QUERY = 50;
 var conversationOf = (roster, sessionId) => {
   if (!roster.ready) return null;
   const room2 = roster.roomsById[sessionId];
@@ -16343,19 +16349,21 @@ function mentionRows(roster, sessionId, query = "") {
   }
   return rows2;
 }
-function chatRows(roster, list, sessionId) {
+function chatRows(roster, list, sessionId, query = "") {
   const here = conversationOf(roster, sessionId);
   if (here === null) return [];
+  const needle = query.trim().toLowerCase();
+  const matches2 = (text) => needle === "" || String(text ?? "").toLowerCase().includes(needle);
   const byId = list?.byId ?? {};
   const bots = roster.bots.filter((bot) => bot.id !== here.self?.id).map((bot) => {
     const id = currentPart(bot);
     return { sessionId: id, label: t("Chat with {name}", { name: bot.name }), bot, updatedAt: byId[id]?.updatedAt };
-  });
+  }).filter((row) => matches2(row.bot.name) || matches2(row.label));
   const team = /* @__PURE__ */ new Set([
     ...roster.bots.flatMap((bot) => [bot.id, currentPart(bot), ...bot.parts ?? []]),
     ...roster.rooms.flatMap((room2) => [room2.id, room2.sessionId, ...room2.ownParts ?? [], ...room2.parts ?? []].filter((id) => id !== void 0))
   ]);
-  const others = (list?.ids ?? []).map((id) => byId[id]).filter((row) => row !== void 0 && row.id !== sessionId && !team.has(row.id) && row.origin !== "subagent" && row.blank !== true).sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0)).slice(0, OTHER_CHATS_MAX).map((row) => ({ sessionId: row.id, label: row.displayTitle || row.title || row.id, updatedAt: row.updatedAt }));
+  const others = (list?.ids ?? []).map((id) => byId[id]).filter((row) => row !== void 0 && row.id !== sessionId && !team.has(row.id) && row.origin !== "subagent" && row.blank !== true).filter((row) => matches2(row.displayTitle) || matches2(row.title) || matches2(row.id)).sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0)).slice(0, needle === "" ? OTHER_CHATS_MAX : MAX_CHATS_WITH_QUERY).map((row) => ({ sessionId: row.id, label: row.displayTitle || row.title || row.id, updatedAt: row.updatedAt }));
   return [...bots, ...others];
 }
 function sessionMention(sessionId, label) {
@@ -16387,9 +16395,8 @@ function atSources({ roster, sessions, launched, iconFor }) {
     name: CHATS_SOURCE,
     order: -10,
     showGroupTitle: false,
-    async candidates(session) {
-      if (!launched(session.sessionId)) return [];
-      return chatRows(roster.getSnapshot(), sessions.list.getSnapshot(), session.sessionId).map((row) => ({
+    async candidates(session, { query } = {}) {
+      return chatRows(roster.getSnapshot(), sessions.list.getSnapshot(), session.sessionId, query ?? "").map((row) => ({
         name: row.bot ? row.bot.name : row.label,
         ...row.updatedAt ? { description: relativeShort(row.updatedAt) } : {},
         icon: row.bot ? iconFor(row) : "session",
