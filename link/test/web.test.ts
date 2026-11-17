@@ -20,7 +20,7 @@ test('relay optionally serves the web app with confined paths and security heade
   t.after(() => server.close())
   const origin = new URL(server.url.replace('ws:', 'http:')).origin
   const get = (path: string, method = 'GET', host?: string) => new Promise<{ status: number, headers: import('node:http').IncomingHttpHeaders, body: string }>((resolve, reject) => {
-    const req = request(origin, { method, path, ...(host === undefined ? {} : { headers: { Host: host } }) }, res => {
+    const req = request(origin, { method, path, setHost: host === undefined, ...(host === undefined ? {} : { headers: { Host: host } }) }, res => {
       let body = ''
       res.setEncoding('utf8')
       res.on('data', chunk => { body += chunk })
