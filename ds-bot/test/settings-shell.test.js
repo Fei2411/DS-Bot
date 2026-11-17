@@ -429,7 +429,7 @@ const styles = load(await bundle("export { botOwnCss, SHELL_CSS } from './src/cl
 
 test('settings slot icons take precedence over legacy plugin nav decorators', () => {
   assert.match(styles.SHELL_CSS, /\.bt-settings-item:has\(>\.bt-settings-icon\)::before\{content:none!important\}/)
-  assert.match(styles.SHELL_CSS, /\.bt-settings-item>\.bt-settings-icon svg\{display:block!important\}/)
+  assert.match(styles.SHELL_CSS, /\.bt-settings-icon>\[data-slot="settings\.section\.icon"\]>svg\{display:block!important\}/)
 })
 
 test('the Agent-mode sheet keeps DS Bot\'s own rules and drops the shell overrides', () => {
