@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { FishLogo } from './dsh-primitives.js'
 import { inkFill } from './inks.js'
 import { isMainOf } from './sources.js'
+import { sidebarEntries } from './sidebar-order.js'
 import { currentPart, previewOf, relativeShort } from './text.js'
 import { PlusIcon, SearchIcon, SidebarIcon, GaugeIcon, ClockIcon, GearIcon, PinMarkIcon, ConnectorIcon, PlugIcon, SwitchIcon, CloudDownloadIcon, SignInIcon, SignOutIcon, SlidersIcon, ChevronRightIcon, DotsIcon, FolderIcon } from './icons.js'
 import { lookOf, MAIN_LOOK } from './characters.js'
@@ -521,16 +522,7 @@ export function TeamSidebar(props) {
     for (const id of list.ids) stamps[id] = list.byId[id]?.updatedAt ?? 0
     return JSON.stringify(stamps)
   })
-  const order = useMemo(() => {
-    const stamps = JSON.parse(updated)
-    const entries = [
-      ...roster.bots.filter(bot => bot.id !== roster.mainBotId).map(bot => ({ kind: 'bot', item: bot, at: stamps[currentPart(bot)] ?? bot.createdAt })),
-      ...roster.rooms.map(room => ({ kind: 'room', item: room, at: stamps[room.id] ?? room.createdAt })),
-      // The Agent sorts by its most recent Session, falling back to when it was added.
-      ...(roster.agents ?? []).map(agent => ({ kind: 'agent', item: agent, at: Math.max(0, ...agent.sessions.map(id => stamps[id] ?? 0)) || agent.createdAt })),
-    ]
-    return entries.sort((a, b) => Number(Boolean(b.item.pinned)) - Number(Boolean(a.item.pinned)) || b.at - a.at)
-  }, [roster, updated])
+  const order = useMemo(() => sidebarEntries(roster, JSON.parse(updated)), [roster, updated])
   const sections = roster.sections ?? []
   const sectionSet = useMemo(() => new Set(sections.map(sec => sec.id)), [sections])
   const ungrouped = useMemo(

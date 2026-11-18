@@ -17742,6 +17742,18 @@ function RoomAvatar({ room: room2, roster, size = 36 }) {
 // src/client/dsh-primitives.js
 var import_dsh_client_ui_primitives = require("@deepseek-ai/dsh-client-ui-primitives");
 
+// src/client/sidebar-order.js
+function sidebarEntries(roster, stamps) {
+  const at = (id, fallback = 0) => stamps[id] ?? fallback;
+  const entries2 = [
+    ...roster.bots.filter((bot) => bot.id !== roster.mainBotId).map((bot) => ({ kind: "bot", item: bot, at: at(currentPart(bot), bot.createdAt) })),
+    ...roster.rooms.map((room2) => ({ kind: "room", item: room2, at: at(room2.sessionId ?? room2.id, room2.createdAt) })),
+    // An Agent sorts by its most recent Session, falling back to when it was added.
+    ...(roster.agents ?? []).map((agent) => ({ kind: "agent", item: agent, at: Math.max(0, ...agent.sessions.map((id) => at(id))) || agent.createdAt }))
+  ];
+  return entries2.sort((a, b) => Number(Boolean(b.item.pinned)) - Number(Boolean(a.item.pinned)) || b.at - a.at);
+}
+
 // src/client/icons.js
 var import_react3 = require("react");
 function PlusIcon() {
@@ -30194,16 +30206,7 @@ function TeamSidebar(props) {
     for (const id of list.ids) stamps[id] = list.byId[id]?.updatedAt ?? 0;
     return JSON.stringify(stamps);
   });
-  const order = (0, import_react36.useMemo)(() => {
-    const stamps = JSON.parse(updated);
-    const entries2 = [
-      ...roster.bots.filter((bot) => bot.id !== roster.mainBotId).map((bot) => ({ kind: "bot", item: bot, at: stamps[currentPart(bot)] ?? bot.createdAt })),
-      ...roster.rooms.map((room2) => ({ kind: "room", item: room2, at: stamps[room2.id] ?? room2.createdAt })),
-      // The Agent sorts by its most recent Session, falling back to when it was added.
-      ...(roster.agents ?? []).map((agent) => ({ kind: "agent", item: agent, at: Math.max(0, ...agent.sessions.map((id) => stamps[id] ?? 0)) || agent.createdAt }))
-    ];
-    return entries2.sort((a, b) => Number(Boolean(b.item.pinned)) - Number(Boolean(a.item.pinned)) || b.at - a.at);
-  }, [roster, updated]);
+  const order = (0, import_react36.useMemo)(() => sidebarEntries(roster, JSON.parse(updated)), [roster, updated]);
   const sections = roster.sections ?? [];
   const sectionSet = (0, import_react36.useMemo)(() => new Set(sections.map((sec) => sec.id)), [sections]);
   const ungrouped = (0, import_react36.useMemo)(
