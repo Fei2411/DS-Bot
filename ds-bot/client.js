@@ -41503,17 +41503,19 @@ var OPEN = ["active", "review", "blocked"];
 var ATTENTION = ["review", "blocked"];
 var HISTORY_PREVIEW = 5;
 var SENT_LINGER_MS = 2e3;
-var lineIcon3 = (paths) => (0, import_react67.createElement)("svg", {
-  width: 18,
-  height: 18,
-  viewBox: "0 0 20 20",
-  fill: "none",
-  stroke: "currentColor",
-  strokeWidth: 1.6,
-  strokeLinecap: "round",
-  strokeLinejoin: "round",
-  "aria-hidden": true
-}, paths.map((d, i) => (0, import_react67.createElement)("path", { key: i, d })));
+var lineIcon3 = (paths) => function LineIcon() {
+  return (0, import_react67.createElement)("svg", {
+    width: 18,
+    height: 18,
+    viewBox: "0 0 20 20",
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: 1.6,
+    strokeLinecap: "round",
+    strokeLinejoin: "round",
+    "aria-hidden": true
+  }, paths.map((d, i) => (0, import_react67.createElement)("path", { key: i, d })));
+};
 var CIRCLE = "M10 3.25a6.75 6.75 0 1 1 0 13.5 6.75 6.75 0 0 1 0-13.5z";
 var SpinnerIcon = () => (0, import_react67.createElement)("svg", {
   className: "bt-task-spin",

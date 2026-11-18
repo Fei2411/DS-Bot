@@ -16,10 +16,14 @@ const ATTENTION = ['review', 'blocked']
 const HISTORY_PREVIEW = 5
 const SENT_LINGER_MS = 2000
 
-const lineIcon = paths => h('svg', {
-  width: 18, height: 18, viewBox: '0 0 20 20', fill: 'none', stroke: 'currentColor',
-  strokeWidth: 1.6, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true,
-}, paths.map((d, i) => h('path', { key: i, d })))
+// Returns the component itself: an element here would make `ICONS[status]` an element,
+// and rendering it as a type crashes the whole slot instead of drawing one row.
+const lineIcon = paths => function LineIcon() {
+  return h('svg', {
+    width: 18, height: 18, viewBox: '0 0 20 20', fill: 'none', stroke: 'currentColor',
+    strokeWidth: 1.6, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true,
+  }, paths.map((d, i) => h('path', { key: i, d })))
+}
 const CIRCLE = 'M10 3.25a6.75 6.75 0 1 1 0 13.5 6.75 6.75 0 0 1 0-13.5z'
 // A quarter of the ring is open, so it reads as turning rather than as a circle.
 const SpinnerIcon = () => h('svg', {

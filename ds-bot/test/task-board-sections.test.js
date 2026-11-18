@@ -119,6 +119,17 @@ test('a row waiting for review sits with the work that needs the user, and a can
   assert.match(text, /Cancelled/)
 })
 
+// React renders a type it cannot call (an element passed where a component belongs) as
+// error #130 and takes the whole slot down with it, so every row of every state has to
+// resolve to a node whose type is a tag after the components ran.
+test('every state draws an icon the renderer can call, not a prebuilt element', () => {
+  const tasks = {}
+  const states = ['active', 'review', 'blocked', 'done', 'cancelled']
+  states.forEach((status, i) => { tasks[`t${i + 1}`] = task(`t${i + 1}`, 'a', status) })
+  const bad = findAll(rendered(TaskBoard({ room: room(tasks), roster, actions })), node => typeof node.type !== 'string')
+  assert.deepEqual(bad.map(node => node.props?.className ?? node.type), [])
+})
+
 test('exactly five finished tasks need no way to show more', () => {
   const tasks = {}
   for (let i = 1; i <= 5; i += 1) tasks[`t${i}`] = task(`t${i}`, 'a', 'done')
