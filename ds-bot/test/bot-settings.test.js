@@ -131,7 +131,7 @@ test('a field takes its class from the page it sits in, and defaults to the Sett
 
 // Responding to Bots
 const textOf = nodes => nodes.flatMap(node => node.props?.children ?? []).filter(child => typeof child === 'string').join(' ')
-const others = [{ id: 'a', name: 'Chief' }, { id: 'c', name: 'Capy' }]
+const others = [{ id: 'a', name: 'Chief' }, { id: 'c', name: 'Reviewer' }]
 const card = (policy, onChange = () => {}) => walk(BotResponseCard({ policy, candidates: others, onChange }))
 
 test('the response card offers OFF, SELECTED BOTS and ALL BOTS, and starts with none chosen', () => {

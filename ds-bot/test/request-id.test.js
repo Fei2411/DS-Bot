@@ -467,15 +467,15 @@ test('a Bot tool event with no request_id is deduplicated across a host restart'
   assert.equal(host.agentOf('b').calls.length, 0)
 })
 
-test('the Capy and Devin review-fix loop stops across a restart and requires structured identity', async (t) => {
+test('the reviewer and coder review-fix loop stops across a restart and requires structured identity', async (t) => {
   const home = tempHome()
   const seed = team()
-  Object.assign(seed.bots.a, { name: 'Capy', role: 'Code Reviewer' })
-  Object.assign(seed.bots.b, { name: 'Devin Manager', role: 'Coding Agent', botResponse: { mode: 'all' } })
+  Object.assign(seed.bots.a, { name: 'Reviewer', role: 'Code Reviewer' })
+  Object.assign(seed.bots.b, { name: 'Coder', role: 'Coding Agent', botResponse: { mode: 'all' } })
   let host = await boot(home, seed)
   t.after(async () => { await host.stop(); cleanup(home) })
   const finding = { finding_pr: 'team/project#7', finding_commit: 'deadbee', finding_id: 'R-9' }
-  const ask = { to: 'Devin Manager', reply_to: 'user', action: 'review_fix' }
+  const ask = { to: 'Coder', reply_to: 'user', action: 'review_fix' }
   await assert.rejects(host.tool('message_bot', { ...ask, message: 'Please apply the change' }, 'a'), /finding-identity-required/)
   await assert.rejects(host.tool('message_bot', { ...ask, action: 'task', message: 'Do what we discussed' }, 'a'), /finding-identity-required/)
   await host.tool('message_bot', { ...ask, ...finding, message: 'Please fix R-9' }, 'a')
@@ -485,7 +485,7 @@ test('the Capy and Devin review-fix loop stops across a restart and requires str
 
   host = await boot(home)
   await assert.rejects(host.tool('message_bot', { ...ask, ...finding, message: 'Please fix R-9' }, 'a'), /unchanged-finding/)
-  await host.tool('message_bot', { to: 'Capy', reply_to: 'user', ...finding, message: 'R-9 needs the null guard reviewed again' }, 'b')
+  await host.tool('message_bot', { to: 'Reviewer', reply_to: 'user', ...finding, message: 'R-9 needs the null guard reviewed again' }, 'b')
   await assert.rejects(host.tool('message_bot', { ...ask, ...finding, message: 'R-9 needs another change' }, 'a'), /finding-attempt-limit/)
   assert.equal(host.agentOf('a').calls.length, 1)
   assert.equal(host.agentOf('b').calls.length, 0)

@@ -1827,7 +1827,7 @@ test('a late reply remains in group history with no turn for a Bot switched off'
   assert.ok(rt.botResponse.log().some(entry => entry.to === tester.id && entry.allow === false))
 })
 
-test('a call back to the Bot that called ends a Capy and Devin style loop, under a chosen policy', async (t) => {
+test('a call back to the Bot that called ends a reviewer and coder style loop, under a chosen policy', async (t) => {
   const { call, emit, userMessage, relay, answer, stop, sent, rt } = start()
   t.after(stop)
   const room = await team(call, sent)
