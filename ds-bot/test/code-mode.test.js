@@ -27,6 +27,24 @@ const [{ PtcRuntime }, { renderToolsSdk }, { CodeModeExecutor, Config, capResult
     import('../code-mode.js'),
   ])
 
+nodeTest('the main plugin loads without the optional code-mode entry', async () => {
+  const plugin = await import('../plugin.js')
+  assert.equal(typeof plugin.apply, 'function')
+})
+
+nodeTest('the code-mode entry loads or reports its minimum host and missing packages', async () => {
+  if (!skip) {
+    assert.equal(typeof codeMode.apply, 'function')
+    return
+  }
+  await assert.rejects(import('../code-mode.js'), error => {
+    assert.match(error.message, /code-mode requires DSH >= 0\.2\.2-rc\.1/)
+    for (const name of missingExecutors) assert.ok(error.message.includes(name))
+    assert.notEqual(error.code, 'ERR_MODULE_NOT_FOUND')
+    return true
+  })
+})
+
 const fixture = JSON.parse(readFileSync(new URL('./fixtures/code-mode-tools.json', import.meta.url)))
 const definitions = fixture.map(tool => ({ ...tool, output: { schema: tool.output, render: () => [] } }))
 const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor
