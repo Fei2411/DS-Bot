@@ -18,7 +18,7 @@ const { JSDOM } = createRequire(join(process.env.DSH_HARNESS ?? join(PLUGIN, '..
 // React stand-in whose useState survives re-renders (#1083).
 const { outputFiles } = await build({
   stdin: {
-    contents: "export { AgentSignInRow } from './src/client/local-agents-page.js'\nexport { shortVersion } from './src/client/agent-cards.js'\nexport { AgentBadge } from './src/client/agent-badge.js'",
+    contents: "export { AgentSignInRow, LocalAgentsPage } from './src/client/local-agents-page.js'\nexport { shortVersion, useLocalAgents } from './src/client/agent-cards.js'\nexport { AgentBadge } from './src/client/agent-badge.js'",
     resolveDir: PLUGIN,
   },
   bundle: true, format: 'cjs', platform: 'browser', write: false, logLevel: 'silent',
@@ -112,6 +112,31 @@ const note = role => collect(n => n.props?.role === role)[0]
 const text = node => flatten(node).join('')
 const render = () => { slots.length = 0; active = () => expand(AgentSignInRow(props)); rerender() }
 const flush = () => new Promise(resolve => setTimeout(resolve, 0))
+
+test('conflicted custom agents stay manageable but are absent from CLI choices', () => {
+  const custom = [
+    { id: 'taken', route: 'local-acp-taken', name: 'Taken', command: 'taken', available: false },
+    { id: 'ready', route: 'local-acp-ready', name: 'Ready', command: 'ready', available: true },
+    { id: 'legacy', route: 'local-acp-legacy', name: 'Legacy', command: 'legacy' },
+  ]
+  const view = { available: true, detected: [], custom }
+  slots.length = 0
+  slots.push(view, false)
+  idx = 0
+  const result = module.exports.useLocalAgents(false)
+  assert.deepEqual(Array.from(result.agents, entry => entry.route), ['local-acp-ready', 'local-acp-legacy'])
+  slots.length = 0
+  slots.push(view, null)
+  active = () => expand(module.exports.LocalAgentsPage({ run: () => {}, Row }))
+  rerender()
+  assert.match(text(concrete), /Taken/)
+  assert.equal(collect(n => n.type === 'button' && text(n) === 'Edit').length, 3)
+  assert.equal(collect(n => n.type === 'button' && n.props['aria-label'] === 'Remove').length, 3)
+  slots.length = 0
+  slots.push({ detected: [], custom: [] }, false)
+  idx = 0
+  assert.equal(module.exports.useLocalAgents(false).agents.length, 0)
+})
 
 test('clicking Sign in says the command was copied and where to run it', async () => {
   const written = []

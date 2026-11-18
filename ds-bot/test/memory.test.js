@@ -1265,50 +1265,61 @@ test('a summary cut off at both budgets on the Bot\'s model is written by the de
   assert.deepEqual(routes(requests), ['deepseek/v4@16384', 'deepseek/v4@32768', 'deepseek/flash@16384'])
 })
 
-// A Bot running on a local agent CLI has no API model of its own to write a
-// summary with, so its memory panel reads one of the two defaults (#1426).
-function onLocalAgent(started, botId = 'b2', ref = 'local-codex-cli/gpt-5') {
+// A Bot running on a local agent CLI writes its memory summary with its own CLI and
+// model, in a one-off session; the team's default model and the profile's are not
+// asked, and a CLI that fails is not replaced by an API model.
+function onLocalAgent(started, answer, botId = 'b2', ref = 'local-codex-cli/gpt-5') {
+  const asked = []
+  const desired = started.rt.desiredModel
   started.rt.isLocalAgentRef = value => typeof value === 'string' && value.startsWith('local-')
+  started.rt.isLocalAgentRoute = value => typeof value === 'string' && value.startsWith('local-')
+  started.rt.desiredModel = async bot => (bot.id === botId ? ref : desired(bot))
+  started.rt.localAgentAsk = async (sessionId, request) => {
+    asked.push(request)
+    if (answer instanceof Error) throw answer
+    return answer
+  }
   started.rt.botOf(botId).model = ref
+  return asked
 }
 
-test('a local agent Bot\'s memory summary is written by the team default model', async (t) => {
-  const replies = ['## Overview\nYou like tea.']
-  const started = start({ replies, models: ['v4', 'flash'] })
+test('a local agent Bot\'s memory summary is written by its own CLI and model', async (t) => {
+  const started = start({ replies: [], models: ['v4', 'flash'] })
   t.after(() => started.stop())
   await started.call('set-prefs', { defaultBotModel: 'deepseek/flash' })
-  onLocalAgent(started)
+  const asked = onLocalAgent(started, '## Overview\nYou like tea.')
   await started.tool('bot_remember', { text: 'Likes tea' }, 'b2')
   await started.call('memory-view', { botId: 'b2', summarize: true })
   await summarized(started.call)
   const done = (await started.call('memory-view', { botId: 'b2' })).value
   assert.deepEqual([done.summary?.text, done.error], ['## Overview\nYou like tea.', null])
-  // The profile default is the catalog's first model (v4); the team picked flash.
-  assert.deepEqual(routes(started.requests), ['deepseek/flash@16384'])
+  assert.deepEqual(asked.map(request => `${request.route}/${request.model}`), ['local-codex-cli/gpt-5'])
+  assert.ok(asked[0].prompt.includes('Likes tea'))
+  assert.equal(started.requests.length, 0)
 })
 
-test('a local agent Bot without a team default reads the profile default model', async (t) => {
-  const replies = ['## Overview\nYou like tea.']
-  const started = start({ replies })
+test('an empty answer from a local agent Bot\'s CLI is no summary', async (t) => {
+  const started = start({ replies: [], models: ['v4'] })
   t.after(() => started.stop())
-  onLocalAgent(started)
+  onLocalAgent(started, '  ')
   await started.tool('bot_remember', { text: 'Likes tea' }, 'b2')
   await started.call('memory-view', { botId: 'b2', summarize: true })
   await summarized(started.call)
-  const done = (await started.call('memory-view', { botId: 'b2' })).value
-  assert.deepEqual([done.summary?.text, done.error], ['## Overview\nYou like tea.', null])
-  assert.deepEqual(routes(started.requests), ['deepseek/v4@16384'])
+  const failed = (await started.call('memory-view', { botId: 'b2' })).value
+  assert.equal(failed.summary, null)
+  assert.match(failed.error, /wrote nothing/)
 })
 
-test('a local agent Bot with no model at all says which setting to fix, and does not retry it', async (t) => {
-  const started = start({ replies: [], models: [] })
+test('a local agent Bot whose CLI fails keeps the failure, and no API model stands in', async (t) => {
+  const started = start({ replies: [], models: ['v4'] })
   t.after(() => started.stop())
-  onLocalAgent(started)
+  onLocalAgent(started, new Error('Codex CLI is not signed in'))
   await started.tool('bot_remember', { text: 'Likes tea' }, 'b2')
   await started.call('memory-view', { botId: 'b2', summarize: true })
   await summarized(started.call)
-  const failed = (await started.call('memory-view', { botId: 'b2', summarize: true })).value
-  assert.deepEqual([failed.summary, failed.error], [null, 'No model is available. Add one in Settings > Models.'])
+  const failed = (await started.call('memory-view', { botId: 'b2' })).value
+  assert.equal(failed.summary, null)
+  assert.match(failed.error, /not signed in/)
   assert.equal(started.requests.length, 0)
 })
 
