@@ -40,7 +40,10 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
         // A folded panel is open but not shown: its opener then means "show it"
         // (the column yields it room), not "close it".
         if (details === null && panelFolded?.('details') === true) return { ...state, renaming: false, tab: null, details: id, view: 'details', panelYield: true }
-        return { ...state, renaming: false, tab: null, details, view: 'details' }
+        // The pill asks to see the panel. One that would fold away opens unseen, so it
+        // takes the column's room instead, where a group chat's details live.
+        const yielded = details !== null && panelFolded?.('details') === true
+        return { ...state, renaming: false, tab: null, details, view: 'details', ...(yielded ? { panelYield: true } : {}) }
       })
     },
     // The open panel follows the main view; a subject with no browser (a group

@@ -247,3 +247,13 @@ test('an open shell column keeps the last collapsed track', () => {
 test('a sliding shell sidebar keeps its last settled width', () => {
   assert.equal(nextCollapsedWidth({ measured: null, collapsed: true, animating: true, last: 56 }), 56)
 })
+
+// #1794: a group chat has no browser page, so its details only ever show from the pill.
+// A panel that would fold away opened unseen, with nothing to click again.
+test('the header pill opens a panel that would fold, rather than opening it unseen', () => {
+  const { ui, actions } = bench(true)
+  ui.set(state => ({ ...state, details: null, view: 'details', tab: null, panelYield: false }))
+  actions.toggleDetails('room1')
+  assert.equal(ui.getSnapshot().details, 'room1')
+  assert.equal(ui.getSnapshot().panelYield, true)
+})
