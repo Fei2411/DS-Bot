@@ -24339,7 +24339,10 @@ function TaskRow2({ task, actions, onView, showBot, roster, canPause }) {
   }, [confirming]);
   const toggle = () => {
     setBusy(true);
-    void actions.scheduleSet(task.sessionId, task.id, task.status !== "active").then(onView, () => setBusy(false));
+    void actions.scheduleSet(task.sessionId, task.id, task.status !== "active").then((next) => {
+      onView(next);
+      setBusy(false);
+    }, () => setBusy(false));
   };
   const remove = () => {
     if (!confirming) {

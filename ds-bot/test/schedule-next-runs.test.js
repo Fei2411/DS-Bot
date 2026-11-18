@@ -30,6 +30,20 @@ test('a repeating task counts from its step', () => {
   assert.deepEqual(nextRuns(task, from), [from + HOUR, from + 2 * HOUR, from + 3 * HOUR])
 })
 
+test('a daily task that missed its turn previews from now, not from when it was due', () => {
+  const from = localDay(0, 10)
+  const task = { kind: 'daily', status: 'active', time: '09:00', scheduledAt: new Date(localDay(-3, 9)).toISOString() }
+  const runs = nextRuns(task, from)
+  assert.deepEqual(runs, [localDay(1, 9), localDay(2, 9), localDay(3, 9)])
+  assert.ok(runs.every(at => at > from), 'every previewed time is still ahead')
+})
+
+test('a repeating task whose next run already passed counts forward from now', () => {
+  const from = localDay(0, 10)
+  const task = { kind: 'every', status: 'active', everySeconds: 3600, scheduledAt: new Date(from - 4 * HOUR - 15 * 60_000).toISOString() }
+  assert.deepEqual(nextRuns(task, from), [from + 45 * 60_000, from + HOUR + 45 * 60_000, from + 2 * HOUR + 45 * 60_000])
+})
+
 test('a paused or gone task previews nothing, and so does another zone', () => {
   const from = localDay(0, 10)
   const task = { kind: 'daily', status: 'active', time: '09:00', scheduledAt: new Date(localDay(1, 9)).toISOString() }

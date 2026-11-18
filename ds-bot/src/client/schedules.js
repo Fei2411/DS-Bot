@@ -99,9 +99,12 @@ function TaskRow({ task, actions, onView, showBot, roster, canPause }) {
     const timer = setTimeout(() => setConfirming(false), 3000)
     return () => clearTimeout(timer)
   }, [confirming])
+  // The row keeps its key across the refresh, so the button only becomes usable again
+  // if this component clears its own busy state; the delete path need not, it disappears.
   const toggle = () => {
     setBusy(true)
-    void actions.scheduleSet(task.sessionId, task.id, task.status !== 'active').then(onView, () => setBusy(false))
+    void actions.scheduleSet(task.sessionId, task.id, task.status !== 'active')
+      .then((next) => { onView(next); setBusy(false) }, () => setBusy(false))
   }
   const remove = () => {
     if (!confirming) { setConfirming(true); return }
