@@ -32,7 +32,7 @@ export function cleanEnv(extra = {}) {
 }
 
 export function agentEnv(executable, env, { platform = process.platform, find = name => findExecutable(name, { platform, env }) } = {}) {
-  if (platform !== 'win32' || !/^pi-acp(?:\.(?:cmd|bat|exe))?$/iu.test(win32.basename(executable)) || env.PI_ACP_PI_COMMAND) return env
+  if (platform !== 'win32' || !/^pi-acp(?:\.(?:cmd|bat|exe))?$/iu.test(win32.basename(executable)) || Object.keys(env).some(key => key.toUpperCase() === 'PI_ACP_PI_COMMAND')) return env
   const pi = find('pi')
   return pi === undefined ? env : { ...env, PI_ACP_PI_COMMAND: pi }
 }

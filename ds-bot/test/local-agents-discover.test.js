@@ -24,6 +24,13 @@ test('Windows pi-acp resolves standalone Pi through PATH and PATHEXT (#1795)', (
   assert.equal(agentEnv('pi-acp', env, { platform: 'darwin', find }), env)
 })
 
+test('Windows pi-acp preserves environment overrides regardless of key casing', () => {
+  for (const key of ['Pi_Acp_Pi_Command', 'pi_acp_pi_command', 'PI_ACP_PI_COMMAND']) {
+    const env = { [key]: 'D:\\custom\\pi.exe' }
+    assert.equal(agentEnv('pi-acp.cmd', env, { platform: 'win32', find: () => assert.fail('must not resolve an overridden Pi') }), env)
+  }
+})
+
 test('Windows resolves dotted command names unless their suffix is already in PATHEXT', () => {
   const env = { PATH: 'C:\\agents', PATHEXT: '.EXE;.CMD' }
   const lookup = (name, file) => findExecutable(name, { platform: 'win32', env, isFile: path => path === file })
