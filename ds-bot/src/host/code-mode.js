@@ -95,6 +95,10 @@ export class CodeModeExecutor {
     if (ctx.ptcRuntime.language !== 'typescript') throw new Error('DS Bot code-mode requires a TypeScript PTC runtime')
     this.native = new NativeToolExecutor(ctx)
     this.program = new PtcExecutor(ctx)
+    if (this.config.mode === 'hybrid') ctx.systemPrompt.tools(({ scope }) => {
+      const program = ctx.tools.selectExecutor(scope) === this ? this.program.describe([]) : { schemas: [] }
+      return { schemas: [], knownNames: program.knownNames ?? program.schemas.map(schema => schema.name) }
+    })
     this.sections = [{
       name: 'tools:code-mode',
       order: ctx.systemPrompt.getSectionOrder('TOOLS_SDK'),
@@ -104,12 +108,18 @@ export class CodeModeExecutor {
   }
 
   describe(tools) {
-    const program = this.program.describe(tools).schemas.map(schema => ({
+    const program = this.program.describe(tools)
+    const programSchemas = program.schemas.map(schema => ({
       ...schema,
       description: 'Run a TypeScript program using the program-only tools SDK. Return a concise summary, not raw results. ' + this.ctx.ptcRuntime.executionInstructions,
     }))
-    const schemas = this.config.mode === 'hybrid' ? [...this.native.describe(tools).schemas, ...program] : program
-    return { schemas, knownNames: schemas.map(schema => schema.name) }
+    const programNames = program.knownNames ?? programSchemas.map(schema => schema.name)
+    if (this.config.mode === 'code-only') return { schemas: programSchemas, knownNames: programNames }
+    const native = this.native.describe(tools)
+    return {
+      schemas: [...native.schemas, ...programSchemas],
+      ...(native.knownNames === undefined ? {} : { knownNames: [...new Set([...native.knownNames, ...programNames])] }),
+    }
   }
 
   programToolSet(input) {

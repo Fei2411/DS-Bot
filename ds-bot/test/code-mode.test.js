@@ -31,10 +31,10 @@ class TestRuntime extends PtcRuntime {
   }
 }
 
-async function boot(t, config) {
+async function boot(t, config, dependencies) {
   const ctx = new Context()
   t.after(() => ctx.fiber.dispose())
-  await mountAgentLoopTestDependencies(ctx)
+  await mountAgentLoopTestDependencies(ctx, dependencies)
   await ctx.plugin(TestRuntime)
   await provideWorkingDirectoryFixture(ctx)
   const executor = new CodeModeExecutor(ctx, config)
@@ -62,6 +62,33 @@ test('hybrid describes all native tools plus run_code; code-only describes only 
   assert.ok(!hybrid.executor.sections.some(section => section.name === 'tools:ptc-only'))
   assert.deepEqual(Config({}), { mode: 'hybrid', maxResultChars: 8000 })
   for (const config of [{ mode: 'wrong' }, { maxResultChars: 0 }, { maxResultChars: 255 }, { maxResultChars: 1.5 }]) assert.throws(() => Config(config))
+})
+
+test('hybrid preserves hidden registered names for toolOrder without exposing their schemas', async t => {
+  const { ctx, agent, register } = await boot(t, {}, { systemPrompt: { toolOrder: ['restricted', 'inactive', 'run_code', '<unlisted-tools>'] } })
+  register('read')
+  register('restricted')
+  register('inactive', undefined, { when: () => false })
+  const scope = createScope(ctx, agent)
+  t.after(() => scope.dispose())
+  await scope.ctx.plugin(codeMode, { mode: 'hybrid' })
+  await scope.ctx.plugin({ inject: ['tools'], apply(ctx) { ctx.tools.restrict({ deny: ['restricted'] }) } })
+  const toolSet = await ctx.tools.resolve({ agent, modelSelection: {}, signal: new AbortController().signal })
+  t.after(() => toolSet.dispose())
+  const assembled = await ctx.systemPrompt.assemble({ scope: agent, toolSet })
+  assert.deepEqual(assembled.tools.map(tool => tool.name), ['run_code', 'read'])
+})
+
+test('hybrid unions explicit knownNames from both composed executors', async t => {
+  const { executor } = await boot(t)
+  executor.native.describe = () => ({ schemas: [], knownNames: ['hidden', 'shared'] })
+  executor.program.describe = () => ({ schemas: [], knownNames: ['run_code', 'shared'] })
+  assert.deepEqual(executor.describe([]).knownNames, ['hidden', 'shared', 'run_code'])
+})
+
+test('an unselected hybrid executor does not make run_code a known native tool', async t => {
+  const { ctx, agent } = await boot(t, {}, { systemPrompt: { toolOrder: ['run_code', '<unlisted-tools>'] } })
+  await assert.rejects(ctx.systemPrompt.assemble({ scope: agent }), /toolOrder lists unregistered tool "run_code"/)
 })
 
 test('compact SDK is smaller than stock on the same 23 tool schemas', () => {
