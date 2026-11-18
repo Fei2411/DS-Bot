@@ -145,6 +145,13 @@ CONTEXT_WINDOW=100000 CHECK_RATIO=0.45 dev/bench.sh smoke 3096 8796 reset && nod
 dev/bench.sh smoke 3096 8796 stop
 ```
 
+改 Bot 浏览器（`src/host/browser/`）时，还要跑它的测试。它们驱动真实的 Chromium，检查 Bot 没有用户时不能在页面上做的事（付款、删除、提交、上传），以及 Bot 之间不共用 cookie。CI 在 Linux 上跑它们。先装一次 Chromium，再运行：
+
+```sh
+npx playwright-core install --only-shell chromium
+npm run test:browser
+```
+
 想手动试用插件，启动一个测试台，打开它打印的地址：
 
 ```sh

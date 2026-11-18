@@ -145,6 +145,13 @@ CONTEXT_WINDOW=100000 CHECK_RATIO=0.45 dev/bench.sh smoke 3096 8796 reset && nod
 dev/bench.sh smoke 3096 8796 stop
 ```
 
+For a change to the Bot browser (`src/host/browser/`), also run its tests. They drive a real Chromium and check what a Bot may not do on a page without the user (pay, delete, post, upload) and that Bots do not share cookies. CI runs them on Linux. Install Chromium once, then run them:
+
+```sh
+npx playwright-core install --only-shell chromium
+npm run test:browser
+```
+
 To try the plugin by hand, start a bench and open the address that it prints:
 
 ```sh
