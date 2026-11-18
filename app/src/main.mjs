@@ -67,6 +67,10 @@ const here = dirname(fileURLToPath(import.meta.url))
 const assets = join(here, '..', 'assets')
 // Drawn by scripts/icon.mjs. Windows takes the .ico for its several sizes.
 const iconFile = join(assets, process.platform === 'win32' ? 'icon.ico' : 'icon.png')
+// Linux (X11) drops _NET_WM_ICON when the image is too big for one X property: a
+// 1024x1024 RGBA image is about 4 MB, the property limit is about 256 KB. The 128 px
+// hicolor file is small enough, but on Windows and macOS the full size stays.
+const windowIcon = process.platform === 'linux' ? join(assets, 'icons', '128x128.png') : iconFile
 // The tray icon of this platform: Windows takes the .ico, macOS the template and its @2x,
 // Linux the plain png.
 const trayIconFile = () => join(assets, process.platform === 'win32' ? 'tray.ico' : process.platform === 'darwin' ? 'trayTemplate.png' : 'tray.png')
@@ -1310,7 +1314,7 @@ function createWindow() {
     // The window never squeezes the chat: RAIL_WIDTH + MIN_CHAT from ds-bot's
     // src/client/frame-layout.js is the avatar rail plus the smallest chat column.
     ...startWindow.mainBounds(), minWidth: 508, minHeight: 480,
-    title: 'DS Bot', show: false, icon: iconFile,
+    title: 'DS Bot', show: false, icon: windowIcon,
     backgroundColor: material ? '#00000000' : dark ? '#1b1b1c' : '#ffffff',
     // Frameless as in DSH Desktop: the window controls overlay the page's band. On Windows the
     // caption buttons keep the sidebar's colors until the page sends the colors of the surface
