@@ -20,7 +20,7 @@ export function useLocalAgents(wanted) {
     return call(endpoint).then(setView).catch(() => setView({ detected: [], custom: [] })).finally(() => setScanning(false))
   }
   useEffect(() => { if (wanted && view === null) void load('local-agents') }, [wanted])
-  const agents = view === null ? [] : [...view.detected, ...view.custom.map(agent => ({ route: agent.route, name: agent.name, command: agent.command, args: agent.args, signedIn: null }))]
+  const agents = view === null ? [] : [...view.detected, ...view.custom.filter(agent => agent.available !== false).map(agent => ({ route: agent.route, name: agent.name, command: agent.command, args: agent.args, signedIn: null }))]
   return { agents, known: view !== null, scanning, refresh: () => load('local-agent-refresh') }
 }
 
