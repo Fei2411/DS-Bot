@@ -464,7 +464,7 @@ const GEOMETRIC = {
 // Picker order: the mascots lead, the star second, then the sea's other animals so the
 // whale is not the only one. The rest of GEOMETRIC follows in its own order.
 const ORDER = ['whale', 'star', 'dolphin', 'octopus', 'turtle', 'crab', 'puffer', 'jelly', 'starfish', 'seahorse', 'moon', 'wave', 'squircle', 'zed', 'hex']
-const MODELS = Object.fromEntries(ORDER.map(id => [id, MASCOTS[id] ?? GEOMETRIC[id]]))
+const MODELS = { ...Object.fromEntries(ORDER.map(id => [id, MASCOTS[id] ?? GEOMETRIC[id]])), ...GEOMETRIC }
 
 function contours(field) {
   const at = (i, j) => field[i * (N + 1) + j]
