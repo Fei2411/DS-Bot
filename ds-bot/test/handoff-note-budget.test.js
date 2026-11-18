@@ -28,7 +28,7 @@ function* chunksOf(reply) {
 
 // A Bot's own chat part with the note writer around it. `replies` are answered in
 // order by the model stream; `info` holds resolveModelInfo per route.
-async function switchPart({ replies, info = {}, fallback, route = {}, oldNote, retryPolicy, history, folder = false }) {
+async function switchPart({ replies, info = {}, fallback, route = {}, oldNote, retryPolicy, manual = false, history, folder = false }) {
   const requests = []
   const warnings = []
   const infos = []
@@ -38,7 +38,9 @@ async function switchPart({ replies, info = {}, fallback, route = {}, oldNote, r
   let defaultCalls = 0
   const queue = [...replies]
   const abort = new AbortController()
-  const ctx = fakeContext()
+  // Past its hard line a part moves on at the end of its turn, with a note if one
+  // can be written.
+  const ctx = fakeContext({ services: { tokenMeter: { measure: () => ({ totalTokens: 1_000_000 }) } } })
   ctx.logger = {
     warn: (template, ...args) => warnings.push(say(template, ...args)),
     info: (template, ...args) => infos.push(say(template, ...args)),
@@ -160,7 +162,8 @@ async function switchPart({ replies, info = {}, fallback, route = {}, oldNote, r
   }
   partsInstall(rt)
   if (folder) await rt.followFolder({ botId: 'b1' })
-  else await rt.newPart('s1')
+  else if (manual) await rt.newPart('s1')
+  else ctx.emit('agent/status', { agent, status: 'idle' })
   for (let at = 0; at < 100 && bot.sessionId !== 's2' && !warnings.some(line => /did not move on/.test(line)); at += 1) {
     await new Promise(done => setTimeout(done, 10))
   }
@@ -292,4 +295,15 @@ test('handoff note retries transient TRANSPORT failures within the provider retr
     retryPolicy: { mode: 'normal', maxRetries: 1, retryableCodes: ['TRANSPORT'], initialDelayMs: 1, maxDelayMs: 5, jitterRatio: 0 },
   })
   assert.equal(capped.requests.length, 2)
+})
+
+// #1716: "New session" moves on with the deterministic package and never asks the
+// model, so a part whose route keeps failing still gets a fresh one at once.
+test('a manual new part asks the model for nothing', async () => {
+  const run = await switchPart({ replies: [new Error('the route is down')], manual: true, oldNote: 'OLD NOTE FROM PART 1' })
+  assert.equal(run.bot.sessionId, 's2', run.warnings.join(' | '))
+  assert.equal(run.requests.length, 0)
+  assert.equal(run.warnings.filter(line => /handoff note/.test(line)).length, 0, run.warnings.join(' | '))
+  assert.match(run.packageText, /because a fresh conversation was started/)
+  assert.match(run.packageText, /without the model, because a fresh conversation was started[^]*OLD NOTE FROM PART 1/)
 })
