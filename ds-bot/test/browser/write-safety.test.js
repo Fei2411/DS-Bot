@@ -393,8 +393,7 @@ test('type with submit gates POST forms but not GET forms', async (t) => {
 })
 
 test('unknown POST results block repeats until the page is observed', { timeout: 15_000 }, async (t) => {
-  // The delayed POST never answers: giving up on it quickly is what leaves its result unknown.
-  const { fixture, session } = await setup(t, { actionTimeout: 300 })
+  const { fixture, session } = await setup(t)
   const actions = []
   const gate = action => { actions.push(action) }
   const snapshot = await session.open(fixture.url)
