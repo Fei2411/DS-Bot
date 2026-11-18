@@ -51,7 +51,7 @@ export function renderCompactSdk(tools, mode = 'hybrid', programFormat = 'functi
   }
   const declarations = [...selected].sort((a, b) => a.name.localeCompare(b.name)).map(tool => {
     const description = String(tool.description ?? '').replace(/\s+/g, ' ').replaceAll('*/', '* /').slice(0, 100)
-    const args = jsonSchemaToTs(withoutDescriptions(tool.parameters)).replace(/\s+/g, ' ')
+    const args = jsonSchemaToTs(withoutDescriptions(tool.parameters))
     return `  /** ${description} */\n  ${JSON.stringify(tool.name)}(args: ${args}): Promise<${OUTPUTS[tool.name] ?? 'unknown'}>;`
   })
   return `${guidance}\n\nProgram-only SDK (result shapes show common fields, not complete declarations):\n\`\`\`ts\ndeclare const tools: {\n${declarations.join('\n')}\n};\n\`\`\``

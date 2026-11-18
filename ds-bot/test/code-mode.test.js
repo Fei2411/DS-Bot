@@ -118,6 +118,26 @@ test('compact SDK is smaller than stock on the same 23 tool schemas', () => {
   assert.ok(!renderCompactSdk([], 'hybrid').includes('"read" ->'))
 })
 
+test('code-only SDK preserves whitespace inside enum values, constants and quoted property names', () => {
+  const tools = [{
+    name: 'mcp__example',
+    parameters: {
+      type: 'object',
+      properties: {
+        'two  words': { type: 'string', enum: ['left  right', '  padded   value  '] },
+        constant: { type: 'string', const: 'keep   these  spaces' },
+        nested: { type: 'array', items: { type: 'string', const: 'nested  literal' } },
+      },
+      required: ['two  words', 'constant', 'nested'],
+      additionalProperties: false,
+    },
+  }]
+  const sdk = renderCompactSdk(tools, 'code-only')
+  for (const literal of ['two  words', 'left  right', '  padded   value  ', 'keep   these  spaces', 'nested  literal']) {
+    assert.ok(sdk.includes(JSON.stringify(literal)), `preserves ${JSON.stringify(literal)}`)
+  }
+})
+
 test('both mounted executors assemble only the compact SDK, without stock PTC sections or instructions', async t => {
   for (const mode of ['hybrid', 'code-only']) {
     const { ctx, agent, register } = await boot(t)
