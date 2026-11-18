@@ -33,6 +33,23 @@ test('Windows lookup skips relative PATH directories', () => {
   assert.equal(findExecutable('pi', { platform: 'win32', env: { PATH: '.;bin', PATHEXT: '.EXE' }, isFile: () => true }), undefined)
 })
 
+test('Windows lookup only returns executable or batch extensions', () => {
+  const lookup = (name, files, PATHEXT) => findExecutable(name, {
+    platform: 'win32', env: { PATH: 'C:\\tools', ...(PATHEXT === undefined ? {} : { PATHEXT }) }, isFile: path => files.includes(path),
+  })
+  for (const ext of ['js', 'vbs', 'ps1', '']) {
+    const file = `C:\\tools\\agent${ext ? `.${ext}` : ''}`
+    assert.equal(lookup('agent', [file], '.JS;.VBS;.PS1;.EXE'), undefined)
+    assert.equal(lookup(file, [file]), undefined)
+  }
+  assert.equal(lookup('agent', ['C:\\tools\\agent.cmd', 'C:\\tools\\agent.exe'], '.JS;.EXE;.CMD'), 'C:\\tools\\agent.exe')
+  assert.equal(lookup('agent', ['C:\\tools\\agent.cmd'], '.JS'), undefined)
+  assert.equal(lookup('agent', ['C:\\tools\\agent.cmd'], ''), undefined)
+  assert.equal(lookup('agent', ['C:\\tools\\agent.com']), 'C:\\tools\\agent.com')
+  assert.equal(lookup('agent.js', ['C:\\tools\\agent.js.cmd'], '.JS;.CMD'), 'C:\\tools\\agent.js.cmd')
+  assert.equal(lookup('agent.CmD', ['C:\\tools\\agent.CmD'], '.EXE'), 'C:\\tools\\agent.CmD')
+})
+
 test('Windows pi-acp preserves environment overrides regardless of key casing', () => {
   for (const key of ['Pi_Acp_Pi_Command', 'pi_acp_pi_command', 'PI_ACP_PI_COMMAND']) {
     const env = { [key]: 'D:\\custom\\pi.exe' }

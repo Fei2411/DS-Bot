@@ -96,12 +96,15 @@ function searchDirs() {
 export function findExecutable(name, { platform = process.platform, env = process.env, isFile: fileExists = isFile } = {}) {
   const windows = platform === 'win32'
   const pathJoin = windows ? win32.join : join
+  const allowedExt = ['.cmd', '.exe', '.bat', '.com']
+  const hasExtension = allowedExt.includes(win32.extname(name).toLowerCase())
   if (name.includes('/') || name.includes('\\')) {
+    if (windows && !hasExtension) return undefined
     const path = name.startsWith('~') ? join(homedir(), name.slice(1)) : name
     return fileExists(path) ? path : undefined
   }
-  const pathExt = (env.PATHEXT || '.CMD;.EXE;.BAT;.COM').split(';').filter(Boolean).map(ext => ext.toLowerCase())
-  const extensions = windows && !pathExt.includes(win32.extname(name).toLowerCase()) ? [...pathExt, ''] : ['']
+  const pathExt = env.PATHEXT === undefined ? allowedExt : env.PATHEXT.split(';').map(ext => ext.toLowerCase()).filter(ext => allowedExt.includes(ext))
+  const extensions = windows && !hasExtension ? pathExt : ['']
   const pathKey = Object.keys(env).find(key => key.toUpperCase() === 'PATH') ?? 'PATH'
   const dirs = windows ? [...(env[pathKey] ?? '').split(';').filter(Boolean), ...(platform === process.platform ? searchDirs() : [])] : searchDirs()
   for (const dir of dirs) {
