@@ -217,3 +217,13 @@ test('an active message toolbar stacks above the next message', () => {
   // so without a z-index they paint over a toolbar that hangs below this message.
   assert.match(css, /\.bt-msg:hover,\.bt-msg:focus-within,\.bt-msg:has\(>\.bt-msg-line>\.bt-tools\[data-open\]\)\{z-index:2\}/)
 })
+
+// #1748: .bt-head turns pointer events off so a click reaches the transcript, so every
+// control inside it has to turn them back on. The header's level select forgot to, and
+// neither a mouse nor a touch could open it.
+test('the header level select turns pointer events back on inside the header', () => {
+  const css = readFileSync(join(PLUGIN, 'src/client/styles.js'), 'utf8')
+  const rule = /\.bt-select\.bt-head-level\{([^}]*)\}/.exec(css)
+  assert.ok(rule, 'the level select has a rule of its own')
+  assert.match(rule[1], /pointer-events:auto/)
+})
