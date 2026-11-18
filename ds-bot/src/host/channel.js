@@ -856,7 +856,11 @@ export function install(rt) {
           await rt.load()
           const bot = rt.botOf(String(body.botId ?? ''))
           if (bot === undefined) return fail('Unknown Bot', 'bot/not-found')
-          return ok(await rt.newPart(rt.chatOf(bot.id)))
+          if (body.roomId === undefined) return ok(await rt.newPart(rt.chatOf(bot.id)))
+          const room = rt.roomOf(String(body.roomId))
+          const member = room?.members.includes(bot.id) ? room.sessions?.[bot.id] : undefined
+          if (member === undefined) return fail('Not a member of that group', 'bot/invalid')
+          return ok(await rt.newPart(member))
         }
         case 'bot-open-part': {
           await rt.load()
