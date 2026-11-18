@@ -516,15 +516,20 @@ export function createSession({ context, browser, page, botId, userDataDir, cook
     return captureAction(async () => {
       const requests = []
       const pendingRequests = new Map()
-      // Once the main frame starts loading another document, the requests that follow belong
-      // to that document (a result page polling its server), not to this action: only further
-      // navigations count. A script that changes the URL in place (pushState) sends no
-      // navigation request, so its posts still count.
-      let leaving = false
+      // Once a frame starts loading another document, the requests that follow from it, or
+      // from a frame inside it, belong to that document (a result page polling its server),
+      // not to this action: only further navigations count. A script that changes the URL in
+      // place (pushState) sends no navigation request, so its posts still count.
+      const leaving = new Set()
+      const insideLeaving = frame => {
+        for (let at = frame; at; at = at.parentFrame?.()) if (leaving.has(at)) return true
+        return false
+      }
       const onRequest = request => {
-        const navigation = request.isNavigationRequest() && frameOf(request) === target.mainFrame()
-        if (leaving && !navigation) return
-        if (navigation) leaving = true
+        const frame = frameOf(request)
+        const navigation = request.isNavigationRequest()
+        if (!navigation && frame && insideLeaving(frame)) return
+        if (navigation && frame) leaving.add(frame)
         let requestOrigin
         try {
           requestOrigin = new URL(request.url()).origin

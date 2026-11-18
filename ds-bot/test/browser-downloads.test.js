@@ -98,11 +98,11 @@ function watchUnhandled(t) {
 }
 
 const PUBLISH = { kind: 'post', label: 'Publish', origin: 'https://reports.example.test', host: 'reports.example.test' }
-const publishRequest = (errorText, { navigation = false, path = '/publish' } = {}) => ({
+const publishRequest = (errorText, { navigation = false, path = '/publish', frame = MAIN_FRAME } = {}) => ({
   url: () => `https://reports.example.test${path}`,
   method: () => 'POST',
   isNavigationRequest: () => navigation,
-  frame: () => MAIN_FRAME,
+  frame: () => frame,
   failure: () => (errorText === undefined ? null : { errorText }),
 })
 const unknownResult = detail => new RegExp(`"Publish" action on reports\\.example\\.test was sent, but its result is unknown \\(${detail}\\)`)
@@ -198,6 +198,45 @@ test('a POST the result page sends after the form navigated is not waited for', 
   const result = await gateScope.run(async () => {}, () => session.click('e1'))
   assert.doesNotMatch(result, /result is unknown/)
   assert.match(result, /Export CSV/)
+})
+
+// The same for a form inside a frame: what that frame's result page sends is not the action's,
+// while the page around it still counts.
+const INNER_FRAME = { parentFrame: () => MAIN_FRAME }
+
+test('a POST from a frame whose form navigated is not waited for', async (t) => {
+  const submit = publishRequest(undefined, { navigation: true, frame: INNER_FRAME })
+  const poll = publishRequest(undefined, { path: '/poll', frame: INNER_FRAME })
+  const { session } = await fixture(t, {
+    write: PUBLISH,
+    click: (page, later) => {
+      page.emit('request', submit)
+      later(() => {
+        page.emit('requestfinished', submit)
+        page.emit('request', poll)
+      }, 30)
+    },
+  })
+  const result = await gateScope.run(async () => {}, () => session.click('e1'))
+  assert.doesNotMatch(result, /result is unknown/)
+})
+
+test('after a frame navigated, a POST from the page around it still counts', async (t) => {
+  const submit = publishRequest(undefined, { navigation: true, frame: INNER_FRAME })
+  const outer = publishRequest('net::ERR_CONNECTION_RESET', { path: '/outer' })
+  const { session } = await fixture(t, {
+    write: PUBLISH,
+    click: (page, later) => {
+      page.emit('request', submit)
+      later(() => {
+        page.emit('requestfinished', submit)
+        page.emit('request', outer)
+        page.emit('requestfailed', outer)
+      }, 30)
+    },
+  })
+  const result = await gateScope.run(async () => {}, () => session.click('e1'))
+  assert.match(result, unknownResult('net::ERR_CONNECTION_RESET'))
 })
 
 test('a form post that fails while its page navigates is still reported', async (t) => {
