@@ -69,10 +69,6 @@ const renderHtml = block => (block.kind === 'code'
 
 const renderPlain = block => (block.kind === 'code' ? block.lines.join('\n') : block.lines.map(inlinePlain).join('\n'))
 
-export function toTelegramHtml(markdown) {
-  return blocks(markdown).map(renderHtml).join('\n')
-}
-
 export function toPlain(markdown) {
   return blocks(markdown).map(renderPlain).join('\n')
 }
