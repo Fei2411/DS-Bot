@@ -982,17 +982,18 @@ export class LocalAgentAdapter extends LlmAdapter {
   }
 
   // What a request DS Bot made for itself spent, on the Session it served.
-  meter(live, result) {
-    if (result.usage !== undefined) this.deps.recordUsage?.({ sessionId: live.sessionId, kind: 'compaction', provider: live.route, model: live.model, usage: result.usage })
+  meter(live, result, kind = 'compaction') {
+    if (result.usage !== undefined) this.deps.recordUsage?.({ sessionId: live.sessionId, kind, provider: live.route, model: live.model, usage: result.usage })
     return result
   }
 
   // A one-off request on the CLI a Session runs on, in a session of its own with no
   // team tools and read-only access, which is let go of after: the context steward's
-  // call for a Bot whose team has no model of its own.
-  async ask(sessionId, { system, prompt, signal }) {
+  // call, and the memory review's. `route` and `model` name the CLI when the
+  // request serves a Bot rather than one of its conversations.
+  async ask(sessionId, { system, prompt, signal, route: named, model: namedModel, kind }) {
     if (this.disposed) throw new LlmError('the local agents adapter is disposed', 'NO_ADAPTER')
-    const record = this.live.get(sessionId) ?? this.deps.record(sessionId)
+    const record = named !== undefined ? { route: named, model: namedModel } : this.live.get(sessionId) ?? this.deps.record(sessionId)
     const route = record?.route
     const spec = route === undefined ? undefined : engineOf(route, this.deps.customAgents())
     if (spec === undefined) throw new LlmError('this conversation has no local agent', 'LOCAL_AGENT_MISSING')
@@ -1020,7 +1021,7 @@ export class LocalAgentAdapter extends LlmAdapter {
       const refused = Promise.resolve(engine.prompt(session, [{ type: 'text', text: spec.kind === 'acp' ? `${system}\n\n${prompt}` : prompt }], { signal, effort }))
         .then(() => new Promise(() => {}), error => ({ type: 'error', error }))
       const result = await this.collect(side, () => ({ event: Promise.race([session.next(), refused]), drop: () => {} }), signal)
-      return this.meter({ sessionId, route, model: record.model }, result).text
+      return this.meter({ sessionId, route, model: record.model }, result, kind).text
     } finally {
       try {
         if (session !== undefined) {
