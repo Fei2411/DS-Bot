@@ -24,6 +24,7 @@ DS Bot is an open-source project built on [DeepSeek Harness](https://github.com/
 ## Install
 
 An experimental, opt-in code executor is available as `ds-bot/code-mode`. Bots keep their existing executor unless enabled. See [code-mode setup and limits](docs/plans/2026-11-18-code-mode.md).
+Code-mode requires DSH **0.2.2-rc.1 or newer**; the main plugin does not import this separate entry, so older hosts are unaffected.
 
 **Desktop app (Windows, macOS, Linux)**
 

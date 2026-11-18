@@ -1,21 +1,37 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import { test } from 'node:test'
+import { test as nodeTest } from 'node:test'
 import { Context } from '@deepseek-ai/cordis'
 import { mountAgentLoopTestDependencies, provideWorkingDirectoryFixture } from '@deepseek-ai/dsh-agent-loop-testkit'
-import { PtcRuntime } from '@deepseek-ai/dsh-ptc-runtime'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import { renderToolsSdk } from '@deepseek-ai/dsh-tool-executor-ptc'
 import { createScope } from '@deepseek-ai/dsh-scope'
 import { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
-import { CodeModeExecutor, Config, capResultText, renderCompactSdk } from '../src/host/code-mode.js'
-import * as codeMode from '../code-mode.js'
+
+const missingExecutors = ['@deepseek-ai/dsh-tool-executor-native', '@deepseek-ai/dsh-tool-executor-ptc'].filter(name => {
+  try {
+    import.meta.resolve(name)
+    return false
+  } catch (error) {
+    if (error.code !== 'ERR_MODULE_NOT_FOUND') throw error
+    return true
+  }
+})
+const skip = missingExecutors.length > 0 && `code-mode requires DSH >= 0.2.2-rc.1; host lacks ${missingExecutors.join(', ')}`
+const test = (name, fn) => nodeTest(name, { skip }, fn)
+const [{ PtcRuntime }, { renderToolsSdk }, { CodeModeExecutor, Config, capResultText, renderCompactSdk }, codeMode] = skip
+  ? [{}, {}, {}, {}]
+  : await Promise.all([
+    import('@deepseek-ai/dsh-ptc-runtime'),
+    import('@deepseek-ai/dsh-tool-executor-ptc'),
+    import('../src/host/code-mode.js'),
+    import('../code-mode.js'),
+  ])
 
 const fixture = JSON.parse(readFileSync(new URL('./fixtures/code-mode-tools.json', import.meta.url)))
 const definitions = fixture.map(tool => ({ ...tool, output: { schema: tool.output, render: () => [] } }))
 const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor
 
-class TestRuntime extends PtcRuntime {
+const TestRuntime = PtcRuntime && class TestRuntime extends PtcRuntime {
   language = 'typescript'
   isolation = 'test'
   resolve(request) { return { ...request, cwd: process.cwd(), timeoutMs: 120000 } }
