@@ -65,6 +65,12 @@
     "@deepseek-ai/dsh-web": "*",
     "@deepseek-ai/schemastery": "*"
   },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/dsh-ptc-runtime": { "optional": true },
+    "@deepseek-ai/dsh-tool-executor-native": { "optional": true },
+    "@deepseek-ai/dsh-tool-executor-ptc": { "optional": true },
+    "@deepseek-ai/schemastery": { "optional": true }
+  },
   "dsh": {
     "client": {
       "platform": "web"
