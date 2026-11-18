@@ -15,7 +15,7 @@
 // word, and where the rest is. Input that arrives meanwhile waits and moves along.
 // read_own_chat searches every part, the condensed messages included.
 import { randomUUID } from 'node:crypto'
-import { createUserMessage, isContextWindowExceededError } from '@deepseek-ai/dsh-llm'
+import { LlmError, createUserMessage, isContextWindowExceededError } from '@deepseek-ai/dsh-llm'
 import { openTurnAt } from './btw.js'
 import { HANDOFF_ACK, HISTORY_TIMEOUT_MS, REPLY_KIND, SOURCE_KIND } from './constants.js'
 import { assembleLlmStream } from './models.js'
@@ -1390,6 +1390,11 @@ export function install(rt) {
   ctx.on('agent/pre-step', async (payload, next) => {
     await rt.load()
     const { agent } = payload
+    const local = rt.localAgentOf?.(rt.botOf(rt.selfOf(agent.id)))
+    const route = splitRef(local)?.provider
+    if (route !== undefined && rt.isLocalAgentAvailable?.(route) === false) {
+      throw new LlmError(`Local agent ${route} is unavailable: its route is owned by another adapter`, 'LOCAL_AGENT_MISSING')
+    }
     const past = rt.pastOwners.get(agent.id)
     if (past !== undefined && !rt.isBotSession(agent.id)) {
       await forward(past, payload.messages, threadTargetOf(agent.id, past)).catch(error => rt.warn('ds-bot: input for %s was not handed on: %s', agent.id, error))
