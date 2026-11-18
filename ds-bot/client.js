@@ -14703,8 +14703,7 @@ function teamActions({ call: call2, after, partFor, roster, ui: ui2, live, cards
       ui2.set((state) => {
         const details = force || state.details !== id || state.view !== "details" ? id : null;
         if (details === null && panelFolded?.("details") === true) return { ...state, renaming: false, tab: null, details: id, view: "details", panelYield: true };
-        const yielded = details !== null && panelFolded?.("details") === true;
-        return { ...state, renaming: false, tab: null, details, view: "details", ...yielded ? { panelYield: true } : {} };
+        return { ...state, renaming: false, tab: null, details, view: "details", ...details === null ? {} : { panelYield: true } };
       });
     },
     // The open panel follows the main view; a subject with no browser (a group
