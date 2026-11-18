@@ -6,7 +6,10 @@ import { mountAgentLoopTestDependencies, provideWorkingDirectoryFixture } from '
 import { PtcRuntime } from '@deepseek-ai/dsh-ptc-runtime'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { renderToolsSdk } from '@deepseek-ai/dsh-tool-executor-ptc'
+import { createScope } from '@deepseek-ai/dsh-scope'
+import { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import { CodeModeExecutor, Config, capResultText, renderCompactSdk } from '../src/host/code-mode.js'
+import * as codeMode from '../code-mode.js'
 
 const fixture = JSON.parse(readFileSync(new URL('./fixtures/code-mode-tools.json', import.meta.url)))
 const definitions = fixture.map(tool => ({ ...tool, output: { schema: tool.output, render: () => [] } }))
@@ -78,6 +81,23 @@ test('compact SDK is smaller than stock on the same 23 tool schemas', () => {
   assert.ok(renderCompactSdk(extra).includes('"mcp__catalog__lookup"'))
   assert.ok(!renderCompactSdk(extra).includes('"message_bot"'))
   assert.ok(renderCompactSdk([], 'hybrid', 'vm-script').includes('final expression'))
+})
+
+test('both mounted executors assemble only the compact SDK, without stock PTC sections or instructions', async t => {
+  for (const mode of ['hybrid', 'code-only']) {
+    const { ctx, agent, register } = await boot(t)
+    register('read')
+    const scope = createScope(ctx, agent)
+    t.after(() => scope.dispose())
+    await scope.ctx.plugin(codeMode, { mode })
+    const assembled = await ctx.systemPrompt.assemble({ scope: agent })
+    assert.deepEqual(assembled.sections.filter(section => section.name.startsWith('tools:')).map(section => section.name), ['tools:code-mode'])
+    const prompt = renderPrompt(assembled)
+    assert.ok(prompt.includes('Program-only SDK'))
+    assert.ok(!prompt.replaceAll('`', '').includes('run_code is the only tool you can call directly'))
+    assert.ok(!prompt.includes('ToolOutputMap'))
+    assert.deepEqual(assembled.tools.map(tool => tool.name).sort(), mode === 'hybrid' ? ['read', 'run_code'] : ['run_code'])
+  }
 })
 
 test('cap keeps a Unicode head and tail, reports the exact omission and respects the total budget', () => {

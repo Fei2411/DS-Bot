@@ -56,10 +56,14 @@
   "peerDependencies": {
     "@deepseek-ai/cordis": "*",
     "@deepseek-ai/dsh-llm": "*",
+    "@deepseek-ai/dsh-ptc-runtime": "*",
     "@deepseek-ai/dsh-scope": "*",
     "@deepseek-ai/dsh-tools": "*",
+    "@deepseek-ai/dsh-tool-executor-native": "*",
+    "@deepseek-ai/dsh-tool-executor-ptc": "*",
     "@deepseek-ai/dsh-typert-protocol": "*",
-    "@deepseek-ai/dsh-web": "*"
+    "@deepseek-ai/dsh-web": "*",
+    "@deepseek-ai/schemastery": "*"
   },
   "dsh": {
     "client": {
@@ -75,10 +79,6 @@
     "qrcode-generator": "2.0.4"
   },
   "dependencies": {
-    "@deepseek-ai/schemastery": "3.19.0",
-    "@deepseek-ai/dsh-ptc-runtime": "0.2.2-rc.1",
-    "@deepseek-ai/dsh-tool-executor-native": "0.2.2-rc.1",
-    "@deepseek-ai/dsh-tool-executor-ptc": "0.2.2-rc.1",
     "@modelcontextprotocol/client": "2.4.0",
     "deep-view": "0.1.2",
     "imapflow": "2.9.1",
