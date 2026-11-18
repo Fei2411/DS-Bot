@@ -1301,7 +1301,10 @@ export function install(rt) {
     // A local agent CLI answers in a one-off read-only session; a fallback never
     // leaves the Bot's run mode.
     if (rt.isLocalAgentRoute?.(own.provider) === true) {
-      return rt.localAgentAsk(tag?.sessionId ?? rt.chatOf?.(bot.id) ?? bot.id, { route: own.provider, model: own.model, system, prompt: text, kind: tag?.kind ?? 'memory', signal: AbortSignal.timeout(MODEL_TIMEOUT_MS) })
+      const reply = String(await rt.localAgentAsk(tag?.sessionId ?? rt.chatOf?.(bot.id) ?? bot.id, { route: own.provider, model: own.model, system, prompt: text, kind: tag?.kind ?? 'memory', signal: AbortSignal.timeout(MODEL_TIMEOUT_MS) }) ?? '').trim()
+      // As on a model: an empty answer is no answer, so nothing saved is replaced by it.
+      if (reply === '') throw new Error(`${own.provider}/${own.model} wrote nothing; no answer was written`)
+      return reply
     }
     try {
       return await oneShot(own, system, text, tag)

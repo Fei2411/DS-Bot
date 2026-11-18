@@ -1256,6 +1256,18 @@ test('a local agent Bot\'s memory summary is written by its own CLI and model', 
   assert.equal(started.requests.length, 0)
 })
 
+test('an empty answer from a local agent Bot\'s CLI is no summary', async (t) => {
+  const started = start({ replies: [], models: ['v4'] })
+  t.after(() => started.stop())
+  onLocalAgent(started, '  ')
+  await started.tool('remember', { text: 'Likes tea' }, 'b2')
+  await started.call('memory-view', { botId: 'b2', summarize: true })
+  await summarized(started.call)
+  const failed = (await started.call('memory-view', { botId: 'b2' })).value
+  assert.equal(failed.summary, null)
+  assert.match(failed.error, /wrote nothing/)
+})
+
 test('a local agent Bot whose CLI fails keeps the failure, and no API model stands in', async (t) => {
   const started = start({ replies: [], models: ['v4'] })
   t.after(() => started.stop())
