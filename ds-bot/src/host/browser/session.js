@@ -510,10 +510,15 @@ export function createSession({ context, browser, page, botId, userDataDir, cook
         if (requestOrigin !== action.origin || ['GET', 'HEAD'].includes(request.method().toUpperCase())) return
         let resolve
         let reject
-        requests.push(new Promise((res, rej) => {
+        const settled = new Promise((res, rej) => {
           resolve = res
           reject = rej
-        }))
+        })
+        // The request can fail while the click is still running, or after the click itself
+        // failed. waitForWriteRequests reads the failure; until then it must not count as
+        // unhandled, because DSH ends the whole process on an unhandled rejection.
+        settled.catch(() => {})
+        requests.push(settled)
         pendingRequests.set(request, { resolve, reject })
       }
       const onRequestFinished = request => {

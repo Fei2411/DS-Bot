@@ -34,7 +34,7 @@ async function fixture(t, options = {}) {
       goto: async () => options.open?.(target),
       locator: () => ({
         count: async () => 1,
-        evaluate: async () => null,
+        evaluate: async () => options.write ?? null,
         click: async () => options.click?.(target, later),
         fill: async () => {},
         press: async () => options.click?.(target, later),
@@ -82,6 +82,31 @@ function download({ filename = 'report.csv', saveError } = {}) {
   }
   return value
 }
+
+// A write's request can fail while its click is still running. Its failure is read once the click
+// returns; until then it must not count as unhandled, because DSH ends the process on one.
+test('a write request that fails while its click still runs is reported, not left unhandled', async (t) => {
+  const unhandled = []
+  const record = reason => { unhandled.push(reason) }
+  process.on('unhandledRejection', record)
+  t.after(() => { process.off('unhandledRejection', record) })
+  const request = {
+    url: () => 'https://reports.example.test/publish',
+    method: () => 'POST',
+    failure: () => ({ errorText: 'net::ERR_CONNECTION_RESET' }),
+  }
+  const { session } = await fixture(t, {
+    write: { kind: 'post', label: 'Publish', origin: 'https://reports.example.test', host: 'reports.example.test' },
+    click: (page, later) => new Promise(resolve => {
+      page.emit('request', request)
+      page.emit('requestfailed', request)
+      later(resolve, 50)
+    }),
+  })
+  const result = await gateScope.run(async () => {}, () => session.click('e1'))
+  assert.match(result, /"Publish" action on reports\.example\.test was sent, but its result is unknown \(net::ERR_CONNECTION_RESET\)/)
+  assert.deepEqual(unhandled, [])
+})
 
 test('a click captures a download started asynchronously after 120 ms', async (t) => {
   const incoming = download()
