@@ -1022,6 +1022,7 @@ export function install(rt) {
   }
 
   Object.assign(rt, {
+    // Reverse install order (side before BTW) matches the old delete wrappers.
     onBotDelete: hook => { botDeleteHooks.unshift(hook) },
     ensureWorkspace, keepTeamFolder, createSession, createBot, duplicateBot, updateBot, setFlags,
     saveSection, reorderSections, deleteSection,
