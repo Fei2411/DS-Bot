@@ -442,6 +442,21 @@ test('the narrow Bot grid yields when either shell track opens', () => {
   assert.equal(frame.matches(frames[0].selector), false)
 })
 
+test('rail control enlargement leaves short screens compact', () => {
+  const { document } = new JSDOM('<style></style>').window
+  document.querySelector('style').textContent = SHELL_CSS
+  const queries = []
+  const visit = (rules, media = []) => {
+    for (const rule of rules) {
+      if (rule.selectorText?.includes('.bt-rail-top .bt-round') && rule.style?.width === '56px') queries.push(media)
+      if (rule.cssRules) visit(rule.cssRules, rule.media ? [...media, rule.media.mediaText] : media)
+    }
+  }
+  visit(document.querySelector('style').sheet.cssRules)
+  assert.equal(queries.length, 1)
+  assert.ok(queries[0].some(query => /max-width:\s*600px/.test(query) && /min-height:\s*501px/.test(query)))
+})
+
 test('the column\'s top row hides it, on the rail too, and its edge is a drag grip', () => {
   viewport.innerWidth = 1280
   const calls = []
