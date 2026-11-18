@@ -13,6 +13,9 @@ function deferred() {
   return { promise, resolve }
 }
 
+// Every fake page has the same main frame; a request names it to come from the page itself.
+const MAIN_FRAME = {}
+
 async function fixture(t, options = {}) {
   const directory = await mkdtemp(join(tmpdir(), 'ds-bot-download-'))
   const timers = new Set()
@@ -28,6 +31,7 @@ async function fixture(t, options = {}) {
       setDefaultNavigationTimeout() {},
       isClosed: () => closed,
       url: () => 'https://reports.example.test/export',
+      mainFrame: () => MAIN_FRAME,
       title: async () => 'Reports',
       ariaSnapshot: async () => '- button "Export CSV" [ref=e1]',
       waitForLoadState: async () => {},
@@ -94,9 +98,11 @@ function watchUnhandled(t) {
 }
 
 const PUBLISH = { kind: 'post', label: 'Publish', origin: 'https://reports.example.test', host: 'reports.example.test' }
-const publishRequest = errorText => ({
-  url: () => 'https://reports.example.test/publish',
+const publishRequest = (errorText, { navigation = false, path = '/publish' } = {}) => ({
+  url: () => `https://reports.example.test${path}`,
   method: () => 'POST',
+  isNavigationRequest: () => navigation,
+  frame: () => MAIN_FRAME,
   failure: () => (errorText === undefined ? null : { errorText }),
 })
 const unknownResult = detail => new RegExp(`"Publish" action on reports\\.example\\.test was sent, but its result is unknown \\(${detail}\\)`)
@@ -171,6 +177,40 @@ test('a POST sent after the click returned that finishes gives the page as usual
   const result = await gateScope.run(async () => {}, () => session.click('e1'))
   assert.doesNotMatch(result, /result is unknown/)
   assert.match(result, /Export CSV/)
+})
+
+// After a form post loads its result page, that page's own requests (polling its server, say)
+// are not the action's: an unanswered one must not hold the action or make its result unknown
+// (waited for, it would time out and read "the browser request did not finish").
+test('a POST the result page sends after the form navigated is not waited for', async (t) => {
+  const submit = publishRequest(undefined, { navigation: true })
+  const poll = publishRequest(undefined, { path: '/poll' })
+  const { session } = await fixture(t, {
+    write: PUBLISH,
+    click: (page, later) => {
+      page.emit('request', submit)
+      later(() => {
+        page.emit('requestfinished', submit)
+        page.emit('request', poll)
+      }, 30)
+    },
+  })
+  const result = await gateScope.run(async () => {}, () => session.click('e1'))
+  assert.doesNotMatch(result, /result is unknown/)
+  assert.match(result, /Export CSV/)
+})
+
+test('a form post that fails while its page navigates is still reported', async (t) => {
+  const submit = publishRequest('net::ERR_CONNECTION_RESET', { navigation: true })
+  const { session } = await fixture(t, {
+    write: PUBLISH,
+    click: (page, later) => {
+      page.emit('request', submit)
+      later(() => page.emit('requestfailed', submit), 30)
+    },
+  })
+  const result = await gateScope.run(async () => {}, () => session.click('e1'))
+  assert.match(result, unknownResult('net::ERR_CONNECTION_RESET'))
 })
 
 // A tab the page opens is made current once it has loaded. One that crashes first stays out
