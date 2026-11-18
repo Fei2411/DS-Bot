@@ -170,14 +170,14 @@ const call = useMemo(() => async (endpoint: string, payload: unknown = {}): Prom
       }
       case 'models': return state.models ?? []
       case 'efforts': return { efforts: [{ id: 'low', name: 'Quick' }, { id: 'medium', name: 'Balanced' }, { id: 'high', name: 'Careful' }], defaultEffort: 'medium' }
-      case 'memory-view': return { summary: 'Chief keeps the launch plan moving.', sizes: { own: 420, team: 180 }, limits: { main: 4000 }, entries: [
+      case 'memory-view': return { summary: { text: 'Chief keeps the launch plan moving.', at: Date.now() - 600e3 }, sizes: { own: 420, team: 180 }, limits: { main: 4000 }, entries: [
         { scope: 'own', topic: 'Release', text: 'Tag lands Friday once screenshots are in', added: '2 天前', by: 'Coder', source: 'chat' },
         { scope: 'own', topic: null, text: 'Prefers concise status lines', added: '上周', by: null, source: 'memory panel' },
         { scope: 'team', topic: 'Team', text: 'Writer drafts docs first, Coder tests before merge', added: '本月', by: 'Chief', source: 'chat' },
       ] }
       case 'memory-add': case 'memory-edit': return { ok: true }
       case 'memory-forget': return { ok: true }
-      case 'memory-ask': return { reply: 'The tag is held until the screenshots land — see Release notes.', changes: [], view: { summary: 'Chief keeps the launch plan moving.', sizes: { own: 420, team: 180 }, limits: { main: 4000 }, entries: [
+      case 'memory-ask': return { reply: 'The tag is held until the screenshots land — see Release notes.', changes: [], view: { summary: { text: 'Chief keeps the launch plan moving.', at: Date.now() - 600e3 }, sizes: { own: 420, team: 180 }, limits: { main: 4000 }, entries: [
         { scope: 'own', topic: 'Release', text: 'Tag lands Friday once screenshots are in', added: '2 天前', by: 'Coder', source: 'chat' },
         { scope: 'own', topic: null, text: 'Prefers concise status lines', added: '上周', by: null, source: 'memory panel' },
         { scope: 'team', topic: 'Team', text: 'Writer drafts docs first, Coder tests before merge', added: '本月', by: 'Chief', source: 'chat' },

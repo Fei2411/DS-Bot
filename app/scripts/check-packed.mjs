@@ -416,7 +416,7 @@ async function chat(cdp) {
   // Click the composer through the input pipeline. A bare focus() is not enough where no window
   // manager gives the window focus (xvfb in CI): the text and the Enter would go nowhere.
   const box = "[...document.querySelectorAll('[role=textbox][contenteditable=true], textarea')].at(-1)"
-  const focusCheck = "(document.activeElement?.isContentEditable ?? false) || document.activeElement?.tagName === 'TEXTAREA'"
+  const focusCheck = "document.hasFocus() && ((document.activeElement?.isContentEditable ?? false) || document.activeElement?.tagName === 'TEXTAREA')"
   // A greeting that just arrived leaves the composer rebinding: for a moment the field is
   // not editable, so a click lands on it but does not focus it. The probe and the click are
   // separate round trips, so keep probing and click only where the field itself is on top
@@ -433,13 +433,17 @@ async function chat(cdp) {
     return null
   })()`
   let shot = null
+  let clicked = false
   const deadline = Date.now() + 30_000
-  while (Date.now() < deadline && !(await evaluate(`Boolean(${focusCheck})`))) {
+  // Even if the page's own JS focus() already flipped activeElement and document.hasFocus(), click
+  // at least once through CDP's input pipeline so Xvfb / Aura routes keyboard focus to the widget.
+  while (Date.now() < deadline && (!clicked || !(await evaluate(`Boolean(${focusCheck})`)))) {
     const point = await evaluate(probe)
     if (point !== null && point !== undefined) {
       shot = point
       await cdp.call('Input.dispatchMouseEvent', { type: 'mousePressed', x: point.x, y: point.y, button: 'left', clickCount: 1 })
       await cdp.call('Input.dispatchMouseEvent', { type: 'mouseReleased', x: point.x, y: point.y, button: 'left', clickCount: 1 })
+      clicked = true
       await sleep(300)
     } else await sleep(250)
   }
@@ -472,26 +476,75 @@ async function chat(cdp) {
     while (node && !node.querySelector?.('button[aria-busy]')) node = node.parentElement
     return node?.querySelector('button[aria-busy]') ?? null
   })()`
-  const composerState = () => evaluate(`(() => {
+  const snapshot = `(() => {
     const el = ${box}
     const button = ${send}
-    return JSON.stringify({
+    return {
+      at: performance.now(), focused: document.hasFocus(), visibility: document.visibilityState,
       active: document.activeElement?.tagName ?? null, editable: document.activeElement?.isContentEditable ?? null,
+      editorComposing: el?.hasAttribute('data-composer-composing') ?? false, popup: document.querySelector('[role=listbox]') !== null,
       draft: el?.innerText ?? null, send: button === null ? null : { label: button.getAttribute('aria-label'), disabled: button.disabled },
-      tail: document.body.innerText.slice(-300),
-    })
-  })()`)
+    }
+  })()`
+  const composerState = () => evaluate(`JSON.stringify({ ...${snapshot}, enter: window.__packedEnter ?? null, tail: document.body.innerText.slice(-300) })`)
   try {
-    await until(`(() => { const button = ${send}; return button !== null && !button.disabled })()`, 'the send button', 30_000)
+    // Capture readiness in the existing probe: an extra CDP round trip before Enter can hide a race.
+    await until(`(() => {
+      const button = ${send}
+      if (button === null || button.disabled) return false
+      if (window.__packedEnter === undefined) {
+        const trace = window.__packedEnter = { events: [] }
+        // Every press is recorded, not just the first: a run that needed the second one has to
+        // say so.
+        for (const type of ['keydown', 'keyup']) window.addEventListener(type, event => {
+          const entry = { ...${snapshot}, type, key: event.key, code: event.code, keyCode: event.keyCode,
+            target: event.target?.tagName ?? null, composing: event.isComposing, repeat: event.repeat,
+            shift: event.shiftKey, ctrl: event.ctrlKey, alt: event.altKey, meta: event.metaKey }
+          trace.events.push(entry)
+          // A later task sees preventDefault from every capture and bubble handler.
+          setTimeout(() => { entry.prevented = event.defaultPrevented }, 0)
+        }, { capture: true })
+      }
+      return true
+    })()`, 'the send button', 30_000)
   } catch (error) {
     throw new Error(`${error.message}; composer: ${await composerState()}`)
   }
-  for (const type of ['keyDown', 'keyUp']) await cdp.call('Input.dispatchKeyEvent', { type, key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 })
-  try {
-    await until(`!(${box}?.innerText ?? '').includes('packaged app check')`, 'Enter to send the message', 10_000)
-  } catch (error) {
-    throw new Error(`${error.message}; composer: ${await composerState()}`)
+  const message = 'packaged app check'
+  const draft = `String(${box}?.innerText ?? '')`
+  let previousDraft = null
+  let sent = false
+  for (let press = 1; press <= 3 && !sent; press += 1) {
+    if (press > 1) {
+      await sleep(1000)
+      const state = JSON.parse(await evaluate(`JSON.stringify({ ...${snapshot}, enterCount: window.__packedEnter?.events?.length ?? 0 })`))
+      const shown = String(state.draft ?? '')
+      if (!shown.includes(message)) break
+      if (shown !== previousDraft) break
+      if (state.send === null || state.send.disabled) break
+      if (!state.editable) break
+      // When the previous press never reached the page at all under Xvfb, re-prime focus through
+      // Page.bringToFront and a real click on the composer before pressing Enter again.
+      if (state.enterCount === 0) {
+        await cdp.call('Page.bringToFront').catch(() => {})
+        const point = await evaluate(probe)
+        if (point !== null && point !== undefined) {
+          await cdp.call('Input.dispatchMouseEvent', { type: 'mousePressed', x: point.x, y: point.y, button: 'left', clickCount: 1 })
+          await cdp.call('Input.dispatchMouseEvent', { type: 'mouseReleased', x: point.x, y: point.y, button: 'left', clickCount: 1 })
+          await sleep(200)
+        }
+      }
+    }
+    previousDraft = await evaluate(draft)
+    for (const type of ['keyDown', 'keyUp']) await cdp.call('Input.dispatchKeyEvent', { type, key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 })
+    try {
+      await until(`!${draft}.includes(${JSON.stringify(message)})`, 'Enter to send the message', 10_000)
+      sent = true
+    } catch {
+      // The field still holds the text; the next pass reads the state before deciding to press again.
+    }
   }
+  if (!sent) throw new Error(`timed out waiting for Enter to send the message; composer: ${await composerState()}`)
   // The mock model starts its reply with 收到： and the message.
   try {
     await until(text('收到：packaged app check'), 'the reply')
@@ -572,6 +625,18 @@ try {
     if (answer.exceptionDetails) throw new Error(answer.exceptionDetails.exception?.description ?? answer.exceptionDetails.text)
     return answer.result?.value
   }
+  // Wait until the start window finishes its cross-fade and closes before driving the team window;
+  // otherwise the splash teardown on Xvfb drops window focus after the composer was clicked.
+  const revealEnd = Date.now() + 120_000
+  while (Date.now() < revealEnd) {
+    if (await windowState('BrowserWindow.getAllWindows().length === 1 && win !== undefined && !win.isDestroyed() && win.isVisible()') === true) break
+    await sleep(200)
+  }
+  if (await windowState('BrowserWindow.getAllWindows().length === 1 && win !== undefined && !win.isDestroyed() && win.isVisible()') !== true) {
+    throw new Error('timed out waiting for the start window to hand off to the team window')
+  }
+  await windowState('win.focus(), win.webContents.focus(), true')
+  await cdp.call('Page.bringToFront').catch(() => {})
   const chatError = await chat(cdp).then(() => undefined, error => error)
   if (shotFile) {
     const { data } = await cdp.call('Page.captureScreenshot', { format: 'png' })

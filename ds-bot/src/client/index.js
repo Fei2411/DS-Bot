@@ -3,7 +3,8 @@ import { isHex, inkText, paintCss } from './inks.js'
 import { DEFAULT_MASK, SHAPES, markupCache, maskOf } from './characters.js'
 import { createSource, EMPTY_ROSTER, indexRoster, isAgentSession } from './sources.js'
 import { teamActions } from './team-actions.js'
-import { themeCss, shellTokens, registry, registerShape, registerTheme, allThemes, layoutOf, widthOf, flatWidthOf } from './themes.js'
+import { themeCss, shellTokens, registry, registerShape, registerTheme, allThemes, layoutOf, effectsOf, widthOf, flatWidthOf } from './themes.js'
+import { readSkinSurfaceVars, writeSkinSurfaceVars } from './skin.js'
 import { MENTION_ORIGIN, currentPart } from './text.js'
 import { SHELL_CSS, CONVERSATION_CSS, botOwnCss, installStyles, installCompiledStyles, RETURN_TOKENS } from './styles.js'
 import { lookOf } from './mark.js'
@@ -20,10 +21,13 @@ import { VOICE_BUNDLE, closingReplyText, requestPreparation } from './speech.js'
 import { sameVersion } from './dsh-offer.js'
 import { QuestionCard, QuestionDock } from './questions.js'
 import { AnsweredReply, WidgetDock, WIDGET_CSS } from './widget-cell.js'
+import { CHANGES_CSS } from './changes-card.js'
 import { HandoffDock, HANDOFF_CSS } from './handoff-card.js'
 import { AppAccessDock, ComputerHandoffDock, ComputerIndicator, COMPUTER_CSS } from './computer.js'
 import { installHeaderNavigation } from './header-navigation.js'
 import { AssistantCell, TriggerCell, TurnProcessCell, Nothing, CellEmpty, TurnTailCell, ToolCell } from './cells.js'
+import { SaveFileAction } from './file-save.js'
+import { fileMentionSource } from './mention-source.js'
 import { FailureCell, TURN_ERROR_CSS } from './turn-error.js'
 import { Overlays } from './overlays.js'
 import { createBotBrowsers, serveBrowserReads } from './bot-browsers.js'
@@ -33,7 +37,9 @@ import { ConnectorDock, MailDock, CONNECTOR_CSS } from './connectors.js'
 import { CONNECTORS_PAGE_CSS } from './connectors-page.js'
 import { LearningDock, LearningTurnTail, LEARNING_CSS } from './learning-card.js'
 import { MODEL_CSS, ModelChoiceDock, DeepSeekSignIn } from './model-menu.js'
+import { ReadOnlyDock, READ_ONLY_CSS } from './read-only-dock.js'
 import { BOT_SETTINGS_CSS } from './bot-settings.js'
+import { BOT_MODELS_CSS } from './bot-models-page.js'
 import { AGENT_CARDS_CSS } from './agent-cards.js'
 import { AVATAR_LIBRARY_CSS } from './avatar-library.js'
 import { GROUP_SETTINGS_CSS } from './group-settings.js'
@@ -46,17 +52,25 @@ import { freePriority, groupsFor, readMode, surfaceGroups, writeMode } from './s
 import { installLocale, language, t } from './i18n.js'
 import { noteClientError, quietly } from './diagnostics.js'
 import { steerQueued } from './enter-steer.js'
+import { installCommandActions } from './command-actions.js'
 import { RIGHTBAR_ATTRIBUTES, columnOpened, createSwitchWindow, drawerOpened, rightColumnOpen } from './right-panel.js'
 import { ErrorToast, FEEDBACK_CSS } from './feedback.js'
 import { ABOUT_CSS } from './about.js'
 import { MEMBER_CSS, MemberDock } from './member-status.js'
+import { TASK_CSS } from './task-board.js'
 import { IM_CSS } from './im-page.js'
 import { GOAL_CSS } from './goal.js'
-import { USER_MESSAGE_CSS, UserMessageCell, canDrawUserMessages } from './user-message.js'
+import { BotMention, USER_MESSAGE_CSS, UserMessageCell, canDrawUserMessages, installUserBubble } from './user-message.js'
+import { BOT_MENTION_ID, installBotMentionRule } from './user-text-rule.js'
 import { QueueDock, QUEUE_CSS } from './queue-dock.js'
+import { PASTE_CSS, PasteDock, PasteGuard } from './paste-card.js'
+import { OPENING_CSS, bindOpeningWait } from './opening.js'
 import { noticeApprovals } from './approval-notices.js'
 import { listedOpener } from './open-listed.js'
+import { needsIdleSample, pollDelay } from './polling.js'
+import { installMotionRest } from './motion-rest.js'
 import { agentSessionToReuse, singleFlight } from './agent-new.js'
+import { TextSelectionAction, ANNOTATION_CSS } from './text-annotation.js'
 
 export const inject = ['sessions', 'uiWorkspace', 'uiConversation', 'slots', 'theme', 'layout']
 
@@ -76,7 +90,7 @@ export function apply(ctx) {
   let seenAt = seenStore.read()
   // `details` is the panel's subject (a Session id); `view` picks details or the
   // subject Bot's browser inside it.
-  const ui = createSource({ details: null, view: 'details', renaming: false, tab: null, side: null, newChat: null, exchange: null, menu: null, voice: null, palette: null, quote: null, settings: null, memory: null, toast: null, signIn: null, renameAgent: null, unread: unreadStore.read(), reactions: reactionStore.read(), visits: {}, panelYield: false, leftDrawer: false, bootFailed: false, goalCompose: null, goalOpen: null })
+  const ui = createSource({ details: null, view: 'details', readOnlyPart: null, renaming: false, tab: null, side: null, newChat: null, exchange: null, menu: null, voice: null, palette: null, quote: null, paste: {}, pendingOpen: null, settings: null, memory: null, toast: null, signIn: null, renameAgent: null, unread: unreadStore.read(), reactions: reactionStore.read(), visits: {}, panelYield: false, leftDrawer: false, bootFailed: false, goalCompose: null, goalOpen: null })
   // The left column's kept preference, and the frame geometry the layout rules
   // in frame-layout.js read: the window and the shell's collapsed track come from
   // installFrameWatch, the open column's width is the user's own.
@@ -183,6 +197,7 @@ export function apply(ctx) {
     const value = await call('state', { since: known.revision, models: known.modelsKey ?? '', live: liveKey, locale: language() })
     if (order < applied) return
     applied = order
+    const prevLiveKey = liveKey
     if (value.liveKey !== undefined) liveKey = value.liveKey
     if (value.activity !== undefined) {
       const nextActivity = JSON.stringify(value.activity)
@@ -200,6 +215,9 @@ export function apply(ctx) {
     const current = roster.getSnapshot()
     // Connector, capability and phone states change without a new revision.
     const live = {}
+    if (value.partsRunning !== undefined && JSON.stringify(value.partsRunning) !== JSON.stringify(current.partsRunning ?? {})) live.partsRunning = value.partsRunning
+    if (value.secretStore !== undefined && JSON.stringify(value.secretStore) !== JSON.stringify(current.secretStore ?? {})) live.secretStore = value.secretStore
+    if (value.secrets !== undefined && JSON.stringify(value.secrets) !== JSON.stringify(current.secrets ?? [])) live.secrets = value.secrets
     if (value.connectors !== undefined && JSON.stringify(value.connectors) !== JSON.stringify(current.connectors ?? [])) live.connectors = value.connectors
     if (value.capabilityStatuses !== undefined && JSON.stringify(value.capabilityStatuses) !== JSON.stringify(current.capabilityStatuses ?? {})) live.capabilityStatuses = value.capabilityStatuses
     if (value.phone !== undefined && JSON.stringify(value.phone) !== JSON.stringify(current.phone ?? null)) live.phone = value.phone
@@ -209,8 +227,13 @@ export function apply(ctx) {
     if (value.sideChats !== undefined && JSON.stringify(value.sideChats) !== JSON.stringify(current.sideChats ?? {})) live.sideChats = value.sideChats
     if (value.imStatus !== undefined && JSON.stringify(value.imStatus) !== JSON.stringify(current.imStatus ?? {})) live.imStatus = value.imStatus
     if (value.imVia !== undefined && JSON.stringify(value.imVia) !== JSON.stringify(current.imVia ?? {})) live.imVia = value.imVia
+    // The read-only notice goes once this host takes the team over from a dsh that
+    // closed, without a reload: the window holds the answer's live fields until then.
+    if (value.readOnly !== undefined && (value.readOnly ?? null) !== (current.readOnly ?? null)) live.readOnly = value.readOnly
     if (Object.keys(live).length > 0 && current.ready) roster.set({ ...current, ...live })
-    if (value.unchanged || (value.revision === current.revision && value.modelsKey === current.modelsKey)) return
+    if (value.unchanged || (value.revision === current.revision && value.modelsKey === current.modelsKey)) {
+      return value.liveKey !== undefined && value.liveKey !== prevLiveKey
+    }
     // On a browser with no visit record yet, everything already there counts as seen.
     if (Object.keys(seenAt).length === 0) leaveVisits([...value.bots, ...value.rooms].map(entry => entry.id))
     roster.set(indexRoster(value))
@@ -232,6 +255,7 @@ export function apply(ctx) {
       refreshed.add(id)
       void Promise.resolve(ctx.sessions.refreshProjections?.(id)).catch(quietly('refresh projections'))
     }
+    return true
   }
 
   ctx.effect(() => {
@@ -239,12 +263,16 @@ export function apply(ctx) {
     let running = false
     let timer
     let misses = 0
+    // While the host keeps answering that nothing changed, asking every 1.5 s only makes
+    // the renderer serialise requests and compare answers (#1462). The wait stretches to
+    // POLL_MAX_MS and snaps back on the first change, a wake, or any action's own pull.
+    let unchanged = 0
     const loop = async () => {
       clearTimeout(timer)
       if (running || stopped) return
       running = true
       try {
-        await pull()
+        unchanged = await pull() ? 0 : unchanged + 1
         misses = 0
         // A late-arriving API clears the failure the misses reported.
         ui.set(state => (state.bootFailed ? { ...state, bootFailed: false } : state))
@@ -260,9 +288,9 @@ export function apply(ctx) {
           }
         }
       } finally { running = false }
-      if (!stopped) timer = setTimeout(loop, document.hidden ? 10000 : 1500)
+      if (!stopped) timer = setTimeout(loop, pollDelay(document.hidden ? 10000 : 1500, unchanged))
     }
-    const wake = () => { if (!document.hidden) void loop() }
+    const wake = () => { if (!document.hidden) { unchanged = 0; void loop() } }
     document.addEventListener('visibilitychange', wake)
     void loop()
     return () => { stopped = true; clearTimeout(timer); document.removeEventListener('visibilitychange', wake) }
@@ -340,18 +368,20 @@ export function apply(ctx) {
   }
 
   ctx.effect(() => () => { markupCache.clear() }, 'ds-bot: character markup')
+  ctx.effect(() => installMotionRest(), 'ds-bot: motion rest')
 
-  // Mentions wear each Bot's color and character silhouette (or its photo). A message
-  // DSH still draws itself, while it waits to be sent or to join a running turn, shows
-  // "@Name" as a file reference; one whose label is a whole Bot name wears the Bot's
-  // mark there too (a name with a space is cut by DSH, so it stays as DSH draws it).
+  // Mentions wear each Bot's color and character silhouette (or its photo). User text
+  // DSH draws (a message waiting to be sent or to join a running turn, and since DSH
+  // 0.2.1-alpha.3 the contents of DS Bot's own user bubble, .bt-uhost) shows "@Name" as
+  // a file reference; one whose label is a whole Bot name wears the Bot's mark there too
+  // (a name with a space is cut by DSH, so it stays as DSH draws it).
   const installMentions = () => {
     const style = installStyles('', 'mentions')
     let last = ''
     const render = () => {
       const next = roster.getSnapshot().bots.map((bot) => {
         const anchor = `.bt-bubble a[href="${MENTION_ORIGIN}${bot.id}"]`
-        const chip = /\s/.test(bot.name) ? '' : `[class*="_userRow"] [data-ref-chip="file"][title="@${bot.name.replace(/["\\]/g, '\\$&')}" i]`
+        const chip = /\s/.test(bot.name) ? '' : `:is([class*="_userRow"],.bt-uhost) [data-ref-chip="file"][title="@${bot.name.replace(/["\\]/g, '\\$&')}" i]`
         const look = lookOf(bot)
         const marks = chip ? `${anchor}::before,${chip}::before` : `${anchor}::before`
         const mark = look.image
@@ -374,6 +404,19 @@ export function apply(ctx) {
     const style = installStyles('', 'theme')
     let key = ''
     let releaseTokens = null
+    let activeTheme = null
+    // A third-party skin's glass sliders change DSH's background tokens; the surfaces
+    // follow them through --bt-skin-*, and nothing is set while the tokens are opaque.
+    const skin = writeSkinSurfaceVars(document, () => (activeTheme === null ? {} : readSkinSurfaceVars(document, activeTheme)))
+    const offTheme = ctx.on('theme/change', () => skin.apply())
+    // A skin may write the tokens itself (some set them straight on the document); the
+    // composed value is what counts, so re-read whenever the tokens may have moved.
+    const observer = typeof MutationObserver === 'function' ? new MutationObserver(() => skin.apply()) : null
+    if (observer !== null) {
+      observer.observe(document.body, { attributes: true, attributeFilter: ['style', 'data-ds-dark-theme'] })
+      observer.observe(document.documentElement, { attributes: true, attributeFilter: ['style', 'class'] })
+      observer.observe(document.head, { childList: true, subtree: true, characterData: true })
+    }
     const render = () => {
       const snapshot = roster.getSnapshot()
       const prefs = snapshot.ready ? snapshot.prefs ?? {} : savedPrefs
@@ -382,21 +425,25 @@ export function apply(ctx) {
       const accent = isHex(prefs.accent) ? prefs.accent : undefined
       const motion = prefs.motion === 'quiet' || prefs.motion === 'lively' ? prefs.motion : 'normal'
       const layout = layoutOf(prefs)
+      const effects = effectsOf(prefs)
       const width = widthOf(prefs)
       const flatWidth = flatWidthOf(prefs)
       document.body.dataset.btMotion = motion
       document.body.dataset.btLayout = layout
+      document.body.dataset.btEffects = effects
       document.body.style.setProperty('--bt-msg-w', String(width / 100))
       document.body.style.setProperty('--bt-flat-w', String(flatWidth / 100))
-      const next = `${id}|${accent ?? ''}|${motion}|${layout}|${width}|${flatWidth}|${registry.getSnapshot()}`
+      const next = `${id}|${accent ?? ''}|${motion}|${layout}|${effects}|${width}|${flatWidth}|${registry.getSnapshot()}`
       if (next === key) return
       key = next
       style.textContent = themeCss(themes[id], accent)
+      activeTheme = themes[id]
+      skin.apply()
       const release = releaseTokens
       releaseTokens = ctx.theme.overrideTokens('ds-bot', shellTokens(themes[id]))
       if (typeof release === 'function') release()
       if (snapshot.ready) {
-        try { localStorage.setItem(PREFS_KEY, JSON.stringify({ theme: prefs.theme, accent: prefs.accent, motion: prefs.motion, layout: prefs.layout, width: prefs.width, flatWidth: prefs.flatWidth, thinking: prefs.thinking, defaultBotModel: prefs.defaultBotModel, enterToSend: prefs.enterToSend })) } catch { /* storage unavailable */ }
+        try { localStorage.setItem(PREFS_KEY, JSON.stringify({ theme: prefs.theme, accent: prefs.accent, motion: prefs.motion, layout: prefs.layout, effects: prefs.effects, width: prefs.width, flatWidth: prefs.flatWidth, thinking: prefs.thinking, defaultBotModel: prefs.defaultBotModel, enterToSend: prefs.enterToSend })) } catch { /* storage unavailable */ }
       }
     }
     render()
@@ -405,11 +452,15 @@ export function apply(ctx) {
     return () => {
       offRoster()
       offRegistry()
+      offTheme()
+      observer?.disconnect()
+      skin.clear()
       try {
         if (typeof releaseTokens === 'function') releaseTokens()
       } finally {
         delete document.body.dataset.btMotion
         delete document.body.dataset.btLayout
+        delete document.body.dataset.btEffects
         document.body.style.removeProperty('--bt-msg-w')
         document.body.style.removeProperty('--bt-flat-w')
         style.remove()
@@ -431,6 +482,35 @@ export function apply(ctx) {
 
   ctx.inject(['shortcuts'], scope => { scope.effect(() => holdShellShortcuts(scope.shortcuts), 'ds-bot: settings shortcut') })
 
+  // DSH's own changes-review tab opens by resource address in the right column. A window
+  // without that column never provides the service; the change row then says it cannot
+  // open the review instead of doing nothing.
+  let openReview
+  ctx.inject(['sidebarRight'], (scope) => {
+    openReview = changes => scope.sidebarRight.openResource(`dsh-resource://changes-review/session/${encodeURIComponent(changes.sessionId)}/${changes.seq}/${changes.turn}`)
+    scope.effect(() => () => { openReview = undefined }, 'ds-bot: change review opener')
+  })
+  // The one jump into the review: DSH's tab belongs to the Session the shell shows, so the
+  // member's Session opens first, and the tab is asked for once its column is mounted.
+  // Keeping it here means a future review that can stay in the group replaces one function.
+  const openChangesReview = (changes, tries = 60) => {
+    actions.openSession(changes.sessionId)
+    let left = tries
+    const timer = setInterval(() => {
+      if (mainView() === changes.sessionId) {
+        try {
+          openReview(changes)
+          clearInterval(timer)
+          return
+        } catch { /* the Session's column is still mounting */ }
+      }
+      if ((left -= 1) <= 0) {
+        clearInterval(timer)
+        actions.notice(t('This window cannot open the change review'))
+      }
+    }, 100)
+  }
+
   const after = promise => promise.then(async (value) => { await pull().catch(() => {}); return value })
   // A Bot id or a group chat id, or any part of either's chat, opens the current part.
   const partFor = (id) => {
@@ -449,7 +529,28 @@ export function apply(ctx) {
   const latestAgentSession = (agentId, list) => agentSessions(agentId)
     .sort((a, b) => (list.byId[b]?.updatedAt ?? 0) - (list.byId[a]?.updatedAt ?? 0))[0]
   const mainView = () => Object.values(ctx.sessions.list.getSnapshot().byId ?? {}).find(session => (session?.retainedBy?.mainView ?? 0) > 0)?.id
-  const show = listedOpener({ list: ctx.sessions.list, refresh: () => Promise.resolve(ctx.sessions.refresh?.()).catch(quietly('refresh sessions')), open: (target) => { expected = target; ctx.uiWorkspace.openSession(target) }, current: mainView })
+  // A Session the Host made a moment ago is not in the shell's list yet, so the main view
+  // would keep showing the chat that was there before — for a Bot the user just opened,
+  // that reads as "the new Bot loaded someone else's conversation" (#1196). The asked-for
+  // Bot stays over that chat until its Session is the one on screen, or the user opens
+  // something else. A long wait changes the note and asks for the list again; it does
+  // not uncover the previous conversation.
+  const ownerOfSession = (sessionId) => {
+    const snapshot = roster.getSnapshot()
+    if (snapshot.byId[sessionId] !== undefined) return snapshot.byId[sessionId]
+    if (snapshot.roomsById[sessionId] !== undefined) return snapshot.roomsById[sessionId]
+    return Object.values(snapshot.byId).find(bot => currentPart(bot) === sessionId)
+      ?? Object.values(snapshot.roomsById).find(room => (room.sessionId ?? room.id) === sessionId)
+  }
+  const openingWait = bindOpeningWait(ui, {
+    onSlow: () => { void Promise.resolve(ctx.sessions.refresh?.()).catch(quietly('refresh sessions')) },
+  })
+  const beginOpening = (target) => {
+    const owner = ownerOfSession(target)
+    openingWait.begin({ target, id: owner?.id ?? target, name: owner?.name ?? '' })
+  }
+  const endOpening = () => { openingWait.end() }
+  const show = listedOpener({ list: ctx.sessions.list, refresh: () => Promise.resolve(ctx.sessions.refresh?.()).catch(quietly('refresh sessions')), open: (target) => { expected = target; ctx.uiWorkspace.openSession(target) }, current: mainView, begin: beginOpening, done: endOpening })
   // Whether the open Bot panel is folded away for lack of room: its opener then
   // means "show it" (the column yields), not "close it". A panel shown because
   // the column already yielded is not folded, so its opener closes it.
@@ -483,6 +584,21 @@ export function apply(ctx) {
   }
   const actions = {
     ...teamActions({ call, after, partFor, roster, ui, live, cards, heldCards, turnClock, panelFolded }),
+    // The files a group row names open DSH's own review tab for that turn. The tab reads
+    // the changes of the Session the shell shows, so that Session is opened first; the same
+    // call then retries until its right column is mounted. This jump is the one place a
+    // different place for the review (in the group, or a review that carries its Session)
+    // would replace. A summary the Host no longer serves, or a window without the column,
+    // says so instead of doing nothing.
+    openChanges: async (changes) => {
+      if (changes === null || typeof changes !== 'object' || typeof changes.sessionId !== 'string'
+        || !Number.isInteger(changes.seq) || !Number.isInteger(changes.turn)) return
+      let available = false
+      try { available = (await call('changes-check', { sessionId: changes.sessionId, seq: changes.seq })) === true } catch { available = false }
+      if (!available) { actions.notice(t('These changes are no longer available')); return }
+      if (openReview === undefined) { actions.notice(t('This window cannot open the change review')); return }
+      openChangesReview(changes)
+    },
     learningAnswer: (id, approve) => after(call('learning-answer', { id, approve })),
     // The full-pane overlays sit above the conversation, so opening one must dismiss them
     // or the click appears to do nothing.
@@ -490,7 +606,7 @@ export function apply(ctx) {
     openSession: (id) => {
       // A DSH Agent Session id lands on the plain surface, not the Bot skin.
       if (isAgentSessionId(id)) return actions.openAgentSession(id)
-      ui.set(state => (state.newChat || state.exchange || state.menu || state.palette ? { ...state, newChat: null, exchange: null, menu: null, palette: null } : state))
+      ui.set(state => (state.newChat || state.exchange || state.menu || state.palette || state.groupSearch ? { ...state, newChat: null, exchange: null, menu: null, palette: null, groupSearch: null } : state))
       setPlain(false)
       const target = partFor(id)
       show(target)
@@ -498,7 +614,7 @@ export function apply(ctx) {
     // The conversation replacements withdraw for a plain Session; set the surface
     // before the navigation so the Bot skin never flashes.
     openAgentSession: (sessionId) => {
-      ui.set(state => ({ ...state, newChat: null, exchange: null, menu: null, palette: null, details: null, view: 'details', renaming: false, tab: null }))
+      ui.set(state => ({ ...state, newChat: null, exchange: null, menu: null, palette: null, groupSearch: null, details: null, view: 'details', renaming: false, tab: null }))
       setPlain(true)
       show(sessionId)
     },
@@ -599,7 +715,7 @@ export function apply(ctx) {
         return
       }
       if (mode === 'agent') {
-        ui.set(state => ({ ...state, details: null, view: 'details', settings: null, palette: null, newChat: null, menu: null, voice: null, exchange: null, memory: null, toast: null }))
+        ui.set(state => ({ ...state, details: null, view: 'details', settings: null, palette: null, groupSearch: null, newChat: null, menu: null, voice: null, exchange: null, memory: null, toast: null }))
       }
       writeMode(mode)
       surface.set(state => ({ ...state, mode }))
@@ -822,7 +938,10 @@ export function apply(ctx) {
   if (typeof appComputer?.idleSeconds === 'function') {
     ctx.effect(() => {
       const push = () => {
-        if (roster.getSnapshot().computer?.enabled !== true) return
+        const current = roster.getSnapshot()
+        if (current.computer?.enabled !== true) return
+        // Read OS idle time whenever a Bot can claim foreground control or is waiting for idle.
+        if (!needsIdleSample(computer.getSnapshot(), current.computer)) return
         void Promise.resolve(appComputer.idleSeconds()).then((idle) => {
           if (Number.isFinite(idle)) call('computer-user-active', { idleSeconds: idle }).catch(() => {})
         }).catch(() => {})
@@ -839,6 +958,12 @@ export function apply(ctx) {
     })
   }
   const face = () => ({ actions, hooks: { roster, ui, activity, work, memoryNews, registry, turnClock, live, computer, cards, heldCards, browserPages, browserTabs, browserHolds, surface, update, frame, sidebarPref, settingsShellHeld } })
+  // Since DSH 0.2.1-alpha.3 user text is drawn by rules and a content factory, not the
+  // primitives' text projection; the user's bubble draws with either (user-message.js).
+  const hostDrawsUserText = typeof ctx.uiConversation.userText?.register === 'function'
+  // DS Bot's own rows in the `/` menu of a Bot chat and a group chat (the DSH rows stay;
+  // the host module stops their execution there).
+  ctx.effect(() => installCommandActions(ctx, { roster, actions }), 'ds-bot: bot command actions')
   // DS Bot holds the settings seat in every mode, Agent mode included: the bundle patch
   // turns DSH's own shell off, and this one draws DSH's settings pages in DS Bot's dialog.
   ctx.effect(() => {
@@ -863,7 +988,7 @@ export function apply(ctx) {
     const binding = ctx.sessions.binding(sessionId)
     if (binding === undefined) throw new Error(`ds-bot: unknown session "${sessionId}"`)
     const chat = ctx.uiConversation.binding(binding).target('chat')
-    return { ...face(), keyedHooks: {
+    return { ...face(), fileMentions: fileMentionSource(ctx, sessionId), keyedHooks: {
       turnSteps: (turn) => {
         const snapshot = chat.getSnapshot()
         if (snapshot === undefined) throw new Error('ds-bot: Chat target is unavailable')
@@ -1050,16 +1175,20 @@ export function apply(ctx) {
     [SIDEBAR_CSS, 'sidebar'],
     [SECRET_CSS + CONNECTOR_CSS + CONNECTORS_PAGE_CSS, 'secrets'],
     [LEARNING_CSS, 'learning'],
-    [MODEL_CSS + FOLDER_CSS + BOT_SETTINGS_CSS + AGENT_CARDS_CSS + GROUP_SETTINGS_CSS + AVATAR_LIBRARY_CSS, 'models'],
+    [MODEL_CSS + FOLDER_CSS + BOT_SETTINGS_CSS + BOT_MODELS_CSS + AGENT_CARDS_CSS + GROUP_SETTINGS_CSS + AVATAR_LIBRARY_CSS, 'models'],
     [USAGE_CSS, 'usage'],
     [SCHEDULE_CSS, 'schedules'],
     [FEEDBACK_CSS, 'feedback'],
     [ABOUT_CSS, 'about'],
     [MEMBER_CSS, 'members'],
+    [TASK_CSS, 'tasks'],
+    [PASTE_CSS, 'paste'],
+    [OPENING_CSS, 'opening'],
     [IM_CSS, 'im'],
     [GOAL_CSS, 'goal'],
     [USER_MESSAGE_CSS, 'user-messages'],
     [WIDGET_CSS, 'widgets'],
+    [CHANGES_CSS, 'changes'],
     [HANDOFF_CSS, 'handoff'],
     [SIDE_CSS, 'side'],
     [BROWSER_CSS, 'browser'],
@@ -1069,15 +1198,24 @@ export function apply(ctx) {
   let shellSheets = 0
   actions.holdSettingsLook = () => {
     if (shellSheets > 0) return () => {}
+    const syncEffects = () => {
+      const current = roster.getSnapshot()
+      document.body.dataset.btEffects = effectsOf(current.ready ? current.prefs ?? {} : savedPrefs)
+    }
+    syncEffects()
     const snapshot = roster.getSnapshot()
     const prefs = snapshot.ready ? snapshot.prefs ?? {} : savedPrefs
     const themes = allThemes()
     const theme = themes[prefs.theme] ?? themes.deepseek
     const offs = [
+      roster.subscribe(syncEffects),
       ...SHELL_SHEETS.map(([text, tag]) => installCompiledStyles(botOwnCss(text), `settings-${tag}`)),
       installCompiledStyles(botOwnCss(themeCss(theme, isHex(prefs.accent) ? prefs.accent : undefined)), 'settings-theme'),
     ]
-    return () => { for (const off of offs) off() }
+    return () => {
+      delete document.body.dataset.btEffects
+      for (const off of offs) off()
+    }
   }
   const installShell = () => [
     () => { shellSheets += 1; return () => { shellSheets -= 1 } },
@@ -1099,12 +1237,14 @@ export function apply(ctx) {
     () => shadow('shell.overlay', { id: 'bot-toast', order: 60, inject: face }, ErrorToast),
   ]
   const installConversation = () => [
-    () => installCompiledStyles(CONVERSATION_CSS, 'conversation'),
+    () => installCompiledStyles(CONVERSATION_CSS + READ_ONLY_CSS, 'conversation'),
     () => installCompiledStyles(TURN_ERROR_CSS, 'turn-errors'),
     () => installCompiledStyles(QUEUE_CSS, 'queue'),
+    () => installCompiledStyles(ANNOTATION_CSS, 'text-annotation'),
     () => installMentions(),
     () => installAtMenu(),
     installHeader,
+    () => shadow('conversation.chat.text-interaction', { key: 'quote', priority: BOT_PRIORITY, locale: 'messageQuotes', inject: face }, TextSelectionAction),
     () => shadow('conversation.chat.node', { key: 'assistant-step', priority: BOT_PRIORITY, locale: 'chat', inject: assistantFace }, AssistantCell),
     () => shadow('conversation.chat.node', { key: 'turn-trigger', priority: BOT_PRIORITY, locale: 'chat', inject: face }, TriggerCell),
     () => shadow('conversation.chat.node', { key: 'tool-call', priority: BOT_PRIORITY, locale: 'chat', inject: face }, ToolCell),
@@ -1118,6 +1258,9 @@ export function apply(ctx) {
     // sits on that turn's tail, ahead of the time separator.
     () => shadow('conversation.chat.turnTail', { id: 'bot-btw', order: 800, priority: BOT_PRIORITY, inject: face }, BtwTurnTail),
     () => shadow('conversation.chat.turnTail', { id: 'bot-learning', order: 850, priority: BOT_PRIORITY, inject: face }, LearningTurnTail),
+    // The cards of the files a turn delivered get a Save action beside DSH's own
+    // actions, so a phone browser can put the file on the device.
+    () => ctx.slots.inject('deliverables.file.actions', () => ctx.slots.register({ name: 'deliverables.file.actions', id: 'bot-file-save', locale: 'chat' }, SaveFileAction)),
     // A Bot condenses its conversation without telling anyone; the chat keeps showing
     // every message.
     () => shadow('conversation.chat.node', { key: 'question-reply', priority: BOT_PRIORITY, locale: 'chat' }, AnsweredReply),
@@ -1125,7 +1268,17 @@ export function apply(ctx) {
     // A Bot chat leaves DSH's context lines (tool updates, injected context) out; a Bot
     // message spliced in mid-turn gets an event line from the step that reads it instead.
     () => shadow('conversation.chat.node', { key: 'context', priority: BOT_PRIORITY, locale: 'chat' }, CellEmpty),
-    ...(canDrawUserMessages() ? ['user', 'steering'].map(key => () => shadow('conversation.chat.node', { key, priority: BOT_PRIORITY, locale: 'chat', inject: face }, UserMessageCell)) : []),
+    ...(canDrawUserMessages(hostDrawsUserText) ? [() => installUserBubble(ctx.slots, () => {
+      const offs = ['user', 'steering'].map(key => shadow('conversation.chat.node', { key, priority: BOT_PRIORITY, locale: 'chat', inject: face }, UserMessageCell))
+      return () => { for (const off of offs) off() }
+    })] : []),
+    // DSH 0.2.2-rc.1 draws user text by rules, and its file rule cuts "@新 Bot" at the
+    // space. A rule of ours claims a whole Bot name first; releases that still have the
+    // text projection (above) have no such registry.
+    ...(typeof ctx.uiConversation.userText?.register === 'function' ? [
+      () => installBotMentionRule(ctx.uiConversation.userText, roster),
+      () => shadow('conversation.user.text.node', { key: BOT_MENTION_ID, inject: face }, BotMention),
+    ] : []),
     () => shadow('conversation.input.permission', { priority: BOT_PRIORITY }, Nothing),
     () => shadow('conversation.input.plan', { priority: BOT_PRIORITY }, Nothing),
     // The composer carries no model picker or run statistics; a Bot's model lives
@@ -1134,14 +1287,17 @@ export function apply(ctx) {
     () => shadow('conversation.composer.dock', { id: 'activity', order: 0, priority: BOT_PRIORITY }, Nothing),
     () => shadow('conversation.composer.dock', { id: 'usage', order: 1, priority: BOT_PRIORITY }, Nothing),
     () => shadow('conversation.composer.dock', { id: 'btw', order: 2, priority: BOT_PRIORITY, inject: face }, BtwDock),
+    () => shadow('conversation.input.left', { id: 'bot-paste', order: -110, inject: face }, PasteGuard),
     () => shadow('conversation.input.left', { id: 'bot-plus', order: -100, inject: face }, ComposerPlus),
     () => shadow('conversation.input.right', { id: 'bot-voice', order: 100, inject: face }, ComposerVoice),
     () => shadow('conversation.composer', {
       priority: BOT_PRIORITY,
       select: owner => (owner.pendingInteraction?.kind === 'question' ? owner.pendingInteraction : null),
     }, QuestionCard),
+    () => shadow('conversation.input.dock', { id: 'bot-paste', order: -130, inject: face }, PasteDock),
     () => shadow('conversation.input.dock', { id: 'bot-members', order: -120, inject: face }, MemberDock),
     () => shadow('conversation.input.dock', { id: 'bot-model', order: -110, inject: face }, ModelChoiceDock),
+    () => shadow('conversation.input.dock', { id: 'bot-readonly', order: -105, inject: face }, ReadOnlyDock),
     () => shadow('conversation.input.dock', { id: 'bot-question', order: -100, inject: face }, QuestionDock),
     () => shadow('conversation.input.dock', { id: 'bot-view', order: -95, inject: face }, WidgetDock),
     () => shadow('conversation.input.dock', { id: 'bot-secret', order: -90, inject: face }, SecretDock),

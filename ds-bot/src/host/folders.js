@@ -2,6 +2,7 @@
 // there, else a Bot works in its own folder, else in the team workspace. A Session's
 // folder is fixed when it is made, so a change moves the conversation on to a fresh
 // part (parts.js).
+import { ownChatSessions } from './threads.js'
 import { mkdir, realpath, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path'
@@ -152,7 +153,10 @@ export function install(rt) {
     if (places !== undefined) return places
     if (botId !== undefined) {
       const bot = rt.botOf(botId)
-      const list = [{ sessionId: rt.chatOf(botId), preset: bot?.permission }]
+      const own = [...new Set([rt.chatOf(botId), ...ownChatSessions(bot)].filter(Boolean))]
+      const list = own.length === 0
+        ? [{ preset: bot?.permission }]
+        : own.map(sessionId => ({ sessionId, preset: bot?.permission }))
       for (const entry of Object.values(state.rooms)) {
         if (!entry.members.includes(botId) || entry.workDir !== undefined || Object.hasOwn(entry.memberDirs ?? {}, botId)) continue
         list.push({ sessionId: entry.sessions?.[botId], preset: entry.permission ?? bot?.permission })
@@ -178,16 +182,21 @@ export function install(rt) {
     if (policy !== undefined) {
       const presets = ctx.get?.('permissionPresets')
       if (agent?.session !== undefined && policy.resolve({ session: agent.session }).mode === 'danger-full-access') {
-        let callerPreset
-        try { callerPreset = presets?.current?.(agent.session) } catch {}
-        if (callerPreset === undefined || callerPreset === 'danger-full-access') return
+        if (presets === undefined) return
+        try {
+          if (presets.current?.(agent.session) === 'danger-full-access') return
+        } catch { /* fail closed: keep checking affected places */ }
       }
       const fallback = policy.resolve().mode
       const presetMode = (name) => {
         if (presets === undefined) return fallback
-        const chosen = name || presets.catalog?.()?.defaultPreset
-        if (!chosen) return fallback
-        try { return presets.resolve(chosen)?.sandbox ?? fallback } catch { return fallback }
+        try {
+          const chosen = name || presets.catalog?.()?.defaultPreset
+          if (!chosen) return 'workspace-write'
+          return presets.resolve(chosen)?.sandbox ?? fallback
+        } catch {
+          return 'workspace-write'
+        }
       }
       const places = folderPlaces(options)
       const sessions = [...new Set(places.map(place => place.sessionId).filter(Boolean))]

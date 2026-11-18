@@ -106,7 +106,7 @@ export function Composer({ name, running, canStop, canAttach, onSend, onStop, p 
 const styles = StyleSheet.create({
   card: { marginHorizontal: 12, paddingHorizontal: 7.5, paddingVertical: 7.5, borderWidth: 0.5, ...shadow(1) },
   line: { flexDirection: 'row', alignItems: 'flex-end' },
-  photos: { gap: 8, paddingHorizontal: 4, paddingTop: 4, paddingBottom: 8 },
+  photos: { gap: 8, paddingHorizontal: 6, paddingTop: 6, paddingBottom: 8 },
   photo: { width: 64, height: 64, borderRadius: 12 },
   unpick: { position: 'absolute', top: -5, right: -5, width: 20, height: 20, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
   attach: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center' },

@@ -76,6 +76,14 @@ test('the forwarded header is ignored unless the proxy is trusted', async () => 
   assert.equal(await hello(server.url, device(), { 'x-forwarded-for': '198.51.100.4' }), 'RATE_LIMITED')
 })
 
+test('one address may send only so many bytes an hour across reconnects', async () => {
+  const server = await relay({ maxBytesPerHour: 450, trustProxy: true })
+  const self = device()
+  assert.equal(await hello(server.url, self, { 'x-forwarded-for': '198.51.100.9' }), 'hello.ack')
+  assert.equal(await hello(server.url, self, { 'x-forwarded-for': '198.51.100.9' }), 'RATE_LIMITED')
+  assert.equal(await hello(server.url, device(), { 'x-forwarded-for': '198.51.100.10' }), 'hello.ack')
+})
+
 test('devices not seen for a long time are forgotten, and the file keeps the rest', () => {
   const dir = mkdtempSync(join(tmpdir(), 'link-store-'))
   after(() => rmSync(dir, { recursive: true, force: true }))
