@@ -99,6 +99,22 @@ test('a DM is direct, a guild message is a mention when the bot is in mentions',
   assert.equal(messages[2].mentioned, false)
 })
 
+test('a conversation is titled by its channel, a DM by the person', async (t) => {
+  const fake = await fakeDiscord()
+  const messages = []
+  const handle = discord.connect({ token: 'tok' }, env(fake), { onMessage: async (msg) => { messages.push(msg) }, onAction: () => {}, onStatus: () => {} })
+  t.after(() => { handle.stop(); fake.close() })
+  const ws = await until(() => fake.sockets[0])
+  await until(() => fake.packets.some(packet => packet.op === 2))
+  fake.push(ws, { op: 0, t: 'MESSAGE_CREATE', s: 2, d: { id: '20', channel_id: 'dm1', content: 'hi', author: { id: 'u1', username: 'Fei' } } })
+  fake.push(ws, { op: 0, t: 'MESSAGE_CREATE', s: 3, d: { id: '21', channel_id: 'g1', guild_id: 'w1', channel: { name: 'general' }, content: 'x', author: { id: 'u2', username: 'Yan' }, mentions: [] } })
+  fake.push(ws, { op: 0, t: 'MESSAGE_CREATE', s: 4, d: { id: '22', channel_id: 'g2', guild_id: 'w1', content: 'y', author: { id: 'u2', username: 'Yan' }, mentions: [] } })
+  await until(() => messages.length === 3)
+  assert.equal(messages[0].chat.title, 'Fei', 'a DM is titled by the person')
+  assert.equal(messages[1].chat.title, 'general', 'a named channel is titled by its name')
+  assert.equal(messages[2].chat.title, '', 'a channel with no name in the payload has no title')
+})
+
 test('a component press is deferred and reports the action', async (t) => {
   const fake = await fakeDiscord()
   const actions = []

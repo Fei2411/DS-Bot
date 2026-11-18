@@ -81,7 +81,10 @@ export default {
       const chat = {
         key: String(data.channel_id),
         kind: direct ? 'direct' : 'group',
-        title: data.channel?.name ?? direct ? String(data.author?.username ?? '') : '',
+        // A group is named after its channel, a DM after the person. The ternary
+        // needs its own parentheses: `a ?? b ? c : d` reads as `(a ?? b) ? c : d`,
+        // which titles every named channel with the sender's username.
+        title: data.channel?.name ?? (direct ? String(data.author?.username ?? '') : ''),
       }
       const images = []
       const files = []
