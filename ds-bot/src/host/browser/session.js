@@ -148,10 +148,13 @@ export function createSession({ context, browser, page, botId, userDataDir, cook
     if (hold) throw new Error(`The browser is waiting for the user (${hold.reason}). Ask them to ${hold.note || 'take over'}, then call browser_resume.`)
   }
 
+  // Every later action waits for this. A tab that cannot load (it crashed, say) is not made
+  // current, and its failure must not stay a rejection: each action would fail on it again,
+  // and DSH ends the whole process on a rejection nobody handles.
   function activateAfterLoad(target) {
     pendingPageReady = waitForPageReady(target).then(() => {
       if (!target.isClosed()) current = target
-    })
+    }, () => {})
   }
 
   function trackPage(target, activate = false) {
@@ -480,16 +483,20 @@ export function createSession({ context, browser, page, botId, userDataDir, cook
     }
   }
 
+  // Until every request in `requests` has finished, including the ones that arrive while it
+  // waits: a button's script can post after the click itself returned.
   async function waitForWriteRequests(requests) {
     if (requests.length === 0) return
     let timer
+    const expired = new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error('the browser request did not finish')), actionTimeout)
+    })
     try {
-      await Promise.race([
-        Promise.all(requests),
-        new Promise((_, reject) => {
-          timer = setTimeout(() => reject(new Error('the browser request did not finish')), actionTimeout)
-        }),
-      ])
+      for (let seen = 0; seen < requests.length;) {
+        const sent = requests.slice(seen)
+        seen = requests.length
+        await Promise.race([Promise.all(sent), expired])
+      }
     } finally {
       clearTimeout(timer)
     }
@@ -514,8 +521,8 @@ export function createSession({ context, browser, page, botId, userDataDir, cook
           resolve = res
           reject = rej
         })
-        // The request can fail while the click is still running, or after the click itself
-        // failed. waitForWriteRequests reads the failure; until then it must not count as
+        // The request can fail before waitForWriteRequests reaches it: while the click still
+        // runs, or after the click itself failed. Until it is read there it must not count as
         // unhandled, because DSH ends the whole process on an unhandled rejection.
         settled.catch(() => {})
         requests.push(settled)
@@ -542,6 +549,8 @@ export function createSession({ context, browser, page, botId, userDataDir, cook
         await waitForWriteRequests(requests)
         await settle()
         if (target.isClosed() || crashedPages.has(target)) throw new Error('the browser page closed or crashed during the action')
+        // The posts the page sent while it settled.
+        await waitForWriteRequests(requests)
         if (target.url().startsWith('chrome-error://')) throw new Error('the browser page navigated to an error page')
         return () => snapshotText().catch(error => unknownResult(action, error, target))
       } catch (error) {

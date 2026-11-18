@@ -62,7 +62,7 @@ async function fixture(t, options = {}) {
     await rm(directory, { recursive: true, force: true })
   })
   const files = async () => (await readdir(directory)).filter(name => name.endsWith('.csv')).sort()
-  return { session, primary, other, directory, files }
+  return { session, context, primary, other, directory, files }
 }
 
 function download({ filename = 'report.csv', saveError } = {}) {
@@ -83,20 +83,29 @@ function download({ filename = 'report.csv', saveError } = {}) {
   return value
 }
 
-// A write's request can fail while its click is still running. Its failure is read once the click
-// returns; until then it must not count as unhandled, because DSH ends the process on one.
-test('a write request that fails while its click still runs is reported, not left unhandled', async (t) => {
-  const unhandled = []
-  const record = reason => { unhandled.push(reason) }
+// DSH ends the whole process on a rejection that nobody handles, so the Bot's browser must
+// leave none behind, whatever order the page's events come in.
+function watchUnhandled(t) {
+  const seen = []
+  const record = reason => { seen.push(reason) }
   process.on('unhandledRejection', record)
   t.after(() => { process.off('unhandledRejection', record) })
-  const request = {
-    url: () => 'https://reports.example.test/publish',
-    method: () => 'POST',
-    failure: () => ({ errorText: 'net::ERR_CONNECTION_RESET' }),
-  }
+  return seen
+}
+
+const PUBLISH = { kind: 'post', label: 'Publish', origin: 'https://reports.example.test', host: 'reports.example.test' }
+const publishRequest = errorText => ({
+  url: () => 'https://reports.example.test/publish',
+  method: () => 'POST',
+  failure: () => (errorText === undefined ? null : { errorText }),
+})
+const unknownResult = detail => new RegExp(`"Publish" action on reports\\.example\\.test was sent, but its result is unknown \\(${detail}\\)`)
+
+test('a write request that fails while its click still runs is reported, not left unhandled', async (t) => {
+  const unhandled = watchUnhandled(t)
+  const request = publishRequest('net::ERR_CONNECTION_RESET')
   const { session } = await fixture(t, {
-    write: { kind: 'post', label: 'Publish', origin: 'https://reports.example.test', host: 'reports.example.test' },
+    write: PUBLISH,
     click: (page, later) => new Promise(resolve => {
       page.emit('request', request)
       page.emit('requestfailed', request)
@@ -104,7 +113,83 @@ test('a write request that fails while its click still runs is reported, not lef
     }),
   })
   const result = await gateScope.run(async () => {}, () => session.click('e1'))
-  assert.match(result, /"Publish" action on reports\.example\.test was sent, but its result is unknown \(net::ERR_CONNECTION_RESET\)/)
+  assert.match(result, unknownResult('net::ERR_CONNECTION_RESET'))
+  assert.deepEqual(unhandled, [])
+})
+
+test('a click that fails after its request failed is reported, not left unhandled', async (t) => {
+  const unhandled = watchUnhandled(t)
+  const request = publishRequest('net::ERR_CONNECTION_RESET')
+  const { session } = await fixture(t, {
+    write: PUBLISH,
+    click: (page, later) => new Promise((resolve, reject) => {
+      page.emit('request', request)
+      page.emit('requestfailed', request)
+      later(() => reject(new Error('locator.click: Timeout 400ms exceeded')), 50)
+    }),
+  })
+  const result = await gateScope.run(async () => {}, () => session.click('e1'))
+  assert.match(result, unknownResult('locator.click: Timeout 400ms exceeded'))
+  assert.deepEqual(unhandled, [])
+})
+
+// A button's script can post after the click itself returned, while the page settles. That
+// post is the action's own, so its outcome decides the result as much as an earlier one.
+test('a POST the page sends after the click returned is waited for, and its failure reported', async (t) => {
+  const unhandled = watchUnhandled(t)
+  const request = publishRequest('net::ERR_CONNECTION_RESET')
+  const { session } = await fixture(t, {
+    write: PUBLISH,
+    click: (page, later) => later(() => {
+      page.emit('request', request)
+      page.emit('requestfailed', request)
+    }, 30),
+  })
+  const result = await gateScope.run(async () => {}, () => session.click('e1'))
+  assert.match(result, unknownResult('net::ERR_CONNECTION_RESET'))
+  assert.deepEqual(unhandled, [])
+})
+
+test('a POST sent after the click returned that never answers leaves the result unknown', async (t) => {
+  const { session } = await fixture(t, {
+    write: PUBLISH,
+    click: (page, later) => later(() => page.emit('request', publishRequest()), 30),
+  })
+  const result = await gateScope.run(async () => {}, () => session.click('e1'))
+  assert.match(result, unknownResult('the browser request did not finish'))
+})
+
+test('a POST sent after the click returned that finishes gives the page as usual', async (t) => {
+  const request = publishRequest()
+  const { session } = await fixture(t, {
+    write: PUBLISH,
+    click: (page, later) => later(() => {
+      page.emit('request', request)
+      page.emit('requestfinished', request)
+    }, 30),
+  })
+  const result = await gateScope.run(async () => {}, () => session.click('e1'))
+  assert.doesNotMatch(result, /result is unknown/)
+  assert.match(result, /Export CSV/)
+})
+
+// A tab the page opens is made current once it has loaded. One that crashes first stays out
+// of the way: the Bot keeps working in the tab it had.
+test('a new tab that crashes while loading leaves no failure behind', async (t) => {
+  const unhandled = watchUnhandled(t)
+  const { session, context } = await fixture(t)
+  const crashing = new EventEmitter()
+  Object.assign(crashing, {
+    setDefaultTimeout() {},
+    setDefaultNavigationTimeout() {},
+    isClosed: () => false,
+    url: () => 'https://reports.example.test/popup',
+    waitForLoadState: async () => { throw new Error('page.waitForLoadState: Navigation failed because page crashed!') },
+  })
+  context.emit('page', crashing)
+  await new Promise(resolve => setTimeout(resolve, 20))
+  assert.match(await session.snapshotText(), /Export CSV/)
+  assert.match(await session.snapshotText(), /Export CSV/)
   assert.deepEqual(unhandled, [])
 })
 
