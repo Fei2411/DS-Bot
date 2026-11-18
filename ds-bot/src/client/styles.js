@@ -579,6 +579,10 @@ body[data-ds-dark-theme] .bt-scrim{background:rgba(0,0,0,.5)}
 .bt-settings-nav{overflow-y:auto;scrollbar-width:thin}
 .bt-settings-rule{flex:none;height:.5px;margin:6px 8px;background:var(--bt-line)}
 .bt-settings-icon{display:inline-flex;flex:none;width:16px;height:16px;align-items:center;justify-content:center;transition:color .14s ease}
+/* Plugin legacy nav decorators must not duplicate or hide the slot's icon. */
+.bt-settings-item:has(>.bt-settings-icon)::before{content:none!important}
+/* Undo Skills Manager's [attr] svg{display:none!important} on the slot's own icon. */
+.bt-settings-icon>[data-slot="settings.section.icon"]>svg{display:block!important}
 .bt-settings-actions{margin-left:auto;display:flex;align-items:center;gap:8px;min-width:0}
 .bt-settings-actions:empty{display:none}
 .bt-dsh-section{min-width:0}
@@ -808,6 +812,10 @@ html:not([data-windows-titlebar]) [class*="_footArea"],:not([class*="_collapsed"
 .bt-msg-line>.bt-bubble{max-width:none;min-width:0}
 /* The same bubble width as beside an avatar column: the share of (100% - 30px), plus the 30px. */
 .bt-astack[data-lead]>.bt-msg{max-width:min(calc(var(--bt-msg-w) * (100% - 30px) + 30px),calc(100% - 82px))}
+@media (hover:none){
+  .bt-bubble,.bt-msg{max-width:calc(var(--bt-msg-w) * 100%)}
+  .bt-astack[data-lead]>.bt-msg{max-width:calc(var(--bt-msg-w) * (100% - 30px) + 30px)}
+}
 /* The indent of earlier rows comes out of their line, so their toolbar keeps its 82px too. */
 .bt-astack[data-lead]>.bt-msg:not(:last-child)>.bt-msg-line{max-width:calc(100% - 30px)}
 .bt-tools{position:absolute;bottom:0;z-index:0;left:100%;margin-left:6px;display:flex;gap:2px;opacity:0;visibility:hidden;transition:opacity .12s ease,visibility .12s}
