@@ -11,6 +11,7 @@ import { NAME_MAX } from './requests.js'
 import { unquote } from './text.js'
 import { isOpenPart, ownChatSessions } from './threads.js'
 import { mentionSpans } from '../shared/mentions.js'
+import { findingOf } from './bot-response-policy.js'
 import { plainToolSchema } from './tool-schema.js'
 import { checkShownView, showViewDescription, showViewParameters } from 'deep-view/core'
 
@@ -202,6 +203,20 @@ export function install(rt) {
     return `Called ${target.name} in "${room.name}" with your message, as writing "${call}" there does: it works on it in the group, and you answer its result there. Nothing went to its own chat.`
   }
 
+  // Whether the Bot-response policy lets `sender` start `target`'s turn with this message.
+  // Checked before anything is admitted or delivered, so a blocked message queues no work
+  // and leaves its request_id free. `commit` records what went out, after the delivery.
+  const responseGate = (sender, target, room, args, text) => {
+    const finding = findingOf({ pr: args.finding_pr, commit: args.finding_commit, id: args.finding_id })
+    const event = typeof args.request_id === 'string' && args.request_id.trim() !== '' ? `request:${args.request_id.trim()}` : undefined
+    const decision = rt.botResponse.check({ sender: sender.id, recipient: target, room, named: true, text, finding, event, kind: 'message_bot' })
+    if (!decision.allow) {
+      const where = room === undefined ? `${target.name}` : `${target.name} in "${room.name}"`
+      refuse(`Not sent: ${where} does not take automatic messages from ${sender.name} (${decision.reason}). Nothing was started. Tell the user what you needed; only the user can change this in the Bot's or the group's settings.`)
+    }
+    return { commit: () => rt.botResponse.commit({ sender: sender.id, recipient: target, event, finding, text }) }
+  }
+
   // The Bots each Session's post_to_group called by name in its current turn, so that
   // turn does not also send them the same work in their own chats.
   const calledInPosts = new Map()
@@ -264,6 +279,9 @@ export function install(rt) {
         enum: ['now', 'queue'],
         description: '"now" (default): a working Bot reads your message at its next step, between its current actions, and answers once its current work is done; use it for questions, information it needs, corrections and warnings. "queue": it reads your message only after its current work is done, as a separate task; use it only for a new task unrelated to what it is doing now. With reply_to "user" the message always queues.',
       },
+      finding_pr: { type: 'string', description: 'Only for a review finding you ask a Bot to fix: the pull request it is about. Give finding_pr, finding_commit and finding_id together; at most two automatic fix requests go out per finding.' },
+      finding_commit: { type: 'string', description: 'The commit SHA the finding was made on (see finding_pr).' },
+      finding_id: { type: 'string', description: 'The finding\'s own ID in the review (see finding_pr).' },
       request_id: {
         type: 'string',
         description: `Your own name for this request, up to ${NAME_MAX} characters, so that a repeat of it is not sent twice. Send the same request_id with the same message when you repeat a call: the receipt of the first call comes back and nothing is sent again. A request_id names one request: with other content it is refused.`,
@@ -310,7 +328,8 @@ export function install(rt) {
       if (room !== undefined) {
         const refusal = groupRefusal(room, sender, target)
         if (refusal !== undefined) refuse(refusal)
-        const send = () => callInGroup(exec, room, sender, target, text.trim())
+        const gate = responseGate(sender, target, room, args, text.trim())
+        const send = () => { gate.commit(); return callInGroup(exec, room, sender, target, text.trim()) }
         return request === undefined ? await send() : answer(await rt.admitRequest(request, send))
       }
       const posted = calledInPosts.get(exec.agent?.id)
@@ -322,7 +341,9 @@ export function install(rt) {
       // bare error the Bot cannot act on.
       const works = worksOf(exec)
       if (rt.upstreamOf(works).has(target.id)) return upstreamRefusal(exec, sender, target, text.trim(), args)
+      const gate = responseGate(sender, target, undefined, args, text.trim())
       const send = async () => {
+        gate.commit()
         const toUser = args.reply_to === 'user'
         const work = toUser ? undefined : works[0]
         // The part of the sender's own chat this request comes from: its answer goes back

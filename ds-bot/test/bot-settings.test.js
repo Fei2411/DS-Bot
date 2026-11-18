@@ -20,7 +20,7 @@ runInNewContext(outputFiles[0].text, {
   module, exports: module.exports,
   require: name => (name === 'react' ? react : name === 'react-dom' ? { createPortal: node => node } : {}),
 })
-const { BotSettingsForm, InlineText } = module.exports
+const { BotSettingsForm, BotResponseCard, InlineText } = module.exports
 
 function walk(node, found = []) {
   if (Array.isArray(node)) { for (const child of node) walk(child, found); return found }
@@ -127,4 +127,41 @@ test('a field takes its class from the page it sits in, and defaults to the Sett
   assert.equal(InlineText({ label: 'Label', value: '' }).props.className, 'bt-bs-input')
   assert.equal(InlineText({ label: 'Instructions', value: '', multiline: true }).props.className, 'bt-bs-input bt-bs-area')
   assert.equal(InlineText({ label: 'Label', value: '', className: 'bt-drawer-role-input' }).props.className, 'bt-drawer-role-input')
+})
+
+// Responding to Bots
+const textOf = nodes => nodes.flatMap(node => node.props?.children ?? []).filter(child => typeof child === 'string').join(' ')
+const others = [{ id: 'a', name: 'Chief' }, { id: 'c', name: 'Capy' }]
+const card = (policy, onChange = () => {}) => walk(BotResponseCard({ policy, candidates: others, onChange }))
+
+test('the response card offers OFF, SELECTED BOTS and ALL BOTS, and starts with none chosen', () => {
+  const nodes = card(undefined)
+  const modes = nodes.filter(node => node.type === 'button' && node.props['aria-pressed'] !== undefined)
+  assert.deepEqual(modes.map(node => node.props.children[0]), ['Off', 'Selected Bots', 'All Bots'])
+  assert.deepEqual(modes.map(node => node.props['aria-pressed']), [false, false, false])
+  assert.ok(textOf(nodes).includes('Not chosen yet'))
+  assert.equal(nodes.some(node => node.props?.role === 'note'), false)
+})
+
+test('ALL BOTS warns, SELECTED BOTS lists identities to tick, and picking saves the stable ID', () => {
+  const warned = card({ mode: 'all' })
+  assert.ok(warned.some(node => node.props?.role === 'note'), 'ALL shows a warning')
+  assert.ok(textOf(warned).includes('choose this only for Bots you trust'))
+  const saved = []
+  const selected = card({ mode: 'selected', allow: ['a'] }, value => saved.push(value))
+  const chips = selected.filter(node => node.props?.role === 'checkbox')
+  assert.deepEqual(chips.map(node => node.props['aria-checked']), [true, false])
+  chips[1].props.onClick()
+  chips[0].props.onClick()
+  assert.deepEqual(JSON.parse(JSON.stringify(saved)), [{ mode: 'selected', allow: ['a', 'c'] }, { mode: 'selected', allow: [] }])
+  assert.ok(textOf(selected).includes('A Bot message can be ignored'), 'it says why a message may be suppressed')
+  assert.ok(textOf(card({ mode: 'selected', allow: [] })).includes('Pick at least one Bot'))
+})
+
+test('reset goes back to the default, and the Bot settings carry the card', () => {
+  const saved = []
+  const reset = card({ mode: 'off' }, value => saved.push(value)).find(node => node.type === 'button' && node.props.className === 'bt-mini')
+  reset.props.onClick()
+  assert.deepEqual(saved, [null])
+  assert.ok(settings({ ...bot, botResponse: { mode: 'off' } }).some(node => node.type === BotResponseCard))
 })

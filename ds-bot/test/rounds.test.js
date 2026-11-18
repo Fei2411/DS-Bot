@@ -1664,3 +1664,211 @@ test('a stopped notice during a round closing drain still logs into the draining
   assert.equal(stoppedRows.length, 1, 'stopped notice logs into the draining round without waiting for another message')
   assert.equal(sent.filter(entry => entry.sessionId === room.id && entry.message.source.role === 'post').length, 0)
 })
+
+// Responding to Bots: which Bot-originated calls start a member's turn.
+const roomTurns = (sent, sessionId) => sent.filter(entry => entry.sessionId === sessionId && entry.message.source.role === 'room')
+
+test('a group set to OFF turns a Bot\'s @call into no turn at all, and the user still reaches everyone', async (t) => {
+  const { call, emit, userMessage, relay, answer, stop, sent, rt } = start()
+  t.after(stop)
+  const room = await team(call, sent)
+  const chief = rt.state.mainBotIds[0]
+  const writer = room.members.find(id => id !== chief)
+  assert.equal((await call('update-room', { id: room.id, mode: 'admin', botResponse: { mode: 'off' } })).ok, true)
+
+  await emit(room.id, userMessage('Start'))
+  const running = relay(room.id, 'relay')
+  const first = await turnFor(sent)
+  await answer(first.sessionId, first.message.source.exchangeId, '@Writer merge it and push', 1)
+  await running
+  assert.equal(roomTurns(sent, rt.state.rooms[room.id].sessions[writer] ?? 'none').length, 0, 'the blocked call started no model turn')
+  assert.equal(sent.filter(entry => entry.message.source.role === 'room').length, 1, 'only the admin ever got a turn')
+  assert.ok(rt.botResponse.log().some(entry => entry.allow === false && entry.reason === 'group-off'))
+
+  // The user is not a Bot: the same member answers the user at once.
+  await emit(room.id, userMessage('@Writer are you there?'))
+  const again = relay(room.id, 'relay-2')
+  const reached = await turnFor(sent, first)
+  assert.ok(reached, 'a human message still starts the member')
+  await answer(reached.sessionId, reached.message.source.exchangeId, 'Here', 2)
+  await again
+})
+
+test('SELECTED lets only the listed Bot ID call, and ALL lets any Bot call', async (t) => {
+  const { call, emit, userMessage, relay, answer, stop, sent, rt } = start()
+  t.after(stop)
+  const room = await team(call, sent)
+  const chief = rt.state.mainBotIds[0]
+  const writer = room.members.find(id => id !== chief)
+  const other = (await call('create-bot', { name: 'Other' })).value
+  await call('update-room', { id: room.id, mode: 'admin' })
+
+  // Writer accepts messages from Other only, so Chief's call is blocked.
+  assert.equal((await call('update-bot', { id: writer, botResponse: { mode: 'selected', allow: [other.id] } })).ok, true)
+  await emit(room.id, userMessage('Go'))
+  const blocked = relay(room.id, 'relay-1')
+  const first = await turnFor(sent)
+  await answer(first.sessionId, first.message.source.exchangeId, '@Writer take this', 1)
+  await blocked
+  assert.equal(sent.filter(entry => entry.message.source.role === 'room').length, 1)
+
+  // Naming Chief by its stable ID lets the same call through.
+  sent.length = 0
+  await call('update-bot', { id: writer, botResponse: { mode: 'selected', allow: [chief] } })
+  await emit(room.id, userMessage('Go again'))
+  const allowed = relay(room.id, 'relay-2')
+  const second = await turnFor(sent)
+  await answer(second.sessionId, second.message.source.exchangeId, '@Writer take this', 2)
+  const called = await turnFor(sent, second)
+  assert.ok(called, 'the listed Bot can call')
+  await answer(called.sessionId, called.message.source.exchangeId, 'On it', 3)
+  await allowed
+
+  // The group must allow it too: an empty list in the group blocks even a listed Bot.
+  sent.length = 0
+  await call('update-room', { id: room.id, botResponse: { mode: 'selected', allow: [] } })
+  await emit(room.id, userMessage('And again'))
+  const gated = relay(room.id, 'relay-3')
+  const third = await turnFor(sent)
+  await answer(third.sessionId, third.message.source.exchangeId, '@Writer take this', 4)
+  await gated
+  assert.equal(sent.filter(entry => entry.message.source.role === 'room').length, 1, 'the group policy also has to allow it')
+})
+
+test('groups and Bots without a policy keep the behavior they had', async (t) => {
+  const { call, emit, userMessage, relay, answer, stop, sent, rt } = start()
+  t.after(stop)
+  const room = await team(call, sent)
+  await call('update-room', { id: room.id, mode: 'admin' })
+  assert.equal(rt.state.rooms[room.id].botResponse, undefined)
+
+  await emit(room.id, userMessage('Go'))
+  const running = relay(room.id, 'relay')
+  const first = await turnFor(sent)
+  await answer(first.sessionId, first.message.source.exchangeId, '@Writer your call', 1)
+  const called = await turnFor(sent, first)
+  assert.ok(called, 'a legacy group still lets a Bot call another')
+  await answer(called.sessionId, called.message.source.exchangeId, 'Done', 2)
+  await running
+})
+
+test('a call queued before the policy changed does not start once it is switched off', async (t) => {
+  const { call, emit, userMessage, compose, relay, answer, stop, sent, rt } = start()
+  t.after(stop)
+  const room = await team(call, sent)
+  const chief = rt.state.mainBotIds[0]
+  const writer = room.members.find(id => id !== chief)
+  await call('update-room', { id: room.id, mode: 'admin' })
+  await emit(room.id, userMessage('@Writer start'))
+  const running = relay(room.id, 'relay')
+  const writing = await turnFor(sent)
+  assert.equal(writing.sessionId, rt.state.rooms[room.id].sessions[writer])
+  // Chief asks the busy Writer again: that call waits behind the first turn.
+  await compose(room.id, '@Chief hand the Writer a second task')
+  await emit(room.id, { type: 'agent/inbox/spliced', data: {} })
+  const asking = await turnFor(sent, writing)
+  await answer(asking.sessionId, asking.message.source.exchangeId, '@Writer a second task', 1)
+  await settle()
+  assert.equal(roomTurns(sent, writing.sessionId).length, 1, 'the second call waits')
+
+  await call('update-room', { id: room.id, botResponse: { mode: 'off' } })
+  await answer(writing.sessionId, writing.message.source.exchangeId, 'First done', 2)
+  await running
+  assert.equal(roomTurns(sent, writing.sessionId).length, 1, 'the queued call never became a turn')
+})
+
+test('a late reply reaches the Bot that asked even when it is switched off, but calls nobody new', async (t) => {
+  const { call, emit, relay, answer, stop, sent, rt } = start()
+  t.after(stop)
+  const room = await team(call, sent)
+  const chief = rt.state.mainBotIds[0]
+  const writer = room.members.find(id => id !== chief)
+  const tester = (await call('create-bot', { name: 'Tester' })).value
+  await call('update-room', { id: room.id, add: [tester.id], mode: 'admin' })
+  await call('update-bot', { id: chief, botResponse: { mode: 'off' } })
+  await call('update-bot', { id: tester.id, botResponse: { mode: 'off' } })
+  sent.length = 0
+
+  const lateRound = async (text, name) => {
+    await rt.postToRoom(room, rt.botOf(writer), text, { late: true, askedBy: chief })
+    const post = sent.findLast(entry => entry.sessionId === room.id && entry.message.source.role === 'post')
+    await emit(room.id, { type: 'user/message', data: { source: post.message.source, content: post.message.content } })
+    return { running: relay(room.id, name) }
+  }
+  // A plain result goes back to the Bot that asked for it, switched off or not.
+  const { running } = await lateRound('Result: the build is fixed.', 'relay-late')
+  const result = await turnFor(sent)
+  assert.ok(result, 'the result reaches the Bot that asked for it')
+  assert.equal(result.sessionId, rt.state.rooms[room.id].sessions[chief])
+  await answer(result.sessionId, result.message.source.exchangeId, 'Thanks, noted', 1)
+  await running
+
+  // A follow-up task it names is a call like any other, and Tester is switched off.
+  sent.length = 0
+  const { running: named } = await lateRound('Result: fixed. @Tester please run everything again', 'relay-late-2')
+  await settle()
+  await named
+  assert.equal(sent.filter(entry => entry.message.source.role === 'room').length, 0, 'the follow-up task it names started nothing')
+  assert.ok(rt.botResponse.log().some(entry => entry.to === tester.id && entry.allow === false))
+})
+
+test('a call back to the Bot that called ends a Capy and Devin style loop, under a chosen policy', async (t) => {
+  const { call, emit, userMessage, relay, answer, stop, sent, rt } = start()
+  t.after(stop)
+  const room = await team(call, sent)
+  await call('update-room', { id: room.id, mode: 'admin', botResponse: { mode: 'all' } })
+
+  await emit(room.id, userMessage('Review and fix PR 12'))
+  const running = relay(room.id, 'relay')
+  const review = await turnFor(sent)
+  await answer(review.sessionId, review.message.source.exchangeId, '@Writer fix the finding', 1)
+  const fix = await turnFor(sent, review)
+  // The fix names the reviewer again, asking for another review.
+  await answer(fix.sessionId, fix.message.source.exchangeId, '@Chief fixed, review it again please', 2)
+  await running
+  assert.equal(sent.filter(entry => entry.message.source.role === 'room').length, 2, 'the loop ends after one round trip')
+  assert.ok(rt.botResponse.log().some(entry => entry.reason === 'circular-chain'))
+})
+
+test('response policies are saved, kept across a restart and cleaned when a Bot is deleted', async () => {
+  const first = start()
+  const { call, stop, rt } = first
+  const chief = (await call('state', {})).value.mainBotId
+  const writer = (await call('create-bot', { name: 'Writer' })).value
+  const other = (await call('create-bot', { name: 'Other' })).value
+  const room = (await call('create-room', { name: 'R1', members: [chief, writer.id], botResponse: { mode: 'selected', allow: [other.id, 'ghost'] } }))
+  assert.equal(room.ok, false, 'an unknown Bot ID in an allowed list is refused')
+  const made = (await call('create-room', { name: 'R1', members: [chief, writer.id], botResponse: { mode: 'selected', allow: [other.id] } })).value
+  assert.deepEqual((await call('update-bot', { id: writer.id, botResponse: { mode: 'selected', allow: [other.id, writer.id] } })).value.botResponse, { mode: 'selected', allow: [other.id] }, 'a Bot never lists itself')
+  assert.equal((await call('update-bot', { id: writer.id, botResponse: { mode: 'sometimes' } })).ok, false)
+  await rt.save()
+  await stop({ keep: true })
+
+  const second = start({ home: first.home })
+  try {
+    const view = (await second.call('state', {})).value
+    assert.deepEqual(view.bots.find(bot => bot.id === writer.id).botResponse, { mode: 'selected', allow: [other.id] })
+    assert.deepEqual(view.rooms.find(entry => entry.id === made.id).botResponse, { mode: 'selected', allow: [other.id] })
+    // Deleting a listed Bot takes it off every list; clearing goes back to the default.
+    await second.call('delete-bot', { id: other.id })
+    assert.deepEqual(second.rt.state.bots[writer.id].botResponse, { mode: 'selected', allow: [] })
+    assert.deepEqual(second.rt.state.rooms[made.id].botResponse, { mode: 'selected', allow: [] })
+    await second.call('update-room', { id: made.id, botResponse: null })
+    assert.equal(second.rt.state.rooms[made.id].botResponse, undefined)
+  } finally {
+    await second.stop()
+  }
+})
+
+test('a Bot cannot change a response policy, not even a Main Bot or a group admin', async (t) => {
+  const { call, stop, sent, rt } = start()
+  t.after(stop)
+  const room = await team(call, sent)
+  const chief = rt.state.mainBotIds[0]
+  const writer = room.members.find(id => id !== chief)
+  await assert.rejects(rt.updateRoom(room.id, { botResponse: { mode: 'all' } }, chief), /Only the user can set who may start work in "R1"/)
+  await assert.rejects(rt.updateBot(writer, { botResponse: { mode: 'all' } }, chief), /Only the user can set who may start work for Writer/)
+  await assert.rejects(rt.createRoom({ members: [chief, writer], createdBy: chief, botResponse: { mode: 'all' } }), /Only the user/)
+  assert.equal(rt.state.rooms[room.id].botResponse, undefined)
+  assert.equal(rt.state.bots[writer].botResponse, undefined)
+})

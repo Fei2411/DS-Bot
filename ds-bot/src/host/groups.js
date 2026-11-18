@@ -853,7 +853,7 @@ export function install(rt) {
   // it up the order, any other call lets it start at once. A call of another Bot stays
   // a call of its own, so that Bot is woken for its own work. `by` is the calling
   // member, if a member called.
-  function callIn(round, callees, note, by, { ordered = false } = {}) {
+  function callIn(round, callees, note, by, { ordered = false, from, resultIds } = {}) {
     if (callees.length === 0) return
     round.batches = (round.batches ?? 0) + 1
     const batchKey = registerBatch(round.roomId, by, callees)
@@ -865,6 +865,11 @@ export function install(rt) {
       if (moves && waiting !== -1) round.slots.splice(waiting, 1)
       slot.note = note
       slot.batch = round.batches
+      // Who started this call, for the Bot-response policy once the turn is about to run.
+      // A result for the Bot that asked stays one: it is no new work.
+      const origin = by ?? from
+      if (origin !== undefined) slot.from = origin
+      if (resultIds?.has(peer.id)) slot.result = true
       if (batchKey !== undefined) slot.batchKey = batchKey
       if (by === undefined) delete slot.by
       else slot.by = by
@@ -1032,8 +1037,18 @@ export function install(rt) {
       if (norm !== '') (round.botBodies ??= new Map()).set(member.id, [...(round.botBodies?.get(member.id) ?? []), norm])
     }
     for (const peer of callees) called.add(peer.id)
+    // What the Bot-response policy lets this Bot's message start; a member the policy
+    // blocks is not called and not parked, so a later policy change does not release it.
+    const chain = [...(round.lineage?.get(member.id) ?? []), member.id]
+    const idleText = isIdleRelayText(text, everyone, [])
+    const allowed = callees.filter(peer => rt.botResponse.check({ sender: member.id, recipient: peer, room, named: found.includes(peer), idle: idleText, chain, text, kind: 'call' }).allow)
+    callees.splice(0, callees.length, ...allowed)
     if (byBot && idleStep && holdIdleCalls(room, round, member, callees, { named, all })) return
     if (callees.length === 0) return
+    for (const peer of callees) {
+      const lineage = round.lineage ??= new Map()
+      lineage.set(peer.id, new Set([...(lineage.get(peer.id) ?? []), ...chain]))
+    }
     callIn(round, callees, `${member.name} mentioned you`, member.id)
     // An @Name from the admin hands the member its goal task.
     if (rt.isAdminOf(room, member.id)) for (const peer of callees) rt.goalTaskWorking?.(room.id, peer.id)
@@ -1086,6 +1101,15 @@ export function install(rt) {
     // Settings may change mid-round, for example when the admin removes someone.
     if (member === undefined || !room.members.includes(slot.id)) {
       slot.status = 'left'
+      dropMemberFromBatch(room, slot.id)
+      return
+    }
+    // A Bot's message starts work only while the policies still allow it: they may have
+    // changed since the call was queued. The user's messages and the results of work this
+    // member handed out are not Bot calls and always run.
+    if (slot.from !== undefined && slot.result !== true
+      && !rt.botResponse.check({ sender: slot.from, recipient: member, room, named: slot.by !== undefined, kind: 'turn' }).allow) {
+      slot.status = 'cancelled'
       dropMemberFromBatch(room, slot.id)
       return
     }
@@ -1418,7 +1442,8 @@ export function install(rt) {
         ...(ordered ? { ordered: true } : {}),
         // A round a Bot's post opened: what its members answer is Bot-to-Bot, counted
         // by the idle guard even though no one is named (#853).
-        ...(opener.botId !== undefined ? { fromBot: true } : {}),
+        ...(opener.botId !== undefined ? { fromBot: true, from: opener.botId } : {}),
+        ...(opener.botId !== undefined && resultCall(opener, member, named) ? { result: true } : {}),
         ...(opener.kickoff ? { note: 'the group was just created' } : {}),
         ...(opener.goal === 'draft' || (draftPost !== undefined && admin !== undefined && member.id === admin.id) ? { note: 'the user wants to set a goal for this group' } : {}),
         ...(opener.goal === 'nudge' ? { note: 'goal check' } : {}),
@@ -1638,6 +1663,21 @@ export function install(rt) {
   // `ordered`: a plain message everyone answers in turn, admin first; any other call
   // starts its members at once.
   function openingCall(room, opener) {
+    const raw = openingCallFor(room, opener)
+    if (opener.botId === undefined || opener.kickoff || opener.goal !== undefined || raw.speakers.length === 0) return raw
+    // A Bot's message starts only the members the Bot-response policies allow. The user's
+    // message never comes here with a botId.
+    const everyone = room.members.map(rt.botOf).filter(Boolean)
+    const named = (mentionsOf(opener, everyone) ?? mentionsIn(opener.text ?? '', everyone, opener.references)).found
+    const idle = isIdleRelayText(opener.text ?? '', everyone, [])
+    const speakers = raw.speakers.filter(bot => rt.botResponse.check({ sender: opener.botId, recipient: bot, room, result: resultCall(opener, bot, named), named: named.includes(bot), idle, text: opener.text, kind: 'post' }).allow)
+    return { speakers, ordered: raw.ordered && speakers.length > 1 }
+  }
+  // A completion or late reply that goes back to the member that asked for the work is
+  // its result, not a call: it is kept and answered whatever the policy says. A member
+  // it names with @ is a call like any other.
+  const resultCall = (opener, bot, named) => bot.id === opener.askedBy && (opener.done === true || (opener.late === true && !named.includes(bot)))
+  function openingCallFor(room, opener) {
     const everyone = room.members.map(rt.botOf).filter(Boolean)
     const members = everyone.filter(bot => bot.id !== opener.botId)
     const admin = members.find(bot => rt.isAdminOf(room, bot.id))
@@ -1683,7 +1723,8 @@ export function install(rt) {
     const wake = extra.batch === undefined ? undefined : wakeOf(extra.batch)
     const note = extra.done ? `${sender.name} finished the work you asked for` : undefined
     callIn(round, by, note ?? `${sender.name} mentioned you`, sender.id, { ordered })
-    callIn(round, rest, wake === undefined ? note : finishedNote(wake.names), undefined, { ordered })
+    const results = new Set(rest.filter(peer => resultCall(post, peer, named)).map(peer => peer.id))
+    callIn(round, rest, wake === undefined ? note : finishedNote(wake.names), undefined, { ordered, from: sender.id, resultIds: results })
     if (wake !== undefined) giveResults(round, extra.askedBy, wake)
     if (rt.isAdminOf(room, sender.id)) for (const peer of speakers) rt.goalTaskWorking?.(room.id, peer.id)
     if (extra.reportBack) {

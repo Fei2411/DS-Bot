@@ -690,6 +690,15 @@ var JA = {
   "Full access": "フルアクセス",
   "Same for every member": "メンバー全員に適用",
   "Replaces each member's own permissions in this group.": "このグループ内では各メンバー個別の権限より優先されます。",
+  "Responding to Bots": "Bot への応答",
+  "Messages from other Bots never start new work. Your own messages always do.": "他の Bot からのメッセージは、新しい作業を自動で始めません。あなた自身のメッセージは常に始めます。",
+  "Only the Bots you pick below can start new work with a message.": "下で選んだ Bot だけが、メッセージで新しい作業を始められます。",
+  "Any Bot can start new work with a message. The loop limits still apply.": "どの Bot でも、メッセージで新しい作業を始められます。ループの上限は引き続き適用されます。",
+  "Not chosen yet: Bot messages work as they did before this setting.": "未選択：Bot のメッセージは、この設定ができる前と同じ動作です。",
+  "Any Bot can start work here, including work that uses tools. Bots can then keep each other busy; choose this only for Bots you trust.": "どの Bot もここで作業を始められ、ツールを使う作業も含まれます。Bot 同士が互いを忙しくさせることがあるため、信頼できる Bot にだけ選んでください。",
+  "Allowed Bots": "許可する Bot",
+  "Pick at least one Bot, or no Bot message gets through.": "Bot を 1 つ以上選んでください。選ばないと Bot のメッセージは通りません。",
+  "A Bot message can be ignored when this setting does not allow its sender, when it does not name this Bot, when it is only thanks or a status update, when it would send work back to a Bot it came from, or when the same fix was already tried twice. Your own messages are never ignored.": "次の場合、Bot のメッセージは無視されることがあります：この設定が送信者を許可していない、この Bot を指名していない、お礼や状況報告だけである、送信元の Bot に作業を送り返すことになる、同じ修正をすでに 2 回試した。あなた自身のメッセージは無視されません。",
   "The only Main Bot. To hand the role to another Bot, use Main Bot on the Bots page.": "唯一のメイン Bot です。別の Bot に役割を引き継ぐには、「Bot」ページのメイン Bot 設定から変更してください。",
   "Change": "変更",
   "Can create and change Bots, and runs every group chat.": "Bot の作成・変更ができ、すべてのグループチャットを管理します。",
@@ -3120,6 +3129,15 @@ var KO = {
   "Full access": "전체 권한",
   "Same for every member": "모든 멤버에 동일 적용",
   "Replaces each member's own permissions in this group.": "이 그룹 내에서 각 멤버의 개별 권한을 대체합니다.",
+  "Responding to Bots": "Bot에 응답",
+  "Messages from other Bots never start new work. Your own messages always do.": "다른 Bot의 메시지는 새 작업을 자동으로 시작하지 않습니다. 직접 보낸 메시지는 항상 시작합니다.",
+  "Only the Bots you pick below can start new work with a message.": "아래에서 고른 Bot만 메시지로 새 작업을 시작할 수 있습니다.",
+  "Any Bot can start new work with a message. The loop limits still apply.": "어떤 Bot이든 메시지로 새 작업을 시작할 수 있습니다. 반복 제한은 계속 적용됩니다.",
+  "Not chosen yet: Bot messages work as they did before this setting.": "아직 선택 안 함: Bot 메시지는 이 설정이 생기기 전처럼 동작합니다.",
+  "Any Bot can start work here, including work that uses tools. Bots can then keep each other busy; choose this only for Bots you trust.": "어떤 Bot이든 여기서 작업을 시작할 수 있으며 도구를 쓰는 작업도 포함됩니다. Bot끼리 서로를 계속 바쁘게 만들 수 있으니 신뢰하는 Bot에만 선택하세요.",
+  "Allowed Bots": "허용된 Bot",
+  "Pick at least one Bot, or no Bot message gets through.": "Bot을 하나 이상 고르세요. 그렇지 않으면 Bot 메시지가 전달되지 않습니다.",
+  "A Bot message can be ignored when this setting does not allow its sender, when it does not name this Bot, when it is only thanks or a status update, when it would send work back to a Bot it came from, or when the same fix was already tried twice. Your own messages are never ignored.": "다음 경우 Bot 메시지는 무시될 수 있습니다: 이 설정이 발신자를 허용하지 않을 때, 이 Bot을 지정하지 않았을 때, 감사나 상태 알림뿐일 때, 보낸 Bot에게 작업을 되돌려 보내게 될 때, 같은 수정을 이미 두 번 시도했을 때. 직접 보낸 메시지는 무시되지 않습니다.",
   "The only Main Bot. To hand the role to another Bot, use Main Bot on the Bots page.": "유일한 메인 Bot입니다. 다른 Bot에게 역할을 넘기려면 Bot 페이지의 메인 Bot 설정을 이용하세요.",
   Change: "변경",
   "Can create and change Bots, and runs every group chat.": "Bot을 생성·수정하고 모든 그룹 채팅을 관리할 수 있습니다.",
@@ -5584,6 +5602,15 @@ var ES = {
   "Full access": "Acceso total",
   "Same for every member": "Igual para todos los miembros",
   "Replaces each member's own permissions in this group.": "Reemplaza los permisos propios de cada miembro en este grupo.",
+  "Responding to Bots": "Responder a Bots",
+  "Messages from other Bots never start new work. Your own messages always do.": "Los mensajes de otros Bots nunca inician trabajo nuevo. Los tuyos siempre.",
+  "Only the Bots you pick below can start new work with a message.": "Solo los Bots que elijas abajo pueden iniciar trabajo nuevo con un mensaje.",
+  "Any Bot can start new work with a message. The loop limits still apply.": "Cualquier Bot puede iniciar trabajo nuevo con un mensaje. Los límites de bucle siguen vigentes.",
+  "Not chosen yet: Bot messages work as they did before this setting.": "Aún sin elegir: los mensajes de Bots funcionan como antes de este ajuste.",
+  "Any Bot can start work here, including work that uses tools. Bots can then keep each other busy; choose this only for Bots you trust.": "Cualquier Bot puede iniciar trabajo aquí, también el que usa herramientas. Los Bots pueden mantenerse ocupados entre sí; elígelo solo para Bots de confianza.",
+  "Allowed Bots": "Bots permitidos",
+  "Pick at least one Bot, or no Bot message gets through.": "Elige al menos un Bot, o ningún mensaje de Bot pasará.",
+  "A Bot message can be ignored when this setting does not allow its sender, when it does not name this Bot, when it is only thanks or a status update, when it would send work back to a Bot it came from, or when the same fix was already tried twice. Your own messages are never ignored.": "Un mensaje de Bot puede ignorarse cuando este ajuste no permite a su remitente, cuando no nombra a este Bot, cuando es solo un agradecimiento o una actualización de estado, cuando devolvería trabajo a un Bot del que vino, o cuando el mismo arreglo ya se intentó dos veces. Tus propios mensajes nunca se ignoran.",
   "The only Main Bot. To hand the role to another Bot, use Main Bot on the Bots page.": "Es el único Bot principal. Para ceder el rol a otro Bot, usa Bot principal en la página de Bots.",
   Change: "Cambiar",
   "Can create and change Bots, and runs every group chat.": "Puede crear y modificar Bots, y gestiona todos los chats grupales.",
@@ -8037,6 +8064,15 @@ var FR = {
   "Full access": "Accès complet",
   "Same for every member": "Identique pour tous les membres",
   "Replaces each member's own permissions in this group.": "Remplace les autorisations individuelles de chaque membre dans ce groupe.",
+  "Responding to Bots": "Répondre aux Bots",
+  "Messages from other Bots never start new work. Your own messages always do.": "Les messages des autres Bots ne démarrent jamais de nouveau travail. Les vôtres, toujours.",
+  "Only the Bots you pick below can start new work with a message.": "Seuls les Bots choisis ci-dessous peuvent démarrer un nouveau travail par message.",
+  "Any Bot can start new work with a message. The loop limits still apply.": "Tout Bot peut démarrer un nouveau travail par message. Les limites de boucle s’appliquent toujours.",
+  "Not chosen yet: Bot messages work as they did before this setting.": "Pas encore choisi : les messages de Bots fonctionnent comme avant ce réglage.",
+  "Any Bot can start work here, including work that uses tools. Bots can then keep each other busy; choose this only for Bots you trust.": "Tout Bot peut démarrer du travail ici, y compris avec des outils. Les Bots peuvent alors s’occuper mutuellement ; ne choisissez ceci que pour des Bots de confiance.",
+  "Allowed Bots": "Bots autorisés",
+  "Pick at least one Bot, or no Bot message gets through.": "Choisissez au moins un Bot, sinon aucun message de Bot ne passe.",
+  "A Bot message can be ignored when this setting does not allow its sender, when it does not name this Bot, when it is only thanks or a status update, when it would send work back to a Bot it came from, or when the same fix was already tried twice. Your own messages are never ignored.": "Un message de Bot peut être ignoré quand ce réglage n’autorise pas son expéditeur, quand il ne nomme pas ce Bot, quand ce n’est qu’un remerciement ou un point d’état, quand il renverrait du travail à un Bot dont il vient, ou quand le même correctif a déjà été tenté deux fois. Vos propres messages ne sont jamais ignorés.",
   "The only Main Bot. To hand the role to another Bot, use Main Bot on the Bots page.": "C’est le seul Bot principal. Pour confier ce rôle à un autre Bot, utilisez la section Bot principal sur la page Bots.",
   "Change": "Modifier",
   "Can create and change Bots, and runs every group chat.": "Peut créer et modifier des Bots, et gère toutes les discussions de groupe.",
@@ -10467,6 +10503,15 @@ var DE = {
   "Full access": "Vollzugriff",
   "Same for every member": "Einheitlich für alle Mitglieder",
   "Replaces each member's own permissions in this group.": "Ersetzt in dieser Gruppe die individuellen Berechtigungen der Mitglieder.",
+  "Responding to Bots": "Auf Bots antworten",
+  "Messages from other Bots never start new work. Your own messages always do.": "Nachrichten anderer Bots starten nie automatisch neue Arbeit. Deine eigenen Nachrichten immer.",
+  "Only the Bots you pick below can start new work with a message.": "Nur die unten gewählten Bots können mit einer Nachricht neue Arbeit starten.",
+  "Any Bot can start new work with a message. The loop limits still apply.": "Jeder Bot kann mit einer Nachricht neue Arbeit starten. Die Schleifengrenzen gelten weiterhin.",
+  "Not chosen yet: Bot messages work as they did before this setting.": "Noch nicht gewählt: Bot-Nachrichten verhalten sich wie vor dieser Einstellung.",
+  "Any Bot can start work here, including work that uses tools. Bots can then keep each other busy; choose this only for Bots you trust.": "Jeder Bot kann hier Arbeit starten, auch solche mit Werkzeugen. Bots können sich dann gegenseitig beschäftigen; wähle dies nur für Bots, denen du vertraust.",
+  "Allowed Bots": "Erlaubte Bots",
+  "Pick at least one Bot, or no Bot message gets through.": "Wähle mindestens einen Bot, sonst kommt keine Bot-Nachricht durch.",
+  "A Bot message can be ignored when this setting does not allow its sender, when it does not name this Bot, when it is only thanks or a status update, when it would send work back to a Bot it came from, or when the same fix was already tried twice. Your own messages are never ignored.": "Eine Bot-Nachricht kann ignoriert werden, wenn diese Einstellung den Absender nicht erlaubt, sie diesen Bot nicht nennt, sie nur Dank oder ein Statusupdate ist, sie Arbeit an einen Bot zurückschicken würde, von dem sie kam, oder dieselbe Korrektur schon zweimal versucht wurde. Deine eigenen Nachrichten werden nie ignoriert.",
   "The only Main Bot. To hand the role to another Bot, use Main Bot on the Bots page.": "Der einzige Haupt-Bot. Um die Rolle an einen anderen Bot zu übergeben, nutze den Bereich „Haupt-Bot“ auf der Bot-Seite.",
   Change: "Ändern",
   "Can create and change Bots, and runs every group chat.": "Kann Bots erstellen und ändern sowie alle Gruppenchats verwalten.",
@@ -12905,6 +12950,15 @@ var ZH = {
   "Full access": "完全权限",
   "Same for every member": "全员统一",
   "Replaces each member's own permissions in this group.": "在这个群里代替各成员自己的权限。",
+  "Responding to Bots": "回应其他 Bot",
+  "Messages from other Bots never start new work. Your own messages always do.": "其他 Bot 发来的消息不会自动开始新工作。你自己发的消息始终会。",
+  "Only the Bots you pick below can start new work with a message.": "只有你在下面选中的 Bot，才能用消息开始新工作。",
+  "Any Bot can start new work with a message. The loop limits still apply.": "任何 Bot 都能用消息开始新工作，循环上限仍然有效。",
+  "Not chosen yet: Bot messages work as they did before this setting.": "尚未选择：Bot 消息保持这项设置出现之前的行为。",
+  "Any Bot can start work here, including work that uses tools. Bots can then keep each other busy; choose this only for Bots you trust.": "任何 Bot 都能在这里开始工作，包括使用工具的工作。Bot 之间可能互相占用对方；只对你信任的 Bot 选这一项。",
+  "Allowed Bots": "允许的 Bot",
+  "Pick at least one Bot, or no Bot message gets through.": "至少选一个 Bot，否则没有 Bot 的消息能通过。",
+  "A Bot message can be ignored when this setting does not allow its sender, when it does not name this Bot, when it is only thanks or a status update, when it would send work back to a Bot it came from, or when the same fix was already tried twice. Your own messages are never ignored.": "出现这些情况时，Bot 的消息可能被忽略：这项设置不允许发送者；消息没有点名这个 Bot；内容只是感谢或状态更新；会把工作送回它的来源 Bot；或同一个修复已经试过两次。你自己的消息从不会被忽略。",
   "The only Main Bot. To hand the role to another Bot, use Main Bot on the Bots page.": "这是唯一的主 Bot。要把主 Bot 交给别的 Bot，请到「Bot」页的主 Bot 里换。",
   Change: "更换",
   "Can create and change Bots, and runs every group chat.": "可以创建和修改 Bot，并管理所有群聊。",
@@ -14812,6 +14866,10 @@ function teamActions({ call: call2, after, partFor, roster, ui: ui2, live, cards
     deleteAvatar: (id) => call2("avatar-delete", { id }),
     createRoom: (members, options = {}) => after(call2("create-room", { members, ...options })),
     updateBot: (id, patch) => after(call2("update-bot", { id, ...patch })),
+    // Who may start work with a message: {mode, allow}, or null for the default. The host
+    // accepts it from the user only.
+    setBotResponse: (id, botResponse) => after(call2("update-bot", { id, botResponse })),
+    setRoomResponse: (id, botResponse) => after(call2("update-room", { id, botResponse })),
     // Give up one wait the Bot has on a hand-off that will not come back.
     abandonWork: (id) => after(call2("abandon-work", { id })),
     refreshModels: () => after(call2("models")).catch(() => {
@@ -25683,6 +25741,65 @@ function SwitchRow({ label, hint, on, disabled, onChange }) {
     (0, import_react27.createElement)(Switch, { on, label, disabled, onChange })
   );
 }
+var RESPONSE_MODES = [
+  ["off", "Off", "Messages from other Bots never start new work. Your own messages always do."],
+  ["selected", "Selected Bots", "Only the Bots you pick below can start new work with a message."],
+  ["all", "All Bots", "Any Bot can start new work with a message. The loop limits still apply."]
+];
+function BotResponseCard({ policy, candidates, onChange }) {
+  const mode = policy?.mode;
+  const allowed2 = policy?.allow ?? [];
+  const hint = mode === void 0 ? t("Not chosen yet: Bot messages work as they did before this setting.") : t(RESPONSE_MODES.find(([id]) => id === mode)?.[2] ?? "");
+  const toggle = (id) => onChange({ mode: "selected", allow: allowed2.includes(id) ? allowed2.filter((item) => item !== id) : [...allowed2, id] });
+  return (0, import_react27.createElement)(
+    Card2,
+    { title: t("Responding to Bots") },
+    (0, import_react27.createElement)(
+      "div",
+      { className: "bt-set-row bt-bs-row bt-bs-stack" },
+      (0, import_react27.createElement)(Segmented, { label: t("Responding to Bots"), value: mode ?? "" }, RESPONSE_MODES.map(([id, label]) => (0, import_react27.createElement)("button", {
+        key: id,
+        type: "button",
+        "aria-pressed": mode === id,
+        onClick: () => {
+          if (mode !== id) onChange({ mode: id, ...id === "selected" ? { allow: allowed2 } : {} });
+        }
+      }, t(label)))),
+      (0, import_react27.createElement)("span", { key: mode ?? "unset", className: "bt-set-hint bt-veil" }, hint)
+    ),
+    mode === "all" ? (0, import_react27.createElement)(
+      "div",
+      { className: "bt-set-row bt-br-warn", role: "note" },
+      (0, import_react27.createElement)("span", { className: "bt-set-hint" }, t("Any Bot can start work here, including work that uses tools. Bots can then keep each other busy; choose this only for Bots you trust."))
+    ) : null,
+    mode === "selected" ? (0, import_react27.createElement)(
+      "div",
+      { className: "bt-set-row bt-bs-row bt-bs-stack" },
+      (0, import_react27.createElement)(
+        "span",
+        { className: "bt-set-copy" },
+        (0, import_react27.createElement)("span", { className: "bt-bs-label" }, t("Allowed Bots")),
+        allowed2.length === 0 ? (0, import_react27.createElement)("span", { className: "bt-set-hint" }, t("Pick at least one Bot, or no Bot message gets through.")) : null
+      ),
+      (0, import_react27.createElement)(
+        "div",
+        { className: "bt-ng-picks", role: "group", "aria-label": t("Allowed Bots") },
+        candidates.map((bot) => (0, import_react27.createElement)(
+          "button",
+          { key: bot.id, type: "button", role: "checkbox", className: "bt-ng-chip", "aria-checked": allowed2.includes(bot.id), onClick: () => toggle(bot.id) },
+          (0, import_react27.createElement)(BotMark, { bot, size: 22 }),
+          (0, import_react27.createElement)("span", { className: "bt-ng-name" }, bot.name)
+        ))
+      )
+    ) : null,
+    mode === void 0 ? null : (0, import_react27.createElement)(
+      "div",
+      { className: "bt-set-row bt-br-foot" },
+      (0, import_react27.createElement)("span", { className: "bt-set-hint" }, t("A Bot message can be ignored when this setting does not allow its sender, when it does not name this Bot, when it is only thanks or a status update, when it would send work back to a Bot it came from, or when the same fix was already tried twice. Your own messages are never ignored.")),
+      (0, import_react27.createElement)("button", { type: "button", className: "bt-mini", onClick: () => onChange(null) }, t("Reset"))
+    )
+  );
+}
 function modelHint(bot, roster) {
   const shown = modelOf(bot, roster);
   if (shown === void 0) return t("Pick the model this Bot runs on.");
@@ -25920,6 +26037,7 @@ function BotSettingsForm({ bot, roster, actions, run: run2 }) {
         (0, import_react27.createElement)(FolderMenu, { value: bot.workDir, actions, run: run2, onPick: (workDir) => save({ workDir }) })
       )
     ),
+    (0, import_react27.createElement)(BotResponseCard, { policy: bot.botResponse, candidates: (roster.bots ?? []).filter((other) => other.id !== bot.id), onChange: (botResponse) => save({ botResponse }) }),
     (0, import_react27.createElement)(
       Card2,
       { title: t("Privacy") },
@@ -25996,6 +26114,10 @@ function BotSettingsForm({ bot, roster, actions, run: run2 }) {
   );
 }
 var BOT_SETTINGS_CSS = `
+.bt-br-warn{border-inline-start:2px solid var(--bt-warn)}
+.bt-br-foot{align-items:flex-start;gap:10px}
+.bt-br-foot>.bt-set-hint{flex:1}
+.bt-br-foot>.bt-mini{flex:none}
 .bt-bs{display:flex;flex-direction:column;gap:22px}
 .bt-bs-hero{display:flex;align-items:center;gap:14px;padding:2px 4px}
 .bt-bs-who{display:flex;flex-direction:column;min-width:0;gap:2px}
@@ -31289,6 +31411,7 @@ function GroupSettingsForm({ room: room2, roster, actions, run: run2, onDeleted 
         (0, import_react38.createElement)("span", { key: mode, className: "bt-set-hint bt-veil" }, `${t(modeHint)} ${t("@mentions always pick who answers.")}`)
       )
     ),
+    (0, import_react38.createElement)(BotResponseCard, { policy: room2.botResponse, candidates: roster.bots, onChange: (botResponse) => update({ botResponse }) }),
     (0, import_react38.createElement)(
       Card2,
       { title: t("Working folder") },

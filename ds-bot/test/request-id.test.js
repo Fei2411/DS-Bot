@@ -358,3 +358,62 @@ for (const reason of ['stopped', 'lock lost']) {
     assert.equal(Object.keys(JSON.parse(readFileSync(join(home, 'state.json'), 'utf8')).requests ?? {}).length, 0)
   })
 }
+
+// Responding to Bots: a blocked message is not admitted, so its request_id stays free.
+test('a blocked request starts nothing and leaves its request id free for after the policy changes', async (t) => {
+  const seed = team()
+  seed.bots.b.botResponse = { mode: 'selected', allow: [] }
+  const home = tempHome()
+  const { agents, rt, tool, stop } = await boot(home, seed)
+  t.after(async () => { await stop(); cleanup(home) })
+
+  await assert.rejects(tool('message_bot', { to: 'Writer', message: 'do the thing', request_id: 'r-1' }, 'a'), /recipient-not-selected/)
+  assert.equal(agents.get('b')?.calls.length ?? 0, 0)
+
+  // The user picks Chief; the same request now goes out, once, however often it repeats.
+  await rt.updateBot('b', { botResponse: { mode: 'selected', allow: ['a'] } })
+  const first = await tool('message_bot', { to: 'Writer', message: 'do the thing', request_id: 'r-1' }, 'a')
+  assert.match(first, /^Delivered to Writer/)
+  assert.equal(await tool('message_bot', { to: 'Writer', message: 'do the thing', request_id: 'r-1' }, 'a'), first)
+  assert.equal(agents.get('b').calls.length, 1)
+})
+
+test('under a chosen policy a repeated request still runs once, and a finding gets two attempts at most', async (t) => {
+  const seed = team()
+  seed.bots.b.botResponse = { mode: 'all' }
+  const home = tempHome()
+  const { agents, tool, stop } = await boot(home, seed)
+  t.after(async () => { await stop(); cleanup(home) })
+  const finding = { finding_pr: '12', finding_commit: 'abc1234', finding_id: 'F-1' }
+
+  await tool('message_bot', { to: 'Writer', message: 'fix F-1', request_id: 'fix-1', ...finding }, 'a')
+  await tool('message_bot', { to: 'Writer', message: 'fix F-1', request_id: 'fix-1', ...finding }, 'a')
+  assert.equal(agents.get('b').calls.length, 1, 'the duplicate event runs once')
+
+  // The same finding with the same words is unchanged, not a new attempt.
+  await assert.rejects(tool('message_bot', { to: 'Writer', message: 'fix F-1', request_id: 'fix-2', ...finding }, 'a'), /unchanged-finding/)
+  await tool('message_bot', { to: 'Writer', message: 'fix F-1, the null check is still missing', request_id: 'fix-3', ...finding }, 'a')
+  assert.equal(agents.get('b').calls.length, 2)
+  await assert.rejects(tool('message_bot', { to: 'Writer', message: 'fix F-1 once more, differently', request_id: 'fix-4', ...finding }, 'a'), /finding-attempt-limit/)
+  assert.equal(agents.get('b').calls.length, 2, 'a third attempt starts nothing')
+
+  // Another finding, or the same one on a new commit, has attempts of its own.
+  await tool('message_bot', { to: 'Writer', message: 'fix F-2', request_id: 'fix-5', ...finding, finding_id: 'F-2' }, 'a')
+  assert.equal(agents.get('b').calls.length, 3)
+})
+
+test('two Bots that keep sending a finding back and forth stop after two attempts', async (t) => {
+  const seed = team()
+  seed.bots.a.botResponse = { mode: 'all' }
+  seed.bots.b.botResponse = { mode: 'all' }
+  const home = tempHome()
+  const { agents, tool, stop } = await boot(home, seed)
+  t.after(async () => { await stop(); cleanup(home) })
+  const finding = { finding_pr: '7', finding_commit: 'deadbee', finding_id: 'R-9' }
+
+  await tool('message_bot', { to: 'Writer', message: 'please fix R-9', ...finding }, 'a')
+  await tool('message_bot', { to: 'Chief', message: 'fixed R-9, review again', ...finding }, 'b')
+  await assert.rejects(tool('message_bot', { to: 'Writer', message: 'R-9 still fails, again', ...finding }, 'a'), /finding-attempt-limit/)
+  assert.equal(agents.get('b').calls.length, 1)
+  assert.equal(agents.get('a').calls.length, 1)
+})

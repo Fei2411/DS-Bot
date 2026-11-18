@@ -9,6 +9,7 @@ import { replaceFile } from './files.js'
 import { homeLock } from './home-lock.js'
 import { currentColor, headOf, normalize, unquote } from './text.js'
 import { AMBIGUOUS_OLD_ROUTES, legacyRoute } from './local-agents/engines.js'
+import { normalizeResponsePolicies } from './bot-response-policy.js'
 
 // A table read that sees only the keys the table holds itself. Ids that come from
 // outside (a request body, a tool argument, a name a model gives) go through this, so
@@ -266,6 +267,9 @@ export function install(rt) {
       room.admin = admin
       migrated = true
     }
+    // Response policies for Bot messages (bot-response-policy.js): an unreadable one goes back
+    // to the legacy default, and a deleted Bot leaves every allowed list.
+    if (normalizeResponsePolicies(state)) migrated = true
     // Teams from before #206 kept every long message whole in this file, written whole on
     // every save. A message between Bots is whole in its recipient's Session; a group
     // line's whole text moves to a file of its own, which only the writing host makes.
