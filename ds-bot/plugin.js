@@ -13,6 +13,11 @@ export async function apply(ctx, config = {}) {
     const codeMode = await import('./code-mode.js')
     const { enabled: _enabled, ...options } = config.codeMode
     const codeConfig = codeMode.Config(options)
+    if (ctx.get('ptcRuntime') === undefined) {
+      const rt = host.createRuntime(ctx, config)
+      rt.warn('ds-bot: code mode needs the PTC runtime (ctx.ptcRuntime); enable ptc-runtime (@deepseek-ai/dsh-ptc-runtime-node) or turn off bot.config.codeMode.enabled, then restart the engine. Using the normal executor.')
+      return
+    }
     await ctx.plugin({
       name: 'ds-bot-code-mode-team',
       inject: codeMode.inject,

@@ -1,11 +1,14 @@
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { test as nodeTest } from 'node:test'
 import { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { createScope } from '@deepseek-ai/dsh-scope'
 import { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import { installBotCodeMode } from '../src/host/bot-code-mode.js'
+import { fakeContext } from './fake-ctx.js'
 
 const missingExecutors = ['@deepseek-ai/dsh-tool-executor-native', '@deepseek-ai/dsh-tool-executor-ptc'].filter(name => {
   try {
@@ -89,6 +92,36 @@ async function boot(t, config, dependencies) {
 const call = (name, args = {}, id = name) => ({ type: 'tool-call', id, name, arguments: JSON.stringify(args) })
 const program = code => call('run_code', { code, description: 'Test code mode' })
 const content = result => result.results[0].result.content.map(block => block.text ?? '').join('\n')
+
+test('missing PTC runtime starts the team with a logged, user-visible fallback diagnosis', async t => {
+  const home = mkdtempSync(join(tmpdir(), 'ds-bot-code-mode-startup-'))
+  const ctx = fakeContext({ services: { tools: {}, systemPrompt: {} } })
+  t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true }) })
+  const logged = t.mock.method(console, 'error', () => {})
+  let route
+  ctx.connection.fetch.register = definition => {
+    if (definition.path === '/api/bot') route = definition
+    return () => {}
+  }
+  // Like Cordis, a child with an unmet required injection never runs apply.
+  ctx.plugin = async definition => {
+    if (definition.inject.some(name => ctx.get(name) === undefined)) return
+    await definition.apply(ctx)
+  }
+  const entry = await import('../plugin.js')
+  await entry.apply(ctx, { home, diagnosticsFile: false, codeMode: { enabled: true } })
+  assert.ok(route, 'the Bot team API must start even without ctx.ptcRuntime')
+  const response = await route.fetch(new Request('http://localhost/api/bot', {
+    method: 'POST', body: JSON.stringify({ endpoint: 'diagnostics' }),
+  }))
+  const report = await response.json()
+  assert.equal(report.ok, true)
+  for (const pattern of [/code mode needs the PTC runtime/, /enable ptc-runtime/, /turn off bot.config.codeMode.enabled/, /normal executor/]) {
+    assert.match(report.value.markdown, pattern)
+    assert.ok(logged.mock.calls.some(call => call.arguments.some(value => pattern.test(String(value)))))
+  }
+  assert.equal(ctx.registeredTools.has('run_code'), false)
+})
 
 test('the Bot switch scopes code-mode to owned Agents and lifts it on removal or unload', async t => {
   const { ctx, agent, register } = await boot(t)
