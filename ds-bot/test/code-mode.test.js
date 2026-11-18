@@ -73,7 +73,7 @@ test('compact SDK is smaller than stock on the same 23 tool schemas', () => {
     assert.ok(Buffer.byteLength(compact) < Buffer.byteLength(stock) * 0.65)
     assert.ok(!compact.includes('ToolOutputMap'))
     assert.ok(compact.includes('never raw dumps'))
-    assert.ok(compact.includes('description: string'), 'a parameter named description is not removed')
+    assert.equal(compact.includes('description: string'), mode === 'code-only', 'argument types are only needed in code-only')
     assert.equal(compact.includes('"subagent"(args:'), mode === 'code-only')
     assert.equal(compact.includes('"workflow"(args:'), mode === 'code-only')
   }
@@ -81,6 +81,14 @@ test('compact SDK is smaller than stock on the same 23 tool schemas', () => {
   assert.ok(renderCompactSdk(extra).includes('"mcp__catalog__lookup"'))
   assert.ok(!renderCompactSdk(extra).includes('"message_bot"'))
   assert.ok(renderCompactSdk([], 'hybrid', 'vm-script').includes('final expression'))
+  const native = [{ name: 'read', description: 'UNIQUE_DESCRIPTION', parameters: { type: 'object', properties: { UNIQUE_ARGUMENT: { type: 'string' } } } }]
+  const hybrid = renderCompactSdk(native)
+  assert.ok(hybrid.includes('tools.<name>(args) takes the same arguments as the native tool <name>'))
+  assert.ok(hybrid.includes('"read" -> { path: string; lines:'))
+  assert.ok(!hybrid.includes('UNIQUE_DESCRIPTION'))
+  assert.ok(!hybrid.includes('UNIQUE_ARGUMENT'))
+  assert.ok(!hybrid.includes('(args:'))
+  assert.ok(!renderCompactSdk([], 'hybrid').includes('"read" ->'))
 })
 
 test('both mounted executors assemble only the compact SDK, without stock PTC sections or instructions', async t => {

@@ -44,6 +44,11 @@ export function renderCompactSdk(tools, mode = 'hybrid', programFormat = 'functi
     + 'Catch ToolCallError (toolName, message) to recover. Images are attached separately. '
     + (programFormat === 'function-body' ? 'Code is an async TypeScript function body; await and return work. ' : 'Use await and a final expression, not top-level return. ')
     + 'Only printed or returned output reaches the model; do not print intermediate results.'
+  if (mode === 'hybrid') {
+    const outputs = [...selected].sort((a, b) => a.name.localeCompare(b.name))
+      .map(tool => `  ${JSON.stringify(tool.name)} -> ${OUTPUTS[tool.name] ?? 'unknown'}`)
+    return `${guidance}\n\ntools.<name>(args) takes the same arguments as the native tool <name>.\n\nProgram-only SDK (result shapes show common fields, not complete declarations):\n${outputs.join('\n')}`
+  }
   const declarations = [...selected].sort((a, b) => a.name.localeCompare(b.name)).map(tool => {
     const description = String(tool.description ?? '').replace(/\s+/g, ' ').replaceAll('*/', '* /').slice(0, 100)
     const args = jsonSchemaToTs(withoutDescriptions(tool.parameters)).replace(/\s+/g, ' ')
