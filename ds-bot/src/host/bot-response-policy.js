@@ -173,7 +173,7 @@ const taskKinds = new Set(['message_bot', 'request', 'room', 'group-turn', 'call
 
 export function reviewFixOf(text, action, finding) {
   return action === 'review_fix' || finding !== undefined
-    || /\b(?:fix|address|resolve|remediate|apply)\b[^.!?\n]{0,80}\b(?:findings?|review (?:comments?|feedback)|(?:reviewer|capy)(?:'s)? comments?)\b/i.test(text ?? '')
+    || /\b(?:fix|address|resolve|remediate|apply)\b[^.!?\n]{0,80}\b(?:findings?|review (?:comments?|feedback)|reviewers?(?:'s)? comments?)\b/i.test(text ?? '')
 }
 
 export const newTaskContext = () => ({ task: randomUUID(), hops: 0 })
