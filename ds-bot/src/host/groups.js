@@ -1889,6 +1889,7 @@ export function install(rt) {
       agent.cancel({ kind: 'user' })
     }
     rt.goalTaskReset?.(roomId, botId, 'Stopped by the user')
+    rt.blockTasks?.(roomId, botId, { cause: 'stopped' })
     await postToRoom(room, member, '', { quiet: true, stopped: true })
     return true
   }

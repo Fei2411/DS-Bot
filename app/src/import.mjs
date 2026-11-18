@@ -214,12 +214,6 @@ const logVersion = name => parseSessionFormatLogFilename(name.replace(/\.(zstd|z
 const isNewer = (from, { id, group }) => readdirSync(join(from, 'sessions', group, id))
   .some(name => (logVersion(name) ?? 0) > sessionFormatCatalog.currentVersion)
 
-/** The Sessions whose log is in a newer format than the pinned DSH reads. */
-export function newerSessions(from, team) {
-  const { found } = sessionDirs(from, sessionIdsOf(team))
-  return found.filter(session => isNewer(from, session)).map(({ id }) => id)
-}
-
 /**
  * Copy into the data location `to` the Sessions its team names that are not there, from the DSH
  * home the team was imported from. Imports before 0.2.3 left out each group's own Session, and

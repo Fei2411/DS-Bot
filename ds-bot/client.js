@@ -162,7 +162,6 @@ var JA = {
   "The code works once. It stops working in {count} min.": "このコードは 1 回だけ使えます。{count} 分後に無効になります。",
   "Turn on phone access first": "先にスマートフォンからのアクセスをオンにしてください",
   "The Server address must start with ws:// or wss://": "サーバーのアドレスは ws:// または wss:// で始める必要があります",
-  "Enter the Server address first": "先にサーバーのアドレスを入力してください",
   "This phone is not paired": "このスマートフォンはペアリングされていません",
   "Another dsh has this Bot team open, so phones connect to that one": "別の dsh がこの Bot チームを開いているため、スマートフォンはそちらに接続します",
   "This dsh runs on a Node without WebSocket": "この dsh は WebSocket のない Node 上で動作しています",
@@ -304,7 +303,6 @@ var JA = {
   "Enable": "有効化",
   "Disable": "無効化",
   "Remove?": "削除しますか？",
-  "Not connected": "未接続",
   "Disabled": "無効",
   "Capabilities": "機能",
   "Shared capabilities": "共有機能",
@@ -431,7 +429,6 @@ var JA = {
   "Detected agents": "検出されたエージェント",
   "Refresh": "更新",
   "No agent CLIs found": "エージェント CLI が見つかりません",
-  "Scan again for agent CLIs.": "エージェント CLI を再スキャンします。",
   "Custom agents": "カスタムエージェント",
   "ACP-compatible agents, added by command.": "コマンドで追加された ACP 互換エージェント。",
   "Add agent": "エージェントを追加",
@@ -440,7 +437,6 @@ var JA = {
   "Sign-in command copied. Run it in a terminal: {command}": "サインインコマンドをコピーしました。ターミナルで実行してください: {command}",
   "Could not copy the sign-in command. Run this in a terminal: {command}": "サインインコマンドをコピーできませんでした。ターミナルで実行してください: {command}",
   "Found": "検出済み",
-  "Not found": "未検出",
   "Arguments": "引数",
   "Agent": "エージェント",
   "Sessions": "セッション",
@@ -618,7 +614,6 @@ var JA = {
   "Name after members": "メンバー名を使用",
   "Rename {name}": "{name} の名前を変更",
   "Rename": "名前を変更",
-  "No scheduled tasks yet. To add one, tell the Bot in its chat what to do and when.": "定期タスクはまだありません。追加するには、チャットで Bot に内容と日時を伝えてください。",
   "The browser is in DSH Desktop and the DS Bot app.": "ブラウザは DSH デスクトップ版および DS Bot アプリで利用できます。",
   "New tab": "新しいタブ",
   "Close tab": "タブを閉じる",
@@ -632,7 +627,6 @@ var JA = {
   "Copy of its cookies": "Cookie をコピー",
   "No browsers found": "ブラウザが見つかりません",
   "The Bot controls this browser": "Bot がこのブラウザを操作中",
-  "The Bot is waiting for you": "Bot があなたの操作を待っています",
   "waits for the computer": "あなたの操作完了待ち",
   "You control this browser": "あなたがこのブラウザを操作中",
   "The Bot handed this browser to you: {reason}": "Bot がこのブラウザをあなたに引き継ぎました: {reason}",
@@ -941,7 +935,6 @@ var JA = {
   "Around this message": "このメッセージの前後",
   "1 match": "1 件",
   "{count} matches": "{count} 件",
-  "Showing the {count} newest": "最新 {count} 件を表示",
   "Clear search": "検索をクリア",
   "Results": "検索結果",
   "No results": "結果がありません",
@@ -977,7 +970,6 @@ var JA = {
   "Add an annotation…": "注釈を入力…",
   "Add quote and annotation to the composer · Enter": "引用と注釈を入力欄に追加 · Enter",
   "Send quote and annotation · Ctrl+Enter": "引用と注釈を送信 · Ctrl+Enter",
-  "Quote text": "テキストを引用",
   "Footnotes": "脚注",
   "Remove reaction {emoji}": "リアクション {emoji} を削除",
   "Add reaction": "リアクションを追加",
@@ -1266,8 +1258,6 @@ var JA = {
   "{count} file changed": "{count} 個のファイルを変更",
   "{count} files changed": "{count} 個のファイルを変更",
   "File": "ファイル",
-  "Binary file": "バイナリファイル",
-  "This file is too large to preview": "ファイルが大きすぎるためプレビューできません",
   "Review these changes": "この変更を確認",
   "These changes are no longer available": "この変更はもう利用できません",
   "This window cannot open the change review": "このウィンドウでは変更レビューを開けません",
@@ -1286,12 +1276,9 @@ var JA = {
   "Team memory updated": "チームメモリを更新しました",
   "Updated {name}'s memory": "{name} のメモリを更新しました",
   "Memory updated. Open {name}'s memory": "メモリを更新しました。{name} のメモリを開く",
-  "Close browser": "ブラウザを閉じる",
   "Open browser": "ブラウザを開く",
   "{name}'s browser": "{name} のブラウザ",
   "Resize panel": "パネルの幅を調整",
-  "{name} read this page": "{name} がこのページを読み取りました",
-  "{name}'s browser. {name} can read the page shown here.": "{name} のブラウザです。{name} はここに表示されているページを読み取れます。",
   "Back": "戻る",
   "Forward": "進む",
   "Stop": "停止",
@@ -1362,6 +1349,9 @@ var JA = {
   "In progress": "進行中",
   "Awaiting review": "レビュー待ち",
   "Blocked": "ブロック中",
+  "Stopped by the user": "ユーザーが停止",
+  "Not updated after a restart": "再起動後に未更新",
+  "Its model call failed ({code})": "モデル呼び出しに失敗（{code}）",
   "Add a note": "メモを追加",
   "Cancel task": "タスクをキャンセル",
   "Click again to cancel": "もう一度クリックでキャンセル",
@@ -1602,9 +1592,7 @@ var JA = {
   "Some folders are not shown.": "一部のフォルダは表示されていません。",
   "Waiting for sign-in…": "サインインを待っています…",
   "This service needs an app client ID": "このサービスにはアプリの Client ID が必要です",
-  "Open the sign-in page": "サインインページを開く",
   "Paste the address you land on": "リダイレクト先の URL を貼り付け",
-  "Or paste the address you land on": "またはリダイレクト先の URL を貼り付け",
   "Finish sign-in": "サインインを完了",
   "Open {host}": "{host} を開く",
   "Client ID": "Client ID",
@@ -1617,7 +1605,6 @@ var JA = {
   "{count} tools": "{count} 個のツール",
   "Mailbox": "メールボックス",
   "Email address": "メールアドレス",
-  "App password / authorization code": "アプリパスワード / 認証コード",
   "Catalog": "カタログ",
   "App password": "アプリパスワード",
   "Authorization code": "認証コード",
@@ -1696,13 +1683,7 @@ var JA = {
   "IMAP host": "IMAP サーバー",
   "SMTP host": "SMTP サーバー",
   "Sign in with Google": "Google でサインイン",
-  "Add account": "アカウントを追加",
-  "Add an account": "アカウントを追加",
-  "No mail accounts yet": "メールアカウントはまだありません",
   "Verifying…": "確認中…",
-  "Open the Google sign-in page": "Google サインインページを開く",
-  "Add an address": "アドレスを追加",
-  "Add a command": "コマンドを追加",
   "Import from other apps": "他のアプリからインポート",
   "Server address": "サーバーアドレス",
   "Command, e.g. npx -y some-mcp": "コマンド（例: npx -y some-mcp）",
@@ -1718,7 +1699,6 @@ var JA = {
   "Commerce": "コマース",
   "No connectors connected": "接続済みのコネクタはありません",
   "{bot} needs {name}": "{bot} が {name} を必要としています",
-  "{bot} wants to send an email": "{bot} がメールの送信を求めています",
   "Mail": "メール",
   "Subject": "件名",
   "Write a message…": "メッセージを入力…",
@@ -1737,7 +1717,6 @@ var JA = {
   "Failed": "失敗",
   "Request failed": "リクエストに失敗しました",
   "Permissions are not available in this DeepSeek Harness": "この DeepSeek Harness では権限設定を利用できません",
-  "Avatar images must be PNG, JPEG, WebP, or GIF": "アバター画像は PNG、JPEG、WebP、または GIF 形式である必要があります",
   "Avatar image is too large": "アバター画像のサイズが大きすぎます",
   "A Bot needs a name": "Bot の名前を入力してください",
   "A Bot name cannot contain @, ` or a line break": "Bot の名前に @、`、改行は含められません",
@@ -1827,7 +1806,6 @@ var JA = {
   "Needs your confirmation": "確認が必要です",
   "Help needed on the computer": "コンピュータでの手助けが必要です",
   "You control the computer": "あなたがコンピュータを操作中",
-  "Stop {name}": "{name} を停止",
   "{name} · foreground": "{name} · フォアグラウンド",
   "{name} waits for the computer": "{name} があなたの操作完了を待っています",
   "Bot models": "Bot モデル",
@@ -2598,7 +2576,6 @@ var KO = {
   "The code works once. It stops working in {count} min.": "이 코드는 한 번만 사용할 수 있으며 {count}분 후에 만료됩니다.",
   "Turn on phone access first": "먼저 휴대폰 접근을 켜세요",
   "The Server address must start with ws:// or wss://": "서버 주소는 ws:// 또는 wss://로 시작해야 합니다",
-  "Enter the Server address first": "먼저 서버 주소를 입력하세요",
   "This phone is not paired": "이 휴대폰은 페어링되어 있지 않습니다",
   "Another dsh has this Bot team open, so phones connect to that one": "다른 dsh에서 이 Bot 팀을 열어 두고 있어 휴대폰이 그쪽에 연결됩니다",
   "This dsh runs on a Node without WebSocket": "이 dsh는 WebSocket이 없는 Node에서 실행 중입니다",
@@ -2742,7 +2719,6 @@ var KO = {
   Enable: "사용",
   Disable: "사용 안 함",
   "Remove?": "제거하시겠습니까?",
-  "Not connected": "연결 안 됨",
   Disabled: "사용 안 함",
   Capabilities: "기능",
   "Shared capabilities": "공유 기능",
@@ -2872,7 +2848,6 @@ var KO = {
   "Detected agents": "감지된 Agent",
   Refresh: "새로고침",
   "No agent CLIs found": "Agent CLI를 찾을 수 없음",
-  "Scan again for agent CLIs.": "Agent CLI를 다시 스캔합니다.",
   "Custom agents": "사용자 지정 Agent",
   "ACP-compatible agents, added by command.": "명령어로 추가한 ACP 호환 Agent입니다.",
   "Add agent": "Agent 추가",
@@ -2881,7 +2856,6 @@ var KO = {
   "Sign-in command copied. Run it in a terminal: {command}": "로그인 명령어가 복사되었습니다. 터미널에서 실행하세요: {command}",
   "Could not copy the sign-in command. Run this in a terminal: {command}": "로그인 명령어를 복사하지 못했습니다. 터미널에서 직접 실행하세요: {command}",
   Found: "감지됨",
-  "Not found": "찾을 수 없음",
   Arguments: "인수",
   Agent: "Agent",
   Sessions: "세션",
@@ -3063,7 +3037,6 @@ var KO = {
   "Name after members": "멤버 이름으로 자동 지정",
   "Rename {name}": "{name} 이름 변경",
   Rename: "이름 변경",
-  "No scheduled tasks yet. To add one, tell the Bot in its chat what to do and when.": "아직 예약 작업이 없습니다. 대화창에서 Bot에게 할 일과 시간을 말해 추가하세요.",
   "The browser is in DSH Desktop and the DS Bot app.": "브라우저는 DSH 데스크톱 및 DS Bot 앱에서 사용할 수 있습니다.",
   "New tab": "새 탭",
   "Close tab": "탭 닫기",
@@ -3078,7 +3051,6 @@ var KO = {
   "Copy of its cookies": "브라우저 쿠키 복사",
   "No browsers found": "브라우저를 찾을 수 없음",
   "The Bot controls this browser": "Bot이 이 브라우저를 제어하고 있습니다",
-  "The Bot is waiting for you": "Bot이 사용자를 기다리고 있습니다",
   "waits for the computer": "사용자 조작 대기 중",
   "You control this browser": "사용자가 이 브라우저를 제어하고 있습니다",
   "The Bot handed this browser to you: {reason}": "Bot이 이 브라우저의 제어권을 넘겼습니다: {reason}",
@@ -3403,7 +3375,6 @@ var KO = {
   "Around this message": "이 메시지 앞뒤",
   "1 match": "1건",
   "{count} matches": "{count}건",
-  "Showing the {count} newest": "최신 {count}건만 표시",
   "Clear search": "검색 지우기",
   Results: "검색 결과",
   "No results": "결과 없음",
@@ -3442,7 +3413,6 @@ var KO = {
   "Add an annotation…": "주석을 입력하세요…",
   "Add quote and annotation to the composer · Enter": "인용과 주석을 입력창에 추가 · Enter",
   "Send quote and annotation · Ctrl+Enter": "인용과 주석 보내기 · Ctrl+Enter",
-  "Quote text": "텍스트 인용",
   Footnotes: "각주",
   "Remove reaction {emoji}": "{emoji} 반응 제거",
   "Add reaction": "반응 추가",
@@ -3736,8 +3706,6 @@ var KO = {
   "{count} file changed": "파일 {count}개 변경됨",
   "{count} files changed": "파일 {count}개 변경됨",
   "File": "파일",
-  "Binary file": "바이너리 파일",
-  "This file is too large to preview": "파일이 너무 커서 미리 볼 수 없습니다",
   "Review these changes": "이 변경 사항 검토",
   "These changes are no longer available": "이 변경 사항은 더 이상 사용할 수 없습니다",
   "This window cannot open the change review": "이 창에서는 변경 검토를 열 수 없습니다",
@@ -3757,12 +3725,9 @@ var KO = {
   "Updated {name}'s memory": "{name}의 메모리 업데이트됨",
   "Memory updated. Open {name}'s memory": "메모리가 업데이트되었습니다. {name}의 메모리 열기",
   // Browser
-  "Close browser": "브라우저 닫기",
   "Open browser": "브라우저 열기",
   "{name}'s browser": "{name}의 브라우저",
   "Resize panel": "패널 너비 조절",
-  "{name} read this page": "{name}이(가) 이 페이지를 읽었습니다",
-  "{name}'s browser. {name} can read the page shown here.": "{name}의 브라우저입니다. {name}이(가) 여기에 표시된 페이지를 읽을 수 있습니다.",
   Back: "뒤로",
   Forward: "앞으로",
   Stop: "중지",
@@ -3835,6 +3800,9 @@ var KO = {
   "In progress": "진행 중",
   "Awaiting review": "검토 대기",
   Blocked: "막힘",
+  "Stopped by the user": "사용자가 중지함",
+  "Not updated after a restart": "재시작 후 업데이트되지 않음",
+  "Its model call failed ({code})": "모델 호출 실패({code})",
   "Add a note": "메모 추가",
   "Cancel task": "작업 취소",
   "Click again to cancel": "다시 클릭하면 취소",
@@ -4080,9 +4048,7 @@ var KO = {
   "Some folders are not shown.": "일부 폴더가 표시되지 않았습니다.",
   "Waiting for sign-in…": "로그인 대기 중…",
   "This service needs an app client ID": "이 서비스는 앱 Client ID가 필요합니다",
-  "Open the sign-in page": "로그인 페이지 열기",
   "Paste the address you land on": "리디렉션된 주소 붙여넣기",
-  "Or paste the address you land on": "또는 리디렉션된 주소 붙여넣기",
   "Finish sign-in": "로그인 완료",
   "Open {host}": "{host} 열기",
   "Client ID": "Client ID",
@@ -4095,7 +4061,6 @@ var KO = {
   "{count} tools": "도구 {count}개",
   "Mailbox": "메일함",
   "Email address": "이메일 주소",
-  "App password / authorization code": "앱 비밀번호 / 인증 코드",
   "Catalog": "카탈로그",
   "App password": "앱 비밀번호",
   "Authorization code": "인증 코드",
@@ -4174,13 +4139,7 @@ var KO = {
   "IMAP host": "IMAP 서버",
   "SMTP host": "SMTP 서버",
   "Sign in with Google": "Google로 로그인",
-  "Add account": "계정 추가",
-  "Add an account": "계정 추가",
-  "No mail accounts yet": "아직 메일 계정이 없습니다",
   "Verifying…": "확인 중…",
-  "Open the Google sign-in page": "Google 로그인 페이지 열기",
-  "Add an address": "주소 추가",
-  "Add a command": "명령어 추가",
   "Import from other apps": "다른 앱에서 가져오기",
   "Server address": "서버 주소",
   "Command, e.g. npx -y some-mcp": "명령어 (예: npx -y some-mcp)",
@@ -4196,7 +4155,6 @@ var KO = {
   "Commerce": "커머스",
   "No connectors connected": "연결된 커넥터 없음",
   "{bot} needs {name}": "{bot}에 {name} 필요",
-  "{bot} wants to send an email": "{bot}이(가) 이메일을 보내려고 합니다",
   "Mail": "메일",
   "Subject": "제목",
   "Write a message…": "메시지 작성…",
@@ -4216,7 +4174,6 @@ var KO = {
   // Host static strings (HOST_ZH)
   "Request failed": "요청 실패",
   "Permissions are not available in this DeepSeek Harness": "이 DeepSeek Harness에서는 권한 설정을 지원하지 않습니다",
-  "Avatar images must be PNG, JPEG, WebP, or GIF": "아바타 이미지는 PNG, JPEG, WebP 또는 GIF 형식이어야 합니다",
   "Avatar image is too large": "아바타 이미지가 너무 큽니다",
   "A Bot needs a name": "Bot 이름을 입력하세요",
   "A Bot name cannot contain @, ` or a line break": "Bot 이름에는 @, ` 또는 줄바꿈을 포함할 수 없습니다",
@@ -4307,7 +4264,6 @@ var KO = {
   "Needs your confirmation": "사용자 확인 필요",
   "Help needed on the computer": "컴퓨터에서 도움 필요",
   "You control the computer": "사용자가 컴퓨터를 제어 중입니다",
-  "Stop {name}": "{name} 중지",
   "{name} · foreground": "{name} · 포그라운드",
   "{name} waits for the computer": "{name}이(가) 사용자 조작을 기다리는 중",
   "Bot models": "Bot 모델",
@@ -5079,7 +5035,6 @@ var ES = {
   "The code works once. It stops working in {count} min.": "El código sirve una sola vez. Caduca en {count} min.",
   "Turn on phone access first": "Activa primero el acceso desde el teléfono",
   "The Server address must start with ws:// or wss://": "La dirección del servidor debe empezar por ws:// o wss://",
-  "Enter the Server address first": "Introduce primero la dirección del servidor",
   "This phone is not paired": "Este teléfono no está vinculado",
   "Another dsh has this Bot team open, so phones connect to that one": "Otro dsh tiene abierto este equipo de Bots, así que los teléfonos se conectan a ese",
   "This dsh runs on a Node without WebSocket": "Este dsh se ejecuta en un Node sin WebSocket",
@@ -5223,7 +5178,6 @@ var ES = {
   Enable: "Activar",
   Disable: "Desactivar",
   "Remove?": "¿Quitar?",
-  "Not connected": "No conectado",
   Disabled: "Desactivado",
   Capabilities: "Capacidades",
   "Shared capabilities": "Capacidades compartidas",
@@ -5353,7 +5307,6 @@ var ES = {
   "Detected agents": "Agentes detectados",
   Refresh: "Actualizar",
   "No agent CLIs found": "No se encontraron CLIs de agentes",
-  "Scan again for agent CLIs.": "Volver a buscar CLIs de agentes.",
   "Custom agents": "Agentes personalizados",
   "ACP-compatible agents, added by command.": "Agentes compatibles con ACP, añadidos por comando.",
   "Add agent": "Añadir agente",
@@ -5362,7 +5315,6 @@ var ES = {
   "Sign-in command copied. Run it in a terminal: {command}": "Comando de inicio de sesión copiado. Ejecútalo en una terminal: {command}",
   "Could not copy the sign-in command. Run this in a terminal: {command}": "No se pudo copiar el comando de inicio de sesión. Ejecuta esto en una terminal: {command}",
   Found: "Encontrado",
-  "Not found": "No encontrado",
   Arguments: "Argumentos",
   Agent: "Agente",
   Sessions: "Sesiones",
@@ -5544,7 +5496,6 @@ var ES = {
   "Name after members": "Nombrar según los miembros",
   "Rename {name}": "Renombrar {name}",
   Rename: "Renombrar",
-  "No scheduled tasks yet. To add one, tell the Bot in its chat what to do and when.": "Aún no hay tareas programadas. Para añadir una, dile al Bot en su chat qué hacer y cuándo.",
   "The browser is in DSH Desktop and the DS Bot app.": "El navegador está disponible en DSH Desktop y en la aplicación DS Bot.",
   "New tab": "Nueva pestaña",
   "Close tab": "Cerrar pestaña",
@@ -5559,7 +5510,6 @@ var ES = {
   "Copy of its cookies": "Copia de sus cookies",
   "No browsers found": "No se encontraron navegadores",
   "The Bot controls this browser": "El Bot controla este navegador",
-  "The Bot is waiting for you": "El Bot te está esperando",
   "waits for the computer": "esperando el ordenador",
   "You control this browser": "Tú controlas este navegador",
   "The Bot handed this browser to you: {reason}": "El Bot te cedió este navegador: {reason}",
@@ -5884,7 +5834,6 @@ var ES = {
   "Around this message": "Alrededor de este mensaje",
   "1 match": "1 coincidencia",
   "{count} matches": "{count} coincidencias",
-  "Showing the {count} newest": "Mostrando las {count} más recientes",
   "Clear search": "Borrar búsqueda",
   Results: "Resultados",
   "No results": "Sin resultados",
@@ -5923,7 +5872,6 @@ var ES = {
   "Add an annotation…": "Añade una anotación…",
   "Add quote and annotation to the composer · Enter": "Añadir la cita y la anotación al campo · Intro",
   "Send quote and annotation · Ctrl+Enter": "Enviar la cita y la anotación · Ctrl+Intro",
-  "Quote text": "Citar texto",
   Footnotes: "Notas al pie",
   "Remove reaction {emoji}": "Quitar reacción {emoji}",
   "Add reaction": "Añadir reacción",
@@ -6217,8 +6165,6 @@ var ES = {
   "{count} file changed": "{count} archivo modificado",
   "{count} files changed": "{count} archivos modificados",
   "File": "Archivo",
-  "Binary file": "Archivo binario",
-  "This file is too large to preview": "Este archivo es demasiado grande para previsualizarlo",
   "Review these changes": "Revisar estos cambios",
   "These changes are no longer available": "Estos cambios ya no están disponibles",
   "This window cannot open the change review": "Esta ventana no puede abrir la revisión de cambios",
@@ -6238,12 +6184,9 @@ var ES = {
   "Updated {name}'s memory": "Memoria de {name} actualizada",
   "Memory updated. Open {name}'s memory": "Memoria actualizada. Abrir la memoria de {name}",
   // Browser
-  "Close browser": "Cerrar navegador",
   "Open browser": "Abrir navegador",
   "{name}'s browser": "Navegador de {name}",
   "Resize panel": "Redimensionar panel",
-  "{name} read this page": "{name} leyó esta página",
-  "{name}'s browser. {name} can read the page shown here.": "Navegador de {name}. {name} puede leer la página mostrada aquí.",
   Back: "Atrás",
   Forward: "Adelante",
   Stop: "Detener",
@@ -6316,6 +6259,9 @@ var ES = {
   "In progress": "En curso",
   "Awaiting review": "Pendiente de revisión",
   Blocked: "Bloqueada",
+  "Stopped by the user": "Detenido por el usuario",
+  "Not updated after a restart": "Sin actualizar tras el reinicio",
+  "Its model call failed ({code})": "Falló la llamada al modelo ({code})",
   "Add a note": "Añadir una nota",
   "Cancel task": "Cancelar tarea",
   "Click again to cancel": "Haz clic otra vez para cancelar",
@@ -6561,9 +6507,7 @@ var ES = {
   "Some folders are not shown.": "Algunas carpetas no se muestran.",
   "Waiting for sign-in…": "Esperando inicio de sesión…",
   "This service needs an app client ID": "Este servicio necesita un Client ID de aplicación",
-  "Open the sign-in page": "Abrir la página de inicio de sesión",
   "Paste the address you land on": "Pega la dirección a la que llegues",
-  "Or paste the address you land on": "O pega la dirección a la que llegues",
   "Finish sign-in": "Finalizar inicio de sesión",
   "Open {host}": "Abrir {host}",
   "Client ID": "Client ID",
@@ -6576,7 +6520,6 @@ var ES = {
   "{count} tools": "{count} herramientas",
   "Mailbox": "Buzón de correo",
   "Email address": "Dirección de correo",
-  "App password / authorization code": "Contraseña de aplicación / código de autorización",
   "Catalog": "Catálogo",
   "App password": "Contraseña de aplicación",
   "Authorization code": "Código de autorización",
@@ -6655,13 +6598,7 @@ var ES = {
   "IMAP host": "Servidor IMAP",
   "SMTP host": "Servidor SMTP",
   "Sign in with Google": "Iniciar sesión con Google",
-  "Add account": "Añadir cuenta",
-  "Add an account": "Añadir una cuenta",
-  "No mail accounts yet": "Aún no hay cuentas de correo",
   "Verifying…": "Verificando…",
-  "Open the Google sign-in page": "Abrir la página de inicio de sesión de Google",
-  "Add an address": "Añadir una dirección",
-  "Add a command": "Añadir un comando",
   "Import from other apps": "Importar desde otras aplicaciones",
   "Server address": "Dirección del servidor",
   "Command, e.g. npx -y some-mcp": "Comando, p. ej., npx -y some-mcp",
@@ -6677,7 +6614,6 @@ var ES = {
   "Commerce": "Comercio",
   "No connectors connected": "No hay conectores conectados",
   "{bot} needs {name}": "{bot} necesita {name}",
-  "{bot} wants to send an email": "{bot} quiere enviar un correo",
   "Mail": "Correo",
   "Subject": "Asunto",
   "Write a message…": "Escribe un mensaje…",
@@ -6697,7 +6633,6 @@ var ES = {
   // HOST_ZH merged keys
   "Request failed": "Solicitud fallida",
   "Permissions are not available in this DeepSeek Harness": "Los permisos no están disponibles en este DeepSeek Harness",
-  "Avatar images must be PNG, JPEG, WebP, or GIF": "Las imágenes de avatar deben ser PNG, JPEG, WebP o GIF",
   "Avatar image is too large": "La imagen de avatar es demasiado grande",
   "A Bot needs a name": "Un Bot necesita un nombre",
   "A Bot name cannot contain @, ` or a line break": "El nombre de un Bot no puede contener @, ` ni saltos de línea",
@@ -6788,7 +6723,6 @@ var ES = {
   "Needs your confirmation": "Requiere tu confirmación",
   "Help needed on the computer": "Se necesita ayuda en el ordenador",
   "You control the computer": "Tú controlas el ordenador",
-  "Stop {name}": "Detener a {name}",
   "{name} · foreground": "{name} · primer plano",
   "{name} waits for the computer": "{name} espera el ordenador",
   "Bot models": "Modelos de los Bots",
@@ -7560,7 +7494,6 @@ var FR = {
   "The code works once. It stops working in {count} min.": "Le code ne sert qu’une fois. Il expire dans {count} min.",
   "Turn on phone access first": "Activez d’abord l’accès depuis le téléphone",
   "The Server address must start with ws:// or wss://": "L’adresse du serveur doit commencer par ws:// ou wss://",
-  "Enter the Server address first": "Saisissez d’abord l’adresse du serveur",
   "This phone is not paired": "Ce téléphone n’est pas associé",
   "Another dsh has this Bot team open, so phones connect to that one": "Un autre dsh a déjà ouvert cette équipe de Bots, les téléphones s’y connectent donc",
   "This dsh runs on a Node without WebSocket": "Ce dsh s’exécute sur un Node sans WebSocket",
@@ -7702,7 +7635,6 @@ var FR = {
   "Enable": "Activer",
   "Disable": "Désactiver",
   "Remove?": "Supprimer ?",
-  "Not connected": "Non connecté",
   "Disabled": "Désactivé",
   "Capabilities": "Capacités",
   "Shared capabilities": "Capacités partagées",
@@ -7829,7 +7761,6 @@ var FR = {
   "Detected agents": "Agents détectés",
   "Refresh": "Actualiser",
   "No agent CLIs found": "Aucun CLI d’agent trouvé",
-  "Scan again for agent CLIs.": "Rechercher à nouveau des CLI d’agent.",
   "Custom agents": "Agents personnalisés",
   "ACP-compatible agents, added by command.": "Agents compatibles ACP, ajoutés par commande.",
   "Add agent": "Ajouter un agent",
@@ -7838,7 +7769,6 @@ var FR = {
   "Sign-in command copied. Run it in a terminal: {command}": "Commande de connexion copiée. Exécutez-la dans un terminal : {command}",
   "Could not copy the sign-in command. Run this in a terminal: {command}": "Impossible de copier la commande de connexion. Exécutez-la dans un terminal : {command}",
   "Found": "Trouvé",
-  "Not found": "Introuvable",
   "Arguments": "Arguments",
   "Agent": "Agent",
   "Sessions": "Sessions",
@@ -8016,7 +7946,6 @@ var FR = {
   "Name after members": "Nommer d’après les membres",
   "Rename {name}": "Renommer {name}",
   "Rename": "Renommer",
-  "No scheduled tasks yet. To add one, tell the Bot in its chat what to do and when.": "Aucune tâche planifiée. Pour en ajouter une, dites au Bot dans sa discussion quoi faire et quand.",
   "The browser is in DSH Desktop and the DS Bot app.": "Le navigateur est disponible dans DSH Desktop et l’application DS Bot.",
   "New tab": "Nouvel onglet",
   "Close tab": "Fermer l’onglet",
@@ -8030,7 +7959,6 @@ var FR = {
   "Copy of its cookies": "Copie de ses cookies",
   "No browsers found": "Aucun navigateur trouvé",
   "The Bot controls this browser": "Le Bot contrôle ce navigateur",
-  "The Bot is waiting for you": "Le Bot vous attend",
   "waits for the computer": "attend que l’ordinateur soit libre",
   "You control this browser": "Vous contrôlez ce navigateur",
   "The Bot handed this browser to you: {reason}": "Le Bot vous a confié ce navigateur : {reason}",
@@ -8339,7 +8267,6 @@ var FR = {
   "Around this message": "Autour de ce message",
   "1 match": "1 résultat",
   "{count} matches": "{count} résultats",
-  "Showing the {count} newest": "Les {count} plus récents affichés",
   "Clear search": "Effacer la recherche",
   "Results": "Résultats",
   "No results": "Aucun résultat",
@@ -8375,7 +8302,6 @@ var FR = {
   "Add an annotation…": "Ajouter une annotation…",
   "Add quote and annotation to the composer · Enter": "Ajouter la citation et l’annotation au champ · Entrée",
   "Send quote and annotation · Ctrl+Enter": "Envoyer la citation et l’annotation · Ctrl+Entrée",
-  "Quote text": "Texte de citation",
   "Footnotes": "Notes de bas de page",
   "Remove reaction {emoji}": "Retirer la réaction {emoji}",
   "Add reaction": "Ajouter une réaction",
@@ -8664,8 +8590,6 @@ var FR = {
   "{count} file changed": "{count} fichier modifié",
   "{count} files changed": "{count} fichiers modifiés",
   "File": "Fichier",
-  "Binary file": "Fichier binaire",
-  "This file is too large to preview": "Ce fichier est trop volumineux pour être affiché",
   "Review these changes": "Examiner ces modifications",
   "These changes are no longer available": "Ces modifications ne sont plus disponibles",
   "This window cannot open the change review": "Cette fenêtre ne peut pas ouvrir la revue des modifications",
@@ -8684,12 +8608,9 @@ var FR = {
   "Team memory updated": "Mémoire d’équipe mise à jour",
   "Updated {name}'s memory": "Mémoire de {name} mise à jour",
   "Memory updated. Open {name}'s memory": "Mémoire mise à jour. Ouvrir la mémoire de {name}",
-  "Close browser": "Fermer le navigateur",
   "Open browser": "Ouvrir le navigateur",
   "{name}'s browser": "Navigateur de {name}",
   "Resize panel": "Redimensionner le panneau",
-  "{name} read this page": "{name} a lu cette page",
-  "{name}'s browser. {name} can read the page shown here.": "Navigateur de {name}. {name} peut lire la page affichée ici.",
   "Back": "Précédent",
   "Forward": "Suivant",
   "Stop": "Arrêter",
@@ -8760,6 +8681,9 @@ var FR = {
   "In progress": "En cours",
   "Awaiting review": "En attente de relecture",
   "Blocked": "Bloquée",
+  "Stopped by the user": "Arrêté par l’utilisateur",
+  "Not updated after a restart": "Pas mis à jour après le redémarrage",
+  "Its model call failed ({code})": "Échec de l’appel au modèle ({code})",
   "Add a note": "Ajouter une note",
   "Cancel task": "Annuler la tâche",
   "Click again to cancel": "Cliquez encore pour annuler",
@@ -9000,9 +8924,7 @@ var FR = {
   "Some folders are not shown.": "Certains dossiers ne sont pas affichés.",
   "Waiting for sign-in…": "En attente de connexion…",
   "This service needs an app client ID": "Ce service nécessite un Client ID d’application",
-  "Open the sign-in page": "Ouvrir la page de connexion",
   "Paste the address you land on": "Collez l’adresse de redirection",
-  "Or paste the address you land on": "Ou collez l’adresse de redirection",
   "Finish sign-in": "Terminer la connexion",
   "Open {host}": "Ouvrir {host}",
   "Client ID": "Client ID",
@@ -9015,7 +8937,6 @@ var FR = {
   "{count} tools": "{count} outils",
   "Mailbox": "Boîte mail",
   "Email address": "Adresse e-mail",
-  "App password / authorization code": "Mot de passe d’application / code d’autorisation",
   "Catalog": "Catalogue",
   "App password": "Mot de passe d’application",
   "Authorization code": "Code d’autorisation",
@@ -9094,13 +9015,7 @@ var FR = {
   "IMAP host": "Serveur IMAP",
   "SMTP host": "Serveur SMTP",
   "Sign in with Google": "Se connecter avec Google",
-  "Add account": "Ajouter un compte",
-  "Add an account": "Ajouter un compte",
-  "No mail accounts yet": "Aucun compte de messagerie pour le moment",
   "Verifying…": "Vérification…",
-  "Open the Google sign-in page": "Ouvrir la page de connexion Google",
-  "Add an address": "Ajouter une adresse",
-  "Add a command": "Ajouter une commande",
   "Import from other apps": "Importer depuis d’autres applications",
   "Server address": "Adresse du serveur",
   "Command, e.g. npx -y some-mcp": "Commande, ex. npx -y some-mcp",
@@ -9116,7 +9031,6 @@ var FR = {
   "Commerce": "Commerce",
   "No connectors connected": "Aucun connecteur connecté",
   "{bot} needs {name}": "{bot} a besoin de {name}",
-  "{bot} wants to send an email": "{bot} souhaite envoyer un e-mail",
   "Mail": "E-mail",
   "Subject": "Objet",
   "Write a message…": "Écrire un message…",
@@ -9135,7 +9049,6 @@ var FR = {
   "Failed": "Échec",
   "Request failed": "Échec de la requête",
   "Permissions are not available in this DeepSeek Harness": "Les autorisations ne sont pas disponibles dans ce DeepSeek Harness",
-  "Avatar images must be PNG, JPEG, WebP, or GIF": "Les images d’avatar doivent être au format PNG, JPEG, WebP ou GIF",
   "Avatar image is too large": "L’image d’avatar est trop volumineuse",
   "A Bot needs a name": "Un Bot doit avoir un nom",
   "A Bot name cannot contain @, ` or a line break": "Le nom d’un Bot ne peut pas contenir @, ` ni de saut de ligne",
@@ -9225,7 +9138,6 @@ var FR = {
   "Needs your confirmation": "Nécessite votre confirmation",
   "Help needed on the computer": "Aide requise sur l’ordinateur",
   "You control the computer": "Vous contrôlez l’ordinateur",
-  "Stop {name}": "Arrêter {name}",
   "{name} · foreground": "{name} · premier plan",
   "{name} waits for the computer": "{name} attend que l’ordinateur soit libre",
   "Bot models": "Modèles des Bots",
@@ -9996,7 +9908,6 @@ var DE = {
   "The code works once. It stops working in {count} min.": "Der Code funktioniert einmal. Er läuft in {count} Min. ab.",
   "Turn on phone access first": "Schalte zuerst den Telefonzugriff ein",
   "The Server address must start with ws:// or wss://": "Die Serveradresse muss mit ws:// oder wss:// beginnen",
-  "Enter the Server address first": "Gib zuerst die Serveradresse ein",
   "This phone is not paired": "Dieses Telefon ist nicht gekoppelt",
   "Another dsh has this Bot team open, so phones connect to that one": "Ein anderes dsh hat dieses Bot-Team geöffnet, daher verbinden sich Telefone mit diesem",
   "This dsh runs on a Node without WebSocket": "Dieses dsh läuft auf einem Node ohne WebSocket",
@@ -10140,7 +10051,6 @@ var DE = {
   Enable: "Aktivieren",
   Disable: "Deaktivieren",
   "Remove?": "Entfernen?",
-  "Not connected": "Nicht verbunden",
   Disabled: "Deaktiviert",
   Capabilities: "Fähigkeiten",
   "Shared capabilities": "Geteilte Fähigkeiten",
@@ -10270,7 +10180,6 @@ var DE = {
   "Detected agents": "Erkannte Agenten",
   Refresh: "Aktualisieren",
   "No agent CLIs found": "Keine Agent-CLIs gefunden",
-  "Scan again for agent CLIs.": "Erneut nach Agent-CLIs suchen.",
   "Custom agents": "Benutzerdefinierte Agenten",
   "ACP-compatible agents, added by command.": "ACP-kompatible Agenten, per Befehl hinzugefügt.",
   "Add agent": "Agent hinzufügen",
@@ -10279,7 +10188,6 @@ var DE = {
   "Sign-in command copied. Run it in a terminal: {command}": "Anmeldebefehl kopiert. Führe ihn im Terminal aus: {command}",
   "Could not copy the sign-in command. Run this in a terminal: {command}": "Anmeldebefehl konnte nicht kopiert werden. Führe ihn im Terminal aus: {command}",
   Found: "Gefunden",
-  "Not found": "Nicht gefunden",
   Arguments: "Argumente",
   Agent: "Agent",
   Sessions: "Sitzungen",
@@ -10461,7 +10369,6 @@ var DE = {
   "Name after members": "Nach Mitgliedern benennen",
   "Rename {name}": "{name} umbenennen",
   Rename: "Umbenennen",
-  "No scheduled tasks yet. To add one, tell the Bot in its chat what to do and when.": "Noch keine geplanten Aufgaben. Sage dem Bot einfach im Chat, was er wann erledigen soll.",
   "The browser is in DSH Desktop and the DS Bot app.": "Der Browser ist in DSH Desktop und in der DS Bot-App verfügbar.",
   "New tab": "Neuer Tab",
   "Close tab": "Tab schließen",
@@ -10476,7 +10383,6 @@ var DE = {
   "Copy of its cookies": "Cookies kopieren",
   "No browsers found": "Keine Browser gefunden",
   "The Bot controls this browser": "Der Bot steuert diesen Browser",
-  "The Bot is waiting for you": "Der Bot wartet auf dich",
   "waits for the computer": "wartet, bis du fertig bist",
   "You control this browser": "Du steuerst diesen Browser",
   "The Bot handed this browser to you: {reason}": "Der Bot hat dir diesen Browser übergeben: {reason}",
@@ -10801,7 +10707,6 @@ var DE = {
   "Around this message": "Rund um diese Nachricht",
   "1 match": "1 Treffer",
   "{count} matches": "{count} Treffer",
-  "Showing the {count} newest": "Die {count} neuesten Treffer",
   "Clear search": "Suche löschen",
   Results: "Ergebnisse",
   "No results": "Keine Ergebnisse",
@@ -10840,7 +10745,6 @@ var DE = {
   "Add an annotation…": "Anmerkung hinzufügen…",
   "Add quote and annotation to the composer · Enter": "Zitat und Anmerkung zum Eingabefeld hinzufügen · Eingabe",
   "Send quote and annotation · Ctrl+Enter": "Zitat und Anmerkung senden · Strg+Eingabe",
-  "Quote text": "Text zitieren",
   Footnotes: "Fußnoten",
   "Remove reaction {emoji}": "Reaktion {emoji} entfernen",
   "Add reaction": "Reaktion hinzufügen",
@@ -11134,8 +11038,6 @@ var DE = {
   "{count} file changed": "{count} Datei geändert",
   "{count} files changed": "{count} Dateien geändert",
   "File": "Datei",
-  "Binary file": "Binärdatei",
-  "This file is too large to preview": "Diese Datei ist zu groß für die Vorschau",
   "Review these changes": "Änderungen prüfen",
   "These changes are no longer available": "Diese Änderungen sind nicht mehr verfügbar",
   "This window cannot open the change review": "Dieses Fenster kann die Änderungsprüfung nicht öffnen",
@@ -11155,12 +11057,9 @@ var DE = {
   "Updated {name}'s memory": "Gedächtnis von {name} aktualisiert",
   "Memory updated. Open {name}'s memory": "Gedächtnis aktualisiert. Gedächtnis von {name} öffnen",
   // Browser
-  "Close browser": "Browser schließen",
   "Open browser": "Browser öffnen",
   "{name}'s browser": "Browser von {name}",
   "Resize panel": "Leistenbreite ändern",
-  "{name} read this page": "{name} hat diese Seite gelesen",
-  "{name}'s browser. {name} can read the page shown here.": "Browser von {name}. {name} kann die hier angezeigte Seite lesen.",
   Back: "Zurück",
   Forward: "Vorwärts",
   Stop: "Stopp",
@@ -11233,6 +11132,9 @@ var DE = {
   "In progress": "In Arbeit",
   "Awaiting review": "Wartet auf Prüfung",
   Blocked: "Blockiert",
+  "Stopped by the user": "Vom Nutzer gestoppt",
+  "Not updated after a restart": "Nach dem Neustart nicht aktualisiert",
+  "Its model call failed ({code})": "Modellaufruf fehlgeschlagen ({code})",
   "Add a note": "Notiz hinzufügen",
   "Cancel task": "Aufgabe abbrechen",
   "Click again to cancel": "Erneut klicken zum Abbrechen",
@@ -11478,9 +11380,7 @@ var DE = {
   "Some folders are not shown.": "Einige Ordner werden nicht angezeigt.",
   "Waiting for sign-in…": "Wartet auf Anmeldung…",
   "This service needs an app client ID": "Dieser Dienst benötigt eine App-Client-ID",
-  "Open the sign-in page": "Anmeldeseite öffnen",
   "Paste the address you land on": "Zieladresse nach der Weiterleitung einfügen",
-  "Or paste the address you land on": "Oder füge die Zieladresse nach der Weiterleitung ein",
   "Finish sign-in": "Anmeldung abschließen",
   "Open {host}": "{host} öffnen",
   "Client ID": "Client ID",
@@ -11493,7 +11393,6 @@ var DE = {
   "{count} tools": "{count} Werkzeuge",
   "Mailbox": "Postfach",
   "Email address": "E-Mail-Adresse",
-  "App password / authorization code": "App-Passwort / Autorisierungscode",
   "Catalog": "Katalog",
   "App password": "App-Passwort",
   "Authorization code": "Autorisierungscode",
@@ -11572,13 +11471,7 @@ var DE = {
   "IMAP host": "IMAP-Server",
   "SMTP host": "SMTP-Server",
   "Sign in with Google": "Mit Google anmelden",
-  "Add account": "Konto hinzufügen",
-  "Add an account": "Konto hinzufügen",
-  "No mail accounts yet": "Noch keine E-Mail-Konten",
   "Verifying…": "Wird überprüft…",
-  "Open the Google sign-in page": "Google-Anmeldeseite öffnen",
-  "Add an address": "Adresse hinzufügen",
-  "Add a command": "Befehl hinzufügen",
   "Import from other apps": "Aus anderen Apps importieren",
   "Server address": "Serveradresse",
   "Command, e.g. npx -y some-mcp": "Befehl, z. B. npx -y some-mcp",
@@ -11594,7 +11487,6 @@ var DE = {
   "Commerce": "E-Commerce",
   "No connectors connected": "Keine Konnektoren verbunden",
   "{bot} needs {name}": "{bot} benötigt {name}",
-  "{bot} wants to send an email": "{bot} möchte eine E-Mail senden",
   "Mail": "E-Mail",
   "Subject": "Betreff",
   "Write a message…": "E-Mail-Text schreiben…",
@@ -11614,7 +11506,6 @@ var DE = {
   // HOST_ZH + lines 1601-1653
   "Request failed": "Anfrage fehlgeschlagen",
   "Permissions are not available in this DeepSeek Harness": "Berechtigungen werden in diesem DeepSeek Harness nicht unterstützt",
-  "Avatar images must be PNG, JPEG, WebP, or GIF": "Avatar-Bilder müssen im Format PNG, JPEG, WebP oder GIF vorliegen",
   "Avatar image is too large": "Das Avatar-Bild ist zu groß",
   "A Bot needs a name": "Ein Bot benötigt einen Namen",
   "A Bot name cannot contain @, ` or a line break": "Ein Bot-Name darf kein @, ` oder Zeilenumbruch enthalten",
@@ -11705,7 +11596,6 @@ var DE = {
   "Needs your confirmation": "Bestätigung erforderlich",
   "Help needed on the computer": "Hilfe am Computer benötigt",
   "You control the computer": "Du steuerst den Computer",
-  "Stop {name}": "{name} stoppen",
   "{name} · foreground": "{name} · Vordergrund",
   "{name} waits for the computer": "{name} wartet, bis du fertig bist",
   "Bot models": "Bot-Modelle",
@@ -12578,7 +12468,6 @@ var ZH = {
   Enable: "启用",
   Disable: "停用",
   "Remove?": "确认移除？",
-  "Not connected": "未连接",
   Disabled: "已停用",
   Capabilities: "能力",
   "Shared capabilities": "共享能力",
@@ -12708,7 +12597,6 @@ var ZH = {
   "Detected agents": "已检测到的 Agent",
   Refresh: "刷新",
   "No agent CLIs found": "没有找到 Agent CLI",
-  "Scan again for agent CLIs.": "重新扫描 Agent CLI。",
   "Custom agents": "自定义 Agent",
   "ACP-compatible agents, added by command.": "按命令添加的 ACP 兼容 Agent。",
   "Add agent": "添加 Agent",
@@ -12717,7 +12605,6 @@ var ZH = {
   "Sign-in command copied. Run it in a terminal: {command}": "登录命令已复制。请在终端运行：{command}",
   "Could not copy the sign-in command. Run this in a terminal: {command}": "没能复制登录命令。请在终端手动运行：{command}",
   Found: "已找到",
-  "Not found": "未找到",
   Arguments: "参数",
   Agent: "Agent",
   Sessions: "会话",
@@ -12899,7 +12786,6 @@ var ZH = {
   "Name after members": "按成员命名",
   "Rename {name}": "重命名 {name}",
   Rename: "重命名",
-  "No scheduled tasks yet. To add one, tell the Bot in its chat what to do and when.": "还没有定时任务。要添加，在对话里告诉 Bot 做什么、什么时候做。",
   "The browser is in DSH Desktop and the DS Bot app.": "浏览器在 DSH 桌面版和 DS Bot 应用里。",
   "New tab": "新标签页",
   "Close tab": "关闭标签页",
@@ -12914,7 +12800,6 @@ var ZH = {
   "Copy of its cookies": "复制它的 cookie",
   "No browsers found": "没有找到浏览器",
   "The Bot controls this browser": "Bot 正在控制此浏览器",
-  "The Bot is waiting for you": "Bot 正在等待你",
   "waits for the computer": "等你停手",
   "You control this browser": "你正在控制此浏览器",
   "The Bot handed this browser to you: {reason}": "Bot 已将此浏览器交给你：{reason}",
@@ -13282,7 +13167,6 @@ var ZH = {
   "Around this message": "这条消息的前后",
   "1 match": "1 条结果",
   "{count} matches": "{count} 条结果",
-  "Showing the {count} newest": "只显示最新 {count} 条",
   // Bot exchange
   "Bot exchange": "Bot 间对话",
   "Bot exchange transcript": "Bot 间对话记录",
@@ -13317,7 +13201,6 @@ var ZH = {
   "Add an annotation…": "写下批注…",
   "Add quote and annotation to the composer · Enter": "将引用和批注添加到输入框 · Enter",
   "Send quote and annotation · Ctrl+Enter": "发送引用和批注 · Ctrl+Enter",
-  "Quote text": "引用文本",
   Footnotes: "脚注",
   "Remove reaction {emoji}": "移除表情 {emoji}",
   "Add reaction": "添加表情",
@@ -13611,8 +13494,6 @@ var ZH = {
   "{count} files changed": "{count} 个文件改动",
   "{count} file changed": "{count} 个文件改动",
   "File": "文件",
-  "Binary file": "二进制文件",
-  "This file is too large to preview": "文件过大，无法预览",
   "Review these changes": "打开这次改动审查",
   "These changes are no longer available": "这些改动已经不可用：会话已归档或改动已被重置",
   "This window cannot open the change review": "当前窗口无法打开改动审查",
@@ -13632,12 +13513,9 @@ var ZH = {
   "Updated {name}'s memory": "已更新 {name} 的记忆",
   "Memory updated. Open {name}'s memory": "记忆已更新，打开 {name} 的记忆",
   // Browser
-  "Close browser": "关闭浏览器",
   "Open browser": "打开浏览器",
   "{name}'s browser": "{name} 的浏览器",
   "Resize panel": "调整面板宽度",
-  "{name} read this page": "{name} 读了这个页面",
-  "{name}'s browser. {name} can read the page shown here.": "{name} 的浏览器。{name} 能读取这里显示的页面。",
   Back: "后退",
   Forward: "前进",
   Stop: "停止",
@@ -13711,6 +13589,9 @@ var ZH = {
   "In progress": "进行中",
   "Awaiting review": "待审",
   Blocked: "阻塞",
+  "Stopped by the user": "用户停止",
+  "Not updated after a restart": "重启后未更新",
+  "Its model call failed ({code})": "模型调用失败（{code}）",
   "Add a note": "补一句",
   "Cancel task": "取消任务",
   "Click again to cancel": "再点一次取消",
@@ -13960,9 +13841,7 @@ var ZH = {
   "Some folders are not shown.": "还有一些文件夹没有显示。",
   "Waiting for sign-in…": "等待登录…",
   "This service needs an app client ID": "该服务需要应用 Client ID",
-  "Open the sign-in page": "打开登录页",
   "Paste the address you land on": "粘贴跳转后的地址",
-  "Or paste the address you land on": "或粘贴跳转后的地址",
   "Finish sign-in": "完成登录",
   "Open {host}": "打开 {host}",
   "Client ID": "Client ID",
@@ -13975,7 +13854,6 @@ var ZH = {
   "{count} tools": "{count} 个工具",
   "Mailbox": "邮箱",
   "Email address": "邮箱地址",
-  "App password / authorization code": "应用密码 / 授权码",
   "Catalog": "目录",
   "App password": "应用专用密码",
   "Authorization code": "授权码",
@@ -14054,13 +13932,7 @@ var ZH = {
   "IMAP host": "IMAP 服务器",
   "SMTP host": "SMTP 服务器",
   "Sign in with Google": "使用 Google 登录",
-  "Add account": "添加账户",
-  "Add an account": "添加账户",
-  "No mail accounts yet": "还没有邮箱账户",
   "Verifying…": "正在验证…",
-  "Open the Google sign-in page": "打开 Google 登录页",
-  "Add an address": "添加地址",
-  "Add a command": "添加命令",
   "Import from other apps": "从其他应用导入",
   "Server address": "服务器地址",
   "Command, e.g. npx -y some-mcp": "命令,例如 npx -y some-mcp",
@@ -14076,7 +13948,6 @@ var ZH = {
   "Commerce": "商务",
   "No connectors connected": "未连接任何连接器",
   "{bot} needs {name}": "{bot} 需要 {name}",
-  "{bot} wants to send an email": "{bot} 想发送一封邮件",
   "Mail": "邮件",
   "Subject": "主题",
   "Write a message…": "写邮件正文…",
@@ -14182,7 +14053,6 @@ var HOST_ERRORS = [
 ];
 var HOST_ZH = {
   "The Server address must start with ws:// or wss://": "服务器地址必须以 ws:// 或 wss:// 开头",
-  "Enter the Server address first": "请先填服务器地址",
   "Turn on phone access first": "请先打开手机访问",
   "This phone is not paired": "这台手机没有配对",
   "Another dsh has this Bot team open, so phones connect to that one": "另一个 dsh 打开了这个 Bot 团队，手机会连到那一个",
@@ -14190,7 +14060,6 @@ var HOST_ZH = {
   "Phones are paired and removed on the computer": "配对和删除手机只能在电脑上做",
   "Request failed": "请求失败",
   "Permissions are not available in this DeepSeek Harness": "这个 DeepSeek Harness 不支持权限设置",
-  "Avatar images must be PNG, JPEG, WebP, or GIF": "头像图片必须是 PNG、JPEG、WebP 或 GIF",
   "Avatar image is too large": "头像图片太大了",
   "A Bot needs a name": "Bot 需要一个名字",
   "A Bot name cannot contain @, ` or a line break": "Bot 名字里不能有 @、` 或换行",
@@ -14281,7 +14150,6 @@ var HOST_ZH = {
   "Needs your confirmation": "需要你确认",
   "Help needed on the computer": "需要你在电脑上帮忙",
   "You control the computer": "你在操控电脑",
-  "Stop {name}": "停止 {name}",
   "{name} · foreground": "{name} · 前台",
   "{name} waits for the computer": "{name} 等你停手"
 };
@@ -16018,7 +15886,7 @@ function writeSidebar(value, storage = globalThis.localStorage) {
 var SHELL_CSS = `
 body{--bt-im-telegram:#229ed9;--bt-im-weixin:#07c160;--bt-im-feishu:#3370ff;--bt-im-dingtalk:#1e88e5;--bt-im-wecom:#0082ef;--bt-im-qq:#e03e3e;--bt-im-discord:#5865f2;--bt-im-slack:#4a154b;--bt-im-mark-ink:#ffffff;--bt-qr-paper:#ffffff;--bt-qr-ink:#141414;--bt-ink:#141414;--bt-danger:#e02135;--bt-warn:#8a5a00;--bt-ink-2:rgba(20,20,20,.6);--bt-ink-3:rgba(20,20,20,.36);--bt-bubble:#eeeeee;--bt-sidebar:#f7f7f7;--bt-main:#fcfcfc;--bt-line:rgba(20,20,20,.08);--bt-line-2:rgba(20,20,20,.15);--bt-line-weak:rgba(20,20,20,.1);--bt-hover:rgba(119,119,119,.09);--bt-active:rgba(119,119,119,.17);--bt-card:#ffffff;--bt-accent:#4d6bfe;--bt-green:#00c972;--bt-star:#ff9800;--bt-user:#070707;--bt-user-ink:#fcfcfc;--bt-tag-bg:rgba(20,20,20,.06);--bt-tag-ink:rgba(20,20,20,.56);--bt-knob:#ffffff;--bt-glass-bg:color-mix(in srgb,var(--bt-main) 78%,transparent);--bt-glass-border:rgba(255,255,255,.72);--bt-glass-rim:rgba(20,20,20,.09);--bt-glass-shadow:0 8px 28px -6px rgba(0,0,0,.08),0 2px 6px -1px rgba(0,0,0,.04),inset 0 1px 0 rgba(255,255,255,.82);--bt-dialog-shadow:0 28px 90px -12px rgba(0,0,0,.22),0 8px 24px -4px rgba(0,0,0,.08),inset 0 1px 0 rgba(255,255,255,.78);--bt-card-shadow:0 1px 2px rgba(20,20,20,.03),inset 0 1px 0 rgba(255,255,255,.65);--bt-nav-thumb-bg:color-mix(in srgb,var(--bt-card) 82%,var(--bt-active));--bt-nav-thumb-shadow:0 1px 2px rgba(20,20,20,.06),inset 0 .5px 0 rgba(255,255,255,.8);--bt-select-arrow:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12' fill='none' stroke='%23888' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m3 4.5 3 3 3-3'/%3E%3C/svg%3E");--bt-accent-soft:color-mix(in srgb,var(--bt-accent) 14%,transparent);--bt-danger-soft:color-mix(in srgb,var(--bt-danger) 14%,transparent);--bt-danger-glow:color-mix(in srgb,var(--bt-danger) 24%,transparent);-webkit-tap-highlight-color:transparent;-webkit-text-size-adjust:100%;--bt-font:var(--dsw-font-family,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif)}
 /* iOS waits out a double-tap zoom on buttons; the plugin's own controls never zoom. */
-:is(.bt-tool,.bt-uaction,.bt-menu button,.bt-menu-item,.bt-icon-btn,.bt-round,.bt-pill,.bt-account,.bt-set-row,.bt-settings-item,.bt-react-strip button,.bt-palette-row,.bt-palette-clear,.bt-tab,.bt-ptab,.bt-ptab-x,.bt-bcard-x,.bt-plus,.bt-q-btn,.bt-q-fold,.bt-q-x,.bt-x,.bt-nc-send,.bt-send,.bt-soft,.bt-mini,.bt-side-send,.bt-shape,.bt-swatch,.bt-color,.bt-newchat,.bt-task-day,.bt-task-remove,.bt-fb-btn){touch-action:manipulation}
+:is(.bt-tool,.bt-menu button,.bt-icon-btn,.bt-round,.bt-pill,.bt-account,.bt-set-row,.bt-settings-item,.bt-react-strip button,.bt-palette-row,.bt-palette-clear,.bt-tab,.bt-ptab,.bt-ptab-x,.bt-bcard-x,.bt-plus,.bt-q-btn,.bt-q-fold,.bt-q-x,.bt-x,.bt-nc-send,.bt-send,.bt-soft,.bt-mini,.bt-side-send,.bt-shape,.bt-swatch,.bt-color,.bt-newchat,.bt-task-day,.bt-task-remove){touch-action:manipulation}
 :is(.bt-round,.bt-you,.bt-account,.bt-color,.bt-color span,.bt-swatch,.bt-icon-btn,.bt-avatar-trigger,.bt-avatar-pencil,.bt-plus,.bt-mic,.bt-voice,.bt-task-day,.bt-task-off-mark){corner-shape:round}
 body[data-ds-dark-theme]{--bt-im-telegram:#2ea8de;--bt-im-weixin:#17c96a;--bt-im-feishu:#4d84ff;--bt-im-dingtalk:#3d99ed;--bt-im-wecom:#2898f2;--bt-im-qq:#e85555;--bt-im-discord:#6e7bf2;--bt-im-slack:#7c4380;--bt-im-mark-ink:#ffffff;--bt-ink:#f2f2f2;--bt-ink-2:rgba(242,242,242,.6);--bt-ink-3:rgba(242,242,242,.36);--bt-bubble:#262626;--bt-sidebar:#1b1b1b;--bt-main:#141414;--bt-line:rgba(255,255,255,.08);--bt-line-2:rgba(255,255,255,.15);--bt-line-weak:rgba(255,255,255,.1);--bt-hover:rgba(160,160,160,.12);--bt-active:rgba(160,160,160,.2);--bt-card:#1f1f1f;--bt-user:#f2f2f2;--bt-user-ink:#141414;--bt-tag-bg:rgba(255,255,255,.09);--bt-tag-ink:rgba(242,242,242,.62);--bt-glass-bg:color-mix(in srgb,var(--bt-main) 74%,transparent);--bt-glass-border:rgba(255,255,255,.13);--bt-glass-rim:rgba(255,255,255,.11);--bt-glass-shadow:0 12px 32px -6px rgba(0,0,0,.42),0 2px 8px -1px rgba(0,0,0,.28),inset 0 1px 0 rgba(255,255,255,.12);--bt-dialog-shadow:0 32px 96px -12px rgba(0,0,0,.62),0 10px 28px -4px rgba(0,0,0,.42),inset 0 1px 0 rgba(255,255,255,.1);--bt-card-shadow:0 1px 3px rgba(0,0,0,.22),inset 0 .5px 0 rgba(255,255,255,.07);--bt-nav-thumb-bg:color-mix(in srgb,var(--bt-card) 65%,var(--bt-active));--bt-nav-thumb-shadow:0 1px 3px rgba(0,0,0,.28),inset 0 .5px 0 rgba(255,255,255,.12);--bt-accent-soft:color-mix(in srgb,var(--bt-accent) 18%,transparent);--bt-danger-soft:color-mix(in srgb,var(--bt-danger) 18%,transparent);--bt-danger-glow:color-mix(in srgb,var(--bt-danger) 28%,transparent);--bt-warn:#f0b84a}
 ${Object.entries(INKS).map(([name, [light]]) => `body{--bt-ink-${name}:${light}}`).join("")}
@@ -16195,7 +16063,6 @@ html[data-bt-collapsing] [class*="_frame"]:has(>[class*="_sidebarCol"]){transiti
 .bt-leftcol[data-left=rail][data-folding]>.bt-side{width:var(--bt-lc-w);margin-inline:auto}
 .bt-dot{position:absolute;top:4px;right:8px;width:8px;height:8px;border-radius:50%;background:var(--bt-accent);box-shadow:0 0 0 1.5px var(--bt-sidebar)}
 .bt-dot-wait{background:var(--bt-star)}
-.bt-side-foot{display:flex;padding-top:8px}
 
 .bt-head{position:relative;display:flex;justify-content:center;align-items:center;height:40px;flex:none;pointer-events:none}
 .bt-pill{pointer-events:auto;display:inline-flex;align-items:center;gap:8px;height:40px;padding:7.5px 13.5px 7.5px 7.5px;border-radius:999px;background:var(--bt-glass-bg);-webkit-backdrop-filter:blur(20px) saturate(180%);backdrop-filter:blur(20px) saturate(180%);border:.5px solid var(--bt-glass-rim);box-shadow:var(--bt-glass-shadow);color:var(--bt-ink);font-family:inherit;font-size:14px;line-height:20px;cursor:pointer;max-width:70%;box-sizing:border-box;transition:background-color .12s ease,transform ${SPRING_TAP.duration}ms ${SPRING_TAP.easing}}
@@ -16496,7 +16363,6 @@ html[data-windows-titlebar]:not([data-fullscreen]) :is(.bt-pane,.bt-panel)::befo
 .bt-swatches{display:flex;flex-wrap:wrap;gap:6px}
 .bt-swatch{width:22px;height:22px;border-radius:50%;border:2px solid transparent;cursor:pointer;padding:0;box-shadow:inset 0 0 0 1px var(--bt-line-2)}
 .bt-swatch[aria-pressed=true]{border-color:var(--bt-ink);box-shadow:inset 0 0 0 2px var(--bt-card)}
-.bt-textarea{width:100%;box-sizing:border-box;min-height:120px;border:.5px solid var(--bt-line-2);border-radius:8px;padding:8px 10px;background:var(--bt-card);color:var(--bt-ink);font:inherit;resize:vertical;transition:border-color .14s ease,box-shadow .14s ease}
 .bt-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 .bt-kv{display:flex;justify-content:space-between;gap:8px;font-size:12px;line-height:20px;color:var(--bt-ink-2)}
 .bt-kv span:last-child{color:var(--bt-ink);font-variant-numeric:tabular-nums}
@@ -16513,7 +16379,6 @@ html[data-windows-titlebar]:not([data-fullscreen]) :is(.bt-pane,.bt-panel)::befo
 .bt-input-area{height:auto;min-height:96px;padding:8px 11px;line-height:18px;resize:vertical}
 .bt-note{font-size:12px;line-height:16px;color:var(--bt-ink-3)}
 .bt-soft-sm{height:28px;padding:0 12px;font-size:12px;font-weight:500}
-.bt-set-avatar{display:flex;justify-content:center;padding:4px 0}
 .bt-avatar-anchor{position:relative}
 .bt-avatar-trigger{position:relative;width:64px;height:64px;border:0;border-radius:50%;background:none;cursor:pointer;padding:0}
 .bt-avatar-pencil{position:absolute;right:-2px;bottom:-2px;width:22px;height:22px;border-radius:50%;background:var(--bt-main);border:1px solid var(--bt-line-2);color:var(--bt-ink-2);display:flex;align-items:center;justify-content:center;box-shadow:0 1px 4px rgba(0,0,0,.12)}
@@ -16581,6 +16446,10 @@ body[data-ds-dark-theme] .bt-scrim{background:rgba(0,0,0,.5)}
 .bt-settings-nav{overflow-y:auto;scrollbar-width:thin}
 .bt-settings-rule{flex:none;height:.5px;margin:6px 8px;background:var(--bt-line)}
 .bt-settings-icon{display:inline-flex;flex:none;width:16px;height:16px;align-items:center;justify-content:center;transition:color .14s ease}
+/* Plugin legacy nav decorators must not duplicate or hide the slot's icon. */
+.bt-settings-item:has(>.bt-settings-icon)::before{content:none!important}
+/* Undo Skills Manager's [attr] svg{display:none!important} on the slot's own icon. */
+.bt-settings-icon>[data-slot="settings.section.icon"]>svg{display:block!important}
 .bt-settings-actions{margin-left:auto;display:flex;align-items:center;gap:8px;min-width:0}
 .bt-settings-actions:empty{display:none}
 .bt-dsh-section{min-width:0}
@@ -16640,7 +16509,6 @@ button.bt-set-row:hover .bt-chevron{transform:translateX(2px);color:var(--bt-ink
 .bt-set-number{width:112px}
 .bt-set-places .bt-set-hint{overflow-wrap:anywhere}
 .bt-set-hint.bt-danger{color:var(--bt-danger)}
-.bt-set-value{font-size:13px;color:var(--bt-ink-2);text-align:right}
 .bt-set-bot{flex:1;display:flex;align-items:center;gap:10px;min-width:0}
 .bt-browser-note{margin:0;padding:12px 16px;color:var(--bt-ink-2);font-size:12px;line-height:18px}
 .bt-browser-grant{display:flex;align-items:center;gap:12px;padding:12px 16px}
@@ -16810,6 +16678,10 @@ html:not([data-windows-titlebar]) [class*="_footArea"],:not([class*="_collapsed"
 .bt-msg-line>.bt-bubble{max-width:none;min-width:0}
 /* The same bubble width as beside an avatar column: the share of (100% - 30px), plus the 30px. */
 .bt-astack[data-lead]>.bt-msg{max-width:min(calc(var(--bt-msg-w) * (100% - 30px) + 30px),calc(100% - 82px))}
+@media (hover:none){
+  .bt-bubble,.bt-msg{max-width:calc(var(--bt-msg-w) * 100%)}
+  .bt-astack[data-lead]>.bt-msg{max-width:calc(var(--bt-msg-w) * (100% - 30px) + 30px)}
+}
 /* The indent of earlier rows comes out of their line, so their toolbar keeps its 82px too. */
 .bt-astack[data-lead]>.bt-msg:not(:last-child)>.bt-msg-line{max-width:calc(100% - 30px)}
 .bt-tools{position:absolute;bottom:0;z-index:0;left:100%;margin-left:6px;display:flex;gap:2px;opacity:0;visibility:hidden;transition:opacity .12s ease,visibility .12s}
@@ -16939,41 +16811,23 @@ button:hover .bt-you{background:color-mix(in srgb,var(--bt-ink) 9%,var(--bt-side
 @media (prefers-reduced-motion:reduce){.bt-menu,.bt-avedit,.bt-react-strip{animation:bt-fade .1s ease-out}.bt-react-strip button,.bt-q-check,.bt-color[aria-pressed=true] span{animation:none}}
 .bt-brand:hover{background:var(--bt-hover)}
 .bt-drop-list{position:relative;display:flex;flex-direction:column;gap:2px}
-.bt-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:4px}
-.bt-pick{display:flex;flex-direction:column;align-items:center;gap:4px;padding:7px 2px 6px;border-radius:10px;border:1px solid transparent;background:none;color:var(--bt-ink);cursor:pointer;font:inherit;font-size:11px;line-height:14px;min-width:0}
-.bt-pick:hover{background:var(--bt-hover)}
-.bt-pick[aria-pressed=true]{border-color:var(--bt-line-2);background:var(--bt-hover)}
-.bt-pick>span:last-child:not(.bt-mark){max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.bt-pick:hover .bt-mark[data-state=idle] .bt-eye{animation:bt-blink .5s linear 1}
 .bt-select{-webkit-appearance:none;appearance:none;width:auto;min-width:148px;max-width:100%;height:34px;box-sizing:border-box;border-radius:8px;border:.5px solid var(--bt-line-2);background-color:var(--bt-hover);background-image:var(--bt-select-arrow);background-repeat:no-repeat;background-position:right 10px center;color:var(--bt-ink);padding:0 30px 0 12px;font:inherit;font-size:13px;font-weight:450;cursor:pointer;outline:none;transition:background-color .14s ease,border-color .14s ease,box-shadow .14s ease}
 .bt-select:hover:not(:disabled){background-color:var(--bt-active)}
 .bt-select:disabled{opacity:.45;cursor:default}
-:is(.bt-input,.bt-select,.bt-textarea):focus-visible{border-color:var(--bt-accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--bt-accent) 22%,transparent)}
-:is(.bt-round,.bt-icon-btn,.bt-soft,.bt-send,.bt-mini,.bt-pill,.bt-plus,.bt-mic,.bt-voice,.bt-account,.bt-title-toggle,.bt-settings-close,.bt-avatar-trigger,.bt-shape,.bt-color,.bt-swatch,.bt-pick,.bt-more,.bt-mem-row,.bt-mem-send):focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
+:is(.bt-input,.bt-select):focus-visible{border-color:var(--bt-accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--bt-accent) 22%,transparent)}
+:is(.bt-round,.bt-icon-btn,.bt-soft,.bt-send,.bt-mini,.bt-pill,.bt-plus,.bt-mic,.bt-voice,.bt-account,.bt-title-toggle,.bt-settings-close,.bt-avatar-trigger,.bt-shape,.bt-color,.bt-swatch,.bt-more,.bt-mem-row,.bt-mem-send):focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
 :is(.bt-row,.bt-tile,.bt-tab,.bt-avedit-tab,.bt-settings-item,.bt-menu button,.bt-option,.bt-palette-row,button.bt-set-row):focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px}
 .bt-note{font-size:12px;line-height:16px;color:var(--bt-ink-2);margin-top:6px}
 .bt-set-hint .bt-note.bt-danger{color:var(--bt-danger)}
-.bt-swatch-sep{width:1px;height:22px;background:var(--bt-line-2);margin:0 2px}
 .bt-swatch-custom{position:relative;overflow:hidden;background:conic-gradient(#ff3e51,#ffaf38,#00c972,#1cc3b0,#2a92fe,#a97efe,#ff5eb1,#ff3e51);box-sizing:border-box}
 .bt-swatch-custom[data-on=true]{border-color:var(--bt-ink)}
 .bt-swatch-custom input{position:absolute;inset:-4px;width:calc(100% + 8px);height:calc(100% + 8px);opacity:0;cursor:pointer;border:0;padding:0}
 .bt-swatch-default{background:linear-gradient(135deg,var(--bt-card) 0 46%,var(--bt-line-2) 46% 54%,var(--bt-card) 54%);box-shadow:inset 0 0 0 1px var(--bt-line-2)}
-.bt-states{display:flex;flex-wrap:wrap;gap:4px}
-.bt-state{border:1px solid var(--bt-line);background:none;border-radius:999px;font:inherit;font-size:11px;line-height:16px;padding:2px 8px;color:var(--bt-ink-2);cursor:pointer}
-.bt-state:hover{color:var(--bt-ink)}
-.bt-state[aria-pressed=true]{background:var(--bt-active);border-color:var(--bt-line-2);color:var(--bt-ink)}
-.bt-theme-chip{position:relative;width:46px;height:30px;border-radius:8px;box-shadow:inset 0 0 0 1px var(--bt-line-2);background:linear-gradient(90deg,var(--ls) 0 36%,var(--lb) 36%);overflow:hidden}
-.bt-theme-chip i{position:absolute;right:7px;bottom:7px;width:10px;height:10px;border-radius:50%;background:var(--la)}
-body[data-ds-dark-theme] .bt-theme-chip{background:linear-gradient(90deg,var(--ds) 0 36%,var(--db) 36%)}
-body[data-ds-dark-theme] .bt-theme-chip i{background:var(--da)}
 .bt-tabs{flex-wrap:wrap}
 .bt-soft:disabled{opacity:.4;cursor:default}
 .bt-group-role{margin-left:6px;font-size:11px;line-height:14px;padding:1px 5px;border-radius:4px;background:var(--bt-tag-bg);color:var(--bt-tag-ink);vertical-align:1px}
 .bt-mini{flex:none;border:0;background:none;border-radius:6px;padding:2px 6px;font:inherit;font-size:12px;line-height:18px;color:var(--bt-ink-2);cursor:pointer}
 .bt-mini:hover{background:var(--bt-active);color:var(--bt-ink)}
-.bt-add{color:var(--bt-ink-2);margin-top:2px}
-.bt-add:hover,.bt-addlist .bt-option:hover{background:var(--bt-hover);color:var(--bt-ink)}
-.bt-addlist{display:flex;flex-direction:column;margin-top:4px;padding:4px;border:1px solid var(--bt-line);border-radius:10px;background:var(--bt-card);animation:bt-rise .16s ease-out}
 .bt-seg{position:relative;display:flex;gap:2px;padding:2px;border-radius:10px;background:var(--bt-hover)}
 .bt-motion-seg,.bt-look-seg{width:216px}
 /* A range input: the track fills with the accent up to the thumb (--bt-fill). */
@@ -16993,7 +16847,6 @@ body[data-ds-dark-theme] .bt-theme-chip i{background:var(--da)}
 .bt-seg>.bt-thumb{top:2px;bottom:2px;border-radius:8px;background:var(--bt-card);box-shadow:0 1px 3px rgba(0,0,0,.08)}
 .bt-seg[data-glide] button[aria-pressed=true]{background:transparent;box-shadow:none}
 @keyframes bt-rise{from{opacity:0;transform:translateY(-3px)}to{opacity:1;transform:none}}
-@media (prefers-reduced-motion:reduce){.bt-addlist{animation:none}}
 
 /* Memory dialog: a summary of every entry, the entries behind the menu, "Ask or update" below. */
 .bt-mem-row{display:flex;align-items:center;gap:8px;width:100%;height:36px;padding:0 8px 0 10px;border:.5px solid var(--bt-line-2);border-radius:10px;background:var(--bt-card);color:var(--bt-ink);font:inherit;font-size:13px;cursor:pointer;box-sizing:border-box;transition:background-color .12s ease}
@@ -17108,9 +16961,9 @@ body[data-ds-dark-theme] .bt-theme-chip i{background:var(--da)}
 .bt-panel-view>.bt-drawer-body[data-move=tab]{animation:bt-veil-in .2s ease-out}
 .bt-drawer-name-input{animation:bt-veil-in .16s ease-out}
 .bt-pop-in{display:inline-flex;animation:bt-check-pop ${SPRING_POP.duration}ms ${SPRING_POP.easing}}
-:is(.bt-soft,.bt-send,.bt-icon-btn,.bt-settings-close,.bt-mini,.bt-tab,.bt-nc-send,.bt-avedit-tab,.bt-shape,.bt-pick,.bt-swatch,.bt-palette-clear){transition:background-color .12s ease,color .12s ease,border-color .12s ease,opacity .12s ease,${spring(SPRING_TAP, "scale")}}
+:is(.bt-soft,.bt-send,.bt-icon-btn,.bt-settings-close,.bt-mini,.bt-tab,.bt-nc-send,.bt-avedit-tab,.bt-shape,.bt-swatch,.bt-palette-clear){transition:background-color .12s ease,color .12s ease,border-color .12s ease,opacity .12s ease,${spring(SPRING_TAP, "scale")}}
 :is(.bt-icon-btn,.bt-settings-close,.bt-nc-send,.bt-shape,.bt-swatch,.bt-color,.bt-x,.bt-q-x,.bt-palette-clear):active:not(:disabled){scale:.9}
-:is(.bt-soft,.bt-send,.bt-mini,.bt-tab,.bt-avedit-tab,.bt-pick,.bt-q-submit,.bt-q-btn):active:not(:disabled){scale:.96}
+:is(.bt-soft,.bt-send,.bt-mini,.bt-tab,.bt-avedit-tab,.bt-q-submit,.bt-q-btn):active:not(:disabled){scale:.96}
 @media (prefers-reduced-motion:reduce){.bt-thumb{transition:none}.bt-panel-view>[data-move],.bt-drawer-name-input,.bt-veil,.bt-pop-in,.bt-token,.bt-drop,.bt-newchat,.bt-option-hint,.bt-connector-form,.bt-settings-head>*{animation:none}}
 /* Phone-width viewports: the settings dialog takes the whole screen, its page
    list becomes a horizontal strip across the top, and fixed-width pages wrap
@@ -17164,7 +17017,7 @@ body[data-bt-effects=reduced] .bt-mark:not([data-state=done]):not([data-state=al
 body[data-bt-effects=reduced][data-bt-motion=lively] .bt-mark[data-state=alert] :is(.bt-b,.bt-mark-img){animation-iteration-count:1!important}
 body[data-bt-effects=off] [class*="_centerCol"]{transition:none!important}
 body[data-bt-effects=off] :is([class^="bt-"],[class*=" bt-"]):not(.bt-spin):not(.bt-model-spin):not(.bt-mem-spin):not(.bt-loading-spin),body[data-bt-effects=off] :is([class^="bt-"],[class*=" bt-"]) *:not(.bt-spin):not(.bt-model-spin):not(.bt-mem-spin):not(.bt-loading-spin),body[data-bt-effects=off] :is([class^="bt-"],[class*=" bt-"])::before,body[data-bt-effects=off] :is([class^="bt-"],[class*=" bt-"])::after,body[data-bt-effects=off] :is([class^="bt-"],[class*=" bt-"]) *::before,body[data-bt-effects=off] :is([class^="bt-"],[class*=" bt-"]) *::after{animation:none!important;transition:none!important}
-body[data-bt-effects=off] :is(.bt-settings-layer,.bt-mem-layer,.bt-palette-layer,.bt-layer,.bt-panel,.bt-dialog,.bt-scrim,.bt-menu,.bt-drop,.bt-toast,.bt-avedit,.bt-react-strip,.bt-app,.bt-us):not(.bt-spin):not(.bt-model-spin):not(.bt-mem-spin):not(.bt-loading-spin),body[data-bt-effects=off] :is(.bt-settings-layer,.bt-mem-layer,.bt-palette-layer,.bt-layer,.bt-panel,.bt-dialog,.bt-scrim,.bt-menu,.bt-drop,.bt-toast,.bt-avedit,.bt-react-strip,.bt-app,.bt-us) *:not(.bt-spin):not(.bt-model-spin):not(.bt-mem-spin):not(.bt-loading-spin),body[data-bt-effects=off] :is(.bt-settings-layer,.bt-mem-layer,.bt-palette-layer,.bt-layer,.bt-panel,.bt-dialog,.bt-scrim,.bt-menu,.bt-drop,.bt-toast,.bt-avedit,.bt-react-strip,.bt-app,.bt-us)::before,body[data-bt-effects=off] :is(.bt-settings-layer,.bt-mem-layer,.bt-palette-layer,.bt-layer,.bt-panel,.bt-dialog,.bt-scrim,.bt-menu,.bt-drop,.bt-toast,.bt-avedit,.bt-react-strip,.bt-app,.bt-us)::after,body[data-bt-effects=off] :is(.bt-settings-layer,.bt-mem-layer,.bt-palette-layer,.bt-layer,.bt-panel,.bt-dialog,.bt-scrim,.bt-menu,.bt-drop,.bt-toast,.bt-avedit,.bt-react-strip,.bt-app,.bt-us) *::before,body[data-bt-effects=off] :is(.bt-settings-layer,.bt-mem-layer,.bt-palette-layer,.bt-layer,.bt-panel,.bt-dialog,.bt-scrim,.bt-menu,.bt-drop,.bt-toast,.bt-avedit,.bt-react-strip,.bt-app,.bt-us) *::after{animation:none!important;transition:none!important}
+body[data-bt-effects=off] :is(.bt-settings-layer,.bt-mem-layer,.bt-palette-layer,.bt-panel,.bt-dialog,.bt-scrim,.bt-menu,.bt-drop,.bt-toast,.bt-avedit,.bt-react-strip,.bt-app,.bt-us):not(.bt-spin):not(.bt-model-spin):not(.bt-mem-spin):not(.bt-loading-spin),body[data-bt-effects=off] :is(.bt-settings-layer,.bt-mem-layer,.bt-palette-layer,.bt-panel,.bt-dialog,.bt-scrim,.bt-menu,.bt-drop,.bt-toast,.bt-avedit,.bt-react-strip,.bt-app,.bt-us) *:not(.bt-spin):not(.bt-model-spin):not(.bt-mem-spin):not(.bt-loading-spin),body[data-bt-effects=off] :is(.bt-settings-layer,.bt-mem-layer,.bt-palette-layer,.bt-panel,.bt-dialog,.bt-scrim,.bt-menu,.bt-drop,.bt-toast,.bt-avedit,.bt-react-strip,.bt-app,.bt-us)::before,body[data-bt-effects=off] :is(.bt-settings-layer,.bt-mem-layer,.bt-palette-layer,.bt-panel,.bt-dialog,.bt-scrim,.bt-menu,.bt-drop,.bt-toast,.bt-avedit,.bt-react-strip,.bt-app,.bt-us)::after,body[data-bt-effects=off] :is(.bt-settings-layer,.bt-mem-layer,.bt-palette-layer,.bt-panel,.bt-dialog,.bt-scrim,.bt-menu,.bt-drop,.bt-toast,.bt-avedit,.bt-react-strip,.bt-app,.bt-us) *::before,body[data-bt-effects=off] :is(.bt-settings-layer,.bt-mem-layer,.bt-palette-layer,.bt-panel,.bt-dialog,.bt-scrim,.bt-menu,.bt-drop,.bt-toast,.bt-avedit,.bt-react-strip,.bt-app,.bt-us) *::after{animation:none!important;transition:none!important}
 body[data-bt-effects=off] :is(.bt-spin,.bt-model-spin,.bt-mem-spin,.bt-loading-spin){animation-timing-function:steps(8)!important;transition:none!important}
 `;
 var CONVERSATION_CSS = `
@@ -17491,8 +17344,6 @@ div:has(> nav [class*="_marks"]){display:none!important}
 .bt-btw-q{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;line-height:18px}
 .bt-btw[data-open] .bt-btw-q{white-space:normal}
 .bt-btw-time,.bt-btw-status{flex:none;color:var(--bt-ink-3);font-size:11px;line-height:14px;font-variant-numeric:tabular-nums}
-.bt-btw-cancel{margin-left:auto}
-.bt-btw-cancel:disabled{opacity:.55;cursor:default}
 .bt-btw-delete{flex:none;margin:-4px}
 .bt-btw-note{margin:4px 0 0;color:var(--bt-ink-3);font-size:12px;line-height:16px}
 .bt-btw-body{margin-top:6px}
@@ -23198,13 +23049,6 @@ function useEfforts(served, ref, actions) {
   }, [ref, served?.reasoning !== void 0, actions]);
   return served?.reasoning ?? fetched;
 }
-function effortRows(reasoning) {
-  if (reasoning?.efforts === void 0 || reasoning.efforts.length === 0) return [];
-  return [
-    { effort: void 0, label: t("Default") },
-    ...reasoning.efforts.map((effort) => ({ effort: effort.id, label: effort.name }))
-  ];
-}
 function effortStops(reasoning) {
   const efforts = reasoning?.efforts ?? [];
   if (efforts.length === 0) return [];
@@ -24223,7 +24067,7 @@ function useLocalAgents(wanted) {
   (0, import_react22.useEffect)(() => {
     if (wanted && view === null) void load("local-agents");
   }, [wanted]);
-  const agents = view === null ? [] : [...view.detected, ...view.custom.map((agent) => ({ route: agent.route, name: agent.name, command: agent.command, args: agent.args, signedIn: null }))];
+  const agents = view === null ? [] : [...view.detected, ...view.custom.filter((agent) => agent.available !== false).map((agent) => ({ route: agent.route, name: agent.name, command: agent.command, args: agent.args, signedIn: null }))];
   return { agents, known: view !== null, scanning, refresh: () => load("local-agent-refresh") };
 }
 var shortVersion = (version) => {
@@ -27530,9 +27374,6 @@ ${opened.marker}`,
     codeHead: lines.slice(opened.line + 1).join("\n"),
     code: blockCode(body, opened.line, opened.marker)
   };
-}
-function foldPreview(text, limit = FOLD_AT, markdown = true) {
-  return foldView(text, limit, markdown)?.head ?? null;
 }
 var stripLongNote = (text) => text.replace(/^\[A long message: \d+ characters\.[^\]\n]*\]\n/, "");
 function useFold(text, { limit = FOLD_AT, whole, live = false, markdown = true } = {}) {
@@ -41821,6 +41662,7 @@ body[data-ds-dark-theme] .bt-member-state.bt-mw-ask{color:#f0b84a}
 var import_react68 = require("react");
 var OPEN = ["active", "review", "blocked"];
 var STATUS_KEY = { active: "In progress", review: "Awaiting review", blocked: "Blocked", done: "Done", cancelled: "Cancelled" };
+var blockedLine = (blocked) => blocked.cause === "stopped" ? t("Stopped by the user") : blocked.cause === "restarted" ? t("Not updated after a restart") : t("Its model call failed ({code})", { code: `${blocked.code}${blocked.status ? ` ${blocked.status}` : ""}` });
 function TaskRow3({ task, bot, room: room2, actions }) {
   const [writing, setWriting] = (0, import_react68.useState)(false);
   const [text, setText] = (0, import_react68.useState)("");
@@ -41873,6 +41715,7 @@ function TaskRow3({ task, bot, room: room2, actions }) {
     ),
     (0, import_react68.createElement)("div", { className: "bt-task-goal" }, task.goal),
     open && task.progress ? (0, import_react68.createElement)("div", { className: "bt-task-progress" }, task.progress) : null,
+    task.status === "blocked" && task.blocked ? (0, import_react68.createElement)("div", { className: "bt-task-reason" }, blockedLine(task.blocked)) : null,
     !open && task.result ? (0, import_react68.createElement)("div", { className: "bt-task-result" }, task.result) : null,
     !open && task.reason ? (0, import_react68.createElement)("div", { className: "bt-task-reason" }, task.reason) : null,
     lastNote ? (0, import_react68.createElement)("div", { className: "bt-task-note" }, t("Note: {text}", { text: lastNote.text })) : null,
