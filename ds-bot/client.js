@@ -16472,6 +16472,10 @@ body[data-ds-dark-theme] .bt-scrim{background:rgba(0,0,0,.5)}
 .bt-settings-nav{overflow-y:auto;scrollbar-width:thin}
 .bt-settings-rule{flex:none;height:.5px;margin:6px 8px;background:var(--bt-line)}
 .bt-settings-icon{display:inline-flex;flex:none;width:16px;height:16px;align-items:center;justify-content:center;transition:color .14s ease}
+/* Plugin legacy nav decorators must not duplicate or hide the slot's icon. */
+.bt-settings-item:has(>.bt-settings-icon)::before{content:none!important}
+/* Undo Skills Manager's [attr] svg{display:none!important} on the slot's own icon. */
+.bt-settings-icon>[data-slot="settings.section.icon"]>svg{display:block!important}
 .bt-settings-actions{margin-left:auto;display:flex;align-items:center;gap:8px;min-width:0}
 .bt-settings-actions:empty{display:none}
 .bt-dsh-section{min-width:0}
