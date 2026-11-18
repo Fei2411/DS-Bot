@@ -1937,3 +1937,48 @@ test('a failed update keeps the network reason and redacts a secret as it appear
     return true
   })
 })
+
+test('IM service accounts cannot enter the user prompt route, and a platform event is submitted once', async (t) => {
+  const s = await start()
+  t.after(s.stop)
+  await add(s)
+  await dm(s, 'u1', 'hello')
+  const conn = Object.values(s.rt.state.im.connections)[0]
+  await s.rt.imEndpoint('im-pair', { id: conn.id, senderId: 'u1', allow: true })
+  await dm(s, 'u1', 'Automated echo', { sender: { id: 'u1', name: 'Bot account', bot: true } })
+  assert.equal(s.prompts.length, 0)
+  await Promise.all([dm(s, 'u1', 'Human prompt', { messageId: 'm-1' }), dm(s, 'u1', 'Human prompt', { messageId: 'm-1' })])
+  assert.equal(s.prompts.length, 1)
+})
+
+test('a read-only host tells the IM sender that nothing ran, and a retry later is admitted', async (t) => {
+  const s = await start()
+  t.after(s.stop)
+  await add(s)
+  await dm(s, 'u1', 'hello')
+  const conn = Object.values(s.rt.state.im.connections)[0]
+  await s.rt.imEndpoint('im-pair', { id: conn.id, senderId: 'u1', allow: true })
+  const real = s.rt.readOnly
+  s.rt.readOnly = () => 'The team is open elsewhere'
+  await dm(s, 'u1', 'start this', { messageId: 'm-readonly' })
+  s.rt.readOnly = real
+  assert.equal(s.prompts.length, 0, 'no turn starts while the host is read-only')
+  assert.match(s.fake.sent.at(-1).text, /read-only/i)
+  await dm(s, 'u1', 'start this', { messageId: 'm-readonly' })
+  assert.equal(s.prompts.length, 1, 'the refused message left no receipt behind')
+})
+
+test('an IM event whose earlier outcome is unknown is reported instead of sent again', async (t) => {
+  const s = await start()
+  t.after(s.stop)
+  await add(s)
+  await dm(s, 'u1', 'hello')
+  const conn = Object.values(s.rt.state.im.connections)[0]
+  await s.rt.imEndpoint('im-pair', { id: conn.id, senderId: 'u1', allow: true })
+  const event = s.rt.requestIdentity({ caller: `im:${conn.id}`, context: 'dm-u1', name: 'm-unknown', payload: 'u1' })
+  s.rt.state.requests[event.key] = { fingerprint: event.print, outcome: 'pending', at: Date.now(), run: 'another-run' }
+  await s.rt.save()
+  await dm(s, 'u1', 'do the thing', { messageId: 'm-unknown' })
+  assert.equal(s.prompts.length, 0)
+  assert.match(s.fake.sent.at(-1).text, /could not confirm/i)
+})

@@ -20,7 +20,7 @@ runInNewContext(outputFiles[0].text, {
   module, exports: module.exports,
   require: name => (name === 'react' ? react : name === 'react-dom' ? { createPortal: node => node } : {}),
 })
-const { BotSettingsForm, BotResponseCard, InlineText } = module.exports
+const { BotSettingsForm, BotResponseCard, InlineText, ResponsibilityCard } = module.exports
 
 function walk(node, found = []) {
   if (Array.isArray(node)) { for (const child of node) walk(child, found); return found }
@@ -164,4 +164,46 @@ test('reset goes back to the default, and the Bot settings carry the card', () =
   reset.props.onClick()
   assert.deepEqual(saved, [null])
   assert.ok(settings({ ...bot, botResponse: { mode: 'off' } }).some(node => node.type === BotResponseCard))
+})
+
+test('selecting, editing, and restoring a responsibility requires Apply', async () => {
+  const slots = []
+  let cursor = 0
+  const original = react.useState
+  react.useState = initial => {
+    const slot = cursor++
+    if (!(slot in slots)) slots[slot] = initial
+    return [slots[slot], value => { slots[slot] = value }]
+  }
+  try {
+    const saved = []
+    const settings = { ...bot, instructions: 'Original user instructions' }
+    const render = () => {
+      cursor = 0
+      const nodes = walk(ResponsibilityCard({ bot: settings, coordinator: true, onSave: async patch => { saved.push(patch) } }))
+      return {
+        select: nodes.find(node => node.type === 'select'),
+        instructions: nodes.find(node => node.type === 'textarea'),
+        apply: nodes.find(node => node.type === 'button' && node.props.children.includes('Apply responsibility')),
+        categories: nodes.filter(node => node.props.role === 'checkbox' && node.props['aria-checked']).map(node => node.props.children[0]),
+      }
+    }
+    assert.equal(render().select.props.value, 'custom')
+    assert.equal(render().instructions.props.value, 'Original user instructions')
+    assert.equal(render().apply, undefined)
+    render().select.props.onChange({ target: { value: 'coding' } })
+    assert.match(render().instructions.props.value, /Implement/)
+    assert.deepEqual(render().categories, ['Coding'])
+    render().instructions.props.onChange({ target: { value: 'Use the local test harness.' } })
+    assert.equal(saved.length, 0)
+    await render().apply.props.onClick()
+    assert.equal(saved[0].instructions, 'Use the local test harness.')
+    assert.equal(saved[0].responsibility.custom.instructions, 'Original user instructions')
+    Object.assign(settings, saved[0])
+    render().select.props.onChange({ target: { value: 'custom' } })
+    assert.equal(render().instructions.props.value, 'Original user instructions')
+    assert.equal(saved.length, 1)
+  } finally {
+    react.useState = original
+  }
 })

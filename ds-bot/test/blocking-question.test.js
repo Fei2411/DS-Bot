@@ -330,8 +330,8 @@ test('Bot Sessions filter the hidden tools and their guidance out of the prompt 
 })
 
 // DSH 0.2.2's schedule tools can deliver to a new Session, outside the team.
-test('a Bot schedules only into its own chat', async (t) => {
-  const { ctx, stop } = await setup()
+test('a Bot schedules only into its own chat during user-started work', async (t) => {
+  const { ctx, rt, stop } = await setup()
   t.after(stop)
   const guard = (name, sessionId, args) => ctx.guards.map(check => check({ name, arguments: args, agent: { id: sessionId } })).find(reason => reason !== undefined)
   for (const target of ['new_once', 'new']) {
@@ -341,4 +341,9 @@ test('a Bot schedules only into its own chat', async (t) => {
   }
   assert.equal(guard('schedule_create', 'writer', { target: 'this_session' }), undefined)
   assert.equal(guard('schedule_edit', 'writer', { id: 's1', action: 'delete' }), undefined)
+  for (const taskContext of [{ hops: 1 }, { hops: 0, scheduled: true }]) {
+    rt.live.set('writer', { turn: 1, taskContext })
+    assert.match(guard('schedule_create', 'writer', { target: 'this_session' }), /user-started/)
+    assert.match(guard('schedule_edit', 'writer', { id: 's1' }), /user-started/)
+  }
 })

@@ -691,11 +691,7 @@ test('a long post goes to the group as a file, and reaches the member with its p
   assert.equal(line.length, undefined, 'the line is short; no file of its own')
 })
 
-// #395 and #655: bounds on turns and relays stopped groups mid-work — first by
-// dropping calls in silence, then by parking them until the user went on. Now
-// nothing caps how often members call each other, and every user message is
-// answered.
-test('members call each other for as long as they call, and a user @ mid-round still reaches a member', async (t) => {
+test('the sixth hop is the last automatic volley and a user @ still starts work', async (t) => {
   const { call, emit, userMessage, compose, relay, answer, stop, sent, rt } = start()
   t.after(stop)
   const room = await team(call, sent)
@@ -705,21 +701,19 @@ test('members call each other for as long as they call, and a user @ mid-round s
   await emit(room.id, userMessage('Start'))
   const running = relay(room.id, 'relay')
 
-  // Twenty calls back and forth, far past the old default of three per member.
   const spoken = []
   let turn = await turnFor(sent)
-  for (let step = 0; step < 20; step += 1) {
+  for (let step = 0; step < 6; step += 1) {
     spoken.push(turn)
     await answer(turn.sessionId, turn.message.source.exchangeId, `${step % 2 === 0 ? '@Writer' : '@Chief'} volley ${step + 1}`, step + 1)
     turn = await turnFor(sent, ...spoken)
   }
   const writerSession = rt.state.rooms[room.id].sessions[writer.id]
-  assert.equal(sent.filter(entry => entry.sessionId === writerSession && entry.message.source.role === 'room').length, 10)
+  assert.equal(sent.filter(entry => entry.sessionId === writerSession && entry.message.source.role === 'room').length, 3)
 
-  // While the admin answers its eleventh call the user @s the Writer, which hears it
-  // right after the admin.
+  // The user's mention gets a separate task budget.
   await compose(room.id, '@Writer your take?')
-  await answer(turn.sessionId, turn.message.source.exchangeId, 'Done.', 21)
+  await answer(turn.sessionId, turn.message.source.exchangeId, '@Writer seventh volley', 7)
   const called = await turnFor(sent, ...spoken, turn)
   assert.equal(called.sessionId, writerSession)
   assert.match(called.message.content[0].text, /@Writer your take\?/)
@@ -730,7 +724,8 @@ test('members call each other for as long as they call, and a user @ mid-round s
   const state = rt.state.rooms[room.id]
   assert.equal(state.log.filter(line => line.kind === 'notice').length, 0, 'no pause notice')
   assert.equal(state.paused, undefined)
-  assert.equal(state.relays, undefined, 'nothing counts the calls')
+  assert.ok(rt.botResponse.log().some(entry => entry.reason === 'chain-hop-limit'))
+  assert.equal(sent.filter(entry => entry.message.source.role === 'room').length, 8)
 })
 
 // LEGACY: calls the old relay limit parked are not dropped: the group's next round
@@ -1777,8 +1772,8 @@ test('a call queued before the policy changed does not start once it is switched
   assert.equal(roomTurns(sent, writing.sessionId).length, 1, 'the queued call never became a turn')
 })
 
-test('a late reply reaches the Bot that asked even when it is switched off, but calls nobody new', async (t) => {
-  const { call, emit, relay, answer, stop, sent, rt } = start()
+test('a late reply remains in group history with no turn for a Bot switched off', async (t) => {
+  const { call, emit, relay, stop, sent, rt } = start()
   t.after(stop)
   const room = await team(call, sent)
   const chief = rt.state.mainBotIds[0]
@@ -1795,13 +1790,10 @@ test('a late reply reaches the Bot that asked even when it is switched off, but 
     await emit(room.id, { type: 'user/message', data: { source: post.message.source, content: post.message.content } })
     return { running: relay(room.id, name) }
   }
-  // A plain result goes back to the Bot that asked for it, switched off or not.
   const { running } = await lateRound('Result: the build is fixed.', 'relay-late')
-  const result = await turnFor(sent)
-  assert.ok(result, 'the result reaches the Bot that asked for it')
-  assert.equal(result.sessionId, rt.state.rooms[room.id].sessions[chief])
-  await answer(result.sessionId, result.message.source.exchangeId, 'Thanks, noted', 1)
   await running
+  assert.equal(sent.filter(entry => entry.message.source.role === 'room').length, 0)
+  assert.ok(rt.state.rooms[room.id].log.some(line => line.text === 'Result: the build is fixed.'))
 
   // A follow-up task it names is a call like any other, and Tester is switched off.
   sent.length = 0
@@ -1821,7 +1813,7 @@ test('a call back to the Bot that called ends a Capy and Devin style loop, under
   await emit(room.id, userMessage('Review and fix PR 12'))
   const running = relay(room.id, 'relay')
   const review = await turnFor(sent)
-  await answer(review.sessionId, review.message.source.exchangeId, '@Writer fix the finding', 1)
+  await answer(review.sessionId, review.message.source.exchangeId, '@Writer check the draft', 1)
   const fix = await turnFor(sent, review)
   // The fix names the reviewer again, asking for another review.
   await answer(fix.sessionId, fix.message.source.exchangeId, '@Chief fixed, review it again please', 2)

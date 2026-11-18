@@ -180,6 +180,7 @@ export default {
       const payload = JSON.parse(body.toString('utf8'))
       if (type === 'event' && payload.header?.event_type === 'im.message.receive_v1') {
         const event = payload.event ?? {}
+        if (event.sender?.sender_type === 'app') return
         const message = event.message ?? {}
         const direct = message.chat_type === 'p2p'
         const mentioned = !direct && (message.mentions ?? []).some(m => m.id?.open_id === botOpenId || m.key === `@_user_${1}`)

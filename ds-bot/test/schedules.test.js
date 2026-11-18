@@ -269,6 +269,29 @@ test('on DSH 0.2.2 a Bot reads and changes only the tasks of its own chat', asyn
   assert.equal((await run('outside', {})).result.value.items.length, 4)
 })
 
+test('scheduled and Bot-triggered turns cannot create or edit schedules', async (t) => {
+  const { ctx, home, rt } = setup({ schedule: hostSchedule() })
+  t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
+  await rt.load()
+  const session = { id: 'w2' }
+  const emit = (type, data) => {
+    for (const listener of ctx.listeners.get('session/event') ?? []) listener(session, { type, data })
+  }
+  const check = name => ctx.guards.map(guard => guard({ name, arguments: { target: 'this_session' }, agent: session })).find(Boolean)
+  emit('turn/start', { turn: 1 })
+  emit('user/message', { source: { kind: 'user' }, content: [] })
+  assert.equal(check('schedule_create'), undefined)
+  emit('turn/start', { turn: 2 })
+  emit('user/message', { source: { kind: 'schedule' }, content: [] })
+  assert.match(check('schedule_create'), /Only a user-started turn/)
+
+  const { routing } = await rt.botResponse.reserve({ sender: 'm1', recipient: rt.botOf('w1'), continuation: true })
+  emit('turn/start', { turn: 3 })
+  emit('user/message', { source: { kind: 'bot', role: 'resume', exchangeId: 'continued', routing }, content: [] })
+  assert.equal(routing.hops, 0)
+  assert.match(check('schedule_edit'), /Only a user-started turn/)
+})
+
 test('a failed task move can resume without losing identical remaining tasks', async (t) => {
   const schedule = scheduleService()
   const { ctx, home, rt } = setup({ schedule })

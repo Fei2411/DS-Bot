@@ -2,6 +2,7 @@
 import { randomUUID } from 'node:crypto'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { HISTORY_TIMEOUT_MS, LONG_HEAD, MESSAGE_INLINE_MAX, READ_LINE_MAX, SOURCE_KIND, TEXT_KEPT, TEXT_SHOW_MAX } from './constants.js'
+import { BotResponseRefusal, reviewFixOf } from './bot-response-policy.js'
 import { headOf, textOf } from './text.js'
 
 export function install(rt) {
@@ -42,7 +43,10 @@ export function install(rt) {
   }
 
   // Roles recorded as team exchanges.
-  const EXCHANGE_ROLES = new Set(['request', 'reply', 'stopped'])
+  const EXCHANGE_ROLES = new Set(['request', 'reply', 'stopped', 'report'])
+  const AUTOMATIC_ROLES = new Set(['request', 'reply', 'report', 'stopped', 'room', 'kickoff', 'update', 'resume', 'retry'])
+  const senderOf = source => source.senderSessionId ?? source.askedBy ?? source.resultFrom
+  const isResult = (role, resultFrom) => role === 'reply' || role === 'report' || resultFrom !== undefined
 
   // What two Bots say to each other is in the book of the pair (ledger.js), whole, written
   // before the message goes out. A message is shown once a record says it was delivered.
@@ -67,6 +71,34 @@ export function install(rt) {
     return [...shown.values()]
   }
 
+  async function authorizeDelivery(args) {
+    const { fromId, toId, role, text, roomId, fromRoomId, askedBy, exchangeId, routing, parent, event: suppliedEvent, resumed, retried, deferred } = args
+    const sender = routing?.sender ?? fromId ?? askedBy ?? args.resultFrom
+    if (sender === undefined || args.abandoned === true || args.passive === true) return args
+    const recipient = rt.botOf(toId)
+    const room = rt.roomOf(routing?.roomId ?? roomId ?? fromRoomId)
+    const result = isResult(role, args.resultFrom) || routing?.result === true
+    if (result && rt.ledger.records(pairBook(sender, toId)).some(record => record.event === 'delivered' && record.id === exchangeId && record.passive)) {
+      return { ...args, passive: true }
+    }
+    const continuation = resumed || retried || deferred
+    let decision = routing && rt.botResponse.permitted(routing, recipient)
+    if (decision?.allow !== false && (routing === undefined || (continuation && !args.resent))) {
+      const event = suppliedEvent ?? (continuation ? `${resumed ? 'resume' : retried ? 'retry' : 'deferred'}:${exchangeId}` : `delivery:${exchangeId}`)
+      decision = await rt.botResponse.reserve({ sender, recipient, room, result, continuation, text, event, parent: routing ?? parent ?? args.taskContext, category: routing?.category, roomMember: routing?.roomMember ?? role === 'room',
+        reviewFix: (role === 'request' || role === 'room' || result) && reviewFixOf(text), kind: role })
+    }
+    const admitted = decision.routing ?? routing
+    if (decision.allow) {
+      const dispatched = args.resent && decision.routing === undefined
+        ? rt.botResponse.waiting(admitted) : await rt.botResponse.claim(admitted)
+      if (dispatched) return { ...args, routing: admitted }
+      decision = { allow: false, reason: 'duplicate-event' }
+    }
+    if (result) return { ...args, passive: true }
+    throw new BotResponseRefusal(decision.reason, recipient, rt.botOf(sender), room)
+  }
+
   // `sessionId` defaults to the recipient's own chat; group turns name its group Session.
   // `deferred`: a request the Bot already read mid-turn, handed back to answer in a
   // turn of its own; its exchange was recorded when it first arrived. `resumed` and
@@ -81,8 +113,9 @@ export function install(rt) {
   // result that came back goes on with. `merged`: a request that takes in an earlier
   // one its recipient had not read, under that one's exchange. `fromPart`: the Session
   // of the sending Bot, which a reply comes back to when that is a background part.
-  async function deliver({ fromId, fromName: senderName, toId, sessionId, text, role, replyTo, roomId, audience, note, exchangeId = randomUUID(), steer = false, deferred = false, resumed = false, retried = false, resent = false, merged = false, abandoned = false, recordExchange = true, askedBy, fromRoomId, fromPart, images = [], files = [], length, work }) {
-    const from = rt.botOf(fromId)
+  async function deliver({ fromId, fromName: senderName, toId, sessionId, text, role, replyTo, roomId, audience, note, exchangeId = randomUUID(), steer = false, deferred = false, resumed = false, retried = false, resent = false, merged = false, abandoned = false, recordExchange = true, askedBy, fromRoomId, fromPart, images = [], files = [], length, work, routing, passive = false, resultFrom, taskContext }) {
+    const sourceId = fromId ?? resultFrom
+    const from = rt.botOf(sourceId)
     const to = rt.botOf(toId)
     if (to === undefined) throw new Error(`Unknown Bot ${toId}`)
     const fromName = senderName ?? from?.name ?? 'You'
@@ -96,6 +129,9 @@ export function install(rt) {
       exchangeId,
       senderName: fromName,
       ...(work ? { work } : {}),
+      ...(routing ? { routing } : {}),
+      ...(taskContext ? { taskContext } : {}),
+      ...(resultFrom ? { resultFrom } : {}),
       ...(fromId ? { senderSessionId: fromId } : {}),
       ...(fromPart ? { senderPart: fromPart } : {}),
       ...(replyTo ? { replyTo } : {}),
@@ -112,10 +148,18 @@ export function install(rt) {
     // On disk before it goes out: a message the book could not keep is not sent, so none is
     // delivered with no record of it. A resend keeps the record it has; only a merged request
     // replaces it with its added text.
-    const book = fromId !== undefined && from !== undefined && recordExchange && EXCHANGE_ROLES.has(role) && !deferred && !resumed && !retried ? pairBook(fromId, toId) : undefined
+    const book = sourceId !== undefined && recordExchange && EXCHANGE_ROLES.has(role) && !deferred && !resumed && !retried ? pairBook(sourceId, toId) : undefined
     if (book !== undefined && (merged || !rt.ledger.records(book).some(record => record.event === undefined && record.id === exchangeId))) {
-      rt.ledger.append(book, { id: exchangeId, from: fromId, to: toId, role, text, time: Date.now(), ...(length !== undefined ? { length, files } : {}), ...(replyTo ? { replyTo } : {}), ...(audience === 'user' ? { audience } : {}), ...(roomId ? { roomId } : {}) })
+      rt.ledger.append(book, { id: exchangeId, from: sourceId, to: toId, role, text, time: Date.now(), ...(length !== undefined ? { length, files } : {}), ...(replyTo ? { replyTo } : {}), ...(audience === 'user' ? { audience } : {}), ...(roomId ? { roomId } : {}) })
       await rt.ledger.written(book)
+    }
+    if (passive) {
+      if (book !== undefined && !rt.ledger.records(book).some(record => record.event === 'delivered' && record.id === exchangeId)) {
+        rt.ledger.append(book, { event: 'delivered', id: exchangeId, sessionId: targetSessionId, passive: true, time: Date.now() })
+        await rt.ledger.written(book)
+      }
+      if (work !== undefined && replyTo !== undefined) rt.takenWork?.(work, replyTo)
+      return exchangeId
     }
     await rt.ensureCapabilities(targetSessionId)
     const agent = await resolveAgent(targetSessionId)
@@ -152,6 +196,68 @@ export function install(rt) {
     }
     return exchangeId
   }
+
+  const automaticSource = source => source?.kind === SOURCE_KIND && source.abandoned !== true
+    && (source.routing !== undefined || (AUTOMATIC_ROLES.has(source.role) && senderOf(source) !== undefined))
+
+  // Claimed inbox entries can predate a policy change or a restart. The last check runs
+  // before DSH logs them as input or calls the model.
+  ctx.on('agent/pre-step', async ({ agent, messages, step }, next) => {
+    if (!messages?.some(message => automaticSource(message.source))) return next()
+    await rt.load()
+    const recipient = rt.botOf(rt.selfOf(agent.id))
+    const refused = new Set()
+    const updated = new Map()
+    const discard = ({ id, source }) => {
+      refused.add(id)
+      rt.forgetDelivery?.(source.exchangeId, source.routing?.key)
+      if (source.routing?.result || isResult(source.role, source.resultFrom)) {
+        if (source.work && source.replyTo) rt.takenWork?.(source.work, source.replyTo)
+      } else if (source.role !== 'room') rt.dropWork?.(source.exchangeId)
+      else rt.roomWaiters.get(source.exchangeId)?.resolve({ suppressed: true })
+    }
+    for (const message of messages) {
+      const { id, source, content } = message
+      if (!automaticSource(source)) continue
+      if (source.routing !== undefined && !rt.botResponse.waiting(source.routing)) {
+        refused.add(id)
+        rt.forgetDelivery?.(source.exchangeId, source.routing.key)
+        continue
+      }
+      if (source.routing !== undefined && rt.botResponse.permitted(source.routing, recipient).allow) continue
+      if (source.routing === undefined && recipient !== undefined) {
+        // A pending message saved by an older build can still carry its Bot sender.
+        const args = await authorizeDelivery({ fromId: source.senderSessionId, askedBy: source.askedBy, resultFrom: source.resultFrom, toId: recipient.id,
+          role: source.role, roomId: source.roomId, fromRoomId: source.senderRoomId, exchangeId: source.exchangeId,
+          text: textOf(content) }).catch(error => {
+          if (error instanceof BotResponseRefusal) return undefined
+          throw error
+        })
+        if (args?.routing !== undefined && args.passive !== true) {
+          updated.set(id, { ...source, routing: args.routing })
+          continue
+        }
+      }
+      discard(message)
+    }
+    if (step === 1 && refused.size === messages.length) return { kind: 'enter', messages: [] }
+    const decision = await next()
+    if (decision.kind !== 'enter') return decision
+    const accepted = []
+    for (const message of decision.messages) {
+      if (refused.has(message.id)) continue
+      const source = updated.get(message.id) ?? message.source
+      if (automaticSource(source) && source.routing !== undefined) {
+        if (!rt.botResponse.permitted(source.routing, recipient).allow) {
+          discard({ id: message.id, source })
+          continue
+        }
+        if (!await rt.botResponse.take(source.routing)) continue
+      }
+      accepted.push(updated.has(message.id) ? { ...message, source } : message)
+    }
+    return { ...decision, messages: accepted }
+  })
 
   // A message between Bots, whole, from the Session it was delivered to: the message
   // there is its header line, then the text. `whole` is false when only the start could
@@ -225,5 +331,5 @@ export function install(rt) {
     return { ...record, ledger: true }
   }
 
-  Object.assign(rt, { resolveAgent, deliver, exchangeText, attachLong, fileText, exchangesOf, exchangeOf })
+  Object.assign(rt, { resolveAgent, authorizeDelivery, deliver, exchangeText, attachLong, fileText, exchangesOf, exchangeOf })
 }

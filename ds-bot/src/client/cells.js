@@ -1160,6 +1160,8 @@ function renderCall(call, { sessionId, roster, actions, useUi, useWork, findBot,
   switch (tool) {
     case 'message_bot': {
       const target = findBot(arg('to')) ?? { name: arg('to') ?? '…', color: 'gray' }
+      const receipt = done ? contentText(call.content) : ''
+      if (receipt.startsWith('Not sent') || receipt.startsWith('Nothing was sent')) return h('div', { className: 'bt-event' }, receipt)
       if (done && call.isError) return h('div', { className: 'bt-event' }, t("Couldn't message {name}", { name: target.name }))
       return h(EventLine, { prefix: t('Messaged'), bots: [target], onOpen: bot => bot.id && actions.openExchange(self?.id ?? sessionId, bot.id), whole: true })
     }

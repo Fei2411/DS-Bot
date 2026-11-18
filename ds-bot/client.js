@@ -690,6 +690,19 @@ var JA = {
   "Full access": "フルアクセス",
   "Same for every member": "メンバー全員に適用",
   "Replaces each member's own permissions in this group.": "このグループ内では各メンバー個別の権限より優先されます。",
+  "Role & Communication": "役割とコミュニケーション",
+  "Responsibility preset": "担当プリセット",
+  "Coordinator is suggested for Main Bots and group admins.": "メイン Bot とグループ管理者には調整役がおすすめです。",
+  "Permitted automatic task categories": "自動で受け付けるタスクの分類",
+  "Apply responsibility": "担当を適用",
+  "Coordinator": "調整役",
+  "Coding Agent": "開発エージェント",
+  "Code Reviewer": "コードレビュアー",
+  "Research + Coding": "調査と開発",
+  "Coordination": "調整",
+  "Coding": "開発",
+  "Code review": "コードレビュー",
+  "Research": "調査",
   "Responding to Bots": "Bot への応答",
   "Messages from other Bots never start new work. Your own messages always do.": "他の Bot からのメッセージは、新しい作業を自動で始めません。あなた自身のメッセージは常に始めます。",
   "Only the Bots you pick below can start new work with a message.": "下で選んだ Bot だけが、メッセージで新しい作業を始められます。",
@@ -3129,6 +3142,19 @@ var KO = {
   "Full access": "전체 권한",
   "Same for every member": "모든 멤버에 동일 적용",
   "Replaces each member's own permissions in this group.": "이 그룹 내에서 각 멤버의 개별 권한을 대체합니다.",
+  "Role & Communication": "역할 및 소통",
+  "Responsibility preset": "담당 업무 프리셋",
+  "Coordinator is suggested for Main Bots and group admins.": "메인 Bot과 그룹 관리자에게는 조정자를 권장합니다.",
+  "Permitted automatic task categories": "자동으로 받을 수 있는 작업 유형",
+  "Apply responsibility": "담당 업무 적용",
+  "Coordinator": "조정자",
+  "Coding Agent": "코딩 에이전트",
+  "Code Reviewer": "코드 검토자",
+  "Research + Coding": "조사 및 코딩",
+  "Coordination": "조정",
+  "Coding": "코딩",
+  "Code review": "코드 검토",
+  "Research": "조사",
   "Responding to Bots": "Bot에 응답",
   "Messages from other Bots never start new work. Your own messages always do.": "다른 Bot의 메시지는 새 작업을 자동으로 시작하지 않습니다. 직접 보낸 메시지는 항상 시작합니다.",
   "Only the Bots you pick below can start new work with a message.": "아래에서 고른 Bot만 메시지로 새 작업을 시작할 수 있습니다.",
@@ -5602,6 +5628,19 @@ var ES = {
   "Full access": "Acceso total",
   "Same for every member": "Igual para todos los miembros",
   "Replaces each member's own permissions in this group.": "Reemplaza los permisos propios de cada miembro en este grupo.",
+  "Role & Communication": "Rol y comunicación",
+  "Responsibility preset": "Perfil de responsabilidades",
+  "Coordinator is suggested for Main Bots and group admins.": "Se recomienda Coordinador para bots principales y administradores de grupo.",
+  "Permitted automatic task categories": "Categorías de tareas automáticas permitidas",
+  "Apply responsibility": "Aplicar responsabilidades",
+  "Coordinator": "Coordinador",
+  "Coding Agent": "Agente de programación",
+  "Code Reviewer": "Revisor de código",
+  "Research + Coding": "Investigación y programación",
+  "Coordination": "Coordinación",
+  "Coding": "Programación",
+  "Code review": "Revisión de código",
+  "Research": "Investigación",
   "Responding to Bots": "Responder a Bots",
   "Messages from other Bots never start new work. Your own messages always do.": "Los mensajes de otros Bots nunca inician trabajo nuevo. Los tuyos siempre.",
   "Only the Bots you pick below can start new work with a message.": "Solo los Bots que elijas abajo pueden iniciar trabajo nuevo con un mensaje.",
@@ -8064,6 +8103,19 @@ var FR = {
   "Full access": "Accès complet",
   "Same for every member": "Identique pour tous les membres",
   "Replaces each member's own permissions in this group.": "Remplace les autorisations individuelles de chaque membre dans ce groupe.",
+  "Role & Communication": "Rôle et communication",
+  "Responsibility preset": "Profil de responsabilités",
+  "Coordinator is suggested for Main Bots and group admins.": "Le rôle de coordinateur est conseillé aux bots principaux et aux admins de groupe.",
+  "Permitted automatic task categories": "Catégories de tâches automatiques autorisées",
+  "Apply responsibility": "Appliquer les responsabilités",
+  "Coordinator": "Coordinateur",
+  "Coding Agent": "Agent de développement",
+  "Code Reviewer": "Relecteur de code",
+  "Research + Coding": "Recherche et développement",
+  "Coordination": "Coordination",
+  "Coding": "Développement",
+  "Code review": "Relecture de code",
+  "Research": "Recherche",
   "Responding to Bots": "Répondre aux Bots",
   "Messages from other Bots never start new work. Your own messages always do.": "Les messages des autres Bots ne démarrent jamais de nouveau travail. Les vôtres, toujours.",
   "Only the Bots you pick below can start new work with a message.": "Seuls les Bots choisis ci-dessous peuvent démarrer un nouveau travail par message.",
@@ -10503,6 +10555,19 @@ var DE = {
   "Full access": "Vollzugriff",
   "Same for every member": "Einheitlich für alle Mitglieder",
   "Replaces each member's own permissions in this group.": "Ersetzt in dieser Gruppe die individuellen Berechtigungen der Mitglieder.",
+  "Role & Communication": "Rolle und Kommunikation",
+  "Responsibility preset": "Aufgabenvorlage",
+  "Coordinator is suggested for Main Bots and group admins.": "Für Hauptbots und Gruppenadmins wird „Koordination“ empfohlen.",
+  "Permitted automatic task categories": "Erlaubte Kategorien für automatische Aufgaben",
+  "Apply responsibility": "Aufgaben anwenden",
+  "Coordinator": "Koordination",
+  "Coding Agent": "Entwicklungsbot",
+  "Code Reviewer": "Codeprüfer",
+  "Research + Coding": "Recherche und Entwicklung",
+  "Coordination": "Koordinierung",
+  "Coding": "Entwicklung",
+  "Code review": "Codeprüfung",
+  "Research": "Recherche",
   "Responding to Bots": "Auf Bots antworten",
   "Messages from other Bots never start new work. Your own messages always do.": "Nachrichten anderer Bots starten nie automatisch neue Arbeit. Deine eigenen Nachrichten immer.",
   "Only the Bots you pick below can start new work with a message.": "Nur die unten gewählten Bots können mit einer Nachricht neue Arbeit starten.",
@@ -12950,6 +13015,19 @@ var ZH = {
   "Full access": "完全权限",
   "Same for every member": "全员统一",
   "Replaces each member's own permissions in this group.": "在这个群里代替各成员自己的权限。",
+  "Role & Communication": "角色与沟通",
+  "Responsibility preset": "职责预设",
+  "Coordinator is suggested for Main Bots and group admins.": "建议主 Bot 和群管理员选择协调员。",
+  "Permitted automatic task categories": "允许自动接收的任务类别",
+  "Apply responsibility": "应用职责",
+  "Coordinator": "协调员",
+  "Coding Agent": "编码助手",
+  "Code Reviewer": "代码审查员",
+  "Research + Coding": "研究与编码",
+  "Coordination": "协调",
+  "Coding": "编码",
+  "Code review": "代码审查",
+  "Research": "研究",
   "Responding to Bots": "回应其他 Bot",
   "Messages from other Bots never start new work. Your own messages always do.": "其他 Bot 发来的消息不会自动开始新工作。你自己发的消息始终会。",
   "Only the Bots you pick below can start new work with a message.": "只有你在下面选中的 Bot，才能用消息开始新工作。",
@@ -25655,6 +25733,66 @@ function MemoryDialog({ owner, actions, leaving = false }) {
   );
 }
 
+// src/shared/responsibilities.js
+var TASK_CATEGORIES = {
+  coordination: "Coordination",
+  coding: "Coding",
+  review: "Code review",
+  research: "Research",
+  general: "General"
+};
+var RESPONSIBILITY_PRESETS = {
+  coordinator: {
+    label: "Coordinator",
+    instructions: "Clarify the request, plan the work, delegate to the appropriate Bots, and report results and decisions to the user.",
+    categories: ["coordination", "research"]
+  },
+  coding: {
+    label: "Coding Agent",
+    instructions: "Implement the requested changes, run focused checks, and report the files changed and the verification results.",
+    categories: ["coding"]
+  },
+  reviewer: {
+    label: "Code Reviewer",
+    instructions: "Review changes for correctness and regressions. Report findings with severity, evidence, and stable IDs. Use the structured review-fix action only when a Bot has been asked to address a specific finding.",
+    categories: ["review"]
+  },
+  research_coding: {
+    label: "Research + Coding",
+    instructions: "Research the question using evidence, document sources and assumptions, and implement or verify code when requested.",
+    categories: ["research", "coding"]
+  },
+  custom: { label: "Custom" }
+};
+function cleanResponsibility(value) {
+  if (!Object.hasOwn(RESPONSIBILITY_PRESETS, value?.preset) || !Array.isArray(value.categories) || value.categories.some((category) => !Object.hasOwn(TASK_CATEGORIES, category))) {
+    throw new Error("Choose a valid responsibility preset and task categories");
+  }
+  return {
+    preset: value.preset,
+    categories: [...new Set(value.categories)],
+    ...value.custom !== void 0 ? {
+      custom: {
+        instructions: typeof value.custom?.instructions === "string" ? value.custom.instructions.trim() : "",
+        categories: Array.isArray(value.custom?.categories) ? [...new Set(value.custom.categories.filter((category) => Object.hasOwn(TASK_CATEGORIES, category)))] : []
+      }
+    } : {}
+  };
+}
+function responsibilityDraft(bot, current2, preset) {
+  const custom = current2.preset === "custom" ? { instructions: current2.instructions, categories: current2.categories } : current2.custom ?? bot.responsibility?.custom ?? { instructions: bot.instructions ?? "", categories: Object.keys(TASK_CATEGORIES) };
+  const template = RESPONSIBILITY_PRESETS[preset];
+  return { preset, custom, ...preset === "custom" ? custom : { instructions: template.instructions, categories: template.categories } };
+}
+function savedResponsibility(bot) {
+  return {
+    preset: bot.responsibility?.preset ?? "custom",
+    instructions: bot.instructions ?? "",
+    categories: bot.responsibility?.categories ?? Object.keys(TASK_CATEGORIES),
+    custom: bot.responsibility?.custom
+  };
+}
+
 // src/client/bot-settings.js
 var import_react27 = require("react");
 var capitalize = (word) => word[0].toUpperCase() + word.slice(1);
@@ -25739,6 +25877,81 @@ function SwitchRow({ label, hint, on, disabled, onChange }) {
     { className: "bt-set-row bt-bs-row" },
     (0, import_react27.createElement)("span", { className: "bt-set-copy" }, (0, import_react27.createElement)("span", { className: "bt-bs-label" }, label), hint ? (0, import_react27.createElement)("span", { className: "bt-set-hint" }, hint) : null),
     (0, import_react27.createElement)(Switch, { on, label, disabled, onChange })
+  );
+}
+function ResponsibilityCard({ bot, coordinator, onSave }) {
+  const [draft, setDraft] = (0, import_react27.useState)(null);
+  const [saving, setSaving] = (0, import_react27.useState)(false);
+  const current2 = draft ?? savedResponsibility(bot);
+  const edit = (patch) => setDraft({ ...current2, ...patch });
+  const toggle = (category) => edit({ categories: current2.categories.includes(category) ? current2.categories.filter((item) => item !== category) : [...current2.categories, category] });
+  const apply2 = async () => {
+    const { preset, instructions, categories, custom } = current2;
+    setSaving(true);
+    try {
+      const saved = await onSave({ instructions, responsibility: {
+        preset,
+        categories,
+        custom: preset === "custom" ? { instructions, categories } : custom
+      } });
+      if (saved !== false) setDraft(null);
+    } finally {
+      setSaving(false);
+    }
+  };
+  return (0, import_react27.createElement)(
+    Card2,
+    { title: t("Role & Communication") },
+    (0, import_react27.createElement)(
+      Row,
+      { label: t("Responsibility preset"), hint: coordinator ? t("Coordinator is suggested for Main Bots and group admins.") : void 0 },
+      (0, import_react27.createElement)(
+        "select",
+        {
+          className: "bt-bs-input",
+          "aria-label": t("Responsibility preset"),
+          value: current2.preset,
+          disabled: saving,
+          onChange: (event) => setDraft(responsibilityDraft(bot, current2, event.target.value))
+        },
+        Object.entries(RESPONSIBILITY_PRESETS).map(([id, preset]) => (0, import_react27.createElement)("option", { key: id, value: id }, t(preset.label)))
+      )
+    ),
+    (0, import_react27.createElement)(
+      Row,
+      { label: t("Instructions"), stack: true },
+      (0, import_react27.createElement)("textarea", {
+        className: "bt-bs-input bt-bs-area",
+        "aria-label": t("Instructions"),
+        value: current2.instructions,
+        disabled: saving,
+        onChange: (event) => edit({ instructions: event.target.value })
+      })
+    ),
+    (0, import_react27.createElement)(
+      "div",
+      { className: "bt-set-row bt-bs-row bt-bs-stack" },
+      (0, import_react27.createElement)("span", { className: "bt-bs-label" }, t("Permitted automatic task categories")),
+      (0, import_react27.createElement)(
+        "div",
+        { className: "bt-ng-picks", role: "group", "aria-label": t("Permitted automatic task categories") },
+        Object.entries(TASK_CATEGORIES).map(([id, label]) => (0, import_react27.createElement)("button", {
+          key: id,
+          type: "button",
+          role: "checkbox",
+          className: "bt-ng-chip",
+          "aria-checked": current2.categories.includes(id),
+          disabled: saving,
+          onClick: () => toggle(id)
+        }, t(label)))
+      )
+    ),
+    draft === null ? null : (0, import_react27.createElement)(
+      "div",
+      { className: "bt-set-row bt-bs-row" },
+      (0, import_react27.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: saving, onClick: () => setDraft(null) }, t("Cancel")),
+      (0, import_react27.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: saving, onClick: apply2 }, t("Apply responsibility"))
+    )
   );
 }
 var RESPONSE_MODES = [
@@ -26037,6 +26250,7 @@ function BotSettingsForm({ bot, roster, actions, run: run2 }) {
         (0, import_react27.createElement)(FolderMenu, { value: bot.workDir, actions, run: run2, onPick: (workDir) => save({ workDir }) })
       )
     ),
+    (0, import_react27.createElement)(ResponsibilityCard, { key: bot.id, bot, coordinator: isMainBot || (roster.rooms ?? []).some((room2) => room2.admin === bot.id), onSave: save }),
     (0, import_react27.createElement)(BotResponseCard, { policy: bot.botResponse, candidates: (roster.bots ?? []).filter((other) => other.id !== bot.id), onChange: (botResponse) => save({ botResponse }) }),
     (0, import_react27.createElement)(
       Card2,
@@ -26048,15 +26262,6 @@ function BotSettingsForm({ bot, roster, actions, run: run2 }) {
         disabled: bot.private !== true && (isMainBot || inGroup || !bot.workDir),
         onChange: (value) => save({ private: value })
       })
-    ),
-    (0, import_react27.createElement)(
-      Card2,
-      { title: t("Instructions") },
-      (0, import_react27.createElement)(
-        Row,
-        { label: t("What this Bot does"), hint: t("Its job on the team. Part of the Bot's system prompt."), stack: true },
-        (0, import_react27.createElement)(InlineText, { label: t("Instructions"), value: bot.instructions, multiline: true, placeholder: t("What this Bot is responsible for…"), onSave: (instructions) => save({ instructions }) })
-      )
     ),
     (0, import_react27.createElement)(BotCapabilitiesCard, { bot, roster, actions, run: run2, Card: Card2, SwitchRow }),
     (0, import_react27.createElement)(BotComputerCard, { bot, roster, actions, run: run2, Card: Card2, Row }),
@@ -29332,6 +29537,8 @@ function renderCall(call2, { sessionId, roster, actions, useUi, useWork, findBot
   switch (tool) {
     case "message_bot": {
       const target = findBot(arg("to")) ?? { name: arg("to") ?? "…", color: "gray" };
+      const receipt = done ? contentText(call2.content) : "";
+      if (receipt.startsWith("Not sent") || receipt.startsWith("Nothing was sent")) return (0, import_react34.createElement)("div", { className: "bt-event" }, receipt);
       if (done && call2.isError) return (0, import_react34.createElement)("div", { className: "bt-event" }, t("Couldn't message {name}", { name: target.name }));
       return (0, import_react34.createElement)(EventLine, { prefix: t("Messaged"), bots: [target], onOpen: (bot) => bot.id && actions.openExchange(self?.id ?? sessionId, bot.id), whole: true });
     }

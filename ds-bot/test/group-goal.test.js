@@ -9,13 +9,13 @@ import { fakeContext } from './fake-ctx.js'
 import { ROOM_WORK_GRACE_MS } from '../src/host/constants.js'
 
 // Chief, the admin of group 'r1', speaks there from 'ga'; Writer from 'gb'; Tester from 'gc'.
-const seed = (room = {}, extraRooms = {}) => ({
+const seed = (room = {}, extraRooms = {}, bots = {}) => ({
   version: 1,
   mainBotIds: ['a'],
   bots: {
-    a: { id: 'a', name: 'Chief', role: 'Boss', sessionId: 'a', createdAt: 1 },
-    b: { id: 'b', name: 'Writer', role: 'Write', sessionId: 'b', createdAt: 2 },
-    c: { id: 'c', name: 'Tester', role: 'Test', sessionId: 'c', createdAt: 3 },
+    a: { id: 'a', name: 'Chief', role: 'Boss', sessionId: 'a', createdAt: 1, ...bots.a },
+    b: { id: 'b', name: 'Writer', role: 'Write', sessionId: 'b', createdAt: 2, ...bots.b },
+    c: { id: 'c', name: 'Tester', role: 'Test', sessionId: 'c', createdAt: 3, ...bots.c },
   },
   rooms: { r1: { id: 'r1', name: 'Ops', members: ['a', 'b', 'c'], mode: 'admin', admin: 'a', named: true, sessions: { a: 'ga', b: 'gb', c: 'gc' }, log: [], seq: 0, seen: {}, ...room }, ...extraRooms },
   agents: {},
@@ -26,9 +26,9 @@ const seed = (room = {}, extraRooms = {}) => ({
   revision: 0,
 })
 
-async function start(t, room, services, extraRooms) {
+async function start(t, room, services, extraRooms, bots) {
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-goal-'))
-  writeFileSync(join(home, 'state.json'), JSON.stringify(seed(room, extraRooms)))
+  writeFileSync(join(home, 'state.json'), JSON.stringify(seed(room, extraRooms, bots)))
   const ctx = fakeContext({ services })
   const agents = new Map()
   const agentOf = (sessionId) => {
@@ -335,6 +335,26 @@ test('an idle round wakes the admin for a goal check; [PASS] waits for the user'
   assert.equal(host.agentOf('r1').calls.filter(call => call.source?.role === 'goal' && call.source.goal === 'nudge').length, 0)
 })
 
+test('a Coordinator admin still receives the goal check', async (t) => {
+  const host = await start(t, {}, undefined, undefined, {
+    a: { responsibility: { preset: 'coordinator', categories: ['coordination'] } },
+  })
+  await startGoal(host)
+  const first = host.round('c1', host.say('@Chief go'))
+  await settle(() => host.agentOf('ga').calls.length === 1)
+  host.begin('ga')
+  host.finish('ga', 'on it')
+  await settle(() => first() !== undefined)
+  const nudge = host.takeGoal()
+  assert.ok(nudge !== undefined, 'the goal check is accepted for a Coordinator')
+  const check = host.round('c2', nudge)
+  await settle(() => host.agentOf('ga').calls.length === 2)
+  assert.match(text(host.agentOf('ga').calls[1]), /Goal check from DS Bot/)
+  host.begin('ga')
+  host.finish('ga', '[PASS]')
+  await settle(() => check() !== undefined)
+})
+
 test('two goal checks without progress mark the goal idle; a user message clears it', async (t) => {
   const host = await start(t)
   await startGoal(host)
@@ -366,6 +386,25 @@ test('two goal checks without progress mark the goal idle; a user message clears
   host.finish('ga', '[PASS]')
   await settle(() => third() !== undefined)
   assert.deepEqual([goal(host).idle, goal(host).nudges], [undefined, 1])
+})
+
+test('an automatic goal check shares the task budget and follows the group policy', async (t) => {
+  const { rt, takeGoal, ...host } = await start(t)
+  await startGoal(host)
+  const room = rt.roomOf('r1')
+  const parent = room.goal.taskContext
+  const round = { parent, slots: [{ id: 'a', worked: true }] }
+  room.botResponse = { mode: 'off' }
+  await rt.goalDrive(room, round)
+  assert.equal(takeGoal(), undefined)
+  delete room.botResponse
+  for (let i = 0; i < 8; i += 1) {
+    const decision = await rt.botResponse.reserve({ sender: 'a', recipient: rt.botOf('b'), parent, event: `goal-task:${i}` })
+    assert.equal(decision.allow, true)
+  }
+  await rt.goalDrive(room, round)
+  assert.equal(takeGoal(), undefined)
+  assert.equal(rt.botResponse.log().at(-1).reason, 'task-turn-limit')
 })
 
 test('a paused goal and a room at work do not get a goal check', async (t) => {

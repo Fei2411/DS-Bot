@@ -11,6 +11,7 @@
 //
 // Accepted identities stay with the team: expiring one would permit an old retry to
 // repeat side effects. Removing receipts needs a separate, explicit retention policy.
+import { BotResponseRefusal } from './bot-response-policy.js'
 import { createHash, randomUUID } from 'node:crypto'
 
 // A request name this long is a mistake, not an identity.
@@ -122,6 +123,11 @@ export function install(rt) {
         await rt.save().catch(() => {})
         return receipt
       } catch (error) {
+        if (error instanceof BotResponseRefusal) {
+          delete receipts()[request.key]
+          await rt.save({ required: true })
+          throw error
+        }
         // The message may have gone out; it is not sent again.
         fresh.outcome = 'uncertain'
         fresh.at = Date.now()

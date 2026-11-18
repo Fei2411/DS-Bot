@@ -246,6 +246,22 @@ test('a report back names the members still waiting for an approval', async (t) 
   assert.match(report, /Waiting for the user's approval: Writer\./)
 })
 
+test('a report back wakes the poster when every member stayed silent', async (t) => {
+  const host = await start()
+  t.after(host.stop)
+  await host.tool('post_to_group', { group: 'Ops', message: 'Copy the doc', report_back: true }, 'a')
+  const post = host.agentOf('r1').calls[0]
+  host.emit('r1', 'user/message', { content: post.content, source: post.source })
+  const result = await openTurn(t, host)
+  host.emit('gb', 'assistant/message', { message: { content: [{ type: 'text', text: '[PASS]' }] } })
+  host.emit('gb', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  await settle(() => result() !== undefined)
+  await settle(() => host.agentOf('a').calls.length === 1)
+  const report = text(host.agentOf('a').calls[0])
+  assert.match(report, /Nobody replied to your post\./)
+  assert.match(report, /Stayed silent: Writer\./)
+})
+
 test('a member that fails after the round moved on shows the failure in the group, and nobody answers it', async (t) => {
   const host = await start()
   t.after(host.stop)

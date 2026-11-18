@@ -1667,7 +1667,7 @@ test('a merged request that does not go out leaves the delivered text in the dia
   await rt.deliver({ fromId: 'a', toId: 'b', role: 'request', text: 'Draft the plan', exchangeId: 'x-merge' })
   const flush = ctx.sessions.flush
   ctx.sessions.flush = async () => { throw new Error('Session is gone') }
-  await assert.rejects(rt.deliver({ fromId: 'a', toId: 'b', role: 'request', text: 'Draft the plan\n\nAnd the budget', exchangeId: 'x-merge', merged: true }), /Session is gone/)
+  await assert.rejects(rt.deliver({ fromId: 'a', toId: 'b', role: 'request', text: 'Draft the plan\n\nAnd the budget', exchangeId: 'x-merge', event: 'merge-update', merged: true }), /Session is gone/)
   ctx.sessions.flush = flush
   assert.deepEqual((await exchanges()).map(entry => [entry.id, entry.text]), [['x-merge', 'Draft the plan']])
 })
@@ -1769,7 +1769,7 @@ test('a deferred later result follows a switched background openPart instead of 
 test('a reply still reaches a requester whose own policy turns Bot messages off', async (t) => {
   const seed = team()
   seed.bots.a.botResponse = { mode: 'off' }
-  const { agents, emit, tool, stop } = await start(seed)
+  const { agents, emit, tool, stop, exchanges } = await start(seed)
   t.after(stop)
 
   // Chief asks Writer, whose own policy is the legacy default.
@@ -1779,8 +1779,9 @@ test('a reply still reaches a requester whose own policy turns Bot messages off'
   emit('b', 'user/message', { content: asked.content, source: asked.source })
   emit('b', 'assistant/message', assistantText('2025'))
   emit('b', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
-  for (let count = 0; count < 200 && (agents.get('a')?.calls ?? []).length < 1; count += 1) await delay(5)
-  assert.equal(textOf(agents.get('a').calls[0][1].content), '[Reply from Writer]\n2025')
+  for (let i = 0; i < 200 && !(await exchanges()).some(entry => entry.role === 'reply'); i += 1) await delay(5)
+  assert.ok((await exchanges()).some(entry => entry.role === 'reply' && entry.text === '2025'))
+  assert.equal(agents.get('a')?.calls.length ?? 0, 0)
 })
 
 test('a Bot that is switched off for Bot messages gets nothing from another Bot, and a Main Bot cannot widen it', async (t) => {

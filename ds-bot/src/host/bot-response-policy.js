@@ -9,24 +9,64 @@
 // picks one. A group-triggered response needs both the recipient's policy and the
 // group's policy to allow the sender.
 //
-// The user's own messages never come through here, and neither does the result of a
-// task the recipient itself handed out (a reply, a completion, a late answer): that
-// goes back to its requester and is not new work. What the requester then does with
-// the result is a call like any other and is decided again.
+// Returning a result and starting a model turn to process it are separate operations.
+// User messages always pass. An automatic continuation counts against the task budget.
 //
 // Nothing here reads message text to guess at authority. A trigger is allowed because of
 // who sent it, whom it names and, for review fixes, the structured finding it carries.
 
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 
 export const RESPONSE_MODES = ['off', 'selected', 'all']
 // Automatic fix attempts per structured finding (PR, commit SHA, finding ID).
 export const FINDING_ATTEMPT_LIMIT = 2
 
 const LOG_MAX = 200
-const SEEN_MAX = 2000
-const FINDINGS_MAX = 2000
+const LOGGED_MAX = 2000
+export const BOT_TURN_LIMIT = 8
+export const BOT_HOP_LIMIT = 6
 const WARN_EVERY_MS = 60_000
+
+// Bounded retention for the saved admission tables. Pending admissions (true or
+// 'dispatched') are never dropped: a restart must still be able to finish work that was
+// already authorized. A 'taken' event has served its purpose inside one turn, and a
+// routing whose event is gone is refused by permitted(), so dropping the oldest terminal
+// events cannot admit the same work again. Task budgets are kept across a wider window
+// than events, and a task is touched on every admission, so a task whose event survives
+// survives with its count. Findings are old commits and problem IDs; the newest window
+// keeps the attempts that could still plausibly be retried.
+export const BOT_ROUTING_KEEP = { events: 1000, tasks: 4000, findings: 2000 }
+
+export function compactRouting(state, keep = BOT_ROUTING_KEEP) {
+  const routing = state?.botRouting
+  if (routing === null || typeof routing !== 'object' || Array.isArray(routing)) return 0
+  const table = name => {
+    const value = routing[name]
+    if (value !== null && typeof value === 'object' && !Array.isArray(value)) return value
+    routing[name] = {}
+    return routing[name]
+  }
+  const events = table('events')
+  const tasks = table('tasks')
+  const findings = table('findings')
+  let removed = 0
+  const taken = Object.keys(events).filter(key => events[key] === 'taken')
+  for (const key of taken.slice(0, Math.max(0, taken.length - keep.events))) {
+    delete events[key]
+    removed += 1
+  }
+  const taskKeys = Object.keys(tasks)
+  for (const key of taskKeys.slice(0, Math.max(0, taskKeys.length - keep.tasks))) {
+    delete tasks[key]
+    removed += 1
+  }
+  const findingKeys = Object.keys(findings)
+  for (const key of findingKeys.slice(0, Math.max(0, findingKeys.length - keep.findings))) {
+    delete findings[key]
+    removed += 1
+  }
+  return removed
+}
 
 const isObject = value => value !== null && typeof value === 'object' && !Array.isArray(value)
 
@@ -87,12 +127,10 @@ function ruleOf(policy, senderId) {
 //   sender     the Bot ID that wrote the message; undefined is the user
 //   recipient  the Bot that would start a turn
 //   room       the group, when the message is a group call
-//   result     the message answers work the recipient itself handed out
-export function decideBotResponse({ sender, recipient, room, result = false }) {
+export function decideBotResponse({ sender, recipient, room }) {
   if (sender === undefined || sender === null) return { allow: true, reason: 'human', explicit: false }
   if (recipient === undefined) return { allow: false, reason: 'unknown-recipient', explicit: false }
   if (sender === recipient.id) return { allow: false, reason: 'self-reply', explicit: false }
-  if (result) return { allow: true, reason: 'result-to-requester', explicit: false }
   const mine = ruleOf(recipient.botResponse, sender)
   const group = room === undefined ? { allow: true, rule: 'legacy' } : ruleOf(room.botResponse, sender)
   const explicit = recipient.botResponse !== undefined || (room !== undefined && room.botResponse !== undefined)
@@ -101,24 +139,42 @@ export function decideBotResponse({ sender, recipient, room, result = false }) {
   return { allow: true, reason: explicit ? `allowed-${mine.rule === 'legacy' ? group.rule : mine.rule}` : 'legacy', explicit }
 }
 
-const digest = text => createHash('sha256').update(String(text ?? '')).digest('hex').slice(0, 16)
-const findingKey = finding => (finding?.pr && finding.commit && finding.id ? `${finding.pr}#${finding.commit}#${finding.id}` : undefined)
+const digest = text => createHash('sha256').update(String(text ?? '')).digest('hex')
+const findingKey = finding => (finding?.pr && finding.commit && finding.id ? digest(JSON.stringify([finding.pr, finding.commit, finding.id])) : undefined)
 export const findingOf = ({ pr, commit, id } = {}) => {
-  const clean = value => (typeof value === 'string' && value.trim() !== '' ? value.trim().slice(0, 120) : undefined)
-  const finding = { pr: clean(pr), commit: clean(commit), id: clean(id) }
+  const clean = value => (typeof value === 'string' && value.trim() !== '' && value.trim().length <= 120 ? value.trim() : undefined)
+  const sha = clean(commit)
+  if (!/^[0-9a-f]{7,64}$/i.test(sha ?? '')) return undefined
+  const finding = { pr: clean(pr)?.toLowerCase(), commit: sha.toLowerCase(), id: clean(id) }
   return findingKey(finding) === undefined ? undefined : finding
 }
 
+export class BotResponseRefusal extends Error {
+  constructor(reason, recipient, sender, room) {
+    super(`Not sent: ${recipient?.name ?? 'The recipient'}${room ? ` in "${room.name}"` : ''} does not take automatic messages from ${sender?.name ?? 'another Bot'} (${reason}). No turn was started.`)
+    this.reason = reason
+  }
+}
+
+const reviewerOf = bot => bot?.responsibility?.preset === 'reviewer' || /^(?:code )?review(?:er)?$/i.test(bot?.role ?? '')
+const codingOf = bot => bot?.responsibility?.categories.includes('coding') === true || /^(?:coder|coding agent|code)$/i.test(bot?.role ?? '')
+const taskKinds = new Set(['message_bot', 'request', 'room', 'group-turn', 'call', 'post'])
+
+export function reviewFixOf(text, action, finding) {
+  return action === 'review_fix' || finding !== undefined
+    || /\b(?:fix|address|resolve|remediate|apply)\b[^.!?\n]{0,80}\b(?:findings?|review (?:comments?|feedback)|(?:reviewer|capy)(?:'s)? comments?)\b/i.test(text ?? '')
+}
+
+export const newTaskContext = () => ({ task: randomUUID(), hops: 0 })
+
 export function install(rt) {
-  // What was logged and decided, kept in memory: ids, reasons and a digest of the
-  // message, never its words.
+  const state = rt.state ?? {}
+  const safety = () => (state.botRouting ??= { events: {}, findings: {}, tasks: {} })
   const log = []
   const logged = new Set()
   const warned = new Map()
-  // Events and findings the gate already let through. Memory only: a restart starts
-  // them fresh, and the group guards (the idle relay limit) hold on their own.
-  const seen = new Set()
-  const attempts = new Map()
+  let writing = Promise.resolve()
+  const eventKey = (sender, recipient, room, event) => digest(JSON.stringify([sender, recipient.id, room?.id ?? '', event]))
 
   const nameOf = id => rt.botOf?.(id)?.name
 
@@ -127,7 +183,7 @@ export function install(rt) {
       const mark = `${key}|${entry.allow}|${entry.reason}`
       if (logged.has(mark)) return
       logged.add(mark)
-      if (logged.size > SEEN_MAX) logged.delete(logged.values().next().value)
+      if (logged.size > LOGGED_MAX) logged.delete(logged.values().next().value)
     }
     log.push({ at: Date.now(), ...entry })
     if (log.length > LOG_MAX) log.shift()
@@ -142,47 +198,103 @@ export function install(rt) {
     }
   }
 
-  // Whether a Bot-originated message may start `recipient`'s turn. Without side effects
-  // beyond the log, which keeps one line per message and decision, so a message looked at
-  // twice is logged once.
-  //   named    the message names the recipient (@Name, or message_bot's target)
-  //   idle     the message is only thanks or a status echo
-  //   chain    the Bots that already called the sender in this round or chain
-  //   event    the message's own identity (a request name, a log line), for duplicates
-  //   finding  structured review finding {pr, commit, id}
-  //   text     only digested, to tell a repeat of an unchanged finding
-  function check({ sender, recipient, room, result = false, named = true, idle = false, chain = [], event, finding, text, kind = 'message' }) {
-    const decision = decideBotResponse({ sender, recipient, room, result })
+  function check({ sender, recipient, room, result = false, named = true, idle = false, chain = [], event, finding, reviewFix = false, category = 'general', text, kind = 'message', parent, continuation = false }) {
+    const decision = decideBotResponse({ sender, recipient, room })
     let { allow, reason } = decision
-    // The safeguards apply once the user chose a policy; the legacy default keeps the
-    // behavior that was there before, guarded as before.
-    if (allow && decision.explicit && sender !== undefined && sender !== null) {
+    if (allow && sender != null) {
       const key = findingKey(finding)
-      if (!named) { allow = false; reason = 'no-designated-recipient' }
-      else if (idle) { allow = false; reason = 'acknowledgment-or-status' }
-      else if (chain.includes(recipient.id)) { allow = false; reason = 'circular-chain' }
-      else if (event !== undefined && seen.has(`${sender}|${recipient.id}|${event}`)) { allow = false; reason = 'duplicate-event' }
-      else if (key !== undefined && (attempts.get(key)?.count ?? 0) >= FINDING_ATTEMPT_LIMIT) { allow = false; reason = 'finding-attempt-limit' }
-      else if (key !== undefined && text !== undefined && attempts.get(key)?.digest === digest(text)) { allow = false; reason = 'unchanged-finding' }
+      const { events, findings, tasks } = safety()
+      const prior = findings[key]
+      if (!result && decision.explicit && !named) reason = 'no-designated-recipient'
+      else if (!result && decision.explicit && idle) reason = 'acknowledgment-or-status'
+      else if (!result && decision.explicit && chain.includes(recipient.id)) reason = 'circular-chain'
+      else if (event !== undefined && events[eventKey(sender, recipient, room, event)]) reason = 'duplicate-event'
+      else if (!continuation && key === undefined
+        && (reviewFix || (!result && taskKinds.has(kind) && reviewerOf(rt.botOf?.(sender)) && (category === 'coding' || codingOf(recipient))))) reason = 'finding-identity-required'
+      else if (!result && !continuation && recipient.responsibility && !recipient.responsibility.categories.includes(category)) reason = 'task-category-not-permitted'
+      else if (key !== undefined && (prior?.count ?? 0) >= FINDING_ATTEMPT_LIMIT) reason = 'finding-attempt-limit'
+      else if (key !== undefined && prior?.digest === digest(text)) reason = 'unchanged-finding'
+      else if ((parent?.hops ?? 0) + (continuation ? 0 : 1) > BOT_HOP_LIMIT) reason = 'chain-hop-limit'
+      else if ((tasks[parent?.task] ?? 0) >= BOT_TURN_LIMIT) reason = 'task-turn-limit'
+      allow = reason === decision.reason
     }
-    if (sender !== undefined && sender !== null) {
-      record({ allow, reason, kind, from: sender, to: recipient?.id, ...(room ? { room: room.name } : {}), ...(finding ? { finding: findingKey(finding) } : {}) }, event === undefined ? `${sender}|${recipient?.id}|${room?.id ?? ''}|${kind}|${digest(text)}` : `${sender}|${recipient?.id}|${event}`)
+    if (sender != null) {
+      record({ allow, reason, kind, from: sender, to: recipient?.id, ...(room ? { room: room.name } : {}), ...(finding ? { finding: findingKey(finding) } : {}) },
+        JSON.stringify([sender, recipient?.id, room?.id, event ?? [kind, digest(text)]]))
     }
     return { allow, reason, explicit: decision.explicit }
   }
 
-  // The message goes out: remember its identity and count the finding attempt.
-  function commit({ sender, recipient, event, finding, text }) {
-    if (sender === undefined || sender === null) return
-    if (event !== undefined) {
-      seen.add(`${sender}|${recipient.id}|${event}`)
-      if (seen.size > SEEN_MAX) seen.delete(seen.values().next().value)
-    }
-    const key = findingKey(finding)
-    if (key === undefined) return
-    attempts.set(key, { count: (attempts.get(key)?.count ?? 0) + 1, digest: digest(text) })
-    if (attempts.size > FINDINGS_MAX) attempts.delete(attempts.keys().next().value)
+  // Serialize check and write together. A crash after the write burns the reservation,
+  // so an outcome that might already have reached an inbox cannot start work twice.
+  function reserve(options) {
+    const run = writing.then(async () => {
+      const { sender, recipient, room, finding, text, parent, continuation } = options
+      const event = options.event ?? randomUUID()
+      const decision = check({ ...options, event })
+      if (!decision.allow || sender == null) return decision
+      const { events, findings, tasks } = safety()
+      const key = eventKey(sender, recipient, room, event)
+      const task = parent?.task ?? randomUUID()
+      const priorTrail = parent?.trail ?? []
+      const trail = continuation ? priorTrail : options.result ? priorTrail.slice(0, -1) : [...priorTrail, sender]
+      const routing = {
+        task, key, sender, recipient: recipient.id, trail, hops: (parent?.hops ?? 0) + (continuation ? 0 : 1),
+        category: options.category ?? 'general', result: options.result === true,
+        ...(room ? { roomId: room.id } : {}),
+        ...(options.roomMember ? { roomMember: true } : {}),
+        ...(continuation ? { continuation: true } : {}),
+      }
+      const attempt = findingKey(finding)
+      events[key] = true
+      // Re-insert so insertion order stays last-use order for compaction.
+      const turns = (tasks[task] ?? 0) + 1
+      delete tasks[task]
+      tasks[task] = turns
+      if (attempt !== undefined) {
+        const prior = findings[attempt]
+        delete findings[attempt]
+        findings[attempt] = { count: (prior?.count ?? 0) + 1, digest: digest(text) }
+      }
+      compactRouting(state)
+      await rt.save?.({ required: true })
+      return { ...decision, routing }
+    })
+    writing = run.catch(() => {})
+    return run
   }
 
-  rt.botResponse = { check, commit, decide: decideBotResponse, log: () => [...log], attemptsOf: finding => attempts.get(findingKey(finding))?.count ?? 0 }
+  const permitted = (routing, recipient) => {
+    const room = rt.roomOf?.(routing.roomId)
+    if (routing.recipient !== recipient?.id || !safety().events[routing.key]) return { allow: false, reason: 'unrecorded-admission' }
+    if (routing.roomId !== undefined && (!room || (routing.roomMember && !room.members.includes(recipient.id)))) return { allow: false, reason: 'left-group' }
+    const decision = decideBotResponse({ sender: routing.sender, recipient, room })
+    // A continuation stays inside the task it already belongs to, so the recipient's
+    // categories are not a second gate; the reserve that admitted it checked them for
+    // new work, and a goal check or a resumed delivery must still reach its Bot.
+    if (decision.allow && !routing.result && routing.continuation !== true && recipient.responsibility && !recipient.responsibility.categories.includes(routing.category)) {
+      return { allow: false, reason: 'task-category-not-permitted' }
+    }
+    return decision
+  }
+
+  function advance(routing, previous, next) {
+    const run = writing.then(async () => {
+      const events = safety().events
+      if (events[routing.key] !== previous) return false
+      events[routing.key] = next
+      await rt.save?.({ required: true })
+      return true
+    })
+    writing = run.catch(() => {})
+    return run
+  }
+
+  rt.botResponse = {
+    check, reserve, permitted, decide: decideBotResponse, log: () => [...log],
+    claim: routing => advance(routing, true, 'dispatched'),
+    waiting: routing => safety().events[routing.key] === 'dispatched',
+    take: routing => advance(routing, 'dispatched', 'taken'),
+    attemptsOf: finding => safety().findings[findingKey(finding)]?.count ?? 0,
+  }
 }

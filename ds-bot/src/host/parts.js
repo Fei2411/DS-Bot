@@ -14,6 +14,7 @@
 // The next part opens with the handoff package: the note, the latest messages word for
 // word, and where the rest is. Input that arrives meanwhile waits and moves along.
 // read_own_chat searches every part, the condensed messages included.
+import { BotResponseRefusal } from './bot-response-policy.js'
 import { randomUUID } from 'node:crypto'
 import { LlmError, createUserMessage, isContextWindowExceededError } from '@deepseek-ai/dsh-llm'
 import { openTurnAt } from './btw.js'
@@ -911,9 +912,22 @@ export function install(rt) {
     ...(resume && job.info ? job.info : { kind: SOURCE_KIND, form: 'relay', role: 'handoff', senderName: 'DS Bot' }),
     exchangeId: job.info?.exchangeId ?? randomUUID(),
     handoff: true,
-    ...(resume ? { resume: true } : {}),
+    ...(resume ? { resume: true, ...(job.taskContext ? { taskContext: job.taskContext } : {}) } : {}),
     ...(resume && job.joined?.length ? { joined: job.joined } : {}),
   })
+
+  async function authorizePartResume(botId, source, event) {
+    if (source.routing === undefined) return source
+    try {
+      const delivery = await rt.authorizeDelivery({ toId: botId, role: source.role, exchangeId: source.exchangeId,
+        routing: source.routing, event, resumed: true })
+      if (delivery.passive !== true) return { ...source, routing: delivery.routing }
+    } catch (error) {
+      if (!(error instanceof BotResponseRefusal)) throw error
+      rt.dropWork?.(source.exchangeId)
+    }
+    return undefined
+  }
 
   /** @type {Map<string, {botId:string, roomId?:string, carry:any[], info?:any, joined?:any[], resume:boolean, overflow:boolean, cutoff?:boolean, failed?:string, bare?:boolean, folder?:boolean, engine?:boolean, hard:boolean, started?:boolean, moved?:boolean, noteFailed?:boolean}>} */
   const switches = new Map()
@@ -991,6 +1005,11 @@ export function install(rt) {
       if (kind === 'working-directory') continue
       const exchangeId = message.source?.exchangeId
       if (exchangeId !== undefined && pending.some(queued => queued.source?.exchangeId === exchangeId)) continue
+      const routing = message.source?.routing
+      if (routing !== undefined && !rt.botResponse.permitted(routing, rt.botOf(routing.recipient)).allow) {
+        rt.dropWork?.(exchangeId)
+        continue
+      }
       const copy = createUserMessage({ content: message.content, ...(message.source ? { source: message.source } : {}) })
       if (kind === 'user' || kind === SOURCE_KIND || kind === REPLY_KIND) agent.followup(copy)
       else agent.inject(copy)
@@ -1078,7 +1097,7 @@ export function install(rt) {
     const place = placeOf(agent.id)
     if (place === undefined || switches.has(agent.id) || readOnly()) return
     const resumeOrigin = resume || place.botId === undefined ? rt.holdImOrigin?.(agent.id) : undefined
-    const job = { ...place, carry: [...carry], info, joined, resume, resumeOrigin, overflow, failed, bare, folder, engine, hard, manual, cutoff, since: Date.now() }
+    const job = { ...place, taskContext: rt.live.get(agent.id)?.taskContext, carry: [...carry], info, joined, resume, resumeOrigin, overflow, failed, bare, folder, engine, hard, manual, cutoff, since: Date.now() }
     switches.set(agent.id, job)
     void runSwitch(agent, job)
       .catch(error => {
@@ -1111,12 +1130,12 @@ export function install(rt) {
         const noted = [...agent.inbox.nextStep, ...agent.inbox.nextTurn].some(message => textOf(message.content) === PAUSE_NOTE)
         if (resume && !back.some(message => textOf(message.content) === PAUSE_NOTE) && !noted) {
           const carried = job.joined?.length ? { joined: job.joined } : {}
-          back.unshift(createUserMessage({
-            content: [{ type: 'text', text: PAUSE_NOTE }],
-            source: carryOriginSource(job, job.info
-              ? { ...job.info, ...carried }
-              : { kind: SOURCE_KIND, form: 'relay', role: 'resume', exchangeId: randomUUID(), senderName: 'DS Bot', ...carried }),
-          }))
+          const source = carryOriginSource(job, job.info
+            ? { ...job.info, ...carried }
+            : { kind: SOURCE_KIND, form: 'relay', role: 'resume', exchangeId: randomUUID(), senderName: 'DS Bot', taskContext: job.taskContext, ...carried })
+          if (source.taskContext === undefined) delete source.taskContext
+          const admitted = await authorizePartResume(job.botId, source, `part-fallback:${agent.id}:${source.routing?.key ?? source.exchangeId}`)
+          if (admitted !== undefined) back.unshift(createUserMessage({ content: [{ type: 'text', text: PAUSE_NOTE }], source: admitted }))
         }
         await forward(job, back, threadTargetOf(agent.id, job)).then(() => {
           delete state.switching[agent.id]
@@ -1353,8 +1372,11 @@ export function install(rt) {
       const engine = job.engine ? rt.engineNameOf?.(bot.model ?? bot.appliedModel) : undefined
       const text = handoffPackage({ room, self: bot === undefined, segment, lines: carried, number: number + 1, resume, overflow: job.overflow, cutoff: job.cutoff === true, failed: job.failed, bare: job.bare, folder, manual: job.manual, engine })
       freshParts.set(freshId, estimateTokens(text))
-      fresh.followup(createUserMessage({ content: [{ type: 'text', text }], source: handoffSource(job, resume) }))
-      await ctx.sessions.flush(fresh.session)
+      const source = await authorizePartResume(bot?.id, handoffSource(job, resume), `part:${freshId}`)
+      if (source !== undefined) {
+        fresh.followup(createUserMessage({ content: [{ type: 'text', text }], source }))
+        await ctx.sessions.flush(fresh.session)
+      }
       carry.push(...job.carry.splice(0))
       await forward(job, [...carry, ...held], freshId)
     } catch (error) {

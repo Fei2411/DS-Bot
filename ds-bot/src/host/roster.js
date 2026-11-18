@@ -6,6 +6,7 @@ import { mkdir } from 'node:fs/promises'
 import { MAX_AVATAR_IMAGE, ROOM_MAX_MEMBERS, ROOM_MODES, ROOM_NAME_MAX, ROOM_NOTICE_MAX, ROOM_TODO_MAX, ROOM_TODO_TEXT_MAX, SECTION_COLORS, SECTION_NAME_MAX } from './constants.js'
 import { currentColor, isColor, normalize, unquote } from './text.js'
 import { nameProblem } from '../shared/mentions.js'
+import { cleanResponsibility } from '../shared/responsibilities.js'
 import { normalizeResponsePolicies, policyPatch } from './bot-response-policy.js'
 
 const BROWSER_GRANT_KINDS = new Set(['post', 'upload', 'download', 'delete', '*'])
@@ -190,7 +191,7 @@ export function install(rt) {
     return holdName('bot', cleanName, () => buildBot(cleanName, options))
   }
 
-  async function buildBot(cleanName, { role = '', instructions = '', color, brief = '', createdBy, main = false, avatar, model, effort, workDir, copyOf, pickModel = false, section, sectionId }) {
+  async function buildBot(cleanName, { role = '', instructions = '', color, brief = '', createdBy, main = false, avatar, model, effort, workDir, copyOf, pickModel = false, section, sectionId, taskContext }) {
     const cleanAvatarValue = cleanAvatar(avatar)
     // The model is fixed at creation, so a later change of the DSH default leaves it alone.
     const modelRef = model ? await rt.resolveModel(model) : pickModel ? undefined : await rt.defaultBotModel()
@@ -243,7 +244,7 @@ export function install(rt) {
       const opener = `${kickoff}\n${OWN_RULES}`
       const text = !main && language ? `${opener}\nWrite in ${language}.` : opener
       const bot = state.bots[id]
-      const greeting = { text, from: createdBy ?? null, ...(main ? { main: true } : {}) }
+      const greeting = { text, from: createdBy ?? null, ...(taskContext ? { taskContext } : {}), ...(main ? { main: true } : {}) }
       // The Bot is saved by now; a failure here must not archive it in the catch below.
       const scopeTools = () => rt.resolveAgent(id)
         .catch(error => rt.warn('ds-bot: scoped tools for %s not applied: %s', cleanName, error))
@@ -283,7 +284,7 @@ export function install(rt) {
     if (rt.hostClosing?.() === true) return
     sentKickoffs.set(bot.id, greeting)
     const text = greeting.afterUser ? `${AFTER_USER} ${writeIn(rt.uiLanguage?.())}\n${OWN_RULES}` : greeting.text
-    void rt.deliver({ fromId: greeting.from ?? undefined, toId: bot.id, text, role: 'kickoff' })
+    void rt.deliver({ fromId: greeting.from ?? undefined, toId: bot.id, text, role: 'kickoff', parent: greeting.taskContext, event: `kickoff:${bot.id}` })
       .catch(error => rt.warn('ds-bot: kickoff failed: %s', error))
   }
 
@@ -378,6 +379,8 @@ export function install(rt) {
       throw new Error(`Only the user can set who may start work for ${bot.name} with a message`)
     }
     const botResponse = policyPatch(patch.botResponse, new Set(Object.keys(state.bots)), id)
+    if (patch.responsibility !== undefined && actorId !== undefined) throw new Error('Only the user can apply a responsibility preset')
+    const responsibility = patch.responsibility === undefined ? undefined : cleanResponsibility(patch.responsibility)
     if ((patch.section !== undefined || patch.sectionId !== undefined) && actorId !== undefined && !rt.isMain(actorId)) {
       throw new Error(`Only the user or a Main Bot can move ${bot.name} between sidebar sections`)
     }
@@ -460,6 +463,7 @@ export function install(rt) {
     }
     if (flag === true) bot.private = true
     else if (flag === false) delete bot.private
+    if (responsibility !== undefined) bot.responsibility = responsibility
     if (botResponse === null) delete bot.botResponse
     else if (botResponse !== undefined) bot.botResponse = botResponse
     if (patch.section !== undefined || patch.sectionId !== undefined) {
@@ -481,13 +485,10 @@ export function install(rt) {
     if (bot.instructions !== instructionsBefore) notes.push(`Your instructions now read:\n${bot.instructions || '(none)'}`)
     // A held greeting means the model pick is still open: the kickoff it later sends
     // already reads the new profile, and a notice would start a turn before that.
-    // A Bot editing itself in its own chat just got the tool result in the turn
-    // that made the edit; a notice there would only buy it a second, unsolicited
-    // reply. The same edit made from a group Session reaches no own-chat turn, so
-    // the notice still goes out.
-    const selfEditInChat = actorId === bot.id && fromSessionId === rt.chatOf(bot.id)
-    if (notes.length > 0 && bot.kickoff === undefined && !selfEditInChat) {
-      void rt.deliver({ toId: bot.id, text: notes.join('\n'), role: 'update' })
+    // A Bot editing itself already received the tool receipt in its running turn.
+    if (notes.length > 0 && bot.kickoff === undefined && actorId !== bot.id) {
+      void rt.deliver({ fromId: actorId, toId: bot.id, text: notes.join('\n'), role: 'update',
+        parent: rt.live.get(fromSessionId)?.taskContext })
         .catch(error => rt.warn('ds-bot: profile update for %s not delivered: %s', bot.name, error?.message ?? error))
     }
     if (modelChanged) await rt.applyModel(bot, { force: true })

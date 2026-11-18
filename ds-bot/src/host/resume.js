@@ -9,6 +9,7 @@
 // is settled from the Session's durable log: an answer that was produced goes to the Bot
 // that waits for it, and an outcome that cannot be read is said to be unknown. The
 // request itself is never sent again there.
+import { BotResponseRefusal } from './bot-response-policy.js'
 import { randomUUID } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { mkdir, writeFile } from 'node:fs/promises'
@@ -93,8 +94,10 @@ export function answeredIn(events, exchangeId) {
 // The trigger fields a resumed turn needs to answer the same sender.
 const triggerOf = info => ({
   role: info.role,
+  ...(info.routing ? { routing: info.routing } : {}),
   ...(info.exchangeId ? { exchangeId: info.exchangeId } : {}),
   ...(info.senderSessionId ? { senderSessionId: info.senderSessionId } : {}),
+  ...(info.resultFrom ? { resultFrom: info.resultFrom } : {}),
   ...(info.senderPart ? { senderPart: info.senderPart } : {}),
   ...(info.roomId ? { roomId: info.roomId } : {}),
   ...(info.work ? { work: info.work } : {}),
@@ -154,9 +157,9 @@ export function install(rt) {
     else turns[id] = next
     persist()
   }
-  const forgetQueued = (exchangeId) => {
+  const forgetQueued = (exchangeId, routingKey) => {
     for (const [sessionId, list] of Object.entries(queued)) {
-      const at = list.findIndex(item => item.args.exchangeId === exchangeId)
+      const at = list.findIndex(item => item.args.exchangeId === exchangeId && (routingKey === undefined || item.args.routing?.key === routingKey))
       if (at === -1) continue
       const rest = list.toSpliced(at, 1)
       queued = { ...queued }
@@ -169,7 +172,8 @@ export function install(rt) {
 
   const deliver = rt.deliver
   rt.deliver = async (args) => {
-    const noted = { ...args, exchangeId: args.exchangeId ?? randomUUID() }
+    const noted = await rt.authorizeDelivery({ ...args, exchangeId: args.exchangeId ?? randomUUID() })
+    if (noted.passive === true) return deliver(noted)
     const sessionId = noted.sessionId ?? rt.chatOf(noted.toId)
     // Noted before it is sent: a turn may take it up before the send returns. Notes
     // are kept whole; nothing waits out a delivery silently.
@@ -192,7 +196,7 @@ export function install(rt) {
   // A message is done with once a turn takes it up, or once it leaves the inbox untaken
   // while DS Bot runs: the user stopped the Bot, or DS Bot moved or withdrew it.
   ctx.on('agent/inbox/discarded', ({ message } = {}) => {
-    if (message?.source?.kind === SOURCE_KIND && message.source.exchangeId) forgetQueued(message.source.exchangeId)
+    if (message?.source?.kind === SOURCE_KIND && message.source.exchangeId) forgetQueued(message.source.exchangeId, message.source.routing?.key)
   })
   // Exchanges a turn took up since this start, until the resends are done, so a resend
   // never repeats one.
@@ -208,8 +212,8 @@ export function install(rt) {
       firstTurn.set(id, { type: event.type, turn: event.data?.turn, reason: event.data?.reason })
     }
     if (event.type === 'user/message' && event.data?.source?.kind === SOURCE_KIND && event.data.source.exchangeId) {
-      taken?.add(event.data.source.exchangeId)
-      forgetQueued(event.data.source.exchangeId)
+      taken?.add(deliveryIdentity(event.data.source))
+      forgetQueued(event.data.source.exchangeId, event.data.source.routing?.key)
     }
     if (!rt.isBotSession(id)) return
     switch (event.type) {
@@ -218,10 +222,13 @@ export function install(rt) {
         const botId = owner?.botId ?? rt.chatOwners.get(id)
         // turns.js runs first and has already claimed or restored the trigger.
         const info = rt.live.get(id)?.info
-        update(id, () => ({ botId, ...(owner ? { roomId: owner.roomId } : {}), since: event.time ?? Date.now(), ...(info !== undefined ? { trigger: triggerOf(info) } : {}) }))
+        update(id, () => ({ botId, ...(owner ? { roomId: owner.roomId } : {}), since: event.time ?? Date.now(), ...(info !== undefined ? { trigger: triggerOf(info) } : {}), taskContext: rt.live.get(id)?.taskContext }))
         break
       }
       case 'user/message': {
+        if (event.data?.source?.kind === 'schedule') {
+          update(id, record => record === undefined ? undefined : { ...record, taskContext: rt.live.get(id)?.taskContext })
+        }
         if (event.data?.source?.kind !== SOURCE_KIND) break
         // turns.js, installed earlier, has already claimed the turn's trigger.
         const info = rt.live.get(id)?.info
@@ -254,7 +261,7 @@ export function install(rt) {
       // A turn already picked up once and cut off again stays stopped: a restart loop
       // must not run it forever.
       if (record.resumed) return
-      await rt.deliver({ toId: bot.id, sessionId: room.sessions?.[bot.id] ?? sessionId, role: 'room', roomId: room.id, note: 'picking up after a restart', resumed: true, text, ...(record.trigger?.askedBy ? { askedBy: record.trigger.askedBy } : {}) })
+      await rt.deliver({ toId: bot.id, sessionId: room.sessions?.[bot.id] ?? sessionId, role: 'room', roomId: room.id, taskContext: record.taskContext, note: 'picking up after a restart', resumed: true, text, ...(record.trigger?.askedBy ? { askedBy: record.trigger.askedBy } : {}), ...(record.trigger?.routing ? { routing: record.trigger.routing } : {}), ...(record.trigger?.exchangeId ? { exchangeId: record.trigger.exchangeId } : {}) })
       return
     }
     if (record.resumed) return
@@ -263,13 +270,19 @@ export function install(rt) {
     // dropped) falls back to the Bot's current chat.
     const ownPart = rt.selfOf(sessionId) === bot.id && rt.isBotSession(sessionId) ? { sessionId } : {}
     const trigger = record.trigger
-    if ((trigger?.role === 'request' || trigger?.role === 'stopped') && trigger.senderSessionId && trigger.audience !== 'user' && rt.botOf(trigger.senderSessionId)) {
+    if ((trigger?.role === 'request' || trigger?.role === 'stopped') && trigger.senderSessionId) {
       // The sender still waits for this turn's answer, so it goes on under the same exchange.
-      await rt.deliver({ fromId: trigger.senderSessionId, toId: bot.id, ...ownPart, ...(trigger.senderPart ? { fromPart: trigger.senderPart } : {}), role: trigger.role, ...(trigger.exchangeId ? { exchangeId: trigger.exchangeId } : {}), ...(trigger.senderRoomId ? { fromRoomId: trigger.senderRoomId } : {}), resumed: true, text })
+      await rt.deliver({ fromId: trigger.senderSessionId, toId: bot.id, ...ownPart, ...(trigger.senderPart ? { fromPart: trigger.senderPart } : {}), role: trigger.role, audience: trigger.audience, routing: trigger.routing, ...(trigger.exchangeId ? { exchangeId: trigger.exchangeId } : {}), ...(trigger.senderRoomId ? { fromRoomId: trigger.senderRoomId } : {}), resumed: true, text })
       return
     }
     // A turn that went on with work another Bot asked for still owes that Bot its answer.
-    await rt.deliver({ toId: bot.id, ...ownPart, role: 'resume', resumed: true, text, ...(trigger?.work ? { work: trigger.work } : {}) })
+    const origin = trigger?.resultFrom ?? trigger?.senderSessionId
+    const result = trigger?.role === 'reply' || trigger?.role === 'report'
+    await rt.deliver({ toId: bot.id, ...ownPart, role: 'resume', resumed: true, taskContext: record.taskContext,
+      routing: trigger?.routing, exchangeId: trigger?.exchangeId, text,
+      ...(origin ? (result ? { resultFrom: origin } : { fromId: origin }) : {}),
+      ...((trigger?.roomId ?? trigger?.senderRoomId) ? { fromRoomId: trigger.roomId ?? trigger.senderRoomId } : {}),
+      ...(trigger?.work ? { work: trigger.work } : {}) })
   }
 
   // Where a queued note goes now: its Session if it still is one, else the
@@ -277,28 +290,54 @@ export function install(rt) {
   const sessionFor = (sessionId, args) => (rt.isBotSession(sessionId) ? sessionId
     : args?.roomId === undefined ? rt.chatOf(args?.toId) : rt.roomOf(args.roomId)?.sessions?.[args.toId])
 
+  const deliveryIdentity = source => source.routing?.key ?? JSON.stringify([
+    source.exchangeId, source.resumed === true, source.retried === true, source.deferred === true,
+  ])
+
   // A hard stop keeps the inbox, which the Session runs once it wakes; only what DSH
   // cancelled is sent again. The notes stay queued until a turn takes the messages
   // up, so a send that fails here, or a Session that cannot be opened, leaves them
   // for the next start instead of losing them.
   async function resendQueued(sessionId, list) {
     const fresh = list.filter(item => rt.botOf(item.args?.toId) !== undefined
-      && sessionFor(sessionId, item.args) !== undefined && taken?.has(item.args.exchangeId) !== true)
+      && sessionFor(sessionId, item.args) !== undefined && taken?.has(deliveryIdentity(item.args)) !== true)
     if (fresh.length === 0) return
     const target = sessionFor(sessionId, fresh[0].args)
     const agent = await rt.resolveAgent(target)
-    const waiting = new Set([...(agent.inbox?.nextStep ?? []), ...(agent.inbox?.nextTurn ?? [])].map(message => message.source?.exchangeId))
+    const waiting = new Set([...(agent.inbox?.nextStep ?? []), ...(agent.inbox?.nextTurn ?? [])]
+      .filter(message => message.source?.exchangeId !== undefined).map(message => deliveryIdentity(message.source)))
+    const recorded = new Set((await logOf(sessionId) ?? [])
+      .filter(event => event.type === 'user/message' && event.data?.source?.exchangeId !== undefined)
+      .map(event => deliveryIdentity(event.data.source)))
     for (const { args } of fresh) {
-      if (waiting.has(args.exchangeId)) continue
-      if (taken?.has(args.exchangeId) === true) {
-        forgetQueued(args.exchangeId)
+      const identity = deliveryIdentity(args)
+      if (recorded.has(identity) || taken?.has(identity) === true || (args.routing !== undefined && !rt.botResponse.waiting(args.routing))) {
+        forgetQueued(args.exchangeId, args.routing?.key)
         continue
       }
       // A request that waited through a restart reaches its target late: the work
       // it is for is marked, so the answer that comes back says so.
       if (args.role === 'request' || args.role === 'stopped') rt.lateWork?.(args.exchangeId)
-      await deliver({ ...args, sessionId: sessionFor(sessionId, args), steer: false, resent: true })
-        .catch(error => rt.warn('ds-bot: sending again what %s was sent failed: %s', sessionId, error))
+      try {
+        const authorized = await rt.authorizeDelivery({ ...args, sessionId: sessionFor(sessionId, args), steer: false, resent: true })
+        if (waiting.has(identity) && authorized.passive !== true) continue
+        if (authorized.passive === true) {
+          for (const message of [...(agent.inbox?.nextStep ?? []), ...(agent.inbox?.nextTurn ?? [])]) {
+            if (message.source?.exchangeId !== undefined && deliveryIdentity(message.source) === identity) agent.inbox?.remove?.(message.id)
+          }
+          forgetQueued(args.exchangeId, args.routing?.key)
+        }
+        await deliver(authorized)
+        waiting.add(identity)
+      } catch (error) {
+        if (error instanceof BotResponseRefusal) {
+          for (const message of [...(agent.inbox?.nextStep ?? []), ...(agent.inbox?.nextTurn ?? [])]) {
+            if (message.source?.exchangeId !== undefined && deliveryIdentity(message.source) === identity) agent.inbox?.remove?.(message.id)
+          }
+          forgetQueued(args.exchangeId, args.routing?.key)
+          rt.dropWork?.(args.exchangeId)
+        } else rt.warn('ds-bot: sending again what %s was sent failed: %s', sessionId, error)
+      }
     }
   }
 
@@ -344,7 +383,7 @@ export function install(rt) {
         where: room === undefined ? 'own chat' : `group "${room.name}"`,
         sessionId,
       })
-      answerSender(rt, sessionId, asker, text)
+      answerSender(rt, sessionId, { ...asker, routing: trigger.routing }, text)
       return
     }
     const turn = turnOf(events, exchangeId)
@@ -414,7 +453,7 @@ export function install(rt) {
     }
     const text = rt.answerText(workId, answer, name)
     const long = text.length > MESSAGE_INLINE_MAX ? await rt.attachLong(text, `Answer from ${name}.txt`) : undefined
-    answerSender(rt, sessionId, asker, text, long)
+    answerSender(rt, sessionId, { ...asker, routing: trigger.routing }, text, long)
   }
 
   async function resumeAll() {
@@ -431,7 +470,7 @@ export function install(rt) {
     for (const [oldId, list] of Object.entries(pending)) {
       if (!Array.isArray(list)) continue
       for (const item of list) {
-        if (item?.args?.exchangeId === undefined || taken?.has(item.args.exchangeId) === true || rt.botOf(item.args.toId) === undefined) continue
+        if (item?.args?.exchangeId === undefined || taken?.has(deliveryIdentity(item.args)) === true || rt.botOf(item.args.toId) === undefined) continue
         const key = sessionFor(oldId, item.args) ?? oldId
         queued = { ...queued, [key]: [...(queued[key] ?? []), item] }
       }
