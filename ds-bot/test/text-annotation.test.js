@@ -89,9 +89,11 @@ const key = patch => ({ key: 'Enter', prevented: 0, stopped: 0, preventDefault()
 
 beforeEach(t => t.mock.timers.enable({ apis: ['setTimeout'] }))
 
+const drain = () => new Promise(resolve => setImmediate(resolve))
+
 const settle = async t => {
   // Drain the VM's cross-realm send promise before advancing its exit timer.
-  await new Promise(resolve => setImmediate(resolve))
+  await drain()
   t.mock.timers.tick(0)
 }
 
@@ -166,12 +168,12 @@ test('Ctrl+Enter sends the annotated quote to a group through the existing send 
   const app = bench({ sessionId: 'room' })
   findAll(app.openEditor(), 'textarea')[0].props.onChange({ target: { value: 'Check this part' } })
   findAll(app.render(), 'textarea')[0].props.onKeyDown(key({ ctrlKey: true }))
-  await Promise.resolve()
-  assert.equal(app.calls.dismiss, 0)
-  await settle(t)
+  await drain()
   assert.deepEqual(app.sent, [['room', '> The selected text\n> \n> Check this part']])
   assert.deepEqual(app.inserted, [])
   assert.equal(app.calls.clear, 1)
+  assert.equal(app.calls.dismiss, 0)
+  t.mock.timers.tick(0)
   assert.equal(app.calls.dismiss, 1)
 })
 
