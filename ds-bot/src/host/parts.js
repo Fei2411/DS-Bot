@@ -15,7 +15,7 @@
 // word, and where the rest is. Input that arrives meanwhile waits and moves along.
 // read_own_chat searches every part, the condensed messages included.
 import { randomUUID } from 'node:crypto'
-import { createUserMessage } from '@deepseek-ai/dsh-llm'
+import { LlmError, createUserMessage, isContextWindowExceededError } from '@deepseek-ai/dsh-llm'
 import { openTurnAt } from './btw.js'
 import { HANDOFF_ACK, HISTORY_SCAN_PAGES, HISTORY_TIMEOUT_MS, REPLY_KIND, SOURCE_KIND } from './constants.js'
 import { assembleLlmStream } from './models.js'
@@ -188,6 +188,9 @@ export function install(rt) {
   const NOTE_COOLDOWN_MS = [60_000, 300_000, 900_000]
   const SWITCH_ATTEMPTS = 5
   const OVERFLOW = 'CONTEXT_WINDOW_EXCEEDED'
+  // A gateway or compatible endpoint that turns a request down for its size, without
+  // DSH's own overflow code (#1716).
+  const TOO_LARGE = /\b413 status code\b|payload too large|request (?:body|entity) too large|length limit exceeded/i
   // A checkpoint DSH asked for so a model switch could go ahead, written while no route
   // could produce a summary. It is honest about that and points at the messages.
   const NO_SUMMARY = '(No summary was written: no model was free to write it, so the messages the earlier part sent you are carried over word for word below. Read it from them, and read_own_chat finds the rest.)'
@@ -836,6 +839,7 @@ export function install(rt) {
       : segment.fallback === 'cutoff' ? 'the part kept being cut off at the output limit'
         : segment.fallback === 'failure' ? 'a request in the previous part kept failing'
           : segment.fallback === 'engine' ? 'what you run on changed'
+            : segment.fallback === 'manual' ? 'a fresh conversation was started'
             : 'the model did not write a usable note'
     const head = `(DS Bot put this note together without the model, because ${why}.`
     return segment.note === undefined
@@ -1243,7 +1247,7 @@ export function install(rt) {
     let failure
     const local = localPart(session)
     // The group's own Session only relays; it has no route a note could be written with.
-    if (!job.engine && !job.overflow && job.cutoff !== true && job.failed === undefined && !whole && bot !== undefined) {
+    if (!job.engine && !job.overflow && !job.manual && job.cutoff !== true && job.failed === undefined && !whole && bot !== undefined) {
       try {
         const noteSignal = AbortSignal.any([signal, AbortSignal.timeout(NOTE_TIMEOUT_MS)])
         written = local ? await writeLocalNote(agent, noteSignal, { folder: job.folder }) : await writeNote(agent, noteSignal, { folder: job.folder })
@@ -1268,7 +1272,7 @@ export function install(rt) {
     const earlierNote = previous?.note ? { note: previous.note, noteFrom: previous.noteFrom ?? previous.number } : {}
     const noted = written !== undefined ? { note: written.note }
       : job.engine ? { fallback: 'engine', ...earlierNote }
-      : { fallback: whole ? 'whole' : job.failed !== undefined ? 'failure' : job.overflow ? 'overflow' : job.cutoff === true ? 'cutoff' : 'failed', ...earlierNote }
+      : { fallback: whole ? 'whole' : job.failed !== undefined ? 'failure' : job.overflow ? 'overflow' : job.cutoff === true ? 'cutoff' : job.manual && failure === undefined ? 'manual' : 'failed', ...earlierNote }
     carried ??= await readLines()
     if (signal.aborted) throw signal.reason
     const dir = rt.workDirOf(job)
@@ -1388,6 +1392,11 @@ export function install(rt) {
   ctx.on('agent/pre-step', async (payload, next) => {
     await rt.load()
     const { agent } = payload
+    const local = rt.localAgentOf?.(rt.botOf(rt.selfOf(agent.id)))
+    const route = splitRef(local)?.provider
+    if (route !== undefined && rt.isLocalAgentAvailable?.(route) === false) {
+      throw new LlmError(`Local agent ${route} is unavailable: its route is owned by another adapter`, 'LOCAL_AGENT_MISSING')
+    }
     const past = rt.pastOwners.get(agent.id)
     if (past !== undefined && !rt.isBotSession(agent.id)) {
       await forward(past, payload.messages, threadTargetOf(agent.id, past)).catch(error => rt.warn('ds-bot: input for %s was not handed on: %s', agent.id, error))
@@ -1553,11 +1562,26 @@ export function install(rt) {
     return undefined
   }, { prepend: true })
 
+  // A request the endpoint turned down as too large: DSH's overflow code, a 413 or
+  // overflow wording under a generic code, or a generic refusal of a part already past
+  // its hard line. A real bad request on such a part costs one move: the fresh part is
+  // below the line, so the same refusal then keeps its real error there.
+  async function overflowed(agent, failure) {
+    if (failure?.code === OVERFLOW) return true
+    if (failure?.code !== 'INVALID_REQUEST') return false
+    const message = String(failure.message ?? '')
+    if (failure.status === 413 || TOO_LARGE.test(message) || isContextWindowExceededError(message)) return true
+    if (localPart(agent.session)) return false
+    const lines = await contextLines(agent.session).catch(() => undefined)
+    const tokens = tokensOf(agent.session)
+    return lines !== undefined && tokens !== undefined && tokens >= lines.hard
+  }
+
   ctx.on('agent/request-error', async (payload, next) => {
-    if (payload.failure?.code !== OVERFLOW || payload.signal?.aborted) return next()
+    if (payload.signal?.aborted || (payload.failure?.code !== OVERFLOW && payload.failure?.code !== 'INVALID_REQUEST')) return next()
     await rt.load()
     const { agent } = payload
-    if (!rt.isBotSession(agent.id) || switches.has(agent.id) || readOnly() || !await canMakeRoom(agent)) return next()
+    if (!rt.isBotSession(agent.id) || switches.has(agent.id) || readOnly() || !await overflowed(agent, payload.failure) || !await canMakeRoom(agent)) return next()
     const entry = rt.liveOf(agent.id)
     entry.switched = true
     startSwitch(agent, { resume: true, info: entry.info, joined: [...(entry.joined ?? [])], overflow: true })
@@ -2018,17 +2042,18 @@ export function install(rt) {
   // "New session" in a Bot's chat: a manual move to a fresh part with the
   // deterministic handoff package, no model call. While the Bot is working the fresh
   // part starts at once and the part it replaces keeps running in the background.
+  // A member's conversation in a group moves the same way, but only while it is idle.
   async function newPart(sessionId) {
     await rt.load()
     const agent = await rt.resolveAgent(sessionId)
     const place = placeOf(sessionId)
-    if (place?.botId === undefined || place.roomId !== undefined) throw Object.assign(new Error('Only a Bot\'s own chat can start a fresh part'), { code: 'bot/invalid' })
+    if (place?.botId === undefined) throw Object.assign(new Error('Only a Bot\'s own conversation can start a fresh part'), { code: 'bot/invalid' })
     if (agent.status === 'idle') {
       startSwitch(agent, { manual: true })
       return true
     }
     const bot = rt.botOf(place.botId)
-    if (bot === undefined || switches.has(sessionId)) throw Object.assign(new Error('The Bot is working; wait for it to finish or stop it first'), { code: 'bot/busy' })
+    if (bot === undefined || place.roomId !== undefined || switches.has(sessionId)) throw Object.assign(new Error('The Bot is working; wait for it to finish or stop it first'), { code: 'bot/busy' })
     await openPartNow(bot, agent)
     return true
   }
