@@ -41588,7 +41588,7 @@ function TaskRow3({ task, bot, room: room2, actions }) {
   const resume = () => {
     if (busy || sent) return;
     setBusy(true);
-    Promise.resolve(actions.taskNote(room2.id, task.id, t("Continue"))).then(
+    Promise.resolve(actions.taskNote(room2.id, task.id, t("Let it continue: {task}", { task: task.goal }))).then(
       () => {
         setSent(true);
         setBusy(false);
@@ -41728,7 +41728,7 @@ var TASK_CSS = `
 .bt-task[data-status=review] .bt-task-icon{color:var(--bt-warn)}
 .bt-task[data-status=blocked] .bt-task-icon{color:var(--bt-danger)}
 .bt-task[data-status=done] .bt-task-icon{color:var(--bt-green-ink)}
-.bt-task[data-status=cancelled] .bt-task-icon{color:var(--bt-ink-3)}
+.bt-task[data-status=cancelled] .bt-task-icon{color:var(--bt-ink-2)}
 .bt-task-spin{animation:bt-task-turn 1.6s linear infinite}
 @keyframes bt-task-turn{to{transform:rotate(360deg)}}
 @media (prefers-reduced-motion:reduce){.bt-task-spin{animation:none}}
@@ -41750,7 +41750,6 @@ var TASK_CSS = `
 .bt-task-write{display:flex;align-items:center;gap:6px;margin-top:8px;padding-left:28px}
 .bt-task-input{flex:1;min-width:0;height:28px;font-size:13px}
 .bt-task-write>.bt-send{flex:none;margin:0}
-.bt-task-history .bt-task{opacity:.85}
 @media(max-width:640px){
   .bt-task-continue{padding:0 8px;max-width:88px}
   .bt-task-title{-webkit-line-clamp:2;display:-webkit-box;-webkit-box-orient:vertical;white-space:normal}

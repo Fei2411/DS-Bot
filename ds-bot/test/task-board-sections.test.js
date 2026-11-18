@@ -89,7 +89,7 @@ test('only a stopped row offers to continue, and it asks the owner through the n
   assert.match(buttons[0].props['aria-label'], /Let it continue: Goal t2/)
   buttons[0].props.onClick()
   await new Promise(resolve => setImmediate(resolve))
-  assert.deepEqual(sent, [['r1', 't2', 'Continue']])
+  assert.deepEqual(sent, [['r1', 't2', 'Let it continue: Goal t2']])
 })
 
 test('an empty section says so, and history shows a few rows with a way to see the rest', () => {
@@ -102,4 +102,27 @@ test('an empty section says so, and history shows a few rows with a way to see t
   assert.match(text, /Show all \(8\)/)
   // Five rows in the preview plus the one running.
   assert.equal((text.match(/Goal t/g) ?? []).length, 6)
+})
+
+test('a row waiting for review sits with the work that needs the user, and a cancelled task in history', () => {
+  const tree = TaskBoard({ room: room({
+    t1: task('t1', 'a', 'active'),
+    t2: task('t2', 'b', 'review'),
+    t3: task('t3', 'a', 'cancelled'),
+  }), roster, actions })
+  const text = textOf(rendered(tree))
+  const needs = text.indexOf('Needs you')
+  assert.ok(text.indexOf('Goal t2') > needs, 'review is not running work')
+  assert.match(text, /Awaiting review/)
+  const history = text.indexOf('History')
+  assert.ok(text.indexOf('Goal t3') > history, 'cancelled is history')
+  assert.match(text, /Cancelled/)
+})
+
+test('exactly five finished tasks need no way to show more', () => {
+  const tasks = {}
+  for (let i = 1; i <= 5; i += 1) tasks[`t${i}`] = task(`t${i}`, 'a', 'done')
+  const text = textOf(rendered(TaskBoard({ room: room(tasks), roster, actions })))
+  assert.match(text, /History/)
+  assert.doesNotMatch(text, /Show all/)
 })
