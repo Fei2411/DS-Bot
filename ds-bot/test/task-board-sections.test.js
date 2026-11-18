@@ -130,6 +130,15 @@ test('every state draws an icon the renderer can call, not a prebuilt element', 
   assert.deepEqual(bad.map(node => node.props?.className ?? node.type), [])
 })
 
+test('a failure whose code and status are the same number says it once', () => {
+  const tree = TaskBoard({ room: room({
+    t1: task('t1', 'a', 'blocked', { blocked: { by: 'system', cause: 'failed', code: '401', status: '401', at: 1 } }),
+  }), roster, actions })
+  const text = textOf(rendered(tree))
+  assert.match(text, /Its model call failed \(401\)/)
+  assert.doesNotMatch(text, /401 401/)
+})
+
 test('exactly five finished tasks need no way to show more', () => {
   const tasks = {}
   for (let i = 1; i <= 5; i += 1) tasks[`t${i}`] = task(`t${i}`, 'a', 'done')

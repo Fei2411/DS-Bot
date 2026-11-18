@@ -39,7 +39,10 @@ const ICONS = { active: SpinnerIcon, review: AlertCircleIcon, blocked: StopIcon,
 // A block DS Bot set from how the member's work ended, not one the Bot reported.
 const blockedLine = blocked => blocked.cause === 'stopped' ? t('Stopped by the user')
   : blocked.cause === 'restarted' ? t('Not updated after a restart')
-  : t('Its model call failed ({code})', { code: `${blocked.code}${blocked.status ? ` ${blocked.status}` : ''}` })
+  // A transport code and an HTTP status can be the same number; say it once.
+  : t('Its model call failed ({code})', {
+    code: [blocked.code, blocked.status].filter((part, i, all) => part !== undefined && part !== '' && all.indexOf(part) === i).join(' '),
+  })
 
 const subtitleOf = (task, bot) => {
   const who = bot?.name === undefined ? '' : `${bot.name} · `

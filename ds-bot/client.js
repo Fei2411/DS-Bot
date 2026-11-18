@@ -41533,7 +41533,9 @@ var StopIcon = lineIcon3(["M6.2 5.4h7.6a.8.8 0 0 1 .8.8v7.6a.8.8 0 0 1-.8.8H6.2a
 var CheckCircleIcon = lineIcon3([CIRCLE, "M6.9 10.2l2.2 2.2 4.1-4.6"]);
 var SlashCircleIcon = lineIcon3([CIRCLE, "M6.5 13.5l7-7"]);
 var ICONS = { active: SpinnerIcon, review: AlertCircleIcon, blocked: StopIcon, done: CheckCircleIcon, cancelled: SlashCircleIcon };
-var blockedLine = (blocked) => blocked.cause === "stopped" ? t("Stopped by the user") : blocked.cause === "restarted" ? t("Not updated after a restart") : t("Its model call failed ({code})", { code: `${blocked.code}${blocked.status ? ` ${blocked.status}` : ""}` });
+var blockedLine = (blocked) => blocked.cause === "stopped" ? t("Stopped by the user") : blocked.cause === "restarted" ? t("Not updated after a restart") : t("Its model call failed ({code})", {
+  code: [blocked.code, blocked.status].filter((part, i, all) => part !== void 0 && part !== "" && all.indexOf(part) === i).join(" ")
+});
 var subtitleOf = (task, bot) => {
   const who = bot?.name === void 0 ? "" : `${bot.name} · `;
   if (task.status === "active") return who + (task.progress ? task.progress : t("In progress"));
