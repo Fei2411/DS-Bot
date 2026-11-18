@@ -2,7 +2,6 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { test as nodeTest } from 'node:test'
 import { Context } from '@deepseek-ai/cordis'
-import { mountAgentLoopTestDependencies, provideWorkingDirectoryFixture } from '@deepseek-ai/dsh-agent-loop-testkit'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { createScope } from '@deepseek-ai/dsh-scope'
 import { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
@@ -18,6 +17,7 @@ const missingExecutors = ['@deepseek-ai/dsh-tool-executor-native', '@deepseek-ai
 })
 const skip = missingExecutors.length > 0 && `code-mode requires DSH >= 0.2.2-rc.1; host lacks ${missingExecutors.join(', ')}`
 const test = (name, fn) => nodeTest(name, { skip }, fn)
+const { mountAgentLoopTestDependencies, provideWorkingDirectoryFixture } = skip ? {} : await import('@deepseek-ai/dsh-agent-loop-testkit')
 const [{ PtcRuntime }, { renderToolsSdk }, { CodeModeExecutor, Config, capResultText, renderCompactSdk }, codeMode] = skip
   ? [{}, {}, {}, {}]
   : await Promise.all([
