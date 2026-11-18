@@ -4,7 +4,25 @@ import { tmpdir } from 'node:os'
 import { delimiter, join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
-import { cleanEnv, findEngineExecutable, findExecutable, launchOf, refreshSearchDirs, spawnAgent } from '../src/host/local-agents/discover.js'
+import { agentEnv, cleanEnv, findEngineExecutable, findExecutable, launchOf, refreshSearchDirs, spawnAgent } from '../src/host/local-agents/discover.js'
+
+test('Windows pi-acp resolves standalone Pi through PATH and PATHEXT (#1795)', () => {
+  const exe = 'F:\\Pi\\pi.exe'
+  const env = { Path: 'C:\\empty;F:\\Pi', PATHEXT: '.COM;.EXE;.BAT;.CMD' }
+  const find = name => findExecutable(name, { platform: 'win32', env, isFile: path => path === exe })
+  assert.equal(find('pi'), exe)
+  assert.equal(agentEnv('C:\\npm\\pi-acp.cmd', env, { platform: 'win32', find }).PI_ACP_PI_COMMAND, exe)
+  for (const ext of ['cmd', 'bat', 'exe']) {
+    const path = `F:\\Pi\\pi.${ext}`
+    const lookup = name => findExecutable(name, { platform: 'win32', env, isFile: candidate => candidate === path })
+    assert.equal(agentEnv('pi-acp', env, { platform: 'win32', find: lookup }).PI_ACP_PI_COMMAND, path)
+  }
+  assert.equal(agentEnv('pi-acp.exe', env, { platform: 'win32', find: () => undefined }), env)
+  const explicit = { ...env, PI_ACP_PI_COMMAND: 'D:\\custom\\pi.exe' }
+  assert.equal(agentEnv('pi-acp', explicit, { platform: 'win32', find }), explicit)
+  assert.equal(agentEnv('other.cmd', env, { platform: 'win32', find }), env)
+  assert.equal(agentEnv('pi-acp', env, { platform: 'darwin', find }), env)
+})
 
 // npm-*.cmd are what npm 11's cmd-shim writes for a Node script and for an .exe;
 // pnpm-node.cmd follows pnpm 11's shim template with a NODE_PATH.
