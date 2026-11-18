@@ -530,6 +530,16 @@ export function install(rt) {
       }
     })().finally(() => { restoring = undefined })
   }
+  const identityListeners = new Set()
+  const onSessionIdentityChange = listener => {
+    identityListeners.add(listener)
+    return () => identityListeners.delete(listener)
+  }
+  const identityChanged = () => {
+    for (const listener of identityListeners) {
+      try { listener() } catch (error) { warn('ds-bot: identity subscriber failed: %s', error) }
+    }
+  }
   const indexSessions = () => {
     chatOwners.clear()
     groupOwners.clear()
@@ -574,6 +584,7 @@ export function install(rt) {
     // live Agents that joined); both install after this.
     rt.indexAgents?.()
     rt.syncScopedTools?.()
+    identityChanged()
     restoreCurrent()
   }
   // The Bot a Session speaks for: its own chat, one of its group Sessions, or an
@@ -591,6 +602,7 @@ export function install(rt) {
     if (room.segments !== undefined) delete room.segments[botId]
     delete state.switching[sessionId]
     groupOwners.delete(sessionId)
+    identityChanged()
     rt.cancelApprovals?.(sessionId)
     // A plain archive refuses a running Session, which would go on working for a group
     // that no longer has it.
@@ -603,6 +615,7 @@ export function install(rt) {
     if (sessionId === undefined) return
     delete room.sessions[botId]
     groupOwners.delete(sessionId)
+    identityChanged()
     rt.cancelApprovals?.(sessionId)
     void ctx.workspaceRegistry.archiveSession(sessionId, { stopActivity: true }).catch(() => {})
   }
@@ -642,7 +655,7 @@ export function install(rt) {
   Object.assign(rt, {
     state, load, save, refresh, readOnly, hasLoaded, syncReadOnly, own, onSaved, closeCard,
     botOf, roomOf, isMain, chatOf, sessionOfRoom, selfOf, isBotSession,
-    chatOwners, groupOwners, roomOwners, pastOwners,
+    chatOwners, groupOwners, roomOwners, pastOwners, onSessionIdentityChange,
     groupSessionsOf, dropGroupSession, retireGroupSession, findBot, findRooms, isAdminOf,
   })
 }
