@@ -203,22 +203,40 @@ function classifySignIn(error, stdout, stderr, check) {
   return null
 }
 
-// Whether a CLI is signed in: true, false, or null when it cannot tell. A missing
-// credential file proves nothing (macOS keeps some in the Keychain), so only a
-// command can say false. The output and the file stay here; only the answer leaves.
-export function probeSignIn(executable, check, { home = homedir() } = {}) {
+const SIGN_IN_TIMEOUT_MS = 3_000
+
+function probeMacKeychain({ service, account }, spawnKeychain) {
+  return new Promise((resolve) => {
+    try {
+      // Without -g or -w this looks up metadata only. A miss proves nothing:
+      // the CLI may be using a fallback credential store.
+      const child = spawnKeychain('/usr/bin/security', ['find-generic-password', '-s', service, '-a', account], {
+        env: cleanEnv(), stdio: 'ignore', signal: AbortSignal.timeout(SIGN_IN_TIMEOUT_MS), killSignal: 'SIGKILL',
+      })
+      child.once('error', () => resolve(null))
+      child.once('close', (code) => resolve(code === 0 ? true : null))
+    } catch { resolve(null) }
+  })
+}
+
+// true, false, or null when the check cannot tell. Only a CLI's status command
+// can say false; a missing credential in one store proves nothing.
+export function probeSignIn(executable, check, { home = homedir(), platform = process.platform, spawnKeychain = spawn } = {}) {
   if (check === undefined) return Promise.resolve(null)
+  if (check.macKeychain !== undefined) {
+    return platform === 'darwin' ? probeMacKeychain(check.macKeychain, spawnKeychain) : Promise.resolve(null)
+  }
   if (check.file !== undefined) return Promise.resolve(isFile(join(home, ...check.file)) ? true : null)
   return new Promise((resolve) => {
     try {
       const launch = launchOf(executable, check.args)
-      execFile(launch.file, launch.args, { encoding: 'utf8', timeout: 3_000, env: cleanEnv(), windowsHide: true, ...launch.options }, (error, stdout, stderr) => {
+      execFile(launch.file, launch.args, { encoding: 'utf8', timeout: SIGN_IN_TIMEOUT_MS, env: cleanEnv(), windowsHide: true, ...launch.options }, (error, stdout, stderr) => {
         const result = classifySignIn(error, stdout, stderr, check)
         if (result !== null || check.fallback === undefined) {
           resolve(result)
           return
         }
-        void probeSignIn(executable, check.fallback, { home }).then(resolve, () => resolve(null))
+        void probeSignIn(executable, check.fallback, { home, platform, spawnKeychain }).then(resolve, () => resolve(null))
       })
     } catch { resolve(null) }
   })

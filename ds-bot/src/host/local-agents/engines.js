@@ -5,8 +5,8 @@
 export const KINDS = ['acp', 'codex', 'claude']
 
 // `args` run verbatim (no shell). `env` merges over the sanitized environment.
-// `signedIn` says how to tell whether the CLI is signed in: a command that prints
-// it, or a credential file under the home folder (see probeSignIn).
+// `signedIn` checks a CLI status command, a credential file, or a Keychain item
+// (see probeSignIn).
 // Local-agent routes live under their own prefix. Before it they shared the
 // provider namespace, so a CLI named like a provider DSH or another plugin
 // ships (`opencode`) took that provider's name and the LLM service failed to
@@ -22,6 +22,7 @@ const CLIS = {
   'gemini-cli': { name: 'Gemini CLI', kind: 'acp', command: 'gemini', args: ['--acp'], version: ['--version'], signIn: 'gemini', signedIn: { file: ['.gemini', 'oauth_creds.json'] } },
   'antigravity': {
     name: 'Antigravity', kind: 'acp', command: 'agy', args: ['acp'], version: ['--version'], signIn: 'agy acp --login',
+    signedIn: { macKeychain: { service: 'gemini', account: 'antigravity' } },
     cwdPerProcess: true,
     modes: {
       'read-only': ['default'],
