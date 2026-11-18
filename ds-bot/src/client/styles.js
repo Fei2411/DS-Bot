@@ -132,12 +132,13 @@ body[data-bt-motion=quiet] .bt-mark[data-poke]{cursor:default}
 .bt-side:not(.bt-rail)>.bt-list::-webkit-scrollbar-thumb{border:4px solid transparent;border-radius:6px;background:color-mix(in srgb,var(--bt-ink) 16%,transparent) padding-box}
 .bt-side:not(.bt-rail)>.bt-list:hover::-webkit-scrollbar-thumb{background-color:color-mix(in srgb,var(--bt-ink) 30%,transparent)}
 .bt-tile-wrap{display:flex;justify-content:center;padding:8px 0 6px}
-.bt-tile{display:flex;flex-direction:column;align-items:center;gap:4px;width:95px;padding:6px 8px 4px;border-radius:16px;border:0;background:transparent;color:var(--bt-ink);cursor:pointer;font-family:inherit;transition:background-color .12s ease}
+.bt-tile{display:flex;flex-direction:column;align-items:center;gap:4px;width:95px;padding:8px;border-radius:12px;border:0;background:transparent;color:var(--bt-ink);cursor:pointer;font-family:inherit;transition:background-color .12s ease}
 .bt-tile:hover{background:var(--bt-hover)}
 .bt-tile[aria-current=page]{background:var(--bt-active)}
-.bt-tile-name{font-size:13px;line-height:18px;font-weight:500;max-width:84px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bt-tile-name{font-size:13px;line-height:18px;font-weight:600;max-width:84px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bt-tile .bt-chip{font-size:12px;line-height:16px}
 .bt-chip{font-size:11px;line-height:16px;padding:1px 7px;border-radius:999px;background:var(--bt-tag-bg);border:.5px solid var(--bt-line);color:var(--bt-ink-2);white-space:nowrap;max-width:92px;overflow:hidden;text-overflow:ellipsis}
-.bt-row{display:flex;align-items:center;gap:8px;min-height:46px;padding:5px 8px;border:0;border-radius:10px;background:transparent;color:var(--bt-ink);text-align:left;cursor:pointer;width:100%;box-sizing:border-box;font-family:inherit;transition:background-color .12s ease}
+.bt-row{display:flex;align-items:center;gap:8px;min-height:46px;padding:5px 8px;border:0;border-radius:12px;background:transparent;color:var(--bt-ink);text-align:left;cursor:pointer;width:100%;box-sizing:border-box;font-family:inherit;transition:background-color .12s ease}
 .bt-row:hover{background:var(--bt-hover)}
 .bt-row[aria-current=page]{background:var(--bt-active)}
 /* Inset: the .bt-list scroll box clips anything drawn outside the row. */
@@ -147,8 +148,8 @@ body[data-bt-motion=quiet] .bt-mark[data-poke]{cursor:default}
 .bt-row-name{display:flex;align-items:center;gap:6px;min-width:0;font-size:13px;line-height:18px;font-weight:400}
 .bt-row-title{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .bt-tag{flex:none;max-width:96px;font-size:12px;line-height:16px;font-weight:400;padding:1px 6px;border-radius:4px;background:var(--bt-tag-bg);color:var(--bt-tag-ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.bt-row-preview{font-size:12px;line-height:16px;color:color-mix(in srgb,var(--bt-ink) 65%,transparent);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.bt-unread{width:8px;height:8px;border-radius:50%;background:var(--bt-accent);flex:none;margin-right:2px;animation:bt-fade .13s cubic-bezier(.22,1,.36,1)}
+.bt-row-preview{font-size:12px;line-height:16px;color:var(--bt-ink-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bt-unread{width:10px;height:10px;border-radius:50%;background:var(--bt-accent);flex:none;margin-right:2px;animation:bt-fade .13s cubic-bezier(.22,1,.36,1)}
 .bt-unread-wait{background:var(--bt-star)}
 /* Our own left column, portalled over the shell's collapsed sidebar. It reaches
    the window's top edge so the title band and the column share one fill (under
