@@ -38,10 +38,10 @@ export const CHARACTERS = {
   gem: {body:'M57 9.3l2.9-.4 14.9 3.5 19.6 14.1 1 1.4 .6 1.6-.5 2.6-27.1 56.5-1.6 1.8-2.1 .7-15.9-3.4-42.9-30.7-1.3-1.6-.6-1.6 .5-2.6 12-25.2 1.1-1.5 1.5-1z',shade:'M75.7 14.6l.1-.4 .6 .2 16.9 12.3 1.1 .7 .5-.2 .5 .7 .6 2.6-.5 1.6-26.4 55.1-1.2 2.1-1.1 1.1-1.6 .6-2.1 0-14.3-3.3-42.8-30.7 1.5-.2 11.6 2.5 2.2-.7 2.8-2.6 11.9-24.9 .6-.8 38.2-14.2z',light:'M19.1 23.6l1.1-.4 .5 .5 11.7 2.2 1 .9-.2 .5-1.8 2.7-11.7 24.4-1.6 .6-13.3-2.8-.5-.5 12.1-25.4 1.2-1.7z',eyes:[[51.4,42.9,6.7,17.7,-10],[66.1,37.4,6.7,17.7,-10]]},
 }
 // The picker shows every character at once, five to a row. A Bot with no choice gets
-// one of the friendliest seven; the whale is left out so it stays the Main Bot's.
+// one of the friendliest fifteen; the whale is left out so it stays the Main Bot's.
 export const PICKER_SHAPES = Object.keys(CHARACTERS)
 export const PICKER_COLUMNS = 5
-export const DEFAULT_SHAPES = ['star', 'moon', 'gumdrop', 'peanut', 'bunny', 'kitty', 'acorn']
+export const DEFAULT_SHAPES = ['star', 'moon', 'dolphin', 'octopus', 'turtle', 'crab', 'puffer', 'jelly', 'starfish', 'seahorse', 'gumdrop', 'peanut', 'bunny', 'kitty', 'acorn']
 export const FALLBACK_SHAPE = 'gumdrop'
 // The team's first Main Bot, and the plugin's own mark in the sidebar.
 export const MAIN_LOOK = Object.freeze({ shape: 'whale', color: 'deepseek' })

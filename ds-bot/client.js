@@ -14554,7 +14554,7 @@ var CHARACTERS = {
 };
 var PICKER_SHAPES = Object.keys(CHARACTERS);
 var PICKER_COLUMNS = 5;
-var DEFAULT_SHAPES = ["star", "moon", "gumdrop", "peanut", "bunny", "kitty", "acorn"];
+var DEFAULT_SHAPES = ["star", "moon", "dolphin", "octopus", "turtle", "crab", "puffer", "jelly", "starfish", "seahorse", "gumdrop", "peanut", "bunny", "kitty", "acorn"];
 var FALLBACK_SHAPE = "gumdrop";
 var MAIN_LOOK = Object.freeze({ shape: "whale", color: "deepseek" });
 var CHARACTER_COLORS = ["black", "brown", "red", "orange", "yellow", "green", "cyan", "blue", "violet", "magenta", "gray", "aurora"];
