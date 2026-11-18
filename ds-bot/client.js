@@ -1518,6 +1518,11 @@ var JA = {
   "Finished": "完了",
   "Scheduled tasks · {count}": "定期タスク · {count}",
   "Show all": "すべて表示",
+  "Needs you": "あなたの対応待ち",
+  "Nothing waits for you.": "対応待ちはありません。",
+  History: "履歴",
+  "Show all ({count})": "すべて表示（{count}）",
+  "Let it continue: {task}": "続行させる：{task}",
   "in {name}": "{name} 内",
   "Click again to delete": "もう一度クリックすると削除します",
   "Delete task": "タスクを削除",
@@ -3979,6 +3984,11 @@ var KO = {
   Finished: "완료됨",
   "Scheduled tasks · {count}": "예약 작업 · {count}",
   "Show all": "전체 보기",
+  "Needs you": "확인 필요",
+  "Nothing waits for you.": "대기 중인 작업이 없습니다.",
+  History: "기록",
+  "Show all ({count})": "모두 보기({count})",
+  "Let it continue: {task}": "계속하게 하기: {task}",
   "in {name}": "{name}에서",
   "Click again to delete": "삭제하려면 한 번 더 클릭하세요",
   "Delete task": "작업 삭제",
@@ -6443,6 +6453,11 @@ var ES = {
   Finished: "Finalizada",
   "Scheduled tasks · {count}": "Tareas programadas · {count}",
   "Show all": "Mostrar todas",
+  "Needs you": "Te necesita",
+  "Nothing waits for you.": "Nada espera por ti.",
+  History: "Historial",
+  "Show all ({count})": "Mostrar todo ({count})",
+  "Let it continue: {task}": "Dejarlo continuar: {task}",
   "in {name}": "en {name}",
   "Click again to delete": "Haz clic de nuevo para eliminar",
   "Delete task": "Eliminar tarea",
@@ -8865,6 +8880,11 @@ var FR = {
   "Finished": "Terminé",
   "Scheduled tasks · {count}": "Tâches planifiées · {count}",
   "Show all": "Tout afficher",
+  "Needs you": "Pour toi",
+  "Nothing waits for you.": "Rien ne t’attend.",
+  History: "Historique",
+  "Show all ({count})": "Tout afficher ({count})",
+  "Let it continue: {task}": "Le laisser continuer : {task}",
   "in {name}": "dans {name}",
   "Click again to delete": "Cliquez à nouveau pour supprimer",
   "Delete task": "Supprimer la tâche",
@@ -11326,6 +11346,11 @@ var DE = {
   Finished: "Abgeschlossen",
   "Scheduled tasks · {count}": "Geplante Aufgaben · {count}",
   "Show all": "Alle anzeigen",
+  "Needs you": "Für dich",
+  "Nothing waits for you.": "Nichts wartet auf dich.",
+  History: "Verlauf",
+  "Show all ({count})": "Alle anzeigen ({count})",
+  "Let it continue: {task}": "Weiterlaufen lassen: {task}",
   "in {name}": "in {name}",
   "Click again to delete": "Zum Löschen erneut klicken",
   "Delete task": "Aufgabe löschen",
@@ -13789,6 +13814,11 @@ var ZH = {
   "Overdue: {time}": "已逾期 {time}",
   Finished: "已结束",
   "Scheduled tasks · {count}": "定时任务 · {count}",
+  "Needs you": "需要你处理",
+  "Nothing waits for you.": "暂时没有需要你处理的",
+  History: "历史",
+  "Show all ({count})": "显示全部（{count}）",
+  "Let it continue: {task}": "让它继续：{task}",
   "Show all": "显示全部",
   "in {name}": "在 {name}",
   "Click again to delete": "再点一次删除",
@@ -15907,11 +15937,11 @@ function writeSidebar(value, storage = globalThis.localStorage) {
 
 // src/client/styles.js
 var SHELL_CSS = `
-body{--bt-im-telegram:#229ed9;--bt-im-weixin:#07c160;--bt-im-feishu:#3370ff;--bt-im-dingtalk:#1e88e5;--bt-im-wecom:#0082ef;--bt-im-qq:#e03e3e;--bt-im-discord:#5865f2;--bt-im-slack:#4a154b;--bt-im-mark-ink:#ffffff;--bt-qr-paper:#ffffff;--bt-qr-ink:#141414;--bt-ink:#141414;--bt-danger:#e02135;--bt-warn:#8a5a00;--bt-ink-2:rgba(20,20,20,.6);--bt-ink-3:rgba(20,20,20,.36);--bt-bubble:#eeeeee;--bt-sidebar:#f7f7f7;--bt-main:#fcfcfc;--bt-line:rgba(20,20,20,.08);--bt-line-2:rgba(20,20,20,.15);--bt-line-weak:rgba(20,20,20,.1);--bt-hover:rgba(119,119,119,.09);--bt-active:rgba(119,119,119,.17);--bt-card:#ffffff;--bt-accent:#4d6bfe;--bt-green:#00c972;--bt-star:#ff9800;--bt-user:#070707;--bt-user-ink:#fcfcfc;--bt-tag-bg:rgba(20,20,20,.06);--bt-tag-ink:rgba(20,20,20,.56);--bt-knob:#ffffff;--bt-glass-bg:color-mix(in srgb,var(--bt-main) 78%,transparent);--bt-glass-border:rgba(255,255,255,.72);--bt-glass-rim:rgba(20,20,20,.09);--bt-glass-shadow:0 8px 28px -6px rgba(0,0,0,.08),0 2px 6px -1px rgba(0,0,0,.04),inset 0 1px 0 rgba(255,255,255,.82);--bt-dialog-shadow:0 28px 90px -12px rgba(0,0,0,.22),0 8px 24px -4px rgba(0,0,0,.08),inset 0 1px 0 rgba(255,255,255,.78);--bt-card-shadow:0 1px 2px rgba(20,20,20,.03),inset 0 1px 0 rgba(255,255,255,.65);--bt-nav-thumb-bg:color-mix(in srgb,var(--bt-card) 82%,var(--bt-active));--bt-nav-thumb-shadow:0 1px 2px rgba(20,20,20,.06),inset 0 .5px 0 rgba(255,255,255,.8);--bt-select-arrow:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12' fill='none' stroke='%23888' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m3 4.5 3 3 3-3'/%3E%3C/svg%3E");--bt-accent-soft:color-mix(in srgb,var(--bt-accent) 14%,transparent);--bt-danger-soft:color-mix(in srgb,var(--bt-danger) 14%,transparent);--bt-danger-glow:color-mix(in srgb,var(--bt-danger) 24%,transparent);-webkit-tap-highlight-color:transparent;-webkit-text-size-adjust:100%;--bt-font:var(--dsw-font-family,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif)}
+body{--bt-im-telegram:#229ed9;--bt-im-weixin:#07c160;--bt-im-feishu:#3370ff;--bt-im-dingtalk:#1e88e5;--bt-im-wecom:#0082ef;--bt-im-qq:#e03e3e;--bt-im-discord:#5865f2;--bt-im-slack:#4a154b;--bt-im-mark-ink:#ffffff;--bt-qr-paper:#ffffff;--bt-qr-ink:#141414;--bt-ink:#141414;--bt-danger:#e02135;--bt-warn:#8a5a00;--bt-ink-2:rgba(20,20,20,.6);--bt-ink-3:rgba(20,20,20,.36);--bt-bubble:#eeeeee;--bt-sidebar:#f7f7f7;--bt-main:#fcfcfc;--bt-line:rgba(20,20,20,.08);--bt-line-2:rgba(20,20,20,.15);--bt-line-weak:rgba(20,20,20,.1);--bt-hover:rgba(119,119,119,.09);--bt-active:rgba(119,119,119,.17);--bt-card:#ffffff;--bt-accent:#4d6bfe;--bt-green:#00c972;--bt-green-ink:#0a7c47;--bt-star:#ff9800;--bt-user:#070707;--bt-user-ink:#fcfcfc;--bt-tag-bg:rgba(20,20,20,.06);--bt-tag-ink:rgba(20,20,20,.56);--bt-knob:#ffffff;--bt-glass-bg:color-mix(in srgb,var(--bt-main) 78%,transparent);--bt-glass-border:rgba(255,255,255,.72);--bt-glass-rim:rgba(20,20,20,.09);--bt-glass-shadow:0 8px 28px -6px rgba(0,0,0,.08),0 2px 6px -1px rgba(0,0,0,.04),inset 0 1px 0 rgba(255,255,255,.82);--bt-dialog-shadow:0 28px 90px -12px rgba(0,0,0,.22),0 8px 24px -4px rgba(0,0,0,.08),inset 0 1px 0 rgba(255,255,255,.78);--bt-card-shadow:0 1px 2px rgba(20,20,20,.03),inset 0 1px 0 rgba(255,255,255,.65);--bt-nav-thumb-bg:color-mix(in srgb,var(--bt-card) 82%,var(--bt-active));--bt-nav-thumb-shadow:0 1px 2px rgba(20,20,20,.06),inset 0 .5px 0 rgba(255,255,255,.8);--bt-select-arrow:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12' fill='none' stroke='%23888' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m3 4.5 3 3 3-3'/%3E%3C/svg%3E");--bt-accent-soft:color-mix(in srgb,var(--bt-accent) 14%,transparent);--bt-danger-soft:color-mix(in srgb,var(--bt-danger) 14%,transparent);--bt-danger-glow:color-mix(in srgb,var(--bt-danger) 24%,transparent);-webkit-tap-highlight-color:transparent;-webkit-text-size-adjust:100%;--bt-font:var(--dsw-font-family,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif)}
 /* iOS waits out a double-tap zoom on buttons; the plugin's own controls never zoom. */
 :is(.bt-tool,.bt-uaction,.bt-menu button,.bt-menu-item,.bt-icon-btn,.bt-round,.bt-pill,.bt-account,.bt-set-row,.bt-settings-item,.bt-react-strip button,.bt-palette-row,.bt-palette-clear,.bt-tab,.bt-ptab,.bt-ptab-x,.bt-bcard-x,.bt-plus,.bt-q-btn,.bt-q-fold,.bt-q-x,.bt-x,.bt-nc-send,.bt-send,.bt-soft,.bt-mini,.bt-side-send,.bt-shape,.bt-swatch,.bt-color,.bt-newchat,.bt-task-day,.bt-task-remove,.bt-fb-btn){touch-action:manipulation}
 :is(.bt-round,.bt-you,.bt-account,.bt-color,.bt-color span,.bt-swatch,.bt-icon-btn,.bt-avatar-trigger,.bt-avatar-pencil,.bt-plus,.bt-mic,.bt-voice,.bt-task-day,.bt-task-off-mark){corner-shape:round}
-body[data-ds-dark-theme]{--bt-im-telegram:#2ea8de;--bt-im-weixin:#17c96a;--bt-im-feishu:#4d84ff;--bt-im-dingtalk:#3d99ed;--bt-im-wecom:#2898f2;--bt-im-qq:#e85555;--bt-im-discord:#6e7bf2;--bt-im-slack:#7c4380;--bt-im-mark-ink:#ffffff;--bt-ink:#f2f2f2;--bt-ink-2:rgba(242,242,242,.6);--bt-ink-3:rgba(242,242,242,.36);--bt-bubble:#262626;--bt-sidebar:#1b1b1b;--bt-main:#141414;--bt-line:rgba(255,255,255,.08);--bt-line-2:rgba(255,255,255,.15);--bt-line-weak:rgba(255,255,255,.1);--bt-hover:rgba(160,160,160,.12);--bt-active:rgba(160,160,160,.2);--bt-card:#1f1f1f;--bt-user:#f2f2f2;--bt-user-ink:#141414;--bt-tag-bg:rgba(255,255,255,.09);--bt-tag-ink:rgba(242,242,242,.62);--bt-glass-bg:color-mix(in srgb,var(--bt-main) 74%,transparent);--bt-glass-border:rgba(255,255,255,.13);--bt-glass-rim:rgba(255,255,255,.11);--bt-glass-shadow:0 12px 32px -6px rgba(0,0,0,.42),0 2px 8px -1px rgba(0,0,0,.28),inset 0 1px 0 rgba(255,255,255,.12);--bt-dialog-shadow:0 32px 96px -12px rgba(0,0,0,.62),0 10px 28px -4px rgba(0,0,0,.42),inset 0 1px 0 rgba(255,255,255,.1);--bt-card-shadow:0 1px 3px rgba(0,0,0,.22),inset 0 .5px 0 rgba(255,255,255,.07);--bt-nav-thumb-bg:color-mix(in srgb,var(--bt-card) 65%,var(--bt-active));--bt-nav-thumb-shadow:0 1px 3px rgba(0,0,0,.28),inset 0 .5px 0 rgba(255,255,255,.12);--bt-accent-soft:color-mix(in srgb,var(--bt-accent) 18%,transparent);--bt-danger-soft:color-mix(in srgb,var(--bt-danger) 18%,transparent);--bt-danger-glow:color-mix(in srgb,var(--bt-danger) 28%,transparent);--bt-warn:#f0b84a}
+body[data-ds-dark-theme]{--bt-im-telegram:#2ea8de;--bt-im-weixin:#17c96a;--bt-im-feishu:#4d84ff;--bt-im-dingtalk:#3d99ed;--bt-im-wecom:#2898f2;--bt-im-qq:#e85555;--bt-im-discord:#6e7bf2;--bt-im-slack:#7c4380;--bt-im-mark-ink:#ffffff;--bt-ink:#f2f2f2;--bt-ink-2:rgba(242,242,242,.6);--bt-ink-3:rgba(242,242,242,.36);--bt-bubble:#262626;--bt-sidebar:#1b1b1b;--bt-main:#141414;--bt-line:rgba(255,255,255,.08);--bt-line-2:rgba(255,255,255,.15);--bt-line-weak:rgba(255,255,255,.1);--bt-hover:rgba(160,160,160,.12);--bt-active:rgba(160,160,160,.2);--bt-card:#1f1f1f;--bt-user:#f2f2f2;--bt-user-ink:#141414;--bt-tag-bg:rgba(255,255,255,.09);--bt-tag-ink:rgba(242,242,242,.62);--bt-glass-bg:color-mix(in srgb,var(--bt-main) 74%,transparent);--bt-glass-border:rgba(255,255,255,.13);--bt-glass-rim:rgba(255,255,255,.11);--bt-glass-shadow:0 12px 32px -6px rgba(0,0,0,.42),0 2px 8px -1px rgba(0,0,0,.28),inset 0 1px 0 rgba(255,255,255,.12);--bt-dialog-shadow:0 32px 96px -12px rgba(0,0,0,.62),0 10px 28px -4px rgba(0,0,0,.42),inset 0 1px 0 rgba(255,255,255,.1);--bt-card-shadow:0 1px 3px rgba(0,0,0,.22),inset 0 .5px 0 rgba(255,255,255,.07);--bt-nav-thumb-bg:color-mix(in srgb,var(--bt-card) 65%,var(--bt-active));--bt-nav-thumb-shadow:0 1px 3px rgba(0,0,0,.28),inset 0 .5px 0 rgba(255,255,255,.12);--bt-accent-soft:color-mix(in srgb,var(--bt-accent) 18%,transparent);--bt-danger-soft:color-mix(in srgb,var(--bt-danger) 18%,transparent);--bt-danger-glow:color-mix(in srgb,var(--bt-danger) 28%,transparent);--bt-green-ink:#4cd08a;--bt-warn:#f0b84a}
 ${Object.entries(INKS).map(([name, [light]]) => `body{--bt-ink-${name}:${light}}`).join("")}
 ${Object.entries(INKS).map(([name, [, dark]]) => `body[data-ds-dark-theme]{--bt-ink-${name}:${dark}}`).join("")}
 .bt-mark{display:inline-block;flex:none;position:relative;line-height:0}
@@ -25231,17 +25261,17 @@ function Entries({ owner, view, remove, pin, layer, openMove, undoTidy }) {
     "div",
     { className: "bt-mem-entries" },
     view.tidy ? (0, import_react26.createElement)(TidyNote, { tidy: view.tidy, undo: undoTidy }) : null,
-    sections.map((section) => (0, import_react26.createElement)(
+    sections.map((section2) => (0, import_react26.createElement)(
       "section",
-      { key: section.scope, className: "bt-mem-section" },
+      { key: section2.scope, className: "bt-mem-section" },
       (0, import_react26.createElement)(
         "div",
         { className: "bt-mem-section-head" },
-        (0, import_react26.createElement)("h3", null, section.title),
-        section.hint ? (0, import_react26.createElement)("span", null, section.hint) : null,
-        (0, import_react26.createElement)("span", { className: "bt-mem-size", title: t("MEMORY.md, which every conversation reads") }, t("{used} of {limit} characters", { used: section.size.toLocaleString(dateLocale()), limit: view.limits[section.scope].toLocaleString(dateLocale()) }))
+        (0, import_react26.createElement)("h3", null, section2.title),
+        section2.hint ? (0, import_react26.createElement)("span", null, section2.hint) : null,
+        (0, import_react26.createElement)("span", { className: "bt-mem-size", title: t("MEMORY.md, which every conversation reads") }, t("{used} of {limit} characters", { used: section2.size.toLocaleString(dateLocale()), limit: view.limits[section2.scope].toLocaleString(dateLocale()) }))
       ),
-      groups.some((group) => group.scope === section.scope) ? groups.filter((group) => group.scope === section.scope).map((group) => (0, import_react26.createElement)(
+      groups.some((group) => group.scope === section2.scope) ? groups.filter((group) => group.scope === section2.scope).map((group) => (0, import_react26.createElement)(
         import_react26.Fragment,
         { key: group.key },
         group.topic ? (0, import_react26.createElement)("div", { className: "bt-mem-topic" }, group.topic) : null,
@@ -29901,7 +29931,7 @@ function AgentRow({ agent, actions, useSessions, useSessionStatus, useUi, wide, 
 function renderSidebarEntry(entry, rowProps, markedUnread, onDragStart) {
   return entry.kind === "bot" ? (0, import_react36.createElement)(BotRow, { key: entry.item.id, ...rowProps, bot: entry.item, marked: markedUnread[entry.item.id] === true, onDragStart }) : entry.kind === "room" ? (0, import_react36.createElement)(RoomRow, { key: entry.item.id, ...rowProps, room: entry.item, marked: markedUnread[entry.item.id] === true, onDragStart }) : (0, import_react36.createElement)(AgentRow, { key: entry.item.id, ...rowProps, agent: entry.item, marked: markedUnread[entry.item.id] === true, onDragStart });
 }
-function SectionBlock({ section, entries: entries2, rowProps, markedUnread, renaming, dropTarget, onDragStart, onDragOverSec, onDropSec }) {
+function SectionBlock({ section: section2, entries: entries2, rowProps, markedUnread, renaming, dropTarget, onDragStart, onDragOverSec, onDropSec }) {
   const { roster, actions, useSessions, useSessionStatus, useWork, wide } = rowProps;
   const input = (0, import_react36.useRef)(null);
   (0, import_react36.useLayoutEffect)(() => {
@@ -29957,27 +29987,27 @@ function SectionBlock({ section, entries: entries2, rowProps, markedUnread, rena
   const hasUnread = parsedStatuses.some(([id, , unread]) => unread === 1 && id !== activeSession) || entries2.some((entry) => markedUnread[entry.item.id] === true && entry !== activeEntry);
   const statusKind = hasAlert ? "alert" : hasWorking ? "working" : hasUnread ? "unread" : null;
   const toggle = () => {
-    void Promise.resolve(actions.saveSection({ id: section.id, collapsed: !section.collapsed })).catch((error) => actions.reportError(error, "section"));
+    void Promise.resolve(actions.saveSection({ id: section2.id, collapsed: !section2.collapsed })).catch((error) => actions.reportError(error, "section"));
   };
-  const openSecMenu = (kind, x, y) => actions.openMenu({ kind, id: section.id, x, y });
+  const openSecMenu = (kind, x, y) => actions.openMenu({ kind, id: section2.id, x, y });
   if (!wide) {
-    if (section.collapsed) {
-      const folderRoom = { id: section.id, name: section.name, members: botsInSec.map((bot) => bot.id) };
+    if (section2.collapsed) {
+      const folderRoom = { id: section2.id, name: section2.name, members: botsInSec.map((bot) => bot.id) };
       return (0, import_react36.createElement)(
         "div",
-        { className: "bt-rail-sec", "data-sec-id": section.id },
+        { className: "bt-rail-sec", "data-sec-id": section2.id },
         (0, import_react36.createElement)(
           "div",
-          { className: "bt-rail-sec-div", title: section.name, onClick: toggle },
-          (0, import_react36.createElement)("span", { className: "bt-rail-sec-pill", style: section.color ? { background: inkFill(section.color) } : void 0 })
+          { className: "bt-rail-sec-div", title: section2.name, onClick: toggle },
+          (0, import_react36.createElement)("span", { className: "bt-rail-sec-pill", style: section2.color ? { background: inkFill(section2.color) } : void 0 })
         ),
         (0, import_react36.createElement)(
           "button",
           {
             type: "button",
             className: "bt-rail-folder",
-            "aria-label": section.name,
-            title: `${section.name} (${visibleEntries.length})`,
+            "aria-label": section2.name,
+            title: `${section2.name} (${visibleEntries.length})`,
             "aria-current": activeEntry ? "page" : void 0,
             onClick: toggle,
             onContextMenu: (event) => {
@@ -29995,8 +30025,8 @@ function SectionBlock({ section, entries: entries2, rowProps, markedUnread, rena
       null,
       (0, import_react36.createElement)(
         "div",
-        { className: "bt-rail-sec-div", "data-sec-id": section.id, title: section.name, onClick: toggle },
-        (0, import_react36.createElement)("span", { className: "bt-rail-sec-pill", style: section.color ? { background: inkFill(section.color) } : void 0 })
+        { className: "bt-rail-sec-div", "data-sec-id": section2.id, title: section2.name, onClick: toggle },
+        (0, import_react36.createElement)("span", { className: "bt-rail-sec-pill", style: section2.color ? { background: inkFill(section2.color) } : void 0 })
       ),
       entries2.map((entry) => renderSidebarEntry(entry, rowProps, markedUnread))
     );
@@ -30004,25 +30034,25 @@ function SectionBlock({ section, entries: entries2, rowProps, markedUnread, rena
   const commitRename = (keep) => {
     const value = input.current?.value ?? "";
     actions.endSectionRename();
-    if (!keep || value.trim() === "" || value.trim() === section.name) return;
-    void Promise.resolve(actions.saveSection({ id: section.id, name: value.trim() })).catch((error) => actions.reportError(error, "section-rename"));
+    if (!keep || value.trim() === "" || value.trim() === section2.name) return;
+    void Promise.resolve(actions.saveSection({ id: section2.id, name: value.trim() })).catch((error) => actions.reportError(error, "section-rename"));
   };
   return (0, import_react36.createElement)(
     "div",
     {
       className: "bt-sec",
-      "data-sec-id": section.id,
-      "data-collapsed": section.collapsed ? "true" : "false",
-      "data-drop": dropTarget === section.id ? "true" : void 0,
-      onDragOver: onDragOverSec ? (event) => onDragOverSec(event, section.id) : void 0,
-      onDrop: onDropSec ? (event) => onDropSec(event, section.id) : void 0
+      "data-sec-id": section2.id,
+      "data-collapsed": section2.collapsed ? "true" : "false",
+      "data-drop": dropTarget === section2.id ? "true" : void 0,
+      onDragOver: onDragOverSec ? (event) => onDragOverSec(event, section2.id) : void 0,
+      onDrop: onDropSec ? (event) => onDropSec(event, section2.id) : void 0
     },
     renaming ? (0, import_react36.createElement)(
       "div",
       { className: "bt-sec-edit" },
       (0, import_react36.createElement)("input", {
         ref: input,
-        defaultValue: section.name,
+        defaultValue: section2.name,
         maxLength: 32,
         "aria-label": t("Rename section"),
         onKeyDown: (event) => {
@@ -30040,11 +30070,11 @@ function SectionBlock({ section, entries: entries2, rowProps, markedUnread, rena
         {
           type: "button",
           className: "bt-sec-head",
-          "aria-expanded": !section.collapsed,
+          "aria-expanded": !section2.collapsed,
           onClick: toggle,
           onDoubleClick: (event) => {
             event.stopPropagation();
-            actions.beginSectionRename(section.id);
+            actions.beginSectionRename(section2.id);
           },
           onContextMenu: (event) => {
             event.preventDefault();
@@ -30053,19 +30083,19 @@ function SectionBlock({ section, entries: entries2, rowProps, markedUnread, rena
           }
         },
         (0, import_react36.createElement)("span", { className: "bt-sec-chev", "aria-hidden": true }, (0, import_react36.createElement)(ChevronRightIcon)),
-        section.color ? (0, import_react36.createElement)("span", { className: "bt-sec-dot", style: { background: inkFill(section.color) }, "aria-hidden": true }) : null,
-        (0, import_react36.createElement)("span", { className: "bt-sec-title" }, section.name),
-        (0, import_react36.createElement)("span", { className: `bt-sec-count${!section.collapsed ? " bt-sec-count-hide" : ""}` }, visibleEntries.length),
+        section2.color ? (0, import_react36.createElement)("span", { className: "bt-sec-dot", style: { background: inkFill(section2.color) }, "aria-hidden": true }) : null,
+        (0, import_react36.createElement)("span", { className: "bt-sec-title" }, section2.name),
+        (0, import_react36.createElement)("span", { className: `bt-sec-count${!section2.collapsed ? " bt-sec-count-hide" : ""}` }, visibleEntries.length),
         (0, import_react36.createElement)(
           "span",
           { className: "bt-sec-tail" },
-          section.collapsed && botsInSec.length > 0 ? (0, import_react36.createElement)(
+          section2.collapsed && botsInSec.length > 0 ? (0, import_react36.createElement)(
             "span",
             { className: "bt-sec-pile", "aria-hidden": true },
             botsInSec.slice(0, 3).map((bot) => (0, import_react36.createElement)("span", { key: bot.id, className: "bt-sec-pile-item" }, (0, import_react36.createElement)(BotMark, { bot, size: 18 }))),
             botsInSec.length > 3 ? (0, import_react36.createElement)("span", { className: "bt-sec-pile-more" }, `+${botsInSec.length - 3}`) : null
           ) : null,
-          section.collapsed && statusKind ? (0, import_react36.createElement)("span", { className: "bt-sec-status", "data-kind": statusKind, "aria-hidden": true }, statusKind === "alert" ? "?" : null) : null
+          section2.collapsed && statusKind ? (0, import_react36.createElement)("span", { className: "bt-sec-status", "data-kind": statusKind, "aria-hidden": true }, statusKind === "alert" ? "?" : null) : null
         )
       ),
       (0, import_react36.createElement)(
@@ -30074,8 +30104,8 @@ function SectionBlock({ section, entries: entries2, rowProps, markedUnread, rena
         (0, import_react36.createElement)("button", {
           type: "button",
           className: "bt-sec-act",
-          "aria-label": t("Add to {name}", { name: section.name }),
-          title: t("Add to {name}", { name: section.name }),
+          "aria-label": t("Add to {name}", { name: section2.name }),
+          title: t("Add to {name}", { name: section2.name }),
           onClick: (event) => {
             event.stopPropagation();
             const rect = event.currentTarget.getBoundingClientRect();
@@ -30085,8 +30115,8 @@ function SectionBlock({ section, entries: entries2, rowProps, markedUnread, rena
         (0, import_react36.createElement)("button", {
           type: "button",
           className: "bt-sec-act",
-          "aria-label": t("{name} actions", { name: section.name }),
-          title: t("{name} actions", { name: section.name }),
+          "aria-label": t("{name} actions", { name: section2.name }),
+          title: t("{name} actions", { name: section2.name }),
           onClick: (event) => {
             event.stopPropagation();
             const rect = event.currentTarget.getBoundingClientRect();
@@ -30099,8 +30129,8 @@ function SectionBlock({ section, entries: entries2, rowProps, markedUnread, rena
       "div",
       {
         className: "bt-sec-body",
-        inert: section.collapsed ? true : void 0,
-        "aria-hidden": section.collapsed ? true : void 0
+        inert: section2.collapsed ? true : void 0,
+        "aria-hidden": section2.collapsed ? true : void 0
       },
       (0, import_react36.createElement)(
         "div",
@@ -30498,13 +30528,13 @@ function TeamSidebar(props) {
         onDragOver: (event) => onDragOverSec(event, "__none__"),
         onDrop: (event) => onDropSec(event, null)
       }, ungrouped.map((entry) => renderSidebarEntry(entry, rowProps, markedUnread, onDragStart))) : ungrouped.map((entry) => renderSidebarEntry(entry, rowProps, markedUnread, onDragStart)),
-      sections.map((section) => (0, import_react36.createElement)(SectionBlock, {
-        key: section.id,
-        section,
-        entries: order.filter((entry) => entry.item.sectionId === section.id),
+      sections.map((section2) => (0, import_react36.createElement)(SectionBlock, {
+        key: section2.id,
+        section: section2,
+        entries: order.filter((entry) => entry.item.sectionId === section2.id),
         rowProps,
         markedUnread,
-        renaming: renameSection === section.id,
+        renaming: renameSection === section2.id,
         dropTarget,
         onDragStart,
         onDragOverSec,
@@ -37058,14 +37088,14 @@ function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false,
   const room2 = page === "groups" && id ? roster.roomsById[id] : void 0;
   const pages = SETTINGS_PAGES.filter(([key]) => key !== "models" || actions.providers !== void 0);
   const extra = dshPages(dsh);
-  const section = page === "dsh" ? extra.find((row) => row.id === id) : void 0;
+  const section2 = page === "dsh" ? extra.find((row) => row.id === id) : void 0;
   const advanced = page === "models" && id === "advanced" && hasSection(dsh, "models");
-  const shown = section ? "dsh" : pages.some(([key]) => key === page) ? page : "general";
+  const shown = section2 ? "dsh" : pages.some(([key]) => key === page) ? page : "general";
   const usageFocus = shown === "usage" && id ? id : null;
-  const label = section ? section.label : advanced ? t("Advanced settings") : t(pages.find(([key]) => key === shown)[1]);
+  const label = section2 ? section2.label : advanced ? t("Advanced settings") : t(pages.find(([key]) => key === shown)[1]);
   const back = bot ? t("Back to Bots") : room2 ? t("Back to group chats") : usageFocus ? t("All usage") : advanced ? t("Back to models") : null;
-  const nav = useGlide(section ? `dsh:${section.id}` : shown, { axis: "y" });
-  const pageKey = `${shown}:${bot?.id ?? room2?.id ?? section?.id ?? (advanced ? "advanced" : "")}`;
+  const nav = useGlide(section2 ? `dsh:${section2.id}` : shown, { axis: "y" });
+  const pageKey = `${shown}:${bot?.id ?? room2?.id ?? section2?.id ?? (advanced ? "advanced" : "")}`;
   const depth = bot || room2 || advanced ? 1 : 0;
   const last = (0, import_react51.useRef)({ key: pageKey, depth, move: "up" });
   if (last.current.key !== pageKey) {
@@ -37098,9 +37128,9 @@ function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false,
           key: `dsh:${row.id}`,
           type: "button",
           className: "bt-settings-item",
-          "aria-current": section?.id === row.id ? "page" : void 0,
+          "aria-current": section2?.id === row.id ? "page" : void 0,
           onClick: () => actions.openSettings("dsh", row.id)
-        }, (0, import_react51.createElement)("span", { className: "bt-settings-icon", "aria-hidden": true }, dsh.renderSlot("settings.section.icon", { size: 16, active: section?.id === row.id }, {
+        }, (0, import_react51.createElement)("span", { className: "bt-settings-icon", "aria-hidden": true }, dsh.renderSlot("settings.section.icon", { size: 16, active: section2?.id === row.id }, {
           only: row.id,
           fallback: (0, import_react51.createElement)(DSH_ICONS[row.id] ?? import_dsh_client_ui_primitives2.IconSettingsOutlineMedium, { size: 16 })
         })), row.label)),
@@ -37114,7 +37144,7 @@ function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false,
           "div",
           { className: "bt-settings-head" },
           back ? (0, import_react51.createElement)("button", { type: "button", className: "bt-icon-btn", "aria-label": back, title: back, onClick: () => actions.openSettings(shown) }, (0, import_react51.createElement)(ChevronLeftIcon)) : null,
-          (0, import_react51.createElement)("h2", { key: bot?.id ?? room2?.id ?? section?.id ?? (advanced ? "advanced" : shown) }, bot?.name ?? room2?.name ?? label),
+          (0, import_react51.createElement)("h2", { key: bot?.id ?? room2?.id ?? section2?.id ?? (advanced ? "advanced" : shown) }, bot?.name ?? room2?.name ?? label),
           dsh ? (0, import_react51.createElement)("div", { className: "bt-settings-actions" }, dsh.renderSlot("settings.action", {})) : null
         ),
         shown === "usage" ? null : (0, import_react51.createElement)(
@@ -37128,7 +37158,7 @@ function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false,
             shown === "general" ? (0, import_react51.createElement)(GeneralPage, { roster, actions, run: run2, dsh }) : null,
             shown === "models" && !advanced ? (0, import_react51.createElement)(ProvidersPage, { actions, run: run2, roster, Section: SetSection, advanced: hasSection(dsh, "models") ? () => actions.openSettings("models", "advanced") : null }) : null,
             advanced ? (0, import_react51.createElement)("div", { className: "bt-dsh-section" }, dsh.renderSlot("settings.section", { close }, { only: "models" })) : null,
-            section ? (0, import_react51.createElement)("div", { className: "bt-dsh-section" }, dsh.renderSlot("settings.section", { close }, { only: section.id })) : null,
+            section2 ? (0, import_react51.createElement)("div", { className: "bt-dsh-section" }, dsh.renderSlot("settings.section", { close }, { only: section2.id })) : null,
             shown === "local-agents" ? (0, import_react51.createElement)(LocalAgentsPage, { run: run2, Section: SetSection, Row: SetRow }) : null,
             bot ? (0, import_react51.createElement)("div", { className: "bt-settings-form" }, (0, import_react51.createElement)(BotSettingsForm, { key: bot.id, bot, roster, actions, run: run2 })) : null,
             shown === "bots" && !bot ? (0, import_react51.createElement)(BotsPage, { roster, actions, run: run2 }) : null,
@@ -41470,18 +41500,62 @@ body[data-ds-dark-theme] .bt-member-state.bt-mw-ask{color:#f0b84a}
 // src/client/task-board.js
 var import_react67 = require("react");
 var OPEN = ["active", "review", "blocked"];
-var STATUS_KEY = { active: "In progress", review: "Awaiting review", blocked: "Blocked", done: "Done", cancelled: "Cancelled" };
+var ATTENTION = ["review", "blocked"];
+var HISTORY_PREVIEW = 5;
+var SENT_LINGER_MS = 2e3;
+var lineIcon3 = (paths) => (0, import_react67.createElement)("svg", {
+  width: 18,
+  height: 18,
+  viewBox: "0 0 20 20",
+  fill: "none",
+  stroke: "currentColor",
+  strokeWidth: 1.6,
+  strokeLinecap: "round",
+  strokeLinejoin: "round",
+  "aria-hidden": true
+}, paths.map((d, i) => (0, import_react67.createElement)("path", { key: i, d })));
+var CIRCLE = "M10 3.25a6.75 6.75 0 1 1 0 13.5 6.75 6.75 0 0 1 0-13.5z";
+var SpinnerIcon = () => (0, import_react67.createElement)("svg", {
+  className: "bt-task-spin",
+  width: 18,
+  height: 18,
+  viewBox: "0 0 20 20",
+  fill: "none",
+  stroke: "currentColor",
+  strokeWidth: 1.6,
+  strokeLinecap: "round",
+  "aria-hidden": true
+}, (0, import_react67.createElement)("path", { d: "M10 3.25a6.75 6.75 0 1 0 6.75 6.75" }));
+var AlertCircleIcon = lineIcon3([CIRCLE, "M10 6.6v4", "M10 13.4h.01"]);
+var StopIcon = lineIcon3(["M6.2 5.4h7.6a.8.8 0 0 1 .8.8v7.6a.8.8 0 0 1-.8.8H6.2a.8.8 0 0 1-.8-.8V6.2a.8.8 0 0 1 .8-.8z"]);
+var CheckCircleIcon = lineIcon3([CIRCLE, "M6.9 10.2l2.2 2.2 4.1-4.6"]);
+var SlashCircleIcon = lineIcon3([CIRCLE, "M6.5 13.5l7-7"]);
+var ICONS = { active: SpinnerIcon, review: AlertCircleIcon, blocked: StopIcon, done: CheckCircleIcon, cancelled: SlashCircleIcon };
 var blockedLine = (blocked) => blocked.cause === "stopped" ? t("Stopped by the user") : blocked.cause === "restarted" ? t("Not updated after a restart") : t("Its model call failed ({code})", { code: `${blocked.code}${blocked.status ? ` ${blocked.status}` : ""}` });
+var subtitleOf = (task, bot) => {
+  const who = bot?.name === void 0 ? "" : `${bot.name} · `;
+  if (task.status === "active") return who + (task.progress ? task.progress : t("In progress"));
+  if (task.status === "review") return who + t("Awaiting review");
+  if (task.status === "blocked") return who + t("Blocked") + (task.blocked === void 0 ? "" : ` · ${blockedLine(task.blocked)}`);
+  if (task.status === "done") return who + t("Done") + ` · ${clockLabel(task.updatedAt ?? task.startedAt)}`;
+  return who + t("Cancelled");
+};
 function TaskRow3({ task, bot, room: room2, actions }) {
   const [writing, setWriting] = (0, import_react67.useState)(false);
   const [text, setText] = (0, import_react67.useState)("");
   const [confirming, setConfirming] = (0, import_react67.useState)(false);
   const [busy, setBusy] = (0, import_react67.useState)(false);
+  const [sent, setSent] = (0, import_react67.useState)(false);
   (0, import_react67.useEffect)(() => {
     if (!confirming) return void 0;
     const timer = setTimeout(() => setConfirming(false), 3e3);
     return () => clearTimeout(timer);
   }, [confirming]);
+  (0, import_react67.useEffect)(() => {
+    if (!sent) return void 0;
+    const timer = setTimeout(() => setSent(false), SENT_LINGER_MS);
+    return () => clearTimeout(timer);
+  }, [sent]);
   const open = OPEN.includes(task.status);
   const notes = task.notes ?? [];
   const lastNote = notes[notes.length - 1];
@@ -41511,23 +41585,42 @@ function TaskRow3({ task, bot, room: room2, actions }) {
     setBusy(true);
     Promise.resolve(actions.taskCancel(room2.id, task.id)).then(() => setBusy(false), failed);
   };
+  const resume = () => {
+    if (busy || sent) return;
+    setBusy(true);
+    Promise.resolve(actions.taskNote(room2.id, task.id, t("Continue"))).then(
+      () => {
+        setSent(true);
+        setBusy(false);
+      },
+      failed
+    );
+  };
+  const Icon = ICONS[task.status] ?? SpinnerIcon;
   return (0, import_react67.createElement)(
     "div",
     { className: "bt-task", "data-status": task.status, "data-busy": busy || void 0 },
     (0, import_react67.createElement)(
       "div",
-      { className: "bt-task-head" },
-      bot ? (0, import_react67.createElement)(BotMark, { bot, size: 22, state: open ? "work" : "idle" }) : null,
-      (0, import_react67.createElement)("span", { className: "bt-task-name" }, bot?.name ?? t("a Bot")),
-      (0, import_react67.createElement)("span", { className: "bt-task-status" }, t(STATUS_KEY[task.status] ?? task.status)),
-      (0, import_react67.createElement)("span", { className: "bt-task-time" }, clockLabel(task.startedAt))
+      { className: "bt-task-row" },
+      (0, import_react67.createElement)("span", { className: "bt-task-icon" }, (0, import_react67.createElement)(Icon)),
+      (0, import_react67.createElement)(
+        "div",
+        { className: "bt-task-body" },
+        (0, import_react67.createElement)("div", { className: "bt-task-title" }, task.goal),
+        (0, import_react67.createElement)("div", { className: "bt-task-sub" }, subtitleOf(task, bot)),
+        !open && task.result ? (0, import_react67.createElement)("div", { className: "bt-task-result" }, task.result) : null,
+        !open && task.reason ? (0, import_react67.createElement)("div", { className: "bt-task-reason" }, task.reason) : null,
+        lastNote ? (0, import_react67.createElement)("div", { className: "bt-task-note" }, t("Note: {text}", { text: lastNote.text })) : null
+      ),
+      task.status === "blocked" && sent === false ? (0, import_react67.createElement)("button", {
+        type: "button",
+        className: "bt-task-continue",
+        disabled: busy,
+        "aria-label": t("Let it continue: {task}", { task: task.goal }),
+        onClick: resume
+      }, t("Continue")) : sent ? (0, import_react67.createElement)("span", { className: "bt-task-continue", "data-sent": "", role: "status" }, t("Sent")) : null
     ),
-    (0, import_react67.createElement)("div", { className: "bt-task-goal" }, task.goal),
-    open && task.progress ? (0, import_react67.createElement)("div", { className: "bt-task-progress" }, task.progress) : null,
-    task.status === "blocked" && task.blocked ? (0, import_react67.createElement)("div", { className: "bt-task-reason" }, blockedLine(task.blocked)) : null,
-    !open && task.result ? (0, import_react67.createElement)("div", { className: "bt-task-result" }, task.result) : null,
-    !open && task.reason ? (0, import_react67.createElement)("div", { className: "bt-task-reason" }, task.reason) : null,
-    lastNote ? (0, import_react67.createElement)("div", { className: "bt-task-note" }, t("Note: {text}", { text: lastNote.text })) : null,
     open ? (0, import_react67.createElement)(
       "div",
       { className: "bt-task-actions" },
@@ -41565,64 +41658,107 @@ function TaskRow3({ task, bot, room: room2, actions }) {
     ) : null
   );
 }
+var section = (title, count, empty, rows2) => (0, import_react67.createElement)(
+  "div",
+  { className: "bt-task-section" },
+  (0, import_react67.createElement)(
+    "div",
+    { className: "bt-tasks-head" },
+    (0, import_react67.createElement)("div", { className: "bt-section-title" }, title),
+    count > 0 ? (0, import_react67.createElement)("span", { className: "bt-tasks-count" }, count) : null
+  ),
+  count === 0 ? (0, import_react67.createElement)("div", { className: "bt-muted bt-tasks-empty" }, empty) : rows2
+);
 function TaskBoard({ room: room2, roster, actions }) {
   const [historyOpen, setHistoryOpen] = (0, import_react67.useState)(false);
   const all = Object.values(room2.tasks ?? {}).sort((a, b) => a.startedAt - b.startedAt);
-  const open = all.filter((task) => OPEN.includes(task.status));
+  const running = all.filter((task) => task.status === "active");
+  const waiting = all.filter((task) => ATTENTION.includes(task.status));
   const past = all.filter((task) => !OPEN.includes(task.status)).reverse();
+  const shown = historyOpen ? past : past.slice(0, HISTORY_PREVIEW);
   const row = (task) => (0, import_react67.createElement)(TaskRow3, { key: task.id, task, bot: roster.byId?.[task.botId], room: room2, actions });
   return (0, import_react67.createElement)(
     "div",
     { className: "bt-tasks" },
-    (0, import_react67.createElement)(
-      "div",
-      { className: "bt-tasks-head" },
-      (0, import_react67.createElement)("div", { className: "bt-section-title" }, t("Tasks")),
-      open.length > 0 ? (0, import_react67.createElement)("span", { className: "bt-tasks-count" }, open.length) : null
+    (0, import_react67.createElement)("div", { className: "bt-section-title bt-tasks-title" }, t("Tasks")),
+    section(
+      t("In progress"),
+      running.length,
+      t("No task is running in this group."),
+      (0, import_react67.createElement)("div", { className: "bt-task-list" }, running.map(row))
     ),
-    (0, import_react67.createElement)(
-      "div",
-      { className: "bt-task-list" },
-      open.length === 0 ? (0, import_react67.createElement)("div", { className: "bt-muted bt-tasks-empty" }, t("No task is running in this group.")) : open.map(row)
+    section(
+      t("Needs you"),
+      waiting.length,
+      t("Nothing waits for you."),
+      (0, import_react67.createElement)("div", { className: "bt-task-list" }, waiting.map(row))
     ),
-    past.length > 0 ? (0, import_react67.createElement)(
-      "button",
-      { type: "button", className: "bt-more", "aria-expanded": historyOpen, onClick: () => setHistoryOpen((value) => !value) },
-      historyOpen ? t("Hide history") : t("History ({count})", { count: past.length })
-    ) : null,
-    historyOpen ? (0, import_react67.createElement)("div", { className: "bt-task-list bt-task-history" }, past.map(row)) : null
+    past.length === 0 ? null : section(
+      t("History"),
+      past.length,
+      "",
+      (0, import_react67.createElement)(
+        "div",
+        { className: "bt-task-list bt-task-history" },
+        shown.map(row),
+        past.length > HISTORY_PREVIEW ? (0, import_react67.createElement)(
+          "button",
+          { type: "button", className: "bt-more", "aria-expanded": historyOpen, onClick: () => setHistoryOpen((value) => !value) },
+          historyOpen ? t("Show less") : t("Show all ({count})", { count: past.length })
+        ) : null
+      )
+    )
   );
 }
 var TASK_CSS = `
 .bt-tasks{margin-top:16px}
-.bt-tasks-head{display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin-bottom:6px}
+.bt-tasks-title{margin:0 0 8px}
+.bt-task-section+.bt-task-section{margin-top:20px}
+.bt-tasks-head{display:flex;align-items:baseline;gap:8px;margin-bottom:8px}
 .bt-tasks-head>.bt-section-title{margin:0}
-.bt-tasks-count{font-size:12px;line-height:16px;color:var(--bt-ink-3);font-variant-numeric:tabular-nums}
-.bt-tasks-empty{padding:4px 8px}
-.bt-task-list{display:flex;flex-direction:column;gap:2px;margin:0 -8px}
-.bt-task{padding:8px;border-radius:12px;transition:background-color .12s ease}
+.bt-tasks-count{padding:0 6px;border-radius:999px;background:var(--bt-tag-bg);color:var(--bt-ink-2);font-size:12px;line-height:18px;font-weight:500;font-variant-numeric:tabular-nums}
+.bt-tasks-empty{padding:0 8px;font-size:12px;line-height:17px}
+.bt-task-list{display:flex;flex-direction:column;gap:2px;margin:0 -12px}
+.bt-task{padding:12px;border-radius:12px;transition:background-color .12s ease}
 .bt-task:hover{background:var(--bt-hover)}
 .bt-task[data-busy]{opacity:.6}
-.bt-task-head{display:flex;align-items:center;gap:6px;min-width:0}
-.bt-task-head>.bt-mark{flex:none}
-.bt-task-name{min-width:0;font-size:14px;line-height:20px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.bt-task-status{flex:none;padding:0 6px;border-radius:999px;font-size:11px;line-height:16px;background:var(--bt-tag-bg);color:var(--bt-tag-ink)}
-.bt-task[data-status=active] .bt-task-status{color:var(--bt-green)}
-.bt-task[data-status=review] .bt-task-status{color:var(--bt-accent)}
-.bt-task[data-status=blocked] .bt-task-status{color:var(--bt-danger)}
-.bt-task-time{flex:none;margin-left:auto;font-size:12px;line-height:16px;color:var(--bt-ink-3);font-variant-numeric:tabular-nums}
-.bt-task-goal{margin-top:2px;font-size:13px;line-height:18px;color:var(--bt-ink)}
-.bt-task-progress{margin-top:2px;font-size:12px;line-height:17px;color:var(--bt-ink-2)}
+.bt-task-row{display:flex;align-items:flex-start;gap:10px;min-height:32px}
+.bt-task-icon{flex:none;display:flex;margin-top:2px;color:var(--bt-ink-2)}
+.bt-task[data-status=active] .bt-task-icon{color:var(--bt-accent)}
+.bt-task[data-status=review] .bt-task-icon{color:var(--bt-warn)}
+.bt-task[data-status=blocked] .bt-task-icon{color:var(--bt-danger)}
+.bt-task[data-status=done] .bt-task-icon{color:var(--bt-green-ink)}
+.bt-task[data-status=cancelled] .bt-task-icon{color:var(--bt-ink-3)}
+.bt-task-spin{animation:bt-task-turn 1.6s linear infinite}
+@keyframes bt-task-turn{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.bt-task-spin{animation:none}}
+.bt-task-body{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.bt-task-title{font-size:14px;line-height:20px;color:var(--bt-ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bt-task-sub{font-size:12px;line-height:17px;color:var(--bt-ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bt-task[data-status=blocked] .bt-task-sub{-webkit-line-clamp:2;display:-webkit-box;-webkit-box-orient:vertical;white-space:normal}
 .bt-task-result{margin-top:2px;font-size:12px;line-height:17px;color:var(--bt-ink-2);white-space:pre-wrap}
-.bt-task-reason{margin-top:2px;font-size:12px;line-height:17px;color:var(--bt-ink-3)}
-.bt-task-note{margin-top:4px;padding-left:6px;border-left:2px solid var(--bt-line-2);font-size:12px;line-height:16px;color:var(--bt-ink-3)}
-.bt-task-actions{display:flex;gap:6px;margin-top:6px}
+.bt-task-reason{margin-top:2px;font-size:12px;line-height:17px;color:var(--bt-ink-2)}
+.bt-task-note{margin-top:4px;padding-left:6px;border-left:2px solid var(--bt-line-2);font-size:12px;line-height:16px;color:var(--bt-ink-2)}
+.bt-task-continue{flex:none;align-self:center;height:28px;padding:0 12px;border:0;border-radius:999px;background:var(--bt-hover);color:var(--bt-ink);font:inherit;font-size:12px;font-weight:500;cursor:pointer;transition:background-color .12s ease}
+.bt-task-continue:hover:not(:disabled){background:var(--bt-active)}
+.bt-task-continue:disabled{opacity:.35;cursor:default}
+.bt-task-continue[data-sent]{display:inline-flex;align-items:center;opacity:.6;cursor:default}
+.bt-task-continue:focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
+.bt-task-actions{display:flex;gap:6px;margin-top:8px;padding-left:28px}
 .bt-task-actions>.bt-soft-sm{margin:0}
 .bt-task-actions>.bt-soft-sm[data-confirm]{color:var(--bt-danger)}
-.bt-task-write{display:flex;align-items:center;gap:6px;margin-top:6px}
+.bt-task-write{display:flex;align-items:center;gap:6px;margin-top:8px;padding-left:28px}
 .bt-task-input{flex:1;min-width:0;height:28px;font-size:13px}
 .bt-task-write>.bt-send{flex:none;margin:0}
 .bt-task-history .bt-task{opacity:.85}
+@media(max-width:640px){
+  .bt-task-continue{padding:0 8px;max-width:88px}
+  .bt-task-title{-webkit-line-clamp:2;display:-webkit-box;-webkit-box-orient:vertical;white-space:normal}
+}
+@media(max-width:480px){
+  .bt-task-row{flex-wrap:wrap}
+  .bt-task-continue{order:3;margin-left:auto;margin-top:8px;align-self:flex-end}
+}
 `;
 
 // src/client/details-drawer.js
@@ -42162,7 +42298,7 @@ var GlobeIcon2 = icon(["M10 3a7 7 0 1 0 0 14 7 7 0 0 0 0-14z", "M3 10h14", "M10 
 var BackIcon = icon(["M12.5 4.5L7 10l5.5 5.5"]);
 var ForwardIcon = icon(["M7.5 4.5L13 10l-5.5 5.5"]);
 var ReloadIcon = icon(["M15.5 10a5.5 5.5 0 1 1-1.6-3.9", "M15.5 3.5v3.5H12"]);
-var StopIcon = icon(["M5.5 5.5l9 9M14.5 5.5l-9 9"]);
+var StopIcon2 = icon(["M5.5 5.5l9 9M14.5 5.5l-9 9"]);
 var CloseIcon3 = icon(["M5.5 5.5l9 9M14.5 5.5l-9 9"]);
 var PlusTabIcon = icon(["M10 5v10M5 10h10"]);
 var LockIcon2 = icon(["M6.5 9V7a3.5 3.5 0 0 1 7 0v2", "M5.5 9h9v7h-9z"]);
@@ -42564,7 +42700,7 @@ function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPages, ho
         "aria-label": page.loading ? t("Stop") : t("Reload"),
         title: page.loading ? t("Stop") : t("Reload"),
         onClick: () => actions.browserCommand(tabId, page.loading ? "stop" : "reload")
-      }, (0, import_react69.createElement)(page.loading ? StopIcon : ReloadIcon)),
+      }, (0, import_react69.createElement)(page.loading ? StopIcon2 : ReloadIcon)),
       (0, import_react69.createElement)(
         "form",
         { className: "bt-browser-address", onSubmit: go, "data-editing": editing || void 0 },
