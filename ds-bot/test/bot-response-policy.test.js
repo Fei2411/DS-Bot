@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { BOT_ROUTING_KEEP, cleanResponsePolicy, compactRouting, decideBotResponse, FINDING_ATTEMPT_LIMIT, findingOf, install, newTaskContext, normalizeResponsePolicies, policyPatch, reviewFixOf } from '../src/host/bot-response-policy.js'
+import { BOT_ROUTING_KEEP, BotResponseRefusal, cleanResponsePolicy, compactRouting, decideBotResponse, FINDING_ATTEMPT_LIMIT, findingOf, install, newTaskContext, normalizeResponsePolicies, policyPatch, reviewFixOf } from '../src/host/bot-response-policy.js'
 
 const bot = (id, botResponse) => ({ id, name: id.toUpperCase(), ...(botResponse ? { botResponse } : {}) })
 
@@ -181,6 +181,24 @@ test('a routing whose completed event aged out is refused, never dispatched agai
   assert.equal(rt.botResponse.waiting(routing), false)
   assert.equal(rt.botResponse.permitted(routing, recipient).reason, 'unrecorded-admission')
   assert.equal(await rt.botResponse.take(routing), false)
+})
+
+test('a responsibility preset requires a stated category and names the ones it accepts', async () => {
+  const rt = { state: {}, save: async () => {}, warn() {}, botOf: id => ({ id, name: id }), roomOf: () => undefined }
+  install(rt)
+  const recipient = { id: 'b', name: 'Reviewer', responsibility: { preset: 'reviewer', categories: ['review'] } }
+  assert.equal((await rt.botResponse.reserve({ sender: 'a', recipient, event: 'missing-category' })).reason, 'task-category-required')
+  assert.equal((await rt.botResponse.reserve({ sender: 'a', recipient, event: 'coding-category', category: 'coding' })).reason, 'task-category-not-permitted')
+  assert.match(new BotResponseRefusal('task-category-required', recipient, { name: 'Sender' }).message, /Reviewer accepts: review\. Set task_category/)
+  // A review fix is sent as coding whatever the sender writes, so the hint names it.
+  assert.match(new BotResponseRefusal('task-category-not-permitted', recipient, { name: 'Sender' }, undefined, { reviewFix: true }).message, /A review fix is sent as coding; Reviewer accepts: review\./)
+  assert.doesNotMatch(new BotResponseRefusal('task-category-not-permitted', recipient, { name: 'Sender' }, undefined, { reviewFix: true }).message, /Set task_category/)
+  const allowed = await rt.botResponse.reserve({ sender: 'a', recipient, event: 'review-category', category: 'review' })
+  assert.equal(allowed.allow, true)
+  assert.equal(allowed.routing.category, 'review')
+  // A routing admitted without a category is refused when it is checked again.
+  rt.state.botRouting.events.legacy = 'taken'
+  assert.equal(rt.botResponse.permitted({ recipient: 'b', key: 'legacy', sender: 'a' }, recipient).reason, 'task-category-required')
 })
 
 test('a continuation is not gated again by the recipient categories', async () => {

@@ -150,8 +150,19 @@ export const findingOf = ({ pr, commit, id } = {}) => {
 }
 
 export class BotResponseRefusal extends Error {
-  constructor(reason, recipient, sender, room) {
-    super(`Not sent: ${recipient?.name ?? 'The recipient'}${room ? ` in "${room.name}"` : ''} does not take automatic messages from ${sender?.name ?? 'another Bot'} (${reason}). No turn was started.`)
+  constructor(reason, recipient, sender, room, { reviewFix = false } = {}) {
+    const accepts = recipient?.responsibility?.categories
+    const category = reason === 'task-category-required' || reason === 'task-category-not-permitted'
+    const accepted = Array.isArray(accepts) && accepts.length > 0 ? accepts.join(', ') : ''
+    // A category refusal is only useful if the sender learns what would pass. A review
+    // fix is sent as coding whatever the sender writes, so pointing it at task_category
+    // would send it round the same refusal again.
+    const hint = !category
+      ? ''
+      : reviewFix
+        ? ` A review fix is sent as coding${accepted ? `; ${recipient.name} accepts: ${accepted}` : ''}.`
+        : accepted ? ` ${recipient.name} accepts: ${accepted}. Set task_category to one of them.` : ''
+    super(`Not sent: ${recipient?.name ?? 'The recipient'}${room ? ` in "${room.name}"` : ''} does not take automatic messages from ${sender?.name ?? 'another Bot'} (${reason}). No turn was started.${hint}`)
     this.reason = reason
   }
 }
@@ -198,7 +209,7 @@ export function install(rt) {
     }
   }
 
-  function check({ sender, recipient, room, result = false, named = true, idle = false, chain = [], event, finding, reviewFix = false, category = 'general', text, kind = 'message', parent, continuation = false }) {
+  function check({ sender, recipient, room, result = false, named = true, idle = false, chain = [], event, finding, reviewFix = false, category, text, kind = 'message', parent, continuation = false }) {
     const decision = decideBotResponse({ sender, recipient, room })
     let { allow, reason } = decision
     if (allow && sender != null) {
@@ -211,7 +222,13 @@ export function install(rt) {
       else if (event !== undefined && events[eventKey(sender, recipient, room, event)]) reason = 'duplicate-event'
       else if (!continuation && key === undefined
         && (reviewFix || (!result && taskKinds.has(kind) && reviewerOf(rt.botOf?.(sender)) && (category === 'coding' || codingOf(recipient))))) reason = 'finding-identity-required'
-      else if (!result && !continuation && recipient.responsibility && !recipient.responsibility.categories.includes(category)) reason = 'task-category-not-permitted'
+      // A responsibility preset names the work its Bot takes. The sender states the
+      // category; an omitted one is refused with the accepted list, so it is never
+      // silently read as a category the recipient rejects.
+      else if (!result && !continuation && recipient.responsibility) {
+        if (category === undefined) reason = 'task-category-required'
+        else if (!recipient.responsibility.categories.includes(category)) reason = 'task-category-not-permitted'
+      }
       else if (key !== undefined && (prior?.count ?? 0) >= FINDING_ATTEMPT_LIMIT) reason = 'finding-attempt-limit'
       else if (key !== undefined && prior?.digest === digest(text)) reason = 'unchanged-finding'
       else if ((parent?.hops ?? 0) + (continuation ? 0 : 1) > BOT_HOP_LIMIT) reason = 'chain-hop-limit'
@@ -240,7 +257,7 @@ export function install(rt) {
       const trail = continuation ? priorTrail : options.result ? priorTrail.slice(0, -1) : [...priorTrail, sender]
       const routing = {
         task, key, sender, recipient: recipient.id, trail, hops: (parent?.hops ?? 0) + (continuation ? 0 : 1),
-        category: options.category ?? 'general', result: options.result === true,
+        ...(options.category === undefined ? {} : { category: options.category }), result: options.result === true,
         ...(room ? { roomId: room.id } : {}),
         ...(options.roomMember ? { roomMember: true } : {}),
         ...(continuation ? { continuation: true } : {}),
@@ -272,8 +289,9 @@ export function install(rt) {
     // A continuation stays inside the task it already belongs to, so the recipient's
     // categories are not a second gate; the reserve that admitted it checked them for
     // new work, and a goal check or a resumed delivery must still reach its Bot.
-    if (decision.allow && !routing.result && routing.continuation !== true && recipient.responsibility && !recipient.responsibility.categories.includes(routing.category)) {
-      return { allow: false, reason: 'task-category-not-permitted' }
+    if (decision.allow && !routing.result && routing.continuation !== true && recipient.responsibility) {
+      if (routing.category === undefined) return { allow: false, reason: 'task-category-required' }
+      if (!recipient.responsibility.categories.includes(routing.category)) return { allow: false, reason: 'task-category-not-permitted' }
     }
     return decision
   }

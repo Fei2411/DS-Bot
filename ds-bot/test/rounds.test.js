@@ -1689,6 +1689,29 @@ test('a group set to OFF turns a Bot\'s @call into no turn at all, and the user 
   await again
 })
 
+test('a group @Name to a preset Bot without a category starts nobody and says why', async (t) => {
+  const { call, emit, userMessage, relay, answer, stop, sent, rt } = start()
+  t.after(stop)
+  const room = await team(call, sent)
+  const chief = rt.state.mainBotIds[0]
+  const writer = Object.values(rt.state.bots).find(bot => bot.name === 'Writer')
+  // The user reaches the admin first: Writer is not already called by the user's message.
+  assert.equal((await call('update-room', { id: room.id, mode: 'admin', admin: chief })).ok, true)
+  assert.equal((await call('update-bot', { id: writer.id, responsibility: { preset: 'reviewer', categories: ['review'] } })).ok, true)
+
+  await emit(room.id, userMessage('Start'))
+  const running = relay(room.id, 'relay')
+  const chiefTurn = await turnFor(sent)
+  await answer(chiefTurn.sessionId, chiefTurn.message.source.exchangeId, '@Writer review this', 1)
+  await running
+
+  assert.equal(sent.filter(entry => entry.message.source.role === 'room').length, 1, 'the refused member got no turn')
+  const notice = rt.state.rooms[room.id].log.find(line => line.reason === 'category')
+  assert.ok(notice, 'the group was told why')
+  assert.match(lineText(notice), /Writer did not start/)
+  assert.match(lineText(notice), /task_category set to one of: review/)
+})
+
 test('SELECTED lets only the listed Bot ID call, and ALL lets any Bot call', async (t) => {
   const { call, emit, userMessage, relay, answer, stop, sent, rt } = start()
   t.after(stop)

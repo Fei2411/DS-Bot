@@ -29378,6 +29378,9 @@ function RelayEvent({ reply, bot, sessionId, actions }) {
   if (reply.kind === "folder") {
     return (0, import_react34.createElement)("div", { className: "bt-event" }, reply.text);
   }
+  if (reply.kind === "category") {
+    return (0, import_react34.createElement)("div", { className: "bt-event" }, reply.text);
+  }
   if (reply.kind === "stopped") {
     return (0, import_react34.createElement)("div", { className: "bt-event" }, t("You stopped {name}'s work", { name: bot.name }));
   }
@@ -29537,7 +29540,7 @@ function renderCall(call2, { sessionId, roster, actions, useUi, useWork, findBot
   switch (tool) {
     case "message_bot": {
       const target = findBot(arg("to")) ?? { name: arg("to") ?? "…", color: "gray" };
-      const receipt = done ? contentText(call2.content) : "";
+      const receipt = done ? contentText(call2.content).replace(/^Error:\s*/, "") : "";
       if (receipt.startsWith("Not sent") || receipt.startsWith("Nothing was sent")) return (0, import_react34.createElement)("div", { className: "bt-event" }, receipt);
       if (done && call2.isError) return (0, import_react34.createElement)("div", { className: "bt-event" }, t("Couldn't message {name}", { name: target.name }));
       return (0, import_react34.createElement)(EventLine, { prefix: t("Messaged"), bots: [target], onOpen: (bot) => bot.id && actions.openExchange(self?.id ?? sessionId, bot.id), whole: true });
@@ -29570,6 +29573,7 @@ function renderCall(call2, { sessionId, roster, actions, useUi, useWork, findBot
       }[tool];
       if (!done) return (0, import_react34.createElement)(CellEmpty);
       const result = contentText(call2.content);
+      if (result.startsWith("Not sent") || result.startsWith("Nothing was sent")) return (0, import_react34.createElement)("div", { className: "bt-event" }, result);
       const named = /^(Created group|Updated|Nothing changed in|Deleted|Posted in) "([^"]+)"/.exec(result);
       if (call2.isError || !named) return (0, import_react34.createElement)("div", { className: "bt-event", title: result }, t(verbs[1]));
       const name = named[2];

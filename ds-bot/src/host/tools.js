@@ -100,7 +100,9 @@ export function install(rt) {
     if (bot.private === true && bot.id !== self) return `- ${bot.name} (${[bot.role, 'private Bot, closed to other Bots'].filter(Boolean).join(', ')})`
     const model = bot.appliedModel ?? bot.model
     const section = sectionNameOf(bot.sectionId)
-    const tags = [bot.role, section ? `section "${section}"` : '', model ? `model ${model}` : '', bot.workDir ? `works in ${bot.workDir}` : '', rt.isMain(bot.id) ? 'Main Bot' : '', bot.private === true ? 'private' : '', bot.id === self ? 'you' : ''].filter(Boolean).join(', ')
+    // What work this Bot takes, so a caller can state the category on the first try.
+    const accepts = bot.responsibility?.categories?.length ? `accepts ${bot.responsibility.categories.join(', ')}` : ''
+    const tags = [bot.role, accepts, section ? `section "${section}"` : '', model ? `model ${model}` : '', bot.workDir ? `works in ${bot.workDir}` : '', rt.isMain(bot.id) ? 'Main Bot' : '', bot.private === true ? 'private' : '', bot.id === self ? 'you' : ''].filter(Boolean).join(', ')
     const job = bot.instructions ? ` — ${bot.instructions.split('\n')[0].slice(0, 120)}` : ''
     const now = bot.id === self ? '' : `\n  now: ${rt.statusOf(bot.id)}`
     return `- ${bot.name}${tags ? ` (${tags})` : ''}${job}${now}`
@@ -198,15 +200,41 @@ export function install(rt) {
     return `Not sent: ${target.name} is not in "${room.name}", and work for this group stays in it. Ask the user to add ${target.name} to the group${add}.`
   }
 
+  // A Bot's post is a request to the members it calls. A recipient with a responsibility
+  // preset needs a stated category, and "@Name" cannot carry one, so refuse before the
+  // post is written rather than quietly starting nobody. The targets mirror
+  // openingCallFor: an unnamed post in admin mode reaches the admin, not every member.
+  const groupCategoryRefusal = (room, sender, category, named, all, member, reviewFix) => {
+    const everyone = room.members.map(rt.botOf).filter(Boolean)
+    const others = everyone.filter(bot => bot.id !== sender.id)
+    const targets = new Set(named)
+    if (!member && !(named.length > 0 && !all)) {
+      const admin = others.find(bot => rt.isAdminOf(room, bot.id))
+      if (!all && room.mode === 'admin' && admin) targets.add(admin.id)
+      else for (const bot of others) targets.add(bot.id)
+    }
+    for (const id of targets) {
+      const peer = rt.botOf(id)
+      if (peer?.responsibility === undefined) continue
+      const reason = category === undefined
+        ? 'task-category-required'
+        : peer.responsibility.categories.includes(category) ? undefined : 'task-category-not-permitted'
+      if (reason !== undefined) return new BotResponseRefusal(reason, peer, sender, room, { reviewFix }).message
+    }
+    return undefined
+  }
+
   const reviewRequest = (args, text) => {
     const finding = findingOf({ pr: args.finding_pr, commit: args.finding_commit, id: args.finding_id })
     const partial = [args.finding_pr, args.finding_commit, args.finding_id].some(value => value !== undefined)
     const reviewFix = partial || reviewFixOf(text, args.action, finding)
-    return { finding, reviewFix, category: reviewFix ? 'coding' : args.task_category ?? 'general' }
+    // No silent fallback: a recipient with a responsibility preset refuses a task with
+    // no stated category, and the refusal names the categories it accepts.
+    return { finding, reviewFix, category: reviewFix ? 'coding' : args.task_category }
   }
 
   const findingParameters = {
-    task_category: { type: 'string', enum: Object.keys(TASK_CATEGORIES), description: 'Category of work requested. Use the category that describes the task. Review fixes use coding.' },
+    task_category: { type: 'string', enum: Object.keys(TASK_CATEGORIES), description: 'Category of work requested. Required when the recipient has a responsibility preset; use one of the categories it accepts. Review fixes use coding.' },
     action: { type: 'string', enum: ['task', 'review_fix'], description: 'Use review_fix for an automatic request to fix a review finding. The three finding fields are required for that action.' },
     finding_pr: { type: 'string', description: 'The pull request the finding is about. Use its stable repository-qualified identifier.' },
     finding_commit: { type: 'string', description: 'The commit SHA the finding was made on.' },
@@ -225,7 +253,7 @@ export function install(rt) {
 
   const reserveResponse = async options => {
     const decision = await rt.botResponse.reserve(options)
-    if (!decision.allow) throw new BotResponseRefusal(decision.reason, options.recipient, rt.botOf(options.sender), options.room)
+    if (!decision.allow) throw new BotResponseRefusal(decision.reason, options.recipient, rt.botOf(options.sender), options.room, { reviewFix: options.reviewFix === true })
     return decision.routing
   }
 
@@ -853,6 +881,9 @@ export function install(rt) {
       if (member && reportBack && named.length === 0) {
         return 'Nobody would answer: your post only calls the members you name. Write "@Name" for each member who should answer, or post without report_back.'
       }
+      const request = reviewRequest(args, text)
+      const refused = groupCategoryRefusal(room, sender, request.category, named, mentions.all, member, request.reviewFix)
+      if (refused !== undefined) return refused
       const long = await rt.attachLong(text, `Post from ${sender.name}.txt`)
       if (long === undefined) return tooLong(text)
       // Replies the poster waits for, while it works on what a Bot asked it for, are
@@ -865,7 +896,7 @@ export function install(rt) {
       try {
         // A post that wants the replies names the conversation it was written
         // from, so the report comes back there instead of the own chat.
-        await rt.postToRoom(room, sender, long.text, { mentions, ...reviewRequest(args, text), parent: rt.live.get(exec.agent?.id)?.taskContext,
+        await rt.postToRoom(room, sender, long.text, { mentions, ...request, parent: rt.live.get(exec.agent?.id)?.taskContext,
           ...(exec.callId ? { event: `tool:${exec.agent?.id}:${exec.callId}` } : {}), ...(claims ? { claims } : {}), ...(reportBack ? { reportBack: true, ...callerRoom(exec) } : {}), ...(member ? { member: true } : {}), ...(sub ? { sub } : {}), ...(long.length ? { length: long.length } : {}) }, long.files)
       } catch (failure) {
         if (sub !== undefined) rt.dropWork(sub)

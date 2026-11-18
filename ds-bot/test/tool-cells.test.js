@@ -1294,11 +1294,12 @@ test('settled and answered views summarize every outcome cleanly and derive fall
   assert.equal(text(find(fallbackPrompt, node => node.props?.className === 'bt-q-title')), 'View')
 })
 
-test('message_bot refusal receipts render without a success label', () => {
+test('message_bot refusal receipts render whole, with or without the Error prefix', () => {
   for (const isError of [true, false]) {
-    const receipt = 'Not sent: Writer does not take automatic messages from Chief (recipient-off). No turn was started.'
+    const receipt = `${isError ? 'Error: ' : ''}Not sent: Writer does not take automatic messages from Chief (recipient-off). No turn was started.`
     const out = shown(call('message_bot', 'refused', { args: { to: 'Writer' }, content: receipt, isError }))
     assert.match(out, /Not sent: Writer/)
-    assert.doesNotMatch(out, /Called|Messaged|Delivered/)
+    assert.match(out, /recipient-off/)
+    assert.doesNotMatch(out, /Error:|Called|Messaged|Delivered/)
   }
 })

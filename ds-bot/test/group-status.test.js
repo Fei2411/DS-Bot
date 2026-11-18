@@ -230,6 +230,43 @@ test('deleting a group cancels its members\' waiting approvals and stops their S
   assert.deepEqual(host.archived.find(([id]) => id === 'gb'), ['gb', { stopActivity: true }])
 })
 
+test('post_to_group refuses before posting when a named preset member needs a category', async (t) => {
+  const host = await start()
+  t.after(host.stop)
+  assert.equal((await host.call('update-bot', { id: 'b', responsibility: { preset: 'reviewer', categories: ['review'] } })).ok, true)
+  const refused = await host.tool('post_to_group', { group: 'Ops', message: '@Writer review this' }, 'a')
+  assert.match(refused, /^Not sent: Writer .*\(task-category-required\)/)
+  assert.match(refused, /Writer accepts: review\. Set task_category/)
+  assert.equal(host.agentOf('r1').calls.length, 0, 'the post was not written')
+  const posted = await host.tool('post_to_group', { group: 'Ops', message: '@Writer review this', task_category: 'review' }, 'a')
+  assert.match(posted, /^Posted in "Ops"/)
+  assert.equal(host.agentOf('r1').calls.length, 1)
+})
+
+test('a review-fix post refuses with the coding hint', async (t) => {
+  const host = await start()
+  t.after(host.stop)
+  assert.equal((await host.call('update-bot', { id: 'b', responsibility: { preset: 'reviewer', categories: ['review'] } })).ok, true)
+  const refused = await host.tool('post_to_group', {
+    group: 'Ops', message: '@Writer fix this finding', action: 'review_fix',
+    finding_pr: 'org/repo#1', finding_commit: 'abcdef1', finding_id: 'F-1',
+  }, 'a')
+  assert.match(refused, /\(task-category-not-permitted\)/)
+  assert.match(refused, /A review fix is sent as coding; Writer accepts: review\./)
+  assert.doesNotMatch(refused, /Set task_category/)
+})
+
+test('an unnamed post in admin mode checks only the admin it calls', async (t) => {
+  const host = await start()
+  t.after(host.stop)
+  const reader = (await host.call('create-bot', { name: 'Reader' })).value
+  assert.equal((await host.call('update-room', { id: 'r1', members: ['a', 'b', reader.id] })).ok, true)
+  assert.equal((await host.call('update-bot', { id: reader.id, responsibility: { preset: 'reviewer', categories: ['review'] } })).ok, true)
+  // The plain post calls the admin, Writer, only; Reader's preset is not in play.
+  const posted = await host.tool('post_to_group', { group: 'Ops', message: 'Copy the doc' }, 'a')
+  assert.match(posted, /^Posted in "Ops"/)
+})
+
 test('a report back names the members still waiting for an approval', async (t) => {
   const host = await start()
   t.after(host.stop)

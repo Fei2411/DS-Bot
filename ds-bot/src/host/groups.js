@@ -107,6 +107,13 @@ const noticeText = (line) => {
   if (line.reason === 'paused') return `Paused: Bots have called each other ${line.limit} times since the user last wrote here. The calls to @${(line.names ?? []).join(' and @')} wait until the user continues or writes here; do not call them again.`
   if (line.reason === 'admin-passed') return `${(line.names ?? []).join(' and ') || 'The admin'} did not answer or call anyone; call a member with @Name.`
   if (line.reason === 'folder') return `The group's folder ${line.path} is gone, so its members work in the team workspace; set the group's folder again in the group's settings.`
+  if (line.reason === 'category') {
+    const accepts = (line.accepts ?? []).join(', ')
+    const why = line.refused === 'task-category-not-permitted'
+      ? `it does not take "${line.category ?? ''}"`
+      : 'a responsibility preset needs a stated task category, and writing "@Name" cannot state one'
+    return `${(line.names ?? []).join(' and ')} did not start: ${why}. Hand the work on with message_bot${accepts ? `, with task_category set to one of: ${accepts}` : ''}.`
+  }
   if (line.reason === 'goal') return goalNotice(line)
   if (line.reason === 'failed') return `${(line.names ?? []).join(' and ')} stopped: its model call failed (${line.detail}). What it was doing here is not finished; the user can switch its model in its settings or ask it to go on.`
   if (line.reason === 'helper-failed') return `${(line.names ?? []).join(' and ')}'s background helper did not finish: ${line.detail}. The work it was doing here is not finished; ask it to go on if it still matters.`
@@ -166,7 +173,7 @@ export const referenceNote = references => (references?.length
   : '')
 
 const ROOM_REPLY = 'Reply with your message for the group, no name prefix: in a discussion, one or two short messages. When you are asked to do something, call your first tool in the same step as your opening note — if you stop without a tool call, your turn ends and no work runs. The group does not wait for you and sees what you write while you work: say what you will do, write again only when something matters, and end with the result, never a promise to do it later. Reply [PASS] to stay silent when you have nothing new to add or the message is for someone else.'
-const ROOM_CALLS = 'Writing "@Name" calls that member at once, to answer or to do what you ask, as soon as your message is posted: call members before you start on your own part. Members called in one message start together and do not see each other\'s replies until they post, so when one needs another\'s result, call the first and ask it to call the next. When a member finishes work you gave it, you answer its result. To only mention a member, write its name without "@".'
+const ROOM_CALLS = 'Writing "@Name" calls that member at once, to answer or to do what you ask, as soon as your message is posted: call members before you start on your own part. Members called in one message start together and do not see each other\'s replies until they post, so when one needs another\'s result, call the first and ask it to call the next. When a member finishes work you gave it, you answer its result. A member with a responsibility preset needs a stated category, which "@Name" cannot carry: hand it work with message_bot and task_category. To only mention a member, write its name without "@".'
 
 const slotLabel = (slot, self) => {
   if (slot.status === 'speaking') return slot === self ? `${slot.name} (you, now)` : `${slot.name} (answering now)`
@@ -316,6 +323,7 @@ export function install(rt) {
       case 'admin-passed': return { kind: 'admin-passed', ...who, time }
       case 'paused': return { kind: 'paused', idle: record.idle, ...who, name: bot?.name ?? record.from, count: record.count ?? record.limit, limit: record.limit, names: record.names, time }
       case 'folder': return { kind: 'folder', text: noticeText(record), time }
+      case 'category': return { kind: 'category', text: noticeText(record), names: record.names, time }
       case 'goal': {
         const { who: _who, kind: _kind, reason: _reason, seq: _seq, time: _time, about: _about, ...fields } = record
         return { kind: 'goal', ...fields, time }
@@ -374,6 +382,16 @@ export function install(rt) {
   const noteFailure = (room, member, failure) => {
     const { code, status, message } = failure
     say(room, { who: 'DS Bot', kind: 'notice', reason: 'failed', names: [member.name], about: member.id, detail: failureLine(failure), code, ...(status ? { status } : {}), message })
+  }
+
+  // A call the responsibility preset refused for its category. "@Name" has no way to
+  // state one, so the group is told what the member takes and how to hand it the work.
+  const noteCategoryRefusal = (room, member, peer, reason, category) => {
+    say(room, {
+      who: 'DS Bot', kind: 'notice', reason: 'category', names: [peer.name], about: peer.id,
+      from: member.name, refused: reason, ...(category === undefined ? {} : { category }),
+      accepts: peer.responsibility?.categories ?? [],
+    })
   }
 
   // A failed background helper appends a structured notice directly to the group's
@@ -1059,7 +1077,15 @@ export function install(rt) {
     const idleText = isIdleRelayText(text, everyone, [])
     const parent = slot?.routing ?? slot?.parent ?? round.parent
     const reviewFix = reviewFixOf(text)
-    const decisions = callees.map(peer => [peer, rt.botResponse.check({ sender: member.id, recipient: peer, room, named: found.includes(peer), idle: idleText, chain, text, kind: 'call', parent, reviewFix })])
+    // A call the speaking member answers keeps the task's category; "@Name" itself
+    // cannot state one, so a preset member is refused with a notice rather than skipped.
+    const category = slot?.category ?? slot?.routing?.category
+    const decisions = callees.map(peer => [peer, rt.botResponse.check({ sender: member.id, recipient: peer, room, named: found.includes(peer), idle: idleText, chain, text, kind: 'call', parent, reviewFix, category })])
+
+    for (const [peer, decision] of decisions) {
+      if (decision.allow) continue
+      if (decision.reason === 'task-category-required' || decision.reason === 'task-category-not-permitted') noteCategoryRefusal(room, member, peer, decision.reason, category)
+    }
     if (byBot && idleStep) {
       const parkable = decisions.filter(([, decision]) => decision.allow || decision.reason === 'chain-hop-limit').map(([peer]) => peer)
       if (holdIdleCalls(room, round, member, parkable, { named, all })) return
@@ -1073,7 +1099,7 @@ export function install(rt) {
       lineage.set(peer.id, new Set([...(lineage.get(peer.id) ?? []), ...chain]))
     }
     callIn(round, callees, `${member.name} mentioned you`, member.id, {
-      parent, event: `line:${room.seq}`, reviewFix, text,
+      parent, event: `line:${room.seq}`, reviewFix, text, category,
     })
     // An @Name from the admin hands the member its goal task.
     if (rt.isAdminOf(room, member.id)) for (const peer of callees) rt.goalTaskWorking?.(room.id, peer.id)

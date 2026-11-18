@@ -7,6 +7,7 @@ import { test } from 'node:test'
 import { createRuntime } from '../index.js'
 import { fakeContext } from './fake-ctx.js'
 import { install as installRequests } from '../src/host/requests.js'
+import { BOT_ROUTING_KEEP, compactRouting } from '../src/host/bot-response-policy.js'
 
 let rt
 
@@ -181,6 +182,39 @@ test('a repeat after a restart gives the receipt back and sends nothing', async 
   const out = await again.tool('message_bot', { to: 'Writer', message: 'do the thing', request_id: 'r-1' }, 'a')
   assert.equal(out, receipt)
   assert.equal(freshSends(again.agentOf('b')).length, 0)
+})
+
+test('a task to a preset Bot without a category is refused with the categories it accepts', async (t) => {
+  const seed = team()
+  seed.bots.b.responsibility = { preset: 'reviewer', categories: ['review'] }
+  const home = tempHome()
+  const { agents, tool, stop } = await boot(home, seed)
+  t.after(async () => { await stop(); cleanup(home) })
+
+  assert.match(await tool('list_bots', { bot: 'Writer' }, 'a'), /Writer \(Write, accepts review\)/)
+  await assert.rejects(tool('message_bot', { to: 'Writer', message: 'look at this' }, 'a'), /task-category-required.*Writer accepts: review/)
+  assert.equal(agents.get('b')?.calls.length ?? 0, 0)
+  await tool('message_bot', { to: 'Writer', message: 'review this', task_category: 'review' }, 'a')
+  assert.equal(agents.get('b').calls.length, 1)
+})
+
+test('a named request stays a replay after its routing event is compacted away', async (t) => {
+  const home = tempHome()
+  const { rt, agents, tool, stop } = await boot(home, team())
+  t.after(async () => { await stop(); cleanup(home) })
+
+  const receipt = await tool('message_bot', { to: 'Writer', message: 'do the thing', request_id: 'r-1' }, 'a')
+  const key = Object.keys(rt.state.botRouting.events)[0]
+  // The turn ran: its routing record is terminal and therefore eligible for eviction.
+  rt.state.botRouting.events[key] = 'taken'
+  for (let i = 0; i < BOT_ROUTING_KEEP.events + 1; i += 1) rt.state.botRouting.events[`later-${i}`] = 'taken'
+  assert.ok(compactRouting(rt.state) > 0)
+  assert.equal(rt.state.botRouting.events[key], undefined, 'the admission record is gone')
+
+  // The receipt is kept by the request table, not by the bounded routing table.
+  const again = await tool('message_bot', { to: 'Writer', message: 'do the thing', request_id: 'r-1' }, 'a')
+  assert.equal(again, receipt)
+  assert.equal(agents.get('b').calls.length, 1, 'nothing was delivered again')
 })
 
 test('a repeat after the recipient read the message does not send it again', async (t) => {
