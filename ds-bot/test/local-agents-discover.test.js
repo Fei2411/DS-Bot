@@ -24,6 +24,14 @@ test('Windows pi-acp resolves standalone Pi through PATH and PATHEXT (#1795)', (
   assert.equal(agentEnv('pi-acp', env, { platform: 'darwin', find }), env)
 })
 
+test('Windows resolves dotted command names unless their suffix is already in PATHEXT', () => {
+  const env = { PATH: 'C:\\agents', PATHEXT: '.EXE;.CMD' }
+  const lookup = (name, file) => findExecutable(name, { platform: 'win32', env, isFile: path => path === file })
+  assert.equal(lookup('agent.v2', 'C:\\agents\\agent.v2.cmd'), 'C:\\agents\\agent.v2.cmd')
+  assert.equal(lookup('agent.CmD', 'C:\\agents\\agent.CmD'), 'C:\\agents\\agent.CmD')
+  assert.equal(lookup('agent.CmD', 'C:\\agents\\agent.CmD.cmd'), undefined)
+})
+
 // npm-*.cmd are what npm 11's cmd-shim writes for a Node script and for an .exe;
 // pnpm-node.cmd follows pnpm 11's shim template with a NODE_PATH.
 const shim = name => readFileSync(new URL(`./fixtures/windows-shims/${name}`, import.meta.url), 'utf8')

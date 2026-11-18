@@ -100,8 +100,8 @@ export function findExecutable(name, { platform = process.platform, env = proces
     const path = name.startsWith('~') ? join(homedir(), name.slice(1)) : name
     return fileExists(path) ? path : undefined
   }
-  const extensions = windows && !win32.extname(name)
-    ? [...(env.PATHEXT || '.CMD;.EXE;.BAT;.COM').split(';').filter(Boolean).map(ext => ext.toLowerCase()), ''] : ['']
+  const pathExt = (env.PATHEXT || '.CMD;.EXE;.BAT;.COM').split(';').filter(Boolean).map(ext => ext.toLowerCase())
+  const extensions = windows && !pathExt.includes(win32.extname(name).toLowerCase()) ? [...pathExt, ''] : ['']
   const pathKey = Object.keys(env).find(key => key.toUpperCase() === 'PATH') ?? 'PATH'
   const dirs = windows ? [...(env[pathKey] ?? '').split(';').filter(Boolean), ...(platform === process.platform ? searchDirs() : [])] : searchDirs()
   for (const dir of dirs) {
