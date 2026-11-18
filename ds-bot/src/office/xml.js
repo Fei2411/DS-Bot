@@ -4,19 +4,6 @@
 // xml:space="preserve") keep their character data untouched.
 import { DOMParser, XMLSerializer } from '@xmldom/xmldom'
 
-export const NS = {
-  w: 'http://schemas.openxmlformats.org/wordprocessingml/2006/main',
-  w14: 'http://schemas.microsoft.com/office/word/2010/wordml',
-  wp: 'http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing',
-  a: 'http://schemas.openxmlformats.org/drawingml/2006/main',
-  r: 'http://schemas.openxmlformats.org/officeDocument/2006/relationships',
-  p: 'http://schemas.openxmlformats.org/presentationml/2006/main',
-  c: 'http://schemas.openxmlformats.org/drawingml/2006/chart',
-  rel: 'http://schemas.openxmlformats.org/package/2006/relationships',
-  ct: 'http://schemas.openxmlformats.org/package/2006/content-types',
-  xml: 'http://www.w3.org/XML/1998/namespace',
-}
-
 export const parser = new DOMParser({ onError: (level, message) => { throw new XmlError(message) } })
 const serializer = new XMLSerializer()
 
@@ -35,8 +22,6 @@ export function parseXml(text) {
 export function serializeXml(node) {
   return serializer.serializeToString(node)
 }
-
-export function qname(ns, local) { return `${ns}:${local}` }
 
 // Tag names whose character data is document content, never pretty-print filler.
 const TEXT_TAGS = new Set(['w:t', 'w:delText', 'w:instrText', 'a:t', 'm:t'])
