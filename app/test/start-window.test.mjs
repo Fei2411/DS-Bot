@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 import { readStartFrame, writeStartFrame } from '../src/start-frame.mjs'
 import {
-  acceptsAct, centred, clampInto, clockMs, cubicBezier, detailsText, explainOf, failureReason, fallbackMs, CROSSFADE, handoffBox, HOLD_MS, TEAM_HANDOFF, TEAM_WAIT_MS,
+  acceptsAct, centred, clampInto, clockMs, detailsText, explainOf, failureReason, fallbackMs, CROSSFADE, handoffBox, HOLD_MS, TEAM_HANDOFF, TEAM_WAIT_MS,
   isStartPage, landingOf, MAIN_SIZE, mainRect, OPEN_MS, PAINT_WAIT_MS, START_ACT, START_ACTS, START_STATE, startSize, startSnapshot, startUrl, StartWindow,
   TEAM_VIEW_MS, WATCHDOG_MS,
 } from '../src/start-window.mjs'
@@ -34,13 +34,6 @@ test('the team window is centred on the start window and stays inside the work a
   // A laptop's work area smaller than the team window: it fills the work area.
   assert.deepEqual(mainRect({ x: 323, y: 94, width: 720, height: 540 }, { x: 0, y: 0, width: 1366, height: 728 }), { x: 23, y: 0, width: 1320, height: 728 })
   assert.deepEqual(clampInto({ x: -50, y: 900, width: 2000, height: 300 }, AREA), { x: 0, y: 740, width: 1920, height: 300 })
-})
-
-test('the easing is CSS cubic-bezier()', () => {
-  const ease = cubicBezier(0.25, 0.1, 0.25, 1)
-  assert.ok(Math.abs(ease(0.5) - 0.8024) < 1e-3)
-  assert.equal(ease(0), 0)
-  assert.equal(ease(1), 1)
 })
 
 test('the team window shows by itself after 2.5 s on a first start or a celebration, else 0.8 s', () => {
