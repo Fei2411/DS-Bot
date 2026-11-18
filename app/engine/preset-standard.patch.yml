@@ -25,6 +25,13 @@
             disabled: !!js process.platform !== 'win32'
           - id: tool-fs
             name: '@deepseek-ai/dsh-tool-fs'
+            # When opting into code-mode below, also set config.applyPatch: true.
+          - id: code-mode
+            name: ds-bot/code-mode
+            disabled: true
+            config:
+              mode: hybrid
+              maxResultChars: 8000
           - id: tool-fs-search
             name: '@deepseek-ai/dsh-tool-fs-search'
             config:

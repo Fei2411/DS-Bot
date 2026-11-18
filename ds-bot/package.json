@@ -27,6 +27,7 @@
     ".": "./plugin.js",
     "./client": "./client.js",
     "./web-search": "./web-search.js",
+    "./code-mode": "./code-mode.js",
     "./package.json": "./package.json"
   },
   "files": [
@@ -40,6 +41,7 @@
     "link.js",
     "office.js",
     "web-search.js",
+    "code-mode.js",
     "cordis.patch.yml",
     "README.md",
     "LICENSE"
@@ -73,6 +75,10 @@
     "qrcode-generator": "2.0.4"
   },
   "dependencies": {
+    "@deepseek-ai/schemastery": "3.19.0",
+    "@deepseek-ai/dsh-ptc-runtime": "0.2.2-rc.1",
+    "@deepseek-ai/dsh-tool-executor-native": "0.2.2-rc.1",
+    "@deepseek-ai/dsh-tool-executor-ptc": "0.2.2-rc.1",
     "@modelcontextprotocol/client": "2.4.0",
     "deep-view": "0.1.2",
     "imapflow": "2.9.1",

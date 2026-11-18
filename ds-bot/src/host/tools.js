@@ -1292,7 +1292,7 @@ export function install(rt) {
     // Cleared whatever happens below: the names are offered once, not on
     // every step.
     held.unlisted.clear()
-    if ((assembled.tools ?? []).some(tool => tool.name === 'run_code')) return assembled
+    if ((assembled.tools ?? []).length === 1 && assembled.tools[0].name === 'run_code') return assembled
     if (typeof ctx.tools?.schemas !== 'function') return assembled
     try {
       const wanted = new Set(pending)

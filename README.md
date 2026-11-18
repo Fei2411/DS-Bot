@@ -23,6 +23,8 @@ DS Bot is an open-source project built on [DeepSeek Harness](https://github.com/
 
 ## Install
 
+An experimental, opt-in code executor is available as `ds-bot/code-mode`. Bots keep their existing executor unless enabled. See [code-mode setup and limits](docs/plans/2026-11-18-code-mode.md).
+
 **Desktop app (Windows, macOS, Linux)**
 
 The desktop app brings its own DSH, so you don't need to install DSH first. Download the installer for your system from [Releases](https://github.com/Fei2411/DS-Bot/releases/latest), open it, and set up a model in Settings (it can also copy your existing bot team from DSH).

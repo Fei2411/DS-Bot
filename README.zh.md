@@ -23,6 +23,8 @@ DS Bot 是一个基于 [DeepSeek Harness](https://github.com/deepseek-ai/deepsee
 
 ## 安装
 
+实验性的可选代码执行器通过 `ds-bot/code-mode` 提供，默认关闭，不改变 Bot 的现有执行方式。参见[配置和限制](docs/plans/2026-11-18-code-mode.md)。
+
 **桌面应用（Windows、macOS、Linux）**
 
 桌面应用自带 dsh，不用先装 dsh。直接在 [Releases](https://github.com/Fei2411/DS-Bot/releases/latest) 下载对应系统的安装包，打开后在设置里配好模型就能用（也可以直接复制你原来在 dsh 里的 bot 团队）。
