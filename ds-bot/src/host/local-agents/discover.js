@@ -105,6 +105,7 @@ export function findExecutable(name, { platform = process.platform, env = proces
   const pathKey = Object.keys(env).find(key => key.toUpperCase() === 'PATH') ?? 'PATH'
   const dirs = windows ? [...(env[pathKey] ?? '').split(';').filter(Boolean), ...(platform === process.platform ? searchDirs() : [])] : searchDirs()
   for (const dir of dirs) {
+    if (windows && !win32.isAbsolute(dir)) continue
     for (const ext of extensions) {
       const path = pathJoin(dir, `${name}${ext}`)
       if (fileExists(path)) return path

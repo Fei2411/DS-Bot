@@ -24,6 +24,15 @@ test('Windows pi-acp resolves standalone Pi through PATH and PATHEXT (#1795)', (
   assert.equal(agentEnv('pi-acp', env, { platform: 'darwin', find }), env)
 })
 
+test('Windows lookup skips relative PATH directories', () => {
+  const env = { PATH: '.;bin;C:relative;C:\\tools', PATHEXT: '.EXE' }
+  const checked = []
+  const find = name => findExecutable(name, { platform: 'win32', env, isFile: path => { checked.push(path); return path.endsWith('.exe') } })
+  assert.equal(find('pi'), 'C:\\tools\\pi.exe')
+  assert.deepEqual(checked, ['C:\\tools\\pi.exe'])
+  assert.equal(findExecutable('pi', { platform: 'win32', env: { PATH: '.;bin', PATHEXT: '.EXE' }, isFile: () => true }), undefined)
+})
+
 test('Windows pi-acp preserves environment overrides regardless of key casing', () => {
   for (const key of ['Pi_Acp_Pi_Command', 'pi_acp_pi_command', 'PI_ACP_PI_COMMAND']) {
     const env = { [key]: 'D:\\custom\\pi.exe' }
