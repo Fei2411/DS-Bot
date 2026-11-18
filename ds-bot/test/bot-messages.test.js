@@ -453,6 +453,33 @@ const replySource = (role, extra = {}) => ({ kind: SOURCE_KIND, role, senderSess
 const textBlock = (content) => [{ type: 'text', text: content }]
 const assistantText = text => ({ message: { content: textBlock(text) } })
 
+for (const [name, source, hidden] of [
+  ['private work continuation', replySource('reply', { work: 'parent' }), true],
+  ['restarted private work continuation', replySource('resume', { work: 'parent', resumed: true }), true],
+  ['part-switched private work continuation', replySource('reply', { work: 'parent', handoff: true, resume: true }), true],
+  ['direct private request', replySource('request', { exchangeId: 'parent' }), true],
+  ['user-owned reply', replySource('reply', { work: 'user-work' }), false],
+  ['ordinary reply', replySource('reply'), false],
+  ['missing work reply', replySource('reply', { work: 'missing' }), false],
+  ['another Bot\'s work reply', replySource('reply', { work: 'other-work' }), false],
+  ['explicit user-audience request', replySource('request', { audience: 'user', work: 'parent' }), false],
+]) {
+  for (const pending of [false, true]) {
+    test(`${name} is ${hidden ? 'hidden' : 'visible'} when claimed ${pending ? 'from pending input' : 'during a turn'}`, async (t) => {
+      const { rt, emit, stop } = await start(team())
+      t.after(stop)
+      rt.openWork('parent', { from: 'a', to: 'b' })
+      rt.openWork('user-work', { to: 'b' })
+      rt.openWork('other-work', { from: 'a', to: 'a' })
+      const message = () => emit('b', 'user/message', { content: textBlock('result'), source })
+      if (pending) message()
+      emit('b', 'turn/start', { turn: 7 })
+      if (!pending) message()
+      assert.deepEqual(rt.state.exchangeTurns.b ?? [], hidden ? [7] : [])
+    })
+  }
+}
+
 test('a stopped notice routes the acknowledgement back like a request', () => {
   const { rt, emit, delivered } = turnsHost()
   emit('b', 'turn/start', { turn: 1 })
