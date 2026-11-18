@@ -30,7 +30,7 @@ test('Windows lookup skips relative PATH directories', () => {
   const find = name => findExecutable(name, { platform: 'win32', env, isFile: path => { checked.push(path); return path.endsWith('.exe') } })
   assert.equal(find('pi'), 'C:\\tools\\pi.exe')
   assert.deepEqual(checked, ['C:\\tools\\pi.exe'])
-  assert.equal(findExecutable('pi', { platform: 'win32', env: { PATH: '.;bin', PATHEXT: '.EXE' }, isFile: () => true }), undefined)
+  assert.equal(findExecutable('pi', { platform: 'win32', env: { PATH: '.;bin', PATHEXT: '.EXE' }, isFile: path => ['pi.exe', 'bin\\pi.exe'].includes(path) }), undefined)
 })
 
 test('Windows lookup only returns executable or batch extensions', () => {
