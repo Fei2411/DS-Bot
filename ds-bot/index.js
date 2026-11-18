@@ -53,6 +53,7 @@ import * as im from './src/host/im/index.js'
 import * as officeSkills from './src/host/office-skills.js'
 import * as goalSkills from './src/host/goal-skills.js'
 import * as localAgents from './src/host/local-agents/index.js'
+import { installBotCodeMode } from './src/host/bot-code-mode.js'
 
 export { COLORS } from './src/host/constants.js'
 
@@ -69,7 +70,7 @@ export function apply(ctx, config = {}) {
   createRuntime(ctx, config)
 }
 
-export function createRuntime(ctx, config = {}) {
+export function createRuntime(ctx, config = {}, codeMode) {
   const dshHome = folders.dshHomeOf(process.env.DSH_HOME)
   const home = config.home ?? join(dshHome, 'bot')
   const rt = {
@@ -87,6 +88,7 @@ export function createRuntime(ctx, config = {}) {
     },
   }
   for (const module of MODULES) module.install(rt)
+  if (codeMode !== undefined) installBotCodeMode(rt, codeMode)
   // A live Agent can be scoped before the last module has added its tools (the memory
   // module starts a load during install): complete the scope now that every tool is in.
   rt.syncScopedTools?.()
