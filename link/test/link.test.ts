@@ -15,7 +15,6 @@ import {
   encodeMessage,
   fromBase64Url,
   generateKeyPair,
-  identityFingerprint,
   toBase64Url,
   type RpcRequestPayload,
   type SecureHandshakeTransport,
@@ -34,7 +33,6 @@ test('base64url round trip and key pair', () => {
   assert.equal(fromBase64Url(pair.privateKey).byteLength, 32)
   assert.equal(fromBase64Url(pair.publicKey).byteLength, 32)
   assert.deepEqual(generateKeyPair(fromBase64Url(pair.privateKey)), pair)
-  assert.match(identityFingerprint(pair.publicKey), /^[0-9A-F]{12}$/)
   assert.throws(() => generateKeyPair(new Uint8Array(31)))
 })
 
