@@ -37344,15 +37344,23 @@ function PreferenceRow({ title, description, value, options, disabled, save, sav
     }))
   );
 }
+function usePreferenceSchema(preferences, namespace) {
+  const describe = preferences.describe;
+  const snapshot = (0, import_react51.useSyncExternalStore)((listener) => describe.subscribe(listener), () => describe.getSnapshot());
+  const entry = snapshot.view?.namespaces.find((entry2) => entry2.ns === namespace);
+  return entry ? preferences.schema.rehydrate(entry.schema) : void 0;
+}
 function FormPreferences({ id, preferences }) {
   const namespace = id === "composer-enter" ? "ui-conversation" : "ui-chat";
   const form = preferences.forms[namespace];
   const snapshot = (0, import_react51.useSyncExternalStore)((listener) => form.subscribe(listener), () => form.getSnapshot());
+  const schema = usePreferenceSchema(preferences, namespace);
+  const supports = (field) => schema !== void 0 && preferences.schema.nodeAtPath(schema, [field]) !== void 0;
   const browserAvailable = (0, import_react51.useSyncExternalStore)(preferences.browser.subscribe, preferences.browser.getSnapshot);
   const disabled = snapshot.status !== "ready" || !snapshot.writable;
   if (snapshot.status === "unavailable") return null;
   const tr = preferences.locale.bind(namespace === "ui-chat" ? "chat" : "conversation");
-  if (id === "composer-enter") return (0, import_react51.createElement)(PreferenceRow, {
+  if (id === "composer-enter") return !supports("busyEnter") ? null : (0, import_react51.createElement)(PreferenceRow, {
     title: tr("settings.enter.title"),
     description: tr("settings.enter.description"),
     value: snapshot.value?.busyEnter ?? "queue",
@@ -37363,7 +37371,7 @@ function FormPreferences({ id, preferences }) {
   if (id === "link-opening" && !browserAvailable) return null;
   const value = chatPreference(snapshot.value, preferences.desktop);
   const fields = id === "transcript-view" ? ["transcriptView", "collapseTiming", ...value.transcriptView === "verbose" ? [] : ["foldedReplies"]] : [id === "performance-usage" ? "performanceUsage" : "linkOpening"];
-  return fields.map((field) => (0, import_react51.createElement)(PreferenceRow, {
+  return fields.filter(supports).map((field) => (0, import_react51.createElement)(PreferenceRow, {
     key: field,
     title: tr(`settings.${CHAT_KEYS[field]}.title`),
     description: tr(`settings.${CHAT_KEYS[field]}.description`),
@@ -37396,6 +37404,7 @@ function permissionOptions(catalog, translate) {
 function PermissionPreference({ preferences }) {
   const form = preferences.forms.permission;
   const snapshot = (0, import_react51.useSyncExternalStore)((listener) => form.subscribe(listener), () => form.getSnapshot());
+  const schema = usePreferenceSchema(preferences, "permission");
   const [catalog, setCatalog] = (0, import_react51.useState)(null);
   const [failed, setFailed] = (0, import_react51.useState)(false);
   const [attempt, setAttempt] = (0, import_react51.useState)(0);
@@ -37429,7 +37438,7 @@ function PermissionPreference({ preferences }) {
     setConfirmation(null);
     setAcknowledged(false);
   }, [snapshot.writable, snapshot.status]);
-  if (snapshot.status === "unavailable") return null;
+  if (snapshot.status === "unavailable" || schema === void 0 || preferences.schema.nodeAtPath(schema, ["defaultPreset"]) === void 0) return null;
   const value = snapshot.value?.defaultPreset ?? catalog?.defaultPreset;
   const options = permissionOptions(catalog, tr);
   return (0, import_react51.createElement)(
@@ -37485,10 +37494,13 @@ function SettingsPreferences({ id, preferences }) {
 function settingsPreferences(ctx) {
   const configForms = ctx.get("configForms");
   const locale = ctx.get("locale");
-  if (!configForms || !locale) return void 0;
+  const schema = ctx.get("settingsSchema");
+  if (!configForms || !locale || !schema) return void 0;
   return {
     forms: { "ui-chat": configForms.get("ui-chat"), "ui-conversation": configForms.get("ui-conversation"), permission: configForms.get("permission") },
     locale,
+    schema,
+    describe: configForms.describe(),
     desktop: "dshDesktop" in globalThis,
     browser: {
       getSnapshot: () => ctx.get("sidebarRightTabs")?.get("browser") !== void 0,

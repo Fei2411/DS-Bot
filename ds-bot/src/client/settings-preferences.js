@@ -1,3 +1,4 @@
+// #1815: replace DSH's misplaced Firefox Menu until its positioning is fixed.
 import { createElement as h, Fragment, useEffect, useState, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
 import { RiskConfirmation } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -83,15 +84,24 @@ export function PreferenceRow({ title, description, value, options, disabled, sa
     })))
 }
 
+function usePreferenceSchema(preferences, namespace) {
+  const describe = preferences.describe
+  const snapshot = useSyncExternalStore(listener => describe.subscribe(listener), () => describe.getSnapshot())
+  const entry = snapshot.view?.namespaces.find(entry => entry.ns === namespace)
+  return entry ? preferences.schema.rehydrate(entry.schema) : undefined
+}
+
 function FormPreferences({ id, preferences }) {
   const namespace = id === 'composer-enter' ? 'ui-conversation' : 'ui-chat'
   const form = preferences.forms[namespace]
   const snapshot = useSyncExternalStore(listener => form.subscribe(listener), () => form.getSnapshot())
+  const schema = usePreferenceSchema(preferences, namespace)
+  const supports = field => schema !== undefined && preferences.schema.nodeAtPath(schema, [field]) !== undefined
   const browserAvailable = useSyncExternalStore(preferences.browser.subscribe, preferences.browser.getSnapshot)
   const disabled = snapshot.status !== 'ready' || !snapshot.writable
   if (snapshot.status === 'unavailable') return null
   const tr = preferences.locale.bind(namespace === 'ui-chat' ? 'chat' : 'conversation')
-  if (id === 'composer-enter') return h(PreferenceRow, {
+  if (id === 'composer-enter') return !supports('busyEnter') ? null : h(PreferenceRow, {
     title: tr('settings.enter.title'), description: tr('settings.enter.description'),
     value: snapshot.value?.busyEnter ?? 'queue', disabled,
     options: ['queue', 'steer'].map(value => ({ id: value, label: tr(`settings.enter.${value}`) })),
@@ -102,7 +112,7 @@ function FormPreferences({ id, preferences }) {
   const fields = id === 'transcript-view'
     ? ['transcriptView', 'collapseTiming', ...(value.transcriptView === 'verbose' ? [] : ['foldedReplies'])]
     : [id === 'performance-usage' ? 'performanceUsage' : 'linkOpening']
-  return fields.map(field => h(PreferenceRow, {
+  return fields.filter(supports).map(field => h(PreferenceRow, {
     key: field, title: tr(`settings.${CHAT_KEYS[field]}.title`), description: tr(`settings.${CHAT_KEYS[field]}.description`),
     value: value[field], disabled,
     options: CHAT_CHOICES[field].map((choice, index) => ({ id: choice, label: tr(CHAT_LABELS[field][index]) })),
@@ -134,6 +144,7 @@ export function permissionOptions(catalog, translate) {
 function PermissionPreference({ preferences }) {
   const form = preferences.forms.permission
   const snapshot = useSyncExternalStore(listener => form.subscribe(listener), () => form.getSnapshot())
+  const schema = usePreferenceSchema(preferences, 'permission')
   const [catalog, setCatalog] = useState(null)
   const [failed, setFailed] = useState(false)
   const [attempt, setAttempt] = useState(0)
@@ -162,7 +173,7 @@ function PermissionPreference({ preferences }) {
     setConfirmation(null)
     setAcknowledged(false)
   }, [snapshot.writable, snapshot.status])
-  if (snapshot.status === 'unavailable') return null
+  if (snapshot.status === 'unavailable' || schema === undefined || preferences.schema.nodeAtPath(schema, ['defaultPreset']) === undefined) return null
   const value = snapshot.value?.defaultPreset ?? catalog?.defaultPreset
   const options = permissionOptions(catalog, tr)
   return h(Fragment, null,
@@ -197,10 +208,11 @@ export function SettingsPreferences({ id, preferences }) {
 export function settingsPreferences(ctx) {
   const configForms = ctx.get('configForms')
   const locale = ctx.get('locale')
-  if (!configForms || !locale) return undefined
+  const schema = ctx.get('settingsSchema')
+  if (!configForms || !locale || !schema) return undefined
   return {
     forms: { 'ui-chat': configForms.get('ui-chat'), 'ui-conversation': configForms.get('ui-conversation'), permission: configForms.get('permission') },
-    locale, desktop: 'dshDesktop' in globalThis,
+    locale, schema, describe: configForms.describe(), desktop: 'dshDesktop' in globalThis,
     browser: {
       getSnapshot: () => ctx.get('sidebarRightTabs')?.get('browser') !== undefined,
       subscribe: listener => ctx.get('sidebarRightTabs')?.subscribe(listener) ?? (() => {}),

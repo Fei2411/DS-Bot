@@ -1,8 +1,13 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import { runInNewContext } from 'node:vm'
 import { fileURLToPath } from 'node:url'
 import { build } from 'esbuild'
+import Schema from '@deepseek-ai/schemastery'
+import { Config as ChatConfig } from '@deepseek-ai/dsh-client-ui-chat'
+import { Config as ConversationConfig } from '@deepseek-ai/dsh-client-ui-conversation'
+import { PermissionPresetService } from '@deepseek-ai/dsh-permission-presets'
 
 const plugin = fileURLToPath(new URL('..', import.meta.url))
 const source = (await build({
@@ -33,12 +38,23 @@ runInNewContext(source, {
 const { chatPreference, savePreference, PreferenceRow, PreferenceSelect, SettingsPreferences, settingsPreferences, permissionOptions, PREFERENCE_ITEMS } = module.exports
 const plain = value => JSON.parse(JSON.stringify(value))
 const form = (value, extra = {}) => ({ getSnapshot: () => ({ status: 'ready', writable: true, value, ...extra }), subscribe: () => () => {}, set: async () => true })
+const schema = { rehydrate: wire => new Schema(wire), nodeAtPath: (root, [field]) => root.dict?.[field] }
+const describe = (configs) => {
+  const snapshot = { status: 'ready', error: null, view: { writable: true, hasDocument: false, namespaces: Object.entries(configs).map(([ns, config]) => ({ ns, schema: config.toJSON() })) } }
+  return { getSnapshot: () => snapshot, subscribe: () => () => {} }
+}
+const chatWithCollapse = Schema.object({
+  ...ChatConfig.dict,
+  collapseTiming: Schema.union(['completion', 'next-input']),
+  foldedReplies: Schema.union(['all', 'final']),
+})
 const locale = {
   bind: namespace => key => `${namespace}:${key}`,
   getSnapshot: () => ({ active: 'zh-TW', locales: [{ id: 'zh', label: '中文' }, { id: 'zh-TW', label: '繁體中文' }] }),
 }
 const preferences = (chat = {}, conversation = {}, extra = {}) => ({
   locale, forms: { 'ui-chat': form(chat, extra), 'ui-conversation': form(conversation, extra), permission: form({}, extra) },
+  schema, describe: describe({ 'ui-chat': chatWithCollapse, 'ui-conversation': ConversationConfig, permission: PermissionPresetService.Config }),
   browser: { subscribe: () => () => {}, getSnapshot: () => true },
 })
 const rows = (id, prefs) => {
@@ -66,6 +82,50 @@ test('work detail rows use the public chat schema fields and dictionary keys', a
   await result[2].props.save('all')
   assert.deepEqual(writes, [['collapseTiming', 'completion'], ['foldedReplies', 'all']])
   assert.equal(rows('transcript-view', preferences({ transcriptView: 'verbose' })).length, 2)
+})
+
+test('work detail capabilities follow the real harness Chat schema, including rc.2 without collapse fields', () => {
+  const prefs = preferences({ transcriptView: 'standard', collapseTiming: 'next-input', foldedReplies: 'final' })
+  prefs.describe = describe({ 'ui-chat': ChatConfig })
+  const result = rows('transcript-view', prefs)
+  const supported = ['transcriptView', 'collapseTiming', 'foldedReplies'].filter(field => field in ChatConfig.dict)
+  assert.deepEqual(plain(result.map(row => row.props.key)), supported)
+  assert.equal(result[0].props.value, 'standard')
+  assert.equal(rows('performance-usage', prefs)[0].props.value, 'detailed')
+  assert.equal(rows('link-opening', prefs)[0].props.value, 'sidebar')
+  const defaults = rows('transcript-view', preferences())
+  assert.deepEqual(plain(defaults.map(row => row.props.value)), ['detailed', 'completion', 'all'])
+})
+
+test('unknown, pending and missing schema fields never produce unsupported preference rows', () => {
+  const prefs = preferences()
+  prefs.describe = describe({ 'ui-chat': Schema.object({}), 'ui-conversation': Schema.object({}), permission: Schema.object({}) })
+  for (const id of ['transcript-view', 'performance-usage', 'link-opening']) assert.deepEqual(plain(rows(id, prefs)), [])
+  assert.equal(rows('composer-enter', prefs), null)
+  assert.equal(rows('permission', prefs), null)
+  prefs.describe = { subscribe: () => () => {}, getSnapshot: () => ({ status: 'loading', view: undefined, error: null }) }
+  assert.deepEqual(plain(rows('transcript-view', prefs)), [])
+  prefs.describe = describe({})
+  assert.deepEqual(plain(rows('transcript-view', prefs)), [])
+})
+
+test('the harness fields and dictionaries cover every preference offered on that DSH version', () => {
+  const copy = name => readFileSync(new URL('lib/client.js', import.meta.resolve(`${name}/package.json`)), 'utf8')
+  const check = (source, keys) => {
+    for (const key of keys) {
+      const escaped = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      assert.match(source, new RegExp(`(?:["']${escaped}["']|\\b${escaped})\\s*:`), key)
+    }
+  }
+  const prefs = preferences()
+  prefs.describe = describe({ 'ui-chat': ChatConfig })
+  const chatRows = ['transcript-view', 'performance-usage', 'link-opening'].flatMap(id => rows(id, prefs))
+  check(copy('@deepseek-ai/dsh-client-ui-chat'), chatRows.flatMap(row => [row.props.title, row.props.description, ...row.props.options.map(option => option.label)]).map(key => key.replace(/^chat:/, '')))
+  assert.ok(ConversationConfig.dict.busyEnter)
+  assert.ok(PermissionPresetService.Config.dict.defaultPreset)
+  check(copy('@deepseek-ai/dsh-client-ui-conversation'), ['title', 'description', 'queue', 'steer'].map(key => `settings.enter.${key}`))
+  check(copy('@deepseek-ai/dsh-client-locale'), ['language.title'])
+  check(copy('@deepseek-ai/dsh-client-ui-permission-presets'), ['title', 'description', 'preset.readOnly', 'preset.workspaceWrite', 'preset.fullAccess', 'unavailable', 'confirm.title', 'confirm.description', 'confirm.acknowledge', 'confirm.cancel', 'close', 'confirm.enable'])
 })
 
 test('busy send reads and writes ui-conversation.busyEnter without a DSH Menu', async () => {
@@ -170,11 +230,15 @@ test('the shell adapter uses public configForms, locale and dotted Remote servic
   assert.equal(settingsPreferences({ get: () => undefined }), undefined)
   const namespaces = []
   const catalog = { defaultPreset: 'workspace-write', defaultOptions: [] }
-  const services = { locale, configForms: { get: id => { namespaces.push(id); return form({}) } }, 'remote.permissionPresets': { catalog: async () => ({ ok: true, value: catalog }) } }
+  const descriptors = describe({ 'ui-chat': ChatConfig })
+  const services = { locale, settingsSchema: schema, configForms: { get: id => { namespaces.push(id); return form({}) }, describe: () => descriptors }, 'remote.permissionPresets': { catalog: async () => ({ ok: true, value: catalog }) } }
   const prefs = settingsPreferences({ get: name => services[name] })
   assert.deepEqual(namespaces, ['ui-chat', 'ui-conversation', 'permission'])
   assert.equal(prefs.locale, locale)
+  assert.equal(prefs.describe, descriptors)
+  assert.equal(prefs.schema, schema)
   assert.equal((await prefs.permissionCatalog()).value, catalog)
   assert.equal(PREFERENCE_ITEMS.has('composer-enter'), true)
   assert.equal(PREFERENCE_ITEMS.has('another-plugin'), false)
+  assert.equal(settingsPreferences({ get: name => name === 'settingsSchema' ? undefined : services[name] }), undefined)
 })
