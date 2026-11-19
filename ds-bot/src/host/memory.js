@@ -25,7 +25,7 @@
 // provider's prefix cache holds; a fresh part, or a checkpoint (which breaks the cache
 // anyway), freezes it anew.
 import { createHash, randomUUID } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, truncateSync, unlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, truncateSync, unlinkSync, writeFileSync } from 'node:fs'
 import { appendFile, mkdir, rename, unlink, writeFile } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
 import { HarnessError, createUserMessage } from '@deepseek-ai/dsh-llm'
@@ -36,7 +36,7 @@ import { assembleLlmStream } from './models.js'
 import { inside, pendingPath, read as readPending, record as pendingRecord, relativePath, serialize as serializePending } from './memory-pending.js'
 import { estimateTokens, splitRef, textOf, unquote } from './text.js'
 import { EMPTY_MAIN, GONE, DENIED, HEADING, MAIN, MEMORY_LIMITS, NO_MATCH, ROUTED, addLink, bodySize, cleanDay, cleanEntry, cleanTopic, entryId, fitWindow, formatEntry, insertEntry, isExpired, isPinned, joinLines, looksSecret, matchEntries, newEntryId, parseAsk, parseMemory, promptEntry, TEAM_SHARED, removeLink, splitMeta, squash, topicAbout, WINDOW_SHARE } from './memory-entries.js'
-import { pickRecalled, rankEntries } from './memory-search.js'
+import { entryWords, pickRecalled, rankEntries } from './memory-search.js'
 import { GROUP_HEADING, GROUP_MEMORY_SOURCE, MEMORY_RECALL_SOURCE, MEMORY_UPDATE_SOURCE, RECALL_HEADING, RECALL_NOTE, SUMMARY_SYSTEM, UPDATE_HEADING, UPDATE_NOTE, askRequest, askSystem, groupNote, groupSummaryRequest, memoryRules, summaryRequest, teamRule } from './memory-copy.js'
 import { installReview } from './memory-review.js'
 import { installTidy } from './memory-tidy.js'
@@ -163,6 +163,38 @@ export function install(rt) {
       const content = readText(join(dir, file))
       return { topic, file, path: join(dir, file), content, ...parseMemory(content) }
     })
+  }
+  // Recall runs on every step, so it keeps each topic parsed and tokenized until the
+  // file changes. The file is looked at before it is read: a write in between is read
+  // again on the next step instead of being kept under the old revision. The entries
+  // are shared between steps; callers must not change them.
+  const recallCache = new Map()
+  const revisionOf = (path) => {
+    try {
+      const stat = statSync(path, { bigint: true, throwIfNoEntry: false })
+      return stat === undefined ? undefined : `${stat.ino}:${stat.size}:${stat.mtimeNs}:${stat.ctimeNs}`
+    } catch (error) {
+      return unreadable(path, error)
+    }
+  }
+  const recallEntries = (scope) => {
+    const dir = dirOf(scope)
+    const cached = recallCache.get(dir)
+    const topics = new Map()
+    for (const topic of topicNames(scope)) {
+      const path = join(dir, `${topic}.md`)
+      const revision = revisionOf(path)
+      if (revision === undefined) continue
+      let parsed = cached?.get(topic)
+      if (parsed?.revision !== revision) {
+        const content = readText(path)
+        const file = { topic, file: `${topic}.md`, path, content, ...parseMemory(content) }
+        parsed = { revision, entries: file.entries.map(entry => ({ ...entry, file })).map(entry => ({ ...entry, words: entryWords(entry) })) }
+      }
+      topics.set(topic, parsed)
+    }
+    recallCache.set(dir, topics)
+    return [...topics.values()].flatMap(parsed => parsed.entries)
   }
   const mainLimit = scope => state.prefs.memoryLimits?.[scope.kind] ?? MEMORY_LIMITS[scope.kind]
   const fileName = file => (file.topic === undefined ? MAIN : `topic [[${file.topic}]]`)
@@ -898,7 +930,7 @@ export function install(rt) {
     const scopes = [own, ...(roomId === undefined ? [] : [groupScope(roomId)]), TEAM]
     let topicEntries
     try {
-      topicEntries = scopes.flatMap(scope => allEntries(loadScope(scope).slice(1)).map(entry => ({ ...entry, tag: tagOf(scope, bot.id) })))
+      topicEntries = scopes.flatMap(scope => recallEntries(scope).map(entry => ({ ...entry, tag: tagOf(scope, bot.id) })))
     } catch (error) {
       rt.warn('ds-bot: memory recall for %s not read: %s', bot.name, error?.message ?? error)
       return undefined

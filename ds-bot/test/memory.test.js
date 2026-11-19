@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import fs, { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs'
+import { syncBuiltinESMExports } from 'node:module'
 import { hostname, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -2099,6 +2100,41 @@ test('a turn brings up matching topic entries once, as data, and only from what 
   assert.equal(await recallOf(ctx, 'b2', 'small pull requests please'), undefined)
   await call('set-prefs', { memoryAutoRecall: false })
   assert.equal(await recallOf(ctx, 'b2', '这次发版前要做什么检查'), undefined)
+})
+
+test('recall reads a topic again only once its file has changed', async (t) => {
+  const { ctx, tool, section, home, stop } = start()
+  t.after(() => stop())
+  await tool('bot_remember', { text: '发版前先跑真机检查', topic: 'release' }, 'b2')
+  await tool('bot_remember', { text: '午饭吃面', topic: 'food' }, 'b2')
+  section('b2')
+  const asked = '这次发版前要做什么检查'
+  assert.match(textOf(await recallOf(ctx, 'b2', asked)), /发版前先跑真机检查/)
+  const memory = join(home, 'memory')
+  const reads = []
+  const realRead = fs.readFileSync
+  fs.readFileSync = (path, ...rest) => {
+    if (String(path).startsWith(memory) && String(path).endsWith('.md')) reads.push(String(path).slice(memory.length))
+    return realRead(path, ...rest)
+  }
+  syncBuiltinESMExports()
+  t.after(() => {
+    fs.readFileSync = realRead
+    syncBuiltinESMExports()
+  })
+  assert.match(textOf(await recallOf(ctx, 'b2', asked)), /发版前先跑真机检查/)
+  assert.deepEqual(reads, [])
+  // An edit by hand, even one of the same length, and a removal are seen on the next step.
+  const release = join(memory, 'bots', 'b2', 'release.md')
+  const before = realRead(release, 'utf8')
+  writeFileSync(release, before.replace('先跑真机', '先跑模拟'))
+  assert.equal(realRead(release, 'utf8').length, before.length)
+  const edited = textOf(await recallOf(ctx, 'b2', asked))
+  assert.match(edited, /发版前先跑模拟检查/)
+  assert.doesNotMatch(edited, /真机/)
+  assert.deepEqual(reads, ['/bots/b2/release.md'])
+  unlinkSync(release)
+  assert.equal(await recallOf(ctx, 'b2', asked), undefined)
 })
 
 test('bot_recall puts the entry that matches best first', () => {
