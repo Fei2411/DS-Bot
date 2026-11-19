@@ -23,3 +23,5 @@
 # the seat's child slots may render them, so DSH's own shell stays off.
 - id: ui-settings-general
   disabled: true
+- id: ui-settings-plugins
+  disabled: true

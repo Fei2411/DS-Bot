@@ -29,6 +29,8 @@ import { FolderMenu } from './folder-menu.js'
 import { ModelMenu } from './model-menu.js'
 import { isLocalRoute } from './agent-routes.js'
 import { t } from './i18n.js'
+import { PREFERENCE_ITEMS, SettingsPreferences } from './settings-preferences.js'
+import { PluginsSettings } from './settings-inventory.js'
 
 const capitalize = word => word[0].toUpperCase() + word.slice(1)
 
@@ -46,7 +48,8 @@ const LOOK_ITEMS = ['appearance', 'font-size']
 const DSH_ICONS = { account: IconUserOutlineMedium, 'agent-presets': IconAgentPresetOutlineMedium, plugins: IconPersonalizationOutlineMedium, 'archived-sessions': IconArchiveOutlineMedium }
 export const dshPages = dsh => (dsh?.sections ?? []).filter(row => row.id !== '' && !MERGED_SECTIONS.has(row.id))
 const hasSection = (dsh, id) => (dsh?.sections ?? []).some(row => row.id === id)
-const dshItem = (dsh, id) => h('div', { key: id, className: 'bt-dsh-item', 'data-item': id }, dsh.renderSlot('settings.general.item', {}, { only: id }))
+const dshItem = (dsh, id) => h('div', { key: id, className: 'bt-dsh-item', 'data-item': id },
+  dsh.preferences && PREFERENCE_ITEMS.has(id) ? h(SettingsPreferences, { id, preferences: dsh.preferences }) : dsh.renderSlot('settings.general.item', {}, { only: id }))
 const PAGE_ICONS = { ...SETTINGS_ICONS, models: SlidersIcon, 'bot-models': IconPersonalizationOutlineMedium, 'local-agents': TerminalIcon, connectors: ConnectorIcon, im: ChatsIcon, phone: PhoneIcon, capabilities: PlugIcon, browser: GlobeIcon, computer: MonitorIcon, schedules: ClockIcon, secrets: KeyIcon, feedback: FeedbackIcon, about: InfoIcon }
 
 // What each MEMORY.md holds by default, in characters of entry text.
@@ -366,7 +369,9 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
           shown === 'general' ? h(GeneralPage, { roster, actions, run, dsh }) : null,
           shown === 'models' && !advanced ? h(ProvidersPage, { actions, run, roster, Section: SetSection, advanced: hasSection(dsh, 'models') ? () => actions.openSettings('models', 'advanced') : null }) : null,
           advanced ? h('div', { className: 'bt-dsh-section' }, dsh.renderSlot('settings.section', { close }, { only: 'models' })) : null,
-          section ? h('div', { className: 'bt-dsh-section' }, dsh.renderSlot('settings.section', { close }, { only: section.id })) : null,
+          section ? section.id === 'plugins' && dsh.pluginTabs
+            ? h(PluginsSettings, { tabs: dsh.pluginTabs, renderSlot: dsh.renderSlot, preferences: dsh.preferences })
+            : h('div', { className: 'bt-dsh-section' }, dsh.renderSlot('settings.section', { close }, { only: section.id })) : null,
           shown === 'local-agents' ? h(LocalAgentsPage, { run, Section: SetSection, Row: SetRow }) : null,
           bot ? h('div', { className: 'bt-settings-form' }, h(BotSettingsForm, { key: bot.id, bot, roster, actions, run })) : null,
           shown === 'bots' && !bot ? h(BotsPage, { roster, actions, run }) : null,
