@@ -9,6 +9,7 @@ export const GATED = new Set([
   'connector-connect', 'connector-disconnect', 'connector-retry',
   'connector-client', 'connector-sign-in-code',
   'capability-save', 'capability-delete', 'capability-approve', 'bot-capability',
+  'learning-answer',
   'update-install', 'dsh-update-install',
 ])
 
