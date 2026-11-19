@@ -1481,6 +1481,28 @@ test('a save-token line cut inside one reply recovers it only at the exact encod
   assert.equal((await call('group-relay-replies', { sessionId: 'r1', preview: preview(omitted + 1) })).value, null)
 })
 
+test('a save-token line cut inside a JSON escape matches the raw ending', async (t) => {
+  const first = { botId: 'b', text: 'Original opening. '.repeat(35), time: 1000, duration: 12345 }
+  const encode = text => JSON.stringify({ replies: [first, { botId: 'a', text, time: 2000, duration: 12345 }], passed: [] })
+  const trailer = encode('').split('""')[1]
+  const closing = 'End of report. '.repeat(10).slice(0, 100 - 6 - 1 - trailer.length)
+  const last = { botId: 'a', text: 'Second reply. '.repeat(100) + '\\u0044' + closing }
+  const original = encode(last.text)
+  assert.ok(original.slice(-100).startsWith('\\u0044'))
+  const preview = original.slice(0, 260) + ` ...[+${original.length - 360} chars]... ` + original.slice(-100)
+  const saved = structuredClone(TEAM)
+  saved.rooms.r1.seq = 3
+  saved.rooms.r1.log = [
+    { ...first, seq: 1 },
+    { ...last, seq: 2 },
+    { botId: 'a', text: 'D' + closing, seq: 3 },
+  ]
+  const { call, stop } = await start({ team: saved })
+  t.after(stop)
+  const result = (await call('group-relay-replies', { sessionId: 'r1', preview })).value
+  assert.deepEqual(result?.map(({ text }) => text), [first.text, last.text])
+})
+
 test('the file panel of a group with a folder lists the Session\'s own folder', async (t) => {
   // DSH's file panel lists a Session at the folder the Session was made in, so no
   // lookup override is needed once the group's own Session moved there.

@@ -635,7 +635,7 @@ export function install(rt) {
     return { rows, open: end === undefined }
   }
   const groupRows = (roomId, from, to, anchor) => rowsView(roomId, from, to, anchor).rows
-  const jsonLength = text => JSON.stringify(text).length - 2
+  const jsonText = text => JSON.stringify(text).slice(1, -1)
   const isLegacyReply = record => record.kind === undefined && record.session !== true
     && typeof record.botId === 'string' && typeof record.text === 'string'
   function hasCompleteText(record) {
@@ -696,15 +696,16 @@ export function install(rt) {
     // A surviving suffix does not prove which prompt owns a cut if an earlier matching start lost its ending.
     const starts = records.filter(record => isLegacyReply(record) && record.botId === first.botId
       && matchesOpening(record, first.text, partial !== undefined))
-    const ends = records.filter(record => isKeptReply(record) && record.text.endsWith(tail)
+    // A cut can start in an escape, so decoding the suffix can give it a different meaning.
+    const ends = records.filter(record => isKeptReply(record) && jsonText(record.text).endsWith(tailFragment[1])
       && (after[0].botId === undefined || record.botId === after[0].botId))
     if (starts.length !== 1 || ends.length !== 1 || ends[0].seq < starts[0].seq) return null
     // Don't guess across a missing ledger row, a new prompt, or any other boundary.
     const span = records.slice(records.indexOf(starts[0]), records.indexOf(ends[0]) + 1)
     if (!span.every((record, i) => isKeptReply(record) && record.seq === starts[0].seq + i)) return null
     // Count the saved JSON units: re-encoding half a surrogate pair would add an escape.
-    const hiddenText = span.reduce((length, record) => length + jsonLength(record.text), 0)
-      - (headFragment?.[1].length ?? jsonLength(first.text)) - tailFragment[1].length
+    const hiddenText = span.reduce((length, record) => length + jsonText(record.text).length, 0)
+      - (headFragment?.[1].length ?? jsonText(first.text).length) - tailFragment[1].length
     const omitted = Number(marker[1])
     if (span.length === 1) {
       // A cut inside one string hides no JSON structure, so the encoded length must match exactly.
