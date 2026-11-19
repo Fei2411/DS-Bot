@@ -5,7 +5,7 @@ import { delimiter, join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { agentEnv, cleanEnv, findEngineExecutable, findExecutable, launchOf, refreshSearchDirs, spawnAgent } from '../src/host/local-agents/discover.js'
-import { ENGINES } from '../src/host/local-agents/engines.js'
+import { ENGINES, signInFor } from '../src/host/local-agents/engines.js'
 
 test('Windows pi-acp resolves standalone Pi through PATH and PATHEXT (#1795)', () => {
   const exe = 'F:\\Pi\\pi.exe'
@@ -188,6 +188,11 @@ test('the Qoder engine finds the Qoder CN CLI under its own command names (#1849
     assert.equal(findEngineExecutable(qoder, command => (command === name ? path : undefined)), path, name)
   }
   assert.equal(findEngineExecutable(qoder, command => (command === 'qodercli' || command === 'qoderclicn' ? command : undefined)), 'qodercli')
+  assert.equal(signInFor(qoder, '/Users/me/.local/bin/qoderclicn'), 'qoderclicn')
+  assert.equal(signInFor(qoder, '/Users/me/.qoder-cn/entry/qodercn'), 'qoderclicn')
+  assert.equal(signInFor(qoder, 'C:\\Users\\me\\bin\\qoder-cn.cmd'), 'qoderclicn')
+  assert.equal(signInFor(qoder, '/usr/local/bin/qodercli'), 'qodercli')
+  assert.equal(signInFor(qoder, undefined), 'qodercli')
 })
 
 test('cleanEnv strips DEEPSEEK_ variables along with agent tokens', () => {

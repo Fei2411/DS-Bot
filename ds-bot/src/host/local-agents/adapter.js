@@ -6,7 +6,7 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { LlmAdapter, LlmError, offloadedImageText, resolveImageAttachmentAccess, textOnlyImageText } from '@deepseek-ai/dsh-llm'
 import { textOf } from '../text.js'
-import { engineOf, cliMode } from './engines.js'
+import { engineOf, cliMode, signInFor } from './engines.js'
 import { LoopbackMcp } from './mcp.js'
 
 export const DEFAULT_CONTEXT_WINDOW = 200_000
@@ -1167,7 +1167,7 @@ function toLlmError(error, live) {
         : /quota|rate.?limit|usage limit|exceeded/i.test(text) ? 'LOCAL_AGENT_QUOTA'
           : /exited|spawn|ENOENT/i.test(text) ? 'LOCAL_AGENT_EXIT'
             : typeof error?.code === 'string' && error.code !== '' ? error.code : 'LOCAL_AGENT_ERROR'
-  const hint = code === 'LOCAL_AGENT_SIGNIN' ? ` Sign in with: ${live?.spec?.signIn ?? `${live?.spec?.command ?? 'the CLI'} login`}.` : ''
+  const hint = code === 'LOCAL_AGENT_SIGNIN' ? ` Sign in with: ${signInFor(live?.spec, live?.engine?.bin) ?? `${live?.spec?.command ?? 'the CLI'} login`}.` : ''
   const rpcCode = code === 'LOCAL_AGENT_ERROR' && typeof error?.code === 'number' ? ` (JSON-RPC ${error.code})` : ''
   return new LlmError(`${text}${rpcCode}${hint}`, code, error?.status === undefined ? {} : { status: error.status })
 }
