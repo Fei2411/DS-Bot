@@ -1,5 +1,4 @@
 // Public read-only identity boundary for optional plugins.
-import { Service } from '@deepseek-ai/cordis'
 
 export function ownerOfSession(rt, sessionId) {
   if (typeof sessionId !== 'string' || sessionId.length === 0) return undefined
@@ -18,14 +17,13 @@ export function ownerOfSession(rt, sessionId) {
 }
 
 export function install(rt) {
-  class BotSessionIdentity extends Service {
-    constructor(ctx) { super(ctx, 'botSessionIdentity') }
-    ownerOfSession(sessionId) { return ownerOfSession(rt, sessionId) }
+  const service = Object.freeze({
+    ownerOfSession: sessionId => ownerOfSession(rt, sessionId),
     // Subscribers re-read ownership; they must not cache an authorization decision.
-    subscribe(listener) { return rt.onSessionIdentityChange(listener) }
-  }
-  rt.ownerOfSession = sessionId => ownerOfSession(rt, sessionId)
-  // A test context has no Cordis plugin loader; the service only exists under a real host.
-  if (typeof rt.ctx.plugin !== 'function') return
-  rt.ctx.plugin(BotSessionIdentity)
+    subscribe: listener => rt.onSessionIdentityChange(listener),
+  })
+  rt.ownerOfSession = service.ownerOfSession
+  // A test context may have no Cordis service registry; the service only exists under a real host.
+  if (typeof rt.ctx.provide !== 'function') return
+  rt.ctx.provide('botSessionIdentity', service)
 }
