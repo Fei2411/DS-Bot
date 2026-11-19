@@ -935,7 +935,7 @@ export function Folder({ route, navigation }: any) {
   const { call } = useTeam()
   const { run, error } = useWrite(navigation)
   const [path, setPath] = useState(String(route.params?.current ?? ''))
-  const [listing, setListing] = useState<{ path: string; parent: string | null; entries: { name: string; path: string }[]; truncated?: boolean } | null>(null)
+  const [listing, setListing] = useState<{ path: string; crumbs?: { path: string }[]; entries: { name: string; path: string }[]; truncated?: boolean } | null>(null)
   const [recent, setRecent] = useState<{ path: string; title: string }[]>([])
   const load = (next: string) => { setPath(next); void call('folder-list', { path: next }).then(v => setListing(v as typeof listing)).catch(() => {}) }
   useEffect(() => {
@@ -948,6 +948,7 @@ export function Folder({ route, navigation }: any) {
       : ['update-bot', { id: route.params?.botId, workDir: picked }]
     void run(target[0] as string, target[1] as Record<string, unknown>, () => navigation.goBack())
   }
+  const parent = listing?.crumbs && listing.crumbs.length > 1 ? listing.crumbs.at(-2) : undefined
   return (
     <Screen title="">
       <BackRow title={t('Working folder')} onBack={() => navigation.goBack()} />
@@ -964,7 +965,7 @@ export function Folder({ route, navigation }: any) {
           </Section>
         ) : null}
         <Section label={path || '/'}>
-          {listing?.parent ? <Row label={t('Up one level')} onPress={() => load(listing.parent ?? '')} /> : null}
+          {parent ? <Row label={t('Up one level')} onPress={() => load(parent.path)} /> : null}
           {(listing?.entries ?? []).map(entry => <Row key={entry.path} label={entry.name} onPress={() => load(entry.path)} />)}
           {listing !== null && listing.entries.length === 0 ? <Row label={t('No folders inside.')} disabled /> : null}
           {listing?.truncated ? <Row label={t('Some folders are not shown.')} disabled /> : null}

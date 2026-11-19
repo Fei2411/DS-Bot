@@ -10,8 +10,10 @@ const source = ts.transpileModule(readFileSync(new URL('../screens/manage.tsx', 
   compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX },
 }).outputText
 
-function screen(room: Record<string, unknown>, call = async (_name: string, _body: unknown) => ({})) {
+function screen(room: Record<string, unknown>, call = async (_name: string, _body: any): Promise<unknown> => ({}), runEffects = false) {
   const states: unknown[] = []
+  const effects: (() => void)[] = []
+  let mounted = false
   let cursor = 0
   const jsx = (type: unknown, props: Node['props']) => ({ type, props })
   const modules: Record<string, unknown> = {
@@ -22,7 +24,7 @@ function screen(room: Record<string, unknown>, call = async (_name: string, _bod
         if (!(index in states)) states[index] = initial
         return [states[index], (value: unknown) => { states[index] = value }]
       },
-      useEffect: () => {},
+      useEffect: (effect: () => void) => { if (runEffects && !mounted) effects.push(effect) },
     },
     'react-native': { StyleSheet: { create: (styles: unknown) => styles }, Platform: { OS: 'android' } },
     '../team/context.tsx': { useTeam: () => ({ team: { rooms: [room], bots: [] }, call }) },
@@ -31,7 +33,13 @@ function screen(room: Record<string, unknown>, call = async (_name: string, _bod
   }
   const exports: Record<string, any> = {}
   runInNewContext(source, { exports, require: (name: string) => modules[name] ?? {} })
-  const render = (name: string, props: unknown) => { cursor = 0; return exports[name](props) as Node }
+  const render = (name: string, props: unknown) => {
+    cursor = 0
+    const tree = exports[name](props) as Node
+    mounted = true
+    for (const effect of effects.splice(0)) effect()
+    return tree
+  }
   return { render }
 }
 
@@ -78,4 +86,37 @@ test('the group folder picker keeps the screen open and shows a rejected write',
   await new Promise(setImmediate)
   assert.equal(back, 0)
   assert.ok(nodes(render('Folder', props)).some(node => node.props.children === 'Folder is not accessible'))
+})
+
+test('folder navigation uses host crumbs to reach the parent and a sibling', async () => {
+  const calls: unknown[] = []
+  const { render } = screen({}, async (name, body) => {
+    if (name === 'folders') return { folders: [] }
+    calls.push(body.path)
+    return body.path === '/work/project'
+      ? { path: '/work/project', crumbs: [{ path: '/' }, { path: '/work' }, { path: '/work/project' }], entries: [] }
+      : { path: '/work', crumbs: [{ path: '/' }, { path: '/work' }], entries: [{ name: 'sibling', path: '/work/sibling' }] }
+  }, true)
+  const props = { route: { params: { current: '/work/project', onPick: 'room', roomId: 'room-1' } }, navigation: {} }
+  render('Folder', props)
+  await new Promise(setImmediate)
+  nodes(render('Folder', props)).find(node => node.props.label === 'Up one level')!.props.onPress()
+  await new Promise(setImmediate)
+  nodes(render('Folder', props)).find(node => node.props.label === 'sibling')!.props.onPress()
+  await new Promise(setImmediate)
+  assert.deepEqual(calls, ['/work/project', '/work', '/work/sibling'])
+})
+
+test('folder roots, missing crumbs and failed listings do not offer a parent', async () => {
+  for (const crumbs of [[{ path: '/' }], [], undefined, 'reject']) {
+    const { render } = screen({}, async (name) => {
+      if (name === 'folders') return { folders: [] }
+      if (crumbs === 'reject') throw new Error('Cannot list folders')
+      return { path: '/', crumbs, entries: [] }
+    }, true)
+    const props = { route: { params: { current: '/', onPick: 'room', roomId: 'room-1' } }, navigation: {} }
+    render('Folder', props)
+    await new Promise(setImmediate)
+    assert.equal(nodes(render('Folder', props)).some(node => node.props.label === 'Up one level'), false)
+  }
 })
