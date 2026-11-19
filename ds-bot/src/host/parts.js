@@ -1872,6 +1872,17 @@ export function install(rt) {
         })
       } else if (source?.kind === SOURCE_KIND && source.handoff !== true && source.deferred !== true && ['request', 'reply', 'report', 'stopped'].includes(source.role)) {
         stamp(event, { kind: 'event', role: source.role, botId: source.senderSessionId ?? null, name: source.senderName ?? null, roomId: source.roomId ?? null, time: event.time })
+      } else if (source?.kind === SOURCE_KIND && source.role === 'event') {
+        stamp(event, {
+          kind: 'event',
+          role: 'event',
+          eventId: source.eventId ?? null,
+          sourceKind: source.sourceKind ?? 'external',
+          name: source.sourceName ?? source.sourceKind ?? 'event',
+          trust: source.trust ?? 'external',
+          text: source.summary ?? textOf(event.data.content).split('\n')[0]?.slice(0, 140) ?? '',
+          time: event.time,
+        })
       } else if (source?.kind === 'schedule') {
         const prompts = reminderPrompts(textOf(event.data.content))
         stamp(event, { kind: 'event', role: 'schedule', text: prompts.join(' · ').slice(0, 120), time: event.time })

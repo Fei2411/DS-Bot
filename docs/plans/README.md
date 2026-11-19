@@ -77,3 +77,4 @@
 | [移动端客户端 API](2026-10-24-mobile-api.md) | 自己画界面的客户端（手机）用的接口：握手和版本、群聊条目、提醒和补发、头像按引用取、直接改记忆、单个 Bot 的用量 |
 | [Office 文档](2026-10-27-office-documents.md) | Bot 离线处理 .docx/.pptx/.xlsx：应用带的 payload、`office.js` 命令行、office 路由换成带 `office-tools` 的版本 |
 | [连接器](2026-11-04-connectors.md) | 通用连接器引擎、OAuth、网关、邮箱 |
+| [事件驱动与统一待处理](2026-11-19-event-driven.md) | 按月与隐私分本的事件账本、五类零 Token 机械探针、本机 `127.0.0.1` Push 入口、快慢路径与订阅直通、Watchdog 看门狗、定时与触发三栏及统一待处理 Inbox |

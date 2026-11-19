@@ -1014,6 +1014,10 @@ export function install(rt) {
             ...(source.goal !== undefined ? { goal: source.goal } : {}),
             ...(source.goalId !== undefined ? { goalId: source.goalId } : {}),
           })
+        } else if (source?.kind === SOURCE_KIND && source.role === 'event' && rt.roomOf(id)) {
+          // External or team event delivered to a group chat opens a normal round with
+          // its full trust-boundary envelope intact.
+          queueRoomMessage(rt.roomOf(id).id, { text: textOf(event.data.content) })
         } else if (source?.kind === SOURCE_KIND) {
           if (entry.turn === undefined) {
             entry.pending = source

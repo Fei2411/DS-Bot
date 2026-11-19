@@ -85,6 +85,10 @@ export function install(rt) {
     join(rt.home, 'memory', 'journal.torn'),
     join(rt.home, 'memory', 'pending.json'),
     join(rt.home, 'logs', 'diagnostics.jsonl'),
+    join(rt.home, 'events'),
+    join(rt.home, 'api-tokens.json'),
+    join(rt.home, 'api-endpoint.json'),
+    join(rt.home, 'ledger', 'events-'),
   ].filter(Boolean).map(spellings))).flat()
 
   const teamFolder = () => rt.teamFolder() ?? resolve(rt.defaultTeamFolder())

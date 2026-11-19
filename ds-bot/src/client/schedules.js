@@ -5,6 +5,7 @@ import { createElement as h, Fragment, useEffect, useState } from 'react'
 import { BotAvatar, RoomAvatar } from './mark.js'
 import { ClockIcon, PlusIcon, TrashIcon } from './icons.js'
 import { Segmented } from './motion.js'
+import { WatchersTab, SubscriptionsTab } from './events-page.js'
 import { dateLocale, hostText, t } from './i18n.js'
 
 const POLL_MS = 30_000
@@ -193,12 +194,28 @@ function AutomationOff({ actions }) {
 // A plain `start` opens the create form for that Bot or group chat; the
 // `bot:<id>`/`room:<id>` form asks for just that owner's tasks, which is how a
 // Bot's own view gets here.
+const SCHEDULE_TABS = [['scheduled', 'Scheduled'], ['watchers', 'Watchers & Push'], ['subscriptions', 'Subscriptions & Feed']]
+
 export function SchedulesPage({ roster, actions, start }) {
+  const initialTab = start === 'watchers' || start === 'subscriptions' ? start : 'scheduled'
+  const [tab, setTab] = useState(initialTab)
+  useEffect(() => {
+    if (start === 'watchers' || start === 'subscriptions') setTab(start)
+    else if (start) setTab('scheduled')
+  }, [start])
   const view = useSchedules(actions)
   const owner = start?.startsWith('bot:') ? start.slice(4) : start?.startsWith('room:') ? start.slice(5) : null
-  const [adding, setAdding] = useState(Boolean(start) && owner === null)
-  if (view === null) return h('div', { className: 'bt-set-hint' }, t('Loading…'))
-  if (!view.available) return h(AutomationOff, { actions })
+  const [adding, setAdding] = useState(Boolean(start) && owner === null && start !== 'watchers' && start !== 'subscriptions')
+
+  const tabBar = h('div', { className: 'bt-ev-tabs' },
+    h(Segmented, { label: t('Schedules & Triggers'), value: tab }, SCHEDULE_TABS.map(([id, label]) => h('button', {
+      key: id, type: 'button', 'aria-pressed': tab === id, onClick: () => setTab(id),
+    }, t(label)))))
+
+  if (tab === 'watchers') return h(Fragment, null, tabBar, h(WatchersTab, { roster, actions }))
+  if (tab === 'subscriptions') return h(Fragment, null, tabBar, h(SubscriptionsTab, { roster, actions }))
+  if (view === null) return h(Fragment, null, tabBar, h('div', { className: 'bt-set-hint' }, t('Loading…')))
+  if (!view.available) return h(Fragment, null, tabBar, h(AutomationOff, { actions }))
   const shown = next => { publish(next); setAdding(false) }
   const byChat = [
     ...roster.bots.map(bot => [bot.id, h(BotAvatar, { bot, size: 18, badge: false, live: false }), bot.name, view.tasks.filter(task => task.botId === bot.id)]),
@@ -208,6 +225,7 @@ export function SchedulesPage({ roster, actions, start }) {
     h('button', { type: 'button', className: 'bt-soft bt-soft-sm bt-with-icon', onClick: () => setAdding(true) }, h(PlusIcon), t('New task')),
     owner !== null ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => actions.openSettings('schedules') }, t('Show all')) : null)
   return [
+    tabBar,
     adding ? h(TaskForm, { key: 'form', roster, actions, start: owner ?? start, onDone: shown, onCancel: () => setAdding(false) }) : null,
     byChat.length === 0
       ? (!adding ? h('section', { key: 'none', className: 'bt-set-section' },

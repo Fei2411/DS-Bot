@@ -581,6 +581,16 @@ export function install(rt, host) {
     ...(googlePendings.size > 0 ? { pending: [...googlePendings.values()].map(p => ({ kind: 'browser', url: p.url, address: p.address })) } : {}),
   })
 
+  // Exposes a read-only mail snapshot for event watchers without duplicating account auth.
+  rt.listMailForWatcher = async ({ account: ref, folder = 'INBOX' } = {}) => {
+    await rt.loadSecrets?.()
+    const account = accountOf(ref)
+    if (!account) throw Object.assign(new Error('No matching mail account connected'), { authFailed: true })
+    const session = await connect(account)
+    const messages = await session.listMessages?.({ folder, limit: 20 }) ?? []
+    return { accountAddress: account.address, messages }
+  }
+
   syncTools()
 
   return {

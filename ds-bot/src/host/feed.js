@@ -84,6 +84,7 @@ export function install(rt) {
   // chat (turns.js marks it before the model is called), so its text is not streamed.
   const writing = new Map()
   ctx.on('agent/assistant-stream', ({ agent, frame }) => {
+    if (agent?.id) rt.noteTurnProgress?.(agent.id)
     if (frame.type === 'start') {
       const botId = rt.chatOwners.get(agent.id)
       if (!listening() || botId === undefined || (state.exchangeTurns[agent.id] ?? []).includes(frame.turn)) return

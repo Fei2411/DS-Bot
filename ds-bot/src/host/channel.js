@@ -175,6 +175,9 @@ export function install(rt) {
     // Browser holds (handoffs and takeovers) change without bumping state.revision,
     // so they ride on live() to reconcile unchanged-revision polls.
     browserHolds: rt.browserChannel?.holdSnapshot?.() ?? {},
+    // Unified Agent Inbox (approvals, questions, requests, Watchdog alerts) and event status.
+    inbox: rt.inboxView?.() ?? { count: 0, counts: { review: 0, question: 0, alert: 0 }, items: [] },
+    eventsSummary: rt.eventsSummaryView?.() ?? { watchersActive: 0, subscriptionsActive: 0, deadLetters: 0, pushListening: false },
   })
   // The live fields' sources are spread across the host with no single change
   // counter, so the serialized answer itself is the detector: a poll whose `live`
@@ -880,6 +883,10 @@ export function install(rt) {
           if (endpoint.startsWith('computer-')) {
             await rt.load()
             return ok(await rt.computerEndpoint(endpoint.slice('computer-'.length), body))
+          }
+          if (endpoint.startsWith('events-')) {
+            await rt.load()
+            return ok(await rt.eventsEndpoint(endpoint.slice('events-'.length), body))
           }
           return fail(`Unknown endpoint ${endpoint}`, 'bot/not-found')
       }
