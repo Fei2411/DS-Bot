@@ -69,6 +69,13 @@ export function stackReplies(replies) {
   const items = []
   replies.forEach((reply, index) => {
     const last = items.at(-1)
+    // A Bot can start several turns in a row (a wake-up, another call in the round, a
+    // late turn), and every start writes its own "started on it" row. In the transcript
+    // they are one event, not a wall of identical lines, so consecutive starts by the
+    // same Bot fold into the first row. Any other row between them (a message, an
+    // approval, done, the user) breaks the run.
+    if (reply.kind === 'working' && last?.reply.kind === 'working'
+      && reply.botId !== undefined && reply.botId === last.reply.botId) return
     if (reply.kind === undefined && last?.reply.kind === undefined && last?.reply.botId === reply.botId
       && last.claims === undefined && (last.changes === undefined
         || (reply.changes?.sessionId === last.changes.sessionId && reply.changes?.turn === last.changes.turn))) {
