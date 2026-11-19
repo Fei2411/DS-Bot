@@ -2452,9 +2452,6 @@ function generateKeyPair(privateKeyBytes) {
     publicKey: toBase64Url(x25519.getPublicKey(privateKey))
   };
 }
-function identityFingerprint(publicKey) {
-  return Array.from(sha2562(fromBase64Url(publicKey)).slice(0, 6), (byte) => byte.toString(16).padStart(2, "0")).join("").toUpperCase();
-}
 function deviceIdFor(publicKey) {
   const key = fromBase64Url(publicKey);
   if (key.byteLength !== 32) throw new Error("X25519 public keys must be 32 bytes");
@@ -8480,7 +8477,6 @@ export {
   encodeMessage,
   fromBase64Url,
   generateKeyPair,
-  identityFingerprint,
   messageTypes,
   pairingUri,
   parsePairingUri,

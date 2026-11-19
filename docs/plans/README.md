@@ -44,15 +44,18 @@
 | [Bot 聊天和群聊的 `/` 菜单](2026-11-13-bot-slash-commands.md) | `/` 菜单里 DSH 命令行的执行被按 agent 作用域遮蔽（菜单行仍在）；DS Bot 动作进菜单：`/scheduled-task`、群里 bare `/goal` 打开群 Goal；技能不受影响 |
 | [iOS 出包与 TestFlight](2026-11-13-ios-release.md) | 用户要办的 Apple 账号、App ID、App Store Connect API Key；拿到后的签名、archive、上传 TestFlight 和排查；真机配对等账号和设备 |
 | [群聊任务面板](2026-11-12-group-task-board.md) | Bot 用 `group_task` 显式登记群里的任务：负责人、目标、状态、最新进展、结果摘要、历史；面板上补备注以 `@负责人` 的用户消息下发；数据随群保存 |
+| [群聊里的改动](2026-11-12-group-changes.md) | 群里每个 Bot 的一轮下面有一行改动：改了几个文件、增删行数、前几个文件名；点开是 DSH 自己的改动审查（英文文档） |
 | [群聊共享待办](2026-11-10-group-todos.md) | 每个群一份清单：成员用 `group_todo` 加、勾、删、清空已完成、看，用户在群详情里看、勾、删；随群保存和删除；上限 100 条，满了删一条或清空已完成后再加 |
 | [浏览器、搜索、密钥和连接器](2026-10-08-browser-and-secrets.md) | 每个 Bot 的浏览器和 `read_browser`、`auto` 联网搜索、密钥卡和替换规则、GitHub 连接器(已被 2026-11-04 通用连接器取代) |
 | [密钥的静态加密](2026-11-12-encrypted-secrets.md) | 可选的 `secrets.json` 口令加密：同一文件原子切换成 scrypt + AES-256-GCM 信封；无人值守用环境变量或口令文件解锁；锁定时的行为和回滚 |
 | [浏览器插件](2026-10-21-browser-plugins.md) | 全团队一个浏览器后端，每个 Bot 一份 profile；`refs` / `script` / `task` |
 | [电脑操控](2026-11-04-computer-use.md) | 设置里的总开关和 DSH 提供方；每个 Bot 四档（关 / 只看 / 后台操作 / 可以动前台）；按 Bot 记的应用授权；不能碰的应用；应用租约和前台租约；指示器、停止、「电脑」页；接管和交接卡与浏览器共用 |
 | [上下文与记忆](2026-10-09-context-and-memory.md) | 对话分段、上下文管家（压缩还是换段）、交接包、`read_own_chat`；记忆的存放、格式、权限、整理和冻结 |
+| [一个 Bot 同时跑两个会话](2026-11-13-parallel-sessions.md) | Bot 忙的时候新开会话：新的一段在前台开始，原来那段留在后台继续跑；详情面板列出每个 Bot 的会话和「运行中」标记；打开运行中的后台段是只读的（英文文档） |
 | [记忆的四种读法](2026-11-09-memory-layers.md) | 常驻、增量、自动召回、按需；额度、团队常驻层、定期整理、群的持久日志 |
 | [记忆撤销与更改记录](2026-11-01-memory-restore.md) | 记忆窗口「更改记录」列出 `journal.jsonl` 的改动；按记录 id 对单条添加、修改或删除做逆操作撤销 |
 | [Bot 运行配置](2026-10-10-bot-runtime.md) | Agent 预设、每个 Bot 的模型和思考强度、新 Bot 默认模型、工作文件夹、能力（MCP、技能、能力包） |
+| [批量换 Bot 的模型](2026-11-13-bot-models.md) | 设置里的「Bot 模型」页：列出每个 Bot 在用的模型，选多个 Bot 一次换成同一个模型，逐个执行并各自报告结果；本地 Agent 的 Bot 不能选（英文文档） |
 | [本地 Agent CLI 作为 Bot](2026-11-04-local-agents.md) | 本地 agent CLI 作为 Bot 的运行方式（英文文档）：运行方式的选择和切换、会话映射、工具桥、审批、记忆、会话管理与徽标 |
 | [头像库](2026-10-23-avatar-library.md) | 可复用的自定义头像库（`bot/avatars/`，按内容去重）与单张容错的批量导入 |
 | [AGENTS.md 维护](2026-10-27-agents-md-upkeep.md) | 从项目工作中审阅持久规则；用户批准后才原子写入 |
