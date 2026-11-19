@@ -8,6 +8,8 @@ import LocalJobRegistry from '@deepseek-ai/dsh-jobs-local'
 import { createScope } from '@deepseek-ai/dsh-scope'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import * as toolBash from '@deepseek-ai/dsh-tool-bash'
+import * as toolJobs from '@deepseek-ai/dsh-tool-jobs'
+import * as toolPwsh from '@deepseek-ai/dsh-tool-pwsh'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import { createRuntime } from '../index.js'
 import { install as installSteer } from '../src/host/steer.js'
@@ -626,16 +628,18 @@ test('setPrefs validates backgroundAfterSec bounds and integer requirement', asy
   await stop()
 })
 
-// Real-contract harness: mounts DSH's actual LocalJobRegistry + dsh-tool-bash so we
-// exercise real waitOnJob, job/registered lifecycle, approveEscalation, and AbortSignal
+// Real-contract harness: mounts DSH's actual LocalJobRegistry + dsh-tool-jobs +
+// dsh-tool-bash so we exercise real waitOnJob, job/registered lifecycle,
+// job_output, tool-jobs completion delivery, approveEscalation, and AbortSignal
 // handling instead of mocking bash's internal behavior.
-async function startRealBash({ approveDelayMs = 0 } = {}) {
+async function startRealBash({ approveDelayMs = 0, maxConcurrentJobsPerOwner = 10, delayJobsPlugin = false, wireToolsChange = false, redactSecrets, shellPlugin = toolBash, toolName = 'bash' } = {}) {
   const ctx = new Context()
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRuntime)
   const agents = new Map()
   ctx.provide('agents', agents)
   const spawned = []
+  const resolvedSpecs = []
   const makeStream = () => {
     let text = ''
     return {
@@ -651,7 +655,11 @@ async function startRealBash({ approveDelayMs = 0 } = {}) {
   let nextBehavior = () => ({})
   ctx.provide('shell', {
     sandboxMode: 'workspace-write',
-    resolve: (req) => ({ ...req, workdir: req.workdir ?? '/team', timeoutMs: req.timeoutMs ?? 30_000 }),
+    resolve: (req) => {
+      const spec = { ...req, workdir: req.workdir ?? '/team', timeoutMs: req.timeoutMs ?? 30_000 }
+      resolvedSpecs.push(spec)
+      return spec
+    },
     async execute(spec) {
       const stdout = makeStream()
       const stderr = makeStream()
@@ -714,18 +722,35 @@ async function startRealBash({ approveDelayMs = 0 } = {}) {
       })
     },
   })
-  await ctx.plugin(LocalJobRegistry, { pumpPollMs: 10 })
-  ctx.jobs.attachController('tool-jobs')
-  await ctx.plugin(toolBash)
+  const mountJobs = async () => {
+    await ctx.plugin(LocalJobRegistry, { pumpPollMs: 10, maxConcurrentJobsPerOwner })
+    await ctx.plugin(toolJobs)
+  }
+  if (!delayJobsPlugin) await mountJobs()
+  await ctx.plugin(shellPlugin)
 
   const notices = []
+  const inboxNextStep = []
+  const inboxNextTurn = []
   const agent = {
     id: 'dm-a',
     ctx: null,
     status: 'running',
-    inbox: { nextStep: [], nextTurn: [], prepend() {}, append() {}, remove() { return false } },
-    followup: (msg) => notices.push({ kind: 'followup', msg }),
-    inject: (msg) => notices.push({ kind: 'inject', msg }),
+    inbox: {
+      nextStep: inboxNextStep,
+      nextTurn: inboxNextTurn,
+      prepend(target, msg) { (target === 'next-turn' ? inboxNextTurn : inboxNextStep).unshift(msg) },
+      append(target, msg) { (target === 'next-turn' ? inboxNextTurn : inboxNextStep).push(msg) },
+      remove(mid) {
+        for (const list of [inboxNextStep, inboxNextTurn]) {
+          const at = list.findIndex(m => m.id === mid)
+          if (at !== -1) { list.splice(at, 1); return true }
+        }
+        return false
+      },
+    },
+    followup: (msg) => { inboxNextTurn.push(msg); notices.push({ kind: 'followup', msg }) },
+    inject: (msg) => { inboxNextStep.push(msg); notices.push({ kind: 'inject', msg }) },
     send() {},
     cancel() {},
     session: {
@@ -748,12 +773,14 @@ async function startRealBash({ approveDelayMs = 0 } = {}) {
     live: new Map(),
     isBotSession: (id) => id === 'dm-a',
     sessionFolder: () => '/team',
+    ...(redactSecrets === undefined ? {} : { redactSecrets }),
     warn: (...args) => warnings.push(args),
   }
   installSteer(rt)
-  const rawBash = ctx.tools.get('bash', agent)
-  const promoted = (rawBash?.output?.schema?.oneOf ?? []).find(v => v?.properties?.kind?.const === 'promoted')
-  const hasPromoted = typeof rawBash?.output?.render === 'function'
+  if (wireToolsChange) ctx.on('tools/change', () => rt.refreshShellShadows(agent))
+  const rawShell = ctx.tools.get(toolName, agent)
+  const promoted = (rawShell?.output?.schema?.oneOf ?? []).find(v => v?.properties?.kind?.const === 'promoted')
+  const hasPromoted = typeof rawShell?.output?.render === 'function'
     && promoted?.properties?.cwd !== undefined
     && promoted?.properties?.jobId !== undefined
     && promoted?.properties?.timeoutMs !== undefined
@@ -764,25 +791,27 @@ async function startRealBash({ approveDelayMs = 0 } = {}) {
     return null
   }
   const disposers = rt.shadowShells(agent)
-  assert.equal(disposers?.length, 1, `expected bash shadow to register; warnings: ${JSON.stringify(warnings)}`)
-  const bash = ctx.tools.get('bash', agent)
-  assert.ok(bash !== undefined, 'shadowed bash tool should be registered on agent scope')
+  assert.equal(disposers?.length, 1, `expected ${toolName} shadow to register; warnings: ${JSON.stringify(warnings)}`)
+  const bash = () => ctx.tools.get(toolName, agent)
+  const jobOutput = () => ctx.tools.get('job_output', agent)
+  assert.ok(bash() !== undefined, `shadowed ${toolName} tool should be registered on agent scope`)
   const stop = async () => { await agentScope.dispose(); await ctx.fiber.dispose() }
-  return { ctx, rt, agent, bash, spawned, notices, setBehavior: (fn) => { nextBehavior = fn }, stop }
+  return { ctx, rt, agent, bash, jobOutput, spawned, resolvedSpecs, notices, warnings, disposers, mountJobs, setBehavior: (fn) => { nextBehavior = fn }, stop }
 }
 
-test('real dsh-tool-bash contract: STEER_CUT after auto-background does not kill the running job', async (t) => {
+test('real dsh-tool-bash + dsh-tool-jobs contract: native promotion survives STEER_CUT, keeps job_output valid, and delivers one bounded notice', async (t) => {
   const env = await startRealBash()
   if (env === null) return t.skip('dsh-tool-bash in this DSH version has no promoted result format')
   t.after(env.stop)
   env.setBehavior((proc) => { proc.observed.stdout.push('building...\n') })
   const turn = new AbortController()
-  const result = await env.bash.execute(
+  const result = await env.bash().execute(
     { description: 'Run slow build', command: 'npm run build' },
     { agent: env.agent, callId: 'call-1', name: 'bash', signal: turn.signal },
   )
   assert.equal(result.kind, 'promoted')
   assert.ok(result.jobId)
+  assert.equal(env.resolvedSpecs[0].timeoutMs, 50, 'shadow should tighten timeoutMs into DSH waitOnJob')
   assert.equal(env.ctx.jobs.get(result.jobId, 'dm-a').status, 'running')
 
   // Simulate a subsequent user steer cancelling the original turn (STEER_CUT).
@@ -791,14 +820,121 @@ test('real dsh-tool-bash contract: STEER_CUT after auto-background does not kill
   assert.equal(env.spawned[0].killed, false, 'promoted job process must survive original turn STEER_CUT')
   assert.equal(env.ctx.jobs.get(result.jobId, 'dm-a').status, 'running')
 
-  // Command finishes later; detachAfter delivers completion notice to the idle agent.
+  // job_output can read the live promoted job without hitting "unknown job".
+  const liveRead = await env.jobOutput().execute(
+    { job_id: result.jobId, wait: false },
+    { agent: env.agent, callId: 'call-read-1', name: 'job_output', signal: AbortSignal.timeout(5000) },
+  )
+  assert.equal(liveRead.job.id, result.jobId)
+  assert.equal(liveRead.job.status, 'running')
+
+  // Command finishes later; DSH's own tool-jobs delivers exactly ONE notice (no duplicate from detachAfter).
   env.agent.status = 'idle'
   env.spawned[0].finish(0, 'build ok\n')
-  await new Promise(r => setTimeout(r, 40))
-  assert.equal(env.notices.length, 1)
+  await new Promise(r => setTimeout(r, 60))
+  assert.equal(env.notices.length, 1, 'tool-jobs alone should deliver one completion notice')
   assert.equal(env.notices[0].kind, 'followup')
-  assert.match(env.notices[0].msg.content[0].text, new RegExp(`background job ${result.jobId}.*finished:`))
+  assert.match(env.notices[0].msg.content[0].text, new RegExp(result.jobId))
   assert.match(env.notices[0].msg.content[0].text, /build ok/)
+
+  // Job stays queryable after settlement (native waitOnJob did not remove it prematurely).
+  const settled = env.ctx.jobs.get(result.jobId, 'dm-a')
+  assert.equal(settled.status, 'completed')
+})
+
+test('real dsh-tool-bash + dsh-tool-jobs contract: job_output(wait:true) after promotion suppresses duplicate notice', async (t) => {
+  const env = await startRealBash()
+  if (env === null) return t.skip('dsh-tool-bash in this DSH version has no promoted result format')
+  t.after(env.stop)
+  env.setBehavior(() => {})
+  const result = await env.bash().execute(
+    { description: 'Run job', command: 'sleep 1' },
+    { agent: env.agent, callId: 'call-wait', name: 'bash', signal: AbortSignal.timeout(5000) },
+  )
+  assert.equal(result.kind, 'promoted')
+
+  const waiting = env.jobOutput().execute(
+    { job_id: result.jobId, wait: true, timeout_ms: 5000 },
+    { agent: env.agent, callId: 'call-jo-wait', name: 'job_output', signal: AbortSignal.timeout(5000) },
+  )
+  await new Promise(r => setTimeout(r, 15))
+  env.agent.status = 'idle'
+  env.spawned[0].finish(0, 'collected via job_output\n')
+  const read = await waiting
+  assert.equal(read.job.status, 'completed')
+  const rendered = (env.jobOutput().output.render({}, read) ?? []).map(b => b.text).join('\n')
+  assert.match(rendered, /collected via job_output/)
+  await new Promise(r => setTimeout(r, 50))
+  assert.equal(env.notices.length, 0, 'awaited job_output must not trigger a duplicate notice')
+})
+
+test('real dsh-tool-bash + dsh-tool-jobs contract: backgroundAfterSec = 0 uses native run_in_background', async (t) => {
+  const env = await startRealBash({ approveDelayMs: 30 })
+  if (env === null) return t.skip('dsh-tool-bash in this DSH version has no promoted result format')
+  t.after(env.stop)
+  env.rt.state.prefs.backgroundAfterSec = 0
+  env.setBehavior(() => {})
+  const result = await env.bash().execute(
+    {
+      description: 'Immediate background command',
+      command: 'echo bg',
+      sandbox_permissions: 'danger-full-access',
+      justification: 'Need host access',
+    },
+    { agent: env.agent, callId: 'call-zero', name: 'bash', signal: AbortSignal.timeout(5000) },
+  )
+  assert.equal(result.kind, 'background', '0s wait should delegate directly to native run_in_background')
+  assert.ok(result.jobId)
+  env.agent.status = 'idle'
+  env.spawned[0].finish(0, 'bg done\n')
+  await new Promise(r => setTimeout(r, 50))
+  assert.equal(env.notices.length, 1)
+  assert.match(env.notices[0].msg.content[0].text, /bg done/)
+})
+
+test('real dsh-tool-bash contract: full job capacity does not tighten timeoutMs into an expiry kill', async (t) => {
+  const env = await startRealBash({ maxConcurrentJobsPerOwner: 1 })
+  if (env === null) return t.skip('dsh-tool-bash in this DSH version has no promoted result format')
+  t.after(env.stop)
+  env.rt.state.prefs.backgroundAfterSec = 0.05
+  env.setBehavior(() => {})
+
+  // Occupy the single background job slot.
+  const first = await env.bash().execute(
+    { description: 'Fill job slot', command: 'sleep 10' },
+    { agent: env.agent, callId: 'call-cap-1', name: 'bash', signal: AbortSignal.timeout(5000) },
+  )
+  assert.equal(first.kind, 'promoted')
+
+  // Second call runs while at capacity; timeoutMs must stay at default (30s), NOT 50ms.
+  env.setBehavior((proc) => { setTimeout(() => proc.finish(0, 'ran fg\n'), 80) })
+  const second = await env.bash().execute(
+    { description: 'Run at capacity', command: 'echo fg' },
+    { agent: env.agent, callId: 'call-cap-2', name: 'bash', signal: AbortSignal.timeout(5000) },
+  )
+  assert.equal(env.resolvedSpecs[1].timeoutMs, 30_000, 'must not tighten timeoutMs when job registry is full')
+  assert.equal(second.kind, 'foreground')
+  assert.equal(second.stdout.text, 'ran fg\n')
+  env.spawned[0].finish(0, '')
+})
+
+test('real dsh-tool-bash contract: late jobs attachment refreshes bash shadow on refreshShellShadows', async (t) => {
+  const env = await startRealBash({ delayJobsPlugin: true })
+  if (env === null) return t.skip('dsh-tool-bash in this DSH version has no promoted result format')
+  t.after(env.stop)
+  // Mount jobs + tool-jobs after initial shadow registration; dsh-tool-bash re-registers bash(jobs).
+  await env.mountJobs()
+  env.rt.refreshShellShadows(env.agent)
+  env.rt.state.prefs.backgroundAfterSec = 0.05
+  env.setBehavior(() => {})
+  const result = await env.bash().execute(
+    { description: 'Run after late jobs mount', command: 'sleep 5' },
+    { agent: env.agent, callId: 'call-late', name: 'bash', signal: AbortSignal.timeout(5000) },
+  )
+  assert.equal(result.kind, 'promoted', 'refreshed shadow must bind the jobs-backed bash tool')
+  assert.equal(env.resolvedSpecs[0].timeoutMs, 50)
+  env.spawned[0].finish(0, 'late ok\n')
+  await new Promise(r => setTimeout(r, 40))
 })
 
 test('real dsh-tool-bash contract: approval delay past backgroundAfterSec does not mis-promote a fast command', async (t) => {
@@ -809,7 +945,7 @@ test('real dsh-tool-bash contract: approval delay past backgroundAfterSec does n
   // Fast command completes 10ms after approval grants execution.
   env.setBehavior((proc) => { setTimeout(() => proc.finish(0, 'ok\n'), 10) })
   const turn = new AbortController()
-  const fast = await env.bash.execute(
+  const fast = await env.bash().execute(
     {
       description: 'Run fast escalated command',
       command: 'echo ok',
@@ -824,7 +960,7 @@ test('real dsh-tool-bash contract: approval delay past backgroundAfterSec does n
 
   // Slow command after the same approval delay promotes based on post-registration execution time only.
   env.setBehavior(() => {})
-  const slow = await env.bash.execute(
+  const slow = await env.bash().execute(
     {
       description: 'Run slow escalated command',
       command: 'sleep 10',
@@ -834,7 +970,7 @@ test('real dsh-tool-bash contract: approval delay past backgroundAfterSec does n
     { agent: env.agent, callId: 'call-approve-slow', name: 'bash', signal: turn.signal },
   )
   assert.equal(slow.kind, 'promoted')
-  assert.ok(slow.timeoutMs < 130, `timeoutMs (${slow.timeoutMs}) should reflect post-registration wait, not approval delay`)
+  assert.equal(slow.timeoutMs, 50, 'timeoutMs should reflect configured wait, not approval delay')
   env.spawned[1].finish(0, 'done\n')
   await new Promise(r => setTimeout(r, 20))
 })
@@ -846,7 +982,7 @@ test('real dsh-tool-bash contract: abort before detach still cancels and kills t
   env.rt.state.prefs.backgroundAfterSec = 0.5
   env.setBehavior(() => {})
   const turn = new AbortController()
-  const pending = env.bash.execute(
+  const pending = env.bash().execute(
     { description: 'Run cancellable command', command: 'sleep 10' },
     { agent: env.agent, callId: 'call-abort', name: 'bash', signal: turn.signal },
   )
@@ -855,4 +991,159 @@ test('real dsh-tool-bash contract: abort before detach still cancels and kills t
   await assert.rejects(pending, /aborted/i)
   assert.equal(env.spawned[0].killed, true, 'abort before detach must kill the running job')
   assert.equal(env.ctx.jobs.list('dm-a').length, 0)
+})
+
+test('shell shadow: steer detach truncates oversized fallback output and skips duplicate after job_output(wait:true)', async () => {
+  const { emit, stop, rt, agent, calls, shadowOf } = await start({ services: { jobs: jobsService(jobId => ({
+    job: { id: jobId, status: 'running', output: {} }, chunks: [],
+  })) } })
+  rt.state.prefs.backgroundAfterSec = 60
+  rt.shadowShells(agent)
+  const shadow = shadowOf()
+
+  // First call: steer detaches and huge output is bounded to 2048 bytes.
+  const p1 = shadow.execute({ command: 'big' }, execOf(agent, 'c-big'))
+  await emit('dm-a', 'job/registered', { jobId: 'j-big', toolCall: { callId: 'c-big' } })
+  await emit('dm-a', 'agent/inbox/spliced', { target: 'next-step', inserted: [userMessage('next')] })
+  assert.equal((await p1).kind, 'promoted')
+  agent.status = 'idle'
+  shadow.calls[0].res({ kind: 'foreground', exitCode: 0, stdout: { text: 'A'.repeat(5000) } })
+  await new Promise(r => setTimeout(r, 0))
+  const notice = calls.find(c => c[0] === 'followup')?.[1]?.content?.[0]?.text ?? ''
+  assert.match(notice, /\[output truncated to 2048 bytes\]/)
+  assert.ok(notice.length < 2300)
+
+  // Second call: model reads terminal result via job_output(wait:true); fallback notice is suppressed.
+  calls.length = 0
+  const p2 = shadow.execute({ command: 'read-once' }, execOf(agent, 'c-read'))
+  await emit('dm-a', 'job/registered', { jobId: 'j-read', toolCall: { callId: 'c-read' } })
+  await emit('dm-a', 'agent/inbox/spliced', { target: 'next-step', inserted: [userMessage('check')] })
+  assert.equal((await p2).kind, 'promoted')
+  await emit('dm-a', 'tool/call', { name: 'job_output', arguments: JSON.stringify({ job_id: 'j-read', wait: true }) })
+  shadow.calls[1].res({ kind: 'foreground', exitCode: 0, stdout: { text: 'done' } })
+  await new Promise(r => setTimeout(r, 0))
+  assert.equal(calls.find(c => c[0] === 'followup' || c[0] === 'inject'), undefined)
+  await stop()
+})
+
+test('real dsh-tool-bash contract: tools/change re-entry during mount, late jobs reload, and dispose emits no duplicate warnings or leaked shadows', async (t) => {
+  const env = await startRealBash({ delayJobsPlugin: true, wireToolsChange: true })
+  if (env === null) return t.skip('dsh-tool-bash in this DSH version has no promoted result format')
+  t.after(env.stop)
+  assert.deepEqual(env.warnings, [], 'initial shadow registration must not re-enter tools/change into duplicate errors')
+
+  // Late jobs mount re-registers bash globally and triggers tools/change automatically.
+  await env.mountJobs()
+  assert.deepEqual(env.warnings, [], 'late jobs reload must refresh shadow without duplicate errors')
+  env.rt.state.prefs.backgroundAfterSec = 0.05
+  env.setBehavior(() => {})
+  const promoted = await env.bash().execute(
+    { description: 'Run after auto tools/change refresh', command: 'sleep 5' },
+    { agent: env.agent, callId: 'call-reentry', name: 'bash', signal: AbortSignal.timeout(5000) },
+  )
+  assert.equal(promoted.kind, 'promoted')
+  assert.equal(env.resolvedSpecs[0].timeoutMs, 50)
+  env.spawned[0].finish(0, 'ok\n')
+  await new Promise(r => setTimeout(r, 30))
+
+  // Disposing the shadow removes it cleanly and later tools/change events must not revive it.
+  for (const dispose of env.disposers) dispose()
+  assert.equal(env.ctx.tools.get('bash', env.agent), env.ctx.tools.get('bash'))
+  const liftDummy = env.ctx.tools.register({
+    name: 'dummy_reentry_probe',
+    description: 'probe',
+    parameters: { type: 'object', properties: {} },
+    output: { schema: { type: 'string' }, render: () => [] },
+    execute: async () => '',
+  })
+  liftDummy()
+  assert.equal(env.ctx.tools.get('bash', env.agent), env.ctx.tools.get('bash'), 'disposed shadow must not revive on later tools/change')
+  assert.deepEqual(env.warnings, [])
+})
+
+test('real dsh-tool-bash + dsh-tool-jobs contract: steer detach still notifies after timed-out job_output(wait:true) and failed job_kill', async (t) => {
+  const env = await startRealBash({
+    redactSecrets: text => text.replaceAll('SUPER_SECRET_TOKEN', '[secret:API_TOKEN]'),
+  })
+  if (env === null) return t.skip('dsh-tool-bash in this DSH version has no promoted result format')
+  t.after(env.stop)
+  env.rt.state.prefs.backgroundAfterSec = 60
+  env.setBehavior(() => {})
+
+  const pending = env.bash().execute(
+    { description: 'Long command with steer', command: 'sleep 5' },
+    { agent: env.agent, callId: 'call-steer-read', name: 'bash', signal: AbortSignal.timeout(10_000) },
+  )
+  await new Promise(r => setTimeout(r, 30))
+  const steerMsg = userMessage('hey')
+  env.agent.inbox.nextStep.push(steerMsg)
+  env.ctx.emit('session/event', env.agent.session, { type: 'agent/inbox/spliced', data: { target: 'next-step', inserted: [steerMsg] } })
+  const promoted = await pending
+  assert.equal(promoted.kind, 'promoted')
+
+  // Model calls job_output(wait:true, timeout_ms:40), which times out while the job is still running.
+  env.agent.session.append('tool/call', { callId: 'call-jo-1', name: 'job_output', arguments: JSON.stringify({ job_id: promoted.jobId, wait: true, timeout_ms: 40 }) })
+  const partial = await env.jobOutput().execute(
+    { job_id: promoted.jobId, wait: true, timeout_ms: 40 },
+    { agent: env.agent, callId: 'call-jo-1', name: 'job_output', signal: AbortSignal.timeout(5000) },
+  )
+  assert.equal(partial.job.status, 'running')
+  env.agent.session.append('tool/result', {
+    message: { toolCallId: 'call-jo-1', isError: false, content: env.jobOutput().output.render({}, partial) },
+  })
+
+  // A failed job_kill must not silence the eventual completion notice either.
+  env.agent.session.append('tool/call', { callId: 'call-jk-fail', name: 'job_kill', arguments: JSON.stringify({ job_id: promoted.jobId }) })
+  env.agent.session.append('tool/result', {
+    message: { toolCallId: 'call-jk-fail', isError: true, content: [{ type: 'text', text: 'kill failed' }] },
+  })
+
+  // Command settles before the 60s native timeout; fallback notice must fire once and redact secrets.
+  env.agent.status = 'idle'
+  env.spawned[0].finish(0, 'done token=SUPER_SECRET_TOKEN\n')
+  await new Promise(r => setTimeout(r, 80))
+  assert.equal(env.notices.length, 1, 'timed-out job_output and failed job_kill must not drop the completion notice')
+  const text = env.notices[0].msg.content[0].text
+  assert.match(text, /\[secret:API_TOKEN\]/)
+  assert.ok(!text.includes('SUPER_SECRET_TOKEN'), 'fallback notice must not leak raw secret values')
+})
+
+test('shell shadow: steer detach redacts secrets from failure notice', async () => {
+  const { emit, stop, rt, agent, calls, shadowOf } = await start({ services: { jobs: jobsService(jobId => ({
+    job: { id: jobId, status: 'running', output: {} }, chunks: [],
+  })) } })
+  rt.state.prefs.backgroundAfterSec = 60
+  rt.redactSecrets = text => text.replaceAll('SECRET_FAIL_KEY', '[secret:FAIL_KEY]')
+  rt.shadowShells(agent)
+  const shadow = shadowOf()
+  const pending = shadow.execute({ command: 'deploy' }, execOf(agent, 'c-fail'))
+  await emit('dm-a', 'job/registered', { jobId: 'j-fail', toolCall: { callId: 'c-fail' } })
+  await emit('dm-a', 'agent/inbox/spliced', { target: 'next-step', inserted: [userMessage('stop')] })
+  assert.equal((await pending).kind, 'promoted')
+  agent.status = 'idle'
+  shadow.calls[0].rej(new Error('auth failed with SECRET_FAIL_KEY'))
+  await new Promise(r => setTimeout(r, 0))
+  const notice = calls.find(c => c[0] === 'followup')?.[1]?.content?.[0]?.text ?? ''
+  assert.match(notice, /\[secret:FAIL_KEY\]/)
+  assert.ok(!notice.includes('SECRET_FAIL_KEY'))
+  await stop()
+})
+
+test('real dsh-tool-pwsh + dsh-tool-jobs contract: native promotion tightens timeoutMs and delivers one notice', async (t) => {
+  const env = await startRealBash({ shellPlugin: toolPwsh, toolName: 'pwsh', wireToolsChange: true })
+  if (env === null) return t.skip('dsh-tool-pwsh in this DSH version has no promoted result format')
+  t.after(env.stop)
+  assert.deepEqual(env.warnings, [])
+  env.setBehavior((proc) => { proc.observed.stdout.push('pwsh running...\n') })
+  const result = await env.bash().execute(
+    { description: 'Run pwsh job', command: 'Start-Sleep 5' },
+    { agent: env.agent, callId: 'call-pwsh-1', name: 'pwsh', signal: AbortSignal.timeout(5000) },
+  )
+  assert.equal(result.kind, 'promoted')
+  assert.equal(env.resolvedSpecs[0].timeoutMs, 50, 'pwsh shadow should tighten timeoutMs into native waitOnJob')
+  env.agent.status = 'idle'
+  env.spawned[0].finish(0, 'pwsh done\n')
+  await new Promise(r => setTimeout(r, 60))
+  assert.equal(env.notices.length, 1)
+  assert.match(env.notices[0].msg.content[0].text, /pwsh done/)
 })

@@ -1,7 +1,12 @@
-// In a Bot's private chat a user steer must reach the Bot at once, not at the
-// next DSH step boundary. Two mechanisms:
-//  - a foreground shell call detaches into the jobs registry on a steer and
-//    returns DSH's promoted result, so the step ends while the command runs on;
+// In a Bot's private chat a slow shell call moves to a DSH background job on
+// schedule (Settings > Background work) and a user steer reaches the Bot at
+// once, not at the next DSH step boundary:
+//  - for normal calls, tightening timeoutMs (or setting run_in_background at 0s)
+//    lets DSH's own waitOnJob promote the command and hand its lifecycle to
+//    tool-jobs, avoiding dual waiters, premature registry removal, and duplicate
+//    completion notices;
+//  - if a user steers while a longer wait is still in flight, the shell call
+//    detaches after a short grace window with an isolated AbortController;
 //  - a running model call is cancelled (hook reason) and the steer is moved to
 //    the front of next-turn, so a fresh turn claims it at once.
 import { isAbsolute, resolve } from 'node:path'
@@ -10,6 +15,33 @@ import { BACKGROUND_WAIT_MS, STEER_CUT } from './constants.js'
 
 const SHELL_TOOLS = ['pwsh', 'bash']
 const STEER_GRACE_MS = 1000
+const DEFAULT_MAX_CONCURRENT_JOBS = 10
+const INLINE_OUTPUT_LIMIT = 2048
+const TERMINAL_JOB_STATUS = /\[status:\s*(?:completed|killed|failed)(?:,|\])/
+
+const addToSetMap = (map, key, value) => {
+  let set = map.get(key)
+  if (set === undefined) { set = new Set(); map.set(key, set) }
+  set.add(value)
+}
+const deleteFromSetMap = (map, key, value) => {
+  const set = map.get(key)
+  if (set === undefined) return
+  set.delete(value)
+  if (set.size === 0) map.delete(key)
+}
+const contentText = (content) => (Array.isArray(content) ? content : [])
+  .map(block => (typeof block?.text === 'string' ? block.text : ''))
+  .join('\n')
+
+const truncateBytes = (text, maxBytes) => {
+  if (typeof text !== 'string' || Buffer.byteLength(text, 'utf8') <= maxBytes) return { text: text ?? '', truncated: false }
+  const buf = Buffer.from(text, 'utf8')
+  let end = maxBytes
+  // Back off UTF-8 continuation bytes so we never split a code point.
+  while (end > 0 && (buf[end] & 0xc0) === 0x80) end -= 1
+  return { text: buf.subarray(0, end).toString('utf8'), truncated: true }
+}
 
 export function install(rt) {
   const ctx = rt.ctx
@@ -29,17 +61,34 @@ export function install(rt) {
   const state = new Map()
   const stateOf = (id) => {
     let entry = state.get(id)
-    if (entry === undefined) state.set(id, entry = { phase: 'boundary', jobsByCall: new Map(), jobWaiters: new Map(), steerWaiters: new Set(), killedJobs: new Set(), cutting: false })
+    if (entry === undefined) {
+      entry = {
+        phase: 'boundary',
+        jobsByCall: new Map(),
+        jobWaiters: new Map(),
+        steerWaiters: new Set(),
+        detachedJobs: new Set(),
+        settledJobs: new Set(),
+        killedJobs: new Set(),
+        readJobs: new Set(),
+        jobToolCalls: new Map(),
+        activeWaitReads: new Map(),
+        activeKills: new Map(),
+        cutting: false,
+      }
+      state.set(id, entry)
+    }
     return entry
   }
-  // Background jobs still running for a Session. A reply that announces work while
-  // this is empty and no subagent runs is marked in the group view (#977).
+
   // How long a Bot's own chat waits for a shell call before it goes on as a background
   // job and the step moves on (Settings > Background work).
   rt.backgroundWaitMs = () => {
     const seconds = rt.state?.prefs?.backgroundAfterSec
     return Number.isFinite(seconds) && seconds >= 0 ? seconds * 1000 : BACKGROUND_WAIT_MS
   }
+  // Background jobs still running for a Session. A reply that announces work while
+  // this is empty and no subagent runs is marked in the group view (#977).
   rt.runningJobs = (sessionId) => {
     if (jobs === undefined || sessionId === undefined) return []
     try {
@@ -47,6 +96,16 @@ export function install(rt) {
     } catch {
       return undefined
     }
+  }
+
+  const hasJobCapacity = (sessionId) => {
+    if (jobs === undefined) return false
+    if (typeof jobs.list !== 'function') return true
+    const active = rt.runningJobs(sessionId)
+    if (active === undefined) return false
+    const limit = Number.isInteger(jobs.maxConcurrentJobsPerOwner) && jobs.maxConcurrentJobsPerOwner > 0
+      ? jobs.maxConcurrentJobsPerOwner : DEFAULT_MAX_CONCURRENT_JOBS
+    return active.length < limit
   }
 
   const isUserSteer = (event) => event?.data?.target === 'next-step'
@@ -100,22 +159,46 @@ export function install(rt) {
     source: { kind: 'tool-jobs', form: 'notice', summary: boundContextSummary(`${name} ${command} …`) },
   })
 
+  const redact = (text) => (typeof rt.redactSecrets === 'function' ? rt.redactSecrets(text) : text)
+  const boundedText = (text) => {
+    const safe = redact(typeof text === 'string' ? text : '')
+    const clipped = truncateBytes(safe, INLINE_OUTPUT_LIMIT)
+    return clipped.truncated ? `${clipped.text}\n[output truncated to ${INLINE_OUTPUT_LIMIT} bytes]` : clipped.text
+  }
+
+  // Fallback completion delivery used only when a user steer detached a call
+  // before DSH's own waitOnJob timed out.
   const detachAfter = (jobId, args, exec, def, native, label) => {
     const id = exec.agent.id
     const command = args?.command ?? ''
+    const track = stateOf(id)
+    track.detachedJobs.add(jobId)
+    const consume = () => {
+      track.detachedJobs.delete(jobId)
+      track.settledJobs.delete(jobId)
+      const activeKill = (track.activeKills.get(jobId)?.size ?? 0) > 0
+      const activeRead = (track.activeWaitReads.get(jobId)?.size ?? 0) > 0
+      track.activeKills.delete(jobId)
+      track.activeWaitReads.delete(jobId)
+      for (const [callId, call] of track.jobToolCalls) {
+        if (call.jobId === jobId) track.jobToolCalls.delete(callId)
+      }
+      const killed = track.killedJobs.delete(jobId) || activeKill
+      const read = track.readJobs.delete(jobId) || activeRead
+      return killed || read || liveAgent(id) !== exec.agent
+    }
     native.then(value => {
-      const track = stateOf(id)
-      if (track.killedJobs.delete(jobId) || liveAgent(id) !== exec.agent) return
+      if (consume()) return
       const deliver = (text) => {
         const message = noticeOf(label, command, text)
         if (exec.agent.status === 'idle') return exec.agent.followup(message)
         return exec.agent.inject(message)
       }
       if (value?.kind === 'promoted') {
-        // The native timeout passed after the detach; the job stays registered
-        // and tool-jobs will notify on settle.
+        // The native timeout passed after the steer detach; the job stays
+        // registered and tool-jobs will notify on settle.
         if (typeof value.output === 'string' && value.output !== '') {
-          return deliver(`background job ${jobId} (${label}: ${command}) is still running. Output since your last read:\n${value.output}`)
+          return deliver(`background job ${jobId} (${label}: ${command}) is still running. Output since your last read:\n${boundedText(value.output)}`)
         }
         return
       }
@@ -123,69 +206,112 @@ export function install(rt) {
         .map(block => block?.text ?? '')
         .filter(text => text !== '')
         .join('\n')
-      return deliver(`background job ${jobId} (${label}: ${command}) finished:\n${rendered}`)
+      return deliver(`background job ${jobId} (${label}: ${command}) finished:\n${boundedText(rendered)}`)
     }, error => {
-      const track = stateOf(id)
-      if (track.killedJobs.delete(jobId) || liveAgent(id) !== exec.agent) return
-      const message = noticeOf(label, command, `background job ${jobId} (${label}: ${command}) failed: ${error?.message ?? String(error)}`)
+      if (consume()) return
+      const message = noticeOf(label, command, `background job ${jobId} (${label}: ${command}) failed: ${boundedText(error?.message ?? String(error))}`)
       if (exec.agent.status === 'idle') return exec.agent.followup(message)
       return exec.agent.inject(message)
     })
   }
 
-  const shadowed = new WeakSet()
-  const formatWarned = new Set()
-  const shadowShell = (agent, name) => {
-    if (typeof ctx.tools?.get !== 'function') return
-    const def = ctx.tools.get(name, agent)
-    if (def === undefined) return
+  const paramOf = (def, key) => def?.parameters?.properties?.[key] ?? def?.parameters?.[key]
+  const hasPromotedFormat = (def) => {
     const promoted = (def.output?.schema?.oneOf ?? []).find(variant => variant?.properties?.kind?.const === 'promoted')
-    if (typeof def.output?.render !== 'function'
-      || promoted?.properties?.cwd === undefined || promoted?.properties?.jobId === undefined
-      || promoted?.properties?.timeoutMs === undefined || promoted?.properties?.output === undefined) {
+    return typeof def.output?.render === 'function'
+      && promoted?.properties?.cwd !== undefined && promoted?.properties?.jobId !== undefined
+      && promoted?.properties?.timeoutMs !== undefined && promoted?.properties?.output !== undefined
+  }
+  const hasBackgroundFormat = (def) => paramOf(def, 'run_in_background') !== undefined
+    && (def.output?.schema?.oneOf ?? []).some(variant => variant?.properties?.kind?.const === 'background')
+  const canNativePromote = (def) => hasPromotedFormat(def)
+    && paramOf(def, 'run_in_background') !== undefined
+    && !/kills the command on expiry/i.test(paramOf(def, 'timeoutMs')?.description ?? '')
+
+  // Track the underlying global definition wrapped per agent so tools/change
+  // (e.g. when jobs attaches after startup and dsh-tool-bash re-registers) can
+  // refresh the shadow without recursive wrapping.
+  const wrappedDefs = new WeakSet()
+  const agentShadows = new WeakMap()
+  const formatWarned = new Set()
+  const KEEP_CURRENT = Symbol('keep-current-shadow')
+
+  const rawShellDef = (name, agent) => {
+    if (typeof ctx.tools?.get !== 'function') return undefined
+    const globalDef = ctx.tools.get(name)
+    if (globalDef !== undefined && !wrappedDefs.has(globalDef)) return globalDef
+    const scopedDef = ctx.tools.get(name, agent)
+    if (scopedDef !== undefined && wrappedDefs.has(scopedDef)) return KEEP_CURRENT
+    return scopedDef
+  }
+
+  const shadowShell = (agent, name, def) => {
+    if (!hasPromotedFormat(def)) {
       if (!formatWarned.has(name)) {
         formatWarned.add(name)
         rt.warn('ds-bot: %s has no promoted result format; its calls keep the step boundary', name)
       }
-      return
+      return undefined
     }
-    shadowed.add(agent)
-    const lift = agent.ctx.tools.register({
+    const wrapper = {
       ...def,
       execute: async (args, exec) => {
         const sessionId = exec.agent?.id
         if (args?.run_in_background === true || jobs === undefined || sessionId === undefined
           || !privateOf(sessionId)) return def.execute(args, exec)
+
+        const waitMs = rt.backgroundWaitMs?.()
+        const capacity = hasJobCapacity(sessionId)
+
+        // 0s setting: hand off directly to DSH's native run_in_background path
+        // so approval runs first, startJob registers once, and tool-jobs owns
+        // every read and completion notice.
+        if (waitMs === 0 && capacity && hasBackgroundFormat(def)) {
+          return def.execute({ ...args, run_in_background: true }, exec)
+        }
+
+        // Tighten timeoutMs into DSH's native waitOnJob whenever the shell tool
+        // supports native timeout promotion and the owner has job capacity.
+        // That keeps normal auto-background single-track: waitOnJob itself
+        // returns `{ kind: 'promoted', ... }` without removing the job, and
+        // tool-jobs delivers the single bounded completion notice.
+        const nativePromote = Number.isFinite(waitMs) && waitMs > 0 && capacity && canNativePromote(def)
+        const effectiveTimeoutMs = nativePromote
+          ? (Number.isFinite(args?.timeoutMs) && args.timeoutMs > 0 ? Math.min(args.timeoutMs, waitMs) : waitMs)
+          : undefined
+        const callArgs = effectiveTimeoutMs !== undefined ? { ...args, timeoutMs: effectiveTimeoutMs } : args
+
         const track = stateOf(sessionId)
-        // Proxy exec.signal so a turn cancellation (such as STEER_CUT) after detach cannot
-        // reach dsh-tool-bash/pwsh's waitOnJob and kill the promoted background job, while
-        // still forwarding aborts before detach (including during approval prompts).
+        // Proxy exec.signal so a turn cancellation (such as STEER_CUT) after a
+        // steer detach cannot reach waitOnJob and kill the promoted job, while
+        // still forwarding aborts before detach (including during approvals).
         const nativeController = new AbortController()
         const onTurnAbort = () => nativeController.abort(exec.signal.reason)
         if (exec.signal?.aborted) nativeController.abort(exec.signal.reason)
         else exec.signal?.addEventListener('abort', onTurnAbort, { once: true })
         const detachSignal = () => exec.signal?.removeEventListener('abort', onTurnAbort)
         const nativeExec = exec.signal === undefined ? exec : { ...exec, signal: nativeController.signal }
+
         let steeredAt = (exec.agent.inbox?.nextStep ?? []).some(message => message?.source?.kind === 'user') ? Date.now() : undefined
         let steerSignal
         const onSteer = () => {
           if (steeredAt === undefined) steeredAt = Date.now()
           steerSignal?.()
         }
-        // Subscribe before calling def.execute so a steer arriving during approval or before
-        // job/registered is never missed, while the background wait timer still starts only
-        // once the command is actually registered as a running job.
+        // Subscribe before calling def.execute so a steer arriving during
+        // approval or before job/registered is never missed.
         track.steerWaiters.add(onSteer)
+
         let native
         try {
-          native = Promise.resolve(def.execute(args, nativeExec))
+          native = Promise.resolve(def.execute(callArgs, nativeExec))
         } catch (error) {
           track.steerWaiters.delete(onSteer)
           detachSignal()
           throw error
         }
-        // Prevent unhandledRejection when native fails after being raced; callers still observe it.
         native.catch(() => {})
+
         let jobResolve
         let graceTimer
         let waitTimer
@@ -202,22 +328,31 @@ export function install(rt) {
           const registered = await Promise.race([native.then(() => 'native', () => 'native'), jobWait.then(() => 'job')])
           if (registered !== 'job') return await native
           runningSince = Date.now()
-          const waitMs = rt.backgroundWaitMs?.()
-          if (waitMs !== 0) {
+
+          if (waitMs !== 0 || !capacity) {
             if (steeredAt === undefined && (exec.agent.inbox?.nextStep ?? []).some(message => message?.source?.kind === 'user')) {
               steeredAt = Date.now()
             }
             if (steeredAt === undefined) {
               const steerPromise = new Promise((resolve) => { steerSignal = () => resolve('steered') })
-              const waited = new Promise((resolve) => {
-                if (Number.isFinite(waitMs) && waitMs > 0) waitTimer = setTimeout(() => resolve('waited'), waitMs)
-              })
-              const first = await Promise.race([native.then(() => 'native', () => 'native'), steerPromise, waited])
+              // When nativePromote is active, DSH's own waitOnJob owns the
+              // timeout so we only wake early on a user steer. Otherwise (e.g.
+              // a custom/mock tool without run_in_background), keep the local
+              // wait timer as fallback.
+              const racers = [native.then(() => 'native', () => 'native'), steerPromise]
+              if (!nativePromote && Number.isFinite(waitMs) && waitMs > 0) {
+                racers.push(new Promise((resolve) => { waitTimer = setTimeout(() => resolve('waited'), waitMs) }))
+              }
+              const first = await Promise.race(racers)
               if (first !== 'steered' && first !== 'waited') return await native
             }
             if (steeredAt !== undefined) {
               const remainingGrace = Math.max(0, STEER_GRACE_MS - (Date.now() - steeredAt))
-              const remainingWait = Number.isFinite(waitMs) && waitMs > 0 ? Math.max(0, waitMs - (Date.now() - runningSince)) : Infinity
+              const capMs = effectiveTimeoutMs ?? (Number.isFinite(waitMs) && waitMs > 0 ? waitMs : Infinity)
+              const remainingWait = Number.isFinite(capMs) ? Math.max(0, capMs - (Date.now() - runningSince)) : Infinity
+              // If native waitOnJob will promote within the steer grace window
+              // anyway, stay on the native single track instead of detaching.
+              if (nativePromote && remainingWait <= remainingGrace) return await native
               const grace = Math.min(remainingGrace, remainingWait)
               if (grace > 0) {
                 const graced = await Promise.race([
@@ -228,6 +363,7 @@ export function install(rt) {
               }
             }
           }
+
           if (nativeController.signal.aborted) return await native
           const jobId = track.jobsByCall.get(exec.callId)
           let read
@@ -257,24 +393,87 @@ export function install(rt) {
           clearTimeout(waitTimer)
         }
       },
-    })
-    // tools.js keeps this with the Session's scope; unmarking lets a later
-    // scope register the shadow again.
-    return () => { shadowed.delete(agent); lift?.() }
-  }
-  rt.shadowShells = (agent) => {
-    if (agent === undefined || !rt.isBotSession(agent.session?.id)) return
-    if (shadowed.has(agent) || typeof agent.ctx?.tools?.register !== 'function') return
-    const disposers = []
-    for (const name of SHELL_TOOLS) {
-      try {
-        const lift = shadowShell(agent, name)
-        if (typeof lift === 'function') disposers.push(lift)
-      } catch (error) {
-        rt.warn('ds-bot: shadowing %s failed: %s', name, error)
-      }
     }
-    return disposers
+    wrappedDefs.add(wrapper)
+    const lift = agent.ctx.tools.register(wrapper)
+    return typeof lift === 'function' ? lift : () => {}
+  }
+
+  const syncing = new WeakSet()
+
+  const syncShellShadows = (agent) => {
+    if (agent === undefined || !rt.isBotSession(agent.session?.id)) return false
+    if (typeof agent.ctx?.tools?.register !== 'function') return false
+    // agent.ctx.tools.register() and its disposer synchronously emit tools/change;
+    // ignore re-entrant refreshes triggered by our own mutations.
+    if (syncing.has(agent)) return (agentShadows.get(agent)?.size ?? 0) > 0
+    syncing.add(agent)
+    try {
+      let map = agentShadows.get(agent)
+      const firstAttach = map === undefined
+      if (firstAttach) {
+        map = new Map()
+        agentShadows.set(agent, map)
+      }
+      for (const name of SHELL_TOOLS) {
+        const def = rawShellDef(name, agent)
+        if (def === KEEP_CURRENT) continue
+        const current = map.get(name)
+        if (def === undefined) {
+          if (current !== undefined) {
+            map.delete(name)
+            current.dispose()
+          }
+          continue
+        }
+        if (current?.rawDef === def) continue
+        if (current !== undefined) {
+          map.delete(name)
+          current.dispose()
+        }
+        try {
+          const dispose = shadowShell(agent, name, def)
+          if (dispose !== undefined) map.set(name, { rawDef: def, dispose })
+        } catch (error) {
+          rt.warn('ds-bot: shadowing %s failed: %s', name, error)
+        }
+      }
+      if (firstAttach && map.size === 0) return false
+      return map.size > 0
+    } finally {
+      syncing.delete(agent)
+    }
+  }
+
+  const ownedDisposers = new WeakSet()
+  rt.shadowShells = (agent) => {
+    if (agent === undefined || !rt.isBotSession(agent.session?.id)) return []
+    if (typeof agent.ctx?.tools?.register !== 'function') return []
+    const alreadyOwned = ownedDisposers.has(agent)
+    ownedDisposers.add(agent)
+    syncShellShadows(agent)
+    if (alreadyOwned) return []
+    const id = agent.session?.id ?? agent.id
+    return [() => {
+      ownedDisposers.delete(agent)
+      syncing.add(agent)
+      try {
+        const map = agentShadows.get(agent)
+        agentShadows.delete(agent)
+        if (map !== undefined) {
+          for (const item of map.values()) item.dispose()
+          map.clear()
+        }
+      } finally {
+        syncing.delete(agent)
+      }
+      if (id !== undefined && (liveAgent(id) === undefined || liveAgent(id) === agent)) {
+        state.delete(id)
+      }
+    }]
+  }
+  rt.refreshShellShadows = (agent) => {
+    if (agent !== undefined && ownedDisposers.has(agent)) syncShellShadows(agent)
   }
 
   ctx.on('session/event', (session, event) => {
@@ -308,13 +507,52 @@ export function install(rt) {
       }
       case 'job/settled':
         if (event.data?.toolCall?.callId !== undefined) track.jobsByCall.delete(event.data.toolCall.callId)
+        if (event.data?.jobId !== undefined) {
+          if (track.detachedJobs.has(event.data.jobId)) track.settledJobs.add(event.data.jobId)
+          else track.killedJobs.delete(event.data.jobId)
+        }
         break
       case 'tool/call': {
-        if (event.data?.name === 'job_kill') {
+        if (event.data?.name === 'job_kill' || event.data?.name === 'job_output') {
           try {
             const parsed = JSON.parse(event.data.arguments ?? '{}')
-            if (parsed.job_id !== undefined) track.killedJobs.add(parsed.job_id)
-          } catch { /* unparseable args carry no kill target */ }
+            const jobId = parsed.job_id
+            if (jobId === undefined) break
+            const tracked = track.detachedJobs.has(jobId) || [...track.jobsByCall.values()].includes(jobId)
+            if (tracked) {
+              const callId = event.data.callId
+              if (event.data.name === 'job_kill') {
+                if (callId === undefined) track.killedJobs.add(jobId)
+                else {
+                  track.jobToolCalls.set(callId, { name: 'job_kill', jobId })
+                  addToSetMap(track.activeKills, jobId, callId)
+                }
+              } else if (track.detachedJobs.has(jobId) && (parsed.wait === true || track.settledJobs.has(jobId))) {
+                if (callId === undefined) track.readJobs.add(jobId)
+                else {
+                  track.jobToolCalls.set(callId, { name: 'job_output', jobId })
+                  addToSetMap(track.activeWaitReads, jobId, callId)
+                }
+              }
+            }
+          } catch { /* unparseable args carry no job target */ }
+        }
+        break
+      }
+      case 'tool/result': {
+        const callId = event.data?.message?.toolCallId
+        const call = callId !== undefined ? track.jobToolCalls.get(callId) : undefined
+        if (call === undefined) break
+        track.jobToolCalls.delete(callId)
+        const failed = event.data?.message?.isError === true || event.data?.error !== undefined
+        if (call.name === 'job_kill') {
+          deleteFromSetMap(track.activeKills, call.jobId, callId)
+          if (!failed) track.killedJobs.add(call.jobId)
+        } else if (call.name === 'job_output') {
+          deleteFromSetMap(track.activeWaitReads, call.jobId, callId)
+          if (!failed && TERMINAL_JOB_STATUS.test(contentText(event.data?.message?.content))) {
+            track.readJobs.add(call.jobId)
+          }
         }
         break
       }
