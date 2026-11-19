@@ -32,7 +32,7 @@ const sandbox = {
   },
 }
 runInNewContext(bundle.outputFiles[0].text, sandbox)
-const { groupModels, ModelChoiceDock, ModelKeyCard, effortRows, effortStops, EffortBar, stepMenuFocus, ModelRows, ModelGroupList, groupOpen, toggledGroup, manualFor } = module.exports
+const { groupModels, ModelChoiceDock, ModelKeyCard, effortStops, EffortBar, stepMenuFocus, ModelRows, ModelGroupList, groupOpen, toggledGroup, manualFor } = module.exports
 
 function nodes(tree, match) {
   if (!tree || typeof tree !== 'object') return []
@@ -111,12 +111,10 @@ test('without DSH\'s own settings, the choice offers no way into them', () => {
 
 test('the Thinking section always offers Default, so a picked level can be cleared', () => {
   const efforts = [{ id: 'low', name: 'Low' }, { id: 'high', name: 'High' }]
-  // Array.from: the rows come from the bundle's realm, whose arrays are not this one's.
-  assert.deepEqual(Array.from(effortRows({ efforts, defaultEffort: 'high' }), row => row.effort), [undefined, 'low', 'high'])
-  assert.deepEqual(Array.from(effortRows({ efforts }), row => row.effort), [undefined, 'low', 'high'])
-  assert.equal(effortRows({ efforts: [] }).length, 0)
   // Slider stops use the model's levels when defaultEffort is known (reset clears to Default),
   // and include a leading Default stop when the provider did not name one.
+  // Array.from: the stops come from the bundle's realm, whose arrays are not this one's.
+  assert.equal(effortStops({ efforts: [] }).length, 0)
   assert.deepEqual(Array.from(effortStops({ efforts, defaultEffort: 'high' }), row => row.effort), ['low', 'high'])
   assert.deepEqual(Array.from(effortStops({ efforts }), row => row.effort), [undefined, 'low', 'high'])
   const picked = []

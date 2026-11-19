@@ -36,6 +36,7 @@ const GOAL_REFUSAL = 'Bot chats do not run /goal. To give a group a goal, use Se
 // has no Bot; a Bot's tasks deliver to its own chat, which DS Bot moves on with each part.
 const SCHEDULE_TARGET_TOOLS = ['schedule_create', 'schedule_edit']
 const SCHEDULE_TARGET_REFUSAL = 'A Bot’s scheduled tasks run in its own chat. Use target "this_session".'
+const SCHEDULE_UPDATE_FIELDS = new Set(['id', 'action', 'title', 'prompt', 'rrule', 'target', 'active', 'expectedUpdatedAt'])
 const DELEGATION_REFUSAL = 'Bots do not start subagents, teammates or workflows. Do the work yourself, or hand it to another Bot with message_bot.'
 const MODE_PARAM = {
   type: 'string',
@@ -55,14 +56,14 @@ export function install(rt) {
 
   const callerBot = (exec) => rt.botOf(rt.selfOf(exec.agent?.id))
   const callerRoom = (exec) => {
-    const roomId = rt.groupOwners.get(exec.agent?.id)?.roomId
+    const roomId = (rt.groupOwners.get(exec.agent?.id) ?? rt.pastOwners?.get(exec.agent?.id))?.roomId
     return roomId ? { fromRoomId: roomId } : {}
   }
   // The part of its own chat the caller speaks from, so a reply comes back to that part
   // of the thread (a Bot can work in a background part while the user reads another).
   const callerPart = (exec) => {
     const sessionId = exec.agent?.id
-    return sessionId === undefined || rt.groupOwners.has(sessionId) ? {} : { fromPart: sessionId }
+    return sessionId === undefined || callerRoom(exec).fromRoomId !== undefined ? {} : { fromPart: sessionId }
   }
 
   const sectionNameOf = id => (state.sections ?? []).find(sec => sec.id === id)?.name
@@ -819,7 +820,7 @@ export function install(rt) {
       try {
         // A post that wants the replies names the conversation it was written
         // from, so the report comes back there instead of the own chat.
-        await rt.postToRoom(room, sender, long.text, { mentions, ...(claims ? { claims } : {}), ...(reportBack ? { reportBack: true, ...callerRoom(exec) } : {}), ...(member ? { member: true } : {}), ...(sub ? { sub } : {}), ...(long.length ? { length: long.length } : {}) }, long.files)
+        await rt.postToRoom(room, sender, long.text, { mentions, ...(claims ? { claims } : {}), ...(reportBack ? { reportBack: true, ...callerRoom(exec), ...callerPart(exec) } : {}), ...(member ? { member: true } : {}), ...(sub ? { sub } : {}), ...(long.length ? { length: long.length } : {}) }, long.files)
       } catch (failure) {
         if (sub !== undefined) rt.dropWork(sub)
         return `Could not post in "${room.name}": ${failure.message}`
@@ -945,6 +946,7 @@ export function install(rt) {
     const held = scoped.get(id)
     if (held === undefined) return
     scoped.delete(id)
+    clearTimeout(held.retryTimer)
     for (const dispose of held.disposers) {
       try {
         dispose()
@@ -966,8 +968,18 @@ export function install(rt) {
   }
   ctx.effect(() => () => { for (const id of scoped.keys()) unscope(id) }, 'ds-bot: scoped team tools')
 
-  // A wanted Session whose Agent cannot take scoped tools yet is warned about
-  // once; held.tools stays unset, so the next step's check tries again.
+  const retryBotTools = (agent, held) => {
+    if (held.retryTimer !== undefined || (held.retries ?? 0) >= 5) return
+    held.retryTimer = setTimeout(() => {
+      held.retryTimer = undefined
+      held.retries = (held.retries ?? 0) + 1
+      if (scoped.get(agent.session?.id) !== held) return
+      shareBotTools(agent)
+    }, 1000)
+    held.retryTimer.unref?.()
+  }
+
+  // Warn once, but also retry independently of the next step.
   const registerless = new WeakSet()
   const shareBotTools = (agent) => {
     if (agent === undefined) return
@@ -989,6 +1001,11 @@ export function install(rt) {
       held = undefined
     }
     if (!wanted) return
+    if (held === undefined) {
+      held = { agent, relay: relayOnly, tools: false, restricted: false, filtered: false, disposers: [], unlisted: new Set() }
+      scoped.set(id, held)
+      agent.ctx?.effect?.(() => () => { if (scoped.get(id) === held) unscope(id) })
+    }
     // A live Agent can be scoped while the modules that add tools are still installing:
     // loading the plugin again walks the live Agents from the load the memory module
     // starts, and the tools added after it (memory, secrets, connectors) would never
@@ -1017,6 +1034,12 @@ export function install(rt) {
           rt.warn('ds-bot: team tool %s not added to %s: %s', def.name, id, error)
         }
       }
+      if ([...rt.teamTools, ...(localBot ? (rt.localAgentTools ?? []) : [])].some(def => (!relayOnly || def.name === 'group_relay') && !held.added?.has(def.name))) {
+        retryBotTools(agent, held)
+      } else {
+        clearTimeout(held.retryTimer)
+        held.retryTimer = undefined
+      }
       return
     }
     if (typeof agent.ctx?.tools?.register !== 'function') {
@@ -1024,6 +1047,7 @@ export function install(rt) {
         registerless.add(agent)
         rt.warn('ds-bot: %s needs the team tools but its Agent cannot register them yet', id)
       }
+      retryBotTools(agent, held)
       return
     }
     const disposers = []
@@ -1035,7 +1059,7 @@ export function install(rt) {
         const dispose = agent.ctx.tools.register(def)
         if (typeof dispose === 'function') {
           disposers.push(dispose)
-          ;(held ??= { relay: relayOnly, tools: false, restricted: false, filtered: false, disposers: [], unlisted: new Set() }).toolLifts ??= new Map()
+          held.toolLifts ??= new Map()
           held.toolLifts.set(def.name, dispose)
         }
         registered.push(def.name)
@@ -1045,7 +1069,6 @@ export function install(rt) {
         failed.push(`${def.name}: ${error.message ?? error}`)
       }
     }
-    held ??= { relay: relayOnly, tools: false, restricted: false, filtered: false, disposers: [], unlisted: new Set() }
     held.agent = agent
     held.relay = relayOnly
     held.tools = true
@@ -1057,6 +1080,11 @@ export function install(rt) {
     // assemble adds the pending names to the step's list once, then clears them.
     for (const name of registered) held.unlisted.add(name)
     if (failed.length > 0) rt.warn('ds-bot: team tools not served to %s: %s', id, failed.join('; '))
+    if (failed.length > 0) retryBotTools(agent, held)
+    else {
+      clearTimeout(held.retryTimer)
+      held.retryTimer = undefined
+    }
   }
 
   // The standard preset registers `subagent` (model selection) in each Agent's own
@@ -1075,7 +1103,7 @@ export function install(rt) {
       return {
         ...assembled,
         ...Array.isArray(assembled.tools) ? { tools: assembled.tools.filter(tool => !HIDDEN_TOOLS.includes(tool.name)) } : {},
-        sections: assembled.sections.filter(section => !HIDDEN_SECTIONS.has(section.name)),
+        ...Array.isArray(assembled.sections) ? { sections: assembled.sections.filter(section => !HIDDEN_SECTIONS.has(section.name)) } : {},
       }
     })
     held.filtered = true
@@ -1221,6 +1249,10 @@ export function install(rt) {
   ctx.tools.guard((exec) => {
     if (!rt.isBotSession(exec.agent?.id)) return undefined
     if (exec.name === BLOCKING_QUESTION_TOOL) return `Bots cannot use ${BLOCKING_QUESTION_TOOL}. Ask with ask_user in your own chat, or ask in your reply.`
+    if (exec.name === 'schedule_edit' && exec.arguments?.action === 'update') {
+      const unsupported = Object.keys(exec.arguments).filter(field => !SCHEDULE_UPDATE_FIELDS.has(field))
+      if (unsupported.length > 0) return `These schedule_edit fields are not editable: ${unsupported.join(', ')}. To change frequency, send rrule with a DTSTART anchor in the intended time zone followed by an RRULE line (for example, "DTSTART;TZID=Asia/Taipei:20261118T090000\nRRULE:FREQ=HOURLY;INTERVAL=3"); this converts the task to kind rrule.`
+    }
     const target = exec.arguments?.target
     if (SCHEDULE_TARGET_TOOLS.includes(exec.name) && target !== undefined && target !== 'this_session') return SCHEDULE_TARGET_REFUSAL
     return DELEGATION_TOOLS.includes(exec.name) ? DELEGATION_REFUSAL : undefined

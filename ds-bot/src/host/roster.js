@@ -119,6 +119,7 @@ export function install(rt) {
   // from state.bots; while it is on its way out, no group or Bot change treats it as
   // alive, and a second deleteBot does not start.
   const deleting = new Set()
+  const botDeleteHooks = []
   const liveBot = id => (deleting.has(id) ? undefined : rt.botOf(id))
   const isHeld = (kind, name) => held[kind].has(normalize(name))
   async function holdName(kind, name, work) {
@@ -671,6 +672,8 @@ export function install(rt) {
       }
       state.rooms[id] = room
       await rt.save()
+      // A new Session starts on DSH's default, which may be a model no longer served.
+      await rt.selectRoomSession(id)
       // The Session was resolved before the group owned it, so its relay tool lands now.
       await rt.resolveAgent(id)
       if (name !== title) await retitleRoom(room)
@@ -935,6 +938,7 @@ export function install(rt) {
     if (rt.isMain(id)) throw new Error('A Main Bot cannot be deleted; remove its Main Bot role first')
     deleting.add(id)
     try {
+      for (const hook of botDeleteHooks) await hook(id)
       // Before the Bot and its group Sessions leave the state, which the archive reads.
       const archived = rt.archiveBotMemory(id)
       const current = rt.chatOf(id)
@@ -1018,6 +1022,8 @@ export function install(rt) {
   }
 
   Object.assign(rt, {
+    // Reverse install order (side before BTW) matches the old delete wrappers.
+    onBotDelete: hook => { botDeleteHooks.unshift(hook) },
     ensureWorkspace, keepTeamFolder, createSession, createBot, duplicateBot, updateBot, setFlags,
     saveSection, reorderSections, deleteSection,
     roomBusy, autoRoomName, retitleRoom, createRoom, updateRoom, deleteRoom,

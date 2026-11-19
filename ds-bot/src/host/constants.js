@@ -75,7 +75,7 @@ export const TEAM_TOOLS = [
   'list_bots', 'message_bot', 'stop_bot', 'create_bot', 'update_bot', 'list_bot_models',
   'create_group', 'update_group', 'delete_group', 'group_todo', 'post_to_group', 'ask_user', 'show_view',
   'request_secret', 'list_secrets', 'group_relay', 'read_own_chat',
-  'read_group_chat', 'remember', 'forget', 'recall', 'read_browser',
+  'read_group_chat', 'bot_remember', 'bot_forget', 'bot_recall', 'read_browser',
   'list_capabilities', 'save_capability', 'delete_capability',
   'attach_capability', 'detach_capability', 'group_goal', 'group_task', 'list_connectors', 'request_connector',
 ]
@@ -99,6 +99,11 @@ export const OWN_CHAT_SEARCH = 20
 export const HISTORY_PAGE = 200
 export const HISTORY_PAGES_MAX = 50
 export const HISTORY_TIMEOUT_MS = 20_000
+// How far back a read of the history goes when nothing else stops it, in pages of
+// HISTORY_PAGE. Skipped messages cost no token budget, so a long Session that is mostly
+// Bot messages reads to the start; a full read decompresses tens of megabytes of log,
+// and a few Bots reading at once exhaust the host's heap.
+export const HISTORY_SCAN_PAGES = 10
 // Shown when an aside stops at the route's own output limit. The partial answer stays.
 export const ASIDE_LIMIT = 'Answer cut off at the output limit.'
 

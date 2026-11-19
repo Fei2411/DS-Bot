@@ -15,9 +15,9 @@
 // word, and where the rest is. Input that arrives meanwhile waits and moves along.
 // read_own_chat searches every part, the condensed messages included.
 import { randomUUID } from 'node:crypto'
-import { createUserMessage } from '@deepseek-ai/dsh-llm'
+import { LlmError, createUserMessage, isContextWindowExceededError } from '@deepseek-ai/dsh-llm'
 import { openTurnAt } from './btw.js'
-import { HANDOFF_ACK, HISTORY_TIMEOUT_MS, REPLY_KIND, SOURCE_KIND } from './constants.js'
+import { HANDOFF_ACK, HISTORY_SCAN_PAGES, HISTORY_TIMEOUT_MS, REPLY_KIND, SOURCE_KIND } from './constants.js'
 import { assembleLlmStream } from './models.js'
 import { parseReplies, relayRange, stackReplies } from '../shared/group-replies.js'
 import { CHECKPOINT_PROMPT, STEWARD_SYSTEM, checkpointCount, checkpointTail, checkpointTailNote, checkpointText, linesFor, parseDecision, stewardRequest } from './steward.js'
@@ -188,6 +188,9 @@ export function install(rt) {
   const NOTE_COOLDOWN_MS = [60_000, 300_000, 900_000]
   const SWITCH_ATTEMPTS = 5
   const OVERFLOW = 'CONTEXT_WINDOW_EXCEEDED'
+  // A gateway or compatible endpoint that turns a request down for its size, without
+  // DSH's own overflow code (#1716).
+  const TOO_LARGE = /\b413 status code\b|payload too large|request (?:body|entity) too large|length limit exceeded/i
   // A checkpoint DSH asked for so a model switch could go ahead, written while no route
   // could produce a summary. It is honest about that and points at the messages.
   const NO_SUMMARY = '(No summary was written: no model was free to write it, so the messages the earlier part sent you are carried over word for word below. Read it from them, and read_own_chat finds the rest.)'
@@ -403,10 +406,10 @@ export function install(rt) {
   }
 
   // What was said in one part, newest first: the user, other Bots, and the Bot itself.
-  async function* partLines(sessionId, signal, { group = false, pages } = {}) {
+  async function* partLines(sessionId, signal, { group = false, pages, read } = {}) {
     // Read backwards, a Bot's answers come before the message they answer.
     let answers = []
-    for await (const event of rt.eventsBackwards(sessionId, signal, pages)) {
+    for await (const event of rt.eventsBackwards(sessionId, signal, pages, read)) {
       const entry = historyEntry(event, group)
       if (entry === undefined) continue
       if (entry.answer) {
@@ -432,9 +435,10 @@ export function install(rt) {
     let listed = 0
     let unlisted = 0
     let complete = true
+    const read = {}
     const stamp = line => (group ? `[${clock(line.time)}]` : `[part ${number} #${line.seq} · ${clock(line.time)}]`)
     try {
-      for await (const line of partLines(sessionId, AbortSignal.timeout(HANDOFF_READ_MS), { group, pages: Infinity })) {
+      for await (const line of partLines(sessionId, AbortSignal.timeout(HANDOFF_READ_MS), { group, pages: HISTORY_SCAN_PAGES, read })) {
         if (!full) {
           const text = clip(line.text, RECENT_LINE_MAX, group ? 'the full text is in the saved record' : `read_own_chat around "part ${number} #${line.seq}" shows all of it`)
           const cost = estimateTokens(text)
@@ -463,6 +467,7 @@ export function install(rt) {
       rt.warn('ds-bot: reading %s for its handoff stopped early: %s', sessionId, error)
     }
     // `whole`: every message of the part is in `recent`.
+    complete &&= read.complete === true
     return { recent: recent.reverse(), earlier: earlier.reverse(), unlisted, complete, whole: complete && !full }
   }
 
@@ -599,7 +604,8 @@ export function install(rt) {
     const kept = []
     let used = 0
     let more = false
-    for await (const line of partLines(sessionId, AbortSignal.timeout(HANDOFF_READ_MS), { group, pages: Infinity })) {
+    const read = { continue: () => kept.length === 0 }
+    for await (const line of partLines(sessionId, AbortSignal.timeout(HANDOFF_READ_MS), { group, pages: HISTORY_SCAN_PAGES, read })) {
       if (line.who === 'you') continue
       const text = `${group ? `[${clock(line.time)}]` : `[part ${number} #${line.seq} · ${clock(line.time)}]`} ${clip(line.text, RECENT_LINE_MAX, 'read_own_chat shows all of it')}`
       const cost = estimateTokens(text)
@@ -609,7 +615,12 @@ export function install(rt) {
       }
       kept.push(text)
       used += cost
+      if (read.capped) {
+        more = true
+        break
+      }
     }
+    more ||= read.complete !== true
     return { kept: kept.reverse(), more }
   }
 
@@ -711,7 +722,9 @@ export function install(rt) {
     if (!own?.provider || !own?.model) return undefined
     const group = placeOf(agent.id)?.roomId !== undefined
     const lines = []
-    for await (const line of partLines(agent.id, AbortSignal.timeout(HANDOFF_READ_MS), { group })) {
+    // Two pages is already more than STEWARD_LINES asks for; the default limit would
+    // scan thousands of messages, and each decide then allocated gigabytes.
+    for await (const line of partLines(agent.id, AbortSignal.timeout(HANDOFF_READ_MS), { group, pages: 2 })) {
       lines.push({ who: line.who, text: line.who === 'you' || line.who === 'user' ? line.text.replace(/^(?:You|User): /, '') : line.text })
       if (lines.length >= STEWARD_LINES) break
     }
@@ -834,6 +847,7 @@ export function install(rt) {
       : segment.fallback === 'cutoff' ? 'the part kept being cut off at the output limit'
         : segment.fallback === 'failure' ? 'a request in the previous part kept failing'
           : segment.fallback === 'engine' ? 'what you run on changed'
+            : segment.fallback === 'manual' ? 'a fresh conversation was started'
             : 'the model did not write a usable note'
     const head = `(DS Bot put this note together without the model, because ${why}.`
     return segment.note === undefined
@@ -858,7 +872,7 @@ export function install(rt) {
     const { recent, earlier, unlisted, complete } = lines
     const omitted = [
       ...(unlisted > 0 ? [`(${unlisted} older messages are not listed.)`] : []),
-      ...(!complete ? ['(The oldest part of the record could not be read in time, so some messages may be missing.)'] : []),
+      ...(!complete ? ['(Older messages were not carried; the full record stays saved.)'] : []),
     ]
     return [
       `[Handoff · part ${number}]`,
@@ -880,6 +894,7 @@ export function install(rt) {
       '',
       '## Latest messages (oldest first)',
       recent.length > 0 ? recent.join('\n') : '(none)',
+      ...(room ? omitted : []),
       '',
       !resume ? 'Every message above has had its answer. Nothing needs an answer now; wait for the next message.'
         : bare ? `Your last turn could not finish because the model request kept failing, also in a fresh conversation with the latest messages carried over, so they are left out this time. First tell ${room ? 'the group' : 'the user'} in one short sentence that the last message could not be sent, and ask for it again.`
@@ -968,7 +983,20 @@ export function install(rt) {
     const bot = rt.botOf(owner.botId)
     return owner.next ?? threadCurrentOfPart(bot, sessionId) ?? rt.chatOf(owner.botId)
   }
-  const grown = (sessionId, tokens, lines) => tokens >= (partBase.get(sessionId) ?? 0) + lines.check / 4
+  // Compaction sets partBase from an immediate estimate before the next provider
+  // response reports real usage; lower it when measured context shrinks so stale
+  // estimates cannot keep checkContext suppressed above the line.
+  const lowerPartBase = (sessionId, tokens) => {
+    if (tokens === undefined) return
+    const base = partBase.get(sessionId)
+    if (base !== undefined && tokens < base) partBase.set(sessionId, tokens)
+  }
+  const grown = (sessionId, tokens, lines) => {
+    const base = partBase.get(sessionId) ?? 0
+    // Crossing the hard line from below must still act even when base + check / 4 overshoots it.
+    if (tokens >= lines.hard && base < lines.hard) return true
+    return tokens >= base + lines.check / 4
+  }
   // A read-only process (another dsh holds the team) neither condenses nor switches.
   const readOnly = () => rt.readOnly() !== undefined
 
@@ -1164,12 +1192,11 @@ export function install(rt) {
     }
   }
 
-  // A fresh part runs on the Bot's model; the group's own Session, which has no Bot,
-  // keeps the earlier part's route. That route is what its last request used, which
-  // misses a model the user picked since, so it counts only for a conversation
-  // without a model of its own.
+  // A fresh part runs on its Bot's model. A Bot without a model of its own keeps the
+  // earlier part's route. That route is what its last request used, which misses a model
+  // the user picked since. A group's own Session has no Bot: see selectRoomSession.
   async function freshRoute(bot, session) {
-    const ref = bot === undefined ? undefined : await rt.desiredModel(bot)
+    const ref = await rt.desiredModel(bot)
     if (ref !== undefined) return { ref, effort: await rt.desiredEffort(bot, ref) }
     const route = session.requestHeader()?.config
     return route?.provider && route?.model ? { ref: `${route.provider}/${route.model}`, effort: route.reasoningEffort } : undefined
@@ -1242,7 +1269,7 @@ export function install(rt) {
     let failure
     const local = localPart(session)
     // The group's own Session only relays; it has no route a note could be written with.
-    if (!job.engine && !job.overflow && job.cutoff !== true && job.failed === undefined && !whole && bot !== undefined) {
+    if (!job.engine && !job.overflow && !job.manual && job.cutoff !== true && job.failed === undefined && !whole && bot !== undefined) {
       try {
         const noteSignal = AbortSignal.any([signal, AbortSignal.timeout(NOTE_TIMEOUT_MS)])
         written = local ? await writeLocalNote(agent, noteSignal, { folder: job.folder }) : await writeNote(agent, noteSignal, { folder: job.folder })
@@ -1267,13 +1294,16 @@ export function install(rt) {
     const earlierNote = previous?.note ? { note: previous.note, noteFrom: previous.noteFrom ?? previous.number } : {}
     const noted = written !== undefined ? { note: written.note }
       : job.engine ? { fallback: 'engine', ...earlierNote }
-      : { fallback: whole ? 'whole' : job.failed !== undefined ? 'failure' : job.overflow ? 'overflow' : job.cutoff === true ? 'cutoff' : 'failed', ...earlierNote }
+      : { fallback: whole ? 'whole' : job.failed !== undefined ? 'failure' : job.overflow ? 'overflow' : job.cutoff === true ? 'cutoff' : job.manual && failure === undefined ? 'manual' : 'failed', ...earlierNote }
     carried ??= await readLines()
     if (signal.aborted) throw signal.reason
     const dir = rt.workDirOf(job)
     const intended = dir !== undefined && await rt.isFolder(dir) ? dir : rt.teamFolder()
     const freshId = await rt.createSession(room === undefined ? name : bot === undefined ? room.name : `${name} · ${room.name}`, { dir })
-    const picked = await freshRoute(bot, session)
+    // The group's own Session never asks the model, so it takes the team's default; the
+    // earlier part's route may be one DSH no longer serves (#1310).
+    if (bot === undefined) await rt.selectRoomSession(freshId)
+    const picked = bot === undefined ? undefined : await freshRoute(bot, session)
     if (picked !== undefined && !await selectRoute({ name }, freshId, picked) && job.engine) engineRetry.set(freshId, Date.now() + FOLDER_RETRY_MS)
     if (bot !== undefined) await rt.applyPermission(bot, freshId, room)
       .catch(error => rt.warn('ds-bot: permission for the fresh part of %s not applied: %s', name, error))
@@ -1324,7 +1354,7 @@ export function install(rt) {
     await rt.save()
     // A model the user picked until now went to the earlier part, which was still the
     // Bot's; from here on a change goes to the fresh one.
-    const now = await freshRoute(bot, session)
+    const now = bot === undefined ? undefined : await freshRoute(bot, session)
     if (now !== undefined && (now.ref !== picked?.ref || now.effort !== picked?.effort)) await selectRoute({ name }, freshId, now)
     if (job.failed !== undefined) rescued.set(freshId, job.bare ? 'bare' : 'carried')
     job.moved = true
@@ -1384,6 +1414,11 @@ export function install(rt) {
   ctx.on('agent/pre-step', async (payload, next) => {
     await rt.load()
     const { agent } = payload
+    const local = rt.localAgentOf?.(rt.botOf(rt.selfOf(agent.id)))
+    const route = splitRef(local)?.provider
+    if (route !== undefined && rt.isLocalAgentAvailable?.(route) === false) {
+      throw new LlmError(`Local agent ${route} is unavailable: its route is owned by another adapter`, 'LOCAL_AGENT_MISSING')
+    }
     const past = rt.pastOwners.get(agent.id)
     if (past !== undefined && !rt.isBotSession(agent.id)) {
       await forward(past, payload.messages, threadTargetOf(agent.id, past)).catch(error => rt.warn('ds-bot: input for %s was not handed on: %s', agent.id, error))
@@ -1413,6 +1448,7 @@ export function install(rt) {
     if (localPart(agent.session)) return next()
     const lines = await contextLines(agent.session).catch(() => undefined)
     const tokens = tokensOf(agent.session)
+    if (fresh === undefined && tokens !== undefined && tokens > 0) lowerPartBase(agent.id, tokens)
     if (lines === undefined || tokens === undefined || tokens < lines.hard || !grown(agent.id, tokens, lines) || readOnly()) return next()
     if (await decide(agent, { midTurn: payload.step > 1 }) === 'compact' && await condense(agent, lines, { inTurn: true, signal: payload.signal })) return next()
     if (!await canMakeRoom(agent, payload.messages)) return next()
@@ -1549,11 +1585,26 @@ export function install(rt) {
     return undefined
   }, { prepend: true })
 
+  // A request the endpoint turned down as too large: DSH's overflow code, a 413 or
+  // overflow wording under a generic code, or a generic refusal of a part already past
+  // its hard line. A real bad request on such a part costs one move: the fresh part is
+  // below the line, so the same refusal then keeps its real error there.
+  async function overflowed(agent, failure) {
+    if (failure?.code === OVERFLOW) return true
+    if (failure?.code !== 'INVALID_REQUEST') return false
+    const message = String(failure.message ?? '')
+    if (failure.status === 413 || TOO_LARGE.test(message) || isContextWindowExceededError(message)) return true
+    if (localPart(agent.session)) return false
+    const lines = await contextLines(agent.session).catch(() => undefined)
+    const tokens = tokensOf(agent.session)
+    return lines !== undefined && tokens !== undefined && tokens >= lines.hard
+  }
+
   ctx.on('agent/request-error', async (payload, next) => {
-    if (payload.failure?.code !== OVERFLOW || payload.signal?.aborted) return next()
+    if (payload.signal?.aborted || (payload.failure?.code !== OVERFLOW && payload.failure?.code !== 'INVALID_REQUEST')) return next()
     await rt.load()
     const { agent } = payload
-    if (!rt.isBotSession(agent.id) || switches.has(agent.id) || readOnly() || !await canMakeRoom(agent)) return next()
+    if (!rt.isBotSession(agent.id) || switches.has(agent.id) || readOnly() || !await overflowed(agent, payload.failure) || !await canMakeRoom(agent)) return next()
     const entry = rt.liveOf(agent.id)
     entry.switched = true
     startSwitch(agent, { resume: true, info: entry.info, joined: [...(entry.joined ?? [])], overflow: true })
@@ -1580,6 +1631,7 @@ export function install(rt) {
     }
     const lines = await contextLines(agent.session)
     const tokens = tokensOf(agent.session)
+    lowerPartBase(agent.id, tokens)
     if (lines === undefined || tokens === undefined || tokens < lines.check || !grown(agent.id, tokens, lines)) return
     const hard = tokens >= lines.hard
     if (!hard && Date.now() < (noteFailures.get(agent.id)?.until ?? 0)) return
@@ -1606,6 +1658,7 @@ export function install(rt) {
     const lines = await contextLines(agent.session).catch(() => undefined)
     if (context === undefined || lines === undefined) return
     const tokens = context.used
+    lowerPartBase(agent.id, tokens)
     const condensed = context.compactions > (cliCompactions.get(agent.id) ?? 0)
     cliCompactions.set(agent.id, context.compactions)
     // Condensed past the check line and still there: a checkpoint that did not make
@@ -1919,6 +1972,7 @@ export function install(rt) {
     delete_group: 'Deleting the group', post_to_group: 'Posting in the group',
     list_bots: 'Checking the team', read_group_chat: 'Reading a group chat',
     read_own_chat: 'Looking back through the chat',
+    bot_remember: 'Saving to memory', bot_forget: 'Updating memory', bot_recall: 'Checking memory',
     remember: 'Saving to memory', forget: 'Updating memory', recall: 'Checking memory',
   }
   const toolLabel = name => STEP_LABELS[name] ?? TOOL_PHRASES.find(([pattern]) => pattern.test(name))?.[1]
@@ -2014,17 +2068,18 @@ export function install(rt) {
   // "New session" in a Bot's chat: a manual move to a fresh part with the
   // deterministic handoff package, no model call. While the Bot is working the fresh
   // part starts at once and the part it replaces keeps running in the background.
+  // A member's conversation in a group moves the same way, but only while it is idle.
   async function newPart(sessionId) {
     await rt.load()
     const agent = await rt.resolveAgent(sessionId)
     const place = placeOf(sessionId)
-    if (place?.botId === undefined || place.roomId !== undefined) throw Object.assign(new Error('Only a Bot\'s own chat can start a fresh part'), { code: 'bot/invalid' })
+    if (place?.botId === undefined) throw Object.assign(new Error('Only a Bot\'s own conversation can start a fresh part'), { code: 'bot/invalid' })
     if (agent.status === 'idle') {
       startSwitch(agent, { manual: true })
       return true
     }
     const bot = rt.botOf(place.botId)
-    if (bot === undefined || switches.has(sessionId)) throw Object.assign(new Error('The Bot is working; wait for it to finish or stop it first'), { code: 'bot/busy' })
+    if (bot === undefined || place.roomId !== undefined || switches.has(sessionId)) throw Object.assign(new Error('The Bot is working; wait for it to finish or stop it first'), { code: 'bot/busy' })
     await openPartNow(bot, agent)
     return true
   }

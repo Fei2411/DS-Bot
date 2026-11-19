@@ -1298,9 +1298,6 @@ export function install(rt) {
     holds: Object.fromEntries(holds),
   })
   rt.computerEndpoint = computerEndpoint
-  rt.computerLevelOf = levelOf
-  rt.computerEnabled = enabled
-  rt.isProtectedApp = isProtectedApp
   // A member whose turn waits on the app-access card shows 'waiting for approval'
   // in its group, the same as a DSH approval does.
   const baseWaits = rt.waitsForApproval

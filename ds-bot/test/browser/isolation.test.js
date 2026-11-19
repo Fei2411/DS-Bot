@@ -4,15 +4,14 @@ import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
-import { mountBrowserPlugin } from '../../ds-bot/src/host/browser/mount.js'
-import { toolDefs as refsTools } from '../../ds-bot/src/host/browser/refs.js'
-import { openBotBrowser } from '../../ds-bot/src/host/browser/session.js'
-import { startFixture } from '../bench/fixture.mjs'
+import { mountBrowserPlugin } from '../../src/host/browser/mount.js'
+import { toolDefs as refsTools } from '../../src/host/browser/refs.js'
+import { openBotBrowser } from '../../src/host/browser/session.js'
+import { startFixture } from './shop-pages.mjs'
 
-const playwrightUrl = new URL('../node_modules/playwright/index.js', import.meta.url).href
+// The Chromium the tests drive: Playwright's own build, or another one named in BROWSER_EXECUTABLE_PATH.
 const browserOptions = {
   headless: true,
-  playwrightUrl,
   ...(process.env.BROWSER_EXECUTABLE_PATH ? { executablePath: process.env.BROWSER_EXECUTABLE_PATH } : {}),
 }
 
@@ -144,7 +143,6 @@ test('mounts distinct Bot profiles and reuses one browser across a Bot’s sessi
     async keyOf(exec) { return exec.botId },
     profileRoot,
     headless: true,
-    playwrightUrl,
     executablePath: browserOptions.executablePath,
   })
   try {
