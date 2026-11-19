@@ -19,6 +19,11 @@ function screen(room: Record<string, unknown>, call = async (_name: string, _bod
   const modules: Record<string, unknown> = {
     'react/jsx-runtime': { jsx, jsxs: jsx },
     react: {
+      useRef: (initial: unknown) => {
+        const index = cursor++
+        if (!(index in states)) states[index] = { current: initial }
+        return states[index]
+      },
       useState: (initial: unknown) => {
         const index = cursor++
         if (!(index in states)) states[index] = initial
@@ -200,4 +205,28 @@ test('native-picker hosts can select saved and recent folders even when listing 
       onPick === 'team' ? { path } : { id: onPick === 'room' ? 'room-1' : 'bot-1', workDir: path }])
     assert.deepEqual(JSON.parse(JSON.stringify(writes)), expected)
   }
+})
+
+test('a late folder listing cannot replace a newer recent-folder selection', async () => {
+  const replies: ((value: unknown) => void)[] = []
+  const writes: unknown[] = []
+  const { render } = screen({}, async (name, body) => {
+    if (name === 'folders') return { folders: [{ title: 'Project B', path: '/project-b' }] }
+    if (name === 'folder-list') return new Promise(resolve => replies.push(resolve))
+    writes.push([name, body]); return {}
+  }, true)
+  const props = { route: { params: { onPick: 'room', roomId: 'room-1' } }, navigation: { goBack: () => {} } }
+  render('Folder', props)
+  await new Promise(setImmediate)
+  nodes(render('Folder', props)).find(node => node.props.label === 'Project B')!.props.onPress()
+  replies[1]({ path: '/project-b/resolved', entries: [] })
+  await new Promise(setImmediate)
+  replies[0]({ path: '/home', entries: [{ name: 'stale', path: '/home/stale' }] })
+  await new Promise(setImmediate)
+  const tree = render('Folder', props)
+  assert.ok(nodes(tree).some(node => node.props.label === '/project-b/resolved'))
+  assert.equal(nodes(tree).some(node => node.props.label === 'stale'), false)
+  nodes(tree).find(node => node.props.accessibilityRole === 'button')!.props.onPress()
+  await new Promise(setImmediate)
+  assert.deepEqual(JSON.parse(JSON.stringify(writes)), [['update-room', { id: 'room-1', workDir: '/project-b/resolved' }]])
 })

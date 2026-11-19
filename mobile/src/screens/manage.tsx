@@ -1,7 +1,7 @@
 // Bot and group management screens, mirroring the desktop details drawer and
 // settings forms: Bot details, Edit Bot, Create Bot, group settings, and the
 // "new" sheet. Every write goes through the same endpoints the desktop calls.
-import { Children, Fragment, useCallback, useContext, useEffect, useState } from 'react'
+import { Children, Fragment, useCallback, useContext, useEffect, useRef, useState } from 'react'
 import { useIsFocused } from '@react-navigation/native'
 import { Image, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
@@ -937,10 +937,13 @@ export function Folder({ route, navigation }: any) {
   const [path, setPath] = useState(String(route.params?.current ?? ''))
   const [listing, setListing] = useState<{ path: string; crumbs?: { path: string }[]; entries: { name: string; path: string }[]; truncated?: boolean } | null>(null)
   const [recent, setRecent] = useState<{ path: string; title: string }[]>([])
+  const request = useRef(0)
   const load = (next: string) => {
+    const id = ++request.current
     setPath(next)
     setListing(null)
     void call('folder-list', { path: next }).then(v => {
+      if (id !== request.current) return
       const nextListing = v as NonNullable<typeof listing>
       setListing(nextListing)
       setPath(nextListing.path)
