@@ -6,7 +6,7 @@ type StateLike = NavigationState | PartialState<NavigationState> | undefined
 // the sidebar; pushed screens and modal sheets must let the navigator pop them.
 export function canBackOpenDrawer(state: StateLike): boolean {
   const routes = state?.routes
-  if (routes === undefined || routes.length === 0) return true
+  if (routes === undefined || routes.length === 0) return false
   const top = routes[state?.index ?? 0]
   return top?.name === 'Chat'
 }

@@ -163,9 +163,9 @@ test('back on Settings, Memory, and pushed screens navigates back instead of ope
   assert.deepEqual(app.counts(), { opens: 1, closes: 0, minimized: 1 })
 })
 
-test('canBackOpenDrawer defaults to true before navigator state exists and false for modal sheets', () => {
-  assert.equal(canBackOpenDrawer(undefined), true)
-  assert.equal(canBackOpenDrawer({ routes: [] }), true)
+test('canBackOpenDrawer returns false before navigator state exists and for modal sheets', () => {
+  assert.equal(canBackOpenDrawer(undefined), false)
+  assert.equal(canBackOpenDrawer({ routes: [] }), false)
   assert.equal(canBackOpenDrawer({ routes: [{ key: 'c', name: 'Chat' }], index: 0 }), true)
   assert.equal(canBackOpenDrawer({ routes: [{ key: 'c', name: 'Chat' }, { key: 'n', name: 'Needs' }], index: 1 }), false)
 })
