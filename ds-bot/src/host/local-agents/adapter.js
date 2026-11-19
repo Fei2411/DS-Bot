@@ -1161,8 +1161,9 @@ function toLlmError(error, live) {
   const upstream = [error?.data?.error, error?.data].filter(value => value !== null && typeof value === 'object' && !Array.isArray(value))
   const text = [...new Set([errorText(error), ...upstream.flatMap(value => [value.message, value.detail]).filter(nonEmptyString)])].join('\n')
   const upstreamCode = upstream.map(value => value?.code).find(nonEmptyString)
-  const classificationText = upstreamCode === undefined ? text
-    : [errorText(error), upstreamCode.replace(/[_-]/g, ' ')].join('\n')
+  const classificationText = [upstreamCode === undefined ? text : errorText(error),
+    ...[upstreamCode, error?.code].filter(nonEmptyString).map(code => code.replace(/[_-]/g, ' ')),
+  ].join('\n')
   // A CLI whose context is past its window: the part moves on the way an overflow does.
   const overflow = /prompt is too long|context.?(window|length).?(exceeded|is full)|context_length_exceeded|exceeds the (model's )?(maximum )?context|too many tokens/i
   const code = error?.code === 'NO_ADAPTER' ? 'LOCAL_AGENT_MISSING'

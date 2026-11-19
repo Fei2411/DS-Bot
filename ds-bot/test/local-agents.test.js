@@ -1752,6 +1752,11 @@ test('ACP upstream error data preserves code, detail and status (#1806)', async 
       data: { status: 403, code: 'content_policy_rejected', [field]: text }, code: 'content_policy_rejected', text, status: 403,
     }))),
     { data: { code: 'context_length_exceeded', detail: 'Request rejected' }, code: 'CONTEXT_WINDOW_EXCEEDED', text: 'Request rejected' },
+    { outerCode: 'auth_failed', code: 'LOCAL_AGENT_SIGNIN', text: 'Internal error' },
+    { outerCode: 'rate_limit_exceeded', code: 'LOCAL_AGENT_QUOTA', text: 'Internal error' },
+    { outerCode: 'NO_ADAPTER', code: 'LOCAL_AGENT_MISSING', text: 'Internal error' },
+    { outerCode: 'auth_failed', data: { code: 'upstream_failure', detail }, code: 'LOCAL_AGENT_SIGNIN', text: detail },
+    { outerCode: 'rate_limit_exceeded', data: { code: 'upstream_failure', detail }, code: 'LOCAL_AGENT_QUOTA', text: detail },
     ...[
       ['Too many tokens', 'CONTEXT_WINDOW_EXCEEDED'],
       ['Login required', 'LOCAL_AGENT_SIGNIN'],
@@ -1777,7 +1782,7 @@ test('ACP upstream error data preserves code, detail and status (#1806)', async 
       t.after(() => adapter.dispose())
       const peer = new JsonRpcPeer(request => peer.handleLine(JSON.stringify({
         jsonrpc: '2.0', id: request.id,
-        error: { code: -32603, message: entry.message ?? 'Internal error', data: entry.data },
+        error: { code: entry.outerCode ?? -32603, message: entry.message ?? 'Internal error', data: entry.data },
       })))
       adapter.engine('local-acp-fake').prompt = () => peer.request('session/prompt', {})
       await assert.rejects(collect(adapter.stream(options('s1', [user('m1', 'hello')]))), err => {
