@@ -67,9 +67,17 @@ test('the group folder picker saves or clears through update-room and returns on
   for (const clear of [false, true]) {
     const calls: unknown[] = []
     let back = 0
-    const { render } = screen({}, async (name, body) => { calls.push([name, body]); return {} })
-    const tree = render('Folder', { route: { params: { current: '/work/project', onPick: 'room', roomId: 'room-1' } }, navigation: { goBack: () => { back++ } } })
+    const { render } = screen({}, async (name, body) => {
+      if (name === 'folders') return { folders: [] }
+      if (name === 'folder-list') return { path: '/work/project', crumbs: [], entries: [] }
+      calls.push([name, body]); return {}
+    }, true)
+    const props = { route: { params: { current: '/work/project', onPick: 'room', roomId: 'room-1' } }, navigation: { goBack: () => { back++ } } }
+    render('Folder', props)
+    await new Promise(setImmediate)
+    const tree = render('Folder', props)
     const row = nodes(tree).find(node => clear ? node.props.label === "Each Bot's own folder" : node.props.accessibilityRole === 'button')!
+    assert.notEqual(row.props.disabled, true)
     row.props.onPress()
     await new Promise(setImmediate)
     assert.deepEqual(JSON.parse(JSON.stringify(calls)), [['update-room', { id: 'room-1', workDir: clear ? '' : '/work/project' }]])
@@ -79,8 +87,14 @@ test('the group folder picker saves or clears through update-room and returns on
 
 test('the group folder picker keeps the screen open and shows a rejected write', async () => {
   let back = 0
-  const { render } = screen({}, async () => { throw new Error('Folder is not accessible') })
+  const { render } = screen({}, async name => {
+    if (name === 'folders') return { folders: [] }
+    if (name === 'folder-list') return { path: '/missing', crumbs: [], entries: [] }
+    throw new Error('Folder is not accessible')
+  }, true)
   const props = { route: { params: { current: '/missing', onPick: 'room', roomId: 'room-1' } }, navigation: { goBack: () => { back++ } } }
+  render('Folder', props)
+  await new Promise(setImmediate)
   const tree = render('Folder', props)
   nodes(tree).find(node => node.props.accessibilityRole === 'button')!.props.onPress()
   await new Promise(setImmediate)
@@ -119,4 +133,40 @@ test('folder roots, missing crumbs and failed listings do not offer a parent', a
     await new Promise(setImmediate)
     assert.equal(nodes(render('Folder', props)).some(node => node.props.label === 'Up one level'), false)
   }
+})
+
+test('an unset folder selects the resolved host directory rather than clearing the group folder', async () => {
+  const writes: unknown[] = []
+  const { render } = screen({}, async (name, body) => {
+    if (name === 'folders') return { folders: [] }
+    if (name === 'folder-list') {
+      assert.equal(body.path, '')
+      return { path: '/home/user', crumbs: [{ path: '/' }, { path: '/home' }, { path: '/home/user' }], entries: [] }
+    }
+    writes.push([name, body]); return {}
+  }, true)
+  const props = { route: { params: { onPick: 'room', roomId: 'room-1' } }, navigation: { goBack: () => {} } }
+  const loading = render('Folder', props)
+  assert.equal(nodes(loading).find(node => node.props.accessibilityRole === 'button')!.props.disabled, true)
+  await new Promise(setImmediate)
+  const tree = render('Folder', props)
+  assert.ok(nodes(tree).some(node => node.props.label === '/home/user'))
+  const choose = nodes(tree).find(node => node.props.accessibilityRole === 'button')!
+  assert.equal(choose.props.disabled, false)
+  choose.props.onPress()
+  await new Promise(setImmediate)
+  assert.deepEqual(JSON.parse(JSON.stringify(writes)), [['update-room', { id: 'room-1', workDir: '/home/user' }]])
+})
+
+test('a failed initial folder listing cannot submit an unresolved path', async () => {
+  const { render } = screen({}, async name => {
+    if (name === 'folders') return { folders: [] }
+    throw new Error('Cannot list folders')
+  }, true)
+  const props = { route: { params: { onPick: 'room', roomId: 'room-1' } }, navigation: {} }
+  render('Folder', props)
+  await new Promise(setImmediate)
+  const tree = render('Folder', props)
+  assert.equal(nodes(tree).find(node => node.props.accessibilityRole === 'button')!.props.disabled, true)
+  assert.ok(nodes(tree).find(node => node.props.label === "Each Bot's own folder"))
 })
