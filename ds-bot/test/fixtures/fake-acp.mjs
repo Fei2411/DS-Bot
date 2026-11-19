@@ -161,6 +161,9 @@ async function runPrompt(session, prompt, requestId) {
     }, 20)
     return
   }
+  if (text.includes('rpc-error-number')) { send({ jsonrpc: '2.0', id: requestId, error: { code: -32603, message: 'Internal error: approval was cancelled' } }); return }
+  if (text.includes('rpc-error-empty')) { send({ jsonrpc: '2.0', id: requestId, error: { code: '', message: 'Internal error: empty code' } }); return }
+  if (text.includes('rpc-error-object')) { send({ jsonrpc: '2.0', id: requestId, error: { code: -32603, message: { reason: 'stopped' } } }); return }
   if (text.includes('count-sessions')) { finish(`sessions: ${sessions.size}`); return }
   if (/\bhang\b/.test(text)) return // session/cancel releases it below
   if (text.includes('show-state')) { finish(`cwd: ${process.cwd()}; effort: ${session.thoughtLevel ?? 'default'}${legacyModels ? `; model: ${session.model ?? 'default'}` : ''}`); return }

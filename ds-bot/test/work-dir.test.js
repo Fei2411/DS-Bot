@@ -59,7 +59,7 @@ async function start({ services = {}, workspaces = [], llm, team: saved = TEAM, 
       const calls = []
       agents.set(sessionId, {
         id: sessionId,
-        session: { id: sessionId, header: { cwd: cwds.get(sessionId) ?? team }, requestHeader: () => undefined, deriveMessages: () => [] },
+        session: { id: sessionId, seq: 0, header: { cwd: cwds.get(sessionId) ?? team }, requestHeader: () => undefined, deriveMessages: () => [] },
         calls,
         status: 'idle',
         followup(message) { calls.push(['followup', message]) },

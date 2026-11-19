@@ -33,8 +33,8 @@ export class ClaudeEngine {
     return session.running === true
   }
 
-  steer(session, text) {
-    return session.prompt([{ type: 'text', text }])
+  steer(session, input) {
+    return session.steer(input)
   }
 
   cancel(session) {
@@ -256,8 +256,8 @@ class ClaudeSession {
     return Promise.resolve()
   }
 
-  async steer(thread, input) {
-    this.prompt(Array.isArray(input) ? input : [{ type: 'text', text: input }])
+  steer(input) {
+    return this.prompt(Array.isArray(input) ? input : [{ type: 'text', text: input }])
   }
 
   // `/compact` in stream-json runs the CLI's own compaction and ends with a result.

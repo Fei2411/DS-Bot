@@ -253,3 +253,71 @@ test('a socket that cannot be built at the handshake is retried (#1119)', async 
   assert.ok(ready !== undefined, 'the connection became ready after a new socket')
   assert.equal(fake.sockets.length, 1)
 })
+
+test('a voice message arrives as the platform ASR text (#1824)', async (t) => {
+  const fake = await fakeQq()
+  const messages = []
+  const handle = qq.connect(FIELDS, env(fake), { onMessage: async msg => { messages.push(msg) }, onAction: () => {}, onStatus: () => {} })
+  t.after(() => { handle.stop(); fake.close() })
+  const ws = await until(() => fake.sockets[0])
+  await until(() => fake.packets.some(packet => packet.op === 2))
+  // A QQ voice message carries no content: only an attachment with the
+  // platform's own transcription.
+  fake.push(ws, {
+    op: 0,
+    t: 'C2C_MESSAGE_CREATE',
+    s: 2,
+    d: {
+      id: 'm1',
+      content: '',
+      author: { user_openid: 'u1' },
+      attachments: [
+        { content_type: 'voice', url: 'https://multimedia.nt.qq.com.cn/x.amr', asr_refer_text: '明天下午三点开会', voice_wav_url: 'https://multimedia.nt.qq.com.cn/x.wav' },
+      ],
+    },
+  })
+  await until(() => messages.length === 1)
+  assert.equal(messages.length, 1, 'the voice message reached the bot')
+  assert.equal(messages[0].text, '明天下午三点开会')
+})
+
+test('a voice attachment without ASR text leaves the text empty', async (t) => {
+  const fake = await fakeQq()
+  const messages = []
+  const handle = qq.connect(FIELDS, env(fake), { onMessage: async msg => { messages.push(msg) }, onAction: () => {}, onStatus: () => {} })
+  t.after(() => { handle.stop(); fake.close() })
+  const ws = await until(() => fake.sockets[0])
+  await until(() => fake.packets.some(packet => packet.op === 2))
+  fake.push(ws, {
+    op: 0,
+    t: 'C2C_MESSAGE_CREATE',
+    s: 2,
+    d: { id: 'm1', content: '', author: { user_openid: 'u1' }, attachments: [{ content_type: 'voice', url: 'https://x.amr' }] },
+  })
+  // The event still reaches the handler so the core can answer "no text":
+  // dropping it silently is what the bug report is about.
+  await until(() => messages.length === 1)
+  assert.equal(messages[0].text, '')
+})
+
+test('a caption on a voice message wins over the ASR text', async (t) => {
+  const fake = await fakeQq()
+  const messages = []
+  const handle = qq.connect(FIELDS, env(fake), { onMessage: async msg => { messages.push(msg) }, onAction: () => {}, onStatus: () => {} })
+  t.after(() => { handle.stop(); fake.close() })
+  const ws = await until(() => fake.sockets[0])
+  await until(() => fake.packets.some(packet => packet.op === 2))
+  fake.push(ws, {
+    op: 0,
+    t: 'C2C_MESSAGE_CREATE',
+    s: 2,
+    d: {
+      id: 'm1',
+      content: '听一下这个',
+      author: { user_openid: 'u1' },
+      attachments: [{ content_type: 'voice', url: 'https://x.amr', asr_refer_text: '明天下午三点开会' }],
+    },
+  })
+  await until(() => messages.length === 1)
+  assert.equal(messages[0].text, '听一下这个')
+})
