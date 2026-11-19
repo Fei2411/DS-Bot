@@ -1755,8 +1755,17 @@ test('ACP upstream error data preserves code, detail and status (#1806)', async 
     { outerCode: 'auth_failed', code: 'LOCAL_AGENT_SIGNIN', text: 'Internal error' },
     { outerCode: 'rate_limit_exceeded', code: 'LOCAL_AGENT_QUOTA', text: 'Internal error' },
     { outerCode: 'NO_ADAPTER', code: 'LOCAL_AGENT_MISSING', text: 'Internal error' },
-    { outerCode: 'auth_failed', data: { code: 'upstream_failure', detail }, code: 'LOCAL_AGENT_SIGNIN', text: detail },
-    { outerCode: 'rate_limit_exceeded', data: { code: 'upstream_failure', detail }, code: 'LOCAL_AGENT_QUOTA', text: detail },
+    { outerCode: 'auth_failed', data: { code: 'upstream_failure', detail }, code: 'upstream_failure', text: detail },
+    { outerCode: 'rate_limit_exceeded', data: { code: 'upstream_failure', detail }, code: 'upstream_failure', text: detail },
+    { message: 'Unauthorized content was rejected.', data: { status: 403, code: 'content_policy_rejected' }, code: 'content_policy_rejected', text: 'Unauthorized content was rejected.', status: 403 },
+    { data: { status: 504, code: 'deadline_exceeded', detail: 'The upstream service timed out.' }, code: 'deadline_exceeded', text: 'The upstream service timed out.', status: 504 },
+    { outerCode: 'deadline_exceeded', code: 'deadline_exceeded', text: 'Internal error' },
+    ...['auth_failed', 'unauthorized', 'unauthenticated', 'authentication_failed', 'not_logged_in'].map(code => ({
+      data: { code }, code: 'LOCAL_AGENT_SIGNIN', text: 'Internal error',
+    })),
+    ...['rate_limit_exceeded', 'quota_exceeded', 'insufficient_quota', 'usage_limit_exceeded'].map(code => ({
+      data: { code }, code: 'LOCAL_AGENT_QUOTA', text: 'Internal error',
+    })),
     ...[
       ['Too many tokens', 'CONTEXT_WINDOW_EXCEEDED'],
       ['Login required', 'LOCAL_AGENT_SIGNIN'],
@@ -1769,7 +1778,7 @@ test('ACP upstream error data preserves code, detail and status (#1806)', async 
       ['Login required', 'LOCAL_AGENT_SIGNIN'],
       ['Rate limit reached', 'LOCAL_AGENT_QUOTA'],
       ['Too many tokens', 'CONTEXT_WINDOW_EXCEEDED'],
-    ].map(([message, code]) => ({ message, data: { code: 'upstream_failure', detail }, code, text: detail })),
+    ].map(([message, code]) => ({ message, data: { detail }, code, text: detail })),
     { data: { code: '', detail }, code: 'LOCAL_AGENT_ERROR', text: detail },
     { data: { code: 403, detail }, code: 'LOCAL_AGENT_ERROR', text: detail },
     { data: { code: '  ', detail, status: 999 }, code: 'LOCAL_AGENT_ERROR', text: detail },
