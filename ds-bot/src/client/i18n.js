@@ -659,6 +659,8 @@ const ZH = {
   'Thinking only': '仅思考',
   'Work process · {count}': '工作过程 · {count} 步',
   'Enter sends message': '回车发送消息',
+  'Background work': '后台工作',
+  'Background commands after (seconds)': '命令转后台（秒）',
   'Bring up related memory': '自动带上相关记忆',
   'Group memory size': '群记忆容量',
   'Bot memory size': 'Bot 记忆容量',

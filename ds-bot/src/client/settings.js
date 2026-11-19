@@ -67,6 +67,20 @@ function MemorySize({ label, value, save }) {
   return h('input', { className: 'bt-input bt-set-number', type: 'number', min: 1_000, max: 200_000, step: 1_000, 'aria-label': label, value: text, onChange: event => setText(event.target.value), onBlur: commit, onKeyDown: event => { if (event.key === 'Enter') event.target.blur() } })
 }
 
+// Seconds a Bot's own chat waits for a command before it goes on in the background
+// (host default 5; the host checks the range again).
+const BACKGROUND_AFTER_SEC = 5
+function SecondsField({ label, value, save }) {
+  const [text, setText] = useState(String(value))
+  useEffect(() => setText(String(value)), [value])
+  const commit = () => {
+    const number = Number(text)
+    if (text.trim() !== '' && Number.isInteger(number) && number >= 0 && number <= 600 && number !== value) save(number)
+    else setText(String(value))
+  }
+  return h('input', { className: 'bt-input bt-set-number', type: 'number', min: 0, max: 600, step: 1, 'aria-label': label, value: text, onChange: event => setText(event.target.value), onBlur: commit, onKeyDown: event => { if (event.key === 'Enter') event.target.blur() } })
+}
+
 function SetSection({ title, action = null, className = '', children }) {
   return h('section', { className: `bt-set-section ${className}`.trim() },
     action ? h('div', { className: 'bt-la-sec-head' }, h('h3', null, title), action) : title ? h('h3', null, title) : null,
@@ -167,6 +181,9 @@ function GeneralPage({ roster, actions, run, dsh }) {
     h(SetSection, { key: 'input', title: t('Input') },
       h(SetRow, { label: t('Enter sends message') },
         h(Switch, { label: t('Enter sends message'), on: prefs.enterToSend !== false, onChange: enterToSend => run(actions.setPrefs({ enterToSend })) }))),
+    h(SetSection, { key: 'background', title: t('Background work') },
+      h(SetRow, { label: t('Background commands after (seconds)') },
+        h(SecondsField, { label: t('Background commands after (seconds)'), value: prefs.backgroundAfterSec ?? BACKGROUND_AFTER_SEC, save: backgroundAfterSec => run(actions.setPrefs({ backgroundAfterSec })) }))),
     h(SetSection, { key: 'memory', title: t('Memory') },
       h(SetRow, { label: t('Bring up related memory') },
         h(Switch, { label: t('Bring up related memory'), on: prefs.memoryAutoRecall !== false, onChange: memoryAutoRecall => run(actions.setPrefs({ memoryAutoRecall })) })),
