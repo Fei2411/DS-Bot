@@ -236,9 +236,19 @@ function probeMacKeychain({ service, account }, spawnKeychain) {
 // (it ignores XDG_DATA_HOME and LOCALAPPDATA).
 const APP_DATA = { darwin: ['Library', 'Application Support'], win32: ['AppData', 'Local'] }
 
-function probeAppDataFile({ path, loggedOut }, home, platform) {
+function hasJsonPaths(file, paths) {
+  try {
+    const data = JSON.parse(readFileSync(file, 'utf8'))
+    return paths.every((path) => Boolean(path.reduce((value, key) => value?.[key], data)))
+  } catch {
+    return false
+  }
+}
+
+function probeAppDataFile({ path, loggedOut, has = [] }, home, platform) {
   const file = join(home, ...(APP_DATA[platform] ?? ['.local', 'share']), ...path)
-  return isFile(file) && (loggedOut === undefined || !isFile(`${file}${loggedOut}`)) ? true : null
+  if (!isFile(file) || (loggedOut !== undefined && isFile(`${file}${loggedOut}`))) return null
+  return has.length === 0 || hasJsonPaths(file, has) ? true : null
 }
 
 // true, false, or null when the check cannot tell. Only a CLI's status command

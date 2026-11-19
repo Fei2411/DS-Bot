@@ -40,8 +40,9 @@ const CLIS = {
   'codebuddy': {
     name: 'CodeBuddy Code', kind: 'acp', command: 'codebuddy', commands: ['codebuddy', 'codebuddy-code'], args: ['--acp'], version: ['--version'], signIn: 'codebuddy',
     // CodeBuddy has no status command. Its OAuth session file stays in place
-    // until logout renames it and leaves a `.logged-out` marker beside it.
-    signedIn: { appDataFile: { path: ['CodeBuddyExtension', 'Data', 'Public', 'auth', 'Tencent-Cloud.coding-copilot.info'], loggedOut: '.logged-out' } },
+    // until logout renames it and leaves a `.logged-out` marker beside it; it
+    // only accepts a file with a token and an account (the values may be encrypted).
+    signedIn: { appDataFile: { path: ['CodeBuddyExtension', 'Data', 'Public', 'auth', 'Tencent-Cloud.coding-copilot.info'], loggedOut: '.logged-out', has: [['auth', 'accessToken'], ['account']] } },
   },
   'qoder': { name: 'Qoder CLI', kind: 'acp', command: 'qodercli', commands: ['qodercli', 'qoder'], args: ['--acp'], version: ['--version'], signIn: 'qodercli' },
   'minimax-code': { name: 'MiniMax Code', kind: 'acp', command: 'mcode', args: ['acp'], version: ['--version'], signIn: 'mcode' },
