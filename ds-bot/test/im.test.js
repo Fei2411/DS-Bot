@@ -731,11 +731,32 @@ test('reply origin: another source in the same turn withdraws the IM origin', as
   assert.equal(s.fake.sent.length, 0, 'a mixed turn sends nothing')
 })
 
-// The clock, runtime context and memory recall append a snapshot to the turn, before or
-// after the chat's own message (#1735).
+// DSH pre-step and in-turn context attachments (snapshots, skill catalogs, agent
+// instructions, session recalls, and non-waking notices) join a turn without naming
+// who asked (#1735).
+const ATTACHED_CONTEXT_SOURCES = [
+  { kind: 'runtime-context', form: 'snapshot', sections: [] },
+  { kind: 'runtime-context' },
+  { kind: 'time-context', form: 'snapshot', sections: [] },
+  { kind: 'ds-bot-time-context', form: 'snapshot', sections: [] },
+  { kind: 'ds-bot-memory-recall', form: 'snapshot', sections: [] },
+  { kind: 'skill-catalog', form: 'catalog', entries: [] },
+  { kind: 'agent-instructions', form: 'instructions', changes: [] },
+  { kind: 'skill-invocation', name: 'example', form: 'instructions' },
+  { kind: 'session-reference', form: 'recall', version: 1, references: [] },
+  { kind: 'working-directory' },
+  { kind: 'model-selection', form: 'notice', summary: 'a -> b' },
+  { kind: 'repeat-tool-reminder', form: 'notice', summary: 'read x 3' },
+  { kind: 'ptc-mode' },
+  { kind: 'plan-mode', form: 'notice', summary: 'plan mode' },
+  { kind: 'action-cards', form: 'notice', through: 1, summary: 'updated' },
+  { kind: 'user-approval' },
+  { kind: 'compact-checkpoint', compactionId: 'c1' },
+]
+
 for (const group of [false, true]) {
   for (const before of [false, true]) {
-    test(`reply origin: a context snapshot ${before ? 'before' : 'after'} the chat's message keeps the IM ${group ? 'group' : 'direct'} origin`, async (t) => {
+    test(`reply origin: attached DSH context ${before ? 'before' : 'after'} the chat's message keeps the IM ${group ? 'group' : 'direct'} origin`, async (t) => {
       const s = await start()
       t.after(s.stop)
       const { one } = await pairedConn(s)
@@ -747,18 +768,18 @@ for (const group of [false, true]) {
         await dm(s, 'u1', 'hi')
       }
       const sessionId = group ? 'r1' : 'a'
-      const snapshots = () => {
-        for (const kind of ['runtime-context', 'time-context', 'ds-bot-time-context', 'ds-bot-memory-recall']) {
-          s.emitEvent(sessionId, 'user/message', { source: { kind, form: 'snapshot', sections: [] }, content: [{ type: 'text', text: 'context' }] })
+      const attachAll = () => {
+        for (const source of ATTACHED_CONTEXT_SOURCES) {
+          s.emitEvent(sessionId, 'user/message', { source, content: [{ type: 'text', text: 'context' }] })
         }
       }
       if (before) {
         s.emitEvent(sessionId, 'turn/start', { turn: s.prompts.length })
-        snapshots()
+        attachAll()
         s.emitEvent(sessionId, 'user/message', { source: { kind: 'user', rpcId: s.prompts.at(-1).requestId }, content: [{ type: 'text', text: 'from the chat' }] })
       } else {
         s.imTurn(sessionId)
-        snapshots()
+        attachAll()
       }
       await s.flush()
       s.fake.sent.length = 0
@@ -769,6 +790,48 @@ for (const group of [false, true]) {
     })
   }
 }
+
+// Waking notices/relays (background job completion, subagent settled, schedules,
+// peer agent messages) can start turns of their own and must fail closed so they
+// never inherit a previous IM origin or keep one in a mixed turn.
+for (const waking of [
+  { kind: 'tool-jobs', form: 'notice', summary: 'job done' },
+  { kind: 'subagent-settled', form: 'notice', runId: 'r1' },
+  { kind: 'agent-message', form: 'relay', sender: 'other' },
+  { kind: 'schedule' },
+  { kind: 'goal', goalId: 'g1', revision: 1, round: 1 },
+]) {
+  test(`reply origin: waking ${waking.kind} does not inherit a group IM origin after attached context`, async (t) => {
+    const s = await start()
+    t.after(s.stop)
+    const { one } = await pairedConn(s)
+    one.chats.g1 = { kind: 'group', title: 'G', target: { roomId: 'r1' }, at: 1 }
+    await s.rt.save()
+    await gm(s, 'u1', 'hello group')
+    s.imTurn('r1')
+    s.emitEvent('r1', 'turn/end', {})
+    s.emitEvent('r1', 'turn/start', {})
+    s.emitEvent('r1', 'user/message', { source: { kind: 'skill-catalog', form: 'catalog', entries: [] }, content: [{ type: 'text', text: 'skills' }] })
+    s.emitEvent('r1', 'user/message', { source: waking, content: [{ type: 'text', text: 'waking event' }] })
+    await s.flush()
+    s.fake.sent.length = 0
+    s.rt.logRoom(s.rt.roomOf('r1'), { who: 'Writer', botId: 'b', text: 'not for IM' })
+    await s.flush()
+    assert.equal(s.fake.sent.length, 0)
+  })
+}
+
+test('reply origin: a waking notice in the same direct turn withdraws the IM origin', async (t) => {
+  const s = await start()
+  t.after(s.stop)
+  await pairedConn(s)
+  await dm(s, 'u1', 'hi')
+  s.imTurn('a')
+  s.emitEvent('a', 'user/message', { source: { kind: 'tool-jobs', form: 'notice', summary: 'job done' }, content: [{ type: 'text', text: 'bg done' }] })
+  s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'mixed answer' }] } })
+  await s.flush()
+  assert.equal(s.fake.sent.length, 0)
+})
 
 test('reply origin: a context snapshot does not keep a group chat after a Web message', async (t) => {
   const s = await start()
