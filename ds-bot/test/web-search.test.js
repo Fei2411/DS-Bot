@@ -74,6 +74,13 @@ test('planNative puts search APIs declared for the route host first, on the rout
   assert.deepEqual(planNative({ provider: 'r', model: 'm', api: 'openai-responses', baseURL: 'https://api.acme.example/v1' }, hostile).candidates.map(c => c.url), ['https://api.acme.example/v1/responses'])
 })
 
+test('planNative skips a declared search API on a plain-http route base', () => {
+  const ids = route => planNative({ provider: 'r', model: 'm', api: 'openai-completions', ...route }).candidates.map(c => c.id)
+  // The declared API would carry the route's bearer token, so it never runs over http.
+  assert.deepEqual(ids({ baseURL: 'http://api.deepseek.com/v1' }), ['responses', 'messages'])
+  assert.deepEqual(ids({ baseURL: 'http://api.moonshot.cn/v1' }), ['responses', 'messages'])
+})
+
 test('planNative explains when there is nothing to try', () => {
   assert.match(planNative({ provider: 'r', model: 'm' }).reason, /no known endpoint/)
   assert.match(planNative({ provider: 'r', api: 'anthropic-messages', baseURL: 'https://api.anthropic.com' }).reason, /no current model/)

@@ -400,6 +400,9 @@ export function planNative(route, searchApis = SEARCH_APIS) {
   const candidates = []
   for (const api of searchApis) {
     if (!hostMatches(api.hosts, url.hostname)) continue
+    // The route's own key authenticates a declared API, so it is planned only on https:
+    // a plain-http base would put the bearer token on the wire in the clear.
+    if (url.protocol !== 'https:') continue
     if (model === undefined && usesModel(api)) continue
     const candidate = declaredCandidate(api, url.origin, model)
     if (candidate !== undefined) candidates.push(candidate)
