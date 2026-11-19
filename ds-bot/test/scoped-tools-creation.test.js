@@ -183,6 +183,73 @@ const hasShowView = (host, id) => host.scoped.some(entry => entry.sessionId === 
 const denied = (host, id) => host.restricted.some(entry => entry.sessionId === id && entry.deny.includes('ask_user_question'))
 const scopedNames = (host, id) => host.scoped.filter(entry => entry.sessionId === id).map(entry => entry.name)
 
+test('a Bot assembly can omit sections and tools', async (t) => {
+  const host = start()
+  t.after(host.stop)
+  await host.call('state', {})
+  const agent = host.agentOf('a')
+  let filter
+  agent.ctx.on = (name, listener) => { if (name === 'system-prompt/assemble' && String(listener).includes('HIDDEN_SECTIONS')) filter = listener; return () => {} }
+  await host.agentCreated('a')
+  assert.deepEqual(await filter({}, {}, async () => ({})), {})
+  const result = await filter({}, {}, async () => ({ sections: [{ name: 'team:policy' }, { name: 'keep' }], tools: [{ name: 'subagent' }, { name: 'list_bots' }] }))
+  assert.deepEqual(result, { sections: [{ name: 'keep' }], tools: [{ name: 'list_bots' }] })
+})
+
+test('team tools retry without a step, without registering successful tools twice', async (t) => {
+  const host = start()
+  t.after(host.stop)
+  await host.call('state', {})
+  const agent = host.agentOf('a')
+  const register = agent.ctx.tools.register
+  agent.ctx.tools.register = undefined
+  await host.agentCreated('a')
+  let refused = false
+  agent.ctx.tools.register = tool => {
+    if (tool.name === 'list_bots' && !refused) { refused = true; throw new Error('not ready') }
+    return register(tool)
+  }
+  await until(() => scopedNames(host, 'a').includes('list_bots'), 5000)
+  for (const name of TEAM_TOOLS.filter(name => name !== 'read_browser')) assert.equal(scopedNames(host, 'a').filter(n => n === name).length, 1)
+})
+
+test('team tool retries stop at a bound and are cleaned up with their scope', async (t) => {
+  const host = start()
+  t.after(host.stop)
+  await host.call('state', {})
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const agent = host.agentOf('a')
+  let attempts = 0
+  agent.ctx.tools.register = () => { attempts++; throw new Error('unavailable') }
+  const agentDisposers = []
+  agent.ctx.effect = execute => { agentDisposers.push(execute()) }
+  await host.agentCreated('a')
+  const initial = attempts
+  for (let i = 0; i < 10; i++) t.mock.timers.tick(1000)
+  assert.ok(attempts > initial)
+  const exhausted = attempts
+  assert.equal(exhausted, initial * 6)
+  t.mock.timers.tick(60_000)
+  assert.equal(attempts, exhausted)
+  for (const dispose of agentDisposers) dispose?.()
+  const other = host.agentOf('b')
+  const otherDisposers = []
+  other.ctx.effect = execute => { otherDisposers.push(execute()) }
+  other.ctx.tools.register = () => { attempts++; throw new Error('unavailable') }
+  await host.agentCreated('b')
+  for (const dispose of otherDisposers) dispose?.()
+  const disposed = attempts
+  t.mock.timers.tick(1000)
+  assert.equal(attempts, disposed)
+  const room = host.agentOf('r1')
+  room.ctx.tools.register = () => { attempts++; throw new Error('unavailable') }
+  await host.agentCreated('r1')
+  await host.unload()
+  const unloaded = attempts
+  t.mock.timers.tick(60_000)
+  assert.equal(attempts, unloaded)
+})
+
 test('a Bot Session gets every team tool in its own scope', async (t) => {
   const host = start()
   t.after(host.stop)

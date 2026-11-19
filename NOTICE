@@ -118,8 +118,8 @@ MIT License, Copyright (c) 2026 DSH Remote contributors
   DSH Remote.
   - link/src/noise.ts adapts packages/crypto/src/noise.ts (the Noise
     IK session and the remote-key check).
-  - link/src/keys.ts copies the key pair, fingerprint and Base64URL
-    functions of packages/crypto/src/index.ts.
+  - link/src/keys.ts copies the key pair and Base64URL functions of
+    packages/crypto/src/index.ts.
   - link/src/frames.ts adapts packages/protocol/src/index.ts: the
     control frame and message envelopes, the frame size limits, and
     SecureMessageCodec. It checks frames by hand instead of with zod.
