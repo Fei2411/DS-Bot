@@ -51,6 +51,8 @@ export const DE = {
   'Add existing': 'Vorhandenen Chat hinzufügen',
   None: 'Keine',
   'Collapse sidebar': 'Seitenleiste einklappen',
+  'Workspaces and plugins': 'Arbeitsbereiche und Plugins',
+  'Back to Bot list': 'Zurück zur Bot-Liste',
   'Expand sidebar': 'Seitenleiste ausklappen',
   'Resize sidebar': 'Breite der Seitenleiste ändern',
   'Animation': 'Animation',

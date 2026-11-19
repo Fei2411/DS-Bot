@@ -51,6 +51,8 @@ export const KO = {
   'Add existing': '기존 대화 추가',
   None: '없음',
   'Collapse sidebar': '사이드바 접기',
+  'Workspaces and plugins': '작업 공간 및 플러그인',
+  'Back to Bot list': 'Bot 목록으로 돌아가기',
   'Expand sidebar': '사이드바 펼치기',
   'Resize sidebar': '사이드바 너비 조절',
   'Animation': '애니메이션',

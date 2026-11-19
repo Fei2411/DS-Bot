@@ -51,6 +51,8 @@ export const ES = {
   'Add existing': 'Añadir existente',
   None: 'Ninguno',
   'Collapse sidebar': 'Contraer barra lateral',
+  'Workspaces and plugins': 'Espacios de trabajo y complementos',
+  'Back to Bot list': 'Volver a la lista de bots',
   'Expand sidebar': 'Expandir barra lateral',
   'Resize sidebar': 'Redimensionar barra lateral',
   'Animation': 'Animación',

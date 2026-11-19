@@ -173,6 +173,8 @@ var JA = {
   "Add existing": "既存のチャットを追加",
   "None": "なし",
   "Collapse sidebar": "サイドバーを折りたたむ",
+  "Workspaces and plugins": "ワークスペースとプラグイン",
+  "Back to Bot list": "Bot 一覧に戻る",
   "Expand sidebar": "サイドバーを展開",
   "Resize sidebar": "サイドバーの幅を調整",
   "Animation": "アニメーション",
@@ -2671,6 +2673,8 @@ var KO = {
   "Add existing": "기존 대화 추가",
   None: "없음",
   "Collapse sidebar": "사이드바 접기",
+  "Workspaces and plugins": "작업 공간 및 플러그인",
+  "Back to Bot list": "Bot 목록으로 돌아가기",
   "Expand sidebar": "사이드바 펼치기",
   "Resize sidebar": "사이드바 너비 조절",
   "Animation": "애니메이션",
@@ -5213,6 +5217,8 @@ var ES = {
   "Add existing": "Añadir existente",
   None: "Ninguno",
   "Collapse sidebar": "Contraer barra lateral",
+  "Workspaces and plugins": "Espacios de trabajo y complementos",
+  "Back to Bot list": "Volver a la lista de bots",
   "Expand sidebar": "Expandir barra lateral",
   "Resize sidebar": "Redimensionar barra lateral",
   "Animation": "Animación",
@@ -7754,6 +7760,8 @@ var FR = {
   "Add existing": "Ajouter une discussion existante",
   "None": "Aucun",
   "Collapse sidebar": "Réduire la barre latérale",
+  "Workspaces and plugins": "Espaces de travail et extensions",
+  "Back to Bot list": "Revenir à la liste des bots",
   "Expand sidebar": "Développer la barre latérale",
   "Resize sidebar": "Redimensionner la barre latérale",
   "Animation": "Animation",
@@ -10252,6 +10260,8 @@ var DE = {
   "Add existing": "Vorhandenen Chat hinzufügen",
   None: "Keine",
   "Collapse sidebar": "Seitenleiste einklappen",
+  "Workspaces and plugins": "Arbeitsbereiche und Plugins",
+  "Back to Bot list": "Zurück zur Bot-Liste",
   "Expand sidebar": "Seitenleiste ausklappen",
   "Resize sidebar": "Breite der Seitenleiste ändern",
   "Animation": "Animation",
@@ -12769,6 +12779,8 @@ var ZH = {
   "Add existing": "添加已有对话",
   None: "无",
   "Collapse sidebar": "收起侧边栏",
+  "Workspaces and plugins": "工作区和插件",
+  "Back to Bot list": "返回 Bot 列表",
   "Expand sidebar": "展开侧边栏",
   "Resize sidebar": "调整侧边栏宽度",
   "Animation": "动画",
@@ -16535,6 +16547,8 @@ html[data-bt-collapsing] [class*="_frame"]:has(>[class*="_sidebarCol"]){transiti
 .bt-leftcol[data-left=drawer]{background:var(--bt-sidebar);box-shadow:8px 0 24px rgba(0,0,0,.14)}
 .bt-leftcol>.bt-side{width:100%}
 .bt-leftcol-foot{display:flex;align-items:center;gap:9px;padding-top:8px;flex:none}
+.bt-leftcol-foot .bt-native-sidebar{margin-left:auto;min-width:0;flex:0 1 auto;height:auto;min-height:28px;padding-block:4px;white-space:normal}
+.bt-native-sidebar-back{width:100%;justify-content:center}
 .bt-rail{align-items:center;gap:6px;padding:0}
 .bt-rail .bt-row{justify-content:center;width:56px;height:56px;min-height:56px;padding:0;border-radius:16px}
 .bt-rail-top{display:flex;flex-direction:column;align-items:center;gap:8px;padding-bottom:8px}
@@ -17102,7 +17116,8 @@ button.bt-set-row:hover .bt-chevron{transform:translateX(2px);color:var(--bt-ink
 
 /* Shell chrome reshaped for the team view. Selectors use stable data attributes where the
    shell offers them and CSS-module name suffixes elsewhere. */
-[class*="_newSession"],nav[class*="_panelList"],[class*="_logoRow"]>[class*="_brand"],[class*="_logoRow"]:not(:has([class*="_toggle"])){display:none!important}
+[class*="_newSession"],[class*="_logoRow"]>[class*="_brand"],[class*="_logoRow"]:not(:has([class*="_toggle"])){display:none!important}
+html:not(:has(.bt-native-sidebar-back)) nav[class*="_panelList"]{display:none!important}
 /* An open sidebar uses the team's own top row; under a Windows title bar the shell's
    logo row stays, flattened to nothing. */
 html:not([data-windows-titlebar]) :not([class*="_collapsed"])>[class*="_logoRow"]{display:none!important}
@@ -30657,6 +30672,18 @@ function TeamSidebar(props) {
   });
   const [drag, setDrag] = (0, import_react36.useState)(null);
   const mode = drag?.left ?? layout.left;
+  const [nativeSidebar, setNativeSidebar] = (0, import_react36.useState)(false);
+  const sidebarViewButton = (0, import_react36.useRef)(null);
+  const focusSidebarView = (0, import_react36.useRef)(false);
+  (0, import_react36.useLayoutEffect)(() => {
+    if (!focusSidebarView.current || nativeSidebar && frameSnap.collapsed) return;
+    sidebarViewButton.current?.focus();
+    focusSidebarView.current = false;
+  }, [nativeSidebar, frameSnap.collapsed]);
+  const switchSidebarView = (native) => {
+    focusSidebarView.current = true;
+    setNativeSidebar(native);
+  };
   const [held, leaving] = useLinger(mode === "hidden" ? null : mode, SPRING_SHAPE.duration);
   const shown = held ?? mode;
   const wideContent = shown !== "rail";
@@ -30723,8 +30750,8 @@ function TeamSidebar(props) {
   const pushed = mode === "open" ? openWidth : mode === "hidden" ? 0 : RAIL_WIDTH;
   (0, import_react36.useLayoutEffect)(() => {
     if (typeof document === "undefined") return;
-    chatRoom.setLeft(Math.max(0, pushed - (frameSnap.collapsedWidth ?? 0)));
-  }, [pushed, frameSnap.collapsedWidth]);
+    chatRoom.setLeft(nativeSidebar ? null : Math.max(0, pushed - (frameSnap.collapsedWidth ?? 0)));
+  }, [nativeSidebar, pushed, frameSnap.collapsedWidth]);
   (0, import_react36.useEffect)(() => () => {
     if (typeof document !== "undefined") chatRoom.setLeft(null);
   }, []);
@@ -30843,11 +30870,11 @@ function TeamSidebar(props) {
     dsh.current = { collapsed, viewport };
     if (prev !== null && collapsed !== prev.collapsed) {
       if (requested.current) requested.current = false;
-      else if (!collapsed && userSidebarToggle({ before: prev, after: { collapsed, viewport }, sinceResize: performance.now() - resizedAt.current })) {
+      else if (!nativeSidebar && !collapsed && userSidebarToggle({ before: prev, after: { collapsed, viewport }, sinceResize: performance.now() - resizedAt.current })) {
         toggleRef.current();
       }
     }
-    if (collapsed) {
+    if (collapsed !== nativeSidebar) {
       clearTimeout(requestLapse.current);
       requested.current = false;
       quiet(false);
@@ -30864,9 +30891,9 @@ function TeamSidebar(props) {
       setLapsed((value) => value + 1);
     }, 300);
     return void 0;
-  }, [wide, frameSnap.viewport, frameSnap.collapsed, lapsed]);
+  }, [nativeSidebar, wide, frameSnap.viewport, frameSnap.collapsed, lapsed]);
   (0, import_react36.useEffect)(() => {
-    if (mode !== "drawer") return void 0;
+    if (nativeSidebar || mode !== "drawer") return void 0;
     const onDown = (event) => {
       if (event.target instanceof Element && event.target.closest(".bt-leftcol")) return;
       actions.setLeftDrawer?.(false);
@@ -30882,7 +30909,7 @@ function TeamSidebar(props) {
       window.removeEventListener("mousedown", onDown);
       window.removeEventListener("keydown", onKey, true);
     };
-  }, [mode]);
+  }, [nativeSidebar, mode]);
   const navigate = (open, id) => {
     const result = open(id);
     if (leftDrawer) actions.setLeftDrawer?.(false);
@@ -30902,7 +30929,10 @@ function TeamSidebar(props) {
     event.preventDefault();
     actions.openPalette(event.key);
   };
-  const onToggle = () => actions.toggleLeftHidden?.();
+  const onToggle = () => {
+    if (nativeSidebar) setNativeSidebar(false);
+    else actions.toggleLeftHidden?.();
+  };
   const toggleRef = (0, import_react36.useRef)(onToggle);
   toggleRef.current = onToggle;
   (0, import_react36.useEffect)(() => {
@@ -30934,12 +30964,22 @@ function TeamSidebar(props) {
     main ? (0, import_react36.createElement)(BotRow, { ...rowProps, bot: main, marked: markedUnread[main.id] === true }) : roster.ready ? null : bootFailed ? (0, import_react36.createElement)(BootFailed, { actions }) : (0, import_react36.createElement)("div", { className: "bt-hint" }, t("Setting up your Main Bot…")),
     (0, import_react36.createElement)("span", { className: "bt-rail-sep", "aria-hidden": true })
   );
-  const foot = wideContent ? (0, import_react36.createElement)("div", { className: "bt-leftcol-foot" }, (0, import_react36.createElement)(AccountLauncher, { seat: false, actions }), (0, import_react36.createElement)(PluginsButton, { actions })) : (0, import_react36.createElement)(
+  const nativeLabel = t("Workspaces and plugins");
+  const nativeButton = (0, import_react36.createElement)("button", {
+    type: "button",
+    className: wideContent ? "bt-soft bt-soft-sm bt-native-sidebar" : "bt-round",
+    ref: sidebarViewButton,
+    "aria-label": nativeLabel,
+    title: nativeLabel,
+    onClick: () => switchSidebarView(true)
+  }, wideContent ? nativeLabel : (0, import_react36.createElement)(SwitchIcon));
+  const foot = wideContent ? (0, import_react36.createElement)("div", { className: "bt-leftcol-foot" }, (0, import_react36.createElement)(AccountLauncher, { seat: false, actions }), (0, import_react36.createElement)(PluginsButton, { actions }), nativeButton) : (0, import_react36.createElement)(
     "div",
     { className: "bt-leftcol-foot bt-leftcol-foot-rail" },
     (0, import_react36.createElement)("button", { type: "button", className: "bt-round", "aria-label": t("New…"), title: t("New…"), onClick: () => actions.openNewChat("new") }, (0, import_react36.createElement)(PlusIcon)),
     (0, import_react36.createElement)(AccountLauncher, { seat: false, actions }),
-    (0, import_react36.createElement)(PluginsButton, { actions })
+    (0, import_react36.createElement)(PluginsButton, { actions }),
+    nativeButton
   );
   const content = (0, import_react36.createElement)(
     "div",
@@ -30987,8 +31027,8 @@ function TeamSidebar(props) {
   return (0, import_react36.createElement)(
     import_react36.Fragment,
     null,
-    (0, import_react36.createElement)(TitleToggle, { hidden: mode === "hidden", onToggle }),
-    shown === "hidden" ? null : (0, import_react36.createElement)(LeftColumn, { mode: shown, width: ourWidth, onGrip: startDrag, leaving }, content)
+    (0, import_react36.createElement)(TitleToggle, { hidden: !nativeSidebar && mode === "hidden", onToggle }),
+    nativeSidebar ? (0, import_react36.createElement)("button", { type: "button", className: "bt-soft bt-native-sidebar-back", ref: sidebarViewButton, onClick: () => switchSidebarView(false) }, t("Back to Bot list")) : shown === "hidden" ? null : (0, import_react36.createElement)(LeftColumn, { mode: shown, width: ourWidth, onGrip: startDrag, leaving }, content)
   );
 }
 function UpdateButton({ useUpdate, actions }) {
@@ -47008,7 +47048,7 @@ function apply(ctx) {
     () => installFrameWatch(frame2),
     () => installFrameSync(),
     () => installTheme(),
-    () => shadow("sidebar.workspaces", { priority: BOT_PRIORITY, inject: face }, TeamSidebar),
+    () => shadow("sidebar.footer.action", { id: "bot-roster", order: -250, inject: face }, TeamSidebar),
     () => shadow("sidebar.brand.mark", { priority: BOT_PRIORITY }, BrandMark),
     () => shadow("sidebar.brand.name", { priority: BOT_PRIORITY }, BrandName),
     () => shadow("sidebar.footer.action", { id: "bot-account", order: -200, inject: face }, FooterAccount),
@@ -47159,8 +47199,8 @@ function apply(ctx) {
       let landed = false;
       let declared = true;
       try {
-        landed = ctx.slots.entries("sidebar.workspaces").some((entry) => entry.component === TeamSidebar);
-        declared = ctx.slots.spec?.("sidebar.workspaces") !== void 0;
+        landed = ctx.slots.entries("sidebar.footer.action").some((entry) => entry.component === TeamSidebar);
+        declared = ctx.slots.spec?.("sidebar.footer.action") !== void 0;
       } catch {
         declared = false;
       }

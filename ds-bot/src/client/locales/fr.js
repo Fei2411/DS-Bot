@@ -50,6 +50,8 @@ export const FR = {
   "Add existing": "Ajouter une discussion existante",
   "None": "Aucun",
   "Collapse sidebar": "Réduire la barre latérale",
+  "Workspaces and plugins": "Espaces de travail et extensions",
+  "Back to Bot list": "Revenir à la liste des bots",
   "Expand sidebar": "Développer la barre latérale",
   "Resize sidebar": "Redimensionner la barre latérale",
   "Animation": "Animation",

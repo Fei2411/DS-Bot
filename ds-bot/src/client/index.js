@@ -1224,7 +1224,7 @@ export function apply(ctx) {
     () => installFrameWatch(frame),
     () => installFrameSync(),
     () => installTheme(),
-    () => shadow('sidebar.workspaces', { priority: BOT_PRIORITY, inject: face }, TeamSidebar),
+    () => shadow('sidebar.footer.action', { id: 'bot-roster', order: -250, inject: face }, TeamSidebar),
     () => shadow('sidebar.brand.mark', { priority: BOT_PRIORITY }, BrandMark),
     () => shadow('sidebar.brand.name', { priority: BOT_PRIORITY }, BrandName),
     () => shadow('sidebar.footer.action', { id: 'bot-account', order: -200, inject: face }, FooterAccount),
@@ -1394,8 +1394,8 @@ export function apply(ctx) {
       let landed = false
       let declared = true
       try {
-        landed = ctx.slots.entries('sidebar.workspaces').some(entry => entry.component === TeamSidebar)
-        declared = ctx.slots.spec?.('sidebar.workspaces') !== undefined
+        landed = ctx.slots.entries('sidebar.footer.action').some(entry => entry.component === TeamSidebar)
+        declared = ctx.slots.spec?.('sidebar.footer.action') !== undefined
       } catch {
         declared = false
       }

@@ -512,6 +512,18 @@ export function TeamSidebar(props) {
   // A drag of the column's edge shows where it would land, live.
   const [drag, setDrag] = useState(null)
   const mode = drag?.left ?? layout.left
+  const [nativeSidebar, setNativeSidebar] = useState(false)
+  const sidebarViewButton = useRef(null)
+  const focusSidebarView = useRef(false)
+  useLayoutEffect(() => {
+    if (!focusSidebarView.current || (nativeSidebar && frameSnap.collapsed)) return
+    sidebarViewButton.current?.focus()
+    focusSidebarView.current = false
+  }, [nativeSidebar, frameSnap.collapsed])
+  const switchSidebarView = (native) => {
+    focusSidebarView.current = true
+    setNativeSidebar(native)
+  }
   // A hidden column stays mounted for its slide out; `shown` is the mode it last had.
   const [held, leaving] = useLinger(mode === 'hidden' ? null : mode, SPRING_SHAPE.duration)
   const shown = held ?? mode
@@ -582,8 +594,8 @@ export function TeamSidebar(props) {
   const pushed = mode === 'open' ? openWidth : mode === 'hidden' ? 0 : RAIL_WIDTH
   useLayoutEffect(() => {
     if (typeof document === 'undefined') return
-    chatRoom.setLeft(Math.max(0, pushed - (frameSnap.collapsedWidth ?? 0)))
-  }, [pushed, frameSnap.collapsedWidth])
+    chatRoom.setLeft(nativeSidebar ? null : Math.max(0, pushed - (frameSnap.collapsedWidth ?? 0)))
+  }, [nativeSidebar, pushed, frameSnap.collapsedWidth])
   useEffect(() => () => { if (typeof document !== 'undefined') chatRoom.setLeft(null) }, [])
 
   // The edge drag: live while the pointer moves, the column's new state on release.
@@ -685,7 +697,7 @@ export function TeamSidebar(props) {
     for (const name of ends) grip.addEventListener(name, onEnd)
   }
 
-  // In the Bot view the shell's own sidebar stays collapsed under our column. A
+  // Outside the native sidebar view the shell stays collapsed under our column. A
   // flip we did not ask for is the user's own switch gesture (the shell's button
   // or shortcut where it still reaches), unless the width just crossed the
   // shell's auto-collapse line, which re-applies the shell's own rule.
@@ -721,11 +733,11 @@ export function TeamSidebar(props) {
     dsh.current = { collapsed, viewport }
     if (prev !== null && collapsed !== prev.collapsed) {
       if (requested.current) requested.current = false
-      else if (!collapsed && userSidebarToggle({ before: prev, after: { collapsed, viewport }, sinceResize: performance.now() - resizedAt.current })) {
+      else if (!nativeSidebar && !collapsed && userSidebarToggle({ before: prev, after: { collapsed, viewport }, sinceResize: performance.now() - resizedAt.current })) {
         toggleRef.current()
       }
     }
-    if (collapsed) { clearTimeout(requestLapse.current); requested.current = false; quiet(false); return undefined }
+    if (collapsed !== nativeSidebar) { clearTimeout(requestLapse.current); requested.current = false; quiet(false); return undefined }
     if (requested.current) return undefined
     requested.current = true
     quiet(true)
@@ -733,11 +745,11 @@ export function TeamSidebar(props) {
     clearTimeout(requestLapse.current)
     requestLapse.current = setTimeout(() => { requested.current = false; quiet(false); setLapsed(value => value + 1) }, 300)
     return undefined
-  }, [wide, frameSnap.viewport, frameSnap.collapsed, lapsed])
+  }, [nativeSidebar, wide, frameSnap.viewport, frameSnap.collapsed, lapsed])
 
   // The drawer closes on a row pick, on Escape and on a press outside it.
   useEffect(() => {
-    if (mode !== 'drawer') return undefined
+    if (nativeSidebar || mode !== 'drawer') return undefined
     const onDown = (event) => {
       if (event.target instanceof Element && event.target.closest('.bt-leftcol')) return
       actions.setLeftDrawer?.(false)
@@ -750,7 +762,7 @@ export function TeamSidebar(props) {
     window.addEventListener('mousedown', onDown)
     window.addEventListener('keydown', onKey, true)
     return () => { window.removeEventListener('mousedown', onDown); window.removeEventListener('keydown', onKey, true) }
-  }, [mode])
+  }, [nativeSidebar, mode])
 
   const navigate = (open, id) => {
     const result = open(id)
@@ -774,7 +786,10 @@ export function TeamSidebar(props) {
   }
   // The switch (top-left button, the shortcut) hides the whole column or brings
   // back the one it hid.
-  const onToggle = () => actions.toggleLeftHidden?.()
+  const onToggle = () => {
+    if (nativeSidebar) setNativeSidebar(false)
+    else actions.toggleLeftHidden?.()
+  }
   // The shell's sidebar shortcut is caught on its way down, before the shell's
   // own listener on window sees it: left to the shell, it would expand the shell's
   // sidebar first and our sync would pull it back, a visible flash.
@@ -807,12 +822,17 @@ export function TeamSidebar(props) {
         h('span', { className: 'bt-rail-sep', 'aria-hidden': true }))
   // The foot stands in for the shell's hidden footer: the account avatar, and on
   // the rail the new-chat button above it.
+  const nativeLabel = t('Workspaces and plugins')
+  const nativeButton = h('button', {
+    type: 'button', className: wideContent ? 'bt-soft bt-soft-sm bt-native-sidebar' : 'bt-round',
+    ref: sidebarViewButton, 'aria-label': nativeLabel, title: nativeLabel, onClick: () => switchSidebarView(true),
+  }, wideContent ? nativeLabel : h(SwitchIcon))
   const foot = wideContent
-    ? h('div', { className: 'bt-leftcol-foot' }, h(AccountLauncher, { seat: false, actions }), h(PluginsButton, { actions }))
+    ? h('div', { className: 'bt-leftcol-foot' }, h(AccountLauncher, { seat: false, actions }), h(PluginsButton, { actions }), nativeButton)
     : h('div', { className: 'bt-leftcol-foot bt-leftcol-foot-rail' },
         h('button', { type: 'button', className: 'bt-round', 'aria-label': t('New…'), title: t('New…'), onClick: () => actions.openNewChat('new') }, h(PlusIcon)),
         h(AccountLauncher, { seat: false, actions }),
-        h(PluginsButton, { actions }))
+        h(PluginsButton, { actions }), nativeButton)
   const content = h('div', { className: wideContent ? 'bt-side' : 'bt-side bt-rail', onKeyDown: typeToSearch },
     top,
     wideContent && roster.readOnly ? h('div', { className: 'bt-hint bt-read-only', role: 'status' }, hostText(roster.readOnly)) : null,
@@ -845,8 +865,10 @@ export function TeamSidebar(props) {
       }))),
     foot)
   return h(Fragment, null,
-    h(TitleToggle, { hidden: mode === 'hidden', onToggle }),
-    shown === 'hidden' ? null : h(LeftColumn, { mode: shown, width: ourWidth, onGrip: startDrag, leaving }, content))
+    h(TitleToggle, { hidden: !nativeSidebar && mode === 'hidden', onToggle }),
+    nativeSidebar
+      ? h('button', { type: 'button', className: 'bt-soft bt-native-sidebar-back', ref: sidebarViewButton, onClick: () => switchSidebarView(false) }, t('Back to Bot list'))
+      : shown === 'hidden' ? null : h(LeftColumn, { mode: shown, width: ourWidth, onGrip: startDrag, leaving }, content))
 }
 
 // The update button at the sidebar's top right: a cloud while a newer DS Bot —

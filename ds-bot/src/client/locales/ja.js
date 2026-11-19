@@ -50,6 +50,8 @@ export const JA = {
   "Add existing": "既存のチャットを追加",
   "None": "なし",
   "Collapse sidebar": "サイドバーを折りたたむ",
+  "Workspaces and plugins": "ワークスペースとプラグイン",
+  "Back to Bot list": "Bot 一覧に戻る",
   "Expand sidebar": "サイドバーを展開",
   "Resize sidebar": "サイドバーの幅を調整",
   "Animation": "アニメーション",

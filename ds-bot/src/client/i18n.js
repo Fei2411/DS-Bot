@@ -35,6 +35,8 @@ const ZH = {
   'Add existing': '添加已有对话',
   None: '无',
   'Collapse sidebar': '收起侧边栏',
+  'Workspaces and plugins': '工作区和插件',
+  'Back to Bot list': '返回 Bot 列表',
   'Expand sidebar': '展开侧边栏',
   'Resize sidebar': '调整侧边栏宽度',
   'Animation': '动画',

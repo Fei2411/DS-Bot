@@ -545,13 +545,11 @@ test('the Plugins shortcut opens the plugin manager and names itself', () => {
   assert.deepEqual(calls, ['open'])
 })
 
-// The foot of the team column is the sidebar's own `.bt-leftcol-foot`, not the
-// shell's footArea: only the account menu and the Agent-mode return button go
-// through the shell's action slot.
-test('the shell footer action slot holds the account and the return button only', () => {
+test('the Bot roster adds a footer entry without replacing the native workspaces slot', () => {
   const source = readFileSync(new URL('../src/client/index.js', import.meta.url), 'utf8')
   const ids = [...source.matchAll(/shadow\('sidebar\.footer\.action',\s*\{[^}]*?id:\s*['"]([^'"]+)['"]/g)].map(match => match[1])
-  assert.deepEqual(ids.sort(), ['bot-account', 'bot-return'])
+  assert.deepEqual(ids.sort(), ['bot-account', 'bot-return', 'bot-roster'])
+  assert.doesNotMatch(source, /shadow\('sidebar\.workspaces'/)
 })
 
 // The edge drag writes the column and the chat's margins straight into the page, so these
@@ -719,6 +717,78 @@ async function withDom(html, run) {
     delete viewport.addEventListener
     delete viewport.removeEventListener
   }
+}
+
+for (const width of [900, 1400]) {
+  test(`Bot mode opens the native sidebar and returns to its resizable roster at ${width}px`, async () => {
+    await withDom('<!doctype html><body><div class="x_frame" data-sidebar-collapsed><div class="x_sidebarCol"><nav class="x_panelList"></nav></div><div class="x_centerCol"></div></div></body>', ({ document, getComputedStyle }) => {
+      viewport.innerWidth = width
+      const style = document.createElement('style')
+      style.textContent = SHELL_CSS
+      document.head.append(style)
+      const column = document.querySelector('.x_sidebarCol')
+      const frameEl = column.parentElement
+      const panel = column.querySelector('nav')
+      const refs = []
+      const states = []
+      const cleanups = []
+      let toggles = 0
+      const actions = {
+        toggleSidebar: () => { toggles += 1; frameEl.toggleAttribute('data-sidebar-collapsed') },
+      }
+      const render = () => {
+        renderRefs = refs
+        renderStates = states
+        refIndex = 0
+        stateIndex = 0
+        layoutEffects = []
+        const tree = TeamSidebar({
+          wide: !dshCollapsed(), actions,
+          useRoster: pick => pick({ bots: [], rooms: [], agents: [], byId: {}, ready: true }),
+          useUi: pick => pick({ unread: {} }), useRegistry: pick => pick({}),
+          useSessions: pick => pick({ ids: [], byId: {} }), useUpdate: () => ({}),
+          useFrame: pick => pick({ viewport: width, sidebarWidth: 280, collapsedWidth: 0, collapsed: dshCollapsed() }),
+        })
+        for (const effect of layoutEffects) {
+          const off = effect()
+          if (typeof off === 'function') cleanups.push(off)
+        }
+        return tree
+      }
+      const find = (node, match) => {
+        if (Array.isArray(node)) return node.map(child => find(child, match)).find(Boolean)
+        if (!node || typeof node !== 'object') return undefined
+        return match(node) ? node : find(node.props?.children, match)
+      }
+      const left = tree => find(tree, node => node.type?.name === 'LeftColumn')
+      try {
+        const bot = render()
+        assert.equal(getComputedStyle(panel).display, 'none')
+        find(bot, node => node.props['aria-label'] === 'Workspaces and plugins').props.onClick()
+        const native = render()
+        assert.equal(left(native), undefined)
+        assert.equal(dshCollapsed(), false)
+        assert.equal(toggles, 1)
+        const back = find(native, node => node.props.className?.includes('bt-native-sidebar-back'))
+        const marker = document.createElement('button')
+        marker.className = back.props.className
+        column.append(marker)
+        assert.notEqual(getComputedStyle(panel).display, 'none')
+        back.props.onClick()
+        marker.remove()
+        assert.equal(typeof left(render()).props.onGrip, 'function')
+        assert.equal(dshCollapsed(), true)
+        assert.equal(toggles, 2)
+        render()
+        assert.equal(toggles, 2)
+      } finally {
+        for (const off of cleanups) off()
+        renderRefs = undefined
+        renderStates = undefined
+        layoutEffects = undefined
+      }
+    })
+  })
 }
 
 // 公开#1618: DSH Desktop wraps _sidebarCol in <aside class="dshDesktopSidebarSurface">
