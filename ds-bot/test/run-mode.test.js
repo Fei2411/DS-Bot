@@ -9,7 +9,7 @@ import { createRuntime } from '../index.js'
 import { LocalAgentAdapter } from '../src/host/local-agents/adapter.js'
 import { AcpEngine } from '../src/host/local-agents/acp.js'
 import { probeSignIn } from '../src/host/local-agents/discover.js'
-import { agentAvatar, badgeOf, isLocalRoute, modelsFor } from '../src/client/agent-routes.js'
+import { agentAvatar, badgeOf, isLocalRoute, localModel, modelsFor } from '../src/client/agent-routes.js'
 import { avatarAfter, createPayload, runModeNotes, startModel } from '../src/client/bot-draft.js'
 import { fakeContext } from './fake-ctx.js'
 
@@ -461,6 +461,18 @@ test('state, models and a model menu start no CLI; a local Bot\'s menu starts it
   // What it said is now in the catalog, and a route nobody serves is not asked.
   assert.ok((await env.rt.catalog()).some(entry => entry.ref === 'local-acp-fake/fake-large'))
   assert.deepEqual((await env.call('local-agent-models', { route: 'nope' })).value, [])
+})
+
+test('a Bot can switch to a custom agent with only fixed models', async (t) => {
+  const env = await start(t)
+  const updated = await env.call('local-agent-update', { id: 'fake', models: ['model-a', 'model-b'] })
+  assert.equal(updated.ok, true)
+  const target = localModel(updated.value)
+  assert.equal(target, 'local-acp-fake/model-a')
+  assert.equal(localModel({ route: 'local-codex-cli' }), 'local-codex-cli/default')
+  assert.equal((await env.call('update-bot', { id: 'b', model: target, changeEngine: true })).ok, true)
+  assert.equal(env.state().bots.b.model, target)
+  assert.equal(env.startCount(), 0)
 })
 
 // -----------------------------------------------------------------------------

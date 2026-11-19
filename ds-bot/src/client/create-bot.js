@@ -8,7 +8,7 @@ import { useEscape } from './overlay-hooks.js'
 import { createPayload, freshBotName, startModel } from './bot-draft.js'
 import { ModelMenu, useAgentModels } from './model-menu.js'
 import { CliList, ReadingModels, RunModeSwitch, useLocalAgents } from './agent-cards.js'
-import { agentAvatar, modelsFor, routeOf } from './agent-routes.js'
+import { agentAvatar, localModel, modelsFor, routeOf } from './agent-routes.js'
 import { hostText, t } from './i18n.js'
 import { nameProblem } from '../shared/mentions.js'
 
@@ -65,7 +65,7 @@ export function CreateBot({ roster, actions, start, brief = '', onBack, canGoBac
     avatarImage(file).then(setImage, failure => setError(failure?.message ?? String(failure)))
   }
   const pickAgent = (agent) => {
-    setAgentModel(`${agent.route}/default`)
+    setAgentModel(localModel(agent))
     readModels(agent.route)
   }
   const worn = local && chosen !== '' && !ownLook ? agentAvatar(routeOf(chosen))?.image : undefined

@@ -18439,6 +18439,7 @@ var badgeOf = (engine) => {
 };
 var isLocalRoute = (ref) => badgeOf(String(ref ?? "").split("/")[0]) !== void 0;
 var routeOf = (ref) => String(ref ?? "").split("/")[0];
+var localModel = (agent) => `${agent.route}/${agent.models?.[0] ?? "default"}`;
 function modelsFor(models, ref) {
   const list = models ?? [];
   return isLocalRoute(ref) ? list.filter((model) => routeOf(model.ref) === routeOf(ref)) : list.filter((model) => !isLocalRoute(model.ref));
@@ -24351,7 +24352,7 @@ function useLocalAgents(wanted) {
   (0, import_react21.useEffect)(() => {
     if (wanted && view === null) void load("local-agents");
   }, [wanted]);
-  const agents = view === null ? [] : [...view.detected, ...view.custom.filter((agent) => agent.available !== false).map((agent) => ({ route: agent.route, name: agent.name, command: agent.command, args: agent.args, signedIn: null }))];
+  const agents = view === null ? [] : [...view.detected, ...view.custom.filter((agent) => agent.available !== false).map((agent) => ({ route: agent.route, name: agent.name, command: agent.command, args: agent.args, models: agent.models, signedIn: null }))];
   return { agents, known: view !== null, scanning, refresh: () => load("local-agent-refresh") };
 }
 var shortVersion = (version) => {
@@ -24480,7 +24481,7 @@ function RunModeCard({ bot, roster, actions, run: run2, Card: Card3 }) {
       "div",
       { className: "bt-runmode" },
       (0, import_react21.createElement)(RunModeSwitch, { mode, setMode: switchMode }),
-      mode === "local" ? (0, import_react21.createElement)(CliList, { agents: others, known, scanning, refresh, selected: routeOf(target), onPick: (entry) => setTarget(`${entry.route}/default`), actions }) : (0, import_react21.createElement)(ModelMenu, { bot: { id: bot.id, name: bot.name, model: target || void 0 }, roster, actions, wide: true, withEfforts: false, onPick: setTarget }),
+      mode === "local" ? (0, import_react21.createElement)(CliList, { agents: others, known, scanning, refresh, selected: routeOf(target), onPick: (entry) => setTarget(localModel(entry)), actions }) : (0, import_react21.createElement)(ModelMenu, { bot: { id: bot.id, name: bot.name, model: target || void 0 }, roster, actions, wide: true, withEfforts: false, onPick: setTarget }),
       changing ? (0, import_react21.createElement)(
         "div",
         { className: "bt-runmode-confirm", role: "group", "aria-label": t("Change what {name} runs on?", { name: bot.name }) },
@@ -31981,7 +31982,7 @@ function CreateBot({ roster, actions, start, brief = "", onBack, canGoBack, onCr
     avatarImage(file).then(setImage, (failure) => setError(failure?.message ?? String(failure)));
   };
   const pickAgent = (agent) => {
-    setAgentModel(`${agent.route}/default`);
+    setAgentModel(localModel(agent));
     readModels(agent.route);
   };
   const worn = local && chosen !== "" && !ownLook ? agentAvatar(routeOf(chosen))?.image : void 0;

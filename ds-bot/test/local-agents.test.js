@@ -27,14 +27,14 @@ const system = (id, text) => ({ id, role: 'system', content: [{ type: 'text', te
 const toolResult = (id, callId, text, isError = false) => ({ id, role: 'tool', content: [{ type: 'text', text }], toolCallId: callId, isError, source: { kind: 'tool', callId } })
 
 // An adapter wired to the fake CLIs: every engine route spawns `node fixture`.
-function makeAdapter({ records = {}, preset = 'workspace-write', acp = FIXTURES.acp, acpArgs = [], codex = FIXTURES.codex, codexArgs = [], claude = FIXTURES.claude, claudeArgs = [], cwdFor, attachments, fs, rt } = {}) {
+function makeAdapter({ records = {}, preset = 'workspace-write', acp = FIXTURES.acp, acpArgs = [], codex = FIXTURES.codex, codexArgs = [], claude = FIXTURES.claude, claudeArgs = [], custom = [{ id: 'fake', name: 'Fake ACP', command: 'x', args: [] }, { id: 'fake2', name: 'Fake ACP 2', command: 'x', args: [] }], cwdFor, attachments, fs, rt } = {}) {
   const files = { acp, codex, claude }
   const spawned = []
   const adapter = new LocalAgentAdapter({
     rt: rt ?? { warn: () => {} },
     attachments,
     fs,
-    customAgents: () => [{ id: 'fake', name: 'Fake ACP', command: 'x', args: [] }, { id: 'fake2', name: 'Fake ACP 2', command: 'x', args: [] }],
+    customAgents: () => custom,
     findExecutable: path => path,
     spawnEngine: (kind, route, spec) => {
       const engine = kind === 'acp' ? new AcpEngine(route, { ...spec, command: process.execPath, args: [files.acp, ...acpArgs] }, { findExecutable: path => path })
@@ -45,6 +45,11 @@ function makeAdapter({ records = {}, preset = 'workspace-write', acp = FIXTURES.
     },
     record: sessionId => records[sessionId],
     saveRecord: (sessionId, record) => { records[sessionId] = record },
+    dropRecords: route => {
+      for (const [sessionId, record] of Object.entries(records)) {
+        if (record?.route === route) delete records[sessionId]
+      }
+    },
     presetFor: typeof preset === 'function' ? preset : () => preset,
     cwdFor: cwdFor ?? (async () => mkdtempSync(join(tmpdir(), 'dsb-cwd-'))),
     probeCwd: () => mkdtempSync(join(tmpdir(), 'dsb-probe-')),
@@ -340,6 +345,81 @@ test('probeModels reports the probe session\'s model options plus CLI default', 
   const models = await adapter.probeModels('local-acp-fake')
   assert.deepEqual(models.map(model => model.id), ['default', 'fake-large', 'fake-small'])
   assert.equal(models[0].name, 'CLI default')
+})
+
+test('a fixed custom model list is returned without probing the CLI', async (t) => {
+  const custom = [{ id: 'fake', name: 'Fixed', command: 'x', args: [], models: ['model-a', 'model-b'] }]
+  const adapter = makeAdapter({ custom })
+  t.after(() => adapter.dispose())
+  const models = await adapter.probeModels('local-acp-fake')
+  assert.deepEqual(models.map(model => model.id), ['model-a', 'model-b'])
+  assert.equal(adapter.engines.size, 0)
+})
+
+test('invalidating a route drops its sessions and rebuilds its driver', async (t) => {
+  const records = {}
+  const custom = [{ id: 'fake', name: 'Fake', command: 'x', args: [] }]
+  const adapter = makeAdapter({ records, custom })
+  t.after(() => adapter.dispose())
+  const first = await collect(adapter.stream(options('s1', [user('m1', 'hello')])))
+  assert.match(first.text, /^ok: /)
+  const old = adapter.engines.get('local-acp-fake')
+  assert.ok(records.s1)
+
+  custom[0].kind = 'claude'
+  await adapter.invalidateRoute('local-acp-fake')
+
+  assert.equal(records.s1, undefined)
+  assert.equal(adapter.engines.has('local-acp-fake'), false)
+  assert.equal(old.peer, undefined)
+
+  const second = await collect(adapter.stream(options('s1', [user('m2', 'again')])))
+  assert.match(second.text, /again/)
+  assert.equal(adapter.engines.get('local-acp-fake').constructor.name, 'ClaudeEngine')
+})
+
+test('invalidating a probed route clears its model cache', async (t) => {
+  const custom = [{ id: 'fake', name: 'Fake', command: 'x', args: [] }]
+  const adapter = makeAdapter({ custom })
+  t.after(() => adapter.dispose())
+  assert.deepEqual((await adapter.probeModels('local-acp-fake')).map(model => model.id), ['default', 'fake-large', 'fake-small'])
+  custom[0].kind = 'claude'
+  await adapter.invalidateRoute('local-acp-fake')
+  assert.deepEqual((await adapter.probeModels('local-acp-fake')).map(model => model.id), ['default', 'opus', 'sonnet', 'haiku'])
+  assert.equal(adapter.engines.get('local-acp-fake').constructor.name, 'ClaudeEngine')
+})
+
+test('invalidating a route while a turn is opening leaves no old session', async (t) => {
+  const custom = [{ id: 'fake', name: 'Fake', command: 'x', args: [] }]
+  const records = {}
+  const entered = Promise.withResolvers()
+  const ready = Promise.withResolvers()
+  const adapter = makeAdapter({ custom, records, cwdFor: () => { entered.resolve(); return ready.promise } })
+  t.after(() => adapter.dispose())
+  const turn = collect(adapter.stream(options('s1', [user('m1', 'hello')])))
+  await entered.promise
+  custom[0].kind = 'claude'
+  await adapter.invalidateRoute('local-acp-fake')
+  ready.resolve(tmpdir())
+  await assert.rejects(turn, /the local agent configuration changed/)
+  assert.equal(records.s1, undefined)
+  assert.equal(adapter.live.has('s1'), false)
+})
+
+test('an earlier probe cannot replace the new driver’s models', async (t) => {
+  const route = 'local-acp-fake'
+  const custom = [{ id: 'fake', name: 'Fake', command: 'x', args: [] }]
+  const adapter = makeAdapter({ custom })
+  t.after(() => adapter.dispose())
+  const stale = Promise.withResolvers()
+  adapter.engine(route).listModels = () => stale.promise
+  const earlier = adapter.probeModels(route)
+  custom[0].kind = 'claude'
+  await adapter.invalidateRoute(route)
+  const current = await adapter.probeModels(route)
+  stale.resolve([{ id: 'old-model' }])
+  assert.deepEqual(await earlier, current)
+  assert.deepEqual(current.map(model => model.id), ['default', 'opus', 'sonnet', 'haiku'])
 })
 
 test('codex app-server: thread per session, models from model/list', async (t) => {

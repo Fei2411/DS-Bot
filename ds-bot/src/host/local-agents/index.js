@@ -96,6 +96,11 @@ export function install(rt) {
       store().sessions[sessionId] = record
       void rt.save().catch(() => {})
     },
+    dropRecords: (route) => {
+      for (const [sessionId, record] of Object.entries(store().sessions)) {
+        if (record?.route === route) delete store().sessions[sessionId]
+      }
+    },
     recordUsage: entry => rt.recordUsage?.(entry),
     // A change that rides along with the next save: the CLI reports its context on
     // every model call.
@@ -256,6 +261,8 @@ export function install(rt) {
       case 'local-agent-update': {
         const entry = store().custom.find(agent => agent.id === body.id)
         if (entry === undefined) throw new Error('Unknown agent')
+        const route = customRoute(entry.id)
+        const oldKind = entry.kind ?? 'acp'
         const clean = validateCustom({
           name: body.name ?? entry.name,
           command: body.command ?? entry.command,
@@ -263,12 +270,15 @@ export function install(rt) {
           kind: body.kind ?? entry.kind,
           models: body.models ?? entry.models,
         })
+        const kindChanged = (clean.kind ?? oldKind) !== oldKind
+        const commandChanged = clean.command !== entry.command
+        const argsChanged = JSON.stringify(clean.args) !== JSON.stringify(entry.args ?? [])
         Object.assign(entry, clean)
         // An explicit empty list clears the fixed models and returns the
         // route to probing the CLI; validateCustom leaves an empty list out.
         if (Object.hasOwn(body, 'models')) entry.models = clean.models
-        adapter.dropModelCache(customRoute(entry.id))
-        await rt.save()
+        const cleanup = kindChanged || commandChanged || argsChanged ? adapter.invalidateRoute(route) : adapter.dropModelCache(route)
+        await Promise.all([cleanup, rt.save()])
         return { ...entry, route: customRoute(entry.id) }
       }
       case 'local-agent-remove': {
