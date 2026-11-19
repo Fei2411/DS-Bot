@@ -4,7 +4,66 @@ import { tmpdir } from 'node:os'
 import { delimiter, join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
-import { cleanEnv, findEngineExecutable, findExecutable, launchOf, refreshSearchDirs, spawnAgent } from '../src/host/local-agents/discover.js'
+import { agentEnv, cleanEnv, findEngineExecutable, findExecutable, launchOf, refreshSearchDirs, spawnAgent } from '../src/host/local-agents/discover.js'
+
+test('Windows pi-acp resolves standalone Pi through PATH and PATHEXT (#1795)', () => {
+  const exe = 'F:\\Pi\\pi.exe'
+  const env = { Path: 'C:\\empty;F:\\Pi', PATHEXT: '.COM;.EXE;.BAT;.CMD' }
+  const find = name => findExecutable(name, { platform: 'win32', env, isFile: path => path === exe })
+  assert.equal(find('pi'), exe)
+  assert.equal(agentEnv('C:\\npm\\pi-acp.cmd', env, { platform: 'win32', find }).PI_ACP_PI_COMMAND, exe)
+  for (const ext of ['cmd', 'bat', 'exe']) {
+    const path = `F:\\Pi\\pi.${ext}`
+    const lookup = name => findExecutable(name, { platform: 'win32', env, isFile: candidate => candidate === path })
+    assert.equal(agentEnv('pi-acp', env, { platform: 'win32', find: lookup }).PI_ACP_PI_COMMAND, path)
+  }
+  assert.equal(agentEnv('pi-acp.exe', env, { platform: 'win32', find: () => undefined }), env)
+  const explicit = { ...env, PI_ACP_PI_COMMAND: 'D:\\custom\\pi.exe' }
+  assert.equal(agentEnv('pi-acp', explicit, { platform: 'win32', find }), explicit)
+  assert.equal(agentEnv('other.cmd', env, { platform: 'win32', find }), env)
+  assert.equal(agentEnv('pi-acp', env, { platform: 'darwin', find }), env)
+})
+
+test('Windows lookup skips relative PATH directories', () => {
+  const env = { PATH: '.;bin;C:relative;C:\\tools', PATHEXT: '.EXE' }
+  const checked = []
+  const find = name => findExecutable(name, { platform: 'win32', env, isFile: path => { checked.push(path); return path.endsWith('.exe') } })
+  assert.equal(find('pi'), 'C:\\tools\\pi.exe')
+  assert.deepEqual(checked, ['C:\\tools\\pi.exe'])
+  assert.equal(findExecutable('pi', { platform: 'win32', env: { PATH: '.;bin', PATHEXT: '.EXE' }, isFile: path => ['pi.exe', 'bin\\pi.exe'].includes(path) }), undefined)
+})
+
+test('Windows lookup only returns executable or batch extensions', () => {
+  const lookup = (name, files, PATHEXT) => findExecutable(name, {
+    platform: 'win32', env: { PATH: 'C:\\tools', ...(PATHEXT === undefined ? {} : { PATHEXT }) }, isFile: path => files.includes(path),
+  })
+  for (const ext of ['js', 'vbs', 'ps1', '']) {
+    const file = `C:\\tools\\agent${ext ? `.${ext}` : ''}`
+    assert.equal(lookup('agent', [file], '.JS;.VBS;.PS1;.EXE'), undefined)
+    assert.equal(lookup(file, [file]), undefined)
+  }
+  assert.equal(lookup('agent', ['C:\\tools\\agent.cmd', 'C:\\tools\\agent.exe'], '.JS;.EXE;.CMD'), 'C:\\tools\\agent.exe')
+  assert.equal(lookup('agent', ['C:\\tools\\agent.cmd'], '.JS'), undefined)
+  assert.equal(lookup('agent', ['C:\\tools\\agent.cmd'], ''), undefined)
+  assert.equal(lookup('agent', ['C:\\tools\\agent.com']), 'C:\\tools\\agent.com')
+  assert.equal(lookup('agent.js', ['C:\\tools\\agent.js.cmd'], '.JS;.CMD'), 'C:\\tools\\agent.js.cmd')
+  assert.equal(lookup('agent.CmD', ['C:\\tools\\agent.CmD'], '.EXE'), 'C:\\tools\\agent.CmD')
+})
+
+test('Windows pi-acp preserves environment overrides regardless of key casing', () => {
+  for (const key of ['Pi_Acp_Pi_Command', 'pi_acp_pi_command', 'PI_ACP_PI_COMMAND']) {
+    const env = { [key]: 'D:\\custom\\pi.exe' }
+    assert.equal(agentEnv('pi-acp.cmd', env, { platform: 'win32', find: () => assert.fail('must not resolve an overridden Pi') }), env)
+  }
+})
+
+test('Windows resolves dotted command names unless their suffix is already in PATHEXT', () => {
+  const env = { PATH: 'C:\\agents', PATHEXT: '.EXE;.CMD' }
+  const lookup = (name, file) => findExecutable(name, { platform: 'win32', env, isFile: path => path === file })
+  assert.equal(lookup('agent.v2', 'C:\\agents\\agent.v2.cmd'), 'C:\\agents\\agent.v2.cmd')
+  assert.equal(lookup('agent.CmD', 'C:\\agents\\agent.CmD'), 'C:\\agents\\agent.CmD')
+  assert.equal(lookup('agent.CmD', 'C:\\agents\\agent.CmD.cmd'), undefined)
+})
 
 // npm-*.cmd are what npm 11's cmd-shim writes for a Node script and for an .exe;
 // pnpm-node.cmd follows pnpm 11's shim template with a NODE_PATH.

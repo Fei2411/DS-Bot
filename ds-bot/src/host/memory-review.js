@@ -53,18 +53,30 @@ export function installReview(rt, memory) {
     const fresh = []
     const earlier = []
     let through
-    // Reading goes back as far as it takes: to the cursor, or for a first review to
-    // the user's latest line.
+    let size = 0
+    let more = false
+    // A page cap could advance the cursor past unread user messages.
     for await (const line of rt.partLines(sessionId, AbortSignal.timeout(REVIEW_READ_MS), { pages: Infinity })) {
       through ??= line.seq
       // A first review reads back at least to the user's latest line.
-      if (since === undefined ? fresh.length < REVIEW_FIRST_LINES || !fresh.some(seen => seen.who === 'user') : line.seq > since) fresh.push(line)
+      if (since === undefined ? fresh.length < REVIEW_FIRST_LINES || !fresh.some(seen => seen.who === 'user') : line.seq > since) {
+        const text = reviewLine(line.who, line.text, bot)
+        fresh.push({ ...line, text, formatted: true })
+        size += text.length
+        // Retain an oldest-first batch, not the entire backlog. Newer lines stay
+        // ahead of the saved cursor and are read on the next pass.
+        while (fresh.length > 1 && size > REVIEW_TEXT_MAX * 2) {
+          size -= fresh.shift().text.length
+          more = true
+        }
+      }
       else if (earlier.push(line) >= REVIEW_CONTEXT_LINES) break
     }
     const parts = rt.partsOfThread(bot.id, sessionId)
     const at = parts.findIndex(part => part.sessionId === sessionId)
     return {
       through,
+      more,
       fresh: fresh.reverse(),
       earlier: earlier.reverse(),
       where: 'its own chat with the user',
@@ -107,7 +119,7 @@ export function installReview(rt, memory) {
     const kept = []
     let used = 0
     for (const line of lines) {
-      const text = reviewLine(line.who, line.text, bot)
+      const text = line.formatted === true ? line.text : reviewLine(line.who, line.text, bot)
       if (kept.length > 0 && used + text.length > REVIEW_TEXT_MAX) break
       kept.push(text)
       used += text.length
@@ -252,6 +264,11 @@ export function installReview(rt, memory) {
     const keeper = live === undefined ? undefined : keeperOf(live)
     if (keeper === undefined) return
     const since = cursorsNow()[seen.key]
+    if (since !== undefined) {
+      await rt.backfillGroupLog?.(live.id, since).catch((error) => {
+        rt.warn('ds-bot: the log of group "%s" could not be recovered: %s', live.name, error?.message ?? error)
+      })
+    }
     const room = withKeptLines(joinLogs(seen.room, live), await rt.groupLinesAfter(live.id, since).catch((error) => {
       rt.warn('ds-bot: the log of group "%s" could not be read: %s', live.name, error?.message ?? error)
       return []
@@ -277,7 +294,7 @@ export function installReview(rt, memory) {
     // only passes lines the model has seen.
     const fresh = fitted(batch.fresh, keeper)
     const read = batch.fresh.slice(0, fresh.count)
-    const more = fresh.count < batch.fresh.length
+    const more = batch.more === true || fresh.count < batch.fresh.length
     let through = more ? read.at(-1).seq : batch.through
     let again = more
     // A first review fixes where it starts before the model call, so a failure
