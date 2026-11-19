@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import test from 'node:test'
-import { parseCookieFile } from '../src/cookie-parse.mjs'
+import { parseCookieFile, summarizeBySite } from '../src/cookie-parse.mjs'
 
 const fixtures = join(dirname(fileURLToPath(import.meta.url)), 'fixtures', 'cookies')
 const parse = (name) => parseCookieFile(readFileSync(join(fixtures, name)))
@@ -130,4 +130,60 @@ test('prefix rules and expired entries are refused before they can fail the stor
   assert.equal(parsed.cookies[0].name, 'good')
   const codes = parsed.skipped.map((s) => s.code)
   assert.ok(codes.includes('prefix') && codes.includes('expired') && codes.includes('bad-char-name'))
+})
+
+test('Copy as cURL (bash and cmd) parses cookies and prefers the cURL URL over defaultUrl', () => {
+  const bashCurl = [
+    "curl 'https://app.example.com/dashboard/settings' \\",
+    "  -H 'accept: text/html' \\",
+    "  -b 'sid=fake-sess-1; theme=dark' \\",
+    "  -H 'Cookie: csrf=tok-2'",
+  ].join('\n')
+  const parsed = parseCookieFile(bashCurl, { defaultUrl: 'https://other.example.org/' })
+  assert.equal(parsed.ok, true)
+  assert.equal(parsed.format, 'curl')
+  assert.deepEqual(parsed.cookies.map((c) => [c.name, c.value, c.domain, c.path, c.secure]), [
+    ['sid', 'fake-sess-1', 'app.example.com', '/', true],
+    ['theme', 'dark', 'app.example.com', '/', true],
+    ['csrf', 'tok-2', 'app.example.com', '/', true],
+  ])
+
+  const cmdCurl = 'curl ^"https://portal.example.org/api^" ^\r\n  -H ^"Cookie: a=1; b=2^"'
+  const parsedCmd = parseCookieFile(cmdCurl)
+  assert.equal(parsedCmd.ok, true)
+  assert.equal(parsedCmd.format, 'curl')
+  assert.deepEqual(parsedCmd.cookies.map((c) => [c.name, c.domain]), [['a', 'portal.example.org'], ['b', 'portal.example.org']])
+})
+
+test('a Cookie header string parses when defaultUrl is supplied', () => {
+  const parsed = parseCookieFile('Cookie: sid=fake123; lang=zh', { defaultUrl: 'https://docs.example.com/guide' })
+  assert.equal(parsed.ok, true)
+  assert.equal(parsed.format, 'header-string')
+  assert.deepEqual(parsed.cookies.map((c) => [c.name, c.value, c.domain, c.path, c.secure]), [
+    ['sid', 'fake123', 'docs.example.com', '/', true],
+    ['lang', 'zh', 'docs.example.com', '/', true],
+  ])
+})
+
+test('Playwright storageState preserves localStorage origins and summarizes them by site', () => {
+  const state = JSON.stringify({
+    cookies: [
+      { name: 'sid', value: 'v1', domain: '.example.com', path: '/', expires: 1893456000, httpOnly: true, secure: true, sameSite: 'Lax' },
+    ],
+    origins: [
+      { origin: 'https://app.example.com', localStorage: [{ name: 'jwt', value: 'fake-jwt' }, { name: 'ui', value: '1' }] },
+      { origin: 'https://only-storage.example.org', localStorage: [{ name: 'k', value: 'v' }] },
+    ],
+  })
+  const parsed = parseCookieFile(state)
+  assert.equal(parsed.ok, true)
+  assert.equal(parsed.format, 'playwright')
+  assert.equal(parsed.origins.length, 2)
+  assert.equal(parsed.warnings.some((w) => w.code === 'local-storage-not-imported'), false)
+  const sites = summarizeBySite(parsed)
+  const appSite = sites.find((s) => s.site === 'app.example.com')
+  const storageOnly = sites.find((s) => s.site === 'only-storage.example.org')
+  assert.equal(appSite?.localStorage, 2)
+  assert.equal(storageOnly?.cookies, 0)
+  assert.equal(storageOnly?.localStorage, 1)
 })

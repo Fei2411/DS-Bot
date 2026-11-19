@@ -6,7 +6,7 @@ import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import test from 'node:test'
-import { applyCookies, CookieImports, previewOf, toSetDetails } from '../src/cookie-import.mjs'
+import { applyCookies, applyOrigins, CookieImports, filterCookiesBySites, previewOf, toSetDetails } from '../src/cookie-import.mjs'
 import { parseCookieFile } from '../src/cookie-parse.mjs'
 
 const fixtures = join(dirname(fileURLToPath(import.meta.url)), 'fixtures', 'cookies')
@@ -100,4 +100,73 @@ test('preview groups by site and reports skipped and adjusted entries', () => {
   assert.equal(preview.skipped.length, 7)
   assert.ok(preview.warnings.length > 0)
   assert.ok(preview.warnings.every((w) => w.count >= 1 && w.message))
+})
+
+test('toSetDetails promotes session cookies to persistent expiry when persistSession is enabled', () => {
+  const sessionCookie = { name: 'sid', value: 'v', domain: 'example.com', path: '/', secure: true, httpOnly: true }
+  const plain = toSetDetails(sessionCookie)
+  assert.equal(plain.expirationDate, undefined)
+
+  const persisted = toSetDetails(sessionCookie, { persistSession: true, now: 1700000000, sessionTtlSeconds: 86400 })
+  assert.equal(persisted.expirationDate, 1700086400)
+
+  const explicit = toSetDetails({ ...sessionCookie, expires: 1893456000 }, { persistSession: true, now: 1700000000 })
+  assert.equal(explicit.expirationDate, 1893456000, 'explicit expiry is never overwritten')
+})
+
+test('filterCookiesBySites and applyCookies respect selected sites and persistSession', async () => {
+  const cookies = [
+    { name: 'a', value: '1', domain: '.alpha.example', path: '/', secure: true },
+    { name: 'b', value: '2', domain: 'beta.example', path: '/', secure: true },
+  ]
+  assert.deepEqual(filterCookiesBySites(cookies, ['alpha.example']).map((c) => c.name), ['a'])
+
+  const seenDetails = []
+  const ses = fakeSession()
+  const origSet = ses.cookies.set
+  ses.cookies.set = async (details) => { seenDetails.push(details); return origSet(details) }
+
+  const report = await applyCookies(ses, cookies, { sites: ['alpha.example'], persistSession: true, now: 1700000000 })
+  assert.equal(report.stored, 1)
+  assert.equal(seenDetails.length, 1)
+  assert.equal(seenDetails[0].name, 'a')
+  assert.ok(seenDetails[0].expirationDate > 1700000000)
+})
+
+test('applyOrigins filters by site, seeds localStorage, and reports failures without leaking values', async () => {
+  const origins = [
+    { origin: 'https://app.example.com', localStorage: [{ name: 'tok', value: 'secret-val' }] },
+    { origin: 'https://fail.example.com', localStorage: [{ name: 'k', value: 'secret-val-2' }] },
+    { origin: 'https://skip.example.org', localStorage: [{ name: 'z', value: 'secret-val-3' }] },
+  ]
+  const seeded = []
+  const report = await applyOrigins(origins, {
+    sites: ['app.example.com', 'fail.example.com'],
+    seedOrigin: async (origin, entries) => {
+      if (origin.includes('fail')) throw new Error('blocked')
+      seeded.push({ origin, count: entries.length })
+      return entries.length
+    },
+  })
+  assert.deepEqual(seeded, [{ origin: 'https://app.example.com', count: 1 }])
+  assert.equal(report.originsStored, 1)
+  assert.equal(report.entriesStored, 1)
+  assert.deepEqual(report.failedOrigins, [{ origin: 'https://fail.example.com', reason: 'blocked' }])
+  assert.equal(JSON.stringify(report).includes('secret-val'), false)
+})
+
+test('CookieImports stores origins and previewOf exposes value-free storage counts and notes', () => {
+  const parsed = parseCookieFile(JSON.stringify({
+    cookies: [{ name: 'sid', value: 'super-secret-cookie', domain: '.example.com', path: '/', secure: true }],
+    origins: [{ origin: 'https://example.com', localStorage: [{ name: 'auth', value: 'super-secret-ls' }] }],
+  }))
+  const imports = new CookieImports()
+  const { id, preview } = imports.store(parsed, { kind: 'chrome', label: 'Chrome — Default', id: 'chrome:Default' })
+  assert.equal(preview.origins, 1)
+  assert.equal(preview.localStorageEntries, 1)
+  assert.ok(preview.notes.includes('local-storage-included'))
+  assert.equal(JSON.stringify(preview).includes('super-secret'), false)
+  const taken = imports.take(id)
+  assert.equal(taken.origins.length, 1)
+  assert.equal(taken.origins[0].localStorage[0].value, 'super-secret-ls')
 })

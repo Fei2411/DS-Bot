@@ -635,11 +635,13 @@ function browserBridge() {
       hold: (botId, held) => ipcRenderer.invoke('ds-bot:browser-view-hold', String(botId), held === true),
       subscribe(listener) { viewListeners.add(listener); return () => viewListeners.delete(listener) },
     },
-    // Cookie imports, only in the app: sources and a two-step pick/harvest → preview → apply.
+    // Cookie imports, only in the app: sources and a two-step pick/harvest/paste → preview → apply.
     importSources: () => ipcRenderer.invoke('ds-bot:browser-import-sources'),
     importPick: () => ipcRenderer.invoke('ds-bot:browser-import-pick'),
+    importPaste: (text, defaultUrl) => ipcRenderer.invoke('ds-bot:browser-import-paste', String(text), typeof defaultUrl === 'string' ? defaultUrl : undefined),
+    importLaunch: (source) => ipcRenderer.invoke('ds-bot:browser-import-launch', String(source)),
     importLive: (source, close) => ipcRenderer.invoke('ds-bot:browser-import-live', String(source), close === true),
-    importApply: (key, pending) => ipcRenderer.invoke('ds-bot:browser-import-apply', String(key), String(pending)),
+    importApply: (key, pending, options) => ipcRenderer.invoke('ds-bot:browser-import-apply', String(key), String(pending), options && typeof options === 'object' ? options : undefined),
     importCancel: (pending) => ipcRenderer.invoke('ds-bot:browser-import-cancel', String(pending)),
     onOpenRequested(lease, listener) {
       const id = String(lease)
