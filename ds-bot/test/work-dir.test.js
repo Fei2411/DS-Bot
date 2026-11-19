@@ -1309,6 +1309,53 @@ test('a group\'s earlier parts page like a Bot\'s own chat', async (t) => {
   assert.deepEqual((await call('earlier', { sessionId: 'r1' })).value.items, [])
 })
 
+test('compressed pre-ledger group replies are recovered from the migrated group log', async (t) => {
+  const replies = [
+    { botId: 'b', name: 'Writer', text: 'First "reply".\n'.repeat(22), time: 1000 },
+    { botId: 'a', name: 'Chief', text: 'Middle reply. '.repeat(25), time: 2000 },
+    { botId: 'b', name: 'Writer', text: 'Final "reply".\n'.repeat(22), time: 3000 },
+  ]
+  const saved = structuredClone(TEAM)
+  const unrelated = 'This reply belongs to the next prompt.'
+  saved.rooms.r1.seq = 6
+  saved.rooms.r1.log = [
+    { seq: 1, who: 'User', text: 'Original prompt' },
+    ...replies.map((reply, index) => ({ seq: index + 2, who: reply.name, botId: reply.botId, text: reply.text })),
+    { seq: 5, who: 'User', text: 'Next prompt' },
+    { seq: 6, who: 'Chief', botId: 'a', text: unrelated },
+  ]
+  const { ctx, call, project, state, stop } = await start({ team: saved })
+  t.after(stop)
+  const original = JSON.stringify({ replies, passed: [] })
+  const head = original.indexOf('First') + 'First \\"reply\\".\\n'.repeat(8).length
+  const tail = original.lastIndexOf('Final') - 'Final \\"reply\\".\\n'.length * 6
+  const preview = `${original.slice(0, head)} ...[+${tail - head} chars]... ${original.slice(tail)}`
+  const text = `${preview}\n\n[save-token #c123 compressed: ${original.length} -> ${preview.length} bytes. expand: save_token_expand id="c123" | full: /unused/group_relay.txt]`
+  const events = [
+    { seq: 4, type: 'tool/call', data: { name: 'group_relay', callId: 'relay' } },
+    { seq: 5, type: 'tool/result', data: { message: { toolCallId: 'relay', content: [{ type: 'text', text }] } } },
+  ]
+  ctx.sessionController.page = async ({ address }) => ({
+    records: address.sessionId === 'r1' ? events.map(event => ({ event })) : [],
+    hasMore: false,
+  })
+  const expected = replies.map(reply => [reply.botId, reply.text])
+  assert.equal((await call('update-room', { id: 'r1', workDir: project })).ok, true)
+  await until(() => state().rooms.r1.sessionId === 's1')
+  const earlier = (await call('earlier', { sessionId: 's1' })).value
+  assert.deepEqual(earlier.items.map(item => [item.botId, item.texts[0]]), expected)
+  const recovered = (await call('group-relay-replies', { sessionId: 'r1', preview })).value
+  assert.deepEqual(recovered?.map(reply => [reply.botId, reply.text]), expected)
+  assert.equal((await call('group-relay-replies', { sessionId: 'gb', preview })).value, null)
+  const shortened = replies.map(reply => ({
+    ...reply, text: `${reply.text.slice(0, 45)} ...[+${reply.text.length - 100} chars]... ${reply.text.slice(-55)}`,
+  }))
+  const structured = (await call('group-relay-replies', { sessionId: 'r1', preview: JSON.stringify({ replies: shortened }) })).value
+  assert.deepEqual(structured, replies)
+  const crossedPrompt = JSON.stringify({ replies: [{ botId: 'b', text: `${replies[0].text.slice(0, 45)} ...[+2000 chars]... ${unrelated}` }] })
+  assert.equal((await call('group-relay-replies', { sessionId: 'r1', preview: crossedPrompt })).value, null)
+})
+
 test('the file panel of a group with a folder lists the Session\'s own folder', async (t) => {
   // DSH's file panel lists a Session at the folder the Session was made in, so no
   // lookup override is needed once the group's own Session moved there.
