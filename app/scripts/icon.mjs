@@ -133,9 +133,8 @@ if (process.versions.electron) {
   const { app } = await import('electron')
   app.whenReady().then(() => renderInElectron(jobs)).then(([large, ...rest]) => {
     const small = rest.slice(0, ICO_SIZES.length)
-    const hicolorStart = ICO_SIZES.length + TRAY_ICO_SIZES.length + 1 + TRAY_TEMPLATE_SIZES.length
-    const tray = rest.slice(ICO_SIZES.length, hicolorStart)
-    const hicolorPngs = rest.slice(hicolorStart)
+    const hicolorPngs = rest.slice(-HICOLOR_SIZES.length)
+    const tray = rest.slice(ICO_SIZES.length, rest.length - HICOLOR_SIZES.length)
     writeFileSync(join(assets, 'icon.png'), large)
     writeFileSync(join(assets, 'icon.ico'), icoFile(ICO_SIZES.map((size, index) => ({ size, png: small[index] }))))
     writeFileSync(join(assets, 'tray.ico'), icoFile(TRAY_ICO_SIZES.map((size, index) => ({ size, png: tray[index] }))))
