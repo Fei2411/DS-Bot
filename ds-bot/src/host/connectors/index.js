@@ -257,11 +257,20 @@ export function install(rt) {
     return typeof body?.[entry.whoami.field] === 'string' ? body[entry.whoami.field] : undefined
   }
 
+  // close() waits for the connections still open on the listener, and a browser
+  // keeps one alive: the callback port would stay bound after the attempt ends.
+  const closeListener = (listener) => new Promise(resolve => {
+    if (listener?.listening !== true) { resolve(); return }
+    for (const socket of listener.loopbackSockets ?? []) socket.destroy()
+    listener.loopbackSockets?.clear()
+    try { listener.close(() => resolve()) } catch { resolve() }
+  })
+
   async function endPending(id, status) {
     const pending = pendings.get(id)
     pendings.delete(id)
     if (pending?.timer !== undefined) clearTimeout(pending.timer)
-    if (pending?.listener !== undefined) await new Promise(resolve => pending.listener.close(resolve)).catch(() => {})
+    await closeListener(pending?.listener)
     if (status !== undefined) statuses.set(id, status)
     else statuses.delete(id)
   }
@@ -277,6 +286,12 @@ export function install(rt) {
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' })
       res.end('<!doctype html><title>Signed in</title><p style="font-family:sans-serif;margin:3em;text-align:center">Signed in — you can close this tab and go back to DS Bot.</p>')
       void ready({ code: url.searchParams.get('code'), state: url.searchParams.get('state'), iss: url.searchParams.get('iss'), error: url.searchParams.get('error'), errorDescription: url.searchParams.get('error_description') }).catch(error => rt.warn('ds-bot: connector sign-in callback failed: %s', reason(error)))
+    })
+    const sockets = new Set()
+    listener.loopbackSockets = sockets
+    listener.on('connection', socket => {
+      sockets.add(socket)
+      socket.on('close', () => sockets.delete(socket))
     })
     listener.on('error', error => {
       if (listener.listening) rt.warn('ds-bot: connector sign-in listener failed: %s', error?.code ?? 'error')
@@ -303,7 +318,11 @@ export function install(rt) {
       ? await loopback(({ code, state, iss, error, errorDescription }) => completeBrowser(id, { code, state, iss, error, errorDescription }))
       : pending
     const { listener, fixed, redirectUri } = bound
-    pendings.set(id, { ...pending, listener, fixed, redirectUri })
+    // A reused listener arrives with the replaced attempt's timeout, which would
+    // otherwise end this one when it fires.
+    const { timer: previousTimer, ...rest } = pending
+    if (previousTimer !== undefined) clearTimeout(previousTimer)
+    pendings.set(id, { ...rest, listener, fixed, redirectUri })
     try {
       const saved = state.connectors?.[id]
       const persist = async (client) => {
@@ -639,6 +658,8 @@ export function install(rt) {
       tools: gateways.gw?.toolCount?.(entry.id) ?? 0,
       ...(entry.custom !== undefined ? { custom: true } : {}),
       ...(pendings.has(entry.id) ? { pending: pendings.get(entry.id).row } : {}),
+      // The client form shows this address: the service's app must answer on it.
+      ...(pendings.get(entry.id)?.redirectUri !== undefined ? { redirectUri: pendings.get(entry.id).redirectUri } : {}),
     }
   }
 
@@ -838,14 +859,16 @@ export function install(rt) {
     void rt.load().then(() => rt.loadSecrets()).then(() => sync())
     return () => {
       stopped = true
-      for (const pending of pendings.values()) if (pending.timer !== undefined) clearTimeout(pending.timer)
-      for (const pending of pendings.values()) pending.listener?.close()
+      const released = [...pendings.values()].map(pending => {
+        if (pending.timer !== undefined) clearTimeout(pending.timer)
+        return closeListener(pending.listener)
+      })
       pendings.clear()
       const closing = [...mounts.values()].map(mount => Promise.resolve().then(() => mount.fiber?.dispose()).catch(() => {}))
       mounts.clear()
       const gw = gateways.gw
       gateways.gw = null
-      return Promise.all([...closing, gw?.close(), mailApi.dispose()])
+      return Promise.all([...released, ...closing, gw?.close(), mailApi.dispose()])
     }
   }, 'ds-bot: connectors')
 
