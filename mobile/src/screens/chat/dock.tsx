@@ -11,6 +11,8 @@ import { t } from '../../ui/i18n.ts'
 import { radius, shadow, SPRING_TAP, type as typeScale, type Palette } from '../../ui/tokens.ts'
 import { Avatar } from '../../ui/marks.tsx'
 import type { Bot } from '../../connection.ts'
+import type { LearningProposal } from './learning.ts'
+import { lineDiff } from '../../../../ds-bot/src/client/learning-card-model.js'
 
 type Call = (endpoint: string, payload?: unknown) => Promise<unknown>
 
@@ -40,17 +42,19 @@ function AccordionCard({ title, dot, expanded, onToggle, p, children }: { title:
   )
 }
 
-export function Dock({ question, sessionId, approvals, secrets = [], connectorRequests = [], botName, onOpenConnector, btw = [], handoff, onViewBrowser, view, call, p, maxHeight, expanded, onExpand }: {
+export function Dock({ question, sessionId, approvals, learning = [], secrets = [], connectorRequests = [], botName, onOpenConnector, btw = [], handoff, onViewBrowser, view, call, p, maxHeight, expanded, onExpand }: {
   view?: ShownView
   secrets?: SecretRequest[]; connectorRequests?: ConnectorRequest[]; botName?: string; onOpenConnector?: (connectorId: string) => void
   btw?: BtwCardData[]; handoff?: HandoffData; onViewBrowser?: () => void
   maxHeight?: number; expanded: string | null; onExpand: (key: string | null) => void
   question?: Question; sessionId: string; approvals: Approval[]; call: Call; p: Palette
+  learning?: LearningProposal[]
 }) {
   interface CardEntry { key: string; title: string; needs: boolean; order: number; body: React.ReactNode }
   const { height: windowHeight } = useWindowDimensions()
   const cap = maxHeight ?? Math.round(windowHeight * 0.52)
   const cards: CardEntry[] = []
+  for (const proposal of learning) cards.push({ key: `learning-${proposal.id}`, title: proposal.kind === 'agents' ? t('AGENTS.md update') : `${t(proposal.action === 'update' ? 'Skill update' : 'New skill')} · ${proposal.name}`, needs: true, order: 0, body: <LearningCard proposal={proposal} call={call} p={p} /> })
   for (const approval of approvals) cards.push({ key: `approval-${approval.id}`, title: approval.tool ?? t('Approval'), needs: true, order: 0, body: <ApprovalCard approval={approval} call={call} p={p} bare /> })
   if (question !== undefined) cards.push({ key: 'question', title: question.question ?? t('Question'), needs: true, order: 1, body: <QuestionCard question={question} sessionId={sessionId} call={call} p={p} bare /> })
   for (const secret of secrets) cards.push({ key: `secret-${secret.id}`, title: secret.kind === 'allow' ? t('Allow a secret') : (secret.name ? t('{name} needs a key', { name: secret.name }) : t('A secret is needed')), needs: true, order: 2, body: <SecretCard secret={secret} call={call} p={p} bare /> })
@@ -79,6 +83,40 @@ export function Dock({ question, sessionId, approvals, secrets = [], connectorRe
       ))}
     </ScrollView>
   )
+}
+
+function LearningCard({ proposal, call, p }: { proposal: LearningProposal; call: Call; p: Palette }) {
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const answer = async (approve: boolean) => {
+    if (busy) return
+    setBusy(true)
+    setError('')
+    try { await call('learning-answer', { id: proposal.id, approve }) }
+    catch (failure) { setError((failure as Error)?.message ?? String(failure)) }
+    finally { setBusy(false) }
+  }
+  const agents = proposal.kind === 'agents'
+  const rows = agents
+    ? (proposal.edits ?? []).flatMap(edit => [
+      ...(edit.op === 'add' ? [] : (edit.old ?? '').split('\n').map(line => ({ kind: 'removed', line }))),
+      ...(edit.op === 'remove' ? [] : (edit.text ?? '').split('\n').map(line => ({ kind: 'added', line }))),
+    ])
+    : lineDiff(proposal.action === 'update' ? proposal.previous?.content ?? '' : '', proposal.content ?? '')
+  return <View>
+    <Text style={[typeScale.caption, { color: p.ink2 }]}>{t('Awaiting approval')}</Text>
+    <Text selectable style={[typeScale.small, { color: p.ink, marginTop: 8 }]}>{agents ? proposal.folder : `skills/${proposal.name}/SKILL.md`}</Text>
+    {proposal.description ? <Text style={[typeScale.small, { color: p.ink2, marginTop: 6 }]}>{proposal.description}</Text> : null}
+    <View style={{ marginTop: 8 }}>
+      {rows.map((row, index) => <Text selectable key={index} style={{ fontFamily: 'Menlo', fontSize: 12, lineHeight: 19, color: row.kind === 'removed' ? p.danger : p.ink, backgroundColor: row.kind === 'added' ? p.hover : undefined }}>{row.kind === 'added' ? '+ ' : row.kind === 'removed' ? '− ' : '  '}{row.line}</Text>)}
+    </View>
+    {(agents ? proposal.edits?.map(edit => edit.why).filter(Boolean) : [proposal.why])?.map((why, index) => why ? <Text key={index} style={[typeScale.small, { color: p.ink2, marginTop: 8 }]}>{why}</Text> : null)}
+    {error ? <Text accessibilityRole="alert" style={[typeScale.small, { color: p.danger, marginTop: 8 }]}>{error}</Text> : null}
+    <View style={styles.answerRow}>
+      <Pressable accessibilityRole="button" disabled={busy} onPress={() => void answer(false)} style={[styles.choice, { backgroundColor: p.hover, opacity: busy ? 0.35 : 1 }]}><Text style={{ color: p.ink }}>{t('Decline')}</Text></Pressable>
+      <Pressable accessibilityRole="button" disabled={busy} onPress={() => void answer(true)} style={[styles.choice, { backgroundColor: p.accent, opacity: busy ? 0.35 : 1 }]}><Text style={{ color: p.accentInk, fontWeight: '600' }}>{t('Approve')}</Text></Pressable>
+    </View>
+  </View>
 }
 
 export function QuestionCard({ question, sessionId, call, p , bare = false }: { question: Question; sessionId: string; call: Call; p: Palette; bare?: boolean }) {

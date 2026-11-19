@@ -4,10 +4,38 @@ import { answerFailure, answerKeepsCard, editLines, lineDiff, proposalCards, pro
 import { currentPart } from './text.js'
 import { t } from './i18n.js'
 import { CheckIcon, MemoryIcon, PencilIcon } from './icons.js'
-import { spring, SPRING_TAP } from './motion.js'
+import { spring, SPRING_TAP, useLinger } from './motion.js'
+import { useEscape } from './overlay-hooks.js'
 
 // One entry per proposal still waiting for another try, kept across remounts.
 const failedAnswers = new Map()
+
+export function PendingLearning({ sessionId, useRoster, actions }) {
+  const roster = useRoster(value => value)
+  const bot = roster.byId?.[sessionId]
+  const proposals = bot && currentPart(bot) === sessionId ? roster.learning?.[bot.id] ?? [] : []
+  const [open, setOpen] = useState(false)
+  const root = useRef(null)
+  const [shown, leaving] = useLinger(open, 120)
+  useEffect(() => { setOpen(false) }, [sessionId, proposals.length === 0])
+  useEffect(() => {
+    if (!open) return
+    const outside = event => { if (!root.current?.contains(event.target)) setOpen(false) }
+    document.addEventListener('pointerdown', outside)
+    return () => document.removeEventListener('pointerdown', outside)
+  }, [open])
+  if (proposals.length === 0) return null
+  return h('div', { className: 'bt-learning-pending', ref: root },
+    h('button', { type: 'button', className: 'bt-learning-pending-toggle', 'aria-expanded': open, onClick: () => setOpen(!open) },
+      h('span', { className: 'bt-learning-dot', 'aria-hidden': true }), t('Awaiting approval'), ` · ${proposals.length}`),
+    shown ? h(PendingLearningPanel, { proposals, actions, leaving, close: () => { setOpen(false); root.current?.querySelector('button')?.focus() } }) : null)
+}
+
+function PendingLearningPanel({ proposals, actions, close, leaving }) {
+  useEscape(close)
+  return h('div', { className: 'bt-learning-pending-panel', 'data-leaving': leaving || undefined, role: 'region', 'aria-label': t('Awaiting approval') },
+    proposals.map(proposal => h(ProposalCard, { key: proposal.id, proposal, actions, onFailure: () => {}, onResolved: () => {} })))
+}
 
 // `proposal.outcome` set: an answered card, read-only and folded to one row (what
 // it was, how it ended, its name); the row opens the change.
@@ -175,6 +203,16 @@ export function LearningDock(props) {
 }
 
 export const LEARNING_CSS = `
+.bt-learning-pending{pointer-events:auto;position:relative;margin-left:8px;-webkit-app-region:no-drag}
+.bt-learning-pending-toggle{display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 12px;border:1px solid var(--bt-line);border-radius:999px;background:var(--bt-card);color:var(--bt-ink);font:inherit;font-size:12px;white-space:nowrap;cursor:pointer}
+.bt-learning-pending-toggle:hover{background:var(--bt-hover)}
+.bt-learning-pending-toggle:focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
+.bt-learning-pending-panel{position:absolute;top:44px;right:0;z-index:20;width:min(560px,calc(100vw - 32px));max-height:65vh;overflow:auto;display:flex;flex-direction:column;gap:8px;padding:8px;border:1px solid var(--bt-line);border-radius:20px;background:var(--bt-main);box-shadow:var(--bt-dialog-shadow)}
+.bt-learning-pending-panel{animation:bt-learning-in .12s ease}
+.bt-learning-pending-panel[data-leaving]{opacity:0;pointer-events:none;transition:opacity .12s ease}
+@keyframes bt-learning-in{from{opacity:0}to{opacity:1}}
+@media(prefers-reduced-motion:reduce){.bt-learning-pending-panel{animation:none;transition:none}}
+@media(max-width:640px){.bt-learning-pending-panel{position:fixed;top:72px;left:16px;right:16px;width:auto}}
 .bt-learning-stack{display:flex;flex-direction:column;gap:4px}
 .bt-learning-dock{width:100%;max-width:var(--dsh-chat-content-width,748px);margin:0 auto;box-sizing:border-box}
 .bt-learning-card .bt-q-head{gap:12px}

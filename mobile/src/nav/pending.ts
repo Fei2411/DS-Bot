@@ -18,6 +18,13 @@ export function pendingItemsOf(team: TeamState | null): PendingItem[] {
   const botBySession = new Map(bots.map(bot => [bot.sessionId ?? bot.id, bot]))
   const items: PendingItem[] = []
 
+  for (const [botId, proposals] of Object.entries(team.learning ?? {})) {
+    if (!botById.has(botId)) continue
+    for (const proposal of proposals) {
+      items.push({ kind: 'approval', key: `learning-${proposal.id}`, botId, summary: proposal.kind === 'agents' ? `${proposal.folder}/AGENTS.md` : `skills/${proposal.name}/SKILL.md` })
+    }
+  }
+
   for (const [sessionId, question] of Object.entries(team.questions ?? {})) {
     const bot = botBySession.get(sessionId)
     if (bot !== undefined && question !== undefined) {

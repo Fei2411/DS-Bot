@@ -2,6 +2,7 @@ import { Platform } from 'react-native'
 import { RelayTransport, RpcClient, SecureTransport } from '../../link/src/index.ts'
 import type { PhoneIdentity, SavedComputer } from './store.ts'
 import type { ConnectorsView } from './team/connectors.ts'
+import type { LearningProposal } from './screens/chat/learning.ts'
 
 type BotResult<T> = { ok: true; value: T } | { ok: false; error: { code: string; message: string } }
 
@@ -111,6 +112,7 @@ export interface TeamState {
   views?: Record<string, ShownView>
   secretRequests?: Record<string, SecretRequest[]>
   connectorRequests?: Record<string, ConnectorRequest[]>
+  learning?: Record<string, LearningProposal[]>
   connectors?: ConnectorsView
   capabilities?: CapabilityItem[]
   browserHolds?: Record<string, { by?: string; reason?: string; note?: string; callId?: string }>
