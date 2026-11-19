@@ -58,12 +58,30 @@ async function fakeFeishu() {
       }
       if (req.url.startsWith('/open-apis/im/v1/messages/') && req.url.includes('/resources/')) {
         if (failResources || !authorized(req)) { res.writeHead(401); res.end(); return }
+        const parsed = new URL(req.url, 'http://127.0.0.1')
+        const kind = parsed.searchParams.get('type')
+        if (kind !== 'image' && kind !== 'file') {
+          json(res, { code: 230001, msg: 'invalid resource type' })
+          return
+        }
         res.writeHead(200, { 'content-type': 'application/octet-stream' })
         res.end(resources[req.url] ?? imageBytes)
         return
       }
       if (req.url.startsWith('/open-apis/im/v1/messages')) {
         if (!authorized(req)) { refused(res); return }
+        if (params.msg_type === 'interactive') {
+          const card = JSON.parse(params.content || '{}')
+          if (card.schema === '2.0') {
+            const elements = card.body?.elements ?? []
+            const badAction = elements.find(el => el?.tag === 'action')
+            const badButton = elements.some(el => el?.tag === 'column_set' && (el.columns ?? []).some(col => (col.elements ?? []).some(btn => btn?.tag === 'button' && (btn.value !== undefined || !Array.isArray(btn.behaviors)))))
+            if (badAction !== undefined || badButton) {
+              json(res, { code: 200861, msg: 'cards of schema V2 no longer support this capability' })
+              return
+            }
+          }
+        }
         json(res, { code: 0, data: { message_id: 'om_x' } })
         return
       }
@@ -253,13 +271,25 @@ test('send posts text and an interactive card, edit patches the message', async 
   assert.equal(post.params.receive_id, 'oc_1')
   assert.equal(post.params.msg_type, 'interactive')
   const card = JSON.parse(post.params.content)
-  const action = card.body.elements.at(-1)
-  assert.equal(action.tag, 'action')
-  assert.equal(action.actions[0].value.v, 'q:q1:0')
+  assert.equal(card.schema, '2.0')
+  assert.ok(!card.body.elements.some(el => el.tag === 'action'), 'schema 2.0 must not use action container')
+  const row = card.body.elements.at(-1)
+  assert.equal(row.tag, 'column_set')
+  assert.equal(row.flex_mode, 'flow')
+  assert.equal(row.horizontal_spacing, '8px')
+  assert.equal(row.columns[0].tag, 'column')
+  assert.equal(row.columns[0].width, 'auto')
+  const btn = row.columns[0].elements[0]
+  assert.equal(btn.tag, 'button')
+  assert.equal(btn.value, undefined)
+  assert.deepEqual(btn.behaviors, [{ type: 'callback', value: { v: 'q:q1:0' } }])
   assert.equal(messageId, 'om_x')
   await handle.edit({ key: 'oc_1', kind: 'direct' }, 'om_9', { text: 'done', buttons: [] })
   const patch = fake.calls.find(call => call.method === 'PATCH' && call.path === '/open-apis/im/v1/messages/om_9')
   assert.ok(patch, 'message PATCH called')
+  const patchedCard = JSON.parse(patch.params.content)
+  assert.equal(patchedCard.schema, '2.0')
+  assert.equal(patchedCard.body.elements.length, 1)
 })
 
 test('send drops blank lines at the start and end of the text', async (t) => {
@@ -455,4 +485,213 @@ test('images arriving together after expiry share one token refresh', async (t) 
   assert.equal(fake.tokens.length, 2, 'two expired downloads share the one refresh')
   assert.equal(messages[0].images.length, 1)
   assert.equal(messages[1].images.length, 1)
+})
+
+test('post rich-text flattens paragraphs and sniffs embedded image formats (#1658)', async (t) => {
+  const fake = await fakeFeishu()
+  const messages = []
+  const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10])
+  const webp = Buffer.from('RIFF\x04\x00\x00\x00WEBP')
+  fake.resources['/open-apis/im/v1/messages/om_post1/resources/img_j?type=image'] = jpeg
+  fake.resources['/open-apis/im/v1/messages/om_post2/resources/img_w?type=image'] = webp
+  const handle = feishu.connect(FIELDS, env(fake), { onMessage: async msg => { messages.push(msg) }, onAction() {}, onStatus() {} })
+  t.after(() => { handle.stop(); fake.close() })
+  const ws = await until(() => fake.sockets[0])
+  fake.push(ws, fake.dataFrame('event', message({
+    chat_type: 'p2p', chat_id: 'oc_1', message_id: 'om_post1', message_type: 'post',
+    content: JSON.stringify({
+      title: 'Release notes',
+      content: [
+        [{ tag: 'text', text: '1. See ' }, { tag: 'a', text: 'docs', href: 'https://example.com' }],
+        [{ tag: 'at', user_id: 'ou_alice', user_name: 'Alice' }, { tag: 'emotion', emoji_type: 'THUMBSUP' }],
+        [{ tag: 'code_block', language: 'js', text: 'console.log(1)' }],
+        [{ tag: 'img', image_key: 'img_j' }],
+      ],
+    }),
+  }), { messageId: 'fm_post1' }))
+  fake.push(ws, fake.dataFrame('event', message({
+    chat_type: 'p2p', chat_id: 'oc_1', message_id: 'om_post2', message_type: 'post',
+    content: JSON.stringify({
+      zh_cn: {
+        title: '图文',
+        content: [
+          [{ tag: 'text', text: '第二条' }, { tag: 'img', image_key: 'img_w' }],
+        ],
+      },
+    }),
+  }), { messageId: 'fm_post2' }))
+  await until(() => messages.length === 2)
+  const post1 = messages.find(m => m.messageId === 'om_post1')
+  const post2 = messages.find(m => m.messageId === 'om_post2')
+  assert.match(post1.text, /^Release notes\n1\. See docs \(https:\/\/example\.com\)/)
+  assert.match(post1.text, /@Alice\[THUMBSUP\]/)
+  assert.match(post1.text, /```js\nconsole\.log\(1\)\n```/)
+  assert.deepEqual(post1.images, [{ mediaType: 'image/jpeg', data: jpeg.toString('base64') }])
+  assert.equal(post2.text, '图文\n第二条')
+  assert.deepEqual(post2.images, [{ mediaType: 'image/webp', data: webp.toString('base64') }])
+})
+
+test('file, audio, and media messages download attachments into files (#1658)', async (t) => {
+  const fake = await fakeFeishu()
+  const messages = []
+  const pdf = Buffer.from('%PDF-1.4\nhello')
+  const opus = Buffer.from('OggS-audio-bytes')
+  const mp4 = Buffer.from('ftypmp42-video-bytes')
+  fake.resources['/open-apis/im/v1/messages/om_file/resources/fk_pdf?type=file'] = pdf
+  fake.resources['/open-apis/im/v1/messages/om_audio/resources/fk_aud?type=file'] = opus
+  fake.resources['/open-apis/im/v1/messages/om_media/resources/fk_vid?type=file'] = mp4
+  const handle = feishu.connect(FIELDS, env(fake), { onMessage: async msg => { messages.push(msg) }, onAction() {}, onStatus() {} })
+  t.after(() => { handle.stop(); fake.close() })
+  const ws = await until(() => fake.sockets[0])
+  fake.push(ws, fake.dataFrame('event', message({
+    chat_type: 'p2p', chat_id: 'oc_1', message_id: 'om_file', message_type: 'file',
+    content: JSON.stringify({ file_key: 'fk_pdf', file_name: 'report.pdf' }),
+  }), { messageId: 'fm_file' }))
+  fake.push(ws, fake.dataFrame('event', message({
+    chat_type: 'p2p', chat_id: 'oc_1', message_id: 'om_audio', message_type: 'audio',
+    content: JSON.stringify({ file_key: 'fk_aud', duration: 3000 }),
+  }), { messageId: 'fm_audio' }))
+  fake.push(ws, fake.dataFrame('event', message({
+    chat_type: 'p2p', chat_id: 'oc_1', message_id: 'om_media', message_type: 'media',
+    content: JSON.stringify({ file_key: 'fk_vid', file_name: 'clip.mp4' }),
+  }), { messageId: 'fm_media' }))
+  await until(() => messages.length === 3)
+  const fileMsg = messages.find(m => m.messageId === 'om_file')
+  const audioMsg = messages.find(m => m.messageId === 'om_audio')
+  const mediaMsg = messages.find(m => m.messageId === 'om_media')
+  assert.equal(fileMsg.files.length, 1)
+  assert.equal(fileMsg.files[0].name, 'report.pdf')
+  assert.deepEqual(Buffer.from(fileMsg.files[0].data), pdf)
+  assert.equal(audioMsg.files.length, 1)
+  assert.equal(audioMsg.files[0].name, 'voice-om_audio.opus')
+  assert.deepEqual(Buffer.from(audioMsg.files[0].data), opus)
+  assert.equal(mediaMsg.files.length, 1)
+  assert.equal(mediaMsg.files[0].name, 'clip.mp4')
+  assert.deepEqual(Buffer.from(mediaMsg.files[0].data), mp4)
+})
+
+test('non-text message types surface notes instead of silent drop, system is ignored (#1658)', async (t) => {
+  const fake = await fakeFeishu()
+  const messages = []
+  const handle = feishu.connect(FIELDS, env(fake), { onMessage: async msg => { messages.push(msg) }, onAction() {}, onStatus() {} })
+  t.after(() => { handle.stop(); fake.close() })
+  const ws = await until(() => fake.sockets[0])
+  const kinds = ['sticker', 'merge_forward', 'share_chat', 'share_user', 'location', 'todo', 'share_calendar_event']
+  for (const [idx, kind] of kinds.entries()) {
+    fake.push(ws, fake.dataFrame('event', message({
+      chat_type: 'p2p', chat_id: 'oc_1', message_id: `om_k${idx}`, message_type: kind,
+      content: JSON.stringify(kind === 'location' ? { name: 'HQ' } : {}),
+    }), { messageId: `fm_k${idx}` }))
+  }
+  fake.push(ws, fake.dataFrame('event', message({
+    chat_type: 'group', chat_id: 'oc_2', message_id: 'om_sys', message_type: 'system',
+    content: JSON.stringify({ template: 'join' }),
+  }), { messageId: 'fm_sys' }))
+  await until(() => messages.length === kinds.length)
+  for (const [idx, kind] of kinds.entries()) {
+    const found = messages.find(m => m.messageId === `om_k${idx}`)
+    assert.ok(found?.text.length > 0, `message_type ${kind} must emit non-empty note`)
+  }
+  assert.match(messages.find(m => m.messageId === 'om_k4').text, /HQ/)
+  // Wait briefly to confirm system message did not produce an extra onMessage call.
+  await new Promise(resolve => setTimeout(resolve, 100))
+  assert.equal(messages.length, kinds.length)
+})
+
+test('group @ check requires botOpenId and preserves other @mentions (#1658)', async (t) => {
+  const fake = await fakeFeishu()
+  const messages = []
+  const handle = feishu.connect(FIELDS, env(fake), { onMessage: async msg => { messages.push(msg) }, onAction() {}, onStatus() {} })
+  t.after(() => { handle.stop(); fake.close() })
+  const ws = await until(() => fake.sockets[0])
+  // Mentioning another user as @_user_1 must NOT trigger the bot, and keeps @ZhangSan.
+  fake.push(ws, fake.dataFrame('event', message({
+    chat_type: 'group', chat_id: 'oc_2', message_id: 'om_g1', message_type: 'text',
+    content: JSON.stringify({ text: '@_user_1 can you check this?' }),
+    mentions: [{ key: '@_user_1', id: { open_id: 'ou_zhangsan' }, name: 'ZhangSan' }],
+  }), { messageId: 'fm_g1' }))
+  // Mentioning both the bot (@_user_2) and another user (@_user_1) strips only the bot mention.
+  fake.push(ws, fake.dataFrame('event', message({
+    chat_type: 'group', chat_id: 'oc_2', message_id: 'om_g2', message_type: 'text',
+    content: JSON.stringify({ text: '@_user_2 please ask @_user_1 for details' }),
+    mentions: [
+      { key: '@_user_1', id: { open_id: 'ou_zhangsan' }, name: 'ZhangSan' },
+      { key: '@_user_2', id: { open_id: 'ou_bot' }, name: 'fakebot' },
+    ],
+  }), { messageId: 'fm_g2' }))
+  // Group post mentioning the bot and another user strips the bot @ and preserves @ZhangSan.
+  fake.push(ws, fake.dataFrame('event', message({
+    chat_type: 'group', chat_id: 'oc_2', message_id: 'om_g3', message_type: 'post',
+    content: JSON.stringify({
+      content: [[
+        { tag: 'at', user_id: 'ou_bot', user_name: 'fakebot' },
+        { tag: 'text', text: ' check with ' },
+        { tag: 'at', user_id: 'ou_zhangsan', user_name: 'ZhangSan' },
+      ]],
+    }),
+    mentions: [
+      { key: '@_user_1', id: { open_id: 'ou_bot' }, name: 'fakebot' },
+      { key: '@_user_2', id: { open_id: 'ou_zhangsan' }, name: 'ZhangSan' },
+    ],
+  }), { messageId: 'fm_g3' }))
+  await until(() => messages.length === 3)
+  const g1 = messages.find(m => m.messageId === 'om_g1')
+  const g2 = messages.find(m => m.messageId === 'om_g2')
+  const g3 = messages.find(m => m.messageId === 'om_g3')
+  assert.equal(g1.mentioned, false)
+  assert.equal(g1.text, '@ZhangSan can you check this?')
+  assert.equal(g2.mentioned, true)
+  assert.equal(g2.text, 'please ask @ZhangSan for details')
+  assert.equal(g3.mentioned, true)
+  assert.equal(g3.text, 'check with @ZhangSan')
+})
+
+test('group @ check does not fall back to @_user_1 when botOpenId is unavailable (#1658)', async (t) => {
+  const fake = await fakeFeishu()
+  fake.replies['/open-apis/bot/v3/info'] = { result: { code: 99991663, msg: 'unavailable' } }
+  const messages = []
+  const handle = feishu.connect(FIELDS, env(fake), { onMessage: async msg => { messages.push(msg) }, onAction() {}, onStatus() {} })
+  t.after(() => { handle.stop(); fake.close() })
+  const ws = await until(() => fake.sockets[0])
+  fake.push(ws, fake.dataFrame('event', message({
+    chat_type: 'group', chat_id: 'oc_2', message_id: 'om_g4', message_type: 'text',
+    content: JSON.stringify({ text: '@_user_1 hello' }),
+    mentions: [{ key: '@_user_1', id: { open_id: 'ou_someone' }, name: 'Someone' }],
+  }), { messageId: 'fm_g4' }))
+  await until(() => messages.length === 1)
+  assert.equal(messages[0].mentioned, false)
+  assert.equal(messages[0].text, '@Someone hello')
+})
+
+test('post skips an unreadable embedded image without dropping text and supports media filename fallback (#1658)', async (t) => {
+  const fake = await fakeFeishu()
+  const messages = []
+  const warnings = []
+  const gif = Buffer.from('GIF89a\x01\x00')
+  const mp4 = Buffer.from('ftypmp42')
+  fake.resources['/open-apis/im/v1/messages/om_post_mix/resources/img_gif?type=image'] = gif
+  fake.resources['/open-apis/im/v1/messages/om_post_mix/resources/img_bad?type=image'] = Buffer.from('not-an-image')
+  fake.resources['/open-apis/im/v1/messages/om_media_noname/resources/fk_v2?type=file'] = mp4
+  const log = { warn: (...args) => warnings.push(args.join(' ')) }
+  const handle = feishu.connect(FIELDS, { ...env(fake), log }, { onMessage: async msg => { messages.push(msg) }, onAction() {}, onStatus() {} })
+  t.after(() => { handle.stop(); fake.close() })
+  const ws = await until(() => fake.sockets[0])
+  fake.push(ws, fake.dataFrame('event', message({
+    chat_type: 'p2p', chat_id: 'oc_1', message_id: 'om_post_mix', message_type: 'post',
+    content: JSON.stringify({
+      content: [[{ tag: 'text', text: 'keep this text' }, { tag: 'img', image_key: 'img_gif' }, { tag: 'img', image_key: 'img_bad' }]],
+    }),
+  }), { messageId: 'fm_pmix' }))
+  fake.push(ws, fake.dataFrame('event', message({
+    chat_type: 'p2p', chat_id: 'oc_1', message_id: 'om_media_noname', message_type: 'media',
+    content: JSON.stringify({ file_key: 'fk_v2' }),
+  }), { messageId: 'fm_mnn' }))
+  await until(() => messages.length === 2)
+  const postMix = messages.find(m => m.messageId === 'om_post_mix')
+  const mediaNoName = messages.find(m => m.messageId === 'om_media_noname')
+  assert.equal(postMix.text, 'keep this text')
+  assert.deepEqual(postMix.images, [{ mediaType: 'image/gif', data: gif.toString('base64') }])
+  assert.ok(warnings.some(w => /om_post_mix/.test(w)), 'unsupported post image logged a warning')
+  assert.equal(mediaNoName.files[0].name, 'video-om_media_noname.mp4')
+  assert.deepEqual(Buffer.from(mediaNoName.files[0].data), mp4)
 })
