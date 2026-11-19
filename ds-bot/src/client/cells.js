@@ -1292,6 +1292,11 @@ export function ToolCell({ node, sessionId, useRoster, useUi, useWork, useWorkPr
   const drawn = drawnCalls(calls, { mode: process.mode })
   // The newest call still running names the work, so a program reads as the tool it is in.
   const running = root.kind === 'tool-result' ? undefined : calls.findLast(call => call.kind !== 'tool-result')
+  // Whether the turn itself is still running, which is what keeps a live work group
+  // open: a settled call in a running turn belongs to work that is not done yet. A node
+  // whose turn cannot be read falls back to the calls inside it.
+  const turnStatus = node.location?.turn?.status
+  const turnOpen = turnStatus === 'open' ? true : turnStatus === 'closed' ? false : Boolean(running)
   const note = running ? toolActivity(toolName(running), toolArgs(running).text, findBot, roster.byId[sessionId]) : null
   // A running tool shows only as the activity row's phrase; `off` leaves even that out.
   useLiveNote(actions, sessionId, `tool:${root.callId ?? node.key}`, process.mode === 'off' ? null : note)
@@ -1306,7 +1311,7 @@ export function ToolCell({ node, sessionId, useRoster, useUi, useWork, useWorkPr
     if (group.length === 0) return
     const work = group
     group = []
-    rows.push(h(WorkProcess, { key: `work-${work[0].callId ?? rows.length}`, calls: work, folding, running: Boolean(running), findBot, self }))
+    rows.push(h(WorkProcess, { key: `work-${work[0].callId ?? rows.length}`, calls: work, folding, running: turnOpen, findBot, self }))
   }
   for (const call of drawn) {
     if (isWorkCall(call)) {

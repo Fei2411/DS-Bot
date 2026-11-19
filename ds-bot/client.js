@@ -30002,6 +30002,8 @@ function ToolCell({ node, sessionId, useRoster, useUi, useWork, useWorkProcess, 
   const calls = hidden ? callTree(root).filter((call2) => (toolName(call2) === "ask_user" || toolName(call2) === "show_view") && call2.callId && closed?.[call2.callId] !== void 0) : callTree(root);
   const drawn = drawnCalls(calls, { mode: process.mode });
   const running = root.kind === "tool-result" ? void 0 : calls.findLast((call2) => call2.kind !== "tool-result");
+  const turnStatus = node.location?.turn?.status;
+  const turnOpen = turnStatus === "open" ? true : turnStatus === "closed" ? false : Boolean(running);
   const note = running ? toolActivity(toolName(running), toolArgs(running).text, findBot, roster.byId[sessionId]) : null;
   useLiveNote(actions, sessionId, `tool:${root.callId ?? node.key}`, process.mode === "off" ? null : note);
   useShownCards(actions, sessionId, drawn.filter((call2) => (CARDS.has(toolName(call2)) || isComputerCall(toolName(call2))) && call2.callId).map((call2) => call2.callId));
@@ -30015,7 +30017,7 @@ function ToolCell({ node, sessionId, useRoster, useUi, useWork, useWorkProcess, 
     if (group.length === 0) return;
     const work = group;
     group = [];
-    rows2.push((0, import_react34.createElement)(WorkProcess, { key: `work-${work[0].callId ?? rows2.length}`, calls: work, folding, running: Boolean(running), findBot, self }));
+    rows2.push((0, import_react34.createElement)(WorkProcess, { key: `work-${work[0].callId ?? rows2.length}`, calls: work, folding, running: turnOpen, findBot, self }));
   };
   for (const call2 of drawn) {
     if (isWorkCall(call2)) {

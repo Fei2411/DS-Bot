@@ -223,8 +223,8 @@ test('a group post drawn from its trigger shows the time it came in', () => {
   effects = []
 })
 
-const props = (root, { sessionId = chief.id, roster = team(), actions = {}, turn = 1, held = {}, process = { mode: 'full', view: 'standard' } } = {}) => ({
-  node: { key: 'node', data: { root }, location: { turn: { turn } } }, sessionId,
+const props = (root, { sessionId = chief.id, roster = team(), actions = {}, turn = 1, held = {}, process = { mode: 'full', view: 'standard' }, turnStatus, location } = {}) => ({
+  node: { key: 'node', data: { root }, location: location === undefined ? { turn: { turn, status: turnStatus } } : location }, sessionId,
   useRoster: select => select(roster), useUi: select => select({ reactions: {}, visits: {} }), actions,
   useHeldCards: select => select(held), useWorkProcess: select => select(process),
 })
@@ -312,6 +312,18 @@ test('each sub-call shows its own state, not its program\'s', () => {
 test('a program that dispatched nothing draws nothing', () => {
   assert.ok(emptied(ToolCell(props(program([])))))
   effects = []
+})
+
+test('in detailed work details a settled call stays open while its turn runs', () => {
+  const read = call('read', 'direct', { args: { path: 'src/client/cells.js' }, content: 'export {}' })
+  const detailed = { mode: 'full', view: 'detailed' }
+  // The row is a finished call, but its turn is not: the work is still going on and the
+  // rows stay open until the turn ends.
+  assert.match(shown(read, { process: detailed, turnStatus: 'open' }), /Opening a file.*src\/client\/cells\.js/)
+  assert.match(shown(read, { process: detailed, turnStatus: 'closed' }), /^Work process · 1$/)
+  // A turn the client cannot read falls back to the calls in it, as before.
+  assert.match(shown(read, { process: detailed, location: null }), /^Work process · 1$/)
+  assert.doesNotThrow(() => shown(read, { process: detailed, location: null }))
 })
 
 test('a call with no row of its own draws a work row, and its program does not', () => {
