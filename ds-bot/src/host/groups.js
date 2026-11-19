@@ -694,13 +694,17 @@ export function install(rt) {
       && matchesOpening(record, first.text, partial !== undefined))
     const ends = records.filter(record => isKeptReply(record) && record.text.endsWith(tail)
       && (after[0].botId === undefined || record.botId === after[0].botId))
-    if (starts.length !== 1 || ends.length !== 1 || ends[0].seq <= starts[0].seq) return null
+    if (starts.length !== 1 || ends.length !== 1 || ends[0].seq < starts[0].seq) return null
     // Don't guess across a missing ledger row, a new prompt, or any other boundary.
     const span = records.slice(records.indexOf(starts[0]), records.indexOf(ends[0]) + 1)
     if (!span.every((record, i) => isKeptReply(record) && record.seq === starts[0].seq + i)) return null
     const hiddenText = span.reduce((length, record) => length + jsonLength(record.text), 0)
       - jsonLength(first.text) - jsonLength(tail)
-    if (hiddenText >= Number(marker[1])) return null
+    const omitted = Number(marker[1])
+    if (span.length === 1) {
+      // A cut inside one string hides no JSON structure, so the encoded length must match exactly.
+      if (partial === undefined || first.text.length + tail.length >= span[0].text.length || hiddenText !== omitted) return null
+    } else if (hiddenText >= omitted) return null
     const missing = partial === undefined ? span.slice(1) : span
     return [...before, ...missing.map(rowOf), ...after.slice(1)]
   }

@@ -1460,6 +1460,21 @@ test('a save-token line cut cannot restore an apparent exact match from another 
   assert.equal((await call('group-relay-replies', { sessionId: 'r1', preview })).value, null)
 })
 
+test('a save-token line cut inside one reply recovers it only at the exact encoded length', async (t) => {
+  const reply = { botId: 'b', text: 'Opening sentence. '.repeat(20) + '"Middle".\n'.repeat(10) + 'Closing sentence. '.repeat(20) }
+  const original = JSON.stringify({ replies: [reply], passed: [] })
+  const saved = structuredClone(TEAM)
+  saved.rooms.r1.seq = 1
+  saved.rooms.r1.log = [{ ...reply, seq: 1 }]
+  const { call, stop } = await start({ team: saved })
+  t.after(stop)
+  const preview = omitted => original.slice(0, 260) + ` ...[+${omitted} chars]... ` + original.slice(-100)
+  const omitted = original.length - 360
+  const recovered = (await call('group-relay-replies', { sessionId: 'r1', preview: preview(omitted) })).value
+  assert.deepEqual(recovered?.map(({ botId, text }) => ({ botId, text })), [reply])
+  assert.equal((await call('group-relay-replies', { sessionId: 'r1', preview: preview(omitted + 1) })).value, null)
+})
+
 test('the file panel of a group with a folder lists the Session\'s own folder', async (t) => {
   // DSH's file panel lists a Session at the folder the Session was made in, so no
   // lookup override is needed once the group's own Session moved there.
