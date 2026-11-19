@@ -93,6 +93,32 @@ test('a model switch compacts a Bot conversation instead of refusing the range',
   assert.deepEqual(bench.regions, [[3, 9, 'b2']])
 })
 
+test('a checkpoint reads past ten pages to keep the latest initiating request', async (t) => {
+  const { ctx, bench, compaction, adoptFor, agentOf, stop } = start({ outlet: true, stream: () => { throw new Error('offline') } })
+  t.after(stop)
+  const history = Array.from({ length: 2202 }, (_, seq) => ({
+    seq, time: 1,
+    ...(seq === 0 || seq === 1
+      ? { type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text: seq === 1 ? 'Keep the initiating request' : 'Older request' }] } }
+      : { type: 'assistant/message', data: { message: { content: [{ type: 'text', text: 'Working' }] } } }),
+  }))
+  let pages = 0
+  ctx.sessionController.resolveAgent = async () => ({ agent: { id: 'b2', session: { seq: history.length } } })
+  ctx.sessionController.page = async ({ beforeSeq, maxMessages }) => {
+    pages += 1
+    const end = beforeSeq ?? history.length
+    const start = Math.max(0, end - maxMessages)
+    return { records: history.slice(start, end).map(event => ({ event })), hasMore: start > 0 }
+  }
+  adoptFor('b2')
+  await compaction.compactRegion(0, 1, agentOf('b2'), new AbortController().signal)
+  const text = bench.checkpoints[0].summary[0].text
+  assert.match(text, /Keep the initiating request/)
+  assert.match(text, /Older messages are not shown here/)
+  assert.doesNotMatch(text, /User: Older request/)
+  assert.ok(pages > 10)
+})
+
 test('a Session outside the team keeps the backend compaction', async (t) => {
   const { bench, compaction, adoptFor, agentOf, stop } = start()
   t.after(stop)

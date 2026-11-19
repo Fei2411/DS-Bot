@@ -85,21 +85,6 @@ export function install(rt) {
     }
   }
 
-  // The caller supplies only recorded coordinates and a file index, never a path.
-  function changesSummary(sessionId, seq) {
-    if (!changesAvailable(sessionId, seq)) throw new Error('These changes are no longer available')
-    return service().summary(sessionId, seq)
-  }
-  async function changesDiff(sessionId, seq, index, signal) {
-    const summary = changesSummary(sessionId, seq)
-    if (!Number.isInteger(index) || index < 0 || index >= summary.files.length) throw new Error('No such file')
-    const diff = await service().diff(sessionId, seq, index, signal)
-    if (diff === undefined) throw new Error('These changes are no longer available')
-    return diff
-  }
-  rt.changesSummary = changesSummary
-  rt.changesDiff = changesDiff
   rt.turnChanges = turnChanges
   rt.changesAvailable = changesAvailable
-  rt.changesMounted = () => service() !== undefined
 }
