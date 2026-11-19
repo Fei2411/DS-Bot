@@ -28993,7 +28993,7 @@ function MemoryEvent({ sessionId, scope, tool, result, failed, code, roster, act
     );
   }
   const reason = memoryFailure(code);
-  const label = failed ? tool === "forget" ? t("Couldn't remove from memory") : t("Couldn't save to memory") : t("Memory not changed");
+  const label = failed ? tool === "forget" || tool === "bot_forget" ? t("Couldn't remove from memory") : t("Couldn't save to memory") : t("Memory not changed");
   return (0, import_react34.createElement)(
     "div",
     { className: "bt-event bt-event-error", role: "status", title: code },
@@ -29406,10 +29406,13 @@ function toolActivity(name, arg, findBot, self) {
       return { label: t("Reading {name}", { name: arg("group") ?? t("a group chat") }), state: "searching" };
     case "read_own_chat":
       return { label: t("Looking back through the chat"), state: "searching" };
+    case "bot_remember":
     case "remember":
       return { label: t("Saving to memory"), state: "working" };
+    case "bot_forget":
     case "forget":
       return { label: t("Updating memory"), state: "working" };
+    case "bot_recall":
     case "recall":
       return { label: t("Checking memory"), state: "searching" };
     default:
@@ -29639,7 +29642,7 @@ function GroupReplies({ sessionId, callId, done, content, roster, actions, useUi
   );
 }
 var isComputerCall = (name) => name === "cua" || name?.startsWith("cua_driver_native__") === true;
-var DRAWN = /* @__PURE__ */ new Set(["message_bot", "stop_bot", "create_bot", "update_bot", "group_relay", "create_group", "update_group", "delete_group", "post_to_group", "ask_user", "request_secret", "request_connector", "mail_send", "ask_user_question", "show_view", "browser_handoff", "read_group_chat", "remember", "forget"]);
+var DRAWN = /* @__PURE__ */ new Set(["message_bot", "stop_bot", "create_bot", "update_bot", "group_relay", "create_group", "update_group", "delete_group", "post_to_group", "ask_user", "request_secret", "request_connector", "mail_send", "ask_user_question", "show_view", "browser_handoff", "read_group_chat", "bot_remember", "bot_forget", "remember", "forget"]);
 var CARDS = /* @__PURE__ */ new Set(["ask_user", "request_secret", "request_connector", "mail_send", "show_view", "browser_handoff", "computer_handoff"]);
 function callTree(root) {
   const calls = [];
@@ -29740,7 +29743,9 @@ function renderCall(call2, { sessionId, roster, actions, useUi, useWork, findBot
       const room2 = roster.rooms.find((entry) => entry.name === arg("group"));
       return room2 ? (0, import_react34.createElement)(GroupEvent, { prefix: t("Read"), room: room2, roster, actions }) : (0, import_react34.createElement)(CellEmpty);
     }
+    case "bot_remember":
     case "remember":
+    case "bot_forget":
     case "forget":
       return done ? (0, import_react34.createElement)(MemoryEvent, { sessionId, scope: arg("scope"), tool, result: contentText(call2.content), failed: call2.isError === true, code: call2.error?.code, roster, actions, findBot }) : (0, import_react34.createElement)(CellEmpty);
     default:

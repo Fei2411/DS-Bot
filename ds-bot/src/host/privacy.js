@@ -210,9 +210,9 @@ export function install(rt) {
         if (bot) throw closed(bot, 'settings')
         return
       }
-      case 'recall':
-      case 'remember':
-      case 'forget': {
+      case 'bot_recall':
+      case 'bot_remember':
+      case 'bot_forget': {
         const bot = target(args.scope)
         if (bot) throw closed(bot, 'memory')
         return
