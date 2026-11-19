@@ -188,8 +188,8 @@ test('the Qoder engine finds the Qoder CN CLI under its own command names (#1849
     assert.equal(findEngineExecutable(qoder, command => (command === name ? path : undefined)), path, name)
   }
   assert.equal(findEngineExecutable(qoder, command => (command === 'qodercli' || command === 'qoderclicn' ? command : undefined)), 'qodercli')
-  assert.equal(signInFor(qoder, '/Users/me/.local/bin/qoderclicn'), 'qoderclicn')
-  assert.equal(signInFor(qoder, '/Users/me/.qoder-cn/entry/qodercn'), 'qoderclicn')
+  assert.equal(signInFor(qoder, '/opt/qoder-cn/bin/qoderclicn'), 'qoderclicn')
+  assert.equal(signInFor(qoder, '/opt/qoder-cn/entry/qodercn'), 'qoderclicn')
   assert.equal(signInFor(qoder, 'C:\\Users\\me\\bin\\qoder-cn.cmd'), 'qoderclicn')
   assert.equal(signInFor(qoder, '/usr/local/bin/qodercli'), 'qodercli')
   assert.equal(signInFor(qoder, undefined), 'qodercli')
