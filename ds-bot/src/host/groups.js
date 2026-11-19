@@ -633,21 +633,12 @@ export function install(rt) {
     return { rows, open: end === undefined }
   }
   const groupRows = (roomId, from, to, anchor) => rowsView(roomId, from, to, anchor).rows
-  // Use only DS Bot's own pre-ledger records, never a file locator embedded in a result.
-  function groupRelayReplies(sessionId, preview) {
-    if (typeof sessionId !== 'string' || typeof preview !== 'string' || preview.length > 65_536) return null
-    let replies
-    try { replies = JSON.parse(preview)?.replies } catch { return null }
-    if (!Array.isArray(replies) || !replies.some(reply => typeof reply?.text === 'string' && REPLY_ELISION.test(reply.text))) return null
-    const room = rt.roomOf(sessionId) ?? rt.roomOf(rt.pastOwners.get(sessionId)?.roomId)
-    if (room === undefined) return null
-    const book = rt.ledger.records(bookOf(room.id))
-    const anchor = book.findIndex(record => record.event === 'anchor')
-    const records = anchor === -1 ? book : book.slice(0, anchor)
-    const isReply = record => record.kind === undefined && record.session !== true
-      && typeof record.botId === 'string' && typeof record.text === 'string'
-      && (record.length === undefined || record.text.length === record.length)
-    const jsonLength = text => JSON.stringify(text).length - 2
+  const jsonLength = text => JSON.stringify(text).length - 2
+  const isKeptReply = record => record.kind === undefined && record.session !== true
+    && typeof record.botId === 'string' && typeof record.text === 'string'
+    && (record.length === undefined || record.text.length === record.length)
+
+  function restoreTrimmedReplies(replies, records) {
     const restored = []
     for (const reply of replies) {
       if (!reply || typeof reply !== 'object' || reply.__omitted__) return null
@@ -657,25 +648,65 @@ export function install(rt) {
       const tail = reply.text.slice(marker.index + marker[0].length)
       if (reply.kind !== undefined || head.length < 16 || tail.length < 16 || REPLY_ELISION.test(tail)) return null
       const omitted = Number(marker[1])
-      const starts = records.filter(record => isReply(record) && record.botId === reply.botId && record.text.startsWith(head))
-      const exact = starts.filter(record => {
+      const exact = records.filter(record => {
+        if (!isKeptReply(record) || record.botId !== reply.botId || !record.text.startsWith(head) || !record.text.endsWith(tail)) return false
         const length = record.text.length - head.length - tail.length
-        return length > 0 && record.text.endsWith(tail)
-          && (length === omitted || jsonLength(record.text.slice(head.length, -tail.length)) === omitted)
+        return length > 0 && (length === omitted || jsonLength(record.text.slice(head.length, -tail.length)) === omitted)
       })
-      if (exact.length === 1) { restored.push({ ...reply, text: exact[0].text }); continue }
-      // The line codec can cut across reply objects. Only join unambiguous boundaries
-      // over a contiguous run of kept Bot replies, with no intervening user message.
-      if (exact.length !== 0 || replies.length !== 1 || starts.length !== 1) return null
-      const ends = records.filter(record => isReply(record) && record.text.endsWith(tail))
-      if (ends.length !== 1 || ends[0].seq <= starts[0].seq) return null
-      const span = records.slice(records.indexOf(starts[0]), records.indexOf(ends[0]) + 1)
-      if (span.length < 2 || !span.every((record, i) => isReply(record) && record.seq === starts[0].seq + i)) return null
-      const hiddenText = span.reduce((length, record) => length + jsonLength(record.text), 0) - jsonLength(head) - jsonLength(tail)
-      if (hiddenText >= omitted) return null
-      restored.push(...span.map(rowOf))
+      if (exact.length !== 1) return null
+      restored.push({ ...reply, text: exact[0].text })
     }
     return restored
+  }
+
+  function restoreRelayWindow(preview, records) {
+    const marker = REPLY_ELISION.exec(preview)
+    if (marker === null || REPLY_ELISION.test(preview.slice(marker.index + marker[0].length))) return null
+    const head = preview.slice(0, marker.index)
+    const before = parseReplies(head).replies
+    let after
+    try { after = JSON.parse(`{"replies":[{"text":"${preview.slice(marker.index + marker[0].length)}`).replies } catch { return null }
+    if (!Array.isArray(after) || after.some(reply => !reply || typeof reply !== 'object' || reply.__omitted__)) return null
+    const tail = after[0]?.text
+    if (typeof tail !== 'string' || tail.length < 16 || after[0].kind !== undefined) return null
+
+    // A line window can start its cut inside a reply's text or after a complete reply.
+    let partial
+    if (/"text"\s*:\s*"(?:[^"\\]|\\.)*$/.test(head)) {
+      try { partial = JSON.parse(`${head}"}]}`).replies.at(-1) } catch { return null }
+    }
+    const first = partial ?? before.findLast(reply => reply?.kind === undefined && typeof reply?.botId === 'string' && typeof reply.text === 'string')
+    if (typeof first?.text !== 'string' || first.text.length < 16 || first.kind !== undefined) return null
+    const starts = records.filter(record => isKeptReply(record) && record.botId === first.botId
+      && (partial === undefined ? record.text === first.text : record.text.startsWith(first.text)))
+    const ends = records.filter(record => isKeptReply(record) && record.text.endsWith(tail)
+      && (after[0].botId === undefined || record.botId === after[0].botId))
+    if (starts.length !== 1 || ends.length !== 1 || ends[0].seq <= starts[0].seq) return null
+    // Don't guess across a missing ledger row, a new prompt, or any other boundary.
+    const span = records.slice(records.indexOf(starts[0]), records.indexOf(ends[0]) + 1)
+    if (!span.every((record, i) => isKeptReply(record) && record.seq === starts[0].seq + i)) return null
+    const hiddenText = span.reduce((length, record) => length + jsonLength(record.text), 0)
+      - jsonLength(first.text) - jsonLength(tail)
+    if (hiddenText >= Number(marker[1])) return null
+    const missing = partial === undefined ? span.slice(1) : span
+    return [...before, ...missing.map(rowOf), ...after.slice(1)]
+  }
+
+  // Use only DS Bot's own pre-ledger records, never a file locator embedded in a result.
+  function groupRelayReplies(sessionId, preview) {
+    if (typeof sessionId !== 'string' || typeof preview !== 'string' || preview.length > 65_536 || !REPLY_ELISION.test(preview)) return null
+    const room = rt.roomOf(sessionId) ?? rt.roomOf(rt.pastOwners.get(sessionId)?.roomId)
+    if (room === undefined) return null
+    const book = rt.ledger.records(bookOf(room.id))
+    const anchor = book.findIndex(record => record.event === 'anchor')
+    const records = anchor === -1 ? book : book.slice(0, anchor)
+    let replies
+    try { replies = JSON.parse(preview)?.replies } catch { /* a cut can break JSON syntax */ }
+    if (Array.isArray(replies) && replies.some(reply => typeof reply?.text === 'string' && REPLY_ELISION.test(reply.text))) {
+      const restored = restoreTrimmedReplies(replies, records)
+      if (restored !== null) return restored
+    }
+    return restoreRelayWindow(preview, records)
   }
   // A sequence of words over everything said in the group, newest first, with each
   // hit's neighbours. `page` (`before` or `offset`) reads the next older page.

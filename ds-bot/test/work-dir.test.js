@@ -1347,6 +1347,11 @@ test('compressed pre-ledger group replies are recovered from the migrated group 
   const recovered = (await call('group-relay-replies', { sessionId: 'r1', preview })).value
   assert.deepEqual(recovered?.map(reply => [reply.botId, reply.text]), expected)
   assert.equal((await call('group-relay-replies', { sessionId: 'gb', preview })).value, null)
+  const brokenHead = original.indexOf(',"name":', original.indexOf('Middle') - 28)
+  const broken = `${original.slice(0, brokenHead)} ...[+${tail - brokenHead} chars]... ${original.slice(tail)}`
+  assert.throws(() => JSON.parse(broken))
+  const fromBroken = (await call('group-relay-replies', { sessionId: 'r1', preview: broken })).value
+  assert.deepEqual(fromBroken?.map(reply => [reply.botId, reply.text]), expected)
   const shortened = replies.map(reply => ({
     ...reply, text: `${reply.text.slice(0, 45)} ...[+${reply.text.length - 100} chars]... ${reply.text.slice(-55)}`,
   }))
