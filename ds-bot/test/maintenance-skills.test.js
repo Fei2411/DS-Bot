@@ -82,6 +82,15 @@ test('maintenanceProvider.get loads both skills by item, name, and locator while
   assert.equal(await provider.get(), undefined)
 })
 
+test('maintenanceProvider.get keeps bundled metadata over caller-supplied fields', async () => {
+  const provider = maintenanceProvider()
+  const [listed] = await provider.list()
+  const resolved = await provider.get({ ...listed, provider: 'caller', source: 'workspace', rank: 1 })
+  assert.equal(resolved.provider, 'ds-bot-maintenance')
+  assert.equal(resolved.source, 'bundled')
+  assert.equal(resolved.rank, 550)
+})
+
 test('skillResourcePath rewrites app.asar to app.asar.unpacked with forward slashes', () => {
   const packed = ['root', 'resources', 'app.asar', 'node_modules', 'ds-bot', 'src', 'host', 'skills', 'ds-bot-maintenance'].join(sep)
   assert.equal(
@@ -93,6 +102,8 @@ test('skillResourcePath rewrites app.asar to app.asar.unpacked with forward slas
 })
 
 test('bundled skills follow progressive disclosure, line budgets, valid references, required tokens, and docs hygiene', () => {
+  // goal-grill belongs to another provider (goal-skills.js); its SKILL.md sits in the same
+  // skills directory, so this layout check covers it too.
   for (const skillName of ['ds-bot-maintenance', 'ds-bot-plugin-dev', 'goal-grill']) {
     const skillPath = join(SKILLS_DIR, skillName, 'SKILL.md')
     const raw = readFileSync(skillPath, 'utf8')

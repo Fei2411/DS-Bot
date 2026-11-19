@@ -90,10 +90,8 @@ export function maintenanceProvider() {
       const parsed = parseSkill(readFileSync(locator, 'utf8'), locator)
       const entry = candidate(skill, parsed)
       return {
-        ...entry,
         ...item,
-        name: entry.name,
-        description: entry.description,
+        ...entry,
         content: parsed.content,
         path: locator,
         metadata: parsed.metadata,
