@@ -31,6 +31,12 @@ export function cleanEnv(extra = {}) {
   return { ...env, ...extra }
 }
 
+export function agentEnv(executable, env, { platform = process.platform, find = name => findExecutable(name, { platform, env }) } = {}) {
+  if (platform !== 'win32' || !/^pi-acp(?:\.(?:cmd|bat|exe))?$/iu.test(win32.basename(executable)) || Object.keys(env).some(key => key.toUpperCase() === 'PI_ACP_PI_COMMAND')) return env
+  const pi = find('pi')
+  return pi === undefined ? env : { ...env, PI_ACP_PI_COMMAND: pi }
+}
+
 // A command's output, or undefined. Never synchronous: this runs inside the DSH
 // host, and a blocking child process there freezes every Session.
 const outputOf = (file, args) => new Promise((resolve) => {
@@ -60,9 +66,6 @@ export function refreshSearchDirs() {
   return looking
 }
 
-const WIN_EXT = ['.cmd', '.exe', '.bat', '']
-const candidates = (name) => (process.platform === 'win32' ? WIN_EXT.map(ext => `${name}${ext}`) : [name])
-
 // Every folder a CLI may hide in, in lookup order.
 function searchDirs() {
   const home = homedir()
@@ -90,15 +93,25 @@ function searchDirs() {
 
 // The executable's full path, or undefined when the CLI is not installed. Only
 // file checks: the folders from refreshSearchDirs() join once it has run.
-export function findExecutable(name) {
+export function findExecutable(name, { platform = process.platform, env = process.env, isFile: fileExists = isFile } = {}) {
+  const windows = platform === 'win32'
+  const pathJoin = windows ? win32.join : join
+  const allowedExt = ['.cmd', '.exe', '.bat', '.com']
+  const hasExtension = allowedExt.includes(win32.extname(name).toLowerCase())
   if (name.includes('/') || name.includes('\\')) {
+    if (windows && !hasExtension) return undefined
     const path = name.startsWith('~') ? join(homedir(), name.slice(1)) : name
-    return isFile(path) ? path : undefined
+    return fileExists(path) ? path : undefined
   }
-  for (const dir of searchDirs()) {
-    for (const file of candidates(name)) {
-      const path = join(dir, file)
-      if (isFile(path)) return path
+  const pathExt = env.PATHEXT === undefined ? allowedExt : env.PATHEXT.split(';').map(ext => ext.toLowerCase()).filter(ext => allowedExt.includes(ext))
+  const extensions = windows && !hasExtension ? pathExt : ['']
+  const pathKey = Object.keys(env).find(key => key.toUpperCase() === 'PATH') ?? 'PATH'
+  const dirs = windows ? [...(env[pathKey] ?? '').split(';').filter(Boolean), ...(platform === process.platform ? searchDirs() : [])] : searchDirs()
+  for (const dir of dirs) {
+    if (windows && !win32.isAbsolute(dir)) continue
+    for (const ext of extensions) {
+      const path = pathJoin(dir, `${name}${ext}`)
+      if (fileExists(path)) return path
     }
   }
   return undefined
@@ -158,7 +171,7 @@ export function terminateChild(child) {
 
 export function spawnAgent(executable, args, options) {
   const launch = launchOf(executable, args)
-  return spawn(launch.file, launch.args, { ...options, ...launch.options })
+  return spawn(launch.file, launch.args, { ...options, ...launch.options, env: agentEnv(executable, options?.env ?? process.env) })
 }
 
 // One `--version` call, bounded; the version line is for display only.

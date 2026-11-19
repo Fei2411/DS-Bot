@@ -131,3 +131,24 @@ test('a write that does not reach the disk is reported to whoever waits for it',
   await rt.ledger.written('pair-a-b')
   assert.deepEqual(parseBook(readFileSync(join(home, 'ledger', 'pair-a-b.jsonl'), 'utf8')).map(record => record.id), ['x'])
 })
+
+test('prepend puts recovered records before existing ones and keeps concurrent appends in order', async (t) => {
+  const writer = host(t)
+  writer.rt.ledger.append('group-r1', { seq: 3, text: 'three' })
+  writer.rt.ledger.append('group-r1', { seq: 4, text: 'four' })
+  await writer.rt.ledger.flush('group-r1')
+
+  const reader = host(t, { home: writer.home, readOnly: () => 'read only' })
+  assert.deepEqual(reader.rt.ledger.records('group-r1').map(record => record.seq), [3, 4])
+
+  // Prepend 1..2 and append 5 without awaiting between them.
+  const added = writer.rt.ledger.prepend('group-r1', [{ seq: 2, text: 'two' }, { seq: 1, text: 'one' }, { seq: 3, text: 'dup' }])
+  assert.equal(added, 2)
+  writer.rt.ledger.append('group-r1', { seq: 5, text: 'five' })
+  await writer.rt.ledger.flush('group-r1')
+
+  assert.deepEqual(parseBook(readFileSync(writer.file('group-r1'), 'utf8')).map(record => [record.seq, record.text]), [
+    [1, 'one'], [2, 'two'], [3, 'three'], [4, 'four'], [5, 'five'],
+  ])
+  assert.deepEqual(reader.rt.ledger.records('group-r1').map(record => record.seq), [1, 2, 3, 4, 5])
+})

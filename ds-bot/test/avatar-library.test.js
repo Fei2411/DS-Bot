@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict'
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import fsp from 'node:fs/promises'
+import { syncBuiltinESMExports } from 'node:module'
 import { hostname, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -250,6 +252,49 @@ test('the library answers page by page, so a big library is not one huge reply',
   assert.equal(second.items.every(item => !names.has(item.name)), true)
   // A page past the end is empty, not an error.
   assert.equal((await call('avatar-library', { offset: 60 })).value.items.length, 0)
+})
+
+test('a page reads at most 8 photos at once and keeps the newest-first order when reads finish out of order', async (t) => {
+  let now = 1_800_000_000_000
+  t.mock.method(Date, 'now', () => now++)
+  const home = makeHome()
+  t.after(() => rmSync(home, { recursive: true, force: true, maxRetries: 5 }))
+  const { call, stop } = start(home)
+  t.after(stop)
+
+  const photos = Array.from({ length: 20 }, (_, index) => ({
+    name: `photo-${index}.png`,
+    image: asDataUrl('image/png', Buffer.concat([PNG.subarray(0, 8), Buffer.alloc(index + 1, index + 1)])),
+  }))
+  const { imported } = (await call('avatar-import', { items: photos })).value
+  const gone = new Set([3, 4, 11, 19])
+  for (const index of gone) rmSync(join(home, 'avatars', 'files', `${imported[index].id}.png`))
+
+  const { readFile } = fsp
+  const photoFiles = join(home, 'avatars', 'files')
+  let started = 0
+  let reading = 0
+  let peak = 0
+  fsp.readFile = async (path, ...rest) => {
+    if (!String(path).startsWith(photoFiles)) return readFile(path, ...rest)
+    reading++
+    peak = Math.max(peak, reading)
+    // Each read takes less time than the one started before it, so reads finish out of order.
+    await new Promise(resolve => setTimeout(resolve, 20 - started++))
+    try { return await readFile(path, ...rest) } finally { reading-- }
+  }
+  syncBuiltinESMExports()
+  t.after(() => {
+    fsp.readFile = readFile
+    syncBuiltinESMExports()
+  })
+
+  const page = (await call('avatar-library', { limit: 20 })).value
+  const expected = photos.map(photo => photo.name).filter((_, index) => !gone.has(index)).reverse()
+  assert.deepEqual(page.items.map(item => item.name), expected)
+  assert.equal(page.items.every(item => item.image === photos[Number(item.name.match(/\d+/)[0])].image), true)
+  assert.equal(page.next, 20)
+  assert.equal(peak, 8)
 })
 
 test('another dsh that holds the team cannot change the library, but may read it', async (t) => {

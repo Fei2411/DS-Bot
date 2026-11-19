@@ -17,7 +17,7 @@
 import { randomUUID } from 'node:crypto'
 import { LlmError, createUserMessage, isContextWindowExceededError } from '@deepseek-ai/dsh-llm'
 import { openTurnAt } from './btw.js'
-import { HANDOFF_ACK, HISTORY_TIMEOUT_MS, REPLY_KIND, SOURCE_KIND } from './constants.js'
+import { HANDOFF_ACK, HISTORY_SCAN_PAGES, HISTORY_TIMEOUT_MS, REPLY_KIND, SOURCE_KIND } from './constants.js'
 import { assembleLlmStream } from './models.js'
 import { parseReplies, relayRange, stackReplies } from '../shared/group-replies.js'
 import { CHECKPOINT_PROMPT, STEWARD_SYSTEM, checkpointCount, checkpointTail, checkpointTailNote, checkpointText, linesFor, parseDecision, stewardRequest } from './steward.js'
@@ -406,10 +406,10 @@ export function install(rt) {
   }
 
   // What was said in one part, newest first: the user, other Bots, and the Bot itself.
-  async function* partLines(sessionId, signal, { group = false, pages } = {}) {
+  async function* partLines(sessionId, signal, { group = false, pages, read } = {}) {
     // Read backwards, a Bot's answers come before the message they answer.
     let answers = []
-    for await (const event of rt.eventsBackwards(sessionId, signal, pages)) {
+    for await (const event of rt.eventsBackwards(sessionId, signal, pages, read)) {
       const entry = historyEntry(event, group)
       if (entry === undefined) continue
       if (entry.answer) {
@@ -435,9 +435,10 @@ export function install(rt) {
     let listed = 0
     let unlisted = 0
     let complete = true
+    const read = {}
     const stamp = line => (group ? `[${clock(line.time)}]` : `[part ${number} #${line.seq} · ${clock(line.time)}]`)
     try {
-      for await (const line of partLines(sessionId, AbortSignal.timeout(HANDOFF_READ_MS), { group, pages: Infinity })) {
+      for await (const line of partLines(sessionId, AbortSignal.timeout(HANDOFF_READ_MS), { group, pages: HISTORY_SCAN_PAGES, read })) {
         if (!full) {
           const text = clip(line.text, RECENT_LINE_MAX, group ? 'the full text is in the saved record' : `read_own_chat around "part ${number} #${line.seq}" shows all of it`)
           const cost = estimateTokens(text)
@@ -466,6 +467,7 @@ export function install(rt) {
       rt.warn('ds-bot: reading %s for its handoff stopped early: %s', sessionId, error)
     }
     // `whole`: every message of the part is in `recent`.
+    complete &&= read.complete === true
     return { recent: recent.reverse(), earlier: earlier.reverse(), unlisted, complete, whole: complete && !full }
   }
 
@@ -602,7 +604,8 @@ export function install(rt) {
     const kept = []
     let used = 0
     let more = false
-    for await (const line of partLines(sessionId, AbortSignal.timeout(HANDOFF_READ_MS), { group, pages: Infinity })) {
+    const read = { continue: () => kept.length === 0 }
+    for await (const line of partLines(sessionId, AbortSignal.timeout(HANDOFF_READ_MS), { group, pages: HISTORY_SCAN_PAGES, read })) {
       if (line.who === 'you') continue
       const text = `${group ? `[${clock(line.time)}]` : `[part ${number} #${line.seq} · ${clock(line.time)}]`} ${clip(line.text, RECENT_LINE_MAX, 'read_own_chat shows all of it')}`
       const cost = estimateTokens(text)
@@ -612,7 +615,12 @@ export function install(rt) {
       }
       kept.push(text)
       used += cost
+      if (read.capped) {
+        more = true
+        break
+      }
     }
+    more ||= read.complete !== true
     return { kept: kept.reverse(), more }
   }
 
@@ -714,7 +722,9 @@ export function install(rt) {
     if (!own?.provider || !own?.model) return undefined
     const group = placeOf(agent.id)?.roomId !== undefined
     const lines = []
-    for await (const line of partLines(agent.id, AbortSignal.timeout(HANDOFF_READ_MS), { group })) {
+    // Two pages is already more than STEWARD_LINES asks for; the default limit would
+    // scan thousands of messages, and each decide then allocated gigabytes.
+    for await (const line of partLines(agent.id, AbortSignal.timeout(HANDOFF_READ_MS), { group, pages: 2 })) {
       lines.push({ who: line.who, text: line.who === 'you' || line.who === 'user' ? line.text.replace(/^(?:You|User): /, '') : line.text })
       if (lines.length >= STEWARD_LINES) break
     }
@@ -862,7 +872,7 @@ export function install(rt) {
     const { recent, earlier, unlisted, complete } = lines
     const omitted = [
       ...(unlisted > 0 ? [`(${unlisted} older messages are not listed.)`] : []),
-      ...(!complete ? ['(The oldest part of the record could not be read in time, so some messages may be missing.)'] : []),
+      ...(!complete ? ['(Older messages were not carried; the full record stays saved.)'] : []),
     ]
     return [
       `[Handoff · part ${number}]`,
@@ -884,6 +894,7 @@ export function install(rt) {
       '',
       '## Latest messages (oldest first)',
       recent.length > 0 ? recent.join('\n') : '(none)',
+      ...(room ? omitted : []),
       '',
       !resume ? 'Every message above has had its answer. Nothing needs an answer now; wait for the next message.'
         : bare ? `Your last turn could not finish because the model request kept failing, also in a fresh conversation with the latest messages carried over, so they are left out this time. First tell ${room ? 'the group' : 'the user'} in one short sentence that the last message could not be sent, and ask for it again.`
@@ -972,7 +983,20 @@ export function install(rt) {
     const bot = rt.botOf(owner.botId)
     return owner.next ?? threadCurrentOfPart(bot, sessionId) ?? rt.chatOf(owner.botId)
   }
-  const grown = (sessionId, tokens, lines) => tokens >= (partBase.get(sessionId) ?? 0) + lines.check / 4
+  // Compaction sets partBase from an immediate estimate before the next provider
+  // response reports real usage; lower it when measured context shrinks so stale
+  // estimates cannot keep checkContext suppressed above the line.
+  const lowerPartBase = (sessionId, tokens) => {
+    if (tokens === undefined) return
+    const base = partBase.get(sessionId)
+    if (base !== undefined && tokens < base) partBase.set(sessionId, tokens)
+  }
+  const grown = (sessionId, tokens, lines) => {
+    const base = partBase.get(sessionId) ?? 0
+    // Crossing the hard line from below must still act even when base + check / 4 overshoots it.
+    if (tokens >= lines.hard && base < lines.hard) return true
+    return tokens >= base + lines.check / 4
+  }
   // A read-only process (another dsh holds the team) neither condenses nor switches.
   const readOnly = () => rt.readOnly() !== undefined
 
@@ -1424,6 +1448,7 @@ export function install(rt) {
     if (localPart(agent.session)) return next()
     const lines = await contextLines(agent.session).catch(() => undefined)
     const tokens = tokensOf(agent.session)
+    if (fresh === undefined && tokens !== undefined && tokens > 0) lowerPartBase(agent.id, tokens)
     if (lines === undefined || tokens === undefined || tokens < lines.hard || !grown(agent.id, tokens, lines) || readOnly()) return next()
     if (await decide(agent, { midTurn: payload.step > 1 }) === 'compact' && await condense(agent, lines, { inTurn: true, signal: payload.signal })) return next()
     if (!await canMakeRoom(agent, payload.messages)) return next()
@@ -1606,6 +1631,7 @@ export function install(rt) {
     }
     const lines = await contextLines(agent.session)
     const tokens = tokensOf(agent.session)
+    lowerPartBase(agent.id, tokens)
     if (lines === undefined || tokens === undefined || tokens < lines.check || !grown(agent.id, tokens, lines)) return
     const hard = tokens >= lines.hard
     if (!hard && Date.now() < (noteFailures.get(agent.id)?.until ?? 0)) return
@@ -1632,6 +1658,7 @@ export function install(rt) {
     const lines = await contextLines(agent.session).catch(() => undefined)
     if (context === undefined || lines === undefined) return
     const tokens = context.used
+    lowerPartBase(agent.id, tokens)
     const condensed = context.compactions > (cliCompactions.get(agent.id) ?? 0)
     cliCompactions.set(agent.id, context.compactions)
     // Condensed past the check line and still there: a checkpoint that did not make

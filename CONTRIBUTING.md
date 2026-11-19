@@ -87,8 +87,11 @@ You need:
 git clone https://github.com/Fei2411/DS-Bot.git ds-bot-repo
 cd ds-bot-repo/ds-bot
 
-# The plugin's own build tool (esbuild only).
+# The plugin's packages and its build tool (esbuild).
 npm ci
+
+# The phone link's packages: the build bundles them into link.js, and a unit test builds it.
+npm ci --prefix ../link
 
 # The DSH packages that the unit tests and the linter load, from npm, into dev/harness/.
 npm run harness
