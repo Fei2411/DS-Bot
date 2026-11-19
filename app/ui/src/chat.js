@@ -13,10 +13,11 @@ import { ReadOnlyDock } from '../../../ds-bot/src/client/read-only-dock.js'
 const FOLLOW_PX = 80
 const sameItem = (a, b) => a.kind === b.kind && a.time === b.time && a.text === b.text
 
-// A Bot's own chat: pages from the `chat` endpoint, new entries and the reply being
-// written from the feed. Entries that arrive while the first page loads wait for it.
-function useChat(botId, part, feed) {
-  const [view, setView] = useState({ sessionId: null, items: [], cursor: null, loading: botId !== undefined, failed: false })
+// A Bot's own chat or a group chat: pages from `chat` / `room-chat`, new entries and
+// the reply being written from the feed. Entries that arrive while the first page loads wait for it.
+function useChat(botId, roomId, part, feed) {
+  const active = botId !== undefined || roomId !== undefined
+  const [view, setView] = useState({ sessionId: null, items: [], cursor: null, loading: active, failed: false })
   const [stream, setStream] = useState(null)
   const [pending, setPending] = useState([])
   const ready = useRef(false)
@@ -25,17 +26,25 @@ function useChat(botId, part, feed) {
   const keep = useRef(null)
 
   const load = useCallback(async (cursor, scroller) => {
-    if (busy.current || botId === undefined) return
+    if (busy.current || !active) return
     busy.current = true
     if (cursor === undefined) ready.current = false
     setView(current => ({ ...current, loading: true, failed: false }))
     try {
-      const page = await call('chat', { botId, ...(cursor ? { cursor } : {}) })
+      const page = roomId !== undefined
+        ? await call('room-chat', { roomId, ...(cursor ? { cursor } : {}) })
+        : await call('chat', { botId, ...(cursor ? { cursor } : {}) })
+      const pageSessionId = page.sessionId ?? part
       if (cursor === undefined) {
-        const later = early.current.filter(entry => entry.sessionId === page.sessionId && !page.items.some(item => sameItem(item, entry.item)))
+        const later = roomId !== undefined
+          ? []
+          : early.current.filter(entry => entry.sessionId === pageSessionId && !page.items.some(item => sameItem(item, entry.item)))
         early.current = []
         ready.current = true
-        setView({ sessionId: page.sessionId, items: [...page.items, ...later.map(entry => entry.item)], cursor: page.cursor, loading: false, failed: false })
+        setView({ sessionId: pageSessionId, items: [...page.items, ...later.map(entry => entry.item)], cursor: page.cursor, loading: false, failed: false })
+        if (roomId !== undefined) {
+          setPending(list => list.filter(entry => !page.items.some(item => item.kind === 'user' && item.text === entry.text)))
+        }
       } else {
         // Content added above the viewport would push the view down; keep its distance from the end.
         if (scroller) keep.current = scroller.scrollHeight - scroller.scrollTop
@@ -47,7 +56,7 @@ function useChat(botId, part, feed) {
     } finally {
       busy.current = false
     }
-  }, [botId])
+  }, [active, botId, roomId, part])
 
   // A new part starts the chat over.
   useEffect(() => { void load(undefined) }, [load, part])
@@ -55,6 +64,10 @@ function useChat(botId, part, feed) {
   useEffect(() => feed.on((event, data) => {
     // The feed came back after a break: entries may have been missed.
     if (event === 'hello') { if (ready.current) void load(undefined); return }
+    if (roomId !== undefined) {
+      if (event === 'room' && data?.roomId === roomId) void load(undefined)
+      return
+    }
     if (botId === undefined || data?.botId !== botId || data.sessionId !== part) return
     if (event === 'message') {
       if (!ready.current) { early.current.push(data); return }
@@ -71,7 +84,7 @@ function useChat(botId, part, feed) {
       else if (data.phase === 'end') setStream(current => (current?.attemptId === data.attemptId ? null : current))
       else setStream(current => (current?.attemptId === data.attemptId ? { ...current, text: current.text + data.text } : current))
     }
-  }), [feed, botId, part, load])
+  }), [feed, botId, roomId, part, load])
 
   // Shown at once: the message can come back on the feed before the request returns.
   const send = async (text, actions, sessionId) => {
@@ -139,7 +152,7 @@ function Composer({ sessionId, placeholder, disabled, onSend, actions, useUi, us
           'data-composer-input': '',
           onChange: event => setText(event.target.value),
           onKeyDown: (event) => {
-            if (event.key === 'Enter' && enterToSend && !event.shiftKey && !event.nativeEvent.isComposing) {
+            if (event.key === 'Enter' && enterToSend && !event.shiftKey && !event.nativeEvent.isComposing && event.keyCode !== 229) {
               event.preventDefault()
               void submit()
             }
@@ -155,8 +168,13 @@ export function Chat({ sessionId, team }) {
   const { actions, hooks, chat: feed } = team
   const roster = hooks.useRoster(value => value)
   const bot = roster.byId[sessionId]
-  const name = bot?.name ?? roster.roomsById[sessionId]?.name ?? ''
-  const { view, stream, pending, load, send, keep } = useChat(bot?.id, sessionId, feed)
+  const room = roster.roomsById[sessionId]
+  const name = bot?.name ?? room?.name ?? ''
+  const { view, stream, pending, load, send, keep } = useChat(bot?.id, room?.id, sessionId, feed)
+  useEffect(() => {
+    document.body.toggleAttribute('data-bt-room', room !== undefined)
+    return () => { document.body.removeAttribute('data-bt-room') }
+  }, [room !== undefined])
   const scroller = useRef(null)
   const follow = useRef(true)
   const question = roster.questions?.[sessionId]
