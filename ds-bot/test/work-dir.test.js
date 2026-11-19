@@ -6,7 +6,7 @@ import { test } from 'node:test'
 import { createToolResultMessage, createUserMessage } from '@deepseek-ai/dsh-llm'
 import { Session } from '@deepseek-ai/dsh-session'
 import { createRuntime } from '../index.js'
-import { SOURCE_KIND } from '../src/host/constants.js'
+import { SOURCE_KIND, TEXT_KEPT } from '../src/host/constants.js'
 import { dshHomeOf } from '../src/host/folders.js'
 import { escapeRegExp } from '../src/host/text.js'
 import { fakeApproval, fakeContext } from './fake-ctx.js'
@@ -1359,6 +1359,39 @@ test('compressed pre-ledger group replies are recovered from the migrated group 
   assert.deepEqual(structured, replies)
   const crossedPrompt = JSON.stringify({ replies: [{ botId: 'b', text: `${replies[0].text.slice(0, 45)} ...[+2000 chars]... ${unrelated}` }] })
   assert.equal((await call('group-relay-replies', { sessionId: 'r1', preview: crossedPrompt })).value, null)
+})
+
+test('compressed group replies do not restore a shortened legacy log line as complete', async (t) => {
+  const replies = [
+    { botId: 'b', text: 'Start of the original reply. '.repeat(4) },
+    { botId: 'a', text: 'Reply with a missing end. '.repeat(120) },
+    { botId: 'b', text: 'End of the original reply. '.repeat(4) },
+  ]
+  const original = JSON.stringify({ replies })
+  const head = original.indexOf(replies[0].text) + 45
+  const tail = original.indexOf(replies[2].text) + 45
+  const preview = `${original.slice(0, head)} ...[+${tail - head} chars]... ${original.slice(tail)}`
+  const log = replies.map((reply, i) => ({ ...reply, seq: i + 1 }))
+  log[1] = { ...log[1], text: log[1].text.slice(0, TEXT_KEPT), length: replies[1].text.length }
+
+  for (const source of ['room log', 'previously migrated ledger']) {
+    await t.test(source, async (t) => {
+      const root = realpathSync.native(mkdtempSync(join(tmpdir(), 'ds-bot-work-dir-')))
+      const saved = structuredClone(TEAM)
+      saved.rooms.r1.seq = 3
+      if (source === 'room log') {
+        saved.rooms.r1.log = log.map(line => line.length === undefined ? line : { ...line, text: line.text.slice(0, 40) })
+      } else {
+        const ledger = join(root, 'dsh', 'bot', 'ledger')
+        mkdirSync(ledger, { recursive: true })
+        writeFileSync(join(ledger, 'group-r1.jsonl'), log.map(({ length, ...line }) => `${JSON.stringify(line)}\n`).join(''))
+      }
+      const { call, stop } = await start({ root, team: saved })
+      t.after(stop)
+      assert.equal((await call('group-relay-replies', { sessionId: 'r1', preview })).value, null)
+      if (source === 'room log') assert.equal(rt.ledger.record('group-r1', 2).length, replies[1].text.length)
+    })
+  }
 })
 
 test('the file panel of a group with a folder lists the Session\'s own folder', async (t) => {

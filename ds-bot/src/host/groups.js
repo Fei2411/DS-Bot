@@ -419,12 +419,11 @@ export function install(rt) {
     const lines = new Map()
     for (const line of rt.roomOf(roomId)?.log ?? []) {
       if (!Number.isInteger(line?.seq)) continue
-      const { length, ...rest } = line
-      let text = rest.text
-      if (length !== undefined) {
+      let text = line.text
+      if (line.length !== undefined) {
         try { text = readFileSync(join(rt.home, 'group-lines', roomId, `${line.seq}.txt`), 'utf8') } catch { /* only its start was kept */ }
       }
-      lines.set(line.seq, { ...rest, ...(text === undefined ? {} : { text }) })
+      lines.set(line.seq, { ...line, ...(text === undefined ? {} : { text }) })
     }
     try {
       for (const line of parseBook(readFileSync(join(rt.home, 'group-logs', `${oldLogName(roomId)}.jsonl`), 'utf8'))) {
@@ -634,9 +633,14 @@ export function install(rt) {
   }
   const groupRows = (roomId, from, to, anchor) => rowsView(roomId, from, to, anchor).rows
   const jsonLength = text => JSON.stringify(text).length - 2
-  const isKeptReply = record => record.kind === undefined && record.session !== true
-    && typeof record.botId === 'string' && typeof record.text === 'string'
-    && (record.length === undefined || record.text.length === record.length)
+  function isKeptReply(record) {
+    if (record.kind !== undefined || record.session === true || typeof record.botId !== 'string' || typeof record.text !== 'string') return false
+    const length = record.text.length
+    if (record.length !== undefined) return length === record.length
+    // Old imports dropped the original length. Either cap can land one unit early at a surrogate pair.
+    return length !== TEXT_KEPT && length !== TEXT_KEPT - 1
+      && length !== GROUP_LINE_READ && length !== GROUP_LINE_READ - 1
+  }
 
   function restoreTrimmedReplies(replies, records) {
     const restored = []
