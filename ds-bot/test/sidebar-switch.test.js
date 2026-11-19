@@ -423,6 +423,7 @@ test('a narrow Bot conversation keeps an explicit track and leaves expanded host
   assert.equal(frames.length, 1)
   const { rule } = frames[0]
   assert.match(frames[0].grid, /^0px\s+minmax\(0,\s*1fr\)\s+0px$/)
+  assert.equal(rule.style.getPropertyPriority('grid-template-columns'), 'important')
   const { document } = new JSDOM('<div class="x_frame" data-sidebar-collapsed data-rightbar-collapsed><div class="x_centerCol"><div class="bt-head"></div></div></div>').window
   const frame = document.querySelector('.x_frame')
   assert.ok(frame.matches(rule.selectorText))
@@ -435,6 +436,8 @@ test('a narrow Bot conversation keeps an explicit track and leaves expanded host
   assert.ok(document.querySelector('.x_centerCol').matches(columnRule.selectorText))
   assert.equal(columnRule.style.getPropertyValue('grid-column'), '2')
   assert.equal(columnRule.style.getPropertyValue('width'), 'auto')
+  for (const property of ['grid-column', 'width'])
+    assert.equal(columnRule.style.getPropertyPriority(property), 'important')
   document.querySelector('.bt-head').remove()
   assert.equal(frame.matches(rule.selectorText), false)
 })
