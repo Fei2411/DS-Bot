@@ -23,11 +23,17 @@ const react = {
   useEffect() {}, useLayoutEffect() {}, useRef: current => ({ current }), useState: init => [init, () => {}],
 }
 const module = { exports: {} }
+const frames = new Map()
+const reported = []
+let frameId = 0
 runInNewContext(outputFiles[0].text, {
   module, exports: module.exports, document, window: dom.window, getComputedStyle: node => dom.window.getComputedStyle(node),
+  requestAnimationFrame: callback => { frames.set(++frameId, callback); return frameId },
+  cancelAnimationFrame: id => frames.delete(id),
+  reportError: error => reported.push(error),
   require: name => (name === 'react' ? react : name === 'react-dom' ? { createPortal: node => node } : {}),
 })
-const { fillsBand, headingsIn, outlineOf: outlineIn, pillPlace: placeIn, readingBand: bandIn, sectionAt } = module.exports
+const { fillsBand, followScroll, headingsIn, outlineOf: outlineIn, pillPlace: placeIn, readingBand: bandIn, sectionAt } = module.exports
 // Values made in the bundle's context have its prototypes; compare them as plain data.
 const plain = value => JSON.parse(JSON.stringify(value))
 const outlineOf = headings => plain(outlineIn(headings))
@@ -110,6 +116,93 @@ test('a reply follows the scroll by the band it is read in, not by the whole scr
   // Under the band, yet followed: the composer can grow past it.
   assert.equal(fillsBand(420, band), true)
   assert.equal(fillsBand(414, band), false)
+})
+
+test('scroll followers share listeners, frames and measurements until the last cleanup', (t) => {
+  const scrollers = [document.createElement('div'), document.createElement('div')]
+  const adds = scrollers.map(scroller => t.mock.method(scroller, 'addEventListener'))
+  const removes = scrollers.map(scroller => t.mock.method(scroller, 'removeEventListener'))
+  const resizeAdd = t.mock.method(dom.window, 'addEventListener')
+  const resizeRemove = t.mock.method(dom.window, 'removeEventListener')
+  const query = t.mock.method(document, 'querySelector')
+  const news = document.createElement('div')
+  news.className = 'bt-news'
+  news.dataset.direction = 'up'
+  document.body.append(news)
+  const newsRect = { left: 0, right: 100, bottom: 40 }
+  const newsMeasure = t.mock.method(news, 'getBoundingClientRect', () => newsRect)
+  const measures = scrollers.map((scroller, index) => t.mock.method(scroller, 'getBoundingClientRect', () => ({ top: index * 10, bottom: 800, left: 0, right: 900 })))
+  const calls = Array.from({ length: 10 }, () => [])
+  const stops = calls.map((seen, index) => followScroll(scrollers[index % 2], (band, above) => seen.push({ band, above })))
+  t.after(() => { news.remove(); t.mock.restoreAll() })
+  assert.deepEqual(adds.map(add => add.mock.callCount()), [1, 1])
+  assert.equal(adds[0].mock.calls[0].arguments[0], 'scroll')
+  assert.equal(adds[0].mock.calls[0].arguments[2].passive, true)
+  assert.equal(resizeAdd.mock.callCount(), 1)
+  assert.equal(resizeAdd.mock.calls[0].arguments[0], 'resize')
+  assert.equal(frames.size, 1)
+  const flush = () => {
+    const pending = [...frames.values()]
+    frames.clear()
+    pending.forEach(callback => callback())
+  }
+  flush()
+  assert.deepEqual(measures.map(measure => measure.mock.callCount()), [1, 1])
+  assert.equal(query.mock.callCount(), 1)
+  assert.equal(newsMeasure.mock.callCount(), 1)
+  calls.forEach((seen, index) => {
+    assert.equal(seen.length, 1)
+    assert.deepEqual(plain(seen[0].band), { top: index % 2 * 10 + 8, bottom: 800, left: 0, right: 900 })
+    assert.equal(seen[0].above, newsRect)
+    assert.equal(seen[0].band, calls[index % 2][0].band)
+  })
+  const before = frameId
+  scrollers.forEach(scroller => scroller.dispatchEvent(new dom.window.Event('scroll')))
+  dom.window.dispatchEvent(new dom.window.Event('resize'))
+  assert.equal(frameId - before, 1)
+  flush()
+  assert.ok(calls.every(seen => seen.length === 2))
+  stops[0]()
+  assert.equal(removes[0].mock.callCount(), 0)
+  for (let index = 2; index < stops.length; index += 2) stops[index]()
+  assert.equal(removes[0].mock.callCount(), 1)
+  assert.equal(resizeRemove.mock.callCount(), 0)
+  scrollers[0].dispatchEvent(new dom.window.Event('scroll'))
+  assert.equal(frames.size, 0)
+  news.remove()
+  scrollers[1].dispatchEvent(new dom.window.Event('scroll'))
+  flush()
+  assert.equal(calls[1].at(-1).above, undefined)
+  assert.equal(calls[0].length, 2)
+  scrollers[1].dispatchEvent(new dom.window.Event('scroll'))
+  assert.equal(frames.size, 1)
+  for (let index = 1; index < stops.length; index += 2) stops[index]()
+  assert.equal(removes[1].mock.callCount(), 1)
+  assert.equal(resizeRemove.mock.callCount(), 1)
+  assert.equal(frames.size, 0)
+  dom.window.dispatchEvent(new dom.window.Event('resize'))
+  scrollers[1].dispatchEvent(new dom.window.Event('scroll'))
+  assert.equal(frames.size, 0)
+  const stop = followScroll(scrollers[0], () => {})
+  assert.equal(frames.size, 1)
+  stop()
+  assert.equal(frames.size, 0)
+})
+
+test('a failed scroll follower reports its error without stopping the next follower', (t) => {
+  const scroller = document.createElement('div')
+  const error = new Error('failed follower')
+  let calls = 0
+  const stops = [
+    followScroll(scroller, () => { throw error }),
+    followScroll(scroller, () => { calls += 1 }),
+  ]
+  t.after(() => { stops.forEach(stop => stop()); reported.length = 0 })
+  const pending = [...frames.values()]
+  frames.clear()
+  assert.doesNotThrow(() => pending.forEach(callback => callback()))
+  assert.equal(calls, 1)
+  assert.deepEqual(reported, [error])
 })
 
 test('the pill is a glass surface that pops in with the tap spring and stays still with reduced motion', () => {

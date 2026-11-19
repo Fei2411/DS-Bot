@@ -204,8 +204,11 @@ test('a group Session made before the member\'s level applied gets it on the nex
     { b: { model: 'deepseek/v4-flash', effort: 'low', appliedModel: 'deepseek/v4-flash', appliedEffort: 'low' } }, llm)
   await host.call('state', {})
   // The group Session gets the member's level once; the own chat is not re-selected.
-  await settle(() => host.selected.length === 1)
-  assert.deepEqual(host.selected, [{ sessionId: 'gb', provider: 'deepseek', model: 'v4-flash', reasoningEffort: 'low' }])
+  // The group's own Session is selected on its own, and may reach the list before or
+  // after 'gb': the order between the two is not what this test is about.
+  await settle(() => host.selected.some(entry => entry.sessionId === 'gb'))
+  assert.deepEqual(host.selected.filter(entry => entry.sessionId === 'gb'), [{ sessionId: 'gb', provider: 'deepseek', model: 'v4-flash', reasoningEffort: 'low' }])
+  assert.ok(host.selected.every(entry => entry.sessionId !== 'ga'))
 })
 
 test('a member\'s group Session runs on the member\'s model and thinking level', async (t) => {
@@ -439,6 +442,86 @@ test('a report-back post a Bot wrote from another group comes back to that conve
   await settle(() => host.agentOf('ga').calls.length === 1)
   assert.equal(host.agentOf('a').calls.length, 0)
   assert.match(text(host.agentOf('ga').calls[0]), /^\[Group chat "Design" · replies to your post\]/)
+})
+
+test('a report-back post from a background openPart or newly backgrounded thread comes back to that thread', async (t) => {
+  const host = await start(t, {}, undefined, {}, { a: { sessionId: 'a-fg', openParts: [{ sessionId: 'a-bg', segments: [] }] } })
+  // Background openPart posts to "Ops" with report_back: true.
+  const posted = await host.tool('post_to_group', { group: 'Ops', message: '@Writer 看一下文档', report_back: true }, 'a-bg')
+  assert.match(posted, /Posted in "Ops"/)
+  const post = host.takePost()
+  const done = host.round('c1', post)
+  await settle(() => host.agentOf('gb').calls.length === 1)
+  host.begin('gb')
+  host.finish('gb', '文档没问题。')
+  await settle(() => done() !== undefined)
+  await settle(() => host.agentOf('a-bg').calls.length === 1)
+  assert.equal(host.agentOf('a-fg').calls.length, 0)
+  assert.match(text(host.agentOf('a-bg').calls[0]), /^\[Group chat "Ops" · replies to your post\]/)
+
+  // Foreground posts while handling Bot work, then another openPart becomes foreground
+  // before the round ends: the report (and handoff) still returns to the thread that posted.
+  await host.tool('message_bot', { to: 'Chief', message: '让群里再核对一下' }, 'c')
+  host.begin('a-fg')
+  await host.tool('post_to_group', { group: 'Ops', message: '@Writer 再核对一下', report_back: true }, 'a-fg')
+  host.finish('a-fg', '已经让 Writer 核对了。')
+  const second = host.takePost()
+  assert.equal((await host.call('bot-open-part', { botId: 'a', sessionId: 'a-bg' })).ok, true)
+  const done2 = host.round('c2', second)
+  await settle(() => host.agentOf('gb').calls.length === 2)
+  host.begin('gb')
+  host.finish('gb', '核对完毕。')
+  await settle(() => done2() !== undefined)
+  await settle(() => host.agentOf('a-fg').calls.length === 2)
+  assert.equal(host.agentOf('a-bg').calls.length, 1)
+  const report = host.begin('a-fg')
+  assert.match(text(report), /^\[Group chat "Ops" · replies to your post · for the work Tester asked you for/)
+  assert.match(text(report), /Writer: 核对完毕。/)
+  host.finish('a-fg', 'Writer 核对过了。')
+  await settle(() => host.agentOf('c').calls.length === 1)
+  assert.match(text(host.agentOf('c').calls[0]), /Writer 核对过了。/)
+})
+
+test('a report-back post during a running round from an openPart segment routes to its current segment', async (t) => {
+  const host = await start(t, {}, undefined, {}, {
+    a: { sessionId: 'a-fg', openParts: [{ sessionId: 'a-bg2', segments: [{ sessionId: 'a-bg1', startedAt: 1 }] }] },
+  })
+  const first = host.round('c1', host.say('@Writer 整理文档'))
+  await settle(() => host.agentOf('gb').calls.length === 1)
+  host.begin('gb')
+  host.emit('gb', 'tool/call', { callId: 'k1', name: 'pwsh', arguments: '{}' })
+  await settle(() => true)
+
+  // Posted from an earlier segment of the openPart while the round is already running.
+  await host.tool('post_to_group', { group: 'Ops', message: '@Tester 看一下文档', report_back: true }, 'a-bg1')
+  assert.deepEqual(host.agentOf('r1').calls, [])
+  await settle(() => host.agentOf('gc').calls.length === 1)
+  host.begin('gc')
+  host.finish('gc', '看过了。')
+  host.finish('gb', '整理好了。')
+  await settle(() => first() !== undefined)
+  await settle(() => host.agentOf('a-bg2').calls.length === 1)
+  assert.equal(host.agentOf('a-fg').calls.length, 0)
+  assert.equal(host.agentOf('a-bg1').calls.length, 0)
+  assert.match(text(host.agentOf('a-bg2').calls[0]), /Tester: 看过了。/)
+})
+
+test('a report-back post whose origin openPart is gone falls back to the current foreground chat', async (t) => {
+  const host = await start(t, {}, undefined, {}, {
+    a: { sessionId: 'a-fg', openParts: [{ sessionId: 'a-bg', segments: [] }] },
+  })
+  await host.tool('post_to_group', { group: 'Ops', message: '@Writer 看一下文档', report_back: true }, 'a-bg')
+  const post = host.takePost()
+  // Simulate the openPart no longer existing on the Bot before the round finishes.
+  rt.botOf('a').openParts = []
+  const done = host.round('c1', post)
+  await settle(() => host.agentOf('gb').calls.length === 1)
+  host.begin('gb')
+  host.finish('gb', '文档没问题。')
+  await settle(() => done() !== undefined)
+  await settle(() => host.agentOf('a-fg').calls.length === 1)
+  assert.equal(host.agentOf('a-bg').calls.length, 0)
+  assert.match(text(host.agentOf('a-fg').calls[0]), /Writer: 文档没问题。/)
 })
 
 test('a member called while still at earlier work lets the round go on at once', async (t) => {

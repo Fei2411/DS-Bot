@@ -87,8 +87,11 @@
 git clone https://github.com/Fei2411/DS-Bot.git ds-bot-repo
 cd ds-bot-repo/ds-bot
 
-# 插件自己的构建工具（只有 esbuild）。
+# 插件的依赖和构建工具（esbuild）。
 npm ci
+
+# 手机链接的依赖：构建时打进 link.js，有一条单元测试也会构建它。
+npm ci --prefix ../link
 
 # 单元测试和 lint 要加载的 DSH 包，从 npm 装进 dev/harness/。
 npm run harness
@@ -143,6 +146,13 @@ mkdir -p /tmp/ds-bot-tree && git archive HEAD | tar -x -C /tmp/ds-bot-tree && no
 ```sh
 CONTEXT_WINDOW=100000 CHECK_RATIO=0.45 dev/bench.sh smoke 3096 8796 reset && node dev/smoke.mjs smoke 3096
 dev/bench.sh smoke 3096 8796 stop
+```
+
+改 Bot 浏览器（`src/host/browser/`）时，还要跑它的测试。它们驱动真实的 Chromium，检查 Bot 没有用户时不能在页面上做的事（付款、删除、提交、上传），以及 Bot 之间不共用 cookie。CI 在 Linux 上跑它们。先装一次 Chromium，再运行：
+
+```sh
+npx playwright-core install --only-shell chromium
+npm run test:browser
 ```
 
 想手动试用插件，启动一个测试台，打开它打印的地址：

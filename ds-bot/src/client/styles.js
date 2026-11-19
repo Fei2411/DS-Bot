@@ -16,7 +16,7 @@ import { DSH_NARROW } from './frame-layout.js'
 export const SHELL_CSS = `
 body{--bt-im-telegram:#229ed9;--bt-im-weixin:#07c160;--bt-im-feishu:#3370ff;--bt-im-dingtalk:#1e88e5;--bt-im-wecom:#0082ef;--bt-im-qq:#e03e3e;--bt-im-discord:#5865f2;--bt-im-slack:#4a154b;--bt-im-mark-ink:#ffffff;--bt-qr-paper:#ffffff;--bt-qr-ink:#141414;--bt-ink:#141414;--bt-danger:#e02135;--bt-warn:#8a5a00;--bt-ink-2:rgba(20,20,20,.6);--bt-ink-3:rgba(20,20,20,.36);--bt-bubble:#eeeeee;--bt-sidebar:#f7f7f7;--bt-main:#fcfcfc;--bt-line:rgba(20,20,20,.08);--bt-line-2:rgba(20,20,20,.15);--bt-line-weak:rgba(20,20,20,.1);--bt-hover:rgba(119,119,119,.09);--bt-active:rgba(119,119,119,.17);--bt-card:#ffffff;--bt-accent:#4d6bfe;--bt-green:#00c972;--bt-star:#ff9800;--bt-user:#070707;--bt-user-ink:#fcfcfc;--bt-tag-bg:rgba(20,20,20,.06);--bt-tag-ink:rgba(20,20,20,.56);--bt-knob:#ffffff;--bt-glass-bg:color-mix(in srgb,var(--bt-main) 78%,transparent);--bt-glass-border:rgba(255,255,255,.72);--bt-glass-rim:rgba(20,20,20,.09);--bt-glass-shadow:0 8px 28px -6px rgba(0,0,0,.08),0 2px 6px -1px rgba(0,0,0,.04),inset 0 1px 0 rgba(255,255,255,.82);--bt-dialog-shadow:0 28px 90px -12px rgba(0,0,0,.22),0 8px 24px -4px rgba(0,0,0,.08),inset 0 1px 0 rgba(255,255,255,.78);--bt-card-shadow:0 1px 2px rgba(20,20,20,.03),inset 0 1px 0 rgba(255,255,255,.65);--bt-nav-thumb-bg:color-mix(in srgb,var(--bt-card) 82%,var(--bt-active));--bt-nav-thumb-shadow:0 1px 2px rgba(20,20,20,.06),inset 0 .5px 0 rgba(255,255,255,.8);--bt-select-arrow:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12' fill='none' stroke='%23888' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m3 4.5 3 3 3-3'/%3E%3C/svg%3E");--bt-accent-soft:color-mix(in srgb,var(--bt-accent) 14%,transparent);--bt-danger-soft:color-mix(in srgb,var(--bt-danger) 14%,transparent);--bt-danger-glow:color-mix(in srgb,var(--bt-danger) 24%,transparent);-webkit-tap-highlight-color:transparent;-webkit-text-size-adjust:100%;--bt-font:var(--dsw-font-family,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif)}
 /* iOS waits out a double-tap zoom on buttons; the plugin's own controls never zoom. */
-:is(.bt-tool,.bt-uaction,.bt-menu button,.bt-menu-item,.bt-icon-btn,.bt-round,.bt-pill,.bt-account,.bt-set-row,.bt-settings-item,.bt-react-strip button,.bt-palette-row,.bt-palette-clear,.bt-tab,.bt-ptab,.bt-ptab-x,.bt-bcard-x,.bt-plus,.bt-q-btn,.bt-q-fold,.bt-q-x,.bt-x,.bt-nc-send,.bt-send,.bt-soft,.bt-mini,.bt-side-send,.bt-shape,.bt-swatch,.bt-color,.bt-newchat,.bt-task-day,.bt-task-remove,.bt-fb-btn){touch-action:manipulation}
+:is(.bt-tool,.bt-menu button,.bt-icon-btn,.bt-round,.bt-pill,.bt-account,.bt-set-row,.bt-settings-item,.bt-react-strip button,.bt-palette-row,.bt-palette-clear,.bt-tab,.bt-ptab,.bt-ptab-x,.bt-bcard-x,.bt-plus,.bt-q-btn,.bt-q-fold,.bt-q-x,.bt-x,.bt-nc-send,.bt-send,.bt-soft,.bt-mini,.bt-side-send,.bt-shape,.bt-swatch,.bt-color,.bt-newchat,.bt-task-day,.bt-task-remove){touch-action:manipulation}
 :is(.bt-round,.bt-you,.bt-account,.bt-color,.bt-color span,.bt-swatch,.bt-icon-btn,.bt-avatar-trigger,.bt-avatar-pencil,.bt-plus,.bt-mic,.bt-voice,.bt-task-day,.bt-task-off-mark){corner-shape:round}
 body[data-ds-dark-theme]{--bt-im-telegram:#2ea8de;--bt-im-weixin:#17c96a;--bt-im-feishu:#4d84ff;--bt-im-dingtalk:#3d99ed;--bt-im-wecom:#2898f2;--bt-im-qq:#e85555;--bt-im-discord:#6e7bf2;--bt-im-slack:#7c4380;--bt-im-mark-ink:#ffffff;--bt-ink:#f2f2f2;--bt-ink-2:rgba(242,242,242,.6);--bt-ink-3:rgba(242,242,242,.36);--bt-bubble:#262626;--bt-sidebar:#1b1b1b;--bt-main:#141414;--bt-line:rgba(255,255,255,.08);--bt-line-2:rgba(255,255,255,.15);--bt-line-weak:rgba(255,255,255,.1);--bt-hover:rgba(160,160,160,.12);--bt-active:rgba(160,160,160,.2);--bt-card:#1f1f1f;--bt-user:#f2f2f2;--bt-user-ink:#141414;--bt-tag-bg:rgba(255,255,255,.09);--bt-tag-ink:rgba(242,242,242,.62);--bt-glass-bg:color-mix(in srgb,var(--bt-main) 74%,transparent);--bt-glass-border:rgba(255,255,255,.13);--bt-glass-rim:rgba(255,255,255,.11);--bt-glass-shadow:0 12px 32px -6px rgba(0,0,0,.42),0 2px 8px -1px rgba(0,0,0,.28),inset 0 1px 0 rgba(255,255,255,.12);--bt-dialog-shadow:0 32px 96px -12px rgba(0,0,0,.62),0 10px 28px -4px rgba(0,0,0,.42),inset 0 1px 0 rgba(255,255,255,.1);--bt-card-shadow:0 1px 3px rgba(0,0,0,.22),inset 0 .5px 0 rgba(255,255,255,.07);--bt-nav-thumb-bg:color-mix(in srgb,var(--bt-card) 65%,var(--bt-active));--bt-nav-thumb-shadow:0 1px 3px rgba(0,0,0,.28),inset 0 .5px 0 rgba(255,255,255,.12);--bt-accent-soft:color-mix(in srgb,var(--bt-accent) 18%,transparent);--bt-danger-soft:color-mix(in srgb,var(--bt-danger) 18%,transparent);--bt-danger-glow:color-mix(in srgb,var(--bt-danger) 28%,transparent);--bt-warn:#f0b84a}
 ${Object.entries(INKS).map(([name, [light]]) => `body{--bt-ink-${name}:${light}}`).join('')}
@@ -118,10 +118,12 @@ body[data-bt-motion=quiet] .bt-mark[data-poke]{cursor:default}
 .bt-stack-more{font-size:11px;line-height:16px;color:var(--bt-ink-3);margin-left:3px!important}
 
 .bt-side{display:flex;flex-direction:column;min-height:0;flex:1 1 auto;gap:2px;padding:0 12px 8px 0;color:var(--bt-ink);font-family:var(--bt-font)}
-.bt-side-top{display:flex;justify-content:flex-end;align-items:center;gap:8px;padding:6px 5px 0 0}
+.bt-side-top{display:flex;flex-wrap:wrap;container-type:inline-size;container-name:bt-side-top;justify-content:flex-start;align-items:center;gap:8px;padding:6px 5px 0 0}
 .bt-brand{display:inline-flex;align-items:center;gap:6px;margin-right:auto;padding:4px 8px 4px 4px;border:0;border-radius:8px;background:none;cursor:pointer;font-family:inherit;font-size:15px;line-height:20px;font-weight:600;letter-spacing:-.01em;color:var(--bt-ink);white-space:nowrap}
 .bt-brand-whale{display:inline-flex;color:var(--bt-accent)}
-.bt-round{width:36px;height:36px;border-radius:50%;border:1px solid var(--bt-line);background:var(--bt-main);color:var(--bt-ink);display:inline-flex;align-items:center;justify-content:center;cursor:pointer;padding:0;transition:background-color .12s ease,transform .12s ease}
+.bt-round{flex:none;width:36px;height:36px;border-radius:50%;border:1px solid var(--bt-line);background:var(--bt-main);color:var(--bt-ink);display:inline-flex;align-items:center;justify-content:center;cursor:pointer;padding:0;transition:background-color .12s ease,transform .12s ease}
+/* A narrow column must wrap its header instead of squeezing round controls. */
+@container bt-side-top (max-width:300px){.bt-side-top>.bt-brand{flex-basis:100%}}
 .bt-round:hover{background:var(--bt-hover)}
 .bt-round:active{transform:scale(.94)}
 .bt-list{display:flex;flex-direction:column;gap:3px;overflow-y:auto;min-height:0;flex:1 1 auto}
@@ -170,6 +172,12 @@ html[data-windows-titlebar] .bt-leftcol,html[data-platform=darwin] .bt-leftcol{b
 @media (min-width:${DSH_NARROW}px){
 [class*="_frame"][data-sidebar-collapsed][data-rightbar-collapsed]:has(>[class*="_sidebarCol"]){grid-template-columns:0px minmax(0,1fr) 0px!important}
 }
+/* Bot mode owns the left column while both shell tracks are collapsed. Keep
+   the center's explicit second grid column, but yield when a shell track opens.
+   A responsive skin's single track otherwise creates an implicit center column. */
+@media (max-width:${DSH_NARROW - 1}px){
+[class*="_frame"][data-sidebar-collapsed][data-rightbar-collapsed]:has(>[class*="_centerCol"] .bt-head){grid-template-columns:0px minmax(0,1fr) 0px!important}
+}
 html[data-bt-collapsing] [class*="_frame"]:has(>[class*="_sidebarCol"]){transition:none!important}
 .bt-leftcol[data-left=drawer]{background:var(--bt-sidebar);box-shadow:8px 0 24px rgba(0,0,0,.14)}
 .bt-leftcol>.bt-side{width:100%}
@@ -177,6 +185,10 @@ html[data-bt-collapsing] [class*="_frame"]:has(>[class*="_sidebarCol"]){transiti
 .bt-rail{align-items:center;gap:6px;padding:0}
 .bt-rail .bt-row{justify-content:center;width:56px;height:56px;min-height:56px;padding:0;border-radius:16px}
 .bt-rail-top{display:flex;flex-direction:column;align-items:center;gap:8px;padding-bottom:8px}
+@media (max-width:600px) and (min-height:501px){
+.bt-rail-top .bt-round,.bt-leftcol-foot-rail>:is(.bt-round,.bt-account),.bt-leftcol-foot-rail .bt-you{width:56px;height:56px;flex:none}
+.bt-rail-top>.bt-round svg,.bt-leftcol-foot-rail>:is(.bt-round,.bt-account) svg{width:22px;height:22px}
+}
 .bt-rail-sep{width:24px;height:1px;flex:none;background:var(--bt-line)}
 .bt-rail .bt-agent-ava{width:44px;height:44px}
 /* Icon rows breathe the way the open column's rows do: 8px of gap puts ~20px
@@ -193,7 +205,6 @@ html[data-bt-collapsing] [class*="_frame"]:has(>[class*="_sidebarCol"]){transiti
 .bt-leftcol[data-left=rail][data-folding]>.bt-side{width:var(--bt-lc-w);margin-inline:auto}
 .bt-dot{position:absolute;top:4px;right:8px;width:8px;height:8px;border-radius:50%;background:var(--bt-accent);box-shadow:0 0 0 1.5px var(--bt-sidebar)}
 .bt-dot-wait{background:var(--bt-star)}
-.bt-side-foot{display:flex;padding-top:8px}
 
 .bt-head{position:relative;display:flex;justify-content:center;align-items:center;height:40px;flex:none;pointer-events:none}
 .bt-pill{pointer-events:auto;display:inline-flex;align-items:center;gap:8px;height:40px;padding:7.5px 13.5px 7.5px 7.5px;border-radius:999px;background:var(--bt-glass-bg);-webkit-backdrop-filter:blur(20px) saturate(180%);backdrop-filter:blur(20px) saturate(180%);border:.5px solid var(--bt-glass-rim);box-shadow:var(--bt-glass-shadow);color:var(--bt-ink);font-family:inherit;font-size:14px;line-height:20px;cursor:pointer;max-width:70%;box-sizing:border-box;transition:background-color .12s ease,transform ${SPRING_TAP.duration}ms ${SPRING_TAP.easing}}
@@ -494,7 +505,6 @@ html[data-windows-titlebar]:not([data-fullscreen]) :is(.bt-pane,.bt-panel)::befo
 .bt-swatches{display:flex;flex-wrap:wrap;gap:6px}
 .bt-swatch{width:22px;height:22px;border-radius:50%;border:2px solid transparent;cursor:pointer;padding:0;box-shadow:inset 0 0 0 1px var(--bt-line-2)}
 .bt-swatch[aria-pressed=true]{border-color:var(--bt-ink);box-shadow:inset 0 0 0 2px var(--bt-card)}
-.bt-textarea{width:100%;box-sizing:border-box;min-height:120px;border:.5px solid var(--bt-line-2);border-radius:8px;padding:8px 10px;background:var(--bt-card);color:var(--bt-ink);font:inherit;resize:vertical;transition:border-color .14s ease,box-shadow .14s ease}
 .bt-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 .bt-kv{display:flex;justify-content:space-between;gap:8px;font-size:12px;line-height:20px;color:var(--bt-ink-2)}
 .bt-kv span:last-child{color:var(--bt-ink);font-variant-numeric:tabular-nums}
@@ -511,7 +521,6 @@ html[data-windows-titlebar]:not([data-fullscreen]) :is(.bt-pane,.bt-panel)::befo
 .bt-input-area{height:auto;min-height:96px;padding:8px 11px;line-height:18px;resize:vertical}
 .bt-note{font-size:12px;line-height:16px;color:var(--bt-ink-3)}
 .bt-soft-sm{height:28px;padding:0 12px;font-size:12px;font-weight:500}
-.bt-set-avatar{display:flex;justify-content:center;padding:4px 0}
 .bt-avatar-anchor{position:relative}
 .bt-avatar-trigger{position:relative;width:64px;height:64px;border:0;border-radius:50%;background:none;cursor:pointer;padding:0}
 .bt-avatar-pencil{position:absolute;right:-2px;bottom:-2px;width:22px;height:22px;border-radius:50%;background:var(--bt-main);border:1px solid var(--bt-line-2);color:var(--bt-ink-2);display:flex;align-items:center;justify-content:center;box-shadow:0 1px 4px rgba(0,0,0,.12)}
@@ -585,7 +594,9 @@ body[data-ds-dark-theme] .bt-scrim{background:rgba(0,0,0,.5)}
 .bt-settings-icon>[data-slot="settings.section.icon"]>svg{display:block!important}
 .bt-settings-actions{margin-left:auto;display:flex;align-items:center;gap:8px;min-width:0}
 .bt-settings-actions:empty{display:none}
-.bt-dsh-section{min-width:0}
+/* Give height:100% plugin pages a definite flex height through DSH's boxless slot.
+   An auto basis without shrinking keeps natural-height content inside its section. */
+.bt-dsh-section{min-width:0;display:flex;flex-direction:column;flex:1 0 auto}
 /* A DSH page opens on its own title, which the dialog head already shows. */
 .bt-dsh-section>[data-slot]>*>h2:first-child,.bt-dsh-section>[data-slot]>*>:first-child>h2:first-child{display:none}
 .bt-dsh-item{min-width:0}
@@ -642,7 +653,6 @@ button.bt-set-row:hover .bt-chevron{transform:translateX(2px);color:var(--bt-ink
 .bt-set-number{width:112px}
 .bt-set-places .bt-set-hint{overflow-wrap:anywhere}
 .bt-set-hint.bt-danger{color:var(--bt-danger)}
-.bt-set-value{font-size:13px;color:var(--bt-ink-2);text-align:right}
 .bt-set-bot{flex:1;display:flex;align-items:center;gap:10px;min-width:0}
 .bt-browser-note{margin:0;padding:12px 16px;color:var(--bt-ink-2);font-size:12px;line-height:18px}
 .bt-browser-grant{display:flex;align-items:center;gap:12px;padding:12px 16px}
@@ -945,41 +955,23 @@ button:hover .bt-you{background:color-mix(in srgb,var(--bt-ink) 9%,var(--bt-side
 @media (prefers-reduced-motion:reduce){.bt-menu,.bt-avedit,.bt-react-strip{animation:bt-fade .1s ease-out}.bt-react-strip button,.bt-q-check,.bt-color[aria-pressed=true] span{animation:none}}
 .bt-brand:hover{background:var(--bt-hover)}
 .bt-drop-list{position:relative;display:flex;flex-direction:column;gap:2px}
-.bt-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:4px}
-.bt-pick{display:flex;flex-direction:column;align-items:center;gap:4px;padding:7px 2px 6px;border-radius:10px;border:1px solid transparent;background:none;color:var(--bt-ink);cursor:pointer;font:inherit;font-size:11px;line-height:14px;min-width:0}
-.bt-pick:hover{background:var(--bt-hover)}
-.bt-pick[aria-pressed=true]{border-color:var(--bt-line-2);background:var(--bt-hover)}
-.bt-pick>span:last-child:not(.bt-mark){max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.bt-pick:hover .bt-mark[data-state=idle] .bt-eye{animation:bt-blink .5s linear 1}
 .bt-select{-webkit-appearance:none;appearance:none;width:auto;min-width:148px;max-width:100%;height:34px;box-sizing:border-box;border-radius:8px;border:.5px solid var(--bt-line-2);background-color:var(--bt-hover);background-image:var(--bt-select-arrow);background-repeat:no-repeat;background-position:right 10px center;color:var(--bt-ink);padding:0 30px 0 12px;font:inherit;font-size:13px;font-weight:450;cursor:pointer;outline:none;transition:background-color .14s ease,border-color .14s ease,box-shadow .14s ease}
 .bt-select:hover:not(:disabled){background-color:var(--bt-active)}
 .bt-select:disabled{opacity:.45;cursor:default}
-:is(.bt-input,.bt-select,.bt-textarea):focus-visible{border-color:var(--bt-accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--bt-accent) 22%,transparent)}
-:is(.bt-round,.bt-icon-btn,.bt-soft,.bt-send,.bt-mini,.bt-pill,.bt-plus,.bt-mic,.bt-voice,.bt-account,.bt-title-toggle,.bt-settings-close,.bt-avatar-trigger,.bt-shape,.bt-color,.bt-swatch,.bt-pick,.bt-more,.bt-mem-row,.bt-mem-send):focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
+:is(.bt-input,.bt-select):focus-visible{border-color:var(--bt-accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--bt-accent) 22%,transparent)}
+:is(.bt-round,.bt-icon-btn,.bt-soft,.bt-send,.bt-mini,.bt-pill,.bt-plus,.bt-mic,.bt-voice,.bt-account,.bt-title-toggle,.bt-settings-close,.bt-avatar-trigger,.bt-shape,.bt-color,.bt-swatch,.bt-more,.bt-mem-row,.bt-mem-send):focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
 :is(.bt-row,.bt-tile,.bt-tab,.bt-avedit-tab,.bt-settings-item,.bt-menu button,.bt-option,.bt-palette-row,button.bt-set-row):focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px}
 .bt-note{font-size:12px;line-height:16px;color:var(--bt-ink-2);margin-top:6px}
 .bt-set-hint .bt-note.bt-danger{color:var(--bt-danger)}
-.bt-swatch-sep{width:1px;height:22px;background:var(--bt-line-2);margin:0 2px}
 .bt-swatch-custom{position:relative;overflow:hidden;background:conic-gradient(#ff3e51,#ffaf38,#00c972,#1cc3b0,#2a92fe,#a97efe,#ff5eb1,#ff3e51);box-sizing:border-box}
 .bt-swatch-custom[data-on=true]{border-color:var(--bt-ink)}
 .bt-swatch-custom input{position:absolute;inset:-4px;width:calc(100% + 8px);height:calc(100% + 8px);opacity:0;cursor:pointer;border:0;padding:0}
 .bt-swatch-default{background:linear-gradient(135deg,var(--bt-card) 0 46%,var(--bt-line-2) 46% 54%,var(--bt-card) 54%);box-shadow:inset 0 0 0 1px var(--bt-line-2)}
-.bt-states{display:flex;flex-wrap:wrap;gap:4px}
-.bt-state{border:1px solid var(--bt-line);background:none;border-radius:999px;font:inherit;font-size:11px;line-height:16px;padding:2px 8px;color:var(--bt-ink-2);cursor:pointer}
-.bt-state:hover{color:var(--bt-ink)}
-.bt-state[aria-pressed=true]{background:var(--bt-active);border-color:var(--bt-line-2);color:var(--bt-ink)}
-.bt-theme-chip{position:relative;width:46px;height:30px;border-radius:8px;box-shadow:inset 0 0 0 1px var(--bt-line-2);background:linear-gradient(90deg,var(--ls) 0 36%,var(--lb) 36%);overflow:hidden}
-.bt-theme-chip i{position:absolute;right:7px;bottom:7px;width:10px;height:10px;border-radius:50%;background:var(--la)}
-body[data-ds-dark-theme] .bt-theme-chip{background:linear-gradient(90deg,var(--ds) 0 36%,var(--db) 36%)}
-body[data-ds-dark-theme] .bt-theme-chip i{background:var(--da)}
 .bt-tabs{flex-wrap:wrap}
 .bt-soft:disabled{opacity:.4;cursor:default}
 .bt-group-role{margin-left:6px;font-size:11px;line-height:14px;padding:1px 5px;border-radius:4px;background:var(--bt-tag-bg);color:var(--bt-tag-ink);vertical-align:1px}
 .bt-mini{flex:none;border:0;background:none;border-radius:6px;padding:2px 6px;font:inherit;font-size:12px;line-height:18px;color:var(--bt-ink-2);cursor:pointer}
 .bt-mini:hover{background:var(--bt-active);color:var(--bt-ink)}
-.bt-add{color:var(--bt-ink-2);margin-top:2px}
-.bt-add:hover,.bt-addlist .bt-option:hover{background:var(--bt-hover);color:var(--bt-ink)}
-.bt-addlist{display:flex;flex-direction:column;margin-top:4px;padding:4px;border:1px solid var(--bt-line);border-radius:10px;background:var(--bt-card);animation:bt-rise .16s ease-out}
 .bt-seg{position:relative;display:flex;gap:2px;padding:2px;border-radius:10px;background:var(--bt-hover)}
 .bt-motion-seg,.bt-look-seg{width:216px}
 /* A range input: the track fills with the accent up to the thumb (--bt-fill). */
@@ -999,7 +991,6 @@ body[data-ds-dark-theme] .bt-theme-chip i{background:var(--da)}
 .bt-seg>.bt-thumb{top:2px;bottom:2px;border-radius:8px;background:var(--bt-card);box-shadow:0 1px 3px rgba(0,0,0,.08)}
 .bt-seg[data-glide] button[aria-pressed=true]{background:transparent;box-shadow:none}
 @keyframes bt-rise{from{opacity:0;transform:translateY(-3px)}to{opacity:1;transform:none}}
-@media (prefers-reduced-motion:reduce){.bt-addlist{animation:none}}
 
 /* Memory dialog: a summary of every entry, the entries behind the menu, "Ask or update" below. */
 .bt-mem-row{display:flex;align-items:center;gap:8px;width:100%;height:36px;padding:0 8px 0 10px;border:.5px solid var(--bt-line-2);border-radius:10px;background:var(--bt-card);color:var(--bt-ink);font:inherit;font-size:13px;cursor:pointer;box-sizing:border-box;transition:background-color .12s ease}
@@ -1114,9 +1105,9 @@ body[data-ds-dark-theme] .bt-theme-chip i{background:var(--da)}
 .bt-panel-view>.bt-drawer-body[data-move=tab]{animation:bt-veil-in .2s ease-out}
 .bt-drawer-name-input{animation:bt-veil-in .16s ease-out}
 .bt-pop-in{display:inline-flex;animation:bt-check-pop ${SPRING_POP.duration}ms ${SPRING_POP.easing}}
-:is(.bt-soft,.bt-send,.bt-icon-btn,.bt-settings-close,.bt-mini,.bt-tab,.bt-nc-send,.bt-avedit-tab,.bt-shape,.bt-pick,.bt-swatch,.bt-palette-clear){transition:background-color .12s ease,color .12s ease,border-color .12s ease,opacity .12s ease,${spring(SPRING_TAP, 'scale')}}
+:is(.bt-soft,.bt-send,.bt-icon-btn,.bt-settings-close,.bt-mini,.bt-tab,.bt-nc-send,.bt-avedit-tab,.bt-shape,.bt-swatch,.bt-palette-clear){transition:background-color .12s ease,color .12s ease,border-color .12s ease,opacity .12s ease,${spring(SPRING_TAP, 'scale')}}
 :is(.bt-icon-btn,.bt-settings-close,.bt-nc-send,.bt-shape,.bt-swatch,.bt-color,.bt-x,.bt-q-x,.bt-palette-clear):active:not(:disabled){scale:.9}
-:is(.bt-soft,.bt-send,.bt-mini,.bt-tab,.bt-avedit-tab,.bt-pick,.bt-q-submit,.bt-q-btn):active:not(:disabled){scale:.96}
+:is(.bt-soft,.bt-send,.bt-mini,.bt-tab,.bt-avedit-tab,.bt-q-submit,.bt-q-btn):active:not(:disabled){scale:.96}
 @media (prefers-reduced-motion:reduce){.bt-thumb{transition:none}.bt-panel-view>[data-move],.bt-drawer-name-input,.bt-veil,.bt-pop-in,.bt-token,.bt-drop,.bt-newchat,.bt-option-hint,.bt-connector-form,.bt-settings-head>*{animation:none}}
 /* Phone-width viewports: the settings dialog takes the whole screen, its page
    list becomes a horizontal strip across the top, and fixed-width pages wrap
@@ -1170,7 +1161,7 @@ body[data-bt-effects=reduced] .bt-mark:not([data-state=done]):not([data-state=al
 body[data-bt-effects=reduced][data-bt-motion=lively] .bt-mark[data-state=alert] :is(.bt-b,.bt-mark-img){animation-iteration-count:1!important}
 body[data-bt-effects=off] [class*="_centerCol"]{transition:none!important}
 body[data-bt-effects=off] :is([class^="bt-"],[class*=" bt-"]):not(.bt-spin):not(.bt-model-spin):not(.bt-mem-spin):not(.bt-loading-spin),body[data-bt-effects=off] :is([class^="bt-"],[class*=" bt-"]) *:not(.bt-spin):not(.bt-model-spin):not(.bt-mem-spin):not(.bt-loading-spin),body[data-bt-effects=off] :is([class^="bt-"],[class*=" bt-"])::before,body[data-bt-effects=off] :is([class^="bt-"],[class*=" bt-"])::after,body[data-bt-effects=off] :is([class^="bt-"],[class*=" bt-"]) *::before,body[data-bt-effects=off] :is([class^="bt-"],[class*=" bt-"]) *::after{animation:none!important;transition:none!important}
-body[data-bt-effects=off] :is(.bt-settings-layer,.bt-mem-layer,.bt-palette-layer,.bt-layer,.bt-panel,.bt-dialog,.bt-scrim,.bt-menu,.bt-drop,.bt-toast,.bt-avedit,.bt-react-strip,.bt-app,.bt-us):not(.bt-spin):not(.bt-model-spin):not(.bt-mem-spin):not(.bt-loading-spin),body[data-bt-effects=off] :is(.bt-settings-layer,.bt-mem-layer,.bt-palette-layer,.bt-layer,.bt-panel,.bt-dialog,.bt-scrim,.bt-menu,.bt-drop,.bt-toast,.bt-avedit,.bt-react-strip,.bt-app,.bt-us) *:not(.bt-spin):not(.bt-model-spin):not(.bt-mem-spin):not(.bt-loading-spin),body[data-bt-effects=off] :is(.bt-settings-layer,.bt-mem-layer,.bt-palette-layer,.bt-layer,.bt-panel,.bt-dialog,.bt-scrim,.bt-menu,.bt-drop,.bt-toast,.bt-avedit,.bt-react-strip,.bt-app,.bt-us)::before,body[data-bt-effects=off] :is(.bt-settings-layer,.bt-mem-layer,.bt-palette-layer,.bt-layer,.bt-panel,.bt-dialog,.bt-scrim,.bt-menu,.bt-drop,.bt-toast,.bt-avedit,.bt-react-strip,.bt-app,.bt-us)::after,body[data-bt-effects=off] :is(.bt-settings-layer,.bt-mem-layer,.bt-palette-layer,.bt-layer,.bt-panel,.bt-dialog,.bt-scrim,.bt-menu,.bt-drop,.bt-toast,.bt-avedit,.bt-react-strip,.bt-app,.bt-us) *::before,body[data-bt-effects=off] :is(.bt-settings-layer,.bt-mem-layer,.bt-palette-layer,.bt-layer,.bt-panel,.bt-dialog,.bt-scrim,.bt-menu,.bt-drop,.bt-toast,.bt-avedit,.bt-react-strip,.bt-app,.bt-us) *::after{animation:none!important;transition:none!important}
+body[data-bt-effects=off] :is(.bt-settings-layer,.bt-mem-layer,.bt-palette-layer,.bt-panel,.bt-dialog,.bt-scrim,.bt-menu,.bt-drop,.bt-toast,.bt-avedit,.bt-react-strip,.bt-app,.bt-us):not(.bt-spin):not(.bt-model-spin):not(.bt-mem-spin):not(.bt-loading-spin),body[data-bt-effects=off] :is(.bt-settings-layer,.bt-mem-layer,.bt-palette-layer,.bt-panel,.bt-dialog,.bt-scrim,.bt-menu,.bt-drop,.bt-toast,.bt-avedit,.bt-react-strip,.bt-app,.bt-us) *:not(.bt-spin):not(.bt-model-spin):not(.bt-mem-spin):not(.bt-loading-spin),body[data-bt-effects=off] :is(.bt-settings-layer,.bt-mem-layer,.bt-palette-layer,.bt-panel,.bt-dialog,.bt-scrim,.bt-menu,.bt-drop,.bt-toast,.bt-avedit,.bt-react-strip,.bt-app,.bt-us)::before,body[data-bt-effects=off] :is(.bt-settings-layer,.bt-mem-layer,.bt-palette-layer,.bt-panel,.bt-dialog,.bt-scrim,.bt-menu,.bt-drop,.bt-toast,.bt-avedit,.bt-react-strip,.bt-app,.bt-us)::after,body[data-bt-effects=off] :is(.bt-settings-layer,.bt-mem-layer,.bt-palette-layer,.bt-panel,.bt-dialog,.bt-scrim,.bt-menu,.bt-drop,.bt-toast,.bt-avedit,.bt-react-strip,.bt-app,.bt-us) *::before,body[data-bt-effects=off] :is(.bt-settings-layer,.bt-mem-layer,.bt-palette-layer,.bt-panel,.bt-dialog,.bt-scrim,.bt-menu,.bt-drop,.bt-toast,.bt-avedit,.bt-react-strip,.bt-app,.bt-us) *::after{animation:none!important;transition:none!important}
 body[data-bt-effects=off] :is(.bt-spin,.bt-model-spin,.bt-mem-spin,.bt-loading-spin){animation-timing-function:steps(8)!important;transition:none!important}
 `
 
@@ -1180,6 +1171,9 @@ export const CONVERSATION_CSS = `
    behind them unreadable. Where the blur does not take, the chat shows through the
    rows (issues 1113 and 935), so they get a solid fill. */
 [data-composer-overlay] [data-menu-material]{--dsw-menu-surface-fill:var(--bt-card)}
+/* DSH's row spans share no semantic hooks beyond the option; keep descriptions
+   beside their labels without changing their flex sizing or overflow. */
+[data-trigger-menu] [role=option]>span{text-align:left}
 .bt-think{font-size:13px;line-height:18px;color:var(--bt-ink-2);margin:2px 0 4px;max-width:calc(var(--bt-msg-w) * 100%)}
 body[data-bt-layout=flat] .bt-think{max-width:calc(var(--bt-flat-w) * 100%)}
 .bt-think summary{cursor:pointer;list-style:none;display:inline-flex;align-items:center;gap:6px}
@@ -1202,6 +1196,8 @@ body[data-bt-layout=flat] .bt-think{max-width:calc(var(--bt-flat-w) * 100%)}
 .bt-event-whole>span:first-child{margin-right:2px}
 /* One button cannot wrap like separate parts, so a long name is cut to fit the chat. */
 .bt-event-whole>.bt-event-name{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* Keep message tools outside paint containment. */
+.bt-bubble,.bt-ububble{content-visibility:auto;contain-intrinsic-size:auto 160px}
 .bt-time-sep{display:flex;justify-content:center;align-items:center;height:28px;margin:14px 0 8px;font-size:12px;line-height:16px;color:var(--bt-ink-2);white-space:nowrap}
 [class*="_scroll"]>[class*="_column"]::before{content:var(--bt-first-sep,none);display:block;flex:none;height:28px;margin:17px 0 12px;font-size:12px;line-height:28px;text-align:center;color:var(--bt-ink-2);white-space:nowrap}
 .bt-activity{display:flex;align-items:center;gap:10px;margin:8px 0 4px 2px;font-size:14px;color:var(--bt-ink-2)}
@@ -1299,6 +1295,12 @@ body[data-bt-goal] [class*="_scroll"]:has(> [class*="_column"]){padding-top:calc
 [data-composer-card]:has(> [data-slot="conversation.input.attachments"] *),[data-composer-card]:has([data-composer-input] br + *),[data-composer-card]:has([data-composer-input] > :nth-child(2)){border-radius:18px!important}
 [class*="_root"]:has(> [data-composer-card]){padding:0 11px 13px 16px!important}
 [class*="_root"]:has(> [data-composer-card])>[data-composer-card]{max-width:min(992px,100%)!important}
+/* Embedded phone browsers may report zero safe-area insets even when the screen
+   corners clip content. Keep a minimum gutter as well as honoring larger insets. */
+@media (max-width:${DSH_NARROW - 1}px) and (pointer:coarse){
+.bt-leftcol,.bt-leftcol[data-left=rail]{padding-bottom:max(24px,env(safe-area-inset-bottom,0px))}
+[class*="_root"]:has(> [data-composer-card]){padding-left:max(16px,env(safe-area-inset-left,0px))!important;padding-right:max(16px,env(safe-area-inset-right,0px))!important;padding-bottom:max(24px,env(safe-area-inset-bottom,0px))!important}
+}
 [data-composer-card]>[class*="_row"]{display:contents!important}
 [data-composer-card] [class*="_tools"]{order:1!important;flex:none!important;align-self:flex-end!important;margin:0!important}
 [data-composer-card]>[data-input-scroll]{order:2!important;flex:1 1 0!important;min-width:0!important;padding:0 8px!important;margin:0!important}
@@ -1308,6 +1310,13 @@ body[data-bt-goal] [class*="_scroll"]:has(> [class*="_column"]){padding-top:calc
 [data-composer-card]:has(> [data-slot="conversation.input.attachments"] > [class*="_rail"])>[data-input-scroll]{order:1!important;flex:0 0 100%!important;margin:0 0 6px!important}
 [data-composer-card]:has(> [data-slot="conversation.input.attachments"] > [class*="_rail"]) [class*="_tools"]{order:2!important}
 [data-composer-card]:has(> [data-slot="conversation.input.attachments"] > [class*="_rail"]) [class*="_trailing"]{margin-left:auto!important}
+/* On phones the optional tools can consume the whole line before an empty editor
+   has any intrinsic width. Give typing its own line, including before the first tap. */
+@media (max-width:600px), (max-width:${DSH_NARROW - 1}px) and (max-height:500px) and (pointer:coarse){
+[data-composer-card]>[data-input-scroll]{order:1!important;flex:0 0 100%!important;margin:0 0 6px!important}
+[data-composer-card] [class*="_tools"]{order:2!important}
+[data-composer-card] [class*="_trailing"]{margin-left:auto!important}
+}
 [data-composer-card] [data-composer-input]{min-height:24px!important;padding:2px 0!important}
 [data-composer-card] [data-composer-placeholder]{left:0!important;top:2px!important}
 [data-composer-placeholder]{font-size:0!important;line-height:0!important}
@@ -1498,8 +1507,6 @@ div:has(> nav [class*="_marks"]){display:none!important}
 .bt-btw-q{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;line-height:18px}
 .bt-btw[data-open] .bt-btw-q{white-space:normal}
 .bt-btw-time,.bt-btw-status{flex:none;color:var(--bt-ink-3);font-size:11px;line-height:14px;font-variant-numeric:tabular-nums}
-.bt-btw-cancel{margin-left:auto}
-.bt-btw-cancel:disabled{opacity:.55;cursor:default}
 .bt-btw-delete{flex:none;margin:-4px}
 .bt-btw-note{margin:4px 0 0;color:var(--bt-ink-3);font-size:12px;line-height:16px}
 .bt-btw-body{margin-top:6px}

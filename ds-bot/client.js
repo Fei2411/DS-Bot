@@ -145,7 +145,6 @@ var JA = {
   "The code works once. It stops working in {count} min.": "このコードは 1 回だけ使えます。{count} 分後に無効になります。",
   "Turn on phone access first": "先にスマートフォンからのアクセスをオンにしてください",
   "The Server address must start with ws:// or wss://": "サーバーのアドレスは ws:// または wss:// で始める必要があります",
-  "Enter the Server address first": "先にサーバーのアドレスを入力してください",
   "This phone is not paired": "このスマートフォンはペアリングされていません",
   "Another dsh has this Bot team open, so phones connect to that one": "別の dsh がこの Bot チームを開いているため、スマートフォンはそちらに接続します",
   "This dsh runs on a Node without WebSocket": "この dsh は WebSocket のない Node 上で動作しています",
@@ -287,7 +286,6 @@ var JA = {
   "Enable": "有効化",
   "Disable": "無効化",
   "Remove?": "削除しますか？",
-  "Not connected": "未接続",
   "Disabled": "無効",
   "Capabilities": "機能",
   "Shared capabilities": "共有機能",
@@ -414,7 +412,6 @@ var JA = {
   "Detected agents": "検出されたエージェント",
   "Refresh": "更新",
   "No agent CLIs found": "エージェント CLI が見つかりません",
-  "Scan again for agent CLIs.": "エージェント CLI を再スキャンします。",
   "Custom agents": "カスタムエージェント",
   "ACP-compatible agents, added by command.": "コマンドで追加された ACP 互換エージェント。",
   "Add agent": "エージェントを追加",
@@ -423,7 +420,6 @@ var JA = {
   "Sign-in command copied. Run it in a terminal: {command}": "サインインコマンドをコピーしました。ターミナルで実行してください: {command}",
   "Could not copy the sign-in command. Run this in a terminal: {command}": "サインインコマンドをコピーできませんでした。ターミナルで実行してください: {command}",
   "Found": "検出済み",
-  "Not found": "未検出",
   "Arguments": "引数",
   "Agent": "エージェント",
   "Sessions": "セッション",
@@ -601,7 +597,6 @@ var JA = {
   "Name after members": "メンバー名を使用",
   "Rename {name}": "{name} の名前を変更",
   "Rename": "名前を変更",
-  "No scheduled tasks yet. To add one, tell the Bot in its chat what to do and when.": "定期タスクはまだありません。追加するには、チャットで Bot に内容と日時を伝えてください。",
   "The browser is in DSH Desktop and the DS Bot app.": "ブラウザは DSH デスクトップ版および DS Bot アプリで利用できます。",
   "New tab": "新しいタブ",
   "Close tab": "タブを閉じる",
@@ -615,7 +610,6 @@ var JA = {
   "Copy of its cookies": "Cookie をコピー",
   "No browsers found": "ブラウザが見つかりません",
   "The Bot controls this browser": "Bot がこのブラウザを操作中",
-  "The Bot is waiting for you": "Bot があなたの操作を待っています",
   "waits for the computer": "あなたの操作完了待ち",
   "You control this browser": "あなたがこのブラウザを操作中",
   "The Bot handed this browser to you: {reason}": "Bot がこのブラウザをあなたに引き継ぎました: {reason}",
@@ -924,7 +918,6 @@ var JA = {
   "Around this message": "このメッセージの前後",
   "1 match": "1 件",
   "{count} matches": "{count} 件",
-  "Showing the {count} newest": "最新 {count} 件を表示",
   "Clear search": "検索をクリア",
   "Results": "検索結果",
   "No results": "結果がありません",
@@ -960,7 +953,6 @@ var JA = {
   "Add an annotation…": "注釈を入力…",
   "Add quote and annotation to the composer · Enter": "引用と注釈を入力欄に追加 · Enter",
   "Send quote and annotation · Ctrl+Enter": "引用と注釈を送信 · Ctrl+Enter",
-  "Quote text": "テキストを引用",
   "Footnotes": "脚注",
   "Remove reaction {emoji}": "リアクション {emoji} を削除",
   "Add reaction": "リアクションを追加",
@@ -1249,8 +1241,6 @@ var JA = {
   "{count} file changed": "{count} 個のファイルを変更",
   "{count} files changed": "{count} 個のファイルを変更",
   "File": "ファイル",
-  "Binary file": "バイナリファイル",
-  "This file is too large to preview": "ファイルが大きすぎるためプレビューできません",
   "Review these changes": "この変更を確認",
   "These changes are no longer available": "この変更はもう利用できません",
   "This window cannot open the change review": "このウィンドウでは変更レビューを開けません",
@@ -1269,12 +1259,9 @@ var JA = {
   "Team memory updated": "チームメモリを更新しました",
   "Updated {name}'s memory": "{name} のメモリを更新しました",
   "Memory updated. Open {name}'s memory": "メモリを更新しました。{name} のメモリを開く",
-  "Close browser": "ブラウザを閉じる",
   "Open browser": "ブラウザを開く",
   "{name}'s browser": "{name} のブラウザ",
   "Resize panel": "パネルの幅を調整",
-  "{name} read this page": "{name} がこのページを読み取りました",
-  "{name}'s browser. {name} can read the page shown here.": "{name} のブラウザです。{name} はここに表示されているページを読み取れます。",
   "Back": "戻る",
   "Forward": "進む",
   "Stop": "停止",
@@ -1588,9 +1575,7 @@ var JA = {
   "Some folders are not shown.": "一部のフォルダは表示されていません。",
   "Waiting for sign-in…": "サインインを待っています…",
   "This service needs an app client ID": "このサービスにはアプリの Client ID が必要です",
-  "Open the sign-in page": "サインインページを開く",
   "Paste the address you land on": "リダイレクト先の URL を貼り付け",
-  "Or paste the address you land on": "またはリダイレクト先の URL を貼り付け",
   "Finish sign-in": "サインインを完了",
   "Open {host}": "{host} を開く",
   "Client ID": "Client ID",
@@ -1603,7 +1588,6 @@ var JA = {
   "{count} tools": "{count} 個のツール",
   "Mailbox": "メールボックス",
   "Email address": "メールアドレス",
-  "App password / authorization code": "アプリパスワード / 認証コード",
   "Catalog": "カタログ",
   "App password": "アプリパスワード",
   "Authorization code": "認証コード",
@@ -1682,13 +1666,7 @@ var JA = {
   "IMAP host": "IMAP サーバー",
   "SMTP host": "SMTP サーバー",
   "Sign in with Google": "Google でサインイン",
-  "Add account": "アカウントを追加",
-  "Add an account": "アカウントを追加",
-  "No mail accounts yet": "メールアカウントはまだありません",
   "Verifying…": "確認中…",
-  "Open the Google sign-in page": "Google サインインページを開く",
-  "Add an address": "アドレスを追加",
-  "Add a command": "コマンドを追加",
   "Import from other apps": "他のアプリからインポート",
   "Server address": "サーバーアドレス",
   "Command, e.g. npx -y some-mcp": "コマンド（例: npx -y some-mcp）",
@@ -1704,7 +1682,6 @@ var JA = {
   "Commerce": "コマース",
   "No connectors connected": "接続済みのコネクタはありません",
   "{bot} needs {name}": "{bot} が {name} を必要としています",
-  "{bot} wants to send an email": "{bot} がメールの送信を求めています",
   "Mail": "メール",
   "Subject": "件名",
   "Write a message…": "メッセージを入力…",
@@ -1723,7 +1700,6 @@ var JA = {
   "Failed": "失敗",
   "Request failed": "リクエストに失敗しました",
   "Permissions are not available in this DeepSeek Harness": "この DeepSeek Harness では権限設定を利用できません",
-  "Avatar images must be PNG, JPEG, WebP, or GIF": "アバター画像は PNG、JPEG、WebP、または GIF 形式である必要があります",
   "Avatar image is too large": "アバター画像のサイズが大きすぎます",
   "A Bot needs a name": "Bot の名前を入力してください",
   "A Bot name cannot contain @, ` or a line break": "Bot の名前に @、`、改行は含められません",
@@ -1770,6 +1746,96 @@ var JA = {
   "Nothing to cancel": "キャンセルする対象がありません",
   "Nothing to close": "閉じる対象がありません",
   "DS Bot is still loading this chat.": "DS Bot はまだこのチャットを読み込み中です。",
+  "This message is no longer kept": "このメッセージはすでに保持されていません",
+  "No file named": "ファイルが指定されていません",
+  "This file cannot be read here": "このファイルはここでは読み取れません",
+  "That wait is no longer open": "その待機はすでに終了しています",
+  "Nothing to send": "送信する内容がありません",
+  "This view is no longer open": "このビューはすでに閉じられています",
+  "This is not a photo DS Bot can send": "これは DS Bot が送信できる画像ではありません",
+  "A photo did not arrive. Send it again.": "画像が届きませんでした。もう一度送信してください。",
+  "Nothing to delete": "削除する対象がありません",
+  "Bot browsers are off on this host": "このホストでは Bot ブラウザが無効になっています",
+  "This Bot has no open browser": "この Bot には開いているブラウザがありません",
+  "A browser poll needs a clientId": "ブラウザのポーリングには clientId が必要です",
+  "This browser is not held": "このブラウザは現在引き継ぎ中ではありません",
+  "This handoff is no longer open": "このブラウザ引き継ぎはすでに終了しています",
+  "Avatar images must be PNG, JPEG, WebP, GIF, or SVG": "アバター画像は PNG、JPEG、WebP、GIF、または SVG 形式である必要があります",
+  "Pick a model before choosing a thinking level": "思考レベルを選ぶ前にモデルを選択してください",
+  "Unknown section": "該当するセクションが見つかりません",
+  "Unknown section color": "不明なセクションカラーです",
+  "Write the to-do first.": "先にタスクの内容を入力してください。",
+  "That to-do is no longer on the list.": "そのタスクはすでにリストにありません。",
+  "Write what this group should achieve, in at most 2000 characters.": "このグループで達成したい目標を 2000 文字以内で入力してください。",
+  "This group has no admin. Set one in the group settings first.": "このグループには管理者がいません。先にグループ設定で管理者を設定してください。",
+  "This group already has a goal. Stop it first.": "このグループにはすでに目標があります。先に停止してください。",
+  "The goal has changed. Look again.": "目標が変更されました。もう一度確認してください。",
+  "Nothing to do": "実行する操作がありません",
+  "Write a note first.": "先にメモを入力してください。",
+  "That task is already finished.": "そのタスクはすでに完了しています。",
+  "No such group.": "該当するグループチャットが見つかりません。",
+  "No such task.": "該当するタスクが見つかりません。",
+  "No open task to cancel.": "キャンセルできる進行中のタスクがありません。",
+  "Sign-in timed out": "サインインがタイムアウトしました",
+  "The sign-in answer did not match this attempt (state mismatch). Try again.": "サインイン応答が今回の試行と一致しません（state 不一致）。やり直してください。",
+  "This connector does not sign in": "このコネクタはサインイン不要です",
+  "This connector has no server address": "このコネクタにはサーバーアドレスがありません",
+  "Connector addresses must start with https://": "コネクタのアドレスは https:// で始める必要があります",
+  "This service does not publish OAuth sign-in metadata": "このサービスは OAuth サインインメタデータを公開していません",
+  "Paste a key first": "先にキーを貼り付けてください",
+  "No sign-in is waiting": "待機中のサインインはありません",
+  "Paste the address or the code": "アドレスまたはコードを貼り付けてください",
+  "This address is not from this sign-in attempt (state mismatch). Copy the whole address again.": "このアドレスは今回のサインイン試行のものではありません（state 不一致）。アドレス全体をもう一度コピーしてください。",
+  "The address has no code": "このアドレスにコードが含まれていません",
+  "Enter the client ID": "クライアント ID を入力してください",
+  "Name the connector": "コネクタ名を入力してください",
+  "Enter an address or a command": "アドレスまたはコマンドを入力してください",
+  "Only added connectors can be removed": "削除できるのは手動で追加したコネクタのみです",
+  "The mail connection closed during verification": "検証中にメール接続が閉じられました",
+  "Google sign-in is not available in this build": "このビルドでは Google サインインを利用できません",
+  "Enter an email address": "メールアドレスを入力してください",
+  "Enter the IMAP and SMTP hosts": "IMAP および SMTP ホストを入力してください",
+  "No such account": "該当するアカウントが見つかりません",
+  "This card was already answered": "このカードはすでに対応済みです",
+  "No Google sign-in is waiting": "待機中の Google サインインはありません",
+  "The sign-in answer is not for this attempt": "サインイン応答が今回の試行に対応していません",
+  "Google did not say which account this is": "Google からアカウント情報が返されませんでした",
+  "This platform is not available yet": "このプラットフォームはまだ利用できません",
+  "Choose a Bot first": "先に Bot を選択してください",
+  "This platform signs in by scanning a code; not available yet": "このプラットフォームは QR コードでサインインしますが、まだ利用できません",
+  "No such IM bot": "該当する IM ボットが見つかりません",
+  "No such platform": "該当するプラットフォームが見つかりません",
+  "No such chat": "該当するチャットが見つかりません",
+  "Choose a Bot or a group": "Bot またはグループを選択してください",
+  "This platform has no QR login": "このプラットフォームは QR ログインに対応していません",
+  "Paste the bot token first": "先にボットトークンを貼り付けてください",
+  "Telegram did not say who this token belongs to": "Telegram からこのトークンの所有者情報が返されませんでした",
+  "A webhook or another program uses this bot": "Webhook または別のプログラムがこのボットを使用しています",
+  "This token does not belong to a Discord bot": "このトークンは Discord ボットのものではありません",
+  "Discord gave no usable gateway URL": "Discord から利用可能なゲートウェイ URL が返されませんでした",
+  "These credentials do not belong to a Slack bot": "この認証情報は Slack ボットのものではありません",
+  "WeChat answered an unreadable response": "WeChat から解析できない応答が返されました",
+  "WeChat rate limited the request": "WeChat のレート制限に達しました",
+  "WeChat refused the token": "WeChat がトークンを拒否しました",
+  "Use a capability name with lowercase letters, digits, and single hyphens; connector names are reserved.": "機能名には英小文字・数字・単一のハイフンのみ使用できます（コネクタ名は予約されています）。",
+  "Arguments must be a list of text values.": "引数はテキストのリストである必要があります。",
+  "Choose an MCP server, skill, or pack.": "MCP サーバー、スキル、またはパックを選択してください。",
+  "A capability cannot change its kind. Delete it and save a new one.": "機能の種類は変更できません。削除してから新しく作成してください。",
+  "Enter a command for the MCP server.": "MCP サーバーのコマンドを入力してください。",
+  "Enter a valid HTTP or HTTPS URL.": "有効な HTTP または HTTPS URL を入力してください。",
+  "Only Bots on the team can change capabilities.": "機能を変更できるのはチーム内の Bot のみです。",
+  "Only a Main Bot can change another Bot’s capabilities.": "他の Bot の機能を変更できるのはメイン Bot のみです。",
+  "This DSH cannot load MCP servers.": "この DSH では MCP サーバーを読み込めません。",
+  "Unknown capability operation.": "不明な機能操作です。",
+  "The secrets file is not encrypted.": "シークレットファイルは暗号化されていません。",
+  "Secrets are already encrypted.": "シークレットはすでに暗号化されています。",
+  "Secrets are not encrypted.": "シークレットは暗号化されていません。",
+  "Learning is turned off on this host": "このホストでは学習機能が無効になっています",
+  "AGENTS.md changed since this was proposed": "この提案の作成後に AGENTS.md が変更されました",
+  "The Bot that learned this skill is gone": "このスキルを学習した Bot はすでに存在しません",
+  "System permissions are not available here": "ここではシステム権限を設定できません",
+  "This host keeps no Bot data folder, so it has no avatar library.": "このホストには Bot データフォルダがないため、アバターライブラリはありません。",
+  "DS Bot is shutting down": "DS Bot を終了しています",
   "Computer use": "コンピュータ操作",
   "Computer": "コンピュータ",
   "Control": "操作",
@@ -1813,7 +1879,6 @@ var JA = {
   "Needs your confirmation": "確認が必要です",
   "Help needed on the computer": "コンピュータでの手助けが必要です",
   "You control the computer": "あなたがコンピュータを操作中",
-  "Stop {name}": "{name} を停止",
   "{name} · foreground": "{name} · フォアグラウンド",
   "{name} waits for the computer": "{name} があなたの操作完了を待っています",
   "Bot models": "Bot モデル",
@@ -1897,7 +1962,20 @@ var HOST_ERRORS_JA = [
   [/^There is no entry (.+)\.$/, "項目 $1 はありません"],
   [/^No entry in [\s\S]* matches "([\s\S]*)"\.[\s\S]*$/, "「$1」に一致するメモリ項目が見つかりません"],
   [/^"([\s\S]*)" matches (\d+) entries in [\s\S]*$/, "「$1」に一致するメモリ項目が $2 件あります。より具体的に指定してください"],
-  [/^Memory cannot change now: [\s\S]*$/, "現在メモリを変更できません: 別の dsh がこの Bot チームを使用しています"]
+  [/^Memory cannot change now: [\s\S]*$/, "現在メモリを変更できません: 別の dsh がこの Bot チームを使用しています"],
+  [/^Keep a to-do under (\d+) characters\.$/, "タスクは $1 文字以内で入力してください。"],
+  [/^The shared to-do list is full \((\d+)\)\. Remove one or clear the completed items\.$/, "共有タスクリストが上限（$1 件）に達しています。項目を削除するか完了済みを整理してください。"],
+  [/^The goal of "(.+)" is ([^;]+); ([^ ]+) needs it to be (.+)\.$/, "「$1」の目標は現在 $2 状態です。$3 を実行するには $4 である必要があります。"],
+  [/^WeChat answered (.+)$/, "WeChat がエラーを返しました（$1）"],
+  [/^WeChat refused the reply \((.+)\)$/, "WeChat が返信を拒否しました（$1）"],
+  [/^(Feishu|Slack|QQ|DingTalk|Discord|WeCom) could not open a socket: (.+)$/, "$1 に接続できませんでした: $2"],
+  [/^WeCom socket failed: (.+)$/, "WeCom 接続に失敗しました: $1"],
+  [/^The password for (.+) is not saved$/, "$1 のパスワードがまだ保存されていません"],
+  [/^No capability named (.+)\.$/, "$1 という名前の機能はありません。"],
+  [/^(.+) changed since this was proposed$/, "この提案の作成後に $1 が変更されました"],
+  [/^A skill named (.+) exists now$/, "$1 という名前のスキルはすでに存在します"],
+  [/^(.+) is required$/, "$1 は必須です"],
+  [/^(.+) must be text$/, "$1 はテキストである必要があります"]
 ];
 var DSH_JA = {
   "common": {
@@ -2564,7 +2642,6 @@ var KO = {
   "The code works once. It stops working in {count} min.": "이 코드는 한 번만 사용할 수 있으며 {count}분 후에 만료됩니다.",
   "Turn on phone access first": "먼저 휴대폰 접근을 켜세요",
   "The Server address must start with ws:// or wss://": "서버 주소는 ws:// 또는 wss://로 시작해야 합니다",
-  "Enter the Server address first": "먼저 서버 주소를 입력하세요",
   "This phone is not paired": "이 휴대폰은 페어링되어 있지 않습니다",
   "Another dsh has this Bot team open, so phones connect to that one": "다른 dsh에서 이 Bot 팀을 열어 두고 있어 휴대폰이 그쪽에 연결됩니다",
   "This dsh runs on a Node without WebSocket": "이 dsh는 WebSocket이 없는 Node에서 실행 중입니다",
@@ -2708,7 +2785,6 @@ var KO = {
   Enable: "사용",
   Disable: "사용 안 함",
   "Remove?": "제거하시겠습니까?",
-  "Not connected": "연결 안 됨",
   Disabled: "사용 안 함",
   Capabilities: "기능",
   "Shared capabilities": "공유 기능",
@@ -2838,7 +2914,6 @@ var KO = {
   "Detected agents": "감지된 Agent",
   Refresh: "새로고침",
   "No agent CLIs found": "Agent CLI를 찾을 수 없음",
-  "Scan again for agent CLIs.": "Agent CLI를 다시 스캔합니다.",
   "Custom agents": "사용자 지정 Agent",
   "ACP-compatible agents, added by command.": "명령어로 추가한 ACP 호환 Agent입니다.",
   "Add agent": "Agent 추가",
@@ -2847,7 +2922,6 @@ var KO = {
   "Sign-in command copied. Run it in a terminal: {command}": "로그인 명령어가 복사되었습니다. 터미널에서 실행하세요: {command}",
   "Could not copy the sign-in command. Run this in a terminal: {command}": "로그인 명령어를 복사하지 못했습니다. 터미널에서 직접 실행하세요: {command}",
   Found: "감지됨",
-  "Not found": "찾을 수 없음",
   Arguments: "인수",
   Agent: "Agent",
   Sessions: "세션",
@@ -3029,7 +3103,6 @@ var KO = {
   "Name after members": "멤버 이름으로 자동 지정",
   "Rename {name}": "{name} 이름 변경",
   Rename: "이름 변경",
-  "No scheduled tasks yet. To add one, tell the Bot in its chat what to do and when.": "아직 예약 작업이 없습니다. 대화창에서 Bot에게 할 일과 시간을 말해 추가하세요.",
   "The browser is in DSH Desktop and the DS Bot app.": "브라우저는 DSH 데스크톱 및 DS Bot 앱에서 사용할 수 있습니다.",
   "New tab": "새 탭",
   "Close tab": "탭 닫기",
@@ -3044,7 +3117,6 @@ var KO = {
   "Copy of its cookies": "브라우저 쿠키 복사",
   "No browsers found": "브라우저를 찾을 수 없음",
   "The Bot controls this browser": "Bot이 이 브라우저를 제어하고 있습니다",
-  "The Bot is waiting for you": "Bot이 사용자를 기다리고 있습니다",
   "waits for the computer": "사용자 조작 대기 중",
   "You control this browser": "사용자가 이 브라우저를 제어하고 있습니다",
   "The Bot handed this browser to you: {reason}": "Bot이 이 브라우저의 제어권을 넘겼습니다: {reason}",
@@ -3369,7 +3441,6 @@ var KO = {
   "Around this message": "이 메시지 앞뒤",
   "1 match": "1건",
   "{count} matches": "{count}건",
-  "Showing the {count} newest": "최신 {count}건만 표시",
   "Clear search": "검색 지우기",
   Results: "검색 결과",
   "No results": "결과 없음",
@@ -3408,7 +3479,6 @@ var KO = {
   "Add an annotation…": "주석을 입력하세요…",
   "Add quote and annotation to the composer · Enter": "인용과 주석을 입력창에 추가 · Enter",
   "Send quote and annotation · Ctrl+Enter": "인용과 주석 보내기 · Ctrl+Enter",
-  "Quote text": "텍스트 인용",
   Footnotes: "각주",
   "Remove reaction {emoji}": "{emoji} 반응 제거",
   "Add reaction": "반응 추가",
@@ -3702,8 +3772,6 @@ var KO = {
   "{count} file changed": "파일 {count}개 변경됨",
   "{count} files changed": "파일 {count}개 변경됨",
   "File": "파일",
-  "Binary file": "바이너리 파일",
-  "This file is too large to preview": "파일이 너무 커서 미리 볼 수 없습니다",
   "Review these changes": "이 변경 사항 검토",
   "These changes are no longer available": "이 변경 사항은 더 이상 사용할 수 없습니다",
   "This window cannot open the change review": "이 창에서는 변경 검토를 열 수 없습니다",
@@ -3723,12 +3791,9 @@ var KO = {
   "Updated {name}'s memory": "{name}의 메모리 업데이트됨",
   "Memory updated. Open {name}'s memory": "메모리가 업데이트되었습니다. {name}의 메모리 열기",
   // Browser
-  "Close browser": "브라우저 닫기",
   "Open browser": "브라우저 열기",
   "{name}'s browser": "{name}의 브라우저",
   "Resize panel": "패널 너비 조절",
-  "{name} read this page": "{name}이(가) 이 페이지를 읽었습니다",
-  "{name}'s browser. {name} can read the page shown here.": "{name}의 브라우저입니다. {name}이(가) 여기에 표시된 페이지를 읽을 수 있습니다.",
   Back: "뒤로",
   Forward: "앞으로",
   Stop: "중지",
@@ -4049,9 +4114,7 @@ var KO = {
   "Some folders are not shown.": "일부 폴더가 표시되지 않았습니다.",
   "Waiting for sign-in…": "로그인 대기 중…",
   "This service needs an app client ID": "이 서비스는 앱 Client ID가 필요합니다",
-  "Open the sign-in page": "로그인 페이지 열기",
   "Paste the address you land on": "리디렉션된 주소 붙여넣기",
-  "Or paste the address you land on": "또는 리디렉션된 주소 붙여넣기",
   "Finish sign-in": "로그인 완료",
   "Open {host}": "{host} 열기",
   "Client ID": "Client ID",
@@ -4064,7 +4127,6 @@ var KO = {
   "{count} tools": "도구 {count}개",
   "Mailbox": "메일함",
   "Email address": "이메일 주소",
-  "App password / authorization code": "앱 비밀번호 / 인증 코드",
   "Catalog": "카탈로그",
   "App password": "앱 비밀번호",
   "Authorization code": "인증 코드",
@@ -4143,13 +4205,7 @@ var KO = {
   "IMAP host": "IMAP 서버",
   "SMTP host": "SMTP 서버",
   "Sign in with Google": "Google로 로그인",
-  "Add account": "계정 추가",
-  "Add an account": "계정 추가",
-  "No mail accounts yet": "아직 메일 계정이 없습니다",
   "Verifying…": "확인 중…",
-  "Open the Google sign-in page": "Google 로그인 페이지 열기",
-  "Add an address": "주소 추가",
-  "Add a command": "명령어 추가",
   "Import from other apps": "다른 앱에서 가져오기",
   "Server address": "서버 주소",
   "Command, e.g. npx -y some-mcp": "명령어 (예: npx -y some-mcp)",
@@ -4165,7 +4221,6 @@ var KO = {
   "Commerce": "커머스",
   "No connectors connected": "연결된 커넥터 없음",
   "{bot} needs {name}": "{bot}에 {name} 필요",
-  "{bot} wants to send an email": "{bot}이(가) 이메일을 보내려고 합니다",
   "Mail": "메일",
   "Subject": "제목",
   "Write a message…": "메시지 작성…",
@@ -4185,7 +4240,6 @@ var KO = {
   // Host static strings (HOST_ZH)
   "Request failed": "요청 실패",
   "Permissions are not available in this DeepSeek Harness": "이 DeepSeek Harness에서는 권한 설정을 지원하지 않습니다",
-  "Avatar images must be PNG, JPEG, WebP, or GIF": "아바타 이미지는 PNG, JPEG, WebP 또는 GIF 형식이어야 합니다",
   "Avatar image is too large": "아바타 이미지가 너무 큽니다",
   "A Bot needs a name": "Bot 이름을 입력하세요",
   "A Bot name cannot contain @, ` or a line break": "Bot 이름에는 @, ` 또는 줄바꿈을 포함할 수 없습니다",
@@ -4232,6 +4286,96 @@ var KO = {
   "Nothing to cancel": "취소할 내용이 없습니다",
   "Nothing to close": "닫을 내용이 없습니다",
   "DS Bot is still loading this chat.": "DS Bot이 아직 이 대화를 불러오는 중입니다.",
+  "This message is no longer kept": "이 메시지는 더 이상 보관되지 않습니다",
+  "No file named": "파일이 지정되지 않았습니다",
+  "This file cannot be read here": "이 파일은 여기에서 읽을 수 없습니다",
+  "That wait is no longer open": "해당 대기가 이미 종료되었습니다",
+  "Nothing to send": "보낼 내용이 없습니다",
+  "This view is no longer open": "이 보기는 이미 닫혔습니다",
+  "This is not a photo DS Bot can send": "DS Bot이 보낼 수 있는 사진이 아닙니다",
+  "A photo did not arrive. Send it again.": "사진이 도착하지 않았습니다. 다시 보내 주세요.",
+  "Nothing to delete": "삭제할 내용이 없습니다",
+  "Bot browsers are off on this host": "이 호스트에서 Bot 브라우저가 꺼져 있습니다",
+  "This Bot has no open browser": "이 Bot에 열려 있는 브라우저가 없습니다",
+  "A browser poll needs a clientId": "브라우저 폴링에는 clientId가 필요합니다",
+  "This browser is not held": "이 브라우저는 현재 인계 중이 아닙니다",
+  "This handoff is no longer open": "이 브라우저 인계는 이미 종료되었습니다",
+  "Avatar images must be PNG, JPEG, WebP, GIF, or SVG": "아바타 이미지는 PNG, JPEG, WebP, GIF 또는 SVG 형식이어야 합니다",
+  "Pick a model before choosing a thinking level": "사고 강도를 선택하기 전에 먼저 모델을 선택하세요",
+  "Unknown section": "찾을 수 없는 섹션입니다",
+  "Unknown section color": "알 수 없는 섹션 색상입니다",
+  "Write the to-do first.": "먼저 할 일을 입력하세요.",
+  "That to-do is no longer on the list.": "해당 할 일은 더 이상 목록에 없습니다.",
+  "Write what this group should achieve, in at most 2000 characters.": "이 그룹이 달성할 목표를 최대 2000자 이내로 작성하세요.",
+  "This group has no admin. Set one in the group settings first.": "이 그룹에 관리자가 없습니다. 먼저 그룹 설정에서 관리자를 지정하세요.",
+  "This group already has a goal. Stop it first.": "이 그룹에는 이미 목표가 있습니다. 먼저 중지하세요.",
+  "The goal has changed. Look again.": "목표가 변경되었습니다. 다시 확인하세요.",
+  "Nothing to do": "수행할 작업이 없습니다",
+  "Write a note first.": "먼저 메모를 입력하세요.",
+  "That task is already finished.": "해당 작업은 이미 완료되었습니다.",
+  "No such group.": "해당 그룹 채팅을 찾을 수 없습니다.",
+  "No such task.": "해당 작업을 찾을 수 없습니다.",
+  "No open task to cancel.": "취소할 진행 중인 작업이 없습니다.",
+  "Sign-in timed out": "로그인 시간이 초과되었습니다",
+  "The sign-in answer did not match this attempt (state mismatch). Try again.": "로그인 응답이 이번 시도와 일치하지 않습니다(상태 불일치). 다시 시도하세요.",
+  "This connector does not sign in": "이 커넥터는 로그인이 필요하지 않습니다",
+  "This connector has no server address": "이 커넥터에 서버 주소가 없습니다",
+  "Connector addresses must start with https://": "커넥터 주소는 https://로 시작해야 합니다",
+  "This service does not publish OAuth sign-in metadata": "이 서비스는 OAuth 로그인 메타데이터를 제공하지 않습니다",
+  "Paste a key first": "먼저 키를 붙여넣으세요",
+  "No sign-in is waiting": "대기 중인 로그인이 없습니다",
+  "Paste the address or the code": "주소 또는 코드를 붙여넣으세요",
+  "This address is not from this sign-in attempt (state mismatch). Copy the whole address again.": "이 주소는 이번 로그인 시도에서 받은 것이 아닙니다(상태 불일치). 전체 주소를 다시 복사하세요.",
+  "The address has no code": "이 주소에 코드가 없습니다",
+  "Enter the client ID": "클라이언트 ID를 입력하세요",
+  "Name the connector": "커넥터 이름을 입력하세요",
+  "Enter an address or a command": "주소 또는 명령을 입력하세요",
+  "Only added connectors can be removed": "직접 추가한 커넥터만 제거할 수 있습니다",
+  "The mail connection closed during verification": "확인 중 메일 연결이 끊어졌습니다",
+  "Google sign-in is not available in this build": "이 빌드에서는 Google 로그인을 사용할 수 없습니다",
+  "Enter an email address": "이메일 주소를 입력하세요",
+  "Enter the IMAP and SMTP hosts": "IMAP 및 SMTP 호스트를 입력하세요",
+  "No such account": "해당 계정을 찾을 수 없습니다",
+  "This card was already answered": "이 카드는 이미 처리되었습니다",
+  "No Google sign-in is waiting": "대기 중인 Google 로그인이 없습니다",
+  "The sign-in answer is not for this attempt": "로그인 응답이 이번 시도에 대한 것이 아닙니다",
+  "Google did not say which account this is": "Google에서 계정 정보를 반환하지 않았습니다",
+  "This platform is not available yet": "이 플랫폼은 아직 사용할 수 없습니다",
+  "Choose a Bot first": "먼저 Bot을 선택하세요",
+  "This platform signs in by scanning a code; not available yet": "이 플랫폼은 QR 코드 스캔으로 로그인하며 아직 사용할 수 없습니다",
+  "No such IM bot": "해당 IM 봇을 찾을 수 없습니다",
+  "No such platform": "해당 플랫폼을 찾을 수 없습니다",
+  "No such chat": "해당 채팅을 찾을 수 없습니다",
+  "Choose a Bot or a group": "Bot 또는 그룹을 선택하세요",
+  "This platform has no QR login": "이 플랫폼은 QR 로그인을 지원하지 않습니다",
+  "Paste the bot token first": "먼저 봇 토큰을 붙여넣으세요",
+  "Telegram did not say who this token belongs to": "Telegram에서 이 토큰이 속한 봇 정보를 반환하지 않았습니다",
+  "A webhook or another program uses this bot": "웹훅 또는 다른 프로그램이 이 봇을 사용 중입니다",
+  "This token does not belong to a Discord bot": "이 토큰은 Discord 봇의 토큰이 아닙니다",
+  "Discord gave no usable gateway URL": "Discord에서 사용할 수 있는 게이트웨이 URL을 반환하지 않았습니다",
+  "These credentials do not belong to a Slack bot": "이 자격 증명은 Slack 봇의 것이 아닙니다",
+  "WeChat answered an unreadable response": "WeChat이 해석할 수 없는 응답을 반환했습니다",
+  "WeChat rate limited the request": "WeChat 요청 속도 제한에 도달했습니다",
+  "WeChat refused the token": "WeChat이 토큰을 거부했습니다",
+  "Use a capability name with lowercase letters, digits, and single hyphens; connector names are reserved.": "기능 이름에는 영문 소문자, 숫자, 단일 하이픈만 사용할 수 있으며 커넥터 이름은 예약되어 있습니다.",
+  "Arguments must be a list of text values.": "인수는 텍스트 값의 목록이어야 합니다.",
+  "Choose an MCP server, skill, or pack.": "MCP 서버, 스킬 또는 팩을 선택하세요.",
+  "A capability cannot change its kind. Delete it and save a new one.": "기능 유형은 변경할 수 없습니다. 삭제한 후 새로 저장하세요.",
+  "Enter a command for the MCP server.": "MCP 서버의 명령어를 입력하세요.",
+  "Enter a valid HTTP or HTTPS URL.": "유효한 HTTP 또는 HTTPS URL을 입력하세요.",
+  "Only Bots on the team can change capabilities.": "팀에 속한 Bot만 기능을 변경할 수 있습니다.",
+  "Only a Main Bot can change another Bot’s capabilities.": "다른 Bot의 기능은 메인 Bot만 변경할 수 있습니다.",
+  "This DSH cannot load MCP servers.": "이 DSH에서는 MCP 서버를 불러올 수 없습니다.",
+  "Unknown capability operation.": "알 수 없는 기능 작업입니다.",
+  "The secrets file is not encrypted.": "시크릿 파일이 암호화되어 있지 않습니다.",
+  "Secrets are already encrypted.": "시크릿이 이미 암호화되어 있습니다.",
+  "Secrets are not encrypted.": "시크릿이 암호화되어 있지 않습니다.",
+  "Learning is turned off on this host": "이 호스트에서는 학습 기능이 꺼져 있습니다",
+  "AGENTS.md changed since this was proposed": "이 제안 이후 AGENTS.md가 변경되었습니다",
+  "The Bot that learned this skill is gone": "이 스킬을 학습한 Bot이 더 이상 존재하지 않습니다",
+  "System permissions are not available here": "여기에서는 시스템 권한을 설정할 수 없습니다",
+  "This host keeps no Bot data folder, so it has no avatar library.": "이 호스트에는 Bot 데이터 폴더가 없어 아바타 라이브러리가 없습니다.",
+  "DS Bot is shutting down": "DS Bot을 종료하는 중입니다",
   // Computer use
   "Computer use": "컴퓨터 제어",
   "Computer": "컴퓨터",
@@ -4276,7 +4420,6 @@ var KO = {
   "Needs your confirmation": "사용자 확인 필요",
   "Help needed on the computer": "컴퓨터에서 도움 필요",
   "You control the computer": "사용자가 컴퓨터를 제어 중입니다",
-  "Stop {name}": "{name} 중지",
   "{name} · foreground": "{name} · 포그라운드",
   "{name} waits for the computer": "{name}이(가) 사용자 조작을 기다리는 중",
   "Bot models": "Bot 모델",
@@ -4361,7 +4504,20 @@ var HOST_ERRORS_KO = [
   [/^There is no entry (.+)\.$/, "$1번 항목이 없습니다"],
   [/^No entry in [\s\S]* matches "([\s\S]*)"\.[\s\S]*$/, '"$1"와(과) 일치하는 메모리 항목을 찾을 수 없습니다'],
   [/^"([\s\S]*)" matches (\d+) entries in [\s\S]*$/, '"$1"와(과) 일치하는 메모리 항목이 $2개 있습니다. 더 구체적으로 지정해 주세요'],
-  [/^Memory cannot change now: [\s\S]*$/, "지금은 메모리를 수정할 수 없습니다: 다른 dsh에서 이 Bot 팀을 사용 중입니다"]
+  [/^Memory cannot change now: [\s\S]*$/, "지금은 메모리를 수정할 수 없습니다: 다른 dsh에서 이 Bot 팀을 사용 중입니다"],
+  [/^Keep a to-do under (\d+) characters\.$/, "할 일은 $1자 이내로 입력하세요."],
+  [/^The shared to-do list is full \((\d+)\)\. Remove one or clear the completed items\.$/, "공유 할 일 목록이 가득 찼습니다($1개). 하나를 제거하거나 완료된 항목을 비우세요."],
+  [/^The goal of "(.+)" is ([^;]+); ([^ ]+) needs it to be (.+)\.$/, '"$1"의 목표가 현재 $2 상태입니다. $3 작업을 하려면 $4 상태여야 합니다.'],
+  [/^WeChat answered (.+)$/, "WeChat이 오류를 반환했습니다($1)"],
+  [/^WeChat refused the reply \((.+)\)$/, "WeChat이 답장을 거부했습니다($1)"],
+  [/^(Feishu|Slack|QQ|DingTalk|Discord|WeCom) could not open a socket: (.+)$/, "$1 연결을 열 수 없습니다: $2"],
+  [/^WeCom socket failed: (.+)$/, "WeCom 소켓 연결 실패: $1"],
+  [/^The password for (.+) is not saved$/, "$1의 비밀번호가 저장되어 있지 않습니다"],
+  [/^No capability named (.+)\.$/, "이름이 $1인 기능이 없습니다."],
+  [/^(.+) changed since this was proposed$/, "이 제안 이후 $1이(가) 변경되었습니다"],
+  [/^A skill named (.+) exists now$/, "이름이 $1인 스킬이 이미 있습니다"],
+  [/^(.+) is required$/, "$1 항목을 입력하세요"],
+  [/^(.+) must be text$/, "$1 항목은 텍스트여야 합니다"]
 ];
 var DSH_KO = {
   common: {
@@ -5028,7 +5184,6 @@ var ES = {
   "The code works once. It stops working in {count} min.": "El código sirve una sola vez. Caduca en {count} min.",
   "Turn on phone access first": "Activa primero el acceso desde el teléfono",
   "The Server address must start with ws:// or wss://": "La dirección del servidor debe empezar por ws:// o wss://",
-  "Enter the Server address first": "Introduce primero la dirección del servidor",
   "This phone is not paired": "Este teléfono no está vinculado",
   "Another dsh has this Bot team open, so phones connect to that one": "Otro dsh tiene abierto este equipo de Bots, así que los teléfonos se conectan a ese",
   "This dsh runs on a Node without WebSocket": "Este dsh se ejecuta en un Node sin WebSocket",
@@ -5172,7 +5327,6 @@ var ES = {
   Enable: "Activar",
   Disable: "Desactivar",
   "Remove?": "¿Quitar?",
-  "Not connected": "No conectado",
   Disabled: "Desactivado",
   Capabilities: "Capacidades",
   "Shared capabilities": "Capacidades compartidas",
@@ -5302,7 +5456,6 @@ var ES = {
   "Detected agents": "Agentes detectados",
   Refresh: "Actualizar",
   "No agent CLIs found": "No se encontraron CLIs de agentes",
-  "Scan again for agent CLIs.": "Volver a buscar CLIs de agentes.",
   "Custom agents": "Agentes personalizados",
   "ACP-compatible agents, added by command.": "Agentes compatibles con ACP, añadidos por comando.",
   "Add agent": "Añadir agente",
@@ -5311,7 +5464,6 @@ var ES = {
   "Sign-in command copied. Run it in a terminal: {command}": "Comando de inicio de sesión copiado. Ejecútalo en una terminal: {command}",
   "Could not copy the sign-in command. Run this in a terminal: {command}": "No se pudo copiar el comando de inicio de sesión. Ejecuta esto en una terminal: {command}",
   Found: "Encontrado",
-  "Not found": "No encontrado",
   Arguments: "Argumentos",
   Agent: "Agente",
   Sessions: "Sesiones",
@@ -5493,7 +5645,6 @@ var ES = {
   "Name after members": "Nombrar según los miembros",
   "Rename {name}": "Renombrar {name}",
   Rename: "Renombrar",
-  "No scheduled tasks yet. To add one, tell the Bot in its chat what to do and when.": "Aún no hay tareas programadas. Para añadir una, dile al Bot en su chat qué hacer y cuándo.",
   "The browser is in DSH Desktop and the DS Bot app.": "El navegador está disponible en DSH Desktop y en la aplicación DS Bot.",
   "New tab": "Nueva pestaña",
   "Close tab": "Cerrar pestaña",
@@ -5508,7 +5659,6 @@ var ES = {
   "Copy of its cookies": "Copia de sus cookies",
   "No browsers found": "No se encontraron navegadores",
   "The Bot controls this browser": "El Bot controla este navegador",
-  "The Bot is waiting for you": "El Bot te está esperando",
   "waits for the computer": "esperando el ordenador",
   "You control this browser": "Tú controlas este navegador",
   "The Bot handed this browser to you: {reason}": "El Bot te cedió este navegador: {reason}",
@@ -5833,7 +5983,6 @@ var ES = {
   "Around this message": "Alrededor de este mensaje",
   "1 match": "1 coincidencia",
   "{count} matches": "{count} coincidencias",
-  "Showing the {count} newest": "Mostrando las {count} más recientes",
   "Clear search": "Borrar búsqueda",
   Results: "Resultados",
   "No results": "Sin resultados",
@@ -5872,7 +6021,6 @@ var ES = {
   "Add an annotation…": "Añade una anotación…",
   "Add quote and annotation to the composer · Enter": "Añadir la cita y la anotación al campo · Intro",
   "Send quote and annotation · Ctrl+Enter": "Enviar la cita y la anotación · Ctrl+Intro",
-  "Quote text": "Citar texto",
   Footnotes: "Notas al pie",
   "Remove reaction {emoji}": "Quitar reacción {emoji}",
   "Add reaction": "Añadir reacción",
@@ -6166,8 +6314,6 @@ var ES = {
   "{count} file changed": "{count} archivo modificado",
   "{count} files changed": "{count} archivos modificados",
   "File": "Archivo",
-  "Binary file": "Archivo binario",
-  "This file is too large to preview": "Este archivo es demasiado grande para previsualizarlo",
   "Review these changes": "Revisar estos cambios",
   "These changes are no longer available": "Estos cambios ya no están disponibles",
   "This window cannot open the change review": "Esta ventana no puede abrir la revisión de cambios",
@@ -6187,12 +6333,9 @@ var ES = {
   "Updated {name}'s memory": "Memoria de {name} actualizada",
   "Memory updated. Open {name}'s memory": "Memoria actualizada. Abrir la memoria de {name}",
   // Browser
-  "Close browser": "Cerrar navegador",
   "Open browser": "Abrir navegador",
   "{name}'s browser": "Navegador de {name}",
   "Resize panel": "Redimensionar panel",
-  "{name} read this page": "{name} leyó esta página",
-  "{name}'s browser. {name} can read the page shown here.": "Navegador de {name}. {name} puede leer la página mostrada aquí.",
   Back: "Atrás",
   Forward: "Adelante",
   Stop: "Detener",
@@ -6513,9 +6656,7 @@ var ES = {
   "Some folders are not shown.": "Algunas carpetas no se muestran.",
   "Waiting for sign-in…": "Esperando inicio de sesión…",
   "This service needs an app client ID": "Este servicio necesita un Client ID de aplicación",
-  "Open the sign-in page": "Abrir la página de inicio de sesión",
   "Paste the address you land on": "Pega la dirección a la que llegues",
-  "Or paste the address you land on": "O pega la dirección a la que llegues",
   "Finish sign-in": "Finalizar inicio de sesión",
   "Open {host}": "Abrir {host}",
   "Client ID": "Client ID",
@@ -6528,7 +6669,6 @@ var ES = {
   "{count} tools": "{count} herramientas",
   "Mailbox": "Buzón de correo",
   "Email address": "Dirección de correo",
-  "App password / authorization code": "Contraseña de aplicación / código de autorización",
   "Catalog": "Catálogo",
   "App password": "Contraseña de aplicación",
   "Authorization code": "Código de autorización",
@@ -6607,13 +6747,7 @@ var ES = {
   "IMAP host": "Servidor IMAP",
   "SMTP host": "Servidor SMTP",
   "Sign in with Google": "Iniciar sesión con Google",
-  "Add account": "Añadir cuenta",
-  "Add an account": "Añadir una cuenta",
-  "No mail accounts yet": "Aún no hay cuentas de correo",
   "Verifying…": "Verificando…",
-  "Open the Google sign-in page": "Abrir la página de inicio de sesión de Google",
-  "Add an address": "Añadir una dirección",
-  "Add a command": "Añadir un comando",
   "Import from other apps": "Importar desde otras aplicaciones",
   "Server address": "Dirección del servidor",
   "Command, e.g. npx -y some-mcp": "Comando, p. ej., npx -y some-mcp",
@@ -6629,7 +6763,6 @@ var ES = {
   "Commerce": "Comercio",
   "No connectors connected": "No hay conectores conectados",
   "{bot} needs {name}": "{bot} necesita {name}",
-  "{bot} wants to send an email": "{bot} quiere enviar un correo",
   "Mail": "Correo",
   "Subject": "Asunto",
   "Write a message…": "Escribe un mensaje…",
@@ -6649,7 +6782,6 @@ var ES = {
   // HOST_ZH merged keys
   "Request failed": "Solicitud fallida",
   "Permissions are not available in this DeepSeek Harness": "Los permisos no están disponibles en este DeepSeek Harness",
-  "Avatar images must be PNG, JPEG, WebP, or GIF": "Las imágenes de avatar deben ser PNG, JPEG, WebP o GIF",
   "Avatar image is too large": "La imagen de avatar es demasiado grande",
   "A Bot needs a name": "Un Bot necesita un nombre",
   "A Bot name cannot contain @, ` or a line break": "El nombre de un Bot no puede contener @, ` ni saltos de línea",
@@ -6696,6 +6828,96 @@ var ES = {
   "Nothing to cancel": "Nada que cancelar",
   "Nothing to close": "Nada que cerrar",
   "DS Bot is still loading this chat.": "DS Bot aún está cargando este chat.",
+  "This message is no longer kept": "Este mensaje ya no se conserva",
+  "No file named": "No se indicó ningún archivo",
+  "This file cannot be read here": "Este archivo no se puede leer aquí",
+  "That wait is no longer open": "Esa espera ya no está abierta",
+  "Nothing to send": "Nada que enviar",
+  "This view is no longer open": "Esta vista ya no está abierta",
+  "This is not a photo DS Bot can send": "Esta no es una foto que DS Bot pueda enviar",
+  "A photo did not arrive. Send it again.": "No llegó una foto. Envíala de nuevo.",
+  "Nothing to delete": "Nada que eliminar",
+  "Bot browsers are off on this host": "Los navegadores de los Bots están desactivados en este host",
+  "This Bot has no open browser": "Este Bot no tiene ningún navegador abierto",
+  "A browser poll needs a clientId": "El sondeo del navegador necesita un clientId",
+  "This browser is not held": "Este navegador no está retenido",
+  "This handoff is no longer open": "Este traspaso del navegador ya no está abierto",
+  "Avatar images must be PNG, JPEG, WebP, GIF, or SVG": "Las imágenes de avatar deben ser PNG, JPEG, WebP, GIF o SVG",
+  "Pick a model before choosing a thinking level": "Elige un modelo antes de seleccionar un nivel de razonamiento",
+  "Unknown section": "Sección desconocida",
+  "Unknown section color": "Color de sección desconocido",
+  "Write the to-do first.": "Escribe primero la tarea pendiente.",
+  "That to-do is no longer on the list.": "Esa tarea pendiente ya no está en la lista.",
+  "Write what this group should achieve, in at most 2000 characters.": "Escribe qué debe lograr este grupo, en un máximo de 2000 caracteres.",
+  "This group has no admin. Set one in the group settings first.": "Este grupo no tiene administrador. Designa uno primero en los ajustes del grupo.",
+  "This group already has a goal. Stop it first.": "Este grupo ya tiene un objetivo. Detenlo primero.",
+  "The goal has changed. Look again.": "El objetivo ha cambiado. Vuelve a comprobarlo.",
+  "Nothing to do": "Nada que hacer",
+  "Write a note first.": "Escribe primero una nota.",
+  "That task is already finished.": "Esa tarea ya ha terminado.",
+  "No such group.": "No existe ese grupo.",
+  "No such task.": "No existe esa tarea.",
+  "No open task to cancel.": "No hay ninguna tarea abierta que cancelar.",
+  "Sign-in timed out": "Se agotó el tiempo de espera para iniciar sesión",
+  "The sign-in answer did not match this attempt (state mismatch). Try again.": "La respuesta de inicio de sesión no coincide con este intento (estado distinto). Inténtalo de nuevo.",
+  "This connector does not sign in": "Este conector no requiere iniciar sesión",
+  "This connector has no server address": "Este conector no tiene dirección de servidor",
+  "Connector addresses must start with https://": "Las direcciones de conectores deben empezar por https://",
+  "This service does not publish OAuth sign-in metadata": "Este servicio no publica metadatos de inicio de sesión OAuth",
+  "Paste a key first": "Pega primero una clave",
+  "No sign-in is waiting": "No hay ningún inicio de sesión en espera",
+  "Paste the address or the code": "Pega la dirección o el código",
+  "This address is not from this sign-in attempt (state mismatch). Copy the whole address again.": "Esta dirección no corresponde a este intento de inicio de sesión (estado distinto). Vuelve a copiar la dirección completa.",
+  "The address has no code": "La dirección no contiene ningún código",
+  "Enter the client ID": "Introduce el ID de cliente",
+  "Name the connector": "Ponle un nombre al conector",
+  "Enter an address or a command": "Introduce una dirección o un comando",
+  "Only added connectors can be removed": "Solo se pueden eliminar los conectores añadidos manualmente",
+  "The mail connection closed during verification": "La conexión de correo se cerró durante la verificación",
+  "Google sign-in is not available in this build": "El inicio de sesión con Google no está disponible en esta compilación",
+  "Enter an email address": "Introduce una dirección de correo electrónico",
+  "Enter the IMAP and SMTP hosts": "Introduce los servidores IMAP y SMTP",
+  "No such account": "No existe esa cuenta",
+  "This card was already answered": "Esta tarjeta ya fue respondida",
+  "No Google sign-in is waiting": "No hay ningún inicio de sesión de Google en espera",
+  "The sign-in answer is not for this attempt": "La respuesta de inicio de sesión no corresponde a este intento",
+  "Google did not say which account this is": "Google no indicó a qué cuenta corresponde",
+  "This platform is not available yet": "Esta plataforma aún no está disponible",
+  "Choose a Bot first": "Elige primero un Bot",
+  "This platform signs in by scanning a code; not available yet": "Esta plataforma inicia sesión escaneando un código y aún no está disponible",
+  "No such IM bot": "No existe ese bot de mensajería",
+  "No such platform": "No existe esa plataforma",
+  "No such chat": "No existe ese chat",
+  "Choose a Bot or a group": "Elige un Bot o un grupo",
+  "This platform has no QR login": "Esta plataforma no admite inicio de sesión por QR",
+  "Paste the bot token first": "Pega primero el token del bot",
+  "Telegram did not say who this token belongs to": "Telegram no indicó a qué bot pertenece este token",
+  "A webhook or another program uses this bot": "Un webhook u otro programa está usando este bot",
+  "This token does not belong to a Discord bot": "Este token no pertenece a un bot de Discord",
+  "Discord gave no usable gateway URL": "Discord no devolvió una URL de puerta de enlace utilizable",
+  "These credentials do not belong to a Slack bot": "Estas credenciales no pertenecen a un bot de Slack",
+  "WeChat answered an unreadable response": "WeChat devolvió una respuesta ilegible",
+  "WeChat rate limited the request": "WeChat limitó la frecuencia de solicitudes",
+  "WeChat refused the token": "WeChat rechazó el token",
+  "Use a capability name with lowercase letters, digits, and single hyphens; connector names are reserved.": "Usa un nombre de capacidad con letras minúsculas, dígitos y guiones simples; los nombres de conectores están reservados.",
+  "Arguments must be a list of text values.": "Los argumentos deben ser una lista de valores de texto.",
+  "Choose an MCP server, skill, or pack.": "Elige un servidor MCP, una habilidad o un paquete.",
+  "A capability cannot change its kind. Delete it and save a new one.": "Una capacidad no puede cambiar de tipo. Elimínala y guarda una nueva.",
+  "Enter a command for the MCP server.": "Introduce un comando para el servidor MCP.",
+  "Enter a valid HTTP or HTTPS URL.": "Introduce una URL HTTP o HTTPS válida.",
+  "Only Bots on the team can change capabilities.": "Solo los Bots del equipo pueden cambiar capacidades.",
+  "Only a Main Bot can change another Bot’s capabilities.": "Solo un Bot principal puede cambiar las capacidades de otro Bot.",
+  "This DSH cannot load MCP servers.": "Este DSH no puede cargar servidores MCP.",
+  "Unknown capability operation.": "Operación de capacidad desconocida.",
+  "The secrets file is not encrypted.": "El archivo de secretos no está cifrado.",
+  "Secrets are already encrypted.": "Los secretos ya están cifrados.",
+  "Secrets are not encrypted.": "Los secretos no están cifrados.",
+  "Learning is turned off on this host": "El aprendizaje está desactivado en este host",
+  "AGENTS.md changed since this was proposed": "AGENTS.md cambió desde que se propuso esto",
+  "The Bot that learned this skill is gone": "El Bot que aprendió esta habilidad ya no existe",
+  "System permissions are not available here": "Los permisos del sistema no están disponibles aquí",
+  "This host keeps no Bot data folder, so it has no avatar library.": "Este host no guarda ninguna carpeta de datos de Bots, por lo que no tiene biblioteca de avatares.",
+  "DS Bot is shutting down": "DS Bot se está cerrando",
   // Computer use
   "Computer use": "Uso del ordenador",
   "Computer": "Ordenador",
@@ -6740,7 +6962,6 @@ var ES = {
   "Needs your confirmation": "Requiere tu confirmación",
   "Help needed on the computer": "Se necesita ayuda en el ordenador",
   "You control the computer": "Tú controlas el ordenador",
-  "Stop {name}": "Detener a {name}",
   "{name} · foreground": "{name} · primer plano",
   "{name} waits for the computer": "{name} espera el ordenador",
   "Bot models": "Modelos de los Bots",
@@ -6825,7 +7046,20 @@ var HOST_ERRORS_ES = [
   [/^There is no entry (.+)\.$/, "No existe la entrada $1."],
   [/^No entry in [\s\S]* matches "([\s\S]*)"\.[\s\S]*$/, "Ninguna entrada coincide con “$1”."],
   [/^"([\s\S]*)" matches (\d+) entries in [\s\S]*$/, "“$1” coincide con $2 entradas; sé más específico."],
-  [/^Memory cannot change now: [\s\S]*$/, "La memoria no se puede modificar ahora: otro dsh está usando este equipo de Bots"]
+  [/^Memory cannot change now: [\s\S]*$/, "La memoria no se puede modificar ahora: otro dsh está usando este equipo de Bots"],
+  [/^Keep a to-do under (\d+) characters\.$/, "Mantén la tarea pendiente por debajo de $1 caracteres."],
+  [/^The shared to-do list is full \((\d+)\)\. Remove one or clear the completed items\.$/, "La lista compartida de tareas pendientes está llena ($1). Elimina una o limpia las completadas."],
+  [/^The goal of "(.+)" is ([^;]+); ([^ ]+) needs it to be (.+)\.$/, "El objetivo de “$1” está en estado $2; $3 requiere que esté en $4."],
+  [/^WeChat answered (.+)$/, "WeChat devolvió $1"],
+  [/^WeChat refused the reply \((.+)\)$/, "WeChat rechazó la respuesta ($1)"],
+  [/^(Feishu|Slack|QQ|DingTalk|Discord|WeCom) could not open a socket: (.+)$/, "$1 no pudo abrir una conexión: $2"],
+  [/^WeCom socket failed: (.+)$/, "Error de conexión de WeCom: $1"],
+  [/^The password for (.+) is not saved$/, "No se ha guardado la contraseña de $1"],
+  [/^No capability named (.+)\.$/, "No existe ninguna capacidad llamada $1."],
+  [/^(.+) changed since this was proposed$/, "$1 cambió desde que se propuso esto"],
+  [/^A skill named (.+) exists now$/, "Ya existe una habilidad llamada $1"],
+  [/^(.+) is required$/, "$1 es obligatorio"],
+  [/^(.+) must be text$/, "$1 debe ser texto"]
 ];
 var DSH_ES = {
   common: {
@@ -7492,7 +7726,6 @@ var FR = {
   "The code works once. It stops working in {count} min.": "Le code ne sert qu’une fois. Il expire dans {count} min.",
   "Turn on phone access first": "Activez d’abord l’accès depuis le téléphone",
   "The Server address must start with ws:// or wss://": "L’adresse du serveur doit commencer par ws:// ou wss://",
-  "Enter the Server address first": "Saisissez d’abord l’adresse du serveur",
   "This phone is not paired": "Ce téléphone n’est pas associé",
   "Another dsh has this Bot team open, so phones connect to that one": "Un autre dsh a déjà ouvert cette équipe de Bots, les téléphones s’y connectent donc",
   "This dsh runs on a Node without WebSocket": "Ce dsh s’exécute sur un Node sans WebSocket",
@@ -7634,7 +7867,6 @@ var FR = {
   "Enable": "Activer",
   "Disable": "Désactiver",
   "Remove?": "Supprimer ?",
-  "Not connected": "Non connecté",
   "Disabled": "Désactivé",
   "Capabilities": "Capacités",
   "Shared capabilities": "Capacités partagées",
@@ -7761,7 +7993,6 @@ var FR = {
   "Detected agents": "Agents détectés",
   "Refresh": "Actualiser",
   "No agent CLIs found": "Aucun CLI d’agent trouvé",
-  "Scan again for agent CLIs.": "Rechercher à nouveau des CLI d’agent.",
   "Custom agents": "Agents personnalisés",
   "ACP-compatible agents, added by command.": "Agents compatibles ACP, ajoutés par commande.",
   "Add agent": "Ajouter un agent",
@@ -7770,7 +8001,6 @@ var FR = {
   "Sign-in command copied. Run it in a terminal: {command}": "Commande de connexion copiée. Exécutez-la dans un terminal : {command}",
   "Could not copy the sign-in command. Run this in a terminal: {command}": "Impossible de copier la commande de connexion. Exécutez-la dans un terminal : {command}",
   "Found": "Trouvé",
-  "Not found": "Introuvable",
   "Arguments": "Arguments",
   "Agent": "Agent",
   "Sessions": "Sessions",
@@ -7948,7 +8178,6 @@ var FR = {
   "Name after members": "Nommer d’après les membres",
   "Rename {name}": "Renommer {name}",
   "Rename": "Renommer",
-  "No scheduled tasks yet. To add one, tell the Bot in its chat what to do and when.": "Aucune tâche planifiée. Pour en ajouter une, dites au Bot dans sa discussion quoi faire et quand.",
   "The browser is in DSH Desktop and the DS Bot app.": "Le navigateur est disponible dans DSH Desktop et l’application DS Bot.",
   "New tab": "Nouvel onglet",
   "Close tab": "Fermer l’onglet",
@@ -7962,7 +8191,6 @@ var FR = {
   "Copy of its cookies": "Copie de ses cookies",
   "No browsers found": "Aucun navigateur trouvé",
   "The Bot controls this browser": "Le Bot contrôle ce navigateur",
-  "The Bot is waiting for you": "Le Bot vous attend",
   "waits for the computer": "attend que l’ordinateur soit libre",
   "You control this browser": "Vous contrôlez ce navigateur",
   "The Bot handed this browser to you: {reason}": "Le Bot vous a confié ce navigateur : {reason}",
@@ -8271,7 +8499,6 @@ var FR = {
   "Around this message": "Autour de ce message",
   "1 match": "1 résultat",
   "{count} matches": "{count} résultats",
-  "Showing the {count} newest": "Les {count} plus récents affichés",
   "Clear search": "Effacer la recherche",
   "Results": "Résultats",
   "No results": "Aucun résultat",
@@ -8307,7 +8534,6 @@ var FR = {
   "Add an annotation…": "Ajouter une annotation…",
   "Add quote and annotation to the composer · Enter": "Ajouter la citation et l’annotation au champ · Entrée",
   "Send quote and annotation · Ctrl+Enter": "Envoyer la citation et l’annotation · Ctrl+Entrée",
-  "Quote text": "Texte de citation",
   "Footnotes": "Notes de bas de page",
   "Remove reaction {emoji}": "Retirer la réaction {emoji}",
   "Add reaction": "Ajouter une réaction",
@@ -8596,8 +8822,6 @@ var FR = {
   "{count} file changed": "{count} fichier modifié",
   "{count} files changed": "{count} fichiers modifiés",
   "File": "Fichier",
-  "Binary file": "Fichier binaire",
-  "This file is too large to preview": "Ce fichier est trop volumineux pour être affiché",
   "Review these changes": "Examiner ces modifications",
   "These changes are no longer available": "Ces modifications ne sont plus disponibles",
   "This window cannot open the change review": "Cette fenêtre ne peut pas ouvrir la revue des modifications",
@@ -8616,12 +8840,9 @@ var FR = {
   "Team memory updated": "Mémoire d’équipe mise à jour",
   "Updated {name}'s memory": "Mémoire de {name} mise à jour",
   "Memory updated. Open {name}'s memory": "Mémoire mise à jour. Ouvrir la mémoire de {name}",
-  "Close browser": "Fermer le navigateur",
   "Open browser": "Ouvrir le navigateur",
   "{name}'s browser": "Navigateur de {name}",
   "Resize panel": "Redimensionner le panneau",
-  "{name} read this page": "{name} a lu cette page",
-  "{name}'s browser. {name} can read the page shown here.": "Navigateur de {name}. {name} peut lire la page affichée ici.",
   "Back": "Précédent",
   "Forward": "Suivant",
   "Stop": "Arrêter",
@@ -8935,9 +9156,7 @@ var FR = {
   "Some folders are not shown.": "Certains dossiers ne sont pas affichés.",
   "Waiting for sign-in…": "En attente de connexion…",
   "This service needs an app client ID": "Ce service nécessite un Client ID d’application",
-  "Open the sign-in page": "Ouvrir la page de connexion",
   "Paste the address you land on": "Collez l’adresse de redirection",
-  "Or paste the address you land on": "Ou collez l’adresse de redirection",
   "Finish sign-in": "Terminer la connexion",
   "Open {host}": "Ouvrir {host}",
   "Client ID": "Client ID",
@@ -8950,7 +9169,6 @@ var FR = {
   "{count} tools": "{count} outils",
   "Mailbox": "Boîte mail",
   "Email address": "Adresse e-mail",
-  "App password / authorization code": "Mot de passe d’application / code d’autorisation",
   "Catalog": "Catalogue",
   "App password": "Mot de passe d’application",
   "Authorization code": "Code d’autorisation",
@@ -9029,13 +9247,7 @@ var FR = {
   "IMAP host": "Serveur IMAP",
   "SMTP host": "Serveur SMTP",
   "Sign in with Google": "Se connecter avec Google",
-  "Add account": "Ajouter un compte",
-  "Add an account": "Ajouter un compte",
-  "No mail accounts yet": "Aucun compte de messagerie pour le moment",
   "Verifying…": "Vérification…",
-  "Open the Google sign-in page": "Ouvrir la page de connexion Google",
-  "Add an address": "Ajouter une adresse",
-  "Add a command": "Ajouter une commande",
   "Import from other apps": "Importer depuis d’autres applications",
   "Server address": "Adresse du serveur",
   "Command, e.g. npx -y some-mcp": "Commande, ex. npx -y some-mcp",
@@ -9051,7 +9263,6 @@ var FR = {
   "Commerce": "Commerce",
   "No connectors connected": "Aucun connecteur connecté",
   "{bot} needs {name}": "{bot} a besoin de {name}",
-  "{bot} wants to send an email": "{bot} souhaite envoyer un e-mail",
   "Mail": "E-mail",
   "Subject": "Objet",
   "Write a message…": "Écrire un message…",
@@ -9070,7 +9281,6 @@ var FR = {
   "Failed": "Échec",
   "Request failed": "Échec de la requête",
   "Permissions are not available in this DeepSeek Harness": "Les autorisations ne sont pas disponibles dans ce DeepSeek Harness",
-  "Avatar images must be PNG, JPEG, WebP, or GIF": "Les images d’avatar doivent être au format PNG, JPEG, WebP ou GIF",
   "Avatar image is too large": "L’image d’avatar est trop volumineuse",
   "A Bot needs a name": "Un Bot doit avoir un nom",
   "A Bot name cannot contain @, ` or a line break": "Le nom d’un Bot ne peut pas contenir @, ` ni de saut de ligne",
@@ -9117,6 +9327,96 @@ var FR = {
   "Nothing to cancel": "Rien à annuler",
   "Nothing to close": "Rien à fermer",
   "DS Bot is still loading this chat.": "DS Bot charge encore cette discussion.",
+  "This message is no longer kept": "Ce message n’est plus conservé",
+  "No file named": "Aucun fichier indiqué",
+  "This file cannot be read here": "Ce fichier ne peut pas être lu ici",
+  "That wait is no longer open": "Cette attente est terminée",
+  "Nothing to send": "Rien à envoyer",
+  "This view is no longer open": "Cette vue n’est plus ouverte",
+  "This is not a photo DS Bot can send": "Ce n’est pas une photo que DS Bot peut envoyer",
+  "A photo did not arrive. Send it again.": "Une photo n’est pas arrivée. Envoyez-la de nouveau.",
+  "Nothing to delete": "Rien à supprimer",
+  "Bot browsers are off on this host": "Les navigateurs des Bots sont désactivés sur cet hôte",
+  "This Bot has no open browser": "Ce Bot n’a aucun navigateur ouvert",
+  "A browser poll needs a clientId": "L’interrogation du navigateur nécessite un clientId",
+  "This browser is not held": "Ce navigateur n’est pas en cours de prise en main",
+  "This handoff is no longer open": "Ce passage de relais du navigateur n’est plus ouvert",
+  "Avatar images must be PNG, JPEG, WebP, GIF, or SVG": "Les images d’avatar doivent être au format PNG, JPEG, WebP, GIF ou SVG",
+  "Pick a model before choosing a thinking level": "Choisissez un modèle avant de sélectionner un niveau de réflexion",
+  "Unknown section": "Section introuvable",
+  "Unknown section color": "Couleur de section inconnue",
+  "Write the to-do first.": "Écrivez d’abord la tâche à faire.",
+  "That to-do is no longer on the list.": "Cette tâche n’est plus dans la liste.",
+  "Write what this group should achieve, in at most 2000 characters.": "Décrivez ce que ce groupe doit accomplir, en 2000 caractères maximum.",
+  "This group has no admin. Set one in the group settings first.": "Ce groupe n’a pas d’admin. Définissez-en un dans les paramètres du groupe.",
+  "This group already has a goal. Stop it first.": "Ce groupe a déjà un objectif. Arrêtez-le d’abord.",
+  "The goal has changed. Look again.": "L’objectif a changé. Vérifiez à nouveau.",
+  "Nothing to do": "Rien à faire",
+  "Write a note first.": "Écrivez d’abord une note.",
+  "That task is already finished.": "Cette tâche est déjà terminée.",
+  "No such group.": "Ce groupe est introuvable.",
+  "No such task.": "Cette tâche est introuvable.",
+  "No open task to cancel.": "Aucune tâche en cours à annuler.",
+  "Sign-in timed out": "Délai de connexion dépassé",
+  "The sign-in answer did not match this attempt (state mismatch). Try again.": "La réponse de connexion ne correspond pas à cette tentative (état différent). Réessayez.",
+  "This connector does not sign in": "Ce connecteur ne nécessite pas de connexion",
+  "This connector has no server address": "Ce connecteur n’a pas d’adresse de serveur",
+  "Connector addresses must start with https://": "Les adresses de connecteurs doivent commencer par https://",
+  "This service does not publish OAuth sign-in metadata": "Ce service ne publie pas de métadonnées de connexion OAuth",
+  "Paste a key first": "Collez d’abord une clé",
+  "No sign-in is waiting": "Aucune connexion n’est en attente",
+  "Paste the address or the code": "Collez l’adresse ou le code",
+  "This address is not from this sign-in attempt (state mismatch). Copy the whole address again.": "Cette adresse ne provient pas de cette tentative de connexion (état différent). Copiez de nouveau l’adresse complète.",
+  "The address has no code": "L’adresse ne contient aucun code",
+  "Enter the client ID": "Saisissez l’identifiant client",
+  "Name the connector": "Nommez le connecteur",
+  "Enter an address or a command": "Saisissez une adresse ou une commande",
+  "Only added connectors can be removed": "Seuls les connecteurs ajoutés peuvent être supprimés",
+  "The mail connection closed during verification": "La connexion de messagerie s’est fermée pendant la vérification",
+  "Google sign-in is not available in this build": "La connexion Google n’est pas disponible dans cette version",
+  "Enter an email address": "Saisissez une adresse e-mail",
+  "Enter the IMAP and SMTP hosts": "Saisissez les serveurs IMAP et SMTP",
+  "No such account": "Compte introuvable",
+  "This card was already answered": "Cette carte a déjà reçu une réponse",
+  "No Google sign-in is waiting": "Aucune connexion Google n’est en attente",
+  "The sign-in answer is not for this attempt": "La réponse de connexion ne correspond pas à cette tentative",
+  "Google did not say which account this is": "Google n’a pas indiqué de quel compte il s’agit",
+  "This platform is not available yet": "Cette plateforme n’est pas encore disponible",
+  "Choose a Bot first": "Choisissez d’abord un Bot",
+  "This platform signs in by scanning a code; not available yet": "Cette plateforme se connecte en scannant un code et n’est pas encore disponible",
+  "No such IM bot": "Bot de messagerie introuvable",
+  "No such platform": "Plateforme introuvable",
+  "No such chat": "Discussion introuvable",
+  "Choose a Bot or a group": "Choisissez un Bot ou un groupe",
+  "This platform has no QR login": "Cette plateforme ne propose pas de connexion par QR code",
+  "Paste the bot token first": "Collez d’abord le jeton du bot",
+  "Telegram did not say who this token belongs to": "Telegram n’a pas indiqué à qui appartient ce jeton",
+  "A webhook or another program uses this bot": "Un webhook ou un autre programme utilise ce bot",
+  "This token does not belong to a Discord bot": "Ce jeton n’appartient pas à un bot Discord",
+  "Discord gave no usable gateway URL": "Discord n’a renvoyé aucune URL de passerelle utilisable",
+  "These credentials do not belong to a Slack bot": "Ces identifiants n’appartiennent pas à un bot Slack",
+  "WeChat answered an unreadable response": "WeChat a renvoyé une réponse illisible",
+  "WeChat rate limited the request": "WeChat a limité la fréquence des requêtes",
+  "WeChat refused the token": "WeChat a refusé le jeton",
+  "Use a capability name with lowercase letters, digits, and single hyphens; connector names are reserved.": "Utilisez un nom de capacité composé de lettres minuscules, de chiffres et de traits d’union simples ; les noms de connecteurs sont réservés.",
+  "Arguments must be a list of text values.": "Les arguments doivent être une liste de textes.",
+  "Choose an MCP server, skill, or pack.": "Choisissez un serveur MCP, une compétence ou un pack.",
+  "A capability cannot change its kind. Delete it and save a new one.": "Une capacité ne peut pas changer de type. Supprimez-la et enregistrez-en une nouvelle.",
+  "Enter a command for the MCP server.": "Saisissez une commande pour le serveur MCP.",
+  "Enter a valid HTTP or HTTPS URL.": "Saisissez une URL HTTP ou HTTPS valide.",
+  "Only Bots on the team can change capabilities.": "Seuls les Bots de l’équipe peuvent modifier des capacités.",
+  "Only a Main Bot can change another Bot’s capabilities.": "Seul un Bot principal peut modifier les capacités d’un autre Bot.",
+  "This DSH cannot load MCP servers.": "Ce DSH ne peut pas charger de serveurs MCP.",
+  "Unknown capability operation.": "Opération de capacité inconnue.",
+  "The secrets file is not encrypted.": "Le fichier des secrets n’est pas chiffré.",
+  "Secrets are already encrypted.": "Les secrets sont déjà chiffrés.",
+  "Secrets are not encrypted.": "Les secrets ne sont pas chiffrés.",
+  "Learning is turned off on this host": "L’apprentissage est désactivé sur cet hôte",
+  "AGENTS.md changed since this was proposed": "AGENTS.md a changé depuis cette proposition",
+  "The Bot that learned this skill is gone": "Le Bot qui a appris cette compétence n’existe plus",
+  "System permissions are not available here": "Les autorisations système ne sont pas disponibles ici",
+  "This host keeps no Bot data folder, so it has no avatar library.": "Cet hôte ne conserve aucun dossier de données Bot et n’a donc pas de bibliothèque d’avatars.",
+  "DS Bot is shutting down": "DS Bot est en train de s’arrêter",
   "Computer use": "Contrôle de l’ordinateur",
   "Computer": "Ordinateur",
   "Control": "Contrôle",
@@ -9160,7 +9460,6 @@ var FR = {
   "Needs your confirmation": "Nécessite votre confirmation",
   "Help needed on the computer": "Aide requise sur l’ordinateur",
   "You control the computer": "Vous contrôlez l’ordinateur",
-  "Stop {name}": "Arrêter {name}",
   "{name} · foreground": "{name} · premier plan",
   "{name} waits for the computer": "{name} attend que l’ordinateur soit libre",
   "Bot models": "Modèles des Bots",
@@ -9244,7 +9543,20 @@ var HOST_ERRORS_FR = [
   [/^There is no entry (.+)\.$/, "L’entrée $1 n’existe pas."],
   [/^No entry in [\s\S]* matches "([\s\S]*)"\.[\s\S]*$/, "Aucune entrée ne correspond à « $1 »."],
   [/^"([\s\S]*)" matches (\d+) entries in [\s\S]*$/, "« $1 » correspond à $2 entrées ; soyez plus précis."],
-  [/^Memory cannot change now: [\s\S]*$/, "Impossible de modifier la mémoire maintenant : une autre instance de dsh utilise cette équipe de Bots"]
+  [/^Memory cannot change now: [\s\S]*$/, "Impossible de modifier la mémoire maintenant : une autre instance de dsh utilise cette équipe de Bots"],
+  [/^Keep a to-do under (\d+) characters\.$/, "La tâche à faire doit comporter moins de $1 caractères."],
+  [/^The shared to-do list is full \((\d+)\)\. Remove one or clear the completed items\.$/, "La liste partagée des tâches est pleine ($1). Supprimez une tâche ou effacez celles qui sont terminées."],
+  [/^The goal of "(.+)" is ([^;]+); ([^ ]+) needs it to be (.+)\.$/, "L’objectif de « $1 » est actuellement à l’état $2 ; $3 exige qu’il soit $4."],
+  [/^WeChat answered (.+)$/, "WeChat a renvoyé $1"],
+  [/^WeChat refused the reply \((.+)\)$/, "WeChat a refusé la réponse ($1)"],
+  [/^(Feishu|Slack|QQ|DingTalk|Discord|WeCom) could not open a socket: (.+)$/, "$1 n’a pas pu ouvrir de connexion : $2"],
+  [/^WeCom socket failed: (.+)$/, "Échec de la connexion WeCom : $1"],
+  [/^The password for (.+) is not saved$/, "Le mot de passe de $1 n’est pas enregistré"],
+  [/^No capability named (.+)\.$/, "Aucune capacité nommée $1."],
+  [/^(.+) changed since this was proposed$/, "$1 a changé depuis cette proposition"],
+  [/^A skill named (.+) exists now$/, "Une compétence nommée $1 existe déjà"],
+  [/^(.+) is required$/, "$1 est requis"],
+  [/^(.+) must be text$/, "$1 doit être du texte"]
 ];
 var DSH_FR = {
   "common": {
@@ -9911,7 +10223,6 @@ var DE = {
   "The code works once. It stops working in {count} min.": "Der Code funktioniert einmal. Er läuft in {count} Min. ab.",
   "Turn on phone access first": "Schalte zuerst den Telefonzugriff ein",
   "The Server address must start with ws:// or wss://": "Die Serveradresse muss mit ws:// oder wss:// beginnen",
-  "Enter the Server address first": "Gib zuerst die Serveradresse ein",
   "This phone is not paired": "Dieses Telefon ist nicht gekoppelt",
   "Another dsh has this Bot team open, so phones connect to that one": "Ein anderes dsh hat dieses Bot-Team geöffnet, daher verbinden sich Telefone mit diesem",
   "This dsh runs on a Node without WebSocket": "Dieses dsh läuft auf einem Node ohne WebSocket",
@@ -10055,7 +10366,6 @@ var DE = {
   Enable: "Aktivieren",
   Disable: "Deaktivieren",
   "Remove?": "Entfernen?",
-  "Not connected": "Nicht verbunden",
   Disabled: "Deaktiviert",
   Capabilities: "Fähigkeiten",
   "Shared capabilities": "Geteilte Fähigkeiten",
@@ -10185,7 +10495,6 @@ var DE = {
   "Detected agents": "Erkannte Agenten",
   Refresh: "Aktualisieren",
   "No agent CLIs found": "Keine Agent-CLIs gefunden",
-  "Scan again for agent CLIs.": "Erneut nach Agent-CLIs suchen.",
   "Custom agents": "Benutzerdefinierte Agenten",
   "ACP-compatible agents, added by command.": "ACP-kompatible Agenten, per Befehl hinzugefügt.",
   "Add agent": "Agent hinzufügen",
@@ -10194,7 +10503,6 @@ var DE = {
   "Sign-in command copied. Run it in a terminal: {command}": "Anmeldebefehl kopiert. Führe ihn im Terminal aus: {command}",
   "Could not copy the sign-in command. Run this in a terminal: {command}": "Anmeldebefehl konnte nicht kopiert werden. Führe ihn im Terminal aus: {command}",
   Found: "Gefunden",
-  "Not found": "Nicht gefunden",
   Arguments: "Argumente",
   Agent: "Agent",
   Sessions: "Sitzungen",
@@ -10376,7 +10684,6 @@ var DE = {
   "Name after members": "Nach Mitgliedern benennen",
   "Rename {name}": "{name} umbenennen",
   Rename: "Umbenennen",
-  "No scheduled tasks yet. To add one, tell the Bot in its chat what to do and when.": "Noch keine geplanten Aufgaben. Sage dem Bot einfach im Chat, was er wann erledigen soll.",
   "The browser is in DSH Desktop and the DS Bot app.": "Der Browser ist in DSH Desktop und in der DS Bot-App verfügbar.",
   "New tab": "Neuer Tab",
   "Close tab": "Tab schließen",
@@ -10391,7 +10698,6 @@ var DE = {
   "Copy of its cookies": "Cookies kopieren",
   "No browsers found": "Keine Browser gefunden",
   "The Bot controls this browser": "Der Bot steuert diesen Browser",
-  "The Bot is waiting for you": "Der Bot wartet auf dich",
   "waits for the computer": "wartet, bis du fertig bist",
   "You control this browser": "Du steuerst diesen Browser",
   "The Bot handed this browser to you: {reason}": "Der Bot hat dir diesen Browser übergeben: {reason}",
@@ -10716,7 +11022,6 @@ var DE = {
   "Around this message": "Rund um diese Nachricht",
   "1 match": "1 Treffer",
   "{count} matches": "{count} Treffer",
-  "Showing the {count} newest": "Die {count} neuesten Treffer",
   "Clear search": "Suche löschen",
   Results: "Ergebnisse",
   "No results": "Keine Ergebnisse",
@@ -10755,7 +11060,6 @@ var DE = {
   "Add an annotation…": "Anmerkung hinzufügen…",
   "Add quote and annotation to the composer · Enter": "Zitat und Anmerkung zum Eingabefeld hinzufügen · Eingabe",
   "Send quote and annotation · Ctrl+Enter": "Zitat und Anmerkung senden · Strg+Eingabe",
-  "Quote text": "Text zitieren",
   Footnotes: "Fußnoten",
   "Remove reaction {emoji}": "Reaktion {emoji} entfernen",
   "Add reaction": "Reaktion hinzufügen",
@@ -11049,8 +11353,6 @@ var DE = {
   "{count} file changed": "{count} Datei geändert",
   "{count} files changed": "{count} Dateien geändert",
   "File": "Datei",
-  "Binary file": "Binärdatei",
-  "This file is too large to preview": "Diese Datei ist zu groß für die Vorschau",
   "Review these changes": "Änderungen prüfen",
   "These changes are no longer available": "Diese Änderungen sind nicht mehr verfügbar",
   "This window cannot open the change review": "Dieses Fenster kann die Änderungsprüfung nicht öffnen",
@@ -11070,12 +11372,9 @@ var DE = {
   "Updated {name}'s memory": "Gedächtnis von {name} aktualisiert",
   "Memory updated. Open {name}'s memory": "Gedächtnis aktualisiert. Gedächtnis von {name} öffnen",
   // Browser
-  "Close browser": "Browser schließen",
   "Open browser": "Browser öffnen",
   "{name}'s browser": "Browser von {name}",
   "Resize panel": "Leistenbreite ändern",
-  "{name} read this page": "{name} hat diese Seite gelesen",
-  "{name}'s browser. {name} can read the page shown here.": "Browser von {name}. {name} kann die hier angezeigte Seite lesen.",
   Back: "Zurück",
   Forward: "Vorwärts",
   Stop: "Stopp",
@@ -11396,9 +11695,7 @@ var DE = {
   "Some folders are not shown.": "Einige Ordner werden nicht angezeigt.",
   "Waiting for sign-in…": "Wartet auf Anmeldung…",
   "This service needs an app client ID": "Dieser Dienst benötigt eine App-Client-ID",
-  "Open the sign-in page": "Anmeldeseite öffnen",
   "Paste the address you land on": "Zieladresse nach der Weiterleitung einfügen",
-  "Or paste the address you land on": "Oder füge die Zieladresse nach der Weiterleitung ein",
   "Finish sign-in": "Anmeldung abschließen",
   "Open {host}": "{host} öffnen",
   "Client ID": "Client ID",
@@ -11411,7 +11708,6 @@ var DE = {
   "{count} tools": "{count} Werkzeuge",
   "Mailbox": "Postfach",
   "Email address": "E-Mail-Adresse",
-  "App password / authorization code": "App-Passwort / Autorisierungscode",
   "Catalog": "Katalog",
   "App password": "App-Passwort",
   "Authorization code": "Autorisierungscode",
@@ -11490,13 +11786,7 @@ var DE = {
   "IMAP host": "IMAP-Server",
   "SMTP host": "SMTP-Server",
   "Sign in with Google": "Mit Google anmelden",
-  "Add account": "Konto hinzufügen",
-  "Add an account": "Konto hinzufügen",
-  "No mail accounts yet": "Noch keine E-Mail-Konten",
   "Verifying…": "Wird überprüft…",
-  "Open the Google sign-in page": "Google-Anmeldeseite öffnen",
-  "Add an address": "Adresse hinzufügen",
-  "Add a command": "Befehl hinzufügen",
   "Import from other apps": "Aus anderen Apps importieren",
   "Server address": "Serveradresse",
   "Command, e.g. npx -y some-mcp": "Befehl, z. B. npx -y some-mcp",
@@ -11512,7 +11802,6 @@ var DE = {
   "Commerce": "E-Commerce",
   "No connectors connected": "Keine Konnektoren verbunden",
   "{bot} needs {name}": "{bot} benötigt {name}",
-  "{bot} wants to send an email": "{bot} möchte eine E-Mail senden",
   "Mail": "E-Mail",
   "Subject": "Betreff",
   "Write a message…": "E-Mail-Text schreiben…",
@@ -11532,7 +11821,6 @@ var DE = {
   // HOST_ZH + lines 1601-1653
   "Request failed": "Anfrage fehlgeschlagen",
   "Permissions are not available in this DeepSeek Harness": "Berechtigungen werden in diesem DeepSeek Harness nicht unterstützt",
-  "Avatar images must be PNG, JPEG, WebP, or GIF": "Avatar-Bilder müssen im Format PNG, JPEG, WebP oder GIF vorliegen",
   "Avatar image is too large": "Das Avatar-Bild ist zu groß",
   "A Bot needs a name": "Ein Bot benötigt einen Namen",
   "A Bot name cannot contain @, ` or a line break": "Ein Bot-Name darf kein @, ` oder Zeilenumbruch enthalten",
@@ -11579,6 +11867,96 @@ var DE = {
   "Nothing to cancel": "Nichts abzubrechen",
   "Nothing to close": "Nichts zu schließen",
   "DS Bot is still loading this chat.": "DS Bot lädt diesen Chat noch.",
+  "This message is no longer kept": "Diese Nachricht wird nicht mehr aufbewahrt",
+  "No file named": "Keine Datei angegeben",
+  "This file cannot be read here": "Diese Datei kann hier nicht gelesen werden",
+  "That wait is no longer open": "Dieses Warten ist nicht mehr aktiv",
+  "Nothing to send": "Nichts zu senden",
+  "This view is no longer open": "Diese Ansicht ist nicht mehr geöffnet",
+  "This is not a photo DS Bot can send": "Dies ist kein Foto, das DS Bot senden kann",
+  "A photo did not arrive. Send it again.": "Ein Foto ist nicht angekommen. Sende es erneut.",
+  "Nothing to delete": "Nichts zu löschen",
+  "Bot browsers are off on this host": "Bot-Browser sind auf diesem Host deaktiviert",
+  "This Bot has no open browser": "Dieser Bot hat keinen geöffneten Browser",
+  "A browser poll needs a clientId": "Eine Browser-Abfrage benötigt eine clientId",
+  "This browser is not held": "Dieser Browser wird derzeit nicht übergeben",
+  "This handoff is no longer open": "Diese Browser-Übergabe ist nicht mehr offen",
+  "Avatar images must be PNG, JPEG, WebP, GIF, or SVG": "Avatar-Bilder müssen im Format PNG, JPEG, WebP, GIF oder SVG vorliegen",
+  "Pick a model before choosing a thinking level": "Wähle zuerst ein Modell aus, bevor du eine Denkstufe festlegst",
+  "Unknown section": "Abschnitt nicht gefunden",
+  "Unknown section color": "Unbekannte Abschnittsfarbe",
+  "Write the to-do first.": "Gib zuerst eine Aufgabe ein.",
+  "That to-do is no longer on the list.": "Diese Aufgabe steht nicht mehr auf der Liste.",
+  "Write what this group should achieve, in at most 2000 characters.": "Beschreibe in höchstens 2000 Zeichen, was diese Gruppe erreichen soll.",
+  "This group has no admin. Set one in the group settings first.": "Diese Gruppe hat keinen Admin. Lege zuerst in den Gruppeneinstellungen einen fest.",
+  "This group already has a goal. Stop it first.": "Diese Gruppe hat bereits ein Ziel. Stoppe es zuerst.",
+  "The goal has changed. Look again.": "Das Ziel hat sich geändert. Sieh noch einmal nach.",
+  "Nothing to do": "Nichts zu tun",
+  "Write a note first.": "Schreibe zuerst eine Notiz.",
+  "That task is already finished.": "Diese Aufgabe ist bereits abgeschlossen.",
+  "No such group.": "Gruppe nicht gefunden.",
+  "No such task.": "Aufgabe nicht gefunden.",
+  "No open task to cancel.": "Keine offene Aufgabe zum Abbrechen vorhanden.",
+  "Sign-in timed out": "Zeitüberschreitung bei der Anmeldung",
+  "The sign-in answer did not match this attempt (state mismatch). Try again.": "Die Anmeldeantwort passt nicht zu diesem Versuch (Status stimmt nicht überein). Bitte versuche es erneut.",
+  "This connector does not sign in": "Dieser Connector erfordert keine Anmeldung",
+  "This connector has no server address": "Dieser Connector hat keine Serveradresse",
+  "Connector addresses must start with https://": "Connector-Adressen müssen mit https:// beginnen",
+  "This service does not publish OAuth sign-in metadata": "Dieser Dienst veröffentlicht keine OAuth-Anmeldemetadaten",
+  "Paste a key first": "Füge zuerst einen Schlüssel ein",
+  "No sign-in is waiting": "Es wartet keine Anmeldung",
+  "Paste the address or the code": "Füge die Adresse oder den Code ein",
+  "This address is not from this sign-in attempt (state mismatch). Copy the whole address again.": "Diese Adresse stammt nicht von diesem Anmeldeversuch (Status stimmt nicht überein). Kopiere die gesamte Adresse erneut.",
+  "The address has no code": "Die Adresse enthält keinen Code",
+  "Enter the client ID": "Gib die Client-ID ein",
+  "Name the connector": "Gib dem Connector einen Namen",
+  "Enter an address or a command": "Gib eine Adresse oder einen Befehl ein",
+  "Only added connectors can be removed": "Nur selbst hinzugefügte Connectors können entfernt werden",
+  "The mail connection closed during verification": "Die Mail-Verbindung wurde während der Überprüfung geschlossen",
+  "Google sign-in is not available in this build": "Die Google-Anmeldung ist in diesem Build nicht verfügbar",
+  "Enter an email address": "Gib eine E-Mail-Adresse ein",
+  "Enter the IMAP and SMTP hosts": "Gib die IMAP- und SMTP-Hosts ein",
+  "No such account": "Konto nicht gefunden",
+  "This card was already answered": "Diese Karte wurde bereits beantwortet",
+  "No Google sign-in is waiting": "Es wartet keine Google-Anmeldung",
+  "The sign-in answer is not for this attempt": "Die Anmeldeantwort gehört nicht zu diesem Versuch",
+  "Google did not say which account this is": "Google hat nicht angegeben, welches Konto dies ist",
+  "This platform is not available yet": "Diese Plattform ist noch nicht verfügbar",
+  "Choose a Bot first": "Wähle zuerst einen Bot aus",
+  "This platform signs in by scanning a code; not available yet": "Diese Plattform meldet sich per QR-Code an und ist noch nicht verfügbar",
+  "No such IM bot": "IM-Bot nicht gefunden",
+  "No such platform": "Plattform nicht gefunden",
+  "No such chat": "Chat nicht gefunden",
+  "Choose a Bot or a group": "Wähle einen Bot oder eine Gruppe aus",
+  "This platform has no QR login": "Diese Plattform unterstützt keine QR-Anmeldung",
+  "Paste the bot token first": "Füge zuerst das Bot-Token ein",
+  "Telegram did not say who this token belongs to": "Telegram hat nicht angegeben, zu welchem Bot dieses Token gehört",
+  "A webhook or another program uses this bot": "Ein Webhook oder ein anderes Programm verwendet diesen Bot bereits",
+  "This token does not belong to a Discord bot": "Dieses Token gehört nicht zu einem Discord-Bot",
+  "Discord gave no usable gateway URL": "Discord hat keine nutzbare Gateway-URL zurückgegeben",
+  "These credentials do not belong to a Slack bot": "Diese Zugangsdaten gehören nicht zu einem Slack-Bot",
+  "WeChat answered an unreadable response": "WeChat hat eine unlesbare Antwort zurückgegeben",
+  "WeChat rate limited the request": "WeChat hat die Anfrage wegen des Ratenlimits blockiert",
+  "WeChat refused the token": "WeChat hat das Token abgelehnt",
+  "Use a capability name with lowercase letters, digits, and single hyphens; connector names are reserved.": "Verwende für den Fähigkeitsnamen nur Kleinbuchstaben, Ziffern und einzelne Bindestriche; Connector-Namen sind reserviert.",
+  "Arguments must be a list of text values.": "Argumente müssen eine Liste von Textwerten sein.",
+  "Choose an MCP server, skill, or pack.": "Wähle einen MCP-Server, eine Fähigkeit oder ein Paket aus.",
+  "A capability cannot change its kind. Delete it and save a new one.": "Der Typ einer Fähigkeit kann nicht geändert werden. Lösche sie und lege eine neue an.",
+  "Enter a command for the MCP server.": "Gib einen Befehl für den MCP-Server ein.",
+  "Enter a valid HTTP or HTTPS URL.": "Gib eine gültige HTTP- oder HTTPS-URL ein.",
+  "Only Bots on the team can change capabilities.": "Nur Bots im Team können Fähigkeiten ändern.",
+  "Only a Main Bot can change another Bot’s capabilities.": "Nur ein Haupt-Bot kann die Fähigkeiten eines anderen Bots ändern.",
+  "This DSH cannot load MCP servers.": "Dieses DSH kann keine MCP-Server laden.",
+  "Unknown capability operation.": "Unbekannte Fähigkeitsaktion.",
+  "The secrets file is not encrypted.": "Die Geheimnisdatei ist nicht verschlüsselt.",
+  "Secrets are already encrypted.": "Geheimnisse sind bereits verschlüsselt.",
+  "Secrets are not encrypted.": "Geheimnisse sind nicht verschlüsselt.",
+  "Learning is turned off on this host": "Lernen ist auf diesem Host deaktiviert",
+  "AGENTS.md changed since this was proposed": "AGENTS.md wurde seit diesem Vorschlag geändert",
+  "The Bot that learned this skill is gone": "Der Bot, der diese Fähigkeit gelernt hat, existiert nicht mehr",
+  "System permissions are not available here": "Systemberechtigungen sind hier nicht verfügbar",
+  "This host keeps no Bot data folder, so it has no avatar library.": "Dieser Host führt keinen Bot-Datenordner und hat daher keine Mediathek.",
+  "DS Bot is shutting down": "DS Bot wird heruntergefahren",
   // Computer use
   "Computer use": "Computersteuerung",
   "Computer": "Computer",
@@ -11623,7 +12001,6 @@ var DE = {
   "Needs your confirmation": "Bestätigung erforderlich",
   "Help needed on the computer": "Hilfe am Computer benötigt",
   "You control the computer": "Du steuerst den Computer",
-  "Stop {name}": "{name} stoppen",
   "{name} · foreground": "{name} · Vordergrund",
   "{name} waits for the computer": "{name} wartet, bis du fertig bist",
   "Bot models": "Bot-Modelle",
@@ -11708,7 +12085,20 @@ var HOST_ERRORS_DE = [
   [/^There is no entry (.+)\.$/, "Eintrag Nr. $1 existiert nicht"],
   [/^No entry in [\s\S]* matches "([\s\S]*)"\.[\s\S]*$/, "Kein Gedächtniseintrag passt zu „$1“"],
   [/^"([\s\S]*)" matches (\d+) entries in [\s\S]*$/, "„$1“ passt auf $2 Gedächtniseinträge; bitte gib es genauer an"],
-  [/^Memory cannot change now: [\s\S]*$/, "Das Gedächtnis kann derzeit nicht geändert werden: Ein anderes dsh verwendet dieses Bot-Team"]
+  [/^Memory cannot change now: [\s\S]*$/, "Das Gedächtnis kann derzeit nicht geändert werden: Ein anderes dsh verwendet dieses Bot-Team"],
+  [/^Keep a to-do under (\d+) characters\.$/, "Eine Aufgabe darf höchstens $1 Zeichen lang sein."],
+  [/^The shared to-do list is full \((\d+)\)\. Remove one or clear the completed items\.$/, "Die gemeinsame Aufgabenliste ist voll ($1). Entferne einen Eintrag oder bereinige erledigte Aufgaben."],
+  [/^The goal of "(.+)" is ([^;]+); ([^ ]+) needs it to be (.+)\.$/, "Das Ziel von „$1“ befindet sich im Zustand $2; $3 erfordert den Zustand $4."],
+  [/^WeChat answered (.+)$/, "WeChat hat $1 geantwortet"],
+  [/^WeChat refused the reply \((.+)\)$/, "WeChat hat die Antwort abgelehnt ($1)"],
+  [/^(Feishu|Slack|QQ|DingTalk|Discord|WeCom) could not open a socket: (.+)$/, "$1 konnte keine Verbindung herstellen: $2"],
+  [/^WeCom socket failed: (.+)$/, "WeCom-Verbindung fehlgeschlagen: $1"],
+  [/^The password for (.+) is not saved$/, "Das Passwort für $1 ist nicht gespeichert"],
+  [/^No capability named (.+)\.$/, "Keine Fähigkeit namens $1 gefunden."],
+  [/^(.+) changed since this was proposed$/, "$1 wurde seit diesem Vorschlag geändert"],
+  [/^A skill named (.+) exists now$/, "Eine Fähigkeit namens $1 existiert bereits"],
+  [/^(.+) is required$/, "$1 ist erforderlich"],
+  [/^(.+) must be text$/, "$1 muss Text sein"]
 ];
 var DSH_DE = {
   common: {
@@ -12493,7 +12883,6 @@ var ZH = {
   Enable: "启用",
   Disable: "停用",
   "Remove?": "确认移除？",
-  "Not connected": "未连接",
   Disabled: "已停用",
   Capabilities: "能力",
   "Shared capabilities": "共享能力",
@@ -12623,7 +13012,6 @@ var ZH = {
   "Detected agents": "已检测到的 Agent",
   Refresh: "刷新",
   "No agent CLIs found": "没有找到 Agent CLI",
-  "Scan again for agent CLIs.": "重新扫描 Agent CLI。",
   "Custom agents": "自定义 Agent",
   "ACP-compatible agents, added by command.": "按命令添加的 ACP 兼容 Agent。",
   "Add agent": "添加 Agent",
@@ -12632,7 +13020,6 @@ var ZH = {
   "Sign-in command copied. Run it in a terminal: {command}": "登录命令已复制。请在终端运行：{command}",
   "Could not copy the sign-in command. Run this in a terminal: {command}": "没能复制登录命令。请在终端手动运行：{command}",
   Found: "已找到",
-  "Not found": "未找到",
   Arguments: "参数",
   Agent: "Agent",
   Sessions: "会话",
@@ -12814,7 +13201,6 @@ var ZH = {
   "Name after members": "按成员命名",
   "Rename {name}": "重命名 {name}",
   Rename: "重命名",
-  "No scheduled tasks yet. To add one, tell the Bot in its chat what to do and when.": "还没有定时任务。要添加，在对话里告诉 Bot 做什么、什么时候做。",
   "The browser is in DSH Desktop and the DS Bot app.": "浏览器在 DSH 桌面版和 DS Bot 应用里。",
   "New tab": "新标签页",
   "Close tab": "关闭标签页",
@@ -12829,7 +13215,6 @@ var ZH = {
   "Copy of its cookies": "复制它的 cookie",
   "No browsers found": "没有找到浏览器",
   "The Bot controls this browser": "Bot 正在控制此浏览器",
-  "The Bot is waiting for you": "Bot 正在等待你",
   "waits for the computer": "等你停手",
   "You control this browser": "你正在控制此浏览器",
   "The Bot handed this browser to you: {reason}": "Bot 已将此浏览器交给你：{reason}",
@@ -13179,7 +13564,6 @@ var ZH = {
   "Around this message": "这条消息的前后",
   "1 match": "1 条结果",
   "{count} matches": "{count} 条结果",
-  "Showing the {count} newest": "只显示最新 {count} 条",
   // Bot exchange
   "Bot exchange": "Bot 间对话",
   "Bot exchange transcript": "Bot 间对话记录",
@@ -13214,7 +13598,6 @@ var ZH = {
   "Add an annotation…": "写下批注…",
   "Add quote and annotation to the composer · Enter": "将引用和批注添加到输入框 · Enter",
   "Send quote and annotation · Ctrl+Enter": "发送引用和批注 · Ctrl+Enter",
-  "Quote text": "引用文本",
   Footnotes: "脚注",
   "Remove reaction {emoji}": "移除表情 {emoji}",
   "Add reaction": "添加表情",
@@ -13508,8 +13891,6 @@ var ZH = {
   "{count} files changed": "{count} 个文件改动",
   "{count} file changed": "{count} 个文件改动",
   "File": "文件",
-  "Binary file": "二进制文件",
-  "This file is too large to preview": "文件过大，无法预览",
   "Review these changes": "打开这次改动审查",
   "These changes are no longer available": "这些改动已经不可用：会话已归档或改动已被重置",
   "This window cannot open the change review": "当前窗口无法打开改动审查",
@@ -13529,12 +13910,9 @@ var ZH = {
   "Updated {name}'s memory": "已更新 {name} 的记忆",
   "Memory updated. Open {name}'s memory": "记忆已更新，打开 {name} 的记忆",
   // Browser
-  "Close browser": "关闭浏览器",
   "Open browser": "打开浏览器",
   "{name}'s browser": "{name} 的浏览器",
   "Resize panel": "调整面板宽度",
-  "{name} read this page": "{name} 读了这个页面",
-  "{name}'s browser. {name} can read the page shown here.": "{name} 的浏览器。{name} 能读取这里显示的页面。",
   Back: "后退",
   Forward: "前进",
   Stop: "停止",
@@ -13860,9 +14238,7 @@ var ZH = {
   "Some folders are not shown.": "还有一些文件夹没有显示。",
   "Waiting for sign-in…": "等待登录…",
   "This service needs an app client ID": "该服务需要应用 Client ID",
-  "Open the sign-in page": "打开登录页",
   "Paste the address you land on": "粘贴跳转后的地址",
-  "Or paste the address you land on": "或粘贴跳转后的地址",
   "Finish sign-in": "完成登录",
   "Open {host}": "打开 {host}",
   "Client ID": "Client ID",
@@ -13875,7 +14251,6 @@ var ZH = {
   "{count} tools": "{count} 个工具",
   "Mailbox": "邮箱",
   "Email address": "邮箱地址",
-  "App password / authorization code": "应用密码 / 授权码",
   "Catalog": "目录",
   "App password": "应用专用密码",
   "Authorization code": "授权码",
@@ -13954,13 +14329,7 @@ var ZH = {
   "IMAP host": "IMAP 服务器",
   "SMTP host": "SMTP 服务器",
   "Sign in with Google": "使用 Google 登录",
-  "Add account": "添加账户",
-  "Add an account": "添加账户",
-  "No mail accounts yet": "还没有邮箱账户",
   "Verifying…": "正在验证…",
-  "Open the Google sign-in page": "打开 Google 登录页",
-  "Add an address": "添加地址",
-  "Add a command": "添加命令",
   "Import from other apps": "从其他应用导入",
   "Server address": "服务器地址",
   "Command, e.g. npx -y some-mcp": "命令,例如 npx -y some-mcp",
@@ -13976,7 +14345,6 @@ var ZH = {
   "Commerce": "商务",
   "No connectors connected": "未连接任何连接器",
   "{bot} needs {name}": "{bot} 需要 {name}",
-  "{bot} wants to send an email": "{bot} 想发送一封邮件",
   "Mail": "邮件",
   "Subject": "主题",
   "Write a message…": "写邮件正文…",
@@ -14075,11 +14443,23 @@ var HOST_ERRORS = [
   [/^There is no entry (.+)\.$/, "没有第 $1 条"],
   [/^No entry in [\s\S]* matches "([\s\S]*)"\.[\s\S]*$/, "找不到「$1」这条记忆"],
   [/^"([\s\S]*)" matches (\d+) entries in [\s\S]*$/, "「$1」对应了 $2 条记忆，请说得更具体"],
-  [/^Memory cannot change now: [\s\S]*$/, "现在不能修改记忆：另一个 dsh 正在使用这个 Bot 团队"]
+  [/^Memory cannot change now: [\s\S]*$/, "现在不能修改记忆：另一个 dsh 正在使用这个 Bot 团队"],
+  [/^Keep a to-do under (\d+) characters\.$/, "待办事项不能超过 $1 个字符。"],
+  [/^The shared to-do list is full \((\d+)\)\. Remove one or clear the completed items\.$/, "共享待办列表已满（$1 条），请先移除一项或清理已完成项。"],
+  [/^The goal of "(.+)" is ([^;]+); ([^ ]+) needs it to be (.+)\.$/, "「$1」的目标当前处于 $2 状态；$3 需要先处于 $4 状态。"],
+  [/^WeChat answered (.+)$/, "微信返回了错误（$1）"],
+  [/^WeChat refused the reply \((.+)\)$/, "微信拒绝了这条回复（$1）"],
+  [/^(Feishu|Slack|QQ|DingTalk|Discord|WeCom) could not open a socket: (.+)$/, "$1 无法建立连接：$2"],
+  [/^WeCom socket failed: (.+)$/, "企业微信连接失败：$1"],
+  [/^The password for (.+) is not saved$/, "还没有保存 $1 的密码"],
+  [/^No capability named (.+)\.$/, "没有叫 $1 的能力。"],
+  [/^(.+) changed since this was proposed$/, "$1 在提出建议后已经改过了"],
+  [/^A skill named (.+) exists now$/, "已经有叫 $1 的技能了"],
+  [/^(.+) is required$/, "请填写 $1"],
+  [/^(.+) must be text$/, "$1 必须是文本"]
 ];
 var HOST_ZH = {
   "The Server address must start with ws:// or wss://": "服务器地址必须以 ws:// 或 wss:// 开头",
-  "Enter the Server address first": "请先填服务器地址",
   "Turn on phone access first": "请先打开手机访问",
   "This phone is not paired": "这台手机没有配对",
   "Another dsh has this Bot team open, so phones connect to that one": "另一个 dsh 打开了这个 Bot 团队，手机会连到那一个",
@@ -14087,7 +14467,6 @@ var HOST_ZH = {
   "Phones are paired and removed on the computer": "配对和删除手机只能在电脑上做",
   "Request failed": "请求失败",
   "Permissions are not available in this DeepSeek Harness": "这个 DeepSeek Harness 不支持权限设置",
-  "Avatar images must be PNG, JPEG, WebP, or GIF": "头像图片必须是 PNG、JPEG、WebP 或 GIF",
   "Avatar image is too large": "头像图片太大了",
   "A Bot needs a name": "Bot 需要一个名字",
   "A Bot name cannot contain @, ` or a line break": "Bot 名字里不能有 @、` 或换行",
@@ -14134,6 +14513,96 @@ var HOST_ZH = {
   "Nothing to cancel": "没有要取消的内容",
   "Nothing to close": "没有要关闭的内容",
   "DS Bot is still loading this chat.": "DS Bot 还在加载这个对话。",
+  "This message is no longer kept": "这条消息已经不再保留",
+  "No file named": "没有指定文件",
+  "This file cannot be read here": "这个文件在这里读不了",
+  "That wait is no longer open": "这个等待已经结束了",
+  "Nothing to send": "没有要发送的内容",
+  "This view is no longer open": "这个视图已经关闭了",
+  "This is not a photo DS Bot can send": "这不是 DS Bot 能发送的照片",
+  "A photo did not arrive. Send it again.": "有张照片没传到，请重新发送。",
+  "Nothing to delete": "没有要删除的内容",
+  "Bot browsers are off on this host": "这台主机关闭了 Bot 浏览器",
+  "This Bot has no open browser": "这个 Bot 没有打开的浏览器",
+  "A browser poll needs a clientId": "浏览器轮询缺少 clientId",
+  "This browser is not held": "这个浏览器当前没有在交接中",
+  "This handoff is no longer open": "这次浏览器交接已经结束了",
+  "Avatar images must be PNG, JPEG, WebP, GIF, or SVG": "头像图片必须是 PNG、JPEG、WebP、GIF 或 SVG",
+  "Pick a model before choosing a thinking level": "请先选择模型，再选择思考强度",
+  "Unknown section": "找不到这个分组",
+  "Unknown section color": "未知分组颜色",
+  "Write the to-do first.": "请先写下待办内容。",
+  "That to-do is no longer on the list.": "这条待办已经不在列表里了。",
+  "Write what this group should achieve, in at most 2000 characters.": "请写下这个群要达成的目标，最多 2000 个字符。",
+  "This group has no admin. Set one in the group settings first.": "这个群没有管理员，请先在群设置里指定一位管理员。",
+  "This group already has a goal. Stop it first.": "这个群已经有一个目标了，请先停止它。",
+  "The goal has changed. Look again.": "目标已经变化，请刷新后再试。",
+  "Nothing to do": "没有要做的操作",
+  "Write a note first.": "请先写下备注。",
+  "That task is already finished.": "这个任务已经结束了。",
+  "No such group.": "找不到这个群聊。",
+  "No such task.": "找不到这个任务。",
+  "No open task to cancel.": "没有可取消的进行中任务。",
+  "Sign-in timed out": "登录超时",
+  "The sign-in answer did not match this attempt (state mismatch). Try again.": "登录回调与本次请求不匹配（状态不一致），请重试。",
+  "This connector does not sign in": "这个连接器不需要登录",
+  "This connector has no server address": "这个连接器没有服务器地址",
+  "Connector addresses must start with https://": "连接器地址必须以 https:// 开头",
+  "This service does not publish OAuth sign-in metadata": "这个服务没有公开 OAuth 登录元数据",
+  "Paste a key first": "请先粘贴密钥",
+  "No sign-in is waiting": "当前没有等待中的登录",
+  "Paste the address or the code": "请粘贴回调地址或授权码",
+  "This address is not from this sign-in attempt (state mismatch). Copy the whole address again.": "这个地址不是本次登录返回的（状态不一致），请重新复制完整地址。",
+  "The address has no code": "这个地址里没有授权码",
+  "Enter the client ID": "请输入客户端 ID",
+  "Name the connector": "请填写连接器名称",
+  "Enter an address or a command": "请输入地址或命令",
+  "Only added connectors can be removed": "只能移除自己添加的连接器",
+  "The mail connection closed during verification": "验证期间邮件连接已断开",
+  "Google sign-in is not available in this build": "当前版本不支持 Google 登录",
+  "Enter an email address": "请输入邮箱地址",
+  "Enter the IMAP and SMTP hosts": "请输入 IMAP 和 SMTP 服务器",
+  "No such account": "找不到这个账户",
+  "This card was already answered": "这张卡片已经处理过了",
+  "No Google sign-in is waiting": "当前没有等待中的 Google 登录",
+  "The sign-in answer is not for this attempt": "登录回调不是针对本次请求的",
+  "Google did not say which account this is": "Google 没有返回这是哪个账户",
+  "This platform is not available yet": "这个平台暂不可用",
+  "Choose a Bot first": "请先选择一个 Bot",
+  "This platform signs in by scanning a code; not available yet": "这个平台需要扫码登录，暂不可用",
+  "No such IM bot": "找不到这个 IM 机器人",
+  "No such platform": "找不到这个平台",
+  "No such chat": "找不到这个聊天",
+  "Choose a Bot or a group": "请选择一个 Bot 或群聊",
+  "This platform has no QR login": "这个平台不支持扫码登录",
+  "Paste the bot token first": "请先粘贴机器人令牌",
+  "Telegram did not say who this token belongs to": "Telegram 没有返回这个令牌属于哪个机器人",
+  "A webhook or another program uses this bot": "已有 Webhook 或其他程序在使用这个机器人",
+  "This token does not belong to a Discord bot": "这个令牌不属于 Discord 机器人",
+  "Discord gave no usable gateway URL": "Discord 没有返回可用的网关地址",
+  "These credentials do not belong to a Slack bot": "这些凭据不属于 Slack 机器人",
+  "WeChat answered an unreadable response": "微信返回了无法解析的响应",
+  "WeChat rate limited the request": "微信限制了请求频率",
+  "WeChat refused the token": "微信拒绝了这个令牌",
+  "Use a capability name with lowercase letters, digits, and single hyphens; connector names are reserved.": "能力名称只能用小写字母、数字和单个连字符，不能使用连接器保留名称。",
+  "Arguments must be a list of text values.": "参数必须是文本列表。",
+  "Choose an MCP server, skill, or pack.": "请选择 MCP 服务、技能或套件。",
+  "A capability cannot change its kind. Delete it and save a new one.": "能力不能更改类型，请删除后新建。",
+  "Enter a command for the MCP server.": "请输入 MCP 服务的命令。",
+  "Enter a valid HTTP or HTTPS URL.": "请输入有效的 HTTP 或 HTTPS 地址。",
+  "Only Bots on the team can change capabilities.": "只有团队里的 Bot 可以修改能力。",
+  "Only a Main Bot can change another Bot’s capabilities.": "只有主 Bot 可以修改其他 Bot 的能力。",
+  "This DSH cannot load MCP servers.": "这个 DSH 不能加载 MCP 服务。",
+  "Unknown capability operation.": "未知的能力操作。",
+  "The secrets file is not encrypted.": "密钥文件还没有加密。",
+  "Secrets are already encrypted.": "密钥已经加密了。",
+  "Secrets are not encrypted.": "密钥还没有加密。",
+  "Learning is turned off on this host": "这台主机关闭了学习功能",
+  "AGENTS.md changed since this was proposed": "提出建议后 AGENTS.md 已经改动过了",
+  "The Bot that learned this skill is gone": "学到这个技能的 Bot 已经不在了",
+  "System permissions are not available here": "当前环境不支持系统权限设置",
+  "This host keeps no Bot data folder, so it has no avatar library.": "这台主机没有保存 Bot 数据文件夹，因此没有头像库。",
+  "DS Bot is shutting down": "DS Bot 正在关闭",
   // Computer use
   "Computer use": "电脑操控",
   "Computer": "电脑",
@@ -14178,7 +14647,6 @@ var HOST_ZH = {
   "Needs your confirmation": "需要你确认",
   "Help needed on the computer": "需要你在电脑上帮忙",
   "You control the computer": "你在操控电脑",
-  "Stop {name}": "停止 {name}",
   "{name} · foreground": "{name} · 前台",
   "{name} waits for the computer": "{name} 等你停手"
 };
@@ -15575,7 +16043,7 @@ var spring = (curve, ...properties) => properties.map((property) => `${property}
 function liveSprings(apply2) {
   const values = /* @__PURE__ */ new Map();
   const current2 = {};
-  let frame = 0;
+  let frame2 = 0;
   let last = 0;
   const step = (now) => {
     const dt = Math.min(0.5, Math.max(1e-3, (now - last) / 1e3));
@@ -15595,7 +16063,7 @@ function liveSprings(apply2) {
       current2[key] = value.x;
     }
     apply2(current2);
-    frame = moving ? requestAnimationFrame(step) : 0;
+    frame2 = moving ? requestAnimationFrame(step) : 0;
   };
   return {
     target: () => {
@@ -15614,17 +16082,17 @@ function liveSprings(apply2) {
         } else Object.assign(value, { to, k, c });
       }
       if (jump) {
-        cancelAnimationFrame(frame);
-        frame = 0;
+        cancelAnimationFrame(frame2);
+        frame2 = 0;
         apply2(current2);
         return;
       }
-      if (!frame) {
+      if (!frame2) {
         last = performance.now();
-        frame = requestAnimationFrame(step);
+        frame2 = requestAnimationFrame(step);
       }
     },
-    stop: () => cancelAnimationFrame(frame)
+    stop: () => cancelAnimationFrame(frame2)
   };
 }
 var CHOSEN = '[aria-pressed="true"],[aria-selected="true"],[aria-current="page"]';
@@ -15909,7 +16377,7 @@ function writeSidebar(value, storage = globalThis.localStorage) {
 var SHELL_CSS = `
 body{--bt-im-telegram:#229ed9;--bt-im-weixin:#07c160;--bt-im-feishu:#3370ff;--bt-im-dingtalk:#1e88e5;--bt-im-wecom:#0082ef;--bt-im-qq:#e03e3e;--bt-im-discord:#5865f2;--bt-im-slack:#4a154b;--bt-im-mark-ink:#ffffff;--bt-qr-paper:#ffffff;--bt-qr-ink:#141414;--bt-ink:#141414;--bt-danger:#e02135;--bt-warn:#8a5a00;--bt-ink-2:rgba(20,20,20,.6);--bt-ink-3:rgba(20,20,20,.36);--bt-bubble:#eeeeee;--bt-sidebar:#f7f7f7;--bt-main:#fcfcfc;--bt-line:rgba(20,20,20,.08);--bt-line-2:rgba(20,20,20,.15);--bt-line-weak:rgba(20,20,20,.1);--bt-hover:rgba(119,119,119,.09);--bt-active:rgba(119,119,119,.17);--bt-card:#ffffff;--bt-accent:#4d6bfe;--bt-green:#00c972;--bt-star:#ff9800;--bt-user:#070707;--bt-user-ink:#fcfcfc;--bt-tag-bg:rgba(20,20,20,.06);--bt-tag-ink:rgba(20,20,20,.56);--bt-knob:#ffffff;--bt-glass-bg:color-mix(in srgb,var(--bt-main) 78%,transparent);--bt-glass-border:rgba(255,255,255,.72);--bt-glass-rim:rgba(20,20,20,.09);--bt-glass-shadow:0 8px 28px -6px rgba(0,0,0,.08),0 2px 6px -1px rgba(0,0,0,.04),inset 0 1px 0 rgba(255,255,255,.82);--bt-dialog-shadow:0 28px 90px -12px rgba(0,0,0,.22),0 8px 24px -4px rgba(0,0,0,.08),inset 0 1px 0 rgba(255,255,255,.78);--bt-card-shadow:0 1px 2px rgba(20,20,20,.03),inset 0 1px 0 rgba(255,255,255,.65);--bt-nav-thumb-bg:color-mix(in srgb,var(--bt-card) 82%,var(--bt-active));--bt-nav-thumb-shadow:0 1px 2px rgba(20,20,20,.06),inset 0 .5px 0 rgba(255,255,255,.8);--bt-select-arrow:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12' fill='none' stroke='%23888' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m3 4.5 3 3 3-3'/%3E%3C/svg%3E");--bt-accent-soft:color-mix(in srgb,var(--bt-accent) 14%,transparent);--bt-danger-soft:color-mix(in srgb,var(--bt-danger) 14%,transparent);--bt-danger-glow:color-mix(in srgb,var(--bt-danger) 24%,transparent);-webkit-tap-highlight-color:transparent;-webkit-text-size-adjust:100%;--bt-font:var(--dsw-font-family,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif)}
 /* iOS waits out a double-tap zoom on buttons; the plugin's own controls never zoom. */
-:is(.bt-tool,.bt-uaction,.bt-menu button,.bt-menu-item,.bt-icon-btn,.bt-round,.bt-pill,.bt-account,.bt-set-row,.bt-settings-item,.bt-react-strip button,.bt-palette-row,.bt-palette-clear,.bt-tab,.bt-ptab,.bt-ptab-x,.bt-bcard-x,.bt-plus,.bt-q-btn,.bt-q-fold,.bt-q-x,.bt-x,.bt-nc-send,.bt-send,.bt-soft,.bt-mini,.bt-side-send,.bt-shape,.bt-swatch,.bt-color,.bt-newchat,.bt-task-day,.bt-task-remove,.bt-fb-btn){touch-action:manipulation}
+:is(.bt-tool,.bt-menu button,.bt-icon-btn,.bt-round,.bt-pill,.bt-account,.bt-set-row,.bt-settings-item,.bt-react-strip button,.bt-palette-row,.bt-palette-clear,.bt-tab,.bt-ptab,.bt-ptab-x,.bt-bcard-x,.bt-plus,.bt-q-btn,.bt-q-fold,.bt-q-x,.bt-x,.bt-nc-send,.bt-send,.bt-soft,.bt-mini,.bt-side-send,.bt-shape,.bt-swatch,.bt-color,.bt-newchat,.bt-task-day,.bt-task-remove){touch-action:manipulation}
 :is(.bt-round,.bt-you,.bt-account,.bt-color,.bt-color span,.bt-swatch,.bt-icon-btn,.bt-avatar-trigger,.bt-avatar-pencil,.bt-plus,.bt-mic,.bt-voice,.bt-task-day,.bt-task-off-mark){corner-shape:round}
 body[data-ds-dark-theme]{--bt-im-telegram:#2ea8de;--bt-im-weixin:#17c96a;--bt-im-feishu:#4d84ff;--bt-im-dingtalk:#3d99ed;--bt-im-wecom:#2898f2;--bt-im-qq:#e85555;--bt-im-discord:#6e7bf2;--bt-im-slack:#7c4380;--bt-im-mark-ink:#ffffff;--bt-ink:#f2f2f2;--bt-ink-2:rgba(242,242,242,.6);--bt-ink-3:rgba(242,242,242,.36);--bt-bubble:#262626;--bt-sidebar:#1b1b1b;--bt-main:#141414;--bt-line:rgba(255,255,255,.08);--bt-line-2:rgba(255,255,255,.15);--bt-line-weak:rgba(255,255,255,.1);--bt-hover:rgba(160,160,160,.12);--bt-active:rgba(160,160,160,.2);--bt-card:#1f1f1f;--bt-user:#f2f2f2;--bt-user-ink:#141414;--bt-tag-bg:rgba(255,255,255,.09);--bt-tag-ink:rgba(242,242,242,.62);--bt-glass-bg:color-mix(in srgb,var(--bt-main) 74%,transparent);--bt-glass-border:rgba(255,255,255,.13);--bt-glass-rim:rgba(255,255,255,.11);--bt-glass-shadow:0 12px 32px -6px rgba(0,0,0,.42),0 2px 8px -1px rgba(0,0,0,.28),inset 0 1px 0 rgba(255,255,255,.12);--bt-dialog-shadow:0 32px 96px -12px rgba(0,0,0,.62),0 10px 28px -4px rgba(0,0,0,.42),inset 0 1px 0 rgba(255,255,255,.1);--bt-card-shadow:0 1px 3px rgba(0,0,0,.22),inset 0 .5px 0 rgba(255,255,255,.07);--bt-nav-thumb-bg:color-mix(in srgb,var(--bt-card) 65%,var(--bt-active));--bt-nav-thumb-shadow:0 1px 3px rgba(0,0,0,.28),inset 0 .5px 0 rgba(255,255,255,.12);--bt-accent-soft:color-mix(in srgb,var(--bt-accent) 18%,transparent);--bt-danger-soft:color-mix(in srgb,var(--bt-danger) 18%,transparent);--bt-danger-glow:color-mix(in srgb,var(--bt-danger) 28%,transparent);--bt-warn:#f0b84a}
 ${Object.entries(INKS).map(([name, [light]]) => `body{--bt-ink-${name}:${light}}`).join("")}
@@ -16011,10 +16479,12 @@ body[data-bt-motion=quiet] .bt-mark[data-poke]{cursor:default}
 .bt-stack-more{font-size:11px;line-height:16px;color:var(--bt-ink-3);margin-left:3px!important}
 
 .bt-side{display:flex;flex-direction:column;min-height:0;flex:1 1 auto;gap:2px;padding:0 12px 8px 0;color:var(--bt-ink);font-family:var(--bt-font)}
-.bt-side-top{display:flex;justify-content:flex-end;align-items:center;gap:8px;padding:6px 5px 0 0}
+.bt-side-top{display:flex;flex-wrap:wrap;container-type:inline-size;container-name:bt-side-top;justify-content:flex-start;align-items:center;gap:8px;padding:6px 5px 0 0}
 .bt-brand{display:inline-flex;align-items:center;gap:6px;margin-right:auto;padding:4px 8px 4px 4px;border:0;border-radius:8px;background:none;cursor:pointer;font-family:inherit;font-size:15px;line-height:20px;font-weight:600;letter-spacing:-.01em;color:var(--bt-ink);white-space:nowrap}
 .bt-brand-whale{display:inline-flex;color:var(--bt-accent)}
-.bt-round{width:36px;height:36px;border-radius:50%;border:1px solid var(--bt-line);background:var(--bt-main);color:var(--bt-ink);display:inline-flex;align-items:center;justify-content:center;cursor:pointer;padding:0;transition:background-color .12s ease,transform .12s ease}
+.bt-round{flex:none;width:36px;height:36px;border-radius:50%;border:1px solid var(--bt-line);background:var(--bt-main);color:var(--bt-ink);display:inline-flex;align-items:center;justify-content:center;cursor:pointer;padding:0;transition:background-color .12s ease,transform .12s ease}
+/* A narrow column must wrap its header instead of squeezing round controls. */
+@container bt-side-top (max-width:300px){.bt-side-top>.bt-brand{flex-basis:100%}}
 .bt-round:hover{background:var(--bt-hover)}
 .bt-round:active{transform:scale(.94)}
 .bt-list{display:flex;flex-direction:column;gap:3px;overflow-y:auto;min-height:0;flex:1 1 auto}
@@ -16063,6 +16533,12 @@ html[data-windows-titlebar] .bt-leftcol,html[data-platform=darwin] .bt-leftcol{b
 @media (min-width:${DSH_NARROW}px){
 [class*="_frame"][data-sidebar-collapsed][data-rightbar-collapsed]:has(>[class*="_sidebarCol"]){grid-template-columns:0px minmax(0,1fr) 0px!important}
 }
+/* Bot mode owns the left column while both shell tracks are collapsed. Keep
+   the center's explicit second grid column, but yield when a shell track opens.
+   A responsive skin's single track otherwise creates an implicit center column. */
+@media (max-width:${DSH_NARROW - 1}px){
+[class*="_frame"][data-sidebar-collapsed][data-rightbar-collapsed]:has(>[class*="_centerCol"] .bt-head){grid-template-columns:0px minmax(0,1fr) 0px!important}
+}
 html[data-bt-collapsing] [class*="_frame"]:has(>[class*="_sidebarCol"]){transition:none!important}
 .bt-leftcol[data-left=drawer]{background:var(--bt-sidebar);box-shadow:8px 0 24px rgba(0,0,0,.14)}
 .bt-leftcol>.bt-side{width:100%}
@@ -16070,6 +16546,10 @@ html[data-bt-collapsing] [class*="_frame"]:has(>[class*="_sidebarCol"]){transiti
 .bt-rail{align-items:center;gap:6px;padding:0}
 .bt-rail .bt-row{justify-content:center;width:56px;height:56px;min-height:56px;padding:0;border-radius:16px}
 .bt-rail-top{display:flex;flex-direction:column;align-items:center;gap:8px;padding-bottom:8px}
+@media (max-width:600px) and (min-height:501px){
+.bt-rail-top .bt-round,.bt-leftcol-foot-rail>:is(.bt-round,.bt-account),.bt-leftcol-foot-rail .bt-you{width:56px;height:56px;flex:none}
+.bt-rail-top>.bt-round svg,.bt-leftcol-foot-rail>:is(.bt-round,.bt-account) svg{width:22px;height:22px}
+}
 .bt-rail-sep{width:24px;height:1px;flex:none;background:var(--bt-line)}
 .bt-rail .bt-agent-ava{width:44px;height:44px}
 /* Icon rows breathe the way the open column's rows do: 8px of gap puts ~20px
@@ -16086,7 +16566,6 @@ html[data-bt-collapsing] [class*="_frame"]:has(>[class*="_sidebarCol"]){transiti
 .bt-leftcol[data-left=rail][data-folding]>.bt-side{width:var(--bt-lc-w);margin-inline:auto}
 .bt-dot{position:absolute;top:4px;right:8px;width:8px;height:8px;border-radius:50%;background:var(--bt-accent);box-shadow:0 0 0 1.5px var(--bt-sidebar)}
 .bt-dot-wait{background:var(--bt-star)}
-.bt-side-foot{display:flex;padding-top:8px}
 
 .bt-head{position:relative;display:flex;justify-content:center;align-items:center;height:40px;flex:none;pointer-events:none}
 .bt-pill{pointer-events:auto;display:inline-flex;align-items:center;gap:8px;height:40px;padding:7.5px 13.5px 7.5px 7.5px;border-radius:999px;background:var(--bt-glass-bg);-webkit-backdrop-filter:blur(20px) saturate(180%);backdrop-filter:blur(20px) saturate(180%);border:.5px solid var(--bt-glass-rim);box-shadow:var(--bt-glass-shadow);color:var(--bt-ink);font-family:inherit;font-size:14px;line-height:20px;cursor:pointer;max-width:70%;box-sizing:border-box;transition:background-color .12s ease,transform ${SPRING_TAP.duration}ms ${SPRING_TAP.easing}}
@@ -16387,7 +16866,6 @@ html[data-windows-titlebar]:not([data-fullscreen]) :is(.bt-pane,.bt-panel)::befo
 .bt-swatches{display:flex;flex-wrap:wrap;gap:6px}
 .bt-swatch{width:22px;height:22px;border-radius:50%;border:2px solid transparent;cursor:pointer;padding:0;box-shadow:inset 0 0 0 1px var(--bt-line-2)}
 .bt-swatch[aria-pressed=true]{border-color:var(--bt-ink);box-shadow:inset 0 0 0 2px var(--bt-card)}
-.bt-textarea{width:100%;box-sizing:border-box;min-height:120px;border:.5px solid var(--bt-line-2);border-radius:8px;padding:8px 10px;background:var(--bt-card);color:var(--bt-ink);font:inherit;resize:vertical;transition:border-color .14s ease,box-shadow .14s ease}
 .bt-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 .bt-kv{display:flex;justify-content:space-between;gap:8px;font-size:12px;line-height:20px;color:var(--bt-ink-2)}
 .bt-kv span:last-child{color:var(--bt-ink);font-variant-numeric:tabular-nums}
@@ -16404,7 +16882,6 @@ html[data-windows-titlebar]:not([data-fullscreen]) :is(.bt-pane,.bt-panel)::befo
 .bt-input-area{height:auto;min-height:96px;padding:8px 11px;line-height:18px;resize:vertical}
 .bt-note{font-size:12px;line-height:16px;color:var(--bt-ink-3)}
 .bt-soft-sm{height:28px;padding:0 12px;font-size:12px;font-weight:500}
-.bt-set-avatar{display:flex;justify-content:center;padding:4px 0}
 .bt-avatar-anchor{position:relative}
 .bt-avatar-trigger{position:relative;width:64px;height:64px;border:0;border-radius:50%;background:none;cursor:pointer;padding:0}
 .bt-avatar-pencil{position:absolute;right:-2px;bottom:-2px;width:22px;height:22px;border-radius:50%;background:var(--bt-main);border:1px solid var(--bt-line-2);color:var(--bt-ink-2);display:flex;align-items:center;justify-content:center;box-shadow:0 1px 4px rgba(0,0,0,.12)}
@@ -16478,7 +16955,9 @@ body[data-ds-dark-theme] .bt-scrim{background:rgba(0,0,0,.5)}
 .bt-settings-icon>[data-slot="settings.section.icon"]>svg{display:block!important}
 .bt-settings-actions{margin-left:auto;display:flex;align-items:center;gap:8px;min-width:0}
 .bt-settings-actions:empty{display:none}
-.bt-dsh-section{min-width:0}
+/* Give height:100% plugin pages a definite flex height through DSH's boxless slot.
+   An auto basis without shrinking keeps natural-height content inside its section. */
+.bt-dsh-section{min-width:0;display:flex;flex-direction:column;flex:1 0 auto}
 /* A DSH page opens on its own title, which the dialog head already shows. */
 .bt-dsh-section>[data-slot]>*>h2:first-child,.bt-dsh-section>[data-slot]>*>:first-child>h2:first-child{display:none}
 .bt-dsh-item{min-width:0}
@@ -16535,7 +17014,6 @@ button.bt-set-row:hover .bt-chevron{transform:translateX(2px);color:var(--bt-ink
 .bt-set-number{width:112px}
 .bt-set-places .bt-set-hint{overflow-wrap:anywhere}
 .bt-set-hint.bt-danger{color:var(--bt-danger)}
-.bt-set-value{font-size:13px;color:var(--bt-ink-2);text-align:right}
 .bt-set-bot{flex:1;display:flex;align-items:center;gap:10px;min-width:0}
 .bt-browser-note{margin:0;padding:12px 16px;color:var(--bt-ink-2);font-size:12px;line-height:18px}
 .bt-browser-grant{display:flex;align-items:center;gap:12px;padding:12px 16px}
@@ -16838,41 +17316,23 @@ button:hover .bt-you{background:color-mix(in srgb,var(--bt-ink) 9%,var(--bt-side
 @media (prefers-reduced-motion:reduce){.bt-menu,.bt-avedit,.bt-react-strip{animation:bt-fade .1s ease-out}.bt-react-strip button,.bt-q-check,.bt-color[aria-pressed=true] span{animation:none}}
 .bt-brand:hover{background:var(--bt-hover)}
 .bt-drop-list{position:relative;display:flex;flex-direction:column;gap:2px}
-.bt-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:4px}
-.bt-pick{display:flex;flex-direction:column;align-items:center;gap:4px;padding:7px 2px 6px;border-radius:10px;border:1px solid transparent;background:none;color:var(--bt-ink);cursor:pointer;font:inherit;font-size:11px;line-height:14px;min-width:0}
-.bt-pick:hover{background:var(--bt-hover)}
-.bt-pick[aria-pressed=true]{border-color:var(--bt-line-2);background:var(--bt-hover)}
-.bt-pick>span:last-child:not(.bt-mark){max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.bt-pick:hover .bt-mark[data-state=idle] .bt-eye{animation:bt-blink .5s linear 1}
 .bt-select{-webkit-appearance:none;appearance:none;width:auto;min-width:148px;max-width:100%;height:34px;box-sizing:border-box;border-radius:8px;border:.5px solid var(--bt-line-2);background-color:var(--bt-hover);background-image:var(--bt-select-arrow);background-repeat:no-repeat;background-position:right 10px center;color:var(--bt-ink);padding:0 30px 0 12px;font:inherit;font-size:13px;font-weight:450;cursor:pointer;outline:none;transition:background-color .14s ease,border-color .14s ease,box-shadow .14s ease}
 .bt-select:hover:not(:disabled){background-color:var(--bt-active)}
 .bt-select:disabled{opacity:.45;cursor:default}
-:is(.bt-input,.bt-select,.bt-textarea):focus-visible{border-color:var(--bt-accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--bt-accent) 22%,transparent)}
-:is(.bt-round,.bt-icon-btn,.bt-soft,.bt-send,.bt-mini,.bt-pill,.bt-plus,.bt-mic,.bt-voice,.bt-account,.bt-title-toggle,.bt-settings-close,.bt-avatar-trigger,.bt-shape,.bt-color,.bt-swatch,.bt-pick,.bt-more,.bt-mem-row,.bt-mem-send):focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
+:is(.bt-input,.bt-select):focus-visible{border-color:var(--bt-accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--bt-accent) 22%,transparent)}
+:is(.bt-round,.bt-icon-btn,.bt-soft,.bt-send,.bt-mini,.bt-pill,.bt-plus,.bt-mic,.bt-voice,.bt-account,.bt-title-toggle,.bt-settings-close,.bt-avatar-trigger,.bt-shape,.bt-color,.bt-swatch,.bt-more,.bt-mem-row,.bt-mem-send):focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
 :is(.bt-row,.bt-tile,.bt-tab,.bt-avedit-tab,.bt-settings-item,.bt-menu button,.bt-option,.bt-palette-row,button.bt-set-row):focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px}
 .bt-note{font-size:12px;line-height:16px;color:var(--bt-ink-2);margin-top:6px}
 .bt-set-hint .bt-note.bt-danger{color:var(--bt-danger)}
-.bt-swatch-sep{width:1px;height:22px;background:var(--bt-line-2);margin:0 2px}
 .bt-swatch-custom{position:relative;overflow:hidden;background:conic-gradient(#ff3e51,#ffaf38,#00c972,#1cc3b0,#2a92fe,#a97efe,#ff5eb1,#ff3e51);box-sizing:border-box}
 .bt-swatch-custom[data-on=true]{border-color:var(--bt-ink)}
 .bt-swatch-custom input{position:absolute;inset:-4px;width:calc(100% + 8px);height:calc(100% + 8px);opacity:0;cursor:pointer;border:0;padding:0}
 .bt-swatch-default{background:linear-gradient(135deg,var(--bt-card) 0 46%,var(--bt-line-2) 46% 54%,var(--bt-card) 54%);box-shadow:inset 0 0 0 1px var(--bt-line-2)}
-.bt-states{display:flex;flex-wrap:wrap;gap:4px}
-.bt-state{border:1px solid var(--bt-line);background:none;border-radius:999px;font:inherit;font-size:11px;line-height:16px;padding:2px 8px;color:var(--bt-ink-2);cursor:pointer}
-.bt-state:hover{color:var(--bt-ink)}
-.bt-state[aria-pressed=true]{background:var(--bt-active);border-color:var(--bt-line-2);color:var(--bt-ink)}
-.bt-theme-chip{position:relative;width:46px;height:30px;border-radius:8px;box-shadow:inset 0 0 0 1px var(--bt-line-2);background:linear-gradient(90deg,var(--ls) 0 36%,var(--lb) 36%);overflow:hidden}
-.bt-theme-chip i{position:absolute;right:7px;bottom:7px;width:10px;height:10px;border-radius:50%;background:var(--la)}
-body[data-ds-dark-theme] .bt-theme-chip{background:linear-gradient(90deg,var(--ds) 0 36%,var(--db) 36%)}
-body[data-ds-dark-theme] .bt-theme-chip i{background:var(--da)}
 .bt-tabs{flex-wrap:wrap}
 .bt-soft:disabled{opacity:.4;cursor:default}
 .bt-group-role{margin-left:6px;font-size:11px;line-height:14px;padding:1px 5px;border-radius:4px;background:var(--bt-tag-bg);color:var(--bt-tag-ink);vertical-align:1px}
 .bt-mini{flex:none;border:0;background:none;border-radius:6px;padding:2px 6px;font:inherit;font-size:12px;line-height:18px;color:var(--bt-ink-2);cursor:pointer}
 .bt-mini:hover{background:var(--bt-active);color:var(--bt-ink)}
-.bt-add{color:var(--bt-ink-2);margin-top:2px}
-.bt-add:hover,.bt-addlist .bt-option:hover{background:var(--bt-hover);color:var(--bt-ink)}
-.bt-addlist{display:flex;flex-direction:column;margin-top:4px;padding:4px;border:1px solid var(--bt-line);border-radius:10px;background:var(--bt-card);animation:bt-rise .16s ease-out}
 .bt-seg{position:relative;display:flex;gap:2px;padding:2px;border-radius:10px;background:var(--bt-hover)}
 .bt-motion-seg,.bt-look-seg{width:216px}
 /* A range input: the track fills with the accent up to the thumb (--bt-fill). */
@@ -16892,7 +17352,6 @@ body[data-ds-dark-theme] .bt-theme-chip i{background:var(--da)}
 .bt-seg>.bt-thumb{top:2px;bottom:2px;border-radius:8px;background:var(--bt-card);box-shadow:0 1px 3px rgba(0,0,0,.08)}
 .bt-seg[data-glide] button[aria-pressed=true]{background:transparent;box-shadow:none}
 @keyframes bt-rise{from{opacity:0;transform:translateY(-3px)}to{opacity:1;transform:none}}
-@media (prefers-reduced-motion:reduce){.bt-addlist{animation:none}}
 
 /* Memory dialog: a summary of every entry, the entries behind the menu, "Ask or update" below. */
 .bt-mem-row{display:flex;align-items:center;gap:8px;width:100%;height:36px;padding:0 8px 0 10px;border:.5px solid var(--bt-line-2);border-radius:10px;background:var(--bt-card);color:var(--bt-ink);font:inherit;font-size:13px;cursor:pointer;box-sizing:border-box;transition:background-color .12s ease}
@@ -17007,9 +17466,9 @@ body[data-ds-dark-theme] .bt-theme-chip i{background:var(--da)}
 .bt-panel-view>.bt-drawer-body[data-move=tab]{animation:bt-veil-in .2s ease-out}
 .bt-drawer-name-input{animation:bt-veil-in .16s ease-out}
 .bt-pop-in{display:inline-flex;animation:bt-check-pop ${SPRING_POP.duration}ms ${SPRING_POP.easing}}
-:is(.bt-soft,.bt-send,.bt-icon-btn,.bt-settings-close,.bt-mini,.bt-tab,.bt-nc-send,.bt-avedit-tab,.bt-shape,.bt-pick,.bt-swatch,.bt-palette-clear){transition:background-color .12s ease,color .12s ease,border-color .12s ease,opacity .12s ease,${spring(SPRING_TAP, "scale")}}
+:is(.bt-soft,.bt-send,.bt-icon-btn,.bt-settings-close,.bt-mini,.bt-tab,.bt-nc-send,.bt-avedit-tab,.bt-shape,.bt-swatch,.bt-palette-clear){transition:background-color .12s ease,color .12s ease,border-color .12s ease,opacity .12s ease,${spring(SPRING_TAP, "scale")}}
 :is(.bt-icon-btn,.bt-settings-close,.bt-nc-send,.bt-shape,.bt-swatch,.bt-color,.bt-x,.bt-q-x,.bt-palette-clear):active:not(:disabled){scale:.9}
-:is(.bt-soft,.bt-send,.bt-mini,.bt-tab,.bt-avedit-tab,.bt-pick,.bt-q-submit,.bt-q-btn):active:not(:disabled){scale:.96}
+:is(.bt-soft,.bt-send,.bt-mini,.bt-tab,.bt-avedit-tab,.bt-q-submit,.bt-q-btn):active:not(:disabled){scale:.96}
 @media (prefers-reduced-motion:reduce){.bt-thumb{transition:none}.bt-panel-view>[data-move],.bt-drawer-name-input,.bt-veil,.bt-pop-in,.bt-token,.bt-drop,.bt-newchat,.bt-option-hint,.bt-connector-form,.bt-settings-head>*{animation:none}}
 /* Phone-width viewports: the settings dialog takes the whole screen, its page
    list becomes a horizontal strip across the top, and fixed-width pages wrap
@@ -17063,7 +17522,7 @@ body[data-bt-effects=reduced] .bt-mark:not([data-state=done]):not([data-state=al
 body[data-bt-effects=reduced][data-bt-motion=lively] .bt-mark[data-state=alert] :is(.bt-b,.bt-mark-img){animation-iteration-count:1!important}
 body[data-bt-effects=off] [class*="_centerCol"]{transition:none!important}
 body[data-bt-effects=off] :is([class^="bt-"],[class*=" bt-"]):not(.bt-spin):not(.bt-model-spin):not(.bt-mem-spin):not(.bt-loading-spin),body[data-bt-effects=off] :is([class^="bt-"],[class*=" bt-"]) *:not(.bt-spin):not(.bt-model-spin):not(.bt-mem-spin):not(.bt-loading-spin),body[data-bt-effects=off] :is([class^="bt-"],[class*=" bt-"])::before,body[data-bt-effects=off] :is([class^="bt-"],[class*=" bt-"])::after,body[data-bt-effects=off] :is([class^="bt-"],[class*=" bt-"]) *::before,body[data-bt-effects=off] :is([class^="bt-"],[class*=" bt-"]) *::after{animation:none!important;transition:none!important}
-body[data-bt-effects=off] :is(.bt-settings-layer,.bt-mem-layer,.bt-palette-layer,.bt-layer,.bt-panel,.bt-dialog,.bt-scrim,.bt-menu,.bt-drop,.bt-toast,.bt-avedit,.bt-react-strip,.bt-app,.bt-us):not(.bt-spin):not(.bt-model-spin):not(.bt-mem-spin):not(.bt-loading-spin),body[data-bt-effects=off] :is(.bt-settings-layer,.bt-mem-layer,.bt-palette-layer,.bt-layer,.bt-panel,.bt-dialog,.bt-scrim,.bt-menu,.bt-drop,.bt-toast,.bt-avedit,.bt-react-strip,.bt-app,.bt-us) *:not(.bt-spin):not(.bt-model-spin):not(.bt-mem-spin):not(.bt-loading-spin),body[data-bt-effects=off] :is(.bt-settings-layer,.bt-mem-layer,.bt-palette-layer,.bt-layer,.bt-panel,.bt-dialog,.bt-scrim,.bt-menu,.bt-drop,.bt-toast,.bt-avedit,.bt-react-strip,.bt-app,.bt-us)::before,body[data-bt-effects=off] :is(.bt-settings-layer,.bt-mem-layer,.bt-palette-layer,.bt-layer,.bt-panel,.bt-dialog,.bt-scrim,.bt-menu,.bt-drop,.bt-toast,.bt-avedit,.bt-react-strip,.bt-app,.bt-us)::after,body[data-bt-effects=off] :is(.bt-settings-layer,.bt-mem-layer,.bt-palette-layer,.bt-layer,.bt-panel,.bt-dialog,.bt-scrim,.bt-menu,.bt-drop,.bt-toast,.bt-avedit,.bt-react-strip,.bt-app,.bt-us) *::before,body[data-bt-effects=off] :is(.bt-settings-layer,.bt-mem-layer,.bt-palette-layer,.bt-layer,.bt-panel,.bt-dialog,.bt-scrim,.bt-menu,.bt-drop,.bt-toast,.bt-avedit,.bt-react-strip,.bt-app,.bt-us) *::after{animation:none!important;transition:none!important}
+body[data-bt-effects=off] :is(.bt-settings-layer,.bt-mem-layer,.bt-palette-layer,.bt-panel,.bt-dialog,.bt-scrim,.bt-menu,.bt-drop,.bt-toast,.bt-avedit,.bt-react-strip,.bt-app,.bt-us):not(.bt-spin):not(.bt-model-spin):not(.bt-mem-spin):not(.bt-loading-spin),body[data-bt-effects=off] :is(.bt-settings-layer,.bt-mem-layer,.bt-palette-layer,.bt-panel,.bt-dialog,.bt-scrim,.bt-menu,.bt-drop,.bt-toast,.bt-avedit,.bt-react-strip,.bt-app,.bt-us) *:not(.bt-spin):not(.bt-model-spin):not(.bt-mem-spin):not(.bt-loading-spin),body[data-bt-effects=off] :is(.bt-settings-layer,.bt-mem-layer,.bt-palette-layer,.bt-panel,.bt-dialog,.bt-scrim,.bt-menu,.bt-drop,.bt-toast,.bt-avedit,.bt-react-strip,.bt-app,.bt-us)::before,body[data-bt-effects=off] :is(.bt-settings-layer,.bt-mem-layer,.bt-palette-layer,.bt-panel,.bt-dialog,.bt-scrim,.bt-menu,.bt-drop,.bt-toast,.bt-avedit,.bt-react-strip,.bt-app,.bt-us)::after,body[data-bt-effects=off] :is(.bt-settings-layer,.bt-mem-layer,.bt-palette-layer,.bt-panel,.bt-dialog,.bt-scrim,.bt-menu,.bt-drop,.bt-toast,.bt-avedit,.bt-react-strip,.bt-app,.bt-us) *::before,body[data-bt-effects=off] :is(.bt-settings-layer,.bt-mem-layer,.bt-palette-layer,.bt-panel,.bt-dialog,.bt-scrim,.bt-menu,.bt-drop,.bt-toast,.bt-avedit,.bt-react-strip,.bt-app,.bt-us) *::after{animation:none!important;transition:none!important}
 body[data-bt-effects=off] :is(.bt-spin,.bt-model-spin,.bt-mem-spin,.bt-loading-spin){animation-timing-function:steps(8)!important;transition:none!important}
 `;
 var CONVERSATION_CSS = `
@@ -17072,6 +17531,9 @@ var CONVERSATION_CSS = `
    behind them unreadable. Where the blur does not take, the chat shows through the
    rows (issues 1113 and 935), so they get a solid fill. */
 [data-composer-overlay] [data-menu-material]{--dsw-menu-surface-fill:var(--bt-card)}
+/* DSH's row spans share no semantic hooks beyond the option; keep descriptions
+   beside their labels without changing their flex sizing or overflow. */
+[data-trigger-menu] [role=option]>span{text-align:left}
 .bt-think{font-size:13px;line-height:18px;color:var(--bt-ink-2);margin:2px 0 4px;max-width:calc(var(--bt-msg-w) * 100%)}
 body[data-bt-layout=flat] .bt-think{max-width:calc(var(--bt-flat-w) * 100%)}
 .bt-think summary{cursor:pointer;list-style:none;display:inline-flex;align-items:center;gap:6px}
@@ -17094,6 +17556,8 @@ body[data-bt-layout=flat] .bt-think{max-width:calc(var(--bt-flat-w) * 100%)}
 .bt-event-whole>span:first-child{margin-right:2px}
 /* One button cannot wrap like separate parts, so a long name is cut to fit the chat. */
 .bt-event-whole>.bt-event-name{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* Keep message tools outside paint containment. */
+.bt-bubble,.bt-ububble{content-visibility:auto;contain-intrinsic-size:auto 160px}
 .bt-time-sep{display:flex;justify-content:center;align-items:center;height:28px;margin:14px 0 8px;font-size:12px;line-height:16px;color:var(--bt-ink-2);white-space:nowrap}
 [class*="_scroll"]>[class*="_column"]::before{content:var(--bt-first-sep,none);display:block;flex:none;height:28px;margin:17px 0 12px;font-size:12px;line-height:28px;text-align:center;color:var(--bt-ink-2);white-space:nowrap}
 .bt-activity{display:flex;align-items:center;gap:10px;margin:8px 0 4px 2px;font-size:14px;color:var(--bt-ink-2)}
@@ -17191,6 +17655,12 @@ body[data-bt-goal] [class*="_scroll"]:has(> [class*="_column"]){padding-top:calc
 [data-composer-card]:has(> [data-slot="conversation.input.attachments"] *),[data-composer-card]:has([data-composer-input] br + *),[data-composer-card]:has([data-composer-input] > :nth-child(2)){border-radius:18px!important}
 [class*="_root"]:has(> [data-composer-card]){padding:0 11px 13px 16px!important}
 [class*="_root"]:has(> [data-composer-card])>[data-composer-card]{max-width:min(992px,100%)!important}
+/* Embedded phone browsers may report zero safe-area insets even when the screen
+   corners clip content. Keep a minimum gutter as well as honoring larger insets. */
+@media (max-width:${DSH_NARROW - 1}px) and (pointer:coarse){
+.bt-leftcol,.bt-leftcol[data-left=rail]{padding-bottom:max(24px,env(safe-area-inset-bottom,0px))}
+[class*="_root"]:has(> [data-composer-card]){padding-left:max(16px,env(safe-area-inset-left,0px))!important;padding-right:max(16px,env(safe-area-inset-right,0px))!important;padding-bottom:max(24px,env(safe-area-inset-bottom,0px))!important}
+}
 [data-composer-card]>[class*="_row"]{display:contents!important}
 [data-composer-card] [class*="_tools"]{order:1!important;flex:none!important;align-self:flex-end!important;margin:0!important}
 [data-composer-card]>[data-input-scroll]{order:2!important;flex:1 1 0!important;min-width:0!important;padding:0 8px!important;margin:0!important}
@@ -17200,6 +17670,13 @@ body[data-bt-goal] [class*="_scroll"]:has(> [class*="_column"]){padding-top:calc
 [data-composer-card]:has(> [data-slot="conversation.input.attachments"] > [class*="_rail"])>[data-input-scroll]{order:1!important;flex:0 0 100%!important;margin:0 0 6px!important}
 [data-composer-card]:has(> [data-slot="conversation.input.attachments"] > [class*="_rail"]) [class*="_tools"]{order:2!important}
 [data-composer-card]:has(> [data-slot="conversation.input.attachments"] > [class*="_rail"]) [class*="_trailing"]{margin-left:auto!important}
+/* On phones the optional tools can consume the whole line before an empty editor
+   has any intrinsic width. Give typing its own line, including before the first tap. */
+@media (max-width:600px), (max-width:${DSH_NARROW - 1}px) and (max-height:500px) and (pointer:coarse){
+[data-composer-card]>[data-input-scroll]{order:1!important;flex:0 0 100%!important;margin:0 0 6px!important}
+[data-composer-card] [class*="_tools"]{order:2!important}
+[data-composer-card] [class*="_trailing"]{margin-left:auto!important}
+}
 [data-composer-card] [data-composer-input]{min-height:24px!important;padding:2px 0!important}
 [data-composer-card] [data-composer-placeholder]{left:0!important;top:2px!important}
 [data-composer-placeholder]{font-size:0!important;line-height:0!important}
@@ -17390,8 +17867,6 @@ div:has(> nav [class*="_marks"]){display:none!important}
 .bt-btw-q{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;line-height:18px}
 .bt-btw[data-open] .bt-btw-q{white-space:normal}
 .bt-btw-time,.bt-btw-status{flex:none;color:var(--bt-ink-3);font-size:11px;line-height:14px;font-variant-numeric:tabular-nums}
-.bt-btw-cancel{margin-left:auto}
-.bt-btw-cancel:disabled{opacity:.55;cursor:default}
 .bt-btw-delete{flex:none;margin:-4px}
 .bt-btw-note{margin:4px 0 0;color:var(--bt-ink-3);font-size:12px;line-height:16px}
 .bt-btw-body{margin-top:6px}
@@ -17553,20 +18028,20 @@ var toolState = (name) => /^(message_bot|stop_bot|create_bot|update_bot|create_g
 function useGaze(ref, enabled) {
   (0, import_react2.useEffect)(() => {
     if (!enabled) return void 0;
-    let frame = 0;
+    let frame2 = 0;
     let point = null;
     let active = false;
     const clear = () => {
       point = null;
-      if (frame) {
-        cancelAnimationFrame(frame);
-        frame = 0;
+      if (frame2) {
+        cancelAnimationFrame(frame2);
+        frame2 = 0;
       }
       ref.current?.style.removeProperty("--bt-gx");
       ref.current?.style.removeProperty("--bt-gy");
     };
     const place = () => {
-      frame = 0;
+      frame2 = 0;
       const node = ref.current;
       if (!node || !point || reducedEffects()) return;
       const box = node.getBoundingClientRect();
@@ -17577,7 +18052,7 @@ function useGaze(ref, enabled) {
     const onMove = (event) => {
       if (reducedEffects() || document.body?.dataset.btMotion === "quiet") return;
       point = { x: event.clientX, y: event.clientY };
-      if (!frame) frame = requestAnimationFrame(place);
+      if (!frame2) frame2 = requestAnimationFrame(place);
     };
     const onLeave = () => {
       point = null;
@@ -17695,15 +18170,15 @@ function BotAvatar({ bot, size, state = "idle", main, admin, badge = true, live 
     badgeKind === "main" ? (0, import_react2.createElement)("span", { className: "bt-badge bt-badge-main", "aria-label": t("Main Bot"), role: "img" }, (0, import_react2.createElement)(MainStar)) : null
   );
 }
-function clusterSeats(count, frame) {
-  if (count === 1) return [[0, 0, frame]];
-  if (count === 2) return [[0, 0, frame * 2 / 3], [frame / 3, frame / 3, frame * 2 / 3]];
+function clusterSeats(count, frame2) {
+  if (count === 1) return [[0, 0, frame2]];
+  if (count === 2) return [[0, 0, frame2 * 2 / 3], [frame2 / 3, frame2 / 3, frame2 * 2 / 3]];
   if (count === 3) {
-    const size = frame * 5 / 9;
-    const rest = frame - size;
+    const size = frame2 * 5 / 9;
+    const rest = frame2 - size;
     return [[rest / 2, 0, size], [0, rest, size], [rest, rest, size]];
   }
-  const half = frame / 2;
+  const half = frame2 / 2;
   return [[0, 0, half], [half, 0, half], [0, half, half], [half, half, half]];
 }
 function RoomAvatar({ room: room2, roster, size = 36 }) {
@@ -21151,19 +21626,19 @@ function frameDocument(html, vars = {}) {
 }
 function HtmlFrame({ node }) {
   const ui2 = useViewUi();
-  const frame = (0, import_react15.useRef)(null);
+  const frame2 = (0, import_react15.useRef)(null);
   const loads = (0, import_react15.useRef)(0);
   const [height, setHeight] = (0, import_react15.useState)(Number.isFinite(node.height) ? node.height : 120);
   const [stopped, setStopped] = (0, import_react15.useState)(false);
   const doc = (0, import_react15.useMemo)(() => frameDocument(String(node.html ?? ""), themeVars2()), [node.html]);
   (0, import_react15.useEffect)(() => {
     const onMessage = (event) => {
-      if (event.source !== frame.current?.contentWindow || event.data?.type !== HEIGHT) return;
+      if (event.source !== frame2.current?.contentWindow || event.data?.type !== HEIGHT) return;
       const next = Number(event.data.height);
       if (Number.isFinite(next)) setHeight(Math.max(MIN_HEIGHT, Math.ceil(next)));
     };
     window.addEventListener("message", onMessage);
-    const retheme = () => frame.current?.contentWindow?.postMessage({ type: THEME, vars: themeVars2() }, "*");
+    const retheme = () => frame2.current?.contentWindow?.postMessage({ type: THEME, vars: themeVars2() }, "*");
     const observer = typeof MutationObserver === "function" ? new MutationObserver(retheme) : null;
     observer?.observe(document.body, { attributes: true, attributeFilter: ["data-ds-dark-theme", "style", "class"] });
     return () => {
@@ -21173,7 +21648,7 @@ function HtmlFrame({ node }) {
   }, []);
   if (stopped) return (0, import_react15.createElement)("p", { className: "dv-view-frame-stopped" }, ui2.t("This view tried to open a page and was stopped."));
   return (0, import_react15.createElement)("iframe", {
-    ref: frame,
+    ref: frame2,
     className: "dv-view-frame",
     title: String(node.summary ?? ""),
     sandbox: "allow-scripts",
@@ -23096,13 +23571,6 @@ function useEfforts(served, ref, actions) {
     };
   }, [ref, served?.reasoning !== void 0, actions]);
   return served?.reasoning ?? fetched;
-}
-function effortRows(reasoning) {
-  if (reasoning?.efforts === void 0 || reasoning.efforts.length === 0) return [];
-  return [
-    { effort: void 0, label: t("Default") },
-    ...reasoning.efforts.map((effort) => ({ effort: effort.id, label: effort.name }))
-  ];
 }
 function effortStops(reasoning) {
   const efforts = reasoning?.efforts ?? [];
@@ -27092,6 +27560,7 @@ function stackReplies(replies) {
   const items = [];
   replies.forEach((reply, index) => {
     const last = items.at(-1);
+    if (reply.kind === "working" && last?.reply.kind === "working" && reply.botId !== void 0 && reply.botId === last.reply.botId) return;
     if (reply.kind === void 0 && last?.reply.kind === void 0 && last?.reply.botId === reply.botId && last.claims === void 0 && (last.changes === void 0 || reply.changes?.sessionId === last.changes.sessionId && reply.changes?.turn === last.changes.turn)) {
       last.texts.push(reply.text);
       last.time = reply.time;
@@ -27189,9 +27658,6 @@ ${opened.marker}`,
     codeHead: lines.slice(opened.line + 1).join("\n"),
     code: blockCode(body, opened.line, opened.marker)
   };
-}
-function foldPreview(text, limit = FOLD_AT, markdown = true) {
-  return foldView(text, limit, markdown)?.head ?? null;
 }
 var stripLongNote = (text) => text.replace(/^\[A long message: \d+ characters\.[^\]\n]*\]\n/, "");
 function useFold(text, { limit = FOLD_AT, whole, live = false, markdown = true } = {}) {
@@ -27296,6 +27762,45 @@ function watchSize(node, onSize) {
     }
   };
 }
+var followers = /* @__PURE__ */ new Map();
+var frame = 0;
+function measureScroll() {
+  frame = 0;
+  const news = document.querySelector(".bt-news[data-direction=up]")?.getBoundingClientRect();
+  for (const [scroller, listeners3] of followers) {
+    const band = readingBand(scroller);
+    listeners3.forEach((listener) => {
+      try {
+        listener(band, news);
+      } catch (error) {
+        reportError(error);
+      }
+    });
+  }
+}
+function scheduleScroll() {
+  if (!frame) frame = requestAnimationFrame(measureScroll);
+}
+function followScroll(scroller, onFrame) {
+  if (followers.size === 0) window.addEventListener("resize", scheduleScroll);
+  const listeners3 = followers.get(scroller) ?? /* @__PURE__ */ new Set();
+  followers.set(scroller, listeners3);
+  listeners3.add(onFrame);
+  if (listeners3.size === 1) scroller.addEventListener("scroll", scheduleScroll, { passive: true });
+  scheduleScroll();
+  return () => {
+    listeners3.delete(onFrame);
+    if (listeners3.size === 0) {
+      followers.delete(scroller);
+      scroller.removeEventListener("scroll", scheduleScroll);
+    }
+    if (followers.size === 0) {
+      window.removeEventListener("resize", scheduleScroll);
+      cancelAnimationFrame(frame);
+      frame = 0;
+    }
+  };
+}
 var glide = (scroller, by) => scroller.scrollTo({ top: Math.max(0, scroller.scrollTop + by), behavior: reducedMotion() ? "auto" : "smooth" });
 function ReplyGuide({ box, active }) {
   const [scroller, setScroller] = (0, import_react31.useState)(null);
@@ -27321,29 +27826,15 @@ function ReplyGuide({ box, active }) {
       setView(null);
       return void 0;
     }
-    let frame = 0;
-    const measure = () => {
-      frame = 0;
+    return followScroll(scroller, (band, news) => {
       const node = box.current;
       if (!node) return;
-      const news = document.querySelector(".bt-news[data-direction=up]")?.getBoundingClientRect();
-      const place = pillPlace(node.getBoundingClientRect(), readingBand(scroller), news);
+      const place = pillPlace(node.getBoundingClientRect(), band, news);
       const headings2 = place ? headingsIn(node) : [];
       const current2 = sectionAt(headings2.map((heading) => heading.getBoundingClientRect().top), place ? place.top + PILL + SLACK : 0);
       const next = place && { ...place, current: current2 };
       setView((prev) => prev && next && Object.keys(next).every((key) => prev[key] === next[key]) ? prev : next);
-    };
-    const schedule = () => {
-      if (!frame) frame = requestAnimationFrame(measure);
-    };
-    scroller.addEventListener("scroll", schedule, { passive: true });
-    window.addEventListener("resize", schedule);
-    schedule();
-    return () => {
-      cancelAnimationFrame(frame);
-      scroller.removeEventListener("scroll", schedule);
-      window.removeEventListener("resize", schedule);
-    };
+    });
   }, [long, scroller]);
   (0, import_react31.useEffect)(() => {
     if (view === null) setMenu(false);
@@ -28532,7 +29023,7 @@ function MemoryEvent({ sessionId, scope, tool, result, failed, code, roster, act
     );
   }
   const reason = memoryFailure(code);
-  const label = failed ? tool === "forget" ? t("Couldn't remove from memory") : t("Couldn't save to memory") : t("Memory not changed");
+  const label = failed ? tool === "forget" || tool === "bot_forget" ? t("Couldn't remove from memory") : t("Couldn't save to memory") : t("Memory not changed");
   return (0, import_react34.createElement)(
     "div",
     { className: "bt-event bt-event-error", role: "status", title: code },
@@ -28945,10 +29436,13 @@ function toolActivity(name, arg, findBot, self) {
       return { label: t("Reading {name}", { name: arg("group") ?? t("a group chat") }), state: "searching" };
     case "read_own_chat":
       return { label: t("Looking back through the chat"), state: "searching" };
+    case "bot_remember":
     case "remember":
       return { label: t("Saving to memory"), state: "working" };
+    case "bot_forget":
     case "forget":
       return { label: t("Updating memory"), state: "working" };
+    case "bot_recall":
     case "recall":
       return { label: t("Checking memory"), state: "searching" };
     default:
@@ -29178,7 +29672,7 @@ function GroupReplies({ sessionId, callId, done, content, roster, actions, useUi
   );
 }
 var isComputerCall = (name) => name === "cua" || name?.startsWith("cua_driver_native__") === true;
-var DRAWN = /* @__PURE__ */ new Set(["message_bot", "stop_bot", "create_bot", "update_bot", "group_relay", "create_group", "update_group", "delete_group", "post_to_group", "ask_user", "request_secret", "request_connector", "mail_send", "ask_user_question", "show_view", "browser_handoff", "read_group_chat", "remember", "forget"]);
+var DRAWN = /* @__PURE__ */ new Set(["message_bot", "stop_bot", "create_bot", "update_bot", "group_relay", "create_group", "update_group", "delete_group", "post_to_group", "ask_user", "request_secret", "request_connector", "mail_send", "ask_user_question", "show_view", "browser_handoff", "read_group_chat", "bot_remember", "bot_forget", "remember", "forget"]);
 var CARDS = /* @__PURE__ */ new Set(["ask_user", "request_secret", "request_connector", "mail_send", "show_view", "browser_handoff", "computer_handoff"]);
 function callTree(root) {
   const calls = [];
@@ -29279,7 +29773,9 @@ function renderCall(call2, { sessionId, roster, actions, useUi, useWork, findBot
       const room2 = roster.rooms.find((entry) => entry.name === arg("group"));
       return room2 ? (0, import_react34.createElement)(GroupEvent, { prefix: t("Read"), room: room2, roster, actions }) : (0, import_react34.createElement)(CellEmpty);
     }
+    case "bot_remember":
     case "remember":
+    case "bot_forget":
     case "forget":
       return done ? (0, import_react34.createElement)(MemoryEvent, { sessionId, scope: arg("scope"), tool, result: contentText(call2.content), failed: call2.isError === true, code: call2.error?.code, roster, actions, findBot }) : (0, import_react34.createElement)(CellEmpty);
     default:
@@ -29340,21 +29836,21 @@ function useRunningHost(active) {
       setHost(null);
       return void 0;
     }
-    let frame = 0;
+    let frame2 = 0;
     const find = () => {
-      frame = 0;
+      frame2 = 0;
       setHost((prev) => {
         const node = findHost();
         return prev === node ? prev : node;
       });
     };
     const observer = new MutationObserver(() => {
-      if (!frame) frame = requestAnimationFrame(find);
+      if (!frame2) frame2 = requestAnimationFrame(find);
     });
     observer.observe(document.querySelector("[data-conversation-scroll]") ?? document.body, { childList: true, subtree: true });
     find();
     return () => {
-      cancelAnimationFrame(frame);
+      cancelAnimationFrame(frame2);
       observer.disconnect();
     };
   }, [active]);
@@ -29367,14 +29863,14 @@ function useRowEntrances(replacing) {
     const seen = /* @__PURE__ */ new WeakSet();
     const started = Date.now();
     let column = null;
-    let frame = 0;
+    let frame2 = 0;
     const settle = (event) => {
       if (event.target !== event.currentTarget || !/^bt-row/.test(event.animationName)) return;
       delete event.currentTarget.dataset.btEnter;
       event.currentTarget.removeEventListener("animationend", settle);
     };
     const scan = () => {
-      frame = 0;
+      frame2 = 0;
       const next = document.querySelector("[data-chat-flow]");
       if (next !== column) {
         observer.disconnect();
@@ -29399,11 +29895,11 @@ function useRowEntrances(replacing) {
       }
     };
     const observer = new MutationObserver(() => {
-      if (!frame) frame = requestAnimationFrame(scan);
+      if (!frame2) frame2 = requestAnimationFrame(scan);
     });
     scan();
     return () => {
-      cancelAnimationFrame(frame);
+      cancelAnimationFrame(frame2);
       observer.disconnect();
     };
   }, []);
@@ -29508,8 +30004,11 @@ function showsDshRow(dsh, app) {
 
 // src/client/frame-watch.js
 var sidebarTrackWidth = () => {
-  const box = typeof document === "undefined" ? void 0 : document.querySelector('[class*="_sidebarCol"]')?.getBoundingClientRect();
-  return box === void 0 ? null : trackRoom(box);
+  const column = typeof document === "undefined" ? null : document.querySelector('[class*="_sidebarCol"]');
+  if (!column) return null;
+  const position = typeof getComputedStyle === "function" ? getComputedStyle(column).position : "";
+  if (position === "absolute" || position === "fixed") return 0;
+  return trackRoom(column.getBoundingClientRect());
 };
 var dshCollapsed = () => {
   if (typeof document === "undefined") return null;
@@ -29534,6 +30033,8 @@ var roomRule = () => {
 var margin = (side, width, style) => {
   if (width === null) style.removeProperty(`margin-${side}`);
   else style.setProperty(`margin-${side}`, `${width}px`, "important");
+  if (style.marginLeft || style.marginRight) style.setProperty("width", "auto", "important");
+  else style.removeProperty("width");
 };
 var roomHold = 0;
 var chatRoom = {
@@ -29562,7 +30063,7 @@ var chatRoom = {
     return room.selector ? [...document.querySelectorAll(room.selector)] : [];
   }
 };
-function installFrameWatch(frame) {
+function installFrameWatch(frame2) {
   let collapsedWidth = collapsedTrackWidth();
   let raf = 0;
   const watched = /* @__PURE__ */ new Set();
@@ -29573,7 +30074,7 @@ function installFrameWatch(frame) {
     const width = animating ? null : sidebarTrackWidth();
     const collapsed = dshCollapsed();
     collapsedWidth = nextCollapsedWidth({ measured: width, collapsed, animating, last: collapsedWidth });
-    frame.set((state) => {
+    frame2.set((state) => {
       const next = { ...state, viewport: window.innerWidth, collapsedWidth, collapsed: collapsed === true };
       return state.viewport === next.viewport && state.collapsedWidth === next.collapsedWidth && state.collapsed === next.collapsed ? state : next;
     });
@@ -31482,14 +31983,14 @@ function CreateBot({ roster, actions, start, brief = "", onBack, canGoBack, onCr
   const [busy, setBusy] = (0, import_react39.useState)(false);
   const [error, setError] = (0, import_react39.useState)("");
   const fileRef = (0, import_react39.useRef)(null);
-  const frame = (0, import_react39.useRef)(null);
+  const frame2 = (0, import_react39.useRef)(null);
   const localAgents = useLocalAgents(mode === "local");
   const [reading, readModels] = useAgentModels(actions);
   const local = mode === "local";
   const chosen = local ? agentModel : model;
   useEscape(onBack);
   (0, import_react39.useEffect)(() => {
-    if (inline) frame.current?.scrollIntoView({ block: "start", behavior: "smooth" });
+    if (inline) frame2.current?.scrollIntoView({ block: "start", behavior: "smooth" });
   }, []);
   const fallbackName = freshBotName(roster, t("New Bot"));
   const finalName = name.trim() || fallbackName;
@@ -31624,7 +32125,7 @@ function CreateBot({ roster, actions, start, brief = "", onBack, canGoBack, onCr
       (0, import_react39.createElement)("button", { type: "button", className: "bt-send bt-create-go", disabled: blocked, onClick: () => void create() }, busy ? t("Creating…") : t("Create"))
     )
   );
-  if (inline) return (0, import_react39.createElement)("div", { ref: frame, className: "bt-create-inline", role: "group", "aria-label": t("Create Bot") }, card);
+  if (inline) return (0, import_react39.createElement)("div", { ref: frame2, className: "bt-create-inline", role: "group", "aria-label": t("Create Bot") }, card);
   return (0, import_react39.createElement)(
     "div",
     { className: "bt-create", role: "dialog", "aria-label": t("Create Bot") },
@@ -31859,15 +32360,15 @@ function useTween(value) {
     }
     const begin = from.current;
     const started = performance.now();
-    let frame;
+    let frame2;
     const step = (now) => {
       const progress = Math.min(1, (now - started) / 650);
       from.current = begin + (value - begin) * (1 - (1 - progress) ** 3);
       setShown(from.current);
-      if (progress < 1) frame = requestAnimationFrame(step);
+      if (progress < 1) frame2 = requestAnimationFrame(step);
     };
-    frame = requestAnimationFrame(step);
-    return () => cancelAnimationFrame(frame);
+    frame2 = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(frame2);
   }, [value]);
   return shown;
 }
@@ -37201,12 +37702,20 @@ function badgeOf2(rows2) {
 }
 function notificationRows({ statuses, roster, approvals = [] }) {
   const rows2 = [];
+  const botApprovals = /* @__PURE__ */ new Map();
+  const roomApprovals = /* @__PURE__ */ new Map();
+  for (const approval of approvals) {
+    const index = approval.roomId === void 0 ? botApprovals : roomApprovals;
+    const id = approval.roomId === void 0 ? approval.botId : approval.roomId;
+    if (!index.has(id)) index.set(id, []);
+    index.get(id).push(approval);
+  }
   for (const [group, entries2] of [[false, roster.bots ?? []], [true, roster.rooms ?? []]]) {
     for (const entry of entries2) {
       const sessionId = entry.sessionId ?? entry.id;
       const status = statuses?.get(sessionId);
       const question = roster.questions?.[sessionId];
-      const waiting = approvals.filter((approval) => group ? approval.roomId === entry.id : approval.roomId === void 0 && approval.botId === entry.id);
+      const waiting = (group ? roomApprovals : botApprovals).get(entry.id) ?? [];
       const interaction = status?.pendingInteraction;
       const keys = [
         ...question ? [`question:${question.id}`] : [],
@@ -38117,11 +38626,11 @@ function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus, useSe
 function useTranscriptView() {
   const [view, setView] = (0, import_react54.useState)(null);
   (0, import_react54.useEffect)(() => {
-    let frame = 0;
+    let frame2 = 0;
     let watched = null;
     const observer = new MutationObserver(() => schedule());
     const measure = () => {
-      frame = 0;
+      frame2 = 0;
       const scroller = document.querySelector("[data-conversation-scroll]");
       if (scroller !== watched) {
         observer.disconnect();
@@ -38151,7 +38660,7 @@ function useTranscriptView() {
       setView((prev) => prev && Object.keys(next).every((key) => prev[key] === next[key]) ? prev : next);
     };
     const schedule = () => {
-      if (!frame) frame = requestAnimationFrame(measure);
+      if (!frame2) frame2 = requestAnimationFrame(measure);
     };
     document.addEventListener("scroll", schedule, true);
     window.addEventListener("resize", schedule);
@@ -38159,7 +38668,7 @@ function useTranscriptView() {
     window.visualViewport?.addEventListener("scroll", schedule);
     schedule();
     return () => {
-      cancelAnimationFrame(frame);
+      cancelAnimationFrame(frame2);
       observer.disconnect();
       document.removeEventListener("scroll", schedule, true);
       window.removeEventListener("resize", schedule);
@@ -38975,7 +39484,7 @@ async function openCapture() {
   const analyser = audio.createAnalyser();
   analyser.fftSize = 512;
   audio.createMediaStreamSource(stream).connect(analyser);
-  const frame = new Float32Array(analyser.fftSize);
+  const frame2 = new Float32Array(analyser.fftSize);
   const recorder = new MediaRecorder(stream);
   const chunks = [];
   recorder.ondataavailable = (event) => {
@@ -38994,10 +39503,10 @@ async function openCapture() {
   return {
     level() {
       if (closed) return 0;
-      analyser.getFloatTimeDomainData(frame);
+      analyser.getFloatTimeDomainData(frame2);
       let sum = 0;
-      for (const sample of frame) sum += sample * sample;
-      return Math.min(1, Math.sqrt(sum / frame.length) * 4);
+      for (const sample of frame2) sum += sample * sample;
+      return Math.min(1, Math.sqrt(sum / frame2.length) * 4);
     },
     cancel: close,
     async finish(maxSeconds) {
@@ -40507,7 +41016,7 @@ function useMicLevel(enabled) {
     if (!enabled || !navigator.mediaDevices?.getUserMedia) return void 0;
     let stream = null;
     let audio = null;
-    let frame = 0;
+    let frame2 = 0;
     let stopped = false;
     navigator.mediaDevices.getUserMedia({ audio: true }).then((media) => {
       if (stopped) {
@@ -40527,14 +41036,14 @@ function useMicLevel(enabled) {
         for (const value of data) sum += ((value - 128) / 128) ** 2;
         smooth = smooth * 0.8 + Math.min(1, Math.sqrt(sum / data.length) * 4) * 0.2;
         setLevel(Math.round(smooth * 100) / 100);
-        frame = requestAnimationFrame(tick);
+        frame2 = requestAnimationFrame(tick);
       };
       tick();
     }).catch(() => {
     });
     return () => {
       stopped = true;
-      cancelAnimationFrame(frame);
+      cancelAnimationFrame(frame2);
       stream?.getTracks().forEach((track) => track.stop());
       void audio?.close().catch(() => {
       });
@@ -40616,7 +41125,7 @@ function VoiceMode({ sessionId, paneLeft, roster, actions, useSessions, useSessi
     if (!speech || !catalog || !listen) return void 0;
     const own = turn.current;
     let capture = null;
-    let frame = 0;
+    let frame2 = 0;
     let stopped = false;
     let smooth = 0;
     const detect = turnDetector();
@@ -40659,7 +41168,7 @@ function VoiceMode({ sessionId, paneLeft, roster, actions, useSessions, useSessi
           setCycle((value) => value + 1);
           return;
         }
-        frame = requestAnimationFrame(tick);
+        frame2 = requestAnimationFrame(tick);
       };
       tick();
     }, (error) => {
@@ -40669,7 +41178,7 @@ function VoiceMode({ sessionId, paneLeft, roster, actions, useSessions, useSessi
     });
     return () => {
       stopped = true;
-      cancelAnimationFrame(frame);
+      cancelAnimationFrame(frame2);
       capture?.cancel();
       setServiceLevel(0);
     };
@@ -41163,7 +41672,7 @@ function uniqueIds(root) {
 function createFlight(env) {
   const {
     shape,
-    frame = (run2) => requestAnimationFrame(run2),
+    frame: frame2 = (run2) => requestAnimationFrame(run2),
     unframe = (id) => cancelAnimationFrame(id),
     later = (run2, ms) => setTimeout(run2, ms),
     unlater = (id) => clearTimeout(id)
@@ -41197,7 +41706,7 @@ function createFlight(env) {
     const y = box.top - edge.top - (parseFloat(border.borderTopWidth) || 0);
     node.style.transform = `translate(${x}px, ${y}px) scale(${box.width / size.width}, ${box.height / size.height})`;
     if (done) finish();
-    else live.step = frame(place);
+    else live.step = frame2(place);
   }
   const arm = () => later(finish, shape.duration + SAFETY_MS);
   return {
@@ -42423,7 +42932,7 @@ function PanelStrip({ bot, subject, view, ids, active, sides, side, canBrowse, r
 }
 function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPages, hold }) {
   const page = useBrowserPages((pages) => pages[tabId ?? ""]) ?? EMPTY_PAGE;
-  const frame = (0, import_react69.useRef)(null);
+  const frame2 = (0, import_react69.useRef)(null);
   const input = (0, import_react69.useRef)(null);
   const [draft, setDraft] = (0, import_react69.useState)(null);
   const [covered, setCovered] = (0, import_react69.useState)(false);
@@ -42439,7 +42948,7 @@ function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPages, ho
   const showGuest = landed && !leaving && !covered && Boolean(page.url) && !page.error && flow === null;
   (0, import_react69.useEffect)(() => {
     const update = () => {
-      const panel = frame.current?.getBoundingClientRect();
+      const panel = frame2.current?.getBoundingClientRect();
       const overlaps2 = panel && [...document.querySelectorAll('[role="dialog"],[role="menu"],[role="listbox"]')].some((element) => rectsOverlap(panel, element.getBoundingClientRect()));
       setCovered(Boolean(overlaps2));
     };
@@ -42497,7 +43006,7 @@ function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPages, ho
     });
   };
   (0, import_react69.useLayoutEffect)(() => {
-    const element = frame.current;
+    const element = frame2.current;
     if (!element || leaving || !tabId) {
       void actions.browserShow(null);
       return void 0;
@@ -42616,7 +43125,7 @@ function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPages, ho
     ),
     (0, import_react69.createElement)(
       "div",
-      { ref: frame, className: "bt-browser-frame", "data-guest": showGuest || void 0 },
+      { ref: frame2, className: "bt-browser-frame", "data-guest": showGuest || void 0 },
       flow === "menu" ? (0, import_react69.createElement)(ImportMenu, { sources, busy, onFile: pickFile, onSource: pickSource, onClose: () => setFlowTracked(null) }) : null,
       typeof flow === "object" && flow !== null ? (0, import_react69.createElement)(ImportCard, { flow, page, busy, onApply: applyImport, onCancel: cancelImport, onCloseAndImport: closeAndImport, onDone: () => setFlowTracked(null), onReload: () => actions.browserCommand(tabId, "reload") }) : null,
       flow === null && page.error ? (0, import_react69.createElement)(
@@ -43478,7 +43987,7 @@ ${caption}
 
 Table: ${caption}` : ""}${keep(out.join("\n"))}`;
   };
-  const frame = (el, ctx) => {
+  const frame2 = (el, ctx) => {
     let doc = null;
     try {
       doc = el.contentDocument;
@@ -43553,7 +44062,7 @@ ${body2 || "(no text)"}
     }
     if (tag === "iframe" || tag === "frame") {
       const box = el.getBoundingClientRect();
-      return tag === "iframe" && (box.width < 2 || box.height < 2) ? "" : frame(el, next);
+      return tag === "iframe" && (box.width < 2 || box.height < 2) ? "" : frame2(el, next);
     }
     const found = itemFor(el, style);
     const mark2 = found ? `[#${found.number}]` : "";
@@ -45444,7 +45953,7 @@ function apply(ctx) {
   const ui2 = createSource({ details: null, view: "details", readOnlyPart: null, renaming: false, tab: null, side: null, newChat: null, exchange: null, menu: null, voice: null, palette: null, quote: null, paste: {}, pendingOpen: null, settings: null, memory: null, toast: null, signIn: null, renameAgent: null, unread: unreadStore.read(), reactions: reactionStore.read(), visits: {}, panelYield: false, leftDrawer: false, bootFailed: false, goalCompose: null, goalOpen: null });
   let sidebarSaved = readSidebar();
   const sidebarPref = createSource(sidebarSaved.pref);
-  const frame = createSource({ viewport: typeof window === "undefined" ? 0 : window.innerWidth, sidebarWidth: sidebarSaved.width, collapsedWidth: 0, collapsed: false });
+  const frame2 = createSource({ viewport: typeof window === "undefined" ? 0 : window.innerWidth, sidebarWidth: sidebarSaved.width, collapsedWidth: 0, collapsed: false });
   const surface = createSource({ mode: readMode(), plain: false });
   const settingsShellHeld = createSource(false);
   let settingsShell = null;
@@ -45893,7 +46402,7 @@ function apply(ctx) {
   const panelFolded = (view) => {
     const state = ui2.getSnapshot();
     if (state.details === null) return false;
-    const f = frame.getSnapshot();
+    const f = frame2.getSnapshot();
     return frameLayout({ viewport: f.viewport, sidebarWidth: f.sidebarWidth, pref: sidebarPref.getSnapshot(), drawer: state.leftDrawer, panel: { view: view ?? state.view, yielded: state.panelYield === true } }).panel === "folded";
   };
   const yieldBrowser = (state) => state.panelYield === true || panelFolded("browser");
@@ -46044,7 +46553,7 @@ function apply(ctx) {
     setSidebarWidth: (width) => {
       sidebarSaved = { ...sidebarSaved, width };
       writeSidebar(sidebarSaved);
-      frame.set((state) => state.sidebarWidth === width ? state : { ...state, sidebarWidth: width });
+      frame2.set((state) => state.sidebarWidth === width ? state : { ...state, sidebarWidth: width });
     },
     setLeftDrawer: (on) => ui2.set((state) => state.leftDrawer === on ? state : { ...state, leftDrawer: on }),
     setPanelYield: (on) => ui2.set((state) => state.panelYield === on ? state : { ...state, panelYield: on }),
@@ -46062,7 +46571,7 @@ function apply(ctx) {
       }
       writeMode(mode);
       surface.set((state) => ({ ...state, mode }));
-      if (mode === "agent" && window.innerWidth >= DSH_NARROW && frame.getSnapshot().collapsed) ctx.layout.toggleSidebar();
+      if (mode === "agent" && window.innerWidth >= DSH_NARROW && frame2.getSnapshot().collapsed) ctx.layout.toggleSidebar();
       if (mode !== "bot") return;
       ensureBotHome();
     },
@@ -46286,7 +46795,7 @@ function apply(ctx) {
       else if (kind === "letgo") void actions.computerAllowForeground(botId);
     });
   }
-  const face = () => ({ actions, hooks: { roster, ui: ui2, activity, work, memoryNews, registry, turnClock, live, computer, cards, heldCards, browserPages, browserTabs, browserHolds, surface, update, frame, sidebarPref, settingsShellHeld } });
+  const face = () => ({ actions, hooks: { roster, ui: ui2, activity, work, memoryNews, registry, turnClock, live, computer, cards, heldCards, browserPages, browserTabs, browserHolds, surface, update, frame: frame2, sidebarPref, settingsShellHeld } });
   const hostDrawsUserText = typeof ctx.uiConversation.userText?.register === "function";
   ctx.effect(() => installCommandActions(ctx, { roster, actions }), "ds-bot: bot command actions");
   ctx.effect(() => {
@@ -46457,7 +46966,7 @@ function apply(ctx) {
     let lastDetails = ui2.getSnapshot().details;
     const sync = () => {
       const s = ui2.getSnapshot();
-      const f = frame.getSnapshot();
+      const f = frame2.getSnapshot();
       const opened = s.details !== null && lastDetails === null;
       lastDetails = s.details;
       const layout = frameLayout({ viewport: f.viewport, sidebarWidth: f.sidebarWidth, pref: sidebarPref.getSnapshot(), drawer: s.leftDrawer === true, panel: s.details === null ? null : { view: s.view, yielded: false } });
@@ -46467,7 +46976,7 @@ function apply(ctx) {
       else if (s.panelYield && layout.panel === "shown") actions.setPanelYield(false);
       if (s.leftDrawer === true && layout.left !== "drawer") actions.setLeftDrawer(false);
     };
-    const offs = [ui2.subscribe(sync), frame.subscribe(sync), sidebarPref.subscribe(sync)];
+    const offs = [ui2.subscribe(sync), frame2.subscribe(sync), sidebarPref.subscribe(sync)];
     return () => {
       for (const off of offs) off();
     };
@@ -46475,7 +46984,7 @@ function apply(ctx) {
   const SHELL_SHEETS = [
     [SHELL_CSS, "shell"],
     [SIDEBAR_CSS, "sidebar"],
-    [SECRET_CSS + CONNECTOR_CSS + CONNECTORS_PAGE_CSS, "secrets"],
+    [SECRET_CSS + CONNECTOR_CSS + CONNECTORS_PAGE_CSS + PROVIDERS_CSS, "secrets"],
     [LEARNING_CSS, "learning"],
     [MODEL_CSS + FOLDER_CSS + BOT_SETTINGS_CSS + BOT_MODELS_CSS + AGENT_CARDS_CSS + GROUP_SETTINGS_CSS + AVATAR_LIBRARY_CSS, "models"],
     [USAGE_CSS, "usage"],
@@ -46526,7 +47035,7 @@ function apply(ctx) {
       };
     },
     ...SHELL_SHEETS.map(([text, tag]) => () => installCompiledStyles(text, tag)),
-    () => installFrameWatch(frame),
+    () => installFrameWatch(frame2),
     () => installFrameSync(),
     () => installTheme(),
     () => shadow("sidebar.workspaces", { priority: BOT_PRIORITY, inject: face }, TeamSidebar),
