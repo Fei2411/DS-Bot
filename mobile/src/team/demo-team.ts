@@ -206,15 +206,9 @@ export function demoData(): DemoData {
       ] },
     ],
   }
-  state.views = {}
   state.learning = { 'b-chief': [
     { id: 'review-skill', botId: 'b-chief', name: 'project-review', description: 'Check the project before handover.', content: 'Run focused tests before handing over a change.' },
     { id: 'review-agents', botId: 'b-chief', kind: 'agents', folder: '/project', edits: [{ op: 'add', text: 'Run focused tests before handover.' }] },
   ] }
-  chats['b-chief'] = [{ sessionId: 's-chief', cursor: null, items: [
-    { kind: 'user', text: 'Please review our project guidelines.', time: T, seq: 1, turn: 1 },
-    { kind: 'bot', text: 'Two updates are ready for your review. Neither has been applied.', time: T + 1000, seq: 2, turn: 1 },
-    ...Array.from({ length: 22 }, (_, index) => ({ kind: 'bot' as const, text: `Routine follow-up ${index + 1}: project status checked. No further action is needed.`, time: T + (index + 2) * 60000, seq: index + 3, turn: index + 2 })),
-  ] }]
   return { state, chats }
 }

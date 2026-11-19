@@ -12,7 +12,7 @@ import { radius, shadow, SPRING_TAP, type as typeScale, type Palette } from '../
 import { Avatar } from '../../ui/marks.tsx'
 import type { Bot } from '../../connection.ts'
 import type { LearningProposal } from './learning.ts'
-import { lineDiff } from '../../../../ds-bot/src/client/learning-card-model.js'
+import { agentEditRows, lineDiff } from '../../../../ds-bot/src/client/learning-card-model.js'
 
 type Call = (endpoint: string, payload?: unknown) => Promise<unknown>
 
@@ -98,10 +98,7 @@ function LearningCard({ proposal, call, p }: { proposal: LearningProposal; call:
   }
   const agents = proposal.kind === 'agents'
   const rows = agents
-    ? (proposal.edits ?? []).flatMap(edit => [
-      ...(edit.op === 'add' ? [] : (edit.old ?? '').split('\n').map(line => ({ kind: 'removed', line }))),
-      ...(edit.op === 'remove' ? [] : (edit.text ?? '').split('\n').map(line => ({ kind: 'added', line }))),
-    ])
+    ? (proposal.edits ?? []).flatMap(agentEditRows)
     : lineDiff(proposal.action === 'update' ? proposal.previous?.content ?? '' : '', proposal.content ?? '')
   return <View>
     <Text style={[typeScale.caption, { color: p.ink2 }]}>{t('Awaiting approval')}</Text>

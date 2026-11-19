@@ -1,6 +1,6 @@
 import { createElement as h, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { useTurnFacts } from './btw.js'
-import { answerFailure, answerKeepsCard, editLines, lineDiff, proposalCards, proposalPlacement, withoutEntry } from './learning-card-model.js'
+import { agentEditRows, answerFailure, answerKeepsCard, lineDiff, proposalCards, proposalPlacement, withoutEntry } from './learning-card-model.js'
 import { currentPart } from './text.js'
 import { t } from './i18n.js'
 import { CheckIcon, MemoryIcon, PencilIcon } from './icons.js'
@@ -66,10 +66,7 @@ function ProposalCard({ proposal, initialError = '', onFailure, onResolved, acti
   const rows = useMemo(() => lineDiff(update ? proposal.previous?.content : '', proposal.content), [update, proposal.previous?.content, proposal.content])
   const change = agents
     ? [
-      h(FileBox, { key: 'file', name: 'AGENTS.md', path: proposal.folder, state: proposal.exists === false ? 'Added' : 'Modified', blocks: proposal.edits.map(edit => [
-        ...(edit.op === 'add' ? [] : editLines(edit.old)).map(line => ({ kind: 'removed', line })),
-        ...(edit.op === 'remove' ? [] : editLines(edit.text)).map(line => ({ kind: 'added', line })),
-      ]) }),
+      h(FileBox, { key: 'file', name: 'AGENTS.md', path: proposal.folder, state: proposal.exists === false ? 'Added' : 'Modified', blocks: proposal.edits.map(agentEditRows) }),
       ...proposal.edits.map((edit, index) => edit.why ? h('p', { className: 'bt-learning-why', key: `why-${index}` }, edit.why) : null),
     ]
     : [
