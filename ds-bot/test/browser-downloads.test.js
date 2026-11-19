@@ -13,6 +13,9 @@ function deferred() {
   return { promise, resolve }
 }
 
+// Every fake page has the same main frame; a request names it to come from the page itself.
+const MAIN_FRAME = {}
+
 async function fixture(t, options = {}) {
   const directory = await mkdtemp(join(tmpdir(), 'ds-bot-download-'))
   const timers = new Set()
@@ -28,13 +31,14 @@ async function fixture(t, options = {}) {
       setDefaultNavigationTimeout() {},
       isClosed: () => closed,
       url: () => 'https://reports.example.test/export',
+      mainFrame: () => MAIN_FRAME,
       title: async () => 'Reports',
       ariaSnapshot: async () => '- button "Export CSV" [ref=e1]',
       waitForLoadState: async () => {},
       goto: async () => options.open?.(target),
       locator: () => ({
         count: async () => 1,
-        evaluate: async () => null,
+        evaluate: async () => options.write ?? null,
         click: async () => options.click?.(target, later),
         fill: async () => {},
         press: async () => options.click?.(target, later),
@@ -62,7 +66,7 @@ async function fixture(t, options = {}) {
     await rm(directory, { recursive: true, force: true })
   })
   const files = async () => (await readdir(directory)).filter(name => name.endsWith('.csv')).sort()
-  return { session, primary, other, directory, files }
+  return { session, context, primary, other, directory, files }
 }
 
 function download({ filename = 'report.csv', saveError } = {}) {
@@ -82,6 +86,191 @@ function download({ filename = 'report.csv', saveError } = {}) {
   }
   return value
 }
+
+// DSH ends the whole process on a rejection that nobody handles, so the Bot's browser must
+// leave none behind, whatever order the page's events come in.
+function watchUnhandled(t) {
+  const seen = []
+  const record = reason => { seen.push(reason) }
+  process.on('unhandledRejection', record)
+  t.after(() => { process.off('unhandledRejection', record) })
+  return seen
+}
+
+const PUBLISH = { kind: 'post', label: 'Publish', origin: 'https://reports.example.test', host: 'reports.example.test' }
+const publishRequest = (errorText, { navigation = false, path = '/publish', frame = MAIN_FRAME } = {}) => ({
+  url: () => `https://reports.example.test${path}`,
+  method: () => 'POST',
+  isNavigationRequest: () => navigation,
+  frame: () => frame,
+  failure: () => (errorText === undefined ? null : { errorText }),
+})
+const unknownResult = detail => new RegExp(`"Publish" action on reports\\.example\\.test was sent, but its result is unknown \\(${detail}\\)`)
+
+test('a write request that fails while its click still runs is reported, not left unhandled', async (t) => {
+  const unhandled = watchUnhandled(t)
+  const request = publishRequest('net::ERR_CONNECTION_RESET')
+  const { session } = await fixture(t, {
+    write: PUBLISH,
+    click: (page, later) => new Promise(resolve => {
+      page.emit('request', request)
+      page.emit('requestfailed', request)
+      later(resolve, 50)
+    }),
+  })
+  const result = await gateScope.run(async () => {}, () => session.click('e1'))
+  assert.match(result, unknownResult('net::ERR_CONNECTION_RESET'))
+  assert.deepEqual(unhandled, [])
+})
+
+test('a click that fails after its request failed is reported, not left unhandled', async (t) => {
+  const unhandled = watchUnhandled(t)
+  const request = publishRequest('net::ERR_CONNECTION_RESET')
+  const { session } = await fixture(t, {
+    write: PUBLISH,
+    click: (page, later) => new Promise((resolve, reject) => {
+      page.emit('request', request)
+      page.emit('requestfailed', request)
+      later(() => reject(new Error('locator.click: Timeout 400ms exceeded')), 50)
+    }),
+  })
+  const result = await gateScope.run(async () => {}, () => session.click('e1'))
+  assert.match(result, unknownResult('locator.click: Timeout 400ms exceeded'))
+  assert.deepEqual(unhandled, [])
+})
+
+// A button's script can post after the click itself returned, while the page settles. That
+// post is the action's own, so its outcome decides the result as much as an earlier one.
+test('a POST the page sends after the click returned is waited for, and its failure reported', async (t) => {
+  const unhandled = watchUnhandled(t)
+  const request = publishRequest('net::ERR_CONNECTION_RESET')
+  const { session } = await fixture(t, {
+    write: PUBLISH,
+    click: (page, later) => later(() => {
+      page.emit('request', request)
+      page.emit('requestfailed', request)
+    }, 30),
+  })
+  const result = await gateScope.run(async () => {}, () => session.click('e1'))
+  assert.match(result, unknownResult('net::ERR_CONNECTION_RESET'))
+  assert.deepEqual(unhandled, [])
+})
+
+test('a POST sent after the click returned that never answers leaves the result unknown', async (t) => {
+  const { session } = await fixture(t, {
+    write: PUBLISH,
+    click: (page, later) => later(() => page.emit('request', publishRequest()), 30),
+  })
+  const result = await gateScope.run(async () => {}, () => session.click('e1'))
+  assert.match(result, unknownResult('the browser request did not finish'))
+})
+
+test('a POST sent after the click returned that finishes gives the page as usual', async (t) => {
+  const request = publishRequest()
+  const { session } = await fixture(t, {
+    write: PUBLISH,
+    click: (page, later) => later(() => {
+      page.emit('request', request)
+      page.emit('requestfinished', request)
+    }, 30),
+  })
+  const result = await gateScope.run(async () => {}, () => session.click('e1'))
+  assert.doesNotMatch(result, /result is unknown/)
+  assert.match(result, /Export CSV/)
+})
+
+// After a form post loads its result page, that page's own requests (polling its server, say)
+// are not the action's: an unanswered one must not hold the action or make its result unknown
+// (waited for, it would time out and read "the browser request did not finish").
+test('a POST the result page sends after the form navigated is not waited for', async (t) => {
+  const submit = publishRequest(undefined, { navigation: true })
+  const poll = publishRequest(undefined, { path: '/poll' })
+  const { session } = await fixture(t, {
+    write: PUBLISH,
+    click: (page, later) => {
+      page.emit('request', submit)
+      later(() => {
+        page.emit('requestfinished', submit)
+        page.emit('request', poll)
+      }, 30)
+    },
+  })
+  const result = await gateScope.run(async () => {}, () => session.click('e1'))
+  assert.doesNotMatch(result, /result is unknown/)
+  assert.match(result, /Export CSV/)
+})
+
+// The same for a form inside a frame: what that frame's result page sends is not the action's,
+// while the page around it still counts.
+const INNER_FRAME = { parentFrame: () => MAIN_FRAME }
+
+test('a POST from a frame whose form navigated is not waited for', async (t) => {
+  const submit = publishRequest(undefined, { navigation: true, frame: INNER_FRAME })
+  const poll = publishRequest(undefined, { path: '/poll', frame: INNER_FRAME })
+  const { session } = await fixture(t, {
+    write: PUBLISH,
+    click: (page, later) => {
+      page.emit('request', submit)
+      later(() => {
+        page.emit('requestfinished', submit)
+        page.emit('request', poll)
+      }, 30)
+    },
+  })
+  const result = await gateScope.run(async () => {}, () => session.click('e1'))
+  assert.doesNotMatch(result, /result is unknown/)
+})
+
+test('after a frame navigated, a POST from the page around it still counts', async (t) => {
+  const submit = publishRequest(undefined, { navigation: true, frame: INNER_FRAME })
+  const outer = publishRequest('net::ERR_CONNECTION_RESET', { path: '/outer' })
+  const { session } = await fixture(t, {
+    write: PUBLISH,
+    click: (page, later) => {
+      page.emit('request', submit)
+      later(() => {
+        page.emit('requestfinished', submit)
+        page.emit('request', outer)
+        page.emit('requestfailed', outer)
+      }, 30)
+    },
+  })
+  const result = await gateScope.run(async () => {}, () => session.click('e1'))
+  assert.match(result, unknownResult('net::ERR_CONNECTION_RESET'))
+})
+
+test('a form post that fails while its page navigates is still reported', async (t) => {
+  const submit = publishRequest('net::ERR_CONNECTION_RESET', { navigation: true })
+  const { session } = await fixture(t, {
+    write: PUBLISH,
+    click: (page, later) => {
+      page.emit('request', submit)
+      later(() => page.emit('requestfailed', submit), 30)
+    },
+  })
+  const result = await gateScope.run(async () => {}, () => session.click('e1'))
+  assert.match(result, unknownResult('net::ERR_CONNECTION_RESET'))
+})
+
+// A tab the page opens is made current once it has loaded. One that crashes first stays out
+// of the way: the Bot keeps working in the tab it had.
+test('a new tab that crashes while loading leaves no failure behind', async (t) => {
+  const unhandled = watchUnhandled(t)
+  const { session, context } = await fixture(t)
+  const crashing = new EventEmitter()
+  Object.assign(crashing, {
+    setDefaultTimeout() {},
+    setDefaultNavigationTimeout() {},
+    isClosed: () => false,
+    url: () => 'https://reports.example.test/popup',
+    waitForLoadState: async () => { throw new Error('page.waitForLoadState: Navigation failed because page crashed!') },
+  })
+  context.emit('page', crashing)
+  await new Promise(resolve => setTimeout(resolve, 20))
+  assert.match(await session.snapshotText(), /Export CSV/)
+  assert.match(await session.snapshotText(), /Export CSV/)
+  assert.deepEqual(unhandled, [])
+})
 
 test('a click captures a download started asynchronously after 120 ms', async (t) => {
   const incoming = download()
