@@ -673,18 +673,22 @@ export function install(rt) {
   }
 
   function restoreRelayWindow(preview, records, marker) {
-    if (REPLY_ELISION.test(preview.slice(marker.index + marker[0].length))) return null
+    const suffix = preview.slice(marker.index + marker[0].length)
+    if (REPLY_ELISION.test(suffix)) return null
     const head = preview.slice(0, marker.index)
     const before = parseReplies(head).replies
+    const tailFragment = /^((?:[^"\\]|\\.)*)"/.exec(suffix)
+    if (tailFragment === null) return null
     let after
-    try { after = JSON.parse(`{"replies":[{"text":"${preview.slice(marker.index + marker[0].length)}`).replies } catch { return null }
+    try { after = JSON.parse(`{"replies":[{"text":"${suffix}`).replies } catch { return null }
     if (!Array.isArray(after) || after.some(reply => !reply || typeof reply !== 'object' || reply.__omitted__)) return null
     const tail = after[0]?.text
     if (typeof tail !== 'string' || tail.length < 16 || after[0].kind !== undefined) return null
 
     // A line window can start its cut inside a reply's text or after a complete reply.
     let partial
-    if (/"text"\s*:\s*"(?:[^"\\]|\\.)*$/.test(head)) {
+    const headFragment = /"text"\s*:\s*"((?:[^"\\]|\\.)*)$/.exec(head)
+    if (headFragment !== null) {
       try { partial = JSON.parse(`${head}"}]}`).replies.at(-1) } catch { return null }
     }
     const first = partial ?? before.findLast(reply => reply?.kind === undefined && typeof reply?.botId === 'string' && typeof reply.text === 'string')
@@ -698,8 +702,9 @@ export function install(rt) {
     // Don't guess across a missing ledger row, a new prompt, or any other boundary.
     const span = records.slice(records.indexOf(starts[0]), records.indexOf(ends[0]) + 1)
     if (!span.every((record, i) => isKeptReply(record) && record.seq === starts[0].seq + i)) return null
+    // Count the saved JSON units: re-encoding half a surrogate pair would add an escape.
     const hiddenText = span.reduce((length, record) => length + jsonLength(record.text), 0)
-      - jsonLength(first.text) - jsonLength(tail)
+      - (headFragment?.[1].length ?? jsonLength(first.text)) - tailFragment[1].length
     const omitted = Number(marker[1])
     if (span.length === 1) {
       // A cut inside one string hides no JSON structure, so the encoded length must match exactly.

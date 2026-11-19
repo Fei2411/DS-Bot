@@ -1461,8 +1461,14 @@ test('a save-token line cut cannot restore an apparent exact match from another 
 })
 
 test('a save-token line cut inside one reply recovers it only at the exact encoded length', async (t) => {
-  const reply = { botId: 'b', text: 'Opening sentence. '.repeat(20) + '"Middle".\n'.repeat(10) + 'Closing sentence. '.repeat(20) }
-  const original = JSON.stringify({ replies: [reply], passed: [] })
+  const encoded = text => JSON.stringify({ replies: [{ botId: 'b', text }], passed: [] })
+  const [beforeText, afterText] = encoded('').split('""')
+  const opening = 'Opening sentence. '.repeat(20).slice(0, 259 - beforeText.length - 1)
+  const closing = 'Closing sentence. '.repeat(10).slice(0, 100 - afterText.length - 2)
+  const reply = { botId: 'b', text: opening + '🙂' + '"Middle".\n'.repeat(35) + '🙂' + closing }
+  const original = encoded(reply.text)
+  assert.equal(original.slice(259, 261), '🙂')
+  assert.equal(original.slice(-101, -99), '🙂')
   const saved = structuredClone(TEAM)
   saved.rooms.r1.seq = 1
   saved.rooms.r1.log = [{ ...reply, seq: 1 }]
