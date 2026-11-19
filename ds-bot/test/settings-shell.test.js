@@ -71,7 +71,6 @@ function dshShellDeclarations() {
 // Slots a newer DSH's shell declares than the oldest DSH DS Bot runs on. Declaring one
 // an older shell lacks is harmless: nothing registers into it there.
 const NEWER_SLOTS = new Set(['settings.section.icon'])
-const OWNED_SLOTS = new Set(['settings.plugins.tab'])
 
 test('the seat declares every child slot DSH\'s own settings shell declares, alike', () => {
   // Both sides come from their own realms, so the comparison goes through plain data.
@@ -79,7 +78,7 @@ test('the seat declares every child slot DSH\'s own settings shell declares, ali
   const ours = plain(shell.SETTINGS_CHILDREN)
   const dsh = plain(dshShellDeclarations())
   for (const [name, spec] of Object.entries(dsh)) assert.deepEqual(ours[name], spec, name)
-  assert.deepEqual(Object.keys(ours).filter(name => !(name in dsh) && !NEWER_SLOTS.has(name) && !OWNED_SLOTS.has(name)), [])
+  assert.deepEqual(Object.keys(ours).filter(name => !(name in dsh) && !NEWER_SLOTS.has(name)), [])
 })
 
 test('the bundle patch turns off the DSH settings shell row that dsh-web-app mounts', () => {
@@ -87,7 +86,6 @@ test('the bundle patch turns off the DSH settings shell row that dsh-web-app mou
   assert.match(rows, /"id":"ui-settings-general","name":"@deepseek-ai\/dsh-client-ui-settings-general"/)
   const ours = parse(readFileSync(`${plugin}/cordis.patch.yml`, 'utf8'))
   assert.ok(ours.some(row => row.id === 'ui-settings-general' && row.disabled === true))
-  assert.ok(ours.some(row => row.id === 'ui-settings-plugins' && row.disabled === true))
 })
 
 // The public slot contract: child declarations have one owner, duplicate entry
@@ -249,14 +247,13 @@ test('the settings file action shows only when the Host has a document to open',
 })
 
 // The dialog with DSH's ledger: renderSlot answers with a marker naming what it drew.
-function dialog({ page = 'general', id = null, sections, items = [], actions = {}, preferences, pluginTabs } = {}) {
+function dialog({ page = 'general', id = null, sections, items = [], actions = {}, preferences } = {}) {
   const calls = []
   const drawn = []
   const dsh = {
     sections: sections ?? [{ id: 'account', order: -10, label: 'Account' }, { id: 'general', order: 0, label: 'General' }, { id: 'models', order: 10, label: 'Models' }, { id: 'plugins', order: 15, label: 'Plugins' }, { id: 'agent-presets', order: 20, label: 'Agent presets' }],
     items,
     preferences,
-    pluginTabs,
     renderSlot: (name, owner, opts) => { drawn.push([name, opts?.only ?? null]); return { type: 'slot', props: { name, only: opts?.only ?? null } } },
   }
   const all = { closeSettings: () => calls.push('close'), openSettings: (...args) => calls.push(args), providers: () => {}, ...actions }
@@ -280,14 +277,6 @@ test('a DSH page opens in the dialog and draws that section', () => {
   const page = dialog({ page: 'dsh', id: 'plugins' })
   assert.ok(page.drawn.some(([name, only]) => name === 'settings.section' && only === 'plugins'))
   assert.equal(textOf(walk(page.tree, node => node.type === 'h2')[0]), 'Plugins')
-})
-
-test('the owned Plugins page receives its public tabs instead of DSH\'s menu-bearing compositor', () => {
-  const tabs = [{ id: 'all', label: 'Plugin list' }, { id: 'extension', label: 'Extension' }]
-  const page = dialog({ page: 'dsh', id: 'plugins', pluginTabs: tabs })
-  const [plugins] = walk(page.tree, node => typeof node.type === 'function' && node.type.name === 'PluginsSettings')
-  assert.equal(plugins.props.tabs, tabs)
-  assert.ok(!page.drawn.some(([name, only]) => name === 'settings.section' && only === 'plugins'))
 })
 
 test('a DSH page that left the ledger falls back to General', () => {

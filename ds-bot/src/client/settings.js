@@ -30,7 +30,6 @@ import { ModelMenu } from './model-menu.js'
 import { isLocalRoute } from './agent-routes.js'
 import { t } from './i18n.js'
 import { PREFERENCE_ITEMS, SettingsPreferences } from './settings-preferences.js'
-import { PluginsSettings } from './settings-inventory.js'
 
 const capitalize = word => word[0].toUpperCase() + word.slice(1)
 
@@ -369,9 +368,7 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
           shown === 'general' ? h(GeneralPage, { roster, actions, run, dsh }) : null,
           shown === 'models' && !advanced ? h(ProvidersPage, { actions, run, roster, Section: SetSection, advanced: hasSection(dsh, 'models') ? () => actions.openSettings('models', 'advanced') : null }) : null,
           advanced ? h('div', { className: 'bt-dsh-section' }, dsh.renderSlot('settings.section', { close }, { only: 'models' })) : null,
-          section ? section.id === 'plugins' && dsh.pluginTabs
-            ? h(PluginsSettings, { tabs: dsh.pluginTabs, renderSlot: dsh.renderSlot, preferences: dsh.preferences })
-            : h('div', { className: 'bt-dsh-section' }, dsh.renderSlot('settings.section', { close }, { only: section.id })) : null,
+          section ? h('div', { className: 'bt-dsh-section' }, dsh.renderSlot('settings.section', { close }, { only: section.id })) : null,
           shown === 'local-agents' ? h(LocalAgentsPage, { run, Section: SetSection, Row: SetRow }) : null,
           bot ? h('div', { className: 'bt-settings-form' }, h(BotSettingsForm, { key: bot.id, bot, roster, actions, run })) : null,
           shown === 'bots' && !bot ? h(BotsPage, { roster, actions, run }) : null,

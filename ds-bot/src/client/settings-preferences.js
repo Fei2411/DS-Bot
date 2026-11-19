@@ -22,14 +22,6 @@ const CHAT_LABELS = {
   linkOpening: ['settings.links.sidebar', 'settings.links.newTab'],
 }
 const CHAT_KEYS = { transcriptView: 'transcript', collapseTiming: 'collapse', foldedReplies: 'foldedReplies', performanceUsage: 'performance', linkOpening: 'links' }
-const EMPTY_CLIENT = { syncing: false, failures: [] }
-const EMPTY_CLIENT_SOURCE = { getSnapshot: () => EMPTY_CLIENT, subscribe: () => () => {} }
-
-export async function loadInventory(remote) {
-  const result = await remote.list()
-  if (!result.ok) throw new Error('inventory read refused')
-  return result.value
-}
 
 export function chatPreference(value = {}, desktop = false) {
   const mode = value.transcriptView
@@ -213,11 +205,6 @@ export function settingsPreferences(ctx) {
       subscribe: listener => ctx.get('sidebarRightTabs')?.subscribe(listener) ?? (() => {}),
     },
     permissionCatalog: () => ctx.get('remote.permissionPresets').catalog(),
-    inventory: {
-      load: () => loadInventory(ctx.get('remote.pluginInventory')),
-      client: ctx.get('modules')?.entries.state ?? EMPTY_CLIENT_SOURCE,
-      retryClient: () => { void ctx.get('modules')?.entries.retry().catch(error => ctx.logger.error(error)) },
-    },
     subscribePermission: (listener) => {
       const stop = ctx.get('remote').$on('permission-presets/catalog-changed', listener)
       const reset = ctx.on('connection/reset', listener)

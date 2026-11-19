@@ -32,7 +32,6 @@ export const SETTINGS_CHILDREN = {
   'settings.section.icon': { kind: 'list', scope: 'root', inline: true },
   'settings.onboarding': { kind: 'list', scope: 'root' },
   'settings.general.item': { kind: 'list', scope: 'root' },
-  'settings.plugins.tab': { kind: 'list', scope: 'root' },
 }
 
 // DSH's preview notice keeps its acknowledgement in ui-settings-general's own settings,
@@ -203,7 +202,6 @@ export function SettingsShell(props) {
     wide, renderSlot, actions, useUi, useRoster, useUpdate, useSessions,
     useSections, useGeneralItems, useOnboardingSteps, useOnboardingRequest,
     useConnectionState, useDesktopUpdate, useSettingsShortcut,
-    usePluginTabs,
     reconnect, openDesktopUpdate, openOnboarding, finishOnboarding, holdSeat,
     preferences,
   } = props
@@ -211,7 +209,6 @@ export function SettingsShell(props) {
   const roster = useRoster(value => value)
   const sections = useSections(rows => rows)
   const items = useGeneralItems(rows => rows)
-  const pluginTabs = usePluginTabs ? usePluginTabs(rows => rows) : undefined
   const steps = useOnboardingSteps(rows => rows)
   const requested = useOnboardingRequest(value => value)
   const connection = useConnectionState(value => value)
@@ -265,7 +262,7 @@ export function SettingsShell(props) {
       wide ? h(DesktopUpdatePill, { view: update, hidden: indicator !== undefined && !installing, onOpen: openDesktopUpdate }) : null),
     kept ? createPortal(h(SettingsDialog, {
       page: kept.page, id: kept.id, roster, actions, useUpdate, leaving,
-      dsh: { sections, items, renderSlot, preferences, pluginTabs },
+      dsh: { sections, items, renderSlot, preferences },
     }), document.body) : null,
     step !== undefined ? renderSlot('settings.onboarding', {
       stepId: step.id, explicit: requested !== undefined, complete: () => complete(step.id),
@@ -418,7 +415,6 @@ export function installSettingsShell(ctx, { face, actions, ui, held }) {
   }
   const sections = ledgerSource(slots, locale, 'settings.section', sectionRows)
   const items = ledgerSource(slots, locale, 'settings.general.item', itemRows)
-  const pluginTabs = ledgerSource(slots, locale, 'settings.plugins.tab', sectionRows)
   const steps = ledgerSource(slots, locale, 'settings.onboarding', stepRows)
   const seat = seatHold(held)
   const shellFace = () => {
@@ -434,7 +430,6 @@ export function installSettingsShell(ctx, { face, actions, ui, held }) {
       hooks: {
         ...base.hooks,
         sections, generalItems: items, onboardingSteps: steps, onboardingRequest: request,
-        pluginTabs,
         connectionState, desktopUpdate: update.store, settingsShortcut,
       },
     }
@@ -462,9 +457,6 @@ export function installSettingsShell(ctx, { face, actions, ui, held }) {
     }, DesktopUpdateBadge)))
   }
   const fibers = [
-    ctx.effect(() => slots.inject('settings.section', () => slots.register({
-      name: 'settings.section', id: 'plugins', order: 15, label: () => t('Plugins'),
-    }, () => null)), 'ds-bot: built-in plugin settings'),
     ctx.inject(['shortcuts'], (scope) => {
       scope.effect(() => scope.shortcuts.register({
         id: 'settings.open',
