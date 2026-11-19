@@ -81,7 +81,7 @@ export function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus
   const goalOpen = useUi(state => room !== undefined && state.goalOpen === room.id)
   // The island's live faces: who is at work in this group right now. Non-group
   // chats subscribe to a constant so their header does not redraw on work.
-  const roomWorkKey = useWork?.(work => (room ? JSON.stringify(work.rooms?.[sessionId] ?? []) : '')) ?? '[]'
+  const roomWorkKey = useWork?.(work => (room ? JSON.stringify(work.rooms?.[room.id] ?? []) : '')) ?? '[]'
   const roomWork = room ? JSON.parse(roomWorkKey || '[]') : []
   const view = goal ? goalView(goal, { roster, roomWork }) : null
   const goalShown = room !== undefined && !away && goal !== undefined

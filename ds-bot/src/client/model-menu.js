@@ -332,7 +332,7 @@ export function useAnchoredMenu() {
     }
     const onKey = (event) => {
       if (stepMenuFocus(menu.current, event, button.current)) return
-      if (event.key === 'Escape') { event.stopPropagation(); close(); button.current?.focus() }
+      if (event.key === 'Escape' && !event.isComposing && event.keyCode !== 229) { event.stopPropagation(); close(); button.current?.focus() }
     }
     const onScroll = (event) => { if (!menu.current?.contains(event.target)) close() }
     window.addEventListener('mousedown', onDown)
@@ -373,7 +373,7 @@ export function useInlineMenu() {
     const onDown = (event) => { if (!root.current?.contains(event.target)) close() }
     const onKey = (event) => {
       if (stepMenuFocus(menu.current, event, button.current)) return
-      if (event.key === 'Escape') { event.stopPropagation(); close(); button.current?.focus() }
+      if (event.key === 'Escape' && !event.isComposing && event.keyCode !== 229) { event.stopPropagation(); close(); button.current?.focus() }
     }
     window.addEventListener('mousedown', onDown)
     window.addEventListener('keydown', onKey, true)
@@ -735,7 +735,7 @@ menus use, with the menu item's hover, focus ring and a caret that points at the
 .bt-model-choice-group{display:flex;flex-direction:column;gap:6px;width:100%;min-width:0}
 .bt-model-choice-provider{padding-top:4px;font-size:12px;line-height:16px;font-weight:500;color:var(--bt-ink-2);overflow-wrap:anywhere}
 .bt-model-choice-chips{display:flex;flex-wrap:wrap;gap:6px}
-.bt-model-chip{display:inline-flex;align-items:center;gap:6px;min-height:30px;padding:5px 12px;border:.5px solid var(--bt-line-2);border-radius:999px;background:var(--bt-surface,transparent);color:var(--bt-ink);font:inherit;font-size:13px;line-height:18px;cursor:pointer;transition:background-color .12s ease,border-color .12s ease}
+.bt-model-chip{display:inline-flex;align-items:center;gap:6px;min-height:30px;padding:5px 12px;border:.5px solid var(--bt-line-2);border-radius:999px;background:var(--bt-card);color:var(--bt-ink);font:inherit;font-size:13px;line-height:18px;cursor:pointer;transition:background-color .12s ease,border-color .12s ease}
 .bt-model-chip:hover:not(:disabled){background:var(--bt-hover)}
 .bt-model-chip:focus-visible{outline:2px solid var(--bt-accent);outline-offset:1px}
 .bt-model-chip-quiet{color:var(--bt-ink-2)}

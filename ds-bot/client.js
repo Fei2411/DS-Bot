@@ -99,10 +99,13 @@ var PHRASES = [
   ["关系", "關係"],
   ["折叠", "摺疊"]
 ];
-var HANS = "与专业东丢两个丰临为么义书于云产仅从仓们优会传体侧俩储儿关内册写冲决况减凑几凭击则刚创删别办务动势区协单占历压参双发变叠号叹后吗听启员响唤团围国图圆场坏块垫声处备复够头夹学宝实审宽对导将尝尽层属师带帮干并广库应开异弃张弹强归当录征径忆态总恶悬愿户执扩扫护报拦择挂挤损换据数断无旧时显暂术机杀权杠条来极构标栏树样档检横欢残气汇没泄泼洁浅测浏渐溃滚满潜灯点热状独猫环现电画盖盘着码础确离种称稳笔筛签简类粤紧红约级纯纸线组细织终经绑结绘给络绝统继绪续维绿缀缓编缩网联脑脚节范荐获营蓝补装见观规视览触计订认让议记许论设访证评识诉诊词译试话询该详语误说请读谁调谢负责败账贴费资赖赞赠趋跃踪车轨转轮软载较辅辑输边达迁过运还这进远连迟迹适选递邮释鉴钉钟钥钮钴铁铺链销锁错键镜长闭问闲间闻阅阈队阶际陆险随隐隶静韩页顶项顺须预频题颜额风飞饰馈马验骤鱼鲸麦黄齐志里余";
-var HANT = "與專業東丟兩個豐臨為麼義書於雲產僅從倉們優會傳體側倆儲兒關內冊寫衝決況減湊幾憑擊則剛創刪別辦務動勢區協單佔歷壓參雙發變疊號嘆後嗎聽啟員響喚團圍國圖圓場壞塊墊聲處備復夠頭夾學寶實審寬對導將嘗盡層屬師帶幫幹並廣庫應開異棄張彈強歸當錄徵徑憶態總惡懸願戶執擴掃護報攔擇掛擠損換據數斷無舊時顯暫術機殺權槓條來極構標欄樹樣檔檢橫歡殘氣匯沒洩潑潔淺測瀏漸潰滾滿潛燈點熱狀獨貓環現電畫蓋盤著碼礎確離種稱穩筆篩簽簡類粵緊紅約級純紙線組細織終經綁結繪給絡絕統繼緒續維綠綴緩編縮網聯腦腳節範薦獲營藍補裝見觀規視覽觸計訂認讓議記許論設訪證評識訴診詞譯試話詢該詳語誤說請讀誰調謝負責敗賬貼費資賴讚贈趨躍蹤車軌轉輪軟載較輔輯輸邊達遷過運還這進遠連遲跡適選遞郵釋鑑釘鐘鑰鈕鈷鐵鋪鏈銷鎖錯鍵鏡長閉問閒間聞閱閾隊階際陸險隨隱隸靜韓頁頂項順須預頻題顏額風飛飾饋馬驗驟魚鯨麥黃齊誌裡餘";
+var HANS = "与专业东丢两个丰临为么义书于云产仅从仓们优会传体侧俩储儿关内册写冲决况减凑几凭击则刚创删别划办务动势区协单占历压参双发变叠号叹后吗听启员响唤团围国图圆场坏块垫声处备复够头夹学宝实审宽对导将尝尽层属师带帮干并广库应开异弃张弹强归当录征径忆态总恶悬愿户执扩扫护报拦择挂挤损换据数断无旧时显暂术机杀权杠条来极构标栏树样档检横欢残气汇没泄泼洁浅测浏渐溃滚满潜灯点热状独猫环现电画盖盘着码础确离种称稳笔筛签简类粤紧红约级纯纸线组细织终经绑结绘给络绝统继绪续维绿缀缓编缩网联脑脚节范荐获营蓝补装见观规视览触计订认让议记许论设访证评识诉诊词译试话询该详语误说请读谁调谢负责败账贴费资赖赞赠趋跃踪车轨转轮软载较辅辑输边达迁过运还这进远连迟迹适选递邮释鉴钉钟钥钮钴铁铺链销锁错键镜长闭问闲间闻阅阈队阶际陆险随隐隶静韩页顶项顺须预频题颜额风飞饰馈马验骤鱼鲸麦黄齐志里余";
+var HANT = "與專業東丟兩個豐臨為麼義書於雲產僅從倉們優會傳體側倆儲兒關內冊寫衝決況減湊幾憑擊則剛創刪別劃辦務動勢區協單佔歷壓參雙發變疊號嘆後嗎聽啟員響喚團圍國圖圓場壞塊墊聲處備複夠頭夾學寶實審寬對導將嘗盡層屬師帶幫幹並廣庫應開異棄張彈強歸當錄徵徑憶態總惡懸願戶執擴掃護報攔擇掛擠損換據數斷無舊時顯暫術機殺權槓條來極構標欄樹樣檔檢橫歡殘氣匯沒洩潑潔淺測瀏漸潰滾滿潛燈點熱狀獨貓環現電畫蓋盤著碼礎確離種稱穩筆篩簽簡類粵緊紅約級純紙線組細織終經綁結繪給絡絕統繼緒續維綠綴緩編縮網聯腦腳節範薦獲營藍補裝見觀規視覽觸計訂認讓議記許論設訪證評識訴診詞譯試話詢該詳語誤說請讀誰調謝負責敗賬貼費資賴讚贈趨躍蹤車軌轉輪軟載較輔輯輸邊達遷過運還這進遠連遲跡適選遞郵釋鑑釘鐘鑰鈕鈷鐵鋪鏈銷鎖錯鍵鏡長閉問閒間聞閱閾隊階際陸險隨隱隸靜韓頁頂項順須預頻題顏額風飛飾饋馬驗驟魚鯨麥黃齊誌裡餘";
 var CHAR_MAP = /* @__PURE__ */ new Map();
 for (let i = 0; i < HANS.length; i++) CHAR_MAP.set(HANS[i], HANT[i]);
+var DICT_OVERRIDES = {
+  Revoke: "撤銷"
+};
 function toTraditional(text) {
   if (typeof text !== "string" || !text) return text;
   let out = text;
@@ -115,7 +118,7 @@ function toTraditional(text) {
 }
 function convertDict(dict) {
   const out = {};
-  for (const [k, v] of Object.entries(dict)) out[k] = toTraditional(v);
+  for (const [k, v] of Object.entries(dict)) out[k] = DICT_OVERRIDES[k] ?? toTraditional(v);
   return out;
 }
 function convertHostErrors(pairs) {
@@ -16134,13 +16137,15 @@ function useGlide(key, { axis = "x", selector = CHOSEN, lead = SPRING_LEAD, trai
   if (own.current === null) {
     own.current = {
       key: void 0,
+      axis,
       node: null,
       observer: null,
       springs: liveSprings(({ start, end }) => {
         const knob = thumb.current;
         if (!knob) return;
-        knob.style.transform = axis === "x" ? `translateX(${start}px)` : `translateY(${start}px)`;
-        knob.style[axis === "x" ? "width" : "height"] = `${Math.max(0, end - start)}px`;
+        const currentAxis = own.current.axis;
+        knob.style.transform = currentAxis === "x" ? `translateX(${start}px)` : `translateY(${start}px)`;
+        knob.style[currentAxis === "x" ? "width" : "height"] = `${Math.max(0, end - start)}px`;
       })
     };
   }
@@ -16148,13 +16153,14 @@ function useGlide(key, { axis = "x", selector = CHOSEN, lead = SPRING_LEAD, trai
     const container = box.current;
     const knob = thumb.current;
     if (!container || !knob) return;
+    const currentAxis = own.current.axis;
     const chosen = container.querySelector(selector);
     if (!chosen) {
       knob.dataset.hidden = "";
       return;
     }
-    const start = axis === "x" ? chosen.offsetLeft : chosen.offsetTop;
-    const end = start + (axis === "x" ? chosen.offsetWidth : chosen.offsetHeight);
+    const start = currentAxis === "x" ? chosen.offsetLeft : chosen.offsetTop;
+    const end = start + (currentAxis === "x" ? chosen.offsetWidth : chosen.offsetHeight);
     const { springs } = own.current;
     const before = springs.target();
     const hidden = knob.dataset.hidden !== void 0;
@@ -16167,10 +16173,18 @@ function useGlide(key, { axis = "x", selector = CHOSEN, lead = SPRING_LEAD, trai
   (0, import_react.useLayoutEffect)(() => {
     const state = own.current;
     const node = box.current;
-    if (node === state.node && key === state.key) return;
-    const fresh = node !== state.node;
+    const axisChanged = axis !== state.axis;
+    if (node === state.node && key === state.key && !axisChanged) return;
+    const fresh = node !== state.node || axisChanged;
     state.key = key;
-    if (fresh) {
+    if (axisChanged) {
+      state.axis = axis;
+      if (thumb.current) {
+        thumb.current.style.width = "";
+        thumb.current.style.height = "";
+      }
+    }
+    if (node !== state.node) {
       state.observer?.disconnect();
       state.node = node;
       state.observer = node && typeof ResizeObserver === "function" ? new ResizeObserver(() => place(true)) : null;
@@ -16405,10 +16419,10 @@ function writeSidebar(value, storage = globalThis.localStorage) {
 
 // src/client/styles.js
 var SHELL_CSS = `
-body{--bt-im-telegram:#229ed9;--bt-im-weixin:#07c160;--bt-im-feishu:#3370ff;--bt-im-dingtalk:#1e88e5;--bt-im-wecom:#0082ef;--bt-im-qq:#e03e3e;--bt-im-discord:#5865f2;--bt-im-slack:#4a154b;--bt-im-mark-ink:#ffffff;--bt-qr-paper:#ffffff;--bt-qr-ink:#141414;--bt-ink:#141414;--bt-danger:#e02135;--bt-warn:#8a5a00;--bt-ink-2:rgba(20,20,20,.6);--bt-ink-3:rgba(20,20,20,.36);--bt-bubble:#eeeeee;--bt-sidebar:#f7f7f7;--bt-main:#fcfcfc;--bt-line:rgba(20,20,20,.08);--bt-line-2:rgba(20,20,20,.15);--bt-line-weak:rgba(20,20,20,.1);--bt-hover:rgba(119,119,119,.09);--bt-active:rgba(119,119,119,.17);--bt-card:#ffffff;--bt-accent:#4d6bfe;--bt-green:#00c972;--bt-star:#ff9800;--bt-user:#070707;--bt-user-ink:#fcfcfc;--bt-tag-bg:rgba(20,20,20,.06);--bt-tag-ink:rgba(20,20,20,.56);--bt-knob:#ffffff;--bt-glass-bg:color-mix(in srgb,var(--bt-main) 78%,transparent);--bt-glass-border:rgba(255,255,255,.72);--bt-glass-rim:rgba(20,20,20,.09);--bt-glass-shadow:0 8px 28px -6px rgba(0,0,0,.08),0 2px 6px -1px rgba(0,0,0,.04),inset 0 1px 0 rgba(255,255,255,.82);--bt-dialog-shadow:0 28px 90px -12px rgba(0,0,0,.22),0 8px 24px -4px rgba(0,0,0,.08),inset 0 1px 0 rgba(255,255,255,.78);--bt-card-shadow:0 1px 2px rgba(20,20,20,.03),inset 0 1px 0 rgba(255,255,255,.65);--bt-nav-thumb-bg:color-mix(in srgb,var(--bt-card) 82%,var(--bt-active));--bt-nav-thumb-shadow:0 1px 2px rgba(20,20,20,.06),inset 0 .5px 0 rgba(255,255,255,.8);--bt-select-arrow:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12' fill='none' stroke='%23888' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m3 4.5 3 3 3-3'/%3E%3C/svg%3E");--bt-accent-soft:color-mix(in srgb,var(--bt-accent) 14%,transparent);--bt-danger-soft:color-mix(in srgb,var(--bt-danger) 14%,transparent);--bt-danger-glow:color-mix(in srgb,var(--bt-danger) 24%,transparent);-webkit-tap-highlight-color:transparent;-webkit-text-size-adjust:100%;--bt-font:var(--dsw-font-family,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif)}
+body{--bt-im-telegram:#229ed9;--bt-im-weixin:#07c160;--bt-im-feishu:#3370ff;--bt-im-dingtalk:#1e88e5;--bt-im-wecom:#0082ef;--bt-im-qq:#e03e3e;--bt-im-discord:#5865f2;--bt-im-slack:#4a154b;--bt-im-mark-ink:#ffffff;--bt-qr-paper:#ffffff;--bt-qr-ink:#141414;--bt-ink:#141414;--bt-danger:#e02135;--bt-warn:#8a5a00;--bt-ink-2:rgba(20,20,20,.6);--bt-ink-3:rgba(20,20,20,.36);--bt-bubble:#eeeeee;--bt-sidebar:#f7f7f7;--bt-main:#fcfcfc;--bt-line:rgba(20,20,20,.08);--bt-line-2:rgba(20,20,20,.15);--bt-line-weak:rgba(20,20,20,.1);--bt-hover:rgba(119,119,119,.09);--bt-active:rgba(119,119,119,.17);--bt-card:#ffffff;--bt-accent:#4d6bfe;--bt-green:#00c972;--bt-star:#ff9800;--bt-user:#070707;--bt-user-ink:#fcfcfc;--bt-tag-bg:rgba(20,20,20,.06);--bt-tag-ink:rgba(20,20,20,.56);--bt-knob:#ffffff;--bt-glass-bg:color-mix(in srgb,var(--bt-main) 78%,transparent);--bt-glass-border:rgba(255,255,255,.72);--bt-glass-rim:rgba(20,20,20,.09);--bt-glass-shadow:0 8px 28px -6px rgba(0,0,0,.08),0 2px 6px -1px rgba(0,0,0,.04),inset 0 1px 0 rgba(255,255,255,.82);--bt-dialog-shadow:0 28px 90px -12px rgba(0,0,0,.22),0 8px 24px -4px rgba(0,0,0,.08),inset 0 1px 0 rgba(255,255,255,.78);--bt-card-shadow:0 1px 2px rgba(20,20,20,.03),inset 0 1px 0 rgba(255,255,255,.65);--bt-nav-thumb-bg:color-mix(in srgb,var(--bt-card) 82%,var(--bt-active));--bt-nav-thumb-shadow:0 1px 2px rgba(20,20,20,.06),inset 0 .5px 0 rgba(255,255,255,.8);--bt-select-arrow:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12' fill='none' stroke='%23888' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m3 4.5 3 3 3-3'/%3E%3C/svg%3E");--bt-accent-soft:color-mix(in srgb,var(--bt-accent) 14%,transparent);--bt-danger-soft:color-mix(in srgb,var(--bt-danger) 14%,transparent);--bt-danger-glow:color-mix(in srgb,var(--bt-danger) 24%,transparent);-webkit-tap-highlight-color:transparent;-webkit-text-size-adjust:100%;--bt-font:var(--dsw-font-family,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif);--bt-mono:var(--dsh-font-mono,ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,monospace)}
 /* iOS waits out a double-tap zoom on buttons; the plugin's own controls never zoom. */
 :is(.bt-tool,.bt-menu button,.bt-icon-btn,.bt-round,.bt-pill,.bt-account,.bt-set-row,.bt-settings-item,.bt-react-strip button,.bt-palette-row,.bt-palette-clear,.bt-tab,.bt-ptab,.bt-ptab-x,.bt-bcard-x,.bt-plus,.bt-q-btn,.bt-q-fold,.bt-q-x,.bt-x,.bt-nc-send,.bt-send,.bt-soft,.bt-mini,.bt-side-send,.bt-shape,.bt-swatch,.bt-color,.bt-newchat,.bt-task-day,.bt-task-remove){touch-action:manipulation}
-:is(.bt-round,.bt-you,.bt-account,.bt-color,.bt-color span,.bt-swatch,.bt-icon-btn,.bt-avatar-trigger,.bt-avatar-pencil,.bt-plus,.bt-mic,.bt-voice,.bt-task-day,.bt-task-off-mark){corner-shape:round}
+:is(.bt-round,.bt-you,.bt-account,.bt-color,.bt-color span,.bt-swatch,.bt-icon-btn,.bt-avatar-trigger,.bt-avatar-pencil,.bt-plus,.bt-mic,.bt-voice,.bt-task-day,.bt-task-off-mark,.bt-mark-img,.bt-cluster-more,.bt-cluster-you,.bt-unread,.bt-dot,.bt-option-icon,.bt-nc-plus,.bt-nc-send,.bt-pile-face,.bt-dropzone img,.bt-settings-close,.bt-voice-ring,.bt-voice-btn,.bt-react-strip button,.bt-palette-cmd,.bt-palette-agent,.bt-mem-empty-mark,.bt-mem-send,.bt-mem-spin){corner-shape:round}
 body[data-ds-dark-theme]{--bt-im-telegram:#2ea8de;--bt-im-weixin:#17c96a;--bt-im-feishu:#4d84ff;--bt-im-dingtalk:#3d99ed;--bt-im-wecom:#2898f2;--bt-im-qq:#e85555;--bt-im-discord:#6e7bf2;--bt-im-slack:#7c4380;--bt-im-mark-ink:#ffffff;--bt-ink:#f2f2f2;--bt-ink-2:rgba(242,242,242,.6);--bt-ink-3:rgba(242,242,242,.36);--bt-bubble:#262626;--bt-sidebar:#1b1b1b;--bt-main:#141414;--bt-line:rgba(255,255,255,.08);--bt-line-2:rgba(255,255,255,.15);--bt-line-weak:rgba(255,255,255,.1);--bt-hover:rgba(160,160,160,.12);--bt-active:rgba(160,160,160,.2);--bt-card:#1f1f1f;--bt-user:#f2f2f2;--bt-user-ink:#141414;--bt-tag-bg:rgba(255,255,255,.09);--bt-tag-ink:rgba(242,242,242,.62);--bt-glass-bg:color-mix(in srgb,var(--bt-main) 74%,transparent);--bt-glass-border:rgba(255,255,255,.13);--bt-glass-rim:rgba(255,255,255,.11);--bt-glass-shadow:0 12px 32px -6px rgba(0,0,0,.42),0 2px 8px -1px rgba(0,0,0,.28),inset 0 1px 0 rgba(255,255,255,.12);--bt-dialog-shadow:0 32px 96px -12px rgba(0,0,0,.62),0 10px 28px -4px rgba(0,0,0,.42),inset 0 1px 0 rgba(255,255,255,.1);--bt-card-shadow:0 1px 3px rgba(0,0,0,.22),inset 0 .5px 0 rgba(255,255,255,.07);--bt-nav-thumb-bg:color-mix(in srgb,var(--bt-card) 65%,var(--bt-active));--bt-nav-thumb-shadow:0 1px 3px rgba(0,0,0,.28),inset 0 .5px 0 rgba(255,255,255,.12);--bt-accent-soft:color-mix(in srgb,var(--bt-accent) 18%,transparent);--bt-danger-soft:color-mix(in srgb,var(--bt-danger) 18%,transparent);--bt-danger-glow:color-mix(in srgb,var(--bt-danger) 28%,transparent);--bt-warn:#f0b84a}
 ${Object.entries(INKS).map(([name, [light]]) => `body{--bt-ink-${name}:${light}}`).join("")}
 ${Object.entries(INKS).map(([name, [, dark]]) => `body[data-ds-dark-theme]{--bt-ink-${name}:${dark}}`).join("")}
@@ -16600,7 +16614,7 @@ html[data-bt-collapsing] [class*="_frame"]:has(>[class*="_sidebarCol"]){transiti
 
 .bt-head{position:relative;display:flex;justify-content:center;align-items:center;height:40px;flex:none;pointer-events:none}
 .bt-pill{pointer-events:auto;display:inline-flex;align-items:center;gap:8px;height:40px;padding:7.5px 13.5px 7.5px 7.5px;border-radius:999px;background:var(--bt-glass-bg);-webkit-backdrop-filter:blur(20px) saturate(180%);backdrop-filter:blur(20px) saturate(180%);border:.5px solid var(--bt-glass-rim);box-shadow:var(--bt-glass-shadow);color:var(--bt-ink);font-family:inherit;font-size:14px;line-height:20px;cursor:pointer;max-width:70%;box-sizing:border-box;transition:background-color .12s ease,transform ${SPRING_TAP.duration}ms ${SPRING_TAP.easing}}
-.bt-pill:hover{background:color-mix(in srgb,var(--bt-main),#777 9%)}
+.bt-pill:hover{background:color-mix(in srgb,var(--bt-ink) 5%,var(--bt-glass-bg))}
 .bt-pill:active{transform:scale(.965)}
 .bt-pill-name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:500}
 .bt-pill-mem{flex:none;display:inline-flex;width:0;margin-left:-8px;overflow:hidden;transition:${spring(SPRING_SHAPE, "width", "margin-left")}}
@@ -16624,7 +16638,6 @@ html[data-bt-collapsing] [class*="_frame"]:has(>[class*="_sidebarCol"]){transiti
 
 /* The width settings: the share of the column a bubble may take, and the flat text. */
 body{--bt-msg-w:.8;--bt-flat-w:1}
-body{--bt-qr-paper:#fff;--bt-qr-ink:#000}
 .bt-astack{display:flex;flex-direction:column;align-items:flex-start;gap:4px;margin:0}
 .bt-bubble{max-width:min(calc(var(--bt-msg-w) * 100%),calc(100% - 82px));background:var(--bt-bubble);color:var(--bt-ink);border-radius:18px;padding:7px 12px;font-size:var(--dsh-content-font-size,14px);line-height:calc(var(--dsh-content-font-size,14px) + 10px);box-sizing:border-box;overflow-wrap:anywhere;text-wrap:pretty;text-autospace:normal}
 .bt-msg:not(:first-child)>.bt-msg-line>.bt-bubble{border-start-start-radius:6px}
@@ -16662,7 +16675,8 @@ button.bt-lead{border:0;background:none;padding:0;cursor:pointer}
 body[data-bt-layout=flat] .bt-claim{margin-left:0}
 .bt-claim-file{color:var(--bt-danger)}
 .bt-claim-inProgress{color:var(--bt-ink-2)}
-.bt-x{border:0;background:none;color:var(--bt-ink-2);cursor:pointer;width:24px;height:24px;border-radius:6px;font-size:16px;line-height:24px;padding:0;transition:background-color .12s ease,color .12s ease,${spring(SPRING_TAP, "scale")}}
+.bt-x{position:relative;border:0;background:none;color:var(--bt-ink-2);cursor:pointer;width:24px;height:24px;border-radius:6px;font-size:16px;line-height:24px;padding:0;transition:background-color .12s ease,color .12s ease,${spring(SPRING_TAP, "scale")}}
+.bt-x::after{content:"";position:absolute;inset:-4px}
 .bt-x:hover{background:var(--bt-hover);color:var(--bt-ink)}
 
 .bt-q{margin:0 auto 8px;width:100%;max-width:var(--dsh-chat-content-width,748px);display:flex;flex-direction:column;gap:12px;--bt-q-edge:color-mix(in srgb,var(--bt-ink) 10%,transparent);--bt-q-rule:color-mix(in srgb,var(--bt-ink) 8%,transparent);--bt-q-rule-2:color-mix(in srgb,var(--bt-ink) 5%,transparent);background:var(--bt-card);box-shadow:0 1px 3px rgba(20,20,20,.04),inset 0 0 0 1px var(--bt-q-edge);border-radius:16px;padding:14px 16px;box-sizing:border-box;color:var(--bt-ink);font-family:var(--bt-font);animation:bt-q-in ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing} backwards,bt-veil-in .2s ease-out backwards}
@@ -16673,7 +16687,8 @@ body[data-ds-dark-theme] .bt-q{--bt-q-edge:rgba(255,255,255,.16);--bt-q-rule:rgb
 .bt-q-text{flex:1 1 0;min-width:0;display:flex;flex-direction:column}
 .bt-q-title{margin:0;font-size:15px;line-height:22px;font-weight:600;overflow-wrap:anywhere}
 .bt-q-detail{font-size:13px;line-height:18px;color:var(--bt-ink-2)}
-.bt-q-x{flex:none;width:20px;height:20px;border:0;padding:0;border-radius:6px;background:none;color:var(--bt-ink-2);display:inline-flex;align-items:center;justify-content:center;cursor:pointer;transition:background-color .12s ease,color .12s ease,${spring(SPRING_TAP, "scale")}}
+.bt-q-x{position:relative;flex:none;width:20px;height:20px;border:0;padding:0;border-radius:6px;background:none;color:var(--bt-ink-2);display:inline-flex;align-items:center;justify-content:center;cursor:pointer;transition:background-color .12s ease,color .12s ease,${spring(SPRING_TAP, "scale")}}
+.bt-q-x::after{content:"";position:absolute;inset:-4px}
 .bt-q-x svg{width:14px;height:14px}
 .bt-q-x:hover{background:var(--bt-hover);color:var(--bt-ink)}
 .bt-q-x:focus-visible,.bt-q-opt:focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px}
@@ -16770,6 +16785,7 @@ body[data-ds-dark-theme] .bt-q.bt-q-settled[data-expandable]:not([data-open]):ho
 @media (prefers-reduced-motion:reduce){.bt-q{animation:bt-fade .12s ease-out backwards}.bt-q-settled,.bt-q-submit,.bt-q-expand,.bt-q-dock[data-leaving]{animation:none}.bt-q-chevron{transition:none}}
 
 .bt-newchat{flex:1;display:flex;flex-direction:column;min-width:0;position:relative;animation:bt-veil-in .18s ease-out}
+.bt-to-wrap{position:relative;flex:none}
 .bt-to{display:flex;align-items:center;flex-wrap:wrap;gap:6px;min-height:48px;padding:6px calc(100% - 32px - min(550px,100% - 64px)) 6px 12px;border-bottom:1px solid var(--bt-line);font-size:14px;box-sizing:border-box}
 .bt-to-label{color:var(--bt-ink-2)}
 .bt-to input{flex:1;min-width:120px;border:0;outline:none;background:none;color:var(--bt-ink);font-size:14px;height:26px}
@@ -16778,7 +16794,7 @@ body[data-ds-dark-theme] .bt-q.bt-q-settled[data-expandable]:not([data-open]):ho
 .bt-admin-star{flex:none;display:inline-flex;align-items:center;justify-content:center;width:12px;height:12px;border-radius:50%;corner-shape:round;background:color-mix(in srgb,var(--bt-star) 82%,var(--bt-sidebar));vertical-align:-1px}
 .bt-to-star{display:inline-flex;margin-right:-2px;animation:bt-check-pop ${SPRING_POP.duration}ms ${SPRING_POP.easing}}
 .bt-to .bt-to-create{flex:none;height:28px;padding:0 12px;font-size:13px;animation:bt-q-submit-in ${SPRING_TAP.duration}ms ${SPRING_TAP.easing},bt-veil-in .16s ease-out}
-.bt-drop{position:absolute;top:48px;left:32px;width:min(550px,calc(100% - 64px));display:flex;flex-direction:column;padding:6px;max-height:min(420px,60vh);overflow-y:auto;background:var(--bt-glass-bg);-webkit-backdrop-filter:blur(24px) saturate(180%);backdrop-filter:blur(24px) saturate(180%);border:.5px solid var(--bt-glass-rim);border-radius:12px;box-shadow:var(--bt-glass-shadow);box-sizing:border-box;z-index:1;transform-origin:24px 0;animation:bt-pop-drop ${SPRING_TAP.duration}ms ${SPRING_TAP.easing},bt-veil-in .14s ease-out}
+.bt-drop{position:absolute;top:calc(100% + 4px);left:32px;width:min(550px,calc(100% - 64px));display:flex;flex-direction:column;padding:6px;max-height:min(420px,60vh);overflow-y:auto;background:var(--bt-glass-bg);-webkit-backdrop-filter:blur(24px) saturate(180%);backdrop-filter:blur(24px) saturate(180%);border:.5px solid var(--bt-glass-rim);border-radius:12px;box-shadow:var(--bt-glass-shadow);box-sizing:border-box;z-index:10;transform-origin:24px 0;animation:bt-pop-drop ${SPRING_TAP.duration}ms ${SPRING_TAP.easing},bt-veil-in .14s ease-out}
 .bt-option{display:flex;align-items:center;gap:10px;border:0;background:none;border-radius:8px;padding:7px 8px;min-height:36px;box-sizing:border-box;font-size:13px;line-height:18px;color:var(--bt-ink);cursor:pointer;text-align:left;width:100%}
 .bt-option[aria-selected=true]{background:var(--bt-active)}
 .bt-drop-list>.bt-option:not([aria-selected=true]):hover{background:var(--bt-hover)}
@@ -16859,6 +16875,7 @@ html[data-windows-titlebar]:not([data-fullscreen]) :is(.bt-pane,.bt-panel)::befo
 .bt-panel[data-leaving]{transform:translateX(100%);transition:transform .3s cubic-bezier(.2,0,0,1);pointer-events:none}
 .bt-panel[data-instant]{transition:none}
 @keyframes bt-pane-in{from{transform:translateX(100%)}}
+@media (prefers-reduced-motion:reduce){.bt-panel{animation:none;transition:none}.bt-panel[data-leaving]{transition:none}}
 /* The conversation's margins glide with the Bot panel's slide and with our left
    column's slide in and out. */
 [class*="_centerCol"]{transition:margin-right ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing},margin-left ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing}}
@@ -16967,8 +16984,8 @@ body[data-ds-dark-theme] .bt-scrim{background:rgba(0,0,0,.5)}
 :is(.bt-settings-layer,.bt-mem-layer)[data-leaving]{pointer-events:none}
 :is(.bt-settings-layer,.bt-mem-layer)[data-leaving] .bt-scrim{opacity:0;transition:opacity .16s ease-in}
 :is(.bt-settings-layer,.bt-mem-layer)[data-leaving]>[role=dialog]{animation:bt-dialog-sink .16s cubic-bezier(.4,0,1,1) forwards}
-@keyframes bt-dialog-rise{from{transform:translateY(12px) scale(.96)}}
-@keyframes bt-dialog-sink{to{opacity:0;transform:translateY(6px) scale(.975);filter:var(--bt-fx-blur-3,blur(3px))}}
+@keyframes bt-dialog-rise{from{translate:0 12px;scale:.96}}
+@keyframes bt-dialog-sink{to{opacity:0;translate:0 6px;scale:.975;filter:var(--bt-fx-blur-3,blur(3px))}}
 @media (prefers-reduced-motion:reduce){.bt-settings,.bt-scrim,.bt-settings-page>*{animation:bt-fade .12s ease-out!important}}
 .bt-settings-nav{position:relative;width:198px;flex:none;padding:16px 10px;border-right:.5px solid var(--bt-line);display:flex;flex-direction:column;gap:2px;background:color-mix(in srgb,var(--bt-sidebar) 88%,var(--bt-main));box-sizing:border-box}
 .bt-settings-item{position:relative;z-index:1;display:flex;align-items:center;gap:10px;padding:7px 10px;border:0;border-radius:10px;background:none;color:var(--bt-ink-2);font:inherit;font-size:13px;line-height:20px;font-weight:450;cursor:pointer;text-align:left;transition:background-color .14s ease,color .14s ease}
@@ -17268,7 +17285,7 @@ body[data-bt-layout=flat] .bt-tools::after{display:none}
 button:hover .bt-you{background:color-mix(in srgb,var(--bt-ink) 9%,var(--bt-sidebar))}
 .bt-you-wrap{display:inline-flex;padding:0}
 
-.bt-menu{position:fixed;pointer-events:auto;z-index:60;min-width:200px;padding:6px;border-radius:12px;background:var(--bt-glass-bg);-webkit-backdrop-filter:blur(24px) saturate(180%);backdrop-filter:blur(24px) saturate(180%);border:.5px solid var(--bt-glass-rim);box-shadow:var(--bt-glass-shadow),0 0 0 1px rgba(228,228,228,.04);display:flex;flex-direction:column;gap:2px;transform-origin:var(--bt-origin,top left);animation:bt-pop-drop ${SPRING_TAP.duration}ms ${SPRING_TAP.easing},bt-veil-in .14s ease-out;font-family:var(--bt-font);box-sizing:border-box}
+.bt-menu{position:fixed;pointer-events:auto;z-index:60;min-width:200px;max-height:calc(100vh - 24px);max-height:calc(100dvh - 24px);overflow-y:auto;overscroll-behavior:contain;padding:6px;border-radius:12px;background:var(--bt-glass-bg);-webkit-backdrop-filter:blur(24px) saturate(180%);backdrop-filter:blur(24px) saturate(180%);border:.5px solid var(--bt-glass-rim);box-shadow:var(--bt-glass-shadow),0 0 0 1px rgba(228,228,228,.04);display:flex;flex-direction:column;gap:2px;transform-origin:var(--bt-origin,top left);animation:bt-pop-drop ${SPRING_TAP.duration}ms ${SPRING_TAP.easing},bt-veil-in .14s ease-out;font-family:var(--bt-font);box-sizing:border-box}
 .bt-menu button{display:flex;align-items:center;gap:4px;width:100%;min-height:30px;text-align:left;border:0;background:none;border-radius:6px;padding:6px 8px;font:inherit;font-size:13px;line-height:18px;color:var(--bt-ink);cursor:pointer;box-sizing:border-box}
 .bt-menu button:hover{background:var(--bt-hover)}
 .bt-menu button svg{flex:none;width:16px;height:16px;margin:0 1px}
@@ -17289,7 +17306,8 @@ button:hover .bt-you{background:color-mix(in srgb,var(--bt-ink) 9%,var(--bt-side
 .bt-palette-glyph{display:inline-flex;width:18px;height:18px;align-items:center;justify-content:center;color:var(--bt-ink-3);margin-right:4px}
 .bt-palette-head input{flex:1;min-width:0;border:0;outline:none;background:none;color:var(--bt-ink);font:inherit;font-size:15px;line-height:22px;padding:0}
 .bt-palette-head input::placeholder{color:var(--bt-ink-3)}
-.bt-palette-clear{width:18px;height:18px;border:0;padding:0;border-radius:6px;background:none;color:var(--bt-ink-3);display:inline-flex;align-items:center;justify-content:center;cursor:pointer}
+.bt-palette-clear{position:relative;width:18px;height:18px;border:0;padding:0;border-radius:6px;background:none;color:var(--bt-ink-3);display:inline-flex;align-items:center;justify-content:center;cursor:pointer}
+.bt-palette-clear::after{content:"";position:absolute;inset:-5px}
 .bt-palette-clear:hover{color:var(--bt-ink)}
 .bt-palette-clear svg{width:12px;height:12px}
 .bt-palette-list{position:relative;height:402px;height:min(402px,54vh);height:min(402px,54dvh);overflow-y:auto;padding:8px;display:flex;flex-direction:column;gap:2px;box-sizing:border-box}
@@ -17337,7 +17355,7 @@ button:hover .bt-you{background:color-mix(in srgb,var(--bt-ink) 9%,var(--bt-side
 .bt-gs mark{background:color-mix(in srgb,var(--bt-star) 32%,transparent);color:inherit;border-radius:4px;padding:0 1px}
 .bt-gs-foot{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 14px 10px;font-size:12px;line-height:16px;color:var(--bt-ink-3)}
 .bt-gs-foot-side{display:flex;align-items:center;justify-content:flex-end;gap:8px;min-width:0}
-@media (prefers-reduced-motion:reduce){.bt-palette{animation:bt-fade .1s ease-out}}
+@media (prefers-reduced-motion:reduce){.bt-palette{animation:bt-fade .1s ease-out}.bt-palette-layer[data-leaving] .bt-palette{animation:bt-fade .1s ease-in reverse forwards}}
 .bt-account-menu{width:224px}
 .bt-account{flex:none;width:36px;height:36px;border:0;padding:0;background:none;border-radius:50%;cursor:pointer;display:inline-flex}
 .bt-account:hover .bt-you,.bt-account[aria-expanded=true] .bt-you{background:color-mix(in srgb,var(--bt-ink) 9%,var(--bt-sidebar))}
@@ -17354,8 +17372,9 @@ button:hover .bt-you{background:color-mix(in srgb,var(--bt-ink) 9%,var(--bt-side
 .bt-select{-webkit-appearance:none;appearance:none;width:auto;min-width:148px;max-width:100%;height:34px;box-sizing:border-box;border-radius:8px;border:.5px solid var(--bt-line-2);background-color:var(--bt-hover);background-image:var(--bt-select-arrow);background-repeat:no-repeat;background-position:right 10px center;color:var(--bt-ink);padding:0 30px 0 12px;font:inherit;font-size:13px;font-weight:450;cursor:pointer;outline:none;transition:background-color .14s ease,border-color .14s ease,box-shadow .14s ease}
 .bt-select:hover:not(:disabled){background-color:var(--bt-active)}
 .bt-select:disabled{opacity:.45;cursor:default}
+:where([class^="bt-"],[class*=" bt-"]):where(button,a,[tabindex],[role="button"],[role="tab"],[role="menuitem"]):focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
 :is(.bt-input,.bt-select):focus-visible{border-color:var(--bt-accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--bt-accent) 22%,transparent)}
-:is(.bt-round,.bt-icon-btn,.bt-soft,.bt-send,.bt-mini,.bt-pill,.bt-plus,.bt-mic,.bt-voice,.bt-account,.bt-title-toggle,.bt-settings-close,.bt-avatar-trigger,.bt-shape,.bt-color,.bt-swatch,.bt-more,.bt-mem-row,.bt-mem-send):focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
+:is(.bt-round,.bt-icon-btn,.bt-soft,.bt-send,.bt-mini,.bt-pill,.bt-plus,.bt-mic,.bt-voice,.bt-account,.bt-title-toggle,.bt-settings-close,.bt-avatar-trigger,.bt-shape,.bt-color,.bt-swatch,.bt-more,.bt-mem-row,.bt-mem-send,.bt-seg button,.bt-browser-duration-choice,.bt-connector-link,.bt-fb-primary,.bt-toast-link,.bt-member-open,.bt-member-stop,.bt-goal-checks,.bt-goal-back,.bt-goal-step,.bt-news-jump,.bt-news-x,.bt-paste-put,.bt-paste-x,.bt-side-send,.bt-x,.bt-palette-clear):focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
 :is(.bt-row,.bt-tile,.bt-tab,.bt-avedit-tab,.bt-settings-item,.bt-menu button,.bt-option,.bt-palette-row,button.bt-set-row):focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px}
 .bt-note{font-size:12px;line-height:16px;color:var(--bt-ink-2);margin-top:6px}
 .bt-set-hint .bt-note.bt-danger{color:var(--bt-danger)}
@@ -17481,6 +17500,11 @@ button:hover .bt-you{background:color-mix(in srgb,var(--bt-ink) 9%,var(--bt-side
 .bt-mem-send>*{animation:bt-check-pop ${SPRING_POP.duration}ms ${SPRING_POP.easing}}
 .bt-mem-spin{width:14px;height:14px;border-radius:50%;border:2px solid currentColor;border-right-color:transparent;box-sizing:border-box;animation:bt-mem-spin .7s linear infinite}
 @keyframes bt-mem-spin{to{transform:rotate(360deg)}}
+/* Follow the visible viewport, not the layout one: dvh where the browser knows
+   it (the earlier vh value is the fallback). Kept before the <=640px rules so
+   narrow viewports keep full-screen heights. */
+.bt-settings{--bt-set-h:min(780px,calc(100dvh - 2*max(32px,var(--dsh-frame-overlay-top,32px))))}
+.bt-mem{height:min(760px,calc(100dvh - 2*max(32px,var(--dsh-frame-overlay-top,32px))))}
 @media (max-width:640px){.bt-mem{width:100vw;height:100%;border-radius:0;border:0}.bt-mem-body{padding:18px 18px 20px}.bt-mem-foot{padding:8px 12px 12px}}
 @media (prefers-reduced-motion:reduce){.bt-mem,.bt-mem-scrim,.bt-mem-summary>*,.bt-mem-empty,.bt-mem-reply,.bt-mem-skel-block span,.bt-mem-entries,.bt-mem-send>*,.bt-mem-changes li svg{animation:none}}
 
@@ -17515,6 +17539,7 @@ button:hover .bt-you{background:color-mix(in srgb,var(--bt-ink) 9%,var(--bt-side
   /* Right padding is not honored inside a scrolling flex row; a transparent
      right border keeps the last tab clear of the close button. */
   .bt-settings-nav{width:100%;flex:none;flex-direction:row;align-items:center;overflow-x:auto;padding:8px;border:0;border-right:52px solid transparent;border-bottom:.5px solid var(--bt-line);scrollbar-width:thin;box-sizing:border-box}
+  .bt-settings-nav>.bt-thumb{left:0;right:auto;top:8px;bottom:8px}
   .bt-settings-item{flex:none}
   .bt-settings-rule{width:.5px;height:16px;margin:0 4px}
   .bt-settings-main{width:100%;flex:1;min-height:0;height:auto}
@@ -17531,11 +17556,7 @@ button:hover .bt-you{background:color-mix(in srgb,var(--bt-ink) 9%,var(--bt-side
   .bt-avedit{width:min(300px,calc(100vw - 32px))}
   .bt-shape-row{grid-template-columns:repeat(4,1fr)}
 }
-/* Follow the visible viewport, not the layout one: dvh where the browser knows
-   it (the earlier vh value is the fallback), and safe-area padding where
-   full-screen layers and bottom regions meet the device's own bars. */
-.bt-settings{--bt-set-h:min(780px,calc(100dvh - 2*max(32px,var(--dsh-frame-overlay-top,32px))))}
-.bt-mem{height:min(760px,calc(100dvh - 2*max(32px,var(--dsh-frame-overlay-top,32px))))}
+/* Safe-area padding where full-screen layers and bottom regions meet the device's own bars. */
 .bt-settings-layer,.bt-mem-layer,.bt-palette-layer{padding-left:env(safe-area-inset-left,0px);padding-right:env(safe-area-inset-right,0px)}
 .bt-panel{padding-bottom:env(safe-area-inset-bottom,0px)}
 .bt-settings-scroll{padding-bottom:calc(24px + env(safe-area-inset-bottom,0px))}
@@ -17547,7 +17568,7 @@ button:hover .bt-you{background:color-mix(in srgb,var(--bt-ink) 9%,var(--bt-side
 }
 @media (prefers-reduced-motion:reduce){:root{--bt-fx-blur-2:none;--bt-fx-blur-3:none;--bt-fx-blur-4:none;--bt-fx-blur-5:none;--bt-fx-blur-6:none}}
 body[data-bt-effects=reduced],body[data-bt-effects=off]{--dsw-menu-backdrop-filter:none;--dsw-mask-blur:none;--dsw-specific-menu:var(--bt-main);--dsw-menu-surface-fill:var(--bt-main);--bt-glass-bg:var(--bt-card);--bt-fx-blur-2:none;--bt-fx-blur-3:none;--bt-fx-blur-4:none;--bt-fx-blur-5:none;--bt-fx-blur-6:none}
-body:is([data-bt-effects=reduced],[data-bt-effects=off]) :is(.bt-pill,.bt-island,.bt-drop,.bt-avedit,.bt-scrim,.bt-react-strip,.bt-menu,.bt-palette,.bt-import-menu,.bt-cbar,.bt-pmenu-pop,.bt-update-pop,.bt-bcard-x,.bt-us-tip){-webkit-backdrop-filter:none!important;backdrop-filter:none!important}
+body:is([data-bt-effects=reduced],[data-bt-effects=off]) :is(.bt-pill,.bt-island,.bt-drop,.bt-avedit,.bt-scrim,.bt-react-strip,.bt-menu,.bt-palette,.bt-import-menu,.bt-cbar,.bt-pmenu-pop,.bt-update-pop,.bt-bcard-x,.bt-us-tip,.bt-reading){-webkit-backdrop-filter:none!important;backdrop-filter:none!important}
 body:is([data-bt-effects=reduced],[data-bt-effects=off]) .bt-bcard-x{background:var(--bt-main)}
 body:is([data-bt-effects=reduced],[data-bt-effects=off]) .bt-us-tip{background:var(--bt-card)}
 body:is([data-bt-effects=reduced],[data-bt-effects=off]) :is(.bt-pill-mem-in,.bt-pill-go,.bt-pill-swap>*,.bt-toast[data-leaving]){filter:none!important}
@@ -17743,6 +17764,7 @@ body[data-bt-goal] [class*="_scroll"]:has(> [class*="_column"]){padding-top:calc
 .bt-mic:hover{background:color-mix(in srgb,var(--bt-ink) 10%,transparent);color:var(--bt-ink)}
 .bt-mic[aria-pressed=true]{background:#ff3e51;color:#fff;animation:bt-mic-pulse 1.4s ease-in-out infinite}
 @keyframes bt-mic-pulse{0%,100%{box-shadow:0 0 0 0 rgba(255,62,81,.35)}50%{box-shadow:0 0 0 5px rgba(255,62,81,0)}}
+@media (prefers-reduced-motion:reduce){.bt-mic[aria-pressed=true]{animation:none}}
 .bt-voice{display:none;background:var(--bt-accent);color:var(--bt-accent-ink,#fff);animation:bt-icon-swap ${SPRING_POP.duration}ms ${SPRING_POP.easing}}
 .bt-voice:hover{opacity:.9}
 .bt-mic:active,.bt-voice:active{scale:.9}
@@ -17801,6 +17823,7 @@ div:has(> nav [class*="_marks"]){display:none!important}
 .bt-q-dock .bt-q{margin:0 auto 8px}
 .bt-q-dock[data-leaving]{pointer-events:none;animation:bt-dock-out .15s ease-out forwards}
 @keyframes bt-dock-out{to{opacity:0;transform:translateY(6px) scale(.985)}}
+[data-chat-flow] :is(pre,table){max-width:100%;overflow-x:auto}
 /* Phones: the conversation flow gets the whole screen instead of the desktop
    shares. A Bot message may take the width beside its avatar, a card the width of
    the flow, and long text or a wide block wraps inside it instead of running off
@@ -17809,7 +17832,6 @@ div:has(> nav [class*="_marks"]){display:none!important}
 .bt-msg,.bt-astack[data-lead]>.bt-msg{max-width:100%}
 .bt-bubble,[data-chat-flow] [class*="_bubble"]{max-width:100%;overflow-wrap:anywhere;word-break:break-word}
 .bt-group-msg,.bt-group-name{max-width:100%}
-[data-chat-flow] :is(pre,table){max-width:100%;overflow-x:auto}
 .bt-q{width:100%;max-width:none;padding:12px 14px;border-radius:16px}
 .bt-q.bt-q-settled{--bt-q-px:14px}
 .bt-q-inline .bt-q,.bt-q-inline .dv-view,.bt-q-inline .dv-q{width:100%;max-width:100%}
@@ -17835,8 +17857,9 @@ div:has(> nav [class*="_marks"]){display:none!important}
 .bt-news-ico{flex:none;display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px}
 .bt-news-ico svg{width:16px;height:16px}
 .bt-news-x{position:absolute;right:4px;top:50%;z-index:1;transform:translateY(-50%);width:20px;height:20px;padding:0;border:0;border-radius:999px;background:transparent;color:inherit;opacity:.75;display:inline-flex;align-items:center;justify-content:center;cursor:pointer}
+.bt-news-x::after{content:"";position:absolute;inset:-4px}
 .bt-news-x svg{width:12px;height:12px}
-.bt-news-x:hover{opacity:1;background:rgba(20,20,20,.5)}
+.bt-news-x:hover{opacity:1;background:color-mix(in srgb,currentColor 18%,transparent)}
 @media (prefers-reduced-motion:reduce){.bt-news,[class*="_toBottomSlot"]>button{animation:none}}
 /* The pill over a long reply whose start has scrolled away (reading.js). */
 .bt-reading{position:fixed;z-index:29;display:inline-flex;align-items:center;max-width:min(360px,calc(100vw - 32px));height:28px;padding:0 2px;box-sizing:border-box;border-radius:999px;background:var(--bt-glass-bg);-webkit-backdrop-filter:blur(24px) saturate(180%);backdrop-filter:blur(24px) saturate(180%);box-shadow:inset 0 0 0 .5px var(--bt-glass-rim),var(--bt-glass-shadow);font-family:var(--bt-font);transform-origin:top left;animation:bt-pop-drop ${SPRING_TAP.duration}ms ${SPRING_TAP.easing},bt-veil-in .16s ease-out}
@@ -17862,30 +17885,31 @@ div:has(> nav [class*="_marks"]){display:none!important}
 .bt-earlier-top:empty{display:none}
 .bt-earlier-top .bt-soft{height:28px;font-size:12px;padding:0 12px}
 .bt-urow{display:flex;flex-direction:column;align-items:flex-end;gap:6px;margin:6px 0}
-.bt-ububble{max-width:calc(var(--bt-msg-w) * 100%);background:var(--bt-user);color:var(--bt-user-ink);border-radius:18px;padding:7px 12px;font-size:14px;line-height:24px;box-sizing:border-box;overflow-wrap:anywhere;text-wrap:pretty;text-autospace:normal}
+.bt-ububble{max-width:calc(var(--bt-msg-w) * 100%);background:var(--bt-user);color:var(--bt-user-ink);border-radius:18px;padding:7px 12px;font-size:var(--dsh-content-font-size,14px);line-height:calc(var(--dsh-content-font-size,14px) + 10px);box-sizing:border-box;overflow-wrap:anywhere;text-wrap:pretty;text-autospace:normal}
 .bt-ububble [class*="_markdown"],.bt-ububble a{color:inherit!important}
-.bt-ububble p{margin:0;line-height:24px}
+.bt-ububble p{margin:0;line-height:inherit}
 .bt-uimages{display:block;font-size:12px;opacity:.7}
 .bt-utime{margin-top:-4px;font-size:11px;line-height:14px;color:var(--bt-ink-3);font-variant-numeric:tabular-nums;white-space:nowrap}
 .bt-earlier .bt-event{margin:4px 0}
 .bt-agent-sessions-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
 .bt-agent-sessions-new{display:inline-flex;align-items:center;gap:4px;border:0;background:none;padding:2px 6px;border-radius:6px;font-size:12px;color:var(--bt-ink-2);cursor:pointer}
-.bt-agent-sessions-new:hover{background:var(--bt-hover);color:var(--bt-ink-1,inherit)}
+.bt-agent-sessions-new:hover{background:var(--bt-hover);color:var(--bt-ink)}
 .bt-agent-sessions-new svg{width:12px;height:12px}
 .bt-agent-sessions{display:flex;flex-direction:column;border:1px solid var(--bt-line-2);border-radius:10px;overflow:hidden}
 .bt-agent-sessions-warn{display:flex;align-items:flex-start;gap:8px;margin:0 0 8px;padding:8px 10px;border:.5px solid color-mix(in srgb,var(--bt-warn) 40%,transparent);border-left:3px solid var(--bt-warn);border-radius:10px;background:color-mix(in srgb,var(--bt-warn) 13%,var(--bt-card));color:var(--bt-warn);font-size:13px;line-height:17px;font-weight:500}
 .bt-agent-sessions-warn svg{flex:none;width:15px;height:15px;margin-top:1px}
-.bt-agent-session{display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;padding:9px 12px;border:0;border-top:1px solid var(--bt-line-2);background:none;text-align:left;font-size:13px;color:var(--bt-ink-1,inherit);cursor:pointer}
+.bt-agent-session{display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;padding:9px 12px;border:0;border-top:1px solid var(--bt-line-2);background:none;text-align:left;font-size:13px;color:var(--bt-ink);cursor:pointer}
 .bt-agent-session:first-child{border-top:0}
 .bt-agent-session:hover:not(:disabled){background:var(--bt-hover)}
 .bt-agent-session.is-current{background:var(--bt-hover);cursor:default;font-weight:600}
 .bt-agent-session-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
-.bt-agent-session-meta{flex:0 0 auto;font-size:12px;font-weight:400;color:var(--bt-ink-3,var(--bt-ink-2))}
+.bt-agent-session-meta{flex:0 0 auto;font-size:12px;font-weight:400;color:var(--bt-ink-3)}
+.bt-agent-session-run{color:var(--bt-accent);font-weight:500}
 .bt-agent-activity{display:flex;flex-direction:column;gap:2px;margin:4px 0 6px;max-width:100%}
 .bt-agent-act{display:flex;align-items:center;gap:8px;min-height:22px;font-size:12.5px;line-height:18px;color:var(--bt-ink-2);min-width:0}
-.bt-agent-act-mark{flex:0 0 6px;width:6px;height:6px;border-radius:50%;background:var(--bt-ink-3,currentColor);opacity:.55}
+.bt-agent-act-mark{flex:0 0 6px;width:6px;height:6px;border-radius:50%;corner-shape:round;background:var(--bt-ink-3);opacity:.55}
 .bt-agent-act-text{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
-.bt-agent-act code{font:12px ui-monospace,SFMono-Regular,Menlo,monospace;background:var(--bt-hover);border-radius:4px;padding:1px 5px;color:var(--bt-ink-1,inherit)}
+.bt-agent-act code{font-family:var(--bt-mono);font-size:12px;background:var(--bt-hover);border-radius:4px;padding:1px 5px;color:var(--bt-ink)}
 .bt-part-line{display:flex;align-items:center;gap:10px;margin:10px 0 6px;font-size:11px;line-height:14px;color:var(--bt-ink-3)}
 .bt-part-line::before,.bt-part-line::after{content:"";flex:1;height:1px;background:var(--bt-line)}
 /* The dock wrapper also holds the context meter, so it stays hidden until a side question is in it. */
@@ -18007,47 +18031,100 @@ function compileFragmentSelectors(text, names) {
     return compiled2.get(fragment);
   });
 }
-function installCompiledStyles(text, tag) {
-  const style = installStyles("", tag);
-  let disposed = false;
-  const cache = /* @__PURE__ */ new WeakMap();
-  const render = () => {
-    if (disposed) return;
-    if (!style.isConnected) document.head.appendChild(style);
-    const names = /* @__PURE__ */ new Set();
-    for (const sheet of document.styleSheets) {
-      if (sheet.ownerNode?.dataset?.dshBot) continue;
-      let list = cache.get(sheet);
-      if (!list) {
-        list = sheetClassNames(sheet);
-        cache.set(sheet, list);
-      }
-      for (const name of list) names.add(name);
+var compiledEntries = /* @__PURE__ */ new Set();
+var sheetCache = /* @__PURE__ */ new WeakMap();
+var headObserver = null;
+var headTimer = 0;
+var headLoadAttached = false;
+function collectSheetNames() {
+  const names = /* @__PURE__ */ new Set();
+  for (const sheet of document.styleSheets) {
+    if (sheet.ownerNode?.dataset?.dshBot) continue;
+    let list = sheetCache.get(sheet);
+    if (!list) {
+      list = sheetClassNames(sheet);
+      sheetCache.set(sheet, list);
     }
-    const next = compileFragmentSelectors(text, names);
+    for (const name of list) names.add(name);
+  }
+  return names;
+}
+function flushCompiledStyles(onlyMissing = false) {
+  let names = null;
+  for (const entry of compiledEntries) {
+    if (entry.disposed) continue;
+    if (!entry.style.isConnected) document.head.appendChild(entry.style);
+    if (onlyMissing || !entry.needsCompile) continue;
+    if (names === null) names = collectSheetNames();
+    const next = compileFragmentSelectors(entry.text, names);
+    if (entry.style.textContent !== next) entry.style.textContent = next;
+  }
+}
+var scheduleCompiledFlush = () => {
+  clearTimeout(headTimer);
+  headTimer = setTimeout(() => flushCompiledStyles(false), 120);
+};
+var onStyleLinkLoad = (event) => {
+  if (event.target instanceof HTMLLinkElement) scheduleCompiledFlush();
+};
+function syncHeadWatchers() {
+  if (compiledEntries.size === 0) {
+    headObserver?.disconnect();
+    headObserver = null;
+    if (headLoadAttached) {
+      document.removeEventListener("load", onStyleLinkLoad, true);
+      headLoadAttached = false;
+    }
+    clearTimeout(headTimer);
+    return;
+  }
+  if (headObserver === null) {
+    const shell = (node) => node?.dataset?.dshBot === void 0;
+    headObserver = new MutationObserver((records) => {
+      let missing = false;
+      let shellChanged = false;
+      for (const record of records) {
+        for (const removed of record.removedNodes) {
+          for (const entry of compiledEntries) {
+            if (entry.style === removed) {
+              missing = true;
+              break;
+            }
+          }
+          if (shell(removed)) shellChanged = true;
+        }
+        for (const added of record.addedNodes) {
+          if (shell(added)) shellChanged = true;
+        }
+      }
+      if (missing) flushCompiledStyles(true);
+      if (shellChanged && [...compiledEntries].some((entry) => entry.needsCompile)) scheduleCompiledFlush();
+    });
+    headObserver.observe(document.head, { childList: true });
+  }
+  const anyCompile = [...compiledEntries].some((entry) => entry.needsCompile);
+  if (anyCompile && !headLoadAttached) {
+    document.addEventListener("load", onStyleLinkLoad, true);
+    headLoadAttached = true;
+  } else if (!anyCompile && headLoadAttached) {
+    document.removeEventListener("load", onStyleLinkLoad, true);
+    headLoadAttached = false;
+  }
+}
+function installCompiledStyles(text, tag) {
+  const needsCompile = /\[class\*="_[\w-]+"\]/.test(text);
+  const style = installStyles(needsCompile ? "" : text, tag);
+  const entry = { style, text, needsCompile, disposed: false };
+  compiledEntries.add(entry);
+  if (needsCompile) {
+    const next = compileFragmentSelectors(text, collectSheetNames());
     if (style.textContent !== next) style.textContent = next;
-  };
-  render();
-  let timer;
-  const schedule = () => {
-    clearTimeout(timer);
-    timer = setTimeout(render, 120);
-  };
-  const onLoad = (event) => {
-    if (event.target instanceof HTMLLinkElement) schedule();
-  };
-  const shell = (node) => node.dataset?.dshBot === void 0;
-  const observer = new MutationObserver((records) => {
-    if (records.some((record) => [...record.removedNodes].includes(style))) render();
-    if (records.some((record) => [...record.addedNodes, ...record.removedNodes].some(shell))) schedule();
-  });
-  observer.observe(document.head, { childList: true });
-  document.addEventListener("load", onLoad, true);
+  }
+  syncHeadWatchers();
   return () => {
-    disposed = true;
-    observer.disconnect();
-    document.removeEventListener("load", onLoad, true);
-    clearTimeout(timer);
+    entry.disposed = true;
+    compiledEntries.delete(entry);
+    syncHeadWatchers();
     style.remove();
   };
 }
@@ -18108,12 +18185,12 @@ function useGaze(ref, enabled) {
       clear();
     };
     const sync = () => {
-      if (reducedEffects()) detach();
+      if (reducedEffects() || document.body?.dataset.btMotion === "quiet") detach();
       else attach();
     };
     sync();
     const observer = typeof MutationObserver === "function" && document.body ? new MutationObserver(sync) : null;
-    observer?.observe(document.body, { attributes: true, attributeFilter: ["data-bt-effects"] });
+    observer?.observe(document.body, { attributes: true, attributeFilter: ["data-bt-effects", "data-bt-motion"] });
     const media = window.matchMedia?.("(prefers-reduced-motion: reduce)");
     media?.addEventListener?.("change", sync);
     return () => {
@@ -18132,7 +18209,7 @@ function BotMark({ bot, look: given, size = 36, state = "idle", live = false, ga
   const [poked, setPoked] = (0, import_react2.useState)(false);
   const [broken, setBroken] = (0, import_react2.useState)("");
   const image = look.image && look.image !== broken ? look.image : void 0;
-  useGaze(ref, gaze);
+  useGaze(ref, gaze && !image);
   const common = {
     ref,
     className: poked ? "bt-mark bt-mark-poke" : "bt-mark",
@@ -18140,7 +18217,7 @@ function BotMark({ bot, look: given, size = 36, state = "idle", live = false, ga
     "data-state": STATES.includes(state) ? state : "idle",
     "data-live": live ? "" : void 0,
     "data-fidget": live ? FIDGETS[fnv1a(`${bot?.id ?? ""}:fidget`) % FIDGETS.length] : void 0,
-    "data-gaze": gaze ? "" : void 0,
+    "data-gaze": gaze && !image ? "" : void 0,
     "data-poke": pokeable ? "" : void 0,
     style: { width: size, height: size, ...live ? { "--bt-delay": `${-(fnv1a(String(bot?.id ?? "")) % 5e3) / 1e3}s`, "--bt-fidget-delay": `${-(fnv1a(`${bot?.id ?? ""}:when`) % 9e3) / 1e3}s` } : {} },
     role: label ? "img" : void 0,
@@ -18150,8 +18227,9 @@ function BotMark({ bot, look: given, size = 36, state = "idle", live = false, ga
       if (!reducedMotion() && document.body?.dataset.btMotion !== "quiet") setPoked(true);
     } : void 0,
     onAnimationEnd: poked ? (event) => {
-      if (/^bt-poke/.test(event.animationName)) setPoked(false);
-    } : void 0
+      if (event.animationName.startsWith("bt-poke")) setPoked(false);
+    } : void 0,
+    onAnimationCancel: poked ? () => setPoked(false) : void 0
   };
   if (image) return (0, import_react2.createElement)("span", common, (0, import_react2.createElement)("img", { className: "bt-mark-img", src: image, alt: "", draggable: false, onError: () => setBroken(image) }));
   const box = shapeOf(look.shape).size;
@@ -18174,25 +18252,25 @@ function MainStar() {
     (0, import_react2.createElement)("path", { d: "M10 2.4l2.29 5.04 5.51.63-4.09 3.74 1.11 5.42L10 14.5l-4.82 2.73 1.11-5.42L2.2 8.07l5.51-.63z" })
   );
 }
-function useSettled(state) {
-  const prev = (0, import_react2.useRef)(state);
+function useSettled(state, id) {
+  const prev = (0, import_react2.useRef)({ state, id });
   const [settled, setSettled] = (0, import_react2.useState)(false);
   (0, import_react2.useEffect)(() => {
     const was = prev.current;
-    prev.current = state;
-    if (state !== "idle") {
+    prev.current = { state, id };
+    if (was.id !== id || state !== "idle") {
       setSettled(false);
       return void 0;
     }
-    if (was === "idle" || was === "alert") return void 0;
+    if (was.state === "idle" || was.state === "alert") return void 0;
     setSettled(true);
     const timer = setTimeout(() => setSettled(false), 1800);
     return () => clearTimeout(timer);
-  }, [state]);
+  }, [state, id]);
   return settled;
 }
 function BotAvatar({ bot, size, state = "idle", main, admin, badge = true, live = true, gaze = false, pokeable = false }) {
-  const settled = useSettled(state);
+  const settled = useSettled(state, bot?.id);
   if (bot === void 0) return (0, import_react2.createElement)(BotMark, { size });
   const badgeKind = !badge ? null : state === "alert" ? "alert" : state !== "idle" && state !== "waiting" ? "working" : admin ? "admin" : main ? "main" : null;
   return (0, import_react2.createElement)(
@@ -18608,19 +18686,22 @@ var CHANGES_CSS = `
 var import_react6 = require("react");
 var escapeLayers = [];
 var onEscapeKey = (event) => {
-  if (event.key === "Escape") escapeLayers.at(-1)?.current();
+  if (event.key !== "Escape" || event.isComposing || event.keyCode === 229) return;
+  escapeLayers.at(-1)?.current();
 };
-function useEscape(onClose) {
+function useEscape(onClose, active = true) {
   const ref = (0, import_react6.useRef)(onClose);
   ref.current = onClose;
   (0, import_react6.useEffect)(() => {
+    if (!active) return void 0;
     if (escapeLayers.length === 0) window.addEventListener("keydown", onEscapeKey);
     escapeLayers.push(ref);
     return () => {
-      escapeLayers.splice(escapeLayers.indexOf(ref), 1);
+      const index = escapeLayers.indexOf(ref);
+      if (index !== -1) escapeLayers.splice(index, 1);
       if (escapeLayers.length === 0) window.removeEventListener("keydown", onEscapeKey);
     };
-  }, []);
+  }, [active]);
 }
 
 // src/client/goal.js
@@ -18907,11 +18988,11 @@ function GoalCompose({ room: room2, roster, actions }) {
         box.style.height = `${box.scrollHeight}px`;
       },
       onKeyDown: (event) => {
-        if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+        if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing && event.keyCode !== 229) {
           event.preventDefault();
           submit();
         }
-        if (event.key === "Escape") {
+        if (event.key === "Escape" && !event.nativeEvent.isComposing && event.keyCode !== 229) {
           event.stopPropagation();
           close();
         }
@@ -19019,7 +19100,7 @@ var GOAL_CSS = `
 .bt-goal-step::before{content:"";position:absolute;left:-3px;right:-3px;top:50%;height:1px;background:var(--bt-line-2)}
 .bt-goal-step:first-child::before{left:50%}
 .bt-goal-step:last-child::before{right:50%}
-.bt-goal-node{position:relative;z-index:1;box-sizing:border-box;width:min(20px,100%);aspect-ratio:1;border-radius:50%;display:flex;align-items:center;justify-content:center;overflow:hidden;background:var(--bt-main);border:1.5px solid var(--bt-line-2);color:var(--bt-ink-3);font-size:10px;line-height:1;font-variant-numeric:tabular-nums}
+.bt-goal-node{position:relative;z-index:1;box-sizing:border-box;width:min(20px,100%);aspect-ratio:1;border-radius:50%;corner-shape:round;display:flex;align-items:center;justify-content:center;overflow:hidden;background:var(--bt-main);border:1.5px solid var(--bt-line-2);color:var(--bt-ink-3);font-size:10px;line-height:1;font-variant-numeric:tabular-nums}
 .bt-goal-node>svg{flex:none;width:min(12px,70%);height:auto}
 .bt-goal-step[data-step=passed]>.bt-goal-node{background:var(--bt-green);border-color:var(--bt-green);color:var(--bt-main)}
 .bt-goal-step[data-step=current]>.bt-goal-node{border-color:var(--bt-accent);color:var(--bt-accent);font-weight:600}
@@ -19044,19 +19125,19 @@ var GOAL_CSS = `
 .bt-goal-task{display:flex;align-items:flex-start;gap:8px;min-width:0}
 .bt-goal-task[data-task=pending]{opacity:.55}
 .bt-goal-tav{position:relative;flex:none;display:inline-flex;margin-top:1px}
-.bt-goal-tdone{position:absolute;right:-2px;bottom:-2px;width:12px;height:12px;border-radius:50%;background:var(--bt-green);color:var(--bt-main);display:inline-flex;align-items:center;justify-content:center;box-shadow:0 0 0 1.5px var(--bt-main)}
+.bt-goal-tdone{position:absolute;right:-2px;bottom:-2px;width:12px;height:12px;border-radius:50%;corner-shape:round;background:var(--bt-green);color:var(--bt-main);display:inline-flex;align-items:center;justify-content:center;box-shadow:0 0 0 1.5px var(--bt-main)}
 .bt-goal-tdone svg{width:9px;height:9px}
 .bt-goal-ttext{flex:0 1 auto;min-width:0;overflow-wrap:anywhere}
 .bt-goal-tname{font-weight:500}
 .bt-goal-ckbody{display:flex;flex-direction:column;gap:10px;padding:0 14px 10px;font-size:13px;line-height:18px;text-align:left}
 /* The bottom row: disclosure on the left, controls on the right. */
-.bt-goal-foot{display:flex;align-items:center;gap:8px;height:40px;flex:none;padding:0 8px 0 14px;border-top:.5px solid var(--bt-line)}
+.bt-goal-foot{display:flex;align-items:center;flex-wrap:wrap;gap:6px 8px;min-height:40px;flex:none;padding:6px 8px 6px 14px;box-sizing:border-box;border-top:.5px solid var(--bt-line)}
 .bt-goal-checks{display:inline-flex;align-items:center;gap:4px;border:0;background:none;padding:4px 6px;margin-left:-6px;border-radius:6px;font:inherit;font-size:12px;line-height:16px;color:var(--bt-ink-2);cursor:pointer}
 .bt-goal-checks:hover{background:var(--bt-hover)}
 .bt-goal-mchev{display:inline-flex;width:14px;height:14px;color:var(--bt-ink-3)}
 .bt-goal-mchev svg{width:14px;height:14px;transition:${spring(SPRING_SHAPE, "transform")}}
 .bt-goal-checks[aria-expanded=true] .bt-goal-mchev svg{transform:rotate(180deg)}
-.bt-goal-facts{display:flex;align-items:center;gap:6px;flex:none;margin-left:auto}
+.bt-goal-facts{display:flex;align-items:center;flex-wrap:wrap;gap:6px;flex:0 1 auto;margin-left:auto}
 .bt-goal-danger{color:var(--bt-danger)}
 .bt-goal-danger[data-armed]{background:color-mix(in srgb,var(--bt-danger) 10%,transparent)}
 .bt-goal-compose{display:flex;flex-direction:column;gap:8px;padding:12px 14px}
@@ -19099,8 +19180,11 @@ function CellEmpty({ className }) {
 
 // src/client/enter-key.js
 var sendsOnEnter = (prefs) => prefs?.enterToSend !== false;
+var isImeComposing = (event) => Boolean(
+  event?.isComposing || event?.nativeEvent?.isComposing || event?.keyCode === 229 || event?.nativeEvent?.keyCode === 229
+);
 function insertComposerNewline(event, inputActions) {
-  if (event.key !== "Enter" || event.shiftKey || event.altKey || event.ctrlKey || event.metaKey || event.isComposing || event.keyCode === 229 || event.getModifierState?.("AltGraph")) return false;
+  if (event.key !== "Enter" || event.shiftKey || event.altKey || event.ctrlKey || event.metaKey || isImeComposing(event) || event.getModifierState?.("AltGraph")) return false;
   const target = event.target;
   if (typeof target?.closest !== "function" || !target.closest('[data-composer-card] [role="textbox"]')) return false;
   if (target.closest("[data-composer-composing]")) return false;
@@ -19207,7 +19291,7 @@ function QuestionView({ question, onAnswer, onDismiss, onInteract, busy = false,
       }
     },
     onKeyDown: (event) => {
-      if (event.key !== "Enter" || !enterToSend || event.shiftKey || event.nativeEvent.isComposing) return;
+      if (event.key !== "Enter" || !enterToSend || event.shiftKey || event.nativeEvent?.isComposing || event.keyCode === 229) return;
       event.preventDefault();
       submit();
     }
@@ -19232,7 +19316,7 @@ function QuestionView({ question, onAnswer, onDismiss, onInteract, busy = false,
         (0, import_react10.createElement)("span", { className: "bt-q-label" }, option.label),
         option.description ? (0, import_react10.createElement)("span", { className: "bt-q-desc" }, option.description) : null
       ),
-      selected && !raised ? (0, import_react10.createElement)("span", { className: "bt-q-check", title: t("Selected") }, (0, import_react10.createElement)(CheckIcon)) : null
+      selected && (!raised || !hints) ? (0, import_react10.createElement)("span", { className: "bt-q-check", title: t("Selected") }, (0, import_react10.createElement)(CheckIcon)) : null
     );
   });
   if (raised && field) {
@@ -19928,6 +20012,8 @@ function PendingAppAccess({ ask, actions, inline }) {
     void Promise.resolve(actions.computerAppAnswer(ask.id, choice)).catch((error) => {
       setClosed(false);
       actions.reportError?.(error, "computer");
+    }).finally(() => {
+      busyRef.current = false;
     });
   };
   return (0, import_react12.createElement)(
@@ -20046,7 +20132,7 @@ function PendingComputerHandoff({ sessionId, bot, hold, actions, inline }) {
   const answer = (outcome) => run2(() => actions.computerHoldAnswer(bot.id, { callId: hold.callId ?? hold.id, outcome }), true);
   const takeOver = () => run2(async () => {
     await actions.computerTakeover(bot.id);
-    actions.openDetails?.(sessionId, "computer");
+    actions.showDetails?.(sessionId, "computer");
   }, false);
   return (0, import_react12.createElement)(
     "div",
@@ -20074,14 +20160,14 @@ function PendingComputerHandoff({ sessionId, bot, hold, actions, inline }) {
             t("You control the computer")
           ) : null
         )
+      ),
+      (0, import_react12.createElement)(
+        "div",
+        { className: "bt-q-foot" },
+        (0, import_react12.createElement)("button", { type: "button", className: "bt-q-btn", onClick: () => answer("skip") }, t("Skip")),
+        taken ? null : (0, import_react12.createElement)("button", { type: "button", className: "bt-q-btn", onClick: takeOver }, t("Take over")),
+        (0, import_react12.createElement)("button", { type: "button", className: "bt-q-submit", onClick: () => answer("done") }, t("I'm done"))
       )
-    ),
-    (0, import_react12.createElement)(
-      "div",
-      { className: "bt-q-foot" },
-      (0, import_react12.createElement)("button", { type: "button", className: "bt-q-btn", onClick: () => answer("skip") }, t("Skip")),
-      taken ? null : (0, import_react12.createElement)("button", { type: "button", className: "bt-q-btn", onClick: takeOver }, t("Take over")),
-      (0, import_react12.createElement)("button", { type: "button", className: "bt-q-submit", onClick: () => answer("done") }, t("I'm done"))
     )
   );
 }
@@ -20131,7 +20217,7 @@ function ComputerIndicator({ useComputer, useRoster, actions }) {
   const avatarOf = (id) => {
     const look = lookOf(botOf(id));
     if (typeof look.image === "string" && look.image.startsWith("data:image/")) return (0, import_react12.createElement)("img", { className: "bt-cbar-ava", src: look.image, alt: "" });
-    return (0, import_react12.createElement)("span", { className: "bt-cbar-ava bt-cbar-ava-dot", style: { background: look.color } }, String(nameOf2(id)).slice(0, 1));
+    return (0, import_react12.createElement)("span", { className: "bt-cbar-ava bt-cbar-ava-dot", style: { background: inkFill(look.color) } }, String(nameOf2(id)).slice(0, 1));
   };
   const entries2 = [
     ...leases.map((entry) => ({ key: `l:${entry.botId}`, botId: entry.botId, waiting: false, app: entry.kind === "foreground" ? t("In the foreground") : entry.appName })),
@@ -20179,17 +20265,18 @@ var COMPUTER_CSS = `
 .bt-cview-step[data-ok=no]{color:var(--bt-danger)}
 .bt-cview-step-err{font-size:11px}
 .bt-cbar{position:absolute;top:8px;left:50%;transform:translateX(-50%);z-index:60;display:flex;align-items:center;gap:8px;max-width:min(760px,calc(100vw - 32px));padding:6px 12px;border-radius:999px;background:var(--bt-glass-bg);border:.5px solid var(--bt-glass-rim);box-shadow:var(--bt-glass-shadow);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);font-size:12.5px}
-.bt-cbar-live{flex:none;width:7px;height:7px;border-radius:50%;background:var(--bt-danger);box-shadow:0 0 0 3px var(--bt-danger-glow)}
+.bt-cbar-live{flex:none;width:7px;height:7px;border-radius:50%;corner-shape:round;background:var(--bt-danger);box-shadow:0 0 0 3px var(--bt-danger-glow)}
 .bt-cbar-sep{flex:none;width:1px;height:14px;background:var(--bt-line);opacity:.7}
 .bt-cbar-entry{display:flex;align-items:center;gap:6px;min-width:0}
-.bt-cbar-ava{flex:none;width:16px;height:16px;border-radius:50%;object-fit:cover}
-.bt-cbar-ava-dot{display:inline-flex;align-items:center;justify-content:center;color:var(--bt-mark-ink);font-size:9px;font-weight:600;line-height:1}
+.bt-cbar-ava{flex:none;width:16px;height:16px;border-radius:50%;corner-shape:round;object-fit:cover}
+.bt-cbar-ava-dot{display:inline-flex;align-items:center;justify-content:center;color:var(--bt-accent-ink);font-size:9px;font-weight:600;line-height:1}
 .bt-cbar-text{display:flex;align-items:baseline;gap:5px;min-width:0;overflow:hidden}
 .bt-cbar-name{flex:none;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bt-cbar-app{font-style:normal;color:var(--bt-ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:120px}
-.bt-cbar-stop{flex:none;width:22px;height:22px;border:0;border-radius:50%;background:var(--bt-hover);color:var(--bt-ink-2);cursor:pointer;display:inline-flex;align-items:center;justify-content:center}
+.bt-cbar-stop{flex:none;position:relative;width:22px;height:22px;border:0;border-radius:50%;corner-shape:round;background:var(--bt-hover);color:var(--bt-ink-2);cursor:pointer;display:inline-flex;align-items:center;justify-content:center}
+.bt-cbar-stop::after{content:"";position:absolute;inset:-4px}
 .bt-cbar-stopsq{width:8px;height:8px;border-radius:4px;background:currentColor}
-.bt-cbar-stop:hover{background:var(--bt-danger);color:var(--bt-mark-ink)}
+.bt-cbar-stop:hover{background:var(--bt-danger);color:var(--bt-accent-ink)}
 .bt-cbar-go,.bt-cbar-all{flex:none;border-radius:999px;padding:3px 10px;font:inherit;font-size:12px;cursor:pointer;white-space:nowrap;border:1px solid var(--bt-line-2)}
 .bt-cbar-go{background:var(--bt-accent-soft);color:var(--bt-accent);border-color:var(--bt-accent-soft)}
 .bt-cbar-all{background:var(--bt-danger-soft);color:var(--bt-danger);border-color:var(--bt-danger-soft)}
@@ -23066,7 +23153,7 @@ function MaskedInput({ value, onChange, onEnter, label, autoFocus = false, disab
     placeholder: label ?? t("Paste or type the key"),
     onChange: (event) => onChange(event.target.value),
     onKeyDown: (event) => {
-      if (event.key !== "Enter" || event.nativeEvent.isComposing) return;
+      if (event.key !== "Enter" || event.nativeEvent.isComposing || event.keyCode === 229) return;
       event.preventDefault();
       onEnter?.();
     }
@@ -23495,7 +23582,7 @@ function SecretsPage({ roster, actions, run: run2, Section: Section2 }) {
 var SECRET_CSS = `
 .bt-secret-head{align-items:center;gap:10px}
 .bt-secret-who{position:relative;flex:none;display:inline-flex}
-.bt-secret-lock{position:absolute;right:-5px;bottom:-4px;width:16px;height:16px;border-radius:50%;background:var(--bt-main);color:var(--bt-ink-2);display:inline-flex;align-items:center;justify-content:center;box-shadow:0 0 0 1.5px var(--bt-bubble)}
+.bt-secret-lock{position:absolute;right:-5px;bottom:-4px;width:16px;height:16px;border-radius:50%;corner-shape:round;background:var(--bt-main);color:var(--bt-ink-2);display:inline-flex;align-items:center;justify-content:center;box-shadow:0 0 0 1.5px var(--bt-bubble)}
 .bt-secret-lock svg{width:11px;height:11px}
 .bt-secret-name{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;line-height:16px;padding:1px 6px;border-radius:6px;background:var(--bt-hover);color:var(--bt-ink)}
 .bt-secret-body{display:flex;flex-direction:column;gap:8px}
@@ -23514,18 +23601,18 @@ var SECRET_CSS = `
 [data-step-process]:has(.bt-secret)>div:first-child{display:none!important}
 [data-step-process]:has(.bt-secret)>[data-step-process-body]{display:block!important;content-visibility:visible!important;max-height:none!important;overflow:visible!important;mask-image:none!important;scrollbar-gutter:auto!important}
 .bt-secret-ok{display:flex;align-items:center;gap:4px;margin-top:6px;animation:bt-secret-in .22s cubic-bezier(.22,1,.36,1)}
-.bt-secret-ok svg{width:13px;height:13px;color:#16a34a}
+.bt-secret-ok svg{width:13px;height:13px;color:var(--bt-green)}
 @keyframes bt-secret-in{from{opacity:0;transform:translateY(-2px)}}
 .bt-secret-saved{display:flex;align-items:center;gap:6px;font-size:13px;line-height:18px;color:var(--bt-ink-2)}
 .bt-secret-note{font-size:12px;line-height:17px;color:var(--bt-ink-3)}
 .bt-secret-note code,.bt-secret-about code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px}
-.bt-secret-warn{display:flex;align-items:center;gap:6px;padding:6px 10px;border-radius:8px;font-size:12px;line-height:16px;color:#b25e09;background:color-mix(in srgb,#f59e0b 12%,transparent)}
+.bt-secret-warn{display:flex;align-items:center;gap:6px;padding:6px 10px;border-radius:8px;font-size:12px;line-height:16px;color:var(--bt-warn);background:color-mix(in srgb,var(--bt-warn) 14%,transparent)}
 .bt-secret-error{font-size:12px;line-height:16px;color:var(--bt-danger)}
 .bt-secret .bt-q-btn:disabled{opacity:.5;cursor:default}
 .bt-secret-done .bt-q-head{align-items:center}
 .bt-secret-done .bt-q-title{font-size:13px;line-height:18px;color:var(--bt-ink-2);font-weight:500}
 .bt-secret-scope-tag{font-weight:400;color:var(--bt-ink-3)}
-.bt-secret-check{color:var(--bt-green,#22a06b);animation:bt-secret-pop ${SPRING_POP.duration}ms ${SPRING_POP.easing} backwards}
+.bt-secret-check{color:var(--bt-green);animation:bt-secret-pop ${SPRING_POP.duration}ms ${SPRING_POP.easing} backwards}
 .bt-secret-done{animation:bt-secret-settle .32s cubic-bezier(.22,1,.36,1) backwards}
 @keyframes bt-secret-pop{from{opacity:0;transform:scale(.4)}}
 @keyframes bt-secret-settle{from{opacity:.4;transform:scale(.985)}}
@@ -23894,7 +23981,7 @@ function useAnchoredMenu() {
     };
     const onKey = (event) => {
       if (stepMenuFocus(menu.current, event, button.current)) return;
-      if (event.key === "Escape") {
+      if (event.key === "Escape" && !event.isComposing && event.keyCode !== 229) {
         event.stopPropagation();
         close();
         button.current?.focus();
@@ -23936,7 +24023,7 @@ function useInlineMenu() {
     };
     const onKey = (event) => {
       if (stepMenuFocus(menu.current, event, button.current)) return;
-      if (event.key === "Escape") {
+      if (event.key === "Escape" && !event.isComposing && event.keyCode !== 229) {
         event.stopPropagation();
         close();
         button.current?.focus();
@@ -24335,7 +24422,7 @@ menus use, with the menu item's hover, focus ring and a caret that points at the
 .bt-model-choice-group{display:flex;flex-direction:column;gap:6px;width:100%;min-width:0}
 .bt-model-choice-provider{padding-top:4px;font-size:12px;line-height:16px;font-weight:500;color:var(--bt-ink-2);overflow-wrap:anywhere}
 .bt-model-choice-chips{display:flex;flex-wrap:wrap;gap:6px}
-.bt-model-chip{display:inline-flex;align-items:center;gap:6px;min-height:30px;padding:5px 12px;border:.5px solid var(--bt-line-2);border-radius:999px;background:var(--bt-surface,transparent);color:var(--bt-ink);font:inherit;font-size:13px;line-height:18px;cursor:pointer;transition:background-color .12s ease,border-color .12s ease}
+.bt-model-chip{display:inline-flex;align-items:center;gap:6px;min-height:30px;padding:5px 12px;border:.5px solid var(--bt-line-2);border-radius:999px;background:var(--bt-card);color:var(--bt-ink);font:inherit;font-size:13px;line-height:18px;cursor:pointer;transition:background-color .12s ease,border-color .12s ease}
 .bt-model-chip:hover:not(:disabled){background:var(--bt-hover)}
 .bt-model-chip:focus-visible{outline:2px solid var(--bt-accent);outline-offset:1px}
 .bt-model-chip-quiet{color:var(--bt-ink-2)}
@@ -24874,9 +24961,21 @@ function TaskForm({ roster, actions, start, onDone, onCancel }) {
   const [unit, setUnit] = (0, import_react23.useState)("hours");
   const [busy, setBusy] = (0, import_react23.useState)(false);
   const [error, setError] = (0, import_react23.useState)("");
+  const validAt = kind !== "at" || at !== "" && Number.isFinite(Date.parse(at));
+  const validDays = kind !== "weekly" || weekdays.length > 0;
+  const validEvery = kind !== "every" || Number.isFinite(Number(count)) && Number(count) >= 1;
   const timing = () => {
-    if (kind === "at") return { kind, at: new Date(at).toISOString() };
-    if (kind === "every") return { kind, minutes: Math.round(Number(count) * UNITS.find(([id]) => id === unit)[1]) };
+    if (kind === "at") {
+      const parsed = new Date(at);
+      if (!Number.isFinite(parsed.getTime())) throw new Error("invalid date");
+      return { kind, at: parsed.toISOString() };
+    }
+    if (kind === "every") {
+      const minutes = Math.round(Number(count) * UNITS.find(([id]) => id === unit)[1]);
+      if (!Number.isFinite(minutes) || minutes < 1) throw new Error("invalid interval");
+      return { kind, minutes };
+    }
+    if (kind === "weekly" && weekdays.length === 0) throw new Error("pick a day");
     return { kind, time, timeZone: localZone(), ...kind === "weekly" ? { weekdays } : {} };
   };
   const submit = (event) => {
@@ -24888,7 +24987,7 @@ function TaskForm({ roster, actions, start, onDone, onCancel }) {
     try {
       when3 = timing();
     } catch {
-      setError(t("Pick a date and time"));
+      setError(kind === "weekly" ? t("Pick at least one day") : t("Pick a date and time"));
       setBusy(false);
       return;
     }
@@ -24959,7 +25058,7 @@ function TaskForm({ roster, actions, start, onDone, onCancel }) {
       "div",
       { className: "bt-set-row bt-task-foot" },
       (0, import_react23.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: onCancel }, t("Cancel")),
-      (0, import_react23.createElement)("button", { type: "submit", className: "bt-send bt-soft-sm", disabled: busy || !target || title.trim() === "" || prompt.trim() === "" }, busy ? t("Creating…") : t("Create task"))
+      (0, import_react23.createElement)("button", { type: "submit", className: "bt-send bt-soft-sm", disabled: busy || !target || title.trim() === "" || prompt.trim() === "" || !validAt || !validDays || !validEvery }, busy ? t("Creating…") : t("Create task"))
     )
   );
 }
@@ -25808,11 +25907,18 @@ function History({ owner, actions, undo, now }) {
   const [rows2, setRows] = (0, import_react26.useState)(null);
   const [more, setMore] = (0, import_react26.useState)(null);
   const [paging, setPaging] = (0, import_react26.useState)(false);
+  const [loadError, setLoadError] = (0, import_react26.useState)("");
   const load = (0, import_react26.useCallback)(async (before) => {
-    const page = await actions.memoryHistory(owner.id, before);
-    setRows(before === void 0 ? page.rows : [...rows2 ?? [], ...page.rows]);
-    setMore(page.more);
-  }, [owner.id, rows2]);
+    try {
+      setLoadError("");
+      const page = await actions.memoryHistory(owner.id, before);
+      setRows((prev) => before === void 0 ? page.rows : [...prev ?? [], ...page.rows]);
+      setMore(page.more);
+    } catch (failure) {
+      setLoadError(failure?.message ?? String(failure));
+      setRows((prev) => prev ?? []);
+    }
+  }, [owner.id]);
   (0, import_react26.useEffect)(() => {
     void load();
   }, [owner.id]);
@@ -25831,6 +25937,7 @@ function History({ owner, actions, undo, now }) {
     }
   };
   if (rows2 === null) return (0, import_react26.createElement)(Skeleton);
+  if (loadError) return (0, import_react26.createElement)("div", { className: "bt-error", role: "alert" }, hostText(loadError));
   if (rows2.length === 0) return (0, import_react26.createElement)("div", { className: "bt-mem-none" }, t("No changes yet"));
   return (0, import_react26.createElement)(
     "div",
@@ -25920,7 +26027,7 @@ function MemoryDialog({ owner, actions, leaving = false }) {
   const inputRef = (0, import_react26.useRef)(null);
   const now = useNow(3e4);
   const close = (0, import_react26.useCallback)(() => actions.closeMemory(), []);
-  useEscape(close);
+  useEscape(close, !leaving);
   useMenuDismiss(menu, menuRef, dotsRef, () => setMenu(false));
   useMenuDismiss(moveOpen, moveRef, moveAnchor, () => setMoveOpen(false));
   (0, import_react26.useEffect)(() => {
@@ -25941,7 +26048,10 @@ function MemoryDialog({ owner, actions, leaving = false }) {
     const below = window.innerHeight - rect.bottom - MOVE_MENU_GAP;
     const above = rect.top - MOVE_MENU_GAP;
     const right = Math.max(MOVE_MENU_GAP, window.innerWidth - rect.right);
-    setMoving({ entry, box: above > below ? { right, bottom: window.innerHeight - rect.top + 4, maxHeight: above } : { right, top: rect.bottom + 4, maxHeight: below } });
+    setMoving({
+      entry,
+      box: above > below ? { right, bottom: window.innerHeight - rect.top + 4, maxHeight: above, "--bt-origin": "bottom right" } : { right, top: rect.bottom + 4, maxHeight: below, "--bt-origin": "top right" }
+    });
     setMoveOpen(true);
   };
   const regenerate = () => {
@@ -26524,7 +26634,7 @@ label.bt-bs-row{cursor:text}
 .bt-switch[aria-checked=true]{background:var(--bt-accent)}
 .bt-switch:disabled{opacity:.45;cursor:default}
 .bt-switch:focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
-.bt-switch-knob{position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:999px;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.2);transition:${spring(SPRING_SHAPE, "transform")},${spring(SPRING_TAP, "width")}}
+.bt-switch-knob{position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:999px;background:var(--bt-knob);box-shadow:0 1px 2px rgba(0,0,0,.2);transition:${spring(SPRING_SHAPE, "transform")},${spring(SPRING_TAP, "width")}}
 .bt-switch[aria-checked=true] .bt-switch-knob{transform:translateX(16px)}
 .bt-switch:active:not(:disabled) .bt-switch-knob{width:21px}
 .bt-switch[aria-checked=true]:active:not(:disabled) .bt-switch-knob{transform:translateX(11px)}
@@ -27388,7 +27498,7 @@ function MailApprovalMenu({ bot, request, rule, onPick, actions, disabled = fals
     }, t(RULE_LABELS[rule] ?? "Needs approval"), (0, import_react29.createElement)(ChevronDownIcon)),
     open ? (0, import_react29.createElement)(
       "div",
-      { className: "dv-menu bt-mail-rule-menu", role: "menu" },
+      { className: "bt-menu bt-menu-up bt-mail-rule-menu", role: "menu" },
       ["allow-recipient", "require-approval", "no-draft"].map((mode) => (0, import_react29.createElement)("button", {
         key: mode,
         type: "button",
@@ -27396,7 +27506,7 @@ function MailApprovalMenu({ bot, request, rule, onPick, actions, disabled = fals
         "aria-checked": rule === mode,
         onClick: () => choose(mode)
       }, (0, import_react29.createElement)("span", { className: "bt-mail-rule-item-text" }, t(RULE_LABELS[mode])), rule === mode ? (0, import_react29.createElement)(CheckIcon) : null)),
-      (0, import_react29.createElement)("div", { className: "dv-menu-sep", role: "separator" }),
+      (0, import_react29.createElement)("div", { className: "bt-menu-sep", role: "separator" }),
       (0, import_react29.createElement)("button", {
         type: "button",
         role: "menuitem",
@@ -27521,8 +27631,8 @@ var CONNECTOR_CSS = `
 .bt-mail-rule-btn:hover:not(:disabled){background:var(--bt-hover);color:var(--bt-ink)}
 .bt-mail-rule-btn:disabled{opacity:.4;cursor:default}
 .bt-mail-rule-btn svg{width:13px;height:13px;color:var(--bt-ink-2)}
-.dv-menu.bt-mail-rule-menu{position:absolute;left:0;bottom:calc(100% + 6px);z-index:20;min-width:190px;--dv-origin:bottom left}
-.dv-menu.bt-mail-rule-menu button{justify-content:space-between;gap:12px}
+.bt-menu.bt-mail-rule-menu{position:absolute;left:0;bottom:calc(100% + 6px);z-index:20;min-width:190px;--bt-origin:bottom left}
+.bt-menu.bt-mail-rule-menu button{justify-content:space-between;gap:12px}
 .bt-mail-rule-item-text{flex:1 1 auto;min-width:0}
 .dv-widget-stack:has(>.dv-widget-form){gap:8px}
 .dv-widget-stack>.dv-widget-form{display:contents}
@@ -27789,8 +27899,8 @@ function sectionAt(tops, line) {
 }
 function readingBand(scroller) {
   const box = scroller.getBoundingClientRect();
-  const head = Array.from(document.querySelectorAll(".bt-head"), (node) => node.getBoundingClientRect()).find((rect) => rect.height > 0 && rect.left < box.right && rect.right > box.left);
-  const top = head && head.bottom > box.top && head.bottom < box.bottom ? head.bottom : box.top;
+  const heads = Array.from(document.querySelectorAll(".bt-head, .bt-island"), (node) => node.getBoundingClientRect()).filter((rect) => rect.height > 0 && rect.left < box.right && rect.right > box.left && rect.bottom > box.top && rect.bottom < box.bottom);
+  const top = heads.length > 0 ? Math.max(...heads.map((rect) => rect.bottom)) : box.top;
   const composer = parseFloat(getComputedStyle(scroller).getPropertyValue("--dsh-composer-height")) || 0;
   return { top: top + GAP, bottom: box.bottom - composer, left: box.left, right: box.right };
 }
@@ -27892,7 +28002,8 @@ function ReplyGuide({ box, active }) {
       const place = pillPlace(node.getBoundingClientRect(), band, news);
       const headings2 = place ? headingsIn(node) : [];
       const current2 = sectionAt(headings2.map((heading) => heading.getBoundingClientRect().top), place ? place.top + PILL + SLACK : 0);
-      const next = place && { ...place, current: current2 };
+      const maxWidth = place && Number.isFinite(band.right) ? Math.max(120, Math.min(MAX_WIDTH, Math.round(band.right - place.left - GAP))) : void 0;
+      const next = place && { ...place, current: current2, maxWidth };
       setView((prev) => prev && next && Object.keys(next).every((key) => prev[key] === next[key]) ? prev : next);
     });
   }, [long, scroller]);
@@ -27941,7 +28052,7 @@ function ReplyGuide({ box, active }) {
   return (0, import_react_dom3.createPortal)(
     (0, import_react31.createElement)(
       "div",
-      { className: "bt-reading", "data-leaving": leaving || void 0, style: { top: shown.top, left: shown.left } },
+      { className: "bt-reading", "data-leaving": leaving || void 0, style: { top: shown.top, left: shown.left, maxWidth: shown.maxWidth } },
       outline.length === 0 ? (0, import_react31.createElement)("button", { type: "button", className: "bt-reading-start", onClick: toStart }, (0, import_react31.createElement)(ArrowUpIcon), t("Start of reply")) : [
         (0, import_react31.createElement)("button", { key: "start", type: "button", className: "bt-reading-up", "aria-label": t("Back to the start of this reply"), title: t("Back to the start of this reply"), onClick: toStart }, (0, import_react31.createElement)(ArrowUpIcon)),
         (0, import_react31.createElement)("button", {
@@ -29705,9 +29816,6 @@ function GroupReplies({ sessionId, callId, done, content, roster, actions, useUi
           reply.via !== void 0 || Number.isFinite(time) ? (0, import_react34.createElement)("div", { className: "bt-utime", title: clockLabel(time) }, ...reply.via !== void 0 ? [(0, import_react34.createElement)(ViaTag, { key: "via", via: reply.via })] : [], Number.isFinite(time) ? messageClock(time) : null) : null
         );
       }
-      if (reply.kind !== void 0) {
-        return (0, import_react34.createElement)(RelayEvent, { key: `${reply.botId ?? reply.kind}-${index}`, reply, bot, sessionId, actions });
-      }
       if (reply.kind === "goal") {
         return (0, import_react34.createElement)(
           "div",
@@ -29715,6 +29823,9 @@ function GroupReplies({ sessionId, callId, done, content, roster, actions, useUi
           (0, import_react34.createElement)("span", { className: "bt-event-ico", "aria-hidden": true }, (0, import_react34.createElement)(GoalIcon)),
           goalEventText(reply)
         );
+      }
+      if (reply.kind !== void 0) {
+        return (0, import_react34.createElement)(RelayEvent, { key: `${reply.botId ?? reply.kind}-${index}`, reply, bot, sessionId, actions });
       }
       return (0, import_react34.createElement)(GroupMessage, { key: `${reply.botId}-${index}`, bot, texts: texts2, room: room2, sessionId, roster, actions, msgKey: callId ? `${sessionId}:${callId}:${index}` : void 0, useUi, time, duration, claims, changes });
     }),
@@ -29924,8 +30035,9 @@ function useRowEntrances(replacing) {
     const started = Date.now();
     let column = null;
     let frame2 = 0;
+    let waiting = false;
     const settle = (event) => {
-      if (event.target !== event.currentTarget || !/^bt-row/.test(event.animationName)) return;
+      if (event.target !== event.currentTarget || !event.animationName.startsWith("bt-row")) return;
       delete event.currentTarget.dataset.btEnter;
       event.currentTarget.removeEventListener("animationend", settle);
     };
@@ -29935,9 +30047,18 @@ function useRowEntrances(replacing) {
       if (next !== column) {
         observer.disconnect();
         column = next;
-        if (column) observer.observe(column, { childList: true, subtree: true });
+        if (column) {
+          waiting = false;
+          observer.observe(column, { childList: true });
+        }
       }
-      if (!column) return;
+      if (!column) {
+        if (!waiting) {
+          waiting = true;
+          observer.observe(document.querySelector("[data-conversation-scroll]") ?? document.body, { childList: true, subtree: true });
+        }
+        return;
+      }
       const items = [...column.querySelectorAll(":scope > [data-chat-flow-key]")];
       let last = -1;
       items.forEach((item, index) => {
@@ -30126,7 +30247,7 @@ var chatRoom = {
 function installFrameWatch(frame2) {
   let collapsedWidth = collapsedTrackWidth();
   let raf = 0;
-  const watched = /* @__PURE__ */ new Set();
+  const watched = /* @__PURE__ */ new WeakSet();
   const observer = typeof ResizeObserver === "function" ? new ResizeObserver(() => schedule()) : null;
   const read = () => {
     const column = document.querySelector('[class*="_sidebarCol"]');
@@ -30156,8 +30277,16 @@ function installFrameWatch(frame2) {
       measure();
     });
   };
+  const relevant = (records) => records.some((record) => {
+    if (record.type === "attributes") return true;
+    const target = record.target;
+    if (target instanceof Element && target.closest("[data-chat-flow],[data-composer-card]")) return false;
+    return true;
+  });
   measure();
-  const mutations = new MutationObserver(schedule);
+  const mutations = new MutationObserver((records) => {
+    if (relevant(records)) schedule();
+  });
   mutations.observe(document.documentElement, { subtree: true, childList: true, attributes: true, attributeFilter: ["data-sidebar-collapsed", "data-animating"] });
   window.addEventListener("resize", schedule);
   return () => {
@@ -30759,7 +30888,7 @@ function TeamSidebar(props) {
     const stamps = JSON.parse(updated);
     const entries2 = [
       ...roster.bots.filter((bot) => bot.id !== roster.mainBotId).map((bot) => ({ kind: "bot", item: bot, at: stamps[currentPart(bot)] ?? bot.createdAt })),
-      ...roster.rooms.map((room2) => ({ kind: "room", item: room2, at: stamps[room2.id] ?? room2.createdAt })),
+      ...roster.rooms.map((room2) => ({ kind: "room", item: room2, at: stamps[currentPart(room2)] ?? room2.createdAt })),
       // The Agent sorts by its most recent Session, falling back to when it was added.
       ...(roster.agents ?? []).map((agent) => ({ kind: "agent", item: agent, at: Math.max(0, ...agent.sessions.map((id) => stamps[id] ?? 0)) || agent.createdAt }))
     ];
@@ -30955,22 +31084,16 @@ function TeamSidebar(props) {
     }, 300);
     return void 0;
   }, [wide, frameSnap.viewport, frameSnap.collapsed, lapsed]);
+  useEscape(() => actions.setLeftDrawer?.(false), mode === "drawer");
   (0, import_react36.useEffect)(() => {
     if (mode !== "drawer") return void 0;
     const onDown = (event) => {
       if (event.target instanceof Element && event.target.closest(".bt-leftcol")) return;
       actions.setLeftDrawer?.(false);
     };
-    const onKey = (event) => {
-      if (event.key !== "Escape") return;
-      event.stopPropagation();
-      actions.setLeftDrawer?.(false);
-    };
     window.addEventListener("mousedown", onDown);
-    window.addEventListener("keydown", onKey, true);
     return () => {
       window.removeEventListener("mousedown", onDown);
-      window.removeEventListener("keydown", onKey, true);
     };
   }, [mode]);
   const navigate = (open, id) => {
@@ -31096,7 +31219,7 @@ function UpdateButton({ useUpdate, actions }) {
       setOpen(false);
     };
     const onKey = (event) => {
-      if (event.key === "Escape") {
+      if (event.key === "Escape" && !event.isComposing && event.keyCode !== 229) {
         event.stopPropagation();
         setOpen(false);
         button.current?.focus();
@@ -31235,7 +31358,7 @@ function AccountLauncher({ seat = true, settingsOpen, actions }) {
     };
     const onKey = (event) => {
       if (stepMenuFocus(menuRef.current, event, button.current)) return;
-      if (event.key === "Escape") {
+      if (event.key === "Escape" && !event.isComposing && event.keyCode !== 229) {
         event.stopPropagation();
         setOpen(false);
         button.current?.focus();
@@ -31517,7 +31640,7 @@ function BrandName() {
   return (0, import_react36.createElement)("span", { style: { fontWeight: 600, fontSize: 14 } }, "DS Bot");
 }
 var SIDEBAR_CSS = `
-.bt-confirm{width:260px;max-width:72vw;padding:10px 12px 12px;display:flex;flex-direction:column;gap:10px}
+.bt-confirm{width:100%;max-width:260px;box-sizing:border-box;padding:10px 12px 12px;display:flex;flex-direction:column;gap:10px}
 .bt-confirm-text{margin:0;font-size:13px;line-height:19px;color:var(--bt-ink-2)}
 .bt-confirm-error{margin:0;font-size:12px;line-height:17px;color:var(--bt-danger);overflow-wrap:anywhere}
 .bt-confirm-row{display:flex;justify-content:flex-end;gap:8px}
@@ -31564,7 +31687,7 @@ var SIDEBAR_CSS = `
 
 /* The DSH Agent row and its expanding Session list. The black whale is the
    harness's own mark, so the row reads as "plain dsh" next to the Bot marks. */
-.bt-agent-ava{flex:none;width:36px;height:36px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;background:var(--bt-hover);color:var(--bt-ink)}
+.bt-agent-ava{flex:none;width:36px;height:36px;border-radius:50%;corner-shape:round;display:inline-flex;align-items:center;justify-content:center;background:var(--bt-hover);color:var(--bt-ink)}
 .bt-agent-ava.bt-run{animation:bt-agent-pulse 1.4s ease-in-out infinite}
 @keyframes bt-agent-pulse{0%,100%{opacity:1}50%{opacity:.55}}
 .bt-agent-sub{display:grid;grid-template-rows:0fr;transition:grid-template-rows ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing}}
@@ -31603,9 +31726,9 @@ var SIDEBAR_CSS = `
 .bt-sec-dot{width:6px;height:6px;border-radius:50%;corner-shape:round;flex:none}
 .bt-sec-title{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:0 1 auto}
 .bt-sec-count{font-size:11px;line-height:16px;font-weight:500;color:var(--bt-ink-3);font-variant-numeric:tabular-nums;flex:none}
-.bt-sec-head-wrap:hover .bt-sec-count-hide{display:none}
+.bt-sec-head-wrap:is(:hover,:focus-within) .bt-sec-count-hide{display:none}
 .bt-sec-tail{margin-left:auto;display:inline-flex;align-items:center;gap:6px;flex:none}
-.bt-sec-head-wrap:hover .bt-sec-tail{padding-right:44px}
+.bt-sec-head-wrap:is(:hover,:focus-within) .bt-sec-tail{padding-right:44px}
 .bt-sec-pile{display:inline-flex;align-items:center;animation:bt-sec-pile-in ${SPRING_POP.duration}ms ${SPRING_POP.easing}}
 @keyframes bt-sec-pile-in{from{opacity:0;transform:translateX(6px) scale(.82)}to{opacity:1;transform:none}}
 .bt-sec-pile-item{display:inline-flex;border-radius:50%;corner-shape:round;background:var(--bt-sidebar);box-shadow:0 0 0 1.5px var(--bt-sidebar)}
@@ -31615,9 +31738,10 @@ var SIDEBAR_CSS = `
 .bt-sec-status[data-kind=working]{background:var(--bt-green);box-shadow:0 0 0 2px color-mix(in srgb,var(--bt-green) 22%,transparent)}
 .bt-sec-status[data-kind=alert]{width:12px;height:12px;background:var(--bt-accent);color:var(--bt-accent-ink);font-size:8.5px;line-height:12px;font-weight:600;display:inline-flex;align-items:center;justify-content:center}
 .bt-sec-status[data-kind=unread]{background:var(--bt-accent)}
-.bt-sec-acts{position:absolute;right:4px;top:50%;transform:translateY(-50%);display:none;align-items:center;gap:2px}
-.bt-sec-head-wrap:hover .bt-sec-acts,.bt-sec-acts:focus-within{display:inline-flex}
-.bt-sec-act{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;padding:0;border:0;border-radius:6px;background:transparent;color:var(--bt-ink-3);cursor:pointer;transition:background-color .12s ease,color .12s ease,transform ${SPRING_TAP.duration}ms ${SPRING_TAP.easing}}
+.bt-sec-acts{position:absolute;right:4px;top:50%;transform:translateY(-50%);display:inline-flex;align-items:center;gap:2px;opacity:0;pointer-events:none;transition:opacity .12s ease}
+.bt-sec-head-wrap:is(:hover,:focus-within) .bt-sec-acts{opacity:1;pointer-events:auto}
+.bt-sec-act{position:relative;display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;padding:0;border:0;border-radius:6px;background:transparent;color:var(--bt-ink-3);cursor:pointer;transition:background-color .12s ease,color .12s ease,transform ${SPRING_TAP.duration}ms ${SPRING_TAP.easing}}
+.bt-sec-act::after{content:"";position:absolute;inset:-4px}
 .bt-sec-act:hover{background:var(--bt-active);color:var(--bt-ink)}
 .bt-sec-act:active{transform:scale(.9)}
 .bt-sec-act:focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px}
@@ -31648,7 +31772,7 @@ var SIDEBAR_CSS = `
 .bt-menu-color-dot:focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
 .bt-sec-add-menu{max-width:260px}
 .bt-sec-add-list{display:flex;flex-direction:column;gap:2px;max-height:240px;overflow-y:auto}
-@media (prefers-reduced-motion:reduce){.bt-sec-body,.bt-sec-chev,.bt-sec-act,.bt-rail-folder{transition:none}.bt-sec-pile{animation:none}}
+@media (prefers-reduced-motion:reduce){.bt-sec-body,.bt-sec-chev,.bt-sec-act,.bt-rail-folder{transition:none}.bt-sec-pile,.bt-agent-ava.bt-run{animation:none}}
 `;
 
 // src/client/permission-picker.js
@@ -32377,9 +32501,28 @@ var soften = (paint, strength = 1) => {
   const mix = (color) => `color-mix(in srgb, ${color} ${Math.round(88 * strength)}%, var(--bt-card))`;
   return paint.startsWith("linear-gradient(") ? paint.replace(/#[0-9a-f]{6}/gi, mix) : mix(paint);
 };
-var full = (count) => new Intl.NumberFormat(dateLocale()).format(Math.round(count));
+var numberCache = /* @__PURE__ */ new Map();
+var full = (count) => {
+  const locale = dateLocale();
+  let fmt = numberCache.get(locale);
+  if (!fmt) {
+    fmt = new Intl.NumberFormat(locale);
+    numberCache.set(locale, fmt);
+  }
+  return fmt.format(Math.round(count));
+};
 var hitRate = (sum) => percent2(sum.cacheRead, sum.input + sum.cacheRead);
-var dates = (options) => new Intl.DateTimeFormat(dateLocale(), { timeZone: "UTC", ...options });
+var dateCache = /* @__PURE__ */ new Map();
+var dates = (options) => {
+  const locale = dateLocale();
+  const key = `${locale}|${JSON.stringify(options)}`;
+  let fmt = dateCache.get(key);
+  if (!fmt) {
+    fmt = new Intl.DateTimeFormat(locale, { timeZone: "UTC", ...options });
+    dateCache.set(key, fmt);
+  }
+  return fmt;
+};
 var hourText = (ms) => `${String(new Date(ms).getUTCHours()).padStart(2, "0")}:00`;
 var yearOf = (ms) => new Date(ms).getUTCFullYear();
 function spanText(from, to) {
@@ -32764,43 +32907,48 @@ function SpanPicker({ span, today, oldest, active, near, onPick, onClose }) {
 }
 function Heat({ view, keep, paint, index }) {
   const [hover, setHover] = (0, import_react41.useState)(null);
-  const today = hourMs(`${view.now.slice(0, 10)} 00`);
-  const first = mondayOf(today) - (HEAT_WEEKS - 1) * 7 * DAY_MS;
-  const from = dayKey(first);
-  const daily = /* @__PURE__ */ new Map();
-  for (const row of view.rows) {
-    const day = row[HOUR].slice(0, 10);
-    if (day >= from && keep(row)) daily.set(day, (daily.get(day) ?? 0) + tokensOf(row));
-  }
-  const most = Math.max(0, ...daily.values());
+  const { today, daily, most, months, gridData, active } = (0, import_react41.useMemo)(() => {
+    const day = hourMs(`${view.now.slice(0, 10)} 00`);
+    const first = mondayOf(day) - (HEAT_WEEKS - 1) * 7 * DAY_MS;
+    const from = dayKey(first);
+    const map = /* @__PURE__ */ new Map();
+    for (const row of view.rows) {
+      const k = row[HOUR].slice(0, 10);
+      if (k >= from && keep(row)) map.set(k, (map.get(k) ?? 0) + tokensOf(row));
+    }
+    const peak = Math.max(0, ...map.values());
+    const monthLabels = [];
+    const items = [];
+    for (let week = 0; week < HEAT_WEEKS; week += 1) {
+      const monday = first + week * 7 * DAY_MS;
+      if (week > 0 && new Date(monday).getUTCMonth() !== new Date(monday - 7 * DAY_MS).getUTCMonth()) {
+        monthLabels.push((0, import_react41.createElement)("span", { key: week, style: { gridColumn: week + 1 } }, dates({ month: "short" }).format(monday)));
+      }
+      for (let d = 0; d < 7; d += 1) {
+        const ms = monday + d * DAY_MS;
+        const value = map.get(dayKey(ms)) ?? 0;
+        const level = value > 0 ? Math.max(1, Math.ceil(4 * Math.sqrt(value / peak))) : 0;
+        items.push({ ms, week, day: d, level });
+      }
+    }
+    const count = [...map.values()].filter((value) => value > 0).length;
+    return { today: day, daily: map, most: peak, months: monthLabels, gridData: items, active: count };
+  }, [view.now, view.rows, keep]);
+  void most;
   const levels = [0.3, 0.52, 0.76, 1];
-  const months = [];
-  const cells = [];
-  for (let week = 0; week < HEAT_WEEKS; week += 1) {
-    const monday = first + week * 7 * DAY_MS;
-    if (week > 0 && new Date(monday).getUTCMonth() !== new Date(monday - 7 * DAY_MS).getUTCMonth()) {
-      months.push((0, import_react41.createElement)("span", { key: week, style: { gridColumn: week + 1 } }, dates({ month: "short" }).format(monday)));
-    }
-    for (let day = 0; day < 7; day += 1) {
-      const ms = monday + day * DAY_MS;
-      const value = daily.get(dayKey(ms)) ?? 0;
-      const level = value > 0 ? Math.max(1, Math.ceil(4 * Math.sqrt(value / most))) : 0;
-      cells.push((0, import_react41.createElement)("span", {
-        key: ms,
-        className: "bt-us-cell",
-        style: { "--w": week },
-        "data-on": hover?.ms === ms ? "" : void 0,
-        "data-future": ms > today ? "" : void 0,
-        "data-today": ms === today ? "" : void 0,
-        onMouseEnter: ms > today ? void 0 : () => setHover({ ms, week, day })
-      }, level > 0 ? (0, import_react41.createElement)("i", { style: { background: soften(paint, levels[level - 1]) } }) : null));
-    }
-  }
+  const cells = gridData.map(({ ms, week, day, level }) => (0, import_react41.createElement)("span", {
+    key: ms,
+    className: "bt-us-cell",
+    style: { "--w": week },
+    "data-on": hover?.ms === ms ? "" : void 0,
+    "data-future": ms > today ? "" : void 0,
+    "data-today": ms === today ? "" : void 0,
+    onMouseEnter: ms > today ? void 0 : () => setHover({ ms, week, day })
+  }, level > 0 ? (0, import_react41.createElement)("i", { style: { background: soften(paint, levels[level - 1]) } }) : null));
   const tipSide = hover ? {
     ...hover.week >= HEAT_WEEKS / 2 ? { right: `calc(${(HEAT_WEEKS - hover.week) / HEAT_WEEKS * 100}% + 8px)` } : { left: `calc(${(hover.week + 1) / HEAT_WEEKS * 100}% + 8px)` },
     ...hover.day < 4 ? { top: `calc(${hover.day / 7 * 100}% - 2px)` } : { top: "auto", bottom: `calc(${(6 - hover.day) / 7 * 100}% - 2px)` }
   } : null;
-  const active = [...daily.values()].filter((value) => value > 0).length;
   const summary = active === 1 ? t("Active on 1 day in the last year") : t("Active on {count} days in the last year", { count: active });
   return (0, import_react41.createElement)(
     "section",
@@ -32859,23 +33007,34 @@ function UsagePage({ roster, actions, focusId }) {
   (0, import_react41.useEffect)(() => {
     let stopped = false;
     let timer;
+    const schedule = (ms) => {
+      clearTimeout(timer);
+      if (stopped || typeof document !== "undefined" && document.visibilityState === "hidden") return;
+      timer = setTimeout(load, ms);
+    };
     const load = async () => {
       try {
         const value = await actions.usage();
         if (stopped) return;
         (0, import_react41.startTransition)(() => setView(value));
         setError("");
-        timer = setTimeout(load, value.scanning ? 3e3 : 2e4);
+        schedule(value.scanning ? 3e3 : 2e4);
       } catch (failure) {
         if (stopped) return;
         setError(failure?.message ?? String(failure));
-        timer = setTimeout(load, 1e4);
+        schedule(1e4);
       }
     };
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") clearTimeout(timer);
+      else if (!stopped) void load();
+    };
+    if (typeof document !== "undefined") document.addEventListener("visibilitychange", onVisibility);
     void load();
     return () => {
       stopped = true;
       clearTimeout(timer);
+      if (typeof document !== "undefined") document.removeEventListener("visibilitychange", onVisibility);
     };
   }, []);
   const today = view?.now.slice(0, 10);
@@ -33079,7 +33238,7 @@ var USAGE_CSS = `
 .bt-us-tabs button:focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px}
 .bt-us-tabs button{position:relative;z-index:1;display:inline-flex;align-items:center;gap:5px;height:26px;padding:0 12px;border:0;border-radius:999px;background:none;color:var(--bt-ink-2);font:inherit;font-size:12px;line-height:26px;white-space:nowrap;cursor:pointer;transition:color .15s ease}
 .bt-us-tabs button svg{flex:none;width:13px;height:13px;margin-left:-2px}
-.bt-us-pick{position:absolute;top:calc(100% + 8px);left:0;max-width:100%;box-sizing:border-box;padding:14px 16px 12px;border-radius:18px;border:.5px solid var(--bt-line-2);background:var(--bt-card);box-shadow:0 22px 50px -18px rgba(0,0,0,.32),0 2px 8px rgba(0,0,0,.05);transform-origin:24px 0;animation:bt-us-drop .2s var(--bt-us-ease)}
+.bt-us-pick{position:absolute;top:calc(100% + 8px);left:0;max-width:100%;max-height:min(520px,calc(100vh - 150px));max-height:min(520px,calc(100dvh - 150px));overflow-y:auto;box-sizing:border-box;padding:14px 16px 12px;border-radius:18px;border:.5px solid var(--bt-line-2);background:var(--bt-card);box-shadow:0 22px 50px -18px rgba(0,0,0,.32),0 2px 8px rgba(0,0,0,.05);transform-origin:24px 0;animation:bt-us-drop .2s var(--bt-us-ease)}
 .bt-us-pick-quick{display:flex;gap:6px;margin-bottom:12px}
 .bt-us-pick-quick button{height:26px;padding:0 11px;border:0;border-radius:999px;background:var(--bt-hover);color:var(--bt-ink-2);font:inherit;font-size:12px;cursor:pointer;transition:background-color .12s ease,color .12s ease}
 .bt-us-pick-quick button:hover{background:var(--bt-active);color:var(--bt-ink)}
@@ -33096,10 +33255,10 @@ var USAGE_CSS = `
 .bt-us-weekdays span{height:24px;font-size:11px;line-height:24px;text-align:center;color:var(--bt-ink-3)}
 .bt-us-day{position:relative;height:36px;padding:0;border:0;background:none;color:var(--bt-ink);font:inherit;font-size:12px;font-variant-numeric:tabular-nums;cursor:pointer}
 .bt-us-day::before{content:'';position:absolute;top:4px;bottom:4px;left:0;right:0;transition:background-color .12s ease}
-.bt-us-day>b{position:relative;z-index:1;display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:50%;font-weight:400;transition:background-color .12s ease,color .12s ease}
+.bt-us-day>b{position:relative;z-index:1;display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:50%;corner-shape:round;font-weight:400;transition:background-color .12s ease,color .12s ease}
 .bt-us-day:hover:not(:disabled)>b{background:var(--bt-hover)}
 .bt-us-day[data-today]>b{color:var(--bt-accent);font-weight:600}
-.bt-us-day[data-has]::after{content:'';position:absolute;z-index:2;left:50%;bottom:6px;width:3px;height:3px;margin-left:-1.5px;border-radius:50%;background:var(--bt-ink-3)}
+.bt-us-day[data-has]::after{content:'';position:absolute;z-index:2;left:50%;bottom:6px;width:3px;height:3px;margin-left:-1.5px;border-radius:50%;corner-shape:round;background:var(--bt-ink-3)}
 .bt-us-day[data-in]::before{background:color-mix(in srgb,var(--bt-accent) 13%,transparent)}
 .bt-us-day[data-in][data-l]::before{left:4px;border-radius:14px 0 0 14px}
 .bt-us-day[data-in][data-r]::before{right:4px;border-radius:0 14px 14px 0}
@@ -33116,7 +33275,7 @@ var USAGE_CSS = `
 .bt-us-tabs:not([data-glide]) button[aria-pressed=true]{background:var(--bt-card)}
 .bt-us-tabs>.bt-thumb{top:3px;bottom:3px;border-radius:999px;background:var(--bt-card);box-shadow:0 1px 3px rgba(0,0,0,.08),0 0 0 .5px var(--bt-line-2)}
 .bt-us-note{display:inline-flex;align-items:center;gap:8px;font-size:12px;line-height:16px;color:var(--bt-ink-3)}
-.bt-us-note::before{content:'';width:6px;height:6px;border-radius:50%;background:var(--bt-accent);animation:bt-us-pulse 1.4s ease-in-out infinite}
+.bt-us-note::before{content:'';width:6px;height:6px;border-radius:50%;corner-shape:round;background:var(--bt-accent);animation:bt-us-pulse 1.4s ease-in-out infinite}
 .bt-us-sheet{display:flex;flex-direction:column;gap:4px}
 .bt-us-sheet>.bt-us-stats,.bt-us-sheet>.bt-us-card,.bt-us-sheet>.bt-us-pair>.bt-us-card{border-radius:0}
 .bt-us-sheet>:first-child{border-radius:16px 16px 0 0}
@@ -33143,7 +33302,7 @@ var USAGE_CSS = `
 .bt-us-stack{display:flex;flex-direction:column-reverse;gap:2px;width:56%;min-width:4px;max-width:28px;transform-origin:50% 100%;animation:bt-us-grow .6s var(--bt-us-ease) backwards;animation-delay:calc(var(--i,0) * 14ms);transition:height .45s var(--bt-us-ease),opacity .18s ease}
 .bt-us-stack>i{flex:1 1 0;min-height:2px;border-radius:5px;transition:flex-grow .45s var(--bt-us-ease)}
 .bt-us-plot[data-hover] .bt-us-col:not([data-on]) .bt-us-stack{opacity:.3}
-.bt-us-stub{width:4px;height:4px;margin-bottom:-2px;border-radius:50%;background:var(--bt-line-2)}
+.bt-us-stub{width:4px;height:4px;margin-bottom:-2px;border-radius:50%;corner-shape:round;background:var(--bt-line-2)}
 .bt-us-ticks{display:flex;margin-left:40px;font-size:11px;line-height:14px;color:var(--bt-ink-3);font-variant-numeric:tabular-nums}
 .bt-us-ticks span{flex:1 1 0;min-width:0;text-align:center;white-space:nowrap}
 .bt-us-ticks span[data-now]{color:var(--bt-ink);font-weight:500}
@@ -33159,7 +33318,7 @@ var USAGE_CSS = `
 .bt-us-key{display:inline-flex;align-items:center;gap:6px;min-width:0;height:24px;padding:0 10px 0 8px;border:0;border-radius:999px;background:var(--bt-hover);color:var(--bt-ink-2);font:inherit;font-size:12px;line-height:24px}
 button.bt-us-key{cursor:pointer;transition:background-color .12s ease,color .12s ease}
 button.bt-us-key:hover{background:var(--bt-active);color:var(--bt-ink)}
-.bt-us-dot{flex:none;width:8px;height:8px;border-radius:50%}
+.bt-us-dot{flex:none;width:8px;height:8px;border-radius:50%;corner-shape:round}
 .bt-us-pair{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:4px}
 .bt-us-rows{display:flex;flex-direction:column;margin:0 -8px}
 .bt-us-row{display:flex;align-items:center;gap:12px;width:100%;box-sizing:border-box;padding:8px;border:0;border-radius:12px;background:none;color:var(--bt-ink);font:inherit;text-align:left;animation:bt-us-in .4s var(--bt-us-ease) backwards;animation-delay:calc(var(--i,0) * 35ms + 90ms)}
@@ -33177,7 +33336,7 @@ button.bt-us-row:hover{background:var(--bt-hover)}
 .bt-us-row-num small{font-size:11px;line-height:14px;color:var(--bt-ink-3)}
 .bt-us-split{height:1px;margin:6px 8px;background:var(--bt-line)}
 .bt-us-none{padding:18px 8px;font-size:12px;color:var(--bt-ink-3);text-align:center}
-.bt-us-glyph{display:inline-flex;align-items:center;justify-content:center;border-radius:50%;background:var(--bt-hover);color:var(--bt-ink-2)}
+.bt-us-glyph{display:inline-flex;align-items:center;justify-content:center;border-radius:50%;corner-shape:round;background:var(--bt-hover);color:var(--bt-ink-2)}
 .bt-us-model{display:inline-flex;align-items:center;justify-content:center;border-radius:30%;font-weight:600;line-height:1}
 .bt-us-profile{display:flex;align-items:center;gap:20px;padding:6px 4px 2px;animation:bt-us-in .45s var(--bt-us-ease) backwards}
 .bt-us-ring{position:relative;flex:none;width:96px;height:96px}
@@ -33223,9 +33382,8 @@ button.bt-us-row:hover{background:var(--bt-hover)}
 @keyframes bt-us-pulse{50%{opacity:.25}}
 @keyframes bt-us-shine{from{background-position:200% 0}to{background-position:-200% 0}}
 @media (prefers-reduced-motion:reduce){.bt-us *,.bt-us *::before{animation:none!important;transition:none!important}}
-/* Phone-width viewports: the page is full width but its fixed parts are not —
-   stats take two columns, the calendar and heat map shrink or scroll. */
-@media (max-width:640px){
+/* Narrow and mid-width viewports: stats take two columns, the calendar and heat map shrink or scroll. */
+@media (max-width:780px){
   .bt-us-stats{grid-template-columns:repeat(2,1fr)}
   .bt-us-stat{padding:12px}
   .bt-us-stat-value{font-size:19px;line-height:24px;white-space:normal;flex-wrap:wrap}
@@ -36154,26 +36312,43 @@ var TOAST_MS = 6e3;
 function ErrorToast({ useUi, actions }) {
   const toast = useUi((state) => state.toast);
   const [leaving, setLeaving] = (0, import_react46.useState)(false);
+  const [paused, setPaused] = (0, import_react46.useState)(false);
   (0, import_react46.useEffect)(() => {
     if (!toast) return void 0;
     setLeaving(false);
-    const fade = setTimeout(() => setLeaving(true), TOAST_MS);
-    const gone = setTimeout(() => actions.dismissToast(toast.token), TOAST_MS + 200);
-    return () => {
-      clearTimeout(fade);
-      clearTimeout(gone);
-    };
+    setPaused(false);
+    return void 0;
   }, [toast?.token]);
+  (0, import_react46.useEffect)(() => {
+    if (!toast || paused || leaving) return void 0;
+    const fade = setTimeout(() => setLeaving(true), TOAST_MS);
+    return () => clearTimeout(fade);
+  }, [toast?.token, paused, leaving]);
+  (0, import_react46.useEffect)(() => {
+    if (!toast || !leaving) return void 0;
+    const gone = setTimeout(() => actions.dismissToast(toast.token), 190);
+    return () => clearTimeout(gone);
+  }, [toast?.token, leaving]);
   if (!toast) return null;
   return (0, import_react46.createElement)(
     "div",
-    { className: "bt-toast", role: "alert", "data-leaving": leaving || void 0 },
+    {
+      className: "bt-toast",
+      role: "alert",
+      "data-leaving": leaving || void 0,
+      onMouseEnter: () => setPaused(true),
+      onMouseLeave: () => setPaused(false),
+      onFocus: () => setPaused(true),
+      onBlur: (event) => {
+        if (!event.currentTarget.contains(event.relatedTarget)) setPaused(false);
+      }
+    },
     (0, import_react46.createElement)("span", { className: "bt-toast-text" }, toast.text),
     (0, import_react46.createElement)("button", { type: "button", className: "bt-toast-link", onClick: () => {
       actions.dismissToast(toast.token);
       actions.openSettings("feedback");
     } }, t("Details")),
-    (0, import_react46.createElement)("button", { type: "button", className: "bt-icon-btn bt-toast-close", "aria-label": t("Dismiss"), onClick: () => actions.dismissToast(toast.token) }, (0, import_react46.createElement)(CloseIcon))
+    (0, import_react46.createElement)("button", { type: "button", className: "bt-icon-btn bt-toast-close", "aria-label": t("Dismiss"), onClick: () => setLeaving(true) }, (0, import_react46.createElement)(CloseIcon))
   );
 }
 var FEEDBACK_CSS = `
@@ -36187,8 +36362,8 @@ var FEEDBACK_CSS = `
 .bt-fb-primary:active{filter:brightness(.94)}
 .bt-fb-note{margin:-8px 4px 0}
 .bt-fb-entry{cursor:default;align-items:flex-start}
-.bt-fb-dot{flex:none;width:6px;height:6px;border-radius:50%;margin-top:6px;background:var(--bt-danger,#e02135)}
-.bt-fb-dot[data-level=warn]{background:#e3a008}
+.bt-fb-dot{flex:none;width:6px;height:6px;border-radius:50%;corner-shape:round;margin-top:6px;background:var(--bt-danger,#e02135)}
+.bt-fb-dot[data-level=warn]{background:var(--bt-warn)}
 .bt-fb-text{overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;word-break:break-word}
 .bt-fb-code{flex:none;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px}
 .bt-event-error{color:var(--bt-danger,#e02135)}
@@ -36196,7 +36371,7 @@ var FEEDBACK_CSS = `
 .bt-toast{bottom:calc(28px + env(safe-area-inset-bottom,0px))}
 .bt-toast[data-leaving]{opacity:0;transform:translate(-50%,6px) scale(.98);filter:blur(3px);transition:opacity .18s ease-in,transform .18s ease-in,filter .18s ease-in}
 .bt-toast-text{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical}
-.bt-toast-text::before{content:'';display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--bt-danger,#e02135);margin:0 8px 1px 0}
+.bt-toast-text::before{content:'';display:inline-block;width:6px;height:6px;border-radius:50%;corner-shape:round;background:var(--bt-danger,#e02135);margin:0 8px 1px 0}
 .bt-toast-link{flex:none;border:0;background:none;color:var(--bt-ink-2);font:inherit;font-size:12px;cursor:pointer;padding:4px 6px;border-radius:6px}
 .bt-toast-link:hover{background:var(--bt-hover);color:var(--bt-ink)}
 .bt-toast-close{flex:none}
@@ -36353,12 +36528,12 @@ body:not([data-bt-motion=quiet]) .bt-about-mark:hover .bt-mark[data-live][data-s
 .bt-about-version{font-size:12px;line-height:16px;color:var(--bt-ink-2);font-variant-numeric:tabular-nums}
 .bt-about-ask{margin:-10px 4px 0;font-size:12px;line-height:16px;color:var(--bt-ink-3)}
 .bt-star{flex:none;display:inline-flex;align-items:stretch;height:30px;border-radius:999px;border:1px solid var(--bt-line-2,var(--bt-line));overflow:hidden;color:var(--bt-ink);text-decoration:none;font-size:12px;line-height:28px;transition:transform .12s ease,border-color .15s ease}
-.bt-star:hover{border-color:color-mix(in srgb,#e3a008 55%,var(--bt-line))}
+.bt-star:hover{border-color:color-mix(in srgb,var(--bt-star) 55%,var(--bt-line))}
 .bt-star:active{transform:scale(.96)}
 .bt-star-main{display:inline-flex;align-items:center;gap:6px;padding:0 12px 0 10px;background:var(--bt-hover);font-weight:500}
 .bt-star-icon{display:inline-flex;color:var(--bt-ink-2);transition:color .15s ease}
 .bt-star-icon path{transition:fill .15s ease}
-.bt-star:hover .bt-star-icon{color:#e3a008;animation:bt-star-pop ${SPRING_POP.duration}ms ${SPRING_POP.easing}}
+.bt-star:hover .bt-star-icon{color:var(--bt-star);animation:bt-star-pop ${SPRING_POP.duration}ms ${SPRING_POP.easing}}
 .bt-star:hover .bt-star-icon path{fill:currentColor}
 .bt-star-count{display:inline-flex;align-items:center;padding:0 11px;border-left:1px solid var(--bt-line-2,var(--bt-line));color:var(--bt-ink-2);font-variant-numeric:tabular-nums;animation:bt-star-count-in ${SPRING_POP.duration}ms ${SPRING_POP.easing},bt-veil-in .2s ease-out}
 @keyframes bt-star-pop{from{scale:.6;rotate:-30deg}}
@@ -36988,6 +37163,7 @@ function AgentSignInRow({ agent }) {
 function LocalAgentsPage({ run: run2, Row: Row4 }) {
   const [view, setView] = (0, import_react49.useState)(null);
   const [editing, setEditing] = (0, import_react49.useState)(null);
+  const [armedRemove, setArmedRemove] = (0, import_react49.useState)(null);
   const load = (endpoint) => run2(call(endpoint).then(setView));
   const refresh = () => load("local-agent-refresh");
   (0, import_react49.useEffect)(() => {
@@ -37019,13 +37195,16 @@ function LocalAgentsPage({ run: run2, Row: Row4 }) {
         "div",
         { className: "bt-la-sec-head" },
         (0, import_react49.createElement)("h3", null, t("Custom agents")),
-        editing === "new" ? null : (0, import_react49.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm bt-with-icon", "aria-label": t("Add agent"), onClick: () => setEditing("new") }, (0, import_react49.createElement)(PlusIcon), t("Add agent"))
+        editing === "new" ? null : (0, import_react49.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm bt-with-icon", "aria-label": t("Add agent"), onClick: () => {
+          setArmedRemove(null);
+          setEditing("new");
+        } }, (0, import_react49.createElement)(PlusIcon), t("Add agent"))
       ),
       (0, import_react49.createElement)(
         "div",
         { className: "bt-set-card" },
         view.custom.length === 0 && editing !== "new" ? (0, import_react49.createElement)("div", { className: "bt-set-row" }, (0, import_react49.createElement)("span", { className: "bt-set-hint" }, t("ACP-compatible agents, added by command."))) : null,
-        view.custom.map((agent) => editing === agent ? (0, import_react49.createElement)(AgentForm, { key: agent.id, initial: agent, close: () => setEditing(null), submit: (payload) => call("local-agent-update", { id: agent.id, ...payload }).then(() => load("local-agents")) }) : (0, import_react49.createElement)(
+        view.custom.map((agent) => editing === agent.id ? (0, import_react49.createElement)(AgentForm, { key: agent.id, initial: agent, close: () => setEditing(null), submit: (payload) => call("local-agent-update", { id: agent.id, ...payload }).then(() => load("local-agents")) }) : (0, import_react49.createElement)(
           "div",
           { key: agent.id, className: "bt-set-row bt-la-row" },
           (0, import_react49.createElement)(AgentLogo, { route: agent.route, name: agent.name, size: 32, className: "bt-cli-logo bt-la-logo" }),
@@ -37038,8 +37217,26 @@ function LocalAgentsPage({ run: run2, Row: Row4 }) {
           (0, import_react49.createElement)(
             "div",
             { className: "bt-set-control bt-la-actions" },
-            (0, import_react49.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => setEditing(agent) }, t("Edit")),
-            (0, import_react49.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm bt-danger", "aria-label": t("Remove"), onClick: () => run2(call("local-agent-remove", { id: agent.id })).then(() => load("local-agents")) }, (0, import_react49.createElement)(TrashIcon))
+            (0, import_react49.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => {
+              setArmedRemove(null);
+              setEditing(agent.id);
+            } }, t("Edit")),
+            (0, import_react49.createElement)("button", {
+              type: "button",
+              className: armedRemove === agent.id ? "bt-soft bt-soft-sm bt-danger bt-la-armed" : "bt-soft bt-soft-sm bt-danger",
+              "aria-label": armedRemove === agent.id ? t("Click again to remove") : t("Remove"),
+              onClick: () => {
+                if (armedRemove !== agent.id) {
+                  setArmedRemove(agent.id);
+                  return;
+                }
+                setArmedRemove(null);
+                void run2(call("local-agent-remove", { id: agent.id })).then(() => load("local-agents"));
+              },
+              onBlur: () => {
+                if (armedRemove === agent.id) setArmedRemove(null);
+              }
+            }, armedRemove === agent.id ? t("Remove?") : (0, import_react49.createElement)(TrashIcon))
           )
         )),
         editing === "new" ? (0, import_react49.createElement)(AgentForm, { key: "new", close: () => setEditing(null), submit: (payload) => call("local-agent-add", payload).then(() => load("local-agents")) }) : null
@@ -37330,12 +37527,24 @@ function GeneralPage({ roster, actions, run: run2, dsh }) {
   const current2 = themes[prefs.theme] ? prefs.theme : "deepseek";
   const [custom, setCustom] = (0, import_react51.useState)(prefs.accent ?? "#4d6bfe");
   const timer = (0, import_react51.useRef)(0);
-  (0, import_react51.useEffect)(() => () => clearTimeout(timer.current), []);
+  const pendingAccent = (0, import_react51.useRef)(null);
+  const saveAccent = (0, import_react51.useRef)((value) => run2(actions.setPrefs({ accent: value })));
+  saveAccent.current = (value) => run2(actions.setPrefs({ accent: value }));
+  const flushAccent = () => {
+    clearTimeout(timer.current);
+    const value = pendingAccent.current;
+    if (value === null) return;
+    pendingAccent.current = null;
+    void saveAccent.current(value);
+  };
+  (0, import_react51.useEffect)(() => flushAccent, []);
   const pickCustom = (value) => {
     setCustom(value);
+    pendingAccent.current = value;
     clearTimeout(timer.current);
-    timer.current = setTimeout(() => run2(actions.setPrefs({ accent: value })), 350);
+    timer.current = setTimeout(flushAccent, 350);
   };
+  const dark = typeof document !== "undefined" && document.body?.hasAttribute("data-ds-dark-theme");
   return [
     (0, import_react51.createElement)(
       SetSection,
@@ -37363,7 +37572,7 @@ function GeneralPage({ roster, actions, run: run2, dsh }) {
             title: t(capitalize2(ink)),
             "aria-label": t(capitalize2(ink)),
             "aria-pressed": prefs.accent === INKS[ink][0],
-            style: { background: INKS[ink][0] },
+            style: { background: INKS[ink][dark ? 1 : 0] },
             onClick: () => run2(actions.setPrefs({ accent: INKS[ink][0] }))
           })),
           (0, import_react51.createElement)(
@@ -37607,7 +37816,16 @@ var PageBoundary = class extends import_react51.Component {
 function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false, dsh }) {
   const [error, setError] = (0, import_react51.useState)("");
   const close = (0, import_react51.useCallback)(() => actions.closeSettings(), []);
-  useEscape(close);
+  useEscape(close, !leaving);
+  const [narrowNav, setNarrowNav] = (0, import_react51.useState)(() => typeof window !== "undefined" && typeof window.matchMedia === "function" ? window.matchMedia("(max-width: 640px)").matches : false);
+  (0, import_react51.useEffect)(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") return void 0;
+    const query = window.matchMedia("(max-width: 640px)");
+    const sync = () => setNarrowNav(query.matches);
+    sync();
+    query.addEventListener?.("change", sync);
+    return () => query.removeEventListener?.("change", sync);
+  }, []);
   const run2 = (promise) => Promise.resolve(promise).then(() => {
     setError("");
     return true;
@@ -37625,8 +37843,11 @@ function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false,
   const usageFocus = shown === "usage" && id ? id : null;
   const label = section ? section.label : advanced ? t("Advanced settings") : t(pages.find(([key]) => key === shown)[1]);
   const back = bot ? t("Back to Bots") : room2 ? t("Back to group chats") : usageFocus ? t("All usage") : advanced ? t("Back to models") : null;
-  const nav = useGlide(section ? `dsh:${section.id}` : shown, { axis: "y" });
-  const pageKey = `${shown}:${bot?.id ?? room2?.id ?? section?.id ?? (advanced ? "advanced" : "")}`;
+  const nav = useGlide(section ? `dsh:${section.id}` : shown, { axis: narrowNav ? "x" : "y" });
+  const pageKey = `${shown}:${bot?.id ?? room2?.id ?? section?.id ?? (advanced ? "advanced" : shown === "schedules" ? id ?? "" : "")}`;
+  (0, import_react51.useEffect)(() => {
+    setError("");
+  }, [pageKey]);
   const depth = bot || room2 || advanced ? 1 : 0;
   const last = (0, import_react51.useRef)({ key: pageKey, depth, move: "up" });
   if (last.current.key !== pageKey) {
@@ -37834,6 +38055,7 @@ function NotificationWatcher({ useSessions, useSessionStatus, useRoster, useWork
   const statuses = useSessionStatus((map) => map);
   const viewing = useSessions((list) => Object.values(list.byId).find((session) => (session?.retainedBy?.mainView ?? 0) > 0)?.id ?? null);
   const previous = (0, import_react52.useRef)(/* @__PURE__ */ new Map());
+  const seeded = (0, import_react52.useRef)(false);
   (0, import_react52.useEffect)(() => {
     const shell = bridge();
     shell?.onOpenSession?.((sessionId) => {
@@ -37848,7 +38070,7 @@ function NotificationWatcher({ useSessions, useSessionStatus, useRoster, useWork
     const next = /* @__PURE__ */ new Map();
     for (const row of rows2) {
       const { id, sessionId, name, group, status: after } = row;
-      const before = previous.current.get(id);
+      const before = previous.current.get(id) ?? (seeded.current ? {} : void 0);
       next.set(id, after);
       const kind = notifyKind({
         before,
@@ -37862,6 +38084,7 @@ function NotificationWatcher({ useSessions, useSessionStatus, useRoster, useWork
       if (kind === void 0) continue;
       void shellNotify({ sessionId: id, ...noticeText({ title: name, kind }) });
     }
+    if (roster.ready !== false) seeded.current = true;
     previous.current = next;
     bridge()?.setBadge?.(badgeOf2(rows2));
   }, [statuses, viewing, roster, work]);
@@ -38609,7 +38832,7 @@ function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus, useSe
   const goal = room2?.goal;
   const goalCompose = useUi((state) => room2 !== void 0 && state.goalCompose === room2.id);
   const goalOpen = useUi((state) => room2 !== void 0 && state.goalOpen === room2.id);
-  const roomWorkKey = useWork?.((work) => room2 ? JSON.stringify(work.rooms?.[sessionId] ?? []) : "") ?? "[]";
+  const roomWorkKey = useWork?.((work) => room2 ? JSON.stringify(work.rooms?.[room2.id] ?? []) : "") ?? "[]";
   const roomWork = room2 ? JSON.parse(roomWorkKey || "[]") : [];
   const view = goal ? goalView(goal, { roster, roomWork }) : null;
   const goalShown = room2 !== void 0 && !away && goal !== void 0;
@@ -38845,7 +39068,7 @@ function useDictation(onText) {
     const timer = setTimeout(() => setNote(""), 2600);
     return () => clearTimeout(timer);
   }, [note]);
-  const start = ({ continuous = true, onEnd } = {}) => {
+  const start = ({ continuous = true, onEnd, onError } = {}) => {
     const Api = speechApi();
     if (!Api) {
       setNote(t("Dictation is not available in this browser"));
@@ -38869,6 +39092,7 @@ function useDictation(onText) {
     engine.onerror = (event) => {
       if (event.error === "aborted" || event.error === "no-speech") return;
       setNote(event.error === "not-allowed" || event.error === "service-not-allowed" ? t("Microphone access is blocked") : t("Couldn't hear that"));
+      onError?.(event.error);
     };
     engine.onend = () => {
       setListening(false);
@@ -39358,7 +39582,7 @@ function SideChatView({ subject, chat, roster, actions }) {
   };
   return (0, import_react56.createElement)(
     "div",
-    { className: "bt-side" },
+    { className: "bt-sidechat" },
     (0, import_react56.createElement)("p", { className: "bt-side-note" }, t("Answered from progress so far; nothing was run")),
     (0, import_react56.createElement)(
       "div",
@@ -39372,7 +39596,7 @@ function SideChatView({ subject, chat, roster, actions }) {
         className: "bt-side-input",
         rows: 1,
         value: draft,
-        disabled: busy,
+        autoFocus: true,
         placeholder: t("Ask about the work so far"),
         "aria-label": t("Ask about the work so far"),
         onChange: (event) => {
@@ -39380,7 +39604,7 @@ function SideChatView({ subject, chat, roster, actions }) {
           if (fail2 !== null) setFail(null);
         },
         onKeyDown: (event) => {
-          if (event.key !== "Enter" || !sendsOnEnter(roster?.prefs) || event.shiftKey || event.nativeEvent?.isComposing) return;
+          if (event.key !== "Enter" || !sendsOnEnter(roster?.prefs) || event.shiftKey || event.nativeEvent?.isComposing || event.keyCode === 229) return;
           event.preventDefault();
           ask();
         }
@@ -39446,7 +39670,8 @@ function sideSource({ roster, actions }) {
   };
 }
 var SIDE_CSS = `
-.bt-side{flex:1;min-height:0;display:flex;flex-direction:column;animation:bt-panel-view-in .22s cubic-bezier(.16,1,.3,1)}
+.bt-sidechat{flex:1;min-height:0;display:flex;flex-direction:column;animation:bt-panel-view-in .22s cubic-bezier(.16,1,.3,1)}
+@media (prefers-reduced-motion:reduce){.bt-sidechat,.bt-pmenu-pop{animation:none}}
 .bt-side-note{flex:none;margin:0;padding:10px 16px 8px;font-size:12px;line-height:17px;color:var(--bt-ink-3);border-bottom:.5px solid var(--bt-line)}
 .bt-side-scroll{flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:14px;padding:14px 16px}
 .bt-side-pair{display:flex;flex-direction:column;gap:8px}
@@ -39457,7 +39682,7 @@ var SIDE_CSS = `
 .bt-side-fail{margin:0;font-size:12px;line-height:17px;color:var(--bt-danger)}
 .bt-side-form{flex:none;padding:10px 14px 14px;border-top:.5px solid var(--bt-line);display:flex;flex-wrap:wrap;align-items:flex-end;gap:8px}
 .bt-side-form>.bt-side-fail{flex-basis:100%}
-.bt-side-send{width:36px;height:36px;border-radius:50%;border:0;background:var(--bt-accent);color:var(--bt-accent-ink);display:inline-flex;align-items:center;justify-content:center;cursor:pointer;flex:none}
+.bt-side-send{width:36px;height:36px;border-radius:50%;corner-shape:round;border:0;background:var(--bt-accent);color:var(--bt-accent-ink);display:inline-flex;align-items:center;justify-content:center;cursor:pointer;flex:none}
 .bt-side-send:disabled{opacity:.3;cursor:default}
 .bt-side-input{display:block;flex:1;min-width:0;box-sizing:border-box;min-height:36px;max-height:120px;padding:8px 12px;border:.5px solid var(--bt-line-2);border-radius:12px;background:var(--bt-main);color:var(--bt-ink);font:inherit;font-size:13px;line-height:19px;resize:none;outline:none;field-sizing:content}
 .bt-side-input::placeholder{color:var(--bt-ink-3)}
@@ -40098,7 +40323,7 @@ function CommandPalette({ start, token, roster, actions, useSessions }) {
     setTimeout(() => actions.closePalette(token), PALETTE_EXIT_MS);
   };
   useEscape(close);
-  const ids = [...roster.bots.map(currentPart), ...roster.rooms.map((item) => item.id)];
+  const ids = [...roster.bots.map(currentPart), ...roster.rooms.map(currentPart)];
   const found = useSessions((list) => {
     if (wanted.length < 2) return "[]";
     const hits = [];
@@ -40435,7 +40660,7 @@ function GroupSearch({ room: room2, roster, token, actions }) {
   ) : error !== null ? (0, import_react60.createElement)("div", { className: "bt-palette-empty" }, (0, import_react60.createElement)("span", { className: "bt-palette-empty-label" }, hostText(error?.message ?? error))) : results.length === 0 ? (0, import_react60.createElement)(
     "div",
     { className: "bt-palette-empty" },
-    busy ? (0, import_react60.createElement)("span", { className: "bt-palette-empty-label" }, t("Searching…")) : [
+    busy || answer?.query !== text ? (0, import_react60.createElement)("span", { className: "bt-palette-empty-label" }, t("Searching…")) : [
       (0, import_react60.createElement)("span", { className: "bt-palette-empty-icon", key: "ico", "aria-hidden": true }, (0, import_react60.createElement)(SearchIcon)),
       (0, import_react60.createElement)("span", { className: "bt-palette-empty-label", key: "label" }, t("No messages found")),
       (0, import_react60.createElement)("span", { className: "bt-palette-empty-hint", key: "hint" }, t("Try a different word"))
@@ -40598,8 +40823,9 @@ function PasteGuard({ sessionId, inputActions, useInput, useUi, actions }) {
   const anchor = (0, import_react61.useRef)(null);
   const blocks = useUi((state) => state.paste?.[sessionId]) ?? NO_BLOCKS;
   const ids = useInput?.((state) => state.attachmentIds) ?? NO_IDS;
-  const latest = (0, import_react61.useRef)({ blocks, ids });
-  latest.current = { blocks, ids };
+  const draft = useInput?.((state) => state.draft) ?? "";
+  const latest = (0, import_react61.useRef)({ blocks, ids, draft });
+  latest.current = { blocks, ids, draft };
   (0, import_react61.useEffect)(() => {
     if (!blocks.some((block) => block.attachmentId === null)) return void 0;
     const card = anchor.current?.closest("[data-composer-card]");
@@ -40623,16 +40849,18 @@ function PasteGuard({ sessionId, inputActions, useInput, useUi, actions }) {
     const waiting = blocks.filter((block) => block.attachmentId === null);
     if (waiting.length === 0) return void 0;
     const timer = setTimeout(() => {
+      let currentDraft = latest.current.draft;
       for (const block of waiting) {
         const now = latest.current.blocks.find((item) => item.id === block.id);
         if (now === void 0 || now.attachmentId !== null) continue;
-        inputActions?.insertText?.(block.text, inputActions?.captureInsertion?.());
+        if (putBackText({ block: now, inputActions, draft: currentDraft })) currentDraft = `${currentDraft}${now.text}`;
         actions.removePaste(sessionId, [block.id]);
       }
     }, ORPHAN_MS);
     return () => clearTimeout(timer);
   }, [blocks]);
   (0, import_react61.useEffect)(() => {
+    if (!blocks.some((block) => block.attachmentId !== null)) return void 0;
     const card = anchor.current?.closest("[data-composer-card]");
     if (card === null || card === void 0) return void 0;
     const mark2 = () => {
@@ -40668,7 +40896,8 @@ var PASTE_CSS = `
 .bt-paste-label{min-width:0;flex:auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bt-paste-put{flex:none;border:0;border-radius:8px;background:none;color:var(--bt-accent);font:inherit;font-size:13px;line-height:18px;padding:4px 6px;cursor:pointer}
 .bt-paste-put:hover{background:color-mix(in srgb,var(--bt-accent) 10%,transparent)}
-.bt-paste-x{flex:none;display:grid;place-items:center;width:24px;height:24px;border:0;border-radius:8px;background:none;color:var(--bt-ink-3);font:inherit;font-size:15px;line-height:1;cursor:pointer}
+.bt-paste-x{position:relative;flex:none;display:grid;place-items:center;width:24px;height:24px;border:0;border-radius:8px;background:none;color:var(--bt-ink-3);font:inherit;font-size:15px;line-height:1;cursor:pointer}
+.bt-paste-x::after{content:"";position:absolute;inset:-4px}
 .bt-paste-x:hover{background:color-mix(in srgb,var(--bt-ink) 8%,transparent);color:var(--bt-ink)}
 `;
 
@@ -40832,78 +41061,82 @@ ${listed}`, { axis: "y", ...QUICK_EDGES });
       { className: "bt-newchat", role: "dialog", "aria-label": mode === "search" ? t("Search") : t("New chat") },
       (0, import_react62.createElement)(
         "div",
-        { className: "bt-to" },
-        (0, import_react62.createElement)("span", { className: "bt-to-label" }, t("To:")),
-        adminBot ? (0, import_react62.createElement)(
-          "span",
-          { key: adminBot.id, className: "bt-token bt-token-admin", title: t("Admin") },
-          (0, import_react62.createElement)(BotMark, { bot: adminBot, size: 16 }),
-          adminBot.name,
-          (0, import_react62.createElement)(AdminStar),
-          (0, import_react62.createElement)("button", { type: "button", "aria-label": t("Remove {name}", { name: adminBot.name }), onClick: () => setAdmin(null) }, "×")
-        ) : null,
-        choosingAdmin ? (0, import_react62.createElement)("span", { className: "bt-to-star", "aria-hidden": true }, (0, import_react62.createElement)(AdminStar)) : null,
-        pickedBots.map((bot) => (0, import_react62.createElement)(
-          "span",
-          { key: bot.id, className: "bt-token" },
-          (0, import_react62.createElement)(BotMark, { bot, size: 16 }),
-          bot.name,
-          (0, import_react62.createElement)("button", { type: "button", "aria-label": t("Remove {name}", { name: bot.name }), onClick: () => setPicked((current2) => current2.filter((id) => id !== bot.id)) }, "×")
-        )),
-        (0, import_react62.createElement)("input", {
-          ref: inputRef,
-          autoFocus: true,
-          value: query,
-          "aria-label": t("Recipient"),
-          placeholder: mode === "search" ? t("Search Bots…") : choosingAdmin ? t("Choose the group admin") : group ? t("Who to chat with…") : t("Start a chat with…"),
-          onChange: (event) => {
-            setQuery(event.target.value);
-            setCursor(0);
-          },
-          onKeyDown: (event) => {
-            if (event.nativeEvent.isComposing) return;
-            if (event.key === "ArrowDown") {
-              event.preventDefault();
-              setCursor(Math.min(active + 1, options.length - 1));
-            } else if (event.key === "ArrowUp") {
-              event.preventDefault();
-              setCursor(Math.max(active - 1, 0));
-            } else if (event.key === "Enter" && options[active]) {
-              event.preventDefault();
-              options[active].run();
-            } else if (event.key === "Backspace" && query === "") unpick();
-          }
-        }),
-        group && admin !== null ? (0, import_react62.createElement)("button", {
-          type: "button",
-          className: "bt-send bt-to-create",
-          disabled: busy || picked.length === 0,
-          title: picked.length === 0 ? t("Add at least one more Bot") : void 0,
-          onClick: createGroup
-        }, t("Create group chat")) : null,
-        (0, import_react62.createElement)("button", { type: "button", className: "bt-x", "aria-label": t("Close new chat"), onClick: close }, "×")
-      ),
-      (0, import_react62.createElement)("div", { ref: drop, className: "bt-drop" }, (0, import_react62.createElement)(
-        "div",
-        { ref: glide2.box, role: "listbox", "aria-label": t("Recipients"), className: "bt-drop-list" },
-        (0, import_react62.createElement)("span", { ref: glide2.thumb, className: "bt-thumb", "aria-hidden": true }),
-        options.length === 0 ? (0, import_react62.createElement)("div", { className: "bt-hint" }, mode === "search" ? t("No Bots match") : t("Type a name to create a Bot")) : options.map((option, index) => (0, import_react62.createElement)(
-          "button",
-          {
-            key: option.key,
+        { className: "bt-to-wrap" },
+        (0, import_react62.createElement)(
+          "div",
+          { className: "bt-to" },
+          (0, import_react62.createElement)("span", { className: "bt-to-label" }, t("To:")),
+          adminBot ? (0, import_react62.createElement)(
+            "span",
+            { key: adminBot.id, className: "bt-token bt-token-admin", title: t("Admin") },
+            (0, import_react62.createElement)(BotMark, { bot: adminBot, size: 16 }),
+            adminBot.name,
+            (0, import_react62.createElement)(AdminStar),
+            (0, import_react62.createElement)("button", { type: "button", "aria-label": t("Remove {name}", { name: adminBot.name }), onClick: () => setAdmin(null) }, "×")
+          ) : null,
+          choosingAdmin ? (0, import_react62.createElement)("span", { className: "bt-to-star", "aria-hidden": true }, (0, import_react62.createElement)(AdminStar)) : null,
+          pickedBots.map((bot) => (0, import_react62.createElement)(
+            "span",
+            { key: bot.id, className: "bt-token" },
+            (0, import_react62.createElement)(BotMark, { bot, size: 16 }),
+            bot.name,
+            (0, import_react62.createElement)("button", { type: "button", "aria-label": t("Remove {name}", { name: bot.name }), onClick: () => setPicked((current2) => current2.filter((id) => id !== bot.id)) }, "×")
+          )),
+          (0, import_react62.createElement)("input", {
+            ref: inputRef,
+            autoFocus: true,
+            value: query,
+            "aria-label": t("Recipient"),
+            placeholder: mode === "search" ? t("Search Bots…") : choosingAdmin ? t("Choose the group admin") : group ? t("Who to chat with…") : t("Start a chat with…"),
+            onChange: (event) => {
+              setQuery(event.target.value);
+              setCursor(0);
+            },
+            onKeyDown: (event) => {
+              if (event.nativeEvent.isComposing || event.keyCode === 229) return;
+              if (event.key === "ArrowDown") {
+                event.preventDefault();
+                setCursor(Math.min(active + 1, options.length - 1));
+              } else if (event.key === "ArrowUp") {
+                event.preventDefault();
+                setCursor(Math.max(active - 1, 0));
+              } else if (event.key === "Enter" && options[active]) {
+                event.preventDefault();
+                options[active].run();
+              } else if (event.key === "Backspace" && query === "") unpick();
+            }
+          }),
+          group && admin !== null ? (0, import_react62.createElement)("button", {
             type: "button",
-            role: "option",
-            className: "bt-option",
-            "aria-selected": index === active,
-            "data-flip": option.key,
-            onMouseEnter: () => setCursor(index),
-            onClick: option.run
-          },
-          option.bot ? (0, import_react62.createElement)(BotMark, { bot: option.bot, size: 22 }) : (0, import_react62.createElement)("span", { className: "bt-option-icon" }, option.icon),
-          (0, import_react62.createElement)("span", { className: "bt-option-label" }, option.label),
-          option.hint && index === active ? (0, import_react62.createElement)("span", { className: "bt-option-hint" }, option.hint) : null
+            className: "bt-send bt-to-create",
+            disabled: busy || picked.length === 0,
+            title: picked.length === 0 ? t("Add at least one more Bot") : void 0,
+            onClick: createGroup
+          }, t("Create group chat")) : null,
+          (0, import_react62.createElement)("button", { type: "button", className: "bt-x", "aria-label": t("Close new chat"), onClick: close }, "×")
+        ),
+        (0, import_react62.createElement)("div", { ref: drop, className: "bt-drop" }, (0, import_react62.createElement)(
+          "div",
+          { ref: glide2.box, role: "listbox", "aria-label": t("Recipients"), className: "bt-drop-list" },
+          (0, import_react62.createElement)("span", { ref: glide2.thumb, className: "bt-thumb", "aria-hidden": true }),
+          options.length === 0 ? (0, import_react62.createElement)("div", { className: "bt-hint" }, mode === "search" ? t("No Bots match") : t("Type a name to create a Bot")) : options.map((option, index) => (0, import_react62.createElement)(
+            "button",
+            {
+              key: option.key,
+              type: "button",
+              role: "option",
+              className: "bt-option",
+              "aria-selected": index === active,
+              "data-flip": option.key,
+              onMouseEnter: () => setCursor(index),
+              onClick: option.run
+            },
+            option.bot ? (0, import_react62.createElement)(BotMark, { bot: option.bot, size: 22 }) : (0, import_react62.createElement)("span", { className: "bt-option-icon" }, option.icon),
+            (0, import_react62.createElement)("span", { className: "bt-option-label" }, option.label),
+            option.hint && index === active ? (0, import_react62.createElement)("span", { className: "bt-option-hint" }, option.hint) : null
+          ))
         ))
-      )),
+      ),
       (0, import_react62.createElement)("div", { className: "bt-nc-spacer" }),
       error ? (0, import_react62.createElement)("div", { className: "bt-error" }, error) : null,
       (0, import_react62.createElement)(
@@ -41070,14 +41303,16 @@ function watchReply(read, watch, consume) {
     off();
   };
 }
-function useMicLevel(enabled) {
-  const [level, setLevel] = (0, import_react64.useState)(0);
+function useMicLevel(enabled, targetRef) {
   (0, import_react64.useEffect)(() => {
     if (!enabled || !navigator.mediaDevices?.getUserMedia) return void 0;
     let stream = null;
     let audio = null;
     let frame2 = 0;
     let stopped = false;
+    const write = (value) => {
+      targetRef.current?.style.setProperty("--bt-level", String(value));
+    };
     navigator.mediaDevices.getUserMedia({ audio: true }).then((media) => {
       if (stopped) {
         media.getTracks().forEach((track) => track.stop());
@@ -41095,7 +41330,7 @@ function useMicLevel(enabled) {
         let sum = 0;
         for (const value of data) sum += ((value - 128) / 128) ** 2;
         smooth = smooth * 0.8 + Math.min(1, Math.sqrt(sum / data.length) * 4) * 0.2;
-        setLevel(Math.round(smooth * 100) / 100);
+        write(Math.round(smooth * 100) / 100);
         frame2 = requestAnimationFrame(tick);
       };
       tick();
@@ -41107,10 +41342,9 @@ function useMicLevel(enabled) {
       stream?.getTracks().forEach((track) => track.stop());
       void audio?.close().catch(() => {
       });
-      setLevel(0);
+      write(0);
     };
   }, [enabled]);
-  return level;
 }
 function VoiceMode({ sessionId, paneLeft, roster, actions, useSessions, useSessionStatus }) {
   const bot = roster.byId[sessionId];
@@ -41128,8 +41362,8 @@ function VoiceMode({ sessionId, paneLeft, roster, actions, useSessions, useSessi
   const [heard, setHeard] = (0, import_react64.useState)("");
   const [said, setSaid] = (0, import_react64.useState)("");
   const [note, setNote] = (0, import_react64.useState)("");
-  const [serviceLevel, setServiceLevel] = (0, import_react64.useState)(0);
   const [cycle, setCycle] = (0, import_react64.useState)(0);
+  const orbRef = (0, import_react64.useRef)(null);
   const waiting = (0, import_react64.useRef)(null);
   const reply = (0, import_react64.useRef)(lastReply);
   reply.current = lastReply;
@@ -41174,8 +41408,20 @@ function VoiceMode({ sessionId, paneLeft, roster, actions, useSessions, useSessi
   const listen = phase === "listening";
   (0, import_react64.useEffect)(() => {
     if (speech || !listen || dictation.listening) return void 0;
-    const timer = setTimeout(() => dictation.start({ continuous: false, onEnd: () => {
-    } }), 250);
+    const timer = setTimeout(() => {
+      const started = dictation.start({
+        continuous: false,
+        onEnd: () => {
+        },
+        onError: (code) => {
+          if (code === "not-allowed" || code === "service-not-allowed" || code === "audio-capture") {
+            setNote(t(CAPTURE_NOTES.blocked));
+            setPhase("paused");
+          }
+        }
+      });
+      if (!started) setPhase("paused");
+    }, 250);
     return () => clearTimeout(timer);
   }, [listen, dictation.listening]);
   (0, import_react64.useEffect)(() => {
@@ -41184,22 +41430,26 @@ function VoiceMode({ sessionId, paneLeft, roster, actions, useSessions, useSessi
   (0, import_react64.useEffect)(() => {
     if (!speech || !catalog || !listen) return void 0;
     const own = turn.current;
+    const controller = new AbortController();
     let capture = null;
     let frame2 = 0;
     let stopped = false;
     let smooth = 0;
     const detect = turnDetector();
     const limit = Math.max(1, catalog.maxDurationSeconds - 1) * 1e3;
+    const writeLevel = (value) => {
+      orbRef.current?.style.setProperty("--bt-level", String(value));
+    };
     const finish = async (current2) => {
       setPhase("transcribing");
       try {
         const wave = await current2.finish(catalog.maxDurationSeconds);
-        const text = wave ? await transcribeWave(speech, catalog, wave, new AbortController().signal) : "";
+        const text = wave ? await transcribeWave(speech, catalog, wave, controller.signal) : "";
         if (turn.current !== own) return;
         if (text) submit(text);
         else setPhase("listening");
       } catch (error) {
-        if (turn.current !== own) return;
+        if (turn.current !== own || error?.name === "AbortError") return;
         setNote(t(CAPTURE_NOTES[error?.kind] ?? "Couldn't hear that"));
         setPhase("listening");
       }
@@ -41213,14 +41463,14 @@ function VoiceMode({ sessionId, paneLeft, roster, actions, useSessions, useSessi
       const began = performance.now();
       const tick = () => {
         const now = performance.now();
-        const level2 = capture.level();
-        smooth = smooth * 0.8 + level2 * 0.2;
-        setServiceLevel(Math.round(smooth * 100) / 100);
-        const state = detect(level2, now);
+        const level = capture.level();
+        smooth = smooth * 0.8 + level * 0.2;
+        writeLevel(Math.round(smooth * 100) / 100);
+        const state = detect(level, now);
         if (state === "done" || state === "speech" && now - began >= limit) {
           const current2 = capture;
           capture = null;
-          setServiceLevel(0);
+          writeLevel(0);
           void finish(current2);
           return;
         }
@@ -41238,9 +41488,10 @@ function VoiceMode({ sessionId, paneLeft, roster, actions, useSessions, useSessi
     });
     return () => {
       stopped = true;
+      controller.abort();
       cancelAnimationFrame(frame2);
       capture?.cancel();
-      setServiceLevel(0);
+      writeLevel(0);
     };
   }, [speech, catalog, listen, cycle]);
   (0, import_react64.useEffect)(() => {
@@ -41279,8 +41530,7 @@ function VoiceMode({ sessionId, paneLeft, roster, actions, useSessions, useSessi
     );
   }, [phase, running, lastReply]);
   (0, import_react64.useEffect)(() => () => window.speechSynthesis?.cancel(), []);
-  const micLevel = useMicLevel(!speech && phase === "listening" && dictation.listening);
-  const level = speech ? serviceLevel : micLevel;
+  useMicLevel(!speech && phase === "listening" && dictation.listening, orbRef);
   const markState = phase === "thinking" || phase === "transcribing" ? "thinking" : phase === "speaking" ? "sending" : "idle";
   const blocked = phase === "unsupported" || phase === "setup" || phase === "starting" || phase === "preparing";
   const togglePause = () => {
@@ -41352,7 +41602,7 @@ function VoiceMode({ sessionId, paneLeft, roster, actions, useSessions, useSessi
       { className: "bt-voice-stage", role: "dialog", "aria-label": t("Voice chat with {name}", { name }), "data-phase": phase === "transcribing" ? "thinking" : phase },
       (0, import_react64.createElement)(
         "div",
-        { className: "bt-voice-orb", style: { "--bt-level": level } },
+        { ref: orbRef, className: "bt-voice-orb", style: { "--bt-level": 0 } },
         (0, import_react64.createElement)("span", { className: "bt-voice-ring", "aria-hidden": true }),
         (0, import_react64.createElement)("span", { className: "bt-voice-ring bt-voice-ring-2", "aria-hidden": true }),
         bot ? (0, import_react64.createElement)(BotMark, { bot, size: 112, state: markState, live: true, gaze: phase === "listening" }) : room2 ? (0, import_react64.createElement)(RoomAvatar, { room: room2, roster, size: 112 }) : null
@@ -41404,9 +41654,10 @@ function sectionMoveItems(entry, roster, actions) {
   ].filter(Boolean);
 }
 function ContextMenu({ menu, roster, actions, useWork, leaving = false }) {
-  useEscape(() => actions.closeMenu());
+  useEscape(() => actions.closeMenu(), !leaving);
   const ref = (0, import_react65.useRef)(null);
   const trigger = (0, import_react65.useRef)(typeof document === "undefined" ? null : document.activeElement);
+  const [armedDelete, setArmedDelete] = (0, import_react65.useState)(false);
   (0, import_react65.useEffect)(() => {
     const onDown = (event) => {
       if (!(event.target instanceof Element) || !event.target.closest(".bt-menu")) actions.closeMenu();
@@ -41428,17 +41679,19 @@ function ContextMenu({ menu, roster, actions, useWork, leaving = false }) {
     if (!box) return;
     setPlace({ left: Math.max(8, Math.min(menu.x, window.innerWidth - box.width - 8)), top: Math.max(8, Math.min(menu.y, viewBottom() - box.height - 8)) });
   }, [menu.x, menu.y, tick]);
+  const isSpecial = menu.kind === "agent" || menu.kind === "agent-session" || menu.kind === "section" || menu.kind === "section-add";
+  const bot = isSpecial ? void 0 : roster.byId[menu.id];
+  const room2 = isSpecial ? void 0 : roster.roomsById[menu.id];
+  const waitsRaw = useWork ? useWork((work) => JSON.stringify(bot ? work.waiting?.[bot.id] ?? null : null)) : "null";
+  const waits = (0, import_react65.useMemo)(() => JSON.parse(waitsRaw), [waitsRaw]);
   if (menu.kind === "agent" || menu.kind === "agent-session") return (0, import_react65.createElement)(AgentMenu, { menu, roster, actions, leaving });
   if (menu.kind === "section" || menu.kind === "section-add") return (0, import_react65.createElement)(SectionMenu, { menu, roster, actions, leaving });
-  const bot = roster.byId[menu.id];
-  const room2 = roster.roomsById[menu.id];
   const entry = bot ?? room2;
-  const waitsRaw = useWork && bot ? useWork((work) => JSON.stringify(work.waiting?.[bot.id] ?? null)) : "null";
-  const waits = (0, import_react65.useMemo)(() => JSON.parse(waitsRaw), [waitsRaw]);
   if (entry === void 0) return null;
   const isMainBot = isMainOf(roster, menu.id);
   const isTile = roster.mainBotId === menu.id;
   const mainCount = (roster.mainBotIds ?? []).length;
+  const deleteLabel = armedDelete ? t("Click again to delete") : room2 ? t("Delete group") : t("Delete");
   const groups = [
     [
       isTile ? null : [entry.pinned ? t("Unpin") : t("Pin"), PinIcon, () => actions.setFlags(menu.id, { pinned: !entry.pinned })],
@@ -41462,7 +41715,7 @@ function ContextMenu({ menu, roster, actions, useWork, leaving = false }) {
     bot ? (waits?.waits ?? []).map((item) => [t("Give up waiting for {name}", { name: item.name ?? t("a Bot") }), SignOutIcon, () => actions.abandonWork(item.id)]) : [],
     [
       isMainBot ? null : [t("Hide from sidebar"), HideIcon, () => actions.setFlags(menu.id, { hidden: true })],
-      isMainBot ? null : [room2 ? t("Delete group") : t("Delete"), TrashIcon, () => bot ? actions.deleteBot(bot.id) : actions.deleteRoom(menu.id), true]
+      isMainBot ? null : [deleteLabel, TrashIcon, () => bot ? actions.deleteBot(bot.id) : actions.deleteRoom(menu.id), true, false, true]
     ]
   ].map((group) => group.filter(Boolean)).filter((group) => group.length > 0);
   return (0, import_react65.createElement)(
@@ -41472,12 +41725,17 @@ function ContextMenu({ menu, roster, actions, useWork, leaving = false }) {
       import_react65.Fragment,
       { key: index },
       index > 0 ? (0, import_react65.createElement)("div", { className: "bt-menu-sep", role: "separator" }) : null,
-      group.map(([label, Icon, run2, danger, checked]) => (0, import_react65.createElement)("button", {
-        key: label,
+      group.map(([label, Icon, run2, danger, checked, confirm]) => (0, import_react65.createElement)("button", {
+        key: confirm ? "delete" : label,
         type: "button",
         role: "menuitem",
         className: danger ? "bt-danger" : void 0,
+        "data-confirm": confirm && armedDelete ? "" : void 0,
         onClick: () => {
+          if (confirm && !armedDelete) {
+            setArmedDelete(true);
+            return;
+          }
           actions.closeMenu();
           void Promise.resolve(run2()).catch((error) => actions.reportError(error, "menu"));
         }
@@ -41987,15 +42245,14 @@ var MEMBER_CSS = `
 .bt-mw-dock[data-leaving] .bt-mw-pill{animation:bt-mw-out .16s cubic-bezier(.4,0,1,1) forwards;pointer-events:none}
 .bt-mw-pill-in{display:inline-flex;align-items:center;gap:8px;flex:none;padding:0 13px 0 6px;white-space:nowrap}
 .bt-mw-faces{display:inline-flex;align-items:center;flex:none;line-height:0}
-.bt-mw-face{position:relative;display:inline-flex;flex:none;border-radius:50%;background:var(--bt-main);box-shadow:0 0 0 2px var(--bt-main);animation:bt-mw-seat .26s cubic-bezier(.34,1.56,.64,1) backwards}
+.bt-mw-face{position:relative;display:inline-flex;flex:none;border-radius:50%;corner-shape:round;background:var(--bt-main);box-shadow:0 0 0 2px var(--bt-main);animation:bt-mw-seat .26s cubic-bezier(.34,1.56,.64,1) backwards}
 .bt-mw-face+.bt-mw-face{margin-left:-5px}
-.bt-mw-face[data-ask]::after{content:"";position:absolute;right:-1px;bottom:-1px;width:7px;height:7px;border-radius:50%;background:#e3a008;box-shadow:0 0 0 1.5px var(--bt-main)}
+.bt-mw-face[data-ask]::after{content:"";position:absolute;right:-1px;bottom:-1px;width:7px;height:7px;border-radius:50%;corner-shape:round;background:var(--bt-star);box-shadow:0 0 0 1.5px var(--bt-main)}
 .bt-mw-label{display:inline-flex;align-items:center;gap:5px;min-width:0;max-width:min(420px,58vw);animation:bt-mw-swap .22s ease-out backwards}
 .bt-mw-label>*{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.bt-mw-ask{color:#b7791f;flex:none}
+.bt-mw-ask{color:var(--bt-warn);flex:none}
 .bt-mw-dot{flex:none;color:var(--bt-ink-3)}
 .bt-mw-doing{flex:0 1 auto}
-body[data-ds-dark-theme] .bt-mw-ask{color:#f0b84a}
 @keyframes bt-mw-in{from{transform:translateY(8px) scale(.94)}}
 @keyframes bt-mw-out{to{opacity:0;transform:translateY(6px) scale(.96);filter:var(--bt-fx-blur-3,blur(3px))}}
 @keyframes bt-mw-seat{from{opacity:0;scale:.6}}
@@ -42018,8 +42275,7 @@ body[data-ds-dark-theme] .bt-mw-ask{color:#f0b84a}
 .bt-member-state{display:flex;min-width:0;font-size:12px;line-height:16px;color:var(--bt-ink-3);white-space:nowrap}
 .bt-member-what{min-width:0;overflow:hidden;text-overflow:ellipsis}
 .bt-member-time{flex:none;margin-left:.3em;font-variant-numeric:tabular-nums}
-.bt-member-state.bt-mw-ask{color:#b7791f}
-body[data-ds-dark-theme] .bt-member-state.bt-mw-ask{color:#f0b84a}
+.bt-member-state.bt-mw-ask{color:var(--bt-warn)}
 .bt-member-stop{flex:none;height:26px;padding:0 11px;border:0;border-radius:999px;background:var(--bt-main);box-shadow:inset 0 0 0 .5px var(--bt-line-2);color:var(--bt-ink-2);font:inherit;font-size:12px;cursor:pointer;transition:background-color .12s ease,color .12s ease,${spring(SPRING_TAP, "scale")}}
 .bt-member-stop:hover{background:var(--bt-active);color:var(--bt-ink)}
 .bt-member-stop:active:not(:disabled){scale:.94}
@@ -42033,7 +42289,7 @@ body[data-ds-dark-theme] .bt-member-state.bt-mw-ask{color:#f0b84a}
 .bt-mw-actions{display:flex;justify-content:flex-end;gap:6px;margin-top:4px}
 .bt-mw-actions>button{height:28px;padding:0 12px;font-size:12px}
 .bt-mw-actions>button:disabled{opacity:.5;cursor:default}
-@media (prefers-reduced-motion:reduce){.bt-mw-pill,.bt-mw-face,.bt-mw-label,.bt-member,.bt-mw-card{animation:none}.bt-mw-pill{transition:background-color .12s ease}}
+@media (prefers-reduced-motion:reduce){.bt-mw-pill,.bt-mw-dock[data-leaving] .bt-mw-pill,.bt-mw-face,.bt-mw-label,.bt-member,.bt-mw-card{animation:none}.bt-mw-pill{transition:background-color .12s ease}}
 `;
 
 // src/client/task-board.js
@@ -42120,11 +42376,11 @@ function TaskRow3({ task, bot, room: room2, actions }) {
         "aria-label": t("What should change?"),
         onChange: (event) => setText(event.target.value),
         onKeyDown: (event) => {
-          if (event.key === "Enter" && !event.nativeEvent?.isComposing) {
+          if (event.key === "Enter" && !event.nativeEvent?.isComposing && event.keyCode !== 229) {
             event.preventDefault();
             send();
           }
-          if (event.key === "Escape") {
+          if (event.key === "Escape" && !event.nativeEvent?.isComposing && event.keyCode !== 229) {
             event.stopPropagation();
             setWriting(false);
           }
@@ -42176,7 +42432,7 @@ var TASK_CSS = `
 .bt-task-head>.bt-mark{flex:none}
 .bt-task-name{min-width:0;font-size:14px;line-height:20px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bt-task-status{flex:none;padding:0 6px;border-radius:999px;font-size:11px;line-height:16px;background:var(--bt-tag-bg);color:var(--bt-tag-ink)}
-.bt-task[data-status=active] .bt-task-status{color:var(--bt-green)}
+.bt-task[data-status=active] .bt-task-status{color:color-mix(in srgb,var(--bt-green) 72%,var(--bt-ink))}
 .bt-task[data-status=review] .bt-task-status{color:var(--bt-accent)}
 .bt-task[data-status=blocked] .bt-task-status{color:var(--bt-danger)}
 .bt-task-time{flex:none;margin-left:auto;font-size:12px;line-height:16px;color:var(--bt-ink-3);font-variant-numeric:tabular-nums}
@@ -42543,7 +42799,9 @@ function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, roster, a
   const owner = roster.byId[sessionId];
   const part = owner ? currentPart(owner) : sessionId;
   const isMainBot = isMainOf(roster, owner?.id);
-  const [tab, setTab] = (0, import_react68.useState)("details");
+  const [tab, setTab] = (0, import_react68.useState)(
+    startTab === "computer" && owner && roster.computer?.enabled === true ? "computer" : startTab === "browser" && owner ? "browser" : "details"
+  );
   const room2 = roster.roomsById[sessionId];
   const [view, setView] = (0, import_react68.useState)(startTab === "settings" && (owner || room2) ? "settings" : "overview");
   const [editing, setEditing] = (0, import_react68.useState)(Boolean(startRenaming && (roster.byId[sessionId] || roster.roomsById[sessionId])));
@@ -42557,7 +42815,6 @@ function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, roster, a
   const move = last.current.move;
   const side = move === "tab" ? void 0 : move;
   const close = () => actions.closeOverlay();
-  useEscape(close);
   const bot = owner;
   const running = useSessionStatus((map) => map.get(part)?.running === true);
   const doing = useActivity((map) => map[bot?.id ?? sessionId]);
@@ -42867,7 +43124,7 @@ function PanelStrip({ bot, subject, view, ids, active, sides, side, canBrowse, r
       lead.cancel();
       trail.cancel();
     };
-  });
+  }, [view, active, side, ids.length, sides.length]);
   (0, import_react69.useEffect)(() => {
     const box = wrap.current;
     if (!box) return void 0;
@@ -42915,35 +43172,42 @@ function PanelStrip({ bot, subject, view, ids, active, sides, side, canBrowse, r
         const page = pages[tabId] ?? EMPTY_PAGE;
         const on = view === "browser" && tabId === active;
         return (0, import_react69.createElement)(
-          "button",
+          "div",
           {
             key: tabId,
-            type: "button",
-            role: "tab",
-            "aria-selected": on,
+            role: "presentation",
             "data-tab": tabId,
-            className: "bt-ptab",
-            title: page.url || t("New tab"),
-            onClick: () => {
-              actions.browserActivate(bot.id, tabId);
-              onView("browser");
-            },
-            onAuxClick: (event) => {
-              if (event.button === 1) {
-                event.preventDefault();
-                void actions.browserCloseTab(bot.id, tabId);
-              }
-            }
+            "data-selected": on || void 0,
+            className: "bt-ptab-wrap"
           },
-          (0, import_react69.createElement)(Favicon, { src: page.favicon, className: "bt-ptab-fav" }),
-          (0, import_react69.createElement)("span", { className: "bt-ptab-title" }, tabLabel(page)),
-          (0, import_react69.createElement)("span", {
+          (0, import_react69.createElement)(
+            "button",
+            {
+              type: "button",
+              role: "tab",
+              "aria-selected": on,
+              className: "bt-ptab bt-ptab-btn",
+              title: page.url || t("New tab"),
+              onClick: () => {
+                actions.browserActivate(bot.id, tabId);
+                onView("browser");
+              },
+              onAuxClick: (event) => {
+                if (event.button === 1) {
+                  event.preventDefault();
+                  void actions.browserCloseTab(bot.id, tabId);
+                }
+              }
+            },
+            (0, import_react69.createElement)(Favicon, { src: page.favicon, className: "bt-ptab-fav" }),
+            (0, import_react69.createElement)("span", { className: "bt-ptab-title" }, tabLabel(page))
+          ),
+          (0, import_react69.createElement)("button", {
+            type: "button",
             className: "bt-ptab-x",
-            role: "button",
             "aria-label": t("Close tab"),
             title: t("Close tab"),
-            onClick: (event) => {
-              event.stopPropagation();
+            onClick: () => {
               void actions.browserCloseTab(bot.id, tabId);
             }
           }, "×")
@@ -42952,32 +43216,39 @@ function PanelStrip({ bot, subject, view, ids, active, sides, side, canBrowse, r
       sides.map((chat) => {
         const on = view === "side" && chat.id === side;
         return (0, import_react69.createElement)(
-          "button",
+          "div",
           {
             key: chat.id,
-            type: "button",
-            role: "tab",
-            "aria-selected": on,
+            role: "presentation",
             "data-side": chat.id,
-            className: "bt-ptab bt-ptab-side",
-            title: sideTitle(chat),
-            onClick: () => actions.openSideChat(subject, chat.id),
-            onAuxClick: (event) => {
-              if (event.button === 1) {
-                event.preventDefault();
-                void actions.closeSideChat(chat.id);
-              }
-            }
+            "data-selected": on || void 0,
+            className: "bt-ptab-wrap bt-ptab-side"
           },
-          (0, import_react69.createElement)("span", { className: "bt-ptab-globe", "aria-hidden": true }, (0, import_react69.createElement)(SideIcon)),
-          (0, import_react69.createElement)("span", { className: "bt-ptab-title" }, sideTitle(chat)),
-          (0, import_react69.createElement)("span", {
+          (0, import_react69.createElement)(
+            "button",
+            {
+              type: "button",
+              role: "tab",
+              "aria-selected": on,
+              className: "bt-ptab bt-ptab-btn",
+              title: sideTitle(chat),
+              onClick: () => actions.openSideChat(subject, chat.id),
+              onAuxClick: (event) => {
+                if (event.button === 1) {
+                  event.preventDefault();
+                  void actions.closeSideChat(chat.id);
+                }
+              }
+            },
+            (0, import_react69.createElement)("span", { className: "bt-ptab-globe", "aria-hidden": true }, (0, import_react69.createElement)(SideIcon)),
+            (0, import_react69.createElement)("span", { className: "bt-ptab-title" }, sideTitle(chat))
+          ),
+          (0, import_react69.createElement)("button", {
+            type: "button",
             className: "bt-ptab-x",
-            role: "button",
             "aria-label": t("Close side chat"),
             title: t("Close side chat"),
-            onClick: (event) => {
-              event.stopPropagation();
+            onClick: () => {
               void actions.closeSideChat(chat.id);
             }
           }, "×")
@@ -43007,18 +43278,28 @@ function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPages, ho
   };
   const showGuest = landed && !leaving && !covered && Boolean(page.url) && !page.error && flow === null;
   (0, import_react69.useEffect)(() => {
+    let raf = 0;
     const update = () => {
+      raf = 0;
       const panel = frame2.current?.getBoundingClientRect();
       const overlaps2 = panel && [...document.querySelectorAll('[role="dialog"],[role="menu"],[role="listbox"]')].some((element) => rectsOverlap(panel, element.getBoundingClientRect()));
       setCovered(Boolean(overlaps2));
     };
-    const observer = new MutationObserver(update);
+    const schedule = () => {
+      if (!raf) raf = requestAnimationFrame(update);
+    };
+    const observer = new MutationObserver((records) => {
+      if (records.some((record) => record.type === "attributes" || !(record.target instanceof Element) || !record.target.closest("[data-chat-flow]"))) {
+        schedule();
+      }
+    });
     observer.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ["role", "data-leaving"] });
-    window.addEventListener("resize", update);
+    window.addEventListener("resize", schedule);
     update();
     return () => {
+      cancelAnimationFrame(raf);
       observer.disconnect();
-      window.removeEventListener("resize", update);
+      window.removeEventListener("resize", schedule);
     };
   }, []);
   (0, import_react69.useEffect)(() => {
@@ -43398,7 +43679,10 @@ function BotPanel({ pane, leaving, room: room2, overlay, roster, actions, useSes
     chatRoom.setRight(leaving || overlay ? null : panelWidth);
     if (switched) chatRoom.hold(false);
   }, [view, panelWidth, leaving, overlay]);
+  const dragCleanup = (0, import_react69.useRef)(null);
+  useEscape(() => actions.closeOverlay(), !leaving);
   (0, import_react69.useEffect)(() => () => {
+    dragCleanup.current?.();
     chatRoom.setRight(null);
     chatRoom.hold(false);
   }, []);
@@ -43536,17 +43820,21 @@ function BotPanel({ pane, leaving, room: room2, overlay, roster, actions, useSes
       for (const column of columns2) column.style.setProperty("margin-right", `${next}px`, "important");
     };
     const ends = ["pointerup", "pointercancel", "lostpointercapture"];
-    const onEnd = (end) => {
-      if (end.type === "pointerup") onMove(end);
+    const cleanup = () => {
+      dragCleanup.current = null;
       grip.removeEventListener("pointermove", onMove);
       for (const name of ends) grip.removeEventListener(name, onEnd);
-      chatRoom.setRight(next);
       for (const column of columns2) {
         column.style.removeProperty("margin-right");
         column.style.removeProperty("transition");
       }
-      panel.style.setProperty("--bt-panel-w", `${next}px`);
-      panel.style.removeProperty("width");
+      panel?.style.removeProperty("width");
+    };
+    const onEnd = (end) => {
+      if (end.type === "pointerup") onMove(end);
+      cleanup();
+      chatRoom.setRight(next);
+      panel?.style.setProperty("--bt-panel-w", `${next}px`);
       setDragging(false);
       if (next === from.width) return;
       setWidth(next);
@@ -43555,6 +43843,7 @@ function BotPanel({ pane, leaving, room: room2, overlay, roster, actions, useSes
       } catch {
       }
     };
+    dragCleanup.current = cleanup;
     grip.addEventListener("pointermove", onMove);
     for (const name of ends) grip.addEventListener(name, onEnd);
   };
@@ -43611,9 +43900,12 @@ var BROWSER_CSS = `
 .bt-ptabs-in>.bt-ptab-bot{position:sticky;left:0;z-index:2;background:var(--bt-main)}
 .bt-ptabs-in>.bt-ptab-bot[aria-selected=true]{background:transparent}
 .bt-ptabs-in::-webkit-scrollbar{display:none}
+.bt-ptab-wrap{position:relative;z-index:1;display:inline-flex;align-items:center;height:32px;max-width:180px;flex:none;border-radius:8px;padding-right:4px}
 .bt-ptab{position:relative;z-index:1;display:inline-flex;align-items:center;gap:6px;height:32px;max-width:180px;padding:0 8px;flex:none;border:0;border-radius:8px;background:none;color:var(--bt-ink-2);font:inherit;font-size:12px;cursor:pointer;white-space:nowrap;transition:color .12s ease}
-.bt-ptab:hover{color:var(--bt-ink)}
+.bt-ptab-btn{max-width:none;min-width:0;flex:1 1 auto;padding:0 4px 0 8px}
+.bt-ptab:hover,.bt-ptab-wrap:hover .bt-ptab{color:var(--bt-ink)}
 .bt-ptab[aria-selected=true]{color:var(--bt-ink)}
+.bt-ptab:focus-visible,.bt-ptab-x:focus-visible,.bt-ptab-new:focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px}
 .bt-ptab-bot{padding:0 7px}
 .bt-ptab-bot .bt-mark{flex:none}
 .bt-ptab-name{max-width:96px;overflow:hidden;text-overflow:ellipsis;font-weight:500;animation:bt-ptab-label .18s ease}
@@ -43622,8 +43914,8 @@ var BROWSER_CSS = `
 .bt-ptab-globe{display:inline-flex}
 .bt-ptab-globe svg{width:14px;height:14px}
 .bt-ptab-title{max-width:140px;overflow:hidden;text-overflow:ellipsis}
-.bt-ptab-x{flex:none;width:16px;height:16px;border-radius:5px;display:inline-flex;align-items:center;justify-content:center;font-size:13px;line-height:1;color:var(--bt-ink-3);opacity:0;pointer-events:none;transition:opacity .12s ease,background-color .12s ease}
-.bt-ptab:hover .bt-ptab-x,.bt-ptab[aria-selected=true] .bt-ptab-x{opacity:1;pointer-events:auto}
+.bt-ptab-x{flex:none;width:18px;height:18px;padding:0;border:0;border-radius:5px;background:none;display:inline-flex;align-items:center;justify-content:center;font:inherit;font-size:13px;line-height:1;color:var(--bt-ink-3);cursor:pointer;opacity:0;pointer-events:none;transition:opacity .12s ease,background-color .12s ease}
+.bt-ptab-wrap:hover .bt-ptab-x,.bt-ptab-wrap:focus-within .bt-ptab-x,.bt-ptab-wrap[data-selected] .bt-ptab-x{opacity:1;pointer-events:auto}
 .bt-ptab-x:hover{background:var(--bt-active);color:var(--bt-ink)}
 .bt-ptab-new{position:relative;z-index:1;flex:none;width:28px;height:32px;border:0;border-radius:8px;background:none;color:var(--bt-ink-3);display:inline-flex;align-items:center;justify-content:center;cursor:pointer}
 .bt-ptab-new:hover{color:var(--bt-ink)}
@@ -43681,7 +43973,7 @@ var BROWSER_CSS = `
 .bt-bcard-title{flex:1;min-width:0;font-size:12px;line-height:17px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--bt-ink)}
 .bt-bcard-host{flex:none;font-size:11px;line-height:15px;color:var(--bt-ink-3);max-width:38%;overflow:hidden;text-overflow:ellipsis}
 .bt-bcard-x{position:absolute;top:6px;right:6px;width:22px;height:22px;border:0;border-radius:6px;background:color-mix(in srgb,var(--bt-main) 88%,transparent);color:var(--bt-ink-2);display:flex;align-items:center;justify-content:center;font-size:14px;cursor:pointer;opacity:0;pointer-events:none;transition:opacity .12s ease;backdrop-filter:blur(4px)}
-.bt-bcard:hover .bt-bcard-x{opacity:1;pointer-events:auto}
+.bt-bcard:hover .bt-bcard-x,.bt-bcard:focus-within .bt-bcard-x{opacity:1;pointer-events:auto}
 .bt-bcard-new{display:flex;align-items:center;justify-content:center;gap:6px;height:40px;border:.5px dashed var(--bt-line-2);border-radius:12px;background:none;color:var(--bt-ink-3);font:inherit;font-size:12px;cursor:pointer}
 .bt-bcard-new:hover{color:var(--bt-ink);border-color:var(--bt-ink-3)}
 .bt-bcard-new svg{width:14px;height:14px}
@@ -43723,10 +44015,12 @@ var BROWSER_CSS = `
 /* Touch: the hidden-but-tappable tab and card close buttons stay visible at a
    finger-sized target instead. */
 @media (hover:none){
+  .bt-ptabs{height:52px}
+  .bt-ptab-wrap,.bt-ptab{height:44px}
   .bt-ptab-x,.bt-bcard-x{opacity:1;pointer-events:auto;width:44px;height:44px}
   .bt-ptab-close{width:44px;height:44px}
 }
-@media (prefers-reduced-motion:reduce){.bt-ptabs,.bt-panel-view,.bt-bcard,.bt-ptab-name{animation:none}}
+@media (prefers-reduced-motion:reduce){.bt-ptabs,.bt-panel-view,.bt-bcard,.bt-ptab-name,.bt-browser-progress::after{animation:none}}
 `;
 
 // src/client/opening.js
@@ -43811,7 +44105,7 @@ var import_react71 = require("react");
 var import_react_dom12 = require("react-dom");
 var DIALOG_EXIT_MS2 = 160;
 var MENU_EXIT_MS3 = 120;
-function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useActivity, useWork, useRegistry, useBrowserPages, useBrowserTabs, useBrowserHolds, useUpdate, useFrame, useSidebarPref, useSettingsShellHeld, actions }) {
+function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useActivity, useWork, useRegistry, useBrowserPages, useBrowserTabs, useBrowserHolds, useComputer, useUpdate, useFrame, useSidebarPref, useSettingsShellHeld, actions }) {
   const roster = useRoster((value) => value);
   const ui2 = useUi((value) => value);
   useRegistry((value) => value);
@@ -43860,7 +44154,7 @@ function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useActivity
     null,
     (0, import_react71.createElement)(NotificationWatcher, { key: "ds-bot:notifications", useSessions, useSessionStatus, useRoster, useWork, actions }),
     opening ? (0, import_react_dom12.createPortal)((0, import_react71.createElement)(OpeningCover, { model: opening, column: layout.column }), document.body) : null,
-    pane ? (0, import_react_dom12.createPortal)((0, import_react71.createElement)(BotPanel, { pane, leaving: shown === null, room: layout.room, overlay: layout.panel === "overlay", roster, actions, useSessions, useSessionStatus, useActivity, useWork, useBrowserTabs, useBrowserPages, useBrowserHolds }), document.body) : null,
+    pane ? (0, import_react_dom12.createPortal)((0, import_react71.createElement)(BotPanel, { pane, leaving: shown === null, room: layout.room, overlay: layout.panel === "overlay", roster, actions, useSessions, useSessionStatus, useActivity, useWork, useBrowserTabs, useBrowserPages, useBrowserHolds, useComputer }), document.body) : null,
     ui2.newChat ? (0, import_react_dom12.createPortal)((0, import_react71.createElement)(NewChat, { key: `${ui2.newChat}:${ui2.newChatSection ?? ""}`, mode: ui2.newChat, sectionId: ui2.newChatSection ?? null, paneLeft: layout.column, roster, actions }), document.body) : null,
     ui2.palette ? (0, import_react_dom12.createPortal)((0, import_react71.createElement)(CommandPalette, { key: ui2.palette.token, start: ui2.palette.query, token: ui2.palette.token, roster, actions, useSessions }), document.body) : null,
     ui2.groupSearch && roster.roomsById[ui2.groupSearch.roomId] ? (0, import_react_dom12.createPortal)((0, import_react71.createElement)(GroupSearch, { key: ui2.groupSearch.token, room: roster.roomsById[ui2.groupSearch.roomId], roster, token: ui2.groupSearch.token, actions }), document.body) : null,
@@ -45206,15 +45500,18 @@ function ReadOnlyDock({ sessionId, useUi, useRoster, actions }) {
     const card = root.current?.closest("[data-composer-card]") ?? document.querySelector("[data-composer-card]");
     if (card === null || card === void 0) return void 0;
     const onKey = (event) => {
-      if (event.key === "Enter" && !event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey && !event.isComposing) {
+      if (event.key === "Enter" && !event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey && !event.isComposing && event.keyCode !== 229) {
         event.preventDefault();
         event.stopImmediatePropagation();
       }
     };
+    const sendWord = t("Send").toLowerCase();
     const onClick = (event) => {
       const button = event.target?.closest?.("button");
       if (button === null || button === void 0) return;
-      if (/send|发送/i.test(button.getAttribute("aria-label") ?? "")) {
+      const label = (button.getAttribute("aria-label") ?? "").toLowerCase();
+      const isSend = button.getAttribute("type") === "submit" || button.hasAttribute("data-send") || /send|发送|傳送|送信|전송|enviar|envoyer|senden/i.test(label) || sendWord !== "" && label.includes(sendWord);
+      if (isSend) {
         event.preventDefault();
         event.stopImmediatePropagation();
       }
@@ -45226,11 +45523,14 @@ function ReadOnlyDock({ sessionId, useUi, useRoster, actions }) {
       card.removeEventListener("click", onClick, true);
     };
   }, [active]);
+  const stopId = bot?.id ?? sessionId;
   return (0, import_react73.createElement)(
     "div",
     { ref: root, className: "bt-readonly-dock", "data-on": active ? "" : void 0, role: "status", hidden: !active },
     (0, import_react73.createElement)("span", { className: "bt-readonly-text" }, t("This session is still running. Wait for it to finish, or stop it.")),
-    (0, import_react73.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => actions.stopChat(bot.id) }, t("Stop"))
+    (0, import_react73.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: !stopId, onClick: () => {
+      if (stopId) actions.stopChat?.(stopId);
+    } }, t("Stop"))
   );
 }
 var READ_ONLY_CSS = `
@@ -45422,10 +45722,10 @@ function EditField({ text, onChange, onSave, onCancel }) {
     "aria-label": t("Edit queued message"),
     onChange: (event) => onChange(event.target.value),
     onKeyDown: (event) => {
-      if (event.key === "Escape") {
+      if (event.key === "Escape" && !event.nativeEvent.isComposing && event.keyCode !== 229) {
         event.stopPropagation();
         onCancel();
-      } else if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+      } else if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing && event.keyCode !== 229) {
         event.preventDefault();
         onSave();
       }
@@ -45945,7 +46245,19 @@ function TextSelectionAction({ sessionId, dismiss, readText, clearSelection, inp
   }
   return (0, import_react75.createElement)(
     "section",
-    { className: "bt-annotation", "aria-label": t("Annotate quote"), "data-leaving": closing || void 0, onPointerDown: (event) => event.stopPropagation() },
+    {
+      className: "bt-annotation",
+      "aria-label": t("Annotate quote"),
+      "data-leaving": closing || void 0,
+      onPointerDown: (event) => event.stopPropagation(),
+      onKeyDown: (event) => {
+        if (event.key === "Escape" && !event.nativeEvent?.isComposing && event.keyCode !== 229) {
+          event.preventDefault();
+          event.stopPropagation();
+          close();
+        }
+      }
+    },
     (0, import_react75.createElement)("label", { className: "bt-annotation-label", htmlFor: "bt-annotation-field" }, t("Annotation")),
     (0, import_react75.createElement)("blockquote", { className: "bt-annotation-quote" }, quoteText()),
     (0, import_react75.createElement)("textarea", {
@@ -45963,15 +46275,19 @@ function TextSelectionAction({ sessionId, dismiss, readText, clearSelection, inp
       "div",
       { className: "bt-annotation-actions" },
       (0, import_react75.createElement)("button", { type: "button", className: "bt-annotation-add", disabled: sending || closing, onClick: add, title: t("Add quote and annotation to the composer · Enter") }, t("Add")),
-      (0, import_react75.createElement)("button", { type: "button", className: "bt-annotation-send", disabled: sending || closing, onClick: () => void send(), title: t("Send quote and annotation · Ctrl+Enter") }, sending ? t("Sending…") : t("Send"))
+      (0, import_react75.createElement)("button", { type: "button", className: "bt-annotation-send", disabled: sending || closing, onClick: () => void send(), title: (() => {
+        const label = t("Send quote and annotation · Ctrl+Enter");
+        return typeof navigator !== "undefined" && /Mac|iPhone|iPad|iPod/i.test(navigator.platform || navigator.userAgent || "") ? label.replace("Ctrl+Enter", "⌘↵") : label;
+      })() }, sending ? t("Sending…") : t("Send"))
     )
   );
 }
 var ANNOTATION_CSS = `
 .bt-selection-actions{display:inline-flex;align-items:stretch;overflow:hidden;border-radius:10px;background:var(--dsw-alias-button-floating-fill,var(--bt-card));border:1px solid var(--bt-line-2);box-shadow:var(--dsw-elevation-panel,var(--bt-glass-shadow));animation:bt-annotation-in ${SPRING_TAP.duration}ms ${SPRING_TAP.easing},bt-annotation-veil .12s ease-out}
 .bt-selection-action{display:inline-flex;align-items:center;gap:5px;height:30px;border:0;border-radius:0;margin:0;padding:0 12px;background:transparent;color:var(--dsw-alias-label-primary,var(--bt-ink));font:500 13px/18px var(--bt-font);cursor:pointer;white-space:nowrap;touch-action:manipulation;transition:background-color .12s ease}
+.bt-selection-action:focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px}
 .bt-selection-action+.bt-selection-action{border-left:1px solid var(--bt-line)}
-.bt-selection-action:focus-visible,.bt-selection-action:hover{background:var(--dsw-alias-button-floating-hover,var(--bt-hover));outline:none}
+.bt-selection-action:focus-visible,.bt-selection-action:hover{background:var(--dsw-alias-button-floating-hover,var(--bt-hover))}
 .bt-quote-plain{corner-shape:round;background:var(--dsw-alias-button-floating-fill,var(--bt-card));--dsw-elevation-stroke-color:var(--dsw-alias-border-l3);box-shadow:var(--dsw-elevation-panel,var(--bt-glass-shadow));color:var(--dsw-alias-label-primary,var(--bt-ink));font:var(--dsw-font-xs-13,13px var(--bt-font));cursor:pointer;border:none;border-radius:999px;padding:5px 10px}
 .bt-quote-plain:focus-visible,.bt-quote-plain:hover{background:var(--dsw-alias-button-floating-hover,var(--bt-hover))}
 .bt-annotation{display:flex;flex-direction:column;gap:8px;width:min(360px,calc(100vw - 32px));box-sizing:border-box;padding:12px;background:var(--bt-card);border:.5px solid var(--bt-line-2);border-radius:12px;box-shadow:var(--bt-glass-shadow);color:var(--bt-ink);font:13px/18px var(--bt-font);animation:bt-annotation-in ${SPRING_TAP.duration}ms ${SPRING_TAP.easing},bt-annotation-veil .14s ease-out}

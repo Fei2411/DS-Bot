@@ -544,12 +544,12 @@ function MailApprovalMenu({ bot, request, rule, onPick, actions, disabled = fals
       'aria-haspopup': 'menu', 'aria-expanded': open,
       onClick: () => setOpen(v => !v),
     }, t(RULE_LABELS[rule] ?? 'Needs approval'), h(ChevronDownIcon)),
-    open ? h('div', { className: 'dv-menu bt-mail-rule-menu', role: 'menu' },
+    open ? h('div', { className: 'bt-menu bt-menu-up bt-mail-rule-menu', role: 'menu' },
       ['allow-recipient', 'require-approval', 'no-draft'].map(mode => h('button', {
         key: mode, type: 'button', role: 'menuitemradio', 'aria-checked': rule === mode,
         onClick: () => choose(mode),
       }, h('span', { className: 'bt-mail-rule-item-text' }, t(RULE_LABELS[mode])), rule === mode ? h(CheckIcon) : null)),
-      h('div', { className: 'dv-menu-sep', role: 'separator' }),
+      h('div', { className: 'bt-menu-sep', role: 'separator' }),
       h('button', {
         type: 'button', role: 'menuitem',
         onClick: () => { setOpen(false); actions.openConnectors?.() },
@@ -674,8 +674,8 @@ export const CONNECTOR_CSS = `
 .bt-mail-rule-btn:hover:not(:disabled){background:var(--bt-hover);color:var(--bt-ink)}
 .bt-mail-rule-btn:disabled{opacity:.4;cursor:default}
 .bt-mail-rule-btn svg{width:13px;height:13px;color:var(--bt-ink-2)}
-.dv-menu.bt-mail-rule-menu{position:absolute;left:0;bottom:calc(100% + 6px);z-index:20;min-width:190px;--dv-origin:bottom left}
-.dv-menu.bt-mail-rule-menu button{justify-content:space-between;gap:12px}
+.bt-menu.bt-mail-rule-menu{position:absolute;left:0;bottom:calc(100% + 6px);z-index:20;min-width:190px;--bt-origin:bottom left}
+.bt-menu.bt-mail-rule-menu button{justify-content:space-between;gap:12px}
 .bt-mail-rule-item-text{flex:1 1 auto;min-width:0}
 .dv-widget-stack:has(>.dv-widget-form){gap:8px}
 .dv-widget-stack>.dv-widget-form{display:contents}

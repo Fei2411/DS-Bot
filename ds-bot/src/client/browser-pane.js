@@ -18,6 +18,7 @@ import { panelHasStrip, sideChatsOf, stripMenuKeys } from './side-model.js'
 import { DotsIcon, FolderIcon, SideIcon, TerminalIcon } from './icons.js'
 import { t } from './i18n.js'
 import { rectsOverlap } from './browser-overlap.js'
+import { useEscape } from './overlay-hooks.js'
 
 export const PANEL_LINGER_MS = 300
 const WIDTH_KEY = STORAGE.browserWidth
@@ -171,7 +172,7 @@ function PanelStrip({ bot, subject, view, ids, active, sides, side, canBrowse, r
     const lead = capsule.animate([{ [ahead]: `${from[ahead]}px` }, { [ahead]: `${to[ahead]}px` }], { duration: SPRING_LEAD.duration, easing: SPRING_LEAD.easing })
     const trail = capsule.animate([{ [behind]: `${from[behind]}px` }, { [behind]: `${to[behind]}px` }], { duration: SPRING_TRAIL.duration, easing: SPRING_TRAIL.easing })
     return () => { lead.cancel(); trail.cancel() }
-  })
+  }, [view, active, side, ids.length, sides.length])
   // A drag resizes the strip without a render; the capsule's right edge keeps to its tab.
   // The tab itself is watched too — its width can still change after the measure.
   useEffect(() => {
@@ -206,32 +207,38 @@ function PanelStrip({ bot, subject, view, ids, active, sides, side, canBrowse, r
       ids.map((tabId) => {
         const page = pages[tabId] ?? EMPTY_PAGE
         const on = view === 'browser' && tabId === active
-        return h('button', {
-          key: tabId, type: 'button', role: 'tab', 'aria-selected': on, 'data-tab': tabId, className: 'bt-ptab',
-          title: page.url || t('New tab'),
-          onClick: () => { actions.browserActivate(bot.id, tabId); onView('browser') },
-          onAuxClick: (event) => { if (event.button === 1) { event.preventDefault(); void actions.browserCloseTab(bot.id, tabId) } },
+        return h('div', {
+          key: tabId, role: 'presentation', 'data-tab': tabId, 'data-selected': on || undefined, className: 'bt-ptab-wrap',
         },
-          h(Favicon, { src: page.favicon, className: 'bt-ptab-fav' }),
-          h('span', { className: 'bt-ptab-title' }, tabLabel(page)),
-          h('span', {
-            className: 'bt-ptab-x', role: 'button', 'aria-label': t('Close tab'), title: t('Close tab'),
-            onClick: (event) => { event.stopPropagation(); void actions.browserCloseTab(bot.id, tabId) },
+          h('button', {
+            type: 'button', role: 'tab', 'aria-selected': on, className: 'bt-ptab bt-ptab-btn',
+            title: page.url || t('New tab'),
+            onClick: () => { actions.browserActivate(bot.id, tabId); onView('browser') },
+            onAuxClick: (event) => { if (event.button === 1) { event.preventDefault(); void actions.browserCloseTab(bot.id, tabId) } },
+          },
+            h(Favicon, { src: page.favicon, className: 'bt-ptab-fav' }),
+            h('span', { className: 'bt-ptab-title' }, tabLabel(page))),
+          h('button', {
+            type: 'button', className: 'bt-ptab-x', 'aria-label': t('Close tab'), title: t('Close tab'),
+            onClick: () => { void actions.browserCloseTab(bot.id, tabId) },
           }, '×'))
       }),
       sides.map((chat) => {
         const on = view === 'side' && chat.id === side
-        return h('button', {
-          key: chat.id, type: 'button', role: 'tab', 'aria-selected': on, 'data-side': chat.id, className: 'bt-ptab bt-ptab-side',
-          title: sideTitle(chat),
-          onClick: () => actions.openSideChat(subject, chat.id),
-          onAuxClick: (event) => { if (event.button === 1) { event.preventDefault(); void actions.closeSideChat(chat.id) } },
+        return h('div', {
+          key: chat.id, role: 'presentation', 'data-side': chat.id, 'data-selected': on || undefined, className: 'bt-ptab-wrap bt-ptab-side',
         },
-          h('span', { className: 'bt-ptab-globe', 'aria-hidden': true }, h(SideIcon)),
-          h('span', { className: 'bt-ptab-title' }, sideTitle(chat)),
-          h('span', {
-            className: 'bt-ptab-x', role: 'button', 'aria-label': t('Close side chat'), title: t('Close side chat'),
-            onClick: (event) => { event.stopPropagation(); void actions.closeSideChat(chat.id) },
+          h('button', {
+            type: 'button', role: 'tab', 'aria-selected': on, className: 'bt-ptab bt-ptab-btn',
+            title: sideTitle(chat),
+            onClick: () => actions.openSideChat(subject, chat.id),
+            onAuxClick: (event) => { if (event.button === 1) { event.preventDefault(); void actions.closeSideChat(chat.id) } },
+          },
+            h('span', { className: 'bt-ptab-globe', 'aria-hidden': true }, h(SideIcon)),
+            h('span', { className: 'bt-ptab-title' }, sideTitle(chat))),
+          h('button', {
+            type: 'button', className: 'bt-ptab-x', 'aria-label': t('Close side chat'), title: t('Close side chat'),
+            onClick: () => { void actions.closeSideChat(chat.id) },
           }, '×'))
       }),
       h('span', { ref: ind, className: 'bt-ptab-ind', 'aria-hidden': true })),
@@ -268,17 +275,24 @@ function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPages, ho
   const showGuest = landed && !leaving && !covered && Boolean(page.url) && !page.error && flow === null
 
   useEffect(() => {
+    let raf = 0
     const update = () => {
+      raf = 0
       const panel = frame.current?.getBoundingClientRect()
       const overlaps = panel && [...document.querySelectorAll('[role="dialog"],[role="menu"],[role="listbox"]')]
         .some(element => rectsOverlap(panel, element.getBoundingClientRect()))
       setCovered(Boolean(overlaps))
     }
-    const observer = new MutationObserver(update)
+    const schedule = () => { if (!raf) raf = requestAnimationFrame(update) }
+    const observer = new MutationObserver((records) => {
+      if (records.some(record => record.type === 'attributes' || !(record.target instanceof Element) || !record.target.closest('[data-chat-flow]'))) {
+        schedule()
+      }
+    })
     observer.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['role', 'data-leaving'] })
-    window.addEventListener('resize', update)
+    window.addEventListener('resize', schedule)
     update()
-    return () => { observer.disconnect(); window.removeEventListener('resize', update) }
+    return () => { cancelAnimationFrame(raf); observer.disconnect(); window.removeEventListener('resize', schedule) }
   }, [])
 
   // Leaving the tab or the panel abandons an unconfirmed import.
@@ -568,7 +582,9 @@ export function BotPanel({ pane, leaving, room, overlay, roster, actions, useSes
     chatRoom.setRight(leaving || overlay ? null : panelWidth)
     if (switched) chatRoom.hold(false)
   }, [view, panelWidth, leaving, overlay])
-  useEffect(() => () => { chatRoom.setRight(null); chatRoom.hold(false) }, [])
+  const dragCleanup = useRef(null)
+  useEscape(() => actions.closeOverlay(), !leaving)
+  useEffect(() => () => { dragCleanup.current?.(); chatRoom.setRight(null); chatRoom.hold(false) }, [])
   // A `room` change (window resize, the left column moving) lands at once.
   const mounted = useRef(false)
   useEffect(() => {
@@ -699,20 +715,25 @@ export function BotPanel({ pane, leaving, room, overlay, roster, actions, useSes
       for (const column of columns) column.style.setProperty('margin-right', `${next}px`, 'important')
     }
     const ends = ['pointerup', 'pointercancel', 'lostpointercapture']
-    const onEnd = (end) => {
-      if (end.type === 'pointerup') onMove(end)
+    const cleanup = () => {
+      dragCleanup.current = null
       grip.removeEventListener('pointermove', onMove)
       for (const name of ends) grip.removeEventListener(name, onEnd)
+      for (const column of columns) { column.style.removeProperty('margin-right'); column.style.removeProperty('transition') }
+      panel?.style.removeProperty('width')
+    }
+    const onEnd = (end) => {
+      if (end.type === 'pointerup') onMove(end)
+      cleanup()
       // Hand the width back to the rule and the panel's variable in the same frame.
       chatRoom.setRight(next)
-      for (const column of columns) { column.style.removeProperty('margin-right'); column.style.removeProperty('transition') }
-      panel.style.setProperty('--bt-panel-w', `${next}px`)
-      panel.style.removeProperty('width')
+      panel?.style.setProperty('--bt-panel-w', `${next}px`)
       setDragging(false)
       if (next === from.width) return
       setWidth(next)
       try { localStorage.setItem(WIDTH_KEY, String(next)) } catch { /* storage unavailable */ }
     }
+    dragCleanup.current = cleanup
     grip.addEventListener('pointermove', onMove)
     for (const name of ends) grip.addEventListener(name, onEnd)
   }
@@ -749,9 +770,12 @@ export const BROWSER_CSS = `
 .bt-ptabs-in>.bt-ptab-bot{position:sticky;left:0;z-index:2;background:var(--bt-main)}
 .bt-ptabs-in>.bt-ptab-bot[aria-selected=true]{background:transparent}
 .bt-ptabs-in::-webkit-scrollbar{display:none}
+.bt-ptab-wrap{position:relative;z-index:1;display:inline-flex;align-items:center;height:32px;max-width:180px;flex:none;border-radius:8px;padding-right:4px}
 .bt-ptab{position:relative;z-index:1;display:inline-flex;align-items:center;gap:6px;height:32px;max-width:180px;padding:0 8px;flex:none;border:0;border-radius:8px;background:none;color:var(--bt-ink-2);font:inherit;font-size:12px;cursor:pointer;white-space:nowrap;transition:color .12s ease}
-.bt-ptab:hover{color:var(--bt-ink)}
+.bt-ptab-btn{max-width:none;min-width:0;flex:1 1 auto;padding:0 4px 0 8px}
+.bt-ptab:hover,.bt-ptab-wrap:hover .bt-ptab{color:var(--bt-ink)}
 .bt-ptab[aria-selected=true]{color:var(--bt-ink)}
+.bt-ptab:focus-visible,.bt-ptab-x:focus-visible,.bt-ptab-new:focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px}
 .bt-ptab-bot{padding:0 7px}
 .bt-ptab-bot .bt-mark{flex:none}
 .bt-ptab-name{max-width:96px;overflow:hidden;text-overflow:ellipsis;font-weight:500;animation:bt-ptab-label .18s ease}
@@ -760,8 +784,8 @@ export const BROWSER_CSS = `
 .bt-ptab-globe{display:inline-flex}
 .bt-ptab-globe svg{width:14px;height:14px}
 .bt-ptab-title{max-width:140px;overflow:hidden;text-overflow:ellipsis}
-.bt-ptab-x{flex:none;width:16px;height:16px;border-radius:5px;display:inline-flex;align-items:center;justify-content:center;font-size:13px;line-height:1;color:var(--bt-ink-3);opacity:0;pointer-events:none;transition:opacity .12s ease,background-color .12s ease}
-.bt-ptab:hover .bt-ptab-x,.bt-ptab[aria-selected=true] .bt-ptab-x{opacity:1;pointer-events:auto}
+.bt-ptab-x{flex:none;width:18px;height:18px;padding:0;border:0;border-radius:5px;background:none;display:inline-flex;align-items:center;justify-content:center;font:inherit;font-size:13px;line-height:1;color:var(--bt-ink-3);cursor:pointer;opacity:0;pointer-events:none;transition:opacity .12s ease,background-color .12s ease}
+.bt-ptab-wrap:hover .bt-ptab-x,.bt-ptab-wrap:focus-within .bt-ptab-x,.bt-ptab-wrap[data-selected] .bt-ptab-x{opacity:1;pointer-events:auto}
 .bt-ptab-x:hover{background:var(--bt-active);color:var(--bt-ink)}
 .bt-ptab-new{position:relative;z-index:1;flex:none;width:28px;height:32px;border:0;border-radius:8px;background:none;color:var(--bt-ink-3);display:inline-flex;align-items:center;justify-content:center;cursor:pointer}
 .bt-ptab-new:hover{color:var(--bt-ink)}
@@ -819,7 +843,7 @@ export const BROWSER_CSS = `
 .bt-bcard-title{flex:1;min-width:0;font-size:12px;line-height:17px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--bt-ink)}
 .bt-bcard-host{flex:none;font-size:11px;line-height:15px;color:var(--bt-ink-3);max-width:38%;overflow:hidden;text-overflow:ellipsis}
 .bt-bcard-x{position:absolute;top:6px;right:6px;width:22px;height:22px;border:0;border-radius:6px;background:color-mix(in srgb,var(--bt-main) 88%,transparent);color:var(--bt-ink-2);display:flex;align-items:center;justify-content:center;font-size:14px;cursor:pointer;opacity:0;pointer-events:none;transition:opacity .12s ease;backdrop-filter:blur(4px)}
-.bt-bcard:hover .bt-bcard-x{opacity:1;pointer-events:auto}
+.bt-bcard:hover .bt-bcard-x,.bt-bcard:focus-within .bt-bcard-x{opacity:1;pointer-events:auto}
 .bt-bcard-new{display:flex;align-items:center;justify-content:center;gap:6px;height:40px;border:.5px dashed var(--bt-line-2);border-radius:12px;background:none;color:var(--bt-ink-3);font:inherit;font-size:12px;cursor:pointer}
 .bt-bcard-new:hover{color:var(--bt-ink);border-color:var(--bt-ink-3)}
 .bt-bcard-new svg{width:14px;height:14px}
@@ -861,8 +885,10 @@ export const BROWSER_CSS = `
 /* Touch: the hidden-but-tappable tab and card close buttons stay visible at a
    finger-sized target instead. */
 @media (hover:none){
+  .bt-ptabs{height:52px}
+  .bt-ptab-wrap,.bt-ptab{height:44px}
   .bt-ptab-x,.bt-bcard-x{opacity:1;pointer-events:auto;width:44px;height:44px}
   .bt-ptab-close{width:44px;height:44px}
 }
-@media (prefers-reduced-motion:reduce){.bt-ptabs,.bt-panel-view,.bt-bcard,.bt-ptab-name{animation:none}}
+@media (prefers-reduced-motion:reduce){.bt-ptabs,.bt-panel-view,.bt-bcard,.bt-ptab-name,.bt-browser-progress::after{animation:none}}
 `
