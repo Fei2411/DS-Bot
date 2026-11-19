@@ -23191,7 +23191,6 @@ function EffortBar({ reasoning, current: current2, onPick }) {
           type: "button",
           className: "bt-effort-reset",
           "aria-label": t("Default"),
-          title: t("Default"),
           disabled: picked === void 0,
           onClick: () => commit(void 0)
         }, (0, import_react20.createElement)(ResetIcon)) : null
@@ -23226,7 +23225,6 @@ function EffortBar({ reasoning, current: current2, onPick }) {
           className: "bt-effort-dot",
           "data-filled": dotRatio <= ratio + 1e-3 || void 0,
           style: { "--bt-dot-p": dotRatio },
-          title: stop.label,
           "aria-hidden": true
         });
       }),
@@ -23274,7 +23272,7 @@ function ModelGroupList({ groups, current: current2, currentId, defaultModel, on
           type: "button",
           role: "menuitemradio",
           "aria-checked": model.ref === current2,
-          title: model.ref,
+          "aria-description": model.ref,
           onClick: () => onPick(model.ref)
         },
         (0, import_react20.createElement)("span", { className: "bt-menu-label" }, nameOf(model)),
@@ -46055,7 +46053,7 @@ function apply(ctx) {
     [SIDEBAR_CSS, "sidebar"],
     [SECRET_CSS + CONNECTOR_CSS + CONNECTORS_PAGE_CSS, "secrets"],
     [LEARNING_CSS, "learning"],
-    [MODEL_CSS + FOLDER_CSS + BOT_SETTINGS_CSS + BOT_MODELS_CSS + AGENT_CARDS_CSS + GROUP_SETTINGS_CSS + AVATAR_LIBRARY_CSS, "models"],
+    [MODEL_CSS + PROVIDERS_CSS + FOLDER_CSS + BOT_SETTINGS_CSS + BOT_MODELS_CSS + AGENT_CARDS_CSS + GROUP_SETTINGS_CSS + AVATAR_LIBRARY_CSS, "models"],
     [USAGE_CSS, "usage"],
     [SCHEDULE_CSS, "schedules"],
     [FEEDBACK_CSS, "feedback"],

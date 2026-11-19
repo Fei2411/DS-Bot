@@ -225,7 +225,7 @@ export function EffortBar({ reasoning, current, onPick }) {
         h('span', { className: 'bt-effort-val' }, active.label),
         picked !== undefined || !hasDefault
           ? h('button', {
-              type: 'button', className: 'bt-effort-reset', 'aria-label': t('Default'), title: t('Default'),
+              type: 'button', className: 'bt-effort-reset', 'aria-label': t('Default'),
               disabled: picked === undefined, onClick: () => commit(undefined),
             }, h(ResetIcon))
           : null)),
@@ -247,7 +247,6 @@ export function EffortBar({ reasoning, current, onPick }) {
         className: 'bt-effort-dot',
         'data-filled': dotRatio <= ratio + 0.001 || undefined,
         style: { '--bt-dot-p': dotRatio },
-        title: stop.label,
         'aria-hidden': true,
       })
     }),
@@ -297,7 +296,7 @@ export function ModelGroupList({ groups, current, currentId, defaultModel, onPic
           },
           h(Caret), h('span', { className: 'bt-menu-label' }, provider)),
       open ? list.map(model => h('button', {
-        key: model.ref, type: 'button', role: 'menuitemradio', 'aria-checked': model.ref === current, title: model.ref,
+        key: model.ref, type: 'button', role: 'menuitemradio', 'aria-checked': model.ref === current, 'aria-description': model.ref,
         onClick: () => onPick(model.ref),
       },
       h('span', { className: 'bt-menu-label' }, nameOf(model)),
