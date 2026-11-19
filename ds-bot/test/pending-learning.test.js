@@ -20,7 +20,7 @@ runInNewContext(bundle.outputFiles[0].text, {
     useEffect() {}, useLayoutEffect() {}, useRef: current => ({ current }), useMemo: make => make(), useId: () => 'title',
   }),
 })
-const { PendingLearning } = module.exports
+const { PendingLearning, LEARNING_CSS } = module.exports
 const skill = { id: 'skill', botId: 'b', name: 'Review', content: 'Run tests', at: 100 }
 const agents = { id: 'agents', botId: 'b', kind: 'agents', folder: '/project', edits: [{ op: 'add', text: 'Run lint' }] }
 const show = (proposals, sessionId = 'current') => PendingLearning({
@@ -53,4 +53,13 @@ test('handling proposals removes each entry and the last leaves no space', () =>
 })
 test('old parts do not show current proposals', () => {
   assert.equal(show([skill], 'old'), null)
+})
+test('pending panels fit the header column instead of the viewport', () => {
+  const rule = name => LEARNING_CSS.match(new RegExp(`\\.${name}\\{([^}]+)\\}`))[1]
+  assert.match(rule('bt-learning-pending'), /position:static/)
+  const panel = rule('bt-learning-pending-panel')
+  assert.match(panel, /position:absolute/)
+  assert.match(panel, /left:16px;right:16px/)
+  assert.match(panel, /width:auto;max-width:560px;margin:0 auto/)
+  assert.doesNotMatch(panel, /vw/)
 })

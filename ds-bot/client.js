@@ -45082,11 +45082,11 @@ function LearningDock(props) {
   return (0, import_react72.createElement)(LearningProposals, { ...props, dock: true });
 }
 var LEARNING_CSS = `
-.bt-learning-pending{pointer-events:auto;position:relative;margin-left:8px;-webkit-app-region:no-drag}
+.bt-learning-pending{pointer-events:auto;position:static;margin-left:8px;-webkit-app-region:no-drag}
 .bt-learning-pending-toggle{display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 12px;border:1px solid var(--bt-line);border-radius:999px;background:var(--bt-card);color:var(--bt-ink);font:inherit;font-size:12px;white-space:nowrap;cursor:pointer}
 .bt-learning-pending-toggle:hover{background:var(--bt-hover)}
 .bt-learning-pending-toggle:focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
-.bt-learning-pending-panel{position:absolute;top:44px;right:0;z-index:20;width:min(560px,calc(100vw - 32px));max-height:65vh;overflow:auto;display:flex;flex-direction:column;gap:8px;padding:8px;border:1px solid var(--bt-line);border-radius:20px;background:var(--bt-main);box-shadow:var(--bt-dialog-shadow)}
+.bt-learning-pending-panel{position:absolute;top:48px;left:16px;right:16px;z-index:20;width:auto;max-width:560px;margin:0 auto;max-height:65vh;overflow:auto;display:flex;flex-direction:column;gap:8px;padding:8px;border:1px solid var(--bt-line);border-radius:20px;background:var(--bt-main);box-shadow:var(--bt-dialog-shadow)}
 .bt-learning-pending-panel{animation:bt-learning-in .12s ease}
 .bt-learning-pending-panel[data-leaving]{opacity:0;pointer-events:none;transition:opacity .12s ease}
 @keyframes bt-learning-in{from{opacity:0}to{opacity:1}}
