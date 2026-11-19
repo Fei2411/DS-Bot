@@ -248,6 +248,7 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     imLoginStart: payload => call('im-login-start', payload),
     imLoginWait: payload => call('im-login-wait', payload),
     saveCapability: capability => after(call('capability-save', capability)),
+    previewSkillDirectory: directory => call('skill-directory-preview', { directory }),
     deleteCapability: name => after(call('capability-delete', { name })),
     approveCapability: name => after(call('capability-approve', { name })),
     setBotCapability: (botId, name, attached) => after(call('bot-capability', { botId, name, attached })),

@@ -97,10 +97,11 @@ export function install(rt) {
   // The private Bot that `path` belongs to, other than `self`; undefined when it is open.
   // `search` is for tools that walk a folder: a folder that holds a closed one is closed
   // too, and so are the data folders, where the walk cannot be told which files to skip.
-  async function ownerOfPath(path, { self, search = false, base } = {}) {
+  async function ownerOfPath(path, { self, search = false, base, allowSkillResource = false } = {}) {
     const bots = protectedBots()
     if (bots.length === 0) return undefined
-    const keys = await spellings(base === undefined ? path : resolve(base, path))
+    const target = base === undefined ? path : resolve(base, path)
+    const keys = await spellings(target)
     for (const bot of bots) {
       if (bot.id === self) continue
       const needles = sessionsOf(bot).map(fold)
@@ -113,6 +114,7 @@ export function install(rt) {
     const other = bots.find(bot => bot.id !== self)
     for (const file of await sharedFiles()) if (other !== undefined && keys.some(key => key.startsWith(file))) return other
     if (other !== undefined) {
+      if (allowSkillResource && await rt.canReadSkillResource?.(self, target)) return undefined
       const ownBot = rt.botOf(self)
       const ownIds = ownBot === undefined ? [] : sessionsOf(ownBot).map(fold)
       const ownRegions = ownBot === undefined ? [] : await regionsOf(ownBot)
@@ -251,7 +253,7 @@ export function install(rt) {
     if (name in FILE_TOOLS) {
       const path = args[FILE_TOOLS[name]]
       if (typeof path !== 'string' || path === '') return
-      const bot = await ownerOfPath(path, { self, base: folder() })
+      const bot = await ownerOfPath(path, { self, base: folder(), allowSkillResource: !WRITE_TOOLS.includes(name) })
       if (bot) refuse(bot)
       // A private Bot's file changes stay in its own folder unless the user allows them.
       if (isPrivate(self) && WRITE_TOOLS.includes(name)) {

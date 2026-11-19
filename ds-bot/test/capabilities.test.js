@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { test } from 'node:test'
 import { createRuntime } from '../index.js'
 import { expandCapabilityNames, validateCapabilityName } from '../src/host/capabilities.js'
@@ -69,6 +69,7 @@ async function setup({ state = team(), secret, beforeLoad } = {}) {
   const mcpPlugin = { name: 'mcp-client', apply() {} }
   const loader = { import: async () => ({ default: mcpPlugin }), unwrapExports: exports => exports.default }
   const ctx = fakeContext({ services: { loader } })
+  ctx.workspaceRegistry = new Map()
   rt = createRuntime(ctx, { home, github: false, diagnosticsFile: false })
   ctx.sessionTitle = { rename: async () => {} }
   rt.resolveAgent = async sessionId => ({ session: { id: sessionId } })
@@ -373,6 +374,89 @@ test('one-item attach changes keep the other attachments', async t => {
   await rt.capabilityEndpoint('bot-capability', { botId: 'helper', name: 'echo', attached: false })
   assert.deepEqual(rt.state.bots.helper.capabilities, ['guide'])
   await assert.rejects(rt.capabilityEndpoint('bot-capability', { botId: 'helper', name: 'missing', attached: true }), /No capability named missing/)
+})
+
+function directorySkill(t) {
+  const directory = mkdtempSync(join(tmpdir(), 'dsb-source-skill-'))
+  t.after(() => rmSync(directory, { recursive: true, force: true }))
+  const manifest = join(directory, 'SKILL.md')
+  const content = '---\nname: folder-guide\ndescription: >-\n  Read the guide\n  for this task.\n---\nOpen references/guide.txt.\n'
+  mkdirSync(join(directory, 'references'))
+  writeFileSync(manifest, content)
+  writeFileSync(join(directory, 'references', 'guide.txt'), 'Packaged guide')
+  return { directory, manifest, content }
+}
+
+test('directory skills keep companion files and mount only for attached Bot sessions', async t => {
+  const env = await setup()
+  t.after(() => env.dispose())
+  const { rt, mounts, skills } = env
+  const { directory, manifest } = directorySkill(t)
+  const preview = await rt.capabilityEndpoint('skill-directory-preview', { directory })
+  assert.equal(preview.name, 'folder-guide')
+  assert.equal(preview.description, 'Read the guide for this task.')
+  const input = { name: preview.name, kind: 'skill', source: 'directory', directory }
+  await rt.capabilityEndpoint('capability-save', input)
+  await assert.rejects(rt.capabilityEndpoint('capability-save', input), /A capability named folder-guide already exists/)
+  await rt.capabilityEndpoint('bot-capability', { botId: 'chief', name: preview.name, attached: true })
+  const chief = testAgent('chief', mounts, skills)
+  const room = testAgent('room-chief', mounts, skills)
+  const worker = testAgent('worker', mounts, skills)
+  for (const agent of [chief, room, worker]) await created(env)({ agent, source: 'startup' })
+
+  const skill = skills.get('chief').get(preview.name)
+  assert.equal(skill.content.trim(), 'Open references/guide.txt.')
+  assert.deepEqual(skills.get('room-chief').get(preview.name), skill)
+  assert.equal(skills.get('worker').has(preview.name), false)
+  assert.equal(skill.resourceBase.kind, 'directory')
+  assert.notEqual(resolve(skill.resourceBase.path), resolve(directory))
+  assert.equal(readFileSync(join(skill.resourceBase.path, 'references', 'guide.txt'), 'utf8'), 'Packaged guide')
+  assert.equal(rt.capabilityStatusesView().chief[preview.name].state, 'ready')
+
+  await assert.rejects(rt.capabilitySave({ name: preview.name, kind: 'skill', content: 'Replacement' }, { botId: 'chief' }))
+  await rt.capabilityEndpoint('bot-capability', { botId: 'chief', name: preview.name, attached: false })
+  await rt.scheduleCapabilitiesReconcile()
+  assert.equal(skills.get('chief').has(preview.name), false)
+  assert.equal(skills.get('room-chief').has(preview.name), false)
+  assert.equal(existsSync(skill.resourceBase.path), true)
+  await rt.capabilityEndpoint('capability-delete', { name: preview.name })
+  assert.equal(existsSync(manifest), true)
+  assert.equal(existsSync(skill.resourceBase.path), false)
+})
+
+test('a failed directory reimport preserves the working version', async t => {
+  const env = await setup()
+  t.after(() => env.dispose())
+  const { rt, mounts, skills } = env
+  const { directory, manifest, content } = directorySkill(t)
+  const name = 'folder-guide'
+  const input = { name, kind: 'skill', source: 'directory', directory }
+  await rt.capabilityEndpoint('capability-save', input)
+  await rt.capabilityEndpoint('bot-capability', { botId: 'chief', name, attached: true })
+  const chief = testAgent('chief', mounts, skills)
+  rt.resolveAgent = async () => chief
+  await created(env)({ agent: chief, source: 'startup' })
+  const first = skills.get('chief').get(name)
+
+  const link = join(directory, 'linked-folder')
+  symlinkSync(join(directory, 'references'), link, 'junction')
+  await assert.rejects(rt.capabilityEndpoint('capability-save', { ...input, originalName: name }), /symbolic link/i)
+  rmSync(link)
+
+  writeFileSync(manifest, content.replace('description:', 'metadata: &loop\n  self: *loop\ndescription:'))
+  await assert.rejects(rt.capabilityEndpoint('capability-save', { ...input, originalName: name }), /metadata must not contain circular references/i)
+  await rt.scheduleCapabilitiesReconcile()
+  assert.equal(skills.get('chief').get(name), first)
+
+  writeFileSync(manifest, content.replace('Open references/guide.txt.', 'Updated guide.'))
+  await rt.capabilityEndpoint('capability-save', { ...input, originalName: name })
+  await rt.scheduleCapabilitiesReconcile()
+  const next = skills.get('chief').get(name)
+  assert.equal(next.content.trim(), 'Updated guide.')
+  assert.equal(existsSync(first.resourceBase.path), false)
+  rmSync(join(next.resourceBase.path, 'SKILL.md'))
+  await rt.ensureCapabilities('chief')
+  assert.equal(rt.capabilityStatusesView().chief[name].state, 'error')
 })
 
 test('a creator that is not a Main Bot cannot change a capability another Bot uses', async t => {
