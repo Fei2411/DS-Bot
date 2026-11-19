@@ -798,6 +798,9 @@ var JA = {
   "Bubble width": "バブルの幅",
   "Text width": "本文の幅",
   "Show thinking": "思考プロセスを表示",
+  "Work process": "作業プロセス",
+  "Thinking only": "思考のみ",
+  "Work process · {count}": "作業プロセス · {count} ステップ",
   "Enter sends message": "Enter キーでメッセージを送信",
   "Bring up related memory": "関連するメモリを自動的に参照",
   "Group memory size": "グループメモリの容量",
@@ -3319,6 +3322,9 @@ var KO = {
   "Bubble width": "말풍선 너비",
   "Text width": "본문 너비",
   "Show thinking": "사고 과정 표시",
+  "Work process": "작업 과정",
+  "Thinking only": "사고 과정만",
+  "Work process · {count}": "작업 과정 · {count}단계",
   "Enter sends message": "Enter 키로 메시지 전송",
   "Bring up related memory": "관련 메모리 자동으로 불러오기",
   "Group memory size": "그룹 메모리 용량",
@@ -5866,6 +5872,9 @@ var ES = {
   "Bubble width": "Ancho de burbuja",
   "Text width": "Ancho de texto",
   "Show thinking": "Mostrar razonamiento",
+  "Work process": "Proceso de trabajo",
+  "Thinking only": "Solo el razonamiento",
+  "Work process · {count}": "Proceso de trabajo · {count} pasos",
   "Enter sends message": "Enter envía el mensaje",
   "Bring up related memory": "Traer memoria relacionada",
   "Group memory size": "Tamaño de memoria del grupo",
@@ -8394,6 +8403,9 @@ var FR = {
   "Bubble width": "Largeur des bulles",
   "Text width": "Largeur du texte",
   "Show thinking": "Afficher la réflexion",
+  "Work process": "Déroulement du travail",
+  "Thinking only": "Réflexion seulement",
+  "Work process · {count}": "Déroulement · {count} étapes",
   "Enter sends message": "Entrée envoie le message",
   "Bring up related memory": "Rappeler automatiquement les souvenirs liés",
   "Group memory size": "Capacité de mémoire du groupe",
@@ -10915,6 +10927,9 @@ var DE = {
   "Bubble width": "Blasenbreite",
   "Text width": "Textbreite",
   "Show thinking": "Denkprozess anzeigen",
+  "Work process": "Arbeitsablauf",
+  "Thinking only": "Nur Denkprozess",
+  "Work process · {count}": "Arbeitsablauf · {count} Schritte",
   "Enter sends message": "Enter sendet Nachricht",
   "Bring up related memory": "Verwandte Erinnerungen automatisch einbeziehen",
   "Group memory size": "Kapazität des Gruppengedächtnisses",
@@ -13437,6 +13452,9 @@ var ZH = {
   "Bubble width": "气泡宽度",
   "Text width": "正文宽度",
   "Show thinking": "显示思考过程",
+  "Work process": "工作过程",
+  "Thinking only": "仅思考",
+  "Work process · {count}": "工作过程 · {count} 步",
   "Enter sends message": "回车发送消息",
   "Bring up related memory": "自动带上相关记忆",
   "Group memory size": "群记忆容量",
@@ -17596,6 +17614,20 @@ body[data-bt-layout=flat] .bt-think{max-width:calc(var(--bt-flat-w) * 100%)}
 .bt-time-sep{display:flex;justify-content:center;align-items:center;height:28px;margin:14px 0 8px;font-size:12px;line-height:16px;color:var(--bt-ink-2);white-space:nowrap}
 [class*="_scroll"]>[class*="_column"]::before{content:var(--bt-first-sep,none);display:block;flex:none;height:28px;margin:17px 0 12px;font-size:12px;line-height:28px;text-align:center;color:var(--bt-ink-2);white-space:nowrap}
 .bt-activity{display:flex;align-items:center;gap:10px;margin:8px 0 4px 2px;font-size:14px;color:var(--bt-ink-2)}
+/* The rows a Bot's work leaves in its chat: one control per tool-call node, its calls
+   listed under it. DSH's work-details setting decides whether it starts folded. */
+.bt-work{margin:2px 0 4px}
+.bt-work-head{display:inline-flex;align-items:center;gap:4px;height:24px;padding:2px 8px 2px 6px;border:0;border-radius:999px;background:none;color:var(--bt-ink-2);font:inherit;font-size:12px;line-height:16px;cursor:pointer;box-sizing:border-box;transition:background-color .12s ease,color .12s ease}
+.bt-work-head:hover{background:var(--bt-hover);color:var(--bt-ink-1)}
+.bt-work-head svg{flex:none;transition:transform .12s ease}
+.bt-work[data-open] .bt-work-head svg{transform:rotate(90deg)}
+.bt-work-list{display:flex;flex-direction:column;gap:2px;margin:2px 0 2px 10px;padding-left:10px;border-left:1px solid var(--bt-line-weak)}
+.bt-work-row{display:flex;align-items:baseline;gap:8px;min-height:18px;font-size:12px;line-height:18px;color:var(--bt-ink-2)}
+.bt-work-name{flex:none;color:var(--bt-ink-1)}
+.bt-work-arg{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--bt-mono)}
+.bt-work-result{flex:1 1 120px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--bt-ink-3)}
+.bt-work-time{flex:none;color:var(--bt-ink-3);font-variant-numeric:tabular-nums}
+.bt-work-fail{flex:none;color:var(--bt-danger)}
 .bt-group-replies{display:contents}
 /* A Bot chat is flat in every work-details mode, without changing the user's mode
    (it is a DSH-wide setting): step groups lose their header and stay open, and what a
@@ -27558,6 +27590,76 @@ var reasoningText = (step) => step.blocks.filter((block) => block.kind === "reas
 var stepReasoning = (step) => reasoningText(step).split("\n").filter((line) => !isActivity(line)).join("\n").trim();
 var stepActivity = (step) => reasoningText(step).split("\n").filter(isActivity).map((line) => line.slice(ACTIVITY.length).trim()).filter(Boolean);
 
+// src/client/work-process.js
+var WORK_PROCESS_MODES = ["off", "thinking", "full"];
+var DEFAULT_WORK_PROCESS_MODE = "full";
+var TRANSCRIPT_VIEWS = ["compact", "standard", "detailed", "verbose"];
+var DEFAULT_TRANSCRIPT_VIEW = "standard";
+var DRAWN = /* @__PURE__ */ new Set(["message_bot", "stop_bot", "create_bot", "update_bot", "group_relay", "create_group", "update_group", "delete_group", "post_to_group", "ask_user", "request_secret", "request_connector", "mail_send", "ask_user_question", "show_view", "browser_handoff", "read_group_chat", "bot_remember", "bot_forget", "remember", "forget"]);
+var CARDS = /* @__PURE__ */ new Set(["ask_user", "request_secret", "request_connector", "mail_send", "show_view", "browser_handoff", "computer_handoff"]);
+var isComputerCall = (name) => name === "cua" || name?.startsWith("cua_driver_native__") === true;
+var drawsItself = (name) => DRAWN.has(name) || CARDS.has(name) || isComputerCall(name);
+var isContainer = (call2) => {
+  const name = toolName(call2);
+  return !drawsItself(name) && (name === "run_code" || (call2?.subCalls?.length ?? 0) > 0);
+};
+var isWorkCall = (call2) => {
+  const name = toolName(call2);
+  return !drawsItself(name) && !isContainer(call2);
+};
+var drawsDeep = (call2, mode) => isContainer(call2) ? (call2.subCalls ?? []).some((child) => drawsDeep(child, mode)) : mode === "full" || !isWorkCall(call2);
+var DETAIL_KEYS = ["command", "cmd", "path", "file_path", "filePath", "pattern", "query", "url", "to", "group", "name", "description", "prompt", "code", "script", "text"];
+var oneLine = (text, limit) => {
+  const flat = String(text ?? "").replace(/\s+/g, " ").trim();
+  return flat.length > limit ? `${flat.slice(0, Math.max(0, limit - 1))}…` : flat;
+};
+function workProcessOf(prefs) {
+  return WORK_PROCESS_MODES.includes(prefs?.workProcess) ? prefs.workProcess : DEFAULT_WORK_PROCESS_MODE;
+}
+function transcriptViewOf(value) {
+  if (value === "normal" || value === "expanded") return "detailed";
+  return TRANSCRIPT_VIEWS.includes(value) ? value : DEFAULT_TRANSCRIPT_VIEW;
+}
+function foldingOf(mode, transcriptView) {
+  if (mode !== "full") return "none";
+  switch (transcriptViewOf(transcriptView)) {
+    case "verbose":
+      return "open";
+    case "detailed":
+      return "live";
+    default:
+      return "folded";
+  }
+}
+function drawnCalls(calls, options = {}) {
+  const mode = options.mode ?? DEFAULT_WORK_PROCESS_MODE;
+  const list = calls ?? [];
+  return mode === "full" ? [...list] : list.filter((call2) => drawsDeep(call2, mode));
+}
+function callSummary(call2, options = {}) {
+  const { detailLimit = 80, resultLimit = 140 } = options;
+  const done = call2?.kind === "tool-result";
+  const arg = toolArgs(call2 ?? {}).text;
+  let detail = "";
+  for (const key of DETAIL_KEYS) {
+    const value = arg(key);
+    if (typeof value === "string" && value.trim() !== "") {
+      detail = oneLine(value, detailLimit);
+      break;
+    }
+  }
+  const started = Number.isFinite(call2?.callTime) ? call2.callTime : Number(call2?.time);
+  const ended = Number(call2?.time);
+  const duration = done && Number.isFinite(started) && Number.isFinite(ended) ? Math.max(0, ended - started) : void 0;
+  return {
+    tool: toolName(call2 ?? {}) ?? "",
+    detail,
+    result: done ? oneLine(contentText(call2.content), resultLimit) : "",
+    failed: done && call2.isError === true,
+    duration
+  };
+}
+
 // src/shared/group-replies.js
 function relayRange(text) {
   try {
@@ -29731,9 +29833,6 @@ function GroupReplies({ sessionId, callId, done, content, roster, actions, useUi
     })
   );
 }
-var isComputerCall = (name) => name === "cua" || name?.startsWith("cua_driver_native__") === true;
-var DRAWN = /* @__PURE__ */ new Set(["message_bot", "stop_bot", "create_bot", "update_bot", "group_relay", "create_group", "update_group", "delete_group", "post_to_group", "ask_user", "request_secret", "request_connector", "mail_send", "ask_user_question", "show_view", "browser_handoff", "read_group_chat", "bot_remember", "bot_forget", "remember", "forget"]);
-var CARDS = /* @__PURE__ */ new Set(["ask_user", "request_secret", "request_connector", "mail_send", "show_view", "browser_handoff", "computer_handoff"]);
 function callTree(root) {
   const calls = [];
   const seen = /* @__PURE__ */ new Set();
@@ -29847,26 +29946,75 @@ function renderCall(call2, { sessionId, roster, actions, useUi, useWork, findBot
           (0, import_react34.createElement)(AppAccessCall, { sessionId, callId: call2.callId, roster, actions, heldCards, hooks })
         );
       }
-      return (0, import_react34.createElement)(CellEmpty);
+      return isWorkCall(call2) ? (0, import_react34.createElement)(WorkRow, { call: call2, findBot, self }) : (0, import_react34.createElement)(CellEmpty);
   }
 }
-function ToolCell({ node, sessionId, useRoster, useUi, useWork, useHeldCards, useBrowserHolds, useBrowserTabs, useBrowserPages, useComputer, actions }) {
+function WorkRow({ call: call2, findBot, self }) {
+  const { tool, detail, result, failed, duration } = callSummary(call2);
+  const label = toolActivity(tool, toolArgs(call2).text, findBot, self)?.label ?? tool;
+  return (0, import_react34.createElement)(
+    "div",
+    { className: "bt-work-row" },
+    (0, import_react34.createElement)("span", { className: "bt-work-name" }, label),
+    detail ? (0, import_react34.createElement)("span", { className: "bt-work-arg", title: detail }, detail) : null,
+    // A call that took less than a second says nothing about its time; "0s" is noise.
+    duration !== void 0 && duration >= 1e3 ? (0, import_react34.createElement)("span", { className: "bt-work-time" }, elapsedLabel(duration)) : null,
+    failed ? (0, import_react34.createElement)("span", { className: "bt-work-fail" }, call2.error?.code ?? t("Failed")) : result ? (0, import_react34.createElement)("span", { className: "bt-work-result", title: result }, result) : null
+  );
+}
+function WorkProcess({ calls, folding, running, findBot, self }) {
+  const [chosen, setChosen] = (0, import_react34.useState)(null);
+  const open = chosen ?? (folding === "open" || folding === "live" && running);
+  const title = t("Work process · {count}", { count: calls.length });
+  return (0, import_react34.createElement)(
+    "div",
+    { className: "bt-work", "data-open": open || void 0 },
+    (0, import_react34.createElement)(
+      "button",
+      { type: "button", className: "bt-work-head", "aria-expanded": open, onClick: () => setChosen(!open) },
+      (0, import_react34.createElement)(ChevronRightIcon),
+      (0, import_react34.createElement)("span", null, title)
+    ),
+    open ? (0, import_react34.createElement)("div", { className: "bt-work-list" }, calls.map((call2, index) => (0, import_react34.createElement)(WorkRow, { key: call2.callId ?? index, call: call2, findBot, self }))) : null
+  );
+}
+function ToolCell({ node, sessionId, useRoster, useUi, useWork, useWorkProcess, useHeldCards, useBrowserHolds, useBrowserTabs, useBrowserPages, useComputer, actions }) {
   const roster = useRoster((value) => value);
   const heldCards = useHeldCards?.((state) => state[sessionId]);
+  const process = useWorkProcess?.((state) => state) ?? { mode: DEFAULT_WORK_PROCESS_MODE, view: DEFAULT_TRANSCRIPT_VIEW };
   const root = node.data.root;
   const turn = node.location?.turn?.turn ?? root.turn;
   const hidden = isHiddenTurn(roster, sessionId, turn);
   const findBot = (nameOrId) => roster.byId[nameOrId] ?? roster.bots.find((bot) => bot.name.toLowerCase() === String(nameOrId ?? "").toLowerCase());
   const closed = roster.closedCards?.[sessionId];
   const calls = hidden ? callTree(root).filter((call2) => (toolName(call2) === "ask_user" || toolName(call2) === "show_view") && call2.callId && closed?.[call2.callId] !== void 0) : callTree(root);
-  const drawn = calls.filter((call2) => DRAWN.has(toolName(call2)) || isComputerCall(toolName(call2)));
+  const drawn = drawnCalls(calls, { mode: process.mode });
   const running = root.kind === "tool-result" ? void 0 : calls.findLast((call2) => call2.kind !== "tool-result");
   const note = running ? toolActivity(toolName(running), toolArgs(running).text, findBot, roster.byId[sessionId]) : null;
-  useLiveNote(actions, sessionId, `tool:${root.callId ?? node.key}`, note);
+  useLiveNote(actions, sessionId, `tool:${root.callId ?? node.key}`, process.mode === "off" ? null : note);
   useShownCards(actions, sessionId, drawn.filter((call2) => (CARDS.has(toolName(call2)) || isComputerCall(toolName(call2))) && call2.callId).map((call2) => call2.callId));
   if (drawn.length === 0) return (0, import_react34.createElement)(CellEmpty);
   const env = { sessionId, roster, actions, useUi, useWork, findBot, heldCards, hooks: { useBrowserHolds, useBrowserTabs, useBrowserPages, useComputer } };
-  return (0, import_react34.createElement)(import_react34.Fragment, null, drawn.map((call2, index) => (0, import_react34.createElement)(import_react34.Fragment, { key: call2.callId ?? index }, renderCall(call2, env))));
+  const folding = foldingOf(process.mode, process.view);
+  const self = roster.byId[sessionId];
+  const rows2 = [];
+  let group = [];
+  const flush = () => {
+    if (group.length === 0) return;
+    const work = group;
+    group = [];
+    rows2.push((0, import_react34.createElement)(WorkProcess, { key: `work-${work[0].callId ?? rows2.length}`, calls: work, folding, running: Boolean(running), findBot, self }));
+  };
+  for (const call2 of drawn) {
+    if (isWorkCall(call2)) {
+      if (call2.kind === "tool-result") group.push(call2);
+      continue;
+    }
+    flush();
+    rows2.push((0, import_react34.createElement)(import_react34.Fragment, { key: call2.callId ?? `call-${rows2.length}` }, renderCall(call2, env)));
+  }
+  flush();
+  return rows2.length === 0 ? (0, import_react34.createElement)(CellEmpty) : (0, import_react34.createElement)(import_react34.Fragment, null, rows2);
 }
 
 // src/client/activity-row.js
@@ -37279,6 +37427,7 @@ function SetRow({ label, hint, children, className = "" }) {
 }
 var LAYOUTS = [["bubble", "Bubble"], ["flat", "Flat"]];
 var EFFECTS = [["full", "Full"], ["reduced", "Reduced"], ["off", "None"]];
+var WORK_PROCESSES = [["off", "None"], ["thinking", "Thinking only"], ["full", "All"]];
 function Choice({ label, value, options, pick: pick2 }) {
   return (0, import_react51.createElement)(Segmented, { label, value, className: "bt-look-seg" }, options.map(([id, text]) => (0, import_react51.createElement)("button", {
     key: id,
@@ -37379,6 +37528,13 @@ function GeneralPage({ roster, actions, run: run2, dsh }) {
       (0, import_react51.createElement)(SetRow, { label: t("Bubble width") }, (0, import_react51.createElement)(WidthSlider, { label: t("Bubble width"), value: widthOf(prefs), save: (width) => run2(actions.setPrefs({ width })) })),
       (0, import_react51.createElement)(SetRow, { label: t("Interface motion") }, (0, import_react51.createElement)(Choice, { label: t("Interface motion"), value: effectsOf(prefs), options: EFFECTS, pick: (id) => run2(actions.setPrefs({ effects: id })) })),
       (0, import_react51.createElement)(SetRow, { label: t("Show thinking") }, (0, import_react51.createElement)(Switch, { label: t("Show thinking"), on: thinkingShown(prefs), onChange: (thinking) => run2(actions.setPrefs({ thinking })) })),
+      // The rows a Bot leaves behind: what it ran, read and wrote, folded under one
+      // control. Their folding follows DSH's own work-details setting.
+      (0, import_react51.createElement)(
+        SetRow,
+        { label: t("Work process") },
+        (0, import_react51.createElement)(Choice, { label: t("Work process"), value: workProcessOf(prefs), options: WORK_PROCESSES, pick: (id) => run2(actions.setPrefs({ workProcess: id })) })
+      ),
       look.map((id) => dshItem(dsh, id))
     ),
     (0, import_react51.createElement)(
@@ -43990,7 +44146,7 @@ function readPage(limits) {
   const expand = (text2) => text2.replace(/\u0001(\d+)[\u0002\u0003]/g, (_, index) => expand(stash[Number(index)]));
   const flow = (text2) => text2.split("\n").map((line) => line.replace(/[ \t\f\v\u00a0\u2028\u2029]+/g, " ").trim().replace(/^· /, "")).join("\n").replace(/\n{3,}/g, "\n\n").replace(/\u0003\n\n(?=\u0001\d+\u0003)/g, "\n").trim();
   const block = (text2) => expand(flow(text2));
-  const oneLine = (text2) => block(text2).replace(/\s*\n+\s*/g, " ").trim();
+  const oneLine2 = (text2) => block(text2).replace(/\s*\n+\s*/g, " ").trim();
   const styleOf = (el) => (el.ownerDocument.defaultView || window).getComputedStyle(el);
   const childrenOf = (el) => {
     if (el.shadowRoot) return el.shadowRoot.childNodes;
@@ -44069,7 +44225,7 @@ ${fence}`;
   };
   const tableMarkdown = (table, ctx) => {
     const rows2 = [...table.rows].filter((row) => styleOf(row).display !== "none");
-    const caption = table.caption ? oneLine(children(table.caption, ctx)) : "";
+    const caption = table.caption ? oneLine2(children(table.caption, ctx)) : "";
     if (layoutTable(table, rows2)) {
       return rows2.map((row) => [...row.cells].map((cell) => `
 
@@ -44218,10 +44374,10 @@ ${body2 || "(no text)"}
     } else {
       body2 = children(el, { ...next, pre: keepsSpace });
     }
-    if (found) found.item.name = nameOf2(el, oneLine(body2), found.secret);
+    if (found) found.item.name = nameOf2(el, oneLine2(body2), found.secret);
     const level = /^h([1-6])$/.exec(tag)?.[1] || (el.getAttribute("role") === "heading" ? el.getAttribute("aria-level") || "2" : "");
     if (level) {
-      const title = oneLine(body2);
+      const title = oneLine2(body2);
       return title ? `
 
 ${"#".repeat(Math.min(6, Number(level) || 2))} ${title}${mark2}
@@ -44229,7 +44385,7 @@ ${"#".repeat(Math.min(6, Number(level) || 2))} ${title}${mark2}
 ` : mark2;
     }
     if (tag === "code" && !ctx.pre) {
-      const code = oneLine(body2);
+      const code = oneLine2(body2);
       if (!code) return mark2;
       const ticks = code.includes("`") ? "``" : "`";
       return `${ticks}${code}${ticks}${mark2}`;
@@ -46135,6 +46291,28 @@ function apply(ctx) {
   const live = createSource({});
   const computer = createSource({});
   let computerKey = "{}";
+  const workProcess = createSource({ mode: DEFAULT_WORK_PROCESS_MODE, view: DEFAULT_TRANSCRIPT_VIEW });
+  ctx.effect(() => {
+    const follow = () => workProcess.set((state) => {
+      const mode = workProcessOf(roster.getSnapshot().prefs);
+      return state.mode === mode ? state : { ...state, mode };
+    });
+    const off = roster.subscribe(follow);
+    follow();
+    return off;
+  }, "ds-bot: work process mode");
+  ctx.inject(["configForms"], (scope) => {
+    scope.effect(() => {
+      const form = scope.configForms.get("ui-chat");
+      const follow = () => workProcess.set((state) => {
+        const view = transcriptViewOf(form.getSnapshot()?.value?.transcriptView);
+        return state.view === view ? state : { ...state, view };
+      });
+      const off = form.subscribe(follow);
+      follow();
+      return off;
+    }, "ds-bot: work process folding");
+  });
   const cards = createSource({});
   const heldCards = createSource({});
   const turnClock = createSource({});
@@ -46419,7 +46597,7 @@ function apply(ctx) {
       if (typeof release === "function") release();
       if (snapshot.ready) {
         try {
-          localStorage.setItem(PREFS_KEY, JSON.stringify({ theme: prefs.theme, accent: prefs.accent, motion: prefs.motion, layout: prefs.layout, effects: prefs.effects, width: prefs.width, flatWidth: prefs.flatWidth, thinking: prefs.thinking, defaultBotModel: prefs.defaultBotModel, enterToSend: prefs.enterToSend }));
+          localStorage.setItem(PREFS_KEY, JSON.stringify({ theme: prefs.theme, accent: prefs.accent, motion: prefs.motion, layout: prefs.layout, effects: prefs.effects, width: prefs.width, flatWidth: prefs.flatWidth, thinking: prefs.thinking, workProcess: prefs.workProcess, defaultBotModel: prefs.defaultBotModel, enterToSend: prefs.enterToSend }));
         } catch {
         }
       }
@@ -46928,7 +47106,7 @@ function apply(ctx) {
       else if (kind === "letgo") void actions.computerAllowForeground(botId);
     });
   }
-  const face = () => ({ actions, hooks: { roster, ui: ui2, activity, work, memoryNews, registry, turnClock, live, computer, cards, heldCards, browserPages, browserTabs, browserHolds, surface, update, frame: frame2, sidebarPref, settingsShellHeld } });
+  const face = () => ({ actions, hooks: { roster, ui: ui2, activity, work, workProcess, memoryNews, registry, turnClock, live, computer, cards, heldCards, browserPages, browserTabs, browserHolds, surface, update, frame: frame2, sidebarPref, settingsShellHeld } });
   const hostDrawsUserText = typeof ctx.uiConversation.userText?.register === "function";
   ctx.effect(() => installCommandActions(ctx, { roster, actions }), "ds-bot: bot command actions");
   ctx.effect(() => {

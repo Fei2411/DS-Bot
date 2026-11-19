@@ -29,6 +29,7 @@ import { FolderMenu } from './folder-menu.js'
 import { ModelMenu } from './model-menu.js'
 import { isLocalRoute } from './agent-routes.js'
 import { t } from './i18n.js'
+import { workProcessOf } from './work-process.js'
 
 const capitalize = word => word[0].toUpperCase() + word.slice(1)
 
@@ -79,6 +80,7 @@ function SetRow({ label, hint, children, className = '' }) {
 
 const LAYOUTS = [['bubble', 'Bubble'], ['flat', 'Flat']]
 const EFFECTS = [['full', 'Full'], ['reduced', 'Reduced'], ['off', 'None']]
+const WORK_PROCESSES = [['off', 'None'], ['thinking', 'Thinking only'], ['full', 'All']]
 
 function Choice({ label, value, options, pick }) {
   return h(Segmented, { label, value, className: 'bt-look-seg' }, options.map(([id, text]) => h('button', {
@@ -149,6 +151,10 @@ function GeneralPage({ roster, actions, run, dsh }) {
       h(SetRow, { label: t('Bubble width') }, h(WidthSlider, { label: t('Bubble width'), value: widthOf(prefs), save: width => run(actions.setPrefs({ width })) })),
       h(SetRow, { label: t('Interface motion') }, h(Choice, { label: t('Interface motion'), value: effectsOf(prefs), options: EFFECTS, pick: id => run(actions.setPrefs({ effects: id })) })),
       h(SetRow, { label: t('Show thinking') }, h(Switch, { label: t('Show thinking'), on: thinkingShown(prefs), onChange: thinking => run(actions.setPrefs({ thinking })) })),
+      // The rows a Bot leaves behind: what it ran, read and wrote, folded under one
+      // control. Their folding follows DSH's own work-details setting.
+      h(SetRow, { label: t('Work process') },
+        h(Choice, { label: t('Work process'), value: workProcessOf(prefs), options: WORK_PROCESSES, pick: id => run(actions.setPrefs({ workProcess: id })) })),
       look.map(id => dshItem(dsh, id))),
     h(SetSection, { key: 'new', title: t('New Bots') },
       h(SetRow, { label: t('Default model'), className: 'bt-set-model' },

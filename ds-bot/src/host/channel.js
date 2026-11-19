@@ -246,6 +246,12 @@ export function install(rt) {
       if (body.enterToSend === false) state.prefs.enterToSend = false
       else if (body.enterToSend === true || body.enterToSend === null) delete state.prefs.enterToSend
     }
+    // How much of its work a Bot chat draws. `full` is the default, so it is not kept.
+    if (body.workProcess !== undefined) {
+      if (body.workProcess === null || body.workProcess === 'full') delete state.prefs.workProcess
+      else if (body.workProcess === 'off' || body.workProcess === 'thinking') state.prefs.workProcess = body.workProcess
+      else throw invalid('Work process must be off, thinking or full')
+    }
     if (body.memoryAutoRecall !== undefined) {
       if (body.memoryAutoRecall === false) state.prefs.memoryAutoRecall = false
       else delete state.prefs.memoryAutoRecall

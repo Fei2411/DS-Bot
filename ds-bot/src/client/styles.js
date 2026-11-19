@@ -1206,6 +1206,20 @@ body[data-bt-layout=flat] .bt-think{max-width:calc(var(--bt-flat-w) * 100%)}
 .bt-time-sep{display:flex;justify-content:center;align-items:center;height:28px;margin:14px 0 8px;font-size:12px;line-height:16px;color:var(--bt-ink-2);white-space:nowrap}
 [class*="_scroll"]>[class*="_column"]::before{content:var(--bt-first-sep,none);display:block;flex:none;height:28px;margin:17px 0 12px;font-size:12px;line-height:28px;text-align:center;color:var(--bt-ink-2);white-space:nowrap}
 .bt-activity{display:flex;align-items:center;gap:10px;margin:8px 0 4px 2px;font-size:14px;color:var(--bt-ink-2)}
+/* The rows a Bot's work leaves in its chat: one control per tool-call node, its calls
+   listed under it. DSH's work-details setting decides whether it starts folded. */
+.bt-work{margin:2px 0 4px}
+.bt-work-head{display:inline-flex;align-items:center;gap:4px;height:24px;padding:2px 8px 2px 6px;border:0;border-radius:999px;background:none;color:var(--bt-ink-2);font:inherit;font-size:12px;line-height:16px;cursor:pointer;box-sizing:border-box;transition:background-color .12s ease,color .12s ease}
+.bt-work-head:hover{background:var(--bt-hover);color:var(--bt-ink-1)}
+.bt-work-head svg{flex:none;transition:transform .12s ease}
+.bt-work[data-open] .bt-work-head svg{transform:rotate(90deg)}
+.bt-work-list{display:flex;flex-direction:column;gap:2px;margin:2px 0 2px 10px;padding-left:10px;border-left:1px solid var(--bt-line-weak)}
+.bt-work-row{display:flex;align-items:baseline;gap:8px;min-height:18px;font-size:12px;line-height:18px;color:var(--bt-ink-2)}
+.bt-work-name{flex:none;color:var(--bt-ink-1)}
+.bt-work-arg{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--bt-mono)}
+.bt-work-result{flex:1 1 120px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--bt-ink-3)}
+.bt-work-time{flex:none;color:var(--bt-ink-3);font-variant-numeric:tabular-nums}
+.bt-work-fail{flex:none;color:var(--bt-danger)}
 .bt-group-replies{display:contents}
 /* A Bot chat is flat in every work-details mode, without changing the user's mode
    (it is a DSH-wide setting): step groups lose their header and stay open, and what a

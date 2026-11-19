@@ -223,10 +223,10 @@ test('a group post drawn from its trigger shows the time it came in', () => {
   effects = []
 })
 
-const props = (root, { sessionId = chief.id, roster = team(), actions = {}, turn = 1, held = {} } = {}) => ({
+const props = (root, { sessionId = chief.id, roster = team(), actions = {}, turn = 1, held = {}, process = { mode: 'full', view: 'standard' } } = {}) => ({
   node: { key: 'node', data: { root }, location: { turn: { turn } } }, sessionId,
   useRoster: select => select(roster), useUi: select => select({ reactions: {}, visits: {} }), actions,
-  useHeldCards: select => select(held),
+  useHeldCards: select => select(held), useWorkProcess: select => select(process),
 })
 const show = (root, options) => {
   const out = expand(ToolCell(props(root, options)))
@@ -309,11 +309,31 @@ test('each sub-call shows its own state, not its program\'s', () => {
   assert.match(shown(program([refused, posted])), /Couldn't post in the group.*Posted in.*Ops/)
 })
 
-test('a program with no known sub-call draws nothing, as before', () => {
+test('a program that dispatched nothing draws nothing', () => {
   assert.ok(emptied(ToolCell(props(program([])))))
-  assert.ok(emptied(ToolCell(props(program([call('bash', 'program:ptc:1'), call('read_file', 'program:ptc:2')])))))
-  assert.ok(emptied(ToolCell(props(call('bash', 'direct')))))
   effects = []
+})
+
+test('a call with no row of its own draws a work row, and its program does not', () => {
+  // A bare shell command used to draw nothing at all, which left a Bot chat with its
+  // thinking and none of the work; it now shows what it ran.
+  const open = { process: { mode: 'full', view: 'verbose' } }
+  const direct = shown(call('bash', 'direct', { args: { command: 'npm test' }, content: 'ok' }), open)
+  assert.match(direct, /Running shell commands.*npm test.*ok/)
+  // A program is a container: its sub-calls are the rows, the program itself is not one.
+  const nested = shown(program([call('bash', 'program:ptc:1', { args: { command: 'npm test' }, content: 'ok' })]), open)
+  assert.equal(nested, direct)
+  assert.equal(count(nested, 'Work process'), 1)
+  // Standard work details fold the rows behind one control until the user opens them.
+  const folded = shown(call('bash', 'direct', { args: { command: 'npm test' }, content: 'ok' }))
+  assert.match(folded, /^Work process · 1$/)
+  // A work row names a failure instead of its result.
+  const failed = shown(call('read', 'direct', { args: { path: 'missing.md' }, isError: true, content: 'ENOENT', error: { name: 'Error', code: 'ENOENT' } }), open)
+  assert.match(failed, /ENOENT/)
+  // The setting takes the rows away again; the events and cards stay.
+  const off = { process: { mode: 'off', view: 'verbose' } }
+  assert.equal(shown(call('bash', 'direct', { args: { command: 'npm test' } }), off), '')
+  assert.match(shown(call('message_bot', 'direct', { args: { to: 'Writer' } }), off), /Messaged.*Writer/)
 })
 
 test('every call that draws nothing leaves only the empty mark, so its seat can hide', () => {
@@ -540,6 +560,13 @@ test('a message line opens the exchange of the chat\'s Bot, from any part', () =
   const later = show(call('message_bot', 'direct', { args: { to: 'Writer' } }), { sessionId: 'chief-2', roster, actions: { openExchange: (...ids) => opened.push(ids) } })
   find(later, node => node.type === 'button').props.onClick()
   assert.deepEqual(JSON.parse(JSON.stringify(opened)), [['chief', 'writer'], ['chief', 'writer']])
+})
+
+test('the setting leaves the live phrase out only when it is fully off', () => {
+  const running = program([call('bash', 'program:ptc:1', { args: { command: 'npm test' }, running: true })], { running: true })
+  assert.equal(notes(running, { process: { mode: 'full', view: 'standard' } })[0].entry.label, 'Running shell commands')
+  assert.equal(notes(running, { process: { mode: 'thinking', view: 'standard' } })[0].entry.label, 'Running shell commands')
+  assert.deepEqual(notes(running, { process: { mode: 'off', view: 'standard' } }), [])
 })
 
 // The activity row reads one note per chat node.

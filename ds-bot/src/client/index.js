@@ -72,6 +72,7 @@ import { needsIdleSample, pollDelay } from './polling.js'
 import { installMotionRest } from './motion-rest.js'
 import { agentSessionToReuse, singleFlight } from './agent-new.js'
 import { TextSelectionAction, ANNOTATION_CSS } from './text-annotation.js'
+import { DEFAULT_TRANSCRIPT_VIEW, DEFAULT_WORK_PROCESS_MODE, transcriptViewOf, workProcessOf } from './work-process.js'
 
 export const inject = ['sessions', 'uiWorkspace', 'uiConversation', 'slots', 'theme', 'layout']
 
@@ -162,6 +163,32 @@ export function apply(ctx) {
   // Computer use: leases, per-Bot control, pending app cards and holds.
   const computer = createSource({})
   let computerKey = '{}'
+  // How much of a Bot's work its chat draws. DS Bot's own preference decides the rows;
+  // DSH's work-details setting only decides how they fold, and is read, never written.
+  const workProcess = createSource({ mode: DEFAULT_WORK_PROCESS_MODE, view: DEFAULT_TRANSCRIPT_VIEW })
+  ctx.effect(() => {
+    const follow = () => workProcess.set(state => {
+      const mode = workProcessOf(roster.getSnapshot().prefs)
+      return state.mode === mode ? state : { ...state, mode }
+    })
+    const off = roster.subscribe(follow)
+    follow()
+    return off
+  }, 'ds-bot: work process mode')
+  // A soft dependency: the client draws the rows whether or not this host has the Chat
+  // settings, and it only reads them.
+  ctx.inject(['configForms'], (scope) => {
+    scope.effect(() => {
+      const form = scope.configForms.get('ui-chat')
+      const follow = () => workProcess.set(state => {
+        const view = transcriptViewOf(form.getSnapshot()?.value?.transcriptView)
+        return state.view === view ? state : { ...state, view }
+      })
+      const off = form.subscribe(follow)
+      follow()
+      return off
+    }, 'ds-bot: work process folding')
+  })
   // Per Session, the ask_user and request_secret calls its transcript draws; the
   // docks carry the cards of the other calls.
   const cards = createSource({})
@@ -444,7 +471,7 @@ export function apply(ctx) {
       releaseTokens = ctx.theme.overrideTokens('ds-bot', shellTokens(themes[id]))
       if (typeof release === 'function') release()
       if (snapshot.ready) {
-        try { localStorage.setItem(PREFS_KEY, JSON.stringify({ theme: prefs.theme, accent: prefs.accent, motion: prefs.motion, layout: prefs.layout, effects: prefs.effects, width: prefs.width, flatWidth: prefs.flatWidth, thinking: prefs.thinking, defaultBotModel: prefs.defaultBotModel, enterToSend: prefs.enterToSend })) } catch { /* storage unavailable */ }
+        try { localStorage.setItem(PREFS_KEY, JSON.stringify({ theme: prefs.theme, accent: prefs.accent, motion: prefs.motion, layout: prefs.layout, effects: prefs.effects, width: prefs.width, flatWidth: prefs.flatWidth, thinking: prefs.thinking, workProcess: prefs.workProcess, defaultBotModel: prefs.defaultBotModel, enterToSend: prefs.enterToSend })) } catch { /* storage unavailable */ }
       }
     }
     render()
@@ -958,7 +985,7 @@ export function apply(ctx) {
       else if (kind === 'letgo') void actions.computerAllowForeground(botId)
     })
   }
-  const face = () => ({ actions, hooks: { roster, ui, activity, work, memoryNews, registry, turnClock, live, computer, cards, heldCards, browserPages, browserTabs, browserHolds, surface, update, frame, sidebarPref, settingsShellHeld } })
+  const face = () => ({ actions, hooks: { roster, ui, activity, work, workProcess, memoryNews, registry, turnClock, live, computer, cards, heldCards, browserPages, browserTabs, browserHolds, surface, update, frame, sidebarPref, settingsShellHeld } })
   // Since DSH 0.2.1-alpha.3 user text is drawn by rules and a content factory, not the
   // primitives' text projection; the user's bubble draws with either (user-message.js).
   const hostDrawsUserText = typeof ctx.uiConversation.userText?.register === 'function'

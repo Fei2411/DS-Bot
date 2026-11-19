@@ -198,6 +198,12 @@ test('the client channel answers from the saved state', async (t) => {
   assert.equal('thinking' in (await call('set-prefs', { thinking: null })).value, false)
   // Enter sends by default; false persists until the user turns it back on.
   assert.equal((await call('set-prefs', { enterToSend: false })).value.enterToSend, false)
+  // The work-process mode keeps the two settings that differ from the default.
+  assert.equal((await call('set-prefs', { workProcess: 'thinking' })).value.workProcess, 'thinking')
+  assert.equal((await call('set-prefs', { workProcess: 'off' })).value.workProcess, 'off')
+  assert.deepEqual((await call('set-prefs', { workProcess: 'verbose' })).error, { code: 'bot/invalid', message: 'Work process must be off, thinking or full', details: {} })
+  assert.equal('workProcess' in (await call('set-prefs', { workProcess: 'full' })).value, false)
+  assert.equal('workProcess' in (await call('set-prefs', { workProcess: null })).value, false)
   assert.equal((await call('set-prefs', { enterToSend: 'no' })).value.enterToSend, false)
   assert.equal('enterToSend' in (await call('set-prefs', { enterToSend: true })).value, false)
   await call('set-prefs', { enterToSend: false })

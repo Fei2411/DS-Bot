@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import { MarkdownText, writeClipboard } from './dsh-primitives.js'
 import { inkText } from './inks.js'
 import { linkMentions, mentionTarget, dayLabel, contentText, stripHeader, stripToolCallTags, isHiddenTurn, isRelayContext, relaysBefore, relayPart, commRunOf, toolName, toolArgs, reminderPrompts, elapsedLabel, clockLabel, messageClock } from './text.js'
-import { SmileIcon, ReplyIcon, DotsIcon, CheckIcon, DownloadIcon, CopyIcon, GoalIcon, MemoryIcon } from './icons.js'
+import { SmileIcon, ReplyIcon, DotsIcon, CheckIcon, DownloadIcon, CopyIcon, GoalIcon, MemoryIcon, ChevronRightIcon } from './icons.js'
 import { ChangesCard } from './changes-card.js'
 import { goalEventText } from './goal.js'
 import { colorOf, toolState, BotMark, RoomAvatar } from './mark.js'
@@ -18,6 +18,7 @@ import { mdLabels, t } from './i18n.js'
 import { call } from './api.js'
 import { failureLabel } from './diagnostics.js'
 import { turnReasoning, thinkingStep, opensReply, stepActivity } from './turn-reasoning.js'
+import { CARDS, DEFAULT_TRANSCRIPT_VIEW, DEFAULT_WORK_PROCESS_MODE, callSummary, drawnCalls, foldingOf, isComputerCall, isWorkCall } from './work-process.js'
 import { parseReplies, relayRange, stackReplies } from '../shared/group-replies.js'
 import { FOLD_AT, FOLD_HUGE, stripLongNote, useFold } from './fold.js'
 import { ReplyGuide } from './reading.js'
@@ -1121,12 +1122,8 @@ function GroupReplies({ sessionId, callId, done, content, roster, actions, useUi
     }))
 }
 
-// The calls ToolCell draws. A PTC program (`run_code`) dispatches the real tools as
-// its sub-calls, so a call draws by its own name wherever it sits in the tree.
-const isComputerCall = name => name === 'cua' || name?.startsWith('cua_driver_native__') === true
-const DRAWN = new Set(['message_bot', 'stop_bot', 'create_bot', 'update_bot', 'group_relay', 'create_group', 'update_group', 'delete_group', 'post_to_group', 'ask_user', 'request_secret', 'request_connector', 'mail_send', 'ask_user_question', 'show_view', 'browser_handoff', 'read_group_chat', 'bot_remember', 'bot_forget', 'remember', 'forget'])
-// Calls whose card a dock above the composer carries when the call is not drawn.
-const CARDS = new Set(['ask_user', 'request_secret', 'request_connector', 'mail_send', 'show_view', 'browser_handoff', 'computer_handoff'])
+// The calls ToolCell draws, and the card calls among them, live in work-process.js with
+// the mode that decides whether the work rows are drawn at all.
 
 // The root and its sub-calls in dispatch order, each call once.
 export function callTree(root) {
@@ -1240,13 +1237,48 @@ function renderCall(call, { sessionId, roster, actions, useUi, useWork, findBot,
           h(ComputerCallRow, { sessionId, call, roster, actions, hooks }),
           h(AppAccessCall, { sessionId, callId: call.callId, roster, actions, heldCards, hooks }))
       }
-      return h(CellEmpty)
+      // A work call draws as a work row, which ToolCell groups (see WorkProcess); a
+      // program is a container for its sub-calls and has no row of its own.
+      return isWorkCall(call) ? h(WorkRow, { call, findBot, self }) : h(CellEmpty)
   }
 }
 
-export function ToolCell({ node, sessionId, useRoster, useUi, useWork, useHeldCards, useBrowserHolds, useBrowserTabs, useBrowserPages, useComputer, actions }) {
+// One work row: the tool, what it works on, how long it took, and what it answered.
+// The label reuses the activity phrases, so a call reads the same here as it does in
+// the row that shows a Bot at work.
+function WorkRow({ call, findBot, self }) {
+  const { tool, detail, result, failed, duration } = callSummary(call)
+  const label = toolActivity(tool, toolArgs(call).text, findBot, self)?.label ?? tool
+  return h('div', { className: 'bt-work-row' },
+    h('span', { className: 'bt-work-name' }, label),
+    detail ? h('span', { className: 'bt-work-arg', title: detail }, detail) : null,
+    // A call that took less than a second says nothing about its time; "0s" is noise.
+    duration !== undefined && duration >= 1000 ? h('span', { className: 'bt-work-time' }, elapsedLabel(duration)) : null,
+    failed
+      ? h('span', { className: 'bt-work-fail' }, call.error?.code ?? t('Failed'))
+      : result ? h('span', { className: 'bt-work-result', title: result }, result) : null)
+}
+
+// The work rows of one tool-call node, under one control. DSH's work-details setting
+// decides whether the group starts folded, follows the running turn, or stays open;
+// a user who opens or closes it here keeps that choice for this row.
+function WorkProcess({ calls, folding, running, findBot, self }) {
+  const [chosen, setChosen] = useState(null)
+  const open = chosen ?? (folding === 'open' || (folding === 'live' && running))
+  const title = t('Work process · {count}', { count: calls.length })
+  return h('div', { className: 'bt-work', 'data-open': open || undefined },
+    h('button', { type: 'button', className: 'bt-work-head', 'aria-expanded': open, onClick: () => setChosen(!open) },
+      h(ChevronRightIcon),
+      h('span', null, title)),
+    open ? h('div', { className: 'bt-work-list' }, calls.map((call, index) => h(WorkRow, { key: call.callId ?? index, call, findBot, self }))) : null)
+}
+
+export function ToolCell({ node, sessionId, useRoster, useUi, useWork, useWorkProcess, useHeldCards, useBrowserHolds, useBrowserTabs, useBrowserPages, useComputer, actions }) {
   const roster = useRoster(value => value)
   const heldCards = useHeldCards?.(state => state[sessionId])
+  // A window that predates the hook, or a host without DSH's chat settings, draws the
+  // rows the way the client defaults say.
+  const process = useWorkProcess?.(state => state) ?? { mode: DEFAULT_WORK_PROCESS_MODE, view: DEFAULT_TRANSCRIPT_VIEW }
   const root = node.data.root
   const turn = node.location?.turn?.turn ?? root.turn
   const hidden = isHiddenTurn(roster, sessionId, turn)
@@ -1257,14 +1289,35 @@ export function ToolCell({ node, sessionId, useRoster, useUi, useWork, useHeldCa
   const calls = hidden
     ? callTree(root).filter(call => (toolName(call) === 'ask_user' || toolName(call) === 'show_view') && call.callId && closed?.[call.callId] !== undefined)
     : callTree(root)
-  const drawn = calls.filter(call => DRAWN.has(toolName(call)) || isComputerCall(toolName(call)))
+  const drawn = drawnCalls(calls, { mode: process.mode })
   // The newest call still running names the work, so a program reads as the tool it is in.
   const running = root.kind === 'tool-result' ? undefined : calls.findLast(call => call.kind !== 'tool-result')
   const note = running ? toolActivity(toolName(running), toolArgs(running).text, findBot, roster.byId[sessionId]) : null
-  // A running tool shows only as the activity row's phrase.
-  useLiveNote(actions, sessionId, `tool:${root.callId ?? node.key}`, note)
+  // A running tool shows only as the activity row's phrase; `off` leaves even that out.
+  useLiveNote(actions, sessionId, `tool:${root.callId ?? node.key}`, process.mode === 'off' ? null : note)
   useShownCards(actions, sessionId, drawn.filter(call => (CARDS.has(toolName(call)) || isComputerCall(toolName(call))) && call.callId).map(call => call.callId))
   if (drawn.length === 0) return h(CellEmpty)
   const env = { sessionId, roster, actions, useUi, useWork, findBot, heldCards, hooks: { useBrowserHolds, useBrowserTabs, useBrowserPages, useComputer } }
-  return h(Fragment, null, drawn.map((call, index) => h(Fragment, { key: call.callId ?? index }, renderCall(call, env))))
+  const folding = foldingOf(process.mode, process.view)
+  const self = roster.byId[sessionId]
+  const rows = []
+  let group = []
+  const flush = () => {
+    if (group.length === 0) return
+    const work = group
+    group = []
+    rows.push(h(WorkProcess, { key: `work-${work[0].callId ?? rows.length}`, calls: work, folding, running: Boolean(running), findBot, self }))
+  }
+  for (const call of drawn) {
+    if (isWorkCall(call)) {
+      // A call still running shows as the activity row's phrase, not as a row of its
+      // own: the activity row stays the one place that says what is going on now.
+      if (call.kind === 'tool-result') group.push(call)
+      continue
+    }
+    flush()
+    rows.push(h(Fragment, { key: call.callId ?? `call-${rows.length}` }, renderCall(call, env)))
+  }
+  flush()
+  return rows.length === 0 ? h(CellEmpty) : h(Fragment, null, rows)
 }
