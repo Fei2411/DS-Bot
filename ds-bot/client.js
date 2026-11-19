@@ -6926,6 +6926,9 @@ body[data-bt-effects=off] :is(.bt-spin,.bt-model-spin,.bt-mem-spin,.bt-loading-s
    behind them unreadable. Where the blur does not take, the chat shows through the
    rows (issues 1113 and 935), so they get a solid fill. */
 [data-composer-overlay] [data-menu-material]{--dsw-menu-surface-fill:var(--bt-card)}
+/* DSH's row spans share no semantic hooks beyond the option; keep descriptions
+   beside their labels without changing their flex sizing or overflow. */
+[data-trigger-menu] [role=option]>span{text-align:left}
 .bt-think{font-size:13px;line-height:18px;color:var(--bt-ink-2);margin:2px 0 4px;max-width:calc(var(--bt-msg-w) * 100%)}
 body[data-bt-layout=flat] .bt-think{max-width:calc(var(--bt-flat-w) * 100%)}
 .bt-think summary{cursor:pointer;list-style:none;display:inline-flex;align-items:center;gap:6px}
@@ -6950,6 +6953,8 @@ or:contain;scrollbar-width:thin;outline:none}
 .bt-event-whole>span:first-child{margin-right:2px}
 /* One button cannot wrap like separate parts, so a long name is cut to fit the chat. */
 .bt-event-whole>.bt-event-name{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* Keep message tools outside paint containment. */
+.bt-bubble,.bt-ububble{content-visibility:auto;contain-intrinsic-size:auto 160px}
 .bt-time-sep{display:flex;justify-content:center;align-items:center;height:28px;margin:14px 0 8px;font-size:12px;line-height:16px;color:var(--bt-ink-2);white-space:nowrap}
 [class*="_scroll"]>[class*="_column"]::before{content:var(--bt-first-sep,none);display:block;flex:none;height:28px;margin:17px 0 12px;font-size:12px;line-height:28px;text-align:cen\
 ter;color:var(--bt-ink-2);white-space:nowrap}
