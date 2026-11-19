@@ -10,7 +10,8 @@ const CATALOG_TTL_MS = 10_000
 const ROUTE_WAIT_MS = 30_000
 // The DeepSeek account's sign-in grant (dsh-deepseek-account-platform).
 const ACCOUNT_RECORD = 'deepseek-account-platform/default'
-const TRANSIENT_LLM_CODES = new Set(['TRANSPORT', 'TIMEOUT'])
+const TRANSIENT_LLM_CODES = new Set(['TRANSPORT', 'TIMEOUT', 'MALFORMED_RESPONSE'])
+const MALFORMED_RETRIES = 2
 
 function retryPolicyOf(ctx, provider) {
   try {
@@ -56,6 +57,8 @@ function abortedAssembler(failure) {
 }
 
 function canRetryPolicy(policy, code, retry) {
+  if (policy?.mode !== 'normal' && policy?.mode !== 'always') return false
+  if (code === 'MALFORMED_RESPONSE') return retry <= (policy.mode === 'normal' ? Math.min(MALFORMED_RETRIES, policy.maxRetries) : MALFORMED_RETRIES)
   if (policy.mode === 'always') return true
   if (policy.mode !== 'normal') return false
   return Array.isArray(policy.retryableCodes) && policy.retryableCodes.includes(code) && retry <= policy.maxRetries
@@ -63,7 +66,7 @@ function canRetryPolicy(policy, code, retry) {
 
 // Auxiliary calls (memory, learning, handoff, steward, OCR, side chats, browser_task)
 // bypass the agent loop's `agent/request-error` hook, so `dsh-llm-retry` never sees
-// their transport or stream-idle failures. Retry those transient codes on the same
+// their transport, stream-idle or malformed-response failures. Retry those transient codes on the same
 // route with the provider's own retry policy, discarding partial chunks from failed attempts.
 export async function assembleLlmStream(ctx, options, { signal, backoff, random = Math.random } = {}) {
   const service = serviceOf(ctx, 'llm')
@@ -104,6 +107,24 @@ export async function assembleLlmStream(ctx, options, { signal, backoff, random 
 
 export function install(rt) {
   const { ctx, state } = rt
+
+  const malformedRetries = new WeakMap()
+  ctx.on?.('agent/request-error', async (payload, next) => {
+    const decided = await next()
+    const { agent, turn, step, signal, failure } = payload
+    if (decided !== undefined || failure?.code !== 'MALFORMED_RESPONSE' || signal?.aborted || !rt.isBotSession(agent.id)) return decided
+    let retries = malformedRetries.get(agent)
+    if (retries?.turn !== turn || retries?.step !== step) {
+      retries = { turn, step, count: 0 }
+      malformedRetries.set(agent, retries)
+    }
+    const policy = payload.retryPolicy ?? retryPolicyOf(ctx, payload.provider)
+    if (!canRetryPolicy(policy, failure.code, retries.count + 1)) return undefined
+    retries.count += 1
+    rt.warn(`Retrying malformed model response for ${agent.id} (turn ${turn}, step ${step}, retry ${retries.count}/${MALFORMED_RETRIES})`)
+    if (!await waitRetryDelay(250, signal)) return undefined
+    return { kind: 'retry' }
+  }, { prepend: true })
 
   let closing = false
   let modelsSynced = null
@@ -188,6 +209,8 @@ export function install(rt) {
     if (service === undefined) return answerable(catalogCache.value)
     const entries = []
     for (const provider of service.listProviders()) {
+      // A local-agent route owned by another adapter is not offered by DS Bot.
+      if (rt.isLocalAgentRoute?.(provider.id) && rt.isLocalAgentAvailable?.(provider.id) === false) continue
       let models = []
       try { models = await service.listModels(provider.id) } catch { continue }
       for (const model of models) {
@@ -258,6 +281,7 @@ export function install(rt) {
   // a CLI. Its CLI is asked only when DS Bot does not know the model yet.
   async function resolveLocalModel(ref) {
     const { provider, model } = splitRef(ref)
+    if (rt.isLocalAgentAvailable?.(provider) === false) throw new Error(`Model ${ref} is not available: its local agent route is not registered`)
     const service = llm()
     if (service === undefined) throw new Error('DS Bot is shutting down')
     const known = await service.listModels(provider).catch(() => [])
@@ -333,20 +357,78 @@ export function install(rt) {
   // Recheck group Sessions after every restart: Bot-level applied fields cannot
   // prove that an older group Session received the member's thinking level.
   const sessionSelections = new Map()
-  function selectSessionModel(sessionId, { provider, model, reasoningEffort }) {
+  const selectedSessions = new Set()
+
+  // Cold Sessions avoid replay only when the checkpoint and our durable selection
+  // agree. A composer change lost before a crash flushed the checkpoint remains
+  // undetectable without a DSH freshness witness.
+  const LISTING_TTL_MS = 15_000
+  let listing
+  async function listedSessions() {
+    if (listing !== undefined && Date.now() - listing.at < LISTING_TTL_MS) return listing.records
+    const query = serviceOf(ctx, 'sessionQuery')
+    if (query?.listSessions === undefined) return undefined
+    const records = new Map()
+    for (const record of await query.listSessions()) records.set(record.header.id, record)
+    let pruned = false
+    for (const id of Object.keys(state.sessionModelSelections ?? {})) {
+      if (records.has(id)) continue
+      delete state.sessionModelSelections[id]
+      pruned = true
+    }
+    if (pruned) await rt.save()
+    listing = { at: Date.now(), records }
+    return records
+  }
+
+  // The selection a stored Session runs on, or undefined when this start can only learn
+  // it by resuming the Session. A live Session is left to the call: the composer's own
+  // model picker can move it at any time, and loading it costs nothing.
+  async function recordedSelection(sessionId) {
+    try {
+      if (selectedSessions.has(sessionId)) return undefined
+      const cache = serviceOf(ctx, 'sessionProjectionCache')
+      if (cache?.cachedSnapshot === undefined) return undefined
+      const record = (await listedSessions())?.get(sessionId)
+      if (record === undefined || !record.persisted || record.live) return undefined
+      if (ctx.sessions?.get?.(sessionId) !== undefined || ctx.agents?.get?.(sessionId) !== undefined) return undefined
+      const selection = cache.cachedSnapshot(record.header, ['modelSelection'])?.values?.modelSelection
+      return selection?.next ?? selection?.lastUsed ?? undefined
+    } catch (error) {
+      rt.warn?.('ds-bot: the model selection %s runs on was not read: %s', sessionId, error)
+      return undefined
+    }
+  }
+
+  function selectSessionModel(sessionId, { provider, model, reasoningEffort }, { force = false } = {}) {
     const run = selecting.then(async () => {
       if (llm() === undefined) return
+      const route = { provider, model, ...(reasoningEffort === undefined ? {} : { reasoningEffort }) }
+      if (!force) {
+        const recorded = await recordedSelection(sessionId)
+        const witnessed = state.sessionModelSelections?.[sessionId]
+        const requested = witnessed?.requested ?? witnessed
+        const resolved = witnessed?.resolved ?? witnessed
+        if (recorded !== undefined && requested !== undefined && sameSelection(requested, route) && (sameSelection(recorded, resolved) || sameSelection(recorded, route))) {
+          sessionSelections.set(sessionId, route)
+          return { selected: route }
+        }
+      }
       const defaults = ctx.get?.('agentDefaultModel')
       const before = defaults?.currentSelection?.()
+      selectedSessions.add(sessionId)
       const result = await ctx.sessionController.selectModel({
         sessionId, provider, model,
         ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
       })
-      const saved = result?.selected ?? { provider, model, ...(reasoningEffort === undefined ? {} : { reasoningEffort }) }
-      if (llm() === undefined) return result
-      if (before?.provider && before?.model && !sameSelection(before, saved)) {
+      const saved = result?.selected ?? route
+      state.sessionModelSelections ??= {}
+      state.sessionModelSelections[sessionId] = { requested: { ...route }, resolved: { ...saved } }
+      if (llm() !== undefined && before?.provider && before?.model && !sameSelection(before, saved)) {
         await defaults.saveSelection(before).catch(error => rt.warn('ds-bot: the default model was not restored: %s', error))
       }
+      await rt.save().catch(error => rt.warn?.('ds-bot: the model selection of %s was not saved: %s', sessionId, error))
+      if (llm() === undefined) return result
       sessionSelections.set(sessionId, { provider, model, reasoningEffort })
       return result
     })
@@ -369,11 +451,11 @@ export function install(rt) {
     // A Bot's model is the model of every part of its own chat, the background ones
     // included: a part left on the old route would keep answering with the old model
     // while the settings show the new one. A part that cannot take it fails the change.
-    if (ownChanged) for (const sessionId of ownChatSessions(bot)) await selectSessionModel(sessionId, route)
+    if (ownChanged) for (const sessionId of ownChatSessions(bot)) await selectSessionModel(sessionId, route, { force })
     for (const sessionId of rt.groupSessionsOf(bot.id)) {
       const applied = sessionSelections.get(sessionId)
       if (!force && applied !== undefined && sameSelection(applied, route)) continue
-      await selectSessionModel(sessionId, route)
+      await selectSessionModel(sessionId, route, { force })
         .catch(error => rt.warn('ds-bot: model for %s in a group not applied: %s', bot.name, error))
     }
     if (llm() === undefined || !ownChanged) return ref

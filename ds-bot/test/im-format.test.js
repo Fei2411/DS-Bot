@@ -1,6 +1,13 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { chunkMarkdown, chunkTelegram, toPlain, toTelegramHtml } from '../src/host/im/format.js'
+import { chunkMarkdown, chunkTelegram, toPlain } from '../src/host/im/format.js'
+
+// What Telegram is sent for a message that fits one chunk.
+const toTelegramHtml = (markdown) => {
+  const chunks = chunkTelegram(markdown)
+  assert.equal(chunks.length, 1)
+  return chunks[0].html
+}
 
 test('Markdown becomes Telegram HTML', () => {
   assert.equal(toTelegramHtml('**bold** and _ital_'), '<b>bold</b> and <i>ital</i>')

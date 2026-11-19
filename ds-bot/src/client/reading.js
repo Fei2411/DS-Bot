@@ -91,6 +91,43 @@ function watchSize(node, onSize) {
   }
 }
 
+// Long replies share scroll listeners and measure their band once per frame.
+const followers = new Map()
+let frame = 0
+function measureScroll() {
+  frame = 0
+  const news = document.querySelector('.bt-news[data-direction=up]')?.getBoundingClientRect()
+  for (const [scroller, listeners] of followers) {
+    const band = readingBand(scroller)
+    listeners.forEach(listener => {
+      try { listener(band, news) } catch (error) { reportError(error) }
+    })
+  }
+}
+function scheduleScroll() {
+  if (!frame) frame = requestAnimationFrame(measureScroll)
+}
+export function followScroll(scroller, onFrame) {
+  if (followers.size === 0) window.addEventListener('resize', scheduleScroll)
+  const listeners = followers.get(scroller) ?? new Set()
+  followers.set(scroller, listeners)
+  listeners.add(onFrame)
+  if (listeners.size === 1) scroller.addEventListener('scroll', scheduleScroll, { passive: true })
+  scheduleScroll()
+  return () => {
+    listeners.delete(onFrame)
+    if (listeners.size === 0) {
+      followers.delete(scroller)
+      scroller.removeEventListener('scroll', scheduleScroll)
+    }
+    if (followers.size === 0) {
+      window.removeEventListener('resize', scheduleScroll)
+      cancelAnimationFrame(frame)
+      frame = 0
+    }
+  }
+}
+
 const glide = (scroller, by) => scroller.scrollTo({ top: Math.max(0, scroller.scrollTop + by), behavior: reducedMotion() ? 'auto' : 'smooth' })
 
 // The pill for the reply in `box`; `active` is false while it streams or is folded.
@@ -112,27 +149,15 @@ export function ReplyGuide({ box, active }) {
   }, [active])
   useEffect(() => {
     if (!long || !scroller) { setView(null); return undefined }
-    let frame = 0
-    const measure = () => {
-      frame = 0
+    return followScroll(scroller, (band, news) => {
       const node = box.current
       if (!node) return
-      const news = document.querySelector('.bt-news[data-direction=up]')?.getBoundingClientRect()
-      const place = pillPlace(node.getBoundingClientRect(), readingBand(scroller), news)
+      const place = pillPlace(node.getBoundingClientRect(), band, news)
       const headings = place ? headingsIn(node) : []
       const current = sectionAt(headings.map(heading => heading.getBoundingClientRect().top), place ? place.top + PILL + SLACK : 0)
       const next = place && { ...place, current }
       setView(prev => (prev && next && Object.keys(next).every(key => prev[key] === next[key]) ? prev : next))
-    }
-    const schedule = () => { if (!frame) frame = requestAnimationFrame(measure) }
-    scroller.addEventListener('scroll', schedule, { passive: true })
-    window.addEventListener('resize', schedule)
-    schedule()
-    return () => {
-      cancelAnimationFrame(frame)
-      scroller.removeEventListener('scroll', schedule)
-      window.removeEventListener('resize', schedule)
-    }
+    })
   }, [long, scroller])
   useEffect(() => { if (view === null) setMenu(false) }, [view === null])
   useEffect(() => {
