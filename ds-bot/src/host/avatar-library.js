@@ -14,6 +14,9 @@ const MAX_PHOTOS = 500
 // How many photos one answer carries. A window asks for the rest when it wants them,
 // so a big library does not become one huge reply.
 const MAX_LISTED = 48
+// How many photo files one page reads at once: enough to overlap the waits on the
+// disk, few enough that a page never holds many files open.
+const PARALLEL_READS = 8
 
 export function install(rt) {
   const root = typeof rt.home === 'string' ? join(rt.home, 'avatars') : undefined
@@ -98,6 +101,22 @@ export function install(rt) {
     return result
   })
 
+  // Each entry's image as a data URL, in the order of the entries; a file that cannot
+  // be read is left undefined.
+  const readImages = async (entries) => {
+    const images = Array.from({ length: entries.length })
+    let next = 0
+    const reader = async () => {
+      while (next < entries.length) {
+        const at = next++
+        const bytes = await readFile(fileOf(entries[at])).catch(() => undefined)
+        if (bytes !== undefined) images[at] = `data:${entries[at].mime};base64,${bytes.toString('base64')}`
+      }
+    }
+    await Promise.all(Array.from({ length: Math.min(PARALLEL_READS, entries.length) }, reader))
+    return images
+  }
+
   // The photos the user can pick, with the image itself, so the window needs one
   // request to draw the library. The newest come first, and a library with many photos
   // is asked for page by page.
@@ -106,13 +125,9 @@ export function install(rt) {
     const ordered = [...index].reverse().sort((a, b) => b.createdAt - a.createdAt)
     const start = Math.max(0, Math.floor(Number(offset)) || 0)
     const count = Math.min(MAX_LISTED, Math.max(1, Math.floor(Number(limit)) || MAX_LISTED))
-    const items = []
     const page = ordered.slice(start, start + count)
-    for (const entry of page) {
-      const bytes = await readFile(fileOf(entry)).catch(() => undefined)
-      if (bytes === undefined) continue
-      items.push({ ...entry, image: `data:${entry.mime};base64,${bytes.toString('base64')}` })
-    }
+    const images = await readImages(page)
+    const items = page.flatMap((entry, at) => images[at] === undefined ? [] : [{ ...entry, image: images[at] }])
     // The next page starts where this one stopped, even when a photo went missing.
     return { items, total: ordered.length, next: start + page.length }
   }
