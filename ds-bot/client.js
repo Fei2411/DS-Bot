@@ -501,15 +501,18 @@ s…":"フォルダを参照…","Enter a path…":"パスを入力…","Folder 
 このフォルダを使用","Up one level":"1 つ上の階層へ","No folders inside.":"中にフォルダはありません。","Some folders are not shown.":"一部のフォルダは表示されていません。",
 "Waiting for sign-in…":"サインインを待っています…","This service needs an app client ID":"このサービスにはアプリの Client ID が必要です","Paste the\
  address you land on":"リダイレクト先の URL を貼り付け","Finish sign-in":"サインインを完了","Open {host}":"{host} を開く","Client ID":"Client ID","Client se\
-cret (optional)":"Client Secret（任意）",Continue:"続行","{name} key":"{name} キー","{name} token":"{name} トークン","Get a key":"キーを取得","Read-only":"読み取り専用",
-"{count} tools":"{count} 個のツール",Mailbox:"メールボックス","Email address":"メールアドレス",Catalog:"カタログ","App password":"アプリパスワード","\
-Authorization code":"認証コード","Password or app password":"パスワードまたはアプリパスワード","Official help":"公式ヘルプ","Finish signing in in your bro\
-wser.":"ブラウザでサインインを完了してください。","Open again":"もう一度開く","Did not come back here?":"自動的に戻らない場合","Copied to clipbo\
-ard":"クリップボードにコピーしました","Paste the code on {host} and authorize.":"{host} でコードを貼り付けて認証してください。","Add another":"さらに\
-追加","QQ, 163, 126, Gmail, iCloud, and other IMAP mail":"QQ、163、126、Gmail、iCloud などの IMAP メール","Other MCP server":"その他の MCP サーバー","An address\
-, a command, or one from Claude Desktop, Cursor, or VS Code":"URL・コマンドを指定、または Claude Desktop、Cursor、VS Code からインポート","Kind of server":"サーバ\
-ーの種類","Nothing matches":"一致するコネクタがありません",Recommended:"おすすめ","See all":"すべて表示","{count} connected":"{count} 件接続済み","{\
-count} accounts":"{count} 件のアカウント",Category:"カテゴリ","Could not reach the mail server. Check the server address.":"メールサーバーに接続できませんでした。サーバーアドレスを確認してください。",
+cret (optional)":"Client Secret（任意）","In OAuth & Permissions at {app}, add this redirect URL:":"{app} の OAuth & Permissions に、このリダイレクト URL を追加してください：",
+"In the app settings, add this redirect URL:":"アプリの設定に、このリダイレクト URL を追加してください：","Turn on the MCP features and scopes the app nee\
+ds.":"アプリに必要な MCP 機能とスコープを有効にしてください。","Copy the Client ID and Client Secret here.":"Client ID と Client Secret をここに入力してください。",
+"Open app settings":"アプリの設定を開く",Continue:"続行","{name} key":"{name} キー","{name} token":"{name} トークン","Get a key":"キーを取得","Read-only":"読み取\
+り専用","{count} tools":"{count} 個のツール",Mailbox:"メールボックス","Email address":"メールアドレス",Catalog:"カタログ","App password":"アプリパスワード",
+"Authorization code":"認証コード","Password or app password":"パスワードまたはアプリパスワード","Official help":"公式ヘルプ","Finish signing in in your br\
+owser.":"ブラウザでサインインを完了してください。","Open again":"もう一度開く","Did not come back here?":"自動的に戻らない場合","Copied to clipb\
+oard":"クリップボードにコピーしました","Paste the code on {host} and authorize.":"{host} でコードを貼り付けて認証してください。","Add another":"さら\
+に追加","QQ, 163, 126, Gmail, iCloud, and other IMAP mail":"QQ、163、126、Gmail、iCloud などの IMAP メール","Other MCP server":"その他の MCP サーバー","An addr\
+ess, a command, or one from Claude Desktop, Cursor, or VS Code":"URL・コマンドを指定、または Claude Desktop、Cursor、VS Code からインポート","Kind of server":"\
+サーバーの種類","Nothing matches":"一致するコネクタがありません",Recommended:"おすすめ","See all":"すべて表示","{count} connected":"{count} 件接続済み",
+"{count} accounts":"{count} 件のアカウント",Category:"カテゴリ","Could not reach the mail server. Check the server address.":"メールサーバーに接続できませんでした。サーバーアドレスを確認してください。",
 "Sign in at mail.qq.com, click your avatar at the top right, and open Settings → Account and Security → Security Settings.":"mail.qq.com にサインインし、右上のアバターをクリックして「設定 → アカウントとセキュリテ\
 ィ → セキュリティ設定」を開きます。","Turn on the POP3/IMAP/SMTP service, then click Generate authorization code and verify yourself.":"POP3/IMAP/SMTP サービスを有効にし、「\
 認証コードを生成」をクリックして本人確認を行います。","Paste the 16-letter code below. Changing your QQ password cancels it.":"16 桁の認証コードを下に貼り付けます。QQ のパスワ\
@@ -1416,29 +1419,31 @@ t":"이 Bot에 대해 유지 중인 보호 항목이 없습니다","Team workspa
 "Folder path":"폴더 경로","Full path of a folder":"폴더의 전체 경로","Use this folder":"이 폴더 사용","Up one level":"상위 폴더로","No folders inside.":"하위 폴더가\
  없습니다.","Some folders are not shown.":"일부 폴더가 표시되지 않았습니다.","Waiting for sign-in…":"로그인 대기 중…","This service needs an app client \
 ID":"이 서비스는 앱 Client ID가 필요합니다","Paste the address you land on":"리디렉션된 주소 붙여넣기","Finish sign-in":"로그인 완료","Open {host}":"{ho\
-st} 열기","Client ID":"Client ID","Client secret (optional)":"Client secret (선택사항)",Continue:"계속","{name} key":"{name} 키","{name} token":"{name} 토큰","Get a key":"\
-키 발급받기","Read-only":"읽기 전용","{count} tools":"도구 {count}개",Mailbox:"메일함","Email address":"이메일 주소",Catalog:"카탈로그","App password":"앱 비밀\
-번호","Authorization code":"인증 코드","Password or app password":"비밀번호 또는 앱 비밀번호","Official help":"공식 도움말","Finish signing in in your browser\
-.":"브라우저에서 로그인을 완료하세요.","Open again":"다시 열기","Did not come back here?":"로그인 후 이 화면으로 돌아오지 않았나요?","Copied to \
-clipboard":"클립보드에 복사됨","Paste the code on {host} and authorize.":"{host}에 코드를 붙여넣고 권한을 승인하세요.","Add another":"추가 연결","QQ, 16\
-3, 126, Gmail, iCloud, and other IMAP mail":"QQ, 163, 126, Gmail, iCloud 및 기타 IMAP 메일","Other MCP server":"기타 MCP 서버","An address, a command, or one from Claude D\
-esktop, Cursor, or VS Code":"주소나 명령어를 입력하거나 Claude Desktop, Cursor, VS Code에서 가져오기","Kind of server":"서버 유형","Nothing matches":"일치하는 커넥터\
- 없음",Recommended:"추천","See all":"모두 보기","{count} connected":"{count}개 연결됨","{count} accounts":"계정 {count}개",Category:"카테고리","Could not reach t\
-he mail server. Check the server address.":"메일 서버에 연결할 수 없습니다. 서버 주소를 확인하세요.","Sign in at mail.qq.com, click your avatar at the top ri\
-ght, and open Settings → Account and Security → Security Settings.":"mail.qq.com에 로그인한 후 오른쪽 상단 아바타를 클릭하고 설정 → 계정 및 보안 → 보안 설정을 엽니다.",
-"Turn on the POP3/IMAP/SMTP service, then click Generate authorization code and verify yourself.":"POP3/IMAP/SMTP 서비스를 켜고 인증 코드 생성을 클릭한 뒤 본인 인증을 완료합니다.",
-"Paste the 16-letter code below. Changing your QQ password cancels it.":"16자리 인증 코드를 아래에 붙여넣으세요. QQ 비밀번호를 변경하면 코드가 무효화됩니다.",
-"Sign in at {host} and open Settings → POP3/SMTP/IMAP.":"{host}에 로그인한 후 설정 → POP3/SMTP/IMAP을 엽니다.","Turn on IMAP/SMTP and send the text message it asks \
-for.":"IMAP/SMTP 서비스를 켜고 안내에 따라 문자 메시지 인증을 완료합니다.","Paste the 16-character code below. It is shown only once.":"16자리 인증 코드를 아래에 붙여넣으\
-세요. 코드는 한 번만 표시됩니다.","Turn on 2-Step Verification for your Google Account.":"먼저 Google 계정에서 2단계 인증을 켭니다.","Open App passwords,\
- create one, and paste the 16-character password below.":"앱 비밀번호를 열어 새 비밀번호를 생성한 뒤 16자리 비밀번호를 아래에 붙여넣으세요.","Work\
- and school accounts cannot use app passwords.":"직장 및 학교 계정에서는 앱 비밀번호를 사용할 수 없습니다.","Your Apple Account needs two-factor authenticat\
-ion.":"Apple 계정에 이중 인증이 켜져 있어야 합니다.","Sign in at account.apple.com and open Sign-In and Security → App-Specific Passwords.":"account.apple.com에 로그\
-인한 후 로그인 및 보안 → 앱 암호를 엽니다.","Generate a password and paste it below.":"암호를 생성하여 아래에 붙여넣으세요.","The mail service ref\
-used the login (Unsafe Login). Enable IMAP/SMTP in the mailbox settings and use its authorization code, not the account password.":"메일 서비스에서 로그인을 거부했습니다(Unsafe Login). 메일함 설정에서 IMA\
-P/SMTP를 활성화하고 계정 비밀번호가 아닌 인증 코드를 사용하세요.","The password was refused. Use the mailbox app password or authorization code, not the ac\
-count password.":"비밀번호가 거부되었습니다. 계정 로그인 비밀번호가 아닌 메일함의 앱 비밀번호 또는 인증 코드를 사용하세요.","Enter the \
-authorization code or app password":"인증 코드 또는 앱 비밀번호를 입력하세요","Pages, databases, and wiki content":"페이지, 데이터베이스 및 위키 콘텐츠",
+st} 열기","Client ID":"Client ID","Client secret (optional)":"Client secret (선택사항)","In OAuth & Permissions at {app}, add this redirect URL:":"{app}의 OAuth & Permissions에\
+서 이 리디렉션 URL을 추가하세요:","In the app settings, add this redirect URL:":"앱 설정에서 이 리디렉션 URL을 추가하세요:","Turn on the MCP features an\
+d scopes the app needs.":"앱에 필요한 MCP 기능과 범위를 켜세요.","Copy the Client ID and Client Secret here.":"Client ID와 Client Secret을 여기에 입력하세요.",
+"Open app settings":"앱 설정 열기",Continue:"계속","{name} key":"{name} 키","{name} token":"{name} 토큰","Get a key":"키 발급받기","Read-only":"읽기 전용","{coun\
+t} tools":"도구 {count}개",Mailbox:"메일함","Email address":"이메일 주소",Catalog:"카탈로그","App password":"앱 비밀번호","Authorization code":"인증 코드","\
+Password or app password":"비밀번호 또는 앱 비밀번호","Official help":"공식 도움말","Finish signing in in your browser.":"브라우저에서 로그인을 완료하세요.",
+"Open again":"다시 열기","Did not come back here?":"로그인 후 이 화면으로 돌아오지 않았나요?","Copied to clipboard":"클립보드에 복사됨","Paste the code\
+ on {host} and authorize.":"{host}에 코드를 붙여넣고 권한을 승인하세요.","Add another":"추가 연결","QQ, 163, 126, Gmail, iCloud, and other IMAP mail":"QQ, 163, \
+126, Gmail, iCloud 및 기타 IMAP 메일","Other MCP server":"기타 MCP 서버","An address, a command, or one from Claude Desktop, Cursor, or VS Code":"주소나 명령어를 입력하거나 Claude Des\
+ktop, Cursor, VS Code에서 가져오기","Kind of server":"서버 유형","Nothing matches":"일치하는 커넥터 없음",Recommended:"추천","See all":"모두 보기","{count}\
+ connected":"{count}개 연결됨","{count} accounts":"계정 {count}개",Category:"카테고리","Could not reach the mail server. Check the server address.":"메일 서버에 연결할 수 없습니다. 서\
+버 주소를 확인하세요.","Sign in at mail.qq.com, click your avatar at the top right, and open Settings → Account and Security → Security Settings.":"mail.qq.com에 로그인한 후\
+ 오른쪽 상단 아바타를 클릭하고 설정 → 계정 및 보안 → 보안 설정을 엽니다.","Turn on the POP3/IMAP/SMTP service, then click Generate authorization cod\
+e and verify yourself.":"POP3/IMAP/SMTP 서비스를 켜고 인증 코드 생성을 클릭한 뒤 본인 인증을 완료합니다.","Paste the 16-letter code below. Changing your \
+QQ password cancels it.":"16자리 인증 코드를 아래에 붙여넣으세요. QQ 비밀번호를 변경하면 코드가 무효화됩니다.","Sign in at {host} and open Setting\
+s → POP3/SMTP/IMAP.":"{host}에 로그인한 후 설정 → POP3/SMTP/IMAP을 엽니다.","Turn on IMAP/SMTP and send the text message it asks for.":"IMAP/SMTP 서비스를 켜고 안내에 따라 문자 \
+메시지 인증을 완료합니다.","Paste the 16-character code below. It is shown only once.":"16자리 인증 코드를 아래에 붙여넣으세요. 코드는 한 번만 표시됩니다.",
+"Turn on 2-Step Verification for your Google Account.":"먼저 Google 계정에서 2단계 인증을 켭니다.","Open App passwords, create one, and paste the 16-character passwor\
+d below.":"앱 비밀번호를 열어 새 비밀번호를 생성한 뒤 16자리 비밀번호를 아래에 붙여넣으세요.","Work and school accounts cannot use app passwords.":"\
+직장 및 학교 계정에서는 앱 비밀번호를 사용할 수 없습니다.","Your Apple Account needs two-factor authentication.":"Apple 계정에 이중 인증이 켜져 있어야 합니다.",
+"Sign in at account.apple.com and open Sign-In and Security → App-Specific Passwords.":"account.apple.com에 로그인한 후 로그인 및 보안 → 앱 암호를 엽니다.","\
+Generate a password and paste it below.":"암호를 생성하여 아래에 붙여넣으세요.","The mail service refused the login (Unsafe Login). Enable IMAP/SMTP in the mailbox \
+settings and use its authorization code, not the account password.":"메일 서비스에서 로그인을 거부했습니다(Unsafe Login). 메일함 설정에서 IMAP/SMTP를 활성화하고 계정 비밀번호가 아닌 인증 코드를 사용하세요.",
+"The password was refused. Use the mailbox app password or authorization code, not the account password.":"비밀번호가 거부되었습니다. 계정 로그인 비밀번호가 아닌 메일함의 앱 비밀번호 또는 인증 코드를 사용하세요.",
+"Enter the authorization code or app password":"인증 코드 또는 앱 비밀번호를 입력하세요","Pages, databases, and wiki content":"페이지, 데이터베이스 및 위키 콘텐츠",
 "Issues, projects, and cycles":"이슈, 프로젝트 및 사이클","Jira issues and Confluence pages":"Jira 이슈 및 Confluence 페이지","Errors, traces, and releases":"오류, 트레\
 이스 및 릴리스","Payments, invoices, and customers":"결제, 청구서 및 고객","Orders, payments, and invoices":"주문, 결제 및 청구서","Payments, orders, and cata\
 log":"결제, 주문 및 상품 카탈로그","Workers, DNS, and account resources":"Workers, DNS 및 계정 리소스","Projects, deployments, and logs":"프로젝트, 배포 및 로그",
@@ -2294,138 +2299,141 @@ ut a folder of their own work.":"Donde trabajan los Bots que no tienen carpeta p
 Folder path":"Ruta de la carpeta","Full path of a folder":"Ruta completa de una carpeta","Use this folder":"Usar esta carpeta","Up one level":"Subir un nivel","No folders inside.":"\
 No hay carpetas dentro.","Some folders are not shown.":"Algunas carpetas no se muestran.","Waiting for sign-in…":"Esperando inicio de sesión…","This service needs an app clien\
 t ID":"Este servicio necesita un Client ID de aplicación","Paste the address you land on":"Pega la dirección a la que llegues","Finish sign-in":"Finalizar inicio de sesión","Ope\
-n {host}":"Abrir {host}","Client ID":"Client ID","Client secret (optional)":"Client secret (opcional)",Continue:"Continuar","{name} key":"Clave de {name}","{name} token":"Token de \
-{name}","Get a key":"Obtener una clave","Read-only":"Solo lectura","{count} tools":"{count} herramientas",Mailbox:"Buzón de correo","Email address":"Dirección de correo",Catalog:"\
-Catálogo","App password":"Contraseña de aplicación","Authorization code":"Código de autorización","Password or app password":"Contraseña o contraseña de aplicación","Offici\
-al help":"Ayuda oficial","Finish signing in in your browser.":"Termina de iniciar sesión en tu navegador.","Open again":"Abrir de nuevo","Did not come back here?":"¿No volviste aq\
-uí?","Copied to clipboard":"Copiado al portapapeles","Paste the code on {host} and authorize.":"Pega el código en {host} y autoriza.","Add another":"Añadir otro","QQ, 163, 126, \
-Gmail, iCloud, and other IMAP mail":"QQ, 163, 126, Gmail, iCloud y otros correos IMAP","Other MCP server":"Otro servidor MCP","An address, a command, or one from Claude Desktop, Cu\
-rsor, or VS Code":"Una dirección, un comando o uno de Claude Desktop, Cursor o VS Code","Kind of server":"Tipo de servidor","Nothing matches":"No hay coincidencias",Recommended:"R\
-ecomendado","See all":"Ver todo","{count} connected":"{count} conectados","{count} accounts":"{count} cuentas",Category:"Categoría","Could not reach the mail server. Check the ser\
-ver address.":"No se pudo conectar con el servidor de correo. Comprueba la dirección del servidor.","Sign in at mail.qq.com, click your avatar at the top right, and open Settings \
-→ Account and Security → Security Settings.":"Inicia sesión en mail.qq.com, haz clic en tu avatar arriba a la derecha y abre Ajustes → Cuenta y seguridad → Ajustes de seguridad\
-.","Turn on the POP3/IMAP/SMTP service, then click Generate authorization code and verify yourself.":"Activa el servicio POP3/IMAP/SMTP, luego haz clic en Generar código de autoriz\
-ación y verifica tu identidad.","Paste the 16-letter code below. Changing your QQ password cancels it.":"Pega abajo el código de 16 letras. Cambiar tu contraseña de QQ lo anulará.",
-"Sign in at {host} and open Settings → POP3/SMTP/IMAP.":"Inicia sesión en {host} y abre Ajustes → POP3/SMTP/IMAP.","Turn on IMAP/SMTP and send the text message it asks for.":"\
-Activa IMAP/SMTP y envía el mensaje de texto que solicita.","Paste the 16-character code below. It is shown only once.":"Pega abajo el código de 16 caracteres. Solo se muestra una\
- vez.","Turn on 2-Step Verification for your Google Account.":"Activa la verificación en dos pasos en tu cuenta de Google.","Open App passwords, create one, and paste the 16-chara\
-cter password below.":"Abre Contraseñas de aplicaciones, crea una y pega abajo la contraseña de 16 caracteres.","Work and school accounts cannot use app passwords.":"Las cuentas \
-de trabajo y de centros educativos no pueden usar contraseñas de aplicación.","Your Apple Account needs two-factor authentication.":"Tu cuenta de Apple necesita autenticación de \
-dos factores.","Sign in at account.apple.com and open Sign-In and Security → App-Specific Passwords.":"Inicia sesión en account.apple.com y abre Inicio de sesión y seguridad → Co\
-ntraseñas específicas de apps.","Generate a password and paste it below.":"Genera una contraseña y pégala abajo.","The mail service refused the login (Unsafe Login). Enable IMA\
-P/SMTP in the mailbox settings and use its authorization code, not the account password.":"El servicio de correo rechazó el inicio de sesión (Unsafe Login). Activa IMAP/SMTP en los\
- ajustes del buzón y usa su código de autorización, no la contraseña de la cuenta.","The password was refused. Use the mailbox app password or authorization code, not the accou\
-nt password.":"La contraseña fue rechazada. Usa la contraseña de aplicación o el código de autorización del buzón, no la contraseña de la cuenta.","Enter the authorization c\
-ode or app password":"Introduce el código de autorización o la contraseña de aplicación","Pages, databases, and wiki content":"Páginas, bases de datos y contenido wiki","Issue\
-s, projects, and cycles":"Issues, proyectos y ciclos","Jira issues and Confluence pages":"Incidencias de Jira y páginas de Confluence","Errors, traces, and releases":"Errores, tra\
-zas y versiones","Payments, invoices, and customers":"Pagos, facturas y clientes","Orders, payments, and invoices":"Pedidos, pagos y facturas","Payments, orders, and catalog":"Pago\
-s, pedidos y catálogo","Workers, DNS, and account resources":"Workers, DNS y recursos de la cuenta","Projects, deployments, and logs":"Proyectos, despliegues y registros","Databas\
-es, tables, and project settings":"Bases de datos, tablas y ajustes del proyecto","Postgres databases and branches":"Bases de datos Postgres y ramas","Design files, components, and\
- comments":"Archivos de diseño, componentes y comentarios","Designs, folders, and exports":"Diseños, carpetas y exportaciones","Conversations, contacts, and articles":"Conversaci\
-ones, contactos y artículos","Boards, items, and workflows":"Tableros, elementos y flujos de trabajo","Sites, pages, and CMS content":"Sitios, páginas y contenido CMS","Sites, pa\
-ges, and site content":"Sitios, páginas y contenido del sitio","Sites, deploys, and forms":"Sitios, despliegues y formularios","Bases, tables, and records":"Bases, tablas y regist\
-ros","Files and folders":"Archivos y carpetas","Zaps and app actions":"Zaps y acciones de aplicaciones","Tasks, lists, and docs":"Tareas, listas y documentos","Tasks and projects":"\
-Tareas y proyectos","Boards and whiteboard items":"Tableros y elementos de pizarra","CRM records, lists, and notes":"Registros CRM, listas y notas","Collections, requests, and work\
-spaces":"Colecciones, solicitudes y espacios de trabajo","Tasks, projects, and workspaces":"Tareas, proyectos y espacios de trabajo","Files, folders, and metadata":"Archivos, carpe\
-tas y metadatos","Contacts, deals, and tickets":"Contactos, tratos y tickets","Channels and messages":"Canales y mensajes","Models, datasets, and Spaces":"Modelos, conjuntos de dat\
-os y Spaces","Web search for agents":"Búsqueda web para agentes","Documentation for public code repositories":"Documentación de repositorios de código públicos","Library docume\
-ntation and code examples":"Documentación de bibliotecas y ejemplos de código","Microsoft product documentation":"Documentación de productos de Microsoft","Cloudflare product do\
-cumentation":"Documentación de productos de Cloudflare","Maps, places, and routes in China":"Mapas, lugares y rutas en China","Read and send email over IMAP and SMTP":"Leer y envi\
-ar correo mediante IMAP y SMTP","IMAP host":"Servidor IMAP","SMTP host":"Servidor SMTP","Sign in with Google":"Iniciar sesión con Google","Verifying…":"Verificando…","Import f\
-rom other apps":"Importar desde otras aplicaciones","Server address":"Dirección del servidor","Command, e.g. npx -y some-mcp":"Comando, p. ej., npx -y some-mcp","Scanning…":"Esc\
-aneando…","No MCP servers found in Claude Desktop, Cursor, or VS Code settings.":"No se encontraron servidores MCP en los ajustes de Claude Desktop, Cursor o VS Code.","Import {c\
-ount}":"Importar {count}",All:"Todo",Developer:"Desarrollador","Docs & files":"Documentos y archivos",Work:"Trabajo",Design:"Diseño",Data:"Datos",Commerce:"Comercio","No connector\
-s connected":"No hay conectores conectados","{bot} needs {name}":"{bot} necesita {name}",Mail:"Correo",Subject:"Asunto","Write a message…":"Escribe un mensaje…",Discard:"Descar\
-tar",Discarded:"Descartado","Allow recipient":"Permitir destinatario","Allow this Bot to send directly":"Permitir que este Bot envíe directamente","Manage rules":"Gestionar reglas",
-"Sending rules":"Reglas de envío",From:"De",To:"Para",Cc:"Cc",Bcc:"Cco","Attachments: {names}":"Adjuntos: {names}",Sent:"Enviado",Failed:"Falló","Request failed":"Solicitud falli\
-da","Permissions are not available in this DeepSeek Harness":"Los permisos no están disponibles en este DeepSeek Harness","Avatar image is too large":"La imagen de avatar es demas\
-iado grande","A Bot needs a name":"Un Bot necesita un nombre","A Bot name cannot contain @, ` or a line break":"El nombre de un Bot no puede contener @, ` ni saltos de línea","Unk\
-nown Bot":"Bot desconocido","Unknown conversation":"Conversación desconocida","A group chat needs at least two Bots":"Un chat grupal necesita al menos dos Bots","The admin must be\
- a member of the group":"El administrador debe ser miembro del grupo","Unknown group chat":"Chat grupal desconocido","No Bot is left in this group chat":"No queda ningún Bot en est\
-e chat grupal","That group chat has been deleted":"Ese chat grupal ha sido eliminado","Hand the admin role to another member instead of leaving the group without one":"Cede el rol \
-de administrador a otro miembro en lugar de dejar el grupo sin administrador","Hand the admin role to another member before leaving the group":"Cede el rol de administrador a otro \
-miembro antes de salir del grupo","The team needs at least one Main Bot":"El equipo necesita al menos un Bot principal","Only a Main Bot can be replaced":"Solo se puede reemplazar \
-un Bot principal","A Main Bot cannot be deleted; remove its Main Bot role first":"Un Bot principal no se puede eliminar; quítale primero el rol de Bot principal","Unknown theme":"\
-Tema desconocido","Accent must be a #rrggbb color":"El color de acento debe tener formato #rrggbb","Type the key first":"Escribe primero la clave","Choose every Bot or a list of Bo\
-ts":"Elige todos los Bots o una lista de Bots","This request is gone":"Esta solicitud ya no existe","This request was already answered":"Esta solicitud ya fue respondida","A name u\
-ses capitals, digits, and underscores, and starts with a letter":"Un nombre usa mayúsculas, dígitos y guiones bajos, y empieza por una letra","No such key":"No existe esa clave",
-"Type a question or a change first":"Escribe primero una pregunta o un cambio","No model is available. Add one in Settings > Models.":"No hay ningún modelo disponible. Añade uno en\
- Ajustes > Modelos.","Memory is turned off on this host":"La memoria está desactivada en este host","The model wrote nothing":"El modelo no escribió nada","Write the entry to sav\
-e.":"Escribe la entrada que quieres guardar.","This DeepSeek Harness has no folder chooser":"Este DeepSeek Harness no tiene selector de carpetas","This DeepSeek Harness cannot list\
- folders":"Este DeepSeek Harness no puede listar carpetas","Side chat is only available in a Bot's private chat.":"El chat lateral solo está disponible en el chat privado de un Bot\
-.","Write a question.":"Escribe una pregunta.","Write a question after /side.":"Escribe una pregunta después de /side.","/side does not take attachments.":"/side no admite archivo\
-s adjuntos.","Wait for the answer, or cancel it.":"Espera la respuesta o cancélala.","This side chat is no longer here.":"Este chat lateral ya no está aquí.","This side question\
- is no longer here.":"Esta pregunta lateral ya no está aquí.","This Bot has not called a model yet. Send a normal message first.":"Este Bot aún no ha llamado a ningún modelo. Env\
-ía primero un mensaje normal.","DS Bot restarted before this answer finished.":"DS Bot se reinició antes de que terminara esta respuesta.","The model called a tool again after be\
-ing told not to, so this aside was not answered.":"El modelo volvió a llamar a una herramienta después de indicarle que no lo hiciera, por lo que esta consulta lateral no recibió r\
-espuesta.","The model wrote nothing.":"El modelo no escribió nada.","Nothing to ask":"Nada que preguntar","Nothing to open":"Nada que abrir","Nothing to cancel":"Nada que cancelar",
-"Nothing to close":"Nada que cerrar","DS Bot is still loading this chat.":"DS Bot aún está cargando este chat.","This message is no longer kept":"Este mensaje ya no se conserva",
-"No file named":"No se indicó ningún archivo","This file cannot be read here":"Este archivo no se puede leer aquí","That wait is no longer open":"Esa espera ya no está abierta",
-"Nothing to send":"Nada que enviar","This view is no longer open":"Esta vista ya no está abierta","This is not a photo DS Bot can send":"Esta no es una foto que DS Bot pueda envia\
-r","A photo did not arrive. Send it again.":"No llegó una foto. Envíala de nuevo.","Nothing to delete":"Nada que eliminar","Bot browsers are off on this host":"Los navegadores de\
- los Bots están desactivados en este host","This Bot has no open browser":"Este Bot no tiene ningún navegador abierto","A browser poll needs a clientId":"El sondeo del navegador \
-necesita un clientId","This browser is not held":"Este navegador no está retenido","This handoff is no longer open":"Este traspaso del navegador ya no está abierto","Avatar image\
-s must be PNG, JPEG, WebP, GIF, or SVG":"Las imágenes de avatar deben ser PNG, JPEG, WebP, GIF o SVG","Pick a model before choosing a thinking level":"Elige un modelo antes de sel\
-eccionar un nivel de razonamiento","Unknown section":"Sección desconocida","Unknown section color":"Color de sección desconocido","Write the to-do first.":"Escribe primero la tar\
-ea pendiente.","That to-do is no longer on the list.":"Esa tarea pendiente ya no está en la lista.","Write what this group should achieve, in at most 2000 characters.":"Escribe qu\
-é debe lograr este grupo, en un máximo de 2000 caracteres.","This group has no admin. Set one in the group settings first.":"Este grupo no tiene administrador. Designa uno primer\
-o en los ajustes del grupo.","This group already has a goal. Stop it first.":"Este grupo ya tiene un objetivo. Detenlo primero.","The goal has changed. Look again.":"El objetivo ha\
- cambiado. Vuelve a comprobarlo.","Nothing to do":"Nada que hacer","Write a note first.":"Escribe primero una nota.","That task is already finished.":"Esa tarea ya ha terminado.","\
-No such group.":"No existe ese grupo.","No such task.":"No existe esa tarea.","No open task to cancel.":"No hay ninguna tarea abierta que cancelar.","Sign-in timed out":"Se agotó e\
-l tiempo de espera para iniciar sesión","The sign-in answer did not match this attempt (state mismatch). Try again.":"La respuesta de inicio de sesión no coincide con este intento\
- (estado distinto). Inténtalo de nuevo.","This connector does not sign in":"Este conector no requiere iniciar sesión","This connector has no server address":"Este conector no tie\
-ne dirección de servidor","Connector addresses must start with https://":"Las direcciones de conectores deben empezar por https://","This service does not publish OAuth sign-in me\
-tadata":"Este servicio no publica metadatos de inicio de sesión OAuth","Paste a key first":"Pega primero una clave","No sign-in is waiting":"No hay ningún inicio de sesión en espe\
-ra","Paste the address or the code":"Pega la dirección o el código","This address is not from this sign-in attempt (state mismatch). Copy the whole address again.":"Esta direcció\
-n no corresponde a este intento de inicio de sesión (estado distinto). Vuelve a copiar la dirección completa.","The address has no code":"La dirección no contiene ningún código",
-"Enter the client ID":"Introduce el ID de cliente","Name the connector":"Ponle un nombre al conector","Enter an address or a command":"Introduce una dirección o un comando","Only \
-added connectors can be removed":"Solo se pueden eliminar los conectores añadidos manualmente","The mail connection closed during verification":"La conexión de correo se cerró dur\
-ante la verificación","Google sign-in is not available in this build":"El inicio de sesión con Google no está disponible en esta compilación","Enter an email address":"Introduc\
-e una dirección de correo electrónico","Enter the IMAP and SMTP hosts":"Introduce los servidores IMAP y SMTP","No such account":"No existe esa cuenta","This card was already answ\
-ered":"Esta tarjeta ya fue respondida","No Google sign-in is waiting":"No hay ningún inicio de sesión de Google en espera","The sign-in answer is not for this attempt":"La respue\
-sta de inicio de sesión no corresponde a este intento","Google did not say which account this is":"Google no indicó a qué cuenta corresponde","This platform is not available yet":"\
-Esta plataforma aún no está disponible","Choose a Bot first":"Elige primero un Bot","This platform signs in by scanning a code; not available yet":"Esta plataforma inicia sesión \
-escaneando un código y aún no está disponible","No such IM bot":"No existe ese bot de mensajería","No such platform":"No existe esa plataforma","No such chat":"No existe ese ch\
-at","Choose a Bot or a group":"Elige un Bot o un grupo","This platform has no QR login":"Esta plataforma no admite inicio de sesión por QR","Paste the bot token first":"Pega prime\
-ro el token del bot","Telegram did not say who this token belongs to":"Telegram no indicó a qué bot pertenece este token","A webhook or another program uses this bot":"Un webhook\
- u otro programa está usando este bot","This token does not belong to a Discord bot":"Este token no pertenece a un bot de Discord","Discord gave no usable gateway URL":"Discord no\
- devolvió una URL de puerta de enlace utilizable","These credentials do not belong to a Slack bot":"Estas credenciales no pertenecen a un bot de Slack","WeChat answered an unreada\
-ble response":"WeChat devolvió una respuesta ilegible","WeChat rate limited the request":"WeChat limitó la frecuencia de solicitudes","WeChat refused the token":"WeChat rechazó e\
-l token","Use a capability name with lowercase letters, digits, and single hyphens; connector names are reserved.":"Usa un nombre de capacidad con letras minúsculas, dígitos y guio\
-nes simples; los nombres de conectores están reservados.","Arguments must be a list of text values.":"Los argumentos deben ser una lista de valores de texto.","Choose an MCP serve\
-r, skill, or pack.":"Elige un servidor MCP, una habilidad o un paquete.","A capability cannot change its kind. Delete it and save a new one.":"Una capacidad no puede cambiar de tip\
-o. Elimínala y guarda una nueva.","Enter a command for the MCP server.":"Introduce un comando para el servidor MCP.","Enter a valid HTTP or HTTPS URL.":"Introduce una URL HTTP o H\
-TTPS válida.","Only Bots on the team can change capabilities.":"Solo los Bots del equipo pueden cambiar capacidades.","Only a Main Bot can change another Bot’s capabilities.":"S\
-olo un Bot principal puede cambiar las capacidades de otro Bot.","This DSH cannot load MCP servers.":"Este DSH no puede cargar servidores MCP.","Unknown capability operation.":"Ope\
-ración de capacidad desconocida.","The secrets file is not encrypted.":"El archivo de secretos no está cifrado.","Secrets are already encrypted.":"Los secretos ya están cifrados.",
-"Secrets are not encrypted.":"Los secretos no están cifrados.","Learning is turned off on this host":"El aprendizaje está desactivado en este host","AGENTS.md changed since this \
-was proposed":"AGENTS.md cambió desde que se propuso esto","The Bot that learned this skill is gone":"El Bot que aprendió esta habilidad ya no existe","System permissions are not\
- available here":"Los permisos del sistema no están disponibles aquí","This host keeps no Bot data folder, so it has no avatar library.":"Este host no guarda ninguna carpeta de d\
-atos de Bots, por lo que no tiene biblioteca de avatares.","DS Bot is shutting down":"DS Bot se está cerrando","Computer use":"Uso del ordenador",Computer:"Ordenador",Control:"Con\
-trol","Let Bots use the computer":"Permitir que los Bots usen el ordenador","Using the computer":"Usando el ordenador",Off:"Desactivado","View only":"Solo ver",Background:"En segun\
-do plano",Foreground:"En primer plano","In the foreground":"En primer plano","Computer use level":"Nivel de uso del ordenador","Computer provider":"Proveedor de control del ordenad\
-or","Loading the provider…":"Cargando el proveedor…","Could not load the provider":"No se pudo cargar el proveedor","The provider package is not installed":"El paquete del prov\
-eedor no está instalado","Install it in this DSH":"Instalarlo en este DSH","Run {command}, then restart DSH.":"Ejecuta {command} y luego reinicia DSH.","Copy command":"Copiar coma\
-ndo","Bots get no computer tools until the provider is ready.":"Los Bots no tendrán herramientas de ordenador hasta que el proveedor esté listo.","Another computer-use provider i\
-s running":"Otro proveedor de uso del ordenador está en ejecución","Computer use is not available on this platform":"El uso del ordenador no está disponible en esta plataforma",
-Accessibility:"Accesibilidad","Screen Recording":"Grabación de pantalla",Allowed:"Permitido","Not allowed":"No permitido",Grant:"Conceder",Revoke:"Revocar","Off in Settings → Comp\
-uter use":"Desactivado en Ajustes → Uso del ordenador",Idle:"Inactivo",Operating:"Operando","You have the computer":"Tú tienes el control del ordenador","Latest screenshot":"Últ\
-ima captura de pantalla","Let it continue":"Dejar que continúe","Take over the computer":"Tomar el control del ordenador","Hand back":"Devolver el control","Recent steps":"Pasos r\
-ecientes",failed:"falló","Allow {name} to use {app}?":"¿Permitir que {name} use {app}?","This time":"Esta vez",Always:"Siempre","Needs your confirmation":"Requiere tu confirmació\
-n","Help needed on the computer":"Se necesita ayuda en el ordenador","You control the computer":"Tú controlas el ordenador","{name} · foreground":"{name} · primer plano","{name}\
- waits for the computer":"{name} espera el ordenador","Bot models":"Modelos de los Bots","Change several Bots":"Cambiar varios Bots","{selected} of {total} selected":"{selected} de\
- {total} seleccionados","Bots on a local agent keep their own model.":"Los Bots en un agente local mantienen su propio modelo.","Select all":"Seleccionar todos","Changing…":"Camb\
-iando…","Selected Bots":"Bots seleccionados","{model} (not available)":"{model} (no disponible)",Changed:"Cambiado","Already on this model":"Ya usa este modelo","Skipped: runs on\
- a local agent":"Omitido: se ejecuta en un agente local","Skipped: not available now":"Omitido: no disponible ahora","Could not change: {error}":"No se pudo cambiar: {error}","Chan\
-ged {count} of {total} Bots.":"Se cambiaron {count} de {total} Bots.","Select {name}":"Seleccionar {name}","Change it in the Bot's settings.":"Cámbialo en los ajustes del Bot.","A\
-lready on this model: {count}":"Ya usan este modelo: {count}","Skipped: {count}":"Omitidos: {count}","Failed: {count}":"Fallaron: {count}","{count} skipped":"{count} omitidas","No \
-model picked yet":"Sin modelo elegido",Running:"En ejecución","Open this session":"Abrir esta sesión","Open this running session":"Abrir esta sesión en ejecución","A running se\
-ssion keeps using model calls in the background.":"Una sesión en ejecución sigue usando llamadas al modelo en segundo plano.","This session is still running. Wait for it to finis\
-h, or stop it.":"Esta sesión sigue en ejecución. Espera a que termine o detenla."},HOST_ERRORS_ES=[[/^Could not reach the mail server at (.+)\. Check the server address\.$/,"No s\
-e pudo conectar con el servidor de correo en $1. Comprueba la dirección del servidor."],[/^Model (.+) is not available\. Available: (.*)$/,"El modelo $1 no está disponible. Dispon\
-ibles: $2"],[/^The API key for (.+) is set outside DS Bot and cannot be changed here$/,"La clave API de $1 está configurada fuera de DS Bot y no se puede cambiar aquí"],[/^(.+) takes no API key here$/,
-"$1 no admite clave API aquí"],[/^(.+) is already set up$/,"$1 ya está configurado"],[/^DSH offers no provider (.+)$/,"DSH no ofrece el proveedor $1"],[/^DSH already offers (.+); add it from its list$/,
-"DSH ya ofrece $1; añádelo desde su lista"],[/^The protocol must be one of (.+)$/,"El protocolo debe ser uno de: $1"],[/^(.+) is not set up$/,"$1 no está configurado"],[/^(.+) comes with this setup and cannot be removed$/,
+n {host}":"Abrir {host}","Client ID":"Client ID","Client secret (optional)":"Client secret (opcional)","In OAuth & Permissions at {app}, add this redirect URL:":"En OAuth & Permiss\
+ions de {app}, añade esta URL de redirección:","In the app settings, add this redirect URL:":"En los ajustes de la app, añade esta URL de redirección:","Turn on the MCP feature\
+s and scopes the app needs.":"Activa las funciones y los permisos de MCP que necesita la app.","Copy the Client ID and Client Secret here.":"Copia aquí el Client ID y el Client Sec\
+ret.","Open app settings":"Abrir ajustes de la app",Continue:"Continuar","{name} key":"Clave de {name}","{name} token":"Token de {name}","Get a key":"Obtener una clave","Read-only":"\
+Solo lectura","{count} tools":"{count} herramientas",Mailbox:"Buzón de correo","Email address":"Dirección de correo",Catalog:"Catálogo","App password":"Contraseña de aplicación",
+"Authorization code":"Código de autorización","Password or app password":"Contraseña o contraseña de aplicación","Official help":"Ayuda oficial","Finish signing in in your bro\
+wser.":"Termina de iniciar sesión en tu navegador.","Open again":"Abrir de nuevo","Did not come back here?":"¿No volviste aquí?","Copied to clipboard":"Copiado al portapapeles",
+"Paste the code on {host} and authorize.":"Pega el código en {host} y autoriza.","Add another":"Añadir otro","QQ, 163, 126, Gmail, iCloud, and other IMAP mail":"QQ, 163, 126, Gma\
+il, iCloud y otros correos IMAP","Other MCP server":"Otro servidor MCP","An address, a command, or one from Claude Desktop, Cursor, or VS Code":"Una dirección, un comando o uno de \
+Claude Desktop, Cursor o VS Code","Kind of server":"Tipo de servidor","Nothing matches":"No hay coincidencias",Recommended:"Recomendado","See all":"Ver todo","{count} connected":"{\
+count} conectados","{count} accounts":"{count} cuentas",Category:"Categoría","Could not reach the mail server. Check the server address.":"No se pudo conectar con el servidor de c\
+orreo. Comprueba la dirección del servidor.","Sign in at mail.qq.com, click your avatar at the top right, and open Settings → Account and Security → Security Settings.":"Inici\
+a sesión en mail.qq.com, haz clic en tu avatar arriba a la derecha y abre Ajustes → Cuenta y seguridad → Ajustes de seguridad.","Turn on the POP3/IMAP/SMTP service, then click\
+ Generate authorization code and verify yourself.":"Activa el servicio POP3/IMAP/SMTP, luego haz clic en Generar código de autorización y verifica tu identidad.","Paste the 16-le\
+tter code below. Changing your QQ password cancels it.":"Pega abajo el código de 16 letras. Cambiar tu contraseña de QQ lo anulará.","Sign in at {host} and open Settings → POP3/\
+SMTP/IMAP.":"Inicia sesión en {host} y abre Ajustes → POP3/SMTP/IMAP.","Turn on IMAP/SMTP and send the text message it asks for.":"Activa IMAP/SMTP y envía el mensaje de texto q\
+ue solicita.","Paste the 16-character code below. It is shown only once.":"Pega abajo el código de 16 caracteres. Solo se muestra una vez.","Turn on 2-Step Verification for your G\
+oogle Account.":"Activa la verificación en dos pasos en tu cuenta de Google.","Open App passwords, create one, and paste the 16-character password below.":"Abre Contraseñas de apl\
+icaciones, crea una y pega abajo la contraseña de 16 caracteres.","Work and school accounts cannot use app passwords.":"Las cuentas de trabajo y de centros educativos no pueden us\
+ar contraseñas de aplicación.","Your Apple Account needs two-factor authentication.":"Tu cuenta de Apple necesita autenticación de dos factores.","Sign in at account.apple.com a\
+nd open Sign-In and Security → App-Specific Passwords.":"Inicia sesión en account.apple.com y abre Inicio de sesión y seguridad → Contraseñas específicas de apps.","Generat\
+e a password and paste it below.":"Genera una contraseña y pégala abajo.","The mail service refused the login (Unsafe Login). Enable IMAP/SMTP in the mailbox settings and use its\
+ authorization code, not the account password.":"El servicio de correo rechazó el inicio de sesión (Unsafe Login). Activa IMAP/SMTP en los ajustes del buzón y usa su código de auto\
+rización, no la contraseña de la cuenta.","The password was refused. Use the mailbox app password or authorization code, not the account password.":"La contraseña fue rechazada. \
+Usa la contraseña de aplicación o el código de autorización del buzón, no la contraseña de la cuenta.","Enter the authorization code or app password":"Introduce el código de \
+autorización o la contraseña de aplicación","Pages, databases, and wiki content":"Páginas, bases de datos y contenido wiki","Issues, projects, and cycles":"Issues, proyectos y \
+ciclos","Jira issues and Confluence pages":"Incidencias de Jira y páginas de Confluence","Errors, traces, and releases":"Errores, trazas y versiones","Payments, invoices, and cust\
+omers":"Pagos, facturas y clientes","Orders, payments, and invoices":"Pedidos, pagos y facturas","Payments, orders, and catalog":"Pagos, pedidos y catálogo","Workers, DNS, and acc\
+ount resources":"Workers, DNS y recursos de la cuenta","Projects, deployments, and logs":"Proyectos, despliegues y registros","Databases, tables, and project settings":"Bases de da\
+tos, tablas y ajustes del proyecto","Postgres databases and branches":"Bases de datos Postgres y ramas","Design files, components, and comments":"Archivos de diseño, componentes y \
+comentarios","Designs, folders, and exports":"Diseños, carpetas y exportaciones","Conversations, contacts, and articles":"Conversaciones, contactos y artículos","Boards, items, a\
+nd workflows":"Tableros, elementos y flujos de trabajo","Sites, pages, and CMS content":"Sitios, páginas y contenido CMS","Sites, pages, and site content":"Sitios, páginas y conte\
+nido del sitio","Sites, deploys, and forms":"Sitios, despliegues y formularios","Bases, tables, and records":"Bases, tablas y registros","Files and folders":"Archivos y carpetas","\
+Zaps and app actions":"Zaps y acciones de aplicaciones","Tasks, lists, and docs":"Tareas, listas y documentos","Tasks and projects":"Tareas y proyectos","Boards and whiteboard item\
+s":"Tableros y elementos de pizarra","CRM records, lists, and notes":"Registros CRM, listas y notas","Collections, requests, and workspaces":"Colecciones, solicitudes y espacios de\
+ trabajo","Tasks, projects, and workspaces":"Tareas, proyectos y espacios de trabajo","Files, folders, and metadata":"Archivos, carpetas y metadatos","Contacts, deals, and tickets":"\
+Contactos, tratos y tickets","Channels and messages":"Canales y mensajes","Models, datasets, and Spaces":"Modelos, conjuntos de datos y Spaces","Web search for agents":"Búsqueda we\
+b para agentes","Documentation for public code repositories":"Documentación de repositorios de código públicos","Library documentation and code examples":"Documentación de bibli\
+otecas y ejemplos de código","Microsoft product documentation":"Documentación de productos de Microsoft","Cloudflare product documentation":"Documentación de productos de Cloudfl\
+are","Maps, places, and routes in China":"Mapas, lugares y rutas en China","Read and send email over IMAP and SMTP":"Leer y enviar correo mediante IMAP y SMTP","IMAP host":"Servido\
+r IMAP","SMTP host":"Servidor SMTP","Sign in with Google":"Iniciar sesión con Google","Verifying…":"Verificando…","Import from other apps":"Importar desde otras aplicaciones",
+"Server address":"Dirección del servidor","Command, e.g. npx -y some-mcp":"Comando, p. ej., npx -y some-mcp","Scanning…":"Escaneando…","No MCP servers found in Claude Desktop,\
+ Cursor, or VS Code settings.":"No se encontraron servidores MCP en los ajustes de Claude Desktop, Cursor o VS Code.","Import {count}":"Importar {count}",All:"Todo",Developer:"Desa\
+rrollador","Docs & files":"Documentos y archivos",Work:"Trabajo",Design:"Diseño",Data:"Datos",Commerce:"Comercio","No connectors connected":"No hay conectores conectados","{bot} n\
+eeds {name}":"{bot} necesita {name}",Mail:"Correo",Subject:"Asunto","Write a message…":"Escribe un mensaje…",Discard:"Descartar",Discarded:"Descartado","Allow recipient":"Permi\
+tir destinatario","Allow this Bot to send directly":"Permitir que este Bot envíe directamente","Manage rules":"Gestionar reglas","Sending rules":"Reglas de envío",From:"De",To:"P\
+ara",Cc:"Cc",Bcc:"Cco","Attachments: {names}":"Adjuntos: {names}",Sent:"Enviado",Failed:"Falló","Request failed":"Solicitud fallida","Permissions are not available in this DeepSee\
+k Harness":"Los permisos no están disponibles en este DeepSeek Harness","Avatar image is too large":"La imagen de avatar es demasiado grande","A Bot needs a name":"Un Bot necesita\
+ un nombre","A Bot name cannot contain @, ` or a line break":"El nombre de un Bot no puede contener @, ` ni saltos de línea","Unknown Bot":"Bot desconocido","Unknown conversation":"\
+Conversación desconocida","A group chat needs at least two Bots":"Un chat grupal necesita al menos dos Bots","The admin must be a member of the group":"El administrador debe ser m\
+iembro del grupo","Unknown group chat":"Chat grupal desconocido","No Bot is left in this group chat":"No queda ningún Bot en este chat grupal","That group chat has been deleted":"\
+Ese chat grupal ha sido eliminado","Hand the admin role to another member instead of leaving the group without one":"Cede el rol de administrador a otro miembro en lugar de dejar e\
+l grupo sin administrador","Hand the admin role to another member before leaving the group":"Cede el rol de administrador a otro miembro antes de salir del grupo","The team needs a\
+t least one Main Bot":"El equipo necesita al menos un Bot principal","Only a Main Bot can be replaced":"Solo se puede reemplazar un Bot principal","A Main Bot cannot be deleted; re\
+move its Main Bot role first":"Un Bot principal no se puede eliminar; quítale primero el rol de Bot principal","Unknown theme":"Tema desconocido","Accent must be a #rrggbb color":"\
+El color de acento debe tener formato #rrggbb","Type the key first":"Escribe primero la clave","Choose every Bot or a list of Bots":"Elige todos los Bots o una lista de Bots","This\
+ request is gone":"Esta solicitud ya no existe","This request was already answered":"Esta solicitud ya fue respondida","A name uses capitals, digits, and underscores, and starts wi\
+th a letter":"Un nombre usa mayúsculas, dígitos y guiones bajos, y empieza por una letra","No such key":"No existe esa clave","Type a question or a change first":"Escribe primero\
+ una pregunta o un cambio","No model is available. Add one in Settings > Models.":"No hay ningún modelo disponible. Añade uno en Ajustes > Modelos.","Memory is turned off on this\
+ host":"La memoria está desactivada en este host","The model wrote nothing":"El modelo no escribió nada","Write the entry to save.":"Escribe la entrada que quieres guardar.","Thi\
+s DeepSeek Harness has no folder chooser":"Este DeepSeek Harness no tiene selector de carpetas","This DeepSeek Harness cannot list folders":"Este DeepSeek Harness no puede listar c\
+arpetas","Side chat is only available in a Bot's private chat.":"El chat lateral solo está disponible en el chat privado de un Bot.","Write a question.":"Escribe una pregunta.","W\
+rite a question after /side.":"Escribe una pregunta después de /side.","/side does not take attachments.":"/side no admite archivos adjuntos.","Wait for the answer, or cancel it.":"\
+Espera la respuesta o cancélala.","This side chat is no longer here.":"Este chat lateral ya no está aquí.","This side question is no longer here.":"Esta pregunta lateral ya no e\
+stá aquí.","This Bot has not called a model yet. Send a normal message first.":"Este Bot aún no ha llamado a ningún modelo. Envía primero un mensaje normal.","DS Bot restarted\
+ before this answer finished.":"DS Bot se reinició antes de que terminara esta respuesta.","The model called a tool again after being told not to, so this aside was not answered.":"\
+El modelo volvió a llamar a una herramienta después de indicarle que no lo hiciera, por lo que esta consulta lateral no recibió respuesta.","The model wrote nothing.":"El modelo\
+ no escribió nada.","Nothing to ask":"Nada que preguntar","Nothing to open":"Nada que abrir","Nothing to cancel":"Nada que cancelar","Nothing to close":"Nada que cerrar","DS Bot i\
+s still loading this chat.":"DS Bot aún está cargando este chat.","This message is no longer kept":"Este mensaje ya no se conserva","No file named":"No se indicó ningún archivo",
+"This file cannot be read here":"Este archivo no se puede leer aquí","That wait is no longer open":"Esa espera ya no está abierta","Nothing to send":"Nada que enviar","This view \
+is no longer open":"Esta vista ya no está abierta","This is not a photo DS Bot can send":"Esta no es una foto que DS Bot pueda enviar","A photo did not arrive. Send it again.":"No\
+ llegó una foto. Envíala de nuevo.","Nothing to delete":"Nada que eliminar","Bot browsers are off on this host":"Los navegadores de los Bots están desactivados en este host","Th\
+is Bot has no open browser":"Este Bot no tiene ningún navegador abierto","A browser poll needs a clientId":"El sondeo del navegador necesita un clientId","This browser is not held":"\
+Este navegador no está retenido","This handoff is no longer open":"Este traspaso del navegador ya no está abierto","Avatar images must be PNG, JPEG, WebP, GIF, or SVG":"Las imáge\
+nes de avatar deben ser PNG, JPEG, WebP, GIF o SVG","Pick a model before choosing a thinking level":"Elige un modelo antes de seleccionar un nivel de razonamiento","Unknown section":"\
+Sección desconocida","Unknown section color":"Color de sección desconocido","Write the to-do first.":"Escribe primero la tarea pendiente.","That to-do is no longer on the list.":"\
+Esa tarea pendiente ya no está en la lista.","Write what this group should achieve, in at most 2000 characters.":"Escribe qué debe lograr este grupo, en un máximo de 2000 caracter\
+es.","This group has no admin. Set one in the group settings first.":"Este grupo no tiene administrador. Designa uno primero en los ajustes del grupo.","This group already has a go\
+al. Stop it first.":"Este grupo ya tiene un objetivo. Detenlo primero.","The goal has changed. Look again.":"El objetivo ha cambiado. Vuelve a comprobarlo.","Nothing to do":"Nada q\
+ue hacer","Write a note first.":"Escribe primero una nota.","That task is already finished.":"Esa tarea ya ha terminado.","No such group.":"No existe ese grupo.","No such task.":"N\
+o existe esa tarea.","No open task to cancel.":"No hay ninguna tarea abierta que cancelar.","Sign-in timed out":"Se agotó el tiempo de espera para iniciar sesión","The sign-in an\
+swer did not match this attempt (state mismatch). Try again.":"La respuesta de inicio de sesión no coincide con este intento (estado distinto). Inténtalo de nuevo.","This connect\
+or does not sign in":"Este conector no requiere iniciar sesión","This connector has no server address":"Este conector no tiene dirección de servidor","Connector addresses must st\
+art with https://":"Las direcciones de conectores deben empezar por https://","This service does not publish OAuth sign-in metadata":"Este servicio no publica metadatos de inicio d\
+e sesión OAuth","Paste a key first":"Pega primero una clave","No sign-in is waiting":"No hay ningún inicio de sesión en espera","Paste the address or the code":"Pega la direcció\
+n o el código","This address is not from this sign-in attempt (state mismatch). Copy the whole address again.":"Esta dirección no corresponde a este intento de inicio de sesión (e\
+stado distinto). Vuelve a copiar la dirección completa.","The address has no code":"La dirección no contiene ningún código","Enter the client ID":"Introduce el ID de cliente","\
+Name the connector":"Ponle un nombre al conector","Enter an address or a command":"Introduce una dirección o un comando","Only added connectors can be removed":"Solo se pueden eli\
+minar los conectores añadidos manualmente","The mail connection closed during verification":"La conexión de correo se cerró durante la verificación","Google sign-in is not avai\
+lable in this build":"El inicio de sesión con Google no está disponible en esta compilación","Enter an email address":"Introduce una dirección de correo electrónico","Enter th\
+e IMAP and SMTP hosts":"Introduce los servidores IMAP y SMTP","No such account":"No existe esa cuenta","This card was already answered":"Esta tarjeta ya fue respondida","No Google \
+sign-in is waiting":"No hay ningún inicio de sesión de Google en espera","The sign-in answer is not for this attempt":"La respuesta de inicio de sesión no corresponde a este inte\
+nto","Google did not say which account this is":"Google no indicó a qué cuenta corresponde","This platform is not available yet":"Esta plataforma aún no está disponible","Choos\
+e a Bot first":"Elige primero un Bot","This platform signs in by scanning a code; not available yet":"Esta plataforma inicia sesión escaneando un código y aún no está disponible",
+"No such IM bot":"No existe ese bot de mensajería","No such platform":"No existe esa plataforma","No such chat":"No existe ese chat","Choose a Bot or a group":"Elige un Bot o un g\
+rupo","This platform has no QR login":"Esta plataforma no admite inicio de sesión por QR","Paste the bot token first":"Pega primero el token del bot","Telegram did not say who thi\
+s token belongs to":"Telegram no indicó a qué bot pertenece este token","A webhook or another program uses this bot":"Un webhook u otro programa está usando este bot","This toke\
+n does not belong to a Discord bot":"Este token no pertenece a un bot de Discord","Discord gave no usable gateway URL":"Discord no devolvió una URL de puerta de enlace utilizable",
+"These credentials do not belong to a Slack bot":"Estas credenciales no pertenecen a un bot de Slack","WeChat answered an unreadable response":"WeChat devolvió una respuesta ilegib\
+le","WeChat rate limited the request":"WeChat limitó la frecuencia de solicitudes","WeChat refused the token":"WeChat rechazó el token","Use a capability name with lowercase lett\
+ers, digits, and single hyphens; connector names are reserved.":"Usa un nombre de capacidad con letras minúsculas, dígitos y guiones simples; los nombres de conectores están reserv\
+ados.","Arguments must be a list of text values.":"Los argumentos deben ser una lista de valores de texto.","Choose an MCP server, skill, or pack.":"Elige un servidor MCP, una habi\
+lidad o un paquete.","A capability cannot change its kind. Delete it and save a new one.":"Una capacidad no puede cambiar de tipo. Elimínala y guarda una nueva.","Enter a command \
+for the MCP server.":"Introduce un comando para el servidor MCP.","Enter a valid HTTP or HTTPS URL.":"Introduce una URL HTTP o HTTPS válida.","Only Bots on the team can change cap\
+abilities.":"Solo los Bots del equipo pueden cambiar capacidades.","Only a Main Bot can change another Bot’s capabilities.":"Solo un Bot principal puede cambiar las capacidades d\
+e otro Bot.","This DSH cannot load MCP servers.":"Este DSH no puede cargar servidores MCP.","Unknown capability operation.":"Operación de capacidad desconocida.","The secrets file\
+ is not encrypted.":"El archivo de secretos no está cifrado.","Secrets are already encrypted.":"Los secretos ya están cifrados.","Secrets are not encrypted.":"Los secretos no est\
+án cifrados.","Learning is turned off on this host":"El aprendizaje está desactivado en este host","AGENTS.md changed since this was proposed":"AGENTS.md cambió desde que se prop\
+uso esto","The Bot that learned this skill is gone":"El Bot que aprendió esta habilidad ya no existe","System permissions are not available here":"Los permisos del sistema no está\
+n disponibles aquí","This host keeps no Bot data folder, so it has no avatar library.":"Este host no guarda ninguna carpeta de datos de Bots, por lo que no tiene biblioteca de ava\
+tares.","DS Bot is shutting down":"DS Bot se está cerrando","Computer use":"Uso del ordenador",Computer:"Ordenador",Control:"Control","Let Bots use the computer":"Permitir que los\
+ Bots usen el ordenador","Using the computer":"Usando el ordenador",Off:"Desactivado","View only":"Solo ver",Background:"En segundo plano",Foreground:"En primer plano","In the fore\
+ground":"En primer plano","Computer use level":"Nivel de uso del ordenador","Computer provider":"Proveedor de control del ordenador","Loading the provider…":"Cargando el proveedo\
+r…","Could not load the provider":"No se pudo cargar el proveedor","The provider package is not installed":"El paquete del proveedor no está instalado","Install it in this DSH":"\
+Instalarlo en este DSH","Run {command}, then restart DSH.":"Ejecuta {command} y luego reinicia DSH.","Copy command":"Copiar comando","Bots get no computer tools until the provider \
+is ready.":"Los Bots no tendrán herramientas de ordenador hasta que el proveedor esté listo.","Another computer-use provider is running":"Otro proveedor de uso del ordenador está\
+ en ejecución","Computer use is not available on this platform":"El uso del ordenador no está disponible en esta plataforma",Accessibility:"Accesibilidad","Screen Recording":"Gra\
+bación de pantalla",Allowed:"Permitido","Not allowed":"No permitido",Grant:"Conceder",Revoke:"Revocar","Off in Settings → Computer use":"Desactivado en Ajustes → Uso del ordenad\
+or",Idle:"Inactivo",Operating:"Operando","You have the computer":"Tú tienes el control del ordenador","Latest screenshot":"Última captura de pantalla","Let it continue":"Dejar qu\
+e continúe","Take over the computer":"Tomar el control del ordenador","Hand back":"Devolver el control","Recent steps":"Pasos recientes",failed:"falló","Allow {name} to use {app}\
+?":"¿Permitir que {name} use {app}?","This time":"Esta vez",Always:"Siempre","Needs your confirmation":"Requiere tu confirmación","Help needed on the computer":"Se necesita ayuda\
+ en el ordenador","You control the computer":"Tú controlas el ordenador","{name} · foreground":"{name} · primer plano","{name} waits for the computer":"{name} espera el ordenado\
+r","Bot models":"Modelos de los Bots","Change several Bots":"Cambiar varios Bots","{selected} of {total} selected":"{selected} de {total} seleccionados","Bots on a local agent keep\
+ their own model.":"Los Bots en un agente local mantienen su propio modelo.","Select all":"Seleccionar todos","Changing…":"Cambiando…","Selected Bots":"Bots seleccionados","{mo\
+del} (not available)":"{model} (no disponible)",Changed:"Cambiado","Already on this model":"Ya usa este modelo","Skipped: runs on a local agent":"Omitido: se ejecuta en un agente l\
+ocal","Skipped: not available now":"Omitido: no disponible ahora","Could not change: {error}":"No se pudo cambiar: {error}","Changed {count} of {total} Bots.":"Se cambiaron {count}\
+ de {total} Bots.","Select {name}":"Seleccionar {name}","Change it in the Bot's settings.":"Cámbialo en los ajustes del Bot.","Already on this model: {count}":"Ya usan este modelo\
+: {count}","Skipped: {count}":"Omitidos: {count}","Failed: {count}":"Fallaron: {count}","{count} skipped":"{count} omitidas","No model picked yet":"Sin modelo elegido",Running:"En \
+ejecución","Open this session":"Abrir esta sesión","Open this running session":"Abrir esta sesión en ejecución","A running session keeps using model calls in the background.":"\
+Una sesión en ejecución sigue usando llamadas al modelo en segundo plano.","This session is still running. Wait for it to finish, or stop it.":"Esta sesión sigue en ejecución. Es\
+pera a que termine o detenla."},HOST_ERRORS_ES=[[/^Could not reach the mail server at (.+)\. Check the server address\.$/,"No se pudo conectar con el servidor de correo en $1. Comp\
+rueba la dirección del servidor."],[/^Model (.+) is not available\. Available: (.*)$/,"El modelo $1 no está disponible. Disponibles: $2"],[/^The API key for (.+) is set outside DS Bot and cannot be changed here$/,
+"La clave API de $1 está configurada fuera de DS Bot y no se puede cambiar aquí"],[/^(.+) takes no API key here$/,"$1 no admite clave API aquí"],[/^(.+) is already set up$/,"$1 \
+ya está configurado"],[/^DSH offers no provider (.+)$/,"DSH no ofrece el proveedor $1"],[/^DSH already offers (.+); add it from its list$/,"DSH ya ofrece $1; añádelo desde su list\
+a"],[/^The protocol must be one of (.+)$/,"El protocolo debe ser uno de: $1"],[/^(.+) is not set up$/,"$1 no está configurado"],[/^(.+) comes with this setup and cannot be removed$/,
 "$1 viene incluido en esta configuración y no se puede eliminar"],[/^A Bot named (.+) already exists$/,"Ya existe un Bot llamado $1"],[/^Name (.*) is not available$/,"El nombre $1\
  no está disponible"],[/^"(.+)" calls everyone in a group, so it cannot be a Bot name$/,"“$1” menciona a todos en un grupo, por lo que no puede ser el nombre de un Bot"],[/^"(.+)" stands for the user in a chat, so it cannot be a Bot name$/,
 "“$1” representa al usuario en un chat, por lo que no puede ser el nombre de un Bot"],[/^Another group chat is already called "(.+)"$/,"Otro chat grupal ya se llama “$1”"],
@@ -3212,117 +3220,120 @@ onnées","Change…":"Modifier…","Each Bot's own folder":"Dossier propre à ch
 "Enter a path…":"Saisir un chemin…","Folder path":"Chemin du dossier","Full path of a folder":"Chemin complet d’un dossier","Use this folder":"Utiliser ce dossier","Up one le\
 vel":"Dossier parent","No folders inside.":"Aucun sous-dossier.","Some folders are not shown.":"Certains dossiers ne sont pas affichés.","Waiting for sign-in…":"En attente de co\
 nnexion…","This service needs an app client ID":"Ce service nécessite un Client ID d’application","Paste the address you land on":"Collez l’adresse de redirection","Finish s\
-ign-in":"Terminer la connexion","Open {host}":"Ouvrir {host}","Client ID":"Client ID","Client secret (optional)":"Client secret (facultatif)",Continue:"Continuer","{name} key":"Clé\
- {name}","{name} token":"Jeton {name}","Get a key":"Obtenir une clé","Read-only":"Lecture seule","{count} tools":"{count} outils",Mailbox:"Boîte mail","Email address":"Adresse e-\
-mail",Catalog:"Catalogue","App password":"Mot de passe d’application","Authorization code":"Code d’autorisation","Password or app password":"Mot de passe ou mot de passe d’appl\
-ication","Official help":"Aide officielle","Finish signing in in your browser.":"Terminez la connexion dans votre navigateur.","Open again":"Rouvrir","Did not come back here?":"La \
-page ne vous a pas redirigé ici ?","Copied to clipboard":"Copié dans le presse-papiers","Paste the code on {host} and authorize.":"Collez le code sur {host} et autorisez l’accès.",
-"Add another":"En ajouter un autre","QQ, 163, 126, Gmail, iCloud, and other IMAP mail":"QQ, 163, 126, Gmail, iCloud et autres messageries IMAP","Other MCP server":"Autre serveur MC\
-P","An address, a command, or one from Claude Desktop, Cursor, or VS Code":"Une adresse, une commande ou une importation depuis Claude Desktop, Cursor ou VS Code","Kind of server":"\
-Type de serveur","Nothing matches":"Aucun connecteur correspondant",Recommended:"Recommandé","See all":"Tout voir","{count} connected":"{count} connecté(s)","{count} accounts":"{\
-count} comptes",Category:"Catégorie","Could not reach the mail server. Check the server address.":"Impossible de joindre le serveur de messagerie. Vérifiez l’adresse du serveur.",
-"Sign in at mail.qq.com, click your avatar at the top right, and open Settings → Account and Security → Security Settings.":"Connectez-vous sur mail.qq.com, cliquez sur votre a\
-vatar en haut à droite et ouvrez Paramètres → Compte et sécurité → Paramètres de sécurité.","Turn on the POP3/IMAP/SMTP service, then click Generate authorization code a\
-nd verify yourself.":"Activez le service POP3/IMAP/SMTP, puis cliquez sur Générer un code d’autorisation et validez votre identité.","Paste the 16-letter code below. Changing \
-your QQ password cancels it.":"Collez le code de 16 lettres ci-dessous. Changer votre mot de passe QQ l’invalidera.","Sign in at {host} and open Settings → POP3/SMTP/IMAP.":"Co\
-nnectez-vous sur {host} et ouvrez Paramètres → POP3/SMTP/IMAP.","Turn on IMAP/SMTP and send the text message it asks for.":"Activez IMAP/SMTP et envoyez le SMS de vérification d\
-emandé.","Paste the 16-character code below. It is shown only once.":"Collez le code de 16 caractères ci-dessous. Il ne s’affiche qu’une seule fois.","Turn on 2-Step Verifica\
-tion for your Google Account.":"Activez la validation en deux étapes sur votre compte Google.","Open App passwords, create one, and paste the 16-character password below.":"Ouvrez\
- Mots de passe des applications, créez-en un et collez le mot de passe de 16 caractères ci-dessous.","Work and school accounts cannot use app passwords.":"Les comptes professionn\
-els et scolaires ne peuvent pas utiliser les mots de passe d’application.","Your Apple Account needs two-factor authentication.":"Votre compte Apple doit utiliser l’identificatio\
-n à deux facteurs.","Sign in at account.apple.com and open Sign-In and Security → App-Specific Passwords.":"Connectez-vous sur account.apple.com et ouvrez Connexion et sécurité \
-→ Mots de passe pour app.","Generate a password and paste it below.":"Générez un mot de passe et collez-le ci-dessous.","The mail service refused the login (Unsafe Login). Enab\
-le IMAP/SMTP in the mailbox settings and use its authorization code, not the account password.":"Le service de messagerie a refusé la connexion (Unsafe Login). Activez IMAP/SMTP da\
-ns les paramètres de votre boîte mail et utilisez son code d’autorisation plutôt que le mot de passe du compte.","The password was refused. Use the mailbox app password or aut\
-horization code, not the account password.":"Le mot de passe a été refusé. Utilisez le mot de passe d’application ou le code d’autorisation de la boîte mail, et non le mot de passe\
- du compte.","Enter the authorization code or app password":"Saisissez le code d’autorisation ou le mot de passe d’application","Pages, databases, and wiki content":"Pages, bas\
-es de données et contenus wiki","Issues, projects, and cycles":"Tickets, projets et cycles","Jira issues and Confluence pages":"Tickets Jira et pages Confluence","Errors, traces, \
-and releases":"Erreurs, traces et versions","Payments, invoices, and customers":"Paiements, factures et clients","Orders, payments, and invoices":"Commandes, paiements et factures",
-"Payments, orders, and catalog":"Paiements, commandes et catalogue","Workers, DNS, and account resources":"Workers, DNS et ressources du compte","Projects, deployments, and logs":"\
-Projets, déploiements et journaux","Databases, tables, and project settings":"Bases de données, tables et paramètres du projet","Postgres databases and branches":"Bases de donné\
-es Postgres et branches","Design files, components, and comments":"Fichiers de design, composants et commentaires","Designs, folders, and exports":"Designs, dossiers et exports","C\
-onversations, contacts, and articles":"Conversations, contacts et articles","Boards, items, and workflows":"Tableaux, éléments et flux de travail","Sites, pages, and CMS content":"\
-Sites, pages et contenus CMS","Sites, pages, and site content":"Sites, pages et contenus du site","Sites, deploys, and forms":"Sites, déploiements et formulaires","Bases, tables, \
-and records":"Bases, tables et enregistrements","Files and folders":"Fichiers et dossiers","Zaps and app actions":"Zaps et actions d’application","Tasks, lists, and docs":"Tâches\
-, listes et documents","Tasks and projects":"Tâches et projets","Boards and whiteboard items":"Tableaux et éléments de tableau blanc","CRM records, lists, and notes":"Fiches CRM\
-, listes et notes","Collections, requests, and workspaces":"Collections, requêtes et espaces de travail","Tasks, projects, and workspaces":"Tâches, projets et espaces de travail",
-"Files, folders, and metadata":"Fichiers, dossiers et métadonnées","Contacts, deals, and tickets":"Contacts, transactions et tickets","Channels and messages":"Canaux et messages",
-"Models, datasets, and Spaces":"Modèles, jeux de données et Spaces","Web search for agents":"Recherche web pour les agents","Documentation for public code repositories":"Document\
-ation des dépôts de code publics","Library documentation and code examples":"Documentation de bibliothèques et exemples de code","Microsoft product documentation":"Documentation\
- des produits Microsoft","Cloudflare product documentation":"Documentation des produits Cloudflare","Maps, places, and routes in China":"Cartes, lieux et itinéraires en Chine","Re\
-ad and send email over IMAP and SMTP":"Lire et envoyer des e-mails via IMAP et SMTP","IMAP host":"Serveur IMAP","SMTP host":"Serveur SMTP","Sign in with Google":"Se connecter avec \
-Google","Verifying…":"Vérification…","Import from other apps":"Importer depuis d’autres applications","Server address":"Adresse du serveur","Command, e.g. npx -y some-mcp":"\
-Commande, ex. npx -y some-mcp","Scanning…":"Analyse…","No MCP servers found in Claude Desktop, Cursor, or VS Code settings.":"Aucun serveur MCP trouvé dans les paramètres de Cl\
-aude Desktop, Cursor ou VS Code.","Import {count}":"Importer {count}",All:"Tout",Developer:"Développement","Docs & files":"Documents et fichiers",Work:"Travail",Design:"Design",Data:"\
-Données",Commerce:"Commerce","No connectors connected":"Aucun connecteur connecté","{bot} needs {name}":"{bot} a besoin de {name}",Mail:"E-mail",Subject:"Objet","Write a message…":"\
-Écrire un message…",Discard:"Abandonner",Discarded:"Abandonné","Allow recipient":"Autoriser le destinataire","Allow this Bot to send directly":"Autoriser ce Bot à envoyer direc\
-tement","Manage rules":"Gérer les règles","Sending rules":"Règles d’envoi",From:"De",To:"À",Cc:"Cc",Bcc:"Cci","Attachments: {names}":"Pièces jointes : {names}",Sent:"Envoyé",
-Failed:"Échec","Request failed":"Échec de la requête","Permissions are not available in this DeepSeek Harness":"Les autorisations ne sont pas disponibles dans ce DeepSeek Harnes\
-s","Avatar image is too large":"L’image d’avatar est trop volumineuse","A Bot needs a name":"Un Bot doit avoir un nom","A Bot name cannot contain @, ` or a line break":"Le nom \
-d’un Bot ne peut pas contenir @, ` ni de saut de ligne","Unknown Bot":"Bot introuvable","Unknown conversation":"Discussion introuvable","A group chat needs at least two Bots":"Un\
-e discussion de groupe nécessite au moins deux Bots","The admin must be a member of the group":"L’admin doit être membre du groupe","Unknown group chat":"Discussion de groupe i\
-ntrouvable","No Bot is left in this group chat":"Il ne reste plus aucun Bot dans cette discussion de groupe","That group chat has been deleted":"Cette discussion de groupe a été su\
-pprimée","Hand the admin role to another member instead of leaving the group without one":"Confiez le rôle d’admin à un autre membre plutôt que de laisser le groupe sans admin",
-"Hand the admin role to another member before leaving the group":"Confiez le rôle d’admin à un autre membre avant de quitter le groupe","The team needs at least one Main Bot":"\
-L’équipe a besoin d’au moins un Bot principal","Only a Main Bot can be replaced":"Seul un Bot principal peut être remplacé","A Main Bot cannot be deleted; remove its Main Bo\
-t role first":"Un Bot principal ne peut pas être supprimé ; retirez-lui d’abord le rôle de Bot principal","Unknown theme":"Thème inconnu","Accent must be a #rrggbb color":"La\
- couleur d’accentuation doit être au format #rrggbb","Type the key first":"Saisissez d’abord la clé","Choose every Bot or a list of Bots":"Choisissez tous les Bots ou une lis\
-te de Bots","This request is gone":"Cette demande n’existe plus","This request was already answered":"Cette demande a déjà été traitée","A name uses capitals, digits, and un\
-derscores, and starts with a letter":"Un nom ne peut contenir que des lettres majuscules, des chiffres et des tirets bas, en commençant par une lettre","No such key":"Clé introuva\
-ble","Type a question or a change first":"Saisissez d’abord une question ou une modification","No model is available. Add one in Settings > Models.":"Aucun modèle n’est disponibl\
-e. Ajoutez-en un dans Paramètres > Modèles.","Memory is turned off on this host":"La mémoire est désactivée sur cet hôte","The model wrote nothing":"Le modèle n’a rien produi\
-t","Write the entry to save.":"Écrivez l’entrée à enregistrer.","This DeepSeek Harness has no folder chooser":"Ce DeepSeek Harness n’a pas de sélecteur de dossier","This De\
-epSeek Harness cannot list folders":"Ce DeepSeek Harness ne peut pas lister les dossiers","Side chat is only available in a Bot's private chat.":"La discussion parallèle n’est disp\
-onible que dans la discussion privée d’un Bot.","Write a question.":"Écrivez une question.","Write a question after /side.":"Écrivez une question après /side.","/side does no\
-t take attachments.":"/side n’accepte pas les pièces jointes.","Wait for the answer, or cancel it.":"Attendez la réponse ou annulez la demande.","This side chat is no longer he\
-re.":"Cette discussion parallèle n’existe plus.","This side question is no longer here.":"Cette question parallèle n’existe plus.","This Bot has not called a model yet. Send \
-a normal message first.":"Ce Bot n’a pas encore appelé de modèle. Envoyez d’abord un message normal.","DS Bot restarted before this answer finished.":"DS Bot a redémarré avan\
-t la fin de cette réponse.","The model called a tool again after being told not to, so this aside was not answered.":"Le modèle a de nouveau appelé un outil alors qu’il lui était \
-demandé de ne pas le faire ; cette question parallèle n’a donc pas reçu de réponse.","The model wrote nothing.":"Le modèle n’a rien écrit.","Nothing to ask":"Rien à deman\
-der","Nothing to open":"Rien à ouvrir","Nothing to cancel":"Rien à annuler","Nothing to close":"Rien à fermer","DS Bot is still loading this chat.":"DS Bot charge encore cette d\
-iscussion.","This message is no longer kept":"Ce message n’est plus conservé","No file named":"Aucun fichier indiqué","This file cannot be read here":"Ce fichier ne peut pas êt\
-re lu ici","That wait is no longer open":"Cette attente est terminée","Nothing to send":"Rien à envoyer","This view is no longer open":"Cette vue n’est plus ouverte","This is n\
-ot a photo DS Bot can send":"Ce n’est pas une photo que DS Bot peut envoyer","A photo did not arrive. Send it again.":"Une photo n’est pas arrivée. Envoyez-la de nouveau.","No\
-thing to delete":"Rien à supprimer","Bot browsers are off on this host":"Les navigateurs des Bots sont désactivés sur cet hôte","This Bot has no open browser":"Ce Bot n’a aucun\
- navigateur ouvert","A browser poll needs a clientId":"L’interrogation du navigateur nécessite un clientId","This browser is not held":"Ce navigateur n’est pas en cours de prise\
- en main","This handoff is no longer open":"Ce passage de relais du navigateur n’est plus ouvert","Avatar images must be PNG, JPEG, WebP, GIF, or SVG":"Les images d’avatar doiven\
-t être au format PNG, JPEG, WebP, GIF ou SVG","Pick a model before choosing a thinking level":"Choisissez un modèle avant de sélectionner un niveau de réflexion","Unknown secti\
-on":"Section introuvable","Unknown section color":"Couleur de section inconnue","Write the to-do first.":"Écrivez d’abord la tâche à faire.","That to-do is no longer on the li\
-st.":"Cette tâche n’est plus dans la liste.","Write what this group should achieve, in at most 2000 characters.":"Décrivez ce que ce groupe doit accomplir, en 2000 caractères ma\
-ximum.","This group has no admin. Set one in the group settings first.":"Ce groupe n’a pas d’admin. Définissez-en un dans les paramètres du groupe.","This group already has a\
- goal. Stop it first.":"Ce groupe a déjà un objectif. Arrêtez-le d’abord.","The goal has changed. Look again.":"L’objectif a changé. Vérifiez à nouveau.","Nothing to do":"\
-Rien à faire","Write a note first.":"Écrivez d’abord une note.","That task is already finished.":"Cette tâche est déjà terminée.","No such group.":"Ce groupe est introuvabl\
-e.","No such task.":"Cette tâche est introuvable.","No open task to cancel.":"Aucune tâche en cours à annuler.","Sign-in timed out":"Délai de connexion dépassé","The sign-in \
-answer did not match this attempt (state mismatch). Try again.":"La réponse de connexion ne correspond pas à cette tentative (état différent). Réessayez.","This connector does\
- not sign in":"Ce connecteur ne nécessite pas de connexion","This connector has no server address":"Ce connecteur n’a pas d’adresse de serveur","Connector addresses must start\
- with https://":"Les adresses de connecteurs doivent commencer par https://","This service does not publish OAuth sign-in metadata":"Ce service ne publie pas de métadonnées de conn\
-exion OAuth","Paste a key first":"Collez d’abord une clé","No sign-in is waiting":"Aucune connexion n’est en attente","Paste the address or the code":"Collez l’adresse ou le c\
-ode","This address is not from this sign-in attempt (state mismatch). Copy the whole address again.":"Cette adresse ne provient pas de cette tentative de connexion (état différent)\
-. Copiez de nouveau l’adresse complète.","The address has no code":"L’adresse ne contient aucun code","Enter the client ID":"Saisissez l’identifiant client","Name the connec\
-tor":"Nommez le connecteur","Enter an address or a command":"Saisissez une adresse ou une commande","Only added connectors can be removed":"Seuls les connecteurs ajoutés peuvent êt\
-re supprimés","The mail connection closed during verification":"La connexion de messagerie s’est fermée pendant la vérification","Google sign-in is not available in this build":"\
-La connexion Google n’est pas disponible dans cette version","Enter an email address":"Saisissez une adresse e-mail","Enter the IMAP and SMTP hosts":"Saisissez les serveurs IMAP \
-et SMTP","No such account":"Compte introuvable","This card was already answered":"Cette carte a déjà reçu une réponse","No Google sign-in is waiting":"Aucune connexion Google n\
-’est en attente","The sign-in answer is not for this attempt":"La réponse de connexion ne correspond pas à cette tentative","Google did not say which account this is":"Google n\
-’a pas indiqué de quel compte il s’agit","This platform is not available yet":"Cette plateforme n’est pas encore disponible","Choose a Bot first":"Choisissez d’abord un Bot",
-"This platform signs in by scanning a code; not available yet":"Cette plateforme se connecte en scannant un code et n’est pas encore disponible","No such IM bot":"Bot de messager\
-ie introuvable","No such platform":"Plateforme introuvable","No such chat":"Discussion introuvable","Choose a Bot or a group":"Choisissez un Bot ou un groupe","This platform has no\
- QR login":"Cette plateforme ne propose pas de connexion par QR code","Paste the bot token first":"Collez d’abord le jeton du bot","Telegram did not say who this token belongs to":"\
-Telegram n’a pas indiqué à qui appartient ce jeton","A webhook or another program uses this bot":"Un webhook ou un autre programme utilise ce bot","This token does not belong t\
-o a Discord bot":"Ce jeton n’appartient pas à un bot Discord","Discord gave no usable gateway URL":"Discord n’a renvoyé aucune URL de passerelle utilisable","These credential\
-s do not belong to a Slack bot":"Ces identifiants n’appartiennent pas à un bot Slack","WeChat answered an unreadable response":"WeChat a renvoyé une réponse illisible","WeChat\
- rate limited the request":"WeChat a limité la fréquence des requêtes","WeChat refused the token":"WeChat a refusé le jeton","Use a capability name with lowercase letters, digi\
-ts, and single hyphens; connector names are reserved.":"Utilisez un nom de capacité composé de lettres minuscules, de chiffres et de traits d’union simples ; les noms de connecteur\
-s sont réservés.","Arguments must be a list of text values.":"Les arguments doivent être une liste de textes.","Choose an MCP server, skill, or pack.":"Choisissez un serveur MCP\
-, une compétence ou un pack.","A capability cannot change its kind. Delete it and save a new one.":"Une capacité ne peut pas changer de type. Supprimez-la et enregistrez-en une no\
-uvelle.","Enter a command for the MCP server.":"Saisissez une commande pour le serveur MCP.","Enter a valid HTTP or HTTPS URL.":"Saisissez une URL HTTP ou HTTPS valide.","Only Bots\
- on the team can change capabilities.":"Seuls les Bots de l’équipe peuvent modifier des capacités.","Only a Main Bot can change another Bot’s capabilities.":"Seul un Bot prin\
-cipal peut modifier les capacités d’un autre Bot.","This DSH cannot load MCP servers.":"Ce DSH ne peut pas charger de serveurs MCP.","Unknown capability operation.":"Opération d\
-e capacité inconnue.","The secrets file is not encrypted.":"Le fichier des secrets n’est pas chiffré.","Secrets are already encrypted.":"Les secrets sont déjà chiffrés.","Se\
-crets are not encrypted.":"Les secrets ne sont pas chiffrés.","Learning is turned off on this host":"L’apprentissage est désactivé sur cet hôte","AGENTS.md changed since this\
- was proposed":"AGENTS.md a changé depuis cette proposition","The Bot that learned this skill is gone":"Le Bot qui a appris cette compétence n’existe plus","System permissions \
-are not available here":"Les autorisations système ne sont pas disponibles ici","This host keeps no Bot data folder, so it has no avatar library.":"Cet hôte ne conserve aucun doss\
-ier de données Bot et n’a donc pas de bibliothèque d’avatars.","DS Bot is shutting down":"DS Bot est en train de s’arrêter","Computer use":"Contrôle de l’ordinateur",Computer:"\
+ign-in":"Terminer la connexion","Open {host}":"Ouvrir {host}","Client ID":"Client ID","Client secret (optional)":"Client secret (facultatif)","In OAuth & Permissions at {app}, add \
+this redirect URL:":"Dans OAuth & Permissions de {app}, ajoutez cette URL de redirection :","In the app settings, add this redirect URL:":"Dans les réglages de l’app, ajoutez cette\
+ URL de redirection :","Turn on the MCP features and scopes the app needs.":"Activez les fonctions et les portées MCP dont l’app a besoin.","Copy the Client ID and Client Secret\
+ here.":"Collez ici le Client ID et le Client Secret.","Open app settings":"Ouvrir les réglages de l’app",Continue:"Continuer","{name} key":"Clé {name}","{name} token":"Jeton {\
+name}","Get a key":"Obtenir une clé","Read-only":"Lecture seule","{count} tools":"{count} outils",Mailbox:"Boîte mail","Email address":"Adresse e-mail",Catalog:"Catalogue","App p\
+assword":"Mot de passe d’application","Authorization code":"Code d’autorisation","Password or app password":"Mot de passe ou mot de passe d’application","Official help":"Aide\
+ officielle","Finish signing in in your browser.":"Terminez la connexion dans votre navigateur.","Open again":"Rouvrir","Did not come back here?":"La page ne vous a pas redirigé ic\
+i ?","Copied to clipboard":"Copié dans le presse-papiers","Paste the code on {host} and authorize.":"Collez le code sur {host} et autorisez l’accès.","Add another":"En ajouter \
+un autre","QQ, 163, 126, Gmail, iCloud, and other IMAP mail":"QQ, 163, 126, Gmail, iCloud et autres messageries IMAP","Other MCP server":"Autre serveur MCP","An address, a command,\
+ or one from Claude Desktop, Cursor, or VS Code":"Une adresse, une commande ou une importation depuis Claude Desktop, Cursor ou VS Code","Kind of server":"Type de serveur","Nothing\
+ matches":"Aucun connecteur correspondant",Recommended:"Recommandé","See all":"Tout voir","{count} connected":"{count} connecté(s)","{count} accounts":"{count} comptes",Category:"\
+Catégorie","Could not reach the mail server. Check the server address.":"Impossible de joindre le serveur de messagerie. Vérifiez l’adresse du serveur.","Sign in at mail.qq.com\
+, click your avatar at the top right, and open Settings → Account and Security → Security Settings.":"Connectez-vous sur mail.qq.com, cliquez sur votre avatar en haut à droite \
+et ouvrez Paramètres → Compte et sécurité → Paramètres de sécurité.","Turn on the POP3/IMAP/SMTP service, then click Generate authorization code and verify yourself.":"Ac\
+tivez le service POP3/IMAP/SMTP, puis cliquez sur Générer un code d’autorisation et validez votre identité.","Paste the 16-letter code below. Changing your QQ password cancels\
+ it.":"Collez le code de 16 lettres ci-dessous. Changer votre mot de passe QQ l’invalidera.","Sign in at {host} and open Settings → POP3/SMTP/IMAP.":"Connectez-vous sur {host} \
+et ouvrez Paramètres → POP3/SMTP/IMAP.","Turn on IMAP/SMTP and send the text message it asks for.":"Activez IMAP/SMTP et envoyez le SMS de vérification demandé.","Paste the 16\
+-character code below. It is shown only once.":"Collez le code de 16 caractères ci-dessous. Il ne s’affiche qu’une seule fois.","Turn on 2-Step Verification for your Google Ac\
+count.":"Activez la validation en deux étapes sur votre compte Google.","Open App passwords, create one, and paste the 16-character password below.":"Ouvrez Mots de passe des appl\
+ications, créez-en un et collez le mot de passe de 16 caractères ci-dessous.","Work and school accounts cannot use app passwords.":"Les comptes professionnels et scolaires ne peu\
+vent pas utiliser les mots de passe d’application.","Your Apple Account needs two-factor authentication.":"Votre compte Apple doit utiliser l’identification à deux facteurs.",
+"Sign in at account.apple.com and open Sign-In and Security → App-Specific Passwords.":"Connectez-vous sur account.apple.com et ouvrez Connexion et sécurité → Mots de passe pour \
+app.","Generate a password and paste it below.":"Générez un mot de passe et collez-le ci-dessous.","The mail service refused the login (Unsafe Login). Enable IMAP/SMTP in the mai\
+lbox settings and use its authorization code, not the account password.":"Le service de messagerie a refusé la connexion (Unsafe Login). Activez IMAP/SMTP dans les paramètres de vo\
+tre boîte mail et utilisez son code d’autorisation plutôt que le mot de passe du compte.","The password was refused. Use the mailbox app password or authorization code, not the\
+ account password.":"Le mot de passe a été refusé. Utilisez le mot de passe d’application ou le code d’autorisation de la boîte mail, et non le mot de passe du compte.","En\
+ter the authorization code or app password":"Saisissez le code d’autorisation ou le mot de passe d’application","Pages, databases, and wiki content":"Pages, bases de données et\
+ contenus wiki","Issues, projects, and cycles":"Tickets, projets et cycles","Jira issues and Confluence pages":"Tickets Jira et pages Confluence","Errors, traces, and releases":"Er\
+reurs, traces et versions","Payments, invoices, and customers":"Paiements, factures et clients","Orders, payments, and invoices":"Commandes, paiements et factures","Payments, order\
+s, and catalog":"Paiements, commandes et catalogue","Workers, DNS, and account resources":"Workers, DNS et ressources du compte","Projects, deployments, and logs":"Projets, déploie\
+ments et journaux","Databases, tables, and project settings":"Bases de données, tables et paramètres du projet","Postgres databases and branches":"Bases de données Postgres et br\
+anches","Design files, components, and comments":"Fichiers de design, composants et commentaires","Designs, folders, and exports":"Designs, dossiers et exports","Conversations, con\
+tacts, and articles":"Conversations, contacts et articles","Boards, items, and workflows":"Tableaux, éléments et flux de travail","Sites, pages, and CMS content":"Sites, pages et\
+ contenus CMS","Sites, pages, and site content":"Sites, pages et contenus du site","Sites, deploys, and forms":"Sites, déploiements et formulaires","Bases, tables, and records":"B\
+ases, tables et enregistrements","Files and folders":"Fichiers et dossiers","Zaps and app actions":"Zaps et actions d’application","Tasks, lists, and docs":"Tâches, listes et doc\
+uments","Tasks and projects":"Tâches et projets","Boards and whiteboard items":"Tableaux et éléments de tableau blanc","CRM records, lists, and notes":"Fiches CRM, listes et not\
+es","Collections, requests, and workspaces":"Collections, requêtes et espaces de travail","Tasks, projects, and workspaces":"Tâches, projets et espaces de travail","Files, folder\
+s, and metadata":"Fichiers, dossiers et métadonnées","Contacts, deals, and tickets":"Contacts, transactions et tickets","Channels and messages":"Canaux et messages","Models, data\
+sets, and Spaces":"Modèles, jeux de données et Spaces","Web search for agents":"Recherche web pour les agents","Documentation for public code repositories":"Documentation des dép\
+ôts de code publics","Library documentation and code examples":"Documentation de bibliothèques et exemples de code","Microsoft product documentation":"Documentation des produits \
+Microsoft","Cloudflare product documentation":"Documentation des produits Cloudflare","Maps, places, and routes in China":"Cartes, lieux et itinéraires en Chine","Read and send em\
+ail over IMAP and SMTP":"Lire et envoyer des e-mails via IMAP et SMTP","IMAP host":"Serveur IMAP","SMTP host":"Serveur SMTP","Sign in with Google":"Se connecter avec Google","Verif\
+ying…":"Vérification…","Import from other apps":"Importer depuis d’autres applications","Server address":"Adresse du serveur","Command, e.g. npx -y some-mcp":"Commande, ex. \
+npx -y some-mcp","Scanning…":"Analyse…","No MCP servers found in Claude Desktop, Cursor, or VS Code settings.":"Aucun serveur MCP trouvé dans les paramètres de Claude Desktop, \
+Cursor ou VS Code.","Import {count}":"Importer {count}",All:"Tout",Developer:"Développement","Docs & files":"Documents et fichiers",Work:"Travail",Design:"Design",Data:"Données",
+Commerce:"Commerce","No connectors connected":"Aucun connecteur connecté","{bot} needs {name}":"{bot} a besoin de {name}",Mail:"E-mail",Subject:"Objet","Write a message…":"Écrir\
+e un message…",Discard:"Abandonner",Discarded:"Abandonné","Allow recipient":"Autoriser le destinataire","Allow this Bot to send directly":"Autoriser ce Bot à envoyer directement",
+"Manage rules":"Gérer les règles","Sending rules":"Règles d’envoi",From:"De",To:"À",Cc:"Cc",Bcc:"Cci","Attachments: {names}":"Pièces jointes : {names}",Sent:"Envoyé",Failed:"\
+Échec","Request failed":"Échec de la requête","Permissions are not available in this DeepSeek Harness":"Les autorisations ne sont pas disponibles dans ce DeepSeek Harness","Avat\
+ar image is too large":"L’image d’avatar est trop volumineuse","A Bot needs a name":"Un Bot doit avoir un nom","A Bot name cannot contain @, ` or a line break":"Le nom d’un Bot\
+ ne peut pas contenir @, ` ni de saut de ligne","Unknown Bot":"Bot introuvable","Unknown conversation":"Discussion introuvable","A group chat needs at least two Bots":"Une discussi\
+on de groupe nécessite au moins deux Bots","The admin must be a member of the group":"L’admin doit être membre du groupe","Unknown group chat":"Discussion de groupe introuvable",
+"No Bot is left in this group chat":"Il ne reste plus aucun Bot dans cette discussion de groupe","That group chat has been deleted":"Cette discussion de groupe a été supprimée",
+"Hand the admin role to another member instead of leaving the group without one":"Confiez le rôle d’admin à un autre membre plutôt que de laisser le groupe sans admin","Hand t\
+he admin role to another member before leaving the group":"Confiez le rôle d’admin à un autre membre avant de quitter le groupe","The team needs at least one Main Bot":"L’équip\
+e a besoin d’au moins un Bot principal","Only a Main Bot can be replaced":"Seul un Bot principal peut être remplacé","A Main Bot cannot be deleted; remove its Main Bot role fir\
+st":"Un Bot principal ne peut pas être supprimé ; retirez-lui d’abord le rôle de Bot principal","Unknown theme":"Thème inconnu","Accent must be a #rrggbb color":"La couleur d\
+’accentuation doit être au format #rrggbb","Type the key first":"Saisissez d’abord la clé","Choose every Bot or a list of Bots":"Choisissez tous les Bots ou une liste de Bots",
+"This request is gone":"Cette demande n’existe plus","This request was already answered":"Cette demande a déjà été traitée","A name uses capitals, digits, and underscores, a\
+nd starts with a letter":"Un nom ne peut contenir que des lettres majuscules, des chiffres et des tirets bas, en commençant par une lettre","No such key":"Clé introuvable","Type \
+a question or a change first":"Saisissez d’abord une question ou une modification","No model is available. Add one in Settings > Models.":"Aucun modèle n’est disponible. Ajoutez-\
+en un dans Paramètres > Modèles.","Memory is turned off on this host":"La mémoire est désactivée sur cet hôte","The model wrote nothing":"Le modèle n’a rien produit","Writ\
+e the entry to save.":"Écrivez l’entrée à enregistrer.","This DeepSeek Harness has no folder chooser":"Ce DeepSeek Harness n’a pas de sélecteur de dossier","This DeepSeek H\
+arness cannot list folders":"Ce DeepSeek Harness ne peut pas lister les dossiers","Side chat is only available in a Bot's private chat.":"La discussion parallèle n’est disponible q\
+ue dans la discussion privée d’un Bot.","Write a question.":"Écrivez une question.","Write a question after /side.":"Écrivez une question après /side.","/side does not take a\
+ttachments.":"/side n’accepte pas les pièces jointes.","Wait for the answer, or cancel it.":"Attendez la réponse ou annulez la demande.","This side chat is no longer here.":"Ce\
+tte discussion parallèle n’existe plus.","This side question is no longer here.":"Cette question parallèle n’existe plus.","This Bot has not called a model yet. Send a normal\
+ message first.":"Ce Bot n’a pas encore appelé de modèle. Envoyez d’abord un message normal.","DS Bot restarted before this answer finished.":"DS Bot a redémarré avant la fin\
+ de cette réponse.","The model called a tool again after being told not to, so this aside was not answered.":"Le modèle a de nouveau appelé un outil alors qu’il lui était demandé \
+de ne pas le faire ; cette question parallèle n’a donc pas reçu de réponse.","The model wrote nothing.":"Le modèle n’a rien écrit.","Nothing to ask":"Rien à demander","No\
+thing to open":"Rien à ouvrir","Nothing to cancel":"Rien à annuler","Nothing to close":"Rien à fermer","DS Bot is still loading this chat.":"DS Bot charge encore cette discussio\
+n.","This message is no longer kept":"Ce message n’est plus conservé","No file named":"Aucun fichier indiqué","This file cannot be read here":"Ce fichier ne peut pas être lu ic\
+i","That wait is no longer open":"Cette attente est terminée","Nothing to send":"Rien à envoyer","This view is no longer open":"Cette vue n’est plus ouverte","This is not a pho\
+to DS Bot can send":"Ce n’est pas une photo que DS Bot peut envoyer","A photo did not arrive. Send it again.":"Une photo n’est pas arrivée. Envoyez-la de nouveau.","Nothing to\
+ delete":"Rien à supprimer","Bot browsers are off on this host":"Les navigateurs des Bots sont désactivés sur cet hôte","This Bot has no open browser":"Ce Bot n’a aucun navigat\
+eur ouvert","A browser poll needs a clientId":"L’interrogation du navigateur nécessite un clientId","This browser is not held":"Ce navigateur n’est pas en cours de prise en main",
+"This handoff is no longer open":"Ce passage de relais du navigateur n’est plus ouvert","Avatar images must be PNG, JPEG, WebP, GIF, or SVG":"Les images d’avatar doivent être au \
+format PNG, JPEG, WebP, GIF ou SVG","Pick a model before choosing a thinking level":"Choisissez un modèle avant de sélectionner un niveau de réflexion","Unknown section":"Sectio\
+n introuvable","Unknown section color":"Couleur de section inconnue","Write the to-do first.":"Écrivez d’abord la tâche à faire.","That to-do is no longer on the list.":"Cette\
+ tâche n’est plus dans la liste.","Write what this group should achieve, in at most 2000 characters.":"Décrivez ce que ce groupe doit accomplir, en 2000 caractères maximum.","\
+This group has no admin. Set one in the group settings first.":"Ce groupe n’a pas d’admin. Définissez-en un dans les paramètres du groupe.","This group already has a goal. St\
+op it first.":"Ce groupe a déjà un objectif. Arrêtez-le d’abord.","The goal has changed. Look again.":"L’objectif a changé. Vérifiez à nouveau.","Nothing to do":"Rien à f\
+aire","Write a note first.":"Écrivez d’abord une note.","That task is already finished.":"Cette tâche est déjà terminée.","No such group.":"Ce groupe est introuvable.","No s\
+uch task.":"Cette tâche est introuvable.","No open task to cancel.":"Aucune tâche en cours à annuler.","Sign-in timed out":"Délai de connexion dépassé","The sign-in answer di\
+d not match this attempt (state mismatch). Try again.":"La réponse de connexion ne correspond pas à cette tentative (état différent). Réessayez.","This connector does not sign\
+ in":"Ce connecteur ne nécessite pas de connexion","This connector has no server address":"Ce connecteur n’a pas d’adresse de serveur","Connector addresses must start with htt\
+ps://":"Les adresses de connecteurs doivent commencer par https://","This service does not publish OAuth sign-in metadata":"Ce service ne publie pas de métadonnées de connexion OAu\
+th","Paste a key first":"Collez d’abord une clé","No sign-in is waiting":"Aucune connexion n’est en attente","Paste the address or the code":"Collez l’adresse ou le code","T\
+his address is not from this sign-in attempt (state mismatch). Copy the whole address again.":"Cette adresse ne provient pas de cette tentative de connexion (état différent). Copie\
+z de nouveau l’adresse complète.","The address has no code":"L’adresse ne contient aucun code","Enter the client ID":"Saisissez l’identifiant client","Name the connector":"N\
+ommez le connecteur","Enter an address or a command":"Saisissez une adresse ou une commande","Only added connectors can be removed":"Seuls les connecteurs ajoutés peuvent être supp\
+rimés","The mail connection closed during verification":"La connexion de messagerie s’est fermée pendant la vérification","Google sign-in is not available in this build":"La c\
+onnexion Google n’est pas disponible dans cette version","Enter an email address":"Saisissez une adresse e-mail","Enter the IMAP and SMTP hosts":"Saisissez les serveurs IMAP et S\
+MTP","No such account":"Compte introuvable","This card was already answered":"Cette carte a déjà reçu une réponse","No Google sign-in is waiting":"Aucune connexion Google n’est\
+ en attente","The sign-in answer is not for this attempt":"La réponse de connexion ne correspond pas à cette tentative","Google did not say which account this is":"Google n’a pas\
+ indiqué de quel compte il s’agit","This platform is not available yet":"Cette plateforme n’est pas encore disponible","Choose a Bot first":"Choisissez d’abord un Bot","This\
+ platform signs in by scanning a code; not available yet":"Cette plateforme se connecte en scannant un code et n’est pas encore disponible","No such IM bot":"Bot de messagerie in\
+trouvable","No such platform":"Plateforme introuvable","No such chat":"Discussion introuvable","Choose a Bot or a group":"Choisissez un Bot ou un groupe","This platform has no QR l\
+ogin":"Cette plateforme ne propose pas de connexion par QR code","Paste the bot token first":"Collez d’abord le jeton du bot","Telegram did not say who this token belongs to":"Te\
+legram n’a pas indiqué à qui appartient ce jeton","A webhook or another program uses this bot":"Un webhook ou un autre programme utilise ce bot","This token does not belong to \
+a Discord bot":"Ce jeton n’appartient pas à un bot Discord","Discord gave no usable gateway URL":"Discord n’a renvoyé aucune URL de passerelle utilisable","These credentials \
+do not belong to a Slack bot":"Ces identifiants n’appartiennent pas à un bot Slack","WeChat answered an unreadable response":"WeChat a renvoyé une réponse illisible","WeChat r\
+ate limited the request":"WeChat a limité la fréquence des requêtes","WeChat refused the token":"WeChat a refusé le jeton","Use a capability name with lowercase letters, digits\
+, and single hyphens; connector names are reserved.":"Utilisez un nom de capacité composé de lettres minuscules, de chiffres et de traits d’union simples ; les noms de connecteurs \
+sont réservés.","Arguments must be a list of text values.":"Les arguments doivent être une liste de textes.","Choose an MCP server, skill, or pack.":"Choisissez un serveur MCP, \
+une compétence ou un pack.","A capability cannot change its kind. Delete it and save a new one.":"Une capacité ne peut pas changer de type. Supprimez-la et enregistrez-en une nouv\
+elle.","Enter a command for the MCP server.":"Saisissez une commande pour le serveur MCP.","Enter a valid HTTP or HTTPS URL.":"Saisissez une URL HTTP ou HTTPS valide.","Only Bots o\
+n the team can change capabilities.":"Seuls les Bots de l’équipe peuvent modifier des capacités.","Only a Main Bot can change another Bot’s capabilities.":"Seul un Bot princi\
+pal peut modifier les capacités d’un autre Bot.","This DSH cannot load MCP servers.":"Ce DSH ne peut pas charger de serveurs MCP.","Unknown capability operation.":"Opération de \
+capacité inconnue.","The secrets file is not encrypted.":"Le fichier des secrets n’est pas chiffré.","Secrets are already encrypted.":"Les secrets sont déjà chiffrés.","Secr\
+ets are not encrypted.":"Les secrets ne sont pas chiffrés.","Learning is turned off on this host":"L’apprentissage est désactivé sur cet hôte","AGENTS.md changed since this w\
+as proposed":"AGENTS.md a changé depuis cette proposition","The Bot that learned this skill is gone":"Le Bot qui a appris cette compétence n’existe plus","System permissions ar\
+e not available here":"Les autorisations système ne sont pas disponibles ici","This host keeps no Bot data folder, so it has no avatar library.":"Cet hôte ne conserve aucun dossie\
+r de données Bot et n’a donc pas de bibliothèque d’avatars.","DS Bot is shutting down":"DS Bot est en train de s’arrêter","Computer use":"Contrôle de l’ordinateur",Computer:"\
 Ordinateur",Control:"Contrôle","Let Bots use the computer":"Autoriser les Bots à utiliser l’ordinateur","Using the computer":"Utilise l’ordinateur",Off:"Désactivé","View on\
 ly":"Lecture seule",Background:"Arrière-plan",Foreground:"Premier plan","In the foreground":"Au premier plan","Computer use level":"Niveau de contrôle de l’ordinateur","Compute\
 r provider":"Fournisseur","Loading the provider…":"Chargement du fournisseur…","Could not load the provider":"Impossible de charger le fournisseur","The provider package is not\
@@ -4141,136 +4152,138 @@ lder…":"Ordner auswählen…","Browse folders…":"Ordner durchsuchen…","Ent
 fad eines Ordners","Use this folder":"Diesen Ordner verwenden","Up one level":"Eine Ebene nach oben","No folders inside.":"Keine Unterordner vorhanden.","Some folders are not shown\
 .":"Einige Ordner werden nicht angezeigt.","Waiting for sign-in…":"Wartet auf Anmeldung…","This service needs an app client ID":"Dieser Dienst benötigt eine App-Client-ID","Pa\
 ste the address you land on":"Zieladresse nach der Weiterleitung einfügen","Finish sign-in":"Anmeldung abschließen","Open {host}":"{host} öffnen","Client ID":"Client ID","Client\
- secret (optional)":"Client Secret (optional)",Continue:"Weiter","{name} key":"{name}-Schlüssel","{name} token":"{name}-Token","Get a key":"Schlüssel abrufen","Read-only":"Nur le\
-sen","{count} tools":"{count} Werkzeuge",Mailbox:"Postfach","Email address":"E-Mail-Adresse",Catalog:"Katalog","App password":"App-Passwort","Authorization code":"Autorisierungscod\
-e","Password or app password":"Passwort oder App-Passwort","Official help":"Offizielle Hilfe","Finish signing in in your browser.":"Schließe die Anmeldung in deinem Browser ab.","\
-Open again":"Erneut öffnen","Did not come back here?":"Nicht automatisch hierher zurückgekehrt?","Copied to clipboard":"In die Zwischenablage kopiert","Paste the code on {host} a\
-nd authorize.":"Füge den Code auf {host} ein und autorisiere den Zugriff.","Add another":"Weiteres hinzufügen","QQ, 163, 126, Gmail, iCloud, and other IMAP mail":"QQ, 163, 126, G\
-mail, iCloud und andere IMAP-Postfächer","Other MCP server":"Anderer MCP-Server","An address, a command, or one from Claude Desktop, Cursor, or VS Code":"Adresse, Befehl oder Impo\
-rt aus Claude Desktop, Cursor oder VS Code","Kind of server":"Servertyp","Nothing matches":"Keine passenden Konnektoren",Recommended:"Empfohlen","See all":"Alle anzeigen","{count} \
-connected":"{count} verbunden","{count} accounts":"{count} Konten",Category:"Kategorie","Could not reach the mail server. Check the server address.":"Mailserver nicht erreichbar. B\
-itte prüfe die Serveradresse.","Sign in at mail.qq.com, click your avatar at the top right, and open Settings → Account and Security → Security Settings.":"Melde dich unter ma\
-il.qq.com an, klicke oben rechts auf deinen Avatar und öffne Einstellungen → Konto und Sicherheit → Sicherheitseinstellungen.","Turn on the POP3/IMAP/SMTP service, then click \
-Generate authorization code and verify yourself.":"Aktiviere den Dienst POP3/IMAP/SMTP, klicke auf „Autorisierungscode generieren“ und bestätige deine Identität.","Paste the \
-16-letter code below. Changing your QQ password cancels it.":"Füge den 16-stelligen Code unten ein. Wenn du dein QQ-Passwort änderst, wird er ungültig.","Sign in at {host} and o\
-pen Settings → POP3/SMTP/IMAP.":"Melde dich unter {host} an und öffne Einstellungen → POP3/SMTP/IMAP.","Turn on IMAP/SMTP and send the text message it asks for.":"Aktiviere IM\
-AP/SMTP und bestätige per SMS.","Paste the 16-character code below. It is shown only once.":"Füge den 16-stelligen Code unten ein. Er wird nur einmalig angezeigt.","Turn on 2-Ste\
-p Verification for your Google Account.":"Aktiviere die Bestätigung in zwei Schritten für dein Google-Konto.","Open App passwords, create one, and paste the 16-character password\
- below.":"Öffne „App-Passwörter“, erstelle eines und füge das 16-stellige Passwort unten ein.","Work and school accounts cannot use app passwords.":"Arbeits- und Schulkonten\
- unterstützen keine App-Passwörter.","Your Apple Account needs two-factor authentication.":"Dein Apple-Account erfordert die Zwei-Faktor-Authentifizierung.","Sign in at account.a\
-pple.com and open Sign-In and Security → App-Specific Passwords.":"Melde dich unter account.apple.com an und öffne „Anmeldung und Sicherheit“ → „App-spezifische Passwörter“.",
-"Generate a password and paste it below.":"Generiere ein Passwort und füge es unten ein.","The mail service refused the login (Unsafe Login). Enable IMAP/SMTP in the mailbox setti\
-ngs and use its authorization code, not the account password.":"Der E-Mail-Dienst hat die Anmeldung abgelehnt (Unsafe Login). Aktiviere IMAP/SMTP in den Postfacheinstellungen und v\
-erwende den Autorisierungscode statt deines normalen Kontopassworts.","The password was refused. Use the mailbox app password or authorization code, not the account password.":"Das\
- Passwort wurde abgelehnt. Verwende das App-Passwort oder den Autorisierungscode des Postfachs, nicht dein normales Kontopasswort.","Enter the authorization code or app password":"\
-Autorisierungscode oder App-Passwort eingeben","Pages, databases, and wiki content":"Seiten, Datenbanken und Wiki-Inhalte","Issues, projects, and cycles":"Issues, Projekte und Zykl\
-en","Jira issues and Confluence pages":"Jira-Vorgänge und Confluence-Seiten","Errors, traces, and releases":"Fehler, Traces und Releases","Payments, invoices, and customers":"Zahl\
-ungen, Rechnungen und Kunden","Orders, payments, and invoices":"Bestellungen, Zahlungen und Rechnungen","Payments, orders, and catalog":"Zahlungen, Bestellungen und Artikelkatalog",
-"Workers, DNS, and account resources":"Workers, DNS und Konto-Ressourcen","Projects, deployments, and logs":"Projekte, Deployments und Logs","Databases, tables, and project setting\
-s":"Datenbanken, Tabellen und Projekteinstellungen","Postgres databases and branches":"Postgres-Datenbanken und Branches","Design files, components, and comments":"Designdateien, K\
-omponenten und Kommentare","Designs, folders, and exports":"Designs, Ordner und Exporte","Conversations, contacts, and articles":"Konversationen, Kontakte und Artikel","Boards, ite\
-ms, and workflows":"Boards, Elemente und Workflows","Sites, pages, and CMS content":"Websites, Seiten und CMS-Inhalte","Sites, pages, and site content":"Websites, Seiten und Websit\
-e-Inhalte","Sites, deploys, and forms":"Websites, Deployments und Formulare","Bases, tables, and records":"Bases, Tabellen und Datensätze","Files and folders":"Dateien und Ordner",
-"Zaps and app actions":"Zaps und App-Aktionen","Tasks, lists, and docs":"Aufgaben, Listen und Dokumente","Tasks and projects":"Aufgaben und Projekte","Boards and whiteboard items":"\
-Boards und Whiteboard-Elemente","CRM records, lists, and notes":"CRM-Datensätze, Listen und Notizen","Collections, requests, and workspaces":"Sammlungen, Anfragen und Arbeitsberei\
-che","Tasks, projects, and workspaces":"Aufgaben, Projekte und Arbeitsbereiche","Files, folders, and metadata":"Dateien, Ordner und Metadaten","Contacts, deals, and tickets":"Konta\
-kte, Deals und Tickets","Channels and messages":"Kanäle und Nachrichten","Models, datasets, and Spaces":"Modelle, Datensätze und Spaces","Web search for agents":"Websuche für Age\
-nten","Documentation for public code repositories":"Dokumentation für öffentliche Code-Repositories","Library documentation and code examples":"Bibliotheksdokumentation und Codeb\
-eispiele","Microsoft product documentation":"Microsoft-Produktdokumentation","Cloudflare product documentation":"Cloudflare-Produktdokumentation","Maps, places, and routes in China":"\
-Karten, Orte und Routen in China","Read and send email over IMAP and SMTP":"E-Mails über IMAP und SMTP lesen und senden","IMAP host":"IMAP-Server","SMTP host":"SMTP-Server","Sign \
-in with Google":"Mit Google anmelden","Verifying…":"Wird überprüft…","Import from other apps":"Aus anderen Apps importieren","Server address":"Serveradresse","Command, e.g. n\
-px -y some-mcp":"Befehl, z. B. npx -y some-mcp","Scanning…":"Wird gesucht…","No MCP servers found in Claude Desktop, Cursor, or VS Code settings.":"Keine MCP-Server in den Eins\
-tellungen von Claude Desktop, Cursor oder VS Code gefunden.","Import {count}":"{count} importieren",All:"Alle",Developer:"Entwicklung","Docs & files":"Dokumente & Dateien",Work:"Ar\
-beit",Design:"Design",Data:"Daten",Commerce:"E-Commerce","No connectors connected":"Keine Konnektoren verbunden","{bot} needs {name}":"{bot} benötigt {name}",Mail:"E-Mail",Subject:"\
-Betreff","Write a message…":"E-Mail-Text schreiben…",Discard:"Verwerfen",Discarded:"Verworfen","Allow recipient":"Empfänger erlauben","Allow this Bot to send directly":"Diesem\
- Bot direktes Senden erlauben","Manage rules":"Regeln verwalten","Sending rules":"Senderegeln",From:"Von",To:"An",Cc:"Cc",Bcc:"Bcc","Attachments: {names}":"Anhänge: {names}",Sent:"\
-Gesendet",Failed:"Fehlgeschlagen","Request failed":"Anfrage fehlgeschlagen","Permissions are not available in this DeepSeek Harness":"Berechtigungen werden in diesem DeepSeek Harne\
-ss nicht unterstützt","Avatar image is too large":"Das Avatar-Bild ist zu groß","A Bot needs a name":"Ein Bot benötigt einen Namen","A Bot name cannot contain @, ` or a line bre\
-ak":"Ein Bot-Name darf kein @, ` oder Zeilenumbruch enthalten","Unknown Bot":"Bot nicht gefunden","Unknown conversation":"Chat nicht gefunden","A group chat needs at least two Bots":"\
-Ein Gruppenchat benötigt mindestens zwei Bots","The admin must be a member of the group":"Der Admin muss Mitglied der Gruppe sein","Unknown group chat":"Gruppenchat nicht gefunden",
-"No Bot is left in this group chat":"In diesem Gruppenchat ist kein Bot mehr übrig","That group chat has been deleted":"Dieser Gruppenchat wurde gelöscht","Hand the admin role to\
- another member instead of leaving the group without one":"Übergib die Admin-Rolle an ein anderes Mitglied, statt die Gruppe ohne Admin zu lassen","Hand the admin role to another \
-member before leaving the group":"Übergib die Admin-Rolle vor dem Verlassen der Gruppe an ein anderes Mitglied","The team needs at least one Main Bot":"Das Team benötigt mindesten\
-s einen Haupt-Bot","Only a Main Bot can be replaced":"Nur ein Haupt-Bot kann ersetzt werden","A Main Bot cannot be deleted; remove its Main Bot role first":"Ein Haupt-Bot kann nich\
-t gelöscht werden; entferne zuerst seine Haupt-Bot-Rolle","Unknown theme":"Unbekanntes Design","Accent must be a #rrggbb color":"Die Akzentfarbe muss im Format #rrggbb angegeben w\
-erden","Type the key first":"Gib zuerst den Schlüssel ein","Choose every Bot or a list of Bots":"Wähle alle Bots oder bestimmte Bots aus","This request is gone":"Diese Anfrage ex\
-istiert nicht mehr","This request was already answered":"Diese Anfrage wurde bereits beantwortet","A name uses capitals, digits, and underscores, and starts with a letter":"Ein Nam\
-e darf nur Großbuchstaben, Ziffern und Unterstriche enthalten und muss mit einem Buchstaben beginnen","No such key":"Schlüssel nicht gefunden","Type a question or a change first":"\
-Gib zuerst eine Frage oder Änderung ein","No model is available. Add one in Settings > Models.":"Kein Modell verfügbar. Füge eines unter Einstellungen → Modelle hinzu.","Memor\
-y is turned off on this host":"Das Gedächtnis ist auf diesem Host deaktiviert","The model wrote nothing":"Das Modell hat keine Ausgabe erzeugt","Write the entry to save.":"Gib den\
- zu speichernden Eintrag ein.","This DeepSeek Harness has no folder chooser":"Dieses DeepSeek Harness unterstützt keinen Ordnerauswahldialog","This DeepSeek Harness cannot list fo\
-lders":"Dieses DeepSeek Harness kann keine Ordner auflisten","Side chat is only available in a Bot's private chat.":"Der Nebenchat ist nur im Einzelchat eines Bots verfügbar.","Wr\
-ite a question.":"Gib eine Frage ein.","Write a question after /side.":"Gib nach /side eine Frage ein.","/side does not take attachments.":"/side unterstützt keine Anhänge.","Wai\
-t for the answer, or cancel it.":"Warte auf die Antwort oder brich sie ab.","This side chat is no longer here.":"Dieser Nebenchat existiert nicht mehr.","This side question is no l\
-onger here.":"Diese Nebenfrage existiert nicht mehr.","This Bot has not called a model yet. Send a normal message first.":"Dieser Bot hat noch kein Modell aufgerufen. Sende zuerst \
-eine normale Nachricht.","DS Bot restarted before this answer finished.":"DS Bot wurde neu gestartet, bevor diese Antwort abgeschlossen war.","The model called a tool again after b\
-eing told not to, so this aside was not answered.":"Das Modell hat trotz Aufforderung erneut ein Werkzeug aufgerufen; daher wurde diese Nebenfrage nicht beantwortet.","The model wr\
-ote nothing.":"Das Modell hat nichts geschrieben.","Nothing to ask":"Nichts zu fragen","Nothing to open":"Nichts zu öffnen","Nothing to cancel":"Nichts abzubrechen","Nothing to cl\
-ose":"Nichts zu schließen","DS Bot is still loading this chat.":"DS Bot lädt diesen Chat noch.","This message is no longer kept":"Diese Nachricht wird nicht mehr aufbewahrt","No \
-file named":"Keine Datei angegeben","This file cannot be read here":"Diese Datei kann hier nicht gelesen werden","That wait is no longer open":"Dieses Warten ist nicht mehr aktiv",
-"Nothing to send":"Nichts zu senden","This view is no longer open":"Diese Ansicht ist nicht mehr geöffnet","This is not a photo DS Bot can send":"Dies ist kein Foto, das DS Bot se\
-nden kann","A photo did not arrive. Send it again.":"Ein Foto ist nicht angekommen. Sende es erneut.","Nothing to delete":"Nichts zu löschen","Bot browsers are off on this host":"\
-Bot-Browser sind auf diesem Host deaktiviert","This Bot has no open browser":"Dieser Bot hat keinen geöffneten Browser","A browser poll needs a clientId":"Eine Browser-Abfrage ben\
-ötigt eine clientId","This browser is not held":"Dieser Browser wird derzeit nicht übergeben","This handoff is no longer open":"Diese Browser-Übergabe ist nicht mehr offen","Ava\
-tar images must be PNG, JPEG, WebP, GIF, or SVG":"Avatar-Bilder müssen im Format PNG, JPEG, WebP, GIF oder SVG vorliegen","Pick a model before choosing a thinking level":"Wähle zu\
-erst ein Modell aus, bevor du eine Denkstufe festlegst","Unknown section":"Abschnitt nicht gefunden","Unknown section color":"Unbekannte Abschnittsfarbe","Write the to-do first.":"\
-Gib zuerst eine Aufgabe ein.","That to-do is no longer on the list.":"Diese Aufgabe steht nicht mehr auf der Liste.","Write what this group should achieve, in at most 2000 characte\
-rs.":"Beschreibe in höchstens 2000 Zeichen, was diese Gruppe erreichen soll.","This group has no admin. Set one in the group settings first.":"Diese Gruppe hat keinen Admin. Lege \
-zuerst in den Gruppeneinstellungen einen fest.","This group already has a goal. Stop it first.":"Diese Gruppe hat bereits ein Ziel. Stoppe es zuerst.","The goal has changed. Look a\
-gain.":"Das Ziel hat sich geändert. Sieh noch einmal nach.","Nothing to do":"Nichts zu tun","Write a note first.":"Schreibe zuerst eine Notiz.","That task is already finished.":"D\
-iese Aufgabe ist bereits abgeschlossen.","No such group.":"Gruppe nicht gefunden.","No such task.":"Aufgabe nicht gefunden.","No open task to cancel.":"Keine offene Aufgabe zum Abb\
-rechen vorhanden.","Sign-in timed out":"Zeitüberschreitung bei der Anmeldung","The sign-in answer did not match this attempt (state mismatch). Try again.":"Die Anmeldeantwort pass\
-t nicht zu diesem Versuch (Status stimmt nicht überein). Bitte versuche es erneut.","This connector does not sign in":"Dieser Connector erfordert keine Anmeldung","This connector \
-has no server address":"Dieser Connector hat keine Serveradresse","Connector addresses must start with https://":"Connector-Adressen müssen mit https:// beginnen","This service do\
-es not publish OAuth sign-in metadata":"Dieser Dienst veröffentlicht keine OAuth-Anmeldemetadaten","Paste a key first":"Füge zuerst einen Schlüssel ein","No sign-in is waiting":"\
-Es wartet keine Anmeldung","Paste the address or the code":"Füge die Adresse oder den Code ein","This address is not from this sign-in attempt (state mismatch). Copy the whole add\
-ress again.":"Diese Adresse stammt nicht von diesem Anmeldeversuch (Status stimmt nicht überein). Kopiere die gesamte Adresse erneut.","The address has no code":"Die Adresse enthä\
-lt keinen Code","Enter the client ID":"Gib die Client-ID ein","Name the connector":"Gib dem Connector einen Namen","Enter an address or a command":"Gib eine Adresse oder einen Befe\
-hl ein","Only added connectors can be removed":"Nur selbst hinzugefügte Connectors können entfernt werden","The mail connection closed during verification":"Die Mail-Verbindung w\
-urde während der Überprüfung geschlossen","Google sign-in is not available in this build":"Die Google-Anmeldung ist in diesem Build nicht verfügbar","Enter an email address":"G\
-ib eine E-Mail-Adresse ein","Enter the IMAP and SMTP hosts":"Gib die IMAP- und SMTP-Hosts ein","No such account":"Konto nicht gefunden","This card was already answered":"Diese Kart\
-e wurde bereits beantwortet","No Google sign-in is waiting":"Es wartet keine Google-Anmeldung","The sign-in answer is not for this attempt":"Die Anmeldeantwort gehört nicht zu dies\
-em Versuch","Google did not say which account this is":"Google hat nicht angegeben, welches Konto dies ist","This platform is not available yet":"Diese Plattform ist noch nicht ver\
-fügbar","Choose a Bot first":"Wähle zuerst einen Bot aus","This platform signs in by scanning a code; not available yet":"Diese Plattform meldet sich per QR-Code an und ist noch \
-nicht verfügbar","No such IM bot":"IM-Bot nicht gefunden","No such platform":"Plattform nicht gefunden","No such chat":"Chat nicht gefunden","Choose a Bot or a group":"Wähle einen\
- Bot oder eine Gruppe aus","This platform has no QR login":"Diese Plattform unterstützt keine QR-Anmeldung","Paste the bot token first":"Füge zuerst das Bot-Token ein","Telegram \
-did not say who this token belongs to":"Telegram hat nicht angegeben, zu welchem Bot dieses Token gehört","A webhook or another program uses this bot":"Ein Webhook oder ein andere\
-s Programm verwendet diesen Bot bereits","This token does not belong to a Discord bot":"Dieses Token gehört nicht zu einem Discord-Bot","Discord gave no usable gateway URL":"Disco\
-rd hat keine nutzbare Gateway-URL zurückgegeben","These credentials do not belong to a Slack bot":"Diese Zugangsdaten gehören nicht zu einem Slack-Bot","WeChat answered an unread\
-able response":"WeChat hat eine unlesbare Antwort zurückgegeben","WeChat rate limited the request":"WeChat hat die Anfrage wegen des Ratenlimits blockiert","WeChat refused the tok\
-en":"WeChat hat das Token abgelehnt","Use a capability name with lowercase letters, digits, and single hyphens; connector names are reserved.":"Verwende für den Fähigkeitsnamen nur\
- Kleinbuchstaben, Ziffern und einzelne Bindestriche; Connector-Namen sind reserviert.","Arguments must be a list of text values.":"Argumente müssen eine Liste von Textwerten sein.",
-"Choose an MCP server, skill, or pack.":"Wähle einen MCP-Server, eine Fähigkeit oder ein Paket aus.","A capability cannot change its kind. Delete it and save a new one.":"Der Typ\
- einer Fähigkeit kann nicht geändert werden. Lösche sie und lege eine neue an.","Enter a command for the MCP server.":"Gib einen Befehl für den MCP-Server ein.","Enter a valid \
-HTTP or HTTPS URL.":"Gib eine gültige HTTP- oder HTTPS-URL ein.","Only Bots on the team can change capabilities.":"Nur Bots im Team können Fähigkeiten ändern.","Only a Main Bot\
- can change another Bot’s capabilities.":"Nur ein Haupt-Bot kann die Fähigkeiten eines anderen Bots ändern.","This DSH cannot load MCP servers.":"Dieses DSH kann keine MCP-Serv\
-er laden.","Unknown capability operation.":"Unbekannte Fähigkeitsaktion.","The secrets file is not encrypted.":"Die Geheimnisdatei ist nicht verschlüsselt.","Secrets are already \
-encrypted.":"Geheimnisse sind bereits verschlüsselt.","Secrets are not encrypted.":"Geheimnisse sind nicht verschlüsselt.","Learning is turned off on this host":"Lernen ist auf d\
-iesem Host deaktiviert","AGENTS.md changed since this was proposed":"AGENTS.md wurde seit diesem Vorschlag geändert","The Bot that learned this skill is gone":"Der Bot, der diese \
-Fähigkeit gelernt hat, existiert nicht mehr","System permissions are not available here":"Systemberechtigungen sind hier nicht verfügbar","This host keeps no Bot data folder, so \
-it has no avatar library.":"Dieser Host führt keinen Bot-Datenordner und hat daher keine Mediathek.","DS Bot is shutting down":"DS Bot wird heruntergefahren","Computer use":"Compu\
-tersteuerung",Computer:"Computer",Control:"Steuerung","Let Bots use the computer":"Bots die Nutzung des Computers erlauben","Using the computer":"Nutzt den Computer",Off:"Aus","Vie\
-w only":"Nur ansehen",Background:"Im Hintergrund",Foreground:"Vordergrund erlaubt","In the foreground":"Im Vordergrund","Computer use level":"Stufe der Computersteuerung","Computer\
- provider":"Anbieter","Loading the provider…":"Anbieter wird geladen…","Could not load the provider":"Anbieter konnte nicht geladen werden","The provider package is not install\
-ed":"Das Anbieterpaket ist nicht installiert","Install it in this DSH":"In diesem DSH installieren","Run {command}, then restart DSH.":"Führe {command} aus und starte danach DSH ne\
-u.","Copy command":"Befehl kopieren","Bots get no computer tools until the provider is ready.":"Solange der Anbieter nicht bereit ist, stehen Bots keine Computer-Werkzeuge zur Verf\
-ügung.","Another computer-use provider is running":"Ein anderer Anbieter für die Computersteuerung läuft bereits","Computer use is not available on this platform":"Computersteue\
-rung wird auf dieser Plattform nicht unterstützt",Accessibility:"Bedienungshilfen","Screen Recording":"Bildschirmaufnahme",Allowed:"Erlaubt","Not allowed":"Nicht erlaubt",Grant:"Z\
-ugriff gewähren",Revoke:"Widerrufen","Off in Settings → Computer use":"Deaktiviert unter Einstellungen → Computersteuerung",Idle:"Inaktiv",Operating:"Bedient gerade","You have\
- the computer":"Du bedienst den Computer","Latest screenshot":"Letztes Bildschirmfoto","Let it continue":"Weiterarbeiten lassen","Take over the computer":"Computer übernehmen","Ha\
-nd back":"Zurückgeben","Recent steps":"Letzte Schritte",failed:"fehlgeschlagen","Allow {name} to use {app}?":"{name} die Nutzung von {app} erlauben?","This time":"Diesmal",Always:"\
-Immer erlauben","Needs your confirmation":"Bestätigung erforderlich","Help needed on the computer":"Hilfe am Computer benötigt","You control the computer":"Du steuerst den Comput\
-er","{name} · foreground":"{name} · Vordergrund","{name} waits for the computer":"{name} wartet, bis du fertig bist","Bot models":"Bot-Modelle","Change several Bots":"Mehrere Bot\
-s ändern","{selected} of {total} selected":"{selected} von {total} ausgewählt","Bots on a local agent keep their own model.":"Bots auf einem lokalen Agent behalten ihr eigenes Mo\
-dell.","Select all":"Alle auswählen","Changing…":"Wird geändert…","Selected Bots":"Ausgewählte Bots","{model} (not available)":"{model} (nicht verfügbar)",Changed:"Geändert",
-"Already on this model":"Nutzt dieses Modell bereits","Skipped: runs on a local agent":"Übersprungen: läuft auf einem lokalen Agent","Skipped: not available now":"Übersprungen: d\
-erzeit nicht verfügbar","Could not change: {error}":"Änderung fehlgeschlagen: {error}","Changed {count} of {total} Bots.":"{count} von {total} Bots geändert.","Select {name}":"{\
-name} auswählen","Change it in the Bot's settings.":"Ändere es in den Einstellungen des Bots.","Already on this model: {count}":"Nutzen dieses Modell bereits: {count}","Skipped: \
-{count}":"Übersprungen: {count}","Failed: {count}":"Fehlgeschlagen: {count}","{count} skipped":"{count} übersprungen","No model picked yet":"Noch kein Modell gewählt",Running:"L\
-äuft","Open this session":"Diese Sitzung öffnen","Open this running session":"Diese laufende Sitzung öffnen","A running session keeps using model calls in the background.":"Eine\
- laufende Sitzung verbraucht weiterhin Modellaufrufe im Hintergrund.","This session is still running. Wait for it to finish, or stop it.":"Diese Sitzung läuft noch. Warte, bis sie \
-endet, oder stoppe sie."},HOST_ERRORS_DE=[[/^Could not reach the mail server at (.+)\. Check the server address\.$/,"Mailserver unter $1 nicht erreichbar. Bitte prüfe die Serveradr\
-esse."],[/^Model (.+) is not available\. Available: (.*)$/,"Modell $1 ist nicht verfügbar. Verfügbar: $2"],[/^The API key for (.+) is set outside DS Bot and cannot be changed here$/,
+ secret (optional)":"Client Secret (optional)","In OAuth & Permissions at {app}, add this redirect URL:":"Füge in OAuth & Permissions von {app} diese Redirect-URL hinzu:","In the \
+app settings, add this redirect URL:":"Füge in den App-Einstellungen diese Redirect-URL hinzu:","Turn on the MCP features and scopes the app needs.":"Aktiviere die MCP-Funktionen \
+und Berechtigungen, die die App braucht.","Copy the Client ID and Client Secret here.":"Trage hier die Client ID und das Client Secret ein.","Open app settings":"App-Einstellungen \
+öffnen",Continue:"Weiter","{name} key":"{name}-Schlüssel","{name} token":"{name}-Token","Get a key":"Schlüssel abrufen","Read-only":"Nur lesen","{count} tools":"{count} Werkzeug\
+e",Mailbox:"Postfach","Email address":"E-Mail-Adresse",Catalog:"Katalog","App password":"App-Passwort","Authorization code":"Autorisierungscode","Password or app password":"Passwor\
+t oder App-Passwort","Official help":"Offizielle Hilfe","Finish signing in in your browser.":"Schließe die Anmeldung in deinem Browser ab.","Open again":"Erneut öffnen","Did not \
+come back here?":"Nicht automatisch hierher zurückgekehrt?","Copied to clipboard":"In die Zwischenablage kopiert","Paste the code on {host} and authorize.":"Füge den Code auf {hos\
+t} ein und autorisiere den Zugriff.","Add another":"Weiteres hinzufügen","QQ, 163, 126, Gmail, iCloud, and other IMAP mail":"QQ, 163, 126, Gmail, iCloud und andere IMAP-Postfächer",
+"Other MCP server":"Anderer MCP-Server","An address, a command, or one from Claude Desktop, Cursor, or VS Code":"Adresse, Befehl oder Import aus Claude Desktop, Cursor oder VS Code",
+"Kind of server":"Servertyp","Nothing matches":"Keine passenden Konnektoren",Recommended:"Empfohlen","See all":"Alle anzeigen","{count} connected":"{count} verbunden","{count} acco\
+unts":"{count} Konten",Category:"Kategorie","Could not reach the mail server. Check the server address.":"Mailserver nicht erreichbar. Bitte prüfe die Serveradresse.","Sign in at \
+mail.qq.com, click your avatar at the top right, and open Settings → Account and Security → Security Settings.":"Melde dich unter mail.qq.com an, klicke oben rechts auf deinen \
+Avatar und öffne Einstellungen → Konto und Sicherheit → Sicherheitseinstellungen.","Turn on the POP3/IMAP/SMTP service, then click Generate authorization code and verify yours\
+elf.":"Aktiviere den Dienst POP3/IMAP/SMTP, klicke auf „Autorisierungscode generieren“ und bestätige deine Identität.","Paste the 16-letter code below. Changing your QQ passw\
+ord cancels it.":"Füge den 16-stelligen Code unten ein. Wenn du dein QQ-Passwort änderst, wird er ungültig.","Sign in at {host} and open Settings → POP3/SMTP/IMAP.":"Melde dic\
+h unter {host} an und öffne Einstellungen → POP3/SMTP/IMAP.","Turn on IMAP/SMTP and send the text message it asks for.":"Aktiviere IMAP/SMTP und bestätige per SMS.","Paste the \
+16-character code below. It is shown only once.":"Füge den 16-stelligen Code unten ein. Er wird nur einmalig angezeigt.","Turn on 2-Step Verification for your Google Account.":"Ak\
+tiviere die Bestätigung in zwei Schritten für dein Google-Konto.","Open App passwords, create one, and paste the 16-character password below.":"Öffne „App-Passwörter“, erstelle e\
+ines und füge das 16-stellige Passwort unten ein.","Work and school accounts cannot use app passwords.":"Arbeits- und Schulkonten unterstützen keine App-Passwörter.","Your Apple\
+ Account needs two-factor authentication.":"Dein Apple-Account erfordert die Zwei-Faktor-Authentifizierung.","Sign in at account.apple.com and open Sign-In and Security → App-Speci\
+fic Passwords.":"Melde dich unter account.apple.com an und öffne „Anmeldung und Sicherheit“ → „App-spezifische Passwörter“.","Generate a password and paste it below.":"\
+Generiere ein Passwort und füge es unten ein.","The mail service refused the login (Unsafe Login). Enable IMAP/SMTP in the mailbox settings and use its authorization code, not the\
+ account password.":"Der E-Mail-Dienst hat die Anmeldung abgelehnt (Unsafe Login). Aktiviere IMAP/SMTP in den Postfacheinstellungen und verwende den Autorisierungscode statt deines\
+ normalen Kontopassworts.","The password was refused. Use the mailbox app password or authorization code, not the account password.":"Das Passwort wurde abgelehnt. Verwende das App\
+-Passwort oder den Autorisierungscode des Postfachs, nicht dein normales Kontopasswort.","Enter the authorization code or app password":"Autorisierungscode oder App-Passwort eingeb\
+en","Pages, databases, and wiki content":"Seiten, Datenbanken und Wiki-Inhalte","Issues, projects, and cycles":"Issues, Projekte und Zyklen","Jira issues and Confluence pages":"Jir\
+a-Vorgänge und Confluence-Seiten","Errors, traces, and releases":"Fehler, Traces und Releases","Payments, invoices, and customers":"Zahlungen, Rechnungen und Kunden","Orders, paym\
+ents, and invoices":"Bestellungen, Zahlungen und Rechnungen","Payments, orders, and catalog":"Zahlungen, Bestellungen und Artikelkatalog","Workers, DNS, and account resources":"Wor\
+kers, DNS und Konto-Ressourcen","Projects, deployments, and logs":"Projekte, Deployments und Logs","Databases, tables, and project settings":"Datenbanken, Tabellen und Projekteinst\
+ellungen","Postgres databases and branches":"Postgres-Datenbanken und Branches","Design files, components, and comments":"Designdateien, Komponenten und Kommentare","Designs, folde\
+rs, and exports":"Designs, Ordner und Exporte","Conversations, contacts, and articles":"Konversationen, Kontakte und Artikel","Boards, items, and workflows":"Boards, Elemente und W\
+orkflows","Sites, pages, and CMS content":"Websites, Seiten und CMS-Inhalte","Sites, pages, and site content":"Websites, Seiten und Website-Inhalte","Sites, deploys, and forms":"We\
+bsites, Deployments und Formulare","Bases, tables, and records":"Bases, Tabellen und Datensätze","Files and folders":"Dateien und Ordner","Zaps and app actions":"Zaps und App-Akti\
+onen","Tasks, lists, and docs":"Aufgaben, Listen und Dokumente","Tasks and projects":"Aufgaben und Projekte","Boards and whiteboard items":"Boards und Whiteboard-Elemente","CRM rec\
+ords, lists, and notes":"CRM-Datensätze, Listen und Notizen","Collections, requests, and workspaces":"Sammlungen, Anfragen und Arbeitsbereiche","Tasks, projects, and workspaces":"\
+Aufgaben, Projekte und Arbeitsbereiche","Files, folders, and metadata":"Dateien, Ordner und Metadaten","Contacts, deals, and tickets":"Kontakte, Deals und Tickets","Channels and me\
+ssages":"Kanäle und Nachrichten","Models, datasets, and Spaces":"Modelle, Datensätze und Spaces","Web search for agents":"Websuche für Agenten","Documentation for public code re\
+positories":"Dokumentation für öffentliche Code-Repositories","Library documentation and code examples":"Bibliotheksdokumentation und Codebeispiele","Microsoft product documentat\
+ion":"Microsoft-Produktdokumentation","Cloudflare product documentation":"Cloudflare-Produktdokumentation","Maps, places, and routes in China":"Karten, Orte und Routen in China","R\
+ead and send email over IMAP and SMTP":"E-Mails über IMAP und SMTP lesen und senden","IMAP host":"IMAP-Server","SMTP host":"SMTP-Server","Sign in with Google":"Mit Google anmelden",
+"Verifying…":"Wird überprüft…","Import from other apps":"Aus anderen Apps importieren","Server address":"Serveradresse","Command, e.g. npx -y some-mcp":"Befehl, z. B. npx -y \
+some-mcp","Scanning…":"Wird gesucht…","No MCP servers found in Claude Desktop, Cursor, or VS Code settings.":"Keine MCP-Server in den Einstellungen von Claude Desktop, Cursor o\
+der VS Code gefunden.","Import {count}":"{count} importieren",All:"Alle",Developer:"Entwicklung","Docs & files":"Dokumente & Dateien",Work:"Arbeit",Design:"Design",Data:"Daten",Commerce:"\
+E-Commerce","No connectors connected":"Keine Konnektoren verbunden","{bot} needs {name}":"{bot} benötigt {name}",Mail:"E-Mail",Subject:"Betreff","Write a message…":"E-Mail-Text \
+schreiben…",Discard:"Verwerfen",Discarded:"Verworfen","Allow recipient":"Empfänger erlauben","Allow this Bot to send directly":"Diesem Bot direktes Senden erlauben","Manage rule\
+s":"Regeln verwalten","Sending rules":"Senderegeln",From:"Von",To:"An",Cc:"Cc",Bcc:"Bcc","Attachments: {names}":"Anhänge: {names}",Sent:"Gesendet",Failed:"Fehlgeschlagen","Request\
+ failed":"Anfrage fehlgeschlagen","Permissions are not available in this DeepSeek Harness":"Berechtigungen werden in diesem DeepSeek Harness nicht unterstützt","Avatar image is to\
+o large":"Das Avatar-Bild ist zu groß","A Bot needs a name":"Ein Bot benötigt einen Namen","A Bot name cannot contain @, ` or a line break":"Ein Bot-Name darf kein @, ` oder Zeil\
+enumbruch enthalten","Unknown Bot":"Bot nicht gefunden","Unknown conversation":"Chat nicht gefunden","A group chat needs at least two Bots":"Ein Gruppenchat benötigt mindestens zwe\
+i Bots","The admin must be a member of the group":"Der Admin muss Mitglied der Gruppe sein","Unknown group chat":"Gruppenchat nicht gefunden","No Bot is left in this group chat":"I\
+n diesem Gruppenchat ist kein Bot mehr übrig","That group chat has been deleted":"Dieser Gruppenchat wurde gelöscht","Hand the admin role to another member instead of leaving the\
+ group without one":"Übergib die Admin-Rolle an ein anderes Mitglied, statt die Gruppe ohne Admin zu lassen","Hand the admin role to another member before leaving the group":"Über\
+gib die Admin-Rolle vor dem Verlassen der Gruppe an ein anderes Mitglied","The team needs at least one Main Bot":"Das Team benötigt mindestens einen Haupt-Bot","Only a Main Bot ca\
+n be replaced":"Nur ein Haupt-Bot kann ersetzt werden","A Main Bot cannot be deleted; remove its Main Bot role first":"Ein Haupt-Bot kann nicht gelöscht werden; entferne zuerst sei\
+ne Haupt-Bot-Rolle","Unknown theme":"Unbekanntes Design","Accent must be a #rrggbb color":"Die Akzentfarbe muss im Format #rrggbb angegeben werden","Type the key first":"Gib zuerst\
+ den Schlüssel ein","Choose every Bot or a list of Bots":"Wähle alle Bots oder bestimmte Bots aus","This request is gone":"Diese Anfrage existiert nicht mehr","This request was a\
+lready answered":"Diese Anfrage wurde bereits beantwortet","A name uses capitals, digits, and underscores, and starts with a letter":"Ein Name darf nur Großbuchstaben, Ziffern und \
+Unterstriche enthalten und muss mit einem Buchstaben beginnen","No such key":"Schlüssel nicht gefunden","Type a question or a change first":"Gib zuerst eine Frage oder Änderung ei\
+n","No model is available. Add one in Settings > Models.":"Kein Modell verfügbar. Füge eines unter Einstellungen → Modelle hinzu.","Memory is turned off on this host":"Das Gedä\
+chtnis ist auf diesem Host deaktiviert","The model wrote nothing":"Das Modell hat keine Ausgabe erzeugt","Write the entry to save.":"Gib den zu speichernden Eintrag ein.","This Dee\
+pSeek Harness has no folder chooser":"Dieses DeepSeek Harness unterstützt keinen Ordnerauswahldialog","This DeepSeek Harness cannot list folders":"Dieses DeepSeek Harness kann kei\
+ne Ordner auflisten","Side chat is only available in a Bot's private chat.":"Der Nebenchat ist nur im Einzelchat eines Bots verfügbar.","Write a question.":"Gib eine Frage ein.","\
+Write a question after /side.":"Gib nach /side eine Frage ein.","/side does not take attachments.":"/side unterstützt keine Anhänge.","Wait for the answer, or cancel it.":"Warte \
+auf die Antwort oder brich sie ab.","This side chat is no longer here.":"Dieser Nebenchat existiert nicht mehr.","This side question is no longer here.":"Diese Nebenfrage existiert\
+ nicht mehr.","This Bot has not called a model yet. Send a normal message first.":"Dieser Bot hat noch kein Modell aufgerufen. Sende zuerst eine normale Nachricht.","DS Bot restart\
+ed before this answer finished.":"DS Bot wurde neu gestartet, bevor diese Antwort abgeschlossen war.","The model called a tool again after being told not to, so this aside was not \
+answered.":"Das Modell hat trotz Aufforderung erneut ein Werkzeug aufgerufen; daher wurde diese Nebenfrage nicht beantwortet.","The model wrote nothing.":"Das Modell hat nichts ges\
+chrieben.","Nothing to ask":"Nichts zu fragen","Nothing to open":"Nichts zu öffnen","Nothing to cancel":"Nichts abzubrechen","Nothing to close":"Nichts zu schließen","DS Bot is s\
+till loading this chat.":"DS Bot lädt diesen Chat noch.","This message is no longer kept":"Diese Nachricht wird nicht mehr aufbewahrt","No file named":"Keine Datei angegeben","Thi\
+s file cannot be read here":"Diese Datei kann hier nicht gelesen werden","That wait is no longer open":"Dieses Warten ist nicht mehr aktiv","Nothing to send":"Nichts zu senden","Th\
+is view is no longer open":"Diese Ansicht ist nicht mehr geöffnet","This is not a photo DS Bot can send":"Dies ist kein Foto, das DS Bot senden kann","A photo did not arrive. Send\
+ it again.":"Ein Foto ist nicht angekommen. Sende es erneut.","Nothing to delete":"Nichts zu löschen","Bot browsers are off on this host":"Bot-Browser sind auf diesem Host deaktiv\
+iert","This Bot has no open browser":"Dieser Bot hat keinen geöffneten Browser","A browser poll needs a clientId":"Eine Browser-Abfrage benötigt eine clientId","This browser is n\
+ot held":"Dieser Browser wird derzeit nicht übergeben","This handoff is no longer open":"Diese Browser-Übergabe ist nicht mehr offen","Avatar images must be PNG, JPEG, WebP, GIF,\
+ or SVG":"Avatar-Bilder müssen im Format PNG, JPEG, WebP, GIF oder SVG vorliegen","Pick a model before choosing a thinking level":"Wähle zuerst ein Modell aus, bevor du eine Denks\
+tufe festlegst","Unknown section":"Abschnitt nicht gefunden","Unknown section color":"Unbekannte Abschnittsfarbe","Write the to-do first.":"Gib zuerst eine Aufgabe ein.","That to-d\
+o is no longer on the list.":"Diese Aufgabe steht nicht mehr auf der Liste.","Write what this group should achieve, in at most 2000 characters.":"Beschreibe in höchstens 2000 Zeich\
+en, was diese Gruppe erreichen soll.","This group has no admin. Set one in the group settings first.":"Diese Gruppe hat keinen Admin. Lege zuerst in den Gruppeneinstellungen einen \
+fest.","This group already has a goal. Stop it first.":"Diese Gruppe hat bereits ein Ziel. Stoppe es zuerst.","The goal has changed. Look again.":"Das Ziel hat sich geändert. Sieh \
+noch einmal nach.","Nothing to do":"Nichts zu tun","Write a note first.":"Schreibe zuerst eine Notiz.","That task is already finished.":"Diese Aufgabe ist bereits abgeschlossen.","\
+No such group.":"Gruppe nicht gefunden.","No such task.":"Aufgabe nicht gefunden.","No open task to cancel.":"Keine offene Aufgabe zum Abbrechen vorhanden.","Sign-in timed out":"Ze\
+itüberschreitung bei der Anmeldung","The sign-in answer did not match this attempt (state mismatch). Try again.":"Die Anmeldeantwort passt nicht zu diesem Versuch (Status stimmt n\
+icht überein). Bitte versuche es erneut.","This connector does not sign in":"Dieser Connector erfordert keine Anmeldung","This connector has no server address":"Dieser Connector h\
+at keine Serveradresse","Connector addresses must start with https://":"Connector-Adressen müssen mit https:// beginnen","This service does not publish OAuth sign-in metadata":"Di\
+eser Dienst veröffentlicht keine OAuth-Anmeldemetadaten","Paste a key first":"Füge zuerst einen Schlüssel ein","No sign-in is waiting":"Es wartet keine Anmeldung","Paste the add\
+ress or the code":"Füge die Adresse oder den Code ein","This address is not from this sign-in attempt (state mismatch). Copy the whole address again.":"Diese Adresse stammt nicht \
+von diesem Anmeldeversuch (Status stimmt nicht überein). Kopiere die gesamte Adresse erneut.","The address has no code":"Die Adresse enthält keinen Code","Enter the client ID":"G\
+ib die Client-ID ein","Name the connector":"Gib dem Connector einen Namen","Enter an address or a command":"Gib eine Adresse oder einen Befehl ein","Only added connectors can be re\
+moved":"Nur selbst hinzugefügte Connectors können entfernt werden","The mail connection closed during verification":"Die Mail-Verbindung wurde während der Überprüfung geschlossen",
+"Google sign-in is not available in this build":"Die Google-Anmeldung ist in diesem Build nicht verfügbar","Enter an email address":"Gib eine E-Mail-Adresse ein","Enter the IMAP a\
+nd SMTP hosts":"Gib die IMAP- und SMTP-Hosts ein","No such account":"Konto nicht gefunden","This card was already answered":"Diese Karte wurde bereits beantwortet","No Google sign-\
+in is waiting":"Es wartet keine Google-Anmeldung","The sign-in answer is not for this attempt":"Die Anmeldeantwort gehört nicht zu diesem Versuch","Google did not say which accoun\
+t this is":"Google hat nicht angegeben, welches Konto dies ist","This platform is not available yet":"Diese Plattform ist noch nicht verfügbar","Choose a Bot first":"Wähle zuerst \
+einen Bot aus","This platform signs in by scanning a code; not available yet":"Diese Plattform meldet sich per QR-Code an und ist noch nicht verfügbar","No such IM bot":"IM-Bot ni\
+cht gefunden","No such platform":"Plattform nicht gefunden","No such chat":"Chat nicht gefunden","Choose a Bot or a group":"Wähle einen Bot oder eine Gruppe aus","This platform ha\
+s no QR login":"Diese Plattform unterstützt keine QR-Anmeldung","Paste the bot token first":"Füge zuerst das Bot-Token ein","Telegram did not say who this token belongs to":"Tele\
+gram hat nicht angegeben, zu welchem Bot dieses Token gehört","A webhook or another program uses this bot":"Ein Webhook oder ein anderes Programm verwendet diesen Bot bereits","Th\
+is token does not belong to a Discord bot":"Dieses Token gehört nicht zu einem Discord-Bot","Discord gave no usable gateway URL":"Discord hat keine nutzbare Gateway-URL zurückgege\
+ben","These credentials do not belong to a Slack bot":"Diese Zugangsdaten gehören nicht zu einem Slack-Bot","WeChat answered an unreadable response":"WeChat hat eine unlesbare Ant\
+wort zurückgegeben","WeChat rate limited the request":"WeChat hat die Anfrage wegen des Ratenlimits blockiert","WeChat refused the token":"WeChat hat das Token abgelehnt","Use a c\
+apability name with lowercase letters, digits, and single hyphens; connector names are reserved.":"Verwende für den Fähigkeitsnamen nur Kleinbuchstaben, Ziffern und einzelne Bindes\
+triche; Connector-Namen sind reserviert.","Arguments must be a list of text values.":"Argumente müssen eine Liste von Textwerten sein.","Choose an MCP server, skill, or pack.":"Wä\
+hle einen MCP-Server, eine Fähigkeit oder ein Paket aus.","A capability cannot change its kind. Delete it and save a new one.":"Der Typ einer Fähigkeit kann nicht geändert werden.\
+ Lösche sie und lege eine neue an.","Enter a command for the MCP server.":"Gib einen Befehl für den MCP-Server ein.","Enter a valid HTTP or HTTPS URL.":"Gib eine gültige HTTP- od\
+er HTTPS-URL ein.","Only Bots on the team can change capabilities.":"Nur Bots im Team können Fähigkeiten ändern.","Only a Main Bot can change another Bot’s capabilities.":"Nur\
+ ein Haupt-Bot kann die Fähigkeiten eines anderen Bots ändern.","This DSH cannot load MCP servers.":"Dieses DSH kann keine MCP-Server laden.","Unknown capability operation.":"Unb\
+ekannte Fähigkeitsaktion.","The secrets file is not encrypted.":"Die Geheimnisdatei ist nicht verschlüsselt.","Secrets are already encrypted.":"Geheimnisse sind bereits verschlüs\
+selt.","Secrets are not encrypted.":"Geheimnisse sind nicht verschlüsselt.","Learning is turned off on this host":"Lernen ist auf diesem Host deaktiviert","AGENTS.md changed since\
+ this was proposed":"AGENTS.md wurde seit diesem Vorschlag geändert","The Bot that learned this skill is gone":"Der Bot, der diese Fähigkeit gelernt hat, existiert nicht mehr","S\
+ystem permissions are not available here":"Systemberechtigungen sind hier nicht verfügbar","This host keeps no Bot data folder, so it has no avatar library.":"Dieser Host führt ke\
+inen Bot-Datenordner und hat daher keine Mediathek.","DS Bot is shutting down":"DS Bot wird heruntergefahren","Computer use":"Computersteuerung",Computer:"Computer",Control:"Steuer\
+ung","Let Bots use the computer":"Bots die Nutzung des Computers erlauben","Using the computer":"Nutzt den Computer",Off:"Aus","View only":"Nur ansehen",Background:"Im Hintergrund",
+Foreground:"Vordergrund erlaubt","In the foreground":"Im Vordergrund","Computer use level":"Stufe der Computersteuerung","Computer provider":"Anbieter","Loading the provider…":"A\
+nbieter wird geladen…","Could not load the provider":"Anbieter konnte nicht geladen werden","The provider package is not installed":"Das Anbieterpaket ist nicht installiert","Ins\
+tall it in this DSH":"In diesem DSH installieren","Run {command}, then restart DSH.":"Führe {command} aus und starte danach DSH neu.","Copy command":"Befehl kopieren","Bots get no\
+ computer tools until the provider is ready.":"Solange der Anbieter nicht bereit ist, stehen Bots keine Computer-Werkzeuge zur Verfügung.","Another computer-use provider is runnin\
+g":"Ein anderer Anbieter für die Computersteuerung läuft bereits","Computer use is not available on this platform":"Computersteuerung wird auf dieser Plattform nicht unterstützt",
+Accessibility:"Bedienungshilfen","Screen Recording":"Bildschirmaufnahme",Allowed:"Erlaubt","Not allowed":"Nicht erlaubt",Grant:"Zugriff gewähren",Revoke:"Widerrufen","Off in Setti\
+ngs → Computer use":"Deaktiviert unter Einstellungen → Computersteuerung",Idle:"Inaktiv",Operating:"Bedient gerade","You have the computer":"Du bedienst den Computer","Latest s\
+creenshot":"Letztes Bildschirmfoto","Let it continue":"Weiterarbeiten lassen","Take over the computer":"Computer übernehmen","Hand back":"Zurückgeben","Recent steps":"Letzte Schr\
+itte",failed:"fehlgeschlagen","Allow {name} to use {app}?":"{name} die Nutzung von {app} erlauben?","This time":"Diesmal",Always:"Immer erlauben","Needs your confirmation":"Bestäti\
+gung erforderlich","Help needed on the computer":"Hilfe am Computer benötigt","You control the computer":"Du steuerst den Computer","{name} · foreground":"{name} · Vordergrund",
+"{name} waits for the computer":"{name} wartet, bis du fertig bist","Bot models":"Bot-Modelle","Change several Bots":"Mehrere Bots ändern","{selected} of {total} selected":"{selec\
+ted} von {total} ausgewählt","Bots on a local agent keep their own model.":"Bots auf einem lokalen Agent behalten ihr eigenes Modell.","Select all":"Alle auswählen","Changing…":"\
+Wird geändert…","Selected Bots":"Ausgewählte Bots","{model} (not available)":"{model} (nicht verfügbar)",Changed:"Geändert","Already on this model":"Nutzt dieses Modell berei\
+ts","Skipped: runs on a local agent":"Übersprungen: läuft auf einem lokalen Agent","Skipped: not available now":"Übersprungen: derzeit nicht verfügbar","Could not change: {erro\
+r}":"Änderung fehlgeschlagen: {error}","Changed {count} of {total} Bots.":"{count} von {total} Bots geändert.","Select {name}":"{name} auswählen","Change it in the Bot's setting\
+s.":"Ändere es in den Einstellungen des Bots.","Already on this model: {count}":"Nutzen dieses Modell bereits: {count}","Skipped: {count}":"Übersprungen: {count}","Failed: {count\
+}":"Fehlgeschlagen: {count}","{count} skipped":"{count} übersprungen","No model picked yet":"Noch kein Modell gewählt",Running:"Läuft","Open this session":"Diese Sitzung öffnen",
+"Open this running session":"Diese laufende Sitzung öffnen","A running session keeps using model calls in the background.":"Eine laufende Sitzung verbraucht weiterhin Modellaufruf\
+e im Hintergrund.","This session is still running. Wait for it to finish, or stop it.":"Diese Sitzung läuft noch. Warte, bis sie endet, oder stoppe sie."},HOST_ERRORS_DE=[[/^Could not reach the mail server at (.+)\. Check the server address\.$/,
+"Mailserver unter $1 nicht erreichbar. Bitte prüfe die Serveradresse."],[/^Model (.+) is not available\. Available: (.*)$/,"Modell $1 ist nicht verfügbar. Verfügbar: $2"],[/^The API key for (.+) is set outside DS Bot and cannot be changed here$/,
 "Der API-Schlüssel für $1 wurde außerhalb von DS Bot gesetzt und kann hier nicht geändert werden"],[/^(.+) takes no API key here$/,"Für $1 kann hier kein API-Schlüssel hinterle\
 gt werden"],[/^(.+) is already set up$/,"$1 ist bereits eingerichtet"],[/^DSH offers no provider (.+)$/,"DSH bietet keinen Anbieter $1 an"],[/^DSH already offers (.+); add it from its list$/,
 "DSH bietet $1 bereits an; füge ihn über die Anbieterliste hinzu"],[/^The protocol must be one of (.+)$/,"Das Protokoll muss eines der folgenden sein: $1"],[/^(.+) is not set up$/,
@@ -4993,24 +5006,26 @@ lder":"各 Bot 自己的文件夹","Choose a folder…":"选择文件夹…","Br
 "Full path of a folder":"文件夹的完整路径","Use this folder":"使用这个文件夹","Up one level":"上一级","No folders inside.":"里面没有文件夹。","Some folder\
 s are not shown.":"还有一些文件夹没有显示。","Waiting for sign-in…":"等待登录…","This service needs an app client ID":"该服务需要应用 Client ID","Paste t\
 he address you land on":"粘贴跳转后的地址","Finish sign-in":"完成登录","Open {host}":"打开 {host}","Client ID":"Client ID","Client secret (optional)":"Client secret(可\
-选)",Continue:"继续","{name} key":"{name} 密钥","{name} token":"{name} 令牌","Get a key":"获取密钥","Read-only":"只读","{count} tools":"{count} 个工具",Mailbox:"邮箱",
-"Email address":"邮箱地址",Catalog:"目录","App password":"应用专用密码","Authorization code":"授权码","Password or app password":"密码或授权码","Official help":"\
-官方帮助","Finish signing in in your browser.":"在浏览器里完成登录。","Open again":"重新打开","Did not come back here?":"登录后没有回到这里？","Copied t\
-o clipboard":"已复制到剪贴板","Paste the code on {host} and authorize.":"在 {host} 粘贴这个码并授权。","Add another":"再添加一个","QQ, 163, 126, Gmail, iCloud\
-, and other IMAP mail":"QQ、163、126、Gmail、iCloud 等 IMAP 邮箱","Other MCP server":"其他 MCP 服务器","An address, a command, or one from Claude Desktop, Cursor, or VS\
- Code":"填地址或命令，或从 Claude Desktop、Cursor、VS Code 导入","Kind of server":"服务器类型","Nothing matches":"没有匹配的连接器",Recommended:"推荐","\
-See all":"查看全部","{count} connected":"已连接 {count} 个","{count} accounts":"{count} 个账户",Category:"分类","Could not reach the mail server. Check the server addr\
-ess.":"连不上邮件服务器，请检查服务器地址。","Sign in at mail.qq.com, click your avatar at the top right, and open Settings → Account and Security → Security Sett\
-ings.":"在 mail.qq.com 登录，点右上角头像，进入 设置 → 账号与安全 → 安全设置。","Turn on the POP3/IMAP/SMTP service, then click Generate authorization \
-code and verify yourself.":"开启 POP3/IMAP/SMTP 服务，再点「生成授权码」，按提示验证身份。","Paste the 16-letter code below. Changing your QQ password cancel\
-s it.":"把 16 位授权码粘贴到下面。改了 QQ 密码后授权码会失效。","Sign in at {host} and open Settings → POP3/SMTP/IMAP.":"在 {host} 登录，进入 设置 → POP3/SMTP/IMAP\
-。","Turn on IMAP/SMTP and send the text message it asks for.":"开启 IMAP/SMTP 服务，按提示发短信验证。","Paste the 16-character code below. It is shown only once.":"\
-把 16 位授权码粘贴到下面。授权码只显示一次。","Turn on 2-Step Verification for your Google Account.":"先给 Google 账号开启两步验证。","Open App passw\
-ords, create one, and paste the 16-character password below.":"打开「应用专用密码」，新建一个，把 16 位密码粘贴到下面。","Work and school accounts cannot \
-use app passwords.":"工作和学校账号不能用应用专用密码。","Your Apple Account needs two-factor authentication.":"Apple 账户要先开启双重认证。","Sign in a\
-t account.apple.com and open Sign-In and Security → App-Specific Passwords.":"在 account.apple.com 登录，进入「登录与安全」→「App 专用密码」。","Generate a \
-password and paste it below.":"生成一个密码，粘贴到下面。","The mail service refused the login (Unsafe Login). Enable IMAP/SMTP in the mailbox settings and use its aut\
-horization code, not the account password.":"邮箱服务拒绝了登录（Unsafe Login）。请在邮箱设置里开启 IMAP/SMTP 服务，并用授权码登录，不要用邮箱密码。",
+选)","In OAuth & Permissions at {app}, add this redirect URL:":"在 {app} 的 OAuth & Permissions 里添加这个重定向地址：","In the app settings, add this redirect URL:":"\
+在应用设置里添加这个重定向地址：","Turn on the MCP features and scopes the app needs.":"打开应用需要的 MCP 功能和权限范围。","Copy the Client ID and \
+Client Secret here.":"再把 Client ID 和 Client Secret 填到这里。","Open app settings":"打开应用设置",Continue:"继续","{name} key":"{name} 密钥","{name} token":"{n\
+ame} 令牌","Get a key":"获取密钥","Read-only":"只读","{count} tools":"{count} 个工具",Mailbox:"邮箱","Email address":"邮箱地址",Catalog:"目录","App password":"应用\
+专用密码","Authorization code":"授权码","Password or app password":"密码或授权码","Official help":"官方帮助","Finish signing in in your browser.":"在浏览器里完成登录。",
+"Open again":"重新打开","Did not come back here?":"登录后没有回到这里？","Copied to clipboard":"已复制到剪贴板","Paste the code on {host} and authorize.":"在 {h\
+ost} 粘贴这个码并授权。","Add another":"再添加一个","QQ, 163, 126, Gmail, iCloud, and other IMAP mail":"QQ、163、126、Gmail、iCloud 等 IMAP 邮箱","Other MCP se\
+rver":"其他 MCP 服务器","An address, a command, or one from Claude Desktop, Cursor, or VS Code":"填地址或命令，或从 Claude Desktop、Cursor、VS Code 导入","Kind of\
+ server":"服务器类型","Nothing matches":"没有匹配的连接器",Recommended:"推荐","See all":"查看全部","{count} connected":"已连接 {count} 个","{count} accounts":"\
+{count} 个账户",Category:"分类","Could not reach the mail server. Check the server address.":"连不上邮件服务器，请检查服务器地址。","Sign in at mail.qq.com, \
+click your avatar at the top right, and open Settings → Account and Security → Security Settings.":"在 mail.qq.com 登录，点右上角头像，进入 设置 → 账号与安全 → 安全设置。",
+"Turn on the POP3/IMAP/SMTP service, then click Generate authorization code and verify yourself.":"开启 POP3/IMAP/SMTP 服务，再点「生成授权码」，按提示验证身份。",
+"Paste the 16-letter code below. Changing your QQ password cancels it.":"把 16 位授权码粘贴到下面。改了 QQ 密码后授权码会失效。","Sign in at {host} and open \
+Settings → POP3/SMTP/IMAP.":"在 {host} 登录，进入 设置 → POP3/SMTP/IMAP。","Turn on IMAP/SMTP and send the text message it asks for.":"开启 IMAP/SMTP 服务，按提示发短信验证。",
+"Paste the 16-character code below. It is shown only once.":"把 16 位授权码粘贴到下面。授权码只显示一次。","Turn on 2-Step Verification for your Google Account.":"\
+先给 Google 账号开启两步验证。","Open App passwords, create one, and paste the 16-character password below.":"打开「应用专用密码」，新建一个，把 16 位密码粘贴到下面。",
+"Work and school accounts cannot use app passwords.":"工作和学校账号不能用应用专用密码。","Your Apple Account needs two-factor authentication.":"Apple 账户要先开启双重认证。",
+"Sign in at account.apple.com and open Sign-In and Security → App-Specific Passwords.":"在 account.apple.com 登录，进入「登录与安全」→「App 专用密码」。","G\
+enerate a password and paste it below.":"生成一个密码，粘贴到下面。","The mail service refused the login (Unsafe Login). Enable IMAP/SMTP in the mailbox settings and u\
+se its authorization code, not the account password.":"邮箱服务拒绝了登录（Unsafe Login）。请在邮箱设置里开启 IMAP/SMTP 服务，并用授权码登录，不要用邮箱密码。",
 "The password was refused. Use the mailbox app password or authorization code, not the account password.":"密码不对。请用邮箱的授权码或应用专用密码，不要用邮箱登录密码。",
 "Enter the authorization code or app password":"请填写授权码或应用专用密码","Pages, databases, and wiki content":"页面、数据库和 Wiki 内容","Issues, projects,\
  and cycles":"Issue、项目和迭代","Jira issues and Confluence pages":"Jira 工单和 Confluence 页面","Errors, traces, and releases":"错误、调用链和发布","Payments,\
@@ -5823,6 +5838,7 @@ html[data-bt-collapsing] [class*="_frame"]:has(>[class*="_sidebarCol"]){transiti
 .bt-rail-top>.bt-round svg,.bt-leftcol-foot-rail>:is(.bt-round,.bt-account) svg{width:22px;height:22px}
 }
 .bt-rail-sep{width:24px;height:1px;flex:none;background:var(--bt-line)}
+.bt-rail .bt-agent{width:56px}
 .bt-rail .bt-agent-ava{width:44px;height:44px}
 /* Icon rows breathe the way the open column's rows do: 8px of gap puts ~20px
    between avatar edges, the open list's 19px (8px padding + 3px gap + 8px). */
@@ -6444,6 +6460,12 @@ x;align-items:center;justify-content:center;color:var(--bt-ink)}
 }
 .bt-connector-link:hover:not(:disabled){color:var(--bt-ink)}
 .bt-connector-wait{flex:1;min-width:0;font-size:12px;line-height:16px;color:var(--bt-ink-2)}
+.bt-connector-setup{display:flex;flex-direction:column;gap:6px;padding:8px 10px;border-radius:10px;background:var(--bt-tag-bg);font-size:12px;line-height:16px;color:var(--bt-ink-2)\
+}
+.bt-connector-setup p{margin:0}
+.bt-connector-setup-uri{display:flex;align-items:center;gap:6px;min-width:0}
+.bt-connector-uri{flex:1;min-width:0;padding:3px 6px;border-radius:6px;background:var(--bt-card);box-shadow:inset 0 0 0 .5px var(--bt-line-2);font-family:ui-monospace,SFMono-Regula\
+r,Menlo,monospace;font-size:11px;line-height:15px;color:var(--bt-ink);word-break:break-all}
 .bt-connector-aside{align-self:flex-start}
 .bt-connector-error{padding-left:48px;font-size:12px;line-height:16px;color:var(--bt-danger)}
 .bt-connector-banner{padding:0 0 8px}
@@ -10198,62 +10220,69 @@ bt-connector-form-row"},(0,import_react29.createElement)("span",{className:"bt-c
 null,(0,import_react29.createElement)("button",{type:"button",className:"bt-soft bt-soft-sm",onClick:()=>{run2(actions.connectorCancel(connector.id))}},t("Cancel"))))}function SignInPanel({
 connector,actions,run:run2,onUseToken}){let kind=connector.pending?.kind;return kind==="browser"?(0,import_react29.createElement)(BrowserPanel,{connector,actions,run:run2}):kind===
 "device"?(0,import_react29.createElement)(DevicePanel,{connector,actions,run:run2,onUseToken}):null}function ClientPanel({connector,actions,run:run2}){let[clientId,setClientId]=(0,import_react29.useState)(
-""),[clientSecret,setClientSecret]=(0,import_react29.useState)("");return(0,import_react29.createElement)("div",{className:"bt-connector-form"},(0,import_react29.createElement)("in\
-put",{className:"bt-input","aria-label":t("Client ID"),placeholder:t("Client ID"),value:clientId,spellCheck:!1,autoComplete:"off",onChange:e=>setClientId(e.target.value)}),(0,import_react29.createElement)(
-"label",{className:"bt-q-field bt-secret-field"},(0,import_react29.createElement)(MaskedInput,{value:clientSecret,onChange:setClientSecret,label:t("Client secret (optional)")})),(0,import_react29.createElement)(
-"div",{className:"bt-connector-form-row"},(0,import_react29.createElement)("button",{type:"button",className:"bt-soft bt-soft-sm",onClick:()=>{run2(actions.connectorCancel(connector.
-id))}},t("Cancel")),(0,import_react29.createElement)("button",{type:"button",className:"bt-soft bt-soft-sm",disabled:clientId.trim()==="",onClick:()=>{run2(actions.connectorClient(
-connector.id,clientId.trim(),clientSecret.trim()||void 0))}},t("Continue"))))}function TokenPanel({connector,actions,run:run2,onDone}){let[token,setToken]=(0,import_react29.useState)(
-""),isKey=connector.auth?.kind==="key",connect=()=>{token.trim()!==""&&run2(isKey?actions.connectorConnect(connector.id,{key:token.trim()}):actions.connectorConnect(connector.id,{token:token.
-trim()}),()=>{setToken(""),onDone?.()})};return(0,import_react29.createElement)("div",{className:"bt-connector-form"},(0,import_react29.createElement)("label",{className:"bt-q-fiel\
-d bt-secret-field"},(0,import_react29.createElement)(MaskedInput,{value:token,onChange:setToken,onEnter:connect,label:isKey?t("{name} key",{name:connector.name}):t("{name} token",{
-name:connector.name}),autoFocus:!0})),(0,import_react29.createElement)("div",{className:"bt-connector-form-row"},connector.id==="github"?(0,import_react29.createElement)("a",{className:"\
-bt-connector-link",href:TOKEN_URL,target:"_blank",rel:"noopener noreferrer"},t("Create a token on GitHub")):connector.auth?.keyUrl?(0,import_react29.createElement)("a",{className:"\
-bt-connector-link",href:connector.auth.keyUrl,target:"_blank",rel:"noopener noreferrer"},t("Get a key")):(0,import_react29.createElement)("span",{className:"bt-connector-wait"}),(0,import_react29.createElement)(
-"button",{type:"button",className:"bt-soft bt-soft-sm",onClick:onDone},t("Cancel")),(0,import_react29.createElement)("button",{type:"button",className:"bt-soft bt-soft-sm",disabled:token.
-trim()==="",onClick:connect},t("Connect"))))}var openSignIn=(win,id,view)=>{let pending=view?.connectors?.find(entry=>entry.id===id)?.pending;if(pending?.kind==="browser")return void win.
-go(pending.url);if(pending?.kind==="device")return void Promise.resolve(copyCode(pending.userCode)).then(()=>win.go(pending.verificationUri));win.close()};function ConnectorRow({connector,
-actions}){let[form,setForm]=(0,import_react29.useState)(null),[busy,setBusy]=(0,import_react29.useState)(!1),[error,setError]=(0,import_react29.useState)(null),run2=(task,after,failed)=>(setBusy(
-!0),setError(null),Promise.resolve(task).then(value=>{after?.(value)},failure=>{failed?.(),setError(failure?.message??String(failure))}).finally(()=>setBusy(!1))),on=connector.state!==
-"off"&&connector.state!=="needs-client",pending=connector.pending,row=(0,import_react29.useRef)(null);useMorph(row,`${form}:${error!==null}:${connector.state}:${pending?.kind??""}`);
-let signIn=()=>{let win=reserveWindow();run2(actions.connectorConnect(connector.id,{}),view=>openSignIn(win,connector.id,view),()=>win.close())},connect=()=>{if(connector.auth?.kind===
-"none")return void run2(actions.connectorConnect(connector.id,{}));if(connector.auth?.kind==="key")return setForm("token");if(connector.auth?.kind==="oauth")return connector.auth.client?.
-id||!connector.auth.token?signIn():setForm("token")},button=(label,onClick)=>(0,import_react29.createElement)("button",{type:"button",className:"bt-soft bt-soft-sm",disabled:busy,onClick},
-label),actionsNode=null;return pending||form?actionsNode=null:connector.state==="needs-sign-in"?actionsNode=[button(t("Sign in again"),signIn),button(t("Disconnect"),()=>{run2(actions.
-connectorDisconnect(connector.id))})]:connector.state==="error"?actionsNode=[button(t("Try again"),()=>{run2(actions.connectorRetry(connector.id))}),button(connector.custom?t("Remo\
-ve"):t("Disconnect"),()=>{run2(actions.connectorDisconnect(connector.id))})]:on?actionsNode=button(connector.custom?t("Remove"):t("Disconnect"),()=>{run2(actions.connectorDisconnect(
-connector.id))}):actionsNode=[connector.auth?.kind==="oauth"&&connector.auth.token===!0&&connector.auth.client?.id?(0,import_react29.createElement)("button",{key:"token",type:"butt\
-on",className:"bt-connector-link",disabled:busy,onClick:()=>setForm("token")},t("Use a token instead")):null,(0,import_react29.createElement)("button",{key:"connect",type:"button",
-className:"bt-soft bt-soft-sm",disabled:busy,onClick:connect},busy?t("Connecting…"):t("Connect"))],(0,import_react29.createElement)("div",{ref:row,className:"bt-connector","data-\
-state":connector.state},(0,import_react29.createElement)("div",{className:"bt-connector-head"},(0,import_react29.createElement)("span",{className:"bt-connector-mark"},(0,import_react29.createElement)(
-ConnectorMark,{connector})),(0,import_react29.createElement)("span",{className:"bt-connector-text"},(0,import_react29.createElement)("span",{className:"bt-connector-name"},connector.
-name,connector.custom?(0,import_react29.createElement)("span",{className:"bt-tag"},t("Added")):null),(0,import_react29.createElement)("span",{className:"bt-connector-status"},statusText2(
-connector))),actionsNode?(0,import_react29.createElement)("span",{className:"bt-connector-actions"},actionsNode):null),connector.readOnly!==void 0&&on&&connector.state==="ready"?(0,import_react29.createElement)(
-"div",{className:"bt-connector-ro"},(0,import_react29.createElement)(SwitchRow,{label:t("Read-only"),on:connector.readOnly===!0,onChange:checked=>{run2(actions.connectorSet(connector.
-id,{readOnly:checked}))}})):null,(0,import_react29.createElement)(SignInPanel,{connector,actions,run:run2,onUseToken:()=>setForm("token")}),connector.state==="needs-client"&&!pending?.
-kind?(0,import_react29.createElement)(ClientPanel,{connector,actions,run:run2}):null,form==="token"?(0,import_react29.createElement)(TokenPanel,{connector,actions,run:run2,onDone:()=>{
-setForm(null),setError(null)}}):null,error?(0,import_react29.createElement)("div",{className:"bt-connector-error",role:"alert"},hostText(error)):null)}var NETEASE_STEPS=["Sign in a\
-t {host} and open Settings → POP3/SMTP/IMAP.","Turn on IMAP/SMTP and send the text message it asks for.","Paste the 16-character code below. It is shown only once."],NETEASE_HELP="\
-https://help.mail.163.com/faqDetail.do?code=d7a5dc8471cd0c0e8b4b8f4f8e49998b374173cfe9171305fa1ce630d7f67ac2a5feb28b66796d3b",MAIL_GUIDES={qq:{host:"mail.qq.com",open:"https://mail\
-.qq.com",help:"https://help.mail.qq.com/detail/106/985",label:"Authorization code",steps:["Sign in at mail.qq.com, click your avatar at the top right, and open Settings → Account a\
-nd Security → Security Settings.","Turn on the POP3/IMAP/SMTP service, then click Generate authorization code and verify yourself.","Paste the 16-letter code below. Changing your\
- QQ password cancels it."]},163:{host:"mail.163.com",open:"https://mail.163.com",help:NETEASE_HELP,label:"Authorization code",steps:NETEASE_STEPS},126:{host:"mail.126.com",open:"ht\
-tps://mail.126.com",help:NETEASE_HELP,label:"Authorization code",steps:NETEASE_STEPS},gmail:{host:"myaccount.google.com",open:"https://myaccount.google.com/apppasswords",help:"http\
-s://support.google.com/accounts/answer/185833",label:"App password",steps:["Turn on 2-Step Verification for your Google Account.","Open App passwords, create one, and paste the 16-\
-character password below.","Work and school accounts cannot use app passwords."]},icloud:{host:"account.apple.com",open:"https://account.apple.com",help:"https://support.apple.com/\
-102654",label:"App password",steps:["Your Apple Account needs two-factor authentication.","Sign in at account.apple.com and open Sign-In and Security → App-Specific Passwords.","\
-Generate a password and paste it below."]}};function MailAccount({account,actions,run:run2}){let[busy,setBusy]=(0,import_react29.useState)(!1),remove=()=>{busy||(setBusy(!0),Promise.
-resolve(run2(actions.mailAccountRemove(account.id))).finally(()=>setBusy(!1)))},markId=`mail-${account.provider}`;return(0,import_react29.createElement)("div",{className:"bt-connec\
-tor","data-state":account.error?"error":"ready"},(0,import_react29.createElement)("div",{className:"bt-connector-head"},(0,import_react29.createElement)("span",{className:"bt-conne\
-ctor-mark"},(0,import_react29.createElement)(ConnectorMark,{connector:{id:markId,name:account.address}})),(0,import_react29.createElement)("span",{className:"bt-connector-text"},(0,import_react29.createElement)(
-"span",{className:"bt-connector-name"},account.address),(0,import_react29.createElement)("span",{className:"bt-connector-status"},account.error?hostText(account.error):t("Connected"))),
-(0,import_react29.createElement)("span",{className:"bt-connector-actions"},(0,import_react29.createElement)("button",{type:"button",className:"bt-soft bt-soft-sm",disabled:busy,onClick:remove},
-t("Remove")))))}function MailPending({pending}){return(0,import_react29.createElement)("div",{className:"bt-connector","data-state":"connecting"},(0,import_react29.createElement)("\
-div",{className:"bt-connector-head"},(0,import_react29.createElement)("span",{className:"bt-connector-mark"},(0,import_react29.createElement)(ConnectorMark,{connector:{id:"mail-gma\
-il",name:"Google"}})),(0,import_react29.createElement)("span",{className:"bt-connector-text"},(0,import_react29.createElement)("span",{className:"bt-connector-name"},pending.address??
-"Gmail"),(0,import_react29.createElement)("span",{className:"bt-connector-status"},t("Finish signing in in your browser."))),(0,import_react29.createElement)("span",{className:"bt-\
-connector-actions"},(0,import_react29.createElement)("button",{type:"button",className:"bt-connector-link",onClick:()=>openPage(pending.url)},t("Open again")))))}function MailRules({
-mail,bots,actions,run:run2}){let allowed2=mail?.allowedRecipients??[],direct=mail?.noDraftFor??[];if(allowed2.length===0&&direct.length===0)return null;let rule=(key,name,kind,onRemove)=>(0,import_react29.createElement)(
+""),[clientSecret,setClientSecret]=(0,import_react29.useState)(""),setup=connector.auth?.clientSetup,app=setup?.appUrl?.replace(/^https?:\/\//,""),uri=connector.redirectUri,copies=(0,import_react29.useSyncExternalStore)(
+watchCopies,()=>codeCopies.get(uri)??0);return(0,import_react29.createElement)("div",{className:"bt-connector-form"},(0,import_react29.createElement)("div",{className:"bt-connector\
+-setup"},(0,import_react29.createElement)("p",null,setup?.kind==="slack"?t("In OAuth & Permissions at {app}, add this redirect URL:",{app}):t("In the app settings, add this redirec\
+t URL:")),uri?(0,import_react29.createElement)("div",{className:"bt-connector-setup-uri"},(0,import_react29.createElement)("code",{className:"bt-connector-uri"},uri),(0,import_react29.createElement)(
+"button",{type:"button",className:"bt-connector-link",onClick:()=>{copyCode(uri)}},t("Copy")),copies>0?(0,import_react29.createElement)("span",{className:"bt-connector-copied",role:"\
+status"},(0,import_react29.createElement)("span",{key:copies,className:"bt-connector-copied-text"},(0,import_react29.createElement)(CheckIcon),t("Copied to clipboard"))):null):null,
+setup?.kind==="slack"?(0,import_react29.createElement)("p",null,t("Turn on the MCP features and scopes the app needs.")):null,(0,import_react29.createElement)("p",null,t("Copy the \
+Client ID and Client Secret here.")),setup?.appUrl?(0,import_react29.createElement)("button",{type:"button",className:"bt-connector-link",onClick:()=>openPage(setup.appUrl)},t("Ope\
+n app settings")):null),(0,import_react29.createElement)("input",{className:"bt-input","aria-label":t("Client ID"),placeholder:t("Client ID"),value:clientId,spellCheck:!1,autoComplete:"\
+off",onChange:e=>setClientId(e.target.value)}),(0,import_react29.createElement)("label",{className:"bt-q-field bt-secret-field"},(0,import_react29.createElement)(MaskedInput,{value:clientSecret,
+onChange:setClientSecret,label:t("Client secret (optional)")})),(0,import_react29.createElement)("div",{className:"bt-connector-form-row"},(0,import_react29.createElement)("button",
+{type:"button",className:"bt-soft bt-soft-sm",onClick:()=>{run2(actions.connectorCancel(connector.id))}},t("Cancel")),(0,import_react29.createElement)("button",{type:"button",className:"\
+bt-soft bt-soft-sm",disabled:clientId.trim()==="",onClick:()=>{run2(actions.connectorClient(connector.id,clientId.trim(),clientSecret.trim()||void 0))}},t("Continue"))))}function TokenPanel({
+connector,actions,run:run2,onDone}){let[token,setToken]=(0,import_react29.useState)(""),isKey=connector.auth?.kind==="key",connect=()=>{token.trim()!==""&&run2(isKey?actions.connectorConnect(
+connector.id,{key:token.trim()}):actions.connectorConnect(connector.id,{token:token.trim()}),()=>{setToken(""),onDone?.()})};return(0,import_react29.createElement)("div",{className:"\
+bt-connector-form"},(0,import_react29.createElement)("label",{className:"bt-q-field bt-secret-field"},(0,import_react29.createElement)(MaskedInput,{value:token,onChange:setToken,onEnter:connect,
+label:isKey?t("{name} key",{name:connector.name}):t("{name} token",{name:connector.name}),autoFocus:!0})),(0,import_react29.createElement)("div",{className:"bt-connector-form-row"},
+connector.id==="github"?(0,import_react29.createElement)("a",{className:"bt-connector-link",href:TOKEN_URL,target:"_blank",rel:"noopener noreferrer"},t("Create a token on GitHub")):
+connector.auth?.keyUrl?(0,import_react29.createElement)("a",{className:"bt-connector-link",href:connector.auth.keyUrl,target:"_blank",rel:"noopener noreferrer"},t("Get a key")):(0,import_react29.createElement)(
+"span",{className:"bt-connector-wait"}),(0,import_react29.createElement)("button",{type:"button",className:"bt-soft bt-soft-sm",onClick:onDone},t("Cancel")),(0,import_react29.createElement)(
+"button",{type:"button",className:"bt-soft bt-soft-sm",disabled:token.trim()==="",onClick:connect},t("Connect"))))}var openSignIn=(win,id,view)=>{let pending=view?.connectors?.find(
+entry=>entry.id===id)?.pending;if(pending?.kind==="browser")return void win.go(pending.url);if(pending?.kind==="device")return void Promise.resolve(copyCode(pending.userCode)).then(
+()=>win.go(pending.verificationUri));win.close()};function ConnectorRow({connector,actions}){let[form,setForm]=(0,import_react29.useState)(null),[busy,setBusy]=(0,import_react29.useState)(
+!1),[error,setError]=(0,import_react29.useState)(null),run2=(task,after,failed)=>(setBusy(!0),setError(null),Promise.resolve(task).then(value=>{after?.(value)},failure=>{failed?.(),
+setError(failure?.message??String(failure))}).finally(()=>setBusy(!1))),on=connector.state!=="off"&&connector.state!=="needs-client",pending=connector.pending,row=(0,import_react29.useRef)(
+null);useMorph(row,`${form}:${error!==null}:${connector.state}:${pending?.kind??""}`);let signIn=()=>{let win=reserveWindow();run2(actions.connectorConnect(connector.id,{}),view=>openSignIn(
+win,connector.id,view),()=>win.close())},connect=()=>{if(connector.auth?.kind==="none")return void run2(actions.connectorConnect(connector.id,{}));if(connector.auth?.kind==="key")return setForm(
+"token");if(connector.auth?.kind==="oauth")return connector.auth.client?.id||!connector.auth.token?signIn():setForm("token")},button=(label,onClick)=>(0,import_react29.createElement)(
+"button",{type:"button",className:"bt-soft bt-soft-sm",disabled:busy,onClick},label),actionsNode=null;return pending||form?actionsNode=null:connector.state==="needs-sign-in"?actionsNode=
+[button(t("Sign in again"),signIn),button(t("Disconnect"),()=>{run2(actions.connectorDisconnect(connector.id))})]:connector.state==="error"?actionsNode=[button(t("Try again"),()=>{
+run2(actions.connectorRetry(connector.id))}),button(connector.custom?t("Remove"):t("Disconnect"),()=>{run2(actions.connectorDisconnect(connector.id))})]:on?actionsNode=button(connector.
+custom?t("Remove"):t("Disconnect"),()=>{run2(actions.connectorDisconnect(connector.id))}):actionsNode=[connector.auth?.kind==="oauth"&&connector.auth.token===!0&&connector.auth.client?.
+id?(0,import_react29.createElement)("button",{key:"token",type:"button",className:"bt-connector-link",disabled:busy,onClick:()=>setForm("token")},t("Use a token instead")):null,(0,import_react29.createElement)(
+"button",{key:"connect",type:"button",className:"bt-soft bt-soft-sm",disabled:busy,onClick:connect},busy?t("Connecting…"):t("Connect"))],(0,import_react29.createElement)("div",{ref:row,
+className:"bt-connector","data-state":connector.state},(0,import_react29.createElement)("div",{className:"bt-connector-head"},(0,import_react29.createElement)("span",{className:"bt\
+-connector-mark"},(0,import_react29.createElement)(ConnectorMark,{connector})),(0,import_react29.createElement)("span",{className:"bt-connector-text"},(0,import_react29.createElement)(
+"span",{className:"bt-connector-name"},connector.name,connector.custom?(0,import_react29.createElement)("span",{className:"bt-tag"},t("Added")):null),(0,import_react29.createElement)(
+"span",{className:"bt-connector-status"},statusText2(connector))),actionsNode?(0,import_react29.createElement)("span",{className:"bt-connector-actions"},actionsNode):null),connector.
+readOnly!==void 0&&on&&connector.state==="ready"?(0,import_react29.createElement)("div",{className:"bt-connector-ro"},(0,import_react29.createElement)(SwitchRow,{label:t("Read-only"),
+on:connector.readOnly===!0,onChange:checked=>{run2(actions.connectorSet(connector.id,{readOnly:checked}))}})):null,(0,import_react29.createElement)(SignInPanel,{connector,actions,run:run2,
+onUseToken:()=>setForm("token")}),connector.state==="needs-client"&&!pending?.kind?(0,import_react29.createElement)(ClientPanel,{connector,actions,run:run2}):null,form==="token"?(0,import_react29.createElement)(
+TokenPanel,{connector,actions,run:run2,onDone:()=>{setForm(null),setError(null)}}):null,error?(0,import_react29.createElement)("div",{className:"bt-connector-error",role:"alert"},hostText(
+error)):null)}var NETEASE_STEPS=["Sign in at {host} and open Settings → POP3/SMTP/IMAP.","Turn on IMAP/SMTP and send the text message it asks for.","Paste the 16-character code b\
+elow. It is shown only once."],NETEASE_HELP="https://help.mail.163.com/faqDetail.do?code=d7a5dc8471cd0c0e8b4b8f4f8e49998b374173cfe9171305fa1ce630d7f67ac2a5feb28b66796d3b",MAIL_GUIDES={
+qq:{host:"mail.qq.com",open:"https://mail.qq.com",help:"https://help.mail.qq.com/detail/106/985",label:"Authorization code",steps:["Sign in at mail.qq.com, click your avatar at the\
+ top right, and open Settings → Account and Security → Security Settings.","Turn on the POP3/IMAP/SMTP service, then click Generate authorization code and verify yourself.","Pa\
+ste the 16-letter code below. Changing your QQ password cancels it."]},163:{host:"mail.163.com",open:"https://mail.163.com",help:NETEASE_HELP,label:"Authorization code",steps:NETEASE_STEPS},
+126:{host:"mail.126.com",open:"https://mail.126.com",help:NETEASE_HELP,label:"Authorization code",steps:NETEASE_STEPS},gmail:{host:"myaccount.google.com",open:"https://myaccount.go\
+ogle.com/apppasswords",help:"https://support.google.com/accounts/answer/185833",label:"App password",steps:["Turn on 2-Step Verification for your Google Account.","Open App passwor\
+ds, create one, and paste the 16-character password below.","Work and school accounts cannot use app passwords."]},icloud:{host:"account.apple.com",open:"https://account.apple.com",
+help:"https://support.apple.com/102654",label:"App password",steps:["Your Apple Account needs two-factor authentication.","Sign in at account.apple.com and open Sign-In and Securit\
+y → App-Specific Passwords.","Generate a password and paste it below."]}};function MailAccount({account,actions,run:run2}){let[busy,setBusy]=(0,import_react29.useState)(!1),remove=()=>{
+busy||(setBusy(!0),Promise.resolve(run2(actions.mailAccountRemove(account.id))).finally(()=>setBusy(!1)))},markId=`mail-${account.provider}`;return(0,import_react29.createElement)(
+"div",{className:"bt-connector","data-state":account.error?"error":"ready"},(0,import_react29.createElement)("div",{className:"bt-connector-head"},(0,import_react29.createElement)(
+"span",{className:"bt-connector-mark"},(0,import_react29.createElement)(ConnectorMark,{connector:{id:markId,name:account.address}})),(0,import_react29.createElement)("span",{className:"\
+bt-connector-text"},(0,import_react29.createElement)("span",{className:"bt-connector-name"},account.address),(0,import_react29.createElement)("span",{className:"bt-connector-status"},
+account.error?hostText(account.error):t("Connected"))),(0,import_react29.createElement)("span",{className:"bt-connector-actions"},(0,import_react29.createElement)("button",{type:"b\
+utton",className:"bt-soft bt-soft-sm",disabled:busy,onClick:remove},t("Remove")))))}function MailPending({pending}){return(0,import_react29.createElement)("div",{className:"bt-conn\
+ector","data-state":"connecting"},(0,import_react29.createElement)("div",{className:"bt-connector-head"},(0,import_react29.createElement)("span",{className:"bt-connector-mark"},(0,import_react29.createElement)(
+ConnectorMark,{connector:{id:"mail-gmail",name:"Google"}})),(0,import_react29.createElement)("span",{className:"bt-connector-text"},(0,import_react29.createElement)("span",{className:"\
+bt-connector-name"},pending.address??"Gmail"),(0,import_react29.createElement)("span",{className:"bt-connector-status"},t("Finish signing in in your browser."))),(0,import_react29.createElement)(
+"span",{className:"bt-connector-actions"},(0,import_react29.createElement)("button",{type:"button",className:"bt-connector-link",onClick:()=>openPage(pending.url)},t("Open again")))))}
+function MailRules({mail,bots,actions,run:run2}){let allowed2=mail?.allowedRecipients??[],direct=mail?.noDraftFor??[];if(allowed2.length===0&&direct.length===0)return null;let rule=(key,name,kind,onRemove)=>(0,import_react29.createElement)(
 "div",{key,className:"bt-mail-rule"},(0,import_react29.createElement)("span",{className:"bt-connector-text"},(0,import_react29.createElement)("span",{className:"bt-mail-rule-name"},
 name),(0,import_react29.createElement)("span",{className:"bt-connector-status"},kind)),(0,import_react29.createElement)("button",{type:"button",className:"bt-soft bt-soft-sm",onClick:onRemove},
 t("Remove")));return(0,import_react29.createElement)("div",{className:"bt-connector bt-mail-rules","data-state":"ready"},(0,import_react29.createElement)("div",{className:"bt-mail-\
