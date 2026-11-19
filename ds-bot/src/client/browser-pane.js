@@ -48,6 +48,51 @@ const LockIcon = icon(['M6.5 9V7a3.5 3.5 0 0 1 7 0v2', 'M5.5 9h9v7h-9z'])
 const ImportIcon = icon(['M10 3.5v8.5', 'M6 8.5l4 4 4-4', 'M4.5 14v1.5a1.5 1.5 0 0 0 1.5 1.5h8a1.5 1.5 0 0 0 1.5-1.5V14'])
 const FileIcon = icon(['M6 3.5h5.5L14.5 6.5v10H6z', 'M11 3.5v3.5h3.5'])
 const WindowIcon = icon(['M4 5h12v9.5H4z', 'M4 7.5h12'])
+const PasteIcon = icon(['M7.5 4.5h5v2h-5z', 'M6 5.5H5a1 1 0 0 0-1 1v9a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1v-9a1 1 0 0 0-1-1h-1'])
+
+const MULTI_PART_TLDS = new Set(['co.uk', 'org.uk', 'ac.uk', 'com.cn', 'net.cn', 'org.cn', 'gov.cn', 'com.hk', 'com.tw', 'co.jp', 'ne.jp', 'or.jp', 'com.au', 'co.kr', 'com.br', 'com.sg'])
+
+const baseDomainOf = (host) => {
+  const clean = String(host ?? '').replace(/^\.+/, '').toLowerCase()
+  if (!clean || clean === 'localhost' || /^\d+(\.\d+){3}$/.test(clean) || clean.includes(':')) return clean
+  const parts = clean.split('.')
+  if (parts.length <= 2) return clean
+  const lastTwo = parts.slice(-2).join('.')
+  if (MULTI_PART_TLDS.has(lastTwo) && parts.length >= 3) return parts.slice(-3).join('.')
+  return lastTwo
+}
+
+/** Whether a cookie site belongs to the same website as the current browser tab host. */
+export function siteMatchesHost(site, host) {
+  const s = String(site ?? '').replace(/^\.+/, '').toLowerCase()
+  const h = String(host ?? '').replace(/^\.+/, '').toLowerCase()
+  if (!s || !h) return false
+  if (s === h || h.endsWith(`.${s}`) || s.endsWith(`.${h}`)) return true
+  const baseS = baseDomainOf(s)
+  const baseH = baseDomainOf(h)
+  return Boolean(baseS && baseS === baseH)
+}
+
+const hostOfUrl = (url) => {
+  if (typeof url !== 'string' || !/^https?:\/\//i.test(url)) return null
+  try { return new URL(url).hostname.toLowerCase() } catch { return null }
+}
+
+const lastImportSource = () => {
+  try { return localStorage.getItem(STORAGE.browserImportSource) || null } catch { return null }
+}
+
+const saveLastImportSource = (id) => {
+  if (!id) return
+  try { localStorage.setItem(STORAGE.browserImportSource, String(id)) } catch { /* storage unavailable */ }
+}
+
+export function orderImportSources(sources, lastId) {
+  if (!Array.isArray(sources) || !lastId) return sources ?? []
+  const index = sources.findIndex((s) => s.id === lastId)
+  if (index <= 0) return sources
+  return [sources[index], ...sources.slice(0, index), ...sources.slice(index + 1)]
+}
 
 /** A page's favicon, or the globe while there is none or it fails to load. */
 export function Favicon({ src, className }) {
@@ -249,14 +294,17 @@ function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPages, ho
   const [draft, setDraft] = useState(null)
   const [covered, setCovered] = useState(false)
 
-  // Cookie imports (the desktop app's bridge only): 'menu' lists the sources; a card
-  // stage then runs running → preview → result | error above the guest.
+  // Cookie imports (the desktop app's bridge only): 'menu' lists browser profiles first,
+  // then file/paste; a card stage runs connecting / remote-debug / running / paste →
+  // preview → result | error above the guest.
   const imports = actions.browserImport
   const [flow, setFlow] = useState(null)
   // A mirrored flow: the cleanup on leaving the tab or the panel can still cancel
   // an unconfirmed pending import.
   const flowRef = useRef(null)
+  const reqRef = useRef(0)
   const [sources, setSources] = useState(null)
+  const [lastSourceId, setLastSourceId] = useState(lastImportSource)
   const [busy, setBusy] = useState(false)
   const setFlowTracked = (next) => {
     flowRef.current = typeof next === 'function' ? next(flowRef.current) : next
@@ -283,8 +331,10 @@ function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPages, ho
 
   // Leaving the tab or the panel abandons an unconfirmed import.
   useEffect(() => {
+    reqRef.current += 1
     setFlowTracked(null)
     return () => {
+      reqRef.current += 1
       const id = typeof flowRef.current === 'object' && flowRef.current !== null ? flowRef.current.id : null
       if (id) void imports?.cancel(id).catch(() => {})
     }
@@ -292,32 +342,92 @@ function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPages, ho
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tabId])
 
-  const openImport = () => {
-    setFlowTracked('menu')
-    if (sources === null) void imports.sources().then(setSources, () => setSources([]))
+  const refreshSources = () => {
+    if (!imports) return
+    void imports.sources().then(
+      (list) => setSources(Array.isArray(list) ? list : []),
+      () => setSources((prev) => prev ?? []),
+    )
   }
-  const showPicked = (r) => {
-    if (r?.id) setFlowTracked({ stage: 'preview', id: r.id, preview: r.preview, restarted: r.restarted === true })
+  const openImport = () => {
+    reqRef.current += 1
+    setBusy(false)
+    const id = typeof flowRef.current === 'object' && flowRef.current !== null ? flowRef.current.id : null
+    if (id) void imports?.cancel(id).catch(() => {})
+    setFlowTracked('menu')
+    setLastSourceId(lastImportSource())
+    refreshSources()
+  }
+  const showPicked = (r, token) => {
+    if (token !== undefined && token !== reqRef.current) {
+      if (r?.id) void imports?.cancel(r.id).catch(() => {})
+      return
+    }
+    if (r?.id) setFlowTracked({ stage: 'preview', id: r.id, preview: r.preview, restarted: r.restarted === true, method: r.method ?? null })
     else if (r?.error) setFlowTracked({ stage: 'error', message: importError(r.error) })
     else setFlowTracked(null)
   }
   const job = async (work) => {
+    const token = ++reqRef.current
     setBusy(true)
-    try { await work() } catch (error) { setFlowTracked({ stage: 'error', message: String(error?.message ?? error) }) } finally { setBusy(false) }
+    try { await work(token) } catch (error) {
+      if (token === reqRef.current) setFlowTracked({ stage: 'error', message: String(error?.message ?? error) })
+    } finally {
+      if (token === reqRef.current) setBusy(false)
+    }
   }
-  const pickFile = () => job(async () => showPicked(await imports.pick()))
-  const pickSource = (source) => job(async () => {
-    const r = await imports.live(source.id)
-    if (r?.running) setFlowTracked({ stage: 'running', source })
-    else showPicked(r)
+  const pickFile = () => job(async (token) => showPicked(await imports.pick(), token))
+  const openPaste = () => {
+    reqRef.current += 1
+    setBusy(false)
+    setFlowTracked({ stage: 'paste', siteUrl: hostOfUrl(page.url) ? page.url : '' })
+  }
+  const submitPaste = (text, siteUrl) => job(async (token) => {
+    if (!imports?.paste) return
+    showPicked(await imports.paste(text, siteUrl || undefined), token)
   })
-  const closeAndImport = () => job(async () => showPicked(await imports.live(flowRef.current?.source?.id, true)))
-  const applyImport = () => job(async () => {
-    const report = await imports.apply(bot.id, flowRef.current?.id)
-    setFlowTracked((current) => ({ stage: 'result', report, label: current?.preview?.source?.label ?? null }))
+  const pickSource = (source) => job(async (token) => {
+    setFlowTracked({ stage: 'connecting', source })
+    const r = await imports.live(source.id)
+    if (token !== reqRef.current) {
+      if (r?.id) void imports?.cancel(r.id).catch(() => {})
+      return
+    }
+    if (r?.needsRemoteDebugging) setFlowTracked({ stage: 'remote-debug', source, info: r })
+    else if (r?.running) setFlowTracked({ stage: 'running', source })
+    else showPicked(r, token)
+  })
+  const closeAndImport = () => job(async (token) => {
+    const source = flowRef.current?.source
+    if (!source) return
+    const r = await imports.live(source.id, true)
+    if (token !== reqRef.current) {
+      if (r?.id) void imports?.cancel(r.id).catch(() => {})
+      return
+    }
+    if (r?.needsRemoteDebugging) setFlowTracked({ stage: 'remote-debug', source, info: r })
+    else showPicked(r, token)
+  })
+  const applyImport = (options) => job(async (token) => {
+    const current = flowRef.current
+    if (!current?.id) return
+    const report = await imports.apply(bot.id, current.id, options)
+    if (token !== reqRef.current) return
+    const sourceId = current.preview?.source?.id
+    if (sourceId) { saveLastImportSource(sourceId); setLastSourceId(sourceId) }
+    const shouldReload = Boolean(page.url) && ((report?.stored ?? 0) > 0 || (report?.originsStored ?? 0) > 0)
+    if (shouldReload) void actions.browserCommand(tabId, 'reload')
+    setFlowTracked({
+      stage: 'result',
+      report,
+      label: current.preview?.source?.label ?? null,
+      reloaded: shouldReload,
+    })
   })
   const cancelImport = () => {
-    const id = typeof flow === 'object' && flow !== null ? flow.id : null
+    reqRef.current += 1
+    setBusy(false)
+    const id = typeof flowRef.current === 'object' && flowRef.current !== null ? flowRef.current.id : null
     setFlowTracked(null)
     if (id) void imports?.cancel(id).catch(() => {})
   }
@@ -400,9 +510,33 @@ function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPages, ho
       }, h(ImportIcon)) : null,
       page.loading ? h('span', { className: 'bt-browser-progress', 'aria-hidden': true }) : null),
     h('div', { ref: frame, className: 'bt-browser-frame', 'data-guest': showGuest || undefined },
-      flow === 'menu' ? h(ImportMenu, { sources, busy, onFile: pickFile, onSource: pickSource, onClose: () => setFlowTracked(null) }) : null,
+      flow === 'menu' ? h(ImportMenu, {
+        sources: orderImportSources(sources, lastSourceId),
+        lastSourceId,
+        loading: sources === null,
+        busy,
+        canPaste: Boolean(imports?.paste),
+        onFile: pickFile,
+        onPaste: openPaste,
+        onSource: pickSource,
+        onClose: () => setFlowTracked(null),
+      }) : null,
       typeof flow === 'object' && flow !== null
-        ? h(ImportCard, { flow, page, busy, onApply: applyImport, onCancel: cancelImport, onCloseAndImport: closeAndImport, onDone: () => setFlowTracked(null), onReload: () => actions.browserCommand(tabId, 'reload') })
+        ? h(ImportCard, {
+          flow,
+          page,
+          busy,
+          imports,
+          onApply: applyImport,
+          onCancel: cancelImport,
+          onCloseAndImport: closeAndImport,
+          onRetrySource: () => { if (flow.source) void pickSource(flow.source) },
+          onLaunchSource: () => { if (flow.source && imports?.launch) void imports.launch(flow.source.id) },
+          onFile: pickFile,
+          onSubmitPaste: submitPaste,
+          onDone: () => setFlowTracked(null),
+          onReload: () => actions.browserCommand(tabId, 'reload'),
+        })
         : null,
       flow === null && page.error
         ? h('div', { className: 'bt-browser-empty' },
@@ -423,80 +557,203 @@ function importError(error) {
   if (error === 'too-large') return t('That file is too large to be a cookie export.')
   if (error === 'unreadable') return t('That file could not be read.')
   if (error === 'app-bound') return t('This browser encrypts its cookies so only it can read them. Export them to a file first, then import that file.')
+  if (error === 'keychain-denied') return t('Keychain access was cancelled. Click Allow when macOS asks to read your browser cookies.')
+  if (error === 'devtools-denied') return t('Remote debugging permission was declined in the browser. Try again and click Allow.')
+  if (error === 'devtools-timeout') return t('Timed out waiting for you to click Allow in the browser.')
   return String(error)
 }
 
-// The sources popover: a cookie file, then every importable browser profile.
-function ImportMenu({ sources, busy, onFile, onSource, onClose }) {
+// The sources popover: installed browser profiles first (most-recent pinned), then file & paste.
+function ImportMenu({ sources, lastSourceId, loading, busy, canPaste, onFile, onPaste, onSource, onClose }) {
   useEffect(() => {
     const close = (event) => { if (event.key === 'Escape') onClose() }
     window.addEventListener('keydown', close)
     return () => window.removeEventListener('keydown', close)
   }, [onClose])
   return h('div', { className: 'bt-import-menu', role: 'menu', 'aria-label': t('Import cookies') },
-    h('div', { className: 'bt-import-menu-title' }, t('Import cookies')),
+    h('div', { className: 'bt-import-menu-title' }, t('Import from browser')),
+    loading
+      ? h('div', { className: 'bt-import-menu-note' }, t('Loading…'))
+      : sources.length === 0
+        ? h('div', { className: 'bt-import-menu-note' }, t('No browsers found'))
+        : sources.map((source) => {
+          const sub = source.liveDebugReady
+            ? t('Ready')
+            : source.id === lastSourceId
+              ? t('Last used')
+              : source.email || t('Browser profile')
+          return h('button', {
+            key: source.id, type: 'button', className: 'bt-import-item', role: 'menuitem', disabled: busy,
+            title: source.email ? `${source.label} (${source.email})` : source.label,
+            onClick: () => onSource(source),
+          },
+            h(WindowIcon, { className: 'bt-import-item-icon' }),
+            h('span', { className: 'bt-import-item-name' }, source.label),
+            h('span', { className: 'bt-import-item-sub', 'data-ready': source.liveDebugReady || undefined }, sub))
+        }),
+    h('div', { className: 'bt-import-sep', role: 'separator' }),
     h('button', { type: 'button', className: 'bt-import-item', role: 'menuitem', disabled: busy, onClick: onFile },
       h(FileIcon, { className: 'bt-import-item-icon' }),
       h('span', { className: 'bt-import-item-name' }, t('From a file…')),
       h('span', { className: 'bt-import-item-sub' }, t('cookies.txt, JSON, storageState'))),
-    sources === null
-      ? h('div', { className: 'bt-import-menu-note' }, t('Loading…'))
-      : sources.length === 0
-        ? h('div', { className: 'bt-import-menu-note' }, t('No browsers found'))
-        : sources.map((source) => h('button', {
-          key: source.id, type: 'button', className: 'bt-import-item', role: 'menuitem', disabled: busy,
-          onClick: () => onSource(source),
-        },
-          h(WindowIcon, { className: 'bt-import-item-icon' }),
-          h('span', { className: 'bt-import-item-name' }, source.label),
-          h('span', { className: 'bt-import-item-sub' }, t('Copy of its cookies')))))
+    canPaste ? h('button', { type: 'button', className: 'bt-import-item', role: 'menuitem', disabled: busy, onClick: onPaste },
+      h(PasteIcon, { className: 'bt-import-item-icon' }),
+      h('span', { className: 'bt-import-item-name' }, t('Paste cookies or cURL…')),
+      h('span', { className: 'bt-import-item-sub' }, t('JSON, cURL, header'))) : null)
 }
 
-// The card that runs an import: close confirmation → preview → result | error.
-function ImportCard({ flow, page, busy, onApply, onCancel, onCloseAndImport, onDone, onReload }) {
-  const { stage } = flow
-  if (stage === 'running') {
-    return h('div', { className: 'bt-import-card' }, h('div', { className: 'bt-import-box' },
-      h('div', { className: 'bt-import-title' }, t('{name} is running', { name: flow.source.name })),
-      h('div', { className: 'bt-import-text' }, t('It must close for a moment so its cookies can be copied. It will reopen with your tabs.')),
-      h('div', { className: 'bt-import-actions' },
-        h('button', { type: 'button', className: 'bt-import-primary', disabled: busy, onClick: onCloseAndImport }, busy ? t('Closing…') : t('Close {name} and import', { name: flow.source.name })),
-        h('button', { type: 'button', className: 'bt-import-plain', disabled: busy, onClick: onCancel }, t('Cancel')))))
+function RemoteDebugCard({ flow, busy, imports, onRetrySource, onLaunchSource, onFile, onCancel }) {
+  const { source, info } = flow
+  const inspectUrl = info?.inspectUrl || 'chrome://inspect/#remote-debugging'
+  const browserName = info?.browserName || source.name
+  const [copied, setCopied] = useState(false)
+  const [detected, setDetected] = useState(false)
+
+  useEffect(() => {
+    if (!imports?.sources) return undefined
+    let active = true
+    const poll = () => {
+      void imports.sources().then((list) => {
+        if (!active || !Array.isArray(list)) return
+        const match = list.find((s) => s.id === source.id)
+        if (match?.liveDebugReady) setDetected(true)
+      }, () => {})
+    }
+    const timer = setInterval(poll, 2000)
+    return () => { active = false; clearInterval(timer) }
+  }, [imports, source.id])
+
+  const copyAddress = () => {
+    void navigator.clipboard?.writeText(inspectUrl).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1800)
+    }, () => {})
   }
-  if (stage === 'error') {
-    return h('div', { className: 'bt-import-card' }, h('div', { className: 'bt-import-box' },
-      h('div', { className: 'bt-import-title' }, t('Import failed')),
-      h('div', { className: 'bt-import-text' }, flow.message),
-      h('div', { className: 'bt-import-actions' }, h('button', { type: 'button', className: 'bt-import-plain', onClick: onCancel }, t('Close')))))
-  }
-  if (stage === 'result') {
-    const { report } = flow
-    const problems = [...(report.dropped ?? []), ...(report.failed ?? [])]
-    return h('div', { className: 'bt-import-card' }, h('div', { className: 'bt-import-box' },
-      h('div', { className: 'bt-import-title' }, report.stored > 0 ? t('Imported {count} cookies', { count: report.stored }) : t('No cookies were stored')),
-      flow.label ? h('div', { className: 'bt-import-sub' }, flow.label) : null,
-      problems.length ? h('div', { className: 'bt-import-list' },
-        problems.slice(0, 8).map((item, index) => h('div', { key: index, className: 'bt-import-line' },
-          h('span', { className: 'bt-import-line-name' }, item.name ?? '—'),
-          h('span', { className: 'bt-import-line-reason' }, item.reason))),
-        problems.length > 8 ? h('div', { className: 'bt-import-line' }, h('span', { className: 'bt-import-line-reason' }, t('and {count} more', { count: problems.length - 8 }))) : null) : null,
-      h('div', { className: 'bt-import-actions' },
-        page.url ? h('button', { type: 'button', className: 'bt-import-plain', onClick: onReload }, t('Reload the page')) : null,
-        h('button', { type: 'button', className: 'bt-import-primary', onClick: onDone }, t('Done')))))
-  }
-  // stage === 'preview'
-  const { preview } = flow
+
   return h('div', { className: 'bt-import-card' }, h('div', { className: 'bt-import-box' },
-    h('div', { className: 'bt-import-title' }, t('Import {count} cookies', { count: preview.cookies })),
+    h('div', { className: 'bt-import-title' }, t('Connect to {name}', { name: browserName })),
+    h('div', { className: 'bt-import-text' },
+      t('{name} protects its cookies on Windows. Enable its built-in remote debugging switch once — no extension needed.', { name: browserName })),
+    h('div', { className: 'bt-import-steps' },
+      h('div', { className: 'bt-import-step' }, t('1. Open this address in {name}:', { name: browserName })),
+      h('div', { className: 'bt-import-copy-row' },
+        h('code', { className: 'bt-import-code' }, inspectUrl),
+        h('button', { type: 'button', className: 'bt-import-mini', onClick: copyAddress }, copied ? t('Copied') : t('Copy'))),
+      h('div', { className: 'bt-import-step' }, t('2. Turn on “Allow remote debugging for this browser instance”, then click Allow when {name} prompts.', { name: browserName }))),
+    detected ? h('div', { className: 'bt-import-ready-note' }, t('Remote debugging detected — ready to import.')) : null,
+    h('div', { className: 'bt-import-actions' },
+      !info?.running && info?.hasExe
+        ? h('button', { type: 'button', className: 'bt-import-plain', disabled: busy, onClick: onLaunchSource }, t('Open {name}', { name: browserName }))
+        : h('button', { type: 'button', className: 'bt-import-plain', disabled: busy, onClick: onFile }, t('From a file…')),
+      h('button', { type: 'button', className: 'bt-import-plain', disabled: busy, onClick: onCancel }, t('Cancel')),
+      h('button', { type: 'button', className: 'bt-import-primary', disabled: busy, onClick: onRetrySource }, busy ? t('Connecting…') : t('Connect and import')))))
+}
+
+function PasteCard({ flow, busy, onSubmitPaste, onCancel }) {
+  const [text, setText] = useState('')
+  const [siteUrl, setSiteUrl] = useState(flow.siteUrl || '')
+  return h('div', { className: 'bt-import-card' }, h('div', { className: 'bt-import-box' },
+    h('div', { className: 'bt-import-title' }, t('Paste cookies or cURL')),
+    h('textarea', {
+      className: 'bt-import-textarea',
+      rows: 5,
+      spellCheck: false,
+      placeholder: t('Paste Cookie-Editor JSON, Netscape cookies.txt, Copy as cURL, or a Cookie header…'),
+      value: text,
+      onChange: (event) => setText(event.target.value),
+    }),
+    h('input', {
+      type: 'text',
+      className: 'bt-import-input',
+      spellCheck: false,
+      placeholder: t('Site URL (only needed for plain Cookie headers)'),
+      value: siteUrl,
+      onChange: (event) => setSiteUrl(event.target.value),
+    }),
+    h('div', { className: 'bt-import-actions' },
+      h('button', { type: 'button', className: 'bt-import-plain', disabled: busy, onClick: onCancel }, t('Cancel')),
+      h('button', {
+        type: 'button', className: 'bt-import-primary', disabled: busy || !text.trim(),
+        onClick: () => onSubmitPaste(text, siteUrl.trim()),
+      }, busy ? t('Reading…') : t('Continue')))))
+}
+
+function PreviewCard({ flow, page, busy, onApply, onCancel }) {
+  const { preview } = flow
+  const currentHost = hostOfUrl(page.url)
+  const matchingCurrent = currentHost
+    ? preview.sites.filter((s) => siteMatchesHost(s.site, currentHost)).map((s) => s.site)
+    : []
+  const [selected, setSelected] = useState(() => new Set(preview.sites.map((s) => s.site)))
+  const [query, setQuery] = useState('')
+  const [persistSession, setPersistSession] = useState(true)
+
+  const hasSession = preview.notes.includes('session-cookies')
+  const allSelected = selected.size === preview.sites.length
+  const currentOnlySelected = matchingCurrent.length > 0
+    && selected.size === matchingCurrent.length
+    && matchingCurrent.every((s) => selected.has(s))
+
+  const visibleSites = query.trim()
+    ? preview.sites.filter((s) => s.site.toLowerCase().includes(query.trim().toLowerCase()))
+    : preview.sites
+  const selectedCookies = preview.sites.reduce((sum, s) => sum + (selected.has(s.site) ? s.cookies : 0), 0)
+  const selectedStorage = preview.sites.reduce((sum, s) => sum + (selected.has(s.site) ? (s.localStorage ?? 0) : 0), 0)
+
+  const toggleSite = (site) => {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(site)) next.delete(site)
+      else next.add(site)
+      return next
+    })
+  }
+  const selectAll = () => setSelected(new Set(preview.sites.map((s) => s.site)))
+  const clearAll = () => setSelected(new Set())
+  const selectCurrent = () => setSelected(new Set(matchingCurrent))
+
+  const submit = () => {
+    const sites = allSelected ? undefined : [...selected]
+    onApply({ sites, persistSession: hasSession ? persistSession : false })
+  }
+
+  return h('div', { className: 'bt-import-card' }, h('div', { className: 'bt-import-box' },
+    h('div', { className: 'bt-import-title' }, t('Import {count} cookies', { count: selectedCookies })),
     h('div', { className: 'bt-import-sub' },
       preview.source?.label ?? '',
-      flow.restarted ? ` · ${t('the browser was restarted')}` : ''),
+      flow.restarted ? ` · ${t('the browser was restarted')}` : '',
+      selectedStorage > 0 ? ` · ${t('{count} storage entries', { count: selectedStorage })}` : ''),
+    matchingCurrent.length > 0 && preview.sites.length > 1 ? h('div', { className: 'bt-import-scope' },
+      h('button', {
+        type: 'button', className: 'bt-import-pill', 'aria-pressed': allSelected,
+        onClick: selectAll,
+      }, t('All sites ({count})', { count: preview.sites.length })),
+      h('button', {
+        type: 'button', className: 'bt-import-pill', 'aria-pressed': currentOnlySelected,
+        onClick: selectCurrent,
+      }, t('This site ({host})', { host: currentHost }))) : null,
+    preview.sites.length > 6 ? h('div', { className: 'bt-import-filter-row' },
+      h('input', {
+        type: 'text', className: 'bt-import-input', spellCheck: false,
+        placeholder: t('Filter sites…'),
+        value: query,
+        onChange: (event) => setQuery(event.target.value),
+      }),
+      h('button', {
+        type: 'button', className: 'bt-import-mini',
+        onClick: allSelected ? clearAll : selectAll,
+      }, allSelected ? t('Clear') : t('All'))) : null,
     preview.sites.length ? h('div', { className: 'bt-import-list' },
-      preview.sites.map((site) => h('div', { key: site.site, className: 'bt-import-line' },
+      visibleSites.map((site) => h('label', { key: site.site, className: 'bt-import-line bt-import-check-row' },
+        h('input', {
+          type: 'checkbox',
+          checked: selected.has(site.site),
+          onChange: () => toggleSite(site.site),
+        }),
         h('span', { className: 'bt-import-line-name' }, site.site),
         h('span', { className: 'bt-import-line-count' },
           t('{count}', { count: site.cookies }),
-          site.session > 0 ? ` · ${t('{count} session', { count: site.session })}` : '')))) : null,
+          site.localStorage > 0 ? ` · ${t('storage')}` : site.session > 0 ? ` · ${t('{count} session', { count: site.session })}` : '')))) : null,
     preview.skipped.length ? h('div', { className: 'bt-import-list' },
       h('div', { className: 'bt-import-note' }, t('{count} skipped', { count: preview.skipped.length })),
       preview.skipped.slice(0, 5).map((item, index) => h('div', { key: index, className: 'bt-import-line' },
@@ -507,11 +764,72 @@ function ImportCard({ flow, page, busy, onApply, onCancel, onCloseAndImport, onD
       h('summary', null, t('{count} adjusted', { count: preview.warnings.reduce((n, w) => n + w.count, 0) })),
       preview.warnings.map((w, index) => h('div', { key: index, className: 'bt-import-line' },
         h('span', { className: 'bt-import-line-reason' }, `${w.count} × ${w.message}`)))) : null,
-    preview.notes.includes('session-cookies') ? h('div', { className: 'bt-import-note' }, t('Cookies without an expiry stay until the app closes.')) : null,
+    hasSession ? h('label', { className: 'bt-import-toggle' },
+      h('input', { type: 'checkbox', checked: persistSession, onChange: (event) => setPersistSession(event.target.checked) }),
+      h('span', null, t('Keep session logins after app restart'))) : null,
     preview.notes.includes('local-storage-left') ? h('div', { className: 'bt-import-note' }, t('Some sites also keep sign-in outside cookies; you may need to sign in again there.')) : null,
     h('div', { className: 'bt-import-actions' },
-      h('button', { type: 'button', className: 'bt-import-primary', disabled: busy, onClick: onApply }, busy ? t('Importing…') : t('Import')),
-      h('button', { type: 'button', className: 'bt-import-plain', disabled: busy, onClick: onCancel }, t('Cancel')))))
+      h('button', { type: 'button', className: 'bt-import-plain', disabled: busy, onClick: onCancel }, t('Cancel')),
+      h('button', { type: 'button', className: 'bt-import-primary', disabled: busy || (selectedCookies === 0 && selectedStorage === 0), onClick: submit }, busy ? t('Importing…') : t('Import')))))
+}
+
+// The card that runs an import: connecting / remote-debug / running / paste → preview → result | error.
+function ImportCard({ flow, page, busy, imports, onApply, onCancel, onCloseAndImport, onRetrySource, onLaunchSource, onFile, onSubmitPaste, onDone, onReload }) {
+  const { stage } = flow
+  if (stage === 'connecting') {
+    return h('div', { className: 'bt-import-card' }, h('div', { className: 'bt-import-box' },
+      h('div', { className: 'bt-import-title' }, t('Reading {name}…', { name: flow.source.name })),
+      h('div', { className: 'bt-import-sub' }, flow.source.label),
+      h('div', { className: 'bt-import-text' }, t('If {name} or your system asks for permission, click Allow.', { name: flow.source.name })),
+      h('div', { className: 'bt-import-actions' },
+        h('button', { type: 'button', className: 'bt-import-plain', onClick: onCancel }, t('Cancel')))))
+  }
+  if (stage === 'remote-debug') {
+    return h(RemoteDebugCard, { flow, busy, imports, onRetrySource, onLaunchSource, onFile, onCancel })
+  }
+  if (stage === 'paste') {
+    return h(PasteCard, { flow, busy, onSubmitPaste, onCancel })
+  }
+  if (stage === 'running') {
+    return h('div', { className: 'bt-import-card' }, h('div', { className: 'bt-import-box' },
+      h('div', { className: 'bt-import-title' }, t('{name} is running', { name: flow.source.name })),
+      h('div', { className: 'bt-import-text' }, t('It must close for a moment so its cookies can be copied. It will reopen with your tabs.')),
+      h('div', { className: 'bt-import-actions' },
+        h('button', { type: 'button', className: 'bt-import-plain', disabled: busy, onClick: onCancel }, t('Cancel')),
+        h('button', { type: 'button', className: 'bt-import-primary', disabled: busy, onClick: onCloseAndImport }, busy ? t('Closing…') : t('Close {name} and import', { name: flow.source.name })))))
+  }
+  if (stage === 'error') {
+    return h('div', { className: 'bt-import-card' }, h('div', { className: 'bt-import-box' },
+      h('div', { className: 'bt-import-title' }, t('Import failed')),
+      h('div', { className: 'bt-import-text' }, flow.message),
+      h('div', { className: 'bt-import-actions' }, h('button', { type: 'button', className: 'bt-import-plain', onClick: onCancel }, t('Close')))))
+  }
+  if (stage === 'result') {
+    const { report } = flow
+    const problems = [...(report.dropped ?? []), ...(report.failed ?? [])]
+    const title = report.stored > 0
+      ? t('Imported {count} cookies', { count: report.stored })
+      : (report.originsStored ?? 0) > 0
+        ? t('Imported storage for {count} sites', { count: report.originsStored })
+        : t('No cookies were stored')
+    return h('div', { className: 'bt-import-card' }, h('div', { className: 'bt-import-box' },
+      h('div', { className: 'bt-import-title' }, title),
+      h('div', { className: 'bt-import-sub' },
+        [
+          flow.label,
+          (report.originsStored ?? 0) > 0 ? t('{count} sites storage', { count: report.originsStored }) : null,
+          flow.reloaded ? t('page reloaded') : null,
+        ].filter(Boolean).join(' · ')),
+      problems.length ? h('div', { className: 'bt-import-list' },
+        problems.slice(0, 8).map((item, index) => h('div', { key: index, className: 'bt-import-line' },
+          h('span', { className: 'bt-import-line-name' }, item.name ?? '—'),
+          h('span', { className: 'bt-import-line-reason' }, item.reason))),
+        problems.length > 8 ? h('div', { className: 'bt-import-line' }, h('span', { className: 'bt-import-line-reason' }, t('and {count} more', { count: problems.length - 8 }))) : null) : null,
+      h('div', { className: 'bt-import-actions' },
+        page.url && !flow.reloaded ? h('button', { type: 'button', className: 'bt-import-plain', onClick: onReload }, t('Reload the page')) : null,
+        h('button', { type: 'button', className: 'bt-import-primary', onClick: onDone }, t('Done')))))
+  }
+  return h(PreviewCard, { key: flow.id, flow, page, busy, onApply, onCancel })
 }
 
 /**
@@ -825,26 +1143,49 @@ export const BROWSER_CSS = `
 .bt-bcard-new svg{width:14px;height:14px}
 .bt-browser-empty-mark{display:flex;flex-direction:column;align-items:center;gap:10px;text-align:center}
 /* Cookie imports */
-.bt-import-menu{position:absolute;top:6px;right:6px;z-index:6;width:236px;padding:6px;border-radius:16px;background:var(--bt-glass-bg);-webkit-backdrop-filter:blur(24px) saturate(180%);backdrop-filter:blur(24px) saturate(180%);border:.5px solid var(--bt-glass-rim);box-shadow:var(--bt-glass-shadow);transform-origin:top right;animation:bt-pop-drop .18s cubic-bezier(.16,1,.3,1),bt-fade .14s ease-out}
+.bt-import-menu{position:absolute;top:6px;right:6px;z-index:6;width:268px;max-height:min(360px,calc(100% - 12px));overflow:auto;padding:6px;border-radius:16px;background:var(--bt-glass-bg);-webkit-backdrop-filter:blur(24px) saturate(180%);backdrop-filter:blur(24px) saturate(180%);border:.5px solid var(--bt-glass-rim);box-shadow:var(--bt-glass-shadow);transform-origin:top right;animation:bt-pop-drop .18s cubic-bezier(.16,1,.3,1),bt-fade .14s ease-out}
 .bt-import-menu-title{padding:6px 10px 8px;font-size:11px;font-weight:500;letter-spacing:.02em;color:var(--bt-ink-3)}
+.bt-import-sep{height:.5px;margin:4px 8px;background:var(--bt-line)}
 .bt-import-item{display:flex;align-items:center;gap:9px;width:100%;min-width:0;padding:8px 10px;border:0;border-radius:8px;background:none;color:var(--bt-ink);font:inherit;font-size:12px;text-align:left;cursor:pointer}
 .bt-import-item:hover{background:var(--bt-hover)}
 .bt-import-item:disabled{opacity:.5;cursor:default}
 .bt-import-item-icon{flex:none;color:var(--bt-ink-3)}
 .bt-import-item-icon svg,.bt-import-item svg{width:15px;height:15px}
-.bt-import-item-name{flex:none;max-width:55%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bt-import-item-name{flex:none;max-width:62%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bt-import-item-sub{flex:1;min-width:0;text-align:right;font-size:11px;color:var(--bt-ink-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bt-import-item-sub[data-ready]{color:var(--bt-green);font-weight:500}
 .bt-import-menu-note{padding:8px 10px 10px;font-size:12px;color:var(--bt-ink-3)}
 .bt-import-card{position:absolute;inset:0;z-index:5;display:flex;align-items:center;justify-content:center;padding:20px;background:var(--bt-main);overflow:auto;animation:bt-foot-in .2s ease}
-.bt-import-box{width:100%;max-width:340px;max-height:100%;display:flex;flex-direction:column;gap:10px;padding:20px;border:.5px solid var(--bt-line-2);border-radius:16px;background:var(--bt-main);box-shadow:0 12px 36px -12px rgba(0,0,0,.14);overflow:auto}
+.bt-import-box{width:100%;max-width:380px;max-height:100%;display:flex;flex-direction:column;gap:10px;padding:20px;border:.5px solid var(--bt-line-2);border-radius:16px;background:var(--bt-main);box-shadow:0 12px 36px -12px rgba(0,0,0,.14);overflow:auto}
 .bt-import-title{font-size:15px;line-height:21px;font-weight:600}
 .bt-import-sub{font-size:12px;line-height:17px;color:var(--bt-ink-3);margin-top:-6px}
 .bt-import-text{font-size:13px;line-height:19px;color:var(--bt-ink-2);overflow-wrap:anywhere}
+.bt-import-steps{display:flex;flex-direction:column;gap:8px;padding:10px 12px;border-radius:10px;background:var(--bt-hover)}
+.bt-import-step{font-size:12px;line-height:17px;color:var(--bt-ink-2)}
+.bt-import-copy-row{display:flex;align-items:center;gap:6px;min-width:0}
+.bt-import-code{flex:1;min-width:0;padding:5px 8px;border-radius:6px;border:.5px solid var(--bt-line);background:var(--bt-main);color:var(--bt-ink);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;line-height:16px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;user-select:all}
+.bt-import-mini{flex:none;height:28px;padding:0 10px;border:.5px solid var(--bt-line-2);border-radius:8px;background:var(--bt-main);color:var(--bt-ink);font:inherit;font-size:12px;cursor:pointer}
+.bt-import-mini:hover{background:var(--bt-hover)}
+.bt-import-ready-note{font-size:12px;line-height:17px;font-weight:500;color:var(--bt-green)}
+.bt-import-textarea{width:100%;box-sizing:border-box;min-height:96px;max-height:200px;resize:vertical;padding:8px 10px;border:.5px solid var(--bt-line-2);border-radius:10px;background:var(--bt-main);color:var(--bt-ink);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;line-height:16px;outline:none}
+.bt-import-input{width:100%;box-sizing:border-box;height:30px;padding:0 10px;border:.5px solid var(--bt-line-2);border-radius:8px;background:var(--bt-main);color:var(--bt-ink);font:inherit;font-size:12px;outline:none}
+.bt-import-textarea:focus,.bt-import-input:focus{border-color:var(--bt-accent)}
+.bt-import-input::placeholder,.bt-import-textarea::placeholder{color:var(--bt-ink-3)}
+.bt-import-scope{display:flex;gap:6px;flex-wrap:wrap}
+.bt-import-pill{height:26px;max-width:100%;padding:0 10px;border:.5px solid var(--bt-line-2);border-radius:999px;background:var(--bt-main);color:var(--bt-ink-2);font:inherit;font-size:12px;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bt-import-pill:hover{background:var(--bt-hover);color:var(--bt-ink)}
+.bt-import-pill[aria-pressed=true]{border-color:var(--bt-accent);background:var(--bt-accent-soft);color:var(--bt-ink);font-weight:500}
+.bt-import-filter-row{display:flex;align-items:center;gap:6px}
+.bt-import-filter-row .bt-import-input{flex:1;min-width:0;height:28px}
 .bt-import-list{max-height:180px;overflow:auto;border:.5px solid var(--bt-line);border-radius:10px;padding:4px 10px}
 .bt-import-line{display:flex;align-items:baseline;gap:8px;padding:4px 0;min-width:0}
+.bt-import-check-row{align-items:center;cursor:pointer}
+.bt-import-check-row input[type=checkbox]{flex:none;margin:0;accent-color:var(--bt-accent);cursor:pointer}
 .bt-import-line-name{flex:none;max-width:60%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:var(--bt-ink)}
 .bt-import-line-count{flex:1;min-width:0;text-align:right;font-size:11px;color:var(--bt-ink-3);white-space:nowrap}
 .bt-import-line-reason{flex:1;min-width:0;font-size:11px;line-height:16px;color:var(--bt-ink-3);overflow-wrap:anywhere}
+.bt-import-toggle{display:flex;align-items:center;gap:8px;font-size:12px;line-height:17px;color:var(--bt-ink-2);cursor:pointer;user-select:none}
+.bt-import-toggle input[type=checkbox]{flex:none;margin:0;accent-color:var(--bt-accent);cursor:pointer}
 .bt-import-note{font-size:12px;line-height:17px;color:var(--bt-ink-3)}
 .bt-import-warns{font-size:12px;color:var(--bt-ink-3)}
 .bt-import-warns summary{cursor:pointer;padding:2px 0}
