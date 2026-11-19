@@ -36554,14 +36554,14 @@ function MemorySize({ label, value, save }) {
 }
 var BACKGROUND_AFTER_SEC = 5;
 function SecondsField({ label, value, save }) {
-  const [text, setText] = (0, import_react50.useState)(String(value));
-  (0, import_react50.useEffect)(() => setText(String(value)), [value]);
+  const [text, setText] = (0, import_react51.useState)(String(value));
+  (0, import_react51.useEffect)(() => setText(String(value)), [value]);
   const commit = () => {
     const number = Number(text);
     if (text.trim() !== "" && Number.isFinite(number) && number >= 0 && number <= 600 && number !== value) save(number);
     else setText(String(value));
   };
-  return (0, import_react50.createElement)("input", { className: "bt-input bt-set-number", type: "number", min: 0, max: 600, step: 1, "aria-label": label, value: text, onChange: (event) => setText(event.target.value), onBlur: commit, onKeyDown: (event) => {
+  return (0, import_react51.createElement)("input", { className: "bt-input bt-set-number", type: "number", min: 0, max: 600, step: 1, "aria-label": label, value: text, onChange: (event) => setText(event.target.value), onBlur: commit, onKeyDown: (event) => {
     if (event.key === "Enter") event.target.blur();
   } });
 }
@@ -36715,13 +36715,13 @@ function GeneralPage({ roster, actions, run: run2, dsh }) {
     (0, import_react51.createElement)(
       SetSection,
       { key: "background", title: t("Background work") },
-      (0, import_react50.createElement)(
+      (0, import_react51.createElement)(
         SetRow,
         { label: t("Background commands after (seconds)") },
-        (0, import_react50.createElement)(SecondsField, { label: t("Background commands after (seconds)"), value: prefs.backgroundAfterSec ?? BACKGROUND_AFTER_SEC, save: (backgroundAfterSec) => run2(actions.setPrefs({ backgroundAfterSec })) })
+        (0, import_react51.createElement)(SecondsField, { label: t("Background commands after (seconds)"), value: prefs.backgroundAfterSec ?? BACKGROUND_AFTER_SEC, save: (backgroundAfterSec) => run2(actions.setPrefs({ backgroundAfterSec })) })
       )
     ),
-    (0, import_react50.createElement)(
+    (0, import_react51.createElement)(
       SetSection,
       { key: "memory", title: t("Memory") },
       (0, import_react51.createElement)(
