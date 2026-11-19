@@ -256,8 +256,17 @@ export function install(rt) {
       case 'local-agent-update': {
         const entry = store().custom.find(agent => agent.id === body.id)
         if (entry === undefined) throw new Error('Unknown agent')
-        const clean = validateCustom({ name: body.name ?? entry.name, command: body.command ?? entry.command, args: body.args ?? entry.args })
+        const clean = validateCustom({
+          name: body.name ?? entry.name,
+          command: body.command ?? entry.command,
+          args: body.args ?? entry.args,
+          kind: body.kind ?? entry.kind,
+          models: body.models ?? entry.models,
+        })
         Object.assign(entry, clean)
+        // An explicit empty list clears the fixed models and returns the
+        // route to probing the CLI; validateCustom leaves an empty list out.
+        if (Object.hasOwn(body, 'models')) entry.models = clean.models
         adapter.dropModelCache(customRoute(entry.id))
         await rt.save()
         return { ...entry, route: customRoute(entry.id) }

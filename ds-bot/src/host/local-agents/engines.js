@@ -72,7 +72,7 @@ export function engineOf(route, custom = []) {
   if (ENGINES[route] !== undefined) return ENGINES[route]
   if (route.startsWith(CUSTOM_PREFIX)) {
     const entry = custom.find(agent => agent.id === route.slice(CUSTOM_PREFIX.length))
-    if (entry !== undefined) return { name: entry.name, kind: 'acp', command: entry.command, args: entry.args ?? [], custom: true }
+    if (entry !== undefined) return { name: entry.name, kind: entry.kind ?? 'acp', command: entry.command, args: entry.args ?? [], models: entry.models, custom: true }
   }
   return undefined
 }
@@ -81,7 +81,11 @@ export const isLocalAgentRoute = route => typeof route === 'string' && (ENGINES[
 
 // A custom agent the user typed: a bare command name, an absolute path or
 // ~/path; args without NUL or newlines (they would smuggle extra arguments).
-export function validateCustom({ name, command, args }) {
+// `kind` names the protocol driver ('acp', 'claude', 'codex'); `models` is an
+// optional fixed list that skips probing a CLI whose models it cannot report.
+// Only the fields the caller provided take part in the result, so an agent
+// keeps its stored kind and models unless they are sent again.
+export function validateCustom({ name, command, args, kind, models }) {
   const clean = {
     name: String(name ?? '').trim().slice(0, 40),
     command: String(command ?? '').trim(),
@@ -92,6 +96,13 @@ export function validateCustom({ name, command, args }) {
     throw new Error('Command must be a program name, an absolute path, or a ~/path')
   }
   if (clean.args.some(arg => arg.includes('\0') || /[\r\n]/.test(arg))) throw new Error('Arguments must not contain newlines')
+  if (kind !== undefined && kind !== '' && !KINDS.includes(kind)) throw new Error(`Kind must be one of ${KINDS.join(', ')}`)
+  if (KINDS.includes(kind ?? '')) clean.kind = kind
+  if (Array.isArray(models)) {
+    const list = [...new Set(models.map(model => String(model).trim()).filter(Boolean))].slice(0, 50)
+    if (list.some(model => model.length > 120)) throw new Error('Model names must be 120 characters or fewer')
+    if (list.length > 0) clean.models = list
+  }
   return clean
 }
 

@@ -8,13 +8,29 @@ import { call } from './api.js'
 import { t } from './i18n.js'
 
 
+// The kind a custom agent speaks: 'acp' (Agent Client Protocol), 'claude'
+// (Claude Code stream-json) or 'codex' (the Codex app server).
+const KINDS = [
+  { id: 'acp', label: 'ACP' },
+  { id: 'claude', label: 'Claude Code' },
+  { id: 'codex', label: 'Codex' },
+]
+
 function AgentForm({ initial, submit, close }) {
   const [name, setName] = useState(initial?.name ?? '')
   const [command, setCommand] = useState(initial?.command ?? '')
   const [args, setArgs] = useState((initial?.args ?? []).join(' '))
+  const [kind, setKind] = useState(initial?.kind ?? 'acp')
+  const [models, setModels] = useState((initial?.models ?? []).join('\n'))
   const [error, setError] = useState('')
   const save = () => {
-    const payload = { name, command, args: args.split(/\s+/).filter(Boolean) }
+    const payload = {
+      name,
+      command,
+      args: args.split(/\s+/).filter(Boolean),
+      kind,
+      models: models.split('\n').map(model => model.trim()).filter(Boolean),
+    }
     submit(payload).then(() => close()).catch(failure => setError(failure?.message ?? String(failure)))
   }
   return h('div', { className: 'bt-set-form' },
@@ -22,6 +38,9 @@ function AgentForm({ initial, submit, close }) {
     h('div', { className: 'bt-set-form-row' },
       h('label', { className: 'bt-set-field' }, h('span', null, t('Command')), h('input', { className: 'bt-input bt-la-code-input', value: command, placeholder: 'my-agent', spellCheck: false, onChange: event => setCommand(event.target.value) })),
       h('label', { className: 'bt-set-field' }, h('span', null, t('Arguments')), h('input', { className: 'bt-input bt-la-code-input', value: args, placeholder: 'acp', spellCheck: false, onChange: event => setArgs(event.target.value) }))),
+    h('div', { className: 'bt-set-form-row' },
+      h('label', { className: 'bt-set-field' }, h('span', null, t('Kind')), h('select', { className: 'bt-input', value: kind, onChange: event => setKind(event.target.value) }, KINDS.map(option => h('option', { key: option.id, value: option.id }, option.label)))),
+      h('label', { className: 'bt-set-field' }, h('span', null, t('Models')), h('textarea', { className: 'bt-input bt-la-code-input', value: models, rows: 4, placeholder: 'One model per line', spellCheck: false, onChange: event => setModels(event.target.value) }))),
     error ? h('div', { className: 'bt-error', role: 'alert' }, error) : null,
     h('div', { className: 'bt-set-actions bt-set-form-foot' },
       h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: close }, t('Cancel')),

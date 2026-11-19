@@ -304,6 +304,7 @@ export const DE = {
   'Could not copy the sign-in command. Run this in a terminal: {command}': 'Anmeldebefehl konnte nicht kopiert werden. Führe ihn im Terminal aus: {command}',
   Found: 'Gefunden',
   Arguments: 'Argumente',
+  Kind: 'Art',
   Agent: 'Agent',
   Sessions: 'Sitzungen',
   'Open this earlier session': 'Diese frühere Sitzung öffnen',

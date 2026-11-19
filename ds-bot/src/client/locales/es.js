@@ -304,6 +304,7 @@ export const ES = {
   'Could not copy the sign-in command. Run this in a terminal: {command}': 'No se pudo copiar el comando de inicio de sesión. Ejecuta esto en una terminal: {command}',
   Found: 'Encontrado',
   Arguments: 'Argumentos',
+  Kind: 'Tipo',
   Agent: 'Agente',
   Sessions: 'Sesiones',
   'Open this earlier session': 'Abrir esta sesión anterior',

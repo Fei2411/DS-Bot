@@ -304,6 +304,7 @@ export const KO = {
   'Could not copy the sign-in command. Run this in a terminal: {command}': '로그인 명령어를 복사하지 못했습니다. 터미널에서 직접 실행하세요: {command}',
   Found: '감지됨',
   Arguments: '인수',
+  Kind: '종류',
   Agent: 'Agent',
   Sessions: '세션',
   'Open this earlier session': '이 이전 세션 열기',

@@ -225,6 +225,11 @@ test('custom agent validation', () => {
   assert.throws(() => validateCustom({ name: 'X', command: 'a b' }))
   assert.throws(() => validateCustom({ name: 'X', command: 'agent; rm -rf /' }))
   assert.throws(() => validateCustom({ name: '', command: 'a' }))
+  // A kind and a fixed model list are kept and returned; models are trimmed,
+  // de-duplicated and capped.
+  assert.deepEqual(validateCustom({ name: 'Mine', command: 'my-agent', kind: 'claude' }), { name: 'Mine', command: 'my-agent', args: [], kind: 'claude' })
+  assert.deepEqual(validateCustom({ name: 'Mine', command: 'my-agent', models: [' a ', 'a', 'b'] }), { name: 'Mine', command: 'my-agent', args: [], models: ['a', 'b'] })
+  assert.throws(() => validateCustom({ name: 'Mine', command: 'my-agent', kind: 'x' }))
 })
 
 test('routes and modes', () => {

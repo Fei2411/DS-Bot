@@ -298,6 +298,7 @@ export const JA = {
   "Could not copy the sign-in command. Run this in a terminal: {command}": "サインインコマンドをコピーできませんでした。ターミナルで実行してください: {command}",
   "Found": "検出済み",
   "Arguments": "引数",
+  "Kind": "種類",
   "Agent": "エージェント",
   "Sessions": "セッション",
   "Open this earlier session": "この過去のセッションを開く",

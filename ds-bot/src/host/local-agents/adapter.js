@@ -92,8 +92,13 @@ export class LocalAgentAdapter extends LlmAdapter {
   // What DS Bot knows of a route without starting its CLI: the CLI's default, what a
   // probe found, and what a Bot runs on. DSH and the catalog ask this for every route.
   async listModels(route) {
-    if (engineOf(route, this.deps.customAgents()) === undefined) return []
-    const listed = [{ provider: route, id: 'default', name: 'CLI default' }, ...(this.modelCache.get(route) ?? [])]
+    const spec = engineOf(route, this.deps.customAgents())
+    if (spec === undefined) return []
+    // A custom agent's fixed list replaces the CLI's own: the menu is then only
+    // what the user wrote, and nothing probes the CLI.
+    const listed = spec.models !== undefined
+      ? spec.models.map(id => ({ provider: route, id, name: id }))
+      : [{ provider: route, id: 'default', name: 'CLI default' }, ...(this.modelCache.get(route) ?? [])]
     const used = (this.deps.usedModels?.(route) ?? []).filter(id => !listed.some(model => model.id === id))
     return [...listed, ...used.map(id => ({ provider: route, id, name: id }))]
   }
@@ -102,7 +107,11 @@ export class LocalAgentAdapter extends LlmAdapter {
   // again. The process it took leaves unless a Session runs on it.
   async probeModels(route) {
     if (this.modelCache.has(route)) return this.listModels(route)
-    if (engineOf(route, this.deps.customAgents()) === undefined) return []
+    const spec = engineOf(route, this.deps.customAgents())
+    if (spec === undefined) return []
+    // A fixed model list is already the answer: a CLI whose models it cannot
+    // report (or whose server is gone) is never started just to be asked.
+    if (spec.models !== undefined) return this.listModels(route)
     let probe = this.probes.get(route)
     if (probe === undefined) {
       probe = this.askModels(route).finally(() => this.probes.delete(route))
