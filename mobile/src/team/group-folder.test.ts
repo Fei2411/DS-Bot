@@ -1,0 +1,81 @@
+import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import test from 'node:test'
+import { runInNewContext } from 'node:vm'
+import ts from 'typescript'
+
+type Node = { type: unknown; props: Record<string, any> }
+
+const source = ts.transpileModule(readFileSync(new URL('../screens/manage.tsx', import.meta.url), 'utf8'), {
+  compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX },
+}).outputText
+
+function screen(room: Record<string, unknown>, call = async (_name: string, _body: unknown) => ({})) {
+  const states: unknown[] = []
+  let cursor = 0
+  const jsx = (type: unknown, props: Node['props']) => ({ type, props })
+  const modules: Record<string, unknown> = {
+    'react/jsx-runtime': { jsx, jsxs: jsx },
+    react: {
+      useState: (initial: unknown) => {
+        const index = cursor++
+        if (!(index in states)) states[index] = initial
+        return [states[index], (value: unknown) => { states[index] = value }]
+      },
+      useEffect: () => {},
+    },
+    'react-native': { StyleSheet: { create: (styles: unknown) => styles }, Platform: { OS: 'android' } },
+    '../team/context.tsx': { useTeam: () => ({ team: { rooms: [room], bots: [] }, call }) },
+    '../ui/tokens.ts': { useTheme: () => ({ p: {}, dark: false }), type: {}, radius: {}, shadow: () => ({}) },
+    '../ui/i18n.ts': { t: (value: string) => value },
+  }
+  const exports: Record<string, any> = {}
+  runInNewContext(source, { exports, require: (name: string) => modules[name] ?? {} })
+  const render = (name: string, props: unknown) => { cursor = 0; return exports[name](props) as Node }
+  return { render }
+}
+
+function nodes(node: unknown): Node[] {
+  if (Array.isArray(node)) return node.flatMap(nodes)
+  if (!node || typeof node !== 'object' || !('props' in node)) return []
+  const element = node as Node
+  return [element, ...nodes(element.props.children)]
+}
+
+test('group settings opens the shared folder picker with the group and saved path', () => {
+  for (const workDir of ['/work/project', undefined]) {
+    const { render } = screen({ id: 'room-1', name: 'Project', workDir })
+    const visits: unknown[] = []
+    const tree = render('GroupSettings', { route: { params: { roomId: 'room-1' } }, navigation: { navigate: (...args: unknown[]) => visits.push(args) } })
+    const row = nodes(tree).find(node => node.props.label === 'Folder')!
+    assert.ok(row)
+    assert.equal(row.props.value, workDir ?? "Each Bot's own folder")
+    row.props.onPress()
+    assert.deepEqual(JSON.parse(JSON.stringify(visits)), [['Folder', { ...(workDir ? { current: workDir } : {}), onPick: 'room', roomId: 'room-1' }]])
+  }
+})
+
+test('the group folder picker saves or clears through update-room and returns only on success', async () => {
+  for (const clear of [false, true]) {
+    const calls: unknown[] = []
+    let back = 0
+    const { render } = screen({}, async (name, body) => { calls.push([name, body]); return {} })
+    const tree = render('Folder', { route: { params: { current: '/work/project', onPick: 'room', roomId: 'room-1' } }, navigation: { goBack: () => { back++ } } })
+    const row = nodes(tree).find(node => clear ? node.props.label === "Each Bot's own folder" : node.props.accessibilityRole === 'button')!
+    row.props.onPress()
+    await new Promise(setImmediate)
+    assert.deepEqual(JSON.parse(JSON.stringify(calls)), [['update-room', { id: 'room-1', workDir: clear ? '' : '/work/project' }]])
+    assert.equal(back, 1)
+  }
+})
+
+test('the group folder picker keeps the screen open and shows a rejected write', async () => {
+  let back = 0
+  const { render } = screen({}, async () => { throw new Error('Folder is not accessible') })
+  const props = { route: { params: { current: '/missing', onPick: 'room', roomId: 'room-1' } }, navigation: { goBack: () => { back++ } } }
+  const tree = render('Folder', props)
+  nodes(tree).find(node => node.props.accessibilityRole === 'button')!.props.onPress()
+  await new Promise(setImmediate)
+  assert.equal(back, 0)
+  assert.ok(nodes(render('Folder', props)).some(node => node.props.children === 'Folder is not accessible'))
+})

@@ -617,6 +617,10 @@ export function GroupSettings({ route, navigation }: any) {
               options={ROOM_MODES.map(([id, label]) => ({ id, label: t(label) }))} />
           </View>
         </Section>
+        <Section label={t('Working folder')}>
+          <Row label={t('Folder')} value={room.workDir || t("Each Bot's own folder")}
+            onPress={() => navigation.navigate('Folder', { current: room.workDir, onPick: 'room', roomId: room.id })} />
+        </Section>
         {/* Tick to add or remove a member; among members, the admin is marked and
             another member can take the role. */}
         <Section label={t('Members · {count}', { count: members.size })}>
@@ -929,7 +933,7 @@ export function Schedules({ route, navigation }: any) {
 export function Folder({ route, navigation }: any) {
   const { p } = useTheme()
   const { call } = useTeam()
-  const { run } = useWrite(navigation)
+  const { run, error } = useWrite(navigation)
   const [path, setPath] = useState(String(route.params?.current ?? ''))
   const [listing, setListing] = useState<{ path: string; parent: string | null; entries: { name: string; path: string }[]; truncated?: boolean } | null>(null)
   const [recent, setRecent] = useState<{ path: string; title: string }[]>([])
@@ -948,6 +952,12 @@ export function Folder({ route, navigation }: any) {
     <Screen title="">
       <BackRow title={t('Working folder')} onBack={() => navigation.goBack()} />
       <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
+        {error ? <Text style={[typeScale.small, { color: p.danger, marginHorizontal: 18, marginTop: 10 }]}>{error}</Text> : null}
+        {route.params?.onPick === 'room' ? (
+          <Section label={t('Folder')}>
+            <Row label={t("Each Bot's own folder")} onPress={() => choose('')} />
+          </Section>
+        ) : null}
         {recent.length > 0 ? (
           <Section label={t('Folders')}>
             {recent.map(folder => <Row key={folder.path} label={folder.title} value={folder.path} onPress={() => load(folder.path)} />)}
