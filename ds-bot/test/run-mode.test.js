@@ -475,6 +475,18 @@ test('a Bot can switch to a custom agent with only fixed models', async (t) => {
   assert.equal(env.startCount(), 0)
 })
 
+test('a fixed custom model list does not make an old assignment selectable', async (t) => {
+  const old = 'local-acp-fake/old-model'
+  const env = await start(t, { saved: team({
+    c: { id: 'c', name: 'Local', role: '', sessionId: 'c', createdAt: 3, model: old, appliedModel: old },
+  }) })
+  const updated = await env.call('local-agent-update', { id: 'fake', models: ['supported'] })
+  assert.equal(updated.ok, true)
+  assert.deepEqual((await env.rt.localAgentModels('local-acp-fake')).map(model => model.id), ['supported'])
+  await assert.rejects(env.rt.resolveModel(old), /not available/)
+  assert.equal(env.state().bots.c.model, old)
+})
+
 // -----------------------------------------------------------------------------
 // The adapter.
 

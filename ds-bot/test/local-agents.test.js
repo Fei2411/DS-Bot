@@ -27,7 +27,7 @@ const system = (id, text) => ({ id, role: 'system', content: [{ type: 'text', te
 const toolResult = (id, callId, text, isError = false) => ({ id, role: 'tool', content: [{ type: 'text', text }], toolCallId: callId, isError, source: { kind: 'tool', callId } })
 
 // An adapter wired to the fake CLIs: every engine route spawns `node fixture`.
-function makeAdapter({ records = {}, preset = 'workspace-write', acp = FIXTURES.acp, acpArgs = [], codex = FIXTURES.codex, codexArgs = [], claude = FIXTURES.claude, claudeArgs = [], custom = [{ id: 'fake', name: 'Fake ACP', command: 'x', args: [] }, { id: 'fake2', name: 'Fake ACP 2', command: 'x', args: [] }], cwdFor, attachments, fs, rt } = {}) {
+function makeAdapter({ records = {}, preset = 'workspace-write', acp = FIXTURES.acp, acpArgs = [], codex = FIXTURES.codex, codexArgs = [], claude = FIXTURES.claude, claudeArgs = [], custom = [{ id: 'fake', name: 'Fake ACP', command: 'x', args: [] }, { id: 'fake2', name: 'Fake ACP 2', command: 'x', args: [] }], usedModels = () => [], cwdFor, attachments, fs, rt } = {}) {
   const files = { acp, codex, claude }
   const spawned = []
   const adapter = new LocalAgentAdapter({
@@ -45,6 +45,7 @@ function makeAdapter({ records = {}, preset = 'workspace-write', acp = FIXTURES.
     },
     record: sessionId => records[sessionId],
     saveRecord: (sessionId, record) => { records[sessionId] = record },
+    usedModels,
     dropRecords: route => {
       for (const [sessionId, record] of Object.entries(records)) {
         if (record?.route === route) delete records[sessionId]
@@ -353,6 +354,15 @@ test('a fixed custom model list is returned without probing the CLI', async (t) 
   t.after(() => adapter.dispose())
   const models = await adapter.probeModels('local-acp-fake')
   assert.deepEqual(models.map(model => model.id), ['model-a', 'model-b'])
+  assert.equal(adapter.engines.size, 0)
+})
+
+test('a fixed custom model list does not re-add a model used by an existing Bot', async (t) => {
+  const custom = [{ id: 'fake', name: 'Fixed', command: 'x', args: [], models: ['supported'] }]
+  const adapter = makeAdapter({ custom, usedModels: () => ['old-model'] })
+  t.after(() => adapter.dispose())
+  const models = await adapter.probeModels('local-acp-fake')
+  assert.deepEqual(models.map(model => model.id), ['supported'])
   assert.equal(adapter.engines.size, 0)
 })
 

@@ -90,16 +90,21 @@ export class LocalAgentAdapter extends LlmAdapter {
     return driver
   }
 
-  // What DS Bot knows of a route without starting its CLI: the CLI's default, what a
-  // probe found, and what a Bot runs on. DSH and the catalog ask this for every route.
+  // What DS Bot can select on a route without starting its CLI: a fixed list, or the
+  // CLI's default and probe result. A probed route also keeps models used by Bots so
+  // their current assignments remain visible; fixed routes omit those legacy choices.
   async listModels(route) {
     const spec = engineOf(route, this.deps.customAgents())
     if (spec === undefined) return []
     // A custom agent's fixed list replaces the CLI's own: the menu is then only
     // what the user wrote, and nothing probes the CLI.
-    const listed = Array.isArray(spec.models) && spec.models.length > 0
+    const fixed = Array.isArray(spec.models) && spec.models.length > 0
+    const listed = fixed
       ? spec.models.map(id => ({ provider: route, id, name: id }))
       : [{ provider: route, id: 'default', name: 'CLI default' }, ...(this.modelCache.get(route) ?? [])]
+    // A Bot may still have an older model assigned. Keep it out of a fixed list:
+    // listModels is also the source used to validate new model selections.
+    if (fixed) return listed
     const used = (this.deps.usedModels?.(route) ?? []).filter(id => !listed.some(model => model.id === id))
     return [...listed, ...used.map(id => ({ provider: route, id, name: id }))]
   }
