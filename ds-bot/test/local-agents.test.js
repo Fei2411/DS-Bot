@@ -1605,6 +1605,48 @@ test('claude receives Anthropic base64 image blocks for text+image and image-onl
   assert.match(second.text, new RegExp(`"data":"${pngBytes.toString('base64')}"`))
 })
 
+test('ClaudeEngine.steer unwraps block arrays and strings without double-wrapping', async (t) => {
+  const pngBytes = Buffer.from([137, 80, 78, 71, 9, 8, 7, 6])
+  const pngRef = { attachmentId: 'att-c-steer', mediaType: 'image/png', bytes: pngBytes.length, width: 1, height: 1 }
+  const adapter = makeAdapter({
+    attachments: makeMemoryAttachments({ 'att-c-steer': { mediaType: 'image/png', data: pngBytes } }),
+  })
+  t.after(() => adapter.dispose())
+
+  // Put Claude into a running/suspended turn (`session.running === true`) via permission wait,
+  // then send a text+image follow-up so sendInput steers via ClaudeEngine.steer(session, blocks).
+  const first = await collect(adapter.stream(options('c-steer-img', [user('m1', 'ask-claude-perm')], { provider: 'local-claude-code', model: 'sonnet' })))
+  assert.equal(first.finish?.kind, 'tool-calls')
+  const steeredImg = await collect(adapter.stream(options('c-steer-img', [
+    user('m1', 'ask-claude-perm'),
+    imageMsg('m2', 'steer with image', pngRef),
+  ], { provider: 'local-claude-code', model: 'sonnet' })))
+  assert.equal(steeredImg.finish?.kind, 'stop')
+  assert.match(steeredImg.text, /^ok: steer with image/)
+  assert.match(steeredImg.text, new RegExp(`"mediaType":"image/png".*"data":"${pngBytes.toString('base64')}"`))
+
+  // Plain-text follow-up while suspended/running also passes blocks through sendInput.
+  const askText = await collect(adapter.stream(options('c-steer-txt', [user('m1', 'ask-claude-perm')], { provider: 'local-claude-code', model: 'sonnet' })))
+  assert.equal(askText.finish?.kind, 'tool-calls')
+  const steeredText = await collect(adapter.stream(options('c-steer-txt', [
+    user('m1', 'ask-claude-perm'),
+    user('m2', 'steer text only'),
+  ], { provider: 'local-claude-code', model: 'sonnet' })))
+  assert.equal(steeredText.finish?.kind, 'stop')
+  assert.equal(steeredText.text, 'ok: steer text only')
+
+  // Direct string steer via ClaudeEngine.steer keeps working as well.
+  const live = adapter.live.get('c-steer-txt')
+  await live.engine.steer(live.engineSession, 'direct string steer')
+  const evs = []
+  while (true) {
+    const ev = await live.next()
+    evs.push(ev)
+    if (ev.type === 'done' || ev.type === 'error') break
+  }
+  assert.equal(evs.filter(ev => ev.type === 'text').map(ev => ev.text).join(''), 'ok: direct string steer')
+})
+
 test('acp receives {type:"image", mimeType, data} when promptCapabilities.image is true', async (t) => {
   const webpBytes = Buffer.from([82, 73, 70, 70, 1, 2, 3])
   const ref = { attachmentId: 'att-a1', mediaType: 'image/webp', bytes: webpBytes.length, width: 1, height: 1 }
@@ -1696,4 +1738,21 @@ test('replay drops images outside the replay window without reading their attach
   const out = await collect(adapter.stream(options('s1', msgs, { provider: 'local-codex-cli', model: 'gpt-5.1-codex' })))
   assert.equal(out.finish?.kind, 'stop')
   assert.deepEqual(readIds, ['att-recent'])
+})
+
+test('ACP errors with numeric, empty or object codes keep their message and get a string code (#1777)', async (t) => {
+  const adapter = makeAdapter()
+  t.after(() => adapter.dispose())
+  await assert.rejects(
+    collect(adapter.stream(options('s1', [user('m1', 'rpc-error-number')]))),
+    err => err.code === 'LOCAL_AGENT_ERROR' && /approval was cancelled \(JSON-RPC -32603\)/.test(err.message),
+  )
+  await assert.rejects(
+    collect(adapter.stream(options('s2', [user('m1', 'rpc-error-empty')]))),
+    err => err.code === 'LOCAL_AGENT_ERROR' && /empty code/.test(err.message),
+  )
+  await assert.rejects(
+    collect(adapter.stream(options('s3', [user('m1', 'rpc-error-object')]))),
+    err => err.code === 'LOCAL_AGENT_ERROR' && /"reason":"stopped"/.test(err.message) && !/\[object Object\]/.test(err.message),
+  )
 })

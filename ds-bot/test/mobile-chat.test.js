@@ -54,3 +54,11 @@ test('the desktop widths stay outside the phone breakpoint', () => {
   assert.ok(SHELL_CSS.includes('.bt-bubble{max-width:min(calc(var(--bt-msg-w) * 100%),calc(100% - 82px))'))
   assert.ok(CONVERSATION_CSS.includes('.bt-q-inline .bt-q{margin:0;max-width:min(550px,86%);order:0}'))
 })
+
+test('touch devices reclaim the toolbar gutter without changing the width setting', () => {
+  const start = SHELL_CSS.indexOf('@media (hover:none){')
+  const touch = SHELL_CSS.slice(start, SHELL_CSS.indexOf('\n}', start) + 2)
+  assert.match(touch, /\.bt-bubble,\.bt-msg\{max-width:calc\(var\(--bt-msg-w\) \* 100%\)\}/)
+  assert.match(touch, /\.bt-astack\[data-lead\]>\.bt-msg\{max-width:calc\(var\(--bt-msg-w\) \* \(100% - 30px\) \+ 30px\)\}/)
+  assert.doesNotMatch(touch, /82px/)
+})
