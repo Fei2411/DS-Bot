@@ -244,9 +244,15 @@ test('dsh-mobile conversation header is opaque and catches hits without altering
       text,
       /html\.dsh-native-mobile-active header:is\(\.wSkVaW_header\):has\(\.bt-head\)::before,header:is\(\.wSkVaW_header\)\[data-dsh-mobile-header\]:has\(\.bt-head\)::before\{content:none\}/,
     )
+    // Leading header button stays stacked above .bt-head and clickable: .bt-head must NOT
+    // receive pointer-events:auto on mobile, or it covers the earlier _headerLeading in DOM order.
     assert.match(
       text,
-      /html\.dsh-native-mobile-active header:is\(\.wSkVaW_header\):has\(\.bt-head\) \.bt-head,header:is\(\.wSkVaW_header\)\[data-dsh-mobile-header\]:has\(\.bt-head\) \.bt-head\{pointer-events:auto\}/,
+      /header:is\(\.wSkVaW_header\):has\(\.bt-head\)>\[class\*="_headerLeading"\]\{[^}]*z-index:1;pointer-events:auto/,
+    )
+    assert.doesNotMatch(
+      text,
+      /dsh-(?:native-mobile-active|mobile-header)[^}]*\.bt-head\{[^}]*pointer-events:auto/,
     )
 
     // Host header rules stay excluded from botOwnCss so Agent mode never inherits them.
