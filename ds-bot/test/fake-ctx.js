@@ -1,10 +1,10 @@
+import { writeFileSync } from 'node:fs'
+import { join } from 'node:path'
+
 // DSH's `attachments` service (dsh-attachment-local), in memory. A file ref has a
 // name and is read as a stream, in small chunks that split characters as a stream
 // may. An image ref, as a prompt's image block stores it, has no name: only
 // readImage reads it, and a file read refuses it as DSH does.
-import { writeFileSync } from 'node:fs'
-import { join } from 'node:path'
-
 export function fakeAttachments(directory) {
   const files = new Map()
   const paths = new Map()
