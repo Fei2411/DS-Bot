@@ -104,3 +104,32 @@ test('the sign-in token wins over a header the user typed', async (t) => {
   assert.equal(headers.Authorization, 'Bearer AT-FROM-SIGN-IN', 'the token replaces the typed Authorization')
   assert.equal(headers['X-Team'], 'one', 'other typed headers stay')
 })
+
+// Header names are case-insensitive, so a typed `authorization` (any casing) is
+// the same header the sign-in token writes. Leaving it in place would put two
+// Authorization headers on the wire.
+for (const typed of ['Authorization', 'authorization', 'AUTHORIZATION', 'AuThOrIzAtIoN']) {
+  test(`the sign-in token replaces a "${typed}" header whatever its casing`, async (t) => {
+    const home = teamHome()
+    const ctx = fakeContext()
+    const rt = createRuntime(ctx, { home, github: false })
+    t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true }) })
+    await rt.load()
+    await rt.loadSecrets()
+    const name = `Cased ${typed}`
+    const view = await rt.connectorEndpoint('connector-add', {
+      name,
+      url: 'https://mcp.box.simular.ai/mcp',
+      oauth: true,
+      headers: { [typed]: 'Bearer MINE', 'X-Team': 'one' },
+    })
+    const id = view.connectors.find(row => row.custom === true && row.name === name).id
+    await rt.secretEndpoint('secret-set', { name: `CONNECTOR_${id.toUpperCase().replace(/[^A-Z0-9]/g, '_')}_TOKEN`, value: 'AT-FROM-SIGN-IN', scope: [] })
+    await rt.loadSecrets()
+    const headers = rt.connectorsInternals.upstreamOf(id).headers
+    const authKeys = Object.keys(headers).filter(key => key.toLowerCase() === 'authorization')
+    assert.deepEqual(authKeys, ['Authorization'], 'exactly one auth header, and it is the canonical spelling')
+    assert.equal(headers.Authorization, 'Bearer AT-FROM-SIGN-IN', 'the token wins over the typed header')
+    assert.equal(headers['X-Team'], 'one', 'other typed headers stay as they were')
+  })
+}

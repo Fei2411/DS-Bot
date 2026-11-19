@@ -111,6 +111,17 @@ export function install(rt) {
     return credentialOf(id) !== undefined
   }
 
+  // Header names are case-insensitive (RFC 9110 §5.1), but object keys are not:
+  // a typed `authorization` must be replaced by the sign-in token, not kept next
+  // to it. Replace by name ignoring case so exactly one auth header goes out.
+  const setHeader = (headers, name, value) => {
+    const lower = name.toLowerCase()
+    for (const existing of Object.keys(headers)) {
+      if (existing.toLowerCase() === lower) delete headers[existing]
+    }
+    headers[name] = value
+  }
+
   // What the gateway sends upstream for a connector.
   const upstreamOf = (id) => {
     const entry = entryFor(id)
@@ -123,9 +134,11 @@ export function install(rt) {
       headers[name] = String(raw).replace(SECRET_REF, (_m, n) => rt.secretValue(n) ?? '')
     }
     const cred = credentialOf(id)
-    if (entry.auth.kind === 'oauth' && cred !== undefined) Object.assign(headers, cred)
+    if (entry.auth.kind === 'oauth' && cred !== undefined) {
+      for (const [name, value] of Object.entries(cred)) setHeader(headers, name, value)
+    }
     if (entry.auth.kind === 'key' && cred !== undefined) {
-      if (entry.auth.header) headers[entry.auth.header] = `${entry.auth.prefix ?? ''}${cred.key}`
+      if (entry.auth.header) setHeader(headers, entry.auth.header, `${entry.auth.prefix ?? ''}${cred.key}`)
       else if (entry.auth.query) {
         const parsed = new URL(url)
         parsed.searchParams.set(entry.auth.query, cred.key)
