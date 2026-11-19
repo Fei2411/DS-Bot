@@ -36558,7 +36558,7 @@ function SecondsField({ label, value, save }) {
   (0, import_react51.useEffect)(() => setText(String(value)), [value]);
   const commit = () => {
     const number = Number(text);
-    if (text.trim() !== "" && Number.isFinite(number) && number >= 0 && number <= 600 && number !== value) save(number);
+    if (text.trim() !== "" && Number.isInteger(number) && number >= 0 && number <= 600 && number !== value) save(number);
     else setText(String(value));
   };
   return (0, import_react51.createElement)("input", { className: "bt-input bt-set-number", type: "number", min: 0, max: 600, step: 1, "aria-label": label, value: text, onChange: (event) => setText(event.target.value), onBlur: commit, onKeyDown: (event) => {

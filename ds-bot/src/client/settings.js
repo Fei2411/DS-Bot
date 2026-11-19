@@ -74,7 +74,7 @@ function SecondsField({ label, value, save }) {
   useEffect(() => setText(String(value)), [value])
   const commit = () => {
     const number = Number(text)
-    if (text.trim() !== '' && Number.isFinite(number) && number >= 0 && number <= 600 && number !== value) save(number)
+    if (text.trim() !== '' && Number.isInteger(number) && number >= 0 && number <= 600 && number !== value) save(number)
     else setText(String(value))
   }
   return h('input', { className: 'bt-input bt-set-number', type: 'number', min: 0, max: 600, step: 1, 'aria-label': label, value: text, onChange: event => setText(event.target.value), onBlur: commit, onKeyDown: event => { if (event.key === 'Enter') event.target.blur() } })

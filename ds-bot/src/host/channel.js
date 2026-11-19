@@ -249,7 +249,7 @@ export function install(rt) {
     if (body.backgroundAfterSec !== undefined) {
       const seconds = body.backgroundAfterSec
       if (seconds === null) delete state.prefs.backgroundAfterSec
-      else if (Number.isFinite(seconds) && seconds >= 0 && seconds <= BACKGROUND_AFTER_MAX_SEC) state.prefs.backgroundAfterSec = seconds
+      else if (Number.isInteger(seconds) && seconds >= 0 && seconds <= BACKGROUND_AFTER_MAX_SEC) state.prefs.backgroundAfterSec = seconds
       else throw invalid(`The background wait is 0 to ${BACKGROUND_AFTER_MAX_SEC} seconds`)
     }
     if (body.memoryAutoRecall !== undefined) {

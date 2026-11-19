@@ -3,7 +3,14 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { test } from 'node:test'
+import { Context } from '@deepseek-ai/cordis'
+import LocalJobRegistry from '@deepseek-ai/dsh-jobs-local'
+import { createScope } from '@deepseek-ai/dsh-scope'
+import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
+import * as toolBash from '@deepseek-ai/dsh-tool-bash'
+import ToolRuntime from '@deepseek-ai/dsh-tools'
 import { createRuntime } from '../index.js'
+import { install as installSteer } from '../src/host/steer.js'
 import { turnOf } from '../src/host/resume.js'
 import { fakeContext } from './fake-ctx.js'
 import { SOURCE_KIND, STEER_CUT } from '../src/host/constants.js'
@@ -91,9 +98,15 @@ const start = async ({ services = {}, def = shellDef() } = {}) => {
     sessions: { flush: async () => {} },
   })
   const origGet = ctx.get
+  let apiRoute
+  ctx.connection.fetch.register = (route) => { apiRoute = route; return () => {} }
   Object.assign(ctx, { get: name => (name === 'agents' ? agentMap : origGet(name)) })
   const rt = createRuntime(ctx, { home })
   await rt.load?.()
+  const call = async (endpoint, payload) => {
+    const response = await apiRoute.fetch({ json: async () => ({ endpoint, payload }) })
+    return response.json()
+  }
   const origDeliver = rt.deliver
   rt.deliver = (...args) => { deliveries.push(args); return origDeliver ? origDeliver(...args) : Promise.resolve() }
   const emit = async (id, type, data) => {
@@ -104,7 +117,7 @@ const start = async ({ services = {}, def = shellDef() } = {}) => {
   }
   const stop = async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) }
   const shadowOf = () => calls.find(c => c[0] === 'register')?.[1]
-  return { ctx, emit, stop, rt, agent: agentById, agentMap, calls, deliveries, shadowOf }
+  return { ctx, emit, stop, rt, agent: agentById, agentMap, calls, deliveries, shadowOf, call }
 }
 
 const userMessage = text => ({ id: `m-${text}`, content: [{ type: 'text', text }], source: { kind: 'user' }, role: 'user' })
@@ -525,4 +538,306 @@ test('shell shadow: a call past the background wait detaches without a steer', a
   assert.equal(value.output, 'building')
   shadow.calls[0].res({ kind: 'foreground', exitCode: 0, stdout: { text: 'built' } })
   await stop()
+})
+
+test('shell shadow: backgroundAfterSec = 0 detaches immediately once registered', async () => {
+  const { emit, stop, rt, agent, shadowOf } = await start({ services: { jobs: jobsService(jobId => ({
+    job: { id: jobId, status: 'running', output: {} },
+    lossy: false,
+    chunks: [{ text: 'started', channel: 'stdout' }],
+  })) } })
+  rt.state.prefs.backgroundAfterSec = 0
+  rt.shadowShells(agent)
+  const shadow = shadowOf()
+  const pending = shadow.execute({ command: 'sleep 10' }, execOf(agent))
+  await emit('dm-a', 'job/registered', { jobId: 'j0', toolCall: { callId: 'c1' } })
+  const value = await pending
+  assert.equal(value.kind, 'promoted')
+  assert.equal(value.jobId, 'j0')
+  assert.equal(value.output, 'started')
+  shadow.calls[0].res({ kind: 'foreground', exitCode: 0, stdout: { text: 'ok' } })
+  await stop()
+})
+
+test('shell shadow: fast command finishing within wait returns foreground without promoting', async () => {
+  const { emit, stop, rt, agent, shadowOf } = await start({ services: { jobs: jobsService(jobId => ({
+    job: { id: jobId, status: 'running', output: {} }, chunks: [],
+  })) } })
+  rt.state.prefs.backgroundAfterSec = 0.2
+  rt.shadowShells(agent)
+  const shadow = shadowOf()
+  const pending = shadow.execute({ command: 'echo fast' }, execOf(agent))
+  await emit('dm-a', 'job/registered', { jobId: 'jf', toolCall: { callId: 'c1' } })
+  const NATIVE = { kind: 'foreground', exitCode: 0, stdout: { text: 'fast\n' } }
+  shadow.calls[0].res(NATIVE)
+  assert.equal(await pending, NATIVE)
+  await stop()
+})
+
+test('shell shadow: group member session does not auto-background past wait', async () => {
+  const { emit, stop, rt, agent, shadowOf } = await start({ services: { jobs: jobsService(jobId => ({
+    job: { id: jobId, status: 'running', output: {} }, chunks: [],
+  })) } })
+  rt.state.prefs.backgroundAfterSec = 0.02
+  rt.groupOwners.set('dm-a', { roomId: 'r1', botId: 'a' })
+  rt.shadowShells(agent)
+  const shadow = shadowOf()
+  const pending = shadow.execute({ command: 'sleep 1' }, execOf(agent))
+  await emit('dm-a', 'job/registered', { jobId: 'jg', toolCall: { callId: 'c1' } })
+  await new Promise(r => setTimeout(r, 60))
+  const NATIVE = { kind: 'foreground', exitCode: 0 }
+  shadow.calls[0].res(NATIVE)
+  assert.equal(await pending, NATIVE)
+  await stop()
+})
+
+test('shell shadow: steer before registration respects shorter backgroundAfterSec cap', async () => {
+  const { emit, stop, rt, agent, shadowOf } = await start({ services: { jobs: jobsService(jobId => ({
+    job: { id: jobId, status: 'running', output: {} }, chunks: [{ text: 'cap' }],
+  })) } })
+  rt.state.prefs.backgroundAfterSec = 0.05
+  rt.shadowShells(agent)
+  const shadow = shadowOf()
+  const startedAt = Date.now()
+  const pending = shadow.execute({ command: 'sleep 5' }, execOf(agent))
+  await emit('dm-a', 'agent/inbox/spliced', { target: 'next-step', inserted: [userMessage('hurry')] })
+  await emit('dm-a', 'job/registered', { jobId: 'jc', toolCall: { callId: 'c1' } })
+  const value = await pending
+  assert.equal(value.kind, 'promoted')
+  assert.equal(value.jobId, 'jc')
+  assert.ok(Date.now() - startedAt < 500, 'steer grace must not delay promotion past backgroundAfterSec')
+  shadow.calls[0].res({ kind: 'foreground', exitCode: 0 })
+  await stop()
+})
+
+test('setPrefs validates backgroundAfterSec bounds and integer requirement', async () => {
+  const { stop, rt, call } = await start()
+  const res = (body) => call('set-prefs', body)
+  assert.equal((await res({ backgroundAfterSec: 0 })).ok, true)
+  assert.equal(rt.state.prefs.backgroundAfterSec, 0)
+  assert.equal((await res({ backgroundAfterSec: 600 })).ok, true)
+  assert.equal(rt.state.prefs.backgroundAfterSec, 600)
+  assert.equal((await res({ backgroundAfterSec: null })).ok, true)
+  assert.equal(rt.state.prefs.backgroundAfterSec, undefined)
+  for (const bad of [-1, 601, 2.5, Number.NaN, Number.POSITIVE_INFINITY, '5']) {
+    const out = await res({ backgroundAfterSec: bad })
+    assert.equal(out.ok, false, `expected ${String(bad)} to be rejected`)
+  }
+  await stop()
+})
+
+// Real-contract harness: mounts DSH's actual LocalJobRegistry + dsh-tool-bash so we
+// exercise real waitOnJob, job/registered lifecycle, approveEscalation, and AbortSignal
+// handling instead of mocking bash's internal behavior.
+async function startRealBash({ approveDelayMs = 0 } = {}) {
+  const ctx = new Context()
+  await ctx.plugin(SystemPrompt)
+  await ctx.plugin(ToolRuntime)
+  const agents = new Map()
+  ctx.provide('agents', agents)
+  const spawned = []
+  const makeStream = () => {
+    let text = ''
+    return {
+      push(chunk) { text += chunk },
+      readFrom(from) {
+        const buf = Buffer.from(text, 'utf8')
+        const slice = from >= buf.length ? '' : buf.subarray(from).toString('utf8')
+        return { text: slice, nextOffset: buf.length, lossy: false }
+      },
+      all: () => text,
+    }
+  }
+  let nextBehavior = () => ({})
+  ctx.provide('shell', {
+    sandboxMode: 'workspace-write',
+    resolve: (req) => ({ ...req, workdir: req.workdir ?? '/team', timeoutMs: req.timeoutMs ?? 30_000 }),
+    async execute(spec) {
+      const stdout = makeStream()
+      const stderr = makeStream()
+      let resolveDone
+      const done = new Promise((r) => { resolveDone = r })
+      const proc = {
+        status: 'running',
+        exitCode: null,
+        signal: null,
+        killed: false,
+        aborted: false,
+        observed: { stdout, stderr },
+        done,
+        finish(exitCode = 0, out = '') {
+          if (proc.status !== 'running') return
+          if (out) stdout.push(out)
+          proc.status = 'completed'
+          proc.exitCode = exitCode
+          resolveDone()
+        },
+        kill() {
+          if (proc.status !== 'running') return
+          proc.killed = true
+          proc.aborted = true
+          proc.status = 'killed'
+          proc.signal = 'SIGTERM'
+          resolveDone()
+        },
+        async result() {
+          await done
+          return {
+            exitCode: proc.exitCode,
+            signal: proc.signal,
+            timedOut: false,
+            aborted: proc.aborted,
+            timeoutMs: spec.timeoutMs,
+            stdout: { text: stdout.all(), truncated: false },
+            stderr: { text: stderr.all(), truncated: false },
+          }
+        },
+      }
+      if (spec.signal?.aborted) proc.kill()
+      else spec.signal?.addEventListener('abort', () => proc.kill(), { once: true })
+      spawned.push(proc)
+      nextBehavior(proc, spec)
+      return proc
+    },
+  })
+  ctx.provide('sandboxPolicy', { resolve: () => ({ mode: 'workspace-write' }) })
+  ctx.provide('shellEnv', { collect: () => ({}) })
+  ctx.provide('workingDirectory', { ensure: async () => '/team' })
+  ctx.provide('approval', {
+    async request({ signal }) {
+      if (approveDelayMs <= 0) return 'allowed-once'
+      return new Promise((resolveApproval) => {
+        if (signal?.aborted) return resolveApproval('cancelled')
+        const onAbort = () => { clearTimeout(timer); resolveApproval('cancelled') }
+        const timer = setTimeout(() => { signal?.removeEventListener('abort', onAbort); resolveApproval('allowed-once') }, approveDelayMs)
+        signal?.addEventListener('abort', onAbort, { once: true })
+      })
+    },
+  })
+  await ctx.plugin(LocalJobRegistry, { pumpPollMs: 10 })
+  ctx.jobs.attachController('tool-jobs')
+  await ctx.plugin(toolBash)
+
+  const notices = []
+  const agent = {
+    id: 'dm-a',
+    ctx: null,
+    status: 'running',
+    inbox: { nextStep: [], nextTurn: [], prepend() {}, append() {}, remove() { return false } },
+    followup: (msg) => notices.push({ kind: 'followup', msg }),
+    inject: (msg) => notices.push({ kind: 'inject', msg }),
+    send() {},
+    cancel() {},
+    session: {
+      id: 'dm-a',
+      header: { cwd: '/team' },
+      append(type, data) {
+        ctx.emit('session/event', agent.session, { type, data })
+      },
+    },
+  }
+  const agentScope = createScope(ctx, agent)
+  await agentScope.ctx.plugin({ inject: ['tools'], apply(scoped) { agent.ctx = scoped } })
+  agents.set('dm-a', agent)
+  const warnings = []
+  const rt = {
+    ctx,
+    state: { prefs: { backgroundAfterSec: 0.05 } },
+    chatOwners: new Map([['dm-a', 'a']]),
+    groupOwners: new Map(),
+    live: new Map(),
+    isBotSession: (id) => id === 'dm-a',
+    sessionFolder: () => '/team',
+    warn: (...args) => warnings.push(args),
+  }
+  installSteer(rt)
+  const disposers = rt.shadowShells(agent)
+  assert.equal(disposers?.length, 1, `expected bash shadow to register; warnings: ${JSON.stringify(warnings)}`)
+  const bash = ctx.tools.get('bash', agent)
+  assert.ok(bash !== undefined, 'shadowed bash tool should be registered on agent scope')
+  const stop = async () => { await agentScope.dispose(); await ctx.fiber.dispose() }
+  return { ctx, rt, agent, bash, spawned, notices, setBehavior: (fn) => { nextBehavior = fn }, stop }
+}
+
+test('real dsh-tool-bash contract: STEER_CUT after auto-background does not kill the running job', async (t) => {
+  const env = await startRealBash()
+  t.after(env.stop)
+  env.setBehavior((proc) => { proc.observed.stdout.push('building...\n') })
+  const turn = new AbortController()
+  const result = await env.bash.execute(
+    { description: 'Run slow build', command: 'npm run build' },
+    { agent: env.agent, callId: 'call-1', name: 'bash', signal: turn.signal },
+  )
+  assert.equal(result.kind, 'promoted')
+  assert.ok(result.jobId)
+  assert.equal(env.ctx.jobs.get(result.jobId, 'dm-a').status, 'running')
+
+  // Simulate a subsequent user steer cancelling the original turn (STEER_CUT).
+  turn.abort({ kind: 'hook', reason: STEER_CUT })
+  await new Promise(r => setTimeout(r, 30))
+  assert.equal(env.spawned[0].killed, false, 'promoted job process must survive original turn STEER_CUT')
+  assert.equal(env.ctx.jobs.get(result.jobId, 'dm-a').status, 'running')
+
+  // Command finishes later; detachAfter delivers completion notice to the idle agent.
+  env.agent.status = 'idle'
+  env.spawned[0].finish(0, 'build ok\n')
+  await new Promise(r => setTimeout(r, 40))
+  assert.equal(env.notices.length, 1)
+  assert.equal(env.notices[0].kind, 'followup')
+  assert.match(env.notices[0].msg.content[0].text, new RegExp(`background job ${result.jobId}.*finished:`))
+  assert.match(env.notices[0].msg.content[0].text, /build ok/)
+})
+
+test('real dsh-tool-bash contract: approval delay past backgroundAfterSec does not mis-promote a fast command', async (t) => {
+  const env = await startRealBash({ approveDelayMs: 140 })
+  t.after(env.stop)
+  env.rt.state.prefs.backgroundAfterSec = 0.05
+  // Fast command completes 10ms after approval grants execution.
+  env.setBehavior((proc) => { setTimeout(() => proc.finish(0, 'ok\n'), 10) })
+  const turn = new AbortController()
+  const fast = await env.bash.execute(
+    {
+      description: 'Run fast escalated command',
+      command: 'echo ok',
+      sandbox_permissions: 'danger-full-access',
+      justification: 'Need host access to check tool',
+    },
+    { agent: env.agent, callId: 'call-approve-fast', name: 'bash', signal: turn.signal },
+  )
+  assert.equal(fast.kind, 'foreground', 'approval wait must not trigger background promotion of a fast command')
+  assert.equal(fast.exitCode, 0)
+  assert.equal(fast.stdout.text, 'ok\n')
+
+  // Slow command after the same approval delay promotes based on post-registration execution time only.
+  env.setBehavior(() => {})
+  const slow = await env.bash.execute(
+    {
+      description: 'Run slow escalated command',
+      command: 'sleep 10',
+      sandbox_permissions: 'danger-full-access',
+      justification: 'Need host access for long job',
+    },
+    { agent: env.agent, callId: 'call-approve-slow', name: 'bash', signal: turn.signal },
+  )
+  assert.equal(slow.kind, 'promoted')
+  assert.ok(slow.timeoutMs < 130, `timeoutMs (${slow.timeoutMs}) should reflect post-registration wait, not approval delay`)
+  env.spawned[1].finish(0, 'done\n')
+  await new Promise(r => setTimeout(r, 20))
+})
+
+test('real dsh-tool-bash contract: abort before detach still cancels and kills the running job', async (t) => {
+  const env = await startRealBash()
+  t.after(env.stop)
+  env.rt.state.prefs.backgroundAfterSec = 0.5
+  env.setBehavior(() => {})
+  const turn = new AbortController()
+  const pending = env.bash.execute(
+    { description: 'Run cancellable command', command: 'sleep 10' },
+    { agent: env.agent, callId: 'call-abort', name: 'bash', signal: turn.signal },
+  )
+  await new Promise(r => setTimeout(r, 25))
+  turn.abort('user stop')
+  await assert.rejects(pending, /aborted/i)
+  assert.equal(env.spawned[0].killed, true, 'abort before detach must kill the running job')
+  assert.equal(env.ctx.jobs.list('dm-a').length, 0)
 })

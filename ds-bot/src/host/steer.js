@@ -153,47 +153,101 @@ export function install(rt) {
     const lift = agent.ctx.tools.register({
       ...def,
       execute: async (args, exec) => {
-        const native = def.execute(args, exec)
         const sessionId = exec.agent?.id
         if (args?.run_in_background === true || jobs === undefined || sessionId === undefined
-          || !privateOf(sessionId)) return native
+          || !privateOf(sessionId)) return def.execute(args, exec)
         const track = stateOf(sessionId)
-        const startedAt = Date.now()
-        let steerResolve
+        // Proxy exec.signal so a turn cancellation (such as STEER_CUT) after detach cannot
+        // reach dsh-tool-bash/pwsh's waitOnJob and kill the promoted background job, while
+        // still forwarding aborts before detach (including during approval prompts).
+        const nativeController = new AbortController()
+        const onTurnAbort = () => nativeController.abort(exec.signal.reason)
+        if (exec.signal?.aborted) nativeController.abort(exec.signal.reason)
+        else exec.signal?.addEventListener('abort', onTurnAbort, { once: true })
+        const detachSignal = () => exec.signal?.removeEventListener('abort', onTurnAbort)
+        const nativeExec = exec.signal === undefined ? exec : { ...exec, signal: nativeController.signal }
+        let steeredAt = (exec.agent.inbox?.nextStep ?? []).some(message => message?.source?.kind === 'user') ? Date.now() : undefined
+        let steerSignal
+        const onSteer = () => {
+          if (steeredAt === undefined) steeredAt = Date.now()
+          steerSignal?.()
+        }
+        // Subscribe before calling def.execute so a steer arriving during approval or before
+        // job/registered is never missed, while the background wait timer still starts only
+        // once the command is actually registered as a running job.
+        track.steerWaiters.add(onSteer)
+        let native
+        try {
+          native = Promise.resolve(def.execute(args, nativeExec))
+        } catch (error) {
+          track.steerWaiters.delete(onSteer)
+          detachSignal()
+          throw error
+        }
+        // Prevent unhandledRejection when native fails after being raced; callers still observe it.
+        native.catch(() => {})
         let jobResolve
         let graceTimer
         let waitTimer
+        let runningSince
+        let detached = false
         try {
-          // A user steer ends the wait: first for the steer event itself, then a
-          // short grace for a fast command, then for the job id the native call
-          // registers (it may not exist yet while approval is pending). The
-          // background wait (background.js) ends it the same way, without the grace.
-          const steerSeen = () => {
-            if ((exec.agent.inbox?.nextStep ?? []).some(message => message?.source?.kind === 'user')) return Promise.resolve('steered')
-            return new Promise(resolve => { steerResolve = resolve; track.steerWaiters.add(resolve) }).then(() => 'steered')
-          }
-          const waitMs = rt.backgroundWaitMs?.()
-          const waited = new Promise((resolve) => { if (Number.isFinite(waitMs)) waitTimer = setTimeout(() => resolve('waited'), waitMs) })
-          const first = await Promise.race([native, steerSeen(), waited])
-          if (first !== 'steered' && first !== 'waited') return await native
-          if (first === 'steered') {
-            const graced = await Promise.race([native, new Promise(resolve => { graceTimer = setTimeout(() => resolve('grace'), STEER_GRACE_MS) })])
-            if (graced !== 'grace') return await native
-          }
           const known = track.jobsByCall.get(exec.callId)
-          const jobWait = known !== undefined ? Promise.resolve(known) : new Promise(resolve => {
+          const jobWait = known !== undefined ? Promise.resolve(known) : new Promise((resolve) => {
             jobResolve = resolve
             const set = track.jobWaiters.get(exec.callId) ?? new Set()
             track.jobWaiters.set(exec.callId, set)
             set.add(resolve)
           })
-          const settled = await Promise.race([native.then(() => 'native'), jobWait.then(() => 'job')])
-          if (settled !== 'job') return await native
-        } catch {
-          // A native rejection before or after the steer propagates unchanged.
-          return await native
+          const registered = await Promise.race([native.then(() => 'native', () => 'native'), jobWait.then(() => 'job')])
+          if (registered !== 'job') return await native
+          runningSince = Date.now()
+          const waitMs = rt.backgroundWaitMs?.()
+          if (waitMs !== 0) {
+            if (steeredAt === undefined && (exec.agent.inbox?.nextStep ?? []).some(message => message?.source?.kind === 'user')) {
+              steeredAt = Date.now()
+            }
+            if (steeredAt === undefined) {
+              const steerPromise = new Promise((resolve) => { steerSignal = () => resolve('steered') })
+              const waited = new Promise((resolve) => {
+                if (Number.isFinite(waitMs) && waitMs > 0) waitTimer = setTimeout(() => resolve('waited'), waitMs)
+              })
+              const first = await Promise.race([native.then(() => 'native', () => 'native'), steerPromise, waited])
+              if (first !== 'steered' && first !== 'waited') return await native
+            }
+            if (steeredAt !== undefined) {
+              const remainingGrace = Math.max(0, STEER_GRACE_MS - (Date.now() - steeredAt))
+              const remainingWait = Number.isFinite(waitMs) && waitMs > 0 ? Math.max(0, waitMs - (Date.now() - runningSince)) : Infinity
+              const grace = Math.min(remainingGrace, remainingWait)
+              if (grace > 0) {
+                const graced = await Promise.race([
+                  native.then(() => 'native', () => 'native'),
+                  new Promise((resolve) => { graceTimer = setTimeout(() => resolve('grace'), grace) }),
+                ])
+                if (graced !== 'grace') return await native
+              }
+            }
+          }
+          if (nativeController.signal.aborted) return await native
+          const jobId = track.jobsByCall.get(exec.callId)
+          let read
+          try {
+            read = jobs.read(jobId, sessionId)
+          } catch {
+            return await native
+          }
+          const status = read?.job?.status
+          if (status === 'completed' || status === 'killed' || status === 'failed') return await native
+          detached = true
+          detachSignal()
+          detachAfter(jobId, args, exec, def, native, name)
+          const base = rt.sessionFolder?.(exec.agent.session)
+          const cwd = args?.workdir === undefined ? (base ?? '')
+            : !isAbsolute(args.workdir) && base !== undefined ? resolve(base, args.workdir) : args.workdir
+          return { kind: 'promoted', cwd, jobId, timeoutMs: Math.max(0, Date.now() - runningSince), output: renderJobRead(read) }
         } finally {
-          if (steerResolve !== undefined) track.steerWaiters.delete(steerResolve)
+          if (!detached) void native.then(detachSignal, detachSignal)
+          track.steerWaiters.delete(onSteer)
           if (jobResolve !== undefined) {
             const set = track.jobWaiters.get(exec.callId)
             set?.delete(jobResolve)
@@ -202,20 +256,6 @@ export function install(rt) {
           clearTimeout(graceTimer)
           clearTimeout(waitTimer)
         }
-        const jobId = track.jobsByCall.get(exec.callId)
-        let read
-        try {
-          read = jobs.read(jobId, sessionId)
-        } catch {
-          return await native
-        }
-        const status = read?.job?.status
-        if (status === 'completed' || status === 'killed' || status === 'failed') return await native
-        detachAfter(jobId, args, exec, def, native, name)
-        const base = rt.sessionFolder?.(exec.agent.session)
-        const cwd = args?.workdir === undefined ? (base ?? '')
-          : !isAbsolute(args.workdir) && base !== undefined ? resolve(base, args.workdir) : args.workdir
-        return { kind: 'promoted', cwd, jobId, timeoutMs: Date.now() - startedAt, output: renderJobRead(read) }
       },
     })
     // tools.js keeps this with the Session's scope; unmarking lets a later
