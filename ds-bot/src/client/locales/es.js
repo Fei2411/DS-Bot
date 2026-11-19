@@ -1625,6 +1625,7 @@ export const ES = {
   'Not a member of that group': 'Este Bot no es miembro de ese grupo',
   'This Bot has no session in this group yet': 'Este Bot aún no tiene una sesión en este grupo',
   'The Bot is working; wait for it to finish or stop it first': 'El Bot está trabajando; espera a que termine o detenlo primero',
+  'The new session did not start; the Bot stays in its current one': 'La nueva sesión no se inició; el Bot sigue en la actual',
   'No Bot is left in this group chat': 'No queda ningún Bot en este chat grupal',
   'That group chat has been deleted': 'Ese chat grupal ha sido eliminado',
   'Hand the admin role to another member instead of leaving the group without one': 'Cede el rol de administrador a otro miembro en lugar de dejar el grupo sin administrador',

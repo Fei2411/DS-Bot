@@ -1591,6 +1591,7 @@ export const JA = {
   "Not a member of that group": "この Bot はそのグループのメンバーではありません",
   "This Bot has no session in this group yet": "この Bot にはこのグループのセッションがまだありません",
   "The Bot is working; wait for it to finish or stop it first": "この Bot は作業中です。完了を待つか先に停止してください",
+  "The new session did not start; the Bot stays in its current one": "新しいセッションを開始できませんでした。Bot は現在のセッションのままです",
   "No Bot is left in this group chat": "このグループチャットに Bot が残っていません",
   "That group chat has been deleted": "そのグループチャットは削除されています",
   "Hand the admin role to another member instead of leaving the group without one": "グループを管理者なしにするのではなく、他のメンバーに管理者を引き継いでください",

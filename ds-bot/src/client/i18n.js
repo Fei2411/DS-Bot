@@ -1743,6 +1743,7 @@ const HOST_ZH = {
   'Not a member of that group': '这个 Bot 不在这个群聊里',
   'This Bot has no session in this group yet': '这个 Bot 在本群还没有会话',
   'The Bot is working; wait for it to finish or stop it first': '这个 Bot 正在工作中，请等它完成或先停止它',
+  'The new session did not start; the Bot stays in its current one': '新会话没有开始，这个 Bot 还在当前会话里',
   'No Bot is left in this group chat': '这个群聊里已经没有 Bot 了',
   'That group chat has been deleted': '这个群聊已经删除了',
   'Hand the admin role to another member instead of leaving the group without one': '请把管理员交给其他成员，不要让群聊没有管理员',

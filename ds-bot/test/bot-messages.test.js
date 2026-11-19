@@ -1399,6 +1399,16 @@ test('New session on an idle group member moves its group conversation on; a wor
   assert.equal(runtime.state.bots.b.sessionId, 'b')
 })
 
+test('New session on a group member answers with an error when the fresh part cannot be made, and the member keeps its session', async (t) => {
+  const { rt: runtime, ctx, call, stop } = await start(team({ group: true }))
+  t.after(stop)
+  ctx.sessionController.create = async () => { throw new Error('disk full') }
+  const failed = await call('bot-new-part', { botId: 'b', roomId: 'r1' })
+  assert.equal(failed.ok, false, JSON.stringify(failed))
+  assert.equal(failed.error.message, 'The new session did not start; the Bot stays in its current one')
+  assert.equal(runtime.state.rooms.r1.sessions.b, 'gb')
+})
+
 for (const id of ['b', 'gb']) {
   test(`model-priced images after a handoff can make room by switching (${id})`, async (t) => {
     const seed = team({ group: true })
