@@ -38569,6 +38569,7 @@ function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus, useSe
     actions.beginVisit(sessionId);
     return () => actions.endVisit(sessionId);
   }, [sessionId]);
+  (0, import_react54.useEffect)(() => actions.watchAgentTerminals?.(sessionId), [sessionId]);
   (0, import_react54.useEffect)(() => {
     if (room2) document.body.dataset.btRoom = "";
     else delete document.body.dataset.btRoom;
@@ -38748,6 +38749,34 @@ function NewMessagePills({ sessionId, useSessions, useUi, useTurnClock }) {
     ),
     document.body
   );
+}
+
+// src/client/agent-terminals.js
+var ACTIONS2 = "conversation.session.header.actions";
+var AGENT_TERMINALS = "agent-terminals";
+var opener = (slots) => slots.entries(ACTIONS2).find((entry) => entry.options?.id === AGENT_TERMINALS) ?? null;
+function watchAgentTerminals(slots, sessionId, onError) {
+  let entry = null;
+  let release;
+  const refresh = () => {
+    const next = opener(slots);
+    if (next === entry) return;
+    release?.();
+    release = void 0;
+    entry = next;
+    try {
+      const watch = entry?.inject?.(sessionId)?.watchAgentTerminals;
+      if (typeof watch === "function") release = watch();
+    } catch (error) {
+      onError?.(error);
+    }
+  };
+  const unsubscribe = slots.subscribe(ACTIONS2, refresh);
+  refresh();
+  return () => {
+    unsubscribe();
+    release?.();
+  };
 }
 
 // src/client/enter-steer.js
@@ -46871,6 +46900,7 @@ function apply(ctx) {
     }
   };
   actions.canOpenTerminal = () => ctx.get("sidebarRight") !== void 0 && ctx.get("sidebarRightTabs")?.get("terminal") !== void 0;
+  actions.watchAgentTerminals = (sessionId) => watchAgentTerminals(ctx.slots, sessionId, (error) => actions.reportError(error, "right-sidebar"));
   actions.newTerminal = () => {
     actions.closePanel();
     try {
