@@ -751,6 +751,13 @@ async function startRealBash({ approveDelayMs = 0 } = {}) {
     warn: (...args) => warnings.push(args),
   }
   installSteer(rt)
+  const rawBash = ctx.tools.get('bash', agent)
+  const hasPromoted = (rawBash?.output?.schema?.oneOf ?? []).some(v => v?.properties?.kind?.const === 'promoted')
+  if (!hasPromoted) {
+    await agentScope.dispose()
+    await ctx.fiber.dispose()
+    return null
+  }
   const disposers = rt.shadowShells(agent)
   assert.equal(disposers?.length, 1, `expected bash shadow to register; warnings: ${JSON.stringify(warnings)}`)
   const bash = ctx.tools.get('bash', agent)
@@ -761,6 +768,7 @@ async function startRealBash({ approveDelayMs = 0 } = {}) {
 
 test('real dsh-tool-bash contract: STEER_CUT after auto-background does not kill the running job', async (t) => {
   const env = await startRealBash()
+  if (env === null) return t.skip('dsh-tool-bash in this DSH version has no promoted result format')
   t.after(env.stop)
   env.setBehavior((proc) => { proc.observed.stdout.push('building...\n') })
   const turn = new AbortController()
@@ -790,6 +798,7 @@ test('real dsh-tool-bash contract: STEER_CUT after auto-background does not kill
 
 test('real dsh-tool-bash contract: approval delay past backgroundAfterSec does not mis-promote a fast command', async (t) => {
   const env = await startRealBash({ approveDelayMs: 140 })
+  if (env === null) return t.skip('dsh-tool-bash in this DSH version has no promoted result format')
   t.after(env.stop)
   env.rt.state.prefs.backgroundAfterSec = 0.05
   // Fast command completes 10ms after approval grants execution.
@@ -827,6 +836,7 @@ test('real dsh-tool-bash contract: approval delay past backgroundAfterSec does n
 
 test('real dsh-tool-bash contract: abort before detach still cancels and kills the running job', async (t) => {
   const env = await startRealBash()
+  if (env === null) return t.skip('dsh-tool-bash in this DSH version has no promoted result format')
   t.after(env.stop)
   env.rt.state.prefs.backgroundAfterSec = 0.5
   env.setBehavior(() => {})
