@@ -264,14 +264,19 @@ async function api(env, token, path, { method = 'GET', body } = {}) {
     body: body === undefined ? undefined : JSON.stringify(body),
   })
   const json = await response.json().catch(() => ({}))
-  if (!response.ok || json.code !== undefined) {
+  const bizCode = [json.err_code, json.code].find(code => code !== undefined && Number(code) !== 0)
+  // Awaiting audit is accepted, not a refusal; retrying could duplicate delivery.
+  if ([304023, 304024].includes(Number(bizCode))) return json
+  if (!response.ok || bizCode !== undefined) {
     const reason = json.message ?? json.error ?? `QQ answered ${response.status}`
-    const error = new Error(String(reason))
+    const traceId = json.trace_id ?? response.headers.get('X-Tps-trace-ID')
+    const error = new Error(`${reason}${traceId ? ` (trace_id: ${traceId})` : ''}`)
     error.status = response.status
-    error.bizCode = json.code ?? json.err_code
+    error.bizCode = bizCode
     // A refusal outside the reply window or over quota is permanent; 4xx other
     // than auth problems too. 5xx and timeouts retry.
-    error.permanent = response.status >= 400 && response.status < 500 && response.status !== 429
+    error.permanent = response.ok && bizCode !== undefined
+      || response.status >= 400 && response.status < 500 && response.status !== 429
       || /reply.*window|quota|frequency|超过|过期/i.test(String(reason))
     if (response.status === 429) error.retryAfter = Number(response.headers.get('retry-after'))
     throw error
