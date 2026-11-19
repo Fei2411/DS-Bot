@@ -21,6 +21,46 @@ const SEND_ATTEMPTS = 4
 const TYPING_MS = 4_000
 const NUMBERS = /^\s*\d+(\s+\d+)*\s*$/
 
+// DSH ContextForm values that by contract carry ambient context attached to an
+// existing turn rather than an independent turn trigger (dsh-llm ContextForm).
+// `notice` and `relay` are excluded: waking triggers (tool-jobs, subagent-settled,
+// webhook, agent-message, peer bot relays) share those forms and must fail closed
+// so their turns never inherit or keep an IM origin.
+const ATTACHED_CONTEXT_FORMS = new Set(['snapshot', 'catalog', 'instructions', 'recall'])
+
+// Non-waking, in-turn context producers (agent/pre-step, agent.inject, tool
+// deferContext/additionalContexts, or compaction surface replacement). Listing
+// these kinds covers both DSH 0.2.2 notices/unformed context (cleared
+// runtime-context, working-directory, user-approval, model-selection,
+// repeat-tool-reminder, ptc-mode, plan-mode, action-cards, tool-goal,
+// compact-checkpoint) and earlier DSH releases before `source.form` was added.
+const ATTACHED_CONTEXT_KINDS = new Set([
+  'runtime-context',
+  'time-context',
+  'tmux-context',
+  'skill-catalog',
+  'agent-instructions',
+  'skill-invocation',
+  'session-reference',
+  'working-directory',
+  'user-approval',
+  'model-selection',
+  'repeat-tool-reminder',
+  'ptc-mode',
+  'plan-mode',
+  'action-cards',
+  'tool-goal',
+  'compact-checkpoint',
+])
+
+function isAttachedContextSource(source) {
+  if (source === null || typeof source !== 'object') return false
+  if (typeof source.imOrigin === 'string' || typeof source.rpcId === 'string') return false
+  if (source.kind === 'user' || source.kind === SOURCE_KIND || source.kind === REPLY_KIND) return false
+  return ATTACHED_CONTEXT_FORMS.has(source.form) || ATTACHED_CONTEXT_KINDS.has(source.kind)
+}
+
+
 const secretField = key => key.replace(/[A-Z]/g, char => `_${char}`).toUpperCase()
 
 export function install(rt) {
@@ -1444,6 +1484,10 @@ export function install(rt) {
       const source = event.data?.source
       const imOrigin = source?.imOrigin
       const rpcId = source?.rpcId
+      // Attached context (snapshots, catalogs, instructions, recalls, and non-waking
+      // in-turn notices) joins a turn without naming who asked: it neither claims nor
+      // withdraws the IM origin, and does not consume a group's pending reset.
+      if (isAttachedContextSource(source)) return
       // A late member result or part-switch handoff continues the work the chat asked for;
       // any other first message starts a fresh turn, which clears the previous turn's origin.
       if (pendingReset.delete(session.id) && !(typeof imOrigin === 'string' || (source?.kind === SOURCE_KIND && source.role === 'post'))) resetOrigin(session.id)
