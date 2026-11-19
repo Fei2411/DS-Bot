@@ -88,6 +88,14 @@ test('malformed JSON entries are skipped with reasons', () => {
   assert.ok(parsed.skipped.length > 0)
 })
 
+test('malformed Playwright entries are skipped with reasons; the good ones still parse', () => {
+  const parsed = parse('malformed.playwright.json')
+  assert.equal(parsed.ok, true)
+  assert.equal(parsed.format, 'playwright')
+  assert.deepEqual(parsed.cookies.map(item => item.name), ['m_ok1', 'm_url', 'm_ok2'])
+  assert.deepEqual(parsed.skipped.map(item => [item.name, item.code]), [['m_nodomain', 'missing-domain'], ['m_badexpires', 'bad-expiry']])
+})
+
 test('truncated JSON reports unreadable', () => {
   const parsed = parse('truncated.json')
   assert.equal(parsed.ok, false)

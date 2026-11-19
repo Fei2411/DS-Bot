@@ -148,10 +148,13 @@ export function createSession({ context, browser, page, botId, userDataDir, cook
     if (hold) throw new Error(`The browser is waiting for the user (${hold.reason}). Ask them to ${hold.note || 'take over'}, then call browser_resume.`)
   }
 
+  // Every later action waits for this. A tab that cannot load (it crashed, say) is not made
+  // current, and its failure must not stay a rejection: each action would fail on it again,
+  // and DSH ends the whole process on a rejection nobody handles.
   function activateAfterLoad(target) {
     pendingPageReady = waitForPageReady(target).then(() => {
       if (!target.isClosed()) current = target
-    })
+    }, () => {})
   }
 
   function trackPage(target, activate = false) {
@@ -480,16 +483,29 @@ export function createSession({ context, browser, page, botId, userDataDir, cook
     }
   }
 
+  // A service worker's request has no frame, and asking for it throws.
+  function frameOf(request) {
+    try {
+      return request.frame()
+    } catch {
+      return undefined
+    }
+  }
+
+  // Until every request in `requests` has finished, including the ones that arrive while it
+  // waits: a button's script can post after the click itself returned.
   async function waitForWriteRequests(requests) {
     if (requests.length === 0) return
     let timer
+    const expired = new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error('the browser request did not finish')), actionTimeout)
+    })
     try {
-      await Promise.race([
-        Promise.all(requests),
-        new Promise((_, reject) => {
-          timer = setTimeout(() => reject(new Error('the browser request did not finish')), actionTimeout)
-        }),
-      ])
+      for (let seen = 0; seen < requests.length;) {
+        const sent = requests.slice(seen)
+        seen = requests.length
+        await Promise.race([Promise.all(sent), expired])
+      }
     } finally {
       clearTimeout(timer)
     }
@@ -500,7 +516,20 @@ export function createSession({ context, browser, page, botId, userDataDir, cook
     return captureAction(async () => {
       const requests = []
       const pendingRequests = new Map()
+      // Once a frame starts loading another document, the requests that follow from it, or
+      // from a frame inside it, belong to that document (a result page polling its server),
+      // not to this action: only further navigations count. A script that changes the URL in
+      // place (pushState) sends no navigation request, so its posts still count.
+      const leaving = new Set()
+      const insideLeaving = frame => {
+        for (let at = frame; at; at = at.parentFrame?.()) if (leaving.has(at)) return true
+        return false
+      }
       const onRequest = request => {
+        const frame = frameOf(request)
+        const navigation = request.isNavigationRequest()
+        if (!navigation && frame && insideLeaving(frame)) return
+        if (navigation && frame) leaving.add(frame)
         let requestOrigin
         try {
           requestOrigin = new URL(request.url()).origin
@@ -510,10 +539,15 @@ export function createSession({ context, browser, page, botId, userDataDir, cook
         if (requestOrigin !== action.origin || ['GET', 'HEAD'].includes(request.method().toUpperCase())) return
         let resolve
         let reject
-        requests.push(new Promise((res, rej) => {
+        const settled = new Promise((res, rej) => {
           resolve = res
           reject = rej
-        }))
+        })
+        // The request can fail before waitForWriteRequests reaches it: while the click still
+        // runs, or after the click itself failed. Until it is read there it must not count as
+        // unhandled, because DSH ends the whole process on an unhandled rejection.
+        settled.catch(() => {})
+        requests.push(settled)
         pendingRequests.set(request, { resolve, reject })
       }
       const onRequestFinished = request => {
@@ -537,6 +571,8 @@ export function createSession({ context, browser, page, botId, userDataDir, cook
         await waitForWriteRequests(requests)
         await settle()
         if (target.isClosed() || crashedPages.has(target)) throw new Error('the browser page closed or crashed during the action')
+        // The posts the page sent while it settled.
+        await waitForWriteRequests(requests)
         if (target.url().startsWith('chrome-error://')) throw new Error('the browser page navigated to an error page')
         return () => snapshotText().catch(error => unknownResult(action, error, target))
       } catch (error) {

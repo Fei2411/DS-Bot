@@ -18,6 +18,17 @@ import { cleanEnv, findEngineExecutable, findExecutable, probeSignIn, probeVersi
 
 const SIGNED_IN_TTL_MS = 60_000
 
+// The preset a Session runs on: its group's, else its Bot's, else DSH's default — the one
+// a Bot without a preset of its own is shown with (permissions.js keeps it applied to the
+// Session). A hard-coded workspace-write made a local agent open in a stricter mode than
+// the setting the user saw, so its tool calls went through the CLI's permission prompt
+// instead of the mode they asked for (#1539).
+export function presetOf(rt, sessionId) {
+  const bot = rt.botOf(rt.selfOf(sessionId))
+  const room = rt.roomOf(rt.groupOwners.get(sessionId)?.roomId)
+  return room?.permission ?? bot?.permission ?? rt.permissionCatalog?.()?.defaultPreset ?? 'workspace-write'
+}
+
 const spawnEngine = (kind, route, spec) => (kind === 'acp' ? new AcpEngine(route, spec, { findExecutable })
   : kind === 'codex' ? new CodexEngine(route, spec, { findExecutable })
     : new ClaudeEngine(route, spec, { findExecutable }))
@@ -92,11 +103,7 @@ export function install(rt) {
       const record = store().sessions[sessionId]
       if (record !== undefined) Object.assign(record, patch)
     },
-    presetFor: (sessionId) => {
-      const bot = rt.botOf(rt.selfOf(sessionId))
-      const room = rt.roomOf(rt.groupOwners.get(sessionId)?.roomId)
-      return room?.permission ?? bot?.permission ?? 'workspace-write'
-    },
+    presetFor: sessionId => presetOf(rt, sessionId),
     cwdFor: async (sessionId) => {
       try {
         const agent = await rt.resolveAgent(sessionId)

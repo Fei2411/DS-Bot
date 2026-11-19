@@ -8,7 +8,7 @@ import { after, before, describe, test } from 'node:test'
 import { entryListSchema } from '@deepseek-ai/cordis-plugin-include'
 import { load } from 'js-yaml'
 import { parse } from 'yaml'
-import { copySessions, findTeam, importTeam, newerSessions, restoreSessions, sessionIdsOf, teamInUse, userDshHome } from '../src/import.mjs'
+import { copySessions, findTeam, importTeam, restoreSessions, sessionIdsOf, teamInUse, userDshHome } from '../src/import.mjs'
 
 const write = (path, text) => {
   mkdirSync(dirname(path), { recursive: true })
@@ -399,13 +399,6 @@ describe('finding the team', () => {
     const home = join(root, 'check-stopped')
     await assert.rejects(copySessions(from, TEAM, home, AbortSignal.abort()), { name: 'AbortError' })
     assert.equal(existsSync(join(home, 'sessions')), false)
-  })
-
-  test('finds Sessions written in a newer format than the pinned DSH reads', () => {
-    assert.deepEqual(newerSessions(from, TEAM), [])
-    write(join(from, 'sessions', '--site--', 'session-b', 'session.v99.jsonl.zstd'), 'newer')
-    write(join(from, 'sessions', '--team--', 'session-g0', 'session.v99.jsonl.zstd'), 'newer')
-    assert.deepEqual(newerSessions(from, TEAM), ['session-b', 'session-g0'])
   })
 
   test('takes the team for in use while a live process on this machine or a fresh lock elsewhere holds it', () => {
