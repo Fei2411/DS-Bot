@@ -2,12 +2,16 @@
 // real node:http upstream, and mail on fake transports. No network leaves the
 // test process (fakes listen on 127.0.0.1 or answer in memory).
 import assert from 'node:assert/strict'
+import { execFile } from 'node:child_process'
 import { createServer } from 'node:http'
 import { EventEmitter } from 'node:events'
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
+import { promisify } from 'node:util'
+
+const execFileP = promisify(execFile)
 
 process.env.DS_BOT_GITHUB_OAUTH_CLIENT_ID = 'test-gh-client'
 
@@ -140,6 +144,33 @@ test('a refused dynamic registration falls back to asking for a registered clien
   const resolved = await oauth.resolveClient({ auth: { kind: 'oauth' } }, discovery, 'http://127.0.0.1:9/callback', false, undefined, { fetch: request })
   assert.deepEqual(calls, ['https://as.test/register'])
   assert.equal(resolved, null, 'the row asks for an app client ID instead of ending the sign-in')
+})
+
+test('a stored manual client keeps its secret for the token request', async () => {
+  const discovery = { authorizationServerUrl: 'https://as.test', metadata: { authorization_endpoint: 'https://as.test/auth', token_endpoint: 'https://as.test/token' }, resource: 'r' }
+  const entry = { auth: { kind: 'oauth' } }
+  const stored = { via: 'manual', clientId: 'manual-id', clientSecret: 'manual-secret' }
+  const reused = await oauth.resolveClient(entry, discovery, 'http://127.0.0.1:38517/callback', true, stored)
+  assert.equal(reused.via, 'manual')
+  assert.deepEqual(reused.clientInformation, { client_id: 'manual-id', client_secret: 'manual-secret' })
+  let sent
+  const request = async (url, init) => {
+    url = String(url?.url ?? url)
+    if (url === 'https://as.test/token') { sent = init.headers.get('authorization'); return json({ access_token: 'AT', token_type: 'Bearer' }) }
+    throw new Error(`unfaked ${url}`)
+  }
+  await oauth.exchange(discovery, reused.clientInformation, { code: 'C', codeVerifier: 'v', redirectUri: 'http://127.0.0.1:38517/callback' }, { fetch: request })
+  assert.equal(sent, `Basic ${Buffer.from('manual-id:manual-secret').toString('base64')}`)
+  const publicClient = await oauth.resolveClient(entry, discovery, 'http://127.0.0.1:38517/callback', true, { via: 'manual', clientId: 'public-id' })
+  assert.deepEqual(publicClient.clientInformation, { client_id: 'public-id' })
+})
+
+test('a CIMD client never carries the secret of the client before it', async () => {
+  const discovery = { authorizationServerUrl: 'https://as.test', metadata: { ...AS, client_id_metadata_document_supported: true }, resource: 'r' }
+  const stale = { via: 'cimd', clientId: oauth.CIMD_CLIENT_ID, clientSecret: 'dcr-secret' }
+  const reused = await oauth.resolveClient({ auth: { kind: 'oauth' } }, discovery, 'http://127.0.0.1:38517/callback', true, stale)
+  assert.equal(reused.via, 'cimd')
+  assert.deepEqual(reused.clientInformation, { client_id: oauth.CIMD_CLIENT_ID })
 })
 
 test('browser PKCE carries state, code challenge, and resource; tokens exchange and refresh', async () => {
@@ -1070,4 +1101,16 @@ test('manual client fallback keeps and closes the original OAuth callback listen
   assert.equal(new URL(second.row.url).searchParams.get('redirect_uri'), first.redirectUri)
   await rt.connectorEndpoint('connector-cancel', { id: 'notion' })
   assert.equal(first.listener.listening, false)
+})
+
+test('loading oauth does not load @modelcontextprotocol/client at import time', async () => {
+  const script = `
+    import { registerHooks } from 'node:module'
+    registerHooks({ resolve(specifier, context, next) {
+      if (specifier === '@modelcontextprotocol/client') throw new Error('MCP client loaded at import time')
+      return next(specifier, context)
+    } })
+    await import(${JSON.stringify(new URL('../src/host/connectors/oauth.js', import.meta.url).href)})
+  `
+  await execFileP(process.execPath, ['--input-type=module', '-e', script])
 })
