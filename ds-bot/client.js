@@ -31629,11 +31629,6 @@ function trimmed(value) {
   const text = value >= 100 ? value.toFixed(0) : value >= 10 ? value.toFixed(1) : value.toFixed(2);
   return text.includes(".") ? text.replace(/\.?0+$/, "") : text;
 }
-function tweenValue({ from, to, progress, rangeChanged }) {
-  if (rangeChanged) return to;
-  const part = Math.min(1, Math.max(0, progress));
-  return from + (to - from) * (1 - (1 - part) ** 3);
-}
 function compact(count) {
   for (const [size, unit] of [[1e9, "B"], [1e6, "M"], [1e3, "K"]]) {
     if (count >= size * 0.9995) return `${trimmed(count / size)}${unit}`;
@@ -31694,32 +31689,33 @@ function titleOf2(range, bucket) {
   return dates({ year: "numeric", month: "long" }).format(bucket.start);
 }
 function useTween(value, rangeKey) {
-  const [shown, setShown] = (0, import_react41.useState)(0);
-  const from = (0, import_react41.useRef)(0);
+  const instant = reducedMotion() || typeof requestAnimationFrame !== "function";
+  const [shown, setShown] = (0, import_react41.useState)(() => instant ? value : 0);
+  const from = (0, import_react41.useRef)(instant ? value : 0);
   const key = (0, import_react41.useRef)(rangeKey);
   (0, import_react41.useLayoutEffect)(() => {
-    if (key.current !== rangeKey) {
+    if (key.current !== rangeKey || reducedMotion() || typeof requestAnimationFrame !== "function" || from.current === value) {
       key.current = rangeKey;
-      from.current = value;
-      setShown(tweenValue({ from: value, to: value, progress: 1, rangeChanged: true }));
-      return void 0;
-    }
-    if (reducedMotion() || typeof requestAnimationFrame !== "function") {
       from.current = value;
       setShown(value);
       return void 0;
     }
     const begin = from.current;
     const started = performance.now();
+    let active = true;
     let frame2;
     const step = (now) => {
-      const progress = Math.min(1, (now - started) / 650);
-      from.current = tweenValue({ from: begin, to: value, progress, rangeChanged: false });
+      if (!active) return;
+      const progress = Math.min(1, Math.max(0, (now - started) / 650));
+      from.current = begin + (value - begin) * (1 - (1 - progress) ** 3);
       setShown(from.current);
       if (progress < 1) frame2 = requestAnimationFrame(step);
     };
     frame2 = requestAnimationFrame(step);
-    return () => cancelAnimationFrame(frame2);
+    return () => {
+      active = false;
+      cancelAnimationFrame(frame2);
+    };
   }, [value, rangeKey]);
   return shown;
 }
@@ -31792,18 +31788,17 @@ function Stats({ range, total, previous }) {
     (0, import_react41.createElement)(
       "div",
       { className: "bt-us-stat bt-us-stat-main" },
-      (0, import_react41.createElement)("span", { className: "bt-us-stat-label" }, lastText(range)),
       (0, import_react41.createElement)(
-        "span",
-        { className: "bt-us-stat-value" },
-        compact(shown),
-        (0, import_react41.createElement)("small", null, t("tokens")),
+        "div",
+        { className: "bt-us-stat-head" },
+        (0, import_react41.createElement)("span", { className: "bt-us-stat-label" }, lastText(range)),
         change === null ? null : (0, import_react41.createElement)(
           "span",
           { className: "bt-us-delta", title: compareText(range) },
           `${change >= 0 ? "↑" : "↓"} ${Math.abs(change)}%`
         )
-      )
+      ),
+      (0, import_react41.createElement)("span", { className: "bt-us-stat-value" }, compact(shown), (0, import_react41.createElement)("small", null, t("tokens")))
     ),
     cell(t("Cache hit rate"), `${hitRate(total)}%`),
     cell(t("Output"), compact(total.output)),
@@ -32416,11 +32411,12 @@ var USAGE_CSS = `
 .bt-us-stats{display:grid;grid-template-columns:1.6fr 1fr 1fr 1fr;border-radius:16px;border:1px solid var(--bt-line);background:var(--bt-card);animation:bt-us-in .45s var(--bt-us-ease) backwards}
 .bt-us-stat{display:flex;flex-direction:column;justify-content:flex-end;gap:6px;min-width:0;padding:16px 18px}
 .bt-us-stat+.bt-us-stat{border-left:1px solid var(--bt-line)}
-.bt-us-stat-label{overflow:hidden;font-size:12px;line-height:16px;color:var(--bt-ink-3);white-space:nowrap;text-overflow:ellipsis}
+.bt-us-stat-head{display:flex;align-items:center;justify-content:space-between;gap:8px;min-width:0;min-height:20px}
+.bt-us-stat-label{min-width:0;overflow:hidden;font-size:12px;line-height:16px;color:var(--bt-ink-3);white-space:nowrap;text-overflow:ellipsis}
 .bt-us-stat-value{display:flex;align-items:baseline;gap:6px;min-width:0;font-size:22px;line-height:28px;font-weight:600;letter-spacing:-.01em;font-variant-numeric:tabular-nums;white-space:nowrap}
 .bt-us-stat-main .bt-us-stat-value{font-size:34px;line-height:40px;letter-spacing:-.025em}
 .bt-us-stat-value small{font-size:13px;font-weight:400;letter-spacing:0;color:var(--bt-ink-3)}
-.bt-us-delta{align-self:center;margin-left:2px;padding:0 8px;border-radius:999px;background:var(--bt-tag-bg);color:var(--bt-ink-2);font-size:11px;line-height:20px;font-weight:500;letter-spacing:0}
+.bt-us-delta{flex:none;max-width:60%;overflow:hidden;padding:0 8px;border-radius:999px;background:var(--bt-tag-bg);color:var(--bt-ink-2);font-size:11px;line-height:20px;font-weight:500;letter-spacing:0;font-variant-numeric:tabular-nums;white-space:nowrap;text-overflow:ellipsis}
 .bt-us-card{display:flex;flex-direction:column;gap:12px;min-width:0;padding:14px 18px 16px;border-radius:16px;border:1px solid var(--bt-line);background:var(--bt-card);animation:bt-us-in .45s var(--bt-us-ease) backwards;animation-delay:calc(var(--i,0) * 45ms)}
 .bt-us-card-head{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:32px}
 .bt-us-card-head h3{display:flex;align-items:baseline;gap:8px;min-width:0;margin:0;font-size:13px;line-height:18px;font-weight:600}

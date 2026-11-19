@@ -144,15 +144,6 @@ function trimmed(value) {
   const text = value >= 100 ? value.toFixed(0) : value >= 10 ? value.toFixed(1) : value.toFixed(2)
   return text.includes('.') ? text.replace(/\.?0+$/, '') : text
 }
-// The number under the usage stats counts within one range, but a switch to another
-// range shows its total at once: counting from the old range's total slid the delta
-// badge left and right under the moving digits (#1547).
-export function tweenValue({ from, to, progress, rangeChanged }) {
-  if (rangeChanged) return to
-  const part = Math.min(1, Math.max(0, progress))
-  return from + (to - from) * (1 - (1 - part) ** 3)
-}
-
 // 999,999 reads 1M, not 1000K.
 export function compact(count) {
   for (const [size, unit] of [[1e9, 'B'], [1e6, 'M'], [1e3, 'K']]) {
