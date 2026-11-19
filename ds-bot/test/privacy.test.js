@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join, relative } from 'node:path'
+import { join, relative, sep } from 'node:path'
 import { test } from 'node:test'
 import { createRuntime } from '../index.js'
 import { fakeApproval, fakeContext } from './fake-ctx.js'
@@ -318,6 +318,36 @@ test('other Bots cannot read, write or search what a private Bot keeps', async (
   ]) {
     assert.deepEqual(await run(name, args, 'b'), { ran: true }, `${name} ${JSON.stringify(args)}`)
   }
+})
+
+test('glob and grep can search a managed skill attached through a pack', async t => {
+  const { rt, home, project, run, stop } = await start()
+  t.after(stop)
+  const reader = (await rt.createBot({ name: 'Reader' })).id
+  const name = 'folder-guide'
+  mkdirSync(join(project, 'references'))
+  writeFileSync(join(project, 'SKILL.md'), `---\nname: ${name}\ndescription: Read the guide.\n---\nOpen references/guide.txt.\n`)
+  writeFileSync(join(project, 'references', 'guide.txt'), 'Packaged guide')
+  await rt.capabilitySave({ name, kind: 'skill', source: 'directory', directory: project }, { ui: true })
+  await rt.capabilitySave({ name: 'guides', kind: 'pack', items: [name] }, { ui: true })
+  await rt.capabilityEndpoint('bot-capability', { botId: reader, name: 'guides', attached: true })
+  const library = join(home, 'capability-skills')
+  const bundle = join(library, rt.state.capabilities.items[name].bundleId)
+  writeFileSync(join(project, 'SKILL.md'), '---\nname: other-guide\ndescription: Another guide.\n---\nOpen references/guide.txt.\n')
+  await rt.capabilitySave({ name: 'other-guide', kind: 'skill', source: 'directory', directory: project }, { ui: true })
+  const sibling = join(library, rt.state.capabilities.items['other-guide'].bundleId)
+  for (const [tool, pattern] of [['glob', '**/*.txt'], ['grep', 'guide']]) {
+    for (const path of [bundle, bundle + sep, join(bundle, 'references')]) {
+      assert.deepEqual(await run(tool, { path, pattern }, reader), { ran: true })
+      assert.match((await run(tool, { path, pattern }, 'a')).error, CLOSED)
+    }
+    for (const path of [library, sibling, bundle + '/missing/../references']) {
+      assert.match((await run(tool, { path, pattern }, reader)).error, CLOSED)
+    }
+  }
+  assert.match((await run('write', { file_path: join(bundle, 'references', 'guide.txt'), content: 'x' }, reader)).error, CLOSED)
+  await rt.capabilityEndpoint('bot-capability', { botId: reader, name: 'guides', attached: false })
+  for (const tool of ['glob', 'grep']) assert.match((await run(tool, { path: bundle, pattern: 'guide' }, reader)).error, CLOSED)
 })
 
 test('a link into the folder of a private Bot is closed too', async (t) => {

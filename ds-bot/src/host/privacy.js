@@ -2,7 +2,7 @@
 // what it sends out waits for the user. DSH does not fence reads, so this closes the
 // tools DS Bot owns and checks the paths that the file tools and the shell are given;
 // a shell can still reach any file the account can (see docs/plans).
-import { join, resolve } from 'node:path'
+import { join, resolve, sep } from 'node:path'
 import { within } from './folders.js'
 import { unquote } from './text.js'
 import { openSessions } from './threads.js'
@@ -266,7 +266,12 @@ export function install(rt) {
     }
     if (SEARCH_TOOLS.includes(name)) {
       const where = typeof args.path === 'string' && args.path !== '' ? args.path : '.'
-      const bot = await ownerOfPath(where, { self, search: true, base: folder() })
+      // DSH passes the original operand to ripgrep. Only grant the skill exception
+      // for a full path that resolve did not reinterpret (including across a link).
+      const operand = sep === '\\' ? where.replaceAll('/', sep) : where
+      const absolute = resolve(where)
+      const allowSkillResource = operand === absolute || operand === absolute + sep
+      const bot = await ownerOfPath(where, { self, search: true, base: folder(), allowSkillResource })
         ?? (typeof args.pattern === 'string' && /^([a-z]:|[\\/]|~)/i.test(args.pattern) ? await ownerOfPath(args.pattern.replace(/[*?[{].*$/, ''), { self, search: true, base: folder() }) : undefined)
       if (bot) refuse(bot)
       return

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { test } from 'node:test'
@@ -441,7 +441,7 @@ test('a failed directory reimport preserves the working version', async t => {
   const link = join(directory, 'linked-folder')
   symlinkSync(join(directory, 'references'), link, 'junction')
   await assert.rejects(rt.capabilityEndpoint('capability-save', { ...input, originalName: name }), /symbolic link/i)
-  rmSync(link)
+  unlinkSync(link)
 
   writeFileSync(manifest, content.replace('description:', 'metadata: &loop\n  self: *loop\ndescription:'))
   await assert.rejects(rt.capabilityEndpoint('capability-save', { ...input, originalName: name }), /metadata must not contain circular references/i)
