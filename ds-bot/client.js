@@ -37317,7 +37317,7 @@ function PreferenceSelect({ label, value, options, disabled, pick: pick2 }) {
     }, (0, import_react51.createElement)("span", { className: "bt-menu-label" }, option.label), option.id === value ? (0, import_react51.createElement)(CheckIcon) : null))), document.body) : null
   );
 }
-function PreferenceRow({ title, description, value, options, disabled, save }) {
+function PreferenceRow({ title, description, value, options, disabled, save, saveUnchanged = false }) {
   const [busy, setBusy] = (0, import_react51.useState)(false);
   const [failed, setFailed] = (0, import_react51.useState)(false);
   return (0, import_react51.createElement)(
@@ -37336,7 +37336,7 @@ function PreferenceRow({ title, description, value, options, disabled, save }) {
       options,
       disabled: disabled || busy,
       pick: (next) => {
-        if (next === value) return;
+        if (next === value && !saveUnchanged) return;
         setBusy(true);
         setFailed(false);
         Promise.resolve().then(() => save(next)).catch(() => setFailed(true)).finally(() => setBusy(false));
@@ -37379,6 +37379,7 @@ function LanguagePreference({ preferences }) {
   return (0, import_react51.createElement)(PreferenceRow, {
     title: locale.bind("settings.locale")("language.title"),
     value: snapshot.active,
+    saveUnchanged: true,
     options: snapshot.locales.map(({ id, label }) => ({ id, label })),
     save: (id) => locale.setLocale(id)
   });

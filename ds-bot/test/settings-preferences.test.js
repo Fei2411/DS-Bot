@@ -121,6 +121,18 @@ test('language choices come from the public locale catalog, retaining Simplified
   assert.deepEqual(selected, ['zh'])
 })
 
+test('explicitly choosing the detected language already on screen still persists it', async () => {
+  const selected = []
+  const prefs = { locale: { ...locale, setLocale: async id => { selected.push(id) } } }
+  const row = rows('language', prefs)
+  const tree = row.type(row.props)
+  const select = tree.props.children[1].props.children[0]
+  assert.equal(select.props.value, 'zh-TW')
+  select.props.pick('zh-TW')
+  await new Promise(resolve => setImmediate(resolve))
+  assert.deepEqual(selected, ['zh-TW'])
+})
+
 test('permission options use the catalog defaults only, localize builtins, and retain custom names', () => {
   assert.deepEqual(plain(permissionOptions(null, key => key)), [])
   assert.deepEqual(plain(permissionOptions({ defaultOptions: [

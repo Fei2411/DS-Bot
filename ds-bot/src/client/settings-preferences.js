@@ -65,7 +65,7 @@ export function PreferenceSelect({ label, value, options, disabled, pick }) {
     }, h('span', { className: 'bt-menu-label' }, option.label), option.id === value ? h(CheckIcon) : null))), document.body) : null)
 }
 
-export function PreferenceRow({ title, description, value, options, disabled, save }) {
+export function PreferenceRow({ title, description, value, options, disabled, save, saveUnchanged = false }) {
   const [busy, setBusy] = useState(false)
   const [failed, setFailed] = useState(false)
   return h('div', { className: 'bt-set-row' },
@@ -75,7 +75,7 @@ export function PreferenceRow({ title, description, value, options, disabled, sa
     h('div', { className: 'bt-set-control' }, h(PreferenceSelect, {
       label: title, value, options, disabled: disabled || busy,
       pick: (next) => {
-        if (next === value) return
+        if (next === value && !saveUnchanged) return
         setBusy(true)
         setFailed(false)
         Promise.resolve().then(() => save(next)).catch(() => setFailed(true)).finally(() => setBusy(false))
@@ -115,6 +115,7 @@ function LanguagePreference({ preferences }) {
   const snapshot = useSyncExternalStore(listener => locale.subscribe(listener), () => locale.getSnapshot())
   return h(PreferenceRow, {
     title: locale.bind('settings.locale')('language.title'), value: snapshot.active,
+    saveUnchanged: true,
     options: snapshot.locales.map(({ id, label }) => ({ id, label })), save: id => locale.setLocale(id),
   })
 }
