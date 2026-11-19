@@ -24,8 +24,9 @@ function useDark(): boolean {
   const system = useColorScheme() === 'dark'
   const [override, setOverride] = useState<string | null>(null)
   useEffect(() => {
-    void readPrefs().then(prefs => setOverride(prefs.theme ?? 'system'))
-    return onPrefsChange(() => void readPrefs().then(prefs => setOverride(prefs.theme ?? 'system')))
+    const read = () => void readPrefs().then(prefs => setOverride(prefs.theme ?? 'system')).catch(() => setOverride('system'))
+    read()
+    return onPrefsChange(read)
   }, [])
   return override === 'dark' || (override !== 'light' && system)
 }
@@ -39,8 +40,9 @@ function useLang(): string | undefined {
       setLang(next)
       setLangState(next)
     }
-    void readPrefs().then(apply)
-    return onPrefsChange(() => void readPrefs().then(apply))
+    const read = () => void readPrefs().then(apply).catch(() => apply({}))
+    read()
+    return onPrefsChange(read)
   }, [])
   return lang
 }
@@ -92,7 +94,7 @@ function Linked({ computer, identity, lang }: { computer: SavedComputer; identit
   )
 }
 
-function Boot() {
+function Boot({ lang }: { lang?: string }) {
   const { p } = useTheme()
   const [identity, setIdentity] = useState<PhoneIdentity | null>(null)
   const [computer, setComputer] = useState<SavedComputer | null | undefined>(undefined)
@@ -100,7 +102,6 @@ function Boot() {
   const [adding, setAdding] = useState(false)
   const [offer, setOffer] = useState<string | null>(null)
   const [seenReady, setSeenReady] = useState(false)
-  const lang = useLang()
 
   useEffect(() => {
     void loadSeen().finally(() => setSeenReady(true))
@@ -141,12 +142,16 @@ function Boot() {
 
 export default function App() {
   const dark = useDark()
+  const lang = useLang()
+  const rootTheme = useMemo(() => ({ dark, p: palette(dark) }), [dark])
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
-        <ErrorBoundary>
-          <BrowserSession><Boot /></BrowserSession>
-        </ErrorBoundary>
+        <ThemeContext.Provider value={rootTheme}>
+          <ErrorBoundary>
+            <BrowserSession><Boot lang={lang} /></BrowserSession>
+          </ErrorBoundary>
+        </ThemeContext.Provider>
         <StatusBar style={dark ? 'light' : 'dark'} />
       </SafeAreaProvider>
     </GestureHandlerRootView>

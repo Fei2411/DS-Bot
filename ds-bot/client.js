@@ -16474,6 +16474,7 @@ button.bt-set-row:hover .bt-chevron{transform:translateX(2px);color:var(--bt-ink
 .bt-phone-qr rect{fill:var(--bt-qr-paper)}
 .bt-phone-qr path{fill:var(--bt-qr-ink)}
 .bt-phone-pair-copy{display:flex;flex-direction:column;gap:8px;font-size:14px;line-height:20px}
+.bt-phone-pair-actions{display:flex;flex-wrap:wrap;gap:8px}
 @media(max-width:700px){.bt-phone-pair{flex-direction:column;align-items:flex-start}}
 
 /* Settings → Connectors. */
@@ -34542,11 +34543,16 @@ function PhonePage({ roster, actions, Section: Section2, Row: Row4 }) {
   const [server, setServer] = (0, import_react43.useState)(phone.server);
   const [busy, setBusy] = (0, import_react43.useState)(false);
   const [error, setError] = (0, import_react43.useState)(null);
+  const [copied, setCopied] = (0, import_react43.useState)(false);
+  const copyTimer = (0, import_react43.useRef)(null);
   const [, tick] = (0, import_react43.useState)(0);
   (0, import_react43.useEffect)(() => {
     setServer(phone.server);
   }, [phone.server]);
+  (0, import_react43.useEffect)(() => () => clearTimeout(copyTimer.current), []);
   (0, import_react43.useEffect)(() => {
+    setCopied(false);
+    clearTimeout(copyTimer.current);
     if (!phone.pairing) return void 0;
     const timer = setInterval(() => tick((count) => count + 1), 15e3);
     return () => clearInterval(timer);
@@ -34560,8 +34566,26 @@ function PhonePage({ roster, actions, Section: Section2, Row: Row4 }) {
     if (busy || server.trim() === phone.server) return;
     void run2(actions.phoneSet({ server }));
   };
+  const copyBrowserLink = (url) => {
+    const task = navigator.clipboard?.writeText(url);
+    if (task === void 0) {
+      setError(t("Clipboard is not available"));
+      return;
+    }
+    void run2(task.then(() => {
+      setCopied(true);
+      clearTimeout(copyTimer.current);
+      copyTimer.current = setTimeout(() => setCopied(false), 2e3);
+    }));
+  };
   const online = phone.on && phone.status === "online";
-  const browserUrl = phone.pairing ? browserPairingUrl(phone.server, phone.pairing.browserUri) : null;
+  let browserUrl = null;
+  if (phone.pairing?.browserUri) {
+    try {
+      browserUrl = browserPairingUrl(phone.server, phone.pairing.browserUri);
+    } catch {
+    }
+  }
   return (0, import_react43.createElement)(
     "div",
     { className: "bt-phone" },
@@ -34602,13 +34626,13 @@ function PhonePage({ roster, actions, Section: Section2, Row: Row4 }) {
         { className: "bt-phone-pair-copy" },
         (0, import_react43.createElement)("span", null, t("Scan this code with the DS Bot app on your phone.")),
         (0, import_react43.createElement)("span", { className: "bt-set-hint" }, t("The code works once. It stops working in {count} min.", { count: minutesLeft(phone.pairing.expiresAt) })),
-        (0, import_react43.createElement)(
+        browserUrl !== null ? (0, import_react43.createElement)(
           "div",
-          null,
+          { className: "bt-phone-pair-actions" },
           (0, import_react43.createElement)("a", { className: "bt-soft bt-soft-sm", href: browserUrl, target: "_blank", rel: "noopener noreferrer" }, t("Open in a browser")),
-          (0, import_react43.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: busy, onClick: () => void run2(navigator.clipboard?.writeText(browserUrl) ?? Promise.reject(new Error(t("Clipboard is not available")))) }, t("Copy browser link"))
-        ),
-        (0, import_react43.createElement)("span", { className: "bt-set-hint" }, t("The browser runs the page the Server sends. Only use a Server you trust.")),
+          (0, import_react43.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: busy, onClick: () => copyBrowserLink(browserUrl) }, copied ? t("Copied") : t("Copy browser link"))
+        ) : null,
+        browserUrl !== null ? (0, import_react43.createElement)("span", { className: "bt-set-hint" }, t("The browser runs the page the Server sends. Only use a Server you trust.")) : null,
         (0, import_react43.createElement)("div", null, (0, import_react43.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: busy, onClick: () => void run2(actions.phonePairCancel()) }, t("Cancel")))
       )
     ) : (0, import_react43.createElement)(

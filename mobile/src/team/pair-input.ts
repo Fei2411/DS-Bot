@@ -11,6 +11,12 @@ export function parsePairingInput(input: string) {
   }
 }
 
+export function parsePhonePairingInput(input: string) {
+  const offer = parsePairingInput(input)
+  if (offer.device === 'browser') throw new Error('This is a browser pairing link. In Settings → Phone on the computer, scan the QR code to pair the phone app.')
+  return offer
+}
+
 export function parseWebPairingInput(input: string) {
   const offer = parsePairingInput(input)
   if (offer.device !== 'browser') throw new Error("This is the phone app's code. In Settings → Phone on the computer, use Open in a browser or Copy browser link.")

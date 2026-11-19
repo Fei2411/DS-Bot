@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { deviceIdFor, generateKeyPair, pairingUri } from '../../../link/src/index.ts'
-import { parsePairingInput, parseWebPairingInput } from './pair-input.ts'
+import { parsePairingInput, parsePhonePairingInput, parseWebPairingInput } from './pair-input.ts'
 import { takePairingFragment } from './pair-fragment.ts'
 import { getLang, setLang, t } from '../ui/i18n.ts'
 
@@ -25,6 +25,25 @@ test('web paste and startup fragment paths accept browser offers and refuse phon
     }
   }
   assert.deepEqual(parsePairingInput(uri), offer)
+})
+
+test('native phone pairing accepts phone offers and refuses browser offers to prevent downgrade', context => {
+  const previous = getLang()
+  context.after(() => setLang(previous))
+  const browser = { ...offer, device: 'browser' as const }
+  const browserRaw = pairingUri(browser)
+  for (const lang of ['en', 'zh'] as const) {
+    setLang(lang)
+    assert.deepEqual(parsePhonePairingInput(uri), offer)
+    for (const input of [browserRaw, `https://relay.test/web/#pair=${encodeURIComponent(browserRaw)}`]) {
+      assert.throws(
+        () => parsePhonePairingInput(input),
+        error => error instanceof Error && t(error.message) === (lang === 'en'
+          ? 'This is a browser pairing link. In Settings → Phone on the computer, scan the QR code to pair the phone app.'
+          : '这是浏览器配对链接。请在电脑的设置 → 手机中扫描二维码以配对手机 App。'),
+      )
+    }
+  }
 })
 
 test('pair input accepts raw pairing URIs and copied browser links without changing the offer', () => {

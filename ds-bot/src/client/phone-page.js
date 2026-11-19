@@ -1,4 +1,4 @@
-import { createElement as h, useEffect, useState } from 'react'
+import { createElement as h, useEffect, useRef, useState } from 'react'
 import qrcode from 'qrcode-generator'
 import { Switch } from './bot-settings.js'
 import { dateLocale, t } from './i18n.js'
@@ -44,9 +44,14 @@ export function PhonePage({ roster, actions, Section, Row }) {
   const [server, setServer] = useState(phone.server)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
+  const [copied, setCopied] = useState(false)
+  const copyTimer = useRef(null)
   const [, tick] = useState(0)
   useEffect(() => { setServer(phone.server) }, [phone.server])
+  useEffect(() => () => clearTimeout(copyTimer.current), [])
   useEffect(() => {
+    setCopied(false)
+    clearTimeout(copyTimer.current)
     if (!phone.pairing) return undefined
     const timer = setInterval(() => tick(count => count + 1), 15_000)
     return () => clearInterval(timer)
@@ -60,8 +65,23 @@ export function PhonePage({ roster, actions, Section, Row }) {
     if (busy || server.trim() === phone.server) return
     void run(actions.phoneSet({ server }))
   }
+  const copyBrowserLink = (url) => {
+    const task = navigator.clipboard?.writeText(url)
+    if (task === undefined) {
+      setError(t('Clipboard is not available'))
+      return
+    }
+    void run(task.then(() => {
+      setCopied(true)
+      clearTimeout(copyTimer.current)
+      copyTimer.current = setTimeout(() => setCopied(false), 2_000)
+    }))
+  }
   const online = phone.on && phone.status === 'online'
-  const browserUrl = phone.pairing ? browserPairingUrl(phone.server, phone.pairing.browserUri) : null
+  let browserUrl = null
+  if (phone.pairing?.browserUri) {
+    try { browserUrl = browserPairingUrl(phone.server, phone.pairing.browserUri) } catch { /* malformed server URL */ }
+  }
   return h('div', { className: 'bt-phone' },
     h(Section, { title: t('Connection') },
       h(Row, { label: t('Phone access'), hint: statusText(phone), className: phone.error || phone.status === 'offline' ? 'bt-phone-warn' : '' },
@@ -80,10 +100,12 @@ export function PhonePage({ roster, actions, Section, Row }) {
         h('div', { className: 'bt-phone-pair-copy' },
           h('span', null, t('Scan this code with the DS Bot app on your phone.')),
           h('span', { className: 'bt-set-hint' }, t('The code works once. It stops working in {count} min.', { count: minutesLeft(phone.pairing.expiresAt) })),
-          h('div', null,
-            h('a', { className: 'bt-soft bt-soft-sm', href: browserUrl, target: '_blank', rel: 'noopener noreferrer' }, t('Open in a browser')),
-            h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: busy, onClick: () => void run(navigator.clipboard?.writeText(browserUrl) ?? Promise.reject(new Error(t('Clipboard is not available')))) }, t('Copy browser link'))),
-          h('span', { className: 'bt-set-hint' }, t('The browser runs the page the Server sends. Only use a Server you trust.')),
+          browserUrl !== null
+            ? h('div', { className: 'bt-phone-pair-actions' },
+              h('a', { className: 'bt-soft bt-soft-sm', href: browserUrl, target: '_blank', rel: 'noopener noreferrer' }, t('Open in a browser')),
+              h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: busy, onClick: () => copyBrowserLink(browserUrl) }, copied ? t('Copied') : t('Copy browser link')))
+            : null,
+          browserUrl !== null ? h('span', { className: 'bt-set-hint' }, t('The browser runs the page the Server sends. Only use a Server you trust.')) : null,
           h('div', null, h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: busy, onClick: () => void run(actions.phonePairCancel()) }, t('Cancel')))))
       : h(Row, { label: t('Show a QR code'), hint: online ? t('Your phone scans it once. After that it connects by itself.') : t('Turn on phone access first') },
         h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: busy || !online, onClick: () => void run(actions.phonePair()) }, t('Show')))),

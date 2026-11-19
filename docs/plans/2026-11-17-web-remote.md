@@ -27,9 +27,9 @@
 
 ### 浏览器安全边界
 
-主机按使用的配对码决定设备 kind，而不是检测客户端类型。手机二维码是手机权限凭据：任何持有码的人都可以把任意客户端配成手机。浏览器链接带 `device=browser` 标记，网页拒绝无此标记的手机链接，只是避免正常用户误用；修改过的网页或脚本可以跳过检查。主机没有可靠信号区分浏览器和手机：握手端到端加密，浏览器的 Origin 请求头也只有不可信的 Relay 能看到。因此权限控制依赖把手机二维码留在电脑屏幕上，不向远程设备提供它；不要把二维码或手机配对链接交给不应获得手机权限的客户端。
+主机按使用的配对码决定设备 kind，而不是检测客户端类型。手机二维码是手机权限凭据：任何持有码的人都可以把任意客户端配成手机。浏览器链接带 `device=browser` 标记，网页拒绝无此标记的手机链接，原生手机 App 也对称拒绝带 `device=browser` 的浏览器链接，防止误粘贴浏览器链接把手机永久降级为受限浏览器；修改过的客户端仍无法通过浏览器码提升权限。主机没有可靠信号区分浏览器和手机：握手端到端加密，浏览器的 Origin 请求头也只有不可信的 Relay 能看到。因此权限控制依赖把手机二维码留在电脑屏幕上，不向远程设备提供它；不要把二维码或手机配对链接交给不应获得手机权限的客户端。
 
-- 浏览器不能完成原生的每次设备解锁。所有 `GATED` 操作（提供商密钥、secret 修改和授权、连接器、能力授权和修改、安装更新）在网页端直接拒绝；电脑也按经过加密握手认证的调用设备 id 查询 kind，拒绝浏览器的这些接口，返回 `bot/refused` 和 “Not available from a browser. Use the phone app or the computer.”。手机仍走原有解锁流程。客户端名单在 `mobile/src/team/gated.ts`，主机名单在 `ds-bot/src/host/phone.js`，测试保证一致。
+- 浏览器不能完成原生的每次设备解锁，且不得调用仅限桌面端或高危宿主能力的接口。主机与网页客户端共享最小权限白名单（`BROWSER_ALLOWED`，位于 `ds-bot/src/shared/browser-endpoints.js`），在 `ds-bot/src/host/phone.js` 上按默认拒绝（default-deny）与未知设备 fail-closed 执行：查不到已配对设备时一律拒绝；浏览器仅允许调用白名单内的聊天、团队读写与安全取消接口，其余所有接口（包括全部 `GATED` 敏感操作、`connector-add`/`connector-remove`/`connector-set`/`connector-import*`、`secret-encrypt`/`decrypt`/`unlock`/`store`、`provider-models`/`provider-models-save`、`im-*`、`local-agent-*`、`mail-*`、`computer-*`、`phone-*` 以及未来新增的未审查接口）均被主机拒绝，返回 `bot/refused` 和 “Not available from a browser. Use the phone app or the computer.”。手机仍走原有解锁流程，单测保证 `BROWSER_ALLOWED` 与 `GATED` 严格互斥且覆盖全部宿主路由。
 - 网页存储的每个值使用 AES-GCM 加密，随机 96 位 IV，并把存储键名绑定为认证附加数据。localStorage 只有版本、IV 和密文；不可导出的 AES CryptoKey 保存在 IndexedDB。不保留明文设备私钥；旧明文、缺失密钥或认证失败的值按空值读取，因此需要重新配对。删除旧浏览器设备可从电脑撤销它的身份。
 - 电脑在浏览器链接旁提示：浏览器运行的是 Server 发来的网页，只使用可信 Server。Server 帮助不再无条件声称它无法读取内容；原生 App 的代码独立于 Relay，而网页代码由 Relay 发布者控制。
 

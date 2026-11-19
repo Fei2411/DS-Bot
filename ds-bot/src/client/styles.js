@@ -701,6 +701,7 @@ button.bt-set-row:hover .bt-chevron{transform:translateX(2px);color:var(--bt-ink
 .bt-phone-qr rect{fill:var(--bt-qr-paper)}
 .bt-phone-qr path{fill:var(--bt-qr-ink)}
 .bt-phone-pair-copy{display:flex;flex-direction:column;gap:8px;font-size:14px;line-height:20px}
+.bt-phone-pair-actions{display:flex;flex-wrap:wrap;gap:8px}
 @media(max-width:700px){.bt-phone-pair{flex-direction:column;align-items:flex-start}}
 
 /* Settings → Connectors. */

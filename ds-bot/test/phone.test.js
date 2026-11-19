@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { after, test } from 'node:test'
@@ -7,7 +7,7 @@ import { apply } from '../index.js'
 import { RelayTransport, RpcClient, SecureTransport, deviceIdFor, generateKeyPair, parsePairingUri, randomToken } from '../link.js'
 import { startRelayServer } from '../../link/server/server.ts'
 import { fakeContext } from './fake-ctx.js'
-import { BROWSER_GATED, DEFAULT_SERVER, install as installPhone } from '../src/host/phone.js'
+import { BROWSER_ALLOWED, DEFAULT_SERVER, install as installPhone, remoteAccessError } from '../src/host/phone.js'
 
 const TEAM = {
   version: 1,
@@ -163,7 +163,42 @@ test('remote state and live polls never disclose pairing offers, including attac
   }
 })
 
-test('the host refuses every gated endpoint for browsers, but still serves phones', async t => {
+test('the host enforces a default-deny browser allowlist across every channel route, and fails closed on unknown devices', async t => {
+  const channelSrc = readFileSync(new URL('../src/host/channel.js', import.meta.url), 'utf8')
+  const computerSrc = readFileSync(new URL('../src/host/computer/index.js', import.meta.url), 'utf8')
+  const gatedSrc = readFileSync(new URL('../../mobile/src/team/gated.ts', import.meta.url), 'utf8')
+  const channelRoutes = new Set([...channelSrc.matchAll(/case\s+'([^']+)':/g)].map(match => match[1]))
+  const computerRoutes = [...computerSrc.matchAll(/case\s+'([^']+)':/g)].map(match => `computer-${match[1]}`)
+  const gatedRoutes = new Set([...gatedSrc.matchAll(/'([^']+)'/g)].map(match => match[1]))
+  const allHostRoutes = new Set([...channelRoutes, ...computerRoutes])
+
+  // Every allowlisted endpoint must be a real host route and strictly disjoint from GATED.
+  for (const endpoint of BROWSER_ALLOWED) {
+    assert.equal(channelRoutes.has(endpoint), true, `allowlisted route ${endpoint} missing from channel.js`)
+    assert.equal(gatedRoutes.has(endpoint), false, `gated route ${endpoint} must never be in BROWSER_ALLOWED`)
+  }
+  // High-risk RCE, vault, provider, IM, mail, local-agent, computer-use, and unknown routes must be denied to browsers.
+  const mustDenyBrowser = [
+    ...gatedRoutes,
+    'connector-add', 'connector-remove', 'connector-set', 'connector-import', 'connector-import-scan', 'connector-cancel',
+    'secret-encrypt', 'secret-decrypt', 'secret-unlock', 'secret-store',
+    'provider-models', 'provider-models-save',
+    'im-add', 'im-update', 'im-remove', 'im-pair', 'im-unpair', 'im-chat', 'im-retry', 'im-login-start', 'im-login-wait',
+    'local-agents', 'local-agent-models', 'local-agent-refresh', 'local-agent-add', 'local-agent-update', 'local-agent-remove',
+    'mail-account-add', 'mail-account-remove', 'mail-rule-set', 'mail-send-answer', 'mail-sign-in-code',
+    ...computerRoutes,
+    'future-unlisted-endpoint',
+  ]
+  for (const endpoint of mustDenyBrowser) {
+    assert.equal(BROWSER_ALLOWED.has(endpoint), false, `${endpoint} must not be in BROWSER_ALLOWED`)
+  }
+  // Fail-closed checks when device lookup returns undefined or an unexpected kind.
+  assert.deepEqual(remoteAccessError(undefined, 'state'), { code: 'bot/refused', message: 'This device is not paired', details: {} })
+  assert.deepEqual(remoteAccessError(undefined, 'connector-add'), { code: 'bot/refused', message: 'This device is not paired', details: {} })
+  assert.deepEqual(remoteAccessError({ deviceId: 'x', kind: 'unknown' }, 'connector-add'), { code: 'bot/refused', message: 'Not available from a browser. Use the phone app or the computer.', details: {} })
+  assert.deepEqual(remoteAccessError({ deviceId: 'x', kind: 'phone' }, 'phone-pair'), { code: 'bot/refused', message: 'Phones are paired and removed on the computer', details: {} })
+  assert.equal(remoteAccessError({ deviceId: 'x', kind: 'phone' }, 'connector-add'), undefined)
+
   const home = mkdtempSync(join(tmpdir(), 'dsb-gated-'))
   const ctx = fakeContext()
   const rt = { home, ctx, state: { revision: 0 }, load: async () => {}, readOnly: () => undefined, feedTap: () => () => {} }
@@ -173,20 +208,27 @@ test('the host refuses every gated endpoint for browsers, but still serves phone
   t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
   await rt.phoneEndpoint('phone-set', { server: server.url, on: true })
   await until(async () => rt.phoneView(), view => view.status === 'online')
+
+  const deniedEndpoints = [...allHostRoutes].filter(endpoint => !endpoint.startsWith('phone-') && !BROWSER_ALLOWED.has(endpoint))
+  deniedEndpoints.push('future-unlisted-endpoint')
   for (const kind of ['browser', 'phone']) {
     const view = await rt.phoneEndpoint('phone-pair', {})
     const offer = parsePairingUri(kind === 'browser' ? view.pairing.browserUri : view.pairing.uri)
     const link = phone(offer, { pairingCode: offer.code, name: kind === 'browser' ? 'iPhone' : 'Web browser' })
     await link.client.connect()
-    for (const endpoint of BROWSER_GATED) {
-      const answer = await link.client.rpc('bot', { endpoint })
-      if (kind === 'browser') assert.deepEqual(answer, { ok: false, error: { code: 'bot/refused', message: 'Not available from a browser. Use the phone app or the computer.', details: {} } })
-      else assert.deepEqual(answer, { ok: true, value: endpoint })
+    for (const endpoint of deniedEndpoints) {
+      const payload = endpoint === 'connector-add' ? { name: 'pwn', command: 'id', args: [] } : {}
+      const answer = await link.client.rpc('bot', { endpoint, payload })
+      if (kind === 'browser') assert.deepEqual(answer, { ok: false, error: { code: 'bot/refused', message: 'Not available from a browser. Use the phone app or the computer.', details: {} } }, endpoint)
+      else assert.deepEqual(answer, { ok: true, value: endpoint }, endpoint)
     }
-    assert.equal((await link.client.rpc('bot', { endpoint: 'state' })).ok, true)
+    for (const endpoint of ['state', 'send', 'chat', 'secret-cancel', 'connector-request-cancel']) {
+      assert.equal((await link.client.rpc('bot', { endpoint })).ok, true, `${kind} should reach ${endpoint}`)
+    }
     await link.client.close()
   }
-  assert.deepEqual(served, ['state', ...BROWSER_GATED, 'state'])
+  const browserServed = served.slice(0, 5)
+  assert.deepEqual(browserServed, ['state', 'send', 'chat', 'secret-cancel', 'connector-request-cancel'])
 })
 
 test('the link strips pairing offers from feed events without changing the desktop payload', async t => {

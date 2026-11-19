@@ -8,20 +8,21 @@ import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { hostname } from 'node:os'
 import { join } from 'node:path'
 import { DeviceRegistry, HostLink, LINK_PATH, deviceIdFor, generateKeyPair, pairingUri, randomToken } from '../../link.js'
+import { BROWSER_ALLOWED } from '../shared/browser-endpoints.js'
 
 const FILE = 'phone.json'
 const SERVER = /^wss?:\/\/[^\s/?#@]+(\/[^\s?#]*)?$/i
 export const DEFAULT_SERVER = `wss://relay.dsbot.app${LINK_PATH}`
+export { BROWSER_ALLOWED }
 
-// Keep aligned with mobile/src/team/gated.ts; browsers cannot satisfy the native unlock gate.
-export const BROWSER_GATED = new Set([
-  'provider-key', 'provider-add', 'provider-remove',
-  'secret-set', 'secret-update', 'secret-delete', 'secret-allow',
-  'connector-connect', 'connector-disconnect', 'connector-retry',
-  'connector-client', 'connector-sign-in-code',
-  'capability-save', 'capability-delete', 'capability-approve', 'bot-capability',
-  'update-install', 'dsh-update-install',
-])
+export function remoteAccessError(device, endpoint) {
+  if (device === undefined) return { code: 'bot/refused', message: 'This device is not paired', details: {} }
+  if (endpoint.startsWith('phone-')) return { code: 'bot/refused', message: 'Phones are paired and removed on the computer', details: {} }
+  if (device.kind !== 'phone' && !BROWSER_ALLOWED.has(endpoint)) {
+    return { code: 'bot/refused', message: 'Not available from a browser. Use the phone app or the computer.', details: {} }
+  }
+  return undefined
+}
 
 const invalid = message => Object.assign(new Error(message), { code: 'bot/invalid' })
 
@@ -78,10 +79,12 @@ export function install(rt) {
   // through the relay instead of waiting for the revision event and a read.
   const callBot = async (params, signal, deviceId) => {
     const endpoint = String(params?.endpoint ?? '')
-    if (endpoint.startsWith('phone-')) return { ok: false, error: { code: 'bot/refused', message: 'Phones are paired and removed on the computer', details: {} } }
-    if (BROWSER_GATED.has(endpoint) && registry.list().some(device => device.deviceId === deviceId && device.kind === 'browser')) {
-      return { ok: false, error: { code: 'bot/refused', message: 'Not available from a browser. Use the phone app or the computer.', details: {} } }
-    }
+    // Fail closed if the calling device is missing, unknown, or was revoked.
+    const device = typeof deviceId === 'string' && deviceId !== ''
+      ? registry.list().find(entry => entry.deviceId === deviceId)
+      : undefined
+    const denied = remoteAccessError(device, endpoint)
+    if (denied !== undefined) return { ok: false, error: denied }
     const wanted = params?.state !== null && typeof params?.state === 'object' && !Array.isArray(params.state) ? params.state : undefined
     const before = rt.state.revision
     const answer = await serve(endpoint, params?.payload ?? null, signal)
