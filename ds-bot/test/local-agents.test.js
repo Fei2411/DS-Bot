@@ -1753,6 +1753,14 @@ test('ACP upstream error data preserves code, detail and status (#1806)', async 
     }))),
     { data: { code: 'context_length_exceeded', detail: 'Request rejected' }, code: 'CONTEXT_WINDOW_EXCEEDED', text: 'Request rejected' },
     ...[
+      ['Too many tokens', 'CONTEXT_WINDOW_EXCEEDED'],
+      ['Login required', 'LOCAL_AGENT_SIGNIN'],
+      ['Rate limit reached', 'LOCAL_AGENT_QUOTA'],
+    ].flatMap(([text, code]) => [
+      { data: { detail: text }, code, text },
+      { data: { error: { message: text } }, code, text },
+    ]),
+    ...[
       ['Login required', 'LOCAL_AGENT_SIGNIN'],
       ['Rate limit reached', 'LOCAL_AGENT_QUOTA'],
       ['Too many tokens', 'CONTEXT_WINDOW_EXCEEDED'],
