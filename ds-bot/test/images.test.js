@@ -74,6 +74,68 @@ test('image OCR retries transient TRANSPORT failures instead of caching a 2-minu
   assert.match(line, /Image: Retry banner\./)
 })
 
+test('imagesForGroup stays neutral when no OCR model is available, while text-only members still receive the fallback warning', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'dsb-images-'))
+  t.after(() => rmSync(home, { recursive: true, force: true }))
+  const hooks = new Map()
+  const sent = []
+  const ctx = {
+    on: (name, fn) => { hooks.set(name, fn); return () => hooks.delete(name) },
+    get: name => (name === 'attachments' ? { imageHostPath: () => '/tmp/shot.png' } : undefined),
+    llm: {
+      resolveModelInfo: async (_provider, model) => ({
+        inputModalities: model === 'text-only' ? ['text'] : ['text', 'image'],
+      }),
+      async *stream(options) {
+        sent.push(options)
+        yield { type: 'finish', reason: { kind: 'stop' } }
+      },
+    },
+  }
+  const rt = {
+    ctx,
+    config: {},
+    home,
+    load: async () => {},
+    warn: () => {},
+    roomOf: () => undefined,
+    catalog: async () => [
+      { ref: 'deepseek/text-only', name: 'TextOnly', input: ['text'] },
+      { ref: 'local-claude-code/sonnet', name: 'Claude', input: ['text', 'image'] },
+    ],
+    defaultRef: () => 'deepseek/text-only',
+    isLocalAgentRef: ref => typeof ref === 'string' && ref.startsWith('local-'),
+    ownRequest: () => false,
+    tagUsage: messages => messages,
+  }
+  imagesInstall(rt)
+
+  const attachment = { attachmentId: 'sha256:1234567890abcdef', name: 'shot.png' }
+  const [groupLine] = await rt.imagesForGroup([attachment], 'r1')
+  assert.equal(groupLine, '[Image "shot.png" (read-only copy saved at "/tmp/shot.png") attached]')
+  assert.doesNotMatch(groupLine, /could not be read|Ask the user/i)
+
+  const streamHook = hooks.get('llm/stream')
+  const msg = { role: 'user', content: [{ type: 'text', text: groupLine }, { type: 'image', attachment }] }
+  // Vision member passes straight through with the raw image block intact.
+  let passedVision = false
+  const visionChunks = []
+  for await (const chunk of streamHook({ sessionId: 'm1', provider: 'local-claude-code', model: 'sonnet', messages: [msg] }, async function* () {
+    passedVision = true
+    yield { type: 'finish', reason: { kind: 'stop' } }
+  })) visionChunks.push(chunk)
+  assert.equal(passedVision, true)
+  assert.equal(visionChunks.length, 1)
+
+  // Text-only member rewrites the raw image block into an explicit "you cannot see images" fallback.
+  const textChunks = []
+  for await (const chunk of streamHook({ sessionId: 'm2', provider: 'deepseek', model: 'text-only', messages: [msg] }, async function* () {})) textChunks.push(chunk)
+  assert.equal(textChunks.length, 1)
+  assert.equal(sent.length, 1)
+  assert.equal(sent[0].messages[0].content[1].type, 'text')
+  assert.match(sent[0].messages[0].content[1].text, /you cannot see images and it could not be read right now/i)
+})
+
 test('assembleLlmStream forwards lifetime disposal signal to in-flight streams and stops on disabled retry policies', async () => {
   const lifetime = new AbortController()
   let seenSignal

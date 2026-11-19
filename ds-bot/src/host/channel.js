@@ -255,7 +255,8 @@ export function install(rt) {
       if (sizes.length === 0) delete state.prefs.memoryLimits
       else state.prefs.memoryLimits = { ...state.prefs.memoryLimits, ...Object.fromEntries(sizes) }
     }
-    return rt.save()
+    await rt.save()
+    if (body.defaultBotModel !== undefined) await rt.syncRoomSessions?.()
   }
 
   const handle = async (endpoint, payload, signal) => {
