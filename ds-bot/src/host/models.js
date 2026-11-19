@@ -357,20 +357,78 @@ export function install(rt) {
   // Recheck group Sessions after every restart: Bot-level applied fields cannot
   // prove that an older group Session received the member's thinking level.
   const sessionSelections = new Map()
-  function selectSessionModel(sessionId, { provider, model, reasoningEffort }) {
+  const selectedSessions = new Set()
+
+  // Cold Sessions avoid replay only when the checkpoint and our durable selection
+  // agree. A composer change lost before a crash flushed the checkpoint remains
+  // undetectable without a DSH freshness witness.
+  const LISTING_TTL_MS = 15_000
+  let listing
+  async function listedSessions() {
+    if (listing !== undefined && Date.now() - listing.at < LISTING_TTL_MS) return listing.records
+    const query = serviceOf(ctx, 'sessionQuery')
+    if (query?.listSessions === undefined) return undefined
+    const records = new Map()
+    for (const record of await query.listSessions()) records.set(record.header.id, record)
+    let pruned = false
+    for (const id of Object.keys(state.sessionModelSelections ?? {})) {
+      if (records.has(id)) continue
+      delete state.sessionModelSelections[id]
+      pruned = true
+    }
+    if (pruned) await rt.save()
+    listing = { at: Date.now(), records }
+    return records
+  }
+
+  // The selection a stored Session runs on, or undefined when this start can only learn
+  // it by resuming the Session. A live Session is left to the call: the composer's own
+  // model picker can move it at any time, and loading it costs nothing.
+  async function recordedSelection(sessionId) {
+    try {
+      if (selectedSessions.has(sessionId)) return undefined
+      const cache = serviceOf(ctx, 'sessionProjectionCache')
+      if (cache?.cachedSnapshot === undefined) return undefined
+      const record = (await listedSessions())?.get(sessionId)
+      if (record === undefined || !record.persisted || record.live) return undefined
+      if (ctx.sessions?.get?.(sessionId) !== undefined || ctx.agents?.get?.(sessionId) !== undefined) return undefined
+      const selection = cache.cachedSnapshot(record.header, ['modelSelection'])?.values?.modelSelection
+      return selection?.next ?? selection?.lastUsed ?? undefined
+    } catch (error) {
+      rt.warn?.('ds-bot: the model selection %s runs on was not read: %s', sessionId, error)
+      return undefined
+    }
+  }
+
+  function selectSessionModel(sessionId, { provider, model, reasoningEffort }, { force = false } = {}) {
     const run = selecting.then(async () => {
       if (llm() === undefined) return
+      const route = { provider, model, ...(reasoningEffort === undefined ? {} : { reasoningEffort }) }
+      if (!force) {
+        const recorded = await recordedSelection(sessionId)
+        const witnessed = state.sessionModelSelections?.[sessionId]
+        const requested = witnessed?.requested ?? witnessed
+        const resolved = witnessed?.resolved ?? witnessed
+        if (recorded !== undefined && requested !== undefined && sameSelection(requested, route) && (sameSelection(recorded, resolved) || sameSelection(recorded, route))) {
+          sessionSelections.set(sessionId, route)
+          return { selected: route }
+        }
+      }
       const defaults = ctx.get?.('agentDefaultModel')
       const before = defaults?.currentSelection?.()
+      selectedSessions.add(sessionId)
       const result = await ctx.sessionController.selectModel({
         sessionId, provider, model,
         ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
       })
-      const saved = result?.selected ?? { provider, model, ...(reasoningEffort === undefined ? {} : { reasoningEffort }) }
-      if (llm() === undefined) return result
-      if (before?.provider && before?.model && !sameSelection(before, saved)) {
+      const saved = result?.selected ?? route
+      state.sessionModelSelections ??= {}
+      state.sessionModelSelections[sessionId] = { requested: { ...route }, resolved: { ...saved } }
+      if (llm() !== undefined && before?.provider && before?.model && !sameSelection(before, saved)) {
         await defaults.saveSelection(before).catch(error => rt.warn('ds-bot: the default model was not restored: %s', error))
       }
+      await rt.save().catch(error => rt.warn?.('ds-bot: the model selection of %s was not saved: %s', sessionId, error))
+      if (llm() === undefined) return result
       sessionSelections.set(sessionId, { provider, model, reasoningEffort })
       return result
     })
@@ -393,11 +451,11 @@ export function install(rt) {
     // A Bot's model is the model of every part of its own chat, the background ones
     // included: a part left on the old route would keep answering with the old model
     // while the settings show the new one. A part that cannot take it fails the change.
-    if (ownChanged) for (const sessionId of ownChatSessions(bot)) await selectSessionModel(sessionId, route)
+    if (ownChanged) for (const sessionId of ownChatSessions(bot)) await selectSessionModel(sessionId, route, { force })
     for (const sessionId of rt.groupSessionsOf(bot.id)) {
       const applied = sessionSelections.get(sessionId)
       if (!force && applied !== undefined && sameSelection(applied, route)) continue
-      await selectSessionModel(sessionId, route)
+      await selectSessionModel(sessionId, route, { force })
         .catch(error => rt.warn('ds-bot: model for %s in a group not applied: %s', bot.name, error))
     }
     if (llm() === undefined || !ownChanged) return ref

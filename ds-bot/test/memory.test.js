@@ -1586,6 +1586,24 @@ test('a review saves the well-formed changes of a partly-malformed answer, and s
   assert.equal(requests.length, 1)
 })
 
+test('a memory review reads a user line beyond ten pages without skipping its cursor', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'ds-bot-memory-'))
+  mkdirSync(join(home, 'memory'), { recursive: true })
+  writeFileSync(join(home, 'memory', 'reviewed.json'), JSON.stringify({ 'chat:b2': 19 }))
+  const history = { b2: [
+    { event: { seq: 20, type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text: 'Keep this older correction' }] } } },
+    ...Array.from({ length: 2001 }, (_, index) => ({ event: { seq: 21 + index, type: 'user/message', data: { source: { kind: 'plugin' }, content: [{ type: 'text', text: 'setup' }] } } })),
+    { event: { seq: 2022, type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text: 'Latest request' }] } } },
+  ] }
+  const { ctx, call, read, requests, stop } = start({ home, replies: [JSON.stringify({ changes: [] })], history, config: { memoryReviewDelayMs: 0 } })
+  t.after(stop)
+  await call('state', {})
+  ctx.emit('agent/status', { agent: { id: 'b2' }, status: 'idle' })
+  await reviewed(call)
+  assert.match(requests[0].messages[0].content[0].text, /Keep this older correction/)
+  assert.deepEqual(JSON.parse(read('reviewed.json')), { 'chat:b2': 2022 })
+})
+
 test('a backlog past the text limit is reviewed in passes, oldest first', async (t) => {
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-memory-'))
   mkdirSync(join(home, 'memory'), { recursive: true })
