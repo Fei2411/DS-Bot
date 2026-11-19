@@ -77,9 +77,8 @@ export function sessionMention(sessionId, label) {
 }
 
 // The chats join every typed "@" beside the Bots group, so quoting stays searchable
-// no matter how the menu opened; the shell's `launched` still arrives and is kept in
-// the signature. `iconFor(row)` is the row's character mark.
-export function atSources({ roster, sessions, launched, iconFor }) {
+// no matter how the menu opened. `iconFor(row)` is the row's character mark.
+export function atSources({ roster, sessions, iconFor }) {
   const bots = {
     trigger: '@',
     name: BOTS_SOURCE,

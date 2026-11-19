@@ -54,7 +54,6 @@ test('the chats join every typed "@" menu, and a pick inserts a session referenc
   const [bots, chats] = atSources({
     roster: { getSnapshot: () => roster },
     sessions: { list: { getSnapshot: () => ({ ids: [], byId: {} }) } },
-    launched: () => false,
     iconFor: () => 'session',
   })
   assert.deepEqual([bots.name, chats.name], [BOTS_SOURCE, CHATS_SOURCE])
