@@ -17624,7 +17624,7 @@ header[class*="_header"] .bt-head{flex:1 1 auto;width:100%}
    keep no-drag. The data-slot anchor must not take no-drag, or the bar inherits it. */
 html[data-platform=darwin] header[class*="_header"]:has(.bt-head) .bt-head{pointer-events:auto;-webkit-app-region:drag}
 html[data-platform=darwin] header[class*="_header"]:has(.bt-head) :is(a,button,input,textarea,select,[role=button],[role=menuitem],[role=menu],[contenteditable=true]){-webkit-app-region:no-drag}
-[class*="_body"]:has([class*="_scrollBody"]){--dsh-chat-content-width:min(960px,100%)}
+[data-slot="main.conversation"]>[class*="_root"]>[class*="_body"]{--dsh-chat-content-width:min(960px,100%)}
 /* The shell writes the column's width on the conversation root at every resize, only to
    derive the content width that the rule above replaces. Inherited, each write restyled
    the whole conversation: once a frame while the details panel glides, most in a long
