@@ -2,16 +2,10 @@
 // an unauthenticated request → 401 WWW-Authenticate → protected-resource
 // metadata (well-known fallback; AS metadata on the MCP origin for older
 // servers) → AS metadata. Client: catalog → CIMD → DCR → needs-client.
-import {
-  discoverOAuthProtectedResourceMetadata,
-  discoverAuthorizationServerMetadata,
-  extractWWWAuthenticateParams,
-  startAuthorization,
-  exchangeAuthorization,
-  refreshAuthorization,
-  registerClient,
-  IssuerMismatchError,
-} from '@modelcontextprotocol/client'
+// Loaded on the first OAuth call so plugin startup does not pull in the MCP SDK
+// when no OAuth connector runs.
+let mcpClient
+const loadMcpClient = () => (mcpClient ??= import('@modelcontextprotocol/client'))
 
 const TIMEOUT_MS = 20_000
 // The loopback port the client-metadata document at this address may name.
@@ -26,6 +20,12 @@ const https = (url, what) => {
 
 // Probes the MCP server and resolves the authorization server and its metadata.
 export async function discover(serverUrl, { fetch: request = fetch, originFallback = true } = {}) {
+  const {
+    discoverOAuthProtectedResourceMetadata,
+    discoverAuthorizationServerMetadata,
+    extractWWWAuthenticateParams,
+    IssuerMismatchError,
+  } = await loadMcpClient()
   const send = timed(request)
   https(serverUrl, 'Connector')
   let challenge = {}
@@ -79,6 +79,7 @@ export async function resolveClient(entry, discovery, redirectUri, fixedPort, st
     return { via: 'cimd', clientInformation: { client_id: CIMD_CLIENT_ID } }
   }
   if (typeof metadata?.registration_endpoint === 'string') {
+    const { registerClient } = await loadMcpClient()
     const clientMetadata = {
       client_name: 'DS Bot',
       redirect_uris: [redirectUri],
@@ -112,6 +113,7 @@ export async function resolveClient(entry, discovery, redirectUri, fixedPort, st
 
 // Browser PKCE: the SDK makes the S256 verifier and the URL.
 export async function beginBrowser(discovery, clientInformation, redirectUri, { state, scope } = {}) {
+  const { startAuthorization } = await loadMcpClient()
   const { authorizationUrl, codeVerifier } = await startAuthorization(discovery.authorizationServerUrl, {
     metadata: discovery.metadata,
     clientInformation,
@@ -124,6 +126,7 @@ export async function beginBrowser(discovery, clientInformation, redirectUri, { 
 }
 
 export async function exchange(discovery, clientInformation, { code, codeVerifier, redirectUri, iss }, { fetch: request = fetch } = {}) {
+  const { exchangeAuthorization } = await loadMcpClient()
   return exchangeAuthorization(discovery.authorizationServerUrl, {
     metadata: discovery.metadata,
     clientInformation,
@@ -145,6 +148,7 @@ const invalidGrant = (error) => {
 export { invalidGrant }
 
 export async function refreshTokens(discovery, clientInformation, refreshToken, { scope, fetch: request = fetch } = {}) {
+  const { refreshAuthorization } = await loadMcpClient()
   return refreshAuthorization(discovery.authorizationServerUrl, {
     metadata: discovery.metadata,
     clientInformation,
@@ -157,6 +161,7 @@ export async function refreshTokens(discovery, clientInformation, refreshToken, 
 
 // Re-discovers AS metadata for a stored authorization server (after a restart).
 export async function rediscover(stored, { fetch: request = fetch } = {}) {
+  const { discoverAuthorizationServerMetadata } = await loadMcpClient()
   const send = timed(request)
   const metadata = await discoverAuthorizationServerMetadata(stored.authorizationServerUrl, { fetchFn: send }).catch(() => undefined)
   return { authorizationServerUrl: stored.authorizationServerUrl, metadata, resource: stored.resource, scope: stored.scope }
