@@ -440,7 +440,8 @@ test('a narrow Bot conversation keeps an explicit track and leaves expanded host
     assert.equal(frame.matches(rule.selectorText), false)
     frame.setAttribute(attribute, '')
   }
-  const columnRule = rule.parentRule.cssRules[1]
+  const columnRule = [...rule.parentRule.cssRules].find(candidate => candidate.selectorText?.endsWith(`>[class*="_centerCol"]`))
+  assert.ok(columnRule, 'the narrow center column rule must exist')
   assert.ok(document.querySelector('.x_centerCol').matches(columnRule.selectorText))
   assert.equal(columnRule.style.getPropertyValue('grid-column'), '2')
   assert.equal(columnRule.style.getPropertyValue('width'), 'auto')
