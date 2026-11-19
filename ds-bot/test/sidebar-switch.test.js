@@ -752,8 +752,8 @@ async function withDom(html, run) {
   }
 }
 
-for (const width of [900, 1400]) {
-  test(`Bot mode opens the native sidebar and returns to its resizable roster at ${width}px`, async () => {
+for (const width of [700, 900, 1400]) {
+  test(width === 700 ? 'Bot mode respects the host closing its native drawer' : `Bot mode opens the native sidebar and returns to its resizable roster at ${width}px`, async () => {
     await withDom('<!doctype html><body><div class="x_frame" data-sidebar-collapsed><div class="x_sidebarCol"><nav class="x_panelList"></nav></div><div class="x_centerCol"></div></div></body>', ({ document, getComputedStyle }) => {
       viewport.innerWidth = width
       const style = document.createElement('style')
@@ -762,6 +762,7 @@ for (const width of [900, 1400]) {
       const column = document.querySelector('.x_sidebarCol')
       const frameEl = column.parentElement
       const panel = column.querySelector('nav')
+      if (width === 700) frameEl.setAttribute('data-sidebar-drawer', '')
       const refs = []
       const states = []
       const cleanups = []
@@ -814,6 +815,19 @@ for (const width of [900, 1400]) {
         assert.equal(toggles, 2)
         render()
         assert.equal(toggles, 2)
+        if (width === 700) {
+          find(render(), node => node.props['aria-label'] === 'Workspaces and plugins').props.onClick()
+          render()
+          render()
+          assert.equal(dshCollapsed(), false)
+          frameEl.setAttribute('data-sidebar-collapsed', '')
+          render()
+          const dismissed = render()
+          assert.equal(toggles, 3)
+          assert.equal(dshCollapsed(), true)
+          assert.equal(find(dismissed, node => node.props.className?.includes('bt-native-sidebar-back')), undefined)
+          assert.equal(typeof left(dismissed).props.onGrip, 'function')
+        }
       } finally {
         for (const off of cleanups) off()
         renderRefs = undefined

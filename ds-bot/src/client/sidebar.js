@@ -733,7 +733,10 @@ export function TeamSidebar(props) {
     dsh.current = { collapsed, viewport }
     if (prev !== null && collapsed !== prev.collapsed) {
       if (requested.current) requested.current = false
-      else if (!nativeSidebar && !collapsed && userSidebarToggle({ before: prev, after: { collapsed, viewport }, sinceResize: performance.now() - resizedAt.current })) {
+      else if (nativeSidebar && collapsed && document.querySelector('[data-sidebar-drawer][data-sidebar-collapsed] [class*="_sidebarCol"]')) {
+        setNativeSidebar(false)
+        return undefined
+      } else if (!nativeSidebar && !collapsed && userSidebarToggle({ before: prev, after: { collapsed, viewport }, sinceResize: performance.now() - resizedAt.current })) {
         toggleRef.current()
       }
     }
