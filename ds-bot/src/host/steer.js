@@ -69,6 +69,7 @@ export function install(rt) {
         steerWaiters: new Set(),
         detachedJobs: new Set(),
         settledJobs: new Set(),
+        settledKilledJobs: new Set(),
         killedJobs: new Set(),
         readJobs: new Set(),
         jobToolCalls: new Map(),
@@ -170,25 +171,28 @@ export function install(rt) {
   // before DSH's own waitOnJob timed out.
   const detachAfter = (jobId, args, exec, def, native, label) => {
     const id = exec.agent.id
-    const command = args?.command ?? ''
+    const command = boundContextSummary(redact(String(args?.command ?? '').split(/\r?\n/, 1)[0]))
     const track = stateOf(id)
     track.detachedJobs.add(jobId)
-    const consume = () => {
+    const consume = (value) => {
       track.detachedJobs.delete(jobId)
       track.settledJobs.delete(jobId)
       const activeKill = (track.activeKills.get(jobId)?.size ?? 0) > 0
-      const activeRead = (track.activeWaitReads.get(jobId)?.size ?? 0) > 0
       track.activeKills.delete(jobId)
       track.activeWaitReads.delete(jobId)
       for (const [callId, call] of track.jobToolCalls) {
         if (call.jobId === jobId) track.jobToolCalls.delete(callId)
       }
-      const killed = track.killedJobs.delete(jobId) || activeKill
-      const read = track.readJobs.delete(jobId) || activeRead
+      const settledKilled = track.settledKilledJobs.delete(jobId)
+      const killed = track.killedJobs.delete(jobId) || (activeKill && (settledKilled || value?.stopped !== undefined))
+      // Only suppress on a confirmed terminal job_output tool/result: when
+      // waitOnJob settles and removes the job first, any in-flight
+      // job_output(wait:true) fails with "unknown job" and cannot deliver output.
+      const read = track.readJobs.delete(jobId)
       return killed || read || liveAgent(id) !== exec.agent
     }
     native.then(value => {
-      if (consume()) return
+      if (consume(value)) return
       const deliver = (text) => {
         const message = noticeOf(label, command, text)
         if (exec.agent.status === 'idle') return exec.agent.followup(message)
@@ -208,7 +212,7 @@ export function install(rt) {
         .join('\n')
       return deliver(`background job ${jobId} (${label}: ${command}) finished:\n${boundedText(rendered)}`)
     }, error => {
-      if (consume()) return
+      if (consume(undefined)) return
       const message = noticeOf(label, command, `background job ${jobId} (${label}: ${command}) failed: ${boundedText(error?.message ?? String(error))}`)
       if (exec.agent.status === 'idle') return exec.agent.followup(message)
       return exec.agent.inject(message)
@@ -236,13 +240,24 @@ export function install(rt) {
   const formatWarned = new Set()
   const KEEP_CURRENT = Symbol('keep-current-shadow')
 
-  const rawShellDef = (name, agent) => {
+  const resolveShellDef = (name, agent, current) => {
     if (typeof ctx.tools?.get !== 'function') return undefined
-    const globalDef = ctx.tools.get(name)
-    if (globalDef !== undefined && !wrappedDefs.has(globalDef)) return globalDef
-    const scopedDef = ctx.tools.get(name, agent)
-    if (scopedDef !== undefined && wrappedDefs.has(scopedDef)) return KEEP_CURRENT
-    return scopedDef
+    const globalRaw = ctx.tools.get(name)
+    const globalDef = globalRaw !== undefined && !wrappedDefs.has(globalRaw) ? globalRaw : undefined
+    if (current !== undefined) {
+      if (current.fromGlobal) {
+        if (globalDef === undefined) return undefined
+        if (globalDef === current.rawDef) return KEEP_CURRENT
+        return { def: globalDef, fromGlobal: true, checkVisibleAfterDispose: true }
+      }
+      const scopedDef = ctx.tools.get(name, agent)
+      if (scopedDef !== undefined && wrappedDefs.has(scopedDef)) return KEEP_CURRENT
+      return scopedDef !== undefined ? { def: scopedDef, fromGlobal: false, checkVisibleAfterDispose: false } : undefined
+    }
+    // Initial attach must respect agent-level tools.restrict() visibility.
+    const visible = ctx.tools.get(name, agent)
+    if (visible === undefined || wrappedDefs.has(visible)) return undefined
+    return { def: visible, fromGlobal: visible === globalDef, checkVisibleAfterDispose: false }
   }
 
   const shadowShell = (agent, name, def) => {
@@ -255,6 +270,13 @@ export function install(rt) {
     }
     const wrapper = {
       ...def,
+      ...(typeof def.presentResult === 'function' ? {
+        presentResult: (args, result) => {
+          const effectiveArgs = result?.value?.kind === 'background' && args?.run_in_background !== true
+            ? { ...args, run_in_background: true } : args
+          return def.presentResult(effectiveArgs, result)
+        },
+      } : {}),
       execute: async (args, exec) => {
         const sessionId = exec.agent?.id
         if (args?.run_in_background === true || jobs === undefined || sessionId === undefined
@@ -272,12 +294,12 @@ export function install(rt) {
 
         // Tighten timeoutMs into DSH's native waitOnJob whenever the shell tool
         // supports native timeout promotion and the owner has job capacity.
-        // That keeps normal auto-background single-track: waitOnJob itself
-        // returns `{ kind: 'promoted', ... }` without removing the job, and
-        // tool-jobs delivers the single bounded completion notice.
+        // Leave invalid caller timeoutMs untouched so DSH's own validation rejects it.
         const nativePromote = Number.isFinite(waitMs) && waitMs > 0 && capacity && canNativePromote(def)
-        const effectiveTimeoutMs = nativePromote
-          ? (Number.isFinite(args?.timeoutMs) && args.timeoutMs > 0 ? Math.min(args.timeoutMs, waitMs) : waitMs)
+        const callerTimeout = args?.timeoutMs
+        const validCallerTimeout = callerTimeout === undefined || (Number.isFinite(callerTimeout) && callerTimeout > 0)
+        const effectiveTimeoutMs = nativePromote && validCallerTimeout
+          ? (callerTimeout !== undefined ? Math.min(callerTimeout, waitMs) : waitMs)
           : undefined
         const callArgs = effectiveTimeoutMs !== undefined ? { ...args, timeoutMs: effectiveTimeoutMs } : args
 
@@ -410,35 +432,27 @@ export function install(rt) {
     syncing.add(agent)
     try {
       let map = agentShadows.get(agent)
-      const firstAttach = map === undefined
-      if (firstAttach) {
+      if (map === undefined) {
         map = new Map()
         agentShadows.set(agent, map)
       }
       for (const name of SHELL_TOOLS) {
-        const def = rawShellDef(name, agent)
-        if (def === KEEP_CURRENT) continue
         const current = map.get(name)
-        if (def === undefined) {
-          if (current !== undefined) {
-            map.delete(name)
-            current.dispose()
-          }
-          continue
-        }
-        if (current?.rawDef === def) continue
+        const resolved = resolveShellDef(name, agent, current)
+        if (resolved === KEEP_CURRENT) continue
         if (current !== undefined) {
           map.delete(name)
           current.dispose()
         }
+        if (resolved === undefined) continue
+        if (resolved.checkVisibleAfterDispose && ctx.tools.get(name, agent) !== resolved.def) continue
         try {
-          const dispose = shadowShell(agent, name, def)
-          if (dispose !== undefined) map.set(name, { rawDef: def, dispose })
+          const dispose = shadowShell(agent, name, resolved.def)
+          if (dispose !== undefined) map.set(name, { rawDef: resolved.def, fromGlobal: resolved.fromGlobal, dispose })
         } catch (error) {
           rt.warn('ds-bot: shadowing %s failed: %s', name, error)
         }
       }
-      if (firstAttach && map.size === 0) return false
       return map.size > 0
     } finally {
       syncing.delete(agent)
@@ -508,8 +522,12 @@ export function install(rt) {
       case 'job/settled':
         if (event.data?.toolCall?.callId !== undefined) track.jobsByCall.delete(event.data.toolCall.callId)
         if (event.data?.jobId !== undefined) {
-          if (track.detachedJobs.has(event.data.jobId)) track.settledJobs.add(event.data.jobId)
-          else track.killedJobs.delete(event.data.jobId)
+          if (track.detachedJobs.has(event.data.jobId)) {
+            track.settledJobs.add(event.data.jobId)
+            if (event.data.status === 'killed') track.settledKilledJobs.add(event.data.jobId)
+          } else {
+            track.killedJobs.delete(event.data.jobId)
+          }
         }
         break
       case 'tool/call': {
@@ -547,7 +565,8 @@ export function install(rt) {
         const failed = event.data?.message?.isError === true || event.data?.error !== undefined
         if (call.name === 'job_kill') {
           deleteFromSetMap(track.activeKills, call.jobId, callId)
-          if (!failed) track.killedJobs.add(call.jobId)
+          const stillTracked = track.detachedJobs.has(call.jobId) || [...track.jobsByCall.values()].includes(call.jobId)
+          if (!failed && stillTracked) track.killedJobs.add(call.jobId)
         } else if (call.name === 'job_output') {
           deleteFromSetMap(track.activeWaitReads, call.jobId, callId)
           if (!failed && TERMINAL_JOB_STATUS.test(contentText(event.data?.message?.content))) {

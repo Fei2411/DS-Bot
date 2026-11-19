@@ -727,7 +727,8 @@ async function startRealBash({ approveDelayMs = 0, maxConcurrentJobsPerOwner = 1
     await ctx.plugin(toolJobs)
   }
   if (!delayJobsPlugin) await mountJobs()
-  await ctx.plugin(shellPlugin)
+  const shellFiber = ctx.plugin(shellPlugin)
+  await shellFiber
 
   const notices = []
   const inboxNextStep = []
@@ -796,7 +797,8 @@ async function startRealBash({ approveDelayMs = 0, maxConcurrentJobsPerOwner = 1
   const jobOutput = () => ctx.tools.get('job_output', agent)
   assert.ok(bash() !== undefined, `shadowed ${toolName} tool should be registered on agent scope`)
   const stop = async () => { await agentScope.dispose(); await ctx.fiber.dispose() }
-  return { ctx, rt, agent, bash, jobOutput, spawned, resolvedSpecs, notices, warnings, disposers, mountJobs, setBehavior: (fn) => { nextBehavior = fn }, stop }
+  const unloadShell = () => shellFiber.dispose()
+  return { ctx, rt, agent, bash, jobOutput, spawned, resolvedSpecs, notices, warnings, disposers, mountJobs, unloadShell, setBehavior: (fn) => { nextBehavior = fn }, stop }
 }
 
 test('real dsh-tool-bash + dsh-tool-jobs contract: native promotion survives STEER_CUT, keeps job_output valid, and delivers one bounded notice', async (t) => {
@@ -938,10 +940,10 @@ test('real dsh-tool-bash contract: late jobs attachment refreshes bash shadow on
 })
 
 test('real dsh-tool-bash contract: approval delay past backgroundAfterSec does not mis-promote a fast command', async (t) => {
-  const env = await startRealBash({ approveDelayMs: 140 })
+  const env = await startRealBash({ approveDelayMs: 200 })
   if (env === null) return t.skip('dsh-tool-bash in this DSH version has no promoted result format')
   t.after(env.stop)
-  env.rt.state.prefs.backgroundAfterSec = 0.05
+  env.rt.state.prefs.backgroundAfterSec = 0.12
   // Fast command completes 10ms after approval grants execution.
   env.setBehavior((proc) => { setTimeout(() => proc.finish(0, 'ok\n'), 10) })
   const turn = new AbortController()
@@ -970,7 +972,7 @@ test('real dsh-tool-bash contract: approval delay past backgroundAfterSec does n
     { agent: env.agent, callId: 'call-approve-slow', name: 'bash', signal: turn.signal },
   )
   assert.equal(slow.kind, 'promoted')
-  assert.equal(slow.timeoutMs, 50, 'timeoutMs should reflect configured wait, not approval delay')
+  assert.equal(slow.timeoutMs, 120, 'timeoutMs should reflect configured wait, not approval delay')
   env.spawned[1].finish(0, 'done\n')
   await new Promise(r => setTimeout(r, 20))
 })
@@ -1146,4 +1148,102 @@ test('real dsh-tool-pwsh + dsh-tool-jobs contract: native promotion tightens tim
   await new Promise(r => setTimeout(r, 60))
   assert.equal(env.notices.length, 1)
   assert.match(env.notices[0].msg.content[0].text, /pwsh done/)
+})
+
+test('real dsh-tool-bash contract: shadow respects tools.restrict() and clears when global bash unloads', async (t) => {
+  const env = await startRealBash({ wireToolsChange: true })
+  if (env === null) return t.skip('dsh-tool-bash in this DSH version has no promoted result format')
+  t.after(env.stop)
+
+  // Restricted agent: deny bash before shadowShells; shadow must NOT revive it.
+  const restrictedAgent = {
+    id: 'dm-restricted',
+    ctx: null,
+    status: 'running',
+    inbox: { nextStep: [], nextTurn: [], prepend() {}, append() {}, remove() { return false } },
+    followup() {},
+    inject() {},
+    send() {},
+    cancel() {},
+    session: { id: 'dm-restricted', header: { cwd: '/team' }, append() {} },
+  }
+  const restrictedScope = createScope(env.ctx, restrictedAgent)
+  await restrictedScope.ctx.plugin({ inject: ['tools'], apply(scoped) { restrictedAgent.ctx = scoped } })
+  t.after(() => restrictedScope.dispose())
+  env.rt.chatOwners.set('dm-restricted', 'a')
+  const prevIsBot = env.rt.isBotSession
+  env.rt.isBotSession = (id) => prevIsBot(id) || id === 'dm-restricted'
+  restrictedAgent.ctx.tools.restrict({ deny: ['bash'] })
+  assert.equal(env.ctx.tools.get('bash', restrictedAgent), undefined)
+  env.rt.shadowShells(restrictedAgent)
+  assert.equal(env.ctx.tools.get('bash', restrictedAgent), undefined, 'shadowShells must not revive a restricted bash tool')
+
+  // Unloading global bash plugin must dispose the shadow on the active agent (no zombie shadow).
+  await env.unloadShell()
+  assert.equal(env.ctx.tools.get('bash'), undefined)
+  assert.equal(env.ctx.tools.get('bash', env.agent), undefined, 'unloading global bash must remove its agent shadow')
+})
+
+test('real dsh-tool-bash + dsh-tool-jobs contract: backgroundAfterSec = 0 presents background card and invalid timeoutMs passes through', async (t) => {
+  const env = await startRealBash()
+  if (env === null) return t.skip('dsh-tool-bash in this DSH version has no promoted result format')
+  t.after(env.stop)
+  env.rt.state.prefs.backgroundAfterSec = 0
+  env.setBehavior(() => {})
+  const origArgs = { description: 'Immediate bg', command: 'echo bg' }
+  const value = await env.bash().execute(origArgs, { agent: env.agent, callId: 'call-bg-card', name: 'bash', signal: AbortSignal.timeout(5000) })
+  assert.equal(value.kind, 'background')
+  const card = env.bash().presentResult(origArgs, { isError: false, value, content: env.bash().output.render(origArgs, value) })
+  assert.notEqual(card?.exitCode, 0, '0s native background start must not render as an exited exitCode:0 terminal card')
+  env.spawned[0].finish(0, 'ok\n')
+  await new Promise(r => setTimeout(r, 30))
+
+  // Non-positive caller timeoutMs must not be silently replaced by backgroundAfterSec.
+  env.rt.state.prefs.backgroundAfterSec = 5
+  const beforeCalls = env.resolvedSpecs.length
+  await assert.rejects(
+    env.bash().execute(
+      { description: 'Bad timeout', command: 'echo bad', timeoutMs: -5 },
+      { agent: env.agent, callId: 'call-bad-to', name: 'bash', signal: AbortSignal.timeout(5000) },
+    ),
+    /timeoutMs|positive|greater/i,
+    'invalid caller timeoutMs must be rejected rather than overwritten with backgroundAfterSec',
+  )
+  assert.equal(env.resolvedSpecs.length, beforeCalls)
+})
+
+test('real dsh-tool-bash + dsh-tool-jobs contract: in-flight job_output(wait:true) after steer detach does not drop fallback completion notice', async (t) => {
+  const env = await startRealBash()
+  if (env === null) return t.skip('dsh-tool-bash in this DSH version has no promoted result format')
+  t.after(env.stop)
+  env.rt.state.prefs.backgroundAfterSec = 60
+  env.setBehavior(() => {})
+
+  const pending = env.bash().execute(
+    { description: 'Long command with steer and wait', command: 'sleep 5' },
+    { agent: env.agent, callId: 'call-steer-inflight', name: 'bash', signal: AbortSignal.timeout(10_000) },
+  )
+  await new Promise(r => setTimeout(r, 30))
+  const steerMsg = userMessage('hey')
+  env.agent.inbox.nextStep.push(steerMsg)
+  env.ctx.emit('session/event', env.agent.session, { type: 'agent/inbox/spliced', data: { target: 'next-step', inserted: [steerMsg] } })
+  const promoted = await pending
+  assert.equal(promoted.kind, 'promoted')
+
+  // Simulate an in-flight job_output(wait:true) whose tool/result has not landed yet
+  // (e.g., it rejects with "unknown job" once waitOnJob removes the settled job).
+  env.agent.session.append('tool/call', { callId: 'call-jo-inflight', name: 'job_output', arguments: JSON.stringify({ job_id: promoted.jobId, wait: true, timeout_ms: 5000 }) })
+  const waitRead = env.jobOutput().execute(
+    { job_id: promoted.jobId, wait: true, timeout_ms: 5000 },
+    { agent: env.agent, callId: 'call-jo-inflight', name: 'job_output', signal: AbortSignal.timeout(5000) },
+  ).then(() => ({ ok: true }), error => ({ ok: false, error: error.message }))
+  await new Promise(r => setTimeout(r, 20))
+
+  env.agent.status = 'idle'
+  env.spawned[0].finish(0, 'final output preserved\n')
+  const readOutcome = await waitRead
+  if (!readOutcome.ok) assert.match(readOutcome.error, /unknown job/)
+  await new Promise(r => setTimeout(r, 60))
+  assert.equal(env.notices.length, 1, 'fallback notice must fire instead of being dropped by unconfirmed in-flight activeWaitReads')
+  assert.match(env.notices[0].msg.content[0].text, /final output preserved/)
 })
