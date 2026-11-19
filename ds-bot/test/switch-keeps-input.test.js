@@ -78,7 +78,7 @@ async function start({ fail = {}, services = {}, home: reuse, state: seed = TEAM
       const nextTurn = [...saved[sessionId]?.nextTurn ?? []]
       agents.set(sessionId, {
         id: sessionId,
-        session: { id: sessionId, header: { cwd: cwds.get(sessionId) ?? team }, requestHeader: () => undefined, deriveMessages: () => [] },
+        session: { id: sessionId, seq: 0, header: { cwd: cwds.get(sessionId) ?? team }, requestHeader: () => undefined, deriveMessages: () => [] },
         ctx: { tools: { register: () => () => {} } },
         calls,
         status: 'idle',

@@ -6,7 +6,6 @@ import { randomBytes } from 'node:crypto'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { output } from './tools.js'
 
-export const TASK_STATUSES = ['active', 'review', 'blocked', 'done', 'cancelled']
 const OPEN_STATUSES = ['active', 'review', 'blocked']
 const GOAL_MAX = 200
 const PROGRESS_MAX = 300

@@ -99,6 +99,11 @@ export const OWN_CHAT_SEARCH = 20
 export const HISTORY_PAGE = 200
 export const HISTORY_PAGES_MAX = 50
 export const HISTORY_TIMEOUT_MS = 20_000
+// How far back a read of the history goes when nothing else stops it, in pages of
+// HISTORY_PAGE. Skipped messages cost no token budget, so a long Session that is mostly
+// Bot messages reads to the start; a full read decompresses tens of megabytes of log,
+// and a few Bots reading at once exhaust the host's heap.
+export const HISTORY_SCAN_PAGES = 10
 // Shown when an aside stops at the route's own output limit. The partial answer stays.
 export const ASIDE_LIMIT = 'Answer cut off at the output limit.'
 
