@@ -302,12 +302,27 @@ const NO_MANUAL = {}
 // the new opening number then reads the default again instead of the old choices.
 export const manualFor = (state, opening) => (state.opening === opening ? state.manual : NO_MANUAL)
 
-export function ModelRows({ roster, current, onPick, filtering = false, opening = 0 }) {
-  const groups = groupModels(roster.models)
+// A free-text query over the model list. Every token must match part of the
+// name, ref, provider id or provider display name; groups left empty are dropped
+// so the menu never shows a bare provider heading. Exported for the tests.
+export function filterModelGroups(models, query) {
+  const tokens = typeof query === 'string' ? query.trim().toLowerCase().split(/\s+/).filter(Boolean) : []
+  const groups = groupModels(models)
+  if (tokens.length === 0) return groups
+  return groups.map(([provider, list]) => [provider, list.filter((model) => {
+    const hay = `${model.name ?? ''} ${model.ref ?? ''} ${model.provider ?? ''} ${model.providerName ?? ''}`.toLowerCase()
+    return tokens.every(token => hay.includes(token))
+  })]).filter(([, list]) => list.length > 0)
+}
+
+export function ModelRows({ roster, current, onPick, query = '', filtering = false, opening = 0 }) {
+  const trimmed = typeof query === 'string' ? query.trim() : ''
+  const groups = filterModelGroups(roster.models, trimmed)
   const [state, setState] = useState({ opening, manual: NO_MANUAL })
+  if (groups.length === 0) return h('div', { className: 'bt-model-none', role: 'status' }, t('No matching models.'))
   const manual = manualFor(state, opening)
   return h(ModelGroupList, {
-    groups, current, currentId: currentGroupId(groups, current), defaultModel: roster.defaultModel, onPick, filtering, manual,
+    groups, current, currentId: currentGroupId(groups, current), defaultModel: roster.defaultModel, onPick, filtering: filtering || trimmed.length > 0, manual,
     onToggle: (id, open) => setState(previous => ({ opening, manual: toggledGroup(manualFor(previous, opening), id, open) })),
   })
 }
@@ -433,15 +448,17 @@ function useModelPicker({ bot, roster, actions, run, onPick, onPickEffort, withE
   // Each opening is a new number, so the rows start from the current model again even
   // when the previous menu is still playing its exit animation under a quick reopen.
   const [opening, setOpening] = useState(0)
+  const [query, setQuery] = useState('')
   const models = modelsFor(roster.models, current)
   return {
-    bot, roster, shown, current, local, reasoning, picked, effortLabel, models, opening, reading, withEfforts,
+    bot, roster, shown, current, local, reasoning, picked, effortLabel, models, opening, query, setQuery, reading, withEfforts,
     manage: local ? undefined : manageModels(actions),
     hasEfforts: withEfforts && effortStops(reasoning).length > 0,
     // DSH settings can change the list at any time, so opening asks again.
     opened: () => {
       if (local) readModels(routeOf(current))
       else void actions?.refreshModels?.()
+      setQuery('')
       setOpening(count => count + 1)
     },
     choose: (ref) => {
@@ -469,8 +486,16 @@ const modelTrigger = (picker, { wide, button, isOpen, onClick }) => {
   h(Caret))
 }
 
-const modelScroll = ({ roster, models, current, local, reading, opening }, pick) => h('div', { className: 'bt-model-scroll' },
-  models.length > 0 ? h(ModelRows, { roster: { ...roster, models }, current, onPick: pick, opening })
+const modelSearch = ({ models, query, setQuery }) => (models.length > 0 ? h('div', { className: 'bt-model-search', role: 'presentation' },
+  h('input', {
+    type: 'search', className: 'bt-input bt-model-search-input',
+    placeholder: t('Search models…'), 'aria-label': t('Search models'),
+    value: query, autoFocus: true, autoComplete: 'off', spellCheck: false,
+    onChange: event => setQuery(event.target.value),
+  })) : null)
+
+const modelScroll = ({ roster, models, current, local, reading, opening, query }, pick) => h('div', { className: 'bt-model-scroll' },
+  models.length > 0 ? h(ModelRows, { roster: { ...roster, models }, current, onPick: pick, query, opening })
     : local ? null : h('div', { className: 'bt-model-none' }, t('No models are set up in DeepSeek Harness yet.')),
   reading ? h('div', { className: 'bt-model-none' }, t('Reading models…')) : null)
 
@@ -504,6 +529,7 @@ function PopupModelMenu({ bot, roster, actions, run, wide = false, onPick, onPic
   return h(Fragment, null,
     modelTrigger(picker, { wide, button, isOpen, onClick: toggle }),
     shownPlace ? createPortal(h('div', { ref: menu, className: `bt-menu bt-model-menu${shownPlace.bottom !== undefined ? ' bt-menu-up' : ''}`, role: 'menu', 'aria-label': modelMenuLabel(bot), style: shownPlace, 'data-leaving': leaving || undefined },
+      modelSearch(picker),
       modelScroll(picker, pick),
       hasEfforts || manage ? h('div', { className: 'bt-model-foot' },
         hasEfforts ? h(EffortBar, { reasoning: picker.reasoning, current: picker.picked, onPick: picker.chooseEffort }) : null,
@@ -531,6 +557,7 @@ function InlineModelMenu({ bot, roster, actions, run, wide = false, onPick, onPi
     modelTrigger(picker, { wide, button, isOpen, onClick: toggle }),
     h(Collapse, { open: isOpen },
       h('div', { ref: menu, className: 'bt-menu bt-model-menu bt-model-inline-menu', role: 'menu', 'aria-label': modelMenuLabel(bot) },
+        modelSearch(picker),
         modelScroll(picker, pick),
         manage ? h('div', { className: 'bt-model-foot' }, manageButton(manage, close)) : null)),
     h(Collapse, { open: hasEfforts },
@@ -680,6 +707,11 @@ export const MODEL_CSS = `
 .bt-model-trigger[aria-expanded=true] .bt-model-caret{transform:rotate(180deg)}
 .bt-model-menu{overflow-y:auto;scrollbar-width:thin}
 .bt-model-menu:not(.bt-folder-menu){padding:0;overflow:hidden;display:flex;flex-direction:column;gap:0}
+.bt-model-search{flex:none;display:flex;padding:6px 6px 4px;border-bottom:.5px solid var(--bt-line-2)}
+.bt-model-search-input{flex:1 1 auto;width:100%;box-sizing:border-box;height:28px;padding:4px 8px;border:0;border-radius:6px;background:var(--bt-hover);color:var(--bt-ink);font:inherit;font-size:12px;line-height:18px;outline:0}
+.bt-model-search-input:focus-visible{box-shadow:inset 0 0 0 1px var(--bt-accent)}
+.bt-model-search-input::placeholder{color:var(--bt-ink-3)}
+.bt-model-search-input::-webkit-search-cancel-button{cursor:pointer}
 .bt-model-scroll{flex:1 1 auto;min-height:0;overflow-y:auto;scrollbar-width:thin;overscroll-behavior:contain;padding:6px;display:flex;flex-direction:column;gap:2px}
 .bt-model-foot{flex:none;display:flex;flex-direction:column;gap:2px;padding:4px 6px 6px;border-top:.5px solid var(--bt-line-2)}
 .bt-model-inline{display:flex;flex-direction:column;min-width:0}

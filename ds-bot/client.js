@@ -732,6 +732,9 @@ var JA = {
   "Model for {name}": "{name} のモデル",
   "No models are set up in DeepSeek Harness yet.": "DeepSeek Harness にはまだモデルが設定されていません。",
   "Models and providers…": "モデルとプロバイダー…",
+  "Search models": "モデルを検索",
+  "Search models…": "モデルを検索…",
+  "No matching models.": "一致するモデルがありません。",
   "Models": "モデル",
   "Harness default": "Harness デフォルト",
   "Saving": "保存中",
@@ -3244,6 +3247,9 @@ var KO = {
   "Model for {name}": "{name}의 모델",
   "No models are set up in DeepSeek Harness yet.": "DeepSeek Harness에 아직 설정된 모델이 없습니다.",
   "Models and providers…": "모델 및 제공자…",
+  "Search models": "모델 검색",
+  "Search models…": "모델 검색…",
+  "No matching models.": "일치하는 모델이 없습니다.",
   Models: "모델",
   "Harness default": "Harness 기본값",
   Saving: "저장 중",
@@ -5786,6 +5792,9 @@ var ES = {
   "Model for {name}": "Modelo para {name}",
   "No models are set up in DeepSeek Harness yet.": "Aún no hay modelos configurados en DeepSeek Harness.",
   "Models and providers…": "Modelos y proveedores…",
+  "Search models": "Buscar modelos",
+  "Search models…": "Buscar modelos…",
+  "No matching models.": "No hay modelos coincidentes.",
   Models: "Modelos",
   "Harness default": "Predeterminado de Harness",
   Saving: "Guardando",
@@ -8313,6 +8322,9 @@ var FR = {
   "Model for {name}": "Modèle pour {name}",
   "No models are set up in DeepSeek Harness yet.": "Aucun modèle n’est encore configuré dans DeepSeek Harness.",
   "Models and providers…": "Modèles et fournisseurs…",
+  "Search models": "Rechercher des modèles",
+  "Search models…": "Rechercher des modèles…",
+  "No matching models.": "Aucun modèle correspondant.",
   "Models": "Modèles",
   "Harness default": "Par défaut de Harness",
   "Saving": "Enregistrement",
@@ -10825,6 +10837,9 @@ var DE = {
   "Model for {name}": "Modell für {name}",
   "No models are set up in DeepSeek Harness yet.": "In DeepSeek Harness sind noch keine Modelle eingerichtet.",
   "Models and providers…": "Modelle und Anbieter…",
+  "Search models": "Modelle suchen",
+  "Search models…": "Modelle suchen…",
+  "No matching models.": "Keine passenden Modelle.",
   Models: "Modelle",
   "Harness default": "Harness-Standard",
   Saving: "Wird gespeichert",
@@ -13342,6 +13357,9 @@ var ZH = {
   "Model for {name}": "{name} 的模型",
   "No models are set up in DeepSeek Harness yet.": "DeepSeek Harness 里还没有设置模型。",
   "Models and providers…": "模型和服务商…",
+  "Search models": "搜索模型",
+  "Search models…": "搜索模型…",
+  "No matching models.": "没有匹配的模型。",
   Models: "模型",
   "Harness default": "Harness 默认",
   Saving: "保存中",
@@ -23824,9 +23842,20 @@ function ModelGroupList({ groups, current: current2, currentId, defaultModel, on
 }
 var NO_MANUAL = {};
 var manualFor = (state, opening) => state.opening === opening ? state.manual : NO_MANUAL;
-function ModelRows({ roster, current: current2, onPick, filtering = false, opening = 0 }) {
-  const groups = groupModels(roster.models);
+function filterModelGroups(models, query) {
+  const tokens = typeof query === "string" ? query.trim().toLowerCase().split(/\s+/).filter(Boolean) : [];
+  const groups = groupModels(models);
+  if (tokens.length === 0) return groups;
+  return groups.map(([provider, list]) => [provider, list.filter((model) => {
+    const hay = `${model.name ?? ""} ${model.ref ?? ""} ${model.provider ?? ""} ${model.providerName ?? ""}`.toLowerCase();
+    return tokens.every((token) => hay.includes(token));
+  })]).filter(([, list]) => list.length > 0);
+}
+function ModelRows({ roster, current: current2, onPick, query = "", filtering = false, opening = 0 }) {
+  const trimmed2 = typeof query === "string" ? query.trim() : "";
+  const groups = filterModelGroups(roster.models, trimmed2);
   const [state, setState] = (0, import_react20.useState)({ opening, manual: NO_MANUAL });
+  if (groups.length === 0) return (0, import_react20.createElement)("div", { className: "bt-model-none", role: "status" }, t("No matching models."));
   const manual = manualFor(state, opening);
   return (0, import_react20.createElement)(ModelGroupList, {
     groups,
@@ -23834,7 +23863,7 @@ function ModelRows({ roster, current: current2, onPick, filtering = false, openi
     currentId: currentGroupId(groups, current2),
     defaultModel: roster.defaultModel,
     onPick,
-    filtering,
+    filtering: filtering || trimmed2.length > 0,
     manual,
     onToggle: (id, open) => setState((previous) => ({ opening, manual: toggledGroup(manualFor(previous, opening), id, open) }))
   });
@@ -23953,6 +23982,7 @@ function useModelPicker({ bot, roster, actions, run: run2, onPick, onPickEffort,
   const currentEffort = picked ?? reasoning?.defaultEffort;
   const effortLabel = currentEffort === void 0 ? reasoning?.efforts?.length > 0 ? t("Default") : void 0 : reasoning.efforts.find((effort) => effort.id === currentEffort)?.name ?? currentEffort;
   const [opening, setOpening] = (0, import_react20.useState)(0);
+  const [query, setQuery] = (0, import_react20.useState)("");
   const models = modelsFor(roster.models, current2);
   return {
     bot,
@@ -23965,6 +23995,8 @@ function useModelPicker({ bot, roster, actions, run: run2, onPick, onPickEffort,
     effortLabel,
     models,
     opening,
+    query,
+    setQuery,
     reading,
     withEfforts,
     manage: local ? void 0 : manageModels(actions),
@@ -23973,6 +24005,7 @@ function useModelPicker({ bot, roster, actions, run: run2, onPick, onPickEffort,
     opened: () => {
       if (local) readModels(routeOf(current2));
       else void actions?.refreshModels?.();
+      setQuery("");
       setOpening((count) => count + 1);
     },
     choose: (ref) => {
@@ -24007,10 +24040,25 @@ var modelTrigger = (picker, { wide, button, isOpen, onClick }) => {
     (0, import_react20.createElement)(Caret)
   );
 };
-var modelScroll = ({ roster, models, current: current2, local, reading, opening }, pick2) => (0, import_react20.createElement)(
+var modelSearch = ({ models, query, setQuery }) => models.length > 0 ? (0, import_react20.createElement)(
+  "div",
+  { className: "bt-model-search", role: "presentation" },
+  (0, import_react20.createElement)("input", {
+    type: "search",
+    className: "bt-input bt-model-search-input",
+    placeholder: t("Search models…"),
+    "aria-label": t("Search models"),
+    value: query,
+    autoFocus: true,
+    autoComplete: "off",
+    spellCheck: false,
+    onChange: (event) => setQuery(event.target.value)
+  })
+) : null;
+var modelScroll = ({ roster, models, current: current2, local, reading, opening, query }, pick2) => (0, import_react20.createElement)(
   "div",
   { className: "bt-model-scroll" },
-  models.length > 0 ? (0, import_react20.createElement)(ModelRows, { roster: { ...roster, models }, current: current2, onPick: pick2, opening }) : local ? null : (0, import_react20.createElement)("div", { className: "bt-model-none" }, t("No models are set up in DeepSeek Harness yet.")),
+  models.length > 0 ? (0, import_react20.createElement)(ModelRows, { roster: { ...roster, models }, current: current2, onPick: pick2, query, opening }) : local ? null : (0, import_react20.createElement)("div", { className: "bt-model-none" }, t("No models are set up in DeepSeek Harness yet.")),
   reading ? (0, import_react20.createElement)("div", { className: "bt-model-none" }, t("Reading models…")) : null
 );
 var manageButton = (manage, close) => (0, import_react20.createElement)(
@@ -24049,6 +24097,7 @@ function PopupModelMenu({ bot, roster, actions, run: run2, wide = false, onPick,
     shownPlace ? (0, import_react_dom.createPortal)((0, import_react20.createElement)(
       "div",
       { ref: menu, className: `bt-menu bt-model-menu${shownPlace.bottom !== void 0 ? " bt-menu-up" : ""}`, role: "menu", "aria-label": modelMenuLabel(bot), style: shownPlace, "data-leaving": leaving || void 0 },
+      modelSearch(picker),
       modelScroll(picker, pick2),
       hasEfforts || manage ? (0, import_react20.createElement)(
         "div",
@@ -24087,6 +24136,7 @@ function InlineModelMenu({ bot, roster, actions, run: run2, wide = false, onPick
       (0, import_react20.createElement)(
         "div",
         { ref: menu, className: "bt-menu bt-model-menu bt-model-inline-menu", role: "menu", "aria-label": modelMenuLabel(bot) },
+        modelSearch(picker),
         modelScroll(picker, pick2),
         manage ? (0, import_react20.createElement)("div", { className: "bt-model-foot" }, manageButton(manage, close)) : null
       )
@@ -24245,6 +24295,11 @@ var MODEL_CSS = `
 .bt-model-trigger[aria-expanded=true] .bt-model-caret{transform:rotate(180deg)}
 .bt-model-menu{overflow-y:auto;scrollbar-width:thin}
 .bt-model-menu:not(.bt-folder-menu){padding:0;overflow:hidden;display:flex;flex-direction:column;gap:0}
+.bt-model-search{flex:none;display:flex;padding:6px 6px 4px;border-bottom:.5px solid var(--bt-line-2)}
+.bt-model-search-input{flex:1 1 auto;width:100%;box-sizing:border-box;height:28px;padding:4px 8px;border:0;border-radius:6px;background:var(--bt-hover);color:var(--bt-ink);font:inherit;font-size:12px;line-height:18px;outline:0}
+.bt-model-search-input:focus-visible{box-shadow:inset 0 0 0 1px var(--bt-accent)}
+.bt-model-search-input::placeholder{color:var(--bt-ink-3)}
+.bt-model-search-input::-webkit-search-cancel-button{cursor:pointer}
 .bt-model-scroll{flex:1 1 auto;min-height:0;overflow-y:auto;scrollbar-width:thin;overscroll-behavior:contain;padding:6px;display:flex;flex-direction:column;gap:2px}
 .bt-model-foot{flex:none;display:flex;flex-direction:column;gap:2px;padding:4px 6px 6px;border-top:.5px solid var(--bt-line-2)}
 .bt-model-inline{display:flex;flex-direction:column;min-width:0}
