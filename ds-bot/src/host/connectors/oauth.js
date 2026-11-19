@@ -2,16 +2,10 @@
 // an unauthenticated request → 401 WWW-Authenticate → protected-resource
 // metadata (well-known fallback; AS metadata on the MCP origin for older
 // servers) → AS metadata. Client: catalog → CIMD → DCR → needs-client.
-import {
-  discoverOAuthProtectedResourceMetadata,
-  discoverAuthorizationServerMetadata,
-  extractWWWAuthenticateParams,
-  startAuthorization,
-  exchangeAuthorization,
-  refreshAuthorization,
-  registerClient,
-  IssuerMismatchError,
-} from '@modelcontextprotocol/client'
+// Loaded on the first OAuth call so plugin startup does not pull in the MCP SDK
+// when no OAuth connector runs.
+let mcpClient
+const loadMcpClient = () => (mcpClient ??= import('@modelcontextprotocol/client'))
 
 const TIMEOUT_MS = 20_000
 // The loopback port the client-metadata document at this address may name.
@@ -26,6 +20,12 @@ const https = (url, what) => {
 
 // Probes the MCP server and resolves the authorization server and its metadata.
 export async function discover(serverUrl, { fetch: request = fetch, originFallback = true } = {}) {
+  const {
+    discoverOAuthProtectedResourceMetadata,
+    discoverAuthorizationServerMetadata,
+    extractWWWAuthenticateParams,
+    IssuerMismatchError,
+  } = await loadMcpClient()
   const send = timed(request)
   https(serverUrl, 'Connector')
   let challenge = {}
@@ -66,15 +66,20 @@ export async function resolveClient(entry, discovery, redirectUri, fixedPort, st
     const expired = Number.isFinite(stored.secretExpiresAt) && stored.secretExpiresAt * 1000 <= Date.now()
     const uriMissing = Array.isArray(stored.redirectUris) && !stored.redirectUris.includes(redirectUri)
     // A stored CIMD client still needs the fixed port its document names.
-    if (!expired && !uriMissing && stored.via === 'cimd' && fixedPort) return { via: 'cimd', clientInformation: { client_id: stored.clientId } }
-    if (!expired && !uriMissing && stored.via !== 'dcr' && stored.via !== 'cimd') return { via: stored.via, clientInformation: { client_id: stored.clientId } }
-    if (!expired && !uriMissing && stored.via === 'dcr') return { via: 'dcr', clientInformation: { client_id: stored.clientId, ...(stored.clientSecret ? { client_secret: stored.clientSecret } : {}) } }
+    const usable = !expired && !uriMissing && (stored.via !== 'cimd' || fixedPort)
+    // A confidential client signs the token request with its secret, whether it was
+    // registered (DCR) or typed in by hand: without it the AS answers bad_client_secret.
+    // A CIMD client is public, so a secret left behind by an earlier DCR client must not
+    // travel with it.
+    const secret = stored.via !== 'cimd' && stored.clientSecret ? { client_secret: stored.clientSecret } : {}
+    if (usable) return { via: stored.via, clientInformation: { client_id: stored.clientId, ...secret } }
   }
   const metadata = discovery.metadata
   if (metadata?.client_id_metadata_document_supported === true && fixedPort) {
     return { via: 'cimd', clientInformation: { client_id: CIMD_CLIENT_ID } }
   }
   if (typeof metadata?.registration_endpoint === 'string') {
+    const { registerClient } = await loadMcpClient()
     const clientMetadata = {
       client_name: 'DS Bot',
       redirect_uris: [redirectUri],
@@ -82,7 +87,17 @@ export async function resolveClient(entry, discovery, redirectUri, fixedPort, st
       response_types: ['code'],
       token_endpoint_auth_method: 'none',
     }
-    const full = await registerClient(discovery.authorizationServerUrl, { metadata, clientMetadata, scope: discovery.scope, fetchFn: timed(request) })
+    let full
+    try {
+      full = await registerClient(discovery.authorizationServerUrl, { metadata, clientMetadata, scope: discovery.scope, fetchFn: timed(request) })
+    } catch (error) {
+      // An authorization server may refuse RFC 7591 registration outright (Figma
+      // does). The row then asks for the client ID of an app the user registered,
+      // instead of ending the sign-in on the server's rejection; a network failure
+      // still surfaces, because that is not a client we can work around.
+      if (typeof error?.status !== 'number') throw error
+      return null
+    }
     const info = {
       via: 'dcr',
       clientId: full.client_id,
@@ -98,6 +113,7 @@ export async function resolveClient(entry, discovery, redirectUri, fixedPort, st
 
 // Browser PKCE: the SDK makes the S256 verifier and the URL.
 export async function beginBrowser(discovery, clientInformation, redirectUri, { state, scope } = {}) {
+  const { startAuthorization } = await loadMcpClient()
   const { authorizationUrl, codeVerifier } = await startAuthorization(discovery.authorizationServerUrl, {
     metadata: discovery.metadata,
     clientInformation,
@@ -110,6 +126,7 @@ export async function beginBrowser(discovery, clientInformation, redirectUri, { 
 }
 
 export async function exchange(discovery, clientInformation, { code, codeVerifier, redirectUri, iss }, { fetch: request = fetch } = {}) {
+  const { exchangeAuthorization } = await loadMcpClient()
   return exchangeAuthorization(discovery.authorizationServerUrl, {
     metadata: discovery.metadata,
     clientInformation,
@@ -131,6 +148,7 @@ const invalidGrant = (error) => {
 export { invalidGrant }
 
 export async function refreshTokens(discovery, clientInformation, refreshToken, { scope, fetch: request = fetch } = {}) {
+  const { refreshAuthorization } = await loadMcpClient()
   return refreshAuthorization(discovery.authorizationServerUrl, {
     metadata: discovery.metadata,
     clientInformation,
@@ -143,6 +161,7 @@ export async function refreshTokens(discovery, clientInformation, refreshToken, 
 
 // Re-discovers AS metadata for a stored authorization server (after a restart).
 export async function rediscover(stored, { fetch: request = fetch } = {}) {
+  const { discoverAuthorizationServerMetadata } = await loadMcpClient()
   const send = timed(request)
   const metadata = await discoverAuthorizationServerMetadata(stored.authorizationServerUrl, { fetchFn: send }).catch(() => undefined)
   return { authorizationServerUrl: stored.authorizationServerUrl, metadata, resource: stored.resource, scope: stored.scope }

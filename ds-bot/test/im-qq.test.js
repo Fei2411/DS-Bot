@@ -115,12 +115,52 @@ test('send replies passively with msg_id and a climbing msg_seq; a refusal is pe
   await handle.send({ key: 'u1', kind: 'direct' }, { text: 'two' })
   const posts = fake.calls.filter(call => call.path === '/v2/users/u1/messages')
   assert.equal(posts.length, 2)
+  // The reply is a markdown message; QQ renders it instead of showing the markers.
+  assert.equal(posts[0].params.msg_type, 2)
+  assert.deepEqual(posts[0].params.markdown, { content: 'one' })
   assert.equal(posts[0].params.msg_id, 'm1')
   assert.equal(posts[0].params.msg_seq, 1)
   assert.equal(posts[1].params.msg_seq, 2)
   // A refusal outside the reply window is a permanent error with the reason.
   fake.replies['/v2/users/u1/messages'] = { error: 304023, message: 'reply time out' }
   await assert.rejects(() => handle.send({ key: 'u1', kind: 'direct' }, { text: 'late' }), error => error.permanent === true && /reply/.test(error.message))
+})
+
+test('send converts tables and local images before the markdown message', async (t) => {
+  const fake = await fakeQq()
+  const messages = []
+  const handle = qq.connect(FIELDS, env(fake), { onMessage: async msg => { messages.push(msg) }, onAction: () => {}, onStatus: () => {} })
+  t.after(() => { handle.stop(); fake.close() })
+  const ws = await until(() => fake.sockets[0])
+  await until(() => fake.packets.some(packet => packet.op === 2))
+  fake.push(ws, { op: 0, t: 'C2C_MESSAGE_CREATE', s: 2, d: { id: 'm1', content: 'hi', author: { user_openid: 'u1' } } })
+  await until(() => messages.length === 1)
+  await handle.send({ key: 'u1', kind: 'direct' }, {
+    text: '## 标题\n\n| 项 | 值 |\n| --- | --- |\n| A | 1 |\n\n![图](/tmp/a.png)',
+  })
+  const post = fake.calls.filter(call => call.path === '/v2/users/u1/messages').at(-1)
+  assert.equal(post.params.msg_type, 2)
+  assert.equal(post.params.markdown.content, '## 标题\n\n- 项：A；值：1\n\n［图片：图］')
+})
+
+test('a platform that refuses markdown gets the same reply as plain text', async (t) => {
+  const fake = await fakeQq()
+  const messages = []
+  const handle = qq.connect(FIELDS, env(fake), { onMessage: async msg => { messages.push(msg) }, onAction: () => {}, onStatus: () => {} })
+  t.after(() => { handle.stop(); fake.close() })
+  const ws = await until(() => fake.sockets[0])
+  await until(() => fake.packets.some(packet => packet.op === 2))
+  fake.push(ws, { op: 0, t: 'C2C_MESSAGE_CREATE', s: 2, d: { id: 'm1', content: 'hi', author: { user_openid: 'u1' } } })
+  await until(() => messages.length === 1)
+  fake.replies['/v2/users/u1/messages'] = (params) => (params.msg_type === 2
+    ? { error: 40034090, message: 'markdown not allowed' }
+    : { result: { id: '930' } })
+  await handle.send({ key: 'u1', kind: 'direct' }, { text: '**加粗**与 `代码`' })
+  const posts = fake.calls.filter(call => call.path === '/v2/users/u1/messages')
+  assert.equal(posts.length, 2)
+  assert.equal(posts[0].params.msg_type, 2)
+  assert.equal(posts[1].params.msg_type, 0)
+  assert.equal(posts[1].params.content, '加粗与 代码')
 })
 
 test('a dropped socket reconnects and resumes', async (t) => {
@@ -133,4 +173,151 @@ test('a dropped socket reconnects and resumes', async (t) => {
   ws.close()
   await until(() => fake.sockets.length === 2)
   await until(() => fake.packets.some(packet => packet.op === 6))
+})
+
+test('a network failure at start is retried until the platform answers (#1119)', async (t) => {
+  const fake = await fakeQq()
+  const statuses = []
+  const base = env(fake)
+  let down = true
+  const fetch = async (...args) => {
+    if (down) throw new TypeError('fetch failed')
+    return base.fetch(...args)
+  }
+  const handle = qq.connect(FIELDS, { ...base, fetch }, { onMessage: () => {}, onAction: () => {}, onStatus: next => statuses.push(next) })
+  t.after(() => { handle.stop(); fake.close() })
+  const failed = await until(() => statuses.find(status => status.state === 'retrying'))
+  assert.match(failed.error, /fetch failed/)
+  down = false
+  await until(() => statuses.some(status => status.state === 'ready'), 120)
+  assert.ok(fake.calls.some(call => call.path === '/app/getAppAccessToken'))
+  assert.equal(fake.sockets.length, 1)
+})
+
+test('a gateway failure after the token is accepted is retried (#1119)', async (t) => {
+  const fake = await fakeQq()
+  const statuses = []
+  const base = env(fake)
+  let down = true
+  let gateways = 0
+  const fetch = async (url, ...rest) => {
+    if (String(url).endsWith('/gateway')) {
+      gateways += 1
+      if (down) throw new TypeError('fetch failed')
+    }
+    return base.fetch(url, ...rest)
+  }
+  const handle = qq.connect(FIELDS, { ...base, fetch }, { onMessage: () => {}, onAction: () => {}, onStatus: next => statuses.push(next) })
+  t.after(() => { handle.stop(); fake.close() })
+  const failed = await until(() => statuses.find(status => status.state === 'retrying'))
+  assert.match(failed.error, /fetch failed/)
+  // The token was accepted before the handshake, so this is the gateway path and
+  // not a second token failure.
+  assert.equal(fake.calls.filter(call => call.path === '/app/getAppAccessToken').length, 1)
+  assert.equal(fake.sockets.length, 0)
+  down = false
+  const ready = await until(() => statuses.slice(statuses.indexOf(failed) + 1).find(status => status.state === 'ready'), 120)
+  assert.ok(ready !== undefined, 'the connection became ready after the retry')
+  assert.equal(gateways, 2)
+  assert.equal(fake.sockets.length, 1, 'the retry opened one socket, not one per attempt')
+})
+
+test('a 200 gateway with no url is a permanent refusal, not a retry loop (#1119)', async (t) => {
+  const fake = await fakeQq()
+  fake.replies['/gateway'] = { result: { message: 'no gateway for this app' } }
+  const statuses = []
+  const handle = qq.connect(FIELDS, env(fake), { onMessage: () => {}, onAction: () => {}, onStatus: next => statuses.push(next) })
+  t.after(() => { handle.stop(); fake.close() })
+  const stopped = await until(() => statuses.find(status => status.state === 'error'))
+  assert.match(stopped.error, /no gateway for this app/)
+  await new Promise(done => setTimeout(done, 400))
+  assert.equal(fake.calls.filter(call => call.path === '/gateway').length, 1, 'the refusal is not retried')
+  assert.equal(statuses.filter(status => status.state === 'retrying').length, 0)
+  assert.equal(fake.sockets.length, 0)
+})
+
+test('a socket that cannot be built at the handshake is retried (#1119)', async (t) => {
+  const fake = await fakeQq()
+  const statuses = []
+  const base = env(fake)
+  let failures = 1
+  const WebSocket = function (...args) {
+    if (failures > 0) { failures -= 1; throw new TypeError('socket unavailable') }
+    return new base.WebSocket(...args)
+  }
+  const handle = qq.connect(FIELDS, { ...base, WebSocket }, { onMessage: () => {}, onAction: () => {}, onStatus: next => statuses.push(next) })
+  t.after(() => { handle.stop(); fake.close() })
+  const failed = await until(() => statuses.find(status => status.state === 'retrying'))
+  assert.match(failed.error, /could not open a socket/)
+  const ready = await until(() => statuses.slice(statuses.indexOf(failed) + 1).find(status => status.state === 'ready'), 120)
+  assert.ok(ready !== undefined, 'the connection became ready after a new socket')
+  assert.equal(fake.sockets.length, 1)
+})
+
+test('a voice message arrives as the platform ASR text (#1824)', async (t) => {
+  const fake = await fakeQq()
+  const messages = []
+  const handle = qq.connect(FIELDS, env(fake), { onMessage: async msg => { messages.push(msg) }, onAction: () => {}, onStatus: () => {} })
+  t.after(() => { handle.stop(); fake.close() })
+  const ws = await until(() => fake.sockets[0])
+  await until(() => fake.packets.some(packet => packet.op === 2))
+  // A QQ voice message carries no content: only an attachment with the
+  // platform's own transcription.
+  fake.push(ws, {
+    op: 0,
+    t: 'C2C_MESSAGE_CREATE',
+    s: 2,
+    d: {
+      id: 'm1',
+      content: '',
+      author: { user_openid: 'u1' },
+      attachments: [
+        { content_type: 'voice', url: 'https://multimedia.nt.qq.com.cn/x.amr', asr_refer_text: '明天下午三点开会', voice_wav_url: 'https://multimedia.nt.qq.com.cn/x.wav' },
+      ],
+    },
+  })
+  await until(() => messages.length === 1)
+  assert.equal(messages.length, 1, 'the voice message reached the bot')
+  assert.equal(messages[0].text, '明天下午三点开会')
+})
+
+test('a voice attachment without ASR text leaves the text empty', async (t) => {
+  const fake = await fakeQq()
+  const messages = []
+  const handle = qq.connect(FIELDS, env(fake), { onMessage: async msg => { messages.push(msg) }, onAction: () => {}, onStatus: () => {} })
+  t.after(() => { handle.stop(); fake.close() })
+  const ws = await until(() => fake.sockets[0])
+  await until(() => fake.packets.some(packet => packet.op === 2))
+  fake.push(ws, {
+    op: 0,
+    t: 'C2C_MESSAGE_CREATE',
+    s: 2,
+    d: { id: 'm1', content: '', author: { user_openid: 'u1' }, attachments: [{ content_type: 'voice', url: 'https://x.amr' }] },
+  })
+  // The event still reaches the handler so the core can answer "no text":
+  // dropping it silently is what the bug report is about.
+  await until(() => messages.length === 1)
+  assert.equal(messages[0].text, '')
+})
+
+test('a caption on a voice message wins over the ASR text', async (t) => {
+  const fake = await fakeQq()
+  const messages = []
+  const handle = qq.connect(FIELDS, env(fake), { onMessage: async msg => { messages.push(msg) }, onAction: () => {}, onStatus: () => {} })
+  t.after(() => { handle.stop(); fake.close() })
+  const ws = await until(() => fake.sockets[0])
+  await until(() => fake.packets.some(packet => packet.op === 2))
+  fake.push(ws, {
+    op: 0,
+    t: 'C2C_MESSAGE_CREATE',
+    s: 2,
+    d: {
+      id: 'm1',
+      content: '听一下这个',
+      author: { user_openid: 'u1' },
+      attachments: [{ content_type: 'voice', url: 'https://x.amr', asr_refer_text: '明天下午三点开会' }],
+    },
+  })
+  await until(() => messages.length === 1)
+  assert.equal(messages[0].text, '听一下这个')
 })

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
+import { stackReplies } from '../src/shared/group-replies.js'
 import { fileURLToPath } from 'node:url'
 import { runInNewContext } from 'node:vm'
 import { build } from 'esbuild'
@@ -27,11 +28,32 @@ runInNewContext(bundle.outputFiles[0].text, {
   },
   queueMicrotask,
 })
-const { ChatRows, ThinkingRow, syncGroupChains } = module.exports
+const { Bubbles, ChatRows, ThinkingRow, syncGroupChains, claimLines, GroupMessage, TriggerCell } = module.exports
 
 const roster = { byId: { b: { id: 'b', name: 'Writer' } }, roomsById: {} }
 const MINUTE = 60_000
 const shape = rows => [...rows].map(row => (row.props.className === 'bt-time-sep' ? 'clock' : row.type.name === 'Bubbles' ? `bot:${row.props.texts.join('+')}` : row.type.name))
+
+test('stored duplicate bubbles stay visible, with reactions on indexes 1 and 3', () => {
+  const tree = Bubbles({
+    texts: ['...', '...', 'other', '...', '...'], roster, selfId: 'b', actions: {}, msgKey: 'room:1',
+    useUi: select => select({ reactions: { 'room:1': { 1: ['👍'], 3: ['😂'] } } }),
+    streaming: true, lead: 'avatar',
+  })
+  const bubbles = tree.children.filter(child => child?.type?.name === 'Bubble')
+  assert.deepEqual(bubbles.map(bubble => [bubble.props.text, bubble.props.index, bubble.props.picked[0] ?? null]), [
+    ['...', 0, null], ['...', 1, '👍'], ['other', 2, null], ['...', 3, '😂'], ['...', 4, null],
+  ])
+  assert.deepEqual(bubbles.map(bubble => bubble.props.live), [false, false, false, false, true])
+  assert.deepEqual(bubbles.map(bubble => bubble.props.lead), [null, null, null, null, 'avatar'])
+})
+
+test('whitespace variants stay separate bubbles', () => {
+  const tree = Bubbles({ texts: ['...', '... ', '...\n'], roster, selfId: 'b', actions: {} })
+  const bubbles = tree.children.filter(child => child?.type?.name === 'Bubble')
+  assert.deepEqual(bubbles.map(bubble => bubble.props.text), ['...', '... ', '...\n'])
+  assert.deepEqual(bubbles.map(bubble => bubble.props.index), [0, 1, 2])
+})
 
 test('a Bot\'s messages in a row are one block', () => {
   const items = [
@@ -129,4 +151,46 @@ test('consecutive group messages from the same Bot chain together, and cards or 
   assert.equal(m3.dataset.chainPrev, undefined)
   assert.equal(m3.dataset.chainNext, undefined)
   assert.equal(m4.dataset.chainPrev, undefined)
+})
+
+test('a final reply with a missing file and no work running draws both markers', () => {
+  const claims = { inProgress: true, missingFiles: ['./out/report.pptx'] }
+  assert.deepEqual([...claimLines(claims)].map(line => String(line.text)), ['No background work detected', 'File not found: ./out/report.pptx'])
+  assert.equal(claimLines(undefined).length, 0)
+  const tree = GroupMessage({
+    bot: { id: 'b', name: 'Writer' }, text: '正在导出，稍后汇报。', room: { id: 'r1' }, roster: { prefs: {} }, actions: { openSession() {} }, claims,
+  })
+  const markers = tree.children.filter(child => String(child?.props?.className ?? '').startsWith('bt-claim'))
+  assert.deepEqual([...markers].map(child => [String(child.props.className), [...child.children].join('')]), [
+    ['bt-claim bt-claim-inProgress', 'No background work detected'],
+    ['bt-claim bt-claim-file', 'File not found: ./out/report.pptx'],
+  ])
+})
+
+test('a group post carries claims both live and in earlier chat rows', () => {
+  const claims = { missingFiles: ['./missing.md'] }
+  const source = { kind: 'bot', role: 'post', senderSessionId: 'b', claims }
+  const team = { ...roster, roomsById: { g: { id: 'g' } }, exchangeTurns: {} }
+  const live = TriggerCell({
+    node: { data: { source, turn: 1, time: 1, content: [{ type: 'text', text: 'Report' }] } },
+    sessionId: 'g', useRoster: pick => pick(team), useSessions: pick => pick({ byId: {} }),
+    useTurnClock: pick => pick({}), useUi: pick => pick({}), actions: {},
+  })
+  assert.deepEqual(live.props.claims, claims)
+  const [earlier] = ChatRows({
+    items: [{ kind: 'post', botId: 'b', text: 'Report', claims }], sessionId: 'g', roster: team, actions: {},
+  })
+  assert.deepEqual(earlier.props.claims, claims)
+})
+
+test('a marked final reply stacks onto earlier progress and keeps later messages below its marker', () => {
+  const claims = { missingFiles: ['./missing.md'] }
+  const progress = { botId: 'b', text: 'Started' }
+  const final = { botId: 'b', text: 'Report', claims }
+  const stacked = stackReplies([progress, final, { botId: 'b', text: 'Follow-up' }])
+  assert.equal(stacked.length, 2)
+  assert.deepEqual(stacked[0].texts, ['Started', 'Report'])
+  assert.deepEqual(stacked[0].claims, claims)
+  assert.deepEqual(stacked[1].texts, ['Follow-up'])
+  assert.equal(stacked[1].claims, undefined)
 })

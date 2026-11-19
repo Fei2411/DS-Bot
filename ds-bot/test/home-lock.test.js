@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { execFile } from 'node:child_process'
 import fs from 'node:fs'
 import { existsSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import { syncBuiltinESMExports } from 'node:module'
@@ -197,4 +198,40 @@ test('a reading host follows the other host\'s keys, never writes them, and keep
   assert.equal((await call('secret-set', { name: 'MINE', value: 'mine-value-1' })).ok, true)
   const saved = JSON.parse(readFileSync(secretsPath, 'utf8')).secrets.map(secret => secret.name).sort()
   assert.deepEqual(saved, ['FIRST_KEY', 'MINE', 'SECOND_KEY', 'THIRD_KEY'])
+})
+
+// A quit can end the process without the plugin's cleanup (a shutdown timeout, a
+// handler that calls exit). The lock must still go with this process — and only
+// while the file is still this host's.
+const lockModule = new URL('../src/host/home-lock.js', import.meta.url).href
+const runChild = code => new Promise((resolve, reject) => {
+  execFile(process.execPath, ['--input-type=module', '-e', code], (error, stdout, stderr) => {
+    if (error === null) resolve({ stdout, stderr })
+    else reject(Object.assign(error, { stderr }))
+  })
+})
+
+test('a host that exits without its cleanup leaves no lock behind', async (t) => {
+  const path = join(tempHome(t), 'state.lock')
+  await runChild(`
+    import { homeLock } from ${JSON.stringify(lockModule)}
+    const lock = homeLock(${JSON.stringify(path)})
+    if (lock.claim() !== undefined) { console.error('the lock was not free'); process.exit(3) }
+    process.exit(0)
+  `)
+  assert.equal(existsSync(path), false)
+})
+
+test('a host that lost the lock does not delete the new holder\'s file on exit', async (t) => {
+  const path = join(tempHome(t), 'state.lock')
+  const theirs = JSON.stringify({ pid: 4242, host: 'other-host', token: 'theirs', since: Date.now() })
+  await runChild(`
+    import { writeFileSync } from 'node:fs'
+    import { homeLock } from ${JSON.stringify(lockModule)}
+    const lock = homeLock(${JSON.stringify(path)})
+    if (lock.claim() !== undefined) { console.error('the lock was not free'); process.exit(3) }
+    writeFileSync(${JSON.stringify(path)}, ${JSON.stringify(theirs)})
+    process.exit(0)
+  `)
+  assert.equal(readFileSync(path, 'utf8'), theirs)
 })

@@ -72,6 +72,21 @@ test('a failed state write rejects and leaves the saved file unchanged', async (
   assert.deepEqual(fs.readFileSync(statePath), original)
 })
 
+test('model selection witnesses survive a saved store reload', async (t) => {
+  const first = runtime(t)
+  await first.rt.load()
+  const selections = { s1: { provider: 'deepseek', model: 'v4', reasoningEffort: 'high' } }
+  first.rt.state.sessionModelSelections = selections
+  await first.rt.save()
+  await first.dispose()
+  const cleanups = []
+  const second = { ...first.rt, ctx: { effect: execute => cleanups.push(execute()) } }
+  t.after(async () => { for (const cleanup of cleanups) await cleanup() })
+  install(second)
+  await second.load()
+  assert.deepEqual(second.state.sessionModelSelections, selections)
+})
+
 test('a failed migration write warns but load() still resolves', async (t) => {
   const { rt, statePath, warnings } = runtime(t, { version: 1, mainBotId: 'chief', bots: { chief: { id: 'chief', name: 'Chief' } } })
   // The migrated team's first write fails: a directory takes the temp file's path.
@@ -577,4 +592,54 @@ test('findBot unquotes a Bot ref before matching the name', async (t) => {
   assert.equal(rt.findBot('a1')?.id, 'a1')
   assert.equal(rt.findBot('"Nobody"'), undefined)
   assert.equal(rt.findBot(undefined), undefined)
+})
+
+test('indexSessions normalizes missing ids, empty sessionId, switched segments, openParts, and group sessions', async (t) => {
+  const { rt } = runtime(t, {
+    version: 1,
+    mainBotIds: ['main'],
+    bots: {
+      main: { id: 'main', name: 'Chief', main: true },
+      'empty-sid': { id: 'empty-sid', name: 'Empty', sessionId: '' },
+      noId: { name: 'NoId', sessionId: '' },
+      coder: {
+        id: 'coder',
+        name: 'Coder',
+        sessionId: 'sess-coder-2',
+        segments: [null, {}, { sessionId: '' }, { sessionId: 'sess-coder-1', workDir: '/a' }],
+        openParts: [
+          { sessionId: '' },
+          { sessionId: 'sess-coder-open', segments: [{ sessionId: '' }, { sessionId: 'sess-coder-open-old' }] },
+        ],
+      },
+    },
+    rooms: {
+      r1: {
+        id: 'r1',
+        name: 'SecRoom',
+        sessionId: '',
+        members: ['main', 'coder'],
+        sessions: { main: 'grp-main-1', bad: '' },
+        segments: { coder: [{ sessionId: '' }, { sessionId: 'grp-coder-old' }] },
+        parts: [{ sessionId: '' }, { sessionId: 'room-old' }],
+      },
+    },
+  })
+  await rt.load()
+  assert.equal(rt.chatOf('main'), 'main')
+  assert.equal(rt.chatOf('empty-sid'), 'empty-sid')
+  assert.equal(rt.chatOf('noId'), 'noId')
+  assert.equal(rt.selfOf('main'), 'main')
+  assert.equal(rt.selfOf('empty-sid'), 'empty-sid')
+  assert.equal(rt.selfOf('noId'), 'noId')
+  assert.equal(rt.selfOf('sess-coder-2'), 'coder')
+  assert.equal(rt.selfOf('sess-coder-1'), 'coder')
+  assert.equal(rt.selfOf('sess-coder-open'), 'coder')
+  assert.equal(rt.selfOf('sess-coder-open-old'), 'coder')
+  assert.equal(rt.selfOf('grp-main-1'), 'main')
+  assert.equal(rt.selfOf('grp-coder-old'), 'coder')
+  assert.equal(rt.roomOf('r1')?.id, 'r1')
+  assert.equal(rt.selfOf(''), undefined)
+  assert.equal(rt.selfOf(undefined), undefined)
+  assert.equal(rt.roomOf(''), undefined)
 })

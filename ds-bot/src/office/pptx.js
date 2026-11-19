@@ -55,7 +55,9 @@ const shapeName = (sp) => child(child(sp, 'p:nvSpPr') ?? child(sp, 'p:nvPicPr') 
 const shapeId = (sp) => child(child(sp, 'p:nvSpPr') ?? child(sp, 'p:nvPicPr') ?? child(sp, 'p:nvGrpSpPr')
   ?? child(sp, 'p:nvCxnSpPr') ?? child(sp, 'p:nvGraphicFramePr') ?? sp, 'p:cNvPr')?.getAttribute('id')
 
-const xfrmOf = (sp) => child(child(sp, 'p:spPr') ?? sp, 'a:xfrm')
+const xfrmOf = (sp) => (sp.tagName === 'p:graphicFrame'
+  ? child(sp, 'p:xfrm')
+  : child(child(sp, 'p:spPr') ?? sp, 'a:xfrm'))
 const off = (xfrm) => ({ x: Number(firstOf(xfrm, 'a:off')?.getAttribute('x') ?? 0), y: Number(firstOf(xfrm, 'a:off')?.getAttribute('y') ?? 0) })
 const ext = (xfrm) => ({ cx: Number(firstOf(xfrm, 'a:ext')?.getAttribute('cx') ?? 0), cy: Number(firstOf(xfrm, 'a:ext')?.getAttribute('cy') ?? 0) })
 

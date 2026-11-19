@@ -508,13 +508,10 @@ export function install(rt) {
     return memberLines(room, goal, member).lines.join('\n')
   }
 
-  // Every non-task change is a group event: a notice in the log the members read,
-  // and a goal reply in every running round of the room for the client.
+  // Every non-task change is a group event: a notice the members read, which the
+  // group chat shows as a goal row.
   const announce = (room, reply) => {
     rt.logRoom?.(room, { who: 'DS Bot', kind: 'notice', reason: 'goal', ...reply })
-    for (const round of rt.roomProgress.values()) {
-      if (round.roomId === room.id) round.replies.push({ kind: 'goal', ...reply, time: Date.now() })
-    }
   }
 
   // A goal message into the room's own Session, which relays it as a new round:
@@ -627,13 +624,11 @@ export function install(rt) {
     await queueGoalRelay(room, 'nudge', '[Goal check]', 'DS Bot')
   }
 
-  // Member work can outlive the round it grew out of; the round-end check then
-  // skips the room, and nothing else would wake the admin when the last of it
-  // settles. Settle — no round running, nobody working, no call batch, an
-  // empty inbox — runs the same check once: the fake round's one worked slot
-  // only says progress happened (the work that just ended), so the check gets
-  // a fresh budget.
-  const SETTLE_ROUND = Object.freeze({ stoppedOnly: false, slots: Object.freeze([{ id: '', worked: true }]) })
+  // Work can outlive its round, so settlement checks an otherwise quiet room.
+  // A settlement event is not evidence of progress: turn/end and subagent/end
+  // also fire after an admin [PASS] or a failed turn. Keep the slot non-empty
+  // to allow the check, but do not reset the idle check budget.
+  const SETTLE_ROUND = Object.freeze({ stoppedOnly: false, slots: Object.freeze([{ id: '', worked: false }]) })
 
   async function goalSettled(room) {
     if (room === undefined) return

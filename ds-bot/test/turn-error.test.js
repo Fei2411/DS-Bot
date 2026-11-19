@@ -11,7 +11,7 @@ import { build } from 'esbuild'
 const { outputFiles } = await build({
   stdin: {
     contents: [
-      "export { FailureCell, accountModel, failureText, fixesFor, retryShown } from './src/client/turn-error.js'",
+      "export { FailureCell, accountModel, failureFacts, failureText, fixesFor, retryShown } from './src/client/turn-error.js'",
       "export { installLocale } from './src/client/i18n.js'",
     ].join('\n'),
     resolveDir: fileURLToPath(new URL('..', import.meta.url)),
@@ -58,7 +58,7 @@ runInNewContext(outputFiles[0].text, {
   clearTimeout: () => {},
   require: name => (name === 'react' ? react : name === 'react-dom' ? { createPortal: node => node } : {}),
 })
-const { FailureCell, accountModel, failureText, fixesFor, retryShown, installLocale } = module.exports
+const { FailureCell, accountModel, failureFacts, failureText, fixesFor, retryShown, installLocale } = module.exports
 
 const tick = () => new Promise(resolve => setTimeout(resolve, 0))
 const walk = (node, match, out = []) => {
@@ -412,6 +412,17 @@ test('Copy puts the technical details on the clipboard in English', async () => 
   assert.deepEqual(copied, ['Code: SERVER\nMessage: upstream 503'])
 })
 
+test('a failed model-switch compaction offers retry, another model and settings', () => {
+  const side = cell({ code: 'MODEL_SWITCH_COMPACTION_FAILED', message: 'compaction-basic: deepseek-official/deepseek-flash reserves 256000 completion tokens of its 20480-token context window' })
+  const tree = side.render()
+  assert.equal(textOf(walk(tree, node => node.props?.className === 'bt-fail-text')[0]), "The conversation could not be compacted for this model. Try again or choose another model.")
+  const buttons = side.buttons(tree)
+  assert.deepEqual(labels(buttons), ['Pick another model', 'Open model settings', 'Retry'])
+  assert.equal(buttons.some(entry => entry.label === 'Retry'), true)
+  buttons[1].node.props.onClick()
+  assert.deepEqual(side.calls, [['openModels']])
+})
+
 test('the copy and fix tables go by code alone', () => {
   assert.equal(failureText('QUOTA', { provider: 'X', status: 429 }), 'X is out of balance or quota (429).')
   assert.equal(failureText('INVALID_CREDENTIAL', {}), 'This API key is not in the right format.')
@@ -423,6 +434,36 @@ test('the copy and fix tables go by code alone', () => {
   assert.equal(retryShown('AUTH', { code: 'AUTH' }), false)
   assert.equal(retryShown('AUTH', undefined), true)
   assert.equal(retryShown('QUOTA', { code: 'QUOTA' }), true)
+  assert.deepEqual(Array.from(fixesFor('MODEL_SWITCH_COMPACTION_FAILED', {})), ['model', 'model-settings'])
+  assert.equal(retryShown('MODEL_SWITCH_COMPACTION_FAILED', undefined), true)
+  assert.equal(failureText('MODEL_SWITCH_COMPACTION_FAILED', {}), "The conversation could not be compacted for this model. Try again or choose another model.")
+})
+
+test('a content audit keeps its own copy and facts, and offers no key action', () => {
+  assert.equal(failureText('CONTENT_POLICY', { provider: 'Router' }), 'Router blocked this request with its content filter. The API key is not the problem; edit the input or start a new chat.')
+  assert.equal(failureText('CONTENT_POLICY', { provider: 'Router', status: 403 }), 'Router blocked this request with its content filter (403). The API key is not the problem; edit the input or start a new chat.')
+  assert.deepEqual(Array.from(fixesFor('CONTENT_POLICY', { canSignIn: true, official: true })), [])
+  assert.equal(retryShown('CONTENT_POLICY', undefined), true)
+  const facts = Array.from(failureFacts({ code: 'CONTENT_POLICY', message: '内容审计命中风险规则', status: 403, requestId: 'req-1' }, undefined), entry => Array.from(entry))
+  assert.deepEqual(facts, [
+    ['Code', 'Code', 'CONTENT_POLICY'],
+    ['HTTP status', 'HTTP status', '403'],
+    ['Request ID', 'Request ID', 'req-1'],
+    ['Message', 'Provider message', '内容审计命中风险规则'],
+  ])
+})
+
+test('the host correction reaches the card for the failed turn', () => {
+  const body = 'upstream 403: content_policy_violation: 内容审计命中风险规则'
+  const side = cell({
+    code: 'AUTH', turn: 3,
+    bot: { id: 'b', model: 'alt/other', failures: { 'chief-part': { turn: 3, code: 'CONTENT_POLICY', message: body, status: 403, requestId: 'req-7', provider: 'gateway', at: 1 } } },
+  })
+  const tree = side.render()
+  assert.match(textOf(walk(tree, node => node.props?.className === 'bt-fail-text')[0]), /gateway blocked this request with its content filter \(403\)/)
+  assert.equal(side.buttons(tree).some(entry => /Enter the key again|Use a DeepSeek account|Pick another model/.test(entry.label)), false)
+  assert.ok(side.tech(tree).includes(body))
+  assert.ok(side.tech(tree).includes('req-7'))
 })
 
 // The words a Chinese interface may still show in English (design note, 用词).
@@ -447,7 +488,7 @@ test('in a Chinese interface every repair card state reads in Chinese, outside T
     return shown(node.props?.children)
   }
   try {
-    const codes = ['MISSING_CREDENTIAL', 'INVALID_CREDENTIAL', 'AUTH', 'QUOTA', 'ACCOUNT_QUOTA', 'ACCOUNT_SIGN_IN_REQUIRED', 'ACCOUNT_SIGNED_OUT', 'ACCOUNT_TOKEN_INVALID', 'TRANSPORT', 'TIMEOUT', 'RATE_LIMIT', 'SERVER', 'INTERRUPTED', 'CONTEXT_WINDOW_EXCEEDED', 'OTHER']
+    const codes = ['MISSING_CREDENTIAL', 'INVALID_CREDENTIAL', 'AUTH', 'QUOTA', 'ACCOUNT_QUOTA', 'ACCOUNT_SIGN_IN_REQUIRED', 'ACCOUNT_SIGNED_OUT', 'ACCOUNT_TOKEN_INVALID', 'TRANSPORT', 'TIMEOUT', 'RATE_LIMIT', 'SERVER', 'INTERRUPTED', 'CONTEXT_WINDOW_EXCEEDED', 'MODEL_SWITCH_COMPACTION_FAILED', 'CONTENT_POLICY', 'OTHER']
     const account = { status: 'credential-stored', links: { topUpUrl: 'https://platform.example/top_up' }, attempt: null }
     for (const code of codes) {
       for (const blocked of [undefined, { code, status: 401, requestId: 'req-1', provider: 'deepseek-official', at: 1 }]) {

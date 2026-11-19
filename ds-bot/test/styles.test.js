@@ -17,7 +17,7 @@ const { JSDOM } = requireHarness('jsdom')
 // motion.js; they run in each test's jsdom document through the vm context.
 const { outputFiles } = await build({
   stdin: {
-    contents: "export { installStyles, installCompiledStyles } from './src/client/styles.js'",
+    contents: "export { installStyles, installCompiledStyles, CONVERSATION_CSS } from './src/client/styles.js'",
     resolveDir: PLUGIN,
   },
   bundle: true, format: 'cjs', platform: 'browser', write: false, logLevel: 'silent',
@@ -40,20 +40,42 @@ const tagged = (document, tag) => [...document.head.querySelectorAll('style')]
 
 // The client-modules bundle registers itself through the page's __ModuleLoader__
 // facade when it loads; capture that registration once to reach its exports.
-const clientModules = (() => {
+const clientModules = await (async () => {
   const { window } = new JSDOM('<!doctype html><html><head></head><body></body></html>')
   let registration
   const previousWindow = globalThis.window
   globalThis.window = window
   window.__ModuleLoader__ = { load: (record) => { registration = record } }
   try {
-    requireHarness('@deepseek-ai/dsh-client-modules/client')
+    await import('@deepseek-ai/dsh-client-modules/client')
   } finally {
     globalThis.window = previousWindow
   }
   return registration.factory((spec) => { throw new Error(`no seed module ${spec}`) })
 })()
 const { createClientModuleSystem, parseBootManifest } = clientModules
+
+test('message bodies skip offscreen content without containing overflowing tools', () => {
+  const { window, module } = bench([])
+  const style = window.document.createElement('style')
+  style.textContent = module.exports.CONVERSATION_CSS
+  window.document.head.appendChild(style)
+  const rule = [...style.sheet.cssRules].find(rule => rule.selectorText === '.bt-bubble,.bt-ububble')
+  assert.ok(rule)
+  assert.equal(rule.style.getPropertyValue('content-visibility'), 'auto')
+  assert.equal(rule.style.getPropertyValue('contain-intrinsic-size'), 'auto 160px')
+  const row = window.document.createElement('div')
+  row.dataset.chatFlowKind = 'assistant-step'
+  row.innerHTML = '<div class="bt-msg"><div class="bt-msg-line"><div class="bt-lead"></div><div class="bt-bubble"></div><div class="bt-tools"><button></button></div></div><div class="bt-reacts"></div></div>'
+  assert.ok(row.querySelector('.bt-bubble').matches(rule.selectorText))
+  for (const node of [row, ...row.querySelectorAll(':not(.bt-bubble)')]) {
+    assert.equal(node.matches(rule.selectorText), false)
+  }
+  const user = window.document.createElement('div')
+  user.className = 'bt-ububble'
+  assert.ok(user.matches(rule.selectorText))
+  assert.equal([...style.sheet.cssRules].some(rule => rule.selectorText === '[data-chat-flow-kind]'), false)
+})
 
 // A fresh jsdom document, the bundled style helpers bound to it, and a real
 // ClientModuleSystem that materializes the pretend modules named in `rows`.
@@ -173,7 +195,11 @@ test('the chat-room rule is installed through installStyles, so it is owned too'
 test('message tools anchor to the bottom of a long reply in both layouts', () => {
   const css = readFileSync(new URL('../src/client/styles.js', import.meta.url), 'utf8')
   assert.match(css, /\.bt-tools\{position:absolute;bottom:0;/)
-  assert.match(css, /body\[data-bt-layout=flat\] \.bt-tools\{bottom:-14px;/)
+  // Flat: the toolbar hangs below the whole message instead of over its last line.
+  assert.match(css, /body\[data-bt-layout=flat\] \.bt-msg\{position:relative\}/)
+  assert.match(css, /body\[data-bt-layout=flat\] \.bt-msg-line\{position:static\}/)
+  assert.match(css, /body\[data-bt-layout=flat\] \.bt-tools\{top:100%;bottom:auto;/)
+  assert.doesNotMatch(css, /body\[data-bt-layout=flat\] \.bt-tools\{bottom:-14px;/)
   assert.doesNotMatch(css, /\.bt-tools\{position:absolute;top:50%;/)
 })
 
@@ -186,7 +212,35 @@ test('the tools toolbar keeps its own stacking context for the hover bridge', ()
   assert.match(css, /\.bt-tools::after\{[^}]*z-index:-1/)
 })
 
-test('the flat toolbar does not cover reactions below the message', () => {
+test('the flat toolbar hangs below reactions instead of covering them', () => {
   const css = readFileSync(new URL('../src/client/styles.js', import.meta.url), 'utf8')
-  assert.match(css, /body\[data-bt-layout=flat\] \.bt-msg:has\(>\.bt-reacts\) \.bt-tools\{bottom:0\}/)
+  assert.match(css, /body\[data-bt-layout=flat\] \.bt-msg\{position:relative\}/)
+  assert.match(css, /body\[data-bt-layout=flat\] \.bt-msg-line\{position:static\}/)
+  assert.match(css, /body\[data-bt-layout=flat\] \.bt-tools\{top:100%;/)
+  assert.doesNotMatch(css, /body\[data-bt-layout=flat\] \.bt-msg:has\(>\.bt-reacts\) \.bt-tools\{bottom:0\}/)
+})
+
+test('on touch, the message toolbar sits below the message and is shorter', () => {
+  const css = readFileSync(new URL('../src/client/styles.js', import.meta.url), 'utf8')
+  const touch = css.slice(css.indexOf('@media (hover:none)'), css.indexOf('.bt-mic-note'))
+  // A touch tap opens the toolbar, so it must not sit over the bubble it belongs to.
+  assert.match(touch, /\.bt-msg\{position:relative\}/)
+  assert.match(touch, /\.bt-msg-line\{position:static\}/)
+  assert.match(touch, /\.bt-tools\{top:100%;bottom:auto;/)
+  assert.match(touch, /\.bt-tool\{width:36px;height:36px\}/)
+  assert.doesNotMatch(touch, /\.bt-tool\{width:44px;height:44px\}/)
+  // The open pill is 36px plus a 4px gap; reserve it so the next message's text stays clear.
+  assert.match(touch, /\.bt-msg:has\(>\.bt-msg-line>\.bt-tools\[data-open\]\)\{margin-bottom:40px\}/)
+})
+
+test('an active message toolbar stacks above the next message', () => {
+  const css = readFileSync(new URL('../src/client/styles.js', import.meta.url), 'utf8')
+  // Later .bt-msg siblings are position:relative in the flat layout and on touch,
+  // so without a z-index they paint over a toolbar that hangs below this message.
+  assert.match(css, /\.bt-msg:hover,\.bt-msg:focus-within,\.bt-msg:has\(>\.bt-msg-line>\.bt-tools\[data-open\]\)\{z-index:2\}/)
+})
+
+test('trigger menu descriptions stay beside their row labels', () => {
+  const css = readFileSync(new URL('../src/client/styles.js', import.meta.url), 'utf8')
+  assert.match(css, /\[data-trigger-menu\] \[role=option\]>span\{text-align:left\}/)
 })

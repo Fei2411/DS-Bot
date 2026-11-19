@@ -37,6 +37,16 @@ const PROVIDER_TEXT = {
   unsupported: ['Computer use is not available on this platform', 'error'],
 }
 
+// A missing provider package: what to install, and the command to copy.
+function InstallRow({ install, Row }) {
+  const [copied, setCopied] = useState(false)
+  const copy = () => { void navigator.clipboard?.writeText(install.command).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1600) }, () => {}) }
+  return h(Row, { label: t('Install it in this DSH'), hint: t('Run {command}, then restart DSH.', { command: install.command }) },
+    h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: copy }, copied ? t('Copied') : t('Copy command')))
+}
+
+const providerWorks = provider => provider.state === 'ready' || provider.state === 'loading'
+
 // Settings → Computer use. The switch, where the provider stands, the macOS
 // permission rows, and every Bot's level.
 export function ComputerPage({ roster, actions, run, Section, Row, Switch }) {
@@ -45,9 +55,10 @@ export function ComputerPage({ roster, actions, run, Section, Row, Switch }) {
   const provider = computer.provider ?? { state: computer.enabled ? 'loading' : 'off' }
   const refresh = () => { if (actions.computerSystemStatus) void Promise.resolve(actions.computerSystemStatus()).then(setSystem, () => {}) }
   useEffect(() => {
-    if (computer.enabled && computer.macos === true) refresh()
+    if (computer.enabled && computer.macos === true && provider.state === 'ready') refresh()
+    else setSystem(null)
     return undefined
-  }, [computer.enabled, computer.macos])
+  }, [computer.enabled, computer.macos, provider.state])
   const perms = system ?? {}
   const permRow = (key, label) => {
     const state = perms[key]?.state ?? perms[key]
@@ -64,8 +75,10 @@ export function ComputerPage({ roster, actions, run, Section, Row, Switch }) {
       h(Row, { label: t(PROVIDER_TEXT[provider.state]?.[0] ?? PROVIDER_TEXT.error[0]), hint: provider.message },
         ['error', 'missing', 'occupied'].includes(provider.state) && actions.computerProviderRetry
           ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => run(actions.computerProviderRetry()) }, t('Retry')) : null),
-      computer.macos === true ? [permRow('accessibility', 'Accessibility'), permRow('screenRecording', 'Screen Recording')] : null) : null,
+      provider.state === 'missing' && provider.install?.command ? h(InstallRow, { install: provider.install, Row }) : null,
+      computer.macos === true && provider.state === 'ready' ? [permRow('accessibility', 'Accessibility'), permRow('screenRecording', 'Screen Recording')] : null) : null,
     h(Section, { key: 'bots', title: t('Bots') },
+      computer.enabled && !providerWorks(provider) ? h('p', { className: 'bt-set-hint' }, t('Bots get no computer tools until the provider is ready.')) : null,
       roster.bots.map(bot => h(Row, { key: bot.id, label: bot.name },
         h(LevelPicker, { bot, actions, run, disabled: !computer.enabled })))),
   ]
@@ -79,7 +92,7 @@ export function BotComputerCard({ bot, roster, actions, run, Card, Row }) {
     !computer.enabled
       ? h(Row, { label: t('Computer use') }, h('span', { className: 'bt-muted' }, t('Off in Settings → Computer use')))
       : [
-          h(Row, { key: 'level', label: t('Computer use') }, h(LevelPicker, { bot, actions, run })),
+          h(Row, { key: 'level', label: t('Computer use'), hint: providerWorks(computer.provider ?? { state: 'loading' }) ? undefined : t('Bots get no computer tools until the provider is ready.') }, h(LevelPicker, { bot, actions, run })),
           apps.map(([key, app]) => h(Row, { key, label: app.name },
             h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => run(actions.computerRevokeApp(bot.id, key)) }, t('Revoke')))),
         ])

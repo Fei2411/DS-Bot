@@ -86,6 +86,30 @@ test('the settings page draws the switch, the provider line and one level picker
   assert.ok(texts(tree).some(text => text.includes('Let Bots use the computer')))
 })
 
+test('a missing provider package shows the install command and says the levels wait (#1050)', () => {
+  const install = { packages: ['@deepseek-ai/dsh-computer-use@0.2.2-rc.1'], command: 'pnpm --dir "/p" add @deepseek-ai/dsh-computer-use@0.2.2-rc.1' }
+  const roster = { bots: [{ id: 'w1', name: 'Writer' }], computer: { enabled: true, provider: { state: 'missing', message: 'x is not installed in this DSH.', install } } }
+  const Row = props => ({ type: 'row', props })
+  const tree = render('ComputerPage', {
+    roster, actions: { computerSetEnabled: async () => {}, computerProviderRetry: async () => {}, computerSetLevel: async () => {} }, run: p => p,
+    Section: ({ children }) => ({ type: 'section', props: { children } }), Row, Switch: () => null,
+  })
+  const find = (node, test) => {
+    if (Array.isArray(node)) return node.map(item => find(item, test)).find(Boolean)
+    if (node && typeof node === 'object') {
+      if (test(node)) return node
+      return find(node.props?.children, test)
+    }
+    return undefined
+  }
+  const installRow = find(tree, node => node.props?.install !== undefined)
+  assert.ok(installRow, 'the install row is drawn')
+  const drawn = installRow.type(installRow.props)
+  assert.ok(drawn.props.hint.includes(install.command))
+  assert.deepEqual(buttons(drawn), ['Copy command'])
+  assert.ok(texts(tree).includes('Bots get no computer tools until the provider is ready.'))
+})
+
 test('the control card shows the level picker and the Always apps with Revoke', () => {
   const bot = { id: 'w1', name: 'Writer', computer: { level: 'background', apps: { notes: { name: 'Notes', grantedAt: 0 } } } }
   const tree = render('BotComputerCard', {

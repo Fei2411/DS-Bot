@@ -1,6 +1,13 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { chunkTelegram, toPlain, toTelegramHtml } from '../src/host/im/format.js'
+import { chunkMarkdown, chunkTelegram, toPlain } from '../src/host/im/format.js'
+
+// What Telegram is sent for a message that fits one chunk.
+const toTelegramHtml = (markdown) => {
+  const chunks = chunkTelegram(markdown)
+  assert.equal(chunks.length, 1)
+  return chunks[0].html
+}
 
 test('Markdown becomes Telegram HTML', () => {
   assert.equal(toTelegramHtml('**bold** and _ital_'), '<b>bold</b> and <i>ital</i>')
@@ -31,8 +38,48 @@ test('chunks stay under the limit and keep whole fences', () => {
   assert.ok(fits[0].html.includes('<pre><code>'))
 })
 
+test('a split fence stays under the limit when its text HTML-escapes', () => {
+  // "<" and "&" become 4 and 5 characters in the HTML payload, so a fence of them
+  // is three times longer once rendered than the text it was measured on.
+  const body = '<'.repeat(120) + '\n' + '&'.repeat(120) + '\n' + '>'.repeat(120)
+  const chunks = chunkTelegram(`\`\`\`\n${body}\n\`\`\``, 200)
+  assert.ok(chunks.length >= 3)
+  for (const chunk of chunks) assert.ok(chunk.html.length <= 200, chunk.html.length)
+  // Nothing is lost or repeated: the code arrives in order, cut only where it had to be.
+  assert.equal(chunks.map(chunk => chunk.text).join('').replace(/\n/g, ''), body.replace(/\n/g, ''))
+})
+
 test('an oversized line is hard cut and stays under the limit', () => {
   const chunks = chunkTelegram('y'.repeat(9000), 4096)
   assert.equal(chunks.length, 3)
   for (const chunk of chunks) assert.ok(chunk.html.length <= 4096)
+})
+
+test('chunkMarkdown drops blank lines at the start and end of a message', () => {
+  assert.deepEqual(chunkMarkdown('\n\nbody\n\n', 4096), ['body'])
+  assert.deepEqual(chunkMarkdown('\n\n \n\t\nbody\n\n  \n', 4096), ['body'])
+  assert.deepEqual(chunkMarkdown('\r\n\r\nbody\r\n   \r\n', 4096), ['body'])
+  // Full-width spaces on edge lines are dropped too, while many internal blank lines stay linear.
+  assert.deepEqual(chunkMarkdown('\u3000\n\u3000\nbody\n\u3000\n', 4096), ['body'])
+  const manyNewlines = `a${'\n'.repeat(30_000)}b`
+  const started = performance.now()
+  assert.deepEqual(chunkMarkdown(manyNewlines, 40_000), [manyNewlines])
+  assert.ok(performance.now() - started < 200)
+  // Blank lines inside the text and indentation of a content line stay as written.
+  assert.deepEqual(chunkMarkdown('\n\none\n\ntwo\n\n', 4096), ['one\n\ntwo'])
+  assert.deepEqual(chunkMarkdown('\n  indented\n\n', 4096), ['  indented'])
+  assert.deepEqual(chunkMarkdown('\n\n```js\n\nlet x = 1\n\n```\n\n', 4096), ['```js\n\nlet x = 1\n\n```'])
+})
+
+test('chunkMarkdown sends nothing for a message that is only whitespace', () => {
+  assert.deepEqual(chunkMarkdown('', 4096), [])
+  assert.deepEqual(chunkMarkdown('\n\n   \n\t\n', 4096), [])
+  assert.deepEqual(chunkMarkdown('   ', 4096), [])
+})
+
+test('chunkMarkdown trims the edges of a message cut into several chunks', () => {
+  const body = 'a'.repeat(60)
+  const chunks = chunkMarkdown(`\n\n${body}\n\n${body}\n\n`, 60)
+  assert.deepEqual(chunks, [body, body])
+  for (const chunk of chunks) assert.ok(Array.from(chunk).length <= 60)
 })

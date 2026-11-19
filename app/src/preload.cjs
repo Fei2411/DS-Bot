@@ -1,9 +1,10 @@
 // Gives the page that the app's Host serves the app's own bridge, and the app's start page its
-// own, smaller one; each window's arguments name the one page that gets it. On Windows it also
-// marks the Host's page for the frameless window the way DSH Desktop's preload does
-// (apps/desktop/src/preload-windows.ts, preload-platform.ts and preload-theme.ts; see NOTICE),
-// but without data-platform: that puts DSH's shortcuts on native menu input, which this
-// window does not have.
+// own, smaller one; each window's arguments name the one page that gets it. On Windows and
+// macOS it also marks the Host's page for the frameless window the way DSH Desktop's preload
+// does on Windows (apps/desktop/src/preload-windows.ts, preload-platform.ts and
+// preload-theme.ts; see NOTICE), but without data-platform: that puts DSH's shortcuts on
+// native menu input, which this window does not have. So macOS takes DSH's caption-band
+// layout too, with the traffic lights where Windows has its caption buttons' band.
 const { contextBridge, ipcRenderer } = require('electron')
 
 const argument = name => process.argv.find(value => value.startsWith(`--${name}=`))?.slice(name.length + 3)
@@ -49,6 +50,21 @@ if (startPage !== undefined) {
     // Computer use: the OS idle time behind the foreground gate, and the floating
     // indicator's entries; the window answers its buttons.
     idleSeconds: () => ipcRenderer.invoke('ds-bot:idle-seconds'),
+    // Notifications: the window asks, the shell decides whether the operator is looking,
+    // and a click comes back as the Session to open (#1504).
+    notify: (notice) => {
+      if (notice === null || typeof notice !== 'object') return Promise.resolve(false)
+      const clean = { title: String(notice.title ?? '').slice(0, 120), body: String(notice.body ?? '').slice(0, 200) }
+      if (typeof notice.sessionId === 'string') clean.sessionId = notice.sessionId
+      return ipcRenderer.invoke('ds-bot:notify', clean)
+    },
+    notifyStatus: () => ipcRenderer.invoke('ds-bot:notify-status'),
+    setBadge: (count) => { ipcRenderer.send('ds-bot:badge', Number(count) || 0) },
+    onOpenSession: (run) => {
+      if (typeof run !== 'function') return
+      ipcRenderer.removeAllListeners('ds-bot:open-session')
+      ipcRenderer.on('ds-bot:open-session', (_event, sessionId) => { if (typeof sessionId === 'string') run(sessionId) })
+    },
     computer: (entries) => { ipcRenderer.send('ds-bot:computer', computerEntriesOf(entries)) },
     computerCursor: (event) => { const clean = cursorEventOf(event); if (clean !== undefined) ipcRenderer.send('ds-bot:computer-cursor', clean) },
     onComputerAction: (run) => {
@@ -139,7 +155,7 @@ if (startPage !== undefined) {
       if (fullscreen) root.dataset.fullscreen = 'true'
       else delete root.dataset.fullscreen
     })
-    loaded(() => { frameless(caption.slice('--ds-bot-caption='.length), process.argv.includes('--ds-bot-mica')) })
+    loaded(() => { frameless(caption.slice('--ds-bot-caption='.length), argument('ds-bot-material')) })
   }
 }
 
@@ -203,7 +219,8 @@ function showCard(card) {
     delete layer.dataset.open
     layer.dataset.leaving = ''
     layer.inert = true
-    setTimeout(() => { layer.remove() }, 220)
+    const off = document.body?.dataset.btEffects === 'off' || document.documentElement?.dataset.effects === 'off'
+    setTimeout(() => { layer.remove() }, off ? 0 : 220)
     if (before instanceof HTMLElement && before.isConnected) before.focus({ preventScroll: true })
   }
   document.addEventListener('keydown', keys, true)
@@ -499,7 +516,8 @@ function showPicker(request) {
     delete layer.dataset.open
     layer.dataset.leaving = ''
     layer.inert = true
-    setTimeout(() => { layer.remove() }, 220)
+    const off = document.body?.dataset.btEffects === 'off' || document.documentElement?.dataset.effects === 'off'
+    setTimeout(() => { layer.remove() }, off ? 0 : 220)
     if (before instanceof HTMLElement && before.isConnected) before.focus({ preventScroll: true })
   }
   const quit = () => { close(true) }
@@ -556,10 +574,11 @@ function reportLook() {
   const report = () => {
     send('ds-bot:native-theme', root.getAttribute('data-ds-theme-source'))
     send('ds-bot:motion', document.body?.getAttribute('data-bt-motion') ?? null)
+    send('ds-bot:effects', document.body?.getAttribute('data-bt-effects') ?? null)
   }
   const observer = new MutationObserver(report)
   observer.observe(root, { attributeFilter: ['data-ds-theme-source'] })
-  if (document.body !== null) observer.observe(document.body, { attributeFilter: ['data-bt-motion'] })
+  if (document.body !== null) observer.observe(document.body, { attributeFilter: ['data-bt-motion', 'data-bt-effects'] })
   report()
 }
 
@@ -654,14 +673,15 @@ function updatesBridge() {
   }
 }
 
-function frameless(height, mica) {
+function frameless(height, material) {
   const root = document.documentElement
   root.dataset.windowsTitlebar = ''
   root.style.setProperty('--dsh-windows-titlebar-height', `${height}px`)
   // DSH keeps the dialog mask off the caption band, which then stays bright above a dimmed
   // page; here the band is part of the page, so the mask covers it too.
   root.style.setProperty('--dsh-frame-chrome-top', '0px')
-  captionColors(mica)
+  // The traffic lights take their colors from the system.
+  if (process.platform === 'win32') captionColors(material === 'mica')
 }
 
 // The caption buttons stand on the rightmost open column with Mica (the right sidebar or the

@@ -3,6 +3,8 @@
 This directory deploys DS Bot as a Docker image: a `dsh web` server (DeepSeek
 Harness) with the `ds-bot` plugin installed, ready for a NAS or any always-on
 box. The container is the sandbox boundary — see [Permissions](#permissions).
+For local source development with frontend rebuilds and host restarts, see
+[the development Compose setup](README.dev.md).
 
 ## Requirements
 

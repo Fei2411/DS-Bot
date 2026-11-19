@@ -3,7 +3,9 @@ import { homedir, hostname } from 'node:os'
 import { join, relative, resolve } from 'node:path'
 import { parseSessionFormatLogFilename } from '@deepseek-ai/dsh-session-format'
 import { sessionFormatCatalog } from '@deepseek-ai/dsh-session-format-catalog'
-import { parse, stringify } from 'yaml'
+import { entryListSchema } from '@deepseek-ai/cordis-plugin-include'
+import { dump, load } from 'js-yaml'
+import { parse } from 'yaml'
 import { copyTree, disk, within } from './copy-tree.mjs'
 
 export { within }
@@ -64,7 +66,7 @@ function modelProfiles(from) {
     if (!existsSync(file)) return []
     let patch
     try {
-      patch = parse(readFileSync(file, 'utf8'))
+      patch = load(readFileSync(file, 'utf8'), { schema: entryListSchema })
     } catch (error) {
       // An unreadable profile has no model settings to copy; the team is still there.
       console.warn(`DS Bot: skipped the model settings in ${file}: ${error instanceof Error ? error.message : String(error)}`)
@@ -212,12 +214,6 @@ const logVersion = name => parseSessionFormatLogFilename(name.replace(/\.(zstd|z
 const isNewer = (from, { id, group }) => readdirSync(join(from, 'sessions', group, id))
   .some(name => (logVersion(name) ?? 0) > sessionFormatCatalog.currentVersion)
 
-/** The Sessions whose log is in a newer format than the pinned DSH reads. */
-export function newerSessions(from, team) {
-  const { found } = sessionDirs(from, sessionIdsOf(team))
-  return found.filter(session => isNewer(from, session)).map(({ id }) => id)
-}
-
 /**
  * Copy into the data location `to` the Sessions its team names that are not there, from the DSH
  * home the team was imported from. Imports before 0.2.3 left out each group's own Session, and
@@ -287,11 +283,11 @@ async function copyKey(from, to, name) {
 
 async function writeModelRows(to, rows) {
   const file = join(to, 'profiles', 'ds-bot', 'cordis.patch.yml')
-  const current = existsSync(file) ? parse(await readFile(file, 'utf8')) : undefined
+  const current = existsSync(file) ? load(await readFile(file, 'utf8'), { schema: entryListSchema }) : undefined
   const ids = new Set(rows.map(row => row.id))
   const kept = Array.isArray(current) ? current.filter(row => !ids.has(row?.id)) : []
   await mkdir(join(to, 'profiles', 'ds-bot'), { recursive: true })
-  await writeFile(file, stringify([...kept, ...rows]))
+  await writeFile(file, dump([...kept, ...rows], { schema: entryListSchema }))
 }
 
 /**

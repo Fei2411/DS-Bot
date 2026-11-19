@@ -2,15 +2,22 @@
 // sidebar track, and the one CSS rule that writes the conversation column's
 // margins (our own column on the left, the Bot panel on the right).
 import { installStyles } from './styles.js'
+import { nextCollapsedWidth, trackRoom } from './frame-layout.js'
 
-export const sidebarTrackWidth = () =>
-  typeof document === 'undefined' ? null : document.querySelector('[class*="_sidebarCol"]')?.getBoundingClientRect().width ?? null
+export const sidebarTrackWidth = () => {
+  const column = typeof document === 'undefined' ? null : document.querySelector('[class*="_sidebarCol"]')
+  if (!column) return null
+  const position = typeof getComputedStyle === 'function' ? getComputedStyle(column).position : ''
+  // A drawer overlays the grid; its visible strip does not reserve a track.
+  if (position === 'absolute' || position === 'fixed') return 0
+  return trackRoom(column.getBoundingClientRect())
+}
 
 // The shell frame marks itself [data-sidebar-collapsed]; null when no frame is found.
 export const dshCollapsed = () => {
   if (typeof document === 'undefined') return null
   const column = document.querySelector('[class*="_sidebarCol"]')
-  return column ? (column.parentElement?.hasAttribute('data-sidebar-collapsed') ?? false) : null
+  return column ? column.closest('[data-sidebar-collapsed]') !== null : null
 }
 
 // The track the collapsed shell sidebar keeps: nothing under a frameless window
@@ -40,6 +47,11 @@ const roomRule = () => {
 const margin = (side, width, style) => {
   if (width === null) style.removeProperty(`margin-${side}`)
   else style.setProperty(`margin-${side}`, `${width}px`, 'important')
+  // A host skin can give the grid item width:100%. That width plus our margins
+  // exceeds its track. Own the width until both margin overrides are released,
+  // including an explicit zero used while our column is hidden.
+  if (style.marginLeft || style.marginRight) style.setProperty('width', 'auto', 'important')
+  else style.removeProperty('width')
 }
 let roomHold = 0
 export const chatRoom = {
@@ -79,7 +91,7 @@ export function installFrameWatch(frame) {
     const animating = column?.closest('[data-animating]') != null
     const width = animating ? null : sidebarTrackWidth()
     const collapsed = dshCollapsed()
-    if (width !== null && collapsed === true) collapsedWidth = width
+    collapsedWidth = nextCollapsedWidth({ measured: width, collapsed, animating, last: collapsedWidth })
     frame.set((state) => {
       const next = { ...state, viewport: window.innerWidth, collapsedWidth, collapsed: collapsed === true }
       return state.viewport === next.viewport && state.collapsedWidth === next.collapsedWidth && state.collapsed === next.collapsed ? state : next

@@ -30,7 +30,8 @@ The Bot team:
 Run in `ds-bot/`. The unit tests and the linter load the `@deepseek-ai/*` packages from `dev/harness/`, which `npm run harness` installs from npm at the DSH version in `dev/harness/package.json`. `DSH_HARNESS` points them at another install or at a DeepSeek Harness checkout instead. The test bench needs a checkout at `../deepseek-harness` (or `DSH_HARNESS`), at the DSH version in the README.
 
 ```sh
-npm ci                                 # build tool only (esbuild)
+npm ci                                 # the plugin's packages and its build tool (esbuild)
+npm ci --prefix ../link                # the phone link's packages: the build bundles them, a test needs them
 npm run harness                        # once: the DSH packages for the tests and the linter
 npm run build                          # src/client → client.js
 npm test                               # unit tests; also fail if client.js is stale
@@ -40,7 +41,7 @@ CONTEXT_WINDOW=100000 CHECK_RATIO=0.45 dev/bench.sh smoke 3096 8796 reset && nod
 dev/bench.sh smoke 3096 8796 stop
 ```
 
-A change is done when `npm test`, the `--check` and `npm run lint` pass; CI runs them on every pull request. Run the smoke test as well for changes to `index.js` or `src/host/`. Use a free port for each bench, and stop every bench and process that you started.
+A change is done when `npm test`, the `--check` and `npm run lint` pass; CI runs them on every pull request. Run the smoke test as well for changes to `index.js` or `src/host/`, and `npm run test:browser` for changes to `src/host/browser/` (it drives a real Chromium; install it once with `npx playwright-core install --only-shell chromium`). Use a free port for each bench, and stop every bench and process that you started.
 
 ## Branches, pull requests and issues
 
@@ -49,6 +50,7 @@ The full workflow is in [CONTRIBUTING.md](CONTRIBUTING.md#how-we-work). The part
 - Start work from the latest `dev` on a branch named `fix/<issue>-<name>`, `feat/<issue>-<name>`, `docs/<name>` or `chore/<name>`. Never start a branch name with `dev/`. Open the pull request into `dev`, not `main`; only releases and hotfixes go into `main`.
 - Bring a branch up to date with `scripts/merge-dev.sh`: it merges `origin/dev`, takes a conflicting `ds-bot/client.js` from dev and rebuilds it. Never rebase a pushed branch and never force-push.
 - Fill in the pull request template. Link the issue with `Fixes #<number>`; a bug fix names the bug it fixes. Write the user-visible change in the Changelog field, and do not edit `CHANGELOG.md`.
+- When opening a pull request as an AI agent, note which agent (and model, if known) created it in the PR body (for example, `Agent: <Agent> (<Model>)`), and add matching `agent/*` / `model/*` labels if those labels exist on the repository. Still keep the human requester as the git commit author without `Co-authored-by`.
 - Do not start work on an issue or pull request with the `maintainer` label; it waits for the maintainer. Do not take an issue that someone else is assigned to.
 - Before you change behavior, read the design for it in `docs/plans/` (and `docs/vision.md`); for interface work also `docs/design/ui-standard.md`. A change to a decided design needs the maintainer; a new large feature adds its design note to the same pull request.
 - Do not close an issue without evidence: the pull request or commit that fixed it, the issue it duplicates, or the reason it will not be fixed.

@@ -69,10 +69,6 @@ const renderHtml = block => (block.kind === 'code'
 
 const renderPlain = block => (block.kind === 'code' ? block.lines.join('\n') : block.lines.map(inlinePlain).join('\n'))
 
-export function toTelegramHtml(markdown) {
-  return blocks(markdown).map(renderHtml).join('\n')
-}
-
 export function toPlain(markdown) {
   return blocks(markdown).map(renderPlain).join('\n')
 }
@@ -122,17 +118,55 @@ function forceCut(block, limit) {
   const open = `<pre><code${block.lang ? ` class="language-${escapeHtml(block.lang)}"` : ''}>`
   const close = '</code></pre>'
   let body = block.lines.join('\n')
-  const room = limit - points(open) - points(close)
+  const room = Math.max(1, limit - points(open) - points(close))
   while (body !== '') {
-    let at = Math.min(points(body), Math.max(1, room))
     const chars = Array.from(body)
-    const newline = body.lastIndexOf('\n', at)
-    if (newline > room / 2) at = newline
-    const part = chars.slice(0, at).join('')
+    // Cut on what the platform receives, not on the raw code: "<" and "&" become
+    // "&lt;" and "&amp;", so a fence of markup renders three to five times longer
+    // than the text this cut used to be computed from, and the chunk went out over
+    // the limit the caller asked for.
+    let at = 0
+    let used = 0
+    while (at < chars.length) {
+      const width = escapeHtml(chars[at]).length
+      if (used + width > room) break
+      used += width
+      at += 1
+    }
+    // A limit too small to hold even one character still has to make progress.
+    if (at === 0) at = 1
+    // Prefer a line boundary in the second half, so a cut does not split a line
+    // that would have fit on its own.
+    let cut = at
+    for (let index = at - 1; index >= 0; index -= 1) {
+      if (chars[index] === '\n') {
+        if (index > at / 2) cut = index
+        break
+      }
+    }
+    const part = chars.slice(0, cut).join('')
     chunks.push({ html: `${open}${escapeHtml(part)}${close}`, text: part })
-    body = chars.slice(at).join('').replace(/^\n/, '')
+    body = chars.slice(cut).join('').replace(/^\n/, '')
   }
   return chunks
+}
+
+// Blank lines at the very start and end of a message: clients show them as an empty
+// first line above the text or as extra space under it, and nothing in the Markdown
+// needs them. Only whitespace-only edge lines go; blank lines inside the text and the
+// indentation of a content line stay exactly as written. Scan lines linearly so a long
+// run of blank lines before content never backtracks.
+const BLANK_EDGE_LINE = /^[ \t\u3000\r]*$/
+function withoutBlankEdges(text) {
+  const lines = text.split('\n')
+  let start = 0
+  let end = lines.length
+  while (start < end && BLANK_EDGE_LINE.test(lines[start])) start += 1
+  while (end > start && BLANK_EDGE_LINE.test(lines[end - 1])) end -= 1
+  if (start === end) return ''
+  if (start === 0 && end === lines.length) return text
+  const body = lines.slice(start, end).join('\n')
+  return end < lines.length && body.endsWith('\r') ? body.slice(0, -1) : body
 }
 
 // Chunks of one Markdown message, each under `limit` rendered characters. Block
@@ -142,7 +176,11 @@ function forceCut(block, limit) {
 // markdown as-is (Discord, QQ, WeCom, DingTalk, Slack has its own converter).
 export function chunkMarkdown(markdown, limit) {
   const chunks = []
-  let rest = String(markdown ?? '')
+  // Trim before cutting, so the first chunk cannot open and the last cannot close on
+  // a blank line. A message that is only whitespace has nothing to send: it returns
+  // no chunk, the same as an empty string.
+  let rest = withoutBlankEdges(String(markdown ?? ''))
+  if (rest.trim() === '') return chunks
   while (rest !== '') {
     if (points(rest) <= limit) { chunks.push(rest); break }
     let at = limit

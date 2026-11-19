@@ -2,28 +2,32 @@ import { createElement as h, useRef, useState } from 'react'
 import { FishLogo } from './dsh-primitives.js'
 import { PlusIcon, PeopleIcon, ArrowUpIcon } from './icons.js'
 import { AdminStar, BotMark } from './mark.js'
-import { useEscape, usePaneLeft } from './overlay-hooks.js'
+import { useEscape } from './overlay-hooks.js'
 import { CreateBot } from './create-bot.js'
 import { QUICK_EDGES, useFlip, useGlide, useMorph } from './motion.js'
 import { t } from './i18n.js'
 import { sendsOnEnter } from './enter-key.js'
+import { PasteCard, foldPastedText } from './paste-card.js'
 
-export function NewChat({ mode, roster, actions }) {
+export function NewChat({ mode, sectionId = null, paneLeft, roster, actions }) {
   const [query, setQuery] = useState('')
   const [picked, setPicked] = useState([])
   const [group, setGroup] = useState(mode === 'group')
   // A new group chat picks its admin first, then the other members.
   const [admin, setAdmin] = useState(null)
   const [message, setMessage] = useState('')
+  // A long paste waits here as a card; it goes with the message whole.
+  const [pasted, setPasted] = useState(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [cursor, setCursor] = useState(0)
   // The Create Bot form, opened straight from 'create' mode or from the list.
-  const [draft, setDraft] = useState(mode === 'create' ? { name: '', fromList: false } : null)
+  const [draft, setDraft] = useState(mode === 'create' ? { name: '', fromList: false, sectionId } : null)
   const inputRef = useRef(null)
+  const messageRef = useRef(null)
+  const draftText = () => `${message}${pasted?.text ?? ''}`
   const close = () => actions.closeOverlay()
   useEscape(close)
-  const paneLeft = usePaneLeft()
   const wanted = query.trim().toLowerCase()
   const matches = roster.bots.filter(bot => !picked.includes(bot.id) && bot.id !== admin && (wanted === '' || bot.name.toLowerCase().includes(wanted) || (bot.role ?? '').toLowerCase().includes(wanted)))
   const choosingAdmin = group && admin === null
@@ -50,15 +54,17 @@ export function NewChat({ mode, roster, actions }) {
   const openBot = bot => run(async () => {
     if (choosingAdmin) { chooseAdmin(bot); return }
     if (group || picked.length > 0) { pick(bot); return }
-    if (bot.hidden) await actions.setFlags(bot.id, { hidden: false })
-    if (message.trim()) await actions.send(bot.id, message.trim())
+    if (bot.hidden || (sectionId && bot.sectionId !== sectionId)) {
+      await actions.setFlags(bot.id, { ...(bot.hidden ? { hidden: false } : {}), ...(sectionId ? { sectionId } : {}) })
+    }
+    if (draftText().trim()) await actions.send(bot.id, draftText().trim())
     actions.openSession(bot.id)
     close()
   })
   const createBot = () => {
     if (busy) return
     setError('')
-    setDraft({ name: query.trim() !== '' && !exact ? query.trim() : '', fromList: true })
+    setDraft({ name: query.trim() !== '' && !exact ? query.trim() : '', fromList: true, sectionId })
   }
   // Close first: closing the new-chat pane keeps the details panel, while closing
   // nothing would clear it.
@@ -71,24 +77,25 @@ export function NewChat({ mode, roster, actions }) {
   // else the admin opens by asking what the group is for.
   const makeGroup = async () => {
     if (admin === null || picked.length === 0) return
-    const text = message.trim()
-    const room = await actions.createRoom([admin, ...picked], { admin, ...(text ? {} : { greet: true }) })
+    const text = draftText().trim()
+    const room = await actions.createRoom([admin, ...picked], { admin, ...(sectionId ? { sectionId } : {}), ...(text ? {} : { greet: true }) })
     if (text) await actions.send(room.id, text)
     actions.openSession(room.id)
     close()
   }
   const createGroup = () => run(makeGroup)
   const sendMessage = () => run(async () => {
-    const text = message.trim()
+    const text = draftText().trim()
     if (group && admin !== null) { await makeGroup(); return }
     if (text === '' || picked.length === 0) return
     if (picked.length === 1) {
+      if (sectionId) await actions.setFlags(picked[0], { sectionId })
       await actions.send(picked[0], text)
       actions.openSession(picked[0])
       close()
       return
     }
-    const room = await actions.createRoom(picked)
+    const room = await actions.createRoom(picked, sectionId ? { sectionId } : {})
     await actions.send(room.id, text)
     actions.openSession(room.id)
     close()
@@ -115,7 +122,7 @@ export function NewChat({ mode, roster, actions }) {
   if (draft) {
     return h('div', { className: 'bt-pane', style: { left: paneLeft } },
       h(CreateBot, {
-        roster, actions, start: draft, brief: message.trim(), canGoBack: draft.fromList,
+        roster, actions, start: draft, brief: draftText().trim(), canGoBack: draft.fromList,
         onBack: draft.fromList ? () => { setDraft(null); setTimeout(() => inputRef.current?.focus()) } : close,
         onCreated: created,
       }))
@@ -168,14 +175,26 @@ export function NewChat({ mode, roster, actions }) {
       h('div', { className: 'bt-nc-spacer' }),
       error ? h('div', { className: 'bt-error' }, error) : null,
       h('div', { className: 'bt-nc-compose' },
+        pasted === null ? null : h('div', { className: 'bt-paste-dock' }, h(PasteCard, {
+          text: pasted.text,
+          onPutBack: () => { setMessage(current => `${current}${pasted.text}`); setPasted(null); messageRef.current?.focus() },
+          onRemove: () => setPasted(null),
+        })),
         h('div', { className: 'bt-nc-card' },
           h('span', { className: 'bt-nc-plus', 'aria-hidden': true }, h(PlusIcon)),
           h('textarea', {
-            rows: 1, value: message, placeholder, 'aria-label': placeholder,
+            ref: messageRef, rows: 1, value: message, placeholder, 'aria-label': placeholder,
             onChange: event => setMessage(event.target.value),
+            onPaste: (event) => {
+              if ((event.clipboardData?.files?.length ?? 0) > 0) return
+              const kept = foldPastedText(event.clipboardData?.getData('text/plain') ?? '')
+              if (kept === null) return
+              event.preventDefault()
+              setPasted({ text: kept })
+            },
             onKeyDown: (event) => {
               if (event.key === 'Enter' && sendsOnEnter(roster.prefs) && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); sendMessage() }
             },
           }),
-          h('button', { type: 'button', className: 'bt-nc-send', 'aria-label': t('Send message'), disabled: busy || message.trim() === '' || picked.length === 0, onClick: sendMessage }, h(ArrowUpIcon))))))
+          h('button', { type: 'button', className: 'bt-nc-send', 'aria-label': t('Send message'), disabled: busy || draftText().trim() === '' || picked.length === 0, onClick: sendMessage }, h(ArrowUpIcon))))))
 }
