@@ -648,12 +648,27 @@ export function install(rt) {
       group: place?.roomId !== undefined,
       number,
     })
-    const text = checkpointText({
-      number: checkpointCount(input.messages) + 1,
-      summary: written?.summary ?? NO_SUMMARY,
-      kept,
-      more,
-    })
+    const checkpoint = (summary, kept, more) => checkpointText({ number: checkpointCount(input.messages) + 1, summary, kept, more })
+    let summary = written?.summary ?? NO_SUMMARY
+    let text = checkpoint(summary, kept, more)
+    if (switchRanges.has(session.id)) {
+      const meter = ctx.get('tokenMeter')
+      // DSH prepends the system prompt to the summarizer input, but does not replace
+      // it. Reserve 112 tokens for its three-block checkpoint framing and headroom.
+      const rangeTokens = input.messages.filter(message => message.role !== 'system')
+        .reduce((total, message) => total + meter.estimateMessage(message), 0)
+      const budget = Math.floor(rangeTokens * 0.95) - 112
+      const cost = text => meter.estimateMessage(createUserMessage({ content: [{ type: 'text', text }] }))
+      while (kept.length > 0 && cost(text) > budget) {
+        kept.shift()
+        text = checkpoint(summary, kept, true)
+      }
+      while (summary.length > 0 && cost(text) > budget) {
+        summary = summary.slice(0, Math.floor(summary.length * 0.75)).trimEnd()
+        text = checkpoint(summary, [], true)
+      }
+      if (cost(text) > budget) text = 'Earlier context: read_own_chat.'
+    }
     return {
       summary: [{ type: 'text', text }],
       rawOutput: written?.rawOutput ?? [{ type: 'text', text: NO_SUMMARY }],
