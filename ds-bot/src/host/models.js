@@ -10,7 +10,8 @@ const CATALOG_TTL_MS = 10_000
 const ROUTE_WAIT_MS = 30_000
 // The DeepSeek account's sign-in grant (dsh-deepseek-account-platform).
 const ACCOUNT_RECORD = 'deepseek-account-platform/default'
-const TRANSIENT_LLM_CODES = new Set(['TRANSPORT', 'TIMEOUT'])
+const TRANSIENT_LLM_CODES = new Set(['TRANSPORT', 'TIMEOUT', 'MALFORMED_RESPONSE'])
+const MALFORMED_RETRIES = 2
 
 function retryPolicyOf(ctx, provider) {
   try {
@@ -56,6 +57,8 @@ function abortedAssembler(failure) {
 }
 
 function canRetryPolicy(policy, code, retry) {
+  if (policy?.mode !== 'normal' && policy?.mode !== 'always') return false
+  if (code === 'MALFORMED_RESPONSE') return retry <= (policy.mode === 'normal' ? Math.min(MALFORMED_RETRIES, policy.maxRetries) : MALFORMED_RETRIES)
   if (policy.mode === 'always') return true
   if (policy.mode !== 'normal') return false
   return Array.isArray(policy.retryableCodes) && policy.retryableCodes.includes(code) && retry <= policy.maxRetries
@@ -63,7 +66,7 @@ function canRetryPolicy(policy, code, retry) {
 
 // Auxiliary calls (memory, learning, handoff, steward, OCR, side chats, browser_task)
 // bypass the agent loop's `agent/request-error` hook, so `dsh-llm-retry` never sees
-// their transport or stream-idle failures. Retry those transient codes on the same
+// their transport, stream-idle or malformed-response failures. Retry those transient codes on the same
 // route with the provider's own retry policy, discarding partial chunks from failed attempts.
 export async function assembleLlmStream(ctx, options, { signal, backoff, random = Math.random } = {}) {
   const service = serviceOf(ctx, 'llm')
@@ -104,6 +107,24 @@ export async function assembleLlmStream(ctx, options, { signal, backoff, random 
 
 export function install(rt) {
   const { ctx, state } = rt
+
+  const malformedRetries = new WeakMap()
+  ctx.on?.('agent/request-error', async (payload, next) => {
+    const decided = await next()
+    const { agent, turn, step, signal, failure } = payload
+    if (decided !== undefined || failure?.code !== 'MALFORMED_RESPONSE' || signal?.aborted || !rt.isBotSession(agent.id)) return decided
+    let retries = malformedRetries.get(agent)
+    if (retries?.turn !== turn || retries?.step !== step) {
+      retries = { turn, step, count: 0 }
+      malformedRetries.set(agent, retries)
+    }
+    const policy = payload.retryPolicy ?? retryPolicyOf(ctx, payload.provider)
+    if (!canRetryPolicy(policy, failure.code, retries.count + 1)) return undefined
+    retries.count += 1
+    rt.warn(`Retrying malformed model response for ${agent.id} (turn ${turn}, step ${step}, retry ${retries.count}/${MALFORMED_RETRIES})`)
+    if (!await waitRetryDelay(250, signal)) return undefined
+    return { kind: 'retry' }
+  }, { prepend: true })
 
   let closing = false
   let modelsSynced = null
