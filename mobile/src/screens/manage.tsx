@@ -938,6 +938,8 @@ export function Folder({ route, navigation }: any) {
   const [listing, setListing] = useState<{ path: string; crumbs?: { path: string }[]; entries: { name: string; path: string }[]; truncated?: boolean } | null>(null)
   const [recent, setRecent] = useState<{ path: string; title: string }[]>([])
   const load = (next: string) => {
+    setPath(next)
+    setListing(null)
     void call('folder-list', { path: next }).then(v => {
       const nextListing = v as NonNullable<typeof listing>
       setListing(nextListing)
@@ -977,7 +979,7 @@ export function Folder({ route, navigation }: any) {
           {listing?.truncated ? <Row label={t('Some folders are not shown.')} disabled /> : null}
         </Section>
         <View style={{ paddingHorizontal: 18, marginTop: 14 }}>
-          <Pressable accessibilityRole="button" disabled={listing === null} onPress={() => choose(path)} style={({ pressed }) => [styles.cta, { backgroundColor: p.accent, opacity: listing === null ? 0.5 : pressed ? 0.85 : 1 }]}>
+          <Pressable accessibilityRole="button" disabled={path === ''} onPress={() => { if (path !== '') choose(path) }} style={({ pressed }) => [styles.cta, { backgroundColor: p.accent, opacity: path === '' ? 0.5 : pressed ? 0.85 : 1 }]}>
             <Text style={[typeScale.settingsRow, { color: p.accentInk, fontWeight: '600' }]}>{t('Use this folder')}</Text>
           </Pressable>
         </View>

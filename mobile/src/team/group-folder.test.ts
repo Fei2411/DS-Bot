@@ -168,5 +168,36 @@ test('a failed initial folder listing cannot submit an unresolved path', async (
   await new Promise(setImmediate)
   const tree = render('Folder', props)
   assert.equal(nodes(tree).find(node => node.props.accessibilityRole === 'button')!.props.disabled, true)
+  nodes(tree).find(node => node.props.accessibilityRole === 'button')!.props.onPress()
   assert.ok(nodes(tree).find(node => node.props.label === "Each Bot's own folder"))
+})
+
+test('native-picker hosts can select saved and recent folders even when listing is unavailable', async () => {
+  for (const onPick of ['room', 'bot', 'team']) {
+    const writes: unknown[] = []
+    const { render } = screen({}, async (name, body) => {
+      if (name === 'folders') return { picker: 'native', folders: [{ title: 'Recent project', path: '/work/recent' }] }
+      if (name === 'folder-list') throw new Error('This DeepSeek Harness cannot list folders')
+      writes.push([name, body]); return {}
+    }, true)
+    const props = { route: { params: { current: '/work/saved', onPick, roomId: 'room-1', botId: 'bot-1' } }, navigation: { goBack: () => {} } }
+    render('Folder', props)
+    await new Promise(setImmediate)
+    const saved = nodes(render('Folder', props)).find(node => node.props.accessibilityRole === 'button')!
+    assert.equal(saved.props.disabled, false)
+    saved.props.onPress()
+    await new Promise(setImmediate)
+    nodes(render('Folder', props)).find(node => node.props.label === 'Recent project')!.props.onPress()
+    await new Promise(setImmediate)
+    const tree = render('Folder', props)
+    assert.ok(nodes(tree).some(node => node.props.label === '/work/recent'))
+    const recent = nodes(tree).find(node => node.props.accessibilityRole === 'button')!
+    assert.equal(recent.props.disabled, false)
+    recent.props.onPress()
+    await new Promise(setImmediate)
+    const endpoint = onPick === 'room' ? 'update-room' : onPick === 'bot' ? 'update-bot' : 'team-workspace'
+    const expected = ['/work/saved', '/work/recent'].map(path => [endpoint,
+      onPick === 'team' ? { path } : { id: onPick === 'room' ? 'room-1' : 'bot-1', workDir: path }])
+    assert.deepEqual(JSON.parse(JSON.stringify(writes)), expected)
+  }
 })
