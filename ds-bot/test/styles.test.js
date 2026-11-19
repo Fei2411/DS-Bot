@@ -217,3 +217,8 @@ test('an active message toolbar stacks above the next message', () => {
   // so without a z-index they paint over a toolbar that hangs below this message.
   assert.match(css, /\.bt-msg:hover,\.bt-msg:focus-within,\.bt-msg:has\(>\.bt-msg-line>\.bt-tools\[data-open\]\)\{z-index:2\}/)
 })
+
+test('trigger menu descriptions stay beside their row labels', () => {
+  const css = readFileSync(new URL('../src/client/styles.js', import.meta.url), 'utf8')
+  assert.match(css, /\[data-trigger-menu\] \[role=option\]>span\{text-align:left\}/)
+})
