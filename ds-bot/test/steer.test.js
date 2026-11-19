@@ -752,7 +752,12 @@ async function startRealBash({ approveDelayMs = 0 } = {}) {
   }
   installSteer(rt)
   const rawBash = ctx.tools.get('bash', agent)
-  const hasPromoted = (rawBash?.output?.schema?.oneOf ?? []).some(v => v?.properties?.kind?.const === 'promoted')
+  const promoted = (rawBash?.output?.schema?.oneOf ?? []).find(v => v?.properties?.kind?.const === 'promoted')
+  const hasPromoted = typeof rawBash?.output?.render === 'function'
+    && promoted?.properties?.cwd !== undefined
+    && promoted?.properties?.jobId !== undefined
+    && promoted?.properties?.timeoutMs !== undefined
+    && promoted?.properties?.output !== undefined
   if (!hasPromoted) {
     await agentScope.dispose()
     await ctx.fiber.dispose()
