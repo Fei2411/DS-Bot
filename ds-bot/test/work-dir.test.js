@@ -1420,6 +1420,24 @@ test('compressed group replies distinguish a complete match from an ambiguous cl
   }
 })
 
+test('a clipped legacy reply of an incompatible length does not hide the exact match', async (t) => {
+  const head = 'Opening shared by two replies. '.repeat(2)
+  const tail = 'The original closing sentence. '.repeat(2)
+  const hidden = 'Original middle. '.repeat(25)
+  const text = head + hidden + tail
+  const saved = structuredClone(TEAM)
+  saved.rooms.r1.seq = 3
+  saved.rooms.r1.log = [
+    { seq: 1, botId: 'b', text },
+    { seq: 2, who: 'User', text: 'Next prompt' },
+    { seq: 3, botId: 'b', text: head + 'x'.repeat(TEXT_KEPT - head.length), length: TEXT_KEPT + 100 },
+  ]
+  const preview = JSON.stringify({ replies: [{ botId: 'b', text: `${head} ...[+${hidden.length} chars]... ${tail}` }] })
+  const { call, stop } = await start({ team: saved })
+  t.after(stop)
+  assert.deepEqual((await call('group-relay-replies', { sessionId: 'r1', preview })).value, [{ botId: 'b', text }])
+})
+
 test('the file panel of a group with a folder lists the Session\'s own folder', async (t) => {
   // DSH's file panel lists a Session at the folder the Session was made in, so no
   // lookup override is needed once the group's own Session moved there.

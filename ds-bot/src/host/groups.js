@@ -661,8 +661,9 @@ export function install(rt) {
       const omitted = Number(marker[1])
       const matches = records.filter(record => {
         if (!isLegacyReply(record) || record.botId !== reply.botId || !matchesOpening(record, head, true)) return false
-        if (!hasCompleteText(record)) return true
-        const length = record.text.length - head.length - tail.length
+        const length = (record.length ?? record.text.length) - head.length - tail.length
+        // A JSON escape uses at most six characters per original UTF-16 unit.
+        if (!hasCompleteText(record)) return record.length === undefined || (length > 0 && length <= omitted && omitted <= 6 * length)
         return length > 0 && record.text.endsWith(tail)
           && (length === omitted || jsonLength(record.text.slice(head.length, -tail.length)) === omitted)
       })
@@ -690,6 +691,7 @@ export function install(rt) {
     }
     const first = partial ?? before.findLast(reply => reply?.kind === undefined && typeof reply?.botId === 'string' && typeof reply.text === 'string')
     if (typeof first?.text !== 'string' || first.text.length < 16 || first.kind !== undefined) return null
+    // A surviving suffix does not prove which prompt owns a cut if an earlier matching start lost its ending.
     const starts = records.filter(record => isLegacyReply(record) && record.botId === first.botId
       && matchesOpening(record, first.text, partial !== undefined))
     const ends = records.filter(record => isKeptReply(record) && record.text.endsWith(tail)
