@@ -5,8 +5,8 @@
 export const KINDS = ['acp', 'codex', 'claude']
 
 // `args` run verbatim (no shell). `env` merges over the sanitized environment.
-// `signedIn` checks a CLI status command, a credential file, or a Keychain item
-// (see probeSignIn).
+// `signedIn` checks a CLI status command, a credential file (in the home
+// directory or the per-user app data folder), or a Keychain item (see probeSignIn).
 // Local-agent routes live under their own prefix. Before it they shared the
 // provider namespace, so a CLI named like a provider DSH or another plugin
 // ships (`opencode`) took that provider's name and the LLM service failed to
@@ -37,7 +37,12 @@ const CLIS = {
   'grok-cli': { name: 'Grok CLI', kind: 'acp', command: 'grok', args: ['agent', 'stdio'], version: ['--version'], signIn: 'grok' },
   'kimi-cli': { name: 'Kimi CLI', kind: 'acp', command: 'kimi', args: ['acp'], version: ['--version'], signIn: 'kimi login' },
   'qwen-code': { name: 'Qwen Code', kind: 'acp', command: 'qwen', args: ['--acp'], version: ['--version'], signIn: 'qwen', signedIn: { file: ['.qwen', 'oauth_creds.json'] } },
-  'codebuddy': { name: 'CodeBuddy Code', kind: 'acp', command: 'codebuddy', commands: ['codebuddy', 'codebuddy-code'], args: ['--acp'], version: ['--version'], signIn: 'codebuddy login' },
+  'codebuddy': {
+    name: 'CodeBuddy Code', kind: 'acp', command: 'codebuddy', commands: ['codebuddy', 'codebuddy-code'], args: ['--acp'], version: ['--version'], signIn: 'codebuddy',
+    // CodeBuddy has no status command. Its OAuth session file stays in place
+    // until logout renames it and leaves a `.logged-out` marker beside it.
+    signedIn: { appDataFile: { path: ['CodeBuddyExtension', 'Data', 'Public', 'auth', 'Tencent-Cloud.coding-copilot.info'], loggedOut: '.logged-out' } },
+  },
   'qoder': { name: 'Qoder CLI', kind: 'acp', command: 'qodercli', commands: ['qodercli', 'qoder'], args: ['--acp'], version: ['--version'], signIn: 'qodercli' },
   'minimax-code': { name: 'MiniMax Code', kind: 'acp', command: 'mcode', args: ['acp'], version: ['--version'], signIn: 'mcode' },
   'glm-cli': { name: 'GLM Agent', kind: 'acp', command: 'glm-acp-agent', args: [], version: ['--version'], signIn: 'glm-acp-agent --setup' },

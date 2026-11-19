@@ -254,6 +254,26 @@ test('Antigravity uses only a positive macOS Keychain lookup as sign-in evidence
   assert.equal(hit.mock.callCount(), 1)
 })
 
+test('CodeBuddy Code is signed in while its session file exists and it has not logged out (#1835)', async (t) => {
+  const { signedIn, signIn } = ENGINES['local-codebuddy']
+  assert.equal(signIn, 'codebuddy', 'codebuddy has no login subcommand; it signs in on first start')
+  const root = mkdtempSync(join(tmpdir(), 'dsb-codebuddy-'))
+  t.after(() => rmSync(root, { recursive: true, force: true }))
+  const cli = '/bench/bin/codebuddy'
+  const dataDirs = { darwin: ['Library', 'Application Support'], win32: ['AppData', 'Local'], linux: ['.local', 'share'] }
+  for (const [platform, dataDir] of Object.entries(dataDirs)) {
+    const home = join(root, platform)
+    const auth = join(home, ...dataDir, 'CodeBuddyExtension', 'Data', 'Public', 'auth')
+    const session = join(auth, 'Tencent-Cloud.coding-copilot.info')
+    assert.equal(await probeSignIn(cli, signedIn, { home, platform }), null, `${platform}: no session file says nothing`)
+    mkdirSync(auth, { recursive: true })
+    writeFileSync(session, '{}')
+    assert.equal(await probeSignIn(cli, signedIn, { home, platform }), true, `${platform}: a session file is signed in`)
+    writeFileSync(`${session}.logged-out`, '')
+    assert.equal(await probeSignIn(cli, signedIn, { home, platform }), null, `${platform}: a logout marker wins over the file`)
+  }
+})
+
 test('AgentBadge adapts dark monochrome SVG logos to theme ink and preserves brand colors', () => {
   const copilot = AgentBadge({ engine: 'local-copilot-cli' })
   const kimi = AgentBadge({ engine: 'local-kimi-cli' })

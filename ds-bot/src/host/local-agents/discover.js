@@ -232,6 +232,15 @@ function probeMacKeychain({ service, account }, spawnKeychain) {
   })
 }
 
+// The per-user data folder as CodeBuddy resolves it from the home directory
+// (it ignores XDG_DATA_HOME and LOCALAPPDATA).
+const APP_DATA = { darwin: ['Library', 'Application Support'], win32: ['AppData', 'Local'] }
+
+function probeAppDataFile({ path, loggedOut }, home, platform) {
+  const file = join(home, ...(APP_DATA[platform] ?? ['.local', 'share']), ...path)
+  return isFile(file) && (loggedOut === undefined || !isFile(`${file}${loggedOut}`)) ? true : null
+}
+
 // true, false, or null when the check cannot tell. Only a CLI's status command
 // can say false; a missing credential in one store proves nothing.
 export function probeSignIn(executable, check, { home = homedir(), platform = process.platform, spawnKeychain = spawn } = {}) {
@@ -240,6 +249,7 @@ export function probeSignIn(executable, check, { home = homedir(), platform = pr
     return platform === 'darwin' ? probeMacKeychain(check.macKeychain, spawnKeychain) : Promise.resolve(null)
   }
   if (check.file !== undefined) return Promise.resolve(isFile(join(home, ...check.file)) ? true : null)
+  if (check.appDataFile !== undefined) return Promise.resolve(probeAppDataFile(check.appDataFile, home, platform))
   return new Promise((resolve) => {
     try {
       const launch = launchOf(executable, check.args)
