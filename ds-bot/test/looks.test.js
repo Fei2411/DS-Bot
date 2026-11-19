@@ -36,8 +36,8 @@ test('Bot settings is the only settings entry; nothing is called Team settings',
     assert.ok(!text.includes('Team settings'), `${name} still names Team settings`)
   }
   const text = name => sources.find(([file]) => file === name)[1]
-  assert.match(text('sidebar.js'), /\[t\('Bot settings'\), GearIcon, \(\) => actions\.openSettings\('general'\)\]/)
-  assert.match(text('palette.js'), /title: t\('Bot settings'\), run: \(\) => actions\.openSettings\('general'\)/)
+  assert.match(text('sidebar.js'), /\[t\('Settings'\), GearIcon, \(\) => actions\.openSettings\('general'\)\]/)
+  assert.match(text('palette.js'), /title: t\('Settings'\), run: \(\) => actions\.openSettings\('general'\)/)
   // One Bot's own entries open that Bot, so they read Edit Bot instead.
   assert.match(text('context-menu.js'), /\[t\('Edit Bot'\), GearIcon, \(\) => actions\.openSettings\('bots', bot\.id\)\]/)
   assert.match(text('details-drawer.js'), /'aria-label': bot \? t\('Edit Bot'\) : t\('Group settings'\), title: bot \? t\('Edit Bot'\) : t\('Group settings'\)/)

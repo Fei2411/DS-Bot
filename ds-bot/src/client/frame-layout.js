@@ -11,6 +11,10 @@ export const RAIL_WIDTH = 88
 export const PANEL_MIN = { details: 320, browser: 360, side: 320 }
 // The shell collapses its own sidebar below this width.
 export const DSH_NARROW = 1024
+// What the shell's collapsed track takes from the window. A phone-width shell parks the
+// whole sidebar off-canvas: it keeps its full width but leaves no room to subtract.
+export const trackRoom = ({ width, right }) => Math.max(0, Math.min(width, right))
+
 // The open column's width range; a drag released short of RAIL_SNAP lands on the rail.
 export const SIDEBAR_MIN = 264
 export const SIDEBAR_MAX = 420
@@ -18,14 +22,32 @@ export const FALLBACK_SIDEBAR_WIDTH = 280
 export const RAIL_SNAP = (RAIL_WIDTH + SIDEBAR_MIN) / 2
 
 /**
+ * The width the collapsed shell sidebar still takes, from what the frame shows.
+ * `measured` is the column's settled width while the shell reports itself collapsed.
+ * `collapsed === null` means the frame has no sidebar column at all, so there is no
+ * track to subtract: the narrow web shell on a phone keeps none, and a platform guess
+ * would push the chat short by the same amount, under our rail (#1084). While the
+ * shell slides its sidebar the widths in between are not settled, so the last stands.
+ * @param {{measured: number|null, collapsed: boolean|null, animating?: boolean, last: number}} input
+ * @returns {number}
+ */
+export const nextCollapsedWidth = ({ measured, collapsed, animating = false, last }) => {
+  if (animating) return last
+  if (collapsed === null) return 0
+  if (collapsed === true) return measured ?? 0
+  return last
+}
+
+/**
  * @param {{viewport: number, sidebarWidth: number,
  *   pref: 'open'|'rail'|'hidden', drawer?: boolean,
  *   panel: null | {view: string, yielded: boolean}}} input
- * @returns {{left: 'open'|'rail'|'drawer'|'hidden', panel: 'none'|'shown'|'folded'|'overlay', room: number}}
- *   `room` is the width the panel and the conversation share: the viewport minus
- *   what the left column occupies (its full width when open, nothing when hidden,
- *   else the rail's — a drawer floats over the rail's place, so the chat does not
- *   move under it).
+ * @returns {{left: 'open'|'rail'|'drawer'|'hidden', panel: 'none'|'shown'|'folded'|'overlay', column: number, room: number}}
+ *   `column` is what the left column occupies: its full width when open, nothing
+ *   when hidden, else the rail's — a drawer floats over the rail's place, so the
+ *   chat does not move under it. New chat, Bot exchanges and voice mode start at
+ *   this edge. `room` is the width the panel and the conversation share: the
+ *   viewport minus `column`.
  */
 export function frameLayout({ viewport, sidebarWidth, pref, drawer = false, panel = null }) {
   const fits = pref === 'open' && viewport >= sidebarWidth + MIN_CHAT
@@ -42,7 +64,7 @@ export function frameLayout({ viewport, sidebarWidth, pref, drawer = false, pane
       panelState = occupied + need <= viewport ? 'shown' : 'overlay'
     } else panelState = 'folded'
   }
-  return { left, panel: panelState, room: Math.max(0, viewport - occupied) }
+  return { left, panel: panelState, column: occupied, room: Math.max(0, viewport - occupied) }
 }
 
 /**

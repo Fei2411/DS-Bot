@@ -32,14 +32,14 @@ const sandbox = {
   },
 }
 runInNewContext(bundle.outputFiles[0].text, sandbox)
-const { groupModels, ModelChoiceDock, ModelKeyCard, effortRows, effortStops, EffortBar, stepMenuFocus, ModelRows, ModelGroupList, groupOpen, toggledGroup, manualFor } = module.exports
+const { groupModels, ModelChoiceDock, ModelKeyCard, effortStops, EffortBar, stepMenuFocus, ModelRows, ModelGroupList, groupOpen, toggledGroup, manualFor } = module.exports
 
 function nodes(tree, match) {
   if (!tree || typeof tree !== 'object') return []
   return [...(match(tree) ? [tree] : []), ...(tree.children ?? []).flatMap(child => nodes(child, match))]
 }
 
-// `harness`: the window has DSH's own settings to send the user to, as the plugin does.
+// `harness`: the window has Settings and DSH's onboarding editors to send the user to.
 function dock(models, { model, ready = true, harness = true } = {}) {
   const picked = []
   const bot = { id: 'chief', name: 'Chief', model }
@@ -48,7 +48,7 @@ function dock(models, { model, ready = true, harness = true } = {}) {
     sessionId: bot.id, useRoster: select => select(roster),
     actions: {
       updateBot: (id, patch) => { picked.push([id, patch.model]); return Promise.resolve() },
-      ...(harness ? { openHarnessSettings: () => {}, openHarnessOnboarding: () => {} } : {}),
+      ...(harness ? { openSettings: () => {}, openHarnessOnboarding: () => {} } : {}),
     },
   })
   return { tree, picked }
@@ -111,12 +111,10 @@ test('without DSH\'s own settings, the choice offers no way into them', () => {
 
 test('the Thinking section always offers Default, so a picked level can be cleared', () => {
   const efforts = [{ id: 'low', name: 'Low' }, { id: 'high', name: 'High' }]
-  // Array.from: the rows come from the bundle's realm, whose arrays are not this one's.
-  assert.deepEqual(Array.from(effortRows({ efforts, defaultEffort: 'high' }), row => row.effort), [undefined, 'low', 'high'])
-  assert.deepEqual(Array.from(effortRows({ efforts }), row => row.effort), [undefined, 'low', 'high'])
-  assert.equal(effortRows({ efforts: [] }).length, 0)
   // Slider stops use the model's levels when defaultEffort is known (reset clears to Default),
   // and include a leading Default stop when the provider did not name one.
+  // Array.from: the stops come from the bundle's realm, whose arrays are not this one's.
+  assert.equal(effortStops({ efforts: [] }).length, 0)
   assert.deepEqual(Array.from(effortStops({ efforts, defaultEffort: 'high' }), row => row.effort), ['low', 'high'])
   assert.deepEqual(Array.from(effortStops({ efforts }), row => row.effort), [undefined, 'low', 'high'])
   const picked = []
@@ -204,15 +202,15 @@ test('the DeepSeek API key card links to the key page and says the API is billed
   assert.equal(nodes(other, node => node.props.className === 'bt-model-key-help').length, 0)
 })
 
-test('setting up a custom model opens DS Bot\'s Models page, else DSH\'s own Models page', () => {
+test('setting up a custom model opens the Models page of Settings', () => {
   const opened = []
   const choices = actions => nodes(ModelChoiceDock({
     sessionId: 'chief', useRoster: select => select({ ready: true, byId: { chief: { id: 'chief', name: 'Chief' } }, models: [] }), actions,
   }), node => node.type === 'button')
   const custom = list => list.find(button => button.children[0] === 'Open settings to set up a custom model')
-  custom(choices({ openModels: () => opened.push('models'), openHarnessModels: () => opened.push('harness models'), openHarnessSettings: () => opened.push('harness') })).props.onClick()
-  custom(choices({ openHarnessModels: () => opened.push('harness models'), openHarnessSettings: () => opened.push('harness') })).props.onClick()
-  assert.deepEqual(opened, ['models', 'harness models'])
+  custom(choices({ openModels: () => opened.push('models'), openSettings: page => opened.push(`settings:${page}`) })).props.onClick()
+  custom(choices({ openSettings: page => opened.push(`settings:${page}`) })).props.onClick()
+  assert.deepEqual(opened, ['models', 'settings:models'])
 })
 
 // The provider groups of the Bot model menu: a heading opens and closes its group, and

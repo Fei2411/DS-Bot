@@ -87,8 +87,11 @@
 git clone https://github.com/Fei2411/DS-Bot.git ds-bot-repo
 cd ds-bot-repo/ds-bot
 
-# 插件自己的构建工具（只有 esbuild）。
+# 插件的依赖和构建工具（esbuild）。
 npm ci
+
+# 手机链接的依赖：构建时打进 link.js，有一条单元测试也会构建它。
+npm ci --prefix ../link
 
 # 单元测试和 lint 要加载的 DSH 包，从 npm 装进 dev/harness/。
 npm run harness

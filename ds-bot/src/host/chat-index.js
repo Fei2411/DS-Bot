@@ -9,7 +9,7 @@
 // rebuild. Without SQLite, read_own_chat scans the logs as before.
 import { mkdir, unlink } from 'node:fs/promises'
 import { join } from 'node:path'
-import { ANCHOR_LINE_MAX, HISTORY_PAGE, HISTORY_PAGES_MAX, HISTORY_TIMEOUT_MS, OWN_CHAT_BRIEF, OWN_CHAT_LINE_MAX, OWN_CHAT_READ, OWN_CHAT_SEARCH } from './constants.js'
+import { ANCHOR_LINE_MAX, HISTORY_PAGE, HISTORY_PAGES_MAX, HISTORY_SCAN_PAGES, HISTORY_TIMEOUT_MS, OWN_CHAT_BRIEF, OWN_CHAT_LINE_MAX, OWN_CHAT_READ, OWN_CHAT_SEARCH } from './constants.js'
 import { excerpt } from './text.js'
 
 const INDEX_VERSION = 3
@@ -50,11 +50,17 @@ export function install(rt) {
   let indexOpening
 
   // A Session's events from newest to oldest, also for an archived part.
-  async function* eventsBackwards(sessionId, signal, maxPages = HISTORY_PAGES_MAX) {
+  async function* eventsBackwards(sessionId, signal, maxPages = HISTORY_PAGES_MAX, read) {
+    if (read !== undefined) Object.assign(read, { complete: false, capped: false })
     const agent = await rt.resolveAgent(sessionId)
     const throughSeq = Number(agent.session.seq) - 1
     let beforeSeq
-    for (let pages = 0; throughSeq >= 0 && pages < maxPages; pages += 1) {
+    if (throughSeq < 0 && read !== undefined) read.complete = true
+    for (let pages = 0; throughSeq >= 0; pages += 1) {
+      if (pages >= maxPages) {
+        if (read !== undefined) read.capped = true
+        if (!read?.continue?.()) return
+      }
       const page = await ctx.sessionController.page({
         address: { kind: 'session', sessionId },
         throughSeq,
@@ -63,7 +69,11 @@ export function install(rt) {
       }, signal)
       const events = page.records.map(record => record.event)
       for (let index = events.length - 1; index >= 0; index -= 1) yield events[index]
-      if (!page.hasMore || events.length === 0) return
+      if (!page.hasMore) {
+        if (read !== undefined) read.complete = true
+        return
+      }
+      if (events.length === 0) return
       beforeSeq = events[0].seq
     }
   }
@@ -194,7 +204,7 @@ export function install(rt) {
   async function indexedParts(botId, askingId) {
     const index = await openIndex()
     if (index === null) return { index }
-    const parts = rt.partsOf(botId)
+    const parts = askingId === undefined ? rt.partsOf(botId) : rt.partsOfThread(botId, askingId)
     // A part that cannot be read now is searched as far as it was indexed.
     for (const part of parts) await catchUp(index, part).catch(error => rt.warn('ds-bot: indexing %s failed: %s', part.sessionId, error))
     const turn = askingId !== undefined && askingId === parts.at(-1)?.sessionId ? index.mark.get(askingId)?.turn : undefined
@@ -206,7 +216,7 @@ export function install(rt) {
   async function searchOwnChat(botId, query, { askingId, limit = OWN_CHAT_SEARCH } = {}) {
     const terms = [...new Set(query.toLowerCase().split(/\s+/).filter(Boolean))].slice(0, SEARCH_TERMS_MAX)
     const { index, parts, hidden } = await indexedParts(botId, askingId)
-    if (index === null) return { lines: await scanOwnChat(botId, query, limit), every: true }
+    if (index === null) return { lines: await scanOwnChat(botId, query, limit, askingId), every: true }
     const sessions = parts.map(part => part.sessionId)
     const run = (wanted, max) => {
       const { sql, args } = termQuery(wanted, sessions, max, hidden)
@@ -234,7 +244,7 @@ export function install(rt) {
   // The latest messages across all parts, oldest first.
   async function latestOwnChat(botId, { askingId, limit = OWN_CHAT_READ } = {}) {
     const { index, parts, hidden } = await indexedParts(botId, askingId)
-    if (index === null) return scanOwnChat(botId, '', limit)
+    if (index === null) return scanOwnChat(botId, '', limit, askingId)
     const rows = []
     for (const part of [...parts].reverse()) {
       const below = hidden?.session === part.sessionId ? hidden.from : Number.MAX_SAFE_INTEGER
@@ -245,8 +255,8 @@ export function install(rt) {
   }
 
   // The messages around an anchor, in its part.
-  async function aroundOwnChat(botId, anchor) {
-    const { index, parts } = await indexedParts(botId)
+  async function aroundOwnChat(botId, anchor, askingId) {
+    const { index, parts } = await indexedParts(botId, askingId)
     if (index === null) return { error: 'Anchors need the chat index, which is unavailable here. Search with words instead.' }
     const found = /(?:part\s*)?(\d+)?\s*#\s*(\d+)/i.exec(anchor)
     if (found === null) return { error: `"${anchor}" is not an anchor. Anchors look like "part 2 #1234", or "#1234" in the current part.` }
@@ -260,20 +270,23 @@ export function install(rt) {
 
   // Without the index: what the user, other Bots, and the Bot itself said, across all
   // parts, oldest first, by reading the logs.
-  async function scanOwnChat(botId, query, limit) {
+  async function scanOwnChat(botId, query, limit, askingId) {
     const wanted = query.toLowerCase()
-    const parts = rt.partsOf(botId)
+    const parts = askingId === undefined ? rt.partsOf(botId) : rt.partsOfThread(botId, askingId)
     const signal = AbortSignal.timeout(HISTORY_TIMEOUT_MS)
     const lines = []
+    let capped = false
     for (const part of [...parts].reverse()) {
-      for await (const line of rt.partLines(part.sessionId, signal)) {
+      const read = {}
+      for await (const line of rt.partLines(part.sessionId, signal, { pages: HISTORY_SCAN_PAGES, read })) {
         if (wanted !== '' && !line.text.toLowerCase().includes(wanted)) continue
         lines.push(`[${parts.length > 1 ? `part ${part.number} · ` : ''}${rt.clock(line.time)}] ${excerpt(line.text, wanted)}`)
         if (lines.length >= limit) break
       }
+      capped ||= read.capped === true && read.complete !== true
       if (lines.length >= limit) break
     }
-    return lines.reverse()
+    return [...lines.reverse(), ...(capped ? ['(Older messages were not searched.)'] : [])]
   }
 
   // The parts of a Bot's own chat, for the model: when each ran.

@@ -38,7 +38,7 @@ async function start() {
   const sent = []
   let flushError
   Object.assign(ctx, {
-    workspaceRegistry: { get: () => undefined, resolveByPath: async () => undefined, create: async path => ({ id: 'w1', path }), archiveSession: async () => {} },
+    workspaceRegistry: { get: () => undefined, resolveByPath: async () => undefined, create: async path => ({ id: 'w1', path }), archiveSession: async () => {}, unarchiveSession: async () => {} },
     sessionController: {
       create: async () => ({ sessionId: 's1' }),
       resolveAgent: async sessionId => ({ agent: { session: { id: sessionId }, followup(message) { sent.push({ sessionId, message }) } } }),
@@ -133,13 +133,13 @@ test('show_view registers an interactive card, refuses a group and a display-onl
   assert.equal(typeof open.views['writer-now'].askedAt, 'number')
   assert.deepEqual(open.views['writer-now'].view, CHOICES)
 
-  // A hidden Bot-to-Bot turn keeps the card but not the call.
+  // A hidden Bot-to-Bot turn keeps both the card and its call id.
   emit('writer-now', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
   emit('writer-now', 'turn/start', { turn: 2 })
   emit('writer-now', 'user/message', { content: text('[Message from Chief]\nAsk them'), source: { kind: 'bot', role: 'request', senderSessionId: 'chief', senderName: 'Chief', exchangeId: 'x1', hop: 0 } })
   const hidden = await show('writer-now', { title: 'Pick', view: CHOICES }, 'call-hidden')
   assert.equal(hidden.concluded, true)
-  assert.equal((await team()).views['writer-now'].callId, undefined)
+  assert.equal((await team()).views['writer-now'].callId, 'call-hidden')
   assert.equal((await team()).views['writer-now'].title, 'Pick')
 
   const body = JSON.stringify(METER)
@@ -253,8 +253,34 @@ test('a user message drops the open question and the open view together', async 
   const open = await team()
   assert.equal(open.questions['writer-now'], undefined)
   assert.equal(open.views['writer-now'], undefined)
-  // Both cards stay in the chat as answered by that message.
+  // Both cards stay in the chat as answered by that message; nothing stays in a dock store.
   assert.deepEqual(open.closedCards, { 'writer-now': { 'q-call': 'replied', 'call-1': 'replied' } })
+  assert.equal(open.closedViews, undefined)
+})
+
+test('a hidden-turn card closes into closedCards at its call, never into a dock record', async (t) => {
+  const { emit, show, call, team, stop } = await start()
+  t.after(stop)
+  await rt.teamTools.find(d => d.name === 'list_bots').execute({}, { agent: { id: 'chief' } })
+  emit('writer-now', 'turn/start', { turn: 1 })
+  emit('writer-now', 'user/message', { content: text('[Message from Chief]\nAsk them'), source: { kind: 'bot', role: 'request', senderSessionId: 'chief', senderName: 'Chief', exchangeId: 'x1', hop: 0 } })
+  await rt.teamTools.find(d => d.name === 'ask_user').execute(
+    { question: 'Which name?', options: [{ label: 'Lookout' }] },
+    { agent: { id: 'writer-now' }, callId: 'q-hidden', concludeTurn() {} },
+  )
+  await show('writer-now', { title: 'Pick', view: CHOICES }, 'v-hidden')
+  emit('writer-now', 'user/message', { content: text('never mind'), source: { kind: 'user' } })
+  let open = await team()
+  assert.equal(open.questions['writer-now'], undefined)
+  assert.equal(open.views['writer-now'], undefined)
+  assert.deepEqual(open.closedCards, { 'writer-now': { 'q-hidden': 'replied', 'v-hidden': 'replied' } })
+  assert.equal(open.closedViews, undefined)
+
+  await show('writer-now', { title: 'Next', view: CHOICES }, 'v-hidden-2')
+  assert.equal((await call('dismiss-view', { sessionId: 'writer-now' })).ok, true)
+  open = await team()
+  assert.equal(open.views['writer-now'], undefined)
+  assert.equal(open.closedCards['writer-now']['v-hidden-2'], 'dismissed')
 })
 
 test('show_view measures the bytes the model sent, before unwrapping the provider encoding', async (t) => {
@@ -270,4 +296,37 @@ test('show_view measures the bytes the model sent, before unwrapping the provide
   const over = await show('writer-now', { title: 'Meter', view: wrapped, await_reply: false })
   assert.equal(over.text, `The view is ${viewBytes('Meter', wrapped)} bytes; the limit is ${VIEW_BYTE_LIMIT}.`)
   assert.equal(over.concluded, false)
+})
+
+test('a card carried from an earlier part records its close on the part that asked it, and legacy closedViews is dropped', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'ds-bot-views-legacy-'))
+  writeFileSync(join(home, 'state.json'), JSON.stringify({
+    ...TEAM,
+    questions: { 'writer-now': { id: 'q1', callId: 'q-old', callSessionId: 'writer-old', question: 'Keep me', options: [{ label: 'Yes' }], askedAt: 1 } },
+    views: { 'writer-now': { id: 'v1', callId: 'v-old', callSessionId: 'writer-old', title: 'First', view: CHOICES, askedAt: 1 } },
+    closedViews: { 'writer-now': { id: 'stale', title: 'Stuck', closed: 'replied' } },
+  }))
+  const ctx = fakeContext()
+  Object.assign(ctx, {
+    workspaceRegistry: { get: () => undefined, resolveByPath: async () => undefined, create: async path => ({ id: 'w1', path }), archiveSession: async () => {}, unarchiveSession: async () => {} },
+    sessionController: { create: async () => ({ sessionId: 's1' }), resolveAgent: async sessionId => ({ agent: { session: { id: sessionId }, followup() {} } }), selectModel: async () => {} },
+    sessionTitle: { rename: async () => {} },
+    sessions: { flush: async () => {} },
+  })
+  let route
+  const register = ctx.connection.fetch.register
+  ctx.connection.fetch.register = (options) => { route = options; return register(options) }
+  const host = createRuntime(ctx, { home })
+  t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
+  const call = async (endpoint, payload = {}) => (await route.fetch(new Request('http://localhost/api/bot', { method: 'POST', body: JSON.stringify({ endpoint, payload }) }))).json()
+  let open = (await call('state')).value
+  assert.equal(open.closedViews, undefined)
+  assert.equal('closedViews' in host.state, false)
+  for (const listener of ctx.listeners.get('session/event') ?? []) {
+    if (listener.length >= 2) listener({ id: 'writer-now' }, { type: 'user/message', seq: 1, data: { content: text('never mind'), source: { kind: 'user' } } })
+  }
+  open = (await call('state')).value
+  assert.equal(open.questions['writer-now'], undefined)
+  assert.equal(open.views['writer-now'], undefined)
+  assert.deepEqual(open.closedCards, { 'writer-old': { 'q-old': 'replied', 'v-old': 'replied' } })
 })

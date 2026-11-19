@@ -15,7 +15,7 @@ const { JSDOM } = createRequire(join(process.env.DSH_HARNESS ?? join(PLUGIN, '..
 // stable because the tree expands the same way every pass.
 const { outputFiles } = await build({
   stdin: {
-    contents: "export { AddMenu, ConnectorRow, MailCatalogRow, MailToolCell } from './src/client/connectors.js'",
+    contents: "export { AddMenu, ConnectorRow, MailCatalogRow, MailToolCell } from './src/client/connectors.js'\nexport { ConnectorsPage } from './src/client/connectors-page.js'",
     resolveDir: PLUGIN,
   },
   bundle: true, format: 'cjs', platform: 'browser', write: false, logLevel: 'silent',
@@ -56,19 +56,22 @@ const react = {
   useId: () => 'id',
 }
 const opened = []
+const clipboard = { writeText: () => Promise.resolve() }
 const dom = new JSDOM('<!doctype html><body></body>')
 const module = { exports: {} }
 runInNewContext(outputFiles[0].text, {
   module, exports: module.exports,
   document: dom.window.document,
+  navigator: { clipboard },
   window: { matchMedia: () => ({ matches: false }), dshDesktop: {}, open: (url) => { opened.push(url); return null } },
   require: name => (name === 'react' ? react : name === 'react-dom' ? { createPortal: node => node } : {}),
 })
-const { AddMenu, ConnectorRow, MailCatalogRow, MailToolCell } = module.exports
-const render = () => { active = () => expand(entry(props)); rerender() }
-// Which component the current test draws; the mail tests below are the default.
-let entry = MailCatalogRow
+const { AddMenu, ConnectorRow, MailCatalogRow, MailToolCell, ConnectorsPage } = module.exports
+// The mail tests below draw MailCatalogRow; the connector tests name their own component.
+const render = (component = MailCatalogRow) => { active = () => expand(component(props)); rerender() }
 const renderCell = (cellProps) => { slots.length = 0; active = () => expand(MailToolCell(cellProps)); rerender() }
+
+const renderPage = (pageProps) => { active = () => expand(ConnectorsPage(pageProps)); rerender() }
 
 const flatten = (node, out = []) => {
   if (node === null || node === undefined || node === false || node === true) return out
@@ -267,8 +270,7 @@ test('the add form offers OAuth only for an address and sends the flag', async (
   // The real page passes a `run` that shows failures; here it just awaits.
   props = { actions, run: task => Promise.resolve(task) }
   slots.length = 0
-  entry = AddMenu
-  render()
+  render(AddMenu)
   click('Add')
   // The switch keeps its own aria-label inside the row.
   const findToggle = () => collect(n => n.type === 'button' && n.props?.['aria-label'] === 'Sign in')[0]
@@ -287,7 +289,7 @@ test('the add form offers OAuth only for an address and sends the flag', async (
   // Off by default: a fixed-header server sends no flag and behaves as it always did.
   adds.length = 0
   slots.length = 0
-  render()
+  render(AddMenu)
   click('Add')
   fill('Server address', 'https://fixed.example.com/mcp')
   fill('Name', 'Fixed')
@@ -297,7 +299,7 @@ test('the add form offers OAuth only for an address and sends the flag', async (
 
   // A command has no browser sign-in to offer, and switching back drops the flag.
   slots.length = 0
-  render()
+  render(AddMenu)
   click('Add')
   fill('Server address', 'https://mcp.example.com/mcp')
   click('Command')
@@ -308,7 +310,7 @@ test('the add form offers OAuth only for an address and sends the flag', async (
   // Turning it on and then switching kinds must not carry the choice back: an address
   // submitted after that would otherwise silently ask for OAuth.
   slots.length = 0
-  render()
+  render(AddMenu)
   click('Add')
   fill('Server address', 'https://mcp.example.com/mcp')
   findToggle().props.onClick()
@@ -328,8 +330,7 @@ test('the add form offers OAuth only for an address and sends the flag', async (
 test('an unconnected added server still offers Remove', async () => {
   const removed = []
   const actions = { connectorDisconnect: (id) => { removed.push(id); return Promise.resolve({ connectors: [] }) } }
-  entry = ConnectorRow
-  const renderRow = (connector) => { props = { connector, actions }; slots.length = 0; render() }
+  const renderRow = (connector) => { props = { connector, actions }; slots.length = 0; render(ConnectorRow) }
   const base = { id: 'box', name: 'Simular Box', category: 'custom', about: 'https://mcp.box.simular.ai/mcp', auth: { kind: 'oauth' }, custom: true, offFor: [], tools: 0 }
 
   renderRow({ ...base, state: 'off' })
@@ -342,4 +343,81 @@ test('an unconnected added server still offers Remove', async () => {
   // A catalog connector with no sign-in still says Disconnect, not Remove.
   renderRow({ id: 'context7', name: 'Context7', category: 'docs', about: '', auth: { kind: 'none' }, offFor: [], tools: 0, state: 'off' })
   assert.equal(collect(n => n.type === 'button' && flatten(n).join('') === 'Remove').length, 0, 'catalog rows never say Remove')
+})
+
+// The rows the host sends (`pending` is the row built in connectors/index.js).
+const githubAuth = { kind: 'oauth', client: { id: 'client' }, token: true }
+const github = extra => ({ id: 'github', name: 'GitHub', category: 'dev', auth: githubAuth, state: 'off', ...extra })
+const devicePending = userCode => ({ state: 'connecting', pending: { kind: 'device', userCode, verificationUri: 'https://github.com/login/device', expiresAt: 4102444800000 } })
+const pageWith = (app, actions = {}) => ({ roster: { connectors: { connectors: [app], mail: { accounts: [] } } }, actions })
+const has = className => collect(n => String(n.props?.className ?? '').split(' ').includes(className))
+const pageText = () => flatten(concrete).join(' ')
+const sectionOf = (node) => {
+  for (const section of collect(n => n.type === 'section')) {
+    const inside = []
+    const walk = (n) => { if (Array.isArray(n)) n.forEach(walk); else if (n && typeof n === 'object') { inside.push(n); walk(n.props?.children) } }
+    walk(section)
+    if (inside.includes(node)) return flatten(collect(n => n === section)[0].props.children[0]).join('')
+  }
+  return null
+}
+const sectionButton = (section, text) => collect(n => n.type === 'button' && flatten(n).join('') === text).find(n => sectionOf(n) === section)
+
+test('a device sign-in shows its code on the clicked tile and says copied only once the write worked', async () => {
+  slots.length = 0
+  opened.length = 0
+  let finishCopy = null
+  const written = []
+  clipboard.writeText = (text) => { written.push(text); return new Promise((resolve) => { finishCopy = resolve }) }
+  const pending = github(devicePending('WDJB-MJHT'))
+  const actions = { connectorConnect: () => Promise.resolve({ connectors: [pending] }) }
+  const page = pageWith(github(), actions)
+  renderPage(page)
+  sectionButton('Developer', 'Connect').props.onClick()
+  // The host's update reaches the page while the clipboard write is still running.
+  page.roster = pageWith(pending).roster
+  await flush()
+  rerender()
+  assert.deepEqual(written, ['WDJB-MJHT'])
+  assert.deepEqual(opened, [], 'the page waits for the clipboard: it takes the focus as it opens')
+  assert.equal(has('bt-connector-code').length, 1, 'one tile draws the code')
+  assert.equal(flatten(has('bt-connector-code')[0]).join(''), 'WDJB-MJHT')
+  assert.equal(sectionOf(has('bt-connector-code')[0]), 'Developer', 'on the tile that was clicked')
+  assert.match(pageText(), /github\.com\/login\/device/)
+  assert.doesNotMatch(pageText(), /Copied to clipboard/)
+  finishCopy()
+  await flush()
+  rerender()
+  assert.match(pageText(), /Copied to clipboard/)
+  assert.deepEqual(opened.slice(-1), ['https://github.com/login/device'])
+})
+
+test('a refused clipboard write shows no copied hint and the Copy button can still do it', async () => {
+  slots.length = 0
+  clipboard.writeText = () => Promise.reject(new Error('Document is not focused'))
+  const pending = github(devicePending('REFU-SED1'))
+  const page = pageWith(github(), { connectorConnect: () => Promise.resolve({ connectors: [pending] }) })
+  renderPage(page)
+  sectionButton('Recommended', 'Connect').props.onClick()
+  await flush()
+  page.roster = pageWith(pending).roster
+  await flush()
+  rerender()
+  assert.equal(flatten(has('bt-connector-code')[0]).join(''), 'REFU-SED1')
+  assert.doesNotMatch(pageText(), /Copied to clipboard/)
+  clipboard.writeText = () => Promise.resolve()
+  click('Copy')
+  await flush()
+  rerender()
+  assert.match(pageText(), /Copied to clipboard/)
+})
+
+test('a sign-in found after a reload is drawn once, and a browser sign-in says where to finish', () => {
+  slots.length = 0
+  renderPage(pageWith(github(devicePending('RELO-ADED'))))
+  assert.equal(has('bt-connector-code').length, 1)
+  assert.equal(sectionOf(has('bt-connector-code')[0]), 'Recommended')
+  slots.length = 0
+  renderPage(pageWith(github({ state: 'connecting', pending: { kind: 'browser', url: 'https://github.com/login/oauth' } })))
+  assert.equal(pageText().split('Finish signing in in your browser.').length - 1, 1)
 })

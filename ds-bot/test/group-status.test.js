@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
+import { afterRound } from './relay-rows.js'
 import { createRuntime } from '../index.js'
 import { fakeContext } from './fake-ctx.js'
 import { ROOM_REPLY_TIMEOUT_MS } from '../src/host/constants.js'
@@ -91,14 +92,14 @@ async function openTurn(t, { agentOf, emit, tool }) {
   let result
   const stop = new AbortController()
   t.after(() => stop.abort())
-  void tool('group_relay', {}, 'r1', { callId: 'c1', signal: stop.signal }).then((value) => { result = JSON.parse(value) })
+  void tool('group_relay', {}, 'r1', { callId: 'c1', signal: stop.signal }).then(async (value) => { result = await afterRound(rt, 'r1', value) })
   await settle(() => agentOf('gb').calls.length === 1)
   const message = agentOf('gb').calls[0]
   agentOf('gb').inbox.nextTurn.length = 0
   emit('gb', 'turn/start', { turn: 1 })
   emit('gb', 'user/message', { content: message.content, source: message.source })
   const read = () => result
-  read.stop = () => stop.abort()
+  read.stop = () => rt.stopRoomRound('r1')
   return read
 }
 
@@ -210,9 +211,9 @@ test('stopping a round withdraws a member turn that has not started', async (t) 
   let result
   const stop = new AbortController()
   t.after(() => stop.abort())
-  void host.tool('group_relay', {}, 'r1', { callId: 'c1', signal: stop.signal }).then((value) => { result = JSON.parse(value) })
+  void host.tool('group_relay', {}, 'r1', { callId: 'c1', signal: stop.signal }).then(async (value) => { result = await afterRound(rt, 'r1', value) })
   await settle(() => host.agentOf('gb').calls.length === 1)
-  stop.abort()
+  rt.stopRoomRound('r1')
   await settle(() => result !== undefined)
   await settle(() => host.agentOf('gb').inbox.nextTurn.length === 0)
   assert.deepEqual(host.agentOf('gb').cancelled, [])
@@ -260,8 +261,10 @@ test('a member that fails after the round moved on shows the failure in the grou
   assert.deepEqual([post.source.late, post.source.quiet, post.source.failed], [true, true, { code: 'RATE_LIMIT', status: 429, message: 'Too many requests' }])
 
   host.emit('r1', 'user/message', { content: post.content, source: post.source })
-  const round = JSON.parse(await host.tool('group_relay', {}, 'r1', { callId: 'c2', signal: new AbortController().signal }))
-  assert.deepEqual(round.replies.map(reply => [reply.kind, reply.name, reply.code, reply.status]), [['failed', 'Writer', 'RATE_LIMIT', 429]])
+  const round = await afterRound(rt, 'r1', await host.tool('group_relay', {}, 'r1', { callId: 'c2', signal: new AbortController().signal }))
+  // The failure shows where it happened, before the post that tells the group.
+  assert.deepEqual(rt.groupRows('r1', 1).filter(reply => reply.kind === 'failed').map(reply => [reply.kind, reply.name, reply.code, reply.status]), [['failed', 'Writer', 'RATE_LIMIT', 429]])
+  assert.deepEqual(round.replies, [])
   assert.deepEqual(round.failed, ['Writer'])
   assert.equal(host.agentOf('gb').calls.length, 1)
 })

@@ -4,7 +4,66 @@ import { tmpdir } from 'node:os'
 import { delimiter, join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
-import { findExecutable, launchOf, refreshSearchDirs, spawnAgent } from '../src/host/local-agents/discover.js'
+import { agentEnv, cleanEnv, findEngineExecutable, findExecutable, launchOf, refreshSearchDirs, spawnAgent } from '../src/host/local-agents/discover.js'
+
+test('Windows pi-acp resolves standalone Pi through PATH and PATHEXT (#1795)', () => {
+  const exe = 'F:\\Pi\\pi.exe'
+  const env = { Path: 'C:\\empty;F:\\Pi', PATHEXT: '.COM;.EXE;.BAT;.CMD' }
+  const find = name => findExecutable(name, { platform: 'win32', env, isFile: path => path === exe })
+  assert.equal(find('pi'), exe)
+  assert.equal(agentEnv('C:\\npm\\pi-acp.cmd', env, { platform: 'win32', find }).PI_ACP_PI_COMMAND, exe)
+  for (const ext of ['cmd', 'bat', 'exe']) {
+    const path = `F:\\Pi\\pi.${ext}`
+    const lookup = name => findExecutable(name, { platform: 'win32', env, isFile: candidate => candidate === path })
+    assert.equal(agentEnv('pi-acp', env, { platform: 'win32', find: lookup }).PI_ACP_PI_COMMAND, path)
+  }
+  assert.equal(agentEnv('pi-acp.exe', env, { platform: 'win32', find: () => undefined }), env)
+  const explicit = { ...env, PI_ACP_PI_COMMAND: 'D:\\custom\\pi.exe' }
+  assert.equal(agentEnv('pi-acp', explicit, { platform: 'win32', find }), explicit)
+  assert.equal(agentEnv('other.cmd', env, { platform: 'win32', find }), env)
+  assert.equal(agentEnv('pi-acp', env, { platform: 'darwin', find }), env)
+})
+
+test('Windows lookup skips relative PATH directories', () => {
+  const env = { PATH: '.;bin;C:relative;C:\\tools', PATHEXT: '.EXE' }
+  const checked = []
+  const find = name => findExecutable(name, { platform: 'win32', env, isFile: path => { checked.push(path); return path.endsWith('.exe') } })
+  assert.equal(find('pi'), 'C:\\tools\\pi.exe')
+  assert.deepEqual(checked, ['C:\\tools\\pi.exe'])
+  assert.equal(findExecutable('pi', { platform: 'win32', env: { PATH: '.;bin', PATHEXT: '.EXE' }, isFile: path => ['pi.exe', 'bin\\pi.exe'].includes(path) }), undefined)
+})
+
+test('Windows lookup only returns executable or batch extensions', () => {
+  const lookup = (name, files, PATHEXT) => findExecutable(name, {
+    platform: 'win32', env: { PATH: 'C:\\tools', ...(PATHEXT === undefined ? {} : { PATHEXT }) }, isFile: path => files.includes(path),
+  })
+  for (const ext of ['js', 'vbs', 'ps1', '']) {
+    const file = `C:\\tools\\agent${ext ? `.${ext}` : ''}`
+    assert.equal(lookup('agent', [file], '.JS;.VBS;.PS1;.EXE'), undefined)
+    assert.equal(lookup(file, [file]), undefined)
+  }
+  assert.equal(lookup('agent', ['C:\\tools\\agent.cmd', 'C:\\tools\\agent.exe'], '.JS;.EXE;.CMD'), 'C:\\tools\\agent.exe')
+  assert.equal(lookup('agent', ['C:\\tools\\agent.cmd'], '.JS'), undefined)
+  assert.equal(lookup('agent', ['C:\\tools\\agent.cmd'], ''), undefined)
+  assert.equal(lookup('agent', ['C:\\tools\\agent.com']), 'C:\\tools\\agent.com')
+  assert.equal(lookup('agent.js', ['C:\\tools\\agent.js.cmd'], '.JS;.CMD'), 'C:\\tools\\agent.js.cmd')
+  assert.equal(lookup('agent.CmD', ['C:\\tools\\agent.CmD'], '.EXE'), 'C:\\tools\\agent.CmD')
+})
+
+test('Windows pi-acp preserves environment overrides regardless of key casing', () => {
+  for (const key of ['Pi_Acp_Pi_Command', 'pi_acp_pi_command', 'PI_ACP_PI_COMMAND']) {
+    const env = { [key]: 'D:\\custom\\pi.exe' }
+    assert.equal(agentEnv('pi-acp.cmd', env, { platform: 'win32', find: () => assert.fail('must not resolve an overridden Pi') }), env)
+  }
+})
+
+test('Windows resolves dotted command names unless their suffix is already in PATHEXT', () => {
+  const env = { PATH: 'C:\\agents', PATHEXT: '.EXE;.CMD' }
+  const lookup = (name, file) => findExecutable(name, { platform: 'win32', env, isFile: path => path === file })
+  assert.equal(lookup('agent.v2', 'C:\\agents\\agent.v2.cmd'), 'C:\\agents\\agent.v2.cmd')
+  assert.equal(lookup('agent.CmD', 'C:\\agents\\agent.CmD'), 'C:\\agents\\agent.CmD')
+  assert.equal(lookup('agent.CmD', 'C:\\agents\\agent.CmD.cmd'), undefined)
+})
 
 // npm-*.cmd are what npm 11's cmd-shim writes for a Node script and for an .exe;
 // pnpm-node.cmd follows pnpm 11's shim template with a NODE_PATH.
@@ -64,16 +123,24 @@ test('an agent CLI installed by npm starts on Windows', { skip: process.platform
   assert.deepEqual(JSON.parse(out).argv, ['acp', SYSTEM])
 })
 
-// A slow npm on PATH stands for the real one: it takes seconds to start, and the
-// host must not wait for it on the way to a Session.
+// A held npm on PATH stands for the real one: it has not answered when the lookup
+// starts, so the host must not wait for it on the way to a Session, and its global
+// folder joins once the answer arrives. The test lets npm answer itself; a fixed
+// `sleep 2` raced the lookup's own 5 s child timeout whenever the suite was busy
+// enough to delay the child past it.
 test('finding a CLI never waits on npm, and npm\'s global folder joins in the background', { skip: process.platform === 'win32' }, async (t) => {
   const root = mkdtempSync(join(tmpdir(), 'dsb-discover-'))
-  t.after(() => rmSync(root, { recursive: true, force: true }))
   const fakeBin = join(root, 'bin')
   const prefix = join(root, 'npm-global')
+  const release = join(root, 'npm-release')
+  t.after(() => {
+    // Let a held npm exit even when an assertion above failed before releasing it.
+    writeFileSync(release, '')
+    rmSync(root, { recursive: true, force: true })
+  })
   mkdirSync(fakeBin)
   mkdirSync(join(prefix, 'bin'), { recursive: true })
-  writeFileSync(join(fakeBin, 'npm'), `#!/bin/sh\nsleep 2\nprintf '%s\\n' '${prefix}'\n`)
+  writeFileSync(join(fakeBin, 'npm'), `#!/bin/sh\nwhile [ ! -e '${release}' ]; do sleep 0.05; done\nprintf '%s\\n' '${prefix}'\n`)
   writeFileSync(join(prefix, 'bin', 'dsb-fake-agent'), '#!/bin/sh\n')
   chmodSync(join(fakeBin, 'npm'), 0o755)
   chmodSync(join(prefix, 'bin', 'dsb-fake-agent'), 0o755)
@@ -86,6 +153,46 @@ test('finding a CLI never waits on npm, and npm\'s global folder joins in the ba
   assert.equal(findExecutable('dsb-fake-agent'), undefined)
   const refresh = refreshSearchDirs()
   assert.ok(Date.now() - started < 1000, 'the lookup waited on npm')
+  writeFileSync(release, '')
   await refresh
   assert.equal(findExecutable('dsb-fake-agent'), join(prefix, 'bin', 'dsb-fake-agent'))
+})
+
+test('on Windows an Antigravity .exe in LocalAppData launches directly', () => {
+  const exe = 'C:\\Users\\user\\AppData\\Local\\agy\\bin\\agy.exe'
+  assert.deepEqual(launchOf(exe, ['acp'], { platform: 'win32' }), { file: exe, args: ['acp'] })
+})
+
+test('findExecutable skips a directory matching the binary name (#1407) and findEngineExecutable resolves aliases', { skip: process.platform === 'win32' }, (t) => {
+  const root = mkdtempSync(join(tmpdir(), 'dsb-dir-'))
+  const dirA = join(root, 'a')
+  const dirB = join(root, 'b')
+  t.after(() => rmSync(root, { recursive: true, force: true }))
+  mkdirSync(join(dirA, 'kilocode'), { recursive: true })
+  mkdirSync(dirB, { recursive: true })
+  writeFileSync(join(dirB, 'kilocode'), '#!/bin/sh\n')
+  chmodSync(join(dirB, 'kilocode'), 0o755)
+  const { PATH } = process.env
+  process.env.PATH = `${dirA}${delimiter}${dirB}${delimiter}${PATH}`
+  t.after(() => { process.env.PATH = PATH })
+
+  assert.equal(findExecutable('kilocode'), join(dirB, 'kilocode'))
+  assert.equal(findEngineExecutable({ command: 'kilo', commands: ['kilo', 'kilocode'] }), join(dirB, 'kilocode'))
+})
+
+test('cleanEnv strips DEEPSEEK_ variables along with agent tokens', () => {
+  const prev = { DEEPSEEK_API_KEY: process.env.DEEPSEEK_API_KEY, DSB_KEEP_CHECK: process.env.DSB_KEEP_CHECK }
+  process.env.DEEPSEEK_API_KEY = 'secret-deepseek'
+  process.env.DSB_KEEP_CHECK = 'kept'
+  try {
+    const cleaned = cleanEnv({ EXTRA_FLAG: '1' })
+    assert.equal(cleaned.DEEPSEEK_API_KEY, undefined)
+    assert.equal(cleaned.DSB_KEEP_CHECK, 'kept')
+    assert.equal(cleaned.EXTRA_FLAG, '1')
+  } finally {
+    if (prev.DEEPSEEK_API_KEY === undefined) delete process.env.DEEPSEEK_API_KEY
+    else process.env.DEEPSEEK_API_KEY = prev.DEEPSEEK_API_KEY
+    if (prev.DSB_KEEP_CHECK === undefined) delete process.env.DSB_KEEP_CHECK
+    else process.env.DSB_KEEP_CHECK = prev.DSB_KEEP_CHECK
+  }
 })

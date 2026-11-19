@@ -10,7 +10,7 @@ import { build } from 'esbuild'
 // Parts of the page outside the composer are stubbed: this checks the wiring
 // from the chat's hooks down to the textarea and the plugin's voice buttons.
 const stubs = {
-  'cells.js': 'export const Bubbles = () => null\nexport const ChatRows = () => null\nexport const Shimmer = () => null\n',
+  'cells.js': 'export const Bubbles = ({ texts }) => texts.join(" ")\nexport const ChatRows = () => null\nexport const Shimmer = () => null\n',
   'model-menu.js': 'export const ModelChoiceDock = () => null\n',
   'api.js': "export const call = async () => ({ sessionId: 'b1', items: [], cursor: null })\n",
 }
@@ -116,10 +116,12 @@ const plain = value => JSON.parse(JSON.stringify(value))
 
 // Mounts a Bot's chat with `prefs` in the roster, types a draft, and returns the
 // send log plus the rendered tree accessor.
-const view = (prefs, ready = true, question) => {
+const view = (prefs, ready = true, question, { ui = {}, partsRunning } = {}) => {
+  const listeners = new Set()
   const sent = []
   const answered = []
-  const roster = { ready, prefs, byId: { b1: { id: 'b1', name: 'Bot' } }, roomsById: {}, questions: question ? { b1: question } : {} }
+  const stopped = []
+  const roster = { ready, prefs, partsRunning, byId: { b1: { id: 'b1', name: 'Bot' } }, roomsById: {}, questions: question ? { b1: question } : {} }
   const team = {
     actions: {
       noteSent() {},
@@ -130,18 +132,50 @@ const view = (prefs, ready = true, question) => {
       canReferenceChat: () => false,
       answerQuestion: async (sessionId, id, answer) => { answered.push([sessionId, id, answer]) },
       dismissQuestion() {},
+      stopChat: async botId => { stopped.push(botId) },
+      clearReadOnlyPart() {},
     },
     hooks: {
       useRoster: select => select(roster),
-      useUi: select => select({}),
+      useUi: select => select(ui),
       useSessionStatus: select => select(new Map()),
     },
-    chat: { on: () => () => {} },
+    chat: { on: fn => { listeners.add(fn); return () => listeners.delete(fn) } },
   }
   const instance = mount({ sessionId: 'b1', team })
   textarea(instance.render()).props.onChange({ target: { value: 'hi' } })
-  return { sent, answered, tree: () => instance.render() }
+  return { sent, answered, stopped, emit: (event, data) => { for (const listener of listeners) listener(event, data) }, tree: () => instance.render() }
 }
+
+// #1501: a part the user opened while its turn runs is read-only until it ends or the
+// user stops it. The Bot views take no input and offer the plugin's own Stop control.
+test('a running part the user opened takes no input, and its Stop action is the plugin\'s', async () => {
+  const { sent, stopped, tree } = view({ enterToSend: true }, true, undefined, { ui: { readOnlyPart: 'b1' }, partsRunning: { b1: true } })
+  const input = textarea(tree())
+  assert.equal(input.props.disabled, true)
+  assert.equal(sendButton(tree()).props.disabled, true)
+  const dock = all(tree(), child => child.props?.className === 'bt-readonly-dock' && child.props?.['data-on'] !== undefined)[0]
+  assert.ok(dock, 'the read-only dock is shown')
+  const stop = all(tree(), child => child.type === 'button' && child.props?.className === 'bt-soft bt-soft-sm')[0]
+  assert.ok(stop, 'the dock offers Stop')
+  stop.props.onClick()
+  await tick()
+  assert.deepEqual(plain(stopped), ['b1'])
+  // Nothing goes out from a locked composer.
+  input.props.onKeyDown(enter())
+  sendButton(tree()).props.onClick()
+  await tick()
+  assert.deepEqual(plain(sent), [])
+})
+
+test('a part that is not the running one the user opened keeps its composer', async () => {
+  const { sent, tree } = view({ enterToSend: true }, true, undefined, { ui: { readOnlyPart: 'other' }, partsRunning: { b1: true } })
+  assert.equal(textarea(tree()).props.disabled, false)
+  const event = enter()
+  textarea(tree()).props.onKeyDown(event)
+  await tick()
+  assert.deepEqual(plain(sent), [['b1', 'hi']])
+})
 
 test('with Enter sending on, a plain Enter sends the draft and clears it', async () => {
   const { sent, tree } = view({ enterToSend: true })
@@ -206,4 +240,19 @@ test('Shift+Enter and IME confirmation keep their default behavior', async () =>
     assert.equal(event.prevented, false)
     assert.deepEqual(plain(sent), [])
   }
+})
+
+
+test('a parallel part cannot write or clear the viewed part stream', async () => {
+  const { emit, tree } = view({})
+  await tick()
+  const text = node => JSON.stringify(node)
+  emit('stream', { botId: 'b1', sessionId: 'b1', attemptId: 'front', phase: 'start' })
+  emit('stream', { botId: 'b1', sessionId: 'b1', attemptId: 'front', text: 'foreground reply' })
+  emit('stream', { botId: 'b1', sessionId: 'background', attemptId: 'back', phase: 'start' })
+  emit('stream', { botId: 'b1', sessionId: 'background', attemptId: 'back', text: 'background reply' })
+  assert.match(text(tree()), /foreground reply/)
+  assert.doesNotMatch(text(tree()), /background reply/)
+  emit('message', { botId: 'b1', sessionId: 'background', item: { kind: 'bot', text: 'done', time: 100 } })
+  assert.match(text(tree()), /foreground reply/)
 })
