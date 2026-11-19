@@ -7,7 +7,7 @@ import { build } from 'esbuild'
 // Same harness as model-menu.test.js: bundle the client module, stub React.
 const bundle = await build({
   stdin: {
-    contents: "export * from './src/client/model-menu.js'",
+    contents: "export * from './src/client/model-menu.js'\nexport { installLocale } from './src/client/i18n.js'",
     resolveDir: fileURLToPath(new URL('..', import.meta.url)),
   },
   bundle: true, format: 'cjs', platform: 'node', write: false,
@@ -36,15 +36,30 @@ const sandbox = {
   },
 }
 runInNewContext(bundle.outputFiles[0].text, sandbox)
-const { filterModelGroups, groupModels, ModelRows } = module.exports
+const { filterModelGroups, groupModels, ModelRows, installLocale } = module.exports
 
+// A tiny locale service that translates only the CLI-default label, so nameOf yields a
+// label that differs from the raw catalog name and the Devin bug can be exercised: a
+// query in the translated label must still keep the local default in the results.
+const LOCAL_DEFAULT_LABEL = 'CLI 默认'
+installLocale({
+  register: () => () => {},
+  bind: () => (key) => (key === 'CLI default' ? LOCAL_DEFAULT_LABEL : key),
+  getLocale: () => ({ active: 'zh', locales: [] }),
+})
+
+// The models, including a local CLI default whose raw catalog name is the English
+// "CLI default" but whose displayed label (through nameOf) is LOCAL_DEFAULT_LABEL.
 const models = [
   { ref: 'a/glm-5.3', name: 'GLM-5.3', provider: 'a', providerName: 'Alpha' },
   { ref: 'a/glm-5.3-flash', name: 'GLM-5.3-Flash', provider: 'a', providerName: 'Alpha' },
   { ref: 'a/kimi-k3', name: 'Kimi K3', provider: 'a', providerName: 'Alpha' },
   { ref: 'b/deepseek-v4', name: 'DeepSeek-V4-Pro', provider: 'b', providerName: 'Beta' },
   { ref: 'b/deepseek-flash', name: 'DeepSeek Flash', provider: 'b', providerName: 'Beta' },
+  // A local CLI default: id 'default', ref under a local route, raw name 'CLI default'.
+  { ref: 'local-codex-cli/default', name: 'CLI default', provider: 'local-codex-cli', providerName: 'Codex', id: 'default' },
 ]
+const TOTAL = models.length
 
 // The groups come from the bundle's realm, whose arrays are not this one's
 // (see model-menu.test.js:114). Copy the values out before deepStrictEqual.
@@ -53,8 +68,8 @@ const refs = query => plain(filterModelGroups(models, query).flatMap(([, list]) 
 
 test('an empty query keeps every model and every provider group', () => {
   assert.equal(filterModelGroups(models, '').length, groupModels(models).length)
-  assert.equal(refs('').length, 5)
-  assert.equal(refs('   ').length, 5)
+  assert.equal(refs('').length, TOTAL)
+  assert.equal(refs('   ').length, TOTAL)
 })
 
 test('one token matches the model name', () => {
@@ -82,10 +97,18 @@ test('groups with no match are dropped, never left as a bare heading', () => {
 })
 
 test('a missing or non-string query is treated as empty', () => {
-  assert.equal(refs(undefined).length, 5)
-  assert.equal(refs(null).length, 5)
-  assert.equal(refs(42).length, 5)
-  assert.equal(refs({}).length, 5)
+  assert.equal(refs(undefined).length, TOTAL)
+  assert.equal(refs(null).length, TOTAL)
+  assert.equal(refs(42).length, TOTAL)
+  assert.equal(refs({}).length, TOTAL)
+})
+
+test('a local default is found by its translated label, not only its raw name', () => {
+  // The Devin bug: nameOf translates "CLI default" to LOCAL_DEFAULT_LABEL; a query in
+  // that label must keep the local default, and the raw English name must too.
+  assert.deepEqual(refs(LOCAL_DEFAULT_LABEL), ['local-codex-cli/default'])
+  assert.deepEqual(refs('默认'), ['local-codex-cli/default'])
+  assert.deepEqual(refs('cli default'), ['local-codex-cli/default'])
 })
 
 test('ModelRows passes filtering=true when a query is active and renders empty status on zero matches', () => {

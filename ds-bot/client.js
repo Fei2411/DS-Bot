@@ -23882,7 +23882,7 @@ function filterModelGroups(models, query) {
   const groups = groupModels(models);
   if (tokens.length === 0) return groups;
   return groups.map(([provider, list]) => [provider, list.filter((model) => {
-    const hay = `${model.name ?? ""} ${model.ref ?? ""} ${model.provider ?? ""} ${model.providerName ?? ""}`.toLowerCase();
+    const hay = `${model.name ?? ""} ${nameOf(model) ?? ""} ${model.ref ?? ""} ${model.provider ?? ""} ${model.providerName ?? ""}`.toLowerCase();
     return tokens.every((token) => hay.includes(token));
   })]).filter(([, list]) => list.length > 0);
 }
@@ -24075,21 +24075,28 @@ var modelTrigger = (picker, { wide, button, isOpen, onClick }) => {
     (0, import_react20.createElement)(Caret)
   );
 };
-var modelSearch = ({ models, query, setQuery }) => models.length > 0 ? (0, import_react20.createElement)(
-  "div",
-  { className: "bt-model-search", role: "presentation" },
-  (0, import_react20.createElement)("input", {
-    type: "search",
-    className: "bt-input bt-model-search-input",
-    placeholder: t("Search models…"),
-    "aria-label": t("Search models"),
-    value: query,
-    autoFocus: true,
-    autoComplete: "off",
-    spellCheck: false,
-    onChange: (event) => setQuery(event.target.value)
-  })
-) : null;
+var modelSearch = ({ models, query, setQuery }, menu) => {
+  const field = (0, import_react20.useRef)(null);
+  return models.length > 0 ? (0, import_react20.createElement)(
+    "div",
+    { className: "bt-model-search", role: "presentation" },
+    (0, import_react20.createElement)("input", {
+      ref: field,
+      type: "search",
+      className: "bt-input bt-model-search-input",
+      placeholder: t("Search models…"),
+      "aria-label": t("Search models"),
+      value: query,
+      autoFocus: true,
+      autoComplete: "off",
+      spellCheck: false,
+      onChange: (event) => setQuery(event.target.value),
+      onKeyDown: (event) => {
+        if (["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) stepMenuFocus(menu.current, event, field.current);
+      }
+    })
+  ) : null;
+};
 var modelScroll = ({ roster, models, current: current2, local, reading, opening, query }, pick2) => (0, import_react20.createElement)(
   "div",
   { className: "bt-model-scroll" },
@@ -24132,7 +24139,7 @@ function PopupModelMenu({ bot, roster, actions, run: run2, wide = false, onPick,
     shownPlace ? (0, import_react_dom.createPortal)((0, import_react20.createElement)(
       "div",
       { ref: menu, className: `bt-menu bt-model-menu${shownPlace.bottom !== void 0 ? " bt-menu-up" : ""}`, role: "menu", "aria-label": modelMenuLabel(bot), style: shownPlace, "data-leaving": leaving || void 0 },
-      modelSearch(picker),
+      modelSearch(picker, menu),
       modelScroll(picker, pick2),
       hasEfforts || manage ? (0, import_react20.createElement)(
         "div",
@@ -24171,7 +24178,7 @@ function InlineModelMenu({ bot, roster, actions, run: run2, wide = false, onPick
       (0, import_react20.createElement)(
         "div",
         { ref: menu, className: "bt-menu bt-model-menu bt-model-inline-menu", role: "menu", "aria-label": modelMenuLabel(bot) },
-        modelSearch(picker),
+        modelSearch(picker, menu),
         modelScroll(picker, pick2),
         manage ? (0, import_react20.createElement)("div", { className: "bt-model-foot" }, manageButton(manage, close)) : null
       )

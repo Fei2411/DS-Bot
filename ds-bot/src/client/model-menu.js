@@ -310,7 +310,9 @@ export function filterModelGroups(models, query) {
   const groups = groupModels(models)
   if (tokens.length === 0) return groups
   return groups.map(([provider, list]) => [provider, list.filter((model) => {
-    const hay = `${model.name ?? ''} ${model.ref ?? ''} ${model.provider ?? ''} ${model.providerName ?? ''}`.toLowerCase()
+    // nameOf carries the display label, including a translated CLI default;
+    // the catalog fields keep the raw searchable values behind it.
+    const hay = `${model.name ?? ''} ${nameOf(model) ?? ''} ${model.ref ?? ''} ${model.provider ?? ''} ${model.providerName ?? ''}`.toLowerCase()
     return tokens.every(token => hay.includes(token))
   })]).filter(([, list]) => list.length > 0)
 }
@@ -486,13 +488,24 @@ const modelTrigger = (picker, { wide, button, isOpen, onClick }) => {
   h(Caret))
 }
 
-const modelSearch = ({ models, query, setQuery }) => (models.length > 0 ? h('div', { className: 'bt-model-search', role: 'presentation' },
-  h('input', {
-    type: 'search', className: 'bt-input bt-model-search-input',
-    placeholder: t('Search models…'), 'aria-label': t('Search models'),
-    value: query, autoFocus: true, autoComplete: 'off', spellCheck: false,
-    onChange: event => setQuery(event.target.value),
-  })) : null)
+// The query box sits inside the menu and takes focus on open, so the arrow keys are
+// handed from it to the rows. The input stands in for the trigger in stepMenuFocus: on
+// the input the step starts from before the first row and lands on the first (or, going
+// up, the last) menuitemradio, matching how the trigger behaves. Escape is left to
+// bubble so the menu's window handler closes it from the input too.
+const modelSearch = ({ models, query, setQuery }, menu) => {
+  const field = useRef(null)
+  return models.length > 0 ? h('div', { className: 'bt-model-search', role: 'presentation' },
+    h('input', {
+      ref: field, type: 'search', className: 'bt-input bt-model-search-input',
+      placeholder: t('Search models…'), 'aria-label': t('Search models'),
+      value: query, autoFocus: true, autoComplete: 'off', spellCheck: false,
+      onChange: event => setQuery(event.target.value),
+      onKeyDown: event => {
+        if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) stepMenuFocus(menu.current, event, field.current)
+      },
+    })) : null
+}
 
 const modelScroll = ({ roster, models, current, local, reading, opening, query }, pick) => h('div', { className: 'bt-model-scroll' },
   models.length > 0 ? h(ModelRows, { roster: { ...roster, models }, current, onPick: pick, query, opening })
@@ -529,7 +542,7 @@ function PopupModelMenu({ bot, roster, actions, run, wide = false, onPick, onPic
   return h(Fragment, null,
     modelTrigger(picker, { wide, button, isOpen, onClick: toggle }),
     shownPlace ? createPortal(h('div', { ref: menu, className: `bt-menu bt-model-menu${shownPlace.bottom !== undefined ? ' bt-menu-up' : ''}`, role: 'menu', 'aria-label': modelMenuLabel(bot), style: shownPlace, 'data-leaving': leaving || undefined },
-      modelSearch(picker),
+      modelSearch(picker, menu),
       modelScroll(picker, pick),
       hasEfforts || manage ? h('div', { className: 'bt-model-foot' },
         hasEfforts ? h(EffortBar, { reasoning: picker.reasoning, current: picker.picked, onPick: picker.chooseEffort }) : null,
@@ -557,7 +570,7 @@ function InlineModelMenu({ bot, roster, actions, run, wide = false, onPick, onPi
     modelTrigger(picker, { wide, button, isOpen, onClick: toggle }),
     h(Collapse, { open: isOpen },
       h('div', { ref: menu, className: 'bt-menu bt-model-menu bt-model-inline-menu', role: 'menu', 'aria-label': modelMenuLabel(bot) },
-        modelSearch(picker),
+        modelSearch(picker, menu),
         modelScroll(picker, pick),
         manage ? h('div', { className: 'bt-model-foot' }, manageButton(manage, close)) : null)),
     h(Collapse, { open: hasEfforts },
