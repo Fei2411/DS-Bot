@@ -56,14 +56,14 @@ export function install(rt) {
 
   const callerBot = (exec) => rt.botOf(rt.selfOf(exec.agent?.id))
   const callerRoom = (exec) => {
-    const roomId = rt.groupOwners.get(exec.agent?.id)?.roomId
+    const roomId = (rt.groupOwners.get(exec.agent?.id) ?? rt.pastOwners?.get(exec.agent?.id))?.roomId
     return roomId ? { fromRoomId: roomId } : {}
   }
   // The part of its own chat the caller speaks from, so a reply comes back to that part
   // of the thread (a Bot can work in a background part while the user reads another).
   const callerPart = (exec) => {
     const sessionId = exec.agent?.id
-    return sessionId === undefined || rt.groupOwners.has(sessionId) ? {} : { fromPart: sessionId }
+    return sessionId === undefined || callerRoom(exec).fromRoomId !== undefined ? {} : { fromPart: sessionId }
   }
 
   const sectionNameOf = id => (state.sections ?? []).find(sec => sec.id === id)?.name
@@ -820,7 +820,7 @@ export function install(rt) {
       try {
         // A post that wants the replies names the conversation it was written
         // from, so the report comes back there instead of the own chat.
-        await rt.postToRoom(room, sender, long.text, { mentions, ...(claims ? { claims } : {}), ...(reportBack ? { reportBack: true, ...callerRoom(exec) } : {}), ...(member ? { member: true } : {}), ...(sub ? { sub } : {}), ...(long.length ? { length: long.length } : {}) }, long.files)
+        await rt.postToRoom(room, sender, long.text, { mentions, ...(claims ? { claims } : {}), ...(reportBack ? { reportBack: true, ...callerRoom(exec), ...callerPart(exec) } : {}), ...(member ? { member: true } : {}), ...(sub ? { sub } : {}), ...(long.length ? { length: long.length } : {}) }, long.files)
       } catch (failure) {
         if (sub !== undefined) rt.dropWork(sub)
         return `Could not post in "${room.name}": ${failure.message}`

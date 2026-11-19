@@ -28,7 +28,7 @@
 ### 其他 Bot 看不到什么
 
 - `list_bots` 只向其他 Bot 显示隐私 Bot 的名字、角色和隐私状态，不显示它的指令、当前工作、模型或文件夹。
-- 其他 Bot 不能向它发 `message_bot`，不能用 `stop_bot` 或 `update_bot` 操作它，不能用 `attach_capability` 或 `detach_capability` 改它的能力，也不能通过 `recall`、`remember`、`forget` 读取或修改它的记忆。
+- 其他 Bot 不能向它发 `message_bot`，不能用 `stop_bot` 或 `update_bot` 操作它，不能用 `attach_capability` 或 `detach_capability` 改它的能力，也不能通过 `bot_recall`、`bot_remember`、`bot_forget` 读取或修改它的记忆。
 - 文件工具、图片读取、`glob`、`grep`、`working_directory`、`subagent` / `subagent_fork` 的 `cwd` 和会话查询会检查目标；命中隐私 Bot 的文件夹、记忆或会话就拒绝。其他 Bot 做跨会话搜索时必须给出经过检查的安全会话或父会话 id，不能做未过滤的全局搜索。
 - 会话目标会沿 `parentSession` 追踪；隐私 Bot 的子 agent Session 也同样关闭。
 - 团队状态文件、共享聊天索引、记忆变更日志和暂存文件也对其他 Bot 关闭。存在隐私 Bot 或其保留的归档时，其他 Bot 不能在数据位置做目录遍历搜索，也不能直接读取其中的共享数据文件；自己的文件夹、总工作区和团队共享记忆仍可正常使用。
