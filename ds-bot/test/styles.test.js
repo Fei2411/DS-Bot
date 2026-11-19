@@ -17,7 +17,7 @@ const { JSDOM } = requireHarness('jsdom')
 // motion.js; they run in each test's jsdom document through the vm context.
 const { outputFiles } = await build({
   stdin: {
-    contents: "export { installStyles, installCompiledStyles } from './src/client/styles.js'",
+    contents: "export { installStyles, installCompiledStyles, CONVERSATION_CSS } from './src/client/styles.js'",
     resolveDir: PLUGIN,
   },
   bundle: true, format: 'cjs', platform: 'browser', write: false, logLevel: 'silent',
@@ -54,6 +54,23 @@ const clientModules = await (async () => {
   return registration.factory((spec) => { throw new Error(`no seed module ${spec}`) })
 })()
 const { createClientModuleSystem, parseBootManifest } = clientModules
+
+test('chat rows skip offscreen content while remembering their measured height', () => {
+  const { window, module } = bench([])
+  const style = window.document.createElement('style')
+  style.textContent = module.exports.CONVERSATION_CSS
+  window.document.head.appendChild(style)
+  const rule = [...style.sheet.cssRules].find(rule => rule.selectorText === '[data-chat-flow-kind]')
+  assert.ok(rule)
+  assert.equal(rule.style.getPropertyValue('content-visibility'), 'auto')
+  assert.equal(rule.style.getPropertyValue('contain-intrinsic-size'), 'auto 160px')
+  for (const kind of ['user', 'assistant-step', 'turn-process', 'turn-tail']) {
+    const row = window.document.createElement('div')
+    row.dataset.chatFlowKind = kind
+    assert.ok(row.matches(rule.selectorText))
+  }
+  assert.equal(window.document.createElement('div').matches(rule.selectorText), false)
+})
 
 // A fresh jsdom document, the bundled style helpers bound to it, and a real
 // ClientModuleSystem that materializes the pretend modules named in `rows`.
