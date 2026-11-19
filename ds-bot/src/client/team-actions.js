@@ -131,6 +131,10 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     deleteAvatar: id => call('avatar-delete', { id }),
     createRoom: (members, options = {}) => after(call('create-room', { members, ...options })),
     updateBot: (id, patch) => after(call('update-bot', { id, ...patch })),
+    // Who may start work with a message: {mode, allow}, or null for the default. The host
+    // accepts it from the user only.
+    setBotResponse: (id, botResponse) => after(call('update-bot', { id, botResponse })),
+    setRoomResponse: (id, botResponse) => after(call('update-room', { id, botResponse })),
     // Give up one wait the Bot has on a hand-off that will not come back.
     abandonWork: id => after(call('abandon-work', { id })),
     refreshModels: () => after(call('models')).catch(() => {}),

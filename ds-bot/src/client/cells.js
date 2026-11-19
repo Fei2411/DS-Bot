@@ -1007,6 +1007,9 @@ function RelayEvent({ reply, bot, sessionId, actions }) {
   if (reply.kind === 'folder') {
     return h('div', { className: 'bt-event' }, reply.text)
   }
+  if (reply.kind === 'category') {
+    return h('div', { className: 'bt-event' }, reply.text)
+  }
   if (reply.kind === 'stopped') {
     return h('div', { className: 'bt-event' }, t("You stopped {name}'s work", { name: bot.name }))
   }
@@ -1160,6 +1163,10 @@ function renderCall(call, { sessionId, roster, actions, useUi, useWork, findBot,
   switch (tool) {
     case 'message_bot': {
       const target = findBot(arg('to')) ?? { name: arg('to') ?? '…', color: 'gray' }
+      // Tool failures reach the client with "Error: " in front, and a refusal is
+      // written to be read by the user: show it whole rather than a bare failure.
+      const receipt = done ? contentText(call.content).replace(/^Error:\s*/, '') : ''
+      if (receipt.startsWith('Not sent') || receipt.startsWith('Nothing was sent')) return h('div', { className: 'bt-event' }, receipt)
       if (done && call.isError) return h('div', { className: 'bt-event' }, t("Couldn't message {name}", { name: target.name }))
       return h(EventLine, { prefix: t('Messaged'), bots: [target], onOpen: bot => bot.id && actions.openExchange(self?.id ?? sessionId, bot.id), whole: true })
     }
@@ -1192,6 +1199,7 @@ function renderCall(call, { sessionId, roster, actions, useUi, useWork, findBot,
       if (!done) return h(CellEmpty)
       // Tool results quote the group's name; anything else is a refusal.
       const result = contentText(call.content)
+      if (result.startsWith('Not sent') || result.startsWith('Nothing was sent')) return h('div', { className: 'bt-event' }, result)
       const named = /^(Created group|Updated|Nothing changed in|Deleted|Posted in) "([^"]+)"/.exec(result)
       if (call.isError || !named) return h('div', { className: 'bt-event', title: result }, t(verbs[1]))
       const name = named[2]

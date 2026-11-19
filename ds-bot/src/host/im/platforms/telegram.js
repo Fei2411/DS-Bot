@@ -157,6 +157,7 @@ export default {
         const chat = message.chat ?? {}
         const kind = chat.type === 'private' ? 'direct' : 'group'
         const from = message.from ?? {}
+        if (from.is_bot === true) return
         const raw = String(message.text ?? message.caption ?? '')
         const mentioned = kind === 'group' && (
           (selfName !== '' && raw.includes(selfName))

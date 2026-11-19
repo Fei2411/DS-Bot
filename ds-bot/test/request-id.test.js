@@ -7,6 +7,7 @@ import { test } from 'node:test'
 import { createRuntime } from '../index.js'
 import { fakeContext } from './fake-ctx.js'
 import { install as installRequests } from '../src/host/requests.js'
+import { BOT_ROUTING_KEEP, compactRouting } from '../src/host/bot-response-policy.js'
 
 let rt
 
@@ -102,7 +103,7 @@ async function boot(home, seed) {
       if (listener.length >= 2) listener({ id }, { type, seq: ++seq, data })
     }
   }
-  const tool = (name, args, sessionId) => rt.teamTools.find(d => d.name === name).execute(args, { agent: { id: sessionId } })
+  const tool = (name, args, sessionId, callId) => rt.teamTools.find(d => d.name === name).execute(args, { agent: { id: sessionId }, callId })
   const stop = async () => { await ctx.dispose() }
   // Loading once fills the Session-owner indexes turns.js filters events by.
   await tool('list_bots', {}, 'a')
@@ -183,6 +184,39 @@ test('a repeat after a restart gives the receipt back and sends nothing', async 
   assert.equal(freshSends(again.agentOf('b')).length, 0)
 })
 
+test('a task to a preset Bot without a category is refused with the categories it accepts', async (t) => {
+  const seed = team()
+  seed.bots.b.responsibility = { preset: 'reviewer', categories: ['review'] }
+  const home = tempHome()
+  const { agents, tool, stop } = await boot(home, seed)
+  t.after(async () => { await stop(); cleanup(home) })
+
+  assert.match(await tool('list_bots', { bot: 'Writer' }, 'a'), /Writer \(Write, accepts review\)/)
+  await assert.rejects(tool('message_bot', { to: 'Writer', message: 'look at this' }, 'a'), /task-category-required.*Writer accepts: review/)
+  assert.equal(agents.get('b')?.calls.length ?? 0, 0)
+  await tool('message_bot', { to: 'Writer', message: 'review this', task_category: 'review' }, 'a')
+  assert.equal(agents.get('b').calls.length, 1)
+})
+
+test('a named request stays a replay after its routing event is compacted away', async (t) => {
+  const home = tempHome()
+  const { rt, agents, tool, stop } = await boot(home, team())
+  t.after(async () => { await stop(); cleanup(home) })
+
+  const receipt = await tool('message_bot', { to: 'Writer', message: 'do the thing', request_id: 'r-1' }, 'a')
+  const key = Object.keys(rt.state.botRouting.events)[0]
+  // The turn ran: its routing record is terminal and therefore eligible for eviction.
+  rt.state.botRouting.events[key] = 'taken'
+  for (let i = 0; i < BOT_ROUTING_KEEP.events + 1; i += 1) rt.state.botRouting.events[`later-${i}`] = 'taken'
+  assert.ok(compactRouting(rt.state) > 0)
+  assert.equal(rt.state.botRouting.events[key], undefined, 'the admission record is gone')
+
+  // The receipt is kept by the request table, not by the bounded routing table.
+  const again = await tool('message_bot', { to: 'Writer', message: 'do the thing', request_id: 'r-1' }, 'a')
+  assert.equal(again, receipt)
+  assert.equal(agents.get('b').calls.length, 1, 'nothing was delivered again')
+})
+
 test('a repeat after the recipient read the message does not send it again', async (t) => {
   const home = tempHome()
   const { agents, emit, tool, stop } = await boot(home, team())
@@ -257,9 +291,9 @@ test('a request with an id in a group calls the member once', async (t) => {
   t.after(async () => { await stop(); cleanup(home) })
 
   let posts = 0
-  rt.roomStepText = async () => { posts += 1 }
+  rt.callRoomBot = async () => { posts += 1 }
   const first = await tool('message_bot', { to: 'Writer', message: 'do it', request_id: 'r-1' }, 'ga')
-  assert.match(first, /^Called Writer in "Ops"/)
+  assert.match(first, /^Request for Writer recorded in "Ops"/)
   assert.equal(posts, 1)
   assert.equal(await tool('message_bot', { to: 'Writer', message: 'do it', request_id: 'r-1' }, 'ga'), first)
   assert.equal(posts, 1)
@@ -358,3 +392,253 @@ for (const reason of ['stopped', 'lock lost']) {
     assert.equal(Object.keys(JSON.parse(readFileSync(join(home, 'state.json'), 'utf8')).requests ?? {}).length, 0)
   })
 }
+
+// Responding to Bots: a blocked message is not admitted, so its request_id stays free.
+test('a blocked request starts nothing and leaves its request id free for after the policy changes', async (t) => {
+  const seed = team()
+  seed.bots.b.botResponse = { mode: 'selected', allow: [] }
+  const home = tempHome()
+  const { agents, rt, tool, stop } = await boot(home, seed)
+  t.after(async () => { await stop(); cleanup(home) })
+
+  await assert.rejects(tool('message_bot', { to: 'Writer', message: 'do the thing', request_id: 'r-1' }, 'a'), /recipient-not-selected/)
+  assert.equal(agents.get('b')?.calls.length ?? 0, 0)
+
+  // The user picks Chief; the same request now goes out, once, however often it repeats.
+  await rt.updateBot('b', { botResponse: { mode: 'selected', allow: ['a'] } })
+  const first = await tool('message_bot', { to: 'Writer', message: 'do the thing', request_id: 'r-1' }, 'a')
+  assert.match(first, /^Delivered to Writer/)
+  assert.equal(await tool('message_bot', { to: 'Writer', message: 'do the thing', request_id: 'r-1' }, 'a'), first)
+  assert.equal(agents.get('b').calls.length, 1)
+})
+
+test('under a chosen policy a repeated request still runs once, and a finding gets two attempts at most', async (t) => {
+  const seed = team()
+  seed.bots.b.botResponse = { mode: 'all' }
+  const home = tempHome()
+  const { agents, tool, stop } = await boot(home, seed)
+  t.after(async () => { await stop(); cleanup(home) })
+  const finding = { finding_pr: '12', finding_commit: 'abc1234', finding_id: 'F-1' }
+
+  await tool('message_bot', { to: 'Writer', message: 'fix F-1', request_id: 'fix-1', ...finding }, 'a')
+  await tool('message_bot', { to: 'Writer', message: 'fix F-1', request_id: 'fix-1', ...finding }, 'a')
+  assert.equal(agents.get('b').calls.length, 1, 'the duplicate event runs once')
+
+  // The same finding with the same words is unchanged, not a new attempt.
+  await assert.rejects(tool('message_bot', { to: 'Writer', message: 'fix F-1', request_id: 'fix-2', ...finding }, 'a'), /unchanged-finding/)
+  await tool('message_bot', { to: 'Writer', message: 'fix F-1, the null check is still missing', request_id: 'fix-3', ...finding }, 'a')
+  assert.equal(agents.get('b').calls.length, 2)
+  await assert.rejects(tool('message_bot', { to: 'Writer', message: 'fix F-1 once more, differently', request_id: 'fix-4', ...finding }, 'a'), /finding-attempt-limit/)
+  assert.equal(agents.get('b').calls.length, 2, 'a third attempt starts nothing')
+
+  // Another finding, or the same one on a new commit, has attempts of its own.
+  await tool('message_bot', { to: 'Writer', message: 'fix F-2', request_id: 'fix-5', ...finding, finding_id: 'F-2' }, 'a')
+  assert.equal(agents.get('b').calls.length, 3)
+})
+
+test('two Bots that keep sending a finding back and forth stop after two attempts', async (t) => {
+  const seed = team()
+  seed.bots.a.botResponse = { mode: 'all' }
+  seed.bots.b.botResponse = { mode: 'all' }
+  const home = tempHome()
+  const { agents, tool, stop } = await boot(home, seed)
+  t.after(async () => { await stop(); cleanup(home) })
+  const finding = { finding_pr: '7', finding_commit: 'deadbee', finding_id: 'R-9' }
+
+  await tool('message_bot', { to: 'Writer', message: 'please fix R-9', ...finding }, 'a')
+  await tool('message_bot', { to: 'Chief', message: 'fixed R-9, review again', ...finding }, 'b')
+  await assert.rejects(tool('message_bot', { to: 'Writer', message: 'R-9 still fails, again', ...finding }, 'a'), /finding-attempt-limit/)
+  assert.equal(agents.get('b').calls.length, 1)
+  assert.equal(agents.get('a').calls.length, 1)
+})
+
+test('a Bot tool event with no request_id is deduplicated across a host restart', async (t) => {
+  const home = tempHome()
+  let host = await boot(home, team())
+  t.after(async () => { await host.stop(); cleanup(home) })
+  const ask = { to: 'Writer', message: 'Draft the missing section' }
+  await host.tool('message_bot', ask, 'a', 'same-tool-call')
+  const msg = host.agents.get('b').calls[0][1]
+  host.emit('b', 'user/message', { source: msg.source, content: msg.content })
+  await host.stop()
+
+  host = await boot(home)
+  await assert.rejects(host.tool('message_bot', ask, 'a', 'same-tool-call'), /Not sent:.*duplicate-event/)
+  assert.equal(host.agentOf('b').calls.length, 0)
+})
+
+test('the reviewer and coder review-fix loop stops across a restart and requires structured identity', async (t) => {
+  const home = tempHome()
+  const seed = team()
+  Object.assign(seed.bots.a, { name: 'Reviewer', role: 'Code Reviewer' })
+  Object.assign(seed.bots.b, { name: 'Coder', role: 'Coding Agent', botResponse: { mode: 'all' } })
+  let host = await boot(home, seed)
+  t.after(async () => { await host.stop(); cleanup(home) })
+  const finding = { finding_pr: 'team/project#7', finding_commit: 'deadbee', finding_id: 'R-9' }
+  const ask = { to: 'Coder', reply_to: 'user', action: 'review_fix' }
+  await assert.rejects(host.tool('message_bot', { ...ask, message: 'Please apply the change' }, 'a'), /finding-identity-required/)
+  await assert.rejects(host.tool('message_bot', { ...ask, action: 'task', message: 'Do what we discussed' }, 'a'), /finding-identity-required/)
+  await host.tool('message_bot', { ...ask, ...finding, message: 'Please fix R-9' }, 'a')
+  const msg = host.agentOf('b').calls[0][1]
+  host.emit('b', 'user/message', { source: msg.source, content: msg.content })
+  await host.stop()
+
+  host = await boot(home)
+  await assert.rejects(host.tool('message_bot', { ...ask, ...finding, message: 'Please fix R-9' }, 'a'), /unchanged-finding/)
+  await host.tool('message_bot', { to: 'Reviewer', reply_to: 'user', ...finding, message: 'R-9 needs the null guard reviewed again' }, 'b')
+  await assert.rejects(host.tool('message_bot', { ...ask, ...finding, message: 'R-9 needs another change' }, 'a'), /finding-attempt-limit/)
+  assert.equal(host.agentOf('a').calls.length, 1)
+  assert.equal(host.agentOf('b').calls.length, 0)
+})
+
+test('a refused group message never returns a call receipt or queues the group relay', async (t) => {
+  const home = tempHome()
+  const seed = team({ group: true })
+  seed.rooms.r1.sessions.a = 'ga'
+  seed.rooms.r1.botResponse = { mode: 'off' }
+  const host = await boot(home, seed)
+  t.after(async () => { await host.stop(); cleanup(home) })
+  const ask = { to: 'Writer', message: '@Writer try a different approach', request_id: 'refused' }
+  for (let i = 0; i < 2; i += 1) await assert.rejects(host.tool('message_bot', ask, 'ga'), /Not sent:.*group-off.*No turn was started/)
+  assert.equal(host.agentOf('r1').calls.length, 0)
+  assert.equal(host.agentOf('gb').calls.length, 0)
+})
+
+test('a reply at the hop limit is kept in the exchange without waking the asker', async (t) => {
+  const home = tempHome()
+  const { rt, agentOf, stop } = await boot(home, team())
+  t.after(async () => { await stop(); cleanup(home) })
+  const parent = { task: 'draft', hops: 6 }
+  await rt.deliver({ fromId: 'b', toId: 'a', role: 'reply', parent, exchangeId: 'reply:draft', text: 'Draft done' })
+  assert.equal(agentOf('a').calls.length, 0)
+  assert.equal(rt.exchangesOf('a', 'b').find(item => item.id === 'reply:draft')?.text, 'Draft done')
+})
+
+test('a result that asks for a review fix stays passive without a finding identity', async (t) => {
+  const home = tempHome()
+  const { rt, agentOf, stop } = await boot(home, team())
+  t.after(async () => { await stop(); cleanup(home) })
+  const text = 'Please fix the review findings.'
+  await rt.deliver({ fromId: 'b', toId: 'a', role: 'reply', exchangeId: 'review', text })
+  assert.equal(agentOf('a').calls.length, 0)
+  assert.equal(rt.exchangesOf('a', 'b').find(item => item.id === 'review')?.text, text)
+})
+
+test('restart recovery drops a queued request when the recipient policy changes', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const home = tempHome()
+  let host = await boot(home, team())
+  t.after(async () => { await host.stop(); cleanup(home) })
+  await host.tool('message_bot', { to: 'Writer', message: 'Start the draft' }, 'a')
+  await host.stop()
+  const state = JSON.parse(readFileSync(join(home, 'state.json'), 'utf8'))
+  state.bots.b.botResponse = { mode: 'off' }
+  host = await boot(home, state)
+  t.mock.timers.tick(3000)
+  for (let i = 0; i < 50 && host.rt.unreadOf('b').length !== 0; i += 1) await new Promise(resolve => setImmediate(resolve))
+  assert.equal(host.rt.unreadOf('b').length, 0)
+  assert.equal(host.agentOf('b').calls.length, 0)
+})
+
+test('responsibility settings preserve instructions until applied and restore custom values after reloading', async (t) => {
+  const home = tempHome()
+  const seed = team()
+  seed.bots.b.instructions = 'Use the local review checklist.'
+  let host = await boot(home, seed)
+  t.after(async () => { await host.stop(); cleanup(home) })
+  assert.equal(host.rt.botOf('b').instructions, seed.bots.b.instructions)
+  assert.equal(host.rt.botOf('b').responsibility, undefined)
+  const custom = { instructions: seed.bots.b.instructions, categories: ['review'] }
+  await assert.rejects(host.rt.updateBot('b', { responsibility: { preset: 'coding', categories: ['coding'] } }, 'a'), /Only the user/)
+  await host.rt.updateBot('b', { instructions: 'Make a small, tested change.', responsibility: { preset: 'coding', categories: ['coding'], custom } })
+  assert.equal(host.rt.isMain('b'), false)
+  assert.equal(host.rt.botOf('b').permission, undefined)
+  await assert.rejects(host.tool('message_bot', { to: 'Writer', message: 'Read these papers', task_category: 'research' }, 'a'), /task-category-not-permitted/)
+  await host.stop()
+
+  host = await boot(home)
+  assert.equal(host.rt.botOf('b').instructions, 'Make a small, tested change.')
+  assert.deepEqual(host.rt.botOf('b').responsibility, { preset: 'coding', categories: ['coding'], custom })
+  await host.rt.updateBot('b', { instructions: custom.instructions, responsibility: { preset: 'custom', categories: custom.categories, custom } })
+  assert.equal(host.rt.botOf('b').instructions, seed.bots.b.instructions)
+})
+
+test('a pending inbox message cannot wake a Bot after its policy turns off', async (t) => {
+  const home = tempHome()
+  const { ctx, rt, tool, agentOf, stop } = await boot(home, team())
+  t.after(async () => { await stop(); cleanup(home) })
+  await tool('message_bot', { to: 'Writer', message: 'Write the draft' }, 'a')
+  const agent = agentOf('b')
+  const message = agent.calls[0][1]
+  await rt.updateBot('b', { botResponse: { mode: 'off' } })
+  const listeners = ctx.listeners.get('agent/pre-step')
+  const guard = listeners.find(listener => listener.toString().includes('automaticSource'))
+  const enter = async () => ({ kind: 'enter', messages: [message] })
+  assert.deepEqual(await guard({ agent, step: 1, messages: [message] }, enter), { kind: 'enter', messages: [] })
+  const { routing, ...source } = message.source
+  assert.ok(routing)
+  assert.deepEqual(await guard({ agent, step: 1, messages: [{ ...message, source }] }, enter), { kind: 'enter', messages: [] })
+  assert.equal(rt.unreadOf('b').length, 0)
+})
+
+test('a routing event already taken stays consumed after restart even without the session log', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const home = tempHome()
+  let host = await boot(home, team())
+  t.after(async () => { await host.stop(); cleanup(home) })
+  await host.tool('message_bot', { to: 'Writer', message: 'Finish the draft' }, 'a')
+  const message = host.agentOf('b').calls[0][1]
+  const step = () => host.ctx.listeners.get('agent/pre-step').find(listener => listener.toString().includes('automaticSource'))
+  const enter = async () => ({ kind: 'enter', messages: [message] })
+  assert.deepEqual(await step()({ agent: host.agentOf('b'), step: 1, messages: [message] }, enter), await enter())
+  await host.stop()
+
+  host = await boot(home)
+  assert.deepEqual(await step()({ agent: host.agentOf('b'), step: 1, messages: [message] }, enter), { kind: 'enter', messages: [] })
+  t.mock.timers.tick(3000)
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(host.agentOf('b').calls.length, 0)
+  assert.ok(host.rt.state.works[message.source.exchangeId])
+})
+
+test('legacy Bot profile updates cannot resume with the sender removed', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const home = tempHome()
+  const seed = team()
+  seed.bots.b.botResponse = { mode: 'off' }
+  writeFileSync(join(home, 'inflight.json'), JSON.stringify({ turns: { b: {
+    botId: 'b', trigger: { role: 'update', senderSessionId: 'a', exchangeId: 'profile-update' },
+  } } }))
+  const host = await boot(home, seed)
+  t.after(async () => { await host.stop(); cleanup(home) })
+  let attempted = false
+  const deliver = host.rt.deliver
+  host.rt.deliver = async (args) => { attempted = true; return deliver(args) }
+  t.mock.timers.tick(3000)
+  for (let i = 0; i < 50 && !attempted; i += 1) await new Promise(resolve => setImmediate(resolve))
+  assert.ok(attempted)
+  assert.equal(host.agentOf('b').calls.length, 0)
+})
+
+test('restart checks the delivery identity without dropping a deferred continuation of the same exchange', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const home = tempHome()
+  let host = await boot(home, team())
+  t.after(async () => { await host.stop(); cleanup(home) })
+  await host.tool('message_bot', { to: 'Writer', message: 'Finish the draft' }, 'a')
+  const original = host.agentOf('b').calls[0][1]
+  host.emit('b', 'user/message', { source: original.source, content: original.content })
+  await host.rt.deliver({ fromId: 'a', toId: 'b', role: 'request', text: 'Finish the draft',
+    exchangeId: original.source.exchangeId, routing: original.source.routing, deferred: true })
+  await host.stop()
+
+  host = await boot(home)
+  host.ctx.sessionController.inspect = async () => ({ events: [{ type: 'user/message', data: { source: original.source } }] })
+  t.mock.timers.tick(3000)
+  for (let i = 0; i < 100 && host.agentOf('b').calls.length === 0; i += 1) await new Promise(resolve => setImmediate(resolve))
+  assert.equal(host.agentOf('b').calls.length, 1)
+  const resumed = host.agentOf('b').calls[0][1]
+  assert.equal(resumed.source.exchangeId, original.source.exchangeId)
+  assert.equal(resumed.source.deferred, true)
+  assert.notEqual(resumed.source.routing.key, original.source.routing.key)
+})

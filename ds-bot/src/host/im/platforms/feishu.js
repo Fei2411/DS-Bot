@@ -184,6 +184,7 @@ export default {
       const payload = JSON.parse(body.toString('utf8'))
       if (type === 'event' && payload.header?.event_type === 'im.message.receive_v1') {
         const event = payload.event ?? {}
+        if (event.sender?.sender_type === 'app') return
         const message = event.message ?? {}
         if (message.message_type === 'system') return
         const direct = message.chat_type === 'p2p'

@@ -230,6 +230,43 @@ test('deleting a group cancels its members\' waiting approvals and stops their S
   assert.deepEqual(host.archived.find(([id]) => id === 'gb'), ['gb', { stopActivity: true }])
 })
 
+test('post_to_group refuses before posting when a named preset member needs a category', async (t) => {
+  const host = await start()
+  t.after(host.stop)
+  assert.equal((await host.call('update-bot', { id: 'b', responsibility: { preset: 'reviewer', categories: ['review'] } })).ok, true)
+  const refused = await host.tool('post_to_group', { group: 'Ops', message: '@Writer review this' }, 'a')
+  assert.match(refused, /^Not sent: Writer .*\(task-category-required\)/)
+  assert.match(refused, /Writer accepts: review\. Set task_category/)
+  assert.equal(host.agentOf('r1').calls.length, 0, 'the post was not written')
+  const posted = await host.tool('post_to_group', { group: 'Ops', message: '@Writer review this', task_category: 'review' }, 'a')
+  assert.match(posted, /^Posted in "Ops"/)
+  assert.equal(host.agentOf('r1').calls.length, 1)
+})
+
+test('a review-fix post refuses with the coding hint', async (t) => {
+  const host = await start()
+  t.after(host.stop)
+  assert.equal((await host.call('update-bot', { id: 'b', responsibility: { preset: 'reviewer', categories: ['review'] } })).ok, true)
+  const refused = await host.tool('post_to_group', {
+    group: 'Ops', message: '@Writer fix this finding', action: 'review_fix',
+    finding_pr: 'org/repo#1', finding_commit: 'abcdef1', finding_id: 'F-1',
+  }, 'a')
+  assert.match(refused, /\(task-category-not-permitted\)/)
+  assert.match(refused, /A review fix is sent as coding; Writer accepts: review\./)
+  assert.doesNotMatch(refused, /Set task_category/)
+})
+
+test('an unnamed post in admin mode checks only the admin it calls', async (t) => {
+  const host = await start()
+  t.after(host.stop)
+  const reader = (await host.call('create-bot', { name: 'Reader' })).value
+  assert.equal((await host.call('update-room', { id: 'r1', members: ['a', 'b', reader.id] })).ok, true)
+  assert.equal((await host.call('update-bot', { id: reader.id, responsibility: { preset: 'reviewer', categories: ['review'] } })).ok, true)
+  // The plain post calls the admin, Writer, only; Reader's preset is not in play.
+  const posted = await host.tool('post_to_group', { group: 'Ops', message: 'Copy the doc' }, 'a')
+  assert.match(posted, /^Posted in "Ops"/)
+})
+
 test('a report back names the members still waiting for an approval', async (t) => {
   const host = await start()
   t.after(host.stop)
@@ -244,6 +281,22 @@ test('a report back names the members still waiting for an approval', async (t) 
   const report = text(host.agentOf('a').calls[0])
   assert.match(report, /Nobody replied to your post\./)
   assert.match(report, /Waiting for the user's approval: Writer\./)
+})
+
+test('a report back wakes the poster when every member stayed silent', async (t) => {
+  const host = await start()
+  t.after(host.stop)
+  await host.tool('post_to_group', { group: 'Ops', message: 'Copy the doc', report_back: true }, 'a')
+  const post = host.agentOf('r1').calls[0]
+  host.emit('r1', 'user/message', { content: post.content, source: post.source })
+  const result = await openTurn(t, host)
+  host.emit('gb', 'assistant/message', { message: { content: [{ type: 'text', text: '[PASS]' }] } })
+  host.emit('gb', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  await settle(() => result() !== undefined)
+  await settle(() => host.agentOf('a').calls.length === 1)
+  const report = text(host.agentOf('a').calls[0])
+  assert.match(report, /Nobody replied to your post\./)
+  assert.match(report, /Stayed silent: Writer\./)
 })
 
 test('a member that fails after the round moved on shows the failure in the group, and nobody answers it', async (t) => {
@@ -313,4 +366,21 @@ test('an approval asked inside a PTC program shows what that call does', async (
   const [approval] = value.work.approvals
   assert.deepEqual(approval.detail, { text: 'Copy the doc', code: 'Copy-Item a.md E:/docs' })
   assert.equal(value.work.bots.b.tool, 'pwsh')
+})
+
+// Responding to Bots: a blocked call leaves the group's status as it was.
+test('a call from a Bot the group does not list starts no member and shows no working status', async (t) => {
+  const host = await start()
+  t.after(host.stop)
+  assert.equal((await host.call('update-room', { id: 'r1', botResponse: { mode: 'selected', allow: ['a'] } })).ok, true)
+  const result = await openTurn(t, host)
+  host.emit('gb', 'assistant/message', { message: { content: [{ type: 'text', text: '@Chief merge the branch and push it' }] } })
+  host.emit('gb', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  await settle(() => result() !== undefined)
+
+  assert.equal(host.rt.state.rooms.r1.sessions.a, undefined, 'no group Session was opened for Chief, so no model turn ran')
+  assert.ok(host.rt.botResponse.log().some(entry => entry.from === 'b' && entry.to === 'a' && entry.allow === false && entry.reason === 'group-not-selected'))
+  const { value } = await host.call('state', {})
+  assert.notEqual(value.activity.a, 'working')
+  assert.deepEqual(value.rooms.find(room => room.id === 'r1').botResponse, { mode: 'selected', allow: ['a'] }, 'the group view carries the policy')
 })

@@ -44,6 +44,8 @@ export function install(rt) {
         requested: 'A connection request was sent to DS Bot; allow it in Settings → IM on the computer.',
         unbound: 'This IM bot is not bound to a Bot yet; pick one in DS Bot Settings → IM.',
         unboundGroup: 'This group is not bound yet; pick a group or a Bot for it in DS Bot Settings → IM.',
+        readonly: 'This DS Bot window is read-only because the team is open somewhere else. Nothing was sent to the Bot; close the other window and send again.',
+        uncertain: 'This message was received earlier, but DS Bot could not confirm that it finished. Check this chat on the computer; send it again only if the reply is missing.',
         connected: `Connected — you can talk to ${values.target} now.`,
         stopped: 'Stopped.',
         idle: 'Nothing is running.',
@@ -64,6 +66,8 @@ export function install(rt) {
         requested: '已向 DS Bot 发出连接请求，请在电脑上的 DS Bot 设置 → IM 里允许。',
         unbound: '这个 IM 机器人还没绑定 Bot，请在 DS Bot 设置 → IM 里选一个。',
         unboundGroup: '这个群还没绑定，请在 DS Bot 设置 → IM 里给它选一个群或 Bot。',
+        readonly: '这个 DS Bot 窗口处于只读状态，因为团队正在别处打开。消息没有发给 Bot，请关掉另一个窗口后重发。',
+        uncertain: '这条消息之前已经收到，但 DS Bot 无法确认它是否完成。请先在电脑上查看这个对话；只有回复确实缺失时再发一次。',
         connected: `已连接，现在可以和 ${values.target} 说话了。`,
         stopped: '已停下。',
         idle: '现在没有在做的活。',
@@ -84,6 +88,8 @@ export function install(rt) {
         requested: '已向 DS Bot 發出連線請求，請在電腦上的 DS Bot 設定 → IM 裡允許。',
         unbound: '這個 IM 機器人還沒綁定 Bot，請在 DS Bot 設定 → IM 裡選一個。',
         unboundGroup: '這個群還沒綁定，請在 DS Bot 設定 → IM 裡給它選一個群或 Bot。',
+        readonly: '這個 DS Bot 視窗處於唯讀狀態，因為團隊正在別處開啟。訊息沒有送給 Bot，請關掉另一個視窗後重送。',
+        uncertain: '這則訊息之前已經收到，但 DS Bot 無法確認它是否完成。請先在電腦上查看這個對話；只有回覆確實缺少時再送一次。',
         connected: `已連線，現在可以和 ${values.target} 說話了。`,
         stopped: '已停下。',
         idle: '現在沒有在做的活。',
@@ -104,6 +110,8 @@ export function install(rt) {
         requested: 'DS Bot に接続リクエストを送信しました。PC の DS Bot 設定 → IM で許可してください。',
         unbound: 'この IM ボットはまだ Bot に紐付けられていません。DS Bot 設定 → IM で選択してください。',
         unboundGroup: 'このグループはまだ紐付けられていません。DS Bot 設定 → IM でグループまたは Bot を選択してください。',
+        readonly: 'この DS Bot ウィンドウは読み取り専用です（チームが別の場所で開かれています）。Bot には送信されていません。もう一方のウィンドウを閉じて、もう一度送ってください。',
+        uncertain: 'このメッセージは以前に受信しましたが、完了したかどうかを確認できません。コンピューターでこの会話を確認し、返信が本当にない場合だけもう一度送ってください。',
         connected: `接続しました。${values.target} と話せます。`,
         stopped: '停止しました。',
         idle: '実行中のタスクはありません。',
@@ -124,6 +132,8 @@ export function install(rt) {
         requested: 'DS Bot에 연결 요청을 보냈습니다. 컴퓨터의 DS Bot 설정 → IM에서 허용해 주세요.',
         unbound: '이 IM 봇은 아직 Bot에 연결되지 않았습니다. DS Bot 설정 → IM에서 선택해 주세요.',
         unboundGroup: '이 그룹은 아직 연결되지 않았습니다. DS Bot 설정 → IM에서 그룹이나 Bot을 선택해 주세요.',
+        readonly: '이 DS Bot 창은 읽기 전용입니다(팀이 다른 곳에서 열려 있음). Bot에 전송되지 않았습니다. 다른 창을 닫고 다시 보내 주세요.',
+        uncertain: '이 메시지는 전에 접수되었지만 완료되었는지 확인할 수 없습니다. 컴퓨터에서 이 대화를 확인하고, 답장이 정말 없을 때만 다시 보내 주세요.',
         connected: `연결되었습니다. 이제 ${values.target}와(과) 대화할 수 있습니다.`,
         stopped: '중지되었습니다.',
         idle: '진행 중인 작업이 없습니다.',
@@ -144,6 +154,8 @@ export function install(rt) {
         requested: 'Se envió una solicitud de conexión a DS Bot; permítela en Ajustes → IM en el ordenador.',
         unbound: 'Este bot de IM aún no está vinculado a un Bot; elige uno en Ajustes de DS Bot → IM.',
         unboundGroup: 'Este grupo aún no está vinculado; elige un grupo o un Bot en Ajustes de DS Bot → IM.',
+        readonly: 'Esta ventana de DS Bot es de solo lectura porque el equipo está abierto en otro sitio. No se envió nada al Bot; cierra la otra ventana y vuelve a enviar.',
+        uncertain: 'Este mensaje se recibió antes, pero DS Bot no pudo confirmar que terminara. Revisa esta conversación en el ordenador; vuelve a enviarlo solo si falta la respuesta.',
         connected: `Conectado — ya puedes hablar con ${values.target}.`,
         stopped: 'Detenido.',
         idle: 'No hay nada en curso.',
@@ -164,6 +176,8 @@ export function install(rt) {
         requested: 'Une demande de connexion a été envoyée à DS Bot ; autorisez-la dans Paramètres → IM sur l’ordinateur.',
         unbound: 'Ce bot IM n’est pas encore lié à un Bot ; choisissez-en un dans Paramètres DS Bot → IM.',
         unboundGroup: 'Ce groupe n’est pas encore lié ; choisissez un groupe ou un Bot dans Paramètres DS Bot → IM.',
+        readonly: 'Cette fenêtre DS Bot est en lecture seule car l’équipe est ouverte ailleurs. Rien n’a été envoyé au Bot ; fermez l’autre fenêtre et renvoyez.',
+        uncertain: 'Ce message a déjà été reçu, mais DS Bot n’a pas pu confirmer qu’il a abouti. Vérifiez cette conversation sur l’ordinateur ; ne le renvoyez que si la réponse manque.',
         connected: `Connecté — vous pouvez maintenant parler à ${values.target}.`,
         stopped: 'Arrêté.',
         idle: 'Rien n’est en cours.',
@@ -184,6 +198,8 @@ export function install(rt) {
         requested: 'Eine Verbindungsanfrage wurde an DS Bot gesendet; erlaube sie am Computer unter Einstellungen → IM.',
         unbound: 'Dieser IM-Bot ist noch keinem Bot zugewiesen; wähle einen in den DS Bot-Einstellungen → IM.',
         unboundGroup: 'Diese Gruppe ist noch nicht zugewiesen; wähle eine Gruppe oder einen Bot in den DS Bot-Einstellungen → IM.',
+        readonly: 'Dieses DS Bot-Fenster ist schreibgeschützt, weil das Team anderswo geöffnet ist. Es wurde nichts an den Bot gesendet; schließe das andere Fenster und sende erneut.',
+        uncertain: 'Diese Nachricht kam früher an, aber DS Bot konnte nicht bestätigen, dass sie abgeschlossen wurde. Prüfe diesen Chat am Computer; sende sie nur erneut, wenn die Antwort fehlt.',
         connected: `Verbunden — du kannst jetzt mit ${values.target} sprechen.`,
         stopped: 'Gestoppt.',
         idle: 'Aktuell läuft nichts.',
@@ -752,6 +768,7 @@ export function install(rt) {
   }
 
   const onMessage = (conn) => async (msg) => {
+    if (msg.sender.bot === true) return
     if (!paired(conn, msg.sender.id)) {
       if (msg.chat.kind === 'group' && !msg.mentioned) return
       if (!requested(conn, msg)) return
@@ -811,6 +828,12 @@ export function install(rt) {
       await sendText(conn, msg.chat, text(msg.chat.kind === 'group' ? 'unboundGroup' : 'unbound'))
       return
     }
+    // A window that does not own the team cannot start a turn or save its receipt.
+    // Say so instead of accepting the message and losing it.
+    if (rt.readOnly() !== undefined) {
+      await sendText(conn, msg.chat, text('readonly'))
+      return
+    }
     const sessionId = target.botId ?? target.roomId
     // The receipt has to sit on the Session that takes the message. A group's own
     // Session moves on to a fresh part (`room.sessionId`) while `room.id` stays the
@@ -834,8 +857,21 @@ export function install(rt) {
     if (content.length === 0) return
     const requestId = `im:${conn.platform}:${randomUUID()}`
     // The turn this starts belongs to this chat: its replies go back here and nowhere else.
-    rememberRequest(requestId, conn, msg.chat.key, msg.sender.id)
-    await rt.sendUser({ sessionId, content, requestId })
+    const send = async () => {
+      rememberRequest(requestId, conn, msg.chat.key, msg.sender.id)
+      await rt.sendUser({ sessionId, content, requestId })
+      return 'accepted'
+    }
+    if (typeof msg.messageId === 'string' && msg.messageId !== '') {
+      const event = rt.requestIdentity({ caller: `im:${conn.id}`, context: msg.chat.key, name: msg.messageId, payload: msg.sender.id })
+      // The lock can move between the check above and the admission; no receipt was
+      // written in that case, so the user can send the platform event again later.
+      const admitted = await rt.admitRequest(event, send)
+      if (admitted?.status === 'readonly') await sendText(conn, msg.chat, text('readonly'))
+      // A receipt from an earlier run left the outcome unknown: the message may have
+      // run, so sending it again could repeat the work. Tell the user where to look.
+      else if (admitted?.status === 'uncertain') await sendText(conn, msg.chat, text('uncertain'))
+    } else await send()
   }
 
   const onAction = (conn) => async (action) => {

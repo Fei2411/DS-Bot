@@ -1667,7 +1667,7 @@ test('a merged request that does not go out leaves the delivered text in the dia
   await rt.deliver({ fromId: 'a', toId: 'b', role: 'request', text: 'Draft the plan', exchangeId: 'x-merge' })
   const flush = ctx.sessions.flush
   ctx.sessions.flush = async () => { throw new Error('Session is gone') }
-  await assert.rejects(rt.deliver({ fromId: 'a', toId: 'b', role: 'request', text: 'Draft the plan\n\nAnd the budget', exchangeId: 'x-merge', merged: true }), /Session is gone/)
+  await assert.rejects(rt.deliver({ fromId: 'a', toId: 'b', role: 'request', text: 'Draft the plan\n\nAnd the budget', exchangeId: 'x-merge', event: 'merge-update', merged: true }), /Session is gone/)
   ctx.sessions.flush = flush
   assert.deepEqual((await exchanges()).map(entry => [entry.id, entry.text]), [['x-merge', 'Draft the plan']])
 })
@@ -1763,4 +1763,41 @@ test('a deferred later result follows a switched background openPart instead of 
   await settled(() => [...callsOf(agents, 's1'), ...callsOf(agents, 'b-fg')].some(([, msg]) => textOf(msg?.content).includes('background reviewed')))
   assert.equal(callsOf(agents, 'b-fg').length, 0)
   assert.ok(callsOf(agents, 's1').some(([, msg]) => textOf(msg?.content).includes('background reviewed')))
+})
+
+// Responding to Bots: the setting changes who may start work, never where a result goes.
+test('a reply still reaches a requester whose own policy turns Bot messages off', async (t) => {
+  const seed = team()
+  seed.bots.a.botResponse = { mode: 'off' }
+  const { agents, emit, tool, stop, exchanges } = await start(seed)
+  t.after(stop)
+
+  // Chief asks Writer, whose own policy is the legacy default.
+  await tool('message_bot', { to: 'Writer', message: 'which year is the data?' }, 'a')
+  const asked = agents.get('b').calls[0][1]
+  emit('b', 'turn/start', { turn: 1 })
+  emit('b', 'user/message', { content: asked.content, source: asked.source })
+  emit('b', 'assistant/message', assistantText('2025'))
+  emit('b', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  for (let i = 0; i < 200 && !(await exchanges()).some(entry => entry.role === 'reply'); i += 1) await delay(5)
+  assert.ok((await exchanges()).some(entry => entry.role === 'reply' && entry.text === '2025'))
+  assert.equal(agents.get('a')?.calls.length ?? 0, 0)
+})
+
+test('a Bot that is switched off for Bot messages gets nothing from another Bot, and a Main Bot cannot widen it', async (t) => {
+  const seed = team()
+  seed.bots.b.botResponse = { mode: 'off' }
+  const { agents, rt, tool, stop } = await start(seed)
+  t.after(stop)
+
+  await assert.rejects(tool('message_bot', { to: 'Writer', message: 'merge the branch and push it' }, 'a'), /does not take automatic messages from Chief \(recipient-off\)/)
+  assert.equal(agents.get('b')?.calls.length ?? 0, 0, 'no turn started and no work queued')
+  assert.deepEqual(rt.botResponse.log().map(entry => [entry.allow, entry.reason]), [[false, 'recipient-off']])
+  // The log keeps ids and reasons, never the words of the message.
+  assert.doesNotMatch(JSON.stringify(rt.botResponse.log()), /merge the branch/)
+
+  // Neither the sender nor any Bot may change it: only the user does.
+  await assert.rejects(rt.updateBot('b', { botResponse: { mode: 'all' } }, 'a'), /Only the user can set who may start work for Writer/)
+  assert.deepEqual(rt.botOf('b').botResponse, { mode: 'off' })
+  assert.equal(agents.get('b')?.calls.length ?? 0, 0)
 })

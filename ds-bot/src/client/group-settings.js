@@ -2,7 +2,7 @@ import { createElement as h, useEffect, useState } from 'react'
 import { isMainOf } from './sources.js'
 import { PlusIcon, ChevronRightIcon } from './icons.js'
 import { AdminStar, BotAvatar, BotMark, RoomAvatar } from './mark.js'
-import { Card, Row, InlineText, SwitchRow } from './bot-settings.js'
+import { BotResponseCard, Card, Row, InlineText, SwitchRow } from './bot-settings.js'
 import { Segmented } from './motion.js'
 import { FolderMenu } from './folder-menu.js'
 import { PermissionPicker } from './permission-picker.js'
@@ -103,6 +103,7 @@ export function GroupSettingsForm({ room, roster, actions, run, onDeleted }) {
           onClick: () => { if (mode !== id) void update({ mode: id }) },
         }, t(label)))),
         h('span', { key: mode, className: 'bt-set-hint bt-veil' }, `${t(modeHint)} ${t('@mentions always pick who answers.')}`))),
+    h(BotResponseCard, { policy: room.botResponse, candidates: roster.bots, onChange: botResponse => update({ botResponse }) }),
     h(Card, { title: t('Working folder') },
       h('div', { className: 'bt-set-row bt-bs-row' },
         h('span', { className: 'bt-set-copy' }, h('span', { className: 'bt-bs-label' }, t('Folder'))),

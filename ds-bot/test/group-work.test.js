@@ -180,7 +180,7 @@ test('message_bot from a group to one of its members calls it there, as "@Name" 
   await settle(() => host.agentOf('ga').calls.length === 1)
   host.begin('ga')
   const sent = await host.tool('message_bot', { to: 'Writer', message: '把文档整理好' }, 'ga')
-  assert.match(sent, /^Called Writer in "Ops"/)
+  assert.match(sent, /^Request for Writer recorded in "Ops"/)
   host.finish('ga', '安排好了。')
   await settle(() => host.agentOf('gb').calls.length === 1)
   const called = host.begin('gb')

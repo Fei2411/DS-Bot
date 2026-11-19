@@ -6,6 +6,8 @@ import { mkdir } from 'node:fs/promises'
 import { MAX_AVATAR_IMAGE, ROOM_MAX_MEMBERS, ROOM_MODES, ROOM_NAME_MAX, ROOM_NOTICE_MAX, ROOM_TODO_MAX, ROOM_TODO_TEXT_MAX, SECTION_COLORS, SECTION_NAME_MAX } from './constants.js'
 import { currentColor, isColor, normalize, unquote } from './text.js'
 import { nameProblem } from '../shared/mentions.js'
+import { cleanResponsibility } from '../shared/responsibilities.js'
+import { normalizeResponsePolicies, policyPatch } from './bot-response-policy.js'
 
 const BROWSER_GRANT_KINDS = new Set(['post', 'upload', 'download', 'delete', '*'])
 const HOSTNAME = /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)(?:\.(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?))*$/
@@ -190,7 +192,7 @@ export function install(rt) {
     return holdName('bot', cleanName, () => buildBot(cleanName, options))
   }
 
-  async function buildBot(cleanName, { role = '', instructions = '', color, brief = '', createdBy, main = false, avatar, model, effort, workDir, copyOf, pickModel = false, section, sectionId }) {
+  async function buildBot(cleanName, { role = '', instructions = '', color, brief = '', createdBy, main = false, avatar, model, effort, workDir, copyOf, pickModel = false, section, sectionId, taskContext }) {
     const cleanAvatarValue = cleanAvatar(avatar)
     // The model is fixed at creation, so a later change of the DSH default leaves it alone.
     const modelRef = model ? await rt.resolveModel(model) : pickModel ? undefined : await rt.defaultBotModel()
@@ -243,7 +245,7 @@ export function install(rt) {
       const opener = `${kickoff}\n${OWN_RULES}`
       const text = !main && language ? `${opener}\nWrite in ${language}.` : opener
       const bot = state.bots[id]
-      const greeting = { text, from: createdBy ?? null, ...(main ? { main: true } : {}) }
+      const greeting = { text, from: createdBy ?? null, ...(taskContext ? { taskContext } : {}), ...(main ? { main: true } : {}) }
       // The Bot is saved by now; a failure here must not archive it in the catch below.
       const scopeTools = () => rt.resolveAgent(id)
         .catch(error => rt.warn('ds-bot: scoped tools for %s not applied: %s', cleanName, error))
@@ -283,7 +285,7 @@ export function install(rt) {
     if (rt.hostClosing?.() === true) return
     sentKickoffs.set(bot.id, greeting)
     const text = greeting.afterUser ? `${AFTER_USER} ${writeIn(rt.uiLanguage?.())}\n${OWN_RULES}` : greeting.text
-    void rt.deliver({ fromId: greeting.from ?? undefined, toId: bot.id, text, role: 'kickoff' })
+    void rt.deliver({ fromId: greeting.from ?? undefined, toId: bot.id, text, role: 'kickoff', parent: greeting.taskContext, event: `kickoff:${bot.id}` })
       .catch(error => rt.warn('ds-bot: kickoff failed: %s', error))
   }
 
@@ -373,6 +375,13 @@ export function install(rt) {
     if (patch.private !== undefined && actorId !== undefined) {
       throw new Error(`Only the user can make ${bot.name} private or open`)
     }
+    // A Bot, a Main Bot included, never widens who may start work for it or for anyone else.
+    if (patch.botResponse !== undefined && actorId !== undefined) {
+      throw new Error(`Only the user can set who may start work for ${bot.name} with a message`)
+    }
+    const botResponse = policyPatch(patch.botResponse, new Set(Object.keys(state.bots)), id)
+    if (patch.responsibility !== undefined && actorId !== undefined) throw new Error('Only the user can apply a responsibility preset')
+    const responsibility = patch.responsibility === undefined ? undefined : cleanResponsibility(patch.responsibility)
     if ((patch.section !== undefined || patch.sectionId !== undefined) && actorId !== undefined && !rt.isMain(actorId)) {
       throw new Error(`Only the user or a Main Bot can move ${bot.name} between sidebar sections`)
     }
@@ -455,6 +464,9 @@ export function install(rt) {
     }
     if (flag === true) bot.private = true
     else if (flag === false) delete bot.private
+    if (responsibility !== undefined) bot.responsibility = responsibility
+    if (botResponse === null) delete bot.botResponse
+    else if (botResponse !== undefined) bot.botResponse = botResponse
     if (patch.section !== undefined || patch.sectionId !== undefined) {
       const nextSecId = id === state.mainBotIds[0] ? null : resolveSectionInput({ section: patch.section, sectionId: patch.sectionId })
       if (nextSecId === null || nextSecId === undefined) delete bot.sectionId
@@ -474,13 +486,10 @@ export function install(rt) {
     if (bot.instructions !== instructionsBefore) notes.push(`Your instructions now read:\n${bot.instructions || '(none)'}`)
     // A held greeting means the model pick is still open: the kickoff it later sends
     // already reads the new profile, and a notice would start a turn before that.
-    // A Bot editing itself in its own chat just got the tool result in the turn
-    // that made the edit; a notice there would only buy it a second, unsolicited
-    // reply. The same edit made from a group Session reaches no own-chat turn, so
-    // the notice still goes out.
-    const selfEditInChat = actorId === bot.id && fromSessionId === rt.chatOf(bot.id)
-    if (notes.length > 0 && bot.kickoff === undefined && !selfEditInChat) {
-      void rt.deliver({ toId: bot.id, text: notes.join('\n'), role: 'update' })
+    // A Bot editing itself already received the tool receipt in its running turn.
+    if (notes.length > 0 && bot.kickoff === undefined && actorId !== bot.id) {
+      void rt.deliver({ fromId: actorId, toId: bot.id, text: notes.join('\n'), role: 'update',
+        parent: rt.live.get(fromSessionId)?.taskContext })
         .catch(error => rt.warn('ds-bot: profile update for %s not delivered: %s', bot.name, error?.message ?? error))
     }
     if (modelChanged) await rt.applyModel(bot, { force: true })
@@ -634,7 +643,7 @@ export function install(rt) {
   // member when it has one.
   const defaultAdmin = (members, createdBy) => (members.includes(createdBy) ? createdBy : members.find(rt.isMain) ?? null)
 
-  async function createRoom({ members: memberIds = [], name: roomName, notice, mode, admin, createdBy, section, sectionId } = {}) {
+  async function createRoom({ members: memberIds = [], name: roomName, notice, mode, admin, createdBy, section, sectionId, botResponse } = {}) {
     const members = [...new Set(memberIds)].filter(id => liveBot(id))
     checkMembers(members)
     const custom = cleanRoomName(roomName ?? '')
@@ -642,10 +651,13 @@ export function install(rt) {
     if (adminId !== null && !members.includes(adminId)) throw new Error('The admin must be a member of the group')
     if (mode !== undefined && !ROOM_MODES.includes(mode)) throw new Error(`Reply mode must be one of ${ROOM_MODES.join(', ')}`)
     if (section !== undefined || sectionId !== undefined) resolveSectionInput({ section, sectionId }, { allowCreate: false })
-    return holdName('room', custom, () => buildRoom({ members, custom, notice, mode, adminId, createdBy, section, sectionId }))
+    // The user's to set: a Bot that makes a group never decides who may start work in it.
+    if (botResponse !== undefined && createdBy !== undefined && createdBy !== null && liveBot(createdBy)) throw new Error('Only the user can set who may start work in a group with a message')
+    const policy = policyPatch(botResponse, new Set(Object.keys(state.bots)))
+    return holdName('room', custom, () => buildRoom({ members, custom, notice, mode, adminId, createdBy, section, sectionId, botResponse: policy ?? undefined }))
   }
 
-  async function buildRoom({ members, custom, notice, mode, adminId, createdBy, section, sectionId }) {
+  async function buildRoom({ members, custom, notice, mode, adminId, createdBy, section, sectionId, botResponse }) {
     const title = custom || autoRoomName(members)
     // The group's own Session only relays; like a member's it moves to a fresh part
     // in the group's folder once the group has one (parts.js).
@@ -667,6 +679,7 @@ export function install(rt) {
         admin: lead,
         mode: mode ?? 'admin',
         notice: cleanNotice(notice),
+        ...(botResponse === undefined ? {} : { botResponse }),
         createdAt: Date.now(),
         createdBy: createdBy ?? null,
       }
@@ -724,10 +737,13 @@ export function install(rt) {
     // A Bot's own permissions are the user's to set, so a group's are too.
     if (patch.permission !== undefined && actorId !== undefined) throw new Error(`Only the user can set the permissions of "${room.name}"`)
     const permission = patch.permission === undefined ? undefined : rt.cleanRoomPermission(patch.permission)
+    // Who may start work in a group with a message is the user's to set, like its permissions.
+    if (patch.botResponse !== undefined && actorId !== undefined) throw new Error(`Only the user can set who may start work in "${room.name}" with a message`)
+    const botResponse = policyPatch(patch.botResponse, new Set(Object.keys(state.bots)))
     // The second run is the last check before the change is written, so no other change
     // can take the name in between.
     const name = patch.name === undefined ? undefined : cleanRoomName(patch.name, room.id)
-    return { members, admin, name, notice, permission }
+    return { members, admin, name, notice, permission, botResponse }
   }
 
   // `actorId` is the Bot asking, or undefined for the user. Returns what changed, in words.
@@ -742,7 +758,7 @@ export function install(rt) {
     // No await from here until every change is written.
     const room = rt.roomOf(id)
     if (room === undefined) throw new Error('Unknown group chat')
-    const { members, admin, name, notice, permission } = planRoomChange(room, patch, actorId)
+    const { members, admin, name, notice, permission, botResponse } = planRoomChange(room, patch, actorId)
 
     const changes = []
     const names = ids => ids.map(member => liveBot(member)?.name).filter(Boolean).join(', ')
@@ -766,6 +782,12 @@ export function install(rt) {
     if (notice !== undefined && notice !== (room.notice ?? '')) {
       room.notice = notice
       changes.push(notice ? 'updated the notice' : 'cleared the notice')
+    }
+    if (botResponse !== undefined) {
+      const before = JSON.stringify(room.botResponse ?? null)
+      if (botResponse === null) delete room.botResponse
+      else room.botResponse = botResponse
+      if (JSON.stringify(room.botResponse ?? null) !== before) changes.push(botResponse === null ? 'Bot messages follow each Bot\'s own setting again' : `Bot messages here: ${botResponse.mode}`)
     }
     // Members' group conversations move on to the folder at their next turn there;
     // the group's own Session moves the same way, now when it is idle.
@@ -956,6 +978,8 @@ export function install(rt) {
       await rt.releaseBot(id, [...parts, ...rt.groupSessionsOf(id)])
       if (closedArchive !== undefined) state.privateArchives = [...(state.privateArchives ?? []).filter(entry => entry.id !== id), closedArchive]
       delete state.bots[id]
+      // The Bot leaves every allowed list of Bot messages.
+      normalizeResponsePolicies(state)
       // The shared capability list is the user's and keeps its items; only a
       // still-unapproved local MCP this Bot alone asked for leaves with it.
       rt.dropOrphanCapabilities?.(bot)

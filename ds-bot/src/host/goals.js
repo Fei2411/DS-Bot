@@ -6,6 +6,7 @@ import { randomUUID } from 'node:crypto'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { GOAL_IDLE_NUDGES, SOURCE_KIND } from './constants.js'
+import { newTaskContext } from './bot-response-policy.js'
 import { headOf } from './text.js'
 import { output } from './tools.js'
 
@@ -25,6 +26,7 @@ const FEEDBACK_MAX = 1000
 const EVENT_TEXT_MAX = 300
 const EVENTS_MAX = 50
 const PAST_MAX = 5
+const GOAL_CHECK_SENDER = 'system:goal-check'
 
 const tooLong = (what, max) => `${what} is too long: at most ${max}.`
 const tooMany = (what, max) => `At most ${max} ${what}.`
@@ -516,11 +518,12 @@ export function install(rt) {
 
   // A goal message into the room's own Session, which relays it as a new round:
   // the user's draft request, a resume after the user continues, or an idle nudge.
-  async function queueGoalRelay(room, goal, text, senderName = 'You') {
+  async function queueGoalRelay(room, goal, text, senderName = 'You', routing) {
     const agent = await rt.resolveAgent(rt.sessionOfRoom(room))
     agent.followup(createUserMessage({
       content: [{ type: 'text', text }],
-      source: { kind: SOURCE_KIND, form: 'relay', role: 'goal', goal, goalId: room.goal?.id, exchangeId: randomUUID(), senderName, roomId: room.id },
+      source: { kind: SOURCE_KIND, form: 'relay', role: 'goal', goal, goalId: room.goal?.id, exchangeId: randomUUID(), senderName, roomId: room.id,
+        ...(routing ? { admitted: { [routing.recipient]: routing }, parent: routing } : {}) },
     }))
     await ctx.sessions.flush(agent.session)
   }
@@ -563,6 +566,7 @@ export function install(rt) {
     if (action === 'resume') {
       if (goal.status !== 'paused') return { error: wrongState(room, goal, 'resume', 'paused') }
       const result = resumeGoal(room, 'user')
+      goal.taskContext = newTaskContext()
       announce(room, result.reply)
       await rt.save()
       await queueGoalRelay(room, 'resume', '[Goal resumed]')
@@ -610,6 +614,9 @@ export function install(rt) {
     if ((rt.workingInRoom?.(room) ?? []).length > 0) return
     if (rt.roomBatchPending?.(room.id) === true) return
     if ((rt.roomInbox.get(room.id)?.length ?? 0) > 0) return
+    const parent = round.slots.reduce((scope, { routing }) => routing !== undefined && routing.task === scope?.task && routing.hops > scope.hops ? routing : scope,
+      round.parent ?? goal.taskContext) ?? newTaskContext()
+    goal.taskContext = parent
     if (goal.nudges >= GOAL_IDLE_NUDGES) {
       goal.idle = true
       goal.revision += 1
@@ -617,11 +624,14 @@ export function install(rt) {
       await rt.save()
       return
     }
+    const decision = await rt.botResponse.reserve({ sender: GOAL_CHECK_SENDER, recipient: admin, room, roomMember: true, continuation: true,
+      event: `goal:${goal.id}:${goal.revision}`, parent, kind: 'goal-check' })
+    if (!decision.allow) return
     goal.nudges += 1
     goal.revision += 1
     goal.updatedAt = Date.now()
     await rt.save()
-    await queueGoalRelay(room, 'nudge', '[Goal check]', 'DS Bot')
+    await queueGoalRelay(room, 'nudge', '[Goal check]', 'DS Bot', decision.routing)
   }
 
   // Member work can outlive the round it grew out of; the round-end check then
@@ -792,6 +802,7 @@ export function install(rt) {
           return `Unknown action ${action}.`
       }
       if (result.error !== undefined) return result.error
+      if (action === 'start' && room.goal !== undefined) room.goal.taskContext = rt.live.get(exec.agent?.id)?.taskContext ?? newTaskContext()
       if (result.reply !== undefined) announce(room, result.reply)
       await rt.save()
       if (post !== undefined) await post()

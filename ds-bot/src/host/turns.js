@@ -3,6 +3,7 @@
 //
 // Turn tracking: which turns were triggered by another Bot, and what they said.
 import { randomUUID } from 'node:crypto'
+import { newTaskContext } from './bot-response-policy.js'
 import { carrierKeyOf } from '@deepseek-ai/dsh-scope'
 import { HANDOFF_ACK, LATE_ANSWER, MESSAGE_INLINE_MAX, REFERENCE_KIND, REPLY_KIND, SOURCE_KIND, STEER_CUT } from './constants.js'
 import { cleanText } from './diagnostics.js'
@@ -63,6 +64,7 @@ export function answerSender(rt, id, source, text, long) {
   const part = back === undefined && asker !== undefined ? threadCurrentOfPart(asker, source.senderPart) : undefined
   const target = back ?? part
   const name = rt.botOf(rt.selfOf(id))?.name ?? 'The other Bot'
+  const parent = source.routing ?? rt.state?.works?.[source.exchangeId]?.routing ?? source.taskContext
   const work = rt.closeWork?.(source.exchangeId, name, text)
   // A reply that arrives after the user gave up the wait is a late answer: it closes
   // nothing, opens nothing, and says on it that the wait was already over.
@@ -70,14 +72,16 @@ export function answerSender(rt, id, source, text, long) {
   const marker = late === undefined ? '' : LATE_ANSWER
   const body = marker === '' ? (long?.text ?? text) : `${marker}${long?.text ?? text}`
   const length = long === undefined ? undefined : late === undefined ? long.length : (long.length ?? text.length) + marker.length
-  const exchangeId = randomUUID()
+  const exchangeId = source.exchangeId === undefined ? randomUUID() : `reply:${source.exchangeId}`
   void rt.deliver({
     fromId: rt.selfOf(id),
+    fromName: name,
     toId: source.senderSessionId,
     ...(target ? { sessionId: target } : {}),
     text: body,
     ...(length === undefined ? {} : { files: long.files, length }),
     role: 'reply',
+    parent,
     replyTo: source.exchangeId,
     exchangeId,
     ...(work ? { work } : {}),
@@ -92,11 +96,13 @@ export function answerSender(rt, id, source, text, long) {
     const said = `${name} could not send its reply to you (${failureLine(turnFailure(error))}); what it had answered:\n`
     void rt.deliver({
       fromId: rt.selfOf(id),
+      fromName: name,
       toId: source.senderSessionId,
       ...(target ? { sessionId: target } : {}),
       text: `${said}${long?.text ?? text}`,
       ...(long?.length === undefined ? {} : { files: long.files, length: said.length + long.length }),
       role: 'reply',
+      parent,
       replyTo: source.exchangeId,
       ...(work ? { work } : {}),
     }).catch(again => rt.warn('ds-bot: reply failure notice not delivered: %s', again))
@@ -214,6 +220,8 @@ export function install(rt) {
       ...(keeps && info.senderPart ? { fromPart: info.senderPart } : {}),
       note,
       retried: true,
+      routing: info?.routing,
+      taskContext: info?.taskContext ?? live.get(id)?.taskContext,
       text,
     })
   }
@@ -525,6 +533,7 @@ export function install(rt) {
   // package that only opens a part is acknowledged with a fixed line, also hidden.
   const claimTrigger = (sessionId, entry, info) => {
     entry.info = info
+    entry.taskContext = info.routing ?? info.taskContext ?? entry.taskContext
     // A turn that was stopped for a part switch brings its joined requests along.
     if (Array.isArray(info.joined) && info.joined.length > 0) {
       entry.joined = info.joined.filter(item => item?.info !== undefined && item.info !== null)
@@ -873,6 +882,7 @@ export function install(rt) {
         setActivity(id, 'thinking')
         entry.turn = event.data.turn
         entry.since = event.time ?? Date.now()
+        entry.taskContext = newTaskContext()
         entry.texts = []
         entry.shown = 0
         entry.step = undefined
@@ -900,6 +910,7 @@ export function install(rt) {
         if (entry.carry !== undefined) {
           const carry = entry.carry
           entry.carry = undefined
+          entry.taskContext = carry.taskContext
           entry.texts = carry.texts
           entry.shown = carry.shown
           entry.answers = carry.answers
@@ -921,6 +932,7 @@ export function install(rt) {
         break
       case 'user/message': {
         const source = event.data?.source
+        if (source?.kind === 'schedule' && entry.taskContext !== undefined) entry.taskContext = { ...entry.taskContext, scheduled: true }
         if (source?.kind === 'subagent-settled' || source?.kind === 'agent-message') {
           const childId = typeof source.senderSessionId === 'string' ? source.senderSessionId : undefined
           // Only settlement ends a child's turn; an intermediate `agent-message` keeps the
@@ -977,6 +989,12 @@ export function install(rt) {
             ...(files.length > 0 ? { files } : {}),
             botId: source.senderSessionId,
             name: source.senderName,
+            event: source.exchangeId,
+            ...(source.parent ? { parent: source.parent } : {}),
+            ...(source.admitted ? { admitted: source.admitted } : {}),
+            ...(source.finding ? { finding: source.finding } : {}),
+            ...(source.category ? { category: source.category } : {}),
+            ...(source.reviewFix ? { reviewFix: true } : {}),
             reportBack: source.reportBack === true,
             ...(source.claims === undefined ? {} : { claims: source.claims }),
             // The turn's change line travels with its post; without it a completion
@@ -1012,6 +1030,8 @@ export function install(rt) {
             text: textOf(event.data.content).replace(/^\[(?:[^\r\n]*\]\r?\n|[^\]\r\n]*\])/, ''),
             ...(source.goal !== undefined ? { goal: source.goal } : {}),
             ...(source.goalId !== undefined ? { goalId: source.goalId } : {}),
+            ...(source.admitted !== undefined ? { admitted: source.admitted } : {}),
+            ...(source.parent !== undefined ? { parent: source.parent } : {}),
           })
         } else if (source?.kind === SOURCE_KIND) {
           if (entry.turn === undefined) {
@@ -1037,7 +1057,7 @@ export function install(rt) {
           // claims the running turn nor queues as the next one's trigger.
         } else if (source?.kind === 'schedule' && rt.roomOf(id)) {
           // A group's scheduled task reaches the group as the user's message.
-          queueRoomMessage(rt.roomOf(id).id, { text: reminderText(textOf(event.data.content)) })
+          queueRoomMessage(rt.roomOf(id).id, { text: reminderText(textOf(event.data.content)), scheduled: true })
         } else if (source?.kind === REFERENCE_KIND && rt.roomOf(id)) {
           attachReference(roomInbox.get(rt.roomOf(id).id), source, textOf(event.data.content))
         } else if (source?.kind === 'subagent-settled') {
@@ -1127,7 +1147,7 @@ export function install(rt) {
         const steerCut = cut !== undefined && event.data?.reason?.kind === 'aborted'
           && event.data.reason.reason?.kind === 'hook' && event.data.reason.reason.reason === STEER_CUT
         if (steerCut) {
-          entry.carry = { info: entry.info, joined: entry.joined ?? [], later: entry.later ?? [], texts: entry.texts.slice(0, cut.texts), shown: entry.shown, answers: entry.answers, toolCount: entry.toolCount ?? 0 }
+          entry.carry = { info: entry.info, taskContext: entry.taskContext, joined: entry.joined ?? [], later: entry.later ?? [], texts: entry.texts.slice(0, cut.texts), shown: entry.shown, answers: entry.answers, toolCount: entry.toolCount ?? 0 }
         }
         const info = entry.info
         const joined = entry.joined ?? []
@@ -1176,6 +1196,8 @@ export function install(rt) {
             ...(targetSessionId !== undefined ? { sessionId: targetSessionId } : {}),
             text: result.text,
             role: result.info.role,
+            routing: result.info.routing,
+            resultFrom: result.info.resultFrom,
             exchangeId: result.info.exchangeId,
             replyTo: result.info.replyTo,
             work: result.info.work,
@@ -1319,6 +1341,7 @@ export function install(rt) {
             sessionId: id,
             text: request.text,
             role: request.info.role,
+            routing: request.info.routing,
             exchangeId: request.info.exchangeId,
             ...(request.info.role === 'room' ? { roomId: request.info.roomId, askedBy: request.info.askedBy, note: 'you read this call during your last task; answer it now' } : {}),
             ...(request.info.senderRoomId ? { fromRoomId: request.info.senderRoomId } : {}),

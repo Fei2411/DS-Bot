@@ -69,6 +69,13 @@ test('a phone pairs with the QR code and calls the same endpoints as the window'
   const offer = parsePairingUri(paired.value.pairing.uri)
   const link = phone(offer, { pairingCode: offer.code, name: 'Pixel' })
   await link.client.connect()
+  const prompts = []
+  desk.ctx.sessionController = { prompt: async request => { prompts.push(request) } }
+  await desk.call('update-bot', { id: 'm1', botResponse: { mode: 'off' } })
+  const sent = await link.client.rpc('bot', { endpoint: 'send', payload: { sessionId: 'm1', text: 'From the paired phone', fromId: 'other', source: { kind: 'bot' } } })
+  assert.equal(sent.ok, true)
+  assert.deepEqual(prompts[0].content, [{ type: 'text', text: 'From the paired phone' }])
+  assert.equal(prompts[0].source, undefined, 'the paired phone enters through the host user-prompt API')
   const state = await link.client.rpc('bot', { endpoint: 'state', payload: {} })
   assert.equal(state.ok, true)
   assert.deepEqual(state.value.bots.map(bot => bot.name), ['Chief'])

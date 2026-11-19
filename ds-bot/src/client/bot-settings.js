@@ -12,7 +12,8 @@ import { BotCapabilitiesCard } from './capability-settings.js'
 import { BotComputerCard } from './computer.js'
 import { AvatarLibraryPanel, avatarImage } from './avatar-library.js'
 import { useMemoryCount } from './memory-panel.js'
-import { SPRING_SHAPE, SPRING_TAP, spring, useGlide, useLinger } from './motion.js'
+import { SPRING_SHAPE, SPRING_TAP, Segmented, spring, useGlide, useLinger } from './motion.js'
+import { RESPONSIBILITY_PRESETS, TASK_CATEGORIES, responsibilityDraft, savedResponsibility } from '../shared/responsibilities.js'
 import { t } from './i18n.js'
 
 const capitalize = word => word[0].toUpperCase() + word.slice(1)
@@ -83,6 +84,78 @@ export function SwitchRow({ label, hint, on, disabled, onChange }) {
   return h('div', { className: 'bt-set-row bt-bs-row' },
     h('span', { className: 'bt-set-copy' }, h('span', { className: 'bt-bs-label' }, label), hint ? h('span', { className: 'bt-set-hint' }, hint) : null),
     h(Switch, { on, label, disabled, onChange }))
+}
+
+export function ResponsibilityCard({ bot, coordinator, onSave }) {
+  const [draft, setDraft] = useState(null)
+  const [saving, setSaving] = useState(false)
+  const current = draft ?? savedResponsibility(bot)
+  const edit = patch => setDraft({ ...current, ...patch })
+  const toggle = category => edit({ categories: current.categories.includes(category)
+    ? current.categories.filter(item => item !== category) : [...current.categories, category] })
+  const apply = async () => {
+    const { preset, instructions, categories, custom } = current
+    setSaving(true)
+    try {
+      const saved = await onSave({ instructions, responsibility: { preset, categories,
+        custom: preset === 'custom' ? { instructions, categories } : custom } })
+      if (saved !== false) setDraft(null)
+    } finally {
+      setSaving(false)
+    }
+  }
+  return h(Card, { title: t('Role & Communication') },
+    h(Row, { label: t('Responsibility preset'), hint: coordinator ? t('Coordinator is suggested for Main Bots and group admins.') : undefined },
+      h('select', { className: 'bt-bs-input', 'aria-label': t('Responsibility preset'), value: current.preset, disabled: saving,
+        onChange: event => setDraft(responsibilityDraft(bot, current, event.target.value)) },
+      Object.entries(RESPONSIBILITY_PRESETS).map(([id, preset]) => h('option', { key: id, value: id }, t(preset.label))))),
+    h(Row, { label: t('Instructions'), stack: true },
+      h('textarea', { className: 'bt-bs-input bt-bs-area', 'aria-label': t('Instructions'), value: current.instructions, disabled: saving,
+        onChange: event => edit({ instructions: event.target.value }) })),
+    h('div', { className: 'bt-set-row bt-bs-row bt-bs-stack' },
+      h('span', { className: 'bt-bs-label' }, t('Permitted automatic task categories')),
+      h('div', { className: 'bt-ng-picks', role: 'group', 'aria-label': t('Permitted automatic task categories') },
+        Object.entries(TASK_CATEGORIES).map(([id, label]) => h('button', {
+          key: id, type: 'button', role: 'checkbox', className: 'bt-ng-chip', 'aria-checked': current.categories.includes(id),
+          disabled: saving, onClick: () => toggle(id),
+        }, t(label))))),
+    draft === null ? null : h('div', { className: 'bt-set-row bt-bs-row' },
+      h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: saving, onClick: () => setDraft(null) }, t('Cancel')),
+      h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: saving, onClick: apply }, t('Apply responsibility'))))
+}
+
+// Who may start work with a message, for a Bot or a group: OFF, SELECTED BOTS or ALL BOTS.
+// `policy` is the saved {mode, allow} or undefined, which keeps the behavior from before
+// the setting existed until one is picked. Only the user sees this card and changes it.
+export const RESPONSE_MODES = [
+  ['off', 'Off', 'Messages from other Bots never start new work. Your own messages always do.'],
+  ['selected', 'Selected Bots', 'Only the Bots you pick below can start new work with a message.'],
+  ['all', 'All Bots', 'Any Bot can start new work with a message. The loop limits still apply.'],
+]
+
+export function BotResponseCard({ policy, candidates, onChange }) {
+  const mode = policy?.mode
+  const allowed = policy?.allow ?? []
+  const hint = mode === undefined ? t('Not chosen yet: Bot messages work as they did before this setting.') : t(RESPONSE_MODES.find(([id]) => id === mode)?.[2] ?? '')
+  const toggle = id => onChange({ mode: 'selected', allow: allowed.includes(id) ? allowed.filter(item => item !== id) : [...allowed, id] })
+  return h(Card, { title: t('Responding to Bots') },
+    h('div', { className: 'bt-set-row bt-bs-row bt-bs-stack' },
+      h(Segmented, { label: t('Responding to Bots'), value: mode ?? '' }, RESPONSE_MODES.map(([id, label]) => h('button', {
+        key: id, type: 'button', 'aria-pressed': mode === id,
+        onClick: () => { if (mode !== id) onChange({ mode: id, ...(id === 'selected' ? { allow: allowed } : {}) }) },
+      }, t(label)))),
+      h('span', { key: mode ?? 'unset', className: 'bt-set-hint bt-veil' }, hint)),
+    mode === 'all' ? h('div', { className: 'bt-set-row bt-br-warn', role: 'note' },
+      h('span', { className: 'bt-set-hint' }, t('Any Bot can start work here, including work that uses tools. Bots can then keep each other busy; choose this only for Bots you trust.'))) : null,
+    mode === 'selected' ? h('div', { className: 'bt-set-row bt-bs-row bt-bs-stack' },
+      h('span', { className: 'bt-set-copy' }, h('span', { className: 'bt-bs-label' }, t('Allowed Bots')),
+        allowed.length === 0 ? h('span', { className: 'bt-set-hint' }, t('Pick at least one Bot, or no Bot message gets through.')) : null),
+      h('div', { className: 'bt-ng-picks', role: 'group', 'aria-label': t('Allowed Bots') },
+        candidates.map(bot => h('button', { key: bot.id, type: 'button', role: 'checkbox', className: 'bt-ng-chip', 'aria-checked': allowed.includes(bot.id), onClick: () => toggle(bot.id) },
+          h(BotMark, { bot, size: 22 }), h('span', { className: 'bt-ng-name' }, bot.name))))) : null,
+    mode === undefined ? null : h('div', { className: 'bt-set-row bt-br-foot' },
+      h('span', { className: 'bt-set-hint' }, t('A Bot message can be ignored when this setting does not allow its sender, when it does not name this Bot, when it is only thanks or a status update, when it would send work back to a Bot it came from, or when the same fix was already tried twice. Your own messages are never ignored.')),
+      h('button', { type: 'button', className: 'bt-mini', onClick: () => onChange(null) }, t('Reset'))))
 }
 
 function modelHint(bot, roster) {
@@ -242,6 +315,8 @@ export function BotSettingsForm({ bot, roster, actions, run }) {
       h('div', { className: 'bt-set-row bt-bs-row' },
         h('span', { className: 'bt-set-copy' }, h('span', { className: 'bt-bs-label' }, t('Folder'))),
         h(FolderMenu, { value: bot.workDir, actions, run, onPick: workDir => save({ workDir }) }))),
+    h(ResponsibilityCard, { key: bot.id, bot, coordinator: isMainBot || (roster.rooms ?? []).some(room => room.admin === bot.id), onSave: save }),
+    h(BotResponseCard, { policy: bot.botResponse, candidates: (roster.bots ?? []).filter(other => other.id !== bot.id), onChange: botResponse => save({ botResponse }) }),
     h(Card, { title: t('Privacy') },
       h(SwitchRow, {
         label: t('Private'),
@@ -250,9 +325,6 @@ export function BotSettingsForm({ bot, roster, actions, run }) {
         disabled: bot.private !== true && (isMainBot || inGroup || !bot.workDir),
         onChange: value => save({ private: value }),
       })),
-    h(Card, { title: t('Instructions') },
-      h(Row, { label: t('What this Bot does'), hint: t('Its job on the team. Part of the Bot\'s system prompt.'), stack: true },
-        h(InlineText, { label: t('Instructions'), value: bot.instructions, multiline: true, placeholder: t('What this Bot is responsible for…'), onSave: instructions => save({ instructions }) }))),
     h(BotCapabilitiesCard, { bot, roster, actions, run, Card, SwitchRow }),
     h(BotComputerCard, { bot, roster, actions, run, Card, Row }),
     roster.memory === false ? null : h(MemoryCard, { bot, actions }),
@@ -287,6 +359,10 @@ export function BotSettingsForm({ bot, roster, actions, run }) {
 }
 
 export const BOT_SETTINGS_CSS = `
+.bt-br-warn{border-inline-start:2px solid var(--bt-warn)}
+.bt-br-foot{align-items:flex-start;gap:10px}
+.bt-br-foot>.bt-set-hint{flex:1}
+.bt-br-foot>.bt-mini{flex:none}
 .bt-bs{display:flex;flex-direction:column;gap:22px}
 .bt-bs-hero{display:flex;align-items:center;gap:14px;padding:2px 4px}
 .bt-bs-who{display:flex;flex-direction:column;min-width:0;gap:2px}

@@ -10,7 +10,9 @@ import { absoluteLinks } from './links.js'
 import { NAME_MAX } from './requests.js'
 import { unquote } from './text.js'
 import { isOpenPart, ownChatSessions } from './threads.js'
+import { TASK_CATEGORIES } from '../shared/responsibilities.js'
 import { mentionSpans } from '../shared/mentions.js'
+import { BotResponseRefusal, findingOf, reviewFixOf } from './bot-response-policy.js'
 import { plainToolSchema } from './tool-schema.js'
 import { checkShownView, showViewDescription, showViewParameters } from 'deep-view/core'
 
@@ -99,7 +101,9 @@ export function install(rt) {
     if (bot.private === true && bot.id !== self) return `- ${bot.name} (${[bot.role, 'private Bot, closed to other Bots'].filter(Boolean).join(', ')})`
     const model = bot.appliedModel ?? bot.model
     const section = sectionNameOf(bot.sectionId)
-    const tags = [bot.role, section ? `section "${section}"` : '', model ? `model ${model}` : '', bot.workDir ? `works in ${bot.workDir}` : '', rt.isMain(bot.id) ? 'Main Bot' : '', bot.private === true ? 'private' : '', bot.id === self ? 'you' : ''].filter(Boolean).join(', ')
+    // What work this Bot takes, so a caller can state the category on the first try.
+    const accepts = bot.responsibility?.categories?.length ? `accepts ${bot.responsibility.categories.join(', ')}` : ''
+    const tags = [bot.role, accepts, section ? `section "${section}"` : '', model ? `model ${model}` : '', bot.workDir ? `works in ${bot.workDir}` : '', rt.isMain(bot.id) ? 'Main Bot' : '', bot.private === true ? 'private' : '', bot.id === self ? 'you' : ''].filter(Boolean).join(', ')
     const job = bot.instructions ? ` — ${bot.instructions.split('\n')[0].slice(0, 120)}` : ''
     const now = bot.id === self ? '' : `\n  now: ${rt.statusOf(bot.id)}`
     return `- ${bot.name}${tags ? ` (${tags})` : ''}${job}${now}`
@@ -197,10 +201,61 @@ export function install(rt) {
     return `Not sent: ${target.name} is not in "${room.name}", and work for this group stays in it. Ask the user to add ${target.name} to the group${add}.`
   }
 
-  const callInGroup = async (exec, room, sender, target, message) => {
-    const call = `@${target.name}`
-    await rt.roomStepText(exec.agent.id, rt.live.get(exec.agent.id)?.info, message.startsWith(call) ? message : `${call} ${message}`, false)
-    return `Called ${target.name} in "${room.name}" with your message, as writing "${call}" there does: it works on it in the group, and you answer its result there. Nothing went to its own chat.`
+  // A Bot's post is a request to the members it calls. A recipient with a responsibility
+  // preset needs a stated category, and "@Name" cannot carry one, so refuse before the
+  // post is written rather than quietly starting nobody. The targets mirror
+  // openingCallFor: an unnamed post in admin mode reaches the admin, not every member.
+  const groupCategoryRefusal = (room, sender, category, named, all, member, reviewFix) => {
+    const everyone = room.members.map(rt.botOf).filter(Boolean)
+    const others = everyone.filter(bot => bot.id !== sender.id)
+    const targets = new Set(named)
+    if (!member && !(named.length > 0 && !all)) {
+      const admin = others.find(bot => rt.isAdminOf(room, bot.id))
+      if (!all && room.mode === 'admin' && admin) targets.add(admin.id)
+      else for (const bot of others) targets.add(bot.id)
+    }
+    for (const id of targets) {
+      const peer = rt.botOf(id)
+      if (peer?.responsibility === undefined) continue
+      const reason = category === undefined
+        ? 'task-category-required'
+        : peer.responsibility.categories.includes(category) ? undefined : 'task-category-not-permitted'
+      if (reason !== undefined) return new BotResponseRefusal(reason, peer, sender, room, { reviewFix }).message
+    }
+    return undefined
+  }
+
+  const reviewRequest = (args, text) => {
+    const finding = findingOf({ pr: args.finding_pr, commit: args.finding_commit, id: args.finding_id })
+    const partial = [args.finding_pr, args.finding_commit, args.finding_id].some(value => value !== undefined)
+    const reviewFix = partial || reviewFixOf(text, args.action, finding)
+    // No silent fallback: a recipient with a responsibility preset refuses a task with
+    // no stated category, and the refusal names the categories it accepts.
+    return { finding, reviewFix, category: reviewFix ? 'coding' : args.task_category }
+  }
+
+  const findingParameters = {
+    task_category: { type: 'string', enum: Object.keys(TASK_CATEGORIES), description: 'Category of work requested. Required when the recipient has a responsibility preset; use one of the categories it accepts. Review fixes use coding.' },
+    action: { type: 'string', enum: ['task', 'review_fix'], description: 'Use review_fix for an automatic request to fix a review finding. The three finding fields are required for that action.' },
+    finding_pr: { type: 'string', description: 'The pull request the finding is about. Use its stable repository-qualified identifier.' },
+    finding_commit: { type: 'string', description: 'The commit SHA the finding was made on.' },
+    finding_id: { type: 'string', description: 'The stable ID assigned to the finding in the review.' },
+  }
+
+  const responseRequest = (exec, sender, target, room, args, text) => ({
+    sender: sender.id, recipient: target, room, text, parent: rt.live.get(exec.agent?.id)?.taskContext,
+    ...reviewRequest(args, text),
+    event: typeof args.request_id === 'string' && args.request_id.trim() ? `request:${args.request_id.trim()}`
+      : exec.callId ? `tool:${exec.agent?.id}:${exec.callId}` : undefined,
+    idle: rt.isIdleRelayText?.(text, [sender, target], []) === true,
+    ...(room ? { roomMember: true, chain: rt.live.get(exec.agent?.id)?.taskContext?.trail ?? [] } : {}),
+    kind: 'message_bot',
+  })
+
+  const reserveResponse = async options => {
+    const decision = await rt.botResponse.reserve(options)
+    if (!decision.allow) throw new BotResponseRefusal(decision.reason, options.recipient, rt.botOf(options.sender), options.room, { reviewFix: options.reviewFix === true })
+    return decision.routing
   }
 
   // The Bots each Session's post_to_group called by name in its current turn, so that
@@ -265,6 +320,7 @@ export function install(rt) {
         enum: ['now', 'queue'],
         description: '"now" (default): a working Bot reads your message at its next step, between its current actions, and answers once its current work is done; use it for questions, information it needs, corrections and warnings. "queue": it reads your message only after its current work is done, as a separate task; use it only for a new task unrelated to what it is doing now. With reply_to "user" the message always queues.',
       },
+      ...findingParameters,
       request_id: {
         type: 'string',
         description: `Your own name for this request, up to ${NAME_MAX} characters, so that a repeat of it is not sent twice. Send the same request_id with the same message when you repeat a call: the receipt of the first call comes back and nothing is sent again. A request_id names one request: with other content it is refused.`,
@@ -293,6 +349,11 @@ export function install(rt) {
           message: String(args.message ?? '').replace(/\r\n?/g, '\n').trim(),
           reply_to: args.reply_to === 'user' ? 'user' : 'me',
           when: args.when === 'queue' ? 'queue' : 'now',
+          ...(args.action === undefined ? {} : { action: args.action }),
+          ...(args.task_category === undefined ? {} : { task_category: args.task_category }),
+          ...(args.finding_pr === undefined ? {} : { finding_pr: args.finding_pr }),
+          ...(args.finding_commit === undefined ? {} : { finding_commit: args.finding_commit }),
+          ...(args.finding_id === undefined ? {} : { finding_id: args.finding_id }),
         },
       })
       // What the caller gets for a request that was admitted before.
@@ -311,7 +372,14 @@ export function install(rt) {
       if (room !== undefined) {
         const refusal = groupRefusal(room, sender, target)
         if (refusal !== undefined) refuse(refusal)
-        const send = () => callInGroup(exec, room, sender, target, text.trim())
+        const options = responseRequest(exec, sender, target, room, args, text.trim())
+        const send = async () => {
+          const call = `@${target.name}`
+          const body = text.trim().startsWith(call) ? text.trim() : `${call} ${text.trim()}`
+          const routing = await reserveResponse(options)
+          await rt.callRoomBot(room, sender, target, body, routing)
+          return `Request for ${target.name} recorded in "${room.name}". The group checks it again before starting the turn.`
+        }
         return request === undefined ? await send() : answer(await rt.admitRequest(request, send))
       }
       const posted = calledInPosts.get(exec.agent?.id)
@@ -323,6 +391,7 @@ export function install(rt) {
       // bare error the Bot cannot act on.
       const works = worksOf(exec)
       if (rt.upstreamOf(works).has(target.id)) return upstreamRefusal(exec, sender, target, text.trim(), args)
+      const options = responseRequest(exec, sender, target, undefined, args, text.trim())
       const send = async () => {
         const toUser = args.reply_to === 'user'
         const work = toUser ? undefined : works[0]
@@ -344,15 +413,16 @@ export function install(rt) {
         // Nothing went out, so a named request must not take this as a delivered
         // receipt: admitRequest drops the pending record instead, and a retry can send.
         if (long === undefined) { if (request !== undefined) request.unsent = true; return tooLong(text) }
+        const routing = await reserveResponse(options)
         const joins = before !== undefined && agent.inbox?.remove?.(earlier.message.id) === true
         if (before !== undefined && !joins) long = await rt.attachLong(text, `Message from ${sender.name}.txt`) ?? long
         const working = rt.live.get(chat)?.turn !== undefined
         const steer = (args.when !== 'queue' && !toUser) || (joins && earlier.steered)
         const exchangeId = joins ? earlier.message.source.exchangeId : randomUUID()
         if (joins) rt.forgetDelivery?.(exchangeId)
-        else if (!toUser) rt.openWork(exchangeId, { from: sender.id, to: target.id, parent: work, ...(fromPart ? { fromPart } : {}) })
+        else if (!toUser) rt.openWork(exchangeId, { from: sender.id, to: target.id, parent: work, routing, ...(fromPart ? { fromPart } : {}) })
         try {
-          await rt.deliver({ fromId: sender.id, toId: target.id, ...(fromPart ? { fromPart } : {}), text: long.text, files: [...long.files, ...(joins ? before.files : [])], length: long.length, role: 'request', steer, exchangeId, ...(joins ? { merged: true } : {}), ...(toUser ? { audience: 'user' } : {}) })
+          await rt.deliver({ fromId: sender.id, toId: target.id, ...(fromPart ? { fromPart } : {}), text: long.text, files: [...long.files, ...(joins ? before.files : [])], length: long.length, role: 'request', routing, steer, exchangeId, ...(joins ? { merged: true } : {}), ...(toUser ? { audience: 'user' } : {}) })
         } catch (error) {
           // The delivery stays noted for the next start while its Bot exists
           // (resume.js), and the resent request still answers up the tree, so the
@@ -408,8 +478,11 @@ export function install(rt) {
         agent.cancel({ kind: 'hook', reason: 'ds-bot/stopped' })
       }
       const why = String(args.reason ?? '').trim() || 'Stop what you are doing; the previous turn was ended on purpose. Acknowledge briefly.'
-      await rt.deliver({ fromId: sender.id, toId: target.id, ...callerPart(exec), text: why, role: 'stopped', ...callerRoom(exec) })
-      return `Stopped ${target.name} in ${running.map(whereOf).join(' and ')}. It is told why in a new turn, whose reply comes back to you.`
+      const notice = await rt.deliver({ fromId: sender.id, toId: target.id, ...callerPart(exec), text: why, role: 'stopped', parent: rt.live.get(exec.agent?.id)?.taskContext, ...callerRoom(exec) }).catch(error => {
+        if (!(error instanceof BotResponseRefusal)) throw error
+        return false
+      })
+      return `Stopped ${target.name} in ${running.map(whereOf).join(' and ')}.${notice === false ? '' : ' It is told why in a new turn, whose reply comes back to you.'}`
     },
   }))
 
@@ -443,7 +516,7 @@ export function install(rt) {
         const served = new Set((await rt.catalog()).filter(entry => entry.needsKey !== true && rt.isLocalAgentRef?.(entry.ref) !== true).map(entry => entry.ref))
         const fallback = [state.prefs.defaultBotModel, creator?.model].find(ref => ref && served.has(ref))
         const model = args.model || fallback
-        const bot = await rt.createBot({ ...args, avatar: avatar === undefined ? undefined : { image: avatar }, model, workDir, effort: args.effort, section: args.section, createdBy: creator?.id })
+        const bot = await rt.createBot({ ...args, avatar: avatar === undefined ? undefined : { image: avatar }, model, workDir, effort: args.effort, section: args.section, createdBy: creator?.id, taskContext: rt.live.get(exec.agent?.id)?.taskContext })
         return `Created ${bot.name}${workDir ? `, working in ${workDir}` : ''}. It is greeting the user now.`
       } catch (error) {
         return `Could not create the Bot: ${error.message}`
@@ -779,6 +852,7 @@ export function install(rt) {
     parameters: {
       group: GROUP_REF,
       message: { type: 'string', required: true, description: 'What to say; write "@Name" to choose who answers, and a name without "@" to only mention a member' },
+      ...findingParameters,
       report_back: { type: 'boolean', description: 'Also send the members\' replies back to you as a new message when the round ends' },
     },
     output,
@@ -808,6 +882,9 @@ export function install(rt) {
       if (member && reportBack && named.length === 0) {
         return 'Nobody would answer: your post only calls the members you name. Write "@Name" for each member who should answer, or post without report_back.'
       }
+      const request = reviewRequest(args, text)
+      const refused = groupCategoryRefusal(room, sender, request.category, named, mentions.all, member, request.reviewFix)
+      if (refused !== undefined) return refused
       const long = await rt.attachLong(text, `Post from ${sender.name}.txt`)
       if (long === undefined) return tooLong(text)
       // Replies the poster waits for, while it works on what a Bot asked it for, are
@@ -820,7 +897,8 @@ export function install(rt) {
       try {
         // A post that wants the replies names the conversation it was written
         // from, so the report comes back there instead of the own chat.
-        await rt.postToRoom(room, sender, long.text, { mentions, ...(claims ? { claims } : {}), ...(reportBack ? { reportBack: true, ...callerRoom(exec) } : {}), ...(member ? { member: true } : {}), ...(sub ? { sub } : {}), ...(long.length ? { length: long.length } : {}) }, long.files)
+        await rt.postToRoom(room, sender, long.text, { mentions, ...request, parent: rt.live.get(exec.agent?.id)?.taskContext,
+          ...(exec.callId ? { event: `tool:${exec.agent?.id}:${exec.callId}` } : {}), ...(claims ? { claims } : {}), ...(reportBack ? { reportBack: true, ...callerRoom(exec) } : {}), ...(member ? { member: true } : {}), ...(sub ? { sub } : {}), ...(long.length ? { length: long.length } : {}) }, long.files)
       } catch (failure) {
         if (sub !== undefined) rt.dropWork(sub)
         return `Could not post in "${room.name}": ${failure.message}`
@@ -1254,7 +1332,11 @@ export function install(rt) {
       if (unsupported.length > 0) return `These schedule_edit fields are not editable: ${unsupported.join(', ')}. To change frequency, send rrule with a DTSTART anchor in the intended time zone followed by an RRULE line (for example, "DTSTART;TZID=Asia/Taipei:20261118T090000\nRRULE:FREQ=HOURLY;INTERVAL=3"); this converts the task to kind rrule.`
     }
     const target = exec.arguments?.target
-    if (SCHEDULE_TARGET_TOOLS.includes(exec.name) && target !== undefined && target !== 'this_session') return SCHEDULE_TARGET_REFUSAL
+    if (SCHEDULE_TARGET_TOOLS.includes(exec.name)) {
+      if (target !== undefined && target !== 'this_session') return SCHEDULE_TARGET_REFUSAL
+      const task = rt.live.get(exec.agent?.id)?.taskContext
+      if (task?.scheduled === true || task?.sender !== undefined || (task?.hops ?? 0) > 0) return 'Only a user-started turn can create or edit a schedule. Ask the user to schedule this work.'
+    }
     return DELEGATION_TOOLS.includes(exec.name) ? DELEGATION_REFUSAL : undefined
   })
   // Creation waits for this listener, so the Agent's first step already lacks the tool.
