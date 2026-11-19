@@ -26912,6 +26912,7 @@ function stackReplies(replies) {
   const items = [];
   replies.forEach((reply, index) => {
     const last = items.at(-1);
+    if (reply.kind === "working" && last?.reply.kind === "working" && reply.botId !== void 0 && reply.botId === last.reply.botId) return;
     if (reply.kind === void 0 && last?.reply.kind === void 0 && last?.reply.botId === reply.botId && last.claims === void 0 && (last.changes === void 0 || reply.changes?.sessionId === last.changes.sessionId && reply.changes?.turn === last.changes.turn)) {
       last.texts.push(reply.text);
       last.time = reply.time;
