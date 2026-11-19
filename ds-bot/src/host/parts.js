@@ -972,7 +972,20 @@ export function install(rt) {
     const bot = rt.botOf(owner.botId)
     return owner.next ?? threadCurrentOfPart(bot, sessionId) ?? rt.chatOf(owner.botId)
   }
-  const grown = (sessionId, tokens, lines) => tokens >= (partBase.get(sessionId) ?? 0) + lines.check / 4
+  // Compaction sets partBase from an immediate estimate before the next provider
+  // response reports real usage; lower it when measured context shrinks so stale
+  // estimates cannot keep checkContext suppressed above the line.
+  const lowerPartBase = (sessionId, tokens) => {
+    if (tokens === undefined) return
+    const base = partBase.get(sessionId)
+    if (base !== undefined && tokens < base) partBase.set(sessionId, tokens)
+  }
+  const grown = (sessionId, tokens, lines) => {
+    const base = partBase.get(sessionId) ?? 0
+    // Crossing the hard line from below must still act even when base + check / 4 overshoots it.
+    if (tokens >= lines.hard && base < lines.hard) return true
+    return tokens >= base + lines.check / 4
+  }
   // A read-only process (another dsh holds the team) neither condenses nor switches.
   const readOnly = () => rt.readOnly() !== undefined
 
@@ -1424,6 +1437,7 @@ export function install(rt) {
     if (localPart(agent.session)) return next()
     const lines = await contextLines(agent.session).catch(() => undefined)
     const tokens = tokensOf(agent.session)
+    if (fresh === undefined && tokens !== undefined && tokens > 0) lowerPartBase(agent.id, tokens)
     if (lines === undefined || tokens === undefined || tokens < lines.hard || !grown(agent.id, tokens, lines) || readOnly()) return next()
     if (await decide(agent, { midTurn: payload.step > 1 }) === 'compact' && await condense(agent, lines, { inTurn: true, signal: payload.signal })) return next()
     if (!await canMakeRoom(agent, payload.messages)) return next()
@@ -1606,6 +1620,7 @@ export function install(rt) {
     }
     const lines = await contextLines(agent.session)
     const tokens = tokensOf(agent.session)
+    lowerPartBase(agent.id, tokens)
     if (lines === undefined || tokens === undefined || tokens < lines.check || !grown(agent.id, tokens, lines)) return
     const hard = tokens >= lines.hard
     if (!hard && Date.now() < (noteFailures.get(agent.id)?.until ?? 0)) return
@@ -1632,6 +1647,7 @@ export function install(rt) {
     const lines = await contextLines(agent.session).catch(() => undefined)
     if (context === undefined || lines === undefined) return
     const tokens = context.used
+    lowerPartBase(agent.id, tokens)
     const condensed = context.compactions > (cliCompactions.get(agent.id) ?? 0)
     cliCompactions.set(agent.id, context.compactions)
     // Condensed past the check line and still there: a checkpoint that did not make
