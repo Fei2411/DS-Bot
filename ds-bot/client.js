@@ -45089,9 +45089,11 @@ var LEARNING_CSS = `
 .bt-learning-pending-panel{position:absolute;top:48px;left:16px;right:16px;z-index:20;width:auto;max-width:560px;margin:0 auto;max-height:65vh;overflow:auto;display:flex;flex-direction:column;gap:8px;padding:8px;border:1px solid var(--bt-line);border-radius:20px;background:var(--bt-main);box-shadow:var(--bt-dialog-shadow)}
 .bt-learning-pending-panel{animation:bt-learning-in .12s ease}
 .bt-learning-pending-panel[data-leaving]{opacity:0;pointer-events:none;transition:opacity .12s ease}
+.bt-learning-pending-panel .bt-q-head{flex-wrap:wrap}
+.bt-learning-pending-panel .bt-q-text{flex-basis:140px}
+.bt-learning-pending-panel .bt-learning-status{margin-left:auto}
 @keyframes bt-learning-in{from{opacity:0}to{opacity:1}}
 @media(prefers-reduced-motion:reduce){.bt-learning-pending-panel{animation:none;transition:none}}
-@media(max-width:640px){.bt-learning-pending-panel{position:fixed;top:72px;left:16px;right:16px;width:auto}}
 .bt-learning-stack{display:flex;flex-direction:column;gap:4px}
 .bt-learning-dock{width:100%;max-width:var(--dsh-chat-content-width,748px);margin:0 auto;box-sizing:border-box}
 .bt-learning-card .bt-q-head{gap:12px}

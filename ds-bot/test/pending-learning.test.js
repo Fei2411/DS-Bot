@@ -54,7 +54,7 @@ test('handling proposals removes each entry and the last leaves no space', () =>
 test('old parts do not show current proposals', () => {
   assert.equal(show([skill], 'old'), null)
 })
-test('pending panels fit the header column instead of the viewport', () => {
+test('pending panels fit the header column instead of the viewport at every breakpoint', () => {
   const rule = name => LEARNING_CSS.match(new RegExp(`\\.${name}\\{([^}]+)\\}`))[1]
   assert.match(rule('bt-learning-pending'), /position:static/)
   const panel = rule('bt-learning-pending-panel')
@@ -62,4 +62,7 @@ test('pending panels fit the header column instead of the viewport', () => {
   assert.match(panel, /left:16px;right:16px/)
   assert.match(panel, /width:auto;max-width:560px;margin:0 auto/)
   assert.doesNotMatch(panel, /vw/)
+  assert.doesNotMatch(LEARNING_CSS, /\.bt-learning-pending-panel[^{}]*\{[^}]*position:fixed/)
+  assert.match(LEARNING_CSS, /\.bt-learning-pending-panel \.bt-q-head\{flex-wrap:wrap\}/)
+  assert.match(LEARNING_CSS, /\.bt-learning-pending-panel \.bt-q-text\{flex-basis:140px\}/)
 })
