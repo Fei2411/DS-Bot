@@ -14,6 +14,10 @@ const TEXT_LIMIT = 2000
 // GROUP_AND_C2C covers C2C_MESSAGE_CREATE and GROUP_AT_MESSAGE_CREATE.
 const INTENTS = 1 << 25
 
+// Chunks QQ already took, by reply job: a retry of the same job (after a backoff
+// or from Try again) resumes after them instead of posting them a second time.
+const delivered = new WeakMap()
+
 const apiBase = env => String(env.config?.api ?? API).replace(/\/+$/, '')
 const tokenBase = env => String(env.config?.token ?? TOKEN_API)
 
@@ -217,12 +221,15 @@ export default {
     })()
 
     return {
-      send: async (chat, { text }) => {
-        const chunks = chunkMarkdown(toQqMarkdown(String(text ?? '')), TEXT_LIMIT)
+      send: async (chat, message) => {
+        const text = String(message.text ?? '')
+        const chunks = chunkMarkdown(toQqMarkdown(text), TEXT_LIMIT)
         const msgId = lastMsgId.get(chat.key)
         const base = chat.kind === 'direct' ? `/v2/users/${chat.key}/messages` : `/v2/groups/${chat.key}/messages`
-        let messageId
-        for (const chunk of chunks) {
+        const done = delivered.get(message)?.text === text ? delivered.get(message) : undefined
+        let count = done?.count ?? 0
+        let messageId = done?.messageId
+        for (const chunk of chunks.slice(count)) {
           const seq = (msgSeq.get(msgId) ?? 0) + 1
           msgSeq.set(msgId, seq)
           const reply = msgId ? { msg_id: msgId, msg_seq: seq } : {}
@@ -242,7 +249,10 @@ export default {
             })
           }
           messageId = String(sent?.id ?? messageId ?? '')
+          count += 1
+          delivered.set(message, { text, count, messageId })
         }
+        delivered.delete(message)
         return { messageId }
       },
       stop: () => {

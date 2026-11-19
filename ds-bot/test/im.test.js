@@ -15,6 +15,7 @@ const fakeAdapter = ({ buttons = true } = {}) => {
   const edited = []
   const typed = []
   const fails = []
+  const jobs = []
   const adapter = {
     id: 'fake',
     sent,
@@ -33,6 +34,7 @@ const fakeAdapter = ({ buttons = true } = {}) => {
       return {
         send: async (chat, body) => {
           sent.push({ chat, ...body })
+          jobs.push(body)
           const next = fails.shift()
           if (next !== undefined) throw next
           return { messageId: sent.length }
@@ -44,6 +46,7 @@ const fakeAdapter = ({ buttons = true } = {}) => {
     },
   }
   adapter.fails = fails
+  adapter.jobs = jobs
   adapter.buttons = buttons
   return adapter
 }
@@ -1045,6 +1048,29 @@ test('a Web question answer cannot inherit a previous IM destination', async t =
   s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'private answer' }] } })
   await s.flush()
   assert.equal(s.fake.sent.length, 0)
+})
+
+// QQ splits a reply into several posts and remembers, by job, which of them went
+// out; that only holds if Try again hands the adapter back the same job.
+test('Try again resends the very job the failed send was given', async (t) => {
+  const s = await start()
+  t.after(s.stop)
+  const conn = await add(s)
+  const one = s.rt.state.im.connections[conn.id]
+  one.paired.push({ id: 'u1', name: 'U1', at: 1 })
+  await s.rt.save()
+  await dm(s, 'u1', 'hi')
+  s.imTurn('a')
+  s.fake.fails.push(Object.assign(new Error('refused'), { status: 400, permanent: true }))
+  s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'split reply' }] } })
+  await delay(40)
+  assert.equal(s.rt.imStatusView()[conn.id].state, 'error')
+  await s.rt.imEndpoint('im-retry', { id: conn.id })
+  await delay(40)
+  const jobs = s.fake.jobs.filter(job => job.text === 'split reply')
+  assert.equal(jobs.length, 2)
+  assert.equal(jobs[0], jobs[1])
+  assert.equal(s.rt.imStatusView()[conn.id].state, 'ready')
 })
 
 // #1417: a 5xx was retryable with no limit, so one message held its chat's queue
