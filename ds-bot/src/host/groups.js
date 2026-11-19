@@ -657,15 +657,14 @@ export function install(rt) {
       if (marker === null) { restored.push(reply); continue }
       const head = reply.text.slice(0, marker.index)
       const tail = reply.text.slice(marker.index + marker[0].length)
-      if (reply.kind !== undefined || head.length < 16 || tail.length < 16 || REPLY_ELISION.test(tail)) return null
       const omitted = Number(marker[1])
+      // save-token's JSON codec keeps 220 and 80 UTF-16 units of an individual string longer than 400.
+      if (reply.kind !== undefined || head.length !== 220 || tail.length !== 80 || omitted <= 100 || REPLY_ELISION.test(tail)) return null
+      const length = head.length + omitted + tail.length
       const matches = records.filter(record => {
         if (!isLegacyReply(record) || record.botId !== reply.botId || !matchesOpening(record, head, true)) return false
-        const length = (record.length ?? record.text.length) - head.length - tail.length
-        // A JSON escape uses at most six characters per original UTF-16 unit.
-        if (!hasCompleteText(record)) return record.length === undefined || (length > 0 && length <= omitted && omitted <= 6 * length)
-        return length > 0 && record.text.endsWith(tail)
-          && (length === omitted || jsonLength(record.text.slice(head.length, -tail.length)) === omitted)
+        if (!hasCompleteText(record)) return record.length === undefined || record.length === length
+        return record.text.length === length && record.text.endsWith(tail)
       })
       if (matches.length !== 1 || !hasCompleteText(matches[0])) return null
       restored.push({ ...reply, text: matches[0].text })
@@ -673,9 +672,8 @@ export function install(rt) {
     return restored
   }
 
-  function restoreRelayWindow(preview, records) {
-    const marker = REPLY_ELISION.exec(preview)
-    if (marker === null || REPLY_ELISION.test(preview.slice(marker.index + marker[0].length))) return null
+  function restoreRelayWindow(preview, records, marker) {
+    if (REPLY_ELISION.test(preview.slice(marker.index + marker[0].length))) return null
     const head = preview.slice(0, marker.index)
     const before = parseReplies(head).replies
     let after
@@ -709,19 +707,25 @@ export function install(rt) {
 
   // Use only DS Bot's own pre-ledger records, never a file locator embedded in a result.
   function groupRelayReplies(sessionId, preview) {
-    if (typeof sessionId !== 'string' || typeof preview !== 'string' || preview.length > 65_536 || !REPLY_ELISION.test(preview)) return null
+    if (typeof sessionId !== 'string' || typeof preview !== 'string' || preview.length > 65_536) return null
+    const marker = REPLY_ELISION.exec(preview)
+    if (marker === null) return null
     const room = rt.roomOf(sessionId) ?? rt.roomOf(rt.pastOwners.get(sessionId)?.roomId)
     if (room === undefined) return null
     const book = rt.ledger.records(bookOf(room.id))
     const anchor = book.findIndex(record => record.event === 'anchor')
     const records = anchor === -1 ? book : book.slice(0, anchor)
+    // The line codec keeps 260 and 100 raw units, even if the splice still parses as JSON.
+    if (marker.index === 260 && preview.length - marker.index - marker[0].length === 100) {
+      return restoreRelayWindow(preview, records, marker)
+    }
     let replies
     try { replies = JSON.parse(preview)?.replies } catch { /* a cut can break JSON syntax */ }
     if (Array.isArray(replies) && replies.some(reply => typeof reply?.text === 'string' && REPLY_ELISION.test(reply.text))) {
       const restored = restoreTrimmedReplies(replies, records)
       if (restored !== null) return restored
     }
-    return restoreRelayWindow(preview, records)
+    return restoreRelayWindow(preview, records, marker)
   }
   // A sequence of words over everything said in the group, newest first, with each
   // hit's neighbours. `page` (`before` or `offset`) reads the next older page.

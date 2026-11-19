@@ -1311,9 +1311,9 @@ test('a group\'s earlier parts page like a Bot\'s own chat', async (t) => {
 
 test('compressed pre-ledger group replies are recovered from the migrated group log', async (t) => {
   const replies = [
-    { botId: 'b', name: 'Writer', text: 'First "reply".\n'.repeat(22), time: 1000 },
-    { botId: 'a', name: 'Chief', text: 'Middle reply. '.repeat(25), time: 2000 },
-    { botId: 'b', name: 'Writer', text: 'Final "reply".\n'.repeat(22), time: 3000 },
+    { botId: 'b', name: 'Writer', text: 'First "reply".\n'.repeat(32), time: 1000 },
+    { botId: 'a', name: 'Chief', text: 'Middle reply. '.repeat(35), time: 2000 },
+    { botId: 'b', name: 'Writer', text: 'Final "reply".\n'.repeat(32), time: 3000 },
   ]
   const saved = structuredClone(TEAM)
   const unrelated = 'This reply belongs to the next prompt.'
@@ -1353,7 +1353,7 @@ test('compressed pre-ledger group replies are recovered from the migrated group 
   const fromBroken = (await call('group-relay-replies', { sessionId: 'r1', preview: broken })).value
   assert.deepEqual(fromBroken?.map(reply => [reply.botId, reply.text]), expected)
   const shortened = replies.map(reply => ({
-    ...reply, text: `${reply.text.slice(0, 45)} ...[+${reply.text.length - 100} chars]... ${reply.text.slice(-55)}`,
+    ...reply, text: `${reply.text.slice(0, 220)} ...[+${reply.text.length - 300} chars]... ${reply.text.slice(-80)}`,
   }))
   const structured = (await call('group-relay-replies', { sessionId: 'r1', preview: JSON.stringify({ replies: shortened }) })).value
   assert.deepEqual(structured, replies)
@@ -1421,8 +1421,8 @@ test('compressed group replies distinguish a complete match from an ambiguous cl
 })
 
 test('a clipped legacy reply of an incompatible length does not hide the exact match', async (t) => {
-  const head = 'Opening shared by two replies. '.repeat(2)
-  const tail = 'The original closing sentence. '.repeat(2)
+  const head = 'Opening shared by two replies. '.padEnd(220, 'x')
+  const tail = 'The original closing sentence. '.padStart(80, 'z')
   const hidden = 'Original middle. '.repeat(25)
   const text = head + hidden + tail
   const saved = structuredClone(TEAM)
@@ -1436,6 +1436,28 @@ test('a clipped legacy reply of an incompatible length does not hide the exact m
   const { call, stop } = await start({ team: saved })
   t.after(stop)
   assert.deepEqual((await call('group-relay-replies', { sessionId: 'r1', preview })).value, [{ botId: 'b', text }])
+})
+
+test('a save-token line cut cannot restore an apparent exact match from another prompt', async (t) => {
+  const first = { botId: 'b', text: 'First reply. '.repeat(42) }
+  const last = { botId: 'a', text: 'Last reply. '.repeat(350) }
+  const original = JSON.stringify({ replies: [first, last], passed: [] })
+  const omitted = original.length - 360
+  const marker = ` ...[+${omitted} chars]... `
+  const preview = original.slice(0, 260) + marker + original.slice(-100)
+  const unrelated = { ...JSON.parse(preview).replies[0] }
+  unrelated.text = unrelated.text.replace(marker, 'x'.repeat(omitted))
+  const saved = structuredClone(TEAM)
+  saved.rooms.r1.seq = 4
+  saved.rooms.r1.log = [
+    { ...first, seq: 1, text: first.text.slice(0, 40), length: first.text.length },
+    { ...last, seq: 2 },
+    { seq: 3, who: 'User', text: 'Unrelated prompt' },
+    { ...unrelated, seq: 4 },
+  ]
+  const { call, stop } = await start({ team: saved })
+  t.after(stop)
+  assert.equal((await call('group-relay-replies', { sessionId: 'r1', preview })).value, null)
 })
 
 test('the file panel of a group with a folder lists the Session\'s own folder', async (t) => {
