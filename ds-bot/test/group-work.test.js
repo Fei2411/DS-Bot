@@ -204,8 +204,11 @@ test('a group Session made before the member\'s level applied gets it on the nex
     { b: { model: 'deepseek/v4-flash', effort: 'low', appliedModel: 'deepseek/v4-flash', appliedEffort: 'low' } }, llm)
   await host.call('state', {})
   // The group Session gets the member's level once; the own chat is not re-selected.
-  await settle(() => host.selected.length === 1)
-  assert.deepEqual(host.selected, [{ sessionId: 'gb', provider: 'deepseek', model: 'v4-flash', reasoningEffort: 'low' }])
+  // The group's own Session is selected on its own, and may reach the list before or
+  // after 'gb': the order between the two is not what this test is about.
+  await settle(() => host.selected.some(entry => entry.sessionId === 'gb'))
+  assert.deepEqual(host.selected.filter(entry => entry.sessionId === 'gb'), [{ sessionId: 'gb', provider: 'deepseek', model: 'v4-flash', reasoningEffort: 'low' }])
+  assert.ok(host.selected.every(entry => entry.sessionId !== 'ga'))
 })
 
 test('a member\'s group Session runs on the member\'s model and thinking level', async (t) => {

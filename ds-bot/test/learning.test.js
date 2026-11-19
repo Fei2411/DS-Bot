@@ -948,6 +948,20 @@ test('user corrections remain in long chat reviews after the text budget', async
   assert.match(runtime.requests[0].messages[0].content[0].text, /User: Keep the correction even when the Bot writes a long answer\./)
 })
 
+test('learning reads a user correction beyond ten pages after its saved cursor', async t => {
+  const history = { b2: [
+    { event: { seq: 20, type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text: 'Keep this older learning correction' }] } } },
+    ...Array.from({ length: 2001 }, (_, index) => ({ event: { seq: 21 + index, type: 'user/message', data: { source: { kind: 'plugin' }, content: [{ type: 'text', text: 'setup' }] } } })),
+    { event: { seq: 2022, type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text: 'Latest work' }] } } },
+  ] }
+  const runtime = await startRuntime({ history, learningSeed: { cursors: { b2: 19 } }, replies: [noneReply], config: { learningTimes: { tickMs: 100_000 } } })
+  t.after(() => runtime.stop())
+  await finishTurn(runtime.ctx)
+  await runtime.rt.learningRun()
+  assert.match(runtime.requests[0].messages[0].content[0].text, /Keep this older learning correction/)
+  assert.equal(runtime.learningState().cursors.b2, 2022)
+})
+
 test('a failed chat read keeps that Bot pending while other Bots are reviewed', async t => {
   const seed = JSON.parse(JSON.stringify(TEAM))
   seed.bots.b3 = { id: 'b3', sessionId: 'b3', name: 'Coder', role: 'Coding', model: 'deepseek/v4', instructions: '', capabilities: [], createdAt: 3 }
@@ -988,4 +1002,3 @@ test('a learning review retries TRANSPORT and TIMEOUT failures on the same route
   assert.equal(proposals[0].name, 'release-checks')
   assert.equal(runtime.learningState().pending?.b2, undefined)
 })
-
