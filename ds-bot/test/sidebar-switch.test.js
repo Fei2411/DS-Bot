@@ -402,8 +402,8 @@ function collapsedGridRules() {
   const frames = []
   const visit = (rules, media = []) => {
     for (const rule of rules) {
-      if (rule.selectorText?.includes('[data-sidebar-collapsed][data-rightbar-collapsed]'))
-        frames.push({ grid: rule.style.getPropertyValue('grid-template-columns'), media })
+      if (rule.selectorText?.includes('[data-sidebar-collapsed][data-rightbar-collapsed]') && rule.style.getPropertyValue('grid-template-columns'))
+        frames.push({ grid: rule.style.getPropertyValue('grid-template-columns'), media, rule })
       if (rule.cssRules?.length)
         visit(rule.cssRules, rule.media ? [...media, rule.media.mediaText] : media)
     }
@@ -413,17 +413,30 @@ function collapsedGridRules() {
 }
 
 test('the wide shell\'s collapsed sidebar keeps no track while its right column is closed', () => {
-  const frames = collapsedGridRules()
+  const frames = collapsedGridRules().filter(frame => frame.media.includes('(min-width:1024px)'))
   assert.equal(frames.length, 1)
   assert.match(frames[0].grid, /^0px\s+minmax\(0,\s*1fr\)\s+0px$/)
 })
 
-// A narrow host may place the conversation in its first track instead of its second.
-test('the collapsed shell grid override leaves layouts below 1024px to the host', () => {
-  const frames = collapsedGridRules()
+test('a narrow Bot conversation keeps an explicit track and leaves expanded host panels alone', () => {
+  const frames = collapsedGridRules().filter(frame => frame.media.includes('(max-width:1023px)'))
   assert.equal(frames.length, 1)
-  assert.ok(frames[0].media.some(query => /^\(min-width:\s*1024px\)$/.test(query)),
-    'the zero-width first track must not override a narrow host layout')
+  const { rule } = frames[0]
+  assert.match(frames[0].grid, /^0px\s+minmax\(0,\s*1fr\)\s+0px$/)
+  const { document } = new JSDOM('<div class="x_frame" data-sidebar-collapsed data-rightbar-collapsed><div class="x_centerCol"><div class="bt-head"></div></div></div>').window
+  const frame = document.querySelector('.x_frame')
+  assert.ok(frame.matches(rule.selectorText))
+  for (const attribute of ['data-sidebar-collapsed', 'data-rightbar-collapsed']) {
+    frame.removeAttribute(attribute)
+    assert.equal(frame.matches(rule.selectorText), false)
+    frame.setAttribute(attribute, '')
+  }
+  const columnRule = rule.parentRule.cssRules[1]
+  assert.ok(document.querySelector('.x_centerCol').matches(columnRule.selectorText))
+  assert.equal(columnRule.style.getPropertyValue('grid-column'), '2')
+  assert.equal(columnRule.style.getPropertyValue('width'), 'auto')
+  document.querySelector('.bt-head').remove()
+  assert.equal(frame.matches(rule.selectorText), false)
 })
 
 test('the column\'s top row hides it, on the rail too, and its edge is a drag grip', () => {
