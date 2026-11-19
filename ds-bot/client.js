@@ -878,6 +878,8 @@ var JA = {
   "Remove DSH Agent": "DSH Agent を削除",
   "New session": "新しいセッション",
   "Start a new session for {name} in this group": "このグループで {name} の新しいセッションを開始",
+  "Started": "開始しました",
+  "Started a new session for {name} in this group": "このグループで {name} の新しいセッションを開始しました",
   "Archive": "アーカイブ",
   "Session actions": "セッションの操作",
   "Plugins": "プラグイン",
@@ -1709,6 +1711,9 @@ var JA = {
   "A group chat needs at least two Bots": "グループチャットには少なくとも 2 つの Bot が必要です",
   "The admin must be a member of the group": "管理者はグループのメンバーである必要があります",
   "Unknown group chat": "該当するグループチャットが見つかりません",
+  "Not a member of that group": "この Bot はそのグループのメンバーではありません",
+  "This Bot has no session in this group yet": "この Bot にはこのグループのセッションがまだありません",
+  "The Bot is working; wait for it to finish or stop it first": "この Bot は作業中です。完了を待つか先に停止してください",
   "No Bot is left in this group chat": "このグループチャットに Bot が残っていません",
   "That group chat has been deleted": "そのグループチャットは削除されています",
   "Hand the admin role to another member instead of leaving the group without one": "グループを管理者なしにするのではなく、他のメンバーに管理者を引き継いでください",
@@ -3297,6 +3302,8 @@ var KO = {
   "Remove DSH Agent": "DSH Agent 제거",
   "New session": "새 세션",
   "Start a new session for {name} in this group": "이 그룹에서 {name}의 새 세션 시작",
+  Started: "시작됨",
+  "Started a new session for {name} in this group": "이 그룹에서 {name}의 새 세션을 시작했습니다",
   Archive: "보관",
   "Session actions": "세션 작업",
   "Plugins": "플러그인",
@@ -4147,6 +4154,9 @@ var KO = {
   "A group chat needs at least two Bots": "그룹 채팅에는 최소 2개의 Bot이 필요합니다",
   "The admin must be a member of the group": "관리자는 그룹 멤버여야 합니다",
   "Unknown group chat": "찾을 수 없는 그룹 채팅입니다",
+  "Not a member of that group": "이 봇은 해당 그룹의 멤버가 아닙니다",
+  "This Bot has no session in this group yet": "이 봇은 아직 이 그룹에 세션이 없습니다",
+  "The Bot is working; wait for it to finish or stop it first": "봇이 작업 중입니다. 완료될 때까지 기다리거나 먼저 중지하세요",
   "No Bot is left in this group chat": "이 그룹 채팅에 남은 Bot이 없습니다",
   "That group chat has been deleted": "이미 삭제된 그룹 채팅입니다",
   "Hand the admin role to another member instead of leaving the group without one": "그룹에 관리자가 없도록 비워 두는 대신 다른 멤버에게 관리자 역할을 넘기세요",
@@ -5737,6 +5747,8 @@ var ES = {
   "Remove DSH Agent": "Quitar DSH Agent",
   "New session": "Nueva sesión",
   "Start a new session for {name} in this group": "Iniciar una nueva sesión para {name} en este grupo",
+  Started: "Iniciada",
+  "Started a new session for {name} in this group": "Nueva sesión iniciada para {name} en este grupo",
   Archive: "Archivar",
   "Session actions": "Acciones de sesión",
   "Plugins": "Complementos",
@@ -6587,6 +6599,9 @@ var ES = {
   "A group chat needs at least two Bots": "Un chat grupal necesita al menos dos Bots",
   "The admin must be a member of the group": "El administrador debe ser miembro del grupo",
   "Unknown group chat": "Chat grupal desconocido",
+  "Not a member of that group": "Este Bot no es miembro de ese grupo",
+  "This Bot has no session in this group yet": "Este Bot aún no tiene una sesión en este grupo",
+  "The Bot is working; wait for it to finish or stop it first": "El Bot está trabajando; espera a que termine o detenlo primero",
   "No Bot is left in this group chat": "No queda ningún Bot en este chat grupal",
   "That group chat has been deleted": "Ese chat grupal ha sido eliminado",
   "Hand the admin role to another member instead of leaving the group without one": "Cede el rol de administrador a otro miembro en lugar de dejar el grupo sin administrador",
@@ -8153,6 +8168,8 @@ var FR = {
   "Remove DSH Agent": "Retirer DSH Agent",
   "New session": "Nouvelle session",
   "Start a new session for {name} in this group": "Démarrer une nouvelle session pour {name} dans ce groupe",
+  "Started": "Démarrée",
+  "Started a new session for {name} in this group": "Nouvelle session démarrée pour {name} dans ce groupe",
   "Archive": "Archiver",
   "Session actions": "Actions de session",
   "Plugins": "Plugins",
@@ -8984,6 +9001,9 @@ var FR = {
   "A group chat needs at least two Bots": "Une discussion de groupe nécessite au moins deux Bots",
   "The admin must be a member of the group": "L’admin doit être membre du groupe",
   "Unknown group chat": "Discussion de groupe introuvable",
+  "Not a member of that group": "Ce Bot n'est pas membre de ce groupe",
+  "This Bot has no session in this group yet": "Ce Bot n'a pas encore de session dans ce groupe",
+  "The Bot is working; wait for it to finish or stop it first": "Le Bot travaille ; attendez qu'il termine ou arrêtez-le d'abord",
   "No Bot is left in this group chat": "Il ne reste plus aucun Bot dans cette discussion de groupe",
   "That group chat has been deleted": "Cette discussion de groupe a été supprimée",
   "Hand the admin role to another member instead of leaving the group without one": "Confiez le rôle d’admin à un autre membre plutôt que de laisser le groupe sans admin",
@@ -10572,6 +10592,8 @@ var DE = {
   "Remove DSH Agent": "DSH Agent entfernen",
   "New session": "Neue Sitzung",
   "Start a new session for {name} in this group": "Eine neue Sitzung für {name} in dieser Gruppe starten",
+  Started: "Gestartet",
+  "Started a new session for {name} in this group": "Neue Sitzung für {name} in dieser Gruppe gestartet",
   Archive: "Archivieren",
   "Session actions": "Sitzungsaktionen",
   "Plugins": "Plugins",
@@ -11422,6 +11444,9 @@ var DE = {
   "A group chat needs at least two Bots": "Ein Gruppenchat benötigt mindestens zwei Bots",
   "The admin must be a member of the group": "Der Admin muss Mitglied der Gruppe sein",
   "Unknown group chat": "Gruppenchat nicht gefunden",
+  "Not a member of that group": "Kein Mitglied dieser Gruppe",
+  "This Bot has no session in this group yet": "Dieser Bot hat noch keine Sitzung in dieser Gruppe",
+  "The Bot is working; wait for it to finish or stop it first": "Der Bot arbeitet noch; warte, bis er fertig ist, oder stoppe ihn zuerst",
   "No Bot is left in this group chat": "In diesem Gruppenchat ist kein Bot mehr übrig",
   "That group chat has been deleted": "Dieser Gruppenchat wurde gelöscht",
   "Hand the admin role to another member instead of leaving the group without one": "Übergib die Admin-Rolle an ein anderes Mitglied, statt die Gruppe ohne Admin zu lassen",
@@ -13007,6 +13032,8 @@ var ZH = {
   "Remove DSH Agent": "移除 DSH Agent",
   "New session": "新会话",
   "Start a new session for {name} in this group": "为 {name} 在本群开始新会话",
+  Started: "已开始",
+  "Started a new session for {name} in this group": "已为 {name} 在本群开始新会话",
   Archive: "归档",
   "Session actions": "会话操作",
   Plugins: "插件",
@@ -13953,6 +13980,9 @@ var HOST_ZH = {
   "A group chat needs at least two Bots": "群聊至少要两个 Bot",
   "The admin must be a member of the group": "管理员必须是群成员",
   "Unknown group chat": "找不到这个群聊",
+  "Not a member of that group": "这个 Bot 不在这个群聊里",
+  "This Bot has no session in this group yet": "这个 Bot 在本群还没有会话",
+  "The Bot is working; wait for it to finish or stop it first": "这个 Bot 正在工作中，请等它完成或先停止它",
   "No Bot is left in this group chat": "这个群聊里已经没有 Bot 了",
   "That group chat has been deleted": "这个群聊已经删除了",
   "Hand the admin role to another member instead of leaving the group without one": "请把管理员交给其他成员，不要让群聊没有管理员",
@@ -41088,6 +41118,7 @@ var import_react66 = require("react");
 var NO_WORK = { bots: {}, rooms: {}, approvals: [] };
 var FACES_MAX2 = 3;
 var DOCK_EXIT_MS = 160;
+var FRESH_DONE_MS = 1800;
 function memberWork(room2, work = NO_WORK) {
   const here = work.rooms?.[room2.id] ?? [];
   return room2.members.map((id) => {
@@ -41239,20 +41270,68 @@ function StopMemberWork({ entry, bot, room: room2, actions }) {
   return (0, import_react66.createElement)("button", { type: "button", className: "bt-member-stop", disabled: stopping, "aria-label": `${t("Stop")} · ${bot.name}`, onClick: stop }, t("Stop"));
 }
 function FreshMemberPart({ entry, bot, room: room2, actions }) {
-  const [starting, setStarting] = (0, import_react66.useState)(false);
-  if (actions.newPart === void 0 || entry !== void 0 && entry.state !== "idle") return null;
-  const start = () => {
-    setStarting(true);
-    void Promise.resolve(actions.newPart(bot.id, room2.id)).catch((error) => actions.reportError(error, "new-part")).finally(() => setStarting(false));
+  const scope = `${room2?.id ?? ""}:${bot?.id ?? ""}`;
+  const [status, setStatus] = (0, import_react66.useState)(null);
+  const timer = (0, import_react66.useRef)(null);
+  const mounted = (0, import_react66.useRef)(true);
+  const scopeRef = (0, import_react66.useRef)(scope);
+  const inFlight = (0, import_react66.useRef)(null);
+  scopeRef.current = scope;
+  const clear = () => {
+    if (timer.current !== null) {
+      clearTimeout(timer.current);
+      timer.current = null;
+    }
   };
+  (0, import_react66.useEffect)(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      inFlight.current = null;
+      clear();
+    };
+  }, []);
+  (0, import_react66.useEffect)(() => () => {
+    clear();
+    inFlight.current = null;
+  }, [scope]);
+  const phase = status?.scope === scope ? status.phase : "idle";
+  const hasSession = Array.isArray(room2?.sessionMembers) && room2.sessionMembers.includes(bot.id);
+  if (actions.newPart === void 0 || !hasSession || entry !== void 0 && entry.state !== "idle") return null;
+  const start = () => {
+    if (phase !== "idle" || inFlight.current === scope) return;
+    clear();
+    const current2 = scope;
+    inFlight.current = current2;
+    setStatus({ scope: current2, phase: "starting" });
+    void Promise.resolve(actions.newPart(bot.id, room2.id)).then(
+      () => {
+        if (!mounted.current || scopeRef.current !== current2) return;
+        setStatus({ scope: current2, phase: "done" });
+        timer.current = setTimeout(() => {
+          timer.current = null;
+          if (inFlight.current === current2) inFlight.current = null;
+          if (!mounted.current) return;
+          setStatus((prev) => prev?.scope === current2 && prev.phase === "done" ? null : prev);
+        }, FRESH_DONE_MS);
+      },
+      (error) => {
+        if (inFlight.current === current2) inFlight.current = null;
+        if (mounted.current && scopeRef.current === current2) setStatus(null);
+        actions.reportError?.(error, "new-part");
+      }
+    );
+  };
+  const done = phase === "done";
   return (0, import_react66.createElement)("button", {
     type: "button",
     className: "bt-member-stop bt-member-fresh",
-    disabled: starting,
-    title: t("Start a new session for {name} in this group", { name: bot.name }),
-    "aria-label": `${t("New session")} · ${bot.name}`,
+    "data-state": phase === "idle" ? void 0 : phase,
+    disabled: phase !== "idle",
+    title: done ? t("Started a new session for {name} in this group", { name: bot.name }) : t("Start a new session for {name} in this group", { name: bot.name }),
+    "aria-label": `${done ? t("Started") : t("New session")} · ${bot.name}`,
     onClick: start
-  }, t("New session"));
+  }, done ? [(0, import_react66.createElement)("span", { key: "ok", className: "bt-member-fresh-ok bt-pop-in" }, (0, import_react66.createElement)(CheckIcon)), t("Started")] : t("New session"));
 }
 function StopRoomWork({ room: room2, entries: entries2, actions }) {
   const [stopping, setStopping] = (0, import_react66.useState)(false);
@@ -41300,7 +41379,7 @@ body[data-ds-dark-theme] .bt-mw-ask{color:#f0b84a}
 .bt-members-head>.bt-soft-sm{margin:-6px 0}
 .bt-members-head>.bt-soft-sm:disabled{opacity:.5;cursor:default}
 .bt-member{display:flex;flex-direction:column;border-radius:12px;animation:bt-rise .18s ease-out backwards}
-.bt-member-row{display:flex;align-items:center;gap:8px;min-height:48px;padding:0 8px;border-radius:12px;transition:background-color .12s ease}
+.bt-member-row{position:relative;display:flex;align-items:center;gap:8px;min-height:48px;padding:0 8px;border-radius:12px;transition:background-color .12s ease}
 .bt-member-row:hover{background:var(--bt-hover)}
 .bt-member-open{flex:1;min-width:0;display:flex;align-items:center;gap:10px;padding:8px 0;border:0;background:none;color:var(--bt-ink);font:inherit;text-align:left;cursor:pointer}
 .bt-member-open>.bt-mark{flex:none}
@@ -41313,13 +41392,18 @@ body[data-ds-dark-theme] .bt-mw-ask{color:#f0b84a}
 .bt-member-time{flex:none;margin-left:.3em;font-variant-numeric:tabular-nums}
 .bt-member-state.bt-mw-ask{color:#b7791f}
 body[data-ds-dark-theme] .bt-member-state.bt-mw-ask{color:#f0b84a}
-.bt-member-stop{flex:none;height:26px;padding:0 11px;border:0;border-radius:999px;background:var(--bt-main);box-shadow:inset 0 0 0 .5px var(--bt-line-2);color:var(--bt-ink-2);font:inherit;font-size:12px;cursor:pointer;transition:background-color .12s ease,color .12s ease,${spring(SPRING_TAP, "scale")}}
-.bt-member-stop:hover{background:var(--bt-active);color:var(--bt-ink)}
+.bt-member-stop{flex:none;height:28px;padding:0 11px;border:0;border-radius:999px;background:var(--bt-main);box-shadow:inset 0 0 0 .5px var(--bt-line-2);color:var(--bt-ink-2);font:inherit;font-size:12px;line-height:16px;white-space:nowrap;cursor:pointer;touch-action:manipulation;transition:background-color .12s ease,color .12s ease,${spring(SPRING_TAP, "scale")}}
+.bt-member-stop:hover:not(:disabled){background:color-mix(in srgb,var(--bt-ink) 12%,var(--bt-main));color:var(--bt-ink)}
+.bt-member-stop:focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
 .bt-member-stop:active:not(:disabled){scale:.94}
 .bt-member-stop:disabled{opacity:.5;cursor:default}
-.bt-member-fresh{opacity:0;transition:opacity .12s ease,background-color .12s ease,color .12s ease,${spring(SPRING_TAP, "scale")}}
-.bt-member-row:hover>.bt-member-fresh,.bt-member-fresh:focus-visible,.bt-member-fresh:disabled{opacity:1}
-@media (hover:none){.bt-member-fresh{opacity:1}}
+.bt-member-fresh{position:absolute;right:8px;top:0;bottom:0;z-index:1;margin:auto 0;display:inline-flex;align-items:center;gap:4px;box-shadow:inset 0 0 0 .5px var(--bt-line-2),0 2px 8px -1px rgba(0,0,0,.06),0 1px 2px rgba(0,0,0,.04);opacity:0;pointer-events:none;transition:opacity .12s ease,background-color .12s ease,color .12s ease,${spring(SPRING_TAP, "scale")}}
+.bt-member-row:hover>.bt-member-fresh,.bt-member-fresh:focus-visible,.bt-member-fresh[data-state]{opacity:1;pointer-events:auto}
+.bt-member-fresh[data-state=done]{color:var(--bt-ink)}
+.bt-member-fresh[data-state=done]:disabled{opacity:1}
+.bt-member-fresh-ok{display:inline-flex;color:var(--bt-green)}
+.bt-member-fresh-ok svg{width:13px;height:13px}
+@media (hover:none){.bt-member-fresh{position:static;margin:0;box-shadow:inset 0 0 0 .5px var(--bt-line-2);opacity:1;pointer-events:auto}}
 .bt-member-cards{display:flex;flex-direction:column;gap:6px;padding:2px 8px 8px 50px}
 .bt-mw-card{display:flex;flex-direction:column;gap:4px;padding:10px 12px;border-radius:12px;background:var(--bt-hover);font-size:12px;line-height:17px;color:var(--bt-ink-2);animation:bt-rise .2s ease-out backwards}
 .bt-mw-tool{font-weight:600;color:var(--bt-ink)}
@@ -41329,7 +41413,7 @@ body[data-ds-dark-theme] .bt-member-state.bt-mw-ask{color:#f0b84a}
 .bt-mw-actions{display:flex;justify-content:flex-end;gap:6px;margin-top:4px}
 .bt-mw-actions>button{height:28px;padding:0 12px;font-size:12px}
 .bt-mw-actions>button:disabled{opacity:.5;cursor:default}
-@media (prefers-reduced-motion:reduce){.bt-mw-pill,.bt-mw-face,.bt-mw-label,.bt-member,.bt-mw-card{animation:none}.bt-mw-pill{transition:background-color .12s ease}}
+@media (prefers-reduced-motion:reduce){.bt-mw-pill,.bt-mw-face,.bt-mw-label,.bt-member,.bt-mw-card{animation:none}.bt-mw-pill{transition:background-color .12s ease}.bt-member-stop,.bt-member-fresh{transition:opacity .12s ease,background-color .12s ease,color .12s ease}}
 `;
 
 // src/client/task-board.js

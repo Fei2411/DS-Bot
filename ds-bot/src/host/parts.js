@@ -2073,7 +2073,8 @@ export function install(rt) {
     const agent = await rt.resolveAgent(sessionId)
     const place = placeOf(sessionId)
     if (place?.botId === undefined) throw Object.assign(new Error('Only a Bot\'s own conversation can start a fresh part'), { code: 'bot/invalid' })
-    if (agent.status === 'idle') {
+    const busyHere = place.roomId !== undefined && (rt.hasSubagents?.(sessionId) === true || rt.waitsForApproval?.(sessionId) === true)
+    if (agent.status === 'idle' && !busyHere) {
       startSwitch(agent, { manual: true })
       return true
     }

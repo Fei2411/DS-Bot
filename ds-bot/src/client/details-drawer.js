@@ -171,7 +171,8 @@ function MemberPile({ room, roster }) {
 const markOf = entry => (entry?.state === 'ask' ? 'alert' : entry?.state === 'work' ? workState(entry.doing) : 'idle')
 
 // One member: its mark, name and what it is doing on one surface that opens its chat;
-// Stop beside it while it works here, and the approvals it waits on below.
+// Stop beside it while it works here, New session when idle with a group session, and
+// the approvals it waits on below.
 function MemberRow({ member, entry, room, roster, actions }) {
   return h('div', { role: 'listitem', className: 'bt-member' },
     h('div', { className: 'bt-member-row' },
