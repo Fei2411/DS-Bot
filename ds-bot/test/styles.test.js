@@ -55,21 +55,26 @@ const clientModules = await (async () => {
 })()
 const { createClientModuleSystem, parseBootManifest } = clientModules
 
-test('chat rows skip offscreen content while remembering their measured height', () => {
+test('message bodies skip offscreen content without containing overflowing tools', () => {
   const { window, module } = bench([])
   const style = window.document.createElement('style')
   style.textContent = module.exports.CONVERSATION_CSS
   window.document.head.appendChild(style)
-  const rule = [...style.sheet.cssRules].find(rule => rule.selectorText === '[data-chat-flow-kind]')
+  const rule = [...style.sheet.cssRules].find(rule => rule.selectorText === '.bt-bubble,.bt-ububble')
   assert.ok(rule)
   assert.equal(rule.style.getPropertyValue('content-visibility'), 'auto')
   assert.equal(rule.style.getPropertyValue('contain-intrinsic-size'), 'auto 160px')
-  for (const kind of ['user', 'assistant-step', 'turn-process', 'turn-tail']) {
-    const row = window.document.createElement('div')
-    row.dataset.chatFlowKind = kind
-    assert.ok(row.matches(rule.selectorText))
+  const row = window.document.createElement('div')
+  row.dataset.chatFlowKind = 'assistant-step'
+  row.innerHTML = '<div class="bt-msg"><div class="bt-msg-line"><div class="bt-lead"></div><div class="bt-bubble"></div><div class="bt-tools"><button></button></div></div><div class="bt-reacts"></div></div>'
+  assert.ok(row.querySelector('.bt-bubble').matches(rule.selectorText))
+  for (const node of [row, ...row.querySelectorAll(':not(.bt-bubble)')]) {
+    assert.equal(node.matches(rule.selectorText), false)
   }
-  assert.equal(window.document.createElement('div').matches(rule.selectorText), false)
+  const user = window.document.createElement('div')
+  user.className = 'bt-ububble'
+  assert.ok(user.matches(rule.selectorText))
+  assert.equal([...style.sheet.cssRules].some(rule => rule.selectorText === '[data-chat-flow-kind]'), false)
 })
 
 // A fresh jsdom document, the bundled style helpers bound to it, and a real
