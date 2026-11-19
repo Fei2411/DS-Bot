@@ -28,7 +28,8 @@ export async function bundleClient() {
     external: PLATFORM_MODULES,
     // Every source declaration ships, used or not, as in the hand-written bundle.
     treeShaking: false,
-    // Readable for debugging in the browser: no minification, and Chinese text stays text.
+    minify: true,
+    keepNames: true,
     charset: 'utf8',
     write: false,
     logLevel: 'silent',

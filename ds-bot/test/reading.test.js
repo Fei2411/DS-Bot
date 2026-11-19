@@ -206,15 +206,16 @@ test('a failed scroll follower reports its error without stopping the next follo
 })
 
 test('the pill is a glass surface that pops in with the tap spring and stays still with reduced motion', () => {
-  const bundle = readFileSync(new URL('../client.js', import.meta.url), 'utf8')
+  const styles = readFileSync(new URL('../src/client/styles.js', import.meta.url), 'utf8')
+  const cells = readFileSync(new URL('../src/client/cells.js', import.meta.url), 'utf8')
   // The whole line: the rule's spring interpolates, so a brace does not end it.
-  const rule = bundle.match(/\n\.bt-reading\{(.*)\r?\n/)?.[1]
+  const rule = styles.match(/\n\.bt-reading\{(.*)\r?\n/)?.[1]
   assert.ok(rule, 'no .bt-reading rule')
   assert.match(rule, /position:fixed/)
   assert.match(rule, /background:var\(--bt-glass-bg\)/)
   assert.match(rule, /animation:bt-pop-drop \$\{SPRING_TAP\.duration\}ms \$\{SPRING_TAP\.easing\}/)
-  assert.match(bundle, /\.bt-reading\[data-leaving\]\{pointer-events:none;animation:bt-pop-out \.12s/)
-  assert.match(bundle, /@media \(prefers-reduced-motion:reduce\)\{\.bt-reading\{animation:none\}\}/)
+  assert.match(styles, /\.bt-reading\[data-leaving\]\{pointer-events:none;animation:bt-pop-out \.12s/)
+  assert.match(styles, /@media \(prefers-reduced-motion:reduce\)\{\.bt-reading\{animation:none\}\}/)
   // A Bot reply carries the guide, idle while it streams or is folded.
-  assert.match(bundle, /\(ReplyGuide, \{ box: bubble, active: !live && !folded \}\)/)
+  assert.match(cells, /\(ReplyGuide, \{ box: bubble, active: !live && !folded \}\)/)
 })

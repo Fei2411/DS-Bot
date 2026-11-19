@@ -10,6 +10,11 @@ test('client.js is the build of src/client', async () => {
   assert.equal(await bundleClient(), committed(), 'client.js is stale: run `npm run build` and commit it')
 })
 
+test('the startup client bundle stays under 2.5 MiB', () => {
+  const bytes = Buffer.byteLength(committed())
+  assert.ok(bytes < 2.5 * 1024 * 1024, `client.js is ${bytes} bytes; the startup budget is 2.5 MiB`)
+})
+
 // dsh runs client.js as a classic script that hands a factory to the module loader; the
 // factory's `require` answers only the shell's platform modules.
 test('client.js registers a factory that exports apply and inject', () => {
