@@ -56,13 +56,13 @@ function nodes(node: unknown): Node[] {
 }
 
 test('group settings opens the shared folder picker with the group and saved path', () => {
-  for (const workDir of ['/work/project', undefined]) {
+  for (const workDir of ['/work/project', 'C:\\work\\project\\', undefined]) {
     const { render } = screen({ id: 'room-1', name: 'Project', workDir })
     const visits: unknown[] = []
     const tree = render('GroupSettings', { route: { params: { roomId: 'room-1' } }, navigation: { navigate: (...args: unknown[]) => visits.push(args) } })
     const row = nodes(tree).find(node => node.props.label === 'Folder')!
     assert.ok(row)
-    assert.equal(row.props.value, workDir ?? "Each Bot's own folder")
+    assert.equal(row.props.value, workDir ? 'project' : "Each Bot's own folder")
     row.props.onPress()
     assert.deepEqual(JSON.parse(JSON.stringify(visits)), [['Folder', { ...(workDir ? { current: workDir } : {}), onPick: 'room', roomId: 'room-1' }]])
   }

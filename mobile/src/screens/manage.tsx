@@ -618,7 +618,7 @@ export function GroupSettings({ route, navigation }: any) {
           </View>
         </Section>
         <Section label={t('Working folder')}>
-          <Row label={t('Folder')} value={room.workDir || t("Each Bot's own folder")}
+          <Row label={t('Folder')} value={room.workDir ? room.workDir.split(/[\\/]/).filter(Boolean).pop() : t("Each Bot's own folder")}
             onPress={() => navigation.navigate('Folder', { current: room.workDir, onPick: 'room', roomId: room.id })} />
         </Section>
         {/* Tick to add or remove a member; among members, the admin is marked and
