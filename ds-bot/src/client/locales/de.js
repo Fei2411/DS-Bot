@@ -739,7 +739,7 @@ export const DE = {
   'Mute notifications': 'Benachrichtigungen stummschalten',
   'Unmute notifications': 'Benachrichtigungen wieder einschalten',
   Notifications: 'Benachrichtigungen',
-  'Open this chat': 'Diesen Chat öffnen',
+  'Review approval': 'Freigabe prüfen',
   '{name} needs your approval to continue': '{name} braucht deine Zustimmung, um weiterzumachen',
   '{name} needs your approval to run {tool}': '{name} braucht deine Zustimmung, um {tool} auszuführen',
   'Tell me when a Bot answers while I am looking elsewhere.': 'Sag mir Bescheid, wenn ein Bot antwortet, während ich woanders hinsehe.',

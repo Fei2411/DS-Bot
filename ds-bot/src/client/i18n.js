@@ -925,7 +925,7 @@ const ZH = {
   'A Bot': '一个 Bot',
   '{name} needs your approval to continue': '{name} 需要你授权才能继续',
   '{name} needs your approval to run {tool}': '{name} 需要你授权才能执行 {tool}',
-  'Open this chat': '打开这个对话',
+  'Review approval': '去审批',
   '{name} is waiting for your approval': '{name} 等你批准',
   '{first} and {second} are waiting for your approval': '{first}、{second} 等你批准',
   '{first}, {second} and {count} more are waiting for your approval': '{first}、{second} 等 {total} 个等你批准',

@@ -739,7 +739,7 @@ export const JA = {
   "Mute notifications": "通知をミュート",
   "Unmute notifications": "通知のミュートを解除",
   "Notifications": "通知",
-  "Open this chat": "このチャットを開く",
+  "Review approval": "承認を確認",
   "{name} needs your approval to continue": "{name} は続行するためにあなたの承認が必要です",
   "{name} needs your approval to run {tool}": "{name} が {tool} を実行するにはあなたの承認が必要です",
   "Tell me when a Bot answers while I am looking elsewhere.": "別の場所を見ている間に Bot が返信したら知らせる。",

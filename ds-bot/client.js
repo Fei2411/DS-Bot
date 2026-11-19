@@ -862,7 +862,7 @@ var JA = {
   "Mute notifications": "通知をミュート",
   "Unmute notifications": "通知のミュートを解除",
   "Notifications": "通知",
-  "Open this chat": "このチャットを開く",
+  "Review approval": "承認を確認",
   "{name} needs your approval to continue": "{name} は続行するためにあなたの承認が必要です",
   "{name} needs your approval to run {tool}": "{name} が {tool} を実行するにはあなたの承認が必要です",
   "Tell me when a Bot answers while I am looking elsewhere.": "別の場所を見ている間に Bot が返信したら知らせる。",
@@ -3281,7 +3281,7 @@ var KO = {
   "Mute notifications": "알림 끄기",
   "Unmute notifications": "알림 켜기",
   Notifications: "알림",
-  "Open this chat": "이 대화 열기",
+  "Review approval": "승인 확인",
   "{name} needs your approval to continue": "{name}이(가) 계속하려면 승인이 필요합니다",
   "{name} needs your approval to run {tool}": "{name}이(가) {tool}을(를) 실행하려면 승인이 필요합니다",
   "Tell me when a Bot answers while I am looking elsewhere.": "다른 곳을 보고 있을 때 Bot이 답하면 알려 주세요.",
@@ -5723,7 +5723,7 @@ var ES = {
   "Mute notifications": "Silenciar notificaciones",
   "Unmute notifications": "Reactivar notificaciones",
   Notifications: "Notificaciones",
-  "Open this chat": "Abrir esta conversación",
+  "Review approval": "Revisar aprobación",
   "{name} needs your approval to continue": "{name} necesita tu aprobación para continuar",
   "{name} needs your approval to run {tool}": "{name} necesita tu aprobación para ejecutar {tool}",
   "Tell me when a Bot answers while I am looking elsewhere.": "Avísame cuando un Bot responda mientras miro otra cosa.",
@@ -8143,7 +8143,7 @@ var FR = {
   "Mute notifications": "Mettre les notifications en sourdine",
   "Unmute notifications": "Réactiver les notifications",
   "Notifications": "Notifications",
-  "Open this chat": "Ouvrir cette conversation",
+  "Review approval": "Voir l'autorisation",
   "{name} needs your approval to continue": "{name} a besoin de votre approbation pour continuer",
   "{name} needs your approval to run {tool}": "{name} a besoin de votre approbation pour exécuter {tool}",
   "Tell me when a Bot answers while I am looking elsewhere.": "Prévenez-moi quand un Bot répond pendant que je regarde ailleurs.",
@@ -10562,7 +10562,7 @@ var DE = {
   "Mute notifications": "Benachrichtigungen stummschalten",
   "Unmute notifications": "Benachrichtigungen wieder einschalten",
   Notifications: "Benachrichtigungen",
-  "Open this chat": "Diesen Chat öffnen",
+  "Review approval": "Freigabe prüfen",
   "{name} needs your approval to continue": "{name} braucht deine Zustimmung, um weiterzumachen",
   "{name} needs your approval to run {tool}": "{name} braucht deine Zustimmung, um {tool} auszuführen",
   "Tell me when a Bot answers while I am looking elsewhere.": "Sag mir Bescheid, wenn ein Bot antwortet, während ich woanders hinsehe.",
@@ -13174,7 +13174,7 @@ var ZH = {
   "A Bot": "一个 Bot",
   "{name} needs your approval to continue": "{name} 需要你授权才能继续",
   "{name} needs your approval to run {tool}": "{name} 需要你授权才能执行 {tool}",
-  "Open this chat": "打开这个对话",
+  "Review approval": "去审批",
   "{name} is waiting for your approval": "{name} 等你批准",
   "{first} and {second} are waiting for your approval": "{first}、{second} 等你批准",
   "{first}, {second} and {count} more are waiting for your approval": "{first}、{second} 等 {total} 个等你批准",
@@ -16942,7 +16942,7 @@ body[data-bt-layout=flat] .bt-think{max-width:calc(var(--bt-flat-w) * 100%)}
 .bt-time-sep{display:flex;justify-content:center;align-items:center;height:28px;margin:14px 0 8px;font-size:12px;line-height:16px;color:var(--bt-ink-2);white-space:nowrap}
 [class*="_scroll"]>[class*="_column"]::before{content:var(--bt-first-sep,none);display:block;flex:none;height:28px;margin:17px 0 12px;font-size:12px;line-height:28px;text-align:center;color:var(--bt-ink-2);white-space:nowrap}
 .bt-activity{display:flex;align-items:center;gap:10px;margin:8px 0 4px 2px;font-size:14px;color:var(--bt-ink-2)}
-/* A member waits on an approval whose card lives in its own chat (#1623). */
+/* Inline notice in an open group round when a member waits on an approval in group details. */
 .bt-group-approvals{display:flex;flex-direction:column;gap:6px;margin:8px 0 4px 2px}
 .bt-group-approval{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:8px 12px;border-radius:12px;background:var(--bt-hover);font-size:14px;color:var(--bt-ink)}
 .bt-group-approval-text{flex:1 1 220px;min-width:0}
@@ -18412,17 +18412,16 @@ var import_react8 = require("react");
 function groupApprovals({ sessionId, roster, approvals }) {
   const room2 = sessionId === void 0 ? void 0 : roster?.roomsById?.[sessionId];
   if (room2 === void 0) return [];
-  const members = new Set(room2.members ?? []);
   const out = [];
   for (const entry of approvals ?? []) {
-    if (entry?.botId === void 0) continue;
-    const mine = entry.roomId === room2.id || entry.roomId === void 0 && members.has(entry.botId);
-    if (!mine) continue;
+    if (entry?.botId === void 0 || entry.roomId !== room2.id) continue;
     out.push({
       id: String(entry.id ?? ""),
       botId: entry.botId,
+      roomId: room2.id,
       name: roster?.byId?.[entry.botId]?.name ?? t("A Bot"),
-      tool: String(entry.tool ?? "").trim()
+      tool: String(entry.tool ?? "").trim(),
+      answerable: entry.answerable !== false
     });
   }
   return out;
@@ -18435,7 +18434,11 @@ function GroupApprovalHints({ sessionId, roster, actions, useWork }) {
     "div",
     { key: entry.id, className: "bt-group-approval", role: "note" },
     (0, import_react8.createElement)("span", { className: "bt-group-approval-text" }, entry.tool === "" ? t("{name} needs your approval to continue", { name: entry.name }) : t("{name} needs your approval to run {tool}", { name: entry.name, tool: entry.tool })),
-    (0, import_react8.createElement)("button", {
+    entry.answerable && actions.showDetails ? (0, import_react8.createElement)("button", {
+      type: "button",
+      className: "bt-group-approval-open",
+      onClick: () => actions.showDetails(entry.roomId)
+    }, t("Review approval")) : (0, import_react8.createElement)("button", {
       type: "button",
       className: "bt-group-approval-open",
       onClick: () => actions.openSession(entry.botId)
@@ -29029,20 +29032,21 @@ function GroupReplies({ sessionId, callId, done, content, roster, actions, useUi
     replies = parsed.replies.length ? parsed.replies : live.replies;
     broken = parsed.broken;
   }
-  const pending = range !== void 0 ? view?.open ? view.speaking ?? [] : [] : done ? [] : live.speaking;
+  const openRound = range !== void 0 ? view?.open === true : !done;
+  const pending = openRound ? range !== void 0 ? view?.speaking ?? [] : live.speaking : [];
   const doing = JSON.parse(useWork?.((work) => JSON.stringify(pending.map((id) => {
     const tool = work.bots?.[id]?.tool;
     return tool ? [tool, workPhrase(work.bots[id])] : [];
   }))) ?? "[]");
   const room2 = roster.roomsById[sessionId];
-  const waiting = groupApprovals({ sessionId, roster, approvals: useWork?.((work) => work?.approvals ?? []) ?? [] });
+  const liveApprovals = useWork?.((work) => openRound ? work?.approvals ?? [] : []) ?? [];
+  const waiting = openRound ? groupApprovals({ sessionId, roster, approvals: liveApprovals }) : [];
   if (replies.length === 0 && pending.length === 0 && waiting.length === 0) {
     return broken ? (0, import_react35.createElement)("div", { className: "bt-group-replies" }, (0, import_react35.createElement)("div", { className: "bt-event" }, t("The group replies could not be shown"))) : (0, import_react35.createElement)(CellEmpty);
   }
   return (0, import_react35.createElement)(
     "div",
     { className: "bt-group-replies" },
-    (0, import_react35.createElement)(GroupApprovalHints, { key: "approvals", sessionId, roster, actions, useWork }),
     stackReplies(replies).map(({ reply, index, texts: texts2, time, duration, claims, changes }) => {
       const bot = roster.byId[reply.botId] ?? { id: reply.botId, name: reply.name, color: reply.color ?? "gray" };
       if (reply.kind === "user") {
@@ -29066,6 +29070,7 @@ function GroupReplies({ sessionId, callId, done, content, roster, actions, useUi
       }
       return (0, import_react35.createElement)(GroupMessage, { key: `${reply.botId}-${index}`, bot, texts: texts2, room: room2, sessionId, roster, actions, msgKey: callId ? `${sessionId}:${callId}:${index}` : void 0, useUi, time, duration, claims, changes });
     }),
+    openRound && waiting.length > 0 ? (0, import_react35.createElement)(GroupApprovalHints, { key: "approvals", sessionId, roster, actions, useWork }) : null,
     pending.map((id, at) => {
       const bot = roster.byId[id];
       if (!bot) return null;

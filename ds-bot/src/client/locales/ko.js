@@ -739,7 +739,7 @@ export const KO = {
   'Mute notifications': '알림 끄기',
   'Unmute notifications': '알림 켜기',
   Notifications: '알림',
-  'Open this chat': '이 대화 열기',
+  'Review approval': '승인 확인',
   '{name} needs your approval to continue': '{name}이(가) 계속하려면 승인이 필요합니다',
   '{name} needs your approval to run {tool}': '{name}이(가) {tool}을(를) 실행하려면 승인이 필요합니다',
   'Tell me when a Bot answers while I am looking elsewhere.': '다른 곳을 보고 있을 때 Bot이 답하면 알려 주세요.',

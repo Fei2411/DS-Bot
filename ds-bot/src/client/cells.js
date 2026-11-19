@@ -1081,22 +1081,22 @@ export function GroupReplies({ sessionId, callId, done, content, roster, actions
   }
   // Every member answering in the round is typing; what each is doing comes as text,
   // so the cell redraws only when that changes.
-  const pending = range !== undefined ? (view?.open ? view.speaking ?? [] : []) : done ? [] : live.speaking
+  const openRound = range !== undefined ? view?.open === true : !done
+  const pending = openRound ? (range !== undefined ? view?.speaking ?? [] : live.speaking) : []
   const doing = JSON.parse(useWork?.(work => JSON.stringify(pending.map((id) => {
     const tool = work.bots?.[id]?.tool
     return tool ? [tool, workPhrase(work.bots[id])] : []
   }))) ?? '[]')
   const room = roster.roomsById[sessionId]
-  // A member Bot's approval card lives in its own Session, so the group says what it is
-  // waiting on instead of looking stuck (#1623).
-  const waiting = groupApprovals({ sessionId, roster, approvals: useWork?.(work => work?.approvals ?? []) ?? [] })
+  // Only the active/open group round shows live approval notices, never settled history rounds.
+  const liveApprovals = useWork?.(work => (openRound ? work?.approvals ?? [] : [])) ?? []
+  const waiting = openRound ? groupApprovals({ sessionId, roster, approvals: liveApprovals }) : []
   if (replies.length === 0 && pending.length === 0 && waiting.length === 0) {
     // A pruned tool result left nothing to draw; keep a marker row instead of an
     // empty turn, which reads as a blank gap on a narrow first paint.
     return broken ? h('div', { className: 'bt-group-replies' }, h('div', { className: 'bt-event' }, t('The group replies could not be shown'))) : h(CellEmpty)
   }
   return h('div', { className: 'bt-group-replies' },
-    h(GroupApprovalHints, { key: 'approvals', sessionId, roster, actions, useWork }),
     stackReplies(replies).map(({ reply, index, texts, time, duration, claims, changes }) => {
       const bot = roster.byId[reply.botId] ?? { id: reply.botId, name: reply.name, color: reply.color ?? 'gray' }
       if (reply.kind === 'user') {
@@ -1113,6 +1113,7 @@ export function GroupReplies({ sessionId, callId, done, content, roster, actions
       }
       return h(GroupMessage, { key: `${reply.botId}-${index}`, bot, texts, room, sessionId, roster, actions, msgKey: callId ? `${sessionId}:${callId}:${index}` : undefined, useUi, time, duration, claims, changes })
     }),
+    openRound && waiting.length > 0 ? h(GroupApprovalHints, { key: 'approvals', sessionId, roster, actions, useWork }) : null,
     pending.map((id, at) => {
       const bot = roster.byId[id]
       if (!bot) return null
