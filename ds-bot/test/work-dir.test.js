@@ -1503,6 +1503,27 @@ test('a save-token line cut inside a JSON escape matches the raw ending', async 
   assert.deepEqual(result?.map(({ text }) => text), [first.text, last.text])
 })
 
+test('a reply with the same visible text cannot replace an expired original', async (t) => {
+  const original = { botId: 'b', text: 'Opening. '.repeat(30) + 'First report. '.repeat(50) + 'Closing. '.repeat(15) }
+  const later = { ...original, text: original.text.replaceAll('First report.', 'Later report.') }
+  const json = JSON.stringify({ replies: [original], passed: [] })
+  const lineCut = json.slice(0, 260) + ` ...[+${json.length - 360} chars]... ` + json.slice(-100)
+  const jsonCut = JSON.stringify({ replies: [{
+    ...original, text: original.text.slice(0, 220) + ` ...[+${original.text.length - 300} chars]... ` + original.text.slice(-80),
+  }], passed: [] })
+  const saved = structuredClone(TEAM)
+  saved.rooms.r1.seq = 62
+  saved.rooms.r1.log = [
+    { seq: 61, who: 'User', text: 'Later prompt' },
+    { seq: 62, ...later },
+  ]
+  const { call, stop } = await start({ team: saved })
+  t.after(stop)
+  for (const preview of [lineCut, jsonCut]) {
+    assert.equal((await call('group-relay-replies', { sessionId: 'r1', preview })).value, null)
+  }
+})
+
 test('the file panel of a group with a folder lists the Session\'s own folder', async (t) => {
   // DSH's file panel lists a Session at the folder the Session was made in, so no
   // lookup override is needed once the group's own Session moved there.

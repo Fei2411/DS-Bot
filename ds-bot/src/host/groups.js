@@ -725,6 +725,9 @@ export function install(rt) {
     const book = rt.ledger.records(bookOf(room.id))
     const anchor = book.findIndex(record => record.event === 'anchor')
     const records = anchor === -1 ? book : book.slice(0, anchor)
+    // A unique match proves nothing when the original could have aged out of the legacy log.
+    if (records.some((record, i) => record.seq !== i + 1)
+      || (anchor === -1 ? records.length !== room.seq : book[anchor].from > records.length + 1)) return null
     // The line codec keeps 260 and 100 raw units, even if the splice still parses as JSON.
     if (marker.index === 260 && preview.length - marker.index - marker[0].length === 100) {
       return restoreRelayWindow(preview, records, marker)
