@@ -1885,6 +1885,131 @@ test('AcpEngine cwdPerProcess does not close a worker while another open is in-f
   await waitExited(failBothChildren[0])
 })
 
+test('AcpEngine cwdPerProcess retires workers when concurrent opens fail after forget or ephemeral close', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsb-acp-retire-'))
+  const dirForget = join(dir, 'ws-forget')
+  const dirEph = join(dir, 'ws-eph')
+  const dirInFlightForget = join(dir, 'ws-inflight-forget')
+  for (const d of [dirForget, dirEph, dirInFlightForget]) mkdirSync(d, { recursive: true })
+
+  // Deterministic fake ACP worker controlled via session/new order per workspace:
+  // - ws-forget: 1st session/new succeeds; 2nd session/new delays 80ms then fails.
+  // - ws-eph: 1st session/new succeeds; 2nd session/new holds until session/close completes, then fails.
+  // - ws-inflight-forget: 1st session/new delays 80ms then succeeds (caller forgets while in flight).
+  const script = `
+    let buf = '', next = 0
+    const counts = Object.create(null)
+    let heldEphFail
+    const send = obj => process.stdout.write(JSON.stringify(obj) + '\\n')
+    process.stdin.setEncoding('utf8')
+    process.stdin.on('data', chunk => {
+      buf += chunk
+      let i
+      while ((i = buf.indexOf('\\n')) !== -1) {
+        const line = buf.slice(0, i).trim(); buf = buf.slice(i + 1)
+        if (!line) continue
+        const { id, method, params = {} } = JSON.parse(line)
+        if (method === 'initialize') {
+          send({ jsonrpc: '2.0', id, result: { protocolVersion: 1, agentCapabilities: { sessionCapabilities: { close: {} } }, authMethods: [] } })
+        } else if (method === 'session/new') {
+          const cwd = String(params.cwd || '')
+          counts[cwd] = (counts[cwd] || 0) + 1
+          const n = counts[cwd]
+          if (cwd.endsWith('ws-forget')) {
+            if (n === 1) send({ jsonrpc: '2.0', id, result: { sessionId: 'acp-f-' + (++next), configOptions: [] } })
+            else setTimeout(() => send({ jsonrpc: '2.0', id, error: { code: -32000, message: 'second open failed' } }), 80)
+          } else if (cwd.endsWith('ws-eph')) {
+            if (n === 1) send({ jsonrpc: '2.0', id, result: { sessionId: 'acp-e-' + (++next), configOptions: [] } })
+            else heldEphFail = id
+          } else if (cwd.endsWith('ws-inflight-forget')) {
+            setTimeout(() => send({ jsonrpc: '2.0', id, result: { sessionId: 'acp-i-' + (++next), configOptions: [] } }), 80)
+          } else {
+            send({ jsonrpc: '2.0', id, result: { sessionId: 'acp-' + (++next), configOptions: [] } })
+          }
+        } else if (method === 'session/close') {
+          send({ jsonrpc: '2.0', id, result: {} })
+          if (heldEphFail !== undefined) {
+            const failId = heldEphFail
+            heldEphFail = undefined
+            setTimeout(() => send({ jsonrpc: '2.0', id: failId, error: { code: -32000, message: 'promoted open failed' } }), 30)
+          }
+        } else if (id !== undefined) {
+          send({ jsonrpc: '2.0', id, error: { code: -32601, message: 'method not found' } })
+        }
+      }
+    })
+  `
+  const engine = new AcpEngine('local-cursor-agent', {
+    name: 'Cursor',
+    kind: 'acp',
+    cwdPerProcess: true,
+    command: process.execPath,
+    args: ['-e', script],
+  }, { findExecutable: p => p })
+  const children = new Set()
+  const waitExited = child => (child.exitCode !== null || child.signalCode !== null
+    ? Promise.resolve()
+    : new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('worker child did not exit')), 2_000)
+      child.once('close', () => { clearTimeout(timer); resolve() })
+    }))
+  const origSpawnWorker = engine.spawnWorker.bind(engine)
+  engine.spawnWorker = (key) => {
+    const worker = origSpawnWorker(key)
+    const origEnsure = worker.ensure.bind(worker)
+    worker.ensure = async () => {
+      try {
+        return await origEnsure()
+      } finally {
+        if (worker.child) children.add(worker.child)
+      }
+    }
+    return worker
+  }
+  t.after(async () => {
+    await engine.close()
+    await Promise.all([...children].map(child => waitExited(child).catch(() => {})))
+    rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 })
+  })
+
+  // Case A: persistent s1 is forgotten while s2's newSession is in-flight; when s2 then fails,
+  // the now-empty worker must retire and exit rather than leaking forever.
+  const s1 = await engine.open('persist-1', { cwd: dirForget, ephemeral: false })
+  const workerA = engine.workerOf(s1)
+  const childA = workerA.child
+  const p2 = engine.open('persist-2', { cwd: dirForget, ephemeral: false })
+  while ((workerA.peer?.pending?.size ?? 0) < 1) await new Promise(resolve => setTimeout(resolve, 10))
+  engine.forget('persist-1')
+  assert.equal(engine.workers.has(dirForget), true, 'worker stays alive while s2 is still opening')
+  await assert.rejects(p2, /second open failed/)
+  assert.equal(engine.workers.has(dirForget), false, 'worker is removed once the last in-flight open fails')
+  await waitExited(childA)
+
+  // Case B: ephemeral s1 creates a worker, non-ephemeral s2 shares it and starts opening,
+  // s1 closes before s2 settles, and s2 then fails; keepWarm must not have been set prematurely.
+  const e1 = await engine.open('eph-1', { cwd: dirEph, ephemeral: true })
+  const workerB = engine.workerOf(e1)
+  const childB = workerB.child
+  const pPromoted = engine.open('main-promote', { cwd: dirEph, ephemeral: false })
+  while ((workerB.peer?.pending?.size ?? 0) < 1) await new Promise(resolve => setTimeout(resolve, 10))
+  await engine.closeSession(e1)
+  await assert.rejects(pPromoted, /promoted open failed/)
+  assert.equal(engine.workers.has(dirEph), false, 'ephemeral worker is removed when the non-ephemeral open fails')
+  await waitExited(childB)
+
+  // Case C: forgetting a session while its only open is still in-flight rejects that open
+  // and retires the worker without leaking the process.
+  const beforeC = new Set(children)
+  const pForgotten = engine.open('inflight-1', { cwd: dirInFlightForget, ephemeral: false })
+  while (engine.workers.get(dirInFlightForget)?.peer?.pending?.size !== 1) await new Promise(resolve => setTimeout(resolve, 10))
+  engine.forget('inflight-1')
+  await assert.rejects(pForgotten, /session closed while opening/)
+  assert.equal(engine.workers.has(dirInFlightForget), false)
+  const childC = [...children].find(child => !beforeC.has(child))
+  assert.ok(childC)
+  await waitExited(childC)
+})
+
 test('ACP errors with numeric, empty or object codes keep their message and get a string code (#1777)', async (t) => {
   const adapter = makeAdapter()
   t.after(() => adapter.dispose())
