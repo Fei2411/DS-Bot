@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs'
 import { createContext, runInContext, runInNewContext } from 'node:vm'
 import { bundleClient } from '../scripts/build-client.mjs'
 import { READ_LIMITS } from '../src/client/read-page.js'
+import { legacyKeys, STORAGE } from '../src/client/storage.js'
 
 const committed = () => readFileSync(new URL('../client.js', import.meta.url), 'utf8')
 const platform = {
@@ -75,4 +76,31 @@ test('the shipped page reader can run without the client bundle scope', () => {
     performance,
   })
   assert.equal(page.text, 'Sample page text')
+})
+
+test('the shipped client migrates preferences and browser tabs from either legacy key', () => {
+  const entries = new Map()
+  const localStorage = {
+    getItem: key => entries.get(key) ?? null,
+    setItem: (key, value) => entries.set(key, value),
+    removeItem: key => entries.delete(key),
+  }
+  let apply
+  runInNewContext(committed(), {
+    localStorage,
+    window: { __ModuleLoader__: { load: ({ factory }) => { ({ apply } = factory(specifier => platform[specifier])) } } },
+  })
+  const stop = new Error('stop after storage migration')
+  const ctx = { effect() {}, get() { throw stop } }
+  const prefs = '{"theme":"paper"}'
+  const page = { url: 'https://example.com/' }
+  const browsers = JSON.stringify({ a: { tabs: [{ id: 'v1-a', ...page, title: '' }], active: 'v1-a' } })
+
+  for (const [i, key] of legacyKeys(STORAGE.browsers).entries()) {
+    entries.clear()
+    entries.set(key, JSON.stringify({ a: page }))
+    entries.set(legacyKeys(STORAGE.prefs)[i], prefs)
+    assert.throws(() => apply(ctx), error => error === stop)
+    assert.deepEqual(Object.fromEntries(entries), { [STORAGE.prefs]: prefs, [STORAGE.browsers]: browsers })
+  }
 })

@@ -28,8 +28,10 @@ export async function bundleClient() {
     external: PLATFORM_MODULES,
     // Every source declaration ships, used or not, as in the hand-written bundle.
     treeShaking: false,
-    // keepNames would add a bundle-scoped helper to the serialized page reader.
-    minify: true,
+    // The leak scan uses the original LEGACY_* names to recognize migration lines.
+    minifySyntax: true,
+    minifyWhitespace: true,
+    lineLimit: 180,
     charset: 'utf8',
     write: false,
     logLevel: 'silent',
