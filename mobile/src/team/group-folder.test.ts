@@ -189,6 +189,9 @@ test('native-picker hosts can select saved and recent folders even when listing 
     render('Folder', props)
     await new Promise(setImmediate)
     const saved = nodes(render('Folder', props)).find(node => node.props.accessibilityRole === 'button')!
+    const failed = nodes(render('Folder', props))
+    assert.ok(failed.some(node => node.props.children === 'This DeepSeek Harness cannot list folders'))
+    assert.ok(failed.some(node => node.props.children === 'Pick a folder from Folders.'))
     assert.equal(saved.props.disabled, false)
     saved.props.onPress()
     await new Promise(setImmediate)
@@ -229,4 +232,26 @@ test('a late folder listing cannot replace a newer recent-folder selection', asy
   nodes(tree).find(node => node.props.accessibilityRole === 'button')!.props.onPress()
   await new Promise(setImmediate)
   assert.deepEqual(JSON.parse(JSON.stringify(writes)), [['update-room', { id: 'room-1', workDir: '/project-b/resolved' }]])
+})
+
+test('folder listing errors clear on retry and stale failures are ignored', async () => {
+  const replies: { resolve: (value: unknown) => void; reject: (error: Error) => void }[] = []
+  const { render } = screen({}, async name => {
+    if (name === 'folders') return { folders: [{ title: 'Retry', path: '/project' }] }
+    return new Promise((resolve, reject) => replies.push({ resolve, reject }))
+  }, true)
+  const props = { route: { params: {} }, navigation: {} }
+  render('Folder', props)
+  replies[0].reject(new Error('Unavailable'))
+  await new Promise(setImmediate)
+  assert.ok(nodes(render('Folder', props)).some(node => node.props.children === 'Unavailable'))
+  const retry = () => nodes(render('Folder', props)).find(node => node.props.label === 'Retry')!.props.onPress()
+  retry()
+  assert.equal(nodes(render('Folder', props)).some(node => node.props.children === 'Unavailable'), false)
+  retry()
+  replies[2].resolve({ path: '/project', entries: [] })
+  await new Promise(setImmediate)
+  replies[1].reject(new Error('Stale failure'))
+  await new Promise(setImmediate)
+  assert.equal(nodes(render('Folder', props)).some(node => node.props.children === 'Stale failure' || node.props.children === 'Pick a folder from Folders.'), false)
 })

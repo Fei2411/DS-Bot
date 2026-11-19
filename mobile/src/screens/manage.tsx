@@ -938,16 +938,20 @@ export function Folder({ route, navigation }: any) {
   const [listing, setListing] = useState<{ path: string; crumbs?: { path: string }[]; entries: { name: string; path: string }[]; truncated?: boolean } | null>(null)
   const [recent, setRecent] = useState<{ path: string; title: string }[]>([])
   const request = useRef(0)
+  const [listingError, setListingError] = useState<string | null>(null)
   const load = (next: string) => {
     const id = ++request.current
     setPath(next)
     setListing(null)
+    setListingError(null)
     void call('folder-list', { path: next }).then(v => {
       if (id !== request.current) return
       const nextListing = v as NonNullable<typeof listing>
       setListing(nextListing)
       setPath(nextListing.path)
-    }).catch(() => {})
+    }).catch(failure => {
+      if (id === request.current) setListingError((failure as Error)?.message ?? String(failure))
+    })
   }
   useEffect(() => {
     void call('folders').then(v => setRecent((v as { folders?: { path: string; title: string }[] })?.folders ?? [])).catch(() => {})
@@ -965,6 +969,10 @@ export function Folder({ route, navigation }: any) {
       <BackRow title={t('Working folder')} onBack={() => navigation.goBack()} />
       <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
         {error ? <Text style={[typeScale.small, { color: p.danger, marginHorizontal: 18, marginTop: 10 }]}>{error}</Text> : null}
+        {listingError ? <View style={{ marginHorizontal: 18, marginTop: 10 }}>
+          <Text style={[typeScale.small, { color: p.danger }]}>{listingError}</Text>
+          <Text style={[typeScale.small, { color: p.ink }]}>{t('Pick a folder from Folders.')}</Text>
+        </View> : null}
         {route.params?.onPick === 'room' ? (
           <Section label={t('Folder')}>
             <Row label={t("Each Bot's own folder")} onPress={() => choose('')} />
