@@ -459,11 +459,13 @@ test('a memory write that failed says so, and opens the memory it meant to chang
 })
 
 test('a removal that failed says it could not remove the entry, and why', () => {
-  const line = memoryLine(failedWrite('forget', {}, 'memory/no-match', 'No entry in your memory matches "tea".'), {})
-  assert.match(text(line), /Couldn't remove from memory/)
-  assert.match(text(line), /No saved entry matched/)
-  // The entry the call named is not repeated in the notice.
-  assert.doesNotMatch(text(line), /tea/)
+  for (const name of ['bot_forget', 'forget']) {
+    const line = memoryLine(failedWrite(name, {}, 'memory/no-match', 'No entry in your memory matches "tea".'), {})
+    assert.match(text(line), /Couldn't remove from memory/)
+    assert.match(text(line), /No saved entry matched/)
+    // The entry the call named is not repeated in the notice.
+    assert.doesNotMatch(text(line), /tea/)
+  }
 })
 
 test('the reason follows the kind of failure, not the words of the host', () => {
