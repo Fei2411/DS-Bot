@@ -5743,12 +5743,14 @@ r(--bt-font)}
 .bt-stack-more{font-size:11px;line-height:16px;color:var(--bt-ink-3);margin-left:3px!important}
 
 .bt-side{display:flex;flex-direction:column;min-height:0;flex:1 1 auto;gap:2px;padding:0 12px 8px 0;color:var(--bt-ink);font-family:var(--bt-font)}
-.bt-side-top{display:flex;justify-content:flex-end;align-items:center;gap:8px;padding:6px 5px 0 0}
+.bt-side-top{display:flex;flex-wrap:wrap;container-type:inline-size;container-name:bt-side-top;justify-content:flex-start;align-items:center;gap:8px;padding:6px 5px 0 0}
 .bt-brand{display:inline-flex;align-items:center;gap:6px;margin-right:auto;padding:4px 8px 4px 4px;border:0;border-radius:8px;background:none;cursor:pointer;font-family:inherit;fon\
 t-size:15px;line-height:20px;font-weight:600;letter-spacing:-.01em;color:var(--bt-ink);white-space:nowrap}
 .bt-brand-whale{display:inline-flex;color:var(--bt-accent)}
-.bt-round{width:36px;height:36px;border-radius:50%;border:1px solid var(--bt-line);background:var(--bt-main);color:var(--bt-ink);display:inline-flex;align-items:center;justify-cont\
-ent:center;cursor:pointer;padding:0;transition:background-color .12s ease,transform .12s ease}
+.bt-round{flex:none;width:36px;height:36px;border-radius:50%;border:1px solid var(--bt-line);background:var(--bt-main);color:var(--bt-ink);display:inline-flex;align-items:center;ju\
+stify-content:center;cursor:pointer;padding:0;transition:background-color .12s ease,transform .12s ease}
+/* A narrow column must wrap its header instead of squeezing round controls. */
+@container bt-side-top (max-width:300px){.bt-side-top>.bt-brand{flex-basis:100%}}
 .bt-round:hover{background:var(--bt-hover)}
 .bt-round:active{transform:scale(.94)}
 .bt-list{display:flex;flex-direction:column;gap:3px;overflow-y:auto;min-height:0;flex:1 1 auto}
@@ -5803,6 +5805,12 @@ html[data-windows-titlebar] .bt-leftcol,html[data-platform=darwin] .bt-leftcol{b
 @media (min-width:${DSH_NARROW}px){
 [class*="_frame"][data-sidebar-collapsed][data-rightbar-collapsed]:has(>[class*="_sidebarCol"]){grid-template-columns:0px minmax(0,1fr) 0px!important}
 }
+/* Bot mode owns the left column while both shell tracks are collapsed. Keep
+   the center's explicit second grid column, but yield when a shell track opens.
+   A responsive skin's single track otherwise creates an implicit center column. */
+@media (max-width:${DSH_NARROW-1}px){
+[class*="_frame"][data-sidebar-collapsed][data-rightbar-collapsed]:has(>[class*="_centerCol"] .bt-head){grid-template-columns:0px minmax(0,1fr) 0px!important}
+}
 html[data-bt-collapsing] [class*="_frame"]:has(>[class*="_sidebarCol"]){transition:none!important}
 .bt-leftcol[data-left=drawer]{background:var(--bt-sidebar);box-shadow:8px 0 24px rgba(0,0,0,.14)}
 .bt-leftcol>.bt-side{width:100%}
@@ -5810,6 +5818,10 @@ html[data-bt-collapsing] [class*="_frame"]:has(>[class*="_sidebarCol"]){transiti
 .bt-rail{align-items:center;gap:6px;padding:0}
 .bt-rail .bt-row{justify-content:center;width:56px;height:56px;min-height:56px;padding:0;border-radius:16px}
 .bt-rail-top{display:flex;flex-direction:column;align-items:center;gap:8px;padding-bottom:8px}
+@media (max-width:600px) and (min-height:501px){
+.bt-rail-top .bt-round,.bt-leftcol-foot-rail>:is(.bt-round,.bt-account),.bt-leftcol-foot-rail .bt-you{width:56px;height:56px;flex:none}
+.bt-rail-top>.bt-round svg,.bt-leftcol-foot-rail>:is(.bt-round,.bt-account) svg{width:22px;height:22px}
+}
 .bt-rail-sep{width:24px;height:1px;flex:none;background:var(--bt-line)}
 .bt-rail .bt-agent-ava{width:44px;height:44px}
 /* Icon rows breathe the way the open column's rows do: 8px of gap puts ~20px
@@ -7066,6 +7078,13 @@ lor .15s ease,background-color .15s ease,${spring(SPRING_SHAPE,"border-radius")}
 nth-child(2)){border-radius:18px!important}
 [class*="_root"]:has(> [data-composer-card]){padding:0 11px 13px 16px!important}
 [class*="_root"]:has(> [data-composer-card])>[data-composer-card]{max-width:min(992px,100%)!important}
+/* Embedded phone browsers may report zero safe-area insets even when the screen
+   corners clip content. Keep a minimum gutter as well as honoring larger insets. */
+@media (max-width:${DSH_NARROW-1}px) and (pointer:coarse){
+.bt-leftcol,.bt-leftcol[data-left=rail]{padding-bottom:max(24px,env(safe-area-inset-bottom,0px))}
+[class*="_root"]:has(> [data-composer-card]){padding-left:max(16px,env(safe-area-inset-left,0px))!important;padding-right:max(16px,env(safe-area-inset-right,0px))!important;padding\
+-bottom:max(24px,env(safe-area-inset-bottom,0px))!important}
+}
 [data-composer-card]>[class*="_row"]{display:contents!important}
 [data-composer-card] [class*="_tools"]{order:1!important;flex:none!important;align-self:flex-end!important;margin:0!important}
 [data-composer-card]>[data-input-scroll]{order:2!important;flex:1 1 0!important;min-width:0!important;padding:0 8px!important;margin:0!important}
@@ -7075,6 +7094,13 @@ nth-child(2)){border-radius:18px!important}
 [data-composer-card]:has(> [data-slot="conversation.input.attachments"] > [class*="_rail"])>[data-input-scroll]{order:1!important;flex:0 0 100%!important;margin:0 0 6px!important}
 [data-composer-card]:has(> [data-slot="conversation.input.attachments"] > [class*="_rail"]) [class*="_tools"]{order:2!important}
 [data-composer-card]:has(> [data-slot="conversation.input.attachments"] > [class*="_rail"]) [class*="_trailing"]{margin-left:auto!important}
+/* On phones the optional tools can consume the whole line before an empty editor
+   has any intrinsic width. Give typing its own line, including before the first tap. */
+@media (max-width:600px), (max-width:${DSH_NARROW-1}px) and (max-height:500px) and (pointer:coarse){
+[data-composer-card]>[data-input-scroll]{order:1!important;flex:0 0 100%!important;margin:0 0 6px!important}
+[data-composer-card] [class*="_tools"]{order:2!important}
+[data-composer-card] [class*="_trailing"]{margin-left:auto!important}
+}
 [data-composer-card] [data-composer-input]{min-height:24px!important;padding:2px 0!important}
 [data-composer-card] [data-composer-placeholder]{left:0!important;top:2px!important}
 [data-composer-placeholder]{font-size:0!important;line-height:0!important}
@@ -10927,23 +10953,24 @@ RoomAvatar,{room:room2,roster,size:28}),(0,import_react35.createElement)("span",
 className:"bt-typing-label"},(0,import_react35.createElement)(Shimmer,null,`${shown.text}…`)),(0,import_react35.createElement)(Elapsed,{at:moveAt!==0?moveAt:Math.max(turnAt??runAt.
 current,inputAt),className:"bt-typing-time"}))),host)}var APP_OFFER=new Set(["available","downloading","verifying","installing","ready"]),bare=value=>String(value??"").trim().replace(/^v/i,"").split("+")[0],sameVersion=(a,b)=>bare(a)!==
 ""&&bare(a)===bare(b);function showsDshRow(dsh,app){return!dsh?.verified||!dsh.current||sameVersion(dsh.verified,dsh.current)?!1:dsh.kind==="npm"?!0:dsh.kind==="app"&&APP_OFFER.has(
-app?.phase)&&sameVersion(app.version,dsh.verified)}var sidebarTrackWidth=()=>{let box=typeof document>"u"?void 0:document.querySelector('[class*="_sidebarCol"]')?.getBoundingClientRect();return box===void 0?null:trackRoom(box)},dshCollapsed=()=>{
-if(typeof document>"u")return null;let column=document.querySelector('[class*="_sidebarCol"]');return column?column.closest("[data-sidebar-collapsed]")!==null:null},collapsedTrackWidth=()=>document.
-documentElement.hasAttribute("data-windows-titlebar")||document.documentElement.dataset.platform==="darwin"?0:56,room={rule:null,selector:""},roomRule=()=>{let live=room.rule?.parentStyleSheet?.
-ownerNode?.isConnected;if(live&&room.selector)return room.rule;let column=document.querySelector('[class*="_centerCol"]'),selector=column?[...column.classList].filter(name=>name.includes(
-"_centerCol")).map(name=>`.${CSS.escape(name)}`).join(","):"";if(live&&!selector)return room.rule;let declarations2=room.rule?.style.cssText??"";room.rule?.parentStyleSheet?.ownerNode?.
-remove();let style=installStyles(`${selector||'[class*="_centerCol"]'}{${declarations2}}`,"chat-room");return room.rule=style.sheet.cssRules[0],room.selector=selector,room.rule},margin=(side,width,style)=>{
-width===null?style.removeProperty(`margin-${side}`):style.setProperty(`margin-${side}`,`${width}px`,"important")},roomHold=0,chatRoom={setRight(width){margin("right",width,roomRule().
-style)},setLeft(width){margin("left",width,roomRule().style)},hold(on){if(cancelAnimationFrame(roomHold),on){roomRule().style.setProperty("transition","none","important");return}roomHold=
-requestAnimationFrame(()=>{roomHold=requestAnimationFrame(()=>roomRule().style.removeProperty("transition"))})},columns(){return roomRule(),room.selector?[...document.querySelectorAll(
-room.selector)]:[]}};function installFrameWatch(frame2){let collapsedWidth=collapsedTrackWidth(),raf=0,watched=new Set,observer=typeof ResizeObserver=="function"?new ResizeObserver(
-()=>schedule()):null,read=()=>{let animating=document.querySelector('[class*="_sidebarCol"]')?.closest("[data-animating]")!=null,width=animating?null:sidebarTrackWidth(),collapsed=dshCollapsed();
-collapsedWidth=nextCollapsedWidth({measured:width,collapsed,animating,last:collapsedWidth}),frame2.set(state=>{let next={...state,viewport:window.innerWidth,collapsedWidth,collapsed:collapsed===
-!0};return state.viewport===next.viewport&&state.collapsedWidth===next.collapsedWidth&&state.collapsed===next.collapsed?state:next})},measure=()=>{for(let selector of['[class*="_si\
-debarCol"]','[class*="_centerCol"]'])for(let column of document.querySelectorAll(selector))watched.has(column)||(watched.add(column),observer?.observe(column));read()},schedule=()=>{
-raf===0&&(raf=requestAnimationFrame(()=>{raf=0,measure()}))};measure();let mutations=new MutationObserver(schedule);return mutations.observe(document.documentElement,{subtree:!0,childList:!0,
-attributes:!0,attributeFilter:["data-sidebar-collapsed","data-animating"]}),window.addEventListener("resize",schedule),()=>{cancelAnimationFrame(raf),mutations.disconnect(),observer?.
-disconnect(),window.removeEventListener("resize",schedule)}}var import_react36=require("react"),import_react_dom6=require("react-dom");function useMarkedUnread(id,active,marked2,actions){(0,import_react36.useEffect)(()=>{active&&marked2&&actions.
+app?.phase)&&sameVersion(app.version,dsh.verified)}var sidebarTrackWidth=()=>{let column=typeof document>"u"?null:document.querySelector('[class*="_sidebarCol"]');if(!column)return null;let position=typeof getComputedStyle=="functi\
+on"?getComputedStyle(column).position:"";return position==="absolute"||position==="fixed"?0:trackRoom(column.getBoundingClientRect())},dshCollapsed=()=>{if(typeof document>"u")return null;
+let column=document.querySelector('[class*="_sidebarCol"]');return column?column.closest("[data-sidebar-collapsed]")!==null:null},collapsedTrackWidth=()=>document.documentElement.hasAttribute(
+"data-windows-titlebar")||document.documentElement.dataset.platform==="darwin"?0:56,room={rule:null,selector:""},roomRule=()=>{let live=room.rule?.parentStyleSheet?.ownerNode?.isConnected;
+if(live&&room.selector)return room.rule;let column=document.querySelector('[class*="_centerCol"]'),selector=column?[...column.classList].filter(name=>name.includes("_centerCol")).map(
+name=>`.${CSS.escape(name)}`).join(","):"";if(live&&!selector)return room.rule;let declarations2=room.rule?.style.cssText??"";room.rule?.parentStyleSheet?.ownerNode?.remove();let style=installStyles(
+`${selector||'[class*="_centerCol"]'}{${declarations2}}`,"chat-room");return room.rule=style.sheet.cssRules[0],room.selector=selector,room.rule},margin=(side,width,style)=>{width===
+null?style.removeProperty(`margin-${side}`):style.setProperty(`margin-${side}`,`${width}px`,"important"),style.marginLeft||style.marginRight?style.setProperty("width","auto","impor\
+tant"):style.removeProperty("width")},roomHold=0,chatRoom={setRight(width){margin("right",width,roomRule().style)},setLeft(width){margin("left",width,roomRule().style)},hold(on){if(cancelAnimationFrame(
+roomHold),on){roomRule().style.setProperty("transition","none","important");return}roomHold=requestAnimationFrame(()=>{roomHold=requestAnimationFrame(()=>roomRule().style.removeProperty(
+"transition"))})},columns(){return roomRule(),room.selector?[...document.querySelectorAll(room.selector)]:[]}};function installFrameWatch(frame2){let collapsedWidth=collapsedTrackWidth(),
+raf=0,watched=new Set,observer=typeof ResizeObserver=="function"?new ResizeObserver(()=>schedule()):null,read=()=>{let animating=document.querySelector('[class*="_sidebarCol"]')?.closest(
+"[data-animating]")!=null,width=animating?null:sidebarTrackWidth(),collapsed=dshCollapsed();collapsedWidth=nextCollapsedWidth({measured:width,collapsed,animating,last:collapsedWidth}),
+frame2.set(state=>{let next={...state,viewport:window.innerWidth,collapsedWidth,collapsed:collapsed===!0};return state.viewport===next.viewport&&state.collapsedWidth===next.collapsedWidth&&
+state.collapsed===next.collapsed?state:next})},measure=()=>{for(let selector of['[class*="_sidebarCol"]','[class*="_centerCol"]'])for(let column of document.querySelectorAll(selector))
+watched.has(column)||(watched.add(column),observer?.observe(column));read()},schedule=()=>{raf===0&&(raf=requestAnimationFrame(()=>{raf=0,measure()}))};measure();let mutations=new MutationObserver(
+schedule);return mutations.observe(document.documentElement,{subtree:!0,childList:!0,attributes:!0,attributeFilter:["data-sidebar-collapsed","data-animating"]}),window.addEventListener(
+"resize",schedule),()=>{cancelAnimationFrame(raf),mutations.disconnect(),observer?.disconnect(),window.removeEventListener("resize",schedule)}}var import_react36=require("react"),import_react_dom6=require("react-dom");function useMarkedUnread(id,active,marked2,actions){(0,import_react36.useEffect)(()=>{active&&marked2&&actions.
 clearUnread(id)},[active,marked2])}var PinMark=()=>(0,import_react36.createElement)("span",{className:"bt-pin","aria-hidden":!0},(0,import_react36.createElement)(PinMarkIcon)),nameIfCut=event=>{
 let row=event.currentTarget,name=row.querySelector(".bt-row-title");name&&name.scrollWidth>name.clientWidth?row.title=name.textContent:row.removeAttribute("title")},useApproval=(useWork,match)=>useWork?
 useWork(work=>(work.approvals??[]).some(match)):!1,useGroupWork=(useWork,pick2)=>{let raw=useWork?useWork(work=>JSON.stringify(pick2(work.rooms??{}))):"[]";return(0,import_react36.useMemo)(
