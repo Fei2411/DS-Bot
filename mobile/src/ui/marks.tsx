@@ -1,6 +1,6 @@
 import { Image, StyleSheet, Text, View } from 'react-native'
 import { SvgXml } from 'react-native-svg'
-import { characterMarkup, lookOf, MAIN_LOOK, MASK_ID, shapeOf } from '../../../ds-bot/src/client/characters.js'
+import { characterMarkup, lookOf, MASK_ID, shapeOf } from '../../../ds-bot/src/client/characters.js'
 import { INKS } from '../../../ds-bot/src/client/inks.js'
 import type { Bot, Room } from '../connection.ts'
 import { MainStarIcon } from './icons.tsx'
@@ -15,16 +15,6 @@ export const COLOR_PAINT: Record<string, string> = {
   black: '#3c4048', brown: '#8d6e57', red: '#e5484d', orange: '#f76b15', yellow: '#d4a017',
   green: '#30a46c', cyan: '#12a5b4', blue: '#4f7df3', violet: '#7d5aff', magenta: '#d3458b', gray: '#8b8f98',
   aurora: '#5cc8a0',
-}
-
-export function botSvg(bot: unknown, dark: boolean): string {
-  const look = lookOf(bot)
-  const box = shapeOf(look.shape).size
-  const id = `pm${serial += 1}`
-  const inner = characterMarkup(look.shape, look.color).replaceAll(MASK_ID, id)
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${box} ${box}">${inner}</svg>`
-  const inks = INKS as Record<string, string[]>
-  return svg.replace(/var\(--bt-ink-(\w+)\)/g, (_match, name: string) => (inks[name] ?? inks.gray)[dark ? 1 : 0])
 }
 
 const lookSvg = (look: { shape: string; color: string; image?: string }, dark: boolean): string => {
@@ -49,11 +39,6 @@ export function Mark({ look, dark, size = 24 }: { look: { shape: string; color: 
 
 export function BotMark({ bot, dark, size = 36 }: { bot: unknown; dark: boolean; size?: number }) {
   return <Mark look={lookOf(bot)} dark={dark} size={size} />
-}
-
-// The "You" avatar of the desktop sidebar's footer (YouAvatar): the whale mark.
-export function YouMark({ dark, size = 24 }: { dark: boolean; size?: number }) {
-  return <Mark look={MAIN_LOOK} dark={dark} size={size} />
 }
 
 // Status badges per ui-standard 8.2, scaled to the row's 44px avatar: a working
