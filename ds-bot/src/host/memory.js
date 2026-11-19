@@ -193,7 +193,8 @@ export function install(rt) {
       }
       topics.set(topic, parsed)
     }
-    recallCache.set(dir, topics)
+    if (topics.size === 0) recallCache.delete(dir)
+    else recallCache.set(dir, topics)
     return [...topics.values()].flatMap(parsed => parsed.entries)
   }
   const mainLimit = scope => state.prefs.memoryLimits?.[scope.kind] ?? MEMORY_LIMITS[scope.kind]
@@ -668,11 +669,11 @@ export function install(rt) {
       await recoverPending()
       await unlink(join(root, 'summaries', `${safeId(botId)}.json`)).catch(() => {})
       const dir = dirOf(ownScope(botId))
+      recallCache.delete(dir)
       if (!existsSync(dir)) return
       const name = `${safeId(botId)}-${new Date().toISOString().replace(/[:.]/g, '-')}`
       await mkdir(join(root, 'archive'), { recursive: true })
       await rename(dir, join(root, 'archive', name))
-      recallCache.delete(dir)
       // The memory is in the archive from here: a log row that cannot be written must not
       // hide where it went, which the privacy guard needs to keep a private archive closed.
       await journalRow({ id: randomUUID(), time: new Date().toISOString(), op: 'archive', scope: scopeKey(ownScope(botId)), actor: 'user', actorName: 'user', botName: bot?.name, to: `archive/${name}` })
@@ -694,11 +695,11 @@ export function install(rt) {
       await recoverPending()
       await unlink(summaryPath(room.id)).catch(() => {})
       const dir = dirOf(groupScope(room.id))
+      recallCache.delete(dir)
       if (!existsSync(dir)) return
       const name = `group-${safeId(room.id)}-${new Date().toISOString().replace(/[:.]/g, '-')}`
       await mkdir(join(root, 'archive'), { recursive: true })
       await rename(dir, join(root, 'archive', name))
-      recallCache.delete(dir)
       await journalRow({ id: randomUUID(), time: new Date().toISOString(), op: 'archive', scope: scopeKey(groupScope(room.id)), actor: 'user', actorName: 'user', groupName: room.name, to: `archive/${name}` })
     }).catch(error => rt.warn('ds-bot: memory of group %s not archived: %s', room.name, error))
   }

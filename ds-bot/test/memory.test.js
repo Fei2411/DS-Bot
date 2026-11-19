@@ -2114,7 +2114,7 @@ test('recall reads a topic again only once its file has changed', async (t) => {
   const reads = []
   const realRead = fs.readFileSync
   fs.readFileSync = (path, ...rest) => {
-    if (String(path).startsWith(memory) && String(path).endsWith('.md')) reads.push(String(path).slice(memory.length))
+    if (String(path).startsWith(memory) && String(path).endsWith('.md')) reads.push(String(path))
     return realRead(path, ...rest)
   }
   syncBuiltinESMExports()
@@ -2132,7 +2132,7 @@ test('recall reads a topic again only once its file has changed', async (t) => {
   const edited = textOf(await recallOf(ctx, 'b2', asked))
   assert.match(edited, /发版前先跑模拟检查/)
   assert.doesNotMatch(edited, /真机/)
-  assert.deepEqual(reads, ['/bots/b2/release.md'])
+  assert.deepEqual(reads, [release])
   unlinkSync(release)
   assert.equal(await recallOf(ctx, 'b2', asked), undefined)
 })
