@@ -46317,7 +46317,7 @@ function apply(ctx) {
   const SHELL_SHEETS = [
     [SHELL_CSS, "shell"],
     [SIDEBAR_CSS, "sidebar"],
-    [SECRET_CSS + CONNECTOR_CSS + CONNECTORS_PAGE_CSS, "secrets"],
+    [SECRET_CSS + CONNECTOR_CSS + CONNECTORS_PAGE_CSS + PROVIDERS_CSS, "secrets"],
     [LEARNING_CSS, "learning"],
     [MODEL_CSS + FOLDER_CSS + BOT_SETTINGS_CSS + BOT_MODELS_CSS + AGENT_CARDS_CSS + GROUP_SETTINGS_CSS + AVATAR_LIBRARY_CSS, "models"],
     [USAGE_CSS, "usage"],
