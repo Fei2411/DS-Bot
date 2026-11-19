@@ -8,9 +8,15 @@
 // getconfig ticket. Voice items arrive with a transcript; images download
 // from the CDN and decrypt with their AES key. A refused send is permanent
 // with the platform's reason. Protocol ported from dsh-im (MIT, see NOTICE).
-import { createDecipheriv, randomBytes } from 'node:crypto'
+import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto'
 
 const QR_BASE = 'https://ilinkai.weixin.qq.com/'
+const CDN_BASE = 'https://novac2c.cdn.weixin.qq.com/c2c'
+const IMAGE_LIMIT = 20 * 1024 * 1024
+const CDN_HOSTS = new Set([
+  'novac2c.cdn.weixin.qq.com', 'ilinkai.weixin.qq.com', 'wx.qlogo.cn',
+  'thirdwx.qlogo.cn', 'res.wx.qq.com', 'mmbiz.qpic.cn', 'mmbiz.qlogo.cn',
+])
 const BOT_TYPE = '3'
 const TEXT_LIMIT = 1800
 const POLL_TIMEOUT_MS = 35_000
@@ -267,6 +273,104 @@ export default {
           messageId = clientId
         }
         return { messageId }
+      },
+      sendImage: async (chat, image) => {
+        const bytes = Buffer.isBuffer(image?.data) ? image.data : Buffer.from(image?.data ?? [])
+        if (bytes.byteLength === 0) throw fail('Empty image', { permanent: true })
+        if (bytes.byteLength > IMAGE_LIMIT) throw fail('Image too large for WeChat', { permanent: true })
+        const fileKey = randomBytes(16).toString('hex')
+        const aesKey = randomBytes(16)
+        const padded = Math.ceil((bytes.byteLength + 1) / 16) * 16
+        const upload = await call('getuploadurl', {
+          filekey: fileKey,
+          media_type: 1,
+          to_user_id: chat.key,
+          rawsize: bytes.byteLength,
+          rawfilemd5: createHash('md5').update(bytes).digest('hex'),
+          filesize: padded,
+          no_need_thumb: true,
+          aeskey: aesKey.toString('hex'),
+        })
+        const upCode = upload?.ret ?? upload?.errcode
+        if (upCode !== undefined && Number(upCode) !== 0) {
+          throw fail(`WeChat refused the image upload (${upload.errmsg ?? upCode})`, { permanent: true })
+        }
+        const full = String(upload?.upload_full_url ?? '').trim()
+        const param = String(upload?.upload_param ?? '').trim()
+        const configuredCdn = String(env.config?.cdn ?? CDN_BASE).replace(/\/+$/, '')
+        let url
+        try {
+          if (full !== '') url = new URL(full)
+          else if (param !== '') {
+            url = new URL(`${configuredCdn}/upload`)
+            url.searchParams.set('encrypted_query_param', param)
+            url.searchParams.set('filekey', fileKey)
+          } else {
+            throw fail('WeChat returned no upload address', { permanent: true })
+          }
+        } catch (error) {
+          if (error?.permanent === true) throw error
+          throw fail('WeChat returned an invalid upload address', { permanent: true })
+        }
+        const allowedCustomHost = (() => {
+          for (const raw of [env.config?.cdn, env.config?.api]) {
+            try { if (raw && new URL(String(raw)).host === url.host) return true } catch {}
+          }
+          return false
+        })()
+        const trustedProdHost = (CDN_HOSTS.has(url.hostname)
+          || /(^|\.)(wechat|weixin)\.qq\.com$/i.test(url.hostname)
+          || /(^|\.)wechat\.com$/i.test(url.hostname))
+          && url.protocol === 'https:'
+          && (url.port === '' || url.port === '443')
+        const allowed = url.username === '' && url.password === ''
+          && ((allowedCustomHost && (url.protocol === 'http:' || url.protocol === 'https:')) || trustedProdHost)
+        if (!allowed) {
+          throw fail(`Untrusted upload address (${url.hostname})`, { permanent: true })
+        }
+        const cipher = createCipheriv('aes-128-ecb', aesKey, null)
+        const encrypted = Buffer.concat([cipher.update(bytes), cipher.final()])
+        const response = await env.fetch(url, {
+          method: 'POST',
+          headers: { 'content-type': 'application/octet-stream', 'content-length': String(encrypted.byteLength) },
+          body: encrypted,
+          redirect: 'error',
+          signal: AbortSignal.any([stopping.signal, AbortSignal.timeout(30_000)]),
+        })
+        if (!response.ok) {
+          const error = fail(`WeChat image upload failed (HTTP ${response.status})`)
+          error.status = response.status
+          if (response.status === 429) error.retryAfter = Number(response.headers.get('retry-after'))
+          error.permanent = response.status >= 400 && response.status < 500 && response.status !== 429
+          throw error
+        }
+        const downloadParam = response.headers.get('x-encrypted-param')
+        if (!downloadParam) throw fail('WeChat upload returned no download parameter', { permanent: true })
+        const clientId = `ds-bot-${randomBytes(8).toString('hex')}`
+        const contextToken = contextTokens()[chat.key]
+        const answer = await call('sendmessage', {
+          msg: {
+            from_user_id: '', to_user_id: chat.key, client_id: clientId,
+            message_type: 2, message_state: 2,
+            item_list: [{
+              type: 2,
+              image_item: {
+                media: {
+                  encrypt_query_param: downloadParam,
+                  aes_key: Buffer.from(aesKey.toString('hex')).toString('base64'),
+                  encrypt_type: 1,
+                },
+                mid_size: encrypted.byteLength,
+              },
+            }],
+            ...(contextToken ? { context_token: contextToken } : {}),
+          },
+        })
+        const sendCode = answer?.ret ?? answer?.errcode
+        if (sendCode !== undefined && Number(sendCode) !== 0) {
+          throw fail(`WeChat refused the image (${answer.errmsg ?? sendCode})`, { permanent: true })
+        }
+        return { messageId: clientId }
       },
       typing: async (chat) => {
         const answer = await call('getconfig', { ilink_user_id: chat.key }, 8_000).catch(() => undefined)

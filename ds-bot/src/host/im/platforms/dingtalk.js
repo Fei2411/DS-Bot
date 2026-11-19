@@ -39,7 +39,7 @@ export default {
       if (token !== undefined && tokenExpiresAt > Date.now() + 30_000) return token
       const answer = await appToken(fields, env)
       token = answer.accessToken
-      tokenExpiresAt = Date.now() + (Number(answer.expiresIn ?? 7200) * 1000)
+      tokenExpiresAt = answer.expiresAt
       return token
     }
     // Passive replies reuse the inbound sessionWebhook while it lives.
@@ -237,6 +237,37 @@ export default {
 
     return {
       send: async (chat, { text }) => markdown(chat, text),
+      sendImage: async (chat, image) => {
+        const bytes = Buffer.isBuffer(image?.data) ? image.data : Buffer.from(image?.data ?? [])
+        if (bytes.byteLength === 0) throw Object.assign(new Error('Empty image'), { permanent: true })
+        const form = new FormData()
+        form.append('media', new Blob([bytes], { type: image.mediaType || 'image/png' }), image.name || 'image.png')
+        const upResp = await env.fetch(`${oapiBase(env)}/media/upload?access_token=${encodeURIComponent(await ensureToken())}&type=image`, {
+          method: 'POST',
+          body: form,
+          signal: AbortSignal.timeout(30_000),
+        })
+        const upJson = await upResp.json().catch(() => ({}))
+        const mediaId = String(upJson?.media_id ?? '')
+        if (!upResp.ok || (upJson.errcode !== undefined && upJson.errcode !== 0) || mediaId === '') {
+          // Clear cached token on expired/invalid access_token codes so retry fetches a fresh one.
+          if ([40014, 42001].includes(Number(upJson.errcode))) { token = undefined; tokenExpiresAt = 0 }
+          const error = new Error(String(upJson.errmsg ?? `DingTalk image upload answered ${upResp.status}`))
+          error.status = upResp.status
+          if (upResp.status === 429) error.retryAfter = Number(upResp.headers.get('retry-after'))
+          error.permanent = upResp.status >= 400 && upResp.status < 500 && upResp.status !== 429
+          throw error
+        }
+        const msgParam = JSON.stringify({ photoURL: mediaId })
+        const answer = chat.kind === 'direct'
+          ? await robot(env, await ensureToken(), clientId, '/v1.0/robot/oToMessages/batchSend', {
+            robotCode: clientId, userIds: [chat.key], msgKey: 'sampleImageMsg', msgParam,
+          })
+          : await robot(env, await ensureToken(), clientId, '/v1.0/robot/groupMessages/send', {
+            robotCode: clientId, openConversationId: chat.key, msgKey: 'sampleImageMsg', msgParam,
+          })
+        return { messageId: String(answer?.processQueryKey ?? '') }
+      },
       stop: () => {
         stopped = true
         generation += 1

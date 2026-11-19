@@ -452,6 +452,36 @@ export default {
         }
         return { messageId }
       },
+      sendImage: async (chat, image) => {
+        const bytes = Buffer.isBuffer(image?.data) ? image.data : Buffer.from(image?.data ?? [])
+        if (bytes.byteLength === 0) throw Object.assign(new Error('Empty image'), { permanent: true })
+        const form = new FormData()
+        form.append('image_type', 'message')
+        form.append('image', new Blob([bytes], { type: image.mediaType || 'image/png' }), image.name || 'image.png')
+        const upload = await env.fetch(`${apiBase(env, fields)}/open-apis/im/v1/images`, {
+          method: 'POST',
+          headers: { authorization: `Bearer ${await freshToken()}` },
+          body: form,
+          signal: AbortSignal.timeout(30_000),
+        })
+        const json = await upload.json().catch(() => ({}))
+        const imageKey = String(json?.data?.image_key ?? '')
+        if (!upload.ok || (json.code !== undefined && json.code !== 0) || imageKey === '') {
+          const error = new Error(String(json.msg ?? `Feishu image upload answered ${upload.status}`))
+          error.status = upload.status
+          error.permanent = upload.status >= 400 && upload.status < 500 && upload.status !== 429
+          if (upload.status === 429) error.retryAfter = Number(upload.headers.get('retry-after'))
+          throw error
+        }
+        const sent = await rest('/open-apis/im/v1/messages?receive_id_type=chat_id', {
+          body: {
+            receive_id: chat.key,
+            msg_type: 'image',
+            content: JSON.stringify({ image_key: imageKey }),
+          },
+        })
+        return { messageId: String(sent?.data?.message_id ?? '') }
+      },
       edit: async (chat, messageId, { text, buttons }) => {
         await rest(`/open-apis/im/v1/messages/${messageId}`, {
           method: 'PATCH',
