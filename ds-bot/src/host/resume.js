@@ -314,43 +314,61 @@ export function install(rt) {
   const isTerminalReason = reason => reason !== undefined && reason.kind !== 'interrupted'
     && !(reason.kind === 'aborted' && reason.reason?.kind === 'disposed')
 
-  async function alreadyAnswered(botId, sender, where, back, workId) {
-    if (rt.wasReplyDelivered?.(botId, sender, workId) === true) return true
+  const whereFor = (asker) => {
+    const sender = asker?.senderSessionId
+    if (sender === undefined) return { sender: undefined, back: undefined, where: undefined }
+    const back = rt.roomOf(asker.senderRoomId)?.sessions?.[sender]
+    // The answer would have gone to the part of the asking Bot's chat the request came
+    // from, which is not its foreground chat when that part is a background one.
+    const where = back ?? (asker.senderPart === undefined ? undefined : threadCurrentOfPart(rt.botOf(sender), asker.senderPart)) ?? rt.chatOf(sender)
+    return { sender, back, where }
+  }
+
+  async function alreadyAnswered(botId, sender, where, back, roomId, workId) {
+    const delivered = rt.deliveredReplyOf?.(botId, sender, workId)
+    if (delivered !== undefined) return { answered: true, text: delivered.text }
+    if (rt.deliveredReplyOf === undefined && rt.wasReplyDelivered?.(botId, sender, workId) === true) return { answered: true }
+    if (where === undefined) return { answered: false }
     const sent = await logOf(where)
-    if (sent !== undefined && answeredIn(sent, workId)) return true
-    if (back === undefined) {
-      const segments = threadOfPart(rt.botOf(sender), where)?.segments ?? []
-      for (const segment of [...segments].reverse()) {
-        if (segment?.sessionId === undefined || segment.sessionId === where) continue
-        const earlier = await logOf(segment.sessionId)
-        if (earlier !== undefined && answeredIn(earlier, workId)) return true
-      }
+    if (sent !== undefined && answeredIn(sent, workId)) return { answered: true }
+    const segments = back === undefined
+      ? (threadOfPart(rt.botOf(sender), where)?.segments ?? [])
+      : (rt.roomOf(roomId)?.segments?.[sender] ?? [])
+    for (const segment of [...segments].reverse()) {
+      if (segment?.sessionId === undefined || segment.sessionId === where) continue
+      const earlier = await logOf(segment.sessionId)
+      if (earlier !== undefined && answeredIn(earlier, workId)) return { answered: true }
     }
-    return false
+    return { answered: false }
   }
 
   // A turn that ended while DS Bot was not watching it: its answer may exist and never
   // have gone to the Bot that waits for it. The Session's durable log says what it did;
   // the work it was for is settled once, the way a finished turn settles it.
-  async function reconcileEnded(sessionId, record, ended) {
+  async function reconcileEnded(sessionId, record, ended, prefetchedEvents) {
     const trigger = record.trigger
     if (trigger === undefined) return
     const workId = rt.workOf(trigger)
-    if (!rt.ownsWork(record.botId, workId)) return
+    const ownsPrimary = rt.ownsWork(record.botId, workId)
+    const hasOwnedWork = ownsPrimary || Object.values(rt.state?.works ?? {}).some(work => work.to === record.botId)
+    if (!hasOwnedWork) return
     const exchangeId = trigger.exchangeId
-    const asker = rt.workAsker(workId)
-    const sender = asker?.senderSessionId
-    if (exchangeId === undefined || sender === undefined || rt.botOf(sender) === undefined) return
-    const name = rt.botOf(rt.selfOf(sessionId))?.name ?? 'The other Bot'
+    if (exchangeId === undefined) return
+    const primaryAsker = ownsPrimary ? rt.workAsker(workId) : undefined
+    const primarySender = primaryAsker?.senderSessionId
+    const canSettlePrimary = ownsPrimary && primarySender !== undefined && rt.botOf(primarySender) !== undefined
+    const name = rt.botOf(rt.selfOf(sessionId))?.name ?? rt.botOf(record.botId)?.name ?? 'The other Bot'
     // DSH stopped that turn as it shut down: it is picked up at the next start.
     if (ended.reason?.kind === 'aborted' && ended.reason.reason?.kind === 'disposed') {
       update(sessionId, () => record)
       return
     }
-    const events = await logOf(sessionId)
+    const events = prefetchedEvents ?? await logOf(sessionId)
     if (events === undefined) {
-      if (rt.wasReplyDelivered?.(record.botId, sender, workId) === true) {
-        rt.closeWork?.(workId, name, rt.answerText(workId, '', name))
+      if (!canSettlePrimary) return
+      const delivered = rt.deliveredReplyOf?.(record.botId, primarySender, workId)
+      if (delivered !== undefined || (rt.deliveredReplyOf === undefined && rt.wasReplyDelivered?.(record.botId, primarySender, workId) === true)) {
+        rt.closeWork?.(workId, name, delivered?.text || rt.answerText(workId, '', name))
         return
       }
       // The record of that work cannot be read: whether it answered cannot be
@@ -366,7 +384,7 @@ export function install(rt) {
         where: room === undefined ? 'own chat' : `group "${room.name}"`,
         sessionId,
       })
-      answerSender(rt, sessionId, asker, text)
+      answerSender(rt, sessionId, primaryAsker, text)
       return
     }
     const turn = turnOf(events, exchangeId)
@@ -374,15 +392,16 @@ export function install(rt) {
     // waiting for it keeps what it had.
     if (turn === undefined) return
     const said = turn.texts.join('\n\n')
-    // The answer went up in another run (even before a part switch): the work closes
-    // with what it said, and nothing is sent twice.
-    const back = rt.roomOf(asker.senderRoomId)?.sessions?.[sender]
-    // The answer would have gone to the part of the asking Bot's chat the request came
-    // from, which is not its foreground chat when that part is a background one.
-    const where = back ?? (asker.senderPart === undefined ? undefined : threadCurrentOfPart(rt.botOf(sender), asker.senderPart)) ?? rt.chatOf(sender)
-    if (await alreadyAnswered(record.botId, sender, where, back, workId)) {
-      rt.closeWork?.(workId, name, rt.answerText(workId, said, name))
-      return
+    let primarySettled = !canSettlePrimary
+    if (canSettlePrimary) {
+      // The answer went up in another run (even before a part switch): the work closes
+      // with what it said, and nothing is sent twice.
+      const { sender, back, where } = whereFor(primaryAsker)
+      const answered = await alreadyAnswered(record.botId, sender, where, back, primaryAsker.senderRoomId, workId)
+      if (answered.answered) {
+        rt.closeWork?.(workId, name, answered.text || rt.answerText(workId, said, name))
+        primarySettled = true
+      }
     }
     const reason = turn.reason
     // A turn that went on to a fresh part goes on there; it is not settled here.
@@ -390,20 +409,48 @@ export function install(rt) {
     // The turn was cut off before it finished: the work is picked up again, as after
     // a restart that cut it off.
     if (reason === undefined || reason.kind === 'interrupted') {
-      await resumeTurn(sessionId, record)
+      if (!primarySettled) await resumeTurn(sessionId, record)
       return
     }
-    if (reason.kind === 'error') {
-      const failure = turnFailure(reason.error)
-      answerSender(rt, sessionId, asker, `${name} could not answer your message: its model call failed (${failureLine(failure)}). Tell the user if it matters; do not retry right away.`, undefined, { failure })
+    const failure = reason.kind === 'error' ? turnFailure(reason.error) : undefined
+    const dedupKey = failure !== undefined
+      ? `reconcile:${sessionId}:${turn.turn ?? ''}:error:${failure.requestId ?? failure.code}`
+      : reason.kind === 'aborted'
+        ? `reconcile:${sessionId}:${turn.turn ?? ''}:aborted`
+        : undefined
+    const settleFailureOrAbort = (asker) => {
+      if (failure !== undefined) {
+        answerSender(rt, sessionId, asker, `${name} could not answer your message: its model call failed (${failureLine(failure)}). Tell the user if it matters; do not retry right away.`, undefined, { failure, dedupKey })
+      } else {
+        // The turn was stopped before it could answer: the sender is told, as it is told
+        // when DS Bot watches the turn end.
+        answerSender(rt, sessionId, asker, `${name} was stopped before it could answer your message.`, undefined, { dedupKey })
+      }
+    }
+    if (reason.kind === 'error' || reason.kind === 'aborted') {
+      if (!primarySettled) settleFailureOrAbort(primaryAsker)
+      // Steered requests that joined the same failed or aborted turn also owe their own
+      // callers settlement, so distinct parent works cannot stall across a restart.
+      const seen = new Set([workId, exchangeId])
+      for (const took of turn.took) {
+        if (took?.kind !== SOURCE_KIND || (took.role !== 'request' && took.role !== 'stopped') || took.audience === 'user') continue
+        const joinedId = took.exchangeId
+        if (typeof joinedId !== 'string' || joinedId === '' || seen.has(joinedId)) continue
+        seen.add(joinedId)
+        if (!rt.ownsWork(record.botId, joinedId)) continue
+        const joinedAsker = rt.workAsker(joinedId)
+        const { sender, back, where } = whereFor(joinedAsker)
+        if (sender === undefined || rt.botOf(sender) === undefined) continue
+        const answered = await alreadyAnswered(record.botId, sender, where, back, joinedAsker.senderRoomId, joinedId)
+        if (answered.answered) {
+          rt.closeWork?.(joinedId, name, answered.text || rt.answerText(joinedId, '', name))
+          continue
+        }
+        settleFailureOrAbort(joinedAsker)
+      }
       return
     }
-    if (reason.kind === 'aborted') {
-      // The turn was stopped before it could answer: the sender is told, as it is told
-      // when DS Bot watches the turn end.
-      answerSender(rt, sessionId, asker, `${name} was stopped before it could answer your message.`)
-      return
-    }
+    if (primarySettled) return
     // A turn cut off at the output limit is not a finish: the answer says so, and the
     // diagnostics record it, with the route the Session's log holds for it.
     const cutOff = reason?.kind === 'max-tokens'
@@ -435,7 +482,40 @@ export function install(rt) {
     }
     const text = rt.answerText(workId, answer, name)
     const long = text.length > MESSAGE_INLINE_MAX ? await rt.attachLong(text, `Answer from ${name}.txt`) : undefined
-    answerSender(rt, sessionId, asker, text, long)
+    answerSender(rt, sessionId, primaryAsker, text, long)
+  }
+
+  // Checks whether the work or reply-expecting trigger a stale inflight turn names has
+  // already been answered in the pair ledger or the asker's session log. For a
+  // continuation turn (`role: 'reply' | 'report' | 'resume'`), the owed answer is the
+  // upstream work and its asker, never the child reply that triggered the turn.
+  async function settleDeliveredTrigger(record, trigger) {
+    const workId = rt.workOf(trigger)
+    if (workId !== undefined) {
+      const owns = rt.ownsWork(record.botId, workId)
+      const asker = owns ? rt.workAsker(workId) : undefined
+      const sender = asker?.senderSessionId
+        ?? (trigger.role === 'request' && trigger.audience !== 'user' ? trigger.senderSessionId : undefined)
+      const name = rt.botOf(record.botId)?.name ?? 'The other Bot'
+      const delivered = rt.deliveredReplyOf?.(record.botId, sender, workId)
+      if (delivered !== undefined || (rt.deliveredReplyOf === undefined && sender !== undefined && rt.wasReplyDelivered?.(record.botId, sender, workId) === true)) {
+        if (owns) rt.closeWork?.(workId, name, delivered?.text || rt.answerText(workId, '', name))
+        return true
+      }
+      if (owns && asker !== undefined && sender !== undefined && rt.botOf(sender) !== undefined) {
+        const { back, where } = whereFor(asker)
+        const answered = await alreadyAnswered(record.botId, sender, where, back, asker.senderRoomId, workId)
+        if (answered.answered) {
+          rt.closeWork?.(workId, name, answered.text || rt.answerText(workId, '', name))
+          return true
+        }
+      }
+      return false
+    }
+    if (trigger.role === 'stopped' && trigger.exchangeId !== undefined && trigger.senderSessionId !== undefined) {
+      return rt.wasReplyDelivered?.(record.botId, trigger.senderSessionId, trigger.exchangeId) === true
+    }
+    return false
   }
 
   async function resumeAll() {
@@ -474,22 +554,17 @@ export function install(rt) {
         continue
       }
       // If inflight.json still held a turn whose durable log already shows a finished
-      // turn/end, settle from the log instead of re-running the request via resumeTurn.
-      if (first === undefined && record.roomId === undefined && record.trigger?.exchangeId !== undefined) {
-        const events = await logOf(sessionId)
-        const turn = events === undefined ? undefined : turnOf(events, record.trigger.exchangeId)
+      // turn/end, or whose owed reply is already recorded in the pair ledger, settle it
+      // instead of re-running via resumeTurn.
+      if (first === undefined && record.roomId === undefined && record.trigger !== undefined) {
+        const trigger = record.trigger
+        const events = trigger.exchangeId !== undefined ? await logOf(sessionId) : undefined
+        const turn = events === undefined ? undefined : turnOf(events, trigger.exchangeId)
         if (isTerminalReason(turn?.reason)) {
-          await reconcileEnded(sessionId, record, { reason: turn.reason }).catch(error => rt.warn('ds-bot: settling the work of %s failed: %s', sessionId, error))
+          await reconcileEnded(sessionId, record, { reason: turn.reason }, events).catch(error => rt.warn('ds-bot: settling the work of %s failed: %s', sessionId, error))
           continue
         }
-        if (turn === undefined && record.trigger.senderSessionId !== undefined
-          && rt.wasReplyDelivered?.(record.botId, record.trigger.senderSessionId, record.trigger.exchangeId) === true) {
-          const workId = rt.workOf(record.trigger)
-          if (rt.ownsWork(record.botId, workId)) {
-            rt.closeWork?.(workId, rt.botOf(record.botId)?.name ?? 'The other Bot', '')
-          }
-          continue
-        }
+        if (await settleDeliveredTrigger(record, trigger)) continue
       }
       cut.push([sessionId, record])
     }

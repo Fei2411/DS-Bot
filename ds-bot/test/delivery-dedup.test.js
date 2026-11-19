@@ -404,3 +404,161 @@ test('resumeAll settles already-ended turns from disk without re-running or dupl
   assert.equal(second.agentOf('a').calls.length, 0, 'already-delivered reply must not be sent again')
   await second.stop()
 })
+
+test('answerSender keeps separate continuations for distinct parent works sharing a failed turn', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'ds-bot-dedup-parents-'))
+  const seed = baseSeed()
+  seed.bots.c = { id: 'c', name: 'Lead', role: 'Lead', sessionId: 'c', createdAt: 3 }
+  seed.works = {
+    'ex-no-parent': { from: 'a', to: 'b', open: [], results: [], at: 1 },
+    'parent-1': { from: 'c', to: 'a', open: ['child-p1'], results: [], at: 1 },
+    'child-p1': { from: 'a', to: 'b', parent: 'parent-1', open: [], results: [], at: 2 },
+    'parent-2': { from: 'c', to: 'a', open: ['child-p2'], results: [], at: 1 },
+    'child-p2': { from: 'a', to: 'b', parent: 'parent-2', open: [], results: [], at: 3 },
+    'parent-consumed': { from: 'c', to: 'a', open: ['child-c1', 'child-c2'], results: [], at: 1 },
+    'child-c1': { from: 'a', to: 'b', parent: 'parent-consumed', open: [], results: [], at: 2 },
+    'child-c2': { from: 'a', to: 'b', parent: 'parent-consumed', open: [], results: [], at: 3 },
+  }
+  writeFileSync(join(home, 'state.json'), JSON.stringify(seed))
+  const host = await createRestartHost(t, home, new Map())
+  t.after(async () => {
+    await host.stop()
+    rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 })
+  })
+
+  const { rt } = host
+  const failure = { code: 'INVALID_REQUEST', status: 400, requestId: 'req-shared-parents', message: 'bad' }
+  const dedupKey = 'turn:b:1:error:req-shared-parents'
+
+  // Unparented work followed by parent-1 and parent-2 in the same failed turn: each distinct
+  // parent work must receive its own continuation carrying `work`.
+  assert.equal(answerSender(rt, 'b', { kind: 'bot', role: 'request', exchangeId: 'ex-no-parent', senderSessionId: 'a' }, 'Writer failed', undefined, { failure, dedupKey }), true)
+  assert.equal(answerSender(rt, 'b', { kind: 'bot', role: 'request', exchangeId: 'child-p1', senderSessionId: 'a' }, 'Writer failed', undefined, { failure, dedupKey }), true)
+  assert.equal(answerSender(rt, 'b', { kind: 'bot', role: 'request', exchangeId: 'child-p2', senderSessionId: 'a' }, 'Writer failed', undefined, { failure, dedupKey }), true)
+  await settle(() => host.agentOf('a').calls.length >= 3)
+  assert.deepEqual(
+    host.agentOf('a').calls.map(msg => [msg.source.replyTo, msg.source.work]),
+    [['ex-no-parent', undefined], ['child-p1', 'parent-1'], ['child-p2', 'parent-2']],
+    'distinct parent works must never be suppressed by another parent or unparented failure',
+  )
+
+  // Same parent work, but once the first failed child was already consumed out of parent.open,
+  // a second child's failure must still deliver so the parked parent is woken up.
+  const sameParentFailure = { code: 'INVALID_REQUEST', status: 400, requestId: 'req-consumed-parent', message: 'bad' }
+  assert.equal(answerSender(rt, 'b', { kind: 'bot', role: 'request', exchangeId: 'child-c1', senderSessionId: 'a' }, 'Writer failed', undefined, { failure: sameParentFailure }), true)
+  await settle(() => host.agentOf('a').calls.length >= 4)
+  rt.takenWork('parent-consumed', 'child-c1')
+  assert.equal(answerSender(rt, 'b', { kind: 'bot', role: 'request', exchangeId: 'child-c2', senderSessionId: 'a' }, 'Writer failed', undefined, { failure: sameParentFailure }), true)
+  await settle(() => host.agentOf('a').calls.length >= 5)
+  assert.deepEqual(
+    [host.agentOf('a').calls[4].source.replyTo, host.agentOf('a').calls[4].source.work],
+    ['child-c2', 'parent-consumed'],
+  )
+})
+
+test('resumeAll checks the upstream work and asker for role=reply continuation turns', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const home = mkdtempSync(join(tmpdir(), 'ds-bot-dedup-reply-resume-'))
+  t.after(() => rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 }))
+
+  const seed = baseSeed()
+  seed.bots.c = { id: 'c', name: 'Lead', role: 'Lead', sessionId: 'c', createdAt: 3 }
+  seed.works = {
+    'up-work': { from: 'c', to: 'a', open: [], results: [{ id: 'sub-req', from: 'Writer', text: 'sub done' }], at: 1 },
+  }
+  writeFileSync(join(home, 'state.json'), JSON.stringify(seed))
+  const logs = new Map([['a', []], ['b', []], ['c', []]])
+
+  // First boot: Writer already delivered the child reply (`sub-reply` -> `sub-req`) to Chief,
+  // and Chief was interrupted mid-continuation (`role: 'reply'`) before answering Lead (`up-work`).
+  // resumeAll must NOT mistake the child reply for an already-delivered upstream answer.
+  const seedHost = await createRestartHost(t, home, logs)
+  await seedHost.rt.deliver({
+    fromId: 'b', toId: 'a', sessionId: 'a', text: 'sub done',
+    role: 'reply', replyTo: 'sub-req', exchangeId: 'sub-reply', work: 'up-work',
+  })
+  await seedHost.stop()
+
+  writeFileSync(join(home, 'inflight.json'), JSON.stringify({
+    turns: {
+      a: {
+        botId: 'a',
+        since: 1,
+        trigger: { role: 'reply', exchangeId: 'sub-reply', work: 'up-work', senderSessionId: 'b' },
+      },
+    },
+    queued: {},
+  }))
+  const first = await createRestartHost(t, home, logs)
+  t.mock.timers.tick(3000)
+  await settle(() => first.agentOf('a').calls.length >= 1)
+  assert.equal(first.agentOf('a').calls[0].source.role, 'resume')
+  assert.equal(first.agentOf('a').calls[0].source.work, 'up-work', 'unanswered upstream work must resume')
+
+  // Now Chief delivers the upstream answer to Lead (`up-work`), then crashes before inflight clears.
+  await first.rt.deliver({
+    fromId: 'a', toId: 'c', sessionId: 'c', text: 'upstream final answer',
+    role: 'reply', replyTo: 'up-work', exchangeId: 'up-reply',
+  })
+  await first.stop()
+
+  writeFileSync(join(home, 'inflight.json'), JSON.stringify({
+    turns: {
+      a: {
+        botId: 'a',
+        since: 2,
+        trigger: { role: 'reply', exchangeId: 'sub-reply', work: 'up-work', senderSessionId: 'b' },
+      },
+    },
+    queued: {},
+  }))
+  const second = await createRestartHost(t, home, logs)
+  t.mock.timers.tick(3000)
+  await new Promise(resolve => setImmediate(resolve))
+  await realDelay(30)
+  assert.equal(second.agentOf('a').calls.length, 0, 'already-answered upstream work must not resume again')
+  assert.equal(second.agentOf('c').calls.length, 0, 'already-delivered upstream reply must not duplicate')
+  assert.equal(second.rt.state.works['up-work'], undefined, 'upstream work is closed once confirmed delivered')
+  await second.stop()
+})
+
+test('reconcileEnded settles distinct parent works that steered into the same failed turn', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const home = mkdtempSync(join(tmpdir(), 'ds-bot-dedup-reconcile-steered-'))
+  t.after(() => rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 }))
+
+  const seed = baseSeed()
+  seed.bots.c = { id: 'c', name: 'Lead', role: 'Lead', sessionId: 'c', createdAt: 3 }
+  seed.works = {
+    'p1': { from: 'c', to: 'a', open: ['req-1'], results: [], at: 1 },
+    'p2': { from: 'c', to: 'a', open: ['req-2'], results: [], at: 1 },
+    'req-1': { from: 'a', to: 'b', parent: 'p1', open: [], results: [], at: 2 },
+    'req-2': { from: 'a', to: 'b', parent: 'p2', open: [], results: [], at: 3 },
+  }
+  writeFileSync(join(home, 'state.json'), JSON.stringify(seed))
+  const req1 = { kind: 'bot', form: 'relay', role: 'request', exchangeId: 'req-1', senderName: 'Chief', senderSessionId: 'a' }
+  const req2 = { kind: 'bot', form: 'relay', role: 'request', exchangeId: 'req-2', senderName: 'Chief', senderSessionId: 'a' }
+  const logs = new Map([
+    ['a', []],
+    ['b', [
+      { type: 'turn/start', seq: 1, data: { turn: 1 } },
+      { type: 'user/message', seq: 2, data: { source: req1, content: [{ type: 'text', text: 'first' }] } },
+      { type: 'user/message', seq: 3, data: { source: req2, content: [{ type: 'text', text: 'second' }] } },
+      { type: 'turn/end', seq: 4, data: { turn: 1, reason: { kind: 'error', error: { code: 'INVALID_REQUEST', status: 400, requestId: 'req-rec-1', message: 'bad' } } } },
+    ]],
+  ])
+  writeFileSync(join(home, 'inflight.json'), JSON.stringify({
+    turns: { b: { botId: 'b', since: 1, trigger: { role: 'request', exchangeId: 'req-1', senderSessionId: 'a' } } },
+    queued: {},
+  }))
+
+  const host = await createRestartHost(t, home, logs)
+  t.mock.timers.tick(3000)
+  await settle(() => host.agentOf('a').calls.length >= 2)
+  assert.deepEqual(
+    host.agentOf('a').calls.map(msg => [msg.source.replyTo, msg.source.work]),
+    [['req-1', 'p1'], ['req-2', 'p2']],
+    'reconcileEnded must notify every distinct parent work steered into the failed turn',
+  )
+  await host.stop()
+})

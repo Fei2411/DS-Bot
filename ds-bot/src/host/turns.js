@@ -73,10 +73,27 @@ const removeItem = (list, item) => {
   if (at !== -1) list.splice(at, 1)
 }
 
-function settleSuppressedWork(rt, exchangeId, name, text, primaryWork) {
+// The live parent work a child work hangs under, matching closeWork's lookup.
+const liveParentOf = (rt, exchangeId) => {
+  if (typeof exchangeId !== 'string' || exchangeId === '') return undefined
+  const works = rt.state?.works
+  const parent = works?.[exchangeId]?.parent
+  return parent !== undefined && parent !== exchangeId && works?.[parent] !== undefined ? parent : undefined
+}
+
+// Coalescing a second child's failure into an earlier delivery for the same parent work
+// is safe only while that earlier delivery is still pending in parent.open; once the
+// caller has already consumed it and parked the parent, suppressing this child would
+// leave the parent idle with no continuation.
+const parentCoveredBy = (rt, parentWork, primaryExchangeId) => {
+  if (parentWork === undefined) return true
+  if (typeof primaryExchangeId !== 'string' || primaryExchangeId === '') return false
+  return rt.state?.works?.[parentWork]?.open?.includes(primaryExchangeId) === true
+}
+
+function dropSuppressedWork(rt, exchangeId, name, text) {
   if (typeof exchangeId !== 'string' || exchangeId === '') return
-  const ownParent = rt.state?.works?.[exchangeId]?.parent
-  if (ownParent !== undefined && ownParent === primaryWork && typeof rt.dropWork === 'function') {
+  if (typeof rt.dropWork === 'function') {
     rt.dropWork(exchangeId)
     return
   }
@@ -103,24 +120,34 @@ export function answerSender(rt, id, source, text, long, options = {}) {
   const exchangeKey = typeof source.exchangeId === 'string' && source.exchangeId !== ''
     ? `${fromId ?? ''}\0${toId ?? ''}\0${source.exchangeId}`
     : undefined
-  if ((exchangeKey !== undefined && guards.exchanges.has(exchangeKey))
-    || rt.wasReplyDelivered?.(fromId, toId, source.exchangeId) === true) {
-    settleSuppressedWork(rt, source.exchangeId, name, text, undefined)
+  const deliveredReply = rt.deliveredReplyOf?.(fromId, toId, source.exchangeId)
+  const alreadySent = deliveredReply !== undefined
+    || (rt.deliveredReplyOf === undefined && rt.wasReplyDelivered?.(fromId, toId, source.exchangeId) === true)
+  if ((exchangeKey !== undefined && guards.exchanges.has(exchangeKey)) || alreadySent) {
+    if (typeof source.exchangeId === 'string' && source.exchangeId !== '') {
+      rt.closeWork?.(source.exchangeId, name, deliveredReply?.text || text)
+    }
     return false
   }
   const failureRequestId = typeof options?.failure?.requestId === 'string' && options.failure.requestId !== ''
     ? options.failure.requestId
     : undefined
   const dedupKey = typeof options?.dedupKey === 'string' && options.dedupKey !== '' ? options.dedupKey : undefined
-  const matchSameTarget = entry => entry.fromId === fromId && entry.toId === toId
+  const ownParent = liveParentOf(rt, source.exchangeId)
+  const matchSameScope = entry => entry.fromId === fromId && entry.toId === toId
+    && entry.work === ownParent
     && sameConversation(rt.state, toId, entry.targetSessionId, targetSessionId)
+    && parentCoveredBy(rt, ownParent, entry.exchangeId)
   const matchedReq = failureRequestId === undefined ? undefined
-    : guards.failureRequests.find(entry => entry.requestId === failureRequestId && matchSameTarget(entry))
+    : guards.failureRequests.findLast(entry => entry.requestId === failureRequestId && matchSameScope(entry))
   const matchedTurn = dedupKey === undefined ? undefined
-    : guards.turnFailures.find(entry => entry.dedupKey === dedupKey && matchSameTarget(entry))
-  if (matchedReq !== undefined || matchedTurn !== undefined
-    || (failureRequestId !== undefined && rt.wasFailureRequestDelivered?.(fromId, toId, failureRequestId, targetSessionId) === true)) {
-    settleSuppressedWork(rt, source.exchangeId, name, text, (matchedReq ?? matchedTurn)?.work)
+    : guards.turnFailures.findLast(entry => entry.dedupKey === dedupKey && matchSameScope(entry))
+  const matchedInMemory = matchedReq !== undefined || matchedTurn !== undefined
+  const matchedLedger = matchedInMemory || failureRequestId === undefined ? undefined
+    : (rt.deliveredFailuresOf?.(fromId, toId, failureRequestId, targetSessionId, ownParent) ?? [])
+        .findLast(entry => parentCoveredBy(rt, ownParent, entry.replyTo))
+  if (matchedInMemory || matchedLedger !== undefined) {
+    dropSuppressedWork(rt, source.exchangeId, name, text)
     return false
   }
   const work = rt.closeWork?.(source.exchangeId, name, text)
@@ -129,10 +156,10 @@ export function answerSender(rt, id, source, text, long, options = {}) {
     if (guards.exchanges.size > MAX_REPLY_GUARDS) guards.exchanges.delete(guards.exchanges.values().next().value)
   }
   const failureEntry = failureRequestId === undefined ? undefined
-    : { fromId, toId, targetSessionId, requestId: failureRequestId, work }
+    : { fromId, toId, targetSessionId, requestId: failureRequestId, work, exchangeId: source.exchangeId }
   if (failureEntry !== undefined) pushLimited(guards.failureRequests, failureEntry)
   const turnEntry = dedupKey === undefined ? undefined
-    : { fromId, toId, targetSessionId, dedupKey, work }
+    : { fromId, toId, targetSessionId, dedupKey, work, exchangeId: source.exchangeId }
   if (turnEntry !== undefined) pushLimited(guards.turnFailures, turnEntry)
   // A reply that arrives after the user gave up the wait is a late answer: it closes
   // nothing, opens nothing, and says on it that the wait was already over.

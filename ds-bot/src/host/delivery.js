@@ -71,25 +71,46 @@ export function install(rt) {
   }
   const pairMessages = (a, b) => [...pairRecords(a, b).shown.values()]
 
-  function wasReplyDelivered(fromId, toId, replyTo) {
-    if (typeof fromId !== 'string' || typeof toId !== 'string' || typeof replyTo !== 'string' || replyTo === '') return false
-    if (rt.botOf(fromId) === undefined || rt.botOf(toId) === undefined) {
-      return (state.exchanges ?? []).some(entry => entry.from === fromId && entry.to === toId && entry.role === 'reply' && entry.replyTo === replyTo)
+  function deliveredReplyOf(fromId, toId, replyTo) {
+    if (typeof fromId !== 'string' || fromId === '' || typeof replyTo !== 'string' || replyTo === '') return undefined
+    if (typeof toId === 'string' && toId !== '') {
+      if (rt.botOf(fromId) === undefined || rt.botOf(toId) === undefined) {
+        return (state.exchanges ?? []).findLast(entry => entry.from === fromId && entry.to === toId && entry.role === 'reply' && entry.replyTo === replyTo)
+      }
+      return pairMessages(fromId, toId).findLast(record => record.from === fromId && record.to === toId && record.role === 'reply' && record.replyTo === replyTo)
     }
-    return pairMessages(fromId, toId).some(record => record.from === fromId && record.to === toId && record.role === 'reply' && record.replyTo === replyTo)
+    if (rt.botOf(fromId) !== undefined) {
+      for (const otherId of Object.keys(state.bots ?? {})) {
+        if (otherId === fromId) continue
+        const found = pairMessages(fromId, otherId).findLast(record => record.from === fromId && record.to === otherId && record.role === 'reply' && record.replyTo === replyTo)
+        if (found !== undefined) return found
+      }
+    }
+    return (state.exchanges ?? []).findLast(entry => entry.from === fromId && entry.role === 'reply' && entry.replyTo === replyTo)
   }
 
-  function wasFailureRequestDelivered(fromId, toId, requestId, targetSessionId) {
-    if (typeof fromId !== 'string' || typeof toId !== 'string' || typeof requestId !== 'string' || requestId === '') return false
-    if (rt.botOf(fromId) === undefined || rt.botOf(toId) === undefined) return false
+  const wasReplyDelivered = (fromId, toId, replyTo) => deliveredReplyOf(fromId, toId, replyTo) !== undefined
+
+  function deliveredFailuresOf(fromId, toId, requestId, targetSessionId, parentWork) {
+    if (typeof fromId !== 'string' || typeof toId !== 'string' || typeof requestId !== 'string' || requestId === '') return []
+    if (rt.botOf(fromId) === undefined || rt.botOf(toId) === undefined) return []
+    const wantedWork = typeof parentWork === 'string' && parentWork !== '' ? parentWork : undefined
     const { written, marks } = pairRecords(fromId, toId)
+    const matches = []
     for (const mark of marks) {
       if (mark.failureRequestId !== requestId) continue
+      const markWork = typeof mark.work === 'string' && mark.work !== '' ? mark.work : undefined
+      if (markWork !== wantedWork) continue
       const message = written.get(mark.id)
-      if (message?.from === fromId && message?.to === toId && sameConversation(state, toId, mark.sessionId, targetSessionId)) return true
+      if (message?.from === fromId && message?.to === toId && sameConversation(state, toId, mark.sessionId, targetSessionId)) {
+        matches.push({ id: mark.id, replyTo: message.replyTo, work: markWork, sessionId: mark.sessionId })
+      }
     }
-    return false
+    return matches
   }
+
+  const wasFailureRequestDelivered = (fromId, toId, requestId, targetSessionId, parentWork) =>
+    deliveredFailuresOf(fromId, toId, requestId, targetSessionId, parentWork).length > 0
 
   // `sessionId` defaults to the recipient's own chat; group turns name its group Session.
   // `deferred`: a request the Bot already read mid-turn, handed back to answer in a
@@ -163,6 +184,7 @@ export function install(rt) {
         sessionId: targetSessionId,
         time: Date.now(),
         ...(typeof failureRequestId === 'string' && failureRequestId !== '' ? { failureRequestId } : {}),
+        ...(typeof work === 'string' && work !== '' ? { work } : {}),
       })
       // The message went out either way; a mark that is lost only hides it from the dialog.
       await rt.ledger.written(book).catch(() => {})
@@ -255,5 +277,5 @@ export function install(rt) {
     return { ...record, ledger: true }
   }
 
-  Object.assign(rt, { resolveAgent, deliver, exchangeText, attachLong, fileText, exchangesOf, exchangeOf, wasReplyDelivered, wasFailureRequestDelivered })
+  Object.assign(rt, { resolveAgent, deliver, exchangeText, attachLong, fileText, exchangesOf, exchangeOf, deliveredReplyOf, wasReplyDelivered, deliveredFailuresOf, wasFailureRequestDelivered })
 }
