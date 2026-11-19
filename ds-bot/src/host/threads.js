@@ -14,8 +14,6 @@ export function threadOf(bot, sessionId) {
   return at === -1 ? undefined : { thread: 'open', index: at, segments: bot.openParts[at].segments ?? [] }
 }
 
-export const threadSegments = (bot, sessionId) => threadOf(bot, sessionId)?.segments ?? []
-
 export const isOpenPart = (bot, sessionId) => threadOf(bot, sessionId)?.thread === 'open'
 
 // A thread's current session: the part that a handoff or a kept input belongs to.
