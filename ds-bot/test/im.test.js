@@ -731,6 +731,35 @@ test('reply origin: another source in the same turn withdraws the IM origin', as
   assert.equal(s.fake.sent.length, 0, 'a mixed turn sends nothing')
 })
 
+test('reply origin: a WeChat clock snapshot in the turn does not withdraw the IM origin', async (t) => {
+  const s = await start()
+  t.after(s.stop)
+  await pairedConn(s)
+  await dm(s, 'u1', 'hi')
+  s.imTurn('a')
+  // Reproduced on the weixin iLink platform (#1718): the DSH clock appends a
+  // { kind: 'time-context', form: 'snapshot' } user message right after the
+  // chat's message, and the reply never left the app on 0.3.8.
+  s.emitEvent('a', 'user/message', { source: { kind: 'time-context', form: 'snapshot' }, content: [{ type: 'text', text: 'context' }] })
+  s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'reply' }] } })
+  await s.flush()
+  assert.deepEqual(s.fake.sent.map(entry => entry.chat.key), ['dm-u1'])
+})
+
+test('reply origin: a snapshot put in before the IM message still answers its chat', async (t) => {
+  const s = await start()
+  t.after(s.stop)
+  await pairedConn(s)
+  await dm(s, 'u1', 'hi')
+  const requestId = s.prompts.at(-1)?.requestId
+  s.emitEvent('a', 'turn/start', { turn: 1 })
+  s.emitEvent('a', 'user/message', { source: { kind: 'ds-bot-memory-update', form: 'snapshot' }, content: [{ type: 'text', text: 'memory' }] })
+  s.emitEvent('a', 'user/message', { source: { kind: 'user', rpcId: requestId }, content: [{ type: 'text', text: 'from the chat' }] })
+  s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'reply' }] } })
+  await s.flush()
+  assert.deepEqual(s.fake.sent.map(entry => entry.chat.key), ['dm-u1'])
+})
+
 test('reply origin: the turn ending stops later output from going out', async (t) => {
   const s = await start()
   t.after(s.stop)
