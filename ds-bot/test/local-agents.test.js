@@ -1740,6 +1740,39 @@ test('replay drops images outside the replay window without reading their attach
   assert.deepEqual(readIds, ['att-recent'])
 })
 
+test('ACP upstream error data preserves code, detail and status (#1806)', async (t) => {
+  const detail = "This request was blocked by Factory's usage policy check."
+  const cases = [
+    { data: { status: 403, code: 'content_policy_rejected', detail }, code: 'content_policy_rejected', text: detail, status: 403 },
+    { data: { status: 403, error: { code: 'content_policy_rejected', message: detail } }, code: 'content_policy_rejected', text: detail, status: 403 },
+    { data: { error: { status: 403, code: 'content_policy_rejected', message: 'Request rejected', detail } }, code: 'content_policy_rejected', text: detail, status: 403 },
+    { data: { message: 'Login required', code: 'auth_failed', status: 401 }, code: 'LOCAL_AGENT_SIGNIN', text: 'Login required', status: 401 },
+    { data: { detail: 'Rate limit reached', code: 'limited', status: 429 }, code: 'LOCAL_AGENT_QUOTA', text: 'Rate limit reached', status: 429 },
+    { data: { code: '', detail }, code: 'LOCAL_AGENT_ERROR', text: detail },
+    { data: { code: 403, detail }, code: 'LOCAL_AGENT_ERROR', text: detail },
+    { data: { code: '  ', detail, status: 999 }, code: 'LOCAL_AGENT_ERROR', text: detail },
+    { data: null, code: 'LOCAL_AGENT_ERROR', text: 'Internal error (JSON-RPC -32603)' },
+    { data: {}, code: 'LOCAL_AGENT_ERROR', text: 'Internal error (JSON-RPC -32603)' },
+  ]
+  for (const [index, entry] of cases.entries()) {
+    await t.test(`upstream data case ${index + 1}`, async (t) => {
+      const adapter = makeAdapter()
+      t.after(() => adapter.dispose())
+      const peer = new JsonRpcPeer(request => peer.handleLine(JSON.stringify({
+        jsonrpc: '2.0', id: request.id,
+        error: { code: -32603, message: 'Internal error', data: entry.data },
+      })))
+      adapter.engine('local-acp-fake').prompt = () => peer.request('session/prompt', {})
+      await assert.rejects(collect(adapter.stream(options('s1', [user('m1', 'hello')]))), err => {
+        assert.equal(err.code, entry.code)
+        assert.ok(err.message.includes(entry.text), err.message)
+        assert.equal(err.failure.status, entry.status)
+        return true
+      })
+    })
+  }
+})
+
 test('ACP errors with numeric, empty or object codes keep their message and get a string code (#1777)', async (t) => {
   const adapter = makeAdapter()
   t.after(() => adapter.dispose())
