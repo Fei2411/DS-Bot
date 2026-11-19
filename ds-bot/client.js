@@ -37905,6 +37905,111 @@ function toggleMuted(id) {
   return changeNotify({ mute: { id, on: !isMuted(id) } });
 }
 
+// src/client/connection-feedback.js
+var CONNECTION_GRACE_MS = 2e3;
+var CONNECTING_MIN_VISIBLE_MS = 800;
+var RECOVERY_CONFIRMATION_MS = 2e3;
+var OUTAGE_STATES = /* @__PURE__ */ new Set(["connecting", "disconnected"]);
+function createConnectionFeedback(onChange, {
+  graceMs = CONNECTION_GRACE_MS,
+  minimumVisibleMs = CONNECTING_MIN_VISIBLE_MS,
+  recoveryMs = RECOVERY_CONFIRMATION_MS,
+  now = Date.now,
+  schedule = setTimeout,
+  clear = clearTimeout
+} = {}) {
+  let state;
+  let received = false;
+  let view;
+  let outageAt;
+  let visibleAt;
+  let timer;
+  let generation = 0;
+  let suspended = false;
+  const publish2 = (next) => {
+    if (next === view) return;
+    view = next;
+    onChange?.(next);
+  };
+  const cancel = () => {
+    generation += 1;
+    if (timer === void 0) return;
+    clear(timer);
+    timer = void 0;
+  };
+  const later = (run2, wait) => {
+    const active = generation;
+    timer = schedule(() => {
+      if (active !== generation) return;
+      timer = void 0;
+      run2();
+    }, wait);
+  };
+  const reset = () => {
+    outageAt = void 0;
+    visibleAt = void 0;
+    publish2(void 0);
+  };
+  const showOutage = () => {
+    if (suspended || !OUTAGE_STATES.has(state)) return;
+    visibleAt = now();
+    publish2(state);
+  };
+  const recover = () => {
+    if (suspended || state !== "connected") return;
+    visibleAt = void 0;
+    publish2("recovered");
+    later(() => {
+      if (suspended || state !== "connected") return;
+      publish2(void 0);
+    }, recoveryMs);
+  };
+  const reconcile = () => {
+    const current2 = now();
+    if (state === "connected") {
+      if (visibleAt === void 0) {
+        reset();
+        return;
+      }
+      outageAt = void 0;
+      const remaining2 = minimumVisibleMs - (current2 - visibleAt);
+      if (remaining2 > 0) later(recover, remaining2);
+      else recover();
+      return;
+    }
+    if (!OUTAGE_STATES.has(state)) {
+      reset();
+      return;
+    }
+    if (visibleAt !== void 0) {
+      publish2(state);
+      return;
+    }
+    if (outageAt === void 0) {
+      outageAt = current2;
+      if (view === "recovered") publish2(void 0);
+    }
+    const remaining = graceMs - (current2 - outageAt);
+    if (remaining > 0) later(showOutage, remaining);
+    else showOutage();
+  };
+  return {
+    update(next) {
+      if (!suspended && received && next === state) return;
+      cancel();
+      suspended = false;
+      state = next;
+      received = true;
+      reconcile();
+    },
+    suspend() {
+      suspended = true;
+      cancel();
+    },
+    getView: () => view
+  };
+}
+
 // src/client/settings-shell.js
 var import_react53 = require("react");
 var import_react_dom8 = require("react-dom");
@@ -37922,8 +38027,6 @@ var SETTINGS_CHILDREN = {
 };
 var SKIPPED_STEPS = /* @__PURE__ */ new Set(["welcome-notice"]);
 var DIALOG_EXIT_MS = 160;
-var RECOVERY_CONFIRMATION_MS = 2e3;
-var CONNECTING_MIN_VISIBLE_MS = 800;
 var BUSY_PHASES = /* @__PURE__ */ new Set(["checking", "downloading", "verifying", "installing"]);
 function snapshotStore(initial) {
   let value = initial;
@@ -38014,44 +38117,14 @@ function pickStep({ steps, requested, active, completed }) {
   return active ? steps.find((step) => !completed.has(step.id)) : void 0;
 }
 function useConnectionView(state) {
-  const [recovered, setRecovered] = (0, import_react53.useState)(false);
-  const [holdConnecting, setHoldConnecting] = (0, import_react53.useState)(false);
-  const previous = (0, import_react53.useRef)(state);
-  const connectingAt = (0, import_react53.useRef)(void 0);
+  const [view, setView] = (0, import_react53.useState)();
+  const feedback = (0, import_react53.useRef)();
+  if (feedback.current === void 0) feedback.current = createConnectionFeedback(setView);
   (0, import_react53.useLayoutEffect)(() => {
-    const before = previous.current;
-    previous.current = state;
-    if (state !== "connected") {
-      setRecovered(false);
-      return;
-    }
-    if (before === "disconnected" || before === "connecting") setRecovered(true);
+    feedback.current.update(state);
+    return () => feedback.current.suspend();
   }, [state]);
-  (0, import_react53.useLayoutEffect)(() => {
-    if (!recovered || holdConnecting) return void 0;
-    const timer = setTimeout(() => setRecovered(false), RECOVERY_CONFIRMATION_MS);
-    return () => clearTimeout(timer);
-  }, [recovered, holdConnecting]);
-  (0, import_react53.useLayoutEffect)(() => {
-    if (state === "connecting") {
-      connectingAt.current = Date.now();
-      return void 0;
-    }
-    const shownAt = connectingAt.current;
-    if (shownAt === void 0) return void 0;
-    connectingAt.current = void 0;
-    const remaining = CONNECTING_MIN_VISIBLE_MS - (Date.now() - shownAt);
-    if (remaining <= 0) return void 0;
-    setHoldConnecting(true);
-    const timer = setTimeout(() => setHoldConnecting(false), remaining);
-    return () => {
-      clearTimeout(timer);
-      setHoldConnecting(false);
-    };
-  }, [state]);
-  if (state === "connecting" || holdConnecting) return "connecting";
-  if (state === "disconnected") return "disconnected";
-  return recovered ? "recovered" : void 0;
+  return view;
 }
 var FAILURES2 = {
   check: "Could not check for updates. Try again later.",
