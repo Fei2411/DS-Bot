@@ -181,5 +181,4 @@ export function install(rt) {
       return result
     }
   }
-  rt.browserPlugin = plugin.id ?? name
 }

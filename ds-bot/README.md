@@ -2,8 +2,6 @@
 
 The DS Bot plugin for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (dsh). It turns dsh into a team of long-lived Bots that talk to you, to each other and in group chats. See the [project page](../README.md) for an overview, install steps and screenshots.
 
-> Early release (v0.2). Features, tools and the saved data format can still change.
-
 Tested with dsh `0.2.2-rc.1` (Web and Desktop).
 
 ## Features
@@ -236,7 +234,8 @@ The chats themselves are dsh Sessions and are not in `bot/`: they are in `~/.dsh
 You need Node 24, pnpm and a deepseek-harness checkout with its dependencies installed, next to this repository (`../deepseek-harness`, or set `DSH_HARNESS`). The Desktop test bench also needs `xvfb-run` and `ffmpeg`. Web screenshots need Chrome or Chromium (`CHROME_BIN`; by default `google-chrome` or `chromium`).
 
 ```sh
-npm ci                                   # esbuild, for the client build
+npm ci                                   # the plugin's packages and esbuild, for the client build
+npm ci --prefix ../link                  # the phone link's packages, for link.js and its test
 npm run build                            # src/client → client.js
 npm test                                 # unit tests
 npm run lint                             # oxlint from the dsh repository (.oxlintrc.json)

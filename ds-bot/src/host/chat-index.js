@@ -9,7 +9,7 @@
 // rebuild. Without SQLite, read_own_chat scans the logs as before.
 import { mkdir, unlink } from 'node:fs/promises'
 import { join } from 'node:path'
-import { ANCHOR_LINE_MAX, HISTORY_PAGE, HISTORY_PAGES_MAX, HISTORY_TIMEOUT_MS, OWN_CHAT_BRIEF, OWN_CHAT_LINE_MAX, OWN_CHAT_READ, OWN_CHAT_SEARCH } from './constants.js'
+import { ANCHOR_LINE_MAX, HISTORY_PAGE, HISTORY_PAGES_MAX, HISTORY_SCAN_PAGES, HISTORY_TIMEOUT_MS, OWN_CHAT_BRIEF, OWN_CHAT_LINE_MAX, OWN_CHAT_READ, OWN_CHAT_SEARCH } from './constants.js'
 import { excerpt } from './text.js'
 
 const INDEX_VERSION = 3
@@ -50,11 +50,17 @@ export function install(rt) {
   let indexOpening
 
   // A Session's events from newest to oldest, also for an archived part.
-  async function* eventsBackwards(sessionId, signal, maxPages = HISTORY_PAGES_MAX) {
+  async function* eventsBackwards(sessionId, signal, maxPages = HISTORY_PAGES_MAX, read) {
+    if (read !== undefined) Object.assign(read, { complete: false, capped: false })
     const agent = await rt.resolveAgent(sessionId)
     const throughSeq = Number(agent.session.seq) - 1
     let beforeSeq
-    for (let pages = 0; throughSeq >= 0 && pages < maxPages; pages += 1) {
+    if (throughSeq < 0 && read !== undefined) read.complete = true
+    for (let pages = 0; throughSeq >= 0; pages += 1) {
+      if (pages >= maxPages) {
+        if (read !== undefined) read.capped = true
+        if (!read?.continue?.()) return
+      }
       const page = await ctx.sessionController.page({
         address: { kind: 'session', sessionId },
         throughSeq,
@@ -63,7 +69,11 @@ export function install(rt) {
       }, signal)
       const events = page.records.map(record => record.event)
       for (let index = events.length - 1; index >= 0; index -= 1) yield events[index]
-      if (!page.hasMore || events.length === 0) return
+      if (!page.hasMore) {
+        if (read !== undefined) read.complete = true
+        return
+      }
+      if (events.length === 0) return
       beforeSeq = events[0].seq
     }
   }
@@ -265,15 +275,18 @@ export function install(rt) {
     const parts = askingId === undefined ? rt.partsOf(botId) : rt.partsOfThread(botId, askingId)
     const signal = AbortSignal.timeout(HISTORY_TIMEOUT_MS)
     const lines = []
+    let capped = false
     for (const part of [...parts].reverse()) {
-      for await (const line of rt.partLines(part.sessionId, signal)) {
+      const read = {}
+      for await (const line of rt.partLines(part.sessionId, signal, { pages: HISTORY_SCAN_PAGES, read })) {
         if (wanted !== '' && !line.text.toLowerCase().includes(wanted)) continue
         lines.push(`[${parts.length > 1 ? `part ${part.number} · ` : ''}${rt.clock(line.time)}] ${excerpt(line.text, wanted)}`)
         if (lines.length >= limit) break
       }
+      capped ||= read.capped === true && read.complete !== true
       if (lines.length >= limit) break
     }
-    return lines.reverse()
+    return [...lines.reverse(), ...(capped ? ['(Older messages were not searched.)'] : [])]
   }
 
   // The parts of a Bot's own chat, for the model: when each ran.
