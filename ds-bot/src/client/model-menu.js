@@ -64,16 +64,6 @@ function useEfforts(served, ref, actions) {
   return served?.reasoning ?? fetched
 }
 
-// The rows of the Thinking section: a Default row that clears the Bot's pick, then every
-// level the model serves.
-export function effortRows(reasoning) {
-  if (reasoning?.efforts === undefined || reasoning.efforts.length === 0) return []
-  return [
-    { effort: undefined, label: t('Default') },
-    ...reasoning.efforts.map(effort => ({ effort: effort.id, label: effort.name })),
-  ]
-}
-
 // The stops along the thinking-level slider: when the model names its default level,
 // the stops are the levels themselves and the reset action clears back to Default;
 // otherwise Default sits at the first stop.

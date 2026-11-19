@@ -16,13 +16,6 @@ export function generateKeyPair(privateKeyBytes?: Uint8Array): KeyPair {
   }
 }
 
-/** Short code both screens show at pairing, so the user can see they hold the same key. */
-export function identityFingerprint(publicKey: string): string {
-  return Array.from(sha256(fromBase64Url(publicKey)).slice(0, 6), byte => byte.toString(16).padStart(2, '0'))
-    .join('')
-    .toUpperCase()
-}
-
 /** A device's id is derived from its identity key, so the Server can check one against the other. */
 export function deviceIdFor(publicKey: string): string {
   const key = fromBase64Url(publicKey)
