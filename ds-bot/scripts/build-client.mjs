@@ -28,8 +28,8 @@ export async function bundleClient() {
     external: PLATFORM_MODULES,
     // Every source declaration ships, used or not, as in the hand-written bundle.
     treeShaking: false,
+    // keepNames would add a bundle-scoped helper to the serialized page reader.
     minify: true,
-    keepNames: true,
     charset: 'utf8',
     write: false,
     logLevel: 'silent',
