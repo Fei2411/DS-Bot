@@ -9,7 +9,7 @@ import { LocalAgentAdapter } from '../src/host/local-agents/adapter.js'
 import { AcpEngine, stdioBridgePath } from '../src/host/local-agents/acp.js'
 import { CodexEngine } from '../src/host/local-agents/codex.js'
 import { JsonRpcPeer, wireProcess } from '../src/host/local-agents/jsonrpc.js'
-import { ClaudeEngine } from '../src/host/local-agents/claude.js'
+import { ClaudeEngine, describeToolUse } from '../src/host/local-agents/claude.js'
 import { LoopbackMcp, flattenSchema } from '../src/host/local-agents/mcp.js'
 import { cleanEnv } from '../src/host/local-agents/discover.js'
 import { ENGINES, validateCustom, isLocalAgentRoute, cliMode, acpMode } from '../src/host/local-agents/engines.js'
@@ -473,7 +473,33 @@ test('claude stream-json: thinking, activity line, usage', async (t) => {
   assert.match(out.text, /fix it/)
   assert.match(out.thinking, /thought about/)
   assert.match(out.thinking, /▸ Read/)
+  // The call's input names what it works on, on the activity line itself.
+  assert.match(out.thinking, /^▸ Run `git status git log -1`$/m)
   assert.ok(out.usage.inputTokens === 10)
+})
+
+test('claude tool calls read as one line: the action and what it works on', () => {
+  const line = (name, input) => describeToolUse({ type: 'tool_use', name, input })
+  assert.equal(line('Bash', { command: 'npm test', description: 'Run the tests' }), 'Run `npm test`')
+  assert.equal(line('Read', { file_path: '/repo/a.js' }), 'Read /repo/a.js')
+  assert.equal(line('Write', { file_path: '/repo/b.js', content: 'x' }), 'Write /repo/b.js')
+  assert.equal(line('Edit', { file_path: '/repo/a.js', old_string: 'a', new_string: 'b' }), 'Edit /repo/a.js')
+  assert.equal(line('NotebookEdit', { notebook_path: '/repo/n.ipynb' }), 'Edit /repo/n.ipynb')
+  assert.equal(line('Grep', { pattern: 'TODO', path: 'src' }), 'Search `TODO` in src')
+  assert.equal(line('Glob', { pattern: '**/*.js' }), 'Search `**/*.js`')
+  assert.equal(line('WebSearch', { query: 'node streams' }), 'Search `node streams`')
+  assert.equal(line('WebFetch', { url: 'https://example.com/a', prompt: 'sum' }), 'Fetch https://example.com/a')
+  // A tool this list does not know keeps its name, with what it works on.
+  assert.equal(line('Task', { description: 'Find the bug', prompt: 'long' }), 'Task: Find the bug')
+  assert.equal(line('mcp__dsbot__list_bots', {}), 'mcp__dsbot__list_bots')
+  assert.equal(line('TodoWrite', { todos: [] }), 'TodoWrite')
+  assert.equal(describeToolUse({ type: 'tool_use' }), 'tool')
+  // A newline would end the activity line early; a backtick would split its code span.
+  const multi = line('Bash', { command: 'cd a &&\n  echo `date`' })
+  assert.equal(multi, 'Run `cd a && echo ˋdateˋ`')
+  assert.equal(multi.split('`').length, 3)
+  const long = line('Bash', { command: 'x'.repeat(500) })
+  assert.ok(long.length < 200 && long.endsWith('…`'))
 })
 
 test('a write to a CLI that has exited does not throw out of DS Bot', async () => {

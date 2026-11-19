@@ -195,7 +195,7 @@ class ClaudeSession {
         for (const block of event.message?.content ?? []) {
           if (block.type === 'text') this.emit({ type: 'text', text: block.text ?? '' })
           else if (block.type === 'thinking') this.emit({ type: 'thought', text: block.thinking ?? '' })
-          else if (block.type === 'tool_use') this.emit({ type: 'activity', text: `▸ ${block.name ?? 'tool'}` })
+          else if (block.type === 'tool_use') this.emit({ type: 'activity', text: `▸ ${describeToolUse(block)}` })
         }
         break
       }
@@ -277,6 +277,34 @@ class ClaudeSession {
     setTimeout(() => { try { this.child?.kill('SIGKILL') } catch {} }, 5_000).unref?.()
     this.child = undefined
   }
+}
+
+const VERBS = {
+  Bash: 'Run', Read: 'Read', LS: 'List', NotebookRead: 'Read',
+  Edit: 'Edit', MultiEdit: 'Edit', Write: 'Write', NotebookEdit: 'Edit',
+  Glob: 'Search', Grep: 'Search', WebSearch: 'Search', WebFetch: 'Fetch',
+}
+
+// The activity line rides the reasoning, where a newline would end it, and the
+// chat shows `…` as code, so a backtick in a command would split the code span.
+const oneLine = value => (typeof value === 'string' ? value.replace(/\s+/g, ' ').trim() : '')
+const clip = value => (value.length > 160 ? `${value.slice(0, 159)}…` : value)
+const asCode = value => `\`${value.replaceAll('`', 'ˋ')}\``
+
+// One line a person can act on, as the other engines show their calls: what
+// kind of action, on what. A tool it does not know keeps its own name.
+export const describeToolUse = (block) => {
+  const name = oneLine(block?.name) || 'tool'
+  const input = block?.input !== null && typeof block?.input === 'object' ? block.input : {}
+  const command = oneLine(input.command)
+  const path = oneLine(input.file_path ?? input.notebook_path ?? input.path)
+  const pattern = oneLine(input.pattern ?? input.query)
+  const target = command !== '' ? asCode(clip(command))
+    : pattern !== '' ? `${asCode(clip(pattern))}${path === '' ? '' : ` in ${clip(path)}`}`
+      : clip(path || oneLine(input.url) || oneLine(input.description))
+  const verb = VERBS[name]
+  if (target === '') return name
+  return verb === undefined ? `${name}: ${target}` : `${verb} ${target}`
 }
 
 function claudeContent(blocks) {
