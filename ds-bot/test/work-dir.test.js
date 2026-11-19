@@ -1394,6 +1394,32 @@ test('compressed group replies do not restore a shortened legacy log line as com
   }
 })
 
+test('compressed group replies distinguish a complete match from an ambiguous clipped match', async (t) => {
+  for (const clipped of [false, true]) {
+    await t.test(clipped ? 'a clipped opening and a later reply share a prefix' : 'a complete legacy reply exactly reaches the clipping limit', async (t) => {
+      const opening = 'Shared opening sentence. '.repeat(3)
+      const replies = [
+        { botId: 'b', text: opening + 'x'.repeat(TEXT_KEPT - opening.length) },
+        { botId: clipped ? 'b' : 'a', text: opening + 'A later reply.' },
+        { botId: 'a', text: 'Closing reply. '.repeat(10) },
+      ]
+      const original = JSON.stringify({ replies })
+      const head = original.indexOf(opening) + opening.length
+      const tail = original.indexOf(replies[2].text) + 45
+      const preview = `${original.slice(0, head)} ...[+${tail - head} chars]... ${original.slice(tail)}`
+      const saved = structuredClone(TEAM)
+      saved.rooms.r1.seq = 3
+      saved.rooms.r1.log = replies.map((reply, i) => ({ ...reply, seq: i + 1 }))
+      if (clipped) saved.rooms.r1.log[0] = { ...saved.rooms.r1.log[0], length: TEXT_KEPT, text: opening.slice(0, 45) }
+      const { call, stop } = await start({ team: saved })
+      t.after(stop)
+      const result = (await call('group-relay-replies', { sessionId: 'r1', preview })).value
+      if (clipped) assert.equal(result, null)
+      else assert.deepEqual(result?.map(reply => reply.text), replies.map(reply => reply.text))
+    })
+  }
+})
+
 test('the file panel of a group with a folder lists the Session\'s own folder', async (t) => {
   // DSH's file panel lists a Session at the folder the Session was made in, so no
   // lookup override is needed once the group's own Session moved there.

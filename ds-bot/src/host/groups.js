@@ -417,17 +417,20 @@ export function install(rt) {
   rt.ledger.importer('group-', (book) => {
     const roomId = book.slice('group-'.length)
     const lines = new Map()
+    const keep = (line, text = line.text) => lines.set(line.seq, typeof text === 'string'
+      ? { ...line, text, length: line.length ?? text.length }
+      : line)
     for (const line of rt.roomOf(roomId)?.log ?? []) {
       if (!Number.isInteger(line?.seq)) continue
       let text = line.text
       if (line.length !== undefined) {
         try { text = readFileSync(join(rt.home, 'group-lines', roomId, `${line.seq}.txt`), 'utf8') } catch { /* only its start was kept */ }
       }
-      lines.set(line.seq, { ...line, ...(text === undefined ? {} : { text }) })
+      keep(line, text)
     }
     try {
       for (const line of parseBook(readFileSync(join(rt.home, 'group-logs', `${oldLogName(roomId)}.jsonl`), 'utf8'))) {
-        if (Number.isInteger(line.seq)) lines.set(line.seq, line)
+        if (Number.isInteger(line.seq)) keep(line)
       }
     } catch { /* no log of its own yet */ }
     return [...lines.values()].sort((a, b) => a.seq - b.seq)
@@ -633,14 +636,18 @@ export function install(rt) {
   }
   const groupRows = (roomId, from, to, anchor) => rowsView(roomId, from, to, anchor).rows
   const jsonLength = text => JSON.stringify(text).length - 2
-  function isKeptReply(record) {
-    if (record.kind !== undefined || record.session === true || typeof record.botId !== 'string' || typeof record.text !== 'string') return false
+  const isLegacyReply = record => record.kind === undefined && record.session !== true
+    && typeof record.botId === 'string' && typeof record.text === 'string'
+  function hasCompleteText(record) {
     const length = record.text.length
     if (record.length !== undefined) return length === record.length
     // Old imports dropped the original length. Either cap can land one unit early at a surrogate pair.
     return length !== TEXT_KEPT && length !== TEXT_KEPT - 1
       && length !== GROUP_LINE_READ && length !== GROUP_LINE_READ - 1
   }
+  const isKeptReply = record => isLegacyReply(record) && hasCompleteText(record)
+  const matchesOpening = (record, opening, partial) => (partial ? record.text.startsWith(opening) : record.text === opening)
+    || (!hasCompleteText(record) && opening.startsWith(record.text))
 
   function restoreTrimmedReplies(replies, records) {
     const restored = []
@@ -652,13 +659,15 @@ export function install(rt) {
       const tail = reply.text.slice(marker.index + marker[0].length)
       if (reply.kind !== undefined || head.length < 16 || tail.length < 16 || REPLY_ELISION.test(tail)) return null
       const omitted = Number(marker[1])
-      const exact = records.filter(record => {
-        if (!isKeptReply(record) || record.botId !== reply.botId || !record.text.startsWith(head) || !record.text.endsWith(tail)) return false
+      const matches = records.filter(record => {
+        if (!isLegacyReply(record) || record.botId !== reply.botId || !matchesOpening(record, head, true)) return false
+        if (!hasCompleteText(record)) return true
         const length = record.text.length - head.length - tail.length
-        return length > 0 && (length === omitted || jsonLength(record.text.slice(head.length, -tail.length)) === omitted)
+        return length > 0 && record.text.endsWith(tail)
+          && (length === omitted || jsonLength(record.text.slice(head.length, -tail.length)) === omitted)
       })
-      if (exact.length !== 1) return null
-      restored.push({ ...reply, text: exact[0].text })
+      if (matches.length !== 1 || !hasCompleteText(matches[0])) return null
+      restored.push({ ...reply, text: matches[0].text })
     }
     return restored
   }
@@ -681,8 +690,8 @@ export function install(rt) {
     }
     const first = partial ?? before.findLast(reply => reply?.kind === undefined && typeof reply?.botId === 'string' && typeof reply.text === 'string')
     if (typeof first?.text !== 'string' || first.text.length < 16 || first.kind !== undefined) return null
-    const starts = records.filter(record => isKeptReply(record) && record.botId === first.botId
-      && (partial === undefined ? record.text === first.text : record.text.startsWith(first.text)))
+    const starts = records.filter(record => isLegacyReply(record) && record.botId === first.botId
+      && matchesOpening(record, first.text, partial !== undefined))
     const ends = records.filter(record => isKeptReply(record) && record.text.endsWith(tail)
       && (after[0].botId === undefined || record.botId === after[0].botId))
     if (starts.length !== 1 || ends.length !== 1 || ends[0].seq <= starts[0].seq) return null
