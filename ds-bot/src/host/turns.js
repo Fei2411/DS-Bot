@@ -1104,6 +1104,7 @@ export function install(rt) {
             ...(source.batch ? { batch: source.batch } : {}),
             ...(source.batchEnd ? { batchEnd: true } : {}),
             ...(source.fromRoomId ? { fromRoomId: source.fromRoomId } : {}),
+            ...(source.fromPart ? { fromPart: source.fromPart } : {}),
             // A post written into a running round already carries its log seq, or true
             // when its event needed none; the relay must not write it again.
             ...(source.logged !== undefined ? { logged: source.logged } : {}),
