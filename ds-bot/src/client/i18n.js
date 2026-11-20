@@ -2070,7 +2070,8 @@ export function installLocale(locale) {
 
   // DS Bot fills locales that other plugins' namespaces lack. Each supplement is tied to
   // the owner dictionary it was made from, so it leaves when that owner unloads or
-  // re-registers, and it steps aside for an owner's own registration of its locale.
+  // re-registers. DSH has no lower-priority registration, so an owner's own locale
+  // registered while the supplement stands still collides with it.
   const supplements = new Map()
   const supplementKey = (ns, langId) => `${ns}\0${langId.toLowerCase()}`
   const dropSupplement = (key) => {
@@ -2079,12 +2080,11 @@ export function installLocale(locale) {
     supplements.delete(key)
     entry.off()
   }
-  const origRegister = locale.register
   const supplement = (ns, langId, source, make) => {
     const key = supplementKey(ns, langId)
     if (supplements.has(key) || locale.dicts.get(ns)?.has(langId.toLowerCase())) return
     try {
-      const off = origRegister.call(locale, ns, langId, make())
+      const off = locale.register(ns, langId, make())
       if (typeof off === 'function') supplements.set(key, { ns, source, off })
     } catch { /* already registered */ }
   }
@@ -2115,30 +2115,6 @@ export function installLocale(locale) {
     }
   }
 
-  if (typeof origRegister === 'function' && locale.dicts instanceof Map) {
-    const ownRegister = Object.hasOwn(locale, 'register')
-    const yieldingRegister = (ns, localeOrDicts, dict) => {
-      const ids = typeof localeOrDicts === 'string' ? [localeOrDicts] : Object.keys(localeOrDicts ?? {})
-      const held = syncing
-      syncing = true
-      try {
-        for (const id of ids) dropSupplement(supplementKey(ns, id))
-      } finally {
-        syncing = held
-      }
-      try {
-        return origRegister.call(locale, ns, localeOrDicts, dict)
-      } finally {
-        syncDshNamespaces()
-      }
-    }
-    locale.register = yieldingRegister
-    offs.push(() => {
-      if (locale.register !== yieldingRegister) return
-      if (ownRegister) locale.register = origRegister
-      else delete locale.register
-    })
-  }
   syncDshNamespaces()
   if (typeof locale.subscribe === 'function') {
     pushOff(locale.subscribe(syncDshNamespaces))

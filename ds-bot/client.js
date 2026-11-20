@@ -15106,12 +15106,11 @@ function installLocale(locale) {
     supplements.delete(key);
     entry.off();
   };
-  const origRegister = locale.register;
   const supplement = (ns, langId, source, make) => {
     const key = supplementKey(ns, langId);
     if (supplements.has(key) || locale.dicts.get(ns)?.has(langId.toLowerCase())) return;
     try {
-      const off = origRegister.call(locale, ns, langId, make());
+      const off = locale.register(ns, langId, make());
       if (typeof off === "function") supplements.set(key, { ns, source, off });
     } catch {
     }
@@ -15141,30 +15140,6 @@ function installLocale(locale) {
       syncing = false;
     }
   };
-  if (typeof origRegister === "function" && locale.dicts instanceof Map) {
-    const ownRegister = Object.hasOwn(locale, "register");
-    const yieldingRegister = (ns, localeOrDicts, dict) => {
-      const ids = typeof localeOrDicts === "string" ? [localeOrDicts] : Object.keys(localeOrDicts ?? {});
-      const held = syncing;
-      syncing = true;
-      try {
-        for (const id of ids) dropSupplement(supplementKey(ns, id));
-      } finally {
-        syncing = held;
-      }
-      try {
-        return origRegister.call(locale, ns, localeOrDicts, dict);
-      } finally {
-        syncDshNamespaces();
-      }
-    };
-    locale.register = yieldingRegister;
-    offs.push(() => {
-      if (locale.register !== yieldingRegister) return;
-      if (ownRegister) locale.register = origRegister;
-      else delete locale.register;
-    });
-  }
   syncDshNamespaces();
   if (typeof locale.subscribe === "function") {
     pushOff(locale.subscribe(syncDshNamespaces));

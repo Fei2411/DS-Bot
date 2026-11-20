@@ -313,7 +313,7 @@ async function realLocale() {
   return new LocaleRuntime({ emit() {}, effect: fn => fn() })
 }
 
-test('a generated zh-TW dictionary leaves with the namespace owner and yields to its own zh-TW', async (t) => {
+test('a generated zh-TW dictionary leaves with the namespace owner', async (t) => {
   const locale = await realLocale()
   if (!locale) return t.skip('this DSH has no locale runtime to load')
   const off = installLocale(locale)
@@ -335,10 +335,6 @@ test('a generated zh-TW dictionary leaves with the namespace owner and yields to
     assert.equal(text('label'), 'label')
 
     const removeBase = locale.register('locale-owner', { en: { label: 'Settings' }, zh: { label: '设置' } })
-    assert.equal(text('label'), '設定')
-    const removeLate = locale.register('locale-owner', 'zh-TW', { label: '原生設定' })
-    assert.equal(text('label'), '原生設定')
-    removeLate()
     assert.equal(text('label'), '設定')
     removeBase()
     assert.equal(text('label'), 'label')
@@ -378,7 +374,6 @@ test('unloading DS Bot removes only its own dictionaries', async (t) => {
   const text = locale.bind('locale-owner')
   assert.equal(text('label'), '設定')
   off()
-  assert.equal(Object.hasOwn(locale, 'register'), false)
   assert.equal(locale.bind('ds-bot')('Settings'), 'Settings')
   locale.setLocale('zh')
   assert.equal(text('label'), '设置')
