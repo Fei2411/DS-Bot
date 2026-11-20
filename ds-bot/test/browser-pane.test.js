@@ -362,3 +362,31 @@ test('BrowserView Cancel during connecting stage propagates live requestId to im
   assert.deepEqual(cancelCalls, [liveCalls[0].requestId])
   inst.unmount()
 })
+
+test('ImportMenu keeps profile email and Last used visible alongside Ready', () => {
+  const h = createHarness()
+  const { ImportMenu } = h.exports
+  const inst = h.mount(ImportMenu, {
+    sources: [
+      { id: 'edge:Profile 1', label: 'Edge — Work', email: 'work@example.com', liveDebugReady: true },
+      { id: 'edge:Default', label: 'Edge — Default', email: null, liveDebugReady: false },
+    ],
+    lastSourceId: 'edge:Profile 1',
+    loading: false,
+    busy: false,
+    canPaste: true,
+    onFile() {}, onPaste() {}, onSource() {}, onClose() {},
+  })
+  const tree = inst.render()
+  const items = allNodes(tree, (n) => n.type === 'button' && n.props?.role === 'menuitem')
+  const firstText = textOf(items[0])
+  assert.match(firstText, /Edge — Work/)
+  assert.match(firstText, /work@example\.com/)
+  assert.match(firstText, /Last used/)
+  assert.match(firstText, /Ready/)
+
+  const secondText = textOf(items[1])
+  assert.match(secondText, /Edge — Default/)
+  assert.match(secondText, /Browser profile/)
+  inst.unmount()
+})

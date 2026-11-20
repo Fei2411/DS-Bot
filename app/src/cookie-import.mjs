@@ -74,6 +74,51 @@ async function mapPool(items, concurrency, fn) {
   await Promise.all(workers)
 }
 
+const COOKIE_ERROR_HINTS = [
+  [/EXCLUDE_OVERWRITE_SECURE/i, 'cannot overwrite an existing secure cookie'],
+  [/EXCLUDE_SAMESITE_NONE_INSECURE/i, 'SameSite=None requires HTTPS'],
+  [/EXCLUDE_INVALID_PREFIX/i, 'cookie name prefix requires HTTPS and matching host/path'],
+  [/EXCLUDE_INVALID_DOMAIN|EXCLUDE_DOMAIN_MISMATCH|EXCLUDE_SHADOWING_DOMAIN/i, 'cookie domain does not match'],
+  [/EXCLUDE_NONCOOKIEABLE_SCHEME|EXCLUDE_SECURE_ONLY/i, 'cookie requires HTTPS'],
+  [/EXCLUDE_(?:NAME_VALUE_PAIR|ATTRIBUTE_VALUE)_EXCEEDS_MAX_SIZE/i, 'cookie exceeds the browser size limit'],
+  [/EXCLUDE_DISALLOWED_CHARACTER/i, 'cookie contains an invalid character'],
+  [/EXCLUDE_INVALID_PARTITIONED/i, 'partitioned cookie requires HTTPS'],
+]
+
+/** Turn raw Chromium/Electron cookie rejection strings into plain human-readable reasons. */
+export function friendlyCookieError(error) {
+  let msg = String(error?.message ?? error ?? '').trim()
+  msg = msg.replace(/^Error invoking remote method '[^']+':\s*/i, '').replace(/^Error:\s*/i, '').trim()
+  if (!msg) return 'rejected by the browser'
+  for (const [pattern, label] of COOKIE_ERROR_HINTS) {
+    if (pattern.test(msg)) return label
+  }
+  if (/^(?:Setting cookie failed|Failed to (?:set|create) cookie)\b/i.test(msg)
+    || /\b(?:EXCLUDE_|DO_NOT_WARN|CookieInclusionStatus)\b/.test(msg)) {
+    return 'rejected by the browser'
+  }
+  return msg
+}
+
+async function setCookieWithRetry(storage, cookie, opts) {
+  const details = toSetDetails(cookie, opts)
+  try {
+    await storage.cookies.set(details)
+  } catch (error) {
+    // Chromium rejects overwriting an existing Secure cookie from an http:// URL
+    // (EXCLUDE_OVERWRITE_SECURE) and rejects SameSite=None without Secure.
+    const needsHttps = details.url.startsWith('http://')
+    const needsRelaxedSameSite = details.sameSite === 'no_restriction' && !details.secure
+    if (!needsHttps && !needsRelaxedSameSite) throw error
+    const retry = {
+      ...details,
+      ...(needsHttps ? { url: details.url.replace(/^http:\/\//, 'https://') } : {}),
+      ...(needsRelaxedSameSite ? { sameSite: 'unspecified' } : {}),
+    }
+    await storage.cookies.set(retry)
+  }
+}
+
 /**
  * Write cookies into an Electron session: one `cookies.set` each so a rejected cookie cannot
  * take the batch down; then a read-back, because a settled promise does not mean the cookie
@@ -82,26 +127,46 @@ async function mapPool(items, concurrency, fn) {
  */
 export async function applyCookies(storage, cookies, opts = {}) {
   const selected = filterCookiesBySites(cookies ?? [], opts.sites)
+  // Group entries sharing (name, domain, path) so partitioned/non-secure duplicates run
+  // sequentially before unpartitioned/secure ones rather than racing in parallel.
+  const groups = new Map()
+  selected.forEach((cookie, index) => {
+    const key = keyOf(cookie)
+    let list = groups.get(key)
+    if (!list) { list = []; groups.set(key, list) }
+    list.push({ cookie, index })
+  })
+  for (const list of groups.values()) {
+    if (list.length > 1) {
+      list.sort((a, b) => {
+        const aPart = a.cookie.partitionKey ? 0 : 1
+        const bPart = b.cookie.partitionKey ? 0 : 1
+        if (aPart !== bPart) return aPart - bPart
+        return (a.cookie.secure ? 1 : 0) - (b.cookie.secure ? 1 : 0)
+      })
+    }
+  }
   const failed = []
-  const failedKeys = new Set()
-  await mapPool(selected, APPLY_CONCURRENCY, async (cookie) => {
-    try {
-      await storage.cookies.set(toSetDetails(cookie, opts))
-    } catch (error) {
-      failedKeys.add(keyOf(cookie))
-      failed.push({ ...describeCookie(cookie), reason: error?.message ?? String(error) })
+  const failedIndices = new Set()
+  await mapPool([...groups.values()], APPLY_CONCURRENCY, async (list) => {
+    for (const { cookie, index } of list) {
+      try {
+        await setCookieWithRetry(storage, cookie, opts)
+      } catch (error) {
+        failedIndices.add(index)
+        failed.push({ ...describeCookie(cookie), reason: friendlyCookieError(error) })
+      }
     }
   })
   const kept = new Map()
   for (const stored of await storage.cookies.get({})) kept.set(keyOf(stored), stored)
   const dropped = []
   let storedCount = 0
-  for (const cookie of selected) {
-    const key = keyOf(cookie)
-    if (failedKeys.has(key)) continue
-    if (kept.has(key)) storedCount += 1
+  selected.forEach((cookie, index) => {
+    if (failedIndices.has(index)) return
+    if (kept.has(keyOf(cookie))) storedCount += 1
     else dropped.push({ ...describeCookie(cookie), reason: 'the browser did not store it' })
-  }
+  })
   let flushed = false
   try { await storage.cookies.flushStore(); flushed = true } catch { /* the store flushes itself within 30 s */ }
   return { stored: storedCount, dropped, failed, flushed }

@@ -8,7 +8,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { runInNewContext } from 'node:vm'
 import test from 'node:test'
-import { applyCookies, applyOrigins, CookieImports, filterCookiesBySites, previewOf, seedOriginsInPartition, toSetDetails } from '../src/cookie-import.mjs'
+import { applyCookies, applyOrigins, CookieImports, filterCookiesBySites, friendlyCookieError, previewOf, seedOriginsInPartition, toSetDetails } from '../src/cookie-import.mjs'
 import { parseCookieFile } from '../src/cookie-parse.mjs'
 
 const fixtures = join(dirname(fileURLToPath(import.meta.url)), 'fixtures', 'cookies')
@@ -312,4 +312,63 @@ test('seedOriginsInPartition stops timed-out origin, blocks cross-origin localSt
     { cmd: 'Fetch.failRequest', requestId: 'req-other' },
     { cmd: 'Fetch.fulfillRequest', requestId: 'req-b' },
   ])
+})
+
+test('applyCookies retries http:// overwrite and insecure SameSite=None, keeps secure duplicate last, and sanitizes Chromium errors', async () => {
+  const stored = new Map()
+  const attempts = []
+  const ses = {
+    cookies: {
+      set: async (details) => {
+        attempts.push({ name: details.name, url: details.url, secure: details.secure, sameSite: details.sameSite })
+        const existing = stored.get(details.name)
+        if (existing?.secure && details.url.startsWith('http://')) {
+          throw new Error('Setting cookie failed: EXCLUDE_OVERWRITE_SECURE, DO_NOT_WARN')
+        }
+        if (details.sameSite === 'no_restriction' && !details.secure) {
+          throw new Error('Setting cookie failed: EXCLUDE_SAMESITE_NONE_INSECURE')
+        }
+        if (details.name === '__Host-bad') {
+          throw new Error('Setting cookie failed: EXCLUDE_INVALID_PREFIX, DO_NOT_WARN')
+        }
+        stored.set(details.name, {
+          name: details.name,
+          domain: details.domain ?? new URL(details.url).host,
+          path: details.path,
+          value: details.value,
+          secure: details.secure,
+          httpOnly: details.httpOnly,
+        })
+      },
+      get: async () => [...stored.values()],
+      flushStore: async () => {},
+    },
+  }
+
+  // Seed an existing Secure MUIDB (simulating prior import or HTTPS visit to bing.com).
+  stored.set('MUIDB', { name: 'MUIDB', domain: 'www.bing.com', path: '/', value: 'old', secure: true, httpOnly: true })
+
+  // Re-import: insecure MUIDB + secure MUIDB + insecure SameSite=None + genuinely invalid __Host-bad.
+  const report = await applyCookies(ses, [
+    { name: 'MUIDB', value: 'sec', domain: 'www.bing.com', path: '/', secure: true, httpOnly: true },
+    { name: 'MUIDB', value: 'insec', domain: 'www.bing.com', path: '/', secure: false, httpOnly: true },
+    { name: 'legacy_none', value: 'v', domain: 'www.bing.com', path: '/', secure: false, sameSite: 'None' },
+    { name: '__Host-bad', value: 'v', domain: '.bing.com', path: '/', secure: true },
+  ])
+
+  assert.equal(report.stored, 3)
+  assert.equal(report.failed.length, 1)
+  assert.equal(report.failed[0].name, '__Host-bad')
+  assert.equal(report.failed[0].reason, 'cookie name prefix requires HTTPS and matching host/path')
+  // Secure MUIDB ran after the insecure duplicate so the stored cookie stayed Secure.
+  assert.equal(stored.get('MUIDB').value, 'sec')
+  assert.equal(stored.get('MUIDB').secure, true)
+  // Insecure MUIDB retried over https:// after EXCLUDE_OVERWRITE_SECURE.
+  assert.ok(attempts.some((a) => a.name === 'MUIDB' && a.url === 'http://www.bing.com/'))
+  assert.ok(attempts.some((a) => a.name === 'MUIDB' && a.url === 'https://www.bing.com/' && a.secure === false))
+
+  assert.equal(friendlyCookieError(new Error('Setting cookie failed')), 'rejected by the browser')
+  assert.equal(friendlyCookieError(new Error('Setting cookie failed: EXCLUDE_OVERWRITE_SECURE, DO_NOT_WARN')), 'cannot overwrite an existing secure cookie')
+  assert.equal(friendlyCookieError(new Error("Error invoking remote method 'x': Error: Setting cookie failed: EXCLUDE_FAILURE_TO_STORE")), 'rejected by the browser')
+  assert.equal(friendlyCookieError(new Error('Invalid cookie fields')), 'Invalid cookie fields')
 })
