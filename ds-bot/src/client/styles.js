@@ -1254,8 +1254,9 @@ html[data-platform=darwin] header[class*="_header"]:has(.bt-head) :is(a,button,i
 [data-content-phase=hero] [class*="_composerHero"] [class*="_input"]{min-height:0!important}
 /* The right sides give back the scrollbar gutter so both edges sit 16px from the column. */
 [class*="_scroll"]:has(> [class*="_column"]){padding:calc(60px + env(safe-area-inset-top,0px)) calc(11px + env(safe-area-inset-right,0px)) calc(16px + env(safe-area-inset-bottom,0px)) calc(16px + env(safe-area-inset-left,0px))!important}
-/* The goal island's pod hangs off the header over the transcript's first message. */
+/* The goal/approval island's pod hangs off the header over the transcript's first message. */
 body[data-bt-goal] [class*="_scroll"]:has(> [class*="_column"]){padding-top:calc(90px + env(safe-area-inset-top,0px))!important}
+body[data-bt-goal="2"] [class*="_scroll"]:has(> [class*="_column"]){padding-top:calc(120px + env(safe-area-inset-top,0px))!important}
 /* The shell's running status keeps its slot but hosts nothing visible: the activity
    row mounts at the flow's end, after the shell's pending rows, so an interjection's
    echo always draws above it and the row never jumps. The slot keeps the shell's
