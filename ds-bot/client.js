@@ -646,6 +646,37 @@ var JA = {
   "That file is too large to be a cookie export.": "ファイルサイズが大きすぎるため、Cookie のエクスポートファイルではありません。",
   "That file could not be read.": "ファイルを読み込めませんでした。",
   "This browser encrypts its cookies so only it can read them. Export them to a file first, then import that file.": "このブラウザの Cookie は暗号化されており直接読み取れません。先にファイルへエクスポートしてから、そのファイルをインポートしてください。",
+  "Keychain access was cancelled. Click Allow when macOS asks to read your browser cookies.": "キーチェーンへのアクセスがキャンセルされました。macOS がブラウザの Cookie 読み取りを求めたら「許可」をクリックしてください。",
+  "Remote debugging permission was declined in the browser. Try again and click Allow.": "ブラウザでリモートデバッグの許可が拒否されました。もう一度試して「許可」をクリックしてください。",
+  "Timed out waiting for you to click Allow in the browser.": "ブラウザで「許可」をクリックする待機時間がタイムアウトしました。",
+  "Another browser profile is active. Switch to the chosen profile window in your browser, then try again.": "別のブラウザプロファイルがアクティブです。ブラウザで選択したプロファイルのウィンドウに切り替えてから再試行してください。",
+  "Import from browser": "ブラウザからインポート",
+  "Last used": "前回使用",
+  "Browser profile": "ブラウザプロファイル",
+  "Paste cookies or cURL…": "Cookie または cURL を貼り付け…",
+  "JSON, cURL, header": "JSON、cURL、ヘッダー",
+  "Connect to {name}": "{name} に接続",
+  "{name} protects its cookies on Windows. Enable its built-in remote debugging switch once — no extension needed.": "{name} は Windows 上で Cookie を保護しています。内蔵のリモートデバッグを一度オンにするだけで、拡張機能は不要です。",
+  "1. Open this address in {name}:": "1. {name} で次のアドレスを開きます:",
+  "2. Turn on “Allow remote debugging for this browser instance”, then click Allow when {name} prompts.": "2. 「Allow remote debugging for this browser instance」をオンにし、{name} の確認ダイアログで「許可」をクリックします。",
+  "Remote debugging detected — ready to import.": "リモートデバッグを検出しました。インポートできます。",
+  "Open {name}": "{name} を開く",
+  "Connect and import": "接続してインポート",
+  "Paste cookies or cURL": "Cookie または cURL を貼り付け",
+  "Paste Cookie-Editor JSON, Netscape cookies.txt, Copy as cURL, or a Cookie header…": "Cookie-Editor JSON、Netscape cookies.txt、Copy as cURL、または Cookie ヘッダーを貼り付け…",
+  "Site URL (only needed for plain Cookie headers)": "サイト URL（単純な Cookie ヘッダーの場合のみ必要）",
+  "Reading…": "読み込み中…",
+  "{count} storage entries": "ストレージ {count} 件",
+  "All sites ({count})": "すべてのサイト ({count})",
+  "This site ({host})": "このサイト ({host})",
+  "Filter sites…": "サイトを絞り込み…",
+  "storage": "ストレージ",
+  "Keep session logins after app restart": "アプリ再起動後もセッションログインを維持",
+  "Reading {name}…": "{name} を読み込み中…",
+  "If {name} or your system asks for permission, click Allow.": "{name} またはシステムが許可を求めたら「許可」をクリックしてください。",
+  "Imported storage for {count} sites": "{count} サイトのストレージをインポートしました",
+  "{count} sites storage": "{count} サイトのストレージ",
+  "page reloaded": "ページを再読み込みしました",
   "{count}": "{count} 件",
   "Choose a PNG, JPEG, WebP, or GIF image": "PNG、JPEG、WebP、または GIF 画像を選択してください",
   "Choose an image smaller than 25 MB": "25 MB 未満の画像を選択してください",
@@ -3171,6 +3202,37 @@ var KO = {
   "That file is too large to be a cookie export.": "파일이 너무 커서 쿠키 내보내기 파일로 보이지 않습니다.",
   "That file could not be read.": "파일을 읽을 수 없습니다.",
   "This browser encrypts its cookies so only it can read them. Export them to a file first, then import that file.": "이 브라우저는 자체적으로만 읽을 수 있도록 쿠키를 암호화합니다. 먼저 쿠키를 파일로 내보낸 뒤 그 파일을 가져오세요.",
+  "Keychain access was cancelled. Click Allow when macOS asks to read your browser cookies.": "키체인 접근이 취소되었습니다. macOS가 브라우저 쿠키 읽기를 요청하면 허용을 클릭하세요.",
+  "Remote debugging permission was declined in the browser. Try again and click Allow.": "브라우저에서 원격 디버깅 권한이 거부되었습니다. 다시 시도하고 허용을 클릭하세요.",
+  "Timed out waiting for you to click Allow in the browser.": "브라우저에서 허용을 클릭하기를 기다리다 시간이 초과되었습니다.",
+  "Another browser profile is active. Switch to the chosen profile window in your browser, then try again.": "다른 브라우저 프로필이 활성화되어 있습니다. 브라우저에서 선택한 프로필 창으로 전환한 뒤 다시 시도하세요.",
+  "Import from browser": "브라우저에서 가져오기",
+  "Last used": "최근 사용",
+  "Browser profile": "브라우저 프로필",
+  "Paste cookies or cURL…": "쿠키 또는 cURL 붙여넣기…",
+  "JSON, cURL, header": "JSON, cURL, 헤더",
+  "Connect to {name}": "{name}에 연결",
+  "{name} protects its cookies on Windows. Enable its built-in remote debugging switch once — no extension needed.": "{name}은(는) Windows에서 쿠키를 보호합니다. 내장 원격 디버깅 스위치를 한 번만 켜면 확장 프로그램 없이 가져올 수 있습니다.",
+  "1. Open this address in {name}:": "1. {name}에서 다음 주소를 여세요:",
+  "2. Turn on “Allow remote debugging for this browser instance”, then click Allow when {name} prompts.": "2. “Allow remote debugging for this browser instance”를 켜고, {name} 확인 창이 뜨면 허용을 클릭하세요.",
+  "Remote debugging detected — ready to import.": "원격 디버깅이 감지되었습니다. 가져올 준비가 되었습니다.",
+  "Open {name}": "{name} 열기",
+  "Connect and import": "연결하고 가져오기",
+  "Paste cookies or cURL": "쿠키 또는 cURL 붙여넣기",
+  "Paste Cookie-Editor JSON, Netscape cookies.txt, Copy as cURL, or a Cookie header…": "Cookie-Editor JSON, Netscape cookies.txt, Copy as cURL 또는 Cookie 헤더를 붙여넣으세요…",
+  "Site URL (only needed for plain Cookie headers)": "사이트 URL(단순 Cookie 헤더에만 필요)",
+  "Reading…": "읽는 중…",
+  "{count} storage entries": "스토리지 {count}개",
+  "All sites ({count})": "모든 사이트 ({count})",
+  "This site ({host})": "현재 사이트 ({host})",
+  "Filter sites…": "사이트 필터링…",
+  storage: "스토리지",
+  "Keep session logins after app restart": "앱 재시작 후에도 세션 로그인 유지",
+  "Reading {name}…": "{name} 읽는 중…",
+  "If {name} or your system asks for permission, click Allow.": "{name} 또는 시스템이 권한을 요청하면 허용을 클릭하세요.",
+  "Imported storage for {count} sites": "{count}개 사이트의 스토리지를 가져옴",
+  "{count} sites storage": "{count}개 사이트 스토리지",
+  "page reloaded": "페이지 새로고침됨",
   "{count}": "{count}개",
   // Bot settings
   "Choose a PNG, JPEG, WebP, or GIF image": "PNG, JPEG, WebP 또는 GIF 이미지를 선택하세요",
@@ -5731,6 +5793,37 @@ var ES = {
   "That file is too large to be a cookie export.": "Ese archivo es demasiado grande para ser una exportación de cookies.",
   "That file could not be read.": "No se pudo leer ese archivo.",
   "This browser encrypts its cookies so only it can read them. Export them to a file first, then import that file.": "Este navegador cifra sus cookies para que solo él pueda leerlas. Expórtalas primero a un archivo y luego importa ese archivo.",
+  "Keychain access was cancelled. Click Allow when macOS asks to read your browser cookies.": "Se canceló el acceso al llavero. Haz clic en Permitir cuando macOS solicite leer las cookies de tu navegador.",
+  "Remote debugging permission was declined in the browser. Try again and click Allow.": "Se rechazó el permiso de depuración remota en el navegador. Inténtalo de nuevo y haz clic en Permitir.",
+  "Timed out waiting for you to click Allow in the browser.": "Se agotó el tiempo esperando a que hicieras clic en Permitir en el navegador.",
+  "Another browser profile is active. Switch to the chosen profile window in your browser, then try again.": "Hay otro perfil del navegador activo. Cambia a la ventana del perfil elegido en tu navegador e inténtalo de nuevo.",
+  "Import from browser": "Importar desde el navegador",
+  "Last used": "Último usado",
+  "Browser profile": "Perfil del navegador",
+  "Paste cookies or cURL…": "Pegar cookies o cURL…",
+  "JSON, cURL, header": "JSON, cURL, encabezado",
+  "Connect to {name}": "Conectar con {name}",
+  "{name} protects its cookies on Windows. Enable its built-in remote debugging switch once — no extension needed.": "{name} protege sus cookies en Windows. Activa una vez su interruptor integrado de depuración remota; no se necesita extensión.",
+  "1. Open this address in {name}:": "1. Abre esta dirección en {name}:",
+  "2. Turn on “Allow remote debugging for this browser instance”, then click Allow when {name} prompts.": "2. Activa “Allow remote debugging for this browser instance” y haz clic en Permitir cuando {name} lo solicite.",
+  "Remote debugging detected — ready to import.": "Depuración remota detectada: listo para importar.",
+  "Open {name}": "Abrir {name}",
+  "Connect and import": "Conectar e importar",
+  "Paste cookies or cURL": "Pegar cookies o cURL",
+  "Paste Cookie-Editor JSON, Netscape cookies.txt, Copy as cURL, or a Cookie header…": "Pega Cookie-Editor JSON, Netscape cookies.txt, Copy as cURL o un encabezado Cookie…",
+  "Site URL (only needed for plain Cookie headers)": "URL del sitio (solo necesaria para encabezados Cookie simples)",
+  "Reading…": "Leyendo…",
+  "{count} storage entries": "{count} entradas de almacenamiento",
+  "All sites ({count})": "Todos los sitios ({count})",
+  "This site ({host})": "Este sitio ({host})",
+  "Filter sites…": "Filtrar sitios…",
+  storage: "almacenamiento",
+  "Keep session logins after app restart": "Mantener sesiones iniciadas al reiniciar la aplicación",
+  "Reading {name}…": "Leyendo {name}…",
+  "If {name} or your system asks for permission, click Allow.": "Si {name} o tu sistema solicitan permiso, haz clic en Permitir.",
+  "Imported storage for {count} sites": "Almacenamiento importado para {count} sitios",
+  "{count} sites storage": "almacenamiento de {count} sitios",
+  "page reloaded": "página recargada",
   "{count}": "{count}",
   // Bot settings
   "Choose a PNG, JPEG, WebP, or GIF image": "Elige una imagen PNG, JPEG, WebP o GIF",
@@ -8281,6 +8374,37 @@ var FR = {
   "That file is too large to be a cookie export.": "Ce fichier est trop volumineux pour être un export de cookies.",
   "That file could not be read.": "Impossible de lire ce fichier.",
   "This browser encrypts its cookies so only it can read them. Export them to a file first, then import that file.": "Ce navigateur chiffre ses cookies pour être le seul à pouvoir les lire. Exportez-les d’abord dans un fichier, puis importez ce fichier.",
+  "Keychain access was cancelled. Click Allow when macOS asks to read your browser cookies.": "L’accès au trousseau a été annulé. Cliquez sur Autoriser lorsque macOS demande à lire les cookies de votre navigateur.",
+  "Remote debugging permission was declined in the browser. Try again and click Allow.": "L’autorisation de débogage à distance a été refusée dans le navigateur. Réessayez et cliquez sur Autoriser.",
+  "Timed out waiting for you to click Allow in the browser.": "Délai dépassé en attendant que vous cliquiez sur Autoriser dans le navigateur.",
+  "Another browser profile is active. Switch to the chosen profile window in your browser, then try again.": "Un autre profil de navigateur est actif. Basculez vers la fenêtre du profil choisi dans votre navigateur, puis réessayez.",
+  "Import from browser": "Importer depuis un navigateur",
+  "Last used": "Dernier utilisé",
+  "Browser profile": "Profil du navigateur",
+  "Paste cookies or cURL…": "Coller des cookies ou cURL…",
+  "JSON, cURL, header": "JSON, cURL, en-tête",
+  "Connect to {name}": "Se connecter à {name}",
+  "{name} protects its cookies on Windows. Enable its built-in remote debugging switch once — no extension needed.": "{name} protège ses cookies sous Windows. Activez une fois son option intégrée de débogage à distance, sans extension.",
+  "1. Open this address in {name}:": "1. Ouvrez cette adresse dans {name} :",
+  "2. Turn on “Allow remote debugging for this browser instance”, then click Allow when {name} prompts.": "2. Activez « Allow remote debugging for this browser instance », puis cliquez sur Autoriser lorsque {name} vous le demande.",
+  "Remote debugging detected — ready to import.": "Débogage à distance détecté — prêt à importer.",
+  "Open {name}": "Ouvrir {name}",
+  "Connect and import": "Connecter et importer",
+  "Paste cookies or cURL": "Coller des cookies ou cURL",
+  "Paste Cookie-Editor JSON, Netscape cookies.txt, Copy as cURL, or a Cookie header…": "Collez un JSON Cookie-Editor, Netscape cookies.txt, Copy as cURL ou un en-tête Cookie…",
+  "Site URL (only needed for plain Cookie headers)": "URL du site (uniquement nécessaire pour les en-têtes Cookie simples)",
+  "Reading…": "Lecture…",
+  "{count} storage entries": "{count} entrées de stockage",
+  "All sites ({count})": "Tous les sites ({count})",
+  "This site ({host})": "Ce site ({host})",
+  "Filter sites…": "Filtrer les sites…",
+  "storage": "stockage",
+  "Keep session logins after app restart": "Conserver les sessions après le redémarrage de l’application",
+  "Reading {name}…": "Lecture de {name}…",
+  "If {name} or your system asks for permission, click Allow.": "Si {name} ou votre système demande une autorisation, cliquez sur Autoriser.",
+  "Imported storage for {count} sites": "Stockage importé pour {count} sites",
+  "{count} sites storage": "stockage de {count} sites",
+  "page reloaded": "page rechargée",
   "{count}": "{count}",
   "Choose a PNG, JPEG, WebP, or GIF image": "Choisissez une image PNG, JPEG, WebP ou GIF",
   "Choose an image smaller than 25 MB": "Choisissez une image de moins de 25 Mo",
@@ -10806,6 +10930,37 @@ var DE = {
   "That file is too large to be a cookie export.": "Diese Datei ist zu groß für einen Cookie-Export.",
   "That file could not be read.": "Diese Datei konnte nicht gelesen werden.",
   "This browser encrypts its cookies so only it can read them. Export them to a file first, then import that file.": "Dieser Browser verschlüsselt seine Cookies, sodass nur er selbst sie lesen kann. Exportiere sie zuerst in eine Datei und importiere dann diese Datei.",
+  "Keychain access was cancelled. Click Allow when macOS asks to read your browser cookies.": "Der Zugriff auf den Schlüsselbund wurde abgebrochen. Klicke auf Erlauben, wenn macOS nach dem Lesen deiner Browser-Cookies fragt.",
+  "Remote debugging permission was declined in the browser. Try again and click Allow.": "Die Berechtigung für Remote-Debugging wurde im Browser abgelehnt. Versuche es erneut und klicke auf Erlauben.",
+  "Timed out waiting for you to click Allow in the browser.": "Zeitüberschreitung beim Warten auf deine Bestätigung im Browser.",
+  "Another browser profile is active. Switch to the chosen profile window in your browser, then try again.": "Ein anderes Browser-Profil ist aktiv. Wechsle in deinem Browser zum Fenster des ausgewählten Profils und versuche es erneut.",
+  "Import from browser": "Aus Browser importieren",
+  "Last used": "Zuletzt verwendet",
+  "Browser profile": "Browser-Profil",
+  "Paste cookies or cURL…": "Cookies oder cURL einfügen…",
+  "JSON, cURL, header": "JSON, cURL, Header",
+  "Connect to {name}": "Mit {name} verbinden",
+  "{name} protects its cookies on Windows. Enable its built-in remote debugging switch once — no extension needed.": "{name} schützt seine Cookies unter Windows. Aktiviere einmalig den integrierten Remote-Debugging-Schalter – keine Erweiterung nötig.",
+  "1. Open this address in {name}:": "1. Öffne diese Adresse in {name}:",
+  "2. Turn on “Allow remote debugging for this browser instance”, then click Allow when {name} prompts.": "2. Aktiviere „Allow remote debugging for this browser instance“ und klicke auf Erlauben, wenn {name} fragt.",
+  "Remote debugging detected — ready to import.": "Remote-Debugging erkannt – bereit zum Importieren.",
+  "Open {name}": "{name} öffnen",
+  "Connect and import": "Verbinden und importieren",
+  "Paste cookies or cURL": "Cookies oder cURL einfügen",
+  "Paste Cookie-Editor JSON, Netscape cookies.txt, Copy as cURL, or a Cookie header…": "Cookie-Editor-JSON, Netscape cookies.txt, Copy as cURL oder einen Cookie-Header einfügen…",
+  "Site URL (only needed for plain Cookie headers)": "Website-URL (nur für einfache Cookie-Header nötig)",
+  "Reading…": "Wird gelesen…",
+  "{count} storage entries": "{count} Speicher-Einträge",
+  "All sites ({count})": "Alle Websites ({count})",
+  "This site ({host})": "Diese Website ({host})",
+  "Filter sites…": "Websites filtern…",
+  storage: "Speicher",
+  "Keep session logins after app restart": "Sitzungs-Anmeldungen nach Neustart behalten",
+  "Reading {name}…": "{name} wird gelesen…",
+  "If {name} or your system asks for permission, click Allow.": "Wenn {name} oder dein System um Erlaubnis fragt, klicke auf Erlauben.",
+  "Imported storage for {count} sites": "Speicher für {count} Websites importiert",
+  "{count} sites storage": "Speicher von {count} Websites",
+  "page reloaded": "Seite neu geladen",
   "{count}": "{count}",
   // Bot settings
   "Choose a PNG, JPEG, WebP, or GIF image": "Wähle ein PNG-, JPEG-, WebP- oder GIF-Bild",
@@ -13340,6 +13495,37 @@ var ZH = {
   "That file is too large to be a cookie export.": "这个文件太大了，不像是 cookie 导出文件。",
   "That file could not be read.": "这个文件读不了。",
   "This browser encrypts its cookies so only it can read them. Export them to a file first, then import that file.": "这个浏览器把 cookie 加密了，只有它自己能读。先把 cookie 导出成文件，再导入那个文件。",
+  "Keychain access was cancelled. Click Allow when macOS asks to read your browser cookies.": "钥匙串访问被取消了。macOS 询问读取浏览器 cookie 时请点「允许」。",
+  "Remote debugging permission was declined in the browser. Try again and click Allow.": "浏览器拒绝了远程调试授权。请重试并在弹窗里点「允许」。",
+  "Timed out waiting for you to click Allow in the browser.": "等待你在浏览器里点「允许」超时了。",
+  "Another browser profile is active. Switch to the chosen profile window in your browser, then try again.": "当前激活的是另一个浏览器配置。请先在浏览器里切到所选配置的窗口，再重试。",
+  "Import from browser": "从浏览器导入",
+  "Last used": "上次使用",
+  "Browser profile": "浏览器配置",
+  "Paste cookies or cURL…": "粘贴 cookie 或 cURL…",
+  "JSON, cURL, header": "JSON、cURL、请求头",
+  "Connect to {name}": "连接到 {name}",
+  "{name} protects its cookies on Windows. Enable its built-in remote debugging switch once — no extension needed.": "{name} 在 Windows 上对 cookie 做了保护。打开它自带的远程调试开关一次即可，无需安装扩展。",
+  "1. Open this address in {name}:": "1. 在 {name} 中打开这个地址：",
+  "2. Turn on “Allow remote debugging for this browser instance”, then click Allow when {name} prompts.": "2. 打开「Allow remote debugging for this browser instance」开关，{name} 弹窗时点「允许」。",
+  "Remote debugging detected — ready to import.": "已检测到远程调试，可以导入了。",
+  "Open {name}": "打开 {name}",
+  "Connect and import": "连接并导入",
+  "Paste cookies or cURL": "粘贴 cookie 或 cURL",
+  "Paste Cookie-Editor JSON, Netscape cookies.txt, Copy as cURL, or a Cookie header…": "粘贴 Cookie-Editor JSON、Netscape cookies.txt、Copy as cURL 或 Cookie 请求头…",
+  "Site URL (only needed for plain Cookie headers)": "网站地址（仅粘贴纯 Cookie 请求头时需要）",
+  "Reading…": "读取中…",
+  "{count} storage entries": "{count} 条本地存储",
+  "All sites ({count})": "全部网站 ({count})",
+  "This site ({host})": "当前网站 ({host})",
+  "Filter sites…": "筛选网站…",
+  storage: "含存储",
+  "Keep session logins after app restart": "重启应用后保持会话登录",
+  "Reading {name}…": "正在读取 {name}…",
+  "If {name} or your system asks for permission, click Allow.": "如果 {name} 或系统弹出权限提示，请点「允许」。",
+  "Imported storage for {count} sites": "已导入 {count} 个网站的本地存储",
+  "{count} sites storage": "{count} 个网站本地存储",
+  "page reloaded": "页面已刷新",
   "{count}": "{count} 个",
   // Bot settings
   "Choose a PNG, JPEG, WebP, or GIF image": "请选择 PNG、JPEG、WebP 或 GIF 图片",
@@ -16591,6 +16777,7 @@ var STORAGE = {
   agentSessions: "ds-bot:agent-sessions",
   agentForks: "ds-bot:pending-agent-forks",
   browserWidth: "ds-bot:browser-width",
+  browserImportSource: "ds-bot:browser-import-source",
   sidebar: "ds-bot:sidebar",
   browsers: "ds-bot.browser.v2"
 };
@@ -44133,6 +44320,44 @@ var LockIcon2 = icon(["M6.5 9V7a3.5 3.5 0 0 1 7 0v2", "M5.5 9h9v7h-9z"]);
 var ImportIcon = icon(["M10 3.5v8.5", "M6 8.5l4 4 4-4", "M4.5 14v1.5a1.5 1.5 0 0 0 1.5 1.5h8a1.5 1.5 0 0 0 1.5-1.5V14"]);
 var FileIcon = icon(["M6 3.5h5.5L14.5 6.5v10H6z", "M11 3.5v3.5h3.5"]);
 var WindowIcon = icon(["M4 5h12v9.5H4z", "M4 7.5h12"]);
+var PasteIcon = icon(["M7.5 4.5h5v2h-5z", "M6 5.5H5a1 1 0 0 0-1 1v9a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1v-9a1 1 0 0 0-1-1h-1"]);
+function siteMatchesHost(site, host) {
+  const s = String(site ?? "").replace(/^\.+/, "").toLowerCase();
+  const h75 = String(host ?? "").replace(/^\.+/, "").toLowerCase();
+  if (!s || !h75) return false;
+  if (s === h75) return true;
+  if (s.includes(".") && h75.endsWith(`.${s}`)) return true;
+  if (h75.includes(".") && s.endsWith(`.${h75}`)) return true;
+  return false;
+}
+var hostOfUrl = (url) => {
+  if (typeof url !== "string" || !/^https?:\/\//i.test(url)) return null;
+  try {
+    return new URL(url).hostname.toLowerCase();
+  } catch {
+    return null;
+  }
+};
+var lastImportSource = () => {
+  try {
+    return localStorage.getItem(STORAGE.browserImportSource) || null;
+  } catch {
+    return null;
+  }
+};
+var saveLastImportSource = (id) => {
+  if (!id) return;
+  try {
+    localStorage.setItem(STORAGE.browserImportSource, String(id));
+  } catch {
+  }
+};
+function orderImportSources(sources, lastId) {
+  if (!Array.isArray(sources) || !lastId) return sources ?? [];
+  const index = sources.findIndex((s) => s.id === lastId);
+  if (index <= 0) return sources;
+  return [sources[index], ...sources.slice(0, index), ...sources.slice(index + 1)];
+}
 function Favicon({ src, className }) {
   const [failed, setFailed] = (0, import_react71.useState)(null);
   if (!src || failed === src) return (0, import_react71.createElement)("span", { className: `${className} bt-ptab-globe` }, (0, import_react71.createElement)(GlobeIcon2));
@@ -44450,11 +44675,23 @@ function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPages, ho
   const imports = actions.browserImport;
   const [flow, setFlow] = (0, import_react71.useState)(null);
   const flowRef = (0, import_react71.useRef)(null);
+  const reqRef = (0, import_react71.useRef)(0);
+  const liveReqIdRef = (0, import_react71.useRef)(null);
   const [sources, setSources] = (0, import_react71.useState)(null);
+  const [lastSourceId, setLastSourceId] = (0, import_react71.useState)(lastImportSource);
   const [busy, setBusy] = (0, import_react71.useState)(false);
   const setFlowTracked = (next) => {
     flowRef.current = typeof next === "function" ? next(flowRef.current) : next;
     setFlow(flowRef.current);
+  };
+  const cancelPendingImport = () => {
+    const liveId = liveReqIdRef.current;
+    liveReqIdRef.current = null;
+    if (liveId) void imports?.cancel(liveId).catch(() => {
+    });
+    const id = typeof flowRef.current === "object" && flowRef.current !== null ? flowRef.current.id : null;
+    if (id) void imports?.cancel(id).catch(() => {
+    });
   };
   const showGuest = landed && !leaving && !covered && Boolean(page.url) && !page.error && flow === null;
   (0, import_react71.useEffect)(() => {
@@ -44481,48 +44718,124 @@ function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPages, ho
     };
   }, []);
   (0, import_react71.useEffect)(() => {
+    reqRef.current += 1;
+    cancelPendingImport();
     setFlowTracked(null);
     return () => {
-      const id = typeof flowRef.current === "object" && flowRef.current !== null ? flowRef.current.id : null;
-      if (id) void imports?.cancel(id).catch(() => {
-      });
+      reqRef.current += 1;
+      cancelPendingImport();
     };
   }, [tabId]);
-  const openImport = () => {
-    setFlowTracked("menu");
-    if (sources === null) void imports.sources().then(setSources, () => setSources([]));
+  const refreshSources = () => {
+    if (!imports) return;
+    void imports.sources().then(
+      (list) => setSources(Array.isArray(list) ? list : []),
+      () => setSources((prev) => prev ?? [])
+    );
   };
-  const showPicked = (r) => {
-    if (r?.id) setFlowTracked({ stage: "preview", id: r.id, preview: r.preview, restarted: r.restarted === true });
+  const openImport = () => {
+    reqRef.current += 1;
+    setBusy(false);
+    cancelPendingImport();
+    setFlowTracked("menu");
+    setLastSourceId(lastImportSource());
+    refreshSources();
+  };
+  const showPicked = (r, token) => {
+    if (token !== void 0 && token !== reqRef.current) {
+      if (r?.id) void imports?.cancel(r.id).catch(() => {
+      });
+      return;
+    }
+    if (r?.canceled) return;
+    if (r?.id) setFlowTracked({ stage: "preview", id: r.id, preview: r.preview, restarted: r.restarted === true, method: r.method ?? null });
     else if (r?.error) setFlowTracked({ stage: "error", message: importError(r.error) });
     else setFlowTracked(null);
   };
   const job = async (work) => {
+    const token = ++reqRef.current;
     setBusy(true);
     try {
-      await work();
+      await work(token);
     } catch (error) {
-      setFlowTracked({ stage: "error", message: String(error?.message ?? error) });
+      if (token === reqRef.current) setFlowTracked({ stage: "error", message: String(error?.message ?? error) });
     } finally {
-      setBusy(false);
+      if (token === reqRef.current) setBusy(false);
     }
   };
-  const pickFile = () => job(async () => showPicked(await imports.pick()));
-  const pickSource = (source) => job(async () => {
-    const r = await imports.live(source.id);
-    if (r?.running) setFlowTracked({ stage: "running", source });
-    else showPicked(r);
+  const pickFile = () => job(async (token) => showPicked(await imports.pick(), token));
+  const openPaste = () => {
+    reqRef.current += 1;
+    setBusy(false);
+    cancelPendingImport();
+    setFlowTracked({ stage: "paste", siteUrl: hostOfUrl(page.url) ? page.url : "" });
+  };
+  const submitPaste = (text, siteUrl) => job(async (token) => {
+    if (!imports?.paste) return;
+    showPicked(await imports.paste(text, siteUrl || void 0), token);
   });
-  const closeAndImport = () => job(async () => showPicked(await imports.live(flowRef.current?.source?.id, true)));
-  const applyImport = () => job(async () => {
-    const report = await imports.apply(bot.id, flowRef.current?.id);
-    setFlowTracked((current2) => ({ stage: "result", report, label: current2?.preview?.source?.label ?? null }));
+  const runLiveImport = async (source, close, token) => {
+    const prevLive = liveReqIdRef.current;
+    if (prevLive) void imports?.cancel(prevLive).catch(() => {
+    });
+    const requestId = `live-${Date.now()}-${token}`;
+    liveReqIdRef.current = requestId;
+    try {
+      return await imports.live(source.id, close, requestId);
+    } finally {
+      if (liveReqIdRef.current === requestId) liveReqIdRef.current = null;
+    }
+  };
+  const pickSource = (source) => job(async (token) => {
+    setFlowTracked({ stage: "connecting", source });
+    const r = await runLiveImport(source, false, token);
+    if (token !== reqRef.current) {
+      if (r?.id) void imports?.cancel(r.id).catch(() => {
+      });
+      return;
+    }
+    if (r?.canceled) return;
+    if (r?.needsRemoteDebugging) setFlowTracked({ stage: "remote-debug", source, info: r });
+    else if (r?.running) setFlowTracked({ stage: "running", source });
+    else showPicked(r, token);
+  });
+  const closeAndImport = () => job(async (token) => {
+    const source = flowRef.current?.source;
+    if (!source) return;
+    const r = await runLiveImport(source, true, token);
+    if (token !== reqRef.current) {
+      if (r?.id) void imports?.cancel(r.id).catch(() => {
+      });
+      return;
+    }
+    if (r?.canceled) return;
+    if (r?.needsRemoteDebugging) setFlowTracked({ stage: "remote-debug", source, info: r });
+    else showPicked(r, token);
+  });
+  const applyImport = (options) => job(async (token) => {
+    const current2 = flowRef.current;
+    if (!current2?.id) return;
+    const report = await imports.apply(bot.id, current2.id, options);
+    if (token !== reqRef.current) return;
+    const sourceId = current2.preview?.source?.id;
+    if (sourceId) {
+      saveLastImportSource(sourceId);
+      setLastSourceId(sourceId);
+    }
+    const shouldReload = Boolean(page.url) && ((report?.stored ?? 0) > 0 || (report?.originsStored ?? 0) > 0);
+    if (shouldReload) void actions.browserCommand(tabId, "reload");
+    setFlowTracked({
+      stage: "result",
+      report,
+      label: current2.preview?.source?.label ?? null,
+      reloaded: shouldReload
+    });
   });
   const cancelImport = () => {
-    const id = typeof flow === "object" && flow !== null ? flow.id : null;
+    reqRef.current += 1;
+    setBusy(false);
+    cancelPendingImport();
     setFlowTracked(null);
-    if (id) void imports?.cancel(id).catch(() => {
-    });
   };
   (0, import_react71.useLayoutEffect)(() => {
     const element = frame2.current;
@@ -44651,8 +44964,36 @@ function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPages, ho
     (0, import_react71.createElement)(
       "div",
       { ref: frame2, className: "bt-browser-frame", "data-guest": showGuest || void 0 },
-      flow === "menu" ? (0, import_react71.createElement)(ImportMenu, { sources, busy, onFile: pickFile, onSource: pickSource, onClose: () => setFlowTracked(null) }) : null,
-      typeof flow === "object" && flow !== null ? (0, import_react71.createElement)(ImportCard, { flow, page, busy, onApply: applyImport, onCancel: cancelImport, onCloseAndImport: closeAndImport, onDone: () => setFlowTracked(null), onReload: () => actions.browserCommand(tabId, "reload") }) : null,
+      flow === "menu" ? (0, import_react71.createElement)(ImportMenu, {
+        sources: orderImportSources(sources, lastSourceId),
+        lastSourceId,
+        loading: sources === null,
+        busy,
+        canPaste: Boolean(imports?.paste),
+        onFile: pickFile,
+        onPaste: openPaste,
+        onSource: pickSource,
+        onClose: () => setFlowTracked(null)
+      }) : null,
+      typeof flow === "object" && flow !== null ? (0, import_react71.createElement)(ImportCard, {
+        flow,
+        page,
+        busy,
+        imports,
+        onApply: applyImport,
+        onCancel: cancelImport,
+        onCloseAndImport: closeAndImport,
+        onRetrySource: () => {
+          if (flow.source) void pickSource(flow.source);
+        },
+        onLaunchSource: () => {
+          if (flow.source && imports?.launch) void imports.launch(flow.source.id);
+        },
+        onFile: pickFile,
+        onSubmitPaste: submitPaste,
+        onDone: () => setFlowTracked(null),
+        onReload: () => actions.browserCommand(tabId, "reload")
+      }) : null,
       flow === null && page.error ? (0, import_react71.createElement)(
         "div",
         { className: "bt-browser-empty" },
@@ -44676,14 +45017,50 @@ function importError(error) {
   if (error === "too-large") return t("That file is too large to be a cookie export.");
   if (error === "unreadable") return t("That file could not be read.");
   if (error === "app-bound") return t("This browser encrypts its cookies so only it can read them. Export them to a file first, then import that file.");
+  if (error === "keychain-denied") return t("Keychain access was cancelled. Click Allow when macOS asks to read your browser cookies.");
+  if (error === "devtools-denied") return t("Remote debugging permission was declined in the browser. Try again and click Allow.");
+  if (error === "devtools-timeout") return t("Timed out waiting for you to click Allow in the browser.");
+  if (error === "devtools-wrong-profile") return t("Another browser profile is active. Switch to the chosen profile window in your browser, then try again.");
   return String(error);
 }
-function ImportMenu({ sources, busy, onFile, onSource, onClose }) {
+function ImportMenu({ sources, lastSourceId, loading, busy, canPaste, onFile, onPaste, onSource, onClose }) {
   useEscape(onClose);
   return (0, import_react71.createElement)(
     "div",
     { className: "bt-import-menu", role: "menu", "aria-label": t("Import cookies") },
-    (0, import_react71.createElement)("div", { className: "bt-import-menu-title" }, t("Import cookies")),
+    (0, import_react71.createElement)("div", { className: "bt-import-menu-title" }, t("Import from browser")),
+    loading ? (0, import_react71.createElement)("div", { className: "bt-import-menu-note" }, t("Loading…")) : sources.length === 0 ? (0, import_react71.createElement)("div", { className: "bt-import-menu-note" }, t("No browsers found")) : sources.map((source) => {
+      const isLast = source.id === lastSourceId;
+      const isReady = Boolean(source.liveDebugReady);
+      const showFallback = !isLast && !isReady && !source.email;
+      return (0, import_react71.createElement)(
+        "button",
+        {
+          key: source.id,
+          type: "button",
+          className: "bt-import-item",
+          role: "menuitem",
+          disabled: busy,
+          title: source.email ? `${source.label} (${source.email})` : source.label,
+          onClick: () => onSource(source)
+        },
+        (0, import_react71.createElement)(WindowIcon, { className: "bt-import-item-icon" }),
+        (0, import_react71.createElement)(
+          "span",
+          { className: "bt-import-item-main" },
+          (0, import_react71.createElement)("span", { className: "bt-import-item-name" }, source.label),
+          source.email ? (0, import_react71.createElement)("span", { className: "bt-import-item-email" }, source.email) : null
+        ),
+        isLast || isReady || showFallback ? (0, import_react71.createElement)(
+          "span",
+          { className: "bt-import-item-meta" },
+          isLast ? (0, import_react71.createElement)("span", { className: "bt-import-item-tag" }, t("Last used")) : null,
+          isReady ? (0, import_react71.createElement)("span", { className: "bt-import-item-sub", "data-ready": true }, t("Ready")) : null,
+          showFallback ? (0, import_react71.createElement)("span", { className: "bt-import-item-sub" }, t("Browser profile")) : null
+        ) : null
+      );
+    }),
+    (0, import_react71.createElement)("div", { className: "bt-import-sep", role: "separator" }),
     (0, import_react71.createElement)(
       "button",
       { type: "button", className: "bt-import-item", role: "menuitem", disabled: busy, onClick: onFile },
@@ -44691,97 +45068,224 @@ function ImportMenu({ sources, busy, onFile, onSource, onClose }) {
       (0, import_react71.createElement)("span", { className: "bt-import-item-name" }, t("From a file…")),
       (0, import_react71.createElement)("span", { className: "bt-import-item-sub" }, t("cookies.txt, JSON, storageState"))
     ),
-    sources === null ? (0, import_react71.createElement)("div", { className: "bt-import-menu-note" }, t("Loading…")) : sources.length === 0 ? (0, import_react71.createElement)("div", { className: "bt-import-menu-note" }, t("No browsers found")) : sources.map((source) => (0, import_react71.createElement)(
+    canPaste ? (0, import_react71.createElement)(
       "button",
-      {
-        key: source.id,
-        type: "button",
-        className: "bt-import-item",
-        role: "menuitem",
-        disabled: busy,
-        onClick: () => onSource(source)
-      },
-      (0, import_react71.createElement)(WindowIcon, { className: "bt-import-item-icon" }),
-      (0, import_react71.createElement)("span", { className: "bt-import-item-name" }, source.label),
-      (0, import_react71.createElement)("span", { className: "bt-import-item-sub" }, t("Copy of its cookies"))
-    ))
+      { type: "button", className: "bt-import-item", role: "menuitem", disabled: busy, onClick: onPaste },
+      (0, import_react71.createElement)(PasteIcon, { className: "bt-import-item-icon" }),
+      (0, import_react71.createElement)("span", { className: "bt-import-item-name" }, t("Paste cookies or cURL…")),
+      (0, import_react71.createElement)("span", { className: "bt-import-item-sub" }, t("JSON, cURL, header"))
+    ) : null
   );
 }
-function ImportCard({ flow, page, busy, onApply, onCancel, onCloseAndImport, onDone, onReload }) {
-  const { stage } = flow;
-  if (stage === "running") {
-    return (0, import_react71.createElement)("div", { className: "bt-import-card" }, (0, import_react71.createElement)(
-      "div",
-      { className: "bt-import-box" },
-      (0, import_react71.createElement)("div", { className: "bt-import-title" }, t("{name} is running", { name: flow.source.name })),
-      (0, import_react71.createElement)("div", { className: "bt-import-text" }, t("It must close for a moment so its cookies can be copied. It will reopen with your tabs.")),
-      (0, import_react71.createElement)(
-        "div",
-        { className: "bt-import-actions" },
-        (0, import_react71.createElement)("button", { type: "button", className: "bt-import-primary", disabled: busy, onClick: onCloseAndImport }, busy ? t("Closing…") : t("Close {name} and import", { name: flow.source.name })),
-        (0, import_react71.createElement)("button", { type: "button", className: "bt-import-plain", disabled: busy, onClick: onCancel }, t("Cancel"))
-      )
-    ));
-  }
-  if (stage === "error") {
-    return (0, import_react71.createElement)("div", { className: "bt-import-card" }, (0, import_react71.createElement)(
-      "div",
-      { className: "bt-import-box" },
-      (0, import_react71.createElement)("div", { className: "bt-import-title" }, t("Import failed")),
-      (0, import_react71.createElement)("div", { className: "bt-import-text" }, flow.message),
-      (0, import_react71.createElement)("div", { className: "bt-import-actions" }, (0, import_react71.createElement)("button", { type: "button", className: "bt-import-plain", onClick: onCancel }, t("Close")))
-    ));
-  }
-  if (stage === "result") {
-    const { report } = flow;
-    const problems = [...report.dropped ?? [], ...report.failed ?? []];
-    return (0, import_react71.createElement)("div", { className: "bt-import-card" }, (0, import_react71.createElement)(
-      "div",
-      { className: "bt-import-box" },
-      (0, import_react71.createElement)("div", { className: "bt-import-title" }, report.stored > 0 ? t("Imported {count} cookies", { count: report.stored }) : t("No cookies were stored")),
-      flow.label ? (0, import_react71.createElement)("div", { className: "bt-import-sub" }, flow.label) : null,
-      problems.length ? (0, import_react71.createElement)(
-        "div",
-        { className: "bt-import-list" },
-        problems.slice(0, 8).map((item, index) => (0, import_react71.createElement)(
-          "div",
-          { key: index, className: "bt-import-line" },
-          (0, import_react71.createElement)("span", { className: "bt-import-line-name" }, item.name ?? "—"),
-          (0, import_react71.createElement)("span", { className: "bt-import-line-reason" }, item.reason)
-        )),
-        problems.length > 8 ? (0, import_react71.createElement)("div", { className: "bt-import-line" }, (0, import_react71.createElement)("span", { className: "bt-import-line-reason" }, t("and {count} more", { count: problems.length - 8 }))) : null
-      ) : null,
-      (0, import_react71.createElement)(
-        "div",
-        { className: "bt-import-actions" },
-        page.url ? (0, import_react71.createElement)("button", { type: "button", className: "bt-import-plain", onClick: onReload }, t("Reload the page")) : null,
-        (0, import_react71.createElement)("button", { type: "button", className: "bt-import-primary", onClick: onDone }, t("Done"))
-      )
-    ));
-  }
-  const { preview } = flow;
+function RemoteDebugCard({ flow, busy, imports, onRetrySource, onLaunchSource, onFile, onCancel }) {
+  const { source, info } = flow;
+  const inspectUrl = info?.inspectUrl || "chrome://inspect/#remote-debugging";
+  const browserName = info?.browserName || source.name;
+  const [copied, setCopied] = (0, import_react71.useState)(false);
+  const [detected, setDetected] = (0, import_react71.useState)(false);
+  const copyTimerRef = (0, import_react71.useRef)(null);
+  const mountedRef = (0, import_react71.useRef)(true);
+  (0, import_react71.useEffect)(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      clearTimeout(copyTimerRef.current);
+    };
+  }, []);
+  (0, import_react71.useEffect)(() => {
+    const canProbe = typeof imports?.probe === "function";
+    const canList = typeof imports?.sources === "function";
+    if (!canProbe && !canList) return void 0;
+    let active = true;
+    let timer = null;
+    const schedule = () => {
+      if (!active) return;
+      timer = setTimeout(poll, 2e3);
+    };
+    const poll = () => {
+      const req = canProbe ? imports.probe(source.id).then((res) => Boolean(res?.liveDebugReady)) : imports.sources().then((list) => Array.isArray(list) && Boolean(list.find((s) => s.id === source.id)?.liveDebugReady));
+      void req.then(
+        (ready) => {
+          if (active) setDetected(ready);
+        },
+        () => {
+        }
+      ).finally(schedule);
+    };
+    schedule();
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
+  }, [imports, source.id]);
+  const copyAddress = () => {
+    void Promise.resolve((0, import_dsh_client_ui_primitives.writeClipboard)(inspectUrl)).then((ok) => {
+      if (!ok || !mountedRef.current) return;
+      setCopied(true);
+      clearTimeout(copyTimerRef.current);
+      copyTimerRef.current = setTimeout(() => {
+        if (mountedRef.current) setCopied(false);
+      }, 1800);
+    }, () => {
+    });
+  };
   return (0, import_react71.createElement)("div", { className: "bt-import-card" }, (0, import_react71.createElement)(
     "div",
     { className: "bt-import-box" },
-    (0, import_react71.createElement)("div", { className: "bt-import-title" }, t("Import {count} cookies", { count: preview.cookies })),
+    (0, import_react71.createElement)("div", { className: "bt-import-title" }, t("Connect to {name}", { name: browserName })),
+    (0, import_react71.createElement)(
+      "div",
+      { className: "bt-import-text" },
+      t("{name} protects its cookies on Windows. Enable its built-in remote debugging switch once — no extension needed.", { name: browserName })
+    ),
+    (0, import_react71.createElement)(
+      "div",
+      { className: "bt-import-steps" },
+      (0, import_react71.createElement)("div", { className: "bt-import-step" }, t("1. Open this address in {name}:", { name: browserName })),
+      (0, import_react71.createElement)(
+        "div",
+        { className: "bt-import-copy-row" },
+        (0, import_react71.createElement)("code", { className: "bt-import-code" }, inspectUrl),
+        (0, import_react71.createElement)("button", { type: "button", className: "bt-import-mini", onClick: copyAddress }, copied ? t("Copied") : t("Copy"))
+      ),
+      (0, import_react71.createElement)("div", { className: "bt-import-step" }, t("2. Turn on “Allow remote debugging for this browser instance”, then click Allow when {name} prompts.", { name: browserName }))
+    ),
+    detected ? (0, import_react71.createElement)("div", { className: "bt-import-ready-note" }, t("Remote debugging detected — ready to import.")) : null,
+    (0, import_react71.createElement)(
+      "div",
+      { className: "bt-import-actions" },
+      !info?.running && info?.hasExe ? (0, import_react71.createElement)("button", { type: "button", className: "bt-import-plain", disabled: busy, onClick: onLaunchSource }, t("Open {name}", { name: browserName })) : (0, import_react71.createElement)("button", { type: "button", className: "bt-import-plain", disabled: busy, onClick: onFile }, t("From a file…")),
+      (0, import_react71.createElement)("button", { type: "button", className: "bt-import-plain", disabled: busy, onClick: onCancel }, t("Cancel")),
+      (0, import_react71.createElement)("button", { type: "button", className: "bt-import-primary", disabled: busy, onClick: onRetrySource }, busy ? t("Connecting…") : t("Connect and import"))
+    )
+  ));
+}
+function PasteCard2({ flow, busy, onSubmitPaste, onCancel }) {
+  const [text, setText] = (0, import_react71.useState)("");
+  const [siteUrl, setSiteUrl] = (0, import_react71.useState)(flow.siteUrl || "");
+  return (0, import_react71.createElement)("div", { className: "bt-import-card" }, (0, import_react71.createElement)(
+    "div",
+    { className: "bt-import-box" },
+    (0, import_react71.createElement)("div", { className: "bt-import-title" }, t("Paste cookies or cURL")),
+    (0, import_react71.createElement)("textarea", {
+      className: "bt-import-textarea",
+      rows: 5,
+      spellCheck: false,
+      placeholder: t("Paste Cookie-Editor JSON, Netscape cookies.txt, Copy as cURL, or a Cookie header…"),
+      value: text,
+      onChange: (event) => setText(event.target.value)
+    }),
+    (0, import_react71.createElement)("input", {
+      type: "text",
+      className: "bt-import-input",
+      spellCheck: false,
+      placeholder: t("Site URL (only needed for plain Cookie headers)"),
+      value: siteUrl,
+      onChange: (event) => setSiteUrl(event.target.value)
+    }),
+    (0, import_react71.createElement)(
+      "div",
+      { className: "bt-import-actions" },
+      (0, import_react71.createElement)("button", { type: "button", className: "bt-import-plain", disabled: busy, onClick: onCancel }, t("Cancel")),
+      (0, import_react71.createElement)("button", {
+        type: "button",
+        className: "bt-import-primary",
+        disabled: busy || !text.trim(),
+        onClick: () => onSubmitPaste(text, siteUrl.trim())
+      }, busy ? t("Reading…") : t("Continue"))
+    )
+  ));
+}
+function PreviewCard({ flow, page, busy, onApply, onCancel }) {
+  const { preview } = flow;
+  const sites = (preview.sites ?? []).filter((s) => (s.cookies ?? 0) > 0 || (s.localStorage ?? 0) > 0);
+  const currentHost = hostOfUrl(page.url);
+  const matchingCurrent = currentHost ? sites.filter((s) => siteMatchesHost(s.site, currentHost)).map((s) => s.site) : [];
+  const [selected, setSelected] = (0, import_react71.useState)(() => new Set(sites.map((s) => s.site)));
+  const [query, setQuery] = (0, import_react71.useState)("");
+  const [persistSession, setPersistSession] = (0, import_react71.useState)(true);
+  const hasSession = preview.notes.includes("session-cookies");
+  const allSelected = selected.size === sites.length;
+  const currentOnlySelected = matchingCurrent.length > 0 && selected.size === matchingCurrent.length && matchingCurrent.every((s) => selected.has(s));
+  const visibleSites = query.trim() ? sites.filter((s) => s.site.toLowerCase().includes(query.trim().toLowerCase())) : sites;
+  const selectedCookies = sites.reduce((sum, s) => sum + (selected.has(s.site) ? s.cookies : 0), 0);
+  const selectedStorage = sites.reduce((sum, s) => sum + (selected.has(s.site) ? s.localStorage ?? 0 : 0), 0);
+  const toggleSite = (site) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(site)) next.delete(site);
+      else next.add(site);
+      return next;
+    });
+  };
+  const selectAll = () => setSelected(new Set(sites.map((s) => s.site)));
+  const clearAll = () => setSelected(/* @__PURE__ */ new Set());
+  const selectCurrent = () => setSelected(new Set(matchingCurrent));
+  const submit = () => {
+    const chosen = allSelected ? void 0 : [...selected];
+    onApply({ sites: chosen, persistSession: hasSession ? persistSession : false });
+  };
+  return (0, import_react71.createElement)("div", { className: "bt-import-card" }, (0, import_react71.createElement)(
+    "div",
+    { className: "bt-import-box" },
+    (0, import_react71.createElement)("div", { className: "bt-import-title" }, t("Import {count} cookies", { count: selectedCookies })),
     (0, import_react71.createElement)(
       "div",
       { className: "bt-import-sub" },
       preview.source?.label ?? "",
-      flow.restarted ? ` · ${t("the browser was restarted")}` : ""
+      flow.restarted ? ` · ${t("the browser was restarted")}` : "",
+      selectedStorage > 0 ? ` · ${t("{count} storage entries", { count: selectedStorage })}` : ""
     ),
-    preview.sites.length ? (0, import_react71.createElement)(
+    matchingCurrent.length > 0 && sites.length > 1 ? (0, import_react71.createElement)(
+      "div",
+      { className: "bt-import-scope" },
+      (0, import_react71.createElement)("button", {
+        type: "button",
+        className: "bt-import-pill",
+        "aria-pressed": allSelected,
+        onClick: selectAll
+      }, t("All sites ({count})", { count: sites.length })),
+      (0, import_react71.createElement)("button", {
+        type: "button",
+        className: "bt-import-pill",
+        "aria-pressed": currentOnlySelected,
+        onClick: selectCurrent
+      }, t("This site ({host})", { host: currentHost }))
+    ) : null,
+    sites.length > 6 ? (0, import_react71.createElement)(
+      "div",
+      { className: "bt-import-filter-row" },
+      (0, import_react71.createElement)("input", {
+        type: "text",
+        className: "bt-import-input",
+        spellCheck: false,
+        placeholder: t("Filter sites…"),
+        value: query,
+        onChange: (event) => setQuery(event.target.value)
+      }),
+      (0, import_react71.createElement)("button", {
+        type: "button",
+        className: "bt-import-mini",
+        onClick: allSelected ? clearAll : selectAll
+      }, allSelected ? t("Clear") : t("All"))
+    ) : null,
+    sites.length ? (0, import_react71.createElement)(
       "div",
       { className: "bt-import-list" },
-      preview.sites.map((site) => (0, import_react71.createElement)(
-        "div",
-        { key: site.site, className: "bt-import-line" },
+      visibleSites.map((site) => (0, import_react71.createElement)(
+        "label",
+        { key: site.site, className: "bt-import-line bt-import-check-row" },
+        (0, import_react71.createElement)("input", {
+          type: "checkbox",
+          checked: selected.has(site.site),
+          onChange: () => toggleSite(site.site)
+        }),
         (0, import_react71.createElement)("span", { className: "bt-import-line-name" }, site.site),
         (0, import_react71.createElement)(
           "span",
           { className: "bt-import-line-count" },
           t("{count}", { count: site.cookies }),
-          site.session > 0 ? ` · ${t("{count} session", { count: site.session })}` : ""
+          site.localStorage > 0 ? ` · ${t("storage")}` : site.session > 0 ? ` · ${t("{count} session", { count: site.session })}` : ""
         )
       ))
     ) : null,
@@ -44807,15 +45311,103 @@ function ImportCard({ flow, page, busy, onApply, onCancel, onCloseAndImport, onD
         (0, import_react71.createElement)("span", { className: "bt-import-line-reason" }, `${w.count} × ${w.message}`)
       ))
     ) : null,
-    preview.notes.includes("session-cookies") ? (0, import_react71.createElement)("div", { className: "bt-import-note" }, t("Cookies without an expiry stay until the app closes.")) : null,
+    hasSession ? (0, import_react71.createElement)(
+      "label",
+      { className: "bt-import-toggle" },
+      (0, import_react71.createElement)("input", { type: "checkbox", checked: persistSession, onChange: (event) => setPersistSession(event.target.checked) }),
+      (0, import_react71.createElement)("span", null, t("Keep session logins after app restart"))
+    ) : null,
     preview.notes.includes("local-storage-left") ? (0, import_react71.createElement)("div", { className: "bt-import-note" }, t("Some sites also keep sign-in outside cookies; you may need to sign in again there.")) : null,
     (0, import_react71.createElement)(
       "div",
       { className: "bt-import-actions" },
-      (0, import_react71.createElement)("button", { type: "button", className: "bt-import-primary", disabled: busy, onClick: onApply }, busy ? t("Importing…") : t("Import")),
-      (0, import_react71.createElement)("button", { type: "button", className: "bt-import-plain", disabled: busy, onClick: onCancel }, t("Cancel"))
+      (0, import_react71.createElement)("button", { type: "button", className: "bt-import-plain", disabled: busy, onClick: onCancel }, t("Cancel")),
+      (0, import_react71.createElement)("button", { type: "button", className: "bt-import-primary", disabled: busy || selectedCookies === 0 && selectedStorage === 0, onClick: submit }, busy ? t("Importing…") : t("Import"))
     )
   ));
+}
+function ImportCard({ flow, page, busy, imports, onApply, onCancel, onCloseAndImport, onRetrySource, onLaunchSource, onFile, onSubmitPaste, onDone, onReload }) {
+  const { stage } = flow;
+  if (stage === "connecting") {
+    return (0, import_react71.createElement)("div", { className: "bt-import-card" }, (0, import_react71.createElement)(
+      "div",
+      { className: "bt-import-box" },
+      (0, import_react71.createElement)("div", { className: "bt-import-title" }, t("Reading {name}…", { name: flow.source.name })),
+      (0, import_react71.createElement)("div", { className: "bt-import-sub" }, flow.source.label),
+      (0, import_react71.createElement)("div", { className: "bt-import-text" }, t("If {name} or your system asks for permission, click Allow.", { name: flow.source.name })),
+      (0, import_react71.createElement)(
+        "div",
+        { className: "bt-import-actions" },
+        (0, import_react71.createElement)("button", { type: "button", className: "bt-import-plain", onClick: onCancel }, t("Cancel"))
+      )
+    ));
+  }
+  if (stage === "remote-debug") {
+    return (0, import_react71.createElement)(RemoteDebugCard, { flow, busy, imports, onRetrySource, onLaunchSource, onFile, onCancel });
+  }
+  if (stage === "paste") {
+    return (0, import_react71.createElement)(PasteCard2, { flow, busy, onSubmitPaste, onCancel });
+  }
+  if (stage === "running") {
+    return (0, import_react71.createElement)("div", { className: "bt-import-card" }, (0, import_react71.createElement)(
+      "div",
+      { className: "bt-import-box" },
+      (0, import_react71.createElement)("div", { className: "bt-import-title" }, t("{name} is running", { name: flow.source.name })),
+      (0, import_react71.createElement)("div", { className: "bt-import-text" }, t("It must close for a moment so its cookies can be copied. It will reopen with your tabs.")),
+      (0, import_react71.createElement)(
+        "div",
+        { className: "bt-import-actions" },
+        (0, import_react71.createElement)("button", { type: "button", className: "bt-import-plain", disabled: busy, onClick: onCancel }, t("Cancel")),
+        (0, import_react71.createElement)("button", { type: "button", className: "bt-import-primary", disabled: busy, onClick: onCloseAndImport }, busy ? t("Closing…") : t("Close {name} and import", { name: flow.source.name }))
+      )
+    ));
+  }
+  if (stage === "error") {
+    return (0, import_react71.createElement)("div", { className: "bt-import-card" }, (0, import_react71.createElement)(
+      "div",
+      { className: "bt-import-box" },
+      (0, import_react71.createElement)("div", { className: "bt-import-title" }, t("Import failed")),
+      (0, import_react71.createElement)("div", { className: "bt-import-text" }, flow.message),
+      (0, import_react71.createElement)("div", { className: "bt-import-actions" }, (0, import_react71.createElement)("button", { type: "button", className: "bt-import-plain", onClick: onCancel }, t("Close")))
+    ));
+  }
+  if (stage === "result") {
+    const { report } = flow;
+    const problems = [...report.dropped ?? [], ...report.failed ?? []];
+    const title = report.stored > 0 ? t("Imported {count} cookies", { count: report.stored }) : (report.originsStored ?? 0) > 0 ? t("Imported storage for {count} sites", { count: report.originsStored }) : t("No cookies were stored");
+    return (0, import_react71.createElement)("div", { className: "bt-import-card" }, (0, import_react71.createElement)(
+      "div",
+      { className: "bt-import-box" },
+      (0, import_react71.createElement)("div", { className: "bt-import-title" }, title),
+      (0, import_react71.createElement)(
+        "div",
+        { className: "bt-import-sub" },
+        [
+          flow.label,
+          (report.originsStored ?? 0) > 0 ? t("{count} sites storage", { count: report.originsStored }) : null,
+          flow.reloaded ? t("page reloaded") : null
+        ].filter(Boolean).join(" · ")
+      ),
+      problems.length ? (0, import_react71.createElement)(
+        "div",
+        { className: "bt-import-list" },
+        problems.slice(0, 8).map((item, index) => (0, import_react71.createElement)(
+          "div",
+          { key: index, className: "bt-import-line" },
+          (0, import_react71.createElement)("span", { className: "bt-import-line-name" }, item.name ?? "—"),
+          (0, import_react71.createElement)("span", { className: "bt-import-line-reason" }, item.reason)
+        )),
+        problems.length > 8 ? (0, import_react71.createElement)("div", { className: "bt-import-line" }, (0, import_react71.createElement)("span", { className: "bt-import-line-reason" }, t("and {count} more", { count: problems.length - 8 }))) : null
+      ) : null,
+      (0, import_react71.createElement)(
+        "div",
+        { className: "bt-import-actions" },
+        page.url && !flow.reloaded ? (0, import_react71.createElement)("button", { type: "button", className: "bt-import-plain", onClick: onReload }, t("Reload the page")) : null,
+        (0, import_react71.createElement)("button", { type: "button", className: "bt-import-primary", onClick: onDone }, t("Done"))
+      )
+    ));
+  }
+  return (0, import_react71.createElement)(PreviewCard, { key: flow.id, flow, page, busy, onApply, onCancel });
 }
 function BotPanel({ pane, leaving, room: room2, overlay, roster, actions, useSessions, useSessionStatus, useActivity, useWork, useBrowserTabs, useBrowserPages, useBrowserHolds, useComputer }) {
   const bot = roster.byId[pane.id];
@@ -45157,26 +45749,55 @@ var BROWSER_CSS = `
 .bt-bcard-new svg{width:14px;height:14px}
 .bt-browser-empty-mark{display:flex;flex-direction:column;align-items:center;gap:10px;text-align:center}
 /* Cookie imports */
-.bt-import-menu{position:absolute;top:6px;right:6px;z-index:6;width:236px;padding:6px;border-radius:16px;background:var(--bt-glass-bg);-webkit-backdrop-filter:blur(24px) saturate(180%);backdrop-filter:blur(24px) saturate(180%);border:.5px solid var(--bt-glass-rim);box-shadow:var(--bt-glass-shadow);transform-origin:top right;animation:bt-pop-drop .18s cubic-bezier(.16,1,.3,1),bt-fade .14s ease-out}
+.bt-import-menu{position:absolute;top:6px;right:6px;z-index:6;width:312px;max-width:calc(100% - 12px);max-height:min(360px,calc(100% - 12px));overflow:auto;padding:6px;border-radius:16px;background:var(--bt-glass-bg);-webkit-backdrop-filter:blur(24px) saturate(180%);backdrop-filter:blur(24px) saturate(180%);border:.5px solid var(--bt-glass-rim);box-shadow:var(--bt-glass-shadow);transform-origin:top right;animation:bt-pop-drop .18s cubic-bezier(.16,1,.3,1),bt-fade .14s ease-out}
 .bt-import-menu-title{padding:6px 10px 8px;font-size:11px;font-weight:500;letter-spacing:.02em;color:var(--bt-ink-3)}
+.bt-import-sep{height:.5px;margin:4px 8px;background:var(--bt-line)}
 .bt-import-item{display:flex;align-items:center;gap:9px;width:100%;min-width:0;padding:8px 10px;border:0;border-radius:8px;background:none;color:var(--bt-ink);font:inherit;font-size:12px;text-align:left;cursor:pointer}
 .bt-import-item:hover{background:var(--bt-hover)}
 .bt-import-item:disabled{opacity:.5;cursor:default}
-.bt-import-item-icon{flex:none;color:var(--bt-ink-3)}
+.bt-import-item-icon,.bt-import-item svg{flex:none;color:var(--bt-ink-3)}
 .bt-import-item-icon svg,.bt-import-item svg{width:15px;height:15px}
-.bt-import-item-name{flex:none;max-width:55%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bt-import-item-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px}
+.bt-import-item-name{flex:none;max-width:62%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bt-import-item-main .bt-import-item-name{max-width:none}
+.bt-import-item-email{font-size:11px;line-height:15px;color:var(--bt-ink-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bt-import-item-meta{flex:none;display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+.bt-import-item-tag{font-size:11px;color:var(--bt-ink-3)}
 .bt-import-item-sub{flex:1;min-width:0;text-align:right;font-size:11px;color:var(--bt-ink-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bt-import-item-meta .bt-import-item-sub{flex:none}
+.bt-import-item-sub[data-ready]{color:var(--bt-green);font-weight:500}
 .bt-import-menu-note{padding:8px 10px 10px;font-size:12px;color:var(--bt-ink-3)}
 .bt-import-card{position:absolute;inset:0;z-index:5;display:flex;align-items:center;justify-content:center;padding:20px;background:var(--bt-main);overflow:auto;animation:bt-foot-in .2s ease}
-.bt-import-box{width:100%;max-width:340px;max-height:100%;display:flex;flex-direction:column;gap:10px;padding:20px;border:.5px solid var(--bt-line-2);border-radius:16px;background:var(--bt-main);box-shadow:0 12px 36px -12px rgba(0,0,0,.14);overflow:auto}
+.bt-import-box{width:100%;max-width:380px;max-height:100%;display:flex;flex-direction:column;gap:10px;padding:20px;border:.5px solid var(--bt-line-2);border-radius:16px;background:var(--bt-main);box-shadow:0 12px 36px -12px rgba(0,0,0,.14);overflow:auto}
 .bt-import-title{font-size:15px;line-height:21px;font-weight:600}
 .bt-import-sub{font-size:12px;line-height:17px;color:var(--bt-ink-3);margin-top:-6px}
 .bt-import-text{font-size:13px;line-height:19px;color:var(--bt-ink-2);overflow-wrap:anywhere}
+.bt-import-steps{display:flex;flex-direction:column;gap:8px;padding:10px 12px;border-radius:10px;background:var(--bt-hover)}
+.bt-import-step{font-size:12px;line-height:17px;color:var(--bt-ink-2)}
+.bt-import-copy-row{display:flex;align-items:center;gap:6px;min-width:0}
+.bt-import-code{flex:1;min-width:0;padding:5px 8px;border-radius:6px;border:.5px solid var(--bt-line);background:var(--bt-main);color:var(--bt-ink);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;line-height:16px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;user-select:all}
+.bt-import-mini{flex:none;height:28px;padding:0 10px;border:.5px solid var(--bt-line-2);border-radius:8px;background:var(--bt-main);color:var(--bt-ink);font:inherit;font-size:12px;cursor:pointer}
+.bt-import-mini:hover{background:var(--bt-hover)}
+.bt-import-ready-note{font-size:12px;line-height:17px;font-weight:500;color:var(--bt-green)}
+.bt-import-textarea{width:100%;box-sizing:border-box;min-height:96px;max-height:200px;resize:vertical;padding:8px 10px;border:.5px solid var(--bt-line-2);border-radius:10px;background:var(--bt-main);color:var(--bt-ink);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;line-height:16px;outline:none}
+.bt-import-input{width:100%;box-sizing:border-box;height:30px;padding:0 10px;border:.5px solid var(--bt-line-2);border-radius:8px;background:var(--bt-main);color:var(--bt-ink);font:inherit;font-size:12px;outline:none}
+.bt-import-textarea:focus,.bt-import-input:focus{border-color:var(--bt-accent)}
+.bt-import-input::placeholder,.bt-import-textarea::placeholder{color:var(--bt-ink-3)}
+.bt-import-scope{display:flex;gap:6px;flex-wrap:wrap}
+.bt-import-pill{height:26px;max-width:100%;padding:0 10px;border:.5px solid var(--bt-line-2);border-radius:999px;background:var(--bt-main);color:var(--bt-ink-2);font:inherit;font-size:12px;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bt-import-pill:hover{background:var(--bt-hover);color:var(--bt-ink)}
+.bt-import-pill[aria-pressed=true]{border-color:var(--bt-accent);background:var(--bt-accent-soft);color:var(--bt-ink);font-weight:500}
+.bt-import-filter-row{display:flex;align-items:center;gap:6px}
+.bt-import-filter-row .bt-import-input{flex:1;min-width:0;height:28px}
 .bt-import-list{max-height:180px;overflow:auto;border:.5px solid var(--bt-line);border-radius:10px;padding:4px 10px}
 .bt-import-line{display:flex;align-items:baseline;gap:8px;padding:4px 0;min-width:0}
+.bt-import-check-row{align-items:center;cursor:pointer}
+.bt-import-check-row input[type=checkbox]{flex:none;margin:0;accent-color:var(--bt-accent);cursor:pointer}
 .bt-import-line-name{flex:none;max-width:60%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:var(--bt-ink)}
 .bt-import-line-count{flex:1;min-width:0;text-align:right;font-size:11px;color:var(--bt-ink-3);white-space:nowrap}
 .bt-import-line-reason{flex:1;min-width:0;font-size:11px;line-height:16px;color:var(--bt-ink-3);overflow-wrap:anywhere}
+.bt-import-toggle{display:flex;align-items:center;gap:8px;font-size:12px;line-height:17px;color:var(--bt-ink-2);cursor:pointer;user-select:none}
+.bt-import-toggle input[type=checkbox]{flex:none;margin:0;accent-color:var(--bt-accent);cursor:pointer}
 .bt-import-note{font-size:12px;line-height:17px;color:var(--bt-ink-3)}
 .bt-import-warns{font-size:12px;color:var(--bt-ink-3)}
 .bt-import-warns summary{cursor:pointer;padding:2px 0}
@@ -48336,13 +48957,17 @@ function apply(ctx) {
         await bridge2.views.hold(botId, false);
         return result;
       } : void 0,
-      // Cookie imports, only where the bridge offers them (the desktop app): a file or an
-      // installed browser's profile is previewed, then applied into the Bot's storage key.
+      // Cookie imports, only where the bridge offers them (the desktop app): an installed
+      // browser profile, a file, or pasted cookies/cURL is previewed, then applied into
+      // the Bot's storage key.
       browserImport: typeof bridge2.importSources === "function" ? {
         sources: () => bridge2.importSources(),
+        probe: typeof bridge2.importProbe === "function" ? (source) => bridge2.importProbe(source) : null,
         pick: () => bridge2.importPick(),
-        live: (source, close) => bridge2.importLive(source, close),
-        apply: (botId, pending) => bridge2.importApply(`bot:${botId}`, pending),
+        paste: typeof bridge2.importPaste === "function" ? (text, defaultUrl) => bridge2.importPaste(text, defaultUrl) : null,
+        launch: typeof bridge2.importLaunch === "function" ? (source) => bridge2.importLaunch(source) : null,
+        live: (source, close, requestId) => bridge2.importLive(source, close, requestId),
+        apply: (botId, pending, options) => bridge2.importApply(`bot:${botId}`, pending, options),
         cancel: (pending) => bridge2.importCancel(pending)
       } : null
     });

@@ -799,13 +799,17 @@ export function apply(ctx) {
         await bridge.views.hold(botId, false)
         return result
       } : undefined,
-      // Cookie imports, only where the bridge offers them (the desktop app): a file or an
-      // installed browser's profile is previewed, then applied into the Bot's storage key.
+      // Cookie imports, only where the bridge offers them (the desktop app): an installed
+      // browser profile, a file, or pasted cookies/cURL is previewed, then applied into
+      // the Bot's storage key.
       browserImport: typeof bridge.importSources === 'function' ? {
         sources: () => bridge.importSources(),
+        probe: typeof bridge.importProbe === 'function' ? (source) => bridge.importProbe(source) : null,
         pick: () => bridge.importPick(),
-        live: (source, close) => bridge.importLive(source, close),
-        apply: (botId, pending) => bridge.importApply(`bot:${botId}`, pending),
+        paste: typeof bridge.importPaste === 'function' ? (text, defaultUrl) => bridge.importPaste(text, defaultUrl) : null,
+        launch: typeof bridge.importLaunch === 'function' ? (source) => bridge.importLaunch(source) : null,
+        live: (source, close, requestId) => bridge.importLive(source, close, requestId),
+        apply: (botId, pending, options) => bridge.importApply(`bot:${botId}`, pending, options),
         cancel: (pending) => bridge.importCancel(pending),
       } : null,
     })
