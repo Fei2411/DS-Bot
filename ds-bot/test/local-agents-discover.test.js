@@ -5,6 +5,7 @@ import { delimiter, join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { agentEnv, cleanEnv, findEngineExecutable, findExecutable, launchOf, refreshSearchDirs, spawnAgent } from '../src/host/local-agents/discover.js'
+import { ENGINES } from '../src/host/local-agents/engines.js'
 
 test('Windows pi-acp resolves standalone Pi through PATH and PATHEXT (#1795)', () => {
   const exe = 'F:\\Pi\\pi.exe'
@@ -195,4 +196,17 @@ test('cleanEnv strips DEEPSEEK_ variables along with agent tokens', () => {
     if (prev.DSB_KEEP_CHECK === undefined) delete process.env.DSB_KEEP_CHECK
     else process.env.DSB_KEEP_CHECK = prev.DSB_KEEP_CHECK
   }
+})
+
+// #1849: the CN build ships qodercn / qoder-cn / qoderclicn, so a machine with
+// only that build had no Qoder entry in Settings at all.
+test('the Qoder CN entry point counts as an installed Qoder CLI (#1849)', () => {
+  const spec = ENGINES['local-qoder']
+  const cn = '/Users/me/.qoder-cn/entry/qodercn'
+  assert.equal(findEngineExecutable(spec, name => (name === 'qodercn' ? cn : undefined)), cn)
+
+  // A globally named CLI keeps priority when both builds are installed.
+  const global = '/usr/local/bin/qodercli'
+  const both = name => (name === 'qodercli' ? global : name === 'qodercn' ? cn : undefined)
+  assert.equal(findEngineExecutable(spec, both), global)
 })
