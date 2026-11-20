@@ -61,6 +61,12 @@ const fail = (reason, opts = {}) => Object.assign(new Error(String(reason)), opt
 export default {
   id: 'weixin',
 
+  // This platform hands back a quoted reply's message, so the host keeps what
+  // it sent here (by platform id) for a quote to name. Platforms without it do
+  // not need their replies written to the runtime file — they would never be
+  // read back.
+  quote: true,
+
   // ---- QR login (im-login-start / im-login-wait drive these) --------------
   async loginStart(env) {
     const response = await env.fetch(`${qrBase(env)}ilink/bot/get_bot_qrcode?bot_type=${BOT_TYPE}`, {

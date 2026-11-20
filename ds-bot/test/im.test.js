@@ -10,7 +10,9 @@ import { adapters } from '../src/host/im/platforms/index.js'
 
 // A platform adapter that records sends/edits and lets the test feed inbound
 // messages, actions and statuses. `fail` makes send throw once per call queued.
-const fakeAdapter = ({ buttons = true } = {}) => {
+// `quote` says the platform hands back quoted replies, so the host keeps what it
+// sent; it is off by default, like most platforms.
+const fakeAdapter = ({ buttons = true, quote = false } = {}) => {
   const sent = []
   const edited = []
   const typed = []
@@ -20,6 +22,7 @@ const fakeAdapter = ({ buttons = true } = {}) => {
   let nextMessage = 0
   const adapter = {
     id: 'fake',
+    quote,
     sent,
     edited,
     typed,
@@ -258,7 +261,7 @@ test('outbound: assistant text and member lines go out; hidden turns, user and s
 })
 
 test('a quoted reply carries the message it answers into the Bot', async (t) => {
-  const s = await start()
+  const s = await start({ adapter: fakeAdapter({ quote: true }) })
   t.after(s.stop)
   const conn = await add(s)
   const one = s.rt.state.im.connections[conn.id]
@@ -280,10 +283,53 @@ test('a quoted reply carries the message it answers into the Bot', async (t) => 
   assert.ok(runtime.sent['dm-u1'].some(entry => entry.text === 'Project A is done'))
 })
 
+test('a platform whose replies cannot be quoted writes no sent messages', async (t) => {
+  // The adapter keeps state in the runtime file, so the file is written even
+  // though this platform never hands back a quoted reply: it must not carry
+  // the replies the host sent either.
+  const adapter = {
+    id: 'fake',
+    handlers: null,
+    async check() { return { account: { id: 'bot1', name: '@fakebot' } } },
+    connect(fields, env, handlers) {
+      adapter.handlers = handlers
+      handlers.onStatus({ state: 'ready', account: { id: 'bot1', name: '@fakebot' } })
+      env.runtime.set({ lastPoll: 1 })
+      return {
+        send: async () => ({ messageId: 'plain-1' }),
+        typing: async () => {},
+        stop: () => {},
+      }
+    },
+  }
+  const s = await start({ adapter })
+  t.after(s.stop)
+  const conn = await add(s)
+  const one = s.rt.state.im.connections[conn.id]
+  one.paired.push({ id: 'u1', name: 'U1', at: 1 })
+  await s.rt.save()
+  await dm(s, 'u1', 'hi')
+  s.imTurn('a')
+  s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'Project A is done' }] } })
+  await s.flush()
+  const fileOf = () => {
+    try { return JSON.parse(readFileSync(join(s.home, 'im', `${conn.id}.json`), 'utf8')) } catch { return undefined }
+  }
+  // The runtime file is written on a delay; wait until it lands.
+  let runtime = fileOf()
+  for (let at = 0; at < 80 && runtime?.runtime?.lastPoll === undefined; at += 1) {
+    await delay(50)
+    runtime = fileOf()
+  }
+  assert.equal(runtime?.runtime?.lastPoll, 1, 'the runtime file was written')
+  assert.equal(runtime.sent, undefined, 'no sent messages are stored')
+})
+
 test('a quote of a later chunk shows that chunk, not the start of the reply', async (t) => {
   // A platform that cuts a long reply into messages with an id each.
   const adapter = {
     id: 'fake',
+    quote: true,
     handlers: null,
     async check() { return { account: { id: 'bot1', name: '@fakebot' } } },
     connect(fields, env, handlers) {
@@ -322,6 +368,7 @@ test('a partial send still remembers the chunks the platform accepted before fai
   // the second. The accepted chunk must stay quotable even though the send failed.
   const adapter = {
     id: 'fake',
+    quote: true,
     handlers: null,
     async check() { return { account: { id: 'bot1', name: '@fakebot' } } },
     connect(fields, env, handlers) {
@@ -361,7 +408,7 @@ test('a partial send still remembers the chunks the platform accepted before fai
 })
 
 test('a quote resolves by its ids, then by the platform text, and says when both are gone', async (t) => {
-  const s = await start()
+  const s = await start({ adapter: fakeAdapter({ quote: true }) })
   t.after(s.stop)
   const conn = await add(s)
   const one = s.rt.state.im.connections[conn.id]
@@ -391,7 +438,7 @@ test('a quote resolves by its ids, then by the platform text, and says when both
 })
 
 test('only the last messages sent to a chat are kept for quoting', async (t) => {
-  const s = await start()
+  const s = await start({ adapter: fakeAdapter({ quote: true }) })
   t.after(s.stop)
   const conn = await add(s)
   const one = s.rt.state.im.connections[conn.id]
@@ -412,7 +459,7 @@ test('only the last messages sent to a chat are kept for quoting', async (t) => 
 })
 
 test('removing a chat drops the messages kept for quoting it', async (t) => {
-  const s = await start()
+  const s = await start({ adapter: fakeAdapter({ quote: true }) })
   t.after(s.stop)
   const conn = await add(s)
   const one = s.rt.state.im.connections[conn.id]
@@ -436,7 +483,7 @@ test('removing a chat drops the messages kept for quoting it', async (t) => {
   await s.flush()
   assert.ok(await until(sent => sent?.['dm-u1']?.length > 0), 'the sent message is kept')
   await s.rt.imEndpoint('im-chat', { id: conn.id, chatKey: 'dm-u1', remove: true })
-  assert.ok(await until(sent => sent !== undefined && sent['dm-u1'] === undefined), 'the removed chat leaves nothing behind')
+  assert.ok(await until(sent => sent === undefined || sent['dm-u1'] === undefined), 'the removed chat leaves nothing behind')
 })
 
 test('a runtime file written before sent existed still loads and behaves unchanged', async (t) => {
@@ -465,7 +512,7 @@ test('a runtime file written before sent existed still loads and behaves unchang
 })
 
 test('the sent store is bounded across chats so the runtime file cannot grow without limit', async (t) => {
-  const s = await start()
+  const s = await start({ adapter: fakeAdapter({ quote: true }) })
   t.after(s.stop)
   const conn = await add(s)
   const one = s.rt.state.im.connections[conn.id]

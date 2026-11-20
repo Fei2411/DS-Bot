@@ -267,8 +267,13 @@ export function install(rt) {
     if (held === undefined || rt.readOnly() !== undefined) return
     await mkdir(imDir, { recursive: true })
     const temp = join(imDir, `${id}.${process.pid}.tmp`)
+    // `sent` only exists for platforms that can quote (weixin): a runtime file
+    // with no recorded messages is written exactly like an older one, without
+    // the empty object. Reading still defaults a missing `sent` to {}.
+    const { runtime, cards, sent } = held.data
+    const data = Object.keys(sent).length > 0 ? { runtime, cards, sent } : { runtime, cards }
     try {
-      await writeFile(temp, JSON.stringify(held.data), { encoding: 'utf8', mode: 0o600 })
+      await writeFile(temp, JSON.stringify(data), { encoding: 'utf8', mode: 0o600 })
       await chmod(temp, 0o600)
       await replaceFile(temp, join(imDir, `${id}.json`))
     } catch (error) {
@@ -286,8 +291,9 @@ export function install(rt) {
       },
     }
   }
-  // The connection runtime file: adapter state, the sent cards and the messages
-  // last sent to each chat. Written as one file, so it all has to stay small.
+  // The connection runtime file: adapter state, the sent cards and, on platforms
+  // that quote, the messages last sent to each chat. Written as one file, so it
+  // all has to stay small.
   const dataOf = async (id) => (await runtimeOf(id)).data
   // Sent cards: cardKey → [{ chatKey, messageId, answer? }]. Persisted so a restart
   // does not send a card twice; an `answer` marks it settled from this side.
@@ -703,6 +709,10 @@ export function install(rt) {
     // A reserved slot has no handle until connect() lands; start() re-kicks
     // anything queued in the meantime.
     if (runner?.handle === undefined || queue === undefined || queue.draining) return
+    // Only a platform that hands back a quoted reply (the adapter's `quote`
+    // flag, weixin today) needs what it sent kept; elsewhere the reply text
+    // would sit in the runtime file and never be read.
+    const remembersSent = adapters[conn.platform]?.quote === true
     clearTimeout(queue.retry)
     queue.retry = undefined
     queue.draining = true
@@ -723,7 +733,7 @@ export function install(rt) {
           // A partial send (e.g. WeChat accepted earlier chunks before one failed)
           // carries the delivered parts on the error. Remember them so quoting a
           // delivered message still works, without treating the send as successful.
-          if (Array.isArray(error?.parts) && error.parts.length > 0) {
+          if (remembersSent && Array.isArray(error?.parts) && error.parts.length > 0) {
             await rememberSent(conn.id, chatKey, job.text, { parts: error.parts }).catch(e => rt.warn('ds-bot: im partial sent message not remembered: %s', e))
           }
           const settled = queue.stoppedSend
@@ -781,7 +791,9 @@ export function install(rt) {
         queue.jobs.shift()
         // Failing to remember the message must not look like a failed send: it
         // would be retried and the chat would get the message twice.
-        await rememberSent(conn.id, chatKey, job.text, sent).catch(error => rt.warn('ds-bot: im sent message not remembered: %s', error))
+        if (remembersSent) {
+          await rememberSent(conn.id, chatKey, job.text, sent).catch(error => rt.warn('ds-bot: im sent message not remembered: %s', error))
+        }
         const settled = queue.stoppedSend
         queue.stoppedSend = undefined
         if (connections()[conn.id] !== undefined) job.after?.(sent)
