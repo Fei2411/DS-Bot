@@ -16,15 +16,12 @@ export function PendingLearning({ sessionId, useRoster, actions }) {
   const proposals = bot && currentPart(bot) === sessionId ? roster.learning?.[bot.id] ?? [] : []
   const settledIds = (bot === undefined ? [] : roster.learningSettled?.[bot.id] ?? []).map(entry => entry.id)
   const [open, setOpen] = useState(false)
-  const [failed, setFailed] = useState({})
   const root = useRef(null)
   const [shown, leaving] = useLinger(open, 120)
   useEffect(() => { setOpen(false) }, [sessionId, proposals.length === 0])
   useEffect(() => {
-    const gone = Object.keys(failed).filter(id => settledIds.includes(id))
-    if (gone.length === 0) return
-    for (const id of gone) failedAnswers.delete(id)
-    setFailed(current => gone.reduce((next, id) => withoutEntry(next, id), current))
+    if (settledIds.length === 0) return
+    for (const id of settledIds) failedAnswers.delete(id)
   }, [settledIds.join('|')])
   useEffect(() => {
     if (!open) return
@@ -36,26 +33,22 @@ export function PendingLearning({ sessionId, useRoster, actions }) {
   const onFailure = (proposal, failure) => {
     if (answerKeepsCard(failure)) failedAnswers.set(proposal.id, { proposal, error: failure?.message ?? String(failure) })
     else failedAnswers.delete(proposal.id)
-    setFailed(current => answerFailure(current, proposal, failure))
   }
-  const onResolved = id => setFailed(current => {
-    failedAnswers.delete(id)
-    return withoutEntry(current, id)
-  })
+  const onResolved = id => { failedAnswers.delete(id) }
   return h('div', { className: 'bt-learning-pending', ref: root },
     h('button', { type: 'button', className: 'bt-learning-pending-toggle', 'aria-expanded': open, onClick: () => setOpen(!open) },
       h('span', { className: 'bt-learning-dot', 'aria-hidden': true }),
       h('span', { className: 'bt-learning-pending-label' }, t('Awaiting approval'), ` · ${proposals.length}`)),
-    shown ? h(PendingLearningPanel, { proposals, actions, failed, onFailure, onResolved, leaving, close: () => { setOpen(false); root.current?.querySelector('button')?.focus() } }) : null)
+    shown ? h(PendingLearningPanel, { proposals, actions, onFailure, onResolved, leaving, close: () => { setOpen(false); root.current?.querySelector('button')?.focus() } }) : null)
 }
 
-function PendingLearningPanel({ proposals, actions, failed, onFailure, onResolved, close, leaving }) {
+function PendingLearningPanel({ proposals, actions, onFailure, onResolved, close, leaving }) {
   useEscape(close)
   return h('div', { className: 'bt-learning-pending-panel', 'data-leaving': leaving || undefined, role: 'region', 'aria-label': t('Awaiting approval') },
     proposals.map(proposal => h(ProposalCard, {
       key: proposal.id,
       proposal,
-      initialError: failed[proposal.id]?.error ?? failedAnswers.get(proposal.id)?.error,
+      initialError: failedAnswers.get(proposal.id)?.error,
       onFailure,
       onResolved,
       actions,
@@ -176,10 +169,9 @@ function LearningProposals({ turn, dock, sessionId, useRoster, actions }) {
   // holds only the answers still waiting for another try (#1339).
   const settledIds = (bot === undefined ? [] : roster.learningSettled?.[bot.id] ?? []).map(entry => entry.id)
   useEffect(() => {
-    const gone = Object.keys(failed).filter(id => settledIds.includes(id))
-    if (gone.length === 0) return
-    for (const id of gone) failedAnswers.delete(id)
-    setFailed(current => gone.reduce((next, id) => withoutEntry(next, id), current))
+    if (settledIds.length === 0) return
+    for (const id of settledIds) failedAnswers.delete(id)
+    setFailed(current => settledIds.reduce((next, id) => withoutEntry(next, id), current))
   }, [settledIds.join('|')])
   if (!bot || currentPart(bot) !== sessionId) return null
   const proposals = roster.learning?.[bot.id] ?? []
@@ -246,7 +238,7 @@ export const LEARNING_CSS = `
 .bt-learning-description{margin:6px 0 0;font-size:13px;line-height:19px;color:var(--bt-ink)}
 .bt-learning-old{color:var(--bt-ink-3)}
 .bt-learning-status{display:inline-flex;align-items:center;gap:6px;border-style:solid;border-color:color-mix(in srgb,var(--bt-star) 35%,transparent);color:color-mix(in srgb,var(--bt-star) 80%,var(--bt-ink))}
-.bt-learning-dot{width:6px;height:6px;border-radius:50%;background:var(--bt-star)}
+.bt-learning-dot{flex:none;width:6px;height:6px;border-radius:50%;background:var(--bt-star)}
 .bt-learning-file{border-radius:12px;overflow:hidden;background:color-mix(in srgb,var(--bt-ink) 2.5%,var(--bt-card));box-shadow:inset 0 0 0 1px var(--bt-q-rule)}
 .bt-learning-filehead{display:flex;align-items:center;gap:8px;min-width:0;padding:8px 12px;box-shadow:inset 0 -1px 0 var(--bt-q-rule-2);font-size:12px;line-height:18px}
 .bt-learning-name{flex:none;font-weight:600;color:var(--bt-ink)}

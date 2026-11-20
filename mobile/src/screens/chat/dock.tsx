@@ -99,7 +99,7 @@ function LearningCard({ proposal, call, p }: { proposal: LearningProposal; call:
     setBusy(true)
     setError('')
     try { await call('learning-answer', { id: proposal.id, approve }) }
-    catch (failure) { setError((failure as Error)?.message ?? String(failure)) }
+    catch (failure) { if ((failure as { code?: string })?.code !== 'unlock/canceled') setError((failure as Error)?.message ?? String(failure)) }
     finally {
       busyRef.current = false
       setBusy(false)
@@ -118,7 +118,7 @@ function LearningCard({ proposal, call, p }: { proposal: LearningProposal; call:
     <View style={{ marginTop: 8 }}>
       {visibleRows.map((row, index) => <Text selectable key={index} style={{ fontFamily: LEARNING_MONO, fontSize: 12, lineHeight: 19, color: row.kind === 'removed' ? p.danger : p.ink, backgroundColor: row.kind === 'added' ? p.hover : undefined }}>{row.kind === 'added' ? '+ ' : row.kind === 'removed' ? '− ' : '  '}{row.line}</Text>)}
       {folds
-        ? <Pressable accessibilityRole="button" accessibilityState={{ expanded: showAll }} onPress={() => setShowAll(v => !v)} style={{ alignSelf: 'flex-start', marginTop: 6, paddingVertical: 4 }}>
+        ? <Pressable accessibilityRole="button" accessibilityState={{ expanded: showAll }} hitSlop={8} onPress={() => setShowAll(v => !v)} style={{ alignSelf: 'flex-start', marginTop: 6, paddingVertical: 4 }}>
             <Text style={[typeScale.caption, { color: p.accent }]}>{t(showAll ? 'Show less' : 'Show all {count} lines', { count: rows.length })}</Text>
           </Pressable>
         : null}

@@ -268,6 +268,38 @@ test('failed answer error in PendingLearningPanel persists across close/reopen a
   assert.equal(collect(tree).find(n => n.props?.role === 'alert'), undefined)
 })
 
+test('remounted PendingLearning keeps and settles failedAnswers even without local failed state', async () => {
+  const harness = createHarness()
+  const { PendingLearning } = harness.exports
+  const actions = { learningAnswer: () => Promise.reject(new Error('Skill already exists')) }
+
+  // Mount PendingLearning under key "mount-1", trigger failure, then unmount completely
+  // (simulating HeaderPill switching to another session and coming back with a fresh key).
+  let tree = harness.render({ type: PendingLearning, props: { ...makeProps([skill], 'current', actions), key: 'mount-1' } })
+  collect(tree).find(n => n.type === 'button' && n.props?.className === 'bt-learning-pending-toggle').props.onClick()
+  tree = harness.render({ type: PendingLearning, props: { ...makeProps([skill], 'current', actions), key: 'mount-1' } })
+  collect(tree).find(n => n.type === 'button' && n.props?.className?.includes('bt-learning-approve')).props.onClick()
+  await new Promise(resolve => setImmediate(resolve))
+
+  // Unmount completely, then remount fresh under "mount-2": failure from module map still shows.
+  harness.render(null)
+  tree = harness.render({ type: PendingLearning, props: { ...makeProps([skill], 'current', actions), key: 'mount-2' } })
+  collect(tree).find(n => n.type === 'button' && n.props?.className === 'bt-learning-pending-toggle').props.onClick()
+  tree = harness.render({ type: PendingLearning, props: { ...makeProps([skill], 'current', actions), key: 'mount-2' } })
+  assert.match(textOf(collect(tree).find(n => n.props?.role === 'alert')), /Skill already exists/)
+
+  // Now settle the proposal on the remounted instance (which never had local failed state),
+  // close & reopen: the error must be cleared from failedAnswers.
+  tree = harness.render({ type: PendingLearning, props: { ...makeProps([skill], 'current', actions, [{ id: 'skill', outcome: 'approved' }]), key: 'mount-2' } })
+  collect(tree).find(n => n.type === 'button' && n.props?.className === 'bt-learning-pending-toggle').props.onClick()
+  tree = harness.render({ type: PendingLearning, props: { ...makeProps([skill], 'current', actions, [{ id: 'skill', outcome: 'approved' }]), key: 'mount-2' } })
+  harness.flushTimers()
+  tree = harness.render({ type: PendingLearning, props: { ...makeProps([skill], 'current', actions, [{ id: 'skill', outcome: 'approved' }]), key: 'mount-2' } })
+  collect(tree).find(n => n.type === 'button' && n.props?.className === 'bt-learning-pending-toggle').props.onClick()
+  tree = harness.render({ type: PendingLearning, props: { ...makeProps([skill], 'current', actions, [{ id: 'skill', outcome: 'approved' }]), key: 'mount-2' } })
+  assert.equal(collect(tree).find(n => n.props?.role === 'alert'), undefined)
+})
+
 test('handling proposals removes each entry, old parts hide current proposals, and empty leaves no space', () => {
   const harness = createHarness()
   const { PendingLearning } = harness.exports
@@ -281,6 +313,7 @@ test('pending panels fit the header column instead of the viewport at every brea
   assert.match(rule('bt-learning-pending'), /position:static/)
   assert.match(rule('bt-learning-pending'), /min-width:0/)
   assert.match(rule('bt-learning-pending-toggle'), /max-width:100%/)
+  assert.match(rule('bt-learning-dot'), /flex:none/)
   const panel = rule('bt-learning-pending-panel')
   assert.match(panel, /position:absolute/)
   assert.match(panel, /left:16px;right:16px/)

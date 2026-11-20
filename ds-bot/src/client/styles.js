@@ -1245,7 +1245,10 @@ body[data-bt-layout=flat] .bt-think{max-width:calc(var(--bt-flat-w) * 100%)}
 header[class*="_header"]:has(.bt-head){position:absolute!important;top:0;left:0;right:0;z-index:8;display:flex!important;padding:10px 0 0!important;background:transparent!important;pointer-events:none;justify-content:center}
 header[class*="_header"]:has(.bt-head)::before{content:"";position:absolute;inset:0 0 auto;height:calc(60px + env(safe-area-inset-top,0px));background:linear-gradient(to bottom,var(--bt-main),color-mix(in srgb,var(--bt-main) 0%,transparent));pointer-events:none;z-index:-1}
 header[class*="_header"]:has(.bt-head)>[class*="_headerLeading"]{position:absolute;left:12px;top:10px;pointer-events:auto}
-header[class*="_header"] .bt-head{flex:1 1 auto;width:100%;min-width:0;padding:0 52px;box-sizing:border-box}
+header[class*="_header"] .bt-head{flex:1 1 auto;width:100%}
+header[class*="_header"] .bt-head:has(.bt-learning-pending){padding:0 52px;box-sizing:border-box}
+header[class*="_header"] .bt-head:has(.bt-learning-pending) .bt-island{min-width:0;width:min(380px,calc(100% - 16px))}
+header[class*="_header"] .bt-head:has(.bt-learning-pending) .bt-island[data-open]{width:min(560px,calc(100% + 56px))}
 /* On macOS the shell's header row is the window's drag strip (data-window-drag
    becomes -webkit-app-region:drag). The floating header stays click-through, so
    the transcript under it still takes links and the wheel. Only the 40px .bt-head

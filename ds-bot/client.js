@@ -18202,7 +18202,10 @@ body[data-bt-layout=flat] .bt-think{max-width:calc(var(--bt-flat-w) * 100%)}
 header[class*="_header"]:has(.bt-head){position:absolute!important;top:0;left:0;right:0;z-index:8;display:flex!important;padding:10px 0 0!important;background:transparent!important;pointer-events:none;justify-content:center}
 header[class*="_header"]:has(.bt-head)::before{content:"";position:absolute;inset:0 0 auto;height:calc(60px + env(safe-area-inset-top,0px));background:linear-gradient(to bottom,var(--bt-main),color-mix(in srgb,var(--bt-main) 0%,transparent));pointer-events:none;z-index:-1}
 header[class*="_header"]:has(.bt-head)>[class*="_headerLeading"]{position:absolute;left:12px;top:10px;pointer-events:auto}
-header[class*="_header"] .bt-head{flex:1 1 auto;width:100%;min-width:0;padding:0 52px;box-sizing:border-box}
+header[class*="_header"] .bt-head{flex:1 1 auto;width:100%}
+header[class*="_header"] .bt-head:has(.bt-learning-pending){padding:0 52px;box-sizing:border-box}
+header[class*="_header"] .bt-head:has(.bt-learning-pending) .bt-island{min-width:0;width:min(380px,calc(100% - 16px))}
+header[class*="_header"] .bt-head:has(.bt-learning-pending) .bt-island[data-open]{width:min(560px,calc(100% + 56px))}
 /* On macOS the shell's header row is the window's drag strip (data-window-drag
    becomes -webkit-app-region:drag). The floating header stays click-through, so
    the transcript under it still takes links and the wheel. Only the 40px .bt-head
@@ -47491,17 +47494,14 @@ function PendingLearning({ sessionId, useRoster, actions }) {
   const proposals = bot && currentPart(bot) === sessionId ? roster.learning?.[bot.id] ?? [] : [];
   const settledIds = (bot === void 0 ? [] : roster.learningSettled?.[bot.id] ?? []).map((entry) => entry.id);
   const [open, setOpen] = (0, import_react74.useState)(false);
-  const [failed, setFailed] = (0, import_react74.useState)({});
   const root = (0, import_react74.useRef)(null);
   const [shown, leaving] = useLinger(open, 120);
   (0, import_react74.useEffect)(() => {
     setOpen(false);
   }, [sessionId, proposals.length === 0]);
   (0, import_react74.useEffect)(() => {
-    const gone = Object.keys(failed).filter((id) => settledIds.includes(id));
-    if (gone.length === 0) return;
-    for (const id of gone) failedAnswers.delete(id);
-    setFailed((current2) => gone.reduce((next, id) => withoutEntry(next, id), current2));
+    if (settledIds.length === 0) return;
+    for (const id of settledIds) failedAnswers.delete(id);
   }, [settledIds.join("|")]);
   (0, import_react74.useEffect)(() => {
     if (!open) return;
@@ -47515,12 +47515,10 @@ function PendingLearning({ sessionId, useRoster, actions }) {
   const onFailure = (proposal, failure) => {
     if (answerKeepsCard(failure)) failedAnswers.set(proposal.id, { proposal, error: failure?.message ?? String(failure) });
     else failedAnswers.delete(proposal.id);
-    setFailed((current2) => answerFailure(current2, proposal, failure));
   };
-  const onResolved = (id) => setFailed((current2) => {
+  const onResolved = (id) => {
     failedAnswers.delete(id);
-    return withoutEntry(current2, id);
-  });
+  };
   return (0, import_react74.createElement)(
     "div",
     { className: "bt-learning-pending", ref: root },
@@ -47530,13 +47528,13 @@ function PendingLearning({ sessionId, useRoster, actions }) {
       (0, import_react74.createElement)("span", { className: "bt-learning-dot", "aria-hidden": true }),
       (0, import_react74.createElement)("span", { className: "bt-learning-pending-label" }, t("Awaiting approval"), ` · ${proposals.length}`)
     ),
-    shown ? (0, import_react74.createElement)(PendingLearningPanel, { proposals, actions, failed, onFailure, onResolved, leaving, close: () => {
+    shown ? (0, import_react74.createElement)(PendingLearningPanel, { proposals, actions, onFailure, onResolved, leaving, close: () => {
       setOpen(false);
       root.current?.querySelector("button")?.focus();
     } }) : null
   );
 }
-function PendingLearningPanel({ proposals, actions, failed, onFailure, onResolved, close, leaving }) {
+function PendingLearningPanel({ proposals, actions, onFailure, onResolved, close, leaving }) {
   useEscape(close);
   return (0, import_react74.createElement)(
     "div",
@@ -47544,7 +47542,7 @@ function PendingLearningPanel({ proposals, actions, failed, onFailure, onResolve
     proposals.map((proposal) => (0, import_react74.createElement)(ProposalCard, {
       key: proposal.id,
       proposal,
-      initialError: failed[proposal.id]?.error ?? failedAnswers.get(proposal.id)?.error,
+      initialError: failedAnswers.get(proposal.id)?.error,
       onFailure,
       onResolved,
       actions
@@ -47690,10 +47688,9 @@ function LearningProposals({ turn, dock, sessionId, useRoster, actions }) {
   const bot = roster.byId?.[sessionId];
   const settledIds = (bot === void 0 ? [] : roster.learningSettled?.[bot.id] ?? []).map((entry) => entry.id);
   (0, import_react74.useEffect)(() => {
-    const gone = Object.keys(failed).filter((id) => settledIds.includes(id));
-    if (gone.length === 0) return;
-    for (const id of gone) failedAnswers.delete(id);
-    setFailed((current2) => gone.reduce((next, id) => withoutEntry(next, id), current2));
+    if (settledIds.length === 0) return;
+    for (const id of settledIds) failedAnswers.delete(id);
+    setFailed((current2) => settledIds.reduce((next, id) => withoutEntry(next, id), current2));
   }, [settledIds.join("|")]);
   if (!bot || currentPart(bot) !== sessionId) return null;
   const proposals = roster.learning?.[bot.id] ?? [];
@@ -47754,7 +47751,7 @@ var LEARNING_CSS = `
 .bt-learning-description{margin:6px 0 0;font-size:13px;line-height:19px;color:var(--bt-ink)}
 .bt-learning-old{color:var(--bt-ink-3)}
 .bt-learning-status{display:inline-flex;align-items:center;gap:6px;border-style:solid;border-color:color-mix(in srgb,var(--bt-star) 35%,transparent);color:color-mix(in srgb,var(--bt-star) 80%,var(--bt-ink))}
-.bt-learning-dot{width:6px;height:6px;border-radius:50%;background:var(--bt-star)}
+.bt-learning-dot{flex:none;width:6px;height:6px;border-radius:50%;background:var(--bt-star)}
 .bt-learning-file{border-radius:12px;overflow:hidden;background:color-mix(in srgb,var(--bt-ink) 2.5%,var(--bt-card));box-shadow:inset 0 0 0 1px var(--bt-q-rule)}
 .bt-learning-filehead{display:flex;align-items:center;gap:8px;min-width:0;padding:8px 12px;box-shadow:inset 0 -1px 0 var(--bt-q-rule-2);font-size:12px;line-height:18px}
 .bt-learning-name{flex:none;font-weight:600;color:var(--bt-ink)}
