@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { createCipheriv } from 'node:crypto'
 import { createServer } from 'node:http'
 import { test } from 'node:test'
 import weixin from '../src/host/im/platforms/weixin.js'
@@ -8,6 +9,7 @@ import weixin from '../src/host/im/platforms/weixin.js'
 async function fakeIlink() {
   const calls = []
   const replies = {}
+  const media = {}
   let updates = []
   const state = { notified: false }
   // A client that went away before the held long poll answered, and one promise
@@ -15,6 +17,12 @@ async function fakeIlink() {
   const aborted = []
   const held = []
   const http = createServer((req, res) => {
+    if (req.method === 'GET' && media[req.url] !== undefined) {
+      const entry = media[req.url]
+      res.writeHead(entry.status ?? 200, entry.headers ?? { 'content-type': 'application/octet-stream' })
+      res.end(entry.body ?? Buffer.alloc(0))
+      return
+    }
     let body = ''
     req.on('data', chunk => { body += chunk })
     req.on('end', () => {
@@ -74,7 +82,7 @@ async function fakeIlink() {
   await new Promise(resolve => http.listen(0, '127.0.0.1', resolve))
   return {
     base: `http://127.0.0.1:${http.address().port}/`,
-    calls, replies, state, aborted, held,
+    calls, replies, media, state, aborted, held,
     queue: items => { updates = items },
     close: () => { http.closeAllConnections?.(); http.close() },
   }
@@ -83,7 +91,7 @@ async function fakeIlink() {
 const env = (fake, runtime = {}) => ({
   fetch: globalThis.fetch,
   WebSocket: globalThis.WebSocket,
-  config: { api: fake.base, qr: fake.base },
+  config: { api: fake.base, qr: fake.base, cdn: `${fake.base}cdn` },
   runtime: { get: () => runtime, set: patch => Object.assign(runtime, patch) },
   log: { warn: (...args) => console.error('[im-weixin]', ...args) },
 })
@@ -437,4 +445,92 @@ test('stop ends an in-flight getupdates long poll instead of leaving it open', a
   ])
   assert.equal(ended, true, 'the long poll must be ended by stop, not by its 50 s timeout')
   assert.deepEqual(fake.aborted, ['/ilink/bot/getupdates'])
+})
+
+test('inbound images and files decrypt via full_url or encrypt_query_param and detect real PNG MIME type', async (t) => {
+  const fake = await fakeIlink()
+  const keyHex = '00112233445566778899aabbccddeeff'
+  const keyBuf = Buffer.from(keyHex, 'hex')
+  const encrypt = (plain) => {
+    const cipher = createCipheriv('aes-128-ecb', keyBuf, null)
+    return Buffer.concat([cipher.update(plain), cipher.final()])
+  }
+  const pngBytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0xaa, 0xbb])
+  const webpBytes = Buffer.from([0x52, 0x49, 0x46, 0x46, 0x00, 0x00, 0x00, 0x00, 0x57, 0x45, 0x42, 0x50])
+  const fileBytes = Buffer.from('hello from weixin file')
+  fake.media['/img-png'] = { body: encrypt(pngBytes) }
+  fake.media['/cdn/download?encrypted_query_param=qp-webp'] = { body: encrypt(webpBytes) }
+  fake.media['/file-1'] = { body: encrypt(fileBytes) }
+  fake.replies.updates = (params) => {
+    if (params.get_updates_buf === 'c1') return { ret: 0, msgs: [], get_updates_buf: 'c1' }
+    return {
+      ret: 0,
+      get_updates_buf: 'c1',
+      msgs: [
+        {
+          from_user_id: 'u1',
+          client_id: 'm-media',
+          context_token: 'tok-u1',
+          item_list: [
+            { type: 2, image_item: { media: { full_url: `${fake.base}img-png`, aes_key: Buffer.from(keyHex, 'utf8').toString('base64') } } },
+            { type: 2, image_item: { aeskey: keyHex, media: { encrypt_query_param: 'qp-webp' } } },
+            { type: 4, file_item: { file_name: 'brief.txt', media: { full_url: `${fake.base}file-1`, aes_key: keyBuf.toString('base64') } } },
+          ],
+        },
+      ],
+    }
+  }
+  const messages = []
+  const handle = weixin.connect(FIELDS, env(fake, {}), { onMessage: async msg => { messages.push(msg) }, onAction: () => {}, onStatus: () => {} })
+  t.after(() => { handle.stop(); fake.close() })
+  await until(() => messages.length === 1)
+  assert.equal(messages[0].images.length, 2)
+  assert.equal(messages[0].images[0].mediaType, 'image/png')
+  assert.equal(messages[0].images[0].data, pngBytes.toString('base64'))
+  assert.equal(messages[0].images[1].mediaType, 'image/webp')
+  assert.equal(messages[0].images[1].data, webpBytes.toString('base64'))
+  assert.equal(messages[0].files.length, 1)
+  assert.equal(messages[0].files[0].name, 'brief.txt')
+  assert.deepEqual(messages[0].files[0].data, fileBytes)
+})
+
+test('weixin skips encrypted media with missing or corrupt key instead of passing raw ciphertext', async (t) => {
+  const fake = await fakeIlink()
+  const keyHex = '00112233445566778899aabbccddeeff'
+  const keyBuf = Buffer.from(keyHex, 'hex')
+  const pngBytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x01, 0x02])
+  const cipher = createCipheriv('aes-128-ecb', keyBuf, null)
+  const encPng = Buffer.concat([cipher.update(pngBytes), cipher.final()])
+  fake.media['/cdn/download?encrypted_query_param=no-key'] = { body: encPng }
+  fake.media['/cdn/download?encrypted_query_param=fallback-ok'] = { body: encPng }
+  fake.replies.updates = (params) => {
+    if (params.get_updates_buf === 'c1') return { ret: 0, msgs: [], get_updates_buf: 'c1' }
+    return {
+      ret: 0,
+      get_updates_buf: 'c1',
+      msgs: [{
+        from_user_id: 'u1',
+        client_id: 'm-bad-key',
+        context_token: 'tok-u1',
+        item_list: [
+          { type: 1, text_item: { text: '保留这段文字' } },
+          // Encrypted CDN without any key must be skipped, never returned as ciphertext.
+          { type: 2, image_item: { media: { encrypt_query_param: 'no-key' } } },
+          // Corrupt media.aes_key falls back to valid image_item.aeskey.
+          { type: 2, image_item: { aeskey: keyHex, media: { encrypt_query_param: 'fallback-ok', aes_key: 'not!valid!base64!' } } },
+        ],
+      }],
+    }
+  }
+  const messages = []
+  const { env: watched, warns } = tracked(fake, {})
+  const handle = weixin.connect(FIELDS, watched, { onMessage: async msg => { messages.push(msg) }, onAction: () => {}, onStatus: () => {} })
+  t.after(() => { handle.stop(); fake.close() })
+  await until(() => messages.length === 1)
+  assert.equal(messages[0].text, '保留这段文字')
+  assert.equal(messages[0].images.length, 1, 'missing-key ciphertext skipped, fallback-key PNG decrypted')
+  assert.equal(messages[0].images[0].mediaType, 'image/png')
+  assert.equal(messages[0].images[0].data, pngBytes.toString('base64'))
+  assert.equal(messages[0].files.length, 0)
+  assert.ok(warns.some(line => /missing valid AES key/.test(line)))
 })

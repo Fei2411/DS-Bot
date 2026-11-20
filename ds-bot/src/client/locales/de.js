@@ -1,6 +1,8 @@
 // German (de) localization for DS Bot client and DSH settings namespaces.
 
 export const DE = {
+  'Background work': 'Hintergrundarbeit',
+  'Background commands after (seconds)': 'Befehle in den Hintergrund nach (Sekunden)',
   'A new reply is waiting': "Eine neue Antwort wartet auf dich",
   'Opening…': 'Wird geöffnet…',
   'Still opening…': 'Wird noch geöffnet…',
