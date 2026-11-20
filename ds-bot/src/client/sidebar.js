@@ -40,9 +40,13 @@ const nameIfCut = (event) => {
   else row.removeAttribute('title')
 }
 
-// Whether an approval waits for the user: for a Bot, in any of its Sessions; for a group,
-// from any of its members there.
-const useApproval = (useWork, match) => (useWork ? useWork(work => (work.approvals ?? []).some(match)) : false)
+// Whether an approval waits for the user: for a Bot, in its own chat; for a group,
+// from any of its members in that group (both DSH tool approvals and computer-use asks).
+const useApproval = (useWork, useComputer, matchApproval, matchAsk) => {
+  const tool = useWork ? useWork(work => (work.approvals ?? []).some(matchApproval)) : false
+  const app = useComputer ? useComputer(comp => Object.values(comp?.asks ?? {}).some(matchAsk)) : false
+  return tool || app
+}
 
 // Work running in group Sessions, as "botId|tool" keys so a row redraws only when it
 // changes: the groups one Bot works in, or the members at work in one group.
@@ -61,7 +65,7 @@ const waitingFor = (roster, waits) => {
   return names.length === 0 ? '' : t('Waiting for {names}', { names: names.join(t(' and ')) })
 }
 
-function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessionRetainInfo, useActivity, useWork, wide, marked, onDragStart }) {
+function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessionRetainInfo, useActivity, useWork, useComputer, wide, marked, onDragStart }) {
   const id = bot.id
   const part = currentPart(bot)
   const preview = useSessions(list => previewOf(list, part, roster.exchangeTurns[part]))
@@ -71,13 +75,16 @@ function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessio
   useMarkedUnread(id, active, marked, actions)
   const main = isMainOf(roster, id)
   const tile = roster.mainBotId === id
-  const approval = useApproval(useWork, entry => entry.botId === id)
+  const approval = useApproval(useWork, useComputer, entry => entry.roomId === undefined && entry.botId === id, ask => ask.roomId === undefined && ask.botId === id)
   const alert = roster.questions?.[part] !== undefined || approval
   const doing = useActivity(map => map[id])
   // Work in a group runs in a Session of its own, so the Bot's chat stays idle meanwhile.
   const groups = useGroupWork(useWork, rooms => Object.entries(rooms).flatMap(([roomId, entries]) => entries.filter(entry => entry.botId === id).map(entry => ({ id: roomId, ...doingOf(entry) }))))
   const away = !running && groups.length > 0
-  const state = botState(running || away, doing, alert)
+  // Group approvals live on the group's row and header island, not on the Bot's
+  // own DM avatar (#1623).
+  const dmDoing = doing === 'alert' && !approval ? undefined : doing
+  const state = botState(running || away, dmDoing, alert)
   // A Bot running in its own chat previews what it is doing, like a group's row.
   const runningLine = running && doing ? doingLine(doing) : null
   const awayLine = away ? workLine(roster.roomsById[groups[0].id]?.name ?? t('a group chat'), groups[0], groups.length - 1) : null
@@ -119,7 +126,7 @@ function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessio
     : !wide && !active && (alert || unread) ? h('span', { className: `bt-dot${alert ? ' bt-dot-wait' : ''}`, 'aria-hidden': true }) : null)
 }
 
-function RoomRow({ room, roster, actions, useSessions, useSessionStatus, useSessionRetainInfo, useWork, wide, marked, onDragStart }) {
+function RoomRow({ room, roster, actions, useSessions, useSessionStatus, useSessionRetainInfo, useWork, useComputer, wide, marked, onDragStart }) {
   const id = room.id
   // The group's own Session is a chain of parts; the row shows the current one.
   const sessionId = room.sessionId ?? id
@@ -128,7 +135,7 @@ function RoomRow({ room, roster, actions, useSessions, useSessionStatus, useSess
   const active = useSessionRetainInfo(sessionId, info => (info?.retainedBy?.mainView ?? 0) > 0)
   const unread = useSessionStatus(map => map.get(sessionId)?.completionUnread === true) || (marked && !active)
   useMarkedUnread(id, active, marked, actions)
-  const approval = useApproval(useWork, entry => entry.roomId === id)
+  const approval = useApproval(useWork, useComputer, entry => entry.roomId === id, ask => ask.roomId === id)
   const members = useGroupWork(useWork, rooms => (rooms[id] ?? []).filter(entry => entry.botId !== undefined).map(entry => ({ id: entry.botId, ...doingOf(entry) })))
   const first = roster.byId[members[0]?.id]
   const workingLine = first ? workLine(first.name, members[0], members.length - 1) : null
@@ -271,7 +278,7 @@ function renderSidebarEntry(entry, rowProps, markedUnread, onDragStart) {
 }
 
 function SectionBlock({ section, entries, rowProps, markedUnread, renaming, dropTarget, onDragStart, onDragOverSec, onDropSec }) {
-  const { roster, actions, useSessions, useSessionStatus, useWork, wide } = rowProps
+  const { roster, actions, useSessions, useSessionStatus, useWork, useComputer, wide } = rowProps
   const input = useRef(null)
   useLayoutEffect(() => {
     if (!renaming) return
@@ -316,16 +323,21 @@ function SectionBlock({ section, entries, rowProps, markedUnread, renaming, drop
   const workBits = useWork ? useWork(work => {
     const botIds = new Set(entries.filter(e => e.kind === 'bot').map(e => e.item.id))
     const roomIds = new Set(entries.filter(e => e.kind === 'room').map(e => e.item.id))
-    const approval = (work.approvals ?? []).some(a => botIds.has(a.botId) || roomIds.has(a.roomId))
+    const approval = (work.approvals ?? []).some(a => (a.roomId === undefined && botIds.has(a.botId)) || roomIds.has(a.roomId))
     const roomWorking = Object.entries(work.rooms ?? {}).some(([rId, list]) => (
       (roomIds.has(rId) && list.some(e => e.botId !== undefined)) || list.some(e => botIds.has(e.botId))
     ))
     return `${approval ? 1 : 0}|${roomWorking ? 1 : 0}`
   }) : '0|0'
+  const hasComputerAsk = useComputer ? useComputer(comp => {
+    const botIds = new Set(entries.filter(e => e.kind === 'bot').map(e => e.item.id))
+    const roomIds = new Set(entries.filter(e => e.kind === 'room').map(e => e.item.id))
+    return Object.values(comp?.asks ?? {}).some(ask => (ask.roomId === undefined && botIds.has(ask.botId)) || roomIds.has(ask.roomId))
+  }) : false
   const parsedStatuses = JSON.parse(statusBits)
   const [hasApproval, hasRoomWork] = workBits.split('|').map(v => v === '1')
   const hasQuestion = entries.some(entry => entry.kind === 'bot' && roster.questions?.[currentPart(entry.item)] !== undefined)
-  const hasAlert = hasQuestion || hasApproval
+  const hasAlert = hasQuestion || hasApproval || hasComputerAsk
   const hasWorking = hasRoomWork || parsedStatuses.some(([, run]) => run === 1)
   const hasUnread = parsedStatuses.some(([id, , unread]) => unread === 1 && id !== activeSession)
     || entries.some(entry => markedUnread[entry.item.id] === true && entry !== activeEntry)
@@ -765,7 +777,7 @@ export function TeamSidebar(props) {
     openAgentSession: id => navigate(actions.openAgentSession, id),
     newAgentSession: id => navigate(actions.newAgentSession, id),
   }
-  const rowProps = { roster, actions: rowActions, useSessions, useUi, useSessionStatus: props.useSessionStatus, useSessionRetainInfo: props.useSessionRetainInfo, useActivity: props.useActivity, useWork: props.useWork, wide: wideContent }
+  const rowProps = { roster, actions: rowActions, useSessions, useUi, useSessionStatus: props.useSessionStatus, useSessionRetainInfo: props.useSessionRetainInfo, useActivity: props.useActivity, useWork: props.useWork, useComputer: props.useComputer, wide: wideContent }
   // Typing while the sidebar has focus starts a search.
   const typeToSearch = (event) => {
     if (event.defaultPrevented || event.key.length !== 1 || event.key === ' ' || event.metaKey || event.ctrlKey || event.altKey || event.nativeEvent.isComposing) return

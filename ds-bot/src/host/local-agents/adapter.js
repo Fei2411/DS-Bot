@@ -92,10 +92,14 @@ export class LocalAgentAdapter extends LlmAdapter {
   // What DS Bot knows of a route without starting its CLI: the CLI's default, what a
   // probe found, and what a Bot runs on. DSH and the catalog ask this for every route.
   async listModels(route) {
-    if (engineOf(route, this.deps.customAgents()) === undefined) return []
+    const spec = engineOf(route, this.deps.customAgents())
+    if (spec === undefined) return []
+    const supportsImage = spec.kind !== 'acp' || this.engines.get(route)?.supportsImages?.() !== false
+    const inputModalities = supportsImage ? ['text', 'image'] : ['text']
     const listed = [{ provider: route, id: 'default', name: 'CLI default' }, ...(this.modelCache.get(route) ?? [])]
     const used = (this.deps.usedModels?.(route) ?? []).filter(id => !listed.some(model => model.id === id))
     return [...listed, ...used.map(id => ({ provider: route, id, name: id }))]
+      .map(entry => ({ ...entry, inputModalities }))
   }
 
   // Asks one CLI what it serves, once. A failure is not kept, so the next look tries

@@ -9,8 +9,13 @@
 // from the CDN and decrypt with their AES key. A refused send is permanent
 // with the platform's reason. Protocol ported from dsh-im (MIT, see NOTICE).
 import { createDecipheriv, randomBytes } from 'node:crypto'
+import {
+  detectImageMediaType, discardBody, FILE_LIMIT, IMAGE_LIMIT,
+  isHttpUrl, mediaSignal, readCappedBytes,
+} from './media.js'
 
 const QR_BASE = 'https://ilinkai.weixin.qq.com/'
+const CDN_BASE = 'https://novac2c.cdn.weixin.qq.com/c2c'
 const BOT_TYPE = '3'
 const TEXT_LIMIT = 1800
 const POLL_TIMEOUT_MS = 35_000
@@ -139,11 +144,28 @@ export default {
         // Voice items carry their transcript in voice_item.text.
         else if (item.type === 3 && item.voice_item?.text !== undefined) texts.push(String(item.voice_item.text))
         else if (item.type === 2 && item.image_item?.media !== undefined) {
-          const bytes = await image(item.image_item.media, env, stopping.signal).catch(() => undefined)
+          const bytes = await downloadMedia(item.image_item.media, item.image_item.aeskey, IMAGE_LIMIT, env, stopping.signal).catch((error) => {
+            if (!stopping.signal.aborted) env.log?.warn?.('ds-bot im: weixin image download failed: %s', error?.message ?? error)
+            return undefined
+          })
           if (stopping.signal.aborted) return
-          if (bytes !== undefined) images.push({ mediaType: 'image/jpeg', data: bytes.toString('base64') })
+          if (bytes !== undefined && bytes.length > 0) {
+            const mediaType = detectImageMediaType(bytes)
+            if (mediaType !== undefined) images.push({ mediaType, data: bytes.toString('base64') })
+            else files.push({ name: 'image', data: bytes })
+          }
         }
-        else if (item.type === 4 && item.file_item !== undefined) files.push({ name: String(item.file_item.file_name ?? 'file'), data: undefined })
+        else if (item.type === 4 && item.file_item !== undefined) {
+          const name = String(item.file_item.file_name ?? 'file')
+          const bytes = item.file_item.media === undefined
+            ? undefined
+            : await downloadMedia(item.file_item.media, item.file_item.aeskey, FILE_LIMIT, env, stopping.signal).catch((error) => {
+              if (!stopping.signal.aborted) env.log?.warn?.('ds-bot im: weixin file download failed: %s', error?.message ?? error)
+              return undefined
+            })
+          if (stopping.signal.aborted) return
+          if (bytes !== undefined && bytes.length > 0) files.push({ name, data: bytes })
+        }
       }
       await handlers.onMessage({
         chat: { key: userId, kind: 'direct', title: '' },
@@ -368,16 +390,67 @@ async function request(env, baseUrl, token, endpoint, body, timeoutMs = POLL_TIM
   return json
 }
 
-// Inbound images: the CDN URL plus a base64 AES-128 key (ECB, PKCS7).
-async function image(media, env, signal) {
-  const url = String(media.full_url ?? media.url ?? '')
-  if (url === '') return undefined
-  const response = await env.fetch(url, { signal })
-  if (!response.ok) return undefined
-  const encrypted = Buffer.from(await response.arrayBuffer())
-  const hex = Buffer.from(String(media.aes_key ?? ''), 'base64').toString('utf8')
-  const key = /^[0-9a-f]{32}$/i.test(hex) ? Buffer.from(hex, 'hex') : undefined
-  if (key === undefined) return encrypted
-  const decipher = createDecipheriv('aes-128-ecb', key, null)
-  return Buffer.concat([decipher.update(encrypted), decipher.final()])
+// Inbound media: the CDN URL plus an optional AES-128 key (ECB, PKCS7), carried
+// either as strict base64-encoded 32-char hex / 16-byte raw key on `media.aes_key`,
+// or as plain 32-char hex on the item's `aeskey`.
+const STRICT_B64 = /^[A-Za-z0-9+/]+={0,2}$/
+function parseWeixinAesKeys(rawKey, fallbackHex) {
+  const keys = []
+  const seen = new Set()
+  const add = (buf) => {
+    const id = buf.toString('hex')
+    if (seen.has(id)) return
+    seen.add(id)
+    keys.push(buf)
+  }
+  const candidates = [rawKey, fallbackHex].filter(value => typeof value === 'string' && value.trim() !== '')
+  for (const raw of candidates) {
+    const trimmed = raw.trim()
+    if (/^[0-9a-f]{32}$/i.test(trimmed)) { add(Buffer.from(trimmed, 'hex')); continue }
+    if (trimmed.length % 4 !== 0 || !STRICT_B64.test(trimmed)) continue
+    const decoded = Buffer.from(trimmed, 'base64')
+    if (decoded.length === 16) { add(decoded); continue }
+    const text = decoded.toString('utf8').trim()
+    if (/^[0-9a-f]{32}$/i.test(text)) add(Buffer.from(text, 'hex'))
+  }
+  return keys
+}
+
+const cdnBase = env => String(env.config?.cdn ?? CDN_BASE).replace(/\/+$/, '')
+
+async function downloadMedia(media, fallbackHex, limit, env, signal) {
+  let url = String(media.full_url ?? media.url ?? '').trim()
+  const encryptedCdn = url === '' && Boolean(media.encrypt_query_param)
+  if (encryptedCdn) {
+    url = `${cdnBase(env)}/download?encrypted_query_param=${encodeURIComponent(String(media.encrypt_query_param))}`
+  }
+  if (!isHttpUrl(url)) return undefined
+  const keySpecified = (typeof media.aes_key === 'string' && media.aes_key.trim() !== '')
+    || (typeof fallbackHex === 'string' && fallbackHex.trim() !== '')
+  const keys = parseWeixinAesKeys(media.aes_key, fallbackHex)
+  if ((encryptedCdn || keySpecified) && keys.length === 0) {
+    env.log?.warn?.('ds-bot im: weixin media missing valid AES key, skipped')
+    return undefined
+  }
+  const response = await env.fetch(url, { signal: mediaSignal(signal) })
+  if (!response.ok) {
+    await discardBody(response)
+    env.log?.warn?.('ds-bot im: weixin media download answered %s', response.status)
+    return undefined
+  }
+  const got = await readCappedBytes(response, limit)
+  if (got.overLimit) {
+    env.log?.warn?.('ds-bot im: weixin media over %d byte cap, skipped', limit)
+    return undefined
+  }
+  if (got.bytes === undefined || got.bytes.length === 0) return undefined
+  if (keys.length === 0) return got.bytes
+  for (const key of keys) {
+    try {
+      const decipher = createDecipheriv('aes-128-ecb', key, null)
+      return Buffer.concat([decipher.update(got.bytes), decipher.final()])
+    } catch { /* try next candidate key */ }
+  }
+  env.log?.warn?.('ds-bot im: weixin media decrypt failed, skipped')
+  return undefined
 }

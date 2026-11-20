@@ -1,6 +1,8 @@
 // French (fr) localization for DS Bot client and DSH settings namespaces.
 
 export const FR = {
+  "Background work": "Travail en arrière-plan",
+  "Background commands after (seconds)": "Passer les commandes en arrière-plan après (secondes)",
   'A new reply is waiting': "Une nouvelle réponse vous attend",
   "Opening…": "Ouverture…",
   "Still opening…": "Toujours en cours d’ouverture…",
