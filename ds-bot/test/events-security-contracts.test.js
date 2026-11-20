@@ -626,10 +626,13 @@ test('P1: Ledger handles March 1-4 prevMonthKey and cross-month decision aggrega
       time: Date.UTC(2026, 1, 28, 23, 55),
     })
     assert.equal(ledger.hasDedupeKey('march-boundary-key', { nowMs: Date.UTC(2026, 2, 1, 0, 5) }), true, 'March 1 must still see February dedupe keys')
+    // Regression: resetDedupeCache() must clear `warmed` too so post-takeover lookups reload from disk.
+    ledger.resetDedupeCache()
+    assert.equal(ledger.hasDedupeKey('march-boundary-key', { nowMs: Date.UTC(2026, 2, 1, 0, 5) }), true, 'resetDedupeCache must re-warm from disk')
 
-    // Append decision in March book directly and verify getEvent aggregates across months.
-    const marPath = join(env.home, 'ledger', 'events-2026-03.jsonl')
-    writeFileSync(marPath, `${JSON.stringify({ recordKind: 'decision', time: Date.UTC(2026, 2, 1, 0, 10), eventId: ev.id, subId: 's1', outcome: 'delivered' })}\n`)
+    // Append decision in March book via real rt.ledger contract and verify getEvent aggregates across months.
+    env.rt.ledger.append('events-2026-03', { recordKind: 'decision', time: Date.UTC(2026, 2, 1, 0, 10), eventId: ev.id, subId: 's1', outcome: 'delivered' })
+    await env.rt.ledger.written('events-2026-03')
     const loaded = ledger.getEvent(ev.id, { isUser: true })
     assert.ok(loaded)
     assert.equal(loaded.decisions.length, 1)

@@ -209,6 +209,7 @@ export function createEventLedger(rt) {
 
   function resetDedupeCache() {
     dedupeCache.clear()
+    warmed.clear()
   }
 
   function pruneOldBooks(retentionDays = DEFAULT_RETENTION_DAYS) {
