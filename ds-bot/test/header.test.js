@@ -251,4 +251,43 @@ test('a group chat header mounts the approval bar in the top island and answers 
   }
   for (const clean of cleanups) { try { clean() } catch {} }
   assert.deepEqual(closedCalls, ['closeApproval'])
+
+  // A Bot's own chat header also mounts the approval island for background-task approvals (#783).
+  calls.length = 0
+  const taskWork = {
+    rooms: {},
+    approvals: [{ id: 'ap-task', botId: 'a', taskId: 'k_1', taskTitle: 'Deploy check', tool: 'bash', reason: 'Run deploy script', answerable: true, at: 100 }],
+  }
+  const renderBot = (uiState) => expand(HeaderPill({
+    sessionId: 'a',
+    useRoster: hook(groupRoster),
+    useSessions: hook({ byId: {} }),
+    useSessionStatus: hook(new Map()),
+    useSession: hook({}),
+    useActivity: hook({}),
+    useMemoryNews: hook({}),
+    useTurnClock: hook({}),
+    useUi: hook(uiState),
+    useLive: hook({}),
+    useWork: hook(taskWork),
+    useComputer: hook(emptyComputer),
+    actions,
+  }))
+  const botClosed = renderBot({ approvalOpen: null })
+  const botBars = findAll(botClosed, node => node.props?.className === 'bt-apv-bar')
+  assert.equal(botBars.length, 1)
+  botBars[0].props.onClick()
+  assert.deepEqual(calls, [['toggleApproval', 'a']])
+
+  calls.length = 0
+  const botOpened = renderBot({ approvalOpen: 'a' })
+  const botPanels = findAll(botOpened, node => node.props?.className === 'bt-apv-panel')
+  assert.equal(botPanels.length, 1)
+  const botBtns = findAll(botPanels[0], node => node.type === 'button')
+  botBtns.find(btn => (btn.children ?? []).join('') === 'Allow once').props.onClick()
+  botBtns.find(btn => (btn.children ?? []).join('') === 'Reject').props.onClick()
+  assert.deepEqual(calls, [
+    ['answerApproval', 'ap-task', 'allow'],
+    ['answerApproval', 'ap-task', 'reject'],
+  ])
 })

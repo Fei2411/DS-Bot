@@ -734,6 +734,9 @@ var JA = {
   "Model for {name}": "{name} のモデル",
   "No models are set up in DeepSeek Harness yet.": "DeepSeek Harness にはまだモデルが設定されていません。",
   "Models and providers…": "モデルとプロバイダー…",
+  "Search models": "モデルを検索",
+  "Search models…": "モデルを検索…",
+  "No matching models.": "一致するモデルがありません。",
   "Models": "モデル",
   "Harness default": "Harness デフォルト",
   "Saving": "保存中",
@@ -3253,6 +3256,9 @@ var KO = {
   "Model for {name}": "{name}의 모델",
   "No models are set up in DeepSeek Harness yet.": "DeepSeek Harness에 아직 설정된 모델이 없습니다.",
   "Models and providers…": "모델 및 제공자…",
+  "Search models": "모델 검색",
+  "Search models…": "모델 검색…",
+  "No matching models.": "일치하는 모델이 없습니다.",
   Models: "모델",
   "Harness default": "Harness 기본값",
   Saving: "저장 중",
@@ -5802,6 +5808,9 @@ var ES = {
   "Model for {name}": "Modelo para {name}",
   "No models are set up in DeepSeek Harness yet.": "Aún no hay modelos configurados en DeepSeek Harness.",
   "Models and providers…": "Modelos y proveedores…",
+  "Search models": "Buscar modelos",
+  "Search models…": "Buscar modelos…",
+  "No matching models.": "No hay modelos coincidentes.",
   Models: "Modelos",
   "Harness default": "Predeterminado de Harness",
   Saving: "Guardando",
@@ -8336,6 +8345,9 @@ var FR = {
   "Model for {name}": "Modèle pour {name}",
   "No models are set up in DeepSeek Harness yet.": "Aucun modèle n’est encore configuré dans DeepSeek Harness.",
   "Models and providers…": "Modèles et fournisseurs…",
+  "Search models": "Rechercher des modèles",
+  "Search models…": "Rechercher des modèles…",
+  "No matching models.": "Aucun modèle correspondant.",
   "Models": "Modèles",
   "Harness default": "Par défaut de Harness",
   "Saving": "Enregistrement",
@@ -10855,6 +10867,9 @@ var DE = {
   "Model for {name}": "Modell für {name}",
   "No models are set up in DeepSeek Harness yet.": "In DeepSeek Harness sind noch keine Modelle eingerichtet.",
   "Models and providers…": "Modelle und Anbieter…",
+  "Search models": "Modelle suchen",
+  "Search models…": "Modelle suchen…",
+  "No matching models.": "Keine passenden Modelle.",
   Models: "Modelle",
   "Harness default": "Harness-Standard",
   Saving: "Wird gespeichert",
@@ -13377,6 +13392,9 @@ var ZH = {
   "Model for {name}": "{name} 的模型",
   "No models are set up in DeepSeek Harness yet.": "DeepSeek Harness 里还没有设置模型。",
   "Models and providers…": "模型和服务商…",
+  "Search models": "搜索模型",
+  "Search models…": "搜索模型…",
+  "No matching models.": "没有匹配的模型。",
   Models: "模型",
   "Harness default": "Harness 默认",
   Saving: "保存中",
@@ -15077,8 +15095,8 @@ function bodyOf(def, paint, flat = false) {
     return "";
   }
 }
-var eyeMarkup = ([cx, cy, w, h73, tilt]) => `<g transform="translate(${cx} ${cy}) rotate(${tilt})"><rect class="bt-eye" x="${-w / 2}" y="${-h73 / 2}" width="${w}" height="${h73}" rx="${w / 2}"/></g>`;
-var happyEyeMarkup = ([cx, cy, w, h73, tilt]) => `<g transform="translate(${cx} ${cy}) rotate(${tilt})"><path class="bt-eye-happy" opacity="0" d="M${-w * 0.62} ${h73 * 0.14}Q0 ${-h73 * 0.42} ${w * 0.62} ${h73 * 0.14}" fill="none" stroke="#000" stroke-width="${w * 0.5}" stroke-linecap="round"/></g>`;
+var eyeMarkup = ([cx, cy, w, h74, tilt]) => `<g transform="translate(${cx} ${cy}) rotate(${tilt})"><rect class="bt-eye" x="${-w / 2}" y="${-h74 / 2}" width="${w}" height="${h74}" rx="${w / 2}"/></g>`;
+var happyEyeMarkup = ([cx, cy, w, h74, tilt]) => `<g transform="translate(${cx} ${cy}) rotate(${tilt})"><path class="bt-eye-happy" opacity="0" d="M${-w * 0.62} ${h74 * 0.14}Q0 ${-h74 * 0.42} ${w * 0.62} ${h74 * 0.14}" fill="none" stroke="#000" stroke-width="${w * 0.5}" stroke-linecap="round"/></g>`;
 var maskBox = (size) => `maskUnits="userSpaceOnUse" x="${-size}" y="${-size}" width="${size * 3}" height="${size * 3}"`;
 var holes = (def, eyes) => `<rect x="${-def.size}" y="${-def.size}" width="${def.size * 3}" height="${def.size * 3}" fill="#fff"/>${eyes}`;
 var MASK_ID = "%MASK%";
@@ -15139,7 +15157,8 @@ function indexRoster(value) {
   const byId = {};
   for (const bot of value.bots) {
     const open = (bot.openParts ?? []).flatMap((part) => [part.sessionId, ...part.parts ?? []]);
-    for (const id of [...bot.parts ?? [], ...open, bot.sessionId ?? bot.id, bot.id]) byId[id] = bot;
+    const tasks = (bot.tasks ?? []).flatMap((task) => [task.sessionId, ...task.parts ?? []]);
+    for (const id of [...bot.parts ?? [], ...open, ...tasks, bot.sessionId ?? bot.id, bot.id]) byId[id] = bot;
   }
   const roomsById = {};
   for (const room2 of value.rooms) {
@@ -15461,6 +15480,7 @@ function teamActions({ call: call2, after, partFor, roster, ui: ui2, live, cards
     fileText: (file) => call2("file-text", { file }).catch(() => void 0),
     roomProgress: (roomId) => call2("room-progress", { roomId }).catch(() => []),
     groupRows: (roomId, from, to, anchor) => call2("group-rows", { roomId, from, ...to === void 0 ? {} : { to }, ...anchor === void 0 ? {} : { anchor } }).catch(() => null),
+    groupRelayReplies: (sessionId, preview) => call2("group-relay-replies", { sessionId, preview }).catch(() => null),
     earlier: (sessionId, cursor) => call2("earlier", { sessionId, cursor: cursor ?? null }),
     // Hours come back in this browser's time zone, so days start at local midnight.
     usage: () => call2("usage", { timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }),
@@ -15813,6 +15833,203 @@ function linkMentions(text, bots, selfId) {
   }
   return cursor === 0 ? text : out + text.slice(cursor);
 }
+var DRIVE_BACKSLASH_PATH = /^[A-Za-z]:\\/;
+var isEscaped = (text, index) => {
+  let slashes = 0;
+  for (let i = index - 1; i >= 0 && text[i] === "\\"; i -= 1) slashes += 1;
+  return (slashes & 1) === 1;
+};
+var lineEnd = (text, from) => {
+  const nl = text.indexOf("\n", from);
+  return nl === -1 ? text.length : nl + 1;
+};
+var isBlankLine = (text, start, end) => /^[ \t]*\r?\n?$/.test(text.slice(start, end));
+function fenceOpen(line) {
+  const match = /^[ ]{0,3}(`{3,}|~{3,})([^\r\n]*)\r?\n?$/.exec(line);
+  if (!match) return null;
+  const marker = match[1];
+  if (marker[0] === "`" && match[2].includes("`")) return null;
+  return { char: marker[0], length: marker.length };
+}
+function fenceClose(line, fence) {
+  const match = /^[ ]{0,3}(`{3,}|~{3,})[ \t]*\r?\n?$/.exec(line);
+  return Boolean(match && match[1][0] === fence.char && match[1].length >= fence.length);
+}
+function findCodeSpanEnd(text, from, ticks) {
+  let i = from;
+  while (i < text.length) {
+    if (text[i] === "\n") {
+      const next = i + 1;
+      const nextEnd = lineEnd(text, next);
+      if (next < text.length && isBlankLine(text, next, nextEnd)) return -1;
+      i = next;
+      continue;
+    }
+    if (text[i] === "`") {
+      let end = i;
+      while (end < text.length && text[end] === "`") end += 1;
+      if (end - i === ticks) return end;
+      i = end;
+      continue;
+    }
+    i += 1;
+  }
+  return -1;
+}
+function skipLinkWs(text, from) {
+  let i = from;
+  while (i < text.length && (text[i] === " " || text[i] === "	")) i += 1;
+  if (text[i] === "\r" && text[i + 1] === "\n") i += 2;
+  else if (text[i] === "\n") i += 1;
+  else return i;
+  while (i < text.length && (text[i] === " " || text[i] === "	")) i += 1;
+  return i;
+}
+function skipOptionalTitleAndClose(text, from) {
+  let i = skipLinkWs(text, from);
+  if (i >= text.length) return -1;
+  if (text[i] === ")") return i + 1;
+  const open = text[i];
+  if (open !== '"' && open !== "'" && open !== "(") return -1;
+  if (i === from) return -1;
+  const close = open === "(" ? ")" : open;
+  i += 1;
+  while (i < text.length) {
+    const ch = text[i];
+    if (ch === "\\" && i + 1 < text.length) {
+      i += 2;
+      continue;
+    }
+    if (ch === "\n") {
+      const nextEnd = lineEnd(text, i + 1);
+      if (i + 1 < text.length && isBlankLine(text, i + 1, nextEnd)) return -1;
+      i += 1;
+      continue;
+    }
+    if (open === "(" && ch === "(") return -1;
+    if (ch === close) {
+      const after = skipLinkWs(text, i + 1);
+      return text[after] === ")" ? after + 1 : -1;
+    }
+    i += 1;
+  }
+  return -1;
+}
+function normalizeFileLinks(text) {
+  if (typeof text !== "string" || !text.includes("](") || !text.includes("\\")) return text;
+  let out = "";
+  let cursor = 0;
+  let i = 0;
+  let atLineStart = true;
+  let canIndentCode = true;
+  let fence = null;
+  while (i < text.length) {
+    if (atLineStart) {
+      const end = lineEnd(text, i);
+      const line = text.slice(i, end);
+      if (fence !== null) {
+        if (fenceClose(line, fence)) fence = null;
+        i = end;
+        canIndentCode = false;
+        continue;
+      }
+      if (isBlankLine(text, i, end)) {
+        i = end;
+        canIndentCode = true;
+        continue;
+      }
+      const opened = fenceOpen(line);
+      if (opened !== null) {
+        fence = opened;
+        i = end;
+        canIndentCode = false;
+        continue;
+      }
+      if (canIndentCode && /^(?: {4}|\t)/.test(line)) {
+        i = end;
+        continue;
+      }
+      atLineStart = false;
+      canIndentCode = false;
+    }
+    const ch = text[i];
+    if (ch === "\n") {
+      atLineStart = true;
+      i += 1;
+      continue;
+    }
+    if (ch === "`" && !isEscaped(text, i)) {
+      let ticksEnd = i;
+      while (ticksEnd < text.length && text[ticksEnd] === "`") ticksEnd += 1;
+      const spanEnd = findCodeSpanEnd(text, ticksEnd, ticksEnd - i);
+      if (spanEnd !== -1) {
+        i = spanEnd;
+        atLineStart = text[i - 1] === "\n";
+        continue;
+      }
+      i = ticksEnd;
+      continue;
+    }
+    if (ch === "]" && text[i + 1] === "(" && !isEscaped(text, i)) {
+      const destStart = skipLinkWs(text, i + 2);
+      let destInnerStart = destStart;
+      let destInnerEnd = -1;
+      let afterDest = -1;
+      if (text[destStart] === "<") {
+        destInnerStart = destStart + 1;
+        let j = destInnerStart;
+        while (j < text.length && text[j] !== ">" && text[j] !== "\n" && text[j] !== "\r") {
+          if (text[j] === "\\" && j + 1 < text.length && !DRIVE_BACKSLASH_PATH.test(text.slice(destInnerStart, destInnerStart + 3))) {
+            j += 2;
+            continue;
+          }
+          j += 1;
+        }
+        if (text[j] === ">") {
+          destInnerEnd = j;
+          afterDest = j + 1;
+        }
+      } else {
+        const isWinDrive = DRIVE_BACKSLASH_PATH.test(text.slice(destStart, destStart + 3));
+        let j = destStart;
+        let depth = 0;
+        while (j < text.length) {
+          const c = text[j];
+          if (c === " " || c === "	" || c === "\n" || c === "\r") break;
+          if (!isWinDrive && c === "\\" && j + 1 < text.length) {
+            j += 2;
+            continue;
+          }
+          if (c === "(") depth += 1;
+          else if (c === ")") {
+            if (depth === 0) break;
+            depth -= 1;
+          }
+          j += 1;
+        }
+        if (j > destStart && depth === 0) {
+          destInnerEnd = j;
+          afterDest = j;
+        }
+      }
+      if (afterDest !== -1) {
+        const linkEnd = skipOptionalTitleAndClose(text, afterDest);
+        if (linkEnd !== -1) {
+          const dest = text.slice(destInnerStart, destInnerEnd);
+          if (DRIVE_BACKSLASH_PATH.test(dest)) {
+            out += text.slice(cursor, destInnerStart) + dest.replace(/\\/g, "/");
+            cursor = destInnerEnd;
+          }
+          i = linkEnd;
+          atLineStart = text[i - 1] === "\n";
+          continue;
+        }
+      }
+    }
+    i += 1;
+  }
+  return cursor === 0 ? text : out + text.slice(cursor);
+}
 function mentionTarget(event) {
   const anchor = event.target instanceof Element ? event.target.closest(`a[href^="${MENTION_ORIGIN}"]`) : null;
   return anchor ? anchor.getAttribute("href").slice(MENTION_ORIGIN.length) : null;
@@ -16100,12 +16317,12 @@ function liveSprings(apply2) {
     const dt = Math.min(0.5, Math.max(1e-3, (now - last) / 1e3));
     last = now;
     const steps = Math.ceil(dt * 240);
-    const h73 = dt / steps;
+    const h74 = dt / steps;
     let moving = false;
     for (const [key, value] of values) {
       for (let index = 0; index < steps; index += 1) {
-        value.v += (-value.k * (value.x - value.to) - value.c * value.v) * h73;
-        value.x += value.v * h73;
+        value.v += (-value.k * (value.x - value.to) - value.c * value.v) * h74;
+        value.x += value.v * h74;
       }
       if (Math.abs(value.x - value.to) < 0.05 && Math.abs(value.v) < 1) {
         value.x = value.to;
@@ -16304,6 +16521,7 @@ var STORAGE = {
   prefs: "ds-bot:prefs",
   surface: "ds-bot:surface",
   agentSessions: "ds-bot:agent-sessions",
+  agentForks: "ds-bot:pending-agent-forks",
   browserWidth: "ds-bot:browser-width",
   sidebar: "ds-bot:sidebar",
   browsers: "ds-bot.browser.v2"
@@ -16589,6 +16807,7 @@ html[data-windows-titlebar] .bt-leftcol,html[data-platform=darwin] .bt-leftcol{b
    A responsive skin's single track otherwise creates an implicit center column. */
 @media (max-width:${DSH_NARROW - 1}px){
 [class*="_frame"][data-sidebar-collapsed][data-rightbar-collapsed]:has(>[class*="_centerCol"] .bt-head){grid-template-columns:0px minmax(0,1fr) 0px!important}
+[class*="_frame"][data-sidebar-collapsed][data-rightbar-collapsed]:has(>[class*="_centerCol"] .bt-head)>[class*="_centerCol"]{grid-column:2!important;width:auto!important}
 }
 html[data-bt-collapsing] [class*="_frame"]:has(>[class*="_sidebarCol"]){transition:none!important}
 .bt-leftcol[data-left=drawer]{background:var(--bt-sidebar);box-shadow:8px 0 24px rgba(0,0,0,.14)}
@@ -17018,6 +17237,11 @@ body[data-ds-dark-theme] .bt-scrim{background:rgba(0,0,0,.5)}
 .bt-dsh-item>[data-slot]>*{padding-left:16px;padding-right:16px;border-bottom-width:0}
 .bt-dsh-item>[data-slot]>.bt-set-row{padding:12px 16px}
 .bt-dsh-item:has(>[data-slot]:empty){display:none}
+/* DS Bot's own preference rows sit directly in the item: an item that renders nothing takes no
+   line, and rows (or a note) stacked in one item are divided like the card's own rows. */
+.bt-dsh-item:empty{display:none}
+.bt-dsh-item>.bt-set-row+:is(.bt-set-row,.bt-set-note){border-top:.5px solid var(--bt-line)}
+.bt-set-note{padding:12px 16px;font-size:12px;line-height:17px;color:var(--bt-danger)}
 .bt-dsh-item[data-item=appearance]>[data-slot]>*>:first-child{display:none}
 .bt-advanced{width:100%;border:0;background:none;font:inherit;color:inherit;text-align:left;cursor:pointer;justify-content:space-between}
 .bt-advanced:hover{background:var(--bt-hover)}
@@ -17147,10 +17371,11 @@ button.bt-set-row:hover .bt-chevron{transform:translateX(2px);color:var(--bt-ink
 .bt-connector-link{flex:none;padding:0;border:0;background:none;font:inherit;font-size:12px;color:var(--bt-ink-2);text-decoration:underline;text-underline-offset:2px;cursor:pointer}
 .bt-connector-link:hover:not(:disabled){color:var(--bt-ink)}
 .bt-connector-wait{flex:1;min-width:0;font-size:12px;line-height:16px;color:var(--bt-ink-2)}
-.bt-connector-setup{display:flex;flex-direction:column;gap:6px;padding:8px 10px;border-radius:10px;background:var(--bt-tag-bg);font-size:12px;line-height:16px;color:var(--bt-ink-2)}
-.bt-connector-setup p{margin:0}
-.bt-connector-setup-uri{display:flex;align-items:center;gap:6px;min-width:0}
-.bt-connector-uri{flex:1;min-width:0;padding:3px 6px;border-radius:6px;background:var(--bt-card);box-shadow:inset 0 0 0 .5px var(--bt-line-2);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;line-height:15px;color:var(--bt-ink);word-break:break-all}
+.bt-connector-setup{display:flex;flex-direction:column;gap:8px;padding:12px 14px;border-radius:10px;background:var(--bt-hover);box-shadow:inset 0 0 0 .5px var(--bt-line);font-size:12px;line-height:18px;color:var(--bt-ink-2)}
+.bt-connector-steps{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:6px}
+.bt-connector-steps li::marker{color:var(--bt-ink-3);font-weight:500}
+.bt-connector-setup-uri{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:6px;min-width:0}
+.bt-connector-uri{flex:1;min-width:180px;padding:5px 8px;border-radius:6px;background:var(--bt-card);box-shadow:inset 0 0 0 .5px var(--bt-line-2);font-family:var(--bt-mono,ui-monospace,SFMono-Regular,Menlo,monospace);font-size:11px;line-height:16px;color:var(--bt-ink);word-break:break-all;user-select:all}
 .bt-connector-aside{align-self:flex-start}
 .bt-connector-error{padding-left:48px;font-size:12px;line-height:16px;color:var(--bt-danger)}
 .bt-connector-banner{padding:0 0 8px}
@@ -17375,6 +17600,9 @@ button:hover .bt-you{background:color-mix(in srgb,var(--bt-ink) 9%,var(--bt-side
 .bt-select{-webkit-appearance:none;appearance:none;width:auto;min-width:148px;max-width:100%;height:34px;box-sizing:border-box;border-radius:8px;border:.5px solid var(--bt-line-2);background-color:var(--bt-hover);background-image:var(--bt-select-arrow);background-repeat:no-repeat;background-position:right 10px center;color:var(--bt-ink);padding:0 30px 0 12px;font:inherit;font-size:13px;font-weight:450;cursor:pointer;outline:none;transition:background-color .14s ease,border-color .14s ease,box-shadow .14s ease}
 .bt-select:hover:not(:disabled){background-color:var(--bt-active)}
 .bt-select:disabled{opacity:.45;cursor:default}
+/* The open list is drawn by the system, which follows color-scheme rather than the theme's colors. */
+body[data-ds-dark-theme] .bt-select{color-scheme:dark}
+.bt-select option{background-color:var(--bt-card);color:var(--bt-ink)}
 :is(.bt-input,.bt-select):focus-visible{border-color:var(--bt-accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--bt-accent) 22%,transparent)}
 :is(.bt-round,.bt-icon-btn,.bt-soft,.bt-send,.bt-mini,.bt-pill,.bt-plus,.bt-mic,.bt-voice,.bt-account,.bt-title-toggle,.bt-settings-close,.bt-avatar-trigger,.bt-shape,.bt-color,.bt-swatch,.bt-more,.bt-mem-row,.bt-mem-send):focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
 :is(.bt-row,.bt-tile,.bt-tab,.bt-avedit-tab,.bt-settings-item,.bt-menu button,.bt-option,.bt-palette-row,button.bt-set-row):focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px}
@@ -17585,8 +17813,10 @@ var CONVERSATION_CSS = `
 /* The menus above the composer ("@", "/", and the picker a command such as /model
    opens): DSH paints them translucent and leans on a backdrop blur to keep the chat
    behind them unreadable. Where the blur does not take, the chat shows through the
-   rows (issues 1113 and 935), so they get a solid fill. */
-[data-composer-overlay] [data-menu-material]{--dsw-menu-surface-fill:var(--bt-card)}
+   rows (issues 1113 and 935), so they get a solid fill. The "@" menu is the trigger
+   menu, whose root carries data-trigger-menu rather than data-menu-material, so it
+   needs naming too (issue 1698). */
+[data-composer-overlay] [data-menu-material],[data-trigger-menu]{--dsw-menu-surface-fill:var(--bt-card);--dsw-specific-menu:var(--bt-card)}
 /* DSH's row spans share no semantic hooks beyond the option; keep descriptions
    beside their labels without changing their flex sizing or overflow. */
 [data-trigger-menu] [role=option]>span{text-align:left}
@@ -17645,7 +17875,7 @@ header[class*="_header"] .bt-head{flex:1 1 auto;width:100%}
    keep no-drag. The data-slot anchor must not take no-drag, or the bar inherits it. */
 html[data-platform=darwin] header[class*="_header"]:has(.bt-head) .bt-head{pointer-events:auto;-webkit-app-region:drag}
 html[data-platform=darwin] header[class*="_header"]:has(.bt-head) :is(a,button,input,textarea,select,[role=button],[role=menuitem],[role=menu],[contenteditable=true]){-webkit-app-region:no-drag}
-[class*="_body"]:has(> [class*="_scrollBody"]){--dsh-chat-content-width:min(960px,100%)}
+[data-slot="main.conversation"]>[class*="_root"]>[class*="_body"]{--dsh-chat-content-width:min(960px,100%)}
 /* The shell writes the column's width on the conversation root at every resize, only to
    derive the content width that the rule above replaces. Inherited, each write restyled
    the whole conversation: once a frame while the details panel glides, most in a long
@@ -17753,8 +17983,9 @@ body[data-bt-goal="2"] [class*="_scroll"]:has(> [class*="_column"]){padding-top:
 [data-composer-card] [class*="_trailing"]{gap:8px!important}
 /* No display here: DSH hides these controls with [hidden] while the Bot works. */
 [data-composer-card] [class*="_standardControls"]{align-items:center!important;gap:8px!important}
-[data-composer-card] button[class*="_primary"]{width:28px!important;height:28px!important;background:var(--bt-accent)!important;color:var(--bt-accent-ink,#fff)!important;border-radius:50%!important;transition:opacity .15s ease,${spring(SPRING_TAP, "scale")};animation:bt-icon-swap ${SPRING_POP.duration}ms ${SPRING_POP.easing}}
-[data-composer-card] button[class*="_primary"]:hover:not(:disabled){opacity:.9}
+[data-composer-card] button[class*="_primary"]{width:28px!important;height:28px!important;background:var(--bt-accent)!important;color:var(--bt-accent-ink,#fff)!important;border-radius:50%!important;transition:background-color .15s ease,${spring(SPRING_TAP, "scale")};animation:bt-icon-swap ${SPRING_POP.duration}ms ${SPRING_POP.easing}}
+/* Hover tints the background instead of lowering opacity: an opacity change inside the blurred composer is suspected of making Windows repaint the whole window, so the UI flickers (#901). */
+[data-composer-card] button[class*="_primary"]:hover:not(:disabled){background-color:color-mix(in srgb,var(--bt-accent) 90%,transparent)!important}
 [data-composer-card] button[class*="_primary"]:active:not(:disabled){scale:.9}
 @keyframes bt-icon-swap{from{opacity:0;transform:scale(.5) rotate(-30deg)}}
 [data-composer-card] button[class*="_primary"] svg{width:14px;height:14px}
@@ -17766,7 +17997,7 @@ body[data-bt-goal="2"] [class*="_scroll"]:has(> [class*="_column"]){padding-top:
 .bt-mic[aria-pressed=true]{background:#ff3e51;color:#fff;animation:bt-mic-pulse 1.4s ease-in-out infinite}
 @keyframes bt-mic-pulse{0%,100%{box-shadow:0 0 0 0 rgba(255,62,81,.35)}50%{box-shadow:0 0 0 5px rgba(255,62,81,0)}}
 .bt-voice{display:none;background:var(--bt-accent);color:var(--bt-accent-ink,#fff);animation:bt-icon-swap ${SPRING_POP.duration}ms ${SPRING_POP.easing}}
-.bt-voice:hover{opacity:.9}
+.bt-voice:hover{background-color:color-mix(in srgb,var(--bt-accent) 90%,transparent)}
 .bt-mic:active,.bt-voice:active{scale:.9}
 /* Touch devices never hover: tap-open toolbars (data-open on the message), always
    visible icon buttons and 44px targets replace the hover affordances. The message
@@ -23901,9 +24132,20 @@ function ModelGroupList({ groups, current: current2, currentId, defaultModel, on
 }
 var NO_MANUAL = {};
 var manualFor = (state, opening) => state.opening === opening ? state.manual : NO_MANUAL;
-function ModelRows({ roster, current: current2, onPick, filtering = false, opening = 0 }) {
-  const groups = groupModels(roster.models);
+function filterModelGroups(models, query) {
+  const tokens = typeof query === "string" ? query.trim().toLowerCase().split(/\s+/).filter(Boolean) : [];
+  const groups = groupModels(models);
+  if (tokens.length === 0) return groups;
+  return groups.map(([provider, list]) => [provider, list.filter((model) => {
+    const hay = `${model.name ?? ""} ${nameOf(model) ?? ""} ${model.ref ?? ""} ${model.provider ?? ""} ${model.providerName ?? ""}`.toLowerCase();
+    return tokens.every((token) => hay.includes(token));
+  })]).filter(([, list]) => list.length > 0);
+}
+function ModelRows({ roster, current: current2, onPick, query = "", filtering = false, opening = 0 }) {
+  const trimmed2 = typeof query === "string" ? query.trim() : "";
+  const groups = filterModelGroups(roster.models, trimmed2);
   const [state, setState] = (0, import_react20.useState)({ opening, manual: NO_MANUAL });
+  if (groups.length === 0) return (0, import_react20.createElement)("div", { className: "bt-model-none", role: "status" }, t("No matching models."));
   const manual = manualFor(state, opening);
   return (0, import_react20.createElement)(ModelGroupList, {
     groups,
@@ -23911,7 +24153,7 @@ function ModelRows({ roster, current: current2, onPick, filtering = false, openi
     currentId: currentGroupId(groups, current2),
     defaultModel: roster.defaultModel,
     onPick,
-    filtering,
+    filtering: filtering || trimmed2.length > 0,
     manual,
     onToggle: (id, open) => setState((previous) => ({ opening, manual: toggledGroup(manualFor(previous, opening), id, open) }))
   });
@@ -24030,6 +24272,7 @@ function useModelPicker({ bot, roster, actions, run: run2, onPick, onPickEffort,
   const currentEffort = picked ?? reasoning?.defaultEffort;
   const effortLabel = currentEffort === void 0 ? reasoning?.efforts?.length > 0 ? t("Default") : void 0 : reasoning.efforts.find((effort) => effort.id === currentEffort)?.name ?? currentEffort;
   const [opening, setOpening] = (0, import_react20.useState)(0);
+  const [query, setQuery] = (0, import_react20.useState)("");
   const models = modelsFor(roster.models, current2);
   return {
     bot,
@@ -24042,6 +24285,8 @@ function useModelPicker({ bot, roster, actions, run: run2, onPick, onPickEffort,
     effortLabel,
     models,
     opening,
+    query,
+    setQuery,
     reading,
     withEfforts,
     manage: local ? void 0 : manageModels(actions),
@@ -24050,6 +24295,7 @@ function useModelPicker({ bot, roster, actions, run: run2, onPick, onPickEffort,
     opened: () => {
       if (local) readModels(routeOf(current2));
       else void actions?.refreshModels?.();
+      setQuery("");
       setOpening((count) => count + 1);
     },
     choose: (ref) => {
@@ -24084,10 +24330,32 @@ var modelTrigger = (picker, { wide, button, isOpen, onClick }) => {
     (0, import_react20.createElement)(Caret)
   );
 };
-var modelScroll = ({ roster, models, current: current2, local, reading, opening }, pick2) => (0, import_react20.createElement)(
+var modelSearch = ({ models, query, setQuery }, menu) => {
+  const field = (0, import_react20.useRef)(null);
+  return models.length > 0 ? (0, import_react20.createElement)(
+    "div",
+    { className: "bt-model-search", role: "presentation" },
+    (0, import_react20.createElement)("input", {
+      ref: field,
+      type: "search",
+      className: "bt-input bt-model-search-input",
+      placeholder: t("Search models…"),
+      "aria-label": t("Search models"),
+      value: query,
+      autoFocus: true,
+      autoComplete: "off",
+      spellCheck: false,
+      onChange: (event) => setQuery(event.target.value),
+      onKeyDown: (event) => {
+        if (["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) stepMenuFocus(menu.current, event, field.current);
+      }
+    })
+  ) : null;
+};
+var modelScroll = ({ roster, models, current: current2, local, reading, opening, query }, pick2) => (0, import_react20.createElement)(
   "div",
   { className: "bt-model-scroll" },
-  models.length > 0 ? (0, import_react20.createElement)(ModelRows, { roster: { ...roster, models }, current: current2, onPick: pick2, opening }) : local ? null : (0, import_react20.createElement)("div", { className: "bt-model-none" }, t("No models are set up in DeepSeek Harness yet.")),
+  models.length > 0 ? (0, import_react20.createElement)(ModelRows, { roster: { ...roster, models }, current: current2, onPick: pick2, query, opening }) : local ? null : (0, import_react20.createElement)("div", { className: "bt-model-none" }, t("No models are set up in DeepSeek Harness yet.")),
   reading ? (0, import_react20.createElement)("div", { className: "bt-model-none" }, t("Reading models…")) : null
 );
 var manageButton = (manage, close) => (0, import_react20.createElement)(
@@ -24126,6 +24394,7 @@ function PopupModelMenu({ bot, roster, actions, run: run2, wide = false, onPick,
     shownPlace ? (0, import_react_dom.createPortal)((0, import_react20.createElement)(
       "div",
       { ref: menu, className: `bt-menu bt-model-menu${shownPlace.bottom !== void 0 ? " bt-menu-up" : ""}`, role: "menu", "aria-label": modelMenuLabel(bot), style: shownPlace, "data-leaving": leaving || void 0 },
+      modelSearch(picker, menu),
       modelScroll(picker, pick2),
       hasEfforts || manage ? (0, import_react20.createElement)(
         "div",
@@ -24164,6 +24433,7 @@ function InlineModelMenu({ bot, roster, actions, run: run2, wide = false, onPick
       (0, import_react20.createElement)(
         "div",
         { ref: menu, className: "bt-menu bt-model-menu bt-model-inline-menu", role: "menu", "aria-label": modelMenuLabel(bot) },
+        modelSearch(picker, menu),
         modelScroll(picker, pick2),
         manage ? (0, import_react20.createElement)("div", { className: "bt-model-foot" }, manageButton(manage, close)) : null
       )
@@ -24322,6 +24592,11 @@ var MODEL_CSS = `
 .bt-model-trigger[aria-expanded=true] .bt-model-caret{transform:rotate(180deg)}
 .bt-model-menu{overflow-y:auto;scrollbar-width:thin}
 .bt-model-menu:not(.bt-folder-menu){padding:0;overflow:hidden;display:flex;flex-direction:column;gap:0}
+.bt-model-search{flex:none;display:flex;padding:6px 6px 4px;border-bottom:.5px solid var(--bt-line-2)}
+.bt-model-search-input{flex:1 1 auto;width:100%;box-sizing:border-box;height:28px;padding:4px 8px;border:0;border-radius:6px;background:var(--bt-hover);color:var(--bt-ink);font:inherit;font-size:12px;line-height:18px;outline:0}
+.bt-model-search-input:focus-visible{box-shadow:inset 0 0 0 1px var(--bt-accent)}
+.bt-model-search-input::placeholder{color:var(--bt-ink-3)}
+.bt-model-search-input::-webkit-search-cancel-button{cursor:pointer}
 .bt-model-scroll{flex:1 1 auto;min-height:0;overflow-y:auto;scrollbar-width:thin;overscroll-behavior:contain;padding:6px;display:flex;flex-direction:column;gap:2px}
 .bt-model-foot{flex:none;display:flex;flex-direction:column;gap:2px;padding:4px 6px 6px;border-top:.5px solid var(--bt-line-2)}
 .bt-model-inline{display:flex;flex-direction:column;min-width:0}
@@ -26865,27 +27140,35 @@ function ClientPanel({ connector, actions, run: run2 }) {
     (0, import_react29.createElement)(
       "div",
       { className: "bt-connector-setup" },
-      (0, import_react29.createElement)("p", null, setup?.kind === "slack" ? t("In OAuth & Permissions at {app}, add this redirect URL:", { app }) : t("In the app settings, add this redirect URL:")),
-      uri ? (0, import_react29.createElement)(
-        "div",
-        { className: "bt-connector-setup-uri" },
-        (0, import_react29.createElement)("code", { className: "bt-connector-uri" }, uri),
-        (0, import_react29.createElement)("button", { type: "button", className: "bt-connector-link", onClick: () => void copyCode(uri) }, t("Copy")),
-        copies > 0 ? (0, import_react29.createElement)(
-          "span",
-          { className: "bt-connector-copied", role: "status" },
-          (0, import_react29.createElement)("span", { key: copies, className: "bt-connector-copied-text" }, (0, import_react29.createElement)(CheckIcon), t("Copied to clipboard"))
-        ) : null
-      ) : null,
-      setup?.kind === "slack" ? (0, import_react29.createElement)("p", null, t("Turn on the MCP features and scopes the app needs.")) : null,
-      (0, import_react29.createElement)("p", null, t("Copy the Client ID and Client Secret here.")),
-      setup?.appUrl ? (0, import_react29.createElement)("button", { type: "button", className: "bt-connector-link", onClick: () => openPage(setup.appUrl) }, t("Open app settings")) : null
+      (0, import_react29.createElement)(
+        "ol",
+        { className: "bt-connector-steps" },
+        (0, import_react29.createElement)(
+          "li",
+          null,
+          (0, import_react29.createElement)("span", null, setup?.kind === "slack" ? t("In OAuth & Permissions at {app}, add this redirect URL:", { app }) : t("In the app settings, add this redirect URL:")),
+          uri ? (0, import_react29.createElement)(
+            "div",
+            { className: "bt-connector-setup-uri" },
+            (0, import_react29.createElement)("code", { className: "bt-connector-uri" }, uri),
+            (0, import_react29.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => void copyCode(uri) }, t("Copy")),
+            copies > 0 ? (0, import_react29.createElement)(
+              "span",
+              { className: "bt-connector-copied", role: "status" },
+              (0, import_react29.createElement)("span", { key: copies, className: "bt-connector-copied-text" }, (0, import_react29.createElement)(CheckIcon), t("Copied to clipboard"))
+            ) : null
+          ) : null
+        ),
+        setup?.kind === "slack" ? (0, import_react29.createElement)("li", null, t("Turn on the MCP features and scopes the app needs.")) : null,
+        (0, import_react29.createElement)("li", null, t("Copy the Client ID and Client Secret here."))
+      )
     ),
     (0, import_react29.createElement)("input", { className: "bt-input", "aria-label": t("Client ID"), placeholder: t("Client ID"), value: clientId, spellCheck: false, autoComplete: "off", onChange: (e) => setClientId(e.target.value) }),
     (0, import_react29.createElement)("label", { className: "bt-q-field bt-secret-field" }, (0, import_react29.createElement)(MaskedInput, { value: clientSecret, onChange: setClientSecret, label: t("Client secret (optional)") })),
     (0, import_react29.createElement)(
       "div",
       { className: "bt-connector-form-row" },
+      setup?.appUrl ? (0, import_react29.createElement)("button", { type: "button", className: "bt-connector-link", onClick: () => openPage(setup.appUrl) }, t("Open app settings")) : (0, import_react29.createElement)("span", { className: "bt-connector-wait" }),
       (0, import_react29.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => void run2(actions.connectorCancel(connector.id)) }, t("Cancel")),
       (0, import_react29.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: clientId.trim() === "", onClick: () => void run2(actions.connectorClient(connector.id, clientId.trim(), clientSecret.trim() || void 0)) }, t("Continue"))
     )
@@ -26952,7 +27235,7 @@ function ConnectorRow({ connector, actions }) {
   };
   const button = (label, onClick) => (0, import_react29.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: busy, onClick }, label);
   let actionsNode = null;
-  if (pending || form) actionsNode = null;
+  if (pending || form || connector.state === "needs-client") actionsNode = null;
   else if (connector.state === "needs-sign-in") actionsNode = [button(t("Sign in again"), signIn), button(t("Disconnect"), () => void run2(actions.connectorDisconnect(connector.id)))];
   else if (connector.state === "error") actionsNode = [button(t("Try again"), () => void run2(actions.connectorRetry(connector.id))), button(connector.custom ? t("Remove") : t("Disconnect"), () => void run2(actions.connectorDisconnect(connector.id)))];
   else if (on) actionsNode = button(connector.custom ? t("Remove") : t("Disconnect"), () => void run2(actions.connectorDisconnect(connector.id)));
@@ -27611,9 +27894,21 @@ function relayRange(text) {
 }
 var RELAY_LIST = /"replies"\s*:\s*\[/;
 var PRUNE_MARKER = /\[\.\.\. tool result middle pruned \.\.\.\]/;
+var SAVE_TOKEN_NOTICE = /\n\n\[save-token #[\da-z]+ (?:compressed|losslessly re-encoded): [\d,]+ -> [\d,]+ bytes[\s\S]*\]$/;
+var compressedRelayPreview = (text) => {
+  const notice = SAVE_TOKEN_NOTICE.exec(text);
+  return notice === null ? void 0 : text.slice(0, notice.index);
+};
+var REPLY_ELISION = / \.\.\.\[\+(\d+) chars\]\.\.\. /;
 function parseReplies(text) {
+  const preview = compressedRelayPreview(text);
+  if (preview !== void 0) {
+    const replies2 = parseReplies(preview).replies.filter((reply) => reply && typeof reply === "object" && !reply.__omitted__ && (typeof reply.text !== "string" || !REPLY_ELISION.test(reply.text)));
+    return { replies: replies2, broken: true };
+  }
   try {
-    return { replies: JSON.parse(text).replies ?? [], broken: false };
+    const replies2 = JSON.parse(text)?.replies;
+    return { replies: Array.isArray(replies2) ? replies2 : [], broken: false };
   } catch {
   }
   const replies = [];
@@ -28707,7 +29002,7 @@ var foldArea = (body, code, codeHead, actions) => code === void 0 ? body : (0, i
 function Bubble({ text, index, roster, selfId, actions, sessionId, msgKey, mentions, fold, picked, live, lead, whole, textInteractionSource }) {
   const { shown, folded, control, code, codeHead } = useFold(text, { limit: fold, whole, live });
   const key = msgKey ? `${msgKey}:${index}` : void 0;
-  const body = shown === "" ? null : (0, import_react34.createElement)(import_dsh_client_ui_primitives.MarkdownText, { text: linkMentions(shown, roster.bots, selfId), streaming: live, labels: mdLabels(), variant: "compact", fileMentions: mentions });
+  const body = shown === "" ? null : (0, import_react34.createElement)(import_dsh_client_ui_primitives.MarkdownText, { text: linkMentions(normalizeFileLinks(shown), roster.bots, selfId), streaming: live, labels: mdLabels(), variant: "compact", fileMentions: mentions });
   const row = (0, import_react34.useRef)(null);
   const [toolsOpen, setToolsOpen] = (0, import_react34.useState)(false);
   useDismiss(toolsOpen, () => setToolsOpen(false), [row]);
@@ -29348,7 +29643,7 @@ function TriggerCell({ node, sessionId, useRoster, useSessions, useTurnClock, us
   function triggerBody() {
     if (source.kind === "bot") {
       if (source.handoff === true) return (0, import_react34.createElement)(EarlierParts, { sessionId, roster, actions });
-      if (source.role === "kickoff" || source.role === "room" || source.role === "goal") return null;
+      if (source.role === "kickoff" || source.role === "room" || source.role === "goal" || source.role === "task-handoff") return null;
       if (source.role === "secret" || deferred) return null;
       if (source.role === "update") return (0, import_react34.createElement)("div", { className: "bt-event" }, t("Profile updated"));
       if (source.role === "post") {
@@ -29683,6 +29978,18 @@ function GroupReplies({ sessionId, callId, done, content, roster, actions, useUi
   }, [done, sessionId, callId]);
   const resultText = done ? contentText(content) : "";
   const range = done ? relayRange(resultText) : void 0;
+  const preview = compressedRelayPreview(resultText);
+  const [recovered, setRecovered] = (0, import_react34.useState)(null);
+  (0, import_react34.useEffect)(() => {
+    if (preview === void 0) return void 0;
+    let stop = false;
+    void actions.groupRelayReplies(sessionId, preview).then((replies2) => {
+      if (!stop) setRecovered({ sessionId, preview, replies: replies2 });
+    });
+    return () => {
+      stop = true;
+    };
+  }, [sessionId, preview]);
   const rowsKey = range === void 0 ? void 0 : `${sessionId}:${range.from}:${range.to ?? ""}:${range.anchor ?? ""}`;
   const [view, setView] = (0, import_react34.useState)(() => rowsKey === void 0 ? null : settledRows.get(rowsKey) ?? null);
   const quietKey = view?.open === true && view.active !== true ? roster.revision : void 0;
@@ -29721,9 +30028,13 @@ function GroupReplies({ sessionId, callId, done, content, roster, actions, useUi
   if (range !== void 0) {
     replies = view?.rows ?? live.replies;
   } else if (done) {
-    const parsed = parseReplies(resultText);
-    replies = parsed.replies.length ? parsed.replies : live.replies;
-    broken = parsed.broken;
+    const restored = recovered?.sessionId === sessionId && recovered.preview === preview ? recovered.replies : null;
+    if (Array.isArray(restored)) replies = restored;
+    else {
+      const parsed = parseReplies(resultText);
+      replies = parsed.replies.length ? parsed.replies : live.replies;
+      broken = parsed.broken;
+    }
   }
   const pending = range !== void 0 ? view?.open ? view.speaking ?? [] : [] : done ? [] : live.speaking;
   const doing = JSON.parse(useWork?.((work) => JSON.stringify(pending.map((id) => {
@@ -37283,69 +37594,362 @@ var BOT_MODELS_CSS = `
 .bt-bm-summary .bt-set-copy>span{font-size:12px;line-height:16px;color:var(--bt-ink-2)}
 `;
 
-// src/client/settings.js
+// src/client/settings-preferences.js
 var import_react51 = require("react");
+var import_react_dom8 = require("react-dom");
 var import_dsh_client_ui_primitives2 = require("@deepseek-ai/dsh-client-ui-primitives");
+var PREFERENCE_ITEMS = /* @__PURE__ */ new Set(["language", "transcript-view", "link-opening", "composer-enter", "performance-usage", "permission"]);
+var CHAT_CHOICES = {
+  transcriptView: ["compact", "standard", "detailed", "verbose"],
+  collapseTiming: ["completion", "next-input"],
+  foldedReplies: ["all", "final"],
+  performanceUsage: ["compact", "detailed"],
+  linkOpening: ["sidebar", "new-tab"]
+};
+var CHAT_LABELS = {
+  transcriptView: ["settings.transcript.compact", "settings.transcript.standard", "settings.transcript.detailed", "settings.transcript.verbose"],
+  collapseTiming: ["settings.collapse.completion", "settings.collapse.nextInput"],
+  foldedReplies: ["settings.foldedReplies.all", "settings.foldedReplies.final"],
+  performanceUsage: ["settings.performance.compact", "settings.performance.detailed"],
+  linkOpening: ["settings.links.sidebar", "settings.links.newTab"]
+};
+var CHAT_KEYS = { transcriptView: "transcript", collapseTiming: "collapse", foldedReplies: "foldedReplies", performanceUsage: "performance", linkOpening: "links" };
+function chatPreference(value = {}, desktop = false) {
+  const mode = value.transcriptView;
+  return {
+    transcriptView: mode === "normal" || mode === "expanded" ? "detailed" : mode ?? (desktop ? "standard" : "detailed"),
+    collapseTiming: value.collapseTiming ?? "completion",
+    foldedReplies: value.foldedReplies ?? "all",
+    performanceUsage: value.performanceUsage ?? "detailed",
+    linkOpening: value.linkOpening ?? "sidebar"
+  };
+}
+async function savePreference(form, field, value) {
+  const snapshot = form.getSnapshot();
+  if (snapshot.status !== "ready" || !snapshot.writable || !await form.set(field, value)) throw new Error("preference write refused");
+}
+function PreferenceSelect({ label, value, options, disabled, pick: pick2 }) {
+  const menu = useAnchoredMenu();
+  (0, import_react51.useEffect)(() => {
+    if (disabled || options.length === 0) menu.close();
+  }, [disabled, options.length]);
+  const selected = options.find((option) => option.id === value);
+  const choose = (id) => {
+    menu.button.current?.focus({ preventScroll: true });
+    menu.close();
+    pick2(id);
+  };
+  return (0, import_react51.createElement)(
+    import_react51.Fragment,
+    null,
+    (0, import_react51.createElement)("button", {
+      ref: menu.button,
+      type: "button",
+      className: "bt-select",
+      "aria-label": label,
+      "aria-haspopup": "menu",
+      "aria-expanded": menu.isOpen,
+      disabled: disabled || options.length === 0,
+      onClick: () => {
+        if (menu.isOpen) menu.close();
+        else menu.open();
+      },
+      onKeyDown: (event) => {
+        if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+          event.preventDefault();
+          menu.open();
+        }
+      }
+    }, selected?.label ?? (options.length === 0 ? t("Loading…") : value ?? "")),
+    menu.shownPlace ? (0, import_react_dom8.createPortal)((0, import_react51.createElement)("div", {
+      ref: menu.menu,
+      role: "menu",
+      "aria-label": label,
+      className: "bt-menu",
+      "data-leaving": menu.leaving ? "" : void 0,
+      style: { ...menu.shownPlace, overflowY: "auto", zIndex: 1100 },
+      onKeyDown: (event) => {
+        if (event.key === "Tab") menu.close();
+      }
+    }, options.map((option) => (0, import_react51.createElement)("button", {
+      key: option.id,
+      type: "button",
+      role: "menuitemradio",
+      "aria-checked": option.id === value,
+      onClick: () => choose(option.id)
+    }, (0, import_react51.createElement)("span", { className: "bt-menu-label" }, option.label), option.id === value ? (0, import_react51.createElement)(CheckIcon) : null))), document.body) : null
+  );
+}
+function PreferenceRow({ title, description, value, options, disabled, save, saveUnchanged = false }) {
+  const [busy, setBusy] = (0, import_react51.useState)(false);
+  const [failed, setFailed] = (0, import_react51.useState)(false);
+  return (0, import_react51.createElement)(
+    "div",
+    { className: "bt-set-row" },
+    (0, import_react51.createElement)(
+      "div",
+      { className: "bt-set-copy" },
+      (0, import_react51.createElement)("span", null, title),
+      description ? (0, import_react51.createElement)("span", { className: "bt-set-hint" }, description) : null,
+      failed ? (0, import_react51.createElement)("span", { className: "bt-set-hint bt-danger", role: "alert" }, t("Could not save. Try again.")) : null
+    ),
+    (0, import_react51.createElement)("div", { className: "bt-set-control" }, (0, import_react51.createElement)(PreferenceSelect, {
+      label: title,
+      value,
+      options,
+      disabled: disabled || busy,
+      pick: (next) => {
+        if (next === value && !saveUnchanged) return;
+        setBusy(true);
+        setFailed(false);
+        Promise.resolve().then(() => save(next)).catch(() => setFailed(true)).finally(() => setBusy(false));
+      }
+    }))
+  );
+}
+function usePreferenceSchema(preferences, namespace) {
+  const describe = preferences.describe;
+  const snapshot = (0, import_react51.useSyncExternalStore)((listener) => describe.subscribe(listener), () => describe.getSnapshot());
+  const entry = snapshot.view?.namespaces.find((entry2) => entry2.ns === namespace);
+  const wire = entry?.schema;
+  return (0, import_react51.useMemo)(() => wire === void 0 ? void 0 : preferences.schema.rehydrate(wire), [preferences.schema, wire]);
+}
+function FormPreferences({ id, preferences }) {
+  const namespace = id === "composer-enter" ? "ui-conversation" : "ui-chat";
+  const form = preferences.forms[namespace];
+  const snapshot = (0, import_react51.useSyncExternalStore)((listener) => form.subscribe(listener), () => form.getSnapshot());
+  const schema = usePreferenceSchema(preferences, namespace);
+  const supports = (field) => schema !== void 0 && preferences.schema.nodeAtPath(schema, [field]) !== void 0;
+  const browserAvailable = (0, import_react51.useSyncExternalStore)(preferences.browser.subscribe, preferences.browser.getSnapshot);
+  const disabled = snapshot.status !== "ready" || !snapshot.writable;
+  if (snapshot.status === "unavailable") return null;
+  const tr = preferences.locale.bind(namespace === "ui-chat" ? "chat" : "conversation");
+  if (id === "composer-enter") return !supports("busyEnter") ? null : (0, import_react51.createElement)(PreferenceRow, {
+    title: tr("settings.enter.title"),
+    description: tr("settings.enter.description"),
+    value: snapshot.value?.busyEnter ?? "queue",
+    disabled,
+    options: ["queue", "steer"].map((value2) => ({ id: value2, label: tr(`settings.enter.${value2}`) })),
+    save: (value2) => savePreference(form, "busyEnter", value2)
+  });
+  if (id === "link-opening" && !browserAvailable) return null;
+  const value = chatPreference(snapshot.value, preferences.desktop);
+  const fields = id === "transcript-view" ? ["transcriptView", "collapseTiming", ...value.transcriptView === "verbose" ? [] : ["foldedReplies"]] : [id === "performance-usage" ? "performanceUsage" : "linkOpening"];
+  return fields.filter(supports).map((field) => (0, import_react51.createElement)(PreferenceRow, {
+    key: field,
+    title: tr(`settings.${CHAT_KEYS[field]}.title`),
+    description: tr(`settings.${CHAT_KEYS[field]}.description`),
+    value: value[field],
+    disabled,
+    options: CHAT_CHOICES[field].map((choice, index) => ({ id: choice, label: tr(CHAT_LABELS[field][index]) })),
+    save: (choice) => savePreference(form, field, choice)
+  }));
+}
+function LanguagePreference({ preferences }) {
+  const locale = preferences.locale;
+  const snapshot = (0, import_react51.useSyncExternalStore)((listener) => locale.subscribe(listener), () => locale.getSnapshot());
+  return (0, import_react51.createElement)(PreferenceRow, {
+    title: locale.bind("settings.locale")("language.title"),
+    value: snapshot.active,
+    saveUnchanged: true,
+    options: snapshot.locales.map(({ id, label }) => ({ id, label })),
+    save: (id) => locale.setLocale(id)
+  });
+}
+function permissionOptions(catalog, translate) {
+  const builtins = { "read-only": ["preset.readOnly", "Read Only"], "workspace-write": ["preset.workspaceWrite", "Workspace Write"], "danger-full-access": ["preset.fullAccess", "Full access"] };
+  return (catalog?.defaultOptions ?? []).map(({ value, name }) => {
+    const builtin = builtins[value];
+    const title = name ?? value;
+    const label = builtin && (title === value || title === builtin[1]) ? translate(builtin[0]) : /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(title) ? title.split("-").map((part) => part[0].toUpperCase() + part.slice(1)).join(" ") : title;
+    return { id: value, label };
+  });
+}
+function PermissionPreference({ preferences }) {
+  const form = preferences.forms.permission;
+  const snapshot = (0, import_react51.useSyncExternalStore)((listener) => form.subscribe(listener), () => form.getSnapshot());
+  const schema = usePreferenceSchema(preferences, "permission");
+  const [catalog, setCatalog] = (0, import_react51.useState)(null);
+  const [failed, setFailed] = (0, import_react51.useState)(false);
+  const [attempt, setAttempt] = (0, import_react51.useState)(0);
+  const [confirmation, setConfirmation] = (0, import_react51.useState)(null);
+  const [acknowledged, setAcknowledged] = (0, import_react51.useState)(false);
+  const tr = preferences.locale.bind("settings.permission");
+  (0, import_react51.useEffect)(() => {
+    let epoch = 0;
+    const refresh = () => {
+      const current2 = ++epoch;
+      setCatalog(null);
+      setFailed(false);
+      Promise.resolve().then(() => preferences.permissionCatalog()).then((result) => {
+        if (current2 !== epoch) return;
+        if (result.ok) setCatalog(result.value);
+        else setFailed(true);
+      }).catch(() => {
+        if (current2 === epoch) setFailed(true);
+      });
+    };
+    const stop = preferences.subscribePermission(refresh);
+    refresh();
+    return () => {
+      ++epoch;
+      stop();
+    };
+  }, [preferences, attempt]);
+  (0, import_react51.useEffect)(() => {
+    if (snapshot.writable && snapshot.status !== "unavailable") return;
+    confirmation?.resolve();
+    setConfirmation(null);
+    setAcknowledged(false);
+  }, [snapshot.writable, snapshot.status]);
+  if (snapshot.status === "unavailable" || schema === void 0 || preferences.schema.nodeAtPath(schema, ["defaultPreset"]) === void 0) return null;
+  const value = snapshot.value?.defaultPreset ?? catalog?.defaultPreset;
+  const options = permissionOptions(catalog, tr);
+  return (0, import_react51.createElement)(
+    import_react51.Fragment,
+    null,
+    (0, import_react51.createElement)(PreferenceRow, {
+      title: tr("title"),
+      description: tr("description"),
+      value,
+      options,
+      disabled: snapshot.status !== "ready" || !snapshot.writable || catalog === null,
+      save: (next) => next !== "danger-full-access" ? savePreference(form, "defaultPreset", next) : new Promise((resolve2, reject) => {
+        setAcknowledged(false);
+        setConfirmation({ value: next, resolve: resolve2, reject });
+      })
+    }),
+    failed ? (0, import_react51.createElement)(
+      "div",
+      { className: "bt-set-note", role: "alert" },
+      tr("unavailable"),
+      " ",
+      (0, import_react51.createElement)("button", { type: "button", className: "bt-soft-sm", onClick: () => setAttempt((value2) => value2 + 1) }, t("Try again"))
+    ) : null,
+    (0, import_react51.createElement)(import_dsh_client_ui_primitives2.RiskConfirmation, {
+      open: confirmation !== null,
+      title: tr("confirm.title"),
+      description: tr("confirm.description"),
+      acknowledgeLabel: tr("confirm.acknowledge"),
+      cancelLabel: tr("confirm.cancel"),
+      closeLabel: tr("close"),
+      confirmLabel: tr("confirm.enable"),
+      acknowledged,
+      onAcknowledgedChange: setAcknowledged,
+      disabled: !snapshot.writable,
+      onCancel: () => {
+        confirmation?.resolve();
+        setConfirmation(null);
+      },
+      onConfirm: () => {
+        if (!acknowledged || !confirmation) return;
+        const pending = confirmation;
+        setConfirmation(null);
+        savePreference(form, "defaultPreset", pending.value).then(pending.resolve, pending.reject);
+      }
+    })
+  );
+}
+function SettingsPreferences({ id, preferences }) {
+  if (id === "language") return (0, import_react51.createElement)(LanguagePreference, { preferences });
+  if (id === "permission") return (0, import_react51.createElement)(PermissionPreference, { preferences });
+  return (0, import_react51.createElement)(FormPreferences, { id, preferences });
+}
+function settingsPreferences(ctx) {
+  const configForms = ctx.get("configForms");
+  const locale = ctx.get("locale");
+  const schema = ctx.get("settingsSchema");
+  if (!configForms || !locale || !schema) return void 0;
+  return {
+    forms: { "ui-chat": configForms.get("ui-chat"), "ui-conversation": configForms.get("ui-conversation"), permission: configForms.get("permission") },
+    locale,
+    schema,
+    describe: configForms.describe(),
+    desktop: "dshDesktop" in globalThis,
+    browser: {
+      getSnapshot: () => ctx.get("sidebarRightTabs")?.get("browser") !== void 0,
+      subscribe: (listener) => ctx.get("sidebarRightTabs")?.subscribe(listener) ?? (() => {
+      })
+    },
+    permissionCatalog: () => Promise.resolve().then(() => ctx.get("remote.permissionPresets")?.catalog() ?? { ok: false }),
+    subscribePermission: (listener) => {
+      const stop = ctx.get("remote")?.$on?.("permission-presets/catalog-changed", listener);
+      const reset = ctx.on?.("connection/reset", listener);
+      return () => {
+        stop?.();
+        reset?.();
+      };
+    }
+  };
+}
+
+// src/client/settings.js
+var import_react52 = require("react");
+var import_dsh_client_ui_primitives3 = require("@deepseek-ai/dsh-client-ui-primitives");
 var capitalize2 = (word) => word[0].toUpperCase() + word.slice(1);
 var SETTINGS_PAGES = [["general", "General"], ["models", "Models"], ["local-agents", "Local agents"], ["bots", "Bots"], ["bot-models", "Bot models"], ["groups", "Group chats"], ["connectors", "Connectors"], ["im", "IM"], ["phone", "Phone"], ["capabilities", "Capabilities"], ["browser", "Browser"], ["computer", "Computer use"], ["schedules", "Scheduled tasks"], ["usage", "Usage"], ["secrets", "Secrets"], ["feedback", "Feedback"], ["about", "About DS Bot"]];
 var LAST_PAGES = /* @__PURE__ */ new Set(["feedback", "about"]);
 var MERGED_SECTIONS = /* @__PURE__ */ new Set(["general", "models"]);
 var LOOK_ITEMS = ["appearance", "font-size"];
-var DSH_ICONS = { account: import_dsh_client_ui_primitives2.IconUserOutlineMedium, "agent-presets": import_dsh_client_ui_primitives2.IconAgentPresetOutlineMedium, plugins: import_dsh_client_ui_primitives2.IconPersonalizationOutlineMedium, "archived-sessions": import_dsh_client_ui_primitives2.IconArchiveOutlineMedium };
+var DSH_ICONS = { account: import_dsh_client_ui_primitives3.IconUserOutlineMedium, "agent-presets": import_dsh_client_ui_primitives3.IconAgentPresetOutlineMedium, plugins: import_dsh_client_ui_primitives3.IconPersonalizationOutlineMedium, "archived-sessions": import_dsh_client_ui_primitives3.IconArchiveOutlineMedium };
 var dshPages = (dsh) => (dsh?.sections ?? []).filter((row) => row.id !== "" && !MERGED_SECTIONS.has(row.id));
 var hasSection = (dsh, id) => (dsh?.sections ?? []).some((row) => row.id === id);
-var dshItem = (dsh, id) => (0, import_react51.createElement)("div", { key: id, className: "bt-dsh-item", "data-item": id }, dsh.renderSlot("settings.general.item", {}, { only: id }));
-var PAGE_ICONS = { ...SETTINGS_ICONS, models: SlidersIcon, "bot-models": import_dsh_client_ui_primitives2.IconPersonalizationOutlineMedium, "local-agents": TerminalIcon, connectors: ConnectorIcon, im: ChatsIcon, phone: PhoneIcon, capabilities: PlugIcon, browser: GlobeIcon, computer: MonitorIcon, schedules: ClockIcon, secrets: KeyIcon, feedback: FeedbackIcon, about: InfoIcon };
+var dshItem = (dsh, id) => (0, import_react52.createElement)(
+  "div",
+  { key: id, className: "bt-dsh-item", "data-item": id },
+  dsh.preferences && PREFERENCE_ITEMS.has(id) ? (0, import_react52.createElement)(SettingsPreferences, { id, preferences: dsh.preferences }) : dsh.renderSlot("settings.general.item", {}, { only: id })
+);
+var PAGE_ICONS = { ...SETTINGS_ICONS, models: SlidersIcon, "bot-models": import_dsh_client_ui_primitives3.IconPersonalizationOutlineMedium, "local-agents": TerminalIcon, connectors: ConnectorIcon, im: ChatsIcon, phone: PhoneIcon, capabilities: PlugIcon, browser: GlobeIcon, computer: MonitorIcon, schedules: ClockIcon, secrets: KeyIcon, feedback: FeedbackIcon, about: InfoIcon };
 var MEMORY_SIZES = [
   { scope: "group", label: "Group memory size", size: 12e3 },
   { scope: "bot", label: "Bot memory size", size: 8e3 },
   { scope: "team", label: "Team memory size", size: 4e3 }
 ];
 function MemorySize({ label, value, save }) {
-  const [text, setText] = (0, import_react51.useState)(String(value));
-  (0, import_react51.useEffect)(() => setText(String(value)), [value]);
+  const [text, setText] = (0, import_react52.useState)(String(value));
+  (0, import_react52.useEffect)(() => setText(String(value)), [value]);
   const commit = () => {
     const number = Number(text);
     if (Number.isInteger(number) && number >= 1e3 && number <= 2e5 && number !== value) save(number);
     else setText(String(value));
   };
-  return (0, import_react51.createElement)("input", { className: "bt-input bt-set-number", type: "number", min: 1e3, max: 2e5, step: 1e3, "aria-label": label, value: text, onChange: (event) => setText(event.target.value), onBlur: commit, onKeyDown: (event) => {
+  return (0, import_react52.createElement)("input", { className: "bt-input bt-set-number", type: "number", min: 1e3, max: 2e5, step: 1e3, "aria-label": label, value: text, onChange: (event) => setText(event.target.value), onBlur: commit, onKeyDown: (event) => {
     if (event.key === "Enter") event.target.blur();
   } });
 }
 var BACKGROUND_AFTER_SEC = 5;
 function SecondsField({ label, value, save }) {
-  const [text, setText] = (0, import_react51.useState)(String(value));
-  (0, import_react51.useEffect)(() => setText(String(value)), [value]);
+  const [text, setText] = (0, import_react52.useState)(String(value));
+  (0, import_react52.useEffect)(() => setText(String(value)), [value]);
   const commit = () => {
     const number = Number(text);
     if (text.trim() !== "" && Number.isInteger(number) && number >= 0 && number <= 600 && number !== value) save(number);
     else setText(String(value));
   };
-  return (0, import_react51.createElement)("input", { className: "bt-input bt-set-number", type: "number", min: 0, max: 600, step: 1, "aria-label": label, value: text, onChange: (event) => setText(event.target.value), onBlur: commit, onKeyDown: (event) => {
+  return (0, import_react52.createElement)("input", { className: "bt-input bt-set-number", type: "number", min: 0, max: 600, step: 1, "aria-label": label, value: text, onChange: (event) => setText(event.target.value), onBlur: commit, onKeyDown: (event) => {
     if (event.key === "Enter") event.target.blur();
   } });
 }
 function SetSection({ title, action = null, className = "", children }) {
-  return (0, import_react51.createElement)(
+  return (0, import_react52.createElement)(
     "section",
     { className: `bt-set-section ${className}`.trim() },
-    action ? (0, import_react51.createElement)("div", { className: "bt-la-sec-head" }, (0, import_react51.createElement)("h3", null, title), action) : title ? (0, import_react51.createElement)("h3", null, title) : null,
-    (0, import_react51.createElement)("div", { className: "bt-set-card" }, children)
+    action ? (0, import_react52.createElement)("div", { className: "bt-la-sec-head" }, (0, import_react52.createElement)("h3", null, title), action) : title ? (0, import_react52.createElement)("h3", null, title) : null,
+    (0, import_react52.createElement)("div", { className: "bt-set-card" }, children)
   );
 }
 function SetRow({ label, hint, children, className = "" }) {
-  return (0, import_react51.createElement)(
+  return (0, import_react52.createElement)(
     "div",
     { className: `bt-set-row ${className}`.trim() },
-    (0, import_react51.createElement)("div", { className: "bt-set-copy" }, (0, import_react51.createElement)("span", null, label), hint ? (0, import_react51.createElement)("span", { className: "bt-set-hint" }, hint) : null),
-    children ? (0, import_react51.createElement)("div", { className: "bt-set-control" }, children) : null
+    (0, import_react52.createElement)("div", { className: "bt-set-copy" }, (0, import_react52.createElement)("span", null, label), hint ? (0, import_react52.createElement)("span", { className: "bt-set-hint" }, hint) : null),
+    children ? (0, import_react52.createElement)("div", { className: "bt-set-control" }, children) : null
   );
 }
 var LAYOUTS = [["bubble", "Bubble"], ["flat", "Flat"]];
 var EFFECTS = [["full", "Full"], ["reduced", "Reduced"], ["off", "None"]];
 function Choice({ label, value, options, pick: pick2 }) {
-  return (0, import_react51.createElement)(Segmented, { label, value, className: "bt-look-seg" }, options.map(([id, text]) => (0, import_react51.createElement)("button", {
+  return (0, import_react52.createElement)(Segmented, { label, value, className: "bt-look-seg" }, options.map(([id, text]) => (0, import_react52.createElement)("button", {
     key: id,
     type: "button",
     "aria-pressed": value === id,
@@ -37355,12 +37959,12 @@ function Choice({ label, value, options, pick: pick2 }) {
   }, t(text))));
 }
 function WidthSlider({ label, value, save }) {
-  const [width, setWidth] = (0, import_react51.useState)(value);
-  const pending = (0, import_react51.useRef)(null);
-  const timer = (0, import_react51.useRef)(0);
-  const saveRef = (0, import_react51.useRef)(save);
+  const [width, setWidth] = (0, import_react52.useState)(value);
+  const pending = (0, import_react52.useRef)(null);
+  const timer = (0, import_react52.useRef)(0);
+  const saveRef = (0, import_react52.useRef)(save);
   saveRef.current = save;
-  (0, import_react51.useEffect)(() => {
+  (0, import_react52.useEffect)(() => {
     if (pending.current === null) setWidth(value);
   }, [value]);
   const flush = () => {
@@ -37368,7 +37972,7 @@ function WidthSlider({ label, value, save }) {
     pending.current = null;
     if (next !== null) saveRef.current(next);
   };
-  (0, import_react51.useEffect)(() => () => {
+  (0, import_react52.useEffect)(() => () => {
     clearTimeout(timer.current);
     flush();
   }, []);
@@ -37379,11 +37983,11 @@ function WidthSlider({ label, value, save }) {
     timer.current = setTimeout(flush, 350);
   };
   const { min, max, step } = MESSAGE_WIDTH;
-  return (0, import_react51.createElement)(
+  return (0, import_react52.createElement)(
     "div",
     { className: "bt-range", style: { "--bt-fill": `${(width - min) / (max - min) * 100}%` } },
-    (0, import_react51.createElement)("input", { type: "range", min, max, step, value: width, "aria-label": label, "aria-valuetext": `${width}%`, onChange: (event) => pick2(Number(event.target.value)) }),
-    (0, import_react51.createElement)("output", null, `${width}%`)
+    (0, import_react52.createElement)("input", { type: "range", min, max, step, value: width, "aria-label": label, "aria-valuetext": `${width}%`, onChange: (event) => pick2(Number(event.target.value)) }),
+    (0, import_react52.createElement)("output", null, `${width}%`)
   );
 }
 function GeneralPage({ roster, actions, run: run2, dsh }) {
@@ -37393,35 +37997,35 @@ function GeneralPage({ roster, actions, run: run2, dsh }) {
   const prefs = roster.prefs ?? {};
   const themes = allThemes();
   const current2 = themes[prefs.theme] ? prefs.theme : "deepseek";
-  const [custom, setCustom] = (0, import_react51.useState)(prefs.accent ?? "#4d6bfe");
-  const timer = (0, import_react51.useRef)(0);
-  (0, import_react51.useEffect)(() => () => clearTimeout(timer.current), []);
+  const [custom, setCustom] = (0, import_react52.useState)(prefs.accent ?? "#4d6bfe");
+  const timer = (0, import_react52.useRef)(0);
+  (0, import_react52.useEffect)(() => () => clearTimeout(timer.current), []);
   const pickCustom = (value) => {
     setCustom(value);
     clearTimeout(timer.current);
     timer.current = setTimeout(() => run2(actions.setPrefs({ accent: value })), 350);
   };
   return [
-    (0, import_react51.createElement)(
+    (0, import_react52.createElement)(
       SetSection,
       { key: "look", title: t("Appearance") },
-      (0, import_react51.createElement)(
+      (0, import_react52.createElement)(
         SetRow,
         { label: t("Theme"), hint: t("Colors for the whole team, on every device.") },
-        (0, import_react51.createElement)(
+        (0, import_react52.createElement)(
           "select",
           { className: "bt-select", "aria-label": t("Theme"), value: current2, onChange: (event) => run2(actions.setPrefs({ theme: event.target.value })) },
-          Object.entries(themes).map(([id, theme]) => (0, import_react51.createElement)("option", { key: id, value: id }, t(theme.label)))
+          Object.entries(themes).map(([id, theme]) => (0, import_react52.createElement)("option", { key: id, value: id }, t(theme.label)))
         )
       ),
-      (0, import_react51.createElement)(
+      (0, import_react52.createElement)(
         SetRow,
         { label: t("Accent"), hint: t("Unread marks, badges, and the brand mark.") },
-        (0, import_react51.createElement)(
+        (0, import_react52.createElement)(
           "div",
           { className: "bt-swatches" },
-          (0, import_react51.createElement)("button", { type: "button", className: "bt-swatch bt-swatch-default", title: t("Theme accent"), "aria-label": t("Theme accent"), "aria-pressed": !prefs.accent, onClick: () => run2(actions.setPrefs({ accent: null })) }),
-          ACCENT_INKS.map((ink) => (0, import_react51.createElement)("button", {
+          (0, import_react52.createElement)("button", { type: "button", className: "bt-swatch bt-swatch-default", title: t("Theme accent"), "aria-label": t("Theme accent"), "aria-pressed": !prefs.accent, onClick: () => run2(actions.setPrefs({ accent: null })) }),
+          ACCENT_INKS.map((ink) => (0, import_react52.createElement)("button", {
             key: ink,
             type: "button",
             className: "bt-swatch",
@@ -37431,28 +38035,28 @@ function GeneralPage({ roster, actions, run: run2, dsh }) {
             style: { background: INKS[ink][0] },
             onClick: () => run2(actions.setPrefs({ accent: INKS[ink][0] }))
           })),
-          (0, import_react51.createElement)(
+          (0, import_react52.createElement)(
             "label",
             { className: "bt-swatch bt-swatch-custom", title: t("Custom accent"), "data-on": Boolean(prefs.accent) && !ACCENT_INKS.some((ink) => INKS[ink][0] === prefs.accent) },
-            (0, import_react51.createElement)("input", { type: "color", value: custom, "aria-label": t("Custom accent"), onChange: (event) => pickCustom(event.target.value) })
+            (0, import_react52.createElement)("input", { type: "color", value: custom, "aria-label": t("Custom accent"), onChange: (event) => pickCustom(event.target.value) })
           )
         )
       ),
-      (0, import_react51.createElement)(SetRow, { label: t("Message layout") }, (0, import_react51.createElement)(Choice, { label: t("Message layout"), value: layoutOf(prefs), options: LAYOUTS, pick: (id) => run2(actions.setPrefs({ layout: id })) })),
+      (0, import_react52.createElement)(SetRow, { label: t("Message layout") }, (0, import_react52.createElement)(Choice, { label: t("Message layout"), value: layoutOf(prefs), options: LAYOUTS, pick: (id) => run2(actions.setPrefs({ layout: id })) })),
       // The flat layout's text has a width of its own; the bubble width stays for the user's messages.
-      layoutOf(prefs) === "flat" ? (0, import_react51.createElement)(SetRow, { label: t("Text width") }, (0, import_react51.createElement)(WidthSlider, { label: t("Text width"), value: flatWidthOf(prefs), save: (flatWidth) => run2(actions.setPrefs({ flatWidth })) })) : null,
-      (0, import_react51.createElement)(SetRow, { label: t("Bubble width") }, (0, import_react51.createElement)(WidthSlider, { label: t("Bubble width"), value: widthOf(prefs), save: (width) => run2(actions.setPrefs({ width })) })),
-      (0, import_react51.createElement)(SetRow, { label: t("Interface motion") }, (0, import_react51.createElement)(Choice, { label: t("Interface motion"), value: effectsOf(prefs), options: EFFECTS, pick: (id) => run2(actions.setPrefs({ effects: id })) })),
-      (0, import_react51.createElement)(SetRow, { label: t("Show thinking") }, (0, import_react51.createElement)(Switch, { label: t("Show thinking"), on: thinkingShown(prefs), onChange: (thinking) => run2(actions.setPrefs({ thinking })) })),
+      layoutOf(prefs) === "flat" ? (0, import_react52.createElement)(SetRow, { label: t("Text width") }, (0, import_react52.createElement)(WidthSlider, { label: t("Text width"), value: flatWidthOf(prefs), save: (flatWidth) => run2(actions.setPrefs({ flatWidth })) })) : null,
+      (0, import_react52.createElement)(SetRow, { label: t("Bubble width") }, (0, import_react52.createElement)(WidthSlider, { label: t("Bubble width"), value: widthOf(prefs), save: (width) => run2(actions.setPrefs({ width })) })),
+      (0, import_react52.createElement)(SetRow, { label: t("Interface motion") }, (0, import_react52.createElement)(Choice, { label: t("Interface motion"), value: effectsOf(prefs), options: EFFECTS, pick: (id) => run2(actions.setPrefs({ effects: id })) })),
+      (0, import_react52.createElement)(SetRow, { label: t("Show thinking") }, (0, import_react52.createElement)(Switch, { label: t("Show thinking"), on: thinkingShown(prefs), onChange: (thinking) => run2(actions.setPrefs({ thinking })) })),
       look.map((id) => dshItem(dsh, id))
     ),
-    (0, import_react51.createElement)(
+    (0, import_react52.createElement)(
       SetSection,
       { key: "new", title: t("New Bots") },
-      (0, import_react51.createElement)(
+      (0, import_react52.createElement)(
         SetRow,
         { label: t("Default model"), className: "bt-set-model" },
-        (0, import_react51.createElement)(ModelMenu, {
+        (0, import_react52.createElement)(ModelMenu, {
           bot: { id: "new-bots", name: t("New Bots"), model: isLocalRoute(prefs.defaultBotModel) ? void 0 : prefs.defaultBotModel },
           roster,
           actions,
@@ -37461,58 +38065,58 @@ function GeneralPage({ roster, actions, run: run2, dsh }) {
           withEfforts: false,
           onPick: (ref) => run2(actions.setPrefs({ defaultBotModel: ref }))
         }),
-        prefs.defaultBotModel ? (0, import_react51.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => run2(actions.setPrefs({ defaultBotModel: null })) }, t("Reset")) : null
+        prefs.defaultBotModel ? (0, import_react52.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => run2(actions.setPrefs({ defaultBotModel: null })) }, t("Reset")) : null
       )
     ),
-    (0, import_react51.createElement)(
+    (0, import_react52.createElement)(
       SetSection,
       { key: "input", title: t("Input") },
-      (0, import_react51.createElement)(
+      (0, import_react52.createElement)(
         SetRow,
         { label: t("Enter sends message") },
-        (0, import_react51.createElement)(Switch, { label: t("Enter sends message"), on: prefs.enterToSend !== false, onChange: (enterToSend) => run2(actions.setPrefs({ enterToSend })) })
+        (0, import_react52.createElement)(Switch, { label: t("Enter sends message"), on: prefs.enterToSend !== false, onChange: (enterToSend) => run2(actions.setPrefs({ enterToSend })) })
       )
     ),
-    (0, import_react51.createElement)(
+    (0, import_react52.createElement)(
       SetSection,
       { key: "background", title: t("Background work") },
-      (0, import_react51.createElement)(
+      (0, import_react52.createElement)(
         SetRow,
         { label: t("Background commands after (seconds)") },
-        (0, import_react51.createElement)(SecondsField, { label: t("Background commands after (seconds)"), value: prefs.backgroundAfterSec ?? BACKGROUND_AFTER_SEC, save: (backgroundAfterSec) => run2(actions.setPrefs({ backgroundAfterSec })) })
+        (0, import_react52.createElement)(SecondsField, { label: t("Background commands after (seconds)"), value: prefs.backgroundAfterSec ?? BACKGROUND_AFTER_SEC, save: (backgroundAfterSec) => run2(actions.setPrefs({ backgroundAfterSec })) })
       )
     ),
-    (0, import_react51.createElement)(
+    (0, import_react52.createElement)(
       SetSection,
       { key: "memory", title: t("Memory") },
-      (0, import_react51.createElement)(
+      (0, import_react52.createElement)(
         SetRow,
         { label: t("Bring up related memory") },
-        (0, import_react51.createElement)(Switch, { label: t("Bring up related memory"), on: prefs.memoryAutoRecall !== false, onChange: (memoryAutoRecall) => run2(actions.setPrefs({ memoryAutoRecall })) })
+        (0, import_react52.createElement)(Switch, { label: t("Bring up related memory"), on: prefs.memoryAutoRecall !== false, onChange: (memoryAutoRecall) => run2(actions.setPrefs({ memoryAutoRecall })) })
       ),
-      MEMORY_SIZES.map(({ scope, label, size }) => (0, import_react51.createElement)(
+      MEMORY_SIZES.map(({ scope, label, size }) => (0, import_react52.createElement)(
         SetRow,
         { key: scope, label: t(label) },
-        (0, import_react51.createElement)(MemorySize, { label: t(label), value: prefs.memoryLimits?.[scope] ?? size, save: (value) => run2(actions.setPrefs({ memoryLimits: { [scope]: value } })) })
+        (0, import_react52.createElement)(MemorySize, { label: t(label), value: prefs.memoryLimits?.[scope] ?? size, save: (value) => run2(actions.setPrefs({ memoryLimits: { [scope]: value } })) })
       ))
     ),
     // Settings opens in Agent mode too; there the way goes back to Bot mode.
-    actions.setSurface ? (0, import_react51.createElement)(
+    actions.setSurface ? (0, import_react52.createElement)(
       SetSection,
       { key: "mode", title: t("Mode") },
-      actions.surfaceMode?.() === "agent" ? (0, import_react51.createElement)(SetRow, { label: t("Bot mode") }, (0, import_react51.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => actions.setSurface("bot") }, t("Switch"))) : (0, import_react51.createElement)(SetRow, { label: t("Classic Agent mode") }, (0, import_react51.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => actions.setSurface("agent") }, t("Switch")))
+      actions.surfaceMode?.() === "agent" ? (0, import_react52.createElement)(SetRow, { label: t("Bot mode") }, (0, import_react52.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => actions.setSurface("bot") }, t("Switch"))) : (0, import_react52.createElement)(SetRow, { label: t("Classic Agent mode") }, (0, import_react52.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => actions.setSurface("agent") }, t("Switch")))
     ) : null,
-    (0, import_react51.createElement)(LocationsSection, { key: "places", actions, run: run2 }),
-    more.length > 0 ? (0, import_react51.createElement)(SetSection, { key: "more", title: t("More"), className: "bt-dsh-items" }, more.map((id) => dshItem(dsh, id))) : null
+    (0, import_react52.createElement)(LocationsSection, { key: "places", actions, run: run2 }),
+    more.length > 0 ? (0, import_react52.createElement)(SetSection, { key: "more", title: t("More"), className: "bt-dsh-items" }, more.map((id) => dshItem(dsh, id))) : null
   ];
 }
 function LocationsSection({ actions, run: run2 }) {
   const app = globalThis.dsBotApp;
-  const [team, setTeam] = (0, import_react51.useState)(null);
-  const [data, setData] = (0, import_react51.useState)(null);
-  const [moving, setMoving] = (0, import_react51.useState)(false);
-  const busy = (0, import_react51.useRef)(false);
-  (0, import_react51.useEffect)(() => {
+  const [team, setTeam] = (0, import_react52.useState)(null);
+  const [data, setData] = (0, import_react52.useState)(null);
+  const [moving, setMoving] = (0, import_react52.useState)(false);
+  const busy = (0, import_react52.useRef)(false);
+  (0, import_react52.useEffect)(() => {
     void Promise.resolve(actions.folders()).then((info) => setTeam(info?.team ?? null)).catch(() => {
     });
     if (app !== void 0) void Promise.resolve(app.dataLocation()).then(setData).catch(() => {
@@ -37530,18 +38134,18 @@ function LocationsSection({ actions, run: run2 }) {
       setMoving(false);
     }));
   };
-  return (0, import_react51.createElement)(
+  return (0, import_react52.createElement)(
     SetSection,
     { title: t("Locations"), className: "bt-set-places" },
-    (0, import_react51.createElement)(
+    (0, import_react52.createElement)(
       SetRow,
       { label: t("Team workspace"), hint: t("Where Bots without a folder of their own work.") },
-      team === null ? null : (0, import_react51.createElement)(FolderMenu, { value: team, team: true, actions, run: run2, onPick: pickTeam, disabled: moving })
+      team === null ? null : (0, import_react52.createElement)(FolderMenu, { value: team, team: true, actions, run: run2, onPick: pickTeam, disabled: moving })
     ),
-    data === null ? null : (0, import_react51.createElement)(
+    data === null ? null : (0, import_react52.createElement)(
       SetRow,
       { label: t("Data location"), hint: data.path },
-      data.fixed ? null : (0, import_react51.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: moving, onClick: () => {
+      data.fixed ? null : (0, import_react52.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: moving, onClick: () => {
         if (!busy.current) void run2(app.moveData(team ?? void 0));
       } }, t("Change…"))
     )
@@ -37551,52 +38155,52 @@ function MainBotsSection({ roster, actions, run: run2 }) {
   const mains = (roster.mainBotIds ?? []).map((id) => roster.byId[id]).filter(Boolean);
   const [first, ...others] = mains;
   const candidates = roster.bots.filter((bot) => !isMainOf(roster, bot.id));
-  return (0, import_react51.createElement)(
+  return (0, import_react52.createElement)(
     SetSection,
     { title: t("Main Bot") },
-    (0, import_react51.createElement)(
+    (0, import_react52.createElement)(
       SetRow,
       {
         label: t("Main Bot"),
         hint: first ? t("First in the sidebar. Pick another Bot to hand it the role; {name} then stops being a Main Bot.", { name: first.name }) : void 0
       },
-      (0, import_react51.createElement)("select", {
+      (0, import_react52.createElement)("select", {
         className: "bt-select",
         "aria-label": t("Main Bot"),
         value: first?.id ?? "",
         onChange: (event) => run2(actions.setMain(event.target.value, true, first ? { replace: first.id } : {}))
-      }, first ? null : (0, import_react51.createElement)("option", { value: "" }, t("Choose a Bot…")), roster.bots.map((bot) => (0, import_react51.createElement)("option", { key: bot.id, value: bot.id }, bot.name)))
+      }, first ? null : (0, import_react52.createElement)("option", { value: "" }, t("Choose a Bot…")), roster.bots.map((bot) => (0, import_react52.createElement)("option", { key: bot.id, value: bot.id }, bot.name)))
     ),
-    others.map((bot) => (0, import_react51.createElement)(
+    others.map((bot) => (0, import_react52.createElement)(
       SetRow,
       { key: bot.id, label: bot.name, hint: t("Also a Main Bot.") },
-      (0, import_react51.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => run2(actions.setMain(bot.id, true, { primary: true })) }, t("Move to first")),
-      (0, import_react51.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => run2(actions.setMain(bot.id, false)) }, t("Remove Main Bot role"))
+      (0, import_react52.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => run2(actions.setMain(bot.id, true, { primary: true })) }, t("Move to first")),
+      (0, import_react52.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => run2(actions.setMain(bot.id, false)) }, t("Remove Main Bot role"))
     )),
-    candidates.length > 0 ? (0, import_react51.createElement)(
+    candidates.length > 0 ? (0, import_react52.createElement)(
       SetRow,
       { label: t("Add a Main Bot"), hint: t("Main Bots can create and change Bots, and run every group chat.") },
-      (0, import_react51.createElement)("select", {
+      (0, import_react52.createElement)("select", {
         className: "bt-select",
         "aria-label": t("Add a Main Bot"),
         value: "",
         onChange: (event) => {
           if (event.target.value) void run2(actions.setMain(event.target.value, true));
         }
-      }, (0, import_react51.createElement)("option", { value: "" }, t("Choose a Bot…")), candidates.map((bot) => (0, import_react51.createElement)("option", { key: bot.id, value: bot.id }, bot.name)))
+      }, (0, import_react52.createElement)("option", { value: "" }, t("Choose a Bot…")), candidates.map((bot) => (0, import_react52.createElement)("option", { key: bot.id, value: bot.id }, bot.name)))
     ) : null
   );
 }
 var MOTIONS = [["quiet", "Quiet"], ["normal", "Normal"], ["lively", "Lively"]];
 function MotionSection({ roster, actions, run: run2 }) {
   const motion = roster.prefs?.motion === "quiet" || roster.prefs?.motion === "lively" ? roster.prefs.motion : "normal";
-  return (0, import_react51.createElement)(
+  return (0, import_react52.createElement)(
     SetSection,
     { title: t("Animation") },
-    (0, import_react51.createElement)(
+    (0, import_react52.createElement)(
       SetRow,
       { label: t("Bot animation") },
-      (0, import_react51.createElement)(Segmented, { label: t("Bot animation"), value: motion, className: "bt-motion-seg" }, MOTIONS.map(([id, label]) => (0, import_react51.createElement)("button", {
+      (0, import_react52.createElement)(Segmented, { label: t("Bot animation"), value: motion, className: "bt-motion-seg" }, MOTIONS.map(([id, label]) => (0, import_react52.createElement)("button", {
         key: id,
         type: "button",
         "aria-pressed": motion === id,
@@ -37608,62 +38212,62 @@ function MotionSection({ roster, actions, run: run2 }) {
   );
 }
 function BotsPage({ roster, actions, run: run2 }) {
-  const [creating, setCreating] = (0, import_react51.useState)(false);
-  const newBotBtn = creating ? null : (0, import_react51.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm bt-with-icon", onClick: () => setCreating(true) }, (0, import_react51.createElement)(PlusIcon), t("New Bot"));
+  const [creating, setCreating] = (0, import_react52.useState)(false);
+  const newBotBtn = creating ? null : (0, import_react52.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm bt-with-icon", onClick: () => setCreating(true) }, (0, import_react52.createElement)(PlusIcon), t("New Bot"));
   return [
-    (0, import_react51.createElement)(MainBotsSection, { key: "main", roster, actions, run: run2 }),
-    (0, import_react51.createElement)(MotionSection, { key: "motion", roster, actions, run: run2 }),
-    creating ? (0, import_react51.createElement)(CreateBot, { key: "create", roster, actions, inline: true, onBack: () => setCreating(false), onCreated: (bot) => actions.openSettings("bots", bot.id) }) : null,
-    (0, import_react51.createElement)(
+    (0, import_react52.createElement)(MainBotsSection, { key: "main", roster, actions, run: run2 }),
+    (0, import_react52.createElement)(MotionSection, { key: "motion", roster, actions, run: run2 }),
+    creating ? (0, import_react52.createElement)(CreateBot, { key: "create", roster, actions, inline: true, onBack: () => setCreating(false), onCreated: (bot) => actions.openSettings("bots", bot.id) }) : null,
+    (0, import_react52.createElement)(
       SetSection,
       { key: "bots", title: t("Bots · {count}", { count: roster.bots.length }), action: newBotBtn },
-      roster.bots.map((bot) => (0, import_react51.createElement)(
+      roster.bots.map((bot) => (0, import_react52.createElement)(
         "button",
         { key: bot.id, type: "button", className: "bt-set-row", onClick: () => actions.openSettings("bots", bot.id) },
-        (0, import_react51.createElement)(
+        (0, import_react52.createElement)(
           "span",
           { className: "bt-set-bot" },
-          (0, import_react51.createElement)(BotAvatar, { bot, size: 28, badge: false, live: false }),
-          (0, import_react51.createElement)("span", { className: "bt-row-title" }, bot.name),
-          bot.role ? (0, import_react51.createElement)("span", { className: "bt-tag" }, bot.role) : null,
-          isMainOf(roster, bot.id) ? (0, import_react51.createElement)("span", { className: "bt-tag" }, t("Main Bot")) : null,
-          bot.hidden && !isMainOf(roster, bot.id) ? (0, import_react51.createElement)("span", { className: "bt-tag" }, t("Hidden")) : null
+          (0, import_react52.createElement)(BotAvatar, { bot, size: 28, badge: false, live: false }),
+          (0, import_react52.createElement)("span", { className: "bt-row-title" }, bot.name),
+          bot.role ? (0, import_react52.createElement)("span", { className: "bt-tag" }, bot.role) : null,
+          isMainOf(roster, bot.id) ? (0, import_react52.createElement)("span", { className: "bt-tag" }, t("Main Bot")) : null,
+          bot.hidden && !isMainOf(roster, bot.id) ? (0, import_react52.createElement)("span", { className: "bt-tag" }, t("Hidden")) : null
         ),
-        (0, import_react51.createElement)("span", { className: "bt-chevron" }, (0, import_react51.createElement)(ChevronRightIcon))
+        (0, import_react52.createElement)("span", { className: "bt-chevron" }, (0, import_react52.createElement)(ChevronRightIcon))
       ))
     ),
-    (0, import_react51.createElement)(KeptPrivateSection, { key: "kept", roster, actions, run: run2, Section: SetSection, Row: SetRow })
+    (0, import_react52.createElement)(KeptPrivateSection, { key: "kept", roster, actions, run: run2, Section: SetSection, Row: SetRow })
   ];
 }
 function GroupsPage({ roster, actions, run: run2 }) {
-  const [creating, setCreating] = (0, import_react51.useState)(false);
-  const newGroupBtn = creating ? null : (0, import_react51.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm bt-with-icon", disabled: roster.bots.length < 2, title: roster.bots.length < 2 ? t("A group chat needs at least two Bots") : void 0, onClick: () => setCreating(true) }, (0, import_react51.createElement)(PlusIcon), t("Create group chat"));
+  const [creating, setCreating] = (0, import_react52.useState)(false);
+  const newGroupBtn = creating ? null : (0, import_react52.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm bt-with-icon", disabled: roster.bots.length < 2, title: roster.bots.length < 2 ? t("A group chat needs at least two Bots") : void 0, onClick: () => setCreating(true) }, (0, import_react52.createElement)(PlusIcon), t("Create group chat"));
   return [
-    creating ? (0, import_react51.createElement)(NewGroupForm, { key: "create", roster, actions, run: run2, onCancel: () => setCreating(false), onCreated: (room2) => actions.openSettings("groups", room2.id) }) : null,
-    (0, import_react51.createElement)(
+    creating ? (0, import_react52.createElement)(NewGroupForm, { key: "create", roster, actions, run: run2, onCancel: () => setCreating(false), onCreated: (room2) => actions.openSettings("groups", room2.id) }) : null,
+    (0, import_react52.createElement)(
       SetSection,
       { key: "groups", title: t("Group chats · {count}", { count: roster.rooms.length }), action: newGroupBtn },
-      roster.rooms.length === 0 ? (0, import_react51.createElement)(SetRow, { label: t("No group chats yet."), hint: t("A group chat lets several Bots work on one thing with you.") }) : roster.rooms.map((room2) => {
+      roster.rooms.length === 0 ? (0, import_react52.createElement)(SetRow, { label: t("No group chats yet."), hint: t("A group chat lets several Bots work on one thing with you.") }) : roster.rooms.map((room2) => {
         const admin = roster.byId[room2.admin];
-        return (0, import_react51.createElement)(
+        return (0, import_react52.createElement)(
           "button",
           { key: room2.id, type: "button", className: "bt-set-row", onClick: () => actions.openSettings("groups", room2.id) },
-          (0, import_react51.createElement)(
+          (0, import_react52.createElement)(
             "span",
             { className: "bt-set-bot" },
-            (0, import_react51.createElement)(RoomAvatar, { room: room2, roster, size: 28 }),
-            (0, import_react51.createElement)("span", { className: "bt-row-title" }, room2.name),
-            (0, import_react51.createElement)("span", { className: "bt-tag" }, t("{count} members", { count: room2.members.length })),
-            admin ? (0, import_react51.createElement)("span", { className: "bt-tag bt-tag-admin" }, (0, import_react51.createElement)(AdminStar), admin.name) : null,
-            room2.hidden ? (0, import_react51.createElement)("span", { className: "bt-tag" }, t("Hidden")) : null
+            (0, import_react52.createElement)(RoomAvatar, { room: room2, roster, size: 28 }),
+            (0, import_react52.createElement)("span", { className: "bt-row-title" }, room2.name),
+            (0, import_react52.createElement)("span", { className: "bt-tag" }, t("{count} members", { count: room2.members.length })),
+            admin ? (0, import_react52.createElement)("span", { className: "bt-tag bt-tag-admin" }, (0, import_react52.createElement)(AdminStar), admin.name) : null,
+            room2.hidden ? (0, import_react52.createElement)("span", { className: "bt-tag" }, t("Hidden")) : null
           ),
-          (0, import_react51.createElement)("span", { className: "bt-chevron" }, (0, import_react51.createElement)(ChevronRightIcon))
+          (0, import_react52.createElement)("span", { className: "bt-chevron" }, (0, import_react52.createElement)(ChevronRightIcon))
         );
       })
     )
   ];
 }
-var PageBoundary = class extends import_react51.Component {
+var PageBoundary = class extends import_react52.Component {
   state = { failed: false };
   static getDerivedStateFromError() {
     return { failed: true };
@@ -37675,12 +38279,12 @@ var PageBoundary = class extends import_react51.Component {
     console.error("ds-bot: a settings page failed", error);
   }
   render() {
-    return this.state.failed ? (0, import_react51.createElement)("div", { className: "bt-error", role: "alert" }, t("This page could not be shown.")) : this.props.children;
+    return this.state.failed ? (0, import_react52.createElement)("div", { className: "bt-error", role: "alert" }, t("This page could not be shown.")) : this.props.children;
   }
 };
 function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false, dsh }) {
-  const [error, setError] = (0, import_react51.useState)("");
-  const close = (0, import_react51.useCallback)(() => actions.closeSettings(), []);
+  const [error, setError] = (0, import_react52.useState)("");
+  const close = (0, import_react52.useCallback)(() => actions.closeSettings(), []);
   useEscape(close);
   const run2 = (promise) => Promise.resolve(promise).then(() => {
     setError("");
@@ -37702,93 +38306,93 @@ function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false,
   const nav = useGlide(section ? `dsh:${section.id}` : shown, { axis: "y" });
   const pageKey = `${shown}:${bot?.id ?? room2?.id ?? section?.id ?? (advanced ? "advanced" : "")}`;
   const depth = bot || room2 || advanced ? 1 : 0;
-  const last = (0, import_react51.useRef)({ key: pageKey, depth, move: "up" });
+  const last = (0, import_react52.useRef)({ key: pageKey, depth, move: "up" });
   if (last.current.key !== pageKey) {
     last.current = { key: pageKey, depth, move: depth > last.current.depth ? "in" : depth < last.current.depth ? "out" : "up" };
   }
-  const [usageOpened, setUsageOpened] = (0, import_react51.useState)(shown === "usage");
+  const [usageOpened, setUsageOpened] = (0, import_react52.useState)(shown === "usage");
   if (shown === "usage" && !usageOpened) setUsageOpened(true);
-  const errorLine = error ? (0, import_react51.createElement)("div", { className: "bt-error", role: "alert", style: { padding: 0 } }, error) : null;
-  const pageButton = (key, text) => (0, import_react51.createElement)("button", {
+  const errorLine = error ? (0, import_react52.createElement)("div", { className: "bt-error", role: "alert", style: { padding: 0 } }, error) : null;
+  const pageButton = (key, text) => (0, import_react52.createElement)("button", {
     key,
     type: "button",
     className: "bt-settings-item",
     "aria-current": shown === key ? "page" : void 0,
     onClick: () => actions.openSettings(key)
-  }, (0, import_react51.createElement)(PAGE_ICONS[key]), t(text), key === "phone" ? (0, import_react51.createElement)("span", { className: "bt-tag", style: { marginLeft: "auto" } }, t("Beta")) : null);
-  return (0, import_react51.createElement)(
+  }, (0, import_react52.createElement)(PAGE_ICONS[key]), t(text), key === "phone" ? (0, import_react52.createElement)("span", { className: "bt-tag", style: { marginLeft: "auto" } }, t("Beta")) : null);
+  return (0, import_react52.createElement)(
     "div",
     { className: "bt-settings-layer", "data-leaving": leaving || void 0 },
-    (0, import_react51.createElement)("div", { className: "bt-scrim", onMouseDown: close }),
-    (0, import_react51.createElement)(
+    (0, import_react52.createElement)("div", { className: "bt-scrim", onMouseDown: close }),
+    (0, import_react52.createElement)(
       "div",
       { className: "bt-settings", role: "dialog", "aria-modal": true, "aria-label": t("Settings"), "data-shortcut-modal": "settings" },
-      (0, import_react51.createElement)(
+      (0, import_react52.createElement)(
         "nav",
         { ref: nav.box, className: "bt-settings-nav", "aria-label": t("Settings pages") },
-        (0, import_react51.createElement)("span", { ref: nav.thumb, className: "bt-thumb", "aria-hidden": true }),
+        (0, import_react52.createElement)("span", { ref: nav.thumb, className: "bt-thumb", "aria-hidden": true }),
         pages.filter(([key]) => !LAST_PAGES.has(key)).map(([key, text]) => pageButton(key, text)),
-        extra.length > 0 ? (0, import_react51.createElement)("span", { className: "bt-settings-rule", "aria-hidden": true }) : null,
-        extra.map((row) => (0, import_react51.createElement)("button", {
+        extra.length > 0 ? (0, import_react52.createElement)("span", { className: "bt-settings-rule", "aria-hidden": true }) : null,
+        extra.map((row) => (0, import_react52.createElement)("button", {
           key: `dsh:${row.id}`,
           type: "button",
           className: "bt-settings-item",
           "aria-current": section?.id === row.id ? "page" : void 0,
           onClick: () => actions.openSettings("dsh", row.id)
-        }, (0, import_react51.createElement)("span", { className: "bt-settings-icon", "aria-hidden": true }, dsh.renderSlot("settings.section.icon", { size: 16, active: section?.id === row.id }, {
+        }, (0, import_react52.createElement)("span", { className: "bt-settings-icon", "aria-hidden": true }, dsh.renderSlot("settings.section.icon", { size: 16, active: section?.id === row.id }, {
           only: row.id,
-          fallback: (0, import_react51.createElement)(DSH_ICONS[row.id] ?? import_dsh_client_ui_primitives2.IconSettingsOutlineMedium, { size: 16 })
+          fallback: (0, import_react52.createElement)(DSH_ICONS[row.id] ?? import_dsh_client_ui_primitives3.IconSettingsOutlineMedium, { size: 16 })
         })), row.label)),
-        (0, import_react51.createElement)("span", { className: "bt-settings-rule", "aria-hidden": true }),
+        (0, import_react52.createElement)("span", { className: "bt-settings-rule", "aria-hidden": true }),
         pages.filter(([key]) => LAST_PAGES.has(key)).map(([key, text]) => pageButton(key, text))
       ),
-      (0, import_react51.createElement)(
+      (0, import_react52.createElement)(
         "div",
         { className: "bt-settings-main" },
-        (0, import_react51.createElement)(
+        (0, import_react52.createElement)(
           "div",
           { className: "bt-settings-head" },
-          back ? (0, import_react51.createElement)("button", { type: "button", className: "bt-icon-btn", "aria-label": back, title: back, onClick: () => actions.openSettings(shown) }, (0, import_react51.createElement)(ChevronLeftIcon)) : null,
-          (0, import_react51.createElement)("h2", { key: bot?.id ?? room2?.id ?? section?.id ?? (advanced ? "advanced" : shown) }, bot?.name ?? room2?.name ?? label),
-          dsh ? (0, import_react51.createElement)("div", { className: "bt-settings-actions" }, dsh.renderSlot("settings.action", {})) : null
+          back ? (0, import_react52.createElement)("button", { type: "button", className: "bt-icon-btn", "aria-label": back, title: back, onClick: () => actions.openSettings(shown) }, (0, import_react52.createElement)(ChevronLeftIcon)) : null,
+          (0, import_react52.createElement)("h2", { key: bot?.id ?? room2?.id ?? section?.id ?? (advanced ? "advanced" : shown) }, bot?.name ?? room2?.name ?? label),
+          dsh ? (0, import_react52.createElement)("div", { className: "bt-settings-actions" }, dsh.renderSlot("settings.action", {})) : null
         ),
-        shown === "usage" ? null : (0, import_react51.createElement)(
+        shown === "usage" ? null : (0, import_react52.createElement)(
           "div",
           { key: pageKey, className: "bt-settings-scroll bt-settings-page", "data-move": last.current.move },
           errorLine,
-          (0, import_react51.createElement)(
+          (0, import_react52.createElement)(
             PageBoundary,
             null,
-            shown === "computer" ? (0, import_react51.createElement)(ComputerPage, { roster, actions, run: run2, Section: SetSection, Row: SetRow, Switch }) : null,
-            shown === "general" ? (0, import_react51.createElement)(GeneralPage, { roster, actions, run: run2, dsh }) : null,
-            shown === "models" && !advanced ? (0, import_react51.createElement)(ProvidersPage, { actions, run: run2, roster, Section: SetSection, advanced: hasSection(dsh, "models") ? () => actions.openSettings("models", "advanced") : null }) : null,
-            advanced ? (0, import_react51.createElement)("div", { className: "bt-dsh-section" }, dsh.renderSlot("settings.section", { close }, { only: "models" })) : null,
-            section ? (0, import_react51.createElement)("div", { className: "bt-dsh-section" }, dsh.renderSlot("settings.section", { close }, { only: section.id })) : null,
-            shown === "local-agents" ? (0, import_react51.createElement)(LocalAgentsPage, { run: run2, Section: SetSection, Row: SetRow }) : null,
-            bot ? (0, import_react51.createElement)("div", { className: "bt-settings-form" }, (0, import_react51.createElement)(BotSettingsForm, { key: bot.id, bot, roster, actions, run: run2 })) : null,
-            shown === "bots" && !bot ? (0, import_react51.createElement)(BotsPage, { roster, actions, run: run2 }) : null,
-            shown === "bot-models" ? (0, import_react51.createElement)(BotModelsPage, { roster, actions, run: run2, Section: SetSection }) : null,
-            room2 ? (0, import_react51.createElement)("div", { className: "bt-settings-form" }, (0, import_react51.createElement)(GroupSettingsForm, { key: room2.id, room: room2, roster, actions, run: run2 })) : null,
-            shown === "groups" && !room2 ? (0, import_react51.createElement)(GroupsPage, { roster, actions, run: run2 }) : null,
-            shown === "connectors" ? (0, import_react51.createElement)(ConnectorsPage, { roster, actions }) : null,
-            shown === "im" ? (0, import_react51.createElement)(ImPage, { roster, actions }) : null,
-            shown === "capabilities" ? (0, import_react51.createElement)(CapabilitiesPage, { roster, actions, run: run2 }) : null,
-            shown === "phone" ? (0, import_react51.createElement)(PhonePage, { roster, actions, Section: SetSection, Row: SetRow }) : null,
-            shown === "browser" ? (0, import_react51.createElement)(BrowserPage, { roster, actions, run: run2, Section: SetSection, Row: SetRow }) : null,
-            shown === "schedules" ? (0, import_react51.createElement)(SchedulesPage, { roster, actions, start: id ?? void 0 }) : null,
-            shown === "secrets" ? (0, import_react51.createElement)(SecretsPage, { roster, actions, run: run2, Section: SetSection }) : null,
-            shown === "feedback" ? (0, import_react51.createElement)(FeedbackPage, { actions, run: run2, Section: SetSection, Row: SetRow }) : null,
-            shown === "about" ? (0, import_react51.createElement)(AboutPage, { useUpdate, actions, run: run2, Section: SetSection, Row: SetRow }) : null
+            shown === "computer" ? (0, import_react52.createElement)(ComputerPage, { roster, actions, run: run2, Section: SetSection, Row: SetRow, Switch }) : null,
+            shown === "general" ? (0, import_react52.createElement)(GeneralPage, { roster, actions, run: run2, dsh }) : null,
+            shown === "models" && !advanced ? (0, import_react52.createElement)(ProvidersPage, { actions, run: run2, roster, Section: SetSection, advanced: hasSection(dsh, "models") ? () => actions.openSettings("models", "advanced") : null }) : null,
+            advanced ? (0, import_react52.createElement)("div", { className: "bt-dsh-section" }, dsh.renderSlot("settings.section", { close }, { only: "models" })) : null,
+            section ? (0, import_react52.createElement)("div", { className: "bt-dsh-section" }, dsh.renderSlot("settings.section", { close }, { only: section.id })) : null,
+            shown === "local-agents" ? (0, import_react52.createElement)(LocalAgentsPage, { run: run2, Section: SetSection, Row: SetRow }) : null,
+            bot ? (0, import_react52.createElement)("div", { className: "bt-settings-form" }, (0, import_react52.createElement)(BotSettingsForm, { key: bot.id, bot, roster, actions, run: run2 })) : null,
+            shown === "bots" && !bot ? (0, import_react52.createElement)(BotsPage, { roster, actions, run: run2 }) : null,
+            shown === "bot-models" ? (0, import_react52.createElement)(BotModelsPage, { roster, actions, run: run2, Section: SetSection }) : null,
+            room2 ? (0, import_react52.createElement)("div", { className: "bt-settings-form" }, (0, import_react52.createElement)(GroupSettingsForm, { key: room2.id, room: room2, roster, actions, run: run2 })) : null,
+            shown === "groups" && !room2 ? (0, import_react52.createElement)(GroupsPage, { roster, actions, run: run2 }) : null,
+            shown === "connectors" ? (0, import_react52.createElement)(ConnectorsPage, { roster, actions }) : null,
+            shown === "im" ? (0, import_react52.createElement)(ImPage, { roster, actions }) : null,
+            shown === "capabilities" ? (0, import_react52.createElement)(CapabilitiesPage, { roster, actions, run: run2 }) : null,
+            shown === "phone" ? (0, import_react52.createElement)(PhonePage, { roster, actions, Section: SetSection, Row: SetRow }) : null,
+            shown === "browser" ? (0, import_react52.createElement)(BrowserPage, { roster, actions, run: run2, Section: SetSection, Row: SetRow }) : null,
+            shown === "schedules" ? (0, import_react52.createElement)(SchedulesPage, { roster, actions, start: id ?? void 0 }) : null,
+            shown === "secrets" ? (0, import_react52.createElement)(SecretsPage, { roster, actions, run: run2, Section: SetSection }) : null,
+            shown === "feedback" ? (0, import_react52.createElement)(FeedbackPage, { actions, run: run2, Section: SetSection, Row: SetRow }) : null,
+            shown === "about" ? (0, import_react52.createElement)(AboutPage, { useUpdate, actions, run: run2, Section: SetSection, Row: SetRow }) : null
           )
         ),
-        usageOpened ? (0, import_react51.createElement)(
+        usageOpened ? (0, import_react52.createElement)(
           "div",
           { key: "usage", className: "bt-settings-scroll bt-settings-usage", "data-off": shown === "usage" ? void 0 : "", "aria-hidden": shown === "usage" ? void 0 : true },
           shown === "usage" ? errorLine : null,
-          (0, import_react51.createElement)(PageBoundary, { reset: shown }, (0, import_react51.createElement)(UsagePage, { roster, actions, focusId: usageFocus }))
+          (0, import_react52.createElement)(PageBoundary, { reset: shown }, (0, import_react52.createElement)(UsagePage, { roster, actions, focusId: usageFocus }))
         ) : null
       ),
-      (0, import_react51.createElement)("button", { type: "button", className: "bt-settings-close", "aria-label": t("Close settings"), onClick: close }, (0, import_react51.createElement)(CloseIcon))
+      (0, import_react52.createElement)("button", { type: "button", className: "bt-settings-close", "aria-label": t("Close settings"), onClick: close }, (0, import_react52.createElement)(CloseIcon))
     )
   );
 }
@@ -37872,7 +38476,7 @@ function notificationRows({ statuses, roster, approvals = [] }) {
 }
 
 // src/client/notifications.js
-var import_react52 = require("react");
+var import_react53 = require("react");
 var shellNotify = (notice) => Promise.resolve(bridge()?.notify?.(notice)).catch(() => {
 });
 var bridge = () => typeof window === "undefined" ? void 0 : window.dsBotApp;
@@ -37887,8 +38491,8 @@ var savePrefs = (next) => {
 var listeners2 = /* @__PURE__ */ new Set();
 var current = prefsNow();
 function useNotifyPrefs() {
-  const [, bump] = (0, import_react52.useState)(0);
-  (0, import_react52.useEffect)(() => {
+  const [, bump] = (0, import_react53.useState)(0);
+  (0, import_react53.useEffect)(() => {
     const run2 = () => bump((value) => value + 1);
     listeners2.add(run2);
     return () => {
@@ -37907,15 +38511,15 @@ function NotificationWatcher({ useSessions, useSessionStatus, useRoster, useWork
   const roster = useRoster((value) => value);
   const statuses = useSessionStatus((map) => map);
   const viewing = useSessions((list) => Object.values(list.byId).find((session) => (session?.retainedBy?.mainView ?? 0) > 0)?.id ?? null);
-  const previous = (0, import_react52.useRef)(/* @__PURE__ */ new Map());
-  (0, import_react52.useEffect)(() => {
+  const previous = (0, import_react53.useRef)(/* @__PURE__ */ new Map());
+  (0, import_react53.useEffect)(() => {
     const shell = bridge();
     shell?.onOpenSession?.((sessionId) => {
       actions.openSession?.(sessionId);
     });
     return void 0;
   }, []);
-  (0, import_react52.useEffect)(() => {
+  (0, import_react53.useEffect)(() => {
     const prefs = prefsNow();
     const open = document.hasFocus?.() !== false && document.visibilityState !== "hidden";
     const rows2 = notificationRows({ statuses, roster, approvals: work.approvals });
@@ -37943,8 +38547,8 @@ function NotificationWatcher({ useSessions, useSessionStatus, useRoster, useWork
 }
 function NotificationsRow() {
   const prefs = useNotifyPrefs();
-  const [permission, setPermission] = (0, import_react52.useState)(void 0);
-  (0, import_react52.useEffect)(() => {
+  const [permission, setPermission] = (0, import_react53.useState)(void 0);
+  (0, import_react53.useEffect)(() => {
     let stopped = false;
     void Promise.resolve(bridge()?.notifyStatus?.()).then((value) => {
       if (!stopped) setPermission(value);
@@ -37955,17 +38559,17 @@ function NotificationsRow() {
     };
   }, []);
   const denied = permission === "denied";
-  return (0, import_react52.createElement)(
+  return (0, import_react53.createElement)(
     "div",
     { className: "bt-set-row" },
-    (0, import_react52.createElement)(
+    (0, import_react53.createElement)(
       "div",
       { className: "bt-set-copy" },
-      (0, import_react52.createElement)("span", null, t("Notifications")),
-      (0, import_react52.createElement)("span", { className: "bt-set-hint" }, t("Tell me when a Bot answers while I am looking elsewhere.")),
-      denied ? (0, import_react52.createElement)("span", { className: "bt-set-hint bt-danger", role: "alert" }, t("System notifications are turned off for DS Bot. Unread marks still show them.")) : null
+      (0, import_react53.createElement)("span", null, t("Notifications")),
+      (0, import_react53.createElement)("span", { className: "bt-set-hint" }, t("Tell me when a Bot answers while I am looking elsewhere.")),
+      denied ? (0, import_react53.createElement)("span", { className: "bt-set-hint bt-danger", role: "alert" }, t("System notifications are turned off for DS Bot. Unread marks still show them.")) : null
     ),
-    (0, import_react52.createElement)("div", { className: "bt-set-control" }, (0, import_react52.createElement)(Switch, {
+    (0, import_react53.createElement)("div", { className: "bt-set-control" }, (0, import_react53.createElement)(Switch, {
       label: t("Notifications"),
       on: prefs.enabled === true,
       onChange: (next) => changeNotify({ enabled: next })
@@ -38085,9 +38689,9 @@ function createConnectionFeedback(onChange, {
 }
 
 // src/client/settings-shell.js
-var import_react53 = require("react");
-var import_react_dom8 = require("react-dom");
-var import_dsh_client_ui_primitives3 = require("@deepseek-ai/dsh-client-ui-primitives");
+var import_react54 = require("react");
+var import_react_dom9 = require("react-dom");
+var import_dsh_client_ui_primitives4 = require("@deepseek-ai/dsh-client-ui-primitives");
 var SETTINGS_CHILDREN = {
   "settings.launcher": { kind: "single", scope: "root" },
   "settings.trigger": { kind: "single", scope: "root" },
@@ -38191,10 +38795,10 @@ function pickStep({ steps, requested, active, completed }) {
   return active ? steps.find((step) => !completed.has(step.id)) : void 0;
 }
 function useConnectionView(state) {
-  const [view, setView] = (0, import_react53.useState)();
-  const feedback = (0, import_react53.useRef)();
+  const [view, setView] = (0, import_react54.useState)();
+  const feedback = (0, import_react54.useRef)();
   if (feedback.current === void 0) feedback.current = createConnectionFeedback(setView);
-  (0, import_react53.useLayoutEffect)(() => {
+  (0, import_react54.useLayoutEffect)(() => {
     feedback.current.update(state);
     return () => feedback.current.suspend();
   }, [state]);
@@ -38236,20 +38840,20 @@ function DesktopUpdatePill({ view, hidden, onOpen }) {
   const copy2 = updateCopy(view);
   const error = view.failed || view.presentation?.phase === "error";
   const busy = view.opening || BUSY_PHASES.has(view.presentation?.phase);
-  return (0, import_react53.createElement)(
-    import_dsh_client_ui_primitives3.Tooltip,
+  return (0, import_react54.createElement)(
+    import_dsh_client_ui_primitives4.Tooltip,
     { label: copy2.detail, side: "top" },
-    (0, import_react53.createElement)(
+    (0, import_react54.createElement)(
       "button",
       { type: "button", className: "bt-dsh-update", "aria-label": copy2.label, "aria-disabled": busy, onClick: () => {
         if (!busy) onOpen();
       } },
-      (0, import_react53.createElement)(
+      (0, import_react54.createElement)(
         "span",
         { className: "bt-dsh-update-icon", "aria-hidden": true },
-        error ? (0, import_react53.createElement)("span", { className: "bt-dsh-update-dot" }) : busy ? (0, import_react53.createElement)(import_dsh_client_ui_primitives3.IconLoadingOutlineRegular, { size: 14, className: "bt-spin" }) : (0, import_react53.createElement)(import_dsh_client_ui_primitives3.IconDownloadOutlineRegular, { size: 14 })
+        error ? (0, import_react54.createElement)("span", { className: "bt-dsh-update-dot" }) : busy ? (0, import_react54.createElement)(import_dsh_client_ui_primitives4.IconLoadingOutlineRegular, { size: 14, className: "bt-spin" }) : (0, import_react54.createElement)(import_dsh_client_ui_primitives4.IconDownloadOutlineRegular, { size: 14 })
       ),
-      (0, import_react53.createElement)("span", null, copy2.label)
+      (0, import_react54.createElement)("span", null, copy2.label)
     )
   );
 }
@@ -38258,10 +38862,10 @@ function DesktopUpdateBadge({ useDesktopUpdate, useConnectionState }) {
   const connection = useConnectionState((value) => value);
   if ((connection === "disconnected" || connection === "connecting") && view.presentation?.phase !== "installing" || !updateShown(view)) return null;
   const copy2 = updateCopy(view);
-  return (0, import_react53.createElement)(import_dsh_client_ui_primitives3.Tooltip, { label: copy2.detail, side: "right" }, (0, import_react53.createElement)("span", { role: "img", "aria-label": copy2.label, className: "bt-dsh-update-badge" }));
+  return (0, import_react54.createElement)(import_dsh_client_ui_primitives4.Tooltip, { label: copy2.detail, side: "right" }, (0, import_react54.createElement)("span", { role: "img", "aria-label": copy2.label, className: "bt-dsh-update-badge" }));
 }
 function TriggerContent({ wide }) {
-  return (0, import_react53.createElement)(import_react53.Fragment, null, (0, import_react53.createElement)(GearIcon), wide ? (0, import_react53.createElement)("span", { className: "bt-settings-trigger-label" }, t("Settings")) : null);
+  return (0, import_react54.createElement)(import_react54.Fragment, null, (0, import_react54.createElement)(GearIcon), wide ? (0, import_react54.createElement)("span", { className: "bt-settings-trigger-label" }, t("Settings")) : null);
 }
 function SettingsShell(props) {
   const {
@@ -38283,7 +38887,8 @@ function SettingsShell(props) {
     openDesktopUpdate,
     openOnboarding,
     finishOnboarding,
-    holdSeat
+    holdSeat,
+    preferences
   } = props;
   const settings = useUi((state) => state.settings);
   const roster = useRoster((value) => value);
@@ -38295,13 +38900,13 @@ function SettingsShell(props) {
   const update = useDesktopUpdate((value) => value);
   const shortcut = useSettingsShortcut((value) => value);
   const active = useSessions(onboardingActive);
-  const [completed, setCompleted] = (0, import_react53.useState)(() => /* @__PURE__ */ new Set());
-  (0, import_react53.useEffect)(() => {
+  const [completed, setCompleted] = (0, import_react54.useState)(() => /* @__PURE__ */ new Set());
+  (0, import_react54.useEffect)(() => {
     if (!active) setCompleted(/* @__PURE__ */ new Set());
   }, [active]);
   const step = pickStep({ steps, requested, active, completed });
-  const seen = (0, import_react53.useRef)(step);
-  (0, import_react53.useEffect)(() => {
+  const seen = (0, import_react54.useRef)(step);
+  (0, import_react54.useEffect)(() => {
     const appeared = seen.current === void 0 && step !== void 0;
     seen.current = step;
     if (appeared && settings) actions.closeSettings();
@@ -38314,14 +38919,14 @@ function SettingsShell(props) {
   const installing = update.presentation?.phase === "installing";
   const [kept, leaving] = useLinger(settings, DIALOG_EXIT_MS);
   const showing = Boolean(kept);
-  (0, import_react53.useEffect)(() => showing ? actions.holdSettingsLook?.() : void 0, [showing]);
-  (0, import_react53.useLayoutEffect)(() => holdSeat?.(), []);
+  (0, import_react54.useEffect)(() => showing ? actions.holdSettingsLook?.() : void 0, [showing]);
+  (0, import_react54.useLayoutEffect)(() => holdSeat?.(), []);
   const open = settings !== null && settings !== void 0;
   const openSettings = () => actions.openSettings("general");
-  return (0, import_react53.createElement)(
-    import_react53.Fragment,
+  return (0, import_react54.createElement)(
+    import_react54.Fragment,
     null,
-    (0, import_react53.createElement)(
+    (0, import_react54.createElement)(
       "div",
       { className: "bt-settings-row", "data-rail": wide ? void 0 : "" },
       renderSlot("settings.launcher", {
@@ -38331,10 +38936,10 @@ function SettingsShell(props) {
         openOnboarding,
         ...shortcut?.keys?.length ? { settingsShortcut: { keys: shortcut.keys, aria: shortcut.aria } } : {}
       }, {
-        fallback: (0, import_react53.createElement)(
-          import_dsh_client_ui_primitives3.Tooltip,
+        fallback: (0, import_react54.createElement)(
+          import_dsh_client_ui_primitives4.Tooltip,
           { disabled: open, label: t("Settings"), shortcutKeys: shortcut?.keys },
-          (0, import_react53.createElement)("button", {
+          (0, import_react54.createElement)("button", {
             type: "button",
             className: "bt-settings-trigger",
             "aria-label": t("Settings"),
@@ -38345,7 +38950,7 @@ function SettingsShell(props) {
           }, renderSlot("settings.trigger", { wide }))
         )
       }),
-      (0, import_react53.createElement)(import_dsh_client_ui_primitives3.ConnectionIndicator, {
+      (0, import_react54.createElement)(import_dsh_client_ui_primitives4.ConnectionIndicator, {
         state: wide && !installing ? indicator : void 0,
         disconnectedLabel: t("Connection lost. Refresh to retry"),
         connectingLabel: t("Reconnecting"),
@@ -38354,16 +38959,16 @@ function SettingsShell(props) {
         restartActionLabel: t("Connection dropped and retrying. Reconnect now"),
         onReconnect: reconnect
       }),
-      wide ? (0, import_react53.createElement)(DesktopUpdatePill, { view: update, hidden: indicator !== void 0 && !installing, onOpen: openDesktopUpdate }) : null
+      wide ? (0, import_react54.createElement)(DesktopUpdatePill, { view: update, hidden: indicator !== void 0 && !installing, onOpen: openDesktopUpdate }) : null
     ),
-    kept ? (0, import_react_dom8.createPortal)((0, import_react53.createElement)(SettingsDialog, {
+    kept ? (0, import_react_dom9.createPortal)((0, import_react54.createElement)(SettingsDialog, {
       page: kept.page,
       id: kept.id,
       roster,
       actions,
       useUpdate,
       leaving,
-      dsh: { sections, items, renderSlot }
+      dsh: { sections, items, renderSlot, preferences }
     }), document.body) : null,
     step !== void 0 ? renderSlot("settings.onboarding", {
       stepId: step.id,
@@ -38386,13 +38991,13 @@ function transitionText(from, to, unknown) {
   return [from?.[field] ?? unknown, to?.[field] ?? unknown];
 }
 function Transition({ label, from, to, done }) {
-  return (0, import_react53.createElement)(
-    import_react53.Fragment,
+  return (0, import_react54.createElement)(
+    import_react54.Fragment,
     null,
-    (0, import_react53.createElement)("span", { className: "bt-release-label" }, label),
-    (0, import_react53.createElement)("span", { className: `bt-release-name${done ? " bt-release-faded" : ""}` }, from),
-    (0, import_react53.createElement)("span", { "aria-hidden": true, className: `bt-release-line${done ? " bt-release-done" : ""}` }),
-    (0, import_react53.createElement)("span", { className: `bt-release-name${done ? "" : " bt-release-faded"}` }, to)
+    (0, import_react54.createElement)("span", { className: "bt-release-label" }, label),
+    (0, import_react54.createElement)("span", { className: `bt-release-name${done ? " bt-release-faded" : ""}` }, from),
+    (0, import_react54.createElement)("span", { "aria-hidden": true, className: `bt-release-line${done ? " bt-release-done" : ""}` }),
+    (0, import_react54.createElement)("span", { className: `bt-release-name${done ? "" : " bt-release-faded"}` }, to)
   );
 }
 function HostReleasePrompt({ useReleaseChange, dismissRelease, reloadPage }) {
@@ -38401,37 +39006,37 @@ function HostReleasePrompt({ useReleaseChange, dismissRelease, reloadPage }) {
   const unknown = t("Unknown");
   const [serviceFrom, serviceTo] = transitionText(change.previous, change.host, unknown);
   const [pageFrom, pageTo] = transitionText(change.page, change.host, unknown);
-  return (0, import_react53.createElement)(import_dsh_client_ui_primitives3.Modal, {
+  return (0, import_react54.createElement)(import_dsh_client_ui_primitives4.Modal, {
     open: true,
     title: t("The service version changed"),
     description: t("This page paused live updates. Reload to load the new version."),
     closeLabel: t("Not now"),
     onClose: dismissRelease,
     className: "bt-release",
-    footer: (0, import_react53.createElement)(
-      import_react53.Fragment,
+    footer: (0, import_react54.createElement)(
+      import_react54.Fragment,
       null,
-      (0, import_react53.createElement)(import_dsh_client_ui_primitives3.Button, { variant: "outline", "data-modal-autofocus": true, onClick: dismissRelease }, t("Not now")),
-      (0, import_react53.createElement)(import_dsh_client_ui_primitives3.Button, { variant: "primary", onClick: reloadPage }, t("Reload to load the new version"))
+      (0, import_react54.createElement)(import_dsh_client_ui_primitives4.Button, { variant: "outline", "data-modal-autofocus": true, onClick: dismissRelease }, t("Not now")),
+      (0, import_react54.createElement)(import_dsh_client_ui_primitives4.Button, { variant: "primary", onClick: reloadPage }, t("Reload to load the new version"))
     )
-  }, (0, import_react53.createElement)(
+  }, (0, import_react54.createElement)(
     "div",
     { className: "bt-release-grid" },
-    (0, import_react53.createElement)(Transition, { label: t("Service"), from: serviceFrom, to: serviceTo, done: true }),
-    (0, import_react53.createElement)(Transition, { label: t("Page"), from: pageFrom, to: pageTo, done: false })
+    (0, import_react54.createElement)(Transition, { label: t("Service"), from: serviceFrom, to: serviceTo, done: true }),
+    (0, import_react54.createElement)(Transition, { label: t("Page"), from: pageFrom, to: pageTo, done: false })
   ));
 }
 function OpenDocumentAction({ useDocument, openDocument, loadDocument }) {
   const state = useDocument((value) => value);
-  (0, import_react53.useEffect)(() => {
+  (0, import_react54.useEffect)(() => {
     loadDocument();
   }, []);
   if (state.status !== "ready") return null;
-  return (0, import_react53.createElement)(
+  return (0, import_react54.createElement)(
     "div",
     { className: "bt-doc-action" },
-    state.error ? (0, import_react53.createElement)("span", { className: "bt-danger bt-set-hint", role: "alert" }, t("Could not open the settings file")) : null,
-    (0, import_react53.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: state.opening, onClick: openDocument }, t("Open settings file"))
+    state.error ? (0, import_react54.createElement)("span", { className: "bt-danger bt-set-hint", role: "alert" }, t("Could not open the settings file")) : null,
+    (0, import_react54.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: state.opening, onClick: openDocument }, t("Open settings file"))
   );
 }
 function documentSource(describe, openRemote) {
@@ -38474,18 +39079,18 @@ function documentSource(describe, openRemote) {
 }
 function DeveloperToolsRow({ useDeveloperTools, setEnabled }) {
   const enabled = useDeveloperTools((value) => value);
-  const [busy, setBusy] = (0, import_react53.useState)(false);
-  const [failed, setFailed] = (0, import_react53.useState)(false);
-  return (0, import_react53.createElement)(
+  const [busy, setBusy] = (0, import_react54.useState)(false);
+  const [failed, setFailed] = (0, import_react54.useState)(false);
+  return (0, import_react54.createElement)(
     "div",
     { className: "bt-set-row" },
-    (0, import_react53.createElement)(
+    (0, import_react54.createElement)(
       "div",
       { className: "bt-set-copy" },
-      (0, import_react53.createElement)("span", null, t("Show code work view")),
-      failed ? (0, import_react53.createElement)("span", { className: "bt-set-hint bt-danger", role: "alert" }, t("Could not save. Try again.")) : null
+      (0, import_react54.createElement)("span", null, t("Show code work view")),
+      failed ? (0, import_react54.createElement)("span", { className: "bt-set-hint bt-danger", role: "alert" }, t("Could not save. Try again.")) : null
     ),
-    (0, import_react53.createElement)("div", { className: "bt-set-control" }, (0, import_react53.createElement)(Switch, {
+    (0, import_react54.createElement)("div", { className: "bt-set-control" }, (0, import_react54.createElement)(Switch, {
       label: t("Show code work view"),
       on: enabled === true,
       disabled: busy || enabled === void 0,
@@ -38542,6 +39147,7 @@ function installSettingsShell(ctx, { face, actions, ui: ui2, held }) {
     const base = face();
     return {
       ...base,
+      preferences: settingsPreferences(ctx),
       reconnect: () => ctx.get("connection")?.reconnect(),
       openDesktopUpdate: () => update.open(),
       openOnboarding,
@@ -38698,7 +39304,7 @@ var SETTINGS_SHELL_CSS = `
 `;
 
 // src/client/member-status.js
-var import_react54 = require("react");
+var import_react55 = require("react");
 var NO_WORK = { bots: {}, rooms: {}, approvals: [] };
 var NO_COMPUTER = { asks: {} };
 var FACES_MAX2 = 3;
@@ -38772,15 +39378,15 @@ function dockModel(sessionId, roster, work, computer) {
   };
 }
 function Face({ bot, ask, state }) {
-  return (0, import_react54.createElement)(
+  return (0, import_react55.createElement)(
     "span",
     { className: "bt-mw-face", "data-ask": ask || void 0 },
-    (0, import_react54.createElement)(BotMark, { bot, size: 20, state: ask ? "alert" : state })
+    (0, import_react55.createElement)(BotMark, { bot, size: 20, state: ask ? "alert" : state })
   );
 }
 function useFitWidth(inner, key) {
-  const [width, setWidth] = (0, import_react54.useState)(null);
-  (0, import_react54.useLayoutEffect)(() => {
+  const [width, setWidth] = (0, import_react55.useState)(null);
+  (0, import_react55.useLayoutEffect)(() => {
     setWidth(key && inner.current ? inner.current.offsetWidth : null);
   }, [key]);
   return width;
@@ -38792,92 +39398,93 @@ function MemberDock({ sessionId, useRoster, useWork, useComputer, actions }) {
   const live = dockModel(sessionId, roster, work, computer);
   const [kept, leaving] = useLinger(live ? JSON.stringify(live) : null, DOCK_EXIT_MS);
   const model = kept ? JSON.parse(kept) : null;
-  const inner = (0, import_react54.useRef)(null);
+  const inner = (0, import_react55.useRef)(null);
   const width = useFitWidth(inner, kept);
   if (!model) return null;
   const faces = model.faces.map((face) => ({ ...face, bot: roster.byId[face.id] })).filter((face) => face.bot);
   const label = [model.waiting, model.doing].filter(Boolean).join(" · ");
   const open = () => model.open.approval && typeof actions.openApproval === "function" ? actions.openApproval(model.open.approval) : model.open.details ? actions.showDetails(model.open.details) : actions.openSession(model.open.session);
-  return (0, import_react54.createElement)(
+  return (0, import_react55.createElement)(
     "div",
     { className: "bt-mw-dock", "data-leaving": leaving || void 0 },
-    (0, import_react54.createElement)(
+    (0, import_react55.createElement)(
       "button",
       { type: "button", className: "bt-mw-pill", "aria-label": label, onClick: open, disabled: leaving, style: width ? { width } : void 0 },
-      (0, import_react54.createElement)(
+      (0, import_react55.createElement)(
         "span",
         { ref: inner, className: "bt-mw-pill-in" },
-        (0, import_react54.createElement)("span", { className: "bt-mw-faces", "aria-hidden": true }, faces.map((face) => (0, import_react54.createElement)(Face, { key: face.id, ...face }))),
-        (0, import_react54.createElement)(
+        (0, import_react55.createElement)("span", { className: "bt-mw-faces", "aria-hidden": true }, faces.map((face) => (0, import_react55.createElement)(Face, { key: face.id, ...face }))),
+        (0, import_react55.createElement)(
           "span",
           { key: label, className: "bt-mw-label", "aria-hidden": true },
-          model.waiting ? (0, import_react54.createElement)("span", { className: "bt-mw-ask" }, model.waiting) : null,
-          model.waiting && model.doing ? (0, import_react54.createElement)("span", { className: "bt-mw-dot" }, "·") : null,
-          model.doing ? (0, import_react54.createElement)("span", { className: "bt-mw-doing" }, (0, import_react54.createElement)(Shimmer, null, model.doing)) : null
+          model.waiting ? (0, import_react55.createElement)("span", { className: "bt-mw-ask" }, model.waiting) : null,
+          model.waiting && model.doing ? (0, import_react55.createElement)("span", { className: "bt-mw-dot" }, "·") : null,
+          model.doing ? (0, import_react55.createElement)("span", { className: "bt-mw-doing" }, (0, import_react55.createElement)(Shimmer, null, model.doing)) : null
         )
       )
     )
   );
 }
-var stateLine = (className, at, ...what) => (0, import_react54.createElement)(
+var stateLine = (className, at, ...what) => (0, import_react55.createElement)(
   "span",
   { className },
-  (0, import_react54.createElement)("span", { className: "bt-member-what" }, ...what),
-  typeof at === "number" ? (0, import_react54.createElement)(Elapsed, { at, className: "bt-member-time" }) : null
+  (0, import_react55.createElement)("span", { className: "bt-member-what" }, ...what),
+  typeof at === "number" ? (0, import_react55.createElement)(Elapsed, { at, className: "bt-member-time" }) : null
 );
-var cardHead = (bot, at, label) => (0, import_react54.createElement)(
+var cardHead = (bot, at, label) => (0, import_react55.createElement)(
   "div",
   { className: "bt-mw-head" },
-  (0, import_react54.createElement)(BotMark, { bot, size: 18, state: "alert" }),
-  (0, import_react54.createElement)("span", { className: "bt-mw-who", style: { color: inkText(colorOf(bot)) } }, bot.name),
-  label ? (0, import_react54.createElement)("span", { className: "bt-mw-tool" }, label) : null,
-  typeof at === "number" ? (0, import_react54.createElement)(Elapsed, { at, className: "bt-mw-time" }) : null
+  (0, import_react55.createElement)(BotMark, { bot, size: 18, state: "alert" }),
+  (0, import_react55.createElement)("span", { className: "bt-mw-who", style: { color: inkText(colorOf(bot)) } }, bot.name),
+  label ? (0, import_react55.createElement)("span", { className: "bt-mw-tool" }, label) : null,
+  typeof at === "number" ? (0, import_react55.createElement)(Elapsed, { at, className: "bt-mw-time" }) : null
 );
 function ApprovalCard({ approval, bot, actions, showBot = false }) {
-  const [busy, setBusy] = (0, import_react54.useState)(false);
+  const [busy, setBusy] = (0, import_react55.useState)(false);
   const answer = (choice) => {
     setBusy(true);
     void Promise.resolve(actions.answerApproval(approval.id, choice)).catch((error) => actions.reportError(error, "approval")).finally(() => setBusy(false));
   };
-  return (0, import_react54.createElement)(
+  const label = approval.taskTitle ? `${approval.taskTitle} · ${approval.tool}` : approval.tool;
+  return (0, import_react55.createElement)(
     "div",
     { className: "bt-mw-card", role: "group", "aria-label": t("{name} is waiting for your approval", { name: bot.name }) },
-    showBot ? cardHead(bot, approval.at, approval.tool) : (0, import_react54.createElement)("div", { className: "bt-mw-tool" }, approval.tool),
-    approval.detail?.text ? (0, import_react54.createElement)("div", { className: "bt-mw-text" }, approval.detail.text) : null,
-    approval.reason ? (0, import_react54.createElement)("div", { className: "bt-mw-reason" }, approval.reason) : null,
-    approval.detail?.code ? (0, import_react54.createElement)("code", { className: "bt-mw-code", title: approval.detail.code }, approval.detail.code) : null,
-    // Own-chat approvals are answerable for IM and the phone app; here the Bot's
-    // own DSH card stays the place to answer, so the row still opens that chat.
-    approval.answerable && approval.roomId !== void 0 ? (0, import_react54.createElement)(
+    showBot ? cardHead(bot, approval.at, label) : (0, import_react55.createElement)("div", { className: "bt-mw-tool" }, label),
+    approval.detail?.text ? (0, import_react55.createElement)("div", { className: "bt-mw-text" }, approval.detail.text) : null,
+    approval.reason ? (0, import_react55.createElement)("div", { className: "bt-mw-reason" }, approval.reason) : null,
+    approval.detail?.code ? (0, import_react55.createElement)("code", { className: "bt-mw-code", title: approval.detail.code }, approval.detail.code) : null,
+    // Group and background-task approvals are answered directly through DS Bot;
+    // foreground own-chat approvals still use DSH's own inline card.
+    approval.answerable && (approval.roomId !== void 0 || approval.taskId !== void 0) ? (0, import_react55.createElement)(
       "div",
       { className: "bt-mw-actions" },
-      (0, import_react54.createElement)("button", { type: "button", className: "bt-q-btn", disabled: busy, onClick: () => answer("reject") }, t("Reject")),
-      (0, import_react54.createElement)("button", { type: "button", className: "bt-q-submit", disabled: busy, onClick: () => answer("allow") }, t("Allow once"))
-    ) : (0, import_react54.createElement)(
+      (0, import_react55.createElement)("button", { type: "button", className: "bt-q-btn", disabled: busy, onClick: () => answer("reject") }, t("Reject")),
+      (0, import_react55.createElement)("button", { type: "button", className: "bt-q-submit", disabled: busy, onClick: () => answer("allow") }, t("Allow once"))
+    ) : (0, import_react55.createElement)(
       "div",
       { className: "bt-mw-actions" },
-      (0, import_react54.createElement)("button", { type: "button", className: "bt-q-btn", onClick: () => actions.openSession(bot.id) }, t("Open {name}'s chat", { name: bot.name }))
+      (0, import_react55.createElement)("button", { type: "button", className: "bt-q-btn", onClick: () => actions.openSession(bot.id) }, t("Open {name}'s chat", { name: bot.name }))
     )
   );
 }
 function ComputerAppApprovalCard({ ask, bot, actions, showBot = false }) {
-  const [busy, setBusy] = (0, import_react54.useState)(false);
+  const [busy, setBusy] = (0, import_react55.useState)(false);
   const answer = (choice) => {
     setBusy(true);
     void Promise.resolve(actions.computerAppAnswer(ask.id, choice)).catch((error) => actions.reportError?.(error, "computer")).finally(() => setBusy(false));
   };
   const title = t("Allow {name} to use {app}?", { name: bot.name, app: ask.appName });
-  return (0, import_react54.createElement)(
+  return (0, import_react55.createElement)(
     "div",
     { className: "bt-mw-card", role: "group", "aria-label": title },
     showBot ? cardHead(bot, ask.at) : null,
-    (0, import_react54.createElement)("div", { className: "bt-mw-text" }, title),
-    (0, import_react54.createElement)(
+    (0, import_react55.createElement)("div", { className: "bt-mw-text" }, title),
+    (0, import_react55.createElement)(
       "div",
       { className: "bt-mw-actions" },
-      (0, import_react54.createElement)("button", { type: "button", className: "bt-q-btn", disabled: busy, onClick: () => answer("deny") }, t("Deny")),
-      (0, import_react54.createElement)("button", { type: "button", className: "bt-q-btn", disabled: busy, onClick: () => answer("once") }, t("This time")),
-      (0, import_react54.createElement)("button", { type: "button", className: "bt-q-submit", disabled: busy, onClick: () => answer("always") }, t("Always"))
+      (0, import_react55.createElement)("button", { type: "button", className: "bt-q-btn", disabled: busy, onClick: () => answer("deny") }, t("Deny")),
+      (0, import_react55.createElement)("button", { type: "button", className: "bt-q-btn", disabled: busy, onClick: () => answer("once") }, t("This time")),
+      (0, import_react55.createElement)("button", { type: "button", className: "bt-q-submit", disabled: busy, onClick: () => answer("always") }, t("Always"))
     )
   );
 }
@@ -38887,34 +39494,34 @@ function MemberState({ entry, bot }) {
     return stateLine("bt-member-state bt-mw-ask", at, t("Waiting for your approval"));
   }
   if (entry?.state !== "work") return bot.role ? stateLine("bt-member-state", void 0, bot.role) : null;
-  return stateLine("bt-member-state", entry.doing.since, (0, import_react54.createElement)(Shimmer, null, `${workPhrase(entry.doing)}…`));
+  return stateLine("bt-member-state", entry.doing.since, (0, import_react55.createElement)(Shimmer, null, `${workPhrase(entry.doing)}…`));
 }
 function StopMemberWork({ entry, bot, room: room2, actions }) {
-  const [stopping, setStopping] = (0, import_react54.useState)(false);
+  const [stopping, setStopping] = (0, import_react55.useState)(false);
   if (!entry?.here || entry.state !== "work" && entry.state !== "ask") return null;
   const stop = () => {
     setStopping(true);
     void Promise.resolve(actions.stopMemberWork(room2.id, bot.id)).catch((error) => actions.reportError(error, "stop")).finally(() => setStopping(false));
   };
-  return (0, import_react54.createElement)("button", { type: "button", className: "bt-member-stop", disabled: stopping, "aria-label": `${t("Stop")} · ${bot.name}`, onClick: stop }, t("Stop"));
+  return (0, import_react55.createElement)("button", { type: "button", className: "bt-member-stop", disabled: stopping, "aria-label": `${t("Stop")} · ${bot.name}`, onClick: stop }, t("Stop"));
 }
 function StopRoomWork({ room: room2, entries: entries2, actions }) {
-  const [stopping, setStopping] = (0, import_react54.useState)(false);
+  const [stopping, setStopping] = (0, import_react55.useState)(false);
   if (!entries2.some((entry) => entry.here)) return null;
   const stop = () => {
     setStopping(true);
     void Promise.resolve(actions.stopRoomWork(room2.id)).catch((error) => actions.reportError(error, "stop")).finally(() => setStopping(false));
   };
   const label = t("Stop all work in this group");
-  return (0, import_react54.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: stopping, "aria-label": label, title: label, onClick: stop }, t("Stop all"));
+  return (0, import_react55.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: stopping, "aria-label": label, title: label, onClick: stop }, t("Stop all"));
 }
 function MemberApprovals({ entry, bot, actions }) {
   if (entry?.state !== "ask") return null;
-  return (0, import_react54.createElement)(
+  return (0, import_react55.createElement)(
     "div",
     { className: "bt-member-cards" },
-    (entry.approvals ?? []).map((approval) => (0, import_react54.createElement)(ApprovalCard, { key: `t:${approval.id}`, approval, bot, actions })),
-    (entry.computerAsks ?? []).map((ask) => (0, import_react54.createElement)(ComputerAppApprovalCard, { key: `c:${ask.id}`, ask, bot, actions }))
+    (entry.approvals ?? []).map((approval) => (0, import_react55.createElement)(ApprovalCard, { key: `t:${approval.id}`, approval, bot, actions })),
+    (entry.computerAsks ?? []).map((ask) => (0, import_react55.createElement)(ComputerAppApprovalCard, { key: `c:${ask.id}`, ask, bot, actions }))
   );
 }
 function approvalSummary(approvals) {
@@ -38928,39 +39535,39 @@ function approvalSummary(approvals) {
   const label = bots.length === 0 ? t("Waiting for your approval") : bots.length === 1 ? t("{name} is waiting for your approval", { name: bots[0].name }) : bots.length === 2 ? t("{first} and {second} are waiting for your approval", { first: bots[0].name, second: bots[1].name }) : t("{first}, {second} and {count} more are waiting for your approval", { first: bots[0].name, second: bots[1].name, count: bots.length - 2, total: bots.length });
   return { bots, label };
 }
-function ApprovalIslandPod({ approvals, open, room: room2, actions }) {
+function ApprovalIslandPod({ approvals, open, room: room2, targetId = room2?.id, actions }) {
   if (!approvals || approvals.length === 0) return null;
   const { bots, label } = approvalSummary(approvals);
-  return (0, import_react54.createElement)(
-    import_react54.Fragment,
+  return (0, import_react55.createElement)(
+    import_react55.Fragment,
     null,
-    (0, import_react54.createElement)(
+    (0, import_react55.createElement)(
       "button",
       {
         type: "button",
         className: "bt-apv-bar",
         "aria-expanded": open,
-        onClick: () => actions.toggleApproval?.(room2.id)
+        onClick: () => actions.toggleApproval?.(targetId)
       },
-      (0, import_react54.createElement)("span", { className: "bt-apv-dot", "aria-hidden": true }),
-      (0, import_react54.createElement)("span", { className: "bt-apv-label" }, label),
-      approvals.length > 1 ? (0, import_react54.createElement)("span", { className: "bt-apv-count" }, approvals.length) : null,
-      bots.length > 0 ? (0, import_react54.createElement)(
+      (0, import_react55.createElement)("span", { className: "bt-apv-dot", "aria-hidden": true }),
+      (0, import_react55.createElement)("span", { className: "bt-apv-label" }, label),
+      approvals.length > 1 ? (0, import_react55.createElement)("span", { className: "bt-apv-count" }, approvals.length) : null,
+      bots.length > 0 ? (0, import_react55.createElement)(
         "span",
         { className: "bt-goal-faces", "aria-hidden": true },
-        bots.slice(0, FACES_MAX2).map((bot) => (0, import_react54.createElement)(
+        bots.slice(0, FACES_MAX2).map((bot) => (0, import_react55.createElement)(
           "span",
           { key: bot.id, className: "bt-goal-face" },
-          (0, import_react54.createElement)(BotMark, { bot, size: 18, state: "alert" })
+          (0, import_react55.createElement)(BotMark, { bot, size: 18, state: "alert" })
         )),
-        bots.length > FACES_MAX2 ? (0, import_react54.createElement)("span", { className: "bt-goal-more" }, `+${bots.length - FACES_MAX2}`) : null
+        bots.length > FACES_MAX2 ? (0, import_react55.createElement)("span", { className: "bt-goal-more" }, `+${bots.length - FACES_MAX2}`) : null
       ) : null,
-      (0, import_react54.createElement)("span", { className: "bt-goal-chev", "aria-hidden": true }, (0, import_react54.createElement)(ChevronDownIcon))
+      (0, import_react55.createElement)("span", { className: "bt-goal-chev", "aria-hidden": true }, (0, import_react55.createElement)(ChevronDownIcon))
     ),
-    open ? (0, import_react54.createElement)(
+    open ? (0, import_react55.createElement)(
       "div",
       { className: "bt-apv-panel", role: "region", "aria-label": t("Waiting for your approval") },
-      approvals.map((item) => item.kind === "computer-app" ? (0, import_react54.createElement)(ComputerAppApprovalCard, { key: `c:${item.id}`, ask: item.ask, bot: item.bot, actions, showBot: true }) : (0, import_react54.createElement)(ApprovalCard, { key: `t:${item.id}`, approval: item.approval, bot: item.bot, actions, showBot: true }))
+      approvals.map((item) => item.kind === "computer-app" ? (0, import_react55.createElement)(ComputerAppApprovalCard, { key: `c:${item.id}`, ask: item.ask, bot: item.bot, actions, showBot: true }) : (0, import_react55.createElement)(ApprovalCard, { key: `t:${item.id}`, approval: item.approval, bot: item.bot, actions, showBot: true }))
     ) : null
   );
 }
@@ -39030,15 +39637,15 @@ body[data-ds-dark-theme] .bt-member-state.bt-mw-ask{color:#f0b84a}
 `;
 
 // src/client/header.js
-var import_react55 = require("react");
-var import_react_dom9 = require("react-dom");
-var GoArrow = () => (0, import_react55.createElement)("svg", { width: 14, height: 14, viewBox: "-12 -12 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2.2, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": true }, (0, import_react55.createElement)("path", { d: "M-7 0H7M2 -5L7 0L2 5" }));
+var import_react56 = require("react");
+var import_react_dom10 = require("react-dom");
+var GoArrow = () => (0, import_react56.createElement)("svg", { width: 14, height: 14, viewBox: "-12 -12 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2.2, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": true }, (0, import_react56.createElement)("path", { d: "M-7 0H7M2 -5L7 0L2 5" }));
 var MEMORY_NOTICE_MS = 3200;
 var noNews = (select) => select({});
 function useMemoryNotice(ids, useMemoryNews) {
   const seen = useMemoryNews((map) => Math.max(0, ...ids.map((id) => map?.[id]?.seen ?? 0)));
-  const [shown, setShown] = (0, import_react55.useState)(false);
-  (0, import_react55.useEffect)(() => {
+  const [shown, setShown] = (0, import_react56.useState)(false);
+  (0, import_react56.useEffect)(() => {
     const left = seen + MEMORY_NOTICE_MS - Date.now();
     setShown(seen > 0 && left > 0);
     if (seen === 0 || left <= 0) return void 0;
@@ -39048,16 +39655,16 @@ function useMemoryNotice(ids, useMemoryNews) {
   return shown;
 }
 function MemoryNotice({ shown }) {
-  const inner = (0, import_react55.useRef)(null);
-  const [width, setWidth] = (0, import_react55.useState)(0);
+  const inner = (0, import_react56.useRef)(null);
+  const [width, setWidth] = (0, import_react56.useState)(0);
   const label = t("Memory updated");
-  (0, import_react55.useLayoutEffect)(() => {
+  (0, import_react56.useLayoutEffect)(() => {
     if (shown) setWidth(inner.current?.scrollWidth ?? 0);
   }, [label, shown]);
-  return (0, import_react55.createElement)(
+  return (0, import_react56.createElement)(
     "span",
     { className: "bt-pill-mem", "aria-hidden": true, style: { "--bt-mem-w": `${width}px` } },
-    (0, import_react55.createElement)("span", { className: "bt-pill-mem-in", ref: inner }, (0, import_react55.createElement)("span", { className: "bt-pill-mem-ico" }, (0, import_react55.createElement)(MemoryIcon)), label)
+    (0, import_react56.createElement)("span", { className: "bt-pill-mem-in", ref: inner }, (0, import_react56.createElement)("span", { className: "bt-pill-mem-ico" }, (0, import_react56.createElement)(MemoryIcon)), label)
   );
 }
 function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus, useSession, useActivity, useMemoryNews, useTurnClock, useUi, useLive, useWork, useComputer, useStore, useConversationViews, selectView, actions, PendingLearning: PendingLearning2 }) {
@@ -39075,7 +39682,7 @@ function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus, useSe
     const first = openingTurn(state[sessionId], firstTurns, hiddenTurns);
     return first && !unseenSince(visit, first.start) ? clockLabel(first.start) : "";
   });
-  (0, import_react55.useEffect)(() => {
+  (0, import_react56.useEffect)(() => {
     if (opening) document.body.style.setProperty("--bt-first-sep", JSON.stringify(opening));
     else document.body.style.removeProperty("--bt-first-sep");
     return () => document.body.style.removeProperty("--bt-first-sep");
@@ -39088,12 +39695,13 @@ function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus, useSe
   const goal = room2?.goal;
   const goalCompose = useUi((state) => room2 !== void 0 && state.goalCompose === room2.id);
   const goalOpen = useUi((state) => room2 !== void 0 && state.goalOpen === room2.id);
-  const approvalOpen = useUi((state) => room2 !== void 0 && state.approvalOpen === room2.id);
+  const approvalTargetId = room2?.id ?? bot?.id;
+  const approvalOpen = useUi((state) => approvalTargetId !== void 0 && state.approvalOpen === approvalTargetId);
   const roomWorkKey = useWork?.((work) => room2 ? JSON.stringify(work.rooms?.[room2.id] ?? []) : "") ?? "[]";
   const roomWork = room2 ? JSON.parse(roomWorkKey || "[]") : [];
-  const workApprovalsKey = useWork?.((work) => room2 ? JSON.stringify((work.approvals ?? []).filter((entry) => entry.roomId === room2.id)) : "") ?? "[]";
+  const workApprovalsKey = useWork?.((work) => room2 ? JSON.stringify((work.approvals ?? []).filter((entry) => entry.roomId === room2.id)) : bot ? JSON.stringify((work.approvals ?? []).filter((entry) => entry.botId === bot.id && entry.taskId !== void 0 && entry.answerable !== false)) : "") ?? "[]";
   const computerAsksKey = useComputer?.((comp) => room2 ? JSON.stringify(Object.values(comp?.asks ?? {}).filter((ask) => ask.roomId === room2.id)) : "") ?? "[]";
-  const approvals = room2 ? roomApprovals(room2, { approvals: JSON.parse(workApprovalsKey || "[]") }, { asks: JSON.parse(computerAsksKey || "[]") }, roster) : [];
+  const approvals = room2 ? roomApprovals(room2, { approvals: JSON.parse(workApprovalsKey || "[]") }, { asks: JSON.parse(computerAsksKey || "[]") }, roster) : bot ? JSON.parse(workApprovalsKey || "[]").map((entry) => ({ kind: "tool", id: entry.id, bot, approval: entry, at: entry.at ?? 0 })) : [];
   const view = goal ? goalView(goal, { roster, roomWork }) : null;
   const goalShown = room2 !== void 0 && !away && goal !== void 0;
   const detailsOpen = useUi((state) => state.details === sessionId);
@@ -39102,17 +39710,17 @@ function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus, useSe
   const memoryIds = bot ? [bot.id] : room2 ? [room2.id, ...room2.members] : [];
   const notice = useMemoryNotice(memoryIds, useNews);
   const changed = useNews((map) => latestMemoryChange(map, memoryIds));
-  (0, import_react55.useEffect)(() => {
+  (0, import_react56.useEffect)(() => {
     document.body.style.setProperty("--bt-placeholder", JSON.stringify(name ? t("Message {name}", { name }) : t("Message")));
   }, [name, t("Message")]);
-  (0, import_react55.useEffect)(() => {
+  (0, import_react56.useEffect)(() => {
     document.body.style.setProperty("--bt-steer-unread", JSON.stringify(t("Not read yet")));
   }, [t("Not read yet")]);
-  (0, import_react55.useEffect)(() => {
+  (0, import_react56.useEffect)(() => {
     actions.beginVisit(sessionId);
     return () => actions.endVisit(sessionId);
   }, [sessionId]);
-  (0, import_react55.useEffect)(() => {
+  (0, import_react56.useEffect)(() => {
     if (room2) document.body.dataset.btRoom = "";
     else delete document.body.dataset.btRoom;
     return () => {
@@ -39121,20 +39729,20 @@ function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus, useSe
   }, [Boolean(room2)]);
   const memoryNotice = !away && notice && changed !== null && roster.memory !== false;
   const showGoal = room2 !== void 0 && !away && (goal !== void 0 || goalCompose);
-  const showApprovals = room2 !== void 0 && !away && approvals.length > 0;
+  const showApprovals = approvalTargetId !== void 0 && !away && approvals.length > 0;
   const showIsland = showGoal || showApprovals;
-  (0, import_react55.useEffect)(() => {
+  (0, import_react56.useEffect)(() => {
     if (approvalOpen && !showApprovals) actions.closeApproval?.();
   }, [approvalOpen, showApprovals]);
   const podRows = (showGoal ? 1 : 0) + (showApprovals ? 1 : 0);
-  (0, import_react55.useEffect)(() => {
+  (0, import_react56.useEffect)(() => {
     if (podRows > 0) document.body.dataset.btGoal = podRows > 1 ? "2" : "";
     else delete document.body.dataset.btGoal;
     return () => {
       delete document.body.dataset.btGoal;
     };
   }, [podRows]);
-  const pill = (0, import_react55.createElement)(
+  const pill = (0, import_react56.createElement)(
     "button",
     {
       type: "button",
@@ -39145,38 +39753,38 @@ function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus, useSe
       title: away ? name : void 0,
       onClick: () => away ? selectView("chat") : memoryNotice ? actions.openMemory(changed) : actions.toggleDetails(sessionId)
     },
-    bot ? (0, import_react55.createElement)(BotAvatar, { bot, size: 24, state: botState(running, doing, roster.questions?.[currentPart(bot)] !== void 0), badge: false }) : room2 ? (0, import_react55.createElement)(RoomAvatar, { room: room2, roster, size: 24 }) : null,
-    goalShown ? (0, import_react55.createElement)(
+    bot ? (0, import_react56.createElement)(BotAvatar, { bot, size: 24, state: botState(running, doing, roster.questions?.[currentPart(bot)] !== void 0), badge: false }) : room2 ? (0, import_react56.createElement)(RoomAvatar, { room: room2, roster, size: 24 }) : null,
+    goalShown ? (0, import_react56.createElement)(
       "span",
       { className: "bt-pill-swap" },
-      (0, import_react55.createElement)("span", { className: "bt-pill-goal" }, (0, import_react55.createElement)("span", { className: "bt-pill-ico", "aria-hidden": true }, (0, import_react55.createElement)(GoalIcon)), (0, import_react55.createElement)("span", { className: "bt-pill-title" }, view.title)),
-      (0, import_react55.createElement)("span", { className: "bt-pill-name" }, name)
-    ) : (0, import_react55.createElement)("span", { className: "bt-pill-name" }, away ? t("Back to chat") : bot?.name ?? room2?.name ?? (title || t("New chat")), !away && bot?.engine ? (0, import_react55.createElement)(AgentBadge, { engine: bot.engine }) : null),
-    goalShown && view?.number !== void 0 ? (0, import_react55.createElement)("span", { className: "bt-pill-count" }, `${view.number}/${view.count}`) : null,
-    (0, import_react55.createElement)(MemoryNotice, { shown: memoryNotice }),
-    (0, import_react55.createElement)("span", { className: "bt-pill-go", "aria-hidden": true }, (0, import_react55.createElement)(GoArrow))
+      (0, import_react56.createElement)("span", { className: "bt-pill-goal" }, (0, import_react56.createElement)("span", { className: "bt-pill-ico", "aria-hidden": true }, (0, import_react56.createElement)(GoalIcon)), (0, import_react56.createElement)("span", { className: "bt-pill-title" }, view.title)),
+      (0, import_react56.createElement)("span", { className: "bt-pill-name" }, name)
+    ) : (0, import_react56.createElement)("span", { className: "bt-pill-name" }, away ? t("Back to chat") : bot?.name ?? room2?.name ?? (title || t("New chat")), !away && bot?.engine ? (0, import_react56.createElement)(AgentBadge, { engine: bot.engine }) : null),
+    goalShown && view?.number !== void 0 ? (0, import_react56.createElement)("span", { className: "bt-pill-count" }, `${view.number}/${view.count}`) : null,
+    (0, import_react56.createElement)(MemoryNotice, { shown: memoryNotice }),
+    (0, import_react56.createElement)("span", { className: "bt-pill-go", "aria-hidden": true }, (0, import_react56.createElement)(GoArrow))
   );
-  const approvalPod = showApprovals ? (0, import_react55.createElement)(ApprovalIslandPod, { approvals, open: approvalOpen, room: room2, actions }) : null;
-  return (0, import_react55.createElement)(
+  const approvalPod = showApprovals ? (0, import_react56.createElement)(ApprovalIslandPod, { approvals, open: approvalOpen, room: room2, targetId: approvalTargetId, actions }) : null;
+  return (0, import_react56.createElement)(
     "div",
     { className: "bt-head" },
-    showIsland ? (0, import_react55.createElement)(GoalIsland, { room: room2, goal, view, open: goalOpen, composing: goalCompose, approvalPod, approvalOpen, approvalsCount: approvals.length, roomWork, roster, actions, pill }) : pill,
-    !away && PendingLearning2 ? (0, import_react55.createElement)(PendingLearning2, { key: sessionId, sessionId, useRoster, actions }) : null,
-    (0, import_react55.createElement)("span", { className: "bt-sr", role: "status" }, memoryNotice ? t("Memory updated") : ""),
-    room2 !== void 0 && !away ? (0, import_react55.createElement)("button", {
+    showIsland ? (0, import_react56.createElement)(GoalIsland, { room: room2, goal, view, open: goalOpen, composing: goalCompose, approvalPod, approvalOpen, approvalsCount: approvals.length, roomWork, roster, actions, pill }) : pill,
+    !away && PendingLearning2 ? (0, import_react56.createElement)(PendingLearning2, { key: sessionId, sessionId, useRoster, actions }) : null,
+    (0, import_react56.createElement)("span", { className: "bt-sr", role: "status" }, memoryNotice ? t("Memory updated") : ""),
+    room2 !== void 0 && !away ? (0, import_react56.createElement)("button", {
       type: "button",
       className: "bt-icon-btn bt-head-search",
       "aria-label": t("Search this group"),
       title: t("Search this group"),
       onClick: () => actions.openGroupSearch(room2.id)
-    }, (0, import_react55.createElement)(SearchIcon)) : null,
-    (0, import_react55.createElement)(NewMessagePills, { key: sessionId, sessionId, useSessions, useUi, useTurnClock }),
-    (0, import_react55.createElement)(ActivityIndicator, { key: `activity:${sessionId}`, sessionId, useRoster, useSessionStatus, useSession, useLive, useWork, actions })
+    }, (0, import_react56.createElement)(SearchIcon)) : null,
+    (0, import_react56.createElement)(NewMessagePills, { key: sessionId, sessionId, useSessions, useUi, useTurnClock }),
+    (0, import_react56.createElement)(ActivityIndicator, { key: `activity:${sessionId}`, sessionId, useRoster, useSessionStatus, useSession, useLive, useWork, actions })
   );
 }
 function useTranscriptView() {
-  const [view, setView] = (0, import_react55.useState)(null);
-  (0, import_react55.useEffect)(() => {
+  const [view, setView] = (0, import_react56.useState)(null);
+  (0, import_react56.useEffect)(() => {
     let frame2 = 0;
     let watched = null;
     const observer = new MutationObserver(() => schedule());
@@ -39245,18 +39853,18 @@ function NewMessagePills({ sessionId, useSessions, useUi, useTurnClock }) {
   });
   const view = useTranscriptView();
   const unpinned = view?.unpinned === true;
-  const [release, setRelease] = (0, import_react55.useState)({ base: null, dismissed: false });
-  const [above, setAbove] = (0, import_react55.useState)({ seen: false, dismissed: false });
-  (0, import_react55.useEffect)(() => {
+  const [release, setRelease] = (0, import_react56.useState)({ base: null, dismissed: false });
+  const [above, setAbove] = (0, import_react56.useState)({ seen: false, dismissed: false });
+  (0, import_react56.useEffect)(() => {
     setRelease({ base: unpinned ? replies : null, dismissed: false });
   }, [unpinned]);
-  (0, import_react55.useEffect)(() => {
+  (0, import_react56.useEffect)(() => {
     if (view?.divider === "in-view") setAbove((state) => state.seen ? state : { ...state, seen: true });
   }, [view?.divider]);
   const fresh = release.base === null ? 0 : replies - release.base;
   const showDown = unpinned && fresh > 0 && !release.dismissed;
   const showUp = view?.divider === "above" && !above.seen && !above.dismissed;
-  (0, import_react55.useEffect)(() => {
+  (0, import_react56.useEffect)(() => {
     const scroller = document.querySelector("[data-conversation-scroll]");
     if (!scroller) return void 0;
     scroller.toggleAttribute("data-bt-news", showDown);
@@ -39264,16 +39872,16 @@ function NewMessagePills({ sessionId, useSessions, useUi, useTurnClock }) {
   }, [showDown]);
   if (!view || !showDown && !showUp) return null;
   const label = (count) => count === 1 ? t("1 new message") : count > 0 ? t("{count} new messages", { count }) : t("New messages");
-  const pill = (direction, count, style, onJump, onDismiss) => (0, import_react55.createElement)(
+  const pill = (direction, count, style, onJump, onDismiss) => (0, import_react56.createElement)(
     "div",
     { className: "bt-news", "data-direction": direction, style },
-    (0, import_react55.createElement)(
+    (0, import_react56.createElement)(
       "button",
       { type: "button", className: "bt-news-jump", onClick: onJump },
-      (0, import_react55.createElement)("span", { className: "bt-news-ico" }, (0, import_react55.createElement)(direction === "up" ? ArrowUpIcon : ArrowDownIcon)),
+      (0, import_react56.createElement)("span", { className: "bt-news-ico" }, (0, import_react56.createElement)(direction === "up" ? ArrowUpIcon : ArrowDownIcon)),
       label(count)
     ),
-    (0, import_react55.createElement)("button", {
+    (0, import_react56.createElement)("button", {
       type: "button",
       className: "bt-news-x",
       "aria-label": t("Dismiss new messages"),
@@ -39281,7 +39889,7 @@ function NewMessagePills({ sessionId, useSessions, useUi, useTurnClock }) {
         event.stopPropagation();
         onDismiss();
       }
-    }, (0, import_react55.createElement)(CloseIcon))
+    }, (0, import_react56.createElement)(CloseIcon))
   );
   const toLatest = () => {
     const scroller = document.querySelector("[data-conversation-scroll]");
@@ -39290,9 +39898,9 @@ function NewMessagePills({ sessionId, useSessions, useUi, useTurnClock }) {
     else scroller?.scrollTo({ top: scroller.scrollHeight, behavior: "smooth" });
   };
   const toDivider = () => document.querySelector("[data-conversation-scroll] .bt-new-sep")?.scrollIntoView({ block: "center", behavior: "smooth" });
-  return (0, import_react_dom9.createPortal)(
-    (0, import_react55.createElement)(
-      import_react55.Fragment,
+  return (0, import_react_dom10.createPortal)(
+    (0, import_react56.createElement)(
+      import_react56.Fragment,
       null,
       showUp ? pill("up", unread, { left: view.center, top: view.top }, toDivider, () => setAbove((state) => ({ ...state, dismissed: true }))) : null,
       showDown ? pill("down", fresh, { left: view.center, bottom: view.bottom }, toLatest, () => setRelease((state) => ({ ...state, dismissed: true }))) : null
@@ -39320,18 +39928,18 @@ var steerQueued = async (session) => {
 };
 
 // src/client/composer.js
-var import_react56 = require("react");
-var import_react_dom10 = require("react-dom");
+var import_react57 = require("react");
+var import_react_dom11 = require("react-dom");
 var speechApi = () => window.SpeechRecognition ?? window.webkitSpeechRecognition;
 var keepComposerFocus = (event) => event.preventDefault();
 function useDictation(onText) {
-  const [listening, setListening] = (0, import_react56.useState)(false);
-  const [note, setNote] = (0, import_react56.useState)("");
-  const recognition = (0, import_react56.useRef)(null);
-  const latest = (0, import_react56.useRef)(onText);
+  const [listening, setListening] = (0, import_react57.useState)(false);
+  const [note, setNote] = (0, import_react57.useState)("");
+  const recognition = (0, import_react57.useRef)(null);
+  const latest = (0, import_react57.useRef)(onText);
   latest.current = onText;
-  (0, import_react56.useEffect)(() => () => recognition.current?.abort(), []);
-  (0, import_react56.useEffect)(() => {
+  (0, import_react57.useEffect)(() => () => recognition.current?.abort(), []);
+  (0, import_react57.useEffect)(() => {
     if (!note) return void 0;
     const timer = setTimeout(() => setNote(""), 2600);
     return () => clearTimeout(timer);
@@ -39381,8 +39989,8 @@ function useDictation(onText) {
 }
 function ComposerVoice({ sessionId, inputActions, actions, useUi, useRoster }) {
   const enterToSend = useRoster((state) => sendsOnEnter(state.prefs));
-  const composerRoot = (0, import_react56.useRef)(null);
-  (0, import_react56.useEffect)(() => {
+  const composerRoot = (0, import_react57.useRef)(null);
+  (0, import_react57.useEffect)(() => {
     const root = composerRoot.current?.closest("[data-composer-card]");
     if (enterToSend || !inputActions || !root) return void 0;
     const onKey = (event) => insertComposerNewline(event, inputActions);
@@ -39393,7 +40001,7 @@ function ComposerVoice({ sessionId, inputActions, actions, useUi, useRoster }) {
     if (final && inputActions) inputActions.insertText(text, inputActions.captureInsertion());
   });
   const quote = useUi((state) => state.quote?.sessionId === sessionId ? state.quote : null);
-  (0, import_react56.useEffect)(() => {
+  (0, import_react57.useEffect)(() => {
     if (!quote || !inputActions) return;
     actions.clearQuote(quote.token);
     const excerpt = quote.text.replace(/\s+/g, " ").trim();
@@ -39411,10 +40019,10 @@ function ComposerVoice({ sessionId, inputActions, actions, useUi, useRoster }) {
   }, [quote?.token]);
   if (sessionId === void 0) return null;
   const pluginMic = actions.speech() !== void 0;
-  return (0, import_react56.createElement)(
-    import_react56.Fragment,
+  return (0, import_react57.createElement)(
+    import_react57.Fragment,
     null,
-    pluginMic ? null : (0, import_react56.createElement)("button", {
+    pluginMic ? null : (0, import_react57.createElement)("button", {
       type: "button",
       className: "bt-mic",
       "aria-label": dictation.listening ? t("Stop dictation") : t("Dictate"),
@@ -39422,8 +40030,8 @@ function ComposerVoice({ sessionId, inputActions, actions, useUi, useRoster }) {
       title: dictation.listening ? t("Stop dictation") : t("Dictate"),
       onMouseDown: keepComposerFocus,
       onClick: () => dictation.listening ? dictation.stop() : dictation.start()
-    }, (0, import_react56.createElement)(MicIcon)),
-    (0, import_react56.createElement)("button", {
+    }, (0, import_react57.createElement)(MicIcon)),
+    (0, import_react57.createElement)("button", {
       ref: composerRoot,
       type: "button",
       className: "bt-voice",
@@ -39431,8 +40039,8 @@ function ComposerVoice({ sessionId, inputActions, actions, useUi, useRoster }) {
       title: t("Voice chat"),
       onMouseDown: keepComposerFocus,
       onClick: () => actions.openVoice(sessionId)
-    }, (0, import_react56.createElement)(WaveIcon, { size: 18 })),
-    dictation.note ? (0, import_react56.createElement)("span", { className: "bt-mic-note", role: "status" }, dictation.note) : null
+    }, (0, import_react57.createElement)(WaveIcon, { size: 18 })),
+    dictation.note ? (0, import_react57.createElement)("span", { className: "bt-mic-note", role: "status" }, dictation.note) : null
   );
 }
 function menuIcons(roster) {
@@ -39440,23 +40048,23 @@ function menuIcons(roster) {
   return (row) => {
     if (!row.bot) return PeopleIcon;
     const id = row.bot.id;
-    if (!marks.has(id)) marks.set(id, ({ size = 14 }) => (0, import_react56.createElement)(BotMark, { bot: roster.getSnapshot().byId[id] ?? row.bot, size }));
+    if (!marks.has(id)) marks.set(id, ({ size = 14 }) => (0, import_react57.createElement)(BotMark, { bot: roster.getSnapshot().byId[id] ?? row.bot, size }));
     return marks.get(id);
   };
 }
 function ComposerPlus({ sessionId, inputActions, useInput, useRoster, actions }) {
   const roster = useRoster((value) => value);
-  const [open, setOpen] = (0, import_react56.useState)(null);
+  const [open, setOpen] = (0, import_react57.useState)(null);
   const [shown, leaving] = useLinger(open, 120);
-  const button = (0, import_react56.useRef)(null);
-  const menu = (0, import_react56.useRef)(null);
+  const button = (0, import_react57.useRef)(null);
+  const menu = (0, import_react57.useRef)(null);
   const tick = useViewport();
-  const inputNow = (0, import_react56.useRef)(void 0);
+  const inputNow = (0, import_react57.useRef)(void 0);
   const ready = useInput?.((state) => {
     inputNow.current = state;
     return steerable(state);
   }) === true;
-  (0, import_react56.useEffect)(() => {
+  (0, import_react57.useEffect)(() => {
     if (!open) return void 0;
     const onDown = (event) => {
       if (![button.current, menu.current].some((node) => node?.contains(event.target))) setOpen(null);
@@ -39475,13 +40083,13 @@ function ComposerPlus({ sessionId, inputActions, useInput, useRoster, actions })
       window.removeEventListener("keydown", onKey, true);
     };
   }, [open]);
-  (0, import_react56.useEffect)(() => {
+  (0, import_react57.useEffect)(() => {
     const card = button.current?.closest("[data-composer-card]");
     if (!ready || card === null || card === void 0) return void 0;
     card.style.setProperty("--bt-placeholder", JSON.stringify(t("Press Enter to steer queued messages")));
     return () => card.style.removeProperty("--bt-placeholder");
   });
-  (0, import_react56.useEffect)(() => {
+  (0, import_react57.useEffect)(() => {
     let steering = false;
     const onKey = (event) => {
       if (steering || event.defaultPrevented || open) return;
@@ -39503,7 +40111,7 @@ function ComposerPlus({ sessionId, inputActions, useInput, useRoster, actions })
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
   }, [open, sessionId]);
-  const place = (0, import_react56.useMemo)(() => {
+  const place = (0, import_react57.useMemo)(() => {
     if (!shown || !button.current) return null;
     const rect = button.current.getBoundingClientRect();
     return { left: rect.left, bottom: viewBottom() - rect.top + 8 };
@@ -39536,10 +40144,10 @@ function ComposerPlus({ sessionId, inputActions, useInput, useRoster, actions })
     setOpen(null);
     actions.composeGoal(room2.id);
   };
-  return (0, import_react56.createElement)(
-    import_react56.Fragment,
+  return (0, import_react57.createElement)(
+    import_react57.Fragment,
     null,
-    (0, import_react56.createElement)("button", {
+    (0, import_react57.createElement)("button", {
       ref: button,
       type: "button",
       className: "bt-plus",
@@ -39549,8 +40157,8 @@ function ComposerPlus({ sessionId, inputActions, useInput, useRoster, actions })
       "aria-expanded": Boolean(open),
       onMouseDown: keepComposerFocus,
       onClick: toggle
-    }, (0, import_react56.createElement)(PlusIcon)),
-    shown ? (0, import_react_dom10.createPortal)((0, import_react56.createElement)(
+    }, (0, import_react57.createElement)(PlusIcon)),
+    shown ? (0, import_react_dom11.createPortal)((0, import_react57.createElement)(
       "div",
       {
         ref: menu,
@@ -39560,10 +40168,10 @@ function ComposerPlus({ sessionId, inputActions, useInput, useRoster, actions })
         style: place ?? {},
         "data-leaving": leaving || void 0
       },
-      shown.files ? (0, import_react56.createElement)("button", { type: "button", role: "menuitem", onClick: attach }, (0, import_react56.createElement)(PaperclipIcon), (0, import_react56.createElement)("span", { className: "bt-menu-label" }, t("Add files"))) : null,
-      canReference ? (0, import_react56.createElement)("button", { type: "button", role: "menuitem", onMouseDown: keepComposerFocus, onClick: reference }, (0, import_react56.createElement)(ChatsIcon), (0, import_react56.createElement)("span", { className: "bt-menu-label" }, t("Reference a chat"))) : null,
-      canSetGoal(room2, roster) ? (0, import_react56.createElement)("button", { type: "button", role: "menuitem", onClick: goal }, (0, import_react56.createElement)(GoalIcon), (0, import_react56.createElement)("span", { className: "bt-menu-label" }, t("Set a goal"))) : null,
-      (0, import_react56.createElement)("button", { type: "button", role: "menuitem", onClick: schedule }, (0, import_react56.createElement)(ClockIcon), (0, import_react56.createElement)("span", { className: "bt-menu-label" }, t("Scheduled task")))
+      shown.files ? (0, import_react57.createElement)("button", { type: "button", role: "menuitem", onClick: attach }, (0, import_react57.createElement)(PaperclipIcon), (0, import_react57.createElement)("span", { className: "bt-menu-label" }, t("Add files"))) : null,
+      canReference ? (0, import_react57.createElement)("button", { type: "button", role: "menuitem", onMouseDown: keepComposerFocus, onClick: reference }, (0, import_react57.createElement)(ChatsIcon), (0, import_react57.createElement)("span", { className: "bt-menu-label" }, t("Reference a chat"))) : null,
+      canSetGoal(room2, roster) ? (0, import_react57.createElement)("button", { type: "button", role: "menuitem", onClick: goal }, (0, import_react57.createElement)(GoalIcon), (0, import_react57.createElement)("span", { className: "bt-menu-label" }, t("Set a goal"))) : null,
+      (0, import_react57.createElement)("button", { type: "button", role: "menuitem", onClick: schedule }, (0, import_react57.createElement)(ClockIcon), (0, import_react57.createElement)("span", { className: "bt-menu-label" }, t("Scheduled task")))
     ), document.body) : null
   );
 }
@@ -39789,9 +40397,9 @@ function drawerMenuKeys({ bot, room: room2, canBrowse, canTerminal, canFiles }) 
 }
 
 // src/client/side-chat.js
-var import_react57 = require("react");
+var import_react58 = require("react");
 function SideEntry({ chatId, entry, actions }) {
-  const [cancelling, setCancelling] = (0, import_react57.useState)(false);
+  const [cancelling, setCancelling] = (0, import_react58.useState)(false);
   const question = typeof entry.question === "string" ? entry.question : "";
   const answer = typeof entry.answer === "string" ? entry.answer : "";
   const cancel = () => {
@@ -39800,15 +40408,15 @@ function SideEntry({ chatId, entry, actions }) {
     Promise.resolve(actions.cancelSide(chatId, entry.id)).catch(() => {
     }).finally(() => setCancelling(false));
   };
-  return (0, import_react57.createElement)(
+  return (0, import_react58.createElement)(
     "div",
     { className: "bt-side-pair", "data-status": entry.status },
-    (0, import_react57.createElement)("div", { className: "bt-side-qrow" }, (0, import_react57.createElement)("div", { className: "bt-side-q" }, question)),
-    entry.status === "answering" ? (0, import_react57.createElement)(
+    (0, import_react58.createElement)("div", { className: "bt-side-qrow" }, (0, import_react58.createElement)("div", { className: "bt-side-q" }, question)),
+    entry.status === "answering" ? (0, import_react58.createElement)(
       "div",
       { className: "bt-side-a" },
-      (0, import_react57.createElement)("span", { className: "bt-shimmer" }, t("Answering…")),
-      (0, import_react57.createElement)("button", {
+      (0, import_react58.createElement)("span", { className: "bt-shimmer" }, t("Answering…")),
+      (0, import_react58.createElement)("button", {
         type: "button",
         className: "bt-soft bt-soft-sm",
         disabled: cancelling,
@@ -39816,23 +40424,23 @@ function SideEntry({ chatId, entry, actions }) {
         "aria-label": t("Cancel this side question"),
         onClick: cancel
       }, t("Cancel"))
-    ) : (0, import_react57.createElement)(
+    ) : (0, import_react58.createElement)(
       "div",
       { className: "bt-side-a" },
-      entry.status === "cancelled" ? (0, import_react57.createElement)("p", { className: "bt-side-status" }, t("Cancelled")) : null,
-      entry.status === "failed" ? (0, import_react57.createElement)("p", { className: "bt-side-fail" }, failureText(entry)) : null,
-      answer !== "" ? (0, import_react57.createElement)(import_dsh_client_ui_primitives.MarkdownText, { text: answer, labels: mdLabels(), variant: "compact" }) : null
+      entry.status === "cancelled" ? (0, import_react58.createElement)("p", { className: "bt-side-status" }, t("Cancelled")) : null,
+      entry.status === "failed" ? (0, import_react58.createElement)("p", { className: "bt-side-fail" }, failureText(entry)) : null,
+      answer !== "" ? (0, import_react58.createElement)(import_dsh_client_ui_primitives.MarkdownText, { text: answer, labels: mdLabels(), variant: "compact" }) : null
     )
   );
 }
 function SideChatView({ subject, chat, roster, actions }) {
-  const scroll = (0, import_react57.useRef)(null);
-  const [draft, setDraft] = (0, import_react57.useState)("");
-  const [fail2, setFail] = (0, import_react57.useState)(null);
+  const scroll = (0, import_react58.useRef)(null);
+  const [draft, setDraft] = (0, import_react58.useState)("");
+  const [fail2, setFail] = (0, import_react58.useState)(null);
   const entries2 = Array.isArray(chat?.entries) ? chat.entries : [];
   const busy = entries2.some((entry) => entry?.status === "answering");
   const last = entries2.at(-1);
-  (0, import_react57.useEffect)(() => {
+  (0, import_react58.useEffect)(() => {
     const node = scroll.current;
     if (node) node.scrollTop = node.scrollHeight;
   }, [chat?.id, entries2.length, last?.status]);
@@ -39847,19 +40455,19 @@ function SideChatView({ subject, chat, roster, actions }) {
       setFail(hostText(error?.message ?? ""));
     });
   };
-  return (0, import_react57.createElement)(
+  return (0, import_react58.createElement)(
     "div",
     { className: "bt-side" },
-    (0, import_react57.createElement)("p", { className: "bt-side-note" }, t("Answered from progress so far; nothing was run")),
-    (0, import_react57.createElement)(
+    (0, import_react58.createElement)("p", { className: "bt-side-note" }, t("Answered from progress so far; nothing was run")),
+    (0, import_react58.createElement)(
       "div",
       { className: "bt-side-scroll", ref: scroll },
-      entries2.map((entry) => (0, import_react57.createElement)(SideEntry, { key: entry.id, chatId: chat.id, entry, actions }))
+      entries2.map((entry) => (0, import_react58.createElement)(SideEntry, { key: entry.id, chatId: chat.id, entry, actions }))
     ),
-    (0, import_react57.createElement)(
+    (0, import_react58.createElement)(
       "div",
       { className: "bt-side-form" },
-      (0, import_react57.createElement)("textarea", {
+      (0, import_react58.createElement)("textarea", {
         className: "bt-side-input",
         rows: 1,
         value: draft,
@@ -39877,14 +40485,14 @@ function SideChatView({ subject, chat, roster, actions }) {
         }
       }),
       // With Enter sending off this is the only way to ask; on, it sends the same.
-      (0, import_react57.createElement)("button", {
+      (0, import_react58.createElement)("button", {
         type: "button",
         className: "bt-side-send",
         "aria-label": t("Send message"),
         disabled: busy || draft.trim() === "" || typeof actions?.askSide !== "function",
         onClick: ask
-      }, (0, import_react57.createElement)(ArrowUpIcon)),
-      fail2 !== null ? (0, import_react57.createElement)("p", { className: "bt-side-fail" }, fail2) : null
+      }, (0, import_react58.createElement)(ArrowUpIcon)),
+      fail2 !== null ? (0, import_react58.createElement)("p", { className: "bt-side-fail" }, fail2) : null
     )
   );
 }
@@ -40269,10 +40877,10 @@ function presentedFileTarget(actionUrl) {
 }
 
 // src/client/file-save.js
-var import_react58 = require("react");
+var import_react59 = require("react");
 function SaveFileAction({ actionUrl, available = true, pending = false }) {
-  const [busy, setBusy] = (0, import_react58.useState)(false);
-  const [error, setError] = (0, import_react58.useState)(null);
+  const [busy, setBusy] = (0, import_react59.useState)(false);
+  const [error, setError] = (0, import_react59.useState)(null);
   const target = presentedFileTarget(actionUrl);
   if (target === null) return null;
   const save = () => {
@@ -40293,15 +40901,15 @@ function SaveFileAction({ actionUrl, available = true, pending = false }) {
       setTimeout(() => URL.revokeObjectURL(url), 1e4);
     })().catch((failure) => setError(failure?.message ?? t("Could not save this file"))).finally(() => setBusy(false));
   };
-  return (0, import_react58.createElement)(
+  return (0, import_react59.createElement)(
     "span",
     { className: "bt-file-save" },
-    (0, import_react58.createElement)(
+    (0, import_react59.createElement)(
       "button",
       { type: "button", className: "bt-soft bt-soft-sm", disabled: busy || pending || available !== true, onClick: save },
       busy ? t("Saving…") : t("Save")
     ),
-    error === null ? null : (0, import_react58.createElement)("span", { className: "bt-set-hint", role: "alert" }, error)
+    error === null ? null : (0, import_react59.createElement)("span", { className: "bt-set-hint", role: "alert" }, error)
   );
 }
 
@@ -40314,7 +40922,7 @@ function fileMentionSource(ctx, sessionId) {
 }
 
 // src/client/turn-error.js
-var import_react59 = require("react");
+var import_react60 = require("react");
 var OFFICIAL = "deepseek-official";
 var ACCOUNT = "deepseek-account";
 var TOP_UP_URL = "https://platform.deepseek.com/top_up";
@@ -40394,10 +41002,10 @@ var NO_SUBSCRIBE2 = () => () => {
 var NO_VIEW = () => null;
 function useAccountView(actions) {
   const entry = actions.signInEntry?.() ?? null;
-  const ops = (0, import_react59.useMemo)(() => entry?.inject?.() ?? {}, [entry]);
+  const ops = (0, import_react60.useMemo)(() => entry?.inject?.() ?? {}, [entry]);
   const source = ops.hooks?.account;
   const read = source ? () => source.getSnapshot()?.view ?? null : NO_VIEW;
-  return (0, import_react59.useSyncExternalStore)(source?.subscribe ?? NO_SUBSCRIBE2, read, read);
+  return (0, import_react60.useSyncExternalStore)(source?.subscribe ?? NO_SUBSCRIBE2, read, read);
 }
 var topUpOf = (view) => {
   const url = view?.links?.topUpUrl;
@@ -40425,7 +41033,7 @@ function failureFacts(data, blocked) {
   return facts;
 }
 function TechnicalDetails({ facts }) {
-  const [copied, setCopied] = (0, import_react59.useState)(false);
+  const [copied, setCopied] = (0, import_react60.useState)(false);
   if (facts.length === 0) return null;
   const copy2 = () => {
     const text = facts.map(([name, , value]) => `${name}: ${value}`).join("\n");
@@ -40435,12 +41043,12 @@ function TechnicalDetails({ facts }) {
     }).catch(() => {
     });
   };
-  return (0, import_react59.createElement)(
+  return (0, import_react60.createElement)(
     "details",
     { className: "bt-fail-tech" },
-    (0, import_react59.createElement)("summary", null, t("Technical details")),
-    (0, import_react59.createElement)("dl", null, facts.map(([name, label, value]) => [(0, import_react59.createElement)("dt", { key: `${name}:t` }, label), (0, import_react59.createElement)("dd", { key: `${name}:d` }, value)])),
-    (0, import_react59.createElement)("button", { type: "button", className: "bt-mini bt-fail-copy", onClick: copy2 }, copied ? (0, import_react59.createElement)(CheckIcon) : (0, import_react59.createElement)(CopyIcon), copied ? t("Copied") : t("Copy"))
+    (0, import_react60.createElement)("summary", null, t("Technical details")),
+    (0, import_react60.createElement)("dl", null, facts.map(([name, label, value]) => [(0, import_react60.createElement)("dt", { key: `${name}:t` }, label), (0, import_react60.createElement)("dd", { key: `${name}:d` }, value)])),
+    (0, import_react60.createElement)("button", { type: "button", className: "bt-mini bt-fail-copy", onClick: copy2 }, copied ? (0, import_react60.createElement)(CheckIcon) : (0, import_react60.createElement)(CopyIcon), copied ? t("Copied") : t("Copy"))
   );
 }
 function FailureCell({ node, sessionId, useRoster, useTurnClock, actions }) {
@@ -40453,10 +41061,10 @@ function FailureCell({ node, sessionId, useRoster, useTurnClock, actions }) {
   const account = useAccountView(actions);
   const signedIn = account?.status === "credential-stored";
   const topUp = topUpOf(account);
-  const [keying, setKeying] = (0, import_react59.useState)(false);
-  const [retry, setRetry] = (0, import_react59.useState)("idle");
-  const [error, setError] = (0, import_react59.useState)("");
-  const [joining, setJoining] = (0, import_react59.useState)(null);
+  const [keying, setKeying] = (0, import_react60.useState)(false);
+  const [retry, setRetry] = (0, import_react60.useState)("idle");
+  const [error, setError] = (0, import_react60.useState)("");
+  const [joining, setJoining] = (0, import_react60.useState)(null);
   const blocked = bot?.blocked?.code === data.code ? bot.blocked : void 0;
   const provider = blocked?.provider ?? host?.provider ?? providerOf(bot, roster);
   const text = failureText2(data.code, { name: bot?.name ?? t("This Bot"), provider: providerName(roster, provider), status: data.status ?? blocked?.status });
@@ -40473,7 +41081,7 @@ function FailureCell({ node, sessionId, useRoster, useTurnClock, actions }) {
     void Promise.resolve(actions.updateBot(bot.id, { model })).catch((failure) => setError(hostText(failure?.message ?? String(failure))));
   };
   const listed = accountModel(roster);
-  (0, import_react59.useEffect)(() => {
+  (0, import_react60.useEffect)(() => {
     if (joining === null || !signedIn) return void 0;
     if (bot === void 0 || bot.model !== joining.from) {
       setJoining(null);
@@ -40491,11 +41099,11 @@ function FailureCell({ node, sessionId, useRoster, useTurnClock, actions }) {
     }, ACCOUNT_MODELS_WAIT_MS);
     return () => clearTimeout(timer);
   }, [joining, signedIn, listed]);
-  const settled = () => (0, import_react59.createElement)(
+  const settled = () => (0, import_react60.createElement)(
     "div",
     { className: "bt-fail", "data-settled": "", role: "status" },
-    (0, import_react59.createElement)("div", { className: "bt-fail-head" }, (0, import_react59.createElement)("span", { className: "bt-fail-dot", "aria-hidden": true }), (0, import_react59.createElement)("span", { className: "bt-fail-text" }, text)),
-    (0, import_react59.createElement)(TechnicalDetails, { facts })
+    (0, import_react60.createElement)("div", { className: "bt-fail-head" }, (0, import_react60.createElement)("span", { className: "bt-fail-dot", "aria-hidden": true }), (0, import_react60.createElement)("span", { className: "bt-fail-text" }, text)),
+    (0, import_react60.createElement)(TechnicalDetails, { facts })
   );
   if (!current2) return settled();
   const official = provider === OFFICIAL;
@@ -40534,22 +41142,22 @@ function FailureCell({ node, sessionId, useRoster, useTurnClock, actions }) {
   const button = (fix, primary) => {
     const className = primary ? "bt-send bt-fail-go" : "bt-soft bt-soft-sm";
     if (fix === "top-up") {
-      return (0, import_react59.createElement)("a", { key: fix, className: `${className} bt-fail-link`, href: data.code === "ACCOUNT_QUOTA" ? topUp : TOP_UP_URL, target: "_blank", rel: "noopener noreferrer" }, FIX_LABELS[fix]());
+      return (0, import_react60.createElement)("a", { key: fix, className: `${className} bt-fail-link`, href: data.code === "ACCOUNT_QUOTA" ? topUp : TOP_UP_URL, target: "_blank", rel: "noopener noreferrer" }, FIX_LABELS[fix]());
     }
     const toggles = keyHere && (fix === "key" || fix === "rekey");
-    return (0, import_react59.createElement)("button", { key: fix, type: "button", className, "aria-expanded": toggles ? keying : void 0, onClick: () => runs[fix]() }, FIX_LABELS[fix](signedIn));
+    return (0, import_react60.createElement)("button", { key: fix, type: "button", className, "aria-expanded": toggles ? keying : void 0, onClick: () => runs[fix]() }, FIX_LABELS[fix](signedIn));
   };
-  const retryButton = (primary) => (0, import_react59.createElement)("button", { key: "retry", type: "button", className: primary ? "bt-send bt-fail-go" : "bt-soft bt-soft-sm", disabled: retry !== "idle", onClick: resume }, retry === "idle" ? t("Retry") : t("Retrying…"));
+  const retryButton = (primary) => (0, import_react60.createElement)("button", { key: "retry", type: "button", className: primary ? "bt-send bt-fail-go" : "bt-soft bt-soft-sm", disabled: retry !== "idle", onClick: resume }, retry === "idle" ? t("Retry") : t("Retrying…"));
   const row = retryFirst ? [retryButton(true), ...fixes.map((fix) => button(fix, false))] : [...fixes.map((fix, index) => button(fix, index === 0)), retrying ? retryButton(false) : null];
   if (!row.some(Boolean)) return settled();
-  return (0, import_react59.createElement)(
+  return (0, import_react60.createElement)(
     "div",
     { className: "bt-fail", role: "status" },
-    (0, import_react59.createElement)("div", { className: "bt-fail-head" }, (0, import_react59.createElement)("span", { className: "bt-fail-dot", "aria-hidden": true }), (0, import_react59.createElement)("span", { className: "bt-fail-text" }, text)),
-    (0, import_react59.createElement)("div", { className: "bt-fail-actions" }, row),
-    keying && keyHere ? (0, import_react59.createElement)(ModelKeyCard, { model: { provider, providerName: providerName(roster, provider) }, actions, onSaved: () => setKeying(false) }) : null,
-    error ? (0, import_react59.createElement)("div", { className: "bt-fail-error", role: "alert" }, error) : null,
-    (0, import_react59.createElement)(TechnicalDetails, { facts })
+    (0, import_react60.createElement)("div", { className: "bt-fail-head" }, (0, import_react60.createElement)("span", { className: "bt-fail-dot", "aria-hidden": true }), (0, import_react60.createElement)("span", { className: "bt-fail-text" }, text)),
+    (0, import_react60.createElement)("div", { className: "bt-fail-actions" }, row),
+    keying && keyHere ? (0, import_react60.createElement)(ModelKeyCard, { model: { provider, providerName: providerName(roster, provider) }, actions, onSaved: () => setKeying(false) }) : null,
+    error ? (0, import_react60.createElement)("div", { className: "bt-fail-error", role: "alert" }, error) : null,
+    (0, import_react60.createElement)(TechnicalDetails, { facts })
   );
 }
 var TURN_ERROR_CSS = `
@@ -40576,12 +41184,12 @@ var TURN_ERROR_CSS = `
 `;
 
 // src/client/palette.js
-var import_react60 = require("react");
+var import_react61 = require("react");
 var PALETTE_EXIT_MS = 160;
 function CommandPalette({ start, token, roster, actions, useSessions }) {
-  const [query, setQuery] = (0, import_react60.useState)(start ?? "");
-  const [cursor, setCursor] = (0, import_react60.useState)(0);
-  const [leaving, setLeaving] = (0, import_react60.useState)(false);
+  const [query, setQuery] = (0, import_react61.useState)(start ?? "");
+  const [cursor, setCursor] = (0, import_react61.useState)(0);
+  const [leaving, setLeaving] = (0, import_react61.useState)(false);
   const wanted = query.trim().toLowerCase();
   const close = () => {
     if (leaving) return;
@@ -40617,7 +41225,7 @@ function CommandPalette({ start, token, roster, actions, useSessions }) {
   const people = [
     ...roster.bots.filter((bot) => matchesName(bot.name, bot.role)).map((bot) => ({
       key: bot.id,
-      avatar: (0, import_react60.createElement)(BotAvatar, { bot, size: 24, badge: false, live: false }),
+      avatar: (0, import_react61.createElement)(BotAvatar, { bot, size: 24, badge: false, live: false }),
       title: bot.name,
       subtitle: [bot.role, isMainOf(roster, bot.id) ? t("Main Bot") : ""].filter(Boolean).join(" · "),
       badge: bot.hidden ? t("Hidden") : void 0,
@@ -40628,7 +41236,7 @@ function CommandPalette({ start, token, roster, actions, useSessions }) {
     })),
     ...roster.rooms.filter((room2) => matchesName(room2.name)).map((room2) => ({
       key: room2.id,
-      avatar: (0, import_react60.createElement)(RoomAvatar, { room: room2, roster, size: 24 }),
+      avatar: (0, import_react61.createElement)(RoomAvatar, { room: room2, roster, size: 24 }),
       title: room2.name,
       subtitle: t("{count} members", { count: room2.members.length }),
       badge: room2.hidden ? t("Hidden") : void 0,
@@ -40641,7 +41249,7 @@ function CommandPalette({ start, token, roster, actions, useSessions }) {
   if (people.length) sections.push([t("Bots"), people]);
   const agents = (roster.agents ?? []).filter(() => matchesName("DSH Agent")).map((agent) => ({
     key: agent.id,
-    avatar: (0, import_react60.createElement)("span", { className: "bt-palette-agent" }, (0, import_react60.createElement)(import_dsh_client_ui_primitives.FishLogo, { size: 18 })),
+    avatar: (0, import_react61.createElement)("span", { className: "bt-palette-agent" }, (0, import_react61.createElement)(import_dsh_client_ui_primitives.FishLogo, { size: 18 })),
     title: "DSH Agent",
     subtitle: t("Plain dsh session"),
     run: () => actions.openAgent(agent.id)
@@ -40654,16 +41262,16 @@ function CommandPalette({ start, token, roster, actions, useSessions }) {
       key: `${id}:${turn}`,
       title: bot?.name ?? room2?.name ?? t("Bot"),
       subtitle: snippet,
-      avatar: bot ? (0, import_react60.createElement)(BotAvatar, { bot, size: 24, badge: false, live: false }) : (0, import_react60.createElement)(RoomAvatar, { room: room2, roster, size: 24 }),
+      avatar: bot ? (0, import_react61.createElement)(BotAvatar, { bot, size: 24, badge: false, live: false }) : (0, import_react61.createElement)(RoomAvatar, { room: room2, roster, size: 24 }),
       run: () => actions.openSession(id)
     };
   });
   if (messages.length) sections.push([t("Messages"), messages]);
   const commands = [
-    { key: "cmd:new", icon: (0, import_react60.createElement)(PlusIcon), title: t("New chat"), run: () => actions.openNewChat("new") },
-    { key: "cmd:bot", icon: (0, import_react60.createElement)(PlusIcon), title: t("Create Bot"), run: () => actions.openNewChat("create") },
-    { key: "cmd:group", icon: (0, import_react60.createElement)(PeopleIcon), title: t("Create group chat"), run: () => actions.openNewChat("group") },
-    { key: "cmd:settings", icon: (0, import_react60.createElement)(GearIcon), title: t("Settings"), run: () => actions.openSettings("general") }
+    { key: "cmd:new", icon: (0, import_react61.createElement)(PlusIcon), title: t("New chat"), run: () => actions.openNewChat("new") },
+    { key: "cmd:bot", icon: (0, import_react61.createElement)(PlusIcon), title: t("Create Bot"), run: () => actions.openNewChat("create") },
+    { key: "cmd:group", icon: (0, import_react61.createElement)(PeopleIcon), title: t("Create group chat"), run: () => actions.openNewChat("group") },
+    { key: "cmd:settings", icon: (0, import_react61.createElement)(GearIcon), title: t("Settings"), run: () => actions.openSettings("general") }
   ].filter((command) => matchesName(command.title));
   if (commands.length) sections.push([t("Commands"), commands]);
   const rows2 = sections.flatMap(([, items]) => items);
@@ -40673,7 +41281,7 @@ function CommandPalette({ start, token, roster, actions, useSessions }) {
 ${shown}`, { axis: "y", ...QUICK_EDGES });
   const listRef = glide2.box;
   useFlip(listRef, shown, "[data-flip]");
-  (0, import_react60.useEffect)(() => {
+  (0, import_react61.useEffect)(() => {
     listRef.current?.querySelector("[aria-selected=true]")?.scrollIntoView({ block: "nearest" });
   }, [active, query]);
   const choose = (row) => {
@@ -40682,18 +41290,18 @@ ${shown}`, { axis: "y", ...QUICK_EDGES });
     close();
   };
   let index = -1;
-  return (0, import_react60.createElement)(
+  return (0, import_react61.createElement)(
     "div",
     { className: "bt-palette-layer", "data-leaving": leaving || void 0 },
-    (0, import_react60.createElement)("div", { className: "bt-backdrop", onMouseDown: close }),
-    (0, import_react60.createElement)(
+    (0, import_react61.createElement)("div", { className: "bt-backdrop", onMouseDown: close }),
+    (0, import_react61.createElement)(
       "div",
       { className: "bt-palette", role: "dialog", "aria-label": t("Search"), "aria-modal": true },
-      (0, import_react60.createElement)(
+      (0, import_react61.createElement)(
         "div",
         { className: "bt-palette-head" },
-        (0, import_react60.createElement)("span", { className: "bt-palette-glyph", "aria-hidden": true }, (0, import_react60.createElement)(SearchIcon)),
-        (0, import_react60.createElement)("input", {
+        (0, import_react61.createElement)("span", { className: "bt-palette-glyph", "aria-hidden": true }, (0, import_react61.createElement)(SearchIcon)),
+        (0, import_react61.createElement)("input", {
           autoFocus: true,
           value: query,
           placeholder: t("Search Bots, chats and messages"),
@@ -40719,29 +41327,29 @@ ${shown}`, { axis: "y", ...QUICK_EDGES });
             }
           }
         }),
-        query ? (0, import_react60.createElement)("button", { type: "button", className: "bt-palette-clear", "aria-label": t("Clear search"), onClick: () => {
+        query ? (0, import_react61.createElement)("button", { type: "button", className: "bt-palette-clear", "aria-label": t("Clear search"), onClick: () => {
           setQuery("");
           setCursor(0);
-        } }, (0, import_react60.createElement)(CloseIcon)) : null
+        } }, (0, import_react61.createElement)(CloseIcon)) : null
       ),
-      (0, import_react60.createElement)(
+      (0, import_react61.createElement)(
         "div",
         { ref: listRef, id: "bt-palette-list", className: "bt-palette-list", role: "listbox", "aria-label": t("Results") },
-        (0, import_react60.createElement)("span", { ref: glide2.thumb, className: "bt-thumb", "aria-hidden": true }),
-        rows2.length === 0 ? (0, import_react60.createElement)(
+        (0, import_react61.createElement)("span", { ref: glide2.thumb, className: "bt-thumb", "aria-hidden": true }),
+        rows2.length === 0 ? (0, import_react61.createElement)(
           "div",
           { className: "bt-palette-empty" },
-          (0, import_react60.createElement)("span", { className: "bt-palette-empty-icon", "aria-hidden": true }, (0, import_react60.createElement)(SearchIcon)),
-          (0, import_react60.createElement)("span", { className: "bt-palette-empty-label" }, t("No results")),
-          (0, import_react60.createElement)("span", { className: "bt-palette-empty-hint" }, t("Try a Bot name or words from a message"))
-        ) : sections.map(([title, items]) => (0, import_react60.createElement)(
-          import_react60.Fragment,
+          (0, import_react61.createElement)("span", { className: "bt-palette-empty-icon", "aria-hidden": true }, (0, import_react61.createElement)(SearchIcon)),
+          (0, import_react61.createElement)("span", { className: "bt-palette-empty-label" }, t("No results")),
+          (0, import_react61.createElement)("span", { className: "bt-palette-empty-hint" }, t("Try a Bot name or words from a message"))
+        ) : sections.map(([title, items]) => (0, import_react61.createElement)(
+          import_react61.Fragment,
           { key: title },
-          (0, import_react60.createElement)("div", { className: "bt-palette-section", role: "presentation", "data-flip": `section:${title}` }, title),
+          (0, import_react61.createElement)("div", { className: "bt-palette-section", role: "presentation", "data-flip": `section:${title}` }, title),
           items.map((row) => {
             index += 1;
             const at = index;
-            return (0, import_react60.createElement)(
+            return (0, import_react61.createElement)(
               "button",
               {
                 key: row.key,
@@ -40755,14 +41363,14 @@ ${shown}`, { axis: "y", ...QUICK_EDGES });
                 },
                 onClick: () => choose(row)
               },
-              (0, import_react60.createElement)("span", { className: "bt-palette-lead" }, row.avatar ?? (0, import_react60.createElement)("span", { className: "bt-palette-cmd" }, row.icon)),
-              (0, import_react60.createElement)(
+              (0, import_react61.createElement)("span", { className: "bt-palette-lead" }, row.avatar ?? (0, import_react61.createElement)("span", { className: "bt-palette-cmd" }, row.icon)),
+              (0, import_react61.createElement)(
                 "span",
                 { className: "bt-palette-text" },
-                (0, import_react60.createElement)("span", { className: "bt-palette-title" }, row.title),
-                row.subtitle ? (0, import_react60.createElement)("span", { className: "bt-palette-sub" }, row.subtitle) : null
+                (0, import_react61.createElement)("span", { className: "bt-palette-title" }, row.title),
+                row.subtitle ? (0, import_react61.createElement)("span", { className: "bt-palette-sub" }, row.subtitle) : null
               ),
-              row.badge ? (0, import_react60.createElement)("span", { className: "bt-palette-badge" }, row.badge) : null
+              row.badge ? (0, import_react61.createElement)("span", { className: "bt-palette-badge" }, row.badge) : null
             );
           })
         ))
@@ -40772,7 +41380,7 @@ ${shown}`, { axis: "y", ...QUICK_EDGES });
 }
 
 // src/client/group-search.js
-var import_react61 = require("react");
+var import_react62 = require("react");
 var EXIT_MS = 160;
 var MIN_QUERY = 2;
 var DEBOUNCE_MS = 220;
@@ -40782,7 +41390,7 @@ function marked(text, terms) {
   const source = String(text ?? "");
   if (terms.length === 0) return source;
   const pattern = new RegExp(`(${terms.map((term) => term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})`, "giu");
-  return source.split(pattern).map((part, at) => at % 2 === 1 ? (0, import_react61.createElement)("mark", { key: at }, part) : part);
+  return source.split(pattern).map((part, at) => at % 2 === 1 ? (0, import_react62.createElement)("mark", { key: at }, part) : part);
 }
 function snippetOf(text, terms) {
   const source = String(text ?? "");
@@ -40797,56 +41405,56 @@ function snippetOf(text, terms) {
 }
 var authorOf = (line, roster) => line?.botId === void 0 ? t("You") : roster.byId[line.botId]?.name ?? line?.name ?? t("a Bot");
 function Line({ line, roster, terms, className }) {
-  return (0, import_react61.createElement)(
+  return (0, import_react62.createElement)(
     "div",
     { className },
-    (0, import_react61.createElement)(
+    (0, import_react62.createElement)(
       "div",
       { className: "bt-gs-meta" },
-      (0, import_react61.createElement)("span", { className: "bt-gs-author" }, authorOf(line, roster)),
-      Number.isFinite(line.time) ? (0, import_react61.createElement)("span", { className: "bt-gs-when" }, clockLabel(line.time)) : null
+      (0, import_react62.createElement)("span", { className: "bt-gs-author" }, authorOf(line, roster)),
+      Number.isFinite(line.time) ? (0, import_react62.createElement)("span", { className: "bt-gs-when" }, clockLabel(line.time)) : null
     ),
-    (0, import_react61.createElement)("div", { className: "bt-gs-line" }, marked(line.text, terms))
+    (0, import_react62.createElement)("div", { className: "bt-gs-line" }, marked(line.text, terms))
   );
 }
 function Detail({ hit, roster, terms, back }) {
-  return (0, import_react61.createElement)(
+  return (0, import_react62.createElement)(
     "div",
     { className: "bt-gs-detail" },
-    (0, import_react61.createElement)(
+    (0, import_react62.createElement)(
       "button",
       { type: "button", className: "bt-gs-back", onClick: back },
-      (0, import_react61.createElement)("span", { className: "bt-gs-back-ico", "aria-hidden": true }, (0, import_react61.createElement)(ChevronRightIcon)),
+      (0, import_react62.createElement)("span", { className: "bt-gs-back-ico", "aria-hidden": true }, (0, import_react62.createElement)(ChevronRightIcon)),
       t("Back to results")
     ),
-    (0, import_react61.createElement)(
+    (0, import_react62.createElement)(
       "div",
       { className: "bt-gs-meta" },
-      (0, import_react61.createElement)("span", { className: "bt-gs-author" }, authorOf(hit, roster)),
-      Number.isFinite(hit.time) ? (0, import_react61.createElement)("span", { className: "bt-gs-when" }, clockLabel(hit.time)) : null
+      (0, import_react62.createElement)("span", { className: "bt-gs-author" }, authorOf(hit, roster)),
+      Number.isFinite(hit.time) ? (0, import_react62.createElement)("span", { className: "bt-gs-when" }, clockLabel(hit.time)) : null
     ),
-    (0, import_react61.createElement)("div", { className: "bt-gs-full" }, marked(hit.text, terms)),
-    hit.before !== void 0 || hit.after !== void 0 ? (0, import_react61.createElement)(
+    (0, import_react62.createElement)("div", { className: "bt-gs-full" }, marked(hit.text, terms)),
+    hit.before !== void 0 || hit.after !== void 0 ? (0, import_react62.createElement)(
       "div",
       { className: "bt-gs-context", "aria-label": t("Around this message") },
-      (0, import_react61.createElement)("div", { className: "bt-gs-context-label" }, t("Around this message")),
-      hit.before !== void 0 ? (0, import_react61.createElement)(Line, { line: hit.before, roster, terms, className: "bt-gs-ctx" }) : null,
-      hit.after !== void 0 ? (0, import_react61.createElement)(Line, { line: hit.after, roster, terms, className: "bt-gs-ctx" }) : null
+      (0, import_react62.createElement)("div", { className: "bt-gs-context-label" }, t("Around this message")),
+      hit.before !== void 0 ? (0, import_react62.createElement)(Line, { line: hit.before, roster, terms, className: "bt-gs-ctx" }) : null,
+      hit.after !== void 0 ? (0, import_react62.createElement)(Line, { line: hit.after, roster, terms, className: "bt-gs-ctx" }) : null
     ) : null
   );
 }
 function GroupSearch({ room: room2, roster, token, actions }) {
-  const [query, setQuery] = (0, import_react61.useState)("");
-  const [answer, setAnswer] = (0, import_react61.useState)(null);
-  const [busy, setBusy] = (0, import_react61.useState)(false);
-  const [paging, setPaging] = (0, import_react61.useState)(false);
-  const [error, setError] = (0, import_react61.useState)(null);
-  const [moreError, setMoreError] = (0, import_react61.useState)(null);
-  const [picked, setPicked] = (0, import_react61.useState)(null);
-  const [leaving, setLeaving] = (0, import_react61.useState)(false);
-  const input = (0, import_react61.useRef)(null);
-  const generation = (0, import_react61.useRef)(0);
-  const moreCall = (0, import_react61.useRef)(null);
+  const [query, setQuery] = (0, import_react62.useState)("");
+  const [answer, setAnswer] = (0, import_react62.useState)(null);
+  const [busy, setBusy] = (0, import_react62.useState)(false);
+  const [paging, setPaging] = (0, import_react62.useState)(false);
+  const [error, setError] = (0, import_react62.useState)(null);
+  const [moreError, setMoreError] = (0, import_react62.useState)(null);
+  const [picked, setPicked] = (0, import_react62.useState)(null);
+  const [leaving, setLeaving] = (0, import_react62.useState)(false);
+  const input = (0, import_react62.useRef)(null);
+  const generation = (0, import_react62.useRef)(0);
+  const moreCall = (0, import_react62.useRef)(null);
   const close = () => {
     if (leaving) return;
     setLeaving(true);
@@ -40855,7 +41463,7 @@ function GroupSearch({ room: room2, roster, token, actions }) {
   useEscape(close);
   const terms = termsOf(query);
   const text = query.trim();
-  (0, import_react61.useEffect)(() => {
+  (0, import_react62.useEffect)(() => {
     const mine = ++generation.current;
     moreCall.current?.abort();
     if (text.length < MIN_QUERY) {
@@ -40888,7 +41496,7 @@ function GroupSearch({ room: room2, roster, token, actions }) {
       moreCall.current?.abort();
     };
   }, [text, room2.id]);
-  (0, import_react61.useEffect)(() => {
+  (0, import_react62.useEffect)(() => {
     setPicked(null);
   }, [text]);
   const results = answer?.results ?? [];
@@ -40917,21 +41525,21 @@ function GroupSearch({ room: room2, roster, token, actions }) {
       setMoreError(failure);
     });
   };
-  const body = picked !== null ? (0, import_react61.createElement)(Detail, { hit: picked, roster, terms, back: () => setPicked(null) }) : text.length < MIN_QUERY ? (0, import_react61.createElement)(
+  const body = picked !== null ? (0, import_react62.createElement)(Detail, { hit: picked, roster, terms, back: () => setPicked(null) }) : text.length < MIN_QUERY ? (0, import_react62.createElement)(
     "div",
     { className: "bt-palette-empty" },
-    (0, import_react61.createElement)("span", { className: "bt-palette-empty-icon", "aria-hidden": true }, (0, import_react61.createElement)(SearchIcon)),
-    (0, import_react61.createElement)("span", { className: "bt-palette-empty-label" }, t("Search this group’s messages")),
-    (0, import_react61.createElement)("span", { className: "bt-palette-empty-hint" }, t("Type at least two characters"))
-  ) : error !== null ? (0, import_react61.createElement)("div", { className: "bt-palette-empty" }, (0, import_react61.createElement)("span", { className: "bt-palette-empty-label" }, hostText(error?.message ?? error))) : results.length === 0 ? (0, import_react61.createElement)(
+    (0, import_react62.createElement)("span", { className: "bt-palette-empty-icon", "aria-hidden": true }, (0, import_react62.createElement)(SearchIcon)),
+    (0, import_react62.createElement)("span", { className: "bt-palette-empty-label" }, t("Search this group’s messages")),
+    (0, import_react62.createElement)("span", { className: "bt-palette-empty-hint" }, t("Type at least two characters"))
+  ) : error !== null ? (0, import_react62.createElement)("div", { className: "bt-palette-empty" }, (0, import_react62.createElement)("span", { className: "bt-palette-empty-label" }, hostText(error?.message ?? error))) : results.length === 0 ? (0, import_react62.createElement)(
     "div",
     { className: "bt-palette-empty" },
-    busy ? (0, import_react61.createElement)("span", { className: "bt-palette-empty-label" }, t("Searching…")) : [
-      (0, import_react61.createElement)("span", { className: "bt-palette-empty-icon", key: "ico", "aria-hidden": true }, (0, import_react61.createElement)(SearchIcon)),
-      (0, import_react61.createElement)("span", { className: "bt-palette-empty-label", key: "label" }, t("No messages found")),
-      (0, import_react61.createElement)("span", { className: "bt-palette-empty-hint", key: "hint" }, t("Try a different word"))
+    busy ? (0, import_react62.createElement)("span", { className: "bt-palette-empty-label" }, t("Searching…")) : [
+      (0, import_react62.createElement)("span", { className: "bt-palette-empty-icon", key: "ico", "aria-hidden": true }, (0, import_react62.createElement)(SearchIcon)),
+      (0, import_react62.createElement)("span", { className: "bt-palette-empty-label", key: "label" }, t("No messages found")),
+      (0, import_react62.createElement)("span", { className: "bt-palette-empty-hint", key: "hint" }, t("Try a different word"))
     ]
-  ) : results.map((hit, index) => (0, import_react61.createElement)(
+  ) : results.map((hit, index) => (0, import_react62.createElement)(
     "button",
     {
       key: `${hit.seq ?? index}`,
@@ -40939,39 +41547,39 @@ function GroupSearch({ room: room2, roster, token, actions }) {
       className: "bt-gs-row",
       onClick: () => setPicked(hit)
     },
-    (0, import_react61.createElement)(
+    (0, import_react62.createElement)(
       "div",
       { className: "bt-gs-meta" },
-      (0, import_react61.createElement)("span", { className: "bt-gs-author" }, authorOf(hit, roster)),
-      Number.isFinite(hit.time) ? (0, import_react61.createElement)("span", { className: "bt-gs-when" }, clockLabel(hit.time)) : null
+      (0, import_react62.createElement)("span", { className: "bt-gs-author" }, authorOf(hit, roster)),
+      Number.isFinite(hit.time) ? (0, import_react62.createElement)("span", { className: "bt-gs-when" }, clockLabel(hit.time)) : null
     ),
-    (0, import_react61.createElement)("div", { className: "bt-gs-snippet" }, marked(snippetOf(hit.text, terms), terms))
+    (0, import_react62.createElement)("div", { className: "bt-gs-snippet" }, marked(snippetOf(hit.text, terms), terms))
   ));
   const current2 = answer?.query === text;
-  const more = current2 && answer?.hasMore === true ? (0, import_react61.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: paging, onClick: () => void loadMore() }, t("Load more")) : null;
-  const footer = current2 && picked === null && error === null && text.length >= MIN_QUERY && results.length > 0 ? (0, import_react61.createElement)(
+  const more = current2 && answer?.hasMore === true ? (0, import_react62.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: paging, onClick: () => void loadMore() }, t("Load more")) : null;
+  const footer = current2 && picked === null && error === null && text.length >= MIN_QUERY && results.length > 0 ? (0, import_react62.createElement)(
     "div",
     { className: "bt-gs-foot" },
-    (0, import_react61.createElement)("span", null, results.length === 1 ? t("1 match") : t("{count} matches", { count: results.length })),
-    more !== null || moreError !== null ? (0, import_react61.createElement)(
+    (0, import_react62.createElement)("span", null, results.length === 1 ? t("1 match") : t("{count} matches", { count: results.length })),
+    more !== null || moreError !== null ? (0, import_react62.createElement)(
       "span",
       { className: "bt-gs-foot-side" },
-      moreError !== null ? (0, import_react61.createElement)("span", null, hostText(moreError?.message ?? moreError)) : null,
+      moreError !== null ? (0, import_react62.createElement)("span", null, hostText(moreError?.message ?? moreError)) : null,
       more
     ) : null
   ) : null;
-  return (0, import_react61.createElement)(
+  return (0, import_react62.createElement)(
     "div",
     { className: "bt-palette-layer", "data-leaving": leaving || void 0 },
-    (0, import_react61.createElement)("div", { className: "bt-backdrop", onMouseDown: close }),
-    (0, import_react61.createElement)(
+    (0, import_react62.createElement)("div", { className: "bt-backdrop", onMouseDown: close }),
+    (0, import_react62.createElement)(
       "div",
       { className: "bt-palette bt-gs", role: "dialog", "aria-modal": true, "aria-label": t("Search this group") },
-      (0, import_react61.createElement)(
+      (0, import_react62.createElement)(
         "div",
         { className: "bt-palette-head" },
-        (0, import_react61.createElement)("span", { className: "bt-palette-glyph", "aria-hidden": true }, (0, import_react61.createElement)(SearchIcon)),
-        (0, import_react61.createElement)("input", {
+        (0, import_react62.createElement)("span", { className: "bt-palette-glyph", "aria-hidden": true }, (0, import_react62.createElement)(SearchIcon)),
+        (0, import_react62.createElement)("input", {
           ref: input,
           autoFocus: true,
           value: query,
@@ -40979,20 +41587,20 @@ function GroupSearch({ room: room2, roster, token, actions }) {
           placeholder: t("Search messages in {name}", { name: room2.name }),
           onChange: (event) => setQuery(event.target.value)
         }),
-        query !== "" ? (0, import_react61.createElement)("button", { type: "button", className: "bt-palette-clear", "aria-label": t("Clear search"), onClick: () => {
+        query !== "" ? (0, import_react62.createElement)("button", { type: "button", className: "bt-palette-clear", "aria-label": t("Clear search"), onClick: () => {
           setQuery("");
           setPicked(null);
           input.current?.focus();
-        } }, (0, import_react61.createElement)(CloseIcon)) : (0, import_react61.createElement)("button", { type: "button", className: "bt-palette-clear", "aria-label": t("Close"), onClick: close }, (0, import_react61.createElement)(CloseIcon))
+        } }, (0, import_react62.createElement)(CloseIcon)) : (0, import_react62.createElement)("button", { type: "button", className: "bt-palette-clear", "aria-label": t("Close"), onClick: close }, (0, import_react62.createElement)(CloseIcon))
       ),
-      (0, import_react61.createElement)("div", { className: "bt-gs-body", "aria-live": "polite" }, body),
+      (0, import_react62.createElement)("div", { className: "bt-gs-body", "aria-live": "polite" }, body),
       footer
     )
   );
 }
 
 // src/client/paste-card.js
-var import_react62 = require("react");
+var import_react63 = require("react");
 var PASTE_LIMIT = 1500;
 var NO_BLOCKS = [];
 var NO_IDS = [];
@@ -41048,18 +41656,18 @@ function handOffPaste({ event, card, sessionId, actions }) {
   return file.name;
 }
 function PasteCard({ text, onPutBack, onRemove }) {
-  return (0, import_react62.createElement)(
+  return (0, import_react63.createElement)(
     "div",
     { className: "bt-paste-card" },
-    (0, import_react62.createElement)("span", { className: "bt-paste-icon", "aria-hidden": true }, (0, import_react62.createElement)(TextIcon)),
-    (0, import_react62.createElement)("span", { className: "bt-paste-label" }, t("Pasted text · {count} characters", { count: text.length.toLocaleString() })),
-    onPutBack === void 0 ? null : (0, import_react62.createElement)("button", {
+    (0, import_react63.createElement)("span", { className: "bt-paste-icon", "aria-hidden": true }, (0, import_react63.createElement)(TextIcon)),
+    (0, import_react63.createElement)("span", { className: "bt-paste-label" }, t("Pasted text · {count} characters", { count: text.length.toLocaleString() })),
+    onPutBack === void 0 ? null : (0, import_react63.createElement)("button", {
       type: "button",
       className: "bt-paste-put",
       title: t("Put back into the box"),
       onClick: onPutBack
     }, t("Put back")),
-    (0, import_react62.createElement)("button", {
+    (0, import_react63.createElement)("button", {
       type: "button",
       className: "bt-paste-x",
       "aria-label": t("Remove pasted text"),
@@ -41076,7 +41684,7 @@ function PasteDock({ sessionId, inputActions, useUi, useInput, actions }) {
     if (block.attachmentId && typeof inputActions?.removeAttachment === "function") inputActions.removeAttachment(block.attachmentId);
     actions.removePaste(sessionId, [block.id]);
   };
-  return (0, import_react62.createElement)("div", { className: "bt-paste-dock" }, blocks.map((block) => (0, import_react62.createElement)(PasteCard, {
+  return (0, import_react63.createElement)("div", { className: "bt-paste-dock" }, blocks.map((block) => (0, import_react63.createElement)(PasteCard, {
     key: block.id,
     text: block.text,
     onPutBack: () => {
@@ -41086,12 +41694,12 @@ function PasteDock({ sessionId, inputActions, useUi, useInput, actions }) {
   })));
 }
 function PasteGuard({ sessionId, inputActions, useInput, useUi, actions }) {
-  const anchor = (0, import_react62.useRef)(null);
+  const anchor = (0, import_react63.useRef)(null);
   const blocks = useUi((state) => state.paste?.[sessionId]) ?? NO_BLOCKS;
   const ids = useInput?.((state) => state.attachmentIds) ?? NO_IDS;
-  const latest = (0, import_react62.useRef)({ blocks, ids });
+  const latest = (0, import_react63.useRef)({ blocks, ids });
   latest.current = { blocks, ids };
-  (0, import_react62.useEffect)(() => {
+  (0, import_react63.useEffect)(() => {
     if (!blocks.some((block) => block.attachmentId === null)) return void 0;
     const card = anchor.current?.closest("[data-composer-card]");
     if (card === null || card === void 0) return void 0;
@@ -41106,11 +41714,11 @@ function PasteGuard({ sessionId, inputActions, useInput, useUi, actions }) {
     observer.observe(card, { childList: true, subtree: true });
     return () => observer.disconnect();
   }, [ids, blocks]);
-  (0, import_react62.useEffect)(() => {
+  (0, import_react63.useEffect)(() => {
     const gone = latest.current.blocks.filter((block) => !blockLives(block, ids));
     if (gone.length > 0) actions.removePaste(sessionId, gone.map((block) => block.id));
   }, [ids]);
-  (0, import_react62.useEffect)(() => {
+  (0, import_react63.useEffect)(() => {
     const waiting = blocks.filter((block) => block.attachmentId === null);
     if (waiting.length === 0) return void 0;
     const timer = setTimeout(() => {
@@ -41123,7 +41731,7 @@ function PasteGuard({ sessionId, inputActions, useInput, useUi, actions }) {
     }, ORPHAN_MS);
     return () => clearTimeout(timer);
   }, [blocks]);
-  (0, import_react62.useEffect)(() => {
+  (0, import_react63.useEffect)(() => {
     const card = anchor.current?.closest("[data-composer-card]");
     if (card === null || card === void 0) return void 0;
     const mark2 = () => {
@@ -41139,7 +41747,7 @@ function PasteGuard({ sessionId, inputActions, useInput, useUi, actions }) {
     observer.observe(card, { childList: true, subtree: true });
     return () => observer.disconnect();
   }, [blocks, ids]);
-  (0, import_react62.useEffect)(() => {
+  (0, import_react63.useEffect)(() => {
     const card = anchor.current?.closest("[data-composer-card]");
     if (card === null || card === void 0) return void 0;
     const onPaste = (event) => {
@@ -41148,7 +41756,7 @@ function PasteGuard({ sessionId, inputActions, useInput, useUi, actions }) {
     card.addEventListener("paste", onPaste, true);
     return () => card.removeEventListener("paste", onPaste, true);
   }, [sessionId]);
-  return (0, import_react62.createElement)("span", { ref: anchor, className: "bt-paste-guard", "aria-hidden": true });
+  return (0, import_react63.createElement)("span", { ref: anchor, className: "bt-paste-guard", "aria-hidden": true });
 }
 var PASTE_CSS = `
 .bt-paste-guard{display:none}
@@ -41164,20 +41772,20 @@ var PASTE_CSS = `
 `;
 
 // src/client/new-chat.js
-var import_react63 = require("react");
+var import_react64 = require("react");
 function NewChat({ mode, sectionId = null, paneLeft, roster, actions }) {
-  const [query, setQuery] = (0, import_react63.useState)("");
-  const [picked, setPicked] = (0, import_react63.useState)([]);
-  const [group, setGroup] = (0, import_react63.useState)(mode === "group");
-  const [admin, setAdmin] = (0, import_react63.useState)(null);
-  const [message, setMessage] = (0, import_react63.useState)("");
-  const [pasted, setPasted] = (0, import_react63.useState)(null);
-  const [busy, setBusy] = (0, import_react63.useState)(false);
-  const [error, setError] = (0, import_react63.useState)("");
-  const [cursor, setCursor] = (0, import_react63.useState)(0);
-  const [draft, setDraft] = (0, import_react63.useState)(mode === "create" ? { name: "", fromList: false, sectionId } : null);
-  const inputRef = (0, import_react63.useRef)(null);
-  const messageRef = (0, import_react63.useRef)(null);
+  const [query, setQuery] = (0, import_react64.useState)("");
+  const [picked, setPicked] = (0, import_react64.useState)([]);
+  const [group, setGroup] = (0, import_react64.useState)(mode === "group");
+  const [admin, setAdmin] = (0, import_react64.useState)(null);
+  const [message, setMessage] = (0, import_react64.useState)("");
+  const [pasted, setPasted] = (0, import_react64.useState)(null);
+  const [busy, setBusy] = (0, import_react64.useState)(false);
+  const [error, setError] = (0, import_react64.useState)("");
+  const [cursor, setCursor] = (0, import_react64.useState)(0);
+  const [draft, setDraft] = (0, import_react64.useState)(mode === "create" ? { name: "", fromList: false, sectionId } : null);
+  const inputRef = (0, import_react64.useRef)(null);
+  const messageRef = (0, import_react64.useRef)(null);
   const draftText = () => `${message}${pasted?.text ?? ""}`;
   const close = () => actions.closeOverlay();
   useEscape(close);
@@ -41266,14 +41874,14 @@ function NewChat({ mode, sectionId = null, paneLeft, roster, actions }) {
   });
   const options = [];
   if (!group && picked.length === 0 && mode !== "search" && wanted === "") {
-    options.push({ key: "new", icon: (0, import_react63.createElement)(PlusIcon), label: t("Create new Bot"), run: createBot });
-    options.push({ key: "group", icon: (0, import_react63.createElement)(PeopleIcon), label: t("Create group chat"), run: () => {
+    options.push({ key: "new", icon: (0, import_react64.createElement)(PlusIcon), label: t("Create new Bot"), run: createBot });
+    options.push({ key: "group", icon: (0, import_react64.createElement)(PeopleIcon), label: t("Create group chat"), run: () => {
       setGroup(true);
       setCursor(0);
       inputRef.current?.focus();
     } });
     if ((roster.agents ?? []).length === 0 && actions.addAgent) {
-      options.push({ key: "agent", icon: (0, import_react63.createElement)(import_dsh_client_ui_primitives.FishLogo, { size: 16 }), label: t("Add DSH Agent"), run: () => run2(async () => {
+      options.push({ key: "agent", icon: (0, import_react64.createElement)(import_dsh_client_ui_primitives.FishLogo, { size: 16 }), label: t("Add DSH Agent"), run: () => run2(async () => {
         await actions.addAgent();
         close();
       }) });
@@ -41282,19 +41890,19 @@ function NewChat({ mode, sectionId = null, paneLeft, roster, actions }) {
   for (const bot of matches2) {
     options.push({ key: bot.id, bot, label: bot.name, hint: choosingAdmin ? t("Make admin") : group || picked.length > 0 ? t("Add to group chat") : void 0, run: () => openBot(bot) });
   }
-  if (wanted !== "" && !exact && mode !== "search") options.push({ key: "create", icon: (0, import_react63.createElement)(PlusIcon), label: t("Create new Bot “{name}”", { name: query.trim() }), run: createBot });
+  if (wanted !== "" && !exact && mode !== "search") options.push({ key: "create", icon: (0, import_react64.createElement)(PlusIcon), label: t("Create new Bot “{name}”", { name: query.trim() }), run: createBot });
   const active = Math.min(cursor, Math.max(options.length - 1, 0));
   const listed = options.map((option) => option.key).join("\n");
   const glide2 = useGlide(`${active}
 ${listed}`, { axis: "y", ...QUICK_EDGES });
   useFlip(glide2.box, listed, "[data-flip]");
-  const drop = (0, import_react63.useRef)(null);
+  const drop = (0, import_react64.useRef)(null);
   useMorph(drop, listed);
   if (draft) {
-    return (0, import_react63.createElement)(
+    return (0, import_react64.createElement)(
       "div",
       { className: "bt-pane", style: { left: paneLeft } },
-      (0, import_react63.createElement)(CreateBot, {
+      (0, import_react64.createElement)(CreateBot, {
         roster,
         actions,
         start: draft,
@@ -41315,33 +41923,33 @@ ${listed}`, { axis: "y", ...QUICK_EDGES });
     if (picked.length > 0) setPicked((current2) => current2.slice(0, -1));
     else if (admin !== null) setAdmin(null);
   };
-  return (0, import_react63.createElement)(
+  return (0, import_react64.createElement)(
     "div",
     { className: "bt-pane", style: { left: paneLeft } },
-    (0, import_react63.createElement)(
+    (0, import_react64.createElement)(
       "div",
       { className: "bt-newchat", role: "dialog", "aria-label": mode === "search" ? t("Search") : t("New chat") },
-      (0, import_react63.createElement)(
+      (0, import_react64.createElement)(
         "div",
         { className: "bt-to" },
-        (0, import_react63.createElement)("span", { className: "bt-to-label" }, t("To:")),
-        adminBot ? (0, import_react63.createElement)(
+        (0, import_react64.createElement)("span", { className: "bt-to-label" }, t("To:")),
+        adminBot ? (0, import_react64.createElement)(
           "span",
           { key: adminBot.id, className: "bt-token bt-token-admin", title: t("Admin") },
-          (0, import_react63.createElement)(BotMark, { bot: adminBot, size: 16 }),
+          (0, import_react64.createElement)(BotMark, { bot: adminBot, size: 16 }),
           adminBot.name,
-          (0, import_react63.createElement)(AdminStar),
-          (0, import_react63.createElement)("button", { type: "button", "aria-label": t("Remove {name}", { name: adminBot.name }), onClick: () => setAdmin(null) }, "×")
+          (0, import_react64.createElement)(AdminStar),
+          (0, import_react64.createElement)("button", { type: "button", "aria-label": t("Remove {name}", { name: adminBot.name }), onClick: () => setAdmin(null) }, "×")
         ) : null,
-        choosingAdmin ? (0, import_react63.createElement)("span", { className: "bt-to-star", "aria-hidden": true }, (0, import_react63.createElement)(AdminStar)) : null,
-        pickedBots.map((bot) => (0, import_react63.createElement)(
+        choosingAdmin ? (0, import_react64.createElement)("span", { className: "bt-to-star", "aria-hidden": true }, (0, import_react64.createElement)(AdminStar)) : null,
+        pickedBots.map((bot) => (0, import_react64.createElement)(
           "span",
           { key: bot.id, className: "bt-token" },
-          (0, import_react63.createElement)(BotMark, { bot, size: 16 }),
+          (0, import_react64.createElement)(BotMark, { bot, size: 16 }),
           bot.name,
-          (0, import_react63.createElement)("button", { type: "button", "aria-label": t("Remove {name}", { name: bot.name }), onClick: () => setPicked((current2) => current2.filter((id) => id !== bot.id)) }, "×")
+          (0, import_react64.createElement)("button", { type: "button", "aria-label": t("Remove {name}", { name: bot.name }), onClick: () => setPicked((current2) => current2.filter((id) => id !== bot.id)) }, "×")
         )),
-        (0, import_react63.createElement)("input", {
+        (0, import_react64.createElement)("input", {
           ref: inputRef,
           autoFocus: true,
           value: query,
@@ -41365,20 +41973,20 @@ ${listed}`, { axis: "y", ...QUICK_EDGES });
             } else if (event.key === "Backspace" && query === "") unpick();
           }
         }),
-        group && admin !== null ? (0, import_react63.createElement)("button", {
+        group && admin !== null ? (0, import_react64.createElement)("button", {
           type: "button",
           className: "bt-send bt-to-create",
           disabled: busy || picked.length === 0,
           title: picked.length === 0 ? t("Add at least one more Bot") : void 0,
           onClick: createGroup
         }, t("Create group chat")) : null,
-        (0, import_react63.createElement)("button", { type: "button", className: "bt-x", "aria-label": t("Close new chat"), onClick: close }, "×")
+        (0, import_react64.createElement)("button", { type: "button", className: "bt-x", "aria-label": t("Close new chat"), onClick: close }, "×")
       ),
-      (0, import_react63.createElement)("div", { ref: drop, className: "bt-drop" }, (0, import_react63.createElement)(
+      (0, import_react64.createElement)("div", { ref: drop, className: "bt-drop" }, (0, import_react64.createElement)(
         "div",
         { ref: glide2.box, role: "listbox", "aria-label": t("Recipients"), className: "bt-drop-list" },
-        (0, import_react63.createElement)("span", { ref: glide2.thumb, className: "bt-thumb", "aria-hidden": true }),
-        options.length === 0 ? (0, import_react63.createElement)("div", { className: "bt-hint" }, mode === "search" ? t("No Bots match") : t("Type a name to create a Bot")) : options.map((option, index) => (0, import_react63.createElement)(
+        (0, import_react64.createElement)("span", { ref: glide2.thumb, className: "bt-thumb", "aria-hidden": true }),
+        options.length === 0 ? (0, import_react64.createElement)("div", { className: "bt-hint" }, mode === "search" ? t("No Bots match") : t("Type a name to create a Bot")) : options.map((option, index) => (0, import_react64.createElement)(
           "button",
           {
             key: option.key,
@@ -41390,17 +41998,17 @@ ${listed}`, { axis: "y", ...QUICK_EDGES });
             onMouseEnter: () => setCursor(index),
             onClick: option.run
           },
-          option.bot ? (0, import_react63.createElement)(BotMark, { bot: option.bot, size: 22 }) : (0, import_react63.createElement)("span", { className: "bt-option-icon" }, option.icon),
-          (0, import_react63.createElement)("span", { className: "bt-option-label" }, option.label),
-          option.hint && index === active ? (0, import_react63.createElement)("span", { className: "bt-option-hint" }, option.hint) : null
+          option.bot ? (0, import_react64.createElement)(BotMark, { bot: option.bot, size: 22 }) : (0, import_react64.createElement)("span", { className: "bt-option-icon" }, option.icon),
+          (0, import_react64.createElement)("span", { className: "bt-option-label" }, option.label),
+          option.hint && index === active ? (0, import_react64.createElement)("span", { className: "bt-option-hint" }, option.hint) : null
         ))
       )),
-      (0, import_react63.createElement)("div", { className: "bt-nc-spacer" }),
-      error ? (0, import_react63.createElement)("div", { className: "bt-error" }, error) : null,
-      (0, import_react63.createElement)(
+      (0, import_react64.createElement)("div", { className: "bt-nc-spacer" }),
+      error ? (0, import_react64.createElement)("div", { className: "bt-error" }, error) : null,
+      (0, import_react64.createElement)(
         "div",
         { className: "bt-nc-compose" },
-        pasted === null ? null : (0, import_react63.createElement)("div", { className: "bt-paste-dock" }, (0, import_react63.createElement)(PasteCard, {
+        pasted === null ? null : (0, import_react64.createElement)("div", { className: "bt-paste-dock" }, (0, import_react64.createElement)(PasteCard, {
           text: pasted.text,
           onPutBack: () => {
             setMessage((current2) => `${current2}${pasted.text}`);
@@ -41409,11 +42017,11 @@ ${listed}`, { axis: "y", ...QUICK_EDGES });
           },
           onRemove: () => setPasted(null)
         })),
-        (0, import_react63.createElement)(
+        (0, import_react64.createElement)(
           "div",
           { className: "bt-nc-card" },
-          (0, import_react63.createElement)("span", { className: "bt-nc-plus", "aria-hidden": true }, (0, import_react63.createElement)(PlusIcon)),
-          (0, import_react63.createElement)("textarea", {
+          (0, import_react64.createElement)("span", { className: "bt-nc-plus", "aria-hidden": true }, (0, import_react64.createElement)(PlusIcon)),
+          (0, import_react64.createElement)("textarea", {
             ref: messageRef,
             rows: 1,
             value: message,
@@ -41434,7 +42042,7 @@ ${listed}`, { axis: "y", ...QUICK_EDGES });
               }
             }
           }),
-          (0, import_react63.createElement)("button", { type: "button", className: "bt-nc-send", "aria-label": t("Send message"), disabled: busy || draftText().trim() === "" || picked.length === 0, onClick: sendMessage }, (0, import_react63.createElement)(ArrowUpIcon))
+          (0, import_react64.createElement)("button", { type: "button", className: "bt-nc-send", "aria-label": t("Send message"), disabled: busy || draftText().trim() === "" || picked.length === 0, onClick: sendMessage }, (0, import_react64.createElement)(ArrowUpIcon))
         )
       )
     )
@@ -41442,14 +42050,14 @@ ${listed}`, { axis: "y", ...QUICK_EDGES });
 }
 
 // src/client/exchange.js
-var import_react64 = require("react");
+var import_react65 = require("react");
 var SHEET_EXIT_MS = 220;
 function ExchangeDialog({ pair, paneLeft, roster, actions }) {
-  const [entries2, setEntries] = (0, import_react64.useState)(null);
-  const [leaving, setLeaving] = (0, import_react64.useState)(false);
-  const log = (0, import_react64.useRef)(null);
-  const atEnd = (0, import_react64.useRef)(true);
-  (0, import_react64.useLayoutEffect)(() => {
+  const [entries2, setEntries] = (0, import_react65.useState)(null);
+  const [leaving, setLeaving] = (0, import_react65.useState)(false);
+  const log = (0, import_react65.useRef)(null);
+  const atEnd = (0, import_react65.useRef)(true);
+  (0, import_react65.useLayoutEffect)(() => {
     if (entries2 !== null && atEnd.current && log.current) log.current.scrollTop = log.current.scrollHeight;
   }, [entries2]);
   const close = () => {
@@ -41458,7 +42066,7 @@ function ExchangeDialog({ pair, paneLeft, roster, actions }) {
     setTimeout(() => actions.closeOverlay(), SHEET_EXIT_MS);
   };
   useEscape(close);
-  (0, import_react64.useEffect)(() => {
+  (0, import_react65.useEffect)(() => {
     let stop = false;
     let timer;
     let seen = null;
@@ -41484,53 +42092,53 @@ function ExchangeDialog({ pair, paneLeft, roster, actions }) {
   const right = roster.byId[pair[1]];
   const flat = layoutOf(roster.prefs) === "flat";
   let lastDay = 0;
-  return (0, import_react64.createElement)(
+  return (0, import_react65.createElement)(
     "div",
     { className: "bt-pane bt-exchange", style: { left: paneLeft }, "data-leaving": leaving || void 0 },
-    (0, import_react64.createElement)(
+    (0, import_react65.createElement)(
       "div",
       { className: "bt-dialog", role: "dialog", "aria-label": t("Bot exchange") },
-      (0, import_react64.createElement)("div", { className: "bt-head" }, (0, import_react64.createElement)(
+      (0, import_react65.createElement)("div", { className: "bt-head" }, (0, import_react65.createElement)(
         "span",
         { className: "bt-pill", style: { cursor: "default" } },
-        left ? (0, import_react64.createElement)(BotMark, { bot: left, size: 22 }) : null,
+        left ? (0, import_react65.createElement)(BotMark, { bot: left, size: 22 }) : null,
         left?.name ?? "?",
-        (0, import_react64.createElement)("span", { className: "bt-swap" }, "⇄"),
-        right ? (0, import_react64.createElement)(BotMark, { bot: right, size: 22 }) : null,
+        (0, import_react65.createElement)("span", { className: "bt-swap" }, "⇄"),
+        right ? (0, import_react65.createElement)(BotMark, { bot: right, size: 22 }) : null,
         right?.name ?? "?"
       )),
-      (0, import_react64.createElement)(
+      (0, import_react65.createElement)(
         "div",
         { ref: log, className: "bt-dialog-log", role: "log", "aria-label": t("Bot exchange transcript"), onScroll: (event) => {
           const node = event.currentTarget;
           atEnd.current = node.scrollHeight - node.scrollTop - node.clientHeight < 2;
         } },
-        entries2 === null ? (0, import_react64.createElement)("div", { className: "bt-hint" }, t("Loading…")) : entries2.length === 0 ? (0, import_react64.createElement)("div", { className: "bt-hint" }, t("No messages yet")) : entries2.map((entry) => {
+        entries2 === null ? (0, import_react65.createElement)("div", { className: "bt-hint" }, t("Loading…")) : entries2.length === 0 ? (0, import_react65.createElement)("div", { className: "bt-hint" }, t("No messages yet")) : entries2.map((entry) => {
           const bot = roster.byId[entry.from] ?? { id: entry.from, name: t("You"), color: "gray" };
           const showDay = entry.time - lastDay > 30 * 60 * 1e3;
           lastDay = entry.time;
           const whole = entry.length === void 0 ? void 0 : { length: entry.length, load: () => actions.exchangeText(entry.id, entry.from, entry.to) };
-          const lead = (0, import_react64.createElement)("span", { className: "bt-lead" }, (0, import_react64.createElement)(BotMark, { bot, size: 22 }));
-          return (0, import_react64.createElement)(
-            import_react64.Fragment,
+          const lead = (0, import_react65.createElement)("span", { className: "bt-lead" }, (0, import_react65.createElement)(BotMark, { bot, size: 22 }));
+          return (0, import_react65.createElement)(
+            import_react65.Fragment,
             { key: entry.id },
-            showDay ? (0, import_react64.createElement)("time", { className: "bt-time" }, dayLabel(entry.time)) : null,
-            (0, import_react64.createElement)(
+            showDay ? (0, import_react65.createElement)("time", { className: "bt-time" }, dayLabel(entry.time)) : null,
+            (0, import_react65.createElement)(
               "div",
               { className: "bt-group-msg" },
-              (0, import_react64.createElement)("span", { className: "bt-group-name", style: flat ? void 0 : { color: inkText(colorOf(bot)) } }, flat ? lead : null, bot.name),
-              (0, import_react64.createElement)(Bubbles, { texts: [stripLongNote(entry.text)], roster, selfId: bot.id, actions, whole, lead: flat ? null : lead })
+              (0, import_react65.createElement)("span", { className: "bt-group-name", style: flat ? void 0 : { color: inkText(colorOf(bot)) } }, flat ? lead : null, bot.name),
+              (0, import_react65.createElement)(Bubbles, { texts: [stripLongNote(entry.text)], roster, selfId: bot.id, actions, whole, lead: flat ? null : lead })
             )
           );
         })
       ),
-      (0, import_react64.createElement)("div", { className: "bt-dialog-foot" }, (0, import_react64.createElement)("button", { type: "button", className: "bt-soft", onClick: close }, t("Close Chat")))
+      (0, import_react65.createElement)("div", { className: "bt-dialog-foot" }, (0, import_react65.createElement)("button", { type: "button", className: "bt-soft", onClick: close }, t("Close Chat")))
     )
   );
 }
 
 // src/client/voice.js
-var import_react65 = require("react");
+var import_react66 = require("react");
 var plainSpeech = (text) => stripHeader(text).replace(/```[\s\S]*?```/g, " ").replace(/\[([^\]]*)\]\([^)]*\)/g, "$1").replace(/[*_`#>|~-]+/g, " ").replace(/\s+/g, " ").trim();
 var VOICE_LABELS = {
   listening: "Listening",
@@ -41562,8 +42170,8 @@ function watchReply(read, watch, consume) {
   };
 }
 function useMicLevel(enabled) {
-  const [level, setLevel] = (0, import_react65.useState)(0);
-  (0, import_react65.useEffect)(() => {
+  const [level, setLevel] = (0, import_react66.useState)(0);
+  (0, import_react66.useEffect)(() => {
     if (!enabled || !navigator.mediaDevices?.getUserMedia) return void 0;
     let stream = null;
     let audio = null;
@@ -41613,18 +42221,18 @@ function VoiceMode({ sessionId, paneLeft, roster, actions, useSessions, useSessi
     const entry = Array.isArray(outline) ? outline[outline.length - 1] : void 0;
     return entry ? `${outline.length}|${entry.turn}` : "0|";
   });
-  const [speech] = (0, import_react65.useState)(() => actions.speech());
-  const [phase, setPhase] = (0, import_react65.useState)(speech ? "starting" : speechApi() ? "listening" : "unsupported");
-  const [catalog, setCatalog] = (0, import_react65.useState)(null);
-  const [heard, setHeard] = (0, import_react65.useState)("");
-  const [said, setSaid] = (0, import_react65.useState)("");
-  const [note, setNote] = (0, import_react65.useState)("");
-  const [serviceLevel, setServiceLevel] = (0, import_react65.useState)(0);
-  const [cycle, setCycle] = (0, import_react65.useState)(0);
-  const waiting = (0, import_react65.useRef)(null);
-  const reply = (0, import_react65.useRef)(lastReply);
+  const [speech] = (0, import_react66.useState)(() => actions.speech());
+  const [phase, setPhase] = (0, import_react66.useState)(speech ? "starting" : speechApi() ? "listening" : "unsupported");
+  const [catalog, setCatalog] = (0, import_react66.useState)(null);
+  const [heard, setHeard] = (0, import_react66.useState)("");
+  const [said, setSaid] = (0, import_react66.useState)("");
+  const [note, setNote] = (0, import_react66.useState)("");
+  const [serviceLevel, setServiceLevel] = (0, import_react66.useState)(0);
+  const [cycle, setCycle] = (0, import_react66.useState)(0);
+  const waiting = (0, import_react66.useRef)(null);
+  const reply = (0, import_react66.useRef)(lastReply);
   reply.current = lastReply;
-  const turn = (0, import_react65.useRef)(0);
+  const turn = (0, import_react66.useRef)(0);
   const close = () => {
     turn.current += 1;
     window.speechSynthesis?.cancel();
@@ -41643,12 +42251,12 @@ function VoiceMode({ sessionId, paneLeft, roster, actions, useSessions, useSessi
     dictation.stop();
     submit(text);
   });
-  (0, import_react65.useEffect)(() => {
+  (0, import_react66.useEffect)(() => {
     if (!note) return void 0;
     const timer = setTimeout(() => setNote(""), 2600);
     return () => clearTimeout(timer);
   }, [note]);
-  (0, import_react65.useEffect)(() => {
+  (0, import_react66.useEffect)(() => {
     if (!speech) return void 0;
     let live = true;
     speechCatalog(speech).then(({ catalog: next, usable }) => {
@@ -41663,16 +42271,16 @@ function VoiceMode({ sessionId, paneLeft, roster, actions, useSessions, useSessi
     };
   }, [speech]);
   const listen = phase === "listening";
-  (0, import_react65.useEffect)(() => {
+  (0, import_react66.useEffect)(() => {
     if (speech || !listen || dictation.listening) return void 0;
     const timer = setTimeout(() => dictation.start({ continuous: false, onEnd: () => {
     } }), 250);
     return () => clearTimeout(timer);
   }, [listen, dictation.listening]);
-  (0, import_react65.useEffect)(() => {
+  (0, import_react66.useEffect)(() => {
     if (phase !== "listening") dictation.stop();
   }, [phase]);
-  (0, import_react65.useEffect)(() => {
+  (0, import_react66.useEffect)(() => {
     if (!speech || !catalog || !listen) return void 0;
     const own = turn.current;
     let capture = null;
@@ -41734,7 +42342,7 @@ function VoiceMode({ sessionId, paneLeft, roster, actions, useSessions, useSessi
       setServiceLevel(0);
     };
   }, [speech, catalog, listen, cycle]);
-  (0, import_react65.useEffect)(() => {
+  (0, import_react66.useEffect)(() => {
     if (phase !== "thinking" || running || waiting.current === null) return void 0;
     const count = lastReply.slice(0, lastReply.indexOf("|"));
     const turn2 = Number(lastReply.slice(lastReply.indexOf("|") + 1));
@@ -41769,7 +42377,7 @@ function VoiceMode({ sessionId, paneLeft, roster, actions, useSessions, useSessi
       }
     );
   }, [phase, running, lastReply]);
-  (0, import_react65.useEffect)(() => () => window.speechSynthesis?.cancel(), []);
+  (0, import_react66.useEffect)(() => () => window.speechSynthesis?.cancel(), []);
   const micLevel = useMicLevel(!speech && phase === "listening" && dictation.listening);
   const level = speech ? serviceLevel : micLevel;
   const markState = phase === "thinking" || phase === "transcribing" ? "thinking" : phase === "speaking" ? "sending" : "idle";
@@ -41783,7 +42391,7 @@ function VoiceMode({ sessionId, paneLeft, roster, actions, useSessions, useSessi
     window.speechSynthesis?.cancel();
     setPhase("paused");
   };
-  (0, import_react65.useEffect)(() => {
+  (0, import_react66.useEffect)(() => {
     if (phase !== "preparing" || !speech) return void 0;
     let stopped = false;
     let timer;
@@ -41835,47 +42443,47 @@ function VoiceMode({ sessionId, paneLeft, roster, actions, useSessions, useSessi
   };
   const caption = phase === "speaking" ? said : heard;
   const shownNote = note || dictation.note;
-  return (0, import_react65.createElement)(
+  return (0, import_react66.createElement)(
     "div",
     { className: "bt-pane bt-voice-pane", style: { left: paneLeft } },
-    (0, import_react65.createElement)(
+    (0, import_react66.createElement)(
       "div",
       { className: "bt-voice-stage", role: "dialog", "aria-label": t("Voice chat with {name}", { name }), "data-phase": phase === "transcribing" ? "thinking" : phase },
-      (0, import_react65.createElement)(
+      (0, import_react66.createElement)(
         "div",
         { className: "bt-voice-orb", style: { "--bt-level": level } },
-        (0, import_react65.createElement)("span", { className: "bt-voice-ring", "aria-hidden": true }),
-        (0, import_react65.createElement)("span", { className: "bt-voice-ring bt-voice-ring-2", "aria-hidden": true }),
-        bot ? (0, import_react65.createElement)(BotMark, { bot, size: 112, state: markState, live: true, gaze: phase === "listening" }) : room2 ? (0, import_react65.createElement)(RoomAvatar, { room: room2, roster, size: 112 }) : null
+        (0, import_react66.createElement)("span", { className: "bt-voice-ring", "aria-hidden": true }),
+        (0, import_react66.createElement)("span", { className: "bt-voice-ring bt-voice-ring-2", "aria-hidden": true }),
+        bot ? (0, import_react66.createElement)(BotMark, { bot, size: 112, state: markState, live: true, gaze: phase === "listening" }) : room2 ? (0, import_react66.createElement)(RoomAvatar, { room: room2, roster, size: 112 }) : null
       ),
-      (0, import_react65.createElement)("div", { className: "bt-voice-name" }, name),
-      (0, import_react65.createElement)(
+      (0, import_react66.createElement)("div", { className: "bt-voice-name" }, name),
+      (0, import_react66.createElement)(
         "div",
         { className: "bt-voice-status", role: "status" },
-        phase === "thinking" ? (0, import_react65.createElement)(Shimmer, null, t("Thinking…")) : phase === "transcribing" ? (0, import_react65.createElement)(Shimmer, null, t("Recognizing…")) : VOICE_LABELS[phase] ? t(VOICE_LABELS[phase]) : ""
+        phase === "thinking" ? (0, import_react66.createElement)(Shimmer, null, t("Thinking…")) : phase === "transcribing" ? (0, import_react66.createElement)(Shimmer, null, t("Recognizing…")) : VOICE_LABELS[phase] ? t(VOICE_LABELS[phase]) : ""
       ),
-      (0, import_react65.createElement)("div", { className: "bt-voice-caption", key: `${phase}:${caption.slice(0, 12)}` }, caption),
-      openSetup ? (0, import_react65.createElement)("button", { type: "button", className: "bt-voice-setup", onClick: startSetup }, t("Set up voice input")) : null,
-      shownNote ? (0, import_react65.createElement)("div", { className: "bt-voice-note" }, shownNote) : null
+      (0, import_react66.createElement)("div", { className: "bt-voice-caption", key: `${phase}:${caption.slice(0, 12)}` }, caption),
+      openSetup ? (0, import_react66.createElement)("button", { type: "button", className: "bt-voice-setup", onClick: startSetup }, t("Set up voice input")) : null,
+      shownNote ? (0, import_react66.createElement)("div", { className: "bt-voice-note" }, shownNote) : null
     ),
-    (0, import_react65.createElement)(
+    (0, import_react66.createElement)(
       "div",
       { className: "bt-voice-bar" },
-      (0, import_react65.createElement)("button", {
+      (0, import_react66.createElement)("button", {
         type: "button",
         className: "bt-voice-btn",
         "aria-pressed": phase === "paused",
         disabled: blocked,
         "aria-label": phase === "paused" ? t("Resume listening") : t("Pause"),
         onClick: togglePause
-      }, (0, import_react65.createElement)(MicIcon, { size: 20 }), phase === "paused" ? (0, import_react65.createElement)("span", { className: "bt-voice-slash", "aria-hidden": true }) : null),
-      (0, import_react65.createElement)("button", { type: "button", className: "bt-voice-btn bt-voice-end", "aria-label": t("End voice chat"), onClick: close }, (0, import_react65.createElement)(CloseIcon))
+      }, (0, import_react66.createElement)(MicIcon, { size: 20 }), phase === "paused" ? (0, import_react66.createElement)("span", { className: "bt-voice-slash", "aria-hidden": true }) : null),
+      (0, import_react66.createElement)("button", { type: "button", className: "bt-voice-btn bt-voice-end", "aria-label": t("End voice chat"), onClick: close }, (0, import_react66.createElement)(CloseIcon))
     )
   );
 }
 
 // src/client/context-menu.js
-var import_react66 = require("react");
+var import_react67 = require("react");
 var SECTION_COLORS = ["blue", "orange", "green", "violet", "rose"];
 function sectionMoveItems(entry, roster, actions) {
   const sections = roster.sections ?? [];
@@ -41896,9 +42504,9 @@ function sectionMoveItems(entry, roster, actions) {
 }
 function ContextMenu({ menu, roster, actions, useWork, leaving = false }) {
   useEscape(() => actions.closeMenu());
-  const ref = (0, import_react66.useRef)(null);
-  const trigger = (0, import_react66.useRef)(typeof document === "undefined" ? null : document.activeElement);
-  (0, import_react66.useEffect)(() => {
+  const ref = (0, import_react67.useRef)(null);
+  const trigger = (0, import_react67.useRef)(typeof document === "undefined" ? null : document.activeElement);
+  (0, import_react67.useEffect)(() => {
     const onDown = (event) => {
       if (!(event.target instanceof Element) || !event.target.closest(".bt-menu")) actions.closeMenu();
     };
@@ -41912,20 +42520,20 @@ function ContextMenu({ menu, roster, actions, useWork, leaving = false }) {
       window.removeEventListener("keydown", onKey, true);
     };
   }, []);
-  const [place, setPlace] = (0, import_react66.useState)({ left: menu.x, top: menu.y });
+  const [place, setPlace] = (0, import_react67.useState)({ left: menu.x, top: menu.y });
   const tick = useViewport();
-  (0, import_react66.useLayoutEffect)(() => {
+  (0, import_react67.useLayoutEffect)(() => {
     const box = ref.current?.getBoundingClientRect();
     if (!box) return;
     setPlace({ left: Math.max(8, Math.min(menu.x, window.innerWidth - box.width - 8)), top: Math.max(8, Math.min(menu.y, viewBottom() - box.height - 8)) });
   }, [menu.x, menu.y, tick]);
-  if (menu.kind === "agent" || menu.kind === "agent-session") return (0, import_react66.createElement)(AgentMenu, { menu, roster, actions, leaving });
-  if (menu.kind === "section" || menu.kind === "section-add") return (0, import_react66.createElement)(SectionMenu, { menu, roster, actions, leaving });
+  if (menu.kind === "agent" || menu.kind === "agent-session") return (0, import_react67.createElement)(AgentMenu, { menu, roster, actions, leaving });
+  if (menu.kind === "section" || menu.kind === "section-add") return (0, import_react67.createElement)(SectionMenu, { menu, roster, actions, leaving });
   const bot = roster.byId[menu.id];
   const room2 = roster.roomsById[menu.id];
   const entry = bot ?? room2;
   const waitsRaw = useWork && bot ? useWork((work) => JSON.stringify(work.waiting?.[bot.id] ?? null)) : "null";
-  const waits = (0, import_react66.useMemo)(() => JSON.parse(waitsRaw), [waitsRaw]);
+  const waits = (0, import_react67.useMemo)(() => JSON.parse(waitsRaw), [waitsRaw]);
   if (entry === void 0) return null;
   const isMainBot = isMainOf(roster, menu.id);
   const isTile = roster.mainBotId === menu.id;
@@ -41956,14 +42564,14 @@ function ContextMenu({ menu, roster, actions, useWork, leaving = false }) {
       isMainBot ? null : [room2 ? t("Delete group") : t("Delete"), TrashIcon, () => bot ? actions.deleteBot(bot.id) : actions.deleteRoom(menu.id), true]
     ]
   ].map((group) => group.filter(Boolean)).filter((group) => group.length > 0);
-  return (0, import_react66.createElement)(
+  return (0, import_react67.createElement)(
     "div",
     { ref, className: "bt-menu", role: "menu", "aria-label": t("{name} actions", { name: bot?.name ?? room2.name }), style: place, "data-leaving": leaving || void 0 },
-    groups.map((group, index) => (0, import_react66.createElement)(
-      import_react66.Fragment,
+    groups.map((group, index) => (0, import_react67.createElement)(
+      import_react67.Fragment,
       { key: index },
-      index > 0 ? (0, import_react66.createElement)("div", { className: "bt-menu-sep", role: "separator" }) : null,
-      group.map(([label, Icon, run2, danger, checked]) => (0, import_react66.createElement)("button", {
+      index > 0 ? (0, import_react67.createElement)("div", { className: "bt-menu-sep", role: "separator" }) : null,
+      group.map(([label, Icon, run2, danger, checked]) => (0, import_react67.createElement)("button", {
         key: label,
         type: "button",
         role: "menuitem",
@@ -41972,23 +42580,23 @@ function ContextMenu({ menu, roster, actions, useWork, leaving = false }) {
           actions.closeMenu();
           void Promise.resolve(run2()).catch((error) => actions.reportError(error, "menu"));
         }
-      }, (0, import_react66.createElement)(Icon), (0, import_react66.createElement)("span", { className: "bt-menu-label" }, label), checked ? (0, import_react66.createElement)("span", { className: "bt-menu-check" }, (0, import_react66.createElement)(CheckIcon)) : null))
+      }, (0, import_react67.createElement)(Icon), (0, import_react67.createElement)("span", { className: "bt-menu-label" }, label), checked ? (0, import_react67.createElement)("span", { className: "bt-menu-check" }, (0, import_react67.createElement)(CheckIcon)) : null))
     ))
   );
 }
 function SectionMenu({ menu, roster, actions, leaving }) {
-  const ref = (0, import_react66.useRef)(null);
-  const trigger = (0, import_react66.useRef)(typeof document === "undefined" ? null : document.activeElement);
-  (0, import_react66.useEffect)(() => {
+  const ref = (0, import_react67.useRef)(null);
+  const trigger = (0, import_react67.useRef)(typeof document === "undefined" ? null : document.activeElement);
+  (0, import_react67.useEffect)(() => {
     const onKey = (event) => {
       stepMenuFocus(ref.current, event, trigger.current);
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
   }, []);
-  const [place, setPlace] = (0, import_react66.useState)({ left: menu.x, top: menu.y });
+  const [place, setPlace] = (0, import_react67.useState)({ left: menu.x, top: menu.y });
   const tick = useViewport();
-  (0, import_react66.useLayoutEffect)(() => {
+  (0, import_react67.useLayoutEffect)(() => {
     const box = ref.current?.getBoundingClientRect();
     if (!box) return;
     setPlace({ left: Math.max(8, Math.min(menu.x, window.innerWidth - box.width - 8)), top: Math.max(8, Math.min(menu.y, viewBottom() - box.height - 8)) });
@@ -42002,37 +42610,37 @@ function SectionMenu({ menu, roster, actions, leaving }) {
       ...roster.bots.filter((bot) => bot.id !== roster.mainBotId && !bot.hidden).map((bot) => ({ kind: "bot", item: bot })),
       ...roster.rooms.filter((room2) => !room2.hidden).map((room2) => ({ kind: "room", item: room2 }))
     ];
-    return (0, import_react66.createElement)(
+    return (0, import_react67.createElement)(
       "div",
       { ref, className: "bt-menu bt-sec-add-menu", role: "menu", "aria-label": t("Add to {name}", { name: sec.name }), style: place, "data-leaving": leaving || void 0 },
-      (0, import_react66.createElement)("button", {
+      (0, import_react67.createElement)("button", {
         type: "button",
         role: "menuitem",
         onClick: () => {
           actions.closeMenu();
           actions.openNewChat("create", sec.id);
         }
-      }, (0, import_react66.createElement)(PlusIcon), (0, import_react66.createElement)("span", { className: "bt-menu-label" }, t("Create new Bot"))),
-      (0, import_react66.createElement)("button", {
+      }, (0, import_react67.createElement)(PlusIcon), (0, import_react67.createElement)("span", { className: "bt-menu-label" }, t("Create new Bot"))),
+      (0, import_react67.createElement)("button", {
         type: "button",
         role: "menuitem",
         onClick: () => {
           actions.closeMenu();
           actions.openNewChat("group", sec.id);
         }
-      }, (0, import_react66.createElement)(PeopleIcon), (0, import_react66.createElement)("span", { className: "bt-menu-label" }, t("Create group chat"))),
-      candidates.length > 0 ? (0, import_react66.createElement)(
-        import_react66.Fragment,
+      }, (0, import_react67.createElement)(PeopleIcon), (0, import_react67.createElement)("span", { className: "bt-menu-label" }, t("Create group chat"))),
+      candidates.length > 0 ? (0, import_react67.createElement)(
+        import_react67.Fragment,
         null,
-        (0, import_react66.createElement)("div", { className: "bt-menu-sep", role: "separator" }),
-        (0, import_react66.createElement)("div", { className: "bt-menu-sub-head" }, t("Add existing")),
-        (0, import_react66.createElement)(
+        (0, import_react67.createElement)("div", { className: "bt-menu-sep", role: "separator" }),
+        (0, import_react67.createElement)("div", { className: "bt-menu-sub-head" }, t("Add existing")),
+        (0, import_react67.createElement)(
           "div",
           { className: "bt-sec-add-list" },
           candidates.map(({ kind, item }) => {
             const inside = item.sectionId === sec.id;
             const otherSec = item.sectionId && !inside ? sections.find((s) => s.id === item.sectionId)?.name : void 0;
-            return (0, import_react66.createElement)(
+            return (0, import_react67.createElement)(
               "button",
               {
                 key: item.id,
@@ -42043,9 +42651,9 @@ function SectionMenu({ menu, roster, actions, leaving }) {
                   void Promise.resolve(actions.setFlags(item.id, { sectionId: inside ? null : sec.id })).catch((error) => actions.reportError(error, "menu"));
                 }
               },
-              kind === "room" ? (0, import_react66.createElement)(RoomAvatar, { room: item, roster, size: 18 }) : (0, import_react66.createElement)(BotMark, { bot: item, size: 18 }),
-              (0, import_react66.createElement)("span", { className: "bt-menu-label" }, item.name),
-              inside ? (0, import_react66.createElement)("span", { className: "bt-menu-check" }, (0, import_react66.createElement)(CheckIcon)) : otherSec ? (0, import_react66.createElement)("span", { className: "bt-menu-hint" }, otherSec) : null
+              kind === "room" ? (0, import_react67.createElement)(RoomAvatar, { room: item, roster, size: 18 }) : (0, import_react67.createElement)(BotMark, { bot: item, size: 18 }),
+              (0, import_react67.createElement)("span", { className: "bt-menu-label" }, item.name),
+              inside ? (0, import_react67.createElement)("span", { className: "bt-menu-check" }, (0, import_react67.createElement)(CheckIcon)) : otherSec ? (0, import_react67.createElement)("span", { className: "bt-menu-hint" }, otherSec) : null
             );
           })
         )
@@ -42060,31 +42668,31 @@ function SectionMenu({ menu, roster, actions, leaving }) {
     next.splice(target, 0, picked);
     void Promise.resolve(actions.reorderSections(next)).catch((error) => actions.reportError(error, "menu"));
   };
-  return (0, import_react66.createElement)(
+  return (0, import_react67.createElement)(
     "div",
     { ref, className: "bt-menu", role: "menu", "aria-label": t("{name} actions", { name: sec.name }), style: place, "data-leaving": leaving || void 0 },
-    (0, import_react66.createElement)("button", {
+    (0, import_react67.createElement)("button", {
       type: "button",
       role: "menuitem",
       onClick: () => {
         actions.closeMenu();
         actions.beginSectionRename(sec.id);
       }
-    }, (0, import_react66.createElement)(PencilIcon), (0, import_react66.createElement)("span", { className: "bt-menu-label" }, t("Rename section"))),
-    (0, import_react66.createElement)("button", {
+    }, (0, import_react67.createElement)(PencilIcon), (0, import_react67.createElement)("span", { className: "bt-menu-label" }, t("Rename section"))),
+    (0, import_react67.createElement)("button", {
       type: "button",
       role: "menuitem",
       onClick: () => {
         actions.closeMenu();
         actions.openNewChat("create", sec.id);
       }
-    }, (0, import_react66.createElement)(PlusIcon), (0, import_react66.createElement)("span", { className: "bt-menu-label" }, t("Create new Bot"))),
-    (0, import_react66.createElement)("div", { className: "bt-menu-sep", role: "separator" }),
-    (0, import_react66.createElement)("div", { className: "bt-menu-sub-head" }, t("Section color")),
-    (0, import_react66.createElement)(
+    }, (0, import_react67.createElement)(PlusIcon), (0, import_react67.createElement)("span", { className: "bt-menu-label" }, t("Create new Bot"))),
+    (0, import_react67.createElement)("div", { className: "bt-menu-sep", role: "separator" }),
+    (0, import_react67.createElement)("div", { className: "bt-menu-sub-head" }, t("Section color")),
+    (0, import_react67.createElement)(
       "div",
       { className: "bt-menu-colors" },
-      (0, import_react66.createElement)("button", {
+      (0, import_react67.createElement)("button", {
         type: "button",
         className: "bt-menu-color-dot",
         "aria-label": t("None"),
@@ -42096,7 +42704,7 @@ function SectionMenu({ menu, roster, actions, leaving }) {
           void Promise.resolve(actions.saveSection({ id: sec.id, color: null })).catch((error) => actions.reportError(error, "menu"));
         }
       }),
-      SECTION_COLORS.map((color) => (0, import_react66.createElement)("button", {
+      SECTION_COLORS.map((color) => (0, import_react67.createElement)("button", {
         key: color,
         type: "button",
         className: "bt-menu-color-dot",
@@ -42110,16 +42718,16 @@ function SectionMenu({ menu, roster, actions, leaving }) {
         }
       }))
     ),
-    index > 0 ? (0, import_react66.createElement)("button", { type: "button", role: "menuitem", onClick: () => {
+    index > 0 ? (0, import_react67.createElement)("button", { type: "button", role: "menuitem", onClick: () => {
       actions.closeMenu();
       move(-1);
-    } }, (0, import_react66.createElement)(FolderIcon), (0, import_react66.createElement)("span", { className: "bt-menu-label" }, t("Move section up"))) : null,
-    index < sections.length - 1 ? (0, import_react66.createElement)("button", { type: "button", role: "menuitem", onClick: () => {
+    } }, (0, import_react67.createElement)(FolderIcon), (0, import_react67.createElement)("span", { className: "bt-menu-label" }, t("Move section up"))) : null,
+    index < sections.length - 1 ? (0, import_react67.createElement)("button", { type: "button", role: "menuitem", onClick: () => {
       actions.closeMenu();
       move(1);
-    } }, (0, import_react66.createElement)(FolderIcon), (0, import_react66.createElement)("span", { className: "bt-menu-label" }, t("Move section down"))) : null,
-    (0, import_react66.createElement)("div", { className: "bt-menu-sep", role: "separator" }),
-    (0, import_react66.createElement)("button", {
+    } }, (0, import_react67.createElement)(FolderIcon), (0, import_react67.createElement)("span", { className: "bt-menu-label" }, t("Move section down"))) : null,
+    (0, import_react67.createElement)("div", { className: "bt-menu-sep", role: "separator" }),
+    (0, import_react67.createElement)("button", {
       type: "button",
       role: "menuitem",
       className: "bt-danger",
@@ -42127,22 +42735,22 @@ function SectionMenu({ menu, roster, actions, leaving }) {
         actions.closeMenu();
         void Promise.resolve(actions.deleteSection(sec.id)).catch((error) => actions.reportError(error, "menu"));
       }
-    }, (0, import_react66.createElement)(TrashIcon), (0, import_react66.createElement)("span", { className: "bt-menu-label" }, t("Ungroup section")))
+    }, (0, import_react67.createElement)(TrashIcon), (0, import_react67.createElement)("span", { className: "bt-menu-label" }, t("Ungroup section")))
   );
 }
 function AgentMenu({ menu, roster, actions, leaving }) {
-  const ref = (0, import_react66.useRef)(null);
-  const trigger = (0, import_react66.useRef)(typeof document === "undefined" ? null : document.activeElement);
-  (0, import_react66.useEffect)(() => {
+  const ref = (0, import_react67.useRef)(null);
+  const trigger = (0, import_react67.useRef)(typeof document === "undefined" ? null : document.activeElement);
+  (0, import_react67.useEffect)(() => {
     const onKey = (event) => {
       stepMenuFocus(ref.current, event, trigger.current);
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
   }, []);
-  const [place, setPlace] = (0, import_react66.useState)({ left: menu.x, top: menu.y });
+  const [place, setPlace] = (0, import_react67.useState)({ left: menu.x, top: menu.y });
   const tick = useViewport();
-  (0, import_react66.useLayoutEffect)(() => {
+  (0, import_react67.useLayoutEffect)(() => {
     const box = ref.current?.getBoundingClientRect();
     if (!box) return;
     setPlace({ left: Math.max(8, Math.min(menu.x, window.innerWidth - box.width - 8)), top: Math.max(8, Math.min(menu.y, viewBottom() - box.height - 8)) });
@@ -42165,14 +42773,14 @@ function AgentMenu({ menu, roster, actions, leaving }) {
       [t("Archive"), TrashIcon, () => actions.archiveAgentSession(agent.id, menu.id), true]
     ]
   ];
-  return (0, import_react66.createElement)(
+  return (0, import_react67.createElement)(
     "div",
     { ref, className: "bt-menu", role: "menu", "aria-label": menu.kind === "agent" ? "DSH Agent" : t("Session actions"), style: place, "data-leaving": leaving || void 0 },
-    groups.map((group, index) => (0, import_react66.createElement)(
-      import_react66.Fragment,
+    groups.map((group, index) => (0, import_react67.createElement)(
+      import_react67.Fragment,
       { key: index },
-      index > 0 ? (0, import_react66.createElement)("div", { className: "bt-menu-sep", role: "separator" }) : null,
-      group.map(([label, Icon, run2, danger, checked]) => (0, import_react66.createElement)("button", {
+      index > 0 ? (0, import_react67.createElement)("div", { className: "bt-menu-sep", role: "separator" }) : null,
+      group.map(([label, Icon, run2, danger, checked]) => (0, import_react67.createElement)("button", {
         key: label,
         type: "button",
         role: "menuitem",
@@ -42181,7 +42789,7 @@ function AgentMenu({ menu, roster, actions, leaving }) {
           actions.closeMenu();
           void Promise.resolve(run2()).catch((error) => console.warn("[ds-bot]", error));
         }
-      }, (0, import_react66.createElement)(Icon), (0, import_react66.createElement)("span", { className: "bt-menu-label" }, label), checked ? (0, import_react66.createElement)("span", { className: "bt-menu-check" }, (0, import_react66.createElement)(CheckIcon)) : null))
+      }, (0, import_react67.createElement)(Icon), (0, import_react67.createElement)("span", { className: "bt-menu-label" }, label), checked ? (0, import_react67.createElement)("span", { className: "bt-menu-check" }, (0, import_react67.createElement)(CheckIcon)) : null))
     ))
   );
 }
@@ -42298,16 +42906,16 @@ function createFlight(env) {
 }
 
 // src/client/task-board.js
-var import_react67 = require("react");
+var import_react68 = require("react");
 var OPEN = ["active", "review", "blocked"];
 var STATUS_KEY = { active: "In progress", review: "Awaiting review", blocked: "Blocked", done: "Done", cancelled: "Cancelled" };
 var blockedLine = (blocked) => blocked.cause === "stopped" ? t("Stopped by the user") : blocked.cause === "restarted" ? t("Not updated after a restart") : t("Its model call failed ({code})", { code: `${blocked.code}${blocked.status ? ` ${blocked.status}` : ""}` });
 function TaskRow3({ task, bot, room: room2, actions }) {
-  const [writing, setWriting] = (0, import_react67.useState)(false);
-  const [text, setText] = (0, import_react67.useState)("");
-  const [confirming, setConfirming] = (0, import_react67.useState)(false);
-  const [busy, setBusy] = (0, import_react67.useState)(false);
-  (0, import_react67.useEffect)(() => {
+  const [writing, setWriting] = (0, import_react68.useState)(false);
+  const [text, setText] = (0, import_react68.useState)("");
+  const [confirming, setConfirming] = (0, import_react68.useState)(false);
+  const [busy, setBusy] = (0, import_react68.useState)(false);
+  (0, import_react68.useEffect)(() => {
     if (!confirming) return void 0;
     const timer = setTimeout(() => setConfirming(false), 3e3);
     return () => clearTimeout(timer);
@@ -42341,28 +42949,28 @@ function TaskRow3({ task, bot, room: room2, actions }) {
     setBusy(true);
     Promise.resolve(actions.taskCancel(room2.id, task.id)).then(() => setBusy(false), failed);
   };
-  return (0, import_react67.createElement)(
+  return (0, import_react68.createElement)(
     "div",
     { className: "bt-task", "data-status": task.status, "data-busy": busy || void 0 },
-    (0, import_react67.createElement)(
+    (0, import_react68.createElement)(
       "div",
       { className: "bt-task-head" },
-      bot ? (0, import_react67.createElement)(BotMark, { bot, size: 22, state: open ? "work" : "idle" }) : null,
-      (0, import_react67.createElement)("span", { className: "bt-task-name" }, bot?.name ?? t("a Bot")),
-      (0, import_react67.createElement)("span", { className: "bt-task-status" }, t(STATUS_KEY[task.status] ?? task.status)),
-      (0, import_react67.createElement)("span", { className: "bt-task-time" }, clockLabel(task.startedAt))
+      bot ? (0, import_react68.createElement)(BotMark, { bot, size: 22, state: open ? "work" : "idle" }) : null,
+      (0, import_react68.createElement)("span", { className: "bt-task-name" }, bot?.name ?? t("a Bot")),
+      (0, import_react68.createElement)("span", { className: "bt-task-status" }, t(STATUS_KEY[task.status] ?? task.status)),
+      (0, import_react68.createElement)("span", { className: "bt-task-time" }, clockLabel(task.startedAt))
     ),
-    (0, import_react67.createElement)("div", { className: "bt-task-goal" }, task.goal),
-    open && task.progress ? (0, import_react67.createElement)("div", { className: "bt-task-progress" }, task.progress) : null,
-    task.status === "blocked" && task.blocked ? (0, import_react67.createElement)("div", { className: "bt-task-reason" }, blockedLine(task.blocked)) : null,
-    !open && task.result ? (0, import_react67.createElement)("div", { className: "bt-task-result" }, task.result) : null,
-    !open && task.reason ? (0, import_react67.createElement)("div", { className: "bt-task-reason" }, task.reason) : null,
-    lastNote ? (0, import_react67.createElement)("div", { className: "bt-task-note" }, t("Note: {text}", { text: lastNote.text })) : null,
-    open ? (0, import_react67.createElement)(
+    (0, import_react68.createElement)("div", { className: "bt-task-goal" }, task.goal),
+    open && task.progress ? (0, import_react68.createElement)("div", { className: "bt-task-progress" }, task.progress) : null,
+    task.status === "blocked" && task.blocked ? (0, import_react68.createElement)("div", { className: "bt-task-reason" }, blockedLine(task.blocked)) : null,
+    !open && task.result ? (0, import_react68.createElement)("div", { className: "bt-task-result" }, task.result) : null,
+    !open && task.reason ? (0, import_react68.createElement)("div", { className: "bt-task-reason" }, task.reason) : null,
+    lastNote ? (0, import_react68.createElement)("div", { className: "bt-task-note" }, t("Note: {text}", { text: lastNote.text })) : null,
+    open ? (0, import_react68.createElement)(
       "div",
       { className: "bt-task-actions" },
-      (0, import_react67.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: busy, "aria-expanded": writing, onClick: () => setWriting((value) => !value) }, t("Add a note")),
-      (0, import_react67.createElement)("button", {
+      (0, import_react68.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: busy, "aria-expanded": writing, onClick: () => setWriting((value) => !value) }, t("Add a note")),
+      (0, import_react68.createElement)("button", {
         type: "button",
         className: "bt-soft bt-soft-sm",
         "data-confirm": confirming || void 0,
@@ -42371,10 +42979,10 @@ function TaskRow3({ task, bot, room: room2, actions }) {
         onClick: cancel
       }, confirming ? t("Cancel task") : t("Cancel"))
     ) : null,
-    writing ? (0, import_react67.createElement)(
+    writing ? (0, import_react68.createElement)(
       "div",
       { className: "bt-task-write" },
-      (0, import_react67.createElement)("input", {
+      (0, import_react68.createElement)("input", {
         className: "bt-input bt-task-input",
         value: text,
         placeholder: t("What should change?"),
@@ -42391,36 +42999,36 @@ function TaskRow3({ task, bot, room: room2, actions }) {
           }
         }
       }),
-      (0, import_react67.createElement)("button", { type: "button", className: "bt-send bt-soft-sm", disabled: text.trim() === "" || busy, onClick: send }, t("Send"))
+      (0, import_react68.createElement)("button", { type: "button", className: "bt-send bt-soft-sm", disabled: text.trim() === "" || busy, onClick: send }, t("Send"))
     ) : null
   );
 }
 function TaskBoard({ room: room2, roster, actions }) {
-  const [historyOpen, setHistoryOpen] = (0, import_react67.useState)(false);
+  const [historyOpen, setHistoryOpen] = (0, import_react68.useState)(false);
   const all = Object.values(room2.tasks ?? {}).sort((a, b) => a.startedAt - b.startedAt);
   const open = all.filter((task) => OPEN.includes(task.status));
   const past = all.filter((task) => !OPEN.includes(task.status)).reverse();
-  const row = (task) => (0, import_react67.createElement)(TaskRow3, { key: task.id, task, bot: roster.byId?.[task.botId], room: room2, actions });
-  return (0, import_react67.createElement)(
+  const row = (task) => (0, import_react68.createElement)(TaskRow3, { key: task.id, task, bot: roster.byId?.[task.botId], room: room2, actions });
+  return (0, import_react68.createElement)(
     "div",
     { className: "bt-tasks" },
-    (0, import_react67.createElement)(
+    (0, import_react68.createElement)(
       "div",
       { className: "bt-tasks-head" },
-      (0, import_react67.createElement)("div", { className: "bt-section-title" }, t("Tasks")),
-      open.length > 0 ? (0, import_react67.createElement)("span", { className: "bt-tasks-count" }, open.length) : null
+      (0, import_react68.createElement)("div", { className: "bt-section-title" }, t("Tasks")),
+      open.length > 0 ? (0, import_react68.createElement)("span", { className: "bt-tasks-count" }, open.length) : null
     ),
-    (0, import_react67.createElement)(
+    (0, import_react68.createElement)(
       "div",
       { className: "bt-task-list" },
-      open.length === 0 ? (0, import_react67.createElement)("div", { className: "bt-muted bt-tasks-empty" }, t("No task is running in this group.")) : open.map(row)
+      open.length === 0 ? (0, import_react68.createElement)("div", { className: "bt-muted bt-tasks-empty" }, t("No task is running in this group.")) : open.map(row)
     ),
-    past.length > 0 ? (0, import_react67.createElement)(
+    past.length > 0 ? (0, import_react68.createElement)(
       "button",
       { type: "button", className: "bt-more", "aria-expanded": historyOpen, onClick: () => setHistoryOpen((value) => !value) },
       historyOpen ? t("Hide history") : t("History ({count})", { count: past.length })
     ) : null,
-    historyOpen ? (0, import_react67.createElement)("div", { className: "bt-task-list bt-task-history" }, past.map(row)) : null
+    historyOpen ? (0, import_react68.createElement)("div", { className: "bt-task-list bt-task-history" }, past.map(row)) : null
   );
 }
 var TASK_CSS = `
@@ -42456,7 +43064,7 @@ var TASK_CSS = `
 `;
 
 // src/client/details-drawer.js
-var import_react68 = require("react");
+var import_react69 = require("react");
 function transcriptOf(list, id, name, hiddenTurns = []) {
   const outline = list.projectionsBySession?.[id]?.values?.turnOutline ?? list.byId[id]?.projectionValues?.turnOutline;
   if (!Array.isArray(outline)) return "";
@@ -42481,18 +43089,18 @@ var EMPTY_TABS = { ids: [], active: null };
 function PermissionRow({ bot, roster, actions, run: run2 }) {
   const catalog = roster.permissions;
   if (!catalog?.options?.length) return null;
-  return (0, import_react68.createElement)(
+  return (0, import_react69.createElement)(
     "div",
     { className: "bt-drawer-permission" },
-    (0, import_react68.createElement)("div", { className: "bt-section-title" }, t("Permissions")),
+    (0, import_react69.createElement)("div", { className: "bt-section-title" }, t("Permissions")),
     // A Bot without its own preset may run on another one set in DSH, so its first pick always applies.
-    (0, import_react68.createElement)(PermissionPicker, { catalog, saved: bot.permission ?? catalog.defaultPreset, repick: bot.permission === void 0, onPick: (permission) => run2(actions.updateBot(bot.id, { permission })) })
+    (0, import_react69.createElement)(PermissionPicker, { catalog, saved: bot.permission ?? catalog.defaultPreset, repick: bot.permission === void 0, onPick: (permission) => run2(actions.updateBot(bot.id, { permission })) })
   );
 }
 function RunStats({ bot, part, running, actions }) {
   const scope = `${bot.id}:${part ?? ""}`;
-  const [read, setRead] = (0, import_react68.useState)(null);
-  (0, import_react68.useEffect)(() => {
+  const [read, setRead] = (0, import_react69.useState)(null);
+  (0, import_react69.useEffect)(() => {
     if (!actions.runStats) return void 0;
     let current2 = true;
     actions.runStats(bot.id).then(
@@ -42509,56 +43117,56 @@ function RunStats({ bot, part, running, actions }) {
   }, [scope, bot.id, running, actions]);
   const shown = runStatsOf(read?.scope === scope ? read.values : null);
   if (shown.length === 0) return null;
-  return (0, import_react68.createElement)(
+  return (0, import_react69.createElement)(
     "div",
     { className: "bt-run-stats" },
-    shown.map((entry, index) => (0, import_react68.createElement)(
-      import_react68.Fragment,
+    shown.map((entry, index) => (0, import_react69.createElement)(
+      import_react69.Fragment,
       { key: entry.key },
-      index > 0 ? (0, import_react68.createElement)("span", { className: "bt-run-sep", "aria-hidden": true }, "·") : null,
-      (0, import_react68.createElement)("span", { title: entry.title }, entry.text)
+      index > 0 ? (0, import_react69.createElement)("span", { className: "bt-run-sep", "aria-hidden": true }, "·") : null,
+      (0, import_react69.createElement)("span", { title: entry.title }, entry.text)
     ))
   );
 }
 function BrowserCards({ bot, sessionId, roster, actions, useBrowserTabs, useBrowserPages }) {
   const state = useBrowserTabs((map) => map[bot.id] ?? EMPTY_TABS);
   const pages = useBrowserPages((map) => map);
-  (0, import_react68.useEffect)(() => {
+  (0, import_react69.useEffect)(() => {
     actions.browserEnsure?.(bot.id);
   }, [bot.id]);
   if (roster.browser !== true || !actions.browserShow) {
-    return (0, import_react68.createElement)("div", { className: "bt-muted" }, t("The browser is in DSH Desktop and the DS Bot app."));
+    return (0, import_react69.createElement)("div", { className: "bt-muted" }, t("The browser is in DSH Desktop and the DS Bot app."));
   }
   if (state.ids.length === 0) {
-    return (0, import_react68.createElement)(
+    return (0, import_react69.createElement)(
       "div",
       { className: "bt-browser-empty-mark" },
-      (0, import_react68.createElement)(BotMark, { bot, size: 40, state: "idle", live: true }),
-      (0, import_react68.createElement)("div", { className: "bt-browser-empty-title" }, t("{name}'s browser", { name: bot.name })),
-      (0, import_react68.createElement)("div", { className: "bt-muted" }, t("Open a page here and {name} can read it with you. Logins and cookies stay with {name}; other Bots never see them.", { name: bot.name })),
-      (0, import_react68.createElement)("button", { type: "button", className: "bt-browser-retry", onClick: () => actions.openBrowser(sessionId) }, t("Open browser"))
+      (0, import_react69.createElement)(BotMark, { bot, size: 40, state: "idle", live: true }),
+      (0, import_react69.createElement)("div", { className: "bt-browser-empty-title" }, t("{name}'s browser", { name: bot.name })),
+      (0, import_react69.createElement)("div", { className: "bt-muted" }, t("Open a page here and {name} can read it with you. Logins and cookies stay with {name}; other Bots never see them.", { name: bot.name })),
+      (0, import_react69.createElement)("button", { type: "button", className: "bt-browser-retry", onClick: () => actions.openBrowser(sessionId) }, t("Open browser"))
     );
   }
-  return (0, import_react68.createElement)(
+  return (0, import_react69.createElement)(
     "div",
     { className: "bt-bcards" },
     state.ids.map((tabId, index) => {
       const page = pages[tabId] ?? {};
       const label = page.title || shortUrl(page.url) || t("New tab");
-      return (0, import_react68.createElement)(
+      return (0, import_react69.createElement)(
         "div",
         { key: tabId, className: "bt-bcard", "data-active": state.active === tabId || void 0, style: { animationDelay: `${index * 30}ms` } },
-        (0, import_react68.createElement)(
+        (0, import_react69.createElement)(
           "button",
           { type: "button", className: "bt-bcard-shot", "aria-label": t("Open {title}", { title: label }), title: page.url, onClick: () => actions.browserPick(sessionId, tabId) },
-          page.excerpt ? (0, import_react68.createElement)(
+          page.excerpt ? (0, import_react69.createElement)(
             "span",
             { className: "bt-bcard-preview" },
-            (0, import_react68.createElement)("span", { className: "bt-bcard-ptitle" }, label),
-            (0, import_react68.createElement)("span", { className: "bt-bcard-excerpt" }, page.excerpt)
-          ) : (0, import_react68.createElement)("span", { className: "bt-bcard-blank" }, (0, import_react68.createElement)(GlobeIcon2), (0, import_react68.createElement)("span", null, label))
+            (0, import_react69.createElement)("span", { className: "bt-bcard-ptitle" }, label),
+            (0, import_react69.createElement)("span", { className: "bt-bcard-excerpt" }, page.excerpt)
+          ) : (0, import_react69.createElement)("span", { className: "bt-bcard-blank" }, (0, import_react69.createElement)(GlobeIcon2), (0, import_react69.createElement)("span", null, label))
         ),
-        (0, import_react68.createElement)("button", {
+        (0, import_react69.createElement)("button", {
           type: "button",
           className: "bt-bcard-x",
           "aria-label": t("Close tab"),
@@ -42567,20 +43175,20 @@ function BrowserCards({ bot, sessionId, roster, actions, useBrowserTabs, useBrow
             void actions.browserCloseTab(bot.id, tabId);
           }
         }, "×"),
-        (0, import_react68.createElement)(
+        (0, import_react69.createElement)(
           "div",
           { className: "bt-bcard-row" },
-          (0, import_react68.createElement)(Favicon, { src: page.favicon, className: "bt-bcard-fav" }),
-          (0, import_react68.createElement)("span", { className: "bt-bcard-title" }, label),
-          page.url ? (0, import_react68.createElement)("span", { className: "bt-bcard-host" }, hostOf2(page.url)) : null
+          (0, import_react69.createElement)(Favicon, { src: page.favicon, className: "bt-bcard-fav" }),
+          (0, import_react69.createElement)("span", { className: "bt-bcard-title" }, label),
+          page.url ? (0, import_react69.createElement)("span", { className: "bt-bcard-host" }, hostOf2(page.url)) : null
         )
       );
     }),
-    (0, import_react68.createElement)("button", { type: "button", className: "bt-bcard-new", style: { animationDelay: `${state.ids.length * 30}ms` }, onClick: () => actions.browserNewTab(sessionId) }, (0, import_react68.createElement)(PlusIcon), t("New tab"))
+    (0, import_react69.createElement)("button", { type: "button", className: "bt-bcard-new", style: { animationDelay: `${state.ids.length * 30}ms` }, onClick: () => actions.browserNewTab(sessionId) }, (0, import_react69.createElement)(PlusIcon), t("New tab"))
   );
 }
 function useSaved(value, save) {
-  const [pending, setPending] = (0, import_react68.useState)(null);
+  const [pending, setPending] = (0, import_react69.useState)(null);
   const commit = (next) => {
     setPending({ next });
     return Promise.resolve(save(next)).then(
@@ -42598,24 +43206,24 @@ function useSaved(value, save) {
 }
 function BotLabel({ bot, actions, run: run2 }) {
   const [role, save] = useSaved(bot.role ?? "", (next) => run2(actions.updateBot(bot.id, { role: next })));
-  return (0, import_react68.createElement)(InlineText, { label: t("Label"), value: role, placeholder: t("Add a label"), maxLength: 24, className: "bt-drawer-role-input", onSave: save });
+  return (0, import_react69.createElement)(InlineText, { label: t("Label"), value: role, placeholder: t("Add a label"), maxLength: 24, className: "bt-drawer-role-input", onSave: save });
 }
 function About({ text, title = "About", label, placeholder, onSave }) {
-  const [open, setOpen] = (0, import_react68.useState)(false);
-  const [editing, setEditing] = (0, import_react68.useState)(false);
+  const [open, setOpen] = (0, import_react69.useState)(false);
+  const [editing, setEditing] = (0, import_react69.useState)(false);
   const [shown, save] = useSaved(text, (next) => onSave(next));
   const long = shown.split("\n").length > 5 || shown.length > 240;
-  const body = (0, import_react68.useRef)(null);
+  const body = (0, import_react69.useRef)(null);
   useMorph(body, open);
   const field = onSave !== void 0 && (editing || shown === "");
   const edit = () => {
     if (!window.getSelection?.()?.toString()) setEditing(true);
   };
-  return (0, import_react68.createElement)(
+  return (0, import_react69.createElement)(
     "div",
     null,
-    (0, import_react68.createElement)("div", { className: "bt-section-title" }, t(title)),
-    field ? (0, import_react68.createElement)(InlineText, { label, value: shown, multiline: true, placeholder, autoFocus: editing, className: "bt-input bt-input-area", onSave: save, onDone: () => setEditing(false) }) : (0, import_react68.createElement)("div", {
+    (0, import_react69.createElement)("div", { className: "bt-section-title" }, t(title)),
+    field ? (0, import_react69.createElement)(InlineText, { label, value: shown, multiline: true, placeholder, autoFocus: editing, className: "bt-input bt-input-area", onSave: save, onDone: () => setEditing(false) }) : (0, import_react69.createElement)("div", {
       ref: body,
       className: "bt-about",
       "data-open": open || void 0,
@@ -42626,7 +43234,7 @@ function About({ text, title = "About", label, placeholder, onSave }) {
         }
       } } : {}
     }, shown),
-    long && !field ? (0, import_react68.createElement)("button", { type: "button", className: "bt-more", onClick: () => setOpen((value) => !value) }, open ? t("Show less") : t("Show more")) : null
+    long && !field ? (0, import_react69.createElement)("button", { type: "button", className: "bt-more", onClick: () => setOpen((value) => !value) }, open ? t("Show less") : t("Show more")) : null
   );
 }
 var PILE_MAX = 4;
@@ -42634,58 +43242,58 @@ function MemberPile({ room: room2, roster }) {
   const members = room2.members.map((id) => roster.byId[id]).filter(Boolean);
   const shown = members.length > PILE_MAX ? members.slice(0, PILE_MAX - 1) : members;
   const more = members.length - shown.length;
-  return (0, import_react68.createElement)(
+  return (0, import_react69.createElement)(
     "span",
     { className: "bt-pile", "aria-hidden": true },
-    shown.map((bot, index) => (0, import_react68.createElement)("span", { key: bot.id, className: "bt-pile-face", style: { animationDelay: `${index * 40}ms` } }, (0, import_react68.createElement)(BotMark, { bot, size: 44, live: true }))),
-    more > 0 ? (0, import_react68.createElement)("span", { key: "more", className: "bt-pile-face bt-pile-more", style: { animationDelay: `${shown.length * 40}ms` } }, `+${more}`) : null
+    shown.map((bot, index) => (0, import_react69.createElement)("span", { key: bot.id, className: "bt-pile-face", style: { animationDelay: `${index * 40}ms` } }, (0, import_react69.createElement)(BotMark, { bot, size: 44, live: true }))),
+    more > 0 ? (0, import_react69.createElement)("span", { key: "more", className: "bt-pile-face bt-pile-more", style: { animationDelay: `${shown.length * 40}ms` } }, `+${more}`) : null
   );
 }
 var markOf = (entry) => entry?.state === "ask" ? "alert" : entry?.state === "work" ? workState(entry.doing) : "idle";
 function MemberRow({ member, entry, room: room2, roster, actions }) {
-  return (0, import_react68.createElement)(
+  return (0, import_react69.createElement)(
     "div",
     { role: "listitem", className: "bt-member" },
-    (0, import_react68.createElement)(
+    (0, import_react69.createElement)(
       "div",
       { className: "bt-member-row" },
-      (0, import_react68.createElement)(
+      (0, import_react69.createElement)(
         "button",
         { type: "button", className: "bt-member-open", title: t("Open {name}'s chat", { name: member.name }), onClick: () => actions.openSession(member.id) },
-        (0, import_react68.createElement)(BotMark, { bot: member, size: 32, state: markOf(entry) }),
-        (0, import_react68.createElement)(
+        (0, import_react69.createElement)(BotMark, { bot: member, size: 32, state: markOf(entry) }),
+        (0, import_react69.createElement)(
           "span",
           { className: "bt-member-text" },
-          (0, import_react68.createElement)(
+          (0, import_react69.createElement)(
             "span",
             { className: "bt-member-line" },
-            (0, import_react68.createElement)("span", { className: "bt-member-name" }, member.name),
-            room2.admin === member.id ? (0, import_react68.createElement)("span", { className: "bt-tag" }, t("Admin")) : null
+            (0, import_react69.createElement)("span", { className: "bt-member-name" }, member.name),
+            room2.admin === member.id ? (0, import_react69.createElement)("span", { className: "bt-tag" }, t("Admin")) : null
           ),
-          (0, import_react68.createElement)(MemberState, { entry, bot: member, room: room2, roster })
+          (0, import_react69.createElement)(MemberState, { entry, bot: member, room: room2, roster })
         )
       ),
-      (0, import_react68.createElement)(StopMemberWork, { entry, bot: member, room: room2, actions })
+      (0, import_react69.createElement)(StopMemberWork, { entry, bot: member, room: room2, actions })
     ),
-    (0, import_react68.createElement)(MemberApprovals, { entry, bot: member, actions })
+    (0, import_react69.createElement)(MemberApprovals, { entry, bot: member, actions })
   );
 }
 function GroupOverview({ room: room2, roster, actions, usage, useWork, useComputer, openSettings }) {
   const members = room2.members.map((id) => roster.byId[id]).filter(Boolean);
   const { entries: entries2 } = useMemberWork(room2, useWork, useComputer);
   return [
-    room2.notice ? (0, import_react68.createElement)(About, { key: "notice", title: "Notice", text: room2.notice }) : (0, import_react68.createElement)("button", { key: "notice", type: "button", className: "bt-more", onClick: openSettings }, t("Add a notice in group settings")),
-    (0, import_react68.createElement)(GroupTodos, { key: "todos", room: room2, actions }),
-    (0, import_react68.createElement)(
+    room2.notice ? (0, import_react69.createElement)(About, { key: "notice", title: "Notice", text: room2.notice }) : (0, import_react69.createElement)("button", { key: "notice", type: "button", className: "bt-more", onClick: openSettings }, t("Add a notice in group settings")),
+    (0, import_react69.createElement)(GroupTodos, { key: "todos", room: room2, actions }),
+    (0, import_react69.createElement)(
       "div",
       { key: "members" },
-      (0, import_react68.createElement)(
+      (0, import_react69.createElement)(
         "div",
         { className: "bt-members-head" },
-        (0, import_react68.createElement)("div", { className: "bt-section-title" }, t("Members · {count}", { count: members.length })),
-        (0, import_react68.createElement)(StopRoomWork, { room: room2, entries: entries2, actions })
+        (0, import_react69.createElement)("div", { className: "bt-section-title" }, t("Members · {count}", { count: members.length })),
+        (0, import_react69.createElement)(StopRoomWork, { room: room2, entries: entries2, actions })
       ),
-      (0, import_react68.createElement)("div", { className: "bt-members", role: "list" }, members.map((member) => (0, import_react68.createElement)(MemberRow, {
+      (0, import_react69.createElement)("div", { className: "bt-members", role: "list" }, members.map((member) => (0, import_react69.createElement)(MemberRow, {
         key: member.id,
         member,
         entry: entries2.find((item) => item.id === member.id),
@@ -42694,17 +43302,17 @@ function GroupOverview({ room: room2, roster, actions, usage, useWork, useComput
         actions
       })))
     ),
-    (0, import_react68.createElement)("div", { key: "tasks" }, (0, import_react68.createElement)(TaskBoard, { room: room2, roster, actions })),
-    (0, import_react68.createElement)(
+    (0, import_react69.createElement)("div", { key: "tasks" }, (0, import_react69.createElement)(TaskBoard, { room: room2, roster, actions })),
+    (0, import_react69.createElement)(
       "div",
       { key: "goal" },
-      (0, import_react68.createElement)("div", { className: "bt-section-title" }, t("Goal")),
-      (0, import_react68.createElement)(
+      (0, import_react69.createElement)("div", { className: "bt-section-title" }, t("Goal")),
+      (0, import_react69.createElement)(
         "div",
         { className: "bt-kv" },
         room2.goal ? [
-          (0, import_react68.createElement)("span", { key: "t" }, room2.goal.title, " ", (0, import_react68.createElement)("span", { className: "bt-note" }, goalView(room2.goal, { roster })?.barLabel ?? "")),
-          (0, import_react68.createElement)("button", {
+          (0, import_react69.createElement)("span", { key: "t" }, room2.goal.title, " ", (0, import_react69.createElement)("span", { className: "bt-note" }, goalView(room2.goal, { roster })?.barLabel ?? "")),
+          (0, import_react69.createElement)("button", {
             key: "s",
             type: "button",
             className: "bt-soft bt-soft-sm",
@@ -42713,7 +43321,7 @@ function GroupOverview({ room: room2, roster, actions, usage, useWork, useComput
               if (typeof document !== "undefined" && document.querySelector("[data-rightbar-fullscreen]")) actions.closeOverlay();
             }
           }, t("Show"))
-        ] : (0, import_react68.createElement)("button", {
+        ] : (0, import_react69.createElement)("button", {
           type: "button",
           className: "bt-soft bt-soft-sm",
           disabled: !canSetGoal(room2, roster),
@@ -42722,24 +43330,24 @@ function GroupOverview({ room: room2, roster, actions, usage, useWork, useComput
         }, t("Set a goal"))
       )
     ),
-    (0, import_react68.createElement)(
+    (0, import_react69.createElement)(
       "div",
       { key: "mode" },
-      (0, import_react68.createElement)("div", { className: "bt-section-title" }, t("Who answers")),
-      (0, import_react68.createElement)("div", { className: "bt-kv" }, (0, import_react68.createElement)("span", null, t(ROOM_MODES.find(([id]) => id === shownMode(room2, roster))?.[1] ?? "Everyone")))
+      (0, import_react69.createElement)("div", { className: "bt-section-title" }, t("Who answers")),
+      (0, import_react69.createElement)("div", { className: "bt-kv" }, (0, import_react69.createElement)("span", null, t(ROOM_MODES.find(([id]) => id === shownMode(room2, roster))?.[1] ?? "Everyone")))
     ),
-    room2.permission ? (0, import_react68.createElement)(
+    room2.permission ? (0, import_react69.createElement)(
       "div",
       { key: "permission" },
-      (0, import_react68.createElement)("div", { className: "bt-section-title" }, t("Permissions")),
-      (0, import_react68.createElement)("div", { className: "bt-kv" }, (0, import_react68.createElement)("span", { className: presetDanger(room2.permission) ? "bt-perm-danger" : void 0 }, presetName(room2.permission, roster.permissions)))
+      (0, import_react69.createElement)("div", { className: "bt-section-title" }, t("Permissions")),
+      (0, import_react69.createElement)("div", { className: "bt-kv" }, (0, import_react69.createElement)("span", { className: presetDanger(room2.permission) ? "bt-perm-danger" : void 0 }, presetName(room2.permission, roster.permissions)))
     ) : null,
-    roster.memory === false ? null : (0, import_react68.createElement)(MemoryRow, { key: "memory", owner: { id: room2.id, name: room2.name, group: true }, actions }),
-    usage ? (0, import_react68.createElement)(
+    roster.memory === false ? null : (0, import_react69.createElement)(MemoryRow, { key: "memory", owner: { id: room2.id, name: room2.name, group: true }, actions }),
+    usage ? (0, import_react69.createElement)(
       "div",
       { key: "usage" },
-      (0, import_react68.createElement)("div", { className: "bt-section-title" }, t("Usage")),
-      (0, import_react68.createElement)("div", { className: "bt-kv" }, (0, import_react68.createElement)("span", null, room2.name), (0, import_react68.createElement)("span", null, usage))
+      (0, import_react69.createElement)("div", { className: "bt-section-title" }, t("Usage")),
+      (0, import_react69.createElement)("div", { className: "bt-kv" }, (0, import_react69.createElement)("span", null, room2.name), (0, import_react69.createElement)("span", null, usage))
     ) : null
   ];
 }
@@ -42759,27 +43367,27 @@ function BotSessions({ bot, part, run: run2, useSessions, actions, running }) {
     if (entry.open && actions.openPart !== void 0) return () => run2(actions.openPart(bot.id, entry.id, entry.running));
     return () => run2(call("bot-open-part", { botId: bot.id, sessionId: entry.id }));
   };
-  return (0, import_react68.createElement)(
+  return (0, import_react69.createElement)(
     "div",
     { className: "bt-drawer-model" },
-    (0, import_react68.createElement)(
+    (0, import_react69.createElement)(
       "div",
       { className: "bt-agent-sessions-head" },
-      (0, import_react68.createElement)("div", { className: "bt-section-title" }, t("Sessions")),
-      (0, import_react68.createElement)("button", { type: "button", className: "bt-agent-sessions-new", onClick: () => run2(actions.newPart !== void 0 ? actions.newPart(bot.id) : call("bot-new-part", { botId: bot.id })) }, (0, import_react68.createElement)(PlusIcon), t("New session"))
+      (0, import_react69.createElement)("div", { className: "bt-section-title" }, t("Sessions")),
+      (0, import_react69.createElement)("button", { type: "button", className: "bt-agent-sessions-new", onClick: () => run2(actions.newPart !== void 0 ? actions.newPart(bot.id) : call("bot-new-part", { botId: bot.id })) }, (0, import_react69.createElement)(PlusIcon), t("New session"))
     ),
-    backgroundRunning ? (0, import_react68.createElement)(
+    backgroundRunning ? (0, import_react69.createElement)(
       "div",
       { className: "bt-agent-sessions-warn", role: "status" },
-      (0, import_react68.createElement)(AlertIcon),
-      (0, import_react68.createElement)("span", null, t("A running session keeps using model calls in the background."))
+      (0, import_react69.createElement)(AlertIcon),
+      (0, import_react69.createElement)("span", null, t("A running session keeps using model calls in the background."))
     ) : null,
-    (0, import_react68.createElement)("div", { className: "bt-agent-sessions" }, entries2.map((entry, index) => {
+    (0, import_react69.createElement)("div", { className: "bt-agent-sessions" }, entries2.map((entry, index) => {
       const row = rows2[index];
       const when3 = row?.updatedAt ?? row?.createdAt;
       const label = row?.title && row.title.trim() !== "" ? row.title : t("Session {number}", { number: total - index });
       const title = entry.current ? t("Current session") : entry.open && entry.running ? t("Open this running session") : entry.open ? t("Open this session") : t("Open this earlier session");
-      return (0, import_react68.createElement)(
+      return (0, import_react69.createElement)(
         "button",
         {
           key: entry.id,
@@ -42789,11 +43397,11 @@ function BotSessions({ bot, part, run: run2, useSessions, actions, running }) {
           title,
           onClick: openPart(entry)
         },
-        (0, import_react68.createElement)("span", { className: "bt-agent-session-name" }, label),
-        (0, import_react68.createElement)(
+        (0, import_react69.createElement)("span", { className: "bt-agent-session-name" }, label),
+        (0, import_react69.createElement)(
           "span",
           { className: "bt-agent-session-meta" },
-          entry.running ? (0, import_react68.createElement)("span", { className: "bt-agent-session-run", role: "status" }, t("Running")) : entry.current ? t("Current") : when3 ? new Date(when3).toLocaleString(void 0, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : ""
+          entry.running ? (0, import_react69.createElement)("span", { className: "bt-agent-session-run", role: "status" }, t("Running")) : entry.current ? t("Current") : when3 ? new Date(when3).toLocaleString(void 0, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : ""
         )
       );
     }))
@@ -42804,15 +43412,15 @@ function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, roster, a
   const owner = roster.byId[sessionId];
   const part = owner ? currentPart(owner) : sessionId;
   const isMainBot = isMainOf(roster, owner?.id);
-  const [tab, setTab] = (0, import_react68.useState)("details");
+  const [tab, setTab] = (0, import_react69.useState)("details");
   const room2 = roster.roomsById[sessionId];
-  const [view, setView] = (0, import_react68.useState)(startTab === "settings" && (owner || room2) ? "settings" : "overview");
-  const [editing, setEditing] = (0, import_react68.useState)(Boolean(startRenaming && (roster.byId[sessionId] || roster.roomsById[sessionId])));
-  const [draftName, setDraftName] = (0, import_react68.useState)(roster.byId[sessionId]?.name ?? (roster.roomsById[sessionId]?.named ? roster.roomsById[sessionId].name : ""));
-  const [copied, setCopied] = (0, import_react68.useState)(false);
-  const [error, setError] = (0, import_react68.useState)("");
+  const [view, setView] = (0, import_react69.useState)(startTab === "settings" && (owner || room2) ? "settings" : "overview");
+  const [editing, setEditing] = (0, import_react69.useState)(Boolean(startRenaming && (roster.byId[sessionId] || roster.roomsById[sessionId])));
+  const [draftName, setDraftName] = (0, import_react69.useState)(roster.byId[sessionId]?.name ?? (roster.roomsById[sessionId]?.named ? roster.roomsById[sessionId].name : ""));
+  const [copied, setCopied] = (0, import_react69.useState)(false);
+  const [error, setError] = (0, import_react69.useState)("");
   const glide2 = useGlide(tab);
-  const last = (0, import_react68.useRef)({ view, tab, move: void 0 });
+  const last = (0, import_react69.useRef)({ view, tab, move: void 0 });
   if (last.current.view !== view) last.current = { view, tab, move: view === "settings" ? "in" : "out" };
   else if (last.current.tab !== tab) last.current = { view, tab, move: "tab" };
   const move = last.current.move;
@@ -42837,21 +43445,21 @@ function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, roster, a
       setTimeout(() => setCopied(false), 1600);
     });
   };
-  const errorLine = error ? (0, import_react68.createElement)("div", { className: "bt-error", role: "alert", style: { padding: 0 } }, error) : null;
+  const errorLine = error ? (0, import_react69.createElement)("div", { className: "bt-error", role: "alert", style: { padding: 0 } }, error) : null;
   if ((bot || room2) && view === "settings") {
     return [
-      (0, import_react68.createElement)(
+      (0, import_react69.createElement)(
         "div",
         { key: "head", className: "bt-subhead", "data-move": move },
-        (0, import_react68.createElement)("button", { type: "button", className: "bt-icon-btn", "aria-label": t("Back to details"), onClick: () => setView("overview") }, (0, import_react68.createElement)(ChevronLeftIcon)),
-        (0, import_react68.createElement)("span", { className: "bt-subhead-title" }, bot ? t("Settings") : t("Group settings")),
-        hasStrip ? null : (0, import_react68.createElement)("button", { type: "button", className: "bt-icon-btn", "aria-label": t("Close details"), onClick: close }, (0, import_react68.createElement)(CloseIcon))
+        (0, import_react69.createElement)("button", { type: "button", className: "bt-icon-btn", "aria-label": t("Back to details"), onClick: () => setView("overview") }, (0, import_react69.createElement)(ChevronLeftIcon)),
+        (0, import_react69.createElement)("span", { className: "bt-subhead-title" }, bot ? t("Settings") : t("Group settings")),
+        hasStrip ? null : (0, import_react69.createElement)("button", { type: "button", className: "bt-icon-btn", "aria-label": t("Close details"), onClick: close }, (0, import_react69.createElement)(CloseIcon))
       ),
-      (0, import_react68.createElement)(
+      (0, import_react69.createElement)(
         "div",
         { key: "set-body", className: "bt-drawer-body bt-set-body", "data-move": move },
         errorLine,
-        bot ? (0, import_react68.createElement)(BotSettingsForm, { bot, roster, actions, run: run2 }) : (0, import_react68.createElement)(GroupSettingsForm, { room: room2, roster, actions, run: run2, onDeleted: close })
+        bot ? (0, import_react69.createElement)(BotSettingsForm, { bot, roster, actions, run: run2 }) : (0, import_react69.createElement)(GroupSettingsForm, { room: room2, roster, actions, run: run2, onDeleted: close })
       )
     ];
   }
@@ -42862,18 +43470,18 @@ function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, roster, a
     canTerminal: actions.canOpenTerminal?.() === true,
     canFiles: actions.canOpenFiles?.() === true
   }).map((key) => menuItemFor(key, actions, sessionId));
-  const top = (0, import_react68.createElement)(
+  const top = (0, import_react69.createElement)(
     "div",
     { className: "bt-drawer-top", "data-move": side },
-    bot || room2 ? (0, import_react68.createElement)("button", { type: "button", className: "bt-round", "aria-label": bot ? t("Edit Bot") : t("Group settings"), title: bot ? t("Edit Bot") : t("Group settings"), "data-info-row": "settings", onClick: () => setView("settings") }, (0, import_react68.createElement)(GearIcon)) : null,
-    more.length > 0 ? (0, import_react68.createElement)("span", { "data-info-row": "more" }, (0, import_react68.createElement)(PanelMenu, { items: more, className: "bt-round", "aria-label": t("More") })) : null,
-    bot || room2 ? (0, import_react68.createElement)("button", { type: "button", className: "bt-round", "aria-label": copied ? t("Copied conversation") : t("Share conversation"), title: copied ? t("Copied") : t("Copy conversation as Markdown"), onClick: share }, copied ? (0, import_react68.createElement)("span", { key: "copied", className: "bt-pop-in" }, "✓") : (0, import_react68.createElement)(ShareIcon)) : null,
-    hasStrip ? null : (0, import_react68.createElement)("button", { type: "button", className: "bt-round", "aria-label": t("Close details"), onClick: close }, (0, import_react68.createElement)(CloseIcon))
+    bot || room2 ? (0, import_react69.createElement)("button", { type: "button", className: "bt-round", "aria-label": bot ? t("Edit Bot") : t("Group settings"), title: bot ? t("Edit Bot") : t("Group settings"), "data-info-row": "settings", onClick: () => setView("settings") }, (0, import_react69.createElement)(GearIcon)) : null,
+    more.length > 0 ? (0, import_react69.createElement)("span", { "data-info-row": "more" }, (0, import_react69.createElement)(PanelMenu, { items: more, className: "bt-round", "aria-label": t("More") })) : null,
+    bot || room2 ? (0, import_react69.createElement)("button", { type: "button", className: "bt-round", "aria-label": copied ? t("Copied conversation") : t("Share conversation"), title: copied ? t("Copied") : t("Copy conversation as Markdown"), onClick: share }, copied ? (0, import_react69.createElement)("span", { key: "copied", className: "bt-pop-in" }, "✓") : (0, import_react69.createElement)(ShareIcon)) : null,
+    hasStrip ? null : (0, import_react69.createElement)("button", { type: "button", className: "bt-round", "aria-label": t("Close details"), onClick: close }, (0, import_react69.createElement)(CloseIcon))
   );
   if (!bot && !room2) {
     return [
-      (0, import_react68.createElement)(import_react68.Fragment, { key: "top" }, top),
-      (0, import_react68.createElement)("div", { key: "body", className: "bt-drawer-body" }, (0, import_react68.createElement)("div", { className: "bt-muted" }, t("This conversation is not part of your Bot team.")))
+      (0, import_react69.createElement)(import_react69.Fragment, { key: "top" }, top),
+      (0, import_react69.createElement)("div", { key: "body", className: "bt-drawer-body" }, (0, import_react69.createElement)("div", { className: "bt-muted" }, t("This conversation is not part of your Bot team.")))
     ];
   }
   const current2 = bot?.name ?? room2.name;
@@ -42887,12 +43495,12 @@ function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, roster, a
   const subtitle = bot ? void 0 : roomSubtitle(room2, roster);
   const tabs = bot ? roster.computer?.enabled === true ? ["details", "browser", "computer"] : ["details", "browser"] : ["details"];
   return [
-    (0, import_react68.createElement)(import_react68.Fragment, { key: "top" }, top),
-    (0, import_react68.createElement)(
+    (0, import_react69.createElement)(import_react69.Fragment, { key: "top" }, top),
+    (0, import_react69.createElement)(
       "div",
       { key: "id", className: "bt-drawer-id", "data-move": side },
-      bot ? (0, import_react68.createElement)(BotAvatar, { bot, size: 64, state: botState(running, doing, roster.questions?.[part] !== void 0), main: isMainBot, badge: false, gaze: true, pokeable: true }) : (0, import_react68.createElement)(MemberPile, { room: room2, roster }),
-      editing ? (0, import_react68.createElement)("input", {
+      bot ? (0, import_react69.createElement)(BotAvatar, { bot, size: 64, state: botState(running, doing, roster.questions?.[part] !== void 0), main: isMainBot, badge: false, gaze: true, pokeable: true }) : (0, import_react69.createElement)(MemberPile, { room: room2, roster }),
+      editing ? (0, import_react69.createElement)("input", {
         className: "bt-drawer-name-input",
         autoFocus: true,
         value: draftName,
@@ -42907,59 +43515,59 @@ function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, roster, a
             setEditing(false);
           }
         }
-      }) : (0, import_react68.createElement)("button", { type: "button", className: "bt-drawer-name", "aria-label": t("Rename {name}", { name: current2 }), title: t("Rename"), onClick: () => {
+      }) : (0, import_react69.createElement)("button", { type: "button", className: "bt-drawer-name", "aria-label": t("Rename {name}", { name: current2 }), title: t("Rename"), onClick: () => {
         setDraftName(room2 && !room2.named ? "" : current2);
         setEditing(true);
       } }, current2),
-      bot ? roster.readOnly ? bot.role ? (0, import_react68.createElement)("span", { className: "bt-drawer-role" }, bot.role) : null : (0, import_react68.createElement)(BotLabel, { key: `role:${bot.id}`, bot, actions, run: run2 }) : subtitle ? (0, import_react68.createElement)("span", { className: "bt-drawer-role" }, subtitle) : null
+      bot ? roster.readOnly ? bot.role ? (0, import_react69.createElement)("span", { className: "bt-drawer-role" }, bot.role) : null : (0, import_react69.createElement)(BotLabel, { key: `role:${bot.id}`, bot, actions, run: run2 }) : subtitle ? (0, import_react69.createElement)("span", { className: "bt-drawer-role" }, subtitle) : null
     ),
-    tabs.length > 1 ? (0, import_react68.createElement)(
+    tabs.length > 1 ? (0, import_react69.createElement)(
       "div",
       { key: "tabs", ref: glide2.box, className: "bt-tabs", role: "tablist", "data-move": side },
-      (0, import_react68.createElement)("span", { ref: glide2.thumb, className: "bt-thumb", "aria-hidden": true }),
-      tabs.map((key) => (0, import_react68.createElement)("button", { key, type: "button", role: "tab", className: "bt-tab", "aria-selected": tab === key, onClick: () => setTab(key) }, t(TAB_LABELS[key])))
+      (0, import_react69.createElement)("span", { ref: glide2.thumb, className: "bt-thumb", "aria-hidden": true }),
+      tabs.map((key) => (0, import_react69.createElement)("button", { key, type: "button", role: "tab", className: "bt-tab", "aria-selected": tab === key, onClick: () => setTab(key) }, t(TAB_LABELS[key])))
     ) : null,
-    (0, import_react68.createElement)(
+    (0, import_react69.createElement)(
       "div",
       { key: `body:${tab}`, className: "bt-drawer-body", "data-move": move },
       errorLine,
-      room2 && tab === "details" ? (0, import_react68.createElement)(GroupOverview, { room: room2, roster, actions, usage, useWork, useComputer, openSettings: () => setView("settings") }) : null,
-      bot && tab === "computer" ? (0, import_react68.createElement)(ComputerView, { bot, actions, hooks: { useComputer } }) : null,
+      room2 && tab === "details" ? (0, import_react69.createElement)(GroupOverview, { room: room2, roster, actions, usage, useWork, useComputer, openSettings: () => setView("settings") }) : null,
+      bot && tab === "computer" ? (0, import_react69.createElement)(ComputerView, { bot, actions, hooks: { useComputer } }) : null,
       bot && tab === "details" ? [
-        (0, import_react68.createElement)(RunStats, { key: "stats", bot, part, running, actions }),
-        (0, import_react68.createElement)(
+        (0, import_react69.createElement)(RunStats, { key: "stats", bot, part, running, actions }),
+        (0, import_react69.createElement)(
           "div",
           { key: "model", className: "bt-drawer-model" },
-          (0, import_react68.createElement)("div", { className: "bt-section-title" }, t("Model")),
-          (0, import_react68.createElement)(ModelMenu, { bot, roster, actions, run: run2, wide: true, inline: true }),
-          modelOf(bot, roster) ? null : (0, import_react68.createElement)("div", { className: "bt-note" }, t("Pick a model and {name} can start.", { name: bot.name }))
+          (0, import_react69.createElement)("div", { className: "bt-section-title" }, t("Model")),
+          (0, import_react69.createElement)(ModelMenu, { bot, roster, actions, run: run2, wide: true, inline: true }),
+          modelOf(bot, roster) ? null : (0, import_react69.createElement)("div", { className: "bt-note" }, t("Pick a model and {name} can start.", { name: bot.name }))
         ),
-        (0, import_react68.createElement)(BotSessions, { key: "sessions", bot, part, run: run2, useSessions, actions, running: roster.partsRunning }),
-        (0, import_react68.createElement)(PermissionRow, { key: "permission", bot, roster, actions, run: run2 }),
-        (0, import_react68.createElement)(BotConnectors, { key: "connectors", bot, roster, actions, run: run2 }),
-        (0, import_react68.createElement)(
+        (0, import_react69.createElement)(BotSessions, { key: "sessions", bot, part, run: run2, useSessions, actions, running: roster.partsRunning }),
+        (0, import_react69.createElement)(PermissionRow, { key: "permission", bot, roster, actions, run: run2 }),
+        (0, import_react69.createElement)(BotConnectors, { key: "connectors", bot, roster, actions, run: run2 }),
+        (0, import_react69.createElement)(
           "div",
           { key: "folder", className: "bt-drawer-model" },
-          (0, import_react68.createElement)("div", { className: "bt-section-title" }, t("Working folder")),
-          (0, import_react68.createElement)(FolderMenu, { value: bot.workDir, actions, run: run2, wide: true, onPick: (workDir) => run2(actions.updateBot(bot.id, { workDir })) })
+          (0, import_react69.createElement)("div", { className: "bt-section-title" }, t("Working folder")),
+          (0, import_react69.createElement)(FolderMenu, { value: bot.workDir, actions, run: run2, wide: true, onPick: (workDir) => run2(actions.updateBot(bot.id, { workDir })) })
         ),
-        roster.readOnly ? bot.instructions ? (0, import_react68.createElement)(About, { key: `about:${bot.id}`, text: bot.instructions }) : null : (0, import_react68.createElement)(About, {
+        roster.readOnly ? bot.instructions ? (0, import_react69.createElement)(About, { key: `about:${bot.id}`, text: bot.instructions }) : null : (0, import_react69.createElement)(About, {
           key: `about:${bot.id}`,
           text: bot.instructions ?? "",
           label: t("Instructions"),
           placeholder: t("What this Bot is responsible for…"),
           onSave: (instructions) => run2(actions.updateBot(bot.id, { instructions }))
         }),
-        roster.memory === false ? null : (0, import_react68.createElement)(MemoryRow, { key: "memory", owner: { id: bot.id, name: bot.name }, actions }),
-        usage ? (0, import_react68.createElement)(
+        roster.memory === false ? null : (0, import_react69.createElement)(MemoryRow, { key: "memory", owner: { id: bot.id, name: bot.name }, actions }),
+        usage ? (0, import_react69.createElement)(
           "div",
           { key: "usage" },
-          (0, import_react68.createElement)("div", { className: "bt-section-title" }, t("Usage")),
-          (0, import_react68.createElement)("div", { className: "bt-kv" }, (0, import_react68.createElement)("span", null, bot.name), (0, import_react68.createElement)("span", null, usage))
+          (0, import_react69.createElement)("div", { className: "bt-section-title" }, t("Usage")),
+          (0, import_react69.createElement)("div", { className: "bt-kv" }, (0, import_react69.createElement)("span", null, bot.name), (0, import_react69.createElement)("span", null, usage))
         ) : null,
-        (0, import_react68.createElement)(ScheduleSummary, { key: "routines", bot, actions })
+        (0, import_react69.createElement)(ScheduleSummary, { key: "routines", bot, actions })
       ] : null,
-      bot && tab === "browser" ? (0, import_react68.createElement)(BrowserCards, { bot, sessionId, roster, actions, useBrowserTabs, useBrowserPages }) : null
+      bot && tab === "browser" ? (0, import_react69.createElement)(BrowserCards, { bot, sessionId, roster, actions, useBrowserTabs, useBrowserPages }) : null
     )
   ];
 }
@@ -42970,8 +43578,8 @@ function rectsOverlap(a, b) {
 }
 
 // src/client/browser-pane.js
-var import_react69 = require("react");
-var import_react_dom11 = require("react-dom");
+var import_react70 = require("react");
+var import_react_dom12 = require("react-dom");
 var PANEL_LINGER_MS = 300;
 var WIDTH_KEY = STORAGE.browserWidth;
 var DEFAULT_WIDTH = 520;
@@ -42982,10 +43590,10 @@ var READ_FLASH_MS = 2400;
 var EMPTY_PAGE = { url: "", title: "", favicon: null, loading: false, canGoBack: false, canGoForward: false, error: null, excerpt: "" };
 var EMPTY_TABS2 = { ids: [], active: null };
 var icon = (paths) => function BrowserIcon() {
-  return (0, import_react69.createElement)(
+  return (0, import_react70.createElement)(
     "svg",
     { width: 16, height: 16, viewBox: "0 0 20 20", fill: "none", stroke: "currentColor", strokeWidth: 1.5, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": true },
-    paths.map((d, index) => (0, import_react69.createElement)("path", { key: index, d }))
+    paths.map((d, index) => (0, import_react70.createElement)("path", { key: index, d }))
   );
 };
 var GlobeIcon2 = icon(["M10 3a7 7 0 1 0 0 14 7 7 0 0 0 0-14z", "M3 10h14", "M10 3c2 2.2 2.9 4.5 2.9 7S12 14.8 10 17c-2-2.2-2.9-4.5-2.9-7S8 5.2 10 3z"]);
@@ -43000,9 +43608,9 @@ var ImportIcon = icon(["M10 3.5v8.5", "M6 8.5l4 4 4-4", "M4.5 14v1.5a1.5 1.5 0 0
 var FileIcon = icon(["M6 3.5h5.5L14.5 6.5v10H6z", "M11 3.5v3.5h3.5"]);
 var WindowIcon = icon(["M4 5h12v9.5H4z", "M4 7.5h12"]);
 function Favicon({ src, className }) {
-  const [failed, setFailed] = (0, import_react69.useState)(null);
-  if (!src || failed === src) return (0, import_react69.createElement)("span", { className: `${className} bt-ptab-globe` }, (0, import_react69.createElement)(GlobeIcon2));
-  return (0, import_react69.createElement)("img", { className, src, alt: "", "aria-hidden": true, onError: () => setFailed(src) });
+  const [failed, setFailed] = (0, import_react70.useState)(null);
+  if (!src || failed === src) return (0, import_react70.createElement)("span", { className: `${className} bt-ptab-globe` }, (0, import_react70.createElement)(GlobeIcon2));
+  return (0, import_react70.createElement)("img", { className, src, alt: "", "aria-hidden": true, onError: () => setFailed(src) });
 }
 var savedWidth = () => {
   try {
@@ -43017,11 +43625,11 @@ var fitWidth = (width, [low, high]) => Math.round(Math.max(low, Math.min(width, 
 var shortAddress = (url) => String(url ?? "").replace(/^https?:\/\//i, "").replace(/^www\./i, "").replace(/\/$/, "");
 var tabLabel = (page) => page.title || shortAddress(page.url) || t("New tab");
 function PanelMenu({ items, className, "aria-label": label }) {
-  const [open, setOpen] = (0, import_react69.useState)(false);
+  const [open, setOpen] = (0, import_react70.useState)(false);
   const [shown, leaving] = useLinger(open, 120);
-  const wrap = (0, import_react69.useRef)(null);
-  const button = (0, import_react69.useRef)(null);
-  (0, import_react69.useEffect)(() => {
+  const wrap = (0, import_react70.useRef)(null);
+  const button = (0, import_react70.useRef)(null);
+  (0, import_react70.useEffect)(() => {
     if (!open) return void 0;
     const onDown = (event) => {
       if (wrap.current && !wrap.current.contains(event.target)) setOpen(false);
@@ -43040,10 +43648,10 @@ function PanelMenu({ items, className, "aria-label": label }) {
     };
   }, [open]);
   if (items.length === 0) return null;
-  return (0, import_react69.createElement)(
+  return (0, import_react70.createElement)(
     "span",
     { className: "bt-pmenu", ref: wrap },
-    (0, import_react69.createElement)("button", {
+    (0, import_react70.createElement)("button", {
       ref: button,
       type: "button",
       className,
@@ -43052,11 +43660,11 @@ function PanelMenu({ items, className, "aria-label": label }) {
       "aria-haspopup": "menu",
       "aria-expanded": open,
       onClick: () => setOpen((value) => !value)
-    }, (0, import_react69.createElement)(DotsIcon)),
-    shown ? (0, import_react69.createElement)(
+    }, (0, import_react70.createElement)(DotsIcon)),
+    shown ? (0, import_react70.createElement)(
       "div",
       { className: "bt-pmenu-pop", role: "menu", "data-leaving": leaving || void 0 },
-      items.map((item, index) => item.sep ? (0, import_react69.createElement)("span", { key: `sep-${index}`, className: "bt-pmenu-sep", role: "separator" }) : (0, import_react69.createElement)("button", {
+      items.map((item, index) => item.sep ? (0, import_react70.createElement)("span", { key: `sep-${index}`, className: "bt-pmenu-sep", role: "separator" }) : (0, import_react70.createElement)("button", {
         key: item.key,
         type: "button",
         role: "menuitem",
@@ -43065,7 +43673,7 @@ function PanelMenu({ items, className, "aria-label": label }) {
           setOpen(false);
           item.onPick();
         }
-      }, (0, import_react69.createElement)(item.icon), (0, import_react69.createElement)("span", null, item.label)))
+      }, (0, import_react70.createElement)(item.icon), (0, import_react70.createElement)("span", null, item.label)))
     ) : null
   );
 }
@@ -43091,12 +43699,12 @@ function menuItemFor(key, actions, subject) {
 var sideTitle = (chat) => chat?.entries?.[0]?.question?.trim() || t("Side chat");
 function PanelStrip({ bot, subject, view, ids, active, sides, side, canBrowse, reading, onView, actions, useBrowserPages }) {
   const pages = useBrowserPages((map) => map);
-  const wrap = (0, import_react69.useRef)(null);
-  const ind = (0, import_react69.useRef)(null);
-  const spot = (0, import_react69.useRef)(null);
-  const under = (0, import_react69.useRef)(null);
-  const watcher = (0, import_react69.useRef)(null);
-  (0, import_react69.useLayoutEffect)(() => {
+  const wrap = (0, import_react70.useRef)(null);
+  const ind = (0, import_react70.useRef)(null);
+  const spot = (0, import_react70.useRef)(null);
+  const under = (0, import_react70.useRef)(null);
+  const watcher = (0, import_react70.useRef)(null);
+  (0, import_react70.useLayoutEffect)(() => {
     const box = wrap.current;
     const capsule = ind.current;
     if (!box || !capsule) return void 0;
@@ -43129,7 +43737,7 @@ function PanelStrip({ bot, subject, view, ids, active, sides, side, canBrowse, r
       trail.cancel();
     };
   });
-  (0, import_react69.useEffect)(() => {
+  (0, import_react70.useEffect)(() => {
     const box = wrap.current;
     if (!box) return void 0;
     const observer = new ResizeObserver(() => {
@@ -43153,13 +43761,13 @@ function PanelStrip({ bot, subject, view, ids, active, sides, side, canBrowse, r
     canTerminal: actions.canOpenTerminal?.() === true,
     canFiles: actions.canOpenFiles?.() === true
   }).map((key) => menuItemFor(key, actions, subject));
-  return (0, import_react69.createElement)(
+  return (0, import_react70.createElement)(
     "div",
     { className: "bt-ptabs", role: "tablist", "aria-label": t("Panel tabs") },
-    (0, import_react69.createElement)(
+    (0, import_react70.createElement)(
       "div",
       { className: "bt-ptabs-in", ref: wrap },
-      (0, import_react69.createElement)(
+      (0, import_react70.createElement)(
         "button",
         {
           type: "button",
@@ -43169,13 +43777,13 @@ function PanelStrip({ bot, subject, view, ids, active, sides, side, canBrowse, r
           title: bot.name,
           onClick: () => onView("details")
         },
-        (0, import_react69.createElement)(BotMark, { bot, size: 20, state: reading ? "searching" : "idle" }),
-        view === "details" ? (0, import_react69.createElement)("span", { className: "bt-ptab-name" }, bot.name) : null
+        (0, import_react70.createElement)(BotMark, { bot, size: 20, state: reading ? "searching" : "idle" }),
+        view === "details" ? (0, import_react70.createElement)("span", { className: "bt-ptab-name" }, bot.name) : null
       ),
       ids.map((tabId) => {
         const page = pages[tabId] ?? EMPTY_PAGE;
         const on = view === "browser" && tabId === active;
-        return (0, import_react69.createElement)(
+        return (0, import_react70.createElement)(
           "button",
           {
             key: tabId,
@@ -43196,9 +43804,9 @@ function PanelStrip({ bot, subject, view, ids, active, sides, side, canBrowse, r
               }
             }
           },
-          (0, import_react69.createElement)(Favicon, { src: page.favicon, className: "bt-ptab-fav" }),
-          (0, import_react69.createElement)("span", { className: "bt-ptab-title" }, tabLabel(page)),
-          (0, import_react69.createElement)("span", {
+          (0, import_react70.createElement)(Favicon, { src: page.favicon, className: "bt-ptab-fav" }),
+          (0, import_react70.createElement)("span", { className: "bt-ptab-title" }, tabLabel(page)),
+          (0, import_react70.createElement)("span", {
             className: "bt-ptab-x",
             role: "button",
             "aria-label": t("Close tab"),
@@ -43212,7 +43820,7 @@ function PanelStrip({ bot, subject, view, ids, active, sides, side, canBrowse, r
       }),
       sides.map((chat) => {
         const on = view === "side" && chat.id === side;
-        return (0, import_react69.createElement)(
+        return (0, import_react70.createElement)(
           "button",
           {
             key: chat.id,
@@ -43230,9 +43838,9 @@ function PanelStrip({ bot, subject, view, ids, active, sides, side, canBrowse, r
               }
             }
           },
-          (0, import_react69.createElement)("span", { className: "bt-ptab-globe", "aria-hidden": true }, (0, import_react69.createElement)(SideIcon)),
-          (0, import_react69.createElement)("span", { className: "bt-ptab-title" }, sideTitle(chat)),
-          (0, import_react69.createElement)("span", {
+          (0, import_react70.createElement)("span", { className: "bt-ptab-globe", "aria-hidden": true }, (0, import_react70.createElement)(SideIcon)),
+          (0, import_react70.createElement)("span", { className: "bt-ptab-title" }, sideTitle(chat)),
+          (0, import_react70.createElement)("span", {
             className: "bt-ptab-x",
             role: "button",
             "aria-label": t("Close side chat"),
@@ -43244,30 +43852,30 @@ function PanelStrip({ bot, subject, view, ids, active, sides, side, canBrowse, r
           }, "×")
         );
       }),
-      (0, import_react69.createElement)("span", { ref: ind, className: "bt-ptab-ind", "aria-hidden": true })
+      (0, import_react70.createElement)("span", { ref: ind, className: "bt-ptab-ind", "aria-hidden": true })
     ),
     // The `···` and Close stay outside the scrolling tabs, so a narrow panel keeps both.
-    (0, import_react69.createElement)(PanelMenu, { items, className: "bt-ptab-new", "aria-label": t("More") }),
-    (0, import_react69.createElement)("button", { type: "button", className: "bt-icon-btn bt-ptab-close", "aria-label": t("Close panel"), title: t("Close panel"), onClick: () => actions.closePanel() }, (0, import_react69.createElement)(CloseIcon3))
+    (0, import_react70.createElement)(PanelMenu, { items, className: "bt-ptab-new", "aria-label": t("More") }),
+    (0, import_react70.createElement)("button", { type: "button", className: "bt-icon-btn bt-ptab-close", "aria-label": t("Close panel"), title: t("Close panel"), onClick: () => actions.closePanel() }, (0, import_react70.createElement)(CloseIcon3))
   );
 }
 function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPages, hold }) {
   const page = useBrowserPages((pages) => pages[tabId ?? ""]) ?? EMPTY_PAGE;
-  const frame2 = (0, import_react69.useRef)(null);
-  const input = (0, import_react69.useRef)(null);
-  const [draft, setDraft] = (0, import_react69.useState)(null);
-  const [covered, setCovered] = (0, import_react69.useState)(false);
+  const frame2 = (0, import_react70.useRef)(null);
+  const input = (0, import_react70.useRef)(null);
+  const [draft, setDraft] = (0, import_react70.useState)(null);
+  const [covered, setCovered] = (0, import_react70.useState)(false);
   const imports = actions.browserImport;
-  const [flow, setFlow] = (0, import_react69.useState)(null);
-  const flowRef = (0, import_react69.useRef)(null);
-  const [sources, setSources] = (0, import_react69.useState)(null);
-  const [busy, setBusy] = (0, import_react69.useState)(false);
+  const [flow, setFlow] = (0, import_react70.useState)(null);
+  const flowRef = (0, import_react70.useRef)(null);
+  const [sources, setSources] = (0, import_react70.useState)(null);
+  const [busy, setBusy] = (0, import_react70.useState)(false);
   const setFlowTracked = (next) => {
     flowRef.current = typeof next === "function" ? next(flowRef.current) : next;
     setFlow(flowRef.current);
   };
   const showGuest = landed && !leaving && !covered && Boolean(page.url) && !page.error && flow === null;
-  (0, import_react69.useEffect)(() => {
+  (0, import_react70.useEffect)(() => {
     const update = () => {
       const panel = frame2.current?.getBoundingClientRect();
       const overlaps2 = panel && [...document.querySelectorAll('[role="dialog"],[role="menu"],[role="listbox"]')].some((element) => rectsOverlap(panel, element.getBoundingClientRect()));
@@ -43282,7 +43890,7 @@ function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPages, ho
       window.removeEventListener("resize", update);
     };
   }, []);
-  (0, import_react69.useEffect)(() => {
+  (0, import_react70.useEffect)(() => {
     setFlowTracked(null);
     return () => {
       const id = typeof flowRef.current === "object" && flowRef.current !== null ? flowRef.current.id : null;
@@ -43326,7 +43934,7 @@ function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPages, ho
     if (id) void imports?.cancel(id).catch(() => {
     });
   };
-  (0, import_react69.useLayoutEffect)(() => {
+  (0, import_react70.useLayoutEffect)(() => {
     const element = frame2.current;
     if (!element || leaving || !tabId) {
       void actions.browserShow(null);
@@ -43352,7 +43960,7 @@ function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPages, ho
       window.removeEventListener("resize", schedule);
     };
   }, [tabId, showGuest, leaving]);
-  (0, import_react69.useEffect)(() => {
+  (0, import_react70.useEffect)(() => {
     setDraft(null);
     if (landed && !page.url) input.current?.focus();
   }, [tabId, landed]);
@@ -43368,38 +43976,38 @@ function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPages, ho
   };
   const editing = draft !== null;
   const secure = /^https:/i.test(page.url);
-  return (0, import_react69.createElement)(
+  return (0, import_react70.createElement)(
     "div",
     { className: "bt-panel-view bt-panel-browser", "aria-label": t("{name}'s browser", { name: bot.name }) },
-    actions.browserTakeover ? (0, import_react69.createElement)(
+    actions.browserTakeover ? (0, import_react70.createElement)(
       "div",
       { className: "bt-browser-takeover", "data-held": hold?.by === "user" || void 0 },
-      (0, import_react69.createElement)("span", null, hold?.by === "user" ? t("You control this browser") : hold?.by === "bot" ? t("The Bot handed this browser to you: {reason}", { reason: hold.reason }) : t("The Bot controls this browser")),
-      hold?.by ? (0, import_react69.createElement)("button", { type: "button", onClick: () => void actions.browserGiveBack(bot.id) }, t("Give back")) : (0, import_react69.createElement)(
+      (0, import_react70.createElement)("span", null, hold?.by === "user" ? t("You control this browser") : hold?.by === "bot" ? t("The Bot handed this browser to you: {reason}", { reason: hold.reason }) : t("The Bot controls this browser")),
+      hold?.by ? (0, import_react70.createElement)("button", { type: "button", onClick: () => void actions.browserGiveBack(bot.id) }, t("Give back")) : (0, import_react70.createElement)(
         "span",
         { className: "bt-browser-takeover-actions" },
-        (0, import_react69.createElement)("button", { type: "button", onClick: () => void actions.browserTakeover(bot.id) }, t("Take over")),
-        (0, import_react69.createElement)("button", { type: "button", onClick: () => void actions.browserStop(bot.id) }, t("Stop"))
+        (0, import_react70.createElement)("button", { type: "button", onClick: () => void actions.browserTakeover(bot.id) }, t("Take over")),
+        (0, import_react70.createElement)("button", { type: "button", onClick: () => void actions.browserStop(bot.id) }, t("Stop"))
       )
     ) : null,
-    (0, import_react69.createElement)(
+    (0, import_react70.createElement)(
       "div",
       { className: "bt-browser-bar" },
-      (0, import_react69.createElement)("button", { type: "button", className: "bt-icon-btn", "aria-label": t("Back"), title: t("Back"), disabled: !page.canGoBack, onClick: () => actions.browserCommand(tabId, "back") }, (0, import_react69.createElement)(BackIcon)),
-      (0, import_react69.createElement)("button", { type: "button", className: "bt-icon-btn", "aria-label": t("Forward"), title: t("Forward"), disabled: !page.canGoForward, onClick: () => actions.browserCommand(tabId, "forward") }, (0, import_react69.createElement)(ForwardIcon)),
-      (0, import_react69.createElement)("button", {
+      (0, import_react70.createElement)("button", { type: "button", className: "bt-icon-btn", "aria-label": t("Back"), title: t("Back"), disabled: !page.canGoBack, onClick: () => actions.browserCommand(tabId, "back") }, (0, import_react70.createElement)(BackIcon)),
+      (0, import_react70.createElement)("button", { type: "button", className: "bt-icon-btn", "aria-label": t("Forward"), title: t("Forward"), disabled: !page.canGoForward, onClick: () => actions.browserCommand(tabId, "forward") }, (0, import_react70.createElement)(ForwardIcon)),
+      (0, import_react70.createElement)("button", {
         type: "button",
         className: "bt-icon-btn",
         disabled: !page.url,
         "aria-label": page.loading ? t("Stop") : t("Reload"),
         title: page.loading ? t("Stop") : t("Reload"),
         onClick: () => actions.browserCommand(tabId, page.loading ? "stop" : "reload")
-      }, (0, import_react69.createElement)(page.loading ? StopIcon : ReloadIcon)),
-      (0, import_react69.createElement)(
+      }, (0, import_react70.createElement)(page.loading ? StopIcon : ReloadIcon)),
+      (0, import_react70.createElement)(
         "form",
         { className: "bt-browser-address", onSubmit: go, "data-editing": editing || void 0 },
-        (0, import_react69.createElement)("span", { className: "bt-browser-scheme", "aria-hidden": true }, (0, import_react69.createElement)(secure && !editing ? LockIcon2 : GlobeIcon2)),
-        (0, import_react69.createElement)("input", {
+        (0, import_react70.createElement)("span", { className: "bt-browser-scheme", "aria-hidden": true }, (0, import_react70.createElement)(secure && !editing ? LockIcon2 : GlobeIcon2)),
+        (0, import_react70.createElement)("input", {
           ref: input,
           type: "text",
           spellCheck: false,
@@ -43423,14 +44031,14 @@ function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPages, ho
           }
         })
       ),
-      (0, import_react69.createElement)("button", {
+      (0, import_react70.createElement)("button", {
         type: "button",
         className: "bt-icon-btn",
         "aria-label": t("New browser tab"),
         title: t("New browser tab"),
         onClick: () => actions.browserNewTab(bot.id)
-      }, (0, import_react69.createElement)(PlusTabIcon)),
-      imports ? (0, import_react69.createElement)("button", {
+      }, (0, import_react70.createElement)(PlusTabIcon)),
+      imports ? (0, import_react70.createElement)("button", {
         type: "button",
         className: "bt-icon-btn bt-import-btn",
         "aria-label": t("Import cookies"),
@@ -43441,29 +44049,29 @@ function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPages, ho
           if (flow === "menu") setFlowTracked(null);
           else openImport();
         }
-      }, (0, import_react69.createElement)(ImportIcon)) : null,
-      page.loading ? (0, import_react69.createElement)("span", { className: "bt-browser-progress", "aria-hidden": true }) : null
+      }, (0, import_react70.createElement)(ImportIcon)) : null,
+      page.loading ? (0, import_react70.createElement)("span", { className: "bt-browser-progress", "aria-hidden": true }) : null
     ),
-    (0, import_react69.createElement)(
+    (0, import_react70.createElement)(
       "div",
       { ref: frame2, className: "bt-browser-frame", "data-guest": showGuest || void 0 },
-      flow === "menu" ? (0, import_react69.createElement)(ImportMenu, { sources, busy, onFile: pickFile, onSource: pickSource, onClose: () => setFlowTracked(null) }) : null,
-      typeof flow === "object" && flow !== null ? (0, import_react69.createElement)(ImportCard, { flow, page, busy, onApply: applyImport, onCancel: cancelImport, onCloseAndImport: closeAndImport, onDone: () => setFlowTracked(null), onReload: () => actions.browserCommand(tabId, "reload") }) : null,
-      flow === null && page.error ? (0, import_react69.createElement)(
+      flow === "menu" ? (0, import_react70.createElement)(ImportMenu, { sources, busy, onFile: pickFile, onSource: pickSource, onClose: () => setFlowTracked(null) }) : null,
+      typeof flow === "object" && flow !== null ? (0, import_react70.createElement)(ImportCard, { flow, page, busy, onApply: applyImport, onCancel: cancelImport, onCloseAndImport: closeAndImport, onDone: () => setFlowTracked(null), onReload: () => actions.browserCommand(tabId, "reload") }) : null,
+      flow === null && page.error ? (0, import_react70.createElement)(
         "div",
         { className: "bt-browser-empty" },
-        (0, import_react69.createElement)("div", { className: "bt-browser-empty-title" }, t("This page didn’t load")),
-        (0, import_react69.createElement)("div", { className: "bt-browser-empty-text" }, t(page.error)),
-        page.url ? (0, import_react69.createElement)("button", { type: "button", className: "bt-browser-retry", onClick: () => {
+        (0, import_react70.createElement)("div", { className: "bt-browser-empty-title" }, t("This page didn’t load")),
+        (0, import_react70.createElement)("div", { className: "bt-browser-empty-text" }, t(page.error)),
+        page.url ? (0, import_react70.createElement)("button", { type: "button", className: "bt-browser-retry", onClick: () => {
           void actions.browserNavigate(tabId, page.url);
         } }, t("Try again")) : null
-      ) : flow === null && !page.url ? (0, import_react69.createElement)(
+      ) : flow === null && !page.url ? (0, import_react70.createElement)(
         "div",
         { className: "bt-browser-empty" },
-        (0, import_react69.createElement)(BotMark, { bot, size: 48, state: "idle", live: true }),
-        (0, import_react69.createElement)("div", { className: "bt-browser-empty-title" }, t("{name}'s browser", { name: bot.name })),
-        (0, import_react69.createElement)("div", { className: "bt-browser-empty-text" }, t("Open a page here and {name} can read it with you. Logins and cookies stay with {name}; other Bots never see them.", { name: bot.name })),
-        imports ? (0, import_react69.createElement)("button", { type: "button", className: "bt-browser-retry", onClick: openImport }, t("Import cookies")) : null
+        (0, import_react70.createElement)(BotMark, { bot, size: 48, state: "idle", live: true }),
+        (0, import_react70.createElement)("div", { className: "bt-browser-empty-title" }, t("{name}'s browser", { name: bot.name })),
+        (0, import_react70.createElement)("div", { className: "bt-browser-empty-text" }, t("Open a page here and {name} can read it with you. Logins and cookies stay with {name}; other Bots never see them.", { name: bot.name })),
+        imports ? (0, import_react70.createElement)("button", { type: "button", className: "bt-browser-retry", onClick: openImport }, t("Import cookies")) : null
       ) : null
     )
   );
@@ -43475,25 +44083,25 @@ function importError(error) {
   return String(error);
 }
 function ImportMenu({ sources, busy, onFile, onSource, onClose }) {
-  (0, import_react69.useEffect)(() => {
+  (0, import_react70.useEffect)(() => {
     const close = (event) => {
       if (event.key === "Escape") onClose();
     };
     window.addEventListener("keydown", close);
     return () => window.removeEventListener("keydown", close);
   }, [onClose]);
-  return (0, import_react69.createElement)(
+  return (0, import_react70.createElement)(
     "div",
     { className: "bt-import-menu", role: "menu", "aria-label": t("Import cookies") },
-    (0, import_react69.createElement)("div", { className: "bt-import-menu-title" }, t("Import cookies")),
-    (0, import_react69.createElement)(
+    (0, import_react70.createElement)("div", { className: "bt-import-menu-title" }, t("Import cookies")),
+    (0, import_react70.createElement)(
       "button",
       { type: "button", className: "bt-import-item", role: "menuitem", disabled: busy, onClick: onFile },
-      (0, import_react69.createElement)(FileIcon, { className: "bt-import-item-icon" }),
-      (0, import_react69.createElement)("span", { className: "bt-import-item-name" }, t("From a file…")),
-      (0, import_react69.createElement)("span", { className: "bt-import-item-sub" }, t("cookies.txt, JSON, storageState"))
+      (0, import_react70.createElement)(FileIcon, { className: "bt-import-item-icon" }),
+      (0, import_react70.createElement)("span", { className: "bt-import-item-name" }, t("From a file…")),
+      (0, import_react70.createElement)("span", { className: "bt-import-item-sub" }, t("cookies.txt, JSON, storageState"))
     ),
-    sources === null ? (0, import_react69.createElement)("div", { className: "bt-import-menu-note" }, t("Loading…")) : sources.length === 0 ? (0, import_react69.createElement)("div", { className: "bt-import-menu-note" }, t("No browsers found")) : sources.map((source) => (0, import_react69.createElement)(
+    sources === null ? (0, import_react70.createElement)("div", { className: "bt-import-menu-note" }, t("Loading…")) : sources.length === 0 ? (0, import_react70.createElement)("div", { className: "bt-import-menu-note" }, t("No browsers found")) : sources.map((source) => (0, import_react70.createElement)(
       "button",
       {
         key: source.id,
@@ -43503,83 +44111,83 @@ function ImportMenu({ sources, busy, onFile, onSource, onClose }) {
         disabled: busy,
         onClick: () => onSource(source)
       },
-      (0, import_react69.createElement)(WindowIcon, { className: "bt-import-item-icon" }),
-      (0, import_react69.createElement)("span", { className: "bt-import-item-name" }, source.label),
-      (0, import_react69.createElement)("span", { className: "bt-import-item-sub" }, t("Copy of its cookies"))
+      (0, import_react70.createElement)(WindowIcon, { className: "bt-import-item-icon" }),
+      (0, import_react70.createElement)("span", { className: "bt-import-item-name" }, source.label),
+      (0, import_react70.createElement)("span", { className: "bt-import-item-sub" }, t("Copy of its cookies"))
     ))
   );
 }
 function ImportCard({ flow, page, busy, onApply, onCancel, onCloseAndImport, onDone, onReload }) {
   const { stage } = flow;
   if (stage === "running") {
-    return (0, import_react69.createElement)("div", { className: "bt-import-card" }, (0, import_react69.createElement)(
+    return (0, import_react70.createElement)("div", { className: "bt-import-card" }, (0, import_react70.createElement)(
       "div",
       { className: "bt-import-box" },
-      (0, import_react69.createElement)("div", { className: "bt-import-title" }, t("{name} is running", { name: flow.source.name })),
-      (0, import_react69.createElement)("div", { className: "bt-import-text" }, t("It must close for a moment so its cookies can be copied. It will reopen with your tabs.")),
-      (0, import_react69.createElement)(
+      (0, import_react70.createElement)("div", { className: "bt-import-title" }, t("{name} is running", { name: flow.source.name })),
+      (0, import_react70.createElement)("div", { className: "bt-import-text" }, t("It must close for a moment so its cookies can be copied. It will reopen with your tabs.")),
+      (0, import_react70.createElement)(
         "div",
         { className: "bt-import-actions" },
-        (0, import_react69.createElement)("button", { type: "button", className: "bt-import-primary", disabled: busy, onClick: onCloseAndImport }, busy ? t("Closing…") : t("Close {name} and import", { name: flow.source.name })),
-        (0, import_react69.createElement)("button", { type: "button", className: "bt-import-plain", disabled: busy, onClick: onCancel }, t("Cancel"))
+        (0, import_react70.createElement)("button", { type: "button", className: "bt-import-primary", disabled: busy, onClick: onCloseAndImport }, busy ? t("Closing…") : t("Close {name} and import", { name: flow.source.name })),
+        (0, import_react70.createElement)("button", { type: "button", className: "bt-import-plain", disabled: busy, onClick: onCancel }, t("Cancel"))
       )
     ));
   }
   if (stage === "error") {
-    return (0, import_react69.createElement)("div", { className: "bt-import-card" }, (0, import_react69.createElement)(
+    return (0, import_react70.createElement)("div", { className: "bt-import-card" }, (0, import_react70.createElement)(
       "div",
       { className: "bt-import-box" },
-      (0, import_react69.createElement)("div", { className: "bt-import-title" }, t("Import failed")),
-      (0, import_react69.createElement)("div", { className: "bt-import-text" }, flow.message),
-      (0, import_react69.createElement)("div", { className: "bt-import-actions" }, (0, import_react69.createElement)("button", { type: "button", className: "bt-import-plain", onClick: onCancel }, t("Close")))
+      (0, import_react70.createElement)("div", { className: "bt-import-title" }, t("Import failed")),
+      (0, import_react70.createElement)("div", { className: "bt-import-text" }, flow.message),
+      (0, import_react70.createElement)("div", { className: "bt-import-actions" }, (0, import_react70.createElement)("button", { type: "button", className: "bt-import-plain", onClick: onCancel }, t("Close")))
     ));
   }
   if (stage === "result") {
     const { report } = flow;
     const problems = [...report.dropped ?? [], ...report.failed ?? []];
-    return (0, import_react69.createElement)("div", { className: "bt-import-card" }, (0, import_react69.createElement)(
+    return (0, import_react70.createElement)("div", { className: "bt-import-card" }, (0, import_react70.createElement)(
       "div",
       { className: "bt-import-box" },
-      (0, import_react69.createElement)("div", { className: "bt-import-title" }, report.stored > 0 ? t("Imported {count} cookies", { count: report.stored }) : t("No cookies were stored")),
-      flow.label ? (0, import_react69.createElement)("div", { className: "bt-import-sub" }, flow.label) : null,
-      problems.length ? (0, import_react69.createElement)(
+      (0, import_react70.createElement)("div", { className: "bt-import-title" }, report.stored > 0 ? t("Imported {count} cookies", { count: report.stored }) : t("No cookies were stored")),
+      flow.label ? (0, import_react70.createElement)("div", { className: "bt-import-sub" }, flow.label) : null,
+      problems.length ? (0, import_react70.createElement)(
         "div",
         { className: "bt-import-list" },
-        problems.slice(0, 8).map((item, index) => (0, import_react69.createElement)(
+        problems.slice(0, 8).map((item, index) => (0, import_react70.createElement)(
           "div",
           { key: index, className: "bt-import-line" },
-          (0, import_react69.createElement)("span", { className: "bt-import-line-name" }, item.name ?? "—"),
-          (0, import_react69.createElement)("span", { className: "bt-import-line-reason" }, item.reason)
+          (0, import_react70.createElement)("span", { className: "bt-import-line-name" }, item.name ?? "—"),
+          (0, import_react70.createElement)("span", { className: "bt-import-line-reason" }, item.reason)
         )),
-        problems.length > 8 ? (0, import_react69.createElement)("div", { className: "bt-import-line" }, (0, import_react69.createElement)("span", { className: "bt-import-line-reason" }, t("and {count} more", { count: problems.length - 8 }))) : null
+        problems.length > 8 ? (0, import_react70.createElement)("div", { className: "bt-import-line" }, (0, import_react70.createElement)("span", { className: "bt-import-line-reason" }, t("and {count} more", { count: problems.length - 8 }))) : null
       ) : null,
-      (0, import_react69.createElement)(
+      (0, import_react70.createElement)(
         "div",
         { className: "bt-import-actions" },
-        page.url ? (0, import_react69.createElement)("button", { type: "button", className: "bt-import-plain", onClick: onReload }, t("Reload the page")) : null,
-        (0, import_react69.createElement)("button", { type: "button", className: "bt-import-primary", onClick: onDone }, t("Done"))
+        page.url ? (0, import_react70.createElement)("button", { type: "button", className: "bt-import-plain", onClick: onReload }, t("Reload the page")) : null,
+        (0, import_react70.createElement)("button", { type: "button", className: "bt-import-primary", onClick: onDone }, t("Done"))
       )
     ));
   }
   const { preview } = flow;
-  return (0, import_react69.createElement)("div", { className: "bt-import-card" }, (0, import_react69.createElement)(
+  return (0, import_react70.createElement)("div", { className: "bt-import-card" }, (0, import_react70.createElement)(
     "div",
     { className: "bt-import-box" },
-    (0, import_react69.createElement)("div", { className: "bt-import-title" }, t("Import {count} cookies", { count: preview.cookies })),
-    (0, import_react69.createElement)(
+    (0, import_react70.createElement)("div", { className: "bt-import-title" }, t("Import {count} cookies", { count: preview.cookies })),
+    (0, import_react70.createElement)(
       "div",
       { className: "bt-import-sub" },
       preview.source?.label ?? "",
       flow.restarted ? ` · ${t("the browser was restarted")}` : ""
     ),
-    preview.sites.length ? (0, import_react69.createElement)(
+    preview.sites.length ? (0, import_react70.createElement)(
       "div",
       { className: "bt-import-list" },
-      preview.sites.map((site) => (0, import_react69.createElement)(
+      preview.sites.map((site) => (0, import_react70.createElement)(
         "div",
         { key: site.site, className: "bt-import-line" },
-        (0, import_react69.createElement)("span", { className: "bt-import-line-name" }, site.site),
-        (0, import_react69.createElement)(
+        (0, import_react70.createElement)("span", { className: "bt-import-line-name" }, site.site),
+        (0, import_react70.createElement)(
           "span",
           { className: "bt-import-line-count" },
           t("{count}", { count: site.cookies }),
@@ -43587,35 +44195,35 @@ function ImportCard({ flow, page, busy, onApply, onCancel, onCloseAndImport, onD
         )
       ))
     ) : null,
-    preview.skipped.length ? (0, import_react69.createElement)(
+    preview.skipped.length ? (0, import_react70.createElement)(
       "div",
       { className: "bt-import-list" },
-      (0, import_react69.createElement)("div", { className: "bt-import-note" }, t("{count} skipped", { count: preview.skipped.length })),
-      preview.skipped.slice(0, 5).map((item, index) => (0, import_react69.createElement)(
+      (0, import_react70.createElement)("div", { className: "bt-import-note" }, t("{count} skipped", { count: preview.skipped.length })),
+      preview.skipped.slice(0, 5).map((item, index) => (0, import_react70.createElement)(
         "div",
         { key: index, className: "bt-import-line" },
-        (0, import_react69.createElement)("span", { className: "bt-import-line-name" }, item.name ?? item.where),
-        (0, import_react69.createElement)("span", { className: "bt-import-line-reason" }, item.reason)
+        (0, import_react70.createElement)("span", { className: "bt-import-line-name" }, item.name ?? item.where),
+        (0, import_react70.createElement)("span", { className: "bt-import-line-reason" }, item.reason)
       )),
-      preview.skipped.length > 5 ? (0, import_react69.createElement)("div", { className: "bt-import-line" }, (0, import_react69.createElement)("span", { className: "bt-import-line-reason" }, t("and {count} more", { count: preview.skipped.length - 5 }))) : null
+      preview.skipped.length > 5 ? (0, import_react70.createElement)("div", { className: "bt-import-line" }, (0, import_react70.createElement)("span", { className: "bt-import-line-reason" }, t("and {count} more", { count: preview.skipped.length - 5 }))) : null
     ) : null,
-    preview.warnings.length ? (0, import_react69.createElement)(
+    preview.warnings.length ? (0, import_react70.createElement)(
       "details",
       { className: "bt-import-warns" },
-      (0, import_react69.createElement)("summary", null, t("{count} adjusted", { count: preview.warnings.reduce((n, w) => n + w.count, 0) })),
-      preview.warnings.map((w, index) => (0, import_react69.createElement)(
+      (0, import_react70.createElement)("summary", null, t("{count} adjusted", { count: preview.warnings.reduce((n, w) => n + w.count, 0) })),
+      preview.warnings.map((w, index) => (0, import_react70.createElement)(
         "div",
         { key: index, className: "bt-import-line" },
-        (0, import_react69.createElement)("span", { className: "bt-import-line-reason" }, `${w.count} × ${w.message}`)
+        (0, import_react70.createElement)("span", { className: "bt-import-line-reason" }, `${w.count} × ${w.message}`)
       ))
     ) : null,
-    preview.notes.includes("session-cookies") ? (0, import_react69.createElement)("div", { className: "bt-import-note" }, t("Cookies without an expiry stay until the app closes.")) : null,
-    preview.notes.includes("local-storage-left") ? (0, import_react69.createElement)("div", { className: "bt-import-note" }, t("Some sites also keep sign-in outside cookies; you may need to sign in again there.")) : null,
-    (0, import_react69.createElement)(
+    preview.notes.includes("session-cookies") ? (0, import_react70.createElement)("div", { className: "bt-import-note" }, t("Cookies without an expiry stay until the app closes.")) : null,
+    preview.notes.includes("local-storage-left") ? (0, import_react70.createElement)("div", { className: "bt-import-note" }, t("Some sites also keep sign-in outside cookies; you may need to sign in again there.")) : null,
+    (0, import_react70.createElement)(
       "div",
       { className: "bt-import-actions" },
-      (0, import_react69.createElement)("button", { type: "button", className: "bt-import-primary", disabled: busy, onClick: onApply }, busy ? t("Importing…") : t("Import")),
-      (0, import_react69.createElement)("button", { type: "button", className: "bt-import-plain", disabled: busy, onClick: onCancel }, t("Cancel"))
+      (0, import_react70.createElement)("button", { type: "button", className: "bt-import-primary", disabled: busy, onClick: onApply }, busy ? t("Importing…") : t("Import")),
+      (0, import_react70.createElement)("button", { type: "button", className: "bt-import-plain", disabled: busy, onClick: onCancel }, t("Cancel"))
     )
   ));
 }
@@ -43629,42 +44237,42 @@ function BotPanel({ pane, leaving, room: room2, overlay, roster, actions, useSes
   const active = tabState.active;
   const page = useBrowserPages((pages) => (active ? pages[active] : null) ?? EMPTY_PAGE);
   const hold = useBrowserHolds?.((map) => bot ? map[bot.id] ?? null : null) ?? null;
-  const root = (0, import_react69.useRef)(null);
-  const [flight] = (0, import_react69.useState)(() => createFlight({ shape: SPRING_SHAPE }));
-  const intent = (0, import_react69.useRef)(null);
-  const [landed, setLanded] = (0, import_react69.useState)(false);
-  const [settling, setSettling] = (0, import_react69.useState)(false);
-  const [width, setWidth] = (0, import_react69.useState)(savedWidth);
-  const [dragging, setDragging] = (0, import_react69.useState)(false);
-  const [resizing, setResizing] = (0, import_react69.useState)(false);
+  const root = (0, import_react70.useRef)(null);
+  const [flight] = (0, import_react70.useState)(() => createFlight({ shape: SPRING_SHAPE }));
+  const intent = (0, import_react70.useRef)(null);
+  const [landed, setLanded] = (0, import_react70.useState)(false);
+  const [settling, setSettling] = (0, import_react70.useState)(false);
+  const [width, setWidth] = (0, import_react70.useState)(savedWidth);
+  const [dragging, setDragging] = (0, import_react70.useState)(false);
+  const [resizing, setResizing] = (0, import_react70.useState)(false);
   const instant = dragging || resizing;
-  const [reading, setReading] = (0, import_react69.useState)(false);
+  const [reading, setReading] = (0, import_react70.useState)(false);
   const panelWidth = fitWidth(width ?? (view === "browser" ? DEFAULT_WIDTH : DETAILS_WIDTH), widthRange(view, room2));
-  (0, import_react69.useLayoutEffect)(() => {
+  (0, import_react70.useLayoutEffect)(() => {
     if (view === "browser" && width === null) setWidth(DEFAULT_WIDTH);
   }, [view, width]);
-  (0, import_react69.useLayoutEffect)(() => {
+  (0, import_react70.useLayoutEffect)(() => {
     chatRoom.hold(instant);
   }, [instant]);
-  const [last, setLast] = (0, import_react69.useState)({ view, width: panelWidth });
+  const [last, setLast] = (0, import_react70.useState)({ view, width: panelWidth });
   if (last.view !== view || last.width !== panelWidth) {
     setLast({ view, width: panelWidth });
     if (last.view !== view) setSettling(last.width !== panelWidth && !instant && !overlay);
   }
-  const shownView = (0, import_react69.useRef)(view);
-  (0, import_react69.useLayoutEffect)(() => {
+  const shownView = (0, import_react70.useRef)(view);
+  (0, import_react70.useLayoutEffect)(() => {
     const switched = settling && shownView.current !== view;
     shownView.current = view;
     if (switched) chatRoom.hold(true);
     chatRoom.setRight(leaving || overlay ? null : panelWidth);
     if (switched) chatRoom.hold(false);
   }, [view, panelWidth, leaving, overlay]);
-  (0, import_react69.useEffect)(() => () => {
+  (0, import_react70.useEffect)(() => () => {
     chatRoom.setRight(null);
     chatRoom.hold(false);
   }, []);
-  const mounted = (0, import_react69.useRef)(false);
-  (0, import_react69.useEffect)(() => {
+  const mounted = (0, import_react70.useRef)(false);
+  (0, import_react70.useEffect)(() => {
     if (!mounted.current) {
       mounted.current = true;
       return void 0;
@@ -43673,31 +44281,31 @@ function BotPanel({ pane, leaving, room: room2, overlay, roster, actions, useSes
     const timer = setTimeout(() => setResizing(false), 160);
     return () => clearTimeout(timer);
   }, [room2]);
-  (0, import_react69.useEffect)(() => {
+  (0, import_react70.useEffect)(() => {
     if (!settling) return void 0;
     const timer = setTimeout(() => setSettling(false), SPRING_SHAPE.duration + 40);
     return () => clearTimeout(timer);
   }, [settling, view]);
-  (0, import_react69.useEffect)(() => {
+  (0, import_react70.useEffect)(() => {
     const timer = setTimeout(() => setLanded(true), 360);
     return () => clearTimeout(timer);
   }, []);
-  (0, import_react69.useEffect)(() => {
+  (0, import_react70.useEffect)(() => {
     if (canBrowse) actions.browserEnsure(bot.id);
   }, [bot?.id, canBrowse]);
-  (0, import_react69.useEffect)(() => {
+  (0, import_react70.useEffect)(() => {
     if (view === "browser" && (active === null || !tabState.ids.includes(active))) actions.setPanelView("details");
   }, [view, active, tabState.ids.length]);
-  (0, import_react69.useEffect)(() => {
+  (0, import_react70.useEffect)(() => {
     if (pane.view === "side" && sideChat === void 0) actions.setPanelView("details");
   }, [pane.view, sideChat]);
-  (0, import_react69.useEffect)(() => {
+  (0, import_react70.useEffect)(() => {
     if (view !== "browser" || leaving) void actions.browserShow?.(null);
   }, [view, leaving]);
-  (0, import_react69.useEffect)(() => () => {
+  (0, import_react70.useEffect)(() => () => {
     void actions.browserShow?.(null);
   }, []);
-  (0, import_react69.useEffect)(() => {
+  (0, import_react70.useEffect)(() => {
     if (!page.readAt || Date.now() - page.readAt > READ_FLASH_MS) return void 0;
     setReading(true);
     const timer = setTimeout(() => setReading(false), READ_FLASH_MS);
@@ -43757,7 +44365,7 @@ function BotPanel({ pane, leaving, room: room2, overlay, roster, actions, useSes
       return actions[name](...args);
     };
   }
-  (0, import_react69.useLayoutEffect)(() => {
+  (0, import_react70.useLayoutEffect)(() => {
     const note = intent.current;
     intent.current = null;
     const current2 = note !== null && note.next === view && note.id === pane.id && performance.now() - note.at < INTENT_MS && !instant && !leaving && !reducedMotion();
@@ -43772,10 +44380,10 @@ function BotPanel({ pane, leaving, room: room2, overlay, roster, actions, useSes
     }
     flight.begin({ panel: root.current, end: note.end, node: note.node, from: note.from });
   }, [view, pane.id]);
-  (0, import_react69.useLayoutEffect)(() => {
+  (0, import_react70.useLayoutEffect)(() => {
     if (instant || leaving) flight.finish();
   }, [instant, leaving]);
-  (0, import_react69.useEffect)(() => flight.finish, []);
+  (0, import_react70.useEffect)(() => flight.finish, []);
   const startResize = (event) => {
     if (event.button !== 0 || leaving || overlay) return;
     event.preventDefault();
@@ -43820,7 +44428,7 @@ function BotPanel({ pane, leaving, room: room2, overlay, roster, actions, useSes
     for (const name of ends) grip.addEventListener(name, onEnd);
   };
   const hasStrip = panelHasStrip(canBrowse, tabState.ids.length, sideChats.length);
-  return (0, import_react69.createElement)(
+  return (0, import_react70.createElement)(
     "aside",
     {
       ref: root,
@@ -43838,15 +44446,15 @@ function BotPanel({ pane, leaving, room: room2, overlay, roster, actions, useSes
         if (event.target === event.currentTarget) setLanded(true);
       }
     },
-    leaving || overlay ? null : (0, import_react69.createElement)("div", { className: "bt-panel-grip", role: "separator", "aria-orientation": "vertical", "aria-label": t("Resize panel"), onPointerDown: startResize }),
+    leaving || overlay ? null : (0, import_react70.createElement)("div", { className: "bt-panel-grip", role: "separator", "aria-orientation": "vertical", "aria-label": t("Resize panel"), onPointerDown: startResize }),
     // Over the whole window while dragging: the cursor stays a resize cursor and the
     // pages underneath (the chat, the guest) see no pointer.
-    dragging ? (0, import_react_dom11.createPortal)((0, import_react69.createElement)("div", { className: "bt-drag-shield", "aria-hidden": true }), document.body) : null,
-    hasStrip ? (0, import_react69.createElement)(PanelStrip, { bot, subject: pane.id, view, ids: tabState.ids, active, sides: sideChats, side: pane.side, canBrowse, reading, onView: switchView, actions: panelActions, useBrowserPages }) : null,
-    view === "browser" && bot ? (0, import_react69.createElement)(BrowserView, { key: `browser:${active}`, bot, tabId: active, leaving, landed: landed && !settling, actions, useBrowserPages, hold }) : view === "side" && sideChat ? (0, import_react69.createElement)("div", { key: `side:${sideChat.id}`, className: "bt-panel-view" }, (0, import_react69.createElement)(SideChatView, { subject: pane.id, chat: sideChat, roster, actions: panelActions })) : (0, import_react69.createElement)(
+    dragging ? (0, import_react_dom12.createPortal)((0, import_react70.createElement)("div", { className: "bt-drag-shield", "aria-hidden": true }), document.body) : null,
+    hasStrip ? (0, import_react70.createElement)(PanelStrip, { bot, subject: pane.id, view, ids: tabState.ids, active, sides: sideChats, side: pane.side, canBrowse, reading, onView: switchView, actions: panelActions, useBrowserPages }) : null,
+    view === "browser" && bot ? (0, import_react70.createElement)(BrowserView, { key: `browser:${active}`, bot, tabId: active, leaving, landed: landed && !settling, actions, useBrowserPages, hold }) : view === "side" && sideChat ? (0, import_react70.createElement)("div", { key: `side:${sideChat.id}`, className: "bt-panel-view" }, (0, import_react70.createElement)(SideChatView, { subject: pane.id, chat: sideChat, roster, actions: panelActions })) : (0, import_react70.createElement)(
       "div",
       { key: `details:${pane.id}:${pane.renaming ? "rename" : ""}:${pane.tab ?? ""}`, className: "bt-panel-view" },
-      (0, import_react69.createElement)(DetailsDrawer, {
+      (0, import_react70.createElement)(DetailsDrawer, {
         sessionId: pane.id,
         startRenaming: pane.renaming,
         startTab: pane.tab,
@@ -43991,7 +44599,7 @@ var BROWSER_CSS = `
 `;
 
 // src/client/opening.js
-var import_react70 = require("react");
+var import_react71 = require("react");
 var OPENING_WAIT_MS = 5e3;
 function openingPastWait(pending, target) {
   if (!pending || pending.target !== target || pending.slow === true) return pending ?? null;
@@ -44041,7 +44649,7 @@ function openingModel({ pending, current: current2, roster }) {
 }
 function OpeningCover({ model, column }) {
   if (model === null) return null;
-  return (0, import_react70.createElement)(
+  return (0, import_react71.createElement)(
     "div",
     {
       className: "bt-opening",
@@ -44049,12 +44657,12 @@ function OpeningCover({ model, column }) {
       role: "status",
       "aria-live": "polite"
     },
-    (0, import_react70.createElement)(
+    (0, import_react71.createElement)(
       "div",
       { className: "bt-opening-card" },
-      (0, import_react70.createElement)("span", { className: "bt-opening-mark" }, model.bot ? (0, import_react70.createElement)(BotMark, { bot: model.bot, size: 44 }) : (0, import_react70.createElement)(PeopleIcon)),
-      model.name ? (0, import_react70.createElement)("span", { className: "bt-opening-name" }, model.name) : null,
-      (0, import_react70.createElement)("span", { className: "bt-opening-note" }, t(model.slow ? "Still opening…" : "Opening…"))
+      (0, import_react71.createElement)("span", { className: "bt-opening-mark" }, model.bot ? (0, import_react71.createElement)(BotMark, { bot: model.bot, size: 44 }) : (0, import_react71.createElement)(PeopleIcon)),
+      model.name ? (0, import_react71.createElement)("span", { className: "bt-opening-name" }, model.name) : null,
+      (0, import_react71.createElement)("span", { className: "bt-opening-note" }, t(model.slow ? "Still opening…" : "Opening…"))
     )
   );
 }
@@ -44068,8 +44676,8 @@ var OPENING_CSS = `
 `;
 
 // src/client/overlays.js
-var import_react71 = require("react");
-var import_react_dom12 = require("react-dom");
+var import_react72 = require("react");
+var import_react_dom13 = require("react-dom");
 var DIALOG_EXIT_MS2 = 160;
 var MENU_EXIT_MS3 = 120;
 function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useActivity, useWork, useComputer, useRegistry, useBrowserPages, useBrowserTabs, useBrowserHolds, useUpdate, useFrame, useSidebarPref, useSettingsShellHeld, actions }) {
@@ -44079,8 +44687,8 @@ function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useActivity
   const frameSnap = useFrame ? useFrame((value) => value) : { viewport: window.innerWidth, sidebarWidth: FALLBACK_SIDEBAR_WIDTH, collapsedWidth: 0 };
   const pref = useSidebarPref ? useSidebarPref((value) => value) : "open";
   const current2 = useSessions((list) => Object.values(list.byId).find((session) => (session?.retainedBy?.mainView ?? 0) > 0)?.id ?? null);
-  const previous = (0, import_react71.useRef)(current2);
-  (0, import_react71.useEffect)(() => {
+  const previous = (0, import_react72.useRef)(current2);
+  (0, import_react72.useEffect)(() => {
     if (previous.current === current2) return;
     previous.current = current2;
     if (current2) actions.followPanel?.(current2);
@@ -44094,8 +44702,8 @@ function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useActivity
     panel: open ? { view: open.view, yielded: ui2.panelYield === true } : null
   });
   const shown = open !== null && layout.panel !== "folded" ? open : null;
-  const [kept, setKept] = (0, import_react71.useState)(shown);
-  (0, import_react71.useEffect)(() => {
+  const [kept, setKept] = (0, import_react72.useState)(shown);
+  (0, import_react72.useEffect)(() => {
     if (shown) {
       setKept(shown);
       return void 0;
@@ -44116,20 +44724,20 @@ function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useActivity
   const owner = memory ? memoryOwner(memory) : null;
   const [menu, menuLeaving] = useLinger(ui2.menu, MENU_EXIT_MS3);
   const opening = openingModel({ pending: ui2.pendingOpen ?? null, current: current2, roster });
-  return (0, import_react71.createElement)(
-    import_react71.Fragment,
+  return (0, import_react72.createElement)(
+    import_react72.Fragment,
     null,
-    (0, import_react71.createElement)(NotificationWatcher, { key: "ds-bot:notifications", useSessions, useSessionStatus, useRoster, useWork, actions }),
-    opening ? (0, import_react_dom12.createPortal)((0, import_react71.createElement)(OpeningCover, { model: opening, column: layout.column }), document.body) : null,
-    pane ? (0, import_react_dom12.createPortal)((0, import_react71.createElement)(BotPanel, { pane, leaving: shown === null, room: layout.room, overlay: layout.panel === "overlay", roster, actions, useSessions, useSessionStatus, useActivity, useWork, useComputer, useBrowserTabs, useBrowserPages, useBrowserHolds }), document.body) : null,
-    ui2.newChat ? (0, import_react_dom12.createPortal)((0, import_react71.createElement)(NewChat, { key: `${ui2.newChat}:${ui2.newChatSection ?? ""}`, mode: ui2.newChat, sectionId: ui2.newChatSection ?? null, paneLeft: layout.column, roster, actions }), document.body) : null,
-    ui2.palette ? (0, import_react_dom12.createPortal)((0, import_react71.createElement)(CommandPalette, { key: ui2.palette.token, start: ui2.palette.query, token: ui2.palette.token, roster, actions, useSessions }), document.body) : null,
-    ui2.groupSearch && roster.roomsById[ui2.groupSearch.roomId] ? (0, import_react_dom12.createPortal)((0, import_react71.createElement)(GroupSearch, { key: ui2.groupSearch.token, room: roster.roomsById[ui2.groupSearch.roomId], roster, token: ui2.groupSearch.token, actions }), document.body) : null,
-    ui2.exchange ? (0, import_react_dom12.createPortal)((0, import_react71.createElement)(ExchangeDialog, { pair: ui2.exchange, paneLeft: layout.column, roster, actions }), document.body) : null,
-    ui2.voice ? (0, import_react_dom12.createPortal)((0, import_react71.createElement)(VoiceMode, { key: ui2.voice, sessionId: ui2.voice, paneLeft: layout.column, roster, actions, useSessions, useSessionStatus }), document.body) : null,
-    menu ? (0, import_react_dom12.createPortal)((0, import_react71.createElement)(ContextMenu, { key: `${menu.kind ?? ""}:${menu.id}:${menu.x}:${menu.y}`, menu, roster, actions, useWork, leaving: menuLeaving }), document.body) : null,
-    settings ? (0, import_react_dom12.createPortal)((0, import_react71.createElement)(SettingsDialog, { page: settings.page, id: settings.id, roster, actions, useUpdate, leaving: settingsLeaving }), document.body) : null,
-    owner ? (0, import_react_dom12.createPortal)((0, import_react71.createElement)(MemoryDialog, { key: owner.id, owner, actions, leaving: memoryLeaving }), document.body) : null
+    (0, import_react72.createElement)(NotificationWatcher, { key: "ds-bot:notifications", useSessions, useSessionStatus, useRoster, useWork, actions }),
+    opening ? (0, import_react_dom13.createPortal)((0, import_react72.createElement)(OpeningCover, { model: opening, column: layout.column }), document.body) : null,
+    pane ? (0, import_react_dom13.createPortal)((0, import_react72.createElement)(BotPanel, { pane, leaving: shown === null, room: layout.room, overlay: layout.panel === "overlay", roster, actions, useSessions, useSessionStatus, useActivity, useWork, useComputer, useBrowserTabs, useBrowserPages, useBrowserHolds }), document.body) : null,
+    ui2.newChat ? (0, import_react_dom13.createPortal)((0, import_react72.createElement)(NewChat, { key: `${ui2.newChat}:${ui2.newChatSection ?? ""}`, mode: ui2.newChat, sectionId: ui2.newChatSection ?? null, paneLeft: layout.column, roster, actions }), document.body) : null,
+    ui2.palette ? (0, import_react_dom13.createPortal)((0, import_react72.createElement)(CommandPalette, { key: ui2.palette.token, start: ui2.palette.query, token: ui2.palette.token, roster, actions, useSessions }), document.body) : null,
+    ui2.groupSearch && roster.roomsById[ui2.groupSearch.roomId] ? (0, import_react_dom13.createPortal)((0, import_react72.createElement)(GroupSearch, { key: ui2.groupSearch.token, room: roster.roomsById[ui2.groupSearch.roomId], roster, token: ui2.groupSearch.token, actions }), document.body) : null,
+    ui2.exchange ? (0, import_react_dom13.createPortal)((0, import_react72.createElement)(ExchangeDialog, { pair: ui2.exchange, paneLeft: layout.column, roster, actions }), document.body) : null,
+    ui2.voice ? (0, import_react_dom13.createPortal)((0, import_react72.createElement)(VoiceMode, { key: ui2.voice, sessionId: ui2.voice, paneLeft: layout.column, roster, actions, useSessions, useSessionStatus }), document.body) : null,
+    menu ? (0, import_react_dom13.createPortal)((0, import_react72.createElement)(ContextMenu, { key: `${menu.kind ?? ""}:${menu.id}:${menu.x}:${menu.y}`, menu, roster, actions, useWork, leaving: menuLeaving }), document.body) : null,
+    settings ? (0, import_react_dom13.createPortal)((0, import_react72.createElement)(SettingsDialog, { page: settings.page, id: settings.id, roster, actions, useUpdate, leaving: settingsLeaving }), document.body) : null,
+    owner ? (0, import_react_dom13.createPortal)((0, import_react72.createElement)(MemoryDialog, { key: owner.id, owner, actions, leaving: memoryLeaving }), document.body) : null
   );
 }
 
@@ -45213,19 +45821,19 @@ function proposalCards({ proposals = [], settled = [], failures = {} }) {
 }
 
 // src/client/learning-card.js
-var import_react72 = require("react");
+var import_react73 = require("react");
 var failedAnswers = /* @__PURE__ */ new Map();
 function PendingLearning({ sessionId, useRoster, actions }) {
   const roster = useRoster((value) => value);
   const bot = roster.byId?.[sessionId];
   const proposals = bot && currentPart(bot) === sessionId ? roster.learning?.[bot.id] ?? [] : [];
-  const [open, setOpen] = (0, import_react72.useState)(false);
-  const root = (0, import_react72.useRef)(null);
+  const [open, setOpen] = (0, import_react73.useState)(false);
+  const root = (0, import_react73.useRef)(null);
   const [shown, leaving] = useLinger(open, 120);
-  (0, import_react72.useEffect)(() => {
+  (0, import_react73.useEffect)(() => {
     setOpen(false);
   }, [sessionId, proposals.length === 0]);
-  (0, import_react72.useEffect)(() => {
+  (0, import_react73.useEffect)(() => {
     if (!open) return;
     const outside = (event) => {
       if (!root.current?.contains(event.target)) setOpen(false);
@@ -45234,17 +45842,17 @@ function PendingLearning({ sessionId, useRoster, actions }) {
     return () => document.removeEventListener("pointerdown", outside);
   }, [open]);
   if (proposals.length === 0) return null;
-  return (0, import_react72.createElement)(
+  return (0, import_react73.createElement)(
     "div",
     { className: "bt-learning-pending", ref: root },
-    (0, import_react72.createElement)(
+    (0, import_react73.createElement)(
       "button",
       { type: "button", className: "bt-learning-pending-toggle", "aria-expanded": open, onClick: () => setOpen(!open) },
-      (0, import_react72.createElement)("span", { className: "bt-learning-dot", "aria-hidden": true }),
+      (0, import_react73.createElement)("span", { className: "bt-learning-dot", "aria-hidden": true }),
       t("Awaiting approval"),
       ` · ${proposals.length}`
     ),
-    shown ? (0, import_react72.createElement)(PendingLearningPanel, { proposals, actions, leaving, close: () => {
+    shown ? (0, import_react73.createElement)(PendingLearningPanel, { proposals, actions, leaving, close: () => {
       setOpen(false);
       root.current?.querySelector("button")?.focus();
     } }) : null
@@ -45252,21 +45860,21 @@ function PendingLearning({ sessionId, useRoster, actions }) {
 }
 function PendingLearningPanel({ proposals, actions, close, leaving }) {
   useEscape(close);
-  return (0, import_react72.createElement)(
+  return (0, import_react73.createElement)(
     "div",
     { className: "bt-learning-pending-panel", "data-leaving": leaving || void 0, role: "region", "aria-label": t("Awaiting approval") },
-    proposals.map((proposal) => (0, import_react72.createElement)(ProposalCard, { key: proposal.id, proposal, actions, onFailure: () => {
+    proposals.map((proposal) => (0, import_react73.createElement)(ProposalCard, { key: proposal.id, proposal, actions, onFailure: () => {
     }, onResolved: () => {
     } }))
   );
 }
 function ProposalCard({ proposal, initialError = "", onFailure, onResolved, actions }) {
   const outcome = proposal.outcome;
-  const [busy, setBusy] = (0, import_react72.useState)(false);
-  const [error, setError] = (0, import_react72.useState)(initialError);
-  const [open, setOpen] = (0, import_react72.useState)(false);
-  const busyRef = (0, import_react72.useRef)(false);
-  const titleId = (0, import_react72.useId)();
+  const [busy, setBusy] = (0, import_react73.useState)(false);
+  const [error, setError] = (0, import_react73.useState)(initialError);
+  const [open, setOpen] = (0, import_react73.useState)(false);
+  const busyRef = (0, import_react73.useRef)(false);
+  const titleId = (0, import_react73.useId)();
   const answer = (approve) => {
     if (busyRef.current) return;
     busyRef.current = true;
@@ -45282,65 +45890,65 @@ function ProposalCard({ proposal, initialError = "", onFailure, onResolved, acti
   };
   const update = proposal.action === "update";
   const agents = proposal.kind === "agents";
-  const rows2 = (0, import_react72.useMemo)(() => lineDiff(update ? proposal.previous?.content : "", proposal.content), [update, proposal.previous?.content, proposal.content]);
+  const rows2 = (0, import_react73.useMemo)(() => lineDiff(update ? proposal.previous?.content : "", proposal.content), [update, proposal.previous?.content, proposal.content]);
   const change = agents ? [
-    (0, import_react72.createElement)(FileBox, { key: "file", name: "AGENTS.md", path: proposal.folder, state: proposal.exists === false ? "Added" : "Modified", blocks: proposal.edits.map(agentEditRows) }),
-    ...proposal.edits.map((edit, index) => edit.why ? (0, import_react72.createElement)("p", { className: "bt-learning-why", key: `why-${index}` }, edit.why) : null)
+    (0, import_react73.createElement)(FileBox, { key: "file", name: "AGENTS.md", path: proposal.folder, state: proposal.exists === false ? "Added" : "Modified", blocks: proposal.edits.map(agentEditRows) }),
+    ...proposal.edits.map((edit, index) => edit.why ? (0, import_react73.createElement)("p", { className: "bt-learning-why", key: `why-${index}` }, edit.why) : null)
   ] : [
-    (0, import_react72.createElement)(FileBox, { key: "file", name: "SKILL.md", path: `skills/${proposal.name}`, state: update ? "Updated" : "Added", blocks: [rows2] }),
-    proposal.why ? (0, import_react72.createElement)("p", { className: "bt-learning-why", key: "why" }, proposal.why) : null
+    (0, import_react73.createElement)(FileBox, { key: "file", name: "SKILL.md", path: `skills/${proposal.name}`, state: update ? "Updated" : "Added", blocks: [rows2] }),
+    proposal.why ? (0, import_react73.createElement)("p", { className: "bt-learning-why", key: "why" }, proposal.why) : null
   ];
   const kind = t(agents ? "AGENTS.md update" : update ? "Skill update" : "New skill");
   if (outcome) {
     const what = agents ? proposal.folder : proposal.name;
-    return (0, import_react72.createElement)(
+    return (0, import_react73.createElement)(
       "section",
       { className: "bt-q bt-q-settled bt-learning-card bt-learning-settled", role: "group", "aria-label": `${kind} · ${what}`, "data-outcome": outcome },
-      (0, import_react72.createElement)(
+      (0, import_react73.createElement)(
         "button",
         { type: "button", className: "bt-learning-fold", "aria-expanded": open, onClick: () => setOpen(!open) },
-        (0, import_react72.createElement)("span", { className: "bt-learning-icon", "aria-hidden": true }, (0, import_react72.createElement)(agents ? PencilIcon : MemoryIcon)),
-        (0, import_react72.createElement)("span", { className: "bt-learning-kind" }, kind),
-        (0, import_react72.createElement)("span", { className: "bt-learning-sum" }, `${t(outcome === "approved" ? "Approved" : "Declined")} · ${what}`)
+        (0, import_react73.createElement)("span", { className: "bt-learning-icon", "aria-hidden": true }, (0, import_react73.createElement)(agents ? PencilIcon : MemoryIcon)),
+        (0, import_react73.createElement)("span", { className: "bt-learning-kind" }, kind),
+        (0, import_react73.createElement)("span", { className: "bt-learning-sum" }, `${t(outcome === "approved" ? "Approved" : "Declined")} · ${what}`)
       ),
       open ? change : null
     );
   }
   const oldDetail = update && typeof proposal.previous?.description === "string" && proposal.previous.description !== proposal.description ? proposal.previous.description : void 0;
-  return (0, import_react72.createElement)(
+  return (0, import_react73.createElement)(
     "section",
     { className: "bt-q bt-learning-card", role: "group", "aria-labelledby": titleId, "aria-busy": busy },
-    agents ? (0, import_react72.createElement)(ProposalHead, { titleId, icon: PencilIcon, title: kind }) : (0, import_react72.createElement)(ProposalHead, { titleId, title: proposal.name, kind, detail: proposal.description, oldDetail }),
+    agents ? (0, import_react73.createElement)(ProposalHead, { titleId, icon: PencilIcon, title: kind }) : (0, import_react73.createElement)(ProposalHead, { titleId, title: proposal.name, kind, detail: proposal.description, oldDetail }),
     change,
-    error ? (0, import_react72.createElement)("div", { className: "bt-learning-error", role: "alert" }, error) : null,
-    (0, import_react72.createElement)(ProposalFoot, { busy, answer })
+    error ? (0, import_react73.createElement)("div", { className: "bt-learning-error", role: "alert" }, error) : null,
+    (0, import_react73.createElement)(ProposalFoot, { busy, answer })
   );
 }
 function ProposalHead({ titleId, icon: icon2 = MemoryIcon, title, kind, detail, oldDetail }) {
-  return (0, import_react72.createElement)(
+  return (0, import_react73.createElement)(
     "div",
     { className: "bt-q-head" },
-    (0, import_react72.createElement)("span", { className: "bt-learning-icon", "aria-hidden": true }, (0, import_react72.createElement)(icon2)),
-    (0, import_react72.createElement)(
+    (0, import_react73.createElement)("span", { className: "bt-learning-icon", "aria-hidden": true }, (0, import_react73.createElement)(icon2)),
+    (0, import_react73.createElement)(
       "div",
       { className: "bt-q-text" },
-      (0, import_react72.createElement)("p", { className: "bt-q-title", id: titleId }, title),
-      kind ? (0, import_react72.createElement)("div", { className: "bt-q-detail" }, kind) : null,
-      oldDetail ? (0, import_react72.createElement)("p", { className: "bt-learning-description bt-learning-old" }, (0, import_react72.createElement)("del", null, oldDetail)) : null,
-      detail ? (0, import_react72.createElement)("p", { className: "bt-learning-description" }, detail) : null
+      (0, import_react73.createElement)("p", { className: "bt-q-title", id: titleId }, title),
+      kind ? (0, import_react73.createElement)("div", { className: "bt-q-detail" }, kind) : null,
+      oldDetail ? (0, import_react73.createElement)("p", { className: "bt-learning-description bt-learning-old" }, (0, import_react73.createElement)("del", null, oldDetail)) : null,
+      detail ? (0, import_react73.createElement)("p", { className: "bt-learning-description" }, detail) : null
     ),
-    (0, import_react72.createElement)("span", { className: "bt-q-badge bt-learning-status" }, (0, import_react72.createElement)("span", { className: "bt-learning-dot", "aria-hidden": true }), t("Awaiting approval"))
+    (0, import_react73.createElement)("span", { className: "bt-q-badge bt-learning-status" }, (0, import_react73.createElement)("span", { className: "bt-learning-dot", "aria-hidden": true }), t("Awaiting approval"))
   );
 }
 function ProposalFoot({ busy, answer }) {
-  return (0, import_react72.createElement)(
+  return (0, import_react73.createElement)(
     "div",
     { className: "bt-q-foot bt-learning-foot" },
-    (0, import_react72.createElement)("button", { type: "button", className: "bt-learning-btn bt-learning-decline", disabled: busy, onClick: () => answer(false) }, t("Decline")),
-    (0, import_react72.createElement)(
+    (0, import_react73.createElement)("button", { type: "button", className: "bt-learning-btn bt-learning-decline", disabled: busy, onClick: () => answer(false) }, t("Decline")),
+    (0, import_react73.createElement)(
       "button",
       { type: "button", className: "bt-learning-btn bt-learning-approve", disabled: busy, onClick: () => answer(true) },
-      (0, import_react72.createElement)(CheckIcon),
+      (0, import_react73.createElement)(CheckIcon),
       t("Approve")
     )
   );
@@ -45348,43 +45956,43 @@ function ProposalFoot({ busy, answer }) {
 var COLLAPSE_ROWS = 8;
 var SIGNS = { added: "+", removed: "−", same: "" };
 function FileBox({ name, path: path2, state, blocks }) {
-  const [open, setOpen] = (0, import_react72.useState)(false);
+  const [open, setOpen] = (0, import_react73.useState)(false);
   const all = blocks.flat();
   const added = all.filter((row) => row.kind === "added").length;
   const removed = all.filter((row) => row.kind === "removed").length;
   const folds = all.length > COLLAPSE_ROWS;
   const shut = folds && !open;
-  return (0, import_react72.createElement)(
+  return (0, import_react73.createElement)(
     "div",
     { className: "bt-learning-file" },
-    (0, import_react72.createElement)(
+    (0, import_react73.createElement)(
       "div",
       { className: "bt-learning-filehead" },
-      (0, import_react72.createElement)("span", { className: "bt-learning-name" }, name),
-      path2 ? (0, import_react72.createElement)("span", { className: "bt-learning-path" }, path2) : null,
-      (0, import_react72.createElement)("span", { className: "bt-learning-spacer" }),
-      added > 0 ? (0, import_react72.createElement)("span", { className: "bt-learning-plus" }, `+${added}`) : null,
-      removed > 0 ? (0, import_react72.createElement)("span", { className: "bt-learning-minus" }, `−${removed}`) : null,
-      (0, import_react72.createElement)("span", { className: `bt-learning-state bt-learning-state-${state.toLowerCase()}` }, t(state))
+      (0, import_react73.createElement)("span", { className: "bt-learning-name" }, name),
+      path2 ? (0, import_react73.createElement)("span", { className: "bt-learning-path" }, path2) : null,
+      (0, import_react73.createElement)("span", { className: "bt-learning-spacer" }),
+      added > 0 ? (0, import_react73.createElement)("span", { className: "bt-learning-plus" }, `+${added}`) : null,
+      removed > 0 ? (0, import_react73.createElement)("span", { className: "bt-learning-minus" }, `−${removed}`) : null,
+      (0, import_react73.createElement)("span", { className: `bt-learning-state bt-learning-state-${state.toLowerCase()}` }, t(state))
     ),
-    (0, import_react72.createElement)(
+    (0, import_react73.createElement)(
       "div",
       { className: shut ? "bt-learning-code bt-learning-shut" : "bt-learning-code" },
       blocks.map((rows2, blockIndex) => [
-        blockIndex > 0 ? (0, import_react72.createElement)("div", { className: "bt-learning-gap", key: `gap-${blockIndex}` }) : null,
-        ...rows2.map((row, rowIndex) => (0, import_react72.createElement)(
+        blockIndex > 0 ? (0, import_react73.createElement)("div", { className: "bt-learning-gap", key: `gap-${blockIndex}` }) : null,
+        ...rows2.map((row, rowIndex) => (0, import_react73.createElement)(
           "div",
           { className: `bt-learning-row bt-learning-${row.kind}`, key: `${blockIndex}-${rowIndex}` },
-          (0, import_react72.createElement)("span", { className: "bt-learning-num", "aria-hidden": true }, row.number ?? ""),
-          (0, import_react72.createElement)("span", { className: "bt-learning-sign", "aria-hidden": true }, SIGNS[row.kind]),
-          (0, import_react72.createElement)("span", { className: "bt-learning-text" }, row.line || " ")
+          (0, import_react73.createElement)("span", { className: "bt-learning-num", "aria-hidden": true }, row.number ?? ""),
+          (0, import_react73.createElement)("span", { className: "bt-learning-sign", "aria-hidden": true }, SIGNS[row.kind]),
+          (0, import_react73.createElement)("span", { className: "bt-learning-text" }, row.line || " ")
         ))
       ])
     ),
-    folds ? (0, import_react72.createElement)(
+    folds ? (0, import_react73.createElement)(
       "div",
       { className: shut ? "bt-learning-morebar bt-learning-morebar-shut" : "bt-learning-morebar" },
-      (0, import_react72.createElement)(
+      (0, import_react73.createElement)(
         "button",
         { type: "button", className: "bt-learning-more", "aria-expanded": open, onClick: () => setOpen(!open) },
         t(open ? "Show less" : "Show all {count} lines", { count: all.length })
@@ -45395,10 +46003,10 @@ function FileBox({ name, path: path2, state, blocks }) {
 function LearningProposals({ turn, dock, sessionId, useRoster, actions }) {
   const roster = useRoster((value) => value);
   const facts = useTurnFacts(sessionId, actions);
-  const [failed, setFailed] = (0, import_react72.useState)({});
+  const [failed, setFailed] = (0, import_react73.useState)({});
   const bot = roster.byId?.[sessionId];
   const settledIds = (bot === void 0 ? [] : roster.learningSettled?.[bot.id] ?? []).map((entry) => entry.id);
-  (0, import_react72.useEffect)(() => {
+  (0, import_react73.useEffect)(() => {
     const gone = Object.keys(failed).filter((id) => settledIds.includes(id));
     if (gone.length === 0) return;
     for (const id of gone) failedAnswers.delete(id);
@@ -45423,10 +46031,10 @@ function LearningProposals({ turn, dock, sessionId, useRoster, actions }) {
     failedAnswers.delete(id);
     return withoutEntry(current2, id);
   });
-  return (0, import_react72.createElement)("div", { className: dock ? "bt-learning-stack bt-learning-dock" : "bt-learning-stack" }, cards.map((proposal) => (0, import_react72.createElement)(
+  return (0, import_react73.createElement)("div", { className: dock ? "bt-learning-stack bt-learning-dock" : "bt-learning-stack" }, cards.map((proposal) => (0, import_react73.createElement)(
     "div",
     { className: "bt-q-inline", key: proposal.id },
-    (0, import_react72.createElement)(ProposalCard, {
+    (0, import_react73.createElement)(ProposalCard, {
       proposal,
       initialError: failed[proposal.id]?.error ?? failedAnswers.get(proposal.id)?.error,
       onFailure,
@@ -45436,10 +46044,10 @@ function LearningProposals({ turn, dock, sessionId, useRoster, actions }) {
   )));
 }
 function LearningTurnTail(props) {
-  return (0, import_react72.createElement)(LearningProposals, { ...props, dock: false });
+  return (0, import_react73.createElement)(LearningProposals, { ...props, dock: false });
 }
 function LearningDock(props) {
-  return (0, import_react72.createElement)(LearningProposals, { ...props, dock: true });
+  return (0, import_react73.createElement)(LearningProposals, { ...props, dock: true });
 }
 var LEARNING_CSS = `
 .bt-learning-pending{pointer-events:auto;position:static;margin-left:8px;-webkit-app-region:no-drag}
@@ -45512,17 +46120,17 @@ var LEARNING_CSS = `
 `;
 
 // src/client/read-only-dock.js
-var import_react73 = require("react");
+var import_react74 = require("react");
 function ReadOnlyDock({ sessionId, useUi, useRoster, actions }) {
   const readOnlyPart = useUi((state) => state.readOnlyPart);
   const bot = useRoster((state) => state.byId?.[sessionId] ?? Object.values(state.byId ?? {}).find((entry) => entry?.sessionId === sessionId));
   const running = useRoster((state) => state.partsRunning?.[sessionId] === true);
   const active = readOnlyPart !== null && readOnlyPart === sessionId && running;
-  const root = (0, import_react73.useRef)(null);
-  (0, import_react73.useEffect)(() => {
+  const root = (0, import_react74.useRef)(null);
+  (0, import_react74.useEffect)(() => {
     if (readOnlyPart !== null && readOnlyPart === sessionId && !running) actions.clearReadOnlyPart?.();
   }, [readOnlyPart, sessionId, running]);
-  (0, import_react73.useEffect)(() => {
+  (0, import_react74.useEffect)(() => {
     if (!active) return void 0;
     const card = root.current?.closest("[data-composer-card]") ?? document.querySelector("[data-composer-card]");
     if (card === null || card === void 0) return void 0;
@@ -45547,11 +46155,11 @@ function ReadOnlyDock({ sessionId, useUi, useRoster, actions }) {
       card.removeEventListener("click", onClick, true);
     };
   }, [active]);
-  return (0, import_react73.createElement)(
+  return (0, import_react74.createElement)(
     "div",
     { ref: root, className: "bt-readonly-dock", "data-on": active ? "" : void 0, role: "status", hidden: !active },
-    (0, import_react73.createElement)("span", { className: "bt-readonly-text" }, t("This session is still running. Wait for it to finish, or stop it.")),
-    (0, import_react73.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => actions.stopChat(bot.id) }, t("Stop"))
+    (0, import_react74.createElement)("span", { className: "bt-readonly-text" }, t("This session is still running. Wait for it to finish, or stop it.")),
+    (0, import_react74.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => actions.stopChat(bot.id) }, t("Stop"))
   );
 }
 var READ_ONLY_CSS = `
@@ -45683,7 +46291,7 @@ function installBotMentionRule(userText, roster) {
 }
 
 // src/client/queue-dock.js
-var import_react74 = require("react");
+var import_react75 = require("react");
 var OWN_QUEUE_KINDS = /* @__PURE__ */ new Set(["user", "schedule", "user-question-reply"]);
 var EMPTY_QUEUE = [];
 var QUEUE_TEXT_FACTS = { collapseWhitespace: true, trimWhitespace: true };
@@ -45700,17 +46308,17 @@ function queueAttachments(content) {
 var fileSizeText2 = (bytes) => typeof bytes !== "number" || !Number.isFinite(bytes) ? "" : bytes < 1024 ? `${bytes} B` : bytes < 1048576 ? `${(bytes / 1024).toFixed(1)} KB` : `${(bytes / 1048576).toFixed(1)} MB`;
 function QueueFile({ attachment, label }) {
   const size = fileSizeText2(attachment.bytes);
-  return (0, import_react74.createElement)(
+  return (0, import_react75.createElement)(
     "span",
     { className: "bt-queue-file", "aria-label": label, title: attachment.name },
-    (0, import_react74.createElement)("span", { className: "bt-queue-fileicon", "aria-hidden": true }, (0, import_react74.createElement)(PaperclipIcon)),
-    (0, import_react74.createElement)("span", { className: "bt-queue-filename" }, attachment.name),
-    size !== "" ? (0, import_react74.createElement)("span", { className: "bt-queue-filesize" }, size) : null
+    (0, import_react75.createElement)("span", { className: "bt-queue-fileicon", "aria-hidden": true }, (0, import_react75.createElement)(PaperclipIcon)),
+    (0, import_react75.createElement)("span", { className: "bt-queue-filename" }, attachment.name),
+    size !== "" ? (0, import_react75.createElement)("span", { className: "bt-queue-filesize" }, size) : null
   );
 }
 function QueueThumb({ attachment, loadImage, label }) {
-  const [url, setUrl] = (0, import_react74.useState)(null);
-  (0, import_react74.useEffect)(() => {
+  const [url, setUrl] = (0, import_react75.useState)(null);
+  (0, import_react75.useEffect)(() => {
     let alive = true;
     loadImage(attachment).then((resolved) => {
       if (alive) setUrl(resolved);
@@ -45720,22 +46328,22 @@ function QueueThumb({ attachment, loadImage, label }) {
       alive = false;
     };
   }, [attachment, loadImage]);
-  return url === null ? (0, import_react74.createElement)("span", { className: "bt-queue-thumb", "aria-hidden": true }) : (0, import_react74.createElement)("img", { className: "bt-queue-thumb", src: url, alt: label });
+  return url === null ? (0, import_react75.createElement)("span", { className: "bt-queue-thumb", "aria-hidden": true }) : (0, import_react75.createElement)("img", { className: "bt-queue-thumb", src: url, alt: label });
 }
 function Preview({ text, renderFactorySlot }) {
   const rendered = renderFactorySlot?.("conversation.user.text", { text, facts: QUEUE_TEXT_FACTS, interactive: false, ellipsis: true });
-  return (0, import_react74.createElement)("span", { className: "bt-queue-preview" }, rendered ?? text);
+  return (0, import_react75.createElement)("span", { className: "bt-queue-preview" }, rendered ?? text);
 }
 function EditField({ text, onChange, onSave, onCancel }) {
-  const field = (0, import_react74.useRef)(null);
-  (0, import_react74.useEffect)(() => {
+  const field = (0, import_react75.useRef)(null);
+  (0, import_react75.useEffect)(() => {
     const node = field.current;
     if (node === null) return;
     node.focus();
     node.style.height = "auto";
     node.style.height = `${node.scrollHeight}px`;
   }, [text]);
-  return (0, import_react74.createElement)("textarea", {
+  return (0, import_react75.createElement)("textarea", {
     ref: field,
     className: "bt-queue-edit",
     value: text,
@@ -45754,28 +46362,28 @@ function EditField({ text, onChange, onSave, onCancel }) {
   });
 }
 function RowButton({ label, title, disabled, onClick, children }) {
-  return (0, import_react74.createElement)("button", { type: "button", className: "bt-queue-action", "aria-label": label, title: title ?? label, disabled, onClick }, children);
+  return (0, import_react75.createElement)("button", { type: "button", className: "bt-queue-action", "aria-label": label, title: title ?? label, disabled, onClick }, children);
 }
 function QueueDock({ useSession, useProjection, updateQueue, loadImage, renderFactorySlot, actions }) {
   const inbox = useProjection?.("inbox");
   const pendingSubmissions = useSession?.((s) => s.pendingSubmissions) ?? EMPTY_QUEUE;
-  const queue = (0, import_react74.useMemo)(() => {
+  const queue = (0, import_react75.useMemo)(() => {
     const rows2 = (inbox?.["next-turn"] ?? EMPTY_QUEUE).filter((row) => OWN_QUEUE_KINDS.has(row.source?.kind));
     const inChat = new Set(pendingSubmissions.filter((item) => item.placement === "transcript").map((item) => item.requestId));
     return inChat.size === 0 ? rows2 : rows2.filter(({ source }) => source === null || typeof source !== "object" || !("rpcId" in source) || !inChat.has(source.rpcId));
   }, [inbox, pendingSubmissions]);
-  const pendingQueue = (0, import_react74.useMemo)(() => {
+  const pendingQueue = (0, import_react75.useMemo)(() => {
     const admitted = new Set(queue.flatMap(({ source }) => source !== null && typeof source === "object" && "rpcId" in source ? [source.rpcId] : []));
     return pendingSubmissions.filter((submission) => submission.placement === "queued" && !admitted.has(submission.requestId));
   }, [pendingSubmissions, queue]);
   const rowCount = queue.length + pendingQueue.length;
   const running = useSession?.((s) => s.running) === true;
   const queueMutable = useSession?.((s) => s.subagent === null || s.subagent === void 0 || s.subagent.address?.mode === "continuable") ?? true;
-  const [editing, setEditing] = (0, import_react74.useState)(null);
-  const [busy, setBusy] = (0, import_react74.useState)(null);
-  const [collapsed, setCollapsed] = (0, import_react74.useState)(true);
-  const listId = (0, import_react74.useId)();
-  (0, import_react74.useEffect)(() => {
+  const [editing, setEditing] = (0, import_react75.useState)(null);
+  const [busy, setBusy] = (0, import_react75.useState)(null);
+  const [collapsed, setCollapsed] = (0, import_react75.useState)(true);
+  const listId = (0, import_react75.useId)();
+  (0, import_react75.useEffect)(() => {
     if (rowCount === 0 && !collapsed) setCollapsed(true);
     if (editing !== null && (!queueMutable || !queue.some((row) => row.id === editing.id))) setEditing(null);
   }, [collapsed, editing, queue, queueMutable, rowCount]);
@@ -45803,77 +46411,77 @@ function QueueDock({ useSession, useProjection, updateQueue, loadImage, renderFa
     if (editing === null || editing.text.trim() === "") return;
     if (await applyAction(editing.id, { kind: "edit", content: [{ type: "text", text: editing.text }] }, t("Couldn’t edit the queued message — it may have started already."))) setEditing(null);
   };
-  return (0, import_react74.createElement)(
+  return (0, import_react75.createElement)(
     "div",
     { className: "bt-queue-dock", "data-queue-dock": "" },
-    (0, import_react74.createElement)(
+    (0, import_react75.createElement)(
       "div",
       { className: "bt-queue-panel" },
-      rowCount > 1 && (0, import_react74.createElement)(
+      rowCount > 1 && (0, import_react75.createElement)(
         "button",
         { type: "button", className: "bt-queue-head", "aria-controls": listId, "aria-expanded": expanded, disabled: interactionActive, onClick: () => setCollapsed((value) => !value) },
-        (0, import_react74.createElement)("span", { className: "bt-queue-lead", "aria-hidden": true }, (0, import_react74.createElement)(QueueIcon)),
-        (0, import_react74.createElement)("span", { className: "bt-queue-count" }, t("{n} queued messages", { n: rowCount })),
-        !listVisible && pendingQueue.length > 0 && (0, import_react74.createElement)("span", { className: "bt-queue-status", role: "status" }, t("Sending…")),
-        (0, import_react74.createElement)("span", { className: "bt-queue-chev", "aria-hidden": true }, expanded ? (0, import_react74.createElement)(ChevronDownIcon) : (0, import_react74.createElement)(ChevronUpIcon))
+        (0, import_react75.createElement)("span", { className: "bt-queue-lead", "aria-hidden": true }, (0, import_react75.createElement)(QueueIcon)),
+        (0, import_react75.createElement)("span", { className: "bt-queue-count" }, t("{n} queued messages", { n: rowCount })),
+        !listVisible && pendingQueue.length > 0 && (0, import_react75.createElement)("span", { className: "bt-queue-status", role: "status" }, t("Sending…")),
+        (0, import_react75.createElement)("span", { className: "bt-queue-chev", "aria-hidden": true }, expanded ? (0, import_react75.createElement)(ChevronDownIcon) : (0, import_react75.createElement)(ChevronUpIcon))
       ),
-      (0, import_react74.createElement)(
+      (0, import_react75.createElement)(
         "ul",
         { id: listId, className: "bt-queue-list", hidden: !listVisible },
         listVisible && queue.map((row) => {
           const attachments = queueAttachments(row.content);
           const text = textOf(row.content);
-          return (0, import_react74.createElement)(
+          return (0, import_react75.createElement)(
             "li",
             { key: row.id, className: "bt-queue-row" },
-            rowCount === 1 && (0, import_react74.createElement)("span", { className: "bt-queue-lead", "aria-hidden": true }, (0, import_react74.createElement)(QueueIcon)),
-            editing?.id === row.id ? (0, import_react74.createElement)(EditField, { text: editing.text, onChange: (text2) => setEditing({ id: row.id, text: text2 }), onSave: saveEdit, onCancel: () => setEditing(null) }) : (0, import_react74.createElement)(
-              import_react74.Fragment,
+            rowCount === 1 && (0, import_react75.createElement)("span", { className: "bt-queue-lead", "aria-hidden": true }, (0, import_react75.createElement)(QueueIcon)),
+            editing?.id === row.id ? (0, import_react75.createElement)(EditField, { text: editing.text, onChange: (text2) => setEditing({ id: row.id, text: text2 }), onSave: saveEdit, onCancel: () => setEditing(null) }) : (0, import_react75.createElement)(
+              import_react75.Fragment,
               null,
-              attachments.length > 0 && (0, import_react74.createElement)(
+              attachments.length > 0 && (0, import_react75.createElement)(
                 "span",
                 { className: "bt-queue-attachments" },
-                attachments.map((item, index) => item.type === "image" ? (0, import_react74.createElement)(QueueThumb, { key: `${item.attachment.attachmentId}:${index}`, attachment: item.attachment, loadImage, label: t("Queued image") }) : (0, import_react74.createElement)(QueueFile, { key: `${item.attachment.attachmentId}:${item.attachment.name}:${index}`, attachment: item.attachment, label: t("Queued file {name}", { name: item.attachment.name }) }))
+                attachments.map((item, index) => item.type === "image" ? (0, import_react75.createElement)(QueueThumb, { key: `${item.attachment.attachmentId}:${index}`, attachment: item.attachment, loadImage, label: t("Queued image") }) : (0, import_react75.createElement)(QueueFile, { key: `${item.attachment.attachmentId}:${item.attachment.name}:${index}`, attachment: item.attachment, label: t("Queued file {name}", { name: item.attachment.name }) }))
               ),
-              (0, import_react74.createElement)(Preview, { text: row.content.filter((block) => block.type === "text").map((block) => block.text).join(""), renderFactorySlot })
+              (0, import_react75.createElement)(Preview, { text: row.content.filter((block) => block.type === "text").map((block) => block.text).join(""), renderFactorySlot })
             ),
-            queueMutable && (0, import_react74.createElement)(
+            queueMutable && (0, import_react75.createElement)(
               "div",
               { className: "bt-queue-actions" },
-              editing?.id === row.id ? (0, import_react74.createElement)(
-                import_react74.Fragment,
+              editing?.id === row.id ? (0, import_react75.createElement)(
+                import_react75.Fragment,
                 null,
-                (0, import_react74.createElement)(RowButton, { label: t("Save queued message"), disabled: busy !== null || editing.text.trim() === "", onClick: saveEdit }, (0, import_react74.createElement)(CheckIcon)),
-                (0, import_react74.createElement)(RowButton, { label: t("Cancel editing"), disabled: busy !== null, onClick: () => setEditing(null) }, (0, import_react74.createElement)(CloseIcon))
-              ) : (0, import_react74.createElement)(
-                import_react74.Fragment,
+                (0, import_react75.createElement)(RowButton, { label: t("Save queued message"), disabled: busy !== null || editing.text.trim() === "", onClick: saveEdit }, (0, import_react75.createElement)(CheckIcon)),
+                (0, import_react75.createElement)(RowButton, { label: t("Cancel editing"), disabled: busy !== null, onClick: () => setEditing(null) }, (0, import_react75.createElement)(CloseIcon))
+              ) : (0, import_react75.createElement)(
+                import_react75.Fragment,
                 null,
-                (0, import_react74.createElement)(RowButton, { label: t("Edit queued message"), title: text === null ? t("Contains non-text content, so editing is not supported yet") : void 0, disabled: busy !== null || text === null, onClick: () => {
+                (0, import_react75.createElement)(RowButton, { label: t("Edit queued message"), title: text === null ? t("Contains non-text content, so editing is not supported yet") : void 0, disabled: busy !== null || text === null, onClick: () => {
                   if (text !== null) setEditing({ id: row.id, text });
-                } }, (0, import_react74.createElement)(PencilIcon)),
-                (0, import_react74.createElement)(RowButton, { label: t("Delete queued message"), disabled: busy !== null, onClick: () => applyAction(row.id, { kind: "remove" }, t("Couldn’t delete the queued message — it may have started already.")) }, (0, import_react74.createElement)(TrashIcon)),
-                (0, import_react74.createElement)(RowButton, { label: t("Steer queued message"), title: running ? void 0 : t("Only while a turn is running"), disabled: busy !== null || !running, onClick: () => applyAction(row.id, { kind: "steer" }, t("Couldn’t steer the queued message. Try again.")) }, (0, import_react74.createElement)(ArrowUpIcon))
+                } }, (0, import_react75.createElement)(PencilIcon)),
+                (0, import_react75.createElement)(RowButton, { label: t("Delete queued message"), disabled: busy !== null, onClick: () => applyAction(row.id, { kind: "remove" }, t("Couldn’t delete the queued message — it may have started already.")) }, (0, import_react75.createElement)(TrashIcon)),
+                (0, import_react75.createElement)(RowButton, { label: t("Steer queued message"), title: running ? void 0 : t("Only while a turn is running"), disabled: busy !== null || !running, onClick: () => applyAction(row.id, { kind: "steer" }, t("Couldn’t steer the queued message. Try again.")) }, (0, import_react75.createElement)(ArrowUpIcon))
               )
             )
           );
         }),
-        listVisible && pendingQueue.map((submission) => (0, import_react74.createElement)(
+        listVisible && pendingQueue.map((submission) => (0, import_react75.createElement)(
           "li",
           { key: submission.requestId, className: "bt-queue-row bt-queue-pending" },
-          rowCount === 1 && (0, import_react74.createElement)("span", { className: "bt-queue-lead", "aria-hidden": true }, (0, import_react74.createElement)(QueueIcon)),
-          submission.attachments.length > 0 && (0, import_react74.createElement)(
+          rowCount === 1 && (0, import_react75.createElement)("span", { className: "bt-queue-lead", "aria-hidden": true }, (0, import_react75.createElement)(QueueIcon)),
+          submission.attachments.length > 0 && (0, import_react75.createElement)(
             "span",
             { className: "bt-queue-attachments" },
-            submission.attachments.map((attachment, index) => attachment.type === "image" ? (0, import_react74.createElement)("img", { key: `${attachment.value.previewUrl}:${index}`, className: "bt-queue-thumb", src: attachment.value.previewUrl, alt: t("Queued image") }) : (0, import_react74.createElement)(QueueFile, { key: `${attachment.value.attachmentId}:${attachment.value.name}:${index}`, attachment: attachment.value, label: t("Queued file {name}", { name: attachment.value.name }) }))
+            submission.attachments.map((attachment, index) => attachment.type === "image" ? (0, import_react75.createElement)("img", { key: `${attachment.value.previewUrl}:${index}`, className: "bt-queue-thumb", src: attachment.value.previewUrl, alt: t("Queued image") }) : (0, import_react75.createElement)(QueueFile, { key: `${attachment.value.attachmentId}:${attachment.value.name}:${index}`, attachment: attachment.value, label: t("Queued file {name}", { name: attachment.value.name }) }))
           ),
-          (0, import_react74.createElement)(Preview, { text: submission.text, renderFactorySlot }),
-          (0, import_react74.createElement)("span", { className: "bt-queue-status", role: "status" }, t("Sending…")),
-          queueMutable && (0, import_react74.createElement)(
+          (0, import_react75.createElement)(Preview, { text: submission.text, renderFactorySlot }),
+          (0, import_react75.createElement)("span", { className: "bt-queue-status", role: "status" }, t("Sending…")),
+          queueMutable && (0, import_react75.createElement)(
             "div",
             { className: "bt-queue-actions" },
-            (0, import_react74.createElement)(RowButton, { label: t("Edit queued message"), title: t("Sending…"), disabled: true }, (0, import_react74.createElement)(PencilIcon)),
-            (0, import_react74.createElement)(RowButton, { label: t("Delete queued message"), title: t("Sending…"), disabled: true }, (0, import_react74.createElement)(TrashIcon)),
-            (0, import_react74.createElement)(RowButton, { label: t("Steer queued message"), title: t("Sending…"), disabled: true }, (0, import_react74.createElement)(ArrowUpIcon))
+            (0, import_react75.createElement)(RowButton, { label: t("Edit queued message"), title: t("Sending…"), disabled: true }, (0, import_react75.createElement)(PencilIcon)),
+            (0, import_react75.createElement)(RowButton, { label: t("Delete queued message"), title: t("Sending…"), disabled: true }, (0, import_react75.createElement)(TrashIcon)),
+            (0, import_react75.createElement)(RowButton, { label: t("Steer queued message"), title: t("Sending…"), disabled: true }, (0, import_react75.createElement)(ArrowUpIcon))
           )
         ))
       )
@@ -46134,7 +46742,7 @@ function singleFlight(map, key, run2) {
 }
 
 // src/client/text-annotation.js
-var import_react75 = require("react");
+var import_react76 = require("react");
 var quoteMarkdown = (text) => text.replace(/\r\n?/gu, "\n").split("\n").map((line) => `> ${line}`).join("\n");
 var withAnnotation = (text, annotation) => annotation.trim() ? `${text}
 
@@ -46147,23 +46755,23 @@ function insertAnnotation(inputActions, text, annotation) {
 function TextSelectionAction({ sessionId, dismiss, readText, clearSelection, inputActions, useSession, useRoster, actions, t: hostT }) {
   const enabled = useSession((state) => !state.removed && (state.subagent === null || state.subagent.address.mode === "continuable" && state.subagent.parentAvailable === true));
   const team = useRoster((state) => state.byId[sessionId] !== void 0 || state.roomsById[sessionId] !== void 0);
-  const [editing, setEditing] = (0, import_react75.useState)(false);
-  const [excerpt, setExcerpt] = (0, import_react75.useState)(null);
-  const [annotation, setAnnotation] = (0, import_react75.useState)("");
-  const [sending, setSending] = (0, import_react75.useState)(false);
-  const [closing, setClosing] = (0, import_react75.useState)(false);
-  const field = (0, import_react75.useRef)(null);
-  const pending = (0, import_react75.useRef)(false);
-  const closeTimer = (0, import_react75.useRef)(null);
-  (0, import_react75.useEffect)(() => {
+  const [editing, setEditing] = (0, import_react76.useState)(false);
+  const [excerpt, setExcerpt] = (0, import_react76.useState)(null);
+  const [annotation, setAnnotation] = (0, import_react76.useState)("");
+  const [sending, setSending] = (0, import_react76.useState)(false);
+  const [closing, setClosing] = (0, import_react76.useState)(false);
+  const field = (0, import_react76.useRef)(null);
+  const pending = (0, import_react76.useRef)(false);
+  const closeTimer = (0, import_react76.useRef)(null);
+  (0, import_react76.useEffect)(() => {
     if (!enabled) dismiss();
   }, [enabled, dismiss]);
-  (0, import_react75.useEffect)(() => {
+  (0, import_react76.useEffect)(() => {
     if (!team || !enabled || !editing) return;
     field.current?.focus();
     if (typeof window !== "undefined") window.dispatchEvent(new Event("resize"));
   }, [team, enabled, editing]);
-  (0, import_react75.useEffect)(() => () => clearTimeout(closeTimer.current), []);
+  (0, import_react76.useEffect)(() => () => clearTimeout(closeTimer.current), []);
   if (!enabled) return null;
   const close = () => {
     clearSelection();
@@ -46236,7 +46844,7 @@ function TextSelectionAction({ sessionId, dismiss, readText, clearSelection, inp
     else void send();
   };
   if (!team) {
-    return (0, import_react75.createElement)("button", {
+    return (0, import_react76.createElement)("button", {
       type: "button",
       className: "bt-quote-plain",
       "aria-label": hostT("quote.add"),
@@ -46245,17 +46853,17 @@ function TextSelectionAction({ sessionId, dismiss, readText, clearSelection, inp
     }, hostT("quote.add"));
   }
   if (!editing) {
-    return (0, import_react75.createElement)(
+    return (0, import_react76.createElement)(
       "div",
       { className: "bt-selection-actions" },
-      (0, import_react75.createElement)("button", {
+      (0, import_react76.createElement)("button", {
         type: "button",
         className: "bt-selection-action",
         "aria-label": hostT("quote.add"),
         onPointerDown: (event) => event.preventDefault(),
         onClick: quoteOnly
       }, hostT("quote.add")),
-      (0, import_react75.createElement)("button", {
+      (0, import_react76.createElement)("button", {
         type: "button",
         className: "bt-selection-action bt-quote-annotate",
         "aria-label": t("Annotate"),
@@ -46264,12 +46872,12 @@ function TextSelectionAction({ sessionId, dismiss, readText, clearSelection, inp
       }, t("Annotate"))
     );
   }
-  return (0, import_react75.createElement)(
+  return (0, import_react76.createElement)(
     "section",
     { className: "bt-annotation", "aria-label": t("Annotate quote"), "data-leaving": closing || void 0, onPointerDown: (event) => event.stopPropagation() },
-    (0, import_react75.createElement)("label", { className: "bt-annotation-label", htmlFor: "bt-annotation-field" }, t("Annotation")),
-    (0, import_react75.createElement)("blockquote", { className: "bt-annotation-quote" }, quoteText()),
-    (0, import_react75.createElement)("textarea", {
+    (0, import_react76.createElement)("label", { className: "bt-annotation-label", htmlFor: "bt-annotation-field" }, t("Annotation")),
+    (0, import_react76.createElement)("blockquote", { className: "bt-annotation-quote" }, quoteText()),
+    (0, import_react76.createElement)("textarea", {
       id: "bt-annotation-field",
       ref: field,
       value: annotation,
@@ -46280,11 +46888,11 @@ function TextSelectionAction({ sessionId, dismiss, readText, clearSelection, inp
       onChange: (event) => setAnnotation(event.target.value),
       onKeyDown
     }),
-    (0, import_react75.createElement)(
+    (0, import_react76.createElement)(
       "div",
       { className: "bt-annotation-actions" },
-      (0, import_react75.createElement)("button", { type: "button", className: "bt-annotation-add", disabled: sending || closing, onClick: add, title: t("Add quote and annotation to the composer · Enter") }, t("Add")),
-      (0, import_react75.createElement)("button", { type: "button", className: "bt-annotation-send", disabled: sending || closing, onClick: () => void send(), title: t("Send quote and annotation · Ctrl+Enter") }, sending ? t("Sending…") : t("Send"))
+      (0, import_react76.createElement)("button", { type: "button", className: "bt-annotation-add", disabled: sending || closing, onClick: add, title: t("Add quote and annotation to the composer · Enter") }, t("Add")),
+      (0, import_react76.createElement)("button", { type: "button", className: "bt-annotation-send", disabled: sending || closing, onClick: () => void send(), title: t("Send quote and annotation · Ctrl+Enter") }, sending ? t("Sending…") : t("Send"))
     )
   );
 }
@@ -46313,6 +46921,143 @@ var ANNOTATION_CSS = `
 @keyframes bt-annotation-out{from{opacity:1;transform:none}to{opacity:0;transform:translateY(2px) scale(.98)}}
 @media (prefers-reduced-motion:reduce){.bt-selection-actions,.bt-annotation,.bt-annotation[data-leaving]{animation:none}}
 `;
+
+// src/client/agent-fork.js
+var readJournal = (storage) => {
+  const map = /* @__PURE__ */ new Map();
+  try {
+    const saved = JSON.parse(storage?.getItem(STORAGE.agentForks) ?? "[]");
+    if (Array.isArray(saved)) {
+      for (const entry of saved) {
+        if (typeof entry?.sessionId === "string" && typeof entry?.agentId === "string") {
+          map.set(entry.sessionId, { agentId: entry.agentId, sessionId: entry.sessionId });
+        }
+      }
+    }
+  } catch {
+  }
+  return map;
+};
+var mutateJournal = (storage, update) => {
+  if (!storage) return;
+  try {
+    const map = readJournal(storage);
+    const changed = update(map);
+    if (changed !== false) storage.setItem(STORAGE.agentForks, JSON.stringify([...map.values()]));
+  } catch {
+  }
+};
+function installAgentForks({ sessions, ownerOf, hasAgent, pending, adopt, refresh, report, storage, ready }) {
+  const localJournal = readJournal(storage);
+  const inFlight = /* @__PURE__ */ new Map();
+  const forks = /* @__PURE__ */ new Set();
+  let stopped = false;
+  const remember = (agentId, sessionId) => {
+    const entry = { agentId, sessionId };
+    localJournal.set(sessionId, entry);
+    pending.set(sessionId, agentId);
+    mutateJournal(storage, (map) => {
+      map.set(sessionId, entry);
+    });
+    return entry;
+  };
+  const forget = (sessionId) => {
+    localJournal.delete(sessionId);
+    mutateJournal(storage, (map) => map.delete(sessionId));
+  };
+  const persist = (entry) => {
+    const running = inFlight.get(entry.sessionId);
+    if (running !== void 0) return running;
+    pending.set(entry.sessionId, entry.agentId);
+    const task = Promise.resolve().then(() => adopt(entry.agentId, entry.sessionId)).then(async () => {
+      forget(entry.sessionId);
+      if (!stopped) {
+        try {
+          await refresh();
+        } catch (error) {
+          report(error, "agent-fork-refresh");
+        }
+      }
+    }).catch((error) => {
+      if (pending.get(entry.sessionId) === entry.agentId) pending.delete(entry.sessionId);
+      if (!stopped) report(error, "agent-fork-adopt");
+    }).finally(() => {
+      inFlight.delete(entry.sessionId);
+    });
+    inFlight.set(entry.sessionId, task);
+    return task;
+  };
+  const original = sessions.fork;
+  const descriptor = Object.getOwnPropertyDescriptor(sessions, "fork");
+  const wrapped = function(options) {
+    if (stopped) return Reflect.apply(original, this, [options]);
+    const receiver = this;
+    const captured = ownerOf(options.sessionId) ?? pending.get(options.sessionId);
+    const task = (async () => {
+      if (captured === void 0) {
+        try {
+          await ready();
+        } catch {
+        }
+      }
+      const agentId = captured ?? ownerOf(options.sessionId) ?? pending.get(options.sessionId);
+      if (agentId === void 0) return Reflect.apply(original, receiver, [options]);
+      let created;
+      let adoption;
+      const onCreated = (sessionId) => {
+        created = sessionId;
+        adoption = persist(remember(agentId, sessionId));
+        options.onCreated?.(sessionId);
+      };
+      try {
+        const child = await Reflect.apply(original, receiver, [{ ...options, onCreated }]);
+        if (created === void 0 && typeof child === "string") onCreated(child);
+        if (adoption !== void 0) await adoption;
+        return child;
+      } catch (error) {
+        const rpc = error?.rpcError;
+        const partial = rpc?.code === "session/workspace-attach-failed" ? rpc.details?.sessionId : void 0;
+        if (created === void 0 && typeof partial === "string") adoption = persist(remember(agentId, partial));
+        if (adoption !== void 0) await adoption;
+        throw error;
+      }
+    })();
+    forks.add(task);
+    const settle = () => {
+      forks.delete(task);
+    };
+    task.then(settle, settle);
+    return task;
+  };
+  sessions.fork = wrapped;
+  const reconcile = async () => {
+    if (stopped) return;
+    const listed = sessions.list.getSnapshot().byId ?? {};
+    const entries2 = storage ? readJournal(storage) : new Map(localJournal);
+    for (const [id, entry] of localJournal) if (!entries2.has(id)) entries2.set(id, entry);
+    for (const entry of entries2.values()) {
+      if (stopped) return;
+      if (!hasAgent(entry.agentId)) continue;
+      if (ownerOf(entry.sessionId) === entry.agentId) {
+        forget(entry.sessionId);
+        continue;
+      }
+      if (listed[entry.sessionId] === void 0) continue;
+      await persist(entry);
+    }
+  };
+  return {
+    reconcile,
+    async dispose() {
+      stopped = true;
+      if (sessions.fork === wrapped) {
+        if (descriptor === void 0) delete sessions.fork;
+        else Object.defineProperty(sessions, "fork", descriptor);
+      }
+      await Promise.allSettled([...forks, ...inFlight.values()]);
+    }
+  };
+}
 
 // src/client/index.js
 var inject = ["sessions", "uiWorkspace", "uiConversation", "slots", "theme", "layout"];
@@ -47514,6 +48259,34 @@ function apply(ctx) {
   ctx.effect(() => installCompiledStyles(COMPUTER_CSS, "computer"), "ds-bot: computer styles");
   shadow("sidebar.footer.action", { id: "bot-return", order: -300, inject: face }, BotReturn);
   ctx.effect(() => {
+    const forks = installAgentForks({
+      sessions: ctx.sessions,
+      ownerOf: (id) => roster.getSnapshot().agentOf[id],
+      hasAgent: (id) => roster.getSnapshot().agentsById[id] !== void 0,
+      pending: pendingAdopt,
+      ready: async () => {
+        if (!roster.getSnapshot().ready) await pull();
+      },
+      adopt: (agentId, sessionId) => call("agent-adopt", { agentId, sessionId }),
+      refresh: pull,
+      report: (error, source) => actions.reportError(error, source),
+      storage: globalThis.localStorage
+    });
+    const reconcile = () => {
+      void forks.reconcile().catch((error) => actions.reportError(error, "agent-fork-reconcile"));
+    };
+    const offRoster = roster.subscribe(reconcile);
+    const offList = ctx.sessions.list.subscribe(reconcile);
+    const timer = setInterval(reconcile, 5e3);
+    reconcile();
+    return () => {
+      offRoster();
+      offList();
+      clearInterval(timer);
+      return forks.dispose();
+    };
+  }, "ds-bot: Agent forks");
+  ctx.effect(() => {
     let previous;
     const sync = () => {
       const list = ctx.sessions.list.getSnapshot();
@@ -47534,9 +48307,7 @@ function apply(ctx) {
       if (snapshot.byId[main] !== void 0 || snapshot.roomsById[main] !== void 0 || agentOfSession(main) !== void 0) return;
       const row = list.byId[main];
       if (row?.origin === "subagent") return;
-      const parent = row?.parentId ?? row?.parentSessionId;
-      const forkedFromAgent = parent !== void 0 && agentOfSession(parent) === agentId;
-      if (row?.blank !== true && !forkedFromAgent) return;
+      if (row?.blank !== true) return;
       pendingAdopt.set(main, agentId);
       setPlain(true);
       void call("agent-adopt", { agentId, sessionId: main }).then(() => pull()).catch((error) => {

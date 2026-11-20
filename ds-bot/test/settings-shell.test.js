@@ -247,12 +247,13 @@ test('the settings file action shows only when the Host has a document to open',
 })
 
 // The dialog with DSH's ledger: renderSlot answers with a marker naming what it drew.
-function dialog({ page = 'general', id = null, sections, items = [], actions = {} } = {}) {
+function dialog({ page = 'general', id = null, sections, items = [], actions = {}, preferences } = {}) {
   const calls = []
   const drawn = []
   const dsh = {
     sections: sections ?? [{ id: 'account', order: -10, label: 'Account' }, { id: 'general', order: 0, label: 'General' }, { id: 'models', order: 10, label: 'Models' }, { id: 'plugins', order: 15, label: 'Plugins' }, { id: 'agent-presets', order: 20, label: 'Agent presets' }],
     items,
+    preferences,
     renderSlot: (name, owner, opts) => { drawn.push([name, opts?.only ?? null]); return { type: 'slot', props: { name, only: opts?.only ?? null } } },
   }
   const all = { closeSettings: () => calls.push('close'), openSettings: (...args) => calls.push(args), providers: () => {}, ...actions }
@@ -302,6 +303,16 @@ test('DSH\'s General rows join General: the look under Appearance, the rest unde
   const only = node => walk(node, item => item.type === 'slot').map(item => item.props.only)
   assert.deepEqual(only(sections.find(node => node.props.key === 'look')), ['appearance', 'font-size'])
   assert.deepEqual(only(sections.find(node => node.props.key === 'more')), ['permission', 'language', 'developer-tools'])
+})
+
+test('DS Bot draws known General selectors, while unrelated DSH rows keep their public slots', () => {
+  const ids = ['language', 'transcript-view', 'link-opening', 'composer-enter', 'performance-usage', 'permission']
+  const { tree, drawn } = dialog({ items: [...ids, 'another-plugin'].map(id => ({ id })), preferences: {} })
+  const [general] = walk(tree, node => typeof node.type === 'function' && node.type.name === 'GeneralPage')
+  const sections = general.type(general.props)
+  assert.deepEqual(walk(sections, node => typeof node.type === 'function' && node.type.name === 'SettingsPreferences').map(node => node.props.id), ids)
+  assert.ok(drawn.some(([name, only]) => name === 'settings.general.item' && only === 'another-plugin'))
+  assert.ok(!drawn.some(([name, only]) => name === 'settings.general.item' && ids.includes(only)))
 })
 
 test('header actions from DSH and plugins sit beside the title', () => {

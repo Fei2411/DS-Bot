@@ -80,14 +80,23 @@ export function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus
   // folder changes, so the two differ for every group whose folder was changed.
   const goalCompose = useUi(state => room !== undefined && state.goalCompose === room.id)
   const goalOpen = useUi(state => room !== undefined && state.goalOpen === room.id)
-  const approvalOpen = useUi(state => room !== undefined && state.approvalOpen === room.id)
-  // The island's live faces and pending approvals: non-group chats subscribe to a
-  // constant so their header does not redraw on group work.
+  const approvalTargetId = room?.id ?? bot?.id
+  const approvalOpen = useUi(state => approvalTargetId !== undefined && state.approvalOpen === approvalTargetId)
+  // The island's live faces and pending approvals: non-group chats subscribe only
+  // to their own Bot's background-task approvals so unrelated group work does not redraw them.
   const roomWorkKey = useWork?.(work => (room ? JSON.stringify(work.rooms?.[room.id] ?? []) : '')) ?? '[]'
   const roomWork = room ? JSON.parse(roomWorkKey || '[]') : []
-  const workApprovalsKey = useWork?.(work => (room ? JSON.stringify((work.approvals ?? []).filter(entry => entry.roomId === room.id)) : '')) ?? '[]'
+  const workApprovalsKey = useWork?.(work => (room
+    ? JSON.stringify((work.approvals ?? []).filter(entry => entry.roomId === room.id))
+    : bot
+      ? JSON.stringify((work.approvals ?? []).filter(entry => entry.botId === bot.id && entry.taskId !== undefined && entry.answerable !== false))
+      : '')) ?? '[]'
   const computerAsksKey = useComputer?.(comp => (room ? JSON.stringify(Object.values(comp?.asks ?? {}).filter(ask => ask.roomId === room.id)) : '')) ?? '[]'
-  const approvals = room ? roomApprovals(room, { approvals: JSON.parse(workApprovalsKey || '[]') }, { asks: JSON.parse(computerAsksKey || '[]') }, roster) : []
+  const approvals = room
+    ? roomApprovals(room, { approvals: JSON.parse(workApprovalsKey || '[]') }, { asks: JSON.parse(computerAsksKey || '[]') }, roster)
+    : bot
+      ? JSON.parse(workApprovalsKey || '[]').map(entry => ({ kind: 'tool', id: entry.id, bot, approval: entry, at: entry.at ?? 0 }))
+      : []
   const view = goal ? goalView(goal, { roster, roomWork }) : null
   const goalShown = room !== undefined && !away && goal !== undefined
   const detailsOpen = useUi(state => state.details === sessionId)
@@ -117,7 +126,7 @@ export function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus
   }, [Boolean(room)])
   const memoryNotice = !away && notice && changed !== null && roster.memory !== false
   const showGoal = room !== undefined && !away && (goal !== undefined || goalCompose)
-  const showApprovals = room !== undefined && !away && approvals.length > 0
+  const showApprovals = approvalTargetId !== undefined && !away && approvals.length > 0
   const showIsland = showGoal || showApprovals
   // Once the last approval is answered, reset approvalOpen so future approvals
   // appear as a compact bar rather than popping straight into a 560px panel.
@@ -147,7 +156,7 @@ export function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus
     goalShown && view?.number !== undefined ? h('span', { className: 'bt-pill-count' }, `${view.number}/${view.count}`) : null,
     h(MemoryNotice, { shown: memoryNotice }),
     h('span', { className: 'bt-pill-go', 'aria-hidden': true }, h(GoArrow)))
-  const approvalPod = showApprovals ? h(ApprovalIslandPod, { approvals, open: approvalOpen, room, actions }) : null
+  const approvalPod = showApprovals ? h(ApprovalIslandPod, { approvals, open: approvalOpen, room, targetId: approvalTargetId, actions }) : null
   return h('div', { className: 'bt-head' },
     showIsland ? h(GoalIsland, { room, goal, view, open: goalOpen, composing: goalCompose, approvalPod, approvalOpen, approvalsCount: approvals.length, roomWork, roster, actions, pill }) : pill,
     !away && PendingLearning ? h(PendingLearning, { key: sessionId, sessionId, useRoster, actions }) : null,

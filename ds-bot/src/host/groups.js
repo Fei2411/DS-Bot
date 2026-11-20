@@ -27,7 +27,7 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 import { GROUP_LINE_READ, HISTORY_PAGE, HISTORY_TIMEOUT_MS, LATE_ANSWER, ROOM_IDLE_RELAY_LIMIT, ROOM_REPLY_TIMEOUT_MS, ROOM_STEP_GAP_MS, ROOM_WORK_GRACE_MS, SOURCE_KIND, TEAM_TOOLS, TEXT_KEPT } from './constants.js'
 import { escapeRegExp, headOf, reminderPrompts, splitRef, textOf } from './text.js'
 import { viaOf } from '../shared/im-platforms.js'
-import { parseReplies, relayRange } from '../shared/group-replies.js'
+import { REPLY_ELISION, parseReplies, relayRange } from '../shared/group-replies.js'
 import { mentionSpans, speakerOf } from '../shared/mentions.js'
 import { GROUP_REF, output } from './tools.js'
 import { searchGroupBook } from './group-search.js'
@@ -417,18 +417,20 @@ export function install(rt) {
   rt.ledger.importer('group-', (book) => {
     const roomId = book.slice('group-'.length)
     const lines = new Map()
+    const keep = (line, text = line.text) => lines.set(line.seq, typeof text === 'string'
+      ? { ...line, text, length: line.length ?? text.length }
+      : line)
     for (const line of rt.roomOf(roomId)?.log ?? []) {
       if (!Number.isInteger(line?.seq)) continue
-      const { length, ...rest } = line
-      let text = rest.text
-      if (length !== undefined) {
+      let text = line.text
+      if (line.length !== undefined) {
         try { text = readFileSync(join(rt.home, 'group-lines', roomId, `${line.seq}.txt`), 'utf8') } catch { /* only its start was kept */ }
       }
-      lines.set(line.seq, { ...rest, ...(text === undefined ? {} : { text }) })
+      keep(line, text)
     }
     try {
       for (const line of parseBook(readFileSync(join(rt.home, 'group-logs', `${oldLogName(roomId)}.jsonl`), 'utf8'))) {
-        if (Number.isInteger(line.seq)) lines.set(line.seq, line)
+        if (Number.isInteger(line.seq)) keep(line)
       }
     } catch { /* no log of its own yet */ }
     return [...lines.values()].sort((a, b) => a.seq - b.seq)
@@ -633,12 +635,120 @@ export function install(rt) {
     return { rows, open: end === undefined }
   }
   const groupRows = (roomId, from, to, anchor) => rowsView(roomId, from, to, anchor).rows
+  const jsonText = text => JSON.stringify(text).slice(1, -1)
+  const isLegacyReply = record => record.kind === undefined && record.session !== true
+    && typeof record.botId === 'string' && typeof record.text === 'string'
+  function hasCompleteText(record) {
+    const length = record.text.length
+    if (record.length !== undefined) return length === record.length
+    // Old imports dropped the original length. Either cap can land one unit early at a surrogate pair.
+    return length !== TEXT_KEPT && length !== TEXT_KEPT - 1
+      && length !== GROUP_LINE_READ && length !== GROUP_LINE_READ - 1
+  }
+  const isKeptReply = record => isLegacyReply(record) && hasCompleteText(record)
+  const matchesOpening = (record, opening, partial) => (partial ? record.text.startsWith(opening) : record.text === opening)
+    || (!hasCompleteText(record) && opening.startsWith(record.text))
+
+  function restoreTrimmedReplies(replies, records) {
+    const restored = []
+    for (const reply of replies) {
+      if (!reply || typeof reply !== 'object' || reply.__omitted__) return null
+      const marker = typeof reply.text === 'string' ? REPLY_ELISION.exec(reply.text) : null
+      if (marker === null) { restored.push(reply); continue }
+      const head = reply.text.slice(0, marker.index)
+      const tail = reply.text.slice(marker.index + marker[0].length)
+      const omitted = Number(marker[1])
+      // save-token's JSON codec keeps 220 and 80 UTF-16 units of an individual string longer than 400.
+      if (reply.kind !== undefined || head.length !== 220 || tail.length !== 80 || omitted <= 100 || REPLY_ELISION.test(tail)) return null
+      const length = head.length + omitted + tail.length
+      const matches = records.filter(record => {
+        if (!isLegacyReply(record) || record.botId !== reply.botId || !matchesOpening(record, head, true)) return false
+        if (!hasCompleteText(record)) return record.length === undefined || record.length === length
+        return record.text.length === length && record.text.endsWith(tail)
+      })
+      if (matches.length !== 1 || !hasCompleteText(matches[0])) return null
+      restored.push({ ...reply, text: matches[0].text })
+    }
+    return restored
+  }
+
+  function restoreRelayWindow(preview, records, marker) {
+    const suffix = preview.slice(marker.index + marker[0].length)
+    if (REPLY_ELISION.test(suffix)) return null
+    const head = preview.slice(0, marker.index)
+    const before = parseReplies(head).replies
+    const tailFragment = /^((?:[^"\\]|\\.)*)"/.exec(suffix)
+    if (tailFragment === null) return null
+    let after
+    try { after = JSON.parse(`{"replies":[{"text":"${suffix}`).replies } catch { return null }
+    if (!Array.isArray(after) || after.some(reply => !reply || typeof reply !== 'object' || reply.__omitted__)) return null
+    const tail = after[0]?.text
+    if (typeof tail !== 'string' || tail.length < 16 || after[0].kind !== undefined) return null
+
+    // A line window can start its cut inside a reply's text or after a complete reply.
+    let partial
+    const headFragment = /"text"\s*:\s*"((?:[^"\\]|\\.)*)$/.exec(head)
+    if (headFragment !== null) {
+      try { partial = JSON.parse(`${head}"}]}`).replies.at(-1) } catch { return null }
+    }
+    const first = partial ?? before.findLast(reply => reply?.kind === undefined && typeof reply?.botId === 'string' && typeof reply.text === 'string')
+    if (typeof first?.text !== 'string' || first.text.length < 16 || first.kind !== undefined) return null
+    // A surviving suffix does not prove which prompt owns a cut if an earlier matching start lost its ending.
+    const starts = records.filter(record => isLegacyReply(record) && record.botId === first.botId
+      && matchesOpening(record, first.text, partial !== undefined))
+    // A cut can start in an escape, so decoding the suffix can give it a different meaning.
+    const ends = records.filter(record => isKeptReply(record) && jsonText(record.text).endsWith(tailFragment[1])
+      && (after[0].botId === undefined || record.botId === after[0].botId))
+    if (starts.length !== 1 || ends.length !== 1 || ends[0].seq < starts[0].seq) return null
+    // Don't guess across a missing ledger row, a new prompt, or any other boundary.
+    const span = records.slice(records.indexOf(starts[0]), records.indexOf(ends[0]) + 1)
+    if (!span.every((record, i) => isKeptReply(record) && record.seq === starts[0].seq + i)) return null
+    // Count the saved JSON units: re-encoding half a surrogate pair would add an escape.
+    const hiddenText = span.reduce((length, record) => length + jsonText(record.text).length, 0)
+      - (headFragment?.[1].length ?? jsonText(first.text).length) - tailFragment[1].length
+    const omitted = Number(marker[1])
+    if (span.length === 1) {
+      // A cut inside one string hides no JSON structure, so the encoded length must match exactly.
+      if (partial === undefined || first.text.length + tail.length >= span[0].text.length || hiddenText !== omitted) return null
+    } else if (hiddenText >= omitted) return null
+    const missing = partial === undefined ? span.slice(1) : span
+    return [...before, ...missing.map(rowOf), ...after.slice(1)]
+  }
+
+  // Use only DS Bot's own pre-ledger records, never a file locator embedded in a result.
+  function groupRelayReplies(sessionId, preview) {
+    if (typeof sessionId !== 'string' || typeof preview !== 'string' || preview.length > 65_536) return null
+    const marker = REPLY_ELISION.exec(preview)
+    if (marker === null) return null
+    const room = rt.roomOf(sessionId) ?? rt.roomOf(rt.pastOwners.get(sessionId)?.roomId)
+    if (room === undefined) return null
+    // A room from before logs were versioned has no `seq` yet: open its book through the
+    // migration first, or the importer would cache an empty book for this process.
+    ensureRoomLog(room)
+    const book = rt.ledger.records(bookOf(room.id))
+    const anchor = book.findIndex(record => record.event === 'anchor')
+    const records = anchor === -1 ? book : book.slice(0, anchor)
+    // A unique match proves nothing when the original could have aged out of the legacy log.
+    if (records.some((record, i) => record.seq !== i + 1)
+      || (anchor === -1 ? records.length !== room.seq : book[anchor].from > records.length + 1)) return null
+    // The line codec keeps 260 and 100 raw units, even if the splice still parses as JSON.
+    if (marker.index === 260 && preview.length - marker.index - marker[0].length === 100) {
+      return restoreRelayWindow(preview, records, marker)
+    }
+    let replies
+    try { replies = JSON.parse(preview)?.replies } catch { /* a cut can break JSON syntax */ }
+    if (Array.isArray(replies) && replies.some(reply => typeof reply?.text === 'string' && REPLY_ELISION.test(reply.text))) {
+      const restored = restoreTrimmedReplies(replies, records)
+      if (restored !== null) return restored
+    }
+    return restoreRelayWindow(preview, records, marker)
+  }
   // A sequence of words over everything said in the group, newest first, with each
   // hit's neighbours. `page` (`before` or `offset`) reads the next older page.
   const groupSearch = (roomId, query, page) => searchGroupBook(rt.ledger.records(bookOf(roomId)), query, page)
 
   Object.assign(rt, {
-    keepGroupLine, dropGroupLines, groupRows, groupRowsView: rowsView, groupSearch,
+    keepGroupLine, dropGroupLines, groupRows, groupRowsView: rowsView, groupRelayReplies, groupSearch,
     logRoom: (room, line) => say(room, line),
     onRoomLine: (listener) => {
       roomLineListeners.add(listener)
@@ -820,16 +930,16 @@ export function install(rt) {
     return lines
   }
 
-  // Members whose turn or DSH subagent in this group is running, and since when.
+  // Members whose turn, DSH subagent, or background task in this group is running, and since when.
   const workingIn = room => room.members.flatMap((id) => {
     const sessionId = room.sessions?.[id]
     const entry = rt.live.get(sessionId)
     const bot = rt.botOf(id)
     if (bot === undefined) return []
     if (entry?.turn !== undefined) return [{ bot, since: entry.since ?? Date.now() }]
-    if (sessionId !== undefined && rt.hasSubagents?.(sessionId)) {
-      const subSince = rt.roomWorkView?.()?.[room.id]?.find(item => item.botId === id)?.since
-      return [{ bot, since: subSince ?? Date.now() }]
+    if ((sessionId !== undefined && rt.hasSubagents?.(sessionId)) || rt.hasRoomTasks?.(room.id, id) === true) {
+      const workSince = rt.roomWorkView?.()?.[room.id]?.find(item => item.botId === id)?.since
+      return [{ bot, since: workSince ?? Date.now() }]
     }
     return []
   })
@@ -859,12 +969,12 @@ export function install(rt) {
   const batchesOf = (roomId, botId) => Object.values(batches()).filter(batch => batch.roomId === roomId && batch.pending.includes(botId))
   const unpend = (batch, botId) => { batch.pending = batch.pending.filter(id => id !== botId) }
 
-  // At work in the group: a turn or subagent running, a call waiting in a round, or a
-  // message on its way to the member's group Session that no turn took up yet (a restart
-  // queues the pick-up before the turn starts).
+  // At work in the group: a turn, subagent, or group background task running, a call waiting
+  // in a round, or a message on its way to the member's group Session that no turn took up yet.
   const activeInRoom = (room, botId) => {
     const sessionId = room.sessions?.[botId]
     if (sessionId !== undefined && (rt.live.get(sessionId)?.turn !== undefined || rt.hasSubagents?.(sessionId) === true)) return true
+    if (rt.hasRoomTasks?.(room.id, botId) === true) return true
     if (sessionId !== undefined && (rt.unreadOf?.(sessionId)?.length ?? 0) > 0) return true
     return [...rt.roomProgress.values()].some(round => round.roomId === room.id
       && round.slots.some(slot => slot.id === botId && (slot.status === 'waiting' || slot.status === 'speaking')))
@@ -1018,14 +1128,20 @@ export function install(rt) {
   // checked: a step line says what is under way, not what came of it.
   // A Session's own folder is where it really writes, and it is only known from the
   // Session object (its header), never from its id.
-  const claimsOf = (session, text, worked, calledPeer = false) => session === undefined ? undefined : claimsFor({
-    text,
-    base: rt.sessionFolder?.(session),
-    worked,
-    subagents: rt.hasSubagents?.(session.id) === true,
-    runningJobs: rt.runningJobs?.(session.id)?.length ?? null,
-    calledPeer,
-  })
+  const claimsOf = (session, text, worked, calledPeer = false) => {
+    if (session === undefined) return undefined
+    const owner = rt.groupOwners.get(session.id)
+    const hasBg = rt.hasSubagents?.(session.id) === true
+      || (owner !== undefined && rt.hasRoomTasks?.(owner.roomId, owner.botId) === true)
+    return claimsFor({
+      text,
+      base: rt.sessionFolder?.(session),
+      worked,
+      subagents: hasBg,
+      runningJobs: rt.runningJobs?.(session.id)?.length ?? null,
+      calledPeer,
+    })
+  }
 
   // One member turn inside the room; resolves to its final text, `{ failure }` when its
   // model call failed, `{ missed }` when it went quiet for too long, `{ approval }` when
@@ -1095,8 +1211,8 @@ export function install(rt) {
       rt.roomWaiters.get(exchangeId)?.fail({ code: lost ? 'SESSION_RESET' : 'SESSION', message: String(error?.message ?? error).slice(0, 300) })
     }
     const reply = await done
-    // A turn that ended leaves nothing for a stop to cancel.
-    if ((typeof reply === 'string' || reply?.failure !== undefined) && !rt.hasSubagents?.(sessionId)) started.splice(started.indexOf(turn), 1)
+    // A turn that ended leaves nothing for a stop to cancel unless subagents or group tasks keep running.
+    if ((typeof reply === 'string' || reply?.failure !== undefined) && !rt.hasSubagents?.(sessionId) && !rt.hasRoomTasks?.(room.id, member.id)) started.splice(started.indexOf(turn), 1)
     if (reply === null || typeof reply === 'object') return reply
     return stripOwnName(member.name, String(reply ?? '').trim())
   }
@@ -1426,7 +1542,7 @@ export function install(rt) {
     const final = typeof reply === 'string' && !isPass(reply) ? reply : undefined
     // Tool-only turns can finish without assistant text; their changes still belong here.
     const changes = await rt.turnChanges?.(session.id)
-    const subRunning = rt.hasSubagents?.(session.id) === true
+    const bgRunning = rt.hasSubagents?.(session.id) === true || rt.hasRoomTasks?.(room.id, member.id) === true
     if (reply?.failure !== undefined) {
       // Not a pass: the user sees why the member is silent, and the round goes on.
       slot.status = 'failed'
@@ -1440,7 +1556,7 @@ export function install(rt) {
       slot.status = 'working'
       markSlotWorked(room.id, slot)
       say(room, { who: member.name, botId: member.id, kind: 'working' })
-    } else if (subRunning) {
+    } else if (bgRunning) {
       if (final !== undefined) {
         postInRound(room, member, final, Date.now() - startedAt, claimsOf(session, final, true), changes)
         callFrom(room, round, member, final, called, { worked: true, byBot: answeredBot })
@@ -1631,7 +1747,7 @@ export function install(rt) {
     // A user post has no botId and is no round event or kickoff; a goal draft counts
     // as the user's own line too.
     const userPost = post => post.botId === undefined && post.kickoff !== true && !event(post)
-    const stoppedOnly = posts.length > 0 && posts.every(item => event(item) && item.stopped === true)
+    const stoppedOnly = posts.length > 0 && posts.every(item => event(item) && item.stopped === true && item.askedBy === undefined)
     for (const post of posts.filter(item => !item.kickoff && !event(item) && item.logged === undefined)) {
       // Image readings go into the log only; `@` names are picked from what the user typed.
       // Images and files stay with their line and reach each member the line is shown to.
@@ -1846,13 +1962,15 @@ export function install(rt) {
       await rt.load()
       const id = exec.agent?.id
       const owner = rt.groupOwners.get(id)
-      const botId = owner?.botId ?? rt.chatOwners.get(id)
+      const taskOwner = rt.taskOwners?.get(id)
+      const botId = owner?.botId ?? taskOwner?.botId ?? rt.chatOwners.get(id)
       if (botId === undefined) return 'Only Bots on the team can use read_own_chat.'
       const member = rt.botOf(botId)
-      const room = rt.roomOf(owner?.roomId)
+      const room = rt.roomOf(owner?.roomId ?? taskOwner?.roomId)
       const query = String(args.query ?? '').trim().slice(0, 80)
       const around = String(args.around ?? '').trim().slice(0, 40)
-      const parts = rt.partsOfThread(botId, id)
+      const lookupSession = taskOwner?.roomId !== undefined ? rt.chatOf(botId) : id
+      const parts = rt.partsOfThread(botId, lookupSession)
       const number = Number.isInteger(args.part) ? args.part : undefined
       if (room !== undefined && member !== undefined) {
         const text = query !== '' ? query : around !== '' ? `around ${around}` : number !== undefined ? `part ${number}` : ''
@@ -1861,7 +1979,7 @@ export function install(rt) {
       }
       const partsNote = parts.length > 1 ? `\n\nYour own chat has ${parts.length} parts: ${rt.partIndex(parts)}. Call read_own_chat with part N for the note that closed an earlier part, or with words to search all parts.` : ''
       if (query === '' && around !== '') {
-        const found = await rt.aroundOwnChat(botId, around, id)
+        const found = await rt.aroundOwnChat(botId, around, lookupSession)
         if (found.error) return `${found.error}${partsNote}`
         if (found.lines.length === 0) return `Nothing was said around ${around}.${partsNote}`
         const heading = found.exact ? `around ${around}` : `with no message at ${around}; the nearest ones`
@@ -1874,10 +1992,10 @@ export function install(rt) {
         return `Part ${number} of your own chat (${rt.clock(part.startedAt)} – ${rt.clock(part.endedAt)}). The handoff note that closed it:\n${rt.noteText(part) ?? '(none: the part ended on a context overflow)'}${partsNote}`
       }
       if (query === '') {
-        const lines = await rt.latestOwnChat(botId, { askingId: id })
+        const lines = await rt.latestOwnChat(botId, { askingId: lookupSession })
         return lines.length === 0 ? `Your own chat is empty.${partsNote}` : `Your own chat (oldest first):\n${lines.join('\n')}${partsNote}`
       }
-      const { lines, every } = await rt.searchOwnChat(botId, query, { askingId: id })
+      const { lines, every } = await rt.searchOwnChat(botId, query, { askingId: lookupSession })
       if (lines.length === 0) return `Nothing in your own chat mentions "${query}".${partsNote}`
       const heading = every ? `messages mentioning "${query}"` : `no message has all of "${query}"; messages with the most of these words`
       return `Your own chat, ${heading} (oldest first):\n${lines.join('\n')}${partsNote}`
@@ -1960,7 +2078,7 @@ export function install(rt) {
   // round ends.
   function callPost(room, round, sender, text, extra) {
     if (extra.failed !== undefined && !extra.askedBy) return false
-    if (extra.resumed || extra.stopped) return false
+    if (extra.resumed || (extra.stopped && !extra.askedBy)) return false
     const post = { ...extra, botId: sender.id, name: sender.name, text }
     const everyone = room.members.map(rt.botOf).filter(Boolean)
     const named = (mentionsOf(post, everyone) ?? mentionsIn(text, everyone)).found
@@ -1992,7 +2110,7 @@ export function install(rt) {
   // once, and the members it calls start in that round, so it is not held back until
   // the round ends and never sits in the group Session's QueueDock (#663).
   async function postToRoom(room, sender, text, extra = {}, files = []) {
-    const noticeOnly = extra.resumed === true || extra.stopped === true || (extra.failed !== undefined && !extra.askedBy)
+    const noticeOnly = extra.resumed === true || (extra.stopped === true && !extra.askedBy) || (extra.failed !== undefined && !extra.askedBy)
     const running = [...rt.roomProgress.values()].find(round => round.roomId === room.id
       && (noticeOnly ? !round.starting : round.nudge !== undefined && !round.closed && !round.abort?.signal.aborted))
     if (running !== undefined) {
@@ -2032,13 +2150,14 @@ export function install(rt) {
     const member = rt.botOf(owner?.botId)
     if (room === undefined || member === undefined || !room.members.includes(member.id)) return
     const text = stripOwnName(member.name, reply)
-    // While a DSH subagent of this member is still running, the member's work is not
-    // finished yet: post any non-empty text as a progress line and keep its batch open.
-    if (rt.hasSubagents?.(sessionId) === true) {
+    // While a DSH subagent or group background task of this member is still running, the
+    // member's work is not finished yet: post any non-empty text as a progress line and
+    // keep its batch open until the background work reports back.
+    if (rt.hasSubagents?.(sessionId) === true || rt.hasRoomTasks?.(room.id, member.id) === true) {
       if (!isPass(text)) {
         const calls = callsIn(room, member, text)
         await postToRoom(room, member, text, { progress: true, ...(!calls ? { quiet: true } : {}) })
-          .catch(error => rt.warn('ds-bot: subagent progress from %s failed: %s', member.name, error))
+          .catch(error => rt.warn('ds-bot: background progress from %s failed: %s', member.name, error))
       }
       return
     }
@@ -2204,8 +2323,7 @@ export function install(rt) {
   }
 
   // The user stops a member's work in this group from the group's details, including
-  // any running DSH subagents it spawned (#701). Messages still waiting for that
-  // member here go with it.
+  // any running DSH subagents (#701) or group background tasks (#783) it spawned.
   async function stopMemberWork(roomId, botId) {
     await rt.load()
     const room = rt.roomOf(roomId)
@@ -2213,13 +2331,15 @@ export function install(rt) {
     const sessionId = rt.own(room?.sessions, botId)
     const turnRunning = sessionId !== undefined && rt.live.get(sessionId)?.turn !== undefined
     const subRunning = sessionId !== undefined && rt.hasSubagents?.(sessionId) === true
-    if (room === undefined || member === undefined || sessionId === undefined || (!turnRunning && !subRunning)) return false
-    dropMemberFromBatch(room, botId)
-    await rt.stopSubagents?.(sessionId)
-    if (turnRunning) {
+    const taskRunning = rt.hasRoomTasks?.(roomId, botId) === true
+    if (room === undefined || member === undefined || (!turnRunning && !subRunning && !taskRunning)) return false
+    if (sessionId !== undefined) await rt.stopSubagents?.(sessionId)
+    if (taskRunning) await rt.stopMemberRoomTasks?.(roomId, botId, 'stopped in group')
+    if (turnRunning && sessionId !== undefined) {
       const agent = await rt.resolveAgent(sessionId)
       agent.cancel({ kind: 'user' })
     }
+    dropMemberFromBatch(room, botId)
     rt.goalTaskReset?.(roomId, botId, 'Stopped by the user')
     rt.blockTasks?.(roomId, botId, { cause: 'stopped' })
     await postToRoom(room, member, '', { quiet: true, stopped: true })
@@ -2257,6 +2377,26 @@ export function install(rt) {
   Object.assign(rt, {
     workingInRoom: workingIn,
     roomBatchPending: roomId => Object.values(batches()).some(batch => batch.roomId === roomId && batch.pending.length > 0),
+    reconcileStoppedRoomTask: async (roomId, botId) => {
+      const room = rt.roomOf(roomId)
+      const member = rt.botOf(botId)
+      if (room === undefined || member === undefined || activeInRoom(room, botId)) return
+      const owed = batchesOf(room.id, botId)
+      if (owed.length === 0) {
+        void rt.goalSettled?.(room).catch(error => rt.warn('ds-bot: goal settle in %s failed: %s', room.name, error))
+        return
+      }
+      for (const batch of owed) leaveBatch(room, batch, botId, { keep: true })
+      const woken = owed.find(batch => batch.pending.length === 0 && batch.done.length > 0 && !batch.answered && room.members.includes(batch.by))
+      for (const batch of owed) if (batch !== woken) closeBatch(batch.key)
+      if (woken !== undefined) {
+        await postToRoom(room, member, '', { late: true, stopped: true, askedBy: woken.by, batch: woken.key, batchEnd: true })
+          .catch((error) => {
+            closeBatch(woken.key)
+            rt.warn('ds-bot: waking group batch after stopped task failed: %s', error)
+          })
+      }
+    },
   })
 
   // The round said such a member posts when done; a failed model call is how it ended.

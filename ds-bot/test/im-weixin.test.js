@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { createCipheriv } from 'node:crypto'
 import { createServer } from 'node:http'
 import { test } from 'node:test'
 import weixin from '../src/host/im/platforms/weixin.js'
@@ -8,6 +9,7 @@ import weixin from '../src/host/im/platforms/weixin.js'
 async function fakeIlink() {
   const calls = []
   const replies = {}
+  const media = {}
   let updates = []
   const state = { notified: false }
   // A client that went away before the held long poll answered, and one promise
@@ -15,6 +17,12 @@ async function fakeIlink() {
   const aborted = []
   const held = []
   const http = createServer((req, res) => {
+    if (req.method === 'GET' && media[req.url] !== undefined) {
+      const entry = media[req.url]
+      res.writeHead(entry.status ?? 200, entry.headers ?? { 'content-type': 'application/octet-stream' })
+      res.end(entry.body ?? Buffer.alloc(0))
+      return
+    }
     let body = ''
     req.on('data', chunk => { body += chunk })
     req.on('end', () => {
@@ -36,7 +44,7 @@ async function fakeIlink() {
         return
       }
       if (req.url === '/ilink/bot/msg/notifystart') {
-        const scripted = replies.notifystartQueue?.shift() ?? { ret: 0 }
+        const scripted = typeof replies.notifystart === 'function' ? replies.notifystart() : (replies.notifystartQueue?.shift() ?? { ret: 0 })
         const status = scripted.http ?? 200
         if (status === 200) state.notified = true
         res.writeHead(status, { 'content-type': 'application/json' })
@@ -67,14 +75,15 @@ async function fakeIlink() {
         res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify(answer))
         return
       }
-      const answer = replies[req.url] ?? { ret: 0 }
+      let answer = replies[req.url] ?? { ret: 0 }
+      if (typeof answer === 'function') answer = answer(params)
       res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify(answer))
     })
   })
   await new Promise(resolve => http.listen(0, '127.0.0.1', resolve))
   return {
     base: `http://127.0.0.1:${http.address().port}/`,
-    calls, replies, state, aborted, held,
+    calls, replies, media, state, aborted, held,
     queue: items => { updates = items },
     close: () => { http.closeAllConnections?.(); http.close() },
   }
@@ -83,7 +92,7 @@ async function fakeIlink() {
 const env = (fake, runtime = {}) => ({
   fetch: globalThis.fetch,
   WebSocket: globalThis.WebSocket,
-  config: { api: fake.base, qr: fake.base },
+  config: { api: fake.base, qr: fake.base, cdn: `${fake.base}cdn`, startRetryDelaysMs: [10, 10, 10] },
   runtime: { get: () => runtime, set: patch => Object.assign(runtime, patch) },
   log: { warn: (...args) => console.error('[im-weixin]', ...args) },
 })
@@ -157,13 +166,71 @@ test('send goes through sendmessage with the stored context_token, chunked at th
   const handle = weixin.connect(FIELDS, env(fake, runtime), { onMessage: () => {}, onAction: () => {}, onStatus: () => {} })
   t.after(() => { handle.stop(); fake.close() })
   await until(() => fake.calls.some(call => call.path === '/ilink/bot/getupdates'))
-  const { messageId } = await handle.send({ key: 'u1', kind: 'direct' }, { text: 'x'.repeat(4000) })
+  const { messageId, ids, parts } = await handle.send({ key: 'u1', kind: 'direct' }, { text: 'x'.repeat(4000) })
   const sends = fake.calls.filter(call => call.path === '/ilink/bot/sendmessage')
   assert.ok(sends.length >= 2, 'chunked at the limit')
   assert.equal(sends[0].params.msg.to_user_id, 'u1')
   assert.equal(sends[0].params.msg.context_token, 'tok-u1')
   assert.equal(sends[0].params.msg.item_list[0].type, 1)
   assert.ok(messageId.startsWith('ds-bot-'))
+  // Each chunk is its own WeChat message: it keeps its own ids and its own text,
+  // so quoting a later chunk must not resolve to the start of the reply.
+  assert.equal(parts.length, sends.length, 'one entry per chunk')
+  assert.equal(parts.map(part => part.text).join(''), 'x'.repeat(4000))
+  assert.equal(new Set(parts.map(part => part.ids[0])).size, sends.length, 'each chunk keeps its own id')
+  for (const part of parts) assert.ok(part.ids[0].startsWith('ds-bot-'))
+  assert.equal(ids.length, sends.length)
+})
+
+test('a quoted reply carries the ids in protocol order and the text the platform kept', async (t) => {
+  const fake = await fakeIlink()
+  const messages = []
+  fake.replies.updates = {
+    ret: 0, get_updates_buf: 'c1',
+    msgs: [
+      {
+        from_user_id: 'u1', client_id: 'm1', context_token: 'tok-u1',
+        // iLink has sent this id as a number and as a string.
+        referenced_msg_id: 7505,
+        item_list: [
+          { type: 1, text_item: { text: '按这个走' } },
+          { type: 3, ref_msg: { msg_id: '7505', referenced_msg_id: '7505', message_item: { msg_id: '7505', text_item: { text: '项目 A 的报价改好了' } } } },
+        ],
+      },
+      {
+        from_user_id: 'u1', client_id: 'm2', context_token: 'tok-u1',
+        item_list: [
+          { type: 1, text_item: { text: '这条呢' } },
+          { type: 3, ref_msg: { msg_id: 'a-1', referenced_msg_id: 'a-2', message_item: { msg_id: 'a-3', text_item: { text: '另一条' } } } },
+        ],
+      },
+      { from_user_id: 'u1', client_id: 'm3', context_token: 'tok-u1', item_list: [{ type: 1, text_item: { text: '普通消息' } }] },
+      // iLink writes 0 in the field when the message quotes nothing.
+      { from_user_id: 'u1', client_id: 'm4', context_token: 'tok-u1', referenced_msg_id: 0, item_list: [{ type: 1, text_item: { text: '也没有引用' } }] },
+    ],
+  }
+  const handle = weixin.connect(FIELDS, env(fake, {}), { onMessage: async msg => { messages.push(msg) }, onAction: () => {}, onStatus: () => {} })
+  t.after(() => { handle.stop(); fake.close() })
+  await until(() => messages.length === 4)
+  assert.deepEqual(messages[0].quote, { ids: ['7505'], text: '项目 A 的报价改好了' })
+  // The message itself first, then the aliases the same payload repeats.
+  assert.deepEqual(messages[1].quote, { ids: ['a-3', 'a-1', 'a-2'], text: '另一条' })
+  assert.equal(messages[2].quote, undefined)
+  assert.equal(messages[3].quote, undefined, 'a zero id is not a quote')
+})
+
+test('send keeps every id the platform names, so a quoted reply can name the message', async (t) => {
+  const fake = await fakeIlink()
+  const runtime = { cursor: 'c1', contextTokens: { u1: 'tok-u1' } }
+  fake.replies.updates = { ret: 0, msgs: [], get_updates_buf: 'c1' }
+  fake.replies['/ilink/bot/sendmessage'] = { ret: 0, message_id: 'p-0', msg: { msg_id: 'p-1', item_list: [{ msg_id: 'p-2' }] } }
+  const handle = weixin.connect(FIELDS, env(fake, runtime), { onMessage: () => {}, onAction: () => {}, onStatus: () => {} })
+  t.after(() => { handle.stop(); fake.close() })
+  await until(() => fake.calls.some(call => call.path === '/ilink/bot/getupdates'))
+  const sent = await handle.send({ key: 'u1', kind: 'direct' }, { text: 'done' })
+  assert.match(sent.messageId, /^ds-bot-/)
+  assert.match(sent.ids[0], /^ds-bot-/, 'the local client id is the fallback')
+  assert.deepEqual(sent.ids.slice(1), ['p-0', 'p-1', 'p-2'])
 })
 
 test('a refused send is permanent, and the auth header carries the token', async (t) => {
@@ -177,6 +244,32 @@ test('a refused send is permanent, and the auth header carries the token', async
   await assert.rejects(() => handle.send({ key: 'u1', kind: 'direct' }, { text: 'late' }),
     error => error.permanent === true && /window/.test(error.message))
   assert.equal(fake.calls[0].auth, 'Bearer wx-tok')
+})
+
+test('a failed later chunk returns the accepted chunks on the error', async (t) => {
+  const fake = await fakeIlink()
+  const runtime = { cursor: 'c1', contextTokens: { u1: 'tok-u1' } }
+  fake.replies.updates = { ret: 0, msgs: [], get_updates_buf: 'c1' }
+  let sendCount = 0
+  fake.replies['/ilink/bot/sendmessage'] = () => {
+    sendCount += 1
+    if (sendCount === 1) return { ret: 0, message_id: 'accepted-first' }
+    return { ret: -2, errmsg: 'quota exhausted' }
+  }
+  const handle = weixin.connect(FIELDS, env(fake, runtime), { onMessage: () => {}, onAction: () => {}, onStatus: () => {} })
+  t.after(() => { handle.stop(); fake.close() })
+  await until(() => fake.calls.some(call => call.path === '/ilink/bot/getupdates'))
+  await assert.rejects(
+    () => handle.send({ key: 'u1', kind: 'direct' }, { text: 'A'.repeat(1800) + 'B'.repeat(1800) }),
+    error => {
+      assert.equal(error.permanent, true)
+      assert.ok(Array.isArray(error.parts), 'the error carries accepted parts')
+      assert.equal(error.parts.length, 1, 'only the accepted chunk is returned')
+      assert.ok(error.parts[0].ids.some(id => id === 'accepted-first'), 'the accepted chunk keeps its platform id')
+      assert.equal(error.parts[0].text, 'A'.repeat(1800))
+      return true
+    },
+  )
 })
 
 // The client identity iLink expects: app id "bot", client version 2.4.6 packed
@@ -234,17 +327,20 @@ test('a transient session start failure is retried before polling', async (t) =>
 
 test('a session start that keeps failing is shown once and still retried until it works', async (t) => {
   const fake = await fakeIlink()
-  fake.replies.notifystartQueue = [{ http: 500 }, { http: 500 }, { http: 500 }, { http: 500 }, { http: 500 }, { ret: 0 }]
+  let allowStart = false
+  fake.replies.notifystart = () => (allowStart ? { ret: 0 } : { http: 500 })
   const { env: watched, statuses, warns } = tracked(fake)
   const handle = weixin.connect(FIELDS, watched, { onMessage: () => {}, onAction: () => {}, onStatus: next => statuses.push(next) })
   t.after(() => { handle.stop(); fake.close() })
   await until(() => statuses.some(status => status.state === 'error'), 200)
+  await until(() => fake.calls.filter(call => call.path === '/ilink/bot/msg/notifystart').length >= 5, 200)
   const failed = statuses.find(status => status.state === 'error')
   assert.ok(failed, 'the connection reports the failure')
   assert.equal(fake.calls.filter(call => call.path === '/ilink/bot/getupdates').length, 0, 'no poll before the session starts')
+  allowStart = true
   await until(() => statuses.some(status => status.state === 'ready'), 400)
   assert.ok(statuses.some(status => status.state === 'ready'), 'the session started once the network came back')
-  assert.equal(fake.calls.filter(call => call.path === '/ilink/bot/msg/notifystart').length, 6)
+  assert.ok(fake.calls.filter(call => call.path === '/ilink/bot/msg/notifystart').length >= 6)
   assert.ok(fake.calls.some(call => call.path === '/ilink/bot/getupdates'), 'polling starts after the session')
   assert.equal(statuses.filter(status => status.state === 'error').length, 1, 'the failure is shown once')
   assert.equal(warns.filter(line => /could not start the session/.test(line)).length, 1)
@@ -437,4 +533,92 @@ test('stop ends an in-flight getupdates long poll instead of leaving it open', a
   ])
   assert.equal(ended, true, 'the long poll must be ended by stop, not by its 50 s timeout')
   assert.deepEqual(fake.aborted, ['/ilink/bot/getupdates'])
+})
+
+test('inbound images and files decrypt via full_url or encrypt_query_param and detect real PNG MIME type', async (t) => {
+  const fake = await fakeIlink()
+  const keyHex = '00112233445566778899aabbccddeeff'
+  const keyBuf = Buffer.from(keyHex, 'hex')
+  const encrypt = (plain) => {
+    const cipher = createCipheriv('aes-128-ecb', keyBuf, null)
+    return Buffer.concat([cipher.update(plain), cipher.final()])
+  }
+  const pngBytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0xaa, 0xbb])
+  const webpBytes = Buffer.from([0x52, 0x49, 0x46, 0x46, 0x00, 0x00, 0x00, 0x00, 0x57, 0x45, 0x42, 0x50])
+  const fileBytes = Buffer.from('hello from weixin file')
+  fake.media['/img-png'] = { body: encrypt(pngBytes) }
+  fake.media['/cdn/download?encrypted_query_param=qp-webp'] = { body: encrypt(webpBytes) }
+  fake.media['/file-1'] = { body: encrypt(fileBytes) }
+  fake.replies.updates = (params) => {
+    if (params.get_updates_buf === 'c1') return { ret: 0, msgs: [], get_updates_buf: 'c1' }
+    return {
+      ret: 0,
+      get_updates_buf: 'c1',
+      msgs: [
+        {
+          from_user_id: 'u1',
+          client_id: 'm-media',
+          context_token: 'tok-u1',
+          item_list: [
+            { type: 2, image_item: { media: { full_url: `${fake.base}img-png`, aes_key: Buffer.from(keyHex, 'utf8').toString('base64') } } },
+            { type: 2, image_item: { aeskey: keyHex, media: { encrypt_query_param: 'qp-webp' } } },
+            { type: 4, file_item: { file_name: 'brief.txt', media: { full_url: `${fake.base}file-1`, aes_key: keyBuf.toString('base64') } } },
+          ],
+        },
+      ],
+    }
+  }
+  const messages = []
+  const handle = weixin.connect(FIELDS, env(fake, {}), { onMessage: async msg => { messages.push(msg) }, onAction: () => {}, onStatus: () => {} })
+  t.after(() => { handle.stop(); fake.close() })
+  await until(() => messages.length === 1)
+  assert.equal(messages[0].images.length, 2)
+  assert.equal(messages[0].images[0].mediaType, 'image/png')
+  assert.equal(messages[0].images[0].data, pngBytes.toString('base64'))
+  assert.equal(messages[0].images[1].mediaType, 'image/webp')
+  assert.equal(messages[0].images[1].data, webpBytes.toString('base64'))
+  assert.equal(messages[0].files.length, 1)
+  assert.equal(messages[0].files[0].name, 'brief.txt')
+  assert.deepEqual(messages[0].files[0].data, fileBytes)
+})
+
+test('weixin skips encrypted media with missing or corrupt key instead of passing raw ciphertext', async (t) => {
+  const fake = await fakeIlink()
+  const keyHex = '00112233445566778899aabbccddeeff'
+  const keyBuf = Buffer.from(keyHex, 'hex')
+  const pngBytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x01, 0x02])
+  const cipher = createCipheriv('aes-128-ecb', keyBuf, null)
+  const encPng = Buffer.concat([cipher.update(pngBytes), cipher.final()])
+  fake.media['/cdn/download?encrypted_query_param=no-key'] = { body: encPng }
+  fake.media['/cdn/download?encrypted_query_param=fallback-ok'] = { body: encPng }
+  fake.replies.updates = (params) => {
+    if (params.get_updates_buf === 'c1') return { ret: 0, msgs: [], get_updates_buf: 'c1' }
+    return {
+      ret: 0,
+      get_updates_buf: 'c1',
+      msgs: [{
+        from_user_id: 'u1',
+        client_id: 'm-bad-key',
+        context_token: 'tok-u1',
+        item_list: [
+          { type: 1, text_item: { text: '保留这段文字' } },
+          // Encrypted CDN without any key must be skipped, never returned as ciphertext.
+          { type: 2, image_item: { media: { encrypt_query_param: 'no-key' } } },
+          // Corrupt media.aes_key falls back to valid image_item.aeskey.
+          { type: 2, image_item: { aeskey: keyHex, media: { encrypt_query_param: 'fallback-ok', aes_key: 'not!valid!base64!' } } },
+        ],
+      }],
+    }
+  }
+  const messages = []
+  const { env: watched, warns } = tracked(fake, {})
+  const handle = weixin.connect(FIELDS, watched, { onMessage: async msg => { messages.push(msg) }, onAction: () => {}, onStatus: () => {} })
+  t.after(() => { handle.stop(); fake.close() })
+  await until(() => messages.length === 1)
+  assert.equal(messages[0].text, '保留这段文字')
+  assert.equal(messages[0].images.length, 1, 'missing-key ciphertext skipped, fallback-key PNG decrypted')
+  assert.equal(messages[0].images[0].mediaType, 'image/png')
+  assert.equal(messages[0].images[0].data, pngBytes.toString('base64'))
+  assert.equal(messages[0].files.length, 0)
+  assert.ok(warns.some(line => /missing valid AES key/.test(line)))
 })
