@@ -96,191 +96,69 @@ const findInlineCodeClose = (text, start, ticks) => {
   return -1
 }
 
-// Strips leading blockquote markers (`> `) and returns the remaining content + depth.
-const stripBlockquotePrefix = (line) => {
-  let rest = line
-  let depth = 0
-  for (;;) {
-    const match = /^[ ]{0,3}>[ ]?/.exec(rest)
-    if (!match) break
-    depth += 1
-    rest = rest.slice(match[0].length)
+const mapBlockOffset = (segments, bufStarts, pos) => {
+  let lo = 0
+  let hi = segments.length - 1
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1
+    if (bufStarts[mid] <= pos) lo = mid
+    else hi = mid - 1
   }
-  return { depth, rest }
+  return segments[lo].start + (pos - bufStarts[lo])
 }
 
-const measureIndent = (str, startCol = 0) => {
-  let cols = startCol
-  let idx = 0
-  while (idx < str.length) {
-    if (str[idx] === ' ') { cols += 1; idx += 1 }
-    else if (str[idx] === '\t') { cols += 4 - (cols % 4); idx += 1 }
-    else break
-  }
-  return { cols: cols - startCol, idx }
-}
-
-const stripLeadingColumns = (str, maxCols) => {
-  let cols = 0
-  let idx = 0
-  while (idx < str.length && cols < maxCols) {
-    if (str[idx] === ' ') { cols += 1; idx += 1 }
-    else if (str[idx] === '\t') {
-      const next = cols + (4 - (cols % 4))
-      if (next > maxCols) return ' '.repeat(next - maxCols) + str.slice(idx + 1)
-      cols = next
-      idx += 1
-    } else break
-  }
-  return str.slice(idx)
-}
-
-const isThematicBreak = (str) => /^[ ]{0,3}(?:(?:-[ \t]*){3,}|(?:\*[ \t]*){3,}|(?:_[ \t]*){3,})$/.test(str)
-
-const LIST_MARKER = /^([-+*]|\d{1,9}[.)])(?:([ \t]+)(.*)|$)/
-
-const isBlockInterrupt = (str) => (
-  /^[ ]{0,3}#{1,6}(?:[ \t]|$)/.test(str)
-  || isThematicBreak(str)
-  || /^[ ]{0,3}(?:`{3,}|~{3,})/.test(str)
-  || /^[ ]{0,3}(?:[-+*]|\d{1,9}[.)])(?:[ \t]|$)/.test(str)
-)
-
-// Walks Markdown skipping fenced code blocks (``` / ~~~, including CRLF,
-// blockquote-prefixed, and list-nested fences), 4-space/tab indented code
-// blocks (relative to enclosing list containers), and inline code spans
-// (`...`), returning all local `![alt](target)` references.
-export function extractLocalMarkdownImages(markdown) {
-  const text = String(markdown ?? '')
-  const links = []
-  let i = 0
-  let fence = null
-  const listStack = []
-  let atLineStart = true
-  let prevBlank = true
-  let inIndentedCode = false
-  while (i < text.length) {
-    if (atLineStart) {
-      const lineEnd = text.indexOf('\n', i)
-      const end = lineEnd === -1 ? text.length : lineEnd
-      const line = text.slice(i, end).replace(/\r$/, '')
-      const nextLine = lineEnd === -1 ? text.length : lineEnd + 1
-      const { depth: quoteDepth, rest } = stripBlockquotePrefix(line)
-      const isBlank = /^[ \t]*$/.test(rest)
-      const { cols: lineCols } = measureIndent(rest)
-      if (fence !== null) {
-        if (quoteDepth < fence.quoteDepth || (!isBlank && quoteDepth === fence.quoteDepth && lineCols < fence.listIndent)) {
-          // Enclosing blockquote or list container ended before an explicit closing fence.
-          fence = null
-        } else {
-          if (quoteDepth === fence.quoteDepth) {
-            const afterList = stripLeadingColumns(rest, fence.listIndent)
-            const close = new RegExp(`^[ ]{0,3}${fence.ch}{${fence.len},}[ \\t]*$`)
-            if (close.test(afterList)) fence = null
-          }
-          i = nextLine
-          prevBlank = false
-          inIndentedCode = false
-          continue
-        }
-      }
-      while (listStack.length > 0 && listStack.at(-1).quoteDepth > quoteDepth) listStack.pop()
-      if (isBlank) {
-        prevBlank = true
-        i = nextLine
-        continue
-      }
-      let landedIndent = 0
-      for (let k = listStack.length - 1; k >= 0; k -= 1) {
-        if (listStack[k].quoteDepth === quoteDepth && listStack[k].indent <= lineCols) {
-          landedIndent = listStack[k].indent
-          break
-        }
-      }
-      if (prevBlank || inIndentedCode || isBlockInterrupt(stripLeadingColumns(rest, landedIndent))) {
-        while (listStack.length > 0 && listStack.at(-1).quoteDepth === quoteDepth && listStack.at(-1).indent > lineCols) {
-          listStack.pop()
-        }
-      }
-      let baseIndent = listStack.length > 0 && listStack.at(-1).quoteDepth === quoteDepth
-        ? listStack.at(-1).indent
-        : 0
-      const lazyContinuation = lineCols < baseIndent
-      let afterBase = stripLeadingColumns(rest, baseIndent)
-      let rel = measureIndent(afterBase, baseIndent)
-      if (!lazyContinuation && rel.cols >= 4 && (prevBlank || inIndentedCode)) {
-        inIndentedCode = true
-        prevBlank = false
-        i = nextLine
-        continue
-      }
-      inIndentedCode = false
-      if (!lazyContinuation) {
-        let markerIndentedCode = false
-        while (rel.cols <= 3 && !isThematicBreak(afterBase)) {
-          const marker = LIST_MARKER.exec(afterBase.slice(rel.idx))
-          if (!marker) break
-          const markerLen = marker[1].length
-          const ws = marker[2] ?? ''
-          const body = marker[3] ?? ''
-          const afterMarkerCol = baseIndent + rel.cols + markerLen
-          const wsCols = ws ? measureIndent(ws, afterMarkerCol).cols : 0
-          // CommonMark §5.2: blank first line or >=5 spaces after marker yields padding=1.
-          const padding = (body === '' || wsCols >= 5) ? 1 : wsCols
-          baseIndent = afterMarkerCol + padding
-          listStack.push({ quoteDepth, indent: baseIndent })
-          if (body !== '' && wsCols >= 5) {
-            markerIndentedCode = true
-            break
-          }
-          afterBase = body
-          rel = measureIndent(afterBase, baseIndent)
-        }
-        if (markerIndentedCode) {
-          inIndentedCode = true
-          prevBlank = false
-          i = nextLine
-          continue
-        }
-        const match = /^[ ]{0,3}(`{3,}|~{3,})(.*)$/.exec(afterBase)
-        // CommonMark: backtick fence info strings cannot contain backticks, so a
-        // line like ```` ```code``` ![a](./a.png) ```` is an inline code span, not a fence.
-        if (match && (match[1][0] === '~' || !match[2].includes('`'))) {
-          fence = { ch: match[1][0], len: match[1].length, quoteDepth, listIndent: baseIndent }
-          prevBlank = false
-          i = nextLine
-          continue
-        }
-      }
-      prevBlank = false
-      atLineStart = false
+// Scans a single inline-bearing block (one paragraph or one ATX heading) so
+// unclosed inline backticks never swallow images across blank lines or block boundaries.
+const scanInlineBlock = (text, segments, links) => {
+  if (segments.length === 0) return
+  let buf
+  let bufStarts = null
+  if (segments.length === 1) {
+    buf = text.slice(segments[0].start, segments[0].end)
+  } else {
+    bufStarts = []
+    const parts = []
+    let offset = 0
+    for (let s = 0; s < segments.length; s += 1) {
+      bufStarts.push(offset)
+      const slice = text.slice(segments[s].start, segments[s].end)
+      parts.push(slice)
+      offset += slice.length + 1
     }
-    const ch = text[i]
-    if (ch === '\n') { atLineStart = true; i += 1; continue }
-    if (ch === '\\' && i + 1 < text.length) { i += 2; continue }
+    buf = parts.join('\n')
+  }
+  if (buf.length === 0) return
+  const toOrig = (pos) => (bufStarts === null ? segments[0].start + pos : mapBlockOffset(segments, bufStarts, pos))
+
+  let i = 0
+  while (i < buf.length) {
+    const ch = buf[i]
+    if (ch === '\\' && i + 1 < buf.length) { i += 2; continue }
     if (ch === '`') {
       let ticks = 0
-      while (i + ticks < text.length && text[i + ticks] === '`') ticks += 1
-      const close = findInlineCodeClose(text, i + ticks, ticks)
+      while (i + ticks < buf.length && buf[i + ticks] === '`') ticks += 1
+      const close = findInlineCodeClose(buf, i + ticks, ticks)
       if (close === -1) { i += ticks; continue }
       i = close
       continue
     }
-    if (ch === '!' && text[i + 1] === '[') {
+    if (ch === '!' && buf[i + 1] === '[') {
       let j = i + 2
       let brackets = 1
-      while (j < text.length && brackets > 0 && text[j] !== '\n' && text[j] !== '\r') {
-        if (text[j] === '\\' && j + 1 < text.length) { j += 2; continue }
-        if (text[j] === '[') brackets += 1
-        else if (text[j] === ']') brackets -= 1
+      while (j < buf.length && brackets > 0 && buf[j] !== '\n' && buf[j] !== '\r') {
+        if (buf[j] === '\\' && j + 1 < buf.length) { j += 2; continue }
+        if (buf[j] === '[') brackets += 1
+        else if (buf[j] === ']') brackets -= 1
         j += 1
       }
-      if (brackets === 0 && text[j] === '(') {
-        const alt = text.slice(i + 2, j - 1)
-        const parsed = parseDestination(text, j)
+      if (brackets === 0 && buf[j] === '(') {
+        const alt = buf.slice(i + 2, j - 1)
+        const parsed = parseDestination(buf, j)
         if (parsed !== undefined) {
           if (!isRemoteTarget(parsed.path)) {
-            links.push({ start: i, end: parsed.end, raw: text.slice(i, parsed.end), alt: alt.trim(), path: parsed.path })
+            const start = toOrig(i)
+            const end = toOrig(parsed.end - 1) + 1
+            links.push({ start, end, raw: text.slice(start, end), alt: alt.trim(), path: parsed.path })
           }
           i = parsed.end
           continue
@@ -289,6 +167,292 @@ export function extractLocalMarkdownImages(markdown) {
     }
     i += 1
   }
+}
+
+const measureIndent = (line, idx, col, vsp) => {
+  let c = col + vsp
+  let p = idx
+  while (p < line.length) {
+    if (line[p] === ' ') { c += 1; p += 1 }
+    else if (line[p] === '\t') { c += 4 - (c % 4); p += 1 }
+    else break
+  }
+  return { cols: c - col, idx: p, col: c }
+}
+
+const advanceColumns = (line, idx, col, vsp, count) => {
+  let need = count
+  let c = col
+  let p = idx
+  let v = vsp
+  if (v > 0) {
+    const take = Math.min(v, need)
+    v -= take
+    c += take
+    need -= take
+  }
+  while (need > 0 && p < line.length) {
+    if (line[p] === ' ') {
+      c += 1
+      p += 1
+      need -= 1
+    } else if (line[p] === '\t') {
+      const width = 4 - (c % 4)
+      if (width > need) {
+        c += need
+        v = width - need
+        p += 1
+        need = 0
+      } else {
+        c += width
+        p += 1
+        need -= width
+      }
+    } else {
+      break
+    }
+  }
+  return { idx: p, col: c, vsp: v }
+}
+
+const consumeBlockquote = (line, idx, col, vsp) => {
+  const ind = measureIndent(line, idx, col, vsp)
+  if (ind.cols > 3 || line[ind.idx] !== '>') return null
+  const afterIdx = ind.idx + 1
+  const afterCol = ind.col + 1
+  if (line[afterIdx] === ' ' || line[afterIdx] === '\t') {
+    return advanceColumns(line, afterIdx, afterCol, 0, 1)
+  }
+  return { idx: afterIdx, col: afterCol, vsp: 0 }
+}
+
+const isThematicBreak = (trimmed) => /^(?:(?:-[ \t]*){3,}|(?:\*[ \t]*){3,}|(?:_[ \t]*){3,})$/.test(trimmed)
+
+const LIST_MARKER = /^([-+*]|\d{1,9}[.)])(?=[ \t]|$)/
+const SETEXT_UNDERLINE = /^(?:=+|-+)[ \t]*$/
+const ATX_HEADING = /^#{1,6}(?:[ \t]+|$)/
+
+// Walks Markdown using CommonMark Phase 1 container/leaf tracking (fenced code
+// blocks, indented code blocks, nested blockquotes and list items, Setext/ATX
+// headings) and runs Phase 2 inline scanning per leaf block so unclosed code
+// spans cannot cross paragraph or block boundaries.
+export function extractLocalMarkdownImages(markdown) {
+  const text = String(markdown ?? '')
+  const links = []
+  const containers = []
+  let fence = null
+  let leaf = 'none'
+  let currentBlock = []
+
+  const flushBlock = () => {
+    if (currentBlock.length === 0) return
+    scanInlineBlock(text, currentBlock, links)
+    currentBlock = []
+  }
+
+  let lineStart = 0
+  while (lineStart < text.length) {
+    const nl = text.indexOf('\n', lineStart)
+    const rawEnd = nl === -1 ? text.length : nl
+    const lineEnd = rawEnd > lineStart && text[rawEnd - 1] === '\r' ? rawEnd - 1 : rawEnd
+    const line = text.slice(lineStart, lineEnd)
+    const nextLine = nl === -1 ? text.length : nl + 1
+
+    // Phase 1, step 1: match open containers left-to-right.
+    let cursor = { idx: 0, col: 0, vsp: 0 }
+    let matched = 0
+    for (let k = 0; k < containers.length; k += 1) {
+      const container = containers[k]
+      const ind = measureIndent(line, cursor.idx, cursor.col, cursor.vsp)
+      const restBlank = ind.idx >= line.length
+      if (container.type === 'blockquote') {
+        if (restBlank) break
+        const next = consumeBlockquote(line, cursor.idx, cursor.col, cursor.vsp)
+        if (next === null) break
+        cursor = next
+        matched += 1
+      } else if (restBlank) {
+        // CommonMark §5.2: a list item can begin with at most one blank line.
+        if (container.justOpenedBlank) break
+        matched += 1
+      } else if (ind.cols >= container.indent) {
+        cursor = advanceColumns(line, cursor.idx, cursor.col, cursor.vsp, container.indent)
+        matched += 1
+      } else {
+        break
+      }
+    }
+
+    // Phase 1, step 2: handle an active fenced code block.
+    if (fence !== null) {
+      if (matched < fence.containerDepth) {
+        fence = null
+        containers.length = matched
+        leaf = 'none'
+      } else {
+        const ind = measureIndent(line, cursor.idx, cursor.col, cursor.vsp)
+        if (ind.cols <= 3) {
+          const close = new RegExp(`^${fence.ch}{${fence.len},}[ \\t]*$`)
+          if (close.test(line.slice(ind.idx))) {
+            fence = null
+            leaf = 'none'
+          }
+        }
+        lineStart = nextLine
+        continue
+      }
+    }
+
+    const firstInd = measureIndent(line, cursor.idx, cursor.col, cursor.vsp)
+    if (firstInd.idx >= line.length) {
+      flushBlock()
+      containers.length = matched
+      leaf = 'none'
+      lineStart = nextLine
+      continue
+    }
+
+    let allMatched = matched === containers.length
+    if (!allMatched && leaf !== 'paragraph') {
+      containers.length = matched
+      allMatched = true
+      leaf = 'none'
+    }
+
+    for (let k = 0; k < matched; k += 1) {
+      if (containers[k].type === 'list') containers[k].justOpenedBlank = false
+    }
+
+    const closeUnmatched = () => {
+      if (!allMatched) {
+        flushBlock()
+        containers.length = matched
+        allMatched = true
+        leaf = 'none'
+      }
+    }
+
+    // Phase 1, step 3: open any new containers or leaf blocks on this line.
+    let consumedLine = false
+    for (;;) {
+      const ind = measureIndent(line, cursor.idx, cursor.col, cursor.vsp)
+      if (ind.idx >= line.length) {
+        leaf = 'none'
+        consumedLine = true
+        break
+      }
+
+      if (ind.cols >= 4) {
+        if (leaf !== 'paragraph') {
+          leaf = 'indentedCode'
+          consumedLine = true
+        }
+        break
+      }
+
+      const trimmed = line.slice(ind.idx)
+
+      if (trimmed[0] === '>') {
+        flushBlock()
+        closeUnmatched()
+        leaf = 'none'
+        containers.push({ type: 'blockquote' })
+        matched = containers.length
+        cursor = consumeBlockquote(line, cursor.idx, cursor.col, cursor.vsp)
+        continue
+      }
+
+      // CommonMark §4.3: Setext underline cannot be a lazy continuation line.
+      if (allMatched && leaf === 'paragraph' && SETEXT_UNDERLINE.test(trimmed)) {
+        flushBlock()
+        leaf = 'none'
+        consumedLine = true
+        break
+      }
+
+      const heading = ATX_HEADING.exec(trimmed)
+      if (heading) {
+        flushBlock()
+        closeUnmatched()
+        leaf = 'none'
+        scanInlineBlock(text, [{ start: lineStart + ind.idx + heading[0].length, end: lineEnd }], links)
+        consumedLine = true
+        break
+      }
+
+      const fenceMatch = /^(`{3,}|~{3,})(.*)$/.exec(trimmed)
+      // CommonMark §4.5: backtick fence info strings cannot contain backticks, so a
+      // line like ```` ```code``` ![a](./a.png) ```` is an inline code span, not a fence.
+      if (fenceMatch && (fenceMatch[1][0] === '~' || !fenceMatch[2].includes('`'))) {
+        flushBlock()
+        closeUnmatched()
+        fence = { ch: fenceMatch[1][0], len: fenceMatch[1].length, containerDepth: containers.length }
+        leaf = 'none'
+        consumedLine = true
+        break
+      }
+
+      if (isThematicBreak(trimmed)) {
+        flushBlock()
+        closeUnmatched()
+        leaf = 'none'
+        consumedLine = true
+        break
+      }
+
+      const marker = LIST_MARKER.exec(trimmed)
+      if (marker) {
+        const rawMarker = marker[1]
+        const isOrdered = rawMarker.length > 1
+        const kind = isOrdered ? rawMarker.at(-1) : rawMarker
+        const startNum = isOrdered ? Number(rawMarker.slice(0, -1)) : 0
+        const afterMarkerIdx = ind.idx + rawMarker.length
+        const afterMarkerCol = ind.col + rawMarker.length
+        const wsInd = measureIndent(line, afterMarkerIdx, afterMarkerCol, 0)
+        const bodyIsBlank = wsInd.idx >= line.length
+        // CommonMark §5.2: an empty list item or an ordered list not starting at 1
+        // cannot interrupt a paragraph (unless continuing the same list container).
+        const continuesSameList = !allMatched && containers[matched]?.type === 'list' && containers[matched].kind === kind
+        const canInterruptParagraph = !bodyIsBlank && (!isOrdered || startNum === 1)
+        if (leaf !== 'paragraph' || continuesSameList || canInterruptParagraph) {
+          flushBlock()
+          closeUnmatched()
+          leaf = 'none'
+          // CommonMark §5.2: blank first line or >=5 spaces after marker yields padding=1.
+          const padding = (bodyIsBlank || wsInd.cols >= 5) ? 1 : wsInd.cols
+          const itemIndent = ind.cols + rawMarker.length + padding
+          containers.push({ type: 'list', kind, indent: itemIndent, justOpenedBlank: bodyIsBlank })
+          matched = containers.length
+          if (bodyIsBlank) {
+            consumedLine = true
+            break
+          }
+          if (wsInd.cols >= 5) {
+            leaf = 'indentedCode'
+            consumedLine = true
+            break
+          }
+          cursor = { idx: wsInd.idx, col: wsInd.col, vsp: 0 }
+          continue
+        }
+      }
+
+      leaf = 'paragraph'
+      currentBlock.push({ start: lineStart + ind.idx, end: lineEnd })
+      consumedLine = true
+      break
+    }
+
+    if (!consumedLine) {
+      // Reached only when `ind.cols >= 4 && leaf === 'paragraph'` (indented paragraph continuation).
+      const ind = measureIndent(line, cursor.idx, cursor.col, cursor.vsp)
+      currentBlock.push({ start: lineStart + ind.idx, end: lineEnd })
+    }
+
+    lineStart = nextLine
+  }
+
+  flushBlock()
   return links
 }
 

@@ -137,6 +137,153 @@ test('extractLocalMarkdownImages preserves loose/nested list images and respects
   ])
 })
 
+test('extractLocalMarkdownImages closes list containers interrupted by blockquotes while preserving list-nested blockquotes (#1761)', () => {
+  const md = [
+    '- item',
+    '',
+    '> quote',
+    '',
+    '    ![AfterTopQuote](./after-top-quote-ignored.png)',
+    '',
+    '- item without blank',
+    '> quote interrupts list',
+    '',
+    '    ![AfterNoBlankQuote](./after-noblank-quote-ignored.png)',
+    '',
+    '- item with nested quote',
+    '',
+    '  > nested quote',
+    '',
+    '    ![InListAfterNestedQuote](./in-list-after-nested-quote.png)',
+    '',
+    '      ![CodeInListAfterNestedQuote](./code-in-list-ignored.png)',
+    '',
+    '> - quoted item',
+    '>',
+    '> > outer quote interrupts inner list',
+    '>',
+    '>     ![CodeInOuterQuote](./code-in-outer-quote-ignored.png)',
+    '',
+    '> - quoted item with nested quote',
+    '>',
+    '>   > nested quote inside quoted list',
+    '>',
+    '>     ![ImgInQuotedList](./img-in-quoted-list.png)',
+    '',
+    '- list with fenced nested quote',
+    '  > ```md',
+    '  > ![InNestedQuoteFence](./nested-q-fence-ignored.png)',
+    '    ![AfterNestedQuoteExit](./after-nested-q-exit.png)',
+  ].join('\n')
+  const links = extractLocalMarkdownImages(md)
+  assert.deepEqual(links.map(item => [item.alt, item.path]), [
+    ['InListAfterNestedQuote', './in-list-after-nested-quote.png'],
+    ['ImgInQuotedList', './img-in-quoted-list.png'],
+    ['AfterNestedQuoteExit', './after-nested-q-exit.png'],
+  ])
+})
+
+test('extractLocalMarkdownImages follows CommonMark paragraph-interruption rules for ordered lists and Setext underlines (#1761)', () => {
+  const md = [
+    'See version',
+    '2. foo ![InlineAfterTwoDot](./inline-after-2dot.png)',
+    '',
+    '    ![CodeAfterTwoDot](./after-2dot-ignored.png)',
+    '',
+    'Heading with dash',
+    '-',
+    '',
+    '    ![CodeAfterDashSetext](./after-dash-setext-ignored.png)',
+    '',
+    'Heading with dashes',
+    '---',
+    '    ![CodeDirectAfterSetext](./after-direct-setext-ignored.png)',
+    '',
+    'Heading with equals',
+    '===',
+    '    ![CodeAfterEqSetext](./after-eq-setext-ignored.png)',
+    '',
+    'Paragraph before empty markers',
+    '*',
+    '',
+    '    ![CodeAfterEmptyStar](./after-empty-star-ignored.png)',
+    '',
+    'Paragraph before empty ordered',
+    '1.',
+    '',
+    '    ![CodeAfterEmptyOne](./after-empty-one-ignored.png)',
+    '',
+    'Paragraph interrupted by 1.',
+    '1. First item',
+    '2. Second item',
+    '',
+    '    ![InSiblingTwoDot](./in-sibling-2dot.png)',
+    '',
+    '-',
+    '  ![InEmptyBullet](./in-empty-bullet.png)',
+    '',
+    '-',
+    '',
+    '    ![CodeAfterTwoBlankBullet](./after-two-blank-bullet-ignored.png)',
+  ].join('\n')
+  const links = extractLocalMarkdownImages(md)
+  assert.deepEqual(links.map(item => [item.alt, item.path]), [
+    ['InlineAfterTwoDot', './inline-after-2dot.png'],
+    ['InSiblingTwoDot', './in-sibling-2dot.png'],
+    ['InEmptyBullet', './in-empty-bullet.png'],
+  ])
+})
+
+test('extractLocalMarkdownImages bounds inline code spans to a single block while allowing same-paragraph wraps (#1761)', async () => {
+  const md = [
+    'Paragraph one with stray ` backtick',
+    '',
+    '![BetweenStrays](./between-strays.png)',
+    '   ',
+    'Paragraph three with stray ` backtick',
+    '',
+    '> Quote para with stray ` backtick',
+    '>',
+    '> ![InQuoteBetween](./in-quote-between.png)',
+    '>',
+    '> Quote para three with ` backtick',
+    '',
+    '# Heading with stray ` backtick',
+    '![AfterHeadingStray](./after-heading-stray.png)',
+    'Footer with stray ` backtick',
+    '',
+    'Para with stray ` backtick',
+    '- ![InListAfterStray](./in-list-after-stray.png)',
+    '- item with stray ` backtick',
+    '',
+    'Wrapped `inline',
+    '![IgnoredInMultilineCode](./multiline-code-ignored.png)',
+    'code` and ![AfterMultilineCode](./after-multiline-code.png)',
+    '',
+    '> Wrapped `inline',
+    '> ![IgnoredInQuoteMultiline](./q-multiline-ignored.png)',
+    '> code` and ![AfterQuoteMultiline](./after-q-multiline.png)',
+  ].join('\r\n')
+  const links = extractLocalMarkdownImages(md)
+  assert.deepEqual(links.map(item => [item.alt, item.path]), [
+    ['BetweenStrays', './between-strays.png'],
+    ['InQuoteBetween', './in-quote-between.png'],
+    ['AfterHeadingStray', './after-heading-stray.png'],
+    ['InListAfterStray', './in-list-after-stray.png'],
+    ['AfterMultilineCode', './after-multiline-code.png'],
+    ['AfterQuoteMultiline', './after-q-multiline.png'],
+  ])
+
+  // Verify exact source-offset rewriting through prepareOutboundReply on CRLF + multi-line block.
+  const out = await prepareOutboundReply(
+    'Stray ` tick\r\n\r\n> Keep ![Shot](./shot.png) here\r\n\r\nAnother ` tick',
+    { resolveImage: async () => ({ mime: 'image/png', bytes: PNG.toString('base64') }) },
+  )
+  assert.equal(out.images.length, 1)
+  assert.equal(out.images[0].name, 'shot.png')
+  assert.equal(out.text, 'Stray ` tick\n\n> Keep  here\n\nAnother ` tick')
+})
+
 test('prepareOutboundReply deduplicates repeated paths and surfaces unavailable/unsupported images (#1761)', async () => {
   let calls = 0
   const out = await prepareOutboundReply(
