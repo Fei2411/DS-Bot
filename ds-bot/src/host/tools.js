@@ -158,6 +158,7 @@ export function install(rt) {
   const whereOf = (sessionId) => {
     const room = rt.roomOf(rt.groupOwners.get(sessionId)?.roomId)
     if (room) return `group "${room.name}"`
+    if (rt.taskOwners?.has(sessionId)) return 'a background task'
     // A Bot's own chat may keep another part live in the background: it is a second
     // conversation of that Bot, not its foreground chat.
     return isOpenPart(rt.botOf(rt.chatOwners.get(sessionId)), sessionId) ? 'another of its conversations' : 'its own chat'
@@ -349,6 +350,26 @@ export function install(rt) {
         const working = rt.live.get(chat)?.turn !== undefined
         const steer = (args.when !== 'queue' && !toUser) || (joins && earlier.steered)
         const exchangeId = joins ? earlier.message.source.exchangeId : randomUUID()
+        const spawnInBackground = working && !toUser && !joins && args.when !== 'queue'
+          && rt.shouldMoveForeground?.(target, chat) === true
+          && typeof rt.spawnBotHandoffTask === 'function'
+        if (spawnInBackground) {
+          await rt.spawnBotHandoffTask(target, chat, {
+            fromBot: sender,
+            fromPart,
+            parentWork: work,
+            text: long.text,
+            files: long.files,
+            length: long.length,
+            exchangeId,
+          })
+          const asker = rt.ownsWork(sender.id, work) ? rt.botOf(state.works[work].from)?.name : undefined
+          const notes = [
+            `Delivered to ${target.name} in a background task while its foreground chat is busy. Its reply will arrive later as a new message; do not wait for it.`,
+            asker ? `When you have handed on everything, end your turn: each reply brings you back to this work, and your answer goes to ${asker} once all of it is back.` : '',
+          ].filter(Boolean)
+          return notes.join(' ')
+        }
         if (joins) rt.forgetDelivery?.(exchangeId)
         else if (!toUser) rt.openWork(exchangeId, { from: sender.id, to: target.id, parent: work, ...(fromPart ? { fromPart } : {}) })
         try {
@@ -402,14 +423,22 @@ export function install(rt) {
       if (target === undefined) refuse(`No Bot named ${args.bot}. Team: ${Object.values(state.bots).map(bot => bot.name).join(', ')}`)
       if (target.id === sender.id) refuse('You cannot stop yourself.')
       const { running } = activeSessions(target.id)
-      if (running.length === 0) refuse(`${target.name} is not running right now, so there is nothing to stop. Use message_bot to reach it.`)
-      for (const sessionId of running) {
+      const activeTasks = (target.tasks ?? []).filter(task => task && ['running', 'waiting_work', 'waiting_approval'].includes(task.status))
+      if (running.length === 0 && activeTasks.length === 0) refuse(`${target.name} is not running right now, so there is nothing to stop. Use message_bot to reach it.`)
+      // Separate non-task sessions before stopping tasks (stopping clears taskOwners).
+      const nonTaskRunning = running.filter(sessionId => !rt.taskOwners?.has(sessionId))
+      const places = nonTaskRunning.map(whereOf)
+      if (activeTasks.length > 0) {
+        await rt.stopAllTasksOfBot?.(target, String(args.reason ?? '').trim() || `stopped by ${sender.name}`)
+        places.push(`${activeTasks.length} background task${activeTasks.length === 1 ? '' : 's'}`)
+      }
+      for (const sessionId of nonTaskRunning) {
         const agent = await rt.resolveAgent(sessionId)
         agent.cancel({ kind: 'hook', reason: 'ds-bot/stopped' })
       }
       const why = String(args.reason ?? '').trim() || 'Stop what you are doing; the previous turn was ended on purpose. Acknowledge briefly.'
       await rt.deliver({ fromId: sender.id, toId: target.id, ...callerPart(exec), text: why, role: 'stopped', ...callerRoom(exec) })
-      return `Stopped ${target.name} in ${running.map(whereOf).join(' and ')}. It is told why in a new turn, whose reply comes back to you.`
+      return `Stopped ${target.name} in ${places.join(' and ')}. It is told why in a new turn, whose reply comes back to you.`
     },
   }))
 
@@ -810,11 +839,12 @@ export function install(rt) {
       }
       const long = await rt.attachLong(text, `Post from ${sender.name}.txt`)
       if (long === undefined) return tooLong(text)
-      // Replies the poster waits for, while it works on what a Bot asked it for, are
-      // work handed on for that request (handoffs.js).
+      // Replies the poster waits for, while it works on what a Bot asked it for — or from
+      // a background task that must stay open until the group replies — are tracked as work.
       const work = reportBack ? worksOf(exec).find(id => rt.ownsWork(self, id)) : undefined
-      const sub = work === undefined ? undefined : randomUUID()
-      if (sub !== undefined) rt.openWork(sub, { from: self, room: room.id, parent: work })
+      const trackTaskWait = reportBack && rt.taskOwners?.has(exec.agent?.id)
+      const sub = work !== undefined || trackTaskWait ? randomUUID() : undefined
+      if (sub !== undefined) rt.openWork(sub, { from: self, room: room.id, ...(work !== undefined ? { parent: work } : {}), ...callerPart(exec) })
       const missingFiles = folder === undefined ? [] : missingFileRefs(text, folder)
       const claims = missingFiles.length > 0 ? { missingFiles } : undefined
       try {
@@ -865,6 +895,7 @@ export function install(rt) {
     async execute(args, exec) {
       await rt.load()
       const id = exec.agent?.id
+      if (rt.taskOwners?.has(id)) return 'Background tasks cannot show question cards directly. Put the question in your reply so it goes back to your own chat, where you can ask the user and start a follow-up task if needed.'
       if (rt.groupOwners.has(id)) return 'Question cards only work in your own chat. In a group, ask in your message instead.'
       if (!rt.chatOwners.has(id)) return `Only Bots on the team can use ask_user. Use ${BLOCKING_QUESTION_TOOL} if it is available in this session, or ask the user in your reply.`
       const options = (Array.isArray(args.options) ? args.options : [])
@@ -903,6 +934,7 @@ export function install(rt) {
     async execute(args, exec) {
       await rt.load()
       const id = exec.agent?.id
+      if (rt.taskOwners?.has(id)) return 'Background tasks cannot show view cards directly. Report the data or question back to your own chat, where you can show a view to the user.'
       if (rt.groupOwners.has(id)) return 'View cards only work in your own chat. In a group, ask in your message instead.'
       if (!rt.chatOwners.has(id)) return `Only Bots on the team can use show_view. Use ${BLOCKING_QUESTION_TOOL} if it is available in this session, or ask the user in your reply.`
       const checked = checkShownView(args.title, args.view)
@@ -1183,6 +1215,7 @@ export function install(rt) {
   const reapplyToolMasks = () => {
     for (const held of scoped.values()) {
       if (held.agent === undefined) continue
+      try { rt.refreshShellShadows?.(held.agent) } catch (error) { rt.warn('ds-bot: shell shadow refresh failed: %s', error) }
       try { maskConnectorTools(held.agent, held) } catch (error) { rt.warn('ds-bot: connector mask failed: %s', error) }
     }
   }
@@ -1249,6 +1282,10 @@ export function install(rt) {
   ctx.tools.guard((exec) => {
     if (!rt.isBotSession(exec.agent?.id)) return undefined
     if (exec.name === BLOCKING_QUESTION_TOOL) return `Bots cannot use ${BLOCKING_QUESTION_TOOL}. Ask with ask_user in your own chat, or ask in your reply.`
+    if (rt.taskOwners?.has(exec.agent?.id)) {
+      if (exec.name === 'browser_handoff') return 'Background tasks cannot hand the browser to the user. Report back to your own chat so it can ask the user to take over.'
+      if (SCHEDULE_TARGET_TOOLS.includes(exec.name)) return 'Background tasks cannot create or change schedules on a temporary task session. Report back to your own chat so it can manage schedules there.'
+    }
     if (exec.name === 'schedule_edit' && exec.arguments?.action === 'update') {
       const unsupported = Object.keys(exec.arguments).filter(field => !SCHEDULE_UPDATE_FIELDS.has(field))
       if (unsupported.length > 0) return `These schedule_edit fields are not editable: ${unsupported.join(', ')}. To change frequency, send rrule with a DTSTART anchor in the intended time zone followed by an RRULE line (for example, "DTSTART;TZID=Asia/Taipei:20261118T090000\nRRULE:FREQ=HOURLY;INTERVAL=3"); this converts the task to kind rrule.`

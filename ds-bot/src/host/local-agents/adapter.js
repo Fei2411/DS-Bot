@@ -10,6 +10,9 @@ import { engineOf, cliMode } from './engines.js'
 import { LoopbackMcp } from './mcp.js'
 
 export const DEFAULT_CONTEXT_WINDOW = 200_000
+// A window belongs to the model, not to the Session that reported it, and the model
+// card reads it from resolveModel rather than from the Session's own figures.
+const windowKey = (route, model) => `${route}\u0000${model}`
 // The replay window when a CLI session is new or its resume failed.
 const REPLAY_MESSAGES = 12
 const REPLAY_BYTES = 24 * 1024
@@ -66,6 +69,7 @@ export class LocalAgentAdapter extends LlmAdapter {
     this.engines = new Map()   // route -> engine driver
     this.live = new Map()      // sessionId -> live session
     this.modelCache = new Map()
+    this.windows = new Map()   // route\0model -> the window the CLI reported for it
     this.probes = new Map()    // route -> the probe under way
     this.sideRequests = new Set()
     this.disposed = false
@@ -92,10 +96,14 @@ export class LocalAgentAdapter extends LlmAdapter {
   // What DS Bot knows of a route without starting its CLI: the CLI's default, what a
   // probe found, and what a Bot runs on. DSH and the catalog ask this for every route.
   async listModels(route) {
-    if (engineOf(route, this.deps.customAgents()) === undefined) return []
+    const spec = engineOf(route, this.deps.customAgents())
+    if (spec === undefined) return []
+    const supportsImage = spec.kind !== 'acp' || this.engines.get(route)?.supportsImages?.() !== false
+    const inputModalities = supportsImage ? ['text', 'image'] : ['text']
     const listed = [{ provider: route, id: 'default', name: 'CLI default' }, ...(this.modelCache.get(route) ?? [])]
     const used = (this.deps.usedModels?.(route) ?? []).filter(id => !listed.some(model => model.id === id))
     return [...listed, ...used.map(id => ({ provider: route, id, name: id }))]
+      .map(entry => ({ ...entry, inputModalities }))
   }
 
   // Asks one CLI what it serves, once. A failure is not kept, so the next look tries
@@ -136,7 +144,7 @@ export class LocalAgentAdapter extends LlmAdapter {
       id: model,
       name: listed?.name ?? model,
       inputModalities: supportsImage ? ['text', 'image'] : ['text'],
-      context: { contextWindow: spec?.contextWindow ?? DEFAULT_CONTEXT_WINDOW },
+      context: { contextWindow: spec?.contextWindow ?? this.windows.get(windowKey(route, model)) ?? DEFAULT_CONTEXT_WINDOW },
       // The thinking levels the engine advertises for this model, if any.
       ...(listed?.reasoning ? { reasoning: listed.reasoning } : {}),
     }
@@ -245,10 +253,20 @@ export class LocalAgentAdapter extends LlmAdapter {
       return
     }
     if (event?.type === 'context') {
-      const size = Number.isFinite(event.size) && event.size > 0 ? event.size : live.context?.size
+      // A size the CLI reports now, as against one carried by the Session from its
+      // record: only the former is this model's window.
+      const reported = Number.isFinite(event.size) && event.size > 0 ? event.size : undefined
+      const size = reported ?? live.context?.size
       live.context = Number.isFinite(event.used)
         ? { used: event.used, ...(size === undefined ? {} : { size }) }
         : { ...live.context, ...(size === undefined ? {} : { size }) }
+      // The same figure is the model's window: the model card and the percentage it
+      // renders read it from resolveModel, so it is kept for the route and model this
+      // Session runs, not for this Session alone (#1823). A usage-only report carries
+      // no size, and the Session may still hold the size of the model it ran before:
+      // publishing that one under this model's key would give the new model a window
+      // nothing has reported for it.
+      if (reported !== undefined) this.windows.set(windowKey(live.route, live.model), reported)
       this.deps.patchRecord?.(live.sessionId, { context: live.context })
       return
     }

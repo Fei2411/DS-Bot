@@ -1,6 +1,8 @@
 // Japanese (ja) localization for DS Bot client and DSH settings namespaces.
 
 export const JA = {
+  "Background work": "バックグラウンド作業",
+  "Background commands after (seconds)": "コマンドをバックグラウンドへ（秒後）",
   'A new reply is waiting': "新しい返信があります",
   "Opening…": "開いています…",
   "Still opening…": "まだ開いています…",
@@ -609,6 +611,9 @@ export const JA = {
   "Model for {name}": "{name} のモデル",
   "No models are set up in DeepSeek Harness yet.": "DeepSeek Harness にはまだモデルが設定されていません。",
   "Models and providers…": "モデルとプロバイダー…",
+  "Search models": "モデルを検索",
+  "Search models…": "モデルを検索…",
+  "No matching models.": "一致するモデルがありません。",
   "Models": "モデル",
   "Harness default": "Harness デフォルト",
   "Saving": "保存中",
@@ -1457,6 +1462,11 @@ export const JA = {
   "Open {host}": "{host} を開く",
   "Client ID": "Client ID",
   "Client secret (optional)": "Client Secret（任意）",
+  "In OAuth & Permissions at {app}, add this redirect URL:": "{app} の OAuth & Permissions に、このリダイレクト URL を追加してください：",
+  "In the app settings, add this redirect URL:": "アプリの設定に、このリダイレクト URL を追加してください：",
+  "Turn on the MCP features and scopes the app needs.": "アプリに必要な MCP 機能とスコープを有効にしてください。",
+  "Copy the Client ID and Client Secret here.": "Client ID と Client Secret をここに入力してください。",
+  "Open app settings": "アプリの設定を開く",
   "Continue": "続行",
   "{name} key": "{name} キー",
   "{name} token": "{name} トークン",

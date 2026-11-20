@@ -25,7 +25,7 @@ import { RESUME_DELAY_MS } from './resume.js'
 import { clip, createClock, escapeRegExp, estimateTokens, reminderPrompts, splitRef, textOf } from './text.js'
 import { pageThinkingMs } from './thinking.js'
 import { viaOf } from '../shared/im-platforms.js'
-import { focusOpenPart, isOpenPart, ownChatSessions, pushThreadPart, startOpenPart, successorOfMovedPart, threadCurrent, threadCurrentOfPart, threadOf, threadOfPart } from './threads.js'
+import { focusOpenPart, isOpenPart, isTaskSession, ownChatSessions, pushThreadPart, startOpenPart, successorOfMovedPart, threadCurrent, threadCurrentOfPart, threadOf, threadOfPart } from './threads.js'
 import { checkShownView, normalizeView, readViewReply, viewCardText, viewReply, viewReplyText } from 'deep-view/core'
 
 // An ask_user card as the user saw it. The user's reply is often just an option label,
@@ -151,7 +151,7 @@ export function historyEntry(event, group) {
   if (event.type !== 'user/message' || (source?.kind !== 'user' && source?.kind !== SOURCE_KIND)) return undefined
   const text = textOf(event.data.content)
   const ours = source.kind === SOURCE_KIND
-  const skipped = (ours && (source.handoff === true || source.role === 'kickoff' || source.role === 'goal')) || (!group && text.startsWith('[Group chat'))
+  const skipped = (ours && (source.handoff === true || source.role === 'kickoff' || source.role === 'goal' || source.role === 'task-handoff')) || (!group && text.startsWith('[Group chat'))
   // A turn that went on after a handoff did real work, so its answers stay.
   return { answer: false, who: ours ? 'bot' : 'user', text: skipped ? '' : text, keepAnswers: !skipped || (ours && source.resume === true) }
 }
@@ -236,10 +236,8 @@ export function install(rt) {
     if (!messages.some(message => message.source?.handoff === true)) return true
     const place = placeOf(agent.id)
     const room = rt.roomOf(place.roomId)
-    const bot = place.botId === undefined ? undefined : rt.botOf(place.botId)
     // A background part makes room within its own thread, like the foreground chat.
-    const thread = bot === undefined || place.roomId !== undefined ? undefined : threadOf(bot, agent.id)
-    const parts = partsOf(place.botId, place.roomId, thread?.segments, thread === undefined ? undefined : agent.id)
+    const parts = place.roomId === undefined ? partsOfThread(place.botId, agent.id) : partsOf(place.botId, place.roomId)
     const previous = parts.at(-2)
     const lines = await contextLines(session).catch(() => undefined)
     const budget = Math.min(RECENT_TOKENS, Math.floor((lines?.check ?? 4 * RECENT_TOKENS) / 4))
@@ -401,7 +399,18 @@ export function install(rt) {
     if (bot === undefined) return []
     const thread = sessionId === undefined ? undefined : threadOfPart(bot, sessionId)
     if (thread === undefined) return partsOf(bot.id)
-    const current = thread.thread === 'current' ? rt.chatOf(bot.id) : bot.openParts[thread.index].sessionId
+    if (thread.thread === 'task') {
+      const task = bot.tasks[thread.index]
+      // A foreground turn moved into a background task keeps read_own_chat access to the
+      // Bot's earlier parts frozen at handoff time, without shifting on later foreground rollovers.
+      const inherited = Array.isArray(task.inheritedSegments) ? task.inheritedSegments : []
+      const seen = new Set(inherited.map(seg => seg?.sessionId).filter(Boolean))
+      const segments = [...inherited, ...(thread.segments ?? []).filter(seg => !seen.has(seg?.sessionId))]
+      return partsOf(bot.id, undefined, segments, task.sessionId)
+    }
+    const current = thread.thread === 'current'
+      ? rt.chatOf(bot.id)
+      : bot.openParts[thread.index].sessionId
     return partsOf(bot.id, undefined, thread.segments, current)
   }
 
@@ -1258,7 +1267,8 @@ export function install(rt) {
     const session = agent.session
     const tokens = sizeOf(session)
     const lines = await contextLines(session).catch(() => undefined)
-    const parts = bot === undefined ? partsOf(undefined, room.id) : partsOf(bot.id, room?.id, thread?.segments, thread === undefined ? undefined : agent.id)
+    const parts = bot === undefined ? partsOf(undefined, room.id)
+      : room !== undefined ? partsOf(bot.id, room.id) : partsOfThread(bot.id, agent.id)
     const number = parts.length
     const budget = Math.min(RECENT_TOKENS, Math.floor((lines?.check ?? 4 * RECENT_TOKENS) / 4))
     const readLines = () => (job.bare ? { recent: [], earlier: [], unlisted: 0, complete: true } : handoffLines(agent.id, { budget, group: room !== undefined, number }))
@@ -1297,12 +1307,12 @@ export function install(rt) {
       : { fallback: whole ? 'whole' : job.failed !== undefined ? 'failure' : job.overflow ? 'overflow' : job.cutoff === true ? 'cutoff' : job.manual && failure === undefined ? 'manual' : 'failed', ...earlierNote }
     carried ??= await readLines()
     if (signal.aborted) throw signal.reason
-    const dir = rt.workDirOf(job)
+    const dir = rt.taskBySession?.(agent.id)?.task?.workDir ?? rt.workDirOf(job)
     const intended = dir !== undefined && await rt.isFolder(dir) ? dir : rt.teamFolder()
     const freshId = await rt.createSession(room === undefined ? name : bot === undefined ? room.name : `${name} · ${room.name}`, { dir })
-    // The group's own Session never asks the model, so it takes the team's default; the
-    // earlier part's route may be one DSH no longer serves (#1310).
-    if (bot === undefined) await rt.selectRoomSession(freshId)
+    // The group's own Session never asks the model, so selectRoomSession picks an
+    // image-capable route when available; the earlier part's route may no longer be served (#1310).
+    if (bot === undefined) await rt.selectRoomSession(freshId, room)
     const picked = bot === undefined ? undefined : await freshRoute(bot, session)
     if (picked !== undefined && !await selectRoute({ name }, freshId, picked) && job.engine) engineRetry.set(freshId, Date.now() + FOLDER_RETRY_MS)
     if (bot !== undefined) await rt.applyPermission(bot, freshId, room)
@@ -1421,7 +1431,10 @@ export function install(rt) {
     }
     const past = rt.pastOwners.get(agent.id)
     if (past !== undefined && !rt.isBotSession(agent.id)) {
-      await forward(past, payload.messages, threadTargetOf(agent.id, past)).catch(error => rt.warn('ds-bot: input for %s was not handed on: %s', agent.id, error))
+      const target = threadTargetOf(agent.id, past)
+      if (target !== undefined && target !== agent.id) {
+        await forward(past, payload.messages, target).catch(error => rt.warn('ds-bot: input for %s was not handed on: %s', agent.id, error))
+      }
       return takeOverStep(agent, payload)
     }
     const place = placeOf(agent.id)
@@ -1480,7 +1493,7 @@ export function install(rt) {
     const place = placeOf(agent.id)
     const cwd = agent.session.header?.cwd
     if (place === undefined || cwd === undefined || (midTurn && place.roomId !== undefined) || Date.now() < (folderRetry.get(agent.id) ?? 0)) return undefined
-    const wanted = rt.workDirOf(place)
+    const wanted = rt.taskBySession?.(agent.id)?.task?.workDir ?? rt.workDirOf(place)
     const usable = wanted !== undefined && await rt.isFolder(wanted)
     // A team copied from another DSH_HOME has no team workspace here until one is made, and its
     // Sessions still work in the old one.
@@ -1517,7 +1530,7 @@ export function install(rt) {
       return next()
     }
     const place = placeOf(agent.id)
-    const wanted = rt.workDirOf(place)
+    const wanted = rt.taskBySession?.(agent.id)?.task?.workDir ?? rt.workDirOf(place)
     const usable = wanted !== undefined && await rt.isFolder(wanted)
     // A member whose group's folder went away works on in the team workspace; the
     // group is told once, so every round is not told again. A member still in a
@@ -2109,12 +2122,118 @@ export function install(rt) {
     if (now !== undefined && (now.ref !== picked?.ref || now.effort !== picked?.effort)) await selectRoute({ name: bot.name }, freshId, now)
   }
 
+  // Opens a dedicated Session for a Bot's background task (`bot.tasks`).
+  // Forks the foreground Session at the latest completed turn boundary when
+  // running on a DSH model in the same folder, falling back to a fresh Session
+  // when there is no completed turn yet (first turn), a different workDir is
+  // requested, or the Bot runs on a local CLI agent.
+  async function openTaskPart(bot, fromSessionId, task, { workDir } = {}) {
+    const defaultDir = rt.workDirOf({ botId: bot.id })
+    const dir = workDir ?? defaultDir
+    const isLocal = rt.localAgentBadge?.(bot.model ?? bot.appliedModel) !== undefined
+    let sessionId
+    let forked = false
+    if (!isLocal && dir === defaultDir && typeof ctx.sessionController?.fork === 'function') {
+      try {
+        const res = await ctx.sessionController.fork({ sessionId: fromSessionId })
+        if (typeof res?.sessionId === 'string' && res.sessionId !== '') {
+          sessionId = res.sessionId
+          forked = true
+        }
+      } catch {
+        // First turn (session/fork-unavailable) or unsupported host: fall back to a fresh Session.
+      }
+    }
+    if (sessionId === undefined) {
+      sessionId = await rt.createSession(`${bot.name} · ${task.title}`, { dir })
+    }
+    const sourceAgent = ctx.get('agents')?.get(fromSessionId)
+    const picked = await freshRoute(bot, sourceAgent?.session)
+    if (picked !== undefined) await selectRoute({ name: bot.name }, sessionId, picked)
+    await rt.applyPermission(bot, sessionId, undefined)
+      .catch(error => rt.warn('ds-bot: permission for task %s of %s not applied: %s', task.id, bot.name, error))
+    if (rt.botOf(bot.id) !== bot) {
+      await ctx.workspaceRegistry.archiveSession(sessionId, { stopActivity: true })
+        .catch(error => rt.warn('ds-bot: unused task part of %s not archived: %s', bot.name, error))
+      throw Object.assign(new Error('Bot no longer exists'), { code: 'bot/not-found' })
+    }
+    const stored = { ...task, sessionId, segments: [], ...(workDir ? { workDir } : {}) }
+    ;(bot.tasks ??= []).push(stored)
+    rt.chatOwners.set(sessionId, bot.id)
+    rt.taskOwners.set(sessionId, { botId: bot.id, taskId: task.id })
+    await rt.save()
+    const now = await freshRoute(bot, sourceAgent?.session)
+    if (now !== undefined && (now.ref !== picked?.ref || now.effort !== picked?.effort)) {
+      await selectRoute({ name: bot.name }, sessionId, now)
+    }
+    return { sessionId, forked, task: stored }
+  }
+
+  // Creates a fresh foreground Session for `bot` when its currently busy foreground
+  // Session is moving into `bot.tasks[]` (#783). Forks at the latest completed turn
+  // boundary (excluding the in-flight turn) so the new foreground inherits full prior
+  // history and KV cache, falling back to a fresh Session on first turn.
+  async function forkForegroundPart(bot, fromSessionId) {
+    const dir = rt.workDirOf({ botId: bot.id })
+    let sessionId
+    let forked = false
+    if (typeof ctx.sessionController?.fork === 'function') {
+      try {
+        const res = await ctx.sessionController.fork({ sessionId: fromSessionId })
+        if (typeof res?.sessionId === 'string' && res.sessionId !== '') {
+          sessionId = res.sessionId
+          forked = true
+        }
+      } catch {
+        // First turn (session/fork-unavailable) or unsupported host: fall back to fresh Session.
+      }
+    }
+    if (sessionId === undefined) {
+      sessionId = await rt.createSession(bot.name, { dir })
+    }
+    const sourceAgent = ctx.get('agents')?.get(fromSessionId)
+    const picked = await freshRoute(bot, sourceAgent?.session)
+    if (picked !== undefined) await selectRoute({ name: bot.name }, sessionId, picked)
+    await rt.applyPermission(bot, sessionId, undefined)
+      .catch(error => rt.warn('ds-bot: permission for foreground part of %s not applied: %s', bot.name, error))
+    if (rt.botOf(bot.id) !== bot) {
+      await ctx.workspaceRegistry.archiveSession(sessionId, { stopActivity: true })
+        .catch(error => rt.warn('ds-bot: unused foreground part of %s not archived: %s', bot.name, error))
+      throw Object.assign(new Error('Bot no longer exists'), { code: 'bot/not-found' })
+    }
+    const syncRoute = async () => {
+      const now = await freshRoute(bot, sourceAgent?.session)
+      if (now !== undefined && (now.ref !== picked?.ref || now.effort !== picked?.effort)) {
+        await selectRoute({ name: bot.name }, sessionId, now)
+      }
+    }
+    return { sessionId, forked, syncRoute }
+  }
+
+  // Read-only transcript paging for one background task across its own segments.
+  async function taskPage(botId, taskId, cursor, steps = false) {
+    const bot = rt.botOf(botId)
+    const task = (bot?.tasks ?? []).find(item => item?.id === taskId)
+    if (task === undefined) throw Object.assign(new Error('Unknown task'), { code: 'bot/not-found' })
+    const parts = [
+      ...(task.segments ?? []).map(segment => ({ sessionId: segment.sessionId, startedAt: segment.startedAt, endedAt: segment.endedAt })),
+      { sessionId: task.sessionId, startedAt: task.startedAt, endedAt: task.endedAt },
+    ].filter(item => typeof item.sessionId === 'string' && item.sessionId !== '')
+    if (parts.length === 0) return { sessionId: task.sessionId, items: [], cursor: null }
+    const index = Number.isInteger(cursor?.part) ? cursor.part : parts.length - 1
+    if (index < 0 || index >= parts.length) return { sessionId: parts.at(-1).sessionId, items: [], cursor: null }
+    return { sessionId: parts.at(-1).sessionId, ...(await partPage(parts, index, cursor, steps)) }
+  }
+
   // Opening an earlier part again: it becomes the current one and the part that
   // was current joins the earlier ones where it sat.
   async function switchPart(botId, partId) {
     await rt.load()
     const bot = rt.botOf(botId)
     if (bot === undefined) throw Object.assign(new Error('Unknown Bot'), { code: 'bot/not-found' })
+    if (isTaskSession(bot, partId) || threadOfPart(bot, partId)?.thread === 'task') {
+      throw Object.assign(new Error('Background tasks are read-only and cannot replace the current chat'), { code: 'bot/invalid' })
+    }
     const current = rt.chatOf(botId)
     if (partId === current) return false
     // A part opened while the Bot was busy is live. Making it current swaps the two
@@ -2168,5 +2287,5 @@ export function install(rt) {
     return true
   }
 
-  Object.assign(rt, { clock, partsOf, partsOfThread, historyEntry, partLines, noteText, earlierPage, chatPage, displayItems, applySteps, followFolder, followEngine, heldBack, newPart, switchPart, sessionTokens: session => tokensOf(session), switchJobs: () => switches.values() })
+  Object.assign(rt, { clock, partsOf, partsOfThread, historyEntry, partLines, noteText, earlierPage, chatPage, taskPage, displayItems, applySteps, followFolder, followEngine, heldBack, newPart, openTaskPart, forkForegroundPart, switchPart, isSwitchingPart: id => switches.has(id), sessionTokens: session => tokensOf(session), switchJobs: () => switches.values() })
 }

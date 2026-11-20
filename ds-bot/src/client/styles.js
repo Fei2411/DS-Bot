@@ -190,6 +190,7 @@ html[data-bt-collapsing] [class*="_frame"]:has(>[class*="_sidebarCol"]){transiti
 .bt-rail-top>.bt-round svg,.bt-leftcol-foot-rail>:is(.bt-round,.bt-account) svg{width:22px;height:22px}
 }
 .bt-rail-sep{width:24px;height:1px;flex:none;background:var(--bt-line)}
+.bt-rail .bt-agent{width:56px}
 .bt-rail .bt-agent-ava{width:44px;height:44px}
 /* Icon rows breathe the way the open column's rows do: 8px of gap puts ~20px
    between avatar edges, the open list's 19px (8px padding + 3px gap + 8px). */
@@ -734,6 +735,11 @@ button.bt-set-row:hover .bt-chevron{transform:translateX(2px);color:var(--bt-ink
 .bt-connector-link{flex:none;padding:0;border:0;background:none;font:inherit;font-size:12px;color:var(--bt-ink-2);text-decoration:underline;text-underline-offset:2px;cursor:pointer}
 .bt-connector-link:hover:not(:disabled){color:var(--bt-ink)}
 .bt-connector-wait{flex:1;min-width:0;font-size:12px;line-height:16px;color:var(--bt-ink-2)}
+.bt-connector-setup{display:flex;flex-direction:column;gap:8px;padding:12px 14px;border-radius:10px;background:var(--bt-hover);box-shadow:inset 0 0 0 .5px var(--bt-line);font-size:12px;line-height:18px;color:var(--bt-ink-2)}
+.bt-connector-steps{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:6px}
+.bt-connector-steps li::marker{color:var(--bt-ink-3);font-weight:500}
+.bt-connector-setup-uri{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:6px;min-width:0}
+.bt-connector-uri{flex:1;min-width:180px;padding:5px 8px;border-radius:6px;background:var(--bt-card);box-shadow:inset 0 0 0 .5px var(--bt-line-2);font-family:var(--bt-mono,ui-monospace,SFMono-Regular,Menlo,monospace);font-size:11px;line-height:16px;color:var(--bt-ink);word-break:break-all;user-select:all}
 .bt-connector-aside{align-self:flex-start}
 .bt-connector-error{padding-left:48px;font-size:12px;line-height:16px;color:var(--bt-danger)}
 .bt-connector-banner{padding:0 0 8px}
@@ -1169,8 +1175,10 @@ export const CONVERSATION_CSS = `
 /* The menus above the composer ("@", "/", and the picker a command such as /model
    opens): DSH paints them translucent and leans on a backdrop blur to keep the chat
    behind them unreadable. Where the blur does not take, the chat shows through the
-   rows (issues 1113 and 935), so they get a solid fill. */
-[data-composer-overlay] [data-menu-material]{--dsw-menu-surface-fill:var(--bt-card)}
+   rows (issues 1113 and 935), so they get a solid fill. The "@" menu is the trigger
+   menu, whose root carries data-trigger-menu rather than data-menu-material, so it
+   needs naming too (issue 1698). */
+[data-composer-overlay] [data-menu-material],[data-trigger-menu]{--dsw-menu-surface-fill:var(--bt-card);--dsw-specific-menu:var(--bt-card)}
 /* DSH's row spans share no semantic hooks beyond the option; keep descriptions
    beside their labels without changing their flex sizing or overflow. */
 [data-trigger-menu] [role=option]>span{text-align:left}
@@ -1249,8 +1257,9 @@ html[data-platform=darwin] header[class*="_header"]:has(.bt-head) :is(a,button,i
 [data-content-phase=hero] [class*="_composerHero"] [class*="_input"]{min-height:0!important}
 /* The right sides give back the scrollbar gutter so both edges sit 16px from the column. */
 [class*="_scroll"]:has(> [class*="_column"]){padding:calc(60px + env(safe-area-inset-top,0px)) calc(11px + env(safe-area-inset-right,0px)) calc(16px + env(safe-area-inset-bottom,0px)) calc(16px + env(safe-area-inset-left,0px))!important}
-/* The goal island's pod hangs off the header over the transcript's first message. */
+/* The goal/approval island's pod hangs off the header over the transcript's first message. */
 body[data-bt-goal] [class*="_scroll"]:has(> [class*="_column"]){padding-top:calc(90px + env(safe-area-inset-top,0px))!important}
+body[data-bt-goal="2"] [class*="_scroll"]:has(> [class*="_column"]){padding-top:calc(120px + env(safe-area-inset-top,0px))!important}
 /* The shell's running status keeps its slot but hosts nothing visible: the activity
    row mounts at the flow's end, after the shell's pending rows, so an interjection's
    echo always draws above it and the row never jumps. The slot keeps the shell's

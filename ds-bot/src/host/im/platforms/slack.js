@@ -22,8 +22,10 @@ const toMrkdwn = (markdown) => String(markdown ?? '')
   .split(/(```[\s\S]*?```)/g)
   .map((part, index) => index % 2 === 1 ? part : part
     .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<$2|$1>')
-    .replace(/\*\*([^*]+)\*\*/g, '*$1*')
-    .replace(/(^|\s)\*([^*\n]+)\*/g, '$1_$2_'))
+    // Italic first: Slack spells bold *text* and italic _text_, so converting bold
+    // first would hand the italic rule a "*bold*" that it then rewrites to _bold_.
+    .replace(/(^|\s)\*([^*\n]+)\*/g, '$1_$2_')
+    .replace(/\*\*([^*]+)\*\*/g, '*$1*'))
   .join('')
 
 export default {

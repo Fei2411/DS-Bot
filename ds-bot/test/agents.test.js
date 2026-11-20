@@ -6,6 +6,7 @@ import { test } from 'node:test'
 import { createRuntime } from '../index.js'
 import { TEAM_TOOLS } from '../src/host/constants.js'
 import { fakeContext } from './fake-ctx.js'
+import { installAgentForks } from '../src/client/agent-fork.js'
 
 const flush = async () => { for (let index = 0; index < 8; index += 1) await Promise.resolve() }
 
@@ -197,6 +198,41 @@ test('agents survive a state reload', async (t) => {
   t.after(again.stop)
   const view = (await again.call('state', {})).value
   assert.deepEqual(view.agents.map(entry => entry.id), [agent.id])
+})
+
+test('a fork without a parent is adopted through the Bot API and survives a restart', async (t) => {
+  const env = start(TEAM)
+  let fix
+  let again
+  t.after(async () => { await fix?.dispose(); await again?.stop() })
+  await env.call('state', {})
+  const agent = (await env.call('add-agent')).value
+  let view = (await env.call('state', {})).value
+  const sessions = {
+    list: { getSnapshot: () => ({ byId: { fork: { id: 'fork', blank: false } } }) },
+    fork: async (options) => { options.onCreated?.('fork'); return 'fork' },
+  }
+  fix = installAgentForks({
+    sessions, pending: new Map(),
+    ownerOf: id => view.agents.find(entry => entry.sessions.includes(id))?.id,
+    hasAgent: id => view.agents.some(entry => entry.id === id),
+    ready: async () => {},
+    adopt: async (agentId, sessionId) => {
+      const response = await env.call('agent-adopt', { agentId, sessionId })
+      assert.equal(response.ok, true)
+    },
+    refresh: async () => { view = (await env.call('state', {})).value },
+    report: error => { throw error },
+  })
+  assert.equal(await sessions.fork({ sessionId: agent.sessions[0] }), 'fork')
+  assert.ok(view.agents[0].sessions.includes('fork'))
+  const saved = JSON.parse(readFileSync(join(env.home, 'state.json'), 'utf8'))
+  assert.ok(saved.agents[agent.id].sessions.includes('fork'))
+  await fix.dispose()
+  await env.stop()
+  again = start(saved)
+  const restarted = (await again.call('state', {})).value
+  assert.ok(restarted.agents[0].sessions.includes('fork'))
 })
 
 test('a corrupt agents field resets instead of crashing the view', async (t) => {

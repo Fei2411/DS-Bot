@@ -1,6 +1,8 @@
 // German (de) localization for DS Bot client and DSH settings namespaces.
 
 export const DE = {
+  'Background work': 'Hintergrundarbeit',
+  'Background commands after (seconds)': 'Befehle in den Hintergrund nach (Sekunden)',
   'A new reply is waiting': "Eine neue Antwort wartet auf dich",
   'Opening…': 'Wird geöffnet…',
   'Still opening…': 'Wird noch geöffnet…',
@@ -634,6 +636,9 @@ export const DE = {
   'Model for {name}': 'Modell für {name}',
   'No models are set up in DeepSeek Harness yet.': 'In DeepSeek Harness sind noch keine Modelle eingerichtet.',
   'Models and providers…': 'Modelle und Anbieter…',
+  'Search models': 'Modelle suchen',
+  'Search models…': 'Modelle suchen…',
+  'No matching models.': 'Keine passenden Modelle.',
   Models: 'Modelle',
   'Harness default': 'Harness-Standard',
   Saving: 'Wird gespeichert',
@@ -1489,6 +1494,11 @@ export const DE = {
   'Open {host}': '{host} öffnen',
   'Client ID': 'Client ID',
   'Client secret (optional)': 'Client Secret (optional)',
+  'In OAuth & Permissions at {app}, add this redirect URL:': 'Füge in OAuth & Permissions von {app} diese Redirect-URL hinzu:',
+  'In the app settings, add this redirect URL:': 'Füge in den App-Einstellungen diese Redirect-URL hinzu:',
+  'Turn on the MCP features and scopes the app needs.': 'Aktiviere die MCP-Funktionen und Berechtigungen, die die App braucht.',
+  'Copy the Client ID and Client Secret here.': 'Trage hier die Client ID und das Client Secret ein.',
+  'Open app settings': 'App-Einstellungen öffnen',
   'Continue': 'Weiter',
   '{name} key': '{name}-Schlüssel',
   '{name} token': '{name}-Token',

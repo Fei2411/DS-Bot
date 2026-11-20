@@ -118,15 +118,35 @@ function forceCut(block, limit) {
   const open = `<pre><code${block.lang ? ` class="language-${escapeHtml(block.lang)}"` : ''}>`
   const close = '</code></pre>'
   let body = block.lines.join('\n')
-  const room = limit - points(open) - points(close)
+  const room = Math.max(1, limit - points(open) - points(close))
   while (body !== '') {
-    let at = Math.min(points(body), Math.max(1, room))
     const chars = Array.from(body)
-    const newline = body.lastIndexOf('\n', at)
-    if (newline > room / 2) at = newline
-    const part = chars.slice(0, at).join('')
+    // Cut on what the platform receives, not on the raw code: "<" and "&" become
+    // "&lt;" and "&amp;", so a fence of markup renders three to five times longer
+    // than the text this cut used to be computed from, and the chunk went out over
+    // the limit the caller asked for.
+    let at = 0
+    let used = 0
+    while (at < chars.length) {
+      const width = escapeHtml(chars[at]).length
+      if (used + width > room) break
+      used += width
+      at += 1
+    }
+    // A limit too small to hold even one character still has to make progress.
+    if (at === 0) at = 1
+    // Prefer a line boundary in the second half, so a cut does not split a line
+    // that would have fit on its own.
+    let cut = at
+    for (let index = at - 1; index >= 0; index -= 1) {
+      if (chars[index] === '\n') {
+        if (index > at / 2) cut = index
+        break
+      }
+    }
+    const part = chars.slice(0, cut).join('')
     chunks.push({ html: `${open}${escapeHtml(part)}${close}`, text: part })
-    body = chars.slice(at).join('').replace(/^\n/, '')
+    body = chars.slice(cut).join('').replace(/^\n/, '')
   }
   return chunks
 }

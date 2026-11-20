@@ -82,3 +82,18 @@ test('an escaped backtick is literal and does not swallow the column between the
 test('an escaped backtick does not hide a local image from the conversion', () => {
   assert.equal(toQqMarkdown('看图 \\`![x](/tmp/a.png)\\` 结束'), '看图 `［图片：x］` 结束')
 })
+
+test('a line break inside a table cell keeps the row on one list item', () => {
+  assert.equal(
+    toQqMarkdown('| 项目 | 说明 |\n| --- | --- |\n| a | 第一步<br>第二步 |\n| b | 单行 |'),
+    '- 项目：a；说明：第一步 第二步\n- 项目：b；说明：单行',
+  )
+  assert.equal(
+    toQqMarkdown('| 说明<br>补充 | 值 |\n| --- | --- |\n| x | 1 |'),
+    '- 说明 补充：x；值：1',
+  )
+  assert.equal(
+    toQqMarkdown('| a | b |\n| --- | --- |\n| x<br>y | z |'),
+    '- a：x y；b：z',
+  )
+})

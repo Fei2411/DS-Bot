@@ -18,6 +18,7 @@ import { NotificationsRow } from './notifications.js'
 import { GearIcon } from './icons.js'
 import { useLinger } from './motion.js'
 import { t } from './i18n.js'
+import { createConnectionFeedback } from './connection-feedback.js'
 
 // The child slots of the seat, as ui-settings declares their types.
 export const SETTINGS_CHILDREN = {
@@ -37,8 +38,6 @@ export const SETTINGS_CHILDREN = {
 const SKIPPED_STEPS = new Set(['welcome-notice'])
 
 const DIALOG_EXIT_MS = 160
-const RECOVERY_CONFIRMATION_MS = 2000
-const CONNECTING_MIN_VISIBLE_MS = 800
 const BUSY_PHASES = new Set(['checking', 'downloading', 'verifying', 'installing'])
 
 export function snapshotStore(initial) {
@@ -126,38 +125,15 @@ export function pickStep({ steps, requested, active, completed }) {
   return active ? steps.find(step => !completed.has(step.id)) : undefined
 }
 
-// Connection status with the shell's timings: a reconnect shows at least 800ms, and the
-// recovery note stays 2s once it can be seen.
 function useConnectionView(state) {
-  const [recovered, setRecovered] = useState(false)
-  const [holdConnecting, setHoldConnecting] = useState(false)
-  const previous = useRef(state)
-  const connectingAt = useRef(undefined)
+  const [view, setView] = useState()
+  const feedback = useRef()
+  if (feedback.current === undefined) feedback.current = createConnectionFeedback(setView)
   useLayoutEffect(() => {
-    const before = previous.current
-    previous.current = state
-    if (state !== 'connected') { setRecovered(false); return }
-    if (before === 'disconnected' || before === 'connecting') setRecovered(true)
+    feedback.current.update(state)
+    return () => feedback.current.suspend()
   }, [state])
-  useLayoutEffect(() => {
-    if (!recovered || holdConnecting) return undefined
-    const timer = setTimeout(() => setRecovered(false), RECOVERY_CONFIRMATION_MS)
-    return () => clearTimeout(timer)
-  }, [recovered, holdConnecting])
-  useLayoutEffect(() => {
-    if (state === 'connecting') { connectingAt.current = Date.now(); return undefined }
-    const shownAt = connectingAt.current
-    if (shownAt === undefined) return undefined
-    connectingAt.current = undefined
-    const remaining = CONNECTING_MIN_VISIBLE_MS - (Date.now() - shownAt)
-    if (remaining <= 0) return undefined
-    setHoldConnecting(true)
-    const timer = setTimeout(() => setHoldConnecting(false), remaining)
-    return () => { clearTimeout(timer); setHoldConnecting(false) }
-  }, [state])
-  if (state === 'connecting' || holdConnecting) return 'connecting'
-  if (state === 'disconnected') return 'disconnected'
-  return recovered ? 'recovered' : undefined
+  return view
 }
 
 const FAILURES = {
