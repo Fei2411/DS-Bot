@@ -4,6 +4,7 @@ import { useDockHold } from './card-hold.js'
 import { heldCardKey } from './sources.js'
 import { CellEmpty } from './cell-empty.js'
 import { lookOf } from './characters.js'
+import { inkFill } from './inks.js'
 import { t } from './i18n.js'
 import { toolArgs } from './text.js'
 
@@ -145,7 +146,7 @@ export function PendingAppAccess({ ask, actions, inline }) {
     void Promise.resolve(actions.computerAppAnswer(ask.id, choice)).catch((error) => {
       setClosed(false)
       actions.reportError?.(error, 'computer')
-    })
+    }).finally(() => { busyRef.current = false })
   }
   return h('div', {
     className: inline ? 'bt-q-inline' : 'bt-q-dock',
@@ -204,11 +205,12 @@ export function AppAccessCall({ sessionId, callId, roster, actions, heldCards, h
   return h(PendingAppAccess, { key: ask.id, ask: { ...ask, botName: bot.name }, actions, inline: true })
 }
 
-// An app ask docked above the composer of the Bot's own chat: its call is a
-// hidden group Session's, or a turn the transcript does not draw.
+// An app ask docked above the composer of the Bot's own chat: its own-chat
+// turn when not drawn inline. Group-session asks live in the group's header
+// island and details panel instead (#1623).
 export function AppAccessDock({ sessionId, useRoster, useCards, useHeldCards, useComputer, actions }) {
   const bot = useRoster(value => value.byId[sessionId])
-  const ask = useComputer?.(map => (bot ? Object.values(map.asks ?? {}).find(item => item.botId === bot.id) : undefined))
+  const ask = useComputer?.(map => (bot ? Object.values(map.asks ?? {}).find(item => item.botId === bot.id && item.roomId === undefined) : undefined))
   const drawn = useCards?.(state => ask?.callId !== undefined && state[sessionId]?.[ask.callId] > 0) === true
   const held = useHeldCards?.(state => state[sessionId]?.[heldCardKey('computer-app', ask?.id)] > 0) === true
   if (!bot || ask === undefined || !actions.computerAppAnswer || (drawn && !held)) return null
@@ -244,7 +246,7 @@ export function PendingComputerHandoff({ sessionId, bot, hold, actions, inline }
   const answer = outcome => run(() => actions.computerHoldAnswer(bot.id, { callId: hold.callId ?? hold.id, outcome }), true)
   const takeOver = () => run(async () => {
     await actions.computerTakeover(bot.id)
-    actions.openDetails?.(sessionId, 'computer')
+    actions.showDetails?.(sessionId, 'computer')
   }, false)
   return h('div', {
     className: inline ? 'bt-q-inline' : 'bt-q-dock',
@@ -259,11 +261,11 @@ export function PendingComputerHandoff({ sessionId, bot, hold, actions, inline }
           hold.note ? h('div', { className: 'bt-q-detail' }, hold.note) : null,
           taken ? h('div', { className: 'bt-handoff-state', role: 'status' },
             h('span', { className: 'bt-handoff-dot', 'aria-hidden': true }),
-            t('You control the computer')) : null))),
-    h('div', { className: 'bt-q-foot' },
-      h('button', { type: 'button', className: 'bt-q-btn', onClick: () => answer('skip') }, t('Skip')),
-      taken ? null : h('button', { type: 'button', className: 'bt-q-btn', onClick: takeOver }, t('Take over')),
-      h('button', { type: 'button', className: 'bt-q-submit', onClick: () => answer('done') }, t("I'm done"))))
+            t('You control the computer')) : null)),
+      h('div', { className: 'bt-q-foot' },
+        h('button', { type: 'button', className: 'bt-q-btn', onClick: () => answer('skip') }, t('Skip')),
+        taken ? null : h('button', { type: 'button', className: 'bt-q-btn', onClick: takeOver }, t('Take over')),
+        h('button', { type: 'button', className: 'bt-q-submit', onClick: () => answer('done') }, t("I'm done")))))
 }
 
 export function ComputerHandoffCall({ sessionId, callId, roster, actions, heldCards, hooks }) {
@@ -310,7 +312,7 @@ export function ComputerIndicator({ useComputer, useRoster, actions }) {
   const avatarOf = (id) => {
     const look = lookOf(botOf(id))
     if (typeof look.image === 'string' && look.image.startsWith('data:image/')) return h('img', { className: 'bt-cbar-ava', src: look.image, alt: '' })
-    return h('span', { className: 'bt-cbar-ava bt-cbar-ava-dot', style: { background: look.color } }, String(nameOf(id)).slice(0, 1))
+    return h('span', { className: 'bt-cbar-ava bt-cbar-ava-dot', style: { background: inkFill(look.color) } }, String(nameOf(id)).slice(0, 1))
   }
   const entries = [
     ...leases.map(entry => ({ key: `l:${entry.botId}`, botId: entry.botId, waiting: false, app: entry.kind === 'foreground' ? t('In the foreground') : entry.appName })),
@@ -349,17 +351,18 @@ export const COMPUTER_CSS = `
 .bt-cview-step[data-ok=no]{color:var(--bt-danger)}
 .bt-cview-step-err{font-size:11px}
 .bt-cbar{position:absolute;top:8px;left:50%;transform:translateX(-50%);z-index:60;display:flex;align-items:center;gap:8px;max-width:min(760px,calc(100vw - 32px));padding:6px 12px;border-radius:999px;background:var(--bt-glass-bg);border:.5px solid var(--bt-glass-rim);box-shadow:var(--bt-glass-shadow);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);font-size:12.5px}
-.bt-cbar-live{flex:none;width:7px;height:7px;border-radius:50%;background:var(--bt-danger);box-shadow:0 0 0 3px var(--bt-danger-glow)}
+.bt-cbar-live{flex:none;width:7px;height:7px;border-radius:50%;corner-shape:round;background:var(--bt-danger);box-shadow:0 0 0 3px var(--bt-danger-glow)}
 .bt-cbar-sep{flex:none;width:1px;height:14px;background:var(--bt-line);opacity:.7}
 .bt-cbar-entry{display:flex;align-items:center;gap:6px;min-width:0}
-.bt-cbar-ava{flex:none;width:16px;height:16px;border-radius:50%;object-fit:cover}
-.bt-cbar-ava-dot{display:inline-flex;align-items:center;justify-content:center;color:var(--bt-mark-ink);font-size:9px;font-weight:600;line-height:1}
+.bt-cbar-ava{flex:none;width:16px;height:16px;border-radius:50%;corner-shape:round;object-fit:cover}
+.bt-cbar-ava-dot{display:inline-flex;align-items:center;justify-content:center;color:var(--bt-accent-ink);font-size:9px;font-weight:600;line-height:1}
 .bt-cbar-text{display:flex;align-items:baseline;gap:5px;min-width:0;overflow:hidden}
 .bt-cbar-name{flex:none;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bt-cbar-app{font-style:normal;color:var(--bt-ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:120px}
-.bt-cbar-stop{flex:none;width:22px;height:22px;border:0;border-radius:50%;background:var(--bt-hover);color:var(--bt-ink-2);cursor:pointer;display:inline-flex;align-items:center;justify-content:center}
+.bt-cbar-stop{flex:none;position:relative;width:22px;height:22px;border:0;border-radius:50%;corner-shape:round;background:var(--bt-hover);color:var(--bt-ink-2);cursor:pointer;display:inline-flex;align-items:center;justify-content:center}
+.bt-cbar-stop::after{content:"";position:absolute;inset:-4px}
 .bt-cbar-stopsq{width:8px;height:8px;border-radius:4px;background:currentColor}
-.bt-cbar-stop:hover{background:var(--bt-danger);color:var(--bt-mark-ink)}
+.bt-cbar-stop:hover{background:var(--bt-danger);color:var(--bt-accent-ink)}
 .bt-cbar-go,.bt-cbar-all{flex:none;border-radius:999px;padding:3px 10px;font:inherit;font-size:12px;cursor:pointer;white-space:nowrap;border:1px solid var(--bt-line-2)}
 .bt-cbar-go{background:var(--bt-accent-soft);color:var(--bt-accent);border-color:var(--bt-accent-soft)}
 .bt-cbar-all{background:var(--bt-danger-soft);color:var(--bt-danger);border-color:var(--bt-danger-soft)}

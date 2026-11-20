@@ -38,6 +38,17 @@ test('chunks stay under the limit and keep whole fences', () => {
   assert.ok(fits[0].html.includes('<pre><code>'))
 })
 
+test('a split fence stays under the limit when its text HTML-escapes', () => {
+  // "<" and "&" become 4 and 5 characters in the HTML payload, so a fence of them
+  // is three times longer once rendered than the text it was measured on.
+  const body = '<'.repeat(120) + '\n' + '&'.repeat(120) + '\n' + '>'.repeat(120)
+  const chunks = chunkTelegram(`\`\`\`\n${body}\n\`\`\``, 200)
+  assert.ok(chunks.length >= 3)
+  for (const chunk of chunks) assert.ok(chunk.html.length <= 200, chunk.html.length)
+  // Nothing is lost or repeated: the code arrives in order, cut only where it had to be.
+  assert.equal(chunks.map(chunk => chunk.text).join('').replace(/\n/g, ''), body.replace(/\n/g, ''))
+})
+
 test('an oversized line is hard cut and stays under the limit', () => {
   const chunks = chunkTelegram('y'.repeat(9000), 4096)
   assert.equal(chunks.length, 3)

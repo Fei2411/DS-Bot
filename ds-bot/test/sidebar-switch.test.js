@@ -402,8 +402,8 @@ function collapsedGridRules() {
   const frames = []
   const visit = (rules, media = []) => {
     for (const rule of rules) {
-      if (rule.selectorText?.includes('[data-sidebar-collapsed][data-rightbar-collapsed]'))
-        frames.push({ selector: rule.selectorText, grid: rule.style.getPropertyValue('grid-template-columns'), media })
+      if (rule.selectorText?.includes('[data-sidebar-collapsed][data-rightbar-collapsed]') && rule.style.getPropertyValue('grid-template-columns'))
+        frames.push({ selector: rule.selectorText, grid: rule.style.getPropertyValue('grid-template-columns'), media, rule })
       if (rule.cssRules?.length)
         visit(rule.cssRules, rule.media ? [...media, rule.media.mediaText] : media)
     }
@@ -424,6 +424,31 @@ test('the collapsed shell grid override leaves layouts below 1024px to the host'
   assert.equal(frames.length, 1)
   assert.ok(frames[0].media.some(query => /^\(min-width:\s*1024px\)$/.test(query)),
     'the zero-width first track must not override a narrow host layout')
+})
+
+test('a narrow Bot conversation keeps an explicit track and leaves expanded host panels alone', () => {
+  const frames = collapsedGridRules().filter(frame => frame.media.includes('(max-width:1023px)'))
+  assert.equal(frames.length, 1)
+  const { rule } = frames[0]
+  assert.match(frames[0].grid, /^0px\s+minmax\(0,\s*1fr\)\s+0px$/)
+  assert.equal(rule.style.getPropertyPriority('grid-template-columns'), 'important')
+  const { document } = new JSDOM('<div class="x_frame" data-sidebar-collapsed data-rightbar-collapsed><div class="x_centerCol"><div class="bt-head"></div></div></div>').window
+  const frame = document.querySelector('.x_frame')
+  assert.ok(frame.matches(rule.selectorText))
+  for (const attribute of ['data-sidebar-collapsed', 'data-rightbar-collapsed']) {
+    frame.removeAttribute(attribute)
+    assert.equal(frame.matches(rule.selectorText), false)
+    frame.setAttribute(attribute, '')
+  }
+  const columnRule = [...rule.parentRule.cssRules].find(candidate => candidate.selectorText?.endsWith(`>[class*="_centerCol"]`))
+  assert.ok(columnRule, 'the narrow center column rule must exist')
+  assert.ok(document.querySelector('.x_centerCol').matches(columnRule.selectorText))
+  assert.equal(columnRule.style.getPropertyValue('grid-column'), '2')
+  assert.equal(columnRule.style.getPropertyValue('width'), 'auto')
+  for (const property of ['grid-column', 'width'])
+    assert.equal(columnRule.style.getPropertyPriority(property), 'important')
+  document.querySelector('.bt-head').remove()
+  assert.equal(frame.matches(rule.selectorText), false)
 })
 
 test('the narrow Bot grid yields when either shell track opens', () => {

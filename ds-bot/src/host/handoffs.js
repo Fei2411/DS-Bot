@@ -10,7 +10,7 @@ import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node
 import { join } from 'node:path'
 import { LATE_ANSWER, TEXT_KEPT } from './constants.js'
 import { headOf } from './text.js'
-import { isOpenPart, ownChatSessions } from './threads.js'
+import { isOpenPart, ownChatSessions, threadCurrentOfPart } from './threads.js'
 
 const minutes = since => {
   const count = Math.floor((Date.now() - since) / 60_000)
@@ -354,9 +354,10 @@ export function install(rt) {
       const said = reason === 'gone'
         ? target + ' is no longer on the team, so the work you handed it has no answer. The user gave up waiting for it; this is its result. Go on with the work you were given.'
         : 'No reply came back from ' + target + ', and the user gave up waiting for it. This is its result: go on with the work you were given.'
+      const targetSession = work.fromPart === undefined ? undefined : threadCurrentOfPart(rt.botOf(waitingBot), work.fromPart)
       void rt.deliver({
         fromId: work.to !== undefined && rt.botOf(work.to) !== undefined ? work.to : undefined,
-        fromName: name, toId: waitingBot, text: said, role: 'reply', replyTo: id,
+        fromName: name, toId: waitingBot, ...(targetSession ? { sessionId: targetSession } : {}), text: said, role: 'reply', replyTo: id,
         exchangeId: randomUUID(), work: work.parent, abandoned: true, recordExchange: false,
       }).catch(error => rt.warn('ds-bot: giving up the wait for %s was not delivered: %s', waitingBot, error))
     }
@@ -407,6 +408,8 @@ export function install(rt) {
     const place = sessionId => {
       const room = rt.roomOf(rt.groupOwners.get(sessionId)?.roomId)
       if (room) return `in group "${room.name}"`
+      const task = rt.taskBySession?.(sessionId)?.task
+      if (task !== undefined) return `in background task "${task.title}"`
       // The same words the message_bot note uses for a background part.
       return isOpenPart(bot, sessionId) ? 'in another of its conversations' : 'in its own chat'
     }

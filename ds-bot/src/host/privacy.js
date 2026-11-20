@@ -7,7 +7,7 @@ import { within } from './folders.js'
 import { unquote } from './text.js'
 import { openSessions } from './threads.js'
 
-const FILE_TOOLS = { read: 'file_path', write: 'file_path', edit: 'file_path', read_image: 'file_path', str_replace_editor: 'path' }
+const FILE_TOOLS = { read: 'file_path', write: 'file_path', edit: 'file_path', read_image: 'file_path', str_replace_editor: 'path', read_document: 'path' }
 const WRITE_TOOLS = ['write', 'edit', 'str_replace_editor']
 const SEARCH_TOOLS = ['glob', 'grep']
 const SHELL_TOOLS = ['bash', 'pwsh', 'terminal_open', 'terminal_send']
@@ -81,6 +81,7 @@ export function install(rt) {
     join(rt.home, 'learning', 'state.json'),
     join(rt.home, 'ocr.json'),
     join(rt.home, 'secrets.json'),
+    join(rt.home, 'task-reports'),
     join(rt.home, 'memory', 'journal.jsonl'),
     join(rt.home, 'memory', 'journal.torn'),
     join(rt.home, 'memory', 'pending.json'),
