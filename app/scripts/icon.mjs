@@ -1,7 +1,8 @@
 // Draws the app icon from the Main Bot's whale in ../ds-bot and writes assets/icon.svg,
 // assets/icon.png (1024 px), assets/icon.ico (Windows, 16 to 256 px) and the tray marks:
-// assets/tray.ico (Windows), assets/tray.png (Linux) and assets/trayTemplate.png with its
-// @2x (macOS).
+// assets/tray.ico (Windows), assets/tray.png (Linux), assets/trayTemplate.png with its
+// @2x (macOS), and the per-size PNGs in assets/icons/, which electron-builder installs
+// into hicolor/<size>x<size>/apps/ for the Linux menu and taskbar.
 // Usage: npm run icon. It runs itself again inside Electron, which turns the SVG into PNGs.
 import { spawnSync } from 'node:child_process'
 import { mkdirSync, writeFileSync } from 'node:fs'
@@ -13,6 +14,9 @@ import { characterMarkup, MASK_ID } from '../../ds-bot/src/client/characters.js'
 const here = fileURLToPath(import.meta.url)
 const assets = join(dirname(here), '..', 'assets')
 const ICO_SIZES = [16, 20, 24, 32, 36, 40, 48, 64, 72, 96, 128, 256]
+// The Linux hicolor set: 1024x1024 is not a registered hicolor directory, so a single large
+// PNG installs as an unresolvable icon. electron-builder copies these into hicolor/<size>x<size>/apps/.
+const HICOLOR_SIZES = [16, 24, 32, 48, 64, 96, 128, 256, 512]
 // The tray icon is small: the sizes a notification area shows, and one plain png for Linux.
 const TRAY_ICO_SIZES = [16, 20, 24, 32]
 const TRAY_PNG_SIZE = 24
@@ -116,24 +120,31 @@ async function renderInElectron(jobs) {
 }
 
 if (process.versions.electron) {
+  const hicolor = HICOLOR_SIZES.map(size => ({ svg: iconSvg(0.92, size), size }))
   const jobs = [
     { svg: iconSvg(0.805), size: 1024 },
     ...ICO_SIZES.map(size => ({ svg: iconSvg(0.92, size), size })),
     ...TRAY_ICO_SIZES.map(size => ({ svg: traySvg(size, WHALE_INK), size })),
     { svg: traySvg(TRAY_PNG_SIZE, WHALE_INK), size: TRAY_PNG_SIZE },
     ...TRAY_TEMPLATE_SIZES.map(size => ({ svg: traySvg(size, '#000000'), size })),
+    ...hicolor,
   ]
   // Not awaited at the top: Electron is ready only after the main module has run.
   const { app } = await import('electron')
   app.whenReady().then(() => renderInElectron(jobs)).then(([large, ...rest]) => {
     const small = rest.slice(0, ICO_SIZES.length)
-    const tray = rest.slice(ICO_SIZES.length)
+    const hicolorPngs = rest.slice(-HICOLOR_SIZES.length)
+    const tray = rest.slice(ICO_SIZES.length, rest.length - HICOLOR_SIZES.length)
     writeFileSync(join(assets, 'icon.png'), large)
     writeFileSync(join(assets, 'icon.ico'), icoFile(ICO_SIZES.map((size, index) => ({ size, png: small[index] }))))
     writeFileSync(join(assets, 'tray.ico'), icoFile(TRAY_ICO_SIZES.map((size, index) => ({ size, png: tray[index] }))))
     writeFileSync(join(assets, 'tray.png'), tray[TRAY_ICO_SIZES.length])
     writeFileSync(join(assets, 'trayTemplate.png'), tray[TRAY_ICO_SIZES.length + 1])
     writeFileSync(join(assets, 'trayTemplate@2x.png'), tray[TRAY_ICO_SIZES.length + 2])
+    mkdirSync(join(assets, 'icons'), { recursive: true })
+    for (const [index, size] of HICOLOR_SIZES.entries()) {
+      writeFileSync(join(assets, 'icons', `${size}x${size}.png`), hicolorPngs[index])
+    }
     app.exit(0)
   }).catch((error) => {
     console.error(error)
@@ -147,5 +158,5 @@ if (process.versions.electron) {
   const electron = createRequire(import.meta.url)('electron')
   const run = spawnSync(electron, [here], { stdio: 'inherit', env })
   if (run.status !== 0) process.exit(run.status ?? 1)
-  console.log('icon: wrote assets/icon.svg, assets/icon.png, assets/icon.ico and the tray marks')
+  console.log('icon: wrote assets/icon.svg, assets/icon.png, assets/icon.ico, the tray marks and the per-size icons in assets/icons/')
 }
