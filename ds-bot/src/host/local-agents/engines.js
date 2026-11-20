@@ -55,10 +55,12 @@ export const ENGINES = Object.fromEntries(Object.entries(CLIS).map(([id, spec]) 
 export const CUSTOM_PREFIX = `${ROUTE_PREFIX}acp-`
 
 // LEGACY: the route a ref saved before the prefix names, or undefined when its
-// provider was never a local-agent route. `opencode` is also a provider DSH
-// ships, so an old `opencode/...` ref is ambiguous: the caller decides.
+// provider was never a local-agent route. Some of those names are also provider
+// ids DSH or another plugin ships, so an old `<name>/...` ref is ambiguous: the
+// caller decides on evidence. `qoder` is one too — dsh-connect-qoder registers a
+// provider called `qoder` for the same models the Qoder CLI offers.
 const OLD_CUSTOM_PREFIX = 'acp-'
-export const AMBIGUOUS_OLD_ROUTES = new Set(['opencode'])
+export const AMBIGUOUS_OLD_ROUTES = new Set(['opencode', 'qoder'])
 export const legacyRoute = (provider) => {
   if (typeof provider !== 'string') return undefined
   if (CLIS[provider] !== undefined) return `${ROUTE_PREFIX}${provider}`
