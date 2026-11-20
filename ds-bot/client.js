@@ -124,6 +124,8 @@ function convertHostErrors(pairs) {
 
 // src/client/locales/ja.js
 var JA = {
+  "Background work": "バックグラウンド作業",
+  "Background commands after (seconds)": "コマンドをバックグラウンドへ（秒後）",
   "A new reply is waiting": "新しい返信があります",
   "Opening…": "開いています…",
   "Still opening…": "まだ開いています…",
@@ -1580,6 +1582,11 @@ var JA = {
   "Open {host}": "{host} を開く",
   "Client ID": "Client ID",
   "Client secret (optional)": "Client Secret（任意）",
+  "In OAuth & Permissions at {app}, add this redirect URL:": "{app} の OAuth & Permissions に、このリダイレクト URL を追加してください：",
+  "In the app settings, add this redirect URL:": "アプリの設定に、このリダイレクト URL を追加してください：",
+  "Turn on the MCP features and scopes the app needs.": "アプリに必要な MCP 機能とスコープを有効にしてください。",
+  "Copy the Client ID and Client Secret here.": "Client ID と Client Secret をここに入力してください。",
+  "Open app settings": "アプリの設定を開く",
   "Continue": "続行",
   "{name} key": "{name} キー",
   "{name} token": "{name} トークン",
@@ -2621,6 +2628,8 @@ var DSH_JA = {
 
 // src/client/locales/ko.js
 var KO = {
+  "Background work": "백그라운드 작업",
+  "Background commands after (seconds)": "명령 백그라운드 전환(초)",
   "A new reply is waiting": "새 답변이 도착했습니다",
   "Opening…": "여는 중…",
   "Still opening…": "아직 여는 중…",
@@ -4119,6 +4128,11 @@ var KO = {
   "Open {host}": "{host} 열기",
   "Client ID": "Client ID",
   "Client secret (optional)": "Client secret (선택사항)",
+  "In OAuth & Permissions at {app}, add this redirect URL:": "{app}의 OAuth & Permissions에서 이 리디렉션 URL을 추가하세요:",
+  "In the app settings, add this redirect URL:": "앱 설정에서 이 리디렉션 URL을 추가하세요:",
+  "Turn on the MCP features and scopes the app needs.": "앱에 필요한 MCP 기능과 범위를 켜세요.",
+  "Copy the Client ID and Client Secret here.": "Client ID와 Client Secret을 여기에 입력하세요.",
+  "Open app settings": "앱 설정 열기",
   "Continue": "계속",
   "{name} key": "{name} 키",
   "{name} token": "{name} 토큰",
@@ -5163,6 +5177,8 @@ var DSH_KO = {
 
 // src/client/locales/es.js
 var ES = {
+  "Background work": "Trabajo en segundo plano",
+  "Background commands after (seconds)": "Pasar comandos a segundo plano tras (segundos)",
   "A new reply is waiting": "Tienes una nueva respuesta",
   "Opening…": "Abriendo…",
   "Still opening…": "Sigue abriendo…",
@@ -6661,6 +6677,11 @@ var ES = {
   "Open {host}": "Abrir {host}",
   "Client ID": "Client ID",
   "Client secret (optional)": "Client secret (opcional)",
+  "In OAuth & Permissions at {app}, add this redirect URL:": "En OAuth & Permissions de {app}, añade esta URL de redirección:",
+  "In the app settings, add this redirect URL:": "En los ajustes de la app, añade esta URL de redirección:",
+  "Turn on the MCP features and scopes the app needs.": "Activa las funciones y los permisos de MCP que necesita la app.",
+  "Copy the Client ID and Client Secret here.": "Copia aquí el Client ID y el Client Secret.",
+  "Open app settings": "Abrir ajustes de la app",
   "Continue": "Continuar",
   "{name} key": "Clave de {name}",
   "{name} token": "Token de {name}",
@@ -7705,6 +7726,8 @@ var DSH_ES = {
 
 // src/client/locales/fr.js
 var FR = {
+  "Background work": "Travail en arrière-plan",
+  "Background commands after (seconds)": "Passer les commandes en arrière-plan après (secondes)",
   "A new reply is waiting": "Une nouvelle réponse vous attend",
   "Opening…": "Ouverture…",
   "Still opening…": "Toujours en cours d’ouverture…",
@@ -9161,6 +9184,11 @@ var FR = {
   "Open {host}": "Ouvrir {host}",
   "Client ID": "Client ID",
   "Client secret (optional)": "Client secret (facultatif)",
+  "In OAuth & Permissions at {app}, add this redirect URL:": "Dans OAuth & Permissions de {app}, ajoutez cette URL de redirection :",
+  "In the app settings, add this redirect URL:": "Dans les réglages de l’app, ajoutez cette URL de redirection :",
+  "Turn on the MCP features and scopes the app needs.": "Activez les fonctions et les portées MCP dont l’app a besoin.",
+  "Copy the Client ID and Client Secret here.": "Collez ici le Client ID et le Client Secret.",
+  "Open app settings": "Ouvrir les réglages de l’app",
   "Continue": "Continuer",
   "{name} key": "Clé {name}",
   "{name} token": "Jeton {name}",
@@ -10202,6 +10230,8 @@ var DSH_FR = {
 
 // src/client/locales/de.js
 var DE = {
+  "Background work": "Hintergrundarbeit",
+  "Background commands after (seconds)": "Befehle in den Hintergrund nach (Sekunden)",
   "A new reply is waiting": "Eine neue Antwort wartet auf dich",
   "Opening…": "Wird geöffnet…",
   "Still opening…": "Wird noch geöffnet…",
@@ -11700,6 +11730,11 @@ var DE = {
   "Open {host}": "{host} öffnen",
   "Client ID": "Client ID",
   "Client secret (optional)": "Client Secret (optional)",
+  "In OAuth & Permissions at {app}, add this redirect URL:": "Füge in OAuth & Permissions von {app} diese Redirect-URL hinzu:",
+  "In the app settings, add this redirect URL:": "Füge in den App-Einstellungen diese Redirect-URL hinzu:",
+  "Turn on the MCP features and scopes the app needs.": "Aktiviere die MCP-Funktionen und Berechtigungen, die die App braucht.",
+  "Copy the Client ID and Client Secret here.": "Trage hier die Client ID und das Client Secret ein.",
+  "Open app settings": "App-Einstellungen öffnen",
   "Continue": "Weiter",
   "{name} key": "{name}-Schlüssel",
   "{name} token": "{name}-Token",
@@ -13413,6 +13448,8 @@ var ZH = {
   "Text width": "正文宽度",
   "Show thinking": "显示思考过程",
   "Enter sends message": "回车发送消息",
+  "Background work": "后台工作",
+  "Background commands after (seconds)": "命令转后台（秒）",
   "Bring up related memory": "自动带上相关记忆",
   "Group memory size": "群记忆容量",
   "Bot memory size": "Bot 记忆容量",
@@ -14243,6 +14280,11 @@ var ZH = {
   "Open {host}": "打开 {host}",
   "Client ID": "Client ID",
   "Client secret (optional)": "Client secret(可选)",
+  "In OAuth & Permissions at {app}, add this redirect URL:": "在 {app} 的 OAuth & Permissions 里添加这个重定向地址：",
+  "In the app settings, add this redirect URL:": "在应用设置里添加这个重定向地址：",
+  "Turn on the MCP features and scopes the app needs.": "打开应用需要的 MCP 功能和权限范围。",
+  "Copy the Client ID and Client Secret here.": "再把 Client ID 和 Client Secret 填到这里。",
+  "Open app settings": "打开应用设置",
   "Continue": "继续",
   "{name} key": "{name} 密钥",
   "{name} token": "{name} 令牌",
@@ -16479,10 +16521,12 @@ body[data-bt-motion=quiet] .bt-mark[data-poke]{cursor:default}
 .bt-stack-more{font-size:11px;line-height:16px;color:var(--bt-ink-3);margin-left:3px!important}
 
 .bt-side{display:flex;flex-direction:column;min-height:0;flex:1 1 auto;gap:2px;padding:0 12px 8px 0;color:var(--bt-ink);font-family:var(--bt-font)}
-.bt-side-top{display:flex;justify-content:flex-end;align-items:center;gap:8px;padding:6px 5px 0 0}
+.bt-side-top{display:flex;flex-wrap:wrap;container-type:inline-size;container-name:bt-side-top;justify-content:flex-start;align-items:center;gap:8px;padding:6px 5px 0 0}
 .bt-brand{display:inline-flex;align-items:center;gap:6px;margin-right:auto;padding:4px 8px 4px 4px;border:0;border-radius:8px;background:none;cursor:pointer;font-family:inherit;font-size:15px;line-height:20px;font-weight:600;letter-spacing:-.01em;color:var(--bt-ink);white-space:nowrap}
 .bt-brand-whale{display:inline-flex;color:var(--bt-accent)}
-.bt-round{width:36px;height:36px;border-radius:50%;border:1px solid var(--bt-line);background:var(--bt-main);color:var(--bt-ink);display:inline-flex;align-items:center;justify-content:center;cursor:pointer;padding:0;transition:background-color .12s ease,transform .12s ease}
+.bt-round{flex:none;width:36px;height:36px;border-radius:50%;border:1px solid var(--bt-line);background:var(--bt-main);color:var(--bt-ink);display:inline-flex;align-items:center;justify-content:center;cursor:pointer;padding:0;transition:background-color .12s ease,transform .12s ease}
+/* A narrow column must wrap its header instead of squeezing round controls. */
+@container bt-side-top (max-width:300px){.bt-side-top>.bt-brand{flex-basis:100%}}
 .bt-round:hover{background:var(--bt-hover)}
 .bt-round:active{transform:scale(.94)}
 .bt-list{display:flex;flex-direction:column;gap:3px;overflow-y:auto;min-height:0;flex:1 1 auto}
@@ -16531,6 +16575,12 @@ html[data-windows-titlebar] .bt-leftcol,html[data-platform=darwin] .bt-leftcol{b
 @media (min-width:${DSH_NARROW}px){
 [class*="_frame"][data-sidebar-collapsed][data-rightbar-collapsed]:has(>[class*="_sidebarCol"]){grid-template-columns:0px minmax(0,1fr) 0px!important}
 }
+/* Bot mode owns the left column while both shell tracks are collapsed. Keep
+   the center's explicit second grid column, but yield when a shell track opens.
+   A responsive skin's single track otherwise creates an implicit center column. */
+@media (max-width:${DSH_NARROW - 1}px){
+[class*="_frame"][data-sidebar-collapsed][data-rightbar-collapsed]:has(>[class*="_centerCol"] .bt-head){grid-template-columns:0px minmax(0,1fr) 0px!important}
+}
 html[data-bt-collapsing] [class*="_frame"]:has(>[class*="_sidebarCol"]){transition:none!important}
 .bt-leftcol[data-left=drawer]{background:var(--bt-sidebar);box-shadow:8px 0 24px rgba(0,0,0,.14)}
 .bt-leftcol>.bt-side{width:100%}
@@ -16538,7 +16588,12 @@ html[data-bt-collapsing] [class*="_frame"]:has(>[class*="_sidebarCol"]){transiti
 .bt-rail{align-items:center;gap:6px;padding:0}
 .bt-rail .bt-row{justify-content:center;width:56px;height:56px;min-height:56px;padding:0;border-radius:16px}
 .bt-rail-top{display:flex;flex-direction:column;align-items:center;gap:8px;padding-bottom:8px}
+@media (max-width:600px) and (min-height:501px){
+.bt-rail-top .bt-round,.bt-leftcol-foot-rail>:is(.bt-round,.bt-account),.bt-leftcol-foot-rail .bt-you{width:56px;height:56px;flex:none}
+.bt-rail-top>.bt-round svg,.bt-leftcol-foot-rail>:is(.bt-round,.bt-account) svg{width:22px;height:22px}
+}
 .bt-rail-sep{width:24px;height:1px;flex:none;background:var(--bt-line)}
+.bt-rail .bt-agent{width:56px}
 .bt-rail .bt-agent-ava{width:44px;height:44px}
 /* Icon rows breathe the way the open column's rows do: 8px of gap puts ~20px
    between avatar edges, the open list's 19px (8px padding + 3px gap + 8px). */
@@ -17083,6 +17138,10 @@ button.bt-set-row:hover .bt-chevron{transform:translateX(2px);color:var(--bt-ink
 .bt-connector-link{flex:none;padding:0;border:0;background:none;font:inherit;font-size:12px;color:var(--bt-ink-2);text-decoration:underline;text-underline-offset:2px;cursor:pointer}
 .bt-connector-link:hover:not(:disabled){color:var(--bt-ink)}
 .bt-connector-wait{flex:1;min-width:0;font-size:12px;line-height:16px;color:var(--bt-ink-2)}
+.bt-connector-setup{display:flex;flex-direction:column;gap:6px;padding:8px 10px;border-radius:10px;background:var(--bt-tag-bg);font-size:12px;line-height:16px;color:var(--bt-ink-2)}
+.bt-connector-setup p{margin:0}
+.bt-connector-setup-uri{display:flex;align-items:center;gap:6px;min-width:0}
+.bt-connector-uri{flex:1;min-width:0;padding:3px 6px;border-radius:6px;background:var(--bt-card);box-shadow:inset 0 0 0 .5px var(--bt-line-2);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;line-height:15px;color:var(--bt-ink);word-break:break-all}
 .bt-connector-aside{align-self:flex-start}
 .bt-connector-error{padding-left:48px;font-size:12px;line-height:16px;color:var(--bt-danger)}
 .bt-connector-banner{padding:0 0 8px}
@@ -17519,6 +17578,9 @@ var CONVERSATION_CSS = `
    behind them unreadable. Where the blur does not take, the chat shows through the
    rows (issues 1113 and 935), so they get a solid fill. */
 [data-composer-overlay] [data-menu-material]{--dsw-menu-surface-fill:var(--bt-card)}
+/* DSH's row spans share no semantic hooks beyond the option; keep descriptions
+   beside their labels without changing their flex sizing or overflow. */
+[data-trigger-menu] [role=option]>span{text-align:left}
 .bt-think{font-size:13px;line-height:18px;color:var(--bt-ink-2);margin:2px 0 4px;max-width:calc(var(--bt-msg-w) * 100%)}
 body[data-bt-layout=flat] .bt-think{max-width:calc(var(--bt-flat-w) * 100%)}
 .bt-think summary{cursor:pointer;list-style:none;display:inline-flex;align-items:center;gap:6px}
@@ -17541,6 +17603,8 @@ body[data-bt-layout=flat] .bt-think{max-width:calc(var(--bt-flat-w) * 100%)}
 .bt-event-whole>span:first-child{margin-right:2px}
 /* One button cannot wrap like separate parts, so a long name is cut to fit the chat. */
 .bt-event-whole>.bt-event-name{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* Keep message tools outside paint containment. */
+.bt-bubble,.bt-ububble{content-visibility:auto;contain-intrinsic-size:auto 160px}
 .bt-time-sep{display:flex;justify-content:center;align-items:center;height:28px;margin:14px 0 8px;font-size:12px;line-height:16px;color:var(--bt-ink-2);white-space:nowrap}
 [class*="_scroll"]>[class*="_column"]::before{content:var(--bt-first-sep,none);display:block;flex:none;height:28px;margin:17px 0 12px;font-size:12px;line-height:28px;text-align:center;color:var(--bt-ink-2);white-space:nowrap}
 .bt-activity{display:flex;align-items:center;gap:10px;margin:8px 0 4px 2px;font-size:14px;color:var(--bt-ink-2)}
@@ -17638,6 +17702,12 @@ body[data-bt-goal] [class*="_scroll"]:has(> [class*="_column"]){padding-top:calc
 [data-composer-card]:has(> [data-slot="conversation.input.attachments"] *),[data-composer-card]:has([data-composer-input] br + *),[data-composer-card]:has([data-composer-input] > :nth-child(2)){border-radius:18px!important}
 [class*="_root"]:has(> [data-composer-card]){padding:0 11px 13px 16px!important}
 [class*="_root"]:has(> [data-composer-card])>[data-composer-card]{max-width:min(992px,100%)!important}
+/* Embedded phone browsers may report zero safe-area insets even when the screen
+   corners clip content. Keep a minimum gutter as well as honoring larger insets. */
+@media (max-width:${DSH_NARROW - 1}px) and (pointer:coarse){
+.bt-leftcol,.bt-leftcol[data-left=rail]{padding-bottom:max(24px,env(safe-area-inset-bottom,0px))}
+[class*="_root"]:has(> [data-composer-card]){padding-left:max(16px,env(safe-area-inset-left,0px))!important;padding-right:max(16px,env(safe-area-inset-right,0px))!important;padding-bottom:max(24px,env(safe-area-inset-bottom,0px))!important}
+}
 [data-composer-card]>[class*="_row"]{display:contents!important}
 [data-composer-card] [class*="_tools"]{order:1!important;flex:none!important;align-self:flex-end!important;margin:0!important}
 [data-composer-card]>[data-input-scroll]{order:2!important;flex:1 1 0!important;min-width:0!important;padding:0 8px!important;margin:0!important}
@@ -17647,6 +17717,13 @@ body[data-bt-goal] [class*="_scroll"]:has(> [class*="_column"]){padding-top:calc
 [data-composer-card]:has(> [data-slot="conversation.input.attachments"] > [class*="_rail"])>[data-input-scroll]{order:1!important;flex:0 0 100%!important;margin:0 0 6px!important}
 [data-composer-card]:has(> [data-slot="conversation.input.attachments"] > [class*="_rail"]) [class*="_tools"]{order:2!important}
 [data-composer-card]:has(> [data-slot="conversation.input.attachments"] > [class*="_rail"]) [class*="_trailing"]{margin-left:auto!important}
+/* On phones the optional tools can consume the whole line before an empty editor
+   has any intrinsic width. Give typing its own line, including before the first tap. */
+@media (max-width:600px), (max-width:${DSH_NARROW - 1}px) and (max-height:500px) and (pointer:coarse){
+[data-composer-card]>[data-input-scroll]{order:1!important;flex:0 0 100%!important;margin:0 0 6px!important}
+[data-composer-card] [class*="_tools"]{order:2!important}
+[data-composer-card] [class*="_trailing"]{margin-left:auto!important}
+}
 [data-composer-card] [data-composer-input]{min-height:24px!important;padding:2px 0!important}
 [data-composer-card] [data-composer-placeholder]{left:0!important;top:2px!important}
 [data-composer-placeholder]{font-size:0!important;line-height:0!important}
@@ -26746,9 +26823,34 @@ function SignInPanel({ connector, actions, run: run2, onUseToken }) {
 function ClientPanel({ connector, actions, run: run2 }) {
   const [clientId, setClientId] = (0, import_react29.useState)("");
   const [clientSecret, setClientSecret] = (0, import_react29.useState)("");
+  const setup = connector.auth?.clientSetup;
+  const app = setup?.appUrl?.replace(/^https?:\/\//, "");
+  const uri = connector.redirectUri;
+  const copies = (0, import_react29.useSyncExternalStore)(watchCopies, () => codeCopies.get(uri) ?? 0);
   return (0, import_react29.createElement)(
     "div",
     { className: "bt-connector-form" },
+    // The app on the service side has to know the address the browser comes back
+    // to, and its own MCP features, before the pasted client can sign in.
+    (0, import_react29.createElement)(
+      "div",
+      { className: "bt-connector-setup" },
+      (0, import_react29.createElement)("p", null, setup?.kind === "slack" ? t("In OAuth & Permissions at {app}, add this redirect URL:", { app }) : t("In the app settings, add this redirect URL:")),
+      uri ? (0, import_react29.createElement)(
+        "div",
+        { className: "bt-connector-setup-uri" },
+        (0, import_react29.createElement)("code", { className: "bt-connector-uri" }, uri),
+        (0, import_react29.createElement)("button", { type: "button", className: "bt-connector-link", onClick: () => void copyCode(uri) }, t("Copy")),
+        copies > 0 ? (0, import_react29.createElement)(
+          "span",
+          { className: "bt-connector-copied", role: "status" },
+          (0, import_react29.createElement)("span", { key: copies, className: "bt-connector-copied-text" }, (0, import_react29.createElement)(CheckIcon), t("Copied to clipboard"))
+        ) : null
+      ) : null,
+      setup?.kind === "slack" ? (0, import_react29.createElement)("p", null, t("Turn on the MCP features and scopes the app needs.")) : null,
+      (0, import_react29.createElement)("p", null, t("Copy the Client ID and Client Secret here.")),
+      setup?.appUrl ? (0, import_react29.createElement)("button", { type: "button", className: "bt-connector-link", onClick: () => openPage(setup.appUrl) }, t("Open app settings")) : null
+    ),
     (0, import_react29.createElement)("input", { className: "bt-input", "aria-label": t("Client ID"), placeholder: t("Client ID"), value: clientId, spellCheck: false, autoComplete: "off", onChange: (e) => setClientId(e.target.value) }),
     (0, import_react29.createElement)("label", { className: "bt-q-field bt-secret-field" }, (0, import_react29.createElement)(MaskedInput, { value: clientSecret, onChange: setClientSecret, label: t("Client secret (optional)") })),
     (0, import_react29.createElement)(
@@ -29001,7 +29103,7 @@ function MemoryEvent({ sessionId, scope, tool, result, failed, code, roster, act
     );
   }
   const reason = memoryFailure(code);
-  const label = failed ? tool === "forget" ? t("Couldn't remove from memory") : t("Couldn't save to memory") : t("Memory not changed");
+  const label = failed ? tool === "forget" || tool === "bot_forget" ? t("Couldn't remove from memory") : t("Couldn't save to memory") : t("Memory not changed");
   return (0, import_react34.createElement)(
     "div",
     { className: "bt-event bt-event-error", role: "status", title: code },
@@ -29414,10 +29516,13 @@ function toolActivity(name, arg, findBot, self) {
       return { label: t("Reading {name}", { name: arg("group") ?? t("a group chat") }), state: "searching" };
     case "read_own_chat":
       return { label: t("Looking back through the chat"), state: "searching" };
+    case "bot_remember":
     case "remember":
       return { label: t("Saving to memory"), state: "working" };
+    case "bot_forget":
     case "forget":
       return { label: t("Updating memory"), state: "working" };
+    case "bot_recall":
     case "recall":
       return { label: t("Checking memory"), state: "searching" };
     default:
@@ -29647,7 +29752,7 @@ function GroupReplies({ sessionId, callId, done, content, roster, actions, useUi
   );
 }
 var isComputerCall = (name) => name === "cua" || name?.startsWith("cua_driver_native__") === true;
-var DRAWN = /* @__PURE__ */ new Set(["message_bot", "stop_bot", "create_bot", "update_bot", "group_relay", "create_group", "update_group", "delete_group", "post_to_group", "ask_user", "request_secret", "request_connector", "mail_send", "ask_user_question", "show_view", "browser_handoff", "read_group_chat", "remember", "forget"]);
+var DRAWN = /* @__PURE__ */ new Set(["message_bot", "stop_bot", "create_bot", "update_bot", "group_relay", "create_group", "update_group", "delete_group", "post_to_group", "ask_user", "request_secret", "request_connector", "mail_send", "ask_user_question", "show_view", "browser_handoff", "read_group_chat", "bot_remember", "bot_forget", "remember", "forget"]);
 var CARDS = /* @__PURE__ */ new Set(["ask_user", "request_secret", "request_connector", "mail_send", "show_view", "browser_handoff", "computer_handoff"]);
 function callTree(root) {
   const calls = [];
@@ -29748,7 +29853,9 @@ function renderCall(call2, { sessionId, roster, actions, useUi, useWork, findBot
       const room2 = roster.rooms.find((entry) => entry.name === arg("group"));
       return room2 ? (0, import_react34.createElement)(GroupEvent, { prefix: t("Read"), room: room2, roster, actions }) : (0, import_react34.createElement)(CellEmpty);
     }
+    case "bot_remember":
     case "remember":
+    case "bot_forget":
     case "forget":
       return done ? (0, import_react34.createElement)(MemoryEvent, { sessionId, scope: arg("scope"), tool, result: contentText(call2.content), failed: call2.isError === true, code: call2.error?.code, roster, actions, findBot }) : (0, import_react34.createElement)(CellEmpty);
     default:
@@ -29977,8 +30084,11 @@ function showsDshRow(dsh, app) {
 
 // src/client/frame-watch.js
 var sidebarTrackWidth = () => {
-  const box = typeof document === "undefined" ? void 0 : document.querySelector('[class*="_sidebarCol"]')?.getBoundingClientRect();
-  return box === void 0 ? null : trackRoom(box);
+  const column = typeof document === "undefined" ? null : document.querySelector('[class*="_sidebarCol"]');
+  if (!column) return null;
+  const position = typeof getComputedStyle === "function" ? getComputedStyle(column).position : "";
+  if (position === "absolute" || position === "fixed") return 0;
+  return trackRoom(column.getBoundingClientRect());
 };
 var dshCollapsed = () => {
   if (typeof document === "undefined") return null;
@@ -30003,6 +30113,8 @@ var roomRule = () => {
 var margin = (side, width, style) => {
   if (width === null) style.removeProperty(`margin-${side}`);
   else style.setProperty(`margin-${side}`, `${width}px`, "important");
+  if (style.marginLeft || style.marginRight) style.setProperty("width", "auto", "important");
+  else style.removeProperty("width");
 };
 var roomHold = 0;
 var chatRoom = {
@@ -37169,6 +37281,19 @@ function MemorySize({ label, value, save }) {
     if (event.key === "Enter") event.target.blur();
   } });
 }
+var BACKGROUND_AFTER_SEC = 5;
+function SecondsField({ label, value, save }) {
+  const [text, setText] = (0, import_react51.useState)(String(value));
+  (0, import_react51.useEffect)(() => setText(String(value)), [value]);
+  const commit = () => {
+    const number = Number(text);
+    if (text.trim() !== "" && Number.isInteger(number) && number >= 0 && number <= 600 && number !== value) save(number);
+    else setText(String(value));
+  };
+  return (0, import_react51.createElement)("input", { className: "bt-input bt-set-number", type: "number", min: 0, max: 600, step: 1, "aria-label": label, value: text, onChange: (event) => setText(event.target.value), onBlur: commit, onKeyDown: (event) => {
+    if (event.key === "Enter") event.target.blur();
+  } });
+}
 function SetSection({ title, action = null, className = "", children }) {
   return (0, import_react51.createElement)(
     "section",
@@ -37314,6 +37439,15 @@ function GeneralPage({ roster, actions, run: run2, dsh }) {
         SetRow,
         { label: t("Enter sends message") },
         (0, import_react51.createElement)(Switch, { label: t("Enter sends message"), on: prefs.enterToSend !== false, onChange: (enterToSend) => run2(actions.setPrefs({ enterToSend })) })
+      )
+    ),
+    (0, import_react51.createElement)(
+      SetSection,
+      { key: "background", title: t("Background work") },
+      (0, import_react51.createElement)(
+        SetRow,
+        { label: t("Background commands after (seconds)") },
+        (0, import_react51.createElement)(SecondsField, { label: t("Background commands after (seconds)"), value: prefs.backgroundAfterSec ?? BACKGROUND_AFTER_SEC, save: (backgroundAfterSec) => run2(actions.setPrefs({ backgroundAfterSec })) })
       )
     ),
     (0, import_react51.createElement)(
@@ -37670,12 +37804,20 @@ function badgeOf2(rows2) {
 }
 function notificationRows({ statuses, roster, approvals = [] }) {
   const rows2 = [];
+  const botApprovals = /* @__PURE__ */ new Map();
+  const roomApprovals = /* @__PURE__ */ new Map();
+  for (const approval of approvals) {
+    const index = approval.roomId === void 0 ? botApprovals : roomApprovals;
+    const id = approval.roomId === void 0 ? approval.botId : approval.roomId;
+    if (!index.has(id)) index.set(id, []);
+    index.get(id).push(approval);
+  }
   for (const [group, entries2] of [[false, roster.bots ?? []], [true, roster.rooms ?? []]]) {
     for (const entry of entries2) {
       const sessionId = entry.sessionId ?? entry.id;
       const status = statuses?.get(sessionId);
       const question = roster.questions?.[sessionId];
-      const waiting = approvals.filter((approval) => group ? approval.roomId === entry.id : approval.roomId === void 0 && approval.botId === entry.id);
+      const waiting = (group ? roomApprovals : botApprovals).get(entry.id) ?? [];
       const interaction = status?.pendingInteraction;
       const keys = [
         ...question ? [`question:${question.id}`] : [],
@@ -37805,6 +37947,111 @@ function toggleMuted(id) {
   return changeNotify({ mute: { id, on: !isMuted(id) } });
 }
 
+// src/client/connection-feedback.js
+var CONNECTION_GRACE_MS = 2e3;
+var CONNECTING_MIN_VISIBLE_MS = 800;
+var RECOVERY_CONFIRMATION_MS = 2e3;
+var OUTAGE_STATES = /* @__PURE__ */ new Set(["connecting", "disconnected"]);
+function createConnectionFeedback(onChange, {
+  graceMs = CONNECTION_GRACE_MS,
+  minimumVisibleMs = CONNECTING_MIN_VISIBLE_MS,
+  recoveryMs = RECOVERY_CONFIRMATION_MS,
+  now = Date.now,
+  schedule = setTimeout,
+  clear = clearTimeout
+} = {}) {
+  let state;
+  let received = false;
+  let view;
+  let outageAt;
+  let visibleAt;
+  let timer;
+  let generation = 0;
+  let suspended = false;
+  const publish2 = (next) => {
+    if (next === view) return;
+    view = next;
+    onChange?.(next);
+  };
+  const cancel = () => {
+    generation += 1;
+    if (timer === void 0) return;
+    clear(timer);
+    timer = void 0;
+  };
+  const later = (run2, wait) => {
+    const active = generation;
+    timer = schedule(() => {
+      if (active !== generation) return;
+      timer = void 0;
+      run2();
+    }, wait);
+  };
+  const reset = () => {
+    outageAt = void 0;
+    visibleAt = void 0;
+    publish2(void 0);
+  };
+  const showOutage = () => {
+    if (suspended || !OUTAGE_STATES.has(state)) return;
+    visibleAt = now();
+    publish2(state);
+  };
+  const recover = () => {
+    if (suspended || state !== "connected") return;
+    visibleAt = void 0;
+    publish2("recovered");
+    later(() => {
+      if (suspended || state !== "connected") return;
+      publish2(void 0);
+    }, recoveryMs);
+  };
+  const reconcile = () => {
+    const current2 = now();
+    if (state === "connected") {
+      if (visibleAt === void 0) {
+        reset();
+        return;
+      }
+      outageAt = void 0;
+      const remaining2 = minimumVisibleMs - (current2 - visibleAt);
+      if (remaining2 > 0) later(recover, remaining2);
+      else recover();
+      return;
+    }
+    if (!OUTAGE_STATES.has(state)) {
+      reset();
+      return;
+    }
+    if (visibleAt !== void 0) {
+      publish2(state);
+      return;
+    }
+    if (outageAt === void 0) {
+      outageAt = current2;
+      if (view === "recovered") publish2(void 0);
+    }
+    const remaining = graceMs - (current2 - outageAt);
+    if (remaining > 0) later(showOutage, remaining);
+    else showOutage();
+  };
+  return {
+    update(next) {
+      if (!suspended && received && next === state) return;
+      cancel();
+      suspended = false;
+      state = next;
+      received = true;
+      reconcile();
+    },
+    suspend() {
+      suspended = true;
+      cancel();
+    },
+    getView: () => view
+  };
+}
+
 // src/client/settings-shell.js
 var import_react53 = require("react");
 var import_react_dom8 = require("react-dom");
@@ -37822,8 +38069,6 @@ var SETTINGS_CHILDREN = {
 };
 var SKIPPED_STEPS = /* @__PURE__ */ new Set(["welcome-notice"]);
 var DIALOG_EXIT_MS = 160;
-var RECOVERY_CONFIRMATION_MS = 2e3;
-var CONNECTING_MIN_VISIBLE_MS = 800;
 var BUSY_PHASES = /* @__PURE__ */ new Set(["checking", "downloading", "verifying", "installing"]);
 function snapshotStore(initial) {
   let value = initial;
@@ -37914,44 +38159,14 @@ function pickStep({ steps, requested, active, completed }) {
   return active ? steps.find((step) => !completed.has(step.id)) : void 0;
 }
 function useConnectionView(state) {
-  const [recovered, setRecovered] = (0, import_react53.useState)(false);
-  const [holdConnecting, setHoldConnecting] = (0, import_react53.useState)(false);
-  const previous = (0, import_react53.useRef)(state);
-  const connectingAt = (0, import_react53.useRef)(void 0);
+  const [view, setView] = (0, import_react53.useState)();
+  const feedback = (0, import_react53.useRef)();
+  if (feedback.current === void 0) feedback.current = createConnectionFeedback(setView);
   (0, import_react53.useLayoutEffect)(() => {
-    const before = previous.current;
-    previous.current = state;
-    if (state !== "connected") {
-      setRecovered(false);
-      return;
-    }
-    if (before === "disconnected" || before === "connecting") setRecovered(true);
+    feedback.current.update(state);
+    return () => feedback.current.suspend();
   }, [state]);
-  (0, import_react53.useLayoutEffect)(() => {
-    if (!recovered || holdConnecting) return void 0;
-    const timer = setTimeout(() => setRecovered(false), RECOVERY_CONFIRMATION_MS);
-    return () => clearTimeout(timer);
-  }, [recovered, holdConnecting]);
-  (0, import_react53.useLayoutEffect)(() => {
-    if (state === "connecting") {
-      connectingAt.current = Date.now();
-      return void 0;
-    }
-    const shownAt = connectingAt.current;
-    if (shownAt === void 0) return void 0;
-    connectingAt.current = void 0;
-    const remaining = CONNECTING_MIN_VISIBLE_MS - (Date.now() - shownAt);
-    if (remaining <= 0) return void 0;
-    setHoldConnecting(true);
-    const timer = setTimeout(() => setHoldConnecting(false), remaining);
-    return () => {
-      clearTimeout(timer);
-      setHoldConnecting(false);
-    };
-  }, [state]);
-  if (state === "connecting" || holdConnecting) return "connecting";
-  if (state === "disconnected") return "disconnected";
-  return recovered ? "recovered" : void 0;
+  return view;
 }
 var FAILURES2 = {
   check: "Could not check for updates. Try again later.",

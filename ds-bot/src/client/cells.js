@@ -487,7 +487,7 @@ function MemoryEvent({ sessionId, scope, tool, result, failed, code, roster, act
   // said stays in the tool record.
   const reason = memoryFailure(code)
   const label = failed
-    ? (tool === 'forget' ? t("Couldn't remove from memory") : t("Couldn't save to memory"))
+    ? ((tool === 'forget' || tool === 'bot_forget') ? t("Couldn't remove from memory") : t("Couldn't save to memory"))
     : t('Memory not changed')
   return h('div', { className: 'bt-event bt-event-error', role: 'status', title: code },
     h('span', null, h(MemoryIcon), label),
@@ -918,8 +918,11 @@ function toolActivity(name, arg, findBot, self) {
     case 'list_bots': return { label: t('Checking the team'), state: 'searching' }
     case 'read_group_chat': return { label: t('Reading {name}', { name: arg('group') ?? t('a group chat') }), state: 'searching' }
     case 'read_own_chat': return { label: t('Looking back through the chat'), state: 'searching' }
+    case 'bot_remember':
     case 'remember': return { label: t('Saving to memory'), state: 'working' }
+    case 'bot_forget':
     case 'forget': return { label: t('Updating memory'), state: 'working' }
+    case 'bot_recall':
     case 'recall': return { label: t('Checking memory'), state: 'searching' }
     default:
       if (GROUP_PHRASES[name]) return { label: t(GROUP_PHRASES[name]), state: 'sending' }
@@ -1121,7 +1124,7 @@ function GroupReplies({ sessionId, callId, done, content, roster, actions, useUi
 // The calls ToolCell draws. A PTC program (`run_code`) dispatches the real tools as
 // its sub-calls, so a call draws by its own name wherever it sits in the tree.
 const isComputerCall = name => name === 'cua' || name?.startsWith('cua_driver_native__') === true
-const DRAWN = new Set(['message_bot', 'stop_bot', 'create_bot', 'update_bot', 'group_relay', 'create_group', 'update_group', 'delete_group', 'post_to_group', 'ask_user', 'request_secret', 'request_connector', 'mail_send', 'ask_user_question', 'show_view', 'browser_handoff', 'read_group_chat', 'remember', 'forget'])
+const DRAWN = new Set(['message_bot', 'stop_bot', 'create_bot', 'update_bot', 'group_relay', 'create_group', 'update_group', 'delete_group', 'post_to_group', 'ask_user', 'request_secret', 'request_connector', 'mail_send', 'ask_user_question', 'show_view', 'browser_handoff', 'read_group_chat', 'bot_remember', 'bot_forget', 'remember', 'forget'])
 // Calls whose card a dock above the composer carries when the call is not drawn.
 const CARDS = new Set(['ask_user', 'request_secret', 'request_connector', 'mail_send', 'show_view', 'browser_handoff', 'computer_handoff'])
 
@@ -1226,7 +1229,9 @@ function renderCall(call, { sessionId, roster, actions, useUi, useWork, findBot,
       const room = roster.rooms.find(entry => entry.name === arg('group'))
       return room ? h(GroupEvent, { prefix: t('Read'), room, roster, actions }) : h(CellEmpty)
     }
+    case 'bot_remember':
     case 'remember':
+    case 'bot_forget':
     case 'forget':
       return done ? h(MemoryEvent, { sessionId, scope: arg('scope'), tool, result: contentText(call.content), failed: call.isError === true, code: call.error?.code, roster, actions, findBot }) : h(CellEmpty)
     default:

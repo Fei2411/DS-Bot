@@ -4,12 +4,13 @@ import { mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
-import { gateScope } from '../../ds-bot/src/host/browser/gate.js'
-import { mountBrowserPlugin } from '../../ds-bot/src/host/browser/mount.js'
-import { openBotBrowser } from '../../ds-bot/src/host/browser/session.js'
-import { toolDefs as taskTools } from '../../ds-bot/src/host/browser/task.js'
+import { gateScope } from '../../src/host/browser/gate.js'
+import { mountBrowserPlugin } from '../../src/host/browser/mount.js'
+import { openBotBrowser } from '../../src/host/browser/session.js'
+import { toolDefs as taskTools } from '../../src/host/browser/task.js'
 
-const playwrightUrl = new URL('../node_modules/playwright/index.mjs', import.meta.url).href
+// The Chromium the tests drive: Playwright's own build, or another one named in BROWSER_EXECUTABLE_PATH.
+const browserOptions = process.env.BROWSER_EXECUTABLE_PATH ? { executablePath: process.env.BROWSER_EXECUTABLE_PATH } : {}
 
 function pageHtml() {
   return `
@@ -132,15 +133,16 @@ async function fixtureServer() {
   }
 }
 
+// After a page loads a new document, Playwright prefixes its refs (f2e9 instead of e9).
 function findRefs(snapshot, label) {
   return snapshot.split('\n')
-    .filter(value => value.match(/"([^"]*)"/)?.[1] === label && /\[ref=e\d+\]/.test(value))
-    .map(line => line.match(/\[ref=(e\d+)\]/)?.[1])
+    .filter(value => value.match(/"([^"]*)"/)?.[1] === label && /\[ref=(?:f\d+)?e\d+\]/.test(value))
+    .map(line => line.match(/\[ref=((?:f\d+)?e\d+)\]/)?.[1])
 }
 
 function findRef(snapshot, label) {
   const ref = findRefs(snapshot, label)[0]
-  assert.ok(ref, `no snapshot ref for ${label}`)
+  assert.ok(ref, `no snapshot ref for ${label} in:\n${snapshot}`)
   return ref
 }
 
@@ -152,11 +154,11 @@ async function waitFor(check) {
   }
 }
 
-async function setup(t, actionTimeout = 500, options = {}) {
+// `roots(profileRoot)`: the folders an upload may come from.
+async function setup(t, { roots, ...options } = {}) {
   const fixture = await fixtureServer()
   let profileRoot
   let session
-  const extra = typeof options === 'function' ? {} : options
   t.after(async () => {
     await session?.close().catch(() => {})
     try {
@@ -170,10 +172,9 @@ async function setup(t, actionTimeout = 500, options = {}) {
     botId: `test-${process.pid}-${Date.now()}`,
     profileRoot,
     downloadDir: join(profileRoot, 'downloads'),
-    playwrightUrl,
-    actionTimeout,
-    ...extra,
-    uploadRoots: typeof options === 'function' ? async () => options(profileRoot) : extra.uploadRoots,
+    ...browserOptions,
+    ...options,
+    ...(roots ? { uploadRoots: async () => roots(profileRoot) } : {}),
   })
   return { fixture, profileRoot, session }
 }
@@ -211,7 +212,7 @@ async function mountedDownloadAndUpload(t, rootsFor) {
     downloadRoots: async () => roots,
     uploadRoots: async () => roots,
     headless: true,
-    playwrightUrl,
+    ...browserOptions,
   })
   const result = await tool.execute({
     downloadUrl: new URL('download', fixture.url).href,
@@ -319,7 +320,7 @@ test('payment buttons are refused and card details are never typed', async (t) =
 
 test('Bot handoff can resume, while user takeover blocks browser actions', async t => {
   let hold = null
-  const { fixture, session } = await setup(t, 500, {
+  const { fixture, session } = await setup(t, {
     getHold: () => hold,
     onHold: value => { hold = value },
   })
@@ -392,7 +393,7 @@ test('type with submit gates POST forms but not GET forms', async (t) => {
 })
 
 test('unknown POST results block repeats until the page is observed', { timeout: 15_000 }, async (t) => {
-  const { fixture, session } = await setup(t, 300)
+  const { fixture, session } = await setup(t)
   const actions = []
   const gate = action => { actions.push(action) }
   const snapshot = await session.open(fixture.url)
@@ -467,8 +468,7 @@ test('browser_task driver tools inherit the outer authorization gate', async (t)
     keyOf: async exec => exec.botId,
     profileRoot,
     headless: true,
-    playwrightUrl,
-    actionTimeout: 500,
+    ...browserOptions,
     completeFor: () => complete,
     authorize: async (_exec, _botId, action) => { gateActions.push(action) },
   })
@@ -485,7 +485,7 @@ test('browser_task driver tools inherit the outer authorization gate', async (t)
 })
 
 test('uploads are confined to allowed roots and gated before setting files', async (t) => {
-  const { fixture, profileRoot, session } = await setup(t, 500, root => [join(root, 'allowed')])
+  const { fixture, profileRoot, session } = await setup(t, { roots: root => [join(root, 'allowed')] })
   const allowedRoot = join(profileRoot, 'allowed')
   await mkdir(allowedRoot)
   const file = join(allowedRoot, 'notes.txt')
@@ -537,10 +537,12 @@ test('standalone uploads without configured roots are refused', async (t) => {
 })
 
 test('uploads skip a missing legacy folder when the working folder exists', async t => {
-  const { fixture, profileRoot, session } = await setup(t, 500, profileRoot => [
-    join(profileRoot, 'working'),
-    join(profileRoot, 'browser-downloads', 'bot'),
-  ])
+  const { fixture, profileRoot, session } = await setup(t, {
+    roots: profileRoot => [
+      join(profileRoot, 'working'),
+      join(profileRoot, 'browser-downloads', 'bot'),
+    ],
+  })
   const working = join(profileRoot, 'working')
   const file = join(working, 'notes.txt')
   await mkdir(working, { recursive: true })
@@ -624,7 +626,7 @@ test('concurrent downloads reserve unique names and preserve both files', async 
       botId,
       profileRoot,
       downloadDir,
-      playwrightUrl,
+      ...browserOptions,
     }))
   }
   const urls = ['first', 'second'].map(value => {
@@ -642,7 +644,7 @@ test('concurrent downloads reserve unique names and preserve both files', async 
 
 test('downloads resolve a function-valued directory for every save and remove failed placeholders', async t => {
   let destination
-  const { fixture, profileRoot, session } = await setup(t, 500, { downloadDir: async () => destination })
+  const { fixture, profileRoot, session } = await setup(t, { downloadDir: async () => destination })
   const first = join(profileRoot, 'first-downloads')
   const second = join(profileRoot, 'second-downloads')
   destination = first

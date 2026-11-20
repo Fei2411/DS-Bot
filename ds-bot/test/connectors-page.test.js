@@ -421,3 +421,35 @@ test('a sign-in found after a reload is drawn once, and a browser sign-in says w
   renderPage(pageWith(github({ state: 'connecting', pending: { kind: 'browser', url: 'https://github.com/login/oauth' } })))
   assert.equal(pageText().split('Finish signing in in your browser.').length - 1, 1)
 })
+
+test('the client form says where to allow the redirect URL before the client is pasted', () => {
+  const sent = []
+  const slack = {
+    id: 'slack', name: 'Slack', state: 'needs-client',
+    auth: { kind: 'oauth', clientSetup: { kind: 'slack', appUrl: 'https://api.slack.com/apps' } },
+    redirectUri: 'http://127.0.0.1:38517/callback',
+  }
+  const drawRow = (connector, actions) => {
+    slots.length = 0
+    active = () => expand(ConnectorRow({ connector, actions }))
+    rerender()
+  }
+  drawRow(slack, { connectorClient: (id, clientId, clientSecret) => { sent.push({ id, clientId, clientSecret }); return Promise.resolve({ connectors: [] }) } })
+  const setup = collect(node => node.props?.className === 'bt-connector-setup')[0]
+  assert.ok(setup, 'setup hint')
+  const text = flatten(setup).join(' ')
+  // Slack names the place to configure, the address to allow, and what to turn on.
+  assert.match(text, /OAuth & Permissions at api\.slack\.com\/apps/)
+  assert.match(text, /http:\/\/127\.0\.0\.1:38517\/callback/)
+  assert.match(text, /MCP features and scopes/)
+  assert.match(text, /Copy the Client ID and Client Secret here\./)
+  opened.length = 0
+  click('Open app settings')
+  assert.equal(opened[0], 'https://api.slack.com/apps')
+  fill('Client ID', 'cid-1')
+  click('Continue')
+  assert.deepEqual(sent, [{ id: 'slack', clientId: 'cid-1', clientSecret: undefined }])
+  // A service without its own steps still names the address its app has to allow.
+  drawRow({ ...slack, id: 'notion', name: 'Notion', auth: { kind: 'oauth' } }, {})
+  assert.match(flatten(collect(node => node.props?.className === 'bt-connector-setup')[0]).join(' '), /In the app settings, add this redirect URL:/)
+})
