@@ -106,7 +106,7 @@ test('C2C is direct, a group @ is a mention, heartbeats are answered', async (t)
   assert.equal(messages[1].mentioned, true)
   // A heartbeat request from the server gets an op-1 reply.
   fake.push(ws, { op: 1, d: null })
-  await until(() => fake.packets.filter(packet => packet.op === 1).length === 2)
+  assert.ok(await until(() => fake.packets.filter(packet => packet.op === 1).length === 1), 'server heartbeat request gets an op-1 reply')
 })
 
 test('send replies passively with msg_id and a climbing msg_seq; a refusal is permanent', async (t) => {

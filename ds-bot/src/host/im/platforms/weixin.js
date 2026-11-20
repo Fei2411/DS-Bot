@@ -237,6 +237,11 @@ export default {
     // the network is up must still connect once it is. After the quick retries
     // the failure is on screen until a start succeeds.
     const startSession = async () => {
+      const configuredDelays = env.config?.startRetryDelaysMs
+      const delays = Array.isArray(configuredDelays) && configuredDelays.length > 0
+        && configuredDelays.every(ms => Number.isFinite(ms) && ms >= 0)
+        ? configuredDelays
+        : START_RETRY_DELAYS_MS
       let shown = false
       for (let attempt = 0; ; attempt += 1) {
         if (stopped) return
@@ -251,7 +256,7 @@ export default {
             handlers.onStatus({ state: 'error', error: reason })
             return
           }
-          const wait = START_RETRY_DELAYS_MS[attempt]
+          const wait = delays[attempt]
           if (wait === undefined && !shown) {
             shown = true
             env.log?.warn?.('ds-bot im: weixin could not start the session, still retrying: %s', reason)
@@ -259,7 +264,7 @@ export default {
           } else if (wait !== undefined) {
             env.log?.warn?.('ds-bot im: weixin session start failed, retrying: %s', reason)
           }
-          await sleep(wait ?? START_RETRY_DELAYS_MS.at(-1))
+          await sleep(wait ?? delays.at(-1))
         }
       }
       if (!stopped) void poll()
