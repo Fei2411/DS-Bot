@@ -144,3 +144,22 @@ test('a disconnect frame and a dropped socket both reconnect', async (t) => {
   await until(() => fake.sockets.length === 2)
   assert.ok(statuses.some(status => status.state === 'ready'))
 })
+
+test('bold Markdown reaches Slack as bold, not as italic', async (t) => {
+  // Slack writes bold as *text* and italic as _text_. The converter used to turn
+  // **bold** into *bold* and then read that same *bold* as an italic phrase, so bold
+  // text arrived italicised whenever it started a line or followed a space.
+  const fake = await fakeSlack()
+  const handle = slack.connect(FIELDS, env(fake), { onMessage: () => {}, onAction: () => {}, onStatus: () => {} })
+  t.after(() => { handle.stop(); fake.close() })
+  await until(() => fake.sockets[0])
+  await handle.send({ key: 'D1', kind: 'direct' }, { text: 'this is **important** and *emphatic* here' })
+  const post = fake.calls.find(call => call.method === 'chat.postMessage')
+  const rendered = post.params.blocks.map(block => block.text?.text ?? '').join('\n')
+  assert.equal(rendered, 'this is *important* and _emphatic_ here')
+  // A bold run that opens the message is the case the old order got wrong.
+  fake.calls.length = 0
+  await handle.send({ key: 'D1', kind: 'direct' }, { text: '**Start** of the line' })
+  const first = fake.calls.find(call => call.method === 'chat.postMessage')
+  assert.equal(first.params.blocks[0].text.text, '*Start* of the line')
+})

@@ -96,6 +96,8 @@ export class LocalAgentAdapter extends LlmAdapter {
   async listModels(route) {
     const spec = engineOf(route, this.deps.customAgents())
     if (spec === undefined) return []
+    const supportsImage = spec.kind !== 'acp' || this.engines.get(route)?.supportsImages?.() !== false
+    const inputModalities = supportsImage ? ['text', 'image'] : ['text']
     // A custom agent's fixed list replaces the CLI's own: the menu is then only
     // what the user wrote, and nothing probes the CLI.
     const fixed = Array.isArray(spec.models) && spec.models.length > 0
@@ -104,9 +106,9 @@ export class LocalAgentAdapter extends LlmAdapter {
       : [{ provider: route, id: 'default', name: 'CLI default' }, ...(this.modelCache.get(route) ?? [])]
     // A Bot may still have an older model assigned. Keep it out of a fixed list:
     // listModels is also the source used to validate new model selections.
-    if (fixed) return listed
-    const used = (this.deps.usedModels?.(route) ?? []).filter(id => !listed.some(model => model.id === id))
+    const used = fixed ? [] : (this.deps.usedModels?.(route) ?? []).filter(id => !listed.some(model => model.id === id))
     return [...listed, ...used.map(id => ({ provider: route, id, name: id }))]
+      .map(entry => ({ ...entry, inputModalities }))
   }
 
   // Asks one CLI what it serves, once. A failure is not kept, so the next look tries

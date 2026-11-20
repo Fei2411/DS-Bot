@@ -226,10 +226,10 @@ test('other Bots cannot reach a private Bot through the tools between Bots', asy
     ['attach_capability', { bot: 'Diary', name: 'x' }, 'a'],
     ['detach_capability', { bot: 'Diary', name: 'x' }, 'a'],
     ['update_bot', { bot: 'Diary', instructions: 'x' }, 'a'],
-    ['recall', { scope: 'Diary', query: 'x' }, 'a'],
-    ['recall', { scope: '"Diary"' }, 'b'],
-    ['remember', { scope: 'Diary', text: 'x' }, 'a'],
-    ['forget', { scope: 'Diary', entry: 'x' }, 'a'],
+    ['bot_recall', { scope: 'Diary', query: 'x' }, 'a'],
+    ['bot_recall', { scope: '"Diary"' }, 'b'],
+    ['bot_remember', { scope: 'Diary', text: 'x' }, 'a'],
+    ['bot_forget', { scope: 'Diary', entry: 'x' }, 'a'],
   ]) {
     const result = await run(name, args, from)
     assert.equal(result.ran, false, `${name} from ${from}`)
@@ -237,8 +237,8 @@ test('other Bots cannot reach a private Bot through the tools between Bots', asy
   }
   // The others still reach each other and the shared scopes.
   assert.deepEqual(await run('message_bot', { to: 'Writer', message: 'hi' }, 'a'), { ran: true })
-  assert.deepEqual(await run('recall', { scope: 'team', query: 'x' }, 'b'), { ran: true })
-  assert.deepEqual(await run('recall', { scope: 'own' }, P), { ran: true })
+  assert.deepEqual(await run('bot_recall', { scope: 'team', query: 'x' }, 'b'), { ran: true })
+  assert.deepEqual(await run('bot_recall', { scope: 'own' }, P), { ran: true })
   assert.deepEqual(await run('update_bot', { bot: 'Diary', role: 'x' }, P), { ran: true })
 })
 
@@ -458,12 +458,12 @@ test('one private Bot reads its own data but not another private Bot\'s', async 
 test('a private Bot reads public memory and keeps its own journal out of the shared log', async (t) => {
   const { tool, run, home, stop } = await start()
   t.after(stop)
-  await tool('remember', { text: 'a public fact', scope: 'own' }, 'b')
-  await tool('remember', { text: 'a private fact', scope: 'own' }, P)
-  const recalled = await tool('recall', { scope: 'Writer', query: 'public fact' }, P)
+  await tool('bot_remember', { text: 'a public fact', scope: 'own' }, 'b')
+  await tool('bot_remember', { text: 'a private fact', scope: 'own' }, P)
+  const recalled = await tool('bot_recall', { scope: 'Writer', query: 'public fact' }, P)
   assert.match(recalled, /a public fact/)
-  assert.match(await tool('recall', { scope: 'Diary' }, 'a'), /That Bot is private/)
-  const denied = await run('recall', { scope: 'Diary' }, 'a')
+  assert.match(await tool('bot_recall', { scope: 'Diary' }, 'a'), /That Bot is private/)
+  const denied = await run('bot_recall', { scope: 'Diary' }, 'a')
   assert.equal(denied.ran, false)
   assert.match(denied.error, CLOSED)
   const shared = readFileSync(join(home, 'memory', 'journal.jsonl'), 'utf8')

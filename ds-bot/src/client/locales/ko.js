@@ -1,6 +1,8 @@
 // Korean (ko) localization for DS Bot client and DSH settings namespaces.
 
 export const KO = {
+  'Background work': '백그라운드 작업',
+  'Background commands after (seconds)': '명령 백그라운드 전환(초)',
   'A new reply is waiting': "새 답변이 도착했습니다",
   'Opening…': '여는 중…',
   'Still opening…': '아직 여는 중…',
@@ -1490,6 +1492,11 @@ export const KO = {
   'Open {host}': '{host} 열기',
   'Client ID': 'Client ID',
   'Client secret (optional)': 'Client secret (선택사항)',
+  'In OAuth & Permissions at {app}, add this redirect URL:': '{app}의 OAuth & Permissions에서 이 리디렉션 URL을 추가하세요:',
+  'In the app settings, add this redirect URL:': '앱 설정에서 이 리디렉션 URL을 추가하세요:',
+  'Turn on the MCP features and scopes the app needs.': '앱에 필요한 MCP 기능과 범위를 켜세요.',
+  'Copy the Client ID and Client Secret here.': 'Client ID와 Client Secret을 여기에 입력하세요.',
+  'Open app settings': '앱 설정 열기',
   'Continue': '계속',
   '{name} key': '{name} 키',
   '{name} token': '{name} 토큰',
