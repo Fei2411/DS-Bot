@@ -2073,3 +2073,83 @@ test('a failed update keeps the network reason and redacts a secret as it appear
     return true
   })
 })
+
+
+test('fg-handoff: task-handoff notice before IM message does not break IM reply, and moved background task does not double-send raw output to IM', async (t) => {
+  const s = await start()
+  t.after(s.stop)
+  await pairedConn(s)
+
+  // Turn 1 from IM on Bot 'a' starts and claims IM origin.
+  await dm(s, 'u1', 'long background job')
+  s.imTurn('a')
+  s.fake.sent.length = 0
+
+  // Simulate moving 'a' into bot.tasks[] while 'a-new' becomes the forked foreground.
+  const bot = s.rt.botOf('a')
+  const task = {
+    id: 'k_im1',
+    title: 'long background job',
+    from: 'a-new',
+    sessionId: 'a',
+    segments: [],
+    origin: 'fg-handoff',
+    status: 'running',
+    startedAt: Date.now(),
+    updatedAt: Date.now(),
+    imOrigin: s.rt.captureImOrigin('a'),
+  }
+  bot.tasks = [task]
+  bot.sessionId = 'a-new'
+  s.rt.chatOwners.set('a-new', 'a')
+  s.rt.taskOwners.set('a', { botId: 'a', taskId: task.id })
+  s.rt.clearImOrigin('a')
+  await s.rt.save()
+
+  // Moved background task emits an assistant message: must NOT stream directly to IM!
+  s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'raw background output' }] } })
+  await s.flush()
+  assert.equal(s.fake.sent.length, 0, 'moved background task must not stream raw messages directly to IM')
+
+  // User sends a second IM message to Bot 'a' -> lands on new foreground 'a-new'.
+  await dm(s, 'u1', 'quick question')
+  const reqId = s.prompts.at(-1).requestId
+
+  // Simulate real DSH next-step before next-turn order: task-handoff arrives FIRST,
+  // then the user's IM message with rpcId arrives in the same turn!
+  s.emitEvent('a-new', 'turn/start', { turn: 1 })
+  s.emitEvent('a-new', 'user/message', {
+    source: { kind: 'bot', form: 'relay', role: 'task-handoff', taskId: task.id },
+    content: [{ type: 'text', text: '[Background task notice] earlier turn moved' }],
+  })
+  s.emitEvent('a-new', 'user/message', {
+    source: { kind: 'user', rpcId: reqId },
+    content: [{ type: 'text', text: 'quick question' }],
+  })
+  s.emitEvent('a-new', 'assistant/message', { message: { content: [{ type: 'text', text: 'quick foreground answer' }] } })
+  s.emitEvent('a-new', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  await s.flush()
+
+  assert.deepEqual(
+    s.fake.sent.map(entry => [entry.chat.key, entry.text]),
+    [['dm-u1', 'quick foreground answer']],
+    'task-handoff notice before IM user message must not mark the new foreground mixed or drop IM reply',
+  )
+
+  // Finally, task-report arrives on 'a-new' and reclaims the persisted task.imOrigin -> delivered once to IM.
+  s.fake.sent.length = 0
+  s.emitEvent('a-new', 'turn/start', { turn: 2 })
+  s.emitEvent('a-new', 'user/message', {
+    source: { kind: 'bot', form: 'relay', role: 'task-report', taskId: task.id },
+    content: [{ type: 'text', text: '[Background task report] raw background output' }],
+  })
+  s.emitEvent('a-new', 'assistant/message', { message: { content: [{ type: 'text', text: 'Your background job finished!' }] } })
+  s.emitEvent('a-new', 'turn/end', { turn: 2, reason: { kind: 'completed' } })
+  await s.flush()
+
+  assert.deepEqual(
+    s.fake.sent.map(entry => [entry.chat.key, entry.text]),
+    [['dm-u1', 'Your background job finished!']],
+    'task-report must still reach the originating IM chat via persisted task.imOrigin',
+  )
+})

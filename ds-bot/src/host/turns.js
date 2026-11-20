@@ -370,6 +370,24 @@ export function install(rt) {
       // Its input was consumed before the reload; a later request joins this turn.
       entry.opened = true
       entry.since ??= Date.now()
+      // Restore routing info for an adopted `bot-handoff` task so its completion
+      // still delivers the real reply (including async `attachLong` for >20k outputs).
+      const adoptedTask = rt.taskBySession?.(sessionId)?.task
+      if (adoptedTask?.origin === 'bot-handoff' && adoptedTask.exchangeId !== undefined && rt.ownsWork?.(rt.selfOf(sessionId), adoptedTask.exchangeId)) {
+        const asker = rt.workAsker?.(adoptedTask.exchangeId)
+        if (asker !== undefined) {
+          entry.info = asker
+          if (entry.texts.length === 0 && typeof agent.session?.snapshotEvents === 'function') {
+            const events = agent.session.snapshotEvents()
+            const startAt = events.findLastIndex(ev => ev?.type === 'turn/start')
+            for (const ev of events.slice(startAt + 1)) {
+              if (ev?.type !== 'assistant/message') continue
+              const said = textOf(ev.data?.message?.content).trim()
+              if (said !== '') entry.texts.push(said)
+            }
+          }
+        }
+      }
       setActivity(sessionId, 'thinking')
     }
   }
@@ -924,6 +942,9 @@ export function install(rt) {
         break
       case 'user/message': {
         const source = event.data?.source
+        // Pure context notice injected before the user's message on a newly forked foreground;
+        // must not open/claim the turn or pollute entry.info (so userAnswered stays intact).
+        if (source?.kind === SOURCE_KIND && source.role === 'task-handoff') break
         if (source?.kind === 'subagent-settled' || source?.kind === 'agent-message') {
           const childId = typeof source.senderSessionId === 'string' ? source.senderSessionId : undefined
           // Only settlement ends a child's turn; an intermediate `agent-message` keeps the
@@ -1425,5 +1446,5 @@ export function install(rt) {
     }, 'ds-bot: prompt rejection reasons')
   }
 
-  Object.assign(rt, { live, liveOf, roomWaiters, roomProgress, roomInbox, activityView, workView, roomWorkView, turnsView, steeredView, callDetail, doingOf, stopRoomTurn, stopChat, releaseBot, unblockBots, resumeBot, markSteerCut, hasSubagents, stopSubagents, adoptLiveWork })
+  Object.assign(rt, { live, liveOf, roomWaiters, roomProgress, roomInbox, activityView, workView, roomWorkView, turnsView, steeredView, callDetail, doingOf, stopRoomTurn, stopChat, releaseBot, unblockBots, resumeBot, markSteerCut, clearActivity: id => setActivity(id, undefined), hasSubagents, stopSubagents, adoptLiveWork })
 }

@@ -555,6 +555,10 @@ export function install(rt) {
     origins.delete(sessionId)
     mixed.delete(sessionId)
   }
+  const clearImOrigin = (sessionId) => {
+    resetOrigin(sessionId)
+    detachHeldOrigin(sessionId)
+  }
   /**
    * The connection and chat a Session's replies go to, or undefined when nothing may
    * leave: no origin, its connection gone, its chat gone, the user who asked no longer
@@ -1500,45 +1504,51 @@ export function install(rt) {
     }
     if (event.type === 'user/message') {
       const source = event.data?.source
-      const imOrigin = source?.imOrigin
-      const rpcId = source?.rpcId
       // Attached context (snapshots, catalogs, instructions, recalls, and non-waking
       // in-turn notices) joins a turn without naming who asked: it neither claims nor
       // withdraws the IM origin, and does not consume a group's pending reset.
       if (isAttachedContextSource(source)) return
-      // A late member result, part-switch handoff, or task report continues the work the chat asked for;
-      // any other first message starts a fresh turn, which clears the previous turn's origin.
-      const isTaskReport = source?.kind === SOURCE_KIND && source.role === 'task-report' && typeof source.taskId === 'string'
-      if (pendingReset.delete(session.id) && !(typeof imOrigin === 'string' || isTaskReport || (source?.kind === SOURCE_KIND && source.role === 'post'))) resetOrigin(session.id)
-      if (typeof imOrigin === 'string') {
-        const resumed = resumedOrigins.get(imOrigin)
-        resumedOrigins.delete(imOrigin)
-        if (resumed === undefined) dropOrigin(session.id)
-        else claimOrigin(session.id, resumed.connId, resumed.chatKey, resumed.senderId, resumed.binding)
-      } else if (isTaskReport) {
-        // Resolve the persisted task.imOrigin directly so deferred redelivery (turns.js)
-        // and post-restart resends (inflight.json) never lose the IM chat claim.
-        const saved = rt.taskById?.(source.taskId)?.task?.imOrigin
-        if (originFromSaved(saved) === undefined) dropOrigin(session.id)
-        else claimOrigin(session.id, saved.connId, saved.chatKey, saved.senderId, saved.binding)
-      } else if (typeof rpcId === 'string' && rpcId.startsWith('im:')) {
-        if (Number.isInteger(event.seq)) imVia.set(session.id, { ...imVia.get(session.id), [event.seq]: rpcId.split(':')[1] })
-        // The chat this message came from is the one its turn answers. A message this
-        // process never registered — after a restart, or a redelivery — leaves no origin.
-        const asked = requests.get(rpcId)
-        requests.delete(rpcId)
-        if (asked === undefined) dropOrigin(session.id)
-        else claimOrigin(session.id, asked.connId, asked.chatKey, asked.senderId, asked.binding)
-      } else if (source?.kind === REPLY_KIND) {
-        // Web and phone answers carry no registered IM request.
-        dropOrigin(session.id)
-      } else if (source?.kind === SOURCE_KIND && source.role === 'post') {
-        // A member's late result relayed into the group's own Session. The group's work
-        // is still the answer to the chat that asked, wherever the member runs.
+      // Pure context notice injected before the user's message on a newly forked foreground;
+      // never touch pendingReset or drop/mix the IM origin for this turn.
+      if (source?.kind === SOURCE_KIND && source.role === 'task-handoff') {
+        // intentionally ignored
       } else {
-        // A message from the Web UI, a peer Bot or a scheduled task: this turn is not an
-        // IM chat's to answer, even when an earlier turn of this Session was.
-        dropOrigin(session.id)
+        const imOrigin = source?.imOrigin
+        const rpcId = source?.rpcId
+        // A late member result, part-switch handoff, or task report continues the work the chat asked for;
+        // any other first message starts a fresh turn, which clears the previous turn's origin.
+        const isTaskReport = source?.kind === SOURCE_KIND && source.role === 'task-report' && typeof source.taskId === 'string'
+        if (pendingReset.delete(session.id) && !(typeof imOrigin === 'string' || isTaskReport || (source?.kind === SOURCE_KIND && source.role === 'post'))) resetOrigin(session.id)
+        if (typeof imOrigin === 'string') {
+          const resumed = resumedOrigins.get(imOrigin)
+          resumedOrigins.delete(imOrigin)
+          if (resumed === undefined) dropOrigin(session.id)
+          else claimOrigin(session.id, resumed.connId, resumed.chatKey, resumed.senderId, resumed.binding)
+        } else if (isTaskReport) {
+          // Resolve the persisted task.imOrigin directly so deferred redelivery (turns.js)
+          // and post-restart resends (inflight.json) never lose the IM chat claim.
+          const saved = rt.taskById?.(source.taskId)?.task?.imOrigin
+          if (originFromSaved(saved) === undefined) dropOrigin(session.id)
+          else claimOrigin(session.id, saved.connId, saved.chatKey, saved.senderId, saved.binding)
+        } else if (typeof rpcId === 'string' && rpcId.startsWith('im:')) {
+          if (Number.isInteger(event.seq)) imVia.set(session.id, { ...imVia.get(session.id), [event.seq]: rpcId.split(':')[1] })
+          // The chat this message came from is the one its turn answers. A message this
+          // process never registered — after a restart, or a redelivery — leaves no origin.
+          const asked = requests.get(rpcId)
+          requests.delete(rpcId)
+          if (asked === undefined) dropOrigin(session.id)
+          else claimOrigin(session.id, asked.connId, asked.chatKey, asked.senderId, asked.binding)
+        } else if (source?.kind === REPLY_KIND) {
+          // Web and phone answers carry no registered IM request.
+          dropOrigin(session.id)
+        } else if (source?.kind === SOURCE_KIND && source.role === 'post') {
+          // A member's late result relayed into the group's own Session. The group's work
+          // is still the answer to the chat that asked, wherever the member runs.
+        } else {
+          // A message from the Web UI, a peer Bot or a scheduled task: this turn is not an
+          // IM chat's to answer, even when an earlier turn of this Session was.
+          dropOrigin(session.id)
+        }
       }
     }
     if (event.type === 'turn/end') {
@@ -1553,8 +1563,9 @@ export function install(rt) {
       }
     }
     const botId = rt.chatOwners.get(session.id)
-    if (botId === undefined) {
-      // A group's own chat has no Bot of its own; its lines go out from onRoomLine.
+    if (botId === undefined || rt.taskOwners?.has(session.id)) {
+      // A group's own chat has no Bot of its own (onRoomLine handles it), and a background
+      // task reports back through its foreground chat rather than streaming raw lines to IM.
       imVia.delete(session.id)
       return
     }
@@ -1626,5 +1637,5 @@ export function install(rt) {
     return [id, { state: status.state, ...(status.error !== undefined ? { error: status.error } : {}), at: status.at }]
   }))
 
-  Object.assign(rt, { imView, imStatusView, imViaView, imEndpoint, holdImOrigin, peekImOrigin, dropImOrigin, captureImOrigin })
+  Object.assign(rt, { imView, imStatusView, imViaView, imEndpoint, holdImOrigin, peekImOrigin, dropImOrigin, captureImOrigin, clearImOrigin })
 }
