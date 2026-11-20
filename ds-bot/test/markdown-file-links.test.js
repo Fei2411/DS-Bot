@@ -42,6 +42,30 @@ test('leaves UNC paths, URLs, and relative paths untouched', () => {
   assert.equal(normalizeFileLinks(input), input)
 })
 
+test('a message showing the path in code and in a title only rewrites the real destination', () => {
+  // The three shapes a reviewer asked about, in one message: inline code, a
+  // fenced block, and a link title. Only the destination may change.
+  const input = [
+    'Try `[r](C:\\work\\.dsh\\r.md)` in a shell:',
+    '',
+    '```md',
+    '[r](C:\\work\\.dsh\\r.md)',
+    '```',
+    '',
+    'Write it as [r](C:/work/r.md "copied from C:\\work\\r.md").',
+  ].join('\n')
+  const expected = [
+    'Try `[r](C:\\work\\.dsh\\r.md)` in a shell:',
+    '',
+    '```md',
+    '[r](C:\\work\\.dsh\\r.md)',
+    '```',
+    '',
+    'Write it as [r](C:/work/r.md "copied from C:\\work\\r.md").',
+  ].join('\n')
+  assert.equal(normalizeFileLinks(input), expected)
+})
+
 test('skips inline code spans, multi-backtick spans, fenced blocks (``` and ~~~), and indented code blocks', () => {
   const input = [
     'Inline `[a](C:\\work\\.dsh\\a.md)` and multi `` ``` [b](C:\\work\\.dsh\\b.md) `` plus [real](C:\\work\\.dsh\\real.md).',
