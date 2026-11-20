@@ -35,7 +35,7 @@ function hostExports() {
   return undefined
 }
 
-// `import * as ui from '…primitives'` then `ui.Name`, and `import { Name } from '…primitives'`.
+// `import * as ui from '…primitives'` then `ui.Name`, and `import { Name } from '…primitives'` or `export { Name } from '…primitives'`.
 function clientReads() {
   const dir = new URL('../src/client/', import.meta.url)
   const reads = new Map()
@@ -45,7 +45,8 @@ function clientReads() {
     for (const [, ns] of source.matchAll(/import \* as (\w+) from '@deepseek-ai\/dsh-client-ui-primitives'/g)) {
       for (const [, name] of source.matchAll(new RegExp(`\\b${ns}\\.([A-Za-z_$][\\w$]*)`, 'g'))) note(name, file)
     }
-    for (const [, list] of source.matchAll(/import \{([^}]*)\} from '@deepseek-ai\/dsh-client-ui-primitives'/g)) {
+    // dsh-primitives.js re-exports them all (`export { … } from`), so the desktop window can put its own in.
+    for (const [, list] of source.matchAll(/(?:import|export) \{([^}]*)\} from '@deepseek-ai\/dsh-client-ui-primitives'/g)) {
       for (const part of list.split(',')) {
         const name = part.trim().split(/\s+as\s+/)[0]
         if (name) note(name, file)
