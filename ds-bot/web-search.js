@@ -219,9 +219,9 @@ export function readGemini(body) {
 
 const URL_KEYS = ['url', 'uri', 'link']
 const TITLE_KEYS = ['title', 'name', 'site_name']
-// A provider's `summary` is the last snippet fallback, so a summary-only result still displays.
-const SNIPPET_KEYS = ['snippet', 'content', 'description', 'cited_text', 'text', 'summary']
-// The provider's own long extract is also kept as the seam's summary beside the snippet.
+// Keep `summary` ahead of `content` so existing providers that return both still show the
+// summary as the display snippet. The same `summary` field is also kept via SUMMARY_KEYS.
+const SNIPPET_KEYS = ['snippet', 'summary', 'content', 'description', 'cited_text', 'text']
 const SUMMARY_KEYS = ['summary']
 const DATE_KEYS = ['published_date', 'publish_date', 'publish_time', 'page_age', 'date', 'last_updated']
 // Media links are not results, and a response that echoes the request's tools is not a search.

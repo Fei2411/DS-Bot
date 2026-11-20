@@ -612,6 +612,10 @@ test('declared search API responses are read by shape, skipping media links and 
   // A provider's summary is kept as its own seam field beside the display snippet.
   assert.deepEqual(findSources({ results: [{ url: 'https://s.example/', title: 'S', snippet: 'short', summary: 'a longer extract' }] }),
     [{ url: 'https://s.example/', title: 'S', snippet: 'short', summary: 'a longer extract' }])
+  // When both summary and content exist, the snippet stays the summary (the order existing
+  // providers had before this change added the dedicated summary field).
+  assert.deepEqual(findSources({ results: [{ url: 'https://s.example/', title: 'S', summary: 'the summary', content: 'the content' }] }),
+    [{ url: 'https://s.example/', title: 'S', snippet: 'the summary', summary: 'the summary' }])
   // Summary alone feeds both fields, so the old display behavior is kept; a long one is clipped.
   assert.deepEqual(findSources({ results: [{ url: 'https://s.example/', title: 'S', summary: 'only' }] }), [{ url: 'https://s.example/', title: 'S', snippet: 'only', summary: 'only' }])
   assert.deepEqual(findSources({ results: [{ url: 'https://s.example/', snippet: 's', summary: 'x'.repeat(1200) }] })[0],
