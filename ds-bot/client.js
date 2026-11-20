@@ -146,7 +146,12 @@ var JA = {
   "Scan this code with the DS Bot app on your phone.": "スマートフォンの DS Bot アプリでこのコードをスキャンしてください。",
   "Server": "サーバー",
   "Show a QR code": "QR コードを表示",
-  "The Relay Server that passes encrypted messages between your phone and this computer. It cannot read them.": "スマートフォンとこのコンピューターの間で暗号化されたメッセージを中継するサーバーです。内容は読めません。",
+  "Open in a browser": "ブラウザーで開く",
+  "Web browser": "ウェブブラウザー",
+  "Copy browser link": "ブラウザーのリンクをコピー",
+  "Clipboard is not available": "クリップボードを利用できません",
+  "The Server forwards encrypted messages. Browser access also trusts the page it serves.": "サーバーは暗号化されたメッセージを中継します。ブラウザーでのアクセスでは、サーバーが提供するページも信頼します。",
+  "The browser runs the page the Server sends. Only use a Server you trust.": "ブラウザーはサーバーから送信されたページを実行します。信頼できるサーバーのみを使用してください。",
   "The code works once. It stops working in {count} min.": "このコードは 1 回だけ使えます。{count} 分後に無効になります。",
   "Turn on phone access first": "先にスマートフォンからのアクセスをオンにしてください",
   "The Server address must start with ws:// or wss://": "サーバーのアドレスは ws:// または wss:// で始める必要があります",
@@ -2710,7 +2715,12 @@ var KO = {
   "Scan this code with the DS Bot app on your phone.": "휴대폰의 DS Bot 앱으로 이 코드를 스캔하세요.",
   "Server": "서버",
   "Show a QR code": "QR 코드 표시",
-  "The Relay Server that passes encrypted messages between your phone and this computer. It cannot read them.": "휴대폰과 이 컴퓨터 사이에서 암호화된 메시지를 전달하는 중계 서버입니다. 내용은 읽을 수 없습니다.",
+  "Open in a browser": "브라우저에서 열기",
+  "Web browser": "웹 브라우저",
+  "Copy browser link": "브라우저 링크 복사",
+  "Clipboard is not available": "클립보드를 사용할 수 없습니다",
+  "The Server forwards encrypted messages. Browser access also trusts the page it serves.": "서버는 암호화된 메시지를 전달합니다. 브라우저 접근은 서버가 제공하는 페이지도 신뢰합니다.",
+  "The browser runs the page the Server sends. Only use a Server you trust.": "브라우저는 서버가 보낸 페이지를 실행합니다. 신뢰하는 서버만 사용하세요.",
   "The code works once. It stops working in {count} min.": "이 코드는 한 번만 사용할 수 있으며 {count}분 후에 만료됩니다.",
   "Turn on phone access first": "먼저 휴대폰 접근을 켜세요",
   "The Server address must start with ws:// or wss://": "서버 주소는 ws:// 또는 wss://로 시작해야 합니다",
@@ -5319,7 +5329,12 @@ var ES = {
   "Scan this code with the DS Bot app on your phone.": "Escanea este código con la app DS Bot de tu teléfono.",
   "Server": "Servidor",
   "Show a QR code": "Mostrar un código QR",
-  "The Relay Server that passes encrypted messages between your phone and this computer. It cannot read them.": "El servidor de retransmisión que pasa los mensajes cifrados entre tu teléfono y este ordenador. No puede leerlos.",
+  "Open in a browser": "Abrir en un navegador",
+  "Web browser": "Navegador web",
+  "Copy browser link": "Copiar enlace del navegador",
+  "Clipboard is not available": "El portapapeles no está disponible",
+  "The Server forwards encrypted messages. Browser access also trusts the page it serves.": "El servidor retransmite mensajes cifrados. El acceso desde el navegador también confía en la página que sirve.",
+  "The browser runs the page the Server sends. Only use a Server you trust.": "El navegador ejecuta la página que envía el servidor. Usa solo un servidor de confianza.",
   "The code works once. It stops working in {count} min.": "El código sirve una sola vez. Caduca en {count} min.",
   "Turn on phone access first": "Activa primero el acceso desde el teléfono",
   "The Server address must start with ws:// or wss://": "La dirección del servidor debe empezar por ws:// o wss://",
@@ -7928,7 +7943,12 @@ var FR = {
   "Scan this code with the DS Bot app on your phone.": "Scannez ce code avec l’app DS Bot sur votre téléphone.",
   "Server": "Serveur",
   "Show a QR code": "Afficher un code QR",
-  "The Relay Server that passes encrypted messages between your phone and this computer. It cannot read them.": "Le serveur relais qui transmet les messages chiffrés entre votre téléphone et cet ordinateur. Il ne peut pas les lire.",
+  "Open in a browser": "Ouvrir dans un navigateur",
+  "Web browser": "Navigateur web",
+  "Copy browser link": "Copier le lien du navigateur",
+  "Clipboard is not available": "Le presse-papiers n’est pas disponible",
+  "The Server forwards encrypted messages. Browser access also trusts the page it serves.": "Le serveur transmet les messages chiffrés. L’accès par navigateur fait aussi confiance à la page qu’il fournit.",
+  "The browser runs the page the Server sends. Only use a Server you trust.": "Le navigateur exécute la page envoyée par le serveur. Utilisez uniquement un serveur de confiance.",
   "The code works once. It stops working in {count} min.": "Le code ne sert qu’une fois. Il expire dans {count} min.",
   "Turn on phone access first": "Activez d’abord l’accès depuis le téléphone",
   "The Server address must start with ws:// or wss://": "L’adresse du serveur doit commencer par ws:// ou wss://",
@@ -10492,7 +10512,12 @@ var DE = {
   "Scan this code with the DS Bot app on your phone.": "Scanne diesen Code mit der DS Bot-App auf deinem Telefon.",
   "Server": "Server",
   "Show a QR code": "QR-Code anzeigen",
-  "The Relay Server that passes encrypted messages between your phone and this computer. It cannot read them.": "Der Relay-Server, der verschlüsselte Nachrichten zwischen deinem Telefon und diesem Computer weiterleitet. Er kann sie nicht lesen.",
+  "Open in a browser": "Im Browser öffnen",
+  "Web browser": "Webbrowser",
+  "Copy browser link": "Browser-Link kopieren",
+  "Clipboard is not available": "Die Zwischenablage ist nicht verfügbar",
+  "The Server forwards encrypted messages. Browser access also trusts the page it serves.": "Der Server leitet verschlüsselte Nachrichten weiter. Der Browserzugriff vertraut auch der von ihm bereitgestellten Seite.",
+  "The browser runs the page the Server sends. Only use a Server you trust.": "Der Browser führt die vom Server gesendete Seite aus. Verwende nur einen Server, dem du vertraust.",
   "The code works once. It stops working in {count} min.": "Der Code funktioniert einmal. Er läuft in {count} Min. ab.",
   "Turn on phone access first": "Schalte zuerst den Telefonzugriff ein",
   "The Server address must start with ws:// or wss://": "Die Serveradresse muss mit ws:// oder wss:// beginnen",
@@ -13872,11 +13897,16 @@ var ZH = {
   "Phone app": "手机 App",
   "Android beta": "Android 测试版",
   Server: "服务器",
-  "The Relay Server that passes encrypted messages between your phone and this computer. It cannot read them.": "在手机和这台电脑之间转发加密消息的中转服务器。它读不到消息内容。",
+  "The Server forwards encrypted messages. Browser access also trusts the page it serves.": "服务器转发加密消息。浏览器访问还需要信任服务器提供的网页。",
+  "The browser runs the page the Server sends. Only use a Server you trust.": "浏览器运行服务器发来的网页。请只使用你信任的服务器。",
   "Pair a phone": "配对手机",
   "Scan this code with the DS Bot app on your phone.": "用手机上的 DS Bot App 扫这个码。",
   "The code works once. It stops working in {count} min.": "这个码只能用一次，{count} 分钟后失效。",
   "Show a QR code": "显示二维码",
+  "Open in a browser": "在浏览器中打开",
+  "Web browser": "网页浏览器",
+  "Copy browser link": "复制浏览器链接",
+  "Clipboard is not available": "剪贴板不可用",
   "Your phone scans it once. After that it connects by itself.": "手机扫一次就行，以后会自动连接。",
   "Turn on phone access first": "请先打开手机访问",
   Phones: "手机",
@@ -17725,6 +17755,7 @@ button.bt-set-row:hover .bt-chevron{transform:translateX(2px);color:var(--bt-ink
 .bt-phone-qr rect{fill:var(--bt-qr-paper)}
 .bt-phone-qr path{fill:var(--bt-qr-ink)}
 .bt-phone-pair-copy{display:flex;flex-direction:column;gap:8px;font-size:14px;line-height:20px}
+.bt-phone-pair-actions{display:flex;flex-wrap:wrap;gap:8px}
 @media(max-width:700px){.bt-phone-pair{flex-direction:column;align-items:flex-start}}
 
 /* Settings → Connectors. */
@@ -36093,6 +36124,17 @@ var createDataURL = function(width, height, getPixel) {
 var qrcode_default = qrcode;
 var stringToBytes = qrcode.stringToBytes;
 
+// src/client/phone-browser.js
+function browserPairingUrl(server, browserUri) {
+  const url = new URL(server);
+  if (url.protocol !== "ws:" && url.protocol !== "wss:") throw new Error("The Server address must start with ws:// or wss://");
+  url.protocol = url.protocol === "wss:" ? "https:" : "http:";
+  url.pathname = `${url.pathname.replace(/\/v1\/link\/?$/, "").replace(/\/+$/, "")}/web/`;
+  url.search = "";
+  url.hash = `pair=${encodeURIComponent(browserUri)}`;
+  return url.href;
+}
+
 // src/client/phone-page.js
 var import_react43 = require("react");
 var OFF = { server: "", on: false, status: "off", phones: [], pairing: null };
@@ -36130,11 +36172,16 @@ function PhonePage({ roster, actions, Section: Section2, Row: Row4 }) {
   const [server, setServer] = (0, import_react43.useState)(phone.server);
   const [busy, setBusy] = (0, import_react43.useState)(false);
   const [error, setError] = (0, import_react43.useState)(null);
+  const [copied, setCopied] = (0, import_react43.useState)(false);
+  const copyTimer = (0, import_react43.useRef)(null);
   const [, tick] = (0, import_react43.useState)(0);
   (0, import_react43.useEffect)(() => {
     setServer(phone.server);
   }, [phone.server]);
+  (0, import_react43.useEffect)(() => () => clearTimeout(copyTimer.current), []);
   (0, import_react43.useEffect)(() => {
+    setCopied(false);
+    clearTimeout(copyTimer.current);
     if (!phone.pairing) return void 0;
     const timer = setInterval(() => tick((count) => count + 1), 15e3);
     return () => clearInterval(timer);
@@ -36148,7 +36195,26 @@ function PhonePage({ roster, actions, Section: Section2, Row: Row4 }) {
     if (busy || server.trim() === phone.server) return;
     void run2(actions.phoneSet({ server }));
   };
+  const copyBrowserLink = (url) => {
+    const task = navigator.clipboard?.writeText(url);
+    if (task === void 0) {
+      setError(t("Clipboard is not available"));
+      return;
+    }
+    void run2(task.then(() => {
+      setCopied(true);
+      clearTimeout(copyTimer.current);
+      copyTimer.current = setTimeout(() => setCopied(false), 2e3);
+    }));
+  };
   const online = phone.on && phone.status === "online";
+  let browserUrl = null;
+  if (phone.pairing?.browserUri) {
+    try {
+      browserUrl = browserPairingUrl(phone.server, phone.pairing.browserUri);
+    } catch {
+    }
+  }
   return (0, import_react43.createElement)(
     "div",
     { className: "bt-phone" },
@@ -36160,7 +36226,7 @@ function PhonePage({ roster, actions, Section: Section2, Row: Row4 }) {
         { label: t("Phone access"), hint: statusText3(phone), className: phone.error || phone.status === "offline" ? "bt-phone-warn" : "" },
         (0, import_react43.createElement)(Switch, { on: phone.on, label: t("Phone access"), disabled: busy, onChange: (on) => void run2(actions.phoneSet({ on })) })
       ),
-      (0, import_react43.createElement)(Row4, { label: t("Server"), hint: t("The Relay Server that passes encrypted messages between your phone and this computer. It cannot read them.") }),
+      (0, import_react43.createElement)(Row4, { label: t("Server"), hint: t("The Server forwards encrypted messages. Browser access also trusts the page it serves.") }),
       (0, import_react43.createElement)(
         "div",
         { className: "bt-set-row bt-phone-server" },
@@ -36189,6 +36255,13 @@ function PhonePage({ roster, actions, Section: Section2, Row: Row4 }) {
         { className: "bt-phone-pair-copy" },
         (0, import_react43.createElement)("span", null, t("Scan this code with the DS Bot app on your phone.")),
         (0, import_react43.createElement)("span", { className: "bt-set-hint" }, t("The code works once. It stops working in {count} min.", { count: minutesLeft(phone.pairing.expiresAt) })),
+        browserUrl !== null ? (0, import_react43.createElement)(
+          "div",
+          { className: "bt-phone-pair-actions" },
+          (0, import_react43.createElement)("a", { className: "bt-soft bt-soft-sm", href: browserUrl, target: "_blank", rel: "noopener noreferrer" }, t("Open in a browser")),
+          (0, import_react43.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: busy, onClick: () => copyBrowserLink(browserUrl) }, copied ? t("Copied") : t("Copy browser link"))
+        ) : null,
+        browserUrl !== null ? (0, import_react43.createElement)("span", { className: "bt-set-hint" }, t("The browser runs the page the Server sends. Only use a Server you trust.")) : null,
         (0, import_react43.createElement)("div", null, (0, import_react43.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: busy, onClick: () => void run2(actions.phonePairCancel()) }, t("Cancel")))
       )
     ) : (0, import_react43.createElement)(
@@ -36198,7 +36271,7 @@ function PhonePage({ roster, actions, Section: Section2, Row: Row4 }) {
     )),
     (0, import_react43.createElement)(Section2, { title: t("Phones") }, phone.phones.length === 0 ? (0, import_react43.createElement)(Row4, { label: t("No phones yet") }) : phone.phones.map((entry) => (0, import_react43.createElement)(Row4, {
       key: entry.id,
-      label: entry.name || t("Phone"),
+      label: entry.kind === "browser" ? t("Web browser") : entry.name || t("Phone"),
       hint: entry.connected ? t("Connected") : t("Paired on {date}", { date: new Date(entry.pairedAt).toLocaleDateString(dateLocale(), { dateStyle: "medium" }) })
     }, (0, import_react43.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: busy, onClick: () => void run2(actions.phoneRemove(entry.id)) }, t("Remove")))))
   );

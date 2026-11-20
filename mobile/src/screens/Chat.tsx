@@ -3,8 +3,8 @@ import { ActivityIndicator, Dimensions, FlatList, KeyboardAvoidingView, Linking,
 import { useIsFocused, useNavigation } from '@react-navigation/native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import * as Haptics from 'expo-haptics'
-import { downloadFile } from '../team/file-download.ts'
-import * as Sharing from 'expo-sharing'
+import { downloadFile } from '../team/file-download'
+import { shareFile } from '../team/share-file'
 import type { Approval, Bot, Question, Room } from '../connection.ts'
 import { createChatCache } from '../team/chat-cache.ts'
 import { connectorCanConnectOnMobile } from '../team/connectors.ts'
@@ -275,8 +275,7 @@ export function ChatView({ bot, room, header, onMissing }: { bot?: Bot; room?: R
     void (async () => {
       try {
         const saved = await downloadFile(call, payload)
-        if (!(await Sharing.isAvailableAsync())) throw new Error(t('Saving to the device is not available on this phone'))
-        await Sharing.shareAsync(saved.uri, { mimeType: saved.mime, dialogTitle: saved.name })
+        await shareFile(saved)
       } catch (failure) {
         const msg = (failure as { message?: string })?.message
         setFileError(msg ?? t('Could not save this file'))
