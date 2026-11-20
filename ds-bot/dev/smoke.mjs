@@ -482,6 +482,81 @@ await step('Chief runs a background task forked from its own chat and receives t
   )
 })
 
+await step('busy foreground auto-moves to background on new user message and reports back', async () => {
+  const oldSid = chief().sessionId ?? chief().id
+  const callsBefore = mockLog().length
+  await send(chief().id, '慢活 4')
+  // Wait until list_bots tool call has been issued (toolCount >= 1) and second model call is in flight.
+  const busyDeadline = Date.now() + 10_000
+  while (Date.now() < busyDeadline) {
+    if (mockLog().length > callsBefore) break
+    await sleep(100)
+  }
+  await sleep(300)
+  // User sends a new message while Chief is busy -> oldSid moves into bot.tasks[] as fg-handoff.
+  await send(chief().id, '前台新问题')
+  const newSid = chief().sessionId ?? chief().id
+  const deadline = Date.now() + 25_000
+  let movedTask
+  while (Date.now() < deadline) {
+    const view = await api('state')
+    const chiefView = view.bots?.find(item => item.id === chief().id)
+    movedTask = (chiefView?.tasks ?? []).find(item => item.sessionId === oldSid)
+    if (movedTask?.status === 'completed') break
+    await sleep(300)
+  }
+  await settle()
+  return { oldSid, newSid, movedTask }
+}, ({ oldSid, newSid, movedTask }, calls) => {
+  const outputs = calls.flatMap(call => call.out ?? []).filter(block => block.type === 'text').map(block => block.text)
+  const slowDone = outputs.find(line => line.includes('慢活已完成'))
+  const fgReport = outputs.find(line => line.includes('已收到后台任务汇报') && line.includes('慢活已完成'))
+  return expect(
+    newSid !== oldSid
+      && movedTask?.origin === 'fg-handoff'
+      && movedTask?.status === 'completed'
+      && slowDone !== undefined
+      && fgReport !== undefined,
+    `oldSid=${oldSid} newSid=${newSid} movedTask=${JSON.stringify(movedTask)} slowDone=${slowDone} fgReport=${fgReport}`,
+  )
+})
+
+await step('peer Bot messaging a busy Bot spawns a bot-handoff task without switching foreground', async () => {
+  const fgBefore = chief().sessionId ?? chief().id
+  const beforeCount = (chief().tasks ?? []).length
+  const callsBefore = mockLog().length
+  await send(chief().id, '慢活 6')
+  const busyDeadline = Date.now() + 10_000
+  while (Date.now() < busyDeadline) {
+    if (mockLog().length > callsBefore) break
+    await sleep(100)
+  }
+  await sleep(300)
+  await send(botNamed('Coder').id, '转告 Chief：并行核对接口')
+  const deadline = Date.now() + 25_000
+  let peerTask
+  while (Date.now() < deadline) {
+    const view = await api('state')
+    const chiefView = view.bots?.find(item => item.id === chief().id)
+    peerTask = (chiefView?.tasks ?? []).slice(beforeCount).find(item => item.origin === 'bot-handoff')
+    if (peerTask?.status === 'completed') break
+    await sleep(300)
+  }
+  await settle()
+  const fgAfter = chief().sessionId ?? chief().id
+  return { fgBefore, fgAfter, peerTask }
+}, ({ fgBefore, fgAfter, peerTask }, calls) => {
+  const outputs = calls.flatMap(call => call.out ?? []).filter(block => block.type === 'text').map(block => block.text)
+  const peerReplied = outputs.some(line => line.includes('给 Coder 的回复'))
+  return expect(
+    fgBefore === fgAfter
+      && peerTask?.origin === 'bot-handoff'
+      && peerTask?.status === 'completed'
+      && peerReplied,
+    `fgBefore=${fgBefore} fgAfter=${fgAfter} peerTask=${JSON.stringify(peerTask)} peerReplied=${peerReplied}`,
+  )
+})
+
 if (outFile) writeFileSync(outFile, `${JSON.stringify(transcript, null, 2)}\n`)
 console.log(failures.length === 0 ? `\nsmoke: all ${transcript.length} steps passed` : `\nsmoke: ${failures.length} failed\n${failures.join('\n')}`)
 process.exit(failures.length === 0 ? 0 : 1)
