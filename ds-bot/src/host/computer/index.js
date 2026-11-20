@@ -688,7 +688,7 @@ export function install(rt) {
   const askAppAccess = ({ botId, sessionId, callId, app, signal }) => new Promise((resolve) => {
     if (signal?.aborted) { resolve('deny'); return }
     const id = randomUUID()
-    const roomId = rt.groupOwners?.get(sessionId)?.roomId
+    const roomId = rt.groupOwners?.get(sessionId)?.roomId ?? rt.taskOwners?.get(sessionId)?.roomId
     const entry = {
       id, botId, sessionId, appName: app.name, at: Date.now(),
       ...(roomId !== undefined ? { roomId } : {}),

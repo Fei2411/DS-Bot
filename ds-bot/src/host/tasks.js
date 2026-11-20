@@ -130,7 +130,7 @@ export function install(rt) {
       const self = rt.selfOf(exec.agent?.id)
       const member = rt.botOf(self)
       if (member === undefined) return 'Only Bots on the team can use group_task.'
-      const room = rt.roomOf(rt.groupOwners.get(exec.agent?.id)?.roomId)
+      const room = rt.roomOf(rt.groupOwners.get(exec.agent?.id)?.roomId ?? rt.taskOwners?.get(exec.agent?.id)?.roomId)
       if (room === undefined) return 'group_task works inside a group chat, where the work belongs to the group. Call it from your group session.'
       const isAdmin = rt.isMain(self) || rt.isAdminOf(room, self)
       const action = String(args.action ?? '')

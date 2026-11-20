@@ -925,7 +925,13 @@ export function install(rt) {
   function ownThreadTarget(ref, past = rt.pastOwners.get(ref)) {
     if (rt.botOf(ref)) return rt.chatOf(ref)
     const taskOwner = rt.taskOwners?.get(ref)
-    if (taskOwner !== undefined) return rt.chatOf(taskOwner.botId)
+    if (taskOwner !== undefined) {
+      if (taskOwner.roomId !== undefined) {
+        const room = rt.roomOf(taskOwner.roomId)
+        return room === undefined ? undefined : rt.sessionOfRoom(room)
+      }
+      return rt.chatOf(taskOwner.botId)
+    }
     if (past !== undefined && past.roomId === undefined) {
       const bot = rt.botOf(past.botId)
       if (threadOfPart(bot, ref)?.thread === 'task') return rt.chatOf(past.botId)
