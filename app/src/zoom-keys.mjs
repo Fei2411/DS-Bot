@@ -1,6 +1,6 @@
 export function zoomKey(input, platform) {
   if (platform === 'darwin' || input?.type !== 'keyDown' || !input.control || input.alt || input.meta || input.isComposing) return null
-  if (input.key === '0' && !input.shift) return 'reset'
+  if ((input.key === '0' && (!input.shift || input.code === 'Digit0')) || (input.code === 'Digit0' && !input.shift)) return 'reset'
   if (input.key === '=' || input.key === '+' || input.code === 'NumpadAdd') return 'in'
   if ((input.key === '-' && !input.shift) || input.code === 'NumpadSubtract') return 'out'
   return null

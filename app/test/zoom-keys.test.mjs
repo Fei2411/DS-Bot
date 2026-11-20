@@ -23,6 +23,19 @@ test('other keys, modifiers, releases and composition are left alone', () => {
   for (const key of ['0', '=', '+', '-']) assert.equal(zoomKey({ ...input, key }, 'darwin'), null)
 })
 
+test('AZERTY resets with physical zero and Shift-produced zero without accepting extra modifiers', () => {
+  for (const platform of ['win32', 'linux']) {
+    for (const zero of [{ key: 'à', code: 'Digit0', shift: false }, { key: '0', code: 'Digit0', shift: true }]) {
+      assert.equal(zoomKey({ ...input, ...zero }, platform), 'reset')
+      for (const guard of [{ control: false }, { alt: true }, { meta: true }, { isComposing: true }, { type: 'keyUp' }]) {
+        assert.equal(zoomKey({ ...input, ...zero, ...guard }, platform), null)
+      }
+      assert.equal(zoomKey({ ...input, ...zero }, 'darwin'), null)
+    }
+    assert.equal(zoomKey({ ...input, key: ')', code: 'Digit0', shift: true }, platform), null)
+  }
+})
+
 test('zoom uses half-level steps, resets to 100% and stops at Chromium limits', () => {
   assert.equal(zoomLevel(0, 'in'), 0.5)
   assert.equal(zoomLevel(0, 'out'), -0.5)
