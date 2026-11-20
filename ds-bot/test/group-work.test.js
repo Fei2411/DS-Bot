@@ -1321,6 +1321,135 @@ test('what a member writes while it works shows in the round at once, and its @ 
   assert.deepEqual(log.map(line => line.who), ['User', 'Writer', 'Tester', 'Writer'])
 })
 
+// A status line that repeats the previous line of the same turn is stored once.
+// A different ellipsis stays, and the closing reply joins a later line. The next
+// turn, and another Bot, may say the same line again.
+test('one turn stores a repeated status line once, and a later turn may say it again', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const host = await start(t)
+  const ellipsis = '\u2026'
+  const result = host.round('c1', host.say('@Writer 整理文档'))
+  await settle(() => host.agentOf('gb').calls.length === 1)
+  host.begin('gb')
+  step(host, 'gb', '...', 'k1', 'list_bots')
+  step(host, 'gb', '...', 'k2', 'list_bots')
+  step(host, 'gb', ellipsis, 'k3', 'list_bots')
+  t.mock.timers.tick(ROOM_STEP_GAP_MS)
+  await settle(() => logLines(host).some(line => line.text === ellipsis))
+  step(host, 'gb', 'buy rice', 'k4', 'list_bots')
+  for (const callId of ['k1', 'k2', 'k3', 'k4']) host.emit('gb', 'tool/result', { callId })
+  host.finish('gb', '...')
+  await settle(() => result() !== undefined)
+  assert.deepEqual(logLines(host).filter(line => line.botId === 'b').map(line => line.text), ['...', ellipsis, 'buy rice\n\n...'])
+
+  const second = host.round('c2', host.say('@Writer 再看一眼'))
+  await settle(() => host.agentOf('gb').calls.length === 2)
+  host.begin('gb')
+  step(host, 'gb', '...', 'k5', 'list_bots')
+  host.emit('gb', 'tool/result', { callId: 'k5' })
+  host.finish('gb', '好了。')
+  await settle(() => second() !== undefined)
+  assert.equal(logLines(host).filter(line => line.botId === 'b' && line.text === '...').length, 2)
+
+  const third = host.round('c3', host.say('@Tester 看一下'))
+  await settle(() => host.agentOf('gc').calls.length === 1)
+  host.begin('gc')
+  step(host, 'gc', '...', 'k6', 'list_bots')
+  host.emit('gc', 'tool/result', { callId: 'k6' })
+  host.finish('gc', '看过了。')
+  await settle(() => third() !== undefined)
+  assert.equal(logLines(host).filter(line => line.botId === 'c' && line.text === '...').length, 1)
+})
+
+test('a repeated @ line is stored twice and calls that member once', async (t) => {
+  const host = await start(t)
+  const result = host.round('c1', host.say('@Writer 整理文档'))
+  await settle(() => host.agentOf('gb').calls.length === 1)
+  host.begin('gb')
+  step(host, 'gb', '@Tester ...', 'k1', 'list_bots')
+  step(host, 'gb', '@Tester ...', 'k2', 'list_bots')
+  await settle(() => host.agentOf('gc').calls.length === 1)
+  const stored = () => rt.roomOf('r1').log.filter(line => line.text === '@Tester ...')
+  assert.equal(stored().length, 2)
+  assert.equal(host.agentOf('gc').calls.length, 1)
+  host.begin('gc')
+  host.finish('gc', '在。')
+  host.emit('gb', 'tool/result', { callId: 'k1' })
+  host.emit('gb', 'tool/result', { callId: 'k2' })
+  host.finish('gb', '好了。')
+  await settle(() => result() !== undefined)
+  assert.equal(host.agentOf('gc').calls.length, 1)
+  assert.equal(logLines(host).filter(line => line.text === '@Tester ...').length, 2)
+})
+
+test('two post_to_group calls both store the same line', async (t) => {
+  const { host, first } = await busyRound(t)
+  await host.tool('post_to_group', { group: 'Ops', message: '...' }, 'b')
+  await host.tool('post_to_group', { group: 'Ops', message: '...' }, 'b')
+  assert.equal(logLines(host).filter(line => line.text === '...').length, 2)
+  host.emit('gb', 'tool/result', { callId: 'k1' })
+  host.finish('gb', '整理好了。')
+  await settle(() => first() !== undefined)
+  assert.equal(logLines(host).filter(line => line.text === '...').length, 2)
+})
+
+const writerText = host => logLines(host).filter(line => line.botId === 'b').map(line => line.text)
+
+// The line just shown survives a turn that never reaches its closing reply. The next
+// turn has only that same final, and it is a new turn, so the line is stored again.
+const endWithoutReply = async (t, reason) => {
+  const host = await start(t)
+  const first = host.round('c1', host.say('@Writer 看一下'))
+  await settle(() => host.agentOf('gb').calls.length === 1)
+  host.begin('gb')
+  step(host, 'gb', 'Tests passed', 'k1')
+  host.emit('gb', 'tool/result', { callId: 'k1' })
+  host.emit('gb', 'turn/end', { turn: 1, reason })
+  await settle(() => first() !== undefined)
+  const second = host.round('c2', host.say('@Writer 再看'))
+  await settle(() => host.agentOf('gb').calls.length === 2)
+  host.begin('gb')
+  host.finish('gb', 'Tests passed')
+  await settle(() => second() !== undefined)
+  assert.deepEqual(writerText(host), ['Tests passed', 'Tests passed'])
+}
+
+test('a final-only repeat is stored after the previous turn failed', async (t) => {
+  await endWithoutReply(t, { kind: 'error', error: { code: 'RATE_LIMIT', status: 429, message: 'Too many requests' } })
+})
+
+test('a final-only repeat is stored after the previous turn was aborted', async (t) => {
+  await endWithoutReply(t, { kind: 'aborted' })
+})
+
+test('a final that repeats an older flushed line is kept while a newer line is still held', async (t) => {
+  const host = await start(t)
+  const result = host.round('c1', host.say('@Writer 看一下'))
+  await settle(() => host.agentOf('gb').calls.length === 1)
+  host.begin('gb')
+  step(host, 'gb', 'Tests passed', 'k1')
+  host.emit('gb', 'tool/result', { callId: 'k1' })
+  step(host, 'gb', 'Rechecking after another change', 'k2')
+  host.emit('gb', 'tool/result', { callId: 'k2' })
+  host.finish('gb', 'Tests passed')
+  await settle(() => result() !== undefined)
+  assert.deepEqual(writerText(host), ['Tests passed', 'Rechecking after another change\n\nTests passed'])
+})
+
+test('a final that repeats the line still held is stored once', async (t) => {
+  const host = await start(t)
+  const result = host.round('c1', host.say('@Writer 看一下'))
+  await settle(() => host.agentOf('gb').calls.length === 1)
+  host.begin('gb')
+  step(host, 'gb', 'Tests passed', 'k1')
+  host.emit('gb', 'tool/result', { callId: 'k1' })
+  step(host, 'gb', 'Rechecking after another change', 'k2')
+  host.emit('gb', 'tool/result', { callId: 'k2' })
+  host.finish('gb', 'Rechecking after another change')
+  await settle(() => result() !== undefined)
+  assert.deepEqual(writerText(host), ['Tests passed', 'Rechecking after another change'])
+})
+
 test('a member whose every message went out while it worked counts as posted, not passed', async (t) => {
   const host = await start(t)
   const result = host.round('c1', host.say('@Writer 看一下'))
