@@ -87,8 +87,11 @@ You need:
 git clone https://github.com/Fei2411/DS-Bot.git ds-bot-repo
 cd ds-bot-repo/ds-bot
 
-# The plugin's own build tool (esbuild only).
+# The plugin's packages and its build tool (esbuild).
 npm ci
+
+# The phone link's packages: the build bundles them into link.js, and a unit test builds it.
+npm ci --prefix ../link
 
 # The DSH packages that the unit tests and the linter load, from npm, into dev/harness/.
 npm run harness
@@ -143,6 +146,13 @@ For a change to the server side (`index.js`, `src/host/`), also run the smoke te
 ```sh
 CONTEXT_WINDOW=100000 CHECK_RATIO=0.45 dev/bench.sh smoke 3096 8796 reset && node dev/smoke.mjs smoke 3096
 dev/bench.sh smoke 3096 8796 stop
+```
+
+For a change to the Bot browser (`src/host/browser/`), also run its tests. They drive a real Chromium and check what a Bot may not do on a page without the user (pay, delete, post, upload) and that Bots do not share cookies. CI runs them on Linux. Install Chromium once, then run them:
+
+```sh
+npx playwright-core install --only-shell chromium
+npm run test:browser
 ```
 
 To try the plugin by hand, start a bench and open the address that it prints:

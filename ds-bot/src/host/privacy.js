@@ -81,6 +81,7 @@ export function install(rt) {
     join(rt.home, 'learning', 'state.json'),
     join(rt.home, 'ocr.json'),
     join(rt.home, 'secrets.json'),
+    join(rt.home, 'task-reports'),
     join(rt.home, 'memory', 'journal.jsonl'),
     join(rt.home, 'memory', 'journal.torn'),
     join(rt.home, 'memory', 'pending.json'),
@@ -210,9 +211,9 @@ export function install(rt) {
         if (bot) throw closed(bot, 'settings')
         return
       }
-      case 'recall':
-      case 'remember':
-      case 'forget': {
+      case 'bot_recall':
+      case 'bot_remember':
+      case 'bot_forget': {
         const bot = target(args.scope)
         if (bot) throw closed(bot, 'memory')
         return

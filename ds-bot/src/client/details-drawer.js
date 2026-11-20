@@ -188,9 +188,9 @@ function MemberRow({ member, entry, room, roster, actions }) {
 
 // A group's overview: what members read, who is in it, who answers, and what it
 // remembers. Changes are made in its settings.
-function GroupOverview({ room, roster, actions, usage, useWork, openSettings }) {
+function GroupOverview({ room, roster, actions, usage, useWork, useComputer, openSettings }) {
   const members = room.members.map(id => roster.byId[id]).filter(Boolean)
-  const { entries } = useMemberWork(room, useWork)
+  const { entries } = useMemberWork(room, useWork, useComputer)
   return [
     room.notice
       ? h(About, { key: 'notice', title: 'Notice', text: room.notice })
@@ -381,7 +381,7 @@ export function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, ro
       tabs.map(key => h('button', { key, type: 'button', role: 'tab', className: 'bt-tab', 'aria-selected': tab === key, onClick: () => setTab(key) }, t(TAB_LABELS[key])))) : null,
     h('div', { key: `body:${tab}`, className: 'bt-drawer-body', 'data-move': move },
       errorLine,
-      room && tab === 'details' ? h(GroupOverview, { room, roster, actions, usage, useWork, openSettings: () => setView('settings') }) : null,
+      room && tab === 'details' ? h(GroupOverview, { room, roster, actions, usage, useWork, useComputer, openSettings: () => setView('settings') }) : null,
       bot && tab === 'computer' ? h(ComputerView, { bot, actions, hooks: { useComputer } }) : null,
       bot && tab === 'details' ? [
         h(RunStats, { key: 'stats', bot, part, running, actions }),

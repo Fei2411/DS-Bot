@@ -5,6 +5,7 @@ import { ActivityIndicator, Dimensions, Modal, Platform, Pressable, StyleSheet, 
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import * as SecureStore from 'expo-secure-store'
 import { onPrefsChange, readPrefs } from '../store.ts'
+import { canBackOpenDrawer } from './drawer-back.ts'
 import { Drawer, useDrawer } from './Drawer.tsx'
 import { useTeam } from '../team/context.tsx'
 import { ErrorBoundary } from '../ui/error-boundary.tsx'
@@ -344,7 +345,7 @@ export default function ShellB() {
   }, [navigation])
   if (saved === undefined) return <View style={{ flex: 1, backgroundColor: p.main }} />
   return (
-    <Drawer width={width} content={<DrawerContent />} edgeEnabled={top === 'Chat'}>
+    <Drawer width={width} content={<DrawerContent />} edgeEnabled={top === 'Chat'} backOpens={() => canBackOpenDrawer(navigation.getState())}>
       <ErrorBoundary>
         <Inner initial={saved} />
       </ErrorBoundary>

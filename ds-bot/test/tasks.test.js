@@ -62,7 +62,7 @@ async function start(t) {
     workspaceRegistry: { get: () => undefined, resolveByPath: async () => undefined, create: async path => ({ id: 'w1', path }), archiveSession: async () => {} },
     sessionController: {
       create: async () => ({ sessionId: 's1' }),
-      resolveAgent: async sessionId => ({ agent: { session: { id: sessionId } } }),
+      resolveAgent: async sessionId => ({ agent: { session: { id: sessionId }, cancel() {}, followup() {}, steer() {} } }),
       selectModel: async () => {},
       prompt: async (request) => { prompts.push(request) },
     },
@@ -80,7 +80,13 @@ async function start(t) {
   const call = async (endpoint, payload) => (await route.fetch(new Request('http://localhost/api/bot', { method: 'POST', body: JSON.stringify({ endpoint, payload }) }))).json()
   const tool = (args, sessionId) => rt.teamTools.find(entry => entry.name === 'group_task').execute(args, { agent: { id: sessionId } })
   const saved = () => JSON.parse(readFileSync(join(home, 'state.json'), 'utf8'))
-  return { home, ctx, rt, call, tool, prompts, saved }
+  let seq = 0
+  const emit = (id, type, data) => {
+    for (const listener of ctx.listeners.get('session/event') ?? []) {
+      if (listener.length >= 2) listener({ id }, { type, seq: ++seq, data })
+    }
+  }
+  return { home, ctx, rt, call, tool, prompts, saved, emit }
 }
 
 test('group_task opens a task and moves it through active, review, blocked and done', async () => {
@@ -222,4 +228,87 @@ test('finished tasks stay in the board history beyond two hundred deliveries', a
   }
   assert.equal(host.tasks().length, 205)
   assert.ok(host.tasks().some(task => task.goal === 'Deliver 0'))
+})
+
+const settle = async (check) => {
+  const until = Date.now() + 3000
+  while (!check() && Date.now() < until) await new Promise(resolve => setImmediate(resolve))
+  assert.ok(check(), 'condition not reached')
+}
+
+test('a member\'s failed turn blocks its open tasks in the group with the reason; a completed turn lifts it', async (t) => {
+  const host = await start(t)
+  await host.tool({ action: 'open', goal: 'Write the draft' }, 'gb')
+  await host.tool({ action: 'open', goal: 'Review the plan' }, 'ga')
+  const task = goal => Object.values(host.saved().rooms.r1.tasks).find(item => item.goal === goal)
+
+  host.emit('gb', 'turn/start', { turn: 1 })
+  host.emit('gb', 'turn/end', { turn: 1, reason: { kind: 'error', error: { code: 'QUOTA', status: 402, message: 'Insufficient balance' } } })
+  await settle(() => task('Write the draft').status === 'blocked')
+  const { at, ...blocked } = task('Write the draft').blocked
+  assert.ok(at > 0)
+  assert.deepEqual(blocked, { by: 'system', cause: 'failed', code: 'QUOTA', status: 402, from: 'active' })
+  assert.equal(task('Review the plan').status, 'active')
+
+  host.emit('gb', 'turn/start', { turn: 2 })
+  host.emit('gb', 'turn/end', { turn: 2, reason: { kind: 'error', error: { code: 'TRANSPORT', message: 'socket hang up' } } })
+  await settle(() => task('Write the draft').blocked.code === 'TRANSPORT')
+  assert.equal(task('Write the draft').blocked.status, undefined)
+  assert.equal(task('Write the draft').blocked.from, 'active')
+  host.emit('gb', 'turn/start', { turn: 3 })
+  host.emit('gb', 'turn/end', { turn: 3, reason: { kind: 'error', error: { code: 'QUOTA', status: 402, message: 'Insufficient balance' } } })
+  await settle(() => task('Write the draft').blocked.code === 'QUOTA')
+  assert.match(await host.tool({ action: 'show' }, 'ga'), /· Writer · blocked · Write the draft\n {2}blocked by DS Bot: its model call failed \(QUOTA 402\)/)
+
+  host.emit('gb', 'turn/start', { turn: 4 })
+  host.emit('gb', 'turn/end', { turn: 4, reason: { kind: 'completed' } })
+  await settle(() => task('Write the draft').status === 'active')
+  assert.equal(task('Write the draft').blocked, undefined)
+})
+
+test('the user stopping a member blocks its open tasks; a block the Bot set itself stays', async (t) => {
+  const host = await start(t)
+  await host.tool({ action: 'open', goal: 'Write the draft' }, 'gb')
+  await host.tool({ action: 'open', goal: 'Wait for the data' }, 'gb')
+  await host.tool({ action: 'update', status: 'blocked', progress: 'No data yet' }, 'gb')
+  const task = goal => Object.values(host.saved().rooms.r1.tasks).find(item => item.goal === goal)
+
+  host.emit('gb', 'turn/start', { turn: 1 })
+  assert.equal((await host.call('stop-member-work', { roomId: 'r1', botId: 'b' })).value, true)
+  await settle(() => task('Write the draft').status === 'blocked')
+  assert.equal(task('Write the draft').blocked.cause, 'stopped')
+  assert.equal(task('Wait for the data').blocked, undefined)
+
+  // The Bot picks the work up again itself.
+  await host.tool({ action: 'update', id: task('Write the draft').id, status: 'active' }, 'gb')
+  assert.equal(task('Write the draft').status, 'active')
+  assert.equal(task('Write the draft').blocked, undefined)
+
+  // A completed turn lifts only what DS Bot blocked.
+  host.emit('gb', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  await new Promise(resolve => setTimeout(resolve, 20))
+  assert.equal(task('Wait for the data').status, 'blocked')
+})
+
+test('a turn picked up after a restart that leaves a task untouched blocks it; one that updates it keeps it running', async (t) => {
+  const host = await start(t)
+  await host.tool({ action: 'open', goal: 'Write the draft' }, 'gb')
+  await host.tool({ action: 'open', goal: 'Check the facts' }, 'gb')
+  const task = goal => Object.values(host.saved().rooms.r1.tasks).find(item => item.goal === goal)
+  await new Promise(resolve => setTimeout(resolve, 5))
+
+  host.emit('gb', 'user/message', { source: { kind: 'bot', role: 'resume', resumed: true }, content: [{ type: 'text', text: '[DeepSeek Harness restarted while you were working]\nGo on.' }] })
+  host.emit('gb', 'turn/start', { turn: 1 })
+  await host.tool({ action: 'update', id: task('Check the facts').id, progress: 'Two sources left' }, 'gb')
+  host.emit('gb', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  await settle(() => task('Write the draft').status === 'blocked')
+  const { at, ...blocked } = task('Write the draft').blocked
+  assert.deepEqual(blocked, { by: 'system', cause: 'restarted', from: 'active' })
+  assert.equal(task('Check the facts').status, 'active')
+  assert.match(await host.tool({ action: 'show' }, 'ga'), /blocked by DS Bot: not updated after DeepSeek Harness restarted/)
+
+  // Finishing a task DS Bot blocked leaves no block behind.
+  await host.tool({ action: 'complete', id: task('Write the draft').id, result: 'Draft delivered' }, 'gb')
+  assert.equal(task('Write the draft').status, 'done')
+  assert.equal(task('Write the draft').blocked, undefined)
 })

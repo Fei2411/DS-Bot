@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { spawn } from 'node:child_process'
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { test } from 'node:test'
@@ -18,7 +19,7 @@ const { JSDOM } = createRequire(join(process.env.DSH_HARNESS ?? join(PLUGIN, '..
 // React stand-in whose useState survives re-renders (#1083).
 const { outputFiles } = await build({
   stdin: {
-    contents: "export { AgentSignInRow } from './src/client/local-agents-page.js'\nexport { shortVersion } from './src/client/agent-cards.js'\nexport { AgentBadge } from './src/client/agent-badge.js'",
+    contents: "export { AgentSignInRow, LocalAgentsPage } from './src/client/local-agents-page.js'\nexport { shortVersion, useLocalAgents } from './src/client/agent-cards.js'\nexport { AgentBadge } from './src/client/agent-badge.js'",
     resolveDir: PLUGIN,
   },
   bundle: true, format: 'cjs', platform: 'browser', write: false, logLevel: 'silent',
@@ -113,6 +114,31 @@ const text = node => flatten(node).join('')
 const render = () => { slots.length = 0; active = () => expand(AgentSignInRow(props)); rerender() }
 const flush = () => new Promise(resolve => setTimeout(resolve, 0))
 
+test('conflicted custom agents stay manageable but are absent from CLI choices', () => {
+  const custom = [
+    { id: 'taken', route: 'local-acp-taken', name: 'Taken', command: 'taken', available: false },
+    { id: 'ready', route: 'local-acp-ready', name: 'Ready', command: 'ready', available: true },
+    { id: 'legacy', route: 'local-acp-legacy', name: 'Legacy', command: 'legacy' },
+  ]
+  const view = { available: true, detected: [], custom }
+  slots.length = 0
+  slots.push(view, false)
+  idx = 0
+  const result = module.exports.useLocalAgents(false)
+  assert.deepEqual(Array.from(result.agents, entry => entry.route), ['local-acp-ready', 'local-acp-legacy'])
+  slots.length = 0
+  slots.push(view, null)
+  active = () => expand(module.exports.LocalAgentsPage({ run: () => {}, Row }))
+  rerender()
+  assert.match(text(concrete), /Taken/)
+  assert.equal(collect(n => n.type === 'button' && text(n) === 'Edit').length, 3)
+  assert.equal(collect(n => n.type === 'button' && n.props['aria-label'] === 'Remove').length, 3)
+  slots.length = 0
+  slots.push({ detected: [], custom: [] }, false)
+  idx = 0
+  assert.equal(module.exports.useLocalAgents(false).agents.length, 0)
+})
+
 test('clicking Sign in says the command was copied and where to run it', async () => {
   const written = []
   nav.clipboard = { writeText: async value => { written.push(value) } }
@@ -187,7 +213,6 @@ test('OpenCode has no sign-in check or Sign in button', () => {
 })
 
 test('Antigravity with unknown sign-in renders its logo, Sign in button, no state label, and copies agy acp --login', async () => {
-  assert.equal(ENGINES['local-antigravity'].signedIn, undefined)
   assert.equal(ENGINES['local-antigravity'].signIn, 'agy acp --login')
   const written = []
   nav.clipboard = { writeText: async (value) => { written.push(value) } }
@@ -205,6 +230,28 @@ test('Antigravity with unknown sign-in renders its logo, Sign in button, no stat
   click('Sign in')
   await flush()
   assert.deepEqual(written, ['agy acp --login'])
+})
+
+test('Antigravity uses only a positive macOS Keychain lookup as sign-in evidence', async (t) => {
+  const { signedIn } = ENGINES['local-antigravity']
+  const agy = '/bench/bin/agy'
+  const fromExit = code => t.mock.fn((_file, _args, options) => spawn(process.execPath, ['-e', `process.exit(${code})`], options))
+  const hit = fromExit(0)
+  const miss = fromExit(44) // security returns 44 for an item not found.
+  assert.equal(await probeSignIn(agy, signedIn, { platform: 'darwin', spawnKeychain: hit }), true)
+  const [file, args, options] = hit.mock.calls[0].arguments
+  assert.equal(file, '/usr/bin/security')
+  assert.deepEqual(args, ['find-generic-password', '-s', 'gemini', '-a', 'antigravity'])
+  assert.equal(options.stdio, 'ignore')
+  assert.equal(await probeSignIn(agy, signedIn, { platform: 'darwin', spawnKeychain: miss }), null)
+
+  const unavailable = t.mock.fn((_file, _args, options) => spawn(join(process.execPath, 'missing'), [], options))
+  assert.equal(await probeSignIn(agy, signedIn, { platform: 'darwin', spawnKeychain: unavailable }), null)
+
+  for (const platform of ['linux', 'win32']) {
+    assert.equal(await probeSignIn(agy, signedIn, { platform, spawnKeychain: hit }), null)
+  }
+  assert.equal(hit.mock.callCount(), 1)
 })
 
 test('AgentBadge adapts dark monochrome SVG logos to theme ink and preserves brand colors', () => {

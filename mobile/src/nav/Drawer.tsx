@@ -1,21 +1,25 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { BackHandler, Pressable, StyleSheet, View } from 'react-native'
 import { Gesture, GestureDetector } from 'react-native-gesture-handler'
 import Animated, { runOnJS, useAnimatedStyle, useReducedMotion, useSharedValue, withSpring } from 'react-native-reanimated'
 import { ErrorBoundary } from '../ui/error-boundary.tsx'
 import { SPRING_SHAPE } from '../ui/tokens.ts'
 import { t } from '../ui/i18n.ts'
+import { handleDrawerBack } from './drawer-back.ts'
 
 const DrawerCtx = createContext({ open: () => {}, close: () => {} })
 export const useDrawer = () => useContext(DrawerCtx)
 
 // The desktop sidebar as a left drawer: edge pan or the header button opens it,
-// a pan on the panel or a tap on the scrim closes it, and the hardware back
-// button closes it first.
-export function Drawer({ width, edgeWidth = 24, edgeEnabled = true, content, children }: { width: number; edgeWidth?: number; edgeEnabled?: boolean; content: ReactNode; children: ReactNode }) {
+// a pan on the panel or a tap on the scrim closes it, and on Chat a single
+// hardware back press opens it while a second press lets the system leave.
+export function Drawer({ width, edgeWidth = 24, edgeEnabled = true, backOpens = true, content, children }: { width: number; edgeWidth?: number; edgeEnabled?: boolean; backOpens?: boolean | (() => boolean); content: ReactNode; children: ReactNode }) {
   const reduced = useReducedMotion()
   const x = useSharedValue(-width)
   const [shown, setShown] = useState(false)
+  const isOpenRef = useRef(false)
+  const backOpensRef = useRef(backOpens)
+  backOpensRef.current = backOpens
 
   useEffect(() => {
     if (!shown) x.value = -width
@@ -23,6 +27,7 @@ export function Drawer({ width, edgeWidth = 24, edgeEnabled = true, content, chi
 
   const snapTo = useCallback((to: number) => {
     const opening = to === 0
+    isOpenRef.current = opening
     if (opening) setShown(true)
     if (reduced) {
       x.value = to
@@ -40,11 +45,11 @@ export function Drawer({ width, edgeWidth = 24, edgeEnabled = true, content, chi
 
   useEffect(() => {
     const sub = BackHandler.addEventListener('hardwareBackPress', () => {
-      if (x.value > -width) { close(); return true }
-      return false
+      const canOpen = typeof backOpensRef.current === 'function' ? backOpensRef.current() : backOpensRef.current
+      return handleDrawerBack({ isOpen: isOpenRef.current, backOpens: canOpen, open })
     })
     return () => sub.remove()
-  }, [close, width, x])
+  }, [open])
 
   const edgePan = useMemo(() => Gesture.Pan()
     .enabled(!shown && edgeEnabled)

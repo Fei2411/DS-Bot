@@ -6,6 +6,10 @@
 // Wire details ported from @tencent-connect/qqbot-nodejs (MIT, see NOTICE).
 import { chunkMarkdown, toPlain } from '../format.js'
 import { toQqMarkdown } from '../qq-markdown.js'
+import {
+  createChatQueue, detectImageMediaType, discardBody, fileExtension,
+  FILE_LIMIT, IMAGE_LIMIT, isHttpUrl, mediaSignal, readCappedBytes,
+} from './media.js'
 import { retryDelay, retryWait } from './retry.js'
 
 const API = 'https://api.sgroup.qq.com'
@@ -14,8 +18,76 @@ const TEXT_LIMIT = 2000
 // GROUP_AND_C2C covers C2C_MESSAGE_CREATE and GROUP_AT_MESSAGE_CREATE.
 const INTENTS = 1 << 25
 
+const IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp'])
+
+const attachmentUrl = (raw) => {
+  const value = String(raw ?? '').trim()
+  if (value === '') return ''
+  const normalized = value.startsWith('//') ? `https:${value}` : value
+  return isHttpUrl(normalized) ? normalized : ''
+}
+
+const isImageAttachment = (item) => {
+  const ct = String(item?.content_type ?? '').split(';')[0].trim().toLowerCase()
+  if (ct.startsWith('image/')) return true
+  return IMAGE_EXTS.has(fileExtension(item?.filename))
+}
+
+const downloadAttachments = async (d, env, signal) => {
+  const images = []
+  const files = []
+  const attachments = Array.isArray(d.attachments) ? d.attachments : []
+  for (const item of attachments) {
+    if (signal?.aborted) return { images, files }
+    if (!item || typeof item !== 'object') continue
+    const ct = String(item.content_type ?? '').toLowerCase()
+    if (ct === 'voice') continue
+    const url = attachmentUrl(item.url)
+    if (url === '') continue
+    const asImage = isImageAttachment(item)
+    const limit = asImage ? IMAGE_LIMIT : FILE_LIMIT
+    try {
+      const response = await env.fetch(url, { signal: mediaSignal(signal) })
+      if (!response.ok) {
+        await discardBody(response)
+        env.log?.warn?.('ds-bot im: qq attachment download answered %s', response.status)
+        continue
+      }
+      const got = await readCappedBytes(response, limit)
+      if (got.overLimit) {
+        env.log?.warn?.('ds-bot im: qq attachment over %d byte cap, skipped', limit)
+        continue
+      }
+      if (got.bytes === undefined || got.bytes.length === 0) continue
+      const mediaType = detectImageMediaType(got.bytes)
+      if (mediaType !== undefined && got.bytes.length <= IMAGE_LIMIT) {
+        images.push({ mediaType, data: got.bytes.toString('base64') })
+      } else {
+        files.push({ name: String(item.filename || 'file'), data: got.bytes })
+      }
+    } catch (error) {
+      if (!signal?.aborted) env.log?.warn?.('ds-bot im: qq attachment download failed: %s', error?.message ?? error)
+    }
+  }
+  return { images, files }
+}
 const apiBase = env => String(env.config?.api ?? API).replace(/\/+$/, '')
 const tokenBase = env => String(env.config?.token ?? TOKEN_API)
+
+// A voice message carries no `content`: the transcript rides on the attachment
+// as `asr_refer_text`, which the platform produced itself. Without this the
+// message normalises to an empty text and the common IM entry drops it (#1824).
+// A caption the sender typed alongside the voice wins over the transcript.
+const textOf = d => {
+  const content = String(d.content ?? '').trim()
+  if (content !== '') return content
+  const attachments = Array.isArray(d.attachments) ? d.attachments : []
+  return attachments
+    .filter(item => item?.content_type === 'voice')
+    .map(item => String(item?.asr_refer_text ?? '').trim())
+    .filter(Boolean)
+    .join('\n')
+}
 
 const getToken = async (fields, env) => {
   const response = await env.fetch(`${tokenBase(env)}/app/getAppAccessToken`, {
@@ -44,6 +116,7 @@ export default {
 
   connect(fields, env, handlers) {
     let stopped = false
+    const stopping = new AbortController()
     let socket
     let token
     let expiresAt = 0
@@ -58,6 +131,7 @@ export default {
     // per id — outside the window the platform refuses (permanent).
     const msgSeq = new Map()
     const lastMsgId = new Map()
+    const inOrder = createChatQueue()
 
     const send = packet => { if (socket?.readyState === 1) socket.send(JSON.stringify(packet)) }
     const heartbeat = () => send({ op: 1, d: sequence ?? null })
@@ -105,12 +179,17 @@ export default {
       const key = String(c2c ? d.author?.user_openid ?? d.channel_id ?? '' : d.group_openid ?? d.channel_id ?? '')
       lastMsgId.set(key, String(d.id ?? ''))
       const sender = c2c ? d.author?.user_openid : d.author?.member_openid ?? d.author?.id
-      await handlers.onMessage({
-        chat: { key, kind: c2c ? 'direct' : 'group', title: '' },
-        sender: { id: String(sender ?? ''), name: String(sender ?? '') },
-        text: String(d.content ?? '').trim(),
-        images: [], files: [],
-        mentioned: group, messageId: String(d.id ?? ''),
+      await inOrder(key, async () => {
+        if (stopped) return
+        const { images, files } = await downloadAttachments(d, env, stopping.signal)
+        if (stopped) return
+        await handlers.onMessage({
+          chat: { key, kind: c2c ? 'direct' : 'group', title: '' },
+          sender: { id: String(sender ?? ''), name: String(sender ?? '') },
+          text: textOf(d),
+          images, files,
+          mentioned: group, messageId: String(d.id ?? ''),
+        })
       })
     }
 
@@ -232,6 +311,7 @@ export default {
       },
       stop: () => {
         stopped = true
+        stopping.abort()
         generation += 1
         clearTimeout(heartbeatTimer)
         clearTimeout(reconnectTimer)

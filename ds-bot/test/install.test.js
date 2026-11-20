@@ -38,6 +38,7 @@ test('apply registers listeners and effects in a fixed order', (t) => {
     'effect ds-bot: diagnostics log',
     'effect ds-bot: state lock',
     'effect ds-bot: ledger',
+    'on agent/request-error (prepend)',
     'on llm/adapters-updated',
     'on credentials/reference-updated',
     'on credentials/record-updated',
@@ -94,6 +95,9 @@ test('apply registers listeners and effects in a fixed order', (t) => {
     'on workspace/session-activity',
     'on agent/status',
     'on llm/stream',
+    'on session/event',
+    // bot-tasks.js: approval status bridge and turn/end task settlement.
+    'effect ds-bot: bot-tasks approval bridge',
     'on session/event',
     // changes.js: the announced workspace/changes turn, remembered for the group row.
     'on session/event',
