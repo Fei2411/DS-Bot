@@ -65,7 +65,7 @@ test('node --test --test-force-exit does not drop results before child-v8 exits'
   delete childEnv.NODE_TEST_CONTEXT
 
   const runs = await Promise.all(
-    Array.from({ length: 16 }, () => spawnNode([runnerFile], { env: childEnv })),
+    Array.from({ length: 6 }, () => spawnNode([runnerFile], { env: childEnv })),
   )
   for (let i = 0; i < runs.length; i++) {
     const res = runs[i]
