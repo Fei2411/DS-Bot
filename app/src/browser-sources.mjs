@@ -738,14 +738,31 @@ function wrongProfileError(source, profileDir) {
   return err
 }
 
-function readCookieKeysFromDb(dbPath) {
+function readCookieSignatureFromDb(dbPath) {
   let db
   try {
     db = new DatabaseSync(dbPath, { readOnly: true })
-    const rows = db.prepare('SELECT host_key, name FROM cookies').all()
+    const cols = new Set(db.prepare('PRAGMA table_info(cookies)').all().map((r) => r.name))
+    const hasExpiresUtc = cols.has('expires_utc')
+    const hasExpiresFlag = cols.has('has_expires')
+    const select = [
+      'host_key',
+      'name',
+      hasExpiresUtc ? 'expires_utc / 1000000 AS expires_sec' : '0 AS expires_sec',
+      hasExpiresFlag ? 'has_expires' : '1 AS has_expires',
+    ]
+    const rows = db.prepare(`SELECT ${select.join(', ')} FROM cookies`).all()
     const keys = new Set()
-    for (const row of rows) keys.add(`${row.host_key}\u0000${row.name}`)
-    return keys
+    const fingerprints = new Set()
+    for (const row of rows) {
+      const key = `${row.host_key}\u0000${row.name}`
+      keys.add(key)
+      if (hasExpiresUtc && row.has_expires !== 0 && typeof row.expires_sec === 'number' && row.expires_sec > 0) {
+        const expSec = Math.floor(row.expires_sec - WEBKIT_EPOCH_OFFSET)
+        if (expSec > 0) fingerprints.add(`${key}\u0000${expSec}`)
+      }
+    }
+    return { keys, fingerprints }
   } catch {
     return null
   } finally {
@@ -754,35 +771,66 @@ function readCookieKeysFromDb(dbPath) {
 }
 
 /**
- * Defense-in-depth profile verification when cookie DBs are readable on disk: if the target
- * profile DB is non-empty and shares zero cookies with what CDP returned while a sibling
- * profile DB matches, refuse rather than importing another account's cookies.
+ * Defense-in-depth profile verification when cookie DBs are readable on disk: compare
+ * target-exclusive vs sibling-exclusive (domain, name) keys and (domain, name, expires)
+ * fingerprints so shared common cookie names (e.g. .google.com/NID) cannot bypass the check.
  */
 function verifyCookiesNotFromSiblingProfile(profiles, targetProfileDir, cookies) {
   if (!Array.isArray(cookies) || cookies.length === 0) return true
   const target = profiles.find((p) => p.dir === targetProfileDir)
   if (!target?.cookieDb) return true
-  const targetKeys = readCookieKeysFromDb(target.cookieDb)
-  if (!targetKeys || targetKeys.size === 0) return true
-  if (cookies.some((c) => targetKeys.has(`${c.domain}\u0000${c.name}`))) return true
+  const targetSig = readCookieSignatureFromDb(target.cookieDb)
+  if (!targetSig) return true
+
+  const siblingKeys = new Set()
+  const siblingFps = new Set()
   for (const sibling of profiles) {
     if (sibling.dir === targetProfileDir || !sibling.cookieDb) continue
-    const siblingKeys = readCookieKeysFromDb(sibling.cookieDb)
-    if (siblingKeys && cookies.some((c) => siblingKeys.has(`${c.domain}\u0000${c.name}`))) {
-      return false
+    const sig = readCookieSignatureFromDb(sibling.cookieDb)
+    if (!sig) continue
+    for (const k of sig.keys) siblingKeys.add(k)
+    for (const fp of sig.fingerprints) siblingFps.add(fp)
+  }
+  if (siblingKeys.size === 0 && siblingFps.size === 0) return true
+
+  let hitsSiblingExclusiveKey = 0
+  let hitsTargetExclusiveKey = 0
+  let hitsSiblingExclusiveFp = 0
+  let hitsTargetExclusiveFp = 0
+  for (const c of cookies) {
+    const key = `${c.domain}\u0000${c.name}`
+    const inTargetKey = targetSig.keys.has(key)
+    const inSiblingKey = siblingKeys.has(key)
+    if (inSiblingKey && !inTargetKey) hitsSiblingExclusiveKey += 1
+    else if (inTargetKey && !inSiblingKey) hitsTargetExclusiveKey += 1
+
+    const expSec = (!c.session && typeof c.expires === 'number' && c.expires > 0) ? Math.floor(c.expires) : null
+    if (expSec !== null) {
+      const fp = `${key}\u0000${expSec}`
+      const inTargetFp = targetSig.fingerprints.has(fp)
+      const inSiblingFp = siblingFps.has(fp)
+      if (inSiblingFp && !inTargetFp) hitsSiblingExclusiveFp += 1
+      else if (inTargetFp && !inSiblingFp) hitsTargetExclusiveFp += 1
     }
   }
+
+  if (hitsSiblingExclusiveKey > 0) return false
+  if (hitsSiblingExclusiveFp > 0 && hitsTargetExclusiveKey === 0 && hitsTargetExclusiveFp === 0) return false
   return true
 }
 
 async function ensureLiveProfileActive(source, userDataDir, profileDir, opts = {}) {
   const { signal, spawnImpl = spawn, focusTimeoutMs = 1_500, focusVerifyMs = 3_000, focusPollMs = 150 } = opts
   throwIfAborted(signal)
-  if (readLastUsedProfile(userDataDir) === profileDir) return
-  if (!source.exe) throw wrongProfileError(source, profileDir)
+  if (!source.exe) {
+    // Without the binary we cannot switch the active window: fail closed unless Local State confirms it.
+    if (readLastUsedProfile(userDataDir) !== profileDir) throw wrongProfileError(source, profileDir)
+    return
+  }
 
-  // Ask the already-running browser to focus the chosen profile via ProcessSingleton handoff.
-  // Fail closed on timeout or non-zero exit — never assume a hung/timed-out launch switched profiles.
+  // Always invoke ProcessSingleton handoff when the binary is available: Chrome debounces
+  // Local State.last_used on disk (~10s), so a stale disk match cannot guarantee the active window
+  // is profileDir. Fail closed on timeout or non-zero exit.
   const focused = await new Promise((resolve, reject) => {
     let settled = false
     const done = (ok, err) => {
@@ -1278,7 +1326,7 @@ export async function harvestCookies(source, workDir, opts = {}) {
  *   3. Windows pre-check for App-Bound Encryption before ever asking to close the browser
  *   4. Clone → (close & relaunch on Windows when needed for non-v20/Firefox) → harvest
  */
-export async function importFromBrowser(source, { close = false, platformOverride, liveHarvester, macHarvester, cloneHarvester, cloner = cloneCookieStore, signal } = {}) {
+export async function importFromBrowser(source, { close = false, platformOverride, liveHarvester, macHarvester, cloneHarvester, cloner = cloneCookieStore, browserCloser = closeBrowser, browserRelauncher = relaunchBrowser, signal } = {}) {
   throwIfAborted(signal)
   const currentPlatform = platformOverride ?? platform()
   const { userDataDir } = resolveSourceLayout(source)
@@ -1334,8 +1382,11 @@ export async function importFromBrowser(source, { close = false, platformOverrid
         }
       }
       if (!close) return { running: true }
-      const pids = await closeBrowser(source.exe, source, { signal })
-      closed = pids.length > 0
+      const pids = await browserCloser(source.exe, source, {
+        signal,
+        onClosing: () => { closed = true },
+      })
+      if (pids.length > 0) closed = true
       throwIfAborted(signal)
       await cloner(source, work.dir) // still locked → throws 'locked' again
     }
@@ -1362,7 +1413,7 @@ export async function importFromBrowser(source, { close = false, platformOverrid
       throw error
     }
   } finally {
-    if (closed) relaunchBrowser(source.exe, source.kind)
+    if (closed) browserRelauncher(source.exe, source.kind)
     await work.remove().catch(() => {})
   }
 }
@@ -1404,22 +1455,25 @@ export function locksProfile(process, source) {
 }
 
 /** Ask a running source browser to quit (graceful; its session comes back on relaunch). */
-export async function closeBrowser(exe, source, { signal } = {}) {
-  if (platform() !== 'win32') return []
+export async function closeBrowser(exe, source, { signal, onClosing, platformOverride, listProcesses = browserProcesses, killPid, pollMs = 500 } = {}) {
+  if ((platformOverride ?? platform()) !== 'win32') return []
   throwIfAborted(signal)
-  const targets = (await browserProcesses(exe)).filter((p) => locksProfile(p, source))
+  const targets = (await listProcesses(exe)).filter((p) => locksProfile(p, source))
   if (!targets.length) return []
+  // Only cancel before issuing the first taskkill; once we begin closing the user's browser,
+  // finish waiting for its exit so the caller's finally block always relaunches it cleanly.
+  throwIfAborted(signal)
+  onClosing?.()
+  const doKill = killPid ?? ((pid) => new Promise((resolve) => execFile('taskkill', ['/PID', String(pid)], { windowsHide: true }, () => resolve())))
   for (const p of targets) {
-    throwIfAborted(signal)
-    await new Promise((resolve) => execFile('taskkill', ['/PID', String(p.pid)], { windowsHide: true }, () => resolve()))
+    await doKill(p.pid)
   }
   const deadline = Date.now() + 20_000
   for (;;) {
-    throwIfAborted(signal)
-    const alive = (await browserProcesses(exe)).filter((p) => targets.some((t) => t.pid === p.pid))
+    const alive = (await listProcesses(exe)).filter((p) => targets.some((t) => t.pid === p.pid))
     if (!alive.length) return targets.map((t) => t.pid)
     if (Date.now() > deadline) { const e = new Error('the source browser did not close'); e.code = 'still-running'; throw e }
-    await sleepMs(500, signal)
+    await sleepMs(pollMs)
   }
 }
 

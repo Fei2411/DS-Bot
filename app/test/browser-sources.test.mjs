@@ -18,6 +18,7 @@ import {
   chromiumProfiles,
   cloneCookieStore,
   cloneWorkDir,
+  closeBrowser,
   decryptChromiumV10,
   deriveMacChromiumKey,
   firefoxProfiles,
@@ -574,8 +575,12 @@ test('stale DevToolsActivePort fails fast with devtools-stale without ever spawn
   } finally { await root.remove() }
 })
 
-test('ensureLiveProfileActive fails closed on handoff timeout, unconfirmed Local State, or sibling-profile cookies', async () => {
+test('ensureLiveProfileActive always spawns handoff when exe is present, fails closed on timeout/unconfirmed state, and rejects sibling cookies even with shared cookie names', async () => {
   const root = await tempRoot()
+  let cdpCookies = [
+    { name: 'NID', value: 'shared-name-sibling-exp', domain: '.google.com', path: '/', secure: true, httpOnly: true, session: false, expires: 1900000200 },
+    { name: 'work_only', value: 'w', domain: '.work.example', path: '/', secure: true, httpOnly: true, session: true },
+  ]
   const wss = new WebSocketServer({ host: '127.0.0.1', port: 0 })
   await new Promise((resolve) => wss.once('listening', resolve))
   const { port } = wss.address()
@@ -583,23 +588,33 @@ test('ensureLiveProfileActive fails closed on handoff timeout, unconfirmed Local
     ws.on('message', (raw) => {
       const msg = JSON.parse(raw.toString())
       if (msg.method === 'Storage.getCookies') {
-        // Return a cookie that belongs to Profile 1, not Default.
-        ws.send(JSON.stringify({
-          id: msg.id,
-          result: {
-            cookies: [{ name: 'work_only', value: 'w', domain: '.work.example', path: '/', secure: true, httpOnly: true, session: true }],
-          },
-        }))
+        ws.send(JSON.stringify({ id: msg.id, result: { cookies: cdpCookies } }))
       }
     })
   })
+  const writeRichCookieDb = (dir, rows) => {
+    const db = new DatabaseSync(join(dir, 'Cookies'))
+    db.exec('CREATE TABLE cookies (name TEXT, host_key TEXT, path TEXT, encrypted_value BLOB, expires_utc INTEGER, has_expires INTEGER)')
+    const ins = db.prepare('INSERT INTO cookies (name, host_key, path, encrypted_value, expires_utc, has_expires) VALUES (?, ?, ?, ?, ?, ?)')
+    for (const [name, host, expSec] of rows) {
+      ins.run(name, host, '/', Buffer.from('v10abc'), expSec ? (expSec + 11644473600) * 1e6 : 0, expSec ? 1 : 0)
+    }
+    db.close()
+  }
   try {
     const defNet = join(root.dir, 'Default', 'Network')
     const p1Net = join(root.dir, 'Profile 1', 'Network')
     await mkdir(defNet, { recursive: true })
     await mkdir(p1Net, { recursive: true })
-    await cookieDb(defNet, [['personal_only', '.personal.example', Buffer.from('v10abc')]])
-    await cookieDb(p1Net, [['work_only', '.work.example', Buffer.from('v10xyz')]])
+    // Both profiles share (.google.com, NID) with different expiry timestamps.
+    writeRichCookieDb(defNet, [
+      ['NID', '.google.com', 1900000100],
+      ['personal_only', '.personal.example', 1900000150],
+    ])
+    writeRichCookieDb(p1Net, [
+      ['NID', '.google.com', 1900000200],
+      ['work_only', '.work.example', 1900000250],
+    ])
     await writeFile(join(root.dir, 'Local State'), JSON.stringify({
       profile: { last_used: 'Profile 1', info_cache: { Default: { name: 'Personal' }, 'Profile 1': { name: 'Work' } } },
     }))
@@ -610,6 +625,12 @@ test('ensureLiveProfileActive fails closed on handoff timeout, unconfirmed Local
       userDataDir: root.dir, profilePath: join(root.dir, 'Default'), profileDir: 'Default',
       cookieDb: join(defNet, 'Cookies'),
       exe: '/fake/chrome',
+    }
+    const okSpawn = () => {
+      const c = new EventEmitter()
+      c.unref = () => {}
+      setTimeout(() => c.emit('exit', 0), 5)
+      return c
     }
 
     // 1. Handoff child hangs past focusTimeoutMs -> must reject devtools-wrong-profile (never treat timeout as success).
@@ -627,28 +648,94 @@ test('ensureLiveProfileActive fails closed on handoff timeout, unconfirmed Local
         focusTimeoutMs: 200,
         focusVerifyMs: 80,
         focusPollMs: 20,
-        spawnImpl: () => {
-          const c = new EventEmitter()
-          c.unref = () => {}
-          setTimeout(() => c.emit('exit', 0), 5)
-          return c
-        },
+        spawnImpl: okSpawn,
       }),
       (error) => error.code === 'devtools-wrong-profile',
     )
 
-    // 3. Even if Local State says Default (stale), cookies matching ONLY sibling Profile 1 are rejected.
+    // 3. Local State.last_used is stale ('Default'), source.exe is present:
+    //    must STILL invoke spawnImpl, and even with shared (.google.com, NID) + sibling work_only, must reject!
     await writeFile(join(root.dir, 'Local State'), JSON.stringify({
       profile: { last_used: 'Default', info_cache: { Default: { name: 'Personal' }, 'Profile 1': { name: 'Work' } } },
     }))
+    let spawnCount = 0
     await assert.rejects(
-      () => harvestLiveChromium(source),
+      () => harvestLiveChromium(source, {
+        spawnImpl: () => { spawnCount += 1; return okSpawn() },
+      }),
       (error) => error.code === 'devtools-wrong-profile',
     )
+    assert.equal(spawnCount, 1, 'must always run focus handoff when exe is present even if disk Local State matches')
+
+    // 4. Even when CDP returns ONLY the shared cookie name (.google.com, NID) with sibling's expiry fingerprint, reject!
+    cdpCookies = [
+      { name: 'NID', value: 'shared-name-sibling-exp', domain: '.google.com', path: '/', secure: true, httpOnly: true, session: false, expires: 1900000200 },
+    ]
+    await assert.rejects(
+      () => harvestLiveChromium(source, { spawnImpl: okSpawn }),
+      (error) => error.code === 'devtools-wrong-profile',
+    )
+
+    // 5. When CDP returns target profile's own cookies (shared name with target expiry + personal_only), accept!
+    cdpCookies = [
+      { name: 'NID', value: 'target-val', domain: '.google.com', path: '/', secure: true, httpOnly: true, session: false, expires: 1900000100 },
+      { name: 'personal_only', value: 'p', domain: '.personal.example', path: '/', secure: true, httpOnly: true, session: false, expires: 1900000150 },
+    ]
+    const ok = await harvestLiveChromium(source, { spawnImpl: okSpawn, includeLocalStorage: false, now: 1700000000 })
+    assert.deepEqual(ok.cookies.map((c) => c.name), ['NID', 'personal_only'])
   } finally {
     await new Promise((resolve) => wss.close(resolve))
     await root.remove()
   }
+})
+
+test('Windows cancellation after taskkill still relaunches the closed browser and cleans up workDir', async () => {
+  const root = await tempRoot()
+  try {
+    const net = join(root.dir, 'Default', 'Network')
+    await mkdir(net, { recursive: true })
+    await writeFile(join(net, 'Cookies'), 'x')
+    await writeFile(join(root.dir, 'Local State'), '{}')
+
+    const source = {
+      engine: 'chromium', kind: 'chrome', name: 'Chrome', label: 'Chrome — Default',
+      userDataDir: root.dir, profilePath: join(root.dir, 'Default'), profileDir: 'Default',
+      cookieDb: join(net, 'Cookies'), exe: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+    }
+    const ctrl = new AbortController()
+    const killedPids = []
+    const relaunched = []
+    let pollStep = 0
+
+    await assert.rejects(
+      () => importFromBrowser(source, {
+        close: true,
+        platformOverride: 'win32',
+        signal: ctrl.signal,
+        cloner: async () => { const e = new Error('locked'); e.code = 'locked'; throw e },
+        browserCloser: (exe, src, opts) => closeBrowser(exe, src, {
+          ...opts,
+          platformOverride: 'win32',
+          pollMs: 10,
+          listProcesses: async () => {
+            pollStep += 1
+            // Still alive on initial discovery and first exit poll, gone on second exit poll.
+            return pollStep <= 2 ? [{ pid: 4242, commandLine: `"${exe}"` }] : []
+          },
+          killPid: async (pid) => {
+            killedPids.push(pid)
+            // User clicks Cancel right after taskkill is issued.
+            ctrl.abort()
+          },
+        }),
+        browserRelauncher: (exe, kind) => { relaunched.push({ exe, kind }) },
+      }),
+      (error) => error.code === 'import-cancelled',
+    )
+
+    assert.deepEqual(killedPids, [4242])
+    assert.deepEqual(relaunched, [{ exe: source.exe, kind: 'chrome' }], 'browser closed via taskkill must be relaunched even when cancelled mid-close')
+  } finally { await root.remove() }
 })
 
 test('checkSourceLiveDebug probes only the target source DevToolsActivePort liveness', async () => {
