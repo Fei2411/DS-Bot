@@ -64,6 +64,7 @@ test('apply registers listeners and effects in a fixed order', (t) => {
     'on system-prompt/assemble',
     'on llm/stream',
     'on session/event',
+    'effect ds-bot: deepseek services',
     'effect ds-bot: chat index',
     'effect ds-bot: group rounds',
     'effect ds-bot: group step lines',

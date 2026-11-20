@@ -1703,6 +1703,10 @@ const HOST_ERRORS = [
   [/^(.+) is in or around the folder of (.+), a private Bot, so (.+) cannot work there$/, '$1 在隐私 Bot「$2」的文件夹内或外层，$3 不能在这里工作'],
   [/^(.+) is in or around the folder of (.+), a private Bot, so a group cannot work there$/, '$1 在隐私 Bot「$2」的文件夹内或外层，群聊不能在这里工作'],
   [/^(.+) is in or around the folder of (.+), a private Bot, so it cannot be the team workspace$/, '$1 在隐私 Bot「$2」的文件夹内或外层，不能作为总工作区'],
+  // DeepSeek services: host status reasons, shown where the capability is not ready.
+  [/^The DeepSeek API key \((.+)\) is not set$/, 'DeepSeek API key（$1）还没设置'],
+  [/^This DSH has no credential store\.$/, '这个 DSH 没有凭据存储'],
+  [/^DS Bot cannot tell the DeepSeek key from another server's: [\s\S]*$/, 'DS Bot 无法区分 DeepSeek key 和其它服务器的 key，这些服务保持关闭。'],
   // Memory changes the memory panel asked for; the whole message is matched.
   [/^This looks like a key, token, or password[\s\S]*$/, '看起来像密钥、令牌或密码，记忆不会保存这类内容'],
   [/^An entry holds at most (\d+) characters; this one has (\d+)\.[\s\S]*$/, '一条记忆最多 $1 个字符，这条有 $2 个'],

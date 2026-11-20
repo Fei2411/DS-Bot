@@ -25,6 +25,7 @@ Tested with dsh `0.2.2-rc.1` (Web and Desktop).
 - **Web search**: see [Web search](#web-search).
 - **Bot browser (dsh Desktop and the desktop app)**: see [Bot browser](#bot-browser).
 - **Images**: for a model that cannot read images, a vision model first turns the image into text.
+- **DeepSeek services**: an official API key can give any model independent document reading (speech arrives in its own change), turned on explicitly in Settings → DeepSeek services. The key stays in Settings → Models. See [DeepSeek services](#deepseek-services).
 - **Secrets**: a Bot asks for an API key or token with a card in its own chat and never sees the value. See [Secrets](#secrets).
 - **Usage**: Settings → Usage shows token usage by time (24 hours to 12 months, or days picked on a calendar), by Bot and by model, with a page for each Bot and each model. Calls that a Session logs are read from the logs, so older chats count too. Calls that leave no log (checkpoints, handoff notes, the steward, image readings, dsh titles and compaction) are counted while they stream, from the time the plugin runs. Tokens only, no cost.
 - **Make it yours**: name, role, instructions, model and look (20 characters and 12 colors, or your own photo from the reusable avatar library) for each Bot; a theme, an accent color, a message layout (bubble or flat) with width sliders, and an avatar animation level (quiet, normal or lively) for the team. A pinned Bot or group chat shows a small pushpin in the sidebar. Settings has these pages: General (look, default model for new Bots, Enter key preference, mode and locations), Models, Bots (Main Bots, each Bot's settings and retained private-Bot folders), Group chats (each group's settings), Connectors, Capabilities, Browser, Scheduled tasks, Usage, Secrets, Feedback and About DS Bot (versions, updates and links).
@@ -96,6 +97,14 @@ Model providers are set up in DS Bot's **Settings → Models** (or the Main Bot'
 - Give every model a `contextWindow`. DS Bot takes its lines from it: the usable window is the window minus the reply reserve (`maxTokens`), the hard line is 95% of that, and the check line is `checkRatio` of it, capped at `checkTokens` (default 380,000) so a huge window does not keep one part past the point where a provider's prefix cache stops helping. A model without `contextWindow` gets the adapter's default (262,144 tokens for `llm-pi-ai`), which may be wrong for that model; a model that reports no window at all counts as 500,000.
 - To send images, the provider needs `defaultInput: [ text, image ]`.
 - Keep API keys out of the repository. Use dsh's own key storage or environment variables.
+
+## DeepSeek services
+
+Settings → DeepSeek services reports the state of the independent DeepSeek capabilities. `actions.deepseekServices()` returns `{ endpoint, key, ocr, preferences }` without any secret, and `setDeepseekServices({ ocr })` saves the preference (omitted keeps its value; `null` resets it). It lives in `roster.prefs.deepseekServices`. The API key is set through the existing provider-key controls in Settings → Models (`actions.openModels()`); the page never reads or renders it, and shows the real ready/not-ready reason.
+
+OCR is off by default: only after it is turned on do Bots upload selected files through `read_document` (`path` or `attachment_id`) for text recognition. Local Office editing is unchanged, but `read_document` can also read Office files, so the page does not promise that Office files are never uploaded. It is read-only: `attachment_id` must name a file or image in the calling Session's own messages (a guessed id reads nothing), workspace paths follow that Session's working directory and privacy rules, and long results are filed in the Session's spill store so the full text stays readable. A configured key alone enables nothing.
+
+Calls go to the official `https://api.deepseek.com` only and are billed to the user's own API key by usage. A gateway the DeepSeek route points at never receives (or provides) the key: when the route's credential happens to be named `DEEPSEEK_API_KEY`, DS Bot refuses rather than guess, and the status says why. See the [design note](../docs/plans/2026-11-14-read-document.md) and `ds-bot/test/deepseek-services.test.js` (mock tests only, no network).
 
 ## Memory
 
