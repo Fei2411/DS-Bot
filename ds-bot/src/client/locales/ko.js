@@ -1461,6 +1461,8 @@ export const KO = {
   'in {name}': '{name}에서',
   'Click again to delete': '삭제하려면 한 번 더 클릭하세요',
   'Delete task': '작업 삭제',
+  'Pause task': '작업 일시 중지',
+  'Resume task': '작업 재개',
   Once: '한 번',
   'Every week': '매주',
   Repeat: '반복',

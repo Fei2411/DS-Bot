@@ -1555,6 +1555,8 @@ var JA = {
   "in {name}": "{name} 内",
   "Click again to delete": "もう一度クリックすると削除します",
   "Delete task": "タスクを削除",
+  "Pause task": "タスクを一時停止",
+  "Resume task": "タスクを再開",
   "Once": "1 回のみ",
   "Every week": "毎週",
   "Repeat": "繰り返し",
@@ -4166,6 +4168,8 @@ var KO = {
   "in {name}": "{name}에서",
   "Click again to delete": "삭제하려면 한 번 더 클릭하세요",
   "Delete task": "작업 삭제",
+  "Pause task": "작업 일시 중지",
+  "Resume task": "작업 재개",
   Once: "한 번",
   "Every week": "매주",
   Repeat: "반복",
@@ -6780,6 +6784,8 @@ var ES = {
   "in {name}": "en {name}",
   "Click again to delete": "Haz clic de nuevo para eliminar",
   "Delete task": "Eliminar tarea",
+  "Pause task": "Pausar tarea",
+  "Resume task": "Reanudar tarea",
   Once: "Una vez",
   "Every week": "Cada semana",
   Repeat: "Repetir",
@@ -9352,6 +9358,8 @@ var FR = {
   "in {name}": "dans {name}",
   "Click again to delete": "Cliquez à nouveau pour supprimer",
   "Delete task": "Supprimer la tâche",
+  "Pause task": "Mettre la tâche en pause",
+  "Resume task": "Reprendre la tâche",
   "Once": "Une fois",
   "Every week": "Toutes les semaines",
   "Repeat": "Répéter",
@@ -11963,6 +11971,8 @@ var DE = {
   "in {name}": "in {name}",
   "Click again to delete": "Zum Löschen erneut klicken",
   "Delete task": "Aufgabe löschen",
+  "Pause task": "Aufgabe pausieren",
+  "Resume task": "Aufgabe fortsetzen",
   Once: "Einmalig",
   "Every week": "Jede Woche",
   Repeat: "Wiederholen",
@@ -14597,6 +14607,8 @@ var ZH = {
   "in {name}": "在 {name}",
   "Click again to delete": "再点一次删除",
   "Delete task": "删除任务",
+  "Pause task": "暂停任务",
+  "Resume task": "恢复任务",
   Once: "一次",
   "Every week": "每周",
   Repeat: "重复",
@@ -15863,6 +15875,7 @@ function teamActions({ call: call2, after, partFor, roster, ui: ui2, live, cards
     schedules: () => call2("schedules"),
     scheduleCreate: (task) => call2("schedule-create", task),
     scheduleDelete: (sessionId, id) => call2("schedule-delete", { sessionId, id }),
+    schedulePause: (sessionId, id, active) => call2("schedule-pause", { sessionId, id, active }),
     exchange: (a, b) => call2("exchange", { a, b }).catch(() => []),
     exchangeText: (id, a, b) => call2("exchange-text", { id, ...a !== void 0 && b !== void 0 ? { a, b } : {} }).catch(() => void 0),
     fileText: (file) => call2("file-text", { file }).catch(() => void 0),
@@ -19084,6 +19097,8 @@ var AlertIcon = lineIcon(["M10 3.4 2.8 16.3h14.4z", "M10 8.3v3.4", "M10 14.2h.01
 var StarLineIcon = lineIcon(["M10 3l2.1 4.3 4.7.7-3.4 3.3.8 4.7L10 13.8 5.8 16l.8-4.7L3.2 8l4.7-.7z"]);
 var CopyIcon = lineIcon(["M8.5 7h6A1.5 1.5 0 0 1 16 8.5v6a1.5 1.5 0 0 1-1.5 1.5h-6A1.5 1.5 0 0 1 7 14.5v-6A1.5 1.5 0 0 1 8.5 7z", "M4 12.5V5.5A1.5 1.5 0 0 1 5.5 4H13"]);
 var HideIcon = lineIcon(["M3 3l14 14", "M8.6 5.2A7.6 7.6 0 0 1 10 5c4.5 0 7 5 7 5a12.6 12.6 0 0 1-2 2.6M12.2 14.5A6.8 6.8 0 0 1 10 15c-4.5 0-7-5-7-5a12.4 12.4 0 0 1 3-3.4", "M8.5 8.5a2 2 0 0 0 3 3"]);
+var PauseIcon = lineIcon(["M7.5 5v10", "M12.5 5v10"]);
+var ResumeIcon = lineIcon(["M7 4.8v10.4a.5.5 0 0 0 .77.42l8-5.2a.5.5 0 0 0 0-.84l-8-5.2A.5.5 0 0 0 7 4.8z"]);
 var TrashIcon = lineIcon(["M3.5 5.5h13", "M8 5.5V4a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v1.5", "M5 5.5l.7 10A1.5 1.5 0 0 0 7.2 17h5.6a1.5 1.5 0 0 0 1.5-1.5l.7-10", "M8.5 9v4.5M11.5 9v4.5"]);
 var DuplicateIcon = lineIcon(["M7 7h8.5v9.5H7z", "M4.5 13V3.5H13", "M11.25 9.5v4.5M9 11.75h4.5"]);
 var SlidersIcon = lineIcon(["M4 6.5h5M12.5 6.5H16M4 13.5h4M11.5 13.5H16", "M10.5 4.5v4M9.5 11.5v4"]);
@@ -25612,7 +25627,8 @@ var nextText = (task) => {
   if (task.status === "paused") return t("Paused");
   return task.status === "active" ? t("Next: {time}", { time: dayAndTime(Date.parse(task.scheduledAt)) }) : t("Finished");
 };
-function TaskRow2({ task, actions, onView, showBot, roster }) {
+var canResume = (task) => task.status === "paused" && !((task.kind === "at" || task.kind === "after") && Date.parse(task.scheduledAt) <= Date.now());
+function TaskRow2({ task, actions, onView, showBot, roster, canPause }) {
   const [confirming, setConfirming] = (0, import_react23.useState)(false);
   const [expanded, setExpanded] = (0, import_react23.useState)(false);
   const [busy, setBusy] = (0, import_react23.useState)(false);
@@ -25629,6 +25645,19 @@ function TaskRow2({ task, actions, onView, showBot, roster }) {
     setBusy(true);
     void actions.scheduleDelete(task.sessionId, task.id).then(onView, () => setBusy(false));
   };
+  const [failed, setFailed] = (0, import_react23.useState)("");
+  const toggle = () => {
+    setBusy(true);
+    setFailed("");
+    void actions.schedulePause(task.sessionId, task.id, task.status !== "active").then((next) => {
+      setBusy(false);
+      onView(next);
+    }, (failure) => {
+      setBusy(false);
+      setFailed(hostText(failure?.message ?? String(failure)));
+    });
+  };
+  const pausable = canPause && (task.status === "active" || canResume(task));
   const room2 = task.roomId ? roster.roomsById[task.roomId] : void 0;
   return (0, import_react23.createElement)(
     "div",
@@ -25639,9 +25668,18 @@ function TaskRow2({ task, actions, onView, showBot, roster }) {
       { type: "button", className: "bt-set-copy bt-task-copy", "aria-expanded": expanded || void 0, onClick: () => setExpanded((open) => !open) },
       (0, import_react23.createElement)("span", { className: "bt-task-title" }, task.title),
       (0, import_react23.createElement)("span", { className: "bt-set-hint" }, [timingText(task), room2 ? t("in {name}", { name: room2.name }) : ""].filter(Boolean).join(" · ")),
-      task.prompt && task.prompt !== task.title ? (0, import_react23.createElement)("span", { className: "bt-task-prompt", "data-open": expanded || void 0 }, task.prompt) : null
+      task.prompt && task.prompt !== task.title ? (0, import_react23.createElement)("span", { className: "bt-task-prompt", "data-open": expanded || void 0 }, task.prompt) : null,
+      failed ? (0, import_react23.createElement)("span", { className: "bt-danger bt-set-hint", role: "alert" }, failed) : null
     ),
     (0, import_react23.createElement)("span", { className: "bt-task-next", "data-state": task.state === "overdue" ? "overdue" : void 0 }, nextText(task)),
+    pausable ? (0, import_react23.createElement)("button", {
+      type: "button",
+      className: "bt-mini bt-task-remove bt-task-pause",
+      disabled: busy,
+      "aria-label": task.status === "active" ? t("Pause task") : t("Resume task"),
+      title: task.status === "active" ? t("Pause task") : t("Resume task"),
+      onClick: toggle
+    }, task.status === "active" ? (0, import_react23.createElement)(PauseIcon) : (0, import_react23.createElement)(ResumeIcon)) : null,
     (0, import_react23.createElement)("button", {
       type: "button",
       className: "bt-mini bt-task-remove",
@@ -25815,7 +25853,7 @@ function SchedulesPage({ roster, actions, start }) {
       "section",
       { key: id, className: "bt-set-section" },
       index === 0 ? (0, import_react23.createElement)("div", { className: "bt-la-sec-head" }, (0, import_react23.createElement)("h3", { className: "bt-task-head" }, avatar, name), addBar) : (0, import_react23.createElement)("h3", { className: "bt-task-head" }, avatar, name),
-      (0, import_react23.createElement)("div", { className: "bt-set-card" }, tasks.map((task) => (0, import_react23.createElement)(TaskRow2, { key: task.id, task, actions, roster, onView: publish })))
+      (0, import_react23.createElement)("div", { className: "bt-set-card" }, tasks.map((task) => (0, import_react23.createElement)(TaskRow2, { key: task.id, task, actions, roster, canPause: view.canPause === true, onView: publish })))
     ))
   ];
 }
@@ -25836,7 +25874,7 @@ function BotSchedules({ bot, roster, actions }) {
         (0, import_react23.createElement)("span", { className: "bt-set-copy" }, (0, import_react23.createElement)("span", { className: "bt-set-hint" }, t("Switch on Automation tasks on the Plugins page in Settings."))),
         (0, import_react23.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => actions.openSettings("dsh", "plugins") }, t("Open Plugins"))
       ) : [
-        ...tasks.map((task) => (0, import_react23.createElement)(TaskRow2, { key: task.id, task, actions, roster, onView: publish })),
+        ...tasks.map((task) => (0, import_react23.createElement)(TaskRow2, { key: task.id, task, actions, roster, canPause: view.canPause === true, onView: publish })),
         (0, import_react23.createElement)("button", { key: "new", type: "button", className: "bt-set-row bt-bs-row bt-gs-add", onClick: () => actions.openSettings("schedules", bot.id) }, (0, import_react23.createElement)(PlusIcon), t("New task"))
       ]
     )

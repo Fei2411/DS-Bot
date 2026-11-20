@@ -1493,6 +1493,8 @@ const ZH = {
   'in {name}': '在 {name}',
   'Click again to delete': '再点一次删除',
   'Delete task': '删除任务',
+  'Pause task': '暂停任务',
+  'Resume task': '恢复任务',
   Once: '一次',
   'Every week': '每周',
   Repeat: '重复',
