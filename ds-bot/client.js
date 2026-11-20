@@ -15480,6 +15480,7 @@ function teamActions({ call: call2, after, partFor, roster, ui: ui2, live, cards
     fileText: (file) => call2("file-text", { file }).catch(() => void 0),
     roomProgress: (roomId) => call2("room-progress", { roomId }).catch(() => []),
     groupRows: (roomId, from, to, anchor) => call2("group-rows", { roomId, from, ...to === void 0 ? {} : { to }, ...anchor === void 0 ? {} : { anchor } }).catch(() => null),
+    groupRelayReplies: (sessionId, preview) => call2("group-relay-replies", { sessionId, preview }).catch(() => null),
     earlier: (sessionId, cursor) => call2("earlier", { sessionId, cursor: cursor ?? null }),
     // Hours come back in this browser's time zone, so days start at local midnight.
     usage: () => call2("usage", { timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }),
@@ -27887,9 +27888,21 @@ function relayRange(text) {
 }
 var RELAY_LIST = /"replies"\s*:\s*\[/;
 var PRUNE_MARKER = /\[\.\.\. tool result middle pruned \.\.\.\]/;
+var SAVE_TOKEN_NOTICE = /\n\n\[save-token #[\da-z]+ (?:compressed|losslessly re-encoded): [\d,]+ -> [\d,]+ bytes[\s\S]*\]$/;
+var compressedRelayPreview = (text) => {
+  const notice = SAVE_TOKEN_NOTICE.exec(text);
+  return notice === null ? void 0 : text.slice(0, notice.index);
+};
+var REPLY_ELISION = / \.\.\.\[\+(\d+) chars\]\.\.\. /;
 function parseReplies(text) {
+  const preview = compressedRelayPreview(text);
+  if (preview !== void 0) {
+    const replies2 = parseReplies(preview).replies.filter((reply) => reply && typeof reply === "object" && !reply.__omitted__ && (typeof reply.text !== "string" || !REPLY_ELISION.test(reply.text)));
+    return { replies: replies2, broken: true };
+  }
   try {
-    return { replies: JSON.parse(text).replies ?? [], broken: false };
+    const replies2 = JSON.parse(text)?.replies;
+    return { replies: Array.isArray(replies2) ? replies2 : [], broken: false };
   } catch {
   }
   const replies = [];
@@ -29959,6 +29972,18 @@ function GroupReplies({ sessionId, callId, done, content, roster, actions, useUi
   }, [done, sessionId, callId]);
   const resultText = done ? contentText(content) : "";
   const range = done ? relayRange(resultText) : void 0;
+  const preview = compressedRelayPreview(resultText);
+  const [recovered, setRecovered] = (0, import_react34.useState)(null);
+  (0, import_react34.useEffect)(() => {
+    if (preview === void 0) return void 0;
+    let stop = false;
+    void actions.groupRelayReplies(sessionId, preview).then((replies2) => {
+      if (!stop) setRecovered({ sessionId, preview, replies: replies2 });
+    });
+    return () => {
+      stop = true;
+    };
+  }, [sessionId, preview]);
   const rowsKey = range === void 0 ? void 0 : `${sessionId}:${range.from}:${range.to ?? ""}:${range.anchor ?? ""}`;
   const [view, setView] = (0, import_react34.useState)(() => rowsKey === void 0 ? null : settledRows.get(rowsKey) ?? null);
   const quietKey = view?.open === true && view.active !== true ? roster.revision : void 0;
@@ -29997,9 +30022,13 @@ function GroupReplies({ sessionId, callId, done, content, roster, actions, useUi
   if (range !== void 0) {
     replies = view?.rows ?? live.replies;
   } else if (done) {
-    const parsed = parseReplies(resultText);
-    replies = parsed.replies.length ? parsed.replies : live.replies;
-    broken = parsed.broken;
+    const restored = recovered?.sessionId === sessionId && recovered.preview === preview ? recovered.replies : null;
+    if (Array.isArray(restored)) replies = restored;
+    else {
+      const parsed = parseReplies(resultText);
+      replies = parsed.replies.length ? parsed.replies : live.replies;
+      broken = parsed.broken;
+    }
   }
   const pending = range !== void 0 ? view?.open ? view.speaking ?? [] : [] : done ? [] : live.speaking;
   const doing = JSON.parse(useWork?.((work) => JSON.stringify(pending.map((id) => {

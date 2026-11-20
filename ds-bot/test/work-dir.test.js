@@ -6,7 +6,7 @@ import { test } from 'node:test'
 import { createToolResultMessage, createUserMessage } from '@deepseek-ai/dsh-llm'
 import { Session } from '@deepseek-ai/dsh-session'
 import { createRuntime } from '../index.js'
-import { SOURCE_KIND } from '../src/host/constants.js'
+import { SOURCE_KIND, TEXT_KEPT } from '../src/host/constants.js'
 import { dshHomeOf } from '../src/host/folders.js'
 import { escapeRegExp } from '../src/host/text.js'
 import { fakeApproval, fakeContext } from './fake-ctx.js'
@@ -1307,6 +1307,247 @@ test('a group\'s earlier parts page like a Bot\'s own chat', async (t) => {
   assert.equal(typeof page.startedAt, 'number')
   // The first part itself has nothing before it.
   assert.deepEqual((await call('earlier', { sessionId: 'r1' })).value.items, [])
+})
+
+test('compressed pre-ledger group replies are recovered from the migrated group log', async (t) => {
+  const replies = [
+    { botId: 'b', name: 'Writer', text: 'First "reply".\n'.repeat(32), time: 1000 },
+    { botId: 'a', name: 'Chief', text: 'Middle reply. '.repeat(35), time: 2000 },
+    { botId: 'b', name: 'Writer', text: 'Final "reply".\n'.repeat(32), time: 3000 },
+  ]
+  const saved = structuredClone(TEAM)
+  const unrelated = 'This reply belongs to the next prompt.'
+  saved.rooms.r1.seq = 6
+  saved.rooms.r1.log = [
+    { seq: 1, who: 'User', text: 'Original prompt' },
+    ...replies.map((reply, index) => ({ seq: index + 2, who: reply.name, botId: reply.botId, text: reply.text })),
+    { seq: 5, who: 'User', text: 'Next prompt' },
+    { seq: 6, who: 'Chief', botId: 'a', text: unrelated },
+  ]
+  const { ctx, call, project, state, stop } = await start({ team: saved })
+  t.after(stop)
+  const original = JSON.stringify({ replies, passed: [] })
+  const head = original.indexOf('First') + 'First \\"reply\\".\\n'.repeat(8).length
+  const tail = original.lastIndexOf('Final') - 'Final \\"reply\\".\\n'.length * 6
+  const preview = `${original.slice(0, head)} ...[+${tail - head} chars]... ${original.slice(tail)}`
+  const text = `${preview}\n\n[save-token #c123 compressed: ${original.length} -> ${preview.length} bytes. expand: save_token_expand id="c123" | full: /unused/group_relay.txt]`
+  const events = [
+    { seq: 4, type: 'tool/call', data: { name: 'group_relay', callId: 'relay' } },
+    { seq: 5, type: 'tool/result', data: { message: { toolCallId: 'relay', content: [{ type: 'text', text }] } } },
+  ]
+  ctx.sessionController.page = async ({ address }) => ({
+    records: address.sessionId === 'r1' ? events.map(event => ({ event })) : [],
+    hasMore: false,
+  })
+  const expected = replies.map(reply => [reply.botId, reply.text])
+  assert.equal((await call('update-room', { id: 'r1', workDir: project })).ok, true)
+  await until(() => state().rooms.r1.sessionId === 's1')
+  const earlier = (await call('earlier', { sessionId: 's1' })).value
+  assert.deepEqual(earlier.items.map(item => [item.botId, item.texts[0]]), expected)
+  const recovered = (await call('group-relay-replies', { sessionId: 'r1', preview })).value
+  assert.deepEqual(recovered?.map(reply => [reply.botId, reply.text]), expected)
+  assert.equal((await call('group-relay-replies', { sessionId: 'gb', preview })).value, null)
+  const brokenHead = original.indexOf(',"name":', original.indexOf('Middle') - 28)
+  const broken = `${original.slice(0, brokenHead)} ...[+${tail - brokenHead} chars]... ${original.slice(tail)}`
+  assert.throws(() => JSON.parse(broken))
+  const fromBroken = (await call('group-relay-replies', { sessionId: 'r1', preview: broken })).value
+  assert.deepEqual(fromBroken?.map(reply => [reply.botId, reply.text]), expected)
+  const shortened = replies.map(reply => ({
+    ...reply, text: `${reply.text.slice(0, 220)} ...[+${reply.text.length - 300} chars]... ${reply.text.slice(-80)}`,
+  }))
+  const structured = (await call('group-relay-replies', { sessionId: 'r1', preview: JSON.stringify({ replies: shortened }) })).value
+  assert.deepEqual(structured, replies)
+  const crossedPrompt = JSON.stringify({ replies: [{ botId: 'b', text: `${replies[0].text.slice(0, 45)} ...[+2000 chars]... ${unrelated}` }] })
+  assert.equal((await call('group-relay-replies', { sessionId: 'r1', preview: crossedPrompt })).value, null)
+})
+
+test('compressed replies are recovered from a legacy group that was never versioned', async (t) => {
+  const replies = [
+    { botId: 'b', name: 'Writer', text: 'First "reply".\n'.repeat(32), time: 1000 },
+    { botId: 'a', name: 'Chief', text: 'Middle reply. '.repeat(35), time: 2000 },
+    { botId: 'b', name: 'Writer', text: 'Final "reply".\n'.repeat(32), time: 3000 },
+  ]
+  const saved = structuredClone(TEAM)
+  // The oldest saved groups have neither `room.seq` nor a `seq` on their log lines.
+  delete saved.rooms.r1.seq
+  saved.rooms.r1.log = [
+    { who: 'User', text: 'Original prompt' },
+    ...replies.map(reply => ({ who: reply.name, botId: reply.botId, text: reply.text })),
+    { who: 'User', text: 'Next prompt' },
+  ]
+  const { call, stop } = await start({ team: saved })
+  t.after(stop)
+  const original = JSON.stringify({ replies, passed: [] })
+  const head = original.indexOf('First') + 'First \\"reply\\".\\n'.repeat(8).length
+  const tail = original.lastIndexOf('Final') - 'Final \\"reply\\".\\n'.length * 6
+  const preview = `${original.slice(0, head)} ...[+${tail - head} chars]... ${original.slice(tail)}`
+  const expected = replies.map(reply => [reply.botId, reply.text])
+  // The first thing asked of the group is the recovery, before any message or page read.
+  const recovered = (await call('group-relay-replies', { sessionId: 'r1', preview })).value
+  assert.deepEqual(recovered?.map(reply => [reply.botId, reply.text]), expected)
+})
+
+test('compressed group replies do not restore a shortened legacy log line as complete', async (t) => {
+  const replies = [
+    { botId: 'b', text: 'Start of the original reply. '.repeat(4) },
+    { botId: 'a', text: 'Reply with a missing end. '.repeat(120) },
+    { botId: 'b', text: 'End of the original reply. '.repeat(4) },
+  ]
+  const original = JSON.stringify({ replies })
+  const head = original.indexOf(replies[0].text) + 45
+  const tail = original.indexOf(replies[2].text) + 45
+  const preview = `${original.slice(0, head)} ...[+${tail - head} chars]... ${original.slice(tail)}`
+  const log = replies.map((reply, i) => ({ ...reply, seq: i + 1 }))
+  log[1] = { ...log[1], text: log[1].text.slice(0, TEXT_KEPT), length: replies[1].text.length }
+
+  for (const source of ['room log', 'previously migrated ledger']) {
+    await t.test(source, async (t) => {
+      const root = realpathSync.native(mkdtempSync(join(tmpdir(), 'ds-bot-work-dir-')))
+      const saved = structuredClone(TEAM)
+      saved.rooms.r1.seq = 3
+      if (source === 'room log') {
+        saved.rooms.r1.log = log.map(line => line.length === undefined ? line : { ...line, text: line.text.slice(0, 40) })
+      } else {
+        const ledger = join(root, 'dsh', 'bot', 'ledger')
+        mkdirSync(ledger, { recursive: true })
+        writeFileSync(join(ledger, 'group-r1.jsonl'), log.map(({ length, ...line }) => `${JSON.stringify(line)}\n`).join(''))
+      }
+      const { call, stop } = await start({ root, team: saved })
+      t.after(stop)
+      assert.equal((await call('group-relay-replies', { sessionId: 'r1', preview })).value, null)
+      if (source === 'room log') assert.equal(rt.ledger.record('group-r1', 2).length, replies[1].text.length)
+    })
+  }
+})
+
+test('compressed group replies distinguish a complete match from an ambiguous clipped match', async (t) => {
+  for (const clipped of [false, true]) {
+    await t.test(clipped ? 'a clipped opening and a later reply share a prefix' : 'a complete legacy reply exactly reaches the clipping limit', async (t) => {
+      const opening = 'Shared opening sentence. '.repeat(3)
+      const replies = [
+        { botId: 'b', text: opening + 'x'.repeat(TEXT_KEPT - opening.length) },
+        { botId: clipped ? 'b' : 'a', text: opening + 'A later reply.' },
+        { botId: 'a', text: 'Closing reply. '.repeat(10) },
+      ]
+      const original = JSON.stringify({ replies })
+      const head = original.indexOf(opening) + opening.length
+      const tail = original.indexOf(replies[2].text) + 45
+      const preview = `${original.slice(0, head)} ...[+${tail - head} chars]... ${original.slice(tail)}`
+      const saved = structuredClone(TEAM)
+      saved.rooms.r1.seq = 3
+      saved.rooms.r1.log = replies.map((reply, i) => ({ ...reply, seq: i + 1 }))
+      if (clipped) saved.rooms.r1.log[0] = { ...saved.rooms.r1.log[0], length: TEXT_KEPT, text: opening.slice(0, 45) }
+      const { call, stop } = await start({ team: saved })
+      t.after(stop)
+      const result = (await call('group-relay-replies', { sessionId: 'r1', preview })).value
+      if (clipped) assert.equal(result, null)
+      else assert.deepEqual(result?.map(reply => reply.text), replies.map(reply => reply.text))
+    })
+  }
+})
+
+test('a clipped legacy reply of an incompatible length does not hide the exact match', async (t) => {
+  const head = 'Opening shared by two replies. '.padEnd(220, 'x')
+  const tail = 'The original closing sentence. '.padStart(80, 'z')
+  const hidden = 'Original middle. '.repeat(25)
+  const text = head + hidden + tail
+  const saved = structuredClone(TEAM)
+  saved.rooms.r1.seq = 3
+  saved.rooms.r1.log = [
+    { seq: 1, botId: 'b', text },
+    { seq: 2, who: 'User', text: 'Next prompt' },
+    { seq: 3, botId: 'b', text: head + 'x'.repeat(TEXT_KEPT - head.length), length: TEXT_KEPT + 100 },
+  ]
+  const preview = JSON.stringify({ replies: [{ botId: 'b', text: `${head} ...[+${hidden.length} chars]... ${tail}` }] })
+  const { call, stop } = await start({ team: saved })
+  t.after(stop)
+  assert.deepEqual((await call('group-relay-replies', { sessionId: 'r1', preview })).value, [{ botId: 'b', text }])
+})
+
+test('a save-token line cut cannot restore an apparent exact match from another prompt', async (t) => {
+  const first = { botId: 'b', text: 'First reply. '.repeat(42) }
+  const last = { botId: 'a', text: 'Last reply. '.repeat(350) }
+  const original = JSON.stringify({ replies: [first, last], passed: [] })
+  const omitted = original.length - 360
+  const marker = ` ...[+${omitted} chars]... `
+  const preview = original.slice(0, 260) + marker + original.slice(-100)
+  const unrelated = { ...JSON.parse(preview).replies[0] }
+  unrelated.text = unrelated.text.replace(marker, 'x'.repeat(omitted))
+  const saved = structuredClone(TEAM)
+  saved.rooms.r1.seq = 4
+  saved.rooms.r1.log = [
+    { ...first, seq: 1, text: first.text.slice(0, 40), length: first.text.length },
+    { ...last, seq: 2 },
+    { seq: 3, who: 'User', text: 'Unrelated prompt' },
+    { ...unrelated, seq: 4 },
+  ]
+  const { call, stop } = await start({ team: saved })
+  t.after(stop)
+  assert.equal((await call('group-relay-replies', { sessionId: 'r1', preview })).value, null)
+})
+
+test('a save-token line cut inside one reply recovers it only at the exact encoded length', async (t) => {
+  const encoded = text => JSON.stringify({ replies: [{ botId: 'b', text }], passed: [] })
+  const [beforeText, afterText] = encoded('').split('""')
+  const opening = 'Opening sentence. '.repeat(20).slice(0, 259 - beforeText.length - 1)
+  const closing = 'Closing sentence. '.repeat(10).slice(0, 100 - afterText.length - 2)
+  const reply = { botId: 'b', text: opening + '🙂' + '"Middle".\n'.repeat(35) + '🙂' + closing }
+  const original = encoded(reply.text)
+  assert.equal(original.slice(259, 261), '🙂')
+  assert.equal(original.slice(-101, -99), '🙂')
+  const saved = structuredClone(TEAM)
+  saved.rooms.r1.seq = 1
+  saved.rooms.r1.log = [{ ...reply, seq: 1 }]
+  const { call, stop } = await start({ team: saved })
+  t.after(stop)
+  const preview = omitted => original.slice(0, 260) + ` ...[+${omitted} chars]... ` + original.slice(-100)
+  const omitted = original.length - 360
+  const recovered = (await call('group-relay-replies', { sessionId: 'r1', preview: preview(omitted) })).value
+  assert.deepEqual(recovered?.map(({ botId, text }) => ({ botId, text })), [reply])
+  assert.equal((await call('group-relay-replies', { sessionId: 'r1', preview: preview(omitted + 1) })).value, null)
+})
+
+test('a save-token line cut inside a JSON escape matches the raw ending', async (t) => {
+  const first = { botId: 'b', text: 'Original opening. '.repeat(35), time: 1000, duration: 12345 }
+  const encode = text => JSON.stringify({ replies: [first, { botId: 'a', text, time: 2000, duration: 12345 }], passed: [] })
+  const trailer = encode('').split('""')[1]
+  const closing = 'End of report. '.repeat(10).slice(0, 100 - 6 - 1 - trailer.length)
+  const last = { botId: 'a', text: 'Second reply. '.repeat(100) + '\\u0044' + closing }
+  const original = encode(last.text)
+  assert.ok(original.slice(-100).startsWith('\\u0044'))
+  const preview = original.slice(0, 260) + ` ...[+${original.length - 360} chars]... ` + original.slice(-100)
+  const saved = structuredClone(TEAM)
+  saved.rooms.r1.seq = 3
+  saved.rooms.r1.log = [
+    { ...first, seq: 1 },
+    { ...last, seq: 2 },
+    { botId: 'a', text: 'D' + closing, seq: 3 },
+  ]
+  const { call, stop } = await start({ team: saved })
+  t.after(stop)
+  const result = (await call('group-relay-replies', { sessionId: 'r1', preview })).value
+  assert.deepEqual(result?.map(({ text }) => text), [first.text, last.text])
+})
+
+test('a reply with the same visible text cannot replace an expired original', async (t) => {
+  const original = { botId: 'b', text: 'Opening. '.repeat(30) + 'First report. '.repeat(50) + 'Closing. '.repeat(15) }
+  const later = { ...original, text: original.text.replaceAll('First report.', 'Later report.') }
+  const json = JSON.stringify({ replies: [original], passed: [] })
+  const lineCut = json.slice(0, 260) + ` ...[+${json.length - 360} chars]... ` + json.slice(-100)
+  const jsonCut = JSON.stringify({ replies: [{
+    ...original, text: original.text.slice(0, 220) + ` ...[+${original.text.length - 300} chars]... ` + original.text.slice(-80),
+  }], passed: [] })
+  const saved = structuredClone(TEAM)
+  saved.rooms.r1.seq = 62
+  saved.rooms.r1.log = [
+    { seq: 61, who: 'User', text: 'Later prompt' },
+    { seq: 62, ...later },
+  ]
+  const { call, stop } = await start({ team: saved })
+  t.after(stop)
+  for (const preview of [lineCut, jsonCut]) {
+    assert.equal((await call('group-relay-replies', { sessionId: 'r1', preview })).value, null)
+  }
 })
 
 test('the file panel of a group with a folder lists the Session\'s own folder', async (t) => {
