@@ -651,11 +651,15 @@ test('long (>20k) completed bot-handoff reply holding attachLong does NOT trigge
   const dmB = env.agentMap.get('dm-b')
   dmB.status = 'running'
 
-  // Hold attachLong unresolved until after settleTask finishes saving.
+  // Hold attachLong unresolved only for the >20k reply (not the short incoming request).
   let releaseAttach
-  env.rt.attachLong = async (text) => new Promise((resolve) => {
-    releaseAttach = () => resolve({ text: text.slice(0, 100), files: [], length: text.length })
-  })
+  const origAttachLong = env.rt.attachLong
+  env.rt.attachLong = async (text, name) => {
+    if (text.length <= 20_000) return origAttachLong(text, name)
+    return new Promise((resolve) => {
+      releaseAttach = () => resolve({ text: text.slice(0, 100), files: [], length: text.length })
+    })
+  }
 
   await env.emit('dm-b', 'turn/start', { turn: 1 })
   await env.emit('dm-b', 'tool/call', { callId: 'tc1', name: 'bash', arguments: '{}' })
