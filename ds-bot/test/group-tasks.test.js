@@ -604,6 +604,7 @@ test('P1-2: working_directory inside a group task respects task.workDir and neve
   assert.equal(ran, 2)
   assert.equal(approved.length, 1)
   assert.deepEqual(approved[0].sessions, [task.sessionId], 'approval must be scoped to task session only')
+  assert.equal(realpathSync(task.workDir), realpathSync(outsideDir), 'task.workDir must persist for rollover continuity')
   assert.equal(env.rt.roomOf('r1').memberDirs?.a, undefined, 'group task working_directory must never mutate room.memberDirs')
 })
 

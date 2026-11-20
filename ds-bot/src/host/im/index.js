@@ -1495,11 +1495,10 @@ export function install(rt) {
               const memberId = rt.groupOwners.get(session.id)?.botId
               const otherWorking = (rt.roomWorkView?.()[room.id] ?? []).some(item => item.botId !== memberId)
               const busy = rt.roomActive?.(room.id) === true || otherWorking
-              if (live === undefined && !busy) {
-                // Clear stale `mixed` left by an already-finished desktop/Web round so the
-                // IM group still receives the task report; leave live origins untouched so
-                // concurrent IM activity (including another paired user in the same group)
-                // is never dropped.
+              if (live === undefined && !(mixed.has(roomSid) && busy)) {
+                // Restore after restart even while sibling group tasks run, and clear stale
+                // `mixed` left by an already-finished desktop/Web round; stay blocked only
+                // while a live non-IM desktop/Web round is actively running.
                 resetOrigin(roomSid)
                 claimOrigin(roomSid, saved.connId, saved.chatKey, saved.senderId, saved.binding)
               }

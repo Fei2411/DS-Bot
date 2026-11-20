@@ -558,11 +558,16 @@ export function install(rt) {
     if (unquote(target) !== target) throw new Error(`${JSON.stringify(target)} cannot be a working folder: its name starts or ends with a space or a quote mark.`)
     const workDir = await rt.workFolder(target)
     if (taskEntry !== undefined) {
-      // A background task only widens its own Session; it never rewrites room.memberDirs
-      // or the Bot's own persistent workDir.
+      // A background task only widens its own Session and updates its own task.workDir
+      // for rollover continuity; it never rewrites room.memberDirs or the Bot's workDir.
       await rt.checkPrivacyChange(bot, { moving: true, workDir })
       await rt.approveFolder(exec, { path: workDir, sessions: [exec.agent.id], who: { en: `${bot.name}'s background task`, zh: `${bot.name} 的后台任务` } })
-      return next()
+      const result = await next()
+      if (result?.isError !== true) {
+        taskEntry.workDir = workDir
+        await rt.save()
+      }
+      return result
     }
     if (room !== undefined) {
       // The folder holds only for this group conversation, so only this Session's

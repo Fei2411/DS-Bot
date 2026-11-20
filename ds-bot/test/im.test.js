@@ -2141,3 +2141,55 @@ test('P0-B: group task-report from u1 does not drop live IM origin when another 
     'u1 task-report must not drop u2 live origin on the same IM group',
   )
 })
+
+test('P0-B: after restart, group task-report restores IM origin even while sibling member task is still working', async (t) => {
+  const s = await start()
+  t.after(s.stop)
+  const { one } = await pairedConn(s)
+  one.chats.g1 = { kind: 'group', title: 'G', target: { roomId: 'r1' }, at: 1 }
+  await s.rt.save()
+
+  const room = s.rt.roomOf('r1')
+  const roomSid = s.rt.sessionOfRoom(room)
+  room.sessions = { ...room.sessions, a: 'grp-r1-a' }
+  s.rt.groupOwners.set('grp-r1-a', { botId: 'a', roomId: 'r1' })
+
+  await gm(s, 'u1', 'start parallel group tasks')
+  s.imTurn('r1')
+  const captured = s.rt.captureImOrigin(roomSid)
+  s.rt.botOf('a').tasks = [{
+    id: 'k_grp_restart',
+    title: 'Restart sibling task',
+    roomId: 'r1',
+    from: 'grp-r1-a',
+    sessionId: 'gtask-r',
+    segments: [],
+    status: 'completed',
+    startedAt: Date.now(),
+    updatedAt: Date.now(),
+    imOrigin: captured,
+  }]
+
+  // Simulate restart: origins and mixed are both clear, while sibling member 'b' is still working in r1.
+  s.rt.clearImOrigin(roomSid)
+  s.rt.roomWorkView = () => ({ r1: [{ botId: 'b', since: Date.now() }] })
+  s.fake.sent.length = 0
+
+  s.emitEvent('grp-r1-a', 'turn/start', { turn: 1 })
+  s.emitEvent('grp-r1-a', 'user/message', {
+    source: { kind: 'bot', form: 'relay', role: 'task-report', taskId: 'k_grp_restart', roomId: 'r1' },
+    content: [{ type: 'text', text: '[Background task report] Restart sibling done' }],
+  })
+  s.emitEvent('grp-r1-a', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  s.emitEvent(roomSid, 'turn/start', { turn: 2 })
+  s.emitEvent(roomSid, 'user/message', { source: { kind: 'bot', form: 'relay', role: 'post', roomId: 'r1' }, content: [{ type: 'text', text: 'Done' }] })
+  s.rt.logRoom(room, { who: 'Writer', botId: 'a', text: 'Sibling task report after restart.' })
+  s.emitEvent(roomSid, 'turn/end', { turn: 2, reason: { kind: 'completed' } })
+  await s.flush()
+
+  assert.deepEqual(
+    s.fake.sent.map(entry => [entry.chat.key, entry.text]),
+    [['g1', '**Writer**: Sibling task report after restart.']],
+    'restart recovery with sibling member working must still restore IM group origin',
+  )
+})
