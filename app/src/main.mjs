@@ -28,6 +28,7 @@ import { explainOf, StartWindow } from './start-window.mjs'
 import { langOf } from './start/text.mjs'
 import { createDeferredPrompt } from './update-prompt.mjs'
 import { CAPTION_HEIGHT, cssColor, frameOptions, framelessOn, keepVibrancy, materialOf, nativeThemeSource } from './window-frame.mjs'
+import { zoomKey, zoomLevel } from './zoom-keys.mjs'
 
 const { rm } = disk.promises
 
@@ -1387,6 +1388,14 @@ function createWindow() {
     event.preventDefault()
     openOutside(url)
   })
+  if (process.platform !== 'darwin') {
+    contents.on('before-input-event', (event, input) => {
+      const action = zoomKey(input, process.platform)
+      if (action === null) return
+      event.preventDefault()
+      contents.setZoomLevel(zoomLevel(contents.getZoomLevel(), action))
+    })
+  }
   if (!app.isPackaged) {
     contents.on('before-input-event', (_event, input) => {
       if (input.type === 'keyDown' && (input.key === 'F12' || (input.control && input.shift && input.key.toLowerCase() === 'i'))) contents.toggleDevTools()

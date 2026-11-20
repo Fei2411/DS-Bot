@@ -119,6 +119,7 @@ export function install(rt) {
     const entry = rt.live.get(id)
     const agent = liveAgent(id)
     if (!privateOf(id) || rt.readOnly?.() !== undefined || entry === undefined || agent === undefined) return
+    if (rt.taskOwners?.has(id) || rt.shouldMoveForeground?.(rt.botOf(rt.chatOwners.get(id)), id)) return
     if ([...(rt.switchJobs?.() ?? [])].some(job => job?.botId === rt.chatOwners.get(id) && job.roomId === undefined)) return
     const track = stateOf(id)
     if (track.phase !== 'model' || track.cutting) return
@@ -577,6 +578,7 @@ export function install(rt) {
       }
       case 'agent/inbox/spliced':
         if (isUserSteer(event)) {
+          if (rt.taskOwners?.has(id) || rt.shouldMoveForeground?.(rt.botOf(rt.chatOwners.get(id)), id)) break
           wake(track.steerWaiters, true)
           scheduleCut(id)
         }

@@ -74,14 +74,14 @@ async function startEnv({ team = makeTeam(), forkImpl, jobsList = () => [], appr
   const archivedSessions = []
   let seqId = 0
 
-  const makeAgent = (id) => {
+  const makeAgent = (id, cwd = workDir) => {
     const events = []
     const followups = []
     const steers = []
     const cancelled = []
     const session = {
       id,
-      header: { cwd: workDir },
+      header: { cwd },
       events,
       requestHeader: () => undefined,
       snapshotEvents: () => [...events],
@@ -129,7 +129,7 @@ async function startEnv({ team = makeTeam(), forkImpl, jobsList = () => [], appr
       create: async ({ title, cwd }) => {
         const sessionId = `ses-${++seqId}`
         createdSessions.push({ sessionId, title, cwd })
-        makeAgent(sessionId)
+        makeAgent(sessionId, cwd)
         return { sessionId }
       },
       fork: async (opts) => {

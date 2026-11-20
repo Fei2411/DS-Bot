@@ -15157,7 +15157,8 @@ function indexRoster(value) {
   const byId = {};
   for (const bot of value.bots) {
     const open = (bot.openParts ?? []).flatMap((part) => [part.sessionId, ...part.parts ?? []]);
-    for (const id of [...bot.parts ?? [], ...open, bot.sessionId ?? bot.id, bot.id]) byId[id] = bot;
+    const tasks = (bot.tasks ?? []).flatMap((task) => [task.sessionId, ...task.parts ?? []]);
+    for (const id of [...bot.parts ?? [], ...open, ...tasks, bot.sessionId ?? bot.id, bot.id]) byId[id] = bot;
   }
   const roomsById = {};
   for (const room2 of value.rooms) {
@@ -15831,6 +15832,203 @@ function linkMentions(text, bots, selfId) {
   }
   return cursor === 0 ? text : out + text.slice(cursor);
 }
+var DRIVE_BACKSLASH_PATH = /^[A-Za-z]:\\/;
+var isEscaped = (text, index) => {
+  let slashes = 0;
+  for (let i = index - 1; i >= 0 && text[i] === "\\"; i -= 1) slashes += 1;
+  return (slashes & 1) === 1;
+};
+var lineEnd = (text, from) => {
+  const nl = text.indexOf("\n", from);
+  return nl === -1 ? text.length : nl + 1;
+};
+var isBlankLine = (text, start, end) => /^[ \t]*\r?\n?$/.test(text.slice(start, end));
+function fenceOpen(line) {
+  const match = /^[ ]{0,3}(`{3,}|~{3,})([^\r\n]*)\r?\n?$/.exec(line);
+  if (!match) return null;
+  const marker = match[1];
+  if (marker[0] === "`" && match[2].includes("`")) return null;
+  return { char: marker[0], length: marker.length };
+}
+function fenceClose(line, fence) {
+  const match = /^[ ]{0,3}(`{3,}|~{3,})[ \t]*\r?\n?$/.exec(line);
+  return Boolean(match && match[1][0] === fence.char && match[1].length >= fence.length);
+}
+function findCodeSpanEnd(text, from, ticks) {
+  let i = from;
+  while (i < text.length) {
+    if (text[i] === "\n") {
+      const next = i + 1;
+      const nextEnd = lineEnd(text, next);
+      if (next < text.length && isBlankLine(text, next, nextEnd)) return -1;
+      i = next;
+      continue;
+    }
+    if (text[i] === "`") {
+      let end = i;
+      while (end < text.length && text[end] === "`") end += 1;
+      if (end - i === ticks) return end;
+      i = end;
+      continue;
+    }
+    i += 1;
+  }
+  return -1;
+}
+function skipLinkWs(text, from) {
+  let i = from;
+  while (i < text.length && (text[i] === " " || text[i] === "	")) i += 1;
+  if (text[i] === "\r" && text[i + 1] === "\n") i += 2;
+  else if (text[i] === "\n") i += 1;
+  else return i;
+  while (i < text.length && (text[i] === " " || text[i] === "	")) i += 1;
+  return i;
+}
+function skipOptionalTitleAndClose(text, from) {
+  let i = skipLinkWs(text, from);
+  if (i >= text.length) return -1;
+  if (text[i] === ")") return i + 1;
+  const open = text[i];
+  if (open !== '"' && open !== "'" && open !== "(") return -1;
+  if (i === from) return -1;
+  const close = open === "(" ? ")" : open;
+  i += 1;
+  while (i < text.length) {
+    const ch = text[i];
+    if (ch === "\\" && i + 1 < text.length) {
+      i += 2;
+      continue;
+    }
+    if (ch === "\n") {
+      const nextEnd = lineEnd(text, i + 1);
+      if (i + 1 < text.length && isBlankLine(text, i + 1, nextEnd)) return -1;
+      i += 1;
+      continue;
+    }
+    if (open === "(" && ch === "(") return -1;
+    if (ch === close) {
+      const after = skipLinkWs(text, i + 1);
+      return text[after] === ")" ? after + 1 : -1;
+    }
+    i += 1;
+  }
+  return -1;
+}
+function normalizeFileLinks(text) {
+  if (typeof text !== "string" || !text.includes("](") || !text.includes("\\")) return text;
+  let out = "";
+  let cursor = 0;
+  let i = 0;
+  let atLineStart = true;
+  let canIndentCode = true;
+  let fence = null;
+  while (i < text.length) {
+    if (atLineStart) {
+      const end = lineEnd(text, i);
+      const line = text.slice(i, end);
+      if (fence !== null) {
+        if (fenceClose(line, fence)) fence = null;
+        i = end;
+        canIndentCode = false;
+        continue;
+      }
+      if (isBlankLine(text, i, end)) {
+        i = end;
+        canIndentCode = true;
+        continue;
+      }
+      const opened = fenceOpen(line);
+      if (opened !== null) {
+        fence = opened;
+        i = end;
+        canIndentCode = false;
+        continue;
+      }
+      if (canIndentCode && /^(?: {4}|\t)/.test(line)) {
+        i = end;
+        continue;
+      }
+      atLineStart = false;
+      canIndentCode = false;
+    }
+    const ch = text[i];
+    if (ch === "\n") {
+      atLineStart = true;
+      i += 1;
+      continue;
+    }
+    if (ch === "`" && !isEscaped(text, i)) {
+      let ticksEnd = i;
+      while (ticksEnd < text.length && text[ticksEnd] === "`") ticksEnd += 1;
+      const spanEnd = findCodeSpanEnd(text, ticksEnd, ticksEnd - i);
+      if (spanEnd !== -1) {
+        i = spanEnd;
+        atLineStart = text[i - 1] === "\n";
+        continue;
+      }
+      i = ticksEnd;
+      continue;
+    }
+    if (ch === "]" && text[i + 1] === "(" && !isEscaped(text, i)) {
+      const destStart = skipLinkWs(text, i + 2);
+      let destInnerStart = destStart;
+      let destInnerEnd = -1;
+      let afterDest = -1;
+      if (text[destStart] === "<") {
+        destInnerStart = destStart + 1;
+        let j = destInnerStart;
+        while (j < text.length && text[j] !== ">" && text[j] !== "\n" && text[j] !== "\r") {
+          if (text[j] === "\\" && j + 1 < text.length && !DRIVE_BACKSLASH_PATH.test(text.slice(destInnerStart, destInnerStart + 3))) {
+            j += 2;
+            continue;
+          }
+          j += 1;
+        }
+        if (text[j] === ">") {
+          destInnerEnd = j;
+          afterDest = j + 1;
+        }
+      } else {
+        const isWinDrive = DRIVE_BACKSLASH_PATH.test(text.slice(destStart, destStart + 3));
+        let j = destStart;
+        let depth = 0;
+        while (j < text.length) {
+          const c = text[j];
+          if (c === " " || c === "	" || c === "\n" || c === "\r") break;
+          if (!isWinDrive && c === "\\" && j + 1 < text.length) {
+            j += 2;
+            continue;
+          }
+          if (c === "(") depth += 1;
+          else if (c === ")") {
+            if (depth === 0) break;
+            depth -= 1;
+          }
+          j += 1;
+        }
+        if (j > destStart && depth === 0) {
+          destInnerEnd = j;
+          afterDest = j;
+        }
+      }
+      if (afterDest !== -1) {
+        const linkEnd = skipOptionalTitleAndClose(text, afterDest);
+        if (linkEnd !== -1) {
+          const dest = text.slice(destInnerStart, destInnerEnd);
+          if (DRIVE_BACKSLASH_PATH.test(dest)) {
+            out += text.slice(cursor, destInnerStart) + dest.replace(/\\/g, "/");
+            cursor = destInnerEnd;
+          }
+          i = linkEnd;
+          atLineStart = text[i - 1] === "\n";
+          continue;
+        }
+      }
+    }
+    i += 1;
+  }
+  return cursor === 0 ? text : out + text.slice(cursor);
+}
 function mentionTarget(event) {
   const anchor = event.target instanceof Element ? event.target.closest(`a[href^="${MENTION_ORIGIN}"]`) : null;
   return anchor ? anchor.getAttribute("href").slice(MENTION_ORIGIN.length) : null;
@@ -16322,6 +16520,7 @@ var STORAGE = {
   prefs: "ds-bot:prefs",
   surface: "ds-bot:surface",
   agentSessions: "ds-bot:agent-sessions",
+  agentForks: "ds-bot:pending-agent-forks",
   browserWidth: "ds-bot:browser-width",
   sidebar: "ds-bot:sidebar",
   browsers: "ds-bot.browser.v2"
@@ -17165,10 +17364,11 @@ button.bt-set-row:hover .bt-chevron{transform:translateX(2px);color:var(--bt-ink
 .bt-connector-link{flex:none;padding:0;border:0;background:none;font:inherit;font-size:12px;color:var(--bt-ink-2);text-decoration:underline;text-underline-offset:2px;cursor:pointer}
 .bt-connector-link:hover:not(:disabled){color:var(--bt-ink)}
 .bt-connector-wait{flex:1;min-width:0;font-size:12px;line-height:16px;color:var(--bt-ink-2)}
-.bt-connector-setup{display:flex;flex-direction:column;gap:6px;padding:8px 10px;border-radius:10px;background:var(--bt-tag-bg);font-size:12px;line-height:16px;color:var(--bt-ink-2)}
-.bt-connector-setup p{margin:0}
-.bt-connector-setup-uri{display:flex;align-items:center;gap:6px;min-width:0}
-.bt-connector-uri{flex:1;min-width:0;padding:3px 6px;border-radius:6px;background:var(--bt-card);box-shadow:inset 0 0 0 .5px var(--bt-line-2);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;line-height:15px;color:var(--bt-ink);word-break:break-all}
+.bt-connector-setup{display:flex;flex-direction:column;gap:8px;padding:12px 14px;border-radius:10px;background:var(--bt-hover);box-shadow:inset 0 0 0 .5px var(--bt-line);font-size:12px;line-height:18px;color:var(--bt-ink-2)}
+.bt-connector-steps{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:6px}
+.bt-connector-steps li::marker{color:var(--bt-ink-3);font-weight:500}
+.bt-connector-setup-uri{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:6px;min-width:0}
+.bt-connector-uri{flex:1;min-width:180px;padding:5px 8px;border-radius:6px;background:var(--bt-card);box-shadow:inset 0 0 0 .5px var(--bt-line-2);font-family:var(--bt-mono,ui-monospace,SFMono-Regular,Menlo,monospace);font-size:11px;line-height:16px;color:var(--bt-ink);word-break:break-all;user-select:all}
 .bt-connector-aside{align-self:flex-start}
 .bt-connector-error{padding-left:48px;font-size:12px;line-height:16px;color:var(--bt-danger)}
 .bt-connector-banner{padding:0 0 8px}
@@ -17393,6 +17593,9 @@ button:hover .bt-you{background:color-mix(in srgb,var(--bt-ink) 9%,var(--bt-side
 .bt-select{-webkit-appearance:none;appearance:none;width:auto;min-width:148px;max-width:100%;height:34px;box-sizing:border-box;border-radius:8px;border:.5px solid var(--bt-line-2);background-color:var(--bt-hover);background-image:var(--bt-select-arrow);background-repeat:no-repeat;background-position:right 10px center;color:var(--bt-ink);padding:0 30px 0 12px;font:inherit;font-size:13px;font-weight:450;cursor:pointer;outline:none;transition:background-color .14s ease,border-color .14s ease,box-shadow .14s ease}
 .bt-select:hover:not(:disabled){background-color:var(--bt-active)}
 .bt-select:disabled{opacity:.45;cursor:default}
+/* The open list is drawn by the system, which follows color-scheme rather than the theme's colors. */
+body[data-ds-dark-theme] .bt-select{color-scheme:dark}
+.bt-select option{background-color:var(--bt-card);color:var(--bt-ink)}
 :is(.bt-input,.bt-select):focus-visible{border-color:var(--bt-accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--bt-accent) 22%,transparent)}
 :is(.bt-round,.bt-icon-btn,.bt-soft,.bt-send,.bt-mini,.bt-pill,.bt-plus,.bt-mic,.bt-voice,.bt-account,.bt-title-toggle,.bt-settings-close,.bt-avatar-trigger,.bt-shape,.bt-color,.bt-swatch,.bt-more,.bt-mem-row,.bt-mem-send):focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
 :is(.bt-row,.bt-tile,.bt-tab,.bt-avedit-tab,.bt-settings-item,.bt-menu button,.bt-option,.bt-palette-row,button.bt-set-row):focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px}
@@ -17603,8 +17806,10 @@ var CONVERSATION_CSS = `
 /* The menus above the composer ("@", "/", and the picker a command such as /model
    opens): DSH paints them translucent and leans on a backdrop blur to keep the chat
    behind them unreadable. Where the blur does not take, the chat shows through the
-   rows (issues 1113 and 935), so they get a solid fill. */
-[data-composer-overlay] [data-menu-material]{--dsw-menu-surface-fill:var(--bt-card)}
+   rows (issues 1113 and 935), so they get a solid fill. The "@" menu is the trigger
+   menu, whose root carries data-trigger-menu rather than data-menu-material, so it
+   needs naming too (issue 1698). */
+[data-composer-overlay] [data-menu-material],[data-trigger-menu]{--dsw-menu-surface-fill:var(--bt-card);--dsw-specific-menu:var(--bt-card)}
 /* DSH's row spans share no semantic hooks beyond the option; keep descriptions
    beside their labels without changing their flex sizing or overflow. */
 [data-trigger-menu] [role=option]>span{text-align:left}
@@ -26927,27 +27132,35 @@ function ClientPanel({ connector, actions, run: run2 }) {
     (0, import_react29.createElement)(
       "div",
       { className: "bt-connector-setup" },
-      (0, import_react29.createElement)("p", null, setup?.kind === "slack" ? t("In OAuth & Permissions at {app}, add this redirect URL:", { app }) : t("In the app settings, add this redirect URL:")),
-      uri ? (0, import_react29.createElement)(
-        "div",
-        { className: "bt-connector-setup-uri" },
-        (0, import_react29.createElement)("code", { className: "bt-connector-uri" }, uri),
-        (0, import_react29.createElement)("button", { type: "button", className: "bt-connector-link", onClick: () => void copyCode(uri) }, t("Copy")),
-        copies > 0 ? (0, import_react29.createElement)(
-          "span",
-          { className: "bt-connector-copied", role: "status" },
-          (0, import_react29.createElement)("span", { key: copies, className: "bt-connector-copied-text" }, (0, import_react29.createElement)(CheckIcon), t("Copied to clipboard"))
-        ) : null
-      ) : null,
-      setup?.kind === "slack" ? (0, import_react29.createElement)("p", null, t("Turn on the MCP features and scopes the app needs.")) : null,
-      (0, import_react29.createElement)("p", null, t("Copy the Client ID and Client Secret here.")),
-      setup?.appUrl ? (0, import_react29.createElement)("button", { type: "button", className: "bt-connector-link", onClick: () => openPage(setup.appUrl) }, t("Open app settings")) : null
+      (0, import_react29.createElement)(
+        "ol",
+        { className: "bt-connector-steps" },
+        (0, import_react29.createElement)(
+          "li",
+          null,
+          (0, import_react29.createElement)("span", null, setup?.kind === "slack" ? t("In OAuth & Permissions at {app}, add this redirect URL:", { app }) : t("In the app settings, add this redirect URL:")),
+          uri ? (0, import_react29.createElement)(
+            "div",
+            { className: "bt-connector-setup-uri" },
+            (0, import_react29.createElement)("code", { className: "bt-connector-uri" }, uri),
+            (0, import_react29.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => void copyCode(uri) }, t("Copy")),
+            copies > 0 ? (0, import_react29.createElement)(
+              "span",
+              { className: "bt-connector-copied", role: "status" },
+              (0, import_react29.createElement)("span", { key: copies, className: "bt-connector-copied-text" }, (0, import_react29.createElement)(CheckIcon), t("Copied to clipboard"))
+            ) : null
+          ) : null
+        ),
+        setup?.kind === "slack" ? (0, import_react29.createElement)("li", null, t("Turn on the MCP features and scopes the app needs.")) : null,
+        (0, import_react29.createElement)("li", null, t("Copy the Client ID and Client Secret here."))
+      )
     ),
     (0, import_react29.createElement)("input", { className: "bt-input", "aria-label": t("Client ID"), placeholder: t("Client ID"), value: clientId, spellCheck: false, autoComplete: "off", onChange: (e) => setClientId(e.target.value) }),
     (0, import_react29.createElement)("label", { className: "bt-q-field bt-secret-field" }, (0, import_react29.createElement)(MaskedInput, { value: clientSecret, onChange: setClientSecret, label: t("Client secret (optional)") })),
     (0, import_react29.createElement)(
       "div",
       { className: "bt-connector-form-row" },
+      setup?.appUrl ? (0, import_react29.createElement)("button", { type: "button", className: "bt-connector-link", onClick: () => openPage(setup.appUrl) }, t("Open app settings")) : (0, import_react29.createElement)("span", { className: "bt-connector-wait" }),
       (0, import_react29.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => void run2(actions.connectorCancel(connector.id)) }, t("Cancel")),
       (0, import_react29.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: clientId.trim() === "", onClick: () => void run2(actions.connectorClient(connector.id, clientId.trim(), clientSecret.trim() || void 0)) }, t("Continue"))
     )
@@ -27014,7 +27227,7 @@ function ConnectorRow({ connector, actions }) {
   };
   const button = (label, onClick) => (0, import_react29.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: busy, onClick }, label);
   let actionsNode = null;
-  if (pending || form) actionsNode = null;
+  if (pending || form || connector.state === "needs-client") actionsNode = null;
   else if (connector.state === "needs-sign-in") actionsNode = [button(t("Sign in again"), signIn), button(t("Disconnect"), () => void run2(actions.connectorDisconnect(connector.id)))];
   else if (connector.state === "error") actionsNode = [button(t("Try again"), () => void run2(actions.connectorRetry(connector.id))), button(connector.custom ? t("Remove") : t("Disconnect"), () => void run2(actions.connectorDisconnect(connector.id)))];
   else if (on) actionsNode = button(connector.custom ? t("Remove") : t("Disconnect"), () => void run2(actions.connectorDisconnect(connector.id)));
@@ -28769,7 +28982,7 @@ var foldArea = (body, code, codeHead, actions) => code === void 0 ? body : (0, i
 function Bubble({ text, index, roster, selfId, actions, sessionId, msgKey, mentions, fold, picked, live, lead, whole, textInteractionSource }) {
   const { shown, folded, control, code, codeHead } = useFold(text, { limit: fold, whole, live });
   const key = msgKey ? `${msgKey}:${index}` : void 0;
-  const body = shown === "" ? null : (0, import_react34.createElement)(import_dsh_client_ui_primitives.MarkdownText, { text: linkMentions(shown, roster.bots, selfId), streaming: live, labels: mdLabels(), variant: "compact", fileMentions: mentions });
+  const body = shown === "" ? null : (0, import_react34.createElement)(import_dsh_client_ui_primitives.MarkdownText, { text: linkMentions(normalizeFileLinks(shown), roster.bots, selfId), streaming: live, labels: mdLabels(), variant: "compact", fileMentions: mentions });
   const row = (0, import_react34.useRef)(null);
   const [toolsOpen, setToolsOpen] = (0, import_react34.useState)(false);
   useDismiss(toolsOpen, () => setToolsOpen(false), [row]);
@@ -29410,7 +29623,7 @@ function TriggerCell({ node, sessionId, useRoster, useSessions, useTurnClock, us
   function triggerBody() {
     if (source.kind === "bot") {
       if (source.handoff === true) return (0, import_react34.createElement)(EarlierParts, { sessionId, roster, actions });
-      if (source.role === "kickoff" || source.role === "room" || source.role === "goal") return null;
+      if (source.role === "kickoff" || source.role === "room" || source.role === "goal" || source.role === "task-handoff") return null;
       if (source.role === "secret" || deferred) return null;
       if (source.role === "update") return (0, import_react34.createElement)("div", { className: "bt-event" }, t("Profile updated"));
       if (source.role === "post") {
@@ -46611,6 +46824,143 @@ var ANNOTATION_CSS = `
 @media (prefers-reduced-motion:reduce){.bt-selection-actions,.bt-annotation,.bt-annotation[data-leaving]{animation:none}}
 `;
 
+// src/client/agent-fork.js
+var readJournal = (storage) => {
+  const map = /* @__PURE__ */ new Map();
+  try {
+    const saved = JSON.parse(storage?.getItem(STORAGE.agentForks) ?? "[]");
+    if (Array.isArray(saved)) {
+      for (const entry of saved) {
+        if (typeof entry?.sessionId === "string" && typeof entry?.agentId === "string") {
+          map.set(entry.sessionId, { agentId: entry.agentId, sessionId: entry.sessionId });
+        }
+      }
+    }
+  } catch {
+  }
+  return map;
+};
+var mutateJournal = (storage, update) => {
+  if (!storage) return;
+  try {
+    const map = readJournal(storage);
+    const changed = update(map);
+    if (changed !== false) storage.setItem(STORAGE.agentForks, JSON.stringify([...map.values()]));
+  } catch {
+  }
+};
+function installAgentForks({ sessions, ownerOf, hasAgent, pending, adopt, refresh, report, storage, ready }) {
+  const localJournal = readJournal(storage);
+  const inFlight = /* @__PURE__ */ new Map();
+  const forks = /* @__PURE__ */ new Set();
+  let stopped = false;
+  const remember = (agentId, sessionId) => {
+    const entry = { agentId, sessionId };
+    localJournal.set(sessionId, entry);
+    pending.set(sessionId, agentId);
+    mutateJournal(storage, (map) => {
+      map.set(sessionId, entry);
+    });
+    return entry;
+  };
+  const forget = (sessionId) => {
+    localJournal.delete(sessionId);
+    mutateJournal(storage, (map) => map.delete(sessionId));
+  };
+  const persist = (entry) => {
+    const running = inFlight.get(entry.sessionId);
+    if (running !== void 0) return running;
+    pending.set(entry.sessionId, entry.agentId);
+    const task = Promise.resolve().then(() => adopt(entry.agentId, entry.sessionId)).then(async () => {
+      forget(entry.sessionId);
+      if (!stopped) {
+        try {
+          await refresh();
+        } catch (error) {
+          report(error, "agent-fork-refresh");
+        }
+      }
+    }).catch((error) => {
+      if (pending.get(entry.sessionId) === entry.agentId) pending.delete(entry.sessionId);
+      if (!stopped) report(error, "agent-fork-adopt");
+    }).finally(() => {
+      inFlight.delete(entry.sessionId);
+    });
+    inFlight.set(entry.sessionId, task);
+    return task;
+  };
+  const original = sessions.fork;
+  const descriptor = Object.getOwnPropertyDescriptor(sessions, "fork");
+  const wrapped = function(options) {
+    if (stopped) return Reflect.apply(original, this, [options]);
+    const receiver = this;
+    const captured = ownerOf(options.sessionId) ?? pending.get(options.sessionId);
+    const task = (async () => {
+      if (captured === void 0) {
+        try {
+          await ready();
+        } catch {
+        }
+      }
+      const agentId = captured ?? ownerOf(options.sessionId) ?? pending.get(options.sessionId);
+      if (agentId === void 0) return Reflect.apply(original, receiver, [options]);
+      let created;
+      let adoption;
+      const onCreated = (sessionId) => {
+        created = sessionId;
+        adoption = persist(remember(agentId, sessionId));
+        options.onCreated?.(sessionId);
+      };
+      try {
+        const child = await Reflect.apply(original, receiver, [{ ...options, onCreated }]);
+        if (created === void 0 && typeof child === "string") onCreated(child);
+        if (adoption !== void 0) await adoption;
+        return child;
+      } catch (error) {
+        const rpc = error?.rpcError;
+        const partial = rpc?.code === "session/workspace-attach-failed" ? rpc.details?.sessionId : void 0;
+        if (created === void 0 && typeof partial === "string") adoption = persist(remember(agentId, partial));
+        if (adoption !== void 0) await adoption;
+        throw error;
+      }
+    })();
+    forks.add(task);
+    const settle = () => {
+      forks.delete(task);
+    };
+    task.then(settle, settle);
+    return task;
+  };
+  sessions.fork = wrapped;
+  const reconcile = async () => {
+    if (stopped) return;
+    const listed = sessions.list.getSnapshot().byId ?? {};
+    const entries2 = storage ? readJournal(storage) : new Map(localJournal);
+    for (const [id, entry] of localJournal) if (!entries2.has(id)) entries2.set(id, entry);
+    for (const entry of entries2.values()) {
+      if (stopped) return;
+      if (!hasAgent(entry.agentId)) continue;
+      if (ownerOf(entry.sessionId) === entry.agentId) {
+        forget(entry.sessionId);
+        continue;
+      }
+      if (listed[entry.sessionId] === void 0) continue;
+      await persist(entry);
+    }
+  };
+  return {
+    reconcile,
+    async dispose() {
+      stopped = true;
+      if (sessions.fork === wrapped) {
+        if (descriptor === void 0) delete sessions.fork;
+        else Object.defineProperty(sessions, "fork", descriptor);
+      }
+      await Promise.allSettled([...forks, ...inFlight.values()]);
+    }
+  };
+}
+
 // src/client/index.js
 var inject = ["sessions", "uiWorkspace", "uiConversation", "slots", "theme", "layout"];
 function apply(ctx) {
@@ -47811,6 +48161,34 @@ function apply(ctx) {
   ctx.effect(() => installCompiledStyles(COMPUTER_CSS, "computer"), "ds-bot: computer styles");
   shadow("sidebar.footer.action", { id: "bot-return", order: -300, inject: face }, BotReturn);
   ctx.effect(() => {
+    const forks = installAgentForks({
+      sessions: ctx.sessions,
+      ownerOf: (id) => roster.getSnapshot().agentOf[id],
+      hasAgent: (id) => roster.getSnapshot().agentsById[id] !== void 0,
+      pending: pendingAdopt,
+      ready: async () => {
+        if (!roster.getSnapshot().ready) await pull();
+      },
+      adopt: (agentId, sessionId) => call("agent-adopt", { agentId, sessionId }),
+      refresh: pull,
+      report: (error, source) => actions.reportError(error, source),
+      storage: globalThis.localStorage
+    });
+    const reconcile = () => {
+      void forks.reconcile().catch((error) => actions.reportError(error, "agent-fork-reconcile"));
+    };
+    const offRoster = roster.subscribe(reconcile);
+    const offList = ctx.sessions.list.subscribe(reconcile);
+    const timer = setInterval(reconcile, 5e3);
+    reconcile();
+    return () => {
+      offRoster();
+      offList();
+      clearInterval(timer);
+      return forks.dispose();
+    };
+  }, "ds-bot: Agent forks");
+  ctx.effect(() => {
     let previous;
     const sync = () => {
       const list = ctx.sessions.list.getSnapshot();
@@ -47831,9 +48209,7 @@ function apply(ctx) {
       if (snapshot.byId[main] !== void 0 || snapshot.roomsById[main] !== void 0 || agentOfSession(main) !== void 0) return;
       const row = list.byId[main];
       if (row?.origin === "subagent") return;
-      const parent = row?.parentId ?? row?.parentSessionId;
-      const forkedFromAgent = parent !== void 0 && agentOfSession(parent) === agentId;
-      if (row?.blank !== true && !forkedFromAgent) return;
+      if (row?.blank !== true) return;
       pendingAdopt.set(main, agentId);
       setPlain(true);
       void call("agent-adopt", { agentId, sessionId: main }).then(() => pull()).catch((error) => {

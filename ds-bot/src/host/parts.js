@@ -151,7 +151,7 @@ export function historyEntry(event, group) {
   if (event.type !== 'user/message' || (source?.kind !== 'user' && source?.kind !== SOURCE_KIND)) return undefined
   const text = textOf(event.data.content)
   const ours = source.kind === SOURCE_KIND
-  const skipped = (ours && (source.handoff === true || source.role === 'kickoff' || source.role === 'goal')) || (!group && text.startsWith('[Group chat'))
+  const skipped = (ours && (source.handoff === true || source.role === 'kickoff' || source.role === 'goal' || source.role === 'task-handoff')) || (!group && text.startsWith('[Group chat'))
   // A turn that went on after a handoff did real work, so its answers stay.
   return { answer: false, who: ours ? 'bot' : 'user', text: skipped ? '' : text, keepAnswers: !skipped || (ours && source.resume === true) }
 }
@@ -236,10 +236,8 @@ export function install(rt) {
     if (!messages.some(message => message.source?.handoff === true)) return true
     const place = placeOf(agent.id)
     const room = rt.roomOf(place.roomId)
-    const bot = place.botId === undefined ? undefined : rt.botOf(place.botId)
     // A background part makes room within its own thread, like the foreground chat.
-    const thread = bot === undefined || place.roomId !== undefined ? undefined : threadOf(bot, agent.id)
-    const parts = partsOf(place.botId, place.roomId, thread?.segments, thread === undefined ? undefined : agent.id)
+    const parts = place.roomId === undefined ? partsOfThread(place.botId, agent.id) : partsOf(place.botId, place.roomId)
     const previous = parts.at(-2)
     const lines = await contextLines(session).catch(() => undefined)
     const budget = Math.min(RECENT_TOKENS, Math.floor((lines?.check ?? 4 * RECENT_TOKENS) / 4))
@@ -295,7 +293,7 @@ export function install(rt) {
   const condensing = new Set()
   // The range of a Bot Session DSH is condensing for a model switch, where the route the
   // Session used last is the one being switched away from.
-  const switchRanges = new Set()
+  const switchRanges = new Map()
   const refuseCompaction = () => Promise.reject(new Error(
     'A Bot conversation makes room on its own, and read_own_chat searches all of it.'))
   const isBotTarget = (target) => {
@@ -306,10 +304,10 @@ export function install(rt) {
   // Condenses a range of a Bot Session the way DS Bot condenses its own parts: the
   // session counts as condensing, so the summary hook writes DS Bot's checkpoint rather
   // than the backend writing one of its own.
-  async function condenseRange(target, run, { forSwitch = false } = {}) {
+  async function condenseRange(target, run, { forSwitch = false, range } = {}) {
     const sessionId = target.session.id
     condensing.add(sessionId)
-    if (forSwitch) switchRanges.add(sessionId)
+    if (forSwitch) switchRanges.set(sessionId, range)
     try {
       return await run()
     } finally {
@@ -348,7 +346,7 @@ export function install(rt) {
       // Without the summary hook the backend would summarize a Bot conversation itself,
       // so that case keeps the refusal.
       if (original.summarize === undefined) return refuseCompaction()
-      return condenseRange(target, () => original.compactRegion.call(this, start, end, target, signal), { forSwitch: true })
+      return condenseRange(target, () => original.compactRegion.call(this, start, end, target, signal), { forSwitch: true, range: { start, end } })
     }
     if (original.summarize !== undefined) {
       engine.summarize = function summarizeForBots(input, agent, signal) {
@@ -401,11 +399,18 @@ export function install(rt) {
     if (bot === undefined) return []
     const thread = sessionId === undefined ? undefined : threadOfPart(bot, sessionId)
     if (thread === undefined) return partsOf(bot.id)
+    if (thread.thread === 'task') {
+      const task = bot.tasks[thread.index]
+      // A foreground turn moved into a background task keeps read_own_chat access to the
+      // Bot's earlier parts frozen at handoff time, without shifting on later foreground rollovers.
+      const inherited = Array.isArray(task.inheritedSegments) ? task.inheritedSegments : []
+      const seen = new Set(inherited.map(seg => seg?.sessionId).filter(Boolean))
+      const segments = [...inherited, ...(thread.segments ?? []).filter(seg => !seen.has(seg?.sessionId))]
+      return partsOf(bot.id, undefined, segments, task.sessionId)
+    }
     const current = thread.thread === 'current'
       ? rt.chatOf(bot.id)
-      : thread.thread === 'open'
-        ? bot.openParts[thread.index].sessionId
-        : bot.tasks[thread.index].sessionId
+      : bot.openParts[thread.index].sessionId
     return partsOf(bot.id, undefined, thread.segments, current)
   }
 
@@ -639,6 +644,15 @@ export function install(rt) {
     // of the Bot's own replies.
     const maxTokens = route.maxTokens
     const head = input.messages
+    // DSH compares against these selected nodes' route prices, not the attachment
+    // references' structural estimates. Snapshot before the summary request runs.
+    const range = switchRanges.get(session.id)
+    const nodes = range === undefined ? undefined : measureOf(session)?.nodes
+    const start = nodes?.findIndex(node => node.seq === range.start) ?? -1
+    const end = nodes?.findIndex(node => node.seq === range.end) ?? -1
+    const rangeTokens = start >= 0 && end >= start
+      ? nodes.slice(start, end + 1).reduce((total, node) => total + node.tokens, 0)
+      : undefined
     const tail = checkpointTail(head, session.deriveMessages())
     const prompt = tail.length === 0 ? CHECKPOINT_PROMPT : `${CHECKPOINT_PROMPT}\n\n${checkpointTailNote(tail)}`
     const written = await summaryThrough(session, route, { input, head, tail, prompt, maxTokens, signal })
@@ -652,12 +666,31 @@ export function install(rt) {
       group: place?.roomId !== undefined,
       number,
     })
-    const text = checkpointText({
-      number: checkpointCount(input.messages) + 1,
-      summary: written?.summary ?? NO_SUMMARY,
-      kept,
-      more,
-    })
+    const checkpoint = (summary, kept, more) => checkpointText({ number: checkpointCount(input.messages) + 1, summary, kept, more })
+    let summary = written?.summary ?? NO_SUMMARY
+    let text = checkpoint(summary, kept, more)
+    if (switchRanges.has(session.id)) {
+      const meter = ctx.get('tokenMeter')
+      // DSH prepends the system prompt to the summarizer input, but does not replace
+      // it. Reserve 112 tokens for its three-block checkpoint framing and headroom.
+      const replacedTokens = rangeTokens ?? input.messages.filter(message => message.role !== 'system')
+        .reduce((total, message) => total + meter.estimateMessage(message), 0)
+      const budget = Math.floor(replacedTokens * 0.95) - 112
+      const cost = text => meter.estimateMessage(createUserMessage({ content: [{ type: 'text', text }] }))
+      while (kept.length > 0 && cost(text) > budget) {
+        kept.shift()
+        text = checkpoint(summary, kept, true)
+      }
+      while (summary.length > 0 && cost(text) > budget) {
+        summary = summary.slice(0, Math.floor(summary.length * 0.75)).trimEnd()
+        text = checkpoint(summary, [], true)
+      }
+      if (cost(text) > budget) {
+        const minimal = 'Earlier context: read_own_chat.'
+        const marked = `[Checkpoint ${checkpointCount(input.messages) + 1}] ${minimal}`
+        text = cost(marked) <= budget ? marked : minimal
+      }
+    }
     return {
       summary: [{ type: 'text', text }],
       rawOutput: written?.rawOutput ?? [{ type: 'text', text: NO_SUMMARY }],
@@ -1262,7 +1295,8 @@ export function install(rt) {
     const session = agent.session
     const tokens = sizeOf(session)
     const lines = await contextLines(session).catch(() => undefined)
-    const parts = bot === undefined ? partsOf(undefined, room.id) : partsOf(bot.id, room?.id, thread?.segments, thread === undefined ? undefined : agent.id)
+    const parts = bot === undefined ? partsOf(undefined, room.id)
+      : room !== undefined ? partsOf(bot.id, room.id) : partsOfThread(bot.id, agent.id)
     const number = parts.length
     const budget = Math.min(RECENT_TOKENS, Math.floor((lines?.check ?? 4 * RECENT_TOKENS) / 4))
     const readLines = () => (job.bare ? { recent: [], earlier: [], unlisted: 0, complete: true } : handoffLines(agent.id, { budget, group: room !== undefined, number }))
@@ -2163,6 +2197,47 @@ export function install(rt) {
     return { sessionId, forked, task: stored }
   }
 
+  // Creates a fresh foreground Session for `bot` when its currently busy foreground
+  // Session is moving into `bot.tasks[]` (#783). Forks at the latest completed turn
+  // boundary (excluding the in-flight turn) so the new foreground inherits full prior
+  // history and KV cache, falling back to a fresh Session on first turn.
+  async function forkForegroundPart(bot, fromSessionId) {
+    const dir = rt.workDirOf({ botId: bot.id })
+    let sessionId
+    let forked = false
+    if (typeof ctx.sessionController?.fork === 'function') {
+      try {
+        const res = await ctx.sessionController.fork({ sessionId: fromSessionId })
+        if (typeof res?.sessionId === 'string' && res.sessionId !== '') {
+          sessionId = res.sessionId
+          forked = true
+        }
+      } catch {
+        // First turn (session/fork-unavailable) or unsupported host: fall back to fresh Session.
+      }
+    }
+    if (sessionId === undefined) {
+      sessionId = await rt.createSession(bot.name, { dir })
+    }
+    const sourceAgent = ctx.get('agents')?.get(fromSessionId)
+    const picked = await freshRoute(bot, sourceAgent?.session)
+    if (picked !== undefined) await selectRoute({ name: bot.name }, sessionId, picked)
+    await rt.applyPermission(bot, sessionId, undefined)
+      .catch(error => rt.warn('ds-bot: permission for foreground part of %s not applied: %s', bot.name, error))
+    if (rt.botOf(bot.id) !== bot) {
+      await ctx.workspaceRegistry.archiveSession(sessionId, { stopActivity: true })
+        .catch(error => rt.warn('ds-bot: unused foreground part of %s not archived: %s', bot.name, error))
+      throw Object.assign(new Error('Bot no longer exists'), { code: 'bot/not-found' })
+    }
+    const syncRoute = async () => {
+      const now = await freshRoute(bot, sourceAgent?.session)
+      if (now !== undefined && (now.ref !== picked?.ref || now.effort !== picked?.effort)) {
+        await selectRoute({ name: bot.name }, sessionId, now)
+      }
+    }
+    return { sessionId, forked, syncRoute }
+  }
+
   // Read-only transcript paging for one background task across its own segments.
   async function taskPage(botId, taskId, cursor, steps = false) {
     const bot = rt.botOf(botId)
@@ -2240,5 +2315,5 @@ export function install(rt) {
     return true
   }
 
-  Object.assign(rt, { clock, partsOf, partsOfThread, historyEntry, partLines, noteText, earlierPage, chatPage, taskPage, displayItems, applySteps, followFolder, followEngine, heldBack, newPart, openTaskPart, switchPart, isSwitchingPart: id => switches.has(id), sessionTokens: session => tokensOf(session), switchJobs: () => switches.values() })
+  Object.assign(rt, { clock, partsOf, partsOfThread, historyEntry, partLines, noteText, earlierPage, chatPage, taskPage, displayItems, applySteps, followFolder, followEngine, heldBack, newPart, openTaskPart, forkForegroundPart, switchPart, isSwitchingPart: id => switches.has(id), sessionTokens: session => tokensOf(session), switchJobs: () => switches.values() })
 }

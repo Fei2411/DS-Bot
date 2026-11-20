@@ -205,6 +205,12 @@ function decide(body) {
       if (done < steps) return [text(filler(size * 1000, `步骤${done + 1}`)), tool('list_bots', {})]
       return [text(`长任务做完了，一共 ${done} 步。`)]
     }
+    // "慢活 N": runs list_bots first (marking toolCount >= 1) then waits N seconds before finishing.
+    const slowAsked = messages.map(m => (m.role === 'user' ? textOf(m.content).trim() : '')).filter(Boolean).at(-1) ?? ''
+    const slowJob = /^慢活\s+(\d+)/.exec(slowAsked)
+    if (slowJob && used?.name === 'list_bots') {
+      return Object.assign([text(`慢活已完成，耗时 ${slowJob[1]} 秒。`)], { delay: Number(slowJob[1]) * 1000 })
+    }
     // "看网页结构 [N]": answer with the first N lines (default 40) of what read_browser
     // returned, fenced so the chat shows the Markdown as text.
     const asked = messages.map(m => (m.role === 'user' ? textOf(m.content).trim() : '')).filter(Boolean).at(-1) ?? ''
@@ -457,6 +463,7 @@ function decide(body) {
   if (userText.startsWith('写成文字')) return [text(WRITTEN_CALL)]
   // Context-line tests: grow the context, run a long multi-step turn, search history.
   if ((order = /^(?:长文|long)\s*(\d+)/.exec(userText))) return [text(filler(Number(order[1]) * 1000, '长文'))]
+  if ((order = /^慢活\s+(\d+)/.exec(userText)) && tools.has('list_bots')) return Object.assign([tool('list_bots', {})], { delay: 100 })
   if ((order = /^长任务\s*(\d+)(?:\s+(\d+))?/.exec(userText))) return [text(filler(Number(order[2] ?? 4) * 1000, '步骤0')), tool('list_bots', {})]
   if ((order = /^查记录\s*([^\n]+)/.exec(userText))) return [tool('read_own_chat', { query: order[1].trim() })]
   if ((order = /^查锚点\s*([^\n]+)/.exec(userText))) return [tool('read_own_chat', { around: order[1].trim() })]
