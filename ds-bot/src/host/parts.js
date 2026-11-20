@@ -19,7 +19,7 @@ import { LlmError, createUserMessage, isContextWindowExceededError } from '@deep
 import { openTurnAt } from './btw.js'
 import { HANDOFF_ACK, HISTORY_SCAN_PAGES, HISTORY_TIMEOUT_MS, REPLY_KIND, SOURCE_KIND } from './constants.js'
 import { assembleLlmStream } from './models.js'
-import { parseReplies, relayRange, stackReplies } from '../shared/group-replies.js'
+import { compressedRelayPreview, parseReplies, relayRange, stackReplies } from '../shared/group-replies.js'
 import { CHECKPOINT_PROMPT, STEWARD_SYSTEM, checkpointCount, checkpointTail, checkpointTailNote, checkpointText, linesFor, parseDecision, stewardRequest } from './steward.js'
 import { RESUME_DELAY_MS } from './resume.js'
 import { clip, createClock, escapeRegExp, estimateTokens, reminderPrompts, splitRef, textOf } from './text.js'
@@ -235,7 +235,8 @@ export function install(rt) {
     const messages = session.deriveMessages()
     if (!messages.some(message => message.source?.handoff === true)) return true
     const place = placeOf(agent.id)
-    const room = rt.roomOf(place.roomId)
+    const taskEntry = rt.taskBySession?.(agent.id)?.task
+    const room = rt.roomOf(place.roomId ?? taskEntry?.roomId)
     // A background part makes room within its own thread, like the foreground chat.
     const parts = place.roomId === undefined ? partsOfThread(place.botId, agent.id) : partsOf(place.botId, place.roomId)
     const previous = parts.at(-2)
@@ -293,7 +294,7 @@ export function install(rt) {
   const condensing = new Set()
   // The range of a Bot Session DSH is condensing for a model switch, where the route the
   // Session used last is the one being switched away from.
-  const switchRanges = new Set()
+  const switchRanges = new Map()
   const refuseCompaction = () => Promise.reject(new Error(
     'A Bot conversation makes room on its own, and read_own_chat searches all of it.'))
   const isBotTarget = (target) => {
@@ -304,10 +305,10 @@ export function install(rt) {
   // Condenses a range of a Bot Session the way DS Bot condenses its own parts: the
   // session counts as condensing, so the summary hook writes DS Bot's checkpoint rather
   // than the backend writing one of its own.
-  async function condenseRange(target, run, { forSwitch = false } = {}) {
+  async function condenseRange(target, run, { forSwitch = false, range } = {}) {
     const sessionId = target.session.id
     condensing.add(sessionId)
-    if (forSwitch) switchRanges.add(sessionId)
+    if (forSwitch) switchRanges.set(sessionId, range)
     try {
       return await run()
     } finally {
@@ -346,7 +347,7 @@ export function install(rt) {
       // Without the summary hook the backend would summarize a Bot conversation itself,
       // so that case keeps the refusal.
       if (original.summarize === undefined) return refuseCompaction()
-      return condenseRange(target, () => original.compactRegion.call(this, start, end, target, signal), { forSwitch: true })
+      return condenseRange(target, () => original.compactRegion.call(this, start, end, target, signal), { forSwitch: true, range: { start, end } })
     }
     if (original.summarize !== undefined) {
       engine.summarize = function summarizeForBots(input, agent, signal) {
@@ -644,6 +645,15 @@ export function install(rt) {
     // of the Bot's own replies.
     const maxTokens = route.maxTokens
     const head = input.messages
+    // DSH compares against these selected nodes' route prices, not the attachment
+    // references' structural estimates. Snapshot before the summary request runs.
+    const range = switchRanges.get(session.id)
+    const nodes = range === undefined ? undefined : measureOf(session)?.nodes
+    const start = nodes?.findIndex(node => node.seq === range.start) ?? -1
+    const end = nodes?.findIndex(node => node.seq === range.end) ?? -1
+    const rangeTokens = start >= 0 && end >= start
+      ? nodes.slice(start, end + 1).reduce((total, node) => total + node.tokens, 0)
+      : undefined
     const tail = checkpointTail(head, session.deriveMessages())
     const prompt = tail.length === 0 ? CHECKPOINT_PROMPT : `${CHECKPOINT_PROMPT}\n\n${checkpointTailNote(tail)}`
     const written = await summaryThrough(session, route, { input, head, tail, prompt, maxTokens, signal })
@@ -657,12 +667,31 @@ export function install(rt) {
       group: place?.roomId !== undefined,
       number,
     })
-    const text = checkpointText({
-      number: checkpointCount(input.messages) + 1,
-      summary: written?.summary ?? NO_SUMMARY,
-      kept,
-      more,
-    })
+    const checkpoint = (summary, kept, more) => checkpointText({ number: checkpointCount(input.messages) + 1, summary, kept, more })
+    let summary = written?.summary ?? NO_SUMMARY
+    let text = checkpoint(summary, kept, more)
+    if (switchRanges.has(session.id)) {
+      const meter = ctx.get('tokenMeter')
+      // DSH prepends the system prompt to the summarizer input, but does not replace
+      // it. Reserve 112 tokens for its three-block checkpoint framing and headroom.
+      const replacedTokens = rangeTokens ?? input.messages.filter(message => message.role !== 'system')
+        .reduce((total, message) => total + meter.estimateMessage(message), 0)
+      const budget = Math.floor(replacedTokens * 0.95) - 112
+      const cost = text => meter.estimateMessage(createUserMessage({ content: [{ type: 'text', text }] }))
+      while (kept.length > 0 && cost(text) > budget) {
+        kept.shift()
+        text = checkpoint(summary, kept, true)
+      }
+      while (summary.length > 0 && cost(text) > budget) {
+        summary = summary.slice(0, Math.floor(summary.length * 0.75)).trimEnd()
+        text = checkpoint(summary, [], true)
+      }
+      if (cost(text) > budget) {
+        const minimal = 'Earlier context: read_own_chat.'
+        const marked = `[Checkpoint ${checkpointCount(input.messages) + 1}] ${minimal}`
+        text = cost(marked) <= budget ? marked : minimal
+      }
+    }
     return {
       summary: [{ type: 'text', text }],
       rawOutput: written?.rawOutput ?? [{ type: 'text', text: NO_SUMMARY }],
@@ -988,9 +1017,18 @@ export function install(rt) {
   // the Bot's foreground chat when that switch was a background part's. The part may be
   // one of the thread's earlier ones, so the thread is looked up through it.
   const threadTargetOf = (sessionId, owner) => {
-    if (owner.roomId !== undefined || owner.botId === undefined) return currentOf(owner)
-    const bot = rt.botOf(owner.botId)
-    return owner.next ?? threadCurrentOfPart(bot, sessionId) ?? rt.chatOf(owner.botId)
+    if (owner.botId !== undefined) {
+      const bot = rt.botOf(owner.botId)
+      const thread = threadOfPart(bot, sessionId)
+      if (thread?.thread === 'task') {
+        const live = threadCurrentOfPart(bot, sessionId)
+        if (live !== undefined) return live
+        if (owner.next !== undefined && rt.taskOwners?.has(owner.next)) return owner.next
+        return owner.roomId !== undefined ? rt.sessionOfRoom(rt.roomOf(owner.roomId)) : rt.chatOf(owner.botId)
+      }
+      if (owner.roomId === undefined) return owner.next ?? threadCurrentOfPart(bot, sessionId) ?? rt.chatOf(owner.botId)
+    }
+    return currentOf(owner)
   }
   // Compaction sets partBase from an immediate estimate before the next provider
   // response reports real usage; lower it when measured context shrinks so stale
@@ -1270,8 +1308,11 @@ export function install(rt) {
     const parts = bot === undefined ? partsOf(undefined, room.id)
       : room !== undefined ? partsOf(bot.id, room.id) : partsOfThread(bot.id, agent.id)
     const number = parts.length
+    const taskEntry = rt.taskBySession?.(agent.id)?.task
+    const taskRoom = taskEntry?.roomId !== undefined ? rt.roomOf(taskEntry.roomId) : undefined
+    const effectiveRoom = room ?? taskRoom
     const budget = Math.min(RECENT_TOKENS, Math.floor((lines?.check ?? 4 * RECENT_TOKENS) / 4))
-    const readLines = () => (job.bare ? { recent: [], earlier: [], unlisted: 0, complete: true } : handoffLines(agent.id, { budget, group: room !== undefined, number }))
+    const readLines = () => (job.bare ? { recent: [], earlier: [], unlisted: 0, complete: true } : handoffLines(agent.id, { budget, group: effectiveRoom !== undefined, number }))
     let carried = job.folder ? await readLines() : undefined
     // A short part with no tool work goes over word for word, so it needs no note.
     const whole = carried?.whole === true && !session.deriveMessages().some(message => message.role === 'tool')
@@ -1307,15 +1348,17 @@ export function install(rt) {
       : { fallback: whole ? 'whole' : job.failed !== undefined ? 'failure' : job.overflow ? 'overflow' : job.cutoff === true ? 'cutoff' : job.manual && failure === undefined ? 'manual' : 'failed', ...earlierNote }
     carried ??= await readLines()
     if (signal.aborted) throw signal.reason
-    const dir = rt.taskBySession?.(agent.id)?.task?.workDir ?? rt.workDirOf(job)
+    const dir = taskEntry?.workDir !== undefined
+      ? (taskEntry.workDir ?? undefined)
+      : rt.workDirOf(effectiveRoom !== undefined && job.roomId === undefined ? { ...job, roomId: effectiveRoom.id } : job)
     const intended = dir !== undefined && await rt.isFolder(dir) ? dir : rt.teamFolder()
-    const freshId = await rt.createSession(room === undefined ? name : bot === undefined ? room.name : `${name} · ${room.name}`, { dir })
+    const freshId = await rt.createSession(effectiveRoom === undefined ? name : bot === undefined ? effectiveRoom.name : `${name} · ${effectiveRoom.name}`, { dir })
     // The group's own Session never asks the model, so selectRoomSession picks an
     // image-capable route when available; the earlier part's route may no longer be served (#1310).
     if (bot === undefined) await rt.selectRoomSession(freshId, room)
     const picked = bot === undefined ? undefined : await freshRoute(bot, session)
     if (picked !== undefined && !await selectRoute({ name }, freshId, picked) && job.engine) engineRetry.set(freshId, Date.now() + FOLDER_RETRY_MS)
-    if (bot !== undefined) await rt.applyPermission(bot, freshId, room)
+    if (bot !== undefined) await rt.applyPermission(bot, freshId, effectiveRoom)
       .catch(error => rt.warn('ds-bot: permission for the fresh part of %s not applied: %s', name, error))
     // The fresh part took several awaits: a Bot or group deleted meanwhile, a member that
     // left, or a part that is no longer the current one gets no fresh part.
@@ -1323,7 +1366,7 @@ export function install(rt) {
       : room !== undefined ? room.sessions?.[bot.id]
         : thread === undefined ? rt.chatOf(bot.id) : threadCurrent(bot, agent.id)
     const gone = bot === undefined ? rt.roomOf(room.id) !== room
-      : rt.botOf(bot.id) === undefined || (room !== undefined && (rt.roomOf(room.id) !== room || !room.members.includes(bot.id)))
+      : rt.botOf(bot.id) === undefined || (effectiveRoom !== undefined && (rt.roomOf(effectiveRoom.id) !== effectiveRoom || !effectiveRoom.members.includes(bot.id)))
     if (gone || current !== agent.id) {
       await ctx.workspaceRegistry.archiveSession(freshId, { stopActivity: true })
         .catch(error => rt.warn('ds-bot: unused fresh part of %s not archived: %s', name, error))
@@ -1385,7 +1428,7 @@ export function install(rt) {
         rt.warn('ds-bot: the fresh part of %s did not start in %s; it works in %s', name, intended, cwd)
       }
       const engine = job.engine ? rt.engineNameOf?.(bot.model ?? bot.appliedModel) : undefined
-      const text = handoffPackage({ room, self: bot === undefined, segment, lines: carried, number: number + 1, resume, overflow: job.overflow, cutoff: job.cutoff === true, failed: job.failed, bare: job.bare, folder, manual: job.manual, engine })
+      const text = handoffPackage({ room: effectiveRoom, self: bot === undefined, segment, lines: carried, number: number + 1, resume, overflow: job.overflow, cutoff: job.cutoff === true, failed: job.failed, bare: job.bare, folder, manual: job.manual, engine })
       freshParts.set(freshId, estimateTokens(text))
       fresh.followup(createUserMessage({ content: [{ type: 'text', text }], source: handoffSource(job, resume) }))
       await ctx.sessions.flush(fresh.session)
@@ -1485,15 +1528,25 @@ export function install(rt) {
     return takeOverStep(agent, payload)
   }
 
+  // Folder ownership for a Session: a group background task inherits its group's folder
+  // even though it is not in `groupOwners` (so `placeOf` keeps `roomId === undefined` and
+  // part switches never overwrite `room.sessions[bot.id]`).
+  const folderPlaceOf = (sessionId, place = placeOf(sessionId)) => {
+    if (place === undefined) return undefined
+    const taskRoomId = rt.taskOwners?.get(sessionId)?.roomId
+    return taskRoomId !== undefined && place.roomId === undefined ? { ...place, roomId: taskRoomId } : place
+  }
+
   // The folder a part should move to, when it is not the one the part was made in. A
   // working folder that is gone counts as the team workspace, where a fresh part would
   // start. A group reply ends where it began; the group conversation moves at its next
   // turn there.
   async function folderMove(agent, { midTurn = false } = {}) {
-    const place = placeOf(agent.id)
+    const place = folderPlaceOf(agent.id)
     const cwd = agent.session.header?.cwd
     if (place === undefined || cwd === undefined || (midTurn && place.roomId !== undefined) || Date.now() < (folderRetry.get(agent.id) ?? 0)) return undefined
-    const wanted = rt.taskBySession?.(agent.id)?.task?.workDir ?? rt.workDirOf(place)
+    const taskEntry = rt.taskBySession?.(agent.id)?.task
+    const wanted = taskEntry?.workDir !== undefined ? (taskEntry.workDir ?? undefined) : rt.workDirOf(place)
     const usable = wanted !== undefined && await rt.isFolder(wanted)
     // A team copied from another DSH_HOME has no team workspace here until one is made, and its
     // Sessions still work in the old one.
@@ -1529,8 +1582,9 @@ export function install(rt) {
       }
       return next()
     }
-    const place = placeOf(agent.id)
-    const wanted = rt.taskBySession?.(agent.id)?.task?.workDir ?? rt.workDirOf(place)
+    const place = folderPlaceOf(agent.id)
+    const taskEntry = rt.taskBySession?.(agent.id)?.task
+    const wanted = taskEntry?.workDir !== undefined ? (taskEntry.workDir ?? undefined) : rt.workDirOf(place)
     const usable = wanted !== undefined && await rt.isFolder(wanted)
     // A member whose group's folder went away works on in the team workspace; the
     // group is told once, so every round is not told again. A member still in a
@@ -1555,7 +1609,9 @@ export function install(rt) {
   // part left in the old folder would keep working there.
   async function followFolder(owner) {
     const bot = owner.roomId === undefined && owner.botId !== undefined ? rt.botOf(owner.botId) : undefined
-    const sessions = bot === undefined ? [currentOf(owner)] : ownChatSessions(bot)
+    const sessions = bot === undefined
+      ? [currentOf(owner)]
+      : ownChatSessions(bot).filter(sid => rt.taskOwners?.get(sid)?.roomId === undefined)
     const name = owner.botId === undefined ? rt.roomOf(owner.roomId)?.name ?? owner.roomId : rt.botOf(owner.botId)?.name ?? owner.botId
     for (const sessionId of sessions) {
       if (sessionId === undefined || switches.has(sessionId) || readOnly()) continue
@@ -1841,7 +1897,10 @@ export function install(rt) {
         const text = textOf(message?.content)
         const range = relayRange(text)
         const room = range === undefined ? undefined : rt.roomOf(partId) ?? rt.roomOf(rt.pastOwners.get(partId)?.roomId)
-        const replies = range === undefined ? parseReplies(text).replies : room === undefined ? [] : rt.groupRows(room.id, range.from, range.to, range.anchor)
+        const preview = compressedRelayPreview(text)
+        const replies = range === undefined
+          ? (preview === undefined ? null : rt.groupRelayReplies(partId, preview)) ?? parseReplies(text).replies
+          : room === undefined ? [] : rt.groupRows(room.id, range.from, range.to, range.anchor)
         for (const { reply, texts, time, duration, claims, changes } of stackReplies(replies)) {
           // Reply rows take the reply's own time, and no seq: several rows share
           // the result event's seq, which the chat keys a post's anchor by.
@@ -2128,8 +2187,9 @@ export function install(rt) {
   // when there is no completed turn yet (first turn), a different workDir is
   // requested, or the Bot runs on a local CLI agent.
   async function openTaskPart(bot, fromSessionId, task, { workDir } = {}) {
-    const defaultDir = rt.workDirOf({ botId: bot.id })
-    const dir = workDir ?? defaultDir
+    const room = task.roomId !== undefined ? rt.roomOf(task.roomId) : undefined
+    const defaultDir = rt.workDirOf({ botId: bot.id, ...(room ? { roomId: room.id } : {}) })
+    const dir = workDir !== undefined ? (workDir ?? undefined) : defaultDir
     const isLocal = rt.localAgentBadge?.(bot.model ?? bot.appliedModel) !== undefined
     let sessionId
     let forked = false
@@ -2150,17 +2210,17 @@ export function install(rt) {
     const sourceAgent = ctx.get('agents')?.get(fromSessionId)
     const picked = await freshRoute(bot, sourceAgent?.session)
     if (picked !== undefined) await selectRoute({ name: bot.name }, sessionId, picked)
-    await rt.applyPermission(bot, sessionId, undefined)
+    await rt.applyPermission(bot, sessionId, room)
       .catch(error => rt.warn('ds-bot: permission for task %s of %s not applied: %s', task.id, bot.name, error))
-    if (rt.botOf(bot.id) !== bot) {
+    if (rt.botOf(bot.id) !== bot || (room !== undefined && (rt.roomOf(room.id) !== room || !room.members.includes(bot.id)))) {
       await ctx.workspaceRegistry.archiveSession(sessionId, { stopActivity: true })
         .catch(error => rt.warn('ds-bot: unused task part of %s not archived: %s', bot.name, error))
-      throw Object.assign(new Error('Bot no longer exists'), { code: 'bot/not-found' })
+      throw Object.assign(new Error(room !== undefined ? 'Bot is no longer in this group' : 'Bot no longer exists'), { code: 'bot/not-found' })
     }
-    const stored = { ...task, sessionId, segments: [], ...(workDir ? { workDir } : {}) }
+    const stored = { ...task, sessionId, segments: [], ...(workDir !== undefined ? { workDir } : {}) }
     ;(bot.tasks ??= []).push(stored)
     rt.chatOwners.set(sessionId, bot.id)
-    rt.taskOwners.set(sessionId, { botId: bot.id, taskId: task.id })
+    rt.taskOwners.set(sessionId, { botId: bot.id, taskId: task.id, ...(room ? { roomId: room.id } : {}) })
     await rt.save()
     const now = await freshRoute(bot, sourceAgent?.session)
     if (now !== undefined && (now.ref !== picked?.ref || now.effort !== picked?.effort)) {

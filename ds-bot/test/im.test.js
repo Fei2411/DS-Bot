@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
@@ -10,13 +10,20 @@ import { adapters } from '../src/host/im/platforms/index.js'
 
 // A platform adapter that records sends/edits and lets the test feed inbound
 // messages, actions and statuses. `fail` makes send throw once per call queued.
-const fakeAdapter = ({ buttons = true } = {}) => {
+// `quote` says the platform hands back quoted replies, so the host keeps what it
+// sent; it is off by default, like most platforms.
+const fakeAdapter = ({ buttons = true, quote = false } = {}) => {
   const sent = []
   const edited = []
   const typed = []
   const fails = []
+  const jobs = []
+  // Ids keep counting when a test empties `sent`, so a quoted id never names a
+  // later message by accident.
+  let nextMessage = 0
   const adapter = {
     id: 'fake',
+    quote,
     sent,
     edited,
     typed,
@@ -32,10 +39,12 @@ const fakeAdapter = ({ buttons = true } = {}) => {
       handlers.onStatus({ state: 'ready', account: { id: 'bot1', name: '@fakebot' } })
       return {
         send: async (chat, body) => {
-          sent.push({ chat, ...body })
+          const messageId = String(++nextMessage)
+          sent.push({ chat, messageId, ...body })
+          jobs.push(body)
           const next = fails.shift()
           if (next !== undefined) throw next
-          return { messageId: sent.length }
+          return { messageId }
         },
         edit: async (chat, messageId, body) => { edited.push({ chat, messageId, ...body }) },
         typing: async (chat) => { typed.push(chat) },
@@ -44,6 +53,7 @@ const fakeAdapter = ({ buttons = true } = {}) => {
     },
   }
   adapter.fails = fails
+  adapter.jobs = jobs
   adapter.buttons = buttons
   return adapter
 }
@@ -251,6 +261,285 @@ test('outbound: assistant text and member lines go out; hidden turns, user and s
   assert.equal(s.fake.sent.length, 2)
   assert.equal(s.fake.sent[1].text, '**Writer**: member spoke')
   assert.equal(s.fake.sent[1].chat.key, 'g1')
+})
+
+test('a quoted reply carries the message it answers into the Bot', async (t) => {
+  const s = await start({ adapter: fakeAdapter({ quote: true }) })
+  t.after(s.stop)
+  const conn = await add(s)
+  const one = s.rt.state.im.connections[conn.id]
+  one.paired.push({ id: 'u1', name: 'U1', at: 1 })
+  await s.rt.save()
+  await dm(s, 'u1', 'hi')
+  s.imTurn('a')
+  s.fake.sent.length = 0
+  s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'Project A is done' }] } })
+  await s.flush()
+  const sentId = s.fake.sent.at(-1)?.messageId
+  assert.ok(sentId !== undefined, 'the sent message has an id')
+  await dm(s, 'u1', 'ship it', { quote: { ids: [sentId] } })
+  assert.equal(s.prompts.length, 2)
+  assert.equal(s.prompts[1].content[0].text, 'Replying to an earlier message:\n> Project A is done\n\nship it')
+  // The reply can come after a restart, so the message is kept in the runtime file.
+  await delay(600)
+  const runtime = JSON.parse(readFileSync(join(s.home, 'im', `${conn.id}.json`), 'utf8'))
+  assert.ok(runtime.sent['dm-u1'].some(entry => entry.text === 'Project A is done'))
+})
+
+test('a platform whose replies cannot be quoted writes no sent messages', async (t) => {
+  // The adapter keeps state in the runtime file, so the file is written even
+  // though this platform never hands back a quoted reply: it must not carry
+  // the replies the host sent either.
+  const adapter = {
+    id: 'fake',
+    handlers: null,
+    async check() { return { account: { id: 'bot1', name: '@fakebot' } } },
+    connect(fields, env, handlers) {
+      adapter.handlers = handlers
+      handlers.onStatus({ state: 'ready', account: { id: 'bot1', name: '@fakebot' } })
+      env.runtime.set({ lastPoll: 1 })
+      return {
+        send: async () => ({ messageId: 'plain-1' }),
+        typing: async () => {},
+        stop: () => {},
+      }
+    },
+  }
+  const s = await start({ adapter })
+  t.after(s.stop)
+  const conn = await add(s)
+  const one = s.rt.state.im.connections[conn.id]
+  one.paired.push({ id: 'u1', name: 'U1', at: 1 })
+  await s.rt.save()
+  await dm(s, 'u1', 'hi')
+  s.imTurn('a')
+  s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'Project A is done' }] } })
+  await s.flush()
+  const fileOf = () => {
+    try { return JSON.parse(readFileSync(join(s.home, 'im', `${conn.id}.json`), 'utf8')) } catch { return undefined }
+  }
+  // The runtime file is written on a delay; wait until it lands.
+  let runtime = fileOf()
+  for (let at = 0; at < 80 && runtime?.runtime?.lastPoll === undefined; at += 1) {
+    await delay(50)
+    runtime = fileOf()
+  }
+  assert.equal(runtime?.runtime?.lastPoll, 1, 'the runtime file was written')
+  assert.equal(runtime.sent, undefined, 'no sent messages are stored')
+})
+
+test('a quote of a later chunk shows that chunk, not the start of the reply', async (t) => {
+  // A platform that cuts a long reply into messages with an id each.
+  const adapter = {
+    id: 'fake',
+    quote: true,
+    handlers: null,
+    async check() { return { account: { id: 'bot1', name: '@fakebot' } } },
+    connect(fields, env, handlers) {
+      adapter.handlers = handlers
+      handlers.onStatus({ state: 'ready', account: { id: 'bot1', name: '@fakebot' } })
+      return {
+        send: async () => ({
+          messageId: 'chunk-b',
+          ids: ['chunk-a', 'chunk-b'],
+          parts: [
+            { ids: ['chunk-a'], text: 'Project A is done' },
+            { ids: ['chunk-b'], text: 'Project B is done' },
+          ],
+        }),
+        typing: async () => {},
+        stop: () => {},
+      }
+    },
+  }
+  const s = await start({ adapter })
+  t.after(s.stop)
+  const conn = await add(s)
+  const one = s.rt.state.im.connections[conn.id]
+  one.paired.push({ id: 'u1', name: 'U1', at: 1 })
+  await s.rt.save()
+  await dm(s, 'u1', 'hi')
+  s.imTurn('a')
+  s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'Project A is done\n\nProject B is done' }] } })
+  await s.flush()
+  await dm(s, 'u1', 'do that', { quote: { ids: ['chunk-b'] } })
+  assert.equal(s.prompts[1].content[0].text, 'Replying to an earlier message:\n> Project B is done\n\ndo that')
+})
+
+test('a partial send still remembers the chunks the platform accepted before failing', async (t) => {
+  // A long reply is sent as chunks; the platform accepts the first, then refuses
+  // the second. The accepted chunk must stay quotable even though the send failed.
+  const adapter = {
+    id: 'fake',
+    quote: true,
+    handlers: null,
+    async check() { return { account: { id: 'bot1', name: '@fakebot' } } },
+    connect(fields, env, handlers) {
+      adapter.handlers = handlers
+      handlers.onStatus({ state: 'ready', account: { id: 'bot1', name: '@fakebot' } })
+      let sendCount = 0
+      return {
+        send: async () => {
+          sendCount += 1
+          adapter.sentCount = sendCount
+          // The reply: first chunk accepted, second refused.
+          const error = new Error('WeChat refused the reply (quota)')
+          error.permanent = true
+          error.parts = [{ ids: ['accepted-first'], text: 'Project A is done' }]
+          throw error
+        },
+        typing: async () => {},
+        stop: () => {},
+      }
+    },
+  }
+  const s = await start({ adapter })
+  t.after(s.stop)
+  const conn = await add(s)
+  const one = s.rt.state.im.connections[conn.id]
+  one.paired.push({ id: 'u1', name: 'U1', at: 1 })
+  await s.rt.save()
+  await dm(s, 'u1', 'hi')
+  s.imTurn('a')
+  s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'Project A is done\n\nProject B is done' }] } })
+  await s.flush()
+  assert.ok(adapter.sentCount >= 1, 'the adapter send was called')
+  // A later quote naming only the accepted chunk, with no platform text, still
+  // resolves to that chunk's text rather than "content unavailable".
+  await dm(s, 'u1', 'do that', { quote: { ids: ['accepted-first'] } })
+  assert.equal(s.prompts.at(-1).content[0].text, 'Replying to an earlier message:\n> Project A is done\n\ndo that')
+})
+
+test('a quote resolves by its ids, then by the platform text, and says when both are gone', async (t) => {
+  const s = await start({ adapter: fakeAdapter({ quote: true }) })
+  t.after(s.stop)
+  const conn = await add(s)
+  const one = s.rt.state.im.connections[conn.id]
+  one.paired.push({ id: 'u1', name: 'U1', at: 1 })
+  await s.rt.save()
+  await dm(s, 'u1', 'hi')
+  s.imTurn('a')
+  s.fake.sent.length = 0
+  s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'Project A is done' }] } })
+  await s.flush()
+  const sentId = s.fake.sent.at(-1)?.messageId
+  // Any of the ids may name the message; the first one that does is used.
+  await dm(s, 'u1', 'this one', { quote: { ids: ['not-this-one', sentId] } })
+  assert.equal(s.prompts[1].content[0].text, 'Replying to an earlier message:\n> Project A is done\n\nthis one')
+  // An id this chat never sent falls back to the text the platform kept.
+  await dm(s, 'u1', 'that one', { quote: { ids: ['gone'], text: 'Text the platform kept' } })
+  assert.equal(s.prompts[2].content[0].text, 'Replying to an earlier message:\n> Text the platform kept\n\nthat one')
+  await dm(s, 'u1', 'the other one', { quote: { ids: ['gone'] } })
+  assert.equal(s.prompts[3].content[0].text, 'Replying to an earlier message (its text is not available).\n\nthe other one')
+  // A command is read from the reply alone, never from the quote.
+  // A command is read from the reply alone, never from the quote. End the turn
+  // first so /stop has nothing running and answers the deterministic idle text.
+  s.emitEvent('a', 'turn/end', {})
+  await dm(s, 'u1', '/stop', { quote: { ids: [sentId] } })
+  assert.equal(s.prompts.length, 4)
+  assert.equal(s.fake.sent.at(-1).text, 'Nothing is running.')
+})
+
+test('only the last messages sent to a chat are kept for quoting', async (t) => {
+  const s = await start({ adapter: fakeAdapter({ quote: true }) })
+  t.after(s.stop)
+  const conn = await add(s)
+  const one = s.rt.state.im.connections[conn.id]
+  one.paired.push({ id: 'u1', name: 'U1', at: 1 })
+  await s.rt.save()
+  await dm(s, 'u1', 'hi')
+  s.imTurn('a')
+  s.fake.sent.length = 0
+  for (let at = 0; at < 21; at += 1) {
+    s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: `Report ${at}` }] } })
+  }
+  await s.flush()
+  await delay(1_200)
+  const kept = JSON.parse(readFileSync(join(s.home, 'im', `${conn.id}.json`), 'utf8')).sent['dm-u1']
+  assert.equal(kept.length, 20)
+  assert.ok(!kept.some(entry => entry.text === 'Report 0'), 'the oldest is dropped')
+  assert.ok(kept.some(entry => entry.text === 'Report 20'), 'the newest stays')
+})
+
+test('removing a chat drops the messages kept for quoting it', async (t) => {
+  const s = await start({ adapter: fakeAdapter({ quote: true }) })
+  t.after(s.stop)
+  const conn = await add(s)
+  const one = s.rt.state.im.connections[conn.id]
+  one.paired.push({ id: 'u1', name: 'U1', at: 1 })
+  await s.rt.save()
+  // The runtime file is written on a delay, so wait for the write, not a fixed time.
+  const sentOf = () => {
+    try { return JSON.parse(readFileSync(join(s.home, 'im', `${conn.id}.json`), 'utf8')).sent } catch { return undefined }
+  }
+  const until = async (check) => {
+    for (let at = 0; at < 80; at += 1) {
+      if (check(sentOf())) return true
+      await delay(50)
+    }
+    return false
+  }
+  await dm(s, 'u1', 'hi')
+  s.imTurn('a')
+  s.fake.sent.length = 0
+  s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'Project A is done' }] } })
+  await s.flush()
+  assert.ok(await until(sent => sent?.['dm-u1']?.length > 0), 'the sent message is kept')
+  await s.rt.imEndpoint('im-chat', { id: conn.id, chatKey: 'dm-u1', remove: true })
+  assert.ok(await until(sent => sent === undefined || sent['dm-u1'] === undefined), 'the removed chat leaves nothing behind')
+})
+
+test('a runtime file written before sent existed still loads and behaves unchanged', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'dsb-im-'))
+  t.after(() => rmSync(home, { recursive: true, force: true, maxRetries: 5 }))
+  const seed = TEAM()
+  seed.im = { connections: {
+    im_legacy: { id: 'im_legacy', platform: 'telegram', botId: 'a', account: { id: 'bot1', name: '@fakebot' }, settings: { token: 'tok' }, secrets: {}, enabled: false, paired: [], requests: [], chats: { 'dm-u1': { kind: 'direct', title: 'u1', at: 1 } }, createdAt: 1 },
+  } }
+  writeFileSync(join(home, 'state.json'), JSON.stringify(seed))
+  // An older DS Bot wrote { runtime, cards } with no `sent` field. A fresh host
+  // reading it must default `sent` to {} and behave exactly as before.
+  mkdirSync(join(home, 'im'), { recursive: true })
+  writeFileSync(join(home, 'im', 'im_legacy.json'), JSON.stringify({ runtime: {}, cards: {} }))
+  const original = adapters.telegram
+  adapters.telegram = fakeAdapter()
+  const fresh = createRuntime(fakeContext(), { home })
+  try {
+    // This endpoint calls dataOf(), which reads the legacy file and must not throw.
+    await fresh.imEndpoint('im-chat', { id: 'im_legacy', chatKey: 'dm-u1', remove: true })
+    assert.equal(fresh.state.im.connections.im_legacy.chats['dm-u1'], undefined)
+  } finally {
+    await fresh.ctx.dispose()
+    adapters.telegram = original
+  }
+})
+
+test('the sent store is bounded across chats so the runtime file cannot grow without limit', async (t) => {
+  const s = await start({ adapter: fakeAdapter({ quote: true }) })
+  t.after(s.stop)
+  const conn = await add(s)
+  const one = s.rt.state.im.connections[conn.id]
+  for (let chat = 0; chat < 12; chat += 1) one.paired.push({ id: `u${chat}`, name: `U${chat}`, at: 1 })
+  await s.rt.save()
+  // Fill many chats so the whole `sent` store (not just one chat's 20 entries)
+  // crosses the cap; the oldest chats' entries must then be dropped, while the
+  // most recent message (written to the last chat) survives.
+  for (let chat = 0; chat < 12; chat += 1) {
+    await dm(s, `u${chat}`, 'hi')
+    s.imTurn('a')
+    for (let at = 0; at < 20; at += 1) {
+      s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: `Report ${chat}-${at} ${'x'.repeat(9_000)}` }] } })
+    }
+  }
+  await s.flush()
+  await delay(600)
+  const runtime = JSON.parse(readFileSync(join(s.home, 'im', `${conn.id}.json`), 'utf8'))
+  const size = JSON.stringify(runtime.sent).length
+  assert.ok(size <= 200_000, `sent store stays bounded (${size} bytes)`)
+  const lists = Object.values(runtime.sent)
+  assert.ok(lists.length > 0 && lists.length < 12, 'the oldest chats were trimmed away')
+  assert.ok(lists.every(list => list.length <= 20), 'each remaining chat keeps at most 20')
+  assert.ok(lists.some(list => list.some(entry => entry.text.startsWith('Report 11-19'))), 'the newest message survives the trim')
 })
 
 test('IM user messages are tagged by seq for the current part; a part that is no longer current drops out', async (t) => {
@@ -1045,6 +1334,29 @@ test('a Web question answer cannot inherit a previous IM destination', async t =
   s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'private answer' }] } })
   await s.flush()
   assert.equal(s.fake.sent.length, 0)
+})
+
+// QQ splits a reply into several posts and remembers, by job, which of them went
+// out; that only holds if Try again hands the adapter back the same job.
+test('Try again resends the very job the failed send was given', async (t) => {
+  const s = await start()
+  t.after(s.stop)
+  const conn = await add(s)
+  const one = s.rt.state.im.connections[conn.id]
+  one.paired.push({ id: 'u1', name: 'U1', at: 1 })
+  await s.rt.save()
+  await dm(s, 'u1', 'hi')
+  s.imTurn('a')
+  s.fake.fails.push(Object.assign(new Error('refused'), { status: 400, permanent: true }))
+  s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'split reply' }] } })
+  await delay(40)
+  assert.equal(s.rt.imStatusView()[conn.id].state, 'error')
+  await s.rt.imEndpoint('im-retry', { id: conn.id })
+  await delay(40)
+  const jobs = s.fake.jobs.filter(job => job.text === 'split reply')
+  assert.equal(jobs.length, 2)
+  assert.equal(jobs[0], jobs[1])
+  assert.equal(s.rt.imStatusView()[conn.id].state, 'ready')
 })
 
 // #1417: a 5xx was retryable with no limit, so one message held its chat's queue
@@ -2016,4 +2328,286 @@ test('fg-handoff: task-handoff notice before IM message does not break IM reply,
     [['dm-u1', 'Your background job finished!']],
     'task-report must still reach the originating IM chat via persisted task.imOrigin',
   )
+})
+
+
+test('P0-5/P0-B: group task-report restores persisted IM origin across restart and after a finished desktop round (via real room post path)', async (t) => {
+  const s = await start()
+  t.after(s.stop)
+  const { one } = await pairedConn(s)
+  one.chats.g1 = { kind: 'group', title: 'G', target: { roomId: 'r1' }, at: 1 }
+  await s.rt.save()
+
+  const room = s.rt.roomOf('r1')
+  const roomSid = s.rt.sessionOfRoom(room)
+  room.sessions = { ...room.sessions, a: 'grp-r1-a' }
+  s.rt.groupOwners.set('grp-r1-a', { botId: 'a', roomId: 'r1' })
+
+  // 1) Group message from IM u1 claims room origin; capture it onto a group task.
+  await gm(s, 'u1', 'check group task')
+  s.imTurn('r1')
+  const captured = s.rt.captureImOrigin(roomSid)
+  assert.ok(captured !== undefined)
+  s.rt.botOf('a').tasks = [{
+    id: 'k_grp_im1',
+    title: 'Group IM task',
+    roomId: 'r1',
+    from: 'grp-r1-a',
+    sessionId: 'gtask-1',
+    segments: [],
+    status: 'completed',
+    startedAt: Date.now(),
+    updatedAt: Date.now(),
+    imOrigin: captured,
+  }]
+  // Simulate a desktop/Web message in the same group (dropOrigin adds roomSid to `mixed`),
+  // whose round has already finished (roomActive === false).
+  s.emitEvent(roomSid, 'turn/start', { turn: 2 })
+  s.emitEvent(roomSid, 'user/message', { source: { kind: 'user' }, content: [{ type: 'text', text: 'desktop ping' }] })
+  s.emitEvent(roomSid, 'turn/end', { turn: 2, reason: { kind: 'completed' } })
+  s.fake.sent.length = 0
+
+  // 2) task-report lands on hidden member group session 'grp-r1-a' carrying roomId: 'r1'.
+  s.emitEvent('grp-r1-a', 'turn/start', { turn: 1 })
+  s.emitEvent('grp-r1-a', 'user/message', {
+    source: { kind: 'bot', form: 'relay', role: 'task-report', taskId: 'k_grp_im1', roomId: 'r1' },
+    content: [{ type: 'text', text: '[Background task report] Group IM task done' }],
+  })
+  s.emitEvent('grp-r1-a', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+
+  // 3) Real postToRoom -> roomSid turn/start + user/message (role: 'post') -> group_relay -> logRoom -> onRoomLine!
+  s.emitEvent(roomSid, 'turn/start', { turn: 3 })
+  s.emitEvent(roomSid, 'user/message', {
+    source: { kind: 'bot', form: 'relay', role: 'post', roomId: 'r1' },
+    content: [{ type: 'text', text: '[Group post] Writer: Group task finished and verified.' }],
+  })
+  s.rt.logRoom(room, { who: 'Writer', botId: 'a', text: 'Group task finished and verified.' })
+  s.emitEvent(roomSid, 'turn/end', { turn: 3, reason: { kind: 'completed' } })
+  await s.flush()
+
+  assert.deepEqual(
+    s.fake.sent.map(entry => [entry.chat.key, entry.text]),
+    [['g1', '**Writer**: Group task finished and verified.']],
+    'group task-report must clear stale mixed from finished desktop round and deliver via real room post path',
+  )
+})
+
+test('P0-B: group task-report from u1 does not drop live IM origin when another paired user u2 is active in the same IM group', async (t) => {
+  const s = await start()
+  t.after(s.stop)
+  const { one } = await pairedConn(s)
+  one.chats.g1 = { kind: 'group', title: 'G', target: { roomId: 'r1' }, at: 1 }
+  one.paired.push({ id: 'u2', name: 'Bob', at: 2 })
+  await s.rt.save()
+
+  const room = s.rt.roomOf('r1')
+  const roomSid = s.rt.sessionOfRoom(room)
+  room.sessions = { ...room.sessions, a: 'grp-r1-a' }
+  s.rt.groupOwners.set('grp-r1-a', { botId: 'a', roomId: 'r1' })
+
+  // u1 starts task T1 in g1.
+  await gm(s, 'u1', 'start group task')
+  s.imTurn('r1')
+  const capturedU1 = s.rt.captureImOrigin(roomSid)
+  assert.ok(capturedU1 !== undefined)
+  s.rt.botOf('a').tasks = [{
+    id: 'k_grp_im_u1',
+    title: 'u1 task',
+    roomId: 'r1',
+    from: 'grp-r1-a',
+    sessionId: 'gtask-u1',
+    segments: [],
+    status: 'completed',
+    startedAt: Date.now(),
+    updatedAt: Date.now(),
+    imOrigin: capturedU1,
+  }]
+
+  // Later, paired user u2 speaks in the SAME IM group g1 -> roomSid origin is now owned by u2.
+  s.rt.clearImOrigin(roomSid)
+  await gm(s, 'u2', 'another question in g1')
+  s.imTurn('r1')
+  s.fake.sent.length = 0
+
+  // u1's task-report arrives while u2's origin is live on g1 -> must NOT call dropOrigin!
+  s.emitEvent('grp-r1-a', 'turn/start', { turn: 2 })
+  s.emitEvent('grp-r1-a', 'user/message', {
+    source: { kind: 'bot', form: 'relay', role: 'task-report', taskId: 'k_grp_im_u1', roomId: 'r1' },
+    content: [{ type: 'text', text: '[Background task report] u1 task done' }],
+  })
+  s.emitEvent('grp-r1-a', 'turn/end', { turn: 2, reason: { kind: 'completed' } })
+
+  // Both u2's ongoing answer and u1's task report post through roomSid -> both must reach g1!
+  s.emitEvent(roomSid, 'turn/start', { turn: 3 })
+  s.emitEvent(roomSid, 'user/message', {
+    source: { kind: 'bot', form: 'relay', role: 'post', roomId: 'r1' },
+    content: [{ type: 'text', text: 'u1 task summary' }],
+  })
+  s.rt.logRoom(room, { who: 'Writer', botId: 'a', text: 'Answer for u2 and u1 report.' })
+  s.emitEvent(roomSid, 'turn/end', { turn: 3, reason: { kind: 'completed' } })
+  await s.flush()
+
+  assert.deepEqual(
+    s.fake.sent.map(entry => [entry.chat.key, entry.text]),
+    [['g1', '**Writer**: Answer for u2 and u1 report.']],
+    'u1 task-report must not drop u2 live origin on the same IM group',
+  )
+})
+
+test('P0-B: after restart, group task-report restores IM origin even while sibling member task is still working', async (t) => {
+  const s = await start()
+  t.after(s.stop)
+  const { one } = await pairedConn(s)
+  one.chats.g1 = { kind: 'group', title: 'G', target: { roomId: 'r1' }, at: 1 }
+  await s.rt.save()
+
+  const room = s.rt.roomOf('r1')
+  const roomSid = s.rt.sessionOfRoom(room)
+  room.sessions = { ...room.sessions, a: 'grp-r1-a', b: 'grp-r1-b' }
+  s.rt.groupOwners.set('grp-r1-a', { botId: 'a', roomId: 'r1' })
+  s.rt.groupOwners.set('grp-r1-b', { botId: 'b', roomId: 'r1' })
+
+  await gm(s, 'u1', 'start parallel group tasks')
+  s.imTurn('r1')
+  const captured = s.rt.captureImOrigin(roomSid)
+  s.rt.botOf('a').tasks = [{
+    id: 'k_grp_restart',
+    title: 'Restart sibling task A',
+    roomId: 'r1',
+    from: 'grp-r1-a',
+    sessionId: 'gtask-r',
+    segments: [],
+    status: 'completed',
+    startedAt: Date.now(),
+    updatedAt: Date.now(),
+    imOrigin: captured,
+  }]
+  s.rt.botOf('b').tasks = [{
+    id: 'k_grp_restart_b',
+    title: 'Restart sibling task B',
+    roomId: 'r1',
+    from: 'grp-r1-b',
+    sessionId: 'gtask-rb',
+    segments: [],
+    status: 'running',
+    startedAt: Date.now(),
+    updatedAt: Date.now(),
+    imOrigin: captured,
+  }]
+
+  // Simulate restart: origins and mixed are both clear, while sibling member 'b' is still working in r1.
+  s.rt.clearImOrigin(roomSid)
+  s.rt.roomWorkView = () => ({ r1: [{ botId: 'b', since: Date.now(), tool: 'task' }] })
+  s.fake.sent.length = 0
+
+  s.emitEvent('grp-r1-a', 'turn/start', { turn: 1 })
+  s.emitEvent('grp-r1-a', 'user/message', {
+    source: { kind: 'bot', form: 'relay', role: 'task-report', taskId: 'k_grp_restart', roomId: 'r1' },
+    content: [{ type: 'text', text: '[Background task report] Restart sibling A done' }],
+  })
+  s.emitEvent('grp-r1-a', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  s.emitEvent(roomSid, 'turn/start', { turn: 2 })
+  s.emitEvent(roomSid, 'user/message', { source: { kind: 'bot', form: 'relay', role: 'post', roomId: 'r1' }, content: [{ type: 'text', text: 'Done A' }] })
+  s.rt.logRoom(room, { who: 'Writer', botId: 'a', text: 'Sibling task A report after restart.' })
+  s.emitEvent(roomSid, 'turn/end', { turn: 2, reason: { kind: 'completed' } })
+  await s.flush()
+
+  assert.deepEqual(
+    s.fake.sent.map(entry => [entry.chat.key, entry.text]),
+    [['g1', '**Writer**: Sibling task A report after restart.']],
+    'restart recovery with sibling member working must still restore IM group origin',
+  )
+
+  // Second sibling member 'b' finishes next -> also reports to g1.
+  s.rt.botOf('b').tasks[0].status = 'completed'
+  s.rt.roomWorkView = () => ({})
+  s.fake.sent.length = 0
+  s.emitEvent('grp-r1-b', 'turn/start', { turn: 1 })
+  s.emitEvent('grp-r1-b', 'user/message', {
+    source: { kind: 'bot', form: 'relay', role: 'task-report', taskId: 'k_grp_restart_b', roomId: 'r1' },
+    content: [{ type: 'text', text: '[Background task report] Restart sibling B done' }],
+  })
+  s.emitEvent('grp-r1-b', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  s.emitEvent(roomSid, 'turn/start', { turn: 3 })
+  s.emitEvent(roomSid, 'user/message', { source: { kind: 'bot', form: 'relay', role: 'post', roomId: 'r1' }, content: [{ type: 'text', text: 'Done B' }] })
+  s.rt.logRoom(room, { who: 'Reviewer', botId: 'b', text: 'Sibling task B report after restart.' })
+  s.emitEvent(roomSid, 'turn/end', { turn: 3, reason: { kind: 'completed' } })
+  await s.flush()
+
+  assert.deepEqual(
+    s.fake.sent.map(entry => [entry.chat.key, entry.text]),
+    [['g1', '**Reviewer**: Sibling task B report after restart.']],
+    'second sibling task finishing after restart must also reach IM group',
+  )
+
+  // Clean restart state WITH an active non-IM group round (roomActive === true, live === undefined):
+  // task-report must NOT restore IM origin while a non-IM round is actively running.
+  s.rt.clearImOrigin(roomSid)
+  s.rt.roomActive = id => id === 'r1'
+  s.fake.sent.length = 0
+  s.emitEvent('grp-r1-a', 'turn/start', { turn: 4 })
+  s.emitEvent('grp-r1-a', 'user/message', {
+    source: { kind: 'bot', form: 'relay', role: 'task-report', taskId: 'k_grp_restart', roomId: 'r1' },
+    content: [{ type: 'text', text: '[Background task report] During active non-IM round' }],
+  })
+  s.emitEvent('grp-r1-a', 'turn/end', { turn: 4, reason: { kind: 'completed' } })
+  s.rt.logRoom(room, { who: 'Writer', botId: 'a', text: 'Non-IM active round line.' })
+  await s.flush()
+  assert.deepEqual(s.fake.sent, [], 'must not restore IM origin while a non-IM group round is active')
+  s.rt.roomActive = () => false
+
+  // A desktop-started sibling task (no imOrigin) finishing right after must drop roomSid
+  // origin so its desktop result is NEVER forwarded to IM group g1!
+  s.rt.botOf('a').tasks.push({
+    id: 'k_grp_desktop',
+    title: 'Desktop sibling task',
+    roomId: 'r1',
+    from: 'grp-r1-a',
+    sessionId: 'gtask-d',
+    segments: [],
+    status: 'completed',
+    startedAt: Date.now(),
+    updatedAt: Date.now(),
+  })
+  // First restore g1 origin via IM task, then let desktop task report drop it.
+  s.emitEvent('grp-r1-a', 'turn/start', { turn: 5 })
+  s.emitEvent('grp-r1-a', 'user/message', {
+    source: { kind: 'bot', form: 'relay', role: 'task-report', taskId: 'k_grp_restart', roomId: 'r1' },
+    content: [{ type: 'text', text: '[Background task report] Restore g1' }],
+  })
+  s.emitEvent('grp-r1-a', 'turn/end', { turn: 5, reason: { kind: 'completed' } })
+  s.fake.sent.length = 0
+  s.emitEvent('grp-r1-a', 'turn/start', { turn: 6 })
+  s.emitEvent('grp-r1-a', 'user/message', {
+    source: { kind: 'bot', form: 'relay', role: 'task-report', taskId: 'k_grp_desktop', roomId: 'r1' },
+    content: [{ type: 'text', text: '[Background task report] Desktop secret result' }],
+  })
+  s.emitEvent('grp-r1-a', 'turn/end', { turn: 6, reason: { kind: 'completed' } })
+  s.emitEvent(roomSid, 'turn/start', { turn: 7 })
+  s.emitEvent(roomSid, 'user/message', { source: { kind: 'bot', form: 'relay', role: 'post', roomId: 'r1' }, content: [{ type: 'text', text: 'Desktop secret' }] })
+  s.rt.logRoom(room, { who: 'Writer', botId: 'a', text: 'Desktop secret result.' })
+  s.emitEvent(roomSid, 'turn/end', { turn: 7, reason: { kind: 'completed' } })
+  await s.flush()
+  assert.deepEqual(s.fake.sent, [], 'desktop-started group task report must never leak to IM group')
+
+  // A different IM group chat g2 currently owns roomSid: g1's task-report must drop roomSid
+  // origin so g1's report is never leaked into g2.
+  one.chats.g2 = { kind: 'group', title: 'G2', target: { roomId: 'r1' }, at: 2 }
+  await s.rt.save()
+  s.rt.clearImOrigin(roomSid)
+  await gm(s, 'u1', 'hello from g2', { chat: { key: 'g2', kind: 'group', title: 'G2' } })
+  s.imTurn('r1')
+  s.fake.sent.length = 0
+  s.emitEvent('grp-r1-a', 'turn/start', { turn: 8 })
+  s.emitEvent('grp-r1-a', 'user/message', {
+    source: { kind: 'bot', form: 'relay', role: 'task-report', taskId: 'k_grp_restart', roomId: 'r1' },
+    content: [{ type: 'text', text: '[Background task report] g1 task done' }],
+  })
+  s.emitEvent('grp-r1-a', 'turn/end', { turn: 8, reason: { kind: 'completed' } })
+  s.emitEvent(roomSid, 'turn/start', { turn: 9 })
+  s.emitEvent(roomSid, 'user/message', { source: { kind: 'bot', form: 'relay', role: 'post', roomId: 'r1' }, content: [{ type: 'text', text: 'g1 report' }] })
+  s.rt.logRoom(room, { who: 'Writer', botId: 'a', text: 'g1 report line.' })
+  s.emitEvent(roomSid, 'turn/end', { turn: 9, reason: { kind: 'completed' } })
+  await s.flush()
+  assert.deepEqual(s.fake.sent, [], 'g1 task report must not leak into a different IM group chat g2')
 })

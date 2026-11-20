@@ -292,10 +292,14 @@ export function install(rt) {
   }
 
   const hasLoaded = () => storeReady
+  const notifyStoreSync = () => {
+    rt.onStoreSync?.()
+    rt.syncDeepseekTools?.()
+  }
   const syncReadOnly = () => {
     if (storeReady && adopting === undefined && (stuck !== undefined || holder !== undefined) && stamp() !== seen) {
       adopt(readFileState())
-      rt.onStoreSync?.()
+      notifyStoreSync()
     }
   }
 
@@ -304,7 +308,7 @@ export function install(rt) {
     if (holder !== undefined) warn('ds-bot: %s', readOnly())
     const { migrated, stale } = adopt(readFileState())
     storeReady = true
-    rt.onStoreSync?.()
+    notifyStoreSync()
     if (holder !== undefined) return
     if (migrated && stuck === undefined) {
       // A failed write must not poison `loaded`: the migrated state stays in
@@ -337,6 +341,7 @@ export function install(rt) {
         }
       }
       adopt(readFileState())
+      notifyStoreSync()
     })
     writing = run.catch(() => {})
     const tracked = run.finally(() => { if (adopting === tracked) adopting = undefined })
@@ -364,7 +369,7 @@ export function install(rt) {
         warn('ds-bot: the other dsh has closed; this one now saves the Bot team')
         warnedReadOnly = false
         adopt(readFileState())
-        rt.onStoreSync?.()
+        notifyStoreSync()
         return
       }
     } else if (!lockBroken && !lock.owns()) {
@@ -375,18 +380,18 @@ export function install(rt) {
       if (lockBroken) return
       if (holder === undefined) {
         await reclaimHeld()
-        rt.onStoreSync?.()
+        notifyStoreSync()
         return
       }
       warn('ds-bot: %s', readOnly())
     }
     if (adopting !== undefined) {
       await adopting
-      rt.onStoreSync?.()
+      notifyStoreSync()
       return
     }
     if ((stuck !== undefined || holder !== undefined) && stamp() !== seen) adopt(readFileState())
-    rt.onStoreSync?.()
+    notifyStoreSync()
   }
 
   const warnReadOnly = () => {
@@ -565,15 +570,16 @@ export function install(rt) {
       // so folder/engine/model sweeps do not wake them again.
       for (const task of bot.tasks ?? []) {
         const taskSid = sessionIdOf(task?.sessionId)
+        const roomMeta = typeof task?.roomId === 'string' && task.roomId !== '' ? { roomId: task.roomId } : {}
         if (taskSid !== undefined) {
           if (isActiveTask(task)) {
             chatOwners.set(taskSid, botId)
-            taskOwners.set(taskSid, { botId, taskId: task.id })
+            taskOwners.set(taskSid, { botId, taskId: task.id, ...roomMeta })
           } else {
-            pastOwners.set(taskSid, { botId })
+            pastOwners.set(taskSid, { botId, ...roomMeta })
           }
         }
-        indexPast(task?.segments, { botId })
+        indexPast(task?.segments, { botId, ...roomMeta })
       }
     }
     for (const [id, room] of Object.entries(state.rooms)) {

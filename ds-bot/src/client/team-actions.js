@@ -257,6 +257,8 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     imLoginStart: payload => call('im-login-start', payload),
     imLoginWait: payload => call('im-login-wait', payload),
     saveCapability: capability => after(call('capability-save', capability)),
+    deepseekServices: () => call('deepseek-services'),
+    setDeepseekServices: patch => after(call('deepseek-services-config', patch)),
     deleteCapability: name => after(call('capability-delete', { name })),
     approveCapability: name => after(call('capability-approve', { name })),
     setBotCapability: (botId, name, attached) => after(call('bot-capability', { botId, name, attached })),
@@ -268,6 +270,7 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     fileText: file => call('file-text', { file }).catch(() => undefined),
     roomProgress: roomId => call('room-progress', { roomId }).catch(() => []),
     groupRows: (roomId, from, to, anchor) => call('group-rows', { roomId, from, ...(to === undefined ? {} : { to }), ...(anchor === undefined ? {} : { anchor }) }).catch(() => null),
+    groupRelayReplies: (sessionId, preview) => call('group-relay-replies', { sessionId, preview }).catch(() => null),
     earlier: (sessionId, cursor) => call('earlier', { sessionId, cursor: cursor ?? null }),
     // Hours come back in this browser's time zone, so days start at local midnight.
     usage: () => call('usage', { timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }),

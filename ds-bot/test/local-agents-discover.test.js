@@ -5,6 +5,7 @@ import { delimiter, join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { agentEnv, cleanEnv, findEngineExecutable, findExecutable, launchOf, refreshSearchDirs, spawnAgent } from '../src/host/local-agents/discover.js'
+import { ENGINES, signInFor } from '../src/host/local-agents/engines.js'
 
 test('Windows pi-acp resolves standalone Pi through PATH and PATHEXT (#1795)', () => {
   const exe = 'F:\\Pi\\pi.exe'
@@ -178,6 +179,20 @@ test('findExecutable skips a directory matching the binary name (#1407) and find
 
   assert.equal(findExecutable('kilocode'), join(dirB, 'kilocode'))
   assert.equal(findEngineExecutable({ command: 'kilo', commands: ['kilo', 'kilocode'] }), join(dirB, 'kilocode'))
+})
+
+test('the Qoder engine finds the Qoder CN CLI under its own command names (#1849)', () => {
+  const qoder = ENGINES['local-qoder']
+  for (const name of ['qoderclicn', 'qodercn', 'qoder-cn']) {
+    const path = join('/opt/qoder-cn', name)
+    assert.equal(findEngineExecutable(qoder, command => (command === name ? path : undefined)), path, name)
+  }
+  assert.equal(findEngineExecutable(qoder, command => (command === 'qodercli' || command === 'qoderclicn' ? command : undefined)), 'qodercli')
+  assert.equal(signInFor(qoder, '/opt/qoder-cn/bin/qoderclicn'), 'qoderclicn')
+  assert.equal(signInFor(qoder, '/opt/qoder-cn/entry/qodercn'), 'qoderclicn')
+  assert.equal(signInFor(qoder, 'C:\\Users\\me\\bin\\qoder-cn.cmd'), 'qoderclicn')
+  assert.equal(signInFor(qoder, '/usr/local/bin/qodercli'), 'qodercli')
+  assert.equal(signInFor(qoder, undefined), 'qodercli')
 })
 
 test('cleanEnv strips DEEPSEEK_ variables along with agent tokens', () => {

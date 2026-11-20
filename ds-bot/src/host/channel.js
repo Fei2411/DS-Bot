@@ -195,7 +195,7 @@ export function install(rt) {
   }
   // What a host that only reads the team may still answer.
   // Updates change the dsh profile, not the team, so a reading host may run them too.
-  const READS = new Set(['secret-store', 'secret-unlock', 'state', 'models', 'efforts', 'providers', 'provider-models', 'earlier', 'chat', 'bot-task-read', 'run-stats', 'room-progress', 'group-rows', 'exchange', 'exchange-text', 'file-text', 'usage', 'schedules', 'memory-view', 'browser-wait', 'browser-result', 'diagnostics', 'diagnostics-log', 'diagnostics-clear', 'update-check', 'update-install', 'dsh-update-install', 'repo-stars', 'approval-answer', 'thinking', 'avatar-library', 'computer-system-status', 'computer-shot', 'local-agents', 'local-agent-models', 'browser-frame', 'hello', 'notices', 'avatar', 'room-chat', 'usage-summary', 'image', 'markdown-image', 'file-download', 'changes-check'])
+  const READS = new Set(['secret-store', 'secret-unlock', 'state', 'models', 'efforts', 'providers', 'provider-models', 'earlier', 'chat', 'bot-task-read', 'run-stats', 'room-progress', 'group-rows', 'group-relay-replies', 'exchange', 'exchange-text', 'file-text', 'usage', 'schedules', 'memory-view', 'browser-wait', 'browser-result', 'diagnostics', 'diagnostics-log', 'diagnostics-clear', 'update-check', 'update-install', 'dsh-update-install', 'repo-stars', 'approval-answer', 'thinking', 'avatar-library', 'computer-system-status', 'computer-shot', 'local-agents', 'local-agent-models', 'browser-frame', 'hello', 'notices', 'avatar', 'room-chat', 'usage-summary', 'image', 'markdown-image', 'file-download', 'changes-check', 'deepseek-services'])
 
   async function setPrefs(body) {
     if (body.theme !== undefined) {
@@ -393,6 +393,9 @@ export function install(rt) {
           const speaking = active ? [...rt.roomProgress.values()].filter(round => round.roomId === room.id).flatMap(round => round.slots.filter(slot => slot.status === 'speaking').map(slot => slot.id)) : []
           return ok({ ...view, active, speaking })
         }
+        case 'group-relay-replies':
+          await rt.load()
+          return ok(rt.groupRelayReplies(body.sessionId, body.preview))
         case 'create-bot': {
           await rt.bootstrap()
           const bot = await rt.createBot({ name: body.name, role: body.role, color: body.color, instructions: body.instructions, brief: body.brief, avatar: body.avatar, model: body.model, effort: body.effort, workDir: body.workDir, section: body.section, sectionId: body.sectionId })
@@ -890,6 +893,9 @@ export function install(rt) {
           if (bot === undefined) return fail('Unknown Bot', 'bot/not-found')
           return ok(await rt.taskPage(bot.id, String(body.taskId ?? ''), body.cursor, body.steps === true))
         }
+        case 'deepseek-services':
+        case 'deepseek-services-config':
+          return ok(await rt.deepseekEndpoint(endpoint, body))
         case 'diagnostics':
           await rt.load()
           return ok(await rt.diagnostics.report(body))
@@ -922,7 +928,13 @@ export function install(rt) {
   function ownThreadTarget(ref, past = rt.pastOwners.get(ref)) {
     if (rt.botOf(ref)) return rt.chatOf(ref)
     const taskOwner = rt.taskOwners?.get(ref)
-    if (taskOwner !== undefined) return rt.chatOf(taskOwner.botId)
+    if (taskOwner !== undefined) {
+      if (taskOwner.roomId !== undefined) {
+        const room = rt.roomOf(taskOwner.roomId)
+        return room === undefined ? undefined : rt.sessionOfRoom(room)
+      }
+      return rt.chatOf(taskOwner.botId)
+    }
     if (past !== undefined && past.roomId === undefined) {
       const bot = rt.botOf(past.botId)
       if (threadOfPart(bot, ref)?.thread === 'task') return rt.chatOf(past.botId)

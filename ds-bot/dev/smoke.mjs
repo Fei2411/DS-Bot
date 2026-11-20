@@ -557,6 +557,37 @@ await step('peer Bot messaging a busy Bot spawns a bot-handoff task without swit
   )
 })
 
+await step('group member runs a background task in a group chat and reports back to the group', async () => {
+  await send(capabilityRoom.id, '@Coder 调用 task_start {"title":"群后台冒烟","brief":"检查群上下文并回报"}')
+  const deadline = Date.now() + 25_000
+  let task
+  while (Date.now() < deadline) {
+    const view = await api('state')
+    const coderView = view.bots?.find(item => item.id === botNamed('Coder').id)
+    task = (coderView?.tasks ?? []).find(item => item.title === '群后台冒烟')
+    if (task?.status === 'completed') break
+    await sleep(300)
+  }
+  await settle()
+  const finalState = await api('state')
+  const roomView = finalState.rooms?.find(item => item.id === capabilityRoom.id)
+  const page = task === undefined ? null : await api('bot-task-read', { botId: botNamed('Coder').id, taskId: task.id })
+  return { task, preview: roomView?.preview ?? '', page }
+}, ({ task, preview, page }, calls) => {
+  const outputs = calls.flatMap(call => call.out ?? []).filter(block => block.type === 'text').map(block => block.text)
+  const taskLine = outputs.find(line => line.includes('后台任务已完成，共继承'))
+  const groupReport = outputs.find(line => line.includes('已收到后台任务汇报'))
+  return expect(
+    task?.status === 'completed'
+      && task?.roomId === capabilityRoom.id
+      && taskLine !== undefined
+      && groupReport !== undefined
+      && preview.includes('已收到后台任务汇报')
+      && page?.sessionId === task.sessionId,
+    `task=${JSON.stringify(task)} taskLine=${taskLine} groupReport=${groupReport} preview=${preview} page=${page?.sessionId}`,
+  )
+})
+
 if (outFile) writeFileSync(outFile, `${JSON.stringify(transcript, null, 2)}\n`)
 console.log(failures.length === 0 ? `\nsmoke: all ${transcript.length} steps passed` : `\nsmoke: ${failures.length} failed\n${failures.join('\n')}`)
 process.exit(failures.length === 0 ? 0 : 1)
