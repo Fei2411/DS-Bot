@@ -11,7 +11,7 @@ let reconnectDelayMsFn: (hadLink: boolean, failStreak: number) => number
 before(async () => {
   hooks = registerHooks({
     resolve(specifier, context, nextResolve) {
-      if (specifier === 'react' || specifier === 'react-native' || specifier === '../connection.ts' || specifier === './gate.ts' || specifier === '../ui/i18n.ts') {
+      if (specifier === 'react' || specifier === 'react-native' || specifier === '../connection.ts' || specifier === './gate' || specifier === '../ui/i18n.ts') {
         return { url: `mock:${specifier}`, shortCircuit: true }
       }
       return nextResolve(specifier, context)
@@ -47,7 +47,7 @@ before(async () => {
           `,
         }
       }
-      if (url === 'mock:./gate.ts') {
+      if (url === 'mock:./gate') {
         return { format: 'module', shortCircuit: true, source: `export const ensureUnlock = async () => {}` }
       }
       if (url === 'mock:../ui/i18n.ts') {

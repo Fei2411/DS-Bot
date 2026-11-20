@@ -652,6 +652,22 @@ test('a kept Bot whose memory never moved does not close the archive folder', as
   assert.deepEqual(await run('glob', { pattern: '**/*', path: archiveRoot }, 'b'), { ran: true })
 })
 
+test('another Bot cannot glob or read a private OCR spill that names the Session in its path', async (t) => {
+  const { run, diary, stop } = await start()
+  t.after(stop)
+  const spill = join(diary, '.ocr', P, P, 'scan.ocr.txt')
+  mkdirSync(join(diary, '.ocr', P, P), { recursive: true })
+  writeFileSync(spill, 'private ocr text')
+  const otherRead = await run('read', { file_path: spill }, 'b')
+  assert.equal(otherRead.ran, false)
+  assert.match(otherRead.error, CLOSED)
+  const otherGlob = await run('glob', { pattern: '**/*.ocr.txt', path: diary }, 'b')
+  assert.equal(otherGlob.ran, false)
+  assert.match(otherGlob.error, CLOSED)
+  assert.deepEqual(await run('read', { file_path: spill }, P), { ran: true })
+  assert.deepEqual(await run('glob', { pattern: '**/*.ocr.txt', path: diary }, P), { ran: true })
+})
+
 test('with no private Bot the tools run as they did', async (t) => {
   const { run, diary, stop } = await start({ privateBot: false })
   t.after(stop)

@@ -383,7 +383,7 @@ export function install(rt) {
             for (const ev of events.slice(startAt + 1)) {
               if (ev?.type !== 'assistant/message') continue
               const said = textOf(ev.data?.message?.content).trim()
-              if (said !== '') entry.texts.push(said)
+              if (said !== '' && said !== HANDOFF_ACK) entry.texts.push(absoluteLinks(said, rt.sessionFolder?.(agent.session)))
             }
           }
         }
@@ -398,6 +398,10 @@ export function install(rt) {
   async function stopRoomTurn(sessionId, exchangeId) {
     rememberStopped(stoppedRoomTurns, exchangeId)
     await stopSubagents(sessionId)
+    const groupOwner = rt.groupOwners.get(sessionId)
+    if (groupOwner !== undefined) {
+      await rt.stopMemberRoomTasks?.(groupOwner.roomId, groupOwner.botId, 'group round stopped')
+    }
     const agent = await rt.resolveAgent(sessionId).catch(() => undefined)
     if (agent === undefined) return
     const entry = live.get(sessionId)
@@ -663,6 +667,9 @@ export function install(rt) {
       const sub = owner !== undefined ? subagentDoingOf(id) : undefined
       if (sub !== undefined) add(owner.roomId, owner.botId, sub)
     }
+    for (const item of rt.activeRoomTasks?.() ?? []) {
+      add(item.roomId, item.botId, { since: item.task.startedAt, tool: 'task', ...(item.task.title ? { note: item.task.title.slice(0, 120) } : {}) })
+    }
     for (const job of rt.switchJobs()) {
       // `self`: the group's own Session moves; the group's activity row names it.
       if (job.roomId !== undefined) add(job.roomId, job.botId, { since: job.since, switching: true, ...(job.folder === true ? { folder: true } : {}), ...(job.botId === undefined ? { self: true } : {}) })
@@ -683,7 +690,7 @@ export function install(rt) {
 
   // Where a Session speaks, for the diagnostics log.
   const placeOf = (id) => {
-    const room = rt.roomOf(rt.groupOwners.get(id)?.roomId) ?? rt.roomOf(id)
+    const room = rt.roomOf(rt.groupOwners.get(id)?.roomId ?? rt.taskOwners?.get(id)?.roomId) ?? rt.roomOf(id)
     return room ? `group "${room.name}"` : 'own chat'
   }
   const noteTurnFailure = (id, failure) => {

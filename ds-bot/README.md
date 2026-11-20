@@ -25,9 +25,10 @@ Tested with dsh `0.2.2-rc.1` (Web and Desktop).
 - **Web search**: see [Web search](#web-search).
 - **Bot browser (dsh Desktop and the desktop app)**: see [Bot browser](#bot-browser).
 - **Images**: for a model that cannot read images, a vision model first turns the image into text.
+- **DeepSeek services**: an official API key can give any model independent OCR, DeepSeek TTS and DeepSeek dictation, each turned on explicitly in Settings → DeepSeek services. The key stays in Settings → Models. See [DeepSeek services](#deepseek-services).
 - **Secrets**: a Bot asks for an API key or token with a card in its own chat and never sees the value. See [Secrets](#secrets).
 - **Usage**: Settings → Usage shows token usage by time (24 hours to 12 months, or days picked on a calendar), by Bot and by model, with a page for each Bot and each model. Calls that a Session logs are read from the logs, so older chats count too. Calls that leave no log (checkpoints, handoff notes, the steward, image readings, dsh titles and compaction) are counted while they stream, from the time the plugin runs. Tokens only, no cost.
-- **Make it yours**: name, role, instructions, model and look (20 characters and 12 colors, or your own photo from the reusable avatar library) for each Bot; a theme, an accent color, a message layout (bubble or flat) with width sliders, and an avatar animation level (quiet, normal or lively) for the team. A pinned Bot or group chat shows a small pushpin in the sidebar. Settings has these pages: General (look, default model for new Bots, Enter key preference, mode and locations), Models, Bots (Main Bots, each Bot's settings and retained private-Bot folders), Group chats (each group's settings), Connectors, Capabilities, Browser, Scheduled tasks, Usage, Secrets, Feedback and About DS Bot (versions, updates and links).
+- **Make it yours**: name, role, instructions, model and look (20 characters and 12 colors, or your own photo from the reusable avatar library) for each Bot; a theme, an accent color, a message layout (bubble or flat) with width sliders, and an avatar animation level (quiet, normal or lively) for the team. A pinned Bot or group chat shows a small pushpin in the sidebar. Settings has these pages: General (look, default model for new Bots, Enter key preference, mode and locations), Models, Bots (Main Bots, each Bot's settings and retained private-Bot folders), Group chats (each group's settings), Connectors, Capabilities, DeepSeek services, Browser, Scheduled tasks, Usage, Secrets, Feedback and About DS Bot (versions, updates and links).
 
 ## Install
 
@@ -97,6 +98,14 @@ Model providers are set up in DS Bot's **Settings → Models** (or the Main Bot'
 - To send images, the provider needs `defaultInput: [ text, image ]`.
 - Keep API keys out of the repository. Use dsh's own key storage or environment variables.
 
+## DeepSeek services
+
+Settings → DeepSeek services reports the state of the independent DeepSeek capabilities. `actions.deepseekServices()` returns `{ endpoint, key, ocr, tts, speech, preferences }` without any secret, and `setDeepseekServices({ ocr, tts, voice })` saves the three preferences (`ocr` on/off, `tts` `system|deepseek`, `voice` `stella|tide`). Omitted fields keep their value; `null` resets one. They live in `roster.prefs.deepseekServices`. The API key is set through the existing provider-key controls in Settings → Models (`actions.openModels()`); the page never reads or renders it, and shows the real ready/not-ready reason for each capability.
+
+OCR is off by default: only after it is turned on in Settings → DeepSeek services do Bots get `read_document` and upload selected files (`path` or `attachment_id`) for text recognition. Local Office editing is unchanged, but `read_document` can also read Office files, so the page does not promise that Office files are never uploaded. It is read-only: `attachment_id` must name a file or image in the calling Session's own messages (a guessed id reads nothing), workspace paths follow that Session's working directory and privacy rules, and long results are filed so the full text stays readable (a private Bot's copy stays in its own folder, named with its Session id). TTS defaults to the system voice. Dictation is not a DS Bot preference: the host registers `deepseek-asr` with `speechToText`, and the page selects it through the existing speech Remote `configure({ providerId: 'deepseek-asr', language: 'auto' })`; when the Voice Input plugin is off the browser dictation path stays. A configured key alone enables nothing, and voice reads `roster.prefs.deepseekServices` for serial TTS with no new page layout.
+
+Calls go to the official `https://api.deepseek.com` only and are billed to the user's own API key by usage. A gateway the DeepSeek route points at never receives (or provides) the key: when the route's credential happens to be named `DEEPSEEK_API_KEY`, DS Bot refuses rather than guess, and the status says why. See the [design note](../docs/plans/2026-11-14-deepseek-services.md) and `ds-bot/test/deepseek-services.test.js` (mock tests only, no network).
+
 ## Memory
 
 A Bot remembers what should last beyond one conversation: your preferences, decisions, corrections and facts it should not ask again. Memory is plain Markdown in the [Agent Memory Repo](https://github.com/AgentMemoryRepo/agentmemoryrepo) format: one entry per line, ending in `[source: …; added: …]`.
@@ -130,7 +139,7 @@ A read-only dsh (see [Data and backups](#data-and-backups)) shows memory but can
 The package includes a second plugin, `ds-bot/web-search`. It registers the search provider `auto`, and `cordis.patch.yml` makes it the default. Each search goes in this order:
 
 1. If the profile names another `searchProvider`, that one is used.
-2. The current model route's own search, with that route's key and host. The plugin knows the Anthropic Messages, OpenAI Responses and Gemini protocols, and a few search APIs (Ollama, Kimi, Zhipu, MiMo). Add more with `searchApis`.
+2. The current model route's own search, with that route's key and host. The plugin knows the Anthropic Messages, OpenAI Responses and Gemini protocols, and a few search APIs (DeepSeek, Ollama, Kimi, Zhipu, MiMo). A declared API runs only on an `https` base, since it carries the route's key. A provider's own long extract is kept as each source's `summary` beside the display snippet. Add more with `searchApis`.
 3. A fallback without a key: the public result pages of Bing and DuckDuckGo.
 4. If nothing works, the search fails and tells the model not to guess addresses.
 

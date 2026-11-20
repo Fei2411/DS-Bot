@@ -182,7 +182,7 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     computerUserActive: idleSeconds => call('computer-user-active', { idleSeconds }),
     stopMemberWork: (roomId, botId) => after(call('stop-member-work', { roomId, botId })),
     // A running part opened from the session list takes no input until it ends.
-    newPart: botId => after(call('bot-new-part', { botId })),
+    newPart: (botId, roomId) => after(call('bot-new-part', roomId === undefined ? { botId } : { botId, roomId })),
     openPart: (botId, sessionId, running = false) => {
       ui.set(state => ({ ...state, readOnlyPart: running ? sessionId : null }))
       return after(call('bot-open-part', { botId, sessionId })).catch((error) => {
@@ -243,6 +243,13 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     mailRuleSet: payload => after(call('mail-rule-set', payload)),
     mailSendAnswer: (requestId, choice, extra = {}) => after(call('mail-send-answer', { requestId, choice, ...extra })),
     mailSignInCode: payload => after(call('mail-sign-in-code', payload)),
+    // DeepSeek's own document and speech services (api.deepseek.com/v1/tools/*), each
+    // off until enabled. The status answer names the credential ref, never its value.
+    deepseekServices: () => call('deepseek-services'),
+    // absent keeps a field, null resets it; the full status comes back with the roster.
+    setDeepseekServices: patch => after(call('deepseek-services-config', patch)),
+    // One short piece of speech; the caller queues and plays the WAV it gets back.
+    synthesizeSpeech: (body, signal) => call('deepseek-synthesize', body, signal),
     phoneSet: settings => after(call('phone-set', settings)),
     phonePair: () => after(call('phone-pair')),
     phonePairCancel: () => after(call('phone-pair-cancel')),
@@ -268,6 +275,7 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     fileText: file => call('file-text', { file }).catch(() => undefined),
     roomProgress: roomId => call('room-progress', { roomId }).catch(() => []),
     groupRows: (roomId, from, to, anchor) => call('group-rows', { roomId, from, ...(to === undefined ? {} : { to }), ...(anchor === undefined ? {} : { anchor }) }).catch(() => null),
+    groupRelayReplies: (sessionId, preview) => call('group-relay-replies', { sessionId, preview }).catch(() => null),
     earlier: (sessionId, cursor) => call('earlier', { sessionId, cursor: cursor ?? null }),
     // Hours come back in this browser's time zone, so days start at local midnight.
     usage: () => call('usage', { timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }),

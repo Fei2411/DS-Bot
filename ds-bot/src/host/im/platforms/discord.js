@@ -235,6 +235,30 @@ export default {
         }
         return { messageId }
       },
+      sendImage: async (chat, image) => {
+        const bytes = Buffer.isBuffer(image?.data) ? image.data : Buffer.from(image?.data ?? [])
+        if (bytes.byteLength === 0) throw Object.assign(new Error('Empty image'), { permanent: true })
+        const form = new FormData()
+        form.append('payload_json', JSON.stringify({ content: '' }))
+        form.append('files[0]', new Blob([bytes], { type: image.mediaType || 'image/png' }), image.name || 'image.png')
+        let response
+        try {
+          response = await env.fetch(`${apiBase(env)}/channels/${chat.key}/messages`, {
+            method: 'POST',
+            headers: { authorization: `Bot ${token}` },
+            body: form,
+            signal: AbortSignal.timeout(30_000),
+          })
+        } catch (error) {
+          if (error?.name === 'TimeoutError' || error?.name === 'AbortError') {
+            throw Object.assign(new Error('Discord did not answer the image send in time'), { unknown: true })
+          }
+          throw error
+        }
+        const body = await response.json().catch(() => ({}))
+        if (!response.ok) throw errorOf(body, response.status)
+        return { messageId: String(body?.id ?? '') }
+      },
       edit: async (chat, messageId, { text, buttons }) => {
         const components = buttons?.length > 0
           ? [{ type: 1, components: buttons.slice(0, 5).map(button => ({ type: 2, style: 1, label: button.label.slice(0, 80), custom_id: button.data })) }]
