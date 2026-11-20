@@ -2,11 +2,12 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { createContext, runInContext, runInNewContext } from 'node:vm'
-import { bundleClient } from '../scripts/build-client.mjs'
+import { bundleClient, bundleOffice } from '../scripts/build-client.mjs'
 import { READ_LIMITS } from '../src/client/read-page.js'
 import { legacyKeys, STORAGE } from '../src/client/storage.js'
 
 const committed = () => readFileSync(new URL('../client.js', import.meta.url), 'utf8')
+const committedOffice = () => readFileSync(new URL('../office.js', import.meta.url), 'utf8')
 const platform = {
   'react': { Component: class {}, createElement: () => null, Fragment: Symbol('Fragment'), useState: initial => [initial, () => {}], useEffect: () => {}, useMemo: make => make(), useCallback: fn => fn, useRef: current => ({ current }), useId: () => 'id', useSyncExternalStore: (sub, get) => get(), createContext: initial => ({ value: initial, Provider: () => null }), useContext: ctx => ctx.value },
   'react-dom': { createPortal: node => node },
@@ -15,6 +16,10 @@ const platform = {
 
 test('client.js is the build of src/client', async () => {
   assert.equal(await bundleClient(), committed(), 'client.js is stale: run `npm run build` and commit it')
+})
+
+test('office.js is the build of src/office', async () => {
+  assert.equal(await bundleOffice(), committedOffice(), 'office.js is stale: run `npm run build` and commit it')
 })
 
 test('the startup client bundle stays under 2.5 MiB', () => {

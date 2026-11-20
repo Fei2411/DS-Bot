@@ -1,6 +1,8 @@
 // Spanish (es) localization for DS Bot client and DSH settings namespaces.
 
 export const ES = {
+  'Background work': 'Trabajo en segundo plano',
+  'Background commands after (seconds)': 'Pasar comandos a segundo plano tras (segundos)',
   'A new reply is waiting': "Tienes una nueva respuesta",
   'Opening…': 'Abriendo…',
   'Still opening…': 'Sigue abriendo…',
@@ -634,6 +636,9 @@ export const ES = {
   'Model for {name}': 'Modelo para {name}',
   'No models are set up in DeepSeek Harness yet.': 'Aún no hay modelos configurados en DeepSeek Harness.',
   'Models and providers…': 'Modelos y proveedores…',
+  'Search models': 'Buscar modelos',
+  'Search models…': 'Buscar modelos…',
+  'No matching models.': 'No hay modelos coincidentes.',
   Models: 'Modelos',
   'Harness default': 'Predeterminado de Harness',
   Saving: 'Guardando',

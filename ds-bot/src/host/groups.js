@@ -27,7 +27,7 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 import { GROUP_LINE_READ, HISTORY_PAGE, HISTORY_TIMEOUT_MS, LATE_ANSWER, ROOM_IDLE_RELAY_LIMIT, ROOM_REPLY_TIMEOUT_MS, ROOM_STEP_GAP_MS, ROOM_WORK_GRACE_MS, SOURCE_KIND, TEAM_TOOLS, TEXT_KEPT } from './constants.js'
 import { escapeRegExp, headOf, reminderPrompts, splitRef, textOf } from './text.js'
 import { viaOf } from '../shared/im-platforms.js'
-import { parseReplies, relayRange } from '../shared/group-replies.js'
+import { REPLY_ELISION, parseReplies, relayRange } from '../shared/group-replies.js'
 import { mentionSpans, speakerOf } from '../shared/mentions.js'
 import { GROUP_REF, output } from './tools.js'
 import { searchGroupBook } from './group-search.js'
@@ -417,18 +417,20 @@ export function install(rt) {
   rt.ledger.importer('group-', (book) => {
     const roomId = book.slice('group-'.length)
     const lines = new Map()
+    const keep = (line, text = line.text) => lines.set(line.seq, typeof text === 'string'
+      ? { ...line, text, length: line.length ?? text.length }
+      : line)
     for (const line of rt.roomOf(roomId)?.log ?? []) {
       if (!Number.isInteger(line?.seq)) continue
-      const { length, ...rest } = line
-      let text = rest.text
-      if (length !== undefined) {
+      let text = line.text
+      if (line.length !== undefined) {
         try { text = readFileSync(join(rt.home, 'group-lines', roomId, `${line.seq}.txt`), 'utf8') } catch { /* only its start was kept */ }
       }
-      lines.set(line.seq, { ...rest, ...(text === undefined ? {} : { text }) })
+      keep(line, text)
     }
     try {
       for (const line of parseBook(readFileSync(join(rt.home, 'group-logs', `${oldLogName(roomId)}.jsonl`), 'utf8'))) {
-        if (Number.isInteger(line.seq)) lines.set(line.seq, line)
+        if (Number.isInteger(line.seq)) keep(line)
       }
     } catch { /* no log of its own yet */ }
     return [...lines.values()].sort((a, b) => a.seq - b.seq)
@@ -633,12 +635,120 @@ export function install(rt) {
     return { rows, open: end === undefined }
   }
   const groupRows = (roomId, from, to, anchor) => rowsView(roomId, from, to, anchor).rows
+  const jsonText = text => JSON.stringify(text).slice(1, -1)
+  const isLegacyReply = record => record.kind === undefined && record.session !== true
+    && typeof record.botId === 'string' && typeof record.text === 'string'
+  function hasCompleteText(record) {
+    const length = record.text.length
+    if (record.length !== undefined) return length === record.length
+    // Old imports dropped the original length. Either cap can land one unit early at a surrogate pair.
+    return length !== TEXT_KEPT && length !== TEXT_KEPT - 1
+      && length !== GROUP_LINE_READ && length !== GROUP_LINE_READ - 1
+  }
+  const isKeptReply = record => isLegacyReply(record) && hasCompleteText(record)
+  const matchesOpening = (record, opening, partial) => (partial ? record.text.startsWith(opening) : record.text === opening)
+    || (!hasCompleteText(record) && opening.startsWith(record.text))
+
+  function restoreTrimmedReplies(replies, records) {
+    const restored = []
+    for (const reply of replies) {
+      if (!reply || typeof reply !== 'object' || reply.__omitted__) return null
+      const marker = typeof reply.text === 'string' ? REPLY_ELISION.exec(reply.text) : null
+      if (marker === null) { restored.push(reply); continue }
+      const head = reply.text.slice(0, marker.index)
+      const tail = reply.text.slice(marker.index + marker[0].length)
+      const omitted = Number(marker[1])
+      // save-token's JSON codec keeps 220 and 80 UTF-16 units of an individual string longer than 400.
+      if (reply.kind !== undefined || head.length !== 220 || tail.length !== 80 || omitted <= 100 || REPLY_ELISION.test(tail)) return null
+      const length = head.length + omitted + tail.length
+      const matches = records.filter(record => {
+        if (!isLegacyReply(record) || record.botId !== reply.botId || !matchesOpening(record, head, true)) return false
+        if (!hasCompleteText(record)) return record.length === undefined || record.length === length
+        return record.text.length === length && record.text.endsWith(tail)
+      })
+      if (matches.length !== 1 || !hasCompleteText(matches[0])) return null
+      restored.push({ ...reply, text: matches[0].text })
+    }
+    return restored
+  }
+
+  function restoreRelayWindow(preview, records, marker) {
+    const suffix = preview.slice(marker.index + marker[0].length)
+    if (REPLY_ELISION.test(suffix)) return null
+    const head = preview.slice(0, marker.index)
+    const before = parseReplies(head).replies
+    const tailFragment = /^((?:[^"\\]|\\.)*)"/.exec(suffix)
+    if (tailFragment === null) return null
+    let after
+    try { after = JSON.parse(`{"replies":[{"text":"${suffix}`).replies } catch { return null }
+    if (!Array.isArray(after) || after.some(reply => !reply || typeof reply !== 'object' || reply.__omitted__)) return null
+    const tail = after[0]?.text
+    if (typeof tail !== 'string' || tail.length < 16 || after[0].kind !== undefined) return null
+
+    // A line window can start its cut inside a reply's text or after a complete reply.
+    let partial
+    const headFragment = /"text"\s*:\s*"((?:[^"\\]|\\.)*)$/.exec(head)
+    if (headFragment !== null) {
+      try { partial = JSON.parse(`${head}"}]}`).replies.at(-1) } catch { return null }
+    }
+    const first = partial ?? before.findLast(reply => reply?.kind === undefined && typeof reply?.botId === 'string' && typeof reply.text === 'string')
+    if (typeof first?.text !== 'string' || first.text.length < 16 || first.kind !== undefined) return null
+    // A surviving suffix does not prove which prompt owns a cut if an earlier matching start lost its ending.
+    const starts = records.filter(record => isLegacyReply(record) && record.botId === first.botId
+      && matchesOpening(record, first.text, partial !== undefined))
+    // A cut can start in an escape, so decoding the suffix can give it a different meaning.
+    const ends = records.filter(record => isKeptReply(record) && jsonText(record.text).endsWith(tailFragment[1])
+      && (after[0].botId === undefined || record.botId === after[0].botId))
+    if (starts.length !== 1 || ends.length !== 1 || ends[0].seq < starts[0].seq) return null
+    // Don't guess across a missing ledger row, a new prompt, or any other boundary.
+    const span = records.slice(records.indexOf(starts[0]), records.indexOf(ends[0]) + 1)
+    if (!span.every((record, i) => isKeptReply(record) && record.seq === starts[0].seq + i)) return null
+    // Count the saved JSON units: re-encoding half a surrogate pair would add an escape.
+    const hiddenText = span.reduce((length, record) => length + jsonText(record.text).length, 0)
+      - (headFragment?.[1].length ?? jsonText(first.text).length) - tailFragment[1].length
+    const omitted = Number(marker[1])
+    if (span.length === 1) {
+      // A cut inside one string hides no JSON structure, so the encoded length must match exactly.
+      if (partial === undefined || first.text.length + tail.length >= span[0].text.length || hiddenText !== omitted) return null
+    } else if (hiddenText >= omitted) return null
+    const missing = partial === undefined ? span.slice(1) : span
+    return [...before, ...missing.map(rowOf), ...after.slice(1)]
+  }
+
+  // Use only DS Bot's own pre-ledger records, never a file locator embedded in a result.
+  function groupRelayReplies(sessionId, preview) {
+    if (typeof sessionId !== 'string' || typeof preview !== 'string' || preview.length > 65_536) return null
+    const marker = REPLY_ELISION.exec(preview)
+    if (marker === null) return null
+    const room = rt.roomOf(sessionId) ?? rt.roomOf(rt.pastOwners.get(sessionId)?.roomId)
+    if (room === undefined) return null
+    // A room from before logs were versioned has no `seq` yet: open its book through the
+    // migration first, or the importer would cache an empty book for this process.
+    ensureRoomLog(room)
+    const book = rt.ledger.records(bookOf(room.id))
+    const anchor = book.findIndex(record => record.event === 'anchor')
+    const records = anchor === -1 ? book : book.slice(0, anchor)
+    // A unique match proves nothing when the original could have aged out of the legacy log.
+    if (records.some((record, i) => record.seq !== i + 1)
+      || (anchor === -1 ? records.length !== room.seq : book[anchor].from > records.length + 1)) return null
+    // The line codec keeps 260 and 100 raw units, even if the splice still parses as JSON.
+    if (marker.index === 260 && preview.length - marker.index - marker[0].length === 100) {
+      return restoreRelayWindow(preview, records, marker)
+    }
+    let replies
+    try { replies = JSON.parse(preview)?.replies } catch { /* a cut can break JSON syntax */ }
+    if (Array.isArray(replies) && replies.some(reply => typeof reply?.text === 'string' && REPLY_ELISION.test(reply.text))) {
+      const restored = restoreTrimmedReplies(replies, records)
+      if (restored !== null) return restored
+    }
+    return restoreRelayWindow(preview, records, marker)
+  }
   // A sequence of words over everything said in the group, newest first, with each
   // hit's neighbours. `page` (`before` or `offset`) reads the next older page.
   const groupSearch = (roomId, query, page) => searchGroupBook(rt.ledger.records(bookOf(roomId)), query, page)
 
   Object.assign(rt, {
-    keepGroupLine, dropGroupLines, groupRows, groupRowsView: rowsView, groupSearch,
+    keepGroupLine, dropGroupLines, groupRows, groupRowsView: rowsView, groupRelayReplies, groupSearch,
     logRoom: (room, line) => say(room, line),
     onRoomLine: (listener) => {
       roomLineListeners.add(listener)

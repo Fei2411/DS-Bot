@@ -9,6 +9,7 @@ import { replaceFile } from '../files.js'
 import { viewCardText } from '../parts.js'
 import { imPlatform, IM_PLATFORMS } from '../../shared/im-platforms.js'
 import { REPLY_KIND, SOURCE_KIND } from '../constants.js'
+import { extractLocalMarkdownImages, prepareOutboundReply } from './outbound-images.js'
 import { adapters } from './platforms/index.js'
 
 const RECONCILE_MS = 15_000
@@ -20,6 +21,19 @@ const RETRY_MAX_MS = 30_000
 const SEND_ATTEMPTS = 4
 const TYPING_MS = 4_000
 const NUMBERS = /^\s*\d+(\s+\d+)*\s*$/
+// A quoted reply is answered with the message it quotes: the last messages sent
+// to a chat are kept by the ids the platform named them, and only their start.
+const SENT_KEEP = 20
+const SENT_TEXT_LIMIT = 1_000
+const QUOTE_LIMIT = 500
+// A platform may report several id aliases and a long text. Bound each entry
+// too, so no single message can by itself fill the whole store.
+const SENT_ID_LIMIT = 16
+const SENT_ID_LEN = 100
+// The runtime file is written as one blob. Keep the whole sent-message store
+// bounded even with many chats, so a connection with lots of chats cannot grow
+// it without limit (#1306 review).
+const SENT_STORE_LIMIT = 200_000
 
 const secretField = key => key.replace(/[A-Z]/g, char => `_${char}`).toUpperCase()
 
@@ -57,6 +71,8 @@ export function install(rt) {
         answered: 'answered',
         numbers: 'reply with the number',
         numbersMulti: 'reply with the numbers, separated by spaces',
+        quoteEarlier: 'Replying to an earlier message:',
+        quoteMissing: 'Replying to an earlier message (its text is not available).',
         allow: 'Allow once',
         reject: 'Reject',
       },
@@ -77,6 +93,8 @@ export function install(rt) {
         answered: '已答',
         numbers: '回复编号',
         numbersMulti: '回复编号，多选用空格隔开',
+        quoteEarlier: '引用了一条更早的消息：',
+        quoteMissing: '引用了一条更早的消息（内容不可见）。',
         allow: '允许一次',
         reject: '拒绝',
       },
@@ -97,6 +115,8 @@ export function install(rt) {
         answered: '已答',
         numbers: '回覆編號',
         numbersMulti: '回覆編號，多選用空格隔開',
+        quoteEarlier: '引用了更早的一則訊息：',
+        quoteMissing: '引用了更早的一則訊息（內容不可見）。',
         allow: '允許一次',
         reject: '拒絕',
       },
@@ -117,6 +137,8 @@ export function install(rt) {
         answered: '回答済み',
         numbers: '番号を返信',
         numbersMulti: '番号をスペース区切りで返信',
+        quoteEarlier: '以前のメッセージへの返信です：',
+        quoteMissing: '以前のメッセージへの返信です（本文は取得できませんでした）。',
         allow: '1回許可',
         reject: '拒否',
       },
@@ -137,6 +159,8 @@ export function install(rt) {
         answered: '응답함',
         numbers: '번호로 답장',
         numbersMulti: '공백으로 구분하여 번호로 답장',
+        quoteEarlier: '이전 메시지에 대한 답장입니다: ',
+        quoteMissing: '이전 메시지에 대한 답장입니다(본문을 가져올 수 없습니다).',
         allow: '한 번 허용',
         reject: '거부',
       },
@@ -157,6 +181,8 @@ export function install(rt) {
         answered: 'respondido',
         numbers: 'responde con el número',
         numbersMulti: 'responde con los números separados por espacios',
+        quoteEarlier: 'Respondiendo a un mensaje anterior: ',
+        quoteMissing: 'Respondiendo a un mensaje anterior (su texto no está disponible).',
         allow: 'Permitir una vez',
         reject: 'Rechazar',
       },
@@ -177,6 +203,8 @@ export function install(rt) {
         answered: 'répondu',
         numbers: 'répondez avec le numéro',
         numbersMulti: 'répondez avec les numéros séparés par des espaces',
+        quoteEarlier: 'Réponse à un message précédent : ',
+        quoteMissing: 'Réponse à un message précédent (son texte n’est pas disponible).',
         allow: 'Autoriser une fois',
         reject: 'Refuser',
       },
@@ -197,6 +225,8 @@ export function install(rt) {
         answered: 'beantwortet',
         numbers: 'mit der Nummer antworten',
         numbersMulti: 'mit durch Leerzeichen getrennten Nummern antworten',
+        quoteEarlier: 'Antwort auf eine frühere Nachricht: ',
+        quoteMissing: 'Antwort auf eine frühere Nachricht (ihr Text ist nicht verfügbar).',
         allow: 'Einmal erlauben',
         reject: 'Ablehnen',
       },
@@ -205,7 +235,7 @@ export function install(rt) {
   }
 
   // ---------------------------------------------------------------- runtime file
-  const runtimes = new Map() // id → { data: {runtime, cards, open}, timer }
+  const runtimes = new Map() // id → { data: {runtime, cards, sent}, timer }
   const runtimeOf = async (id) => {
     let held = runtimes.get(id)
     if (held !== undefined) return held
@@ -217,6 +247,7 @@ export function install(rt) {
       data: {
         runtime: data?.runtime !== null && typeof data?.runtime === 'object' ? data.runtime : {},
         cards: data?.cards !== null && typeof data?.cards === 'object' ? data.cards : {},
+        sent: data?.sent !== null && typeof data?.sent === 'object' ? data.sent : {},
       },
       timer: undefined,
     }
@@ -237,8 +268,13 @@ export function install(rt) {
     if (held === undefined || rt.readOnly() !== undefined) return
     await mkdir(imDir, { recursive: true })
     const temp = join(imDir, `${id}.${process.pid}.tmp`)
+    // `sent` only exists for platforms that can quote (weixin): a runtime file
+    // with no recorded messages is written exactly like an older one, without
+    // the empty object. Reading still defaults a missing `sent` to {}.
+    const { runtime, cards, sent } = held.data
+    const data = Object.keys(sent).length > 0 ? { runtime, cards, sent } : { runtime, cards }
     try {
-      await writeFile(temp, JSON.stringify(held.data), { encoding: 'utf8', mode: 0o600 })
+      await writeFile(temp, JSON.stringify(data), { encoding: 'utf8', mode: 0o600 })
       await chmod(temp, 0o600)
       await replaceFile(temp, join(imDir, `${id}.json`))
     } catch (error) {
@@ -256,11 +292,14 @@ export function install(rt) {
       },
     }
   }
+  // The connection runtime file: adapter state, the sent cards and, on platforms
+  // that quote, the messages last sent to each chat. Written as one file, so it
+  // all has to stay small.
+  const dataOf = async (id) => (await runtimeOf(id)).data
   // Sent cards: cardKey → [{ chatKey, messageId, answer? }]. Persisted so a restart
   // does not send a card twice; an `answer` marks it settled from this side.
-  const cardsOf = async (id) => (await runtimeOf(id)).data
   const markCard = async (id, cardKey, chatKey, messageId, body) => {
-    const data = await cardsOf(id)
+    const data = await dataOf(id)
     const entries = data.cards[cardKey] ?? []
     const held = entries.find(entry => entry.chatKey === chatKey)
     if (held !== undefined) {
@@ -273,7 +312,7 @@ export function install(rt) {
     scheduleWrite(id)
   }
   const unmarkCard = async (id, cardKey, chatKey) => {
-    const data = await cardsOf(id)
+    const data = await dataOf(id)
     const entries = data.cards[cardKey]
     if (entries === undefined) return
     const kept = entries.filter(entry => entry.chatKey !== chatKey)
@@ -283,11 +322,94 @@ export function install(rt) {
     scheduleWrite(id)
   }
   const settleCard = async (id, cardKey, answer) => {
-    const data = await cardsOf(id)
+    const data = await dataOf(id)
     const entries = data.cards[cardKey]
     if (entries === undefined) return
     for (const entry of entries) entry.answer ??= answer
     scheduleWrite(id)
+  }
+  // What was sent to a chat, by the ids the platform gave back: a quoted reply
+  // names one of those ids, and the Bot has to see the message it answers. A
+  // long reply goes out as several platform messages with an id each, so a
+  // platform that reports them gets one entry per part — quoting a later chunk
+  // then shows that chunk, not the start of the reply. The reply can come long
+  // after the send, so this lives in the runtime file.
+  const rememberSent = async (id, chatKey, text, sent) => {
+    const parts = Array.isArray(sent?.parts) && sent.parts.length > 0
+      ? sent.parts
+      : [{ ids: [sent?.messageId, ...(Array.isArray(sent?.ids) ? sent.ids : [])], text }]
+    const at = Date.now()
+    const entries = []
+    for (const part of parts) {
+      const ids = []
+      for (const value of Array.isArray(part?.ids) ? part.ids : []) {
+        const one = String(value ?? '').trim().slice(0, SENT_ID_LEN)
+        if (one !== '' && !ids.includes(one)) ids.push(one)
+        if (ids.length >= SENT_ID_LIMIT) break
+      }
+      const body = String(part?.text ?? '').slice(0, SENT_TEXT_LIMIT).trim()
+      if (ids.length === 0 || body === '') continue
+      entries.push({ ids, text: body, at })
+    }
+    if (entries.length === 0) return
+    const data = await dataOf(id)
+    const kept = data.sent[chatKey] ?? []
+    data.sent[chatKey] = [...kept, ...entries].slice(-SENT_KEEP)
+    capSentStore(data.sent)
+    scheduleWrite(id)
+  }
+  // The runtime file is one blob, so bound the whole sent store, not just each
+  // chat's list. Collect every entry with its age and drop the oldest first —
+  // a chat's last message is the one a quoted reply is most likely to name, so
+  // it must survive even when older chats have to go. A single entry is already
+  // bounded above (text, id count and id length), so the store always converges.
+  const capSentStore = (sent) => {
+    let size = JSON.stringify(sent).length
+    if (size <= SENT_STORE_LIMIT) return
+    const byAge = []
+    for (const [chatKey, list] of Object.entries(sent)) {
+      if (!Array.isArray(list)) continue
+      for (const entry of list) byAge.push({ chatKey, entry, age: Number(entry?.at) || 0 })
+    }
+    byAge.sort((a, b) => a.age - b.age)
+    for (const { chatKey, entry } of byAge) {
+      if (size <= SENT_STORE_LIMIT) break
+      const list = sent[chatKey]
+      const at = list.indexOf(entry)
+      if (at === -1) continue
+      list.splice(at, 1)
+      size = JSON.stringify(sent).length
+    }
+    for (const [chatKey, list] of Object.entries(sent)) {
+      if (Array.isArray(list) && list.length === 0) delete sent[chatKey]
+    }
+  }
+  // The text a quoted reply answers: the first of its ids that names a message
+  // this chat sent, else the text the platform kept of that message. An id only
+  // ever matches a message this connection actually sent there, so a wrong one
+  // cannot pull in another chat's text.
+  const quotedText = async (conn, chatKey, quote) => {
+    const ids = (Array.isArray(quote?.ids) ? quote.ids : [])
+      .map(value => String(value ?? '').trim()).filter(value => value !== '')
+    if (ids.length > 0) {
+      const data = await dataOf(conn.id)
+      const entries = data.sent[chatKey] ?? []
+      for (const id of ids) {
+        const found = entries.find(entry => entry.ids.includes(id))
+        if (found !== undefined) return found.text
+      }
+    }
+    return typeof quote?.text === 'string' ? quote.text.trim() : ''
+  }
+  // Several answers in a row look alike; the quoted message is what tells the
+  // Bot which one the user means. Shown as a Markdown quote ahead of the reply.
+  const composeQuoted = (body, quoted) => {
+    const full = String(quoted).trim()
+    const shown = full.length > QUOTE_LIMIT ? `${full.slice(0, QUOTE_LIMIT)}…` : full
+    const head = shown === ''
+      ? text('quoteMissing')
+      : `${text('quoteEarlier')}\n${shown.split('\n').map(line => (line === '' ? '>' : `> ${line}`)).join('\n')}`
+    return body === '' ? head : `${head}\n\n${body}`
   }
 
   // ------------------------------------------------------------- connections
@@ -459,6 +581,22 @@ export function install(rt) {
     resumedOrigins.set(token, { ...entry, activeOn: sessionId })
     return token
   }
+  const captureImOrigin = (sessionId) => {
+    if (sessionId === undefined || mixed.has(sessionId)) return undefined
+    const entry = origins.get(sessionId)
+    if (entry === undefined) return undefined
+    return { connId: entry.connId, chatKey: entry.chatKey, senderId: entry.senderId, ...(entry.binding !== undefined ? { binding: entry.binding } : {}) }
+  }
+  const originFromSaved = (entry) => {
+    if (entry?.connId === undefined || entry?.chatKey === undefined) return undefined
+    const conn = Object.values(connections()).find(item => item.id === entry.connId)
+    if (conn === undefined || !runners.has(conn.id)) return undefined
+    if (entry.senderId !== undefined && !paired(conn, entry.senderId)) return undefined
+    const chat = conn.chats?.[entry.chatKey]
+    if (chat === undefined) return undefined
+    if (entry.binding === undefined || bindingOf(conn, entry.chatKey) !== entry.binding) return undefined
+    return { conn, chatKey: entry.chatKey, chat }
+  }
   const peekImOrigin = (sessionId, token) => {
     const entry = token === undefined ? undefined : resumedOrigins.get(token)
     if (entry === undefined) return
@@ -500,6 +638,10 @@ export function install(rt) {
     origins.delete(sessionId)
     mixed.delete(sessionId)
   }
+  const clearImOrigin = (sessionId) => {
+    resetOrigin(sessionId)
+    detachHeldOrigin(sessionId)
+  }
   /**
    * The connection and chat a Session's replies go to, or undefined when nothing may
    * leave: no origin, its connection gone, its chat gone, the user who asked no longer
@@ -517,7 +659,7 @@ export function install(rt) {
     // The chat may have been unbound or pointed at another Bot or group while the work
     // it started keeps running; that work's late lines must not follow the old origin.
     if (entry.binding === undefined || bindingOf(conn, entry.chatKey) !== entry.binding) return undefined
-    return { conn, chatKey: entry.chatKey, chat }
+    return { conn, chatKey: entry.chatKey, chat, senderId: entry.senderId, binding: entry.binding }
   }
   const rememberRequest = (requestId, conn, chatKey, senderId) => {
     // The binding is captured when the message arrives, not when it is admitted: a chat
@@ -572,6 +714,10 @@ export function install(rt) {
     // A reserved slot has no handle until connect() lands; start() re-kicks
     // anything queued in the meantime.
     if (runner?.handle === undefined || queue === undefined || queue.draining) return
+    // Only a platform that hands back a quoted reply (the adapter's `quote`
+    // flag, weixin today) needs what it sent kept; elsewhere the reply text
+    // would sit in the runtime file and never be read.
+    const remembersSent = adapters[conn.platform]?.quote === true
     clearTimeout(queue.retry)
     queue.retry = undefined
     queue.draining = true
@@ -586,9 +732,22 @@ export function install(rt) {
         queue.sending = true
         let sent
         try {
-          sent = await runner.handle.send(job.chat, job)
+          if (job.image !== undefined) {
+            if (typeof runner.handle.sendImage !== 'function') {
+              throw Object.assign(new Error('This IM platform cannot send images'), { permanent: true })
+            }
+            sent = await runner.handle.sendImage(job.chat, job.image)
+          } else {
+            sent = await runner.handle.send(job.chat, job)
+          }
         } catch (error) {
           queue.sending = false
+          // A partial send (e.g. WeChat accepted earlier chunks before one failed)
+          // carries the delivered parts on the error. Remember them so quoting a
+          // delivered message still works, without treating the send as successful.
+          if (remembersSent && Array.isArray(error?.parts) && error.parts.length > 0) {
+            await rememberSent(conn.id, chatKey, job.text, { parts: error.parts }).catch(e => rt.warn('ds-bot: im partial sent message not remembered: %s', e))
+          }
           const settled = queue.stoppedSend
           queue.stoppedSend = undefined
           const how = failClass(error)
@@ -642,6 +801,11 @@ export function install(rt) {
         }
         queue.sending = false
         queue.jobs.shift()
+        // Failing to remember the message must not look like a failed send: it
+        // would be retried and the chat would get the message twice.
+        if (remembersSent) {
+          await rememberSent(conn.id, chatKey, job.text, sent).catch(error => rt.warn('ds-bot: im sent message not remembered: %s', error))
+        }
         const settled = queue.stoppedSend
         queue.stoppedSend = undefined
         if (connections()[conn.id] !== undefined) job.after?.(sent)
@@ -654,8 +818,80 @@ export function install(rt) {
       queue.draining = false
     }
   }
-  const sendText = (conn, chat, body, buttons, after) => enqueue(conn, chat.key, { chat, text: body, buttons, after })
-  const sendTo = (conn, chatKey, chat, body, buttons, after) => enqueue(conn, chatKey, { chat, text: body, buttons, after })
+  // Per-chat staging chain: keeps async local-image resolution ordered ahead of
+  // subsequent replies and cards on the same chat without delaying plain-text sends.
+  const outboundStages = new Map()
+  const afterStage = (conn, chatKey, run) => {
+    const stageKey = `${conn.id}:${chatKey}`
+    const prev = outboundStages.get(stageKey) ?? Promise.resolve()
+    const next = prev.catch(() => {}).then(run)
+    outboundStages.set(stageKey, next)
+    const cleanup = () => { if (outboundStages.get(stageKey) === next) outboundStages.delete(stageKey) }
+    next.then(cleanup, cleanup)
+    return next
+  }
+  const enqueueAfterStage = (conn, chatKey, job) => {
+    const stageKey = `${conn.id}:${chatKey}`
+    if (!outboundStages.has(stageKey)) {
+      enqueue(conn, chatKey, job)
+      return
+    }
+    const runner = runners.get(conn.id)
+    afterStage(conn, chatKey, () => {
+      const liveConn = fresh(conn.id)
+      if (stopped || liveConn === undefined || runners.get(conn.id) !== runner || runner?.stopped) {
+        void Promise.resolve(job.onDrop?.()).catch(() => {})
+        return
+      }
+      enqueue(liveConn, chatKey, job)
+    })
+  }
+  const sendText = (conn, chat, body, buttons, after) => enqueueAfterStage(conn, chat.key, { chat, text: body, buttons, after })
+  const sendTo = (conn, chatKey, chat, body, buttons, after) => enqueueAfterStage(conn, chatKey, { chat, text: body, buttons, after })
+  const originStillValid = (connId, chatKey, runner, senderId, binding) => {
+    const liveConn = fresh(connId)
+    if (stopped || liveConn === undefined || runners.get(connId) !== runner || runner?.stopped) return undefined
+    if (senderId !== undefined && !paired(liveConn, senderId)) return undefined
+    if (liveConn.chats?.[chatKey] === undefined) return undefined
+    if (binding !== undefined && bindingOf(liveConn, chatKey) !== binding) return undefined
+    return liveConn
+  }
+  const sendReply = (origin, body, { sessionId, botId, prefix = '' } = {}) => {
+    const { conn, chatKey, chat, senderId, binding } = origin
+    const where = { key: chatKey, kind: chat.kind, title: chat.title }
+    const stageKey = `${conn.id}:${chatKey}`
+    const runner = runners.get(conn.id)
+    const maybeImages = typeof rt.mobileEndpoint === 'function'
+      && (typeof runner?.handle?.sendImage === 'function' || runner?.handle === undefined)
+      && extractLocalMarkdownImages(body).length > 0
+    if (!maybeImages && !outboundStages.has(stageKey)) {
+      enqueue(conn, chatKey, { chat: where, text: `${prefix}${body}` })
+      return
+    }
+    afterStage(conn, chatKey, async () => {
+      const before = originStillValid(conn.id, chatKey, runner, senderId, binding)
+      if (before === undefined) return
+      if (!maybeImages || typeof runner?.handle?.sendImage !== 'function') {
+        enqueue(before, chatKey, { chat: where, text: `${prefix}${body}` })
+        return
+      }
+      const prepared = await prepareOutboundReply(body, {
+        resolveImage: (path) => rt.mobileEndpoint('markdown-image', {
+          sessionId,
+          ...(botId !== undefined ? { botId } : {}),
+          path,
+        }),
+      })
+      for (const failure of prepared.failed) {
+        rt.warn('ds-bot: im outbound image %s skipped: %s', failure.path, failure.reason)
+      }
+      const liveConn = originStillValid(conn.id, chatKey, runner, senderId, binding)
+      if (liveConn === undefined) return
+      const fullText = prepared.text !== '' ? `${prefix}${prepared.text}` : (prepared.images.length > 0 && prefix !== '' ? prefix.trimEnd() : '')
+      if (fullText !== '') enqueue(liveConn, chatKey, { chat: where, text: fullText })
+      for (const image of prepared.images) enqueue(liveConn, chatKey, { chat: where, image })
+    })
+  }
 
   // ----------------------------------------------------------------- inbound
   const requested = (conn, msg) => {
@@ -820,7 +1056,11 @@ export function install(rt) {
       ? rt.chatOf(target.botId)
       : rt.sessionOfRoom(rt.roomOf(target.roomId))
     const content = []
-    if (body !== '') content.push({ type: 'text', text: body })
+    // A quoted reply goes in as the quoted message, then what the user said:
+    // commands above are read from the reply alone.
+    const quoted = msg.quote === undefined ? undefined : await quotedText(conn, msg.chat.key, msg.quote)
+    const said = quoted === undefined ? body : composeQuoted(body, quoted)
+    if (said !== '') content.push({ type: 'text', text: said })
     for (const image of msg.images ?? []) content.push({ type: 'image', mediaType: image.mediaType, data: image.data })
     const env = await envFor(conn)
     for (const file of msg.files ?? []) {
@@ -882,7 +1122,7 @@ export function install(rt) {
   }
 
   const sendCard = async (conn, cardKey, targets, body, buttons) => {
-    const data = await cardsOf(conn.id)
+    const data = await dataOf(conn.id)
     if (!runners.has(conn.id)) return
     const entries = data.cards[cardKey] ??= []
     const recorded = new Set(entries.map(entry => entry.chatKey))
@@ -892,7 +1132,7 @@ export function install(rt) {
     for (const { chatKey } of pending) entries.push({ chatKey, messageId: undefined, text: body })
     scheduleWrite(conn.id)
     for (const { chatKey, chat } of pending) {
-      enqueue(conn, chatKey, {
+      enqueueAfterStage(conn, chatKey, {
         chat: { key: chatKey, kind: chat.kind, title: chat.title },
         text: body,
         buttons,
@@ -907,7 +1147,7 @@ export function install(rt) {
     for (const conn of Object.values(connections())) {
       const runner = runners.get(conn.id)
       if (runner === undefined) continue
-      await cardsOf(conn.id)
+      await dataOf(conn.id)
       // Questions: one card per open question id, on the connection whose chat asked.
       for (const [sessionId, question] of Object.entries(state.questions ?? {})) {
         const cardKey = `q:${question.id}`
@@ -924,7 +1164,10 @@ export function install(rt) {
       for (const entry of rt.approvalsView?.() ?? []) {
         const cardKey = `a:${entry.id}`
         const bot = rt.botOf(entry.botId)
-        const origin = originOf(entry.roomId !== undefined ? (rt.roomOf(entry.roomId)?.sessionId ?? entry.roomId) : chatOfBot(entry.botId))
+        // A task approval belongs strictly to the IM chat that started that task (never fall back to an unrelated foreground IM chat).
+        const origin = entry.taskId !== undefined
+          ? originFromSaved(rt.taskById?.(entry.taskId)?.task?.imOrigin)
+          : originOf(entry.roomId !== undefined ? (rt.roomOf(entry.roomId)?.sessionId ?? entry.roomId) : chatOfBot(entry.botId))
         if (origin === undefined || origin.conn.id !== conn.id) continue
         const targets = [{ chatKey: origin.chatKey, chat: origin.chat }]
         const buttons = imPlatform(conn.platform)?.buttons === true ? cardButtons.approval(entry.id) : undefined
@@ -1320,7 +1563,14 @@ export function install(rt) {
       const chat = conn.chats?.[String(body.chatKey ?? '')]
       if (chat === undefined) throw new Error('No such chat')
       if (body.remove === true) {
-        delete conn.chats[String(body.chatKey ?? '')]
+        const chatKey = String(body.chatKey ?? '')
+        delete conn.chats[chatKey]
+        // The messages kept for quoting belong to that chat only.
+        const data = await dataOf(conn.id)
+        if (data.sent[chatKey] !== undefined) {
+          delete data.sent[chatKey]
+          scheduleWrite(conn.id)
+        }
       } else if (body.target === null) {
         delete chat.target
       } else if (body.target !== undefined) {
@@ -1442,34 +1692,47 @@ export function install(rt) {
     }
     if (event.type === 'user/message') {
       const source = event.data?.source
-      const imOrigin = source?.imOrigin
-      const rpcId = source?.rpcId
-      // A late member result or part-switch handoff continues the work the chat asked for;
-      // any other first message starts a fresh turn, which clears the previous turn's origin.
-      if (pendingReset.delete(session.id) && !(typeof imOrigin === 'string' || (source?.kind === SOURCE_KIND && source.role === 'post'))) resetOrigin(session.id)
-      if (typeof imOrigin === 'string') {
-        const resumed = resumedOrigins.get(imOrigin)
-        resumedOrigins.delete(imOrigin)
-        if (resumed === undefined) dropOrigin(session.id)
-        else claimOrigin(session.id, resumed.connId, resumed.chatKey, resumed.senderId, resumed.binding)
-      } else if (typeof rpcId === 'string' && rpcId.startsWith('im:')) {
-        if (Number.isInteger(event.seq)) imVia.set(session.id, { ...imVia.get(session.id), [event.seq]: rpcId.split(':')[1] })
-        // The chat this message came from is the one its turn answers. A message this
-        // process never registered — after a restart, or a redelivery — leaves no origin.
-        const asked = requests.get(rpcId)
-        requests.delete(rpcId)
-        if (asked === undefined) dropOrigin(session.id)
-        else claimOrigin(session.id, asked.connId, asked.chatKey, asked.senderId, asked.binding)
-      } else if (source?.kind === REPLY_KIND) {
-        // Web and phone answers carry no registered IM request.
-        dropOrigin(session.id)
-      } else if (source?.kind === SOURCE_KIND && source.role === 'post') {
-        // A member's late result relayed into the group's own Session. The group's work
-        // is still the answer to the chat that asked, wherever the member runs.
+      // Pure context notice injected before the user's message on a newly forked foreground;
+      // never touch pendingReset or drop/mix the IM origin for this turn.
+      if (source?.kind === SOURCE_KIND && source.role === 'task-handoff') {
+        // intentionally ignored
       } else {
-        // A message from the Web UI, a peer Bot or a scheduled task: this turn is not an
-        // IM chat's to answer, even when an earlier turn of this Session was.
-        dropOrigin(session.id)
+        const imOrigin = source?.imOrigin
+        const rpcId = source?.rpcId
+        // A late member result, part-switch handoff, or task report continues the work the chat asked for;
+        // any other first message starts a fresh turn, which clears the previous turn's origin.
+        const isTaskReport = source?.kind === SOURCE_KIND && source.role === 'task-report' && typeof source.taskId === 'string'
+        if (pendingReset.delete(session.id) && !(typeof imOrigin === 'string' || isTaskReport || (source?.kind === SOURCE_KIND && source.role === 'post'))) resetOrigin(session.id)
+        if (typeof imOrigin === 'string') {
+          const resumed = resumedOrigins.get(imOrigin)
+          resumedOrigins.delete(imOrigin)
+          if (resumed === undefined) dropOrigin(session.id)
+          else claimOrigin(session.id, resumed.connId, resumed.chatKey, resumed.senderId, resumed.binding)
+        } else if (isTaskReport) {
+          // Resolve the persisted task.imOrigin directly so deferred redelivery (turns.js)
+          // and post-restart resends (inflight.json) never lose the IM chat claim.
+          const saved = rt.taskById?.(source.taskId)?.task?.imOrigin
+          if (originFromSaved(saved) === undefined) dropOrigin(session.id)
+          else claimOrigin(session.id, saved.connId, saved.chatKey, saved.senderId, saved.binding)
+        } else if (typeof rpcId === 'string' && rpcId.startsWith('im:')) {
+          if (Number.isInteger(event.seq)) imVia.set(session.id, { ...imVia.get(session.id), [event.seq]: rpcId.split(':')[1] })
+          // The chat this message came from is the one its turn answers. A message this
+          // process never registered — after a restart, or a redelivery — leaves no origin.
+          const asked = requests.get(rpcId)
+          requests.delete(rpcId)
+          if (asked === undefined) dropOrigin(session.id)
+          else claimOrigin(session.id, asked.connId, asked.chatKey, asked.senderId, asked.binding)
+        } else if (source?.kind === REPLY_KIND) {
+          // Web and phone answers carry no registered IM request.
+          dropOrigin(session.id)
+        } else if (source?.kind === SOURCE_KIND && source.role === 'post') {
+          // A member's late result relayed into the group's own Session. The group's work
+          // is still the answer to the chat that asked, wherever the member runs.
+        } else {
+          // A message from the Web UI, a peer Bot or a scheduled task: this turn is not an
+          // IM chat's to answer, even when an earlier turn of this Session was.
+          dropOrigin(session.id)
+        }
       }
     }
     if (event.type === 'turn/end') {
@@ -1484,8 +1747,9 @@ export function install(rt) {
       }
     }
     const botId = rt.chatOwners.get(session.id)
-    if (botId === undefined) {
-      // A group's own chat has no Bot of its own; its lines go out from onRoomLine.
+    if (botId === undefined || rt.taskOwners?.has(session.id)) {
+      // A group's own chat has no Bot of its own (onRoomLine handles it), and a background
+      // task reports back through its foreground chat rather than streaming raw lines to IM.
       imVia.delete(session.id)
       return
     }
@@ -1494,23 +1758,25 @@ export function install(rt) {
     for (const item of rt.displayItems(session.id, [event])) {
       if (item.kind !== 'bot' && item.kind !== 'view') continue
       const body = item.kind === 'bot' ? item.text : viewCardText({ title: item.title, view: item.view }) || (item.title ?? '')
-      sendTo(origin.conn, origin.chatKey, { key: origin.chatKey, kind: origin.chat.kind, title: origin.chat.title }, body)
+      sendReply(origin, body, { sessionId: session.id, botId })
     }
   })
 
   rt.onRoomLine((room, line) => {
     if (line.botId === undefined || line.kind !== undefined || typeof line.text !== 'string' || line.text.trim() === '') return
-    const origin = originOf(room.sessionId ?? room.id)
+    const roomSessionId = room.sessionId ?? room.id
+    const origin = originOf(roomSessionId)
     if (origin === undefined) return
-    const body = `**${line.who}**: ${line.text}`
-    sendTo(origin.conn, origin.chatKey, { key: origin.chatKey, kind: origin.chat.kind, title: origin.chat.title }, body)
+    sendReply(origin, line.text, { sessionId: roomSessionId, botId: line.botId, prefix: `**${line.who}**: ` })
   })
 
   rt.onApproval((kind, data) => {
     if (kind === 'open') {
       void (async () => {
         const sessionId = data.roomId !== undefined ? (rt.roomOf(data.roomId)?.sessionId ?? data.roomId) : chatOfBot(data.botId)
-        const origin = originOf(sessionId)
+        const origin = data.taskId !== undefined
+          ? originFromSaved(rt.taskById?.(data.taskId)?.task?.imOrigin)
+          : originOf(sessionId)
         if (origin === undefined) return
         const bot = rt.botOf(data.botId)
         const buttons = imPlatform(origin.conn.platform)?.buttons === true ? cardButtons.approval(data.id) : undefined
@@ -1555,5 +1821,5 @@ export function install(rt) {
     return [id, { state: status.state, ...(status.error !== undefined ? { error: status.error } : {}), at: status.at }]
   }))
 
-  Object.assign(rt, { imView, imStatusView, imViaView, imEndpoint, holdImOrigin, peekImOrigin, dropImOrigin })
+  Object.assign(rt, { imView, imStatusView, imViaView, imEndpoint, holdImOrigin, peekImOrigin, dropImOrigin, captureImOrigin, clearImOrigin })
 }

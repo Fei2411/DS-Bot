@@ -1,6 +1,8 @@
 // Korean (ko) localization for DS Bot client and DSH settings namespaces.
 
 export const KO = {
+  'Background work': '백그라운드 작업',
+  'Background commands after (seconds)': '명령 백그라운드 전환(초)',
   'A new reply is waiting': "새 답변이 도착했습니다",
   'Opening…': '여는 중…',
   'Still opening…': '아직 여는 중…',
@@ -634,6 +636,9 @@ export const KO = {
   'Model for {name}': '{name}의 모델',
   'No models are set up in DeepSeek Harness yet.': 'DeepSeek Harness에 아직 설정된 모델이 없습니다.',
   'Models and providers…': '모델 및 제공자…',
+  'Search models': '모델 검색',
+  'Search models…': '모델 검색…',
+  'No matching models.': '일치하는 모델이 없습니다.',
   Models: '모델',
   'Harness default': 'Harness 기본값',
   Saving: '저장 중',
