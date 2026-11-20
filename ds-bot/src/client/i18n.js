@@ -1716,6 +1716,7 @@ const ZH = {
   "A running session keeps using model calls in the background.": "运行中的会话会在后台继续消耗模型调用。",
   "This session is still running. Wait for it to finish, or stop it.": "这个会话还在运行。等它结束，或先停止它。",
   // Appearance (appearance-page.js)
+  "Safe appearance: the background and your stylesheet are off in this window. Turn them back on in Settings → Appearance.": "安全外观：这个窗口关掉了背景和自定义样式表。到 设置 → 外观 可以重新打开。",
   "Here is the plan.": "计划是这样的。",
   "Looks good, go ahead.": "可以，开始吧。",
   "On it.": "马上做。",
@@ -1753,8 +1754,6 @@ const ZH = {
   "Shape and density": "形状和密度",
   "Corners": "圆角",
   "Density": "密度",
-  "Window material": "窗口材质",
-  "The system material behind the sidebar. Off while a background is set.": "侧栏后面的系统材质。设了背景时不用。",
   "Advanced": "高级",
   "Loaded last, after every other style. Hold Shift while the window opens to start without it.": "最后加载，在所有样式之后。打开窗口时按住 Shift 可以不加载它。",
   "Restore default appearance": "恢复默认外观",

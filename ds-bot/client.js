@@ -1973,6 +1973,7 @@ var JA = {
   "A running session keeps using model calls in the background.": "実行中のセッションはバックグラウンドでモデル呼び出しを続けます。",
   "This session is still running. Wait for it to finish, or stop it.": "このセッションはまだ実行中です。終了を待つか、停止してください。",
   // Appearance (appearance-page.js)
+  "Safe appearance: the background and your stylesheet are off in this window. Turn them back on in Settings → Appearance.": "セーフ表示：このウインドウでは背景と自分のスタイルシートがオフです。設定 → 外観 でもう一度オンにできます。",
   "Here is the plan.": "計画はこうです。",
   "Looks good, go ahead.": "いいですね、進めてください。",
   "On it.": "すぐ取りかかります。",
@@ -2010,8 +2011,6 @@ var JA = {
   "Shape and density": "形と密度",
   "Corners": "角の丸み",
   "Density": "密度",
-  "Window material": "ウインドウの素材",
-  "The system material behind the sidebar. Off while a background is set.": "サイドバーの後ろのシステム素材。背景を設定している間は使いません。",
   "Advanced": "詳細",
   "Loaded last, after every other style. Hold Shift while the window opens to start without it.": "ほかのすべてのスタイルの後に読み込まれます。ウインドウを開くときに Shift を押していると読み込みません。",
   "Restore default appearance": "外観を既定に戻す",
@@ -4650,6 +4649,7 @@ var KO = {
   "A running session keeps using model calls in the background.": "실행 중인 세션은 백그라운드에서 모델 호출을 계속 사용합니다.",
   "This session is still running. Wait for it to finish, or stop it.": "이 세션은 아직 실행 중입니다. 끝날 때까지 기다리거나 중지하세요.",
   // Appearance (appearance-page.js)
+  "Safe appearance: the background and your stylesheet are off in this window. Turn them back on in Settings → Appearance.": "안전 모양: 이 창에서는 배경과 내 스타일시트가 꺼져 있습니다. 설정 → 모양에서 다시 켤 수 있습니다.",
   "Here is the plan.": "계획은 이렇습니다.",
   "Looks good, go ahead.": "좋아요, 진행하세요.",
   "On it.": "바로 할게요.",
@@ -4687,8 +4687,6 @@ var KO = {
   "Shape and density": "모양과 밀도",
   "Corners": "모서리",
   "Density": "밀도",
-  "Window material": "창 재질",
-  "The system material behind the sidebar. Off while a background is set.": "사이드바 뒤의 시스템 재질. 배경을 설정하면 쓰지 않습니다.",
   "Advanced": "고급",
   "Loaded last, after every other style. Hold Shift while the window opens to start without it.": "다른 모든 스타일 다음에 마지막으로 불러옵니다. 창을 열 때 Shift를 누르고 있으면 불러오지 않습니다.",
   "Restore default appearance": "기본 모양으로 되돌리기",
@@ -7328,6 +7326,7 @@ var ES = {
   "A running session keeps using model calls in the background.": "Una sesión en ejecución sigue usando llamadas al modelo en segundo plano.",
   "This session is still running. Wait for it to finish, or stop it.": "Esta sesión sigue en ejecución. Espera a que termine o detenla.",
   // Appearance (appearance-page.js)
+  "Safe appearance: the background and your stylesheet are off in this window. Turn them back on in Settings → Appearance.": "Apariencia segura: el fondo y tu hoja de estilos están desactivados en esta ventana. Vuelve a activarlos en Ajustes → Apariencia.",
   "Here is the plan.": "Este es el plan.",
   "Looks good, go ahead.": "Bien, adelante.",
   "On it.": "Me pongo con ello.",
@@ -7365,8 +7364,6 @@ var ES = {
   "Shape and density": "Forma y densidad",
   "Corners": "Esquinas",
   "Density": "Densidad",
-  "Window material": "Material de la ventana",
-  "The system material behind the sidebar. Off while a background is set.": "El material del sistema detrás de la barra lateral. Desactivado mientras haya un fondo.",
   "Advanced": "Avanzado",
   "Loaded last, after every other style. Hold Shift while the window opens to start without it.": "Se carga al final, después de todos los demás estilos. Mantén Mayús al abrir la ventana para empezar sin ella.",
   "Restore default appearance": "Restaurar la apariencia predeterminada",
@@ -9962,6 +9959,7 @@ var FR = {
   "A running session keeps using model calls in the background.": "Une session en cours continue d’utiliser des appels au modèle en arrière-plan.",
   "This session is still running. Wait for it to finish, or stop it.": "Cette session est toujours en cours. Attendez la fin ou arrêtez-la.",
   // Appearance (appearance-page.js)
+  "Safe appearance: the background and your stylesheet are off in this window. Turn them back on in Settings → Appearance.": "Apparence sûre : le fond et votre feuille de style sont désactivés dans cette fenêtre. Réactivez-les dans Paramètres → Apparence.",
   "Here is the plan.": "Voici le plan.",
   "Looks good, go ahead.": "Ça me va, allez-y.",
   "On it.": "Je m'y mets.",
@@ -9999,8 +9997,6 @@ var FR = {
   "Shape and density": "Forme et densité",
   "Corners": "Coins",
   "Density": "Densité",
-  "Window material": "Matière de la fenêtre",
-  "The system material behind the sidebar. Off while a background is set.": "La matière du système derrière la barre latérale. Désactivée tant qu'un fond est défini.",
   "Advanced": "Avancé",
   "Loaded last, after every other style. Hold Shift while the window opens to start without it.": "Chargée en dernier, après tous les autres styles. Maintenez Maj à l'ouverture de la fenêtre pour démarrer sans elle.",
   "Restore default appearance": "Rétablir l'apparence par défaut",
@@ -12639,6 +12635,7 @@ var DE = {
   "A running session keeps using model calls in the background.": "Eine laufende Sitzung verbraucht weiterhin Modellaufrufe im Hintergrund.",
   "This session is still running. Wait for it to finish, or stop it.": "Diese Sitzung läuft noch. Warte, bis sie endet, oder stoppe sie.",
   // Appearance (appearance-page.js)
+  "Safe appearance: the background and your stylesheet are off in this window. Turn them back on in Settings → Appearance.": "Sicheres Erscheinungsbild: Hintergrund und eigenes Stylesheet sind in diesem Fenster aus. In Einstellungen → Darstellung wieder einschalten.",
   "Here is the plan.": "Das ist der Plan.",
   "Looks good, go ahead.": "Passt, leg los.",
   "On it.": "Mache ich.",
@@ -12676,8 +12673,6 @@ var DE = {
   "Shape and density": "Form und Dichte",
   "Corners": "Ecken",
   "Density": "Dichte",
-  "Window material": "Fenstermaterial",
-  "The system material behind the sidebar. Off while a background is set.": "Das Systemmaterial hinter der Seitenleiste. Aus, solange ein Hintergrund gesetzt ist.",
   "Advanced": "Erweitert",
   "Loaded last, after every other style. Hold Shift while the window opens to start without it.": "Wird zuletzt geladen, nach allen anderen Stilen. Halte beim Öffnen des Fensters die Umschalttaste gedrückt, um ohne es zu starten.",
   "Restore default appearance": "Standard-Erscheinungsbild wiederherstellen",
@@ -15129,6 +15124,7 @@ var ZH = {
   "A running session keeps using model calls in the background.": "运行中的会话会在后台继续消耗模型调用。",
   "This session is still running. Wait for it to finish, or stop it.": "这个会话还在运行。等它结束，或先停止它。",
   // Appearance (appearance-page.js)
+  "Safe appearance: the background and your stylesheet are off in this window. Turn them back on in Settings → Appearance.": "安全外观：这个窗口关掉了背景和自定义样式表。到 设置 → 外观 可以重新打开。",
   "Here is the plan.": "计划是这样的。",
   "Looks good, go ahead.": "可以，开始吧。",
   "On it.": "马上做。",
@@ -15166,8 +15162,6 @@ var ZH = {
   "Shape and density": "形状和密度",
   "Corners": "圆角",
   "Density": "密度",
-  "Window material": "窗口材质",
-  "The system material behind the sidebar. Off while a background is set.": "侧栏后面的系统材质。设了背景时不用。",
   "Advanced": "高级",
   "Loaded last, after every other style. Hold Shift while the window opens to start without it.": "最后加载，在所有样式之后。打开窗口时按住 Shift 可以不加载它。",
   "Restore default appearance": "恢复默认外观",
@@ -16403,9 +16397,13 @@ function cleanBackground(value) {
   }
 }
 var fontText = (value, what) => {
-  if (typeof value !== "string" || value.length > MAX_FONT || !FONT_TEXT.test(value)) refuse(`${what} is a list of font names, separated by commas`);
+  if (typeof value !== "string" || value.length > MAX_FONT || !FONT_TEXT.test(value) || /\/\*|\*\//.test(value)) refuse(`${what} is a list of font names, separated by commas`);
   return value.trim();
 };
+var GENERIC = /* @__PURE__ */ new Set(["serif", "sans-serif", "monospace", "cursive", "fantasy", "system-ui", "ui-serif", "ui-sans-serif", "ui-monospace", "ui-rounded", "math", "emoji", "fangsong"]);
+function fontStack(value) {
+  return String(value ?? "").split(",").map((name) => name.trim().replace(/^["']+|["']+$/g, "").trim()).filter(Boolean).map((name) => GENERIC.has(name.toLowerCase()) ? name.toLowerCase() : `"${name.replace(/[\\"]/g, "\\$&")}"`).join(",");
+}
 var FIELDS = {
   radius: (value) => {
     if (!whole(value, RADIUS)) refuse(`Corner size is a whole percent from ${RADIUS.min} to ${RADIUS.max}`);
@@ -16470,10 +16468,10 @@ function backgroundImages(...backgrounds) {
   return backgrounds.flatMap((background) => background?.kind === "image" && IMAGE_ID.test(background.image) ? [background.image] : []);
 }
 var THEME_FILE = "ds-bot-theme";
+var NOT_CARRIED = ["mode", "material", "css"];
 function themeFile(theme, appearance = {}, image) {
   const carried = readAppearance(appearance);
-  delete carried.mode;
-  delete carried.material;
+  for (const field of NOT_CARRIED) delete carried[field];
   return { format: THEME_FILE, version: 1, theme: cleanTheme(theme), appearance: carried, ...image ? { image } : {} };
 }
 function readThemeFile(text) {
@@ -16486,6 +16484,7 @@ function readThemeFile(text) {
   if (parsed?.format !== THEME_FILE || parsed.version !== 1) refuse("This file is not a DS Bot theme");
   const theme = cleanTheme(parsed.theme);
   const appearance = readAppearance(parsed.appearance);
+  for (const field of NOT_CARRIED) delete appearance[field];
   const image = typeof parsed.image === "string" && /^data:image\/(png|jpeg|webp|gif);base64,/i.test(parsed.image) ? parsed.image : void 0;
   if (appearance.background?.kind === "image" && image === void 0) delete appearance.background;
   return { theme, appearance, ...image ? { image } : {} };
@@ -16674,14 +16673,13 @@ function appearanceCss({ appearance, theme, background, pictureUrl: pictureUrl2 
   const rules = [];
   if (look.radius !== void 0) vars.push(`--bt-r:${look.radius / 100}`);
   if (fonts) {
-    if (look.uiFont) rules.push(`html body{font-family:${look.uiFont},${SYSTEM_UI}}`);
-    if (look.codeFont) rules.push(`html body :is(code,pre,kbd,samp){font-family:${look.codeFont},${SYSTEM_CODE}}`);
+    if (look.uiFont) rules.push(`html body{font-family:${fontStack(look.uiFont)},${SYSTEM_UI}}`);
+    if (look.codeFont) rules.push(`html body :is(code,pre,kbd,samp){font-family:${fontStack(look.codeFont)},${SYSTEM_CODE}}`);
     if (look.fontSize) vars.push(`--bt-fs:${look.fontSize / FONT_SIZE.initial}`);
     if (look.lineHeight) rules.push(`html body .md_markdown{line-height:${look.lineHeight}}`);
   }
   if (look.density !== void 0) rules.push(scoped(DENSITY[look.density], "html body"));
-  const shown = safe2 ? void 0 : readAppearance({ background }).background ?? look.background;
-  const paint = shown === void 0 ? void 0 : backgroundPaint(shown, pictureUrl2);
+  const { shown, paint } = painted({ appearance, background, pictureUrl: pictureUrl2, safe: safe2 });
   if (paint !== void 0) {
     const alpha = (shown.surface ?? SURFACE.initial) / 100;
     rules.push(`html body::before{content:"";position:fixed;inset:${shown.blur ? `-${shown.blur * 2}px` : "0"};z-index:-1;pointer-events:none;background:${paint};${shown.blur ? `filter:blur(${shown.blur}px);` : ""}}`);
@@ -16704,27 +16702,34 @@ function userCss(appearance, safe2 = false) {
 /* user stylesheet */
 ${css}`;
 }
-var backgroundShown = ({ appearance, background, safe: safe2 }) => !safe2 && (readAppearance({ background }).background ?? readAppearance(appearance).background) !== void 0;
+function painted({ appearance, background, pictureUrl: pictureUrl2 = () => void 0, safe: safe2 = false }) {
+  const shown = safe2 ? void 0 : readAppearance({ background }).background ?? readAppearance(appearance).background;
+  return { shown, paint: shown === void 0 ? void 0 : backgroundPaint(shown, pictureUrl2) };
+}
+var backgroundShown = (options) => painted(options).paint !== void 0;
 var pictures = /* @__PURE__ */ new Map();
+var RETRY_MS = 6e4;
 function pictureUrl(id, call2, loaded) {
   const known = pictures.get(id);
   if (typeof known === "string") return known;
-  if (known === void 0) {
+  if (known === void 0 || typeof known === "number" && Date.now() - known > RETRY_MS) {
     pictures.set(id, null);
+    const failed = () => pictures.set(id, Date.now());
     void call2("background-picture", { id }).then(async (picture) => {
       if (picture?.image === void 0) {
-        pictures.delete(id);
+        failed();
         return;
       }
       const blob = await (await fetch(picture.image)).blob();
       pictures.set(id, URL.createObjectURL(blob));
       loaded();
-    }).catch(() => pictures.delete(id));
+    }).catch(failed);
   }
   return void 0;
 }
 var SAFE_KEY = "ds-bot.safe-appearance";
 var SAFE_WINDOW_MS = 3e3;
+var SAFE_HOLD_MS = 600;
 var safe = false;
 try {
   safe = sessionStorage.getItem(SAFE_KEY) === "1";
@@ -16744,17 +16749,14 @@ function leaveSafeAppearance() {
   }
   for (const listener of safeListeners) listener(false);
 }
-function watchSafeAppearance(target = globalThis.window, now = () => Date.now()) {
+function watchSafeAppearance(target = globalThis.window, now = () => Date.now(), wait = setTimeout, unwait = clearTimeout) {
   if (target === void 0 || safe) return () => {
   };
   const until = now() + SAFE_WINDOW_MS;
-  const onEvent = (event) => {
-    if (now() > until) {
-      stop();
-      return;
-    }
-    const shift = event.type === "keydown" ? event.key === "Shift" || /^Shift(Left|Right)$/.test(event.code ?? "") : event.shiftKey === true;
-    if (!shift) return;
+  let hold = 0;
+  const isShift = (event) => event.key === "Shift" || /^Shift(Left|Right)$/.test(event.code ?? "");
+  const otherModifier = (event) => event.metaKey === true || event.ctrlKey === true || event.altKey === true;
+  const turnOn = () => {
     safe = true;
     try {
       sessionStorage.setItem(SAFE_KEY, "1");
@@ -16763,14 +16765,34 @@ function watchSafeAppearance(target = globalThis.window, now = () => Date.now())
     stop();
     for (const listener of safeListeners) listener(true);
   };
-  const EVENTS = ["keydown", "pointermove", "pointerdown"];
+  const onEvent = (event) => {
+    if (event.type === "keyup") {
+      if (isShift(event)) {
+        unwait(hold);
+        hold = 0;
+      }
+      return;
+    }
+    if (event.type === "keydown") {
+      unwait(hold);
+      hold = 0;
+      if (!isShift(event) || otherModifier(event) || now() > until) return;
+      hold = wait(turnOn, SAFE_HOLD_MS);
+      return;
+    }
+    if (now() <= until && event.shiftKey === true && !otherModifier(event)) turnOn();
+  };
+  const EVENTS = ["keydown", "keyup", "pointermove", "pointerdown"];
   const stop = () => {
     for (const type of EVENTS) target.removeEventListener(type, onEvent, true);
   };
   for (const type of EVENTS) target.addEventListener(type, onEvent, true);
-  const timer = setTimeout(stop, SAFE_WINDOW_MS);
+  const timer = wait(() => {
+    if (hold === 0) stop();
+  }, SAFE_WINDOW_MS + SAFE_HOLD_MS);
   return () => {
-    clearTimeout(timer);
+    unwait(timer);
+    unwait(hold);
     stop();
   };
 }
@@ -27818,7 +27840,7 @@ function ThemeSection({ prefs, actions, run: run2, Section: Section2, Row: Row4,
     const read = readThemeFile(await readFile(file, "text"));
     const id = newThemeId();
     const change = { themes: { [id]: read.theme }, theme: id, appearance: read.appearance };
-    if (read.image !== void 0) {
+    if (read.image !== void 0 && read.appearance.background?.kind === "image") {
       const saved = await actions.addBackground(read.image);
       change.appearance = { ...read.appearance, background: { ...read.appearance.background, image: saved.id } };
     }
@@ -27896,13 +27918,17 @@ function ColorsSection({ prefs, actions, run: run2, Section: Section2, Choice: C
   (0, import_react27.useEffect)(() => {
     target.current = null;
   }, [current2]);
+  const draft = (0, import_react27.useRef)(null);
   const save = (key, color) => {
-    const latest = themesOf(prefs)[current2] ?? theme;
-    const next = { label: latest.label, light: { ...latest.light }, dark: { ...latest.dark } };
+    const id = theme.own ? current2 : target.current ??= newThemeId();
+    const base = draft.current?.id === id ? draft.current.theme : themesOf(prefs)[id] ?? theme;
+    const next = { label: theme.own ? base.label : t("{name} (mine)", { name: t(theme.label) }), light: { ...base.light }, dark: { ...base.dark } };
     next[mode][key] = color;
-    if (theme.own) return run2(actions.setPrefs({ themes: { [current2]: next } }));
-    target.current ??= newThemeId();
-    return run2(actions.setPrefs({ themes: { [target.current]: { ...next, label: t("{name} (mine)", { name: t(theme.label) }) } }, theme: target.current }));
+    draft.current = { id, theme: next };
+    const settle = () => {
+      if (draft.current?.theme === next) draft.current = null;
+    };
+    return Promise.resolve(run2(actions.setPrefs({ themes: { [id]: next }, ...theme.own ? {} : { theme: id } }))).finally(settle);
   };
   const colors = theme[mode];
   return (0, import_react27.createElement)(
@@ -28060,12 +28086,8 @@ function AppearancePage({ roster, actions, run: run2, Section: Section2, Row: Ro
     (0, import_react27.createElement)(
       Section2,
       { key: "background", title: t("Background") },
-      (0, import_react27.createElement)(BackgroundEditor, { value: appearance.background, save: (background) => set({ background }), actions, run: run2, Row: Row4, Choice: Choice3 }),
-      ownWindow ? (0, import_react27.createElement)(
-        Row4,
-        { label: t("Window material"), hint: t("The system material behind the sidebar. Off while a background is set.") },
-        (0, import_react27.createElement)(Switch2, { label: t("Window material"), on: appearance.material !== false, onChange: (material) => set({ material }) })
-      ) : null
+      (0, import_react27.createElement)(BackgroundEditor, { value: appearance.background, save: (background) => set({ background }), actions, run: run2, Row: Row4, Choice: Choice3 })
+      // The window material switch comes with the desktop window's own frame (docs/plans/2026-11-21-own-frontend.md).
     ),
     (0, import_react27.createElement)(
       Section2,
@@ -50431,7 +50453,7 @@ function apply(ctx) {
       if (look.textContent !== lookCss) look.textContent = lookCss;
       const mine = userCss(prefs.appearance, safe2);
       if (userSheet.textContent !== mine) userSheet.textContent = mine;
-      const through = backgroundShown({ appearance: prefs.appearance, background: chat?.background, safe: safe2 });
+      const through = backgroundShown({ appearance: prefs.appearance, background: chat?.background, pictureUrl: (picture) => pictureUrl(picture, call, render), safe: safe2 });
       ownBackground = through;
       const accent = isHex(prefs.accent) ? prefs.accent : void 0;
       const motion = prefs.motion === "quiet" || prefs.motion === "lively" ? prefs.motion : "normal";
@@ -50464,7 +50486,10 @@ function apply(ctx) {
     const offRoster = roster.subscribe(render);
     const offRegistry = registry.subscribe(render);
     const offShown = ctx.sessions.list.subscribe(render);
-    const offSafe = onSafeAppearance(render);
+    const offSafe = onSafeAppearance((on) => {
+      render();
+      if (on) actions.notice?.(t("Safe appearance: the background and your stylesheet are off in this window. Turn them back on in Settings → Appearance."));
+    });
     const stopSafe = watchSafeAppearance();
     return () => {
       offRoster();

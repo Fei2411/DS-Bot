@@ -201,7 +201,24 @@ export function install(rt) {
   // Updates change the dsh profile, not the team, so a reading host may run them too.
   const READS = new Set(['secret-store', 'secret-unlock', 'state', 'models', 'efforts', 'providers', 'provider-models', 'earlier', 'chat', 'bot-task-read', 'run-stats', 'room-progress', 'group-rows', 'group-relay-replies', 'exchange', 'exchange-text', 'file-text', 'usage', 'schedules', 'memory-view', 'browser-wait', 'browser-result', 'diagnostics', 'diagnostics-log', 'diagnostics-clear', 'update-check', 'update-install', 'dsh-update-install', 'repo-stars', 'approval-answer', 'thinking', 'avatar-library', 'computer-system-status', 'computer-shot', 'local-agents', 'local-agent-models', 'browser-frame', 'hello', 'notices', 'avatar', 'room-chat', 'usage-summary', 'image', 'markdown-image', 'file-download', 'changes-check', 'deepseek-services', 'deepseek-synthesize', 'background-picture'])
 
+  // A change is all or nothing: one field the host refuses leaves every other field of it
+  // unsaved too, so a refused change never shows up later with the next save.
   async function setPrefs(body) {
+    const before = structuredClone(state.prefs)
+    try {
+      await applyPrefs(body)
+    } catch (error) {
+      for (const key of Object.keys(state.prefs)) delete state.prefs[key]
+      Object.assign(state.prefs, before)
+      throw error
+    }
+    // The appearance and the user themes (appearance.js); a picture a change stops using is removed later.
+    await rt.save()
+    if (body.appearance !== undefined || body.themes !== undefined) void rt.backgroundSweep()
+    if (body.defaultBotModel !== undefined) await rt.syncRoomSessions?.()
+  }
+
+  async function applyPrefs(body) {
     if (body.theme !== undefined) {
       if (typeof body.theme !== 'string' || !/^[a-z][\w-]{0,31}$/.test(body.theme)) throw invalid('Unknown theme')
       state.prefs.theme = body.theme
@@ -268,11 +285,7 @@ export function install(rt) {
       if (sizes.length === 0) delete state.prefs.memoryLimits
       else state.prefs.memoryLimits = { ...state.prefs.memoryLimits, ...Object.fromEntries(sizes) }
     }
-    // The appearance and the user themes (appearance.js); a picture a change stops using is removed later.
-    const appearanceChanged = rt.appearancePrefs(body)
-    await rt.save()
-    if (appearanceChanged) void rt.backgroundSweep()
-    if (body.defaultBotModel !== undefined) await rt.syncRoomSessions?.()
+    rt.appearancePrefs(body)
   }
 
   const handle = async (endpoint, payload, signal) => {

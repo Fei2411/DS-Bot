@@ -5,7 +5,7 @@
 // more are removed after a while; a picture saved a moment ago stays until the change that
 // names it has had time to arrive.
 import { createHash, randomUUID } from 'node:crypto'
-import { mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdir, readdir, readFile, rm, stat, utimes, writeFile } from 'node:fs/promises'
 import { basename, join } from 'node:path'
 import { IMAGE_ID, AppearanceError, MAX_BACKGROUND_BYTES, MAX_USER_THEMES, USER_THEME, cleanBackground, cleanTheme, backgroundImages, patchAppearance } from '../shared/appearance.js'
 import { replaceFile } from './files.js'
@@ -58,7 +58,11 @@ export function install(rt) {
     if (mime === undefined) throw invalid('Pick a PNG, JPEG, WebP or GIF picture')
     const id = createHash('sha256').update(bytes).digest('hex')
     const path = join(root, `${id}.${EXTENSIONS[mime]}`)
-    if (!await stat(path).then(() => true, () => false)) {
+    if (await stat(path).then(() => true, () => false)) {
+      // Picked again: it counts as new, so the sweep keeps it until the change naming it arrives.
+      const now = new Date()
+      await utimes(path, now, now)
+    } else {
       await mkdir(root, { recursive: true })
       const temp = `${path}.${process.pid}.${randomUUID()}.tmp`
       await writeFile(temp, bytes)

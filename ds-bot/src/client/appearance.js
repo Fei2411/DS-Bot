@@ -6,7 +6,7 @@
 // color at the chosen opacity. While it is set the panes are clear (`--bt-skin-*`, the same
 // hooks a third-party skin uses), so the picture shows through them once, not once per pane. A chat with a background of its own puts that
 // one in the layer while it is open.
-import { FONT_SIZE, readAppearance, SURFACE } from '../shared/appearance.js'
+import { FONT_SIZE, fontStack, readAppearance, SURFACE } from '../shared/appearance.js'
 import { surfaceVars, veilColors, washColor } from './themes.js'
 
 const DENSITY = {
@@ -65,14 +65,13 @@ export function appearanceCss({ appearance, theme, background, pictureUrl = () =
   if (look.radius !== undefined) vars.push(`--bt-r:${look.radius / 100}`)
   if (fonts) {
     // A font the device does not have falls through to the system font.
-    if (look.uiFont) rules.push(`html body{font-family:${look.uiFont},${SYSTEM_UI}}`)
-    if (look.codeFont) rules.push(`html body :is(code,pre,kbd,samp){font-family:${look.codeFont},${SYSTEM_CODE}}`)
+    if (look.uiFont) rules.push(`html body{font-family:${fontStack(look.uiFont)},${SYSTEM_UI}}`)
+    if (look.codeFont) rules.push(`html body :is(code,pre,kbd,samp){font-family:${fontStack(look.codeFont)},${SYSTEM_CODE}}`)
     if (look.fontSize) vars.push(`--bt-fs:${look.fontSize / FONT_SIZE.initial}`)
     if (look.lineHeight) rules.push(`html body .md_markdown{line-height:${look.lineHeight}}`)
   }
   if (look.density !== undefined) rules.push(scoped(DENSITY[look.density], 'html body'))
-  const shown = safe ? undefined : (readAppearance({ background }).background ?? look.background)
-  const paint = shown === undefined ? undefined : backgroundPaint(shown, pictureUrl)
+  const { shown, paint } = painted({ appearance, background, pictureUrl, safe })
   if (paint !== undefined) {
     const alpha = (shown.surface ?? SURFACE.initial) / 100
     rules.push(`html body::before{content:"";position:fixed;inset:${shown.blur ? `-${shown.blur * 2}px` : '0'};z-index:-1;pointer-events:none;background:${paint};${shown.blur ? `filter:blur(${shown.blur}px);` : ''}}`)
@@ -96,11 +95,20 @@ export function userCss(appearance, safe = false) {
   return safe || !css ? '' : `\n/* user stylesheet */\n${css}`
 }
 
-/** Whether a background is painted, so the surfaces should let it through. */
-export const backgroundShown = ({ appearance, background, safe }) => !safe && (readAppearance({ background }).background ?? readAppearance(appearance).background) !== undefined
+// The background in effect and its paint. A picture still loading, missing or broken has no
+// paint, and then nothing lets the page through: the panes keep their solid colors.
+function painted({ appearance, background, pictureUrl = () => undefined, safe = false }) {
+  const shown = safe ? undefined : (readAppearance({ background }).background ?? readAppearance(appearance).background)
+  return { shown, paint: shown === undefined ? undefined : backgroundPaint(shown, pictureUrl) }
+}
 
-// Pictures, loaded once per id and kept as object URLs: the id is the hash of the bytes.
+/** Whether a background is painted now, so the panes should let it through. */
+export const backgroundShown = options => painted(options).paint !== undefined
+
+// Pictures, loaded once per id and kept as object URLs: the id is the hash of the bytes. A
+// picture that could not be read is asked for again only after a while, not on every redraw.
 const pictures = new Map()
+const RETRY_MS = 60_000
 /**
  * @param {string} id
  * @param {(endpoint: string, payload: object) => Promise<any>} call - the plugin's `api/bot` call
@@ -110,14 +118,15 @@ const pictures = new Map()
 export function pictureUrl(id, call, loaded) {
   const known = pictures.get(id)
   if (typeof known === 'string') return known
-  if (known === undefined) {
+  if (known === undefined || (typeof known === 'number' && Date.now() - known > RETRY_MS)) {
     pictures.set(id, null)
+    const failed = () => pictures.set(id, Date.now())
     void call('background-picture', { id }).then(async (picture) => {
-      if (picture?.image === undefined) { pictures.delete(id); return }
+      if (picture?.image === undefined) { failed(); return }
       const blob = await (await fetch(picture.image)).blob()
       pictures.set(id, URL.createObjectURL(blob))
       loaded()
-    }).catch(() => pictures.delete(id))
+    }).catch(failed)
   }
   return undefined
 }
@@ -126,6 +135,7 @@ export function pictureUrl(id, call, loaded) {
 // closes, through reloads, and never changes the saved settings.
 const SAFE_KEY = 'ds-bot.safe-appearance'
 const SAFE_WINDOW_MS = 3000
+const SAFE_HOLD_MS = 600
 let safe = false
 try { safe = sessionStorage.getItem(SAFE_KEY) === '1' } catch { /* storage unavailable */ }
 const safeListeners = new Set()
@@ -140,29 +150,42 @@ export function leaveSafeAppearance() {
   for (const listener of safeListeners) listener(false)
 }
 /**
- * Watch for Shift in the first seconds after DS Bot's interface is up. A Shift pressed
- * then, or held while the mouse moves or clicks, counts: on macOS a held modifier does not
- * repeat its key event, so a Shift held from before the page loaded is seen only on the
- * pointer's events.
+ * Watch for Shift held on its own, pressed in the first seconds after DS Bot's interface is
+ * up. Typing (Shift with a letter), a shortcut with another modifier, or a quick tap does
+ * not count: Shift has to stay down for a moment with no other key. On macOS a held
+ * modifier does not repeat its key event, so a Shift held from before the page loaded is
+ * seen on the pointer's events instead.
  * @returns {() => void} stop watching
  */
-export function watchSafeAppearance(target = globalThis.window, now = () => Date.now()) {
+export function watchSafeAppearance(target = globalThis.window, now = () => Date.now(), wait = setTimeout, unwait = clearTimeout) {
   if (target === undefined || safe) return () => {}
   const until = now() + SAFE_WINDOW_MS
-  const onEvent = (event) => {
-    if (now() > until) { stop(); return }
-    const shift = event.type === 'keydown' ? event.key === 'Shift' || /^Shift(Left|Right)$/.test(event.code ?? '') : event.shiftKey === true
-    if (!shift) return
+  let hold = 0
+  const isShift = event => event.key === 'Shift' || /^Shift(Left|Right)$/.test(event.code ?? '')
+  const otherModifier = event => event.metaKey === true || event.ctrlKey === true || event.altKey === true
+  const turnOn = () => {
     safe = true
     try { sessionStorage.setItem(SAFE_KEY, '1') } catch { /* storage unavailable */ }
     stop()
     for (const listener of safeListeners) listener(true)
   }
-  const EVENTS = ['keydown', 'pointermove', 'pointerdown']
+  const onEvent = (event) => {
+    if (event.type === 'keyup') { if (isShift(event)) { unwait(hold); hold = 0 } return }
+    if (event.type === 'keydown') {
+      unwait(hold)
+      hold = 0
+      if (!isShift(event) || otherModifier(event) || now() > until) return
+      hold = wait(turnOn, SAFE_HOLD_MS)
+      return
+    }
+    if (now() <= until && event.shiftKey === true && !otherModifier(event)) turnOn()
+  }
+  const EVENTS = ['keydown', 'keyup', 'pointermove', 'pointerdown']
   const stop = () => { for (const type of EVENTS) target.removeEventListener(type, onEvent, true) }
   for (const type of EVENTS) target.addEventListener(type, onEvent, true)
-  const timer = setTimeout(stop, SAFE_WINDOW_MS)
-  return () => { clearTimeout(timer); stop() }
+  // A hold that started in time may finish after the window closed.
+  const timer = wait(() => { if (hold === 0) stop() }, SAFE_WINDOW_MS + SAFE_HOLD_MS)
+  return () => { unwait(timer); unwait(hold); stop() }
 }
 
 /** The change "Restore default appearance" sends: theme, accent and every appearance field back to default; user themes stay. */

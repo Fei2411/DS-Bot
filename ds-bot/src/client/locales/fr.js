@@ -1858,6 +1858,7 @@ export const FR = {
   "A running session keeps using model calls in the background.": "Une session en cours continue d’utiliser des appels au modèle en arrière-plan.",
   "This session is still running. Wait for it to finish, or stop it.": "Cette session est toujours en cours. Attendez la fin ou arrêtez-la.",
   // Appearance (appearance-page.js)
+  "Safe appearance: the background and your stylesheet are off in this window. Turn them back on in Settings → Appearance.": "Apparence sûre : le fond et votre feuille de style sont désactivés dans cette fenêtre. Réactivez-les dans Paramètres → Apparence.",
   "Here is the plan.": "Voici le plan.",
   "Looks good, go ahead.": "Ça me va, allez-y.",
   "On it.": "Je m'y mets.",
@@ -1895,8 +1896,6 @@ export const FR = {
   "Shape and density": "Forme et densité",
   "Corners": "Coins",
   "Density": "Densité",
-  "Window material": "Matière de la fenêtre",
-  "The system material behind the sidebar. Off while a background is set.": "La matière du système derrière la barre latérale. Désactivée tant qu'un fond est défini.",
   "Advanced": "Avancé",
   "Loaded last, after every other style. Hold Shift while the window opens to start without it.": "Chargée en dernier, après tous les autres styles. Maintenez Maj à l'ouverture de la fenêtre pour démarrer sans elle.",
   "Restore default appearance": "Rétablir l'apparence par défaut",

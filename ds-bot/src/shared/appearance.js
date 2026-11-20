@@ -104,8 +104,24 @@ export function cleanBackground(value) {
 }
 
 const fontText = (value, what) => {
-  if (typeof value !== 'string' || value.length > MAX_FONT || !FONT_TEXT.test(value)) refuse(`${what} is a list of font names, separated by commas`)
+  if (typeof value !== 'string' || value.length > MAX_FONT || !FONT_TEXT.test(value) || /\/\*|\*\//.test(value)) refuse(`${what} is a list of font names, separated by commas`)
   return value.trim()
+}
+
+// CSS's own family keywords, written without quotes.
+const GENERIC = new Set(['serif', 'sans-serif', 'monospace', 'cursive', 'fantasy', 'system-ui', 'ui-serif', 'ui-sans-serif', 'ui-monospace', 'ui-rounded', 'math', 'emoji', 'fangsong'])
+/**
+ * A saved font list as CSS: each family quoted on its own, so no name can end the
+ * declaration or open a comment, whatever quotes the user typed.
+ * @param {string} value
+ * @returns {string}
+ */
+export function fontStack(value) {
+  return String(value ?? '').split(',')
+    .map(name => name.trim().replace(/^["']+|["']+$/g, '').trim())
+    .filter(Boolean)
+    .map(name => (GENERIC.has(name.toLowerCase()) ? name.toLowerCase() : `"${name.replace(/[\\"]/g, '\\$&')}"`))
+    .join(',')
 }
 
 // Each field of an appearance change and how it is kept. `null` removes a field, so it reads as
@@ -199,10 +215,13 @@ export const THEME_FILE = 'ds-bot-theme'
  * @param {Record<string, unknown>} appearance - fields of the team appearance to carry along
  * @param {string} [image] - the background picture as a data URL
  */
+// A theme file never carries a stylesheet: CSS from someone else could redraw the window
+// to mislead or send what is typed to an address of theirs.
+const NOT_CARRIED = ['mode', 'material', 'css']
+
 export function themeFile(theme, appearance = {}, image) {
   const carried = readAppearance(appearance)
-  delete carried.mode
-  delete carried.material
+  for (const field of NOT_CARRIED) delete carried[field]
   return { format: THEME_FILE, version: 1, theme: cleanTheme(theme), appearance: carried, ...(image ? { image } : {}) }
 }
 
@@ -218,6 +237,7 @@ export function readThemeFile(text) {
   if (parsed?.format !== THEME_FILE || parsed.version !== 1) refuse('This file is not a DS Bot theme')
   const theme = cleanTheme(parsed.theme)
   const appearance = readAppearance(parsed.appearance)
+  for (const field of NOT_CARRIED) delete appearance[field]
   const image = typeof parsed.image === 'string' && /^data:image\/(png|jpeg|webp|gif);base64,/i.test(parsed.image) ? parsed.image : undefined
   // The picture's id is set again when it is saved on this computer.
   if (appearance.background?.kind === 'image' && image === undefined) delete appearance.background

@@ -442,7 +442,7 @@ export function apply(ctx) {
       if (look.textContent !== lookCss) look.textContent = lookCss
       const mine = userCss(prefs.appearance, safe)
       if (userSheet.textContent !== mine) userSheet.textContent = mine
-      const through = backgroundShown({ appearance: prefs.appearance, background: chat?.background, safe })
+      const through = backgroundShown({ appearance: prefs.appearance, background: chat?.background, pictureUrl: picture => pictureUrl(picture, call, render), safe })
       ownBackground = through
       const accent = isHex(prefs.accent) ? prefs.accent : undefined
       const motion = prefs.motion === 'quiet' || prefs.motion === 'lively' ? prefs.motion : 'normal'
@@ -472,7 +472,10 @@ export function apply(ctx) {
     const offRoster = roster.subscribe(render)
     const offRegistry = registry.subscribe(render)
     const offShown = ctx.sessions.list.subscribe(render)
-    const offSafe = onSafeAppearance(render)
+    const offSafe = onSafeAppearance((on) => {
+      render()
+      if (on) actions.notice?.(t('Safe appearance: the background and your stylesheet are off in this window. Turn them back on in Settings → Appearance.'))
+    })
     const stopSafe = watchSafeAppearance()
     return () => {
       offRoster()

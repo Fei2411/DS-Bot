@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtempSync, readdirSync, rmSync, utimesSync } from 'node:fs'
+import { mkdtempSync, readdirSync, rmSync, statSync, utimesSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -87,9 +87,11 @@ test('a saved appearance that another version wrote reads without the fields thi
   assert.deepEqual(readAppearance('broken'), {})
 })
 
-test('a theme file carries the theme, the appearance and its picture, and nothing of the window', () => {
-  const file = themeFile(THEME, { radius: 40, mode: 'dark', material: false, background: { kind: 'image', image: 'a'.repeat(64), dim: 30 } }, PNG)
+test('a theme file carries the theme, the appearance and its picture, but no stylesheet and nothing of the window', () => {
+  const file = themeFile(THEME, { radius: 40, mode: 'dark', material: false, css: 'body{display:none}', background: { kind: 'image', image: 'a'.repeat(64), dim: 30 } }, PNG)
   assert.deepEqual(Object.keys(file.appearance).sort(), ['background', 'radius'])
+  // A stylesheet written into a file by hand is not taken in either.
+  assert.equal(readThemeFile(JSON.stringify({ ...file, appearance: { ...file.appearance, css: 'input[value^=a]{background:url(https://x)}' } })).appearance.css, undefined)
   const read = readThemeFile(JSON.stringify(file))
   assert.equal(read.theme.label, 'Dusk')
   assert.equal(read.image, PNG)
@@ -118,6 +120,10 @@ test('the appearance and the themes of your own are saved with the team', async 
   assert.equal(refused.error.code, 'bot/invalid')
   assert.match(refused.error.message, /Density/)
   assert.equal((await call('set-prefs', { themes: { dusk: THEME } })).ok, false)
+  // A refused change saves none of its fields, not even the ones that passed.
+  const before = (await call('state', {})).value.prefs
+  assert.equal((await call('set-prefs', { theme: 'mono', appearance: { css: 'x{}' }, themes: { bad: THEME } })).ok, false)
+  assert.deepEqual((await call('state', {})).value.prefs, before)
   // The theme in use goes away: the team is on the default theme again.
   await call('set-prefs', { themes: { 'my-dusk': null } })
   const after = (await call('state', {})).value.prefs
@@ -130,7 +136,12 @@ test('a background picture is checked, kept once and read back by its id', async
   const first = (await call('background-add', { image: PNG })).value
   assert.match(first.id, /^[0-9a-f]{64}$/)
   assert.equal(first.mime, 'image/png')
+  // Picked again: the same file, counted as new so a sweep keeps it.
+  const file = join(home, 'backgrounds', `${first.id}.png`)
+  const old = new Date(Date.now() - 60 * 60_000)
+  utimesSync(file, old, old)
   assert.equal((await call('background-add', { image: PNG })).value.id, first.id)
+  assert.ok(Date.now() - statSync(file).mtimeMs < 60_000)
   // The type comes from the bytes, not from what the data URL says.
   assert.equal((await call('background-add', { image: JPEG.replace('image/jpeg', 'image/png') })).value.mime, 'image/jpeg')
   assert.equal(readdirSync(join(home, 'backgrounds')).length, 2)
@@ -168,14 +179,14 @@ test('a chat can have its own background, and pictures nothing uses are removed 
 })
 
 test('the page stylesheet follows the appearance, and safe appearance drops the background and the user stylesheet', async () => {
-  const { appearanceCss, backgroundPaint, watchSafeAppearance, safeAppearance } = await import('../src/client/appearance.js')
+  const { appearanceCss, backgroundPaint, leaveSafeAppearance, watchSafeAppearance, safeAppearance } = await import('../src/client/appearance.js')
   const { themesOf } = await import('../src/client/themes.js')
   const theme = themesOf({}).deepseek
   const appearance = { radius: 50, density: 'compact', fontSize: 16, uiFont: 'Inter', background: { kind: 'image', image: 'b'.repeat(64), blur: 8, dim: 30, surface: 80 }, css: '.x{color:red}' }
   const css = appearanceCss({ appearance, theme, pictureUrl: () => 'blob:picture', fonts: true })
   assert.match(css, /--bt-r:0\.5/)
   assert.match(css, /--bt-fs:1\.142/)
-  assert.match(css, /font-family:Inter,/)
+  assert.match(css, /font-family:"Inter",-apple-system/)
   assert.match(css, /html body \.bt-row\{min-height:44px/)
   assert.match(css, /url\("blob:picture"\) center\/cover no-repeat/)
   assert.match(css, /filter:blur\(8px\)/)
@@ -197,23 +208,62 @@ test('the page stylesheet follows the appearance, and safe appearance drops the 
   assert.match(safe, /--bt-r:0\.5/)
   assert.equal(backgroundPaint({ kind: 'gradient', from: '#000000', to: '#ffffff', angle: 90 }), 'linear-gradient(90deg,#000000,#ffffff)')
 
-  // Shift in the first seconds turns safe appearance on; later it does nothing.
+  // Shift held on its own in the first seconds turns safe appearance on. Typing a capital,
+  // a shortcut with another modifier, a quick tap, or a Shift pressed late does nothing.
   const target = new EventTarget()
   let clock = 0
-  watchSafeAppearance(target, () => clock)
+  const timers = new Map()
+  let ids = 0
+  const wait = (fn) => { timers.set(++ids, fn); return ids }
+  const unwait = id => timers.delete(id)
+  // Fires the Shift holds; timer 1 is the one that closes the watch after the first seconds.
+  const elapse = () => { for (const [id, fn] of [...timers]) { if (id === 1) continue; timers.delete(id); fn() } }
+  const key = (type, fields) => target.dispatchEvent(Object.assign(new Event(type), fields))
+  const stop = watchSafeAppearance(target, () => clock, wait, unwait)
+  key('keydown', { key: 'Shift', shiftKey: true })
+  key('keydown', { key: 'A', shiftKey: true })
+  elapse()
+  assert.equal(safeAppearance(), false, 'typing a capital letter')
+  key('keydown', { key: 'Shift', shiftKey: true, metaKey: true })
+  elapse()
+  assert.equal(safeAppearance(), false, 'a shortcut with another modifier')
+  key('keydown', { key: 'Shift', shiftKey: true })
+  key('keyup', { key: 'Shift' })
+  assert.equal([...timers.values()].length, 1, 'a quick tap leaves only the closing timer')
+  key('pointermove', { shiftKey: true, metaKey: true })
+  assert.equal(safeAppearance(), false)
   clock = 3500
-  target.dispatchEvent(Object.assign(new Event('keydown'), { key: 'Shift' }))
-  assert.equal(safeAppearance(), false)
+  key('keydown', { key: 'Shift', shiftKey: true })
+  assert.equal([...timers.values()].length, 1, 'a Shift pressed after the first seconds starts no hold')
   clock = 0
-  const stop = watchSafeAppearance(target, () => clock)
-  target.dispatchEvent(Object.assign(new Event('keydown'), { key: 'a' }))
-  assert.equal(safeAppearance(), false)
-  target.dispatchEvent(Object.assign(new Event('pointermove'), { shiftKey: false }))
-  assert.equal(safeAppearance(), false)
-  // A Shift held from before the page loaded shows on the pointer (macOS does not repeat it).
-  target.dispatchEvent(Object.assign(new Event('pointermove'), { shiftKey: true }))
-  assert.equal(safeAppearance(), true)
+  key('keydown', { key: 'Shift', code: 'ShiftLeft', shiftKey: true })
+  elapse()
+  assert.equal(safeAppearance(), true, 'Shift held on its own')
   stop()
+  leaveSafeAppearance()
+  // A Shift held from before the page loaded shows on the pointer (macOS does not repeat it).
+  const again = watchSafeAppearance(target, () => 0, wait, unwait)
+  key('pointermove', { shiftKey: true })
+  assert.equal(safeAppearance(), true)
+  again()
+  leaveSafeAppearance()
+})
+
+test('a background is let through only once it is painted: a picture loading or missing keeps the panes solid', async () => {
+  const { backgroundShown } = await import('../src/client/appearance.js')
+  const picture = { appearance: { background: { kind: 'image', image: 'c'.repeat(64) } } }
+  assert.equal(backgroundShown({ ...picture, pictureUrl: () => undefined }), false)
+  assert.equal(backgroundShown({ ...picture, pictureUrl: () => 'blob:x' }), true)
+  assert.equal(backgroundShown({ ...picture, pictureUrl: () => 'blob:x', safe: true }), false)
+  assert.equal(backgroundShown({ appearance: { background: { kind: 'color', color: '#112233' } } }), true)
+})
+
+test('font names are written quoted, one by one, and a comment opener is refused', async () => {
+  const { fontStack } = await import('../src/shared/appearance.js')
+  assert.equal(fontStack('"LXGW WenKai", Inter , sans-serif'), '"LXGW WenKai","Inter",sans-serif')
+  assert.equal(fontStack('Odd"Name'), '"Odd\\"Name"')
+  assert.throws(() => patchAppearance({}, { uiFont: 'Foo /* x' }), AppearanceError)
+  assert.throws(() => patchAppearance({}, { codeFont: 'Bar */' }), AppearanceError)
 })
 
 test('corners and text sizes in DS Bot stylesheets follow the appearance; circles and pills keep their shape', async () => {

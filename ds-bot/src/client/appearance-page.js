@@ -147,7 +147,7 @@ function ThemeSection({ prefs, actions, run, Section, Row, Choice, ownWindow, ds
     const read = readThemeFile(await readFile(file, 'text'))
     const id = newThemeId()
     const change = { themes: { [id]: read.theme }, theme: id, appearance: read.appearance }
-    if (read.image !== undefined) {
+    if (read.image !== undefined && read.appearance.background?.kind === 'image') {
       const saved = await actions.addBackground(read.image)
       change.appearance = { ...read.appearance, background: { ...read.appearance.background, image: saved.id } }
     }
@@ -185,13 +185,17 @@ function ColorsSection({ prefs, actions, run, Section, Choice }) {
   const [mode, setMode] = useState(isDark() ? 'dark' : 'light')
   const target = useRef(null)
   useEffect(() => { target.current = null }, [current])
+  // Edits sent but not yet back from the host: the next edit starts from them, so two quick
+  // edits of different colors both land.
+  const draft = useRef(null)
   const save = (key, color) => {
-    const latest = themesOf(prefs)[current] ?? theme
-    const next = { label: latest.label, light: { ...latest.light }, dark: { ...latest.dark } }
+    const id = theme.own ? current : (target.current ??= newThemeId())
+    const base = draft.current?.id === id ? draft.current.theme : themesOf(prefs)[id] ?? theme
+    const next = { label: theme.own ? base.label : t('{name} (mine)', { name: t(theme.label) }), light: { ...base.light }, dark: { ...base.dark } }
     next[mode][key] = color
-    if (theme.own) return run(actions.setPrefs({ themes: { [current]: next } }))
-    target.current ??= newThemeId()
-    return run(actions.setPrefs({ themes: { [target.current]: { ...next, label: t('{name} (mine)', { name: t(theme.label) }) } }, theme: target.current }))
+    draft.current = { id, theme: next }
+    const settle = () => { if (draft.current?.theme === next) draft.current = null }
+    return Promise.resolve(run(actions.setPrefs({ themes: { [id]: next }, ...(theme.own ? {} : { theme: id }) }))).finally(settle)
   }
   const colors = theme[mode]
   return h(Section, { title: theme.own ? t('Colors · {name}', { name: theme.label }) : t('Colors'), action: h(Choice, { label: t('Colors'), value: mode, options: [['light', 'Light'], ['dark', 'Dark']], pick: setMode }) },
@@ -319,8 +323,8 @@ export function AppearancePage({ roster, actions, run, Section, Row, Choice, Swi
       h(Row, { label: t('Density') }, h(Choice, { label: t('Density'), value: appearance.density ?? 'standard', options: DENSITIES.map(id => [id, DENSITY_LABELS[id]]), pick: density => set({ density }) }))),
     h(Section, { key: 'background', title: t('Background') },
       h(BackgroundEditor, { value: appearance.background, save: background => set({ background }), actions, run, Row, Choice }),
-      ownWindow ? h(Row, { label: t('Window material'), hint: t('The system material behind the sidebar. Off while a background is set.') },
-        h(Switch, { label: t('Window material'), on: appearance.material !== false, onChange: material => set({ material }) })) : null),
+      // The window material switch comes with the desktop window's own frame (docs/plans/2026-11-21-own-frontend.md).
+    ),
     h(Section, { key: 'messages', title: t('Messages') },
       h(Row, { label: t('Message layout') }, h(Choice, { label: t('Message layout'), value: layoutOf(prefs), options: LAYOUTS, pick: id => run(actions.setPrefs({ layout: id })) })),
       layoutOf(prefs) === 'flat' ? h(Row, { label: t('Text width') }, h(Slider, { label: t('Text width'), value: flatWidthOf(prefs), ...MESSAGE_WIDTH, format: width => `${width}%`, save: flatWidth => run(actions.setPrefs({ flatWidth })) })) : null,

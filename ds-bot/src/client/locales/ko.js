@@ -1893,6 +1893,7 @@ export const KO = {
   "A running session keeps using model calls in the background.": "실행 중인 세션은 백그라운드에서 모델 호출을 계속 사용합니다.",
   "This session is still running. Wait for it to finish, or stop it.": "이 세션은 아직 실행 중입니다. 끝날 때까지 기다리거나 중지하세요.",
   // Appearance (appearance-page.js)
+  "Safe appearance: the background and your stylesheet are off in this window. Turn them back on in Settings → Appearance.": "안전 모양: 이 창에서는 배경과 내 스타일시트가 꺼져 있습니다. 설정 → 모양에서 다시 켤 수 있습니다.",
   "Here is the plan.": "계획은 이렇습니다.",
   "Looks good, go ahead.": "좋아요, 진행하세요.",
   "On it.": "바로 할게요.",
@@ -1930,8 +1931,6 @@ export const KO = {
   "Shape and density": "모양과 밀도",
   "Corners": "모서리",
   "Density": "밀도",
-  "Window material": "창 재질",
-  "The system material behind the sidebar. Off while a background is set.": "사이드바 뒤의 시스템 재질. 배경을 설정하면 쓰지 않습니다.",
   "Advanced": "고급",
   "Loaded last, after every other style. Hold Shift while the window opens to start without it.": "다른 모든 스타일 다음에 마지막으로 불러옵니다. 창을 열 때 Shift를 누르고 있으면 불러오지 않습니다.",
   "Restore default appearance": "기본 모양으로 되돌리기",

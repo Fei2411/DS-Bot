@@ -1858,6 +1858,7 @@ export const JA = {
   "A running session keeps using model calls in the background.": "実行中のセッションはバックグラウンドでモデル呼び出しを続けます。",
   "This session is still running. Wait for it to finish, or stop it.": "このセッションはまだ実行中です。終了を待つか、停止してください。",
   // Appearance (appearance-page.js)
+  "Safe appearance: the background and your stylesheet are off in this window. Turn them back on in Settings → Appearance.": "セーフ表示：このウインドウでは背景と自分のスタイルシートがオフです。設定 → 外観 でもう一度オンにできます。",
   "Here is the plan.": "計画はこうです。",
   "Looks good, go ahead.": "いいですね、進めてください。",
   "On it.": "すぐ取りかかります。",
@@ -1895,8 +1896,6 @@ export const JA = {
   "Shape and density": "形と密度",
   "Corners": "角の丸み",
   "Density": "密度",
-  "Window material": "ウインドウの素材",
-  "The system material behind the sidebar. Off while a background is set.": "サイドバーの後ろのシステム素材。背景を設定している間は使いません。",
   "Advanced": "詳細",
   "Loaded last, after every other style. Hold Shift while the window opens to start without it.": "ほかのすべてのスタイルの後に読み込まれます。ウインドウを開くときに Shift を押していると読み込みません。",
   "Restore default appearance": "外観を既定に戻す",

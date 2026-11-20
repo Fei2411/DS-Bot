@@ -16,10 +16,13 @@ import { createTeam } from './team.js'
 
 // The team's theme, accent and appearance. The window owns fonts, sizes and light or dark
 // here; in DSH those are DSH's settings (docs/plans/2026-11-21-appearance.md).
-function useTheme(prefs, chat) {
+function useTheme(prefs, chat, actions) {
   const [loaded, setLoaded] = useState(0)
   const [safe, setSafe] = useState(safeAppearance)
-  useEffect(() => onSafeAppearance(setSafe), [])
+  useEffect(() => onSafeAppearance((on) => {
+    setSafe(on)
+    if (on) actions.notice?.(t('Safe appearance: the background and your stylesheet are off in this window. Turn them back on in Settings → Appearance.'))
+  }), [])
   useEffect(() => watchSafeAppearance(), [])
   useEffect(() => {
     const theme = themesOf(prefs)[prefs?.theme] ?? allThemes().deepseek
@@ -71,7 +74,7 @@ export function App() {
   const prefs = hooks.useRoster(value => value.prefs)
   // The open chat's own background, over the team's.
   const chat = hooks.useRoster(value => (shown ? value.byId?.[shown] ?? value.roomsById?.[shown] : undefined))
-  useTheme(prefs, chat)
+  useTheme(prefs, chat, actions)
   const closeOverlays = (error) => {
     actions.closeSettings()
     actions.closeMemory()
