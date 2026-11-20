@@ -154,6 +154,20 @@ export function createEventRouter(rt, eventLedger, { onCircuitBreak } = {}) {
     writeJsonAtomic(pendingPath, { deferred, coalesce })
   }
 
+  function reloadStateFromDisk() {
+    const s = readJson(subsPath, [])
+    if (Array.isArray(s)) subscriptions = s
+    const d = readJson(dlqPath, [])
+    if (Array.isArray(d)) deadLetters = d
+    contextBuffers.clear()
+    const ctxData = readJson(contextPath, {})
+    if (ctxData && typeof ctxData === 'object') {
+      for (const [key, list] of Object.entries(ctxData)) {
+        if (Array.isArray(list) && list.length > 0) contextBuffers.set(key, list.slice(-CONTEXT_BUFFER_MAX))
+      }
+    }
+  }
+
   const reloadIfReadOnly = () => {
     if (!writes()) {
       const s = readJson(subsPath, [])
@@ -365,6 +379,10 @@ export function createEventRouter(rt, eventLedger, { onCircuitBreak } = {}) {
 
   async function deliverNow(event, sub, { privateBotId, isVirtual = false } = {}) {
     const now = Date.now()
+    const targetPrivate = isTargetPrivate(sub.target)
+    // Decisions targeting a private Bot ALWAYS write to that Bot's private ledger scope so
+    // non-private Bots calling read_event on a shared event never see its botId or subId.
+    const decisionPrivateBotId = privateBotId ?? (targetPrivate ? sub.target.botId : undefined)
     const limit = sub.fastPath?.maxPerHour ?? DEFAULT_MAX_PER_HOUR
     const hits = (hourHits.get(sub.id) ?? []).filter(ts => now - ts < 3_600_000)
     if (hits.length >= limit) {
@@ -375,9 +393,9 @@ export function createEventRouter(rt, eventLedger, { onCircuitBreak } = {}) {
         sub.updatedAt = now
         saveSubs()
       }
-      await eventLedger.recordDecision({ eventId: event.id, subId: sub.id, outcome: 'paused_rate_limit', reason, target: sub.target }, { privateBotId })
+      await eventLedger.recordDecision({ eventId: event.id, subId: sub.id, outcome: 'paused_rate_limit', reason, target: sub.target }, { privateBotId: decisionPrivateBotId })
       await onCircuitBreak?.(sub, event, reason)
-      return { outcome: 'paused_rate_limit', reason }
+      return { outcome: 'paused_rate_limit', reason, privateTarget: targetPrivate }
     }
 
     if (sub.mode === 'context') {
@@ -395,8 +413,8 @@ export function createEventRouter(rt, eventLedger, { onCircuitBreak } = {}) {
       if (list.length > CONTEXT_BUFFER_MAX) list.splice(0, list.length - CONTEXT_BUFFER_MAX)
       contextBuffers.set(key, list)
       saveContext()
-      await eventLedger.recordDecision({ eventId: event.id, subId: sub.id, outcome: 'context_buffered', reason: 'context-only subscription', target: sub.target }, { privateBotId })
-      return { outcome: 'context_buffered' }
+      await eventLedger.recordDecision({ eventId: event.id, subId: sub.id, outcome: 'context_buffered', reason: 'context-only subscription', target: sub.target }, { privateBotId: decisionPrivateBotId })
+      return { outcome: 'context_buffered', privateTarget: targetPrivate }
     }
 
     try {
@@ -419,8 +437,8 @@ export function createEventRouter(rt, eventLedger, { onCircuitBreak } = {}) {
       }
       hits.push(now)
       hourHits.set(sub.id, hits)
-      await eventLedger.recordDecision({ eventId: event.id, subId: sub.id, outcome: 'delivered', target: sub.target }, { privateBotId })
-      return { outcome: 'delivered', sessionId: resolved.sessionId, targetKey: targetKey(sub.target) }
+      await eventLedger.recordDecision({ eventId: event.id, subId: sub.id, outcome: 'delivered', target: sub.target }, { privateBotId: decisionPrivateBotId })
+      return { outcome: 'delivered', sessionId: resolved.sessionId, targetKey: targetKey(sub.target), privateTarget: targetPrivate }
     } catch (error) {
       const reason = error?.message ?? String(error)
       const dlqEntry = {
@@ -433,7 +451,7 @@ export function createEventRouter(rt, eventLedger, { onCircuitBreak } = {}) {
         speculative: Boolean(sub.speculative),
         mandate: sub.mandate ?? null,
         isVirtual: Boolean(isVirtual),
-        privateBotId: privateBotId ?? null,
+        privateBotId: decisionPrivateBotId ?? null,
         summary: event.summary,
         reason,
         time: now,
@@ -441,8 +459,8 @@ export function createEventRouter(rt, eventLedger, { onCircuitBreak } = {}) {
       deadLetters.unshift(dlqEntry)
       if (deadLetters.length > DEAD_LETTERS_MAX) deadLetters.length = DEAD_LETTERS_MAX
       saveDlq()
-      await eventLedger.recordDecision({ eventId: event.id, subId: sub.id, outcome: 'dead_letter', reason, target: sub.target }, { privateBotId })
-      return { outcome: 'dead_letter', reason, deadLetterId: dlqEntry.id }
+      await eventLedger.recordDecision({ eventId: event.id, subId: sub.id, outcome: 'dead_letter', reason, target: sub.target }, { privateBotId: decisionPrivateBotId })
+      return { outcome: 'dead_letter', reason, deadLetterId: dlqEntry.id, privateTarget: targetPrivate }
     }
   }
 
@@ -467,7 +485,7 @@ export function createEventRouter(rt, eventLedger, { onCircuitBreak } = {}) {
 
   async function routeEvent(event, { privateBotId, allowedTargets, nowMs = Date.now(), recordUnmatched = true } = {}) {
     const results = []
-    const deliveredTargets = new Set()
+    const handledTargets = new Set()
     let matchedAny = false
     for (const sub of subscriptions) {
       if (!sub.enabled) continue
@@ -489,19 +507,25 @@ export function createEventRouter(rt, eventLedger, { onCircuitBreak } = {}) {
         continue
       }
       matchedAny = true
+      const subTargetKey = targetKey(sub.target)
+      const targetPrivate = isTargetPrivate(sub.target)
+      const decisionPrivateBotId = privateBotId ?? (targetPrivate ? sub.target.botId : undefined)
+      // Once an enabled subscription matches this target, it governs policy (quiet hours,
+      // coalescing, rate-limit, delivery) so virtual direct delivery never bypasses it.
+      handledTargets.add(subTargetKey)
 
       if (isQuietNow(sub.fastPath?.quietHours, nowMs)) {
         const action = sub.fastPath.quietHours.action === 'drop' ? 'drop' : 'defer'
         if (action === 'drop') {
-          await eventLedger.recordDecision({ eventId: event.id, subId: sub.id, outcome: 'filtered', reason: 'quiet hours (drop)', target: sub.target }, { privateBotId })
-          results.push({ subId: sub.id, outcome: 'filtered' })
+          await eventLedger.recordDecision({ eventId: event.id, subId: sub.id, outcome: 'filtered', reason: 'quiet hours (drop)', target: sub.target }, { privateBotId: decisionPrivateBotId })
+          results.push({ subId: sub.id, outcome: 'filtered', privateTarget: targetPrivate })
         } else {
           const list = deferredQueue.get(sub.id) ?? []
-          list.push({ event, privateBotId, queuedAt: nowMs })
+          list.push({ event, privateBotId: decisionPrivateBotId, queuedAt: nowMs })
           deferredQueue.set(sub.id, list)
           savePending()
-          await eventLedger.recordDecision({ eventId: event.id, subId: sub.id, outcome: 'deferred', reason: 'quiet hours (defer)', target: sub.target }, { privateBotId })
-          results.push({ subId: sub.id, outcome: 'deferred' })
+          await eventLedger.recordDecision({ eventId: event.id, subId: sub.id, outcome: 'deferred', reason: 'quiet hours (defer)', target: sub.target }, { privateBotId: decisionPrivateBotId })
+          results.push({ subId: sub.id, outcome: 'deferred', privateTarget: targetPrivate })
         }
         continue
       }
@@ -519,25 +543,21 @@ export function createEventRouter(rt, eventLedger, { onCircuitBreak } = {}) {
           subId: sub.id,
           entity,
           event,
-          privateBotId,
+          privateBotId: decisionPrivateBotId,
           dueAt: nowMs + coalesceMs,
         })
-        deliveredTargets.add(targetKey(sub.target))
-        results.push({ subId: sub.id, outcome: 'coalescing' })
+        results.push({ subId: sub.id, outcome: 'coalescing', privateTarget: targetPrivate })
         continue
       }
 
-      const res = await deliverNow(event, sub, { privateBotId })
-      if (res.outcome === 'delivered' || res.outcome === 'context_buffered') {
-        deliveredTargets.add(targetKey(sub.target))
-      }
+      const res = await deliverNow(event, sub, { privateBotId: decisionPrivateBotId })
       results.push({ subId: sub.id, ...res })
     }
 
     if (!matchedAny && recordUnmatched) {
       await eventLedger.recordDecision({ eventId: event.id, outcome: 'filtered', reason: 'no matching subscription' }, { privateBotId })
     }
-    return { matchedAny, deliveredTargets, results }
+    return { matchedAny, handledTargets, results }
   }
 
   // Flushes deferred quiet-hour events once quiet hours end.
@@ -570,9 +590,10 @@ export function createEventRouter(rt, eventLedger, { onCircuitBreak } = {}) {
     if (changed) savePending()
   }
 
-  // Reload persisted deferred & coalescing deliveries on startup / lock acquisition.
+  // Reload persisted state + deferred/coalescing deliveries on startup or lock takeover.
   async function recoverPending(nowMs = Date.now()) {
     if (!writes()) return { deferred: 0, coalesced: 0 }
+    reloadStateFromDisk()
     const saved = readJson(pendingPath, null)
     if (!saved || typeof saved !== 'object') return { deferred: 0, coalesced: 0 }
     let restoredDeferred = 0

@@ -58,11 +58,11 @@ export function install(rt) {
     })
     const deliveries = [...routed.results]
 
-    // Guarantee explicit Push directTarget delivery unless an explicit subscription
-    // already delivered/coalesced/buffered to that exact target.
+    // Guarantee explicit Push directTarget delivery unless an explicit subscription for
+    // that exact target already governed routing (including quiet-hours defer/drop or rate-limit).
     if (directTarget) {
       const directKey = router.targetKey(directTarget)
-      if (!routed.deliveredTargets.has(directKey)) {
+      if (!routed.handledTargets.has(directKey)) {
         const tempSub = {
           id: `direct_${directKey}`,
           name: stored.source?.name ?? 'Direct event',
@@ -187,6 +187,20 @@ export function install(rt) {
     })
   }
 
+  // Inject context-only buffered events on the target Bot/task/group's next turn
+  // independently of memory.js (so it still works when config.memory === false).
+  ctx.on('agent/pre-step', async ({ agent, signal }, next) => {
+    const decision = await next()
+    if (decision.kind === 'reject' || signal?.aborted || !Array.isArray(decision.messages)) return decision
+    await rt.load()
+    const bot = rt.botOf(rt.selfOf(agent.id))
+    if (bot === undefined) return decision
+    const roomId = rt.groupOwners?.get(agent.id)?.roomId
+    const member = roomId !== undefined && rt.roomOf(roomId)?.members?.includes(bot.id) === true
+    const eventContext = takeEventContextMessage(agent.id, bot, member ? roomId : undefined)
+    return eventContext === undefined ? decision : { ...decision, messages: [eventContext, ...decision.messages] }
+  })
+
   // Unified Agent Inbox view: aggregates approvals, questions, requests, and Watchdog alerts.
   // Never uses Date.now() fallbacks so channel.js liveCache remains deterministic across polls.
   function inboxView() {
@@ -195,7 +209,12 @@ export function install(rt) {
     for (const approval of rt.approvalsView?.() ?? []) {
       const bot = approval.botId ? rt.botOf(approval.botId) : undefined
       const room = approval.roomId ? rt.roomOf(approval.roomId) : undefined
-      const reason = approval.reason ?? approval.detail ?? ''
+      const detailText = typeof approval.detail === 'string'
+        ? approval.detail
+        : [approval.detail?.text, approval.detail?.code].filter(Boolean).join(' · ')
+      const reason = typeof approval.reason === 'string' && approval.reason.trim() !== ''
+        ? approval.reason.trim()
+        : detailText
       items.push({
         id: `apr_${approval.id ?? approval.sessionId}`,
         category: 'review',
@@ -236,7 +255,7 @@ export function install(rt) {
           category: 'review',
           kind: 'secret_request',
           title: `${bot?.name ?? 'Bot'} requested secret "${req.name ?? req.id}"`,
-          detail: req.reason ?? '',
+          detail: req.purpose ?? req.reason ?? '',
           botId: bot?.id ?? botId,
           time: req.askedAt ?? 0,
         })
@@ -252,8 +271,8 @@ export function install(rt) {
           id: `con_${req.id}`,
           category: 'review',
           kind: 'connector_request',
-          title: `${bot?.name ?? 'Bot'} requested connector "${req.connectorId ?? req.id}"`,
-          detail: req.reason ?? '',
+          title: `${bot?.name ?? 'Bot'} requested connector "${req.name ?? req.connectorId ?? req.id}"`,
+          detail: req.purpose ?? req.reason ?? '',
           botId: bot?.id ?? botId,
           time: req.askedAt ?? 0,
         })
@@ -594,10 +613,25 @@ export function install(rt) {
       const writable = rt.readOnly?.() === undefined
       if (writable && !active) {
         active = true
+        eventLedger.resetDedupeCache()
         watchers.startAll()
         watchdog.start()
         await router.recoverPending().catch(error => rt.warn?.('ds-bot: event pending recovery failed: %s', error?.message ?? error))
+        if (disposed || rt.readOnly?.() !== undefined) {
+          active = false
+          watchers.dispose()
+          watchdog.dispose()
+          router.dispose()
+          return
+        }
         await push.start().catch(error => rt.warn?.('ds-bot: event push gateway failed to start: %s', error?.message ?? error))
+        if (disposed || rt.readOnly?.() !== undefined) {
+          active = false
+          watchers.dispose()
+          watchdog.dispose()
+          router.dispose()
+          await push.stop().catch(() => {})
+        }
       } else if (!writable && active) {
         active = false
         watchers.dispose()
@@ -630,7 +664,7 @@ export function install(rt) {
       watchers.dispose()
       watchdog.dispose()
       router.dispose()
-      return push.stop()
+      return reconcileChain.finally(() => push.stop())
     }
   }, 'ds-bot: events')
 

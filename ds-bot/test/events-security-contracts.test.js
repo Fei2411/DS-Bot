@@ -8,10 +8,10 @@ import { fileURLToPath } from 'node:url'
 import { runInNewContext } from 'node:vm'
 import { build } from 'esbuild'
 import { createRuntime } from '../index.js'
-import { fakeContext } from './fake-ctx.js'
+import { fakeAttachments, fakeContext } from './fake-ctx.js'
 import { createEventRouter } from '../src/host/events/router.js'
 
-function setupTeam(eventsConfig = {}, extraState = {}) {
+function setupTeam(eventsConfig = {}, extraState = {}, extraConfig = {}) {
   const home = mkdtempSync(join(tmpdir(), 'dsb-events-sec-'))
   const privDir = join(home, 'priv-dir')
   const teamDir = join(home, 'team-dir')
@@ -34,7 +34,8 @@ function setupTeam(eventsConfig = {}, extraState = {}) {
     questions: {},
     ...extraState,
   }))
-  const ctx = fakeContext()
+  const attachments = fakeAttachments()
+  const ctx = fakeContext({ services: { attachments } })
   const delivered = []
   const agents = new Map()
   const ensureAgent = (sessionId, extra = {}) => {
@@ -55,7 +56,7 @@ function setupTeam(eventsConfig = {}, extraState = {}) {
   ctx.sessions = { flush: async () => {} }
   ctx.workspaceRegistry = { get: () => undefined }
 
-  const rt = createRuntime(ctx, { home, events: { disableTimers: true, ...eventsConfig } })
+  const rt = createRuntime(ctx, { home, ...extraConfig, events: { disableTimers: true, ...eventsConfig } })
   return {
     home,
     privDir,
@@ -105,6 +106,9 @@ test('P0 #1: HTTP watcher blocks SSRF via DNS rebinding, private IPv4/IPv6, redi
       'https://rebind-v6-mapped.example/a',
       'https://[::ffff:127.0.0.1]/a',
       'https://[::1]/a',
+      'https://[0:0:0:0:0:0:0:1]/a',
+      'https://[64:ff9b::127.0.0.1]/a',
+      'https://localhost./a',
     ]) {
       await assert.rejects(() => env.rt.eventWatchers.saveWatcher({
         name: 'Bad URL',
@@ -112,6 +116,16 @@ test('P0 #1: HTTP watcher blocks SSRF via DNS rebinding, private IPv4/IPv6, redi
         target: { kind: 'bot', botId: 'w1' },
         config: { url },
       }, { isUser: true }), /private|loopback|public/i, `expected rejection for ${url}`)
+    }
+
+    // GitHub repo rejects path traversal segments.
+    for (const badRepo of ['../etc', 'org/..', './repo']) {
+      await assert.rejects(() => env.rt.eventWatchers.saveWatcher({
+        name: 'Bad GH',
+        kind: 'github',
+        target: { kind: 'bot', botId: 'w1' },
+        config: { repo: badRepo },
+      }, { isUser: true }), /owner\/name/i)
     }
 
     // Redirect hop to loopback is blocked during checkNow.
@@ -247,15 +261,62 @@ test('P0 #5 & P1: Push enforces allowedTargets on subscription routing, handles 
       match: { sourceKind: 'push' },
     }, { isUser: true })
 
-    // Token restricted strictly to w1.
-    const scoped = env.rt.eventPush.createToken({ name: 'Only w1', allowedTargets: ['w1'] })
+    // Token restricted strictly to w1 (also supports bot: prefix).
+    const scoped = env.rt.eventPush.createToken({ name: 'Only w1', allowedTargets: ['bot:w1'] })
     const rScoped = await fetch(status.url, {
       method: 'POST',
       headers: { Authorization: `Bearer ${scoped.token}`, 'content-type': 'application/json' },
       body: JSON.stringify({ summary: 'Scoped broadcast' }), // omits botId/roomId!
     })
     assert.equal(rScoped.status, 202)
+    const scopedJson = await rScoped.json()
+    assert.equal(scopedJson.ok, true)
+    assert.equal(scopedJson.delivered, 1)
+    assert.equal('deliveries' in scopedJson, false, 'HTTP 202 must not expose internal sessionId/subId')
     assert.deepEqual(env.delivered.map(d => d.sessionId), ['w1'])
+
+    // P1-2: Private Bot subscribed to shared push events never leaks botId/subId/sessionId in HTTP 202 or read_event.
+    env.rt.eventRouter.saveSubscription({
+      name: 'Private push watch',
+      target: { kind: 'bot', botId: 'p1' },
+      match: { sourceKind: 'push', threadKey: 'shared:priv-test' },
+    }, { isUser: true })
+    const broadPriv = env.rt.eventPush.createToken({ name: 'Broad priv test' })
+    env.delivered.length = 0
+    const rPrivSub = await fetch(status.url, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${broadPriv.token}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ threadKey: 'shared:priv-test', summary: 'Shared event p1 also watches' }),
+    })
+    assert.equal(rPrivSub.status, 202)
+    const privRespText = await rPrivSub.text()
+    assert.equal(privRespText.includes('p1'), false, 'HTTP 202 must not reveal private Bot')
+    assert.ok(env.delivered.some(d => d.sessionId === 'p1'), 'private Bot still received the event')
+    const privEvId = JSON.parse(privRespText).eventId
+    const readTool = env.rt.teamTools.find(t => t.name === 'read_event')
+    const w1Read = await readTool.execute({ id: privEvId }, { agent: { id: 'w1' } })
+    assert.equal(w1Read.includes('"p1"'), false, 'other Bot read_event must not see private Bot decision')
+    const p1Read = await readTool.execute({ id: privEvId }, { agent: { id: 'p1' } })
+    assert.match(p1Read, /"p1"/, 'private Bot itself sees its own decision')
+
+    // P1-4: Explicit directTarget does NOT bypass quiet hours on an explicit subscription for the same target.
+    env.rt.eventRouter.saveSubscription({
+      name: 'w1 quiet watch',
+      target: { kind: 'bot', botId: 'w1' },
+      match: { sourceKind: 'github', threadKey: 'quiet:direct' },
+      fastPath: { quietHours: { start: '23:00', end: '08:00', tz: 'UTC', action: 'defer' } },
+    }, { isUser: true })
+    env.delivered.length = 0
+    await env.rt.acceptEvent({
+      source: { kind: 'github', id: 'gh', name: 'GitHub' },
+      trust: 'external',
+      threadKey: 'quiet:direct',
+      entityKey: 'quiet:direct',
+      summary: 'Respect quiet hours even with directTarget',
+    }, { directTarget: { kind: 'bot', botId: 'w1' }, nowMs: Date.UTC(2026, 10, 19, 23, 30) })
+    assert.equal(env.delivered.length, 0, 'directTarget must not bypass quiet hours on same-target subscription')
+    await env.rt.eventRouter.flushDeferred(Date.UTC(2026, 10, 20, 9, 0))
+    assert.equal(env.delivered.length, 1, 'deferred event delivers exactly once after quiet hours end')
 
     // Multi-chunk body > 256 KiB returns 413 cleanly without double-write crash.
     const oversizeStatus = await new Promise((resolve) => {
@@ -335,7 +396,18 @@ test('P0 #8 & P1: Read-only second host does not start Push/watchers, can read e
     }))
 
     const ctx2 = fakeContext()
-    ctx2.sessionController = { resolveAgent: async id => ({ agent: { id, status: 'idle', session: { id }, followup() {}, steer() {} } }) }
+    const delivered2 = []
+    ctx2.sessionController = {
+      resolveAgent: async id => ({
+        agent: {
+          id,
+          status: 'idle',
+          session: { id },
+          followup(msg) { delivered2.push({ sessionId: id, msg }) },
+          steer(msg) { delivered2.push({ sessionId: id, msg }) },
+        },
+      }),
+    }
     ctx2.sessions = { flush: async () => {} }
     const rt2 = createRuntime(ctx2, { home: env1.home, events: { disableTimers: true } })
     env2 = { ctx: ctx2, rt: rt2 }
@@ -353,12 +425,33 @@ test('P0 #8 & P1: Read-only second host does not start Push/watchers, can read e
     const wDenied = await rt2.channelCall('events-subscription-save', { name: 'Nope', target: { kind: 'bot', botId: 'w1' } })
     assert.equal(wDenied.ok, false)
 
-    // Remove the competing lock, refresh rt2, and reconcile -> acquires lock & starts Push!
+    // Simulate window A creating a subscription + deferred pending event AFTER rt2 booted read-only.
+    const evA = await env1.rt.eventLedger.recordEvent({
+      source: { kind: 'push', id: 'p', name: 'Push' },
+      trust: 'external',
+      threadKey: 'takeover:1',
+      entityKey: 'takeover:1',
+      summary: 'Deferred by window A before exit',
+    })
+    const subA = env1.rt.eventRouter.saveSubscription({
+      name: 'Written by window A',
+      target: { kind: 'bot', botId: 'w1' },
+      match: { threadKey: 'takeover:1' },
+      fastPath: { quietHours: { start: '00:00', end: '00:01', tz: 'UTC', action: 'defer' } },
+    }, { isUser: true })
+    writeFileSync(join(env1.home, 'events', 'pending.json'), JSON.stringify({
+      deferred: [{ subId: subA.id, eventId: evA.id, privateBotId: null, queuedAt: Date.now() - 10_000 }],
+      coalesce: [],
+    }))
+
+    // Release the competing lock, refresh rt2, and reconcile -> reloads disk state, delivers pending, starts Push!
     rmSync(join(env1.home, 'state.lock'), { force: true })
     await rt2.refresh()
     await rt2.reconcileEventsLock()
     assert.equal(rt2.readOnly(), undefined)
     assert.equal(rt2.eventPush.status().listening, true)
+    assert.ok(rt2.eventRouter.listSubscriptions({ isUser: true }).some(s => s.id === subA.id), 'lock takeover must reload subscriptions.json instead of overwriting it')
+    assert.ok(delivered2.some(d => d.sessionId === 'w1' && d.msg.content[0].text.includes('Deferred by window A')), 'lock takeover must flush persisted pending.json instead of wiping it')
   } finally {
     if (env2) await env2.ctx.dispose().catch(() => {})
     await env1.cleanup()
@@ -375,7 +468,8 @@ test('P0 #9: Group chat event delivery logs as Event (not User), preserves files
     const origGoalUser = env.rt.goalUserMessage
     env.rt.goalUserMessage = (...args) => { goalUserCalls += 1; return origGoalUser?.(...args) }
 
-    const longBody = 'Line\n'.repeat(1200)
+    // Body > 20,000 chars exercises real attachLong (via fakeAttachments) -> file block -> room.log.files.
+    const longBody = 'Line 0123456789\n'.repeat(1800)
     const ev = await env.rt.acceptEvent({
       source: { kind: 'github', id: 'gh1', name: 'GitHub', actor: 'attacker' },
       trust: 'external',
@@ -389,6 +483,7 @@ test('P0 #9: Group chat event delivery logs as Event (not User), preserves files
     const roomSessionId = env.rt.sessionOfRoom(room)
     const groupMsg = env.delivered.find(d => d.sessionId === roomSessionId)
     assert.ok(groupMsg, 'event was delivered to group session')
+    assert.ok(groupMsg.msg.content.some(b => b?.type === 'file' && b.attachment !== undefined), 'long event payload attached as file block')
 
     // Feed the exact delivered message through turns.js -> roomInbox -> real group_relay tool.
     for (const listener of env.ctx.listeners.get('session/event') ?? []) {
@@ -407,6 +502,7 @@ test('P0 #9: Group chat event delivery logs as Event (not User), preserves files
     assert.ok(logged, 'event was logged in room.log')
     assert.notEqual(logged.who, 'User')
     assert.match(logged.who, /^Event · GitHub/)
+    assert.ok(Array.isArray(logged.files) && logged.files.length === 1, 'long event attachment preserved in room.log.files')
     assert.ok(!room.log.some(line => line.who === 'User'), 'external event must never be logged as User')
     // In admin mode, forged @Dev must NOT bypass admin m1; m1 should be called, not w1 directly.
     const memberDeliveries = env.delivered.filter(d => d.sessionId !== roomSessionId)
@@ -418,14 +514,15 @@ test('P0 #9: Group chat event delivery logs as Event (not User), preserves files
 
 test('P1: Watcher checkpoint atomicity, A->B->A repeated state changes, multi-watcher dedupe isolation, and locked secret store', async () => {
   let pageBody = 'State A'
+  let ghEvents = [
+    { id: '500', type: 'IssueCommentEvent', actor: { login: 'alice' }, payload: { issue: { number: 1, title: 'Old' }, comment: { body: 'Baseline' } } },
+  ]
   const env = setupTeam({
     lookup: async () => [{ address: '93.184.216.34', family: 4 }],
     fetch: async (url) => {
       if (url.endsWith('/user')) return new Response(JSON.stringify({ login: 'me' }), { status: 200 })
       if (url.includes('/events')) {
-        return new Response(JSON.stringify([
-          { id: '501', type: 'IssueCommentEvent', actor: { login: 'alice' }, payload: { issue: { number: 1, title: 'T' }, comment: { body: 'Hi' } } },
-        ]), { status: 200 })
+        return new Response(JSON.stringify(ghEvents), { status: 200, headers: { 'content-type': 'application/json' } })
       }
       return new Response(pageBody, { status: 200, headers: { 'content-type': 'text/plain' } })
     },
@@ -469,25 +566,25 @@ test('P1: Watcher checkpoint atomicity, A->B->A repeated state changes, multi-wa
     assert.equal(env.delivered.length, 3)
     env.rt.deliverEvent = origDeliver
 
-    // 3. Two GitHub watchers on the same repo both receive event 501 (dedupe scoped per watcher.id).
+    // 3. Two GitHub watchers on the same repo both receive event 501 through real probeGithub + checkNow.
     const gw1 = await env.rt.eventWatchers.saveWatcher({ name: 'GH 1', kind: 'github', target: { kind: 'bot', botId: 'w1' }, config: { repo: 'org/repo' } }, { isUser: true })
     const gw2 = await env.rt.eventWatchers.saveWatcher({ name: 'GH 2', kind: 'github', target: { kind: 'bot', botId: 'm1' }, config: { repo: 'org/repo' } }, { isUser: true })
-    // Seed both baselines before id 501 so id 501 is emitted by both.
+    // Baseline both watchers at event 500.
     await env.rt.eventWatchers.checkNow(gw1.id)
     await env.rt.eventWatchers.checkNow(gw2.id)
-    // Now reset their baselines to '500' to simulate a new event 501 arriving for both watchers.
-    const stateFile = join(env.home, 'events', 'watchers-state.json')
-    writeFileSync(stateFile, JSON.stringify({
-      [gw1.id]: { initialized: true, lastEventId: '500', consecutiveErrors: 0 },
-      [gw2.id]: { initialized: true, lastEventId: '500', consecutiveErrors: 0 },
-    }))
-    // Re-read via fresh runtime or directly test dedupeKey scoping by calling acceptEvent with same repo/id.
     const before = env.delivered.length
-    const e1 = await env.rt.acceptEvent({ source: { kind: 'github', id: gw1.id, name: 'GH 1' }, trust: 'external', threadKey: 'github:org/repo#1', dedupeKey: `github:${gw1.id}:org/repo:501`, summary: 'ev 501' }, { watcher: gw1 })
-    const e2 = await env.rt.acceptEvent({ source: { kind: 'github', id: gw2.id, name: 'GH 2' }, trust: 'external', threadKey: 'github:org/repo#1', dedupeKey: `github:${gw2.id}:org/repo:501`, summary: 'ev 501' }, { watcher: gw2 })
-    assert.equal(e1.deduplicated, false)
-    assert.equal(e2.deduplicated, false)
+    // New event 501 arrives on the same repo -> BOTH watchers must deliver (dedupe scoped by watcher.id).
+    ghEvents = [
+      { id: '501', type: 'IssueCommentEvent', actor: { login: 'alice' }, payload: { issue: { number: 1, title: 'T' }, comment: { body: 'Hi' } } },
+      ...ghEvents,
+    ]
+    const g1Res = await env.rt.eventWatchers.checkNow(gw1.id)
+    const g2Res = await env.rt.eventWatchers.checkNow(gw2.id)
+    assert.equal(g1Res.count, 1)
+    assert.equal(g2Res.count, 1)
     assert.equal(env.delivered.length, before + 2)
+    assert.ok(env.delivered.slice(before).some(d => d.sessionId === 'w1'))
+    assert.ok(env.delivered.slice(before).some(d => d.sessionId === 'm1'))
 
     // 4. Locked secret store skips GitHub probe cleanly without falsely pausing the watcher.
     const envLocked = setupTeam({
@@ -571,26 +668,44 @@ test('P1: Pending deferred/coalesce queue survives restart via pending.json and 
     assert.match(env.delivered[0].msg.content[0].text, /Queued overnight/)
     router2.dispose()
 
-    // mode: 'context' buffers without waking, then injects on next Bot turn via memory pre-step.
-    env.rt.eventRouter.saveSubscription({
-      name: 'Context sub',
-      target: { kind: 'bot', botId: 'm1' },
-      mode: 'context',
-      match: { threadKey: 'ctx:1' },
-    }, { isUser: true })
-    const before = env.delivered.length
-    await env.rt.acceptEvent({
-      source: { kind: 'github', id: 'gh', name: 'GitHub' },
-      trust: 'external',
-      threadKey: 'ctx:1',
-      summary: 'Minor doc typo PR',
-    })
-    assert.equal(env.delivered.length, before, 'context-only must not wake Bot')
-    const injected = env.rt.takeEventContextMessage('m1', env.rt.botOf('m1'), undefined)
-    assert.ok(injected, 'buffered context event is ready for next turn')
-    assert.match(injected.content[0].text, /Minor doc typo PR/)
-    assert.match(injected.content[0].text, /untrusted data/i)
-    assert.equal(env.rt.takeEventContextMessage('m1', env.rt.botOf('m1'), undefined), undefined, 'buffer drains once consumed')
+    // P1-3 & P1-5: mode: 'context' injects through the real agent/pre-step listener even when config.memory === false.
+    const envNoMem = setupTeam({}, {}, { memory: false })
+    try {
+      await envNoMem.rt.load()
+      envNoMem.rt.eventRouter.saveSubscription({
+        name: 'Context sub',
+        target: { kind: 'bot', botId: 'm1' },
+        mode: 'context',
+        match: { threadKey: 'ctx:1' },
+      }, { isUser: true })
+      await envNoMem.rt.acceptEvent({
+        source: { kind: 'github', id: 'gh', name: 'GitHub' },
+        trust: 'external',
+        threadKey: 'ctx:1',
+        summary: 'Minor doc typo PR',
+      })
+      assert.equal(envNoMem.delivered.length, 0, 'context-only must not wake Bot')
+      const preStepHooks = envNoMem.ctx.listeners.get('agent/pre-step') ?? []
+      const eventPreStep = preStepHooks.find(fn => /takeEventContextMessage/.test(String(fn)))
+      assert.ok(eventPreStep, 'events must register its own agent/pre-step listener independent of memory.js')
+      const decision1 = await eventPreStep(
+        { agent: envNoMem.ensureAgent('m1'), signal: AbortSignal.timeout(10_000) },
+        async () => ({ kind: 'continue', messages: [{ role: 'user', content: [{ type: 'text', text: 'hello' }] }] }),
+      )
+      assert.equal(decision1.messages.length, 2, 'agent/pre-step injects buffered context message')
+      assert.equal(decision1.messages[0].source?.kind, 'ds-bot-event-context')
+      assert.match(decision1.messages[0].content[0].text, /Minor doc typo PR/)
+      assert.match(decision1.messages[0].content[0].text, /untrusted data/i)
+
+      // Subsequent step sees empty buffer (drained once consumed).
+      const decision2 = await eventPreStep(
+        { agent: envNoMem.ensureAgent('m1'), signal: AbortSignal.timeout(10_000) },
+        async () => ({ kind: 'continue', messages: [{ role: 'user', content: [{ type: 'text', text: 'next' }] }] }),
+      )
+      assert.equal(decision2.messages.length, 1, 'buffer drains once consumed')
+    } finally {
+      await envNoMem.cleanup()
+    }
 
     // Ensure subscription cleanup still works.
     assert.equal(env.rt.eventRouter.deleteSubscription(sub.id, { isUser: true }), true)
@@ -599,12 +714,12 @@ test('P1: Pending deferred/coalesce queue survives restart via pending.json and 
   }
 })
 
-test('P0 #10 & P2: TriggerCell renders role:event without Bot-exchange fallback and parseCommandArgs handles quotes', async () => {
+test('P0-1, P0-10 & P2: WatchersTab Switch toggles on->off cleanly, TriggerCell renders role:event, and parseCommandArgs handles quotes', async () => {
   const { outputFiles } = await build({
     stdin: {
       contents: [
         "export { TriggerCell } from './src/client/cells.js'",
-        "export { parseCommandArgs } from './src/client/events-page.js'",
+        "export { parseCommandArgs, WatchersTab } from './src/client/events-page.js'",
       ].join('\n'),
       resolveDir: fileURLToPath(new URL('..', import.meta.url)),
     },
@@ -617,8 +732,16 @@ test('P0 #10 & P2: TriggerCell renders role:event without Bot-exchange fallback 
   })
   const Fragment = Symbol('Fragment')
   const h = (type, props, ...children) => ({ type, props: { ...props, children } })
+  const expand = (node) => {
+    if (node == null || typeof node === 'boolean' || typeof node === 'string' || typeof node === 'number') return node
+    if (Array.isArray(node)) return node.map(expand)
+    if (typeof node.type === 'function') return expand(node.type(node.props ?? {}))
+    return { ...node, props: { ...node.props, children: expand(node.props?.children) } }
+  }
+  const stateValues = []
+  let stateIdx = 0
   const react = {
-    createContext: (initial) => ({ value: initial, Provider: ({ children }) => children }),
+    createContext: initial => ({ value: initial, Provider: ({ children }) => children }),
     useContext: ctx => ctx.value,
     useCallback: fn => fn,
     useMemo: fn => fn(),
@@ -627,7 +750,11 @@ test('P0 #10 & P2: TriggerCell renders role:event without Bot-exchange fallback 
     Fragment,
     useEffect: () => {},
     useLayoutEffect: () => {},
-    useState: initial => [typeof initial === 'function' ? initial() : initial, () => {}],
+    useState: (initial) => {
+      const idx = stateIdx++
+      if (!(idx in stateValues)) stateValues[idx] = typeof initial === 'function' ? initial() : initial
+      return [stateValues[idx], (v) => { stateValues[idx] = typeof v === 'function' ? v(stateValues[idx]) : v }]
+    },
   }
   const mod = { exports: {} }
   runInNewContext(outputFiles[0].text, {
@@ -640,8 +767,37 @@ test('P0 #10 & P2: TriggerCell renders role:event without Bot-exchange fallback 
     Intl,
   })
 
-  const { TriggerCell, parseCommandArgs } = mod.exports
+  const { TriggerCell, parseCommandArgs, WatchersTab } = mod.exports
   assert.deepEqual([...parseCommandArgs(`-e "console.log('a b')" --flag 'two words'`)], ['-e', "console.log('a b')", '--flag', 'two words'])
+
+  // P0-1: Real Switch component inside WatchersTab renders aria-checked=true when push.enabled=true and passes { enabled: false } on click.
+  const pushCalls = []
+  stateValues.length = 0
+  stateValues[0] = {
+    watchers: [],
+    push: { enabled: true, port: 17830, listening: true, url: 'http://127.0.0.1:17830/v1/events', tokens: [] },
+  }
+  stateIdx = 0
+  const watchersTree = expand(WatchersTab({
+    roster: { bots: [{ id: 'w1', name: 'Dev' }], rooms: [], byId: { w1: { id: 'w1', name: 'Dev' } }, roomsById: {} },
+    actions: {
+      eventsView: () => Promise.resolve(stateValues[0]),
+      eventPushConfig: (cfg) => { pushCalls.push(cfg); return Promise.resolve(stateValues[0]) },
+    },
+  }))
+  const findAll = (node, pred, acc = []) => {
+    if (!node || typeof node !== 'object') return acc
+    if (Array.isArray(node)) { for (const c of node) findAll(c, pred, acc); return acc }
+    if (pred(node)) acc.push(node)
+    findAll(node.props?.children, pred, acc)
+    return acc
+  }
+  const switches = findAll(watchersTree, n => n.props?.role === 'switch')
+  assert.equal(switches.length, 1, 'WatchersTab renders one real Switch for local Push')
+  assert.equal(switches[0].props['aria-checked'], true, 'Switch must reflect push.enabled=true via `on` prop')
+  switches[0].props.onClick()
+  assert.equal(pushCalls.length, 1, 'clicking enabled Push Switch calls eventPushConfig once')
+  assert.equal(pushCalls[0].enabled, false, 'clicking enabled Push Switch must turn it OFF')
 
   let exchangeOpened = false
   const roster = { byId: { w1: { id: 'w1', name: 'Dev' } }, roomsById: {}, exchangeTurns: {} }

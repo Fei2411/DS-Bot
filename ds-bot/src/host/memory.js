@@ -879,8 +879,6 @@ export function install(rt) {
     if (update !== undefined) front.push(update)
     const recalled = autoRecall(agent, bot, member ? roomId : undefined, decision)
     if (recalled !== undefined) front.push(recalled)
-    const eventContext = rt.takeEventContextMessage?.(agent.id, bot, member ? roomId : undefined)
-    if (eventContext !== undefined) front.push(eventContext)
     return front.length === 0 ? decision : { ...decision, messages: [...front, ...decision.messages] }
   })
 

@@ -1720,6 +1720,8 @@ const ZH = {
   "Open this running session": "打开这个正在运行的会话",
   "A running session keeps using model calls in the background.": "运行中的会话会在后台继续消耗模型调用。",
   "This session is still running. Wait for it to finish, or stop it.": "这个会话还在运行。等它结束，或先停止它。",
+  'Event': '事件',
+  'Revoke?': '确认撤销？',
 }
 
 // Host errors stay English, since Bots read them too; they are translated where the
@@ -1966,9 +1968,7 @@ const HOST_ZH = {
   'Allowed': '已允许',
   'Not allowed': '未允许',
   'Grant': '去授权',
-  'Event': '事件',
   'Revoke': '撤销',
-  'Revoke?': '确认撤销？',
   'Off in Settings → Computer use': '已在设置中关闭',
   'Idle': '空闲',
   'Operating': '在操作',

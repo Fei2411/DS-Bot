@@ -91,6 +91,7 @@ export function createWatchdog(rt, { eventLedger, router, watchers, onPublish } 
       if (nowMs - lastAt < threshold) continue
 
       const botId = rt.selfOf?.(sessionId) ?? rt.chatOwners?.get(sessionId)
+      const roomId = rt.groupOwners?.get(sessionId)?.roomId ?? null
       const bot = botId ? rt.botOf(botId) : undefined
       const taskPart = (bot?.openParts ?? []).find(p => p.sessionId === sessionId && p.task !== undefined)
       const label = taskPart ? `Background task "${taskPart.task.title}" (${bot?.name ?? botId})` : (bot?.name ?? sessionId)
@@ -104,6 +105,7 @@ export function createWatchdog(rt, { eventLedger, router, watchers, onPublish } 
           dedupeKey,
           sessionId,
           botId: bot?.id ?? null,
+          roomId,
           taskId: taskPart?.task?.id ?? null,
           title: `${label} appears stalled`,
           reason,

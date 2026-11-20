@@ -182,18 +182,33 @@ export function createEventLedger(rt) {
     if (!isUser && found.privateBotId && found.privateBotId !== callerBotId) return undefined
 
     const eventMonth = monthKey(found.time)
-    const scopePrefix = found.privateBotId ? `events-priv-${found.privateBotId}-` : 'events-20'
     const decisions = []
     for (const book of books) {
-      if (!book.startsWith(scopePrefix)) continue
+      if (found.privateBotId) {
+        if (!book.startsWith(`events-priv-${found.privateBotId}-`)) continue
+      } else {
+        const isShared = book.startsWith('events-20')
+        const isOwnPrivate = !isUser && callerBotId && book.startsWith(`events-priv-${callerBotId}-`)
+        const isAnyPrivate = isUser && book.startsWith('events-priv-')
+        if (!isShared && !isOwnPrivate && !isAnyPrivate) continue
+      }
       const m = /(\d{4}-\d{2})$/.exec(book)
       if (m && m[1] < eventMonth) continue
       for (const record of rt.ledger.records(book)) {
-        if (record.recordKind === 'decision' && record.eventId === eventId) decisions.push(record)
+        if (record.recordKind !== 'decision' || record.eventId !== eventId) continue
+        if (!isUser && record.target?.kind !== 'room' && record.target?.botId
+          && rt.botOf(record.target.botId)?.private === true && record.target.botId !== callerBotId) {
+          continue
+        }
+        decisions.push(record)
       }
     }
     decisions.sort((a, b) => (a.time ?? 0) - (b.time ?? 0))
     return { ...found, decisions }
+  }
+
+  function resetDedupeCache() {
+    dedupeCache.clear()
   }
 
   function pruneOldBooks(retentionDays = DEFAULT_RETENTION_DAYS) {
@@ -217,6 +232,7 @@ export function createEventLedger(rt) {
     recordDecision,
     listEvents,
     getEvent,
+    resetDedupeCache,
     pruneOldBooks,
   }
 }

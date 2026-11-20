@@ -14835,7 +14835,9 @@ var ZH = {
   "Open this session": "打开这个会话",
   "Open this running session": "打开这个正在运行的会话",
   "A running session keeps using model calls in the background.": "运行中的会话会在后台继续消耗模型调用。",
-  "This session is still running. Wait for it to finish, or stop it.": "这个会话还在运行。等它结束，或先停止它。"
+  "This session is still running. Wait for it to finish, or stop it.": "这个会话还在运行。等它结束，或先停止它。",
+  "Event": "事件",
+  "Revoke?": "确认撤销？"
 };
 var HOST_ERRORS = [
   [/^Could not reach the mail server at (.+)\. Check the server address\.$/, "连不上邮件服务器 $1，请检查服务器地址。"],
@@ -15079,9 +15081,7 @@ var HOST_ZH = {
   "Allowed": "已允许",
   "Not allowed": "未允许",
   "Grant": "去授权",
-  "Event": "事件",
   "Revoke": "撤销",
-  "Revoke?": "确认撤销？",
   "Off in Settings → Computer use": "已在设置中关闭",
   "Idle": "空闲",
   "Operating": "在操作",
@@ -25438,7 +25438,7 @@ function WatcherForm({ roster, actions, onDone, onCancel }) {
         (0, import_react23.createElement)("span", { className: "bt-bs-label" }, t("Speculative read-only check")),
         (0, import_react23.createElement)("span", { className: "bt-set-hint" }, t("Inspect changes in read-only mode and report only when actionable."))
       ),
-      (0, import_react23.createElement)(Switch, { checked: speculative, onChange: setSpeculative, label: t("Speculative read-only check") })
+      (0, import_react23.createElement)(Switch, { on: speculative, onChange: setSpeculative, label: t("Speculative read-only check") })
     ),
     error ? (0, import_react23.createElement)("div", { className: "bt-set-row" }, (0, import_react23.createElement)("span", { className: "bt-danger bt-set-hint" }, error)) : null,
     (0, import_react23.createElement)(
@@ -25683,7 +25683,7 @@ function WatchersTab({ roster, actions }) {
             (0, import_react23.createElement)("span", null, t("Accept local events on 127.0.0.1")),
             (0, import_react23.createElement)("span", { className: "bt-set-hint bt-ev-mono" }, push.listening ? `POST ${push.url}` : t("Off · binds only to 127.0.0.1 when enabled"))
           ),
-          (0, import_react23.createElement)(Switch, { checked: push.enabled, disabled: readOnly || busy, onChange: togglePush, label: t("Accept local events on 127.0.0.1") })
+          (0, import_react23.createElement)(Switch, { on: push.enabled, disabled: readOnly || busy, onChange: togglePush, label: t("Accept local events on 127.0.0.1") })
         ),
         freshToken ? (0, import_react23.createElement)(
           "div",

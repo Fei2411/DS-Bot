@@ -151,12 +151,14 @@ export function createPushGateway(rt, { onEvent }) {
     const allowedTargets = Array.isArray(auth.allowedTargets) && auth.allowedTargets.length > 0 ? auth.allowedTargets : undefined
     const targetBotId = typeof payload.botId === 'string' && payload.botId !== '' ? payload.botId : undefined
     const targetRoomId = typeof payload.roomId === 'string' && payload.roomId !== '' ? payload.roomId : undefined
+    const botAllowed = id => !allowedTargets || allowedTargets.includes(id) || allowedTargets.includes(`bot:${id}`)
+    const roomAllowed = id => !allowedTargets || allowedTargets.includes(id) || allowedTargets.includes(`room:${id}`)
     if (targetBotId !== undefined) {
       const bot = rt.botOf(targetBotId)
       if (!bot || bot.private === true) {
         throw Object.assign(new Error('Not found'), { status: 404, code: 'bot/not-found' })
       }
-      if (allowedTargets && !allowedTargets.includes(targetBotId)) {
+      if (!botAllowed(targetBotId)) {
         throw Object.assign(new Error('Forbidden'), { status: 403, code: 'bot/forbidden' })
       }
     }
@@ -164,7 +166,7 @@ export function createPushGateway(rt, { onEvent }) {
       if (!rt.roomOf(targetRoomId)) {
         throw Object.assign(new Error('Not found'), { status: 404, code: 'bot/not-found' })
       }
-      if (allowedTargets && !allowedTargets.includes(targetRoomId)) {
+      if (!roomAllowed(targetRoomId)) {
         throw Object.assign(new Error('Forbidden'), { status: 403, code: 'bot/forbidden' })
       }
     }
@@ -212,8 +214,8 @@ export function createPushGateway(rt, { onEvent }) {
     const next = createServer((req, res) => {
       try {
         if (!writes()) {
+          res.once('finish', () => { void stop() })
           respondJson(res, 503, { ok: false, error: 'Host no longer holds team lock' })
-          void stop()
           return
         }
         const url = req.url ?? '/'
@@ -256,7 +258,15 @@ export function createPushGateway(rt, { onEvent }) {
             tokenName: auth.token.name,
             allowedTargets: auth.token.allowedTargets,
           }).then((result) => {
-            respondJson(res, 202, { ok: true, ...result })
+            // Never expose internal sessionId, subId, or private Bot delivery details to external HTTP callers.
+            const deliveries = Array.isArray(result?.deliveries) ? result.deliveries : []
+            const deliveredCount = deliveries.filter(d => d?.outcome === 'delivered' && !d?.privateTarget).length
+            respondJson(res, 202, {
+              ok: true,
+              eventId: result?.eventId ?? null,
+              deduplicated: Boolean(result?.deduplicated),
+              delivered: deliveredCount,
+            })
           }, (error) => {
             const status = Number.isInteger(error?.status) ? error.status : error?.code === 'bot/invalid' ? 400 : 500
             respondJson(res, status, { ok: false, error: error?.message ?? 'Event rejected' })

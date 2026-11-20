@@ -1574,7 +1574,7 @@ export function install(rt) {
         const who = `Event · ${post.eventMeta.sourceName || post.eventMeta.sourceKind || 'external'}`
         say(room, { who, eventMeta: post.eventMeta, text, ...(post.files === undefined ? {} : { files: post.files }), session: true })
         const { speakers, ordered } = openingCall(room, post)
-        callIn(round, speakers, 'an external event arrived', undefined, { ordered })
+        callIn(round, speakers, post.eventMeta.trust === 'team' ? 'a team event arrived' : 'an external event arrived', undefined, { ordered })
         continue
       }
       // The user's message, as one the round takes in from the Session's inbox.
@@ -1724,7 +1724,7 @@ export function install(rt) {
         // A round a Bot's post opened: what its members answer is Bot-to-Bot, counted
         // by the idle guard even though no one is named (#853).
         ...(opener.botId !== undefined ? { fromBot: true } : {}),
-        ...(opener.eventMeta !== undefined ? { note: 'an external event arrived' } : {}),
+        ...(opener.eventMeta !== undefined ? { note: opener.eventMeta.trust === 'team' ? 'a team event arrived' : 'an external event arrived' } : {}),
         ...(opener.kickoff ? { note: 'the group was just created' } : {}),
         ...(opener.goal === 'draft' || (draftPost !== undefined && admin !== undefined && member.id === admin.id) ? { note: 'the user wants to set a goal for this group' } : {}),
         ...(opener.goal === 'nudge' ? { note: 'goal check' } : {}),

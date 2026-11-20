@@ -281,8 +281,8 @@ test('Watchdog detects stalled turns, pauses orphan subscriptions, and surfaces 
     const origHasSubagents = env.rt.hasSubagents
     env.rt.hasSubagents = id => (id === 'p1' ? true : origHasSubagents?.(id) === true)
 
-    // Use real DS Bot state shapes: questions (`question`, `detail`, `askedAt`) and nested
-    // per-bot request arrays containing both pending and already-settled entries.
+    // Use real DS Bot state shapes: questions (`question`, `detail`, `askedAt`), approvalsView
+    // (`reason`, `detail: { text, code }`, `at`), and nested per-bot request arrays using `purpose`/`name`.
     env.rt.state.questions.m1 = {
       id: 'q1',
       question: 'Ship v0.4.0?',
@@ -292,14 +292,14 @@ test('Watchdog detects stalled turns, pauses orphan subscriptions, and surfaces 
     }
     env.rt.state.secretRequests = {
       m1: [
-        { id: 'sr1', name: 'GITHUB_TOKEN', reason: 'Watch repo', status: 'pending', askedAt: 1700000001000 },
-        { id: 'sr2', name: 'OLD_KEY', reason: 'Already saved', status: 'saved', askedAt: 1700000000500 },
+        { id: 'sr1', name: 'GITHUB_TOKEN', purpose: 'Watch repo', status: 'pending', askedAt: 1700000001000 },
+        { id: 'sr2', name: 'OLD_KEY', purpose: 'Already saved', status: 'saved', askedAt: 1700000000500 },
       ],
     }
     env.rt.state.connectorRequests = {
       m1: [
-        { id: 'cr1', connectorId: 'linear', reason: 'Sync issues', status: 'pending', askedAt: 1700000002000 },
-        { id: 'cr2', connectorId: 'slack', reason: 'Connected', status: 'connected', askedAt: 1700000000600 },
+        { id: 'cr1', connectorId: 'linear', name: 'Linear', purpose: 'Sync issues', status: 'pending', askedAt: 1700000002000 },
+        { id: 'cr2', connectorId: 'slack', name: 'Slack', purpose: 'Connected', status: 'connected', askedAt: 1700000000600 },
       ],
     }
     env.rt.state.mailRequests = {
@@ -308,33 +308,44 @@ test('Watchdog detects stalled turns, pauses orphan subscriptions, and surfaces 
         { id: 'mr2', subject: 'Sent already', to: 'team@example.com', status: 'sent', askedAt: 1700000000700 },
       ],
     }
+    const origApprovals = env.rt.approvalsView
+    env.rt.approvalsView = () => [
+      { id: 'ap1', sessionId: 'other-sess', botId: 'm1', tool: 'bash', reason: '', detail: { text: 'Run deploy script', code: 'npm run deploy' }, at: 1700000004000 },
+    ]
+    try {
+      const sweep = await env.rt.eventWatchdog.sweep(Date.now())
+      assert.equal(sweep.alerts, 1)
+      assert.equal(sweep.orphans, 1)
 
-    const sweep = await env.rt.eventWatchdog.sweep(Date.now())
-    assert.equal(sweep.alerts, 1)
-    assert.equal(sweep.orphans, 1)
+      const paused = env.rt.eventRouter.listSubscriptions({ isUser: true }).find(s => s.id === orphanSub.id)
+      assert.equal(paused.enabled, false)
+      assert.match(paused.pausedReason, /removed/)
 
-    const paused = env.rt.eventRouter.listSubscriptions({ isUser: true }).find(s => s.id === orphanSub.id)
-    assert.equal(paused.enabled, false)
-    assert.match(paused.pausedReason, /removed/)
+      const inbox = env.rt.inboxView()
+      assert.equal(inbox.counts.question, 1)
+      assert.equal(inbox.counts.review, 4)
+      assert.ok(inbox.counts.alert >= 2)
+      const approvalItem = inbox.items.find(i => i.kind === 'approval' && i.id === 'apr_ap1')
+      assert.ok(approvalItem)
+      assert.equal(typeof approvalItem.detail, 'string', 'approval detail must be a string, never a raw object')
+      assert.match(approvalItem.detail, /Run deploy script/)
+      assert.ok(inbox.items.some(i => i.kind === 'question' && i.detail.includes('Ship v0.4.0?')))
+      assert.ok(inbox.items.some(i => i.kind === 'secret_request' && i.id === 'sec_sr1' && i.detail === 'Watch repo'))
+      assert.ok(!inbox.items.some(i => i.id === 'sec_sr2'))
+      assert.ok(inbox.items.some(i => i.kind === 'connector_request' && i.id === 'con_cr1' && i.title.includes('Linear') && i.detail === 'Sync issues'))
+      assert.ok(inbox.items.some(i => i.kind === 'mail_request' && i.id === 'mail_mr1' && i.detail === 'Weekly digest'))
+      assert.ok(inbox.items.some(i => i.kind === 'stalled_turn' && i.botId === 'm1'))
+      assert.ok(!inbox.items.some(i => i.kind === 'stalled_turn' && i.botId === 'p1'), 'active subagent must suppress stalled alert')
+      assert.ok(inbox.items.some(i => i.kind === 'subscription_paused' && i.subId === orphanSub.id))
 
-    const inbox = env.rt.inboxView()
-    assert.equal(inbox.counts.question, 1)
-    assert.equal(inbox.counts.review, 3)
-    assert.ok(inbox.counts.alert >= 2)
-    assert.ok(inbox.items.some(i => i.kind === 'question' && i.detail.includes('Ship v0.4.0?')))
-    assert.ok(inbox.items.some(i => i.kind === 'secret_request' && i.id === 'sec_sr1'))
-    assert.ok(!inbox.items.some(i => i.id === 'sec_sr2'))
-    assert.ok(inbox.items.some(i => i.kind === 'connector_request' && i.id === 'con_cr1'))
-    assert.ok(inbox.items.some(i => i.kind === 'mail_request' && i.id === 'mail_mr1' && i.detail === 'Weekly digest'))
-    assert.ok(inbox.items.some(i => i.kind === 'stalled_turn' && i.botId === 'm1'))
-    assert.ok(!inbox.items.some(i => i.kind === 'stalled_turn' && i.botId === 'p1'), 'active subagent must suppress stalled alert')
-    assert.ok(inbox.items.some(i => i.kind === 'subscription_paused' && i.subId === orphanSub.id))
-
-    // Deterministic output across ticks (no Date.now() fallbacks busting channel.js liveCache).
-    const snap1 = JSON.stringify(env.rt.inboxView())
-    await new Promise(resolve => setTimeout(resolve, 15))
-    const snap2 = JSON.stringify(env.rt.inboxView())
-    assert.equal(snap1, snap2)
+      // Deterministic output across ticks (no Date.now() fallbacks busting channel.js liveCache).
+      const snap1 = JSON.stringify(env.rt.inboxView())
+      await new Promise(resolve => setTimeout(resolve, 15))
+      const snap2 = JSON.stringify(env.rt.inboxView())
+      assert.equal(snap1, snap2)
+    } finally {
+      env.rt.approvalsView = origApprovals
+    }
   } finally {
     await env.cleanup()
   }

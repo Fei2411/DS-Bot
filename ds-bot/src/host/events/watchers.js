@@ -51,27 +51,58 @@ function isPrivateIpv4(ip) {
   return false
 }
 
+function expandIpv6Hextets(ip) {
+  let text = ip
+  // Convert trailing dotted-quad IPv4 suffix (e.g. ::ffff:127.0.0.1 or ::127.0.0.1) to two hextets.
+  const lastColon = text.lastIndexOf(':')
+  if (lastColon !== -1 && text.slice(lastColon + 1).includes('.')) {
+    const v4 = text.slice(lastColon + 1)
+    if (isIP(v4) !== 4) return null
+    const octets = v4.split('.').map(Number)
+    const hi = ((octets[0] << 8) | octets[1]).toString(16)
+    const lo = ((octets[2] << 8) | octets[3]).toString(16)
+    text = `${text.slice(0, lastColon + 1)}${hi}:${lo}`
+  }
+  const halves = text.split('::')
+  if (halves.length > 2) return null
+  const left = halves[0] ? halves[0].split(':') : []
+  const right = halves.length === 2 && halves[1] ? halves[1].split(':') : []
+  const missing = 8 - (left.length + right.length)
+  if (halves.length === 1 && missing !== 0) return null
+  if (missing < 0) return null
+  const groups = [...left, ...Array.from({ length: missing }, () => '0'), ...right]
+  if (groups.length !== 8) return null
+  const nums = groups.map(g => Number.parseInt(g, 16))
+  if (nums.some(n => !Number.isInteger(n) || n < 0 || n > 0xffff)) return null
+  return nums
+}
+
 export function isPrivateIp(rawIp) {
   const ip = String(rawIp ?? '').replace(/^\[|\]$/g, '').split('%')[0].toLowerCase()
   const kind = isIP(ip)
   if (kind === 4) return isPrivateIpv4(ip)
   if (kind === 6) {
-    if (ip === '::' || ip === '::1') return true
-    if (ip.startsWith('fc') || ip.startsWith('fd')) return true // ULA fc00::/7
-    if (/^fe[89ab]/.test(ip)) return true // link-local fe80::/10
-    if (ip.startsWith('ff')) return true // multicast
-    // IPv4-mapped IPv6 in dotted form (::ffff:127.0.0.1) or hex form (::ffff:7f00:1)
-    if (ip.startsWith('::ffff:')) {
-      const rest = ip.slice('::ffff:'.length)
-      if (isIP(rest) === 4) return isPrivateIpv4(rest)
-      const hex = /^([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(rest)
-      if (hex) {
-        const hi = Number.parseInt(hex[1], 16)
-        const lo = Number.parseInt(hex[2], 16)
-        return isPrivateIpv4(`${hi >> 8}.${hi & 255}.${lo >> 8}.${lo & 255}`)
-      }
-      return true
+    const h = expandIpv6Hextets(ip)
+    if (!h) return true
+    const allZeroPrefix = h[0] === 0 && h[1] === 0 && h[2] === 0 && h[3] === 0 && h[4] === 0
+    // Unspecified (::) and loopback (::1, 0:0:0:0:0:0:0:1)
+    if (allZeroPrefix && h[5] === 0 && h[6] === 0 && (h[7] === 0 || h[7] === 1)) return true
+    // IPv4-mapped (::ffff:0:0/96) or deprecated IPv4-compatible (::a.b.c.d)
+    if (allZeroPrefix && (h[5] === 0xffff || h[5] === 0)) {
+      const v4 = `${h[6] >> 8}.${h[6] & 255}.${h[7] >> 8}.${h[7] & 255}`
+      return isPrivateIpv4(v4)
     }
+    // NAT64 well-known (64:ff9b::/96) and local-use (64:ff9b:1::/48)
+    if (h[0] === 0x0064 && h[1] === 0xff9b) {
+      if (h[2] === 0x0001) return true
+      if (h[2] === 0 && h[3] === 0 && h[4] === 0 && h[5] === 0) {
+        const v4 = `${h[6] >> 8}.${h[6] & 255}.${h[7] >> 8}.${h[7] & 255}`
+        return isPrivateIpv4(v4)
+      }
+    }
+    if ((h[0] & 0xfe00) === 0xfc00) return true // ULA fc00::/7
+    if ((h[0] & 0xffc0) === 0xfe80) return true // link-local fe80::/10
+    if ((h[0] & 0xff00) === 0xff00) return true // multicast ff00::/8
     return false
   }
   return true
@@ -81,7 +112,7 @@ export function checkHttpUrlSyntax(raw) {
   let parsed
   try { parsed = new URL(String(raw ?? '')) } catch { return 'Enter a valid https:// URL' }
   if (parsed.protocol !== 'https:') return 'HTTP watchers only allow https:// URLs'
-  const host = parsed.hostname.toLowerCase().replace(/^\[|\]$/g, '')
+  const host = parsed.hostname.toLowerCase().replace(/^\[|\]$/g, '').replace(/\.+$/, '')
   if (host === '' || host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local')) {
     return 'HTTP watchers cannot target loopback or private network addresses'
   }
@@ -263,7 +294,10 @@ export function createWatchers(rt, { onEvent, onAlert } = {}) {
     }
     if (kind === 'github') {
       const repo = String(cfg.repo ?? '').trim()
-      if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) throw invalid('GitHub watcher needs repo in owner/name format')
+      const [owner, name] = repo.split('/')
+      if (!/^[\w.-]+\/[\w.-]+$/.test(repo) || owner === '.' || owner === '..' || name === '.' || name === '..') {
+        throw invalid('GitHub watcher needs repo in owner/name format')
+      }
       return {
         repo,
         events: Array.isArray(cfg.events) && cfg.events.length > 0 ? cfg.events.map(String) : ['PullRequestEvent', 'PullRequestReviewEvent', 'IssueCommentEvent', 'IssuesEvent'],

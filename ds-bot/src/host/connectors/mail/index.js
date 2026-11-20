@@ -589,7 +589,13 @@ export function install(rt, host) {
     const account = accountOf(ref)
     if (!account) throw Object.assign(new Error('No matching mail account connected'), { authFailed: true })
     const session = await connect(account)
-    const rows = await session.search({ folder, ...(fromFilter ? { from: fromFilter } : {}), limit: 20 })
+    let rows
+    try {
+      rows = await session.search({ folder, ...(fromFilter ? { from: fromFilter } : {}), limit: 20 })
+    } catch (error) {
+      sessions.delete(account.id)
+      throw error
+    }
     const messages = (Array.isArray(rows) ? rows : []).map(row => ({
       uid: String(row.uid ?? ''),
       folder: row.folder ?? folder,
