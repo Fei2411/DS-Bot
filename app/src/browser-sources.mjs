@@ -1044,7 +1044,7 @@ function readChromiumSqliteCookiesDetailed(dbPath, { key, now = Date.now() / 100
         secure: Boolean(row.is_secure), httpOnly: Boolean(row.is_httponly),
       }
       const ss = DB_SAMESITE[row.samesite]
-      if (ss) cookie.sameSite = ss
+      if (ss && (ss !== 'None' || cookie.secure)) cookie.sameSite = ss
       if (expires !== undefined) cookie.expires = expires
       if (typeof row.top_frame_site_key === 'string' && row.top_frame_site_key) {
         const hasCrossSite = row.has_cross_site_ancestor === null || row.has_cross_site_ancestor === undefined
@@ -1209,7 +1209,7 @@ function cdpCookie(c) {
     name: c.name, value: c.value, domain: c.domain, path: c.path || '/',
     secure: Boolean(c.secure), httpOnly: Boolean(c.httpOnly),
   }
-  if (c.sameSite === 'Strict' || c.sameSite === 'Lax' || c.sameSite === 'None') cookie.sameSite = c.sameSite
+  if (c.sameSite === 'Strict' || c.sameSite === 'Lax' || (c.sameSite === 'None' && cookie.secure)) cookie.sameSite = c.sameSite
   if (!c.session && typeof c.expires === 'number' && c.expires > 0) cookie.expires = c.expires
   if (c.partitionKey && typeof c.partitionKey === 'object' && typeof c.partitionKey.topLevelSite === 'string') {
     cookie.partitionKey = { topLevelSite: c.partitionKey.topLevelSite, hasCrossSiteAncestor: Boolean(c.partitionKey.hasCrossSiteAncestor) }
@@ -1231,7 +1231,7 @@ function harvestFirefox(workDir, now = Date.now() / 1000) {
       // nsICookie: SAMESITE_UNSET 0, LAX 1, STRICT 2, NONE 3 (sameSite column, rawSameSite as fallback)
       const ss = { 1: 'Lax', 2: 'Strict', 3: 'None' }[row.sameSite ?? row.rawSameSite] ?? undefined
       const cookie = { name: row.name, value: row.value ?? '', domain: row.host, path: row.path || '/', secure: !!row.isSecure, httpOnly: !!row.isHttpOnly, expires: row.expiry }
-      if (ss) cookie.sameSite = ss
+      if (ss && (ss !== 'None' || cookie.secure)) cookie.sameSite = ss
       if (row.originAttributes && row.originAttributes !== '') {
         skipped.push({ where: `entry ${index + 1}`, name: row.name, domain: row.host, code: 'container', reason: `a Firefox container cookie (${row.originAttributes}); importing it flat would mix it into the default context` })
         return

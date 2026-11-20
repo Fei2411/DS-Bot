@@ -43567,7 +43567,9 @@ function ImportMenu({ sources, lastSourceId, loading, busy, canPaste, onFile, on
     { className: "bt-import-menu", role: "menu", "aria-label": t("Import cookies") },
     (0, import_react69.createElement)("div", { className: "bt-import-menu-title" }, t("Import from browser")),
     loading ? (0, import_react69.createElement)("div", { className: "bt-import-menu-note" }, t("Loading…")) : sources.length === 0 ? (0, import_react69.createElement)("div", { className: "bt-import-menu-note" }, t("No browsers found")) : sources.map((source) => {
-      const sub = source.liveDebugReady ? t("Ready") : source.id === lastSourceId ? t("Last used") : source.email || t("Browser profile");
+      const isLast = source.id === lastSourceId;
+      const isReady = Boolean(source.liveDebugReady);
+      const showFallback = !isLast && !isReady && !source.email;
       return (0, import_react69.createElement)(
         "button",
         {
@@ -43580,8 +43582,19 @@ function ImportMenu({ sources, lastSourceId, loading, busy, canPaste, onFile, on
           onClick: () => onSource(source)
         },
         (0, import_react69.createElement)(WindowIcon, { className: "bt-import-item-icon" }),
-        (0, import_react69.createElement)("span", { className: "bt-import-item-name" }, source.label),
-        (0, import_react69.createElement)("span", { className: "bt-import-item-sub", "data-ready": source.liveDebugReady || void 0 }, sub)
+        (0, import_react69.createElement)(
+          "span",
+          { className: "bt-import-item-main" },
+          (0, import_react69.createElement)("span", { className: "bt-import-item-name" }, source.label),
+          source.email ? (0, import_react69.createElement)("span", { className: "bt-import-item-email" }, source.email) : null
+        ),
+        isLast || isReady || showFallback ? (0, import_react69.createElement)(
+          "span",
+          { className: "bt-import-item-meta" },
+          isLast ? (0, import_react69.createElement)("span", { className: "bt-import-item-tag" }, t("Last used")) : null,
+          isReady ? (0, import_react69.createElement)("span", { className: "bt-import-item-sub", "data-ready": true }, t("Ready")) : null,
+          showFallback ? (0, import_react69.createElement)("span", { className: "bt-import-item-sub" }, t("Browser profile")) : null
+        ) : null
       );
     }),
     (0, import_react69.createElement)("div", { className: "bt-import-sep", role: "separator" }),
@@ -44262,16 +44275,22 @@ var BROWSER_CSS = `
 .bt-bcard-new svg{width:14px;height:14px}
 .bt-browser-empty-mark{display:flex;flex-direction:column;align-items:center;gap:10px;text-align:center}
 /* Cookie imports */
-.bt-import-menu{position:absolute;top:6px;right:6px;z-index:6;width:296px;max-height:min(360px,calc(100% - 12px));overflow:auto;padding:6px;border-radius:16px;background:var(--bt-glass-bg);-webkit-backdrop-filter:blur(24px) saturate(180%);backdrop-filter:blur(24px) saturate(180%);border:.5px solid var(--bt-glass-rim);box-shadow:var(--bt-glass-shadow);transform-origin:top right;animation:bt-pop-drop .18s cubic-bezier(.16,1,.3,1),bt-fade .14s ease-out}
+.bt-import-menu{position:absolute;top:6px;right:6px;z-index:6;width:312px;max-width:calc(100% - 12px);max-height:min(360px,calc(100% - 12px));overflow:auto;padding:6px;border-radius:16px;background:var(--bt-glass-bg);-webkit-backdrop-filter:blur(24px) saturate(180%);backdrop-filter:blur(24px) saturate(180%);border:.5px solid var(--bt-glass-rim);box-shadow:var(--bt-glass-shadow);transform-origin:top right;animation:bt-pop-drop .18s cubic-bezier(.16,1,.3,1),bt-fade .14s ease-out}
 .bt-import-menu-title{padding:6px 10px 8px;font-size:11px;font-weight:500;letter-spacing:.02em;color:var(--bt-ink-3)}
 .bt-import-sep{height:.5px;margin:4px 8px;background:var(--bt-line)}
 .bt-import-item{display:flex;align-items:center;gap:9px;width:100%;min-width:0;padding:8px 10px;border:0;border-radius:8px;background:none;color:var(--bt-ink);font:inherit;font-size:12px;text-align:left;cursor:pointer}
 .bt-import-item:hover{background:var(--bt-hover)}
 .bt-import-item:disabled{opacity:.5;cursor:default}
-.bt-import-item-icon{flex:none;color:var(--bt-ink-3)}
+.bt-import-item-icon,.bt-import-item svg{flex:none;color:var(--bt-ink-3)}
 .bt-import-item-icon svg,.bt-import-item svg{width:15px;height:15px}
+.bt-import-item-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px}
 .bt-import-item-name{flex:none;max-width:62%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bt-import-item-main .bt-import-item-name{max-width:none}
+.bt-import-item-email{font-size:11px;line-height:15px;color:var(--bt-ink-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bt-import-item-meta{flex:none;display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+.bt-import-item-tag{font-size:11px;color:var(--bt-ink-3)}
 .bt-import-item-sub{flex:1;min-width:0;text-align:right;font-size:11px;color:var(--bt-ink-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bt-import-item-meta .bt-import-item-sub{flex:none}
 .bt-import-item-sub[data-ready]{color:var(--bt-green);font-weight:500}
 .bt-import-menu-note{padding:8px 10px 10px;font-size:12px;color:var(--bt-ink-3)}
 .bt-import-card{position:absolute;inset:0;z-index:5;display:flex;align-items:center;justify-content:center;padding:20px;background:var(--bt-main);overflow:auto;animation:bt-foot-in .2s ease}

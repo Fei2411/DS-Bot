@@ -267,6 +267,8 @@ test('harvestLiveChromium reads cookies and open-tab localStorage via WebSocket 
           result: {
             cookies: [
               { name: 'sid', value: 'live-cookie-val', domain: '.example.com', path: '/', secure: true, httpOnly: true, sameSite: 'Lax', session: false, expires: 1900000000 },
+              { name: 'MUIDB', value: 'insecure-none', domain: 'www.bing.com', path: '/', secure: false, httpOnly: true, sameSite: 'None', session: false, expires: 1900000000 },
+              { name: 'sec_none', value: 'secure-none', domain: 'www.bing.com', path: '/', secure: true, httpOnly: false, sameSite: 'None', session: false, expires: 1900000000 },
               { name: 'stale', value: 'x', domain: '.example.com', path: '/', secure: true, httpOnly: false, session: false, expires: 1000000000 },
             ],
           },
@@ -296,9 +298,13 @@ test('harvestLiveChromium reads cookies and open-tab localStorage via WebSocket 
     const activePort = { port, path: '/devtools/browser/test', wsUrl: `ws://127.0.0.1:${port}/devtools/browser/test` }
     const source = { engine: 'chromium', userDataDir: root.dir, profilePath: join(root.dir, 'Default'), profileDir: 'Default' }
     const out = await harvestLiveChromium(source, { activePort, skipFocus: true, now: 1700000000 })
-    assert.equal(out.cookies.length, 1)
+    assert.equal(out.cookies.length, 3)
     assert.equal(out.cookies[0].name, 'sid')
     assert.equal(out.cookies[0].value, 'live-cookie-val')
+    assert.equal(out.cookies[1].name, 'MUIDB')
+    assert.equal(out.cookies[1].sameSite, undefined, 'SameSite=None without Secure is dropped')
+    assert.equal(out.cookies[2].name, 'sec_none')
+    assert.equal(out.cookies[2].sameSite, 'None')
     assert.equal(out.skipped.length, 1)
     assert.equal(out.skipped[0].code, 'expired')
     assert.deepEqual(out.origins, [{ origin: 'https://app.example.com', localStorage: [{ name: 'auth_token', value: 'tok-123' }] }])
