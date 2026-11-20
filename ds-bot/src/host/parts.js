@@ -1320,7 +1320,9 @@ export function install(rt) {
       : { fallback: whole ? 'whole' : job.failed !== undefined ? 'failure' : job.overflow ? 'overflow' : job.cutoff === true ? 'cutoff' : job.manual && failure === undefined ? 'manual' : 'failed', ...earlierNote }
     carried ??= await readLines()
     if (signal.aborted) throw signal.reason
-    const dir = taskEntry?.workDir ?? rt.workDirOf(effectiveRoom !== undefined && job.roomId === undefined ? { ...job, roomId: effectiveRoom.id } : job)
+    const dir = taskEntry?.workDir !== undefined
+      ? (taskEntry.workDir ?? undefined)
+      : rt.workDirOf(effectiveRoom !== undefined && job.roomId === undefined ? { ...job, roomId: effectiveRoom.id } : job)
     const intended = dir !== undefined && await rt.isFolder(dir) ? dir : rt.teamFolder()
     const freshId = await rt.createSession(effectiveRoom === undefined ? name : bot === undefined ? effectiveRoom.name : `${name} · ${effectiveRoom.name}`, { dir })
     // The group's own Session never asks the model, so selectRoomSession picks an
@@ -1515,7 +1517,8 @@ export function install(rt) {
     const place = folderPlaceOf(agent.id)
     const cwd = agent.session.header?.cwd
     if (place === undefined || cwd === undefined || (midTurn && place.roomId !== undefined) || Date.now() < (folderRetry.get(agent.id) ?? 0)) return undefined
-    const wanted = rt.taskBySession?.(agent.id)?.task?.workDir ?? rt.workDirOf(place)
+    const taskEntry = rt.taskBySession?.(agent.id)?.task
+    const wanted = taskEntry?.workDir !== undefined ? (taskEntry.workDir ?? undefined) : rt.workDirOf(place)
     const usable = wanted !== undefined && await rt.isFolder(wanted)
     // A team copied from another DSH_HOME has no team workspace here until one is made, and its
     // Sessions still work in the old one.
@@ -1552,7 +1555,8 @@ export function install(rt) {
       return next()
     }
     const place = folderPlaceOf(agent.id)
-    const wanted = rt.taskBySession?.(agent.id)?.task?.workDir ?? rt.workDirOf(place)
+    const taskEntry = rt.taskBySession?.(agent.id)?.task
+    const wanted = taskEntry?.workDir !== undefined ? (taskEntry.workDir ?? undefined) : rt.workDirOf(place)
     const usable = wanted !== undefined && await rt.isFolder(wanted)
     // A member whose group's folder went away works on in the team workspace; the
     // group is told once, so every round is not told again. A member still in a
@@ -2154,7 +2158,7 @@ export function install(rt) {
   async function openTaskPart(bot, fromSessionId, task, { workDir } = {}) {
     const room = task.roomId !== undefined ? rt.roomOf(task.roomId) : undefined
     const defaultDir = rt.workDirOf({ botId: bot.id, ...(room ? { roomId: room.id } : {}) })
-    const dir = workDir ?? defaultDir
+    const dir = workDir !== undefined ? (workDir ?? undefined) : defaultDir
     const isLocal = rt.localAgentBadge?.(bot.model ?? bot.appliedModel) !== undefined
     let sessionId
     let forked = false
@@ -2182,7 +2186,7 @@ export function install(rt) {
         .catch(error => rt.warn('ds-bot: unused task part of %s not archived: %s', bot.name, error))
       throw Object.assign(new Error(room !== undefined ? 'Bot is no longer in this group' : 'Bot no longer exists'), { code: 'bot/not-found' })
     }
-    const stored = { ...task, sessionId, segments: [], ...(workDir ? { workDir } : {}) }
+    const stored = { ...task, sessionId, segments: [], ...(workDir !== undefined ? { workDir } : {}) }
     ;(bot.tasks ??= []).push(stored)
     rt.chatOwners.set(sessionId, bot.id)
     rt.taskOwners.set(sessionId, { botId: bot.id, taskId: task.id, ...(room ? { roomId: room.id } : {}) })

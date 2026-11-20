@@ -60,6 +60,8 @@ export function install(rt) {
     const id = session?.id
     const room = rt.roomOf(id)
     if (room !== undefined) return workDirOf({ roomId: room.id }) ?? teamFolder()
+    const taskEntry = rt.taskBySession?.(id)?.task
+    if (taskEntry?.workDir !== undefined) return taskEntry.workDir ?? teamFolder()
     return workDirOf({ botId: rt.selfOf?.(id), roomId: rt.groupOwners?.get(id)?.roomId ?? rt.taskOwners?.get(id)?.roomId }) ?? teamFolder()
   }
   // The desktop app runs its own DSH and names the user's, which Bots must not write either.

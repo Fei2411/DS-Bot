@@ -392,6 +392,8 @@ export function install(rt) {
           })
         }
         resolvedDir = cleaned
+      } else {
+        resolvedDir = null
       }
     }
 
@@ -539,7 +541,7 @@ export function install(rt) {
     const events = Array.isArray(seen?.events) ? seen.events : []
     const lastStart = events.findLastIndex(event => event?.type === 'turn/start')
     const slice = lastStart === -1 ? events : events.slice(lastStart)
-    const folder = task.workDir ?? rt.workDirOf?.({ botId: bot.id, ...(task.roomId ? { roomId: task.roomId } : {}) })
+    const folder = task.workDir !== undefined ? (task.workDir ?? rt.teamFolder?.()) : rt.workDirOf?.({ botId: bot.id, ...(task.roomId ? { roomId: task.roomId } : {}) })
     const said = slice
       .filter(event => event?.type === 'assistant/message')
       .map(event => textOf(event.data?.message?.content ?? []).trim())

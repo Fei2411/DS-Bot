@@ -1493,14 +1493,17 @@ export function install(rt) {
             if (roomSid !== undefined && originFromSaved(saved) !== undefined) {
               const live = origins.get(roomSid)
               const memberId = rt.groupOwners.get(session.id)?.botId
+              const activeRound = rt.roomActive?.(room.id) === true
               const otherWorking = (rt.roomWorkView?.()[room.id] ?? []).some(item => item.botId !== memberId)
-              const busy = rt.roomActive?.(room.id) === true || otherWorking
-              if (live === undefined && !(mixed.has(roomSid) && busy)) {
+              if (live === undefined && !activeRound && !(mixed.has(roomSid) && otherWorking)) {
                 // Restore after restart even while sibling group tasks run, and clear stale
-                // `mixed` left by an already-finished desktop/Web round; stay blocked only
-                // while a live non-IM desktop/Web round is actively running.
+                // `mixed` left by an already-finished desktop/Web round; stay blocked while
+                // a live non-IM round is active or a mixed round still has working members.
                 resetOrigin(roomSid)
                 claimOrigin(roomSid, saved.connId, saved.chatKey, saved.senderId, saved.binding)
+              } else if (live !== undefined && (live.connId !== saved.connId || live.chatKey !== saved.chatKey)) {
+                // A different IM chat currently owns the room; mix so neither chat sees the other's report.
+                dropOrigin(roomSid)
               }
             } else if (roomSid !== undefined) {
               // A desktop/Web-started group task has no IM origin: drop any restored room

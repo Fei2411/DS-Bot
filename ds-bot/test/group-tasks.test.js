@@ -96,6 +96,7 @@ async function startEnv({ roomWorkDir, roomPermission, botPermission } = {}) {
       events,
       get seq() { return events.length },
       requestHeader: () => undefined,
+      deriveMessages: () => [],
       snapshotEvents: () => [...events],
     }
     const agent = {
@@ -118,6 +119,8 @@ async function startEnv({ roomWorkDir, roomPermission, botPermission } = {}) {
       },
       inject: (msg) => { followups.push(msg) },
       cancel: (cause) => cancelled.push(cause),
+      whenIdle: () => Promise.resolve(),
+      runMaintenance: fn => fn(AbortSignal.timeout(60_000)),
       followups,
       cancelled,
     }
@@ -138,9 +141,9 @@ async function startEnv({ roomWorkDir, roomPermission, botPermission } = {}) {
       archiveSession: async () => {},
     },
     sessionController: {
-      create: async ({ title, cwd }) => {
+      create: async ({ title, cwd, workspaceId }) => {
         const sessionId = `ses-${++seqId}`
-        createdSessions.push({ sessionId, title, cwd })
+        createdSessions.push({ sessionId, title, cwd, workspaceId })
         makeAgent(sessionId, cwd ?? workDir)
         return { sessionId }
       },
@@ -230,7 +233,7 @@ test('group member task_start inherits group workDir/permissions/memory, isolate
   assert.equal(applied.at(-1)?.preset, 'read-only')
 
   // Group folder is inherited.
-  assert.equal(realpathSync(env.agentMap.get(task.sessionId).session.header.cwd), realpathSync(env.groupDir))
+  assert.equal(realpathSync.native(env.agentMap.get(task.sessionId).session.header.cwd), realpathSync.native(env.groupDir))
 
   // roomWorkView surfaces the active group task.
   const roomWork = env.rt.roomWorkView().r1 ?? []
@@ -434,12 +437,12 @@ test('P0-3: valid subdirectory inside room.workDir passes realpath within() chec
   const linkBase = mkdtempSync(join(tmpdir(), 'ds-bot-link-'))
   t.after(() => rmSync(linkBase, { recursive: true, force: true }))
   const linkDir = join(linkBase, 'symlink-to-sub')
-  symlinkSync(subDir, linkDir)
+  symlinkSync(subDir, linkDir, process.platform === 'win32' ? 'junction' : 'dir')
   const grpA = env.agentMap.get('grp-r1-a')
   const started = await env.tool('task_start').execute({ title: 'Subdir task', brief: 'Work in sub', workdir: linkDir }, execOf(grpA))
   assert.match(started, /Started background task "Subdir task"/)
   const task = env.rt.botOf('a').tasks[0]
-  assert.equal(realpathSync(task.workDir), realpathSync(subDir))
+  assert.equal(realpathSync.native(task.workDir), realpathSync.native(subDir))
 
   // P2-3: explicitly passing the team workspace when room.workDir is separate must be rejected.
   const refusedTeam = await env.tool('task_start').execute({ title: 'Team dir task', brief: 'Escape', workdir: env.workDir }, execOf(grpA))
@@ -604,7 +607,7 @@ test('P1-2: working_directory inside a group task respects task.workDir and neve
   assert.equal(ran, 2)
   assert.equal(approved.length, 1)
   assert.deepEqual(approved[0].sessions, [task.sessionId], 'approval must be scoped to task session only')
-  assert.equal(realpathSync(task.workDir), realpathSync(outsideDir), 'task.workDir must persist for rollover continuity')
+  assert.equal(realpathSync.native(task.workDir), realpathSync.native(outsideDir), 'task.workDir must persist for rollover continuity')
   assert.equal(env.rt.roomOf('r1').memberDirs?.a, undefined, 'group task working_directory must never mutate room.memberDirs')
 })
 
@@ -635,4 +638,126 @@ test('P1-3: settleTask reconciles waiting group batch when member group session 
   const roomAgent = env.agentMap.get('room-r1')
   await waitFor(() => roomAgent.followups.some(m => m.source?.role === 'post' && m.source?.batch === 'b5'))
   assert.ok(roomAgent.followups.some(m => m.source?.role === 'post' && m.source?.batch === 'b5'), 'waiting batch must still wake when task-report delivery fails')
+})
+
+test('P1-4: background task working_directory persists approved dir and team workspace (null) across rollover without re-prompting', async (t) => {
+  const env = await startEnv()
+  t.after(env.stop)
+
+  const botOwnDir = mkdtempSync(join(tmpdir(), 'ds-bot-own-'))
+  const outsideDir = mkdtempSync(join(tmpdir(), 'ds-bot-out2-'))
+  const outsideSub = join(outsideDir, 'nested')
+  const teamSub = join(env.workDir, 'team-sub')
+  mkdirSync(outsideSub, { recursive: true })
+  mkdirSync(teamSub, { recursive: true })
+  t.after(() => {
+    rmSync(botOwnDir, { recursive: true, force: true })
+    rmSync(outsideDir, { recursive: true, force: true })
+  })
+
+  // Give Chief its own bot.workDir and point dm-a there.
+  env.rt.botOf('a').workDir = realpathSync.native(botOwnDir)
+  env.agentMap.get('dm-a').session.header.cwd = realpathSync.native(botOwnDir)
+  await env.rt.save()
+
+  const approved = []
+  env.rt.approveFolder = async (_exec, opts) => { approved.push(opts) }
+
+  // 1) Start a DM background task (inherits bot.workDir).
+  const dmA = env.agentMap.get('dm-a')
+  const started = await env.tool('task_start').execute({ title: 'Rollover dir task', brief: 'Move dirs' }, execOf(dmA))
+  assert.match(started, /Started background task "Rollover dir task"/)
+  const task = env.rt.botOf('a').tasks[0]
+  const taskAgent = env.agentMap.get(task.sessionId)
+  approved.length = 0
+
+  // Failed working_directory must not mutate task.workDir.
+  await env.runHook('tools/execute', { name: 'working_directory', arguments: { cd: outsideDir }, agent: taskAgent }, async () => ({ isError: true }))
+  assert.equal(task.workDir, undefined, 'failed working_directory must not persist task.workDir')
+  approved.length = 0
+
+  // Approved working_directory to outsideDir updates task.workDir; subdir inside it does not re-prompt.
+  await env.runHook('tools/execute', { name: 'working_directory', arguments: { cd: outsideDir }, agent: taskAgent }, async () => ({ isError: false }))
+  assert.equal(approved.length, 1)
+  assert.equal(realpathSync.native(task.workDir), realpathSync.native(outsideDir))
+  await env.runHook('tools/execute', { name: 'working_directory', arguments: { cd: outsideSub }, agent: taskAgent }, async () => ({ isError: false }))
+  assert.equal(approved.length, 1, 'subdirectory inside approved task.workDir must not re-prompt')
+
+  // Trigger real parts.js rollover via agent/pre-step: fresh part must open in outsideDir, not botOwnDir!
+  const beforeSwitch = task.sessionId
+  await env.runHook('agent/pre-step', { agent: taskAgent, step: 1, messages: [], signal: AbortSignal.timeout(5000) }, async () => ({ kind: 'enter', messages: [] }))
+  await waitFor(() => task.sessionId !== beforeSwitch)
+  const rolledToOutside = env.createdSessions.find(entry => entry.sessionId === task.sessionId)
+  assert.equal(realpathSync.native(rolledToOutside.cwd), realpathSync.native(outsideDir), 'rollover part must stay in approved outsideDir')
+
+  // 2) Switch the rolled task to the team workspace (rt.workFolder returns undefined -> task.workDir = null).
+  const taskAgent2 = env.agentMap.get(task.sessionId)
+  approved.length = 0
+  await env.runHook('tools/execute', { name: 'working_directory', arguments: { cd: env.workDir }, agent: taskAgent2 }, async () => ({ isError: false }))
+  assert.equal(task.workDir, null, 'moving task to team workspace must store null, not undefined')
+  // Subdirectory inside team workspace must not fall back to bot.workDir or re-prompt.
+  await env.runHook('tools/execute', { name: 'working_directory', arguments: { cd: teamSub }, agent: taskAgent2 }, async () => ({ isError: false }))
+  assert.equal(approved.length, 1)
+
+  // Rollover after moving to team workspace must open in team workspace (workspaceId: w1), never back in botOwnDir!
+  const beforeTeamSwitch = task.sessionId
+  await env.runHook('agent/pre-step', { agent: taskAgent2, step: 1, messages: [], signal: AbortSignal.timeout(5000) }, async () => ({ kind: 'enter', messages: [] }))
+  await waitFor(() => task.sessionId !== beforeTeamSwitch)
+  const rolledToTeam = env.createdSessions.find(entry => entry.sessionId === task.sessionId)
+  assert.equal(rolledToTeam.cwd, undefined, 'rollover to team workspace must use workspaceId, not botOwnDir')
+  assert.equal(rolledToTeam.workspaceId, 'w1')
+})
+
+test('P1-5: private Bot background task cannot escape bot.workDir via working_directory', async (t) => {
+  const env = await startEnv()
+  t.after(env.stop)
+
+  const privDir = mkdtempSync(join(tmpdir(), 'ds-bot-priv-'))
+  const privSub = join(privDir, 'inner')
+  const publicDir = mkdtempSync(join(tmpdir(), 'ds-bot-pub-'))
+  mkdirSync(privSub, { recursive: true })
+  t.after(() => {
+    rmSync(privDir, { recursive: true, force: true })
+    rmSync(publicDir, { recursive: true, force: true })
+  })
+
+  // Make Helper ('b') a private Bot removed from groups, with its own private folder.
+  await env.rt.updateRoom('r1', { members: ['a', 'c'] })
+  const botB = env.rt.botOf('b')
+  botB.private = true
+  botB.workDir = realpathSync.native(privDir)
+  env.agentMap.get('dm-b').session.header.cwd = realpathSync.native(privDir)
+  await env.rt.save()
+
+  const approved = []
+  env.rt.approveFolder = async (_exec, opts) => { approved.push(opts) }
+
+  const dmB = env.agentMap.get('dm-b')
+  const started = await env.tool('task_start').execute({ title: 'Private task', brief: 'Stay inside privDir' }, execOf(dmB))
+  assert.match(started, /Started background task "Private task"/)
+  const task = botB.tasks[0]
+  const taskAgent = env.agentMap.get(task.sessionId)
+
+  // Moving to a subdirectory inside bot.workDir succeeds without approval.
+  let ran = 0
+  await env.runHook('tools/execute', { name: 'working_directory', arguments: { cd: privSub }, agent: taskAgent }, async () => { ran += 1; return { isError: false } })
+  assert.equal(ran, 1)
+  assert.equal(approved.length, 0)
+
+  // Attempting to escape to an unrelated public folder (which checkPrivacyChange alone would allow)
+  // MUST be rejected before approveFolder or next().
+  await assert.rejects(
+    () => env.runHook('tools/execute', { name: 'working_directory', arguments: { cd: publicDir }, agent: taskAgent }, async () => { ran += 1; return { isError: false } }),
+    /Helper is a private Bot and its background tasks must stay inside/,
+  )
+  assert.equal(ran, 1, 'rejected working_directory must never call next()')
+  assert.equal(approved.length, 0, 'rejected private escape must never prompt approveFolder')
+  assert.equal(task.workDir, undefined, 'rejected private escape must not mutate task.workDir')
+
+  // Attempting to escape to the team workspace MUST also be rejected.
+  await assert.rejects(
+    () => env.runHook('tools/execute', { name: 'working_directory', arguments: { cd: env.workDir }, agent: taskAgent }, async () => { ran += 1; return { isError: false } }),
+    /Helper is a private Bot and its background tasks must stay inside/,
+  )
+  assert.equal(ran, 1)
 })

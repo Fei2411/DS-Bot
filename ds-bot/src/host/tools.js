@@ -548,7 +548,8 @@ export function install(rt) {
     if (bot === undefined) return next()
     const taskEntry = rt.taskBySession?.(exec.agent.id)?.task
     const room = rt.roomOf(rt.groupOwners.get(exec.agent.id)?.roomId ?? taskEntry?.roomId)
-    const home = taskEntry?.workDir ?? rt.workDirOf({ botId: bot.id, roomId: room?.id }) ?? rt.teamFolder()
+    const taskDir = taskEntry?.workDir !== undefined ? (taskEntry.workDir ?? undefined) : rt.workDirOf({ botId: bot.id, roomId: room?.id })
+    const home = taskDir ?? rt.teamFolder()
     const target = await rt.folderAt(rt.sessionFolder(session), cd)
     if (target === undefined || !(await rt.isFolder(target)) || home === undefined || within(target, await rt.real(home))) return next()
     if (room?.workDir) throw new Error(`Every member of "${room.name}" works in ${room.workDir} here, so you stay inside it. The user or a Main Bot can change the group's folder.`)
@@ -559,12 +560,17 @@ export function install(rt) {
     const workDir = await rt.workFolder(target)
     if (taskEntry !== undefined) {
       // A background task only widens its own Session and updates its own task.workDir
-      // for rollover continuity; it never rewrites room.memberDirs or the Bot's workDir.
+      // for rollover continuity (null means team workspace, like room.memberDirs); it
+      // never rewrites room.memberDirs or the Bot's workDir, and a private Bot's tasks
+      // stay inside the Bot's own folder (matching startTask).
+      if (bot.private === true && bot.workDir !== undefined && !within(target, await rt.real(bot.workDir))) {
+        throw new Error(`${bot.name} is a private Bot and its background tasks must stay inside ${bot.workDir}.`)
+      }
       await rt.checkPrivacyChange(bot, { moving: true, workDir })
       await rt.approveFolder(exec, { path: workDir, sessions: [exec.agent.id], who: { en: `${bot.name}'s background task`, zh: `${bot.name} 的后台任务` } })
       const result = await next()
       if (result?.isError !== true) {
-        taskEntry.workDir = workDir
+        taskEntry.workDir = workDir ?? null
         await rt.save()
       }
       return result
