@@ -11,7 +11,7 @@ import { BotViews, isBotId } from '../src/bot-views.mjs'
 // symbolic link to the folder.
 const folderLink = process.platform === 'win32' ? 'junction' : 'dir'
 
-function fixture({ statePath } = {}) {
+function fixture({ statePath, zoom = 1 } = {}) {
   const changes = []
   const handlers = new Map()
   const views = []
@@ -54,10 +54,29 @@ function fixture({ statePath } = {}) {
     setDownloadHandler(key, handler) { handlers.set(key, handler) },
   }
   const added = []
-  let window = { contentView: { addChildView(view) { added.push(view) }, removeChildView() {} } }
+  let window = { webContents: { getZoomFactor: () => zoom }, contentView: { addChildView(view) { added.push(view) }, removeChildView() {} } }
   const manager = new BotViews({ window: () => window, WebContentsView, guests, origin: () => 'http://127.0.0.1:43117', statePath, onChange: change => changes.push(change) })
-  return { manager, handlers, views, changes, added, setWindow: (next) => { window = next } }
+  return { manager, handlers, views, changes, added, setWindow: (next) => { window = next }, setZoom: (value) => { zoom = value } }
 }
+
+test('pane placement converts CSS pixels to window DIPs at the current page zoom', t => {
+  const { manager, views, setZoom } = fixture({ zoom: 2 })
+  t.after(() => manager.dispose())
+  manager.create('a', { tabId: 'A' })
+  const rect = { left: 120.25, top: 40.25, width: 400.25, height: 300.25 }
+  manager.place('A', rect, true)
+  assert.deepEqual(views[0].bounds, { x: 241, y: 81, width: 801, height: 601 })
+  setZoom(0.5)
+  manager.place('A', rect, true)
+  assert.deepEqual(views[0].bounds, { x: 60, y: 20, width: 200, height: 150 })
+  setZoom(1)
+  manager.place('A', rect, true)
+  assert.deepEqual(views[0].bounds, { x: 120, y: 40, width: 400, height: 300 })
+  manager.place('A', null, false)
+  assert.equal(views[0].visible, false)
+  assert.deepEqual(views[0].bounds, { x: 120, y: 40, width: 400, height: 300 })
+  assert.equal(manager.place('missing', rect, true), false)
+})
 
 test('Bot endpoint identifiers follow DSH session.create IDs', () => {
   assert.equal(isBotId('session-7e90ddf9-38a7-4c6c-b37a-1c445f771234'), true)
