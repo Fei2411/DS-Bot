@@ -134,12 +134,13 @@ export function useGlide(key, { axis = 'x', selector = CHOSEN, lead = SPRING_LEA
   const own = useRef(null)
   if (own.current === null) {
     own.current = {
-      key: undefined, node: null, observer: null,
+      key: undefined, axis, node: null, observer: null,
       springs: liveSprings(({ start, end }) => {
         const knob = thumb.current
         if (!knob) return
-        knob.style.transform = axis === 'x' ? `translateX(${start}px)` : `translateY(${start}px)`
-        knob.style[axis === 'x' ? 'width' : 'height'] = `${Math.max(0, end - start)}px`
+        const currentAxis = own.current.axis
+        knob.style.transform = currentAxis === 'x' ? `translateX(${start}px)` : `translateY(${start}px)`
+        knob.style[currentAxis === 'x' ? 'width' : 'height'] = `${Math.max(0, end - start)}px`
       }),
     }
   }
@@ -149,10 +150,11 @@ export function useGlide(key, { axis = 'x', selector = CHOSEN, lead = SPRING_LEA
     const container = box.current
     const knob = thumb.current
     if (!container || !knob) return
+    const currentAxis = own.current.axis
     const chosen = container.querySelector(selector)
     if (!chosen) { knob.dataset.hidden = ''; return }
-    const start = axis === 'x' ? chosen.offsetLeft : chosen.offsetTop
-    const end = start + (axis === 'x' ? chosen.offsetWidth : chosen.offsetHeight)
+    const start = currentAxis === 'x' ? chosen.offsetLeft : chosen.offsetTop
+    const end = start + (currentAxis === 'x' ? chosen.offsetWidth : chosen.offsetHeight)
     const { springs } = own.current
     const before = springs.target()
     const hidden = knob.dataset.hidden !== undefined
@@ -165,10 +167,18 @@ export function useGlide(key, { axis = 'x', selector = CHOSEN, lead = SPRING_LEA
   useLayoutEffect(() => {
     const state = own.current
     const node = box.current
-    if (node === state.node && key === state.key) return
-    const fresh = node !== state.node
+    const axisChanged = axis !== state.axis
+    if (node === state.node && key === state.key && !axisChanged) return
+    const fresh = node !== state.node || axisChanged
     state.key = key
-    if (fresh) {
+    if (axisChanged) {
+      state.axis = axis
+      if (thumb.current) {
+        thumb.current.style.width = ''
+        thumb.current.style.height = ''
+      }
+    }
+    if (node !== state.node) {
       state.observer?.disconnect()
       state.node = node
       state.observer = node && typeof ResizeObserver === 'function' ? new ResizeObserver(() => place(true)) : null
