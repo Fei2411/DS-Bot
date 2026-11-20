@@ -71,6 +71,72 @@ test('extractLocalMarkdownImages handles CRLF fences, indented code, quoted fenc
   ])
 })
 
+test('extractLocalMarkdownImages preserves loose/nested list images and respects fence quote depth (#1761)', () => {
+  const md = [
+    '- Chart:',
+    '',
+    '    ![LooseBullet](./loose-bullet.png)',
+    '',
+    '      ![ListIndentedCode](./list-code-ignored.png)',
+    '',
+    '1. Step:',
+    '',
+    '    ![LooseOrdered](./loose-ordered.png)',
+    '',
+    '- Outer',
+    '  - Inner',
+    '',
+    '      ![NestedList](./nested-list.png)',
+    '',
+    '        ![NestedCode](./nested-code-ignored.png)',
+    '',
+    '- Fenced inside list:',
+    '  ```md',
+    '  ![ListFence](./list-fence-ignored.png)',
+    '  ```',
+    '  ![AfterListFence](./after-list-fence.png)',
+    '',
+    '10. Outer',
+    '    - Inner A',
+    '    - Inner B',
+    '    ```md',
+    '    ![DeepFence](./deep-fence-ignored.png)',
+    '    ```',
+    '    ![AfterDeepFence](./after-deep-fence.png)',
+    '',
+    'Paragraph after list.',
+    '',
+    '    ![TopIndentedCode](./top-code-ignored.png)',
+    '',
+    '```markdown',
+    '> ```',
+    '![UnquotedExample](./unquoted-example-ignored.png)',
+    '```',
+    '![UnquotedActual](./unquoted-actual.png)',
+    '',
+    '> ```markdown',
+    '> > ```',
+    '> ![QuotedExample](./quoted-example-ignored.png)',
+    '> ```',
+    '> ![QuotedActual](./quoted-actual.png)',
+    '',
+    '> ```md',
+    '> ![UnclosedQuoteFence](./unclosed-q-ignored.png)',
+    '![AfterQuoteExit](./after-q-exit.png)',
+  ].join('\n')
+  const links = extractLocalMarkdownImages(md)
+  assert.deepEqual(links.map(item => [item.alt, item.path]), [
+    ['LooseBullet', './loose-bullet.png'],
+    ['LooseOrdered', './loose-ordered.png'],
+    ['NestedList', './nested-list.png'],
+    ['AfterListFence', './after-list-fence.png'],
+    ['AfterDeepFence', './after-deep-fence.png'],
+    ['UnquotedActual', './unquoted-actual.png'],
+    ['QuotedActual', './quoted-actual.png'],
+    ['AfterQuoteExit', './after-q-exit.png'],
+  ])
+})
+
 test('prepareOutboundReply deduplicates repeated paths and surfaces unavailable/unsupported images (#1761)', async () => {
   let calls = 0
   const out = await prepareOutboundReply(

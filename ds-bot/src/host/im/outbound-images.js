@@ -109,14 +109,53 @@ const stripBlockquotePrefix = (line) => {
   return { depth, rest }
 }
 
-// Walks Markdown skipping fenced code blocks (``` / ~~~, including CRLF and
-// blockquote-prefixed fences), 4-space/tab indented code blocks, and inline code
-// spans (`...`), returning all local `![alt](target)` references.
+const measureIndent = (str, startCol = 0) => {
+  let cols = startCol
+  let idx = 0
+  while (idx < str.length) {
+    if (str[idx] === ' ') { cols += 1; idx += 1 }
+    else if (str[idx] === '\t') { cols += 4 - (cols % 4); idx += 1 }
+    else break
+  }
+  return { cols: cols - startCol, idx }
+}
+
+const stripLeadingColumns = (str, maxCols) => {
+  let cols = 0
+  let idx = 0
+  while (idx < str.length && cols < maxCols) {
+    if (str[idx] === ' ') { cols += 1; idx += 1 }
+    else if (str[idx] === '\t') {
+      const next = cols + (4 - (cols % 4))
+      if (next > maxCols) return ' '.repeat(next - maxCols) + str.slice(idx + 1)
+      cols = next
+      idx += 1
+    } else break
+  }
+  return str.slice(idx)
+}
+
+const isThematicBreak = (str) => /^[ ]{0,3}(?:(?:-[ \t]*){3,}|(?:\*[ \t]*){3,}|(?:_[ \t]*){3,})$/.test(str)
+
+const LIST_MARKER = /^([-+*]|\d{1,9}[.)])(?:([ \t]+)(.*)|$)/
+
+const isBlockInterrupt = (str) => (
+  /^[ ]{0,3}#{1,6}(?:[ \t]|$)/.test(str)
+  || isThematicBreak(str)
+  || /^[ ]{0,3}(?:`{3,}|~{3,})/.test(str)
+  || /^[ ]{0,3}(?:[-+*]|\d{1,9}[.)])(?:[ \t]|$)/.test(str)
+)
+
+// Walks Markdown skipping fenced code blocks (``` / ~~~, including CRLF,
+// blockquote-prefixed, and list-nested fences), 4-space/tab indented code
+// blocks (relative to enclosing list containers), and inline code spans
+// (`...`), returning all local `![alt](target)` references.
 export function extractLocalMarkdownImages(markdown) {
   const text = String(markdown ?? '')
   const links = []
   let i = 0
   let fence = null
+  const listStack = []
   let atLineStart = true
   let prevBlank = true
   let inIndentedCode = false
@@ -127,41 +166,91 @@ export function extractLocalMarkdownImages(markdown) {
       const line = text.slice(i, end).replace(/\r$/, '')
       const nextLine = lineEnd === -1 ? text.length : lineEnd + 1
       const { depth: quoteDepth, rest } = stripBlockquotePrefix(line)
+      const isBlank = /^[ \t]*$/.test(rest)
+      const { cols: lineCols } = measureIndent(rest)
       if (fence !== null) {
-        if (quoteDepth < fence.quoteDepth) {
-          // Blockquote container ended before an explicit closing fence.
+        if (quoteDepth < fence.quoteDepth || (!isBlank && quoteDepth === fence.quoteDepth && lineCols < fence.listIndent)) {
+          // Enclosing blockquote or list container ended before an explicit closing fence.
           fence = null
         } else {
-          const close = new RegExp(`^[ ]{0,3}${fence.ch}{${fence.len},}[ \\t]*$`)
-          if (close.test(rest)) fence = null
+          if (quoteDepth === fence.quoteDepth) {
+            const afterList = stripLeadingColumns(rest, fence.listIndent)
+            const close = new RegExp(`^[ ]{0,3}${fence.ch}{${fence.len},}[ \\t]*$`)
+            if (close.test(afterList)) fence = null
+          }
           i = nextLine
           prevBlank = false
           inIndentedCode = false
           continue
         }
       }
-      const isBlank = /^[ \t]*$/.test(rest)
+      while (listStack.length > 0 && listStack.at(-1).quoteDepth > quoteDepth) listStack.pop()
       if (isBlank) {
         prevBlank = true
         i = nextLine
         continue
       }
-      const isIndented = /^(?: {4}|\t)/.test(rest)
-      if (isIndented && (prevBlank || inIndentedCode)) {
+      let landedIndent = 0
+      for (let k = listStack.length - 1; k >= 0; k -= 1) {
+        if (listStack[k].quoteDepth === quoteDepth && listStack[k].indent <= lineCols) {
+          landedIndent = listStack[k].indent
+          break
+        }
+      }
+      if (prevBlank || inIndentedCode || isBlockInterrupt(stripLeadingColumns(rest, landedIndent))) {
+        while (listStack.length > 0 && listStack.at(-1).quoteDepth === quoteDepth && listStack.at(-1).indent > lineCols) {
+          listStack.pop()
+        }
+      }
+      let baseIndent = listStack.length > 0 && listStack.at(-1).quoteDepth === quoteDepth
+        ? listStack.at(-1).indent
+        : 0
+      const lazyContinuation = lineCols < baseIndent
+      let afterBase = stripLeadingColumns(rest, baseIndent)
+      let rel = measureIndent(afterBase, baseIndent)
+      if (!lazyContinuation && rel.cols >= 4 && (prevBlank || inIndentedCode)) {
         inIndentedCode = true
         prevBlank = false
         i = nextLine
         continue
       }
       inIndentedCode = false
-      const match = /^[ ]{0,3}(`{3,}|~{3,})(.*)$/.exec(rest)
-      // CommonMark: backtick fence info strings cannot contain backticks, so a
-      // line like ```` ```code``` ![a](./a.png) ```` is an inline code span, not a fence.
-      if (match && (match[1][0] === '~' || !match[2].includes('`'))) {
-        fence = { ch: match[1][0], len: match[1].length, quoteDepth }
-        prevBlank = false
-        i = nextLine
-        continue
+      if (!lazyContinuation) {
+        let markerIndentedCode = false
+        while (rel.cols <= 3 && !isThematicBreak(afterBase)) {
+          const marker = LIST_MARKER.exec(afterBase.slice(rel.idx))
+          if (!marker) break
+          const markerLen = marker[1].length
+          const ws = marker[2] ?? ''
+          const body = marker[3] ?? ''
+          const afterMarkerCol = baseIndent + rel.cols + markerLen
+          const wsCols = ws ? measureIndent(ws, afterMarkerCol).cols : 0
+          // CommonMark §5.2: blank first line or >=5 spaces after marker yields padding=1.
+          const padding = (body === '' || wsCols >= 5) ? 1 : wsCols
+          baseIndent = afterMarkerCol + padding
+          listStack.push({ quoteDepth, indent: baseIndent })
+          if (body !== '' && wsCols >= 5) {
+            markerIndentedCode = true
+            break
+          }
+          afterBase = body
+          rel = measureIndent(afterBase, baseIndent)
+        }
+        if (markerIndentedCode) {
+          inIndentedCode = true
+          prevBlank = false
+          i = nextLine
+          continue
+        }
+        const match = /^[ ]{0,3}(`{3,}|~{3,})(.*)$/.exec(afterBase)
+        // CommonMark: backtick fence info strings cannot contain backticks, so a
+        // line like ```` ```code``` ![a](./a.png) ```` is an inline code span, not a fence.
+        if (match && (match[1][0] === '~' || !match[2].includes('`'))) {
+          fence = { ch: match[1][0], len: match[1].length, quoteDepth, listIndent: baseIndent }
+          prevBlank = false
+          i = nextLine
+          continue
+        }
       }
       prevBlank = false
       atLineStart = false
