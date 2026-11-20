@@ -128,7 +128,7 @@ export function install(rt) {
   }
   // The group a Session speaks in, an earlier part of it included: none for a Bot's
   // own chat. Writes check membership again, so a member that has left writes nothing.
-  const roomIdOf = sessionId => rt.groupOwners.get(sessionId)?.roomId ?? rt.pastOwners.get(sessionId)?.roomId
+  const roomIdOf = sessionId => rt.groupOwners.get(sessionId)?.roomId ?? rt.taskOwners?.get(sessionId)?.roomId ?? rt.pastOwners.get(sessionId)?.roomId
   // The Bot whose model keeps a group's memory: its admin, else its first member.
   const keeperOf = room => rt.botOf(room.admin) ?? room.members.map(id => rt.botOf(id)).find(Boolean)
 
@@ -1011,7 +1011,7 @@ export function install(rt) {
   // Where the caller learned it: the anchor of the latest message to it in this part,
   // which read_own_chat opens, or the group and the time.
   async function sourceOf(sessionId) {
-    const owner = rt.groupOwners.get(sessionId)
+    const owner = rt.groupOwners.get(sessionId) ?? (rt.taskOwners?.get(sessionId)?.roomId !== undefined ? rt.taskOwners.get(sessionId) : undefined)
     if (owner !== undefined) {
       const room = rt.roomOf(owner.roomId)
       return room === undefined ? 'group ?' : `group "${room.name}" #${room.seq}`

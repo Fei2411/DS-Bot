@@ -820,16 +820,16 @@ export function install(rt) {
     return lines
   }
 
-  // Members whose turn or DSH subagent in this group is running, and since when.
+  // Members whose turn, DSH subagent, or background task in this group is running, and since when.
   const workingIn = room => room.members.flatMap((id) => {
     const sessionId = room.sessions?.[id]
     const entry = rt.live.get(sessionId)
     const bot = rt.botOf(id)
     if (bot === undefined) return []
     if (entry?.turn !== undefined) return [{ bot, since: entry.since ?? Date.now() }]
-    if (sessionId !== undefined && rt.hasSubagents?.(sessionId)) {
-      const subSince = rt.roomWorkView?.()?.[room.id]?.find(item => item.botId === id)?.since
-      return [{ bot, since: subSince ?? Date.now() }]
+    if ((sessionId !== undefined && rt.hasSubagents?.(sessionId)) || rt.hasRoomTasks?.(room.id, id) === true) {
+      const workSince = rt.roomWorkView?.()?.[room.id]?.find(item => item.botId === id)?.since
+      return [{ bot, since: workSince ?? Date.now() }]
     }
     return []
   })
@@ -859,12 +859,12 @@ export function install(rt) {
   const batchesOf = (roomId, botId) => Object.values(batches()).filter(batch => batch.roomId === roomId && batch.pending.includes(botId))
   const unpend = (batch, botId) => { batch.pending = batch.pending.filter(id => id !== botId) }
 
-  // At work in the group: a turn or subagent running, a call waiting in a round, or a
-  // message on its way to the member's group Session that no turn took up yet (a restart
-  // queues the pick-up before the turn starts).
+  // At work in the group: a turn, subagent, or group background task running, a call waiting
+  // in a round, or a message on its way to the member's group Session that no turn took up yet.
   const activeInRoom = (room, botId) => {
     const sessionId = room.sessions?.[botId]
     if (sessionId !== undefined && (rt.live.get(sessionId)?.turn !== undefined || rt.hasSubagents?.(sessionId) === true)) return true
+    if (rt.hasRoomTasks?.(room.id, botId) === true) return true
     if (sessionId !== undefined && (rt.unreadOf?.(sessionId)?.length ?? 0) > 0) return true
     return [...rt.roomProgress.values()].some(round => round.roomId === room.id
       && round.slots.some(slot => slot.id === botId && (slot.status === 'waiting' || slot.status === 'speaking')))
@@ -1018,14 +1018,20 @@ export function install(rt) {
   // checked: a step line says what is under way, not what came of it.
   // A Session's own folder is where it really writes, and it is only known from the
   // Session object (its header), never from its id.
-  const claimsOf = (session, text, worked, calledPeer = false) => session === undefined ? undefined : claimsFor({
-    text,
-    base: rt.sessionFolder?.(session),
-    worked,
-    subagents: rt.hasSubagents?.(session.id) === true,
-    runningJobs: rt.runningJobs?.(session.id)?.length ?? null,
-    calledPeer,
-  })
+  const claimsOf = (session, text, worked, calledPeer = false) => {
+    if (session === undefined) return undefined
+    const owner = rt.groupOwners.get(session.id)
+    const hasBg = rt.hasSubagents?.(session.id) === true
+      || (owner !== undefined && rt.hasRoomTasks?.(owner.roomId, owner.botId) === true)
+    return claimsFor({
+      text,
+      base: rt.sessionFolder?.(session),
+      worked,
+      subagents: hasBg,
+      runningJobs: rt.runningJobs?.(session.id)?.length ?? null,
+      calledPeer,
+    })
+  }
 
   // One member turn inside the room; resolves to its final text, `{ failure }` when its
   // model call failed, `{ missed }` when it went quiet for too long, `{ approval }` when
@@ -1095,8 +1101,8 @@ export function install(rt) {
       rt.roomWaiters.get(exchangeId)?.fail({ code: lost ? 'SESSION_RESET' : 'SESSION', message: String(error?.message ?? error).slice(0, 300) })
     }
     const reply = await done
-    // A turn that ended leaves nothing for a stop to cancel.
-    if ((typeof reply === 'string' || reply?.failure !== undefined) && !rt.hasSubagents?.(sessionId)) started.splice(started.indexOf(turn), 1)
+    // A turn that ended leaves nothing for a stop to cancel unless subagents or group tasks keep running.
+    if ((typeof reply === 'string' || reply?.failure !== undefined) && !rt.hasSubagents?.(sessionId) && !rt.hasRoomTasks?.(room.id, member.id)) started.splice(started.indexOf(turn), 1)
     if (reply === null || typeof reply === 'object') return reply
     return stripOwnName(member.name, String(reply ?? '').trim())
   }
@@ -1426,7 +1432,7 @@ export function install(rt) {
     const final = typeof reply === 'string' && !isPass(reply) ? reply : undefined
     // Tool-only turns can finish without assistant text; their changes still belong here.
     const changes = await rt.turnChanges?.(session.id)
-    const subRunning = rt.hasSubagents?.(session.id) === true
+    const bgRunning = rt.hasSubagents?.(session.id) === true || rt.hasRoomTasks?.(room.id, member.id) === true
     if (reply?.failure !== undefined) {
       // Not a pass: the user sees why the member is silent, and the round goes on.
       slot.status = 'failed'
@@ -1440,7 +1446,7 @@ export function install(rt) {
       slot.status = 'working'
       markSlotWorked(room.id, slot)
       say(room, { who: member.name, botId: member.id, kind: 'working' })
-    } else if (subRunning) {
+    } else if (bgRunning) {
       if (final !== undefined) {
         postInRound(room, member, final, Date.now() - startedAt, claimsOf(session, final, true), changes)
         callFrom(room, round, member, final, called, { worked: true, byBot: answeredBot })
@@ -1631,7 +1637,7 @@ export function install(rt) {
     // A user post has no botId and is no round event or kickoff; a goal draft counts
     // as the user's own line too.
     const userPost = post => post.botId === undefined && post.kickoff !== true && !event(post)
-    const stoppedOnly = posts.length > 0 && posts.every(item => event(item) && item.stopped === true)
+    const stoppedOnly = posts.length > 0 && posts.every(item => event(item) && item.stopped === true && item.askedBy === undefined)
     for (const post of posts.filter(item => !item.kickoff && !event(item) && item.logged === undefined)) {
       // Image readings go into the log only; `@` names are picked from what the user typed.
       // Images and files stay with their line and reach each member the line is shown to.
@@ -1960,7 +1966,7 @@ export function install(rt) {
   // round ends.
   function callPost(room, round, sender, text, extra) {
     if (extra.failed !== undefined && !extra.askedBy) return false
-    if (extra.resumed || extra.stopped) return false
+    if (extra.resumed || (extra.stopped && !extra.askedBy)) return false
     const post = { ...extra, botId: sender.id, name: sender.name, text }
     const everyone = room.members.map(rt.botOf).filter(Boolean)
     const named = (mentionsOf(post, everyone) ?? mentionsIn(text, everyone)).found
@@ -1992,7 +1998,7 @@ export function install(rt) {
   // once, and the members it calls start in that round, so it is not held back until
   // the round ends and never sits in the group Session's QueueDock (#663).
   async function postToRoom(room, sender, text, extra = {}, files = []) {
-    const noticeOnly = extra.resumed === true || extra.stopped === true || (extra.failed !== undefined && !extra.askedBy)
+    const noticeOnly = extra.resumed === true || (extra.stopped === true && !extra.askedBy) || (extra.failed !== undefined && !extra.askedBy)
     const running = [...rt.roomProgress.values()].find(round => round.roomId === room.id
       && (noticeOnly ? !round.starting : round.nudge !== undefined && !round.closed && !round.abort?.signal.aborted))
     if (running !== undefined) {
@@ -2032,13 +2038,14 @@ export function install(rt) {
     const member = rt.botOf(owner?.botId)
     if (room === undefined || member === undefined || !room.members.includes(member.id)) return
     const text = stripOwnName(member.name, reply)
-    // While a DSH subagent of this member is still running, the member's work is not
-    // finished yet: post any non-empty text as a progress line and keep its batch open.
-    if (rt.hasSubagents?.(sessionId) === true) {
+    // While a DSH subagent or group background task of this member is still running, the
+    // member's work is not finished yet: post any non-empty text as a progress line and
+    // keep its batch open until the background work reports back.
+    if (rt.hasSubagents?.(sessionId) === true || rt.hasRoomTasks?.(room.id, member.id) === true) {
       if (!isPass(text)) {
         const calls = callsIn(room, member, text)
         await postToRoom(room, member, text, { progress: true, ...(!calls ? { quiet: true } : {}) })
-          .catch(error => rt.warn('ds-bot: subagent progress from %s failed: %s', member.name, error))
+          .catch(error => rt.warn('ds-bot: background progress from %s failed: %s', member.name, error))
       }
       return
     }
@@ -2204,8 +2211,7 @@ export function install(rt) {
   }
 
   // The user stops a member's work in this group from the group's details, including
-  // any running DSH subagents it spawned (#701). Messages still waiting for that
-  // member here go with it.
+  // any running DSH subagents (#701) or group background tasks (#783) it spawned.
   async function stopMemberWork(roomId, botId) {
     await rt.load()
     const room = rt.roomOf(roomId)
@@ -2213,13 +2219,15 @@ export function install(rt) {
     const sessionId = rt.own(room?.sessions, botId)
     const turnRunning = sessionId !== undefined && rt.live.get(sessionId)?.turn !== undefined
     const subRunning = sessionId !== undefined && rt.hasSubagents?.(sessionId) === true
-    if (room === undefined || member === undefined || sessionId === undefined || (!turnRunning && !subRunning)) return false
-    dropMemberFromBatch(room, botId)
-    await rt.stopSubagents?.(sessionId)
-    if (turnRunning) {
+    const taskRunning = rt.hasRoomTasks?.(roomId, botId) === true
+    if (room === undefined || member === undefined || (!turnRunning && !subRunning && !taskRunning)) return false
+    if (sessionId !== undefined) await rt.stopSubagents?.(sessionId)
+    if (taskRunning) await rt.stopMemberRoomTasks?.(roomId, botId, 'stopped in group')
+    if (turnRunning && sessionId !== undefined) {
       const agent = await rt.resolveAgent(sessionId)
       agent.cancel({ kind: 'user' })
     }
+    dropMemberFromBatch(room, botId)
     rt.goalTaskReset?.(roomId, botId, 'Stopped by the user')
     rt.blockTasks?.(roomId, botId, { cause: 'stopped' })
     await postToRoom(room, member, '', { quiet: true, stopped: true })
@@ -2257,6 +2265,26 @@ export function install(rt) {
   Object.assign(rt, {
     workingInRoom: workingIn,
     roomBatchPending: roomId => Object.values(batches()).some(batch => batch.roomId === roomId && batch.pending.length > 0),
+    reconcileStoppedRoomTask: async (roomId, botId) => {
+      const room = rt.roomOf(roomId)
+      const member = rt.botOf(botId)
+      if (room === undefined || member === undefined || activeInRoom(room, botId)) return
+      const owed = batchesOf(room.id, botId)
+      if (owed.length === 0) {
+        void rt.goalSettled?.(room).catch(error => rt.warn('ds-bot: goal settle in %s failed: %s', room.name, error))
+        return
+      }
+      for (const batch of owed) leaveBatch(room, batch, botId, { keep: true })
+      const woken = owed.find(batch => batch.pending.length === 0 && batch.done.length > 0 && !batch.answered)
+      for (const batch of owed) if (batch !== woken) closeBatch(batch.key)
+      if (woken !== undefined) {
+        await postToRoom(room, member, '', { late: true, stopped: true, askedBy: woken.by, batch: woken.key, batchEnd: true })
+          .catch((error) => {
+            closeBatch(woken.key)
+            rt.warn('ds-bot: waking group batch after stopped task failed: %s', error)
+          })
+      }
+    },
   })
 
   // The round said such a member posts when done; a failed model call is how it ended.

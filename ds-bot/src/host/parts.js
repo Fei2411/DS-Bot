@@ -1301,15 +1301,18 @@ export function install(rt) {
       : { fallback: whole ? 'whole' : job.failed !== undefined ? 'failure' : job.overflow ? 'overflow' : job.cutoff === true ? 'cutoff' : job.manual && failure === undefined ? 'manual' : 'failed', ...earlierNote }
     carried ??= await readLines()
     if (signal.aborted) throw signal.reason
-    const dir = rt.taskBySession?.(agent.id)?.task?.workDir ?? rt.workDirOf(job)
+    const taskEntry = rt.taskBySession?.(agent.id)?.task
+    const taskRoom = taskEntry?.roomId !== undefined ? rt.roomOf(taskEntry.roomId) : undefined
+    const effectiveRoom = room ?? taskRoom
+    const dir = taskEntry?.workDir ?? rt.workDirOf(effectiveRoom !== undefined && job.roomId === undefined ? { ...job, roomId: effectiveRoom.id } : job)
     const intended = dir !== undefined && await rt.isFolder(dir) ? dir : rt.teamFolder()
-    const freshId = await rt.createSession(room === undefined ? name : bot === undefined ? room.name : `${name} · ${room.name}`, { dir })
+    const freshId = await rt.createSession(effectiveRoom === undefined ? name : bot === undefined ? effectiveRoom.name : `${name} · ${effectiveRoom.name}`, { dir })
     // The group's own Session never asks the model, so selectRoomSession picks an
     // image-capable route when available; the earlier part's route may no longer be served (#1310).
     if (bot === undefined) await rt.selectRoomSession(freshId, room)
     const picked = bot === undefined ? undefined : await freshRoute(bot, session)
     if (picked !== undefined && !await selectRoute({ name }, freshId, picked) && job.engine) engineRetry.set(freshId, Date.now() + FOLDER_RETRY_MS)
-    if (bot !== undefined) await rt.applyPermission(bot, freshId, room)
+    if (bot !== undefined) await rt.applyPermission(bot, freshId, effectiveRoom)
       .catch(error => rt.warn('ds-bot: permission for the fresh part of %s not applied: %s', name, error))
     // The fresh part took several awaits: a Bot or group deleted meanwhile, a member that
     // left, or a part that is no longer the current one gets no fresh part.
@@ -1317,7 +1320,7 @@ export function install(rt) {
       : room !== undefined ? room.sessions?.[bot.id]
         : thread === undefined ? rt.chatOf(bot.id) : threadCurrent(bot, agent.id)
     const gone = bot === undefined ? rt.roomOf(room.id) !== room
-      : rt.botOf(bot.id) === undefined || (room !== undefined && (rt.roomOf(room.id) !== room || !room.members.includes(bot.id)))
+      : rt.botOf(bot.id) === undefined || (effectiveRoom !== undefined && (rt.roomOf(effectiveRoom.id) !== effectiveRoom || !effectiveRoom.members.includes(bot.id)))
     if (gone || current !== agent.id) {
       await ctx.workspaceRegistry.archiveSession(freshId, { stopActivity: true })
         .catch(error => rt.warn('ds-bot: unused fresh part of %s not archived: %s', name, error))
@@ -1479,12 +1482,21 @@ export function install(rt) {
     return takeOverStep(agent, payload)
   }
 
+  // Folder ownership for a Session: a group background task inherits its group's folder
+  // even though it is not in `groupOwners` (so `placeOf` keeps `roomId === undefined` and
+  // part switches never overwrite `room.sessions[bot.id]`).
+  const folderPlaceOf = (sessionId, place = placeOf(sessionId)) => {
+    if (place === undefined) return undefined
+    const taskRoomId = rt.taskOwners?.get(sessionId)?.roomId
+    return taskRoomId !== undefined && place.roomId === undefined ? { ...place, roomId: taskRoomId } : place
+  }
+
   // The folder a part should move to, when it is not the one the part was made in. A
   // working folder that is gone counts as the team workspace, where a fresh part would
   // start. A group reply ends where it began; the group conversation moves at its next
   // turn there.
   async function folderMove(agent, { midTurn = false } = {}) {
-    const place = placeOf(agent.id)
+    const place = folderPlaceOf(agent.id)
     const cwd = agent.session.header?.cwd
     if (place === undefined || cwd === undefined || (midTurn && place.roomId !== undefined) || Date.now() < (folderRetry.get(agent.id) ?? 0)) return undefined
     const wanted = rt.taskBySession?.(agent.id)?.task?.workDir ?? rt.workDirOf(place)
@@ -1523,7 +1535,7 @@ export function install(rt) {
       }
       return next()
     }
-    const place = placeOf(agent.id)
+    const place = folderPlaceOf(agent.id)
     const wanted = rt.taskBySession?.(agent.id)?.task?.workDir ?? rt.workDirOf(place)
     const usable = wanted !== undefined && await rt.isFolder(wanted)
     // A member whose group's folder went away works on in the team workspace; the
@@ -1549,7 +1561,9 @@ export function install(rt) {
   // part left in the old folder would keep working there.
   async function followFolder(owner) {
     const bot = owner.roomId === undefined && owner.botId !== undefined ? rt.botOf(owner.botId) : undefined
-    const sessions = bot === undefined ? [currentOf(owner)] : ownChatSessions(bot)
+    const sessions = bot === undefined
+      ? [currentOf(owner)]
+      : ownChatSessions(bot).filter(sid => rt.taskOwners?.get(sid)?.roomId === undefined)
     const name = owner.botId === undefined ? rt.roomOf(owner.roomId)?.name ?? owner.roomId : rt.botOf(owner.botId)?.name ?? owner.botId
     for (const sessionId of sessions) {
       if (sessionId === undefined || switches.has(sessionId) || readOnly()) continue
@@ -2122,7 +2136,8 @@ export function install(rt) {
   // when there is no completed turn yet (first turn), a different workDir is
   // requested, or the Bot runs on a local CLI agent.
   async function openTaskPart(bot, fromSessionId, task, { workDir } = {}) {
-    const defaultDir = rt.workDirOf({ botId: bot.id })
+    const room = task.roomId !== undefined ? rt.roomOf(task.roomId) : undefined
+    const defaultDir = rt.workDirOf({ botId: bot.id, ...(room ? { roomId: room.id } : {}) })
     const dir = workDir ?? defaultDir
     const isLocal = rt.localAgentBadge?.(bot.model ?? bot.appliedModel) !== undefined
     let sessionId
@@ -2144,17 +2159,17 @@ export function install(rt) {
     const sourceAgent = ctx.get('agents')?.get(fromSessionId)
     const picked = await freshRoute(bot, sourceAgent?.session)
     if (picked !== undefined) await selectRoute({ name: bot.name }, sessionId, picked)
-    await rt.applyPermission(bot, sessionId, undefined)
+    await rt.applyPermission(bot, sessionId, room)
       .catch(error => rt.warn('ds-bot: permission for task %s of %s not applied: %s', task.id, bot.name, error))
-    if (rt.botOf(bot.id) !== bot) {
+    if (rt.botOf(bot.id) !== bot || (room !== undefined && (rt.roomOf(room.id) !== room || !room.members.includes(bot.id)))) {
       await ctx.workspaceRegistry.archiveSession(sessionId, { stopActivity: true })
         .catch(error => rt.warn('ds-bot: unused task part of %s not archived: %s', bot.name, error))
-      throw Object.assign(new Error('Bot no longer exists'), { code: 'bot/not-found' })
+      throw Object.assign(new Error(room !== undefined ? 'Bot is no longer in this group' : 'Bot no longer exists'), { code: 'bot/not-found' })
     }
     const stored = { ...task, sessionId, segments: [], ...(workDir ? { workDir } : {}) }
     ;(bot.tasks ??= []).push(stored)
     rt.chatOwners.set(sessionId, bot.id)
-    rt.taskOwners.set(sessionId, { botId: bot.id, taskId: task.id })
+    rt.taskOwners.set(sessionId, { botId: bot.id, taskId: task.id, ...(room ? { roomId: room.id } : {}) })
     await rt.save()
     const now = await freshRoute(bot, sourceAgent?.session)
     if (now !== undefined && (now.ref !== picked?.ref || now.effort !== picked?.effort)) {

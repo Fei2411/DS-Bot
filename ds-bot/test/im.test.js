@@ -2017,3 +2017,53 @@ test('fg-handoff: task-handoff notice before IM message does not break IM reply,
     'task-report must still reach the originating IM chat via persisted task.imOrigin',
   )
 })
+
+
+test('P0-5: group task-report restores persisted group IM origin onto room session so onRoomLine reaches IM group', async (t) => {
+  const s = await start()
+  t.after(s.stop)
+  const { one } = await pairedConn(s)
+  one.chats.g1 = { kind: 'group', title: 'G', target: { roomId: 'r1' }, at: 1 }
+  await s.rt.save()
+
+  const room = s.rt.roomOf('r1')
+  room.sessions = { ...room.sessions, a: 'grp-r1-a' }
+  s.rt.groupOwners.set('grp-r1-a', { botId: 'a', roomId: 'r1' })
+
+  // Group message from IM claims room origin; capture it onto a group task, then simulate restart (clear live origins).
+  await gm(s, 'u1', 'check group task')
+  s.imTurn('r1')
+  const captured = s.rt.captureImOrigin(s.rt.sessionOfRoom(room))
+  assert.ok(captured !== undefined)
+  s.rt.botOf('a').tasks = [{
+    id: 'k_grp_im1',
+    title: 'Group IM task',
+    roomId: 'r1',
+    from: 'grp-r1-a',
+    sessionId: 'gtask-1',
+    segments: [],
+    status: 'completed',
+    startedAt: Date.now(),
+    updatedAt: Date.now(),
+    imOrigin: captured,
+  }]
+  // Clear live origin on r1 as if host restarted.
+  s.rt.clearImOrigin(s.rt.sessionOfRoom(room))
+  s.fake.sent.length = 0
+
+  // task-report lands on hidden member group session 'grp-r1-a' carrying roomId: 'r1'.
+  s.emitEvent('grp-r1-a', 'turn/start', { turn: 1 })
+  s.emitEvent('grp-r1-a', 'user/message', {
+    source: { kind: 'bot', form: 'relay', role: 'task-report', taskId: 'k_grp_im1', roomId: 'r1' },
+    content: [{ type: 'text', text: '[Background task report] Group IM task done' }],
+  })
+  // Member posts summary line into group -> onRoomLine reads originOf(room.sessionId)!
+  s.rt.logRoom(room, { who: 'Writer', botId: 'a', text: 'Group task finished and verified.' })
+  await s.flush()
+
+  assert.deepEqual(
+    s.fake.sent.map(entry => [entry.chat.key, entry.text]),
+    [['g1', '**Writer**: Group task finished and verified.']],
+    'group task-report must restore persisted IM origin onto the group session so onRoomLine reaches IM',
+  )
+})

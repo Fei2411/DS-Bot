@@ -25,7 +25,7 @@ const SIGNED_IN_TTL_MS = 60_000
 // instead of the mode they asked for (#1539).
 export function presetOf(rt, sessionId) {
   const bot = rt.botOf(rt.selfOf(sessionId))
-  const room = rt.roomOf(rt.groupOwners.get(sessionId)?.roomId)
+  const room = rt.roomOf(rt.groupOwners.get(sessionId)?.roomId ?? rt.taskOwners?.get(sessionId)?.roomId)
   return room?.permission ?? bot?.permission ?? rt.permissionCatalog?.()?.defaultPreset ?? 'workspace-write'
 }
 
@@ -107,7 +107,7 @@ export function install(rt) {
     cwdFor: async (sessionId) => {
       try {
         const agent = await rt.resolveAgent(sessionId)
-        return agent.session.header?.cwd ?? rt.workDirOf?.({ botId: rt.selfOf(sessionId), roomId: rt.groupOwners.get(sessionId)?.roomId }) ?? rt.teamFolder?.() ?? tmpdir()
+        return agent.session.header?.cwd ?? rt.workDirOf?.({ botId: rt.selfOf(sessionId), roomId: rt.groupOwners.get(sessionId)?.roomId ?? rt.taskOwners?.get(sessionId)?.roomId }) ?? rt.teamFolder?.() ?? tmpdir()
       } catch {
         return rt.teamFolder?.() ?? tmpdir()
       }

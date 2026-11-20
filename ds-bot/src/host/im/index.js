@@ -1484,9 +1484,20 @@ export function install(rt) {
         } else if (isTaskReport) {
           // Resolve the persisted task.imOrigin directly so deferred redelivery (turns.js)
           // and post-restart resends (inflight.json) never lose the IM chat claim.
+          // For group tasks, `onRoomLine` reads `originOf(room.sessionId)`, so restore onto
+          // the group's own Session without clobbering an unrelated live group origin.
           const saved = rt.taskById?.(source.taskId)?.task?.imOrigin
-          if (originFromSaved(saved) === undefined) dropOrigin(session.id)
-          else claimOrigin(session.id, saved.connId, saved.chatKey, saved.senderId, saved.binding)
+          if (typeof source.roomId === 'string' && source.roomId !== '') {
+            const room = rt.roomOf(source.roomId)
+            const roomSid = room === undefined ? undefined : rt.sessionOfRoom(room)
+            if (roomSid !== undefined && originFromSaved(saved) !== undefined) {
+              claimOrigin(roomSid, saved.connId, saved.chatKey, saved.senderId, saved.binding)
+            }
+          } else if (originFromSaved(saved) === undefined) {
+            dropOrigin(session.id)
+          } else {
+            claimOrigin(session.id, saved.connId, saved.chatKey, saved.senderId, saved.binding)
+          }
         } else if (typeof rpcId === 'string' && rpcId.startsWith('im:')) {
           if (Number.isInteger(event.seq)) imVia.set(session.id, { ...imVia.get(session.id), [event.seq]: rpcId.split(':')[1] })
           // The chat this message came from is the one its turn answers. A message this

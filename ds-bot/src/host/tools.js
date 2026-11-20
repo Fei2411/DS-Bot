@@ -283,6 +283,10 @@ export function install(rt) {
       const name = typeof args.request_id === 'string' ? args.request_id.trim() : ''
       if (name.length > NAME_MAX) return `The request_id is ${name.length} characters long; a request name is at most ${NAME_MAX}.`
       const text = absoluteLinks(String(args.message), rt.sessionFolder?.(exec.agent?.session ?? exec.agent))
+      const taskRoomId = rt.taskOwners?.get(exec.agent?.id)?.roomId
+      if (taskRoomId !== undefined) {
+        refuse('Background tasks in a group chat cannot call message_bot directly. Finish your work and mention @Name in your final reply so it goes to the group.')
+      }
       const room = rt.roomOf(rt.groupOwners.get(exec.agent?.id)?.roomId)
       // The request the caller named: it is admitted once, and a repeat of it is not sent again.
       const request = name === '' ? undefined : rt.requestIdentity({
@@ -542,7 +546,7 @@ export function install(rt) {
     await rt.load()
     const bot = callerBot(exec)
     if (bot === undefined) return next()
-    const room = rt.roomOf(rt.groupOwners.get(exec.agent.id)?.roomId)
+    const room = rt.roomOf(rt.groupOwners.get(exec.agent.id)?.roomId ?? rt.taskOwners?.get(exec.agent.id)?.roomId)
     const home = rt.workDirOf({ botId: bot.id, roomId: room?.id }) ?? rt.teamFolder()
     const target = await rt.folderAt(rt.sessionFolder(session), cd)
     if (target === undefined || !(await rt.isFolder(target)) || home === undefined || within(target, await rt.real(home))) return next()
