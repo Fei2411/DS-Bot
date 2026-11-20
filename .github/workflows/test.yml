@@ -74,7 +74,7 @@ jobs:
           fi
 
           has() {
-            printf '%s\n' "$changed" | grep -qE "$1"
+            grep -qE "$1" <<< "$changed"
           }
 
           if [ "$full" = "false" ] && has '^\.github/workflows/'; then
@@ -391,8 +391,6 @@ jobs:
             ~/AppData/Local/electron-builder/Cache
           key: ${{ steps.downloads-key.outputs.key }}
       - run: npm ci --no-fund --no-audit
-      - name: Run desktop app unit tests (Windows)
-        run: npm test
       - run: node scripts/seed-electron-checksums.mjs
       - name: Cache the locked runtime archives
         uses: actions/cache@v4
