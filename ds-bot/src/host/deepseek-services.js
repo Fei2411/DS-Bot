@@ -3,6 +3,7 @@
 // DeepSeek API key — never the account sign-in — and it is off until the user turns it
 // on. The speech services of the same key arrive in their own change.
 // https://api-docs.deepseek.com/guides/ocr.md
+import { randomUUID } from 'node:crypto'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { basename, join } from 'node:path'
 import { defineTool } from '@deepseek-ai/dsh-tools'
@@ -287,7 +288,10 @@ export function install(rt) {
     const base = typeof bot.workDir === 'string' && bot.workDir !== '' ? bot.workDir : undefined
     if (base === undefined) return undefined
     const dir = join(base, '.ocr', bot.id, sessionId)
-    const locator = join(dir, suggestedName)
+    // One file per recognition: two long results with the same basename in one
+    // Session would otherwise share a path, and earlier locators would then
+    // read the later text. The directory still names the literal Bot and Session.
+    const locator = join(dir, `${randomUUID()}-${suggestedName}`)
     try {
       await mkdir(dir, { recursive: true })
       await writeFile(locator, text, 'utf8')

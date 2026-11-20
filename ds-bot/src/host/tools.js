@@ -1151,7 +1151,12 @@ export function install(rt) {
       if (held.relay || typeof held.agent?.ctx?.tools?.register !== 'function') continue
       try {
         const dispose = held.agent.ctx.tools.register(def)
-        if (typeof dispose === 'function') held.disposers.push(dispose)
+        if (typeof dispose === 'function') {
+          held.disposers.push(dispose)
+          // removeTeamTool lifts by name from toolLifts, matching both
+          // shareBotTools registration paths.
+          ;(held.toolLifts ??= new Map()).set(def.name, dispose)
+        }
         ;(held.added ??= new Set()).add(def.name)
         held.unlisted.add(def.name)
       } catch { /* an agent that refuses it simply lacks the tool */ }

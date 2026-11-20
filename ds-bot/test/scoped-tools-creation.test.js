@@ -614,6 +614,22 @@ test('the assemble adds the recovered names once, not on every step', async (t) 
   assert.equal(await assemble(host, agent, second), second)
 })
 
+test('enabling OCR after a Bot is scoped, then disabling it, removes the scoped schema', async (t) => {
+  const host = start()
+  t.after(host.stop)
+  await host.call('state', {})
+  await host.agentCreated('a')
+  assert.equal(scopedNames(host, 'a').includes('read_document'), false)
+  const on = await host.call('deepseek-services-config', { ocr: true })
+  assert.equal(on.ok, true)
+  assert.equal(on.value.ocr.enabled, true)
+  assert.equal(scopedNames(host, 'a').includes('read_document'), true)
+  const off = await host.call('deepseek-services-config', { ocr: false })
+  assert.equal(off.ok, true)
+  assert.equal(off.value.ocr.enabled, false)
+  assert.equal(scopedNames(host, 'a').includes('read_document'), false)
+})
+
 test('a live Bot Session gets its team tools back after a disable and re-enable', async (t) => {
   // A hot reload lifts the scope of Agents that are still live, and
   // agent/created does not fire again: the sync at the next load must scope

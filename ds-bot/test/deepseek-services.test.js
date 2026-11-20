@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { test } from 'node:test'
 import { install, normalizeServices } from '../src/host/deepseek-services.js'
 
@@ -58,6 +58,11 @@ function setup({ keys = {}, profile, directory, env, fs, attachments, spillStore
 
 const json = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
 const readTool = rt => rt.teamTools.find(tool => tool.name === 'read_document')
+const locatorOf = (out) => {
+  const match = out.match(/saved to ("(?:\\.|[^"\\])*")/)
+  assert.ok(match, 'the answer names a locator')
+  return JSON.parse(match[1])
+}
 const exec = (session, extra = {}) => ({ agent: { id: 'bot1', session }, callId: 'call-1', ...extra })
 const sessionWithFile = (attachmentId, name = 'doc.pdf') => ({
   id: 'bot1',
@@ -395,9 +400,51 @@ test('a private Bot spills a long OCR result under its own folder with the liter
   }))
   const out = await readTool(rt).execute({ path: 'scan.pdf' }, exec(sessionWithFile('x')))
   assert.equal(spills.length, 0, 'the shared spill store is not used for a private Bot')
-  const locator = join(workDir, '.ocr', 'bot1', 'bot1', 'scan.ocr.txt')
-  assert.ok(out.includes(JSON.stringify(locator)), 'the locator is named in the answer')
+  const locator = locatorOf(out)
+  assert.equal(dirname(locator), join(workDir, '.ocr', 'bot1', 'bot1'))
   assert.ok(locator.includes('bot1'), 'the path names the literal session id so ownerOfPath needles match')
+  assert.match(locator, /scan\.ocr\.txt$/)
   const expected = `[page 0]\n${'secret '.repeat(5000)}`
   assert.equal(readFileSync(locator, 'utf8'), expected)
+})
+
+test('a private Bot keeps distinct spills when two long readings share a basename', async (t) => {
+  const workDir = mkdtempSync(join(tmpdir(), 'ds-bot-ocr-private-dup-'))
+  t.after(() => rmSync(workDir, { recursive: true, force: true }))
+  const fs = {
+    resolve: async (path, { cwd }) => ({ targetKey: `${cwd}/${path}`, displayPath: `${cwd}/${path}` }),
+    stat: async () => ({ type: 'file', size: 3, version: 'v' }),
+    processPath: target => target.displayPath,
+    readBytes: async () => new Uint8Array([37, 80, 68, 70]),
+  }
+  const { rt } = setup({
+    keys: { DEEPSEEK_API_KEY: 'sk-1' }, fs,
+    spillStore: { saveText: async () => { throw new Error('private spills must not use the shared store') } },
+    sessions: { bot1: 'bot1' },
+    bots: { bot1: { id: 'bot1', name: 'Diary', private: true, workDir } },
+    prefs: { deepseekServices: { ocr: true } },
+  })
+  let n = 0
+  stubFetch(t, () => {
+    n += 1
+    const word = n === 1 ? 'invoice ' : 'receipt '
+    return json({
+      id: `ocr-dup-${n}`, object: 'ocr.result', created: 1, purpose: 'text_recognition', page_count: 1,
+      pages: [{ index: 0, text: word.repeat(5000), finish_reason: 'stop' }],
+      usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+    })
+  })
+  const invoice = await readTool(rt).execute({ path: 'invoices/scan.pdf' }, exec(sessionWithFile('x'), { callId: 'call-invoice' }))
+  const receipt = await readTool(rt).execute({ path: 'receipts/scan.pdf' }, exec(sessionWithFile('x'), { callId: 'call-receipt' }))
+  const invoiceLocator = locatorOf(invoice)
+  const receiptLocator = locatorOf(receipt)
+  assert.notEqual(invoiceLocator, receiptLocator)
+  assert.equal(dirname(invoiceLocator), join(workDir, '.ocr', 'bot1', 'bot1'))
+  assert.equal(dirname(receiptLocator), join(workDir, '.ocr', 'bot1', 'bot1'))
+  const invoiceText = `[page 0]\n${'invoice '.repeat(5000)}`
+  const receiptText = `[page 0]\n${'receipt '.repeat(5000)}`
+  assert.equal(readFileSync(invoiceLocator, 'utf8'), invoiceText)
+  assert.equal(readFileSync(receiptLocator, 'utf8'), receiptText)
+  assert.ok(invoiceText.length > 8000)
+  assert.ok(receiptText.length > 8000)
 })
