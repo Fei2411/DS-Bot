@@ -1,8 +1,9 @@
-// DeepSeek's document service (api.deepseek.com/v1/tools/ocr): an optional OCR tool for
-// every Bot. It is a paid call on the official endpoint only, billed on the user's
-// DeepSeek API key — never the account sign-in — and it is off until the user turns it
-// on. The speech services of the same key arrive in their own change.
-// https://api-docs.deepseek.com/guides/ocr.md
+// DeepSeek's document and speech services (api.deepseek.com/v1/tools/{ocr,asr,tts}):
+// an optional OCR tool for every Bot, a speech-to-text provider for DSH's voice input,
+// and speech synthesis for the voice chat's own reading. These are paid calls on the
+// official endpoint only, billed on the user's DeepSeek API key — never the account
+// sign-in — and each is off until the user turns it on or selects it.
+// https://api-docs.deepseek.com/guides/ocr.md /asr.md /tts.md
 import { basename } from 'node:path'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { own } from './store.js'
@@ -13,23 +14,42 @@ const output = { schema: { type: 'string' }, render: (_args, value) => [{ type: 
 const OFFICIAL_ORIGIN = 'https://api.deepseek.com'
 const DEFAULT_REF = 'DEEPSEEK_API_KEY'
 const PROVIDER = 'deepseek-official'
+const ASR_PROVIDER_ID = 'deepseek-asr'
+// The API detects the language itself; 'auto' is the only honest hint to advertise.
+const ASR_LANGUAGES = ['auto']
+const VOICES = ['stella', 'tide']
 
 const OCR_MAX_BYTES = 100 * 1024 * 1024
 const OCR_TIMEOUT_MS = 175_000
+const ASR_MAX_BYTES = 8 * 1024 * 1024
+const ASR_MAX_SECONDS = 120
+const ASR_TIMEOUT_MS = 300_000
+// The API's own caps: 10,000 billed characters (a CJK char bills as 2) and a 64 KiB
+// request body. Local caps sit under both so a call cannot be cut mid-speech.
+const TTS_BILLED_MAX = 10_000
+const TTS_BODY_MAX = 60 * 1024
+const TTS_MAX_BYTES = 40 * 1024 * 1024
+const TTS_TIMEOUT_MS = 300_000
 // The recognized text goes into the tool result up to this length; past it the whole
 // result also lands in a file next to the Session's work, which the model then reads.
 const OCR_INLINE_MAX = 8_000
+
+// DeepSeek bills a Chinese character as 2 and anything else as 1; the Han script
+// covers the supplementary planes the CJK block literals miss.
+const billedLength = text => [...text].reduce((total, char) => total + (/\p{Script=Han}/u.test(char) ? 2 : 1), 0)
 
 const invalid = message => Object.assign(new Error(message), { code: 'bot/invalid' })
 const unavailable = message => Object.assign(new Error(message), { code: 'bot/unavailable' })
 const refused = message => Object.assign(new Error(message), { code: 'bot/refused' })
 
-export const defaultServices = () => ({ ocr: false })
+export const defaultServices = () => ({ ocr: false, tts: 'system', voice: 'stella' })
 
 // What the user saved, cleaned into the shape the status answers. Unknown fields drop.
 export function normalizeServices(input) {
   const out = {}
   if (input?.ocr === true) out.ocr = true
+  if (input?.tts === 'deepseek' || input?.tts === 'system') out.tts = input.tts
+  if (VOICES.includes(input?.voice)) out.voice = input.voice
   return out
 }
 const servicePrefs = rt => ({ ...defaultServices(), ...normalizeServices(rt.state?.prefs?.deepseekServices) })
@@ -201,6 +221,191 @@ export function install(rt) {
     }
   }
 
+  // ---- speech-to-text -----------------------------------------------------------
+  // One provider for DSH's voice input. It has no model to download: readiness is
+  // exactly "the API key resolves", which the Settings page renders as setup state.
+  // The registry itself tracks provider registration; this flag lets the status
+  // answer why it did not happen (service missing vs. id taken).
+  let asrRegistration = 'pending'
+  let asrReady = null
+  const asrListeners = new Set()
+  let asrGeneration = 0
+  const setAsrReady = (ready) => {
+    if (ready === asrReady) return
+    asrReady = ready
+    for (const listener of asrListeners) listener()
+  }
+  // A refresh that started later always wins; an older answer landing after it
+  // (or after unload) cannot roll readiness back.
+  const refreshAsrKey = () => {
+    const generation = ++asrGeneration
+    return describeKey().then((key) => {
+      if (generation === asrGeneration && !lifetime.signal.aborted) setAsrReady(key.configured === true)
+    }, () => {
+      if (generation === asrGeneration && !lifetime.signal.aborted) setAsrReady(false)
+    })
+  }
+
+  async function transcribe(input, signal) {
+    const audio = input?.audio
+    if (!(audio instanceof Uint8Array) || audio.byteLength === 0) throw new Error('No audio was recorded')
+    if (audio.byteLength > ASR_MAX_BYTES) throw new Error('The recording is larger than 8 MiB')
+    const seconds = wavSeconds(audio)
+    if (seconds !== undefined && seconds > ASR_MAX_SECONDS) throw new Error('The recording is longer than 120 seconds')
+    const began = performance.now()
+    const form = new FormData()
+    form.append('file', new Blob([audio]), 'speech.wav')
+    const call = await requestService('/v1/tools/asr', { method: 'POST', body: form }, { timeoutMs: ASR_TIMEOUT_MS, signal })
+    const body = await jsonResult(call, 'Speech recognition', call.response)
+    const text = typeof body.text === 'string' ? body.text : ''
+    return {
+      text,
+      audioSeconds: typeof body.duration_ms === 'number' ? body.duration_ms / 1000 : seconds ?? 0,
+      inferenceSeconds: (performance.now() - began) / 1000,
+    }
+  }
+
+  // Duration of a 16-bit PCM WAV from its header; other containers defer to the API.
+  function wavSeconds(audio) {
+    if (audio.byteLength < 44 || String.fromCharCode(...audio.subarray(0, 4)) !== 'RIFF') return undefined
+    const view = new DataView(audio.buffer, audio.byteOffset, audio.byteLength)
+    let at = 12
+    let rate
+    let channels
+    let dataBytes
+    while (at + 8 <= audio.byteLength) {
+      const id = String.fromCharCode(...audio.subarray(at, at + 4))
+      const size = view.getUint32(at + 4, true)
+      if (id === 'fmt ' && size >= 16) {
+        if (view.getUint16(at + 8, true) !== 1 || view.getUint16(at + 22, true) !== 16) return undefined
+        channels = view.getUint16(at + 10, true)
+        rate = view.getUint32(at + 12, true)
+      }
+      if (id === 'data') dataBytes = Math.min(size, audio.byteLength - at - 8)
+      at += 8 + size + (size % 2)
+    }
+    return rate !== undefined && channels > 0 && dataBytes !== undefined ? dataBytes / (2 * channels) / rate : undefined
+  }
+
+  const asrProvider = {
+    info: {
+      id: ASR_PROVIDER_ID,
+      name: 'DeepSeek Speech Recognition',
+      location: 'cloud',
+      languages: ASR_LANGUAGES,
+    },
+    preparation: {
+      snapshot() {
+        return asrReady === true ? { phase: 'ready' } : { phase: 'unprepared' }
+      },
+      subscribe(listener) {
+        asrListeners.add(listener)
+        return () => asrListeners.delete(listener)
+      },
+      // Nothing to prepare: the check only re-reads whether the key is set.
+      prepare() { void refreshAsrKey() },
+      async cancel() {},
+    },
+    async transcribe(input, signal) {
+      if (asrReady !== true) await refreshAsrKey()
+      if (asrReady !== true) {
+        const key = await describeKey()
+        throw new Error(key.reason ?? `DeepSeek speech recognition needs the DeepSeek API key (${key.ref}); set it under Settings → Models.`)
+      }
+      return transcribe(input, signal)
+    },
+  }
+  void refreshAsrKey()
+
+  const mountAsr = (sub) => {
+    sub.effect(() => {
+      let unregister
+      try {
+        const service = ctx.get?.('speechToText') ?? ctx.speechToText
+        unregister = service.register(asrProvider)
+        asrRegistration = 'registered'
+      } catch (error) {
+        asrRegistration = `another provider already answers as ${ASR_PROVIDER_ID}: ${error?.message ?? error}`
+      }
+      // Readiness re-reads on key changes, on the route's settings document
+      // (baseURL/apiKeyEnv may move the effective endpoint), and on the provider
+      // directory changing — each can change what the key means.
+      const offs = [
+        ctx.on?.('credentials/reference-updated', () => void refreshAsrKey()),
+        ctx.on?.('settings/document-updated', () => void refreshAsrKey()),
+        ctx.on?.('llm/adapters-updated', () => void refreshAsrKey()),
+      ]
+      return async () => {
+        asrRegistration = 'pending'
+        for (const off of offs) off?.()
+        if (unregister !== undefined) await unregister()
+      }
+    }, 'ds-bot: deepseek speech provider')
+  }
+  if (typeof ctx.inject === 'function') {
+    try {
+      ctx.inject(['speechToText'], mountAsr)
+    } catch {
+      // speechToText absent from this composition: ASR stays unregistered.
+    }
+  } else if (ctx.get?.('speechToText') !== undefined) {
+    mountAsr(ctx)
+  }
+
+  // ---- text-to-speech -----------------------------------------------------------
+  const TTS_VOICES = VOICES
+  async function synthesize(body, signal) {
+    const prefs = servicePrefs(rt)
+    if (prefs.tts !== 'deepseek') throw unavailable('DeepSeek text-to-speech is off. Turn it on in DS Bot settings.')
+    const text = typeof body?.text === 'string' ? body.text : ''
+    if (text.trim() === '') throw invalid('Give the text to read')
+    const voice = body?.voice === undefined ? prefs.voice : String(body.voice)
+    if (!TTS_VOICES.includes(voice)) throw invalid(`Voice must be one of ${TTS_VOICES.join(', ')}`)
+    const billed = billedLength(text)
+    if (billed > TTS_BILLED_MAX) throw invalid(`The text is too long to read in one go (${billed} billed characters; at most ${TTS_BILLED_MAX}). Split it into shorter parts.`)
+    const requestBody = { text, voice_id: voice, format: 'wav' }
+    if (Buffer.byteLength(JSON.stringify(requestBody)) > TTS_BODY_MAX) throw invalid('The text is too long to send in one request')
+    const call = await requestService('/v1/tools/tts', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(requestBody),
+    }, { timeoutMs: TTS_TIMEOUT_MS, signal })
+    if (!call.response.ok) {
+      call.done()
+      throw refused(`Speech synthesis failed (HTTP ${call.response.status})${statusDetail(call.response.status)}`)
+    }
+    let audio
+    try {
+      audio = await call.read(TTS_MAX_BYTES)
+    } finally {
+      call.done()
+    }
+    // The API cuts an in-flight synthesis off mid-stream. The WAV is checked as
+    // far as the headers permit: RIFF/WAVE must be there, a finite declared size
+    // must be met, and a declared data chunk must be whole. An unknown-length
+    // streaming header (0xFFFFFFFF) is not a failure on its own.
+    if (audio.byteLength < 12 || String.fromCharCode(...audio.subarray(0, 4)) !== 'RIFF' || String.fromCharCode(...audio.subarray(8, 12)) !== 'WAVE') {
+      throw refused('Speech synthesis returned no audio')
+    }
+    const view = new DataView(audio.buffer, audio.byteOffset, audio.byteLength)
+    const riffSize = view.getUint32(4, true)
+    if (riffSize !== 0 && riffSize !== 0xFFFFFFFF && riffSize + 8 > audio.byteLength) {
+      throw refused('Speech synthesis ended early; try again')
+    }
+    let at = 12
+    let sawData
+    while (at + 8 <= audio.byteLength) {
+      const id = String.fromCharCode(...audio.subarray(at, at + 4))
+      const size = view.getUint32(at + 4, true)
+      if (id === 'data') sawData = { at, size }
+      at += 8 + size + (size % 2)
+    }
+    if (sawData !== undefined && sawData.size !== 0xFFFFFFFF && audio.byteLength < sawData.at + 8 + sawData.size) {
+      throw refused('Speech synthesis ended early; try again')
+    }
+    return { audioBase64: Buffer.from(audio).toString('base64'), mediaType: 'audio/wav' }
+  }
+
   // ---- OCR ----------------------------------------------------------------------
   const PURPOSES = ['text_recognition', 'rich_layout_recognition']
   const OCR_MIMES = { pdf: 'application/pdf', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif', bmp: 'image/bmp', tif: 'image/tiff', tiff: 'image/tiff', doc: 'application/msword', docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', ppt: 'application/vnd.ms-powerpoint', pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation' }
@@ -349,6 +554,7 @@ export function install(rt) {
   async function servicesStatus() {
     const key = await describeKey()
     const prefs = servicePrefs(rt)
+    const speechService = ctx.get?.('speechToText') !== undefined
     return {
       endpoint: OFFICIAL_ORIGIN,
       key,
@@ -357,6 +563,24 @@ export function install(rt) {
         enabled: prefs.ocr,
         configured: key.configured,
         reason: key.configured !== true ? (key.reason ?? `The DeepSeek API key (${key.ref}) is not set`) : undefined,
+      },
+      tts: {
+        supported: true,
+        enabled: prefs.tts === 'deepseek',
+        configured: key.configured,
+        voices: [...TTS_VOICES],
+        reason: key.configured !== true ? (key.reason ?? `The DeepSeek API key (${key.ref}) is not set`) : undefined,
+      },
+      speech: {
+        registered: asrRegistration === 'registered',
+        providerId: ASR_PROVIDER_ID,
+        configured: key.configured,
+        ready: asrReady === true,
+        reason: speechService === false ? 'This DSH has no speech-to-text service (voice input is not mounted)'
+          : asrRegistration === 'pending' ? 'The speech provider is registering'
+            : asrRegistration === 'registered'
+              ? (key.configured !== true ? (key.reason ?? `The DeepSeek API key (${key.ref}) is not set`) : undefined)
+              : asrRegistration,
       },
       preferences: prefs,
     }
@@ -370,6 +594,16 @@ export function install(rt) {
       else if (body.ocr === true || body.ocr === false) next.ocr = body.ocr
       else throw invalid('ocr must be true, false or null')
     }
+    if ('tts' in body) {
+      if (body.tts === null) delete next.tts
+      else if (body.tts === 'deepseek' || body.tts === 'system') next.tts = body.tts
+      else throw invalid('tts must be "deepseek", "system" or null')
+    }
+    if ('voice' in body) {
+      if (body.voice === null) delete next.voice
+      else if (TTS_VOICES.includes(body.voice)) next.voice = body.voice
+      else throw invalid(`voice must be ${TTS_VOICES.join(' or ')} or null`)
+    }
     const cleaned = normalizeServices(next)
     if (Object.keys(cleaned).length === 0) delete rt.state.prefs.deepseekServices
     else rt.state.prefs.deepseekServices = cleaned
@@ -377,12 +611,16 @@ export function install(rt) {
     return servicesStatus()
   }
 
-  async function deepseekEndpoint(endpoint, body) {
+  async function deepseekEndpoint(endpoint, body, signal) {
     switch (endpoint) {
       case 'deepseek-services': return servicesStatus()
       case 'deepseek-services-config': {
         await rt.load()
         return updateServices(body ?? {})
+      }
+      case 'deepseek-synthesize': {
+        await rt.load()
+        return synthesize(body, signal)
       }
       default:
         throw invalid(`Unknown endpoint ${endpoint}`)

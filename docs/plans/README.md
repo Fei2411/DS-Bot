@@ -49,6 +49,7 @@
 | [浏览器、搜索、密钥和连接器](2026-10-08-browser-and-secrets.md) | 每个 Bot 的浏览器和 `read_browser`、`auto` 联网搜索、密钥卡和替换规则、GitHub 连接器(已被 2026-11-04 通用连接器取代) |
 | [密钥的静态加密](2026-11-12-encrypted-secrets.md) | 可选的 `secrets.json` 口令加密：同一文件原子切换成 scrypt + AES-256-GCM 信封；无人值守用环境变量或口令文件解锁；锁定时的行为和回滚 |
 | [DeepSeek 文档识别](2026-11-14-read-document.md) | 官方 API key 给任意主模型独立 OCR：`read_document` 会话归属 / 只读 / 长文留存；凭据网关隔离、缺 key / 费用与验收 |
+| [DeepSeek 语音](2026-11-14-deepseek-services.md) | 官方 API key 给任意主模型独立 ASR / TTS：`deepseek-asr` 走现有语音输入选择、TTS 分段串行与停止取消；偏好只存 `tts` / `voice`，配置 key 不自动切语音 |
 | [浏览器插件](2026-10-21-browser-plugins.md) | 全团队一个浏览器后端，每个 Bot 一份 profile；`refs` / `script` / `task` |
 | [电脑操控](2026-11-04-computer-use.md) | 设置里的总开关和 DSH 提供方；每个 Bot 四档（关 / 只看 / 后台操作 / 可以动前台）；按 Bot 记的应用授权；不能碰的应用；应用租约和前台租约；指示器、停止、「电脑」页；接管和交接卡与浏览器共用 |
 | [上下文与记忆](2026-10-09-context-and-memory.md) | 对话分段、上下文管家（压缩还是换段）、交接包、`read_own_chat`；记忆的存放、格式、权限、整理和冻结 |

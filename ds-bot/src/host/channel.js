@@ -877,7 +877,8 @@ export function install(rt) {
         }
         case 'deepseek-services':
         case 'deepseek-services-config':
-          return ok(await rt.deepseekEndpoint(endpoint, body))
+        case 'deepseek-synthesize':
+          return ok(await rt.deepseekEndpoint(endpoint, body, signal))
         case 'diagnostics':
           await rt.load()
           return ok(await rt.diagnostics.report(body))
