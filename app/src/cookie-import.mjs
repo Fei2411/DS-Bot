@@ -168,7 +168,9 @@ export async function seedOriginsInPartition(BrowserWindow, partition, origins, 
       dbg.on('message', (_event, method, params) => {
         if (method !== 'Fetch.requestPaused') return
         const url = params?.request?.url ?? ''
-        if (url.includes(SEED_PATH)) {
+        let isSeed = false
+        try { isSeed = params?.request?.method === 'GET' && new URL(url).pathname === SEED_PATH } catch { /* malformed */ }
+        if (isSeed) {
           void dbg.sendCommand('Fetch.fulfillRequest', {
             requestId: params.requestId,
             responseCode: 200,
@@ -184,17 +186,27 @@ export async function seedOriginsInPartition(BrowserWindow, partition, origins, 
     return await applyOrigins(selected, {
       seedOrigin: async (origin, entries) => {
         const target = new URL(SEED_PATH, origin).href
-        await contents.loadURL(target)
-        const payload = JSON.stringify(entries)
-        const count = await contents.executeJavaScript(`(() => {
-          const items = ${payload};
-          let wrote = 0;
-          for (const item of items) {
-            try { window.localStorage.setItem(item.name, item.value); wrote += 1; } catch {}
-          }
-          return wrote;
-        })()`)
-        return Number(count) || 0
+        let timer
+        try {
+          return await Promise.race([
+            (async () => {
+              await contents.loadURL(target)
+              const payload = JSON.stringify(entries)
+              const count = await contents.executeJavaScript(`(() => {
+                const items = ${payload};
+                let wrote = 0;
+                for (const item of items) {
+                  try { window.localStorage.setItem(item.name, item.value); wrote += 1; } catch {}
+                }
+                return wrote;
+              })()`)
+              return Number(count) || 0
+            })(),
+            new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('storage seed timed out')), 5_000) }),
+          ])
+        } finally {
+          clearTimeout(timer)
+        }
       },
     })
   } finally {

@@ -536,6 +536,7 @@ export const KO = {
   'Keychain access was cancelled. Click Allow when macOS asks to read your browser cookies.': '키체인 접근이 취소되었습니다. macOS가 브라우저 쿠키 읽기를 요청하면 허용을 클릭하세요.',
   'Remote debugging permission was declined in the browser. Try again and click Allow.': '브라우저에서 원격 디버깅 권한이 거부되었습니다. 다시 시도하고 허용을 클릭하세요.',
   'Timed out waiting for you to click Allow in the browser.': '브라우저에서 허용을 클릭하기를 기다리다 시간이 초과되었습니다.',
+  'Another browser profile is active. Switch to the chosen profile window in your browser, then try again.': '다른 브라우저 프로필이 활성화되어 있습니다. 브라우저에서 선택한 프로필 창으로 전환한 뒤 다시 시도하세요.',
   'Import from browser': '브라우저에서 가져오기',
   'Last used': '최근 사용',
   'Browser profile': '브라우저 프로필',

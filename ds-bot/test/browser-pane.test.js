@@ -44,13 +44,15 @@ test('overlay coverage requires positive rectangle intersection', () => {
   assert.equal(rectsOverlap(panel, { left: 50, top: 60, right: 50, bottom: 90, width: 0, height: 30 }), false)
 })
 
-test('siteMatchesHost matches exact, parent, subdomain, and shared registrable domains', () => {
+test('siteMatchesHost matches same host and direct domain hierarchy without crossing public suffix boundaries', () => {
   assert.equal(siteMatchesHost('github.com', 'github.com'), true)
   assert.equal(siteMatchesHost('github.com', 'gist.github.com'), true)
   assert.equal(siteMatchesHost('api.github.com', 'github.com'), true)
-  assert.equal(siteMatchesHost('auth.github.com', 'gist.github.com'), true)
-  assert.equal(siteMatchesHost('login.example.co.uk', 'app.example.co.uk'), true)
-  assert.equal(siteMatchesHost('other.co.uk', 'app.example.co.uk'), false)
+  assert.equal(siteMatchesHost('example.co.uk', 'app.example.co.uk'), true)
+  assert.equal(siteMatchesHost('alice.github.io', 'bob.github.io'), false)
+  assert.equal(siteMatchesHost('bank.co.nz', 'shop.co.nz'), false)
+  assert.equal(siteMatchesHost('a.vercel.app', 'b.vercel.app'), false)
+  assert.equal(siteMatchesHost('com', 'github.com'), false)
   assert.equal(siteMatchesHost('github.com', 'notgithub.com'), false)
   assert.equal(siteMatchesHost('localhost', 'localhost'), true)
   assert.equal(siteMatchesHost('127.0.0.1', '127.0.0.1'), true)

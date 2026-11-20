@@ -54,9 +54,9 @@ const BROWSER_META = {
 
 const VERSION_DIR = /^\d+\.\d+\.\d+\.\d+$/
 
-function kindOfExe(exePath) {
-  const p = exePath.toLowerCase().replace(/\//g, '\\')
-  const base = basename(p)
+export function kindOfExe(exePath) {
+  const p = String(exePath ?? '').toLowerCase().replace(/\//g, '\\')
+  const base = win32.basename(p)
   if (base.startsWith('zen') || p.includes('\\zen browser\\') || p.includes('zen.app')) return 'zen'
   if (base.startsWith('firefox')) return 'firefox'
   if (p.includes('edge beta') || p.includes('microsoft-edge-beta')) return 'edge-beta'
@@ -104,6 +104,7 @@ function exeCandidates() {
       'Microsoft\\Edge\\Application\\msedge.exe',
       'Microsoft\\Edge Beta\\Application\\msedge.exe',
       'BraveSoftware\\Brave-Browser\\Application\\brave.exe',
+      'Microsoft\\WindowsApps\\Arc.exe',
       'Vivaldi\\Application\\vivaldi.exe',
       'Programs\\Opera\\opera.exe',
       'Programs\\Opera GX\\opera.exe',
@@ -385,9 +386,9 @@ export async function listSources() {
         continue
       }
       const liveDebugReady = readDevToolsActivePort(root) !== null
-      // Chromium on macOS can decrypt via Keychain without launching the binary; elsewhere we
-      // need either the source binary or an active DevToolsActivePort.
-      const canHarvest = Boolean(exe) || liveDebugReady || (isMac && meta.keychain.length > 0)
+      // Chromium on macOS can decrypt via Keychain without launching the binary; on Windows,
+      // MSIX installs like Arc can still enter the guided remote-debugging flow without a resolved exe.
+      const canHarvest = Boolean(exe) || liveDebugReady || (isMac && meta.keychain.length > 0) || (platform() === 'win32' && kind === 'arc')
       if (!canHarvest) continue
       for (const p of await chromiumProfiles(root, { flat: meta.flat === true })) {
         if (!p.hasCookies) continue
@@ -560,7 +561,9 @@ function wsCdpConnect(wsUrl, { connectTimeoutMs = LIVE_CONNECT_TIMEOUT_MS, WebSo
   })
 }
 
-async function harvestOpenTabLocalStorage(cdp) {
+const MAX_STORAGE_ATTEMPTS = 60
+
+async function harvestOpenTabLocalStorage(cdp, defaultBrowserContextId) {
   const origins = []
   let targetInfos = []
   try {
@@ -569,21 +572,35 @@ async function harvestOpenTabLocalStorage(cdp) {
   } catch {
     return origins
   }
-  const seenOrigins = new Set()
-  const targets = []
-  for (const t of targetInfos) {
-    if (t.type !== 'page' || typeof t.url !== 'string') continue
+  const pageTargets = targetInfos.filter((t) => t.type === 'page' && typeof t.url === 'string')
+  // Strictly stay within the active profile's browserContextId so tabs from other profiles or
+  // incognito windows are never mixed into this import.
+  let scopedPages = pageTargets
+  if (typeof defaultBrowserContextId === 'string' && defaultBrowserContextId.length > 0) {
+    const hasContextIds = pageTargets.some((t) => typeof t.browserContextId === 'string' && t.browserContextId.length > 0)
+    if (hasContextIds) {
+      scopedPages = pageTargets.filter((t) => t.browserContextId === defaultBrowserContextId)
+    }
+  } else {
+    const distinctContexts = new Set(pageTargets.map((t) => t.browserContextId).filter(Boolean))
+    if (distinctContexts.size > 1) return origins
+  }
+
+  // Group page targets by origin so a suspended/frozen tab can fall back to another open tab of
+  // the same origin instead of hiding its localStorage.
+  const targetsByOrigin = new Map()
+  for (const t of scopedPages) {
     let origin
     try {
       const u = new URL(t.url)
       if (u.protocol !== 'http:' && u.protocol !== 'https:') continue
       origin = u.origin
     } catch { continue }
-    if (seenOrigins.has(origin)) continue
-    seenOrigins.add(origin)
-    targets.push({ targetId: t.targetId, origin })
-    if (targets.length >= MAX_STORAGE_ORIGINS) break
+    let list = targetsByOrigin.get(origin)
+    if (!list) { list = []; targetsByOrigin.set(origin, list) }
+    list.push(t.targetId)
   }
+
   const readScript = `(() => {
     try {
       const out = [];
@@ -600,25 +617,77 @@ async function harvestOpenTabLocalStorage(cdp) {
       return JSON.stringify(out);
     } catch { return '[]'; }
   })()`
-  for (const target of targets) {
-    let sessionId = null
-    try {
-      const attached = await cdp.send('Target.attachToTarget', { targetId: target.targetId, flatten: true }, { timeoutMs: TAB_STORAGE_TIMEOUT_MS })
-      sessionId = attached?.sessionId ?? null
-      if (!sessionId) continue
-      const evaluated = await cdp.send('Runtime.evaluate', { expression: readScript, returnByValue: true }, { sessionId, timeoutMs: TAB_STORAGE_TIMEOUT_MS })
-      const raw = evaluated?.result?.value
-      if (typeof raw === 'string') {
-        const entries = JSON.parse(raw)
-        if (Array.isArray(entries) && entries.length > 0) origins.push({ origin: target.origin, localStorage: entries })
+
+  let attempts = 0
+  for (const [origin, targetIds] of targetsByOrigin) {
+    if (origins.length >= MAX_STORAGE_ORIGINS || attempts >= MAX_STORAGE_ATTEMPTS) break
+    for (const targetId of targetIds) {
+      if (attempts >= MAX_STORAGE_ATTEMPTS) break
+      attempts += 1
+      let sessionId = null
+      try {
+        const attached = await cdp.send('Target.attachToTarget', { targetId, flatten: true }, { timeoutMs: TAB_STORAGE_TIMEOUT_MS })
+        sessionId = attached?.sessionId ?? null
+        if (!sessionId) continue
+        const evaluated = await cdp.send('Runtime.evaluate', { expression: readScript, returnByValue: true }, { sessionId, timeoutMs: TAB_STORAGE_TIMEOUT_MS })
+        const raw = evaluated?.result?.value
+        if (typeof raw === 'string') {
+          const entries = JSON.parse(raw)
+          if (Array.isArray(entries)) {
+            if (entries.length > 0) origins.push({ origin, localStorage: entries })
+            break // readable tab for this origin succeeded (even if localStorage is empty)
+          }
+        }
+      } catch {
+        // Frozen/suspended or restricted tab: try the next open tab for this origin.
+      } finally {
+        if (sessionId) await cdp.send('Target.detachFromTarget', { sessionId }, { timeoutMs: 1_000 }).catch(() => {})
       }
-    } catch {
-      // Frozen/suspended or restricted tabs are skipped silently; cookies are unaffected.
-    } finally {
-      if (sessionId) await cdp.send('Target.detachFromTarget', { sessionId }, { timeoutMs: 1_000 }).catch(() => {})
     }
   }
   return origins
+}
+
+async function ensureLiveProfileActive(source, userDataDir, profileDir) {
+  if (!profileDir || source.flat) return
+  const profiles = await chromiumProfiles(userDataDir)
+  // Single-profile user-data-dir: only one profile can be active.
+  if (profiles.filter((p) => p.hasCookies).length <= 1) return
+  const readLastUsed = () => {
+    const val = readJson(join(userDataDir, 'Local State'))?.profile?.last_used
+    return typeof val === 'string' && val.length > 0 ? val : null
+  }
+  const wrongProfile = () => {
+    const err = new Error(`Another browser profile is active; switch to ${source.profileName || profileDir} in ${source.name || 'the browser'} and try again.`)
+    err.code = 'devtools-wrong-profile'
+    return err
+  }
+  if (!source.exe) {
+    // Without the binary we cannot switch the active window: fail closed unless Local State confirms it.
+    if (readLastUsed() !== profileDir) throw wrongProfile()
+    return
+  }
+  // Explicitly focus the selected profile in the running browser via ProcessSingleton handoff.
+  // Local State.last_used is debounced on disk (~10s), while in-memory active profile switches
+  // before the handoff process exits with code 0. Fail closed if spawning/handoff fails.
+  const focused = await new Promise((resolve) => {
+    let settled = false
+    const done = (ok) => { if (!settled) { settled = true; resolve(ok) } }
+    let child
+    try {
+      child = spawn(source.exe, [`--user-data-dir=${userDataDir}`, `--profile-directory=${profileDir}`], {
+        detached: true, stdio: 'ignore', windowsHide: true,
+      })
+    } catch {
+      return done(false)
+    }
+    child.once('error', () => done(false))
+    child.once('exit', (code) => done(code === 0 || code === null))
+    child.unref()
+    setTimeout(() => done(true), 1500)
+  })
+  if (!focused) throw wrongProfile()
+  await sleepMs(400)
 }
 
 /**
@@ -634,16 +703,9 @@ export async function harvestLiveChromium(source, opts = {}) {
     throw err
   }
   // Chrome's single DevToolsActivePort routes Storage.getCookies() to the last-focused profile.
-  // When the user picked a non-active profile, activate its window before connecting.
-  if (!opts.skipFocus && profileDir && source.exe) {
-    const lastUsed = readJson(join(userDataDir, 'Local State'))?.profile?.last_used
-    if (lastUsed && lastUsed !== profileDir) {
-      try {
-        const child = spawn(source.exe, [`--profile-directory=${profileDir}`], { detached: true, stdio: 'ignore', windowsHide: true })
-        child.unref()
-        await sleepMs(600)
-      } catch { /* proceed with current active profile */ }
-    }
+  // Verify or activate the chosen profile before harvesting so another account is never imported.
+  if (!opts.skipFocus) {
+    await ensureLiveProfileActive(source, userDataDir, profileDir)
   }
   const cdp = await wsCdpConnect(activePort.wsUrl, {
     connectTimeoutMs: opts.connectTimeoutMs ?? LIVE_CONNECT_TIMEOUT_MS,
@@ -662,7 +724,16 @@ export async function harvestLiveChromium(source, opts = {}) {
       }
       normalized.push(cookie)
     })
-    const origins = opts.includeLocalStorage === false ? [] : await harvestOpenTabLocalStorage(cdp)
+    let defaultBrowserContextId = null
+    if (opts.includeLocalStorage !== false) {
+      try {
+        const ctxs = await cdp.send('Target.getBrowserContexts', {}, { timeoutMs: 2_000 })
+        if (typeof ctxs?.defaultBrowserContextId === 'string' && ctxs.defaultBrowserContextId) {
+          defaultBrowserContextId = ctxs.defaultBrowserContextId
+        }
+      } catch { /* older browsers or stubs without getBrowserContexts */ }
+    }
+    const origins = opts.includeLocalStorage === false ? [] : await harvestOpenTabLocalStorage(cdp, defaultBrowserContextId)
     return { cookies: normalized, origins, skipped }
   } finally {
     // Only close our debugging socket — never Browser.close the user's real browser.
@@ -844,6 +915,8 @@ function pipeConnection(child) {
     for (const p of pending.values()) { const e = new Error(`CDP pipe closed (${reason})`); e.code = 'PIPE_CLOSED'; p.reject(e) }
     pending.clear()
   }
+  reader.on('error', (err) => die(err?.message ?? 'pipe read error'))
+  writer.on('error', (err) => die(err?.message ?? 'pipe write error'))
   reader.on('close', () => die('pipe close'))
   child.once('exit', (code) => die(`exit ${code}`))
   return {
@@ -852,7 +925,12 @@ function pipeConnection(child) {
       return new Promise((resolve, reject) => {
         pending.set(id, { resolve, reject })
         // Chrome's pipe transport frames messages with a trailing NUL.
-        writer.write(`${JSON.stringify({ id, method, params })}\0`)
+        try {
+          writer.write(`${JSON.stringify({ id, method, params })}\0`)
+        } catch (err) {
+          pending.delete(id)
+          reject(err)
+        }
       })
     },
   }
@@ -990,7 +1068,8 @@ export async function importFromBrowser(source, { close = false, platformOverrid
       return { running: false, restarted: false, method: 'live-cdp', result }
     } catch (error) {
       if (error?.code === 'devtools-denied' || error?.code === 'devtools-timeout') throw error
-      // devtools-stale / devtools-missing: fall through to local store strategies.
+      if (error?.code === 'devtools-wrong-profile' && currentPlatform === 'win32' && hasAppBoundKey(userDataDir)) throw error
+      // devtools-stale / devtools-missing / non-ABE profile mismatch: fall through to profile-isolated local strategies.
     }
   }
 

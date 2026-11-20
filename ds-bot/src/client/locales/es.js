@@ -536,6 +536,7 @@ export const ES = {
   'Keychain access was cancelled. Click Allow when macOS asks to read your browser cookies.': 'Se canceló el acceso al llavero. Haz clic en Permitir cuando macOS solicite leer las cookies de tu navegador.',
   'Remote debugging permission was declined in the browser. Try again and click Allow.': 'Se rechazó el permiso de depuración remota en el navegador. Inténtalo de nuevo y haz clic en Permitir.',
   'Timed out waiting for you to click Allow in the browser.': 'Se agotó el tiempo esperando a que hicieras clic en Permitir en el navegador.',
+  'Another browser profile is active. Switch to the chosen profile window in your browser, then try again.': 'Hay otro perfil del navegador activo. Cambia a la ventana del perfil elegido en tu navegador e inténtalo de nuevo.',
   'Import from browser': 'Importar desde el navegador',
   'Last used': 'Último usado',
   'Browser profile': 'Perfil del navegador',

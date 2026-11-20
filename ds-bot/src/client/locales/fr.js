@@ -521,6 +521,7 @@ export const FR = {
   "Keychain access was cancelled. Click Allow when macOS asks to read your browser cookies.": "L’accès au trousseau a été annulé. Cliquez sur Autoriser lorsque macOS demande à lire les cookies de votre navigateur.",
   "Remote debugging permission was declined in the browser. Try again and click Allow.": "L’autorisation de débogage à distance a été refusée dans le navigateur. Réessayez et cliquez sur Autoriser.",
   "Timed out waiting for you to click Allow in the browser.": "Délai dépassé en attendant que vous cliquiez sur Autoriser dans le navigateur.",
+  "Another browser profile is active. Switch to the chosen profile window in your browser, then try again.": "Un autre profil de navigateur est actif. Basculez vers la fenêtre du profil choisi dans votre navigateur, puis réessayez.",
   "Import from browser": "Importer depuis un navigateur",
   "Last used": "Dernier utilisé",
   "Browser profile": "Profil du navigateur",

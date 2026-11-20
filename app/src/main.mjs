@@ -898,7 +898,7 @@ function handleIpc() {
     try {
       outcome = await importFromBrowser(source, { close: close === true })
     } catch (error) {
-      if (['app-bound', 'keychain-denied', 'devtools-denied', 'devtools-timeout'].includes(error?.code)) {
+      if (['app-bound', 'keychain-denied', 'devtools-denied', 'devtools-timeout', 'devtools-wrong-profile'].includes(error?.code)) {
         return { error: error.code }
       }
       throw error

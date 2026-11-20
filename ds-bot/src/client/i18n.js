@@ -520,6 +520,7 @@ const ZH = {
   'Keychain access was cancelled. Click Allow when macOS asks to read your browser cookies.': '钥匙串访问被取消了。macOS 询问读取浏览器 cookie 时请点「允许」。',
   'Remote debugging permission was declined in the browser. Try again and click Allow.': '浏览器拒绝了远程调试授权。请重试并在弹窗里点「允许」。',
   'Timed out waiting for you to click Allow in the browser.': '等待你在浏览器里点「允许」超时了。',
+  'Another browser profile is active. Switch to the chosen profile window in your browser, then try again.': '当前激活的是另一个浏览器配置。请先在浏览器里切到所选配置的窗口，再重试。',
   'Import from browser': '从浏览器导入',
   'Last used': '上次使用',
   'Browser profile': '浏览器配置',

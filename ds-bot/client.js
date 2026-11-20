@@ -644,6 +644,7 @@ var JA = {
   "Keychain access was cancelled. Click Allow when macOS asks to read your browser cookies.": "キーチェーンへのアクセスがキャンセルされました。macOS がブラウザの Cookie 読み取りを求めたら「許可」をクリックしてください。",
   "Remote debugging permission was declined in the browser. Try again and click Allow.": "ブラウザでリモートデバッグの許可が拒否されました。もう一度試して「許可」をクリックしてください。",
   "Timed out waiting for you to click Allow in the browser.": "ブラウザで「許可」をクリックする待機時間がタイムアウトしました。",
+  "Another browser profile is active. Switch to the chosen profile window in your browser, then try again.": "別のブラウザプロファイルがアクティブです。ブラウザで選択したプロファイルのウィンドウに切り替えてから再試行してください。",
   "Import from browser": "ブラウザからインポート",
   "Last used": "前回使用",
   "Browser profile": "ブラウザプロファイル",
@@ -3186,6 +3187,7 @@ var KO = {
   "Keychain access was cancelled. Click Allow when macOS asks to read your browser cookies.": "키체인 접근이 취소되었습니다. macOS가 브라우저 쿠키 읽기를 요청하면 허용을 클릭하세요.",
   "Remote debugging permission was declined in the browser. Try again and click Allow.": "브라우저에서 원격 디버깅 권한이 거부되었습니다. 다시 시도하고 허용을 클릭하세요.",
   "Timed out waiting for you to click Allow in the browser.": "브라우저에서 허용을 클릭하기를 기다리다 시간이 초과되었습니다.",
+  "Another browser profile is active. Switch to the chosen profile window in your browser, then try again.": "다른 브라우저 프로필이 활성화되어 있습니다. 브라우저에서 선택한 프로필 창으로 전환한 뒤 다시 시도하세요.",
   "Import from browser": "브라우저에서 가져오기",
   "Last used": "최근 사용",
   "Browser profile": "브라우저 프로필",
@@ -5763,6 +5765,7 @@ var ES = {
   "Keychain access was cancelled. Click Allow when macOS asks to read your browser cookies.": "Se canceló el acceso al llavero. Haz clic en Permitir cuando macOS solicite leer las cookies de tu navegador.",
   "Remote debugging permission was declined in the browser. Try again and click Allow.": "Se rechazó el permiso de depuración remota en el navegador. Inténtalo de nuevo y haz clic en Permitir.",
   "Timed out waiting for you to click Allow in the browser.": "Se agotó el tiempo esperando a que hicieras clic en Permitir en el navegador.",
+  "Another browser profile is active. Switch to the chosen profile window in your browser, then try again.": "Hay otro perfil del navegador activo. Cambia a la ventana del perfil elegido en tu navegador e inténtalo de nuevo.",
   "Import from browser": "Importar desde el navegador",
   "Last used": "Último usado",
   "Browser profile": "Perfil del navegador",
@@ -8330,6 +8333,7 @@ var FR = {
   "Keychain access was cancelled. Click Allow when macOS asks to read your browser cookies.": "L’accès au trousseau a été annulé. Cliquez sur Autoriser lorsque macOS demande à lire les cookies de votre navigateur.",
   "Remote debugging permission was declined in the browser. Try again and click Allow.": "L’autorisation de débogage à distance a été refusée dans le navigateur. Réessayez et cliquez sur Autoriser.",
   "Timed out waiting for you to click Allow in the browser.": "Délai dépassé en attendant que vous cliquiez sur Autoriser dans le navigateur.",
+  "Another browser profile is active. Switch to the chosen profile window in your browser, then try again.": "Un autre profil de navigateur est actif. Basculez vers la fenêtre du profil choisi dans votre navigateur, puis réessayez.",
   "Import from browser": "Importer depuis un navigateur",
   "Last used": "Dernier utilisé",
   "Browser profile": "Profil du navigateur",
@@ -10872,6 +10876,7 @@ var DE = {
   "Keychain access was cancelled. Click Allow when macOS asks to read your browser cookies.": "Der Zugriff auf den Schlüsselbund wurde abgebrochen. Klicke auf Erlauben, wenn macOS nach dem Lesen deiner Browser-Cookies fragt.",
   "Remote debugging permission was declined in the browser. Try again and click Allow.": "Die Berechtigung für Remote-Debugging wurde im Browser abgelehnt. Versuche es erneut und klicke auf Erlauben.",
   "Timed out waiting for you to click Allow in the browser.": "Zeitüberschreitung beim Warten auf deine Bestätigung im Browser.",
+  "Another browser profile is active. Switch to the chosen profile window in your browser, then try again.": "Ein anderes Browser-Profil ist aktiv. Wechsle in deinem Browser zum Fenster des ausgewählten Profils und versuche es erneut.",
   "Import from browser": "Aus Browser importieren",
   "Last used": "Zuletzt verwendet",
   "Browser profile": "Browser-Profil",
@@ -13424,6 +13429,7 @@ var ZH = {
   "Keychain access was cancelled. Click Allow when macOS asks to read your browser cookies.": "钥匙串访问被取消了。macOS 询问读取浏览器 cookie 时请点「允许」。",
   "Remote debugging permission was declined in the browser. Try again and click Allow.": "浏览器拒绝了远程调试授权。请重试并在弹窗里点「允许」。",
   "Timed out waiting for you to click Allow in the browser.": "等待你在浏览器里点「允许」超时了。",
+  "Another browser profile is active. Switch to the chosen profile window in your browser, then try again.": "当前激活的是另一个浏览器配置。请先在浏览器里切到所选配置的窗口，再重试。",
   "Import from browser": "从浏览器导入",
   "Last used": "上次使用",
   "Browser profile": "浏览器配置",
@@ -42920,24 +42926,14 @@ var ImportIcon = icon(["M10 3.5v8.5", "M6 8.5l4 4 4-4", "M4.5 14v1.5a1.5 1.5 0 0
 var FileIcon = icon(["M6 3.5h5.5L14.5 6.5v10H6z", "M11 3.5v3.5h3.5"]);
 var WindowIcon = icon(["M4 5h12v9.5H4z", "M4 7.5h12"]);
 var PasteIcon = icon(["M7.5 4.5h5v2h-5z", "M6 5.5H5a1 1 0 0 0-1 1v9a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1v-9a1 1 0 0 0-1-1h-1"]);
-var MULTI_PART_TLDS = /* @__PURE__ */ new Set(["co.uk", "org.uk", "ac.uk", "com.cn", "net.cn", "org.cn", "gov.cn", "com.hk", "com.tw", "co.jp", "ne.jp", "or.jp", "com.au", "co.kr", "com.br", "com.sg"]);
-var baseDomainOf = (host) => {
-  const clean = String(host ?? "").replace(/^\.+/, "").toLowerCase();
-  if (!clean || clean === "localhost" || /^\d+(\.\d+){3}$/.test(clean) || clean.includes(":")) return clean;
-  const parts = clean.split(".");
-  if (parts.length <= 2) return clean;
-  const lastTwo = parts.slice(-2).join(".");
-  if (MULTI_PART_TLDS.has(lastTwo) && parts.length >= 3) return parts.slice(-3).join(".");
-  return lastTwo;
-};
 function siteMatchesHost(site, host) {
   const s = String(site ?? "").replace(/^\.+/, "").toLowerCase();
   const h73 = String(host ?? "").replace(/^\.+/, "").toLowerCase();
   if (!s || !h73) return false;
-  if (s === h73 || h73.endsWith(`.${s}`) || s.endsWith(`.${h73}`)) return true;
-  const baseS = baseDomainOf(s);
-  const baseH = baseDomainOf(h73);
-  return Boolean(baseS && baseS === baseH);
+  if (s === h73) return true;
+  if (s.includes(".") && h73.endsWith(`.${s}`)) return true;
+  if (h73.includes(".") && s.endsWith(`.${h73}`)) return true;
+  return false;
 }
 var hostOfUrl = (url) => {
   if (typeof url !== "string" || !/^https?:\/\//i.test(url)) return null;
@@ -43538,6 +43534,7 @@ function importError(error) {
   if (error === "keychain-denied") return t("Keychain access was cancelled. Click Allow when macOS asks to read your browser cookies.");
   if (error === "devtools-denied") return t("Remote debugging permission was declined in the browser. Try again and click Allow.");
   if (error === "devtools-timeout") return t("Timed out waiting for you to click Allow in the browser.");
+  if (error === "devtools-wrong-profile") return t("Another browser profile is active. Switch to the chosen profile window in your browser, then try again.");
   return String(error);
 }
 function ImportMenu({ sources, lastSourceId, loading, busy, canPaste, onFile, onPaste, onSource, onClose }) {
@@ -43600,7 +43597,7 @@ function RemoteDebugCard({ flow, busy, imports, onRetrySource, onLaunchSource, o
       void imports.sources().then((list) => {
         if (!active || !Array.isArray(list)) return;
         const match = list.find((s) => s.id === source.id);
-        if (match?.liveDebugReady) setDetected(true);
+        setDetected(Boolean(match?.liveDebugReady));
       }, () => {
       });
     };
@@ -44225,7 +44222,7 @@ var BROWSER_CSS = `
 .bt-bcard-new svg{width:14px;height:14px}
 .bt-browser-empty-mark{display:flex;flex-direction:column;align-items:center;gap:10px;text-align:center}
 /* Cookie imports */
-.bt-import-menu{position:absolute;top:6px;right:6px;z-index:6;width:268px;max-height:min(360px,calc(100% - 12px));overflow:auto;padding:6px;border-radius:16px;background:var(--bt-glass-bg);-webkit-backdrop-filter:blur(24px) saturate(180%);backdrop-filter:blur(24px) saturate(180%);border:.5px solid var(--bt-glass-rim);box-shadow:var(--bt-glass-shadow);transform-origin:top right;animation:bt-pop-drop .18s cubic-bezier(.16,1,.3,1),bt-fade .14s ease-out}
+.bt-import-menu{position:absolute;top:6px;right:6px;z-index:6;width:296px;max-height:min(360px,calc(100% - 12px));overflow:auto;padding:6px;border-radius:16px;background:var(--bt-glass-bg);-webkit-backdrop-filter:blur(24px) saturate(180%);backdrop-filter:blur(24px) saturate(180%);border:.5px solid var(--bt-glass-rim);box-shadow:var(--bt-glass-shadow);transform-origin:top right;animation:bt-pop-drop .18s cubic-bezier(.16,1,.3,1),bt-fade .14s ease-out}
 .bt-import-menu-title{padding:6px 10px 8px;font-size:11px;font-weight:500;letter-spacing:.02em;color:var(--bt-ink-3)}
 .bt-import-sep{height:.5px;margin:4px 8px;background:var(--bt-line)}
 .bt-import-item{display:flex;align-items:center;gap:9px;width:100%;min-width:0;padding:8px 10px;border:0;border-radius:8px;background:none;color:var(--bt-ink);font:inherit;font-size:12px;text-align:left;cursor:pointer}

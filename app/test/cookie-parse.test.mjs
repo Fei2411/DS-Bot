@@ -153,9 +153,14 @@ test('Copy as cURL (bash and cmd) parses cookies and prefers the cURL URL over d
   assert.equal(parsedCmd.ok, true)
   assert.equal(parsedCmd.format, 'curl')
   assert.deepEqual(parsedCmd.cookies.map((c) => [c.name, c.domain]), [['a', 'portal.example.org'], ['b', 'portal.example.org']])
+
+  const flagsBeforeUrl = "curl -X POST -e 'https://referer.example.net/from' --url=https://target.example.org/v1 --cookie='sid=ok'"
+  const parsedFlags = parseCookieFile(flagsBeforeUrl)
+  assert.equal(parsedFlags.ok, true)
+  assert.deepEqual(parsedFlags.cookies.map((c) => [c.name, c.domain]), [['sid', 'target.example.org']])
 })
 
-test('a Cookie header string parses when defaultUrl is supplied', () => {
+test('a Cookie header string parses when defaultUrl is supplied (full URL or bare hostname)', () => {
   const parsed = parseCookieFile('Cookie: sid=fake123; lang=zh', { defaultUrl: 'https://docs.example.com/guide' })
   assert.equal(parsed.ok, true)
   assert.equal(parsed.format, 'header-string')
@@ -163,6 +168,11 @@ test('a Cookie header string parses when defaultUrl is supplied', () => {
     ['sid', 'fake123', 'docs.example.com', '/', true],
     ['lang', 'zh', 'docs.example.com', '/', true],
   ])
+
+  const bareHost = parseCookieFile('sid=bare123', { defaultUrl: 'docs.example.com' })
+  assert.equal(bareHost.ok, true)
+  assert.equal(bareHost.cookies[0].domain, 'docs.example.com')
+  assert.equal(bareHost.cookies[0].secure, true)
 })
 
 test('Playwright storageState preserves localStorage origins and summarizes them by site', () => {

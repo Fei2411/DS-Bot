@@ -536,6 +536,7 @@ export const DE = {
   'Keychain access was cancelled. Click Allow when macOS asks to read your browser cookies.': 'Der Zugriff auf den Schlüsselbund wurde abgebrochen. Klicke auf Erlauben, wenn macOS nach dem Lesen deiner Browser-Cookies fragt.',
   'Remote debugging permission was declined in the browser. Try again and click Allow.': 'Die Berechtigung für Remote-Debugging wurde im Browser abgelehnt. Versuche es erneut und klicke auf Erlauben.',
   'Timed out waiting for you to click Allow in the browser.': 'Zeitüberschreitung beim Warten auf deine Bestätigung im Browser.',
+  'Another browser profile is active. Switch to the chosen profile window in your browser, then try again.': 'Ein anderes Browser-Profil ist aktiv. Wechsle in deinem Browser zum Fenster des ausgewählten Profils und versuche es erneut.',
   'Import from browser': 'Aus Browser importieren',
   'Last used': 'Zuletzt verwendet',
   'Browser profile': 'Browser-Profil',

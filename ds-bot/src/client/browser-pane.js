@@ -50,27 +50,16 @@ const FileIcon = icon(['M6 3.5h5.5L14.5 6.5v10H6z', 'M11 3.5v3.5h3.5'])
 const WindowIcon = icon(['M4 5h12v9.5H4z', 'M4 7.5h12'])
 const PasteIcon = icon(['M7.5 4.5h5v2h-5z', 'M6 5.5H5a1 1 0 0 0-1 1v9a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1v-9a1 1 0 0 0-1-1h-1'])
 
-const MULTI_PART_TLDS = new Set(['co.uk', 'org.uk', 'ac.uk', 'com.cn', 'net.cn', 'org.cn', 'gov.cn', 'com.hk', 'com.tw', 'co.jp', 'ne.jp', 'or.jp', 'com.au', 'co.kr', 'com.br', 'com.sg'])
-
-const baseDomainOf = (host) => {
-  const clean = String(host ?? '').replace(/^\.+/, '').toLowerCase()
-  if (!clean || clean === 'localhost' || /^\d+(\.\d+){3}$/.test(clean) || clean.includes(':')) return clean
-  const parts = clean.split('.')
-  if (parts.length <= 2) return clean
-  const lastTwo = parts.slice(-2).join('.')
-  if (MULTI_PART_TLDS.has(lastTwo) && parts.length >= 3) return parts.slice(-3).join('.')
-  return lastTwo
-}
-
-/** Whether a cookie site belongs to the same website as the current browser tab host. */
+/** Whether a cookie site belongs to the same host or direct domain hierarchy as the current tab. */
 export function siteMatchesHost(site, host) {
   const s = String(site ?? '').replace(/^\.+/, '').toLowerCase()
   const h = String(host ?? '').replace(/^\.+/, '').toLowerCase()
   if (!s || !h) return false
-  if (s === h || h.endsWith(`.${s}`) || s.endsWith(`.${h}`)) return true
-  const baseS = baseDomainOf(s)
-  const baseH = baseDomainOf(h)
-  return Boolean(baseS && baseS === baseH)
+  if (s === h) return true
+  // Never match bare single-label TLDs as parents (only real multi-label domains).
+  if (s.includes('.') && h.endsWith(`.${s}`)) return true
+  if (h.includes('.') && s.endsWith(`.${h}`)) return true
+  return false
 }
 
 const hostOfUrl = (url) => {
@@ -560,6 +549,7 @@ function importError(error) {
   if (error === 'keychain-denied') return t('Keychain access was cancelled. Click Allow when macOS asks to read your browser cookies.')
   if (error === 'devtools-denied') return t('Remote debugging permission was declined in the browser. Try again and click Allow.')
   if (error === 'devtools-timeout') return t('Timed out waiting for you to click Allow in the browser.')
+  if (error === 'devtools-wrong-profile') return t('Another browser profile is active. Switch to the chosen profile window in your browser, then try again.')
   return String(error)
 }
 
@@ -616,7 +606,7 @@ function RemoteDebugCard({ flow, busy, imports, onRetrySource, onLaunchSource, o
       void imports.sources().then((list) => {
         if (!active || !Array.isArray(list)) return
         const match = list.find((s) => s.id === source.id)
-        if (match?.liveDebugReady) setDetected(true)
+        setDetected(Boolean(match?.liveDebugReady))
       }, () => {})
     }
     const timer = setInterval(poll, 2000)
@@ -1143,7 +1133,7 @@ export const BROWSER_CSS = `
 .bt-bcard-new svg{width:14px;height:14px}
 .bt-browser-empty-mark{display:flex;flex-direction:column;align-items:center;gap:10px;text-align:center}
 /* Cookie imports */
-.bt-import-menu{position:absolute;top:6px;right:6px;z-index:6;width:268px;max-height:min(360px,calc(100% - 12px));overflow:auto;padding:6px;border-radius:16px;background:var(--bt-glass-bg);-webkit-backdrop-filter:blur(24px) saturate(180%);backdrop-filter:blur(24px) saturate(180%);border:.5px solid var(--bt-glass-rim);box-shadow:var(--bt-glass-shadow);transform-origin:top right;animation:bt-pop-drop .18s cubic-bezier(.16,1,.3,1),bt-fade .14s ease-out}
+.bt-import-menu{position:absolute;top:6px;right:6px;z-index:6;width:296px;max-height:min(360px,calc(100% - 12px));overflow:auto;padding:6px;border-radius:16px;background:var(--bt-glass-bg);-webkit-backdrop-filter:blur(24px) saturate(180%);backdrop-filter:blur(24px) saturate(180%);border:.5px solid var(--bt-glass-rim);box-shadow:var(--bt-glass-shadow);transform-origin:top right;animation:bt-pop-drop .18s cubic-bezier(.16,1,.3,1),bt-fade .14s ease-out}
 .bt-import-menu-title{padding:6px 10px 8px;font-size:11px;font-weight:500;letter-spacing:.02em;color:var(--bt-ink-3)}
 .bt-import-sep{height:.5px;margin:4px 8px;background:var(--bt-line)}
 .bt-import-item{display:flex;align-items:center;gap:9px;width:100%;min-width:0;padding:8px 10px;border:0;border-radius:8px;background:none;color:var(--bt-ink);font:inherit;font-size:12px;text-align:left;cursor:pointer}

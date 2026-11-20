@@ -22,6 +22,7 @@ import {
   harvestLiveChromium,
   hasAppBoundKey,
   importFromBrowser,
+  kindOfExe,
   locksProfile,
   readChromiumSqliteCookies,
   readDevToolsActivePort,
@@ -264,6 +265,8 @@ test('harvestLiveChromium reads cookies and open-tab localStorage via WebSocket 
             ],
           },
         }))
+      } else if (msg.method === 'Target.getBrowserContexts') {
+        ws.send(JSON.stringify({ id: msg.id, result: { browserContextIds: [], defaultBrowserContextId: 'ctx-1' } }))
       } else if (msg.method === 'Target.getTargets') {
         ws.send(JSON.stringify({
           id: msg.id,
@@ -411,4 +414,114 @@ test('locksProfile matches a browser process to the user-data root it locks', ()
   assert.equal(locksProfile({ commandLine: '"C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"' }, source), true)
   assert.equal(locksProfile({ commandLine: 'chrome.exe --user-data-dir="C:\\Users\\u\\AppData\\Local\\Google\\Chrome\\User Data" --restore' }, source), true)
   assert.equal(locksProfile({ commandLine: 'chrome.exe --user-data-dir=D:\\other\\dir' }, source), false)
+})
+
+test('kindOfExe identifies browsers across Linux, macOS, and Windows paths including Zen, Firefox, and Arc', () => {
+  assert.equal(kindOfExe('/usr/bin/zen-browser'), 'zen')
+  assert.equal(kindOfExe('/opt/zen-browser/zen'), 'zen')
+  assert.equal(kindOfExe('/usr/bin/firefox'), 'firefox')
+  assert.equal(kindOfExe('/Applications/Firefox.app/Contents/MacOS/firefox'), 'firefox')
+  assert.equal(kindOfExe('/Applications/Zen.app/Contents/MacOS/zen'), 'zen')
+  assert.equal(kindOfExe('/Applications/Arc.app/Contents/MacOS/Arc'), 'arc')
+  assert.equal(kindOfExe('C:\\Users\\Public\\AppData\\Local\\Microsoft\\WindowsApps\\Arc.exe'), 'arc')
+  assert.equal(kindOfExe('/usr/bin/microsoft-edge-beta'), 'edge-beta')
+  assert.equal(kindOfExe('/usr/bin/google-chrome'), 'chrome')
+})
+
+test('harvestLiveChromium isolates localStorage to defaultBrowserContextId and retries suspended tabs of the same origin', async () => {
+  const root = await tempRoot()
+  const wss = new WebSocketServer({ host: '127.0.0.1', port: 0 })
+  await new Promise((resolve) => wss.once('listening', resolve))
+  const { port } = wss.address()
+  wss.on('connection', (ws) => {
+    const sessions = new Map()
+    ws.on('message', (raw) => {
+      const msg = JSON.parse(raw.toString())
+      if (msg.method === 'Storage.getCookies') {
+        ws.send(JSON.stringify({ id: msg.id, result: { cookies: [] } }))
+      } else if (msg.method === 'Target.getBrowserContexts') {
+        ws.send(JSON.stringify({ id: msg.id, result: { browserContextIds: [], defaultBrowserContextId: 'ctx-active' } }))
+      } else if (msg.method === 'Target.getTargets') {
+        ws.send(JSON.stringify({
+          id: msg.id,
+          result: {
+            targetInfos: [
+              // Other profile's tab must be ignored even though it appears first.
+              { targetId: 't-other', type: 'page', url: 'https://other-profile.example/home', browserContextId: 'ctx-other' },
+              // Active profile: first tab is suspended/fails, second tab of same origin succeeds.
+              { targetId: 't-suspended', type: 'page', url: 'https://app.example.com/old', browserContextId: 'ctx-active' },
+              { targetId: 't-active', type: 'page', url: 'https://app.example.com/home', browserContextId: 'ctx-active' },
+            ],
+          },
+        }))
+      } else if (msg.method === 'Target.attachToTarget') {
+        const sid = `sid-${msg.params.targetId}`
+        sessions.set(sid, msg.params.targetId)
+        ws.send(JSON.stringify({ id: msg.id, result: { sessionId: sid } }))
+      } else if (msg.method === 'Runtime.evaluate') {
+        const targetId = sessions.get(msg.sessionId)
+        if (targetId === 't-suspended') {
+          ws.send(JSON.stringify({ id: msg.id, error: { code: -32000, message: 'Target is frozen' } }))
+        } else if (targetId === 't-active') {
+          ws.send(JSON.stringify({ id: msg.id, result: { result: { value: JSON.stringify([{ name: 'tok', value: 'active-profile-tok' }]) } } }))
+        } else {
+          ws.send(JSON.stringify({ id: msg.id, result: { result: { value: JSON.stringify([{ name: 'leak', value: 'wrong-profile' }]) } } }))
+        }
+      } else if (msg.method === 'Target.detachFromTarget') {
+        ws.send(JSON.stringify({ id: msg.id, result: {} }))
+      }
+    })
+  })
+  try {
+    const activePort = { port, wsPath: '/devtools/browser/test', wsUrl: `ws://127.0.0.1:${port}/devtools/browser/test` }
+    const source = { engine: 'chromium', userDataDir: root.dir, profilePath: join(root.dir, 'Default'), profileDir: 'Default' }
+    const out = await harvestLiveChromium(source, { activePort, skipFocus: true })
+    assert.deepEqual(out.origins, [
+      { origin: 'https://app.example.com', localStorage: [{ name: 'tok', value: 'active-profile-tok' }] },
+    ])
+  } finally {
+    await new Promise((resolve) => wss.close(resolve))
+    await root.remove()
+  }
+})
+
+test('harvestLiveChromium fails closed when a different profile is active and cannot be switched', async () => {
+  const root = await tempRoot()
+  try {
+    await mkdir(join(root.dir, 'Default', 'Network'), { recursive: true })
+    await writeFile(join(root.dir, 'Default', 'Network', 'Cookies'), 'x')
+    await mkdir(join(root.dir, 'Profile 1', 'Network'), { recursive: true })
+    await writeFile(join(root.dir, 'Profile 1', 'Network', 'Cookies'), 'x')
+    await writeFile(join(root.dir, 'Local State'), JSON.stringify({
+      profile: { last_used: 'Profile 1', info_cache: { Default: { name: 'Personal' }, 'Profile 1': { name: 'Work' } } },
+      os_crypt: { app_bound_encrypted_key: 'QVBQQg==' },
+    }))
+    await writeFile(join(root.dir, 'DevToolsActivePort'), '9222\n/devtools/browser/live\n')
+
+    const sourceNoExe = {
+      engine: 'chromium', name: 'Arc', profileName: 'Personal',
+      userDataDir: root.dir, profilePath: join(root.dir, 'Default'), profileDir: 'Default',
+      cookieDb: join(root.dir, 'Default', 'Network', 'Cookies'),
+      keychainServices: ['Arc Safe Storage'],
+      exe: null,
+    }
+    await assert.rejects(
+      () => harvestLiveChromium(sourceNoExe),
+      (error) => error.code === 'devtools-wrong-profile',
+    )
+
+    // On Windows ABE, importFromBrowser surfaces devtools-wrong-profile instead of reading the wrong profile.
+    await assert.rejects(
+      () => importFromBrowser(sourceNoExe, { platformOverride: 'win32' }),
+      (error) => error.code === 'devtools-wrong-profile',
+    )
+
+    // On macOS, importFromBrowser falls back to profile-isolated Keychain decryption instead of failing.
+    const macFallback = await importFromBrowser(sourceNoExe, {
+      platformOverride: 'darwin',
+      macHarvester: async () => ({ cookies: [{ name: 'personal_sid', value: 'ok', domain: '.example.com', path: '/' }], origins: [], skipped: [] }),
+    })
+    assert.equal(macFallback.method, 'keychain')
+    assert.equal(macFallback.result.cookies[0].name, 'personal_sid')
+  } finally { await root.remove() }
 })

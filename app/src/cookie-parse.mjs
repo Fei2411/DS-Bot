@@ -87,6 +87,18 @@ function validHttpUrl(value) {
   }
 }
 
+function normalizeDefaultUrl(value) {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const direct = validHttpUrl(trimmed);
+  if (direct) return direct;
+  if (!/^[a-z][a-z0-9+.-]*:/i.test(trimmed) && !/\s/.test(trimmed) && (trimmed.includes('.') || /^localhost(?::\d+)?(?:\/|$)/i.test(trimmed))) {
+    return validHttpUrl(`https://${trimmed}`);
+  }
+  return null;
+}
+
 /** → { format, flavor?, data?, error? }. format: one of FORMATS, or 'invalid-json' | 'unknown-json' | 'empty' | 'unknown'. */
 export function detectFormat(text, opts = {}) {
   const t = text.replace(/^\uFEFF/, '').trim();
@@ -106,7 +118,7 @@ export function detectFormat(text, opts = {}) {
   }
   const one = t.replace(/^cookie:\s*/i, '');
   if (!one.includes('\n') && /^[^=;\s]+=[^;]*(;\s*[^=;\s]+=[^;]*)*;?$/.test(one)) {
-    if (validHttpUrl(opts.defaultUrl)) return { format: 'header-string', flavor: 'url-scoped', header: one };
+    if (normalizeDefaultUrl(opts.defaultUrl)) return { format: 'header-string', flavor: 'url-scoped', header: one };
     return { format: 'header-string', error: 'a Cookie header string ("a=1; b=2") has no domain, path or flags; it needs the site URL to import' };
   }
   return { format: 'unknown', error: 'not a known cookie export format (Netscape cookies.txt, JSON cookie array, Playwright storageState, cURL)' };
@@ -327,29 +339,52 @@ function addHeaderCookies(ctx, headerValue, targetUrl) {
   });
 }
 
+const CURL_VALUE_FLAGS = new Set([
+  '-X', '--request', '-d', '--data', '--data-raw', '--data-binary', '--data-urlencode', '--data-ascii', '--json',
+  '-e', '--referer', '-A', '--user-agent', '-u', '--user', '-F', '--form', '-o', '--output', '-m', '--max-time',
+  '--connect-timeout', '-x', '--proxy', '-U', '--proxy-user', '-c', '--cookie-jar', '-w', '--write-out',
+]);
+
 export function parseCurl(text, opts = {}) {
   const ctx = newCtx('curl', opts);
   const tokens = tokenizeCurl(text);
   let targetUrl = null;
   const cookieHeaders = [];
+  const pushHeader = (header) => {
+    const m = String(header).match(/^cookie\s*:\s*(.*)$/i);
+    if (m && m[1].trim()) cookieHeaders.push(m[1].trim());
+  };
   for (let i = 1; i < tokens.length; i++) {
     const t = tokens[i];
     if ((t === '-H' || t === '--header') && i + 1 < tokens.length) {
-      const header = tokens[++i];
-      const m = header.match(/^cookie\s*:\s*(.*)$/i);
-      if (m && m[1].trim()) cookieHeaders.push(m[1].trim());
+      pushHeader(tokens[++i]);
+    } else if (t.startsWith('--header=')) {
+      pushHeader(t.slice('--header='.length));
+    } else if (t.startsWith('-H') && t.length > 2) {
+      pushHeader(t.slice(2));
     } else if ((t === '-b' || t === '--cookie') && i + 1 < tokens.length) {
       const val = tokens[++i].trim();
+      if (val.includes('=')) cookieHeaders.push(val);
+    } else if (t.startsWith('--cookie=')) {
+      const val = t.slice('--cookie='.length).trim();
+      if (val.includes('=')) cookieHeaders.push(val);
+    } else if (t.startsWith('-b') && t.length > 2) {
+      const val = t.slice(2).trim();
       if (val.includes('=')) cookieHeaders.push(val);
     } else if (t === '--url' && i + 1 < tokens.length) {
       const u = validHttpUrl(tokens[++i]);
       if (u && !targetUrl) targetUrl = u;
+    } else if (t.startsWith('--url=')) {
+      const u = validHttpUrl(t.slice('--url='.length));
+      if (u && !targetUrl) targetUrl = u;
+    } else if (CURL_VALUE_FLAGS.has(t)) {
+      i++;
     } else if (!t.startsWith('-') && !targetUrl) {
       const u = validHttpUrl(t);
       if (u) targetUrl = u;
     }
   }
-  if (!targetUrl) targetUrl = validHttpUrl(opts.defaultUrl);
+  if (!targetUrl) targetUrl = normalizeDefaultUrl(opts.defaultUrl);
   if (!targetUrl) return finish(ctx, 'cURL command contains no http(s) URL');
   if (cookieHeaders.length === 0) return finish(ctx, 'cURL command contains no Cookie header (-H "cookie: ..." or -b "...")');
   for (const h of cookieHeaders) addHeaderCookies(ctx, h, targetUrl);
@@ -358,7 +393,7 @@ export function parseCurl(text, opts = {}) {
 
 export function parseHeaderString(header, defaultUrl, opts = {}) {
   const ctx = newCtx('header-string', opts);
-  const targetUrl = validHttpUrl(defaultUrl);
+  const targetUrl = normalizeDefaultUrl(defaultUrl);
   if (!targetUrl) return finish(ctx, 'a Cookie header string ("a=1; b=2") has no domain, path or flags; it needs the site URL to import');
   addHeaderCookies(ctx, header, targetUrl);
   return finish(ctx);

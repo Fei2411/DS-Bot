@@ -521,6 +521,7 @@ export const JA = {
   "Keychain access was cancelled. Click Allow when macOS asks to read your browser cookies.": "キーチェーンへのアクセスがキャンセルされました。macOS がブラウザの Cookie 読み取りを求めたら「許可」をクリックしてください。",
   "Remote debugging permission was declined in the browser. Try again and click Allow.": "ブラウザでリモートデバッグの許可が拒否されました。もう一度試して「許可」をクリックしてください。",
   "Timed out waiting for you to click Allow in the browser.": "ブラウザで「許可」をクリックする待機時間がタイムアウトしました。",
+  "Another browser profile is active. Switch to the chosen profile window in your browser, then try again.": "別のブラウザプロファイルがアクティブです。ブラウザで選択したプロファイルのウィンドウに切り替えてから再試行してください。",
   "Import from browser": "ブラウザからインポート",
   "Last used": "前回使用",
   "Browser profile": "ブラウザプロファイル",
