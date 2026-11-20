@@ -10,6 +10,9 @@ import { engineOf, cliMode, signInFor } from './engines.js'
 import { LoopbackMcp } from './mcp.js'
 
 export const DEFAULT_CONTEXT_WINDOW = 200_000
+// A window belongs to the model, not to the Session that reported it, and the model
+// card reads it from resolveModel rather than from the Session's own figures.
+const windowKey = (route, model) => `${route}\u0000${model}`
 // The replay window when a CLI session is new or its resume failed.
 const REPLAY_MESSAGES = 12
 const REPLAY_BYTES = 24 * 1024
@@ -66,6 +69,7 @@ export class LocalAgentAdapter extends LlmAdapter {
     this.engines = new Map()   // route -> engine driver
     this.live = new Map()      // sessionId -> live session
     this.modelCache = new Map()
+    this.windows = new Map()   // route\0model -> the window the CLI reported for it
     this.probes = new Map()    // route -> the probe under way
     this.sideRequests = new Set()
     this.disposed = false
@@ -92,10 +96,14 @@ export class LocalAgentAdapter extends LlmAdapter {
   // What DS Bot knows of a route without starting its CLI: the CLI's default, what a
   // probe found, and what a Bot runs on. DSH and the catalog ask this for every route.
   async listModels(route) {
-    if (engineOf(route, this.deps.customAgents()) === undefined) return []
+    const spec = engineOf(route, this.deps.customAgents())
+    if (spec === undefined) return []
+    const supportsImage = spec.kind !== 'acp' || this.engines.get(route)?.supportsImages?.() !== false
+    const inputModalities = supportsImage ? ['text', 'image'] : ['text']
     const listed = [{ provider: route, id: 'default', name: 'CLI default' }, ...(this.modelCache.get(route) ?? [])]
     const used = (this.deps.usedModels?.(route) ?? []).filter(id => !listed.some(model => model.id === id))
     return [...listed, ...used.map(id => ({ provider: route, id, name: id }))]
+      .map(entry => ({ ...entry, inputModalities }))
   }
 
   // Asks one CLI what it serves, once. A failure is not kept, so the next look tries
@@ -136,7 +144,7 @@ export class LocalAgentAdapter extends LlmAdapter {
       id: model,
       name: listed?.name ?? model,
       inputModalities: supportsImage ? ['text', 'image'] : ['text'],
-      context: { contextWindow: spec?.contextWindow ?? DEFAULT_CONTEXT_WINDOW },
+      context: { contextWindow: spec?.contextWindow ?? this.windows.get(windowKey(route, model)) ?? DEFAULT_CONTEXT_WINDOW },
       // The thinking levels the engine advertises for this model, if any.
       ...(listed?.reasoning ? { reasoning: listed.reasoning } : {}),
     }
@@ -245,10 +253,20 @@ export class LocalAgentAdapter extends LlmAdapter {
       return
     }
     if (event?.type === 'context') {
-      const size = Number.isFinite(event.size) && event.size > 0 ? event.size : live.context?.size
+      // A size the CLI reports now, as against one carried by the Session from its
+      // record: only the former is this model's window.
+      const reported = Number.isFinite(event.size) && event.size > 0 ? event.size : undefined
+      const size = reported ?? live.context?.size
       live.context = Number.isFinite(event.used)
         ? { used: event.used, ...(size === undefined ? {} : { size }) }
         : { ...live.context, ...(size === undefined ? {} : { size }) }
+      // The same figure is the model's window: the model card and the percentage it
+      // renders read it from resolveModel, so it is kept for the route and model this
+      // Session runs, not for this Session alone (#1823). A usage-only report carries
+      // no size, and the Session may still hold the size of the model it ran before:
+      // publishing that one under this model's key would give the new model a window
+      // nothing has reported for it.
+      if (reported !== undefined) this.windows.set(windowKey(live.route, live.model), reported)
       this.deps.patchRecord?.(live.sessionId, { context: live.context })
       return
     }
@@ -1158,18 +1176,47 @@ async function renderReplay(messages, system, resolveImage) {
 // Bot's repair card can act on them.
 function toLlmError(error, live) {
   if (error instanceof LlmError) return error
-  const text = errorText(error)
+  const upstream = [error?.data?.error, error?.data].filter(value => value !== null && typeof value === 'object' && !Array.isArray(value))
+  const text = [...new Set([errorText(error), ...upstream.flatMap(value => [value.message, value.detail]).filter(nonEmptyString)])].join('\n')
+  const upstreamCode = upstream.map(value => value?.code).find(nonEmptyString)
   // A CLI whose context is past its window: the part moves on the way an overflow does.
   const overflow = /prompt is too long|context.?(window|length).?(exceeded|is full)|context_length_exceeded|exceeds the (model's )?(maximum )?context|too many tokens/i
   const code = error?.code === 'NO_ADAPTER' ? 'LOCAL_AGENT_MISSING'
-    : overflow.test(text) ? 'CONTEXT_WINDOW_EXCEEDED'
-      : /not signed in|not logged in|login required|unauthorized|authentication/i.test(text) ? 'LOCAL_AGENT_SIGNIN'
-        : /quota|rate.?limit|usage limit|exceeded/i.test(text) ? 'LOCAL_AGENT_QUOTA'
-          : /exited|spawn|ENOENT/i.test(text) ? 'LOCAL_AGENT_EXIT'
-            : typeof error?.code === 'string' && error.code !== '' ? error.code : 'LOCAL_AGENT_ERROR'
+    : upstreamCode !== undefined ? repairCode(upstreamCode) ?? upstreamCode
+      : repairCode(error?.code) ?? (
+        overflow.test(text) ? 'CONTEXT_WINDOW_EXCEEDED'
+          : /not signed in|not logged in|login required|unauthorized|authentication|auth failed/i.test(text) ? 'LOCAL_AGENT_SIGNIN'
+            : /quota|rate.?limit|usage limit|exceeded/i.test(text) ? 'LOCAL_AGENT_QUOTA'
+              : /exited|spawn|ENOENT/i.test(text) ? 'LOCAL_AGENT_EXIT'
+                : nonEmptyString(error?.code) ? error.code : 'LOCAL_AGENT_ERROR')
   const hint = code === 'LOCAL_AGENT_SIGNIN' ? ` Sign in with: ${signInFor(live?.spec, live?.engine?.bin) ?? `${live?.spec?.command ?? 'the CLI'} login`}.` : ''
   const rpcCode = code === 'LOCAL_AGENT_ERROR' && typeof error?.code === 'number' ? ` (JSON-RPC ${error.code})` : ''
-  return new LlmError(`${text}${rpcCode}${hint}`, code, error?.status === undefined ? {} : { status: error.status })
+  const status = [...upstream, error].map(value => value?.status).find(value => Number.isInteger(value) && value >= 100 && value <= 599)
+  return new LlmError(`${text}${rpcCode}${hint}`, code, status === undefined ? {} : { status })
+}
+
+function repairCode(code) {
+  switch (typeof code === 'string' ? code.toLowerCase().replace(/-/g, '_') : undefined) {
+    case 'auth_failed':
+    case 'unauthorized':
+    case 'unauthenticated':
+    case 'authentication_failed':
+    case 'not_logged_in':
+      return 'LOCAL_AGENT_SIGNIN'
+    case 'rate_limit_exceeded':
+    case 'quota_exceeded':
+    case 'insufficient_quota':
+    case 'usage_limit_exceeded':
+      return 'LOCAL_AGENT_QUOTA'
+    case 'context_length_exceeded':
+      return 'CONTEXT_WINDOW_EXCEEDED'
+    default:
+      return undefined
+  }
+}
+
+function nonEmptyString(value) {
+  return typeof value === 'string' && value.trim() !== ''
 }
 
 // JSON-RPC errors carry numeric codes and may arrive as plain objects; LlmError

@@ -7,8 +7,8 @@ import { win32 } from 'node:path'
 export const KINDS = ['acp', 'codex', 'claude']
 
 // `args` run verbatim (no shell). `env` merges over the sanitized environment.
-// `signedIn` checks a CLI status command, a credential file, or a Keychain item
-// (see probeSignIn).
+// `signedIn` checks a CLI status command, a credential file (in the home
+// directory or the per-user app data folder), or a Keychain item (see probeSignIn).
 // Local-agent routes live under their own prefix. Before it they shared the
 // provider namespace, so a CLI named like a provider DSH or another plugin
 // ships (`opencode`) took that provider's name and the LLM service failed to
@@ -39,7 +39,13 @@ const CLIS = {
   'grok-cli': { name: 'Grok CLI', kind: 'acp', command: 'grok', args: ['agent', 'stdio'], version: ['--version'], signIn: 'grok' },
   'kimi-cli': { name: 'Kimi CLI', kind: 'acp', command: 'kimi', args: ['acp'], version: ['--version'], signIn: 'kimi login' },
   'qwen-code': { name: 'Qwen Code', kind: 'acp', command: 'qwen', args: ['--acp'], version: ['--version'], signIn: 'qwen', signedIn: { file: ['.qwen', 'oauth_creds.json'] } },
-  'codebuddy': { name: 'CodeBuddy Code', kind: 'acp', command: 'codebuddy', commands: ['codebuddy', 'codebuddy-code'], args: ['--acp'], version: ['--version'], signIn: 'codebuddy login' },
+  'codebuddy': {
+    name: 'CodeBuddy Code', kind: 'acp', command: 'codebuddy', commands: ['codebuddy', 'codebuddy-code'], args: ['--acp'], version: ['--version'], signIn: 'codebuddy',
+    // CodeBuddy has no status command. Its OAuth session file stays in place
+    // until logout renames it and leaves a `.logged-out` marker beside it; it
+    // only accepts a file with a token and an account (the values may be encrypted).
+    signedIn: { appDataFile: { path: ['CodeBuddyExtension', 'Data', 'Public', 'auth', 'Tencent-Cloud.coding-copilot.info'], loggedOut: '.logged-out', has: [['auth', 'accessToken'], ['account']] } },
+  },
   'qoder': { name: 'Qoder CLI', kind: 'acp', command: 'qodercli', commands: ['qodercli', 'qoder', 'qoderclicn', 'qodercn', 'qoder-cn'], args: ['--acp'], version: ['--version'], signIn: 'qodercli', signInBy: { qoderclicn: 'qoderclicn', qodercn: 'qoderclicn', 'qoder-cn': 'qoderclicn' } },
   'minimax-code': { name: 'MiniMax Code', kind: 'acp', command: 'mcode', args: ['acp'], version: ['--version'], signIn: 'mcode' },
   'glm-cli': { name: 'GLM Agent', kind: 'acp', command: 'glm-acp-agent', args: [], version: ['--version'], signIn: 'glm-acp-agent --setup' },
@@ -63,10 +69,12 @@ export function signInFor(spec, path) {
 export const CUSTOM_PREFIX = `${ROUTE_PREFIX}acp-`
 
 // LEGACY: the route a ref saved before the prefix names, or undefined when its
-// provider was never a local-agent route. `opencode` is also a provider DSH
-// ships, so an old `opencode/...` ref is ambiguous: the caller decides.
+// provider was never a local-agent route. Some of those names are also provider
+// ids DSH or another plugin ships, so an old `<name>/...` ref is ambiguous: the
+// caller decides on evidence. `qoder` is one too — dsh-connect-qoder registers a
+// provider called `qoder` for the same models the Qoder CLI offers.
 const OLD_CUSTOM_PREFIX = 'acp-'
-export const AMBIGUOUS_OLD_ROUTES = new Set(['opencode'])
+export const AMBIGUOUS_OLD_ROUTES = new Set(['opencode', 'qoder'])
 export const legacyRoute = (provider) => {
   if (typeof provider !== 'string') return undefined
   if (CLIS[provider] !== undefined) return `${ROUTE_PREFIX}${provider}`

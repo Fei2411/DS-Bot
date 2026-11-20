@@ -1,6 +1,8 @@
 // Japanese (ja) localization for DS Bot client and DSH settings namespaces.
 
 export const JA = {
+  "Background work": "バックグラウンド作業",
+  "Background commands after (seconds)": "コマンドをバックグラウンドへ（秒後）",
   'A new reply is waiting': "新しい返信があります",
   "Opening…": "開いています…",
   "Still opening…": "まだ開いています…",
@@ -609,6 +611,9 @@ export const JA = {
   "Model for {name}": "{name} のモデル",
   "No models are set up in DeepSeek Harness yet.": "DeepSeek Harness にはまだモデルが設定されていません。",
   "Models and providers…": "モデルとプロバイダー…",
+  "Search models": "モデルを検索",
+  "Search models…": "モデルを検索…",
+  "No matching models.": "一致するモデルがありません。",
   "Models": "モデル",
   "Harness default": "Harness デフォルト",
   "Saving": "保存中",

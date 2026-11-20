@@ -1,6 +1,8 @@
 // German (de) localization for DS Bot client and DSH settings namespaces.
 
 export const DE = {
+  'Background work': 'Hintergrundarbeit',
+  'Background commands after (seconds)': 'Befehle in den Hintergrund nach (Sekunden)',
   'A new reply is waiting': "Eine neue Antwort wartet auf dich",
   'Opening…': 'Wird geöffnet…',
   'Still opening…': 'Wird noch geöffnet…',
@@ -634,6 +636,9 @@ export const DE = {
   'Model for {name}': 'Modell für {name}',
   'No models are set up in DeepSeek Harness yet.': 'In DeepSeek Harness sind noch keine Modelle eingerichtet.',
   'Models and providers…': 'Modelle und Anbieter…',
+  'Search models': 'Modelle suchen',
+  'Search models…': 'Modelle suchen…',
+  'No matching models.': 'Keine passenden Modelle.',
   Models: 'Modelle',
   'Harness default': 'Harness-Standard',
   Saving: 'Wird gespeichert',

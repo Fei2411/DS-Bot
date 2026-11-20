@@ -204,11 +204,12 @@ export function AppAccessCall({ sessionId, callId, roster, actions, heldCards, h
   return h(PendingAppAccess, { key: ask.id, ask: { ...ask, botName: bot.name }, actions, inline: true })
 }
 
-// An app ask docked above the composer of the Bot's own chat: its call is a
-// hidden group Session's, or a turn the transcript does not draw.
+// An app ask docked above the composer of the Bot's own chat: its own-chat
+// turn when not drawn inline. Group-session asks live in the group's header
+// island and details panel instead (#1623).
 export function AppAccessDock({ sessionId, useRoster, useCards, useHeldCards, useComputer, actions }) {
   const bot = useRoster(value => value.byId[sessionId])
-  const ask = useComputer?.(map => (bot ? Object.values(map.asks ?? {}).find(item => item.botId === bot.id) : undefined))
+  const ask = useComputer?.(map => (bot ? Object.values(map.asks ?? {}).find(item => item.botId === bot.id && item.roomId === undefined) : undefined))
   const drawn = useCards?.(state => ask?.callId !== undefined && state[sessionId]?.[ask.callId] > 0) === true
   const held = useHeldCards?.(state => state[sessionId]?.[heldCardKey('computer-app', ask?.id)] > 0) === true
   if (!bot || ask === undefined || !actions.computerAppAnswer || (drawn && !held)) return null

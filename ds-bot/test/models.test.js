@@ -741,3 +741,138 @@ test('a group retry that cannot read the catalog logs and keeps the retry, it do
   await rt.syncModels()
   assert.deepEqual(selected, ['r1:deepseek/v4-flash'])
 })
+
+test('a group Session picks an image-capable route when the team default is text-only', async () => {
+  const selected = []
+  const providers = {
+    deepseek: [
+      { id: 'text-only', inputModalities: ['text'] },
+      { id: 'vision-any', inputModalities: ['text', 'image'] },
+    ],
+    openai: [
+      { id: 'vision-member', inputModalities: ['text', 'image'] },
+    ],
+    'local-claude-code': [
+      { id: 'sonnet', inputModalities: ['text', 'image'] },
+    ],
+  }
+  const ctx = {
+    llm: {
+      listProviders: () => Object.keys(providers).map(id => ({ id })),
+      listModels: async id => providers[id],
+    },
+    get: () => undefined,
+    sessionController: {
+      selectModel: async ({ sessionId, provider, model }) => {
+        selected.push(`${sessionId}:${provider}/${model}`)
+        return { selected: { provider, model } }
+      },
+    },
+  }
+  const rt = {
+    ctx,
+    state: {
+      prefs: { defaultBotModel: 'deepseek/text-only' },
+      bots: {
+        b1: { id: 'b1', name: 'Member', model: 'openai/vision-member' },
+        b2: { id: 'b2', name: 'TextBot', model: 'deepseek/text-only' },
+      },
+      rooms: {
+        r1: { id: 'r1', members: ['b1'] },
+        r2: { id: 'r2', members: ['b2'] },
+      },
+    },
+    save: async () => {},
+    warn() {},
+    groupSessionsOf: () => [],
+    sessionOfRoom: room => room.sessionId ?? room.id,
+    roomOf: id => Object.values(rt.state.rooms).find(room => room.id === id || room.sessionId === id),
+    isLocalAgentRef: ref => typeof ref === 'string' && ref.startsWith('local-'),
+  }
+  install(rt)
+  await rt.syncRoomSessions()
+  // r1 prefers its own member's image-capable model; r2 falls back to any usable image-capable model.
+  assert.deepEqual(selected, ['r1:openai/vision-member', 'r2:deepseek/vision-any'])
+
+  // When only local-agent models accept images, the group Session uses that rather than blocking uploads.
+  selected.length = 0
+  providers.deepseek = [{ id: 'text-only', inputModalities: ['text'] }]
+  providers.openai = [{ id: 'text-member', inputModalities: ['text'] }]
+  rt.state.bots.b1.model = 'local-claude-code/sonnet'
+  rt.dropCatalog()
+  await rt.syncRoomSessions()
+  assert.deepEqual(selected, ['r1:local-claude-code/sonnet', 'r2:local-claude-code/sonnet'])
+
+  // Updating a member's model to an image-capable route also upgrades its group Session.
+  selected.length = 0
+  providers.openai = [{ id: 'vision-new', inputModalities: ['text', 'image'] }]
+  rt.state.bots.b2.model = 'openai/vision-new'
+  rt.dropCatalog()
+  await rt.applyModel(rt.state.bots.b2)
+  assert.deepEqual(selected, ['b2:openai/vision-new', 'r2:openai/vision-new'])
+})
+
+test('selectRoomSession checks resolveModelInfo when listModels omits inputModalities, handles fresh parts, and catches catalog errors', async () => {
+  const selected = []
+  const warnings = []
+  const providers = {
+    deepseek: [{ id: 'text-only', inputModalities: ['text'] }],
+    // Omitting inputModalities in listModels forces confirmation via resolveModelInfo,
+    // matching DSH's attachment admission check.
+    'local-acp-noimg': [{ id: 'default' }],
+    'local-claude-code': [{ id: 'default' }],
+  }
+  const ctx = {
+    llm: {
+      listProviders: () => Object.keys(providers).map(id => ({ id })),
+      listModels: async id => providers[id],
+      resolveModelInfo: async (provider) => ({
+        inputModalities: provider === 'local-acp-noimg' || provider === 'deepseek' ? ['text'] : ['text', 'image'],
+      }),
+    },
+    get: () => undefined,
+    sessionController: {
+      selectModel: async ({ sessionId, provider, model }) => {
+        selected.push(`${sessionId}:${provider}/${model}`)
+        return { selected: { provider, model } }
+      },
+    },
+  }
+  const rt = {
+    ctx,
+    state: {
+      prefs: { defaultBotModel: 'deepseek/text-only' },
+      bots: {
+        b1: { id: 'b1', name: 'NoImgACP', model: 'local-acp-noimg/default' },
+        b2: { id: 'b2', name: 'Claude', appliedModel: 'local-claude-code/default' },
+      },
+      rooms: {
+        r1: { id: 'r1', members: ['b1', 'b2'] },
+      },
+    },
+    save: async () => {},
+    warn: (...args) => warnings.push(args.join(' ')),
+    groupSessionsOf: () => [],
+    sessionOfRoom: room => room.sessionId ?? room.id,
+    roomOf: id => Object.values(rt.state.rooms).find(room => room.id === id || room.sessionId === id),
+    isLocalAgentRef: ref => typeof ref === 'string' && ref.startsWith('local-'),
+  }
+  install(rt)
+
+  // Fresh part before room.sessionId is reassigned: roomOf('r1-part-2') is undefined,
+  // so passing `room` lets selectRoomSession inspect members and skip the text-only ACP route.
+  assert.equal(rt.roomOf('r1-part-2'), undefined)
+  await rt.selectRoomSession('r1-part-2', rt.state.rooms.r1)
+  assert.deepEqual(selected, ['r1-part-2:local-claude-code/default'])
+
+  // Catalog failure inside selectRoomSession is caught and queued for retry rather than rejecting callers.
+  selected.length = 0
+  const listProviders = ctx.llm.listProviders
+  ctx.llm.listProviders = () => { throw new Error('catalog offline') }
+  rt.dropCatalog()
+  await assert.doesNotReject(rt.selectRoomSession('r1', rt.state.rooms.r1))
+  assert.ok(warnings.some(line => /catalog offline/.test(line)))
+  ctx.llm.listProviders = listProviders
+  await rt.syncModels()
+  assert.ok(selected.includes('r1:local-claude-code/default'), selected.join(', '))
+})
