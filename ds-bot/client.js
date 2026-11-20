@@ -15098,40 +15098,80 @@ function installLocale(locale) {
   for (const [langId, dict] of Object.entries(DICTIONARY)) {
     pushOff(locale.register(NAMESPACE, langId, dict));
   }
+  const supplements = /* @__PURE__ */ new Map();
+  const supplementKey = (ns, langId) => `${ns}\0${langId.toLowerCase()}`;
+  const dropSupplement = (key) => {
+    const entry = supplements.get(key);
+    if (!entry) return;
+    supplements.delete(key);
+    entry.off();
+  };
+  const origRegister = locale.register;
+  const supplement = (ns, langId, source, make) => {
+    const key = supplementKey(ns, langId);
+    if (supplements.has(key) || locale.dicts.get(ns)?.has(langId.toLowerCase())) return;
+    try {
+      const off = origRegister.call(locale, ns, langId, make());
+      if (typeof off === "function") supplements.set(key, { ns, source, off });
+    } catch {
+    }
+  };
   let syncing = false;
   let disposed = false;
   const syncDshNamespaces = () => {
     if (disposed || syncing || !(locale.dicts instanceof Map)) return;
     syncing = true;
     try {
+      for (const [key, entry] of supplements) {
+        const map = locale.dicts.get(entry.ns);
+        if (![...map?.values() ?? []].includes(entry.source)) dropSupplement(key);
+      }
       for (const [langId, namespaces] of Object.entries(DSH_LOCALE_PACKS)) {
         for (const [ns, dict] of Object.entries(namespaces ?? {})) {
           const map = locale.dicts.get(ns);
-          if (!map || map.has(langId.toLowerCase())) continue;
-          try {
-            pushOff(locale.register(ns, langId, dict));
-          } catch {
-          }
+          const source = map?.get("en") ?? map?.get("zh");
+          if (source) supplement(ns, langId, source, () => dict);
         }
       }
       for (const [ns, map] of locale.dicts.entries()) {
-        if (ns === NAMESPACE || map.has("zh-tw")) continue;
         const zhDict = map.get("zh");
-        if (zhDict) {
-          try {
-            pushOff(locale.register(ns, "zh-TW", convertDict(zhDict)));
-          } catch {
-          }
-        }
+        if (ns !== NAMESPACE && zhDict) supplement(ns, "zh-TW", zhDict, () => convertDict(zhDict));
       }
     } finally {
       syncing = false;
     }
   };
+  if (typeof origRegister === "function" && locale.dicts instanceof Map) {
+    const ownRegister = Object.hasOwn(locale, "register");
+    const yieldingRegister = (ns, localeOrDicts, dict) => {
+      const ids = typeof localeOrDicts === "string" ? [localeOrDicts] : Object.keys(localeOrDicts ?? {});
+      const held = syncing;
+      syncing = true;
+      try {
+        for (const id of ids) dropSupplement(supplementKey(ns, id));
+      } finally {
+        syncing = held;
+      }
+      try {
+        return origRegister.call(locale, ns, localeOrDicts, dict);
+      } finally {
+        syncDshNamespaces();
+      }
+    };
+    locale.register = yieldingRegister;
+    offs.push(() => {
+      if (locale.register !== yieldingRegister) return;
+      if (ownRegister) locale.register = origRegister;
+      else delete locale.register;
+    });
+  }
   syncDshNamespaces();
   if (typeof locale.subscribe === "function") {
     pushOff(locale.subscribe(syncDshNamespaces));
   }
+  offs.push(() => {
+    for (const key of supplements.keys()) dropSupplement(key);
+  });
   const origResolveText = typeof locale.resolveText === "function" ? locale.resolveText.bind(locale) : null;
   if (origResolveText) {
     locale.resolveText = (text) => {
