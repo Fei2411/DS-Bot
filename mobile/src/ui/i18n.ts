@@ -16,6 +16,7 @@ const MOBILE_ZH: Record<string, string> = {
   'DS Bot is open in another tab': 'DS Bot 已在另一个标签页中打开',
   'This browser cannot keep a single DS Bot tab active. Use a browser with Web Locks over HTTPS or localhost.': '此浏览器无法确保只有一个 DS Bot 标签页处于活动状态。请使用支持 Web Locks 的浏览器，并通过 HTTPS 或 localhost 访问。',
   'On the computer, open DS Bot, go to Settings → Phone and copy the pairing link. Paste it here.': '在电脑上打开 DS Bot，进入设置 → 手机，复制配对链接并粘贴到这里。',
+  'Pick a folder from Folders.': '请从“文件夹”中选择一个文件夹。',
   'Asks for the secret {name}': '请求密钥 {name}',
   '{bot} asks for the secret {name}': '{bot} 请求密钥 {name}',
   'Pair with your computer': '与电脑配对',

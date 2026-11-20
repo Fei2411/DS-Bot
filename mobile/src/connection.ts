@@ -38,6 +38,7 @@ export interface Bot {
 export interface Room {
   id: string
   name: string
+  workDir?: string
   preview?: string
   lastAt?: number
   members?: string[]

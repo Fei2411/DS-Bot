@@ -25,7 +25,7 @@
 // provider's prefix cache holds; a fresh part, or a checkpoint (which breaks the cache
 // anyway), freezes it anew.
 import { createHash, randomUUID } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, truncateSync, unlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, truncateSync, unlinkSync, writeFileSync } from 'node:fs'
 import { appendFile, mkdir, rename, unlink, writeFile } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
 import { HarnessError, createUserMessage } from '@deepseek-ai/dsh-llm'
@@ -36,7 +36,7 @@ import { assembleLlmStream } from './models.js'
 import { inside, pendingPath, read as readPending, record as pendingRecord, relativePath, serialize as serializePending } from './memory-pending.js'
 import { estimateTokens, splitRef, textOf, unquote } from './text.js'
 import { EMPTY_MAIN, GONE, DENIED, HEADING, MAIN, MEMORY_LIMITS, NO_MATCH, ROUTED, addLink, bodySize, cleanDay, cleanEntry, cleanTopic, entryId, fitWindow, formatEntry, insertEntry, isExpired, isPinned, joinLines, looksSecret, matchEntries, newEntryId, parseAsk, parseMemory, promptEntry, TEAM_SHARED, removeLink, splitMeta, squash, topicAbout, WINDOW_SHARE } from './memory-entries.js'
-import { pickRecalled, rankEntries } from './memory-search.js'
+import { entryWords, pickRecalled, rankEntries } from './memory-search.js'
 import { GROUP_HEADING, GROUP_MEMORY_SOURCE, MEMORY_RECALL_SOURCE, MEMORY_UPDATE_SOURCE, RECALL_HEADING, RECALL_NOTE, SUMMARY_SYSTEM, UPDATE_HEADING, UPDATE_NOTE, askRequest, askSystem, groupNote, groupSummaryRequest, memoryRules, summaryRequest, teamRule } from './memory-copy.js'
 import { installReview } from './memory-review.js'
 import { installTidy } from './memory-tidy.js'
@@ -128,7 +128,7 @@ export function install(rt) {
   }
   // The group a Session speaks in, an earlier part of it included: none for a Bot's
   // own chat. Writes check membership again, so a member that has left writes nothing.
-  const roomIdOf = sessionId => rt.groupOwners.get(sessionId)?.roomId ?? rt.pastOwners.get(sessionId)?.roomId
+  const roomIdOf = sessionId => rt.groupOwners.get(sessionId)?.roomId ?? rt.taskOwners?.get(sessionId)?.roomId ?? rt.pastOwners.get(sessionId)?.roomId
   // The Bot whose model keeps a group's memory: its admin, else its first member.
   const keeperOf = room => rt.botOf(room.admin) ?? room.members.map(id => rt.botOf(id)).find(Boolean)
 
@@ -163,6 +163,39 @@ export function install(rt) {
       const content = readText(join(dir, file))
       return { topic, file, path: join(dir, file), content, ...parseMemory(content) }
     })
+  }
+  // Recall runs on every step, so it keeps each topic parsed and tokenized until the
+  // file changes. The file is looked at before it is read: a write in between is read
+  // again on the next step instead of being kept under the old revision. The entries
+  // are shared between steps; callers must not change them.
+  const recallCache = new Map()
+  const revisionOf = (path) => {
+    try {
+      const stat = statSync(path, { bigint: true, throwIfNoEntry: false })
+      return stat === undefined ? undefined : `${stat.ino}:${stat.size}:${stat.mtimeNs}:${stat.ctimeNs}`
+    } catch (error) {
+      return unreadable(path, error)
+    }
+  }
+  const recallEntries = (scope) => {
+    const dir = dirOf(scope)
+    const cached = recallCache.get(dir)
+    const topics = new Map()
+    for (const topic of topicNames(scope)) {
+      const path = join(dir, `${topic}.md`)
+      const revision = revisionOf(path)
+      if (revision === undefined) continue
+      let parsed = cached?.get(topic)
+      if (parsed?.revision !== revision) {
+        const content = readText(path)
+        const file = { topic, file: `${topic}.md`, path, content, ...parseMemory(content) }
+        parsed = { revision, entries: file.entries.map(entry => ({ ...entry, file })).map(entry => ({ ...entry, words: entryWords(entry) })) }
+      }
+      topics.set(topic, parsed)
+    }
+    if (topics.size === 0) recallCache.delete(dir)
+    else recallCache.set(dir, topics)
+    return [...topics.values()].flatMap(parsed => parsed.entries)
   }
   const mainLimit = scope => state.prefs.memoryLimits?.[scope.kind] ?? MEMORY_LIMITS[scope.kind]
   const fileName = file => (file.topic === undefined ? MAIN : `topic [[${file.topic}]]`)
@@ -636,10 +669,14 @@ export function install(rt) {
       await recoverPending()
       await unlink(join(root, 'summaries', `${safeId(botId)}.json`)).catch(() => {})
       const dir = dirOf(ownScope(botId))
-      if (!existsSync(dir)) return
+      if (!existsSync(dir)) {
+        recallCache.delete(dir)
+        return
+      }
       const name = `${safeId(botId)}-${new Date().toISOString().replace(/[:.]/g, '-')}`
       await mkdir(join(root, 'archive'), { recursive: true })
       await rename(dir, join(root, 'archive', name))
+      recallCache.delete(dir)
       // The memory is in the archive from here: a log row that cannot be written must not
       // hide where it went, which the privacy guard needs to keep a private archive closed.
       await journalRow({ id: randomUUID(), time: new Date().toISOString(), op: 'archive', scope: scopeKey(ownScope(botId)), actor: 'user', actorName: 'user', botName: bot?.name, to: `archive/${name}` })
@@ -661,10 +698,14 @@ export function install(rt) {
       await recoverPending()
       await unlink(summaryPath(room.id)).catch(() => {})
       const dir = dirOf(groupScope(room.id))
-      if (!existsSync(dir)) return
+      if (!existsSync(dir)) {
+        recallCache.delete(dir)
+        return
+      }
       const name = `group-${safeId(room.id)}-${new Date().toISOString().replace(/[:.]/g, '-')}`
       await mkdir(join(root, 'archive'), { recursive: true })
       await rename(dir, join(root, 'archive', name))
+      recallCache.delete(dir)
       await journalRow({ id: randomUUID(), time: new Date().toISOString(), op: 'archive', scope: scopeKey(groupScope(room.id)), actor: 'user', actorName: 'user', groupName: room.name, to: `archive/${name}` })
     }).catch(error => rt.warn('ds-bot: memory of group %s not archived: %s', room.name, error))
   }
@@ -898,7 +939,7 @@ export function install(rt) {
     const scopes = [own, ...(roomId === undefined ? [] : [groupScope(roomId)]), TEAM]
     let topicEntries
     try {
-      topicEntries = scopes.flatMap(scope => allEntries(loadScope(scope).slice(1)).map(entry => ({ ...entry, tag: tagOf(scope, bot.id) })))
+      topicEntries = scopes.flatMap(scope => recallEntries(scope).map(entry => ({ ...entry, tag: tagOf(scope, bot.id) })))
     } catch (error) {
       rt.warn('ds-bot: memory recall for %s not read: %s', bot.name, error?.message ?? error)
       return undefined
@@ -1011,7 +1052,7 @@ export function install(rt) {
   // Where the caller learned it: the anchor of the latest message to it in this part,
   // which read_own_chat opens, or the group and the time.
   async function sourceOf(sessionId) {
-    const owner = rt.groupOwners.get(sessionId)
+    const owner = rt.groupOwners.get(sessionId) ?? (rt.taskOwners?.get(sessionId)?.roomId !== undefined ? rt.taskOwners.get(sessionId) : undefined)
     if (owner !== undefined) {
       const room = rt.roomOf(owner.roomId)
       return room === undefined ? 'group ?' : `group "${room.name}" #${room.seq}`
