@@ -383,7 +383,7 @@ export function install(rt) {
             for (const ev of events.slice(startAt + 1)) {
               if (ev?.type !== 'assistant/message') continue
               const said = textOf(ev.data?.message?.content).trim()
-              if (said !== '') entry.texts.push(said)
+              if (said !== '' && said !== HANDOFF_ACK) entry.texts.push(absoluteLinks(said, rt.sessionFolder?.(agent.session)))
             }
           }
         }

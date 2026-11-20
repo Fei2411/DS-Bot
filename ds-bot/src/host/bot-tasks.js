@@ -859,6 +859,7 @@ export function install(rt) {
       title,
       brief: oneLine(text, BRIEF_KEPT),
       from: fromSessionId,
+      ...(target.segments?.length ? { inheritedSegments: target.segments.map(seg => ({ ...seg })) } : {}),
       origin: 'bot-handoff',
       exchangeId,
       status: 'running',
