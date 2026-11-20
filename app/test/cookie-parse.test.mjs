@@ -197,3 +197,24 @@ test('Playwright storageState preserves localStorage origins and summarizes them
   assert.equal(storageOnly?.cookies, 0)
   assert.equal(storageOnly?.localStorage, 1)
 })
+
+test('summarizeBySite omits pure-skipped domains (0 cookies and 0 localStorage) and no-domain rows', () => {
+  const result = {
+    cookies: [
+      { name: 'sid', value: 'v1', domain: '.good.example', path: '/', secure: true, httpOnly: true },
+    ],
+    origins: [
+      { origin: 'https://storage-only.example', localStorage: [{ name: 'k', value: 'v' }] },
+    ],
+    skipped: [
+      { where: 'entry 1', name: 'old', domain: '.good.example', code: 'expired', reason: 'expired' },
+      { where: 'entry 2', name: 'dead', domain: '.only-expired.example', code: 'expired', reason: 'expired' },
+      { where: 'line 3', name: null, domain: null, code: 'field-count', reason: 'malformed' },
+    ],
+  }
+  const sites = summarizeBySite(result)
+  assert.deepEqual(sites.map((s) => s.site), ['good.example', 'storage-only.example'])
+  const good = sites.find((s) => s.site === 'good.example')
+  assert.equal(good.skipped, 1)
+  assert.equal(good.skippedReasons.expired, 1)
+})

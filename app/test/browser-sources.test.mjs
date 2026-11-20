@@ -2,8 +2,10 @@
 // layout a harvest needs, and the process match for closing a running source on Windows.
 import assert from 'node:assert/strict'
 import { createCipheriv, createHash } from 'node:crypto'
+import { EventEmitter } from 'node:events'
 import { existsSync } from 'node:fs'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
@@ -11,6 +13,7 @@ import test from 'node:test'
 import { WebSocketServer } from 'ws'
 import {
   appBoundRows,
+  checkSourceLiveDebug,
   chromiumCloneArgs,
   chromiumProfiles,
   cloneCookieStore,
@@ -20,8 +23,10 @@ import {
   firefoxProfiles,
   harvestCookies,
   harvestLiveChromium,
+  harvestMacChromium,
   hasAppBoundKey,
   importFromBrowser,
+  isLoopbackPortOpen,
   kindOfExe,
   locksProfile,
   readChromiumSqliteCookies,
@@ -487,6 +492,9 @@ test('harvestLiveChromium isolates localStorage to defaultBrowserContextId and r
 
 test('harvestLiveChromium fails closed when a different profile is active and cannot be switched', async () => {
   const root = await tempRoot()
+  const wss = new WebSocketServer({ host: '127.0.0.1', port: 0 })
+  await new Promise((resolve) => wss.once('listening', resolve))
+  const { port } = wss.address()
   try {
     await mkdir(join(root.dir, 'Default', 'Network'), { recursive: true })
     await writeFile(join(root.dir, 'Default', 'Network', 'Cookies'), 'x')
@@ -496,7 +504,7 @@ test('harvestLiveChromium fails closed when a different profile is active and ca
       profile: { last_used: 'Profile 1', info_cache: { Default: { name: 'Personal' }, 'Profile 1': { name: 'Work' } } },
       os_crypt: { app_bound_encrypted_key: 'QVBQQg==' },
     }))
-    await writeFile(join(root.dir, 'DevToolsActivePort'), '9222\n/devtools/browser/live\n')
+    await writeFile(join(root.dir, 'DevToolsActivePort'), `${port}\n/devtools/browser/live\n`)
 
     const sourceNoExe = {
       engine: 'chromium', name: 'Arc', profileName: 'Personal',
@@ -523,5 +531,282 @@ test('harvestLiveChromium fails closed when a different profile is active and ca
     })
     assert.equal(macFallback.method, 'keychain')
     assert.equal(macFallback.result.cookies[0].name, 'personal_sid')
+  } finally {
+    await new Promise((resolve) => wss.close(resolve))
+    await root.remove()
+  }
+})
+
+test('stale DevToolsActivePort fails fast with devtools-stale without ever spawning the browser exe', async () => {
+  const root = await tempRoot()
+  const probe = new WebSocketServer({ host: '127.0.0.1', port: 0 })
+  await new Promise((resolve) => probe.once('listening', resolve))
+  const { port } = probe.address()
+  await new Promise((resolve) => probe.close(resolve))
+  try {
+    await mkdir(join(root.dir, 'Default', 'Network'), { recursive: true })
+    await writeFile(join(root.dir, 'Default', 'Network', 'Cookies'), 'x')
+    await mkdir(join(root.dir, 'Profile 1', 'Network'), { recursive: true })
+    await writeFile(join(root.dir, 'Profile 1', 'Network', 'Cookies'), 'x')
+    await writeFile(join(root.dir, 'Local State'), JSON.stringify({
+      profile: { last_used: 'Profile 1', info_cache: { Default: { name: 'Personal' }, 'Profile 1': { name: 'Work' } } },
+    }))
+    await writeFile(join(root.dir, 'DevToolsActivePort'), `${port}\n/devtools/browser/stale\n`)
+
+    let spawnCalls = 0
+    const spawnImpl = () => {
+      spawnCalls += 1
+      const c = new EventEmitter()
+      c.unref = () => {}
+      return c
+    }
+    const source = {
+      engine: 'chromium', name: 'Chrome', profileName: 'Personal',
+      userDataDir: root.dir, profilePath: join(root.dir, 'Default'), profileDir: 'Default',
+      cookieDb: join(root.dir, 'Default', 'Network', 'Cookies'),
+      exe: '/fake/chrome',
+    }
+    await assert.rejects(
+      () => harvestLiveChromium(source, { spawnImpl }),
+      (error) => error.code === 'devtools-stale',
+    )
+    assert.equal(spawnCalls, 0, 'stale DevToolsActivePort must never spawn browser binary')
   } finally { await root.remove() }
+})
+
+test('ensureLiveProfileActive fails closed on handoff timeout, unconfirmed Local State, or sibling-profile cookies', async () => {
+  const root = await tempRoot()
+  const wss = new WebSocketServer({ host: '127.0.0.1', port: 0 })
+  await new Promise((resolve) => wss.once('listening', resolve))
+  const { port } = wss.address()
+  wss.on('connection', (ws) => {
+    ws.on('message', (raw) => {
+      const msg = JSON.parse(raw.toString())
+      if (msg.method === 'Storage.getCookies') {
+        // Return a cookie that belongs to Profile 1, not Default.
+        ws.send(JSON.stringify({
+          id: msg.id,
+          result: {
+            cookies: [{ name: 'work_only', value: 'w', domain: '.work.example', path: '/', secure: true, httpOnly: true, session: true }],
+          },
+        }))
+      }
+    })
+  })
+  try {
+    const defNet = join(root.dir, 'Default', 'Network')
+    const p1Net = join(root.dir, 'Profile 1', 'Network')
+    await mkdir(defNet, { recursive: true })
+    await mkdir(p1Net, { recursive: true })
+    await cookieDb(defNet, [['personal_only', '.personal.example', Buffer.from('v10abc')]])
+    await cookieDb(p1Net, [['work_only', '.work.example', Buffer.from('v10xyz')]])
+    await writeFile(join(root.dir, 'Local State'), JSON.stringify({
+      profile: { last_used: 'Profile 1', info_cache: { Default: { name: 'Personal' }, 'Profile 1': { name: 'Work' } } },
+    }))
+    await writeFile(join(root.dir, 'DevToolsActivePort'), `${port}\n/devtools/browser/live\n`)
+
+    const source = {
+      engine: 'chromium', name: 'Chrome', profileName: 'Personal',
+      userDataDir: root.dir, profilePath: join(root.dir, 'Default'), profileDir: 'Default',
+      cookieDb: join(defNet, 'Cookies'),
+      exe: '/fake/chrome',
+    }
+
+    // 1. Handoff child hangs past focusTimeoutMs -> must reject devtools-wrong-profile (never treat timeout as success).
+    await assert.rejects(
+      () => harvestLiveChromium(source, {
+        focusTimeoutMs: 50,
+        spawnImpl: () => { const c = new EventEmitter(); c.unref = () => {}; return c },
+      }),
+      (error) => error.code === 'devtools-wrong-profile',
+    )
+
+    // 2. Handoff exits 0, but Local State never updates to Default -> must reject devtools-wrong-profile.
+    await assert.rejects(
+      () => harvestLiveChromium(source, {
+        focusTimeoutMs: 200,
+        focusVerifyMs: 80,
+        focusPollMs: 20,
+        spawnImpl: () => {
+          const c = new EventEmitter()
+          c.unref = () => {}
+          setTimeout(() => c.emit('exit', 0), 5)
+          return c
+        },
+      }),
+      (error) => error.code === 'devtools-wrong-profile',
+    )
+
+    // 3. Even if Local State says Default (stale), cookies matching ONLY sibling Profile 1 are rejected.
+    await writeFile(join(root.dir, 'Local State'), JSON.stringify({
+      profile: { last_used: 'Default', info_cache: { Default: { name: 'Personal' }, 'Profile 1': { name: 'Work' } } },
+    }))
+    await assert.rejects(
+      () => harvestLiveChromium(source),
+      (error) => error.code === 'devtools-wrong-profile',
+    )
+  } finally {
+    await new Promise((resolve) => wss.close(resolve))
+    await root.remove()
+  }
+})
+
+test('checkSourceLiveDebug probes only the target source DevToolsActivePort liveness', async () => {
+  const root = await tempRoot()
+  const server = createServer()
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
+  const { port } = server.address()
+  try {
+    const source = { engine: 'chromium', userDataDir: root.dir, profilePath: join(root.dir, 'Default'), profileDir: 'Default' }
+    assert.equal(await checkSourceLiveDebug(source), false)
+
+    await writeFile(join(root.dir, 'DevToolsActivePort'), `${port}\n/devtools/browser/abc\n`)
+    assert.equal(await checkSourceLiveDebug(source), true)
+    assert.equal(await isLoopbackPortOpen(port), true)
+
+    await new Promise((resolve) => server.close(resolve))
+    assert.equal(await checkSourceLiveDebug(source), false)
+    assert.equal(await checkSourceLiveDebug({ engine: 'firefox', profilePath: root.dir }), false)
+  } finally {
+    if (server.listening) await new Promise((resolve) => server.close(resolve))
+    await root.remove()
+  }
+})
+
+test('readChromiumSqliteCookies skips unknown encrypted_value prefixes and reads Chrome 125+ has_cross_site_ancestor', async () => {
+  const root = await tempRoot()
+  try {
+    const key = deriveMacChromiumKey('test-pass')
+    const dbPath = join(root.dir, 'Cookies')
+    const db = new DatabaseSync(dbPath)
+    db.exec(`
+      CREATE TABLE meta (key TEXT NOT NULL UNIQUE PRIMARY KEY, value LONGVARCHAR);
+      CREATE TABLE cookies (
+        host_key TEXT, name TEXT, value TEXT, encrypted_value BLOB, path TEXT,
+        is_secure INTEGER, is_httponly INTEGER, expires_utc INTEGER, samesite INTEGER,
+        has_expires INTEGER, top_frame_site_key TEXT, has_cross_site_ancestor INTEGER
+      );
+    `)
+    db.prepare('INSERT INTO meta (key, value) VALUES (?, ?)').run('version', '24')
+    const futureWebkit = (1900000000 + 11644473600) * 1e6
+    const ins = db.prepare('INSERT INTO cookies VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    ins.run('.example.com', 'same_site_part', '', encryptMacV10('ok-val', key, { hostKey: '.example.com', withDomainHash: true }), '/', 1, 1, futureWebkit, 1, 1, 'https://example.com', 0)
+    ins.run('.example.com', 'cross_site_part', '', encryptMacV10('ok-val-2', key, { hostKey: '.example.com', withDomainHash: true }), '/', 1, 1, futureWebkit, 1, 1, 'https://other.example', 1)
+    ins.run('.example.com', 'linux_v11', '', Buffer.concat([Buffer.from('v11'), Buffer.alloc(16, 1)]), '/', 1, 1, futureWebkit, 1, 1, '', 0)
+    ins.run('.example.com', 'short_blob', '', Buffer.from([0x01, 0x02]), '/', 1, 1, futureWebkit, 1, 1, '', 0)
+    db.close()
+
+    const { cookies, skipped } = readChromiumSqliteCookies(dbPath, { key, now: 1700000000 })
+    assert.deepEqual(cookies.map((c) => c.name), ['same_site_part', 'cross_site_part'])
+    assert.deepEqual(cookies[0].partitionKey, { topLevelSite: 'https://example.com', hasCrossSiteAncestor: false })
+    assert.deepEqual(cookies[1].partitionKey, { topLevelSite: 'https://other.example', hasCrossSiteAncestor: true })
+    assert.deepEqual(skipped.map((s) => [s.name, s.code]), [
+      ['linux_v11', 'unsupported-encryption'],
+      ['short_blob', 'unsupported-encryption'],
+    ])
+  } finally { await root.remove() }
+})
+
+test('harvestMacChromium returns null when wrong Keychain password fails all encrypted rows, falling back to clone+CDP', async () => {
+  const root = await tempRoot()
+  const work = await cloneWorkDir()
+  try {
+    const net = join(root.dir, 'Default', 'Network')
+    await mkdir(net, { recursive: true })
+    await writeFile(join(root.dir, 'Local State'), '{}')
+    const rightKey = deriveMacChromiumKey('right-keychain-pass')
+    const dbPath = join(net, 'Cookies')
+    const db = new DatabaseSync(dbPath)
+    db.exec(`
+      CREATE TABLE cookies (
+        host_key TEXT, name TEXT, value TEXT, encrypted_value BLOB, path TEXT,
+        is_secure INTEGER, is_httponly INTEGER, expires_utc INTEGER, samesite INTEGER,
+        has_expires INTEGER, top_frame_site_key TEXT
+      );
+    `)
+    const futureWebkit = (1900000000 + 11644473600) * 1e6
+    db.prepare('INSERT INTO cookies VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run('.example.com', 'sid', '', encryptMacV10('secret-cookie', rightKey), '/', 1, 1, futureWebkit, 1, 1, '')
+    db.close()
+
+    const source = {
+      id: 'chrome:Default', kind: 'chrome', name: 'Chrome', label: 'Chrome — Default',
+      engine: 'chromium', userDataDir: root.dir, profilePath: join(root.dir, 'Default'),
+      profileDir: 'Default', cookieDb: dbPath, keychainServices: ['Chrome Safe Storage'], exe: '/fake/chrome',
+    }
+    await cloneCookieStore(source, work.dir, { needLocalState: false })
+
+    // Wrong password -> 0 decrypted rows -> must return null instead of empty success.
+    const wrongResult = await harvestMacChromium(source, work.dir, { readPassword: async () => 'wrong-pass', now: 1700000000 })
+    assert.equal(wrongResult, null)
+
+    // importFromBrowser falls back to clone+CDP when macHarvester returns null.
+    const fallback = await importFromBrowser(source, {
+      platformOverride: 'darwin',
+      macHarvester: (src, dir) => harvestMacChromium(src, dir, { readPassword: async () => 'wrong-pass', now: 1700000000 }),
+      cloneHarvester: async () => ({ cookies: [{ name: 'sid', value: 'cloned-ok', domain: '.example.com', path: '/' }], origins: [], skipped: [] }),
+    })
+    assert.equal(fallback.method, 'clone-cdp')
+    assert.equal(fallback.result.cookies[0].value, 'cloned-ok')
+  } finally {
+    await work.remove()
+    await root.remove()
+  }
+})
+
+test('importFromBrowser propagates AbortSignal cancellation to pending live CDP / keychain and cleans up workDir', async () => {
+  const root = await tempRoot()
+  const wss = new WebSocketServer({ host: '127.0.0.1', port: 0 })
+  await new Promise((resolve) => wss.once('listening', resolve))
+  const { port } = wss.address()
+  // Accept connection and intentionally never reply to Storage.getCookies so AbortSignal must interrupt it.
+  wss.on('connection', () => {})
+  try {
+    const net = join(root.dir, 'Default', 'Network')
+    await mkdir(net, { recursive: true })
+    await writeFile(join(net, 'Cookies'), 'x')
+    await writeFile(join(root.dir, 'Local State'), '{}')
+    await writeFile(join(root.dir, 'DevToolsActivePort'), `${port}\n/devtools/browser/hang\n`)
+
+    const source = {
+      engine: 'chromium', name: 'Chrome', userDataDir: root.dir,
+      profilePath: join(root.dir, 'Default'), profileDir: 'Default',
+      cookieDb: join(net, 'Cookies'), keychainServices: ['Chrome Safe Storage'], exe: null,
+    }
+    const ctrl = new AbortController()
+    setTimeout(() => ctrl.abort(), 40)
+    await assert.rejects(
+      () => importFromBrowser(source, { platformOverride: 'win32', signal: ctrl.signal }),
+      (error) => error.code === 'import-cancelled',
+    )
+
+    // Also verify cancellation during macOS Keychain harvest cleans up temp workDir.
+    await rm(join(root.dir, 'DevToolsActivePort'))
+    let seenWorkDir = null
+    const ctrl2 = new AbortController()
+    await assert.rejects(
+      () => importFromBrowser(source, {
+        platformOverride: 'darwin',
+        signal: ctrl2.signal,
+        macHarvester: async (_src, dir, { signal }) => {
+          seenWorkDir = dir
+          assert.equal(existsSync(dir), true)
+          await new Promise((_, reject) => {
+            signal.addEventListener('abort', () => {
+              const e = new Error('cancelled')
+              e.code = 'import-cancelled'
+              reject(e)
+            }, { once: true })
+            setTimeout(() => ctrl2.abort(), 30)
+          })
+        },
+      }),
+      (error) => error.code === 'import-cancelled',
+    )
+    assert.ok(seenWorkDir)
+    assert.equal(existsSync(seenWorkDir), false, 'temporary workDir must be deleted after cancellation')
+  } finally {
+    await new Promise((resolve) => wss.close(resolve))
+    await root.remove()
+  }
 })

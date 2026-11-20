@@ -18,6 +18,8 @@ import { panelHasStrip, sideChatsOf, stripMenuKeys } from './side-model.js'
 import { DotsIcon, FolderIcon, SideIcon, TerminalIcon } from './icons.js'
 import { t } from './i18n.js'
 import { rectsOverlap } from './browser-overlap.js'
+import { useEscape } from './overlay-hooks.js'
+import { writeClipboard } from './dsh-primitives.js'
 
 export const PANEL_LINGER_MS = 300
 const WIDTH_KEY = STORAGE.browserWidth
@@ -276,7 +278,7 @@ function PanelStrip({ bot, subject, view, ids, active, sides, side, canBrowse, r
 
 // The browser view: toolbar (back, forward, reload/stop, address) over the frame
 // the guest webview covers.
-function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPages, hold }) {
+export function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPages, hold }) {
   const page = useBrowserPages(pages => pages[tabId ?? '']) ?? EMPTY_PAGE
   const frame = useRef(null)
   const input = useRef(null)
@@ -289,15 +291,23 @@ function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPages, ho
   const imports = actions.browserImport
   const [flow, setFlow] = useState(null)
   // A mirrored flow: the cleanup on leaving the tab or the panel can still cancel
-  // an unconfirmed pending import.
+  // an unconfirmed pending import or an in-flight live harvest.
   const flowRef = useRef(null)
   const reqRef = useRef(0)
+  const liveReqIdRef = useRef(null)
   const [sources, setSources] = useState(null)
   const [lastSourceId, setLastSourceId] = useState(lastImportSource)
   const [busy, setBusy] = useState(false)
   const setFlowTracked = (next) => {
     flowRef.current = typeof next === 'function' ? next(flowRef.current) : next
     setFlow(flowRef.current)
+  }
+  const cancelPendingImport = () => {
+    const liveId = liveReqIdRef.current
+    liveReqIdRef.current = null
+    if (liveId) void imports?.cancel(liveId).catch(() => {})
+    const id = typeof flowRef.current === 'object' && flowRef.current !== null ? flowRef.current.id : null
+    if (id) void imports?.cancel(id).catch(() => {})
   }
 
   // The guest goes on screen once the panel has landed and settled on its width,
@@ -318,14 +328,14 @@ function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPages, ho
     return () => { observer.disconnect(); window.removeEventListener('resize', update) }
   }, [])
 
-  // Leaving the tab or the panel abandons an unconfirmed import.
+  // Leaving the tab or the panel abandons an unconfirmed or in-flight import.
   useEffect(() => {
     reqRef.current += 1
+    cancelPendingImport()
     setFlowTracked(null)
     return () => {
       reqRef.current += 1
-      const id = typeof flowRef.current === 'object' && flowRef.current !== null ? flowRef.current.id : null
-      if (id) void imports?.cancel(id).catch(() => {})
+      cancelPendingImport()
     }
     // The flow controls live in this component; the effect re-runs only per tab.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -341,8 +351,7 @@ function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPages, ho
   const openImport = () => {
     reqRef.current += 1
     setBusy(false)
-    const id = typeof flowRef.current === 'object' && flowRef.current !== null ? flowRef.current.id : null
-    if (id) void imports?.cancel(id).catch(() => {})
+    cancelPendingImport()
     setFlowTracked('menu')
     setLastSourceId(lastImportSource())
     refreshSources()
@@ -352,6 +361,7 @@ function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPages, ho
       if (r?.id) void imports?.cancel(r.id).catch(() => {})
       return
     }
+    if (r?.canceled) return
     if (r?.id) setFlowTracked({ stage: 'preview', id: r.id, preview: r.preview, restarted: r.restarted === true, method: r.method ?? null })
     else if (r?.error) setFlowTracked({ stage: 'error', message: importError(r.error) })
     else setFlowTracked(null)
@@ -369,19 +379,32 @@ function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPages, ho
   const openPaste = () => {
     reqRef.current += 1
     setBusy(false)
+    cancelPendingImport()
     setFlowTracked({ stage: 'paste', siteUrl: hostOfUrl(page.url) ? page.url : '' })
   }
   const submitPaste = (text, siteUrl) => job(async (token) => {
     if (!imports?.paste) return
     showPicked(await imports.paste(text, siteUrl || undefined), token)
   })
+  const runLiveImport = async (source, close, token) => {
+    const prevLive = liveReqIdRef.current
+    if (prevLive) void imports?.cancel(prevLive).catch(() => {})
+    const requestId = `live-${Date.now()}-${token}`
+    liveReqIdRef.current = requestId
+    try {
+      return await imports.live(source.id, close, requestId)
+    } finally {
+      if (liveReqIdRef.current === requestId) liveReqIdRef.current = null
+    }
+  }
   const pickSource = (source) => job(async (token) => {
     setFlowTracked({ stage: 'connecting', source })
-    const r = await imports.live(source.id)
+    const r = await runLiveImport(source, false, token)
     if (token !== reqRef.current) {
       if (r?.id) void imports?.cancel(r.id).catch(() => {})
       return
     }
+    if (r?.canceled) return
     if (r?.needsRemoteDebugging) setFlowTracked({ stage: 'remote-debug', source, info: r })
     else if (r?.running) setFlowTracked({ stage: 'running', source })
     else showPicked(r, token)
@@ -389,11 +412,12 @@ function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPages, ho
   const closeAndImport = () => job(async (token) => {
     const source = flowRef.current?.source
     if (!source) return
-    const r = await imports.live(source.id, true)
+    const r = await runLiveImport(source, true, token)
     if (token !== reqRef.current) {
       if (r?.id) void imports?.cancel(r.id).catch(() => {})
       return
     }
+    if (r?.canceled) return
     if (r?.needsRemoteDebugging) setFlowTracked({ stage: 'remote-debug', source, info: r })
     else showPicked(r, token)
   })
@@ -416,9 +440,8 @@ function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPages, ho
   const cancelImport = () => {
     reqRef.current += 1
     setBusy(false)
-    const id = typeof flowRef.current === 'object' && flowRef.current !== null ? flowRef.current.id : null
+    cancelPendingImport()
     setFlowTracked(null)
-    if (id) void imports?.cancel(id).catch(() => {})
   }
   useLayoutEffect(() => {
     const element = frame.current
@@ -554,12 +577,8 @@ function importError(error) {
 }
 
 // The sources popover: installed browser profiles first (most-recent pinned), then file & paste.
-function ImportMenu({ sources, lastSourceId, loading, busy, canPaste, onFile, onPaste, onSource, onClose }) {
-  useEffect(() => {
-    const close = (event) => { if (event.key === 'Escape') onClose() }
-    window.addEventListener('keydown', close)
-    return () => window.removeEventListener('keydown', close)
-  }, [onClose])
+export function ImportMenu({ sources, lastSourceId, loading, busy, canPaste, onFile, onPaste, onSource, onClose }) {
+  useEscape(onClose)
   return h('div', { className: 'bt-import-menu', role: 'menu', 'aria-label': t('Import cookies') },
     h('div', { className: 'bt-import-menu-title' }, t('Import from browser')),
     loading
@@ -592,31 +611,54 @@ function ImportMenu({ sources, lastSourceId, loading, busy, canPaste, onFile, on
       h('span', { className: 'bt-import-item-sub' }, t('JSON, cURL, header'))) : null)
 }
 
-function RemoteDebugCard({ flow, busy, imports, onRetrySource, onLaunchSource, onFile, onCancel }) {
+export function RemoteDebugCard({ flow, busy, imports, onRetrySource, onLaunchSource, onFile, onCancel }) {
   const { source, info } = flow
   const inspectUrl = info?.inspectUrl || 'chrome://inspect/#remote-debugging'
   const browserName = info?.browserName || source.name
   const [copied, setCopied] = useState(false)
   const [detected, setDetected] = useState(false)
+  const copyTimerRef = useRef(null)
+  const mountedRef = useRef(true)
 
   useEffect(() => {
-    if (!imports?.sources) return undefined
-    let active = true
-    const poll = () => {
-      void imports.sources().then((list) => {
-        if (!active || !Array.isArray(list)) return
-        const match = list.find((s) => s.id === source.id)
-        setDetected(Boolean(match?.liveDebugReady))
-      }, () => {})
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+      clearTimeout(copyTimerRef.current)
     }
-    const timer = setInterval(poll, 2000)
-    return () => { active = false; clearInterval(timer) }
+  }, [])
+
+  useEffect(() => {
+    const canProbe = typeof imports?.probe === 'function'
+    const canList = typeof imports?.sources === 'function'
+    if (!canProbe && !canList) return undefined
+    let active = true
+    let timer = null
+    const schedule = () => {
+      if (!active) return
+      timer = setTimeout(poll, 2000)
+    }
+    const poll = () => {
+      const req = canProbe
+        ? imports.probe(source.id).then((res) => Boolean(res?.liveDebugReady))
+        : imports.sources().then((list) => Array.isArray(list) && Boolean(list.find((s) => s.id === source.id)?.liveDebugReady))
+      void req.then(
+        (ready) => { if (active) setDetected(ready) },
+        () => {},
+      ).finally(schedule)
+    }
+    schedule()
+    return () => { active = false; clearTimeout(timer) }
   }, [imports, source.id])
 
   const copyAddress = () => {
-    void navigator.clipboard?.writeText(inspectUrl).then(() => {
+    void Promise.resolve(writeClipboard(inspectUrl)).then((ok) => {
+      if (!ok || !mountedRef.current) return
       setCopied(true)
-      setTimeout(() => setCopied(false), 1800)
+      clearTimeout(copyTimerRef.current)
+      copyTimerRef.current = setTimeout(() => {
+        if (mountedRef.current) setCopied(false)
+      }, 1800)
     }, () => {})
   }
 
@@ -668,27 +710,28 @@ function PasteCard({ flow, busy, onSubmitPaste, onCancel }) {
       }, busy ? t('Reading…') : t('Continue')))))
 }
 
-function PreviewCard({ flow, page, busy, onApply, onCancel }) {
+export function PreviewCard({ flow, page, busy, onApply, onCancel }) {
   const { preview } = flow
+  const sites = (preview.sites ?? []).filter((s) => (s.cookies ?? 0) > 0 || (s.localStorage ?? 0) > 0)
   const currentHost = hostOfUrl(page.url)
   const matchingCurrent = currentHost
-    ? preview.sites.filter((s) => siteMatchesHost(s.site, currentHost)).map((s) => s.site)
+    ? sites.filter((s) => siteMatchesHost(s.site, currentHost)).map((s) => s.site)
     : []
-  const [selected, setSelected] = useState(() => new Set(preview.sites.map((s) => s.site)))
+  const [selected, setSelected] = useState(() => new Set(sites.map((s) => s.site)))
   const [query, setQuery] = useState('')
   const [persistSession, setPersistSession] = useState(true)
 
   const hasSession = preview.notes.includes('session-cookies')
-  const allSelected = selected.size === preview.sites.length
+  const allSelected = selected.size === sites.length
   const currentOnlySelected = matchingCurrent.length > 0
     && selected.size === matchingCurrent.length
     && matchingCurrent.every((s) => selected.has(s))
 
   const visibleSites = query.trim()
-    ? preview.sites.filter((s) => s.site.toLowerCase().includes(query.trim().toLowerCase()))
-    : preview.sites
-  const selectedCookies = preview.sites.reduce((sum, s) => sum + (selected.has(s.site) ? s.cookies : 0), 0)
-  const selectedStorage = preview.sites.reduce((sum, s) => sum + (selected.has(s.site) ? (s.localStorage ?? 0) : 0), 0)
+    ? sites.filter((s) => s.site.toLowerCase().includes(query.trim().toLowerCase()))
+    : sites
+  const selectedCookies = sites.reduce((sum, s) => sum + (selected.has(s.site) ? s.cookies : 0), 0)
+  const selectedStorage = sites.reduce((sum, s) => sum + (selected.has(s.site) ? (s.localStorage ?? 0) : 0), 0)
 
   const toggleSite = (site) => {
     setSelected((prev) => {
@@ -698,13 +741,13 @@ function PreviewCard({ flow, page, busy, onApply, onCancel }) {
       return next
     })
   }
-  const selectAll = () => setSelected(new Set(preview.sites.map((s) => s.site)))
+  const selectAll = () => setSelected(new Set(sites.map((s) => s.site)))
   const clearAll = () => setSelected(new Set())
   const selectCurrent = () => setSelected(new Set(matchingCurrent))
 
   const submit = () => {
-    const sites = allSelected ? undefined : [...selected]
-    onApply({ sites, persistSession: hasSession ? persistSession : false })
+    const chosen = allSelected ? undefined : [...selected]
+    onApply({ sites: chosen, persistSession: hasSession ? persistSession : false })
   }
 
   return h('div', { className: 'bt-import-card' }, h('div', { className: 'bt-import-box' },
@@ -713,16 +756,16 @@ function PreviewCard({ flow, page, busy, onApply, onCancel }) {
       preview.source?.label ?? '',
       flow.restarted ? ` · ${t('the browser was restarted')}` : '',
       selectedStorage > 0 ? ` · ${t('{count} storage entries', { count: selectedStorage })}` : ''),
-    matchingCurrent.length > 0 && preview.sites.length > 1 ? h('div', { className: 'bt-import-scope' },
+    matchingCurrent.length > 0 && sites.length > 1 ? h('div', { className: 'bt-import-scope' },
       h('button', {
         type: 'button', className: 'bt-import-pill', 'aria-pressed': allSelected,
         onClick: selectAll,
-      }, t('All sites ({count})', { count: preview.sites.length })),
+      }, t('All sites ({count})', { count: sites.length })),
       h('button', {
         type: 'button', className: 'bt-import-pill', 'aria-pressed': currentOnlySelected,
         onClick: selectCurrent,
       }, t('This site ({host})', { host: currentHost }))) : null,
-    preview.sites.length > 6 ? h('div', { className: 'bt-import-filter-row' },
+    sites.length > 6 ? h('div', { className: 'bt-import-filter-row' },
       h('input', {
         type: 'text', className: 'bt-import-input', spellCheck: false,
         placeholder: t('Filter sites…'),
@@ -733,7 +776,7 @@ function PreviewCard({ flow, page, busy, onApply, onCancel }) {
         type: 'button', className: 'bt-import-mini',
         onClick: allSelected ? clearAll : selectAll,
       }, allSelected ? t('Clear') : t('All'))) : null,
-    preview.sites.length ? h('div', { className: 'bt-import-list' },
+    sites.length ? h('div', { className: 'bt-import-list' },
       visibleSites.map((site) => h('label', { key: site.site, className: 'bt-import-line bt-import-check-row' },
         h('input', {
           type: 'checkbox',

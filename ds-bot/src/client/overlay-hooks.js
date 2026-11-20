@@ -6,7 +6,11 @@ import { useEffect, useRef } from 'react'
 // Escape closes only the newest open layer, so a dialog over the details pane does
 // not take the pane down with it.
 const escapeLayers = []
-const onEscapeKey = (event) => { if (event.key === 'Escape') escapeLayers.at(-1)?.current() }
+const onEscapeKey = (event) => {
+  if (event.key === 'Escape' && !event.isComposing && event.keyCode !== 229) {
+    escapeLayers.at(-1)?.current()
+  }
+}
 export function useEscape(onClose) {
   const ref = useRef(onClose)
   ref.current = onClose

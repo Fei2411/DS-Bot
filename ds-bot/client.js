@@ -18795,7 +18795,9 @@ var CHANGES_CSS = `
 var import_react6 = require("react");
 var escapeLayers = [];
 var onEscapeKey = (event) => {
-  if (event.key === "Escape") escapeLayers.at(-1)?.current();
+  if (event.key === "Escape" && !event.isComposing && event.keyCode !== 229) {
+    escapeLayers.at(-1)?.current();
+  }
 };
 function useEscape(onClose) {
   const ref = (0, import_react6.useRef)(onClose);
@@ -43225,12 +43227,22 @@ function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPages, ho
   const [flow, setFlow] = (0, import_react69.useState)(null);
   const flowRef = (0, import_react69.useRef)(null);
   const reqRef = (0, import_react69.useRef)(0);
+  const liveReqIdRef = (0, import_react69.useRef)(null);
   const [sources, setSources] = (0, import_react69.useState)(null);
   const [lastSourceId, setLastSourceId] = (0, import_react69.useState)(lastImportSource);
   const [busy, setBusy] = (0, import_react69.useState)(false);
   const setFlowTracked = (next) => {
     flowRef.current = typeof next === "function" ? next(flowRef.current) : next;
     setFlow(flowRef.current);
+  };
+  const cancelPendingImport = () => {
+    const liveId = liveReqIdRef.current;
+    liveReqIdRef.current = null;
+    if (liveId) void imports?.cancel(liveId).catch(() => {
+    });
+    const id = typeof flowRef.current === "object" && flowRef.current !== null ? flowRef.current.id : null;
+    if (id) void imports?.cancel(id).catch(() => {
+    });
   };
   const showGuest = landed && !leaving && !covered && Boolean(page.url) && !page.error && flow === null;
   (0, import_react69.useEffect)(() => {
@@ -43250,12 +43262,11 @@ function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPages, ho
   }, []);
   (0, import_react69.useEffect)(() => {
     reqRef.current += 1;
+    cancelPendingImport();
     setFlowTracked(null);
     return () => {
       reqRef.current += 1;
-      const id = typeof flowRef.current === "object" && flowRef.current !== null ? flowRef.current.id : null;
-      if (id) void imports?.cancel(id).catch(() => {
-      });
+      cancelPendingImport();
     };
   }, [tabId]);
   const refreshSources = () => {
@@ -43268,9 +43279,7 @@ function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPages, ho
   const openImport = () => {
     reqRef.current += 1;
     setBusy(false);
-    const id = typeof flowRef.current === "object" && flowRef.current !== null ? flowRef.current.id : null;
-    if (id) void imports?.cancel(id).catch(() => {
-    });
+    cancelPendingImport();
     setFlowTracked("menu");
     setLastSourceId(lastImportSource());
     refreshSources();
@@ -43281,6 +43290,7 @@ function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPages, ho
       });
       return;
     }
+    if (r?.canceled) return;
     if (r?.id) setFlowTracked({ stage: "preview", id: r.id, preview: r.preview, restarted: r.restarted === true, method: r.method ?? null });
     else if (r?.error) setFlowTracked({ stage: "error", message: importError(r.error) });
     else setFlowTracked(null);
@@ -43300,20 +43310,34 @@ function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPages, ho
   const openPaste = () => {
     reqRef.current += 1;
     setBusy(false);
+    cancelPendingImport();
     setFlowTracked({ stage: "paste", siteUrl: hostOfUrl(page.url) ? page.url : "" });
   };
   const submitPaste = (text, siteUrl) => job(async (token) => {
     if (!imports?.paste) return;
     showPicked(await imports.paste(text, siteUrl || void 0), token);
   });
+  const runLiveImport = async (source, close, token) => {
+    const prevLive = liveReqIdRef.current;
+    if (prevLive) void imports?.cancel(prevLive).catch(() => {
+    });
+    const requestId = `live-${Date.now()}-${token}`;
+    liveReqIdRef.current = requestId;
+    try {
+      return await imports.live(source.id, close, requestId);
+    } finally {
+      if (liveReqIdRef.current === requestId) liveReqIdRef.current = null;
+    }
+  };
   const pickSource = (source) => job(async (token) => {
     setFlowTracked({ stage: "connecting", source });
-    const r = await imports.live(source.id);
+    const r = await runLiveImport(source, false, token);
     if (token !== reqRef.current) {
       if (r?.id) void imports?.cancel(r.id).catch(() => {
       });
       return;
     }
+    if (r?.canceled) return;
     if (r?.needsRemoteDebugging) setFlowTracked({ stage: "remote-debug", source, info: r });
     else if (r?.running) setFlowTracked({ stage: "running", source });
     else showPicked(r, token);
@@ -43321,12 +43345,13 @@ function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPages, ho
   const closeAndImport = () => job(async (token) => {
     const source = flowRef.current?.source;
     if (!source) return;
-    const r = await imports.live(source.id, true);
+    const r = await runLiveImport(source, true, token);
     if (token !== reqRef.current) {
       if (r?.id) void imports?.cancel(r.id).catch(() => {
       });
       return;
     }
+    if (r?.canceled) return;
     if (r?.needsRemoteDebugging) setFlowTracked({ stage: "remote-debug", source, info: r });
     else showPicked(r, token);
   });
@@ -43352,10 +43377,8 @@ function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPages, ho
   const cancelImport = () => {
     reqRef.current += 1;
     setBusy(false);
-    const id = typeof flowRef.current === "object" && flowRef.current !== null ? flowRef.current.id : null;
+    cancelPendingImport();
     setFlowTracked(null);
-    if (id) void imports?.cancel(id).catch(() => {
-    });
   };
   (0, import_react69.useLayoutEffect)(() => {
     const element = frame2.current;
@@ -43538,13 +43561,7 @@ function importError(error) {
   return String(error);
 }
 function ImportMenu({ sources, lastSourceId, loading, busy, canPaste, onFile, onPaste, onSource, onClose }) {
-  (0, import_react69.useEffect)(() => {
-    const close = (event) => {
-      if (event.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", close);
-    return () => window.removeEventListener("keydown", close);
-  }, [onClose]);
+  useEscape(onClose);
   return (0, import_react69.createElement)(
     "div",
     { className: "bt-import-menu", role: "menu", "aria-label": t("Import cookies") },
@@ -43590,27 +43607,49 @@ function RemoteDebugCard({ flow, busy, imports, onRetrySource, onLaunchSource, o
   const browserName = info?.browserName || source.name;
   const [copied, setCopied] = (0, import_react69.useState)(false);
   const [detected, setDetected] = (0, import_react69.useState)(false);
+  const copyTimerRef = (0, import_react69.useRef)(null);
+  const mountedRef = (0, import_react69.useRef)(true);
   (0, import_react69.useEffect)(() => {
-    if (!imports?.sources) return void 0;
-    let active = true;
-    const poll = () => {
-      void imports.sources().then((list) => {
-        if (!active || !Array.isArray(list)) return;
-        const match = list.find((s) => s.id === source.id);
-        setDetected(Boolean(match?.liveDebugReady));
-      }, () => {
-      });
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      clearTimeout(copyTimerRef.current);
     };
-    const timer = setInterval(poll, 2e3);
+  }, []);
+  (0, import_react69.useEffect)(() => {
+    const canProbe = typeof imports?.probe === "function";
+    const canList = typeof imports?.sources === "function";
+    if (!canProbe && !canList) return void 0;
+    let active = true;
+    let timer = null;
+    const schedule = () => {
+      if (!active) return;
+      timer = setTimeout(poll, 2e3);
+    };
+    const poll = () => {
+      const req = canProbe ? imports.probe(source.id).then((res) => Boolean(res?.liveDebugReady)) : imports.sources().then((list) => Array.isArray(list) && Boolean(list.find((s) => s.id === source.id)?.liveDebugReady));
+      void req.then(
+        (ready) => {
+          if (active) setDetected(ready);
+        },
+        () => {
+        }
+      ).finally(schedule);
+    };
+    schedule();
     return () => {
       active = false;
-      clearInterval(timer);
+      clearTimeout(timer);
     };
   }, [imports, source.id]);
   const copyAddress = () => {
-    void navigator.clipboard?.writeText(inspectUrl).then(() => {
+    void Promise.resolve((0, import_dsh_client_ui_primitives.writeClipboard)(inspectUrl)).then((ok) => {
+      if (!ok || !mountedRef.current) return;
       setCopied(true);
-      setTimeout(() => setCopied(false), 1800);
+      clearTimeout(copyTimerRef.current);
+      copyTimerRef.current = setTimeout(() => {
+        if (mountedRef.current) setCopied(false);
+      }, 1800);
     }, () => {
     });
   };
@@ -43683,17 +43722,18 @@ function PasteCard2({ flow, busy, onSubmitPaste, onCancel }) {
 }
 function PreviewCard({ flow, page, busy, onApply, onCancel }) {
   const { preview } = flow;
+  const sites = (preview.sites ?? []).filter((s) => (s.cookies ?? 0) > 0 || (s.localStorage ?? 0) > 0);
   const currentHost = hostOfUrl(page.url);
-  const matchingCurrent = currentHost ? preview.sites.filter((s) => siteMatchesHost(s.site, currentHost)).map((s) => s.site) : [];
-  const [selected, setSelected] = (0, import_react69.useState)(() => new Set(preview.sites.map((s) => s.site)));
+  const matchingCurrent = currentHost ? sites.filter((s) => siteMatchesHost(s.site, currentHost)).map((s) => s.site) : [];
+  const [selected, setSelected] = (0, import_react69.useState)(() => new Set(sites.map((s) => s.site)));
   const [query, setQuery] = (0, import_react69.useState)("");
   const [persistSession, setPersistSession] = (0, import_react69.useState)(true);
   const hasSession = preview.notes.includes("session-cookies");
-  const allSelected = selected.size === preview.sites.length;
+  const allSelected = selected.size === sites.length;
   const currentOnlySelected = matchingCurrent.length > 0 && selected.size === matchingCurrent.length && matchingCurrent.every((s) => selected.has(s));
-  const visibleSites = query.trim() ? preview.sites.filter((s) => s.site.toLowerCase().includes(query.trim().toLowerCase())) : preview.sites;
-  const selectedCookies = preview.sites.reduce((sum, s) => sum + (selected.has(s.site) ? s.cookies : 0), 0);
-  const selectedStorage = preview.sites.reduce((sum, s) => sum + (selected.has(s.site) ? s.localStorage ?? 0 : 0), 0);
+  const visibleSites = query.trim() ? sites.filter((s) => s.site.toLowerCase().includes(query.trim().toLowerCase())) : sites;
+  const selectedCookies = sites.reduce((sum, s) => sum + (selected.has(s.site) ? s.cookies : 0), 0);
+  const selectedStorage = sites.reduce((sum, s) => sum + (selected.has(s.site) ? s.localStorage ?? 0 : 0), 0);
   const toggleSite = (site) => {
     setSelected((prev) => {
       const next = new Set(prev);
@@ -43702,12 +43742,12 @@ function PreviewCard({ flow, page, busy, onApply, onCancel }) {
       return next;
     });
   };
-  const selectAll = () => setSelected(new Set(preview.sites.map((s) => s.site)));
+  const selectAll = () => setSelected(new Set(sites.map((s) => s.site)));
   const clearAll = () => setSelected(/* @__PURE__ */ new Set());
   const selectCurrent = () => setSelected(new Set(matchingCurrent));
   const submit = () => {
-    const sites = allSelected ? void 0 : [...selected];
-    onApply({ sites, persistSession: hasSession ? persistSession : false });
+    const chosen = allSelected ? void 0 : [...selected];
+    onApply({ sites: chosen, persistSession: hasSession ? persistSession : false });
   };
   return (0, import_react69.createElement)("div", { className: "bt-import-card" }, (0, import_react69.createElement)(
     "div",
@@ -43720,7 +43760,7 @@ function PreviewCard({ flow, page, busy, onApply, onCancel }) {
       flow.restarted ? ` · ${t("the browser was restarted")}` : "",
       selectedStorage > 0 ? ` · ${t("{count} storage entries", { count: selectedStorage })}` : ""
     ),
-    matchingCurrent.length > 0 && preview.sites.length > 1 ? (0, import_react69.createElement)(
+    matchingCurrent.length > 0 && sites.length > 1 ? (0, import_react69.createElement)(
       "div",
       { className: "bt-import-scope" },
       (0, import_react69.createElement)("button", {
@@ -43728,7 +43768,7 @@ function PreviewCard({ flow, page, busy, onApply, onCancel }) {
         className: "bt-import-pill",
         "aria-pressed": allSelected,
         onClick: selectAll
-      }, t("All sites ({count})", { count: preview.sites.length })),
+      }, t("All sites ({count})", { count: sites.length })),
       (0, import_react69.createElement)("button", {
         type: "button",
         className: "bt-import-pill",
@@ -43736,7 +43776,7 @@ function PreviewCard({ flow, page, busy, onApply, onCancel }) {
         onClick: selectCurrent
       }, t("This site ({host})", { host: currentHost }))
     ) : null,
-    preview.sites.length > 6 ? (0, import_react69.createElement)(
+    sites.length > 6 ? (0, import_react69.createElement)(
       "div",
       { className: "bt-import-filter-row" },
       (0, import_react69.createElement)("input", {
@@ -43753,7 +43793,7 @@ function PreviewCard({ flow, page, busy, onApply, onCancel }) {
         onClick: allSelected ? clearAll : selectAll
       }, allSelected ? t("Clear") : t("All"))
     ) : null,
-    preview.sites.length ? (0, import_react69.createElement)(
+    sites.length ? (0, import_react69.createElement)(
       "div",
       { className: "bt-import-list" },
       visibleSites.map((site) => (0, import_react69.createElement)(
@@ -47268,10 +47308,11 @@ function apply(ctx) {
       // the Bot's storage key.
       browserImport: typeof bridge2.importSources === "function" ? {
         sources: () => bridge2.importSources(),
+        probe: typeof bridge2.importProbe === "function" ? (source) => bridge2.importProbe(source) : null,
         pick: () => bridge2.importPick(),
         paste: typeof bridge2.importPaste === "function" ? (text, defaultUrl) => bridge2.importPaste(text, defaultUrl) : null,
         launch: typeof bridge2.importLaunch === "function" ? (source) => bridge2.importLaunch(source) : null,
-        live: (source, close) => bridge2.importLive(source, close),
+        live: (source, close, requestId) => bridge2.importLive(source, close, requestId),
         apply: (botId, pending, options) => bridge2.importApply(`bot:${botId}`, pending, options),
         cancel: (pending) => bridge2.importCancel(pending)
       } : null

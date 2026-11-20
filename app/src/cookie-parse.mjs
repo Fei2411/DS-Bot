@@ -683,7 +683,9 @@ export function summarizeBySite(result) {
     s.localStorage += o.localStorage.length;
   }
   for (const k of result.skipped ?? []) {
-    const s = get(k.domain);
+    const site = String(k.domain || '').replace(/^\./, '').toLowerCase();
+    const s = site ? sites.get(site) : undefined;
+    if (!s) continue;
     s.skipped++;
     s.skippedReasons[k.code] = (s.skippedReasons[k.code] || 0) + 1;
   }

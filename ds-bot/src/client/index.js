@@ -803,10 +803,11 @@ export function apply(ctx) {
       // the Bot's storage key.
       browserImport: typeof bridge.importSources === 'function' ? {
         sources: () => bridge.importSources(),
+        probe: typeof bridge.importProbe === 'function' ? (source) => bridge.importProbe(source) : null,
         pick: () => bridge.importPick(),
         paste: typeof bridge.importPaste === 'function' ? (text, defaultUrl) => bridge.importPaste(text, defaultUrl) : null,
         launch: typeof bridge.importLaunch === 'function' ? (source) => bridge.importLaunch(source) : null,
-        live: (source, close) => bridge.importLive(source, close),
+        live: (source, close, requestId) => bridge.importLive(source, close, requestId),
         apply: (botId, pending, options) => bridge.importApply(`bot:${botId}`, pending, options),
         cancel: (pending) => bridge.importCancel(pending),
       } : null,

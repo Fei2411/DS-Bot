@@ -637,12 +637,13 @@ function browserBridge() {
     },
     // Cookie imports, only in the app: sources and a two-step pick/harvest/paste → preview → apply.
     importSources: () => ipcRenderer.invoke('ds-bot:browser-import-sources'),
+    importProbe: (source) => ipcRenderer.invoke('ds-bot:browser-import-probe', String(source)),
     importPick: () => ipcRenderer.invoke('ds-bot:browser-import-pick'),
     importPaste: (text, defaultUrl) => ipcRenderer.invoke('ds-bot:browser-import-paste', String(text), typeof defaultUrl === 'string' ? defaultUrl : undefined),
     importLaunch: (source) => ipcRenderer.invoke('ds-bot:browser-import-launch', String(source)),
-    importLive: (source, close) => ipcRenderer.invoke('ds-bot:browser-import-live', String(source), close === true),
+    importLive: (source, close, requestId) => ipcRenderer.invoke('ds-bot:browser-import-live', String(source), close === true, typeof requestId === 'string' ? requestId : undefined),
     importApply: (key, pending, options) => ipcRenderer.invoke('ds-bot:browser-import-apply', String(key), String(pending), options && typeof options === 'object' ? options : undefined),
-    importCancel: (pending) => ipcRenderer.invoke('ds-bot:browser-import-cancel', String(pending)),
+    importCancel: (pending) => ipcRenderer.invoke('ds-bot:browser-import-cancel', typeof pending === 'string' ? pending : ''),
     onOpenRequested(lease, listener) {
       const id = String(lease)
       let set = listeners.get(id)

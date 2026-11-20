@@ -42,7 +42,8 @@ const IPC = {
   browserViewNavigate: 'ds-bot:browser-view-navigate', browserViewCommand: 'ds-bot:browser-view-command',
   browserViewFocus: 'ds-bot:browser-view-focus', browserViewRead: 'ds-bot:browser-view-read',
   browserViewClose: 'ds-bot:browser-view-close', browserViewHold: 'ds-bot:browser-view-hold',
-  browserImportSources: 'ds-bot:browser-import-sources', browserImportPick: 'ds-bot:browser-import-pick',
+  browserImportSources: 'ds-bot:browser-import-sources', browserImportProbe: 'ds-bot:browser-import-probe',
+  browserImportPick: 'ds-bot:browser-import-pick',
   browserImportPaste: 'ds-bot:browser-import-paste', browserImportLaunch: 'ds-bot:browser-import-launch',
   browserImportLive: 'ds-bot:browser-import-live', browserImportApply: 'ds-bot:browser-import-apply',
   browserImportCancel: 'ds-bot:browser-import-cancel',
@@ -79,7 +80,7 @@ if (process.env.DS_BOT_SHELL_DATA) app.setPath('userData', process.env.DS_BOT_SH
 const frameFile = join(app.getPath('userData'), 'start-frame.json')
 
 // Loaded once the start window is up (loadModules).
-let BotBrowserGuests, partitionOf, BotViews, isBotId, importFromBrowser, launchBrowserForDebug, listSources, applyCookies, seedOriginsInPartition, CookieImports, parseCookieFile
+let BotBrowserGuests, partitionOf, BotViews, isBotId, checkSourceLiveDebug, importFromBrowser, launchBrowserForDebug, listSources, applyCookies, seedOriginsInPartition, CookieImports, parseCookieFile
 let downloadSaver, chooseLocations, defaultPlaces, lang, pickerLabels, pickRoot, programFolder, saveLocations, teamIn, teamsAt, tx, HostProcess
 let copySessions, findTeam, importTeam, restoreSessions, teamInUse, teamSizes, userDshHome, copyData, copyReason, moveProblem, BUNDLES, CHECK_PROFILE, PROFILE, ImportFlow
 let watchReleases, watchUpdates, RELEASE_PAGE, getDshRuntimeVersion, electronUpdater
@@ -146,6 +147,9 @@ const copyAbort = new AbortController()
 let browserGuests
 let botViews
 let cookieImports
+const cachedImportSources = new Map()
+const activeLiveImports = new Map()
+let liveImportSeq = 0
 // The app's own folder and file picker, on the page of the window that asks (picker-host.mjs).
 const pickers = new Pickers({ ipcMain, getPath: name => app.getPath(name) })
 
@@ -302,7 +306,7 @@ async function loadModules() {
   ])
   ;({ BotBrowserGuests, partitionOf } = browser)
   ;({ BotViews, isBotId } = views)
-  ;({ importFromBrowser, launchBrowserForDebug, listSources } = sources)
+  ;({ checkSourceLiveDebug, importFromBrowser, launchBrowserForDebug, listSources } = sources)
   ;({ applyCookies, seedOriginsInPartition, CookieImports } = cookies)
   ;({ parseCookieFile } = cookieFiles)
   ;({ downloadSaver } = downloads)
@@ -848,9 +852,22 @@ function handleIpc() {
   // Cookie imports: a file, pasted payload, or installed browser profile is parsed or
   // harvested into a pending set first; only apply (the user's confirm) writes into the
   // Bot's partition.
+  const refreshImportSources = async () => {
+    const list = await listSources()
+    cachedImportSources.clear()
+    for (const s of list) cachedImportSources.set(s.id, s)
+    return list
+  }
+  const resolveImportSource = async (sourceId) => {
+    const id = String(sourceId ?? '')
+    const cached = cachedImportSources.get(id)
+    if (cached) return cached
+    const list = await refreshImportSources()
+    return list.find((item) => item.id === id) ?? null
+  }
   ipcMain.handle(IPC.browserImportSources, async (event) => {
     assertWindow(event)
-    return (await listSources()).map((s) => ({
+    return (await refreshImportSources()).map((s) => ({
       id: s.id,
       kind: s.kind,
       engine: s.engine,
@@ -863,6 +880,12 @@ function handleIpc() {
       liveDebugReady: s.liveDebugReady === true,
       hasExe: Boolean(s.exe),
     }))
+  })
+  ipcMain.handle(IPC.browserImportProbe, async (event, sourceId) => {
+    assertWindow(event)
+    const source = await resolveImportSource(sourceId)
+    if (!source) return { liveDebugReady: false }
+    return { liveDebugReady: await checkSourceLiveDebug(source) }
   })
   ipcMain.handle(IPC.browserImportPick, async (event) => {
     assertWindow(event)
@@ -886,50 +909,65 @@ function handleIpc() {
   })
   ipcMain.handle(IPC.browserImportLaunch, async (event, sourceId) => {
     assertWindow(event)
-    const source = (await listSources()).find((item) => item.id === sourceId)
+    const source = await resolveImportSource(sourceId)
     if (!source) return { launched: false }
     return { launched: launchBrowserForDebug(source) }
   })
-  ipcMain.handle(IPC.browserImportLive, async (event, sourceId, close) => {
+  ipcMain.handle(IPC.browserImportLive, async (event, sourceId, close, requestId) => {
     assertWindow(event)
-    const source = (await listSources()).find((item) => item.id === sourceId)
-    if (!source) throw new Error('DS Bot: an unknown browser profile')
-    let outcome
+    // Abort any older in-flight live import so Keychain / browser Allow prompts never stack.
+    for (const [prevKey, prevCtrl] of activeLiveImports) {
+      activeLiveImports.delete(prevKey)
+      prevCtrl.abort()
+    }
+    const reqKey = typeof requestId === 'string' && requestId ? requestId : `live:${++liveImportSeq}`
+    const controller = new AbortController()
+    activeLiveImports.set(reqKey, controller)
     try {
-      outcome = await importFromBrowser(source, { close: close === true })
-    } catch (error) {
-      if (['app-bound', 'keychain-denied', 'devtools-denied', 'devtools-timeout', 'devtools-wrong-profile'].includes(error?.code)) {
-        return { error: error.code }
+      const source = await resolveImportSource(sourceId)
+      if (controller.signal.aborted) return { canceled: true }
+      if (!source) throw new Error('DS Bot: an unknown browser profile')
+      let outcome
+      try {
+        outcome = await importFromBrowser(source, { close: close === true, signal: controller.signal })
+      } catch (error) {
+        if (error?.code === 'import-cancelled' || controller.signal.aborted) return { canceled: true }
+        if (['app-bound', 'keychain-denied', 'devtools-denied', 'devtools-timeout', 'devtools-wrong-profile'].includes(error?.code)) {
+          return { error: error.code }
+        }
+        throw error
       }
-      throw error
-    }
-    if (outcome.needsRemoteDebugging) {
+      if (controller.signal.aborted) return { canceled: true }
+      if (outcome.needsRemoteDebugging) {
+        return {
+          needsRemoteDebugging: true,
+          sourceId: source.id,
+          inspectUrl: outcome.inspectUrl,
+          browserName: outcome.browserName ?? source.name,
+          label: source.label,
+          kind: source.kind,
+          running: outcome.running === true,
+          hasExe: Boolean(source.exe),
+          lockedCount: outcome.lockedCount ?? 0,
+        }
+      }
+      if (outcome.running) return { running: true, label: source.label, kind: source.kind }
+      const result = {
+        format: 'live',
+        entries: outcome.result.cookies.length + outcome.result.skipped.length,
+        cookies: outcome.result.cookies,
+        origins: outcome.result.origins ?? [],
+        skipped: outcome.result.skipped,
+        warnings: [],
+        info: {},
+      }
       return {
-        needsRemoteDebugging: true,
-        sourceId: source.id,
-        inspectUrl: outcome.inspectUrl,
-        browserName: outcome.browserName ?? source.name,
-        label: source.label,
-        kind: source.kind,
-        running: outcome.running === true,
-        hasExe: Boolean(source.exe),
-        lockedCount: outcome.lockedCount ?? 0,
+        ...cookieImports.store(result, { kind: source.kind, label: source.label, id: source.id }),
+        restarted: outcome.restarted,
+        method: outcome.method,
       }
-    }
-    if (outcome.running) return { running: true, label: source.label, kind: source.kind }
-    const result = {
-      format: 'live',
-      entries: outcome.result.cookies.length + outcome.result.skipped.length,
-      cookies: outcome.result.cookies,
-      origins: outcome.result.origins ?? [],
-      skipped: outcome.result.skipped,
-      warnings: [],
-      info: {},
-    }
-    return {
-      ...cookieImports.store(result, { kind: source.kind, label: source.label, id: source.id }),
-      restarted: outcome.restarted,
-      method: outcome.method,
+    } finally {
+      if (activeLiveImports.get(reqKey) === controller) activeLiveImports.delete(reqKey)
     }
   })
   ipcMain.handle(IPC.browserImportApply, async (event, key, id, options) => {
@@ -949,7 +987,19 @@ function handleIpc() {
   })
   ipcMain.handle(IPC.browserImportCancel, (event, id) => {
     assertWindow(event)
-    if (typeof id === 'string') cookieImports.drop(id)
+    if (typeof id === 'string' && id) {
+      cookieImports.drop(id)
+      const controller = activeLiveImports.get(id)
+      if (controller) {
+        activeLiveImports.delete(id)
+        controller.abort()
+      }
+    } else {
+      for (const [reqKey, controller] of activeLiveImports) {
+        activeLiveImports.delete(reqKey)
+        controller.abort()
+      }
+    }
   })
   // The app's own update state, for the About row. `updates` exists once the engine's first
   // start created it; before that (and in runs without an updater) the state is null.

@@ -136,7 +136,7 @@ export async function applyOrigins(origins, { sites, seedOrigin } = {}) {
  * window, fulfills a synthetic same-origin blank document via CDP Fetch so no external
  * request leaves the machine, writes localStorage entries, and destroys the window.
  */
-export async function seedOriginsInPartition(BrowserWindow, partition, origins, { sites } = {}) {
+export async function seedOriginsInPartition(BrowserWindow, partition, origins, { sites, timeoutMs = 5_000 } = {}) {
   const selected = filterOriginsBySites(origins ?? [], sites).filter((o) => Array.isArray(o?.localStorage) && o.localStorage.length > 0)
   if (selected.length === 0 || typeof BrowserWindow !== 'function') {
     return { originsStored: 0, entriesStored: 0, failedOrigins: [] }
@@ -161,15 +161,31 @@ export async function seedOriginsInPartition(BrowserWindow, partition, origins, 
   const dbg = contents?.debugger
   const blankBody = Buffer.from('<!doctype html><meta charset="utf-8"><title>seed</title>').toString('base64')
   let attached = false
+  let activeTarget = null
+  const failAll = (reason) => ({
+    originsStored: 0,
+    entriesStored: 0,
+    failedOrigins: selected.map((item) => ({ origin: item.origin, reason })),
+  })
   try {
-    if (dbg && typeof dbg.attach === 'function') {
+    // Fail closed: never call loadURL unless CDP Fetch interception is active and verified,
+    // otherwise Electron would send real network requests carrying the imported cookies.
+    if (!dbg || typeof dbg.attach !== 'function' || typeof dbg.sendCommand !== 'function' || typeof dbg.on !== 'function') {
+      return failAll('zero-network interception unavailable')
+    }
+    try {
       dbg.attach('1.3')
       attached = true
+      dbg.on('detach', () => { attached = false })
       dbg.on('message', (_event, method, params) => {
         if (method !== 'Fetch.requestPaused') return
         const url = params?.request?.url ?? ''
         let isSeed = false
-        try { isSeed = params?.request?.method === 'GET' && new URL(url).pathname === SEED_PATH } catch { /* malformed */ }
+        try {
+          isSeed = activeTarget !== null
+            && params?.request?.method === 'GET'
+            && new URL(url).href === activeTarget
+        } catch { /* malformed */ }
         if (isSeed) {
           void dbg.sendCommand('Fetch.fulfillRequest', {
             requestId: params.requestId,
@@ -182,30 +198,78 @@ export async function seedOriginsInPartition(BrowserWindow, partition, origins, 
         }
       })
       await dbg.sendCommand('Fetch.enable', { patterns: [{ urlPattern: '*' }] })
+    } catch {
+      return failAll('zero-network interception unavailable')
     }
+
+    const waitUntilStopped = async () => {
+      try { contents.stop?.() } catch { /* ignore */ }
+      if (typeof contents.isLoading === 'function' && contents.isLoading() && typeof contents.once === 'function') {
+        await new Promise((resolve) => {
+          let done = false
+          const finish = () => {
+            if (done) return
+            done = true
+            clearTimeout(stopTimer)
+            contents.removeListener?.('did-stop-loading', finish)
+            resolve()
+          }
+          const stopTimer = setTimeout(finish, 200)
+          contents.once('did-stop-loading', finish)
+        })
+      }
+    }
+
     return await applyOrigins(selected, {
       seedOrigin: async (origin, entries) => {
-        const target = new URL(SEED_PATH, origin).href
+        if (!attached) throw new Error('storage seed aborted: debugger detached')
+        let parsed
+        try { parsed = new URL(origin) } catch { throw new Error('invalid origin') }
+        if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') throw new Error('invalid origin protocol')
+        const expectedOrigin = parsed.origin
+        const target = new URL(SEED_PATH, expectedOrigin).href
+        let cancelled = false
         let timer
+        activeTarget = target
+        const work = (async () => {
+          await contents.loadURL(target)
+          if (cancelled || !attached) return 0
+          const payload = JSON.stringify(entries)
+          const expected = JSON.stringify(expectedOrigin)
+          const res = await contents.executeJavaScript(`(() => {
+            if (window.location.origin !== ${expected}) return { mismatch: true, wrote: 0 };
+            const items = ${payload};
+            let wrote = 0;
+            for (const item of items) {
+              try { window.localStorage.setItem(item.name, item.value); wrote += 1; } catch {}
+            }
+            return { mismatch: false, wrote };
+          })()`)
+          if (cancelled) return 0
+          if (res && typeof res === 'object') {
+            if (res.mismatch) throw new Error('storage seed aborted: origin mismatch')
+            return Number(res.wrote) || 0
+          }
+          return Number(res) || 0
+        })()
+        // Suppress late rejections after timeout cancellation.
+        work.catch(() => {})
         try {
           return await Promise.race([
-            (async () => {
-              await contents.loadURL(target)
-              const payload = JSON.stringify(entries)
-              const count = await contents.executeJavaScript(`(() => {
-                const items = ${payload};
-                let wrote = 0;
-                for (const item of items) {
-                  try { window.localStorage.setItem(item.name, item.value); wrote += 1; } catch {}
-                }
-                return wrote;
-              })()`)
-              return Number(count) || 0
-            })(),
-            new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('storage seed timed out')), 5_000) }),
+            work,
+            new Promise((_, reject) => {
+              timer = setTimeout(() => {
+                cancelled = true
+                activeTarget = null
+                try { contents.stop?.() } catch { /* ignore */ }
+                reject(new Error('storage seed timed out'))
+              }, timeoutMs)
+            }),
           ])
         } finally {
           clearTimeout(timer)
+          activeTarget = null
+          if (cancelled) await waitUntilStopped()
         }
       },
     })

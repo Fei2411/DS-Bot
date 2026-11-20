@@ -14,6 +14,7 @@ import { spawn, execFile } from 'node:child_process'
 import { createDecipheriv, createHash, pbkdf2Sync } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { copyFile, mkdtemp, readdir, readFile, realpath, rm } from 'node:fs/promises'
+import { createConnection } from 'node:net'
 import { DatabaseSync } from 'node:sqlite'
 import { homedir, platform, tmpdir } from 'node:os'
 import { basename, dirname, join, relative, win32 } from 'node:path'
@@ -25,6 +26,17 @@ const TAB_STORAGE_TIMEOUT_MS = 1_500
 const MAX_STORAGE_ORIGINS = 25
 const MAX_STORAGE_ENTRIES = 500
 const MAX_STORAGE_BYTES = 512 * 1024
+const EXE_CACHE_TTL_MS = 60_000
+
+function abortError() {
+  const err = new Error('Browser import cancelled')
+  err.code = 'import-cancelled'
+  return err
+}
+
+function throwIfAborted(signal) {
+  if (signal?.aborted) throw abortError()
+}
 
 const KIND_ORDER = [
   'chrome', 'chrome-beta', 'chrome-canary', 'chrome-dev',
@@ -149,8 +161,17 @@ function exeCandidates() {
   ]
 }
 
-/** → Map<kind, { exe, version }> of installed browsers. */
-export async function findBrowserExes() {
+let exeCache = null
+
+export function clearBrowserExeCache() {
+  exeCache = null
+}
+
+/** → Map<kind, { exe, version }> of installed browsers (cached briefly to avoid reg.exe storms). */
+export async function findBrowserExes({ fresh = false } = {}) {
+  if (!fresh && exeCache && (Date.now() - exeCache.at) < EXE_CACHE_TTL_MS) {
+    return new Map(exeCache.found)
+  }
   const candidates = exeCandidates()
   if (platform() === 'win32') {
     for (const exe of ['chrome.exe', 'msedge.exe', 'brave.exe', 'vivaldi.exe', 'opera.exe', 'firefox.exe']) {
@@ -171,7 +192,8 @@ export async function findBrowserExes() {
       if (existsSync(real)) found.set(kind, { exe: real, version: await exeVersion(real) })
     } catch { /* not installed */ }
   }
-  return found
+  exeCache = { at: Date.now(), found }
+  return new Map(found)
 }
 
 // ------------------------------------------------------------------ profile enumeration
@@ -345,6 +367,39 @@ export function readDevToolsActivePort(userDataDir) {
   }
 }
 
+/** Fast loopback TCP connect check — confirms a DevToolsActivePort is actually listening without sending WS bytes. */
+export function isLoopbackPortOpen(port, { timeoutMs = 400, signal } = {}) {
+  if (!Number.isInteger(port) || port < 1 || port > 65535) return Promise.resolve(false)
+  if (signal?.aborted) return Promise.reject(abortError())
+  return new Promise((resolve, reject) => {
+    let settled = false
+    const socket = createConnection({ host: '127.0.0.1', port })
+    const finish = (ok, err) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      signal?.removeEventListener('abort', onAbort)
+      socket.destroy()
+      if (err) reject(err)
+      else resolve(ok)
+    }
+    const onAbort = () => finish(false, abortError())
+    const timer = setTimeout(() => finish(false), timeoutMs)
+    signal?.addEventListener('abort', onAbort, { once: true })
+    socket.once('connect', () => finish(true))
+    socket.once('error', () => finish(false))
+  })
+}
+
+/** Lightweight live-debug check for one source: reads only its DevToolsActivePort and probes loopback TCP. */
+export async function checkSourceLiveDebug(source, { probePort = isLoopbackPortOpen, signal } = {}) {
+  if (!source || (source.engine && source.engine !== 'chromium')) return false
+  const { userDataDir } = resolveSourceLayout(source)
+  const active = readDevToolsActivePort(userDataDir)
+  if (!active) return false
+  return Boolean(await probePort(active.port, { signal }))
+}
+
 /** True when Local State declares a Windows App-Bound Encryption key (readable even while locked). */
 export function hasAppBoundKey(userDataDir) {
   if (!userDataDir) return false
@@ -358,8 +413,8 @@ export function hasAppBoundKey(userDataDir) {
  *      profileName, email, cookieDb, hasCookies, exe, exeVersion, inspectUrl, liveDebugReady,
  *      keychainServices, flat }]
  */
-export async function listSources() {
-  const exes = await findBrowserExes()
+export async function listSources({ probePort = isLoopbackPortOpen, freshExes = false } = {}) {
+  const exes = await findBrowserExes({ fresh: freshExes })
   const roots = await userDataRoots()
   const isMac = platform() === 'darwin'
   const sources = []
@@ -385,7 +440,8 @@ export async function listSources() {
         }
         continue
       }
-      const liveDebugReady = readDevToolsActivePort(root) !== null
+      const activePort = readDevToolsActivePort(root)
+      const liveDebugReady = activePort !== null && Boolean(await probePort(activePort.port))
       // Chromium on macOS can decrypt via Keychain without launching the binary; on Windows,
       // MSIX installs like Arc can still enter the guided remote-debugging flow without a resolved exe.
       const canHarvest = Boolean(exe) || liveDebugReady || (isMac && meta.keychain.length > 0) || (platform() === 'win32' && kind === 'arc')
@@ -470,29 +526,44 @@ export async function cloneWorkDir() {
 // ------------------------------------------------------------------ Strategy 1: Live DevToolsActivePort CDP
 
 /** Minimal CDP client over a loopback WebSocket (no HTTP probe — Chrome 144+ is WS-only). */
-function wsCdpConnect(wsUrl, { connectTimeoutMs = LIVE_CONNECT_TIMEOUT_MS, WebSocketImpl = WebSocket } = {}) {
+function wsCdpConnect(wsUrl, { connectTimeoutMs = LIVE_CONNECT_TIMEOUT_MS, WebSocketImpl = WebSocket, signal } = {}) {
+  if (signal?.aborted) return Promise.reject(abortError())
   return new Promise((resolve, reject) => {
     const ws = new WebSocketImpl(wsUrl)
     const pending = new Map()
     let nextId = 1
     let settled = false
+
+    const failPending = (reason, code = 'WS_CLOSED') => {
+      for (const p of pending.values()) {
+        const err = code === 'import-cancelled' ? abortError() : new Error(`CDP connection closed (${reason})`)
+        if (code !== 'import-cancelled') err.code = code
+        p.reject(err)
+      }
+      pending.clear()
+    }
+
+    const onAbort = () => {
+      clearTimeout(timer)
+      try { ws.terminate?.() ?? ws.close() } catch { /* ignore */ }
+      if (!settled) {
+        settled = true
+        reject(abortError())
+      } else {
+        failPending('cancelled', 'import-cancelled')
+      }
+    }
+    signal?.addEventListener('abort', onAbort, { once: true })
+
     const timer = setTimeout(() => {
       if (settled) return
       settled = true
+      signal?.removeEventListener('abort', onAbort)
       try { ws.terminate?.() ?? ws.close() } catch { /* ignore */ }
       const err = new Error('Timed out waiting for the browser to accept remote debugging.')
       err.code = 'devtools-timeout'
       reject(err)
     }, connectTimeoutMs)
-
-    const failPending = (reason, code = 'WS_CLOSED') => {
-      for (const p of pending.values()) {
-        const err = new Error(`CDP connection closed (${reason})`)
-        err.code = code
-        p.reject(err)
-      }
-      pending.clear()
-    }
 
     ws.on('open', () => {
       if (settled) return
@@ -500,6 +571,7 @@ function wsCdpConnect(wsUrl, { connectTimeoutMs = LIVE_CONNECT_TIMEOUT_MS, WebSo
       clearTimeout(timer)
       resolve({
         send(method, params = {}, { sessionId, timeoutMs = connectTimeoutMs } = {}) {
+          if (signal?.aborted) return Promise.reject(abortError())
           const id = nextId++
           return new Promise((res, rej) => {
             const cmdTimer = setTimeout(() => {
@@ -517,6 +589,7 @@ function wsCdpConnect(wsUrl, { connectTimeoutMs = LIVE_CONNECT_TIMEOUT_MS, WebSo
           })
         },
         close() {
+          signal?.removeEventListener('abort', onAbort)
           try { ws.close() } catch { /* already closed */ }
         },
       })
@@ -535,6 +608,7 @@ function wsCdpConnect(wsUrl, { connectTimeoutMs = LIVE_CONNECT_TIMEOUT_MS, WebSo
     })
 
     ws.on('error', (error) => {
+      signal?.removeEventListener('abort', onAbort)
       if (!settled) {
         settled = true
         clearTimeout(timer)
@@ -548,6 +622,7 @@ function wsCdpConnect(wsUrl, { connectTimeoutMs = LIVE_CONNECT_TIMEOUT_MS, WebSo
     })
 
     ws.on('close', (code) => {
+      signal?.removeEventListener('abort', onAbort)
       if (!settled) {
         settled = true
         clearTimeout(timer)
@@ -563,13 +638,15 @@ function wsCdpConnect(wsUrl, { connectTimeoutMs = LIVE_CONNECT_TIMEOUT_MS, WebSo
 
 const MAX_STORAGE_ATTEMPTS = 60
 
-async function harvestOpenTabLocalStorage(cdp, defaultBrowserContextId) {
+async function harvestOpenTabLocalStorage(cdp, defaultBrowserContextId, { signal } = {}) {
   const origins = []
+  throwIfAborted(signal)
   let targetInfos = []
   try {
     const res = await cdp.send('Target.getTargets', {}, { timeoutMs: 3_000 })
     targetInfos = Array.isArray(res?.targetInfos) ? res.targetInfos : []
-  } catch {
+  } catch (error) {
+    if (error?.code === 'import-cancelled' || signal?.aborted) throw abortError()
     return origins
   }
   const pageTargets = targetInfos.filter((t) => t.type === 'page' && typeof t.url === 'string')
@@ -622,6 +699,7 @@ async function harvestOpenTabLocalStorage(cdp, defaultBrowserContextId) {
   for (const [origin, targetIds] of targetsByOrigin) {
     if (origins.length >= MAX_STORAGE_ORIGINS || attempts >= MAX_STORAGE_ATTEMPTS) break
     for (const targetId of targetIds) {
+      throwIfAborted(signal)
       if (attempts >= MAX_STORAGE_ATTEMPTS) break
       attempts += 1
       let sessionId = null
@@ -638,7 +716,8 @@ async function harvestOpenTabLocalStorage(cdp, defaultBrowserContextId) {
             break // readable tab for this origin succeeded (even if localStorage is empty)
           }
         }
-      } catch {
+      } catch (error) {
+        if (error?.code === 'import-cancelled' || signal?.aborted) throw abortError()
         // Frozen/suspended or restricted tab: try the next open tab for this origin.
       } finally {
         if (sessionId) await cdp.send('Target.detachFromTarget', { sessionId }, { timeoutMs: 1_000 }).catch(() => {})
@@ -648,46 +727,95 @@ async function harvestOpenTabLocalStorage(cdp, defaultBrowserContextId) {
   return origins
 }
 
-async function ensureLiveProfileActive(source, userDataDir, profileDir) {
-  if (!profileDir || source.flat) return
-  const profiles = await chromiumProfiles(userDataDir)
-  // Single-profile user-data-dir: only one profile can be active.
-  if (profiles.filter((p) => p.hasCookies).length <= 1) return
-  const readLastUsed = () => {
-    const val = readJson(join(userDataDir, 'Local State'))?.profile?.last_used
-    return typeof val === 'string' && val.length > 0 ? val : null
+function readLastUsedProfile(userDataDir) {
+  const val = readJson(join(userDataDir, 'Local State'))?.profile?.last_used
+  return typeof val === 'string' && val.length > 0 ? val : null
+}
+
+function wrongProfileError(source, profileDir) {
+  const err = new Error(`Another browser profile is active; switch to ${source.profileName || profileDir} in ${source.name || 'the browser'} and try again.`)
+  err.code = 'devtools-wrong-profile'
+  return err
+}
+
+function readCookieKeysFromDb(dbPath) {
+  let db
+  try {
+    db = new DatabaseSync(dbPath, { readOnly: true })
+    const rows = db.prepare('SELECT host_key, name FROM cookies').all()
+    const keys = new Set()
+    for (const row of rows) keys.add(`${row.host_key}\u0000${row.name}`)
+    return keys
+  } catch {
+    return null
+  } finally {
+    try { db?.close() } catch { /* ignore */ }
   }
-  const wrongProfile = () => {
-    const err = new Error(`Another browser profile is active; switch to ${source.profileName || profileDir} in ${source.name || 'the browser'} and try again.`)
-    err.code = 'devtools-wrong-profile'
-    return err
+}
+
+/**
+ * Defense-in-depth profile verification when cookie DBs are readable on disk: if the target
+ * profile DB is non-empty and shares zero cookies with what CDP returned while a sibling
+ * profile DB matches, refuse rather than importing another account's cookies.
+ */
+function verifyCookiesNotFromSiblingProfile(profiles, targetProfileDir, cookies) {
+  if (!Array.isArray(cookies) || cookies.length === 0) return true
+  const target = profiles.find((p) => p.dir === targetProfileDir)
+  if (!target?.cookieDb) return true
+  const targetKeys = readCookieKeysFromDb(target.cookieDb)
+  if (!targetKeys || targetKeys.size === 0) return true
+  if (cookies.some((c) => targetKeys.has(`${c.domain}\u0000${c.name}`))) return true
+  for (const sibling of profiles) {
+    if (sibling.dir === targetProfileDir || !sibling.cookieDb) continue
+    const siblingKeys = readCookieKeysFromDb(sibling.cookieDb)
+    if (siblingKeys && cookies.some((c) => siblingKeys.has(`${c.domain}\u0000${c.name}`))) {
+      return false
+    }
   }
-  if (!source.exe) {
-    // Without the binary we cannot switch the active window: fail closed unless Local State confirms it.
-    if (readLastUsed() !== profileDir) throw wrongProfile()
-    return
-  }
-  // Explicitly focus the selected profile in the running browser via ProcessSingleton handoff.
-  // Local State.last_used is debounced on disk (~10s), while in-memory active profile switches
-  // before the handoff process exits with code 0. Fail closed if spawning/handoff fails.
-  const focused = await new Promise((resolve) => {
+  return true
+}
+
+async function ensureLiveProfileActive(source, userDataDir, profileDir, opts = {}) {
+  const { signal, spawnImpl = spawn, focusTimeoutMs = 1_500, focusVerifyMs = 3_000, focusPollMs = 150 } = opts
+  throwIfAborted(signal)
+  if (readLastUsedProfile(userDataDir) === profileDir) return
+  if (!source.exe) throw wrongProfileError(source, profileDir)
+
+  // Ask the already-running browser to focus the chosen profile via ProcessSingleton handoff.
+  // Fail closed on timeout or non-zero exit — never assume a hung/timed-out launch switched profiles.
+  const focused = await new Promise((resolve, reject) => {
     let settled = false
-    const done = (ok) => { if (!settled) { settled = true; resolve(ok) } }
+    const done = (ok, err) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      signal?.removeEventListener('abort', onAbort)
+      if (err) reject(err)
+      else resolve(ok)
+    }
+    const onAbort = () => done(false, abortError())
+    signal?.addEventListener('abort', onAbort, { once: true })
     let child
     try {
-      child = spawn(source.exe, [`--user-data-dir=${userDataDir}`, `--profile-directory=${profileDir}`], {
+      child = spawnImpl(source.exe, [`--user-data-dir=${userDataDir}`, `--profile-directory=${profileDir}`], {
         detached: true, stdio: 'ignore', windowsHide: true,
       })
     } catch {
       return done(false)
     }
+    const timer = setTimeout(() => done(false), focusTimeoutMs)
     child.once('error', () => done(false))
-    child.once('exit', (code) => done(code === 0 || code === null))
-    child.unref()
-    setTimeout(() => done(true), 1500)
+    child.once('exit', (code) => done(code === 0))
+    child.unref?.()
   })
-  if (!focused) throw wrongProfile()
-  await sleepMs(400)
+  if (!focused) throw wrongProfileError(source, profileDir)
+
+  // Confirm Local State actually reflects the chosen profile before attaching CDP.
+  const deadline = Date.now() + focusVerifyMs
+  while (readLastUsedProfile(userDataDir) !== profileDir) {
+    if (Date.now() >= deadline) throw wrongProfileError(source, profileDir)
+    await sleepMs(Math.min(focusPollMs, Math.max(1, deadline - Date.now())), signal)
+  }
 }
 
 /**
@@ -695,6 +823,8 @@ async function ensureLiveProfileActive(source, userDataDir, profileDir) {
  * with remote debugging enabled (`chrome://inspect/#remote-debugging`).
  */
 export async function harvestLiveChromium(source, opts = {}) {
+  const { signal } = opts
+  throwIfAborted(signal)
   const { userDataDir, profileDir } = resolveSourceLayout(source)
   const activePort = opts.activePort ?? readDevToolsActivePort(userDataDir)
   if (!activePort) {
@@ -702,17 +832,44 @@ export async function harvestLiveChromium(source, opts = {}) {
     err.code = 'devtools-missing'
     throw err
   }
+  // Probe port liveness BEFORE trying to focus/spawn the browser, so a stale DevToolsActivePort
+  // left behind by a closed browser never launches the browser or locks the Windows clone path.
+  const probe = opts.probePort ?? isLoopbackPortOpen
+  const portAlive = await probe(activePort.port, { signal })
+  if (!portAlive) {
+    const err = new Error('Browser remote debugging port is not listening')
+    err.code = 'devtools-stale'
+    throw err
+  }
   // Chrome's single DevToolsActivePort routes Storage.getCookies() to the last-focused profile.
   // Verify or activate the chosen profile before harvesting so another account is never imported.
-  if (!opts.skipFocus) {
-    await ensureLiveProfileActive(source, userDataDir, profileDir)
+  let profiles = []
+  let multiProfile = false
+  if (!opts.skipFocus && profileDir && !source.flat) {
+    profiles = await chromiumProfiles(userDataDir)
+    multiProfile = profiles.length > 1
+    if (multiProfile) {
+      await ensureLiveProfileActive(source, userDataDir, profileDir, opts)
+    }
   }
   const cdp = await wsCdpConnect(activePort.wsUrl, {
     connectTimeoutMs: opts.connectTimeoutMs ?? LIVE_CONNECT_TIMEOUT_MS,
     WebSocketImpl: opts.WebSocketImpl ?? WebSocket,
+    signal,
   })
   try {
+    if (multiProfile && readLastUsedProfile(userDataDir) !== profileDir) {
+      throw wrongProfileError(source, profileDir)
+    }
     const { cookies = [] } = await cdp.send('Storage.getCookies', {}, { timeoutMs: opts.connectTimeoutMs ?? LIVE_CONNECT_TIMEOUT_MS })
+    if (multiProfile) {
+      if (readLastUsedProfile(userDataDir) !== profileDir) {
+        throw wrongProfileError(source, profileDir)
+      }
+      if (!verifyCookiesNotFromSiblingProfile(profiles, profileDir, cookies)) {
+        throw wrongProfileError(source, profileDir)
+      }
+    }
     const now = opts.now ?? Date.now() / 1000
     const normalized = []
     const skipped = []
@@ -731,9 +888,12 @@ export async function harvestLiveChromium(source, opts = {}) {
         if (typeof ctxs?.defaultBrowserContextId === 'string' && ctxs.defaultBrowserContextId) {
           defaultBrowserContextId = ctxs.defaultBrowserContextId
         }
-      } catch { /* older browsers or stubs without getBrowserContexts */ }
+      } catch (error) {
+        if (error?.code === 'import-cancelled' || signal?.aborted) throw abortError()
+        /* older browsers or stubs without getBrowserContexts */
+      }
     }
-    const origins = opts.includeLocalStorage === false ? [] : await harvestOpenTabLocalStorage(cdp, defaultBrowserContextId)
+    const origins = opts.includeLocalStorage === false ? [] : await harvestOpenTabLocalStorage(cdp, defaultBrowserContextId, { signal })
     return { cookies: normalized, origins, skipped }
   } finally {
     // Only close our debugging socket — never Browser.close the user's real browser.
@@ -764,8 +924,7 @@ export function decryptChromiumV10(encrypted, key, { hostKey = '', stripDomainHa
 
 const DB_SAMESITE = { 0: 'None', 1: 'Lax', 2: 'Strict' }
 
-/** Read and decrypt a Chromium Cookies SQLite snapshot using a macOS AES-128-CBC key. */
-export function readChromiumSqliteCookies(dbPath, { key, now = Date.now() / 1000 } = {}) {
+function readChromiumSqliteCookiesDetailed(dbPath, { key, now = Date.now() / 1000 } = {}) {
   const db = new DatabaseSync(dbPath, { readOnly: true })
   try {
     let dbVersion = 0
@@ -782,10 +941,13 @@ export function readChromiumSqliteCookies(dbPath, { key, now = Date.now() / 1000
       cols.has('samesite') ? 'samesite' : '-1 AS samesite',
       cols.has('has_expires') ? 'has_expires' : '1 AS has_expires',
       cols.has('top_frame_site_key') ? 'top_frame_site_key' : "'' AS top_frame_site_key",
+      cols.has('has_cross_site_ancestor') ? 'has_cross_site_ancestor' : '1 AS has_cross_site_ancestor',
     ]
     const rows = db.prepare(`SELECT ${select.join(', ')} FROM cookies`).all()
     const cookies = []
     const skipped = []
+    let decryptedCount = 0
+    let decryptFailedCount = 0
     rows.forEach((row, index) => {
       const where = `entry ${index + 1}`
       let expires
@@ -799,27 +961,34 @@ export function readChromiumSqliteCookies(dbPath, { key, now = Date.now() / 1000
       let value = typeof row.value === 'string' ? row.value : ''
       const enc = row.encrypted_value ? Buffer.from(row.encrypted_value) : null
       if (enc && enc.length > 0) {
-        const prefix = enc.subarray(0, 3).toString('latin1')
+        const prefix = enc.length >= 3 ? enc.subarray(0, 3).toString('latin1') : ''
         if (prefix === 'v20') {
           skipped.push({ where, name: row.name, domain: row.host_key, code: 'app-bound', reason: 'locked by app-bound encryption — only the browser itself can read it' })
           return
         }
         if (prefix === 'v10') {
           if (!key) {
+            decryptFailedCount += 1
             skipped.push({ where, name: row.name, domain: row.host_key, code: 'decrypt-failed', reason: 'could not decrypt cookie value' })
             return
           }
           try {
             const decrypted = decryptChromiumV10(enc, key, { hostKey: row.host_key, stripDomainHash })
             if (decrypted === null) {
+              decryptFailedCount += 1
               skipped.push({ where, name: row.name, domain: row.host_key, code: 'decrypt-failed', reason: 'could not decrypt cookie value' })
               return
             }
             value = decrypted
+            decryptedCount += 1
           } catch {
+            decryptFailedCount += 1
             skipped.push({ where, name: row.name, domain: row.host_key, code: 'decrypt-failed', reason: 'could not decrypt cookie value' })
             return
           }
+        } else {
+          skipped.push({ where, name: row.name, domain: row.host_key, code: 'unsupported-encryption', reason: 'unsupported cookie encryption format' })
+          return
         }
       }
       const cookie = {
@@ -830,50 +999,72 @@ export function readChromiumSqliteCookies(dbPath, { key, now = Date.now() / 1000
       if (ss) cookie.sameSite = ss
       if (expires !== undefined) cookie.expires = expires
       if (typeof row.top_frame_site_key === 'string' && row.top_frame_site_key) {
-        cookie.partitionKey = { topLevelSite: row.top_frame_site_key, hasCrossSiteAncestor: true }
+        const hasCrossSite = row.has_cross_site_ancestor === null || row.has_cross_site_ancestor === undefined
+          ? true
+          : Boolean(row.has_cross_site_ancestor)
+        cookie.partitionKey = { topLevelSite: row.top_frame_site_key, hasCrossSiteAncestor: hasCrossSite }
       }
       cookies.push(cookie)
     })
-    return { cookies, origins: [], skipped }
+    return { cookies, origins: [], skipped, decryptedCount, decryptFailedCount }
   } finally {
     db.close()
   }
 }
 
-function readMacKeychainPassword(services) {
-  const list = Array.isArray(services) ? services : [services].filter(Boolean)
-  return (async () => {
-    for (const service of list) {
-      const outcome = await new Promise((resolve) => {
-        execFile('/usr/bin/security', ['find-generic-password', '-w', '-s', service], { encoding: 'utf8', timeout: 60_000 }, (err, stdout, stderr) => {
-          if (!err) return resolve({ ok: true, password: stdout.replace(/\r?\n$/, '') })
-          const msg = `${stderr ?? ''} ${err.message ?? ''}`
-          // macOS Keychain denial: exit 128 or errSecUserCanceled (-128) / errSecAuthFailed (-25293) / interaction denied
-          if (err.code === 128 || /denied|canceled|cancelled|not allowed|-128|-25293/i.test(msg)) {
-            return resolve({ ok: false, denied: true })
-          }
-          resolve({ ok: false, denied: false })
-        })
-      })
-      if (outcome.ok) return outcome.password
+/** Read and decrypt a Chromium Cookies SQLite snapshot using a macOS AES-128-CBC key. */
+export function readChromiumSqliteCookies(dbPath, opts = {}) {
+  const { cookies, origins, skipped } = readChromiumSqliteCookiesDetailed(dbPath, opts)
+  return { cookies, origins, skipped }
+}
+
+function readOneMacKeychainPassword(service, { signal, execFileImpl = execFile } = {}) {
+  if (signal?.aborted) return Promise.reject(abortError())
+  return new Promise((resolve, reject) => {
+    execFileImpl('/usr/bin/security', ['find-generic-password', '-w', '-s', service], { encoding: 'utf8', timeout: 60_000, signal }, (err, stdout, stderr) => {
+      if (signal?.aborted || err?.name === 'AbortError' || err?.code === 'ABORT_ERR') {
+        return reject(abortError())
+      }
+      if (!err) return resolve({ ok: true, password: stdout.replace(/\r?\n$/, '') })
+      const msg = `${stderr ?? ''} ${err.message ?? ''}`
+      // macOS Keychain denial: exit 128 or errSecUserCanceled (-128) / errSecAuthFailed (-25293) / interaction denied
+      if (err.code === 128 || /denied|canceled|cancelled|not allowed|-128|-25293/i.test(msg)) {
+        return resolve({ ok: false, denied: true })
+      }
+      resolve({ ok: false, denied: false })
+    })
+  })
+}
+
+export async function harvestMacChromium(source, workDir, { signal, readPassword, now } = {}) {
+  throwIfAborted(signal)
+  const { relCookieDir } = resolveSourceLayout(source)
+  const dbName = source.cookieDb ? basename(source.cookieDb) : 'Cookies'
+  const clonedDb = join(workDir, relCookieDir, dbName)
+  const services = Array.isArray(source.keychainServices) ? source.keychainServices : [source.keychainServices].filter(Boolean)
+  for (const service of services) {
+    throwIfAborted(signal)
+    let password = null
+    if (typeof readPassword === 'function') {
+      password = await readPassword(service, { signal })
+    } else {
+      const outcome = await readOneMacKeychainPassword(service, { signal })
       if (outcome.denied) {
         const err = new Error('Keychain access was denied.')
         err.code = 'keychain-denied'
         throw err
       }
+      if (outcome.ok) password = outcome.password
     }
-    return null
-  })()
-}
-
-async function harvestMacChromium(source, workDir) {
-  const { relCookieDir } = resolveSourceLayout(source)
-  const dbName = source.cookieDb ? basename(source.cookieDb) : 'Cookies'
-  const clonedDb = join(workDir, relCookieDir, dbName)
-  const password = await readMacKeychainPassword(source.keychainServices)
-  if (password === null) return null
-  const key = deriveMacChromiumKey(password)
-  return readChromiumSqliteCookies(clonedDb, { key })
+    if (password === null || password === undefined) continue
+    const key = deriveMacChromiumKey(password)
+    const detailed = readChromiumSqliteCookiesDetailed(clonedDb, { key, now })
+    // If every encrypted cookie failed to decrypt (0 decrypted), the Keychain password does not
+    // match this store — do not return an empty success that masks decryption failure.
+    if (detailed.decryptFailedCount > 0 && detailed.decryptedCount === 0) continue
+    return { cookies: detailed.cookies, origins: detailed.origins, skipped: detailed.skipped }
+  }
+  return null
 }
 
 // ------------------------------------------------------------------ Strategy 3: Clone + CDP pipe self-decrypt
@@ -946,7 +1137,8 @@ export function chromiumCloneArgs(source, workDir) {
 }
 
 /** Harvest a Chromium clone: the source's own exe decrypts its cookies for us. */
-async function harvestChromium(source, workDir) {
+async function harvestChromium(source, workDir, { signal } = {}) {
+  throwIfAborted(signal)
   if (!source.exe) throw new Error(`${source.name ?? 'This browser'} executable was not found`)
   const child = spawn(source.exe, chromiumCloneArgs(source, workDir),
     { stdio: ['ignore', 'ignore', 'pipe', 'pipe', 'pipe'], windowsHide: true })
@@ -954,7 +1146,8 @@ async function harvestChromium(source, workDir) {
   const browser = pipeConnection(child)
   const exited = new Promise((resolve) => child.once('exit', resolve))
   try {
-    const { cookies } = await withTimeout(browser.send('Storage.getCookies'), 20_000, 'Storage.getCookies')
+    throwIfAborted(signal)
+    const { cookies } = await withTimeout(browser.send('Storage.getCookies'), 20_000, 'Storage.getCookies', signal)
     return cookies.map(cdpCookie)
   } finally {
     browser.send('Browser.close').catch(() => {})
@@ -1001,8 +1194,35 @@ function harvestFirefox(workDir, now = Date.now() / 1000) {
   } finally { db.close() }
 }
 
-const withTimeout = (p, ms, label) => Promise.race([p, sleepMs(ms).then(() => { throw new Error(`${label} timed out`) })])
-const sleepMs = (ms) => new Promise((r) => setTimeout(r, ms))
+function withTimeout(p, ms, label, signal) {
+  if (signal?.aborted) return Promise.reject(abortError())
+  return new Promise((resolve, reject) => {
+    let settled = false
+    const done = (fn, value) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      signal?.removeEventListener('abort', onAbort)
+      fn(value)
+    }
+    const onAbort = () => done(reject, abortError())
+    const timer = setTimeout(() => done(reject, new Error(`${label} timed out`)), ms)
+    signal?.addEventListener('abort', onAbort, { once: true })
+    p.then((v) => done(resolve, v), (e) => done(reject, e))
+  })
+}
+
+function sleepMs(ms, signal) {
+  if (signal?.aborted) return Promise.reject(abortError())
+  return new Promise((resolve, reject) => {
+    const onAbort = () => { clearTimeout(timer); reject(abortError()) }
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort)
+      resolve()
+    }, ms)
+    signal?.addEventListener('abort', onAbort, { once: true })
+  })
+}
 
 /**
  * Rows a Chromium clone can never have its browser decrypt: app-bound (v20) values only
@@ -1026,7 +1246,8 @@ export function appBoundRows(dbPath) {
   } finally { db.close() }
 }
 
-async function harvestCloned(source, workDir) {
+async function harvestCloned(source, workDir, { signal } = {}) {
+  throwIfAborted(signal)
   if (source.engine === 'firefox') return harvestFirefox(workDir)
   const { relCookieDir } = resolveSourceLayout(source)
   const dbName = source.cookieDb ? basename(source.cookieDb) : 'Cookies'
@@ -1037,7 +1258,7 @@ async function harvestCloned(source, workDir) {
     error.lockedCount = census.locked.length
     throw error
   }
-  return { cookies: await harvestChromium(source, workDir), origins: [], skipped: census?.locked ?? [] }
+  return { cookies: await harvestChromium(source, workDir, { signal }), origins: [], skipped: census?.locked ?? [] }
 }
 
 /**
@@ -1045,9 +1266,9 @@ async function harvestCloned(source, workDir) {
  * Throws {code:'locked'} when the source holds its store open (Windows), and
  * {code:'app-bound'} when every row is app-bound encrypted — there is nothing to harvest.
  */
-export async function harvestCookies(source, workDir) {
+export async function harvestCookies(source, workDir, opts = {}) {
   await cloneCookieStore(source, workDir)
-  return harvestCloned(source, workDir)
+  return harvestCloned(source, workDir, opts)
 }
 
 /**
@@ -1057,33 +1278,38 @@ export async function harvestCookies(source, workDir) {
  *   3. Windows pre-check for App-Bound Encryption before ever asking to close the browser
  *   4. Clone → (close & relaunch on Windows when needed for non-v20/Firefox) → harvest
  */
-export async function importFromBrowser(source, { close = false, platformOverride, liveHarvester, macHarvester, cloner = cloneCookieStore } = {}) {
+export async function importFromBrowser(source, { close = false, platformOverride, liveHarvester, macHarvester, cloneHarvester, cloner = cloneCookieStore, signal } = {}) {
+  throwIfAborted(signal)
   const currentPlatform = platformOverride ?? platform()
   const { userDataDir } = resolveSourceLayout(source)
 
   // 1. Live remote-debugging connection (zero restart, decrypts Windows v20 natively).
   if (source.engine === 'chromium' && readDevToolsActivePort(userDataDir)) {
     try {
-      const result = await (liveHarvester ?? harvestLiveChromium)(source)
+      const result = await (liveHarvester ?? harvestLiveChromium)(source, { signal })
       return { running: false, restarted: false, method: 'live-cdp', result }
     } catch (error) {
+      if (error?.code === 'import-cancelled' || signal?.aborted) throw abortError()
       if (error?.code === 'devtools-denied' || error?.code === 'devtools-timeout') throw error
       if (error?.code === 'devtools-wrong-profile' && currentPlatform === 'win32' && hasAppBoundKey(userDataDir)) throw error
       // devtools-stale / devtools-missing / non-ABE profile mismatch: fall through to profile-isolated local strategies.
     }
   }
 
+  throwIfAborted(signal)
   const work = await cloneWorkDir()
   let closed = false
   try {
     // 2. macOS direct Keychain decryption (never closes or launches the browser).
     if (source.engine === 'chromium' && currentPlatform === 'darwin' && (source.keychainServices?.length ?? 0) > 0) {
       await cloner(source, work.dir, { needLocalState: false })
-      const macResult = await (macHarvester ?? harvestMacChromium)(source, work.dir)
+      throwIfAborted(signal)
+      const macResult = await (macHarvester ?? harvestMacChromium)(source, work.dir, { signal })
+      throwIfAborted(signal)
       if (macResult !== null) {
         return { running: false, restarted: false, method: 'keychain', result: macResult }
       }
-      // Keychain item absent (e.g. mock keychain): fall through to clone + binary if available.
+      // Keychain item absent or wrong password: fall through to clone + binary if available.
       if (!source.exe) {
         const err = new Error('Could not find the browser encryption key in macOS Keychain.')
         err.code = 'keychain-missing'
@@ -1091,6 +1317,7 @@ export async function importFromBrowser(source, { close = false, platformOverrid
       }
     }
 
+    throwIfAborted(signal)
     // 3. Clone store (handling Windows exclusive lock without needlessly killing v20 browsers).
     try {
       await cloner(source, work.dir)
@@ -1107,16 +1334,19 @@ export async function importFromBrowser(source, { close = false, platformOverrid
         }
       }
       if (!close) return { running: true }
-      const pids = await closeBrowser(source.exe, source)
+      const pids = await closeBrowser(source.exe, source, { signal })
       closed = pids.length > 0
+      throwIfAborted(signal)
       await cloner(source, work.dir) // still locked → throws 'locked' again
     }
 
+    throwIfAborted(signal)
     // 4. Harvest from the clone; turn Windows all-v20 into guided remote-debugging setup.
     try {
-      const result = await harvestCloned(source, work.dir)
+      const result = await (cloneHarvester ?? harvestCloned)(source, work.dir, { signal })
       return { running: false, restarted: closed, method: source.engine === 'firefox' ? 'firefox-sqlite' : 'clone-cdp', result }
     } catch (error) {
+      if (error?.code === 'import-cancelled' || signal?.aborted) throw abortError()
       if (error?.code === 'app-bound') {
         return {
           running: false,
@@ -1174,19 +1404,22 @@ export function locksProfile(process, source) {
 }
 
 /** Ask a running source browser to quit (graceful; its session comes back on relaunch). */
-export async function closeBrowser(exe, source) {
+export async function closeBrowser(exe, source, { signal } = {}) {
   if (platform() !== 'win32') return []
+  throwIfAborted(signal)
   const targets = (await browserProcesses(exe)).filter((p) => locksProfile(p, source))
   if (!targets.length) return []
   for (const p of targets) {
+    throwIfAborted(signal)
     await new Promise((resolve) => execFile('taskkill', ['/PID', String(p.pid)], { windowsHide: true }, () => resolve()))
   }
   const deadline = Date.now() + 20_000
   for (;;) {
+    throwIfAborted(signal)
     const alive = (await browserProcesses(exe)).filter((p) => targets.some((t) => t.pid === p.pid))
     if (!alive.length) return targets.map((t) => t.pid)
     if (Date.now() > deadline) { const e = new Error('the source browser did not close'); e.code = 'still-running'; throw e }
-    await sleepMs(500)
+    await sleepMs(500, signal)
   }
 }
 
