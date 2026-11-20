@@ -18,7 +18,8 @@ import { shrink } from '../src/host/preview-worker.js'
 // each Session's page reads, oldest first.
 function start(config = {}) {
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-mobile-'))
-  const ctx = fakeContext({ services: { attachments: fakeAttachments(config.attachmentDirectory) } })
+  const services = { attachments: fakeAttachments(config.attachmentDirectory) }
+  const ctx = fakeContext({ services })
   const sent = []
   const history = {}
   const inboxes = new Map()
@@ -84,7 +85,7 @@ function start(config = {}) {
     await ctx.dispose()
     rmSync(home, { recursive: true, force: true, maxRetries: 5 })
   }
-  return { ctx, rt, call, emit, relay, answer, sent, history, routes, stop }
+  return { ctx, rt, call, emit, relay, answer, sent, history, routes, services, stop }
 }
 
 const settle = () => new Promise(resolve => setTimeout(resolve, 20))
@@ -375,6 +376,37 @@ test('a phone stages photos one by one, then send puts them in one message with 
   assert.equal((await call('send', { sessionId: chief, text: '', images: [third] })).ok, true)
   assert.deepEqual(sent.at(-1).prompt.content, [{ type: 'image', mediaType: 'image/jpeg', data: pixel }])
   assert.equal((await call('hello', {})).value.capabilities.includes('send-images'), true)
+  await stop()
+})
+
+test('a phone stages a file, then send puts it in one message with the text', async () => {
+  const { call, sent, services, stop } = start()
+  services.fileUploads = {
+    uploadStream: async ({ name }) => ({ receiptId: `receipt-${name}` }),
+  }
+  const { chief } = await team(call)
+  const data = Buffer.from('hello file').toString('base64')
+  assert.deepEqual(await call('stage-file', { name: '', data }), { ok: false, error: { code: 'bot/invalid', message: 'No file name', details: {} } })
+  assert.deepEqual(await call('stage-file', { name: 'x'.repeat(256), data }), { ok: false, error: { code: 'bot/invalid', message: 'No file name', details: {} } })
+  assert.deepEqual(await call('stage-file', { name: 'plan.txt', data: '' }), { ok: false, error: { code: 'bot/invalid', message: 'This is not a file DS Bot can send', details: {} } })
+  assert.deepEqual(await call('stage-file', { name: 'plan.txt', data: 'not base64!!' }), { ok: false, error: { code: 'bot/invalid', message: 'This is not a file DS Bot can send', details: {} } })
+  assert.deepEqual(await call('stage-file', { name: 'plan.txt', data: Buffer.alloc(10 * 1024 * 1024 + 1).toString('base64') }), { ok: false, error: { code: 'bot/invalid', message: 'This file is too big', details: {} } })
+  const first = (await call('stage-file', { name: 'plan.txt', data })).value.id
+  const second = (await call('stage-file', { name: 'notes.md', data })).value.id
+  const before = sent.length
+  assert.equal((await call('send', { sessionId: chief, text: 'look', files: [first, second] })).value, true)
+  const prompt = sent.slice(before).find(entry => entry.prompt !== undefined).prompt
+  assert.deepEqual(prompt.content, [
+    { type: 'text', text: 'look' },
+    { type: 'file', receiptId: 'receipt-plan.txt' },
+    { type: 'file', receiptId: 'receipt-notes.md' },
+  ])
+  // A file goes once: sending the same ids again is refused, and files alone are a message.
+  assert.equal((await call('send', { sessionId: chief, text: '', files: [first] })).error.code, 'bot/stale')
+  const third = (await call('stage-file', { name: 'plan.txt', data })).value.id
+  assert.equal((await call('send', { sessionId: chief, text: '', files: [third] })).ok, true)
+  assert.deepEqual(sent.at(-1).prompt.content, [{ type: 'file', receiptId: 'receipt-plan.txt' }])
+  assert.equal((await call('hello', {})).value.capabilities.includes('send-files'), true)
   await stop()
 })
 
