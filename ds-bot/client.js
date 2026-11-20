@@ -27676,7 +27676,9 @@ function ConnectorRow({ connector, actions }) {
   else {
     actionsNode = [
       connector.auth?.kind === "oauth" && connector.auth.token === true && connector.auth.client?.id ? (0, import_react29.createElement)("button", { key: "token", type: "button", className: "bt-connector-link", disabled: busy, onClick: () => setForm("token") }, t("Use a token instead")) : null,
-      (0, import_react29.createElement)("button", { key: "connect", type: "button", className: "bt-soft bt-soft-sm", disabled: busy, onClick: connect }, busy ? t("Connecting…") : t("Connect"))
+      (0, import_react29.createElement)("button", { key: "connect", type: "button", className: "bt-soft bt-soft-sm", disabled: busy, onClick: connect }, busy ? t("Connecting…") : t("Connect")),
+      // An added server that has no sign-in token yet still needs a way to be removed.
+      connector.custom ? (0, import_react29.createElement)("button", { key: "remove", type: "button", className: "bt-soft bt-soft-sm", disabled: busy, onClick: () => void run2(actions.connectorDisconnect(connector.id)) }, t("Remove")) : null
     ];
   }
   return (0, import_react29.createElement)(
@@ -27932,6 +27934,7 @@ function AddMenu({ actions, run: run2 }) {
   const [kind, setKind] = (0, import_react29.useState)(null);
   const [name, setName] = (0, import_react29.useState)("");
   const [url, setUrl] = (0, import_react29.useState)("");
+  const [oauth, setOauth] = (0, import_react29.useState)(false);
   const [command, setCommand] = (0, import_react29.useState)("");
   const [found, setFound] = (0, import_react29.useState)(null);
   const [picked, setPicked] = (0, import_react29.useState)([]);
@@ -27941,12 +27944,14 @@ function AddMenu({ actions, run: run2 }) {
     setKind(null);
     setName("");
     setUrl("");
+    setOauth(false);
     setCommand("");
     setFound(null);
     setPicked([]);
   };
   const choose = (next) => {
     setKind(next);
+    if (next !== "url") setOauth(false);
     if (next === "import" && found === null) void Promise.resolve(actions.connectorImportScan()).then((list) => setFound(Array.isArray(list) ? list : list?.items ?? []), () => setFound([]));
   };
   const key = (item) => `${item.source}:${item.name}`;
@@ -27986,13 +27991,15 @@ function AddMenu({ actions, run: run2 }) {
         (0, import_react29.createElement)(Switch, { label: item.name, on: picked.some((p) => key(p) === key(item)), onChange: (on) => setPicked((list) => on ? [...list, { source: item.source, name: item.name }] : list.filter((p) => key(p) !== key(item))) })
       ))) : [
         (0, import_react29.createElement)("input", { key: "name", className: "bt-input", "aria-label": t("Name"), placeholder: t("Name"), value: name, onChange: (e) => setName(e.target.value) }),
-        kind === "url" ? (0, import_react29.createElement)("input", { key: "url", className: "bt-input", "aria-label": t("Server address"), placeholder: "https://…", value: url, spellCheck: false, onChange: (e) => setUrl(e.target.value) }) : (0, import_react29.createElement)("input", { key: "cmd", className: "bt-input", "aria-label": t("Command"), placeholder: t("Command, e.g. npx -y some-mcp"), value: command, spellCheck: false, onChange: (e) => setCommand(e.target.value) })
+        kind === "url" ? (0, import_react29.createElement)("input", { key: "url", className: "bt-input", "aria-label": t("Server address"), placeholder: "https://…", value: url, spellCheck: false, onChange: (e) => setUrl(e.target.value) }) : (0, import_react29.createElement)("input", { key: "cmd", className: "bt-input", "aria-label": t("Command"), placeholder: t("Command, e.g. npx -y some-mcp"), value: command, spellCheck: false, onChange: (e) => setCommand(e.target.value) }),
+        // A command has nowhere to send a browser sign-in; only an address offers it.
+        kind === "url" ? (0, import_react29.createElement)(SwitchRow, { key: "oauth", label: t("Sign in"), on: oauth, onChange: setOauth }) : null
       ],
       (0, import_react29.createElement)(
         "div",
         { className: "bt-secret-row-actions" },
         (0, import_react29.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: reset }, t("Cancel")),
-        kind === "import" ? (0, import_react29.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: picked.length === 0, onClick: () => void run2(actions.connectorImport(picked), reset) }, t("Import {count}", { count: picked.length })) : (0, import_react29.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: !ready, onClick: () => void run2(kind === "url" ? actions.connectorAdd({ name: name.trim(), url: url.trim() }) : actions.connectorAdd({ name: name.trim(), command: command.trim() }), reset) }, t("Add"))
+        kind === "import" ? (0, import_react29.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: picked.length === 0, onClick: () => void run2(actions.connectorImport(picked), reset) }, t("Import {count}", { count: picked.length })) : (0, import_react29.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: !ready, onClick: () => void run2(kind === "url" ? actions.connectorAdd({ name: name.trim(), url: url.trim(), ...oauth ? { oauth: true } : {} }) : actions.connectorAdd({ name: name.trim(), command: command.trim() }), reset) }, t("Add"))
       )
     )
   );
@@ -28258,6 +28265,7 @@ function MailDock({ sessionId, useRoster, useCards, useHeldCards, actions }) {
   return (0, import_react29.createElement)("div", { className: "bt-q-dock bt-secret-dock" }, waiting.map((request) => (0, import_react29.createElement)(MailSendCard, { key: request.id, sessionId, bot, request, roster, actions })));
 }
 var CONNECTOR_CSS = `
+.bt-connector-form .bt-set-row{padding:0}
 .bt-connector-mono{display:inline-flex;width:20px;height:20px;border-radius:6px;align-items:center;justify-content:center;background:var(--bt-accent);color:var(--bt-card);font-size:12px;font-weight:600;filter:hue-rotate(calc(var(--bt-hue,0)*1deg))}
 .bt-connector-name{display:inline-flex;align-items:center;gap:6px}
 .bt-connector-search{display:flex;flex-direction:column;gap:8px;padding:12px}
@@ -34307,7 +34315,11 @@ function ConnectorsPage({ roster, actions }) {
     const featured = FEATURED.map((id) => apps.find((app) => app.id === id)).filter(Boolean);
     body = [
       (0, import_react42.createElement)(Section, { key: "featured", place: "featured", signInPlaces, title: t("Recommended"), apps: featured, actions, open }),
-      ...CATEGORIES.map(([id, label]) => (0, import_react42.createElement)(Section, { key: id, place: id, signInPlaces, title: t(label), apps: inCategory(id), actions, open, onAll: () => setCategory(id) }))
+      ...CATEGORIES.map(([id, label]) => (0, import_react42.createElement)(Section, { key: id, place: id, signInPlaces, title: t(label), apps: inCategory(id), actions, open, onAll: () => setCategory(id) })),
+      // An added server has no catalog category. Without its own section a new OAuth
+      // entry, which stays off until its sign-in finishes, would be on neither the
+      // default page nor Connected, leaving Connect and Remove reachable by search only.
+      (0, import_react42.createElement)(Section, { key: "custom", place: "custom", signInPlaces, title: t("Other MCP server"), apps: inCategory("custom"), actions, open, onAll: () => setCategory("custom") })
     ];
   }
   return (0, import_react42.createElement)(

@@ -14,6 +14,8 @@ OAuth 登录的顺序是定的：目录里写的客户端 → CIMD → DCR → �
 
 凭据永远不进 mcp-client 的配置，因为 `@deepseek-ai/dsh-mcp-client` 只接受静态 headers，没有 OAuth 也没有刷新。所以每个远程连接器在插件进程里挂的是 `http://127.0.0.1:<port>/c/<id>` 加一次性的随机 nonce；网关在转发时才注入真凭据（Bearer、key header 或 key query、目录里的静态 headers），转发 `Mcp-Session-Id`、`MCP-Protocol-Version`、`Accept` 等头，回传 `Mcp-Session-Id`，SSE 原样透传，下游断开就销毁上游。上游 401 且还没回字节时：刷新一次、重试一次；并发 401 共享一次刷新；刷新轮换时写新 refresh token，写失败留旧的；`invalid_grant` 转「需要重新登录」；只读窗口不刷新、只重读密钥。非 https 的上游一律拒绝（本机回环 http 除外，给本地自定义服务器）。每个远程连接器有「Read-only」开关：打开后网关把 `tools/list` 过滤到 `readOnlyHint` 工具，写 `tools/call` 在本地拒绝（批请求整体拒掉），stdio 连接器不显示这个开关。
 
+合并 headers 的顺序是定的：目录条目的静态 `headers` → 自定义条目里用户填的 headers（`$DSH_SECRET_` 引用在这里展开）→ 登录拿到的凭据（OAuth 的 `Authorization: Bearer`，或密钥的 header / query）。所以用户自己填的 `Authorization` 会被 OAuth 令牌覆盖，其余 header 原样保留。令牌代表的是登录得到的那次授权，用户填的同名 header 不该盖过它；要自己控制鉴权就不要打开 OAuth 登录。测试见 `test/connectors-custom-oauth.test.js` 的「the sign-in token wins over a header the user typed」。
+
 ## 状态与密钥
 
 密钥在 DS Bot 密钥里，首次写入 `scope: []`（不进任何 Bot shell）：GitHub 仍用 `GITHUB_TOKEN`，其他 `CONNECTOR_<ID>_TOKEN / _REFRESH / _CLIENT_SECRET / _KEY`，邮箱 `MAIL_<地址>_PASSWORD / _TOKEN / _REFRESH`。非密状态在 `state.connectors[id]`（账号、连接时间、client 元信息、token 过期、readOnly、offFor、custom）。令牌变化不触发重挂（指纹不含令牌）。
@@ -32,6 +34,8 @@ OAuth 登录的顺序是定的：目录里写的客户端 → CIMD → DCR → �
 
 ## 导入与自定义
 
+自己加的远程服务器可以在添加时打开「Sign in」（`connector-add` 带 `oauth: true`，存成 `custom.oauth`）：`entryFor` 把它当成带 `remote.url` 的 `oauth` 条目，凭据、挂载、401 刷新和行内状态直接复用目录 OAuth 的那一套；没打开的、以及这个开关之前的自定义条目仍是 `custom`，照旧带固定 header 连。命令型自定义服务器没有可以授权的地址，不能打开。服务器不发布 OAuth 元数据时不走浏览器（显示 client 表单，或干脆用固定 header / 密钥）。`custom` 条目过去总被算作「已连接」，现在和目录条目一样按 auth 种类判断（`none` 看有没有保存过，其余看有没有令牌），「只读」开关和连接状态由此才准。
+
 `connector-import-scan` 只读扫 Claude Desktop、Cursor、VS Code 的 MCP 配置（不改源文件），返回名称和 env 名；`connector-import` 把 env 值移进 DS Bot 密钥（`CONNECTOR_<ID>_<ENV>`），配置里留 `$DSH_SECRET_` 引用。自定义 id 从名字派生，唯一、≤32 字符、不占目录 id；能力名校验同样拒绝连接器 id。
 
 ## 不做
@@ -48,4 +52,5 @@ OAuth 登录的顺序是定的：目录里写的客户端 → CIMD → DCR → �
 
 ## 变更
 
+- 2026-11-08 自定义远程连接器可选 OAuth：`custom.oauth` 存进状态，`entryFor` 回报 `oauth` 并暴露 `remote.url`，凭据/刷新/只读开关复用目录流程；旧的自定义连接器不变。
 - 2026-11-04 重写：修正网关把连接器路径和 query 丢到源站根的问题；下游断开销毁上游；只读模式拒批请求；CIMD 存储客户端只在固定端口复用；邮箱附件路径收紧并显示大小；卡片回话与密钥卡同一机制。

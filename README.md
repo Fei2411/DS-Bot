@@ -111,7 +111,7 @@ Messages only flow while your computer is awake and DS Bot is running. WeChat on
 
 ### Connectors and capabilities
 
-In Settings → Connectors, you can sign in to GitHub, Gmail, QQ Mail, 163 and other mailboxes, and remote MCP servers, or import existing configs from Claude Desktop, Cursor and VS Code. Credentials stay in DS Bot's secrets so bots never see the raw values, and emails written by a bot wait for your confirmation by default.
+In Settings → Connectors, you can sign in to GitHub, Gmail, QQ Mail, 163 and other mailboxes, and remote MCP servers, or import existing configs from Claude Desktop, Cursor and VS Code. Credentials stay in DS Bot's secrets so bots never see the raw values, and emails written by a bot wait for your confirmation by default. Your own MCP server can be added too: give its address and turn on **Sign in** for a browser sign-in, or keep a fixed header or key when the server publishes no OAuth metadata.
 
 In Settings → Capabilities, you can manage shared MCP servers, skills and packs for the team and enable them per bot; local commands added by a bot need your approval before they run.
 
