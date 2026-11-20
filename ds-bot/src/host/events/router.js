@@ -91,23 +91,68 @@ export function createEventRouter(rt, eventLedger, { onCircuitBreak } = {}) {
   const dir = join(rt.home, 'events')
   const subsPath = join(dir, 'subscriptions.json')
   const dlqPath = join(dir, 'dead-letters.json')
+  const pendingPath = join(dir, 'pending.json')
+  const contextPath = join(dir, 'context-buffers.json')
 
   let subscriptions = readJson(subsPath, [])
   if (!Array.isArray(subscriptions)) subscriptions = []
   let deadLetters = readJson(dlqPath, [])
   if (!Array.isArray(deadLetters)) deadLetters = []
 
-  // Ephemeral runtime state: hourly delivery timestamps, pending coalesce timers, deferred
+  // Runtime state: hourly delivery timestamps, pending coalesce timers, deferred
   // quiet-hour queue, and context-only buffers per target key.
   const hourHits = new Map()
   const coalesceMap = new Map()
   const deferredQueue = new Map()
   const contextBuffers = new Map()
+  const savedContext = readJson(contextPath, {})
+  if (savedContext && typeof savedContext === 'object') {
+    for (const [key, list] of Object.entries(savedContext)) {
+      if (Array.isArray(list) && list.length > 0) contextBuffers.set(key, list.slice(-CONTEXT_BUFFER_MAX))
+    }
+  }
   const filteredCounts = new Map()
   const writes = () => rt.readOnly?.() === undefined
+  const assertWritable = () => {
+    if (!writes()) throw invalid('Team is read-only in this window')
+  }
 
   const saveSubs = () => { if (writes()) writeJsonAtomic(subsPath, subscriptions) }
   const saveDlq = () => { if (writes()) writeJsonAtomic(dlqPath, deadLetters) }
+  const saveContext = () => {
+    if (!writes()) return
+    const obj = {}
+    for (const [key, list] of contextBuffers) {
+      if (list.length > 0) obj[key] = list
+    }
+    writeJsonAtomic(contextPath, obj)
+  }
+  const savePending = () => {
+    if (!writes()) return
+    const deferred = []
+    for (const [subId, items] of deferredQueue) {
+      for (const item of items) {
+        deferred.push({
+          subId,
+          eventId: item.event.id,
+          privateBotId: item.privateBotId ?? null,
+          queuedAt: item.queuedAt ?? Date.now(),
+        })
+      }
+    }
+    const coalesce = []
+    for (const [key, entry] of coalesceMap) {
+      coalesce.push({
+        key,
+        subId: entry.subId,
+        entity: entry.entity,
+        eventId: entry.event.id,
+        privateBotId: entry.privateBotId ?? null,
+        dueAt: entry.dueAt,
+      })
+    }
+    writeJsonAtomic(pendingPath, { deferred, coalesce })
+  }
 
   const reloadIfReadOnly = () => {
     if (!writes()) {
@@ -125,6 +170,30 @@ export function createEventRouter(rt, eventLedger, { onCircuitBreak } = {}) {
   const isTargetPrivate = (target) => {
     if (target?.kind === 'room') return false
     return rt.botOf(target?.botId)?.private === true
+  }
+
+  const targetAllowed = (target, allowedTargets) => {
+    if (!Array.isArray(allowedTargets) || allowedTargets.length === 0) return true
+    if (target.kind === 'room') {
+      return allowedTargets.includes(target.roomId) || allowedTargets.includes(`room:${target.roomId}`)
+    }
+    return allowedTargets.includes(target.botId) || allowedTargets.includes(`bot:${target.botId}`)
+  }
+
+  function assertBotCanManageExisting(sub, callerBotId) {
+    if (!callerBotId) throw invalid('Caller identity is required')
+    if (sub.mandate?.createdBy === 'user') {
+      throw invalid('Only the user can modify or delete a user-created subscription')
+    }
+    if (sub.target.kind === 'room') {
+      if (sub.mandate?.createdBy !== callerBotId) {
+        throw invalid('Only the Bot that created this group subscription or the user can modify it')
+      }
+      return
+    }
+    if (sub.target.botId !== callerBotId) {
+      throw invalid('Bots can only manage their own subscriptions')
+    }
   }
 
   function validateTarget(target) {
@@ -146,28 +215,41 @@ export function createEventRouter(rt, eventLedger, { onCircuitBreak } = {}) {
     throw invalid(`Unsupported target kind: ${target.kind}`)
   }
 
-  function listSubscriptions({ callerBotId, isUser = false } = {}) {
+  function listSubscriptions({ callerBotId, callerRoomId, isUser = false } = {}) {
     reloadIfReadOnly()
     return subscriptions
       .filter((sub) => {
         if (isUser) return true
         if (isTargetPrivate(sub.target) && sub.target.botId !== callerBotId) return false
-        return callerBotId === undefined || sub.target.botId === callerBotId
+        if (callerBotId === undefined) return true
+        if (sub.target.botId === callerBotId) return true
+        if (sub.target.kind === 'room') {
+          if (callerRoomId && sub.target.roomId === callerRoomId) return true
+          if (sub.mandate?.createdBy === callerBotId) return true
+        }
+        return false
       })
       .map(sub => ({ ...sub, filteredCount: filteredCounts.get(sub.id) ?? 0 }))
   }
 
   function saveSubscription(input, { callerBotId, isUser = false } = {}) {
+    assertWritable()
     const target = validateTarget(input.target)
-    if (!isUser && isTargetPrivate(target) && target.botId !== callerBotId) {
-      throw invalid('Only the user can manage subscriptions for a private Bot')
+    if (!isUser) {
+      if (!callerBotId) throw invalid('Caller identity is required')
+      if (target.kind === 'room') {
+        const room = rt.roomOf(target.roomId)
+        if (!room?.members?.includes(callerBotId)) {
+          throw invalid('A Bot can only subscribe a group chat it belongs to')
+        }
+      } else if (target.botId !== callerBotId) {
+        throw invalid('Bots can only create subscriptions for themselves')
+      }
     }
     const now = Date.now()
     const existingIdx = input.id ? subscriptions.findIndex(s => s.id === input.id) : -1
     const existing = existingIdx >= 0 ? subscriptions[existingIdx] : null
-    if (existing && !isUser && isTargetPrivate(existing.target) && existing.target.botId !== callerBotId) {
-      throw invalid('Only the user can modify a private Bot subscription')
-    }
+    if (existing && !isUser) assertBotCanManageExisting(existing, callerBotId)
 
     const mode = input.mode === 'context' ? 'context' : 'drive'
     const maxPerHour = Number.isInteger(input.fastPath?.maxPerHour) && input.fastPath.maxPerHour > 0
@@ -213,43 +295,49 @@ export function createEventRouter(rt, eventLedger, { onCircuitBreak } = {}) {
     return record
   }
 
+  function clearCoalesceForSub(id) {
+    let changed = false
+    for (const [key, entry] of coalesceMap) {
+      if (key.startsWith(`${id}:`)) {
+        clearTimeout(entry.timer)
+        coalesceMap.delete(key)
+        changed = true
+      }
+    }
+    if (changed) savePending()
+  }
+
   function toggleSubscription(id, enabled, pausedReason = null, { callerBotId, isUser = false } = {}) {
+    assertWritable()
     const sub = subscriptions.find(s => s.id === id)
     if (!sub) throw invalid('Unknown subscription')
-    if (!isUser && isTargetPrivate(sub.target) && sub.target.botId !== callerBotId) {
-      throw invalid('Only the user can change a private Bot subscription')
-    }
+    if (!isUser) assertBotCanManageExisting(sub, callerBotId)
     sub.enabled = Boolean(enabled)
     sub.pausedReason = sub.enabled ? null : (pausedReason ?? 'paused by user')
     sub.updatedAt = Date.now()
     if (sub.enabled) hourHits.delete(sub.id)
+    else clearCoalesceForSub(sub.id)
     saveSubs()
     return sub
   }
 
   function deleteSubscription(id, { callerBotId, isUser = false } = {}) {
+    assertWritable()
     const idx = subscriptions.findIndex(s => s.id === id)
     if (idx === -1) throw invalid('Unknown subscription')
     const sub = subscriptions[idx]
-    if (!isUser && isTargetPrivate(sub.target) && sub.target.botId !== callerBotId) {
-      throw invalid('Only the user can delete a private Bot subscription')
-    }
+    if (!isUser) assertBotCanManageExisting(sub, callerBotId)
     subscriptions.splice(idx, 1)
     hourHits.delete(id)
-    for (const [key, entry] of coalesceMap) {
-      if (key.startsWith(`${id}:`)) {
-        clearTimeout(entry.timer)
-        coalesceMap.delete(key)
-      }
-    }
-    deferredQueue.delete(id)
+    clearCoalesceForSub(id)
+    if (deferredQueue.delete(id)) savePending()
     saveSubs()
     return true
   }
 
   // Resolve a stable target into a concrete live Session ID. For `task` targets, inspects
   // bot.openParts for a matching `part.task.id` (v0.3.9 async work compatibility).
-  async function resolveDeliveryTarget(sub) {
+  function resolveDeliveryTarget(sub) {
     const { target } = sub
     if (target.kind === 'room') {
       const room = rt.roomOf(target.roomId)
@@ -264,41 +352,55 @@ export function createEventRouter(rt, eventLedger, { onCircuitBreak } = {}) {
       if (part.task.status === 'stopped') {
         throw Object.assign(new Error(`Background task ${target.taskId} was stopped`), { taskStopped: true })
       }
-      if (part.task.status === 'done' && sub.mode === 'drive') {
-        part.task.status = 'running'
-        await rt.save?.()
+      return {
+        kind: 'task',
+        bot,
+        part,
+        sessionId: part.sessionId,
+        resumeDoneTask: part.task.status === 'done' && sub.mode === 'drive',
       }
-      return { kind: 'task', bot, part, sessionId: part.sessionId }
     }
     return { kind: 'bot', bot, sessionId: rt.chatOf(bot.id) }
   }
 
-  async function deliverNow(event, sub, { privateBotId } = {}) {
+  async function deliverNow(event, sub, { privateBotId, isVirtual = false } = {}) {
     const now = Date.now()
     const limit = sub.fastPath?.maxPerHour ?? DEFAULT_MAX_PER_HOUR
     const hits = (hourHits.get(sub.id) ?? []).filter(ts => now - ts < 3_600_000)
     if (hits.length >= limit) {
-      sub.enabled = false
-      sub.pausedReason = `Rate limit exceeded (${limit}/hour)`
-      sub.updatedAt = now
-      saveSubs()
-      await eventLedger.recordDecision({ eventId: event.id, subId: sub.id, outcome: 'paused_rate_limit', reason: sub.pausedReason, target: sub.target }, { privateBotId })
-      await onCircuitBreak?.(sub, event, sub.pausedReason)
-      return { outcome: 'paused_rate_limit', reason: sub.pausedReason }
+      const reason = `Rate limit exceeded (${limit}/hour)`
+      if (!isVirtual) {
+        sub.enabled = false
+        sub.pausedReason = reason
+        sub.updatedAt = now
+        saveSubs()
+      }
+      await eventLedger.recordDecision({ eventId: event.id, subId: sub.id, outcome: 'paused_rate_limit', reason, target: sub.target }, { privateBotId })
+      await onCircuitBreak?.(sub, event, reason)
+      return { outcome: 'paused_rate_limit', reason }
     }
 
     if (sub.mode === 'context') {
       const key = targetKey(sub.target)
       const list = contextBuffers.get(key) ?? []
-      list.push({ eventId: event.id, summary: event.summary, source: event.source, threadKey: event.threadKey, time: event.time })
+      list.push({
+        eventId: event.id,
+        summary: event.summary,
+        source: event.source,
+        trust: event.trust,
+        threadKey: event.threadKey,
+        eventType: event.eventType,
+        time: event.time,
+      })
       if (list.length > CONTEXT_BUFFER_MAX) list.splice(0, list.length - CONTEXT_BUFFER_MAX)
       contextBuffers.set(key, list)
+      saveContext()
       await eventLedger.recordDecision({ eventId: event.id, subId: sub.id, outcome: 'context_buffered', reason: 'context-only subscription', target: sub.target }, { privateBotId })
       return { outcome: 'context_buffered' }
     }
 
     try {
-      const resolved = await resolveDeliveryTarget(sub)
+      const resolved = resolveDeliveryTarget(sub)
       const envelope = await formatEventEnvelope(rt, event, sub)
       const sourceMeta = eventSourceMeta(event, sub)
       await rt.deliverEvent({
@@ -311,17 +413,26 @@ export function createEventRouter(rt, eventLedger, { onCircuitBreak } = {}) {
         source: sourceMeta,
         steer: resolved.kind === 'task',
       })
+      if (resolved.resumeDoneTask) {
+        resolved.part.task.status = 'running'
+        await rt.save?.()
+      }
       hits.push(now)
       hourHits.set(sub.id, hits)
       await eventLedger.recordDecision({ eventId: event.id, subId: sub.id, outcome: 'delivered', target: sub.target }, { privateBotId })
-      return { outcome: 'delivered', sessionId: resolved.sessionId }
+      return { outcome: 'delivered', sessionId: resolved.sessionId, targetKey: targetKey(sub.target) }
     } catch (error) {
       const reason = error?.message ?? String(error)
       const dlqEntry = {
         id: newDlqId(),
         eventId: event.id,
         subId: sub.id,
+        subName: sub.name || '',
         target: sub.target,
+        mode: sub.mode,
+        speculative: Boolean(sub.speculative),
+        mandate: sub.mandate ?? null,
+        isVirtual: Boolean(isVirtual),
         privateBotId: privateBotId ?? null,
         summary: event.summary,
         reason,
@@ -335,8 +446,29 @@ export function createEventRouter(rt, eventLedger, { onCircuitBreak } = {}) {
     }
   }
 
-  async function routeEvent(event, { privateBotId, nowMs = Date.now() } = {}) {
+  async function deliverToVirtual(event, virtualSub, { privateBotId } = {}) {
+    return deliverNow(event, virtualSub, { privateBotId, isVirtual: true })
+  }
+
+  function scheduleCoalesceEntry(key, { subId, entity, event, privateBotId, dueAt }) {
+    const delay = Math.max(0, dueAt - Date.now())
+    const entry = { subId, entity, event, privateBotId, dueAt, timer: null }
+    entry.timer = setTimeout(() => {
+      coalesceMap.delete(key)
+      savePending()
+      const current = subscriptions.find(s => s.id === subId)
+      if (!current || !current.enabled) return
+      void deliverNow(entry.event, current, { privateBotId: entry.privateBotId })
+    }, delay)
+    entry.timer.unref?.()
+    coalesceMap.set(key, entry)
+    savePending()
+  }
+
+  async function routeEvent(event, { privateBotId, allowedTargets, nowMs = Date.now(), recordUnmatched = true } = {}) {
     const results = []
+    const deliveredTargets = new Set()
+    let matchedAny = false
     for (const sub of subscriptions) {
       if (!sub.enabled) continue
       if (sub.mandate?.expiresAt && nowMs >= sub.mandate.expiresAt) {
@@ -349,11 +481,14 @@ export function createEventRouter(rt, eventLedger, { onCircuitBreak } = {}) {
       // A private event only routes to its own private Bot; never leak across boundaries.
       if (privateBotId && sub.target.botId !== privateBotId) continue
       if (!privateBotId && isTargetPrivate(sub.target) && event.source?.privateBotId && event.source.privateBotId !== sub.target.botId) continue
+      // Token-scoped Push events may only route to targets explicitly authorized on the token.
+      if (!targetAllowed(sub.target, allowedTargets)) continue
 
       if (!matchesSubscription(sub, event)) {
         filteredCounts.set(sub.id, (filteredCounts.get(sub.id) ?? 0) + 1)
         continue
       }
+      matchedAny = true
 
       if (isQuietNow(sub.fastPath?.quietHours, nowMs)) {
         const action = sub.fastPath.quietHours.action === 'drop' ? 'drop' : 'defer'
@@ -362,8 +497,9 @@ export function createEventRouter(rt, eventLedger, { onCircuitBreak } = {}) {
           results.push({ subId: sub.id, outcome: 'filtered' })
         } else {
           const list = deferredQueue.get(sub.id) ?? []
-          list.push({ event, privateBotId })
+          list.push({ event, privateBotId, queuedAt: nowMs })
           deferredQueue.set(sub.id, list)
+          savePending()
           await eventLedger.recordDecision({ eventId: event.id, subId: sub.id, outcome: 'deferred', reason: 'quiet hours (defer)', target: sub.target }, { privateBotId })
           results.push({ subId: sub.id, outcome: 'deferred' })
         }
@@ -379,37 +515,44 @@ export function createEventRouter(rt, eventLedger, { onCircuitBreak } = {}) {
           clearTimeout(pending.timer)
           await eventLedger.recordDecision({ eventId: pending.event.id, subId: sub.id, outcome: 'coalesced', reason: `replaced by ${event.id}`, target: sub.target }, { privateBotId: pending.privateBotId })
         }
-        const entry = { event, privateBotId, timer: null }
-        entry.timer = setTimeout(() => {
-          coalesceMap.delete(key)
-          void deliverNow(entry.event, sub, { privateBotId: entry.privateBotId })
-        }, coalesceMs)
-        entry.timer.unref?.()
-        coalesceMap.set(key, entry)
+        scheduleCoalesceEntry(key, {
+          subId: sub.id,
+          entity,
+          event,
+          privateBotId,
+          dueAt: nowMs + coalesceMs,
+        })
+        deliveredTargets.add(targetKey(sub.target))
         results.push({ subId: sub.id, outcome: 'coalescing' })
         continue
       }
 
       const res = await deliverNow(event, sub, { privateBotId })
+      if (res.outcome === 'delivered' || res.outcome === 'context_buffered') {
+        deliveredTargets.add(targetKey(sub.target))
+      }
       results.push({ subId: sub.id, ...res })
     }
 
-    if (results.length === 0) {
+    if (!matchedAny && recordUnmatched) {
       await eventLedger.recordDecision({ eventId: event.id, outcome: 'filtered', reason: 'no matching subscription' }, { privateBotId })
     }
-    return results
+    return { matchedAny, deliveredTargets, results }
   }
 
   // Flushes deferred quiet-hour events once quiet hours end.
   async function flushDeferred(nowMs = Date.now()) {
+    let changed = false
     for (const [subId, items] of deferredQueue) {
       const sub = subscriptions.find(s => s.id === subId)
       if (!sub || !sub.enabled) {
         deferredQueue.delete(subId)
+        changed = true
         continue
       }
       if (isQuietNow(sub.fastPath?.quietHours, nowMs)) continue
       deferredQueue.delete(subId)
+      changed = true
       // Collapse duplicate entities before flushing.
       const latestByEntity = new Map()
       const ordered = []
@@ -424,19 +567,77 @@ export function createEventRouter(rt, eventLedger, { onCircuitBreak } = {}) {
       for (const item of latestByEntity.values()) ordered.push(item)
       for (const item of ordered) await deliverNow(item.event, sub, { privateBotId: item.privateBotId })
     }
+    if (changed) savePending()
+  }
+
+  // Reload persisted deferred & coalescing deliveries on startup / lock acquisition.
+  async function recoverPending(nowMs = Date.now()) {
+    if (!writes()) return { deferred: 0, coalesced: 0 }
+    const saved = readJson(pendingPath, null)
+    if (!saved || typeof saved !== 'object') return { deferred: 0, coalesced: 0 }
+    let restoredDeferred = 0
+    let restoredCoalesce = 0
+    for (const item of (Array.isArray(saved.deferred) ? saved.deferred : [])) {
+      const sub = subscriptions.find(s => s.id === item.subId && s.enabled)
+      if (!sub) continue
+      const ev = eventLedger.getEvent(item.eventId, { isUser: true })
+      if (!ev) continue
+      const list = deferredQueue.get(item.subId) ?? []
+      if (list.some(existing => existing.event.id === ev.id)) continue
+      list.push({ event: ev, privateBotId: item.privateBotId ?? undefined, queuedAt: item.queuedAt ?? nowMs })
+      deferredQueue.set(item.subId, list)
+      restoredDeferred += 1
+    }
+    for (const item of (Array.isArray(saved.coalesce) ? saved.coalesce : [])) {
+      const sub = subscriptions.find(s => s.id === item.subId && s.enabled)
+      if (!sub) continue
+      const ev = eventLedger.getEvent(item.eventId, { isUser: true })
+      if (!ev) continue
+      if (coalesceMap.has(item.key)) continue
+      restoredCoalesce += 1
+      if (nowMs >= (item.dueAt ?? 0)) {
+        await deliverNow(ev, sub, { privateBotId: item.privateBotId ?? undefined })
+      } else {
+        scheduleCoalesceEntry(item.key, {
+          subId: item.subId,
+          entity: item.entity,
+          event: ev,
+          privateBotId: item.privateBotId ?? undefined,
+          dueAt: item.dueAt,
+        })
+      }
+    }
+    await flushDeferred(nowMs)
+    savePending()
+    return { deferred: restoredDeferred, coalesced: restoredCoalesce }
   }
 
   async function replayDeadLetter(deadLetterId) {
+    assertWritable()
     const idx = deadLetters.findIndex(d => d.id === deadLetterId)
     if (idx === -1) throw invalid('Unknown dead-letter entry')
     const entry = deadLetters[idx]
-    const sub = subscriptions.find(s => s.id === entry.subId)
-    if (!sub) throw invalid('Original subscription no longer exists')
+    let sub = subscriptions.find(s => s.id === entry.subId)
+    let isVirtual = false
+    if (!sub) {
+      if (!entry.target) throw invalid('Original subscription no longer exists')
+      isVirtual = true
+      sub = {
+        id: entry.subId || `replay_${entry.id}`,
+        name: entry.subName || 'Replayed event',
+        enabled: true,
+        target: entry.target,
+        mode: entry.mode === 'context' ? 'context' : 'drive',
+        speculative: Boolean(entry.speculative),
+        fastPath: { maxPerHour: DEFAULT_MAX_PER_HOUR, coalesceMs: 0 },
+        mandate: entry.mandate ?? { scope: '', allowExternalWrite: false },
+      }
+    }
     const event = eventLedger.getEvent(entry.eventId, { isUser: true })
     if (!event) throw invalid('Original event no longer exists in ledger')
     deadLetters.splice(idx, 1)
     saveDlq()
-    const result = await deliverNow(event, sub, { privateBotId: entry.privateBotId ?? undefined })
+    const result = await deliverNow(event, sub, { privateBotId: entry.privateBotId ?? undefined, isVirtual })
     if (result.outcome === 'delivered') {
       await eventLedger.recordDecision({ eventId: event.id, subId: sub.id, outcome: 'replayed', target: sub.target }, { privateBotId: entry.privateBotId ?? undefined })
     }
@@ -444,6 +645,7 @@ export function createEventRouter(rt, eventLedger, { onCircuitBreak } = {}) {
   }
 
   function dismissDeadLetter(deadLetterId) {
+    assertWritable()
     const idx = deadLetters.findIndex(d => d.id === deadLetterId)
     if (idx === -1) return false
     deadLetters.splice(idx, 1)
@@ -459,7 +661,10 @@ export function createEventRouter(rt, eventLedger, { onCircuitBreak } = {}) {
   function takeContextBuffer(target) {
     const key = targetKey(target)
     const items = contextBuffers.get(key) ?? []
-    contextBuffers.delete(key)
+    if (items.length > 0) {
+      contextBuffers.delete(key)
+      saveContext()
+    }
     return items
   }
 
@@ -474,11 +679,14 @@ export function createEventRouter(rt, eventLedger, { onCircuitBreak } = {}) {
     toggleSubscription,
     deleteSubscription,
     routeEvent,
+    deliverToVirtual,
     flushDeferred,
+    recoverPending,
     replayDeadLetter,
     dismissDeadLetter,
     listDeadLetters,
     takeContextBuffer,
+    targetKey,
     dispose,
   }
 }

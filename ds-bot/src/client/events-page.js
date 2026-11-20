@@ -1,17 +1,74 @@
 // Event-driven triggers UI: Watchers & Local Push tab, Subscriptions & Event Feed tab,
 // and Bot-detail active watches summary. Mounted inside Settings → Schedules & Triggers.
-import { createElement as h, Fragment, useEffect, useState } from 'react'
+import { createElement as h, Fragment, useEffect, useRef, useState } from 'react'
 import { PlusIcon, TrashIcon, CopyIcon, CheckIcon } from './icons.js'
 import { Switch } from './bot-settings.js'
 import { dateLocale, hostText, t } from './i18n.js'
 
 const POLL_MS = 15_000
+const CONFIRM_MS = 3_500
 let sharedEvents = null
 const listeners = new Set()
 
 function publishEvents(view) {
   sharedEvents = view
   for (const listener of listeners) listener(view)
+}
+
+export function parseCommandArgs(input) {
+  const out = []
+  let current = ''
+  let quote = null
+  let inToken = false
+  const text = String(input ?? '')
+  for (let i = 0; i < text.length; i += 1) {
+    const ch = text[i]
+    if (quote !== null) {
+      if (ch === '\\' && quote === '"' && i + 1 < text.length) {
+        current += text[++i]
+      } else if (ch === quote) {
+        quote = null
+      } else {
+        current += ch
+      }
+    } else if (ch === '"' || ch === "'") {
+      quote = ch
+      inToken = true
+    } else if (ch === '\\' && i + 1 < text.length) {
+      current += text[++i]
+      inToken = true
+    } else if (/\s/.test(ch)) {
+      if (inToken) {
+        out.push(current)
+        current = ''
+        inToken = false
+      }
+    } else {
+      current += ch
+      inToken = true
+    }
+  }
+  if (inToken) out.push(current)
+  return out
+}
+
+function useTwoStepConfirm() {
+  const [confirmId, setConfirmId] = useState(null)
+  const timerRef = useRef(null)
+  useEffect(() => () => { if (timerRef.current !== null) clearTimeout(timerRef.current) }, [])
+  const ask = (id, run) => {
+    if (confirmId === id) {
+      if (timerRef.current !== null) clearTimeout(timerRef.current)
+      timerRef.current = null
+      setConfirmId(null)
+      run()
+      return
+    }
+    setConfirmId(id)
+    if (timerRef.current !== null) clearTimeout(timerRef.current)
+    timerRef.current = setTimeout(() => { timerRef.current = null; setConfirmId(null) }, CONFIRM_MS)
+  }
+  return [confirmId, ask]
 }
 
 export function useEventsView(actions) {
@@ -77,7 +134,7 @@ function WatcherForm({ roster, actions, onDone, onCancel }) {
       : kind === 'http' ? { url }
         : kind === 'folder' ? { path }
           : kind === 'mail' ? { account, fromFilter }
-            : { executable, args: argsText.trim() ? argsText.trim().split(/\s+/) : [] }
+            : { executable, args: parseCommandArgs(argsText) }
     void actions.watcherSave({ name, kind, target, intervalSec: Number(intervalSec), speculative, config })
       .then((next) => { publishEvents(next); onDone(next) }, (failure) => { setError(hostText(failure?.message ?? String(failure))); setBusy(false) })
   }
@@ -206,12 +263,17 @@ export function WatchersTab({ roster, actions }) {
   const [freshToken, setFreshToken] = useState(null)
   const [copied, setCopied] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [confirmId, askConfirm] = useTwoStepConfirm()
+  const copyTimerRef = useRef(null)
+  useEffect(() => () => { if (copyTimerRef.current !== null) clearTimeout(copyTimerRef.current) }, [])
 
   if (view === null) return h('div', { className: 'bt-set-hint' }, t('Loading…'))
+  const readOnly = Boolean(roster.readOnly)
   const watchers = view.watchers ?? []
   const push = view.push ?? { enabled: false, port: 17830, listening: false, url: 'http://127.0.0.1:17830/v1/events', tokens: [] }
 
   const togglePush = (next) => {
+    if (readOnly) return
     setBusy(true)
     void actions.eventPushConfig({ enabled: next })
       .then(publishEvents, error => actions.reportError?.(error, 'events'))
@@ -219,7 +281,7 @@ export function WatchersTab({ roster, actions }) {
   }
   const createToken = (event) => {
     event.preventDefault()
-    if (!tokenName.trim()) return
+    if (readOnly || !tokenName.trim()) return
     setBusy(true)
     void actions.eventPushTokenCreate({ name: tokenName.trim() })
       .then((res) => {
@@ -229,19 +291,20 @@ export function WatchersTab({ roster, actions }) {
       .finally(() => setBusy(false))
   }
   const copyToken = () => {
-    if (!freshToken) return
-    void navigator.clipboard?.writeText(freshToken).then(() => {
+    if (!freshToken || !navigator.clipboard?.writeText) return
+    void navigator.clipboard.writeText(freshToken).then(() => {
       setCopied(true)
-      setTimeout(() => setCopied(false), 1800)
-    })
+      if (copyTimerRef.current !== null) clearTimeout(copyTimerRef.current)
+      copyTimerRef.current = setTimeout(() => { copyTimerRef.current = null; setCopied(false) }, 1800)
+    }).catch(() => {})
   }
 
   return h(Fragment, null,
-    adding ? h(WatcherForm, { roster, actions, onDone: () => setAdding(false), onCancel: () => setAdding(false) }) : null,
+    adding && !readOnly ? h(WatcherForm, { roster, actions, onDone: () => setAdding(false), onCancel: () => setAdding(false) }) : null,
     h('section', { className: 'bt-set-section' },
       h('div', { className: 'bt-la-sec-head' },
         h('h3', null, t('Event watchers')),
-        adding ? null : h('button', { type: 'button', className: 'bt-soft bt-soft-sm bt-with-icon', onClick: () => setAdding(true) }, h(PlusIcon), t('New watcher'))),
+        adding || readOnly ? null : h('button', { type: 'button', className: 'bt-soft bt-soft-sm bt-with-icon', onClick: () => setAdding(true) }, h(PlusIcon), t('New watcher'))),
       h('div', { className: 'bt-set-card' },
         watchers.length === 0
           ? h('div', { className: 'bt-set-row' }, h('span', { className: 'bt-set-hint' }, t('No event watchers yet.')))
@@ -250,6 +313,7 @@ export function WatchersTab({ roster, actions }) {
               const statusText = w.enabled
                 ? (w.runtime?.lastCheckedAt ? t('Checked {time}', { time: fmtTime(w.runtime.lastCheckedAt) }) : t('Running'))
                 : (pausedReason || t('Paused'))
+              const confirmingDelete = confirmId === `w:${w.id}`
               return h('div', { key: w.id, className: 'bt-set-row bt-ev-row', 'data-paused': !w.enabled || undefined },
                 h('div', { className: 'bt-set-copy' },
                   h('span', { className: 'bt-ev-title' },
@@ -258,20 +322,21 @@ export function WatchersTab({ roster, actions }) {
                   h('span', { className: 'bt-set-hint' }, `${targetLabel(w.target, roster)} · ${t('Every {count}s', { count: w.intervalSec })} · ${statusText}`)),
                 h('div', { className: 'bt-ev-actions' },
                   h('button', {
-                    type: 'button', className: 'bt-soft bt-soft-sm', disabled: checkingId === w.id,
+                    type: 'button', className: 'bt-soft bt-soft-sm', disabled: readOnly || checkingId === w.id,
                     onClick: () => {
                       setCheckingId(w.id)
                       void actions.watcherCheckNow(w.id).then(res => { if (res?.view) publishEvents(res.view) }, err => actions.reportError?.(err, 'events')).finally(() => setCheckingId(null))
                     },
                   }, checkingId === w.id ? t('Checking…') : t('Check now')),
                   h('button', {
-                    type: 'button', className: 'bt-soft bt-soft-sm',
+                    type: 'button', className: 'bt-soft bt-soft-sm', disabled: readOnly,
                     onClick: () => void actions.watcherToggle(w.id, !w.enabled).then(publishEvents, err => actions.reportError?.(err, 'events')),
                   }, w.enabled ? t('Pause') : t('Resume')),
                   h('button', {
-                    type: 'button', className: 'bt-mini bt-task-remove', 'aria-label': t('Delete watcher'),
-                    onClick: () => void actions.watcherDelete(w.id).then(publishEvents, err => actions.reportError?.(err, 'events')),
-                  }, h(TrashIcon))))
+                    type: 'button', className: 'bt-mini bt-task-remove', 'data-confirm': confirmingDelete || undefined,
+                    disabled: readOnly, 'aria-label': confirmingDelete ? t('Remove?') : t('Delete watcher'),
+                    onClick: () => askConfirm(`w:${w.id}`, () => void actions.watcherDelete(w.id).then(publishEvents, err => actions.reportError?.(err, 'events'))),
+                  }, confirmingDelete ? t('Remove?') : h(TrashIcon))))
             }))),
     h('section', { className: 'bt-set-section' },
       h('h3', null, t('Local push endpoint')),
@@ -280,62 +345,72 @@ export function WatchersTab({ roster, actions }) {
           h('div', { className: 'bt-set-copy' },
             h('span', null, t('Accept local events on 127.0.0.1')),
             h('span', { className: 'bt-set-hint bt-ev-mono' }, push.listening ? `POST ${push.url}` : t('Off · binds only to 127.0.0.1 when enabled'))),
-          h(Switch, { checked: push.enabled, disabled: busy, onChange: togglePush, label: t('Accept local events on 127.0.0.1') })),
+          h(Switch, { checked: push.enabled, disabled: readOnly || busy, onChange: togglePush, label: t('Accept local events on 127.0.0.1') })),
         freshToken ? h('div', { className: 'bt-set-row bt-ev-token-box' },
           h('div', { className: 'bt-set-copy' },
             h('span', { className: 'bt-set-hint' }, t('Copy this token now; it will not be shown again.')),
             h('code', { className: 'bt-ev-mono' }, freshToken)),
           h('button', { type: 'button', className: 'bt-soft bt-soft-sm bt-with-icon', onClick: copyToken }, copied ? h(CheckIcon) : h(CopyIcon), copied ? t('Copied') : t('Copy'))) : null,
         h('form', { className: 'bt-set-row bt-ev-token-form', onSubmit: createToken },
-          h('input', { className: 'bt-input', value: tokenName, placeholder: t('Token name (e.g. market-script)'), onChange: e => setTokenName(e.target.value) }),
-          h('button', { type: 'submit', className: 'bt-soft bt-soft-sm', disabled: busy || !tokenName.trim() }, t('New token'))),
-        (push.tokens ?? []).filter(tk => !tk.revoked).map(tk => h('div', { key: tk.keyId, className: 'bt-set-row' },
-          h('div', { className: 'bt-set-copy' },
-            h('span', null, tk.name),
-            h('span', { className: 'bt-set-hint bt-ev-mono' }, `${tk.keyId}${tk.lastUsedAt ? ` · ${t('Used {time}', { time: fmtTime(tk.lastUsedAt) })}` : ''}`)),
-          h('button', {
-            type: 'button', className: 'bt-soft bt-soft-sm',
-            onClick: () => void actions.eventPushTokenRevoke(tk.keyId).then(publishEvents, err => actions.reportError?.(err, 'events')),
-          }, t('Revoke')))))))
+          h('input', { className: 'bt-input', value: tokenName, disabled: readOnly || busy, placeholder: t('Token name (e.g. market-script)'), onChange: e => setTokenName(e.target.value) }),
+          h('button', { type: 'submit', className: 'bt-soft bt-soft-sm', disabled: readOnly || busy || !tokenName.trim() }, t('New token'))),
+        (push.tokens ?? []).filter(tk => !tk.revoked).map((tk) => {
+          const confirmingRevoke = confirmId === `tk:${tk.keyId}`
+          return h('div', { key: tk.keyId, className: 'bt-set-row' },
+            h('div', { className: 'bt-set-copy' },
+              h('span', null, tk.name),
+              h('span', { className: 'bt-set-hint bt-ev-mono' }, `${tk.keyId}${tk.lastUsedAt ? ` · ${t('Used {time}', { time: fmtTime(tk.lastUsedAt) })}` : ''}`)),
+            h('button', {
+              type: 'button', className: 'bt-soft bt-soft-sm bt-ev-danger', 'data-confirm': confirmingRevoke || undefined,
+              disabled: readOnly,
+              onClick: () => askConfirm(`tk:${tk.keyId}`, () => void actions.eventPushTokenRevoke(tk.keyId).then(publishEvents, err => actions.reportError?.(err, 'events'))),
+            }, confirmingRevoke ? t('Revoke?') : t('Revoke')))
+        }))))
 }
 
 export function SubscriptionsTab({ roster, actions }) {
   const view = useEventsView(actions)
   const [adding, setAdding] = useState(false)
+  const [confirmId, askConfirm] = useTwoStepConfirm()
   if (view === null) return h('div', { className: 'bt-set-hint' }, t('Loading…'))
+  const readOnly = Boolean(roster.readOnly)
   const subs = view.subscriptions ?? []
   const events = view.events ?? []
   const deadLetters = view.deadLetters ?? []
 
   return h(Fragment, null,
-    adding ? h(SubscriptionForm, { roster, watchers: view.watchers ?? [], actions, onDone: () => setAdding(false), onCancel: () => setAdding(false) }) : null,
+    adding && !readOnly ? h(SubscriptionForm, { roster, watchers: view.watchers ?? [], actions, onDone: () => setAdding(false), onCancel: () => setAdding(false) }) : null,
     h('section', { className: 'bt-set-section' },
       h('div', { className: 'bt-la-sec-head' },
         h('h3', null, t('Subscriptions')),
-        adding ? null : h('button', { type: 'button', className: 'bt-soft bt-soft-sm bt-with-icon', onClick: () => setAdding(true) }, h(PlusIcon), t('New subscription'))),
+        adding || readOnly ? null : h('button', { type: 'button', className: 'bt-soft bt-soft-sm bt-with-icon', onClick: () => setAdding(true) }, h(PlusIcon), t('New subscription'))),
       h('div', { className: 'bt-set-card' },
         subs.length === 0
           ? h('div', { className: 'bt-set-row' }, h('span', { className: 'bt-set-hint' }, t('No event subscriptions yet.')))
-          : subs.map(s => h('div', { key: s.id, className: 'bt-set-row bt-ev-row', 'data-paused': !s.enabled || undefined },
-              h('div', { className: 'bt-set-copy' },
-                h('span', { className: 'bt-ev-title' },
-                  s.name || s.match?.threadKey || s.id,
-                  h('span', { className: 'bt-tag' }, s.mode === 'context' ? t('Context only') : t('Wake'))),
-                h('span', { className: 'bt-set-hint' }, [
-                  targetLabel(s.target, roster),
-                  s.match?.threadKey || s.match?.sourceId || s.match?.sourceKind || '*',
-                  s.filteredCount > 0 ? t('{count} filtered', { count: s.filteredCount }) : '',
-                  !s.enabled && s.pausedReason ? s.pausedReason : '',
-                ].filter(Boolean).join(' · '))),
-              h('div', { className: 'bt-ev-actions' },
-                h('button', {
-                  type: 'button', className: 'bt-soft bt-soft-sm',
-                  onClick: () => void actions.subscriptionToggle(s.id, !s.enabled).then(publishEvents, err => actions.reportError?.(err, 'events')),
-                }, s.enabled ? t('Pause') : t('Resume')),
-                h('button', {
-                  type: 'button', className: 'bt-mini bt-task-remove', 'aria-label': t('Delete subscription'),
-                  onClick: () => void actions.subscriptionDelete(s.id).then(publishEvents, err => actions.reportError?.(err, 'events')),
-                }, h(TrashIcon))))))),
+          : subs.map((s) => {
+              const confirmingDelete = confirmId === `s:${s.id}`
+              return h('div', { key: s.id, className: 'bt-set-row bt-ev-row', 'data-paused': !s.enabled || undefined },
+                h('div', { className: 'bt-set-copy' },
+                  h('span', { className: 'bt-ev-title' },
+                    s.name || s.match?.threadKey || s.id,
+                    h('span', { className: 'bt-tag' }, s.mode === 'context' ? t('Context only') : t('Wake'))),
+                  h('span', { className: 'bt-set-hint' }, [
+                    targetLabel(s.target, roster),
+                    s.match?.threadKey || s.match?.sourceId || s.match?.sourceKind || '*',
+                    s.filteredCount > 0 ? t('{count} filtered', { count: s.filteredCount }) : '',
+                    !s.enabled && s.pausedReason ? s.pausedReason : '',
+                  ].filter(Boolean).join(' · '))),
+                h('div', { className: 'bt-ev-actions' },
+                  h('button', {
+                    type: 'button', className: 'bt-soft bt-soft-sm', disabled: readOnly,
+                    onClick: () => void actions.subscriptionToggle(s.id, !s.enabled).then(publishEvents, err => actions.reportError?.(err, 'events')),
+                  }, s.enabled ? t('Pause') : t('Resume')),
+                  h('button', {
+                    type: 'button', className: 'bt-mini bt-task-remove', 'data-confirm': confirmingDelete || undefined,
+                    disabled: readOnly, 'aria-label': confirmingDelete ? t('Remove?') : t('Delete subscription'),
+                    onClick: () => askConfirm(`s:${s.id}`, () => void actions.subscriptionDelete(s.id).then(publishEvents, err => actions.reportError?.(err, 'events'))),
+                  }, confirmingDelete ? t('Remove?') : h(TrashIcon))))
+            }))),
     deadLetters.length > 0 ? h('section', { className: 'bt-set-section' },
       h('h3', null, t('Failed deliveries · {count}', { count: deadLetters.length })),
       h('div', { className: 'bt-set-card' }, deadLetters.map(d => h('div', { key: d.id, className: 'bt-set-row bt-ev-row' },
@@ -344,11 +419,11 @@ export function SubscriptionsTab({ roster, actions }) {
           h('span', { className: 'bt-set-hint bt-danger' }, `${targetLabel(d.target, roster)} · ${d.reason}`)),
         h('div', { className: 'bt-ev-actions' },
           h('button', {
-            type: 'button', className: 'bt-soft bt-soft-sm',
+            type: 'button', className: 'bt-soft bt-soft-sm', disabled: readOnly,
             onClick: () => void actions.eventDeadLetterReplay(d.id).then(res => { if (res?.view) publishEvents(res.view) }, err => actions.reportError?.(err, 'events')),
           }, t('Replay')),
           h('button', {
-            type: 'button', className: 'bt-mini bt-task-remove', 'aria-label': t('Dismiss'),
+            type: 'button', className: 'bt-mini bt-task-remove', disabled: readOnly, 'aria-label': t('Dismiss'),
             onClick: () => void actions.eventDeadLetterDismiss(d.id).then(publishEvents, err => actions.reportError?.(err, 'events')),
           }, h(TrashIcon))))))) : null,
     h('section', { className: 'bt-set-section' },
@@ -368,21 +443,25 @@ export function SubscriptionsTab({ roster, actions }) {
             }))))
 }
 
-// Bot details panel summary: active watches owned by this Bot.
-export function WatchSummary({ bot, actions }) {
-  const view = useEventsView(actions)
-  if (!view) return null
-  const mine = (view.subscriptions ?? []).filter(s => s.target?.botId === bot.id && s.enabled)
-  const myWatchers = (view.watchers ?? []).filter(w => w.target?.botId === bot.id && w.enabled)
-  const total = mine.length + myWatchers.length
+// Bot details panel summary: reads lightweight live counts from roster.eventsSummary
+// (zero background polling from the details drawer).
+export function WatchSummary({ bot, roster, actions }) {
+  const counts = roster?.eventsSummary?.byBot?.[bot.id]
+  const watchers = counts?.watchers ?? 0
+  const subscriptions = counts?.subscriptions ?? 0
+  const total = watchers + subscriptions
   if (total === 0) return null
   return h('div', null,
     h('div', { className: 'bt-section-title' }, t('Watching · {count}', { count: total })),
     h('div', { className: 'bt-task-list' },
-      [...myWatchers.map(w => ({ id: w.id, title: w.name, sub: w.kind })), ...mine.map(s => ({ id: s.id, title: s.name || s.match?.threadKey || s.id, sub: s.mode }))].slice(0, 3).map(item => h('button', {
-        key: item.id, type: 'button', className: 'bt-task-line',
+      watchers > 0 ? h('button', {
+        type: 'button', className: 'bt-task-line',
         onClick: () => actions.openSettings('schedules', 'watchers'),
-      }, h('span', { className: 'bt-task-line-title' }, item.title), h('span', { className: 'bt-task-line-when' }, item.sub)))))
+      }, h('span', { className: 'bt-task-line-title' }, t('Event watchers')), h('span', { className: 'bt-task-line-when' }, String(watchers))) : null,
+      subscriptions > 0 ? h('button', {
+        type: 'button', className: 'bt-task-line',
+        onClick: () => actions.openSettings('schedules', 'subscriptions'),
+      }, h('span', { className: 'bt-task-line-title' }, t('Subscriptions')), h('span', { className: 'bt-task-line-when' }, String(subscriptions))) : null))
 }
 
 export const EVENTS_CSS = `
@@ -391,6 +470,7 @@ export const EVENTS_CSS = `
 .bt-ev-row[data-paused]{opacity:.68}
 .bt-ev-title{display:inline-flex;align-items:center;flex-wrap:wrap;gap:6px;font-size:13px;line-height:18px;font-weight:500;overflow-wrap:anywhere}
 .bt-ev-actions{display:flex;align-items:center;gap:6px;flex:none}
+.bt-ev-danger[data-confirm]{color:var(--bt-danger);background:var(--bt-danger-soft)}
 .bt-ev-mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;overflow-wrap:anywhere}
 .bt-ev-token-box{background:var(--bt-hover)}
 .bt-ev-token-form{gap:8px}

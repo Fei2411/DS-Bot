@@ -103,23 +103,44 @@ test('Bot watch/list_watches/read_event/unwatch tools work end-to-end with priva
   }
 })
 
-test('Mail watcher filters self-sent emails and honors fromFilter after first baseline', async () => {
+test('Mail watcher uses real mail connector search() contract, filters self-sent mail, and honors fromFilter', async () => {
   let step = 1
-  const listMail = async () => ({
-    accountAddress: 'me@example.com',
-    messages: step === 1
-      ? [{ uid: '1', from: 'old@example.com', subject: 'Old', snippet: 'old' }]
-      : [
-          { uid: '1', from: 'old@example.com', subject: 'Old', snippet: 'old' },
-          { uid: '2', from: 'me@example.com', subject: 'My own sent copy', snippet: 'loop' },
-          { uid: '3', from: 'spam@other.com', subject: 'Promo', snippet: 'ignore' },
-          { uid: '4', from: 'alerts@broker.com', subject: 'Earnings Alert', snippet: 'NVDA beat' },
-        ],
-  })
-  const env = setup({ listMail })
+  const searchCalls = []
+  const env = setup()
   try {
     await env.rt.load()
-    const w = env.rt.eventWatchers.saveWatcher({
+    env.rt.state.connectors = {
+      mail: {
+        accounts: {
+          acc1: { id: 'acc1', kind: 'imap', address: 'me@example.com', imapHost: 'imap.example.com', imapPort: 993 },
+        },
+      },
+    }
+    const secretRes = await env.rt.channelCall('secret-set', {
+      name: 'MAIL_ME_EXAMPLE_COM_PASSWORD',
+      value: 'app-pass',
+      scope: 'all',
+      purpose: 'test',
+    })
+    assert.equal(secretRes.ok, true)
+    env.rt.config.mail = {
+      connect: async () => ({
+        usable: true,
+        async search(opts) {
+          searchCalls.push(opts)
+          return step === 1
+            ? [{ uid: '1', folder: 'INBOX', from: 'old@example.com', subject: 'Old', date: '2026-11-19' }]
+            : [
+                { uid: '1', folder: 'INBOX', from: 'old@example.com', subject: 'Old', date: '2026-11-19' },
+                { uid: '2', folder: 'INBOX', from: 'me@example.com', subject: 'My own sent copy', date: '2026-11-19' },
+                { uid: '3', folder: 'INBOX', from: 'spam@other.com', subject: 'Promo', date: '2026-11-19' },
+                { uid: '4', folder: 'INBOX', from: 'alerts@broker.com', subject: 'Earnings Alert', date: '2026-11-19' },
+              ]
+        },
+      }),
+    }
+
+    const w = await env.rt.eventWatchers.saveWatcher({
       name: 'Broker alerts',
       kind: 'mail',
       target: { kind: 'bot', botId: 'w1' },
@@ -128,6 +149,10 @@ test('Mail watcher filters self-sent emails and honors fromFilter after first ba
 
     await env.rt.eventWatchers.checkNow(w.id)
     assert.equal(env.delivered.length, 0)
+    assert.equal(searchCalls.length, 1)
+    assert.equal(searchCalls[0].folder, 'INBOX')
+    assert.equal(searchCalls[0].from, 'broker.com')
+
     step = 2
     const res = await env.rt.eventWatchers.checkNow(w.id)
     assert.equal(res.count, 1)
@@ -139,7 +164,7 @@ test('Mail watcher filters self-sent emails and honors fromFilter after first ba
 })
 
 test('channelCall events-* endpoints and read-only host guard behave safely', async () => {
-  const env = setup()
+  const env = setup({ lookup: async () => [{ address: '93.184.216.34', family: 4 }] })
   try {
     await env.rt.load()
     const v0 = await env.rt.channelCall('events-view', {})

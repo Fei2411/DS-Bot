@@ -191,6 +191,14 @@ export function install(rt) {
         if (isPrivate(self) && to !== undefined) await approve(exec, { en: `Let ${rt.botOf(self).name} send this to ${to.name}?\n\n${String(args.message ?? '')}`, zh: `允许 ${rt.botOf(self).name} 把下面的内容发给 ${to.name} 吗？\n\n${String(args.message ?? '')}` })
         return
       }
+      case 'manage_watcher': {
+        if (args.bot_id && target(args.bot_id)) throw new Error('Only the user can manage watchers for a private Bot.')
+        if (typeof args.path === 'string' && args.path.trim() !== '') {
+          const hit = await ownerOfPath(args.path, { self, search: true })
+          if (hit) throw closed(hit, 'folder')
+        }
+        return
+      }
       // Every Bot reads the shared capabilities, so saving one shares what is in it.
       case 'save_capability': {
         if (!isPrivate(self)) return
@@ -372,5 +380,17 @@ export function install(rt) {
   // What the settings list shows. Session ids stay on the host.
   const archivesView = () => (state.privateArchives ?? []).map(({ id, name, workDir }) => ({ id, name, ...(workDir === undefined ? {} : { workDir }) }))
 
-  Object.assign(rt, { isPrivate, privateClash, checkPrivacyChange: checkChange, checkNoPrivate, releaseArchive, archivesView })
+  const pathClosedForBot = async (path, self, { search = true } = {}) => {
+    const owned = await ownerOfPath(path, { self, search })
+    if (owned) return owned
+    // Also block Bots from mounting watchers on host data roots (rt.home / rt.dshHome).
+    const keys = await spellings(resolve(path))
+    const roots = (await Promise.all(dataRoots().map(spellings))).flat()
+    if (keys.some(key => roots.some(root => within(key, root) || (search && within(root, key))))) {
+      return { id: 'host', name: 'DS Bot data' }
+    }
+    return undefined
+  }
+
+  Object.assign(rt, { isPrivate, privateClash, pathClosedForBot, checkPrivacyChange: checkChange, checkNoPrivate, releaseArchive, archivesView })
 }

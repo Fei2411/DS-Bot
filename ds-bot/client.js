@@ -1933,7 +1933,9 @@ var JA = {
   "Allowed": "許可済み",
   "Not allowed": "未許可",
   "Grant": "許可する",
+  "Event": "イベント",
   "Revoke": "取り消す",
+  "Revoke?": "取り消しますか？",
   "Off in Settings → Computer use": "「設定 → コンピュータ操作」でオフになっています",
   "Idle": "待機中",
   "Operating": "操作中",
@@ -4545,7 +4547,9 @@ var KO = {
   "Allowed": "허용됨",
   "Not allowed": "허용 안 됨",
   "Grant": "권한 허용",
+  "Event": "이벤트",
   "Revoke": "철회",
+  "Revoke?": "철회할까요?",
   "Off in Settings → Computer use": "설정 → 컴퓨터 제어에서 꺼져 있음",
   "Idle": "유휴",
   "Operating": "조작 중",
@@ -7158,7 +7162,9 @@ var ES = {
   "Allowed": "Permitido",
   "Not allowed": "No permitido",
   "Grant": "Conceder",
+  "Event": "Evento",
   "Revoke": "Revocar",
+  "Revoke?": "¿Revocar?",
   "Off in Settings → Computer use": "Desactivado en Ajustes → Uso del ordenador",
   "Idle": "Inactivo",
   "Operating": "Operando",
@@ -9727,7 +9733,9 @@ var FR = {
   "Allowed": "Autorisé",
   "Not allowed": "Non autorisé",
   "Grant": "Autoriser",
+  "Event": "Événement",
   "Revoke": "Révoquer",
+  "Revoke?": "Révoquer ?",
   "Off in Settings → Computer use": "Désactivé dans Paramètres → Contrôle de l’ordinateur",
   "Idle": "Inactif",
   "Operating": "En action",
@@ -12339,7 +12347,9 @@ var DE = {
   "Allowed": "Erlaubt",
   "Not allowed": "Nicht erlaubt",
   "Grant": "Zugriff gewähren",
+  "Event": "Ereignis",
   "Revoke": "Widerrufen",
+  "Revoke?": "Widerrufen?",
   "Off in Settings → Computer use": "Deaktiviert unter Einstellungen → Computersteuerung",
   "Idle": "Inaktiv",
   "Operating": "Bedient gerade",
@@ -15057,7 +15067,9 @@ var HOST_ZH = {
   "Allowed": "已允许",
   "Not allowed": "未允许",
   "Grant": "去授权",
+  "Event": "事件",
   "Revoke": "撤销",
+  "Revoke?": "确认撤销？",
   "Off in Settings → Computer use": "已在设置中关闭",
   "Idle": "空闲",
   "Operating": "在操作",
@@ -15839,19 +15851,19 @@ function teamActions({ call: call2, after, partFor, roster, ui: ui2, live, cards
     scheduleCreate: (task) => call2("schedule-create", task),
     scheduleDelete: (sessionId, id) => call2("schedule-delete", { sessionId, id }),
     eventsView: () => call2("events-view"),
-    watcherSave: (payload) => call2("events-watcher-save", payload),
-    watcherToggle: (id, enabled) => call2("events-watcher-toggle", { id, enabled }),
-    watcherDelete: (id) => call2("events-watcher-delete", { id }),
-    watcherCheckNow: (id) => call2("events-watcher-check-now", { id }),
-    subscriptionSave: (payload) => call2("events-subscription-save", payload),
-    subscriptionToggle: (id, enabled) => call2("events-subscription-toggle", { id, enabled }),
-    subscriptionDelete: (id) => call2("events-subscription-delete", { id }),
-    eventDeadLetterReplay: (id) => call2("events-dead-letter-replay", { id }),
-    eventDeadLetterDismiss: (id) => call2("events-dead-letter-dismiss", { id }),
-    eventAlertDismiss: (id) => call2("events-alert-dismiss", { id }),
-    eventPushConfig: (payload) => call2("events-push-config", payload),
-    eventPushTokenCreate: (payload) => call2("events-push-token-create", payload),
-    eventPushTokenRevoke: (keyId) => call2("events-push-token-revoke", { keyId }),
+    watcherSave: (payload) => after(call2("events-watcher-save", payload)),
+    watcherToggle: (id, enabled) => after(call2("events-watcher-toggle", { id, enabled })),
+    watcherDelete: (id) => after(call2("events-watcher-delete", { id })),
+    watcherCheckNow: (id) => after(call2("events-watcher-check-now", { id })),
+    subscriptionSave: (payload) => after(call2("events-subscription-save", payload)),
+    subscriptionToggle: (id, enabled) => after(call2("events-subscription-toggle", { id, enabled })),
+    subscriptionDelete: (id) => after(call2("events-subscription-delete", { id })),
+    eventDeadLetterReplay: (id) => after(call2("events-dead-letter-replay", { id })),
+    eventDeadLetterDismiss: (id) => after(call2("events-dead-letter-dismiss", { id })),
+    eventAlertDismiss: (id) => after(call2("events-alert-dismiss", { id })),
+    eventPushConfig: (payload) => after(call2("events-push-config", payload)),
+    eventPushTokenCreate: (payload) => after(call2("events-push-token-create", payload)),
+    eventPushTokenRevoke: (keyId) => after(call2("events-push-token-revoke", { keyId })),
     exchange: (a, b) => call2("exchange", { a, b }).catch(() => []),
     exchangeText: (id, a, b) => call2("exchange-text", { id, ...a !== void 0 && b !== void 0 ? { a, b } : {} }).catch(() => void 0),
     fileText: (file) => call2("file-text", { file }).catch(() => void 0),
@@ -25154,11 +25166,71 @@ var FOLDER_CSS = `
 // src/client/events-page.js
 var import_react23 = require("react");
 var POLL_MS = 15e3;
+var CONFIRM_MS = 3500;
 var sharedEvents = null;
 var listeners = /* @__PURE__ */ new Set();
 function publishEvents(view) {
   sharedEvents = view;
   for (const listener of listeners) listener(view);
+}
+function parseCommandArgs(input) {
+  const out = [];
+  let current2 = "";
+  let quote = null;
+  let inToken = false;
+  const text = String(input ?? "");
+  for (let i = 0; i < text.length; i += 1) {
+    const ch = text[i];
+    if (quote !== null) {
+      if (ch === "\\" && quote === '"' && i + 1 < text.length) {
+        current2 += text[++i];
+      } else if (ch === quote) {
+        quote = null;
+      } else {
+        current2 += ch;
+      }
+    } else if (ch === '"' || ch === "'") {
+      quote = ch;
+      inToken = true;
+    } else if (ch === "\\" && i + 1 < text.length) {
+      current2 += text[++i];
+      inToken = true;
+    } else if (/\s/.test(ch)) {
+      if (inToken) {
+        out.push(current2);
+        current2 = "";
+        inToken = false;
+      }
+    } else {
+      current2 += ch;
+      inToken = true;
+    }
+  }
+  if (inToken) out.push(current2);
+  return out;
+}
+function useTwoStepConfirm() {
+  const [confirmId, setConfirmId] = (0, import_react23.useState)(null);
+  const timerRef = (0, import_react23.useRef)(null);
+  (0, import_react23.useEffect)(() => () => {
+    if (timerRef.current !== null) clearTimeout(timerRef.current);
+  }, []);
+  const ask = (id, run2) => {
+    if (confirmId === id) {
+      if (timerRef.current !== null) clearTimeout(timerRef.current);
+      timerRef.current = null;
+      setConfirmId(null);
+      run2();
+      return;
+    }
+    setConfirmId(id);
+    if (timerRef.current !== null) clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => {
+      timerRef.current = null;
+      setConfirmId(null);
+    }, CONFIRM_MS);
+  };
+  return [confirmId, ask];
 }
 function useEventsView(actions) {
   const [view, setView] = (0, import_react23.useState)(sharedEvents);
@@ -25220,7 +25292,7 @@ function WatcherForm({ roster, actions, onDone, onCancel }) {
     setError("");
     const [tKind, tId] = targetRef.split(":");
     const target = tKind === "room" ? { kind: "room", roomId: tId } : { kind: "bot", botId: tId };
-    const config = kind === "github" ? { repo } : kind === "http" ? { url } : kind === "folder" ? { path: path2 } : kind === "mail" ? { account, fromFilter } : { executable, args: argsText.trim() ? argsText.trim().split(/\s+/) : [] };
+    const config = kind === "github" ? { repo } : kind === "http" ? { url } : kind === "folder" ? { path: path2 } : kind === "mail" ? { account, fromFilter } : { executable, args: parseCommandArgs(argsText) };
     void actions.watcherSave({ name, kind, target, intervalSec: Number(intervalSec), speculative, config }).then((next) => {
       publishEvents(next);
       onDone(next);
@@ -25448,16 +25520,23 @@ function WatchersTab({ roster, actions }) {
   const [freshToken, setFreshToken] = (0, import_react23.useState)(null);
   const [copied, setCopied] = (0, import_react23.useState)(false);
   const [busy, setBusy] = (0, import_react23.useState)(false);
+  const [confirmId, askConfirm] = useTwoStepConfirm();
+  const copyTimerRef = (0, import_react23.useRef)(null);
+  (0, import_react23.useEffect)(() => () => {
+    if (copyTimerRef.current !== null) clearTimeout(copyTimerRef.current);
+  }, []);
   if (view === null) return (0, import_react23.createElement)("div", { className: "bt-set-hint" }, t("Loading…"));
+  const readOnly = Boolean(roster.readOnly);
   const watchers = view.watchers ?? [];
   const push = view.push ?? { enabled: false, port: 17830, listening: false, url: "http://127.0.0.1:17830/v1/events", tokens: [] };
   const togglePush = (next) => {
+    if (readOnly) return;
     setBusy(true);
     void actions.eventPushConfig({ enabled: next }).then(publishEvents, (error) => actions.reportError?.(error, "events")).finally(() => setBusy(false));
   };
   const createToken = (event) => {
     event.preventDefault();
-    if (!tokenName.trim()) return;
+    if (readOnly || !tokenName.trim()) return;
     setBusy(true);
     void actions.eventPushTokenCreate({ name: tokenName.trim() }).then((res) => {
       if (res?.view) publishEvents(res.view);
@@ -25468,16 +25547,21 @@ function WatchersTab({ roster, actions }) {
     }, (error) => actions.reportError?.(error, "events")).finally(() => setBusy(false));
   };
   const copyToken = () => {
-    if (!freshToken) return;
-    void navigator.clipboard?.writeText(freshToken).then(() => {
+    if (!freshToken || !navigator.clipboard?.writeText) return;
+    void navigator.clipboard.writeText(freshToken).then(() => {
       setCopied(true);
-      setTimeout(() => setCopied(false), 1800);
+      if (copyTimerRef.current !== null) clearTimeout(copyTimerRef.current);
+      copyTimerRef.current = setTimeout(() => {
+        copyTimerRef.current = null;
+        setCopied(false);
+      }, 1800);
+    }).catch(() => {
     });
   };
   return (0, import_react23.createElement)(
     import_react23.Fragment,
     null,
-    adding ? (0, import_react23.createElement)(WatcherForm, { roster, actions, onDone: () => setAdding(false), onCancel: () => setAdding(false) }) : null,
+    adding && !readOnly ? (0, import_react23.createElement)(WatcherForm, { roster, actions, onDone: () => setAdding(false), onCancel: () => setAdding(false) }) : null,
     (0, import_react23.createElement)(
       "section",
       { className: "bt-set-section" },
@@ -25485,7 +25569,7 @@ function WatchersTab({ roster, actions }) {
         "div",
         { className: "bt-la-sec-head" },
         (0, import_react23.createElement)("h3", null, t("Event watchers")),
-        adding ? null : (0, import_react23.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm bt-with-icon", onClick: () => setAdding(true) }, (0, import_react23.createElement)(PlusIcon), t("New watcher"))
+        adding || readOnly ? null : (0, import_react23.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm bt-with-icon", onClick: () => setAdding(true) }, (0, import_react23.createElement)(PlusIcon), t("New watcher"))
       ),
       (0, import_react23.createElement)(
         "div",
@@ -25493,6 +25577,7 @@ function WatchersTab({ roster, actions }) {
         watchers.length === 0 ? (0, import_react23.createElement)("div", { className: "bt-set-row" }, (0, import_react23.createElement)("span", { className: "bt-set-hint" }, t("No event watchers yet."))) : watchers.map((w) => {
           const pausedReason = w.runtime?.pausedReason;
           const statusText4 = w.enabled ? w.runtime?.lastCheckedAt ? t("Checked {time}", { time: fmtTime(w.runtime.lastCheckedAt) }) : t("Running") : pausedReason || t("Paused");
+          const confirmingDelete = confirmId === `w:${w.id}`;
           return (0, import_react23.createElement)(
             "div",
             { key: w.id, className: "bt-set-row bt-ev-row", "data-paused": !w.enabled || void 0 },
@@ -25513,7 +25598,7 @@ function WatchersTab({ roster, actions }) {
               (0, import_react23.createElement)("button", {
                 type: "button",
                 className: "bt-soft bt-soft-sm",
-                disabled: checkingId === w.id,
+                disabled: readOnly || checkingId === w.id,
                 onClick: () => {
                   setCheckingId(w.id);
                   void actions.watcherCheckNow(w.id).then((res) => {
@@ -25524,14 +25609,17 @@ function WatchersTab({ roster, actions }) {
               (0, import_react23.createElement)("button", {
                 type: "button",
                 className: "bt-soft bt-soft-sm",
+                disabled: readOnly,
                 onClick: () => void actions.watcherToggle(w.id, !w.enabled).then(publishEvents, (err) => actions.reportError?.(err, "events"))
               }, w.enabled ? t("Pause") : t("Resume")),
               (0, import_react23.createElement)("button", {
                 type: "button",
                 className: "bt-mini bt-task-remove",
-                "aria-label": t("Delete watcher"),
-                onClick: () => void actions.watcherDelete(w.id).then(publishEvents, (err) => actions.reportError?.(err, "events"))
-              }, (0, import_react23.createElement)(TrashIcon))
+                "data-confirm": confirmingDelete || void 0,
+                disabled: readOnly,
+                "aria-label": confirmingDelete ? t("Remove?") : t("Delete watcher"),
+                onClick: () => askConfirm(`w:${w.id}`, () => void actions.watcherDelete(w.id).then(publishEvents, (err) => actions.reportError?.(err, "events")))
+              }, confirmingDelete ? t("Remove?") : (0, import_react23.createElement)(TrashIcon))
             )
           );
         })
@@ -25553,7 +25641,7 @@ function WatchersTab({ roster, actions }) {
             (0, import_react23.createElement)("span", null, t("Accept local events on 127.0.0.1")),
             (0, import_react23.createElement)("span", { className: "bt-set-hint bt-ev-mono" }, push.listening ? `POST ${push.url}` : t("Off · binds only to 127.0.0.1 when enabled"))
           ),
-          (0, import_react23.createElement)(Switch, { checked: push.enabled, disabled: busy, onChange: togglePush, label: t("Accept local events on 127.0.0.1") })
+          (0, import_react23.createElement)(Switch, { checked: push.enabled, disabled: readOnly || busy, onChange: togglePush, label: t("Accept local events on 127.0.0.1") })
         ),
         freshToken ? (0, import_react23.createElement)(
           "div",
@@ -25569,24 +25657,29 @@ function WatchersTab({ roster, actions }) {
         (0, import_react23.createElement)(
           "form",
           { className: "bt-set-row bt-ev-token-form", onSubmit: createToken },
-          (0, import_react23.createElement)("input", { className: "bt-input", value: tokenName, placeholder: t("Token name (e.g. market-script)"), onChange: (e) => setTokenName(e.target.value) }),
-          (0, import_react23.createElement)("button", { type: "submit", className: "bt-soft bt-soft-sm", disabled: busy || !tokenName.trim() }, t("New token"))
+          (0, import_react23.createElement)("input", { className: "bt-input", value: tokenName, disabled: readOnly || busy, placeholder: t("Token name (e.g. market-script)"), onChange: (e) => setTokenName(e.target.value) }),
+          (0, import_react23.createElement)("button", { type: "submit", className: "bt-soft bt-soft-sm", disabled: readOnly || busy || !tokenName.trim() }, t("New token"))
         ),
-        (push.tokens ?? []).filter((tk) => !tk.revoked).map((tk) => (0, import_react23.createElement)(
-          "div",
-          { key: tk.keyId, className: "bt-set-row" },
-          (0, import_react23.createElement)(
+        (push.tokens ?? []).filter((tk) => !tk.revoked).map((tk) => {
+          const confirmingRevoke = confirmId === `tk:${tk.keyId}`;
+          return (0, import_react23.createElement)(
             "div",
-            { className: "bt-set-copy" },
-            (0, import_react23.createElement)("span", null, tk.name),
-            (0, import_react23.createElement)("span", { className: "bt-set-hint bt-ev-mono" }, `${tk.keyId}${tk.lastUsedAt ? ` · ${t("Used {time}", { time: fmtTime(tk.lastUsedAt) })}` : ""}`)
-          ),
-          (0, import_react23.createElement)("button", {
-            type: "button",
-            className: "bt-soft bt-soft-sm",
-            onClick: () => void actions.eventPushTokenRevoke(tk.keyId).then(publishEvents, (err) => actions.reportError?.(err, "events"))
-          }, t("Revoke"))
-        ))
+            { key: tk.keyId, className: "bt-set-row" },
+            (0, import_react23.createElement)(
+              "div",
+              { className: "bt-set-copy" },
+              (0, import_react23.createElement)("span", null, tk.name),
+              (0, import_react23.createElement)("span", { className: "bt-set-hint bt-ev-mono" }, `${tk.keyId}${tk.lastUsedAt ? ` · ${t("Used {time}", { time: fmtTime(tk.lastUsedAt) })}` : ""}`)
+            ),
+            (0, import_react23.createElement)("button", {
+              type: "button",
+              className: "bt-soft bt-soft-sm bt-ev-danger",
+              "data-confirm": confirmingRevoke || void 0,
+              disabled: readOnly,
+              onClick: () => askConfirm(`tk:${tk.keyId}`, () => void actions.eventPushTokenRevoke(tk.keyId).then(publishEvents, (err) => actions.reportError?.(err, "events")))
+            }, confirmingRevoke ? t("Revoke?") : t("Revoke"))
+          );
+        })
       )
     )
   );
@@ -25594,14 +25687,16 @@ function WatchersTab({ roster, actions }) {
 function SubscriptionsTab({ roster, actions }) {
   const view = useEventsView(actions);
   const [adding, setAdding] = (0, import_react23.useState)(false);
+  const [confirmId, askConfirm] = useTwoStepConfirm();
   if (view === null) return (0, import_react23.createElement)("div", { className: "bt-set-hint" }, t("Loading…"));
+  const readOnly = Boolean(roster.readOnly);
   const subs = view.subscriptions ?? [];
   const events = view.events ?? [];
   const deadLetters = view.deadLetters ?? [];
   return (0, import_react23.createElement)(
     import_react23.Fragment,
     null,
-    adding ? (0, import_react23.createElement)(SubscriptionForm, { roster, watchers: view.watchers ?? [], actions, onDone: () => setAdding(false), onCancel: () => setAdding(false) }) : null,
+    adding && !readOnly ? (0, import_react23.createElement)(SubscriptionForm, { roster, watchers: view.watchers ?? [], actions, onDone: () => setAdding(false), onCancel: () => setAdding(false) }) : null,
     (0, import_react23.createElement)(
       "section",
       { className: "bt-set-section" },
@@ -25609,46 +25704,52 @@ function SubscriptionsTab({ roster, actions }) {
         "div",
         { className: "bt-la-sec-head" },
         (0, import_react23.createElement)("h3", null, t("Subscriptions")),
-        adding ? null : (0, import_react23.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm bt-with-icon", onClick: () => setAdding(true) }, (0, import_react23.createElement)(PlusIcon), t("New subscription"))
+        adding || readOnly ? null : (0, import_react23.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm bt-with-icon", onClick: () => setAdding(true) }, (0, import_react23.createElement)(PlusIcon), t("New subscription"))
       ),
       (0, import_react23.createElement)(
         "div",
         { className: "bt-set-card" },
-        subs.length === 0 ? (0, import_react23.createElement)("div", { className: "bt-set-row" }, (0, import_react23.createElement)("span", { className: "bt-set-hint" }, t("No event subscriptions yet."))) : subs.map((s) => (0, import_react23.createElement)(
-          "div",
-          { key: s.id, className: "bt-set-row bt-ev-row", "data-paused": !s.enabled || void 0 },
-          (0, import_react23.createElement)(
+        subs.length === 0 ? (0, import_react23.createElement)("div", { className: "bt-set-row" }, (0, import_react23.createElement)("span", { className: "bt-set-hint" }, t("No event subscriptions yet."))) : subs.map((s) => {
+          const confirmingDelete = confirmId === `s:${s.id}`;
+          return (0, import_react23.createElement)(
             "div",
-            { className: "bt-set-copy" },
+            { key: s.id, className: "bt-set-row bt-ev-row", "data-paused": !s.enabled || void 0 },
             (0, import_react23.createElement)(
-              "span",
-              { className: "bt-ev-title" },
-              s.name || s.match?.threadKey || s.id,
-              (0, import_react23.createElement)("span", { className: "bt-tag" }, s.mode === "context" ? t("Context only") : t("Wake"))
+              "div",
+              { className: "bt-set-copy" },
+              (0, import_react23.createElement)(
+                "span",
+                { className: "bt-ev-title" },
+                s.name || s.match?.threadKey || s.id,
+                (0, import_react23.createElement)("span", { className: "bt-tag" }, s.mode === "context" ? t("Context only") : t("Wake"))
+              ),
+              (0, import_react23.createElement)("span", { className: "bt-set-hint" }, [
+                targetLabel(s.target, roster),
+                s.match?.threadKey || s.match?.sourceId || s.match?.sourceKind || "*",
+                s.filteredCount > 0 ? t("{count} filtered", { count: s.filteredCount }) : "",
+                !s.enabled && s.pausedReason ? s.pausedReason : ""
+              ].filter(Boolean).join(" · "))
             ),
-            (0, import_react23.createElement)("span", { className: "bt-set-hint" }, [
-              targetLabel(s.target, roster),
-              s.match?.threadKey || s.match?.sourceId || s.match?.sourceKind || "*",
-              s.filteredCount > 0 ? t("{count} filtered", { count: s.filteredCount }) : "",
-              !s.enabled && s.pausedReason ? s.pausedReason : ""
-            ].filter(Boolean).join(" · "))
-          ),
-          (0, import_react23.createElement)(
-            "div",
-            { className: "bt-ev-actions" },
-            (0, import_react23.createElement)("button", {
-              type: "button",
-              className: "bt-soft bt-soft-sm",
-              onClick: () => void actions.subscriptionToggle(s.id, !s.enabled).then(publishEvents, (err) => actions.reportError?.(err, "events"))
-            }, s.enabled ? t("Pause") : t("Resume")),
-            (0, import_react23.createElement)("button", {
-              type: "button",
-              className: "bt-mini bt-task-remove",
-              "aria-label": t("Delete subscription"),
-              onClick: () => void actions.subscriptionDelete(s.id).then(publishEvents, (err) => actions.reportError?.(err, "events"))
-            }, (0, import_react23.createElement)(TrashIcon))
-          )
-        ))
+            (0, import_react23.createElement)(
+              "div",
+              { className: "bt-ev-actions" },
+              (0, import_react23.createElement)("button", {
+                type: "button",
+                className: "bt-soft bt-soft-sm",
+                disabled: readOnly,
+                onClick: () => void actions.subscriptionToggle(s.id, !s.enabled).then(publishEvents, (err) => actions.reportError?.(err, "events"))
+              }, s.enabled ? t("Pause") : t("Resume")),
+              (0, import_react23.createElement)("button", {
+                type: "button",
+                className: "bt-mini bt-task-remove",
+                "data-confirm": confirmingDelete || void 0,
+                disabled: readOnly,
+                "aria-label": confirmingDelete ? t("Remove?") : t("Delete subscription"),
+                onClick: () => askConfirm(`s:${s.id}`, () => void actions.subscriptionDelete(s.id).then(publishEvents, (err) => actions.reportError?.(err, "events")))
+              }, confirmingDelete ? t("Remove?") : (0, import_react23.createElement)(TrashIcon))
+            )
+          );
+        })
       )
     ),
     deadLetters.length > 0 ? (0, import_react23.createElement)(
@@ -25670,6 +25771,7 @@ function SubscriptionsTab({ roster, actions }) {
           (0, import_react23.createElement)("button", {
             type: "button",
             className: "bt-soft bt-soft-sm",
+            disabled: readOnly,
             onClick: () => void actions.eventDeadLetterReplay(d.id).then((res) => {
               if (res?.view) publishEvents(res.view);
             }, (err) => actions.reportError?.(err, "events"))
@@ -25677,6 +25779,7 @@ function SubscriptionsTab({ roster, actions }) {
           (0, import_react23.createElement)("button", {
             type: "button",
             className: "bt-mini bt-task-remove",
+            disabled: readOnly,
             "aria-label": t("Dismiss"),
             onClick: () => void actions.eventDeadLetterDismiss(d.id).then(publishEvents, (err) => actions.reportError?.(err, "events"))
           }, (0, import_react23.createElement)(TrashIcon))
@@ -25713,12 +25816,11 @@ function SubscriptionsTab({ roster, actions }) {
     )
   );
 }
-function WatchSummary({ bot, actions }) {
-  const view = useEventsView(actions);
-  if (!view) return null;
-  const mine = (view.subscriptions ?? []).filter((s) => s.target?.botId === bot.id && s.enabled);
-  const myWatchers = (view.watchers ?? []).filter((w) => w.target?.botId === bot.id && w.enabled);
-  const total = mine.length + myWatchers.length;
+function WatchSummary({ bot, roster, actions }) {
+  const counts2 = roster?.eventsSummary?.byBot?.[bot.id];
+  const watchers = counts2?.watchers ?? 0;
+  const subscriptions = counts2?.subscriptions ?? 0;
+  const total = watchers + subscriptions;
   if (total === 0) return null;
   return (0, import_react23.createElement)(
     "div",
@@ -25727,12 +25829,16 @@ function WatchSummary({ bot, actions }) {
     (0, import_react23.createElement)(
       "div",
       { className: "bt-task-list" },
-      [...myWatchers.map((w) => ({ id: w.id, title: w.name, sub: w.kind })), ...mine.map((s) => ({ id: s.id, title: s.name || s.match?.threadKey || s.id, sub: s.mode }))].slice(0, 3).map((item) => (0, import_react23.createElement)("button", {
-        key: item.id,
+      watchers > 0 ? (0, import_react23.createElement)("button", {
         type: "button",
         className: "bt-task-line",
         onClick: () => actions.openSettings("schedules", "watchers")
-      }, (0, import_react23.createElement)("span", { className: "bt-task-line-title" }, item.title), (0, import_react23.createElement)("span", { className: "bt-task-line-when" }, item.sub)))
+      }, (0, import_react23.createElement)("span", { className: "bt-task-line-title" }, t("Event watchers")), (0, import_react23.createElement)("span", { className: "bt-task-line-when" }, String(watchers))) : null,
+      subscriptions > 0 ? (0, import_react23.createElement)("button", {
+        type: "button",
+        className: "bt-task-line",
+        onClick: () => actions.openSettings("schedules", "subscriptions")
+      }, (0, import_react23.createElement)("span", { className: "bt-task-line-title" }, t("Subscriptions")), (0, import_react23.createElement)("span", { className: "bt-task-line-when" }, String(subscriptions))) : null
     )
   );
 }
@@ -25742,6 +25848,7 @@ var EVENTS_CSS = `
 .bt-ev-row[data-paused]{opacity:.68}
 .bt-ev-title{display:inline-flex;align-items:center;flex-wrap:wrap;gap:6px;font-size:13px;line-height:18px;font-weight:500;overflow-wrap:anywhere}
 .bt-ev-actions{display:flex;align-items:center;gap:6px;flex:none}
+.bt-ev-danger[data-confirm]{color:var(--bt-danger);background:var(--bt-danger-soft)}
 .bt-ev-mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;overflow-wrap:anywhere}
 .bt-ev-token-box{background:var(--bt-hover)}
 .bt-ev-token-form{gap:8px}
@@ -30299,6 +30406,13 @@ function chatRow(row, key, { sessionId, selfId, roster, actions, useUi, onBtwDel
     }
     case "event": {
       if (row.role === "report") return (0, import_react35.createElement)(GroupEvent, { key, prefix: t("Replies from"), room: roster.roomsById[row.roomId], name: t("a group chat"), roster, actions });
+      if (row.role === "event") {
+        const label = row.name || row.sourceKind || t("Event");
+        return (0, import_react35.createElement)("div", { key, className: "bt-event" }, row.text ? `${label}: ${row.text}` : label);
+      }
+      if (row.role === "schedule") {
+        return (0, import_react35.createElement)("div", { key, className: "bt-event" }, row.text ? t("Scheduled task: {text}", { text: row.text }) : t("Routine started"));
+      }
       const other = roster.byId[row.botId] ?? { id: row.botId, name: row.name ?? t("a Bot"), color: "gray" };
       const prefix = { stopped: t("Stopped by"), reply: t("Reply from") }[row.role] ?? t("Message from");
       return (0, import_react35.createElement)(EventLine, { key, prefix, bots: [other], onOpen: () => {
@@ -30367,6 +30481,11 @@ function TriggerCell({ node, sessionId, useRoster, useSessions, useTurnClock, us
       }
       if (source.role === "report") {
         return (0, import_react35.createElement)(GroupEvent, { prefix: t("Replies from"), room: roster.roomsById[source.roomId], name: t("a group chat"), roster, actions });
+      }
+      if (source.role === "event") {
+        const label = source.sourceName || source.sourceKind || t("Event");
+        const summary = source.summary || contentText(data.content).split("\n")[0]?.slice(0, 120) || "";
+        return (0, import_react35.createElement)("div", { className: "bt-event" }, summary ? `${label}: ${summary}` : label);
       }
       if (source.role === "resume" || source.resumed === true) return (0, import_react35.createElement)("div", { className: "bt-event" }, t("Picked up its work after a restart"));
       if (source.role === "retry" || source.retried === true) return (0, import_react35.createElement)("div", { className: "bt-event" }, t("Asked to make the tool call it wrote as text"));
@@ -31100,14 +31219,14 @@ var fmtTime2 = (ms) => {
   if (!Number.isFinite(ms) || ms <= 0) return "";
   return new Intl.DateTimeFormat(dateLocale(), { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }).format(ms);
 };
-function InboxButton({ roster, actions, wide }) {
+function InboxButton({ roster, actions }) {
   const count = roster.inbox?.count ?? 0;
   const label = count > 0 ? t("Inbox ({count})", { count }) : t("Inbox");
   return (0, import_react37.createElement)(
     "button",
     {
       type: "button",
-      className: wide ? "bt-round bt-inbox-btn" : "bt-round bt-inbox-btn",
+      className: "bt-round bt-inbox-btn",
       "data-has-items": count > 0 || void 0,
       "aria-label": label,
       title: label,
@@ -31122,15 +31241,24 @@ function InboxDialog({ roster, actions, leaving }) {
   const [tab, setTab] = (0, import_react37.useState)("all");
   const close = () => actions.closeInbox?.();
   useEscape(close);
+  const readOnly = Boolean(roster.readOnly);
   const inbox = roster.inbox ?? { count: 0, counts: { review: 0, question: 0, alert: 0 }, items: [] };
   const items = tab === "all" ? inbox.items : inbox.items.filter((item) => item.category === tab);
+  const canOpen = (item) => Boolean(
+    item.roomId || item.botId || item.kind === "watcher_paused" || item.kind === "subscription_paused" || item.kind === "dead_letter"
+  );
   const openItem = (item) => {
     close();
-    if (item.roomId) actions.openSession?.(item.roomId);
-    else if (item.botId) actions.openSession?.(item.botId);
-    else if (item.kind === "watcher_paused" || item.kind === "subscription_paused" || item.kind === "dead_letter") {
+    if (item.kind === "watcher_paused" || item.kind === "subscription_paused" || item.kind === "dead_letter") {
       actions.openSettings?.("schedules", item.kind === "watcher_paused" ? "watchers" : "subscriptions");
+    } else if (item.roomId) {
+      actions.openSession?.(item.roomId);
+    } else if (item.botId) {
+      actions.openSession?.(item.botId);
     }
+  };
+  const runAction = (promise) => {
+    void Promise.resolve(promise).catch((err) => actions.reportError?.(err, "inbox"));
   };
   return (0, import_react37.createElement)(
     "div",
@@ -31174,11 +31302,11 @@ function InboxDialog({ roster, actions, leaving }) {
           (0, import_react37.createElement)(
             "div",
             { className: "bt-ev-actions" },
-            item.kind === "watcher_paused" && item.watcherId ? (0, import_react37.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => void actions.watcherToggle?.(item.watcherId, true) }, t("Resume")) : null,
-            item.kind === "subscription_paused" && item.subId ? (0, import_react37.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => void actions.subscriptionToggle?.(item.subId, true) }, t("Resume")) : null,
-            item.kind === "dead_letter" && item.deadLetterId ? (0, import_react37.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => void actions.eventDeadLetterReplay?.(item.deadLetterId) }, t("Replay")) : null,
-            item.kind === "stalled_turn" ? (0, import_react37.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => void actions.eventAlertDismiss?.(item.id) }, t("Dismiss")) : null,
-            item.botId || item.roomId ? (0, import_react37.createElement)("button", { type: "button", className: "bt-send bt-soft-sm", onClick: () => openItem(item) }, t("Open")) : null
+            item.kind === "watcher_paused" && item.watcherId ? (0, import_react37.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: readOnly, onClick: () => runAction(actions.watcherToggle?.(item.watcherId, true)) }, t("Resume")) : null,
+            item.kind === "subscription_paused" && item.subId ? (0, import_react37.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: readOnly, onClick: () => runAction(actions.subscriptionToggle?.(item.subId, true)) }, t("Resume")) : null,
+            item.kind === "dead_letter" && item.deadLetterId ? (0, import_react37.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: readOnly, onClick: () => runAction(actions.eventDeadLetterReplay?.(item.deadLetterId)) }, t("Replay")) : null,
+            item.kind === "stalled_turn" ? (0, import_react37.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: readOnly, onClick: () => runAction(actions.eventAlertDismiss?.(item.id)) }, t("Dismiss")) : null,
+            canOpen(item) ? (0, import_react37.createElement)("button", { type: "button", className: "bt-send bt-soft-sm", onClick: () => openItem(item) }, t("Open")) : null
           )
         )))
       )
@@ -43843,7 +43971,7 @@ function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, roster, a
           (0, import_react70.createElement)("div", { className: "bt-kv" }, (0, import_react70.createElement)("span", null, bot.name), (0, import_react70.createElement)("span", null, usage))
         ) : null,
         (0, import_react70.createElement)(ScheduleSummary, { key: "routines", bot, actions }),
-        (0, import_react70.createElement)(WatchSummary, { key: "watches", bot, actions })
+        (0, import_react70.createElement)(WatchSummary, { key: "watches", bot, roster, actions })
       ] : null,
       bot && tab === "browser" ? (0, import_react70.createElement)(BrowserCards, { bot, sessionId, roster, actions, useBrowserTabs, useBrowserPages }) : null
     )

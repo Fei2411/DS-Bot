@@ -79,14 +79,15 @@ export function createWatchdog(rt, { eventLedger, router, watchers, onPublish } 
     // 1. Flush any deferred quiet-hour deliveries whose quiet window just ended.
     await router.flushDeferred(nowMs)
 
-    // 2. Detect stalled turns / background tasks with no active approval and no running jobs.
+    // 2. Detect stalled turns / background tasks with no active approval, running jobs, or subagents.
     const threshold = stallThresholdMs()
     const pendingApprovals = new Set((rt.approvalsView?.() ?? []).map(a => a.sessionId))
     for (const [sessionId, liveEntry] of (rt.live?.entries?.() ?? [])) {
       if (liveEntry?.turn === undefined) continue
       if (pendingApprovals.has(sessionId)) continue
       if ((rt.runningJobs?.(sessionId)?.length ?? 0) > 0) continue
-      const lastAt = lastActivityAt.get(sessionId) ?? liveEntry.startedAt ?? nowMs
+      if (rt.hasSubagents?.(sessionId) === true) continue
+      const lastAt = lastActivityAt.get(sessionId) ?? liveEntry.since ?? liveEntry.startedAt ?? nowMs
       if (nowMs - lastAt < threshold) continue
 
       const botId = rt.selfOf?.(sessionId) ?? rt.chatOwners?.get(sessionId)

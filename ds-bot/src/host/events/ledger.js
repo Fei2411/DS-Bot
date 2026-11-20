@@ -7,12 +7,17 @@ import { join } from 'node:path'
 
 const DEFAULT_RETENTION_DAYS = 30
 const DEDUPE_CACHE_MAX = 4000
-const MONTH_MS = 32 * 86_400_000
 
 const newEventId = () => `ev_${randomBytes(6).toString('hex')}`
 const monthKey = (ms = Date.now()) => {
   const date = new Date(ms)
   return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}`
+}
+// Exact calendar previous month (avoids 32-day subtraction skipping February on March 1-4).
+export const prevMonthKey = (ms = Date.now()) => {
+  const date = new Date(ms)
+  const prev = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() - 1, 1))
+  return `${prev.getUTCFullYear()}-${String(prev.getUTCMonth() + 1).padStart(2, '0')}`
 }
 const sharedBook = month => `events-${month}`
 const privateBook = (botId, month) => `events-priv-${botId}-${month}`
@@ -38,7 +43,7 @@ export function createEventLedger(rt) {
   const warmed = new Set()
 
   const scopeOf = privateBotId => (privateBotId ? `priv:${privateBotId}` : 'shared')
-  const cacheOf = (privateBotId) => {
+  const cacheOf = (privateBotId, nowMs = Date.now()) => {
     const scope = scopeOf(privateBotId)
     let set = dedupeCache.get(scope)
     if (set === undefined) {
@@ -47,9 +52,8 @@ export function createEventLedger(rt) {
     }
     if (!warmed.has(scope)) {
       warmed.add(scope)
-      // Warm current and previous month so restart catch-up never redelivers recent events.
-      const now = Date.now()
-      const months = [...new Set([monthKey(now), monthKey(now - MONTH_MS)])]
+      // Warm current and exact previous calendar month so restart catch-up never redelivers.
+      const months = [...new Set([monthKey(nowMs), prevMonthKey(nowMs)])]
       for (const month of months) {
         const book = privateBotId ? privateBook(privateBotId, month) : sharedBook(month)
         for (const record of rt.ledger.records(book)) {
@@ -66,9 +70,9 @@ export function createEventLedger(rt) {
     return set
   }
 
-  const rememberDedupe = (privateBotId, dedupeKey) => {
+  const rememberDedupe = (privateBotId, dedupeKey, nowMs) => {
     if (typeof dedupeKey !== 'string' || dedupeKey === '') return
-    const set = cacheOf(privateBotId)
+    const set = cacheOf(privateBotId, nowMs)
     set.add(dedupeKey)
     if (set.size > DEDUPE_CACHE_MAX) {
       const oldest = set.values().next().value
@@ -76,9 +80,9 @@ export function createEventLedger(rt) {
     }
   }
 
-  function hasDedupeKey(dedupeKey, { privateBotId } = {}) {
+  function hasDedupeKey(dedupeKey, { privateBotId, nowMs } = {}) {
     if (typeof dedupeKey !== 'string' || dedupeKey === '') return false
-    return cacheOf(privateBotId).has(dedupeKey)
+    return cacheOf(privateBotId, nowMs).has(dedupeKey)
   }
 
   async function recordEvent(input, { privateBotId } = {}) {
@@ -104,7 +108,7 @@ export function createEventLedger(rt) {
     }
     rt.ledger.append(book, record)
     await rt.ledger.written(book)
-    rememberDedupe(privateBotId, record.dedupeKey)
+    rememberDedupe(privateBotId, record.dedupeKey, time)
     return record
   }
 
@@ -152,7 +156,7 @@ export function createEventLedger(rt) {
     const items = []
     for (const ev of eventsById.values()) {
       if (sourceId && ev.source?.id !== sourceId) continue
-      const decisions = decisionsByEvent.get(ev.id) ?? []
+      const decisions = (decisionsByEvent.get(ev.id) ?? []).sort((a, b) => (a.time ?? 0) - (b.time ?? 0))
       if (botId && !decisions.some(d => d.target?.botId === botId) && ev.privateBotId !== botId) continue
       if (roomId && !decisions.some(d => d.target?.roomId === roomId)) continue
       if (outcome && !decisions.some(d => d.outcome === outcome)) continue
@@ -162,19 +166,34 @@ export function createEventLedger(rt) {
     return items.slice(0, Math.max(1, Math.min(500, limit)))
   }
 
-  // Enforces private-Bot isolation: a Bot can read shared events and its own private events,
-  // never another private Bot's events.
+  // Enforces private-Bot isolation and aggregates cross-month decisions (e.g. replays or
+  // quiet-hour flushes that happened in the following month).
   function getEvent(eventId, { callerBotId, isUser = false } = {}) {
     const books = collectBooks({ includePrivate: isUser, callerBotId })
+    let found
     for (const book of books) {
-      const records = rt.ledger.records(book)
-      const found = records.find(r => r.recordKind === 'event' && r.id === eventId)
-      if (found === undefined) continue
-      if (!isUser && found.privateBotId && found.privateBotId !== callerBotId) return undefined
-      const decisions = records.filter(r => r.recordKind === 'decision' && r.eventId === eventId)
-      return { ...found, decisions }
+      const match = rt.ledger.records(book).find(r => r.recordKind === 'event' && r.id === eventId)
+      if (match !== undefined) {
+        found = match
+        break
+      }
     }
-    return undefined
+    if (found === undefined) return undefined
+    if (!isUser && found.privateBotId && found.privateBotId !== callerBotId) return undefined
+
+    const eventMonth = monthKey(found.time)
+    const scopePrefix = found.privateBotId ? `events-priv-${found.privateBotId}-` : 'events-20'
+    const decisions = []
+    for (const book of books) {
+      if (!book.startsWith(scopePrefix)) continue
+      const m = /(\d{4}-\d{2})$/.exec(book)
+      if (m && m[1] < eventMonth) continue
+      for (const record of rt.ledger.records(book)) {
+        if (record.recordKind === 'decision' && record.eventId === eventId) decisions.push(record)
+      }
+    }
+    decisions.sort((a, b) => (a.time ?? 0) - (b.time ?? 0))
+    return { ...found, decisions }
   }
 
   function pruneOldBooks(retentionDays = DEFAULT_RETENTION_DAYS) {

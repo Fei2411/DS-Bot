@@ -18,12 +18,12 @@ const fmtTime = (ms) => {
   return new Intl.DateTimeFormat(dateLocale(), { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(ms)
 }
 
-export function InboxButton({ roster, actions, wide }) {
+export function InboxButton({ roster, actions }) {
   const count = roster.inbox?.count ?? 0
   const label = count > 0 ? t('Inbox ({count})', { count }) : t('Inbox')
   return h('button', {
     type: 'button',
-    className: wide ? 'bt-round bt-inbox-btn' : 'bt-round bt-inbox-btn',
+    className: 'bt-round bt-inbox-btn',
     'data-has-items': count > 0 || undefined,
     'aria-label': label,
     title: label,
@@ -40,16 +40,31 @@ export function InboxDialog({ roster, actions, leaving }) {
   const close = () => actions.closeInbox?.()
   useEscape(close)
 
+  const readOnly = Boolean(roster.readOnly)
   const inbox = roster.inbox ?? { count: 0, counts: { review: 0, question: 0, alert: 0 }, items: [] }
   const items = tab === 'all' ? inbox.items : inbox.items.filter(item => item.category === tab)
 
+  const canOpen = item => Boolean(
+    item.roomId
+    || item.botId
+    || item.kind === 'watcher_paused'
+    || item.kind === 'subscription_paused'
+    || item.kind === 'dead_letter',
+  )
+
   const openItem = (item) => {
     close()
-    if (item.roomId) actions.openSession?.(item.roomId)
-    else if (item.botId) actions.openSession?.(item.botId)
-    else if (item.kind === 'watcher_paused' || item.kind === 'subscription_paused' || item.kind === 'dead_letter') {
+    if (item.kind === 'watcher_paused' || item.kind === 'subscription_paused' || item.kind === 'dead_letter') {
       actions.openSettings?.('schedules', item.kind === 'watcher_paused' ? 'watchers' : 'subscriptions')
+    } else if (item.roomId) {
+      actions.openSession?.(item.roomId)
+    } else if (item.botId) {
+      actions.openSession?.(item.botId)
     }
+  }
+
+  const runAction = (promise) => {
+    void Promise.resolve(promise).catch(err => actions.reportError?.(err, 'inbox'))
   }
 
   return h('div', { className: 'bt-settings-layer', 'data-leaving': leaving || undefined },
@@ -75,14 +90,14 @@ export function InboxDialog({ roster, actions, leaving }) {
                 item.time ? h('span', { className: 'bt-set-hint' }, fmtTime(item.time)) : null),
               h('div', { className: 'bt-ev-actions' },
                 item.kind === 'watcher_paused' && item.watcherId
-                  ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => void actions.watcherToggle?.(item.watcherId, true) }, t('Resume')) : null,
+                  ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: readOnly, onClick: () => runAction(actions.watcherToggle?.(item.watcherId, true)) }, t('Resume')) : null,
                 item.kind === 'subscription_paused' && item.subId
-                  ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => void actions.subscriptionToggle?.(item.subId, true) }, t('Resume')) : null,
+                  ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: readOnly, onClick: () => runAction(actions.subscriptionToggle?.(item.subId, true)) }, t('Resume')) : null,
                 item.kind === 'dead_letter' && item.deadLetterId
-                  ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => void actions.eventDeadLetterReplay?.(item.deadLetterId) }, t('Replay')) : null,
+                  ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: readOnly, onClick: () => runAction(actions.eventDeadLetterReplay?.(item.deadLetterId)) }, t('Replay')) : null,
                 item.kind === 'stalled_turn'
-                  ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => void actions.eventAlertDismiss?.(item.id) }, t('Dismiss')) : null,
-                (item.botId || item.roomId)
+                  ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: readOnly, onClick: () => runAction(actions.eventAlertDismiss?.(item.id)) }, t('Dismiss')) : null,
+                canOpen(item)
                   ? h('button', { type: 'button', className: 'bt-send bt-soft-sm', onClick: () => openItem(item) }, t('Open')) : null)))))))
 }
 

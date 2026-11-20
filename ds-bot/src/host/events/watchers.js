@@ -1,10 +1,13 @@
 // Mechanical Watchers: zero-token polling and folder watchers run only by the host that
 // holds state.lock. Supports github (ETag 304), mail, folder, https/rss, and user-only
-// local command probes. Built-in guardrails: first-run baseline (never floods old items),
-// self-trigger filtering, consecutive-error/401 auto-pause, and private-Bot isolation.
+// local command probes. Built-in guardrails: first-run baseline, self-trigger filtering,
+// DNS/redirect/IPv6 SSRF defense + bounded body reads, private-Bot folder fencing,
+// atomic commit-after-intake checkpoints, and consecutive-error/401 auto-pause.
 import { createHash, randomBytes } from 'node:crypto'
 import { execFile } from 'node:child_process'
+import { lookup as dnsLookup } from 'node:dns/promises'
 import { mkdirSync, readdirSync, readFileSync, renameSync, statSync, unlinkSync, watch as fsWatch, writeFileSync } from 'node:fs'
+import { isIP } from 'node:net'
 import { join, resolve } from 'node:path'
 
 const WATCHER_KINDS = new Set(['github', 'mail', 'folder', 'http', 'command'])
@@ -12,6 +15,8 @@ const MIN_INTERVAL_SEC = 15
 const DEFAULT_INTERVALS = { github: 60, mail: 60, folder: 30, http: 300, command: 60 }
 const MAX_CONSECUTIVE_ERRORS = 5
 const FETCH_TIMEOUT_MS = 15_000
+const MAX_REDIRECTS = 5
+const MAX_HTTP_BODY_BYTES = 1024 * 1024
 const COMMAND_TIMEOUT_MS = 15_000
 const COMMAND_MAX_BUFFER = 64 * 1024
 const FOLDER_DEBOUNCE_MS = 1500
@@ -32,15 +37,114 @@ function writeJsonAtomic(path, data) {
   renameSync(temp, path)
 }
 
-function isDisallowedHttpUrl(raw) {
+function isPrivateIpv4(ip) {
+  const parts = ip.split('.').map(Number)
+  if (parts.length !== 4 || parts.some(n => !Number.isInteger(n) || n < 0 || n > 255)) return true
+  const [a, b] = parts
+  if (a === 0 || a === 10 || a === 127) return true
+  if (a === 100 && b >= 64 && b <= 127) return true // CGNAT 100.64.0.0/10
+  if (a === 169 && b === 254) return true // link-local / cloud metadata
+  if (a === 172 && b >= 16 && b <= 31) return true
+  if (a === 192 && b === 168) return true
+  if (a === 198 && (b === 18 || b === 19)) return true
+  if (a >= 224) return true // multicast / reserved
+  return false
+}
+
+export function isPrivateIp(rawIp) {
+  const ip = String(rawIp ?? '').replace(/^\[|\]$/g, '').split('%')[0].toLowerCase()
+  const kind = isIP(ip)
+  if (kind === 4) return isPrivateIpv4(ip)
+  if (kind === 6) {
+    if (ip === '::' || ip === '::1') return true
+    if (ip.startsWith('fc') || ip.startsWith('fd')) return true // ULA fc00::/7
+    if (/^fe[89ab]/.test(ip)) return true // link-local fe80::/10
+    if (ip.startsWith('ff')) return true // multicast
+    // IPv4-mapped IPv6 in dotted form (::ffff:127.0.0.1) or hex form (::ffff:7f00:1)
+    if (ip.startsWith('::ffff:')) {
+      const rest = ip.slice('::ffff:'.length)
+      if (isIP(rest) === 4) return isPrivateIpv4(rest)
+      const hex = /^([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(rest)
+      if (hex) {
+        const hi = Number.parseInt(hex[1], 16)
+        const lo = Number.parseInt(hex[2], 16)
+        return isPrivateIpv4(`${hi >> 8}.${hi & 255}.${lo >> 8}.${lo & 255}`)
+      }
+      return true
+    }
+    return false
+  }
+  return true
+}
+
+export function checkHttpUrlSyntax(raw) {
   let parsed
   try { parsed = new URL(String(raw ?? '')) } catch { return 'Enter a valid https:// URL' }
   if (parsed.protocol !== 'https:') return 'HTTP watchers only allow https:// URLs'
-  const host = parsed.hostname.toLowerCase()
-  if (host === 'localhost' || host === '::1' || host === '[::1]' || host.startsWith('127.') || host.startsWith('169.254.') || host.startsWith('10.') || host.startsWith('192.168.') || /^172\.(1[6-9]|2\d|3[01])\./.test(host)) {
+  const host = parsed.hostname.toLowerCase().replace(/^\[|\]$/g, '')
+  if (host === '' || host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local')) {
+    return 'HTTP watchers cannot target loopback or private network addresses'
+  }
+  if (isIP(host) !== 0 && isPrivateIp(host)) {
     return 'HTTP watchers cannot target loopback or private network addresses'
   }
   return null
+}
+
+async function assertSafePublicUrl(raw, { lookup = dnsLookup, skipDns = false } = {}) {
+  const syntaxErr = checkHttpUrlSyntax(raw)
+  if (syntaxErr) throw invalid(syntaxErr)
+  if (skipDns) return new URL(raw)
+  const parsed = new URL(raw)
+  const host = parsed.hostname.toLowerCase().replace(/^\[|\]$/g, '')
+  if (isIP(host) !== 0) {
+    if (isPrivateIp(host)) throw invalid('HTTP watchers cannot target loopback or private network addresses')
+    return parsed
+  }
+  let records
+  try {
+    records = await lookup(host, { all: true })
+  } catch {
+    throw new Error(`Could not resolve host ${host}`)
+  }
+  if (!Array.isArray(records) || records.length === 0) throw new Error(`Could not resolve host ${host}`)
+  for (const rec of records) {
+    if (isPrivateIp(rec.address)) {
+      throw invalid('HTTP watchers cannot target loopback or private network addresses')
+    }
+  }
+  return parsed
+}
+
+async function readBoundedText(res, maxBytes = MAX_HTTP_BODY_BYTES) {
+  const lenHeader = Number(res.headers?.get?.('content-length'))
+  if (Number.isFinite(lenHeader) && lenHeader > maxBytes) {
+    await res.body?.cancel?.().catch(() => {})
+    throw new Error(`HTTP response exceeds ${maxBytes} bytes limit`)
+  }
+  if (!res.body?.getReader) {
+    const text = await res.text()
+    if (Buffer.byteLength(text, 'utf8') > maxBytes) throw new Error(`HTTP response exceeds ${maxBytes} bytes limit`)
+    return text
+  }
+  const reader = res.body.getReader()
+  const chunks = []
+  let total = 0
+  try {
+    for (;;) {
+      const { value, done } = await reader.read()
+      if (done) break
+      total += value.byteLength
+      if (total > maxBytes) {
+        await reader.cancel().catch(() => {})
+        throw new Error(`HTTP response exceeds ${maxBytes} bytes limit`)
+      }
+      chunks.push(value)
+    }
+  } finally {
+    reader.releaseLock?.()
+  }
+  return Buffer.concat(chunks.map(c => Buffer.from(c))).toString('utf8')
 }
 
 // Lightweight RSS / Atom item extractor without third-party XML dependencies.
@@ -76,7 +180,6 @@ function scanFolderSnapshot(dir) {
     const full = join(dir, entry.name)
     try {
       const st = statSync(full)
-      // Hash small text files directly; fall back to size+mtime for large binaries.
       if (st.size <= 256 * 1024) {
         snapshot[entry.name] = sha256(readFileSync(full))
       } else {
@@ -109,6 +212,7 @@ export function createWatchers(rt, { onEvent, onAlert } = {}) {
     etag: null,
     lastModified: null,
     lastHash: null,
+    changeSeq: 0,
     seenIds: [],
     snapshot: null,
     selfActor: null,
@@ -152,7 +256,7 @@ export function createWatchers(rt, { onEvent, onAlert } = {}) {
     throw invalid(`Unsupported watcher target: ${target.kind}`)
   }
 
-  function validateKindConfig(kind, config, { isUser }) {
+  async function validateKindConfig(kind, config, { isUser, callerBotId }) {
     const cfg = config && typeof config === 'object' ? { ...config } : {}
     if (kind === 'command' && !isUser) {
       throw invalid('Only the user can create or change local command watchers')
@@ -176,12 +280,25 @@ export function createWatchers(rt, { onEvent, onAlert } = {}) {
     if (kind === 'folder') {
       const path = String(cfg.path ?? '').trim()
       if (path === '') throw invalid('Folder watcher needs a folder path')
-      return { path: resolve(path) }
+      const resolvedPath = resolve(path)
+      if (!isUser && rt.pathClosedForBot) {
+        const closed = await rt.pathClosedForBot(resolvedPath, callerBotId, { search: true })
+        if (closed) throw invalid(`Cannot watch ${resolvedPath}: it overlaps private or protected data (${closed.name})`)
+      }
+      return { path: resolvedPath }
     }
     if (kind === 'http') {
       const url = String(cfg.url ?? '').trim()
-      const err = rt.config.events?.allowInsecureHttp ? null : isDisallowedHttpUrl(url)
-      if (err) throw invalid(err)
+      if (!rt.config.events?.allowInsecureHttp) {
+        try {
+          await assertSafePublicUrl(url, { lookup: lookupImpl() })
+        } catch (error) {
+          // Reject all invalid syntax and private/loopback DNS targets immediately at save time;
+          // allow saving a syntactically valid public hostname if offline DNS fails (it will still
+          // be re-validated on every fetch hop before any network call).
+          if (error?.code === 'bot/invalid') throw error
+        }
+      }
       return { url, format: cfg.format === 'rss' ? 'rss' : cfg.format === 'json' ? 'json' : 'auto' }
     }
     if (kind === 'command') {
@@ -196,7 +313,7 @@ export function createWatchers(rt, { onEvent, onAlert } = {}) {
     throw invalid(`Unsupported watcher kind: ${kind}`)
   }
 
-  function saveWatcher(input, { isUser = false, callerBotId } = {}) {
+  async function saveWatcher(input, { isUser = false, callerBotId } = {}) {
     if (!writes()) throw invalid('Team is read-only in this window')
     const kind = String(input.kind ?? '').trim()
     if (!WATCHER_KINDS.has(kind)) throw invalid(`Unsupported watcher kind: ${kind}`)
@@ -211,7 +328,7 @@ export function createWatchers(rt, { onEvent, onAlert } = {}) {
     }
     const name = String(input.name ?? existing?.name ?? '').trim().slice(0, 100)
     if (name === '') throw invalid('Give the watcher a name')
-    const config = validateKindConfig(kind, input.config ?? existing?.config, { isUser })
+    const config = await validateKindConfig(kind, input.config ?? existing?.config, { isUser, callerBotId })
     const rawInterval = Number(input.intervalSec ?? existing?.intervalSec ?? DEFAULT_INTERVALS[kind])
     const intervalSec = Math.max(MIN_INTERVAL_SEC, Math.min(86400, Number.isFinite(rawInterval) ? Math.round(rawInterval) : DEFAULT_INTERVALS[kind]))
     const now = Date.now()
@@ -271,11 +388,14 @@ export function createWatchers(rt, { onEvent, onAlert } = {}) {
     return true
   }
 
-  // --- Probe implementations -------------------------------------------
+  // --- Probe implementations (mutate only a cloned candidate state) ------
 
   const fetchImpl = () => rt.config.events?.fetch ?? globalThis.fetch
+  const lookupImpl = () => rt.config.events?.lookup ?? dnsLookup
 
   async function probeGithub(watcher, rtState) {
+    await rt.loadSecrets?.()
+    if (rt.secretStoreStatus?.().locked === true) return { events: [], skippedLocked: true }
     const token = rt.secretValue?.('GITHUB_TOKEN') ?? rt.config.events?.githubToken
     if (!token) throw Object.assign(new Error('GitHub is not signed in'), { authFailed: true })
     const apiBase = (rt.config.github?.api ?? 'https://api.github.com').replace(/\/$/, '')
@@ -287,7 +407,6 @@ export function createWatchers(rt, { onEvent, onAlert } = {}) {
     }
     if (rtState.etag) headers['If-None-Match'] = rtState.etag
 
-    // Resolve self login once so bot/user's own comments never cause a self-trigger loop.
     if (!rtState.selfActor && rt.config.events?.githubSelfLogin !== undefined) {
       rtState.selfActor = rt.config.events.githubSelfLogin
     } else if (!rtState.selfActor) {
@@ -318,7 +437,6 @@ export function createWatchers(rt, { onEvent, onAlert } = {}) {
     const seen = new Set(rtState.seenIds ?? [])
     const emitted = []
 
-    // Process oldest to newest so timeline order matches reality.
     for (const item of [...raw].reverse()) {
       const id = String(item?.id ?? '')
       if (!id || seen.has(id)) continue
@@ -341,7 +459,8 @@ export function createWatchers(rt, { onEvent, onAlert } = {}) {
         threadKey,
         entityKey: threadKey,
         eventType: `github.${item.type}`,
-        dedupeKey: `github:${watcher.config.repo}:${id}`,
+        // Scoped by watcher.id so two watchers on the same repo never suppress each other.
+        dedupeKey: `github:${watcher.id}:${watcher.config.repo}:${id}`,
         summary: `${item.actor?.login ?? 'someone'} · ${item.type}${num !== undefined ? ` #${num}` : ''}: ${title}`,
         body,
         meta: { repo: watcher.config.repo, number: num, url },
@@ -353,23 +472,52 @@ export function createWatchers(rt, { onEvent, onAlert } = {}) {
     return { events: emitted, changed: emitted.length > 0 }
   }
 
+  async function fetchSafeHttp(initialUrl, headers) {
+    const skipDns = rt.config.events?.allowInsecureHttp === true || (rt.config.events?.fetch !== undefined && rt.config.events?.lookup === undefined)
+    let current = initialUrl
+    for (let hop = 0; hop <= MAX_REDIRECTS; hop += 1) {
+      if (!rt.config.events?.allowInsecureHttp) {
+        await assertSafePublicUrl(current, { lookup: lookupImpl(), skipDns })
+      }
+      const res = await fetchImpl()(current, {
+        headers,
+        redirect: 'manual',
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      })
+      if (res.status >= 300 && res.status < 400 && res.status !== 304) {
+        const location = res.headers?.get?.('location')
+        await res.body?.cancel?.().catch(() => {})
+        if (!location) throw new Error(`HTTP redirect (${res.status}) missing Location header`)
+        if (hop === MAX_REDIRECTS) throw new Error('HTTP watcher exceeded redirect limit')
+        current = new URL(location, current).toString()
+        continue
+      }
+      return res
+    }
+    throw new Error('HTTP watcher exceeded redirect limit')
+  }
+
   async function probeHttp(watcher, rtState) {
     const headers = { 'User-Agent': 'ds-bot' }
     if (rtState.etag) headers['If-None-Match'] = rtState.etag
     if (rtState.lastModified) headers['If-Modified-Since'] = rtState.lastModified
-    const res = await fetchImpl()(watcher.config.url, { headers, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) })
+    const res = await fetchSafeHttp(watcher.config.url, headers)
     if (res.status === 304) return { events: [], changed: false }
     if (res.status === 401 || res.status === 403) {
+      await res.body?.cancel?.().catch(() => {})
       throw Object.assign(new Error(`HTTP source refused access (${res.status})`), { authFailed: true })
     }
-    if (!res.ok) throw new Error(`HTTP source returned ${res.status}`)
+    if (!res.ok) {
+      await res.body?.cancel?.().catch(() => {})
+      throw new Error(`HTTP source returned ${res.status}`)
+    }
 
     const etag = res.headers.get('etag')
     const lastMod = res.headers.get('last-modified')
     if (etag) rtState.etag = etag
     if (lastMod) rtState.lastModified = lastMod
 
-    const text = await res.text()
+    const text = await readBoundedText(res, rt.config.events?.maxHttpBodyBytes ?? MAX_HTTP_BODY_BYTES)
     const hash = sha256(text)
     if (rtState.lastHash === hash) return { events: [], changed: false }
     rtState.lastHash = hash
@@ -396,13 +544,15 @@ export function createWatchers(rt, { onEvent, onAlert } = {}) {
       }
       rtState.seenIds = [...seen].slice(-200)
     } else if (rtState.baselined) {
+      // Transition sequence guarantees repeated states (A -> B -> A) still notify.
+      rtState.changeSeq = (rtState.changeSeq ?? 0) + 1
       emitted.push({
         source: { kind: 'http', id: watcher.id, name: watcher.name, actor: watcher.config.url, actorTrusted: false },
         trust: 'external',
         threadKey: `http:${watcher.id}`,
         entityKey: `http:${watcher.id}`,
         eventType: 'http.changed',
-        dedupeKey: `http:${watcher.id}:${hash.slice(0, 16)}`,
+        dedupeKey: `http:${watcher.id}:seq${rtState.changeSeq}:${hash.slice(0, 12)}`,
         summary: `Updated: ${watcher.name}`,
         body: text.slice(0, 8000),
         meta: { url: watcher.config.url, hash: hash.slice(0, 16) },
@@ -422,13 +572,14 @@ export function createWatchers(rt, { onEvent, onAlert } = {}) {
       for (const [file, hash] of Object.entries(current)) {
         if (prev[file] === hash) continue
         const kind = prev[file] === undefined ? 'folder.created' : 'folder.modified'
+        rtState.changeSeq = (rtState.changeSeq ?? 0) + 1
         emitted.push({
           source: { kind: 'folder', id: watcher.id, name: watcher.name, actor: 'filesystem', actorTrusted: false },
           trust: 'external',
           threadKey: `folder:${dirPath}`,
           entityKey: `folder:${join(dirPath, file)}`,
           eventType: kind,
-          dedupeKey: `folder:${watcher.id}:${file}:${hash.slice(0, 16)}`,
+          dedupeKey: `folder:${watcher.id}:${file}:seq${rtState.changeSeq}:${hash.slice(0, 12)}`,
           summary: `${kind === 'folder.created' ? 'New file' : 'File changed'}: ${file}`,
           body: `Path: ${join(dirPath, file)}`,
           meta: { dir: dirPath, file, path: join(dirPath, file) },
@@ -436,13 +587,14 @@ export function createWatchers(rt, { onEvent, onAlert } = {}) {
       }
       for (const file of Object.keys(prev)) {
         if (current[file] !== undefined) continue
+        rtState.changeSeq = (rtState.changeSeq ?? 0) + 1
         emitted.push({
           source: { kind: 'folder', id: watcher.id, name: watcher.name, actor: 'filesystem', actorTrusted: false },
           trust: 'external',
           threadKey: `folder:${dirPath}`,
           entityKey: `folder:${join(dirPath, file)}`,
           eventType: 'folder.deleted',
-          dedupeKey: `folder:${watcher.id}:${file}:deleted:${Date.now()}`,
+          dedupeKey: `folder:${watcher.id}:${file}:deleted:seq${rtState.changeSeq}`,
           summary: `File removed: ${file}`,
           body: `Path: ${join(dirPath, file)}`,
           meta: { dir: dirPath, file, path: join(dirPath, file) },
@@ -455,12 +607,13 @@ export function createWatchers(rt, { onEvent, onAlert } = {}) {
   }
 
   async function probeMail(watcher, rtState) {
-    // Uses injected mail fetcher in tests or host mail helper if connected.
     const listMail = rt.config.events?.listMail ?? rt.listMailForWatcher
     if (typeof listMail !== 'function') {
       throw new Error('Connect a mail account in Settings → Connectors first')
     }
-    const { accountAddress, messages } = await listMail(watcher.config)
+    const snapshot = await listMail(watcher.config)
+    if (snapshot?.locked === true) return { events: [], skippedLocked: true }
+    const { accountAddress, messages } = snapshot ?? {}
     const selfAddr = String(accountAddress ?? '').toLowerCase()
     const fromFilter = String(watcher.config.fromFilter ?? '').toLowerCase()
     const seen = new Set(rtState.seenIds ?? [])
@@ -509,6 +662,7 @@ export function createWatchers(rt, { onEvent, onAlert } = {}) {
     if (rtState.lastHash === hash) return { events: [], changed: false }
     const emitted = []
     if (rtState.baselined) {
+      rtState.changeSeq = (rtState.changeSeq ?? 0) + 1
       const rawBody = [result.stdout.trim(), result.stderr.trim()].filter(Boolean).join('\n---\n')
       const safeBody = rt.redactSecrets ? rt.redactSecrets(rawBody) : rawBody
       emitted.push({
@@ -517,7 +671,7 @@ export function createWatchers(rt, { onEvent, onAlert } = {}) {
         threadKey: `command:${watcher.id}`,
         entityKey: `command:${watcher.id}`,
         eventType: 'command.changed',
-        dedupeKey: `command:${watcher.id}:${hash.slice(0, 16)}`,
+        dedupeKey: `command:${watcher.id}:seq${rtState.changeSeq}:${hash.slice(0, 12)}`,
         summary: `${watcher.name} output changed (exit ${result.code})`,
         body: safeBody.slice(0, 8000),
         meta: { exitCode: result.code },
@@ -534,35 +688,43 @@ export function createWatchers(rt, { onEvent, onAlert } = {}) {
     if (!watcher) throw invalid('Unknown watcher')
     if (inFlight.has(id)) return { skipped: true }
     inFlight.add(id)
-    const rtState = readRuntime(id)
+    // Snapshot prior checkpoint so failed event intake never advances the saved cursor.
+    const prevState = readRuntime(id)
+    const nextState = structuredClone(prevState)
     try {
       let result
-      if (watcher.kind === 'github') result = await probeGithub(watcher, rtState)
-      else if (watcher.kind === 'http') result = await probeHttp(watcher, rtState)
-      else if (watcher.kind === 'folder') result = await probeFolder(watcher, rtState)
-      else if (watcher.kind === 'mail') result = await probeMail(watcher, rtState)
-      else if (watcher.kind === 'command') result = await probeCommand(watcher, rtState)
+      if (watcher.kind === 'github') result = await probeGithub(watcher, nextState)
+      else if (watcher.kind === 'http') result = await probeHttp(watcher, nextState)
+      else if (watcher.kind === 'folder') result = await probeFolder(watcher, nextState)
+      else if (watcher.kind === 'mail') result = await probeMail(watcher, nextState)
+      else if (watcher.kind === 'command') result = await probeCommand(watcher, nextState)
       else throw invalid(`Unsupported watcher kind: ${watcher.kind}`)
 
-      rtState.errorCount = 0
-      rtState.lastError = null
-      rtState.lastCheckedAt = Date.now()
-      saveRuntime(id, rtState)
+      if (result.skippedLocked) {
+        return { checked: false, skippedLocked: true, count: 0 }
+      }
 
       const privateBotId = isWatcherPrivate(watcher) ? watcher.target.botId : undefined
       for (const ev of result.events) {
         await onEvent?.(ev, { watcher, privateBotId })
       }
-      return { checked: true, count: result.events.length, baselined: rtState.baselined }
+
+      // Commit checkpoint only after every event in the batch is durably persisted.
+      nextState.errorCount = 0
+      nextState.lastError = null
+      nextState.lastCheckedAt = Date.now()
+      saveRuntime(id, nextState)
+      return { checked: true, count: result.events.length, baselined: nextState.baselined }
     } catch (error) {
       const msg = rt.redactSecrets ? rt.redactSecrets(error?.message ?? String(error)) : String(error?.message ?? error)
-      rtState.errorCount = (rtState.errorCount ?? 0) + 1
-      rtState.lastError = msg.slice(0, 300)
-      rtState.lastCheckedAt = Date.now()
-      if (error?.authFailed || rtState.errorCount >= MAX_CONSECUTIVE_ERRORS) {
+      // Preserve the previous checkpoint on error so unrecorded events are retried next run.
+      prevState.errorCount = (prevState.errorCount ?? 0) + 1
+      prevState.lastError = msg.slice(0, 300)
+      prevState.lastCheckedAt = Date.now()
+      if (error?.authFailed || prevState.errorCount >= MAX_CONSECUTIVE_ERRORS) {
         watcher.enabled = false
         watcher.updatedAt = Date.now()
-        rtState.pausedReason = error?.authFailed ? `Authentication required: ${rtState.lastError}` : `Paused after ${rtState.errorCount} consecutive errors: ${rtState.lastError}`
+        prevState.pausedReason = error?.authFailed ? `Authentication required: ${prevState.lastError}` : `Paused after ${prevState.errorCount} consecutive errors: ${prevState.lastError}`
         saveSources()
         unschedule(id)
         await onAlert?.({
@@ -571,12 +733,12 @@ export function createWatchers(rt, { onEvent, onAlert } = {}) {
           watcherName: watcher.name,
           sourceKind: watcher.kind,
           target: watcher.target,
-          reason: rtState.pausedReason,
+          reason: prevState.pausedReason,
           authFailed: Boolean(error?.authFailed),
         })
       }
-      saveRuntime(id, rtState)
-      return { checked: false, error: rtState.lastError, paused: !watcher.enabled }
+      saveRuntime(id, prevState)
+      return { checked: false, error: prevState.lastError, paused: !watcher.enabled }
     } finally {
       inFlight.delete(id)
     }
@@ -626,6 +788,8 @@ export function createWatchers(rt, { onEvent, onAlert } = {}) {
 
   function startAll() {
     if (!writes()) return
+    const loaded = readJson(sourcesPath, [])
+    if (Array.isArray(loaded)) sources = loaded
     for (const watcher of sources) reschedule(watcher)
   }
 

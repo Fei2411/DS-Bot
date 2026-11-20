@@ -90,7 +90,7 @@ test('GitHub watcher baselines first, honors ETag 304, filters self-triggers, an
   const env = setup({ fetch: fakeFetch, githubToken: 'ghp_test_token' })
   try {
     await env.rt.load()
-    const watcher = env.rt.eventWatchers.saveWatcher({
+    const watcher = await env.rt.eventWatchers.saveWatcher({
       name: 'Repo PRs',
       kind: 'github',
       target: { kind: 'bot', botId: 'w1' },
@@ -134,23 +134,24 @@ test('HTTP watcher rejects non-HTTPS/loopback URLs and parses RSS feed additions
       : '<rss><channel><item><guid>g2</guid><title>Fresh Release</title><link>https://example.com/2</link></item><item><guid>g1</guid><title>Old Post</title><link>https://example.com/1</link></item></channel></rss>'
     return new Response(xml, { status: 200, headers: { 'content-type': 'application/rss+xml' } })
   }
-  const env = setup({ fetch: fakeFetch })
+  const fakeLookup = async () => [{ address: '93.184.216.34', family: 4 }]
+  const env = setup({ fetch: fakeFetch, lookup: fakeLookup })
   try {
     await env.rt.load()
-    assert.throws(() => env.rt.eventWatchers.saveWatcher({
+    await assert.rejects(() => env.rt.eventWatchers.saveWatcher({
       name: 'Insecure',
       kind: 'http',
       target: { kind: 'bot', botId: 'w1' },
       config: { url: 'http://example.com/feed' },
     }, { isUser: true }), /https:\/\//)
-    assert.throws(() => env.rt.eventWatchers.saveWatcher({
+    await assert.rejects(() => env.rt.eventWatchers.saveWatcher({
       name: 'SSRF',
       kind: 'http',
       target: { kind: 'bot', botId: 'w1' },
       config: { url: 'https://127.0.0.1:8080/internal' },
     }, { isUser: true }), /loopback|private/)
 
-    const w = env.rt.eventWatchers.saveWatcher({
+    const w = await env.rt.eventWatchers.saveWatcher({
       name: 'Blog RSS',
       kind: 'http',
       target: { kind: 'bot', botId: 'w1' },
@@ -173,7 +174,7 @@ test('Folder watcher detects real file creation/changes and Bot tools cannot cre
   try {
     await env.rt.load()
     writeFileSync(join(env.watchDir, 'existing.txt'), 'before')
-    const w = env.rt.eventWatchers.saveWatcher({
+    const w = await env.rt.eventWatchers.saveWatcher({
       name: 'Inbox folder',
       kind: 'folder',
       target: { kind: 'bot', botId: 'w1' },
@@ -191,7 +192,7 @@ test('Folder watcher detects real file creation/changes and Bot tools cannot cre
     // Main Bot tool security boundaries: cannot create command watchers (blocked at schema & host layers) or touch private Bots.
     const manage = env.rt.teamTools.find(t => t.name === 'manage_watcher')
     await assert.rejects(() => manage.execute({ action: 'create', name: 'Backdoor', kind: 'command', bot_id: 'w1' }, { agent: { id: 'm1' } }), /INVALID_ARGS|must be one of/)
-    assert.throws(() => env.rt.eventWatchers.saveWatcher({
+    await assert.rejects(() => env.rt.eventWatchers.saveWatcher({
       name: 'Backdoor',
       kind: 'command',
       target: { kind: 'bot', botId: 'w1' },
@@ -201,7 +202,7 @@ test('Folder watcher detects real file creation/changes and Bot tools cannot cre
     await assert.rejects(() => manage.execute({ action: 'create', name: 'Spy', kind: 'github', bot_id: 'p1', repo: 'org/repo' }, { agent: { id: 'm1' } }), /private Bot/i)
 
     // User CAN create a local command watcher and run it.
-    const cw = env.rt.eventWatchers.saveWatcher({
+    const cw = await env.rt.eventWatchers.saveWatcher({
       name: 'Node version',
       kind: 'command',
       target: { kind: 'bot', botId: 'w1' },

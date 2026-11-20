@@ -273,13 +273,41 @@ test('Watchdog detects stalled turns, pauses orphan subscriptions, and surfaces 
     }, { isUser: true })
     delete env.rt.state.bots.w1
 
-    // Simulate a stalled turn on Chief that started 20 minutes ago with no activity.
+    // Simulate a stalled turn on Chief using the real turns.js field (`since`) with NO markProgress call,
+    // plus a second turn on p1 that has an active subagent (must NOT be flagged as stalled).
     const twentyMinAgo = Date.now() - 20 * 60_000
-    env.rt.live.set('m1', { turn: 3, startedAt: twentyMinAgo })
-    env.rt.eventWatchdog.markProgress('m1', twentyMinAgo)
+    env.rt.live.set('m1', { turn: 3, since: twentyMinAgo })
+    env.rt.live.set('p1', { turn: 1, since: twentyMinAgo })
+    const origHasSubagents = env.rt.hasSubagents
+    env.rt.hasSubagents = id => (id === 'p1' ? true : origHasSubagents?.(id) === true)
 
-    // Also add an open question so Inbox merges questions + watchdog alerts.
-    env.rt.state.questions.m1 = { id: 'q1', title: 'Deploy?', questions: [{ question: 'Ship v0.4.0?' }], time: Date.now() }
+    // Use real DS Bot state shapes: questions (`question`, `detail`, `askedAt`) and nested
+    // per-bot request arrays containing both pending and already-settled entries.
+    env.rt.state.questions.m1 = {
+      id: 'q1',
+      question: 'Ship v0.4.0?',
+      detail: 'Release window opens at 10:00',
+      options: [{ label: 'Yes' }],
+      askedAt: 1700000000000,
+    }
+    env.rt.state.secretRequests = {
+      m1: [
+        { id: 'sr1', name: 'GITHUB_TOKEN', reason: 'Watch repo', status: 'pending', askedAt: 1700000001000 },
+        { id: 'sr2', name: 'OLD_KEY', reason: 'Already saved', status: 'saved', askedAt: 1700000000500 },
+      ],
+    }
+    env.rt.state.connectorRequests = {
+      m1: [
+        { id: 'cr1', connectorId: 'linear', reason: 'Sync issues', status: 'pending', askedAt: 1700000002000 },
+        { id: 'cr2', connectorId: 'slack', reason: 'Connected', status: 'connected', askedAt: 1700000000600 },
+      ],
+    }
+    env.rt.state.mailRequests = {
+      m1: [
+        { id: 'mr1', subject: 'Weekly digest', to: 'team@example.com', status: 'pending', askedAt: 1700000003000 },
+        { id: 'mr2', subject: 'Sent already', to: 'team@example.com', status: 'sent', askedAt: 1700000000700 },
+      ],
+    }
 
     const sweep = await env.rt.eventWatchdog.sweep(Date.now())
     assert.equal(sweep.alerts, 1)
@@ -291,9 +319,22 @@ test('Watchdog detects stalled turns, pauses orphan subscriptions, and surfaces 
 
     const inbox = env.rt.inboxView()
     assert.equal(inbox.counts.question, 1)
+    assert.equal(inbox.counts.review, 3)
     assert.ok(inbox.counts.alert >= 2)
+    assert.ok(inbox.items.some(i => i.kind === 'question' && i.detail.includes('Ship v0.4.0?')))
+    assert.ok(inbox.items.some(i => i.kind === 'secret_request' && i.id === 'sec_sr1'))
+    assert.ok(!inbox.items.some(i => i.id === 'sec_sr2'))
+    assert.ok(inbox.items.some(i => i.kind === 'connector_request' && i.id === 'con_cr1'))
+    assert.ok(inbox.items.some(i => i.kind === 'mail_request' && i.id === 'mail_mr1' && i.detail === 'Weekly digest'))
     assert.ok(inbox.items.some(i => i.kind === 'stalled_turn' && i.botId === 'm1'))
+    assert.ok(!inbox.items.some(i => i.kind === 'stalled_turn' && i.botId === 'p1'), 'active subagent must suppress stalled alert')
     assert.ok(inbox.items.some(i => i.kind === 'subscription_paused' && i.subId === orphanSub.id))
+
+    // Deterministic output across ticks (no Date.now() fallbacks busting channel.js liveCache).
+    const snap1 = JSON.stringify(env.rt.inboxView())
+    await new Promise(resolve => setTimeout(resolve, 15))
+    const snap2 = JSON.stringify(env.rt.inboxView())
+    assert.equal(snap1, snap2)
   } finally {
     await env.cleanup()
   }

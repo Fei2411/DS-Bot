@@ -407,7 +407,7 @@ export function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, ro
         usage ? h('div', { key: 'usage' }, h('div', { className: 'bt-section-title' }, t('Usage')),
           h('div', { className: 'bt-kv' }, h('span', null, bot.name), h('span', null, usage))) : null,
         h(ScheduleSummary, { key: 'routines', bot, actions }),
-        h(WatchSummary, { key: 'watches', bot, actions }),
+        h(WatchSummary, { key: 'watches', bot, roster, actions }),
       ] : null,
       bot && tab === 'browser' ? h(BrowserCards, { bot, sessionId, roster, actions, useBrowserTabs, useBrowserPages }) : null)]
 }
