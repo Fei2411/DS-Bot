@@ -1491,7 +1491,18 @@ export function install(rt) {
             const room = rt.roomOf(source.roomId)
             const roomSid = room === undefined ? undefined : rt.sessionOfRoom(room)
             if (roomSid !== undefined && originFromSaved(saved) !== undefined) {
-              claimOrigin(roomSid, saved.connId, saved.chatKey, saved.senderId, saved.binding)
+              const live = origins.get(roomSid)
+              const memberId = rt.groupOwners.get(session.id)?.botId
+              const otherWorking = (rt.roomWorkView?.()[room.id] ?? []).some(item => item.botId !== memberId)
+              const busy = rt.roomActive?.(room.id) === true || otherWorking
+              if (live === undefined && !busy) {
+                // Clear stale `mixed` left by an already-finished desktop/Web round so the
+                // IM group still receives the task report; leave live origins untouched so
+                // concurrent IM activity (including another paired user in the same group)
+                // is never dropped.
+                resetOrigin(roomSid)
+                claimOrigin(roomSid, saved.connId, saved.chatKey, saved.senderId, saved.binding)
+              }
             }
           } else if (originFromSaved(saved) === undefined) {
             dropOrigin(session.id)

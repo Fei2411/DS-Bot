@@ -283,7 +283,10 @@ export function install(rt) {
         const room = rt.roomOf(task.roomId)
         if (room === undefined || !room.members.includes(bot.id)) return
         targetSession = room.sessions?.[bot.id]
-        if (targetSession === undefined) return
+        if (targetSession === undefined) {
+          await rt.reconcileStoppedRoomTask?.(task.roomId, bot.id).catch(() => {})
+          return
+        }
       } else {
         targetSession = threadCurrentOfPart(bot, task.from) ?? rt.chatOf(bot.id)
       }
@@ -305,17 +308,24 @@ export function install(rt) {
         body = task.error ? `Stopped: ${task.error}` : 'This background task was stopped.'
       }
 
-      await rt.deliver({
-        toId: bot.id,
-        sessionId: targetSession,
-        text: body,
-        role: 'task-report',
-        note,
-        taskId: task.id,
-        ...(task.roomId !== undefined ? { roomId: task.roomId } : {}),
-        recordExchange: false,
-        ...(parentWork !== undefined ? { work: parentWork, replyTo: task.workId } : {}),
-      })
+      try {
+        await rt.deliver({
+          toId: bot.id,
+          sessionId: targetSession,
+          text: body,
+          role: 'task-report',
+          note,
+          taskId: task.id,
+          ...(task.roomId !== undefined ? { roomId: task.roomId } : {}),
+          recordExchange: false,
+          ...(parentWork !== undefined ? { work: parentWork, replyTo: task.workId } : {}),
+        })
+      } catch (error) {
+        if (task.roomId !== undefined) {
+          await rt.reconcileStoppedRoomTask?.(task.roomId, bot.id).catch(() => {})
+        }
+        throw error
+      }
     } finally {
       settling.delete(task.id)
     }
@@ -342,6 +352,23 @@ export function install(rt) {
     let resolvedDir
     if (workdir !== undefined && String(workdir).trim() !== '') {
       const cleaned = await rt.cleanWorkDir?.(String(workdir).trim())
+      const candidate = cleaned ?? rt.teamFolder?.()
+      if (candidate !== undefined) {
+        if (room?.workDir !== undefined) {
+          const realCandidate = await (rt.real ? rt.real(candidate) : Promise.resolve(resolve(candidate)))
+          const realRoom = await (rt.real ? rt.real(room.workDir) : Promise.resolve(resolve(room.workDir)))
+          if (!within(realCandidate, realRoom)) {
+            throw Object.assign(new Error(`Every member of "${room.name}" works in ${room.workDir} here, so background tasks in this group must stay inside it.`), { code: 'bot/invalid' })
+          }
+        }
+        if (bot.private === true && bot.workDir !== undefined) {
+          const realCandidate = await (rt.real ? rt.real(candidate) : Promise.resolve(resolve(candidate)))
+          const realOwn = await (rt.real ? rt.real(bot.workDir) : Promise.resolve(resolve(bot.workDir)))
+          if (!within(realCandidate, realOwn)) {
+            throw Object.assign(new Error(`${bot.name} is a private Bot and its background tasks must stay inside ${bot.workDir}.`), { code: 'bot/invalid' })
+          }
+        }
+      }
       if (cleaned !== undefined) {
         if (await rt.inData?.(cleaned)) {
           throw Object.assign(new Error('A task cannot work inside the DSH or DS Bot data folder.'), { code: 'bot/invalid' })
@@ -349,20 +376,6 @@ export function install(rt) {
         const clash = await rt.privateClash?.(cleaned, { except: bot.id })
         if (clash !== undefined) {
           throw Object.assign(new Error(`${cleaned} is in or around the folder of ${clash.name}, a private Bot, so this task cannot work there.`), { code: 'bot/invalid' })
-        }
-        if (room?.workDir !== undefined) {
-          const realCleaned = await (rt.real ? rt.real(cleaned) : Promise.resolve(resolve(cleaned)))
-          const realRoom = await (rt.real ? rt.real(room.workDir) : Promise.resolve(resolve(room.workDir)))
-          if (!within(realCleaned, realRoom)) {
-            throw Object.assign(new Error(`Every member of "${room.name}" works in ${room.workDir} here, so background tasks in this group must stay inside it.`), { code: 'bot/invalid' })
-          }
-        }
-        if (bot.private === true && bot.workDir !== undefined) {
-          const realCleaned = await (rt.real ? rt.real(cleaned) : Promise.resolve(resolve(cleaned)))
-          const realOwn = await (rt.real ? rt.real(bot.workDir) : Promise.resolve(resolve(bot.workDir)))
-          if (!within(realCleaned, realOwn)) {
-            throw Object.assign(new Error(`${bot.name} is a private Bot and its background tasks must stay inside ${bot.workDir}.`), { code: 'bot/invalid' })
-          }
         }
         if (exec !== undefined && typeof rt.approveFolder === 'function') {
           await rt.approveFolder(exec, {

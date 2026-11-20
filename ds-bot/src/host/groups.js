@@ -1852,13 +1852,15 @@ export function install(rt) {
       await rt.load()
       const id = exec.agent?.id
       const owner = rt.groupOwners.get(id)
-      const botId = owner?.botId ?? rt.chatOwners.get(id)
+      const taskOwner = rt.taskOwners?.get(id)
+      const botId = owner?.botId ?? taskOwner?.botId ?? rt.chatOwners.get(id)
       if (botId === undefined) return 'Only Bots on the team can use read_own_chat.'
       const member = rt.botOf(botId)
-      const room = rt.roomOf(owner?.roomId)
+      const room = rt.roomOf(owner?.roomId ?? taskOwner?.roomId)
       const query = String(args.query ?? '').trim().slice(0, 80)
       const around = String(args.around ?? '').trim().slice(0, 40)
-      const parts = rt.partsOfThread(botId, id)
+      const lookupSession = taskOwner?.roomId !== undefined ? rt.chatOf(botId) : id
+      const parts = rt.partsOfThread(botId, lookupSession)
       const number = Number.isInteger(args.part) ? args.part : undefined
       if (room !== undefined && member !== undefined) {
         const text = query !== '' ? query : around !== '' ? `around ${around}` : number !== undefined ? `part ${number}` : ''
@@ -1867,7 +1869,7 @@ export function install(rt) {
       }
       const partsNote = parts.length > 1 ? `\n\nYour own chat has ${parts.length} parts: ${rt.partIndex(parts)}. Call read_own_chat with part N for the note that closed an earlier part, or with words to search all parts.` : ''
       if (query === '' && around !== '') {
-        const found = await rt.aroundOwnChat(botId, around, id)
+        const found = await rt.aroundOwnChat(botId, around, lookupSession)
         if (found.error) return `${found.error}${partsNote}`
         if (found.lines.length === 0) return `Nothing was said around ${around}.${partsNote}`
         const heading = found.exact ? `around ${around}` : `with no message at ${around}; the nearest ones`
@@ -1880,10 +1882,10 @@ export function install(rt) {
         return `Part ${number} of your own chat (${rt.clock(part.startedAt)} – ${rt.clock(part.endedAt)}). The handoff note that closed it:\n${rt.noteText(part) ?? '(none: the part ended on a context overflow)'}${partsNote}`
       }
       if (query === '') {
-        const lines = await rt.latestOwnChat(botId, { askingId: id })
+        const lines = await rt.latestOwnChat(botId, { askingId: lookupSession })
         return lines.length === 0 ? `Your own chat is empty.${partsNote}` : `Your own chat (oldest first):\n${lines.join('\n')}${partsNote}`
       }
-      const { lines, every } = await rt.searchOwnChat(botId, query, { askingId: id })
+      const { lines, every } = await rt.searchOwnChat(botId, query, { askingId: lookupSession })
       if (lines.length === 0) return `Nothing in your own chat mentions "${query}".${partsNote}`
       const heading = every ? `messages mentioning "${query}"` : `no message has all of "${query}"; messages with the most of these words`
       return `Your own chat, ${heading} (oldest first):\n${lines.join('\n')}${partsNote}`
@@ -2275,7 +2277,7 @@ export function install(rt) {
         return
       }
       for (const batch of owed) leaveBatch(room, batch, botId, { keep: true })
-      const woken = owed.find(batch => batch.pending.length === 0 && batch.done.length > 0 && !batch.answered)
+      const woken = owed.find(batch => batch.pending.length === 0 && batch.done.length > 0 && !batch.answered && room.members.includes(batch.by))
       for (const batch of owed) if (batch !== woken) closeBatch(batch.key)
       if (woken !== undefined) {
         await postToRoom(room, member, '', { late: true, stopped: true, askedBy: woken.by, batch: woken.key, batchEnd: true })

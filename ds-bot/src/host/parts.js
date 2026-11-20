@@ -235,7 +235,8 @@ export function install(rt) {
     const messages = session.deriveMessages()
     if (!messages.some(message => message.source?.handoff === true)) return true
     const place = placeOf(agent.id)
-    const room = rt.roomOf(place.roomId)
+    const taskEntry = rt.taskBySession?.(agent.id)?.task
+    const room = rt.roomOf(place.roomId ?? taskEntry?.roomId)
     const bot = place.botId === undefined ? undefined : rt.botOf(place.botId)
     // A background part makes room within its own thread, like the foreground chat.
     const thread = bot === undefined || place.roomId !== undefined ? undefined : threadOf(bot, agent.id)
@@ -983,9 +984,18 @@ export function install(rt) {
   // the Bot's foreground chat when that switch was a background part's. The part may be
   // one of the thread's earlier ones, so the thread is looked up through it.
   const threadTargetOf = (sessionId, owner) => {
-    if (owner.roomId !== undefined || owner.botId === undefined) return currentOf(owner)
-    const bot = rt.botOf(owner.botId)
-    return owner.next ?? threadCurrentOfPart(bot, sessionId) ?? rt.chatOf(owner.botId)
+    if (owner.botId !== undefined) {
+      const bot = rt.botOf(owner.botId)
+      const thread = threadOfPart(bot, sessionId)
+      if (thread?.thread === 'task') {
+        const live = threadCurrentOfPart(bot, sessionId)
+        if (live !== undefined) return live
+        if (owner.next !== undefined && rt.taskOwners?.has(owner.next)) return owner.next
+        return owner.roomId !== undefined ? rt.sessionOfRoom(rt.roomOf(owner.roomId)) : rt.chatOf(owner.botId)
+      }
+      if (owner.roomId === undefined) return owner.next ?? threadCurrentOfPart(bot, sessionId) ?? rt.chatOf(owner.botId)
+    }
+    return currentOf(owner)
   }
   // Compaction sets partBase from an immediate estimate before the next provider
   // response reports real usage; lower it when measured context shrinks so stale
@@ -1264,8 +1274,11 @@ export function install(rt) {
     const lines = await contextLines(session).catch(() => undefined)
     const parts = bot === undefined ? partsOf(undefined, room.id) : partsOf(bot.id, room?.id, thread?.segments, thread === undefined ? undefined : agent.id)
     const number = parts.length
+    const taskEntry = rt.taskBySession?.(agent.id)?.task
+    const taskRoom = taskEntry?.roomId !== undefined ? rt.roomOf(taskEntry.roomId) : undefined
+    const effectiveRoom = room ?? taskRoom
     const budget = Math.min(RECENT_TOKENS, Math.floor((lines?.check ?? 4 * RECENT_TOKENS) / 4))
-    const readLines = () => (job.bare ? { recent: [], earlier: [], unlisted: 0, complete: true } : handoffLines(agent.id, { budget, group: room !== undefined, number }))
+    const readLines = () => (job.bare ? { recent: [], earlier: [], unlisted: 0, complete: true } : handoffLines(agent.id, { budget, group: effectiveRoom !== undefined, number }))
     let carried = job.folder ? await readLines() : undefined
     // A short part with no tool work goes over word for word, so it needs no note.
     const whole = carried?.whole === true && !session.deriveMessages().some(message => message.role === 'tool')
@@ -1301,9 +1314,6 @@ export function install(rt) {
       : { fallback: whole ? 'whole' : job.failed !== undefined ? 'failure' : job.overflow ? 'overflow' : job.cutoff === true ? 'cutoff' : job.manual && failure === undefined ? 'manual' : 'failed', ...earlierNote }
     carried ??= await readLines()
     if (signal.aborted) throw signal.reason
-    const taskEntry = rt.taskBySession?.(agent.id)?.task
-    const taskRoom = taskEntry?.roomId !== undefined ? rt.roomOf(taskEntry.roomId) : undefined
-    const effectiveRoom = room ?? taskRoom
     const dir = taskEntry?.workDir ?? rt.workDirOf(effectiveRoom !== undefined && job.roomId === undefined ? { ...job, roomId: effectiveRoom.id } : job)
     const intended = dir !== undefined && await rt.isFolder(dir) ? dir : rt.teamFolder()
     const freshId = await rt.createSession(effectiveRoom === undefined ? name : bot === undefined ? effectiveRoom.name : `${name} · ${effectiveRoom.name}`, { dir })
@@ -1382,7 +1392,7 @@ export function install(rt) {
         rt.warn('ds-bot: the fresh part of %s did not start in %s; it works in %s', name, intended, cwd)
       }
       const engine = job.engine ? rt.engineNameOf?.(bot.model ?? bot.appliedModel) : undefined
-      const text = handoffPackage({ room, self: bot === undefined, segment, lines: carried, number: number + 1, resume, overflow: job.overflow, cutoff: job.cutoff === true, failed: job.failed, bare: job.bare, folder, manual: job.manual, engine })
+      const text = handoffPackage({ room: effectiveRoom, self: bot === undefined, segment, lines: carried, number: number + 1, resume, overflow: job.overflow, cutoff: job.cutoff === true, failed: job.failed, bare: job.bare, folder, manual: job.manual, engine })
       freshParts.set(freshId, estimateTokens(text))
       fresh.followup(createUserMessage({ content: [{ type: 'text', text }], source: handoffSource(job, resume) }))
       await ctx.sessions.flush(fresh.session)

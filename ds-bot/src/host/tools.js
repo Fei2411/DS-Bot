@@ -546,8 +546,9 @@ export function install(rt) {
     await rt.load()
     const bot = callerBot(exec)
     if (bot === undefined) return next()
-    const room = rt.roomOf(rt.groupOwners.get(exec.agent.id)?.roomId ?? rt.taskOwners?.get(exec.agent.id)?.roomId)
-    const home = rt.workDirOf({ botId: bot.id, roomId: room?.id }) ?? rt.teamFolder()
+    const taskEntry = rt.taskBySession?.(exec.agent.id)?.task
+    const room = rt.roomOf(rt.groupOwners.get(exec.agent.id)?.roomId ?? taskEntry?.roomId)
+    const home = taskEntry?.workDir ?? rt.workDirOf({ botId: bot.id, roomId: room?.id }) ?? rt.teamFolder()
     const target = await rt.folderAt(rt.sessionFolder(session), cd)
     if (target === undefined || !(await rt.isFolder(target)) || home === undefined || within(target, await rt.real(home))) return next()
     if (room?.workDir) throw new Error(`Every member of "${room.name}" works in ${room.workDir} here, so you stay inside it. The user or a Main Bot can change the group's folder.`)
@@ -556,6 +557,13 @@ export function install(rt) {
     // Saved folders are trimmed like typed ones, so such a name would save another folder.
     if (unquote(target) !== target) throw new Error(`${JSON.stringify(target)} cannot be a working folder: its name starts or ends with a space or a quote mark.`)
     const workDir = await rt.workFolder(target)
+    if (taskEntry !== undefined) {
+      // A background task only widens its own Session; it never rewrites room.memberDirs
+      // or the Bot's own persistent workDir.
+      await rt.checkPrivacyChange(bot, { moving: true, workDir })
+      await rt.approveFolder(exec, { path: workDir, sessions: [exec.agent.id], who: { en: `${bot.name}'s background task`, zh: `${bot.name} 的后台任务` } })
+      return next()
+    }
     if (room !== undefined) {
       // The folder holds only for this group conversation, so only this Session's
       // writes widen; the private-Bot check is the one updateBot would run.

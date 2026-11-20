@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -94,6 +94,7 @@ async function startEnv({ roomWorkDir, roomPermission, botPermission } = {}) {
       id,
       header: { cwd },
       events,
+      get seq() { return events.length },
       requestHeader: () => undefined,
       snapshotEvents: () => [...events],
     }
@@ -150,6 +151,10 @@ async function startEnv({ roomWorkDir, roomPermission, botPermission } = {}) {
         return { sessionId }
       },
       resolveAgent: async sessionId => ({ agent: agentMap.get(sessionId) ?? makeAgent(sessionId) }),
+      page: async ({ address }) => {
+        const events = agentMap.get(address.sessionId)?.session.events ?? []
+        return { records: events.map(event => ({ event })), hasMore: false }
+      },
       selectModel: async () => {},
       prompt: async req => { prompts.push(req) },
     },
@@ -177,12 +182,21 @@ async function startEnv({ roomWorkDir, roomPermission, botPermission } = {}) {
     }
     await new Promise(r => setTimeout(r, 0))
   }
+  const runHook = async (name, payload, leaf = async () => undefined) => {
+    const chain = ctx.listeners.get(name) ?? []
+    const step = (index) => {
+      if (index >= chain.length) return leaf()
+      const fn = chain[index]
+      return fn.length >= 2 ? fn(payload, () => step(index + 1)) : Promise.resolve(fn(payload)).then(() => step(index + 1))
+    }
+    return step(0)
+  }
   const stop = async () => {
     await ctx.dispose()
     rmSync(home, { recursive: true, force: true, maxRetries: 5 })
     if (groupDir) rmSync(groupDir, { recursive: true, force: true, maxRetries: 5 })
   }
-  return { home, workDir, groupDir, ctx, rt, agentMap, deliveries, createdSessions, presetApplies, prompts, tool, emit, stop }
+  return { home, workDir, groupDir, ctx, rt, agentMap, deliveries, createdSessions, presetApplies, prompts, tool, emit, runHook, stop }
 }
 
 const execOf = (agent, callId = 'c1') => ({ agent, callId, name: 'task_start', signal: AbortSignal.timeout(10_000) })
@@ -411,17 +425,25 @@ test('P0-2: reconcileStoppedRoomTask wakes batch caller even when a group round 
   assert.equal(env.rt.state.roomBatches.b3, undefined, 'batch must close after waking caller')
 })
 
-test('P0-3: valid subdirectory inside room.workDir passes realpath within() check (even via symlink path)', async (t) => {
+test('P0-3: valid subdirectory inside room.workDir passes realpath within() check (even via explicit symlink) and rejects team workspace', async (t) => {
   const env = await startEnv({ roomWorkDir: true })
   t.after(env.stop)
 
   const subDir = join(env.groupDir, 'sub-pkg')
   mkdirSync(subDir, { recursive: true })
+  const linkBase = mkdtempSync(join(tmpdir(), 'ds-bot-link-'))
+  t.after(() => rmSync(linkBase, { recursive: true, force: true }))
+  const linkDir = join(linkBase, 'symlink-to-sub')
+  symlinkSync(subDir, linkDir)
   const grpA = env.agentMap.get('grp-r1-a')
-  const started = await env.tool('task_start').execute({ title: 'Subdir task', brief: 'Work in sub', workdir: subDir }, execOf(grpA))
+  const started = await env.tool('task_start').execute({ title: 'Subdir task', brief: 'Work in sub', workdir: linkDir }, execOf(grpA))
   assert.match(started, /Started background task "Subdir task"/)
   const task = env.rt.botOf('a').tasks[0]
   assert.equal(realpathSync(task.workDir), realpathSync(subDir))
+
+  // P2-3: explicitly passing the team workspace when room.workDir is separate must be rejected.
+  const refusedTeam = await env.tool('task_start').execute({ title: 'Team dir task', brief: 'Escape', workdir: env.workDir }, execOf(grpA))
+  assert.match(refusedTeam, /must stay inside it/)
 })
 
 test('P0-4: reconcileTasksAfterRestart before settleRoomBatches settles zombie group task and unblocks batch', async (t) => {
@@ -486,4 +508,130 @@ test('P1: setPermission respects room.permission, tools isolate (bot, roomId), a
   await waitFor(() => env.agentMap.get('room-r1').followups.some(m => m.content?.[0]?.text === 'Group redirect'))
   assert.equal(grpTaskAgent.inbox.nextStep.length, 0)
   assert.equal(env.agentMap.get('dm-a').followups.some(m => m.content?.[0]?.text === 'Group redirect'), false)
+})
+
+test('P0-A: group task part switch forwards old segment input to new task segment, and settled group task forwards to room session (never hidden member session)', async (t) => {
+  const env = await startEnv()
+  t.after(env.stop)
+
+  const grpA = env.agentMap.get('grp-r1-a')
+  await env.tool('task_start').execute({ title: 'Switch task', brief: 'Will rollover' }, execOf(grpA))
+  const task = env.rt.botOf('a').tasks[0]
+  const oldSid = task.sessionId
+
+  // Simulate active group task moving from oldSid -> newSid (recording oldSid in task.segments).
+  const newSid = await env.rt.createSession('Chief · BuildGroup')
+  task.segments = [{ sessionId: oldSid, endedAt: Date.now() }]
+  task.sessionId = newSid
+  await env.rt.save()
+
+  assert.equal(env.rt.pastOwners.get(oldSid)?.roomId, 'r1')
+  assert.equal(env.rt.taskOwners.get(newSid)?.taskId, task.id)
+
+  // Message arriving on oldSid via agent/pre-step while task is active MUST forward to newSid, NOT grp-r1-a!
+  const oldAgent = env.agentMap.get(oldSid)
+  const newAgent = env.agentMap.get(newSid)
+  const followupMsg = { role: 'user', content: [{ type: 'text', text: 'Continue on new part' }], source: { kind: 'bot', role: 'task-send' } }
+  await env.runHook('agent/pre-step', { agent: oldAgent, step: 1, messages: [followupMsg], signal: AbortSignal.timeout(5000) }, async () => ({ kind: 'enter', messages: [followupMsg] }))
+
+  assert.ok(newAgent.followups.some(m => m.content?.[0]?.text === 'Continue on new part'), 'active group task old segment must forward to new task segment')
+  assert.equal(grpA.followups.some(m => m.content?.[0]?.text === 'Continue on new part'), false, 'must NOT hijack into hidden member session grp-r1-a')
+
+  // Now settle the group task: newSid moves into pastOwners with { botId: 'a', roomId: 'r1' }.
+  await env.rt.stopTask('a', task.id)
+  assert.equal(env.rt.pastOwners.get(newSid)?.roomId, 'r1')
+
+  // Late user message arriving on settled group task session MUST forward to room-r1, NOT hidden grp-r1-a!
+  const lateUserMsg = { role: 'user', content: [{ type: 'text', text: 'Late user message' }], source: { kind: 'user' } }
+  await env.runHook('agent/pre-step', { agent: newAgent, step: 1, messages: [lateUserMsg], signal: AbortSignal.timeout(5000) }, async () => ({ kind: 'enter', messages: [lateUserMsg] }))
+
+  const roomAgent = env.agentMap.get('room-r1')
+  assert.ok(roomAgent.followups.some(m => m.content?.[0]?.text === 'Late user message'), 'settled group task must forward late user input to room-r1')
+  assert.equal(grpA.followups.some(m => m.content?.[0]?.text === 'Late user message'), false, 'settled group task must NEVER dump user input into hidden grp-r1-a')
+})
+
+test('P1-1: read_own_chat from a group background task records group lookup audit entry and reads Bot own chat', async (t) => {
+  const env = await startEnv()
+  t.after(env.stop)
+
+  const grpA = env.agentMap.get('grp-r1-a')
+  await env.tool('task_start').execute({ title: 'Audit read', brief: 'Check own chat' }, execOf(grpA))
+  const task = env.rt.botOf('a').tasks[0]
+  const taskAgent = env.agentMap.get(task.sessionId)
+
+  // Put a real message in Chief's DM (dm-a) and a different message in the task session.
+  const dmAgent = env.agentMap.get('dm-a')
+  dmAgent.session.events.push({ seq: 1, type: 'user/message', time: Date.now(), data: { source: { kind: 'user' }, content: [{ type: 'text', text: 'Secret DM token alpha-99' }] } })
+  taskAgent.session.events.push({ seq: 1, type: 'user/message', time: Date.now(), data: { source: { kind: 'bot' }, content: [{ type: 'text', text: 'Task-only line beta-77' }] } })
+
+  const out = await env.tool('read_own_chat').execute({ query: 'alpha-99' }, execOf(taskAgent))
+  assert.match(out, /alpha-99/, 'group task read_own_chat must search the Bot own chat, not its own task transcript')
+  const room = env.rt.roomOf('r1')
+  assert.ok(room.log.some(line => line.kind === 'lookup' && line.botId === 'a' && line.text === 'alpha-99'), 'group transparency audit log must record lookup')
+})
+
+test('P1-2: working_directory inside a group task respects task.workDir and never mutates room.memberDirs', async (t) => {
+  const env = await startEnv()
+  t.after(env.stop)
+
+  const taskRoot = mkdtempSync(join(tmpdir(), 'ds-bot-wt-'))
+  const taskSub = join(taskRoot, 'nested')
+  const outsideDir = mkdtempSync(join(tmpdir(), 'ds-bot-out-'))
+  mkdirSync(taskSub, { recursive: true })
+  t.after(() => {
+    rmSync(taskRoot, { recursive: true, force: true })
+    rmSync(outsideDir, { recursive: true, force: true })
+  })
+
+  const approved = []
+  env.rt.approveFolder = async (_exec, opts) => { approved.push(opts) }
+
+  const grpA = env.agentMap.get('grp-r1-a')
+  const started = await env.tool('task_start').execute({ title: 'Worktree task', brief: 'Edit in wt', workdir: taskRoot }, execOf(grpA))
+  assert.match(started, /Started background task "Worktree task"/)
+  const task = env.rt.botOf('a').tasks[0]
+  const taskAgent = env.agentMap.get(task.sessionId)
+  approved.length = 0
+
+  // 1) cd into a subdirectory of task.workDir must succeed WITHOUT prompting approveFolder.
+  let ran = 0
+  await env.runHook('tools/execute', { name: 'working_directory', arguments: { cd: taskSub }, agent: taskAgent }, async () => { ran += 1; return { isError: false } })
+  assert.equal(ran, 1)
+  assert.equal(approved.length, 0, 'cd within task.workDir must not re-prompt approveFolder')
+
+  // 2) cd outside task.workDir approves ONLY the task session and must NOT pollute room.memberDirs.
+  await env.runHook('tools/execute', { name: 'working_directory', arguments: { cd: outsideDir }, agent: taskAgent }, async () => { ran += 1; return { isError: false } })
+  assert.equal(ran, 2)
+  assert.equal(approved.length, 1)
+  assert.deepEqual(approved[0].sessions, [task.sessionId], 'approval must be scoped to task session only')
+  assert.equal(env.rt.roomOf('r1').memberDirs?.a, undefined, 'group task working_directory must never mutate room.memberDirs')
+})
+
+test('P1-3: settleTask reconciles waiting group batch when member group session is missing or deliver throws', async (t) => {
+  const env = await startEnv()
+  t.after(env.stop)
+
+  const grpB = env.agentMap.get('grp-r1-b')
+  await env.tool('task_start').execute({ title: 'Deliver fail task', brief: 'Work' }, execOf(grpB))
+  const taskB = env.rt.botOf('b').tasks[0]
+
+  env.rt.state.roomBatches = {
+    b5: { key: 'b5', roomId: 'r1', by: 'a', pending: ['b'], done: ['Reviewer'], doneIds: ['c'], results: [], worked: true, answered: false, at: Date.now() },
+  }
+
+  // Force rt.deliver to fail for the task-report to grp-r1-b.
+  const origDeliver = env.rt.deliver
+  env.rt.deliver = async (opts) => {
+    if (opts.role === 'task-report') throw new Error('simulated delivery failure')
+    return origDeliver(opts)
+  }
+
+  // Complete the task -> settleTask catches or rethrows after reconciling batch!
+  await env.emit(taskB.sessionId, 'turn/start', { turn: 1 })
+  await env.emit(taskB.sessionId, 'assistant/message', { message: { content: [{ type: 'text', text: 'Done!' }] } })
+  await env.emit(taskB.sessionId, 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+
+  const roomAgent = env.agentMap.get('room-r1')
+  await waitFor(() => roomAgent.followups.some(m => m.source?.role === 'post' && m.source?.batch === 'b5'))
+  assert.ok(roomAgent.followups.some(m => m.source?.role === 'post' && m.source?.batch === 'b5'), 'waiting batch must still wake when task-report delivery fails')
 })

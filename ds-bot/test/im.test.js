@@ -2019,7 +2019,7 @@ test('fg-handoff: task-handoff notice before IM message does not break IM reply,
 })
 
 
-test('P0-5: group task-report restores persisted group IM origin onto room session so onRoomLine reaches IM group', async (t) => {
+test('P0-5/P0-B: group task-report restores persisted IM origin across restart and after a finished desktop round (via real room post path)', async (t) => {
   const s = await start()
   t.after(s.stop)
   const { one } = await pairedConn(s)
@@ -2027,13 +2027,14 @@ test('P0-5: group task-report restores persisted group IM origin onto room sessi
   await s.rt.save()
 
   const room = s.rt.roomOf('r1')
+  const roomSid = s.rt.sessionOfRoom(room)
   room.sessions = { ...room.sessions, a: 'grp-r1-a' }
   s.rt.groupOwners.set('grp-r1-a', { botId: 'a', roomId: 'r1' })
 
-  // Group message from IM claims room origin; capture it onto a group task, then simulate restart (clear live origins).
+  // 1) Group message from IM u1 claims room origin; capture it onto a group task.
   await gm(s, 'u1', 'check group task')
   s.imTurn('r1')
-  const captured = s.rt.captureImOrigin(s.rt.sessionOfRoom(room))
+  const captured = s.rt.captureImOrigin(roomSid)
   assert.ok(captured !== undefined)
   s.rt.botOf('a').tasks = [{
     id: 'k_grp_im1',
@@ -2047,23 +2048,96 @@ test('P0-5: group task-report restores persisted group IM origin onto room sessi
     updatedAt: Date.now(),
     imOrigin: captured,
   }]
-  // Clear live origin on r1 as if host restarted.
-  s.rt.clearImOrigin(s.rt.sessionOfRoom(room))
+  // Simulate a desktop/Web message in the same group (dropOrigin adds roomSid to `mixed`),
+  // whose round has already finished (roomActive === false).
+  s.emitEvent(roomSid, 'turn/start', { turn: 2 })
+  s.emitEvent(roomSid, 'user/message', { source: { kind: 'user' }, content: [{ type: 'text', text: 'desktop ping' }] })
+  s.emitEvent(roomSid, 'turn/end', { turn: 2, reason: { kind: 'completed' } })
   s.fake.sent.length = 0
 
-  // task-report lands on hidden member group session 'grp-r1-a' carrying roomId: 'r1'.
+  // 2) task-report lands on hidden member group session 'grp-r1-a' carrying roomId: 'r1'.
   s.emitEvent('grp-r1-a', 'turn/start', { turn: 1 })
   s.emitEvent('grp-r1-a', 'user/message', {
     source: { kind: 'bot', form: 'relay', role: 'task-report', taskId: 'k_grp_im1', roomId: 'r1' },
     content: [{ type: 'text', text: '[Background task report] Group IM task done' }],
   })
-  // Member posts summary line into group -> onRoomLine reads originOf(room.sessionId)!
+  s.emitEvent('grp-r1-a', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+
+  // 3) Real postToRoom -> roomSid turn/start + user/message (role: 'post') -> group_relay -> logRoom -> onRoomLine!
+  s.emitEvent(roomSid, 'turn/start', { turn: 3 })
+  s.emitEvent(roomSid, 'user/message', {
+    source: { kind: 'bot', form: 'relay', role: 'post', roomId: 'r1' },
+    content: [{ type: 'text', text: '[Group post] Writer: Group task finished and verified.' }],
+  })
   s.rt.logRoom(room, { who: 'Writer', botId: 'a', text: 'Group task finished and verified.' })
+  s.emitEvent(roomSid, 'turn/end', { turn: 3, reason: { kind: 'completed' } })
   await s.flush()
 
   assert.deepEqual(
     s.fake.sent.map(entry => [entry.chat.key, entry.text]),
     [['g1', '**Writer**: Group task finished and verified.']],
-    'group task-report must restore persisted IM origin onto the group session so onRoomLine reaches IM',
+    'group task-report must clear stale mixed from finished desktop round and deliver via real room post path',
+  )
+})
+
+test('P0-B: group task-report from u1 does not drop live IM origin when another paired user u2 is active in the same IM group', async (t) => {
+  const s = await start()
+  t.after(s.stop)
+  const { one } = await pairedConn(s)
+  one.chats.g1 = { kind: 'group', title: 'G', target: { roomId: 'r1' }, at: 1 }
+  one.paired.push({ id: 'u2', name: 'Bob', at: 2 })
+  await s.rt.save()
+
+  const room = s.rt.roomOf('r1')
+  const roomSid = s.rt.sessionOfRoom(room)
+  room.sessions = { ...room.sessions, a: 'grp-r1-a' }
+  s.rt.groupOwners.set('grp-r1-a', { botId: 'a', roomId: 'r1' })
+
+  // u1 starts task T1 in g1.
+  await gm(s, 'u1', 'start group task')
+  s.imTurn('r1')
+  const capturedU1 = s.rt.captureImOrigin(roomSid)
+  assert.ok(capturedU1 !== undefined)
+  s.rt.botOf('a').tasks = [{
+    id: 'k_grp_im_u1',
+    title: 'u1 task',
+    roomId: 'r1',
+    from: 'grp-r1-a',
+    sessionId: 'gtask-u1',
+    segments: [],
+    status: 'completed',
+    startedAt: Date.now(),
+    updatedAt: Date.now(),
+    imOrigin: capturedU1,
+  }]
+
+  // Later, paired user u2 speaks in the SAME IM group g1 -> roomSid origin is now owned by u2.
+  s.rt.clearImOrigin(roomSid)
+  await gm(s, 'u2', 'another question in g1')
+  s.imTurn('r1')
+  s.fake.sent.length = 0
+
+  // u1's task-report arrives while u2's origin is live on g1 -> must NOT call dropOrigin!
+  s.emitEvent('grp-r1-a', 'turn/start', { turn: 2 })
+  s.emitEvent('grp-r1-a', 'user/message', {
+    source: { kind: 'bot', form: 'relay', role: 'task-report', taskId: 'k_grp_im_u1', roomId: 'r1' },
+    content: [{ type: 'text', text: '[Background task report] u1 task done' }],
+  })
+  s.emitEvent('grp-r1-a', 'turn/end', { turn: 2, reason: { kind: 'completed' } })
+
+  // Both u2's ongoing answer and u1's task report post through roomSid -> both must reach g1!
+  s.emitEvent(roomSid, 'turn/start', { turn: 3 })
+  s.emitEvent(roomSid, 'user/message', {
+    source: { kind: 'bot', form: 'relay', role: 'post', roomId: 'r1' },
+    content: [{ type: 'text', text: 'u1 task summary' }],
+  })
+  s.rt.logRoom(room, { who: 'Writer', botId: 'a', text: 'Answer for u2 and u1 report.' })
+  s.emitEvent(roomSid, 'turn/end', { turn: 3, reason: { kind: 'completed' } })
+  await s.flush()
+
+  assert.deepEqual(
+    s.fake.sent.map(entry => [entry.chat.key, entry.text]),
+    [['g1', '**Writer**: Answer for u2 and u1 report.']],
+    'u1 task-report must not drop u2 live origin on the same IM group',
   )
 })
