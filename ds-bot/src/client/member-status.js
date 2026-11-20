@@ -172,14 +172,15 @@ export function ApprovalCard({ approval, bot, actions, showBot = false }) {
       .catch(error => actions.reportError(error, 'approval'))
       .finally(() => setBusy(false))
   }
+  const label = approval.taskTitle ? `${approval.taskTitle} · ${approval.tool}` : approval.tool
   return h('div', { className: 'bt-mw-card', role: 'group', 'aria-label': t('{name} is waiting for your approval', { name: bot.name }) },
-    showBot ? cardHead(bot, approval.at, approval.tool) : h('div', { className: 'bt-mw-tool' }, approval.tool),
+    showBot ? cardHead(bot, approval.at, label) : h('div', { className: 'bt-mw-tool' }, label),
     approval.detail?.text ? h('div', { className: 'bt-mw-text' }, approval.detail.text) : null,
     approval.reason ? h('div', { className: 'bt-mw-reason' }, approval.reason) : null,
     approval.detail?.code ? h('code', { className: 'bt-mw-code', title: approval.detail.code }, approval.detail.code) : null,
-    // Own-chat approvals are answerable for IM and the phone app; here the Bot's
-    // own DSH card stays the place to answer, so the row still opens that chat.
-    approval.answerable && approval.roomId !== undefined
+    // Group and background-task approvals are answered directly through DS Bot;
+    // foreground own-chat approvals still use DSH's own inline card.
+    approval.answerable && (approval.roomId !== undefined || approval.taskId !== undefined)
       ? h('div', { className: 'bt-mw-actions' },
         h('button', { type: 'button', className: 'bt-q-btn', disabled: busy, onClick: () => answer('reject') }, t('Reject')),
         h('button', { type: 'button', className: 'bt-q-submit', disabled: busy, onClick: () => answer('allow') }, t('Allow once')))
@@ -334,14 +335,15 @@ function approvalSummary(approvals) {
   return { bots, label }
 }
 
-// The approval row and expandable cards rendered inside the group's top header island.
-export function ApprovalIslandPod({ approvals, open, room, actions }) {
+// The approval row and expandable cards rendered inside the top header island
+// (for a group chat or a Bot with background-task approvals).
+export function ApprovalIslandPod({ approvals, open, room, targetId = room?.id, actions }) {
   if (!approvals || approvals.length === 0) return null
   const { bots, label } = approvalSummary(approvals)
   return h(Fragment, null,
     h('button', {
       type: 'button', className: 'bt-apv-bar', 'aria-expanded': open,
-      onClick: () => actions.toggleApproval?.(room.id),
+      onClick: () => actions.toggleApproval?.(targetId),
     },
     h('span', { className: 'bt-apv-dot', 'aria-hidden': true }),
     h('span', { className: 'bt-apv-label' }, label),
