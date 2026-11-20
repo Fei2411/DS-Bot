@@ -20,6 +20,7 @@ import {
   MCP_CATALOG,
   MCP_PREFIX,
   READONLY_ID,
+  derivePackageName,
   dshInstallCommand,
   inferToolPrefixes,
   isBrowserBundle,
@@ -147,16 +148,41 @@ async function authorizeBrowserAction(rt, exec, botId, action) {
 
 function bundleInstalled(bundle) {
   if (!bundle || typeof bundle !== 'object') return false
-  if (bundle.installed === true || bundle.selected === true || bundle.enabled === true) return true
-  if (typeof bundle.version === 'string' && bundle.version !== '' && bundle.installed !== false && bundle.offered !== true) return true
+  if (bundle.availability === 'missing') return false
+  if (bundle.installed === true || bundle.availability === 'installation' || bundle.availability === 'profile') return true
+  if (bundle.selected === true || bundle.enabled === true) return true
   return false
 }
 
 function bundleEnabled(bundle) {
-  if (!bundle || typeof bundle !== 'object') return false
-  if (typeof bundle.selected === 'boolean') return bundle.selected
+  if (!bundleInstalled(bundle)) return false
   if (typeof bundle.enabled === 'boolean') return bundle.enabled
-  return bundleInstalled(bundle)
+  if (typeof bundle.selected === 'boolean') return bundle.selected
+  return true
+}
+
+function bundleTitle(bundle, fallback) {
+  if (typeof bundle?.meta?.default?.title === 'string' && bundle.meta.default.title.trim() !== '') return bundle.meta.default.title.trim()
+  if (typeof bundle?.meta?.title === 'string' && bundle.meta.title.trim() !== '') return bundle.meta.title.trim()
+  if (typeof bundle?.displayName === 'string' && bundle.displayName.trim() !== '') return bundle.displayName.trim()
+  return bundle?.name || fallback
+}
+
+// DSH's PluginManager reports ChangeResult.application ('applied' | 'restart-required' |
+// 'overridden' | 'failed' | 'cancelled') rather than throwing on every failure.
+function changeNeedsRestart(result) {
+  return result?.application === 'restart-required' || result?.restartRequired === true || result?.needsRestart === true
+}
+
+function changeFailed(result) {
+  return result?.application === 'failed' || result?.application === 'cancelled' || Boolean(result?.error)
+}
+
+function changeErrorMessage(result, fallback) {
+  if (typeof result?.error?.diagnostic === 'string' && result.error.diagnostic.trim() !== '') return result.error.diagnostic.trim()
+  if (typeof result?.error?.code === 'string' && result.error.code.trim() !== '') return `${fallback} (${result.error.code})`
+  if (result?.application === 'cancelled') return 'The plugin operation was cancelled.'
+  return fallback
 }
 
 export function install(rt) {
@@ -298,7 +324,7 @@ export function install(rt) {
         mode: 'external',
         packageName: pkg,
         installSpec: bundle.source || pkg,
-        name: bundle.displayName || bundle.name || pkg,
+        name: bundleTitle(bundle, pkg),
         description: bundle.description || 'Installed DSH browser plugin.',
         toolPrefixes: inferToolPrefixes(pkg),
         discovered: true,
@@ -407,10 +433,11 @@ export function install(rt) {
     const deny = new Set()
 
     if (isBot) {
+      const ownTools = new Set(rt.teamTools.map(tool => tool.name))
       for (const prefix of allManagedExternalPrefixes()) {
         if (activeAllowedPrefixes.has(prefix)) continue
         for (const name of served) {
-          if (name.startsWith(prefix)) deny.add(name)
+          if (!ownTools.has(name) && name.startsWith(prefix)) deny.add(name)
         }
       }
     } else if (activeMcpServerName) {
@@ -692,7 +719,10 @@ export function install(rt) {
           try {
             const changed = await manager.setBundleEnabled(pkg, true)
             await scanBundles()
-            if (changed?.restartRequired || changed?.needsRestart) {
+            if (changeFailed(changed)) {
+              throw new Error(changeErrorMessage(changed, `Could not enable ${entry.name}.`))
+            }
+            if (changeNeedsRestart(changed)) {
               rt.setReadBrowserVisible?.(true)
               status = {
                 id: entry.id,
@@ -843,6 +873,13 @@ export function install(rt) {
         activeMount = handle
         rt.browserFrame = botId => handle.frame?.(botId)
         activePrompt = handle.systemPrompt || initialProvider.systemPrompt || ''
+      }, error => {
+        if (stopped) return
+        status = {
+          ...status,
+          state: 'error',
+          message: rt.redactSecrets?.(String(error?.message ?? error)) ?? String(error),
+        }
       })
     } else {
       activeMount = mounted
@@ -952,31 +989,48 @@ export function install(rt) {
         const entry = id ? resolveEntry(id) : undefined
         const spec = String(body?.spec ?? entry?.installSpec ?? entry?.packageName ?? '').trim()
         if (spec === '') throw new Error('A plugin package name or install spec is required.')
+        const previousStatus = { ...status }
         status = { ...status, state: 'loading', message: `Installing ${spec}…` }
-        const result = await manager.installBundle(spec, { activate: true })
+        let result
+        try {
+          result = await manager.installBundle(spec, { activate: true })
+          if (changeFailed(result)) {
+            throw new Error(changeErrorMessage(result, `Could not install ${spec}.`))
+          }
+        } catch (error) {
+          status = previousStatus
+          throw error
+        }
         await scanBundles()
-        const restartRequired = Boolean(result?.restartRequired || result?.needsRestart)
-        const targetId = entry?.id ?? (id && id.startsWith(DSH_PREFIX) ? id : `${DSH_PREFIX}${spec}`)
+        const restartRequired = changeNeedsRestart(result)
+        const installedPkg = typeof result?.target === 'string' && result.target.trim() !== ''
+          ? result.target.trim()
+          : (entry?.packageName ?? derivePackageName(spec))
+        const targetId = entry?.id ?? (id && id.startsWith(DSH_PREFIX) ? id : `${DSH_PREFIX}${installedPkg}`)
         const saved = browserState()
         saved.active = targetId
         if (restartRequired) {
-          await unmountActive()
-          activeId = targetId
-          rt.setReadBrowserVisible?.(true)
-          status = {
-            id: targetId,
-            kind: 'dsh-plugin',
-            name: entry?.name ?? spec,
-            packageName: entry?.packageName ?? spec,
-            mode: 'external',
-            state: 'restart-needed',
-            supportsGrants: false,
-            supportsHandoff: false,
-            supportsPerBotProfile: false,
-            message: `${entry?.name ?? spec} was installed. Restart DS Bot to load its tools.`,
-            installCommand: null,
-          }
-          reapplyBrowserMasks()
+          reconcileChain = reconcileChain.catch(() => {}).then(async () => {
+            if (stopped) return
+            await unmountActive()
+            activeId = targetId
+            rt.setReadBrowserVisible?.(true)
+            status = {
+              id: targetId,
+              kind: 'dsh-plugin',
+              name: entry?.name ?? installedPkg,
+              packageName: installedPkg,
+              mode: 'external',
+              state: 'restart-needed',
+              supportsGrants: false,
+              supportsHandoff: false,
+              supportsPerBotProfile: false,
+              message: `${entry?.name ?? installedPkg} was installed. Restart DS Bot to load its tools.`,
+              installCommand: null,
+            }
+            reapplyBrowserMasks()
+          })
+          await reconcileChain
         } else {
           await enqueueReconcile(targetId)
         }
@@ -986,12 +1040,13 @@ export function install(rt) {
       case 'browser-custom-save': {
         writeCheck()
         const saved = browserState()
+        const editableIds = new Set(saved.custom.map(item => item.id))
         const taken = new Set([
           ...DSH_PLUGIN_CATALOG.map(item => item.id),
           ...MCP_CATALOG.map(item => item.id),
-          ...saved.custom.map(item => item.id),
+          ...editableIds,
         ])
-        const item = validateCustomBrowser(body, taken)
+        const item = validateCustomBrowser(body, taken, editableIds)
         const at = saved.custom.findIndex(existing => existing.id === item.id)
         if (at !== -1) saved.custom[at] = item
         else saved.custom.push(item)
@@ -1025,7 +1080,10 @@ export function install(rt) {
   }
 
   // ---- Wire lifecycle, prompt, listeners, and public service ----
-  const offAgentCreated = ctx.on?.('agent/created', ({ agent }) => applyBrowserMask(agent))
+  const offAgentCreated = ctx.on?.('agent/created', ({ agent }) => {
+    applyBrowserMask(agent)
+    void rt.load?.().then(() => applyBrowserMask(agent)).catch(() => {})
+  })
   const offAgentDisposed = ctx.on?.('agent/disposed', ({ agent }) => {
     if (!agent) return
     disposedAgents.add(agent)
@@ -1086,7 +1144,7 @@ export function install(rt) {
     const originalDelete = rt.deleteBot.bind(rt)
     rt.deleteBot = async (id) => {
       const result = await originalDelete(id)
-      await activeMount?.drop?.(id)?.catch?.(() => {})
+      await Promise.resolve().then(() => activeMount?.drop?.(id)).catch(() => {})
       await rm(join(profileRoot, id), { recursive: true, force: true }).catch(() => {})
       return result
     }

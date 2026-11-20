@@ -371,3 +371,81 @@ test('third-party native browser providers plug into dsBotBrowser with custom mo
   unregister()
   assert.equal(env.rt.dsBotBrowser.listProviders().some(p => p.id === 'provider:custom-engine'), false)
 })
+
+test('DSH ChangeResult application states (failed, cancelled, restart-required) and availability: missing are handled accurately', async (t) => {
+  let nextResult = { changed: false, application: 'failed', stage: 'install', target: 'dsh-ego-browser', error: { code: 'operation-error', diagnostic: 'network down' } }
+  let bundles = [
+    { name: 'dsh-ego-browser', availability: 'missing', installed: false, enabled: false },
+  ]
+  const env = start({
+    services: {
+      pluginManager: {
+        listBundles: async () => bundles,
+        installBundle: async () => nextResult,
+      },
+    },
+  })
+  t.after(() => env.stop())
+  await env.rt.load()
+
+  // availability: 'missing' must NOT be treated as installed.
+  const listed = await env.call('browser-backends')
+  assert.equal(listed.value.dshPlugins.find(p => p.id === 'dsh:dsh-ego-browser').installed, false)
+
+  // Failed install returns error, restores prior status (never stuck in loading), and does not change active backend.
+  const failed = await env.call('browser-install-plugin', { id: 'dsh:dsh-ego-browser' })
+  assert.equal(failed.ok, false)
+  assert.match(failed.error.message, /network down/)
+  assert.equal(env.rt.browserStatusView().state, 'ready')
+  assert.equal(env.rt.browserStatusView().id, 'readonly')
+
+  // Cancelled install also fails cleanly without activating.
+  nextResult = { changed: false, application: 'cancelled', stage: 'install', target: 'dsh-ego-browser' }
+  const cancelled = await env.call('browser-install-plugin', { id: 'dsh:dsh-ego-browser' })
+  assert.equal(cancelled.ok, false)
+  assert.match(cancelled.error.message, /cancelled/i)
+  assert.equal(env.rt.browserStatusView().id, 'readonly')
+
+  // Real DSH ChangeResult application === 'restart-required' with github spec resolves package name via result.target.
+  nextResult = { changed: true, application: 'restart-required', restartReason: 'no-hmr', stage: 'install', target: 'community-ego-fork' }
+  bundles = [{ name: 'community-ego-fork', availability: 'profile', installed: true, enabled: true, version: '1.2.3' }]
+  const installed = await env.call('browser-install-plugin', { spec: 'github:someone/community-ego-fork' })
+  assert.equal(installed.ok, true)
+  assert.equal(installed.value.active, 'dsh:community-ego-fork')
+  assert.equal(installed.value.status.state, 'restart-needed')
+  assert.equal(installed.value.restartRequired, true)
+})
+
+test('external DSH plugins never mask DS Bot own built-in tools and custom validation blocks catalog overwrites and bad commands', async (t) => {
+  const bundles = [
+    { name: 'community-playwright-extra', availability: 'profile', installed: true, enabled: true, version: '0.1.0' },
+  ]
+  const env = start({
+    globalTools: ['browser_open', 'playwright_nav', 'read_browser'],
+    services: {
+      pluginManager: {
+        listBundles: async () => bundles,
+      },
+    },
+  })
+  t.after(() => env.stop())
+  await env.rt.load()
+  const botAgent = await env.addAgent('b2')
+
+  await env.call('browser-backends')
+  await env.call('browser-set-backend', { id: 'builtin:refs' })
+  env.rt.reapplyBrowserMasks()
+
+  // External playwright_* tool is masked while built-in refs is active,
+  // but DS Bot's own browser_open and read_browser are NEVER masked.
+  assert.ok(botAgent.denied.has('playwright_nav'))
+  assert.equal(botAgent.denied.has('browser_open'), false)
+  assert.equal(botAgent.denied.has('read_browser'), false)
+
+  // Custom DSH entry cannot overwrite a curated catalog ID, and MCP command rejects shell metacharacters.
+  const dupCatalog = await env.call('browser-custom-save', { kind: 'dsh-plugin', name: 'Fake Ego', packageName: 'dsh-ego-browser' })
+  assert.equal(dupCatalog.ok, false)
+  const badCmd = await env.call('browser-custom-save', { kind: 'mcp', name: 'Bad', transport: 'stdio', command: 'npx;whoami' })
+  assert.equal(badCmd.ok, false)
+})
+

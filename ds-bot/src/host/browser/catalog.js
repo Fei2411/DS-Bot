@@ -132,7 +132,8 @@ export function isBrowserBundle(bundle, knownPackages = new Set()) {
 export function inferToolPrefixes(packageName) {
   const pkg = String(packageName ?? '').toLowerCase()
   if (pkg.includes('ego')) return ['ego_']
-  if (pkg.includes('playwright')) return ['playwright_', 'browser_']
+  // Never infer 'browser_' — DS Bot's own built-in Playwright tools use browser_*.
+  if (pkg.includes('playwright')) return ['playwright_']
   if (pkg.includes('puppeteer')) return ['puppeteer_']
   if (pkg.includes('stagehand')) return ['stagehand_']
   return []
@@ -187,6 +188,8 @@ const stringMap = (value, label) => {
   return out
 }
 
+const SAFE_COMMAND = /^(?:\/|~\/|[A-Za-z]:[\\/]|[\w.-]+$)/
+
 export function customBrowserId(kind, name, taken = new Set()) {
   const prefix = kind === 'dsh-plugin' ? DSH_PREFIX : MCP_PREFIX
   const base = String(name ?? '').toLowerCase().trim()
@@ -203,7 +206,7 @@ export function customBrowserId(kind, name, taken = new Set()) {
 /**
  * Validate a user-added custom browser backend (either a DSH plugin or an MCP server).
  */
-export function validateCustomBrowser(body, takenIds = new Set()) {
+export function validateCustomBrowser(body, takenIds = new Set(), editableIds = new Set()) {
   if (!body || typeof body !== 'object') throw new Error('Invalid browser backend payload.')
   const kind = body.kind === 'dsh-plugin' ? 'dsh-plugin' : body.kind === 'mcp' ? 'mcp' : ''
   if (kind === '') throw new Error('Choose a DSH plugin or an MCP server.')
@@ -220,7 +223,12 @@ export function validateCustomBrowser(body, takenIds = new Set()) {
     if (packageName === '' || /\s/.test(packageName) || packageName.includes('\0')) {
       throw new Error('Enter a valid package name for the DSH plugin.')
     }
-    const id = typeof body.id === 'string' && body.id.startsWith(DSH_PREFIX) ? body.id : `${DSH_PREFIX}${packageName}`
+    const id = typeof body.id === 'string' && editableIds.has(body.id) && body.id.startsWith(DSH_PREFIX)
+      ? body.id
+      : `${DSH_PREFIX}${packageName}`
+    if (!editableIds.has(id) && DSH_PLUGIN_CATALOG.some(entry => entry.id === id)) {
+      throw new Error(`${packageName} is already listed in the DSH browser plugin catalog.`)
+    }
     const toolPrefixes = prefixes(body.toolPrefixes)
     return {
       id,
@@ -236,12 +244,14 @@ export function validateCustomBrowser(body, takenIds = new Set()) {
   }
 
   const transport = body.transport === 'streamable-http' ? 'streamable-http' : 'stdio'
-  const id = typeof body.id === 'string' && body.id.startsWith(MCP_PREFIX)
+  const id = typeof body.id === 'string' && editableIds.has(body.id) && body.id.startsWith(MCP_PREFIX)
     ? body.id
     : customBrowserId('mcp', name, takenIds)
   if (transport === 'stdio') {
     const command = String(body.command ?? '').trim()
-    if (command === '' || /\s/.test(command) || command.includes('\0')) throw new Error('Enter a command for the MCP server.')
+    if (command === '' || /\s/.test(command) || command.includes('\0') || !SAFE_COMMAND.test(command)) {
+      throw new Error('Command must be a program name, an absolute path, or a ~/path.')
+    }
     const args = strings(body.args, 'Arguments')
     const env = stringMap(body.env, 'Environment variables')
     return { id, kind: 'mcp', mode: 'external', name, description, transport, command, args, env, custom: true }
@@ -257,7 +267,7 @@ export function validateCustomBrowser(body, takenIds = new Set()) {
   return { id, kind: 'mcp', mode: 'external', name, description, transport, url, headers, custom: true }
 }
 
-function derivePackageName(spec) {
+export function derivePackageName(spec) {
   const text = String(spec ?? '').trim()
   // github:owner/repo#ref -> repo
   const git = /^(?:github:|git\+https:\/\/github\.com\/|https:\/\/github\.com\/)[\w.-]+\/([\w.-]+?)(?:\.git)?(?:#.*)?$/i.exec(text)

@@ -61,9 +61,13 @@ function CopyButton({ text }) {
   const copy = () => {
     void navigator.clipboard?.writeText(text).then(() => {
       setCopied(true)
-      setTimeout(() => setCopied(false), 1600)
     }, () => {})
   }
+  useEffect(() => {
+    if (!copied) return undefined
+    const timer = setTimeout(() => setCopied(false), 1600)
+    return () => clearTimeout(timer)
+  }, [copied])
   return h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: copy }, copied ? t('Copied') : t('Copy command'))
 }
 
@@ -105,10 +109,14 @@ export function BrowserPage({ roster, actions, run, Section, Row }) {
   useEffect(() => {
     refreshBackends()
   }, [])
+  useEffect(() => {
+    setFresh(null)
+  }, [roster.browserBackend])
 
   const backend = fresh ?? roster.browserBackend ?? FALLBACK_BACKEND
-  const status = backend.status ?? FALLBACK_BACKEND.status
   const activeId = backend.active ?? 'readonly'
+  const liveStatus = roster.browserStatus?.id === activeId ? roster.browserStatus : null
+  const status = liveStatus ?? backend.status ?? FALLBACK_BACKEND.status
   const supportsGrants = status.supportsGrants !== false
 
   const pickBackend = (id) => {
