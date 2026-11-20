@@ -10,8 +10,15 @@ import { fakeWsServer } from './fake-ws.js'
 async function fakeQq() {
   const calls = []
   const replies = {}
+  const media = {}
   const packets = []
   const http = createServer((req, res) => {
+    if (req.method === 'GET' && media[req.url] !== undefined) {
+      const entry = media[req.url]
+      res.writeHead(entry.status ?? 200, entry.headers ?? { 'content-type': 'application/octet-stream' })
+      res.end(entry.body ?? Buffer.alloc(0))
+      return
+    }
     let body = ''
     req.on('data', chunk => { body += chunk })
     req.on('end', () => {
@@ -47,7 +54,7 @@ async function fakeQq() {
   await new Promise(resolve => http.listen(0, '127.0.0.1', resolve))
   return {
     api: `http://127.0.0.1:${http.address().port}`,
-    calls, replies, packets,
+    calls, replies, media, packets,
     sockets: wss.sockets,
     push: (ws, packet) => ws.send(JSON.stringify(packet)),
     close: () => { wss.close(); http.closeAllConnections?.(); http.close() },
@@ -252,4 +259,173 @@ test('a socket that cannot be built at the handshake is retried (#1119)', async 
   const ready = await until(() => statuses.slice(statuses.indexOf(failed) + 1).find(status => status.state === 'ready'), 120)
   assert.ok(ready !== undefined, 'the connection became ready after a new socket')
   assert.equal(fake.sockets.length, 1)
+})
+
+test('a voice message arrives as the platform ASR text (#1824)', async (t) => {
+  const fake = await fakeQq()
+  const messages = []
+  const handle = qq.connect(FIELDS, env(fake), { onMessage: async msg => { messages.push(msg) }, onAction: () => {}, onStatus: () => {} })
+  t.after(() => { handle.stop(); fake.close() })
+  const ws = await until(() => fake.sockets[0])
+  await until(() => fake.packets.some(packet => packet.op === 2))
+  // A QQ voice message carries no content: only an attachment with the
+  // platform's own transcription.
+  fake.push(ws, {
+    op: 0,
+    t: 'C2C_MESSAGE_CREATE',
+    s: 2,
+    d: {
+      id: 'm1',
+      content: '',
+      author: { user_openid: 'u1' },
+      attachments: [
+        { content_type: 'voice', url: 'https://multimedia.nt.qq.com.cn/x.amr', asr_refer_text: '明天下午三点开会', voice_wav_url: 'https://multimedia.nt.qq.com.cn/x.wav' },
+      ],
+    },
+  })
+  await until(() => messages.length === 1)
+  assert.equal(messages.length, 1, 'the voice message reached the bot')
+  assert.equal(messages[0].text, '明天下午三点开会')
+})
+
+test('a voice attachment without ASR text leaves the text empty', async (t) => {
+  const fake = await fakeQq()
+  const messages = []
+  const handle = qq.connect(FIELDS, env(fake), { onMessage: async msg => { messages.push(msg) }, onAction: () => {}, onStatus: () => {} })
+  t.after(() => { handle.stop(); fake.close() })
+  const ws = await until(() => fake.sockets[0])
+  await until(() => fake.packets.some(packet => packet.op === 2))
+  fake.push(ws, {
+    op: 0,
+    t: 'C2C_MESSAGE_CREATE',
+    s: 2,
+    d: { id: 'm1', content: '', author: { user_openid: 'u1' }, attachments: [{ content_type: 'voice', url: 'https://x.amr' }] },
+  })
+  // The event still reaches the handler so the core can answer "no text":
+  // dropping it silently is what the bug report is about.
+  await until(() => messages.length === 1)
+  assert.equal(messages[0].text, '')
+})
+
+test('a caption on a voice message wins over the ASR text', async (t) => {
+  const fake = await fakeQq()
+  const messages = []
+  const handle = qq.connect(FIELDS, env(fake), { onMessage: async msg => { messages.push(msg) }, onAction: () => {}, onStatus: () => {} })
+  t.after(() => { handle.stop(); fake.close() })
+  const ws = await until(() => fake.sockets[0])
+  await until(() => fake.packets.some(packet => packet.op === 2))
+  fake.push(ws, {
+    op: 0,
+    t: 'C2C_MESSAGE_CREATE',
+    s: 2,
+    d: {
+      id: 'm1',
+      content: '听一下这个',
+      author: { user_openid: 'u1' },
+      attachments: [{ content_type: 'voice', url: 'https://x.amr', asr_refer_text: '明天下午三点开会' }],
+    },
+  })
+  await until(() => messages.length === 1)
+  assert.equal(messages[0].text, '听一下这个')
+})
+
+test('C2C and group messages download image and file attachments with magic-byte MIME detection (#1090)', async (t) => {
+  const fake = await fakeQq()
+  const pngBytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x01])
+  const pdfBytes = Buffer.from('%PDF-1.4\nhello')
+  fake.media['/img.bin'] = { headers: { 'content-type': 'image/jpeg' }, body: pngBytes }
+  fake.media['/doc.pdf'] = { headers: { 'content-type': 'application/pdf' }, body: pdfBytes }
+  fake.media['/huge.png'] = { headers: { 'content-type': 'image/png', 'content-length': String(30 * 1024 * 1024) }, body: pngBytes }
+  const messages = []
+  const base = env(fake)
+  // Map protocol-relative //cdn.qq.test/img.bin onto the local fake HTTP server so we test real // normalization.
+  const fetch = (url, ...rest) => base.fetch(String(url).replace('https://cdn.qq.test', fake.api), ...rest)
+  const handle = qq.connect(FIELDS, { ...base, fetch }, { onMessage: async msg => { messages.push(msg) }, onAction: () => {}, onStatus: () => {} })
+  t.after(() => { handle.stop(); fake.close() })
+  const ws = await until(() => fake.sockets[0])
+  await until(() => fake.packets.some(packet => packet.op === 2))
+  fake.push(ws, {
+    op: 0,
+    t: 'C2C_MESSAGE_CREATE',
+    s: 2,
+    d: {
+      id: 'm-img',
+      content: '看看这张图',
+      author: { user_openid: 'u1' },
+      attachments: [
+        { content_type: 'image/jpeg', filename: 'photo.jpg', url: '//cdn.qq.test/img.bin' },
+        { content_type: 'image/png', filename: 'huge.png', url: `${fake.api}/huge.png` },
+        { content_type: 'application/pdf', filename: 'report.pdf', url: `${fake.api}/doc.pdf` },
+      ],
+    },
+  })
+  fake.push(ws, {
+    op: 0,
+    t: 'GROUP_AT_MESSAGE_CREATE',
+    s: 3,
+    d: {
+      id: 'm-grp',
+      content: '',
+      group_openid: 'g1',
+      author: { member_openid: 'u2' },
+      attachments: [
+        { content_type: 'image/png', filename: 'shot.png', url: `${fake.api}/img.bin` },
+      ],
+    },
+  })
+  await until(() => messages.length === 2)
+  const dm = messages.find(item => item.messageId === 'm-img')
+  const grp = messages.find(item => item.messageId === 'm-grp')
+  assert.ok(dm && grp)
+  assert.equal(dm.text, '看看这张图')
+  assert.equal(dm.images.length, 1, 'oversized image skipped, valid PNG kept')
+  assert.equal(dm.images[0].mediaType, 'image/png', 'magic bytes override mislabelled image/jpeg')
+  assert.equal(dm.images[0].data, pngBytes.toString('base64'))
+  assert.equal(dm.files.length, 1)
+  assert.equal(dm.files[0].name, 'report.pdf')
+  assert.deepEqual(dm.files[0].data, pdfBytes)
+  assert.equal(grp.chat.kind, 'group')
+  assert.equal(grp.images.length, 1)
+  assert.equal(grp.images[0].mediaType, 'image/png')
+})
+
+test('QQ degrades unsupported BMP to files, keeps text on 500 download, and preserves same-chat order (#1090)', async (t) => {
+  const fake = await fakeQq()
+  const pngBytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x01])
+  const bmpBytes = Buffer.from([0x42, 0x4d, 0x10, 0x00, 0x00, 0x00])
+  fake.media['/slow.png'] = { headers: { 'content-type': 'image/png' }, body: pngBytes }
+  fake.media['/old.bmp'] = { headers: { 'content-type': 'image/bmp' }, body: bmpBytes }
+  fake.media['/broken.png'] = { status: 500, headers: { 'content-type': 'text/plain' }, body: Buffer.from('err') }
+  const base = env(fake)
+  const fetch = async (url, init) => {
+    if (String(url).endsWith('/slow.png')) await new Promise(resolve => setTimeout(resolve, 60))
+    return base.fetch(url, init)
+  }
+  const messages = []
+  const handle = qq.connect(FIELDS, { ...base, fetch }, { onMessage: async msg => { messages.push(msg) }, onAction: () => {}, onStatus: () => {} })
+  t.after(() => { handle.stop(); fake.close() })
+  const ws = await until(() => fake.sockets[0])
+  await until(() => fake.packets.some(packet => packet.op === 2))
+  fake.push(ws, {
+    op: 0, t: 'C2C_MESSAGE_CREATE', s: 2,
+    d: {
+      id: 'm1', content: '第一条带图', author: { user_openid: 'u1' },
+      attachments: [
+        { content_type: 'image/png', filename: 'slow.png', url: `${fake.api}/slow.png` },
+        { content_type: 'image/bmp', filename: 'old.bmp', url: `${fake.api}/old.bmp` },
+        { content_type: 'image/png', filename: 'broken.png', url: `${fake.api}/broken.png` },
+      ],
+    },
+  })
+  fake.push(ws, {
+    op: 0, t: 'C2C_MESSAGE_CREATE', s: 3,
+    d: { id: 'm2', content: '第二条追问', author: { user_openid: 'u1' } },
+  })
+  await until(() => messages.length === 2)
+  assert.deepEqual(messages.map(m => m.messageId), ['m1', 'm2'], 'slow image still lands before follow-up text in the same chat')
+  assert.equal(messages[0].text, '第一条带图')
+  assert.equal(messages[0].images.length, 1)
+  assert.equal(messages[0].images[0].mediaType, 'image/png')
+  assert.equal(messages[0].files.length, 1, 'unsupported BMP degrades to files instead of breaking DSH admission')
+  assert.equal(messages[0].files[0].name, 'old.bmp')
 })

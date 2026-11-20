@@ -5,8 +5,12 @@ import { installStyles } from './styles.js'
 import { nextCollapsedWidth, trackRoom } from './frame-layout.js'
 
 export const sidebarTrackWidth = () => {
-  const box = typeof document === 'undefined' ? undefined : document.querySelector('[class*="_sidebarCol"]')?.getBoundingClientRect()
-  return box === undefined ? null : trackRoom(box)
+  const column = typeof document === 'undefined' ? null : document.querySelector('[class*="_sidebarCol"]')
+  if (!column) return null
+  const position = typeof getComputedStyle === 'function' ? getComputedStyle(column).position : ''
+  // A drawer overlays the grid; its visible strip does not reserve a track.
+  if (position === 'absolute' || position === 'fixed') return 0
+  return trackRoom(column.getBoundingClientRect())
 }
 
 // The shell frame marks itself [data-sidebar-collapsed]; null when no frame is found.
@@ -43,6 +47,11 @@ const roomRule = () => {
 const margin = (side, width, style) => {
   if (width === null) style.removeProperty(`margin-${side}`)
   else style.setProperty(`margin-${side}`, `${width}px`, 'important')
+  // A host skin can give the grid item width:100%. That width plus our margins
+  // exceeds its track. Own the width until both margin overrides are released,
+  // including an explicit zero used while our column is hidden.
+  if (style.marginLeft || style.marginRight) style.setProperty('width', 'auto', 'important')
+  else style.removeProperty('width')
 }
 let roomHold = 0
 export const chatRoom = {

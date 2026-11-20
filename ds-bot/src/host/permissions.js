@@ -2,6 +2,8 @@
 // Session it speaks from, so a fresh part or a new group Session keeps it. A group may
 // set one preset for all its members there, in place of each member's own, as it may
 // set one working folder.
+import { activeTasksOf } from './threads.js'
+
 // DSH offers Auto review for the current Session only, so neither a Bot nor a group keeps it.
 const SESSION_ONLY = 'auto'
 
@@ -65,9 +67,9 @@ export function install(rt) {
     // Session the Bot has ends at the value the newest request actually applied.
     const applyTo = (sessionId, room = roomOfSession(sessionId)) =>
       setPreset(sessionId, () => (request.seq === mine ? room?.permission ?? bot.permission : undefined))
-    // The Bot's own chat may have background parts opened while it was busy: a stricter
+    // The Bot's own chat may have background parts or active tasks: a stricter
     // preset must reach those live Sessions too, or the user would think it applied.
-    const own = () => [rt.chatOf(bot.id), ...(bot.openParts ?? []).map(part => part.sessionId)]
+    const own = () => [rt.chatOf(bot.id), ...(bot.openParts ?? []).map(part => part.sessionId), ...activeTasksOf(bot).map(task => task.sessionId)]
       .filter((sessionId, index, list) => sessionId !== undefined && list.indexOf(sessionId) === index)
     const groups = async (warnFail) => {
       for (const sessionId of rt.groupSessionsOf(bot.id)) {

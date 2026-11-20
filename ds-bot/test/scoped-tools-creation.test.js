@@ -338,15 +338,15 @@ test("a group's own Session is scoped to group_relay alone", async (t) => {
   assert.deepEqual(scopedNames(host, 'r1'), ['group_relay'])
 })
 
-test("another plugin's global recall cannot stop ds-bot or shadow its own", async (t) => {
+test("a Bot Session receives bot_recall alongside another plugin's global recall", async (t) => {
   // #703: a same-named global tool from another plugin must not fail apply(),
-  // and inside a Bot Session ds-bot's recall still wins.
+  // and inside a Bot Session ds-bot's bot_recall is served separately.
   const host = start(TEAM, {}, [{ name: 'recall', description: 'foreign recall', execute: async () => 'foreign' }])
   t.after(host.stop)
   assert.equal(host.ctx.registeredTools.get('recall').description, 'foreign recall')
   await host.call('state', {})
   await host.agentCreated('a')
-  const recall = host.scoped.find(entry => entry.sessionId === 'a' && entry.name === 'recall')
+  const recall = host.scoped.find(entry => entry.sessionId === 'a' && entry.name === 'bot_recall')
   assert.match(String(recall?.tool?.description), /^Search your memory/)
 })
 
