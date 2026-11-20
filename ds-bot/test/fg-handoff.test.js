@@ -716,3 +716,66 @@ test('forwardPulledMessages retries transient resolveAgent failure without dropp
   const delivered = env.agentMap.get('fork-1').followups.filter(m => m.content?.[0]?.text === 'Survive transient error')
   assert.equal(delivered.length, 1, 'retried message must arrive exactly once')
 })
+
+test('plugin reload (adoptLiveWork) on running bot-handoff task restores routing and delivers single real reply', async (t) => {
+  const env = await startEnv()
+  t.after(env.stop)
+  const dmA = env.agentMap.get('dm-a')
+  const dmB = env.agentMap.get('dm-b')
+  dmB.status = 'running'
+
+  await env.emit('dm-b', 'turn/start', { turn: 1 })
+  await env.emit('dm-b', 'tool/call', { callId: 'tc1', name: 'bash', arguments: '{}' })
+  const res = await env.tool('message_bot').execute({ to: 'Helper', message: 'Audit after reload' }, execOf(dmA))
+  assert.match(res, /background task/)
+  const task = env.rt.botOf('b').tasks[0]
+  const taskSid = task.sessionId
+  const taskAgent = env.agentMap.get(taskSid)
+  taskAgent.status = 'running'
+  // Simulate turn/start + request consumed BEFORE plugin reload, then clear in-memory `rt.live` as reload does!
+  await env.emit(taskSid, 'turn/start', { turn: 1 })
+  env.rt.live.clear()
+  env.agentMap.list = () => [...env.agentMap.values()]
+
+  await env.rt.adoptLiveWork()
+  assert.equal(env.rt.live.get(taskSid)?.info?.exchangeId, task.exchangeId, 'adoptLiveWork must restore bot-handoff routing info')
+
+  // Task finishes after reload -> turns.js delivers the real reply and closes work!
+  taskAgent.status = 'idle'
+  await env.emit(taskSid, 'assistant/message', { turn: 1, message: { role: 'assistant', content: [{ type: 'text', text: 'Audit complete.' }] } })
+  await env.emit(taskSid, 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  await waitFor(() => env.deliveries.some(d => d.toId === 'a' && d.role === 'reply' && d.replyTo === task.exchangeId))
+
+  const replies = env.deliveries.filter(d => d.toId === 'a' && d.role === 'reply' && d.replyTo === task.exchangeId)
+  assert.equal(replies.length, 1)
+  assert.match(replies[0].text, /Audit complete\./)
+  assert.equal(env.rt.state.works[task.exchangeId], undefined, 'work must be closed after adopted reply delivery')
+})
+
+test('fg-handoff snapshots inheritedSegments so foreground rollover or startOpenPart never shifts task anchors', async (t) => {
+  const env = await startEnv({
+    team: makeTeam({
+      bots: {
+        a: { id: 'a', name: 'Chief', role: 'Boss', sessionId: 'dm-a', segments: [{ sessionId: 'dm-a-p1', endedAt: 10 }], createdAt: 1 },
+      },
+    }),
+  })
+  t.after(env.stop)
+
+  env.agentMap.get('dm-a').status = 'running'
+  await env.emit('dm-a', 'turn/start', { turn: 1 })
+  await env.emit('dm-a', 'tool/call', { callId: 'tc1', name: 'bash', arguments: '{}' })
+  await env.rt.sendUser({ sessionId: 'dm-a', content: [{ type: 'text', text: 'New fg work' }] })
+
+  const bot = env.rt.botOf('a')
+  assert.deepEqual(env.rt.partsOfThread('a', 'dm-a').map(p => p.sessionId), ['dm-a-p1', 'dm-a'])
+
+  // 1) Foreground rolls over (adds a new segment to bot.segments): task anchors MUST NOT shift!
+  bot.segments.push({ sessionId: 'fork-1', endedAt: 20 })
+  bot.sessionId = 'fg-p3'
+  assert.deepEqual(env.rt.partsOfThread('a', 'dm-a').map(p => p.sessionId), ['dm-a-p1', 'dm-a'])
+
+  // 2) User opens a fresh parallel thread (clears bot.segments): task STILL keeps its frozen inherited snapshot!
+  bot.segments = []
+  assert.deepEqual(env.rt.partsOfThread('a', 'dm-a').map(p => p.sessionId), ['dm-a-p1', 'dm-a'])
+})

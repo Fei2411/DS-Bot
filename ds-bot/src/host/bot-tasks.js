@@ -713,6 +713,7 @@ export function install(rt) {
         from: newSid,
         sessionId: oldSid,
         segments: [],
+        ...(bot.segments?.length ? { inheritedSegments: bot.segments.map(seg => ({ ...seg })) } : {}),
         origin,
         status: 'running',
         startedAt: entry?.since ?? now,
