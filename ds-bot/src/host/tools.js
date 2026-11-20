@@ -350,6 +350,26 @@ export function install(rt) {
         const working = rt.live.get(chat)?.turn !== undefined
         const steer = (args.when !== 'queue' && !toUser) || (joins && earlier.steered)
         const exchangeId = joins ? earlier.message.source.exchangeId : randomUUID()
+        const spawnInBackground = working && !toUser && !joins && args.when !== 'queue'
+          && rt.shouldMoveForeground?.(target, chat) === true
+          && typeof rt.spawnBotHandoffTask === 'function'
+        if (spawnInBackground) {
+          await rt.spawnBotHandoffTask(target, chat, {
+            fromBot: sender,
+            fromPart,
+            parentWork: work,
+            text: long.text,
+            files: long.files,
+            length: long.length,
+            exchangeId,
+          })
+          const asker = rt.ownsWork(sender.id, work) ? rt.botOf(state.works[work].from)?.name : undefined
+          const notes = [
+            `Delivered to ${target.name} in a background task while its foreground chat is busy. Its reply will arrive later as a new message; do not wait for it.`,
+            asker ? `When you have handed on everything, end your turn: each reply brings you back to this work, and your answer goes to ${asker} once all of it is back.` : '',
+          ].filter(Boolean)
+          return notes.join(' ')
+        }
         if (joins) rt.forgetDelivery?.(exchangeId)
         else if (!toUser) rt.openWork(exchangeId, { from: sender.id, to: target.id, parent: work, ...(fromPart ? { fromPart } : {}) })
         try {

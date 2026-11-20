@@ -937,9 +937,16 @@ export function install(rt) {
   async function sendUser({ sessionId: ref, content, requestId = randomUUID() }) {
     const past = rt.pastOwners.get(ref)
     const room = rt.roomOf(ref)
-    const sessionId = ownThreadTarget(ref, past)
+    let sessionId = ownThreadTarget(ref, past)
       ?? (room !== undefined ? rt.sessionOfRoom(room)
         : past !== undefined ? rt.sessionOfRoom(rt.roomOf(past.roomId)) : ref)
+    const ownerBotId = rt.chatOwners.get(sessionId)
+    if (ownerBotId !== undefined && !rt.groupOwners.has(sessionId) && !rt.taskOwners?.has(sessionId)) {
+      const bot = rt.botOf(ownerBotId)
+      if (rt.shouldMoveForeground?.(bot, sessionId)) {
+        sessionId = await rt.handoffForeground(bot, sessionId)
+      }
+    }
     await rt.ensureCapabilities(sessionId)
     await ctx.sessionController.prompt({
       requestId,

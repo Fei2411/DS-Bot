@@ -2,7 +2,7 @@ import { createElement as h, Fragment, useEffect, useLayoutEffect, useMemo, useR
 import { createPortal } from 'react-dom'
 import { MarkdownText, writeClipboard } from './dsh-primitives.js'
 import { inkText } from './inks.js'
-import { linkMentions, mentionTarget, dayLabel, contentText, stripHeader, stripToolCallTags, isHiddenTurn, isRelayContext, relaysBefore, relayPart, commRunOf, toolName, toolArgs, reminderPrompts, elapsedLabel, clockLabel, messageClock } from './text.js'
+import { linkMentions, normalizeFileLinks, mentionTarget, dayLabel, contentText, stripHeader, stripToolCallTags, isHiddenTurn, isRelayContext, relaysBefore, relayPart, commRunOf, toolName, toolArgs, reminderPrompts, elapsedLabel, clockLabel, messageClock } from './text.js'
 import { SmileIcon, ReplyIcon, DotsIcon, CheckIcon, DownloadIcon, CopyIcon, GoalIcon, MemoryIcon } from './icons.js'
 import { ChangesCard } from './changes-card.js'
 import { goalEventText } from './goal.js'
@@ -97,7 +97,7 @@ const foldArea = (body, code, codeHead, actions) => (code === undefined ? body
 function Bubble({ text, index, roster, selfId, actions, sessionId, msgKey, mentions, fold, picked, live, lead, whole, textInteractionSource }) {
   const { shown, folded, control, code, codeHead } = useFold(text, { limit: fold, whole, live })
   const key = msgKey ? `${msgKey}:${index}` : undefined
-  const body = shown === '' ? null : h(MarkdownText, { text: linkMentions(shown, roster.bots, selfId), streaming: live, labels: mdLabels(), variant: 'compact', fileMentions: mentions })
+  const body = shown === '' ? null : h(MarkdownText, { text: linkMentions(normalizeFileLinks(shown), roster.bots, selfId), streaming: live, labels: mdLabels(), variant: 'compact', fileMentions: mentions })
   const row = useRef(null)
   // Touch has no hover: a tap on the bubble opens its tools, a tap elsewhere
   // closes them. Interactive targets keep their own meaning.
@@ -713,7 +713,8 @@ export function TriggerCell({ node, sessionId, useRoster, useSessions, useTurnCl
       // A part opens with its handoff package, so the earlier parts go right above it.
       if (source.handoff === true) return h(EarlierParts, { sessionId, roster, actions })
       // Group turns belong to the group chat; the member's own chat stays one-to-one.
-      if (source.role === 'kickoff' || source.role === 'room' || source.role === 'goal') return null
+      // Background task handoff notices are model-only context injected before the user's message.
+      if (source.role === 'kickoff' || source.role === 'room' || source.role === 'goal' || source.role === 'task-handoff') return null
       // The secret card itself shows what the user did; the note to the Bot stays out.
       if (source.role === 'secret' || deferred) return null
       // A profile notice is the user's edit landing in the Bot's chat, not a peer
