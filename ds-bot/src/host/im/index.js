@@ -1502,6 +1502,10 @@ export function install(rt) {
                 resetOrigin(roomSid)
                 claimOrigin(roomSid, saved.connId, saved.chatKey, saved.senderId, saved.binding)
               }
+            } else if (roomSid !== undefined) {
+              // A desktop/Web-started group task has no IM origin: drop any restored room
+              // origin so its report is never forwarded to an IM group chat.
+              dropOrigin(roomSid)
             }
           } else if (originFromSaved(saved) === undefined) {
             dropOrigin(session.id)

@@ -2192,4 +2192,31 @@ test('P0-B: after restart, group task-report restores IM origin even while sibli
     [['g1', '**Writer**: Sibling task report after restart.']],
     'restart recovery with sibling member working must still restore IM group origin',
   )
+
+  // A desktop-started sibling task (no imOrigin) finishing right after must drop roomSid
+  // origin so its desktop result is NEVER forwarded to IM group g1!
+  s.rt.botOf('a').tasks.push({
+    id: 'k_grp_desktop',
+    title: 'Desktop sibling task',
+    roomId: 'r1',
+    from: 'grp-r1-a',
+    sessionId: 'gtask-d',
+    segments: [],
+    status: 'completed',
+    startedAt: Date.now(),
+    updatedAt: Date.now(),
+  })
+  s.fake.sent.length = 0
+  s.emitEvent('grp-r1-a', 'turn/start', { turn: 3 })
+  s.emitEvent('grp-r1-a', 'user/message', {
+    source: { kind: 'bot', form: 'relay', role: 'task-report', taskId: 'k_grp_desktop', roomId: 'r1' },
+    content: [{ type: 'text', text: '[Background task report] Desktop secret result' }],
+  })
+  s.emitEvent('grp-r1-a', 'turn/end', { turn: 3, reason: { kind: 'completed' } })
+  s.emitEvent(roomSid, 'turn/start', { turn: 4 })
+  s.emitEvent(roomSid, 'user/message', { source: { kind: 'bot', form: 'relay', role: 'post', roomId: 'r1' }, content: [{ type: 'text', text: 'Desktop secret' }] })
+  s.rt.logRoom(room, { who: 'Writer', botId: 'a', text: 'Desktop secret result.' })
+  s.emitEvent(roomSid, 'turn/end', { turn: 4, reason: { kind: 'completed' } })
+  await s.flush()
+  assert.deepEqual(s.fake.sent, [], 'desktop-started group task report must never leak to IM group')
 })
