@@ -166,6 +166,41 @@ for (const summary of ['Progress recorded.', 'Long summary. '.repeat(1000), ''])
   })
 }
 
+for (const type of ['image', 'file']) {
+  for (const routeTokens of [180, 2000]) {
+    test(`a switch uses the selected ${type} node's ${routeTokens} route-priced tokens`, async (t) => {
+      const summary = 'Important progress. '.repeat(100)
+      const attachment = {
+        attachmentId: 'a'.repeat(64), bytes: 1000,
+        name: 'attachment'.repeat(routeTokens === 180 ? 1000 : 1),
+        ...(type === 'image' ? { mediaType: 'image/png', width: 100, height: 100 } : {}),
+      }
+      const messages = [{ role: 'user', content: [{ type, attachment }] }]
+      const { ctx, bench, compaction, adoptFor, agentOf, stop } = start({
+        outlet: true, messages,
+        stream: async function* () {
+          yield { type: 'block-start', index: 0, blockType: 'text' }
+          yield { type: 'text-delta', index: 0, text: summary }
+          yield { type: 'block-end', index: 0, block: { type: 'text', text: summary } }
+          yield { type: 'finish', reason: { kind: 'stop' } }
+        },
+      })
+      t.after(stop)
+      ctx.get('tokenMeter').measure = () => ({ totalTokens: 10000 + routeTokens, nodes: [
+        { seq: 0, tokens: 5000 }, { seq: 3, tokens: routeTokens }, { seq: 9, tokens: 0 }, { seq: 10, tokens: 5000 },
+      ] })
+      adoptFor('b2')
+      await compaction.compactRegion(3, 9, agentOf('b2'), new AbortController().signal)
+      const text = bench.checkpoints[0].summary[0].text
+      const framed = meter.estimateMessage({ role: 'user', content: [
+        { type: 'text', text: ' '.repeat(340) }, { type: 'text', text }, { type: 'text', text: '</compacted-summary>' },
+      ] })
+      assert.ok(framed < routeTokens, `${framed} framed tokens must be smaller than ${routeTokens} route-priced tokens`)
+      if (routeTokens === 2000) assert.ok(text.includes(summary.trim()), 'retain the summary when route pricing leaves enough room')
+    })
+  }
+}
+
 test('a Session outside the team keeps the backend compaction', async (t) => {
   const { bench, compaction, adoptFor, agentOf, stop } = start()
   t.after(stop)
