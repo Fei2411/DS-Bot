@@ -13,6 +13,7 @@ import { mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'no
 import { appendFile, mkdir, rename, rm, writeFile } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
 import { join } from 'node:path'
+import { searchTextFor } from './search-text.js'
 
 const SEARCH_MAX = 20
 
@@ -53,7 +54,12 @@ export function install(rt) {
 
   const index = (records) => {
     const bySeq = new Map()
-    for (const record of records) if (Number.isInteger(record.seq)) bySeq.set(record.seq, record)
+    const lower = searchTextFor(records)
+    for (let at = 0; at < records.length; at += 1) {
+      const record = records[at]
+      lower(at, record.text)
+      if (Number.isInteger(record.seq)) bySeq.set(record.seq, record)
+    }
     return bySeq
   }
   const sizeOf = (book) => {
@@ -104,6 +110,7 @@ export function install(rt) {
   function append(book, record) {
     const entry = open(book)
     entry.records.push(record)
+    searchTextFor(entry.records)(entry.records.length - 1, record.text)
     if (Number.isInteger(record.seq)) entry.bySeq.set(record.seq, record)
     if (!writes()) return record
     const line = `${entry.torn ? '\n' : ''}${JSON.stringify(record)}\n`
@@ -146,6 +153,8 @@ export function install(rt) {
     if (added.length === 0) return 0
     added.sort((a, b) => a.seq - b.seq)
     entry.records = [...added, ...entry.records]
+    const lower = searchTextFor(entry.records)
+    for (let at = 0; at < entry.records.length; at += 1) lower(at, entry.records[at].text)
     for (const record of added) entry.bySeq.set(record.seq, record)
     if (!writes()) return added.length
     const wasTorn = entry.torn
@@ -198,9 +207,12 @@ export function install(rt) {
     search: (book, query, pick = record => record.text) => {
       const words = String(query ?? '').toLowerCase().split(/\s+/).filter(Boolean)
       if (words.length === 0) return []
-      return open(book).records.filter((record) => {
+      const records = open(book).records
+      const lower = searchTextFor(records)
+      return records.filter((record, at) => {
         const text = pick(record)
-        return typeof text === 'string' && words.every(word => text.toLowerCase().includes(word))
+        const value = lower(at, text)
+        return typeof text === 'string' && words.every(word => value.includes(word))
       }).slice(-SEARCH_MAX).reverse()
     },
     // How a kind of book is started from what was kept before the ledger: `prefix`
