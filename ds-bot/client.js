@@ -916,6 +916,9 @@ var JA = {
   "Add DSH Agent": "DSH Agent を追加",
   "Remove DSH Agent": "DSH Agent を削除",
   "New session": "新しいセッション",
+  "Start a new session for {name} in this group": "このグループで {name} の新しいセッションを開始",
+  "Started": "開始しました",
+  "Started a new session for {name} in this group": "このグループで {name} の新しいセッションを開始しました",
   "Archive": "アーカイブ",
   "Session actions": "セッションの操作",
   "Plugins": "プラグイン",
@@ -1752,6 +1755,10 @@ var JA = {
   "A group chat needs at least two Bots": "グループチャットには少なくとも 2 つの Bot が必要です",
   "The admin must be a member of the group": "管理者はグループのメンバーである必要があります",
   "Unknown group chat": "該当するグループチャットが見つかりません",
+  "Not a member of that group": "この Bot はそのグループのメンバーではありません",
+  "This Bot has no session in this group yet": "この Bot にはこのグループのセッションがまだありません",
+  "The Bot is working; wait for it to finish or stop it first": "この Bot は作業中です。完了を待つか先に停止してください",
+  "The new session did not start; the Bot stays in its current one": "新しいセッションを開始できませんでした。Bot は現在のセッションのままです",
   "No Bot is left in this group chat": "このグループチャットに Bot が残っていません",
   "That group chat has been deleted": "そのグループチャットは削除されています",
   "Hand the admin role to another member instead of leaving the group without one": "グループを管理者なしにするのではなく、他のメンバーに管理者を引き継いでください",
@@ -3497,6 +3504,9 @@ var KO = {
   "Add DSH Agent": "DSH Agent 추가",
   "Remove DSH Agent": "DSH Agent 제거",
   "New session": "새 세션",
+  "Start a new session for {name} in this group": "이 그룹에서 {name}의 새 세션 시작",
+  Started: "시작됨",
+  "Started a new session for {name} in this group": "이 그룹에서 {name}의 새 세션을 시작했습니다",
   Archive: "보관",
   "Session actions": "세션 작업",
   "Plugins": "플러그인",
@@ -4352,6 +4362,10 @@ var KO = {
   "A group chat needs at least two Bots": "그룹 채팅에는 최소 2개의 Bot이 필요합니다",
   "The admin must be a member of the group": "관리자는 그룹 멤버여야 합니다",
   "Unknown group chat": "찾을 수 없는 그룹 채팅입니다",
+  "Not a member of that group": "이 봇은 해당 그룹의 멤버가 아닙니다",
+  "This Bot has no session in this group yet": "이 봇은 아직 이 그룹에 세션이 없습니다",
+  "The Bot is working; wait for it to finish or stop it first": "봇이 작업 중입니다. 완료될 때까지 기다리거나 먼저 중지하세요",
+  "The new session did not start; the Bot stays in its current one": "새 세션을 시작하지 못했습니다. 봇은 현재 세션에 그대로 있습니다",
   "No Bot is left in this group chat": "이 그룹 채팅에 남은 Bot이 없습니다",
   "That group chat has been deleted": "이미 삭제된 그룹 채팅입니다",
   "Hand the admin role to another member instead of leaving the group without one": "그룹에 관리자가 없도록 비워 두는 대신 다른 멤버에게 관리자 역할을 넘기세요",
@@ -6099,6 +6113,9 @@ var ES = {
   "Add DSH Agent": "Añadir DSH Agent",
   "Remove DSH Agent": "Quitar DSH Agent",
   "New session": "Nueva sesión",
+  "Start a new session for {name} in this group": "Iniciar una nueva sesión para {name} en este grupo",
+  Started: "Iniciada",
+  "Started a new session for {name} in this group": "Nueva sesión iniciada para {name} en este grupo",
   Archive: "Archivar",
   "Session actions": "Acciones de sesión",
   "Plugins": "Complementos",
@@ -6954,6 +6971,10 @@ var ES = {
   "A group chat needs at least two Bots": "Un chat grupal necesita al menos dos Bots",
   "The admin must be a member of the group": "El administrador debe ser miembro del grupo",
   "Unknown group chat": "Chat grupal desconocido",
+  "Not a member of that group": "Este Bot no es miembro de ese grupo",
+  "This Bot has no session in this group yet": "Este Bot aún no tiene una sesión en este grupo",
+  "The Bot is working; wait for it to finish or stop it first": "El Bot está trabajando; espera a que termine o detenlo primero",
+  "The new session did not start; the Bot stays in its current one": "La nueva sesión no se inició; el Bot sigue en la actual",
   "No Bot is left in this group chat": "No queda ningún Bot en este chat grupal",
   "That group chat has been deleted": "Ese chat grupal ha sido eliminado",
   "Hand the admin role to another member instead of leaving the group without one": "Cede el rol de administrador a otro miembro en lugar de dejar el grupo sin administrador",
@@ -8677,6 +8698,9 @@ var FR = {
   "Add DSH Agent": "Ajouter DSH Agent",
   "Remove DSH Agent": "Retirer DSH Agent",
   "New session": "Nouvelle session",
+  "Start a new session for {name} in this group": "Démarrer une nouvelle session pour {name} dans ce groupe",
+  "Started": "Démarrée",
+  "Started a new session for {name} in this group": "Nouvelle session démarrée pour {name} dans ce groupe",
   "Archive": "Archiver",
   "Session actions": "Actions de session",
   "Plugins": "Plugins",
@@ -9513,6 +9537,10 @@ var FR = {
   "A group chat needs at least two Bots": "Une discussion de groupe nécessite au moins deux Bots",
   "The admin must be a member of the group": "L’admin doit être membre du groupe",
   "Unknown group chat": "Discussion de groupe introuvable",
+  "Not a member of that group": "Ce Bot n'est pas membre de ce groupe",
+  "This Bot has no session in this group yet": "Ce Bot n'a pas encore de session dans ce groupe",
+  "The Bot is working; wait for it to finish or stop it first": "Le Bot travaille ; attendez qu'il termine ou arrêtez-le d'abord",
+  "The new session did not start; the Bot stays in its current one": "La nouvelle session n'a pas démarré ; le Bot reste dans sa session actuelle",
   "No Bot is left in this group chat": "Il ne reste plus aucun Bot dans cette discussion de groupe",
   "That group chat has been deleted": "Cette discussion de groupe a été supprimée",
   "Hand the admin role to another member instead of leaving the group without one": "Confiez le rôle d’admin à un autre membre plutôt que de laisser le groupe sans admin",
@@ -11258,6 +11286,9 @@ var DE = {
   "Add DSH Agent": "DSH Agent hinzufügen",
   "Remove DSH Agent": "DSH Agent entfernen",
   "New session": "Neue Sitzung",
+  "Start a new session for {name} in this group": "Eine neue Sitzung für {name} in dieser Gruppe starten",
+  Started: "Gestartet",
+  "Started a new session for {name} in this group": "Neue Sitzung für {name} in dieser Gruppe gestartet",
   Archive: "Archivieren",
   "Session actions": "Sitzungsaktionen",
   "Plugins": "Plugins",
@@ -12113,6 +12144,10 @@ var DE = {
   "A group chat needs at least two Bots": "Ein Gruppenchat benötigt mindestens zwei Bots",
   "The admin must be a member of the group": "Der Admin muss Mitglied der Gruppe sein",
   "Unknown group chat": "Gruppenchat nicht gefunden",
+  "Not a member of that group": "Kein Mitglied dieser Gruppe",
+  "This Bot has no session in this group yet": "Dieser Bot hat noch keine Sitzung in dieser Gruppe",
+  "The Bot is working; wait for it to finish or stop it first": "Der Bot arbeitet noch; warte, bis er fertig ist, oder stoppe ihn zuerst",
+  "The new session did not start; the Bot stays in its current one": "Die neue Sitzung wurde nicht gestartet; der Bot bleibt in seiner aktuellen Sitzung",
   "No Bot is left in this group chat": "In diesem Gruppenchat ist kein Bot mehr übrig",
   "That group chat has been deleted": "Dieser Gruppenchat wurde gelöscht",
   "Hand the admin role to another member instead of leaving the group without one": "Übergib die Admin-Rolle an ein anderes Mitglied, statt die Gruppe ohne Admin zu lassen",
@@ -13872,6 +13907,9 @@ var ZH = {
   "Add DSH Agent": "添加 DSH Agent",
   "Remove DSH Agent": "移除 DSH Agent",
   "New session": "新会话",
+  "Start a new session for {name} in this group": "为 {name} 在本群开始新会话",
+  Started: "已开始",
+  "Started a new session for {name} in this group": "已为 {name} 在本群开始新会话",
   Archive: "归档",
   "Session actions": "会话操作",
   Plugins: "插件",
@@ -14844,6 +14882,10 @@ var HOST_ZH = {
   "A group chat needs at least two Bots": "群聊至少要两个 Bot",
   "The admin must be a member of the group": "管理员必须是群成员",
   "Unknown group chat": "找不到这个群聊",
+  "Not a member of that group": "这个 Bot 不在这个群聊里",
+  "This Bot has no session in this group yet": "这个 Bot 在本群还没有会话",
+  "The Bot is working; wait for it to finish or stop it first": "这个 Bot 正在工作中，请等它完成或先停止它",
+  "The new session did not start; the Bot stays in its current one": "新会话没有开始，这个 Bot 还在当前会话里",
   "No Bot is left in this group chat": "这个群聊里已经没有 Bot 了",
   "That group chat has been deleted": "这个群聊已经删除了",
   "Hand the admin role to another member instead of leaving the group without one": "请把管理员交给其他成员，不要让群聊没有管理员",
@@ -15703,7 +15745,7 @@ function teamActions({ call: call2, after, partFor, roster, ui: ui2, live, cards
     computerUserActive: (idleSeconds) => call2("computer-user-active", { idleSeconds }),
     stopMemberWork: (roomId, botId) => after(call2("stop-member-work", { roomId, botId })),
     // A running part opened from the session list takes no input until it ends.
-    newPart: (botId) => after(call2("bot-new-part", { botId })),
+    newPart: (botId, roomId) => after(call2("bot-new-part", roomId === void 0 ? { botId } : { botId, roomId })),
     openPart: (botId, sessionId, running = false) => {
       ui2.set((state) => ({ ...state, readOnlyPart: running ? sessionId : null }));
       return after(call2("bot-open-part", { botId, sessionId })).catch((error) => {
@@ -33250,27 +33292,35 @@ function titleOf2(range, bucket) {
   if (bucket.end && (new Date(bucket.start).getUTCDate() !== 1 || new Date(bucket.end).getUTCDate() !== 1)) return spanText(dayKey(bucket.start), dayKey(bucket.end - DAY_MS));
   return dates({ year: "numeric", month: "long" }).format(bucket.start);
 }
-function useTween(value) {
-  const [shown, setShown] = (0, import_react41.useState)(0);
-  const from = (0, import_react41.useRef)(0);
-  (0, import_react41.useEffect)(() => {
-    if (reducedMotion() || typeof requestAnimationFrame !== "function") {
+function useTween(value, rangeKey) {
+  const instant = reducedMotion() || typeof requestAnimationFrame !== "function";
+  const [shown, setShown] = (0, import_react41.useState)(() => instant ? value : 0);
+  const from = (0, import_react41.useRef)(instant ? value : 0);
+  const key = (0, import_react41.useRef)(rangeKey);
+  (0, import_react41.useLayoutEffect)(() => {
+    if (key.current !== rangeKey || reducedMotion() || typeof requestAnimationFrame !== "function" || from.current === value) {
+      key.current = rangeKey;
       from.current = value;
       setShown(value);
       return void 0;
     }
     const begin = from.current;
     const started = performance.now();
+    let active = true;
     let frame2;
     const step = (now) => {
-      const progress = Math.min(1, (now - started) / 650);
+      if (!active) return;
+      const progress = Math.min(1, Math.max(0, (now - started) / 650));
       from.current = begin + (value - begin) * (1 - (1 - progress) ** 3);
       setShown(from.current);
       if (progress < 1) frame2 = requestAnimationFrame(step);
     };
     frame2 = requestAnimationFrame(step);
-    return () => cancelAnimationFrame(frame2);
-  }, [value]);
+    return () => {
+      active = false;
+      cancelAnimationFrame(frame2);
+    };
+  }, [value, rangeKey]);
   return shown;
 }
 var glyphBox = (size, icon2) => (0, import_react41.createElement)("span", { className: "bt-us-glyph", style: { width: size, height: size } }, (0, import_react41.createElement)(icon2));
@@ -33332,7 +33382,8 @@ ${names}`, { box: boxRef });
   );
 }
 function Stats({ range, total, previous }) {
-  const shown = useTween(total.total);
+  const rangeKey = `${range.id}:${range.from ?? ""}:${range.to ?? ""}`;
+  const shown = useTween(total.total, rangeKey);
   const change = previous > 0 ? Math.round((total.total - previous) / previous * 100) : null;
   const cell = (label, value) => (0, import_react41.createElement)("div", { className: "bt-us-stat" }, (0, import_react41.createElement)("span", { className: "bt-us-stat-label" }, label), (0, import_react41.createElement)("span", { className: "bt-us-stat-value" }, value));
   return (0, import_react41.createElement)(
@@ -33341,18 +33392,17 @@ function Stats({ range, total, previous }) {
     (0, import_react41.createElement)(
       "div",
       { className: "bt-us-stat bt-us-stat-main" },
-      (0, import_react41.createElement)("span", { className: "bt-us-stat-label" }, lastText(range)),
       (0, import_react41.createElement)(
-        "span",
-        { className: "bt-us-stat-value" },
-        compact(shown),
-        (0, import_react41.createElement)("small", null, t("tokens")),
+        "div",
+        { className: "bt-us-stat-head" },
+        (0, import_react41.createElement)("span", { className: "bt-us-stat-label" }, lastText(range)),
         change === null ? null : (0, import_react41.createElement)(
           "span",
           { className: "bt-us-delta", title: compareText(range) },
           `${change >= 0 ? "↑" : "↓"} ${Math.abs(change)}%`
         )
-      )
+      ),
+      (0, import_react41.createElement)("span", { className: "bt-us-stat-value" }, compact(shown), (0, import_react41.createElement)("small", null, t("tokens")))
     ),
     cell(t("Cache hit rate"), `${hitRate(total)}%`),
     cell(t("Output"), compact(total.output)),
@@ -33981,11 +34031,12 @@ var USAGE_CSS = `
 .bt-us-stats{display:grid;grid-template-columns:1.6fr 1fr 1fr 1fr;border-radius:16px;border:1px solid var(--bt-line);background:var(--bt-card);animation:bt-us-in .45s var(--bt-us-ease) backwards}
 .bt-us-stat{display:flex;flex-direction:column;justify-content:flex-end;gap:6px;min-width:0;padding:16px 18px}
 .bt-us-stat+.bt-us-stat{border-left:1px solid var(--bt-line)}
-.bt-us-stat-label{overflow:hidden;font-size:12px;line-height:16px;color:var(--bt-ink-3);white-space:nowrap;text-overflow:ellipsis}
+.bt-us-stat-head{display:flex;align-items:center;justify-content:space-between;gap:8px;min-width:0;min-height:20px}
+.bt-us-stat-label{min-width:0;overflow:hidden;font-size:12px;line-height:16px;color:var(--bt-ink-3);white-space:nowrap;text-overflow:ellipsis}
 .bt-us-stat-value{display:flex;align-items:baseline;gap:6px;min-width:0;font-size:22px;line-height:28px;font-weight:600;letter-spacing:-.01em;font-variant-numeric:tabular-nums;white-space:nowrap}
 .bt-us-stat-main .bt-us-stat-value{font-size:34px;line-height:40px;letter-spacing:-.025em}
 .bt-us-stat-value small{font-size:13px;font-weight:400;letter-spacing:0;color:var(--bt-ink-3)}
-.bt-us-delta{align-self:center;margin-left:2px;padding:0 8px;border-radius:999px;background:var(--bt-tag-bg);color:var(--bt-ink-2);font-size:11px;line-height:20px;font-weight:500;letter-spacing:0}
+.bt-us-delta{flex:none;max-width:60%;overflow:hidden;padding:0 8px;border-radius:999px;background:var(--bt-tag-bg);color:var(--bt-ink-2);font-size:11px;line-height:20px;font-weight:500;letter-spacing:0;font-variant-numeric:tabular-nums;white-space:nowrap;text-overflow:ellipsis}
 .bt-us-card{display:flex;flex-direction:column;gap:12px;min-width:0;padding:14px 18px 16px;border-radius:16px;border:1px solid var(--bt-line);background:var(--bt-card);animation:bt-us-in .45s var(--bt-us-ease) backwards;animation-delay:calc(var(--i,0) * 45ms)}
 .bt-us-card-head{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:32px}
 .bt-us-card-head h3{display:flex;align-items:baseline;gap:8px;min-width:0;margin:0;font-size:13px;line-height:18px;font-weight:600}
@@ -40155,6 +40206,7 @@ var NO_WORK = { bots: {}, rooms: {}, approvals: [] };
 var NO_COMPUTER = { asks: {} };
 var FACES_MAX2 = 3;
 var DOCK_EXIT_MS = 160;
+var FRESH_DONE_MS = 1800;
 function roomApprovals(room2, work = NO_WORK, computer = NO_COMPUTER, roster = { byId: {} }) {
   if (!room2) return [];
   const byId = roster?.byId ?? {};
@@ -40351,6 +40403,70 @@ function StopMemberWork({ entry, bot, room: room2, actions }) {
   };
   return (0, import_react56.createElement)("button", { type: "button", className: "bt-member-stop", disabled: stopping, "aria-label": `${t("Stop")} · ${bot.name}`, onClick: stop }, t("Stop"));
 }
+function FreshMemberPart({ entry, bot, room: room2, actions }) {
+  const scope = `${room2?.id ?? ""}:${bot?.id ?? ""}`;
+  const [status, setStatus] = (0, import_react56.useState)(null);
+  const timer = (0, import_react56.useRef)(null);
+  const mounted = (0, import_react56.useRef)(true);
+  const scopeRef = (0, import_react56.useRef)(scope);
+  const inFlight = (0, import_react56.useRef)(null);
+  scopeRef.current = scope;
+  const clear = () => {
+    if (timer.current !== null) {
+      clearTimeout(timer.current);
+      timer.current = null;
+    }
+  };
+  (0, import_react56.useEffect)(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      inFlight.current = null;
+      clear();
+    };
+  }, []);
+  (0, import_react56.useEffect)(() => () => {
+    clear();
+    inFlight.current = null;
+  }, [scope]);
+  const phase = status?.scope === scope ? status.phase : "idle";
+  const hasSession = Array.isArray(room2?.sessionMembers) && room2.sessionMembers.includes(bot.id);
+  if (actions.newPart === void 0 || !hasSession || entry !== void 0 && entry.state !== "idle") return null;
+  const start = () => {
+    if (phase !== "idle" || inFlight.current === scope) return;
+    clear();
+    const current2 = scope;
+    inFlight.current = current2;
+    setStatus({ scope: current2, phase: "starting" });
+    void Promise.resolve(actions.newPart(bot.id, room2.id)).then(
+      () => {
+        if (!mounted.current || scopeRef.current !== current2) return;
+        setStatus({ scope: current2, phase: "done" });
+        timer.current = setTimeout(() => {
+          timer.current = null;
+          if (inFlight.current === current2) inFlight.current = null;
+          if (!mounted.current) return;
+          setStatus((prev) => prev?.scope === current2 && prev.phase === "done" ? null : prev);
+        }, FRESH_DONE_MS);
+      },
+      (error) => {
+        if (inFlight.current === current2) inFlight.current = null;
+        if (mounted.current && scopeRef.current === current2) setStatus(null);
+        actions.reportError?.(error, "new-part");
+      }
+    );
+  };
+  const done = phase === "done";
+  return (0, import_react56.createElement)("button", {
+    type: "button",
+    className: "bt-member-stop bt-member-fresh",
+    "data-state": phase === "idle" ? void 0 : phase,
+    disabled: phase !== "idle",
+    title: done ? t("Started a new session for {name} in this group", { name: bot.name }) : t("Start a new session for {name} in this group", { name: bot.name }),
+    "aria-label": `${done ? t("Started") : t("New session")} · ${bot.name}`,
+    onClick: start
+  }, done ? [(0, import_react56.createElement)("span", { key: "ok", className: "bt-member-fresh-ok bt-pop-in" }, (0, import_react56.createElement)(CheckIcon)), t("Started")] : t("New session"));
+}
 function StopRoomWork({ room: room2, entries: entries2, actions }) {
   const [stopping, setStopping] = (0, import_react56.useState)(false);
   if (!entries2.some((entry) => entry.here)) return null;
@@ -40449,7 +40565,7 @@ var MEMBER_CSS = `
 .bt-members-head>.bt-soft-sm{margin:-6px 0}
 .bt-members-head>.bt-soft-sm:disabled{opacity:.5;cursor:default}
 .bt-member{display:flex;flex-direction:column;border-radius:12px;animation:bt-rise .18s ease-out backwards}
-.bt-member-row{display:flex;align-items:center;gap:8px;min-height:48px;padding:0 8px;border-radius:12px;transition:background-color .12s ease}
+.bt-member-row{position:relative;display:flex;align-items:center;gap:8px;min-height:48px;padding:0 8px;border-radius:12px;transition:background-color .12s ease}
 .bt-member-row:hover{background:var(--bt-hover)}
 .bt-member-open{flex:1;min-width:0;display:flex;align-items:center;gap:10px;padding:8px 0;border:0;background:none;color:var(--bt-ink);font:inherit;text-align:left;cursor:pointer}
 .bt-member-open>.bt-mark{flex:none}
@@ -40461,10 +40577,18 @@ var MEMBER_CSS = `
 .bt-member-what{min-width:0;overflow:hidden;text-overflow:ellipsis}
 .bt-member-time{flex:none;margin-left:.3em;font-variant-numeric:tabular-nums}
 .bt-member-state.bt-mw-ask{color:var(--bt-warn)}
-.bt-member-stop{flex:none;height:26px;padding:0 11px;border:0;border-radius:999px;background:var(--bt-main);box-shadow:inset 0 0 0 .5px var(--bt-line-2);color:var(--bt-ink-2);font:inherit;font-size:12px;cursor:pointer;transition:background-color .12s ease,color .12s ease,${spring(SPRING_TAP, "scale")}}
-.bt-member-stop:hover{background:var(--bt-active);color:var(--bt-ink)}
+.bt-member-stop{flex:none;height:28px;padding:0 11px;border:0;border-radius:999px;background:var(--bt-main);box-shadow:inset 0 0 0 .5px var(--bt-line-2);color:var(--bt-ink-2);font:inherit;font-size:12px;line-height:16px;white-space:nowrap;cursor:pointer;touch-action:manipulation;transition:background-color .12s ease,color .12s ease,${spring(SPRING_TAP, "scale")}}
+.bt-member-stop:hover:not(:disabled){background:color-mix(in srgb,var(--bt-ink) 12%,var(--bt-main));color:var(--bt-ink)}
+.bt-member-stop:focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
 .bt-member-stop:active:not(:disabled){scale:.94}
 .bt-member-stop:disabled{opacity:.5;cursor:default}
+.bt-member-fresh{position:absolute;right:8px;top:0;bottom:0;z-index:1;margin:auto 0;display:inline-flex;align-items:center;gap:4px;box-shadow:inset 0 0 0 .5px var(--bt-line-2),0 2px 8px -1px rgba(0,0,0,.06),0 1px 2px rgba(0,0,0,.04);opacity:0;pointer-events:none;transition:opacity .12s ease,background-color .12s ease,color .12s ease,${spring(SPRING_TAP, "scale")}}
+.bt-member-row:hover>.bt-member-fresh,.bt-member-fresh:focus-visible,.bt-member-fresh[data-state]{opacity:1;pointer-events:auto}
+.bt-member-fresh[data-state=done]{color:var(--bt-ink)}
+.bt-member-fresh[data-state=done]:disabled{opacity:1}
+.bt-member-fresh-ok{display:inline-flex;color:var(--bt-green)}
+.bt-member-fresh-ok svg{width:13px;height:13px}
+@media (hover:none){.bt-member-fresh{position:static;margin:0;box-shadow:inset 0 0 0 .5px var(--bt-line-2);opacity:1;pointer-events:auto}}
 .bt-member-cards{display:flex;flex-direction:column;gap:6px;padding:2px 8px 8px 50px}
 .bt-mw-card{display:flex;flex-direction:column;gap:4px;padding:10px 12px;border-radius:12px;background:var(--bt-hover);font-size:12px;line-height:17px;color:var(--bt-ink-2);animation:bt-rise .2s ease-out backwards}
 .bt-mw-head{display:flex;align-items:center;gap:6px;min-width:0}
@@ -40477,7 +40601,7 @@ var MEMBER_CSS = `
 .bt-mw-actions{display:flex;justify-content:flex-end;gap:6px;margin-top:4px}
 .bt-mw-actions>button{height:28px;padding:0 12px;font-size:12px}
 .bt-mw-actions>button:disabled{opacity:.5;cursor:default}
-@media (prefers-reduced-motion:reduce){.bt-mw-pill,.bt-mw-dock[data-leaving] .bt-mw-pill,.bt-mw-face,.bt-mw-label,.bt-member,.bt-mw-card{animation:none}.bt-mw-pill{transition:background-color .12s ease}}
+@media (prefers-reduced-motion:reduce){.bt-mw-pill,.bt-mw-dock[data-leaving] .bt-mw-pill,.bt-mw-face,.bt-mw-label,.bt-member,.bt-mw-card{animation:none}.bt-mw-pill{transition:background-color .12s ease}.bt-member-stop,.bt-member-fresh{transition:opacity .12s ease,background-color .12s ease,color .12s ease}}
 `;
 
 // src/client/header.js
@@ -44413,7 +44537,8 @@ function MemberRow({ member, entry, room: room2, roster, actions }) {
           (0, import_react70.createElement)(MemberState, { entry, bot: member, room: room2, roster })
         )
       ),
-      (0, import_react70.createElement)(StopMemberWork, { entry, bot: member, room: room2, actions })
+      (0, import_react70.createElement)(StopMemberWork, { entry, bot: member, room: room2, actions }),
+      (0, import_react70.createElement)(FreshMemberPart, { entry, bot: member, room: room2, actions })
     ),
     (0, import_react70.createElement)(MemberApprovals, { entry, bot: member, actions })
   );

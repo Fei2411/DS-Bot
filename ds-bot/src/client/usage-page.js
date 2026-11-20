@@ -1,4 +1,4 @@
-import { createElement as h, startTransition, useEffect, useMemo, useRef, useState } from 'react'
+import { createElement as h, startTransition, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { colorOf, MAIN_LOOK } from './characters.js'
 import { GRADIENTS, paintCss } from './inks.js'
 import { BotAvatar, BotMark, RoomAvatar } from './mark.js'
@@ -83,28 +83,34 @@ function titleOf(range, bucket) {
   return dates({ year: 'numeric', month: 'long' }).format(bucket.start)
 }
 
-// The number eases to each new value.
-function useTween(value) {
-  const [shown, setShown] = useState(0)
-  const from = useRef(0)
-  useEffect(() => {
-    if (reducedMotion() || typeof requestAnimationFrame !== 'function') {
+// The number eases to each new value within one range, and snaps on a range switch
+// so switching ranges does not count across unrelated totals (#1547).
+function useTween(value, rangeKey) {
+  const instant = reducedMotion() || typeof requestAnimationFrame !== 'function'
+  const [shown, setShown] = useState(() => (instant ? value : 0))
+  const from = useRef(instant ? value : 0)
+  const key = useRef(rangeKey)
+  useLayoutEffect(() => {
+    if (key.current !== rangeKey || reducedMotion() || typeof requestAnimationFrame !== 'function' || from.current === value) {
+      key.current = rangeKey
       from.current = value
       setShown(value)
       return undefined
     }
     const begin = from.current
     const started = performance.now()
+    let active = true
     let frame
     const step = (now) => {
-      const progress = Math.min(1, (now - started) / 650)
+      if (!active) return
+      const progress = Math.min(1, Math.max(0, (now - started) / 650))
       from.current = begin + (value - begin) * (1 - (1 - progress) ** 3)
       setShown(from.current)
       if (progress < 1) frame = requestAnimationFrame(step)
     }
     frame = requestAnimationFrame(step)
-    return () => cancelAnimationFrame(frame)
-  }, [value])
+    return () => { active = false; cancelAnimationFrame(frame) }
+  }, [value, rangeKey])
   return shown
 }
 
@@ -157,16 +163,18 @@ function Tabs({ label, value, options, onChange, boxRef }) {
     options.map(([id, text, icon]) => h('button', { key: id, type: 'button', 'aria-pressed': value === id, onClick: () => onChange(id) }, icon ? h(icon) : null, text)))
 }
 
-function Stats({ range, total, previous }) {
-  const shown = useTween(total.total)
+export function Stats({ range, total, previous }) {
+  const rangeKey = `${range.id}:${range.from ?? ''}:${range.to ?? ''}`
+  const shown = useTween(total.total, rangeKey)
   const change = previous > 0 ? Math.round(((total.total - previous) / previous) * 100) : null
   const cell = (label, value) => h('div', { className: 'bt-us-stat' }, h('span', { className: 'bt-us-stat-label' }, label), h('span', { className: 'bt-us-stat-value' }, value))
   return h('section', { className: 'bt-us-stats', style: { '--i': 0 } },
     h('div', { className: 'bt-us-stat bt-us-stat-main' },
-      h('span', { className: 'bt-us-stat-label' }, lastText(range)),
-      h('span', { className: 'bt-us-stat-value' }, compact(shown), h('small', null, t('tokens')),
+      h('div', { className: 'bt-us-stat-head' },
+        h('span', { className: 'bt-us-stat-label' }, lastText(range)),
         change === null ? null : h('span', { className: 'bt-us-delta', title: compareText(range) },
-          `${change >= 0 ? '↑' : '↓'} ${Math.abs(change)}%`))),
+          `${change >= 0 ? '↑' : '↓'} ${Math.abs(change)}%`)),
+      h('span', { className: 'bt-us-stat-value' }, compact(shown), h('small', null, t('tokens')))),
     cell(t('Cache hit rate'), `${hitRate(total)}%`),
     cell(t('Output'), compact(total.output)),
     cell(t('Calls'), full(total.calls)))
@@ -677,11 +685,12 @@ export const USAGE_CSS = `
 .bt-us-stats{display:grid;grid-template-columns:1.6fr 1fr 1fr 1fr;border-radius:16px;border:1px solid var(--bt-line);background:var(--bt-card);animation:bt-us-in .45s var(--bt-us-ease) backwards}
 .bt-us-stat{display:flex;flex-direction:column;justify-content:flex-end;gap:6px;min-width:0;padding:16px 18px}
 .bt-us-stat+.bt-us-stat{border-left:1px solid var(--bt-line)}
-.bt-us-stat-label{overflow:hidden;font-size:12px;line-height:16px;color:var(--bt-ink-3);white-space:nowrap;text-overflow:ellipsis}
+.bt-us-stat-head{display:flex;align-items:center;justify-content:space-between;gap:8px;min-width:0;min-height:20px}
+.bt-us-stat-label{min-width:0;overflow:hidden;font-size:12px;line-height:16px;color:var(--bt-ink-3);white-space:nowrap;text-overflow:ellipsis}
 .bt-us-stat-value{display:flex;align-items:baseline;gap:6px;min-width:0;font-size:22px;line-height:28px;font-weight:600;letter-spacing:-.01em;font-variant-numeric:tabular-nums;white-space:nowrap}
 .bt-us-stat-main .bt-us-stat-value{font-size:34px;line-height:40px;letter-spacing:-.025em}
 .bt-us-stat-value small{font-size:13px;font-weight:400;letter-spacing:0;color:var(--bt-ink-3)}
-.bt-us-delta{align-self:center;margin-left:2px;padding:0 8px;border-radius:999px;background:var(--bt-tag-bg);color:var(--bt-ink-2);font-size:11px;line-height:20px;font-weight:500;letter-spacing:0}
+.bt-us-delta{flex:none;max-width:60%;overflow:hidden;padding:0 8px;border-radius:999px;background:var(--bt-tag-bg);color:var(--bt-ink-2);font-size:11px;line-height:20px;font-weight:500;letter-spacing:0;font-variant-numeric:tabular-nums;white-space:nowrap;text-overflow:ellipsis}
 .bt-us-card{display:flex;flex-direction:column;gap:12px;min-width:0;padding:14px 18px 16px;border-radius:16px;border:1px solid var(--bt-line);background:var(--bt-card);animation:bt-us-in .45s var(--bt-us-ease) backwards;animation-delay:calc(var(--i,0) * 45ms)}
 .bt-us-card-head{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:32px}
 .bt-us-card-head h3{display:flex;align-items:baseline;gap:8px;min-width:0;margin:0;font-size:13px;line-height:18px;font-weight:600}
