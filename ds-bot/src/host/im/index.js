@@ -459,6 +459,22 @@ export function install(rt) {
     resumedOrigins.set(token, { ...entry, activeOn: sessionId })
     return token
   }
+  const captureImOrigin = (sessionId) => {
+    if (sessionId === undefined || mixed.has(sessionId)) return undefined
+    const entry = origins.get(sessionId)
+    if (entry === undefined) return undefined
+    return { connId: entry.connId, chatKey: entry.chatKey, senderId: entry.senderId, ...(entry.binding !== undefined ? { binding: entry.binding } : {}) }
+  }
+  const originFromSaved = (entry) => {
+    if (entry?.connId === undefined || entry?.chatKey === undefined) return undefined
+    const conn = Object.values(connections()).find(item => item.id === entry.connId)
+    if (conn === undefined || !runners.has(conn.id)) return undefined
+    if (entry.senderId !== undefined && !paired(conn, entry.senderId)) return undefined
+    const chat = conn.chats?.[entry.chatKey]
+    if (chat === undefined) return undefined
+    if (entry.binding === undefined || bindingOf(conn, entry.chatKey) !== entry.binding) return undefined
+    return { conn, chatKey: entry.chatKey, chat }
+  }
   const peekImOrigin = (sessionId, token) => {
     const entry = token === undefined ? undefined : resumedOrigins.get(token)
     if (entry === undefined) return
@@ -924,7 +940,10 @@ export function install(rt) {
       for (const entry of rt.approvalsView?.() ?? []) {
         const cardKey = `a:${entry.id}`
         const bot = rt.botOf(entry.botId)
-        const origin = originOf(entry.roomId !== undefined ? (rt.roomOf(entry.roomId)?.sessionId ?? entry.roomId) : chatOfBot(entry.botId))
+        // A task approval belongs strictly to the IM chat that started that task (never fall back to an unrelated foreground IM chat).
+        const origin = entry.taskId !== undefined
+          ? originFromSaved(rt.taskById?.(entry.taskId)?.task?.imOrigin)
+          : originOf(entry.roomId !== undefined ? (rt.roomOf(entry.roomId)?.sessionId ?? entry.roomId) : chatOfBot(entry.botId))
         if (origin === undefined || origin.conn.id !== conn.id) continue
         const targets = [{ chatKey: origin.chatKey, chat: origin.chat }]
         const buttons = imPlatform(conn.platform)?.buttons === true ? cardButtons.approval(entry.id) : undefined
@@ -1444,14 +1463,21 @@ export function install(rt) {
       const source = event.data?.source
       const imOrigin = source?.imOrigin
       const rpcId = source?.rpcId
-      // A late member result or part-switch handoff continues the work the chat asked for;
+      // A late member result, part-switch handoff, or task report continues the work the chat asked for;
       // any other first message starts a fresh turn, which clears the previous turn's origin.
-      if (pendingReset.delete(session.id) && !(typeof imOrigin === 'string' || (source?.kind === SOURCE_KIND && source.role === 'post'))) resetOrigin(session.id)
+      const isTaskReport = source?.kind === SOURCE_KIND && source.role === 'task-report' && typeof source.taskId === 'string'
+      if (pendingReset.delete(session.id) && !(typeof imOrigin === 'string' || isTaskReport || (source?.kind === SOURCE_KIND && source.role === 'post'))) resetOrigin(session.id)
       if (typeof imOrigin === 'string') {
         const resumed = resumedOrigins.get(imOrigin)
         resumedOrigins.delete(imOrigin)
         if (resumed === undefined) dropOrigin(session.id)
         else claimOrigin(session.id, resumed.connId, resumed.chatKey, resumed.senderId, resumed.binding)
+      } else if (isTaskReport) {
+        // Resolve the persisted task.imOrigin directly so deferred redelivery (turns.js)
+        // and post-restart resends (inflight.json) never lose the IM chat claim.
+        const saved = rt.taskById?.(source.taskId)?.task?.imOrigin
+        if (originFromSaved(saved) === undefined) dropOrigin(session.id)
+        else claimOrigin(session.id, saved.connId, saved.chatKey, saved.senderId, saved.binding)
       } else if (typeof rpcId === 'string' && rpcId.startsWith('im:')) {
         if (Number.isInteger(event.seq)) imVia.set(session.id, { ...imVia.get(session.id), [event.seq]: rpcId.split(':')[1] })
         // The chat this message came from is the one its turn answers. A message this
@@ -1510,7 +1536,9 @@ export function install(rt) {
     if (kind === 'open') {
       void (async () => {
         const sessionId = data.roomId !== undefined ? (rt.roomOf(data.roomId)?.sessionId ?? data.roomId) : chatOfBot(data.botId)
-        const origin = originOf(sessionId)
+        const origin = data.taskId !== undefined
+          ? originFromSaved(rt.taskById?.(data.taskId)?.task?.imOrigin)
+          : originOf(sessionId)
         if (origin === undefined) return
         const bot = rt.botOf(data.botId)
         const buttons = imPlatform(origin.conn.platform)?.buttons === true ? cardButtons.approval(data.id) : undefined
@@ -1555,5 +1583,5 @@ export function install(rt) {
     return [id, { state: status.state, ...(status.error !== undefined ? { error: status.error } : {}), at: status.at }]
   }))
 
-  Object.assign(rt, { imView, imStatusView, imViaView, imEndpoint, holdImOrigin, peekImOrigin, dropImOrigin })
+  Object.assign(rt, { imView, imStatusView, imViaView, imEndpoint, holdImOrigin, peekImOrigin, dropImOrigin, captureImOrigin })
 }
