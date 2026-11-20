@@ -136,7 +136,12 @@ var JA = {
   "Scan this code with the DS Bot app on your phone.": "スマートフォンの DS Bot アプリでこのコードをスキャンしてください。",
   "Server": "サーバー",
   "Show a QR code": "QR コードを表示",
-  "The Relay Server that passes encrypted messages between your phone and this computer. It cannot read them.": "スマートフォンとこのコンピューターの間で暗号化されたメッセージを中継するサーバーです。内容は読めません。",
+  "Open in a browser": "ブラウザーで開く",
+  "Web browser": "ウェブブラウザー",
+  "Copy browser link": "ブラウザーのリンクをコピー",
+  "Clipboard is not available": "クリップボードを利用できません",
+  "The Server forwards encrypted messages. Browser access also trusts the page it serves.": "サーバーは暗号化されたメッセージを中継します。ブラウザーでのアクセスでは、サーバーが提供するページも信頼します。",
+  "The browser runs the page the Server sends. Only use a Server you trust.": "ブラウザーはサーバーから送信されたページを実行します。信頼できるサーバーのみを使用してください。",
   "The code works once. It stops working in {count} min.": "このコードは 1 回だけ使えます。{count} 分後に無効になります。",
   "Turn on phone access first": "先にスマートフォンからのアクセスをオンにしてください",
   "The Server address must start with ws:// or wss://": "サーバーのアドレスは ws:// または wss:// で始める必要があります",
@@ -906,6 +911,9 @@ var JA = {
   "Add DSH Agent": "DSH Agent を追加",
   "Remove DSH Agent": "DSH Agent を削除",
   "New session": "新しいセッション",
+  "Start a new session for {name} in this group": "このグループで {name} の新しいセッションを開始",
+  "Started": "開始しました",
+  "Started a new session for {name} in this group": "このグループで {name} の新しいセッションを開始しました",
   "Archive": "アーカイブ",
   "Session actions": "セッションの操作",
   "Plugins": "プラグイン",
@@ -1742,6 +1750,10 @@ var JA = {
   "A group chat needs at least two Bots": "グループチャットには少なくとも 2 つの Bot が必要です",
   "The admin must be a member of the group": "管理者はグループのメンバーである必要があります",
   "Unknown group chat": "該当するグループチャットが見つかりません",
+  "Not a member of that group": "この Bot はそのグループのメンバーではありません",
+  "This Bot has no session in this group yet": "この Bot にはこのグループのセッションがまだありません",
+  "The Bot is working; wait for it to finish or stop it first": "この Bot は作業中です。完了を待つか先に停止してください",
+  "The new session did not start; the Bot stays in its current one": "新しいセッションを開始できませんでした。Bot は現在のセッションのままです",
   "No Bot is left in this group chat": "このグループチャットに Bot が残っていません",
   "That group chat has been deleted": "そのグループチャットは削除されています",
   "Hand the admin role to another member instead of leaving the group without one": "グループを管理者なしにするのではなく、他のメンバーに管理者を引き継いでください",
@@ -2757,7 +2769,12 @@ var KO = {
   "Scan this code with the DS Bot app on your phone.": "휴대폰의 DS Bot 앱으로 이 코드를 스캔하세요.",
   "Server": "서버",
   "Show a QR code": "QR 코드 표시",
-  "The Relay Server that passes encrypted messages between your phone and this computer. It cannot read them.": "휴대폰과 이 컴퓨터 사이에서 암호화된 메시지를 전달하는 중계 서버입니다. 내용은 읽을 수 없습니다.",
+  "Open in a browser": "브라우저에서 열기",
+  "Web browser": "웹 브라우저",
+  "Copy browser link": "브라우저 링크 복사",
+  "Clipboard is not available": "클립보드를 사용할 수 없습니다",
+  "The Server forwards encrypted messages. Browser access also trusts the page it serves.": "서버는 암호화된 메시지를 전달합니다. 브라우저 접근은 서버가 제공하는 페이지도 신뢰합니다.",
+  "The browser runs the page the Server sends. Only use a Server you trust.": "브라우저는 서버가 보낸 페이지를 실행합니다. 신뢰하는 서버만 사용하세요.",
   "The code works once. It stops working in {count} min.": "이 코드는 한 번만 사용할 수 있으며 {count}분 후에 만료됩니다.",
   "Turn on phone access first": "먼저 휴대폰 접근을 켜세요",
   "The Server address must start with ws:// or wss://": "서버 주소는 ws:// 또는 wss://로 시작해야 합니다",
@@ -3551,6 +3568,9 @@ var KO = {
   "Add DSH Agent": "DSH Agent 추가",
   "Remove DSH Agent": "DSH Agent 제거",
   "New session": "새 세션",
+  "Start a new session for {name} in this group": "이 그룹에서 {name}의 새 세션 시작",
+  Started: "시작됨",
+  "Started a new session for {name} in this group": "이 그룹에서 {name}의 새 세션을 시작했습니다",
   Archive: "보관",
   "Session actions": "세션 작업",
   "Plugins": "플러그인",
@@ -4406,6 +4426,10 @@ var KO = {
   "A group chat needs at least two Bots": "그룹 채팅에는 최소 2개의 Bot이 필요합니다",
   "The admin must be a member of the group": "관리자는 그룹 멤버여야 합니다",
   "Unknown group chat": "찾을 수 없는 그룹 채팅입니다",
+  "Not a member of that group": "이 봇은 해당 그룹의 멤버가 아닙니다",
+  "This Bot has no session in this group yet": "이 봇은 아직 이 그룹에 세션이 없습니다",
+  "The Bot is working; wait for it to finish or stop it first": "봇이 작업 중입니다. 완료될 때까지 기다리거나 먼저 중지하세요",
+  "The new session did not start; the Bot stays in its current one": "새 세션을 시작하지 못했습니다. 봇은 현재 세션에 그대로 있습니다",
   "No Bot is left in this group chat": "이 그룹 채팅에 남은 Bot이 없습니다",
   "That group chat has been deleted": "이미 삭제된 그룹 채팅입니다",
   "Hand the admin role to another member instead of leaving the group without one": "그룹에 관리자가 없도록 비워 두는 대신 다른 멤버에게 관리자 역할을 넘기세요",
@@ -5423,7 +5447,12 @@ var ES = {
   "Scan this code with the DS Bot app on your phone.": "Escanea este código con la app DS Bot de tu teléfono.",
   "Server": "Servidor",
   "Show a QR code": "Mostrar un código QR",
-  "The Relay Server that passes encrypted messages between your phone and this computer. It cannot read them.": "El servidor de retransmisión que pasa los mensajes cifrados entre tu teléfono y este ordenador. No puede leerlos.",
+  "Open in a browser": "Abrir en un navegador",
+  "Web browser": "Navegador web",
+  "Copy browser link": "Copiar enlace del navegador",
+  "Clipboard is not available": "El portapapeles no está disponible",
+  "The Server forwards encrypted messages. Browser access also trusts the page it serves.": "El servidor retransmite mensajes cifrados. El acceso desde el navegador también confía en la página que sirve.",
+  "The browser runs the page the Server sends. Only use a Server you trust.": "El navegador ejecuta la página que envía el servidor. Usa solo un servidor de confianza.",
   "The code works once. It stops working in {count} min.": "El código sirve una sola vez. Caduca en {count} min.",
   "Turn on phone access first": "Activa primero el acceso desde el teléfono",
   "The Server address must start with ws:// or wss://": "La dirección del servidor debe empezar por ws:// o wss://",
@@ -6217,6 +6246,9 @@ var ES = {
   "Add DSH Agent": "Añadir DSH Agent",
   "Remove DSH Agent": "Quitar DSH Agent",
   "New session": "Nueva sesión",
+  "Start a new session for {name} in this group": "Iniciar una nueva sesión para {name} en este grupo",
+  Started: "Iniciada",
+  "Started a new session for {name} in this group": "Nueva sesión iniciada para {name} en este grupo",
   Archive: "Archivar",
   "Session actions": "Acciones de sesión",
   "Plugins": "Complementos",
@@ -7072,6 +7104,10 @@ var ES = {
   "A group chat needs at least two Bots": "Un chat grupal necesita al menos dos Bots",
   "The admin must be a member of the group": "El administrador debe ser miembro del grupo",
   "Unknown group chat": "Chat grupal desconocido",
+  "Not a member of that group": "Este Bot no es miembro de ese grupo",
+  "This Bot has no session in this group yet": "Este Bot aún no tiene una sesión en este grupo",
+  "The Bot is working; wait for it to finish or stop it first": "El Bot está trabajando; espera a que termine o detenlo primero",
+  "The new session did not start; the Bot stays in its current one": "La nueva sesión no se inició; el Bot sigue en la actual",
   "No Bot is left in this group chat": "No queda ningún Bot en este chat grupal",
   "That group chat has been deleted": "Ese chat grupal ha sido eliminado",
   "Hand the admin role to another member instead of leaving the group without one": "Cede el rol de administrador a otro miembro en lugar de dejar el grupo sin administrador",
@@ -8089,7 +8125,12 @@ var FR = {
   "Scan this code with the DS Bot app on your phone.": "Scannez ce code avec l’app DS Bot sur votre téléphone.",
   "Server": "Serveur",
   "Show a QR code": "Afficher un code QR",
-  "The Relay Server that passes encrypted messages between your phone and this computer. It cannot read them.": "Le serveur relais qui transmet les messages chiffrés entre votre téléphone et cet ordinateur. Il ne peut pas les lire.",
+  "Open in a browser": "Ouvrir dans un navigateur",
+  "Web browser": "Navigateur web",
+  "Copy browser link": "Copier le lien du navigateur",
+  "Clipboard is not available": "Le presse-papiers n’est pas disponible",
+  "The Server forwards encrypted messages. Browser access also trusts the page it serves.": "Le serveur transmet les messages chiffrés. L’accès par navigateur fait aussi confiance à la page qu’il fournit.",
+  "The browser runs the page the Server sends. Only use a Server you trust.": "Le navigateur exécute la page envoyée par le serveur. Utilisez uniquement un serveur de confiance.",
   "The code works once. It stops working in {count} min.": "Le code ne sert qu’une fois. Il expire dans {count} min.",
   "Turn on phone access first": "Activez d’abord l’accès depuis le téléphone",
   "The Server address must start with ws:// or wss://": "L’adresse du serveur doit commencer par ws:// ou wss://",
@@ -8859,6 +8900,9 @@ var FR = {
   "Add DSH Agent": "Ajouter DSH Agent",
   "Remove DSH Agent": "Retirer DSH Agent",
   "New session": "Nouvelle session",
+  "Start a new session for {name} in this group": "Démarrer une nouvelle session pour {name} dans ce groupe",
+  "Started": "Démarrée",
+  "Started a new session for {name} in this group": "Nouvelle session démarrée pour {name} dans ce groupe",
   "Archive": "Archiver",
   "Session actions": "Actions de session",
   "Plugins": "Plugins",
@@ -9695,6 +9739,10 @@ var FR = {
   "A group chat needs at least two Bots": "Une discussion de groupe nécessite au moins deux Bots",
   "The admin must be a member of the group": "L’admin doit être membre du groupe",
   "Unknown group chat": "Discussion de groupe introuvable",
+  "Not a member of that group": "Ce Bot n'est pas membre de ce groupe",
+  "This Bot has no session in this group yet": "Ce Bot n'a pas encore de session dans ce groupe",
+  "The Bot is working; wait for it to finish or stop it first": "Le Bot travaille ; attendez qu'il termine ou arrêtez-le d'abord",
+  "The new session did not start; the Bot stays in its current one": "La nouvelle session n'a pas démarré ; le Bot reste dans sa session actuelle",
   "No Bot is left in this group chat": "Il ne reste plus aucun Bot dans cette discussion de groupe",
   "That group chat has been deleted": "Cette discussion de groupe a été supprimée",
   "Hand the admin role to another member instead of leaving the group without one": "Confiez le rôle d’admin à un autre membre plutôt que de laisser le groupe sans admin",
@@ -10710,7 +10758,12 @@ var DE = {
   "Scan this code with the DS Bot app on your phone.": "Scanne diesen Code mit der DS Bot-App auf deinem Telefon.",
   "Server": "Server",
   "Show a QR code": "QR-Code anzeigen",
-  "The Relay Server that passes encrypted messages between your phone and this computer. It cannot read them.": "Der Relay-Server, der verschlüsselte Nachrichten zwischen deinem Telefon und diesem Computer weiterleitet. Er kann sie nicht lesen.",
+  "Open in a browser": "Im Browser öffnen",
+  "Web browser": "Webbrowser",
+  "Copy browser link": "Browser-Link kopieren",
+  "Clipboard is not available": "Die Zwischenablage ist nicht verfügbar",
+  "The Server forwards encrypted messages. Browser access also trusts the page it serves.": "Der Server leitet verschlüsselte Nachrichten weiter. Der Browserzugriff vertraut auch der von ihm bereitgestellten Seite.",
+  "The browser runs the page the Server sends. Only use a Server you trust.": "Der Browser führt die vom Server gesendete Seite aus. Verwende nur einen Server, dem du vertraust.",
   "The code works once. It stops working in {count} min.": "Der Code funktioniert einmal. Er läuft in {count} Min. ab.",
   "Turn on phone access first": "Schalte zuerst den Telefonzugriff ein",
   "The Server address must start with ws:// or wss://": "Die Serveradresse muss mit ws:// oder wss:// beginnen",
@@ -11504,6 +11557,9 @@ var DE = {
   "Add DSH Agent": "DSH Agent hinzufügen",
   "Remove DSH Agent": "DSH Agent entfernen",
   "New session": "Neue Sitzung",
+  "Start a new session for {name} in this group": "Eine neue Sitzung für {name} in dieser Gruppe starten",
+  Started: "Gestartet",
+  "Started a new session for {name} in this group": "Neue Sitzung für {name} in dieser Gruppe gestartet",
   Archive: "Archivieren",
   "Session actions": "Sitzungsaktionen",
   "Plugins": "Plugins",
@@ -12359,6 +12415,10 @@ var DE = {
   "A group chat needs at least two Bots": "Ein Gruppenchat benötigt mindestens zwei Bots",
   "The admin must be a member of the group": "Der Admin muss Mitglied der Gruppe sein",
   "Unknown group chat": "Gruppenchat nicht gefunden",
+  "Not a member of that group": "Kein Mitglied dieser Gruppe",
+  "This Bot has no session in this group yet": "Dieser Bot hat noch keine Sitzung in dieser Gruppe",
+  "The Bot is working; wait for it to finish or stop it first": "Der Bot arbeitet noch; warte, bis er fertig ist, oder stoppe ihn zuerst",
+  "The new session did not start; the Bot stays in its current one": "Die neue Sitzung wurde nicht gestartet; der Bot bleibt in seiner aktuellen Sitzung",
   "No Bot is left in this group chat": "In diesem Gruppenchat ist kein Bot mehr übrig",
   "That group chat has been deleted": "Dieser Gruppenchat wurde gelöscht",
   "Hand the admin role to another member instead of leaving the group without one": "Übergib die Admin-Rolle an ein anderes Mitglied, statt die Gruppe ohne Admin zu lassen",
@@ -14147,11 +14207,16 @@ var ZH = {
   "Phone app": "手机 App",
   "Android beta": "Android 测试版",
   Server: "服务器",
-  "The Relay Server that passes encrypted messages between your phone and this computer. It cannot read them.": "在手机和这台电脑之间转发加密消息的中转服务器。它读不到消息内容。",
+  "The Server forwards encrypted messages. Browser access also trusts the page it serves.": "服务器转发加密消息。浏览器访问还需要信任服务器提供的网页。",
+  "The browser runs the page the Server sends. Only use a Server you trust.": "浏览器运行服务器发来的网页。请只使用你信任的服务器。",
   "Pair a phone": "配对手机",
   "Scan this code with the DS Bot app on your phone.": "用手机上的 DS Bot App 扫这个码。",
   "The code works once. It stops working in {count} min.": "这个码只能用一次，{count} 分钟后失效。",
   "Show a QR code": "显示二维码",
+  "Open in a browser": "在浏览器中打开",
+  "Web browser": "网页浏览器",
+  "Copy browser link": "复制浏览器链接",
+  "Clipboard is not available": "剪贴板不可用",
   "Your phone scans it once. After that it connects by itself.": "手机扫一次就行，以后会自动连接。",
   "Turn on phone access first": "请先打开手机访问",
   Phones: "手机",
@@ -14182,6 +14247,9 @@ var ZH = {
   "Add DSH Agent": "添加 DSH Agent",
   "Remove DSH Agent": "移除 DSH Agent",
   "New session": "新会话",
+  "Start a new session for {name} in this group": "为 {name} 在本群开始新会话",
+  Started: "已开始",
+  "Started a new session for {name} in this group": "已为 {name} 在本群开始新会话",
   Archive: "归档",
   "Session actions": "会话操作",
   Plugins: "插件",
@@ -15218,6 +15286,10 @@ var HOST_ZH = {
   "A group chat needs at least two Bots": "群聊至少要两个 Bot",
   "The admin must be a member of the group": "管理员必须是群成员",
   "Unknown group chat": "找不到这个群聊",
+  "Not a member of that group": "这个 Bot 不在这个群聊里",
+  "This Bot has no session in this group yet": "这个 Bot 在本群还没有会话",
+  "The Bot is working; wait for it to finish or stop it first": "这个 Bot 正在工作中，请等它完成或先停止它",
+  "The new session did not start; the Bot stays in its current one": "新会话没有开始，这个 Bot 还在当前会话里",
   "No Bot is left in this group chat": "这个群聊里已经没有 Bot 了",
   "That group chat has been deleted": "这个群聊已经删除了",
   "Hand the admin role to another member instead of leaving the group without one": "请把管理员交给其他成员，不要让群聊没有管理员",
@@ -16080,7 +16152,7 @@ function teamActions({ call: call2, after, partFor, roster, ui, live, cards, hel
     computerUserActive: (idleSeconds) => call2("computer-user-active", { idleSeconds }),
     stopMemberWork: (roomId, botId) => after(call2("stop-member-work", { roomId, botId })),
     // A running part opened from the session list takes no input until it ends.
-    newPart: (botId) => after(call2("bot-new-part", { botId })),
+    newPart: (botId, roomId) => after(call2("bot-new-part", roomId === void 0 ? { botId } : { botId, roomId })),
     openPart: (botId, sessionId, running = false) => {
       ui.set((state) => ({ ...state, readOnlyPart: running ? sessionId : null }));
       return after(call2("bot-open-part", { botId, sessionId })).catch((error) => {
@@ -17893,7 +17965,7 @@ html[data-bt-collapsing] [class*="_frame"]:has(>[class*="_sidebarCol"]){transiti
 .bt-dot-wait{background:var(--bt-star)}
 
 .bt-head{position:relative;display:flex;justify-content:center;align-items:center;height:40px;flex:none;pointer-events:none}
-.bt-pill{pointer-events:auto;display:inline-flex;align-items:center;gap:8px;height:40px;padding:7.5px 13.5px 7.5px 7.5px;border-radius:999px;background:var(--bt-glass-bg);-webkit-backdrop-filter:blur(20px) saturate(180%);backdrop-filter:blur(20px) saturate(180%);border:.5px solid var(--bt-glass-rim);box-shadow:var(--bt-glass-shadow);color:var(--bt-ink);font-family:inherit;font-size:14px;line-height:20px;cursor:pointer;max-width:70%;box-sizing:border-box;transition:background-color .12s ease,transform ${SPRING_TAP.duration}ms ${SPRING_TAP.easing}}
+.bt-pill{pointer-events:auto;display:inline-flex;align-items:center;gap:8px;min-width:0;height:40px;padding:7.5px 13.5px 7.5px 7.5px;border-radius:999px;background:var(--bt-glass-bg);-webkit-backdrop-filter:blur(20px) saturate(180%);backdrop-filter:blur(20px) saturate(180%);border:.5px solid var(--bt-glass-rim);box-shadow:var(--bt-glass-shadow);color:var(--bt-ink);font-family:inherit;font-size:14px;line-height:20px;cursor:pointer;max-width:70%;box-sizing:border-box;transition:background-color .12s ease,transform ${SPRING_TAP.duration}ms ${SPRING_TAP.easing}}
 .bt-pill:hover{background:color-mix(in srgb,var(--bt-ink) 5%,var(--bt-glass-bg))}
 .bt-pill:active{transform:scale(.965)}
 .bt-pill-name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:500}
@@ -18409,6 +18481,7 @@ button.bt-set-row:hover .bt-chevron{transform:translateX(2px);color:var(--bt-ink
 .bt-phone-qr rect{fill:var(--bt-qr-paper)}
 .bt-phone-qr path{fill:var(--bt-qr-ink)}
 .bt-phone-pair-copy{display:flex;flex-direction:column;gap:8px;font-size:14px;line-height:20px}
+.bt-phone-pair-actions{display:flex;flex-wrap:wrap;gap:8px}
 @media(max-width:700px){.bt-phone-pair{flex-direction:column;align-items:flex-start}}
 
 /* Settings → Connectors. */
@@ -18929,6 +19002,9 @@ header[class*="_header"]:has(.bt-head){position:absolute!important;top:0;left:0;
 header[class*="_header"]:has(.bt-head)::before{content:"";position:absolute;inset:0 0 auto;height:calc(60px + env(safe-area-inset-top,0px));background:linear-gradient(to bottom,var(--bt-main),color-mix(in srgb,var(--bt-main) 0%,transparent));pointer-events:none;z-index:-1}
 header[class*="_header"]:has(.bt-head)>[class*="_headerLeading"]{position:absolute;left:12px;top:10px;pointer-events:auto}
 header[class*="_header"] .bt-head{flex:1 1 auto;width:100%}
+header[class*="_header"] .bt-head:has(.bt-learning-pending){padding:0 52px;box-sizing:border-box}
+header[class*="_header"] .bt-head:has(.bt-learning-pending) .bt-island{min-width:0;width:min(380px,calc(100% - 16px))}
+header[class*="_header"] .bt-head:has(.bt-learning-pending) .bt-island[data-open]{width:min(560px,calc(100% + 56px))}
 /* On macOS the shell's header row is the window's drag strip (data-window-drag
    becomes -webkit-app-region:drag). The floating header stays click-through, so
    the transcript under it still takes links and the wheel. Only the 40px .bt-head
@@ -34483,27 +34559,35 @@ function titleOf2(range, bucket) {
   if (bucket.end && (new Date(bucket.start).getUTCDate() !== 1 || new Date(bucket.end).getUTCDate() !== 1)) return spanText(dayKey(bucket.start), dayKey(bucket.end - DAY_MS));
   return dates({ year: "numeric", month: "long" }).format(bucket.start);
 }
-function useTween(value) {
-  const [shown, setShown] = (0, import_react42.useState)(0);
-  const from = (0, import_react42.useRef)(0);
-  (0, import_react42.useEffect)(() => {
-    if (reducedMotion() || typeof requestAnimationFrame !== "function") {
+function useTween(value, rangeKey) {
+  const instant = reducedMotion() || typeof requestAnimationFrame !== "function";
+  const [shown, setShown] = (0, import_react42.useState)(() => instant ? value : 0);
+  const from = (0, import_react42.useRef)(instant ? value : 0);
+  const key = (0, import_react42.useRef)(rangeKey);
+  (0, import_react42.useLayoutEffect)(() => {
+    if (key.current !== rangeKey || reducedMotion() || typeof requestAnimationFrame !== "function" || from.current === value) {
+      key.current = rangeKey;
       from.current = value;
       setShown(value);
       return void 0;
     }
     const begin = from.current;
     const started = performance.now();
+    let active = true;
     let frame2;
     const step = (now) => {
-      const progress = Math.min(1, (now - started) / 650);
+      if (!active) return;
+      const progress = Math.min(1, Math.max(0, (now - started) / 650));
       from.current = begin + (value - begin) * (1 - (1 - progress) ** 3);
       setShown(from.current);
       if (progress < 1) frame2 = requestAnimationFrame(step);
     };
     frame2 = requestAnimationFrame(step);
-    return () => cancelAnimationFrame(frame2);
-  }, [value]);
+    return () => {
+      active = false;
+      cancelAnimationFrame(frame2);
+    };
+  }, [value, rangeKey]);
   return shown;
 }
 var glyphBox = (size, icon2) => (0, import_react42.createElement)("span", { className: "bt-us-glyph", style: { width: size, height: size } }, (0, import_react42.createElement)(icon2));
@@ -34565,7 +34649,8 @@ ${names}`, { box: boxRef });
   );
 }
 function Stats({ range, total, previous }) {
-  const shown = useTween(total.total);
+  const rangeKey = `${range.id}:${range.from ?? ""}:${range.to ?? ""}`;
+  const shown = useTween(total.total, rangeKey);
   const change = previous > 0 ? Math.round((total.total - previous) / previous * 100) : null;
   const cell = (label, value) => (0, import_react42.createElement)("div", { className: "bt-us-stat" }, (0, import_react42.createElement)("span", { className: "bt-us-stat-label" }, label), (0, import_react42.createElement)("span", { className: "bt-us-stat-value" }, value));
   return (0, import_react42.createElement)(
@@ -34574,18 +34659,17 @@ function Stats({ range, total, previous }) {
     (0, import_react42.createElement)(
       "div",
       { className: "bt-us-stat bt-us-stat-main" },
-      (0, import_react42.createElement)("span", { className: "bt-us-stat-label" }, lastText(range)),
       (0, import_react42.createElement)(
-        "span",
-        { className: "bt-us-stat-value" },
-        compact(shown),
-        (0, import_react42.createElement)("small", null, t("tokens")),
+        "div",
+        { className: "bt-us-stat-head" },
+        (0, import_react42.createElement)("span", { className: "bt-us-stat-label" }, lastText(range)),
         change === null ? null : (0, import_react42.createElement)(
           "span",
           { className: "bt-us-delta", title: compareText(range) },
           `${change >= 0 ? "↑" : "↓"} ${Math.abs(change)}%`
         )
-      )
+      ),
+      (0, import_react42.createElement)("span", { className: "bt-us-stat-value" }, compact(shown), (0, import_react42.createElement)("small", null, t("tokens")))
     ),
     cell(t("Cache hit rate"), `${hitRate(total)}%`),
     cell(t("Output"), compact(total.output)),
@@ -35214,11 +35298,12 @@ var USAGE_CSS = `
 .bt-us-stats{display:grid;grid-template-columns:1.6fr 1fr 1fr 1fr;border-radius:16px;border:1px solid var(--bt-line);background:var(--bt-card);animation:bt-us-in .45s var(--bt-us-ease) backwards}
 .bt-us-stat{display:flex;flex-direction:column;justify-content:flex-end;gap:6px;min-width:0;padding:16px 18px}
 .bt-us-stat+.bt-us-stat{border-left:1px solid var(--bt-line)}
-.bt-us-stat-label{overflow:hidden;font-size:12px;line-height:16px;color:var(--bt-ink-3);white-space:nowrap;text-overflow:ellipsis}
+.bt-us-stat-head{display:flex;align-items:center;justify-content:space-between;gap:8px;min-width:0;min-height:20px}
+.bt-us-stat-label{min-width:0;overflow:hidden;font-size:12px;line-height:16px;color:var(--bt-ink-3);white-space:nowrap;text-overflow:ellipsis}
 .bt-us-stat-value{display:flex;align-items:baseline;gap:6px;min-width:0;font-size:22px;line-height:28px;font-weight:600;letter-spacing:-.01em;font-variant-numeric:tabular-nums;white-space:nowrap}
 .bt-us-stat-main .bt-us-stat-value{font-size:34px;line-height:40px;letter-spacing:-.025em}
 .bt-us-stat-value small{font-size:13px;font-weight:400;letter-spacing:0;color:var(--bt-ink-3)}
-.bt-us-delta{align-self:center;margin-left:2px;padding:0 8px;border-radius:999px;background:var(--bt-tag-bg);color:var(--bt-ink-2);font-size:11px;line-height:20px;font-weight:500;letter-spacing:0}
+.bt-us-delta{flex:none;max-width:60%;overflow:hidden;padding:0 8px;border-radius:999px;background:var(--bt-tag-bg);color:var(--bt-ink-2);font-size:11px;line-height:20px;font-weight:500;letter-spacing:0;font-variant-numeric:tabular-nums;white-space:nowrap;text-overflow:ellipsis}
 .bt-us-card{display:flex;flex-direction:column;gap:12px;min-width:0;padding:14px 18px 16px;border-radius:16px;border:1px solid var(--bt-line);background:var(--bt-card);animation:bt-us-in .45s var(--bt-us-ease) backwards;animation-delay:calc(var(--i,0) * 45ms)}
 .bt-us-card-head{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:32px}
 .bt-us-card-head h3{display:flex;align-items:baseline;gap:8px;min-width:0;margin:0;font-size:13px;line-height:18px;font-weight:600}
@@ -37278,6 +37363,17 @@ var createDataURL = function(width, height, getPixel) {
 var qrcode_default = qrcode;
 var stringToBytes = qrcode.stringToBytes;
 
+// src/client/phone-browser.js
+function browserPairingUrl(server, browserUri) {
+  const url = new URL(server);
+  if (url.protocol !== "ws:" && url.protocol !== "wss:") throw new Error("The Server address must start with ws:// or wss://");
+  url.protocol = url.protocol === "wss:" ? "https:" : "http:";
+  url.pathname = `${url.pathname.replace(/\/v1\/link\/?$/, "").replace(/\/+$/, "")}/web/`;
+  url.search = "";
+  url.hash = `pair=${encodeURIComponent(browserUri)}`;
+  return url.href;
+}
+
 // src/client/phone-page.js
 var import_react44 = require("react");
 var OFF = { server: "", on: false, status: "off", phones: [], pairing: null };
@@ -37315,11 +37411,16 @@ function PhonePage({ roster, actions, Section: Section2, Row: Row4 }) {
   const [server, setServer] = (0, import_react44.useState)(phone.server);
   const [busy, setBusy] = (0, import_react44.useState)(false);
   const [error, setError] = (0, import_react44.useState)(null);
+  const [copied, setCopied] = (0, import_react44.useState)(false);
+  const copyTimer = (0, import_react44.useRef)(null);
   const [, tick] = (0, import_react44.useState)(0);
   (0, import_react44.useEffect)(() => {
     setServer(phone.server);
   }, [phone.server]);
+  (0, import_react44.useEffect)(() => () => clearTimeout(copyTimer.current), []);
   (0, import_react44.useEffect)(() => {
+    setCopied(false);
+    clearTimeout(copyTimer.current);
     if (!phone.pairing) return void 0;
     const timer = setInterval(() => tick((count) => count + 1), 15e3);
     return () => clearInterval(timer);
@@ -37333,7 +37434,26 @@ function PhonePage({ roster, actions, Section: Section2, Row: Row4 }) {
     if (busy || server.trim() === phone.server) return;
     void run2(actions.phoneSet({ server }));
   };
+  const copyBrowserLink = (url) => {
+    const task = navigator.clipboard?.writeText(url);
+    if (task === void 0) {
+      setError(t("Clipboard is not available"));
+      return;
+    }
+    void run2(task.then(() => {
+      setCopied(true);
+      clearTimeout(copyTimer.current);
+      copyTimer.current = setTimeout(() => setCopied(false), 2e3);
+    }));
+  };
   const online = phone.on && phone.status === "online";
+  let browserUrl = null;
+  if (phone.pairing?.browserUri) {
+    try {
+      browserUrl = browserPairingUrl(phone.server, phone.pairing.browserUri);
+    } catch {
+    }
+  }
   return (0, import_react44.createElement)(
     "div",
     { className: "bt-phone" },
@@ -37345,7 +37465,7 @@ function PhonePage({ roster, actions, Section: Section2, Row: Row4 }) {
         { label: t("Phone access"), hint: statusText3(phone), className: phone.error || phone.status === "offline" ? "bt-phone-warn" : "" },
         (0, import_react44.createElement)(Switch, { on: phone.on, label: t("Phone access"), disabled: busy, onChange: (on) => void run2(actions.phoneSet({ on })) })
       ),
-      (0, import_react44.createElement)(Row4, { label: t("Server"), hint: t("The Relay Server that passes encrypted messages between your phone and this computer. It cannot read them.") }),
+      (0, import_react44.createElement)(Row4, { label: t("Server"), hint: t("The Server forwards encrypted messages. Browser access also trusts the page it serves.") }),
       (0, import_react44.createElement)(
         "div",
         { className: "bt-set-row bt-phone-server" },
@@ -37374,6 +37494,13 @@ function PhonePage({ roster, actions, Section: Section2, Row: Row4 }) {
         { className: "bt-phone-pair-copy" },
         (0, import_react44.createElement)("span", null, t("Scan this code with the DS Bot app on your phone.")),
         (0, import_react44.createElement)("span", { className: "bt-set-hint" }, t("The code works once. It stops working in {count} min.", { count: minutesLeft(phone.pairing.expiresAt) })),
+        browserUrl !== null ? (0, import_react44.createElement)(
+          "div",
+          { className: "bt-phone-pair-actions" },
+          (0, import_react44.createElement)("a", { className: "bt-soft bt-soft-sm", href: browserUrl, target: "_blank", rel: "noopener noreferrer" }, t("Open in a browser")),
+          (0, import_react44.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: busy, onClick: () => copyBrowserLink(browserUrl) }, copied ? t("Copied") : t("Copy browser link"))
+        ) : null,
+        browserUrl !== null ? (0, import_react44.createElement)("span", { className: "bt-set-hint" }, t("The browser runs the page the Server sends. Only use a Server you trust.")) : null,
         (0, import_react44.createElement)("div", null, (0, import_react44.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: busy, onClick: () => void run2(actions.phonePairCancel()) }, t("Cancel")))
       )
     ) : (0, import_react44.createElement)(
@@ -37383,7 +37510,7 @@ function PhonePage({ roster, actions, Section: Section2, Row: Row4 }) {
     )),
     (0, import_react44.createElement)(Section2, { title: t("Phones") }, phone.phones.length === 0 ? (0, import_react44.createElement)(Row4, { label: t("No phones yet") }) : phone.phones.map((entry) => (0, import_react44.createElement)(Row4, {
       key: entry.id,
-      label: entry.name || t("Phone"),
+      label: entry.kind === "browser" ? t("Web browser") : entry.name || t("Phone"),
       hint: entry.connected ? t("Connected") : t("Paired on {date}", { date: new Date(entry.pairedAt).toLocaleDateString(dateLocale(), { dateStyle: "medium" }) })
     }, (0, import_react44.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: busy, onClick: () => void run2(actions.phoneRemove(entry.id)) }, t("Remove")))))
   );
@@ -41281,6 +41408,7 @@ var NO_WORK = { bots: {}, rooms: {}, approvals: [] };
 var NO_COMPUTER = { asks: {} };
 var FACES_MAX2 = 3;
 var DOCK_EXIT_MS = 160;
+var FRESH_DONE_MS = 1800;
 function roomApprovals(room2, work = NO_WORK, computer = NO_COMPUTER, roster = { byId: {} }) {
   if (!room2) return [];
   const byId = roster?.byId ?? {};
@@ -41477,6 +41605,70 @@ function StopMemberWork({ entry, bot, room: room2, actions }) {
   };
   return (0, import_react57.createElement)("button", { type: "button", className: "bt-member-stop", disabled: stopping, "aria-label": `${t("Stop")} · ${bot.name}`, onClick: stop }, t("Stop"));
 }
+function FreshMemberPart({ entry, bot, room: room2, actions }) {
+  const scope = `${room2?.id ?? ""}:${bot?.id ?? ""}`;
+  const [status, setStatus] = (0, import_react57.useState)(null);
+  const timer = (0, import_react57.useRef)(null);
+  const mounted = (0, import_react57.useRef)(true);
+  const scopeRef = (0, import_react57.useRef)(scope);
+  const inFlight = (0, import_react57.useRef)(null);
+  scopeRef.current = scope;
+  const clear = () => {
+    if (timer.current !== null) {
+      clearTimeout(timer.current);
+      timer.current = null;
+    }
+  };
+  (0, import_react57.useEffect)(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      inFlight.current = null;
+      clear();
+    };
+  }, []);
+  (0, import_react57.useEffect)(() => () => {
+    clear();
+    inFlight.current = null;
+  }, [scope]);
+  const phase = status?.scope === scope ? status.phase : "idle";
+  const hasSession = Array.isArray(room2?.sessionMembers) && room2.sessionMembers.includes(bot.id);
+  if (actions.newPart === void 0 || !hasSession || entry !== void 0 && entry.state !== "idle") return null;
+  const start = () => {
+    if (phase !== "idle" || inFlight.current === scope) return;
+    clear();
+    const current2 = scope;
+    inFlight.current = current2;
+    setStatus({ scope: current2, phase: "starting" });
+    void Promise.resolve(actions.newPart(bot.id, room2.id)).then(
+      () => {
+        if (!mounted.current || scopeRef.current !== current2) return;
+        setStatus({ scope: current2, phase: "done" });
+        timer.current = setTimeout(() => {
+          timer.current = null;
+          if (inFlight.current === current2) inFlight.current = null;
+          if (!mounted.current) return;
+          setStatus((prev) => prev?.scope === current2 && prev.phase === "done" ? null : prev);
+        }, FRESH_DONE_MS);
+      },
+      (error) => {
+        if (inFlight.current === current2) inFlight.current = null;
+        if (mounted.current && scopeRef.current === current2) setStatus(null);
+        actions.reportError?.(error, "new-part");
+      }
+    );
+  };
+  const done = phase === "done";
+  return (0, import_react57.createElement)("button", {
+    type: "button",
+    className: "bt-member-stop bt-member-fresh",
+    "data-state": phase === "idle" ? void 0 : phase,
+    disabled: phase !== "idle",
+    title: done ? t("Started a new session for {name} in this group", { name: bot.name }) : t("Start a new session for {name} in this group", { name: bot.name }),
+    "aria-label": `${done ? t("Started") : t("New session")} · ${bot.name}`,
+    onClick: start
+  }, done ? [(0, import_react57.createElement)("span", { key: "ok", className: "bt-member-fresh-ok bt-pop-in" }, (0, import_react57.createElement)(CheckIcon)), t("Started")] : t("New session"));
+}
 function StopRoomWork({ room: room2, entries: entries2, actions }) {
   const [stopping, setStopping] = (0, import_react57.useState)(false);
   if (!entries2.some((entry) => entry.here)) return null;
@@ -41575,7 +41767,7 @@ var MEMBER_CSS = `
 .bt-members-head>.bt-soft-sm{margin:-6px 0}
 .bt-members-head>.bt-soft-sm:disabled{opacity:.5;cursor:default}
 .bt-member{display:flex;flex-direction:column;border-radius:12px;animation:bt-rise .18s ease-out backwards}
-.bt-member-row{display:flex;align-items:center;gap:8px;min-height:48px;padding:0 8px;border-radius:12px;transition:background-color .12s ease}
+.bt-member-row{position:relative;display:flex;align-items:center;gap:8px;min-height:48px;padding:0 8px;border-radius:12px;transition:background-color .12s ease}
 .bt-member-row:hover{background:var(--bt-hover)}
 .bt-member-open{flex:1;min-width:0;display:flex;align-items:center;gap:10px;padding:8px 0;border:0;background:none;color:var(--bt-ink);font:inherit;text-align:left;cursor:pointer}
 .bt-member-open>.bt-mark{flex:none}
@@ -41587,10 +41779,18 @@ var MEMBER_CSS = `
 .bt-member-what{min-width:0;overflow:hidden;text-overflow:ellipsis}
 .bt-member-time{flex:none;margin-left:.3em;font-variant-numeric:tabular-nums}
 .bt-member-state.bt-mw-ask{color:var(--bt-warn)}
-.bt-member-stop{flex:none;height:26px;padding:0 11px;border:0;border-radius:999px;background:var(--bt-main);box-shadow:inset 0 0 0 .5px var(--bt-line-2);color:var(--bt-ink-2);font:inherit;font-size:12px;cursor:pointer;transition:background-color .12s ease,color .12s ease,${spring(SPRING_TAP, "scale")}}
-.bt-member-stop:hover{background:var(--bt-active);color:var(--bt-ink)}
+.bt-member-stop{flex:none;height:28px;padding:0 11px;border:0;border-radius:999px;background:var(--bt-main);box-shadow:inset 0 0 0 .5px var(--bt-line-2);color:var(--bt-ink-2);font:inherit;font-size:12px;line-height:16px;white-space:nowrap;cursor:pointer;touch-action:manipulation;transition:background-color .12s ease,color .12s ease,${spring(SPRING_TAP, "scale")}}
+.bt-member-stop:hover:not(:disabled){background:color-mix(in srgb,var(--bt-ink) 12%,var(--bt-main));color:var(--bt-ink)}
+.bt-member-stop:focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
 .bt-member-stop:active:not(:disabled){scale:.94}
 .bt-member-stop:disabled{opacity:.5;cursor:default}
+.bt-member-fresh{position:absolute;right:8px;top:0;bottom:0;z-index:1;margin:auto 0;display:inline-flex;align-items:center;gap:4px;box-shadow:inset 0 0 0 .5px var(--bt-line-2),0 2px 8px -1px rgba(0,0,0,.06),0 1px 2px rgba(0,0,0,.04);opacity:0;pointer-events:none;transition:opacity .12s ease,background-color .12s ease,color .12s ease,${spring(SPRING_TAP, "scale")}}
+.bt-member-row:hover>.bt-member-fresh,.bt-member-fresh:focus-visible,.bt-member-fresh[data-state]{opacity:1;pointer-events:auto}
+.bt-member-fresh[data-state=done]{color:var(--bt-ink)}
+.bt-member-fresh[data-state=done]:disabled{opacity:1}
+.bt-member-fresh-ok{display:inline-flex;color:var(--bt-green)}
+.bt-member-fresh-ok svg{width:13px;height:13px}
+@media (hover:none){.bt-member-fresh{position:static;margin:0;box-shadow:inset 0 0 0 .5px var(--bt-line-2);opacity:1;pointer-events:auto}}
 .bt-member-cards{display:flex;flex-direction:column;gap:6px;padding:2px 8px 8px 50px}
 .bt-mw-card{display:flex;flex-direction:column;gap:4px;padding:10px 12px;border-radius:12px;background:var(--bt-hover);font-size:12px;line-height:17px;color:var(--bt-ink-2);animation:bt-rise .2s ease-out backwards}
 .bt-mw-head{display:flex;align-items:center;gap:6px;min-width:0}
@@ -41603,7 +41803,7 @@ var MEMBER_CSS = `
 .bt-mw-actions{display:flex;justify-content:flex-end;gap:6px;margin-top:4px}
 .bt-mw-actions>button{height:28px;padding:0 12px;font-size:12px}
 .bt-mw-actions>button:disabled{opacity:.5;cursor:default}
-@media (prefers-reduced-motion:reduce){.bt-mw-pill,.bt-mw-dock[data-leaving] .bt-mw-pill,.bt-mw-face,.bt-mw-label,.bt-member,.bt-mw-card{animation:none}.bt-mw-pill{transition:background-color .12s ease}}
+@media (prefers-reduced-motion:reduce){.bt-mw-pill,.bt-mw-dock[data-leaving] .bt-mw-pill,.bt-mw-face,.bt-mw-label,.bt-member,.bt-mw-card{animation:none}.bt-mw-pill{transition:background-color .12s ease}.bt-member-stop,.bt-member-fresh{transition:opacity .12s ease,background-color .12s ease,color .12s ease}}
 `;
 
 // src/client/header.js
@@ -41637,7 +41837,7 @@ function MemoryNotice({ shown }) {
     (0, import_react58.createElement)("span", { className: "bt-pill-mem-in", ref: inner }, (0, import_react58.createElement)("span", { className: "bt-pill-mem-ico" }, (0, import_react58.createElement)(MemoryIcon)), label)
   );
 }
-function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus, useSession, useActivity, useMemoryNews, useTurnClock, useUi, useLive, useWork, useComputer, useStore, useConversationViews, selectView, actions }) {
+function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus, useSession, useActivity, useMemoryNews, useTurnClock, useUi, useLive, useWork, useComputer, useStore, useConversationViews, selectView, actions, PendingLearning: PendingLearning2 }) {
   const roster = useRoster((value) => value);
   const selectedView = useStore?.((state) => state.view);
   const away = useConversationViews?.((views) => views.some((view2) => view2.id === selectedView && view2.id !== "chat")) === true && typeof selectView === "function";
@@ -41740,6 +41940,7 @@ function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus, useSe
     "div",
     { className: "bt-head" },
     showIsland ? (0, import_react58.createElement)(GoalIsland, { room: room2, goal, view, open: goalOpen, composing: goalCompose, approvalPod, approvalOpen, approvalsCount: approvals.length, roomWork, roster, actions, pill }) : pill,
+    !away && PendingLearning2 ? (0, import_react58.createElement)(PendingLearning2, { key: sessionId, sessionId, useRoster, actions }) : null,
     (0, import_react58.createElement)("span", { className: "bt-sr", role: "status" }, memoryNotice ? t("Memory updated") : ""),
     room2 !== void 0 && !away ? (0, import_react58.createElement)("button", {
       type: "button",
@@ -45538,7 +45739,8 @@ function MemberRow({ member, entry, room: room2, roster, actions }) {
           (0, import_react71.createElement)(MemberState, { entry, bot: member, room: room2, roster })
         )
       ),
-      (0, import_react71.createElement)(StopMemberWork, { entry, bot: member, room: room2, actions })
+      (0, import_react71.createElement)(StopMemberWork, { entry, bot: member, room: room2, actions }),
+      (0, import_react71.createElement)(FreshMemberPart, { entry, bot: member, room: room2, actions })
     ),
     (0, import_react71.createElement)(MemberApprovals, { entry, bot: member, actions })
   );
@@ -48544,6 +48746,12 @@ function fileLines(text) {
 function editLines(text) {
   return typeof text === "string" ? text.split(/\r?\n/) : [];
 }
+function agentEditRows(edit) {
+  return [
+    ...(edit.op === "add" ? [] : editLines(edit.old)).map((line) => ({ kind: "removed", line })),
+    ...(edit.op === "remove" ? [] : editLines(edit.text)).map((line) => ({ kind: "added", line }))
+  ];
+}
 var DIFF_CELLS = 25e4;
 function lineDiff(before, after) {
   const a = fileLines(before);
@@ -48607,6 +48815,67 @@ function proposalCards({ proposals = [], settled = [], failures = {} }) {
 // src/client/learning-card.js
 var import_react75 = require("react");
 var failedAnswers = /* @__PURE__ */ new Map();
+function PendingLearning({ sessionId, useRoster, actions }) {
+  const roster = useRoster((value) => value);
+  const bot = roster.byId?.[sessionId];
+  const proposals = bot && currentPart(bot) === sessionId ? roster.learning?.[bot.id] ?? [] : [];
+  const settledIds = (bot === void 0 ? [] : roster.learningSettled?.[bot.id] ?? []).map((entry) => entry.id);
+  const [open, setOpen] = (0, import_react75.useState)(false);
+  const root = (0, import_react75.useRef)(null);
+  const [shown, leaving] = useLinger(open, 120);
+  (0, import_react75.useEffect)(() => {
+    setOpen(false);
+  }, [sessionId, proposals.length === 0]);
+  (0, import_react75.useEffect)(() => {
+    if (settledIds.length === 0) return;
+    for (const id of settledIds) failedAnswers.delete(id);
+  }, [settledIds.join("|")]);
+  (0, import_react75.useEffect)(() => {
+    if (!open) return;
+    const outside = (event) => {
+      if (!root.current?.contains(event.target)) setOpen(false);
+    };
+    document.addEventListener("pointerdown", outside);
+    return () => document.removeEventListener("pointerdown", outside);
+  }, [open]);
+  if (proposals.length === 0) return null;
+  const onFailure = (proposal, failure) => {
+    if (answerKeepsCard(failure)) failedAnswers.set(proposal.id, { proposal, error: failure?.message ?? String(failure) });
+    else failedAnswers.delete(proposal.id);
+  };
+  const onResolved = (id) => {
+    failedAnswers.delete(id);
+  };
+  return (0, import_react75.createElement)(
+    "div",
+    { className: "bt-learning-pending", ref: root },
+    (0, import_react75.createElement)(
+      "button",
+      { type: "button", className: "bt-learning-pending-toggle", "aria-expanded": open, onClick: () => setOpen(!open) },
+      (0, import_react75.createElement)("span", { className: "bt-learning-dot", "aria-hidden": true }),
+      (0, import_react75.createElement)("span", { className: "bt-learning-pending-label" }, t("Awaiting approval"), ` · ${proposals.length}`)
+    ),
+    shown ? (0, import_react75.createElement)(PendingLearningPanel, { proposals, actions, onFailure, onResolved, leaving, close: () => {
+      setOpen(false);
+      root.current?.querySelector("button")?.focus();
+    } }) : null
+  );
+}
+function PendingLearningPanel({ proposals, actions, onFailure, onResolved, close, leaving }) {
+  useEscape(close);
+  return (0, import_react75.createElement)(
+    "div",
+    { className: "bt-learning-pending-panel", "data-leaving": leaving || void 0, role: "region", "aria-label": t("Awaiting approval") },
+    proposals.map((proposal) => (0, import_react75.createElement)(ProposalCard, {
+      key: proposal.id,
+      proposal,
+      initialError: failedAnswers.get(proposal.id)?.error,
+      onFailure,
+      onResolved,
+      actions
+    }))
+  );
+}
 function ProposalCard({ proposal, initialError = "", onFailure, onResolved, actions }) {
   const outcome = proposal.outcome;
   const [busy, setBusy] = (0, import_react75.useState)(false);
@@ -48631,10 +48900,7 @@ function ProposalCard({ proposal, initialError = "", onFailure, onResolved, acti
   const agents = proposal.kind === "agents";
   const rows2 = (0, import_react75.useMemo)(() => lineDiff(update ? proposal.previous?.content : "", proposal.content), [update, proposal.previous?.content, proposal.content]);
   const change = agents ? [
-    (0, import_react75.createElement)(FileBox, { key: "file", name: "AGENTS.md", path: proposal.folder, state: proposal.exists === false ? "Added" : "Modified", blocks: proposal.edits.map((edit) => [
-      ...(edit.op === "add" ? [] : editLines(edit.old)).map((line) => ({ kind: "removed", line })),
-      ...(edit.op === "remove" ? [] : editLines(edit.text)).map((line) => ({ kind: "added", line }))
-    ]) }),
+    (0, import_react75.createElement)(FileBox, { key: "file", name: "AGENTS.md", path: proposal.folder, state: proposal.exists === false ? "Added" : "Modified", blocks: proposal.edits.map(agentEditRows) }),
     ...proposal.edits.map((edit, index) => edit.why ? (0, import_react75.createElement)("p", { className: "bt-learning-why", key: `why-${index}` }, edit.why) : null)
   ] : [
     (0, import_react75.createElement)(FileBox, { key: "file", name: "SKILL.md", path: `skills/${proposal.name}`, state: update ? "Updated" : "Added", blocks: [rows2] }),
@@ -48749,10 +49015,9 @@ function LearningProposals({ turn, dock, sessionId, useRoster, actions }) {
   const bot = roster.byId?.[sessionId];
   const settledIds = (bot === void 0 ? [] : roster.learningSettled?.[bot.id] ?? []).map((entry) => entry.id);
   (0, import_react75.useEffect)(() => {
-    const gone = Object.keys(failed).filter((id) => settledIds.includes(id));
-    if (gone.length === 0) return;
-    for (const id of gone) failedAnswers.delete(id);
-    setFailed((current2) => gone.reduce((next, id) => withoutEntry(next, id), current2));
+    if (settledIds.length === 0) return;
+    for (const id of settledIds) failedAnswers.delete(id);
+    setFailed((current2) => settledIds.reduce((next, id) => withoutEntry(next, id), current2));
   }, [settledIds.join("|")]);
   if (!bot || currentPart(bot) !== sessionId) return null;
   const proposals = roster.learning?.[bot.id] ?? [];
@@ -48792,6 +49057,19 @@ function LearningDock(props) {
   return (0, import_react75.createElement)(LearningProposals, { ...props, dock: true });
 }
 var LEARNING_CSS = `
+.bt-learning-pending{pointer-events:auto;position:static;flex:0 1 auto;min-width:0;max-width:45%;margin-left:8px;-webkit-app-region:no-drag}
+.bt-learning-pending-toggle{display:inline-flex;align-items:center;gap:6px;max-width:100%;min-width:0;height:32px;padding:0 12px;border:1px solid var(--bt-line);border-radius:999px;background:var(--bt-card);color:var(--bt-ink);font:inherit;font-size:12px;white-space:nowrap;cursor:pointer}
+.bt-learning-pending-label{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.bt-learning-pending-toggle:hover{background:var(--bt-hover)}
+.bt-learning-pending-toggle:focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
+.bt-learning-pending-panel{position:absolute;top:48px;left:16px;right:16px;z-index:20;width:auto;max-width:560px;margin:0 auto;max-height:65vh;overflow:auto;display:flex;flex-direction:column;gap:8px;padding:8px;border:1px solid var(--bt-line);border-radius:20px;background:var(--bt-main);box-shadow:var(--bt-dialog-shadow)}
+.bt-learning-pending-panel{animation:bt-learning-in .12s ease}
+.bt-learning-pending-panel[data-leaving]{opacity:0;pointer-events:none;transition:opacity .12s ease}
+.bt-learning-pending-panel .bt-q-head{flex-wrap:wrap}
+.bt-learning-pending-panel .bt-q-text{flex-basis:140px}
+.bt-learning-pending-panel .bt-learning-status{margin-left:auto}
+@keyframes bt-learning-in{from{opacity:0}to{opacity:1}}
+@media(prefers-reduced-motion:reduce){.bt-learning-pending-panel{animation:none;transition:none}}
 .bt-learning-stack{display:flex;flex-direction:column;gap:4px}
 .bt-learning-dock{width:100%;max-width:var(--dsh-chat-content-width,748px);margin:0 auto;box-sizing:border-box}
 .bt-learning-card .bt-q-head{gap:12px}
@@ -48800,7 +49078,7 @@ var LEARNING_CSS = `
 .bt-learning-description{margin:6px 0 0;font-size:13px;line-height:19px;color:var(--bt-ink)}
 .bt-learning-old{color:var(--bt-ink-3)}
 .bt-learning-status{display:inline-flex;align-items:center;gap:6px;border-style:solid;border-color:color-mix(in srgb,var(--bt-star) 35%,transparent);color:color-mix(in srgb,var(--bt-star) 80%,var(--bt-ink))}
-.bt-learning-dot{width:6px;height:6px;border-radius:50%;background:var(--bt-star)}
+.bt-learning-dot{flex:none;width:6px;height:6px;border-radius:50%;background:var(--bt-star)}
 .bt-learning-file{border-radius:12px;overflow:hidden;background:color-mix(in srgb,var(--bt-ink) 2.5%,var(--bt-card));box-shadow:inset 0 0 0 1px var(--bt-q-rule)}
 .bt-learning-filehead{display:flex;align-items:center;gap:8px;min-width:0;padding:8px 12px;box-shadow:inset 0 -1px 0 var(--bt-q-rule-2);font-size:12px;line-height:18px}
 .bt-learning-name{flex:none;font-weight:600;color:var(--bt-ink)}
@@ -50836,7 +51114,7 @@ function apply(ctx) {
     ...options,
     ...options.priority === void 0 ? {} : { priority: freePriority(ctx.slots.entries(name), options) }
   }, component));
-  const installHeader = () => ctx.slots.inject("conversation.session.header", () => installHeaderNavigation(ctx.slots, face, HeaderPill, BOT_PRIORITY));
+  const installHeader = () => ctx.slots.inject("conversation.session.header", () => installHeaderNavigation(ctx.slots, () => ({ ...face(), PendingLearning }), HeaderPill, BOT_PRIORITY));
   let atMenu = null;
   const installAtMenu = () => {
     const fiber = ctx.inject(["inputTriggers"], (scope) => {
