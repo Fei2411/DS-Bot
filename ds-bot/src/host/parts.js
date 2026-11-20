@@ -401,11 +401,18 @@ export function install(rt) {
     if (bot === undefined) return []
     const thread = sessionId === undefined ? undefined : threadOfPart(bot, sessionId)
     if (thread === undefined) return partsOf(bot.id)
+    if (thread.thread === 'task') {
+      const task = bot.tasks[thread.index]
+      // A foreground turn moved into a background task keeps read_own_chat access to the
+      // Bot's earlier parts with stable part numbering, without mutating task.segments.
+      const inherited = task.origin === 'fg-handoff' || task.origin === 'bot-handoff' ? (bot.segments ?? []) : []
+      const seen = new Set(inherited.map(seg => seg?.sessionId).filter(Boolean))
+      const segments = [...inherited, ...(thread.segments ?? []).filter(seg => !seen.has(seg?.sessionId))]
+      return partsOf(bot.id, undefined, segments, task.sessionId)
+    }
     const current = thread.thread === 'current'
       ? rt.chatOf(bot.id)
-      : thread.thread === 'open'
-        ? bot.openParts[thread.index].sessionId
-        : bot.tasks[thread.index].sessionId
+      : bot.openParts[thread.index].sessionId
     return partsOf(bot.id, undefined, thread.segments, current)
   }
 
