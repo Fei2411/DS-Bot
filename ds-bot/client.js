@@ -15139,7 +15139,8 @@ function indexRoster(value) {
   const byId = {};
   for (const bot of value.bots) {
     const open = (bot.openParts ?? []).flatMap((part) => [part.sessionId, ...part.parts ?? []]);
-    for (const id of [...bot.parts ?? [], ...open, bot.sessionId ?? bot.id, bot.id]) byId[id] = bot;
+    const tasks = (bot.tasks ?? []).flatMap((task) => [task.sessionId, ...task.parts ?? []]);
+    for (const id of [...bot.parts ?? [], ...open, ...tasks, bot.sessionId ?? bot.id, bot.id]) byId[id] = bot;
   }
   const roomsById = {};
   for (const room2 of value.rooms) {
@@ -29348,7 +29349,7 @@ function TriggerCell({ node, sessionId, useRoster, useSessions, useTurnClock, us
   function triggerBody() {
     if (source.kind === "bot") {
       if (source.handoff === true) return (0, import_react34.createElement)(EarlierParts, { sessionId, roster, actions });
-      if (source.role === "kickoff" || source.role === "room" || source.role === "goal") return null;
+      if (source.role === "kickoff" || source.role === "room" || source.role === "goal" || source.role === "task-handoff") return null;
       if (source.role === "secret" || deferred) return null;
       if (source.role === "update") return (0, import_react34.createElement)("div", { className: "bt-event" }, t("Profile updated"));
       if (source.role === "post") {

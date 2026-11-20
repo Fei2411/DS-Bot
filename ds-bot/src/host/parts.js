@@ -151,7 +151,7 @@ export function historyEntry(event, group) {
   if (event.type !== 'user/message' || (source?.kind !== 'user' && source?.kind !== SOURCE_KIND)) return undefined
   const text = textOf(event.data.content)
   const ours = source.kind === SOURCE_KIND
-  const skipped = (ours && (source.handoff === true || source.role === 'kickoff' || source.role === 'goal')) || (!group && text.startsWith('[Group chat'))
+  const skipped = (ours && (source.handoff === true || source.role === 'kickoff' || source.role === 'goal' || source.role === 'task-handoff')) || (!group && text.startsWith('[Group chat'))
   // A turn that went on after a handoff did real work, so its answers stay.
   return { answer: false, who: ours ? 'bot' : 'user', text: skipped ? '' : text, keepAnswers: !skipped || (ours && source.resume === true) }
 }
@@ -2163,6 +2163,47 @@ export function install(rt) {
     return { sessionId, forked, task: stored }
   }
 
+  // Creates a fresh foreground Session for `bot` when its currently busy foreground
+  // Session is moving into `bot.tasks[]` (#783). Forks at the latest completed turn
+  // boundary (excluding the in-flight turn) so the new foreground inherits full prior
+  // history and KV cache, falling back to a fresh Session on first turn.
+  async function forkForegroundPart(bot, fromSessionId) {
+    const dir = rt.workDirOf({ botId: bot.id })
+    let sessionId
+    let forked = false
+    if (typeof ctx.sessionController?.fork === 'function') {
+      try {
+        const res = await ctx.sessionController.fork({ sessionId: fromSessionId })
+        if (typeof res?.sessionId === 'string' && res.sessionId !== '') {
+          sessionId = res.sessionId
+          forked = true
+        }
+      } catch {
+        // First turn (session/fork-unavailable) or unsupported host: fall back to fresh Session.
+      }
+    }
+    if (sessionId === undefined) {
+      sessionId = await rt.createSession(bot.name, { dir })
+    }
+    const sourceAgent = ctx.get('agents')?.get(fromSessionId)
+    const picked = await freshRoute(bot, sourceAgent?.session)
+    if (picked !== undefined) await selectRoute({ name: bot.name }, sessionId, picked)
+    await rt.applyPermission(bot, sessionId, undefined)
+      .catch(error => rt.warn('ds-bot: permission for foreground part of %s not applied: %s', bot.name, error))
+    if (rt.botOf(bot.id) !== bot) {
+      await ctx.workspaceRegistry.archiveSession(sessionId, { stopActivity: true })
+        .catch(error => rt.warn('ds-bot: unused foreground part of %s not archived: %s', bot.name, error))
+      throw Object.assign(new Error('Bot no longer exists'), { code: 'bot/not-found' })
+    }
+    const syncRoute = async () => {
+      const now = await freshRoute(bot, sourceAgent?.session)
+      if (now !== undefined && (now.ref !== picked?.ref || now.effort !== picked?.effort)) {
+        await selectRoute({ name: bot.name }, sessionId, now)
+      }
+    }
+    return { sessionId, forked, syncRoute }
+  }
+
   // Read-only transcript paging for one background task across its own segments.
   async function taskPage(botId, taskId, cursor, steps = false) {
     const bot = rt.botOf(botId)
@@ -2240,5 +2281,5 @@ export function install(rt) {
     return true
   }
 
-  Object.assign(rt, { clock, partsOf, partsOfThread, historyEntry, partLines, noteText, earlierPage, chatPage, taskPage, displayItems, applySteps, followFolder, followEngine, heldBack, newPart, openTaskPart, switchPart, isSwitchingPart: id => switches.has(id), sessionTokens: session => tokensOf(session), switchJobs: () => switches.values() })
+  Object.assign(rt, { clock, partsOf, partsOfThread, historyEntry, partLines, noteText, earlierPage, chatPage, taskPage, displayItems, applySteps, followFolder, followEngine, heldBack, newPart, openTaskPart, forkForegroundPart, switchPart, isSwitchingPart: id => switches.has(id), sessionTokens: session => tokensOf(session), switchJobs: () => switches.values() })
 }
