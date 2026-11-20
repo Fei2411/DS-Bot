@@ -203,11 +203,27 @@ done":"完了しました","{name} is running":"{name} が起動中です","It m
 okie はありません","Reload the page":"ページを再読み込み","Import failed":"インポートに失敗しました","That file is too large to be a cookie export.":"ファイ\
 ルサイズが大きすぎるため、Cookie のエクスポートファイルではありません。","That file could not be read.":"ファイルを読み込めませんでした。",
 "This browser encrypts its cookies so only it can read them. Export them to a file first, then import that file.":"このブラウザの Cookie は暗号化されており直接読み取れません。先にファイルへエクスポートしてから、そのファイルをインポートし\
-てください。","{count}":"{count} 件","Choose a PNG, JPEG, WebP, or GIF image":"PNG、JPEG、WebP、または GIF 画像を選択してください","Choose an image smaller \
-than 25 MB":"25 MB 未満の画像を選択してください","That image is too large":"画像サイズが大きすぎます",Model:"モデル","Avatar editor":"アバター編集",
-"Avatar source":"アバターの種類",Upload:"アップロード","Reset character to default":"デフォルトのアバターに戻す",Reset:"リセット","Character shape":"形",
-"Character color":"色","Drag, drop, or paste an image":"画像をドラッグ＆ドロップまたは貼り付け",Replace:"変更","Browse files":"ファイルを選択","Remove \
-photo":"写真を削除","Edit Bot avatar":"Bot のアバターを編集",Name:"名前",Instructions:"指示","What this Bot is responsible for…":"この Bot の担当・役割…",
+てください。","Keychain access was cancelled. Click Allow when macOS asks to read your browser cookies.":"キーチェーンへのアクセスがキャンセルされました。macOS がブラウザの Cookie 読み取りを求めたら「許可」をクリックしてください\
+。","Remote debugging permission was declined in the browser. Try again and click Allow.":"ブラウザでリモートデバッグの許可が拒否されました。もう一度試して「許可」をクリックしてください。",
+"Timed out waiting for you to click Allow in the browser.":"ブラウザで「許可」をクリックする待機時間がタイムアウトしました。","Another browser profi\
+le is active. Switch to the chosen profile window in your browser, then try again.":"別のブラウザプロファイルがアクティブです。ブラウザで選択したプロファイルのウィンドウに切り替えてから再試行してください。",
+"Import from browser":"ブラウザからインポート","Last used":"前回使用","Browser profile":"ブラウザプロファイル","Paste cookies or cURL…":"Cookie または cURL \
+を貼り付け…","JSON, cURL, header":"JSON、cURL、ヘッダー","Connect to {name}":"{name} に接続","{name} protects its cookies on Windows. Enable its built-in remote deb\
+ugging switch once — no extension needed.":"{name} は Windows 上で Cookie を保護しています。内蔵のリモートデバッグを一度オンにするだけで、拡張機能は不要です。",
+"1. Open this address in {name}:":"1. {name} で次のアドレスを開きます:","2. Turn on “Allow remote debugging for this browser instance”, then click Allow when {name} pro\
+mpts.":"2. 「Allow remote debugging for this browser instance」をオンにし、{name} の確認ダイアログで「許可」をクリックします。","Remote debugging dete\
+cted — ready to import.":"リモートデバッグを検出しました。インポートできます。","Open {name}":"{name} を開く","Connect and import":"接続してインポート",
+"Paste cookies or cURL":"Cookie または cURL を貼り付け","Paste Cookie-Editor JSON, Netscape cookies.txt, Copy as cURL, or a Cookie header…":"Cookie-Editor JSON、Netscape c\
+ookies.txt、Copy as cURL、または Cookie ヘッダーを貼り付け…","Site URL (only needed for plain Cookie headers)":"サイト URL（単純な Cookie ヘッダーの場合のみ必要）",
+"Reading…":"読み込み中…","{count} storage entries":"ストレージ {count} 件","All sites ({count})":"すべてのサイト ({count})","This site ({host})":"このサイト ({host\
+})","Filter sites…":"サイトを絞り込み…",storage:"ストレージ","Keep session logins after app restart":"アプリ再起動後もセッションログインを維持",
+"Reading {name}…":"{name} を読み込み中…","If {name} or your system asks for permission, click Allow.":"{name} またはシステムが許可を求めたら「許可」をクリックしてください。",
+"Imported storage for {count} sites":"{count} サイトのストレージをインポートしました","{count} sites storage":"{count} サイトのストレージ","page reloade\
+d":"ページを再読み込みしました","{count}":"{count} 件","Choose a PNG, JPEG, WebP, or GIF image":"PNG、JPEG、WebP、または GIF 画像を選択してください",
+"Choose an image smaller than 25 MB":"25 MB 未満の画像を選択してください","That image is too large":"画像サイズが大きすぎます",Model:"モデル","Avatar e\
+ditor":"アバター編集","Avatar source":"アバターの種類",Upload:"アップロード","Reset character to default":"デフォルトのアバターに戻す",Reset:"リセット",
+"Character shape":"形","Character color":"色","Drag, drop, or paste an image":"画像をドラッグ＆ドロップまたは貼り付け",Replace:"変更","Browse files":"ファイルを選択",
+"Remove photo":"写真を削除","Edit Bot avatar":"Bot のアバターを編集",Name:"名前",Instructions:"指示","What this Bot is responsible for…":"この Bot の担当・役割…",
 "Pick the model this Bot runs on.":"この Bot が使用するモデルを選択します。","This model is not available now. Pick another one.":"このモデルは現在利用できません。別のモデルを選択してください。",
 "Every message of this Bot runs on it.":"この Bot のすべてのメッセージでこのモデルが使用されます。","Applies from the next message.":"次のメッセージから適用されます。",
 Profile:"プロフィール",Label:"ラベル","Add a label":"ラベルを追加","Optional. Shown under the name.":"任意。名前の下に表示されます。","Research, admin\
@@ -253,12 +269,9 @@ Violet:"バイオレット",Magenta:"マゼンタ",Gray:"グレー",Aurora:"オ�
 を管理します。","Group chats · {count}":"グループチャット · {count}","No group chats yet.":"グループチャットはまだありません。","A group chat lets\
  several Bots work on one thing with you.":"グループチャットでは、複数の Bot と一緒に 1 つのテーマに取り組めます。","Back to group chats":"グループチャット一覧\
 に戻る","DS Bot settings":"DS Bot 設定","Settings pages":"設定ページ","Advanced settings":"詳細設定","Back to models":"モデルに戻る","Open Plugins":"プラグインを開く",
-"DeepSeek services":"DeepSeek サービス","DeepSeek API":"DeepSeek API","DeepSeek Web Search API":"DeepSeek Web 検索 API","Find it in Plugins → Web search.":"プラグイン → Web 検索にあ\
-ります。","Image and document reading":"画像と文書の読み取り","Use DeepSeek to read images and documents":"DeepSeek で画像と文書を読み取る","Bots upload se\
-lected files to DeepSeek for text recognition; local Office editing is unchanged.":"Bot は選択したファイルを DeepSeek にアップロードして文字認識します。ローカルの Office 編集は変わりません。",
-"Not ready":"準備できていません","Open settings":"設定を開く","Open settings file":"設定ファイルを開く","Could not open the settings file":"設定ファイルを開けませんでした",
-"Show code work view":"コード作業ビューを表示","Could not save. Try again.":"保存できませんでした。再試行してください。","Connection lost. Refresh t\
-o retry":"接続が切れました。再読み込みして再試行してください",Reconnecting:"再接続中","Connection lost. Reconnect now":"接続が切れました。今すぐ再接続",
+"Open settings":"設定を開く","Open settings file":"設定ファイルを開く","Could not open the settings file":"設定ファイルを開けませんでした","Show code w\
+ork view":"コード作業ビューを表示","Could not save. Try again.":"保存できませんでした。再試行してください。","Connection lost. Refresh to retry":"接続\
+が切れました。再読み込みして再試行してください",Reconnecting:"再接続中","Connection lost. Reconnect now":"接続が切れました。今すぐ再接続",
 "Connection dropped and retrying. Reconnect now":"接続が中断され、再試行中です。今すぐ再接続","Retry update":"アップデートを再試行","New version":"新し\
 いバージョン","{percent}%":"{percent}%","Verifying the update…":"アップデートファイルを検証中…","Getting ready to restart…":"再起動の準備中…","In\
 stall and restart":"インストールして再起動","{label}: {version}":"{label}: {version}","Downloading the update: {percent}%, version {version}":"アップデートをダウンロード中: {percent}%\
@@ -640,12 +653,18 @@ reen Recording":"画面収録",Allowed:"許可済み","Not allowed":"未許可",
 行させる","Take over the computer":"操作を引き継ぐ","Hand back":"Bot に戻す","Recent steps":"最近の操作",failed:"失敗","Allow {name} to use {app}?":"{name} に {\
 app} の使用を許可しますか？","This time":"今回のみ",Always:"常に許可","Needs your confirmation":"確認が必要です","Help needed on the computer":"コンピュータでの手助\
 けが必要です","You control the computer":"あなたがコンピュータを操作中","{name} · foreground":"{name} · フォアグラウンド","{name} waits for the comput\
-er":"{name} があなたの操作完了を待っています","Bot models":"Bot モデル","Change several Bots":"複数の Bot をまとめて変更","{selected} of {total} select\
-ed":"{total} 件中 {selected} 件を選択","Bots on a local agent keep their own model.":"ローカル Agent で動く Bot は自分のモデルのままです。","Select all":"\
-すべて選択","Changing…":"変更中…","Selected Bots":"選択した Bot","{model} (not available)":"{model}（現在利用できません）",Changed:"変更済み","Alread\
-y on this model":"すでにこのモデルを使用中","Skipped: runs on a local agent":"スキップ: ローカル Agent で動作中","Skipped: not available now":"スキップ: 現在利用できま\
-せん","Could not change: {error}":"変更できませんでした: {error}","Changed {count} of {total} Bots.":"{total} 件中 {count} 件の Bot を変更しました。","Selec\
-t {name}":"{name} を選択","Change it in the Bot's settings.":"Bot の設定で変更してください。","Already on this model: {count}":"すでにこのモデル: {count} 件",
+er":"{name} があなたの操作完了を待っています","DeepSeek services":"DeepSeek サービス","DeepSeek API":"DeepSeek API","DeepSeek Web Search API":"DeepSeek ウェブ検索 AP\
+I","Find it in Plugins → Web search.":"プラグイン → ウェブ検索 にあります。","Image and document reading":"画像と文書の読み取り","Use DeepSeek to read\
+ images and documents":"DeepSeek で画像と文書を読み取る","Bots upload selected files to DeepSeek for text recognition; local Office editing is unchanged.":"選択したファイルはテキスト\
+認識のため DeepSeek にアップロードされます。ローカルの Office 編集は変わりません。","Text to speech":"テキスト読み上げ","Read replies aloud":"\
+返信を読み上げる",System:"システム",Voice:"音声","Speech recognition":"音声認識","Dictation provider":"音声入力プロバイダー","Use DeepSeek for dictation":"\
+音声入力に DeepSeek を使う","In use":"使用中","Not ready":"準備未完了","Couldn't read the reply":"返信を読み上げられませんでした","Couldn't reach the\
+ speech service":"音声認識サービスに接続できません","Bot models":"Bot モデル","Change several Bots":"複数の Bot をまとめて変更","{selected} of {total} \
+selected":"{total} 件中 {selected} 件を選択","Bots on a local agent keep their own model.":"ローカル Agent で動く Bot は自分のモデルのままです。","Select \
+all":"すべて選択","Changing…":"変更中…","Selected Bots":"選択した Bot","{model} (not available)":"{model}（現在利用できません）",Changed:"変更済み","\
+Already on this model":"すでにこのモデルを使用中","Skipped: runs on a local agent":"スキップ: ローカル Agent で動作中","Skipped: not available now":"スキップ: 現\
+在利用できません","Could not change: {error}":"変更できませんでした: {error}","Changed {count} of {total} Bots.":"{total} 件中 {count} 件の Bot を変更しました。",
+"Select {name}":"{name} を選択","Change it in the Bot's settings.":"Bot の設定で変更してください。","Already on this model: {count}":"すでにこのモデル: {count} 件",
 "Skipped: {count}":"スキップ: {count} 件","Failed: {count}":"失敗: {count} 件","{count} skipped":"{count} 件スキップ","No model picked yet":"モデル未選択",Running:"\
 実行中","Open this session":"このセッションを開く","Open this running session":"実行中のセッションを開く","A running session keeps using model calls in the\
  background.":"実行中のセッションはバックグラウンドでモデル呼び出しを続けます。","This session is still running. Wait for it to finish, or stop it.":"\
@@ -1145,26 +1164,42 @@ t so its cookies can be copied. It will reopen with your tabs.":"쿠키를 복�
 "Importing…":"가져오는 중…",Import:"가져오기","Imported {count} cookies":"쿠키 {count}개 가져옴","No cookies were stored":"저장된 쿠키 없음","Reload the p\
 age":"페이지 새로고침","Import failed":"가져오기 실패","That file is too large to be a cookie export.":"파일이 너무 커서 쿠키 내보내기 파일로 보이지 않습니다.",
 "That file could not be read.":"파일을 읽을 수 없습니다.","This browser encrypts its cookies so only it can read them. Export them to a file first, then import that file.":"\
-이 브라우저는 자체적으로만 읽을 수 있도록 쿠키를 암호화합니다. 먼저 쿠키를 파일로 내보낸 뒤 그 파일을 가져오세요.","{count}":"{count\
-}개","Choose a PNG, JPEG, WebP, or GIF image":"PNG, JPEG, WebP 또는 GIF 이미지를 선택하세요","Choose an image smaller than 25 MB":"25MB 미만의 이미지를 선택하세요",
-"That image is too large":"이미지가 너무 큽니다",Model:"모델","Avatar editor":"아바타 편집","Avatar source":"아바타 출처",Upload:"업로드","Reset character t\
-o default":"기본 캐릭터로 재설정",Reset:"기본값 복원","Character shape":"모양","Character color":"색상","Drag, drop, or paste an image":"이미지를 끌어다 놓거나 붙여넣으세요",
-Replace:"교체","Browse files":"파일 찾아보기","Remove photo":"사진 제거","Edit Bot avatar":"Bot 아바타 편집",Name:"이름",Instructions:"지침","What this Bot is \
-responsible for…":"이 Bot이 담당하는 역할…","Pick the model this Bot runs on.":"이 Bot이 사용할 모델을 선택하세요.","This model is not available now. Pick \
-another one.":"이 모델은 현재 사용할 수 없습니다. 다른 모델을 선택하세요.","Every message of this Bot runs on it.":"이 Bot의 모든 메시지에 이 모델이 사용됩니다.",
-"Applies from the next message.":"다음 메시지부터 적용됩니다.",Profile:"프로필",Label:"라벨","Add a label":"라벨 추가","Optional. Shown under the name.":"선택사항.\
- 이름 아래에 표시됩니다.","Research, admin…":"리서치, 관리…","What this Bot does":"이 Bot의 역할","Its job on the team. Part of the Bot's system prompt.":"팀에\
-서의 역할입니다. Bot의 시스템 프롬프트에 포함됩니다.","A copy with the same job and model, and fresh memory.":"동일한 역할과 모델을 가지며 메모리는 초기화된 사본을 만듭니다.",
-"Delete {name}?":"{name}을(를) 삭제하시겠습니까?","Delete Bot":"Bot 삭제","Click again to delete. Its chats are archived.":"삭제하려면 한 번 더 클릭하세요. 대화 내역은 보관됩니다.",
-"Removes the Bot from the team.":"이 Bot을 팀에서 제거합니다.","Pick a model and {name} can start.":"모델을 선택하면 {name}이(가) 작업을 시작할 수 있습니다.",
-Permissions:"권한","Read only":"읽기 전용",Workspace:"작업 공간 내 수정","Full access":"전체 권한","Same for every member":"모든 멤버에 동일 적용","Replac\
-es each member's own permissions in this group.":"이 그룹 내에서 각 멤버의 개별 권한을 대체합니다.","The only Main Bot. To hand the role to another Bot, use Mai\
-n Bot on the Bots page.":"유일한 메인 Bot입니다. 다른 Bot에게 역할을 넘기려면 Bot 페이지의 메인 Bot 설정을 이용하세요.",Change:"변경","Can create\
- and change Bots, and runs every group chat.":"Bot을 생성·수정하고 모든 그룹 채팅을 관리할 수 있습니다.",Sidebar:"사이드바","Kept above the other chats.":"\
-다른 대화 위에 고정됩니다.","Search still finds it.":"검색을 통해 계속 찾을 수 있습니다.",Manage:"관리",Library:"아바타 라이브러리","Import photo\
-s":"사진 가져오기","Importing photos…":"사진 가져오는 중…","No photos in the library yet.":"아바타 라이브러리가 비어 있습니다.","Use this photo":"이 \
-사진 사용","Remove photo from the library":"라이브러리에서 이 사진 제거","1 photo imported":"사진 1장 가져옴","{count} photos imported":"사진 {count}장 가져옴",
-"1 photo was already in the library":"사진 1장은 이미 라이브러리에 있습니다","{count} photos were already in the library":"사진 {count}장은 이미 라이브러리에 있습니다",
+이 브라우저는 자체적으로만 읽을 수 있도록 쿠키를 암호화합니다. 먼저 쿠키를 파일로 내보낸 뒤 그 파일을 가져오세요.","Keychain access \
+was cancelled. Click Allow when macOS asks to read your browser cookies.":"키체인 접근이 취소되었습니다. macOS가 브라우저 쿠키 읽기를 요청하면 허용을 클릭하세요.",
+"Remote debugging permission was declined in the browser. Try again and click Allow.":"브라우저에서 원격 디버깅 권한이 거부되었습니다. 다시 시도하고 허용을 클릭하세요.",
+"Timed out waiting for you to click Allow in the browser.":"브라우저에서 허용을 클릭하기를 기다리다 시간이 초과되었습니다.","Another browser profile is \
+active. Switch to the chosen profile window in your browser, then try again.":"다른 브라우저 프로필이 활성화되어 있습니다. 브라우저에서 선택한 프로필 창으로 전환한 뒤 다시 시도하세요.",
+"Import from browser":"브라우저에서 가져오기","Last used":"최근 사용","Browser profile":"브라우저 프로필","Paste cookies or cURL…":"쿠키 또는 cURL 붙여넣기…",
+"JSON, cURL, header":"JSON, cURL, 헤더","Connect to {name}":"{name}에 연결","{name} protects its cookies on Windows. Enable its built-in remote debugging switch once — no exte\
+nsion needed.":"{name}은(는) Windows에서 쿠키를 보호합니다. 내장 원격 디버깅 스위치를 한 번만 켜면 확장 프로그램 없이 가져올 수 있습니다.",
+"1. Open this address in {name}:":"1. {name}에서 다음 주소를 여세요:","2. Turn on “Allow remote debugging for this browser instance”, then click Allow when {name} prompts\
+.":"2. “Allow remote debugging for this browser instance”를 켜고, {name} 확인 창이 뜨면 허용을 클릭하세요.","Remote debugging detected — ready to import.":"원\
+격 디버깅이 감지되었습니다. 가져올 준비가 되었습니다.","Open {name}":"{name} 열기","Connect and import":"연결하고 가져오기","Paste cookies or cURL":"\
+쿠키 또는 cURL 붙여넣기","Paste Cookie-Editor JSON, Netscape cookies.txt, Copy as cURL, or a Cookie header…":"Cookie-Editor JSON, Netscape cookies.txt, Copy as cURL 또는 Co\
+okie 헤더를 붙여넣으세요…","Site URL (only needed for plain Cookie headers)":"사이트 URL(단순 Cookie 헤더에만 필요)","Reading…":"읽는 중…","{count} sto\
+rage entries":"스토리지 {count}개","All sites ({count})":"모든 사이트 ({count})","This site ({host})":"현재 사이트 ({host})","Filter sites…":"사이트 필터링…",
+storage:"스토리지","Keep session logins after app restart":"앱 재시작 후에도 세션 로그인 유지","Reading {name}…":"{name} 읽는 중…","If {name} or your syste\
+m asks for permission, click Allow.":"{name} 또는 시스템이 권한을 요청하면 허용을 클릭하세요.","Imported storage for {count} sites":"{count}개 사이트의 스토리지를 가져옴",
+"{count} sites storage":"{count}개 사이트 스토리지","page reloaded":"페이지 새로고침됨","{count}":"{count}개","Choose a PNG, JPEG, WebP, or GIF image":"PNG, JPEG, \
+WebP 또는 GIF 이미지를 선택하세요","Choose an image smaller than 25 MB":"25MB 미만의 이미지를 선택하세요","That image is too large":"이미지가 너무 큽니다",
+Model:"모델","Avatar editor":"아바타 편집","Avatar source":"아바타 출처",Upload:"업로드","Reset character to default":"기본 캐릭터로 재설정",Reset:"기본값 복원",
+"Character shape":"모양","Character color":"색상","Drag, drop, or paste an image":"이미지를 끌어다 놓거나 붙여넣으세요",Replace:"교체","Browse files":"파일 찾아보기",
+"Remove photo":"사진 제거","Edit Bot avatar":"Bot 아바타 편집",Name:"이름",Instructions:"지침","What this Bot is responsible for…":"이 Bot이 담당하는 역할…",
+"Pick the model this Bot runs on.":"이 Bot이 사용할 모델을 선택하세요.","This model is not available now. Pick another one.":"이 모델은 현재 사용할 수 없습니다. 다른 모델을 선택하세요.",
+"Every message of this Bot runs on it.":"이 Bot의 모든 메시지에 이 모델이 사용됩니다.","Applies from the next message.":"다음 메시지부터 적용됩니다.",Profile:"\
+프로필",Label:"라벨","Add a label":"라벨 추가","Optional. Shown under the name.":"선택사항. 이름 아래에 표시됩니다.","Research, admin…":"리서치, 관리…",
+"What this Bot does":"이 Bot의 역할","Its job on the team. Part of the Bot's system prompt.":"팀에서의 역할입니다. Bot의 시스템 프롬프트에 포함됩니다.","\
+A copy with the same job and model, and fresh memory.":"동일한 역할과 모델을 가지며 메모리는 초기화된 사본을 만듭니다.","Delete {name}?":"{name}을(를) 삭제하시\
+겠습니까?","Delete Bot":"Bot 삭제","Click again to delete. Its chats are archived.":"삭제하려면 한 번 더 클릭하세요. 대화 내역은 보관됩니다.","Removes \
+the Bot from the team.":"이 Bot을 팀에서 제거합니다.","Pick a model and {name} can start.":"모델을 선택하면 {name}이(가) 작업을 시작할 수 있습니다.",Permissions:"\
+권한","Read only":"읽기 전용",Workspace:"작업 공간 내 수정","Full access":"전체 권한","Same for every member":"모든 멤버에 동일 적용","Replaces each membe\
+r's own permissions in this group.":"이 그룹 내에서 각 멤버의 개별 권한을 대체합니다.","The only Main Bot. To hand the role to another Bot, use Main Bot on the \
+Bots page.":"유일한 메인 Bot입니다. 다른 Bot에게 역할을 넘기려면 Bot 페이지의 메인 Bot 설정을 이용하세요.",Change:"변경","Can create and change B\
+ots, and runs every group chat.":"Bot을 생성·수정하고 모든 그룹 채팅을 관리할 수 있습니다.",Sidebar:"사이드바","Kept above the other chats.":"다른 대화 위에 고정\
+됩니다.","Search still finds it.":"검색을 통해 계속 찾을 수 있습니다.",Manage:"관리",Library:"아바타 라이브러리","Import photos":"사진 가져오기","I\
+mporting photos…":"사진 가져오는 중…","No photos in the library yet.":"아바타 라이브러리가 비어 있습니다.","Use this photo":"이 사진 사용","Remove ph\
+oto from the library":"라이브러리에서 이 사진 제거","1 photo imported":"사진 1장 가져옴","{count} photos imported":"사진 {count}장 가져옴","1 photo was alre\
+ady in the library":"사진 1장은 이미 라이브러리에 있습니다","{count} photos were already in the library":"사진 {count}장은 이미 라이브러리에 있습니다",
 "{name}: {reason}":"{name}: {reason}",photo:"사진","Show more photos":"사진 더 보기","Showing {shown} of {total} photos":"사진 {total}장 중 {shown}장 표시 중","Leave\
  it empty to name the group after its members.":"비워 두면 멤버 이름으로 그룹 이름이 지정됩니다.","Every member reads it before speaking in this group.":"이 그룹에서\
  발언하기 전에 모든 멤버가 읽습니다.","Add a Bot first: a group chat needs at least two.":"먼저 Bot을 추가하세요. 그룹 채팅에는 최소 2개의 Bot이 필요합니다.",
@@ -1192,25 +1227,22 @@ her Bot to hand it the role; {name} then stops being a Main Bot.":"사이드바 
  create and change Bots, and run every group chat.":"메인 Bot은 Bot을 생성·수정하고 모든 그룹 채팅을 관리할 수 있습니다.","Group chats · {count}":"그룹 채팅 \
 · {count}","No group chats yet.":"아직 그룹 채팅이 없습니다.","A group chat lets several Bots work on one thing with you.":"그룹 채팅에서는 여러 Bot이 사용자와 함께 하나의 작업을 수행합니다.",
 "Back to group chats":"그룹 채팅 목록으로 돌아가기","DS Bot settings":"DS Bot 설정","Settings pages":"설정 페이지","Advanced settings":"고급 설정","Back to m\
-odels":"모델로 돌아가기","Open Plugins":"플러그인 열기","DeepSeek services":"DeepSeek 서비스","DeepSeek API":"DeepSeek API","DeepSeek Web Search API":"DeepSeek 웹 검색\
- API","Find it in Plugins → Web search.":"플러그인 → 웹 검색에서 찾을 수 있습니다.","Image and document reading":"이미지 및 문서 읽기","Use DeepSeek to \
-read images and documents":"DeepSeek로 이미지와 문서를 읽기","Bots upload selected files to DeepSeek for text recognition; local Office editing is unchanged.":"Bot이 선택한 파\
-일을 DeepSeek에 업로드해 문자 인식합니다. 로컬 Office 편집은 그대로입니다.","Not ready":"준비되지 않음","Open settings":"설정 열기","Open setting\
-s file":"설정 파일 열기","Could not open the settings file":"설정 파일을 열 수 없습니다","Show code work view":"코드 작업 뷰 표시","Could not save. Try agai\
-n.":"저장하지 못했습니다. 다시 시도하세요.","Connection lost. Refresh to retry":"연결이 끊어졌습니다. 새로고침하여 다시 시도하세요",Reconnecting:"\
-재연결 중","Connection lost. Reconnect now":"연결이 끊어졌습니다. 지금 재연결","Connection dropped and retrying. Reconnect now":"연결이 끊어져 재시도 중입니다. 지금 재연결",
-"Retry update":"업데이트 재시도","New version":"새 버전","{percent}%":"{percent}%","Verifying the update…":"업데이트 파일 확인 중…","Getting ready to restart\
-…":"재시작 준비 중…","Install and restart":"설치 및 재시작","{label}: {version}":"{label}: {version}","Downloading the update: {percent}%, version {version}":"업데이트 \
-다운로드 중: {percent}%, 버전 {version}","Could not check for updates. Try again later.":"업데이트를 확인하지 못했습니다. 나중에 다시 시도하세요.","C\
-ould not check for updates. Check your connection and try again.":"업데이트를 확인하지 못했습니다. 네트워크 연결을 확인한 후 다시 시도하세요.","Coul\
-d not download the update. Try again.":"업데이트를 다운로드하지 못했습니다. 다시 시도하세요.","Could not download the update. Check your connection and try a\
-gain.":"업데이트를 다운로드하지 못했습니다. 네트워크 연결을 확인한 후 다시 시도하세요.","Could not install the update. Try again later.":"업데이트를 설치\
-하지 못했습니다. 나중에 다시 시도하세요.","Could not install the update. Check your connection and try again.":"업데이트를 설치하지 못했습니다. 네트워크 연결을 확인한 후 다시 시도하세요.",
-"Tasks could not stop safely, so the update was not installed. Try again later.":"작업을 안전하게 중지할 수 없어 업데이트가 설치되지 않았습니다. 나중에 다시 시도하세요.",
-"New tasks started. Confirm again to stop them and update.":"새 작업이 시작되었습니다. 작업을 중지하고 업데이트하려면 다시 확인하세요.","Task status\
- is not available. Try again when the workspace is ready.":"작업 상태를 확인할 수 없습니다. 작업 공간이 준비되면 다시 시도하세요.","Could not leave ful\
-l screen. Leave full screen and try again.":"전체 화면을 종료할 수 없습니다. 전체 화면을 종료한 후 다시 시도하세요.","The service version changed":"서비스\
- 버전 변경됨","This page paused live updates. Reload to load the new version.":"서비스 버전이 변경되어 실시간 업데이트가 일시 중지되었습니다. 새 버전을 불러오려면 새로고침하세요.",
+odels":"모델로 돌아가기","Open Plugins":"플러그인 열기","Open settings":"설정 열기","Open settings file":"설정 파일 열기","Could not open the settings file":"\
+설정 파일을 열 수 없습니다","Show code work view":"코드 작업 뷰 표시","Could not save. Try again.":"저장하지 못했습니다. 다시 시도하세요.","Connec\
+tion lost. Refresh to retry":"연결이 끊어졌습니다. 새로고침하여 다시 시도하세요",Reconnecting:"재연결 중","Connection lost. Reconnect now":"연결이 끊어졌습니다. 지금\
+ 재연결","Connection dropped and retrying. Reconnect now":"연결이 끊어져 재시도 중입니다. 지금 재연결","Retry update":"업데이트 재시도","New version":"새\
+ 버전","{percent}%":"{percent}%","Verifying the update…":"업데이트 파일 확인 중…","Getting ready to restart…":"재시작 준비 중…","Install and restart":"설치 및\
+ 재시작","{label}: {version}":"{label}: {version}","Downloading the update: {percent}%, version {version}":"업데이트 다운로드 중: {percent}%, 버전 {version}","Could n\
+ot check for updates. Try again later.":"업데이트를 확인하지 못했습니다. 나중에 다시 시도하세요.","Could not check for updates. Check your connection and tr\
+y again.":"업데이트를 확인하지 못했습니다. 네트워크 연결을 확인한 후 다시 시도하세요.","Could not download the update. Try again.":"업데이트를 다운로드하지 못했습\
+니다. 다시 시도하세요.","Could not download the update. Check your connection and try again.":"업데이트를 다운로드하지 못했습니다. 네트워크 연결을 확인한 후 다시 시도하세요.",
+"Could not install the update. Try again later.":"업데이트를 설치하지 못했습니다. 나중에 다시 시도하세요.","Could not install the update. Check your connect\
+ion and try again.":"업데이트를 설치하지 못했습니다. 네트워크 연결을 확인한 후 다시 시도하세요.","Tasks could not stop safely, so the update was not\
+ installed. Try again later.":"작업을 안전하게 중지할 수 없어 업데이트가 설치되지 않았습니다. 나중에 다시 시도하세요.","New tasks started. Conf\
+irm again to stop them and update.":"새 작업이 시작되었습니다. 작업을 중지하고 업데이트하려면 다시 확인하세요.","Task status is not available. Try a\
+gain when the workspace is ready.":"작업 상태를 확인할 수 없습니다. 작업 공간이 준비되면 다시 시도하세요.","Could not leave full screen. Leave full scr\
+een and try again.":"전체 화면을 종료할 수 없습니다. 전체 화면을 종료한 후 다시 시도하세요.","The service version changed":"서비스 버전 변경됨",
+"This page paused live updates. Reload to load the new version.":"서비스 버전이 변경되어 실시간 업데이트가 일시 중지되었습니다. 새 버전을 불러오려면 새로고침하세요.",
 "Reload to load the new version":"새로고침하여 새 버전 불러오기","Not now":"나중에",Service:"서비스",Page:"페이지",Unknown:"알 수 없음","Back to Bots":"Bo\
 t 목록으로 돌아가기","Close settings":"설정 닫기",Unpin:"고정 해제",Pin:"고정",Pinned:"고정됨","Mark as Unread":"읽지 않음으로 표시","Mute notification\
 s":"알림 끄기","Unmute notifications":"알림 켜기",Notifications:"알림","Tell me when a Bot answers while I am looking elsewhere.":"다른 곳을 보고 있을 때 Bot이 답하면 알려 주세요.",
@@ -1553,8 +1585,14 @@ uter use":"설정 → 컴퓨터 제어에서 꺼져 있음",Idle:"유휴",Operat
 "Let it continue":"계속 진행하게 하기","Take over the computer":"직접 조작하기","Hand back":"제어권 넘기기","Recent steps":"최근 조작",failed:"실패","Allo\
 w {name} to use {app}?":"{name}이(가) {app}을(를) 사용하도록 허용하시겠습니까?","This time":"이번에만",Always:"항상 허용","Needs your confirmation":"사용자 확인\
  필요","Help needed on the computer":"컴퓨터에서 도움 필요","You control the computer":"사용자가 컴퓨터를 제어 중입니다","{name} · foreground":"{name} · 포\
-그라운드","{name} waits for the computer":"{name}이(가) 사용자 조작을 기다리는 중","Bot models":"Bot 모델","Change several Bots":"여러 Bot 모델 한 번에 변경",
-"{selected} of {total} selected":"{total}개 중 {selected}개 선택됨","Bots on a local agent keep their own model.":"로컬 에이전트에서 실행되는 Bot은 자체 모델을 유지합니다.",
+그라운드","{name} waits for the computer":"{name}이(가) 사용자 조작을 기다리는 중","DeepSeek services":"DeepSeek 서비스","DeepSeek API":"DeepSeek API","DeepSeek\
+ Web Search API":"DeepSeek 웹 검색 API","Find it in Plugins → Web search.":"플러그인 → 웹 검색에서 찾을 수 있습니다.","Image and document reading":"이미지 및 문서 \
+읽기","Use DeepSeek to read images and documents":"DeepSeek으로 이미지와 문서 읽기","Bots upload selected files to DeepSeek for text recognition; local Office editing i\
+s unchanged.":"선택한 파일은 텍스트 인식을 위해 DeepSeek에 업로드됩니다. 로컬 Office 편집은 그대로입니다.","Text to speech":"텍스트 음성 변환",
+"Read replies aloud":"답변 소리 내어 읽기",System:"시스템",Voice:"음성","Speech recognition":"음성 인식","Dictation provider":"받아쓰기 제공자","Use DeepSee\
+k for dictation":"받아쓰기에 DeepSeek 사용","In use":"사용 중","Not ready":"준비되지 않음","Couldn't read the reply":"답변을 읽지 못했습니다","Couldn't re\
+ach the speech service":"음성 인식 서비스에 연결할 수 없습니다","Bot models":"Bot 모델","Change several Bots":"여러 Bot 모델 한 번에 변경","{selected} of\
+ {total} selected":"{total}개 중 {selected}개 선택됨","Bots on a local agent keep their own model.":"로컬 에이전트에서 실행되는 Bot은 자체 모델을 유지합니다.",
 "Select all":"모두 선택","Changing…":"변경 중…","Selected Bots":"선택한 Bot","{model} (not available)":"{model}(사용할 수 없음)",Changed:"변경됨","Already on\
  this model":"이미 이 모델 사용 중","Skipped: runs on a local agent":"건너뜀: 로컬 에이전트에서 실행 중","Skipped: not available now":"건너뜀: 현재 사용할 수 없음",
 "Could not change: {error}":"변경하지 못했습니다: {error}","Changed {count} of {total} Bots.":"Bot {total}개 중 {count}개를 변경했습니다.","Select {name}":"{name\
@@ -2036,425 +2074,442 @@ lso keep sign-in outside cookies; you may need to sign in again there.":"Algunos
 esión allí.","Importing…":"Importando…",Import:"Importar","Imported {count} cookies":"{count} cookies importadas","No cookies were stored":"No se guardó ninguna cookie","Rel\
 oad the page":"Recargar la página","Import failed":"Error al importar","That file is too large to be a cookie export.":"Ese archivo es demasiado grande para ser una exportación de\
  cookies.","That file could not be read.":"No se pudo leer ese archivo.","This browser encrypts its cookies so only it can read them. Export them to a file first, then import that \
-file.":"Este navegador cifra sus cookies para que solo él pueda leerlas. Expórtalas primero a un archivo y luego importa ese archivo.","{count}":"{count}","Choose a PNG, JPEG, We\
-bP, or GIF image":"Elige una imagen PNG, JPEG, WebP o GIF","Choose an image smaller than 25 MB":"Elige una imagen de menos de 25 MB","That image is too large":"Esa imagen es demasi\
-ado grande",Model:"Modelo","Avatar editor":"Editor de avatar","Avatar source":"Origen del avatar",Upload:"Subir","Reset character to default":"Restablecer personaje predeterminado",
-Reset:"Restablecer","Character shape":"Forma del personaje","Character color":"Color del personaje","Drag, drop, or paste an image":"Arrastra, suelta o pega una imagen",Replace:"Re\
-emplazar","Browse files":"Explorar archivos","Remove photo":"Quitar foto","Edit Bot avatar":"Editar avatar del Bot",Name:"Nombre",Instructions:"Instrucciones","What this Bot is res\
-ponsible for…":"De qué se encarga este Bot…","Pick the model this Bot runs on.":"Elige el modelo con el que funciona este Bot.","This model is not available now. Pick another \
-one.":"Este modelo no está disponible ahora. Elige otro.","Every message of this Bot runs on it.":"Cada mensaje de este Bot se ejecuta con él.","Applies from the next message.":"\
-Se aplica a partir del siguiente mensaje.",Profile:"Perfil",Label:"Etiqueta","Add a label":"Añadir etiqueta","Optional. Shown under the name.":"Opcional. Se muestra debajo del nom\
-bre.","Research, admin…":"Investigación, administración…","What this Bot does":"Qué hace este Bot","Its job on the team. Part of the Bot's system prompt.":"Su función en el \
-equipo. Forma parte del prompt de sistema del Bot.","A copy with the same job and model, and fresh memory.":"Una copia con la misma función y modelo, y la memoria limpia.","Delete\
- {name}?":"¿Eliminar a {name}?","Delete Bot":"Eliminar Bot","Click again to delete. Its chats are archived.":"Haz clic de nuevo para eliminar. Sus chats se archivarán.","Removes \
-the Bot from the team.":"Elimina al Bot del equipo.","Pick a model and {name} can start.":"Elige un modelo y {name} podrá empezar.",Permissions:"Permisos","Read only":"Solo lectur\
-a",Workspace:"Espacio de trabajo","Full access":"Acceso total","Same for every member":"Igual para todos los miembros","Replaces each member's own permissions in this group.":"Reem\
-plaza los permisos propios de cada miembro en este grupo.","The only Main Bot. To hand the role to another Bot, use Main Bot on the Bots page.":"Es el único Bot principal. Para ced\
-er el rol a otro Bot, usa Bot principal en la página de Bots.",Change:"Cambiar","Can create and change Bots, and runs every group chat.":"Puede crear y modificar Bots, y gestiona \
-todos los chats grupales.",Sidebar:"Barra lateral","Kept above the other chats.":"Se mantiene por encima de los demás chats.","Search still finds it.":"Aún aparece en la búsqueda.",
-Manage:"Gestionar",Library:"Biblioteca","Import photos":"Importar fotos","Importing photos…":"Importando fotos…","No photos in the library yet.":"Aún no hay fotos en la bibliot\
-eca.","Use this photo":"Usar esta foto","Remove photo from the library":"Quitar foto de la biblioteca","1 photo imported":"1 foto importada","{count} photos imported":"{count} foto\
-s importadas","1 photo was already in the library":"1 foto ya estaba en la biblioteca","{count} photos were already in the library":"{count} fotos ya estaban en la biblioteca","{na\
-me}: {reason}":"{name}: {reason}",photo:"foto","Show more photos":"Mostrar más fotos","Showing {shown} of {total} photos":"Mostrando {shown} de {total} fotos","Leave it empty to n\
-ame the group after its members.":"Déjalo vacío para nombrar el grupo según sus miembros.","Every member reads it before speaking in this group.":"Cada miembro lo lee antes de h\
-ablar en este grupo.","Add a Bot first: a group chat needs at least two.":"Añade primero un Bot: un chat grupal necesita al menos dos.","Click again to delete. Its history is arch\
-ived.":"Haz clic de nuevo para eliminar. Su historial se archivará.","Removes the group chat. Its members stay on the team.":"Elimina el chat grupal. Sus miembros permanecen en el\
- equipo.","Add a notice in group settings":"Añadir un aviso en los ajustes del grupo","Create Bot":"Crear Bot","Back to new chat":"Volver a nuevo chat",Look:"Apariencia",Shuffle:"\
-Aleatorio","Replace photo":"Reemplazar foto","Upload photo":"Subir foto","A Bot named {name} already exists":"Ya existe un Bot llamado {name}","The Bot runs on this model. You can \
-change it later in its details.":"El Bot se ejecuta con este modelo. Puedes cambiarlo más tarde en sus detalles.","Pick a model here, or the Bot asks for one in its chat.":"Elige \
-un modelo aquí o el Bot te pedirá uno en su chat.","Add a provider and a model in DeepSeek Harness first, or pick one in the Bot's chat later.":"Añade primero un proveedor y un m\
-odelo en DeepSeek Harness, o elige uno más tarde en el chat del Bot.","Creating…":"Creando…",Create:"Crear",Default:"Predeterminado","Thinking level":"Nivel de razonamiento","\
-Model: {model}":"Modelo: {model}",none:"ninguno","Choose a model":"Elegir un modelo","{provider} · not available":"{provider} · no disponible","Model for {name}":"Modelo para {na\
-me}","No models are set up in DeepSeek Harness yet.":"Aún no hay modelos configurados en DeepSeek Harness.","Models and providers…":"Modelos y proveedores…","Search models":"B\
-uscar modelos","Search models…":"Buscar modelos…","No matching models.":"No hay modelos coincidentes.",Models:"Modelos","Harness default":"Predeterminado de Harness",Saving:"Gu\
-ardando","Manage models":"Gestionar modelos",Whale:"Ballena",Star:"Estrella",Moon:"Luna",Wave:"Onda",Squircle:"Cuadrículo",Bull:"Toro",Blossom:"Flor",Gumdrop:"Gominola",Peanut:"Ca\
-cahuete",Bubbles:"Burbujas",Saucer:"Platillo",Sprout:"Brote",Bunny:"Conejo",Kitty:"Gatito",Beacon:"Faro",Plus:"Más",Magnet:"Imán",Acorn:"Bellota",Pebbles:"Guijarros",Cushion:"Coj\
-ín",Ring:"Anillo",Gem:"Gema",Black:"Negro",Brown:"Marrón",Red:"Rojo",Orange:"Naranja",Yellow:"Amarillo",Green:"Verde",Cyan:"Cian",Blue:"Azul",Violet:"Violeta",Magenta:"Magenta",Gray:"\
-Gris",Aurora:"Aurora",Deepseek:"Azul DeepSeek",Charcoal:"Carbón",Graphite:"Grafito",Rose:"Rosa",Sky:"Cielo",Tangerine:"Mandarina",Cobalt:"Cobalto",DeepSeek:"DeepSeek",Mono:"Mono",
-Paper:"Papel",Moonlight:"Luz de luna",General:"General",Bots:"Bots","Group chats":"Chats grupales",Secrets:"Secretos",Appearance:"Apariencia",Theme:"Tema","Colors for the whole tea\
-m, on every device.":"Colores para todo el equipo, en todos los dispositivos.",Accent:"Color de acento","Unread marks, badges, and the brand mark.":"Marcas de no leído, insignias y\
- el logotipo.","Theme accent":"Acento del tema","Custom accent":"Acento personalizado","Message layout":"Diseño de mensajes",Bubble:"Burbuja",Flat:"Plano","Bubble width":"Ancho de\
- burbuja","Text width":"Ancho de texto","Show thinking":"Mostrar razonamiento","Enter sends message":"Enter envía el mensaje","Bring up related memory":"Traer memoria relacionada",
-"Group memory size":"Tamaño de memoria del grupo","Bot memory size":"Tamaño de memoria del Bot","Team memory size":"Tamaño de memoria del equipo","Bots · {count}":"Bots · {coun\
-t}","First in the sidebar. Pick another Bot to hand it the role; {name} then stops being a Main Bot.":"Primero en la barra lateral. Elige otro Bot para cederle el rol; {name} dejar\
-á entonces de ser Bot principal.","Choose a Bot…":"Elegir un Bot…","Also a Main Bot.":"También es un Bot principal.","Move to first":"Mover al principio","Add a Main Bot":"Añ\
-adir un Bot principal","Main Bots can create and change Bots, and run every group chat.":"Los Bots principales pueden crear y modificar Bots, y gestionar todos los chats grupales.",
-"Group chats · {count}":"Chats grupales · {count}","No group chats yet.":"Aún no hay chats grupales.","A group chat lets several Bots work on one thing with you.":"Un chat grupa\
-l permite que varios Bots trabajen contigo en un mismo asunto.","Back to group chats":"Volver a chats grupales","DS Bot settings":"Ajustes de DS Bot","Settings pages":"Páginas de a\
-justes","Advanced settings":"Ajustes avanzados","Back to models":"Volver a modelos","Open Plugins":"Abrir Plugins","DeepSeek services":"Servicios DeepSeek","DeepSeek API":"API de D\
-eepSeek","DeepSeek Web Search API":"API de búsqueda web de DeepSeek","Find it in Plugins → Web search.":"Está en Plugins → Búsqueda web.","Image and document reading":"Lectu\
-ra de imágenes y documentos","Use DeepSeek to read images and documents":"Usar DeepSeek para leer imágenes y documentos","Bots upload selected files to DeepSeek for text recognit\
-ion; local Office editing is unchanged.":"Los Bots suben los archivos seleccionados a DeepSeek para reconocer el texto; la edición local de Office no cambia.","Not ready":"No list\
-o","Open settings":"Abrir ajustes","Open settings file":"Abrir archivo de ajustes","Could not open the settings file":"No se pudo abrir el archivo de ajustes","Show code work view":"\
-Mostrar vista de trabajo de código","Could not save. Try again.":"No se pudo guardar. Inténtalo de nuevo.","Connection lost. Refresh to retry":"Conexión perdida. Recarga para rei\
-ntentar",Reconnecting:"Reconectando","Connection lost. Reconnect now":"Conexión perdida. Reconectar ahora","Connection dropped and retrying. Reconnect now":"Conexión interrumpida,\
- reintentando. Reconectar ahora","Retry update":"Reintentar actualización","New version":"Nueva versión","{percent}%":"{percent}%","Verifying the update…":"Verificando la actua\
-lización…","Getting ready to restart…":"Preparando para reiniciar…","Install and restart":"Instalar y reiniciar","{label}: {version}":"{label}: {version}","Downloading the u\
-pdate: {percent}%, version {version}":"Descargando la actualización: {percent}%, versión {version}","Could not check for updates. Try again later.":"No se pudo buscar actualizaci\
-ones. Inténtalo más tarde.","Could not check for updates. Check your connection and try again.":"No se pudo buscar actualizaciones. Comprueba tu conexión e inténtalo de nuevo.",
-"Could not download the update. Try again.":"No se pudo descargar la actualización. Inténtalo de nuevo.","Could not download the update. Check your connection and try again.":"No\
- se pudo descargar la actualización. Comprueba tu conexión e inténtalo de nuevo.","Could not install the update. Try again later.":"No se pudo instalar la actualización. Inténta\
-lo más tarde.","Could not install the update. Check your connection and try again.":"No se pudo instalar la actualización. Comprueba tu conexión e inténtalo de nuevo.","Tasks c\
-ould not stop safely, so the update was not installed. Try again later.":"Las tareas no pudieron detenerse de forma segura, por lo que no se instaló la actualización. Inténtalo más\
- tarde.","New tasks started. Confirm again to stop them and update.":"Se iniciaron nuevas tareas. Confirma de nuevo para detenerlas y actualizar.","Task status is not available. Tr\
-y again when the workspace is ready.":"El estado de las tareas no está disponible. Inténtalo de nuevo cuando el espacio de trabajo esté listo.","Could not leave full screen. Lea\
-ve full screen and try again.":"No se pudo salir de pantalla completa. Sal de pantalla completa e inténtalo de nuevo.","The service version changed":"La versión del servicio cambi\
-ó","This page paused live updates. Reload to load the new version.":"Esta página pausó las actualizaciones en vivo. Recarga para cargar la nueva versión.","Reload to load the n\
-ew version":"Recargar para cargar la nueva versión","Not now":"Ahora no",Service:"Servicio",Page:"Página",Unknown:"Desconocido","Back to Bots":"Volver a Bots","Close settings":"C\
-errar ajustes",Unpin:"Desfijar",Pin:"Fijar",Pinned:"Fijado","Mark as Unread":"Marcar como no leído","Mute notifications":"Silenciar notificaciones","Unmute notifications":"Reactiv\
-ar notificaciones",Notifications:"Notificaciones","Tell me when a Bot answers while I am looking elsewhere.":"Avísame cuando un Bot responda mientras miro otra cosa.","System noti\
-fications are turned off for DS Bot. Unread marks still show them.":"Las notificaciones del sistema están desactivadas para DS Bot. Las marcas de no leído siguen apareciendo.","R\
-ename Bot":"Renombrar Bot","Group settings":"Ajustes del grupo","Shared to-do":"Tareas compartidas","{count} open":"{count} pendientes","No shared to-dos yet. Ask a Bot in this gro\
-up to add one.":"Aún no hay tareas compartidas. Pide a un Bot de este grupo que añada una.","Clear completed":"Borrar completadas","Rename group":"Renombrar grupo","Copy conversa\
-tion ID":"Copiar ID de conversación","Hide from sidebar":"Ocultar de la barra lateral","{name} actions":"Acciones de {name}","Add DSH Agent":"Añadir DSH Agent","Remove DSH Agent":"\
-Quitar DSH Agent","New session":"Nueva sesión",Archive:"Archivar","Session actions":"Acciones de sesión",Plugins:"Complementos","Plain dsh session":"Sesión nativa de dsh","just \
-now":"ahora mismo","{n} min":"{n} min","{n} h":"{n} h","{n} d":"{n} d","DS Bot {version} is available":"DS Bot {version} está disponible","Updating DS Bot…":"Actualizando DS Bot\
-…","DS Bot {version} is installed. Restart DSH to use it.":"DS Bot {version} está instalado. Reinicia DSH para usarlo.","DS Bot {version} is installed.":"DS Bot {version} está i\
-nstalado.","DS Bot update":"Actualización de DS Bot","DS Bot {version}":"DS Bot {version}","Update installed":"Actualización instalada","Restart DSH to start using DS Bot {versio\
-n}.":"Reinicia DSH para empezar a usar DS Bot {version}.","You have {version}.":"Tienes la versión {version}.","The update did not finish: {reason}":"La actualización no terminó: \
-{reason}","What's new":"Novedades","Updating…":"Actualizando…","DSH {version} is available":"DSH {version} está disponible","Updating DSH…":"Actualizando DSH…","DSH update":"\
-Actualización de DSH","DSH {version}":"DSH {version}","Restart DSH to start using DSH {version}.":"Reinicia DSH para empezar a usar DSH {version}.","Update DS Bot {version} first.":"\
-Actualiza primero DS Bot {version}.","Open updates":"Abrir actualizaciones",Messages:"Mensajes",Commands:"Comandos","Search Bots, chats and messages":"Buscar Bots, chats y mensajes",
-"Search this group":"Buscar en este grupo","Search this group’s messages":"Buscar en los mensajes de este grupo","Search messages in {name}":"Buscar mensajes en {name}","Type at \
-least two characters":"Escribe al menos dos caracteres","No messages found":"No se encontraron mensajes","Try a different word":"Prueba con otra palabra","Searching…":"Buscando…",
-"Back to results":"Volver a los resultados","Around this message":"Alrededor de este mensaje","1 match":"1 coincidencia","{count} matches":"{count} coincidencias","Clear search":"B\
-orrar búsqueda",Results:"Resultados","No results":"Sin resultados","Try a Bot name or words from a message":"Prueba con el nombre de un Bot o palabras de un mensaje","Bot exchange":"\
-Conversación entre Bots","Bot exchange transcript":"Registro de conversación entre Bots","No messages yet":"Aún no hay mensajes","Close Chat":"Cerrar chat","Show all · {count} c\
-haracters":"Mostrar todo · {count} caracteres","Showing the first {count} characters":"Mostrando los primeros {count} caracteres","Only the start of this message is kept here":"Aq\
-uí solo se conserva el principio de este mensaje","Start of reply":"Inicio de la respuesta","Back to the start of this reply":"Volver al inicio de esta respuesta",Contents:"Conten\
-ido","Sections in this reply":"Secciones de esta respuesta","Sections in this reply: {section}":"Secciones de esta respuesta: {section}","Today {time}":"Hoy {time}","Yesterday {tim\
-e}":"Ayer {time}","Ran for {duration}":"Duración: {duration}","No background work detected":"No se detectó trabajo en segundo plano","DS Bot has no recorded tool call or active b\
-ackground task for this reply.":"DS Bot no ha registrado llamadas a herramientas ni tareas activas en segundo plano para esta respuesta.","File not found: {path}":"No se encuentra \
-el archivo: {path}","{tokens} tok · Cache hit {hit}%":"{tokens} tok · Acierto de caché {hit}%","1 turn":"1 turno","{count} turns":"{count} turnos","{speed} tok/s":"{speed} tok/s",
-"Cache hit {hit}%":"Acierto de caché {hit}%","Context {percent}%":"Contexto {percent}%","{used} of {total} tokens of context in use":"{used} de {total} tokens de contexto en uso",
-Annotate:"Anotar","Annotate quote":"Anotar cita",Annotation:"Anotación","Add an annotation…":"Añade una anotación…","Add quote and annotation to the composer · Enter":"Añad\
-ir la cita y la anotación al campo · Intro","Send quote and annotation · Ctrl+Enter":"Enviar la cita y la anotación · Ctrl+Intro",Footnotes:"Notas al pie","Remove reaction {em\
-oji}":"Quitar reacción {emoji}","Add reaction":"Añadir reacción",Reply:"Responder","More message actions":"Más acciones del mensaje",More:"Más",Reactions:"Reacciones","Message\
- actions":"Acciones del mensaje",Download:"Descargar","Thought it through":"Razonamiento","Earlier messages":"Mensajes anteriores","Loading earlier messages…":"Cargando mensajes \
-anteriores…","Couldn’t load earlier messages · Retry":"No se pudieron cargar los mensajes anteriores · Reintentar","Load earlier":"Cargar anteriores","1 image":"1 imagen","{c\
-ount} images":"{count} imágenes","Replies from":"Respuestas de","Reply from":"Respuesta de","Message from":"Mensaje de","Stopped by":"Detenido por","{count} messages with":"{count\
-} mensajes con","Routine started":"Rutina iniciada",Update:"Actualizar","Thinking about it":"Pensándolo","Weighing the options":"Valorando opciones","Working out a plan":"Elaboran\
-do un plan","Sorting out the details":"Afinando los detalles","On it":"En ello","Busy with it":"Ocupado en ello","Moving ahead":"Avanzando","Taking care of it":"Encargándose de ell\
-o","Making headway":"Progresando","Moving to a fresh conversation":"Pasando a una nueva conversación","Switching working folder":"Cambiando de carpeta de trabajo","Searching onlin\
-e":"Buscando en línea","Reading a page":"Leyendo una página","Running shell commands":"Ejecutando comandos de terminal","Opening a file":"Abriendo un archivo","Looking through fi\
-les":"Buscando en archivos","Writing changes":"Escribiendo cambios","Working on an image":"Procesando una imagen","Creating a group":"Creando un grupo","Updating the group":"Actual\
-izando el grupo","Deleting the group":"Eliminando el grupo","Posting in the group":"Publicando en el grupo","Checking the keys":"Consultando las claves","Asking {name}":"Preguntand\
-o a {name}","Asking another Bot":"Preguntando a otro Bot","Stopping {name}":"Deteniendo a {name}","Stopping another Bot":"Deteniendo a otro Bot","Creating {name}":"Creando a {name}",
-"Updating {name}":"Actualizando a {name}","Checking the team":"Consultando el equipo","Reading {name}":"Leyendo a {name}","Looking back through the chat":"Revisando el historial de\
-l chat","{name} looked up its own chat":"{name} revisó su propio chat","{name} looked up its own chat for “{text}”":"{name} buscó “{text}” en su propio chat","{name} is t\
-yping…":"{name} está escribiendo…","{name} didn't answer in time":"{name} no respondió a tiempo","{name} did not answer or call anyone; call a member with @Name":"{name} no r\
-espondió ni mencionó a nadie; menciona a un miembro con @Nombre","The group replies could not be shown":"No se pudieron mostrar las respuestas del grupo","Paused after {count} Bo\
-t relays. Waiting: {names}":"En pausa tras {count} relevos entre Bots. En espera: {names}","{names} went back and forth {count} times without progress and paused. Write here to go \
-on":"{names} intercambiaron mensajes {count} veces sin avanzar y se pausaron. Escribe aquí para continuar","{name} paused for your approval":"{name} se pausó esperando tu aprobaci\
-ón","{name} started on it":"{name} se puso manos a la obra","You stopped {name}'s work":"Detuviste el trabajo de {name}","{name} finished its work":"{name} terminó su trabajo","{\
-name} was cut off by a restart and picked its work back up":"{name} se interrumpió por un reinicio y retomó su trabajo","{name} was cut off by a restart again and stopped":"{name\
-} volvió a interrumpirse por un reinicio y se detuvo","Picked up its work after a restart":"Retomó su trabajo tras un reinicio","Profile updated":"Perfil actualizado","Asked to m\
-ake the tool call it wrote as text":"Se le pidió ejecutar la llamada a herramienta que escribió como texto","Went on after the failed turn":"Continuó tras el turno fallido","A B\
-ot":"Un Bot","{name} is waiting for your approval":"{name} espera tu aprobación","{first} and {second} are waiting for your approval":"{first} y {second} esperan tu aprobación","\
-{first}, {second} and {count} more are waiting for your approval":"{first}, {second} y {count} más esperan tu aprobación","Waiting for your approval":"Esperando tu aprobación","\
-in its own chat":"en su propio chat","Stop all work in this group":"Detener todo el trabajo en este grupo","Stop all":"Detener todo",Goal:"Objetivo","Set a goal":"Fijar un objetivo",
-"This group has no admin":"Este grupo no tiene administrador","What should this group achieve?":"¿Qué debe lograr este grupo?",Start:"Iniciar",Resume:"Reanudar","Stop the goal?":"\
-¿Detener el objetivo?","Aligning the goal with you":"Alineando el objetivo contigo","{admin} asks what is still open, then writes the goal with its checks and stages.":"{admin} pr\
-egunta qué queda por definir y luego redacta el objetivo con sus verificaciones y etapas.",Objective:"Objetivo","Done when":"Criterio de finalización",Rules:"Reglas","Final check":"\
-Verificación final","Waiting for you":"Esperándote","Goal reached":"Objetivo alcanzado",Stages:"Etapas","Stage {n}: {title}":"Etapa {n}: {title}","Paused · {title}":"En pausa · \
-{title}","Waiting for you · {title}":"Esperándote · {title}","Checking · {title}":"Verificando · {title}","Sent back by {admin}: {feedback}":"Devuelto por {admin}: {feedback}",
-"Sent back {n} times by {admin}. Last time: {feedback}":"Devuelto {n} veces por {admin}. Última vez: {feedback}","Done when: {text}":"Completado cuando: {text}","Evidence: {text}":"\
-Evidencia: {text}","Back to current stage":"Volver a la etapa actual","Goal and checks":"Objetivo y verificaciones",Summary:"Resumen",Evidence:"Evidencia","Stop current work too":"\
-Detener también el trabajo actual","Setting a goal":"Fijando un objetivo","Goal set: {title} · {count} stages":"Objetivo fijado: {title} · {count} etapas","Stage {n} passed · no\
-w stage {m}: {next}":"Etapa {n} superada · ahora etapa {m}: {next}","All {count} stages passed":"Las {count} etapas superadas","Stage {n} sent back for rework":"Etapa {n} devuelta\
- para corrección","Goal updated":"Objetivo actualizado","Goal paused":"Objetivo en pausa","Goal resumed":"Objetivo reanudado","Goal reached: {title}":"Objetivo alcanzado: {title}",
-"Goal stopped":"Objetivo detenido",Reject:"Rechazar","Allow once":"Permitir una vez","Couldn't message {name}":"No se pudo enviar mensaje a {name}",Messaged:"Mensaje enviado a","Co\
-uldn't stop {name}":"No se pudo detener a {name}",Stopped:"Detenido",Created:"Creado",Updated:"Actualizado","Created group":"Grupo creado","Couldn't create the group":"No se pudo c\
-rear el grupo","Updated group":"Grupo actualizado","Couldn't update the group":"No se pudo actualizar el grupo","Deleted group":"Grupo eliminado","Couldn't delete the group":"No se\
- pudo eliminar el grupo","Posted in":"Publicado en","Couldn't post in the group":"No se pudo publicar en el grupo",Read:"Leído","Your own answer":"Tu propia respuesta","Type your \
-own answer":"Escribe tu propia respuesta",Selected:"Seleccionado",Skip:"Omitir",Submit:"Enviar","Choose all that apply":"Selecciona todas las que correspondan","Dismiss question":"\
-Descartar pregunta",Dismiss:"Descartar",Dismissed:"Descartado","Answered by message":"Respondido por mensaje","Your answer":"Tu respuesta",View:"Vista",Confirm:"Confirmar",Progress:"\
-Progreso","Dismiss view":"Cerrar vista",Sources:"Fuentes",Chart:"Gráfico","Chart {n}":"Gráfico {n}",Series:"Serie","Chart options":"Opciones de gráfico","View as table":"Ver com\
-o tabla","View as chart":"Ver como gráfico","Copy data":"Copiar datos","Download image":"Descargar imagen","This view tried to open a page and was stopped.":"Esta vista intentó ab\
-rir una página y fue bloqueada.","Send to Bot":"Enviar al Bot","All Bots":"Todos los Bots","No Bot":"Ningún Bot","Paste or type the key":"Pega o escribe la clave","Only {name}":"\
-Solo {name}","Who may use it":"Quién puede usarla","Cancel the request":"Cancelar la solicitud","This page is not on HTTPS: the key crosses the network unencrypted.":"Esta página \
-no usa HTTPS: la clave viaja por la red sin cifrar.","Let {bot} use {name}?":"¿Permitir que {bot} use {name}?","{name} needs a key":"{name} necesita una clave","Saved for {scope}":"\
-Guardado para {scope}","Value of {name}":"Valor de {name}","{bot} never sees the value. It reaches {bot}'s shell as ":"{bot} nunca ve el valor. Llega al terminal de {bot} como "," \
-At least {count} characters.":" Al menos {count} caracteres.","At least {count} characters.":"Al menos {count} caracteres.","Replace value":"Reemplazar valor","Saving…":"Guardand\
-o…","Could not save this file":"No se pudo guardar este archivo",Save:"Guardar","Allowing…":"Permitiendo…",Allow:"Permitir","{bot} asked for {name}":"{bot} solicitó {name}",
-"Allowed {bot} to use {name}":"Se permitió a {bot} usar {name}","Saved {name}":"Se guardó {name}",Canceled:"Cancelado",Done:"Listo","{bot} is using {name}":"{bot} está usando {na\
-me}","{bot} could not ask for a key: this window can only view the team":"{bot} no pudo solicitar una clave: esta ventana solo puede ver el equipo","a saved key":"una clave guardad\
-a","Chosen Bots":"Bots elegidos","Who may use {name}":"Quién puede usar {name}","Save access":"Guardar acceso","Replace the value":"Reemplazar el valor","New value of {name}":"Nue\
-vo valor de {name}","Replaced. Bots get the new value from their next command.":"Reemplazado. Los Bots recibirán el nuevo valor a partir de su siguiente comando.","a deleted Bot":"\
-un Bot eliminado","Asked by {name}":"Solicitado por {name}","added {time}":"añadido {time}","last used {time}":"último uso {time}","not used yet":"aún sin usar","Delete {name}? \
-Bots lose it at once.":"¿Eliminar {name}? Los Bots dejarán de tener acceso de inmediato.",Keep:"Conservar","Key name":"Nombre de la clave","NAME, e.g. GITHUB_TOKEN":"NOMBRE, p. e\
-j., GITHUB_TOKEN","What it is for":"Para qué sirve",Value:"Valor","New keys are for all Bots; narrow it down afterwards.":"Las claves nuevas son para todos los Bots; puedes restri\
-ngir el acceso después.","Save key":"Guardar clave","Keys your Bots asked for. Bots never see the values: they use them as ":"Claves solicitadas por tus Bots. Los Bots nunca ven l\
-os valores: los usan como "," in their shell, and every value is replaced by ":" en su terminal, y cada valor se reemplaza por "," before anything goes to a model.":" antes de envi\
-arse a cualquier modelo.","Secrets · {count}":"Secretos · {count}","Encryption at rest":"Cifrado en reposo","Keys are stored in a file only this user can read, but the values are\
- not encrypted.":"Las claves se guardan en un archivo que solo este usuario puede leer, pero los valores no están cifrados.","Encrypt keys at rest":"Cifrar las claves","Passphrase\
- (at least 8 characters)":"Frase de contraseña (mínimo 8 caracteres)","Repeat the passphrase":"Repite la frase de contraseña","The passphrases do not match.":"Las frases de cont\
-raseña no coinciden.","Turn on encryption":"Activar el cifrado","Keys are stored encrypted. They stay decrypted in memory while DS Bot runs.":"Las claves se guardan cifradas. Solo\
- se descifran en memoria mientras DS Bot se ejecuta.","Turn off encryption":"Desactivar el cifrado","Secrets are locked":"Los secretos están bloqueados",Passphrase:"Frase de contr\
-aseña",Unlock:"Desbloquear","The passphrase file named by DS_BOT_SECRETS_PASSPHRASE_FILE could not be read.":"No se pudo leer el archivo de frase de contraseña indicado por DS_BOT\
-_SECRETS_PASSPHRASE_FILE.","The passphrase in the environment or the passphrase file did not unlock the secrets.":"La frase de contraseña del entorno o del archivo no desbloqueó lo\
-s secretos.","No passphrase was found at startup. Enter it here, or set DS_BOT_SECRETS_PASSPHRASE_FILE for unattended starts.":"No se encontró una frase de contraseña al iniciar. E\
-scríbela aquí o configura DS_BOT_SECRETS_PASSPHRASE_FILE para inicios sin supervisión.","No keys yet. When a Bot needs one, it shows a card in its chat.":"Aún no hay claves. Cua\
-ndo un Bot necesite una, mostrará una tarjeta en su chat.","Add a key":"Añadir una clave",Memory:"Memoria","Nothing saved yet":"Aún no se ha guardado nada","1 entry":"1 entrada",
-"{count} entries":"{count} entradas","Manage {name}'s memory":"Gestionar la memoria de {name}","{name}'s memory":"Memoria de {name}","Memory summary":"Resumen de memoria","All entr\
-ies":"Todas las entradas","Change history":"Historial de cambios","No changes yet":"Aún no hay cambios","Load more":"Cargar más",Undo:"Deshacer",Undone:"Deshecho","Undo this chan\
-ge":"Deshacer este cambio","Click again to undo":"Haz clic de nuevo para deshacer","Memory options":"Opciones de memoria","Close memory":"Cerrar memoria","Back to the summary":"Vol\
-ver al resumen","Regenerate summary":"Regenerar resumen","Updated {time}":"Actualizado {time}","Updated just now":"Actualizado ahora mismo","Writing the summary…":"Escribiendo el\
- resumen…","The summary is out of date: {reason}":"El resumen está desactualizado: {reason}","The summary could not be written: {reason}":"No se pudo escribir el resumen: {reaso\
-n}","{name} has not saved anything yet":"{name} aún no ha guardado nada","Bots keep lasting preferences, decisions, and what you ask them to remember. Tell {name} below, or in its\
- chat.":"Los Bots guardan preferencias duraderas, decisiones y lo que les pidas recordar. Díselo a {name} abajo o en su chat.","Nothing is saved for this group yet":"Aún no se ha \
-guardado nada para este grupo","A group keeps the decisions, rules, and facts its work needs, for its members to read here. Tell it below, or in the group.":"Un grupo guarda las de\
-cisiones, reglas y datos que necesita su trabajo para que sus miembros los lean aquí. Díselo abajo o en el grupo.","Team memory":"Memoria del equipo","Every Bot reads it":"Todos \
-los Bots la leen","Group memory":"Memoria del grupo","Only its members read it":"Solo sus miembros la leen","MEMORY.md, which every conversation reads":"MEMORY.md, que se lee en ca\
-da conversación","{used} of {limit} characters":"{used} de {limit} caracteres","by you":"por ti","by {name}":"por {name}","Remove from memory":"Quitar de la memoria","until {day}":"\
-hasta el {day}","Tidied: {merged} merged, {moved} moved, {retired} archived":"Organizado: {merged} fusionadas, {moved} movidas, {retired} archivadas","Only when needed":"Solo cuand\
-o sea necesario","Move to…":"Mover a…","Every conversation":"Cada conversación","ended {day}":"finalizó el {day}","Click again to remove":"Haz clic de nuevo para quitar",Remove:"\
-Quitar","Ask or update":"Preguntar o actualizar","Ask about or update {name}'s memory":"Preguntar o actualizar la memoria de {name}",Send:"Enviar","Added: {text}":"Añadido: {text}",
-"Added to team memory: {text}":"Añadido a la memoria del equipo: {text}","Updated: {text}":"Actualizado: {text}","Removed: {text}":"Eliminado: {text}","Removed from team memory: {\
-text}":"Eliminado de la memoria del equipo: {text}","Not changed: {text} ({reason})":"Sin cambios: {text} ({reason})","{count} file changed":"{count} archivo modificado","{count} f\
-iles changed":"{count} archivos modificados",File:"Archivo","Review these changes":"Revisar estos cambios","These changes are no longer available":"Estos cambios ya no están dispon\
-ibles","This window cannot open the change review":"Esta ventana no puede abrir la revisión de cambios","Saving to memory":"Guardando en la memoria","Updating memory":"Actualizand\
-o la memoria","Checking memory":"Consultando la memoria","Memory updated":"Memoria actualizada","Already saved":"Ya estaba guardado","Couldn't save to memory":"No se pudo guardar e\
-n la memoria","Couldn't remove from memory":"No se pudo quitar de la memoria","Memory not changed":"La memoria no cambió","Write something to save":"Escribe algo para guardar","No\
- saved entry matched":"Ninguna entrada guardada coincide","The memory refused this change":"La memoria rechazó este cambio","The memory could not be changed":"No se pudo modificar\
- la memoria","Team memory updated":"Memoria del equipo actualizada","Updated {name}'s memory":"Memoria de {name} actualizada","Memory updated. Open {name}'s memory":"Memoria actual\
-izada. Abrir la memoria de {name}","Open browser":"Abrir navegador","{name}'s browser":"Navegador de {name}","Resize panel":"Redimensionar panel",Back:"Atrás",Forward:"Adelante",Stop:"\
-Detener",Reload:"Recargar",Address:"Dirección","Search or enter address":"Buscar o introducir dirección","This page didn’t load":"Esta página no se cargó","Try again":"Intent\
-ar de nuevo","Open a page here and {name} can read it with you. Logins and cookies stay with {name}; other Bots never see them.":"Abre una página aquí y {name} podrá leerla contigo\
-. Los inicios de sesión y las cookies se quedan en {name}; otros Bots nunca los ven.","Only http and https addresses open here.":"Aquí solo se abren direcciones http y https.","T\
-he page crashed.":"La página falló.","The browser blocked the new window.":"El navegador bloqueó la ventana nueva.","Open the issue":"Abrir el problema","Cloud metadata addresse\
-s do not open here.":"Las direcciones de metadatos en la nube no se abren aquí.","Dictation is not available in this browser":"El dictado no está disponible en este navegador","M\
-icrophone access is blocked":"El acceso al micrófono está bloqueado","Couldn't hear that":"No se pudo escuchar","Couldn't start dictation":"No se pudo iniciar el dictado","Stop d\
-ictation":"Detener dictado",Dictate:"Dictar","Start voice chat":"Iniciar chat de voz","Voice chat":"Chat de voz",Listening:"Escuchando",Thinking:"Pensando","Thinking…":"Pensando…",
-Speaking:"Hablando",Paused:"En pausa","Voice chat is not available in this browser":"El chat de voz no está disponible en este navegador","Voice chat with {name}":"Chat de voz con\
- {name}","Resume listening":"Reanudar escucha",Pause:"Pausar","End voice chat":"Finalizar chat de voz","Recognizing…":"Reconociendo…","Voice input needs its speech model":"La e\
-ntrada de voz necesita su modelo de voz","Set up voice input":"Configurar entrada de voz","Preparing voice input…":"Preparando entrada de voz…","Downloading the speech model… {\
-pct}%":"Descargando el modelo de voz… {pct}%","Couldn't prepare voice input":"No se pudo preparar la entrada de voz","That was too long to recognize":"Fue demasiado largo para re\
-conocerlo","24 hours":"24 horas","7 days":"7 días","30 days":"30 días","12 weeks":"12 semanas","12 months":"12 meses","Per hour":"Por hora","Per day":"Por día","Per week":"Por s\
-emana","Per month":"Por mes",Output:"Salida",Input:"Entrada","Cache hit":"Acierto de caché","Deleted Bot":"Bot eliminado",Deleted:"Eliminado","Deleted group chat":"Chat grupal eli\
-minado","Group chat":"Chat grupal","Own chat":"Chat individual","Side chat":"Chat lateral","New browser tab":"Nueva pestaña del navegador",Terminal:"Terminal",Files:"Archivos","Cl\
-ose side chat":"Cerrar chat lateral","Delete side chat":"Eliminar chat lateral","Ask without interrupting":"Preguntar sin interrumpir","Ask about the work so far":"Preguntar sobre \
-el trabajo hasta ahora","Answering…":"Respondiendo…",Cancelled:"Cancelado",Tasks:"Tareas","In progress":"En curso","Awaiting review":"Pendiente de revisión",Blocked:"Bloqueada",
-"Stopped by the user":"Detenido por el usuario","Not updated after a restart":"Sin actualizar tras el reinicio","Its model call failed ({code})":"Falló la llamada al modelo ({code}\
-)","Add a note":"Añadir una nota","Cancel task":"Cancelar tarea","Click again to cancel":"Haz clic otra vez para cancelar","History ({count})":"Historial ({count})","Hide history":"\
-Ocultar historial","No task is running in this group.":"No hay ninguna tarea en curso en este grupo.","What should change?":"¿Qué debe cambiar?","Note: {text}":"Nota: {text}","An\
-swered from progress so far; nothing was run":"Respondido según el progreso hasta ahora; no se ejecutó nada","Could not answer.":"No se pudo responder.","Cancel this side questio\
-n":"Cancelar esta pregunta lateral",Conversations:"Conversaciones","Compaction and handoff":"Compactación y traspaso","Image reading":"Lectura de imágenes",Titles:"Títulos",Other:"\
-Otros","Last {range}":"Últimos {range}",tokens:"tokens","Compared with the {range} before":"En comparación con el periodo anterior ({range})","{share}% of all usage in the last {\
-range}":"{share}% de todo el uso en el último periodo ({range})",Calls:"Llamadas","Cache hit rate":"Tasa de acierto de caché","Tokens over time":"Tokens a lo largo del tiempo","{\
-count} tokens":"{count} tokens","{tokens} tokens · {calls} calls":"{tokens} tokens · {calls} llamadas","Active on 1 day in the last year":"Activo 1 día en el último año","Acti\
-ve on {count} days in the last year":"Activo {count} días en el último año",Light:"Bajo",Heavy:"Alto","Unknown model":"Modelo desconocido","More Bots":"Más Bots","More models":"\
-Más modelos","Reading your chats…":"Leyendo tus chats…","No usage yet.":"Aún no hay uso.","Token usage shows up here after a model is called.":"El uso de tokens aparece aquí \
-después de llamar a un modelo.","Nothing in this range.":"Nada en este periodo.","Who used it":"Quién lo usó","What for":"Para qué",Activity:"Actividad","Time range":"Periodo",
-"All usage":"Todo el uso","Group usage by":"Agrupar uso por","By Bot":"Por Bot","By model":"Por modelo","Still reading older chats; totals may grow.":"Aún leyendo chats antiguos; l\
-os totales pueden aumentar.",Custom:"Personalizado","Custom range":"Periodo personalizado","This month":"Este mes","Last month":"El mes pasado","This year":"Este año","Previous mo\
-nth":"Mes anterior","Next month":"Mes siguiente","Pick the first day":"Elige el primer día","Pick the last day":"Elige el último día","1 day":"1 día","{count} days":"{count} dí\
-as","Compared with the day before":"En comparación con el día anterior","Compared with the {count} days before":"En comparación con los {count} días anteriores","{share}% of al\
-l usage from {span}":"{share}% de todo el uso de {span}","About DS Bot":"Acerca de DS Bot","Version {version}":"Versión {version}","Star DS Bot on GitHub":"Dar una estrella a DS B\
-ot en GitHub","{count} stars":"{count} estrellas","If DS Bot helps you, a star on GitHub helps more people find it.":"Si DS Bot te resulta útil, una estrella en GitHub ayuda a que \
-más personas lo descubran.",Updates:"Actualizaciones","Check for updates":"Buscar actualizaciones","Checking…":"Comprobando…","Up to date":"Actualizado","Checked {time}":"Comp\
-robado {time}","Could not check for updates.":"No se pudo buscar actualizaciones.","Update checks are off.":"La búsqueda de actualizaciones está desactivada.","Checking for updat\
-es…":"Buscando actualizaciones…","Downloading {version}…":"Descargando {version}…","{version} is ready; it installs when you restart":"{version} está listo; se instalará al\
- reiniciar","Restart to update":"Reiniciar para actualizar","{version} is available":"{version} está disponible","Installed from a local folder; update it there.":"Instalado desde\
- una carpeta local; actualízalo allí.","Updates are not offered for this install.":"No se ofrecen actualizaciones para esta instalación.","Updates come with the DS Bot app.":"La\
-s actualizaciones llegan con la aplicación DS Bot.",Links:"Enlaces","Source code":"Código fuente","Release notes":"Notas de la versión",Open:"Abrir",Feedback:"Comentarios","Repo\
-rt a problem":"Informar de un problema","What happened?":"¿Qué ocurrió?","What you did, what you expected, and what happened instead. It goes into the issue.":"Qué hiciste, qué \
-esperabas y qué ocurrió en su lugar. Se incluirá en el issue.","For example: I asked Writer in the group chat and it showed an error.":"Por ejemplo: le pregunté a Writer en el c\
-hat grupal y mostró un error.",Diagnostics:"Diagnóstico","Versions, system, models, and the latest errors. Saved keys, tokens, and your home folder are hidden.":"Versiones, siste\
-ma, modelos y los últimos errores. Las claves guardadas, tokens y tu carpeta personal se ocultan.",Show:"Mostrar",Hide:"Ocultar","GitHub issue":"Issue de GitHub","Opens a new issu\
-e in the DS Bot repository with all of this filled in. Nothing is sent until you submit it there.":"Abre un nuevo issue en el repositorio de DS Bot con todo esto rellenado. No se e\
-nvía nada hasta que lo publiques allí.","Report on GitHub":"Informar en GitHub","Copied the diagnostics.":"Diagnóstico copiado.","Could not copy. Select the text below and copy \
-it.":"No se pudo copiar. Selecciona el texto de abajo y cópialo.","Opened a new GitHub issue with the diagnostics filled in. Check it before you submit.":"Se abrió un nuevo issue \
-en GitHub con el diagnóstico rellenado. Revísalo antes de enviarlo.","Opened a new GitHub issue. The diagnostics are long, so they are on the clipboard: paste them into the issue\
-.":"Se abrió un nuevo issue en GitHub. El diagnóstico es largo, por lo que está en el portapapeles: pégalo en el issue.","Opened a new GitHub issue. Copy the diagnostics below \
-into it.":"Se abrió un nuevo issue en GitHub. Copia en él el diagnóstico de abajo.","Downloaded the log. Keys, tokens, and your home folder are hidden in it.":"Registro descarga\
-do. Las claves, tokens y tu carpeta personal están ocultos en él.","Cleared the error log.":"Registro de errores borrado.","Recent errors":"Errores recientes","Recent errors · {c\
-ount}":"Errores recientes · {count}","No errors recorded.":"No hay errores registrados.","Failed model calls and DS Bot problems show here, newest first.":"Las llamadas a modelos \
-fallidas y los problemas de DS Bot se muestran aquí, los más recientes primero.","Model call":"Llamada al modelo","This window":"Esta ventana","Error log":"Registro de errores","\
-Kept on this computer across restarts, up to about 1 MB.":"Se conserva en este ordenador entre reinicios, hasta aproximadamente 1 MB.",Clear:"Borrar","Settings → Feedback has the d\
-etails.":"Los detalles están en Ajustes → Comentarios.","Could not reach DSH. Check that it is still running.":"No se pudo conectar con DSH. Comprueba que siga en ejecución.","\
-{name} stopped: {reason}. Switch its model or ask it to go on.":"{name} se detuvo: {reason}. Cambia su modelo o pídele que continúe.","{name}'s background helper did not finish: \
-{reason}. Ask it to go on if it still matters.":"El ayudante en segundo plano de {name} no terminó: {reason}. Pídele que siga si aún importa.","Run failed":"Falló la ejecución",
-"Reached the output limit":"Se alcanzó el límite de salida","Stopped before finishing":"Se detuvo antes de terminar","Declined the task":"Rechazó la tarea","Unknown error":"Erro\
-r desconocido","The model has no API key":"El modelo no tiene clave API","The API key is not in the right format":"La clave API no tiene el formato correcto","The DeepSeek account \
-needs a sign-in":"La cuenta de DeepSeek requiere iniciar sesión","The DeepSeek account is signed out":"Se cerró la sesión de la cuenta de DeepSeek","The DeepSeek account sign-in\
- has expired":"La sesión de la cuenta de DeepSeek ha caducado","The API key was rejected":"La clave API fue rechazada","The account is out of quota":"La cuenta se quedó sin cuota",
-"Too many requests to the model":"Demasiadas solicitudes al modelo","The conversation is too long for the model":"La conversación es demasiado larga para el modelo","The model ser\
-vice refused the request":"El servicio de modelos rechazó la solicitud","The model service failed":"El servicio de modelos falló","The model took too long to answer":"El modelo t\
-ardó demasiado en responder","Could not reach the model service":"No se pudo conectar con el servicio de modelos","The conversation could not be compacted for the model switch":"N\
-o se pudo compactar la conversación para cambiar de modelo","Its group conversation could not open":"No se pudo abrir su conversación grupal","Its group conversation could not op\
-en, so it starts a new one next time":"No se pudo abrir su conversación grupal, por lo que iniciará una nueva la próxima vez","Pasted text · {count} characters":"Texto pegado ·\
- {count} caracteres","Put back":"Devolver","Put back into the box":"Devolver al cuadro de texto","Remove pasted text":"Quitar el texto pegado","Add files":"Añadir archivos","Refer\
-ence a chat":"Referenciar un chat","Chat with {name}":"Chat con {name}","Scheduled task":"Tarea programada","Open the scheduled tasks of this chat":"Abrir las tareas programadas de\
- este chat","Send to":"Enviar a","Scheduled task: {text}":"Tarea programada: {text}","Choose the group admin":"Elegir al administrador del grupo","Group admin":"Administrador del g\
-rupo","Who to chat with…":"Con quién chatear…","Add at least one more Bot":"Añade al menos un Bot más",Members:"Miembros","Scheduled tasks":"Tareas programadas","Every day":"\
-Cada día","Every {count} days":"Cada {count} días","Every hour":"Cada hora","Every {count} hours":"Cada {count} horas","Every {count} minutes":"Cada {count} minutos","Once, {time\
-}":"Una vez, {time}","Every day at {time}":"Cada día a las {time}","Every {days} at {time}":"Cada {days} a las {time}","Every weekday at {time}":"Cada día laborable a las {time}",
-"Every weekend at {time}":"Cada fin de semana a las {time}","On the schedule {expression}":"Según la programación {expression}","Custom schedule":"Programación personalizada","N\
-ext: {time}":"Siguiente: {time}","Overdue: {time}":"Atrasada: {time}",Finished:"Finalizada","Scheduled tasks · {count}":"Tareas programadas · {count}","Show all":"Mostrar todas",
-"in {name}":"en {name}","Click again to delete":"Haz clic de nuevo para eliminar","Delete task":"Eliminar tarea",Once:"Una vez","Every week":"Cada semana",Repeat:"Repetir",minutes:"\
-minutos",hours:"horas",days:"días","Morning briefing":"Resumen matutino","What to do":"Qué hacer","Sum up what changed since yesterday and what needs me today.":"Resume qué ha ca\
-mbiado desde ayer y qué requiere mi atención hoy.",When:"Cuándo","Date and time":"Fecha y hora",Days:"Días",Time:"Hora",Every:"Cada","How many":"Cuántos",Unit:"Unidad","Create\
- task":"Crear tarea","Turn on Automation tasks in DSH":"Activa las Tareas de automatización en DSH","Switch on Automation tasks on the Plugins page in Settings.":"Activa las Tarea\
-s de automatización en la página de Plugins en Ajustes.","New task":"Nueva tarea","No scheduled tasks yet.":"Aún no hay tareas programadas.","No scheduled tasks yet. Add one":"A\
-ún no hay tareas programadas. Añade una","Automation tasks are off in DSH":"Las tareas de automatización están desactivadas en DSH","No such Bot":"No existe ese Bot","No such B\
-ot or group chat":"No existe ese Bot o chat grupal","Give the task a name":"Dale un nombre a la tarea","Say what the Bot should do":"Indica qué debe hacer el Bot","Pick a date and\
- time":"Elige una fecha y una hora","Pick a time in the future":"Elige una hora en el futuro","Pick a time of day":"Elige una hora del día","Pick at least one day":"Elige al menos\
- un día","Repeat every 1 minute to 7 days":"Repite cada entre 1 minuto y 7 días","Pick when it runs":"Elige cuándo se ejecuta","No such task":"No existe esa tarea","Working fold\
-er":"Carpeta de trabajo","Working folder: {folder}":"Carpeta de trabajo: {folder}",Folder:"Carpeta",Folders:"Carpetas",Privacy:"Privacidad",Private:"Privado","Other Bots cannot rea\
-d its folder, memory or chats, and you approve what it shares with them.":"Otros Bots no pueden leer su carpeta, memoria ni chats, y tú apruebas lo que comparte con ellos.","A Mai\
-n Bot cannot be private.":"Un Bot principal no puede ser privado.","Leave its group chats before making it private.":"Sal de sus chats grupales antes de hacerlo privado.","Choose a\
- working folder of its own first.":"Elige primero una carpeta de trabajo propia.","A private Bot cannot be a Main Bot.":"Un Bot privado no puede ser Bot principal.","Closed after d\
-eletion · {count}":"Protegido tras su eliminación · {count}","Remove protection":"Quitar protección","Click again to remove. Other Bots can then read its folder, memory and cha\
-ts.":"Haz clic de nuevo para quitarla. Otros Bots podrán entonces leer su carpeta, memoria y chats.","Nothing kept closed for this Bot":"No se mantiene nada protegido para este Bo\
-t","Team workspace":"Espacio de trabajo del equipo","Team workspace: {folder}":"Espacio de trabajo del equipo: {folder}","Where Bots without a folder of their own work.":"Donde tra\
-bajan los Bots que no tienen carpeta propia.",Locations:"Ubicaciones","Data location":"Ubicación de datos","Change…":"Cambiar…","Each Bot's own folder":"Carpeta propia de cada\
- Bot","Choose a folder…":"Elegir una carpeta…","Browse folders…":"Explorar carpetas…","Enter a path…":"Introducir una ruta…","Folder path":"Ruta de la carpeta","Full pa\
-th of a folder":"Ruta completa de una carpeta","Use this folder":"Usar esta carpeta","Up one level":"Subir un nivel","No folders inside.":"No hay carpetas dentro.","Some folders ar\
-e not shown.":"Algunas carpetas no se muestran.","Waiting for sign-in…":"Esperando inicio de sesión…","This service needs an app client ID":"Este servicio necesita un Client I\
-D de aplicación","Paste the address you land on":"Pega la dirección a la que llegues","Finish sign-in":"Finalizar inicio de sesión","Open {host}":"Abrir {host}","Client ID":"Cli\
-ent ID","Client secret (optional)":"Client secret (opcional)","In OAuth & Permissions at {app}, add this redirect URL:":"En OAuth & Permissions de {app}, añade esta URL de redirecc\
-ión:","In the app settings, add this redirect URL:":"En los ajustes de la app, añade esta URL de redirección:","Turn on the MCP features and scopes the app needs.":"Activa las f\
-unciones y los permisos de MCP que necesita la app.","Copy the Client ID and Client Secret here.":"Copia aquí el Client ID y el Client Secret.","Open app settings":"Abrir ajustes \
-de la app",Continue:"Continuar","{name} key":"Clave de {name}","{name} token":"Token de {name}","Get a key":"Obtener una clave","Read-only":"Solo lectura","{count} tools":"{count} \
-herramientas",Mailbox:"Buzón de correo","Email address":"Dirección de correo",Catalog:"Catálogo","App password":"Contraseña de aplicación","Authorization code":"Código de auto\
-rización","Password or app password":"Contraseña o contraseña de aplicación","Official help":"Ayuda oficial","Finish signing in in your browser.":"Termina de iniciar sesión en \
-tu navegador.","Open again":"Abrir de nuevo","Did not come back here?":"¿No volviste aquí?","Copied to clipboard":"Copiado al portapapeles","Paste the code on {host} and authoriz\
-e.":"Pega el código en {host} y autoriza.","Add another":"Añadir otro","QQ, 163, 126, Gmail, iCloud, and other IMAP mail":"QQ, 163, 126, Gmail, iCloud y otros correos IMAP","Othe\
-r MCP server":"Otro servidor MCP","An address, a command, or one from Claude Desktop, Cursor, or VS Code":"Una dirección, un comando o uno de Claude Desktop, Cursor o VS Code","Ki\
-nd of server":"Tipo de servidor","Nothing matches":"No hay coincidencias",Recommended:"Recomendado","See all":"Ver todo","{count} connected":"{count} conectados","{count} accounts":"\
-{count} cuentas",Category:"Categoría","Could not reach the mail server. Check the server address.":"No se pudo conectar con el servidor de correo. Comprueba la dirección del servi\
-dor.","Sign in at mail.qq.com, click your avatar at the top right, and open Settings → Account and Security → Security Settings.":"Inicia sesión en mail.qq.com, haz clic en tu \
-avatar arriba a la derecha y abre Ajustes → Cuenta y seguridad → Ajustes de seguridad.","Turn on the POP3/IMAP/SMTP service, then click Generate authorization code and verify y\
-ourself.":"Activa el servicio POP3/IMAP/SMTP, luego haz clic en Generar código de autorización y verifica tu identidad.","Paste the 16-letter code below. Changing your QQ passwor\
-d cancels it.":"Pega abajo el código de 16 letras. Cambiar tu contraseña de QQ lo anulará.","Sign in at {host} and open Settings → POP3/SMTP/IMAP.":"Inicia sesión en {host} y \
-abre Ajustes → POP3/SMTP/IMAP.","Turn on IMAP/SMTP and send the text message it asks for.":"Activa IMAP/SMTP y envía el mensaje de texto que solicita.","Paste the 16-character c\
-ode below. It is shown only once.":"Pega abajo el código de 16 caracteres. Solo se muestra una vez.","Turn on 2-Step Verification for your Google Account.":"Activa la verificación\
- en dos pasos en tu cuenta de Google.","Open App passwords, create one, and paste the 16-character password below.":"Abre Contraseñas de aplicaciones, crea una y pega abajo la cont\
-raseña de 16 caracteres.","Work and school accounts cannot use app passwords.":"Las cuentas de trabajo y de centros educativos no pueden usar contraseñas de aplicación.","Your A\
-pple Account needs two-factor authentication.":"Tu cuenta de Apple necesita autenticación de dos factores.","Sign in at account.apple.com and open Sign-In and Security → App-Speci\
-fic Passwords.":"Inicia sesión en account.apple.com y abre Inicio de sesión y seguridad → Contraseñas específicas de apps.","Generate a password and paste it below.":"Genera \
-una contraseña y pégala abajo.","The mail service refused the login (Unsafe Login). Enable IMAP/SMTP in the mailbox settings and use its authorization code, not the account passw\
-ord.":"El servicio de correo rechazó el inicio de sesión (Unsafe Login). Activa IMAP/SMTP en los ajustes del buzón y usa su código de autorización, no la contraseña de la cuenta.",
-"The password was refused. Use the mailbox app password or authorization code, not the account password.":"La contraseña fue rechazada. Usa la contraseña de aplicación o el código \
-de autorización del buzón, no la contraseña de la cuenta.","Enter the authorization code or app password":"Introduce el código de autorización o la contraseña de aplicación",
-"Pages, databases, and wiki content":"Páginas, bases de datos y contenido wiki","Issues, projects, and cycles":"Issues, proyectos y ciclos","Jira issues and Confluence pages":"Inc\
-idencias de Jira y páginas de Confluence","Errors, traces, and releases":"Errores, trazas y versiones","Payments, invoices, and customers":"Pagos, facturas y clientes","Orders, pa\
-yments, and invoices":"Pedidos, pagos y facturas","Payments, orders, and catalog":"Pagos, pedidos y catálogo","Workers, DNS, and account resources":"Workers, DNS y recursos de la \
-cuenta","Projects, deployments, and logs":"Proyectos, despliegues y registros","Databases, tables, and project settings":"Bases de datos, tablas y ajustes del proyecto","Postgres d\
-atabases and branches":"Bases de datos Postgres y ramas","Design files, components, and comments":"Archivos de diseño, componentes y comentarios","Designs, folders, and exports":"\
-Diseños, carpetas y exportaciones","Conversations, contacts, and articles":"Conversaciones, contactos y artículos","Boards, items, and workflows":"Tableros, elementos y flujos de\
- trabajo","Sites, pages, and CMS content":"Sitios, páginas y contenido CMS","Sites, pages, and site content":"Sitios, páginas y contenido del sitio","Sites, deploys, and forms":"\
-Sitios, despliegues y formularios","Bases, tables, and records":"Bases, tablas y registros","Files and folders":"Archivos y carpetas","Zaps and app actions":"Zaps y acciones de apl\
-icaciones","Tasks, lists, and docs":"Tareas, listas y documentos","Tasks and projects":"Tareas y proyectos","Boards and whiteboard items":"Tableros y elementos de pizarra","CRM rec\
-ords, lists, and notes":"Registros CRM, listas y notas","Collections, requests, and workspaces":"Colecciones, solicitudes y espacios de trabajo","Tasks, projects, and workspaces":"\
-Tareas, proyectos y espacios de trabajo","Files, folders, and metadata":"Archivos, carpetas y metadatos","Contacts, deals, and tickets":"Contactos, tratos y tickets","Channels and \
-messages":"Canales y mensajes","Models, datasets, and Spaces":"Modelos, conjuntos de datos y Spaces","Web search for agents":"Búsqueda web para agentes","Documentation for public \
-code repositories":"Documentación de repositorios de código públicos","Library documentation and code examples":"Documentación de bibliotecas y ejemplos de código","Microsoft \
-product documentation":"Documentación de productos de Microsoft","Cloudflare product documentation":"Documentación de productos de Cloudflare","Maps, places, and routes in China":"\
-Mapas, lugares y rutas en China","Read and send email over IMAP and SMTP":"Leer y enviar correo mediante IMAP y SMTP","IMAP host":"Servidor IMAP","SMTP host":"Servidor SMTP","Sign \
-in with Google":"Iniciar sesión con Google","Verifying…":"Verificando…","Import from other apps":"Importar desde otras aplicaciones","Server address":"Dirección del servidor",
-"Command, e.g. npx -y some-mcp":"Comando, p. ej., npx -y some-mcp","Scanning…":"Escaneando…","No MCP servers found in Claude Desktop, Cursor, or VS Code settings.":"No se encon\
-traron servidores MCP en los ajustes de Claude Desktop, Cursor o VS Code.","Import {count}":"Importar {count}",All:"Todo",Developer:"Desarrollador","Docs & files":"Documentos y arc\
-hivos",Work:"Trabajo",Design:"Diseño",Data:"Datos",Commerce:"Comercio","No connectors connected":"No hay conectores conectados","{bot} needs {name}":"{bot} necesita {name}",Mail:"\
-Correo",Subject:"Asunto","Write a message…":"Escribe un mensaje…",Discard:"Descartar",Discarded:"Descartado","Allow recipient":"Permitir destinatario","Allow this Bot to send d\
-irectly":"Permitir que este Bot envíe directamente","Manage rules":"Gestionar reglas","Sending rules":"Reglas de envío",From:"De",To:"Para",Cc:"Cc",Bcc:"Cco","Attachments: {names\
-}":"Adjuntos: {names}",Sent:"Enviado",Failed:"Falló","Request failed":"Solicitud fallida","Permissions are not available in this DeepSeek Harness":"Los permisos no están disponibl\
-es en este DeepSeek Harness","Avatar image is too large":"La imagen de avatar es demasiado grande","A Bot needs a name":"Un Bot necesita un nombre","A Bot name cannot contain @, ` \
-or a line break":"El nombre de un Bot no puede contener @, ` ni saltos de línea","Unknown Bot":"Bot desconocido","Unknown conversation":"Conversación desconocida","A group chat n\
-eeds at least two Bots":"Un chat grupal necesita al menos dos Bots","The admin must be a member of the group":"El administrador debe ser miembro del grupo","Unknown group chat":"Ch\
-at grupal desconocido","No Bot is left in this group chat":"No queda ningún Bot en este chat grupal","That group chat has been deleted":"Ese chat grupal ha sido eliminado","Hand t\
-he admin role to another member instead of leaving the group without one":"Cede el rol de administrador a otro miembro en lugar de dejar el grupo sin administrador","Hand the admin\
- role to another member before leaving the group":"Cede el rol de administrador a otro miembro antes de salir del grupo","The team needs at least one Main Bot":"El equipo necesita \
-al menos un Bot principal","Only a Main Bot can be replaced":"Solo se puede reemplazar un Bot principal","A Main Bot cannot be deleted; remove its Main Bot role first":"Un Bot prin\
-cipal no se puede eliminar; quítale primero el rol de Bot principal","Unknown theme":"Tema desconocido","Accent must be a #rrggbb color":"El color de acento debe tener formato #rr\
-ggbb","Type the key first":"Escribe primero la clave","Choose every Bot or a list of Bots":"Elige todos los Bots o una lista de Bots","This request is gone":"Esta solicitud ya no e\
-xiste","This request was already answered":"Esta solicitud ya fue respondida","A name uses capitals, digits, and underscores, and starts with a letter":"Un nombre usa mayúsculas, d\
-ígitos y guiones bajos, y empieza por una letra","No such key":"No existe esa clave","Type a question or a change first":"Escribe primero una pregunta o un cambio","No model is av\
-ailable. Add one in Settings > Models.":"No hay ningún modelo disponible. Añade uno en Ajustes > Modelos.","Memory is turned off on this host":"La memoria está desactivada en est\
-e host","The model wrote nothing":"El modelo no escribió nada","Write the entry to save.":"Escribe la entrada que quieres guardar.","This DeepSeek Harness has no folder chooser":"\
-Este DeepSeek Harness no tiene selector de carpetas","This DeepSeek Harness cannot list folders":"Este DeepSeek Harness no puede listar carpetas","Side chat is only available in a \
-Bot's private chat.":"El chat lateral solo está disponible en el chat privado de un Bot.","Write a question.":"Escribe una pregunta.","Write a question after /side.":"Escribe una \
-pregunta después de /side.","/side does not take attachments.":"/side no admite archivos adjuntos.","Wait for the answer, or cancel it.":"Espera la respuesta o cancélala.","This \
-side chat is no longer here.":"Este chat lateral ya no está aquí.","This side question is no longer here.":"Esta pregunta lateral ya no está aquí.","This Bot has not called a m\
-odel yet. Send a normal message first.":"Este Bot aún no ha llamado a ningún modelo. Envía primero un mensaje normal.","DS Bot restarted before this answer finished.":"DS Bot se\
- reinició antes de que terminara esta respuesta.","The model called a tool again after being told not to, so this aside was not answered.":"El modelo volvió a llamar a una herrami\
-enta después de indicarle que no lo hiciera, por lo que esta consulta lateral no recibió respuesta.","The model wrote nothing.":"El modelo no escribió nada.","Nothing to ask":"N\
-ada que preguntar","Nothing to open":"Nada que abrir","Nothing to cancel":"Nada que cancelar","Nothing to close":"Nada que cerrar","DS Bot is still loading this chat.":"DS Bot aún \
-está cargando este chat.","This message is no longer kept":"Este mensaje ya no se conserva","No file named":"No se indicó ningún archivo","This file cannot be read here":"Este a\
-rchivo no se puede leer aquí","That wait is no longer open":"Esa espera ya no está abierta","Nothing to send":"Nada que enviar","This view is no longer open":"Esta vista ya no es\
-tá abierta","This is not a photo DS Bot can send":"Esta no es una foto que DS Bot pueda enviar","A photo did not arrive. Send it again.":"No llegó una foto. Envíala de nuevo.","\
-Nothing to delete":"Nada que eliminar","Bot browsers are off on this host":"Los navegadores de los Bots están desactivados en este host","This Bot has no open browser":"Este Bot n\
-o tiene ningún navegador abierto","A browser poll needs a clientId":"El sondeo del navegador necesita un clientId","This browser is not held":"Este navegador no está retenido","T\
-his handoff is no longer open":"Este traspaso del navegador ya no está abierto","Avatar images must be PNG, JPEG, WebP, GIF, or SVG":"Las imágenes de avatar deben ser PNG, JPEG, W\
-ebP, GIF o SVG","Pick a model before choosing a thinking level":"Elige un modelo antes de seleccionar un nivel de razonamiento","Unknown section":"Sección desconocida","Unknown se\
-ction color":"Color de sección desconocido","Write the to-do first.":"Escribe primero la tarea pendiente.","That to-do is no longer on the list.":"Esa tarea pendiente ya no está e\
-n la lista.","Write what this group should achieve, in at most 2000 characters.":"Escribe qué debe lograr este grupo, en un máximo de 2000 caracteres.","This group has no admin. \
-Set one in the group settings first.":"Este grupo no tiene administrador. Designa uno primero en los ajustes del grupo.","This group already has a goal. Stop it first.":"Este grupo\
- ya tiene un objetivo. Detenlo primero.","The goal has changed. Look again.":"El objetivo ha cambiado. Vuelve a comprobarlo.","Nothing to do":"Nada que hacer","Write a note first.":"\
-Escribe primero una nota.","That task is already finished.":"Esa tarea ya ha terminado.","No such group.":"No existe ese grupo.","No such task.":"No existe esa tarea.","No open tas\
-k to cancel.":"No hay ninguna tarea abierta que cancelar.","Sign-in timed out":"Se agotó el tiempo de espera para iniciar sesión","The sign-in answer did not match this attempt (\
-state mismatch). Try again.":"La respuesta de inicio de sesión no coincide con este intento (estado distinto). Inténtalo de nuevo.","This connector does not sign in":"Este conect\
-or no requiere iniciar sesión","This connector has no server address":"Este conector no tiene dirección de servidor","Connector addresses must start with https://":"Las direccion\
-es de conectores deben empezar por https://","This service does not publish OAuth sign-in metadata":"Este servicio no publica metadatos de inicio de sesión OAuth","Paste a key fir\
-st":"Pega primero una clave","No sign-in is waiting":"No hay ningún inicio de sesión en espera","Paste the address or the code":"Pega la dirección o el código","This address is\
- not from this sign-in attempt (state mismatch). Copy the whole address again.":"Esta dirección no corresponde a este intento de inicio de sesión (estado distinto). Vuelve a copiar\
- la dirección completa.","The address has no code":"La dirección no contiene ningún código","Enter the client ID":"Introduce el ID de cliente","Name the connector":"Ponle un no\
-mbre al conector","Enter an address or a command":"Introduce una dirección o un comando","Only added connectors can be removed":"Solo se pueden eliminar los conectores añadidos ma\
-nualmente","The mail connection closed during verification":"La conexión de correo se cerró durante la verificación","Google sign-in is not available in this build":"El inicio d\
-e sesión con Google no está disponible en esta compilación","Enter an email address":"Introduce una dirección de correo electrónico","Enter the IMAP and SMTP hosts":"Introduce\
- los servidores IMAP y SMTP","No such account":"No existe esa cuenta","This card was already answered":"Esta tarjeta ya fue respondida","No Google sign-in is waiting":"No hay ningú\
-n inicio de sesión de Google en espera","The sign-in answer is not for this attempt":"La respuesta de inicio de sesión no corresponde a este intento","Google did not say which ac\
-count this is":"Google no indicó a qué cuenta corresponde","This platform is not available yet":"Esta plataforma aún no está disponible","Choose a Bot first":"Elige primero un \
-Bot","This platform signs in by scanning a code; not available yet":"Esta plataforma inicia sesión escaneando un código y aún no está disponible","No such IM bot":"No existe es\
-e bot de mensajería","No such platform":"No existe esa plataforma","No such chat":"No existe ese chat","Choose a Bot or a group":"Elige un Bot o un grupo","This platform has no QR\
- login":"Esta plataforma no admite inicio de sesión por QR","Paste the bot token first":"Pega primero el token del bot","Telegram did not say who this token belongs to":"Telegram \
-no indicó a qué bot pertenece este token","A webhook or another program uses this bot":"Un webhook u otro programa está usando este bot","This token does not belong to a Discord\
- bot":"Este token no pertenece a un bot de Discord","Discord gave no usable gateway URL":"Discord no devolvió una URL de puerta de enlace utilizable","These credentials do not bel\
-ong to a Slack bot":"Estas credenciales no pertenecen a un bot de Slack","WeChat answered an unreadable response":"WeChat devolvió una respuesta ilegible","WeChat rate limited the\
- request":"WeChat limitó la frecuencia de solicitudes","WeChat refused the token":"WeChat rechazó el token","Use a capability name with lowercase letters, digits, and single hyph\
-ens; connector names are reserved.":"Usa un nombre de capacidad con letras minúsculas, dígitos y guiones simples; los nombres de conectores están reservados.","Arguments must be\
- a list of text values.":"Los argumentos deben ser una lista de valores de texto.","Choose an MCP server, skill, or pack.":"Elige un servidor MCP, una habilidad o un paquete.","A c\
-apability cannot change its kind. Delete it and save a new one.":"Una capacidad no puede cambiar de tipo. Elimínala y guarda una nueva.","Enter a command for the MCP server.":"Int\
-roduce un comando para el servidor MCP.","Enter a valid HTTP or HTTPS URL.":"Introduce una URL HTTP o HTTPS válida.","Only Bots on the team can change capabilities.":"Solo los Bot\
-s del equipo pueden cambiar capacidades.","Only a Main Bot can change another Bot’s capabilities.":"Solo un Bot principal puede cambiar las capacidades de otro Bot.","This DSH ca\
-nnot load MCP servers.":"Este DSH no puede cargar servidores MCP.","Unknown capability operation.":"Operación de capacidad desconocida.","The secrets file is not encrypted.":"El a\
-rchivo de secretos no está cifrado.","Secrets are already encrypted.":"Los secretos ya están cifrados.","Secrets are not encrypted.":"Los secretos no están cifrados.","Learning \
-is turned off on this host":"El aprendizaje está desactivado en este host","AGENTS.md changed since this was proposed":"AGENTS.md cambió desde que se propuso esto","The Bot that \
-learned this skill is gone":"El Bot que aprendió esta habilidad ya no existe","System permissions are not available here":"Los permisos del sistema no están disponibles aquí","T\
-his host keeps no Bot data folder, so it has no avatar library.":"Este host no guarda ninguna carpeta de datos de Bots, por lo que no tiene biblioteca de avatares.","DS Bot is shut\
-ting down":"DS Bot se está cerrando","Computer use":"Uso del ordenador",Computer:"Ordenador",Control:"Control","Let Bots use the computer":"Permitir que los Bots usen el ordenador",
-"Using the computer":"Usando el ordenador",Off:"Desactivado","View only":"Solo ver",Background:"En segundo plano",Foreground:"En primer plano","In the foreground":"En primer plano",
-"Computer use level":"Nivel de uso del ordenador","Computer provider":"Proveedor de control del ordenador","Loading the provider…":"Cargando el proveedor…","Could not load the \
-provider":"No se pudo cargar el proveedor","The provider package is not installed":"El paquete del proveedor no está instalado","Install it in this DSH":"Instalarlo en este DSH","\
-Run {command}, then restart DSH.":"Ejecuta {command} y luego reinicia DSH.","Copy command":"Copiar comando","Bots get no computer tools until the provider is ready.":"Los Bots no t\
-endrán herramientas de ordenador hasta que el proveedor esté listo.","Another computer-use provider is running":"Otro proveedor de uso del ordenador está en ejecución","Compute\
-r use is not available on this platform":"El uso del ordenador no está disponible en esta plataforma",Accessibility:"Accesibilidad","Screen Recording":"Grabación de pantalla",Allowed:"\
-Permitido","Not allowed":"No permitido",Grant:"Conceder",Revoke:"Revocar","Off in Settings → Computer use":"Desactivado en Ajustes → Uso del ordenador",Idle:"Inactivo",Operating:"\
-Operando","You have the computer":"Tú tienes el control del ordenador","Latest screenshot":"Última captura de pantalla","Let it continue":"Dejar que continúe","Take over the com\
-puter":"Tomar el control del ordenador","Hand back":"Devolver el control","Recent steps":"Pasos recientes",failed:"falló","Allow {name} to use {app}?":"¿Permitir que {name} use {a\
-pp}?","This time":"Esta vez",Always:"Siempre","Needs your confirmation":"Requiere tu confirmación","Help needed on the computer":"Se necesita ayuda en el ordenador","You control t\
-he computer":"Tú controlas el ordenador","{name} · foreground":"{name} · primer plano","{name} waits for the computer":"{name} espera el ordenador","Bot models":"Modelos de los \
-Bots","Change several Bots":"Cambiar varios Bots","{selected} of {total} selected":"{selected} de {total} seleccionados","Bots on a local agent keep their own model.":"Los Bots en \
-un agente local mantienen su propio modelo.","Select all":"Seleccionar todos","Changing…":"Cambiando…","Selected Bots":"Bots seleccionados","{model} (not available)":"{model} (\
-no disponible)",Changed:"Cambiado","Already on this model":"Ya usa este modelo","Skipped: runs on a local agent":"Omitido: se ejecuta en un agente local","Skipped: not available no\
-w":"Omitido: no disponible ahora","Could not change: {error}":"No se pudo cambiar: {error}","Changed {count} of {total} Bots.":"Se cambiaron {count} de {total} Bots.","Select {name\
-}":"Seleccionar {name}","Change it in the Bot's settings.":"Cámbialo en los ajustes del Bot.","Already on this model: {count}":"Ya usan este modelo: {count}","Skipped: {count}":"O\
-mitidos: {count}","Failed: {count}":"Fallaron: {count}","{count} skipped":"{count} omitidas","No model picked yet":"Sin modelo elegido",Running:"En ejecución","Open this session":"\
-Abrir esta sesión","Open this running session":"Abrir esta sesión en ejecución","A running session keeps using model calls in the background.":"Una sesión en ejecución sigue usa\
-ndo llamadas al modelo en segundo plano.","This session is still running. Wait for it to finish, or stop it.":"Esta sesión sigue en ejecución. Espera a que termine o detenla."},HOST_ERRORS_ES=[
-[/^Could not reach the mail server at (.+)\. Check the server address\.$/,"No se pudo conectar con el servidor de correo en $1. Comprueba la dirección del servidor."],[/^Model (.+) is not available\. Available: (.*)$/,
-"El modelo $1 no está disponible. Disponibles: $2"],[/^The API key for (.+) is set outside DS Bot and cannot be changed here$/,"La clave API de $1 está configurada fuera de DS Bot\
- y no se puede cambiar aquí"],[/^(.+) takes no API key here$/,"$1 no admite clave API aquí"],[/^(.+) is already set up$/,"$1 ya está configurado"],[/^DSH offers no provider (.+)$/,
-"DSH no ofrece el proveedor $1"],[/^DSH already offers (.+); add it from its list$/,"DSH ya ofrece $1; añádelo desde su lista"],[/^The protocol must be one of (.+)$/,"El protocol\
-o debe ser uno de: $1"],[/^(.+) is not set up$/,"$1 no está configurado"],[/^(.+) comes with this setup and cannot be removed$/,"$1 viene incluido en esta configuración y no se pu\
-ede eliminar"],[/^A Bot named (.+) already exists$/,"Ya existe un Bot llamado $1"],[/^Name (.*) is not available$/,"El nombre $1 no está disponible"],[/^"(.+)" calls everyone in a group, so it cannot be a Bot name$/,
-"“$1” menciona a todos en un grupo, por lo que no puede ser el nombre de un Bot"],[/^"(.+)" stands for the user in a chat, so it cannot be a Bot name$/,"“$1” representa al usua\
-rio en un chat, por lo que no puede ser el nombre de un Bot"],[/^Another group chat is already called "(.+)"$/,"Otro chat grupal ya se llama “$1”"],[/^Another section is already called "(.+)"$/,
-"Otra sección ya se llama “$1”"],[/^Enter a section name$/,"Introduce un nombre para la sección"],[/^A group chat holds at most (\d+) Bots$/,"Un chat grupal admite como máxim\
-o $1 Bots"],[/^Reply mode must be one of (.+)$/,"El modo de respuesta debe ser uno de: $1"],[/^Only the user, a Main Bot, or the admin of "(.+)" can change it$/,"Solo el usuario, u\
-n Bot principal o el administrador de “$1” pueden modificarlo"],[/^A key must have at least (\d+) characters$/,"Una clave debe tener al menos $1 caracteres"],[/^A key can have at most (\d+) characters$/,
-"Una clave puede tener como máximo $1 caracteres"],[/^(.+) is not saved yet$/,"$1 aún no se ha guardado"],[/^The Bot team in (.+) is open in another dsh \((.+)\)\. This window shows the team but cannot change it; close the other one and reload\.$/,
+file.":"Este navegador cifra sus cookies para que solo él pueda leerlas. Expórtalas primero a un archivo y luego importa ese archivo.","Keychain access was cancelled. Click Allow\
+ when macOS asks to read your browser cookies.":"Se canceló el acceso al llavero. Haz clic en Permitir cuando macOS solicite leer las cookies de tu navegador.","Remote debugging p\
+ermission was declined in the browser. Try again and click Allow.":"Se rechazó el permiso de depuración remota en el navegador. Inténtalo de nuevo y haz clic en Permitir.","Time\
+d out waiting for you to click Allow in the browser.":"Se agotó el tiempo esperando a que hicieras clic en Permitir en el navegador.","Another browser profile is active. Switch to\
+ the chosen profile window in your browser, then try again.":"Hay otro perfil del navegador activo. Cambia a la ventana del perfil elegido en tu navegador e inténtalo de nuevo.","\
+Import from browser":"Importar desde el navegador","Last used":"Último usado","Browser profile":"Perfil del navegador","Paste cookies or cURL…":"Pegar cookies o cURL…","JSON, \
+cURL, header":"JSON, cURL, encabezado","Connect to {name}":"Conectar con {name}","{name} protects its cookies on Windows. Enable its built-in remote debugging switch once — no exte\
+nsion needed.":"{name} protege sus cookies en Windows. Activa una vez su interruptor integrado de depuración remota; no se necesita extensión.","1. Open this address in {name}:":"\
+1. Abre esta dirección en {name}:","2. Turn on “Allow remote debugging for this browser instance”, then click Allow when {name} prompts.":"2. Activa “Allow remote debugging fo\
+r this browser instance” y haz clic en Permitir cuando {name} lo solicite.","Remote debugging detected — ready to import.":"Depuración remota detectada: listo para importar.",
+"Open {name}":"Abrir {name}","Connect and import":"Conectar e importar","Paste cookies or cURL":"Pegar cookies o cURL","Paste Cookie-Editor JSON, Netscape cookies.txt, Copy as cURL\
+, or a Cookie header…":"Pega Cookie-Editor JSON, Netscape cookies.txt, Copy as cURL o un encabezado Cookie…","Site URL (only needed for plain Cookie headers)":"URL del sitio (s\
+olo necesaria para encabezados Cookie simples)","Reading…":"Leyendo…","{count} storage entries":"{count} entradas de almacenamiento","All sites ({count})":"Todos los sitios ({c\
+ount})","This site ({host})":"Este sitio ({host})","Filter sites…":"Filtrar sitios…",storage:"almacenamiento","Keep session logins after app restart":"Mantener sesiones iniciad\
+as al reiniciar la aplicación","Reading {name}…":"Leyendo {name}…","If {name} or your system asks for permission, click Allow.":"Si {name} o tu sistema solicitan permiso, haz \
+clic en Permitir.","Imported storage for {count} sites":"Almacenamiento importado para {count} sitios","{count} sites storage":"almacenamiento de {count} sitios","page reloaded":"p\
+ágina recargada","{count}":"{count}","Choose a PNG, JPEG, WebP, or GIF image":"Elige una imagen PNG, JPEG, WebP o GIF","Choose an image smaller than 25 MB":"Elige una imagen de me\
+nos de 25 MB","That image is too large":"Esa imagen es demasiado grande",Model:"Modelo","Avatar editor":"Editor de avatar","Avatar source":"Origen del avatar",Upload:"Subir","Reset\
+ character to default":"Restablecer personaje predeterminado",Reset:"Restablecer","Character shape":"Forma del personaje","Character color":"Color del personaje","Drag, drop, or pa\
+ste an image":"Arrastra, suelta o pega una imagen",Replace:"Reemplazar","Browse files":"Explorar archivos","Remove photo":"Quitar foto","Edit Bot avatar":"Editar avatar del Bot",Name:"\
+Nombre",Instructions:"Instrucciones","What this Bot is responsible for…":"De qué se encarga este Bot…","Pick the model this Bot runs on.":"Elige el modelo con el que funciona \
+este Bot.","This model is not available now. Pick another one.":"Este modelo no está disponible ahora. Elige otro.","Every message of this Bot runs on it.":"Cada mensaje de este B\
+ot se ejecuta con él.","Applies from the next message.":"Se aplica a partir del siguiente mensaje.",Profile:"Perfil",Label:"Etiqueta","Add a label":"Añadir etiqueta","Optional. S\
+hown under the name.":"Opcional. Se muestra debajo del nombre.","Research, admin…":"Investigación, administración…","What this Bot does":"Qué hace este Bot","Its job on the \
+team. Part of the Bot's system prompt.":"Su función en el equipo. Forma parte del prompt de sistema del Bot.","A copy with the same job and model, and fresh memory.":"Una copia co\
+n la misma función y modelo, y la memoria limpia.","Delete {name}?":"¿Eliminar a {name}?","Delete Bot":"Eliminar Bot","Click again to delete. Its chats are archived.":"Haz clic d\
+e nuevo para eliminar. Sus chats se archivarán.","Removes the Bot from the team.":"Elimina al Bot del equipo.","Pick a model and {name} can start.":"Elige un modelo y {name} podrá\
+ empezar.",Permissions:"Permisos","Read only":"Solo lectura",Workspace:"Espacio de trabajo","Full access":"Acceso total","Same for every member":"Igual para todos los miembros","Re\
+places each member's own permissions in this group.":"Reemplaza los permisos propios de cada miembro en este grupo.","The only Main Bot. To hand the role to another Bot, use Main B\
+ot on the Bots page.":"Es el único Bot principal. Para ceder el rol a otro Bot, usa Bot principal en la página de Bots.",Change:"Cambiar","Can create and change Bots, and runs ev\
+ery group chat.":"Puede crear y modificar Bots, y gestiona todos los chats grupales.",Sidebar:"Barra lateral","Kept above the other chats.":"Se mantiene por encima de los demás cha\
+ts.","Search still finds it.":"Aún aparece en la búsqueda.",Manage:"Gestionar",Library:"Biblioteca","Import photos":"Importar fotos","Importing photos…":"Importando fotos…","\
+No photos in the library yet.":"Aún no hay fotos en la biblioteca.","Use this photo":"Usar esta foto","Remove photo from the library":"Quitar foto de la biblioteca","1 photo impor\
+ted":"1 foto importada","{count} photos imported":"{count} fotos importadas","1 photo was already in the library":"1 foto ya estaba en la biblioteca","{count} photos were already i\
+n the library":"{count} fotos ya estaban en la biblioteca","{name}: {reason}":"{name}: {reason}",photo:"foto","Show more photos":"Mostrar más fotos","Showing {shown} of {total} ph\
+otos":"Mostrando {shown} de {total} fotos","Leave it empty to name the group after its members.":"Déjalo vacío para nombrar el grupo según sus miembros.","Every member reads it \
+before speaking in this group.":"Cada miembro lo lee antes de hablar en este grupo.","Add a Bot first: a group chat needs at least two.":"Añade primero un Bot: un chat grupal neces\
+ita al menos dos.","Click again to delete. Its history is archived.":"Haz clic de nuevo para eliminar. Su historial se archivará.","Removes the group chat. Its members stay on the\
+ team.":"Elimina el chat grupal. Sus miembros permanecen en el equipo.","Add a notice in group settings":"Añadir un aviso en los ajustes del grupo","Create Bot":"Crear Bot","Back \
+to new chat":"Volver a nuevo chat",Look:"Apariencia",Shuffle:"Aleatorio","Replace photo":"Reemplazar foto","Upload photo":"Subir foto","A Bot named {name} already exists":"Ya exist\
+e un Bot llamado {name}","The Bot runs on this model. You can change it later in its details.":"El Bot se ejecuta con este modelo. Puedes cambiarlo más tarde en sus detalles.","Pi\
+ck a model here, or the Bot asks for one in its chat.":"Elige un modelo aquí o el Bot te pedirá uno en su chat.","Add a provider and a model in DeepSeek Harness first, or pick on\
+e in the Bot's chat later.":"Añade primero un proveedor y un modelo en DeepSeek Harness, o elige uno más tarde en el chat del Bot.","Creating…":"Creando…",Create:"Crear",Default:"\
+Predeterminado","Thinking level":"Nivel de razonamiento","Model: {model}":"Modelo: {model}",none:"ninguno","Choose a model":"Elegir un modelo","{provider} · not available":"{provi\
+der} · no disponible","Model for {name}":"Modelo para {name}","No models are set up in DeepSeek Harness yet.":"Aún no hay modelos configurados en DeepSeek Harness.","Models and p\
+roviders…":"Modelos y proveedores…","Search models":"Buscar modelos","Search models…":"Buscar modelos…","No matching models.":"No hay modelos coincidentes.",Models:"Modelos",
+"Harness default":"Predeterminado de Harness",Saving:"Guardando","Manage models":"Gestionar modelos",Whale:"Ballena",Star:"Estrella",Moon:"Luna",Wave:"Onda",Squircle:"Cuadrículo",
+Bull:"Toro",Blossom:"Flor",Gumdrop:"Gominola",Peanut:"Cacahuete",Bubbles:"Burbujas",Saucer:"Platillo",Sprout:"Brote",Bunny:"Conejo",Kitty:"Gatito",Beacon:"Faro",Plus:"Más",Magnet:"\
+Imán",Acorn:"Bellota",Pebbles:"Guijarros",Cushion:"Cojín",Ring:"Anillo",Gem:"Gema",Black:"Negro",Brown:"Marrón",Red:"Rojo",Orange:"Naranja",Yellow:"Amarillo",Green:"Verde",Cyan:"\
+Cian",Blue:"Azul",Violet:"Violeta",Magenta:"Magenta",Gray:"Gris",Aurora:"Aurora",Deepseek:"Azul DeepSeek",Charcoal:"Carbón",Graphite:"Grafito",Rose:"Rosa",Sky:"Cielo",Tangerine:"M\
+andarina",Cobalt:"Cobalto",DeepSeek:"DeepSeek",Mono:"Mono",Paper:"Papel",Moonlight:"Luz de luna",General:"General",Bots:"Bots","Group chats":"Chats grupales",Secrets:"Secretos",Appearance:"\
+Apariencia",Theme:"Tema","Colors for the whole team, on every device.":"Colores para todo el equipo, en todos los dispositivos.",Accent:"Color de acento","Unread marks, badges, and\
+ the brand mark.":"Marcas de no leído, insignias y el logotipo.","Theme accent":"Acento del tema","Custom accent":"Acento personalizado","Message layout":"Diseño de mensajes",Bubble:"\
+Burbuja",Flat:"Plano","Bubble width":"Ancho de burbuja","Text width":"Ancho de texto","Show thinking":"Mostrar razonamiento","Enter sends message":"Enter envía el mensaje","Bring \
+up related memory":"Traer memoria relacionada","Group memory size":"Tamaño de memoria del grupo","Bot memory size":"Tamaño de memoria del Bot","Team memory size":"Tamaño de memor\
+ia del equipo","Bots · {count}":"Bots · {count}","First in the sidebar. Pick another Bot to hand it the role; {name} then stops being a Main Bot.":"Primero en la barra lateral. E\
+lige otro Bot para cederle el rol; {name} dejará entonces de ser Bot principal.","Choose a Bot…":"Elegir un Bot…","Also a Main Bot.":"También es un Bot principal.","Move to f\
+irst":"Mover al principio","Add a Main Bot":"Añadir un Bot principal","Main Bots can create and change Bots, and run every group chat.":"Los Bots principales pueden crear y modifi\
+car Bots, y gestionar todos los chats grupales.","Group chats · {count}":"Chats grupales · {count}","No group chats yet.":"Aún no hay chats grupales.","A group chat lets several\
+ Bots work on one thing with you.":"Un chat grupal permite que varios Bots trabajen contigo en un mismo asunto.","Back to group chats":"Volver a chats grupales","DS Bot settings":"\
+Ajustes de DS Bot","Settings pages":"Páginas de ajustes","Advanced settings":"Ajustes avanzados","Back to models":"Volver a modelos","Open Plugins":"Abrir Plugins","Open settings":"\
+Abrir ajustes","Open settings file":"Abrir archivo de ajustes","Could not open the settings file":"No se pudo abrir el archivo de ajustes","Show code work view":"Mostrar vista de t\
+rabajo de código","Could not save. Try again.":"No se pudo guardar. Inténtalo de nuevo.","Connection lost. Refresh to retry":"Conexión perdida. Recarga para reintentar",Reconnecting:"\
+Reconectando","Connection lost. Reconnect now":"Conexión perdida. Reconectar ahora","Connection dropped and retrying. Reconnect now":"Conexión interrumpida, reintentando. Reconect\
+ar ahora","Retry update":"Reintentar actualización","New version":"Nueva versión","{percent}%":"{percent}%","Verifying the update…":"Verificando la actualización…","Getting \
+ready to restart…":"Preparando para reiniciar…","Install and restart":"Instalar y reiniciar","{label}: {version}":"{label}: {version}","Downloading the update: {percent}%, vers\
+ion {version}":"Descargando la actualización: {percent}%, versión {version}","Could not check for updates. Try again later.":"No se pudo buscar actualizaciones. Inténtalo más tar\
+de.","Could not check for updates. Check your connection and try again.":"No se pudo buscar actualizaciones. Comprueba tu conexión e inténtalo de nuevo.","Could not download the \
+update. Try again.":"No se pudo descargar la actualización. Inténtalo de nuevo.","Could not download the update. Check your connection and try again.":"No se pudo descargar la ac\
+tualización. Comprueba tu conexión e inténtalo de nuevo.","Could not install the update. Try again later.":"No se pudo instalar la actualización. Inténtalo más tarde.","Could\
+ not install the update. Check your connection and try again.":"No se pudo instalar la actualización. Comprueba tu conexión e inténtalo de nuevo.","Tasks could not stop safely, \
+so the update was not installed. Try again later.":"Las tareas no pudieron detenerse de forma segura, por lo que no se instaló la actualización. Inténtalo más tarde.","New task\
+s started. Confirm again to stop them and update.":"Se iniciaron nuevas tareas. Confirma de nuevo para detenerlas y actualizar.","Task status is not available. Try again when the w\
+orkspace is ready.":"El estado de las tareas no está disponible. Inténtalo de nuevo cuando el espacio de trabajo esté listo.","Could not leave full screen. Leave full screen and\
+ try again.":"No se pudo salir de pantalla completa. Sal de pantalla completa e inténtalo de nuevo.","The service version changed":"La versión del servicio cambió","This page pa\
+used live updates. Reload to load the new version.":"Esta página pausó las actualizaciones en vivo. Recarga para cargar la nueva versión.","Reload to load the new version":"Reca\
+rgar para cargar la nueva versión","Not now":"Ahora no",Service:"Servicio",Page:"Página",Unknown:"Desconocido","Back to Bots":"Volver a Bots","Close settings":"Cerrar ajustes",Unpin:"\
+Desfijar",Pin:"Fijar",Pinned:"Fijado","Mark as Unread":"Marcar como no leído","Mute notifications":"Silenciar notificaciones","Unmute notifications":"Reactivar notificaciones",Notifications:"\
+Notificaciones","Tell me when a Bot answers while I am looking elsewhere.":"Avísame cuando un Bot responda mientras miro otra cosa.","System notifications are turned off for DS Bo\
+t. Unread marks still show them.":"Las notificaciones del sistema están desactivadas para DS Bot. Las marcas de no leído siguen apareciendo.","Rename Bot":"Renombrar Bot","Group \
+settings":"Ajustes del grupo","Shared to-do":"Tareas compartidas","{count} open":"{count} pendientes","No shared to-dos yet. Ask a Bot in this group to add one.":"Aún no hay tareas\
+ compartidas. Pide a un Bot de este grupo que añada una.","Clear completed":"Borrar completadas","Rename group":"Renombrar grupo","Copy conversation ID":"Copiar ID de conversación",
+"Hide from sidebar":"Ocultar de la barra lateral","{name} actions":"Acciones de {name}","Add DSH Agent":"Añadir DSH Agent","Remove DSH Agent":"Quitar DSH Agent","New session":"Nue\
+va sesión",Archive:"Archivar","Session actions":"Acciones de sesión",Plugins:"Complementos","Plain dsh session":"Sesión nativa de dsh","just now":"ahora mismo","{n} min":"{n} mi\
+n","{n} h":"{n} h","{n} d":"{n} d","DS Bot {version} is available":"DS Bot {version} está disponible","Updating DS Bot…":"Actualizando DS Bot…","DS Bot {version} is installed.\
+ Restart DSH to use it.":"DS Bot {version} está instalado. Reinicia DSH para usarlo.","DS Bot {version} is installed.":"DS Bot {version} está instalado.","DS Bot update":"Actuali\
+zación de DS Bot","DS Bot {version}":"DS Bot {version}","Update installed":"Actualización instalada","Restart DSH to start using DS Bot {version}.":"Reinicia DSH para empezar a u\
+sar DS Bot {version}.","You have {version}.":"Tienes la versión {version}.","The update did not finish: {reason}":"La actualización no terminó: {reason}","What's new":"Novedades",
+"Updating…":"Actualizando…","DSH {version} is available":"DSH {version} está disponible","Updating DSH…":"Actualizando DSH…","DSH update":"Actualización de DSH","DSH {ver\
+sion}":"DSH {version}","Restart DSH to start using DSH {version}.":"Reinicia DSH para empezar a usar DSH {version}.","Update DS Bot {version} first.":"Actualiza primero DS Bot {ver\
+sion}.","Open updates":"Abrir actualizaciones",Messages:"Mensajes",Commands:"Comandos","Search Bots, chats and messages":"Buscar Bots, chats y mensajes","Search this group":"Buscar\
+ en este grupo","Search this group’s messages":"Buscar en los mensajes de este grupo","Search messages in {name}":"Buscar mensajes en {name}","Type at least two characters":"Escr\
+ibe al menos dos caracteres","No messages found":"No se encontraron mensajes","Try a different word":"Prueba con otra palabra","Searching…":"Buscando…","Back to results":"Volve\
+r a los resultados","Around this message":"Alrededor de este mensaje","1 match":"1 coincidencia","{count} matches":"{count} coincidencias","Clear search":"Borrar búsqueda",Results:"\
+Resultados","No results":"Sin resultados","Try a Bot name or words from a message":"Prueba con el nombre de un Bot o palabras de un mensaje","Bot exchange":"Conversación entre Bots",
+"Bot exchange transcript":"Registro de conversación entre Bots","No messages yet":"Aún no hay mensajes","Close Chat":"Cerrar chat","Show all · {count} characters":"Mostrar todo \
+· {count} caracteres","Showing the first {count} characters":"Mostrando los primeros {count} caracteres","Only the start of this message is kept here":"Aquí solo se conserva el pr\
+incipio de este mensaje","Start of reply":"Inicio de la respuesta","Back to the start of this reply":"Volver al inicio de esta respuesta",Contents:"Contenido","Sections in this rep\
+ly":"Secciones de esta respuesta","Sections in this reply: {section}":"Secciones de esta respuesta: {section}","Today {time}":"Hoy {time}","Yesterday {time}":"Ayer {time}","Ran for\
+ {duration}":"Duración: {duration}","No background work detected":"No se detectó trabajo en segundo plano","DS Bot has no recorded tool call or active background task for this re\
+ply.":"DS Bot no ha registrado llamadas a herramientas ni tareas activas en segundo plano para esta respuesta.","File not found: {path}":"No se encuentra el archivo: {path}","{toke\
+ns} tok · Cache hit {hit}%":"{tokens} tok · Acierto de caché {hit}%","1 turn":"1 turno","{count} turns":"{count} turnos","{speed} tok/s":"{speed} tok/s","Cache hit {hit}%":"Acie\
+rto de caché {hit}%","Context {percent}%":"Contexto {percent}%","{used} of {total} tokens of context in use":"{used} de {total} tokens de contexto en uso",Annotate:"Anotar","Annot\
+ate quote":"Anotar cita",Annotation:"Anotación","Add an annotation…":"Añade una anotación…","Add quote and annotation to the composer · Enter":"Añadir la cita y la anotació\
+n al campo · Intro","Send quote and annotation · Ctrl+Enter":"Enviar la cita y la anotación · Ctrl+Intro",Footnotes:"Notas al pie","Remove reaction {emoji}":"Quitar reacción {e\
+moji}","Add reaction":"Añadir reacción",Reply:"Responder","More message actions":"Más acciones del mensaje",More:"Más",Reactions:"Reacciones","Message actions":"Acciones del me\
+nsaje",Download:"Descargar","Thought it through":"Razonamiento","Earlier messages":"Mensajes anteriores","Loading earlier messages…":"Cargando mensajes anteriores…","Couldn’t l\
+oad earlier messages · Retry":"No se pudieron cargar los mensajes anteriores · Reintentar","Load earlier":"Cargar anteriores","1 image":"1 imagen","{count} images":"{count} imáge\
+nes","Replies from":"Respuestas de","Reply from":"Respuesta de","Message from":"Mensaje de","Stopped by":"Detenido por","{count} messages with":"{count} mensajes con","Routine star\
+ted":"Rutina iniciada",Update:"Actualizar","Thinking about it":"Pensándolo","Weighing the options":"Valorando opciones","Working out a plan":"Elaborando un plan","Sorting out the \
+details":"Afinando los detalles","On it":"En ello","Busy with it":"Ocupado en ello","Moving ahead":"Avanzando","Taking care of it":"Encargándose de ello","Making headway":"Progres\
+ando","Moving to a fresh conversation":"Pasando a una nueva conversación","Switching working folder":"Cambiando de carpeta de trabajo","Searching online":"Buscando en línea","Rea\
+ding a page":"Leyendo una página","Running shell commands":"Ejecutando comandos de terminal","Opening a file":"Abriendo un archivo","Looking through files":"Buscando en archivos",
+"Writing changes":"Escribiendo cambios","Working on an image":"Procesando una imagen","Creating a group":"Creando un grupo","Updating the group":"Actualizando el grupo","Deleting t\
+he group":"Eliminando el grupo","Posting in the group":"Publicando en el grupo","Checking the keys":"Consultando las claves","Asking {name}":"Preguntando a {name}","Asking another \
+Bot":"Preguntando a otro Bot","Stopping {name}":"Deteniendo a {name}","Stopping another Bot":"Deteniendo a otro Bot","Creating {name}":"Creando a {name}","Updating {name}":"Actuali\
+zando a {name}","Checking the team":"Consultando el equipo","Reading {name}":"Leyendo a {name}","Looking back through the chat":"Revisando el historial del chat","{name} looked up \
+its own chat":"{name} revisó su propio chat","{name} looked up its own chat for “{text}”":"{name} buscó “{text}” en su propio chat","{name} is typing…":"{name} está esc\
+ribiendo…","{name} didn't answer in time":"{name} no respondió a tiempo","{name} did not answer or call anyone; call a member with @Name":"{name} no respondió ni mencionó a nadi\
+e; menciona a un miembro con @Nombre","The group replies could not be shown":"No se pudieron mostrar las respuestas del grupo","Paused after {count} Bot relays. Waiting: {names}":"\
+En pausa tras {count} relevos entre Bots. En espera: {names}","{names} went back and forth {count} times without progress and paused. Write here to go on":"{names} intercambiaron m\
+ensajes {count} veces sin avanzar y se pausaron. Escribe aquí para continuar","{name} paused for your approval":"{name} se pausó esperando tu aprobación","{name} started on it":"\
+{name} se puso manos a la obra","You stopped {name}'s work":"Detuviste el trabajo de {name}","{name} finished its work":"{name} terminó su trabajo","{name} was cut off by a restar\
+t and picked its work back up":"{name} se interrumpió por un reinicio y retomó su trabajo","{name} was cut off by a restart again and stopped":"{name} volvió a interrumpirse por \
+un reinicio y se detuvo","Picked up its work after a restart":"Retomó su trabajo tras un reinicio","Profile updated":"Perfil actualizado","Asked to make the tool call it wrote as \
+text":"Se le pidió ejecutar la llamada a herramienta que escribió como texto","Went on after the failed turn":"Continuó tras el turno fallido","A Bot":"Un Bot","{name} is waitin\
+g for your approval":"{name} espera tu aprobación","{first} and {second} are waiting for your approval":"{first} y {second} esperan tu aprobación","{first}, {second} and {count} \
+more are waiting for your approval":"{first}, {second} y {count} más esperan tu aprobación","Waiting for your approval":"Esperando tu aprobación","in its own chat":"en su propio\
+ chat","Stop all work in this group":"Detener todo el trabajo en este grupo","Stop all":"Detener todo",Goal:"Objetivo","Set a goal":"Fijar un objetivo","This group has no admin":"E\
+ste grupo no tiene administrador","What should this group achieve?":"¿Qué debe lograr este grupo?",Start:"Iniciar",Resume:"Reanudar","Stop the goal?":"¿Detener el objetivo?","Al\
+igning the goal with you":"Alineando el objetivo contigo","{admin} asks what is still open, then writes the goal with its checks and stages.":"{admin} pregunta qué queda por defini\
+r y luego redacta el objetivo con sus verificaciones y etapas.",Objective:"Objetivo","Done when":"Criterio de finalización",Rules:"Reglas","Final check":"Verificación final","Wai\
+ting for you":"Esperándote","Goal reached":"Objetivo alcanzado",Stages:"Etapas","Stage {n}: {title}":"Etapa {n}: {title}","Paused · {title}":"En pausa · {title}","Waiting for yo\
+u · {title}":"Esperándote · {title}","Checking · {title}":"Verificando · {title}","Sent back by {admin}: {feedback}":"Devuelto por {admin}: {feedback}","Sent back {n} times by\
+ {admin}. Last time: {feedback}":"Devuelto {n} veces por {admin}. Última vez: {feedback}","Done when: {text}":"Completado cuando: {text}","Evidence: {text}":"Evidencia: {text}","B\
+ack to current stage":"Volver a la etapa actual","Goal and checks":"Objetivo y verificaciones",Summary:"Resumen",Evidence:"Evidencia","Stop current work too":"Detener también el tr\
+abajo actual","Setting a goal":"Fijando un objetivo","Goal set: {title} · {count} stages":"Objetivo fijado: {title} · {count} etapas","Stage {n} passed · now stage {m}: {next}":"\
+Etapa {n} superada · ahora etapa {m}: {next}","All {count} stages passed":"Las {count} etapas superadas","Stage {n} sent back for rework":"Etapa {n} devuelta para corrección","Go\
+al updated":"Objetivo actualizado","Goal paused":"Objetivo en pausa","Goal resumed":"Objetivo reanudado","Goal reached: {title}":"Objetivo alcanzado: {title}","Goal stopped":"Objet\
+ivo detenido",Reject:"Rechazar","Allow once":"Permitir una vez","Couldn't message {name}":"No se pudo enviar mensaje a {name}",Messaged:"Mensaje enviado a","Couldn't stop {name}":"\
+No se pudo detener a {name}",Stopped:"Detenido",Created:"Creado",Updated:"Actualizado","Created group":"Grupo creado","Couldn't create the group":"No se pudo crear el grupo","Updat\
+ed group":"Grupo actualizado","Couldn't update the group":"No se pudo actualizar el grupo","Deleted group":"Grupo eliminado","Couldn't delete the group":"No se pudo eliminar el gru\
+po","Posted in":"Publicado en","Couldn't post in the group":"No se pudo publicar en el grupo",Read:"Leído","Your own answer":"Tu propia respuesta","Type your own answer":"Escribe \
+tu propia respuesta",Selected:"Seleccionado",Skip:"Omitir",Submit:"Enviar","Choose all that apply":"Selecciona todas las que correspondan","Dismiss question":"Descartar pregunta",Dismiss:"\
+Descartar",Dismissed:"Descartado","Answered by message":"Respondido por mensaje","Your answer":"Tu respuesta",View:"Vista",Confirm:"Confirmar",Progress:"Progreso","Dismiss view":"C\
+errar vista",Sources:"Fuentes",Chart:"Gráfico","Chart {n}":"Gráfico {n}",Series:"Serie","Chart options":"Opciones de gráfico","View as table":"Ver como tabla","View as chart":"V\
+er como gráfico","Copy data":"Copiar datos","Download image":"Descargar imagen","This view tried to open a page and was stopped.":"Esta vista intentó abrir una página y fue bloque\
+ada.","Send to Bot":"Enviar al Bot","All Bots":"Todos los Bots","No Bot":"Ningún Bot","Paste or type the key":"Pega o escribe la clave","Only {name}":"Solo {name}","Who may use it":"\
+Quién puede usarla","Cancel the request":"Cancelar la solicitud","This page is not on HTTPS: the key crosses the network unencrypted.":"Esta página no usa HTTPS: la clave viaja po\
+r la red sin cifrar.","Let {bot} use {name}?":"¿Permitir que {bot} use {name}?","{name} needs a key":"{name} necesita una clave","Saved for {scope}":"Guardado para {scope}","Value\
+ of {name}":"Valor de {name}","{bot} never sees the value. It reaches {bot}'s shell as ":"{bot} nunca ve el valor. Llega al terminal de {bot} como "," At least {count} characters.":"\
+ Al menos {count} caracteres.","At least {count} characters.":"Al menos {count} caracteres.","Replace value":"Reemplazar valor","Saving…":"Guardando…","Could not save this file":"\
+No se pudo guardar este archivo",Save:"Guardar","Allowing…":"Permitiendo…",Allow:"Permitir","{bot} asked for {name}":"{bot} solicitó {name}","Allowed {bot} to use {name}":"Se \
+permitió a {bot} usar {name}","Saved {name}":"Se guardó {name}",Canceled:"Cancelado",Done:"Listo","{bot} is using {name}":"{bot} está usando {name}","{bot} could not ask for a k\
+ey: this window can only view the team":"{bot} no pudo solicitar una clave: esta ventana solo puede ver el equipo","a saved key":"una clave guardada","Chosen Bots":"Bots elegidos",
+"Who may use {name}":"Quién puede usar {name}","Save access":"Guardar acceso","Replace the value":"Reemplazar el valor","New value of {name}":"Nuevo valor de {name}","Replaced. Bo\
+ts get the new value from their next command.":"Reemplazado. Los Bots recibirán el nuevo valor a partir de su siguiente comando.","a deleted Bot":"un Bot eliminado","Asked by {nam\
+e}":"Solicitado por {name}","added {time}":"añadido {time}","last used {time}":"último uso {time}","not used yet":"aún sin usar","Delete {name}? Bots lose it at once.":"¿Elimina\
+r {name}? Los Bots dejarán de tener acceso de inmediato.",Keep:"Conservar","Key name":"Nombre de la clave","NAME, e.g. GITHUB_TOKEN":"NOMBRE, p. ej., GITHUB_TOKEN","What it is for":"\
+Para qué sirve",Value:"Valor","New keys are for all Bots; narrow it down afterwards.":"Las claves nuevas son para todos los Bots; puedes restringir el acceso después.","Save key":"\
+Guardar clave","Keys your Bots asked for. Bots never see the values: they use them as ":"Claves solicitadas por tus Bots. Los Bots nunca ven los valores: los usan como "," in their\
+ shell, and every value is replaced by ":" en su terminal, y cada valor se reemplaza por "," before anything goes to a model.":" antes de enviarse a cualquier modelo.","Secrets · {\
+count}":"Secretos · {count}","Encryption at rest":"Cifrado en reposo","Keys are stored in a file only this user can read, but the values are not encrypted.":"Las claves se guardan\
+ en un archivo que solo este usuario puede leer, pero los valores no están cifrados.","Encrypt keys at rest":"Cifrar las claves","Passphrase (at least 8 characters)":"Frase de con\
+traseña (mínimo 8 caracteres)","Repeat the passphrase":"Repite la frase de contraseña","The passphrases do not match.":"Las frases de contraseña no coinciden.","Turn on encrypt\
+ion":"Activar el cifrado","Keys are stored encrypted. They stay decrypted in memory while DS Bot runs.":"Las claves se guardan cifradas. Solo se descifran en memoria mientras DS Bo\
+t se ejecuta.","Turn off encryption":"Desactivar el cifrado","Secrets are locked":"Los secretos están bloqueados",Passphrase:"Frase de contraseña",Unlock:"Desbloquear","The passp\
+hrase file named by DS_BOT_SECRETS_PASSPHRASE_FILE could not be read.":"No se pudo leer el archivo de frase de contraseña indicado por DS_BOT_SECRETS_PASSPHRASE_FILE.","The passph\
+rase in the environment or the passphrase file did not unlock the secrets.":"La frase de contraseña del entorno o del archivo no desbloqueó los secretos.","No passphrase was foun\
+d at startup. Enter it here, or set DS_BOT_SECRETS_PASSPHRASE_FILE for unattended starts.":"No se encontró una frase de contraseña al iniciar. Escríbela aquí o configura DS_BOT_SEC\
+RETS_PASSPHRASE_FILE para inicios sin supervisión.","No keys yet. When a Bot needs one, it shows a card in its chat.":"Aún no hay claves. Cuando un Bot necesite una, mostrará una \
+tarjeta en su chat.","Add a key":"Añadir una clave",Memory:"Memoria","Nothing saved yet":"Aún no se ha guardado nada","1 entry":"1 entrada","{count} entries":"{count} entradas","\
+Manage {name}'s memory":"Gestionar la memoria de {name}","{name}'s memory":"Memoria de {name}","Memory summary":"Resumen de memoria","All entries":"Todas las entradas","Change hist\
+ory":"Historial de cambios","No changes yet":"Aún no hay cambios","Load more":"Cargar más",Undo:"Deshacer",Undone:"Deshecho","Undo this change":"Deshacer este cambio","Click agai\
+n to undo":"Haz clic de nuevo para deshacer","Memory options":"Opciones de memoria","Close memory":"Cerrar memoria","Back to the summary":"Volver al resumen","Regenerate summary":"\
+Regenerar resumen","Updated {time}":"Actualizado {time}","Updated just now":"Actualizado ahora mismo","Writing the summary…":"Escribiendo el resumen…","The summary is out of da\
+te: {reason}":"El resumen está desactualizado: {reason}","The summary could not be written: {reason}":"No se pudo escribir el resumen: {reason}","{name} has not saved anything yet":"\
+{name} aún no ha guardado nada","Bots keep lasting preferences, decisions, and what you ask them to remember. Tell {name} below, or in its chat.":"Los Bots guardan preferencias du\
+raderas, decisiones y lo que les pidas recordar. Díselo a {name} abajo o en su chat.","Nothing is saved for this group yet":"Aún no se ha guardado nada para este grupo","A group \
+keeps the decisions, rules, and facts its work needs, for its members to read here. Tell it below, or in the group.":"Un grupo guarda las decisiones, reglas y datos que necesita su\
+ trabajo para que sus miembros los lean aquí. Díselo abajo o en el grupo.","Team memory":"Memoria del equipo","Every Bot reads it":"Todos los Bots la leen","Group memory":"Memori\
+a del grupo","Only its members read it":"Solo sus miembros la leen","MEMORY.md, which every conversation reads":"MEMORY.md, que se lee en cada conversación","{used} of {limit} cha\
+racters":"{used} de {limit} caracteres","by you":"por ti","by {name}":"por {name}","Remove from memory":"Quitar de la memoria","until {day}":"hasta el {day}","Tidied: {merged} merg\
+ed, {moved} moved, {retired} archived":"Organizado: {merged} fusionadas, {moved} movidas, {retired} archivadas","Only when needed":"Solo cuando sea necesario","Move to…":"Mover a\
+…","Every conversation":"Cada conversación","ended {day}":"finalizó el {day}","Click again to remove":"Haz clic de nuevo para quitar",Remove:"Quitar","Ask or update":"Preguntar\
+ o actualizar","Ask about or update {name}'s memory":"Preguntar o actualizar la memoria de {name}",Send:"Enviar","Added: {text}":"Añadido: {text}","Added to team memory: {text}":"\
+Añadido a la memoria del equipo: {text}","Updated: {text}":"Actualizado: {text}","Removed: {text}":"Eliminado: {text}","Removed from team memory: {text}":"Eliminado de la memoria \
+del equipo: {text}","Not changed: {text} ({reason})":"Sin cambios: {text} ({reason})","{count} file changed":"{count} archivo modificado","{count} files changed":"{count} archivos \
+modificados",File:"Archivo","Review these changes":"Revisar estos cambios","These changes are no longer available":"Estos cambios ya no están disponibles","This window cannot open\
+ the change review":"Esta ventana no puede abrir la revisión de cambios","Saving to memory":"Guardando en la memoria","Updating memory":"Actualizando la memoria","Checking memory":"\
+Consultando la memoria","Memory updated":"Memoria actualizada","Already saved":"Ya estaba guardado","Couldn't save to memory":"No se pudo guardar en la memoria","Couldn't remove fr\
+om memory":"No se pudo quitar de la memoria","Memory not changed":"La memoria no cambió","Write something to save":"Escribe algo para guardar","No saved entry matched":"Ninguna en\
+trada guardada coincide","The memory refused this change":"La memoria rechazó este cambio","The memory could not be changed":"No se pudo modificar la memoria","Team memory updated":"\
+Memoria del equipo actualizada","Updated {name}'s memory":"Memoria de {name} actualizada","Memory updated. Open {name}'s memory":"Memoria actualizada. Abrir la memoria de {name}","\
+Open browser":"Abrir navegador","{name}'s browser":"Navegador de {name}","Resize panel":"Redimensionar panel",Back:"Atrás",Forward:"Adelante",Stop:"Detener",Reload:"Recargar",Address:"\
+Dirección","Search or enter address":"Buscar o introducir dirección","This page didn’t load":"Esta página no se cargó","Try again":"Intentar de nuevo","Open a page here and {\
+name} can read it with you. Logins and cookies stay with {name}; other Bots never see them.":"Abre una página aquí y {name} podrá leerla contigo. Los inicios de sesión y las cookie\
+s se quedan en {name}; otros Bots nunca los ven.","Only http and https addresses open here.":"Aquí solo se abren direcciones http y https.","The page crashed.":"La página falló.",
+"The browser blocked the new window.":"El navegador bloqueó la ventana nueva.","Open the issue":"Abrir el problema","Cloud metadata addresses do not open here.":"Las direcciones d\
+e metadatos en la nube no se abren aquí.","Dictation is not available in this browser":"El dictado no está disponible en este navegador","Microphone access is blocked":"El acceso\
+ al micrófono está bloqueado","Couldn't hear that":"No se pudo escuchar","Couldn't start dictation":"No se pudo iniciar el dictado","Stop dictation":"Detener dictado",Dictate:"Di\
+ctar","Start voice chat":"Iniciar chat de voz","Voice chat":"Chat de voz",Listening:"Escuchando",Thinking:"Pensando","Thinking…":"Pensando…",Speaking:"Hablando",Paused:"En paus\
+a","Voice chat is not available in this browser":"El chat de voz no está disponible en este navegador","Voice chat with {name}":"Chat de voz con {name}","Resume listening":"Reanud\
+ar escucha",Pause:"Pausar","End voice chat":"Finalizar chat de voz","Recognizing…":"Reconociendo…","Voice input needs its speech model":"La entrada de voz necesita su modelo de\
+ voz","Set up voice input":"Configurar entrada de voz","Preparing voice input…":"Preparando entrada de voz…","Downloading the speech model… {pct}%":"Descargando el modelo de \
+voz… {pct}%","Couldn't prepare voice input":"No se pudo preparar la entrada de voz","That was too long to recognize":"Fue demasiado largo para reconocerlo","24 hours":"24 horas",
+"7 days":"7 días","30 days":"30 días","12 weeks":"12 semanas","12 months":"12 meses","Per hour":"Por hora","Per day":"Por día","Per week":"Por semana","Per month":"Por mes",Output:"\
+Salida",Input:"Entrada","Cache hit":"Acierto de caché","Deleted Bot":"Bot eliminado",Deleted:"Eliminado","Deleted group chat":"Chat grupal eliminado","Group chat":"Chat grupal","O\
+wn chat":"Chat individual","Side chat":"Chat lateral","New browser tab":"Nueva pestaña del navegador",Terminal:"Terminal",Files:"Archivos","Close side chat":"Cerrar chat lateral",
+"Delete side chat":"Eliminar chat lateral","Ask without interrupting":"Preguntar sin interrumpir","Ask about the work so far":"Preguntar sobre el trabajo hasta ahora","Answering…":"\
+Respondiendo…",Cancelled:"Cancelado",Tasks:"Tareas","In progress":"En curso","Awaiting review":"Pendiente de revisión",Blocked:"Bloqueada","Stopped by the user":"Detenido por el\
+ usuario","Not updated after a restart":"Sin actualizar tras el reinicio","Its model call failed ({code})":"Falló la llamada al modelo ({code})","Add a note":"Añadir una nota","C\
+ancel task":"Cancelar tarea","Click again to cancel":"Haz clic otra vez para cancelar","History ({count})":"Historial ({count})","Hide history":"Ocultar historial","No task is runn\
+ing in this group.":"No hay ninguna tarea en curso en este grupo.","What should change?":"¿Qué debe cambiar?","Note: {text}":"Nota: {text}","Answered from progress so far; nothin\
+g was run":"Respondido según el progreso hasta ahora; no se ejecutó nada","Could not answer.":"No se pudo responder.","Cancel this side question":"Cancelar esta pregunta lateral",
+Conversations:"Conversaciones","Compaction and handoff":"Compactación y traspaso","Image reading":"Lectura de imágenes",Titles:"Títulos",Other:"Otros","Last {range}":"Últimos {r\
+ange}",tokens:"tokens","Compared with the {range} before":"En comparación con el periodo anterior ({range})","{share}% of all usage in the last {range}":"{share}% de todo el uso e\
+n el último periodo ({range})",Calls:"Llamadas","Cache hit rate":"Tasa de acierto de caché","Tokens over time":"Tokens a lo largo del tiempo","{count} tokens":"{count} tokens","{\
+tokens} tokens · {calls} calls":"{tokens} tokens · {calls} llamadas","Active on 1 day in the last year":"Activo 1 día en el último año","Active on {count} days in the last yea\
+r":"Activo {count} días en el último año",Light:"Bajo",Heavy:"Alto","Unknown model":"Modelo desconocido","More Bots":"Más Bots","More models":"Más modelos","Reading your chats\
+…":"Leyendo tus chats…","No usage yet.":"Aún no hay uso.","Token usage shows up here after a model is called.":"El uso de tokens aparece aquí después de llamar a un modelo.",
+"Nothing in this range.":"Nada en este periodo.","Who used it":"Quién lo usó","What for":"Para qué",Activity:"Actividad","Time range":"Periodo","All usage":"Todo el uso","Group \
+usage by":"Agrupar uso por","By Bot":"Por Bot","By model":"Por modelo","Still reading older chats; totals may grow.":"Aún leyendo chats antiguos; los totales pueden aumentar.",Custom:"\
+Personalizado","Custom range":"Periodo personalizado","This month":"Este mes","Last month":"El mes pasado","This year":"Este año","Previous month":"Mes anterior","Next month":"Mes\
+ siguiente","Pick the first day":"Elige el primer día","Pick the last day":"Elige el último día","1 day":"1 día","{count} days":"{count} días","Compared with the day before":"\
+En comparación con el día anterior","Compared with the {count} days before":"En comparación con los {count} días anteriores","{share}% of all usage from {span}":"{share}% de to\
+do el uso de {span}","About DS Bot":"Acerca de DS Bot","Version {version}":"Versión {version}","Star DS Bot on GitHub":"Dar una estrella a DS Bot en GitHub","{count} stars":"{coun\
+t} estrellas","If DS Bot helps you, a star on GitHub helps more people find it.":"Si DS Bot te resulta útil, una estrella en GitHub ayuda a que más personas lo descubran.",Updates:"\
+Actualizaciones","Check for updates":"Buscar actualizaciones","Checking…":"Comprobando…","Up to date":"Actualizado","Checked {time}":"Comprobado {time}","Could not check for up\
+dates.":"No se pudo buscar actualizaciones.","Update checks are off.":"La búsqueda de actualizaciones está desactivada.","Checking for updates…":"Buscando actualizaciones…","\
+Downloading {version}…":"Descargando {version}…","{version} is ready; it installs when you restart":"{version} está listo; se instalará al reiniciar","Restart to update":"Rei\
+niciar para actualizar","{version} is available":"{version} está disponible","Installed from a local folder; update it there.":"Instalado desde una carpeta local; actualízalo allí\
+.","Updates are not offered for this install.":"No se ofrecen actualizaciones para esta instalación.","Updates come with the DS Bot app.":"Las actualizaciones llegan con la aplica\
+ción DS Bot.",Links:"Enlaces","Source code":"Código fuente","Release notes":"Notas de la versión",Open:"Abrir",Feedback:"Comentarios","Report a problem":"Informar de un problema",
+"What happened?":"¿Qué ocurrió?","What you did, what you expected, and what happened instead. It goes into the issue.":"Qué hiciste, qué esperabas y qué ocurrió en su lugar. Se \
+incluirá en el issue.","For example: I asked Writer in the group chat and it showed an error.":"Por ejemplo: le pregunté a Writer en el chat grupal y mostró un error.",Diagnostics:"\
+Diagnóstico","Versions, system, models, and the latest errors. Saved keys, tokens, and your home folder are hidden.":"Versiones, sistema, modelos y los últimos errores. Las claves\
+ guardadas, tokens y tu carpeta personal se ocultan.",Show:"Mostrar",Hide:"Ocultar","GitHub issue":"Issue de GitHub","Opens a new issue in the DS Bot repository with all of this fi\
+lled in. Nothing is sent until you submit it there.":"Abre un nuevo issue en el repositorio de DS Bot con todo esto rellenado. No se envía nada hasta que lo publiques allí.","Rep\
+ort on GitHub":"Informar en GitHub","Copied the diagnostics.":"Diagnóstico copiado.","Could not copy. Select the text below and copy it.":"No se pudo copiar. Selecciona el texto d\
+e abajo y cópialo.","Opened a new GitHub issue with the diagnostics filled in. Check it before you submit.":"Se abrió un nuevo issue en GitHub con el diagnóstico rellenado. Revísa\
+lo antes de enviarlo.","Opened a new GitHub issue. The diagnostics are long, so they are on the clipboard: paste them into the issue.":"Se abrió un nuevo issue en GitHub. El diagnó\
+stico es largo, por lo que está en el portapapeles: pégalo en el issue.","Opened a new GitHub issue. Copy the diagnostics below into it.":"Se abrió un nuevo issue en GitHub. Copi\
+a en él el diagnóstico de abajo.","Downloaded the log. Keys, tokens, and your home folder are hidden in it.":"Registro descargado. Las claves, tokens y tu carpeta personal están \
+ocultos en él.","Cleared the error log.":"Registro de errores borrado.","Recent errors":"Errores recientes","Recent errors · {count}":"Errores recientes · {count}","No errors re\
+corded.":"No hay errores registrados.","Failed model calls and DS Bot problems show here, newest first.":"Las llamadas a modelos fallidas y los problemas de DS Bot se muestran aquí\
+, los más recientes primero.","Model call":"Llamada al modelo","This window":"Esta ventana","Error log":"Registro de errores","Kept on this computer across restarts, up to about 1\
+ MB.":"Se conserva en este ordenador entre reinicios, hasta aproximadamente 1 MB.",Clear:"Borrar","Settings → Feedback has the details.":"Los detalles están en Ajustes → Comentar\
+ios.","Could not reach DSH. Check that it is still running.":"No se pudo conectar con DSH. Comprueba que siga en ejecución.","{name} stopped: {reason}. Switch its model or ask it \
+to go on.":"{name} se detuvo: {reason}. Cambia su modelo o pídele que continúe.","{name}'s background helper did not finish: {reason}. Ask it to go on if it still matters.":"El a\
+yudante en segundo plano de {name} no terminó: {reason}. Pídele que siga si aún importa.","Run failed":"Falló la ejecución","Reached the output limit":"Se alcanzó el límite de\
+ salida","Stopped before finishing":"Se detuvo antes de terminar","Declined the task":"Rechazó la tarea","Unknown error":"Error desconocido","The model has no API key":"El modelo \
+no tiene clave API","The API key is not in the right format":"La clave API no tiene el formato correcto","The DeepSeek account needs a sign-in":"La cuenta de DeepSeek requiere inic\
+iar sesión","The DeepSeek account is signed out":"Se cerró la sesión de la cuenta de DeepSeek","The DeepSeek account sign-in has expired":"La sesión de la cuenta de DeepSeek ha \
+caducado","The API key was rejected":"La clave API fue rechazada","The account is out of quota":"La cuenta se quedó sin cuota","Too many requests to the model":"Demasiadas solicit\
+udes al modelo","The conversation is too long for the model":"La conversación es demasiado larga para el modelo","The model service refused the request":"El servicio de modelos re\
+chazó la solicitud","The model service failed":"El servicio de modelos falló","The model took too long to answer":"El modelo tardó demasiado en responder","Could not reach the m\
+odel service":"No se pudo conectar con el servicio de modelos","The conversation could not be compacted for the model switch":"No se pudo compactar la conversación para cambiar de \
+modelo","Its group conversation could not open":"No se pudo abrir su conversación grupal","Its group conversation could not open, so it starts a new one next time":"No se pudo abr\
+ir su conversación grupal, por lo que iniciará una nueva la próxima vez","Pasted text · {count} characters":"Texto pegado · {count} caracteres","Put back":"Devolver","Put back\
+ into the box":"Devolver al cuadro de texto","Remove pasted text":"Quitar el texto pegado","Add files":"Añadir archivos","Reference a chat":"Referenciar un chat","Chat with {name}":"\
+Chat con {name}","Scheduled task":"Tarea programada","Open the scheduled tasks of this chat":"Abrir las tareas programadas de este chat","Send to":"Enviar a","Scheduled task: {text\
+}":"Tarea programada: {text}","Choose the group admin":"Elegir al administrador del grupo","Group admin":"Administrador del grupo","Who to chat with…":"Con quién chatear…","Ad\
+d at least one more Bot":"Añade al menos un Bot más",Members:"Miembros","Scheduled tasks":"Tareas programadas","Every day":"Cada día","Every {count} days":"Cada {count} días","\
+Every hour":"Cada hora","Every {count} hours":"Cada {count} horas","Every {count} minutes":"Cada {count} minutos","Once, {time}":"Una vez, {time}","Every day at {time}":"Cada día a\
+ las {time}","Every {days} at {time}":"Cada {days} a las {time}","Every weekday at {time}":"Cada día laborable a las {time}","Every weekend at {time}":"Cada fin de semana a las {t\
+ime}","On the schedule {expression}":"Según la programación {expression}","Custom schedule":"Programación personalizada","Next: {time}":"Siguiente: {time}","Overdue: {time}":"At\
+rasada: {time}",Finished:"Finalizada","Scheduled tasks · {count}":"Tareas programadas · {count}","Show all":"Mostrar todas","in {name}":"en {name}","Click again to delete":"Haz c\
+lic de nuevo para eliminar","Delete task":"Eliminar tarea",Once:"Una vez","Every week":"Cada semana",Repeat:"Repetir",minutes:"minutos",hours:"horas",days:"días","Morning briefing":"\
+Resumen matutino","What to do":"Qué hacer","Sum up what changed since yesterday and what needs me today.":"Resume qué ha cambiado desde ayer y qué requiere mi atención hoy.",When:"\
+Cuándo","Date and time":"Fecha y hora",Days:"Días",Time:"Hora",Every:"Cada","How many":"Cuántos",Unit:"Unidad","Create task":"Crear tarea","Turn on Automation tasks in DSH":"Act\
+iva las Tareas de automatización en DSH","Switch on Automation tasks on the Plugins page in Settings.":"Activa las Tareas de automatización en la página de Plugins en Ajustes.",
+"New task":"Nueva tarea","No scheduled tasks yet.":"Aún no hay tareas programadas.","No scheduled tasks yet. Add one":"Aún no hay tareas programadas. Añade una","Automation task\
+s are off in DSH":"Las tareas de automatización están desactivadas en DSH","No such Bot":"No existe ese Bot","No such Bot or group chat":"No existe ese Bot o chat grupal","Give t\
+he task a name":"Dale un nombre a la tarea","Say what the Bot should do":"Indica qué debe hacer el Bot","Pick a date and time":"Elige una fecha y una hora","Pick a time in the fut\
+ure":"Elige una hora en el futuro","Pick a time of day":"Elige una hora del día","Pick at least one day":"Elige al menos un día","Repeat every 1 minute to 7 days":"Repite cada en\
+tre 1 minuto y 7 días","Pick when it runs":"Elige cuándo se ejecuta","No such task":"No existe esa tarea","Working folder":"Carpeta de trabajo","Working folder: {folder}":"Carpet\
+a de trabajo: {folder}",Folder:"Carpeta",Folders:"Carpetas",Privacy:"Privacidad",Private:"Privado","Other Bots cannot read its folder, memory or chats, and you approve what it shar\
+es with them.":"Otros Bots no pueden leer su carpeta, memoria ni chats, y tú apruebas lo que comparte con ellos.","A Main Bot cannot be private.":"Un Bot principal no puede ser pr\
+ivado.","Leave its group chats before making it private.":"Sal de sus chats grupales antes de hacerlo privado.","Choose a working folder of its own first.":"Elige primero una carpe\
+ta de trabajo propia.","A private Bot cannot be a Main Bot.":"Un Bot privado no puede ser Bot principal.","Closed after deletion · {count}":"Protegido tras su eliminación · {count\
+}","Remove protection":"Quitar protección","Click again to remove. Other Bots can then read its folder, memory and chats.":"Haz clic de nuevo para quitarla. Otros Bots podrán ento\
+nces leer su carpeta, memoria y chats.","Nothing kept closed for this Bot":"No se mantiene nada protegido para este Bot","Team workspace":"Espacio de trabajo del equipo","Team work\
+space: {folder}":"Espacio de trabajo del equipo: {folder}","Where Bots without a folder of their own work.":"Donde trabajan los Bots que no tienen carpeta propia.",Locations:"Ubica\
+ciones","Data location":"Ubicación de datos","Change…":"Cambiar…","Each Bot's own folder":"Carpeta propia de cada Bot","Choose a folder…":"Elegir una carpeta…","Browse fol\
+ders…":"Explorar carpetas…","Enter a path…":"Introducir una ruta…","Folder path":"Ruta de la carpeta","Full path of a folder":"Ruta completa de una carpeta","Use this folde\
+r":"Usar esta carpeta","Up one level":"Subir un nivel","No folders inside.":"No hay carpetas dentro.","Some folders are not shown.":"Algunas carpetas no se muestran.","Waiting for \
+sign-in…":"Esperando inicio de sesión…","This service needs an app client ID":"Este servicio necesita un Client ID de aplicación","Paste the address you land on":"Pega la dir\
+ección a la que llegues","Finish sign-in":"Finalizar inicio de sesión","Open {host}":"Abrir {host}","Client ID":"Client ID","Client secret (optional)":"Client secret (opcional)",
+"In OAuth & Permissions at {app}, add this redirect URL:":"En OAuth & Permissions de {app}, añade esta URL de redirección:","In the app settings, add this redirect URL:":"En los \
+ajustes de la app, añade esta URL de redirección:","Turn on the MCP features and scopes the app needs.":"Activa las funciones y los permisos de MCP que necesita la app.","Copy th\
+e Client ID and Client Secret here.":"Copia aquí el Client ID y el Client Secret.","Open app settings":"Abrir ajustes de la app",Continue:"Continuar","{name} key":"Clave de {name}",
+"{name} token":"Token de {name}","Get a key":"Obtener una clave","Read-only":"Solo lectura","{count} tools":"{count} herramientas",Mailbox:"Buzón de correo","Email address":"Direc\
+ción de correo",Catalog:"Catálogo","App password":"Contraseña de aplicación","Authorization code":"Código de autorización","Password or app password":"Contraseña o contraseña\
+ de aplicación","Official help":"Ayuda oficial","Finish signing in in your browser.":"Termina de iniciar sesión en tu navegador.","Open again":"Abrir de nuevo","Did not come back\
+ here?":"¿No volviste aquí?","Copied to clipboard":"Copiado al portapapeles","Paste the code on {host} and authorize.":"Pega el código en {host} y autoriza.","Add another":"Añad\
+ir otro","QQ, 163, 126, Gmail, iCloud, and other IMAP mail":"QQ, 163, 126, Gmail, iCloud y otros correos IMAP","Other MCP server":"Otro servidor MCP","An address, a command, or one\
+ from Claude Desktop, Cursor, or VS Code":"Una dirección, un comando o uno de Claude Desktop, Cursor o VS Code","Kind of server":"Tipo de servidor","Nothing matches":"No hay coinc\
+idencias",Recommended:"Recomendado","See all":"Ver todo","{count} connected":"{count} conectados","{count} accounts":"{count} cuentas",Category:"Categoría","Could not reach the ma\
+il server. Check the server address.":"No se pudo conectar con el servidor de correo. Comprueba la dirección del servidor.","Sign in at mail.qq.com, click your avatar at the top r\
+ight, and open Settings → Account and Security → Security Settings.":"Inicia sesión en mail.qq.com, haz clic en tu avatar arriba a la derecha y abre Ajustes → Cuenta y segurida\
+d → Ajustes de seguridad.","Turn on the POP3/IMAP/SMTP service, then click Generate authorization code and verify yourself.":"Activa el servicio POP3/IMAP/SMTP, luego haz clic en\
+ Generar código de autorización y verifica tu identidad.","Paste the 16-letter code below. Changing your QQ password cancels it.":"Pega abajo el código de 16 letras. Cambiar tu c\
+ontraseña de QQ lo anulará.","Sign in at {host} and open Settings → POP3/SMTP/IMAP.":"Inicia sesión en {host} y abre Ajustes → POP3/SMTP/IMAP.","Turn on IMAP/SMTP and send t\
+he text message it asks for.":"Activa IMAP/SMTP y envía el mensaje de texto que solicita.","Paste the 16-character code below. It is shown only once.":"Pega abajo el código de 16 \
+caracteres. Solo se muestra una vez.","Turn on 2-Step Verification for your Google Account.":"Activa la verificación en dos pasos en tu cuenta de Google.","Open App passwords, cre\
+ate one, and paste the 16-character password below.":"Abre Contraseñas de aplicaciones, crea una y pega abajo la contraseña de 16 caracteres.","Work and school accounts cannot us\
+e app passwords.":"Las cuentas de trabajo y de centros educativos no pueden usar contraseñas de aplicación.","Your Apple Account needs two-factor authentication.":"Tu cuenta de A\
+pple necesita autenticación de dos factores.","Sign in at account.apple.com and open Sign-In and Security → App-Specific Passwords.":"Inicia sesión en account.apple.com y abre I\
+nicio de sesión y seguridad → Contraseñas específicas de apps.","Generate a password and paste it below.":"Genera una contraseña y pégala abajo.","The mail service refused t\
+he login (Unsafe Login). Enable IMAP/SMTP in the mailbox settings and use its authorization code, not the account password.":"El servicio de correo rechazó el inicio de sesión (Uns\
+afe Login). Activa IMAP/SMTP en los ajustes del buzón y usa su código de autorización, no la contraseña de la cuenta.","The password was refused. Use the mailbox app password o\
+r authorization code, not the account password.":"La contraseña fue rechazada. Usa la contraseña de aplicación o el código de autorización del buzón, no la contraseña de la cuenta.",
+"Enter the authorization code or app password":"Introduce el código de autorización o la contraseña de aplicación","Pages, databases, and wiki content":"Páginas, bases de datos\
+ y contenido wiki","Issues, projects, and cycles":"Issues, proyectos y ciclos","Jira issues and Confluence pages":"Incidencias de Jira y páginas de Confluence","Errors, traces, an\
+d releases":"Errores, trazas y versiones","Payments, invoices, and customers":"Pagos, facturas y clientes","Orders, payments, and invoices":"Pedidos, pagos y facturas","Payments, o\
+rders, and catalog":"Pagos, pedidos y catálogo","Workers, DNS, and account resources":"Workers, DNS y recursos de la cuenta","Projects, deployments, and logs":"Proyectos, desplieg\
+ues y registros","Databases, tables, and project settings":"Bases de datos, tablas y ajustes del proyecto","Postgres databases and branches":"Bases de datos Postgres y ramas","Desi\
+gn files, components, and comments":"Archivos de diseño, componentes y comentarios","Designs, folders, and exports":"Diseños, carpetas y exportaciones","Conversations, contacts, \
+and articles":"Conversaciones, contactos y artículos","Boards, items, and workflows":"Tableros, elementos y flujos de trabajo","Sites, pages, and CMS content":"Sitios, páginas y c\
+ontenido CMS","Sites, pages, and site content":"Sitios, páginas y contenido del sitio","Sites, deploys, and forms":"Sitios, despliegues y formularios","Bases, tables, and records":"\
+Bases, tablas y registros","Files and folders":"Archivos y carpetas","Zaps and app actions":"Zaps y acciones de aplicaciones","Tasks, lists, and docs":"Tareas, listas y documentos",
+"Tasks and projects":"Tareas y proyectos","Boards and whiteboard items":"Tableros y elementos de pizarra","CRM records, lists, and notes":"Registros CRM, listas y notas","Collectio\
+ns, requests, and workspaces":"Colecciones, solicitudes y espacios de trabajo","Tasks, projects, and workspaces":"Tareas, proyectos y espacios de trabajo","Files, folders, and meta\
+data":"Archivos, carpetas y metadatos","Contacts, deals, and tickets":"Contactos, tratos y tickets","Channels and messages":"Canales y mensajes","Models, datasets, and Spaces":"Mod\
+elos, conjuntos de datos y Spaces","Web search for agents":"Búsqueda web para agentes","Documentation for public code repositories":"Documentación de repositorios de código públic\
+os","Library documentation and code examples":"Documentación de bibliotecas y ejemplos de código","Microsoft product documentation":"Documentación de productos de Microsoft","Cl\
+oudflare product documentation":"Documentación de productos de Cloudflare","Maps, places, and routes in China":"Mapas, lugares y rutas en China","Read and send email over IMAP and\
+ SMTP":"Leer y enviar correo mediante IMAP y SMTP","IMAP host":"Servidor IMAP","SMTP host":"Servidor SMTP","Sign in with Google":"Iniciar sesión con Google","Verifying…":"Verifi\
+cando…","Import from other apps":"Importar desde otras aplicaciones","Server address":"Dirección del servidor","Command, e.g. npx -y some-mcp":"Comando, p. ej., npx -y some-mcp",
+"Scanning…":"Escaneando…","No MCP servers found in Claude Desktop, Cursor, or VS Code settings.":"No se encontraron servidores MCP en los ajustes de Claude Desktop, Cursor o VS\
+ Code.","Import {count}":"Importar {count}",All:"Todo",Developer:"Desarrollador","Docs & files":"Documentos y archivos",Work:"Trabajo",Design:"Diseño",Data:"Datos",Commerce:"Comer\
+cio","No connectors connected":"No hay conectores conectados","{bot} needs {name}":"{bot} necesita {name}",Mail:"Correo",Subject:"Asunto","Write a message…":"Escribe un mensaje…",
+Discard:"Descartar",Discarded:"Descartado","Allow recipient":"Permitir destinatario","Allow this Bot to send directly":"Permitir que este Bot envíe directamente","Manage rules":"G\
+estionar reglas","Sending rules":"Reglas de envío",From:"De",To:"Para",Cc:"Cc",Bcc:"Cco","Attachments: {names}":"Adjuntos: {names}",Sent:"Enviado",Failed:"Falló","Request failed":"\
+Solicitud fallida","Permissions are not available in this DeepSeek Harness":"Los permisos no están disponibles en este DeepSeek Harness","Avatar image is too large":"La imagen de \
+avatar es demasiado grande","A Bot needs a name":"Un Bot necesita un nombre","A Bot name cannot contain @, ` or a line break":"El nombre de un Bot no puede contener @, ` ni saltos \
+de línea","Unknown Bot":"Bot desconocido","Unknown conversation":"Conversación desconocida","A group chat needs at least two Bots":"Un chat grupal necesita al menos dos Bots","Th\
+e admin must be a member of the group":"El administrador debe ser miembro del grupo","Unknown group chat":"Chat grupal desconocido","No Bot is left in this group chat":"No queda ni\
+ngún Bot en este chat grupal","That group chat has been deleted":"Ese chat grupal ha sido eliminado","Hand the admin role to another member instead of leaving the group without on\
+e":"Cede el rol de administrador a otro miembro en lugar de dejar el grupo sin administrador","Hand the admin role to another member before leaving the group":"Cede el rol de admin\
+istrador a otro miembro antes de salir del grupo","The team needs at least one Main Bot":"El equipo necesita al menos un Bot principal","Only a Main Bot can be replaced":"Solo se p\
+uede reemplazar un Bot principal","A Main Bot cannot be deleted; remove its Main Bot role first":"Un Bot principal no se puede eliminar; quítale primero el rol de Bot principal","\
+Unknown theme":"Tema desconocido","Accent must be a #rrggbb color":"El color de acento debe tener formato #rrggbb","Type the key first":"Escribe primero la clave","Choose every Bot\
+ or a list of Bots":"Elige todos los Bots o una lista de Bots","This request is gone":"Esta solicitud ya no existe","This request was already answered":"Esta solicitud ya fue respo\
+ndida","A name uses capitals, digits, and underscores, and starts with a letter":"Un nombre usa mayúsculas, dígitos y guiones bajos, y empieza por una letra","No such key":"No ex\
+iste esa clave","Type a question or a change first":"Escribe primero una pregunta o un cambio","No model is available. Add one in Settings > Models.":"No hay ningún modelo disponib\
+le. Añade uno en Ajustes > Modelos.","Memory is turned off on this host":"La memoria está desactivada en este host","The model wrote nothing":"El modelo no escribió nada","Write\
+ the entry to save.":"Escribe la entrada que quieres guardar.","This DeepSeek Harness has no folder chooser":"Este DeepSeek Harness no tiene selector de carpetas","This DeepSeek Ha\
+rness cannot list folders":"Este DeepSeek Harness no puede listar carpetas","Side chat is only available in a Bot's private chat.":"El chat lateral solo está disponible en el chat \
+privado de un Bot.","Write a question.":"Escribe una pregunta.","Write a question after /side.":"Escribe una pregunta después de /side.","/side does not take attachments.":"/side \
+no admite archivos adjuntos.","Wait for the answer, or cancel it.":"Espera la respuesta o cancélala.","This side chat is no longer here.":"Este chat lateral ya no está aquí.","T\
+his side question is no longer here.":"Esta pregunta lateral ya no está aquí.","This Bot has not called a model yet. Send a normal message first.":"Este Bot aún no ha llamado a n\
+ingún modelo. Envía primero un mensaje normal.","DS Bot restarted before this answer finished.":"DS Bot se reinició antes de que terminara esta respuesta.","The model called a t\
+ool again after being told not to, so this aside was not answered.":"El modelo volvió a llamar a una herramienta después de indicarle que no lo hiciera, por lo que esta consulta la\
+teral no recibió respuesta.","The model wrote nothing.":"El modelo no escribió nada.","Nothing to ask":"Nada que preguntar","Nothing to open":"Nada que abrir","Nothing to cancel":"\
+Nada que cancelar","Nothing to close":"Nada que cerrar","DS Bot is still loading this chat.":"DS Bot aún está cargando este chat.","This message is no longer kept":"Este mensaje \
+ya no se conserva","No file named":"No se indicó ningún archivo","This file cannot be read here":"Este archivo no se puede leer aquí","That wait is no longer open":"Esa espera y\
+a no está abierta","Nothing to send":"Nada que enviar","This view is no longer open":"Esta vista ya no está abierta","This is not a photo DS Bot can send":"Esta no es una foto qu\
+e DS Bot pueda enviar","A photo did not arrive. Send it again.":"No llegó una foto. Envíala de nuevo.","Nothing to delete":"Nada que eliminar","Bot browsers are off on this host":"\
+Los navegadores de los Bots están desactivados en este host","This Bot has no open browser":"Este Bot no tiene ningún navegador abierto","A browser poll needs a clientId":"El son\
+deo del navegador necesita un clientId","This browser is not held":"Este navegador no está retenido","This handoff is no longer open":"Este traspaso del navegador ya no está abier\
+to","Avatar images must be PNG, JPEG, WebP, GIF, or SVG":"Las imágenes de avatar deben ser PNG, JPEG, WebP, GIF o SVG","Pick a model before choosing a thinking level":"Elige un mo\
+delo antes de seleccionar un nivel de razonamiento","Unknown section":"Sección desconocida","Unknown section color":"Color de sección desconocido","Write the to-do first.":"Escri\
+be primero la tarea pendiente.","That to-do is no longer on the list.":"Esa tarea pendiente ya no está en la lista.","Write what this group should achieve, in at most 2000 charact\
+ers.":"Escribe qué debe lograr este grupo, en un máximo de 2000 caracteres.","This group has no admin. Set one in the group settings first.":"Este grupo no tiene administrador. D\
+esigna uno primero en los ajustes del grupo.","This group already has a goal. Stop it first.":"Este grupo ya tiene un objetivo. Detenlo primero.","The goal has changed. Look again.":"\
+El objetivo ha cambiado. Vuelve a comprobarlo.","Nothing to do":"Nada que hacer","Write a note first.":"Escribe primero una nota.","That task is already finished.":"Esa tarea ya ha\
+ terminado.","No such group.":"No existe ese grupo.","No such task.":"No existe esa tarea.","No open task to cancel.":"No hay ninguna tarea abierta que cancelar.","Sign-in timed ou\
+t":"Se agotó el tiempo de espera para iniciar sesión","The sign-in answer did not match this attempt (state mismatch). Try again.":"La respuesta de inicio de sesión no coincide c\
+on este intento (estado distinto). Inténtalo de nuevo.","This connector does not sign in":"Este conector no requiere iniciar sesión","This connector has no server address":"Este \
+conector no tiene dirección de servidor","Connector addresses must start with https://":"Las direcciones de conectores deben empezar por https://","This service does not publish O\
+Auth sign-in metadata":"Este servicio no publica metadatos de inicio de sesión OAuth","Paste a key first":"Pega primero una clave","No sign-in is waiting":"No hay ningún inicio de\
+ sesión en espera","Paste the address or the code":"Pega la dirección o el código","This address is not from this sign-in attempt (state mismatch). Copy the whole address again.":"\
+Esta dirección no corresponde a este intento de inicio de sesión (estado distinto). Vuelve a copiar la dirección completa.","The address has no code":"La dirección no contiene n\
+ingún código","Enter the client ID":"Introduce el ID de cliente","Name the connector":"Ponle un nombre al conector","Enter an address or a command":"Introduce una dirección o un \
+comando","Only added connectors can be removed":"Solo se pueden eliminar los conectores añadidos manualmente","The mail connection closed during verification":"La conexión de corr\
+eo se cerró durante la verificación","Google sign-in is not available in this build":"El inicio de sesión con Google no está disponible en esta compilación","Enter an email ad\
+dress":"Introduce una dirección de correo electrónico","Enter the IMAP and SMTP hosts":"Introduce los servidores IMAP y SMTP","No such account":"No existe esa cuenta","This card \
+was already answered":"Esta tarjeta ya fue respondida","No Google sign-in is waiting":"No hay ningún inicio de sesión de Google en espera","The sign-in answer is not for this att\
+empt":"La respuesta de inicio de sesión no corresponde a este intento","Google did not say which account this is":"Google no indicó a qué cuenta corresponde","This platform is n\
+ot available yet":"Esta plataforma aún no está disponible","Choose a Bot first":"Elige primero un Bot","This platform signs in by scanning a code; not available yet":"Esta plataf\
+orma inicia sesión escaneando un código y aún no está disponible","No such IM bot":"No existe ese bot de mensajería","No such platform":"No existe esa plataforma","No such cha\
+t":"No existe ese chat","Choose a Bot or a group":"Elige un Bot o un grupo","This platform has no QR login":"Esta plataforma no admite inicio de sesión por QR","Paste the bot toke\
+n first":"Pega primero el token del bot","Telegram did not say who this token belongs to":"Telegram no indicó a qué bot pertenece este token","A webhook or another program uses t\
+his bot":"Un webhook u otro programa está usando este bot","This token does not belong to a Discord bot":"Este token no pertenece a un bot de Discord","Discord gave no usable gate\
+way URL":"Discord no devolvió una URL de puerta de enlace utilizable","These credentials do not belong to a Slack bot":"Estas credenciales no pertenecen a un bot de Slack","WeChat\
+ answered an unreadable response":"WeChat devolvió una respuesta ilegible","WeChat rate limited the request":"WeChat limitó la frecuencia de solicitudes","WeChat refused the toke\
+n":"WeChat rechazó el token","Use a capability name with lowercase letters, digits, and single hyphens; connector names are reserved.":"Usa un nombre de capacidad con letras minús\
+culas, dígitos y guiones simples; los nombres de conectores están reservados.","Arguments must be a list of text values.":"Los argumentos deben ser una lista de valores de texto.",
+"Choose an MCP server, skill, or pack.":"Elige un servidor MCP, una habilidad o un paquete.","A capability cannot change its kind. Delete it and save a new one.":"Una capacidad no \
+puede cambiar de tipo. Elimínala y guarda una nueva.","Enter a command for the MCP server.":"Introduce un comando para el servidor MCP.","Enter a valid HTTP or HTTPS URL.":"Introd\
+uce una URL HTTP o HTTPS válida.","Only Bots on the team can change capabilities.":"Solo los Bots del equipo pueden cambiar capacidades.","Only a Main Bot can change another Bot’s\
+ capabilities.":"Solo un Bot principal puede cambiar las capacidades de otro Bot.","This DSH cannot load MCP servers.":"Este DSH no puede cargar servidores MCP.","Unknown capabilit\
+y operation.":"Operación de capacidad desconocida.","The secrets file is not encrypted.":"El archivo de secretos no está cifrado.","Secrets are already encrypted.":"Los secretos \
+ya están cifrados.","Secrets are not encrypted.":"Los secretos no están cifrados.","Learning is turned off on this host":"El aprendizaje está desactivado en este host","AGENTS.m\
+d changed since this was proposed":"AGENTS.md cambió desde que se propuso esto","The Bot that learned this skill is gone":"El Bot que aprendió esta habilidad ya no existe","Syste\
+m permissions are not available here":"Los permisos del sistema no están disponibles aquí","This host keeps no Bot data folder, so it has no avatar library.":"Este host no guarda\
+ ninguna carpeta de datos de Bots, por lo que no tiene biblioteca de avatares.","DS Bot is shutting down":"DS Bot se está cerrando","Computer use":"Uso del ordenador",Computer:"Or\
+denador",Control:"Control","Let Bots use the computer":"Permitir que los Bots usen el ordenador","Using the computer":"Usando el ordenador",Off:"Desactivado","View only":"Solo ver",
+Background:"En segundo plano",Foreground:"En primer plano","In the foreground":"En primer plano","Computer use level":"Nivel de uso del ordenador","Computer provider":"Proveedor de\
+ control del ordenador","Loading the provider…":"Cargando el proveedor…","Could not load the provider":"No se pudo cargar el proveedor","The provider package is not installed":"\
+El paquete del proveedor no está instalado","Install it in this DSH":"Instalarlo en este DSH","Run {command}, then restart DSH.":"Ejecuta {command} y luego reinicia DSH.","Copy co\
+mmand":"Copiar comando","Bots get no computer tools until the provider is ready.":"Los Bots no tendrán herramientas de ordenador hasta que el proveedor esté listo.","Another comp\
+uter-use provider is running":"Otro proveedor de uso del ordenador está en ejecución","Computer use is not available on this platform":"El uso del ordenador no está disponible en\
+ esta plataforma",Accessibility:"Accesibilidad","Screen Recording":"Grabación de pantalla",Allowed:"Permitido","Not allowed":"No permitido",Grant:"Conceder",Revoke:"Revocar","Off \
+in Settings → Computer use":"Desactivado en Ajustes → Uso del ordenador",Idle:"Inactivo",Operating:"Operando","You have the computer":"Tú tienes el control del ordenador","Lat\
+est screenshot":"Última captura de pantalla","Let it continue":"Dejar que continúe","Take over the computer":"Tomar el control del ordenador","Hand back":"Devolver el control","R\
+ecent steps":"Pasos recientes",failed:"falló","Allow {name} to use {app}?":"¿Permitir que {name} use {app}?","This time":"Esta vez",Always:"Siempre","Needs your confirmation":"Re\
+quiere tu confirmación","Help needed on the computer":"Se necesita ayuda en el ordenador","You control the computer":"Tú controlas el ordenador","{name} · foreground":"{name} · \
+primer plano","{name} waits for the computer":"{name} espera el ordenador","DeepSeek services":"Servicios de DeepSeek","DeepSeek API":"API de DeepSeek","DeepSeek Web Search API":"A\
+PI de búsqueda web de DeepSeek","Find it in Plugins → Web search.":"Está en Plugins → Búsqueda web.","Image and document reading":"Lectura de imágenes y documentos","Use De\
+epSeek to read images and documents":"Usar DeepSeek para leer imágenes y documentos","Bots upload selected files to DeepSeek for text recognition; local Office editing is unchange\
+d.":"Los Bots suben los archivos seleccionados a DeepSeek para reconocer el texto; la edición local de Office no cambia.","Text to speech":"Texto a voz","Read replies aloud":"Leer\
+ las respuestas en voz alta",System:"Sistema",Voice:"Voz","Speech recognition":"Reconocimiento de voz","Dictation provider":"Proveedor de dictado","Use DeepSeek for dictation":"Usa\
+r DeepSeek para el dictado","In use":"En uso","Not ready":"No listo","Couldn't read the reply":"No se pudo leer la respuesta","Couldn't reach the speech service":"No se pudo conect\
+ar con el servicio de voz","Bot models":"Modelos de los Bots","Change several Bots":"Cambiar varios Bots","{selected} of {total} selected":"{selected} de {total} seleccionados","Bo\
+ts on a local agent keep their own model.":"Los Bots en un agente local mantienen su propio modelo.","Select all":"Seleccionar todos","Changing…":"Cambiando…","Selected Bots":"\
+Bots seleccionados","{model} (not available)":"{model} (no disponible)",Changed:"Cambiado","Already on this model":"Ya usa este modelo","Skipped: runs on a local agent":"Omitido: s\
+e ejecuta en un agente local","Skipped: not available now":"Omitido: no disponible ahora","Could not change: {error}":"No se pudo cambiar: {error}","Changed {count} of {total} Bots\
+.":"Se cambiaron {count} de {total} Bots.","Select {name}":"Seleccionar {name}","Change it in the Bot's settings.":"Cámbialo en los ajustes del Bot.","Already on this model: {coun\
+t}":"Ya usan este modelo: {count}","Skipped: {count}":"Omitidos: {count}","Failed: {count}":"Fallaron: {count}","{count} skipped":"{count} omitidas","No model picked yet":"Sin mode\
+lo elegido",Running:"En ejecución","Open this session":"Abrir esta sesión","Open this running session":"Abrir esta sesión en ejecución","A running session keeps using model cal\
+ls in the background.":"Una sesión en ejecución sigue usando llamadas al modelo en segundo plano.","This session is still running. Wait for it to finish, or stop it.":"Esta sesió\
+n sigue en ejecución. Espera a que termine o detenla."},HOST_ERRORS_ES=[[/^Could not reach the mail server at (.+)\. Check the server address\.$/,"No se pudo conectar con el servi\
+dor de correo en $1. Comprueba la dirección del servidor."],[/^Model (.+) is not available\. Available: (.*)$/,"El modelo $1 no está disponible. Disponibles: $2"],[/^The API key for (.+) is set outside DS Bot and cannot be changed here$/,
+"La clave API de $1 está configurada fuera de DS Bot y no se puede cambiar aquí"],[/^(.+) takes no API key here$/,"$1 no admite clave API aquí"],[/^(.+) is already set up$/,"$1 \
+ya está configurado"],[/^DSH offers no provider (.+)$/,"DSH no ofrece el proveedor $1"],[/^DSH already offers (.+); add it from its list$/,"DSH ya ofrece $1; añádelo desde su list\
+a"],[/^The protocol must be one of (.+)$/,"El protocolo debe ser uno de: $1"],[/^(.+) is not set up$/,"$1 no está configurado"],[/^(.+) comes with this setup and cannot be removed$/,
+"$1 viene incluido en esta configuración y no se puede eliminar"],[/^A Bot named (.+) already exists$/,"Ya existe un Bot llamado $1"],[/^Name (.*) is not available$/,"El nombre $1\
+ no está disponible"],[/^"(.+)" calls everyone in a group, so it cannot be a Bot name$/,"“$1” menciona a todos en un grupo, por lo que no puede ser el nombre de un Bot"],[/^"(.+)" stands for the user in a chat, so it cannot be a Bot name$/,
+"“$1” representa al usuario en un chat, por lo que no puede ser el nombre de un Bot"],[/^Another group chat is already called "(.+)"$/,"Otro chat grupal ya se llama “$1”"],
+[/^Another section is already called "(.+)"$/,"Otra sección ya se llama “$1”"],[/^Enter a section name$/,"Introduce un nombre para la sección"],[/^A group chat holds at most (\d+) Bots$/,
+"Un chat grupal admite como máximo $1 Bots"],[/^Reply mode must be one of (.+)$/,"El modo de respuesta debe ser uno de: $1"],[/^Only the user, a Main Bot, or the admin of "(.+)" can change it$/,
+"Solo el usuario, un Bot principal o el administrador de “$1” pueden modificarlo"],[/^A key must have at least (\d+) characters$/,"Una clave debe tener al menos $1 caracteres"],
+[/^A key can have at most (\d+) characters$/,"Una clave puede tener como máximo $1 caracteres"],[/^(.+) is not saved yet$/,"$1 aún no se ha guardado"],[/^The Bot team in (.+) is open in another dsh \((.+)\)\. This window shows the team but cannot change it; close the other one and reload\.$/,
 "El equipo de Bots en $1 está abierto en otro dsh ($2). Esta ventana muestra el equipo pero no puede modificarlo; cierra la otra y recarga."],[/^HTTP (\d+)$/,"Error de solicitud (\
 HTTP $1)"],[/^GitHub answered (\d+)$/,"GitHub respondió $1"],[/^Keep the name under (\d+) characters$/,"Mantén el nombre por debajo de $1 caracteres"],[/^Give the full path of the folder, not (.+)$/,
 "Indica la ruta completa de la carpeta, no $1"],[/^The avatar library holds at most (\d+) photos\.$/,"La biblioteca de avatares admite como máximo $1 fotos."],[/^The avatar must be a PNG, JPEG, WebP, or GIF image\. Use a square image; 256x256 is recommended\.$/,
@@ -2948,440 +3003,458 @@ ome sites also keep sign-in outside cookies; you may need to sign in again there
 necter.","Importing…":"Importation…",Import:"Importer","Imported {count} cookies":"{count} cookies importés","No cookies were stored":"Aucun cookie enregistré","Reload the pa\
 ge":"Recharger la page","Import failed":"Échec de l’importation","That file is too large to be a cookie export.":"Ce fichier est trop volumineux pour être un export de cookies.",
 "That file could not be read.":"Impossible de lire ce fichier.","This browser encrypts its cookies so only it can read them. Export them to a file first, then import that file.":"C\
-e navigateur chiffre ses cookies pour être le seul à pouvoir les lire. Exportez-les d’abord dans un fichier, puis importez ce fichier.","{count}":"{count}","Choose a PNG, JPEG,\
- WebP, or GIF image":"Choisissez une image PNG, JPEG, WebP ou GIF","Choose an image smaller than 25 MB":"Choisissez une image de moins de 25 Mo","That image is too large":"Cette im\
-age est trop volumineuse",Model:"Modèle","Avatar editor":"Éditeur d’avatar","Avatar source":"Source de l’avatar",Upload:"Téléverser","Reset character to default":"Réinitial\
-iser le personnage par défaut",Reset:"Réinitialiser","Character shape":"Forme","Character color":"Couleur","Drag, drop, or paste an image":"Glissez-déposez ou collez une image",
-Replace:"Remplacer","Browse files":"Parcourir les fichiers","Remove photo":"Supprimer la photo","Edit Bot avatar":"Modifier l’avatar du Bot",Name:"Nom",Instructions:"Instructions",
-"What this Bot is responsible for…":"Ce dont ce Bot est responsable…","Pick the model this Bot runs on.":"Choisissez le modèle utilisé par ce Bot.","This model is not availab\
-le now. Pick another one.":"Ce modèle n’est pas disponible actuellement. Choisissez-en un autre.","Every message of this Bot runs on it.":"Chaque message de ce Bot utilise ce mo\
-dèle.","Applies from the next message.":"S’applique dès le prochain message.",Profile:"Profil",Label:"Étiquette","Add a label":"Ajouter une étiquette","Optional. Shown under \
-the name.":"Facultatif. Affiché sous le nom.","Research, admin…":"Recherche, administration…","What this Bot does":"Rôle de ce Bot","Its job on the team. Part of the Bot's sy\
-stem prompt.":"Son rôle dans l’équipe. Fait partie de l’invite système du Bot.","A copy with the same job and model, and fresh memory.":"Crée une copie avec le même rôle et \
-le même modèle, mais une mémoire vierge.","Delete {name}?":"Supprimer {name} ?","Delete Bot":"Supprimer le Bot","Click again to delete. Its chats are archived.":"Cliquez à nouve\
-au pour supprimer. Ses discussions seront archivées.","Removes the Bot from the team.":"Retire le Bot de l’équipe.","Pick a model and {name} can start.":"Choisissez un modèle p\
-our que {name} puisse commencer.",Permissions:"Autorisations","Read only":"Lecture seule",Workspace:"Espace de travail","Full access":"Accès complet","Same for every member":"Iden\
-tique pour tous les membres","Replaces each member's own permissions in this group.":"Remplace les autorisations individuelles de chaque membre dans ce groupe.","The only Main Bot.\
- To hand the role to another Bot, use Main Bot on the Bots page.":"C’est le seul Bot principal. Pour confier ce rôle à un autre Bot, utilisez la section Bot principal sur la page B\
-ots.",Change:"Modifier","Can create and change Bots, and runs every group chat.":"Peut créer et modifier des Bots, et gère toutes les discussions de groupe.",Sidebar:"Barre latér\
-ale","Kept above the other chats.":"Affiché au-dessus des autres discussions.","Search still finds it.":"Reste trouvable via la recherche.",Manage:"Gérer",Library:"Bibliothèque",
-"Import photos":"Importer des photos","Importing photos…":"Importation des photos…","No photos in the library yet.":"Aucune photo dans la bibliothèque pour le moment.","Use th\
-is photo":"Utiliser cette photo","Remove photo from the library":"Retirer la photo de la bibliothèque","1 photo imported":"1 photo importée","{count} photos imported":"{count} ph\
-otos importées","1 photo was already in the library":"1 photo était déjà dans la bibliothèque","{count} photos were already in the library":"{count} photos étaient déjà dans l\
-a bibliothèque","{name}: {reason}":"{name} : {reason}",photo:"photo","Show more photos":"Afficher plus de photos","Showing {shown} of {total} photos":"Affichage de {shown} sur {to\
-tal} photos","Leave it empty to name the group after its members.":"Laissez vide pour nommer le groupe d’après ses membres.","Every member reads it before speaking in this group\
-.":"Chaque membre la lit avant de prendre la parole dans ce groupe.","Add a Bot first: a group chat needs at least two.":"Ajoutez d’abord un Bot : une discussion de groupe en néces\
-site au moins deux.","Click again to delete. Its history is archived.":"Cliquez à nouveau pour supprimer. Son historique sera archivé.","Removes the group chat. Its members stay \
-on the team.":"Supprime la discussion de groupe. Ses membres restent dans l’équipe.","Add a notice in group settings":"Ajouter une annonce dans les paramètres du groupe","Creat\
-e Bot":"Créer un Bot","Back to new chat":"Retour à la nouvelle discussion",Look:"Apparence",Shuffle:"Aléatoire","Replace photo":"Remplacer la photo","Upload photo":"Téléverser u\
-ne photo","A Bot named {name} already exists":"Un Bot nommé {name} existe déjà","The Bot runs on this model. You can change it later in its details.":"Le Bot fonctionne avec ce \
-modèle. Vous pourrez le modifier plus tard dans ses détails.","Pick a model here, or the Bot asks for one in its chat.":"Choisissez un modèle ici, ou le Bot vous en demandera un \
-dans sa discussion.","Add a provider and a model in DeepSeek Harness first, or pick one in the Bot's chat later.":"Ajoutez d’abord un fournisseur et un modèle dans DeepSeek Harness\
-, ou choisissez-en un plus tard dans la discussion du Bot.","Creating…":"Création…",Create:"Créer",Default:"Par défaut","Thinking level":"Niveau de réflexion","Model: {mode\
-l}":"Modèle : {model}",none:"aucun","Choose a model":"Choisir un modèle","{provider} · not available":"{provider} · indisponible","Model for {name}":"Modèle pour {name}","No m\
-odels are set up in DeepSeek Harness yet.":"Aucun modèle n’est encore configuré dans DeepSeek Harness.","Models and providers…":"Modèles et fournisseurs…","Search models":"\
-Rechercher des modèles","Search models…":"Rechercher des modèles…","No matching models.":"Aucun modèle correspondant.",Models:"Modèles","Harness default":"Par défaut de Har\
-ness",Saving:"Enregistrement","Manage models":"Gérer les modèles",Whale:"Baleine",Star:"Étoile",Moon:"Lune",Wave:"Onde",Squircle:"Squircle",Bull:"Taureau",Blossom:"Fleur",Gumdrop:"\
-Bonbon",Peanut:"Cacahuète",Bubbles:"Bulles",Saucer:"Soucoupe",Sprout:"Pousse",Bunny:"Lapin",Kitty:"Chaton",Beacon:"Phare",Plus:"Plus",Magnet:"Aimant",Acorn:"Gland",Pebbles:"Galets",
-Cushion:"Coussin",Ring:"Anneau",Gem:"Gemme",Black:"Noir",Brown:"Marron",Red:"Rouge",Orange:"Orange",Yellow:"Jaune",Green:"Vert",Cyan:"Cyan",Blue:"Bleu",Violet:"Violet",Magenta:"Mag\
-enta",Gray:"Gris",Aurora:"Aurore",Deepseek:"Bleu DeepSeek",Charcoal:"Anthracite",Graphite:"Graphite",Rose:"Rose",Sky:"Ciel",Tangerine:"Mandarine",Cobalt:"Cobalt",DeepSeek:"DeepSeek",
-Mono:"Mono",Paper:"Papier",Moonlight:"Clair de lune",General:"Général",Bots:"Bots","Group chats":"Discussions de groupe",Secrets:"Secrets",Appearance:"Apparence",Theme:"Thème","\
-Colors for the whole team, on every device.":"Couleurs pour toute l’équipe, sur tous les appareils.",Accent:"Couleur d’accentuation","Unread marks, badges, and the brand mark.":"\
-Marques de non-lu, badges et emblème.","Theme accent":"Accent du thème","Custom accent":"Accent personnalisé","Message layout":"Disposition des messages",Bubble:"Bulles",Flat:"P\
-lat","Bubble width":"Largeur des bulles","Text width":"Largeur du texte","Show thinking":"Afficher la réflexion","Enter sends message":"Entrée envoie le message","Bring up relate\
-d memory":"Rappeler automatiquement les souvenirs liés","Group memory size":"Capacité de mémoire du groupe","Bot memory size":"Capacité de mémoire du Bot","Team memory size":"\
-Capacité de mémoire d’équipe","Bots · {count}":"Bots · {count}","First in the sidebar. Pick another Bot to hand it the role; {name} then stops being a Main Bot.":"En tête de\
- la barre latérale. Choisissez un autre Bot pour lui confier ce rôle ; {name} cessera alors d’être Bot principal.","Choose a Bot…":"Choisir un Bot…","Also a Main Bot.":"Ég\
-alement Bot principal.","Move to first":"Placer en premier","Add a Main Bot":"Ajouter un Bot principal","Main Bots can create and change Bots, and run every group chat.":"Les Bots \
-principaux peuvent créer et modifier des Bots, et gérer toutes les discussions de groupe.","Group chats · {count}":"Discussions de groupe · {count}","No group chats yet.":"Aucu\
-ne discussion de groupe pour le moment.","A group chat lets several Bots work on one thing with you.":"Une discussion de groupe permet à plusieurs Bots de travailler ensemble avec \
-vous sur un même sujet.","Back to group chats":"Retour aux discussions de groupe","DS Bot settings":"Paramètres DS Bot","Settings pages":"Pages de paramètres","Advanced settings":"\
-Paramètres avancés","Back to models":"Retour aux modèles","Open Plugins":"Ouvrir les extensions","DeepSeek services":"Services DeepSeek","DeepSeek API":"API DeepSeek","DeepSeek \
-Web Search API":"API de recherche web DeepSeek","Find it in Plugins → Web search.":"À trouver dans Extensions → Recherche web.","Image and document reading":"Lecture d’images \
-et de documents","Use DeepSeek to read images and documents":"Utiliser DeepSeek pour lire les images et documents","Bots upload selected files to DeepSeek for text recognition; loc\
-al Office editing is unchanged.":"Les Bots envoient les fichiers choisis à DeepSeek pour la reconnaissance de texte ; l’édition Office locale ne change pas.","Not ready":"Pas p\
-rêt","Open settings":"Ouvrir les paramètres","Open settings file":"Ouvrir le fichier de configuration","Could not open the settings file":"Impossible d’ouvrir le fichier de confi\
-guration","Show code work view":"Afficher la vue de travail sur le code","Could not save. Try again.":"Échec de l’enregistrement. Réessayez.","Connection lost. Refresh to retry":"\
-Connexion perdue. Actualisez pour réessayer",Reconnecting:"Reconnexion…","Connection lost. Reconnect now":"Connexion perdue. Se reconnecter maintenant","Connection dropped and r\
-etrying. Reconnect now":"Connexion interrompue, nouvelle tentative en cours. Se reconnecter maintenant","Retry update":"Réessayer la mise à jour","New version":"Nouvelle version",
-"{percent}%":"{percent} %","Verifying the update…":"Vérification de la mise à jour…","Getting ready to restart…":"Préparation du redémarrage…","Install and restart":"In\
-staller et redémarrer","{label}: {version}":"{label} : {version}","Downloading the update: {percent}%, version {version}":"Téléchargement de la mise à jour : {percent} %, version \
-{version}","Could not check for updates. Try again later.":"Impossible de vérifier les mises à jour. Réessayez plus tard.","Could not check for updates. Check your connection an\
-d try again.":"Impossible de vérifier les mises à jour. Vérifiez votre connexion et réessayez.","Could not download the update. Try again.":"Impossible de télécharger la mise à\
- jour. Réessayez.","Could not download the update. Check your connection and try again.":"Impossible de télécharger la mise à jour. Vérifiez votre connexion et réessayez.","C\
-ould not install the update. Try again later.":"Impossible d’installer la mise à jour. Réessayez plus tard.","Could not install the update. Check your connection and try again.":"\
-Impossible d’installer la mise à jour. Vérifiez votre connexion et réessayez.","Tasks could not stop safely, so the update was not installed. Try again later.":"Les tâches n’o\
-nt pas pu être arrêtées en toute sécurité ; la mise à jour n’a pas été installée. Réessayez plus tard.","New tasks started. Confirm again to stop them and update.":"De \
-nouvelles tâches ont démarré. Confirmez à nouveau pour les arrêter et mettre à jour.","Task status is not available. Try again when the workspace is ready.":"L’état des tâche\
-s n’est pas disponible. Réessayez lorsque l’espace de travail sera prêt.","Could not leave full screen. Leave full screen and try again.":"Impossible de quitter le mode plein\
- écran. Quittez le plein écran et réessayez.","The service version changed":"La version du service a changé","This page paused live updates. Reload to load the new version.":"C\
-ette page a suspendu les mises à jour en direct. Rechargez pour charger la nouvelle version.","Reload to load the new version":"Recharger pour charger la nouvelle version","Not no\
-w":"Pas maintenant",Service:"Service",Page:"Page",Unknown:"Inconnu","Back to Bots":"Retour aux Bots","Close settings":"Fermer les paramètres",Unpin:"Désépingler",Pin:"Épingler",
-Pinned:"Épinglé","Mark as Unread":"Marquer comme non lu","Mute notifications":"Mettre les notifications en sourdine","Unmute notifications":"Réactiver les notifications",Notifications:"\
-Notifications","Tell me when a Bot answers while I am looking elsewhere.":"Prévenez-moi quand un Bot répond pendant que je regarde ailleurs.","System notifications are turned off\
- for DS Bot. Unread marks still show them.":"Les notifications système sont désactivées pour DS Bot. Les marques de non-lu restent visibles.","Rename Bot":"Renommer le Bot","Gro\
-up settings":"Paramètres du groupe","Shared to-do":"Tâches partagées","{count} open":"{count} en cours","No shared to-dos yet. Ask a Bot in this group to add one.":"Aucune tâche\
- partagée pour l’instant. Demandez à un Bot de ce groupe d’en ajouter une.","Clear completed":"Effacer les tâches terminées","Rename group":"Renommer le groupe","Copy conve\
-rsation ID":"Copier l’ID de la discussion","Hide from sidebar":"Masquer de la barre latérale","{name} actions":"Actions pour {name}","Add DSH Agent":"Ajouter DSH Agent","Remove \
-DSH Agent":"Retirer DSH Agent","New session":"Nouvelle session",Archive:"Archiver","Session actions":"Actions de session",Plugins:"Plugins","Plain dsh session":"Session dsh standar\
-d","just now":"à l’instant","{n} min":"{n} min","{n} h":"{n} h","{n} d":"{n} j","DS Bot {version} is available":"DS Bot {version} est disponible","Updating DS Bot…":"Mise à jo\
-ur de DS Bot…","DS Bot {version} is installed. Restart DSH to use it.":"DS Bot {version} est installé. Redémarrez DSH pour l’utiliser.","DS Bot {version} is installed.":"DS B\
-ot {version} est installé.","DS Bot update":"Mise à jour de DS Bot","DS Bot {version}":"DS Bot {version}","Update installed":"Mise à jour installée","Restart DSH to start using\
- DS Bot {version}.":"Redémarrez DSH pour commencer à utiliser DS Bot {version}.","You have {version}.":"Version actuelle : {version}.","The update did not finish: {reason}":"La m\
-ise à jour n’a pas abouti : {reason}","What's new":"Nouveautés","Updating…":"Mise à jour…","DSH {version} is available":"DSH {version} est disponible","Updating DSH…":"M\
-ise à jour de DSH…","DSH update":"Mise à jour de DSH","DSH {version}":"DSH {version}","Restart DSH to start using DSH {version}.":"Redémarrez DSH pour commencer à utiliser DSH \
-{version}.","Update DS Bot {version} first.":"Mettez d’abord à jour DS Bot {version}.","Open updates":"Ouvrir les mises à jour",Messages:"Messages",Commands:"Commandes","Search\
- Bots, chats and messages":"Rechercher des Bots, discussions et messages","Search this group":"Rechercher dans ce groupe","Search this group’s messages":"Rechercher dans les mess\
-ages de ce groupe","Search messages in {name}":"Rechercher des messages dans {name}","Type at least two characters":"Saisissez au moins deux caractères","No messages found":"Aucun\
- message trouvé","Try a different word":"Essayez un autre mot","Searching…":"Recherche…","Back to results":"Retour aux résultats","Around this message":"Autour de ce message",
-"1 match":"1 résultat","{count} matches":"{count} résultats","Clear search":"Effacer la recherche",Results:"Résultats","No results":"Aucun résultat","Try a Bot name or words fr\
-om a message":"Essayez le nom d’un Bot ou des mots d’un message","Bot exchange":"Échange entre Bots","Bot exchange transcript":"Transcription de l’échange entre Bots","No m\
-essages yet":"Aucun message pour le moment","Close Chat":"Fermer","Show all · {count} characters":"Tout afficher · {count} caractères","Showing the first {count} characters":"Af\
-fichage des {count} premiers caractères","Only the start of this message is kept here":"Seul le début de ce message est conservé ici","Start of reply":"Début de la réponse","B\
-ack to the start of this reply":"Revenir au début de cette réponse",Contents:"Sommaire","Sections in this reply":"Sections de cette réponse","Sections in this reply: {section}":"\
-Sections de cette réponse : {section}","Today {time}":"Aujourd’hui {time}","Yesterday {time}":"Hier {time}","Ran for {duration}":"Exécuté pendant {duration}","No background wo\
-rk detected":"Aucune tâche en arrière-plan détectée","DS Bot has no recorded tool call or active background task for this reply.":"DS Bot n’a enregistré aucun appel d’outil ni \
-aucune tâche active en arrière-plan pour cette réponse.","File not found: {path}":"Fichier introuvable : {path}","{tokens} tok · Cache hit {hit}%":"{tokens} tok · Cache {hit} %",
-"1 turn":"1 tour","{count} turns":"{count} tours","{speed} tok/s":"{speed} tok/s","Cache hit {hit}%":"Cache {hit} %","Context {percent}%":"Contexte {percent} %","{used} of {total} \
-tokens of context in use":"{used} sur {total} jetons de contexte utilisés",Annotate:"Annoter","Annotate quote":"Annoter la citation",Annotation:"Annotation","Add an annotation…":"\
-Ajouter une annotation…","Add quote and annotation to the composer · Enter":"Ajouter la citation et l’annotation au champ · Entrée","Send quote and annotation · Ctrl+Enter":"\
-Envoyer la citation et l’annotation · Ctrl+Entrée",Footnotes:"Notes de bas de page","Remove reaction {emoji}":"Retirer la réaction {emoji}","Add reaction":"Ajouter une réactio\
-n",Reply:"Répondre","More message actions":"Plus d’actions sur le message",More:"Plus",Reactions:"Réactions","Message actions":"Actions sur le message",Download:"Télécharger",
-"Thought it through":"Réflexion","Earlier messages":"Messages précédents","Loading earlier messages…":"Chargement des messages précédents…","Couldn’t load earlier messages\
- · Retry":"Impossible de charger les messages précédents · Réessayer","Load earlier":"Charger les messages précédents","1 image":"1 image","{count} images":"{count} images",
-"Replies from":"Réponses de","Reply from":"Réponse de","Message from":"Message de","Stopped by":"Arrêté par","{count} messages with":"{count} messages avec","Routine started":"\
-Tâche de routine démarrée",Update:"Mettre à jour","Thinking about it":"En pleine réflexion","Weighing the options":"Évaluation des options","Working out a plan":"Élaboration \
-d’un plan","Sorting out the details":"Mise au point des détails","On it":"Je m’en occupe","Busy with it":"En cours de traitement","Moving ahead":"Ça avance","Taking care of i\
-t":"Prise en charge en cours","Making headway":"Progression en cours","Moving to a fresh conversation":"Passage à une nouvelle discussion","Switching working folder":"Changement d\
-e dossier de travail","Searching online":"Recherche en ligne","Reading a page":"Lecture d’une page","Running shell commands":"Exécution de commandes shell","Opening a file":"Ouv\
-erture d’un fichier","Looking through files":"Parcours des fichiers","Writing changes":"Écriture des modifications","Working on an image":"Traitement d’une image","Creating a \
-group":"Création d’un groupe","Updating the group":"Mise à jour du groupe","Deleting the group":"Suppression du groupe","Posting in the group":"Publication dans le groupe","Che\
-cking the keys":"Vérification des clés","Asking {name}":"Demande à {name}","Asking another Bot":"Demande à un autre Bot","Stopping {name}":"Arrêt de {name}","Stopping another \
-Bot":"Arrêt d’un autre Bot","Creating {name}":"Création de {name}","Updating {name}":"Mise à jour de {name}","Checking the team":"Vérification de l’équipe","Reading {name}":"\
-Lecture de {name}","Looking back through the chat":"Consultation de l’historique","{name} looked up its own chat":"{name} a consulté sa propre discussion","{name} looked up its \
-own chat for “{text}”":"{name} a recherché « {text} » dans sa propre discussion","{name} is typing…":"{name} écrit…","{name} didn't answer in time":"{name} n’a pas répo\
-ndu à temps","{name} did not answer or call anyone; call a member with @Name":"{name} n’a ni répondu ni interpellé personne ; appelez un membre avec @Nom","The group replies c\
-ould not be shown":"Les réponses du groupe n’ont pas pu être affichées","Paused after {count} Bot relays. Waiting: {names}":"En pause après {count} relais entre Bots. En atten\
-te : {names}","{names} went back and forth {count} times without progress and paused. Write here to go on":"{names} ont échangé {count} fois sans avancer et se sont mis en pause. É\
-crivez ici pour continuer","{name} paused for your approval":"{name} attend votre approbation","{name} started on it":"{name} s’y est mis","You stopped {name}'s work":"Vous avez \
-arrêté le travail de {name}","{name} finished its work":"{name} a terminé son travail","{name} was cut off by a restart and picked its work back up":"{name} a été interrompu par\
- un redémarrage et a repris son travail","{name} was cut off by a restart again and stopped":"{name} a de nouveau été interrompu par un redémarrage et s’est arrêté","Picked\
- up its work after a restart":"A repris son travail après un redémarrage","Profile updated":"Profil mis à jour","Asked to make the tool call it wrote as text":"Invité à exécuter\
- l’appel d’outil qu’il avait écrit en texte","Went on after the failed turn":"A repris après le tour en échec","A Bot":"Un Bot","{name} is waiting for your approval":"{nam\
-e} attend votre approbation","{first} and {second} are waiting for your approval":"{first} et {second} attendent votre approbation","{first}, {second} and {count} more are waiting \
-for your approval":"{first}, {second} et {count} autres attendent votre approbation","Waiting for your approval":"En attente de votre approbation","in its own chat":"dans sa propre\
- discussion","Stop all work in this group":"Arrêter tout le travail dans ce groupe","Stop all":"Tout arrêter",Goal:"Objectif","Set a goal":"Définir un objectif","This group has \
-no admin":"Ce groupe n’a pas d’admin","What should this group achieve?":"Que doit accomplir ce groupe ?",Start:"Démarrer",Resume:"Reprendre","Stop the goal?":"Arrêter l’object\
-if ?","Aligning the goal with you":"Alignement de l’objectif avec vous","{admin} asks what is still open, then writes the goal with its checks and stages.":"{admin} clarifie les \
-points ouverts, puis rédige l’objectif avec ses vérifications et ses étapes.",Objective:"Objectif","Done when":"Critères de réussite",Rules:"Règles","Final check":"Vérifica\
-tion finale","Waiting for you":"En attente de vous","Goal reached":"Objectif atteint",Stages:"Étapes","Stage {n}: {title}":"Étape {n} : {title}","Paused · {title}":"En pause · {\
-title}","Waiting for you · {title}":"En attente de vous · {title}","Checking · {title}":"Vérification · {title}","Sent back by {admin}: {feedback}":"Renvoyé par {admin} : {fee\
-dback}","Sent back {n} times by {admin}. Last time: {feedback}":"Renvoyé {n} fois par {admin}. Dernier retour : {feedback}","Done when: {text}":"Critère de réussite : {text}","E\
-vidence: {text}":"Preuve : {text}","Back to current stage":"Retour à l’étape actuelle","Goal and checks":"Objectif et vérifications",Summary:"Résumé",Evidence:"Preuve","Stop\
- current work too":"Arrêter aussi le travail en cours","Setting a goal":"Définition d’un objectif","Goal set: {title} · {count} stages":"Objectif défini : {title} · {count} ét\
-apes","Stage {n} passed · now stage {m}: {next}":"Étape {n} validée · place à l’étape {m} : {next}","All {count} stages passed":"Les {count} étapes ont été validées","S\
-tage {n} sent back for rework":"Étape {n} renvoyée pour reprise","Goal updated":"Objectif mis à jour","Goal paused":"Objectif mis en pause","Goal resumed":"Objectif repris","Goa\
-l reached: {title}":"Objectif atteint : {title}","Goal stopped":"Objectif arrêté",Reject:"Refuser","Allow once":"Autoriser une fois","Couldn't message {name}":"Impossible d’envoy\
-er un message à {name}",Messaged:"Message envoyé à","Couldn't stop {name}":"Impossible d’arrêter {name}",Stopped:"Arrêté",Created:"Créé",Updated:"Mis à jour","Created gr\
-oup":"Groupe créé","Couldn't create the group":"Impossible de créer le groupe","Updated group":"Groupe mis à jour","Couldn't update the group":"Impossible de mettre à jour le g\
-roupe","Deleted group":"Groupe supprimé","Couldn't delete the group":"Impossible de supprimer le groupe","Posted in":"Publié dans","Couldn't post in the group":"Impossible de pub\
-lier dans le groupe",Read:"Lu","Your own answer":"Votre propre réponse","Type your own answer":"Saisissez votre propre réponse",Selected:"Sélectionné",Skip:"Passer",Submit:"Env\
-oyer","Choose all that apply":"Plusieurs choix possibles","Dismiss question":"Fermer la question",Dismiss:"Fermer",Dismissed:"Fermé","Answered by message":"Répondu par message","\
-Your answer":"Votre réponse",View:"Vue",Confirm:"Confirmer",Progress:"Progression","Dismiss view":"Fermer la vue",Sources:"Sources",Chart:"Graphique","Chart {n}":"Graphique {n}",Series:"\
-Série","Chart options":"Options du graphique","View as table":"Afficher en tableau","View as chart":"Afficher en graphique","Copy data":"Copier les données","Download image":"Tél\
-écharger l’image","This view tried to open a page and was stopped.":"Cette vue a tenté d’ouvrir une page et a été bloquée.","Send to Bot":"Envoyer au Bot","All Bots":"Tous\
- les Bots","No Bot":"Aucun Bot","Paste or type the key":"Collez ou saisissez la clé","Only {name}":"Seulement {name}","Who may use it":"Qui peut l’utiliser","Cancel the request":"\
-Annuler la demande","This page is not on HTTPS: the key crosses the network unencrypted.":"Cette page n’utilise pas HTTPS : la clé transite sur le réseau sans chiffrement.","Le\
-t {bot} use {name}?":"Autoriser {bot} à utiliser {name} ?","{name} needs a key":"{name} a besoin d’une clé","Saved for {scope}":"Enregistré pour {scope}","Value of {name}":"Va\
-leur de {name}","{bot} never sees the value. It reaches {bot}'s shell as ":"{bot} ne voit jamais la valeur. Elle est transmise au shell de {bot} sous la forme "," At least {count} \
-characters.":" Au moins {count} caractères.","At least {count} characters.":"Au moins {count} caractères.","Replace value":"Remplacer la valeur","Saving…":"Enregistrement…","\
-Could not save this file":"Impossible d’enregistrer ce fichier",Save:"Enregistrer","Allowing…":"Autorisation…",Allow:"Autoriser","{bot} asked for {name}":"{bot} a demandé {na\
-me}","Allowed {bot} to use {name}":"{bot} a été autorisé à utiliser {name}","Saved {name}":"{name} enregistré",Canceled:"Annulé",Done:"Terminé","{bot} is using {name}":"{bot\
-} utilise {name}","{bot} could not ask for a key: this window can only view the team":"{bot} n’a pas pu demander de clé : cette fenêtre est en lecture seule","a saved key":"une\
- clé enregistrée","Chosen Bots":"Bots sélectionnés","Who may use {name}":"Qui peut utiliser {name}","Save access":"Enregistrer les accès","Replace the value":"Remplacer la val\
-eur","New value of {name}":"Nouvelle valeur de {name}","Replaced. Bots get the new value from their next command.":"Remplacée. Les Bots recevront la nouvelle valeur dès leur procha\
-ine commande.","a deleted Bot":"un Bot supprimé","Asked by {name}":"Demandé par {name}","added {time}":"ajouté {time}","last used {time}":"dernière utilisation {time}","not use\
-d yet":"jamais utilisé","Delete {name}? Bots lose it at once.":"Supprimer {name} ? Les Bots y perdront immédiatement accès.",Keep:"Conserver","Key name":"Nom de la clé","NAME, \
-e.g. GITHUB_TOKEN":"NOM, ex. GITHUB_TOKEN","What it is for":"À quoi elle sert",Value:"Valeur","New keys are for all Bots; narrow it down afterwards.":"Les nouvelles clés sont acce\
-ssibles à tous les Bots ; vous pourrez restreindre l’accès ensuite.","Save key":"Enregistrer la clé","Keys your Bots asked for. Bots never see the values: they use them as ":"\
-Les clés demandées par vos Bots. Les Bots ne voient jamais leurs valeurs : ils les utilisent via "," in their shell, and every value is replaced by ":" dans leur shell, et chaque\
- valeur est remplacée par "," before anything goes to a model.":" avant tout envoi à un modèle.","Secrets · {count}":"Secrets · {count}","Encryption at rest":"Chiffrement au r\
-epos","Keys are stored in a file only this user can read, but the values are not encrypted.":"Les clés sont stockées dans un fichier lisible par cet utilisateur seulement, mais les\
- valeurs ne sont pas chiffrées.","Encrypt keys at rest":"Chiffrer les clés","Passphrase (at least 8 characters)":"Phrase secrète (8 caractères minimum)","Repeat the passphrase":"\
-Répétez la phrase secrète","The passphrases do not match.":"Les phrases secrètes ne correspondent pas.","Turn on encryption":"Activer le chiffrement","Keys are stored encrypted\
-. They stay decrypted in memory while DS Bot runs.":"Les clés sont stockées chiffrées. Elles ne sont déchiffrées en mémoire que pendant l’exécution de DS Bot.","Turn off e\
-ncryption":"Désactiver le chiffrement","Secrets are locked":"Les secrets sont verrouillés",Passphrase:"Phrase secrète",Unlock:"Déverrouiller","The passphrase file named by DS_B\
-OT_SECRETS_PASSPHRASE_FILE could not be read.":"Le fichier de phrase secrète indiqué par DS_BOT_SECRETS_PASSPHRASE_FILE est illisible.","The passphrase in the environment or the \
-passphrase file did not unlock the secrets.":"La phrase secrète de l’environnement ou du fichier n’a pas déverrouillé les secrets.","No passphrase was found at startup. Ente\
-r it here, or set DS_BOT_SECRETS_PASSPHRASE_FILE for unattended starts.":"Aucune phrase secrète trouvée au démarrage. Saisissez-la ici ou définissez DS_BOT_SECRETS_PASSPHRASE_FILE \
-pour les démarrages sans surveillance.","No keys yet. When a Bot needs one, it shows a card in its chat.":"Aucune clé pour le moment. Lorsqu’un Bot en a besoin, il affiche une car\
-te dans sa discussion.","Add a key":"Ajouter une clé",Memory:"Mémoire","Nothing saved yet":"Rien d’enregistré pour le moment","1 entry":"1 entrée","{count} entries":"{count} \
-entrées","Manage {name}'s memory":"Gérer la mémoire de {name}","{name}'s memory":"Mémoire de {name}","Memory summary":"Résumé de la mémoire","All entries":"Toutes les entrée\
-s","Change history":"Historique des modifications","No changes yet":"Aucune modification pour le moment","Load more":"Charger plus",Undo:"Annuler",Undone:"Annulé","Undo this chang\
-e":"Annuler cette modification","Click again to undo":"Cliquez à nouveau pour annuler","Memory options":"Options de la mémoire","Close memory":"Fermer la mémoire","Back to the s\
-ummary":"Retour au résumé","Regenerate summary":"Régénérer le résumé","Updated {time}":"Mis à jour {time}","Updated just now":"Mis à jour à l’instant","Writing the summ\
-ary…":"Rédaction du résumé…","The summary is out of date: {reason}":"Le résumé n’est plus à jour : {reason}","The summary could not be written: {reason}":"Impossible de\
- rédiger le résumé : {reason}","{name} has not saved anything yet":"{name} n’a encore rien mémorisé","Bots keep lasting preferences, decisions, and what you ask them to reme\
-mber. Tell {name} below, or in its chat.":"Les Bots retiennent vos préférences durables, les décisions prises et ce que vous leur demandez de mémoriser. Dites-le à {name} ci-dessou\
-s ou dans sa discussion.","Nothing is saved for this group yet":"Rien n’est encore mémorisé pour ce groupe","A group keeps the decisions, rules, and facts its work needs, for i\
-ts members to read here. Tell it below, or in the group.":"Un groupe conserve les décisions, règles et faits nécessaires à son travail, lisibles par ses membres uniquement dans ce \
-groupe. Indiquez-les ci-dessous ou dans le groupe.","Team memory":"Mémoire d’équipe","Every Bot reads it":"Lue par tous les Bots","Group memory":"Mémoire du groupe","Only its \
-members read it":"Lue uniquement par ses membres","MEMORY.md, which every conversation reads":"MEMORY.md, lu à chaque discussion","{used} of {limit} characters":"{used} sur {limit\
-} caractères","by you":"par vous","by {name}":"par {name}","Remove from memory":"Supprimer de la mémoire","until {day}":"jusqu’au {day}","Tidied: {merged} merged, {moved} moved\
-, {retired} archived":"Trié : {merged} fusionné(s), {moved} déplacé(s), {retired} archivé(s)","Only when needed":"Seulement au besoin","Move to…":"Déplacer vers…","Every \
-conversation":"Chaque discussion","ended {day}":"terminé le {day}","Click again to remove":"Cliquez à nouveau pour supprimer",Remove:"Supprimer","Ask or update":"Demander ou mett\
-re à jour","Ask about or update {name}'s memory":"Interroger ou mettre à jour la mémoire de {name}",Send:"Envoyer","Added: {text}":"Ajouté : {text}","Added to team memory: {tex\
-t}":"Ajouté à la mémoire d’équipe : {text}","Updated: {text}":"Mis à jour : {text}","Removed: {text}":"Supprimé : {text}","Removed from team memory: {text}":"Supprimé de la\
- mémoire d’équipe : {text}","Not changed: {text} ({reason})":"Inchangé : {text} ({reason})","{count} file changed":"{count} fichier modifié","{count} files changed":"{count} \
-fichiers modifiés",File:"Fichier","Review these changes":"Examiner ces modifications","These changes are no longer available":"Ces modifications ne sont plus disponibles","This wi\
-ndow cannot open the change review":"Cette fenêtre ne peut pas ouvrir la revue des modifications","Saving to memory":"Enregistrement en mémoire","Updating memory":"Mise à jour de\
- la mémoire","Checking memory":"Consultation de la mémoire","Memory updated":"Mémoire mise à jour","Already saved":"Déjà enregistré","Couldn't save to memory":"Impossible d’\
-enregistrer en mémoire","Couldn't remove from memory":"Impossible de supprimer de la mémoire","Memory not changed":"Mémoire inchangée","Write something to save":"Écrivez quelqu\
-e chose à enregistrer","No saved entry matched":"Aucune entrée correspondante","The memory refused this change":"La mémoire a refusé cette modification","The memory could not b\
-e changed":"Impossible de modifier la mémoire","Team memory updated":"Mémoire d’équipe mise à jour","Updated {name}'s memory":"Mémoire de {name} mise à jour","Memory update\
-d. Open {name}'s memory":"Mémoire mise à jour. Ouvrir la mémoire de {name}","Open browser":"Ouvrir le navigateur","{name}'s browser":"Navigateur de {name}","Resize panel":"Redim\
-ensionner le panneau",Back:"Précédent",Forward:"Suivant",Stop:"Arrêter",Reload:"Actualiser",Address:"Adresse","Search or enter address":"Rechercher ou saisir une adresse","This \
-page didn’t load":"Cette page ne s’est pas chargée","Try again":"Réessayer","Open a page here and {name} can read it with you. Logins and cookies stay with {name}; other Bots\
- never see them.":"Ouvrez une page ici pour que {name} puisse la lire avec vous. Les identifiants et les cookies restent propres à {name} ; les autres Bots n’y ont jamais accès.",
-"Only http and https addresses open here.":"Seules les adresses http et https s’ouvrent ici.","The page crashed.":"La page a planté.","The browser blocked the new window.":"Le n\
-avigateur a bloqué la nouvelle fenêtre.","Open the issue":"Ouvrir le ticket","Cloud metadata addresses do not open here.":"Les adresses de métadonnées cloud ne s’ouvrent pas ici.",
-"Dictation is not available in this browser":"La dictée n’est pas disponible dans ce navigateur","Microphone access is blocked":"L’accès au microphone est bloqué","Couldn't \
-hear that":"Rien n’a été entendu","Couldn't start dictation":"Impossible de démarrer la dictée","Stop dictation":"Arrêter la dictée",Dictate:"Dicter","Start voice chat":"Dé\
-marrer la discussion vocale","Voice chat":"Discussion vocale",Listening:"Écoute",Thinking:"Réflexion","Thinking…":"Réflexion…",Speaking:"Parole",Paused:"En pause","Voice cha\
-t is not available in this browser":"La discussion vocale n’est pas disponible dans ce navigateur","Voice chat with {name}":"Discussion vocale avec {name}","Resume listening":"Re\
-prendre l’écoute",Pause:"Pause","End voice chat":"Terminer la discussion vocale","Recognizing…":"Reconnaissance…","Voice input needs its speech model":"La saisie vocale néce\
-ssite son modèle vocal","Set up voice input":"Configurer la saisie vocale","Preparing voice input…":"Préparation de la saisie vocale…","Downloading the speech model… {pct}%":"\
-Téléchargement du modèle vocal… {pct} %","Couldn't prepare voice input":"Impossible de préparer la saisie vocale","That was too long to recognize":"L’enregistrement est trop \
-long pour être reconnu","24 hours":"24 heures","7 days":"7 jours","30 days":"30 jours","12 weeks":"12 semaines","12 months":"12 mois","Per hour":"Par heure","Per day":"Par jour","\
-Per week":"Par semaine","Per month":"Par mois",Output:"Sortie",Input:"Entrée","Cache hit":"Cache atteint","Deleted Bot":"Bot supprimé",Deleted:"Supprimé","Deleted group chat":"D\
-iscussion de groupe supprimée","Group chat":"Discussion de groupe","Own chat":"Discussion privée","Side chat":"Discussion parallèle","New browser tab":"Nouvel onglet de navigate\
-ur",Terminal:"Terminal",Files:"Fichiers","Close side chat":"Fermer la discussion parallèle","Delete side chat":"Supprimer la discussion parallèle","Ask without interrupting":"Pos\
-er une question sans interrompre","Ask about the work so far":"Poser une question sur l’avancement","Answering…":"Réponse en cours…",Cancelled:"Annulé",Tasks:"Tâches","In \
-progress":"En cours","Awaiting review":"En attente de relecture",Blocked:"Bloquée","Stopped by the user":"Arrêté par l’utilisateur","Not updated after a restart":"Pas mis à jo\
-ur après le redémarrage","Its model call failed ({code})":"Échec de l’appel au modèle ({code})","Add a note":"Ajouter une note","Cancel task":"Annuler la tâche","Click again\
- to cancel":"Cliquez encore pour annuler","History ({count})":"Historique ({count})","Hide history":"Masquer l’historique","No task is running in this group.":"Aucune tâche en co\
-urs dans ce groupe.","What should change?":"Que faut-il changer ?","Note: {text}":"Note : {text}","Answered from progress so far; nothing was run":"Répondu à partir de l’avancement\
- actuel ; aucune action n’a été exécutée","Could not answer.":"Impossible de répondre.","Cancel this side question":"Annuler cette question parallèle",Conversations:"Discus\
-sions","Compaction and handoff":"Compaction et passation","Image reading":"Lecture d’images",Titles:"Titres",Other:"Autre","Last {range}":"Derniers {range}",tokens:"jetons","Comp\
-ared with the {range} before":"Par rapport aux {range} précédents","{share}% of all usage in the last {range}":"{share} % de l’utilisation totale sur les derniers {range}",Calls:"\
-Appels","Cache hit rate":"Taux de succès du cache","Tokens over time":"Jetons au fil du temps","{count} tokens":"{count} jetons","{tokens} tokens · {calls} calls":"{tokens} jeton\
-s · {calls} appels","Active on 1 day in the last year":"Actif 1 jour au cours de l’année écoulée","Active on {count} days in the last year":"Actif {count} jours au cours de l\
-’année écoulée",Light:"Faible",Heavy:"Élevé","Unknown model":"Modèle inconnu","More Bots":"Autres Bots","More models":"Autres modèles","Reading your chats…":"Lecture de \
-vos discussions…","No usage yet.":"Aucune utilisation pour le moment.","Token usage shows up here after a model is called.":"La consommation de jetons s’affiche ici après l’appel\
- d’un modèle.","Nothing in this range.":"Aucune donnée sur cette période.","Who used it":"Utilisé par","What for":"Usage",Activity:"Activité","Time range":"Période","All us\
-age":"Toute l’utilisation","Group usage by":"Grouper par","By Bot":"Par Bot","By model":"Par modèle","Still reading older chats; totals may grow.":"Lecture des discussions plus \
-anciennes en cours ; les totaux peuvent encore augmenter.",Custom:"Personnalisé","Custom range":"Période personnalisée","This month":"Ce mois-ci","Last month":"Le mois dernier",
-"This year":"Cette année","Previous month":"Mois précédent","Next month":"Mois suivant","Pick the first day":"Choisir le premier jour","Pick the last day":"Choisir le dernier jo\
-ur","1 day":"1 jour","{count} days":"{count} jours","Compared with the day before":"Par rapport à la veille","Compared with the {count} days before":"Par rapport aux {count} jours\
- précédents","{share}% of all usage from {span}":"{share} % de l’utilisation totale sur {span}","About DS Bot":"À propos de DS Bot","Version {version}":"Version {version}","St\
-ar DS Bot on GitHub":"Mettre une étoile à DS Bot sur GitHub","{count} stars":"{count} étoiles","If DS Bot helps you, a star on GitHub helps more people find it.":"Si DS Bot vous\
- est utile, une étoile sur GitHub aide davantage de personnes à le découvrir.",Updates:"Mises à jour","Check for updates":"Vérifier les mises à jour","Checking…":"Vérificat\
-ion…","Up to date":"À jour","Checked {time}":"Vérifié {time}","Could not check for updates.":"Impossible de vérifier les mises à jour.","Update checks are off.":"La vérifica\
-tion des mises à jour est désactivée.","Checking for updates…":"Recherche de mises à jour…","Downloading {version}…":"Téléchargement de {version}…","{version} is read\
-y; it installs when you restart":"{version} est prêt ; il sera installé au redémarrage","Restart to update":"Redémarrer pour mettre à jour","{version} is available":"{version}\
- est disponible","Installed from a local folder; update it there.":"Installé depuis un dossier local ; mettez-le à jour à cet emplacement.","Updates are not offered for this ins\
-tall.":"Les mises à jour ne sont pas proposées pour cette installation.","Updates come with the DS Bot app.":"Les mises à jour sont incluses avec l’application DS Bot.",Links:"\
-Liens","Source code":"Code source","Release notes":"Notes de version",Open:"Ouvrir",Feedback:"Retours","Report a problem":"Signaler un problème","What happened?":"Que s’est-il pas\
-sé ?","What you did, what you expected, and what happened instead. It goes into the issue.":"Ce que vous avez fait, ce à quoi vous vous attendiez et ce qui s’est produit. Ces info\
-rmations seront ajoutées au ticket.","For example: I asked Writer in the group chat and it showed an error.":"Par exemple : j’ai posé une question à Writer dans le groupe et une e\
-rreur s’est affichée.",Diagnostics:"Diagnostics","Versions, system, models, and the latest errors. Saved keys, tokens, and your home folder are hidden.":"Versions, système, modè\
-les et dernières erreurs. Les clés enregistrées, jetons et votre dossier personnel sont masqués.",Show:"Afficher",Hide:"Masquer","GitHub issue":"Ticket GitHub","Opens a new iss\
-ue in the DS Bot repository with all of this filled in. Nothing is sent until you submit it there.":"Ouvre un nouveau ticket dans le dépôt DS Bot avec ces informations préremplies.\
- Rien n’est envoyé tant que vous ne le soumettez pas sur GitHub.","Report on GitHub":"Signaler sur GitHub","Copied the diagnostics.":"Diagnostics copiés.","Could not copy. Sele\
-ct the text below and copy it.":"Impossible de copier. Sélectionnez le texte ci-dessous et copiez-le.","Opened a new GitHub issue with the diagnostics filled in. Check it before y\
-ou submit.":"Un nouveau ticket GitHub a été ouvert avec les diagnostics préremplis. Vérifiez-le avant de l’envoyer.","Opened a new GitHub issue. The diagnostics are long, so \
-they are on the clipboard: paste them into the issue.":"Un nouveau ticket GitHub a été ouvert. Les diagnostics étant longs, ils ont été copiés dans le presse-papiers : collez-les d\
-ans le ticket.","Opened a new GitHub issue. Copy the diagnostics below into it.":"Un nouveau ticket GitHub a été ouvert. Copiez-y les diagnostics ci-dessous.","Downloaded the log\
-. Keys, tokens, and your home folder are hidden in it.":"Journal téléchargé. Les clés, jetons et votre dossier personnel y sont masqués.","Cleared the error log.":"Journal d’e\
-rreurs effacé.","Recent errors":"Erreurs récentes","Recent errors · {count}":"Erreurs récentes · {count}","No errors recorded.":"Aucune erreur enregistrée.","Failed model cal\
-ls and DS Bot problems show here, newest first.":"Les appels de modèle échoués et les problèmes de DS Bot s’affichent ici, du plus récent au plus ancien.","Model call":"Appe\
-l de modèle","This window":"Cette fenêtre","Error log":"Journal d’erreurs","Kept on this computer across restarts, up to about 1 MB.":"Conservé sur cet ordinateur entre les red\
-émarrages, jusqu’à environ 1 Mo.",Clear:"Effacer","Settings → Feedback has the details.":"Voir les détails dans Paramètres → Retours.","Could not reach DSH. Check that it\
- is still running.":"Impossible de joindre DSH. Vérifiez qu’il est toujours en cours d’exécution.","{name} stopped: {reason}. Switch its model or ask it to go on.":"{name} s’\
-est arrêté : {reason}. Changez son modèle ou demandez-lui de continuer.","{name}'s background helper did not finish: {reason}. Ask it to go on if it still matters.":"L'assistant\
- en arrière-plan de {name} n'a pas terminé : {reason}. Demandez-lui de continuer si c'est encore utile.","Run failed":"Échec de l’exécution","Reached the output limit":"Limit\
-e de sortie atteinte","Stopped before finishing":"Arrêté avant la fin","Declined the task":"Tâche refusée","Unknown error":"Erreur inconnue","The model has no API key":"Le modè\
-le n’a pas de clé API","The API key is not in the right format":"La clé API n’est pas au bon format","The DeepSeek account needs a sign-in":"Le compte DeepSeek nécessite une \
-connexion","The DeepSeek account is signed out":"Le compte DeepSeek est déconnecté","The DeepSeek account sign-in has expired":"La session du compte DeepSeek a expiré","The API \
-key was rejected":"La clé API a été refusée","The account is out of quota":"Le quota du compte est épuisé","Too many requests to the model":"Trop de requêtes envoyées au modè\
-le","The conversation is too long for the model":"La discussion est trop longue pour le modèle","The model service refused the request":"Le service de modèles a refusé la requête",
-"The model service failed":"Le service de modèles a rencontré une erreur","The model took too long to answer":"Le modèle a mis trop de temps à répondre","Could not reach the m\
-odel service":"Impossible de joindre le service de modèles","The conversation could not be compacted for the model switch":"La conversation n’a pas pu être condensée pour changer \
-de modèle","Its group conversation could not open":"Sa discussion de groupe n’a pas pu s’ouvrir","Its group conversation could not open, so it starts a new one next time":"Sa \
-discussion de groupe n’a pas pu s’ouvrir ; une nouvelle sera créée la prochaine fois","Pasted text · {count} characters":"Texte collé · {count} caractères","Put back":"Re\
-mettre","Put back into the box":"Remettre dans le champ","Remove pasted text":"Supprimer le texte collé","Add files":"Ajouter des fichiers","Reference a chat":"Référencer une disc\
-ussion","Chat with {name}":"Discussion avec {name}","Scheduled task":"Tâche planifiée","Open the scheduled tasks of this chat":"Ouvrir les tâches planifiées de cette conversation",
-"Send to":"Envoyer à","Scheduled task: {text}":"Tâche planifiée : {text}","Choose the group admin":"Choisir l’admin du groupe","Group admin":"Admin du groupe","Who to chat wit\
-h…":"Avec qui discuter…","Add at least one more Bot":"Ajoutez au moins un autre Bot",Members:"Membres","Scheduled tasks":"Tâches planifiées","Every day":"Tous les jours","Eve\
-ry {count} days":"Tous les {count} jours","Every hour":"Toutes les heures","Every {count} hours":"Toutes les {count} heures","Every {count} minutes":"Toutes les {count} minutes","O\
-nce, {time}":"Une fois, {time}","Every day at {time}":"Tous les jours à {time}","Every {days} at {time}":"Chaque {days} à {time}","Every weekday at {time}":"Chaque jour ouvré à {\
-time}","Every weekend at {time}":"Chaque week-end à {time}","On the schedule {expression}":"Selon la planification {expression}","Custom schedule":"Planification personnalisée","\
-Next: {time}":"Prochaine : {time}","Overdue: {time}":"En retard : {time}",Finished:"Terminé","Scheduled tasks · {count}":"Tâches planifiées · {count}","Show all":"Tout affiche\
-r","in {name}":"dans {name}","Click again to delete":"Cliquez à nouveau pour supprimer","Delete task":"Supprimer la tâche",Once:"Une fois","Every week":"Toutes les semaines",Repeat:"\
-Répéter",minutes:"minutes",hours:"heures",days:"jours","Morning briefing":"Briefing du matin","What to do":"Que faire","Sum up what changed since yesterday and what needs me toda\
-y.":"Résume ce qui a changé depuis hier et ce qui demande mon attention aujourd’hui.",When:"Quand","Date and time":"Date et heure",Days:"Jours",Time:"Heure",Every:"Tous les","H\
-ow many":"Combien",Unit:"Unité","Create task":"Créer la tâche","Turn on Automation tasks in DSH":"Activer les « Tâches d’automatisation » dans DSH","Switch on Automation ta\
-sks on the Plugins page in Settings.":"Activez « Tâches d’automatisation » sur la page Extensions dans les Paramètres.","New task":"Nouvelle tâche","No scheduled tasks yet.":"\
-Aucune tâche planifiée pour le moment.","No scheduled tasks yet. Add one":"Aucune tâche planifiée. En ajouter une","Automation tasks are off in DSH":"Les « Tâches d’automatisat\
-ion » sont désactivées dans DSH","No such Bot":"Bot introuvable","No such Bot or group chat":"Bot ou discussion de groupe introuvable","Give the task a name":"Donnez un nom à la\
- tâche","Say what the Bot should do":"Indiquez ce que le Bot doit faire","Pick a date and time":"Choisissez une date et une heure","Pick a time in the future":"Choisissez un momen\
-t dans le futur","Pick a time of day":"Choisissez une heure","Pick at least one day":"Choisissez au moins un jour","Repeat every 1 minute to 7 days":"L’intervalle de répétition doi\
-t être compris entre 1 minute et 7 jours","Pick when it runs":"Choisissez quand l’exécuter","No such task":"Tâche introuvable","Working folder":"Dossier de travail","Working f\
-older: {folder}":"Dossier de travail : {folder}",Folder:"Dossier",Folders:"Dossiers",Privacy:"Confidentialité",Private:"Privé","Other Bots cannot read its folder, memory or chats\
-, and you approve what it shares with them.":"Les autres Bots ne peuvent pas lire son dossier, sa mémoire ni ses discussions, et vous approuvez ce qu’il partage avec eux.","A Ma\
-in Bot cannot be private.":"Un Bot principal ne peut pas être privé.","Leave its group chats before making it private.":"Retirez-le de ses discussions de groupe avant de le rendr\
-e privé.","Choose a working folder of its own first.":"Choisissez-lui d’abord un dossier de travail dédié.","A private Bot cannot be a Main Bot.":"Un Bot privé ne peut pas êtr\
-e Bot principal.","Closed after deletion · {count}":"Protégé après suppression · {count}","Remove protection":"Lever la protection","Click again to remove. Other Bots can then\
- read its folder, memory and chats.":"Cliquez à nouveau pour lever la protection. Les autres Bots pourront alors lire son dossier, sa mémoire et ses discussions.","Nothing kept c\
-losed for this Bot":"Aucune protection conservée pour ce Bot","Team workspace":"Espace de travail de l’équipe","Team workspace: {folder}":"Espace de travail de l’équipe : {fold\
-er}","Where Bots without a folder of their own work.":"Là où travaillent les Bots qui n’ont pas de dossier dédié.",Locations:"Emplacements","Data location":"Emplacement des d\
-onnées","Change…":"Modifier…","Each Bot's own folder":"Dossier propre à chaque Bot","Choose a folder…":"Choisir un dossier…","Browse folders…":"Parcourir les dossiers…",
-"Enter a path…":"Saisir un chemin…","Folder path":"Chemin du dossier","Full path of a folder":"Chemin complet d’un dossier","Use this folder":"Utiliser ce dossier","Up one le\
-vel":"Dossier parent","No folders inside.":"Aucun sous-dossier.","Some folders are not shown.":"Certains dossiers ne sont pas affichés.","Waiting for sign-in…":"En attente de co\
-nnexion…","This service needs an app client ID":"Ce service nécessite un Client ID d’application","Paste the address you land on":"Collez l’adresse de redirection","Finish s\
-ign-in":"Terminer la connexion","Open {host}":"Ouvrir {host}","Client ID":"Client ID","Client secret (optional)":"Client secret (facultatif)","In OAuth & Permissions at {app}, add \
-this redirect URL:":"Dans OAuth & Permissions de {app}, ajoutez cette URL de redirection :","In the app settings, add this redirect URL:":"Dans les réglages de l’app, ajoutez cette\
- URL de redirection :","Turn on the MCP features and scopes the app needs.":"Activez les fonctions et les portées MCP dont l’app a besoin.","Copy the Client ID and Client Secret\
- here.":"Collez ici le Client ID et le Client Secret.","Open app settings":"Ouvrir les réglages de l’app",Continue:"Continuer","{name} key":"Clé {name}","{name} token":"Jeton {\
-name}","Get a key":"Obtenir une clé","Read-only":"Lecture seule","{count} tools":"{count} outils",Mailbox:"Boîte mail","Email address":"Adresse e-mail",Catalog:"Catalogue","App p\
-assword":"Mot de passe d’application","Authorization code":"Code d’autorisation","Password or app password":"Mot de passe ou mot de passe d’application","Official help":"Aide\
- officielle","Finish signing in in your browser.":"Terminez la connexion dans votre navigateur.","Open again":"Rouvrir","Did not come back here?":"La page ne vous a pas redirigé ic\
-i ?","Copied to clipboard":"Copié dans le presse-papiers","Paste the code on {host} and authorize.":"Collez le code sur {host} et autorisez l’accès.","Add another":"En ajouter \
-un autre","QQ, 163, 126, Gmail, iCloud, and other IMAP mail":"QQ, 163, 126, Gmail, iCloud et autres messageries IMAP","Other MCP server":"Autre serveur MCP","An address, a command,\
- or one from Claude Desktop, Cursor, or VS Code":"Une adresse, une commande ou une importation depuis Claude Desktop, Cursor ou VS Code","Kind of server":"Type de serveur","Nothing\
- matches":"Aucun connecteur correspondant",Recommended:"Recommandé","See all":"Tout voir","{count} connected":"{count} connecté(s)","{count} accounts":"{count} comptes",Category:"\
-Catégorie","Could not reach the mail server. Check the server address.":"Impossible de joindre le serveur de messagerie. Vérifiez l’adresse du serveur.","Sign in at mail.qq.com\
-, click your avatar at the top right, and open Settings → Account and Security → Security Settings.":"Connectez-vous sur mail.qq.com, cliquez sur votre avatar en haut à droite \
-et ouvrez Paramètres → Compte et sécurité → Paramètres de sécurité.","Turn on the POP3/IMAP/SMTP service, then click Generate authorization code and verify yourself.":"Ac\
-tivez le service POP3/IMAP/SMTP, puis cliquez sur Générer un code d’autorisation et validez votre identité.","Paste the 16-letter code below. Changing your QQ password cancels\
- it.":"Collez le code de 16 lettres ci-dessous. Changer votre mot de passe QQ l’invalidera.","Sign in at {host} and open Settings → POP3/SMTP/IMAP.":"Connectez-vous sur {host} \
-et ouvrez Paramètres → POP3/SMTP/IMAP.","Turn on IMAP/SMTP and send the text message it asks for.":"Activez IMAP/SMTP et envoyez le SMS de vérification demandé.","Paste the 16\
--character code below. It is shown only once.":"Collez le code de 16 caractères ci-dessous. Il ne s’affiche qu’une seule fois.","Turn on 2-Step Verification for your Google Ac\
-count.":"Activez la validation en deux étapes sur votre compte Google.","Open App passwords, create one, and paste the 16-character password below.":"Ouvrez Mots de passe des appl\
-ications, créez-en un et collez le mot de passe de 16 caractères ci-dessous.","Work and school accounts cannot use app passwords.":"Les comptes professionnels et scolaires ne peu\
-vent pas utiliser les mots de passe d’application.","Your Apple Account needs two-factor authentication.":"Votre compte Apple doit utiliser l’identification à deux facteurs.",
-"Sign in at account.apple.com and open Sign-In and Security → App-Specific Passwords.":"Connectez-vous sur account.apple.com et ouvrez Connexion et sécurité → Mots de passe pour \
-app.","Generate a password and paste it below.":"Générez un mot de passe et collez-le ci-dessous.","The mail service refused the login (Unsafe Login). Enable IMAP/SMTP in the mai\
-lbox settings and use its authorization code, not the account password.":"Le service de messagerie a refusé la connexion (Unsafe Login). Activez IMAP/SMTP dans les paramètres de vo\
-tre boîte mail et utilisez son code d’autorisation plutôt que le mot de passe du compte.","The password was refused. Use the mailbox app password or authorization code, not the\
- account password.":"Le mot de passe a été refusé. Utilisez le mot de passe d’application ou le code d’autorisation de la boîte mail, et non le mot de passe du compte.","En\
-ter the authorization code or app password":"Saisissez le code d’autorisation ou le mot de passe d’application","Pages, databases, and wiki content":"Pages, bases de données et\
- contenus wiki","Issues, projects, and cycles":"Tickets, projets et cycles","Jira issues and Confluence pages":"Tickets Jira et pages Confluence","Errors, traces, and releases":"Er\
-reurs, traces et versions","Payments, invoices, and customers":"Paiements, factures et clients","Orders, payments, and invoices":"Commandes, paiements et factures","Payments, order\
-s, and catalog":"Paiements, commandes et catalogue","Workers, DNS, and account resources":"Workers, DNS et ressources du compte","Projects, deployments, and logs":"Projets, déploie\
-ments et journaux","Databases, tables, and project settings":"Bases de données, tables et paramètres du projet","Postgres databases and branches":"Bases de données Postgres et br\
-anches","Design files, components, and comments":"Fichiers de design, composants et commentaires","Designs, folders, and exports":"Designs, dossiers et exports","Conversations, con\
-tacts, and articles":"Conversations, contacts et articles","Boards, items, and workflows":"Tableaux, éléments et flux de travail","Sites, pages, and CMS content":"Sites, pages et\
- contenus CMS","Sites, pages, and site content":"Sites, pages et contenus du site","Sites, deploys, and forms":"Sites, déploiements et formulaires","Bases, tables, and records":"B\
-ases, tables et enregistrements","Files and folders":"Fichiers et dossiers","Zaps and app actions":"Zaps et actions d’application","Tasks, lists, and docs":"Tâches, listes et doc\
-uments","Tasks and projects":"Tâches et projets","Boards and whiteboard items":"Tableaux et éléments de tableau blanc","CRM records, lists, and notes":"Fiches CRM, listes et not\
-es","Collections, requests, and workspaces":"Collections, requêtes et espaces de travail","Tasks, projects, and workspaces":"Tâches, projets et espaces de travail","Files, folder\
-s, and metadata":"Fichiers, dossiers et métadonnées","Contacts, deals, and tickets":"Contacts, transactions et tickets","Channels and messages":"Canaux et messages","Models, data\
-sets, and Spaces":"Modèles, jeux de données et Spaces","Web search for agents":"Recherche web pour les agents","Documentation for public code repositories":"Documentation des dép\
-ôts de code publics","Library documentation and code examples":"Documentation de bibliothèques et exemples de code","Microsoft product documentation":"Documentation des produits \
-Microsoft","Cloudflare product documentation":"Documentation des produits Cloudflare","Maps, places, and routes in China":"Cartes, lieux et itinéraires en Chine","Read and send em\
-ail over IMAP and SMTP":"Lire et envoyer des e-mails via IMAP et SMTP","IMAP host":"Serveur IMAP","SMTP host":"Serveur SMTP","Sign in with Google":"Se connecter avec Google","Verif\
-ying…":"Vérification…","Import from other apps":"Importer depuis d’autres applications","Server address":"Adresse du serveur","Command, e.g. npx -y some-mcp":"Commande, ex. \
-npx -y some-mcp","Scanning…":"Analyse…","No MCP servers found in Claude Desktop, Cursor, or VS Code settings.":"Aucun serveur MCP trouvé dans les paramètres de Claude Desktop, \
-Cursor ou VS Code.","Import {count}":"Importer {count}",All:"Tout",Developer:"Développement","Docs & files":"Documents et fichiers",Work:"Travail",Design:"Design",Data:"Données",
-Commerce:"Commerce","No connectors connected":"Aucun connecteur connecté","{bot} needs {name}":"{bot} a besoin de {name}",Mail:"E-mail",Subject:"Objet","Write a message…":"Écrir\
-e un message…",Discard:"Abandonner",Discarded:"Abandonné","Allow recipient":"Autoriser le destinataire","Allow this Bot to send directly":"Autoriser ce Bot à envoyer directement",
-"Manage rules":"Gérer les règles","Sending rules":"Règles d’envoi",From:"De",To:"À",Cc:"Cc",Bcc:"Cci","Attachments: {names}":"Pièces jointes : {names}",Sent:"Envoyé",Failed:"\
-Échec","Request failed":"Échec de la requête","Permissions are not available in this DeepSeek Harness":"Les autorisations ne sont pas disponibles dans ce DeepSeek Harness","Avat\
-ar image is too large":"L’image d’avatar est trop volumineuse","A Bot needs a name":"Un Bot doit avoir un nom","A Bot name cannot contain @, ` or a line break":"Le nom d’un Bot\
- ne peut pas contenir @, ` ni de saut de ligne","Unknown Bot":"Bot introuvable","Unknown conversation":"Discussion introuvable","A group chat needs at least two Bots":"Une discussi\
-on de groupe nécessite au moins deux Bots","The admin must be a member of the group":"L’admin doit être membre du groupe","Unknown group chat":"Discussion de groupe introuvable",
-"No Bot is left in this group chat":"Il ne reste plus aucun Bot dans cette discussion de groupe","That group chat has been deleted":"Cette discussion de groupe a été supprimée",
-"Hand the admin role to another member instead of leaving the group without one":"Confiez le rôle d’admin à un autre membre plutôt que de laisser le groupe sans admin","Hand t\
-he admin role to another member before leaving the group":"Confiez le rôle d’admin à un autre membre avant de quitter le groupe","The team needs at least one Main Bot":"L’équip\
-e a besoin d’au moins un Bot principal","Only a Main Bot can be replaced":"Seul un Bot principal peut être remplacé","A Main Bot cannot be deleted; remove its Main Bot role fir\
-st":"Un Bot principal ne peut pas être supprimé ; retirez-lui d’abord le rôle de Bot principal","Unknown theme":"Thème inconnu","Accent must be a #rrggbb color":"La couleur d\
-’accentuation doit être au format #rrggbb","Type the key first":"Saisissez d’abord la clé","Choose every Bot or a list of Bots":"Choisissez tous les Bots ou une liste de Bots",
-"This request is gone":"Cette demande n’existe plus","This request was already answered":"Cette demande a déjà été traitée","A name uses capitals, digits, and underscores, a\
-nd starts with a letter":"Un nom ne peut contenir que des lettres majuscules, des chiffres et des tirets bas, en commençant par une lettre","No such key":"Clé introuvable","Type \
-a question or a change first":"Saisissez d’abord une question ou une modification","No model is available. Add one in Settings > Models.":"Aucun modèle n’est disponible. Ajoutez-\
-en un dans Paramètres > Modèles.","Memory is turned off on this host":"La mémoire est désactivée sur cet hôte","The model wrote nothing":"Le modèle n’a rien produit","Writ\
-e the entry to save.":"Écrivez l’entrée à enregistrer.","This DeepSeek Harness has no folder chooser":"Ce DeepSeek Harness n’a pas de sélecteur de dossier","This DeepSeek H\
-arness cannot list folders":"Ce DeepSeek Harness ne peut pas lister les dossiers","Side chat is only available in a Bot's private chat.":"La discussion parallèle n’est disponible q\
-ue dans la discussion privée d’un Bot.","Write a question.":"Écrivez une question.","Write a question after /side.":"Écrivez une question après /side.","/side does not take a\
-ttachments.":"/side n’accepte pas les pièces jointes.","Wait for the answer, or cancel it.":"Attendez la réponse ou annulez la demande.","This side chat is no longer here.":"Ce\
-tte discussion parallèle n’existe plus.","This side question is no longer here.":"Cette question parallèle n’existe plus.","This Bot has not called a model yet. Send a normal\
- message first.":"Ce Bot n’a pas encore appelé de modèle. Envoyez d’abord un message normal.","DS Bot restarted before this answer finished.":"DS Bot a redémarré avant la fin\
- de cette réponse.","The model called a tool again after being told not to, so this aside was not answered.":"Le modèle a de nouveau appelé un outil alors qu’il lui était demandé \
-de ne pas le faire ; cette question parallèle n’a donc pas reçu de réponse.","The model wrote nothing.":"Le modèle n’a rien écrit.","Nothing to ask":"Rien à demander","No\
-thing to open":"Rien à ouvrir","Nothing to cancel":"Rien à annuler","Nothing to close":"Rien à fermer","DS Bot is still loading this chat.":"DS Bot charge encore cette discussio\
-n.","This message is no longer kept":"Ce message n’est plus conservé","No file named":"Aucun fichier indiqué","This file cannot be read here":"Ce fichier ne peut pas être lu ic\
-i","That wait is no longer open":"Cette attente est terminée","Nothing to send":"Rien à envoyer","This view is no longer open":"Cette vue n’est plus ouverte","This is not a pho\
-to DS Bot can send":"Ce n’est pas une photo que DS Bot peut envoyer","A photo did not arrive. Send it again.":"Une photo n’est pas arrivée. Envoyez-la de nouveau.","Nothing to\
- delete":"Rien à supprimer","Bot browsers are off on this host":"Les navigateurs des Bots sont désactivés sur cet hôte","This Bot has no open browser":"Ce Bot n’a aucun navigat\
-eur ouvert","A browser poll needs a clientId":"L’interrogation du navigateur nécessite un clientId","This browser is not held":"Ce navigateur n’est pas en cours de prise en main",
-"This handoff is no longer open":"Ce passage de relais du navigateur n’est plus ouvert","Avatar images must be PNG, JPEG, WebP, GIF, or SVG":"Les images d’avatar doivent être au \
-format PNG, JPEG, WebP, GIF ou SVG","Pick a model before choosing a thinking level":"Choisissez un modèle avant de sélectionner un niveau de réflexion","Unknown section":"Sectio\
-n introuvable","Unknown section color":"Couleur de section inconnue","Write the to-do first.":"Écrivez d’abord la tâche à faire.","That to-do is no longer on the list.":"Cette\
- tâche n’est plus dans la liste.","Write what this group should achieve, in at most 2000 characters.":"Décrivez ce que ce groupe doit accomplir, en 2000 caractères maximum.","\
-This group has no admin. Set one in the group settings first.":"Ce groupe n’a pas d’admin. Définissez-en un dans les paramètres du groupe.","This group already has a goal. St\
-op it first.":"Ce groupe a déjà un objectif. Arrêtez-le d’abord.","The goal has changed. Look again.":"L’objectif a changé. Vérifiez à nouveau.","Nothing to do":"Rien à f\
-aire","Write a note first.":"Écrivez d’abord une note.","That task is already finished.":"Cette tâche est déjà terminée.","No such group.":"Ce groupe est introuvable.","No s\
-uch task.":"Cette tâche est introuvable.","No open task to cancel.":"Aucune tâche en cours à annuler.","Sign-in timed out":"Délai de connexion dépassé","The sign-in answer di\
-d not match this attempt (state mismatch). Try again.":"La réponse de connexion ne correspond pas à cette tentative (état différent). Réessayez.","This connector does not sign\
- in":"Ce connecteur ne nécessite pas de connexion","This connector has no server address":"Ce connecteur n’a pas d’adresse de serveur","Connector addresses must start with htt\
-ps://":"Les adresses de connecteurs doivent commencer par https://","This service does not publish OAuth sign-in metadata":"Ce service ne publie pas de métadonnées de connexion OAu\
-th","Paste a key first":"Collez d’abord une clé","No sign-in is waiting":"Aucune connexion n’est en attente","Paste the address or the code":"Collez l’adresse ou le code","T\
-his address is not from this sign-in attempt (state mismatch). Copy the whole address again.":"Cette adresse ne provient pas de cette tentative de connexion (état différent). Copie\
-z de nouveau l’adresse complète.","The address has no code":"L’adresse ne contient aucun code","Enter the client ID":"Saisissez l’identifiant client","Name the connector":"N\
-ommez le connecteur","Enter an address or a command":"Saisissez une adresse ou une commande","Only added connectors can be removed":"Seuls les connecteurs ajoutés peuvent être supp\
-rimés","The mail connection closed during verification":"La connexion de messagerie s’est fermée pendant la vérification","Google sign-in is not available in this build":"La c\
-onnexion Google n’est pas disponible dans cette version","Enter an email address":"Saisissez une adresse e-mail","Enter the IMAP and SMTP hosts":"Saisissez les serveurs IMAP et S\
-MTP","No such account":"Compte introuvable","This card was already answered":"Cette carte a déjà reçu une réponse","No Google sign-in is waiting":"Aucune connexion Google n’est\
- en attente","The sign-in answer is not for this attempt":"La réponse de connexion ne correspond pas à cette tentative","Google did not say which account this is":"Google n’a pas\
- indiqué de quel compte il s’agit","This platform is not available yet":"Cette plateforme n’est pas encore disponible","Choose a Bot first":"Choisissez d’abord un Bot","This\
- platform signs in by scanning a code; not available yet":"Cette plateforme se connecte en scannant un code et n’est pas encore disponible","No such IM bot":"Bot de messagerie in\
-trouvable","No such platform":"Plateforme introuvable","No such chat":"Discussion introuvable","Choose a Bot or a group":"Choisissez un Bot ou un groupe","This platform has no QR l\
-ogin":"Cette plateforme ne propose pas de connexion par QR code","Paste the bot token first":"Collez d’abord le jeton du bot","Telegram did not say who this token belongs to":"Te\
-legram n’a pas indiqué à qui appartient ce jeton","A webhook or another program uses this bot":"Un webhook ou un autre programme utilise ce bot","This token does not belong to \
-a Discord bot":"Ce jeton n’appartient pas à un bot Discord","Discord gave no usable gateway URL":"Discord n’a renvoyé aucune URL de passerelle utilisable","These credentials \
-do not belong to a Slack bot":"Ces identifiants n’appartiennent pas à un bot Slack","WeChat answered an unreadable response":"WeChat a renvoyé une réponse illisible","WeChat r\
-ate limited the request":"WeChat a limité la fréquence des requêtes","WeChat refused the token":"WeChat a refusé le jeton","Use a capability name with lowercase letters, digits\
-, and single hyphens; connector names are reserved.":"Utilisez un nom de capacité composé de lettres minuscules, de chiffres et de traits d’union simples ; les noms de connecteurs \
-sont réservés.","Arguments must be a list of text values.":"Les arguments doivent être une liste de textes.","Choose an MCP server, skill, or pack.":"Choisissez un serveur MCP, \
-une compétence ou un pack.","A capability cannot change its kind. Delete it and save a new one.":"Une capacité ne peut pas changer de type. Supprimez-la et enregistrez-en une nouv\
-elle.","Enter a command for the MCP server.":"Saisissez une commande pour le serveur MCP.","Enter a valid HTTP or HTTPS URL.":"Saisissez une URL HTTP ou HTTPS valide.","Only Bots o\
-n the team can change capabilities.":"Seuls les Bots de l’équipe peuvent modifier des capacités.","Only a Main Bot can change another Bot’s capabilities.":"Seul un Bot princi\
-pal peut modifier les capacités d’un autre Bot.","This DSH cannot load MCP servers.":"Ce DSH ne peut pas charger de serveurs MCP.","Unknown capability operation.":"Opération de \
-capacité inconnue.","The secrets file is not encrypted.":"Le fichier des secrets n’est pas chiffré.","Secrets are already encrypted.":"Les secrets sont déjà chiffrés.","Secr\
-ets are not encrypted.":"Les secrets ne sont pas chiffrés.","Learning is turned off on this host":"L’apprentissage est désactivé sur cet hôte","AGENTS.md changed since this w\
-as proposed":"AGENTS.md a changé depuis cette proposition","The Bot that learned this skill is gone":"Le Bot qui a appris cette compétence n’existe plus","System permissions ar\
-e not available here":"Les autorisations système ne sont pas disponibles ici","This host keeps no Bot data folder, so it has no avatar library.":"Cet hôte ne conserve aucun dossie\
-r de données Bot et n’a donc pas de bibliothèque d’avatars.","DS Bot is shutting down":"DS Bot est en train de s’arrêter","Computer use":"Contrôle de l’ordinateur",Computer:"\
-Ordinateur",Control:"Contrôle","Let Bots use the computer":"Autoriser les Bots à utiliser l’ordinateur","Using the computer":"Utilise l’ordinateur",Off:"Désactivé","View on\
-ly":"Lecture seule",Background:"Arrière-plan",Foreground:"Premier plan","In the foreground":"Au premier plan","Computer use level":"Niveau de contrôle de l’ordinateur","Compute\
-r provider":"Fournisseur","Loading the provider…":"Chargement du fournisseur…","Could not load the provider":"Impossible de charger le fournisseur","The provider package is not\
- installed":"Le paquet du fournisseur n’est pas installé","Install it in this DSH":"L’installer dans ce DSH","Run {command}, then restart DSH.":"Exécutez {command}, puis redém\
-arrez DSH.","Copy command":"Copier la commande","Bots get no computer tools until the provider is ready.":"Les Bots n’ont accès à aucun outil de contrôle de l’ordinateur tant que l\
-e fournisseur n’est pas prêt.","Another computer-use provider is running":"Un autre fournisseur de contrôle de l’ordinateur est déjà en cours d’exécution","Computer use \
-is not available on this platform":"Le contrôle de l’ordinateur n’est pas disponible sur cette plateforme",Accessibility:"Accessibilité","Screen Recording":"Enregistrement de\
- l’écran",Allowed:"Autorisé","Not allowed":"Non autorisé",Grant:"Autoriser",Revoke:"Révoquer","Off in Settings → Computer use":"Désactivé dans Paramètres → Contrôle de l’or\
-dinateur",Idle:"Inactif",Operating:"En action","You have the computer":"Vous avez la main","Latest screenshot":"Dernière capture d’écran","Let it continue":"Laisser continuer",
-"Take over the computer":"Prendre la main","Hand back":"Rendre la main","Recent steps":"Actions récentes",failed:"échec","Allow {name} to use {app}?":"Autoriser {name} à utiliser\
- {app} ?","This time":"Cette fois-ci",Always:"Toujours","Needs your confirmation":"Nécessite votre confirmation","Help needed on the computer":"Aide requise sur l’ordinateur","Y\
-ou control the computer":"Vous contrôlez l’ordinateur","{name} · foreground":"{name} · premier plan","{name} waits for the computer":"{name} attend que l’ordinateur soit libre",
-"Bot models":"Modèles des Bots","Change several Bots":"Changer plusieurs Bots","{selected} of {total} selected":"{selected} sur {total} sélectionnés","Bots on a local agent keep\
- their own model.":"Les Bots sur un agent local gardent leur propre modèle.","Select all":"Tout sélectionner","Changing…":"Modification…","Selected Bots":"Bots sélectionnés",
-"{model} (not available)":"{model} (indisponible)",Changed:"Modifié","Already on this model":"Utilise déjà ce modèle","Skipped: runs on a local agent":"Ignoré : tourne sur un a\
-gent local","Skipped: not available now":"Ignoré : indisponible pour le moment","Could not change: {error}":"Modification impossible : {error}","Changed {count} of {total} Bots.":"\
-{count} Bots sur {total} modifiés.","Select {name}":"Sélectionner {name}","Change it in the Bot's settings.":"Modifiez-le dans les réglages du Bot.","Already on this model: {cou\
-nt}":"Utilisent déjà ce modèle : {count}","Skipped: {count}":"Ignorés : {count}","Failed: {count}":"En échec : {count}","{count} skipped":"{count} ignorés","No model picked y\
-et":"Aucun modèle choisi",Running:"En cours","Open this session":"Ouvrir cette session","Open this running session":"Ouvrir cette session en cours","A running session keeps using \
-model calls in the background.":"Une session en cours continue d’utiliser des appels au modèle en arrière-plan.","This session is still running. Wait for it to finish, or stop \
-it.":"Cette session est toujours en cours. Attendez la fin ou arrêtez-la."},HOST_ERRORS_FR=[[/^Could not reach the mail server at (.+)\. Check the server address\.$/,"Impossible d\
-e joindre le serveur de messagerie à l’adresse $1. Vérifiez l’adresse du serveur."],[/^Model (.+) is not available\. Available: (.*)$/,"Le modèle $1 n’est pas disponible. Dis\
-ponibles : $2"],[/^The API key for (.+) is set outside DS Bot and cannot be changed here$/,"La clé API de $1 est définie hors de DS Bot et ne peut pas être modifiée ici"],[/^(.+) takes no API key here$/,
-"$1 n’utilise pas de clé API ici"],[/^(.+) is already set up$/,"$1 est déjà configuré"],[/^DSH offers no provider (.+)$/,"DSH ne propose pas le fournisseur $1"],[/^DSH already offers (.+); add it from its list$/,
-"DSH propose déjà $1 ; ajoutez-le depuis la liste"],[/^The protocol must be one of (.+)$/,"Le protocole doit être l’un des suivants : $1"],[/^(.+) is not set up$/,"$1 n’est pa\
-s configuré"],[/^(.+) comes with this setup and cannot be removed$/,"$1 est inclus dans cette configuration et ne peut pas être supprimé"],[/^A Bot named (.+) already exists$/,"\
-Un Bot nommé $1 existe déjà"],[/^Name (.*) is not available$/,"Le nom $1 n’est pas disponible"],[/^"(.+)" calls everyone in a group, so it cannot be a Bot name$/,"« $1 » inter\
-pelle tout le monde dans un groupe et ne peut pas servir de nom de Bot"],[/^"(.+)" stands for the user in a chat, so it cannot be a Bot name$/,"« $1 » désigne l’utilisateur dans un\
-e discussion et ne peut pas servir de nom de Bot"],[/^Another group chat is already called "(.+)"$/,"Une autre discussion de groupe s’appelle déjà « $1 »"],[/^Another section is already called "(.+)"$/,
+e navigateur chiffre ses cookies pour être le seul à pouvoir les lire. Exportez-les d’abord dans un fichier, puis importez ce fichier.","Keychain access was cancelled. Click Al\
+low when macOS asks to read your browser cookies.":"L’accès au trousseau a été annulé. Cliquez sur Autoriser lorsque macOS demande à lire les cookies de votre navigateur.","\
+Remote debugging permission was declined in the browser. Try again and click Allow.":"L’autorisation de débogage à distance a été refusée dans le navigateur. Réessayez et cliquez s\
+ur Autoriser.","Timed out waiting for you to click Allow in the browser.":"Délai dépassé en attendant que vous cliquiez sur Autoriser dans le navigateur.","Another browser profi\
+le is active. Switch to the chosen profile window in your browser, then try again.":"Un autre profil de navigateur est actif. Basculez vers la fenêtre du profil choisi dans votre n\
+avigateur, puis réessayez.","Import from browser":"Importer depuis un navigateur","Last used":"Dernier utilisé","Browser profile":"Profil du navigateur","Paste cookies or cURL…":"\
+Coller des cookies ou cURL…","JSON, cURL, header":"JSON, cURL, en-tête","Connect to {name}":"Se connecter à {name}","{name} protects its cookies on Windows. Enable its built-in\
+ remote debugging switch once — no extension needed.":"{name} protège ses cookies sous Windows. Activez une fois son option intégrée de débogage à distance, sans extension.",
+"1. Open this address in {name}:":"1. Ouvrez cette adresse dans {name} :","2. Turn on “Allow remote debugging for this browser instance”, then click Allow when {name} prompts.":"\
+2. Activez « Allow remote debugging for this browser instance », puis cliquez sur Autoriser lorsque {name} vous le demande.","Remote debugging detected — ready to import.":"Déb\
+ogage à distance détecté — prêt à importer.","Open {name}":"Ouvrir {name}","Connect and import":"Connecter et importer","Paste cookies or cURL":"Coller des cookies ou cURL",
+"Paste Cookie-Editor JSON, Netscape cookies.txt, Copy as cURL, or a Cookie header…":"Collez un JSON Cookie-Editor, Netscape cookies.txt, Copy as cURL ou un en-tête Cookie…","S\
+ite URL (only needed for plain Cookie headers)":"URL du site (uniquement nécessaire pour les en-têtes Cookie simples)","Reading…":"Lecture…","{count} storage entries":"{count\
+} entrées de stockage","All sites ({count})":"Tous les sites ({count})","This site ({host})":"Ce site ({host})","Filter sites…":"Filtrer les sites…",storage:"stockage","Keep s\
+ession logins after app restart":"Conserver les sessions après le redémarrage de l’application","Reading {name}…":"Lecture de {name}…","If {name} or your system asks for pe\
+rmission, click Allow.":"Si {name} ou votre système demande une autorisation, cliquez sur Autoriser.","Imported storage for {count} sites":"Stockage importé pour {count} sites","\
+{count} sites storage":"stockage de {count} sites","page reloaded":"page rechargée","{count}":"{count}","Choose a PNG, JPEG, WebP, or GIF image":"Choisissez une image PNG, JPEG, W\
+ebP ou GIF","Choose an image smaller than 25 MB":"Choisissez une image de moins de 25 Mo","That image is too large":"Cette image est trop volumineuse",Model:"Modèle","Avatar edito\
+r":"Éditeur d’avatar","Avatar source":"Source de l’avatar",Upload:"Téléverser","Reset character to default":"Réinitialiser le personnage par défaut",Reset:"Réinitialiser",
+"Character shape":"Forme","Character color":"Couleur","Drag, drop, or paste an image":"Glissez-déposez ou collez une image",Replace:"Remplacer","Browse files":"Parcourir les fichi\
+ers","Remove photo":"Supprimer la photo","Edit Bot avatar":"Modifier l’avatar du Bot",Name:"Nom",Instructions:"Instructions","What this Bot is responsible for…":"Ce dont ce Bot\
+ est responsable…","Pick the model this Bot runs on.":"Choisissez le modèle utilisé par ce Bot.","This model is not available now. Pick another one.":"Ce modèle n’est pas dispo\
+nible actuellement. Choisissez-en un autre.","Every message of this Bot runs on it.":"Chaque message de ce Bot utilise ce modèle.","Applies from the next message.":"S’applique dès\
+ le prochain message.",Profile:"Profil",Label:"Étiquette","Add a label":"Ajouter une étiquette","Optional. Shown under the name.":"Facultatif. Affiché sous le nom.","Research, a\
+dmin…":"Recherche, administration…","What this Bot does":"Rôle de ce Bot","Its job on the team. Part of the Bot's system prompt.":"Son rôle dans l’équipe. Fait partie de l’inv\
+ite système du Bot.","A copy with the same job and model, and fresh memory.":"Crée une copie avec le même rôle et le même modèle, mais une mémoire vierge.","Delete {name}?":"\
+Supprimer {name} ?","Delete Bot":"Supprimer le Bot","Click again to delete. Its chats are archived.":"Cliquez à nouveau pour supprimer. Ses discussions seront archivées.","Remove\
+s the Bot from the team.":"Retire le Bot de l’équipe.","Pick a model and {name} can start.":"Choisissez un modèle pour que {name} puisse commencer.",Permissions:"Autorisations",
+"Read only":"Lecture seule",Workspace:"Espace de travail","Full access":"Accès complet","Same for every member":"Identique pour tous les membres","Replaces each member's own permi\
+ssions in this group.":"Remplace les autorisations individuelles de chaque membre dans ce groupe.","The only Main Bot. To hand the role to another Bot, use Main Bot on the Bots pag\
+e.":"C’est le seul Bot principal. Pour confier ce rôle à un autre Bot, utilisez la section Bot principal sur la page Bots.",Change:"Modifier","Can create and change Bots, and r\
+uns every group chat.":"Peut créer et modifier des Bots, et gère toutes les discussions de groupe.",Sidebar:"Barre latérale","Kept above the other chats.":"Affiché au-dessus des\
+ autres discussions.","Search still finds it.":"Reste trouvable via la recherche.",Manage:"Gérer",Library:"Bibliothèque","Import photos":"Importer des photos","Importing photos…":"\
+Importation des photos…","No photos in the library yet.":"Aucune photo dans la bibliothèque pour le moment.","Use this photo":"Utiliser cette photo","Remove photo from the libra\
+ry":"Retirer la photo de la bibliothèque","1 photo imported":"1 photo importée","{count} photos imported":"{count} photos importées","1 photo was already in the library":"1 phot\
+o était déjà dans la bibliothèque","{count} photos were already in the library":"{count} photos étaient déjà dans la bibliothèque","{name}: {reason}":"{name} : {reason}",photo:"\
+photo","Show more photos":"Afficher plus de photos","Showing {shown} of {total} photos":"Affichage de {shown} sur {total} photos","Leave it empty to name the group after its member\
+s.":"Laissez vide pour nommer le groupe d’après ses membres.","Every member reads it before speaking in this group.":"Chaque membre la lit avant de prendre la parole dans ce gro\
+upe.","Add a Bot first: a group chat needs at least two.":"Ajoutez d’abord un Bot : une discussion de groupe en nécessite au moins deux.","Click again to delete. Its history is \
+archived.":"Cliquez à nouveau pour supprimer. Son historique sera archivé.","Removes the group chat. Its members stay on the team.":"Supprime la discussion de groupe. Ses membres\
+ restent dans l’équipe.","Add a notice in group settings":"Ajouter une annonce dans les paramètres du groupe","Create Bot":"Créer un Bot","Back to new chat":"Retour à la nouve\
+lle discussion",Look:"Apparence",Shuffle:"Aléatoire","Replace photo":"Remplacer la photo","Upload photo":"Téléverser une photo","A Bot named {name} already exists":"Un Bot nommé\
+ {name} existe déjà","The Bot runs on this model. You can change it later in its details.":"Le Bot fonctionne avec ce modèle. Vous pourrez le modifier plus tard dans ses détails.",
+"Pick a model here, or the Bot asks for one in its chat.":"Choisissez un modèle ici, ou le Bot vous en demandera un dans sa discussion.","Add a provider and a model in DeepSeek Ha\
+rness first, or pick one in the Bot's chat later.":"Ajoutez d’abord un fournisseur et un modèle dans DeepSeek Harness, ou choisissez-en un plus tard dans la discussion du Bot.",
+"Creating…":"Création…",Create:"Créer",Default:"Par défaut","Thinking level":"Niveau de réflexion","Model: {model}":"Modèle : {model}",none:"aucun","Choose a model":"Chois\
+ir un modèle","{provider} · not available":"{provider} · indisponible","Model for {name}":"Modèle pour {name}","No models are set up in DeepSeek Harness yet.":"Aucun modèle n’e\
+st encore configuré dans DeepSeek Harness.","Models and providers…":"Modèles et fournisseurs…","Search models":"Rechercher des modèles","Search models…":"Rechercher des mo\
+dèles…","No matching models.":"Aucun modèle correspondant.",Models:"Modèles","Harness default":"Par défaut de Harness",Saving:"Enregistrement","Manage models":"Gérer les modè\
+les",Whale:"Baleine",Star:"Étoile",Moon:"Lune",Wave:"Onde",Squircle:"Squircle",Bull:"Taureau",Blossom:"Fleur",Gumdrop:"Bonbon",Peanut:"Cacahuète",Bubbles:"Bulles",Saucer:"Soucoup\
+e",Sprout:"Pousse",Bunny:"Lapin",Kitty:"Chaton",Beacon:"Phare",Plus:"Plus",Magnet:"Aimant",Acorn:"Gland",Pebbles:"Galets",Cushion:"Coussin",Ring:"Anneau",Gem:"Gemme",Black:"Noir",Brown:"\
+Marron",Red:"Rouge",Orange:"Orange",Yellow:"Jaune",Green:"Vert",Cyan:"Cyan",Blue:"Bleu",Violet:"Violet",Magenta:"Magenta",Gray:"Gris",Aurora:"Aurore",Deepseek:"Bleu DeepSeek",Charcoal:"\
+Anthracite",Graphite:"Graphite",Rose:"Rose",Sky:"Ciel",Tangerine:"Mandarine",Cobalt:"Cobalt",DeepSeek:"DeepSeek",Mono:"Mono",Paper:"Papier",Moonlight:"Clair de lune",General:"Génér\
+al",Bots:"Bots","Group chats":"Discussions de groupe",Secrets:"Secrets",Appearance:"Apparence",Theme:"Thème","Colors for the whole team, on every device.":"Couleurs pour toute l’é\
+quipe, sur tous les appareils.",Accent:"Couleur d’accentuation","Unread marks, badges, and the brand mark.":"Marques de non-lu, badges et emblème.","Theme accent":"Accent du thè\
+me","Custom accent":"Accent personnalisé","Message layout":"Disposition des messages",Bubble:"Bulles",Flat:"Plat","Bubble width":"Largeur des bulles","Text width":"Largeur du text\
+e","Show thinking":"Afficher la réflexion","Enter sends message":"Entrée envoie le message","Bring up related memory":"Rappeler automatiquement les souvenirs liés","Group memory\
+ size":"Capacité de mémoire du groupe","Bot memory size":"Capacité de mémoire du Bot","Team memory size":"Capacité de mémoire d’équipe","Bots · {count}":"Bots · {count}",
+"First in the sidebar. Pick another Bot to hand it the role; {name} then stops being a Main Bot.":"En tête de la barre latérale. Choisissez un autre Bot pour lui confier ce rôle ; \
+{name} cessera alors d’être Bot principal.","Choose a Bot…":"Choisir un Bot…","Also a Main Bot.":"Également Bot principal.","Move to first":"Placer en premier","Add a Main \
+Bot":"Ajouter un Bot principal","Main Bots can create and change Bots, and run every group chat.":"Les Bots principaux peuvent créer et modifier des Bots, et gérer toutes les discu\
+ssions de groupe.","Group chats · {count}":"Discussions de groupe · {count}","No group chats yet.":"Aucune discussion de groupe pour le moment.","A group chat lets several Bots w\
+ork on one thing with you.":"Une discussion de groupe permet à plusieurs Bots de travailler ensemble avec vous sur un même sujet.","Back to group chats":"Retour aux discussions d\
+e groupe","DS Bot settings":"Paramètres DS Bot","Settings pages":"Pages de paramètres","Advanced settings":"Paramètres avancés","Back to models":"Retour aux modèles","Open Plu\
+gins":"Ouvrir les extensions","Open settings":"Ouvrir les paramètres","Open settings file":"Ouvrir le fichier de configuration","Could not open the settings file":"Impossible d’ou\
+vrir le fichier de configuration","Show code work view":"Afficher la vue de travail sur le code","Could not save. Try again.":"Échec de l’enregistrement. Réessayez.","Connectio\
+n lost. Refresh to retry":"Connexion perdue. Actualisez pour réessayer",Reconnecting:"Reconnexion…","Connection lost. Reconnect now":"Connexion perdue. Se reconnecter maintenant",
+"Connection dropped and retrying. Reconnect now":"Connexion interrompue, nouvelle tentative en cours. Se reconnecter maintenant","Retry update":"Réessayer la mise à jour","New ve\
+rsion":"Nouvelle version","{percent}%":"{percent} %","Verifying the update…":"Vérification de la mise à jour…","Getting ready to restart…":"Préparation du redémarrage…",
+"Install and restart":"Installer et redémarrer","{label}: {version}":"{label} : {version}","Downloading the update: {percent}%, version {version}":"Téléchargement de la mise à jou\
+r : {percent} %, version {version}","Could not check for updates. Try again later.":"Impossible de vérifier les mises à jour. Réessayez plus tard.","Could not check for updates.\
+ Check your connection and try again.":"Impossible de vérifier les mises à jour. Vérifiez votre connexion et réessayez.","Could not download the update. Try again.":"Impossible\
+ de télécharger la mise à jour. Réessayez.","Could not download the update. Check your connection and try again.":"Impossible de télécharger la mise à jour. Vérifiez votre conn\
+exion et réessayez.","Could not install the update. Try again later.":"Impossible d’installer la mise à jour. Réessayez plus tard.","Could not install the update. Check your c\
+onnection and try again.":"Impossible d’installer la mise à jour. Vérifiez votre connexion et réessayez.","Tasks could not stop safely, so the update was not installed. Try ag\
+ain later.":"Les tâches n’ont pas pu être arrêtées en toute sécurité ; la mise à jour n’a pas été installée. Réessayez plus tard.","New tasks started. Confirm again \
+to stop them and update.":"De nouvelles tâches ont démarré. Confirmez à nouveau pour les arrêter et mettre à jour.","Task status is not available. Try again when the workspac\
+e is ready.":"L’état des tâches n’est pas disponible. Réessayez lorsque l’espace de travail sera prêt.","Could not leave full screen. Leave full screen and try again.":"I\
+mpossible de quitter le mode plein écran. Quittez le plein écran et réessayez.","The service version changed":"La version du service a changé","This page paused live updates. R\
+eload to load the new version.":"Cette page a suspendu les mises à jour en direct. Rechargez pour charger la nouvelle version.","Reload to load the new version":"Recharger pour ch\
+arger la nouvelle version","Not now":"Pas maintenant",Service:"Service",Page:"Page",Unknown:"Inconnu","Back to Bots":"Retour aux Bots","Close settings":"Fermer les paramètres",Unpin:"\
+Désépingler",Pin:"Épingler",Pinned:"Épinglé","Mark as Unread":"Marquer comme non lu","Mute notifications":"Mettre les notifications en sourdine","Unmute notifications":"Réacti\
+ver les notifications",Notifications:"Notifications","Tell me when a Bot answers while I am looking elsewhere.":"Prévenez-moi quand un Bot répond pendant que je regarde ailleurs.",
+"System notifications are turned off for DS Bot. Unread marks still show them.":"Les notifications système sont désactivées pour DS Bot. Les marques de non-lu restent visibles.",
+"Rename Bot":"Renommer le Bot","Group settings":"Paramètres du groupe","Shared to-do":"Tâches partagées","{count} open":"{count} en cours","No shared to-dos yet. Ask a Bot in th\
+is group to add one.":"Aucune tâche partagée pour l’instant. Demandez à un Bot de ce groupe d’en ajouter une.","Clear completed":"Effacer les tâches terminées","Rename gro\
+up":"Renommer le groupe","Copy conversation ID":"Copier l’ID de la discussion","Hide from sidebar":"Masquer de la barre latérale","{name} actions":"Actions pour {name}","Add DSH\
+ Agent":"Ajouter DSH Agent","Remove DSH Agent":"Retirer DSH Agent","New session":"Nouvelle session",Archive:"Archiver","Session actions":"Actions de session",Plugins:"Plugins","Pla\
+in dsh session":"Session dsh standard","just now":"à l’instant","{n} min":"{n} min","{n} h":"{n} h","{n} d":"{n} j","DS Bot {version} is available":"DS Bot {version} est disponi\
+ble","Updating DS Bot…":"Mise à jour de DS Bot…","DS Bot {version} is installed. Restart DSH to use it.":"DS Bot {version} est installé. Redémarrez DSH pour l’utiliser.","\
+DS Bot {version} is installed.":"DS Bot {version} est installé.","DS Bot update":"Mise à jour de DS Bot","DS Bot {version}":"DS Bot {version}","Update installed":"Mise à jour ins\
+tallée","Restart DSH to start using DS Bot {version}.":"Redémarrez DSH pour commencer à utiliser DS Bot {version}.","You have {version}.":"Version actuelle : {version}.","The up\
+date did not finish: {reason}":"La mise à jour n’a pas abouti : {reason}","What's new":"Nouveautés","Updating…":"Mise à jour…","DSH {version} is available":"DSH {version} \
+est disponible","Updating DSH…":"Mise à jour de DSH…","DSH update":"Mise à jour de DSH","DSH {version}":"DSH {version}","Restart DSH to start using DSH {version}.":"Redémarre\
+z DSH pour commencer à utiliser DSH {version}.","Update DS Bot {version} first.":"Mettez d’abord à jour DS Bot {version}.","Open updates":"Ouvrir les mises à jour",Messages:"M\
+essages",Commands:"Commandes","Search Bots, chats and messages":"Rechercher des Bots, discussions et messages","Search this group":"Rechercher dans ce groupe","Search this group’s \
+messages":"Rechercher dans les messages de ce groupe","Search messages in {name}":"Rechercher des messages dans {name}","Type at least two characters":"Saisissez au moins deux cara\
+ctères","No messages found":"Aucun message trouvé","Try a different word":"Essayez un autre mot","Searching…":"Recherche…","Back to results":"Retour aux résultats","Around t\
+his message":"Autour de ce message","1 match":"1 résultat","{count} matches":"{count} résultats","Clear search":"Effacer la recherche",Results:"Résultats","No results":"Aucun ré\
+sultat","Try a Bot name or words from a message":"Essayez le nom d’un Bot ou des mots d’un message","Bot exchange":"Échange entre Bots","Bot exchange transcript":"Transcriptio\
+n de l’échange entre Bots","No messages yet":"Aucun message pour le moment","Close Chat":"Fermer","Show all · {count} characters":"Tout afficher · {count} caractères","Showin\
+g the first {count} characters":"Affichage des {count} premiers caractères","Only the start of this message is kept here":"Seul le début de ce message est conservé ici","Start o\
+f reply":"Début de la réponse","Back to the start of this reply":"Revenir au début de cette réponse",Contents:"Sommaire","Sections in this reply":"Sections de cette réponse","\
+Sections in this reply: {section}":"Sections de cette réponse : {section}","Today {time}":"Aujourd’hui {time}","Yesterday {time}":"Hier {time}","Ran for {duration}":"Exécuté pen\
+dant {duration}","No background work detected":"Aucune tâche en arrière-plan détectée","DS Bot has no recorded tool call or active background task for this reply.":"DS Bot n’a \
+enregistré aucun appel d’outil ni aucune tâche active en arrière-plan pour cette réponse.","File not found: {path}":"Fichier introuvable : {path}","{tokens} tok · Cache hit {\
+hit}%":"{tokens} tok · Cache {hit} %","1 turn":"1 tour","{count} turns":"{count} tours","{speed} tok/s":"{speed} tok/s","Cache hit {hit}%":"Cache {hit} %","Context {percent}%":"Co\
+ntexte {percent} %","{used} of {total} tokens of context in use":"{used} sur {total} jetons de contexte utilisés",Annotate:"Annoter","Annotate quote":"Annoter la citation",Annotation:"\
+Annotation","Add an annotation…":"Ajouter une annotation…","Add quote and annotation to the composer · Enter":"Ajouter la citation et l’annotation au champ · Entrée","Send\
+ quote and annotation · Ctrl+Enter":"Envoyer la citation et l’annotation · Ctrl+Entrée",Footnotes:"Notes de bas de page","Remove reaction {emoji}":"Retirer la réaction {emoji}",
+"Add reaction":"Ajouter une réaction",Reply:"Répondre","More message actions":"Plus d’actions sur le message",More:"Plus",Reactions:"Réactions","Message actions":"Actions sur \
+le message",Download:"Télécharger","Thought it through":"Réflexion","Earlier messages":"Messages précédents","Loading earlier messages…":"Chargement des messages précédents…",
+"Couldn’t load earlier messages · Retry":"Impossible de charger les messages précédents · Réessayer","Load earlier":"Charger les messages précédents","1 image":"1 image","\
+{count} images":"{count} images","Replies from":"Réponses de","Reply from":"Réponse de","Message from":"Message de","Stopped by":"Arrêté par","{count} messages with":"{count} m\
+essages avec","Routine started":"Tâche de routine démarrée",Update:"Mettre à jour","Thinking about it":"En pleine réflexion","Weighing the options":"Évaluation des options","\
+Working out a plan":"Élaboration d’un plan","Sorting out the details":"Mise au point des détails","On it":"Je m’en occupe","Busy with it":"En cours de traitement","Moving ahe\
+ad":"Ça avance","Taking care of it":"Prise en charge en cours","Making headway":"Progression en cours","Moving to a fresh conversation":"Passage à une nouvelle discussion","Switc\
+hing working folder":"Changement de dossier de travail","Searching online":"Recherche en ligne","Reading a page":"Lecture d’une page","Running shell commands":"Exécution de comma\
+ndes shell","Opening a file":"Ouverture d’un fichier","Looking through files":"Parcours des fichiers","Writing changes":"Écriture des modifications","Working on an image":"Trait\
+ement d’une image","Creating a group":"Création d’un groupe","Updating the group":"Mise à jour du groupe","Deleting the group":"Suppression du groupe","Posting in the group":"\
+Publication dans le groupe","Checking the keys":"Vérification des clés","Asking {name}":"Demande à {name}","Asking another Bot":"Demande à un autre Bot","Stopping {name}":"Arrê\
+t de {name}","Stopping another Bot":"Arrêt d’un autre Bot","Creating {name}":"Création de {name}","Updating {name}":"Mise à jour de {name}","Checking the team":"Vérification d\
+e l’équipe","Reading {name}":"Lecture de {name}","Looking back through the chat":"Consultation de l’historique","{name} looked up its own chat":"{name} a consulté sa propre di\
+scussion","{name} looked up its own chat for “{text}”":"{name} a recherché « {text} » dans sa propre discussion","{name} is typing…":"{name} écrit…","{name} didn't answ\
+er in time":"{name} n’a pas répondu à temps","{name} did not answer or call anyone; call a member with @Name":"{name} n’a ni répondu ni interpellé personne ; appelez un membre \
+avec @Nom","The group replies could not be shown":"Les réponses du groupe n’ont pas pu être affichées","Paused after {count} Bot relays. Waiting: {names}":"En pause après {cou\
+nt} relais entre Bots. En attente : {names}","{names} went back and forth {count} times without progress and paused. Write here to go on":"{names} ont échangé {count} fois sans ava\
+ncer et se sont mis en pause. Écrivez ici pour continuer","{name} paused for your approval":"{name} attend votre approbation","{name} started on it":"{name} s’y est mis","You st\
+opped {name}'s work":"Vous avez arrêté le travail de {name}","{name} finished its work":"{name} a terminé son travail","{name} was cut off by a restart and picked its work back \
+up":"{name} a été interrompu par un redémarrage et a repris son travail","{name} was cut off by a restart again and stopped":"{name} a de nouveau été interrompu par un redémarra\
+ge et s’est arrêté","Picked up its work after a restart":"A repris son travail après un redémarrage","Profile updated":"Profil mis à jour","Asked to make the tool call it wr\
+ote as text":"Invité à exécuter l’appel d’outil qu’il avait écrit en texte","Went on after the failed turn":"A repris après le tour en échec","A Bot":"Un Bot","{name} i\
+s waiting for your approval":"{name} attend votre approbation","{first} and {second} are waiting for your approval":"{first} et {second} attendent votre approbation","{first}, {sec\
+ond} and {count} more are waiting for your approval":"{first}, {second} et {count} autres attendent votre approbation","Waiting for your approval":"En attente de votre approbation",
+"in its own chat":"dans sa propre discussion","Stop all work in this group":"Arrêter tout le travail dans ce groupe","Stop all":"Tout arrêter",Goal:"Objectif","Set a goal":"Défin\
+ir un objectif","This group has no admin":"Ce groupe n’a pas d’admin","What should this group achieve?":"Que doit accomplir ce groupe ?",Start:"Démarrer",Resume:"Reprendre","S\
+top the goal?":"Arrêter l’objectif ?","Aligning the goal with you":"Alignement de l’objectif avec vous","{admin} asks what is still open, then writes the goal with its checks \
+and stages.":"{admin} clarifie les points ouverts, puis rédige l’objectif avec ses vérifications et ses étapes.",Objective:"Objectif","Done when":"Critères de réussite",Rules:"\
+Règles","Final check":"Vérification finale","Waiting for you":"En attente de vous","Goal reached":"Objectif atteint",Stages:"Étapes","Stage {n}: {title}":"Étape {n} : {title}",
+"Paused · {title}":"En pause · {title}","Waiting for you · {title}":"En attente de vous · {title}","Checking · {title}":"Vérification · {title}","Sent back by {admin}: {feed\
+back}":"Renvoyé par {admin} : {feedback}","Sent back {n} times by {admin}. Last time: {feedback}":"Renvoyé {n} fois par {admin}. Dernier retour : {feedback}","Done when: {text}":"\
+Critère de réussite : {text}","Evidence: {text}":"Preuve : {text}","Back to current stage":"Retour à l’étape actuelle","Goal and checks":"Objectif et vérifications",Summary:"\
+Résumé",Evidence:"Preuve","Stop current work too":"Arrêter aussi le travail en cours","Setting a goal":"Définition d’un objectif","Goal set: {title} · {count} stages":"Objec\
+tif défini : {title} · {count} étapes","Stage {n} passed · now stage {m}: {next}":"Étape {n} validée · place à l’étape {m} : {next}","All {count} stages passed":"Les {co\
+unt} étapes ont été validées","Stage {n} sent back for rework":"Étape {n} renvoyée pour reprise","Goal updated":"Objectif mis à jour","Goal paused":"Objectif mis en pause","\
+Goal resumed":"Objectif repris","Goal reached: {title}":"Objectif atteint : {title}","Goal stopped":"Objectif arrêté",Reject:"Refuser","Allow once":"Autoriser une fois","Couldn't\
+ message {name}":"Impossible d’envoyer un message à {name}",Messaged:"Message envoyé à","Couldn't stop {name}":"Impossible d’arrêter {name}",Stopped:"Arrêté",Created:"Cré\
+é",Updated:"Mis à jour","Created group":"Groupe créé","Couldn't create the group":"Impossible de créer le groupe","Updated group":"Groupe mis à jour","Couldn't update the gro\
+up":"Impossible de mettre à jour le groupe","Deleted group":"Groupe supprimé","Couldn't delete the group":"Impossible de supprimer le groupe","Posted in":"Publié dans","Couldn't\
+ post in the group":"Impossible de publier dans le groupe",Read:"Lu","Your own answer":"Votre propre réponse","Type your own answer":"Saisissez votre propre réponse",Selected:"Sé\
+lectionné",Skip:"Passer",Submit:"Envoyer","Choose all that apply":"Plusieurs choix possibles","Dismiss question":"Fermer la question",Dismiss:"Fermer",Dismissed:"Fermé","Answered\
+ by message":"Répondu par message","Your answer":"Votre réponse",View:"Vue",Confirm:"Confirmer",Progress:"Progression","Dismiss view":"Fermer la vue",Sources:"Sources",Chart:"Gra\
+phique","Chart {n}":"Graphique {n}",Series:"Série","Chart options":"Options du graphique","View as table":"Afficher en tableau","View as chart":"Afficher en graphique","Copy data":"\
+Copier les données","Download image":"Télécharger l’image","This view tried to open a page and was stopped.":"Cette vue a tenté d’ouvrir une page et a été bloquée.","Sen\
+d to Bot":"Envoyer au Bot","All Bots":"Tous les Bots","No Bot":"Aucun Bot","Paste or type the key":"Collez ou saisissez la clé","Only {name}":"Seulement {name}","Who may use it":"\
+Qui peut l’utiliser","Cancel the request":"Annuler la demande","This page is not on HTTPS: the key crosses the network unencrypted.":"Cette page n’utilise pas HTTPS : la clé tran\
+site sur le réseau sans chiffrement.","Let {bot} use {name}?":"Autoriser {bot} à utiliser {name} ?","{name} needs a key":"{name} a besoin d’une clé","Saved for {scope}":"Enreg\
+istré pour {scope}","Value of {name}":"Valeur de {name}","{bot} never sees the value. It reaches {bot}'s shell as ":"{bot} ne voit jamais la valeur. Elle est transmise au shell de\
+ {bot} sous la forme "," At least {count} characters.":" Au moins {count} caractères.","At least {count} characters.":"Au moins {count} caractères.","Replace value":"Remplacer la\
+ valeur","Saving…":"Enregistrement…","Could not save this file":"Impossible d’enregistrer ce fichier",Save:"Enregistrer","Allowing…":"Autorisation…",Allow:"Autoriser","{b\
+ot} asked for {name}":"{bot} a demandé {name}","Allowed {bot} to use {name}":"{bot} a été autorisé à utiliser {name}","Saved {name}":"{name} enregistré",Canceled:"Annulé",Done:"\
+Terminé","{bot} is using {name}":"{bot} utilise {name}","{bot} could not ask for a key: this window can only view the team":"{bot} n’a pas pu demander de clé : cette fenêtre est e\
+n lecture seule","a saved key":"une clé enregistrée","Chosen Bots":"Bots sélectionnés","Who may use {name}":"Qui peut utiliser {name}","Save access":"Enregistrer les accès","R\
+eplace the value":"Remplacer la valeur","New value of {name}":"Nouvelle valeur de {name}","Replaced. Bots get the new value from their next command.":"Remplacée. Les Bots recevront\
+ la nouvelle valeur dès leur prochaine commande.","a deleted Bot":"un Bot supprimé","Asked by {name}":"Demandé par {name}","added {time}":"ajouté {time}","last used {time}":"de\
+rnière utilisation {time}","not used yet":"jamais utilisé","Delete {name}? Bots lose it at once.":"Supprimer {name} ? Les Bots y perdront immédiatement accès.",Keep:"Conserver",
+"Key name":"Nom de la clé","NAME, e.g. GITHUB_TOKEN":"NOM, ex. GITHUB_TOKEN","What it is for":"À quoi elle sert",Value:"Valeur","New keys are for all Bots; narrow it down afterwa\
+rds.":"Les nouvelles clés sont accessibles à tous les Bots ; vous pourrez restreindre l’accès ensuite.","Save key":"Enregistrer la clé","Keys your Bots asked for. Bots never \
+see the values: they use them as ":"Les clés demandées par vos Bots. Les Bots ne voient jamais leurs valeurs : ils les utilisent via "," in their shell, and every value is replac\
+ed by ":" dans leur shell, et chaque valeur est remplacée par "," before anything goes to a model.":" avant tout envoi à un modèle.","Secrets · {count}":"Secrets · {count}","E\
+ncryption at rest":"Chiffrement au repos","Keys are stored in a file only this user can read, but the values are not encrypted.":"Les clés sont stockées dans un fichier lisible par\
+ cet utilisateur seulement, mais les valeurs ne sont pas chiffrées.","Encrypt keys at rest":"Chiffrer les clés","Passphrase (at least 8 characters)":"Phrase secrète (8 caractères\
+ minimum)","Repeat the passphrase":"Répétez la phrase secrète","The passphrases do not match.":"Les phrases secrètes ne correspondent pas.","Turn on encryption":"Activer le chi\
+ffrement","Keys are stored encrypted. They stay decrypted in memory while DS Bot runs.":"Les clés sont stockées chiffrées. Elles ne sont déchiffrées en mémoire que pendant l’exécut\
+ion de DS Bot.","Turn off encryption":"Désactiver le chiffrement","Secrets are locked":"Les secrets sont verrouillés",Passphrase:"Phrase secrète",Unlock:"Déverrouiller","The pa\
+ssphrase file named by DS_BOT_SECRETS_PASSPHRASE_FILE could not be read.":"Le fichier de phrase secrète indiqué par DS_BOT_SECRETS_PASSPHRASE_FILE est illisible.","The passphrase\
+ in the environment or the passphrase file did not unlock the secrets.":"La phrase secrète de l’environnement ou du fichier n’a pas déverrouillé les secrets.","No passphrase\
+ was found at startup. Enter it here, or set DS_BOT_SECRETS_PASSPHRASE_FILE for unattended starts.":"Aucune phrase secrète trouvée au démarrage. Saisissez-la ici ou définissez DS_B\
+OT_SECRETS_PASSPHRASE_FILE pour les démarrages sans surveillance.","No keys yet. When a Bot needs one, it shows a card in its chat.":"Aucune clé pour le moment. Lorsqu’un Bot en a\
+ besoin, il affiche une carte dans sa discussion.","Add a key":"Ajouter une clé",Memory:"Mémoire","Nothing saved yet":"Rien d’enregistré pour le moment","1 entry":"1 entrée",
+"{count} entries":"{count} entrées","Manage {name}'s memory":"Gérer la mémoire de {name}","{name}'s memory":"Mémoire de {name}","Memory summary":"Résumé de la mémoire","All \
+entries":"Toutes les entrées","Change history":"Historique des modifications","No changes yet":"Aucune modification pour le moment","Load more":"Charger plus",Undo:"Annuler",Undone:"\
+Annulé","Undo this change":"Annuler cette modification","Click again to undo":"Cliquez à nouveau pour annuler","Memory options":"Options de la mémoire","Close memory":"Fermer la\
+ mémoire","Back to the summary":"Retour au résumé","Regenerate summary":"Régénérer le résumé","Updated {time}":"Mis à jour {time}","Updated just now":"Mis à jour à l’insta\
+nt","Writing the summary…":"Rédaction du résumé…","The summary is out of date: {reason}":"Le résumé n’est plus à jour : {reason}","The summary could not be written: {re\
+ason}":"Impossible de rédiger le résumé : {reason}","{name} has not saved anything yet":"{name} n’a encore rien mémorisé","Bots keep lasting preferences, decisions, and what\
+ you ask them to remember. Tell {name} below, or in its chat.":"Les Bots retiennent vos préférences durables, les décisions prises et ce que vous leur demandez de mémoriser. Dites-\
+le à {name} ci-dessous ou dans sa discussion.","Nothing is saved for this group yet":"Rien n’est encore mémorisé pour ce groupe","A group keeps the decisions, rules, and facts\
+ its work needs, for its members to read here. Tell it below, or in the group.":"Un groupe conserve les décisions, règles et faits nécessaires à son travail, lisibles par ses membr\
+es uniquement dans ce groupe. Indiquez-les ci-dessous ou dans le groupe.","Team memory":"Mémoire d’équipe","Every Bot reads it":"Lue par tous les Bots","Group memory":"Mémoire \
+du groupe","Only its members read it":"Lue uniquement par ses membres","MEMORY.md, which every conversation reads":"MEMORY.md, lu à chaque discussion","{used} of {limit} character\
+s":"{used} sur {limit} caractères","by you":"par vous","by {name}":"par {name}","Remove from memory":"Supprimer de la mémoire","until {day}":"jusqu’au {day}","Tidied: {merged} \
+merged, {moved} moved, {retired} archived":"Trié : {merged} fusionné(s), {moved} déplacé(s), {retired} archivé(s)","Only when needed":"Seulement au besoin","Move to…":"Dépla\
+cer vers…","Every conversation":"Chaque discussion","ended {day}":"terminé le {day}","Click again to remove":"Cliquez à nouveau pour supprimer",Remove:"Supprimer","Ask or updat\
+e":"Demander ou mettre à jour","Ask about or update {name}'s memory":"Interroger ou mettre à jour la mémoire de {name}",Send:"Envoyer","Added: {text}":"Ajouté : {text}","Added \
+to team memory: {text}":"Ajouté à la mémoire d’équipe : {text}","Updated: {text}":"Mis à jour : {text}","Removed: {text}":"Supprimé : {text}","Removed from team memory: {te\
+xt}":"Supprimé de la mémoire d’équipe : {text}","Not changed: {text} ({reason})":"Inchangé : {text} ({reason})","{count} file changed":"{count} fichier modifié","{count} fil\
+es changed":"{count} fichiers modifiés",File:"Fichier","Review these changes":"Examiner ces modifications","These changes are no longer available":"Ces modifications ne sont plus \
+disponibles","This window cannot open the change review":"Cette fenêtre ne peut pas ouvrir la revue des modifications","Saving to memory":"Enregistrement en mémoire","Updating me\
+mory":"Mise à jour de la mémoire","Checking memory":"Consultation de la mémoire","Memory updated":"Mémoire mise à jour","Already saved":"Déjà enregistré","Couldn't save to \
+memory":"Impossible d’enregistrer en mémoire","Couldn't remove from memory":"Impossible de supprimer de la mémoire","Memory not changed":"Mémoire inchangée","Write something \
+to save":"Écrivez quelque chose à enregistrer","No saved entry matched":"Aucune entrée correspondante","The memory refused this change":"La mémoire a refusé cette modification",
+"The memory could not be changed":"Impossible de modifier la mémoire","Team memory updated":"Mémoire d’équipe mise à jour","Updated {name}'s memory":"Mémoire de {name} mise à\
+ jour","Memory updated. Open {name}'s memory":"Mémoire mise à jour. Ouvrir la mémoire de {name}","Open browser":"Ouvrir le navigateur","{name}'s browser":"Navigateur de {name}",
+"Resize panel":"Redimensionner le panneau",Back:"Précédent",Forward:"Suivant",Stop:"Arrêter",Reload:"Actualiser",Address:"Adresse","Search or enter address":"Rechercher ou saisi\
+r une adresse","This page didn’t load":"Cette page ne s’est pas chargée","Try again":"Réessayer","Open a page here and {name} can read it with you. Logins and cookies stay wi\
+th {name}; other Bots never see them.":"Ouvrez une page ici pour que {name} puisse la lire avec vous. Les identifiants et les cookies restent propres à {name} ; les autres Bots n’y\
+ ont jamais accès.","Only http and https addresses open here.":"Seules les adresses http et https s’ouvrent ici.","The page crashed.":"La page a planté.","The browser blocked t\
+he new window.":"Le navigateur a bloqué la nouvelle fenêtre.","Open the issue":"Ouvrir le ticket","Cloud metadata addresses do not open here.":"Les adresses de métadonnées cloud \
+ne s’ouvrent pas ici.","Dictation is not available in this browser":"La dictée n’est pas disponible dans ce navigateur","Microphone access is blocked":"L’accès au microphone e\
+st bloqué","Couldn't hear that":"Rien n’a été entendu","Couldn't start dictation":"Impossible de démarrer la dictée","Stop dictation":"Arrêter la dictée",Dictate:"Dicter",
+"Start voice chat":"Démarrer la discussion vocale","Voice chat":"Discussion vocale",Listening:"Écoute",Thinking:"Réflexion","Thinking…":"Réflexion…",Speaking:"Parole",Paused:"\
+En pause","Voice chat is not available in this browser":"La discussion vocale n’est pas disponible dans ce navigateur","Voice chat with {name}":"Discussion vocale avec {name}","R\
+esume listening":"Reprendre l’écoute",Pause:"Pause","End voice chat":"Terminer la discussion vocale","Recognizing…":"Reconnaissance…","Voice input needs its speech model":"L\
+a saisie vocale nécessite son modèle vocal","Set up voice input":"Configurer la saisie vocale","Preparing voice input…":"Préparation de la saisie vocale…","Downloading the s\
+peech model… {pct}%":"Téléchargement du modèle vocal… {pct} %","Couldn't prepare voice input":"Impossible de préparer la saisie vocale","That was too long to recognize":"L’\
+enregistrement est trop long pour être reconnu","24 hours":"24 heures","7 days":"7 jours","30 days":"30 jours","12 weeks":"12 semaines","12 months":"12 mois","Per hour":"Par heure",
+"Per day":"Par jour","Per week":"Par semaine","Per month":"Par mois",Output:"Sortie",Input:"Entrée","Cache hit":"Cache atteint","Deleted Bot":"Bot supprimé",Deleted:"Supprimé","\
+Deleted group chat":"Discussion de groupe supprimée","Group chat":"Discussion de groupe","Own chat":"Discussion privée","Side chat":"Discussion parallèle","New browser tab":"Nou\
+vel onglet de navigateur",Terminal:"Terminal",Files:"Fichiers","Close side chat":"Fermer la discussion parallèle","Delete side chat":"Supprimer la discussion parallèle","Ask with\
+out interrupting":"Poser une question sans interrompre","Ask about the work so far":"Poser une question sur l’avancement","Answering…":"Réponse en cours…",Cancelled:"Annulé",
+Tasks:"Tâches","In progress":"En cours","Awaiting review":"En attente de relecture",Blocked:"Bloquée","Stopped by the user":"Arrêté par l’utilisateur","Not updated after a re\
+start":"Pas mis à jour après le redémarrage","Its model call failed ({code})":"Échec de l’appel au modèle ({code})","Add a note":"Ajouter une note","Cancel task":"Annuler la\
+ tâche","Click again to cancel":"Cliquez encore pour annuler","History ({count})":"Historique ({count})","Hide history":"Masquer l’historique","No task is running in this group.":"\
+Aucune tâche en cours dans ce groupe.","What should change?":"Que faut-il changer ?","Note: {text}":"Note : {text}","Answered from progress so far; nothing was run":"Répondu à par\
+tir de l’avancement actuel ; aucune action n’a été exécutée","Could not answer.":"Impossible de répondre.","Cancel this side question":"Annuler cette question parallèle",
+Conversations:"Discussions","Compaction and handoff":"Compaction et passation","Image reading":"Lecture d’images",Titles:"Titres",Other:"Autre","Last {range}":"Derniers {range}",
+tokens:"jetons","Compared with the {range} before":"Par rapport aux {range} précédents","{share}% of all usage in the last {range}":"{share} % de l’utilisation totale sur les der\
+niers {range}",Calls:"Appels","Cache hit rate":"Taux de succès du cache","Tokens over time":"Jetons au fil du temps","{count} tokens":"{count} jetons","{tokens} tokens · {calls} c\
+alls":"{tokens} jetons · {calls} appels","Active on 1 day in the last year":"Actif 1 jour au cours de l’année écoulée","Active on {count} days in the last year":"Actif {count\
+} jours au cours de l’année écoulée",Light:"Faible",Heavy:"Élevé","Unknown model":"Modèle inconnu","More Bots":"Autres Bots","More models":"Autres modèles","Reading your c\
+hats…":"Lecture de vos discussions…","No usage yet.":"Aucune utilisation pour le moment.","Token usage shows up here after a model is called.":"La consommation de jetons s’affi\
+che ici après l’appel d’un modèle.","Nothing in this range.":"Aucune donnée sur cette période.","Who used it":"Utilisé par","What for":"Usage",Activity:"Activité","Time r\
+ange":"Période","All usage":"Toute l’utilisation","Group usage by":"Grouper par","By Bot":"Par Bot","By model":"Par modèle","Still reading older chats; totals may grow.":"Lectu\
+re des discussions plus anciennes en cours ; les totaux peuvent encore augmenter.",Custom:"Personnalisé","Custom range":"Période personnalisée","This month":"Ce mois-ci","Last m\
+onth":"Le mois dernier","This year":"Cette année","Previous month":"Mois précédent","Next month":"Mois suivant","Pick the first day":"Choisir le premier jour","Pick the last day":"\
+Choisir le dernier jour","1 day":"1 jour","{count} days":"{count} jours","Compared with the day before":"Par rapport à la veille","Compared with the {count} days before":"Par rapp\
+ort aux {count} jours précédents","{share}% of all usage from {span}":"{share} % de l’utilisation totale sur {span}","About DS Bot":"À propos de DS Bot","Version {version}":"V\
+ersion {version}","Star DS Bot on GitHub":"Mettre une étoile à DS Bot sur GitHub","{count} stars":"{count} étoiles","If DS Bot helps you, a star on GitHub helps more people find\
+ it.":"Si DS Bot vous est utile, une étoile sur GitHub aide davantage de personnes à le découvrir.",Updates:"Mises à jour","Check for updates":"Vérifier les mises à jour","Ch\
+ecking…":"Vérification…","Up to date":"À jour","Checked {time}":"Vérifié {time}","Could not check for updates.":"Impossible de vérifier les mises à jour.","Update checks \
+are off.":"La vérification des mises à jour est désactivée.","Checking for updates…":"Recherche de mises à jour…","Downloading {version}…":"Téléchargement de {version}…",
+"{version} is ready; it installs when you restart":"{version} est prêt ; il sera installé au redémarrage","Restart to update":"Redémarrer pour mettre à jour","{version} is ava\
+ilable":"{version} est disponible","Installed from a local folder; update it there.":"Installé depuis un dossier local ; mettez-le à jour à cet emplacement.","Updates are not of\
+fered for this install.":"Les mises à jour ne sont pas proposées pour cette installation.","Updates come with the DS Bot app.":"Les mises à jour sont incluses avec l’application \
+DS Bot.",Links:"Liens","Source code":"Code source","Release notes":"Notes de version",Open:"Ouvrir",Feedback:"Retours","Report a problem":"Signaler un problème","What happened?":"\
+Que s’est-il passé ?","What you did, what you expected, and what happened instead. It goes into the issue.":"Ce que vous avez fait, ce à quoi vous vous attendiez et ce qui s’est\
+ produit. Ces informations seront ajoutées au ticket.","For example: I asked Writer in the group chat and it showed an error.":"Par exemple : j’ai posé une question à Writer dans \
+le groupe et une erreur s’est affichée.",Diagnostics:"Diagnostics","Versions, system, models, and the latest errors. Saved keys, tokens, and your home folder are hidden.":"Versi\
+ons, système, modèles et dernières erreurs. Les clés enregistrées, jetons et votre dossier personnel sont masqués.",Show:"Afficher",Hide:"Masquer","GitHub issue":"Ticket GitH\
+ub","Opens a new issue in the DS Bot repository with all of this filled in. Nothing is sent until you submit it there.":"Ouvre un nouveau ticket dans le dépôt DS Bot avec ces infor\
+mations préremplies. Rien n’est envoyé tant que vous ne le soumettez pas sur GitHub.","Report on GitHub":"Signaler sur GitHub","Copied the diagnostics.":"Diagnostics copiés.",
+"Could not copy. Select the text below and copy it.":"Impossible de copier. Sélectionnez le texte ci-dessous et copiez-le.","Opened a new GitHub issue with the diagnostics filled \
+in. Check it before you submit.":"Un nouveau ticket GitHub a été ouvert avec les diagnostics préremplis. Vérifiez-le avant de l’envoyer.","Opened a new GitHub issue. The diag\
+nostics are long, so they are on the clipboard: paste them into the issue.":"Un nouveau ticket GitHub a été ouvert. Les diagnostics étant longs, ils ont été copiés dans le presse-p\
+apiers : collez-les dans le ticket.","Opened a new GitHub issue. Copy the diagnostics below into it.":"Un nouveau ticket GitHub a été ouvert. Copiez-y les diagnostics ci-dessous.",
+"Downloaded the log. Keys, tokens, and your home folder are hidden in it.":"Journal téléchargé. Les clés, jetons et votre dossier personnel y sont masqués.","Cleared the error\
+ log.":"Journal d’erreurs effacé.","Recent errors":"Erreurs récentes","Recent errors · {count}":"Erreurs récentes · {count}","No errors recorded.":"Aucune erreur enregistrée\
+.","Failed model calls and DS Bot problems show here, newest first.":"Les appels de modèle échoués et les problèmes de DS Bot s’affichent ici, du plus récent au plus ancien.",
+"Model call":"Appel de modèle","This window":"Cette fenêtre","Error log":"Journal d’erreurs","Kept on this computer across restarts, up to about 1 MB.":"Conservé sur cet ordina\
+teur entre les redémarrages, jusqu’à environ 1 Mo.",Clear:"Effacer","Settings → Feedback has the details.":"Voir les détails dans Paramètres → Retours.","Could not reach \
+DSH. Check that it is still running.":"Impossible de joindre DSH. Vérifiez qu’il est toujours en cours d’exécution.","{name} stopped: {reason}. Switch its model or ask it to \
+go on.":"{name} s’est arrêté : {reason}. Changez son modèle ou demandez-lui de continuer.","{name}'s background helper did not finish: {reason}. Ask it to go on if it still ma\
+tters.":"L'assistant en arrière-plan de {name} n'a pas terminé : {reason}. Demandez-lui de continuer si c'est encore utile.","Run failed":"Échec de l’exécution","Reached the \
+output limit":"Limite de sortie atteinte","Stopped before finishing":"Arrêté avant la fin","Declined the task":"Tâche refusée","Unknown error":"Erreur inconnue","The model has \
+no API key":"Le modèle n’a pas de clé API","The API key is not in the right format":"La clé API n’est pas au bon format","The DeepSeek account needs a sign-in":"Le compte De\
+epSeek nécessite une connexion","The DeepSeek account is signed out":"Le compte DeepSeek est déconnecté","The DeepSeek account sign-in has expired":"La session du compte DeepSee\
+k a expiré","The API key was rejected":"La clé API a été refusée","The account is out of quota":"Le quota du compte est épuisé","Too many requests to the model":"Trop de req\
+uêtes envoyées au modèle","The conversation is too long for the model":"La discussion est trop longue pour le modèle","The model service refused the request":"Le service de mod\
+èles a refusé la requête","The model service failed":"Le service de modèles a rencontré une erreur","The model took too long to answer":"Le modèle a mis trop de temps à répond\
+re","Could not reach the model service":"Impossible de joindre le service de modèles","The conversation could not be compacted for the model switch":"La conversation n’a pas pu êt\
+re condensée pour changer de modèle","Its group conversation could not open":"Sa discussion de groupe n’a pas pu s’ouvrir","Its group conversation could not open, so it start\
+s a new one next time":"Sa discussion de groupe n’a pas pu s’ouvrir ; une nouvelle sera créée la prochaine fois","Pasted text · {count} characters":"Texte collé · {count} ca\
+ractères","Put back":"Remettre","Put back into the box":"Remettre dans le champ","Remove pasted text":"Supprimer le texte collé","Add files":"Ajouter des fichiers","Reference a c\
+hat":"Référencer une discussion","Chat with {name}":"Discussion avec {name}","Scheduled task":"Tâche planifiée","Open the scheduled tasks of this chat":"Ouvrir les tâches plani\
+fiées de cette conversation","Send to":"Envoyer à","Scheduled task: {text}":"Tâche planifiée : {text}","Choose the group admin":"Choisir l’admin du groupe","Group admin":"Adm\
+in du groupe","Who to chat with…":"Avec qui discuter…","Add at least one more Bot":"Ajoutez au moins un autre Bot",Members:"Membres","Scheduled tasks":"Tâches planifiées","Ev\
+ery day":"Tous les jours","Every {count} days":"Tous les {count} jours","Every hour":"Toutes les heures","Every {count} hours":"Toutes les {count} heures","Every {count} minutes":"\
+Toutes les {count} minutes","Once, {time}":"Une fois, {time}","Every day at {time}":"Tous les jours à {time}","Every {days} at {time}":"Chaque {days} à {time}","Every weekday at \
+{time}":"Chaque jour ouvré à {time}","Every weekend at {time}":"Chaque week-end à {time}","On the schedule {expression}":"Selon la planification {expression}","Custom schedule":"\
+Planification personnalisée","Next: {time}":"Prochaine : {time}","Overdue: {time}":"En retard : {time}",Finished:"Terminé","Scheduled tasks · {count}":"Tâches planifiées · {coun\
+t}","Show all":"Tout afficher","in {name}":"dans {name}","Click again to delete":"Cliquez à nouveau pour supprimer","Delete task":"Supprimer la tâche",Once:"Une fois","Every week":"\
+Toutes les semaines",Repeat:"Répéter",minutes:"minutes",hours:"heures",days:"jours","Morning briefing":"Briefing du matin","What to do":"Que faire","Sum up what changed since yes\
+terday and what needs me today.":"Résume ce qui a changé depuis hier et ce qui demande mon attention aujourd’hui.",When:"Quand","Date and time":"Date et heure",Days:"Jours",Time:"\
+Heure",Every:"Tous les","How many":"Combien",Unit:"Unité","Create task":"Créer la tâche","Turn on Automation tasks in DSH":"Activer les « Tâches d’automatisation » dans DSH",
+"Switch on Automation tasks on the Plugins page in Settings.":"Activez « Tâches d’automatisation » sur la page Extensions dans les Paramètres.","New task":"Nouvelle tâche","\
+No scheduled tasks yet.":"Aucune tâche planifiée pour le moment.","No scheduled tasks yet. Add one":"Aucune tâche planifiée. En ajouter une","Automation tasks are off in DSH":"\
+Les « Tâches d’automatisation » sont désactivées dans DSH","No such Bot":"Bot introuvable","No such Bot or group chat":"Bot ou discussion de groupe introuvable","Give the ta\
+sk a name":"Donnez un nom à la tâche","Say what the Bot should do":"Indiquez ce que le Bot doit faire","Pick a date and time":"Choisissez une date et une heure","Pick a time in t\
+he future":"Choisissez un moment dans le futur","Pick a time of day":"Choisissez une heure","Pick at least one day":"Choisissez au moins un jour","Repeat every 1 minute to 7 days":"\
+L’intervalle de répétition doit être compris entre 1 minute et 7 jours","Pick when it runs":"Choisissez quand l’exécuter","No such task":"Tâche introuvable","Working folde\
+r":"Dossier de travail","Working folder: {folder}":"Dossier de travail : {folder}",Folder:"Dossier",Folders:"Dossiers",Privacy:"Confidentialité",Private:"Privé","Other Bots canno\
+t read its folder, memory or chats, and you approve what it shares with them.":"Les autres Bots ne peuvent pas lire son dossier, sa mémoire ni ses discussions, et vous approuvez ce\
+ qu’il partage avec eux.","A Main Bot cannot be private.":"Un Bot principal ne peut pas être privé.","Leave its group chats before making it private.":"Retirez-le de ses discus\
+sions de groupe avant de le rendre privé.","Choose a working folder of its own first.":"Choisissez-lui d’abord un dossier de travail dédié.","A private Bot cannot be a Main Bo\
+t.":"Un Bot privé ne peut pas être Bot principal.","Closed after deletion · {count}":"Protégé après suppression · {count}","Remove protection":"Lever la protection","Click a\
+gain to remove. Other Bots can then read its folder, memory and chats.":"Cliquez à nouveau pour lever la protection. Les autres Bots pourront alors lire son dossier, sa mémoire et \
+ses discussions.","Nothing kept closed for this Bot":"Aucune protection conservée pour ce Bot","Team workspace":"Espace de travail de l’équipe","Team workspace: {folder}":"Espa\
+ce de travail de l’équipe : {folder}","Where Bots without a folder of their own work.":"Là où travaillent les Bots qui n’ont pas de dossier dédié.",Locations:"Emplacements",
+"Data location":"Emplacement des données","Change…":"Modifier…","Each Bot's own folder":"Dossier propre à chaque Bot","Choose a folder…":"Choisir un dossier…","Browse fol\
+ders…":"Parcourir les dossiers…","Enter a path…":"Saisir un chemin…","Folder path":"Chemin du dossier","Full path of a folder":"Chemin complet d’un dossier","Use this fol\
+der":"Utiliser ce dossier","Up one level":"Dossier parent","No folders inside.":"Aucun sous-dossier.","Some folders are not shown.":"Certains dossiers ne sont pas affichés.","Wait\
+ing for sign-in…":"En attente de connexion…","This service needs an app client ID":"Ce service nécessite un Client ID d’application","Paste the address you land on":"Collez \
+l’adresse de redirection","Finish sign-in":"Terminer la connexion","Open {host}":"Ouvrir {host}","Client ID":"Client ID","Client secret (optional)":"Client secret (facultatif)","\
+In OAuth & Permissions at {app}, add this redirect URL:":"Dans OAuth & Permissions de {app}, ajoutez cette URL de redirection :","In the app settings, add this redirect URL:":"Dans\
+ les réglages de l’app, ajoutez cette URL de redirection :","Turn on the MCP features and scopes the app needs.":"Activez les fonctions et les portées MCP dont l’app a besoin.",
+"Copy the Client ID and Client Secret here.":"Collez ici le Client ID et le Client Secret.","Open app settings":"Ouvrir les réglages de l’app",Continue:"Continuer","{name} key":"\
+Clé {name}","{name} token":"Jeton {name}","Get a key":"Obtenir une clé","Read-only":"Lecture seule","{count} tools":"{count} outils",Mailbox:"Boîte mail","Email address":"Adress\
+e e-mail",Catalog:"Catalogue","App password":"Mot de passe d’application","Authorization code":"Code d’autorisation","Password or app password":"Mot de passe ou mot de passe d’\
+application","Official help":"Aide officielle","Finish signing in in your browser.":"Terminez la connexion dans votre navigateur.","Open again":"Rouvrir","Did not come back here?":"\
+La page ne vous a pas redirigé ici ?","Copied to clipboard":"Copié dans le presse-papiers","Paste the code on {host} and authorize.":"Collez le code sur {host} et autorisez l’acc\
+ès.","Add another":"En ajouter un autre","QQ, 163, 126, Gmail, iCloud, and other IMAP mail":"QQ, 163, 126, Gmail, iCloud et autres messageries IMAP","Other MCP server":"Autre serv\
+eur MCP","An address, a command, or one from Claude Desktop, Cursor, or VS Code":"Une adresse, une commande ou une importation depuis Claude Desktop, Cursor ou VS Code","Kind of se\
+rver":"Type de serveur","Nothing matches":"Aucun connecteur correspondant",Recommended:"Recommandé","See all":"Tout voir","{count} connected":"{count} connecté(s)","{count} accou\
+nts":"{count} comptes",Category:"Catégorie","Could not reach the mail server. Check the server address.":"Impossible de joindre le serveur de messagerie. Vérifiez l’adresse du ser\
+veur.","Sign in at mail.qq.com, click your avatar at the top right, and open Settings → Account and Security → Security Settings.":"Connectez-vous sur mail.qq.com, cliquez sur \
+votre avatar en haut à droite et ouvrez Paramètres → Compte et sécurité → Paramètres de sécurité.","Turn on the POP3/IMAP/SMTP service, then click Generate authorization\
+ code and verify yourself.":"Activez le service POP3/IMAP/SMTP, puis cliquez sur Générer un code d’autorisation et validez votre identité.","Paste the 16-letter code below. Ch\
+anging your QQ password cancels it.":"Collez le code de 16 lettres ci-dessous. Changer votre mot de passe QQ l’invalidera.","Sign in at {host} and open Settings → POP3/SMTP/IMAP.":"\
+Connectez-vous sur {host} et ouvrez Paramètres → POP3/SMTP/IMAP.","Turn on IMAP/SMTP and send the text message it asks for.":"Activez IMAP/SMTP et envoyez le SMS de vérification\
+ demandé.","Paste the 16-character code below. It is shown only once.":"Collez le code de 16 caractères ci-dessous. Il ne s’affiche qu’une seule fois.","Turn on 2-Step Verifi\
+cation for your Google Account.":"Activez la validation en deux étapes sur votre compte Google.","Open App passwords, create one, and paste the 16-character password below.":"Ouvr\
+ez Mots de passe des applications, créez-en un et collez le mot de passe de 16 caractères ci-dessous.","Work and school accounts cannot use app passwords.":"Les comptes professio\
+nnels et scolaires ne peuvent pas utiliser les mots de passe d’application.","Your Apple Account needs two-factor authentication.":"Votre compte Apple doit utiliser l’identificat\
+ion à deux facteurs.","Sign in at account.apple.com and open Sign-In and Security → App-Specific Passwords.":"Connectez-vous sur account.apple.com et ouvrez Connexion et sécurit\
+é → Mots de passe pour app.","Generate a password and paste it below.":"Générez un mot de passe et collez-le ci-dessous.","The mail service refused the login (Unsafe Login). E\
+nable IMAP/SMTP in the mailbox settings and use its authorization code, not the account password.":"Le service de messagerie a refusé la connexion (Unsafe Login). Activez IMAP/SMTP\
+ dans les paramètres de votre boîte mail et utilisez son code d’autorisation plutôt que le mot de passe du compte.","The password was refused. Use the mailbox app password or \
+authorization code, not the account password.":"Le mot de passe a été refusé. Utilisez le mot de passe d’application ou le code d’autorisation de la boîte mail, et non le mot de pa\
+sse du compte.","Enter the authorization code or app password":"Saisissez le code d’autorisation ou le mot de passe d’application","Pages, databases, and wiki content":"Pages, \
+bases de données et contenus wiki","Issues, projects, and cycles":"Tickets, projets et cycles","Jira issues and Confluence pages":"Tickets Jira et pages Confluence","Errors, trace\
+s, and releases":"Erreurs, traces et versions","Payments, invoices, and customers":"Paiements, factures et clients","Orders, payments, and invoices":"Commandes, paiements et factur\
+es","Payments, orders, and catalog":"Paiements, commandes et catalogue","Workers, DNS, and account resources":"Workers, DNS et ressources du compte","Projects, deployments, and log\
+s":"Projets, déploiements et journaux","Databases, tables, and project settings":"Bases de données, tables et paramètres du projet","Postgres databases and branches":"Bases de d\
+onnées Postgres et branches","Design files, components, and comments":"Fichiers de design, composants et commentaires","Designs, folders, and exports":"Designs, dossiers et export\
+s","Conversations, contacts, and articles":"Conversations, contacts et articles","Boards, items, and workflows":"Tableaux, éléments et flux de travail","Sites, pages, and CMS con\
+tent":"Sites, pages et contenus CMS","Sites, pages, and site content":"Sites, pages et contenus du site","Sites, deploys, and forms":"Sites, déploiements et formulaires","Bases, t\
+ables, and records":"Bases, tables et enregistrements","Files and folders":"Fichiers et dossiers","Zaps and app actions":"Zaps et actions d’application","Tasks, lists, and docs":"\
+Tâches, listes et documents","Tasks and projects":"Tâches et projets","Boards and whiteboard items":"Tableaux et éléments de tableau blanc","CRM records, lists, and notes":"Fic\
+hes CRM, listes et notes","Collections, requests, and workspaces":"Collections, requêtes et espaces de travail","Tasks, projects, and workspaces":"Tâches, projets et espaces de tr\
+avail","Files, folders, and metadata":"Fichiers, dossiers et métadonnées","Contacts, deals, and tickets":"Contacts, transactions et tickets","Channels and messages":"Canaux et me\
+ssages","Models, datasets, and Spaces":"Modèles, jeux de données et Spaces","Web search for agents":"Recherche web pour les agents","Documentation for public code repositories":"\
+Documentation des dépôts de code publics","Library documentation and code examples":"Documentation de bibliothèques et exemples de code","Microsoft product documentation":"Docum\
+entation des produits Microsoft","Cloudflare product documentation":"Documentation des produits Cloudflare","Maps, places, and routes in China":"Cartes, lieux et itinéraires en Chi\
+ne","Read and send email over IMAP and SMTP":"Lire et envoyer des e-mails via IMAP et SMTP","IMAP host":"Serveur IMAP","SMTP host":"Serveur SMTP","Sign in with Google":"Se connecte\
+r avec Google","Verifying…":"Vérification…","Import from other apps":"Importer depuis d’autres applications","Server address":"Adresse du serveur","Command, e.g. npx -y some\
+-mcp":"Commande, ex. npx -y some-mcp","Scanning…":"Analyse…","No MCP servers found in Claude Desktop, Cursor, or VS Code settings.":"Aucun serveur MCP trouvé dans les paramètre\
+s de Claude Desktop, Cursor ou VS Code.","Import {count}":"Importer {count}",All:"Tout",Developer:"Développement","Docs & files":"Documents et fichiers",Work:"Travail",Design:"Des\
+ign",Data:"Données",Commerce:"Commerce","No connectors connected":"Aucun connecteur connecté","{bot} needs {name}":"{bot} a besoin de {name}",Mail:"E-mail",Subject:"Objet","Write\
+ a message…":"Écrire un message…",Discard:"Abandonner",Discarded:"Abandonné","Allow recipient":"Autoriser le destinataire","Allow this Bot to send directly":"Autoriser ce Bot\
+ à envoyer directement","Manage rules":"Gérer les règles","Sending rules":"Règles d’envoi",From:"De",To:"À",Cc:"Cc",Bcc:"Cci","Attachments: {names}":"Pièces jointes : {names\
+}",Sent:"Envoyé",Failed:"Échec","Request failed":"Échec de la requête","Permissions are not available in this DeepSeek Harness":"Les autorisations ne sont pas disponibles dans \
+ce DeepSeek Harness","Avatar image is too large":"L’image d’avatar est trop volumineuse","A Bot needs a name":"Un Bot doit avoir un nom","A Bot name cannot contain @, ` or a li\
+ne break":"Le nom d’un Bot ne peut pas contenir @, ` ni de saut de ligne","Unknown Bot":"Bot introuvable","Unknown conversation":"Discussion introuvable","A group chat needs at l\
+east two Bots":"Une discussion de groupe nécessite au moins deux Bots","The admin must be a member of the group":"L’admin doit être membre du groupe","Unknown group chat":"Disc\
+ussion de groupe introuvable","No Bot is left in this group chat":"Il ne reste plus aucun Bot dans cette discussion de groupe","That group chat has been deleted":"Cette discussion \
+de groupe a été supprimée","Hand the admin role to another member instead of leaving the group without one":"Confiez le rôle d’admin à un autre membre plutôt que de laisser le g\
+roupe sans admin","Hand the admin role to another member before leaving the group":"Confiez le rôle d’admin à un autre membre avant de quitter le groupe","The team needs at lea\
+st one Main Bot":"L’équipe a besoin d’au moins un Bot principal","Only a Main Bot can be replaced":"Seul un Bot principal peut être remplacé","A Main Bot cannot be deleted; \
+remove its Main Bot role first":"Un Bot principal ne peut pas être supprimé ; retirez-lui d’abord le rôle de Bot principal","Unknown theme":"Thème inconnu","Accent must be a \
+#rrggbb color":"La couleur d’accentuation doit être au format #rrggbb","Type the key first":"Saisissez d’abord la clé","Choose every Bot or a list of Bots":"Choisissez tous l\
+es Bots ou une liste de Bots","This request is gone":"Cette demande n’existe plus","This request was already answered":"Cette demande a déjà été traitée","A name uses capita\
+ls, digits, and underscores, and starts with a letter":"Un nom ne peut contenir que des lettres majuscules, des chiffres et des tirets bas, en commençant par une lettre","No such \
+key":"Clé introuvable","Type a question or a change first":"Saisissez d’abord une question ou une modification","No model is available. Add one in Settings > Models.":"Aucun mod\
+èle n’est disponible. Ajoutez-en un dans Paramètres > Modèles.","Memory is turned off on this host":"La mémoire est désactivée sur cet hôte","The model wrote nothing":"Le \
+modèle n’a rien produit","Write the entry to save.":"Écrivez l’entrée à enregistrer.","This DeepSeek Harness has no folder chooser":"Ce DeepSeek Harness n’a pas de sélecteu\
+r de dossier","This DeepSeek Harness cannot list folders":"Ce DeepSeek Harness ne peut pas lister les dossiers","Side chat is only available in a Bot's private chat.":"La discussio\
+n parallèle n’est disponible que dans la discussion privée d’un Bot.","Write a question.":"Écrivez une question.","Write a question after /side.":"Écrivez une question après\
+ /side.","/side does not take attachments.":"/side n’accepte pas les pièces jointes.","Wait for the answer, or cancel it.":"Attendez la réponse ou annulez la demande.","This si\
+de chat is no longer here.":"Cette discussion parallèle n’existe plus.","This side question is no longer here.":"Cette question parallèle n’existe plus.","This Bot has not ca\
+lled a model yet. Send a normal message first.":"Ce Bot n’a pas encore appelé de modèle. Envoyez d’abord un message normal.","DS Bot restarted before this answer finished.":"\
+DS Bot a redémarré avant la fin de cette réponse.","The model called a tool again after being told not to, so this aside was not answered.":"Le modèle a de nouveau appelé un out\
+il alors qu’il lui était demandé de ne pas le faire ; cette question parallèle n’a donc pas reçu de réponse.","The model wrote nothing.":"Le modèle n’a rien écrit.","N\
+othing to ask":"Rien à demander","Nothing to open":"Rien à ouvrir","Nothing to cancel":"Rien à annuler","Nothing to close":"Rien à fermer","DS Bot is still loading this chat.":"\
+DS Bot charge encore cette discussion.","This message is no longer kept":"Ce message n’est plus conservé","No file named":"Aucun fichier indiqué","This file cannot be read here":"\
+Ce fichier ne peut pas être lu ici","That wait is no longer open":"Cette attente est terminée","Nothing to send":"Rien à envoyer","This view is no longer open":"Cette vue n’est \
+plus ouverte","This is not a photo DS Bot can send":"Ce n’est pas une photo que DS Bot peut envoyer","A photo did not arrive. Send it again.":"Une photo n’est pas arrivée. Envoye\
+z-la de nouveau.","Nothing to delete":"Rien à supprimer","Bot browsers are off on this host":"Les navigateurs des Bots sont désactivés sur cet hôte","This Bot has no open brows\
+er":"Ce Bot n’a aucun navigateur ouvert","A browser poll needs a clientId":"L’interrogation du navigateur nécessite un clientId","This browser is not held":"Ce navigateur n’es\
+t pas en cours de prise en main","This handoff is no longer open":"Ce passage de relais du navigateur n’est plus ouvert","Avatar images must be PNG, JPEG, WebP, GIF, or SVG":"Les\
+ images d’avatar doivent être au format PNG, JPEG, WebP, GIF ou SVG","Pick a model before choosing a thinking level":"Choisissez un modèle avant de sélectionner un niveau de réf\
+lexion","Unknown section":"Section introuvable","Unknown section color":"Couleur de section inconnue","Write the to-do first.":"Écrivez d’abord la tâche à faire.","That to-do \
+is no longer on the list.":"Cette tâche n’est plus dans la liste.","Write what this group should achieve, in at most 2000 characters.":"Décrivez ce que ce groupe doit accomplir,\
+ en 2000 caractères maximum.","This group has no admin. Set one in the group settings first.":"Ce groupe n’a pas d’admin. Définissez-en un dans les paramètres du groupe.","T\
+his group already has a goal. Stop it first.":"Ce groupe a déjà un objectif. Arrêtez-le d’abord.","The goal has changed. Look again.":"L’objectif a changé. Vérifiez à nouveau.",
+"Nothing to do":"Rien à faire","Write a note first.":"Écrivez d’abord une note.","That task is already finished.":"Cette tâche est déjà terminée.","No such group.":"Ce grou\
+pe est introuvable.","No such task.":"Cette tâche est introuvable.","No open task to cancel.":"Aucune tâche en cours à annuler.","Sign-in timed out":"Délai de connexion dépassé",
+"The sign-in answer did not match this attempt (state mismatch). Try again.":"La réponse de connexion ne correspond pas à cette tentative (état différent). Réessayez.","This c\
+onnector does not sign in":"Ce connecteur ne nécessite pas de connexion","This connector has no server address":"Ce connecteur n’a pas d’adresse de serveur","Connector address\
+es must start with https://":"Les adresses de connecteurs doivent commencer par https://","This service does not publish OAuth sign-in metadata":"Ce service ne publie pas de métado\
+nnées de connexion OAuth","Paste a key first":"Collez d’abord une clé","No sign-in is waiting":"Aucune connexion n’est en attente","Paste the address or the code":"Collez l’a\
+dresse ou le code","This address is not from this sign-in attempt (state mismatch). Copy the whole address again.":"Cette adresse ne provient pas de cette tentative de connexion (é\
+tat différent). Copiez de nouveau l’adresse complète.","The address has no code":"L’adresse ne contient aucun code","Enter the client ID":"Saisissez l’identifiant client","\
+Name the connector":"Nommez le connecteur","Enter an address or a command":"Saisissez une adresse ou une commande","Only added connectors can be removed":"Seuls les connecteurs ajo\
+utés peuvent être supprimés","The mail connection closed during verification":"La connexion de messagerie s’est fermée pendant la vérification","Google sign-in is not availa\
+ble in this build":"La connexion Google n’est pas disponible dans cette version","Enter an email address":"Saisissez une adresse e-mail","Enter the IMAP and SMTP hosts":"Saisisse\
+z les serveurs IMAP et SMTP","No such account":"Compte introuvable","This card was already answered":"Cette carte a déjà reçu une réponse","No Google sign-in is waiting":"Aucun\
+e connexion Google n’est en attente","The sign-in answer is not for this attempt":"La réponse de connexion ne correspond pas à cette tentative","Google did not say which accoun\
+t this is":"Google n’a pas indiqué de quel compte il s’agit","This platform is not available yet":"Cette plateforme n’est pas encore disponible","Choose a Bot first":"Choisi\
+ssez d’abord un Bot","This platform signs in by scanning a code; not available yet":"Cette plateforme se connecte en scannant un code et n’est pas encore disponible","No such I\
+M bot":"Bot de messagerie introuvable","No such platform":"Plateforme introuvable","No such chat":"Discussion introuvable","Choose a Bot or a group":"Choisissez un Bot ou un groupe",
+"This platform has no QR login":"Cette plateforme ne propose pas de connexion par QR code","Paste the bot token first":"Collez d’abord le jeton du bot","Telegram did not say who \
+this token belongs to":"Telegram n’a pas indiqué à qui appartient ce jeton","A webhook or another program uses this bot":"Un webhook ou un autre programme utilise ce bot","This\
+ token does not belong to a Discord bot":"Ce jeton n’appartient pas à un bot Discord","Discord gave no usable gateway URL":"Discord n’a renvoyé aucune URL de passerelle utilisab\
+le","These credentials do not belong to a Slack bot":"Ces identifiants n’appartiennent pas à un bot Slack","WeChat answered an unreadable response":"WeChat a renvoyé une réponse\
+ illisible","WeChat rate limited the request":"WeChat a limité la fréquence des requêtes","WeChat refused the token":"WeChat a refusé le jeton","Use a capability name with lowe\
+rcase letters, digits, and single hyphens; connector names are reserved.":"Utilisez un nom de capacité composé de lettres minuscules, de chiffres et de traits d’union simples ; les\
+ noms de connecteurs sont réservés.","Arguments must be a list of text values.":"Les arguments doivent être une liste de textes.","Choose an MCP server, skill, or pack.":"Choisi\
+ssez un serveur MCP, une compétence ou un pack.","A capability cannot change its kind. Delete it and save a new one.":"Une capacité ne peut pas changer de type. Supprimez-la et en\
+registrez-en une nouvelle.","Enter a command for the MCP server.":"Saisissez une commande pour le serveur MCP.","Enter a valid HTTP or HTTPS URL.":"Saisissez une URL HTTP ou HTTPS \
+valide.","Only Bots on the team can change capabilities.":"Seuls les Bots de l’équipe peuvent modifier des capacités.","Only a Main Bot can change another Bot’s capabilities.":"\
+Seul un Bot principal peut modifier les capacités d’un autre Bot.","This DSH cannot load MCP servers.":"Ce DSH ne peut pas charger de serveurs MCP.","Unknown capability operatio\
+n.":"Opération de capacité inconnue.","The secrets file is not encrypted.":"Le fichier des secrets n’est pas chiffré.","Secrets are already encrypted.":"Les secrets sont déjà \
+chiffrés.","Secrets are not encrypted.":"Les secrets ne sont pas chiffrés.","Learning is turned off on this host":"L’apprentissage est désactivé sur cet hôte","AGENTS.md cha\
+nged since this was proposed":"AGENTS.md a changé depuis cette proposition","The Bot that learned this skill is gone":"Le Bot qui a appris cette compétence n’existe plus","Syst\
+em permissions are not available here":"Les autorisations système ne sont pas disponibles ici","This host keeps no Bot data folder, so it has no avatar library.":"Cet hôte ne cons\
+erve aucun dossier de données Bot et n’a donc pas de bibliothèque d’avatars.","DS Bot is shutting down":"DS Bot est en train de s’arrêter","Computer use":"Contrôle de l’or\
+dinateur",Computer:"Ordinateur",Control:"Contrôle","Let Bots use the computer":"Autoriser les Bots à utiliser l’ordinateur","Using the computer":"Utilise l’ordinateur",Off:"D\
+ésactivé","View only":"Lecture seule",Background:"Arrière-plan",Foreground:"Premier plan","In the foreground":"Au premier plan","Computer use level":"Niveau de contrôle de l’ord\
+inateur","Computer provider":"Fournisseur","Loading the provider…":"Chargement du fournisseur…","Could not load the provider":"Impossible de charger le fournisseur","The provid\
+er package is not installed":"Le paquet du fournisseur n’est pas installé","Install it in this DSH":"L’installer dans ce DSH","Run {command}, then restart DSH.":"Exécutez {com\
+mand}, puis redémarrez DSH.","Copy command":"Copier la commande","Bots get no computer tools until the provider is ready.":"Les Bots n’ont accès à aucun outil de contrôle de l’ord\
+inateur tant que le fournisseur n’est pas prêt.","Another computer-use provider is running":"Un autre fournisseur de contrôle de l’ordinateur est déjà en cours d’exécution",
+"Computer use is not available on this platform":"Le contrôle de l’ordinateur n’est pas disponible sur cette plateforme",Accessibility:"Accessibilité","Screen Recording":"Enr\
+egistrement de l’écran",Allowed:"Autorisé","Not allowed":"Non autorisé",Grant:"Autoriser",Revoke:"Révoquer","Off in Settings → Computer use":"Désactivé dans Paramètres → Co\
+ntrôle de l’ordinateur",Idle:"Inactif",Operating:"En action","You have the computer":"Vous avez la main","Latest screenshot":"Dernière capture d’écran","Let it continue":"La\
+isser continuer","Take over the computer":"Prendre la main","Hand back":"Rendre la main","Recent steps":"Actions récentes",failed:"échec","Allow {name} to use {app}?":"Autoriser \
+{name} à utiliser {app} ?","This time":"Cette fois-ci",Always:"Toujours","Needs your confirmation":"Nécessite votre confirmation","Help needed on the computer":"Aide requise sur \
+l’ordinateur","You control the computer":"Vous contrôlez l’ordinateur","{name} · foreground":"{name} · premier plan","{name} waits for the computer":"{name} attend que l’ord\
+inateur soit libre","DeepSeek services":"Services DeepSeek","DeepSeek API":"API DeepSeek","DeepSeek Web Search API":"API de recherche web DeepSeek","Find it in Plugins → Web search\
+.":"Dans Plugins → Recherche web.","Image and document reading":"Lecture des images et des documents","Use DeepSeek to read images and documents":"Utiliser DeepSeek pour lire les\
+ images et les documents","Bots upload selected files to DeepSeek for text recognition; local Office editing is unchanged.":"Les Bots envoient les fichiers sélectionnés à DeepSeek \
+pour la reconnaissance du texte ; l’édition locale d’Office reste inchangée.","Text to speech":"Synthèse vocale","Read replies aloud":"Lire les réponses à voix haute",System:"\
+Système",Voice:"Voix","Speech recognition":"Reconnaissance vocale","Dictation provider":"Fournisseur de dictée","Use DeepSeek for dictation":"Utiliser DeepSeek pour la dictée","\
+In use":"En cours d’utilisation","Not ready":"Pas prêt","Couldn't read the reply":"Impossible de lire la réponse","Couldn't reach the speech service":"Impossible de joindre le \
+service vocal","Bot models":"Modèles des Bots","Change several Bots":"Changer plusieurs Bots","{selected} of {total} selected":"{selected} sur {total} sélectionnés","Bots on a l\
+ocal agent keep their own model.":"Les Bots sur un agent local gardent leur propre modèle.","Select all":"Tout sélectionner","Changing…":"Modification…","Selected Bots":"Bots\
+ sélectionnés","{model} (not available)":"{model} (indisponible)",Changed:"Modifié","Already on this model":"Utilise déjà ce modèle","Skipped: runs on a local agent":"Ignoré \
+: tourne sur un agent local","Skipped: not available now":"Ignoré : indisponible pour le moment","Could not change: {error}":"Modification impossible : {error}","Changed {count} o\
+f {total} Bots.":"{count} Bots sur {total} modifiés.","Select {name}":"Sélectionner {name}","Change it in the Bot's settings.":"Modifiez-le dans les réglages du Bot.","Already o\
+n this model: {count}":"Utilisent déjà ce modèle : {count}","Skipped: {count}":"Ignorés : {count}","Failed: {count}":"En échec : {count}","{count} skipped":"{count} ignorés",
+"No model picked yet":"Aucun modèle choisi",Running:"En cours","Open this session":"Ouvrir cette session","Open this running session":"Ouvrir cette session en cours","A running se\
+ssion keeps using model calls in the background.":"Une session en cours continue d’utiliser des appels au modèle en arrière-plan.","This session is still running. Wait for it t\
+o finish, or stop it.":"Cette session est toujours en cours. Attendez la fin ou arrêtez-la."},HOST_ERRORS_FR=[[/^Could not reach the mail server at (.+)\. Check the server address\.$/,
+"Impossible de joindre le serveur de messagerie à l’adresse $1. Vérifiez l’adresse du serveur."],[/^Model (.+) is not available\. Available: (.*)$/,"Le modèle $1 n’est pas di\
+sponible. Disponibles : $2"],[/^The API key for (.+) is set outside DS Bot and cannot be changed here$/,"La clé API de $1 est définie hors de DS Bot et ne peut pas être modifiée ic\
+i"],[/^(.+) takes no API key here$/,"$1 n’utilise pas de clé API ici"],[/^(.+) is already set up$/,"$1 est déjà configuré"],[/^DSH offers no provider (.+)$/,"DSH ne propose p\
+as le fournisseur $1"],[/^DSH already offers (.+); add it from its list$/,"DSH propose déjà $1 ; ajoutez-le depuis la liste"],[/^The protocol must be one of (.+)$/,"Le protocole \
+doit être l’un des suivants : $1"],[/^(.+) is not set up$/,"$1 n’est pas configuré"],[/^(.+) comes with this setup and cannot be removed$/,"$1 est inclus dans cette configura\
+tion et ne peut pas être supprimé"],[/^A Bot named (.+) already exists$/,"Un Bot nommé $1 existe déjà"],[/^Name (.*) is not available$/,"Le nom $1 n’est pas disponible"],[/^"(.+)" calls everyone in a group, so it cannot be a Bot name$/,
+"« $1 » interpelle tout le monde dans un groupe et ne peut pas servir de nom de Bot"],[/^"(.+)" stands for the user in a chat, so it cannot be a Bot name$/,"« $1 » désigne l’util\
+isateur dans une discussion et ne peut pas servir de nom de Bot"],[/^Another group chat is already called "(.+)"$/,"Une autre discussion de groupe s’appelle déjà « $1 »"],[/^Another section is already called "(.+)"$/,
 "Une autre section s’appelle déjà « $1 »"],[/^Enter a section name$/,"Saisissez un nom de section"],[/^A group chat holds at most (\d+) Bots$/,"Une discussion de groupe peut \
 contenir au maximum $1 Bots"],[/^Reply mode must be one of (.+)$/,"Le mode de réponse doit être l’un des suivants : $1"],[/^Only the user, a Main Bot, or the admin of "(.+)" can change it$/,
 "Seuls vous, un Bot principal ou l’admin de « $1 » pouvez le modifier"],[/^A key must have at least (\d+) characters$/,"Une clé doit comporter au moins $1 caractères"],[/^A key can have at most (\d+) characters$/,
@@ -3890,426 +3963,444 @@ en auch außerhalb von Cookies; dort musst du dich eventuell erneut anmelden.","
 importiert","No cookies were stored":"Es wurden keine Cookies gespeichert","Reload the page":"Seite neu laden","Import failed":"Import fehlgeschlagen","That file is too large to be\
  a cookie export.":"Diese Datei ist zu groß für einen Cookie-Export.","That file could not be read.":"Diese Datei konnte nicht gelesen werden.","This browser encrypts its cookies\
  so only it can read them. Export them to a file first, then import that file.":"Dieser Browser verschlüsselt seine Cookies, sodass nur er selbst sie lesen kann. Exportiere sie zue\
-rst in eine Datei und importiere dann diese Datei.","{count}":"{count}","Choose a PNG, JPEG, WebP, or GIF image":"Wähle ein PNG-, JPEG-, WebP- oder GIF-Bild","Choose an image smal\
-ler than 25 MB":"Wähle ein Bild, das kleiner als 25 MB ist","That image is too large":"Dieses Bild ist zu groß",Model:"Modell","Avatar editor":"Avatar-Editor","Avatar source":"Av\
-atar-Quelle",Upload:"Hochladen","Reset character to default":"Figur auf Standard zurücksetzen",Reset:"Zurücksetzen","Character shape":"Form","Character color":"Farbe","Drag, drop\
-, or paste an image":"Bild hineinziehen oder einfügen",Replace:"Ersetzen","Browse files":"Dateien durchsuchen","Remove photo":"Foto entfernen","Edit Bot avatar":"Bot-Avatar bearbe\
-iten",Name:"Name",Instructions:"Anweisungen","What this Bot is responsible for…":"Wofür dieser Bot zuständig ist…","Pick the model this Bot runs on.":"Wähle das Modell aus, m\
-it dem dieser Bot läuft.","This model is not available now. Pick another one.":"Dieses Modell ist derzeit nicht verfügbar. Bitte wähle ein anderes.","Every message of this Bot r\
-uns on it.":"Jede Nachricht dieses Bots wird damit ausgeführt.","Applies from the next message.":"Gilt ab der nächsten Nachricht.",Profile:"Profil",Label:"Kurzbeschreibung","Add \
-a label":"Kurzbeschreibung hinzufügen","Optional. Shown under the name.":"Optional. Wird unter dem Namen angezeigt.","Research, admin…":"Recherche, Organisation…","What this B\
-ot does":"Aufgabe dieses Bots","Its job on the team. Part of the Bot's system prompt.":"Seine Rolle im Team. Wird Teil des System-Prompts des Bots.","A copy with the same job and m\
-odel, and fresh memory.":"Eine Kopie mit derselben Aufgabe und demselben Modell, aber leerem Gedächtnis.","Delete {name}?":"{name} löschen?","Delete Bot":"Bot löschen","Click ag\
-ain to delete. Its chats are archived.":"Zum Löschen erneut klicken. Seine Chats werden archiviert.","Removes the Bot from the team.":"Entfernt den Bot aus dem Team.","Pick a mode\
-l and {name} can start.":"Wähle ein Modell, damit {name} starten kann.",Permissions:"Berechtigungen","Read only":"Nur lesen",Workspace:"Arbeitsbereich","Full access":"Vollzugriff",
-"Same for every member":"Einheitlich für alle Mitglieder","Replaces each member's own permissions in this group.":"Ersetzt in dieser Gruppe die individuellen Berechtigungen der Mi\
-tglieder.","The only Main Bot. To hand the role to another Bot, use Main Bot on the Bots page.":"Der einzige Haupt-Bot. Um die Rolle an einen anderen Bot zu übergeben, nutze den Be\
-reich „Haupt-Bot“ auf der Bot-Seite.",Change:"Ändern","Can create and change Bots, and runs every group chat.":"Kann Bots erstellen und ändern sowie alle Gruppenchats verwalte\
-n.",Sidebar:"Seitenleiste","Kept above the other chats.":"Bleibt über den anderen Chats angeheftet.","Search still finds it.":"Über die Suche weiterhin auffindbar.",Manage:"Verwa\
-lten",Library:"Mediathek","Import photos":"Fotos importieren","Importing photos…":"Fotos werden importiert…","No photos in the library yet.":"Noch keine Fotos in der Mediathek.",
-"Use this photo":"Dieses Foto verwenden","Remove photo from the library":"Foto aus der Mediathek entfernen","1 photo imported":"1 Foto importiert","{count} photos imported":"{count\
-} Fotos importiert","1 photo was already in the library":"1 Foto war bereits in der Mediathek","{count} photos were already in the library":"{count} Fotos waren bereits in der Medi\
-athek","{name}: {reason}":"{name}: {reason}",photo:"Foto","Show more photos":"Mehr Fotos anzeigen","Showing {shown} of {total} photos":"{shown} von {total} Fotos angezeigt","Leave \
-it empty to name the group after its members.":"Leer lassen, um die Gruppe nach ihren Mitgliedern zu benennen.","Every member reads it before speaking in this group.":"Jedes Mitgli\
-ed liest dies, bevor es in dieser Gruppe antwortet.","Add a Bot first: a group chat needs at least two.":"Füge zuerst einen Bot hinzu: Ein Gruppenchat benötigt mindestens zwei Bots\
-.","Click again to delete. Its history is archived.":"Zum Löschen erneut klicken. Der Chatverlauf wird archiviert.","Removes the group chat. Its members stay on the team.":"Entfer\
-nt den Gruppenchat. Die Mitglieder bleiben im Team.","Add a notice in group settings":"Gruppenhinweis in den Gruppeneinstellungen hinzufügen","Create Bot":"Bot erstellen","Back to\
- new chat":"Zurück zum neuen Chat",Look:"Aussehen",Shuffle:"Zufällig","Replace photo":"Foto ersetzen","Upload photo":"Foto hochladen","A Bot named {name} already exists":"Ein Bot\
- namens {name} existiert bereits","The Bot runs on this model. You can change it later in its details.":"Der Bot nutzt dieses Modell. Du kannst es später in seinen Details ändern.",
-"Pick a model here, or the Bot asks for one in its chat.":"Wähle hier ein Modell aus, oder der Bot fragt später im Chat danach.","Add a provider and a model in DeepSeek Harness f\
-irst, or pick one in the Bot's chat later.":"Füge zuerst in DeepSeek Harness einen Anbieter und ein Modell hinzu oder wähle später eines im Chat des Bots aus.","Creating…":"Wi\
-rd erstellt…",Create:"Erstellen",Default:"Standard","Thinking level":"Denktiefe","Model: {model}":"Modell: {model}",none:"keine","Choose a model":"Modell wählen","{provider} · n\
-ot available":"{provider} · nicht verfügbar","Model for {name}":"Modell für {name}","No models are set up in DeepSeek Harness yet.":"In DeepSeek Harness sind noch keine Modelle \
-eingerichtet.","Models and providers…":"Modelle und Anbieter…","Search models":"Modelle suchen","Search models…":"Modelle suchen…","No matching models.":"Keine passenden Mo\
-delle.",Models:"Modelle","Harness default":"Harness-Standard",Saving:"Wird gespeichert","Manage models":"Modelle verwalten",Whale:"Wal",Star:"Stern",Moon:"Mond",Wave:"Welle",Squircle:"\
-Squircle",Bull:"Stier",Blossom:"Blüte",Gumdrop:"Fruchtgummi",Peanut:"Erdnuss",Bubbles:"Blasen",Saucer:"Untertasse",Sprout:"Keimling",Bunny:"Hase",Kitty:"Kätzchen",Beacon:"Leuchtf\
-euer",Plus:"Plus",Magnet:"Magnet",Acorn:"Eichel",Pebbles:"Kiesel",Cushion:"Kissen",Ring:"Ring",Gem:"Edelstein",Black:"Schwarz",Brown:"Braun",Red:"Rot",Orange:"Orange",Yellow:"Gelb",
-Green:"Grün",Cyan:"Cyan",Blue:"Blau",Violet:"Violett",Magenta:"Magenta",Gray:"Grau",Aurora:"Polarlicht",Deepseek:"DeepSeek-Blau",Charcoal:"Anthrazit",Graphite:"Graphit",Rose:"Rosé",
-Sky:"Himmelblau",Tangerine:"Mandarine",Cobalt:"Kobaltblau",DeepSeek:"DeepSeek",Mono:"Monochrom",Paper:"Papier",Moonlight:"Mondlicht",General:"Allgemein",Bots:"Bots","Group chats":"\
-Gruppenchats",Secrets:"Geheimnisse",Appearance:"Darstellung",Theme:"Design","Colors for the whole team, on every device.":"Farbschema für das gesamte Team, auf allen Geräten synchr\
-onisiert.",Accent:"Akzentfarbe","Unread marks, badges, and the brand mark.":"Ungelesen-Markierungen, Abzeichen und das Marken-Logo.","Theme accent":"Design-Akzentfarbe","Custom acc\
-ent":"Eigene Akzentfarbe","Message layout":"Nachrichtenlayout",Bubble:"Sprechblasen",Flat:"Flach","Bubble width":"Blasenbreite","Text width":"Textbreite","Show thinking":"Denkproze\
-ss anzeigen","Enter sends message":"Enter sendet Nachricht","Bring up related memory":"Verwandte Erinnerungen automatisch einbeziehen","Group memory size":"Kapazität des Gruppenged\
-ächtnisses","Bot memory size":"Kapazität des Bot-Gedächtnisses","Team memory size":"Kapazität des Teamgedächtnisses","Bots · {count}":"Bots · {count}","First in the sidebar.\
- Pick another Bot to hand it the role; {name} then stops being a Main Bot.":"Steht ganz oben in der Seitenleiste. Wähle einen anderen Bot aus, um ihm die Rolle zu übergeben; {name}\
- ist dann kein Haupt-Bot mehr.","Choose a Bot…":"Bot auswählen…","Also a Main Bot.":"Ebenfalls ein Haupt-Bot.","Move to first":"Nach ganz oben verschieben","Add a Main Bot":"H\
-aupt-Bot hinzufügen","Main Bots can create and change Bots, and run every group chat.":"Haupt-Bots können Bots erstellen und ändern sowie alle Gruppenchats verwalten.","Group ch\
-ats · {count}":"Gruppenchats · {count}","No group chats yet.":"Noch keine Gruppenchats.","A group chat lets several Bots work on one thing with you.":"In einem Gruppenchat arbeit\
-en mehrere Bots gemeinsam mit dir an einer Aufgabe.","Back to group chats":"Zurück zu den Gruppenchats","DS Bot settings":"DS Bot-Einstellungen","Settings pages":"Einstellungsseit\
-en","Advanced settings":"Erweiterte Einstellungen","Back to models":"Zurück zu den Modellen","Open Plugins":"Plugins öffnen","DeepSeek services":"DeepSeek-Dienste","DeepSeek API":"\
-DeepSeek-API","DeepSeek Web Search API":"DeepSeek-Websuche-API","Find it in Plugins → Web search.":"Zu finden unter Plugins → Websuche.","Image and document reading":"Bilder un\
-d Dokumente lesen","Use DeepSeek to read images and documents":"DeepSeek zum Lesen von Bildern und Dokumenten nutzen","Bots upload selected files to DeepSeek for text recognition; \
-local Office editing is unchanged.":"Bots laden ausgewählte Dateien zu DeepSeek hoch, um Text zu erkennen; die lokale Office-Bearbeitung bleibt unverändert.","Not ready":"Nicht b\
-ereit","Open settings":"Einstellungen öffnen","Open settings file":"Konfigurationsdatei öffnen","Could not open the settings file":"Konfigurationsdatei konnte nicht geöffnet werd\
-en","Show code work view":"Code-Arbeitsansicht anzeigen","Could not save. Try again.":"Speichern fehlgeschlagen. Bitte erneut versuchen.","Connection lost. Refresh to retry":"Verbi\
-ndung unterbrochen. Zum Wiederholen neu laden",Reconnecting:"Verbindung wird wiederhergestellt","Connection lost. Reconnect now":"Verbindung unterbrochen. Jetzt neu verbinden","Con\
-nection dropped and retrying. Reconnect now":"Verbindung abgebrochen, neuer Versuch läuft. Jetzt neu verbinden","Retry update":"Update erneut versuchen","New version":"Neue Versio\
-n","{percent}%":"{percent}%","Verifying the update…":"Update wird überprüft…","Getting ready to restart…":"Neustart wird vorbereitet…","Install and restart":"Installieren\
- und neu starten","{label}: {version}":"{label}: {version}","Downloading the update: {percent}%, version {version}":"Update wird heruntergeladen: {percent}%, Version {version}","Co\
-uld not check for updates. Try again later.":"Suche nach Updates fehlgeschlagen. Bitte später erneut versuchen.","Could not check for updates. Check your connection and try again.":"\
-Suche nach Updates fehlgeschlagen. Prüfe deine Internetverbindung und versuche es erneut.","Could not download the update. Try again.":"Download des Updates fehlgeschlagen. Bitte \
-erneut versuchen.","Could not download the update. Check your connection and try again.":"Download des Updates fehlgeschlagen. Prüfe deine Internetverbindung und versuche es erneut\
-.","Could not install the update. Try again later.":"Installation des Updates fehlgeschlagen. Bitte später erneut versuchen.","Could not install the update. Check your connection \
-and try again.":"Installation des Updates fehlgeschlagen. Prüfe deine Internetverbindung und versuche es erneut.","Tasks could not stop safely, so the update was not installed. Tr\
-y again later.":"Laufende Aufgaben konnten nicht sicher beendet werden, daher wurde das Update nicht installiert. Bitte später erneut versuchen.","New tasks started. Confirm again\
- to stop them and update.":"Neue Aufgaben wurden gestartet. Bestätige erneut, um sie zu beenden und das Update durchzuführen.","Task status is not available. Try again when the w\
-orkspace is ready.":"Aufgabenstatus nicht verfügbar. Versuche es erneut, sobald der Arbeitsbereich bereit ist.","Could not leave full screen. Leave full screen and try again.":"Vo\
-llbildmodus konnte nicht verlassen werden. Verlasse den Vollbildmodus und versuche es erneut.","The service version changed":"Dienstversion geändert","This page paused live update\
-s. Reload to load the new version.":"Diese Seite hat Live-Updates pausiert. Lade die Seite neu, um die neue Version zu laden.","Reload to load the new version":"Neu laden, um die n\
-eue Version zu laden","Not now":"Jetzt nicht",Service:"Dienst",Page:"Seite",Unknown:"Unbekannt","Back to Bots":"Zurück zur Bot-Liste","Close settings":"Einstellungen schließen",Unpin:"\
-Lösen",Pin:"Anheften",Pinned:"Angeheftet","Mark as Unread":"Als ungelesen markieren","Mute notifications":"Benachrichtigungen stummschalten","Unmute notifications":"Benachrichtigu\
-ngen wieder einschalten",Notifications:"Benachrichtigungen","Tell me when a Bot answers while I am looking elsewhere.":"Sag mir Bescheid, wenn ein Bot antwortet, während ich woande\
-rs hinsehe.","System notifications are turned off for DS Bot. Unread marks still show them.":"Systembenachrichtigungen sind für DS Bot ausgeschaltet. Ungelesen-Markierungen bleiben\
- sichtbar.","Rename Bot":"Bot umbenennen","Group settings":"Gruppeneinstellungen","Shared to-do":"Gemeinsame To-dos","{count} open":"{count} offen","No shared to-dos yet. Ask a Bot\
- in this group to add one.":"Noch keine gemeinsamen To-dos. Bitte einen Bot dieser Gruppe, eins hinzuzufügen.","Clear completed":"Erledigte löschen","Rename group":"Gruppenchat u\
-mbenennen","Copy conversation ID":"Chat-ID kopieren","Hide from sidebar":"In Seitenleiste ausblenden","{name} actions":"Aktionen für {name}","Add DSH Agent":"DSH Agent hinzufügen",
-"Remove DSH Agent":"DSH Agent entfernen","New session":"Neue Sitzung",Archive:"Archivieren","Session actions":"Sitzungsaktionen",Plugins:"Plugins","Plain dsh session":"Native dsh-S\
-itzung","just now":"gerade eben","{n} min":"{n} Min.","{n} h":"{n} Std.","{n} d":"{n} T.","DS Bot {version} is available":"DS Bot {version} ist verfügbar","Updating DS Bot…":"DS\
- Bot wird aktualisiert…","DS Bot {version} is installed. Restart DSH to use it.":"DS Bot {version} wurde installiert. Starte DSH neu, um es zu nutzen.","DS Bot {version} is insta\
-lled.":"DS Bot {version} ist installiert.","DS Bot update":"DS Bot-Update","DS Bot {version}":"DS Bot {version}","Update installed":"Update installiert","Restart DSH to start using\
- DS Bot {version}.":"Starte DSH neu, um DS Bot {version} zu verwenden.","You have {version}.":"Installierte Version: {version}.","The update did not finish: {reason}":"Das Update w\
-urde nicht abgeschlossen: {reason}","What's new":"Neuerungen","Updating…":"Wird aktualisiert…","DSH {version} is available":"DSH {version} ist verfügbar","Updating DSH…":"DS\
-H wird aktualisiert…","DSH update":"DSH-Update","DSH {version}":"DSH {version}","Restart DSH to start using DSH {version}.":"Starte DSH neu, um DSH {version} zu verwenden.","Upda\
-te DS Bot {version} first.":"Aktualisiere zuerst DS Bot {version}.","Open updates":"Updates öffnen",Messages:"Nachrichten",Commands:"Befehle","Search Bots, chats and messages":"Bo\
-ts, Chats und Nachrichten durchsuchen","Search this group":"Diese Gruppe durchsuchen","Search this group’s messages":"Nachrichten dieser Gruppe durchsuchen","Search messages in {\
-name}":"Nachrichten in {name} durchsuchen","Type at least two characters":"Mindestens zwei Zeichen eingeben","No messages found":"Keine Nachrichten gefunden","Try a different word":"\
-Anderes Wort versuchen","Searching…":"Suche läuft…","Back to results":"Zurück zu den Ergebnissen","Around this message":"Rund um diese Nachricht","1 match":"1 Treffer","{coun\
-t} matches":"{count} Treffer","Clear search":"Suche löschen",Results:"Ergebnisse","No results":"Keine Ergebnisse","Try a Bot name or words from a message":"Versuche es mit einem B\
-ot-Namen oder Wörtern aus einer Nachricht","Bot exchange":"Bot-Austausch","Bot exchange transcript":"Protokoll des Bot-Austauschs","No messages yet":"Noch keine Nachrichten","Clos\
-e Chat":"Schließen","Show all · {count} characters":"Alles anzeigen · {count} Zeichen","Showing the first {count} characters":"Zeigt die ersten {count} Zeichen","Only the start \
-of this message is kept here":"Hier ist nur der Anfang dieser Nachricht gespeichert","Start of reply":"Anfang der Antwort","Back to the start of this reply":"Zurück zum Anfang dies\
-er Antwort",Contents:"Inhalt","Sections in this reply":"Abschnitte dieser Antwort","Sections in this reply: {section}":"Abschnitte dieser Antwort: {section}","Today {time}":"Heute \
-{time}","Yesterday {time}":"Gestern {time}","Ran for {duration}":"Laufzeit {duration}","No background work detected":"Keine Hintergrundarbeit erkannt","DS Bot has no recorded tool \
-call or active background task for this reply.":"DS Bot hat für diese Antwort keinen Werkzeugaufruf und keine aktive Hintergrundaufgabe aufgezeichnet.","File not found: {path}":"D\
-atei nicht gefunden: {path}","{tokens} tok · Cache hit {hit}%":"{tokens} tok · Cache-Treffer {hit}%","1 turn":"1 Durchgang","{count} turns":"{count} Durchgänge","{speed} tok/s":"\
-{speed} tok/s","Cache hit {hit}%":"Cache-Treffer {hit}%","Context {percent}%":"Kontext {percent}%","{used} of {total} tokens of context in use":"{used} von {total} Kontext-Tokens b\
-elegt",Annotate:"Kommentieren","Annotate quote":"Zitat kommentieren",Annotation:"Anmerkung","Add an annotation…":"Anmerkung hinzufügen…","Add quote and annotation to the compo\
-ser · Enter":"Zitat und Anmerkung zum Eingabefeld hinzufügen · Eingabe","Send quote and annotation · Ctrl+Enter":"Zitat und Anmerkung senden · Strg+Eingabe",Footnotes:"Fußnote\
-n","Remove reaction {emoji}":"Reaktion {emoji} entfernen","Add reaction":"Reaktion hinzufügen",Reply:"Antworten","More message actions":"Weitere Nachrichtenaktionen",More:"Mehr",Reactions:"\
-Reaktionen","Message actions":"Nachrichtenaktionen",Download:"Herunterladen","Thought it through":"Gedankengang","Earlier messages":"Frühere Nachrichten","Loading earlier messages\
-…":"Frühere Nachrichten werden geladen…","Couldn’t load earlier messages · Retry":"Frühere Nachrichten konnten nicht geladen werden · Erneut versuchen","Load earlier":"Fr\
-ühere Nachrichten laden","1 image":"1 Bild","{count} images":"{count} Bilder","Replies from":"Antworten von","Reply from":"Antwort von","Message from":"Nachricht von","Stopped by":"\
-Gestoppt von","{count} messages with":"{count} Nachrichten mit","Routine started":"Routine gestartet",Update:"Aktualisieren","Thinking about it":"Überlegt","Weighing the options":"\
-Wägt Optionen ab","Working out a plan":"Arbeitet einen Plan aus","Sorting out the details":"Klärt die Details","On it":"Ist dran","Busy with it":"In Bearbeitung","Moving ahead":"\
-Kommt voran","Taking care of it":"Kümmert sich darum","Making headway":"Macht Fortschritte","Moving to a fresh conversation":"Wechselt zu einem neuen Chatabschnitt","Switching wor\
-king folder":"Wechselt den Arbeitsordner","Searching online":"Sucht im Web","Reading a page":"Liest eine Webseite","Running shell commands":"Führt Befehle aus","Opening a file":"Ö\
-ffnet eine Datei","Looking through files":"Durchsucht Dateien","Writing changes":"Schreibt Änderungen","Working on an image":"Bearbeitet ein Bild","Creating a group":"Erstellt ein\
-en Gruppenchat","Updating the group":"Aktualisiert den Gruppenchat","Deleting the group":"Löscht den Gruppenchat","Posting in the group":"Schreibt in der Gruppe","Checking the key\
-s":"Prüft Schlüssel","Asking {name}":"Fragt {name}","Asking another Bot":"Fragt einen anderen Bot","Stopping {name}":"Stoppt {name}","Stopping another Bot":"Stoppt einen anderen \
-Bot","Creating {name}":"Erstellt {name}","Updating {name}":"Aktualisiert {name}","Checking the team":"Prüft das Team","Reading {name}":"Liest {name}","Looking back through the cha\
-t":"Durchsucht den Chatverlauf","{name} looked up its own chat":"{name} hat im eigenen Chat nachgesehen","{name} looked up its own chat for “{text}”":"{name} hat im eigenen Cha\
-t nach „{text}“ gesucht","{name} is typing…":"{name} schreibt…","{name} didn't answer in time":"{name} hat nicht rechtzeitig geantwortet","{name} did not answer or call any\
-one; call a member with @Name":"{name} hat weder geantwortet noch jemanden aufgerufen; rufe ein Mitglied mit @Name auf","The group replies could not be shown":"Die Gruppenantworten\
- konnten nicht angezeigt werden","Paused after {count} Bot relays. Waiting: {names}":"Nach {count} Bot-Staffelläufen pausiert. Wartend: {names}","{names} went back and forth {coun\
-t} times without progress and paused. Write here to go on":"{names} haben sich {count}-mal ohne Fortschritt abgewechselt und pausiert. Schreibe hier, um fortzufahren","{name} pause\
-d for your approval":"{name} wartet auf deine Freigabe","{name} started on it":"{name} hat begonnen","You stopped {name}'s work":"Du hast die Arbeit von {name} gestoppt","{name} fi\
-nished its work":"{name} ist fertig","{name} was cut off by a restart and picked its work back up":"{name} wurde durch einen Neustart unterbrochen und hat weitergearbeitet","{name}\
- was cut off by a restart again and stopped":"{name} wurde erneut durch einen Neustart unterbrochen und hat gestoppt","Picked up its work after a restart":"Hat die Arbeit nach eine\
-m Neustart wieder aufgenommen","Profile updated":"Profil aktualisiert","Asked to make the tool call it wrote as text":"Aufgefordert, den als Text geschriebenen Tool-Aufruf regulär \
-auszuführen","Went on after the failed turn":"Hat nach dem fehlgeschlagenen Durchgang weitergemacht","A Bot":"Ein Bot","{name} is waiting for your approval":"{name} wartet auf dei\
-ne Freigabe","{first} and {second} are waiting for your approval":"{first} und {second} warten auf deine Freigabe","{first}, {second} and {count} more are waiting for your approval":"\
-{first}, {second} und {count} weitere warten auf deine Freigabe","Waiting for your approval":"Wartet auf deine Freigabe","in its own chat":"im eigenen Chat","Stop all work in this \
-group":"Alle Arbeiten in dieser Gruppe stoppen","Stop all":"Alles stoppen",Goal:"Ziel","Set a goal":"Ziel festlegen","This group has no admin":"Diese Gruppe hat keinen Admin","What\
- should this group achieve?":"Was soll diese Gruppe erreichen?",Start:"Starten",Resume:"Fortsetzen","Stop the goal?":"Ziel abbrechen?","Aligning the goal with you":"Stimmt das Ziel\
- mit dir ab","{admin} asks what is still open, then writes the goal with its checks and stages.":"{admin} klärt zuerst offene Fragen und formuliert dann das Ziel samt Prüfkriterien\
- und Phasen.",Objective:"Zielsetzung","Done when":"Erledigt, wenn",Rules:"Regeln","Final check":"Endabnahme","Waiting for you":"Wartet auf dich","Goal reached":"Ziel erreicht",Stages:"\
-Phasen","Stage {n}: {title}":"Phase {n}: {title}","Paused · {title}":"Pausiert · {title}","Waiting for you · {title}":"Wartet auf dich · {title}","Checking · {title}":"Prüfung\
- · {title}","Sent back by {admin}: {feedback}":"Von {admin} zur Überarbeitung zurückgegeben: {feedback}","Sent back {n} times by {admin}. Last time: {feedback}":"Von {admin} {n}\
--mal zurückgegeben. Zuletzt: {feedback}","Done when: {text}":"Erledigt, wenn: {text}","Evidence: {text}":"Nachweis: {text}","Back to current stage":"Zurück zur aktuellen Phase","\
-Goal and checks":"Ziel und Prüfkriterien",Summary:"Zusammenfassung",Evidence:"Nachweis","Stop current work too":"Aktuelle Arbeit ebenfalls stoppen","Setting a goal":"Legt ein Ziel\
- fest","Goal set: {title} · {count} stages":"Ziel festgelegt: {title} · {count} Phasen","Stage {n} passed · now stage {m}: {next}":"Phase {n} bestanden · jetzt Phase {m}: {next}",
-"All {count} stages passed":"Alle {count} Phasen bestanden","Stage {n} sent back for rework":"Phase {n} zur Überarbeitung zurückgegeben","Goal updated":"Ziel aktualisiert","Goal \
-paused":"Ziel pausiert","Goal resumed":"Ziel fortgesetzt","Goal reached: {title}":"Ziel erreicht: {title}","Goal stopped":"Ziel abgebrochen",Reject:"Ablehnen","Allow once":"Einmali\
-g erlauben","Couldn't message {name}":"Nachricht an {name} fehlgeschlagen",Messaged:"Nachricht gesendet an","Couldn't stop {name}":"{name} konnte nicht gestoppt werden",Stopped:"Ge\
-stoppt",Created:"Erstellt",Updated:"Aktualisiert","Created group":"Gruppenchat erstellt","Couldn't create the group":"Gruppenchat konnte nicht erstellt werden","Updated group":"Gru\
-ppenchat aktualisiert","Couldn't update the group":"Gruppenchat konnte nicht aktualisiert werden","Deleted group":"Gruppenchat gelöscht","Couldn't delete the group":"Gruppenchat k\
-onnte nicht gelöscht werden","Posted in":"Veröffentlicht in","Couldn't post in the group":"Beitrag in der Gruppe fehlgeschlagen",Read:"Gelesen","Your own answer":"Eigene Antwort",
-"Type your own answer":"Eigene Antwort eingeben",Selected:"Ausgewählt",Skip:"Überspringen",Submit:"Absenden","Choose all that apply":"Mehrfachauswahl möglich","Dismiss question":"\
-Frage schließen",Dismiss:"Schließen",Dismissed:"Geschlossen","Answered by message":"Per Nachricht beantwortet","Your answer":"Deine Antwort",View:"Ansicht",Confirm:"Bestätigen",
-Progress:"Fortschritt","Dismiss view":"Ansicht schließen",Sources:"Quellen",Chart:"Diagramm","Chart {n}":"Diagramm {n}",Series:"Reihe","Chart options":"Diagrammoptionen","View as \
-table":"Als Tabelle anzeigen","View as chart":"Als Diagramm anzeigen","Copy data":"Daten kopieren","Download image":"Bild herunterladen","This view tried to open a page and was sto\
-pped.":"Diese Ansicht wollte eine Webseite öffnen und wurde blockiert.","Send to Bot":"An Bot senden","All Bots":"Alle Bots","No Bot":"Kein Bot","Paste or type the key":"Schlüssel\
- einfügen oder eingeben","Only {name}":"Nur {name}","Who may use it":"Wer ihn nutzen darf","Cancel the request":"Anfrage abbrechen","This page is not on HTTPS: the key crosses the\
- network unencrypted.":"Diese Seite nutzt kein HTTPS: Der Schlüssel wird unverschlüsselt über das Netzwerk übertragen.","Let {bot} use {name}?":"{bot} erlauben, {name} zu nutze\
-n?","{name} needs a key":"{name} benötigt einen Schlüssel","Saved for {scope}":"Gespeichert für {scope}","Value of {name}":"Wert von {name}","{bot} never sees the value. It reac\
-hes {bot}'s shell as ":"{bot} sieht den Wert nie im Klartext. Er wird in der Shell von {bot} bereitgestellt als "," At least {count} characters.":" Mindestens {count} Zeichen.","At\
- least {count} characters.":"Mindestens {count} Zeichen.","Replace value":"Wert ersetzen","Saving…":"Wird gespeichert…","Could not save this file":"Diese Datei konnte nicht ges\
-peichert werden",Save:"Speichern","Allowing…":"Wird erlaubt…",Allow:"Erlauben","{bot} asked for {name}":"{bot} hat {name} angefordert","Allowed {bot} to use {name}":"{bot} darf\
- {name} verwenden","Saved {name}":"{name} gespeichert",Canceled:"Abgebrochen",Done:"Fertig","{bot} is using {name}":"{bot} verwendet {name}","{bot} could not ask for a key: this wi\
-ndow can only view the team":"{bot} konnte keinen Schlüssel anfordern: Dieses Fenster ist im Nur-Lese-Modus","a saved key":"ein gespeicherter Schlüssel","Chosen Bots":"Ausgewählt\
-e Bots","Who may use {name}":"Wer {name} nutzen darf","Save access":"Zugriff speichern","Replace the value":"Wert ersetzen","New value of {name}":"Neuer Wert für {name}","Replaced\
-. Bots get the new value from their next command.":"Ersetzt. Bots erhalten den neuen Wert ab ihrem nächsten Befehl.","a deleted Bot":"ein gelöschter Bot","Asked by {name}":"Angef\
-ordert von {name}","added {time}":"hinzugefügt {time}","last used {time}":"zuletzt genutzt {time}","not used yet":"noch nicht genutzt","Delete {name}? Bots lose it at once.":"{nam\
-e} löschen? Bots verlieren sofort den Zugriff darauf.",Keep:"Behalten","Key name":"Schlüsselname","NAME, e.g. GITHUB_TOKEN":"NAME, z. B. GITHUB_TOKEN","What it is for":"Verwendun\
-gszweck",Value:"Wert","New keys are for all Bots; narrow it down afterwards.":"Neue Schlüssel gelten standardmäßig für alle Bots; du kannst den Zugriff danach einschränken.","\
-Save key":"Schlüssel speichern","Keys your Bots asked for. Bots never see the values: they use them as ":"Schlüssel, die deine Bots angefordert haben. Bots sehen niemals die Werte\
-: Sie nutzen sie in ihrer Shell als "," in their shell, and every value is replaced by ":", und jeder Wert wird ersetzt durch "," before anything goes to a model.":", bevor Daten a\
-n ein Modell gesendet werden.","Secrets · {count}":"Geheimnisse · {count}","Encryption at rest":"Verschlüsselung im Ruhezustand","Keys are stored in a file only this user can re\
-ad, but the values are not encrypted.":"Die Schlüssel liegen in einer Datei, die nur dieser Benutzer lesen kann; die Werte sind aber nicht verschlüsselt.","Encrypt keys at rest":"\
-Schlüssel verschlüsseln","Passphrase (at least 8 characters)":"Passphrase (mindestens 8 Zeichen)","Repeat the passphrase":"Passphrase wiederholen","The passphrases do not match.":"\
-Die Passphrasen stimmen nicht überein.","Turn on encryption":"Verschlüsselung einschalten","Keys are stored encrypted. They stay decrypted in memory while DS Bot runs.":"Die Schl\
-üssel liegen verschlüsselt. Sie werden nur im Speicher entschlüsselt, solange DS Bot läuft.","Turn off encryption":"Verschlüsselung ausschalten","Secrets are locked":"Geheimni\
-sse sind gesperrt",Passphrase:"Passphrase",Unlock:"Entsperren","The passphrase file named by DS_BOT_SECRETS_PASSPHRASE_FILE could not be read.":"Die über DS_BOT_SECRETS_PASSPHRASE_\
-FILE angegebene Passphrase-Datei konnte nicht gelesen werden.","The passphrase in the environment or the passphrase file did not unlock the secrets.":"Die Passphrase aus der Umgebu\
-ng oder der Datei hat die Geheimnisse nicht entsperrt.","No passphrase was found at startup. Enter it here, or set DS_BOT_SECRETS_PASSPHRASE_FILE for unattended starts.":"Beim Star\
-t wurde keine Passphrase gefunden. Gib sie hier ein oder setze DS_BOT_SECRETS_PASSPHRASE_FILE für unbeaufsichtigte Starts.","No keys yet. When a Bot needs one, it shows a card in \
-its chat.":"Noch keine Schlüssel hinterlegt. Wenn ein Bot einen benötigt, zeigt er im Chat eine Karte an.","Add a key":"Schlüssel hinzufügen",Memory:"Gedächtnis","Nothing save\
-d yet":"Noch nichts gespeichert","1 entry":"1 Eintrag","{count} entries":"{count} Einträge","Manage {name}'s memory":"Gedächtnis von {name} verwalten","{name}'s memory":"Gedächtn\
-is von {name}","Memory summary":"Gedächtnis-Zusammenfassung","All entries":"Alle Einträge","Change history":"Änderungsverlauf","No changes yet":"Noch keine Änderungen","Load mo\
-re":"Mehr laden",Undo:"Rückgängig",Undone:"Rückgängig gemacht","Undo this change":"Diese Änderung rückgängig machen","Click again to undo":"Zum Rückgängigmachen erneut klick\
-en","Memory options":"Gedächtnisoptionen","Close memory":"Gedächtnis schließen","Back to the summary":"Zurück zur Zusammenfassung","Regenerate summary":"Zusammenfassung neu ers\
-tellen","Updated {time}":"Aktualisiert {time}","Updated just now":"Gerade eben aktualisiert","Writing the summary…":"Zusammenfassung wird erstellt…","The summary is out of date\
-: {reason}":"Die Zusammenfassung ist veraltet: {reason}","The summary could not be written: {reason}":"Die Zusammenfassung konnte nicht erstellt werden: {reason}","{name} has not s\
-aved anything yet":"{name} hat sich noch nichts gemerkt","Bots keep lasting preferences, decisions, and what you ask them to remember. Tell {name} below, or in its chat.":"Bots mer\
-ken sich dauerhafte Vorlieben, Entscheidungen und Dinge, an die sie sich erinnern sollen. Teile es {name} unten oder direkt im Chat mit.","Nothing is saved for this group yet":"Für\
- diese Gruppe ist noch nichts gespeichert","A group keeps the decisions, rules, and facts its work needs, for its members to read here. Tell it below, or in the group.":"Eine Grupp\
-e speichert Entscheidungen, Regeln und Fakten für ihre Arbeit, sodass alle Gruppenmitglieder sie hier lesen können. Schreibe es unten oder direkt in die Gruppe.","Team memory":"T\
-eamgedächtnis","Every Bot reads it":"Wird von jedem Bot gelesen","Group memory":"Gruppengedächtnis","Only its members read it":"Wird nur von Gruppenmitgliedern gelesen","MEMORY.m\
-d, which every conversation reads":"MEMORY.md, wird in jedem Gespräch gelesen","{used} of {limit} characters":"{used} von {limit} Zeichen","by you":"von dir","by {name}":"von {nam\
-e}","Remove from memory":"Aus dem Gedächtnis löschen","until {day}":"gültig bis {day}","Tidied: {merged} merged, {moved} moved, {retired} archived":"Aufgeräumt: {merged} zusamme\
-ngeführt, {moved} verschoben, {retired} archiviert","Only when needed":"Nur bei Bedarf","Move to…":"Verschieben nach…","Every conversation":"In jedem Gespräch","ended {day}":"\
-beendet am {day}","Click again to remove":"Zum Entfernen erneut klicken",Remove:"Entfernen","Ask or update":"Fragen oder aktualisieren","Ask about or update {name}'s memory":"Gedäc\
-htnis von {name} abfragen oder aktualisieren",Send:"Senden","Added: {text}":"Hinzugefügt: {text}","Added to team memory: {text}":"Zum Teamgedächtnis hinzugefügt: {text}","Update\
-d: {text}":"Aktualisiert: {text}","Removed: {text}":"Entfernt: {text}","Removed from team memory: {text}":"Aus dem Teamgedächtnis entfernt: {text}","Not changed: {text} ({reason})":"\
-Unverändert: {text} ({reason})","{count} file changed":"{count} Datei geändert","{count} files changed":"{count} Dateien geändert",File:"Datei","Review these changes":"Änderunge\
-n prüfen","These changes are no longer available":"Diese Änderungen sind nicht mehr verfügbar","This window cannot open the change review":"Dieses Fenster kann die Änderungsprüf\
-ung nicht öffnen","Saving to memory":"Speichert im Gedächtnis","Updating memory":"Aktualisiert das Gedächtnis","Checking memory":"Prüft das Gedächtnis","Memory updated":"Gedäc\
-htnis aktualisiert","Already saved":"Bereits gespeichert","Couldn't save to memory":"Speichern im Gedächtnis fehlgeschlagen","Couldn't remove from memory":"Entfernen aus dem Gedäc\
-htnis fehlgeschlagen","Memory not changed":"Gedächtnis unverändert","Write something to save":"Gib etwas zum Speichern ein","No saved entry matched":"Kein passender Eintrag im Ge\
-dächtnis gefunden","The memory refused this change":"Das Gedächtnis hat diese Änderung abgelehnt","The memory could not be changed":"Das Gedächtnis konnte nicht geändert werden",
-"Team memory updated":"Teamgedächtnis aktualisiert","Updated {name}'s memory":"Gedächtnis von {name} aktualisiert","Memory updated. Open {name}'s memory":"Gedächtnis aktualisiert\
-. Gedächtnis von {name} öffnen","Open browser":"Browser öffnen","{name}'s browser":"Browser von {name}","Resize panel":"Leistenbreite ändern",Back:"Zurück",Forward:"Vorwärts",
-Stop:"Stopp",Reload:"Neu laden",Address:"Adresse","Search or enter address":"Suchen oder Adresse eingeben","This page didn’t load":"Diese Seite konnte nicht geladen werden","Try \
-again":"Erneut versuchen","Open a page here and {name} can read it with you. Logins and cookies stay with {name}; other Bots never see them.":"Öffne hier eine Webseite, damit {name\
-} sie gemeinsam mit dir lesen kann. Anmeldungen und Cookies gehören nur {name}; andere Bots sehen sie nie.","Only http and https addresses open here.":"Hier können nur http- und h\
-ttps-Adressen geöffnet werden.","The page crashed.":"Die Seite ist abgestürzt.","The browser blocked the new window.":"Der Browser hat das neue Fenster blockiert.","Open the issu\
-e":"Issue öffnen","Cloud metadata addresses do not open here.":"Cloud-Metadatenadressen können hier nicht geöffnet werden.","Dictation is not available in this browser":"Diktier\
-en wird in diesem Browser nicht unterstützt","Microphone access is blocked":"Mikrofonzugriff ist blockiert","Couldn't hear that":"Konnte nichts verstehen","Couldn't start dictatio\
-n":"Diktat konnte nicht gestartet werden","Stop dictation":"Diktat beenden",Dictate:"Diktieren","Start voice chat":"Sprachchat starten","Voice chat":"Sprachchat",Listening:"Hört zu",
-Thinking:"Denkt nach","Thinking…":"Denkt nach…",Speaking:"Spricht",Paused:"Pausiert","Voice chat is not available in this browser":"Sprachchat wird in diesem Browser nicht unte\
-rstützt","Voice chat with {name}":"Sprachchat mit {name}","Resume listening":"Weiter zuhören",Pause:"Pausieren","End voice chat":"Sprachchat beenden","Recognizing…":"Wird erkan\
-nt…","Voice input needs its speech model":"Die Spracheingabe benötigt ein Sprachmodell","Set up voice input":"Spracheingabe einrichten","Preparing voice input…":"Spracheingabe\
- wird vorbereitet…","Downloading the speech model… {pct}%":"Sprachmodell wird heruntergeladen… {pct}%","Couldn't prepare voice input":"Spracheingabe konnte nicht vorbereitet \
-werden","That was too long to recognize":"Die Aufnahme war zu lang für die Erkennung","24 hours":"24 Stunden","7 days":"7 Tage","30 days":"30 Tage","12 weeks":"12 Wochen","12 mont\
-hs":"12 Monate","Per hour":"Pro Stunde","Per day":"Pro Tag","Per week":"Pro Woche","Per month":"Pro Monat",Output:"Ausgabe",Input:"Eingabe","Cache hit":"Cache-Treffer","Deleted Bot":"\
-Gelöschter Bot",Deleted:"Gelöscht","Deleted group chat":"Gelöschter Gruppenchat","Group chat":"Gruppenchat","Own chat":"Einzelchat","Side chat":"Nebenchat","New browser tab":"Ne\
-uer Browser-Tab",Terminal:"Terminal",Files:"Dateien","Close side chat":"Nebenchat schließen","Delete side chat":"Nebenchat löschen","Ask without interrupting":"Nebenbei fragen, o\
-hne die laufende Arbeit zu unterbrechen","Ask about the work so far":"Frage zum bisherigen Stand stellen","Answering…":"Antwortet…",Cancelled:"Abgebrochen",Tasks:"Aufgaben","In\
- progress":"In Arbeit","Awaiting review":"Wartet auf Prüfung",Blocked:"Blockiert","Stopped by the user":"Vom Nutzer gestoppt","Not updated after a restart":"Nach dem Neustart nich\
-t aktualisiert","Its model call failed ({code})":"Modellaufruf fehlgeschlagen ({code})","Add a note":"Notiz hinzufügen","Cancel task":"Aufgabe abbrechen","Click again to cancel":"\
-Erneut klicken zum Abbrechen","History ({count})":"Verlauf ({count})","Hide history":"Verlauf ausblenden","No task is running in this group.":"In dieser Gruppe läuft keine Aufgabe.",
-"What should change?":"Was soll sich ändern?","Note: {text}":"Notiz: {text}","Answered from progress so far; nothing was run":"Anhand des bisherigen Fortschritts beantwortet; es w\
-urden keine Aktionen ausgeführt","Could not answer.":"Konnte nicht antworten.","Cancel this side question":"Diese Nebenfrage abbrechen",Conversations:"Chats","Compaction and hando\
-ff":"Komprimierung und Übergabe","Image reading":"Bilderfassung",Titles:"Titel",Other:"Sonstiges","Last {range}":"Letzte {range}",tokens:"Tokens","Compared with the {range} before":"\
-Im Vergleich zu den {range} davor","{share}% of all usage in the last {range}":"{share}% der Gesamtnutzung in den letzten {range}",Calls:"Aufrufe","Cache hit rate":"Cache-Trefferqu\
-ote","Tokens over time":"Token-Verlauf","{count} tokens":"{count} Tokens","{tokens} tokens · {calls} calls":"{tokens} Tokens · {calls} Aufrufe","Active on 1 day in the last year":"\
-An 1 Tag im letzten Jahr aktiv","Active on {count} days in the last year":"An {count} Tagen im letzten Jahr aktiv",Light:"Wenig",Heavy:"Viel","Unknown model":"Unbekanntes Modell","\
-More Bots":"Weitere Bots","More models":"Weitere Modelle","Reading your chats…":"Chatverläufe werden gelesen…","No usage yet.":"Noch keine Nutzung.","Token usage shows up here\
- after a model is called.":"Die Token-Nutzung wird hier angezeigt, sobald ein Modell aufgerufen wurde.","Nothing in this range.":"Keine Nutzung in diesem Zeitraum.","Who used it":"\
-Wer es genutzt hat","What for":"Wofür",Activity:"Aktivität","Time range":"Zeitraum","All usage":"Gesamte Nutzung","Group usage by":"Nutzung gruppieren nach","By Bot":"Nach Bot","\
-By model":"Nach Modell","Still reading older chats; totals may grow.":"Ältere Chats werden noch ausgewertet; die Summen können sich noch erhöhen.",Custom:"Benutzerdefiniert","Cu\
-stom range":"Benutzerdefinierter Zeitraum","This month":"Dieser Monat","Last month":"Letzter Monat","This year":"Dieses Jahr","Previous month":"Vorheriger Monat","Next month":"Näch\
-ster Monat","Pick the first day":"Startdatum wählen","Pick the last day":"Enddatum wählen","1 day":"1 Tag","{count} days":"{count} Tage","Compared with the day before":"Im Vergle\
-ich zum Vortag","Compared with the {count} days before":"Im Vergleich zu den {count} Tagen davor","{share}% of all usage from {span}":"{share}% der Gesamtnutzung vom {span}","About\
- DS Bot":"Über DS Bot","Version {version}":"Version {version}","Star DS Bot on GitHub":"DS Bot auf GitHub mit einem Stern markieren","{count} stars":"{count} Sterne","If DS Bot he\
-lps you, a star on GitHub helps more people find it.":"Wenn dir DS Bot weiterhilft, hilft ein Stern auf GitHub dabei, dass noch mehr Menschen es entdecken.",Updates:"Updates","Chec\
-k for updates":"Nach Updates suchen","Checking…":"Wird geprüft…","Up to date":"Auf dem neuesten Stand","Checked {time}":"Geprüft {time}","Could not check for updates.":"Suche\
- nach Updates fehlgeschlagen.","Update checks are off.":"Automatische Update-Prüfung ist deaktiviert.","Checking for updates…":"Suche nach Updates…","Downloading {version}…":"\
-{version} wird heruntergeladen…","{version} is ready; it installs when you restart":"{version} ist bereit und wird beim Neustart installiert","Restart to update":"Zum Aktualisier\
-en neu starten","{version} is available":"{version} ist verfügbar","Installed from a local folder; update it there.":"Aus einem lokalen Ordner installiert; bitte dort aktualisiere\
-n.","Updates are not offered for this install.":"Für diese Installation werden keine Updates angeboten.","Updates come with the DS Bot app.":"Updates erfolgen über die DS Bot-App.",
-Links:"Links","Source code":"Quellcode","Release notes":"Versionshinweise",Open:"Öffnen",Feedback:"Feedback","Report a problem":"Problem melden","What happened?":"Was ist passiert\
-?","What you did, what you expected, and what happened instead. It goes into the issue.":"Was du getan hast, was du erwartet hast und was stattdessen passiert ist. Dies wird in das\
- Issue übernommen.","For example: I asked Writer in the group chat and it showed an error.":"Zum Beispiel: Ich habe Writer im Gruppenchat gefragt und es wurde ein Fehler angezeigt\
-.",Diagnostics:"Diagnosedaten","Versions, system, models, and the latest errors. Saved keys, tokens, and your home folder are hidden.":"Versionen, System, Modelle und die letzten F\
-ehler. Gespeicherte Schlüssel, Tokens und dein Benutzerordner werden ausgeblendet.",Show:"Anzeigen",Hide:"Ausblenden","GitHub issue":"GitHub-Issue","Opens a new issue in the DS Bo\
-t repository with all of this filled in. Nothing is sent until you submit it there.":"Öffnet ein neues Issue im DS Bot-Repository mit diesen vorausgefüllten Angaben. Es wird nichts\
- gesendet, bis du es dort absendest.","Report on GitHub":"Auf GitHub melden","Copied the diagnostics.":"Diagnosedaten kopiert.","Could not copy. Select the text below and copy it.":"\
-Kopieren fehlgeschlagen. Markiere den Text unten und kopiere ihn manuell.","Opened a new GitHub issue with the diagnostics filled in. Check it before you submit.":"Ein neues GitHub\
--Issue mit den Diagnosedaten wurde geöffnet. Bitte prüfe die Angaben vor dem Absenden.","Opened a new GitHub issue. The diagnostics are long, so they are on the clipboard: paste \
-them into the issue.":"Ein neues GitHub-Issue wurde geöffnet. Da die Diagnosedaten lang sind, wurden sie in die Zwischenablage kopiert: Füge sie bitte in das Issue ein.","Opened \
-a new GitHub issue. Copy the diagnostics below into it.":"Ein neues GitHub-Issue wurde geöffnet. Kopiere bitte die untenstehenden Diagnosedaten hinein.","Downloaded the log. Keys,\
- tokens, and your home folder are hidden in it.":"Protokoll heruntergeladen. Schlüssel, Tokens und dein Benutzerordner sind darin ausgeblendet.","Cleared the error log.":"Fehlerpr\
-otokoll geleert.","Recent errors":"Letzte Fehler","Recent errors · {count}":"Letzte Fehler · {count}","No errors recorded.":"Keine Fehler protokolliert.","Failed model calls and \
-DS Bot problems show here, newest first.":"Fehlgeschlagene Modellaufrufe und Probleme mit DS Bot werden hier angezeigt, die neuesten zuerst.","Model call":"Modellaufruf","This wind\
-ow":"Dieses Fenster","Error log":"Fehlerprotokoll","Kept on this computer across restarts, up to about 1 MB.":"Bleibt auf diesem Computer auch nach Neustarts erhalten (bis zu ca. 1\
- MB).",Clear:"Leeren","Settings → Feedback has the details.":"Details findest du unter Einstellungen → Feedback.","Could not reach DSH. Check that it is still running.":"DSH is\
-t nicht erreichbar. Prüfe bitte, ob es noch läuft.","{name} stopped: {reason}. Switch its model or ask it to go on.":"{name} hat gestoppt: {reason}. Wechsle das Modell oder bitte\
- ihn weiterzumachen.","{name}'s background helper did not finish: {reason}. Ask it to go on if it still matters.":"Der Hintergrundhelfer von {name} wurde nicht fertig: {reason}. Bi\
-tte {name}, weiterzumachen, falls es noch wichtig ist.","Run failed":"Ausführung fehlgeschlagen","Reached the output limit":"Ausgabelimit erreicht","Stopped before finishing":"Vor\
- Abschluss gestoppt","Declined the task":"Aufgabe abgelehnt","Unknown error":"Unbekannter Fehler","The model has no API key":"Für das Modell ist kein API-Schlüssel hinterlegt","T\
-he API key is not in the right format":"Der API-Schlüssel hat ein ungültiges Format","The DeepSeek account needs a sign-in":"Anmeldung beim DeepSeek-Konto erforderlich","The Deep\
-Seek account is signed out":"Vom DeepSeek-Konto abgemeldet","The DeepSeek account sign-in has expired":"Die Anmeldung beim DeepSeek-Konto ist abgelaufen","The API key was rejected":"\
-Der API-Schlüssel wurde abgelehnt","The account is out of quota":"Das Kontokontingent ist aufgebraucht","Too many requests to the model":"Zu viele Anfragen an das Modell","The con\
-versation is too long for the model":"Der Chatverlauf ist zu lang für das Modell","The model service refused the request":"Der Modelldienst hat die Anfrage abgelehnt","The model s\
-ervice failed":"Fehler beim Modelldienst","The model took too long to answer":"Zeitüberschreitung bei der Modellantwort","Could not reach the model service":"Modelldienst nicht er\
-reichbar","The conversation could not be compacted for the model switch":"Die Unterhaltung konnte für den Modellwechsel nicht komprimiert werden","Its group conversation could not\
- open":"Seine Gruppensitzung konnte nicht geöffnet werden","Its group conversation could not open, so it starts a new one next time":"Seine Gruppensitzung konnte nicht geöffnet we\
-rden; beim nächsten Mal wird eine neue gestartet","Pasted text · {count} characters":"Eingefügter Text · {count} Zeichen","Put back":"Zurückholen","Put back into the box":"Zur\
-ück ins Eingabefeld","Remove pasted text":"Eingefügten Text entfernen","Add files":"Dateien hinzufügen","Reference a chat":"Chat referenzieren","Chat with {name}":"Chat mit {nam\
-e}","Scheduled task":"Geplante Aufgabe","Open the scheduled tasks of this chat":"Geplante Aufgaben dieses Chats öffnen","Send to":"Senden an","Scheduled task: {text}":"Geplante Au\
-fgabe: {text}","Choose the group admin":"Gruppen-Admin auswählen","Group admin":"Gruppen-Admin","Who to chat with…":"Mit wem möchtest du chatten…","Add at least one more Bot":"\
-Füge mindestens einen weiteren Bot hinzu",Members:"Mitglieder","Scheduled tasks":"Geplante Aufgaben","Every day":"Jeden Tag","Every {count} days":"Alle {count} Tage","Every hour":"\
-Jede Stunde","Every {count} hours":"Alle {count} Stunden","Every {count} minutes":"Alle {count} Minuten","Once, {time}":"Einmalig, {time}","Every day at {time}":"Täglich um {time}",
-"Every {days} at {time}":"Jeden {days} um {time}","Every weekday at {time}":"An Werktagen um {time}","Every weekend at {time}":"Am Wochenende um {time}","On the schedule {expressio\
-n}":"Nach Zeitplan {expression}","Custom schedule":"Eigener Zeitplan","Next: {time}":"Nächste Ausführung: {time}","Overdue: {time}":"Überfällig: {time}",Finished:"Abgeschlossen",
-"Scheduled tasks · {count}":"Geplante Aufgaben · {count}","Show all":"Alle anzeigen","in {name}":"in {name}","Click again to delete":"Zum Löschen erneut klicken","Delete task":"\
-Aufgabe löschen",Once:"Einmalig","Every week":"Jede Woche",Repeat:"Wiederholen",minutes:"Minuten",hours:"Stunden",days:"Tage","Morning briefing":"Morgen-Briefing","What to do":"Au\
-fgabe","Sum up what changed since yesterday and what needs me today.":"Fasse zusammen, was sich seit gestern geändert hat und was heute für mich ansteht.",When:"Wann","Date and t\
-ime":"Datum und Uhrzeit",Days:"Wochentage",Time:"Uhrzeit",Every:"Alle","How many":"Intervall",Unit:"Einheit","Create task":"Aufgabe erstellen","Turn on Automation tasks in DSH":"„A\
-utomatisierungsaufgaben“ in DSH aktivieren","Switch on Automation tasks on the Plugins page in Settings.":"Aktiviere „Automatisierungsaufgaben“ auf der Seite „Plugins“ in den Ein\
-stellungen.","New task":"Neue Aufgabe","No scheduled tasks yet.":"Noch keine geplanten Aufgaben.","No scheduled tasks yet. Add one":"Noch keine geplanten Aufgaben. Jetzt hinzufügen",
-"Automation tasks are off in DSH":"„Automatisierungsaufgaben“ ist in DSH deaktiviert","No such Bot":"Bot nicht gefunden","No such Bot or group chat":"Bot oder Gruppenchat nicht\
- gefunden","Give the task a name":"Gib der Aufgabe einen Namen","Say what the Bot should do":"Beschreibe, was der Bot tun soll","Pick a date and time":"Wähle Datum und Uhrzeit","P\
-ick a time in the future":"Wähle einen Zeitpunkt in der Zukunft","Pick a time of day":"Wähle eine Uhrzeit","Pick at least one day":"Wähle mindestens einen Tag","Repeat every 1 m\
-inute to 7 days":"Das Wiederholungsintervall muss zwischen 1 Minute und 7 Tagen liegen","Pick when it runs":"Wähle den Ausführungszeitpunkt","No such task":"Aufgabe nicht gefunde\
-n","Working folder":"Arbeitsordner","Working folder: {folder}":"Arbeitsordner: {folder}",Folder:"Ordner",Folders:"Ordner",Privacy:"Datenschutz",Private:"Privat","Other Bots cannot \
-read its folder, memory or chats, and you approve what it shares with them.":"Andere Bots können seinen Ordner, sein Gedächtnis und seine Chats nicht lesen, und du gibst frei, was \
-er mit ihnen teilt.","A Main Bot cannot be private.":"Ein Haupt-Bot kann nicht privat sein.","Leave its group chats before making it private.":"Entferne ihn zuerst aus allen Gruppe\
-nchats, bevor du ihn auf privat stellst.","Choose a working folder of its own first.":"Wähle zuerst einen eigenen Arbeitsordner für ihn aus.","A private Bot cannot be a Main Bot.":"\
-Ein privater Bot kann kein Haupt-Bot sein.","Closed after deletion · {count}":"Nach dem Löschen weiterhin geschützt · {count}","Remove protection":"Schutz aufheben","Click agai\
-n to remove. Other Bots can then read its folder, memory and chats.":"Zum Aufheben erneut klicken. Andere Bots können danach seinen Ordner, sein Gedächtnis und seine Chats lesen.",
-"Nothing kept closed for this Bot":"Kein verbleibender Schutz für diesen Bot","Team workspace":"Team-Arbeitsbereich","Team workspace: {folder}":"Team-Arbeitsbereich: {folder}","Wh\
-ere Bots without a folder of their own work.":"Hier arbeiten Bots und Gruppen ohne eigenen Ordner.",Locations:"Speicherorte","Data location":"Datenverzeichnis","Change…":"Ändern…",
-"Each Bot's own folder":"Eigener Ordner jedes Bots","Choose a folder…":"Ordner auswählen…","Browse folders…":"Ordner durchsuchen…","Enter a path…":"Pfad eingeben…","Fo\
-lder path":"Ordnerpfad","Full path of a folder":"Vollständiger Pfad eines Ordners","Use this folder":"Diesen Ordner verwenden","Up one level":"Eine Ebene nach oben","No folders in\
-side.":"Keine Unterordner vorhanden.","Some folders are not shown.":"Einige Ordner werden nicht angezeigt.","Waiting for sign-in…":"Wartet auf Anmeldung…","This service needs a\
-n app client ID":"Dieser Dienst benötigt eine App-Client-ID","Paste the address you land on":"Zieladresse nach der Weiterleitung einfügen","Finish sign-in":"Anmeldung abschließen",
-"Open {host}":"{host} öffnen","Client ID":"Client ID","Client secret (optional)":"Client Secret (optional)","In OAuth & Permissions at {app}, add this redirect URL:":"Füge in OAut\
-h & Permissions von {app} diese Redirect-URL hinzu:","In the app settings, add this redirect URL:":"Füge in den App-Einstellungen diese Redirect-URL hinzu:","Turn on the MCP featu\
-res and scopes the app needs.":"Aktiviere die MCP-Funktionen und Berechtigungen, die die App braucht.","Copy the Client ID and Client Secret here.":"Trage hier die Client ID und da\
-s Client Secret ein.","Open app settings":"App-Einstellungen öffnen",Continue:"Weiter","{name} key":"{name}-Schlüssel","{name} token":"{name}-Token","Get a key":"Schlüssel abrufe\
-n","Read-only":"Nur lesen","{count} tools":"{count} Werkzeuge",Mailbox:"Postfach","Email address":"E-Mail-Adresse",Catalog:"Katalog","App password":"App-Passwort","Authorization co\
-de":"Autorisierungscode","Password or app password":"Passwort oder App-Passwort","Official help":"Offizielle Hilfe","Finish signing in in your browser.":"Schließe die Anmeldung in \
-deinem Browser ab.","Open again":"Erneut öffnen","Did not come back here?":"Nicht automatisch hierher zurückgekehrt?","Copied to clipboard":"In die Zwischenablage kopiert","Paste\
- the code on {host} and authorize.":"Füge den Code auf {host} ein und autorisiere den Zugriff.","Add another":"Weiteres hinzufügen","QQ, 163, 126, Gmail, iCloud, and other IMAP m\
-ail":"QQ, 163, 126, Gmail, iCloud und andere IMAP-Postfächer","Other MCP server":"Anderer MCP-Server","An address, a command, or one from Claude Desktop, Cursor, or VS Code":"Adre\
-sse, Befehl oder Import aus Claude Desktop, Cursor oder VS Code","Kind of server":"Servertyp","Nothing matches":"Keine passenden Konnektoren",Recommended:"Empfohlen","See all":"All\
-e anzeigen","{count} connected":"{count} verbunden","{count} accounts":"{count} Konten",Category:"Kategorie","Could not reach the mail server. Check the server address.":"Mailserve\
-r nicht erreichbar. Bitte prüfe die Serveradresse.","Sign in at mail.qq.com, click your avatar at the top right, and open Settings → Account and Security → Security Settings.":"\
-Melde dich unter mail.qq.com an, klicke oben rechts auf deinen Avatar und öffne Einstellungen → Konto und Sicherheit → Sicherheitseinstellungen.","Turn on the POP3/IMAP/SMTP s\
-ervice, then click Generate authorization code and verify yourself.":"Aktiviere den Dienst POP3/IMAP/SMTP, klicke auf „Autorisierungscode generieren“ und bestätige deine Identität.",
-"Paste the 16-letter code below. Changing your QQ password cancels it.":"Füge den 16-stelligen Code unten ein. Wenn du dein QQ-Passwort änderst, wird er ungültig.","Sign in at {\
-host} and open Settings → POP3/SMTP/IMAP.":"Melde dich unter {host} an und öffne Einstellungen → POP3/SMTP/IMAP.","Turn on IMAP/SMTP and send the text message it asks for.":"A\
-ktiviere IMAP/SMTP und bestätige per SMS.","Paste the 16-character code below. It is shown only once.":"Füge den 16-stelligen Code unten ein. Er wird nur einmalig angezeigt.","Tu\
-rn on 2-Step Verification for your Google Account.":"Aktiviere die Bestätigung in zwei Schritten für dein Google-Konto.","Open App passwords, create one, and paste the 16-charact\
-er password below.":"Öffne „App-Passwörter“, erstelle eines und füge das 16-stellige Passwort unten ein.","Work and school accounts cannot use app passwords.":"Arbeits- und \
-Schulkonten unterstützen keine App-Passwörter.","Your Apple Account needs two-factor authentication.":"Dein Apple-Account erfordert die Zwei-Faktor-Authentifizierung.","Sign in a\
-t account.apple.com and open Sign-In and Security → App-Specific Passwords.":"Melde dich unter account.apple.com an und öffne „Anmeldung und Sicherheit“ → „App-spezifische Passwö\
-rter“.","Generate a password and paste it below.":"Generiere ein Passwort und füge es unten ein.","The mail service refused the login (Unsafe Login). Enable IMAP/SMTP in the mai\
-lbox settings and use its authorization code, not the account password.":"Der E-Mail-Dienst hat die Anmeldung abgelehnt (Unsafe Login). Aktiviere IMAP/SMTP in den Postfacheinstellu\
-ngen und verwende den Autorisierungscode statt deines normalen Kontopassworts.","The password was refused. Use the mailbox app password or authorization code, not the account passw\
-ord.":"Das Passwort wurde abgelehnt. Verwende das App-Passwort oder den Autorisierungscode des Postfachs, nicht dein normales Kontopasswort.","Enter the authorization code or app p\
-assword":"Autorisierungscode oder App-Passwort eingeben","Pages, databases, and wiki content":"Seiten, Datenbanken und Wiki-Inhalte","Issues, projects, and cycles":"Issues, Projekt\
-e und Zyklen","Jira issues and Confluence pages":"Jira-Vorgänge und Confluence-Seiten","Errors, traces, and releases":"Fehler, Traces und Releases","Payments, invoices, and custom\
-ers":"Zahlungen, Rechnungen und Kunden","Orders, payments, and invoices":"Bestellungen, Zahlungen und Rechnungen","Payments, orders, and catalog":"Zahlungen, Bestellungen und Artik\
-elkatalog","Workers, DNS, and account resources":"Workers, DNS und Konto-Ressourcen","Projects, deployments, and logs":"Projekte, Deployments und Logs","Databases, tables, and proj\
-ect settings":"Datenbanken, Tabellen und Projekteinstellungen","Postgres databases and branches":"Postgres-Datenbanken und Branches","Design files, components, and comments":"Desig\
-ndateien, Komponenten und Kommentare","Designs, folders, and exports":"Designs, Ordner und Exporte","Conversations, contacts, and articles":"Konversationen, Kontakte und Artikel","\
-Boards, items, and workflows":"Boards, Elemente und Workflows","Sites, pages, and CMS content":"Websites, Seiten und CMS-Inhalte","Sites, pages, and site content":"Websites, Seiten\
- und Website-Inhalte","Sites, deploys, and forms":"Websites, Deployments und Formulare","Bases, tables, and records":"Bases, Tabellen und Datensätze","Files and folders":"Dateien \
-und Ordner","Zaps and app actions":"Zaps und App-Aktionen","Tasks, lists, and docs":"Aufgaben, Listen und Dokumente","Tasks and projects":"Aufgaben und Projekte","Boards and whiteb\
-oard items":"Boards und Whiteboard-Elemente","CRM records, lists, and notes":"CRM-Datensätze, Listen und Notizen","Collections, requests, and workspaces":"Sammlungen, Anfragen und\
- Arbeitsbereiche","Tasks, projects, and workspaces":"Aufgaben, Projekte und Arbeitsbereiche","Files, folders, and metadata":"Dateien, Ordner und Metadaten","Contacts, deals, and ti\
-ckets":"Kontakte, Deals und Tickets","Channels and messages":"Kanäle und Nachrichten","Models, datasets, and Spaces":"Modelle, Datensätze und Spaces","Web search for agents":"Web\
-suche für Agenten","Documentation for public code repositories":"Dokumentation für öffentliche Code-Repositories","Library documentation and code examples":"Bibliotheksdokumenta\
-tion und Codebeispiele","Microsoft product documentation":"Microsoft-Produktdokumentation","Cloudflare product documentation":"Cloudflare-Produktdokumentation","Maps, places, and r\
-outes in China":"Karten, Orte und Routen in China","Read and send email over IMAP and SMTP":"E-Mails über IMAP und SMTP lesen und senden","IMAP host":"IMAP-Server","SMTP host":"SM\
-TP-Server","Sign in with Google":"Mit Google anmelden","Verifying…":"Wird überprüft…","Import from other apps":"Aus anderen Apps importieren","Server address":"Serveradresse",
-"Command, e.g. npx -y some-mcp":"Befehl, z. B. npx -y some-mcp","Scanning…":"Wird gesucht…","No MCP servers found in Claude Desktop, Cursor, or VS Code settings.":"Keine MCP-Se\
-rver in den Einstellungen von Claude Desktop, Cursor oder VS Code gefunden.","Import {count}":"{count} importieren",All:"Alle",Developer:"Entwicklung","Docs & files":"Dokumente & D\
-ateien",Work:"Arbeit",Design:"Design",Data:"Daten",Commerce:"E-Commerce","No connectors connected":"Keine Konnektoren verbunden","{bot} needs {name}":"{bot} benötigt {name}",Mail:"\
-E-Mail",Subject:"Betreff","Write a message…":"E-Mail-Text schreiben…",Discard:"Verwerfen",Discarded:"Verworfen","Allow recipient":"Empfänger erlauben","Allow this Bot to send \
-directly":"Diesem Bot direktes Senden erlauben","Manage rules":"Regeln verwalten","Sending rules":"Senderegeln",From:"Von",To:"An",Cc:"Cc",Bcc:"Bcc","Attachments: {names}":"Anhänge\
-: {names}",Sent:"Gesendet",Failed:"Fehlgeschlagen","Request failed":"Anfrage fehlgeschlagen","Permissions are not available in this DeepSeek Harness":"Berechtigungen werden in dies\
-em DeepSeek Harness nicht unterstützt","Avatar image is too large":"Das Avatar-Bild ist zu groß","A Bot needs a name":"Ein Bot benötigt einen Namen","A Bot name cannot contain @\
-, ` or a line break":"Ein Bot-Name darf kein @, ` oder Zeilenumbruch enthalten","Unknown Bot":"Bot nicht gefunden","Unknown conversation":"Chat nicht gefunden","A group chat needs \
-at least two Bots":"Ein Gruppenchat benötigt mindestens zwei Bots","The admin must be a member of the group":"Der Admin muss Mitglied der Gruppe sein","Unknown group chat":"Gruppe\
-nchat nicht gefunden","No Bot is left in this group chat":"In diesem Gruppenchat ist kein Bot mehr übrig","That group chat has been deleted":"Dieser Gruppenchat wurde gelöscht","\
-Hand the admin role to another member instead of leaving the group without one":"Übergib die Admin-Rolle an ein anderes Mitglied, statt die Gruppe ohne Admin zu lassen","Hand the \
-admin role to another member before leaving the group":"Übergib die Admin-Rolle vor dem Verlassen der Gruppe an ein anderes Mitglied","The team needs at least one Main Bot":"Das T\
-eam benötigt mindestens einen Haupt-Bot","Only a Main Bot can be replaced":"Nur ein Haupt-Bot kann ersetzt werden","A Main Bot cannot be deleted; remove its Main Bot role first":"\
-Ein Haupt-Bot kann nicht gelöscht werden; entferne zuerst seine Haupt-Bot-Rolle","Unknown theme":"Unbekanntes Design","Accent must be a #rrggbb color":"Die Akzentfarbe muss im For\
-mat #rrggbb angegeben werden","Type the key first":"Gib zuerst den Schlüssel ein","Choose every Bot or a list of Bots":"Wähle alle Bots oder bestimmte Bots aus","This request is \
-gone":"Diese Anfrage existiert nicht mehr","This request was already answered":"Diese Anfrage wurde bereits beantwortet","A name uses capitals, digits, and underscores, and starts \
-with a letter":"Ein Name darf nur Großbuchstaben, Ziffern und Unterstriche enthalten und muss mit einem Buchstaben beginnen","No such key":"Schlüssel nicht gefunden","Type a ques\
-tion or a change first":"Gib zuerst eine Frage oder Änderung ein","No model is available. Add one in Settings > Models.":"Kein Modell verfügbar. Füge eines unter Einstellungen → M\
-odelle hinzu.","Memory is turned off on this host":"Das Gedächtnis ist auf diesem Host deaktiviert","The model wrote nothing":"Das Modell hat keine Ausgabe erzeugt","Write the ent\
-ry to save.":"Gib den zu speichernden Eintrag ein.","This DeepSeek Harness has no folder chooser":"Dieses DeepSeek Harness unterstützt keinen Ordnerauswahldialog","This DeepSeek H\
-arness cannot list folders":"Dieses DeepSeek Harness kann keine Ordner auflisten","Side chat is only available in a Bot's private chat.":"Der Nebenchat ist nur im Einzelchat eines \
-Bots verfügbar.","Write a question.":"Gib eine Frage ein.","Write a question after /side.":"Gib nach /side eine Frage ein.","/side does not take attachments.":"/side unterstützt k\
-eine Anhänge.","Wait for the answer, or cancel it.":"Warte auf die Antwort oder brich sie ab.","This side chat is no longer here.":"Dieser Nebenchat existiert nicht mehr.","This s\
-ide question is no longer here.":"Diese Nebenfrage existiert nicht mehr.","This Bot has not called a model yet. Send a normal message first.":"Dieser Bot hat noch kein Modell aufge\
-rufen. Sende zuerst eine normale Nachricht.","DS Bot restarted before this answer finished.":"DS Bot wurde neu gestartet, bevor diese Antwort abgeschlossen war.","The model called \
-a tool again after being told not to, so this aside was not answered.":"Das Modell hat trotz Aufforderung erneut ein Werkzeug aufgerufen; daher wurde diese Nebenfrage nicht beantwo\
-rtet.","The model wrote nothing.":"Das Modell hat nichts geschrieben.","Nothing to ask":"Nichts zu fragen","Nothing to open":"Nichts zu öffnen","Nothing to cancel":"Nichts abzubre\
-chen","Nothing to close":"Nichts zu schließen","DS Bot is still loading this chat.":"DS Bot lädt diesen Chat noch.","This message is no longer kept":"Diese Nachricht wird nicht m\
-ehr aufbewahrt","No file named":"Keine Datei angegeben","This file cannot be read here":"Diese Datei kann hier nicht gelesen werden","That wait is no longer open":"Dieses Warten is\
-t nicht mehr aktiv","Nothing to send":"Nichts zu senden","This view is no longer open":"Diese Ansicht ist nicht mehr geöffnet","This is not a photo DS Bot can send":"Dies ist kein\
- Foto, das DS Bot senden kann","A photo did not arrive. Send it again.":"Ein Foto ist nicht angekommen. Sende es erneut.","Nothing to delete":"Nichts zu löschen","Bot browsers are\
- off on this host":"Bot-Browser sind auf diesem Host deaktiviert","This Bot has no open browser":"Dieser Bot hat keinen geöffneten Browser","A browser poll needs a clientId":"Eine\
- Browser-Abfrage benötigt eine clientId","This browser is not held":"Dieser Browser wird derzeit nicht übergeben","This handoff is no longer open":"Diese Browser-Übergabe ist nic\
-ht mehr offen","Avatar images must be PNG, JPEG, WebP, GIF, or SVG":"Avatar-Bilder müssen im Format PNG, JPEG, WebP, GIF oder SVG vorliegen","Pick a model before choosing a thinki\
-ng level":"Wähle zuerst ein Modell aus, bevor du eine Denkstufe festlegst","Unknown section":"Abschnitt nicht gefunden","Unknown section color":"Unbekannte Abschnittsfarbe","Write\
- the to-do first.":"Gib zuerst eine Aufgabe ein.","That to-do is no longer on the list.":"Diese Aufgabe steht nicht mehr auf der Liste.","Write what this group should achieve, in a\
-t most 2000 characters.":"Beschreibe in höchstens 2000 Zeichen, was diese Gruppe erreichen soll.","This group has no admin. Set one in the group settings first.":"Diese Gruppe hat\
- keinen Admin. Lege zuerst in den Gruppeneinstellungen einen fest.","This group already has a goal. Stop it first.":"Diese Gruppe hat bereits ein Ziel. Stoppe es zuerst.","The goal\
- has changed. Look again.":"Das Ziel hat sich geändert. Sieh noch einmal nach.","Nothing to do":"Nichts zu tun","Write a note first.":"Schreibe zuerst eine Notiz.","That task is a\
-lready finished.":"Diese Aufgabe ist bereits abgeschlossen.","No such group.":"Gruppe nicht gefunden.","No such task.":"Aufgabe nicht gefunden.","No open task to cancel.":"Keine of\
-fene Aufgabe zum Abbrechen vorhanden.","Sign-in timed out":"Zeitüberschreitung bei der Anmeldung","The sign-in answer did not match this attempt (state mismatch). Try again.":"Die\
- Anmeldeantwort passt nicht zu diesem Versuch (Status stimmt nicht überein). Bitte versuche es erneut.","This connector does not sign in":"Dieser Connector erfordert keine Anmeldu\
-ng","This connector has no server address":"Dieser Connector hat keine Serveradresse","Connector addresses must start with https://":"Connector-Adressen müssen mit https:// beginne\
-n","This service does not publish OAuth sign-in metadata":"Dieser Dienst veröffentlicht keine OAuth-Anmeldemetadaten","Paste a key first":"Füge zuerst einen Schlüssel ein","No s\
-ign-in is waiting":"Es wartet keine Anmeldung","Paste the address or the code":"Füge die Adresse oder den Code ein","This address is not from this sign-in attempt (state mismatch)\
-. Copy the whole address again.":"Diese Adresse stammt nicht von diesem Anmeldeversuch (Status stimmt nicht überein). Kopiere die gesamte Adresse erneut.","The address has no code":"\
-Die Adresse enthält keinen Code","Enter the client ID":"Gib die Client-ID ein","Name the connector":"Gib dem Connector einen Namen","Enter an address or a command":"Gib eine Adres\
-se oder einen Befehl ein","Only added connectors can be removed":"Nur selbst hinzugefügte Connectors können entfernt werden","The mail connection closed during verification":"Die\
- Mail-Verbindung wurde während der Überprüfung geschlossen","Google sign-in is not available in this build":"Die Google-Anmeldung ist in diesem Build nicht verfügbar","Enter an\
- email address":"Gib eine E-Mail-Adresse ein","Enter the IMAP and SMTP hosts":"Gib die IMAP- und SMTP-Hosts ein","No such account":"Konto nicht gefunden","This card was already ans\
-wered":"Diese Karte wurde bereits beantwortet","No Google sign-in is waiting":"Es wartet keine Google-Anmeldung","The sign-in answer is not for this attempt":"Die Anmeldeantwort ge\
-hört nicht zu diesem Versuch","Google did not say which account this is":"Google hat nicht angegeben, welches Konto dies ist","This platform is not available yet":"Diese Plattform\
- ist noch nicht verfügbar","Choose a Bot first":"Wähle zuerst einen Bot aus","This platform signs in by scanning a code; not available yet":"Diese Plattform meldet sich per QR-Co\
-de an und ist noch nicht verfügbar","No such IM bot":"IM-Bot nicht gefunden","No such platform":"Plattform nicht gefunden","No such chat":"Chat nicht gefunden","Choose a Bot or a \
-group":"Wähle einen Bot oder eine Gruppe aus","This platform has no QR login":"Diese Plattform unterstützt keine QR-Anmeldung","Paste the bot token first":"Füge zuerst das Bot-To\
-ken ein","Telegram did not say who this token belongs to":"Telegram hat nicht angegeben, zu welchem Bot dieses Token gehört","A webhook or another program uses this bot":"Ein Webh\
-ook oder ein anderes Programm verwendet diesen Bot bereits","This token does not belong to a Discord bot":"Dieses Token gehört nicht zu einem Discord-Bot","Discord gave no usable \
-gateway URL":"Discord hat keine nutzbare Gateway-URL zurückgegeben","These credentials do not belong to a Slack bot":"Diese Zugangsdaten gehören nicht zu einem Slack-Bot","WeChat\
- answered an unreadable response":"WeChat hat eine unlesbare Antwort zurückgegeben","WeChat rate limited the request":"WeChat hat die Anfrage wegen des Ratenlimits blockiert","WeC\
-hat refused the token":"WeChat hat das Token abgelehnt","Use a capability name with lowercase letters, digits, and single hyphens; connector names are reserved.":"Verwende für den \
-Fähigkeitsnamen nur Kleinbuchstaben, Ziffern und einzelne Bindestriche; Connector-Namen sind reserviert.","Arguments must be a list of text values.":"Argumente müssen eine Liste v\
-on Textwerten sein.","Choose an MCP server, skill, or pack.":"Wähle einen MCP-Server, eine Fähigkeit oder ein Paket aus.","A capability cannot change its kind. Delete it and save\
- a new one.":"Der Typ einer Fähigkeit kann nicht geändert werden. Lösche sie und lege eine neue an.","Enter a command for the MCP server.":"Gib einen Befehl für den MCP-Server e\
-in.","Enter a valid HTTP or HTTPS URL.":"Gib eine gültige HTTP- oder HTTPS-URL ein.","Only Bots on the team can change capabilities.":"Nur Bots im Team können Fähigkeiten ändern.",
-"Only a Main Bot can change another Bot’s capabilities.":"Nur ein Haupt-Bot kann die Fähigkeiten eines anderen Bots ändern.","This DSH cannot load MCP servers.":"Dieses DSH kan\
-n keine MCP-Server laden.","Unknown capability operation.":"Unbekannte Fähigkeitsaktion.","The secrets file is not encrypted.":"Die Geheimnisdatei ist nicht verschlüsselt.","Secr\
-ets are already encrypted.":"Geheimnisse sind bereits verschlüsselt.","Secrets are not encrypted.":"Geheimnisse sind nicht verschlüsselt.","Learning is turned off on this host":"\
-Lernen ist auf diesem Host deaktiviert","AGENTS.md changed since this was proposed":"AGENTS.md wurde seit diesem Vorschlag geändert","The Bot that learned this skill is gone":"Der\
- Bot, der diese Fähigkeit gelernt hat, existiert nicht mehr","System permissions are not available here":"Systemberechtigungen sind hier nicht verfügbar","This host keeps no Bot \
-data folder, so it has no avatar library.":"Dieser Host führt keinen Bot-Datenordner und hat daher keine Mediathek.","DS Bot is shutting down":"DS Bot wird heruntergefahren","Comp\
-uter use":"Computersteuerung",Computer:"Computer",Control:"Steuerung","Let Bots use the computer":"Bots die Nutzung des Computers erlauben","Using the computer":"Nutzt den Computer",
-Off:"Aus","View only":"Nur ansehen",Background:"Im Hintergrund",Foreground:"Vordergrund erlaubt","In the foreground":"Im Vordergrund","Computer use level":"Stufe der Computersteuer\
-ung","Computer provider":"Anbieter","Loading the provider…":"Anbieter wird geladen…","Could not load the provider":"Anbieter konnte nicht geladen werden","The provider package \
-is not installed":"Das Anbieterpaket ist nicht installiert","Install it in this DSH":"In diesem DSH installieren","Run {command}, then restart DSH.":"Führe {command} aus und starte\
- danach DSH neu.","Copy command":"Befehl kopieren","Bots get no computer tools until the provider is ready.":"Solange der Anbieter nicht bereit ist, stehen Bots keine Computer-Werk\
-zeuge zur Verfügung.","Another computer-use provider is running":"Ein anderer Anbieter für die Computersteuerung läuft bereits","Computer use is not available on this platform":"\
-Computersteuerung wird auf dieser Plattform nicht unterstützt",Accessibility:"Bedienungshilfen","Screen Recording":"Bildschirmaufnahme",Allowed:"Erlaubt","Not allowed":"Nicht erla\
-ubt",Grant:"Zugriff gewähren",Revoke:"Widerrufen","Off in Settings → Computer use":"Deaktiviert unter Einstellungen → Computersteuerung",Idle:"Inaktiv",Operating:"Bedient gera\
-de","You have the computer":"Du bedienst den Computer","Latest screenshot":"Letztes Bildschirmfoto","Let it continue":"Weiterarbeiten lassen","Take over the computer":"Computer übe\
-rnehmen","Hand back":"Zurückgeben","Recent steps":"Letzte Schritte",failed:"fehlgeschlagen","Allow {name} to use {app}?":"{name} die Nutzung von {app} erlauben?","This time":"Dies\
-mal",Always:"Immer erlauben","Needs your confirmation":"Bestätigung erforderlich","Help needed on the computer":"Hilfe am Computer benötigt","You control the computer":"Du steuer\
-st den Computer","{name} · foreground":"{name} · Vordergrund","{name} waits for the computer":"{name} wartet, bis du fertig bist","Bot models":"Bot-Modelle","Change several Bots":"\
-Mehrere Bots ändern","{selected} of {total} selected":"{selected} von {total} ausgewählt","Bots on a local agent keep their own model.":"Bots auf einem lokalen Agent behalten ihr\
- eigenes Modell.","Select all":"Alle auswählen","Changing…":"Wird geändert…","Selected Bots":"Ausgewählte Bots","{model} (not available)":"{model} (nicht verfügbar)",Changed:"\
-Geändert","Already on this model":"Nutzt dieses Modell bereits","Skipped: runs on a local agent":"Übersprungen: läuft auf einem lokalen Agent","Skipped: not available now":"Über\
-sprungen: derzeit nicht verfügbar","Could not change: {error}":"Änderung fehlgeschlagen: {error}","Changed {count} of {total} Bots.":"{count} von {total} Bots geändert.","Select\
- {name}":"{name} auswählen","Change it in the Bot's settings.":"Ändere es in den Einstellungen des Bots.","Already on this model: {count}":"Nutzen dieses Modell bereits: {count}",
-"Skipped: {count}":"Übersprungen: {count}","Failed: {count}":"Fehlgeschlagen: {count}","{count} skipped":"{count} übersprungen","No model picked yet":"Noch kein Modell gewählt",
-Running:"Läuft","Open this session":"Diese Sitzung öffnen","Open this running session":"Diese laufende Sitzung öffnen","A running session keeps using model calls in the backgrou\
-nd.":"Eine laufende Sitzung verbraucht weiterhin Modellaufrufe im Hintergrund.","This session is still running. Wait for it to finish, or stop it.":"Diese Sitzung läuft noch. Warte\
-, bis sie endet, oder stoppe sie."},HOST_ERRORS_DE=[[/^Could not reach the mail server at (.+)\. Check the server address\.$/,"Mailserver unter $1 nicht erreichbar. Bitte prüfe die\
- Serveradresse."],[/^Model (.+) is not available\. Available: (.*)$/,"Modell $1 ist nicht verfügbar. Verfügbar: $2"],[/^The API key for (.+) is set outside DS Bot and cannot be changed here$/,
-"Der API-Schlüssel für $1 wurde außerhalb von DS Bot gesetzt und kann hier nicht geändert werden"],[/^(.+) takes no API key here$/,"Für $1 kann hier kein API-Schlüssel hinterle\
-gt werden"],[/^(.+) is already set up$/,"$1 ist bereits eingerichtet"],[/^DSH offers no provider (.+)$/,"DSH bietet keinen Anbieter $1 an"],[/^DSH already offers (.+); add it from its list$/,
+rst in eine Datei und importiere dann diese Datei.","Keychain access was cancelled. Click Allow when macOS asks to read your browser cookies.":"Der Zugriff auf den Schlüsselbund wu\
+rde abgebrochen. Klicke auf Erlauben, wenn macOS nach dem Lesen deiner Browser-Cookies fragt.","Remote debugging permission was declined in the browser. Try again and click Allow.":"\
+Die Berechtigung für Remote-Debugging wurde im Browser abgelehnt. Versuche es erneut und klicke auf Erlauben.","Timed out waiting for you to click Allow in the browser.":"Zeitüber\
+schreitung beim Warten auf deine Bestätigung im Browser.","Another browser profile is active. Switch to the chosen profile window in your browser, then try again.":"Ein anderes Br\
+owser-Profil ist aktiv. Wechsle in deinem Browser zum Fenster des ausgewählten Profils und versuche es erneut.","Import from browser":"Aus Browser importieren","Last used":"Zuletz\
+t verwendet","Browser profile":"Browser-Profil","Paste cookies or cURL…":"Cookies oder cURL einfügen…","JSON, cURL, header":"JSON, cURL, Header","Connect to {name}":"Mit {name\
+} verbinden","{name} protects its cookies on Windows. Enable its built-in remote debugging switch once — no extension needed.":"{name} schützt seine Cookies unter Windows. Aktivi\
+ere einmalig den integrierten Remote-Debugging-Schalter – keine Erweiterung nötig.","1. Open this address in {name}:":"1. Öffne diese Adresse in {name}:","2. Turn on “Allow rem\
+ote debugging for this browser instance”, then click Allow when {name} prompts.":"2. Aktiviere „Allow remote debugging for this browser instance“ und klicke auf Erlauben, wenn {n\
+ame} fragt.","Remote debugging detected — ready to import.":"Remote-Debugging erkannt – bereit zum Importieren.","Open {name}":"{name} öffnen","Connect and import":"Verbinden \
+und importieren","Paste cookies or cURL":"Cookies oder cURL einfügen","Paste Cookie-Editor JSON, Netscape cookies.txt, Copy as cURL, or a Cookie header…":"Cookie-Editor-JSON, Ne\
+tscape cookies.txt, Copy as cURL oder einen Cookie-Header einfügen…","Site URL (only needed for plain Cookie headers)":"Website-URL (nur für einfache Cookie-Header nötig)","Re\
+ading…":"Wird gelesen…","{count} storage entries":"{count} Speicher-Einträge","All sites ({count})":"Alle Websites ({count})","This site ({host})":"Diese Website ({host})","Fi\
+lter sites…":"Websites filtern…",storage:"Speicher","Keep session logins after app restart":"Sitzungs-Anmeldungen nach Neustart behalten","Reading {name}…":"{name} wird geles\
+en…","If {name} or your system asks for permission, click Allow.":"Wenn {name} oder dein System um Erlaubnis fragt, klicke auf Erlauben.","Imported storage for {count} sites":"Sp\
+eicher für {count} Websites importiert","{count} sites storage":"Speicher von {count} Websites","page reloaded":"Seite neu geladen","{count}":"{count}","Choose a PNG, JPEG, WebP, \
+or GIF image":"Wähle ein PNG-, JPEG-, WebP- oder GIF-Bild","Choose an image smaller than 25 MB":"Wähle ein Bild, das kleiner als 25 MB ist","That image is too large":"Dieses Bild\
+ ist zu groß",Model:"Modell","Avatar editor":"Avatar-Editor","Avatar source":"Avatar-Quelle",Upload:"Hochladen","Reset character to default":"Figur auf Standard zurücksetzen",Reset:"\
+Zurücksetzen","Character shape":"Form","Character color":"Farbe","Drag, drop, or paste an image":"Bild hineinziehen oder einfügen",Replace:"Ersetzen","Browse files":"Dateien durc\
+hsuchen","Remove photo":"Foto entfernen","Edit Bot avatar":"Bot-Avatar bearbeiten",Name:"Name",Instructions:"Anweisungen","What this Bot is responsible for…":"Wofür dieser Bot zu\
+ständig ist…","Pick the model this Bot runs on.":"Wähle das Modell aus, mit dem dieser Bot läuft.","This model is not available now. Pick another one.":"Dieses Modell ist derz\
+eit nicht verfügbar. Bitte wähle ein anderes.","Every message of this Bot runs on it.":"Jede Nachricht dieses Bots wird damit ausgeführt.","Applies from the next message.":"Gilt\
+ ab der nächsten Nachricht.",Profile:"Profil",Label:"Kurzbeschreibung","Add a label":"Kurzbeschreibung hinzufügen","Optional. Shown under the name.":"Optional. Wird unter dem Nam\
+en angezeigt.","Research, admin…":"Recherche, Organisation…","What this Bot does":"Aufgabe dieses Bots","Its job on the team. Part of the Bot's system prompt.":"Seine Rolle im \
+Team. Wird Teil des System-Prompts des Bots.","A copy with the same job and model, and fresh memory.":"Eine Kopie mit derselben Aufgabe und demselben Modell, aber leerem Gedächtnis\
+.","Delete {name}?":"{name} löschen?","Delete Bot":"Bot löschen","Click again to delete. Its chats are archived.":"Zum Löschen erneut klicken. Seine Chats werden archiviert.","R\
+emoves the Bot from the team.":"Entfernt den Bot aus dem Team.","Pick a model and {name} can start.":"Wähle ein Modell, damit {name} starten kann.",Permissions:"Berechtigungen","R\
+ead only":"Nur lesen",Workspace:"Arbeitsbereich","Full access":"Vollzugriff","Same for every member":"Einheitlich für alle Mitglieder","Replaces each member's own permissions in t\
+his group.":"Ersetzt in dieser Gruppe die individuellen Berechtigungen der Mitglieder.","The only Main Bot. To hand the role to another Bot, use Main Bot on the Bots page.":"Der ei\
+nzige Haupt-Bot. Um die Rolle an einen anderen Bot zu übergeben, nutze den Bereich „Haupt-Bot“ auf der Bot-Seite.",Change:"Ändern","Can create and change Bots, and runs every\
+ group chat.":"Kann Bots erstellen und ändern sowie alle Gruppenchats verwalten.",Sidebar:"Seitenleiste","Kept above the other chats.":"Bleibt über den anderen Chats angeheftet.",
+"Search still finds it.":"Über die Suche weiterhin auffindbar.",Manage:"Verwalten",Library:"Mediathek","Import photos":"Fotos importieren","Importing photos…":"Fotos werden impo\
+rtiert…","No photos in the library yet.":"Noch keine Fotos in der Mediathek.","Use this photo":"Dieses Foto verwenden","Remove photo from the library":"Foto aus der Mediathek ent\
+fernen","1 photo imported":"1 Foto importiert","{count} photos imported":"{count} Fotos importiert","1 photo was already in the library":"1 Foto war bereits in der Mediathek","{cou\
+nt} photos were already in the library":"{count} Fotos waren bereits in der Mediathek","{name}: {reason}":"{name}: {reason}",photo:"Foto","Show more photos":"Mehr Fotos anzeigen","\
+Showing {shown} of {total} photos":"{shown} von {total} Fotos angezeigt","Leave it empty to name the group after its members.":"Leer lassen, um die Gruppe nach ihren Mitgliedern zu\
+ benennen.","Every member reads it before speaking in this group.":"Jedes Mitglied liest dies, bevor es in dieser Gruppe antwortet.","Add a Bot first: a group chat needs at least t\
+wo.":"Füge zuerst einen Bot hinzu: Ein Gruppenchat benötigt mindestens zwei Bots.","Click again to delete. Its history is archived.":"Zum Löschen erneut klicken. Der Chatverlauf \
+wird archiviert.","Removes the group chat. Its members stay on the team.":"Entfernt den Gruppenchat. Die Mitglieder bleiben im Team.","Add a notice in group settings":"Gruppenhinwe\
+is in den Gruppeneinstellungen hinzufügen","Create Bot":"Bot erstellen","Back to new chat":"Zurück zum neuen Chat",Look:"Aussehen",Shuffle:"Zufällig","Replace photo":"Foto erset\
+zen","Upload photo":"Foto hochladen","A Bot named {name} already exists":"Ein Bot namens {name} existiert bereits","The Bot runs on this model. You can change it later in its detai\
+ls.":"Der Bot nutzt dieses Modell. Du kannst es später in seinen Details ändern.","Pick a model here, or the Bot asks for one in its chat.":"Wähle hier ein Modell aus, oder der B\
+ot fragt später im Chat danach.","Add a provider and a model in DeepSeek Harness first, or pick one in the Bot's chat later.":"Füge zuerst in DeepSeek Harness einen Anbieter und e\
+in Modell hinzu oder wähle später eines im Chat des Bots aus.","Creating…":"Wird erstellt…",Create:"Erstellen",Default:"Standard","Thinking level":"Denktiefe","Model: {model}":"\
+Modell: {model}",none:"keine","Choose a model":"Modell wählen","{provider} · not available":"{provider} · nicht verfügbar","Model for {name}":"Modell für {name}","No models ar\
+e set up in DeepSeek Harness yet.":"In DeepSeek Harness sind noch keine Modelle eingerichtet.","Models and providers…":"Modelle und Anbieter…","Search models":"Modelle suchen",
+"Search models…":"Modelle suchen…","No matching models.":"Keine passenden Modelle.",Models:"Modelle","Harness default":"Harness-Standard",Saving:"Wird gespeichert","Manage mode\
+ls":"Modelle verwalten",Whale:"Wal",Star:"Stern",Moon:"Mond",Wave:"Welle",Squircle:"Squircle",Bull:"Stier",Blossom:"Blüte",Gumdrop:"Fruchtgummi",Peanut:"Erdnuss",Bubbles:"Blasen",
+Saucer:"Untertasse",Sprout:"Keimling",Bunny:"Hase",Kitty:"Kätzchen",Beacon:"Leuchtfeuer",Plus:"Plus",Magnet:"Magnet",Acorn:"Eichel",Pebbles:"Kiesel",Cushion:"Kissen",Ring:"Ring",Gem:"\
+Edelstein",Black:"Schwarz",Brown:"Braun",Red:"Rot",Orange:"Orange",Yellow:"Gelb",Green:"Grün",Cyan:"Cyan",Blue:"Blau",Violet:"Violett",Magenta:"Magenta",Gray:"Grau",Aurora:"Polarl\
+icht",Deepseek:"DeepSeek-Blau",Charcoal:"Anthrazit",Graphite:"Graphit",Rose:"Rosé",Sky:"Himmelblau",Tangerine:"Mandarine",Cobalt:"Kobaltblau",DeepSeek:"DeepSeek",Mono:"Monochrom",
+Paper:"Papier",Moonlight:"Mondlicht",General:"Allgemein",Bots:"Bots","Group chats":"Gruppenchats",Secrets:"Geheimnisse",Appearance:"Darstellung",Theme:"Design","Colors for the whol\
+e team, on every device.":"Farbschema für das gesamte Team, auf allen Geräten synchronisiert.",Accent:"Akzentfarbe","Unread marks, badges, and the brand mark.":"Ungelesen-Markier\
+ungen, Abzeichen und das Marken-Logo.","Theme accent":"Design-Akzentfarbe","Custom accent":"Eigene Akzentfarbe","Message layout":"Nachrichtenlayout",Bubble:"Sprechblasen",Flat:"Fla\
+ch","Bubble width":"Blasenbreite","Text width":"Textbreite","Show thinking":"Denkprozess anzeigen","Enter sends message":"Enter sendet Nachricht","Bring up related memory":"Verwand\
+te Erinnerungen automatisch einbeziehen","Group memory size":"Kapazität des Gruppengedächtnisses","Bot memory size":"Kapazität des Bot-Gedächtnisses","Team memory size":"Kapazi\
+tät des Teamgedächtnisses","Bots · {count}":"Bots · {count}","First in the sidebar. Pick another Bot to hand it the role; {name} then stops being a Main Bot.":"Steht ganz oben \
+in der Seitenleiste. Wähle einen anderen Bot aus, um ihm die Rolle zu übergeben; {name} ist dann kein Haupt-Bot mehr.","Choose a Bot…":"Bot auswählen…","Also a Main Bot.":"E\
+benfalls ein Haupt-Bot.","Move to first":"Nach ganz oben verschieben","Add a Main Bot":"Haupt-Bot hinzufügen","Main Bots can create and change Bots, and run every group chat.":"Ha\
+upt-Bots können Bots erstellen und ändern sowie alle Gruppenchats verwalten.","Group chats · {count}":"Gruppenchats · {count}","No group chats yet.":"Noch keine Gruppenchats.",
+"A group chat lets several Bots work on one thing with you.":"In einem Gruppenchat arbeiten mehrere Bots gemeinsam mit dir an einer Aufgabe.","Back to group chats":"Zurück zu den G\
+ruppenchats","DS Bot settings":"DS Bot-Einstellungen","Settings pages":"Einstellungsseiten","Advanced settings":"Erweiterte Einstellungen","Back to models":"Zurück zu den Modellen",
+"Open Plugins":"Plugins öffnen","Open settings":"Einstellungen öffnen","Open settings file":"Konfigurationsdatei öffnen","Could not open the settings file":"Konfigurationsdatei \
+konnte nicht geöffnet werden","Show code work view":"Code-Arbeitsansicht anzeigen","Could not save. Try again.":"Speichern fehlgeschlagen. Bitte erneut versuchen.","Connection los\
+t. Refresh to retry":"Verbindung unterbrochen. Zum Wiederholen neu laden",Reconnecting:"Verbindung wird wiederhergestellt","Connection lost. Reconnect now":"Verbindung unterbrochen\
+. Jetzt neu verbinden","Connection dropped and retrying. Reconnect now":"Verbindung abgebrochen, neuer Versuch läuft. Jetzt neu verbinden","Retry update":"Update erneut versuchen",
+"New version":"Neue Version","{percent}%":"{percent}%","Verifying the update…":"Update wird überprüft…","Getting ready to restart…":"Neustart wird vorbereitet…","Install \
+and restart":"Installieren und neu starten","{label}: {version}":"{label}: {version}","Downloading the update: {percent}%, version {version}":"Update wird heruntergeladen: {percent\
+}%, Version {version}","Could not check for updates. Try again later.":"Suche nach Updates fehlgeschlagen. Bitte später erneut versuchen.","Could not check for updates. Check your\
+ connection and try again.":"Suche nach Updates fehlgeschlagen. Prüfe deine Internetverbindung und versuche es erneut.","Could not download the update. Try again.":"Download des U\
+pdates fehlgeschlagen. Bitte erneut versuchen.","Could not download the update. Check your connection and try again.":"Download des Updates fehlgeschlagen. Prüfe deine Internetverb\
+indung und versuche es erneut.","Could not install the update. Try again later.":"Installation des Updates fehlgeschlagen. Bitte später erneut versuchen.","Could not install the u\
+pdate. Check your connection and try again.":"Installation des Updates fehlgeschlagen. Prüfe deine Internetverbindung und versuche es erneut.","Tasks could not stop safely, so the\
+ update was not installed. Try again later.":"Laufende Aufgaben konnten nicht sicher beendet werden, daher wurde das Update nicht installiert. Bitte später erneut versuchen.","New\
+ tasks started. Confirm again to stop them and update.":"Neue Aufgaben wurden gestartet. Bestätige erneut, um sie zu beenden und das Update durchzuführen.","Task status is not av\
+ailable. Try again when the workspace is ready.":"Aufgabenstatus nicht verfügbar. Versuche es erneut, sobald der Arbeitsbereich bereit ist.","Could not leave full screen. Leave fu\
+ll screen and try again.":"Vollbildmodus konnte nicht verlassen werden. Verlasse den Vollbildmodus und versuche es erneut.","The service version changed":"Dienstversion geändert",
+"This page paused live updates. Reload to load the new version.":"Diese Seite hat Live-Updates pausiert. Lade die Seite neu, um die neue Version zu laden.","Reload to load the new \
+version":"Neu laden, um die neue Version zu laden","Not now":"Jetzt nicht",Service:"Dienst",Page:"Seite",Unknown:"Unbekannt","Back to Bots":"Zurück zur Bot-Liste","Close settings":"\
+Einstellungen schließen",Unpin:"Lösen",Pin:"Anheften",Pinned:"Angeheftet","Mark as Unread":"Als ungelesen markieren","Mute notifications":"Benachrichtigungen stummschalten","Unmu\
+te notifications":"Benachrichtigungen wieder einschalten",Notifications:"Benachrichtigungen","Tell me when a Bot answers while I am looking elsewhere.":"Sag mir Bescheid, wenn ein \
+Bot antwortet, während ich woanders hinsehe.","System notifications are turned off for DS Bot. Unread marks still show them.":"Systembenachrichtigungen sind für DS Bot ausgeschalt\
+et. Ungelesen-Markierungen bleiben sichtbar.","Rename Bot":"Bot umbenennen","Group settings":"Gruppeneinstellungen","Shared to-do":"Gemeinsame To-dos","{count} open":"{count} offen",
+"No shared to-dos yet. Ask a Bot in this group to add one.":"Noch keine gemeinsamen To-dos. Bitte einen Bot dieser Gruppe, eins hinzuzufügen.","Clear completed":"Erledigte löschen",
+"Rename group":"Gruppenchat umbenennen","Copy conversation ID":"Chat-ID kopieren","Hide from sidebar":"In Seitenleiste ausblenden","{name} actions":"Aktionen für {name}","Add DSH \
+Agent":"DSH Agent hinzufügen","Remove DSH Agent":"DSH Agent entfernen","New session":"Neue Sitzung",Archive:"Archivieren","Session actions":"Sitzungsaktionen",Plugins:"Plugins","P\
+lain dsh session":"Native dsh-Sitzung","just now":"gerade eben","{n} min":"{n} Min.","{n} h":"{n} Std.","{n} d":"{n} T.","DS Bot {version} is available":"DS Bot {version} ist verfü\
+gbar","Updating DS Bot…":"DS Bot wird aktualisiert…","DS Bot {version} is installed. Restart DSH to use it.":"DS Bot {version} wurde installiert. Starte DSH neu, um es zu nutze\
+n.","DS Bot {version} is installed.":"DS Bot {version} ist installiert.","DS Bot update":"DS Bot-Update","DS Bot {version}":"DS Bot {version}","Update installed":"Update installier\
+t","Restart DSH to start using DS Bot {version}.":"Starte DSH neu, um DS Bot {version} zu verwenden.","You have {version}.":"Installierte Version: {version}.","The update did not f\
+inish: {reason}":"Das Update wurde nicht abgeschlossen: {reason}","What's new":"Neuerungen","Updating…":"Wird aktualisiert…","DSH {version} is available":"DSH {version} ist ver\
+fügbar","Updating DSH…":"DSH wird aktualisiert…","DSH update":"DSH-Update","DSH {version}":"DSH {version}","Restart DSH to start using DSH {version}.":"Starte DSH neu, um DSH \
+{version} zu verwenden.","Update DS Bot {version} first.":"Aktualisiere zuerst DS Bot {version}.","Open updates":"Updates öffnen",Messages:"Nachrichten",Commands:"Befehle","Search\
+ Bots, chats and messages":"Bots, Chats und Nachrichten durchsuchen","Search this group":"Diese Gruppe durchsuchen","Search this group’s messages":"Nachrichten dieser Gruppe durc\
+hsuchen","Search messages in {name}":"Nachrichten in {name} durchsuchen","Type at least two characters":"Mindestens zwei Zeichen eingeben","No messages found":"Keine Nachrichten ge\
+funden","Try a different word":"Anderes Wort versuchen","Searching…":"Suche läuft…","Back to results":"Zurück zu den Ergebnissen","Around this message":"Rund um diese Nachric\
+ht","1 match":"1 Treffer","{count} matches":"{count} Treffer","Clear search":"Suche löschen",Results:"Ergebnisse","No results":"Keine Ergebnisse","Try a Bot name or words from a m\
+essage":"Versuche es mit einem Bot-Namen oder Wörtern aus einer Nachricht","Bot exchange":"Bot-Austausch","Bot exchange transcript":"Protokoll des Bot-Austauschs","No messages yet":"\
+Noch keine Nachrichten","Close Chat":"Schließen","Show all · {count} characters":"Alles anzeigen · {count} Zeichen","Showing the first {count} characters":"Zeigt die ersten {cou\
+nt} Zeichen","Only the start of this message is kept here":"Hier ist nur der Anfang dieser Nachricht gespeichert","Start of reply":"Anfang der Antwort","Back to the start of this r\
+eply":"Zurück zum Anfang dieser Antwort",Contents:"Inhalt","Sections in this reply":"Abschnitte dieser Antwort","Sections in this reply: {section}":"Abschnitte dieser Antwort: {se\
+ction}","Today {time}":"Heute {time}","Yesterday {time}":"Gestern {time}","Ran for {duration}":"Laufzeit {duration}","No background work detected":"Keine Hintergrundarbeit erkannt",
+"DS Bot has no recorded tool call or active background task for this reply.":"DS Bot hat für diese Antwort keinen Werkzeugaufruf und keine aktive Hintergrundaufgabe aufgezeichnet.",
+"File not found: {path}":"Datei nicht gefunden: {path}","{tokens} tok · Cache hit {hit}%":"{tokens} tok · Cache-Treffer {hit}%","1 turn":"1 Durchgang","{count} turns":"{count} Du\
+rchgänge","{speed} tok/s":"{speed} tok/s","Cache hit {hit}%":"Cache-Treffer {hit}%","Context {percent}%":"Kontext {percent}%","{used} of {total} tokens of context in use":"{used} \
+von {total} Kontext-Tokens belegt",Annotate:"Kommentieren","Annotate quote":"Zitat kommentieren",Annotation:"Anmerkung","Add an annotation…":"Anmerkung hinzufügen…","Add quote\
+ and annotation to the composer · Enter":"Zitat und Anmerkung zum Eingabefeld hinzufügen · Eingabe","Send quote and annotation · Ctrl+Enter":"Zitat und Anmerkung senden · Strg+\
+Eingabe",Footnotes:"Fußnoten","Remove reaction {emoji}":"Reaktion {emoji} entfernen","Add reaction":"Reaktion hinzufügen",Reply:"Antworten","More message actions":"Weitere Nachri\
+chtenaktionen",More:"Mehr",Reactions:"Reaktionen","Message actions":"Nachrichtenaktionen",Download:"Herunterladen","Thought it through":"Gedankengang","Earlier messages":"Frühere N\
+achrichten","Loading earlier messages…":"Frühere Nachrichten werden geladen…","Couldn’t load earlier messages · Retry":"Frühere Nachrichten konnten nicht geladen werden · E\
+rneut versuchen","Load earlier":"Frühere Nachrichten laden","1 image":"1 Bild","{count} images":"{count} Bilder","Replies from":"Antworten von","Reply from":"Antwort von","Message\
+ from":"Nachricht von","Stopped by":"Gestoppt von","{count} messages with":"{count} Nachrichten mit","Routine started":"Routine gestartet",Update:"Aktualisieren","Thinking about it":"\
+Überlegt","Weighing the options":"Wägt Optionen ab","Working out a plan":"Arbeitet einen Plan aus","Sorting out the details":"Klärt die Details","On it":"Ist dran","Busy with it":"\
+In Bearbeitung","Moving ahead":"Kommt voran","Taking care of it":"Kümmert sich darum","Making headway":"Macht Fortschritte","Moving to a fresh conversation":"Wechselt zu einem neu\
+en Chatabschnitt","Switching working folder":"Wechselt den Arbeitsordner","Searching online":"Sucht im Web","Reading a page":"Liest eine Webseite","Running shell commands":"Führt B\
+efehle aus","Opening a file":"Öffnet eine Datei","Looking through files":"Durchsucht Dateien","Writing changes":"Schreibt Änderungen","Working on an image":"Bearbeitet ein Bild",
+"Creating a group":"Erstellt einen Gruppenchat","Updating the group":"Aktualisiert den Gruppenchat","Deleting the group":"Löscht den Gruppenchat","Posting in the group":"Schreibt \
+in der Gruppe","Checking the keys":"Prüft Schlüssel","Asking {name}":"Fragt {name}","Asking another Bot":"Fragt einen anderen Bot","Stopping {name}":"Stoppt {name}","Stopping ano\
+ther Bot":"Stoppt einen anderen Bot","Creating {name}":"Erstellt {name}","Updating {name}":"Aktualisiert {name}","Checking the team":"Prüft das Team","Reading {name}":"Liest {name\
+}","Looking back through the chat":"Durchsucht den Chatverlauf","{name} looked up its own chat":"{name} hat im eigenen Chat nachgesehen","{name} looked up its own chat for “{text}”":"\
+{name} hat im eigenen Chat nach „{text}“ gesucht","{name} is typing…":"{name} schreibt…","{name} didn't answer in time":"{name} hat nicht rechtzeitig geantwortet","{name} d\
+id not answer or call anyone; call a member with @Name":"{name} hat weder geantwortet noch jemanden aufgerufen; rufe ein Mitglied mit @Name auf","The group replies could not be sho\
+wn":"Die Gruppenantworten konnten nicht angezeigt werden","Paused after {count} Bot relays. Waiting: {names}":"Nach {count} Bot-Staffelläufen pausiert. Wartend: {names}","{names} \
+went back and forth {count} times without progress and paused. Write here to go on":"{names} haben sich {count}-mal ohne Fortschritt abgewechselt und pausiert. Schreibe hier, um fo\
+rtzufahren","{name} paused for your approval":"{name} wartet auf deine Freigabe","{name} started on it":"{name} hat begonnen","You stopped {name}'s work":"Du hast die Arbeit von {n\
+ame} gestoppt","{name} finished its work":"{name} ist fertig","{name} was cut off by a restart and picked its work back up":"{name} wurde durch einen Neustart unterbrochen und hat \
+weitergearbeitet","{name} was cut off by a restart again and stopped":"{name} wurde erneut durch einen Neustart unterbrochen und hat gestoppt","Picked up its work after a restart":"\
+Hat die Arbeit nach einem Neustart wieder aufgenommen","Profile updated":"Profil aktualisiert","Asked to make the tool call it wrote as text":"Aufgefordert, den als Text geschriebe\
+nen Tool-Aufruf regulär auszuführen","Went on after the failed turn":"Hat nach dem fehlgeschlagenen Durchgang weitergemacht","A Bot":"Ein Bot","{name} is waiting for your approva\
+l":"{name} wartet auf deine Freigabe","{first} and {second} are waiting for your approval":"{first} und {second} warten auf deine Freigabe","{first}, {second} and {count} more are \
+waiting for your approval":"{first}, {second} und {count} weitere warten auf deine Freigabe","Waiting for your approval":"Wartet auf deine Freigabe","in its own chat":"im eigenen C\
+hat","Stop all work in this group":"Alle Arbeiten in dieser Gruppe stoppen","Stop all":"Alles stoppen",Goal:"Ziel","Set a goal":"Ziel festlegen","This group has no admin":"Diese Gr\
+uppe hat keinen Admin","What should this group achieve?":"Was soll diese Gruppe erreichen?",Start:"Starten",Resume:"Fortsetzen","Stop the goal?":"Ziel abbrechen?","Aligning the goa\
+l with you":"Stimmt das Ziel mit dir ab","{admin} asks what is still open, then writes the goal with its checks and stages.":"{admin} klärt zuerst offene Fragen und formuliert dann\
+ das Ziel samt Prüfkriterien und Phasen.",Objective:"Zielsetzung","Done when":"Erledigt, wenn",Rules:"Regeln","Final check":"Endabnahme","Waiting for you":"Wartet auf dich","Goal \
+reached":"Ziel erreicht",Stages:"Phasen","Stage {n}: {title}":"Phase {n}: {title}","Paused · {title}":"Pausiert · {title}","Waiting for you · {title}":"Wartet auf dich · {title}",
+"Checking · {title}":"Prüfung · {title}","Sent back by {admin}: {feedback}":"Von {admin} zur Überarbeitung zurückgegeben: {feedback}","Sent back {n} times by {admin}. Last tim\
+e: {feedback}":"Von {admin} {n}-mal zurückgegeben. Zuletzt: {feedback}","Done when: {text}":"Erledigt, wenn: {text}","Evidence: {text}":"Nachweis: {text}","Back to current stage":"\
+Zurück zur aktuellen Phase","Goal and checks":"Ziel und Prüfkriterien",Summary:"Zusammenfassung",Evidence:"Nachweis","Stop current work too":"Aktuelle Arbeit ebenfalls stoppen","\
+Setting a goal":"Legt ein Ziel fest","Goal set: {title} · {count} stages":"Ziel festgelegt: {title} · {count} Phasen","Stage {n} passed · now stage {m}: {next}":"Phase {n} besta\
+nden · jetzt Phase {m}: {next}","All {count} stages passed":"Alle {count} Phasen bestanden","Stage {n} sent back for rework":"Phase {n} zur Überarbeitung zurückgegeben","Goal up\
+dated":"Ziel aktualisiert","Goal paused":"Ziel pausiert","Goal resumed":"Ziel fortgesetzt","Goal reached: {title}":"Ziel erreicht: {title}","Goal stopped":"Ziel abgebrochen",Reject:"\
+Ablehnen","Allow once":"Einmalig erlauben","Couldn't message {name}":"Nachricht an {name} fehlgeschlagen",Messaged:"Nachricht gesendet an","Couldn't stop {name}":"{name} konnte nic\
+ht gestoppt werden",Stopped:"Gestoppt",Created:"Erstellt",Updated:"Aktualisiert","Created group":"Gruppenchat erstellt","Couldn't create the group":"Gruppenchat konnte nicht erstel\
+lt werden","Updated group":"Gruppenchat aktualisiert","Couldn't update the group":"Gruppenchat konnte nicht aktualisiert werden","Deleted group":"Gruppenchat gelöscht","Couldn't d\
+elete the group":"Gruppenchat konnte nicht gelöscht werden","Posted in":"Veröffentlicht in","Couldn't post in the group":"Beitrag in der Gruppe fehlgeschlagen",Read:"Gelesen","Yo\
+ur own answer":"Eigene Antwort","Type your own answer":"Eigene Antwort eingeben",Selected:"Ausgewählt",Skip:"Überspringen",Submit:"Absenden","Choose all that apply":"Mehrfachausw\
+ahl möglich","Dismiss question":"Frage schließen",Dismiss:"Schließen",Dismissed:"Geschlossen","Answered by message":"Per Nachricht beantwortet","Your answer":"Deine Antwort",View:"\
+Ansicht",Confirm:"Bestätigen",Progress:"Fortschritt","Dismiss view":"Ansicht schließen",Sources:"Quellen",Chart:"Diagramm","Chart {n}":"Diagramm {n}",Series:"Reihe","Chart option\
+s":"Diagrammoptionen","View as table":"Als Tabelle anzeigen","View as chart":"Als Diagramm anzeigen","Copy data":"Daten kopieren","Download image":"Bild herunterladen","This view t\
+ried to open a page and was stopped.":"Diese Ansicht wollte eine Webseite öffnen und wurde blockiert.","Send to Bot":"An Bot senden","All Bots":"Alle Bots","No Bot":"Kein Bot","Pa\
+ste or type the key":"Schlüssel einfügen oder eingeben","Only {name}":"Nur {name}","Who may use it":"Wer ihn nutzen darf","Cancel the request":"Anfrage abbrechen","This page is n\
+ot on HTTPS: the key crosses the network unencrypted.":"Diese Seite nutzt kein HTTPS: Der Schlüssel wird unverschlüsselt über das Netzwerk übertragen.","Let {bot} use {name}?":"\
+{bot} erlauben, {name} zu nutzen?","{name} needs a key":"{name} benötigt einen Schlüssel","Saved for {scope}":"Gespeichert für {scope}","Value of {name}":"Wert von {name}","{bot\
+} never sees the value. It reaches {bot}'s shell as ":"{bot} sieht den Wert nie im Klartext. Er wird in der Shell von {bot} bereitgestellt als "," At least {count} characters.":" M\
+indestens {count} Zeichen.","At least {count} characters.":"Mindestens {count} Zeichen.","Replace value":"Wert ersetzen","Saving…":"Wird gespeichert…","Could not save this file":"\
+Diese Datei konnte nicht gespeichert werden",Save:"Speichern","Allowing…":"Wird erlaubt…",Allow:"Erlauben","{bot} asked for {name}":"{bot} hat {name} angefordert","Allowed {bot\
+} to use {name}":"{bot} darf {name} verwenden","Saved {name}":"{name} gespeichert",Canceled:"Abgebrochen",Done:"Fertig","{bot} is using {name}":"{bot} verwendet {name}","{bot} coul\
+d not ask for a key: this window can only view the team":"{bot} konnte keinen Schlüssel anfordern: Dieses Fenster ist im Nur-Lese-Modus","a saved key":"ein gespeicherter Schlüssel",
+"Chosen Bots":"Ausgewählte Bots","Who may use {name}":"Wer {name} nutzen darf","Save access":"Zugriff speichern","Replace the value":"Wert ersetzen","New value of {name}":"Neuer W\
+ert für {name}","Replaced. Bots get the new value from their next command.":"Ersetzt. Bots erhalten den neuen Wert ab ihrem nächsten Befehl.","a deleted Bot":"ein gelöschter Bot",
+"Asked by {name}":"Angefordert von {name}","added {time}":"hinzugefügt {time}","last used {time}":"zuletzt genutzt {time}","not used yet":"noch nicht genutzt","Delete {name}? Bots\
+ lose it at once.":"{name} löschen? Bots verlieren sofort den Zugriff darauf.",Keep:"Behalten","Key name":"Schlüsselname","NAME, e.g. GITHUB_TOKEN":"NAME, z. B. GITHUB_TOKEN","Wh\
+at it is for":"Verwendungszweck",Value:"Wert","New keys are for all Bots; narrow it down afterwards.":"Neue Schlüssel gelten standardmäßig für alle Bots; du kannst den Zugriff dana\
+ch einschränken.","Save key":"Schlüssel speichern","Keys your Bots asked for. Bots never see the values: they use them as ":"Schlüssel, die deine Bots angefordert haben. Bots seh\
+en niemals die Werte: Sie nutzen sie in ihrer Shell als "," in their shell, and every value is replaced by ":", und jeder Wert wird ersetzt durch "," before anything goes to a mode\
+l.":", bevor Daten an ein Modell gesendet werden.","Secrets · {count}":"Geheimnisse · {count}","Encryption at rest":"Verschlüsselung im Ruhezustand","Keys are stored in a file o\
+nly this user can read, but the values are not encrypted.":"Die Schlüssel liegen in einer Datei, die nur dieser Benutzer lesen kann; die Werte sind aber nicht verschlüsselt.","En\
+crypt keys at rest":"Schlüssel verschlüsseln","Passphrase (at least 8 characters)":"Passphrase (mindestens 8 Zeichen)","Repeat the passphrase":"Passphrase wiederholen","The passp\
+hrases do not match.":"Die Passphrasen stimmen nicht überein.","Turn on encryption":"Verschlüsselung einschalten","Keys are stored encrypted. They stay decrypted in memory while \
+DS Bot runs.":"Die Schlüssel liegen verschlüsselt. Sie werden nur im Speicher entschlüsselt, solange DS Bot läuft.","Turn off encryption":"Verschlüsselung ausschalten","Secret\
+s are locked":"Geheimnisse sind gesperrt",Passphrase:"Passphrase",Unlock:"Entsperren","The passphrase file named by DS_BOT_SECRETS_PASSPHRASE_FILE could not be read.":"Die über DS_\
+BOT_SECRETS_PASSPHRASE_FILE angegebene Passphrase-Datei konnte nicht gelesen werden.","The passphrase in the environment or the passphrase file did not unlock the secrets.":"Die Pa\
+ssphrase aus der Umgebung oder der Datei hat die Geheimnisse nicht entsperrt.","No passphrase was found at startup. Enter it here, or set DS_BOT_SECRETS_PASSPHRASE_FILE for unatten\
+ded starts.":"Beim Start wurde keine Passphrase gefunden. Gib sie hier ein oder setze DS_BOT_SECRETS_PASSPHRASE_FILE für unbeaufsichtigte Starts.","No keys yet. When a Bot needs o\
+ne, it shows a card in its chat.":"Noch keine Schlüssel hinterlegt. Wenn ein Bot einen benötigt, zeigt er im Chat eine Karte an.","Add a key":"Schlüssel hinzufügen",Memory:"Ged\
+ächtnis","Nothing saved yet":"Noch nichts gespeichert","1 entry":"1 Eintrag","{count} entries":"{count} Einträge","Manage {name}'s memory":"Gedächtnis von {name} verwalten","{na\
+me}'s memory":"Gedächtnis von {name}","Memory summary":"Gedächtnis-Zusammenfassung","All entries":"Alle Einträge","Change history":"Änderungsverlauf","No changes yet":"Noch kei\
+ne Änderungen","Load more":"Mehr laden",Undo:"Rückgängig",Undone:"Rückgängig gemacht","Undo this change":"Diese Änderung rückgängig machen","Click again to undo":"Zum Rückg\
+ängigmachen erneut klicken","Memory options":"Gedächtnisoptionen","Close memory":"Gedächtnis schließen","Back to the summary":"Zurück zur Zusammenfassung","Regenerate summary":"\
+Zusammenfassung neu erstellen","Updated {time}":"Aktualisiert {time}","Updated just now":"Gerade eben aktualisiert","Writing the summary…":"Zusammenfassung wird erstellt…","The\
+ summary is out of date: {reason}":"Die Zusammenfassung ist veraltet: {reason}","The summary could not be written: {reason}":"Die Zusammenfassung konnte nicht erstellt werden: {rea\
+son}","{name} has not saved anything yet":"{name} hat sich noch nichts gemerkt","Bots keep lasting preferences, decisions, and what you ask them to remember. Tell {name} below, or \
+in its chat.":"Bots merken sich dauerhafte Vorlieben, Entscheidungen und Dinge, an die sie sich erinnern sollen. Teile es {name} unten oder direkt im Chat mit.","Nothing is saved f\
+or this group yet":"Für diese Gruppe ist noch nichts gespeichert","A group keeps the decisions, rules, and facts its work needs, for its members to read here. Tell it below, or in\
+ the group.":"Eine Gruppe speichert Entscheidungen, Regeln und Fakten für ihre Arbeit, sodass alle Gruppenmitglieder sie hier lesen können. Schreibe es unten oder direkt in die Gru\
+ppe.","Team memory":"Teamgedächtnis","Every Bot reads it":"Wird von jedem Bot gelesen","Group memory":"Gruppengedächtnis","Only its members read it":"Wird nur von Gruppenmitglied\
+ern gelesen","MEMORY.md, which every conversation reads":"MEMORY.md, wird in jedem Gespräch gelesen","{used} of {limit} characters":"{used} von {limit} Zeichen","by you":"von dir",
+"by {name}":"von {name}","Remove from memory":"Aus dem Gedächtnis löschen","until {day}":"gültig bis {day}","Tidied: {merged} merged, {moved} moved, {retired} archived":"Aufgerä\
+umt: {merged} zusammengeführt, {moved} verschoben, {retired} archiviert","Only when needed":"Nur bei Bedarf","Move to…":"Verschieben nach…","Every conversation":"In jedem Gesp\
+räch","ended {day}":"beendet am {day}","Click again to remove":"Zum Entfernen erneut klicken",Remove:"Entfernen","Ask or update":"Fragen oder aktualisieren","Ask about or update {\
+name}'s memory":"Gedächtnis von {name} abfragen oder aktualisieren",Send:"Senden","Added: {text}":"Hinzugefügt: {text}","Added to team memory: {text}":"Zum Teamgedächtnis hinzuge\
+fügt: {text}","Updated: {text}":"Aktualisiert: {text}","Removed: {text}":"Entfernt: {text}","Removed from team memory: {text}":"Aus dem Teamgedächtnis entfernt: {text}","Not chan\
+ged: {text} ({reason})":"Unverändert: {text} ({reason})","{count} file changed":"{count} Datei geändert","{count} files changed":"{count} Dateien geändert",File:"Datei","Review \
+these changes":"Änderungen prüfen","These changes are no longer available":"Diese Änderungen sind nicht mehr verfügbar","This window cannot open the change review":"Dieses Fens\
+ter kann die Änderungsprüfung nicht öffnen","Saving to memory":"Speichert im Gedächtnis","Updating memory":"Aktualisiert das Gedächtnis","Checking memory":"Prüft das Gedächtni\
+s","Memory updated":"Gedächtnis aktualisiert","Already saved":"Bereits gespeichert","Couldn't save to memory":"Speichern im Gedächtnis fehlgeschlagen","Couldn't remove from memor\
+y":"Entfernen aus dem Gedächtnis fehlgeschlagen","Memory not changed":"Gedächtnis unverändert","Write something to save":"Gib etwas zum Speichern ein","No saved entry matched":"\
+Kein passender Eintrag im Gedächtnis gefunden","The memory refused this change":"Das Gedächtnis hat diese Änderung abgelehnt","The memory could not be changed":"Das Gedächtnis k\
+onnte nicht geändert werden","Team memory updated":"Teamgedächtnis aktualisiert","Updated {name}'s memory":"Gedächtnis von {name} aktualisiert","Memory updated. Open {name}'s me\
+mory":"Gedächtnis aktualisiert. Gedächtnis von {name} öffnen","Open browser":"Browser öffnen","{name}'s browser":"Browser von {name}","Resize panel":"Leistenbreite ändern",Back:"\
+Zurück",Forward:"Vorwärts",Stop:"Stopp",Reload:"Neu laden",Address:"Adresse","Search or enter address":"Suchen oder Adresse eingeben","This page didn’t load":"Diese Seite konnt\
+e nicht geladen werden","Try again":"Erneut versuchen","Open a page here and {name} can read it with you. Logins and cookies stay with {name}; other Bots never see them.":"Öffne hi\
+er eine Webseite, damit {name} sie gemeinsam mit dir lesen kann. Anmeldungen und Cookies gehören nur {name}; andere Bots sehen sie nie.","Only http and https addresses open here.":"\
+Hier können nur http- und https-Adressen geöffnet werden.","The page crashed.":"Die Seite ist abgestürzt.","The browser blocked the new window.":"Der Browser hat das neue Fenste\
+r blockiert.","Open the issue":"Issue öffnen","Cloud metadata addresses do not open here.":"Cloud-Metadatenadressen können hier nicht geöffnet werden.","Dictation is not availab\
+le in this browser":"Diktieren wird in diesem Browser nicht unterstützt","Microphone access is blocked":"Mikrofonzugriff ist blockiert","Couldn't hear that":"Konnte nichts versteh\
+en","Couldn't start dictation":"Diktat konnte nicht gestartet werden","Stop dictation":"Diktat beenden",Dictate:"Diktieren","Start voice chat":"Sprachchat starten","Voice chat":"Sp\
+rachchat",Listening:"Hört zu",Thinking:"Denkt nach","Thinking…":"Denkt nach…",Speaking:"Spricht",Paused:"Pausiert","Voice chat is not available in this browser":"Sprachchat wi\
+rd in diesem Browser nicht unterstützt","Voice chat with {name}":"Sprachchat mit {name}","Resume listening":"Weiter zuhören",Pause:"Pausieren","End voice chat":"Sprachchat beende\
+n","Recognizing…":"Wird erkannt…","Voice input needs its speech model":"Die Spracheingabe benötigt ein Sprachmodell","Set up voice input":"Spracheingabe einrichten","Preparing\
+ voice input…":"Spracheingabe wird vorbereitet…","Downloading the speech model… {pct}%":"Sprachmodell wird heruntergeladen… {pct}%","Couldn't prepare voice input":"Sprachei\
+ngabe konnte nicht vorbereitet werden","That was too long to recognize":"Die Aufnahme war zu lang für die Erkennung","24 hours":"24 Stunden","7 days":"7 Tage","30 days":"30 Tage",
+"12 weeks":"12 Wochen","12 months":"12 Monate","Per hour":"Pro Stunde","Per day":"Pro Tag","Per week":"Pro Woche","Per month":"Pro Monat",Output:"Ausgabe",Input:"Eingabe","Cache hi\
+t":"Cache-Treffer","Deleted Bot":"Gelöschter Bot",Deleted:"Gelöscht","Deleted group chat":"Gelöschter Gruppenchat","Group chat":"Gruppenchat","Own chat":"Einzelchat","Side chat":"\
+Nebenchat","New browser tab":"Neuer Browser-Tab",Terminal:"Terminal",Files:"Dateien","Close side chat":"Nebenchat schließen","Delete side chat":"Nebenchat löschen","Ask without i\
+nterrupting":"Nebenbei fragen, ohne die laufende Arbeit zu unterbrechen","Ask about the work so far":"Frage zum bisherigen Stand stellen","Answering…":"Antwortet…",Cancelled:"A\
+bgebrochen",Tasks:"Aufgaben","In progress":"In Arbeit","Awaiting review":"Wartet auf Prüfung",Blocked:"Blockiert","Stopped by the user":"Vom Nutzer gestoppt","Not updated after a \
+restart":"Nach dem Neustart nicht aktualisiert","Its model call failed ({code})":"Modellaufruf fehlgeschlagen ({code})","Add a note":"Notiz hinzufügen","Cancel task":"Aufgabe abbr\
+echen","Click again to cancel":"Erneut klicken zum Abbrechen","History ({count})":"Verlauf ({count})","Hide history":"Verlauf ausblenden","No task is running in this group.":"In di\
+eser Gruppe läuft keine Aufgabe.","What should change?":"Was soll sich ändern?","Note: {text}":"Notiz: {text}","Answered from progress so far; nothing was run":"Anhand des bisher\
+igen Fortschritts beantwortet; es wurden keine Aktionen ausgeführt","Could not answer.":"Konnte nicht antworten.","Cancel this side question":"Diese Nebenfrage abbrechen",Conversations:"\
+Chats","Compaction and handoff":"Komprimierung und Übergabe","Image reading":"Bilderfassung",Titles:"Titel",Other:"Sonstiges","Last {range}":"Letzte {range}",tokens:"Tokens","Comp\
+ared with the {range} before":"Im Vergleich zu den {range} davor","{share}% of all usage in the last {range}":"{share}% der Gesamtnutzung in den letzten {range}",Calls:"Aufrufe","C\
+ache hit rate":"Cache-Trefferquote","Tokens over time":"Token-Verlauf","{count} tokens":"{count} Tokens","{tokens} tokens · {calls} calls":"{tokens} Tokens · {calls} Aufrufe","Ac\
+tive on 1 day in the last year":"An 1 Tag im letzten Jahr aktiv","Active on {count} days in the last year":"An {count} Tagen im letzten Jahr aktiv",Light:"Wenig",Heavy:"Viel","Unkn\
+own model":"Unbekanntes Modell","More Bots":"Weitere Bots","More models":"Weitere Modelle","Reading your chats…":"Chatverläufe werden gelesen…","No usage yet.":"Noch keine Nut\
+zung.","Token usage shows up here after a model is called.":"Die Token-Nutzung wird hier angezeigt, sobald ein Modell aufgerufen wurde.","Nothing in this range.":"Keine Nutzung in \
+diesem Zeitraum.","Who used it":"Wer es genutzt hat","What for":"Wofür",Activity:"Aktivität","Time range":"Zeitraum","All usage":"Gesamte Nutzung","Group usage by":"Nutzung grupp\
+ieren nach","By Bot":"Nach Bot","By model":"Nach Modell","Still reading older chats; totals may grow.":"Ältere Chats werden noch ausgewertet; die Summen können sich noch erhöhen.",
+Custom:"Benutzerdefiniert","Custom range":"Benutzerdefinierter Zeitraum","This month":"Dieser Monat","Last month":"Letzter Monat","This year":"Dieses Jahr","Previous month":"Vorher\
+iger Monat","Next month":"Nächster Monat","Pick the first day":"Startdatum wählen","Pick the last day":"Enddatum wählen","1 day":"1 Tag","{count} days":"{count} Tage","Compared \
+with the day before":"Im Vergleich zum Vortag","Compared with the {count} days before":"Im Vergleich zu den {count} Tagen davor","{share}% of all usage from {span}":"{share}% der G\
+esamtnutzung vom {span}","About DS Bot":"Über DS Bot","Version {version}":"Version {version}","Star DS Bot on GitHub":"DS Bot auf GitHub mit einem Stern markieren","{count} stars":"\
+{count} Sterne","If DS Bot helps you, a star on GitHub helps more people find it.":"Wenn dir DS Bot weiterhilft, hilft ein Stern auf GitHub dabei, dass noch mehr Menschen es entdec\
+ken.",Updates:"Updates","Check for updates":"Nach Updates suchen","Checking…":"Wird geprüft…","Up to date":"Auf dem neuesten Stand","Checked {time}":"Geprüft {time}","Could n\
+ot check for updates.":"Suche nach Updates fehlgeschlagen.","Update checks are off.":"Automatische Update-Prüfung ist deaktiviert.","Checking for updates…":"Suche nach Updates…",
+"Downloading {version}…":"{version} wird heruntergeladen…","{version} is ready; it installs when you restart":"{version} ist bereit und wird beim Neustart installiert","Restart\
+ to update":"Zum Aktualisieren neu starten","{version} is available":"{version} ist verfügbar","Installed from a local folder; update it there.":"Aus einem lokalen Ordner installi\
+ert; bitte dort aktualisieren.","Updates are not offered for this install.":"Für diese Installation werden keine Updates angeboten.","Updates come with the DS Bot app.":"Updates e\
+rfolgen über die DS Bot-App.",Links:"Links","Source code":"Quellcode","Release notes":"Versionshinweise",Open:"Öffnen",Feedback:"Feedback","Report a problem":"Problem melden","Wh\
+at happened?":"Was ist passiert?","What you did, what you expected, and what happened instead. It goes into the issue.":"Was du getan hast, was du erwartet hast und was stattdessen\
+ passiert ist. Dies wird in das Issue übernommen.","For example: I asked Writer in the group chat and it showed an error.":"Zum Beispiel: Ich habe Writer im Gruppenchat gefragt un\
+d es wurde ein Fehler angezeigt.",Diagnostics:"Diagnosedaten","Versions, system, models, and the latest errors. Saved keys, tokens, and your home folder are hidden.":"Versionen, Sy\
+stem, Modelle und die letzten Fehler. Gespeicherte Schlüssel, Tokens und dein Benutzerordner werden ausgeblendet.",Show:"Anzeigen",Hide:"Ausblenden","GitHub issue":"GitHub-Issue",
+"Opens a new issue in the DS Bot repository with all of this filled in. Nothing is sent until you submit it there.":"Öffnet ein neues Issue im DS Bot-Repository mit diesen vorausge\
+füllten Angaben. Es wird nichts gesendet, bis du es dort absendest.","Report on GitHub":"Auf GitHub melden","Copied the diagnostics.":"Diagnosedaten kopiert.","Could not copy. Sel\
+ect the text below and copy it.":"Kopieren fehlgeschlagen. Markiere den Text unten und kopiere ihn manuell.","Opened a new GitHub issue with the diagnostics filled in. Check it bef\
+ore you submit.":"Ein neues GitHub-Issue mit den Diagnosedaten wurde geöffnet. Bitte prüfe die Angaben vor dem Absenden.","Opened a new GitHub issue. The diagnostics are long, so\
+ they are on the clipboard: paste them into the issue.":"Ein neues GitHub-Issue wurde geöffnet. Da die Diagnosedaten lang sind, wurden sie in die Zwischenablage kopiert: Füge sie b\
+itte in das Issue ein.","Opened a new GitHub issue. Copy the diagnostics below into it.":"Ein neues GitHub-Issue wurde geöffnet. Kopiere bitte die untenstehenden Diagnosedaten hine\
+in.","Downloaded the log. Keys, tokens, and your home folder are hidden in it.":"Protokoll heruntergeladen. Schlüssel, Tokens und dein Benutzerordner sind darin ausgeblendet.","Cl\
+eared the error log.":"Fehlerprotokoll geleert.","Recent errors":"Letzte Fehler","Recent errors · {count}":"Letzte Fehler · {count}","No errors recorded.":"Keine Fehler protokoll\
+iert.","Failed model calls and DS Bot problems show here, newest first.":"Fehlgeschlagene Modellaufrufe und Probleme mit DS Bot werden hier angezeigt, die neuesten zuerst.","Model \
+call":"Modellaufruf","This window":"Dieses Fenster","Error log":"Fehlerprotokoll","Kept on this computer across restarts, up to about 1 MB.":"Bleibt auf diesem Computer auch nach N\
+eustarts erhalten (bis zu ca. 1 MB).",Clear:"Leeren","Settings → Feedback has the details.":"Details findest du unter Einstellungen → Feedback.","Could not reach DSH. Check tha\
+t it is still running.":"DSH ist nicht erreichbar. Prüfe bitte, ob es noch läuft.","{name} stopped: {reason}. Switch its model or ask it to go on.":"{name} hat gestoppt: {reason}\
+. Wechsle das Modell oder bitte ihn weiterzumachen.","{name}'s background helper did not finish: {reason}. Ask it to go on if it still matters.":"Der Hintergrundhelfer von {name} w\
+urde nicht fertig: {reason}. Bitte {name}, weiterzumachen, falls es noch wichtig ist.","Run failed":"Ausführung fehlgeschlagen","Reached the output limit":"Ausgabelimit erreicht",
+"Stopped before finishing":"Vor Abschluss gestoppt","Declined the task":"Aufgabe abgelehnt","Unknown error":"Unbekannter Fehler","The model has no API key":"Für das Modell ist kein\
+ API-Schlüssel hinterlegt","The API key is not in the right format":"Der API-Schlüssel hat ein ungültiges Format","The DeepSeek account needs a sign-in":"Anmeldung beim DeepSeek\
+-Konto erforderlich","The DeepSeek account is signed out":"Vom DeepSeek-Konto abgemeldet","The DeepSeek account sign-in has expired":"Die Anmeldung beim DeepSeek-Konto ist abgelauf\
+en","The API key was rejected":"Der API-Schlüssel wurde abgelehnt","The account is out of quota":"Das Kontokontingent ist aufgebraucht","Too many requests to the model":"Zu viele \
+Anfragen an das Modell","The conversation is too long for the model":"Der Chatverlauf ist zu lang für das Modell","The model service refused the request":"Der Modelldienst hat die\
+ Anfrage abgelehnt","The model service failed":"Fehler beim Modelldienst","The model took too long to answer":"Zeitüberschreitung bei der Modellantwort","Could not reach the model\
+ service":"Modelldienst nicht erreichbar","The conversation could not be compacted for the model switch":"Die Unterhaltung konnte für den Modellwechsel nicht komprimiert werden","\
+Its group conversation could not open":"Seine Gruppensitzung konnte nicht geöffnet werden","Its group conversation could not open, so it starts a new one next time":"Seine Gruppen\
+sitzung konnte nicht geöffnet werden; beim nächsten Mal wird eine neue gestartet","Pasted text · {count} characters":"Eingefügter Text · {count} Zeichen","Put back":"Zurückhol\
+en","Put back into the box":"Zurück ins Eingabefeld","Remove pasted text":"Eingefügten Text entfernen","Add files":"Dateien hinzufügen","Reference a chat":"Chat referenzieren","\
+Chat with {name}":"Chat mit {name}","Scheduled task":"Geplante Aufgabe","Open the scheduled tasks of this chat":"Geplante Aufgaben dieses Chats öffnen","Send to":"Senden an","Sche\
+duled task: {text}":"Geplante Aufgabe: {text}","Choose the group admin":"Gruppen-Admin auswählen","Group admin":"Gruppen-Admin","Who to chat with…":"Mit wem möchtest du chatten…",
+"Add at least one more Bot":"Füge mindestens einen weiteren Bot hinzu",Members:"Mitglieder","Scheduled tasks":"Geplante Aufgaben","Every day":"Jeden Tag","Every {count} days":"All\
+e {count} Tage","Every hour":"Jede Stunde","Every {count} hours":"Alle {count} Stunden","Every {count} minutes":"Alle {count} Minuten","Once, {time}":"Einmalig, {time}","Every day \
+at {time}":"Täglich um {time}","Every {days} at {time}":"Jeden {days} um {time}","Every weekday at {time}":"An Werktagen um {time}","Every weekend at {time}":"Am Wochenende um {ti\
+me}","On the schedule {expression}":"Nach Zeitplan {expression}","Custom schedule":"Eigener Zeitplan","Next: {time}":"Nächste Ausführung: {time}","Overdue: {time}":"Überfällig: {\
+time}",Finished:"Abgeschlossen","Scheduled tasks · {count}":"Geplante Aufgaben · {count}","Show all":"Alle anzeigen","in {name}":"in {name}","Click again to delete":"Zum Löschen \
+erneut klicken","Delete task":"Aufgabe löschen",Once:"Einmalig","Every week":"Jede Woche",Repeat:"Wiederholen",minutes:"Minuten",hours:"Stunden",days:"Tage","Morning briefing":"Mo\
+rgen-Briefing","What to do":"Aufgabe","Sum up what changed since yesterday and what needs me today.":"Fasse zusammen, was sich seit gestern geändert hat und was heute für mich anst\
+eht.",When:"Wann","Date and time":"Datum und Uhrzeit",Days:"Wochentage",Time:"Uhrzeit",Every:"Alle","How many":"Intervall",Unit:"Einheit","Create task":"Aufgabe erstellen","Turn on\
+ Automation tasks in DSH":"„Automatisierungsaufgaben“ in DSH aktivieren","Switch on Automation tasks on the Plugins page in Settings.":"Aktiviere „Automatisierungsaufgaben“ auf\
+ der Seite „Plugins“ in den Einstellungen.","New task":"Neue Aufgabe","No scheduled tasks yet.":"Noch keine geplanten Aufgaben.","No scheduled tasks yet. Add one":"Noch keine g\
+eplanten Aufgaben. Jetzt hinzufügen","Automation tasks are off in DSH":"„Automatisierungsaufgaben“ ist in DSH deaktiviert","No such Bot":"Bot nicht gefunden","No such Bot or g\
+roup chat":"Bot oder Gruppenchat nicht gefunden","Give the task a name":"Gib der Aufgabe einen Namen","Say what the Bot should do":"Beschreibe, was der Bot tun soll","Pick a date a\
+nd time":"Wähle Datum und Uhrzeit","Pick a time in the future":"Wähle einen Zeitpunkt in der Zukunft","Pick a time of day":"Wähle eine Uhrzeit","Pick at least one day":"Wähle mi\
+ndestens einen Tag","Repeat every 1 minute to 7 days":"Das Wiederholungsintervall muss zwischen 1 Minute und 7 Tagen liegen","Pick when it runs":"Wähle den Ausführungszeitpunkt",
+"No such task":"Aufgabe nicht gefunden","Working folder":"Arbeitsordner","Working folder: {folder}":"Arbeitsordner: {folder}",Folder:"Ordner",Folders:"Ordner",Privacy:"Datenschutz",
+Private:"Privat","Other Bots cannot read its folder, memory or chats, and you approve what it shares with them.":"Andere Bots können seinen Ordner, sein Gedächtnis und seine Chats \
+nicht lesen, und du gibst frei, was er mit ihnen teilt.","A Main Bot cannot be private.":"Ein Haupt-Bot kann nicht privat sein.","Leave its group chats before making it private.":"\
+Entferne ihn zuerst aus allen Gruppenchats, bevor du ihn auf privat stellst.","Choose a working folder of its own first.":"Wähle zuerst einen eigenen Arbeitsordner für ihn aus.",
+"A private Bot cannot be a Main Bot.":"Ein privater Bot kann kein Haupt-Bot sein.","Closed after deletion · {count}":"Nach dem Löschen weiterhin geschützt · {count}","Remove pr\
+otection":"Schutz aufheben","Click again to remove. Other Bots can then read its folder, memory and chats.":"Zum Aufheben erneut klicken. Andere Bots können danach seinen Ordner, s\
+ein Gedächtnis und seine Chats lesen.","Nothing kept closed for this Bot":"Kein verbleibender Schutz für diesen Bot","Team workspace":"Team-Arbeitsbereich","Team workspace: {fold\
+er}":"Team-Arbeitsbereich: {folder}","Where Bots without a folder of their own work.":"Hier arbeiten Bots und Gruppen ohne eigenen Ordner.",Locations:"Speicherorte","Data location":"\
+Datenverzeichnis","Change…":"Ändern…","Each Bot's own folder":"Eigener Ordner jedes Bots","Choose a folder…":"Ordner auswählen…","Browse folders…":"Ordner durchsuchen…",
+"Enter a path…":"Pfad eingeben…","Folder path":"Ordnerpfad","Full path of a folder":"Vollständiger Pfad eines Ordners","Use this folder":"Diesen Ordner verwenden","Up one leve\
+l":"Eine Ebene nach oben","No folders inside.":"Keine Unterordner vorhanden.","Some folders are not shown.":"Einige Ordner werden nicht angezeigt.","Waiting for sign-in…":"Wartet\
+ auf Anmeldung…","This service needs an app client ID":"Dieser Dienst benötigt eine App-Client-ID","Paste the address you land on":"Zieladresse nach der Weiterleitung einfügen",
+"Finish sign-in":"Anmeldung abschließen","Open {host}":"{host} öffnen","Client ID":"Client ID","Client secret (optional)":"Client Secret (optional)","In OAuth & Permissions at {a\
+pp}, add this redirect URL:":"Füge in OAuth & Permissions von {app} diese Redirect-URL hinzu:","In the app settings, add this redirect URL:":"Füge in den App-Einstellungen diese R\
+edirect-URL hinzu:","Turn on the MCP features and scopes the app needs.":"Aktiviere die MCP-Funktionen und Berechtigungen, die die App braucht.","Copy the Client ID and Client Secr\
+et here.":"Trage hier die Client ID und das Client Secret ein.","Open app settings":"App-Einstellungen öffnen",Continue:"Weiter","{name} key":"{name}-Schlüssel","{name} token":"{\
+name}-Token","Get a key":"Schlüssel abrufen","Read-only":"Nur lesen","{count} tools":"{count} Werkzeuge",Mailbox:"Postfach","Email address":"E-Mail-Adresse",Catalog:"Katalog","App\
+ password":"App-Passwort","Authorization code":"Autorisierungscode","Password or app password":"Passwort oder App-Passwort","Official help":"Offizielle Hilfe","Finish signing in in\
+ your browser.":"Schließe die Anmeldung in deinem Browser ab.","Open again":"Erneut öffnen","Did not come back here?":"Nicht automatisch hierher zurückgekehrt?","Copied to clipb\
+oard":"In die Zwischenablage kopiert","Paste the code on {host} and authorize.":"Füge den Code auf {host} ein und autorisiere den Zugriff.","Add another":"Weiteres hinzufügen","Q\
+Q, 163, 126, Gmail, iCloud, and other IMAP mail":"QQ, 163, 126, Gmail, iCloud und andere IMAP-Postfächer","Other MCP server":"Anderer MCP-Server","An address, a command, or one fr\
+om Claude Desktop, Cursor, or VS Code":"Adresse, Befehl oder Import aus Claude Desktop, Cursor oder VS Code","Kind of server":"Servertyp","Nothing matches":"Keine passenden Konnekt\
+oren",Recommended:"Empfohlen","See all":"Alle anzeigen","{count} connected":"{count} verbunden","{count} accounts":"{count} Konten",Category:"Kategorie","Could not reach the mail s\
+erver. Check the server address.":"Mailserver nicht erreichbar. Bitte prüfe die Serveradresse.","Sign in at mail.qq.com, click your avatar at the top right, and open Settings → Ac\
+count and Security → Security Settings.":"Melde dich unter mail.qq.com an, klicke oben rechts auf deinen Avatar und öffne Einstellungen → Konto und Sicherheit → Sicherheitseinste\
+llungen.","Turn on the POP3/IMAP/SMTP service, then click Generate authorization code and verify yourself.":"Aktiviere den Dienst POP3/IMAP/SMTP, klicke auf „Autorisierungscode gen\
+erieren“ und bestätige deine Identität.","Paste the 16-letter code below. Changing your QQ password cancels it.":"Füge den 16-stelligen Code unten ein. Wenn du dein QQ-Passwort\
+ änderst, wird er ungültig.","Sign in at {host} and open Settings → POP3/SMTP/IMAP.":"Melde dich unter {host} an und öffne Einstellungen → POP3/SMTP/IMAP.","Turn on IMAP/SMT\
+P and send the text message it asks for.":"Aktiviere IMAP/SMTP und bestätige per SMS.","Paste the 16-character code below. It is shown only once.":"Füge den 16-stelligen Code unte\
+n ein. Er wird nur einmalig angezeigt.","Turn on 2-Step Verification for your Google Account.":"Aktiviere die Bestätigung in zwei Schritten für dein Google-Konto.","Open App pass\
+words, create one, and paste the 16-character password below.":"Öffne „App-Passwörter“, erstelle eines und füge das 16-stellige Passwort unten ein.","Work and school account\
+s cannot use app passwords.":"Arbeits- und Schulkonten unterstützen keine App-Passwörter.","Your Apple Account needs two-factor authentication.":"Dein Apple-Account erfordert die\
+ Zwei-Faktor-Authentifizierung.","Sign in at account.apple.com and open Sign-In and Security → App-Specific Passwords.":"Melde dich unter account.apple.com an und öffne „Anmeldun\
+g und Sicherheit“ → „App-spezifische Passwörter“.","Generate a password and paste it below.":"Generiere ein Passwort und füge es unten ein.","The mail service refused the\
+ login (Unsafe Login). Enable IMAP/SMTP in the mailbox settings and use its authorization code, not the account password.":"Der E-Mail-Dienst hat die Anmeldung abgelehnt (Unsafe Lo\
+gin). Aktiviere IMAP/SMTP in den Postfacheinstellungen und verwende den Autorisierungscode statt deines normalen Kontopassworts.","The password was refused. Use the mailbox app pas\
+sword or authorization code, not the account password.":"Das Passwort wurde abgelehnt. Verwende das App-Passwort oder den Autorisierungscode des Postfachs, nicht dein normales Kont\
+opasswort.","Enter the authorization code or app password":"Autorisierungscode oder App-Passwort eingeben","Pages, databases, and wiki content":"Seiten, Datenbanken und Wiki-Inhalt\
+e","Issues, projects, and cycles":"Issues, Projekte und Zyklen","Jira issues and Confluence pages":"Jira-Vorgänge und Confluence-Seiten","Errors, traces, and releases":"Fehler, Tr\
+aces und Releases","Payments, invoices, and customers":"Zahlungen, Rechnungen und Kunden","Orders, payments, and invoices":"Bestellungen, Zahlungen und Rechnungen","Payments, order\
+s, and catalog":"Zahlungen, Bestellungen und Artikelkatalog","Workers, DNS, and account resources":"Workers, DNS und Konto-Ressourcen","Projects, deployments, and logs":"Projekte, \
+Deployments und Logs","Databases, tables, and project settings":"Datenbanken, Tabellen und Projekteinstellungen","Postgres databases and branches":"Postgres-Datenbanken und Branche\
+s","Design files, components, and comments":"Designdateien, Komponenten und Kommentare","Designs, folders, and exports":"Designs, Ordner und Exporte","Conversations, contacts, and \
+articles":"Konversationen, Kontakte und Artikel","Boards, items, and workflows":"Boards, Elemente und Workflows","Sites, pages, and CMS content":"Websites, Seiten und CMS-Inhalte",
+"Sites, pages, and site content":"Websites, Seiten und Website-Inhalte","Sites, deploys, and forms":"Websites, Deployments und Formulare","Bases, tables, and records":"Bases, Tabel\
+len und Datensätze","Files and folders":"Dateien und Ordner","Zaps and app actions":"Zaps und App-Aktionen","Tasks, lists, and docs":"Aufgaben, Listen und Dokumente","Tasks and pr\
+ojects":"Aufgaben und Projekte","Boards and whiteboard items":"Boards und Whiteboard-Elemente","CRM records, lists, and notes":"CRM-Datensätze, Listen und Notizen","Collections, r\
+equests, and workspaces":"Sammlungen, Anfragen und Arbeitsbereiche","Tasks, projects, and workspaces":"Aufgaben, Projekte und Arbeitsbereiche","Files, folders, and metadata":"Datei\
+en, Ordner und Metadaten","Contacts, deals, and tickets":"Kontakte, Deals und Tickets","Channels and messages":"Kanäle und Nachrichten","Models, datasets, and Spaces":"Modelle, Da\
+tensätze und Spaces","Web search for agents":"Websuche für Agenten","Documentation for public code repositories":"Dokumentation für öffentliche Code-Repositories","Library docu\
+mentation and code examples":"Bibliotheksdokumentation und Codebeispiele","Microsoft product documentation":"Microsoft-Produktdokumentation","Cloudflare product documentation":"Clo\
+udflare-Produktdokumentation","Maps, places, and routes in China":"Karten, Orte und Routen in China","Read and send email over IMAP and SMTP":"E-Mails über IMAP und SMTP lesen und \
+senden","IMAP host":"IMAP-Server","SMTP host":"SMTP-Server","Sign in with Google":"Mit Google anmelden","Verifying…":"Wird überprüft…","Import from other apps":"Aus anderen A\
+pps importieren","Server address":"Serveradresse","Command, e.g. npx -y some-mcp":"Befehl, z. B. npx -y some-mcp","Scanning…":"Wird gesucht…","No MCP servers found in Claude De\
+sktop, Cursor, or VS Code settings.":"Keine MCP-Server in den Einstellungen von Claude Desktop, Cursor oder VS Code gefunden.","Import {count}":"{count} importieren",All:"Alle",Developer:"\
+Entwicklung","Docs & files":"Dokumente & Dateien",Work:"Arbeit",Design:"Design",Data:"Daten",Commerce:"E-Commerce","No connectors connected":"Keine Konnektoren verbunden","{bot} ne\
+eds {name}":"{bot} benötigt {name}",Mail:"E-Mail",Subject:"Betreff","Write a message…":"E-Mail-Text schreiben…",Discard:"Verwerfen",Discarded:"Verworfen","Allow recipient":"Em\
+pfänger erlauben","Allow this Bot to send directly":"Diesem Bot direktes Senden erlauben","Manage rules":"Regeln verwalten","Sending rules":"Senderegeln",From:"Von",To:"An",Cc:"Cc",
+Bcc:"Bcc","Attachments: {names}":"Anhänge: {names}",Sent:"Gesendet",Failed:"Fehlgeschlagen","Request failed":"Anfrage fehlgeschlagen","Permissions are not available in this DeepSe\
+ek Harness":"Berechtigungen werden in diesem DeepSeek Harness nicht unterstützt","Avatar image is too large":"Das Avatar-Bild ist zu groß","A Bot needs a name":"Ein Bot benötigt \
+einen Namen","A Bot name cannot contain @, ` or a line break":"Ein Bot-Name darf kein @, ` oder Zeilenumbruch enthalten","Unknown Bot":"Bot nicht gefunden","Unknown conversation":"\
+Chat nicht gefunden","A group chat needs at least two Bots":"Ein Gruppenchat benötigt mindestens zwei Bots","The admin must be a member of the group":"Der Admin muss Mitglied der \
+Gruppe sein","Unknown group chat":"Gruppenchat nicht gefunden","No Bot is left in this group chat":"In diesem Gruppenchat ist kein Bot mehr übrig","That group chat has been delete\
+d":"Dieser Gruppenchat wurde gelöscht","Hand the admin role to another member instead of leaving the group without one":"Übergib die Admin-Rolle an ein anderes Mitglied, statt die\
+ Gruppe ohne Admin zu lassen","Hand the admin role to another member before leaving the group":"Übergib die Admin-Rolle vor dem Verlassen der Gruppe an ein anderes Mitglied","The \
+team needs at least one Main Bot":"Das Team benötigt mindestens einen Haupt-Bot","Only a Main Bot can be replaced":"Nur ein Haupt-Bot kann ersetzt werden","A Main Bot cannot be de\
+leted; remove its Main Bot role first":"Ein Haupt-Bot kann nicht gelöscht werden; entferne zuerst seine Haupt-Bot-Rolle","Unknown theme":"Unbekanntes Design","Accent must be a #rr\
+ggbb color":"Die Akzentfarbe muss im Format #rrggbb angegeben werden","Type the key first":"Gib zuerst den Schlüssel ein","Choose every Bot or a list of Bots":"Wähle alle Bots ode\
+r bestimmte Bots aus","This request is gone":"Diese Anfrage existiert nicht mehr","This request was already answered":"Diese Anfrage wurde bereits beantwortet","A name uses capital\
+s, digits, and underscores, and starts with a letter":"Ein Name darf nur Großbuchstaben, Ziffern und Unterstriche enthalten und muss mit einem Buchstaben beginnen","No such key":"\
+Schlüssel nicht gefunden","Type a question or a change first":"Gib zuerst eine Frage oder Änderung ein","No model is available. Add one in Settings > Models.":"Kein Modell verfüg\
+bar. Füge eines unter Einstellungen → Modelle hinzu.","Memory is turned off on this host":"Das Gedächtnis ist auf diesem Host deaktiviert","The model wrote nothing":"Das Modell\
+ hat keine Ausgabe erzeugt","Write the entry to save.":"Gib den zu speichernden Eintrag ein.","This DeepSeek Harness has no folder chooser":"Dieses DeepSeek Harness unterstützt kei\
+nen Ordnerauswahldialog","This DeepSeek Harness cannot list folders":"Dieses DeepSeek Harness kann keine Ordner auflisten","Side chat is only available in a Bot's private chat.":"D\
+er Nebenchat ist nur im Einzelchat eines Bots verfügbar.","Write a question.":"Gib eine Frage ein.","Write a question after /side.":"Gib nach /side eine Frage ein.","/side does no\
+t take attachments.":"/side unterstützt keine Anhänge.","Wait for the answer, or cancel it.":"Warte auf die Antwort oder brich sie ab.","This side chat is no longer here.":"Diese\
+r Nebenchat existiert nicht mehr.","This side question is no longer here.":"Diese Nebenfrage existiert nicht mehr.","This Bot has not called a model yet. Send a normal message firs\
+t.":"Dieser Bot hat noch kein Modell aufgerufen. Sende zuerst eine normale Nachricht.","DS Bot restarted before this answer finished.":"DS Bot wurde neu gestartet, bevor diese Antw\
+ort abgeschlossen war.","The model called a tool again after being told not to, so this aside was not answered.":"Das Modell hat trotz Aufforderung erneut ein Werkzeug aufgerufen; \
+daher wurde diese Nebenfrage nicht beantwortet.","The model wrote nothing.":"Das Modell hat nichts geschrieben.","Nothing to ask":"Nichts zu fragen","Nothing to open":"Nichts zu öf\
+fnen","Nothing to cancel":"Nichts abzubrechen","Nothing to close":"Nichts zu schließen","DS Bot is still loading this chat.":"DS Bot lädt diesen Chat noch.","This message is no l\
+onger kept":"Diese Nachricht wird nicht mehr aufbewahrt","No file named":"Keine Datei angegeben","This file cannot be read here":"Diese Datei kann hier nicht gelesen werden","That \
+wait is no longer open":"Dieses Warten ist nicht mehr aktiv","Nothing to send":"Nichts zu senden","This view is no longer open":"Diese Ansicht ist nicht mehr geöffnet","This is no\
+t a photo DS Bot can send":"Dies ist kein Foto, das DS Bot senden kann","A photo did not arrive. Send it again.":"Ein Foto ist nicht angekommen. Sende es erneut.","Nothing to delet\
+e":"Nichts zu löschen","Bot browsers are off on this host":"Bot-Browser sind auf diesem Host deaktiviert","This Bot has no open browser":"Dieser Bot hat keinen geöffneten Browser",
+"A browser poll needs a clientId":"Eine Browser-Abfrage benötigt eine clientId","This browser is not held":"Dieser Browser wird derzeit nicht übergeben","This handoff is no longe\
+r open":"Diese Browser-Übergabe ist nicht mehr offen","Avatar images must be PNG, JPEG, WebP, GIF, or SVG":"Avatar-Bilder müssen im Format PNG, JPEG, WebP, GIF oder SVG vorliegen",
+"Pick a model before choosing a thinking level":"Wähle zuerst ein Modell aus, bevor du eine Denkstufe festlegst","Unknown section":"Abschnitt nicht gefunden","Unknown section colo\
+r":"Unbekannte Abschnittsfarbe","Write the to-do first.":"Gib zuerst eine Aufgabe ein.","That to-do is no longer on the list.":"Diese Aufgabe steht nicht mehr auf der Liste.","Writ\
+e what this group should achieve, in at most 2000 characters.":"Beschreibe in höchstens 2000 Zeichen, was diese Gruppe erreichen soll.","This group has no admin. Set one in the gr\
+oup settings first.":"Diese Gruppe hat keinen Admin. Lege zuerst in den Gruppeneinstellungen einen fest.","This group already has a goal. Stop it first.":"Diese Gruppe hat bereits \
+ein Ziel. Stoppe es zuerst.","The goal has changed. Look again.":"Das Ziel hat sich geändert. Sieh noch einmal nach.","Nothing to do":"Nichts zu tun","Write a note first.":"Schrei\
+be zuerst eine Notiz.","That task is already finished.":"Diese Aufgabe ist bereits abgeschlossen.","No such group.":"Gruppe nicht gefunden.","No such task.":"Aufgabe nicht gefunden\
+.","No open task to cancel.":"Keine offene Aufgabe zum Abbrechen vorhanden.","Sign-in timed out":"Zeitüberschreitung bei der Anmeldung","The sign-in answer did not match this atte\
+mpt (state mismatch). Try again.":"Die Anmeldeantwort passt nicht zu diesem Versuch (Status stimmt nicht überein). Bitte versuche es erneut.","This connector does not sign in":"Di\
+eser Connector erfordert keine Anmeldung","This connector has no server address":"Dieser Connector hat keine Serveradresse","Connector addresses must start with https://":"Connecto\
+r-Adressen müssen mit https:// beginnen","This service does not publish OAuth sign-in metadata":"Dieser Dienst veröffentlicht keine OAuth-Anmeldemetadaten","Paste a key first":"F\
+üge zuerst einen Schlüssel ein","No sign-in is waiting":"Es wartet keine Anmeldung","Paste the address or the code":"Füge die Adresse oder den Code ein","This address is not fro\
+m this sign-in attempt (state mismatch). Copy the whole address again.":"Diese Adresse stammt nicht von diesem Anmeldeversuch (Status stimmt nicht überein). Kopiere die gesamte Adr\
+esse erneut.","The address has no code":"Die Adresse enthält keinen Code","Enter the client ID":"Gib die Client-ID ein","Name the connector":"Gib dem Connector einen Namen","Enter\
+ an address or a command":"Gib eine Adresse oder einen Befehl ein","Only added connectors can be removed":"Nur selbst hinzugefügte Connectors können entfernt werden","The mail co\
+nnection closed during verification":"Die Mail-Verbindung wurde während der Überprüfung geschlossen","Google sign-in is not available in this build":"Die Google-Anmeldung ist in\
+ diesem Build nicht verfügbar","Enter an email address":"Gib eine E-Mail-Adresse ein","Enter the IMAP and SMTP hosts":"Gib die IMAP- und SMTP-Hosts ein","No such account":"Konto n\
+icht gefunden","This card was already answered":"Diese Karte wurde bereits beantwortet","No Google sign-in is waiting":"Es wartet keine Google-Anmeldung","The sign-in answer is not\
+ for this attempt":"Die Anmeldeantwort gehört nicht zu diesem Versuch","Google did not say which account this is":"Google hat nicht angegeben, welches Konto dies ist","This platfo\
+rm is not available yet":"Diese Plattform ist noch nicht verfügbar","Choose a Bot first":"Wähle zuerst einen Bot aus","This platform signs in by scanning a code; not available ye\
+t":"Diese Plattform meldet sich per QR-Code an und ist noch nicht verfügbar","No such IM bot":"IM-Bot nicht gefunden","No such platform":"Plattform nicht gefunden","No such chat":"\
+Chat nicht gefunden","Choose a Bot or a group":"Wähle einen Bot oder eine Gruppe aus","This platform has no QR login":"Diese Plattform unterstützt keine QR-Anmeldung","Paste the \
+bot token first":"Füge zuerst das Bot-Token ein","Telegram did not say who this token belongs to":"Telegram hat nicht angegeben, zu welchem Bot dieses Token gehört","A webhook or\
+ another program uses this bot":"Ein Webhook oder ein anderes Programm verwendet diesen Bot bereits","This token does not belong to a Discord bot":"Dieses Token gehört nicht zu ein\
+em Discord-Bot","Discord gave no usable gateway URL":"Discord hat keine nutzbare Gateway-URL zurückgegeben","These credentials do not belong to a Slack bot":"Diese Zugangsdaten ge\
+hören nicht zu einem Slack-Bot","WeChat answered an unreadable response":"WeChat hat eine unlesbare Antwort zurückgegeben","WeChat rate limited the request":"WeChat hat die Anfra\
+ge wegen des Ratenlimits blockiert","WeChat refused the token":"WeChat hat das Token abgelehnt","Use a capability name with lowercase letters, digits, and single hyphens; connector\
+ names are reserved.":"Verwende für den Fähigkeitsnamen nur Kleinbuchstaben, Ziffern und einzelne Bindestriche; Connector-Namen sind reserviert.","Arguments must be a list of tex\
+t values.":"Argumente müssen eine Liste von Textwerten sein.","Choose an MCP server, skill, or pack.":"Wähle einen MCP-Server, eine Fähigkeit oder ein Paket aus.","A capability \
+cannot change its kind. Delete it and save a new one.":"Der Typ einer Fähigkeit kann nicht geändert werden. Lösche sie und lege eine neue an.","Enter a command for the MCP serve\
+r.":"Gib einen Befehl für den MCP-Server ein.","Enter a valid HTTP or HTTPS URL.":"Gib eine gültige HTTP- oder HTTPS-URL ein.","Only Bots on the team can change capabilities.":"N\
+ur Bots im Team können Fähigkeiten ändern.","Only a Main Bot can change another Bot’s capabilities.":"Nur ein Haupt-Bot kann die Fähigkeiten eines anderen Bots ändern.","Thi\
+s DSH cannot load MCP servers.":"Dieses DSH kann keine MCP-Server laden.","Unknown capability operation.":"Unbekannte Fähigkeitsaktion.","The secrets file is not encrypted.":"Die \
+Geheimnisdatei ist nicht verschlüsselt.","Secrets are already encrypted.":"Geheimnisse sind bereits verschlüsselt.","Secrets are not encrypted.":"Geheimnisse sind nicht verschlüs\
+selt.","Learning is turned off on this host":"Lernen ist auf diesem Host deaktiviert","AGENTS.md changed since this was proposed":"AGENTS.md wurde seit diesem Vorschlag geändert",
+"The Bot that learned this skill is gone":"Der Bot, der diese Fähigkeit gelernt hat, existiert nicht mehr","System permissions are not available here":"Systemberechtigungen sind h\
+ier nicht verfügbar","This host keeps no Bot data folder, so it has no avatar library.":"Dieser Host führt keinen Bot-Datenordner und hat daher keine Mediathek.","DS Bot is shutt\
+ing down":"DS Bot wird heruntergefahren","Computer use":"Computersteuerung",Computer:"Computer",Control:"Steuerung","Let Bots use the computer":"Bots die Nutzung des Computers erla\
+uben","Using the computer":"Nutzt den Computer",Off:"Aus","View only":"Nur ansehen",Background:"Im Hintergrund",Foreground:"Vordergrund erlaubt","In the foreground":"Im Vordergrund",
+"Computer use level":"Stufe der Computersteuerung","Computer provider":"Anbieter","Loading the provider…":"Anbieter wird geladen…","Could not load the provider":"Anbieter konnt\
+e nicht geladen werden","The provider package is not installed":"Das Anbieterpaket ist nicht installiert","Install it in this DSH":"In diesem DSH installieren","Run {command}, then\
+ restart DSH.":"Führe {command} aus und starte danach DSH neu.","Copy command":"Befehl kopieren","Bots get no computer tools until the provider is ready.":"Solange der Anbieter ni\
+cht bereit ist, stehen Bots keine Computer-Werkzeuge zur Verfügung.","Another computer-use provider is running":"Ein anderer Anbieter für die Computersteuerung läuft bereits","C\
+omputer use is not available on this platform":"Computersteuerung wird auf dieser Plattform nicht unterstützt",Accessibility:"Bedienungshilfen","Screen Recording":"Bildschirmaufna\
+hme",Allowed:"Erlaubt","Not allowed":"Nicht erlaubt",Grant:"Zugriff gewähren",Revoke:"Widerrufen","Off in Settings → Computer use":"Deaktiviert unter Einstellungen → Computerste\
+uerung",Idle:"Inaktiv",Operating:"Bedient gerade","You have the computer":"Du bedienst den Computer","Latest screenshot":"Letztes Bildschirmfoto","Let it continue":"Weiterarbeiten \
+lassen","Take over the computer":"Computer übernehmen","Hand back":"Zurückgeben","Recent steps":"Letzte Schritte",failed:"fehlgeschlagen","Allow {name} to use {app}?":"{name} die\
+ Nutzung von {app} erlauben?","This time":"Diesmal",Always:"Immer erlauben","Needs your confirmation":"Bestätigung erforderlich","Help needed on the computer":"Hilfe am Computer b\
+enötigt","You control the computer":"Du steuerst den Computer","{name} · foreground":"{name} · Vordergrund","{name} waits for the computer":"{name} wartet, bis du fertig bist","\
+DeepSeek services":"DeepSeek-Dienste","DeepSeek API":"DeepSeek-API","DeepSeek Web Search API":"DeepSeek-Websuche-API","Find it in Plugins → Web search.":"Zu finden unter Plugins \
+→ Websuche.","Image and document reading":"Bilder und Dokumente lesen","Use DeepSeek to read images and documents":"DeepSeek zum Lesen von Bildern und Dokumenten verwenden","Bots\
+ upload selected files to DeepSeek for text recognition; local Office editing is unchanged.":"Bots laden ausgewählte Dateien zur Texterkennung zu DeepSeek hoch; die lokale Office-B\
+earbeitung bleibt unverändert.","Text to speech":"Text-zu-Sprache","Read replies aloud":"Antworten vorlesen",System:"System",Voice:"Stimme","Speech recognition":"Spracherkennung",
+"Dictation provider":"Diktatanbieter","Use DeepSeek for dictation":"DeepSeek für das Diktat verwenden","In use":"In Verwendung","Not ready":"Nicht bereit","Couldn't read the reply":"\
+Antwort konnte nicht vorgelesen werden","Couldn't reach the speech service":"Sprachdienst nicht erreichbar","Bot models":"Bot-Modelle","Change several Bots":"Mehrere Bots ändern",
+"{selected} of {total} selected":"{selected} von {total} ausgewählt","Bots on a local agent keep their own model.":"Bots auf einem lokalen Agent behalten ihr eigenes Modell.","Sel\
+ect all":"Alle auswählen","Changing…":"Wird geändert…","Selected Bots":"Ausgewählte Bots","{model} (not available)":"{model} (nicht verfügbar)",Changed:"Geändert","Already\
+ on this model":"Nutzt dieses Modell bereits","Skipped: runs on a local agent":"Übersprungen: läuft auf einem lokalen Agent","Skipped: not available now":"Übersprungen: derzeit n\
+icht verfügbar","Could not change: {error}":"Änderung fehlgeschlagen: {error}","Changed {count} of {total} Bots.":"{count} von {total} Bots geändert.","Select {name}":"{name} au\
+swählen","Change it in the Bot's settings.":"Ändere es in den Einstellungen des Bots.","Already on this model: {count}":"Nutzen dieses Modell bereits: {count}","Skipped: {count}":"\
+Übersprungen: {count}","Failed: {count}":"Fehlgeschlagen: {count}","{count} skipped":"{count} übersprungen","No model picked yet":"Noch kein Modell gewählt",Running:"Läuft","Op\
+en this session":"Diese Sitzung öffnen","Open this running session":"Diese laufende Sitzung öffnen","A running session keeps using model calls in the background.":"Eine laufende \
+Sitzung verbraucht weiterhin Modellaufrufe im Hintergrund.","This session is still running. Wait for it to finish, or stop it.":"Diese Sitzung läuft noch. Warte, bis sie endet, ode\
+r stoppe sie."},HOST_ERRORS_DE=[[/^Could not reach the mail server at (.+)\. Check the server address\.$/,"Mailserver unter $1 nicht erreichbar. Bitte prüfe die Serveradresse."],[
+/^Model (.+) is not available\. Available: (.*)$/,"Modell $1 ist nicht verfügbar. Verfügbar: $2"],[/^The API key for (.+) is set outside DS Bot and cannot be changed here$/,"Der \
+API-Schlüssel für $1 wurde außerhalb von DS Bot gesetzt und kann hier nicht geändert werden"],[/^(.+) takes no API key here$/,"Für $1 kann hier kein API-Schlüssel hinterlegt we\
+rden"],[/^(.+) is already set up$/,"$1 ist bereits eingerichtet"],[/^DSH offers no provider (.+)$/,"DSH bietet keinen Anbieter $1 an"],[/^DSH already offers (.+); add it from its list$/,
 "DSH bietet $1 bereits an; füge ihn über die Anbieterliste hinzu"],[/^The protocol must be one of (.+)$/,"Das Protokoll muss eines der folgenden sein: $1"],[/^(.+) is not set up$/,
 "$1 ist noch nicht eingerichtet"],[/^(.+) comes with this setup and cannot be removed$/,"$1 gehört zur Standardkonfiguration und kann nicht entfernt werden"],[/^A Bot named (.+) already exists$/,
 "Ein Bot namens $1 existiert bereits"],[/^Name (.*) is not available$/,"Der Name $1 ist nicht verfügbar"],[/^"(.+)" calls everyone in a group, so it cannot be a Bot name$/,"„$1“ r\
@@ -4782,17 +4873,31 @@ cation needed":"需要验证","Help needed in the browser":"需要你在浏览�
 porting…":"正在导入…",Import:"导入","Imported {count} cookies":"已导入 {count} 个 cookie","No cookies were stored":"没有 cookie 被写入","Reload the page":"刷新页面",
 "Import failed":"导入失败","That file is too large to be a cookie export.":"这个文件太大了，不像是 cookie 导出文件。","That file could not be read.":"这个文件读不了。",
 "This browser encrypts its cookies so only it can read them. Export them to a file first, then import that file.":"这个浏览器把 cookie 加密了，只有它自己能读。先把 cookie 导出成文件，再导入那个文件。",
-"{count}":"{count} 个","Choose a PNG, JPEG, WebP, or GIF image":"请选择 PNG、JPEG、WebP 或 GIF 图片","Choose an image smaller than 25 MB":"请选择小于 25 MB 的图片",
-"That image is too large":"图片太大了",Model:"模型","Avatar editor":"形象编辑","Avatar source":"形象来源",Upload:"上传","Reset character to default":"恢复默认形象",
-Reset:"恢复默认","Character shape":"形状","Character color":"颜色","Drag, drop, or paste an image":"拖入或粘贴一张图片",Replace:"替换","Browse files":"选择文件",
-"Remove photo":"移除照片","Edit Bot avatar":"编辑 Bot 形象",Name:"名字",Instructions:"说明","What this Bot is responsible for…":"这个 Bot 负责什么…","Pick the\
- model this Bot runs on.":"选择这个 Bot 使用的模型。","This model is not available now. Pick another one.":"这个模型现在不可用，请换一个。","Every message \
-of this Bot runs on it.":"这个 Bot 的每条消息都用它。","Applies from the next message.":"从下一条消息开始生效。",Profile:"资料",Label:"标签","Add a label":"\
-添加标签","Optional. Shown under the name.":"可选，显示在名字下方。","Research, admin…":"研究、行政…","What this Bot does":"这个 Bot 做什么","Its job o\
-n the team. Part of the Bot's system prompt.":"它在团队里的分工，会写进 Bot 的系统提示词。","A copy with the same job and model, and fresh memory.":"复制分工和模型，记忆从零\
-开始。","Delete {name}?":"删除 {name}？","Delete Bot":"删除 Bot","Click again to delete. Its chats are archived.":"再点一次删除，它的对话会归档。","Removes t\
-he Bot from the team.":"把这个 Bot 从团队里移除。","Pick a model and {name} can start.":"选好模型，{name} 就能开始工作。",Permissions:"权限","Read only":"仅可\
-查看",Workspace:"工作区内修改","Full access":"完全权限","Same for every member":"全员统一","Replaces each member's own permissions in this group.":"在这个群里代替各成员自己的权限。",
+"Keychain access was cancelled. Click Allow when macOS asks to read your browser cookies.":"钥匙串访问被取消了。macOS 询问读取浏览器 cookie 时请点「允许」。",
+"Remote debugging permission was declined in the browser. Try again and click Allow.":"浏览器拒绝了远程调试授权。请重试并在弹窗里点「允许」。","Timed out\
+ waiting for you to click Allow in the browser.":"等待你在浏览器里点「允许」超时了。","Another browser profile is active. Switch to the chosen profile window in yo\
+ur browser, then try again.":"当前激活的是另一个浏览器配置。请先在浏览器里切到所选配置的窗口，再重试。","Import from browser":"从浏览器导入",
+"Last used":"上次使用","Browser profile":"浏览器配置","Paste cookies or cURL…":"粘贴 cookie 或 cURL…","JSON, cURL, header":"JSON、cURL、请求头","Connect to {na\
+me}":"连接到 {name}","{name} protects its cookies on Windows. Enable its built-in remote debugging switch once — no extension needed.":"{name} 在 Windows 上对 cookie 做了保护。打开它自带的远\
+程调试开关一次即可，无需安装扩展。","1. Open this address in {name}:":"1. 在 {name} 中打开这个地址：","2. Turn on “Allow remote debugging for this browser\
+ instance”, then click Allow when {name} prompts.":"2. 打开「Allow remote debugging for this browser instance」开关，{name} 弹窗时点「允许」。","Remote debugging \
+detected — ready to import.":"已检测到远程调试，可以导入了。","Open {name}":"打开 {name}","Connect and import":"连接并导入","Paste cookies or cURL":"粘贴 cook\
+ie 或 cURL","Paste Cookie-Editor JSON, Netscape cookies.txt, Copy as cURL, or a Cookie header…":"粘贴 Cookie-Editor JSON、Netscape cookies.txt、Copy as cURL 或 Cookie 请求头…",
+"Site URL (only needed for plain Cookie headers)":"网站地址（仅粘贴纯 Cookie 请求头时需要）","Reading…":"读取中…","{count} storage entries":"{count} 条本地存储",
+"All sites ({count})":"全部网站 ({count})","This site ({host})":"当前网站 ({host})","Filter sites…":"筛选网站…",storage:"含存储","Keep session logins after app r\
+estart":"重启应用后保持会话登录","Reading {name}…":"正在读取 {name}…","If {name} or your system asks for permission, click Allow.":"如果 {name} 或系统弹出权限提示，请点「允许」。",
+"Imported storage for {count} sites":"已导入 {count} 个网站的本地存储","{count} sites storage":"{count} 个网站本地存储","page reloaded":"页面已刷新","{count}":"\
+{count} 个","Choose a PNG, JPEG, WebP, or GIF image":"请选择 PNG、JPEG、WebP 或 GIF 图片","Choose an image smaller than 25 MB":"请选择小于 25 MB 的图片","That imag\
+e is too large":"图片太大了",Model:"模型","Avatar editor":"形象编辑","Avatar source":"形象来源",Upload:"上传","Reset character to default":"恢复默认形象",Reset:"\
+恢复默认","Character shape":"形状","Character color":"颜色","Drag, drop, or paste an image":"拖入或粘贴一张图片",Replace:"替换","Browse files":"选择文件","Re\
+move photo":"移除照片","Edit Bot avatar":"编辑 Bot 形象",Name:"名字",Instructions:"说明","What this Bot is responsible for…":"这个 Bot 负责什么…","Pick the mo\
+del this Bot runs on.":"选择这个 Bot 使用的模型。","This model is not available now. Pick another one.":"这个模型现在不可用，请换一个。","Every message of \
+this Bot runs on it.":"这个 Bot 的每条消息都用它。","Applies from the next message.":"从下一条消息开始生效。",Profile:"资料",Label:"标签","Add a label":"添\
+加标签","Optional. Shown under the name.":"可选，显示在名字下方。","Research, admin…":"研究、行政…","What this Bot does":"这个 Bot 做什么","Its job on t\
+he team. Part of the Bot's system prompt.":"它在团队里的分工，会写进 Bot 的系统提示词。","A copy with the same job and model, and fresh memory.":"复制分工和模型，记忆从零开始。",
+"Delete {name}?":"删除 {name}？","Delete Bot":"删除 Bot","Click again to delete. Its chats are archived.":"再点一次删除，它的对话会归档。","Removes the Bot from\
+ the team.":"把这个 Bot 从团队里移除。","Pick a model and {name} can start.":"选好模型，{name} 就能开始工作。",Permissions:"权限","Read only":"仅可查看",
+Workspace:"工作区内修改","Full access":"完全权限","Same for every member":"全员统一","Replaces each member's own permissions in this group.":"在这个群里代替各成员自己的权限。",
 "The only Main Bot. To hand the role to another Bot, use Main Bot on the Bots page.":"这是唯一的主 Bot。要把主 Bot 交给别的 Bot，请到「Bot」页的主 Bot 里换。",
 Change:"更换","Can create and change Bots, and runs every group chat.":"可以创建和修改 Bot，并管理所有群聊。",Sidebar:"侧栏","Kept above the other chats.":"排在其他\
 对话上面。","Search still finds it.":"仍然可以搜索到。",Manage:"管理",Library:"头像库","Import photos":"导入照片","Importing photos…":"正在导入照片…",
@@ -4822,15 +4927,12 @@ other Bot to hand it the role; {name} then stops being a Main Bot.":"排在侧�
  a Bot…":"选择一个 Bot…","Also a Main Bot.":"也是主 Bot。","Move to first":"移到最前","Add a Main Bot":"添加主 Bot","Main Bots can create and change Bots, and ru\
 n every group chat.":"主 Bot 可以创建和修改 Bot，并管理所有群聊。","Group chats · {count}":"群聊 · {count}","No group chats yet.":"还没有群聊。","A group\
  chat lets several Bots work on one thing with you.":"在群聊里，几个 Bot 和你一起做一件事。","Back to group chats":"返回群聊列表","DS Bot settings":"DS Bot 设置",
-"Settings pages":"设置页面","Advanced settings":"高级设置","Back to models":"返回模型","Open Plugins":"打开插件页","DeepSeek services":"DeepSeek 服务","DeepSeek \
-API":"DeepSeek API","DeepSeek Web Search API":"DeepSeek 网页搜索 API","Find it in Plugins → Web search.":"在插件 → 网页搜索里打开。","Image and document reading":"\
-图片与文档识别","Use DeepSeek to read images and documents":"用 DeepSeek 识别图片和文档","Bots upload selected files to DeepSeek for text recognition; local Office e\
-diting is unchanged.":"Bot 会把选中的文件上传给 DeepSeek 做文字识别；本地 Office 编辑不变。","Open settings":"打开设置","Open settings file":"打开配置文件",
-"Could not open the settings file":"无法打开配置文件","Show code work view":"显示代码工作视图","Could not save. Try again.":"保存失败，请重试","Connection l\
-ost. Refresh to retry":"连接异常，刷新重试",Reconnecting:"重新连接中","Connection lost. Reconnect now":"连接异常，点击立即重连","Connection dropped and ret\
-rying. Reconnect now":"连接中断，正在重试，点击立即重连","Retry update":"重试更新","New version":"新版本","{percent}%":"{percent}%","Verifying the update…":"\
-正在校验更新文件…","Getting ready to restart…":"正在准备重启…","Install and restart":"安装并重启","{label}: {version}":"{label}：{version}","Downloading t\
-he update: {percent}%, version {version}":"正在下载更新：{percent}%，目标版本：{version}","Could not check for updates. Try again later.":"检查更新失败，请稍后重试。",
+"Settings pages":"设置页面","Advanced settings":"高级设置","Back to models":"返回模型","Open Plugins":"打开插件页","Open settings":"打开设置","Open settings fi\
+le":"打开配置文件","Could not open the settings file":"无法打开配置文件","Show code work view":"显示代码工作视图","Could not save. Try again.":"保存失败，请重试",
+"Connection lost. Refresh to retry":"连接异常，刷新重试",Reconnecting:"重新连接中","Connection lost. Reconnect now":"连接异常，点击立即重连","Connection dr\
+opped and retrying. Reconnect now":"连接中断，正在重试，点击立即重连","Retry update":"重试更新","New version":"新版本","{percent}%":"{percent}%","Verifying t\
+he update…":"正在校验更新文件…","Getting ready to restart…":"正在准备重启…","Install and restart":"安装并重启","{label}: {version}":"{label}：{version}",
+"Downloading the update: {percent}%, version {version}":"正在下载更新：{percent}%，目标版本：{version}","Could not check for updates. Try again later.":"检查更新失败，请稍后重试。",
 "Could not check for updates. Check your connection and try again.":"检查更新失败，请检查网络连接后重试。","Could not download the update. Try again.":"下载更新失败，请重试\
 。","Could not download the update. Check your connection and try again.":"下载更新失败，请检查网络连接后重试。","Could not install the update. Try again later.":"\
 安装更新失败，请稍后重试。","Could not install the update. Check your connection and try again.":"安装更新失败，请检查网络连接后重试。","Tasks could \
@@ -4838,109 +4940,113 @@ not stop safely, so the update was not installed. Try again later.":"未能安�
 hem and update.":"有新任务开始运行，请重新确认是否停止任务并更新。","Task status is not available. Try again when the workspace is ready.":"无法确认任务状态，请在工作区就绪\
 后重试更新。","Could not leave full screen. Leave full screen and try again.":"无法退出全屏，请退出全屏后重试更新","The service version changed":"服务版本变化",
 "This page paused live updates. Reload to load the new version.":"服务版本已变化，本页面已暂停热更新，刷新后加载新版本。","Reload to load the new version":"\
-刷新以加载新版本","Not now":"暂不刷新",Service:"服务",Page:"页面",Unknown:"未解析","Back to Bots":"返回 Bot 列表","Close settings":"关闭设置",Phone:"手机",
-"Off. Phones cannot reach this computer.":"已关闭。手机连不上这台电脑。","On. Paired phones can use DS Bot here.":"已开启。配对过的手机可以用这台电脑上的 DS Bot。",
-"Cannot reach the Server. Trying again…":"连不上服务器，正在重试…","Phone access":"手机访问",Beta:"测试版","Phone app":"手机 App","Android beta":"Android 测试\
-版",Server:"服务器","The Relay Server that passes encrypted messages between your phone and this computer. It cannot read them.":"在手机和这台电脑之间转发加密消息的中转服务器。它读不到消息内容。",
-"Pair a phone":"配对手机","Scan this code with the DS Bot app on your phone.":"用手机上的 DS Bot App 扫这个码。","The code works once. It stops working in {count} min\
-.":"这个码只能用一次，{count} 分钟后失效。","Show a QR code":"显示二维码","Your phone scans it once. After that it connects by itself.":"手机扫一次就行，以后会自动连接。",
-"Turn on phone access first":"请先打开手机访问",Phones:"手机","No phones yet":"还没有配对的手机","Paired on {date}":"{date} 配对",Unpin:"取消置顶",Pin:"置顶",
-Pinned:"已置顶","Mark as Unread":"标为未读","Mute notifications":"静音通知","Unmute notifications":"取消静音",Notifications:"通知","Tell me when a Bot answers whil\
-e I am looking elsewhere.":"Bot 在你没看着时回复，提醒我。","System notifications are turned off for DS Bot. Unread marks still show them.":"DS Bot 的系统通知已被关闭，仍会用未读标记提示\
-。","Rename Bot":"重命名 Bot","Group settings":"群设置","Shared to-do":"共享待办","{count} open":"{count} 项未完成","No shared to-dos yet. Ask a Bot in this group to\
- add one.":"还没有共享待办。让群里的一个 Bot 加一条。","Clear completed":"清除已完成","Rename group":"重命名群聊","Copy conversation ID":"复制对话 ID",
-"Hide from sidebar":"从侧栏隐藏","{name} actions":"{name} 的操作","Add DSH Agent":"添加 DSH Agent","Remove DSH Agent":"移除 DSH Agent","New session":"新会话",Archive:"\
-归档","Session actions":"会话操作",Plugins:"插件","Plain dsh session":"原生 dsh 会话","just now":"刚刚","{n} min":"{n} 分钟","{n} h":"{n} 小时","{n} d":"{n} 天",
-"DS Bot {version} is available":"DS Bot {version} 可以更新","Updating DS Bot…":"正在更新 DS Bot…","DS Bot {version} is installed. Restart DSH to use it.":"DS Bot {versi\
-on} 已安装，重启 DSH 后生效","DS Bot {version} is installed.":"DS Bot {version} 已安装。","DS Bot update":"DS Bot 更新","DS Bot {version}":"DS Bot {version}","Update\
- installed":"更新已安装","Restart DSH to start using DS Bot {version}.":"重启 DSH 后开始使用 DS Bot {version}。","You have {version}.":"当前版本 {version}。","The\
- update did not finish: {reason}":"更新没有完成：{reason}","What's new":"更新说明","Updating…":"正在更新…","DSH {version} is available":"DSH {version} 可以更新",
-"Updating DSH…":"正在更新 DSH…","DSH update":"DSH 更新","DSH {version}":"DSH {version}","Restart DSH to start using DSH {version}.":"重启 DSH 后开始使用 DSH {version}。",
-"Update DS Bot {version} first.":"先更新 DS Bot {version}。","Open updates":"打开更新",Messages:"消息",Commands:"命令","Search Bots, chats and messages":"搜索 Bot、对话和消息",
-"Clear search":"清除搜索",Results:"结果","No results":"没有结果","Try a Bot name or words from a message":"试试 Bot 名字或消息里的词","Search this group":"搜索这个群",
-"Search this group’s messages":"搜索这个群的消息","Search messages in {name}":"在 {name} 里搜索消息","Type at least two characters":"至少输入两个字","No mess\
-ages found":"没有找到消息","Try a different word":"换个词试试","Searching…":"搜索中…","Back to results":"返回结果","Around this message":"这条消息的前后",
-"1 match":"1 条结果","{count} matches":"{count} 条结果","Bot exchange":"Bot 间对话","Bot exchange transcript":"Bot 间对话记录","No messages yet":"还没有消息","Cl\
-ose Chat":"关闭","Show all · {count} characters":"显示全部 · {count} 字","Showing the first {count} characters":"只显示前 {count} 字","Only the start of this message \
-is kept here":"这里只保留了这条消息的开头","Start of reply":"回复开头","Back to the start of this reply":"回到这条回复的开头",Contents:"目录","Sections \
-in this reply":"这条回复的目录","Sections in this reply: {section}":"这条回复的目录：{section}","Today {time}":"今天 {time}","Yesterday {time}":"昨天 {time}","Ra\
-n for {duration}":"本次用时 {duration}","No background work detected":"未检测到后台任务","DS Bot has no recorded tool call or active background task for this reply.":"D\
-S Bot 未记录到这条回复的工具调用或正在运行的后台任务。","File not found: {path}":"文件不存在：{path}","{tokens} tok · Cache hit {hit}%":"{tokens} tok\
- · 缓存命中 {hit}%","1 turn":"1 轮","{count} turns":"{count} 轮","{speed} tok/s":"{speed} tok/s","Cache hit {hit}%":"缓存命中 {hit}%","Context {percent}%":"上下文 {percent}\
-%","{used} of {total} tokens of context in use":"上下文已用 {used} / {total} tokens",Annotate:"批注","Annotate quote":"批注引用",Annotation:"批注","Add an annotation…":"\
-写下批注…","Add quote and annotation to the composer · Enter":"将引用和批注添加到输入框 · Enter","Send quote and annotation · Ctrl+Enter":"发送引用和批注 · Ctrl+Enter",
-Footnotes:"脚注","Remove reaction {emoji}":"移除表情 {emoji}","Add reaction":"添加表情",Reply:"回复","More message actions":"更多操作",More:"更多",Reactions:"表情",
-"Message actions":"消息操作",Download:"下载","Thought it through":"思考过程","Earlier messages":"更早的消息","Loading earlier messages…":"正在加载更早的消息…",
-"Couldn’t load earlier messages · Retry":"更早的消息没加载出来 · 重试","Load earlier":"加载更早的消息","1 image":"1 张图片","{count} images":"{count} 张图片",
-"Replies from":"群聊回复：","Reply from":"收到回复：","Message from":"收到消息：","Stopped by":"叫停者：","{count} messages with":"{count} 条消息，来自","R\
-outine started":"例行任务开始",Update:"更新","Thinking about it":"想一想","Weighing the options":"权衡一下","Working out a plan":"理一下思路","Sorting out the d\
-etails":"梳理细节","On it":"在做了","Busy with it":"正在处理","Moving ahead":"推进中","Taking care of it":"处理中","Making headway":"有进展了","Moving to a fre\
-sh conversation":"整理记忆，换到新对话","Switching working folder":"正在切换工作文件夹","Searching online":"上网搜索","Reading a page":"阅读网页","Runnin\
-g shell commands":"运行命令","Opening a file":"打开文件","Looking through files":"查找文件","Writing changes":"写入修改","Working on an image":"处理图片","Creat\
-ing a group":"创建群聊","Updating the group":"更新群聊","Deleting the group":"删除群聊","Posting in the group":"在群里发言","Checking the keys":"查看密钥","Ask\
-ing {name}":"询问 {name}","Asking another Bot":"询问其他 Bot","Stopping {name}":"叫停 {name}","Stopping another Bot":"叫停其他 Bot","Creating {name}":"创建 {name}","U\
-pdating {name}":"更新 {name}","Checking the team":"查看团队","Reading {name}":"阅读 {name}","Looking back through the chat":"翻看聊天记录","{name} looked up its own c\
-hat":"{name} 查看了自己的对话","{name} looked up its own chat for “{text}”":"{name} 在自己的对话里查找「{text}」","{name} is typing…":"{name} 正在输入…",
-"{name} didn't answer in time":"{name} 没有及时回应","{name} did not answer or call anyone; call a member with @Name":"{name} 没有回答，也没有叫谁；用 @名字 叫一个成员来回答",
-"The group replies could not be shown":"群里的回复显示不出来","Paused after {count} Bot relays. Waiting: {names}":"Bot 之间已接力 {count} 次，先停下了。还在等：{names}",
-"{names} went back and forth {count} times without progress and paused. Write here to go on":"{names} 来回 {count} 次没有进展，先停下了。你发言后继续","{name} pa\
-used for your approval":"{name} 停下来等你批准","{name} started on it":"{name} 开始做了","You stopped {name}'s work":"你停下了 {name} 的工作","{name} finished its\
- work":"{name} 做完了","{name} was cut off by a restart and picked its work back up":"{name} 的工作被重启打断，已经接着做","{name} was cut off by a restart again a\
-nd stopped":"{name} 的工作又被重启打断，已停下","Picked up its work after a restart":"重启后接着做之前的工作","Profile updated":"资料已更新","Asked to \
-make the tool call it wrote as text":"工具调用被写成了文字，已让它重新调用","Went on after the failed turn":"上一轮失败后，已让它接着做","A Bot":"一个 \
-Bot","{name} is waiting for your approval":"{name} 等你批准","{first} and {second} are waiting for your approval":"{first}、{second} 等你批准","{first}, {second} and {coun\
-t} more are waiting for your approval":"{first}、{second} 等 {total} 个等你批准","Waiting for your approval":"等你批准","in its own chat":"在自己的对话里","Stop a\
-ll work in this group":"停止本群的所有工作","Stop all":"全部停止",Goal:"目标","Set a goal":"设定目标","This group has no admin":"这个群没有管理员","What \
-should this group achieve?":"这个群要达成什么？",Start:"开始",Resume:"继续","Stop the goal?":"确认终止？","Aligning the goal with you":"正在和你对齐目标",
-"{admin} asks what is still open, then writes the goal with its checks and stages.":"{admin} 会先问清还没定的地方，再写出带验收方法和阶段的目标。",Objective:"\
-目标","Done when":"验收方法",Rules:"约束","Final check":"总验收","Waiting for you":"等你处理","Goal reached":"已达成",Stages:"阶段","Stage {n}: {title}":"第 {n} \
-阶段：{title}","Paused · {title}":"已暂停 · {title}","Waiting for you · {title}":"等你 · {title}","Checking · {title}":"验收中 · {title}","Sent back by {admin}: {f\
-eedback}":"{admin} 打回重做：{feedback}","Sent back {n} times by {admin}. Last time: {feedback}":"{admin} 已打回 {n} 次，最近一次：{feedback}","Done when: {text}":"完\
-成标准：{text}","Evidence: {text}":"通过的依据：{text}","Back to current stage":"回到当前阶段","Goal and checks":"目标与验收",Summary:"总结",Evidence:"证据",
-"Stop current work too":"同时停止当前工作","Setting a goal":"正在设定目标","Goal set: {title} · {count} stages":"已设定目标：{title} · {count} 个阶段","Sta\
-ge {n} passed · now stage {m}: {next}":"阶段 {n} 已通过 · 进入阶段 {m}：{next}","All {count} stages passed":"{count} 个阶段全部通过","Stage {n} sent back for rew\
-ork":"阶段 {n} 已打回返工","Goal updated":"目标已更新","Goal paused":"目标已暂停","Goal resumed":"目标已继续","Goal reached: {title}":"目标已达成：{title}",
-"Goal stopped":"目标已终止",Reject:"拒绝","Allow once":"允许一次","Couldn't message {name}":"没能给 {name} 发消息",Messaged:"已发消息给","Couldn't stop {name}":"\
-没能叫停 {name}",Stopped:"已终止",Created:"已创建",Updated:"已更新","Created group":"已创建群聊","Couldn't create the group":"没能创建群聊","Updated group":"\
-已更新群聊","Couldn't update the group":"没能更新群聊","Deleted group":"已删除群聊","Couldn't delete the group":"没能删除群聊","Posted in":"已发到","Couldn\
-'t post in the group":"没能在群里发言",Read:"已读取","Your own answer":"你自己的回答","Type your own answer":"输入你自己的回答",Selected:"已选",Skip:"跳过",
-Submit:"提交","Choose all that apply":"可多选","Dismiss question":"关闭问题",Dismiss:"关闭",Dismissed:"已关闭","Answered by message":"已用消息回答","Your answer":"\
-你的回答",View:"视图",Confirm:"确认",Progress:"进度","Dismiss view":"关闭视图",Sources:"来源",Chart:"图表","Chart {n}":"图表 {n}",Series:"系列","Chart options":"\
-图表选项","View as table":"以表格查看","View as chart":"以图表查看","Copy data":"复制数据","Download image":"下载图片","This view tried to open a page and was\
- stopped.":"这个视图想打开一个网页，已被拦下。","Send to Bot":"发给 Bot","All Bots":"所有 Bot","No Bot":"没有 Bot","Paste or type the key":"粘贴或输入密钥",
-"Only {name}":"只给 {name}","Who may use it":"谁可以用","Cancel the request":"取消请求","This page is not on HTTPS: the key crosses the network unencrypted.":"这个页面不是 HTTP\
-S：密钥会以明文经过网络。","Let {bot} use {name}?":"允许 {bot} 使用 {name}？","{name} needs a key":"{name} 需要一个密钥","Saved for {scope}":"已保存，可用范围：{scope\
-}","Value of {name}":"{name} 的值","{bot} never sees the value. It reaches {bot}'s shell as ":"{bot} 永远看不到这个值。它会作为下面的环境变量进入 {bot} 的 shell：",
-" At least {count} characters.":" 至少 {count} 个字符。","At least {count} characters.":"至少 {count} 个字符。","Replace value":"替换值","Saving…":"保存中…","\
-Could not save this file":"保存这个文件失败",Save:"保存","Allowing…":"允许中…",Allow:"允许","{bot} asked for {name}":"{bot} 请求了 {name}","Allowed {bot} to u\
-se {name}":"已允许 {bot} 使用 {name}","Saved {name}":"已保存 {name}",Canceled:"已取消",Done:"完成","{bot} is using {name}":"{bot} 正在使用 {name}","{bot} could not\
- ask for a key: this window can only view the team":"{bot} 没能要密钥：这个窗口只能查看团队","a saved key":"一个已保存的密钥","Chosen Bots":"指定的 Bot",
-"Who may use {name}":"谁可以用 {name}","Save access":"保存权限","Replace the value":"替换值","New value of {name}":"{name} 的新值","Replaced. Bots get the new value f\
-rom their next command.":"已替换。Bot 从下一条命令开始拿到新值。","a deleted Bot":"一个已删除的 Bot","Asked by {name}":"由 {name} 请求","added {time}":"添加\
-于 {time}","last used {time}":"上次使用 {time}","not used yet":"还没用过","Delete {name}? Bots lose it at once.":"删除 {name}？Bot 会立刻失去它。",Keep:"保留",
-"Key name":"密钥名","NAME, e.g. GITHUB_TOKEN":"名字，例如 GITHUB_TOKEN","What it is for":"用途",Value:"值","New keys are for all Bots; narrow it down afterwards.":"新密钥默认\
-所有 Bot 可用，之后可以收窄。","Save key":"保存密钥","Keys your Bots asked for. Bots never see the values: they use them as ":"你的 Bot 请求过的密钥。Bot 永远看不到值：它们在 shell 里通\
-过 "," in their shell, and every value is replaced by ":" 使用，而且发给模型之前，每个值都会被替换成 "," before anything goes to a model.":"。","Secrets · {c\
-ount}":"密钥 · {count}","Encryption at rest":"静态加密","Keys are stored in a file only this user can read, but the values are not encrypted.":"密钥存在只有该用户能读的文件里，但值没有加密。",
-"Encrypt keys at rest":"加密存储密钥","Passphrase (at least 8 characters)":"口令（至少 8 个字符）","Repeat the passphrase":"再输一次口令","The passphrases do n\
-ot match.":"两次输入的口令不一致。","Turn on encryption":"开启加密","Keys are stored encrypted. They stay decrypted in memory while DS Bot runs.":"密钥加密存放；DS Bot 运行期间\
-解密后的值只在内存里。","Turn off encryption":"关闭加密","Secrets are locked":"密钥已锁定",Passphrase:"口令",Unlock:"解锁","The passphrase file named by DS_\
-BOT_SECRETS_PASSPHRASE_FILE could not be read.":"DS_BOT_SECRETS_PASSPHRASE_FILE 指向的口令文件读不到。","The passphrase in the environment or the passphrase file did not\
- unlock the secrets.":"环境变量或口令文件里的口令解不开密钥。","No passphrase was found at startup. Enter it here, or set DS_BOT_SECRETS_PASSPHRASE_FILE for unat\
-tended starts.":"启动时没有找到口令。在这里输入，或为无人值守启动设置 DS_BOT_SECRETS_PASSPHRASE_FILE。","No keys yet. When a Bot needs one, it shows a ca\
-rd in its chat.":"还没有密钥。Bot 需要时，会在对话里弹出一张卡片。","Add a key":"添加密钥",Memory:"记忆","Nothing saved yet":"还没有保存内容","1 \
-entry":"1 条","{count} entries":"{count} 条","Manage {name}'s memory":"管理 {name} 的记忆","{name}'s memory":"{name} 的记忆","Memory summary":"记忆摘要","All entries":"\
-全部记忆","Change history":"更改记录","No changes yet":"还没有更改","Load more":"加载更多",Undo:"撤销",Undone:"已撤销","Undo this change":"撤销这条更改",
-"Click again to undo":"再点一次撤销","Memory options":"记忆选项","Close memory":"关闭记忆","Back to the summary":"返回摘要","Regenerate summary":"重新生成摘要",
-"Updated {time}":"更新于 {time}","Updated just now":"刚刚更新","Writing the summary…":"正在生成摘要…","The summary is out of date: {reason}":"摘要不是最新的：{reason}",
-"The summary could not be written: {reason}":"摘要没能生成：{reason}","{name} has not saved anything yet":"{name} 还没有记住任何内容","Bots keep lasting preferences\
-, decisions, and what you ask them to remember. Tell {name} below, or in its chat.":"Bot 会记住长期的偏好、做过的决定，以及你让它记住的事。可以在下面告诉 {name}，也可以在对话里说。",
-"Nothing is saved for this group yet":"这个群还没有记住任何内容","A group keeps the decisions, rules, and facts its work needs, for its members to read here. Tell it be\
-low, or in the group.":"群会记住工作需要的决定、规则和事实，只有群成员在这个群里会读。可以在下面告诉它，也可以在群里说。","Team memo\
-ry":"团队记忆","Every Bot reads it":"所有 Bot 都会读","Group memory":"群记忆","Only its members read it":"只有群成员会读","MEMORY.md, which every conversation re\
-ads":"MEMORY.md，每次对话都会读","{used} of {limit} characters":"{used} / {limit} 字符","by you":"由你添加","by {name}":"由 {name} 添加","Remove from memory":"从记忆中\
-删除","until {day}":"有效至 {day}","Tidied: {merged} merged, {moved} moved, {retired} archived":"已整理：合并 {merged} 条，移动 {moved} 条，归档 {retired} 条","\
-Only when needed":"需要时才读","Move to…":"移到…","Every conversation":"每次都带","ended {day}":"已于 {day} 结束","Click again to remove":"再点一次删除",Remove:"\
+刷新以加载新版本","Not now":"暂不刷新",Service:"服务",Page:"页面",Unknown:"未解析","Back to Bots":"返回 Bot 列表","Close settings":"关闭设置","DeepSeek s\
+ervices":"DeepSeek 服务","DeepSeek API":"DeepSeek API","DeepSeek Web Search API":"DeepSeek 联网搜索 API","Find it in Plugins → Web search.":"在 插件 → 网页搜索 里设置。",
+"Image and document reading":"图片与文档识别","Use DeepSeek to read images and documents":"用 DeepSeek 识别图片和文档","Bots upload selected files to DeepSeek for te\
+xt recognition; local Office editing is unchanged.":"Bot 会把选中的文件上传给 DeepSeek 做文字识别；本地 Office 编辑流程不变。","Text to speech":"文字转语音",
+"Read replies aloud":"朗读回复",System:"系统",Voice:"声音","Speech recognition":"语音识别","Dictation provider":"听写提供方","Use DeepSeek for dictation":"用 DeepSe\
+ek 听写","In use":"使用中",Phone:"手机","Off. Phones cannot reach this computer.":"已关闭。手机连不上这台电脑。","On. Paired phones can use DS Bot here.":"已开启。\
+配对过的手机可以用这台电脑上的 DS Bot。","Cannot reach the Server. Trying again…":"连不上服务器，正在重试…","Phone access":"手机访问",Beta:"测试版",
+"Phone app":"手机 App","Android beta":"Android 测试版",Server:"服务器","The Relay Server that passes encrypted messages between your phone and this computer. It cannot read\
+ them.":"在手机和这台电脑之间转发加密消息的中转服务器。它读不到消息内容。","Pair a phone":"配对手机","Scan this code with the DS Bot app on your\
+ phone.":"用手机上的 DS Bot App 扫这个码。","The code works once. It stops working in {count} min.":"这个码只能用一次，{count} 分钟后失效。","Show a QR cod\
+e":"显示二维码","Your phone scans it once. After that it connects by itself.":"手机扫一次就行，以后会自动连接。","Turn on phone access first":"请先打开手机访问",
+Phones:"手机","No phones yet":"还没有配对的手机","Paired on {date}":"{date} 配对",Unpin:"取消置顶",Pin:"置顶",Pinned:"已置顶","Mark as Unread":"标为未读","\
+Mute notifications":"静音通知","Unmute notifications":"取消静音",Notifications:"通知","Tell me when a Bot answers while I am looking elsewhere.":"Bot 在你没看着时回复，提醒我。",
+"System notifications are turned off for DS Bot. Unread marks still show them.":"DS Bot 的系统通知已被关闭，仍会用未读标记提示。","Rename Bot":"重命名 Bot","\
+Group settings":"群设置","Shared to-do":"共享待办","{count} open":"{count} 项未完成","No shared to-dos yet. Ask a Bot in this group to add one.":"还没有共享待办。让群里的一个 Bot 加一条。",
+"Clear completed":"清除已完成","Rename group":"重命名群聊","Copy conversation ID":"复制对话 ID","Hide from sidebar":"从侧栏隐藏","{name} actions":"{name} 的操作",
+"Add DSH Agent":"添加 DSH Agent","Remove DSH Agent":"移除 DSH Agent","New session":"新会话",Archive:"归档","Session actions":"会话操作",Plugins:"插件","Plain dsh ses\
+sion":"原生 dsh 会话","just now":"刚刚","{n} min":"{n} 分钟","{n} h":"{n} 小时","{n} d":"{n} 天","DS Bot {version} is available":"DS Bot {version} 可以更新","Updatin\
+g DS Bot…":"正在更新 DS Bot…","DS Bot {version} is installed. Restart DSH to use it.":"DS Bot {version} 已安装，重启 DSH 后生效","DS Bot {version} is installed.":"\
+DS Bot {version} 已安装。","DS Bot update":"DS Bot 更新","DS Bot {version}":"DS Bot {version}","Update installed":"更新已安装","Restart DSH to start using DS Bot {versio\
+n}.":"重启 DSH 后开始使用 DS Bot {version}。","You have {version}.":"当前版本 {version}。","The update did not finish: {reason}":"更新没有完成：{reason}","What'\
+s new":"更新说明","Updating…":"正在更新…","DSH {version} is available":"DSH {version} 可以更新","Updating DSH…":"正在更新 DSH…","DSH update":"DSH 更新","D\
+SH {version}":"DSH {version}","Restart DSH to start using DSH {version}.":"重启 DSH 后开始使用 DSH {version}。","Update DS Bot {version} first.":"先更新 DS Bot {version}。",
+"Open updates":"打开更新",Messages:"消息",Commands:"命令","Search Bots, chats and messages":"搜索 Bot、对话和消息","Clear search":"清除搜索",Results:"结果","N\
+o results":"没有结果","Try a Bot name or words from a message":"试试 Bot 名字或消息里的词","Search this group":"搜索这个群","Search this group’s messages":"搜索这\
+个群的消息","Search messages in {name}":"在 {name} 里搜索消息","Type at least two characters":"至少输入两个字","No messages found":"没有找到消息","Try a dif\
+ferent word":"换个词试试","Searching…":"搜索中…","Back to results":"返回结果","Around this message":"这条消息的前后","1 match":"1 条结果","{count} matches":"\
+{count} 条结果","Bot exchange":"Bot 间对话","Bot exchange transcript":"Bot 间对话记录","No messages yet":"还没有消息","Close Chat":"关闭","Show all · {count} char\
+acters":"显示全部 · {count} 字","Showing the first {count} characters":"只显示前 {count} 字","Only the start of this message is kept here":"这里只保留了这条消息的开头",
+"Start of reply":"回复开头","Back to the start of this reply":"回到这条回复的开头",Contents:"目录","Sections in this reply":"这条回复的目录","Sections in this\
+ reply: {section}":"这条回复的目录：{section}","Today {time}":"今天 {time}","Yesterday {time}":"昨天 {time}","Ran for {duration}":"本次用时 {duration}","No backgrou\
+nd work detected":"未检测到后台任务","DS Bot has no recorded tool call or active background task for this reply.":"DS Bot 未记录到这条回复的工具调用或正在运行的后台任务。",
+"File not found: {path}":"文件不存在：{path}","{tokens} tok · Cache hit {hit}%":"{tokens} tok · 缓存命中 {hit}%","1 turn":"1 轮","{count} turns":"{count} 轮","{speed}\
+ tok/s":"{speed} tok/s","Cache hit {hit}%":"缓存命中 {hit}%","Context {percent}%":"上下文 {percent}%","{used} of {total} tokens of context in use":"上下文已用 {used} / {total} to\
+kens",Annotate:"批注","Annotate quote":"批注引用",Annotation:"批注","Add an annotation…":"写下批注…","Add quote and annotation to the composer · Enter":"将引用和批注添加到输\
+入框 · Enter","Send quote and annotation · Ctrl+Enter":"发送引用和批注 · Ctrl+Enter",Footnotes:"脚注","Remove reaction {emoji}":"移除表情 {emoji}","Add reaction":"\
+添加表情",Reply:"回复","More message actions":"更多操作",More:"更多",Reactions:"表情","Message actions":"消息操作",Download:"下载","Thought it through":"思考过程",
+"Earlier messages":"更早的消息","Loading earlier messages…":"正在加载更早的消息…","Couldn’t load earlier messages · Retry":"更早的消息没加载出来 · 重试",
+"Load earlier":"加载更早的消息","1 image":"1 张图片","{count} images":"{count} 张图片","Replies from":"群聊回复：","Reply from":"收到回复：","Message from":"\
+收到消息：","Stopped by":"叫停者：","{count} messages with":"{count} 条消息，来自","Routine started":"例行任务开始",Update:"更新","Thinking about it":"想一想",
+"Weighing the options":"权衡一下","Working out a plan":"理一下思路","Sorting out the details":"梳理细节","On it":"在做了","Busy with it":"正在处理","Moving ahea\
+d":"推进中","Taking care of it":"处理中","Making headway":"有进展了","Moving to a fresh conversation":"整理记忆，换到新对话","Switching working folder":"正在切换工作文\
+件夹","Searching online":"上网搜索","Reading a page":"阅读网页","Running shell commands":"运行命令","Opening a file":"打开文件","Looking through files":"查找文件",
+"Writing changes":"写入修改","Working on an image":"处理图片","Creating a group":"创建群聊","Updating the group":"更新群聊","Deleting the group":"删除群聊","Pos\
+ting in the group":"在群里发言","Checking the keys":"查看密钥","Asking {name}":"询问 {name}","Asking another Bot":"询问其他 Bot","Stopping {name}":"叫停 {name}","S\
+topping another Bot":"叫停其他 Bot","Creating {name}":"创建 {name}","Updating {name}":"更新 {name}","Checking the team":"查看团队","Reading {name}":"阅读 {name}","Loo\
+king back through the chat":"翻看聊天记录","{name} looked up its own chat":"{name} 查看了自己的对话","{name} looked up its own chat for “{text}”":"{name} 在自己的对话里查\
+找「{text}」","{name} is typing…":"{name} 正在输入…","{name} didn't answer in time":"{name} 没有及时回应","{name} did not answer or call anyone; call a member with\
+ @Name":"{name} 没有回答，也没有叫谁；用 @名字 叫一个成员来回答","The group replies could not be shown":"群里的回复显示不出来","Paused after {count}\
+ Bot relays. Waiting: {names}":"Bot 之间已接力 {count} 次，先停下了。还在等：{names}","{names} went back and forth {count} times without progress and paused. Write \
+here to go on":"{names} 来回 {count} 次没有进展，先停下了。你发言后继续","{name} paused for your approval":"{name} 停下来等你批准","{name} started on it":"\
+{name} 开始做了","You stopped {name}'s work":"你停下了 {name} 的工作","{name} finished its work":"{name} 做完了","{name} was cut off by a restart and picked its work \
+back up":"{name} 的工作被重启打断，已经接着做","{name} was cut off by a restart again and stopped":"{name} 的工作又被重启打断，已停下","Picked up its wor\
+k after a restart":"重启后接着做之前的工作","Profile updated":"资料已更新","Asked to make the tool call it wrote as text":"工具调用被写成了文字，已让它重新调用",
+"Went on after the failed turn":"上一轮失败后，已让它接着做","A Bot":"一个 Bot","{name} is waiting for your approval":"{name} 等你批准","{first} and {second} are\
+ waiting for your approval":"{first}、{second} 等你批准","{first}, {second} and {count} more are waiting for your approval":"{first}、{second} 等 {total} 个等你批准","W\
+aiting for your approval":"等你批准","in its own chat":"在自己的对话里","Stop all work in this group":"停止本群的所有工作","Stop all":"全部停止",Goal:"目标",
+"Set a goal":"设定目标","This group has no admin":"这个群没有管理员","What should this group achieve?":"这个群要达成什么？",Start:"开始",Resume:"继续","Sto\
+p the goal?":"确认终止？","Aligning the goal with you":"正在和你对齐目标","{admin} asks what is still open, then writes the goal with its checks and stages.":"{admin} \
+会先问清还没定的地方，再写出带验收方法和阶段的目标。",Objective:"目标","Done when":"验收方法",Rules:"约束","Final check":"总验收","Waiting for \
+you":"等你处理","Goal reached":"已达成",Stages:"阶段","Stage {n}: {title}":"第 {n} 阶段：{title}","Paused · {title}":"已暂停 · {title}","Waiting for you · {title}":"\
+等你 · {title}","Checking · {title}":"验收中 · {title}","Sent back by {admin}: {feedback}":"{admin} 打回重做：{feedback}","Sent back {n} times by {admin}. Last time: {\
+feedback}":"{admin} 已打回 {n} 次，最近一次：{feedback}","Done when: {text}":"完成标准：{text}","Evidence: {text}":"通过的依据：{text}","Back to current stage":"\
+回到当前阶段","Goal and checks":"目标与验收",Summary:"总结",Evidence:"证据","Stop current work too":"同时停止当前工作","Setting a goal":"正在设定目标",
+"Goal set: {title} · {count} stages":"已设定目标：{title} · {count} 个阶段","Stage {n} passed · now stage {m}: {next}":"阶段 {n} 已通过 · 进入阶段 {m}：{next}",
+"All {count} stages passed":"{count} 个阶段全部通过","Stage {n} sent back for rework":"阶段 {n} 已打回返工","Goal updated":"目标已更新","Goal paused":"目标已暂停",
+"Goal resumed":"目标已继续","Goal reached: {title}":"目标已达成：{title}","Goal stopped":"目标已终止",Reject:"拒绝","Allow once":"允许一次","Couldn't message \
+{name}":"没能给 {name} 发消息",Messaged:"已发消息给","Couldn't stop {name}":"没能叫停 {name}",Stopped:"已终止",Created:"已创建",Updated:"已更新","Created gr\
+oup":"已创建群聊","Couldn't create the group":"没能创建群聊","Updated group":"已更新群聊","Couldn't update the group":"没能更新群聊","Deleted group":"已删除群聊",
+"Couldn't delete the group":"没能删除群聊","Posted in":"已发到","Couldn't post in the group":"没能在群里发言",Read:"已读取","Your own answer":"你自己的回答",
+"Type your own answer":"输入你自己的回答",Selected:"已选",Skip:"跳过",Submit:"提交","Choose all that apply":"可多选","Dismiss question":"关闭问题",Dismiss:"关闭",
+Dismissed:"已关闭","Answered by message":"已用消息回答","Your answer":"你的回答",View:"视图",Confirm:"确认",Progress:"进度","Dismiss view":"关闭视图",Sources:"\
+来源",Chart:"图表","Chart {n}":"图表 {n}",Series:"系列","Chart options":"图表选项","View as table":"以表格查看","View as chart":"以图表查看","Copy data":"复制数据",
+"Download image":"下载图片","This view tried to open a page and was stopped.":"这个视图想打开一个网页，已被拦下。","Send to Bot":"发给 Bot","All Bots":"所有 Bo\
+t","No Bot":"没有 Bot","Paste or type the key":"粘贴或输入密钥","Only {name}":"只给 {name}","Who may use it":"谁可以用","Cancel the request":"取消请求","This pag\
+e is not on HTTPS: the key crosses the network unencrypted.":"这个页面不是 HTTPS：密钥会以明文经过网络。","Let {bot} use {name}?":"允许 {bot} 使用 {name}？",
+"{name} needs a key":"{name} 需要一个密钥","Saved for {scope}":"已保存，可用范围：{scope}","Value of {name}":"{name} 的值","{bot} never sees the value. It reaches \
+{bot}'s shell as ":"{bot} 永远看不到这个值。它会作为下面的环境变量进入 {bot} 的 shell："," At least {count} characters.":" 至少 {count} 个字符。","At \
+least {count} characters.":"至少 {count} 个字符。","Replace value":"替换值","Saving…":"保存中…","Could not save this file":"保存这个文件失败",Save:"保存",
+"Allowing…":"允许中…",Allow:"允许","{bot} asked for {name}":"{bot} 请求了 {name}","Allowed {bot} to use {name}":"已允许 {bot} 使用 {name}","Saved {name}":"已保存 {nam\
+e}",Canceled:"已取消",Done:"完成","{bot} is using {name}":"{bot} 正在使用 {name}","{bot} could not ask for a key: this window can only view the team":"{bot} 没能要密钥：这个窗口只能查看\
+团队","a saved key":"一个已保存的密钥","Chosen Bots":"指定的 Bot","Who may use {name}":"谁可以用 {name}","Save access":"保存权限","Replace the value":"替换值",
+"New value of {name}":"{name} 的新值","Replaced. Bots get the new value from their next command.":"已替换。Bot 从下一条命令开始拿到新值。","a deleted Bot":"一个已删\
+除的 Bot","Asked by {name}":"由 {name} 请求","added {time}":"添加于 {time}","last used {time}":"上次使用 {time}","not used yet":"还没用过","Delete {name}? Bots lose\
+ it at once.":"删除 {name}？Bot 会立刻失去它。",Keep:"保留","Key name":"密钥名","NAME, e.g. GITHUB_TOKEN":"名字，例如 GITHUB_TOKEN","What it is for":"用途",Value:"\
+值","New keys are for all Bots; narrow it down afterwards.":"新密钥默认所有 Bot 可用，之后可以收窄。","Save key":"保存密钥","Keys your Bots asked for. Bots ne\
+ver see the values: they use them as ":"你的 Bot 请求过的密钥。Bot 永远看不到值：它们在 shell 里通过 "," in their shell, and every value is replaced by ":" 使用\
+，而且发给模型之前，每个值都会被替换成 "," before anything goes to a model.":"。","Secrets · {count}":"密钥 · {count}","Encryption at rest":"静态加密","\
+Keys are stored in a file only this user can read, but the values are not encrypted.":"密钥存在只有该用户能读的文件里，但值没有加密。","Encrypt keys at rest":"\
+加密存储密钥","Passphrase (at least 8 characters)":"口令（至少 8 个字符）","Repeat the passphrase":"再输一次口令","The passphrases do not match.":"两次输入的口令不一致。",
+"Turn on encryption":"开启加密","Keys are stored encrypted. They stay decrypted in memory while DS Bot runs.":"密钥加密存放；DS Bot 运行期间解密后的值只在内存里。",
+"Turn off encryption":"关闭加密","Secrets are locked":"密钥已锁定",Passphrase:"口令",Unlock:"解锁","The passphrase file named by DS_BOT_SECRETS_PASSPHRASE_FILE could n\
+ot be read.":"DS_BOT_SECRETS_PASSPHRASE_FILE 指向的口令文件读不到。","The passphrase in the environment or the passphrase file did not unlock the secrets.":"环境变量或口令文件里的口\
+令解不开密钥。","No passphrase was found at startup. Enter it here, or set DS_BOT_SECRETS_PASSPHRASE_FILE for unattended starts.":"启动时没有找到口令。在这里输入，或为无人值守启动设置 DS_BOT_SECRETS_\
+PASSPHRASE_FILE。","No keys yet. When a Bot needs one, it shows a card in its chat.":"还没有密钥。Bot 需要时，会在对话里弹出一张卡片。","Add a key":"添加密钥",
+Memory:"记忆","Nothing saved yet":"还没有保存内容","1 entry":"1 条","{count} entries":"{count} 条","Manage {name}'s memory":"管理 {name} 的记忆","{name}'s memory":"\
+{name} 的记忆","Memory summary":"记忆摘要","All entries":"全部记忆","Change history":"更改记录","No changes yet":"还没有更改","Load more":"加载更多",Undo:"撤\
+销",Undone:"已撤销","Undo this change":"撤销这条更改","Click again to undo":"再点一次撤销","Memory options":"记忆选项","Close memory":"关闭记忆","Back to th\
+e summary":"返回摘要","Regenerate summary":"重新生成摘要","Updated {time}":"更新于 {time}","Updated just now":"刚刚更新","Writing the summary…":"正在生成摘要…",
+"The summary is out of date: {reason}":"摘要不是最新的：{reason}","The summary could not be written: {reason}":"摘要没能生成：{reason}","{name} has not saved anythin\
+g yet":"{name} 还没有记住任何内容","Bots keep lasting preferences, decisions, and what you ask them to remember. Tell {name} below, or in its chat.":"Bot 会记住长期的偏好、做过的决定，以及\
+你让它记住的事。可以在下面告诉 {name}，也可以在对话里说。","Nothing is saved for this group yet":"这个群还没有记住任何内容","A group keeps the \
+decisions, rules, and facts its work needs, for its members to read here. Tell it below, or in the group.":"群会记住工作需要的决定、规则和事实，只有群成员在这个群里会读。可以在下面告诉它，也可以在群里说。",
+"Team memory":"团队记忆","Every Bot reads it":"所有 Bot 都会读","Group memory":"群记忆","Only its members read it":"只有群成员会读","MEMORY.md, which every conve\
+rsation reads":"MEMORY.md，每次对话都会读","{used} of {limit} characters":"{used} / {limit} 字符","by you":"由你添加","by {name}":"由 {name} 添加","Remove from mem\
+ory":"从记忆中删除","until {day}":"有效至 {day}","Tidied: {merged} merged, {moved} moved, {retired} archived":"已整理：合并 {merged} 条，移动 {moved} 条，归档 {retired} 条",
+"Only when needed":"需要时才读","Move to…":"移到…","Every conversation":"每次都带","ended {day}":"已于 {day} 结束","Click again to remove":"再点一次删除",Remove:"\
 删除","Ask or update":"询问或更新","Ask about or update {name}'s memory":"询问或更新 {name} 的记忆",Send:"发送","Added: {text}":"已添加：{text}","Added to team\
  memory: {text}":"已加入团队记忆：{text}","Updated: {text}":"已更新：{text}","Removed: {text}":"已删除：{text}","Removed from team memory: {text}":"已从团队记忆删除：{text}",
 "Not changed: {text} ({reason})":"没有改动：{text}（{reason}）","{count} files changed":"{count} 个文件改动","{count} file changed":"{count} 个文件改动",File:"文件",
@@ -4959,92 +5065,92 @@ start dictation":"无法开始听写","Stop dictation":"停止听写",Dictate:"�
 思考中","Thinking…":"思考中…",Speaking:"在说",Paused:"已暂停","Voice chat is not available in this browser":"这个浏览器不支持语音对话","Voice chat with {\
 name}":"和 {name} 语音对话","Resume listening":"继续听",Pause:"暂停","End voice chat":"结束语音对话","Recognizing…":"识别中…","Voice input needs its speech m\
 odel":"语音输入还没有语音模型","Set up voice input":"设置语音输入","Preparing voice input…":"正在准备语音输入…","Downloading the speech model… {pct}%":"\
-正在下载语音模型… {pct}%","Couldn't prepare voice input":"语音输入准备失败","That was too long to recognize":"这段太长了，识别不了","24 hours":"24 小时",
-"7 days":"7 天","30 days":"30 天","12 weeks":"12 周","12 months":"12 个月","Per hour":"按小时","Per day":"按天","Per week":"按周","Per month":"按月",Output:"输出",Input:"\
-输入","Cache hit":"缓存命中","Deleted Bot":"已删除的 Bot",Deleted:"已删除","Deleted group chat":"已删除的群聊","Group chat":"群聊","Own chat":"单聊","Side ch\
-at":"侧边对话","New browser tab":"新建浏览器页",Terminal:"终端",Files:"文件树","Close side chat":"关闭侧边对话","Delete side chat":"删除侧边对话","Ask wi\
-thout interrupting":"不打断当前工作，顺便问一句","Ask about the work so far":"问问目前做到哪了","Answering…":"正在回答…",Cancelled:"已取消",Tasks:"任\
-务","In progress":"进行中","Awaiting review":"待审",Blocked:"阻塞","Stopped by the user":"用户停止","Not updated after a restart":"重启后未更新","Its model call f\
-ailed ({code})":"模型调用失败（{code}）","Add a note":"补一句","Cancel task":"取消任务","Click again to cancel":"再点一次取消","History ({count})":"历史（{count}）",
-"Hide history":"收起历史","No task is running in this group.":"这个群还没有进行中的任务。","What should change?":"要补什么？","Note: {text}":"备注：{text}",
-"Answered from progress so far; nothing was run":"基于目前已有进展的回答，没有执行任何操作","Could not answer.":"没能答上。","Cancel this side question":"取\
-消这次旁路提问",Conversations:"对话","Compaction and handoff":"压缩与交接","Image reading":"识图",Titles:"标题",Other:"其他","Last {range}":"最近 {range}",tokens:"\
-Token","Compared with the {range} before":"与再往前 {range} 相比","{share}% of all usage in the last {range}":"占最近 {range}全部用量的 {share}%",Calls:"调用次数",
-"Cache hit rate":"缓存命中率","Tokens over time":"Token 走势","{count} tokens":"{count} Token","{tokens} tokens · {calls} calls":"{tokens} Token · {calls} 次调用","Acti\
-ve on 1 day in the last year":"近一年有 1 天在用","Active on {count} days in the last year":"近一年有 {count} 天在用",Light:"少",Heavy:"多","Unknown model":"未知模型",
-"More Bots":"其余 Bot","More models":"其余模型","Reading your chats…":"正在读取聊天记录…","No usage yet.":"还没有用量。","Token usage shows up here after a \
-model is called.":"调用模型之后，这里会显示 Token 用量。","Nothing in this range.":"这段时间没有用量。","Who used it":"谁在用","What for":"用途",Activity:"\
-活跃度","Time range":"时间范围","All usage":"全部用量","Group usage by":"用量分组","By Bot":"按 Bot","By model":"按模型","Still reading older chats; totals may g\
-row.":"还在读取较早的聊天记录，数字可能还会变大。",Custom:"自定义","Custom range":"自定义时间范围","This month":"本月","Last month":"上个月","Th\
-is year":"今年","Previous month":"往前一个月","Next month":"往后一个月","Pick the first day":"选择开始日期","Pick the last day":"选择结束日期","1 day":"1 天",
-"{count} days":"{count} 天","Compared with the day before":"与前一天相比","Compared with the {count} days before":"与再往前 {count} 天相比","{share}% of all usage fro\
-m {span}":"占 {span} 全部用量的 {share}%","About DS Bot":"关于 DS Bot","Version {version}":"版本 {version}","Star DS Bot on GitHub":"在 GitHub 上给 DS Bot 点 Star","{\
-count} stars":"{count} 个 Star","If DS Bot helps you, a star on GitHub helps more people find it.":"如果 DS Bot 对你有用，欢迎在 GitHub 上点个 Star，让更多人看到它。",
-Updates:"更新","Check for updates":"检查更新","Checking…":"正在检查…","Up to date":"已是最新版本","Checked {time}":"检查于 {time}","Could not check for updat\
-es.":"没能检查更新。","Update checks are off.":"已关闭更新检查。","Checking for updates…":"正在检查更新…","Downloading {version}…":"正在下载 {version}…",
-"{version} is ready; it installs when you restart":"{version} 已下载好，重启后安装","Restart to update":"重启更新","{version} is available":"{version} 已发布","Ins\
-talled from a local folder; update it there.":"从本地文件夹安装，请在那里更新。","Updates are not offered for this install.":"这种安装方式不提供更新。",
-"Updates come with the DS Bot app.":"随 DS Bot 应用一起更新。",Links:"链接","Source code":"源代码","Release notes":"发布说明",Open:"打开",Feedback:"反馈","Repo\
-rt a problem":"报告问题","What happened?":"发生了什么？","What you did, what you expected, and what happened instead. It goes into the issue.":"你做了什么、期望什么、实际发生了什么。会写进 iss\
-ue。","For example: I asked Writer in the group chat and it showed an error.":"例如：我在群聊里问 Writer，它显示出错了。",Diagnostics:"诊断信息","Versions, sy\
-stem, models, and the latest errors. Saved keys, tokens, and your home folder are hidden.":"版本、系统、模型和最近的错误。已保存的密钥、令牌和你的用户目录都已隐藏。",
-Show:"查看",Hide:"收起","GitHub issue":"GitHub issue","Opens a new issue in the DS Bot repository with all of this filled in. Nothing is sent until you submit it there.":"在 DS \
-Bot 仓库新建一个 issue，并填好以上内容。你在 GitHub 上提交之前，什么都不会发出。","Report on GitHub":"在 GitHub 上报告","Copied the diagnostics.":"\
-已复制诊断信息。","Could not copy. Select the text below and copy it.":"无法复制。请选中下面的文字手动复制。","Opened a new GitHub issue with the diagnost\
-ics filled in. Check it before you submit.":"已打开新的 GitHub issue，诊断信息已填好。提交前请检查一遍。","Opened a new GitHub issue. The diagnostics are lon\
-g, so they are on the clipboard: paste them into the issue.":"已打开新的 GitHub issue。诊断信息太长，已复制到剪贴板，请粘贴到 issue 里。","Opened a new G\
-itHub issue. Copy the diagnostics below into it.":"已打开新的 GitHub issue。请把下面的诊断信息复制进去。","Downloaded the log. Keys, tokens, and your home folde\
-r are hidden in it.":"已下载日志。里面的密钥、令牌和用户目录都已隐藏。","Cleared the error log.":"已清空错误日志。","Recent errors":"最近的错误",
-"Recent errors · {count}":"最近的错误 · {count}","No errors recorded.":"没有错误记录。","Failed model calls and DS Bot problems show here, newest first.":"模型调用失败和 DS \
-Bot 的问题会显示在这里，最新的在前。","Model call":"模型调用","This window":"这个窗口","Error log":"错误日志","Kept on this computer across restarts, up\
- to about 1 MB.":"保存在这台电脑上，重启后仍在，最多约 1 MB。",Clear:"清空","Settings → Feedback has the details.":"详情见 设置 → 反馈。","Could no\
-t reach DSH. Check that it is still running.":"连不上 DSH，请确认它还在运行。","{name} stopped: {reason}. Switch its model or ask it to go on.":"{name} 停下了：{reason}。换个\
-模型，或让它继续。","{name}'s background helper did not finish: {reason}. Ask it to go on if it still matters.":"{name} 的后台子代理没做完：{reason}。如果还需要，让它继续。",
-"Run failed":"运行出错","Reached the output limit":"达到输出上限","Stopped before finishing":"未完成即停止","Declined the task":"拒绝了任务","Unknown error":"未\
-知错误","The model has no API key":"模型还没有 API Key","The API key is not in the right format":"API Key 格式不对","The DeepSeek account needs a sign-in":"DeepSeek 账号需\
-要登录","The DeepSeek account is signed out":"DeepSeek 账号已退出登录","The DeepSeek account sign-in has expired":"DeepSeek 账号的登录失效了","The API key was rej\
-ected":"API 密钥无效","The account is out of quota":"账户额度已用尽","Too many requests to the model":"模型请求太频繁","The conversation is too long for the model":"\
-对话太长，超出模型上限","The model service refused the request":"模型服务拒绝了请求","The model service failed":"模型服务出错","The model took too long to\
- answer":"模型响应超时","Could not reach the model service":"连不上模型服务","The conversation could not be compacted for the model switch":"切换模型时无法压缩对话",
-"Its group conversation could not open":"它的群聊会话打不开","Its group conversation could not open, so it starts a new one next time":"它的群聊会话打不开，下次会换一个新的",
-"Pasted text · {count} characters":"粘贴的文本 · {count} 字","Put back":"放回","Put back into the box":"放回输入框","Remove pasted text":"删除粘贴的文本","Ope\
-ning…":"正在打开…","Still opening…":"还在打开…","Add files":"添加文件","Reference a chat":"引用对话","Chat with {name}":"与 {name} 的对话","Scheduled ta\
-sk":"定时任务","Open the scheduled tasks of this chat":"打开这个会话的定时任务","Send to":"发给","Scheduled task: {text}":"定时任务：{text}","Choose the group\
- admin":"选择群管理员","Group admin":"群管理员","Who to chat with…":"想和谁聊…","Add at least one more Bot":"再至少添加一个 Bot",Members:"成员","Schedule\
-d tasks":"定时任务","Every day":"每天","Every {count} days":"每 {count} 天","Every hour":"每小时","Every {count} hours":"每 {count} 小时","Every {count} minutes":"每 {\
-count} 分钟","Once, {time}":"一次，{time}","Every day at {time}":"每天 {time}","Every {days} at {time}":"每{days} {time}","Every weekday at {time}":"每个工作日 {time}",
-"Every weekend at {time}":"每个周末 {time}","On the schedule {expression}":"按计划 {expression}","Custom schedule":"自定义计划","Next: {time}":"下次 {time}","Overdue:\
- {time}":"已逾期 {time}",Finished:"已结束","Scheduled tasks · {count}":"定时任务 · {count}","Show all":"显示全部","in {name}":"在 {name}","Click again to delete":"\
-再点一次删除","Delete task":"删除任务",Once:"一次","Every week":"每周",Repeat:"重复",minutes:"分钟",hours:"小时",days:"天","Morning briefing":"早间简报","W\
-hat to do":"要做什么","Sum up what changed since yesterday and what needs me today.":"总结一下昨天以来的变化，以及今天需要我处理的事。",When:"什么时候",
-"Date and time":"日期和时间",Days:"星期",Time:"时间",Every:"每","How many":"数量",Unit:"单位","Create task":"创建任务","Turn on Automation tasks in DSH":"在 DSH 里打\
-开「自动化任务」","Switch on Automation tasks on the Plugins page in Settings.":"在设置的插件页启用「自动化任务」。","New task":"新建任务","No schedule\
-d tasks yet.":"还没有定时任务。","No scheduled tasks yet. Add one":"还没有定时任务，去添加","Automation tasks are off in DSH":"DSH 的「自动化任务」没有打开",
-"No such Bot":"没有这个 Bot","No such Bot or group chat":"没有这个 Bot 或群聊","Give the task a name":"给任务起个名字","Say what the Bot should do":"写下 Bot 要做什么",
-"Pick a date and time":"选一个日期和时间","Pick a time in the future":"选一个将来的时间","Pick a time of day":"选一个时间","Pick at least one day":"至少选一天",
-"Repeat every 1 minute to 7 days":"重复间隔要在 1 分钟到 7 天之间","Pick when it runs":"选择什么时候运行","No such task":"没有这个任务","Working folder":"\
-工作文件夹","Working folder: {folder}":"工作文件夹：{folder}",Folder:"文件夹",Folders:"文件夹",Privacy:"隐私",Private:"隐私","Other Bots cannot read its folder\
-, memory or chats, and you approve what it shares with them.":"其他 Bot 不能读取它的文件夹、记忆或对话；它分享给其他 Bot 的内容需要你批准。","A Mai\
-n Bot cannot be private.":"主 Bot 不能设为隐私 Bot。","Leave its group chats before making it private.":"先退出所有群聊，才能设为隐私 Bot。","Choose a workin\
-g folder of its own first.":"先选择一个独立的工作文件夹。","A private Bot cannot be a Main Bot.":"隐私 Bot 不能设为主 Bot。","Closed after deletion · {count}":"\
-删除后仍受保护 · {count}","Remove protection":"解除保护","Click again to remove. Other Bots can then read its folder, memory and chats.":"再点一次解除。其他 Bot 之后可以读取它的文件夹、记忆和对\
-话。","Nothing kept closed for this Bot":"这个 Bot 没有保留的保护","Team workspace":"总工作区","Team workspace: {folder}":"总工作区：{folder}","Where Bots witho\
-ut a folder of their own work.":"没有单独设置文件夹的 Bot 在这里工作。",Locations:"位置","Data location":"数据位置","Change…":"更改…","Each Bot's own fo\
-lder":"各 Bot 自己的文件夹","Choose a folder…":"选择文件夹…","Browse folders…":"浏览文件夹…","Enter a path…":"输入路径…","Folder path":"文件夹路径",
-"Full path of a folder":"文件夹的完整路径","Use this folder":"使用这个文件夹","Up one level":"上一级","No folders inside.":"里面没有文件夹。","Some folder\
-s are not shown.":"还有一些文件夹没有显示。","Waiting for sign-in…":"等待登录…","This service needs an app client ID":"该服务需要应用 Client ID","Paste t\
-he address you land on":"粘贴跳转后的地址","Finish sign-in":"完成登录","Open {host}":"打开 {host}","Client ID":"Client ID","Client secret (optional)":"Client secret(可\
-选)","In OAuth & Permissions at {app}, add this redirect URL:":"在 {app} 的 OAuth & Permissions 里添加这个重定向地址：","In the app settings, add this redirect URL:":"\
-在应用设置里添加这个重定向地址：","Turn on the MCP features and scopes the app needs.":"打开应用需要的 MCP 功能和权限范围。","Copy the Client ID and \
-Client Secret here.":"再把 Client ID 和 Client Secret 填到这里。","Open app settings":"打开应用设置",Continue:"继续","{name} key":"{name} 密钥","{name} token":"{n\
-ame} 令牌","Get a key":"获取密钥","Read-only":"只读","{count} tools":"{count} 个工具",Mailbox:"邮箱","Email address":"邮箱地址",Catalog:"目录","App password":"应用\
-专用密码","Authorization code":"授权码","Password or app password":"密码或授权码","Official help":"官方帮助","Finish signing in in your browser.":"在浏览器里完成登录。",
-"Open again":"重新打开","Did not come back here?":"登录后没有回到这里？","Copied to clipboard":"已复制到剪贴板","Paste the code on {host} and authorize.":"在 {h\
-ost} 粘贴这个码并授权。","Add another":"再添加一个","QQ, 163, 126, Gmail, iCloud, and other IMAP mail":"QQ、163、126、Gmail、iCloud 等 IMAP 邮箱","Other MCP se\
-rver":"其他 MCP 服务器","An address, a command, or one from Claude Desktop, Cursor, or VS Code":"填地址或命令，或从 Claude Desktop、Cursor、VS Code 导入","Kind of\
- server":"服务器类型","Nothing matches":"没有匹配的连接器",Recommended:"推荐","See all":"查看全部","{count} connected":"已连接 {count} 个","{count} accounts":"\
-{count} 个账户",Category:"分类","Could not reach the mail server. Check the server address.":"连不上邮件服务器，请检查服务器地址。","Sign in at mail.qq.com, \
-click your avatar at the top right, and open Settings → Account and Security → Security Settings.":"在 mail.qq.com 登录，点右上角头像，进入 设置 → 账号与安全 → 安全设置。",
+正在下载语音模型… {pct}%","Couldn't prepare voice input":"语音输入准备失败","That was too long to recognize":"这段太长了，识别不了","Couldn't read the r\
+eply":"回复朗读失败","Couldn't reach the speech service":"语音识别服务不可用","24 hours":"24 小时","7 days":"7 天","30 days":"30 天","12 weeks":"12 周","12 mont\
+hs":"12 个月","Per hour":"按小时","Per day":"按天","Per week":"按周","Per month":"按月",Output:"输出",Input:"输入","Cache hit":"缓存命中","Deleted Bot":"已删除的 Bot",
+Deleted:"已删除","Deleted group chat":"已删除的群聊","Group chat":"群聊","Own chat":"单聊","Side chat":"侧边对话","New browser tab":"新建浏览器页",Terminal:"\
+终端",Files:"文件树","Close side chat":"关闭侧边对话","Delete side chat":"删除侧边对话","Ask without interrupting":"不打断当前工作，顺便问一句","Ask a\
+bout the work so far":"问问目前做到哪了","Answering…":"正在回答…",Cancelled:"已取消",Tasks:"任务","In progress":"进行中","Awaiting review":"待审",Blocked:"\
+阻塞","Stopped by the user":"用户停止","Not updated after a restart":"重启后未更新","Its model call failed ({code})":"模型调用失败（{code}）","Add a note":"补一句",
+"Cancel task":"取消任务","Click again to cancel":"再点一次取消","History ({count})":"历史（{count}）","Hide history":"收起历史","No task is running in this group.":"\
+这个群还没有进行中的任务。","What should change?":"要补什么？","Note: {text}":"备注：{text}","Answered from progress so far; nothing was run":"基于目前已有进展的回答，没有执行\
+任何操作","Could not answer.":"没能答上。","Cancel this side question":"取消这次旁路提问",Conversations:"对话","Compaction and handoff":"压缩与交接","Image \
+reading":"识图",Titles:"标题",Other:"其他","Last {range}":"最近 {range}",tokens:"Token","Compared with the {range} before":"与再往前 {range} 相比","{share}% of all us\
+age in the last {range}":"占最近 {range}全部用量的 {share}%",Calls:"调用次数","Cache hit rate":"缓存命中率","Tokens over time":"Token 走势","{count} tokens":"{co\
+unt} Token","{tokens} tokens · {calls} calls":"{tokens} Token · {calls} 次调用","Active on 1 day in the last year":"近一年有 1 天在用","Active on {count} days in the la\
+st year":"近一年有 {count} 天在用",Light:"少",Heavy:"多","Unknown model":"未知模型","More Bots":"其余 Bot","More models":"其余模型","Reading your chats…":"正在读取\
+聊天记录…","No usage yet.":"还没有用量。","Token usage shows up here after a model is called.":"调用模型之后，这里会显示 Token 用量。","Nothing in this r\
+ange.":"这段时间没有用量。","Who used it":"谁在用","What for":"用途",Activity:"活跃度","Time range":"时间范围","All usage":"全部用量","Group usage by":"用量分\
+组","By Bot":"按 Bot","By model":"按模型","Still reading older chats; totals may grow.":"还在读取较早的聊天记录，数字可能还会变大。",Custom:"自定义","C\
+ustom range":"自定义时间范围","This month":"本月","Last month":"上个月","This year":"今年","Previous month":"往前一个月","Next month":"往后一个月","Pick the\
+ first day":"选择开始日期","Pick the last day":"选择结束日期","1 day":"1 天","{count} days":"{count} 天","Compared with the day before":"与前一天相比","Compared\
+ with the {count} days before":"与再往前 {count} 天相比","{share}% of all usage from {span}":"占 {span} 全部用量的 {share}%","About DS Bot":"关于 DS Bot","Version {v\
+ersion}":"版本 {version}","Star DS Bot on GitHub":"在 GitHub 上给 DS Bot 点 Star","{count} stars":"{count} 个 Star","If DS Bot helps you, a star on GitHub helps more people \
+find it.":"如果 DS Bot 对你有用，欢迎在 GitHub 上点个 Star，让更多人看到它。",Updates:"更新","Check for updates":"检查更新","Checking…":"正在检查…",
+"Up to date":"已是最新版本","Checked {time}":"检查于 {time}","Could not check for updates.":"没能检查更新。","Update checks are off.":"已关闭更新检查。","Ch\
+ecking for updates…":"正在检查更新…","Downloading {version}…":"正在下载 {version}…","{version} is ready; it installs when you restart":"{version} 已下载好，重启后安装",
+"Restart to update":"重启更新","{version} is available":"{version} 已发布","Installed from a local folder; update it there.":"从本地文件夹安装，请在那里更新。",
+"Updates are not offered for this install.":"这种安装方式不提供更新。","Updates come with the DS Bot app.":"随 DS Bot 应用一起更新。",Links:"链接","Source cod\
+e":"源代码","Release notes":"发布说明",Open:"打开",Feedback:"反馈","Report a problem":"报告问题","What happened?":"发生了什么？","What you did, what you expect\
+ed, and what happened instead. It goes into the issue.":"你做了什么、期望什么、实际发生了什么。会写进 issue。","For example: I asked Writer in the group chat\
+ and it showed an error.":"例如：我在群聊里问 Writer，它显示出错了。",Diagnostics:"诊断信息","Versions, system, models, and the latest errors. Saved keys, toke\
+ns, and your home folder are hidden.":"版本、系统、模型和最近的错误。已保存的密钥、令牌和你的用户目录都已隐藏。",Show:"查看",Hide:"收起","Gi\
+tHub issue":"GitHub issue","Opens a new issue in the DS Bot repository with all of this filled in. Nothing is sent until you submit it there.":"在 DS Bot 仓库新建一个 issue，并填好以上内容。你在 Git\
+Hub 上提交之前，什么都不会发出。","Report on GitHub":"在 GitHub 上报告","Copied the diagnostics.":"已复制诊断信息。","Could not copy. Select the text belo\
+w and copy it.":"无法复制。请选中下面的文字手动复制。","Opened a new GitHub issue with the diagnostics filled in. Check it before you submit.":"已打开新的 GitHub issue\
+，诊断信息已填好。提交前请检查一遍。","Opened a new GitHub issue. The diagnostics are long, so they are on the clipboard: paste them into the issue.":"已打开新的 GitHu\
+b issue。诊断信息太长，已复制到剪贴板，请粘贴到 issue 里。","Opened a new GitHub issue. Copy the diagnostics below into it.":"已打开新的 GitHub issue。请把下面的诊断信息复制进去\
+。","Downloaded the log. Keys, tokens, and your home folder are hidden in it.":"已下载日志。里面的密钥、令牌和用户目录都已隐藏。","Cleared the error log.":"\
+已清空错误日志。","Recent errors":"最近的错误","Recent errors · {count}":"最近的错误 · {count}","No errors recorded.":"没有错误记录。","Failed model call\
+s and DS Bot problems show here, newest first.":"模型调用失败和 DS Bot 的问题会显示在这里，最新的在前。","Model call":"模型调用","This window":"这个窗口",
+"Error log":"错误日志","Kept on this computer across restarts, up to about 1 MB.":"保存在这台电脑上，重启后仍在，最多约 1 MB。",Clear:"清空","Settings → Fe\
+edback has the details.":"详情见 设置 → 反馈。","Could not reach DSH. Check that it is still running.":"连不上 DSH，请确认它还在运行。","{name} stopped: {rea\
+son}. Switch its model or ask it to go on.":"{name} 停下了：{reason}。换个模型，或让它继续。","{name}'s background helper did not finish: {reason}. Ask it to go on \
+if it still matters.":"{name} 的后台子代理没做完：{reason}。如果还需要，让它继续。","Run failed":"运行出错","Reached the output limit":"达到输出上限",
+"Stopped before finishing":"未完成即停止","Declined the task":"拒绝了任务","Unknown error":"未知错误","The model has no API key":"模型还没有 API Key","The API k\
+ey is not in the right format":"API Key 格式不对","The DeepSeek account needs a sign-in":"DeepSeek 账号需要登录","The DeepSeek account is signed out":"DeepSeek 账号已退出登录",
+"The DeepSeek account sign-in has expired":"DeepSeek 账号的登录失效了","The API key was rejected":"API 密钥无效","The account is out of quota":"账户额度已用尽","\
+Too many requests to the model":"模型请求太频繁","The conversation is too long for the model":"对话太长，超出模型上限","The model service refused the request":"模型\
+服务拒绝了请求","The model service failed":"模型服务出错","The model took too long to answer":"模型响应超时","Could not reach the model service":"连不上模型服务",
+"The conversation could not be compacted for the model switch":"切换模型时无法压缩对话","Its group conversation could not open":"它的群聊会话打不开","Its group \
+conversation could not open, so it starts a new one next time":"它的群聊会话打不开，下次会换一个新的","Pasted text · {count} characters":"粘贴的文本 · {count} 字",
+"Put back":"放回","Put back into the box":"放回输入框","Remove pasted text":"删除粘贴的文本","Opening…":"正在打开…","Still opening…":"还在打开…","Add \
+files":"添加文件","Reference a chat":"引用对话","Chat with {name}":"与 {name} 的对话","Scheduled task":"定时任务","Open the scheduled tasks of this chat":"打开这个会话的定时\
+任务","Send to":"发给","Scheduled task: {text}":"定时任务：{text}","Choose the group admin":"选择群管理员","Group admin":"群管理员","Who to chat with…":"想和谁聊…",
+"Add at least one more Bot":"再至少添加一个 Bot",Members:"成员","Scheduled tasks":"定时任务","Every day":"每天","Every {count} days":"每 {count} 天","Every hour":"\
+每小时","Every {count} hours":"每 {count} 小时","Every {count} minutes":"每 {count} 分钟","Once, {time}":"一次，{time}","Every day at {time}":"每天 {time}","Every {da\
+ys} at {time}":"每{days} {time}","Every weekday at {time}":"每个工作日 {time}","Every weekend at {time}":"每个周末 {time}","On the schedule {expression}":"按计划 {expression\
+}","Custom schedule":"自定义计划","Next: {time}":"下次 {time}","Overdue: {time}":"已逾期 {time}",Finished:"已结束","Scheduled tasks · {count}":"定时任务 · {count}",
+"Show all":"显示全部","in {name}":"在 {name}","Click again to delete":"再点一次删除","Delete task":"删除任务",Once:"一次","Every week":"每周",Repeat:"重复",minutes:"\
+分钟",hours:"小时",days:"天","Morning briefing":"早间简报","What to do":"要做什么","Sum up what changed since yesterday and what needs me today.":"总结一下昨天以来的变化，以及今天需要我处\
+理的事。",When:"什么时候","Date and time":"日期和时间",Days:"星期",Time:"时间",Every:"每","How many":"数量",Unit:"单位","Create task":"创建任务","Turn on \
+Automation tasks in DSH":"在 DSH 里打开「自动化任务」","Switch on Automation tasks on the Plugins page in Settings.":"在设置的插件页启用「自动化任务」。",
+"New task":"新建任务","No scheduled tasks yet.":"还没有定时任务。","No scheduled tasks yet. Add one":"还没有定时任务，去添加","Automation tasks are off in DS\
+H":"DSH 的「自动化任务」没有打开","No such Bot":"没有这个 Bot","No such Bot or group chat":"没有这个 Bot 或群聊","Give the task a name":"给任务起个名字",
+"Say what the Bot should do":"写下 Bot 要做什么","Pick a date and time":"选一个日期和时间","Pick a time in the future":"选一个将来的时间","Pick a time of day":"\
+选一个时间","Pick at least one day":"至少选一天","Repeat every 1 minute to 7 days":"重复间隔要在 1 分钟到 7 天之间","Pick when it runs":"选择什么时候运行",
+"No such task":"没有这个任务","Working folder":"工作文件夹","Working folder: {folder}":"工作文件夹：{folder}",Folder:"文件夹",Folders:"文件夹",Privacy:"隐私",
+Private:"隐私","Other Bots cannot read its folder, memory or chats, and you approve what it shares with them.":"其他 Bot 不能读取它的文件夹、记忆或对话；它分享给其他 Bot 的内容需要你批准。",
+"A Main Bot cannot be private.":"主 Bot 不能设为隐私 Bot。","Leave its group chats before making it private.":"先退出所有群聊，才能设为隐私 Bot。","Choose a \
+working folder of its own first.":"先选择一个独立的工作文件夹。","A private Bot cannot be a Main Bot.":"隐私 Bot 不能设为主 Bot。","Closed after deletion · {c\
+ount}":"删除后仍受保护 · {count}","Remove protection":"解除保护","Click again to remove. Other Bots can then read its folder, memory and chats.":"再点一次解除。其他 Bot 之后可以读取它的\
+文件夹、记忆和对话。","Nothing kept closed for this Bot":"这个 Bot 没有保留的保护","Team workspace":"总工作区","Team workspace: {folder}":"总工作区：{folder}",
+"Where Bots without a folder of their own work.":"没有单独设置文件夹的 Bot 在这里工作。",Locations:"位置","Data location":"数据位置","Change…":"更改…","\
+Each Bot's own folder":"各 Bot 自己的文件夹","Choose a folder…":"选择文件夹…","Browse folders…":"浏览文件夹…","Enter a path…":"输入路径…","Folder p\
+ath":"文件夹路径","Full path of a folder":"文件夹的完整路径","Use this folder":"使用这个文件夹","Up one level":"上一级","No folders inside.":"里面没有文件夹。",
+"Some folders are not shown.":"还有一些文件夹没有显示。","Waiting for sign-in…":"等待登录…","This service needs an app client ID":"该服务需要应用 Client ID",
+"Paste the address you land on":"粘贴跳转后的地址","Finish sign-in":"完成登录","Open {host}":"打开 {host}","Client ID":"Client ID","Client secret (optional)":"Client \
+secret(可选)","In OAuth & Permissions at {app}, add this redirect URL:":"在 {app} 的 OAuth & Permissions 里添加这个重定向地址：","In the app settings, add this redir\
+ect URL:":"在应用设置里添加这个重定向地址：","Turn on the MCP features and scopes the app needs.":"打开应用需要的 MCP 功能和权限范围。","Copy the Cli\
+ent ID and Client Secret here.":"再把 Client ID 和 Client Secret 填到这里。","Open app settings":"打开应用设置",Continue:"继续","{name} key":"{name} 密钥","{name}\
+ token":"{name} 令牌","Get a key":"获取密钥","Read-only":"只读","{count} tools":"{count} 个工具",Mailbox:"邮箱","Email address":"邮箱地址",Catalog:"目录","App pa\
+ssword":"应用专用密码","Authorization code":"授权码","Password or app password":"密码或授权码","Official help":"官方帮助","Finish signing in in your browser.":"在\
+浏览器里完成登录。","Open again":"重新打开","Did not come back here?":"登录后没有回到这里？","Copied to clipboard":"已复制到剪贴板","Paste the code on\
+ {host} and authorize.":"在 {host} 粘贴这个码并授权。","Add another":"再添加一个","QQ, 163, 126, Gmail, iCloud, and other IMAP mail":"QQ、163、126、Gmail、iCloud 等 IMAP \
+邮箱","Other MCP server":"其他 MCP 服务器","An address, a command, or one from Claude Desktop, Cursor, or VS Code":"填地址或命令，或从 Claude Desktop、Cursor、VS Code 导入",
+"Kind of server":"服务器类型","Nothing matches":"没有匹配的连接器",Recommended:"推荐","See all":"查看全部","{count} connected":"已连接 {count} 个","{count} a\
+ccounts":"{count} 个账户",Category:"分类","Could not reach the mail server. Check the server address.":"连不上邮件服务器，请检查服务器地址。","Sign in at mai\
+l.qq.com, click your avatar at the top right, and open Settings → Account and Security → Security Settings.":"在 mail.qq.com 登录，点右上角头像，进入 设置 → 账号与安全 → 安全设置。",
 "Turn on the POP3/IMAP/SMTP service, then click Generate authorization code and verify yourself.":"开启 POP3/IMAP/SMTP 服务，再点「生成授权码」，按提示验证身份。",
 "Paste the 16-letter code below. Changing your QQ password cancels it.":"把 16 位授权码粘贴到下面。改了 QQ 密码后授权码会失效。","Sign in at {host} and open \
 Settings → POP3/SMTP/IMAP.":"在 {host} 登录，进入 设置 → POP3/SMTP/IMAP。","Turn on IMAP/SMTP and send the text message it asks for.":"开启 IMAP/SMTP 服务，按提示发短信验证。",
@@ -5106,73 +5212,75 @@ s 的数据，Bot 不能在这里工作"],[/^(.+) needs a folder of its own to b
 "$1 与「$2」的文件夹重叠，$3 不能在这里设为隐私 Bot。请给它一个独立文件夹"],[/^(.+) is in or around the folder of (.+), a private Bot, so (.+) cannot work there$/,
 "$1 在隐私 Bot「$2」的文件夹内或外层，$3 不能在这里工作"],[/^(.+) is in or around the folder of (.+), a private Bot, so a group cannot work there$/,"$1 在隐私 Bot\
 「$2」的文件夹内或外层，群聊不能在这里工作"],[/^(.+) is in or around the folder of (.+), a private Bot, so it cannot be the team workspace$/,"$1 在隐私 Bot「$2」的文件夹\
-内或外层，不能作为总工作区"],[/^The DeepSeek API key \((.+)\) is not set$/,"DeepSeek API key（$1）还没设置"],[/^This DSH has no credential store\.$/,"这个 DSH 没有凭据\
-存储"],[/^DS Bot cannot tell the DeepSeek key from another server's: [\s\S]*$/,"DS Bot 无法区分 DeepSeek key 和其它服务器的 key，这些服务保持关闭。"],[/^This looks like a key, token, or password[\s\S]*$/,
-"看起来像密钥、令牌或密码，记忆不会保存这类内容"],[/^An entry holds at most (\d+) characters; this one has (\d+)\.[\s\S]*$/,"一条记忆最多 $1 个字符，这条有 $2 个"],
-[/^[\s\S]*'s MEMORY\.md would have (\d+) of its (\d+) characters\.[\s\S]*$/,"主记忆会超过 $2 个字符的上限，请先删掉一些"],[/^The topic \[\[(.+?)\]\] in [\s\S]* would have (\d+) of its (\d+) characters\.[\s\S]*$/,
-"主题 $1 会超过 $3 个字符的上限"],[/^[\s\S]* already has (\d+) topics, the most it holds\.[\s\S]*$/,"主题已经有 $1 个，不能再加新主题"],[/^There is no entry (.+)\.$/,
-"没有第 $1 条"],[/^No entry in [\s\S]* matches "([\s\S]*)"\.[\s\S]*$/,"找不到「$1」这条记忆"],[/^"([\s\S]*)" matches (\d+) entries in [\s\S]*$/,"「$1」对应了 $2 条记忆，请说得更具体"],
-[/^Memory cannot change now: [\s\S]*$/,"现在不能修改记忆：另一个 dsh 正在使用这个 Bot 团队"],[/^Keep a to-do under (\d+) characters\.$/,"待办事项不能超过 $1 个字符。"],
-[/^The shared to-do list is full \((\d+)\)\. Remove one or clear the completed items\.$/,"共享待办列表已满（$1 条），请先移除一项或清理已完成项。"],[/^The goal of "(.+)" is ([^;]+); ([^ ]+) needs it to be (.+)\.$/,
-"「$1」的目标当前处于 $2 状态；$3 需要先处于 $4 状态。"],[/^WeChat answered (.+)$/,"微信返回了错误（$1）"],[/^WeChat refused the reply \((.+)\)$/,"微信拒绝\
-了这条回复（$1）"],[/^(Feishu|Slack|QQ|DingTalk|Discord|WeCom) could not open a socket: (.+)$/,"$1 无法建立连接：$2"],[/^WeCom socket failed: (.+)$/,"企业微信连接失败：$1"],
-[/^The password for (.+) is not saved$/,"还没有保存 $1 的密码"],[/^No capability named (.+)\.$/,"没有叫 $1 的能力。"],[/^(.+) changed since this was proposed$/,"$1 在\
-提出建议后已经改过了"],[/^A skill named (.+) exists now$/,"已经有叫 $1 的技能了"],[/^(.+) is required$/,"请填写 $1"],[/^(.+) must be text$/,"$1 必须是文本"]],
-HOST_ZH={"The Server address must start with ws:// or wss://":"服务器地址必须以 ws:// 或 wss:// 开头","Turn on phone access first":"请先打开手机访问","This phone\
- is not paired":"这台手机没有配对","Another dsh has this Bot team open, so phones connect to that one":"另一个 dsh 打开了这个 Bot 团队，手机会连到那一个",
-"This dsh runs on a Node without WebSocket":"这个 dsh 用的 Node 不支持 WebSocket","Phones are paired and removed on the computer":"配对和删除手机只能在电脑上做",
-"Request failed":"请求失败","Permissions are not available in this DeepSeek Harness":"这个 DeepSeek Harness 不支持权限设置","Avatar image is too large":"头像图片太大了",
-"A Bot needs a name":"Bot 需要一个名字","A Bot name cannot contain @, ` or a line break":"Bot 名字里不能有 @、` 或换行","Unknown Bot":"找不到这个 Bot","Unknown\
- conversation":"找不到这个对话","A group chat needs at least two Bots":"群聊至少要两个 Bot","The admin must be a member of the group":"管理员必须是群成员","U\
-nknown group chat":"找不到这个群聊","No Bot is left in this group chat":"这个群聊里已经没有 Bot 了","That group chat has been deleted":"这个群聊已经删除了",
-"Hand the admin role to another member instead of leaving the group without one":"请把管理员交给其他成员，不要让群聊没有管理员","Hand the admin role to anothe\
-r member before leaving the group":"离开群聊前，请先把管理员交给其他成员","The team needs at least one Main Bot":"团队至少要有一个主 Bot","Only a Main Bo\
-t can be replaced":"只能替换主 Bot","A Main Bot cannot be deleted; remove its Main Bot role first":"主 Bot 不能删除，请先取消它的主 Bot 身份","Unknown theme":"未\
-知主题","Accent must be a #rrggbb color":"强调色必须是 #rrggbb 格式","Type the key first":"请先输入密钥","Choose every Bot or a list of Bots":"请选择所有 Bot 或指定的 Bot",
-"This request is gone":"这个请求已经不存在了","This request was already answered":"这个请求已经处理过了","A name uses capitals, digits, and underscores, and sta\
-rts with a letter":"名字只能用大写字母、数字和下划线，并以字母开头","No such key":"没有这个密钥","Type a question or a change first":"请先输入问题或要改的内容",
-"No model is available. Add one in Settings > Models.":"没有可用的模型，请先在 设置 → 模型 里添加。","Memory is turned off on this host":"这台主机关闭了记忆功能",
-"The model wrote nothing":"模型没有输出内容","Write the entry to save.":"请写下要保存的内容。","This DeepSeek Harness has no folder chooser":"这个 DeepSeek Harness \
-没有文件夹选择窗口","This DeepSeek Harness cannot list folders":"这个 DeepSeek Harness 不能列出文件夹","Side chat is only available in a Bot's private chat.":"侧边对\
-话只在 Bot 的私聊里可用。","Write a question.":"写上问题。","Write a question after /side.":"在 /side 后面写上问题。","/side does not take attachments.":"/si\
-de 不能带附件。","Wait for the answer, or cancel it.":"等它答完，或者先取消。","This side chat is no longer here.":"这个侧边对话已经不在了。","This sid\
-e question is no longer here.":"这个侧边提问已经不在了。","This Bot has not called a model yet. Send a normal message first.":"这个 Bot 还没有调用过模型，请先正常发一条消息。",
-"DS Bot restarted before this answer finished.":"DS Bot 在回答完成前重启了。","The model called a tool again after being told not to, so this aside was not answered.":"模型\
-在被要求不要调用工具之后又调用了工具，所以这次没有回答。","The model wrote nothing.":"模型没有写任何内容。","Nothing to ask":"没有要问的内容",
-"Nothing to open":"没有要打开的内容","Nothing to cancel":"没有要取消的内容","Nothing to close":"没有要关闭的内容","DS Bot is still loading this chat.":"DS B\
-ot 还在加载这个对话。","This message is no longer kept":"这条消息已经不再保留","No file named":"没有指定文件","This file cannot be read here":"这个文件在这里读不了",
-"That wait is no longer open":"这个等待已经结束了","Nothing to send":"没有要发送的内容","This view is no longer open":"这个视图已经关闭了","This is not a \
-photo DS Bot can send":"这不是 DS Bot 能发送的照片","A photo did not arrive. Send it again.":"有张照片没传到，请重新发送。","Nothing to delete":"没有要删除的内容",
-"Bot browsers are off on this host":"这台主机关闭了 Bot 浏览器","This Bot has no open browser":"这个 Bot 没有打开的浏览器","A browser poll needs a clientId":"浏览\
-器轮询缺少 clientId","This browser is not held":"这个浏览器当前没有在交接中","This handoff is no longer open":"这次浏览器交接已经结束了","Avatar image\
-s must be PNG, JPEG, WebP, GIF, or SVG":"头像图片必须是 PNG、JPEG、WebP、GIF 或 SVG","Pick a model before choosing a thinking level":"请先选择模型，再选择思考强度",
-"Unknown section":"找不到这个分组","Unknown section color":"未知分组颜色","Write the to-do first.":"请先写下待办内容。","That to-do is no longer on the list.":"\
-这条待办已经不在列表里了。","Write what this group should achieve, in at most 2000 characters.":"请写下这个群要达成的目标，最多 2000 个字符。","This\
- group has no admin. Set one in the group settings first.":"这个群没有管理员，请先在群设置里指定一位管理员。","This group already has a goal. Stop it first.":"\
-这个群已经有一个目标了，请先停止它。","The goal has changed. Look again.":"目标已经变化，请刷新后再试。","Nothing to do":"没有要做的操作","Wr\
-ite a note first.":"请先写下备注。","That task is already finished.":"这个任务已经结束了。","No such group.":"找不到这个群聊。","No such task.":"找不到这个任务。",
-"No open task to cancel.":"没有可取消的进行中任务。","Sign-in timed out":"登录超时","The sign-in answer did not match this attempt (state mismatch). Try again.":"登录\
-回调与本次请求不匹配（状态不一致），请重试。","This connector does not sign in":"这个连接器不需要登录","This connector has no server address":"这个连接器\
-没有服务器地址","Connector addresses must start with https://":"连接器地址必须以 https:// 开头","This service does not publish OAuth sign-in metadata":"这个服务没有公开 OA\
-uth 登录元数据","Paste a key first":"请先粘贴密钥","No sign-in is waiting":"当前没有等待中的登录","Paste the address or the code":"请粘贴回调地址或授权码",
-"This address is not from this sign-in attempt (state mismatch). Copy the whole address again.":"这个地址不是本次登录返回的（状态不一致），请重新复制完整地址。",
-"The address has no code":"这个地址里没有授权码","Enter the client ID":"请输入客户端 ID","Name the connector":"请填写连接器名称","Enter an address or a comm\
-and":"请输入地址或命令","Only added connectors can be removed":"只能移除自己添加的连接器","The mail connection closed during verification":"验证期间邮件连接已断开",
-"Google sign-in is not available in this build":"当前版本不支持 Google 登录","Enter an email address":"请输入邮箱地址","Enter the IMAP and SMTP hosts":"请输入 IMAP 和 S\
-MTP 服务器","No such account":"找不到这个账户","This card was already answered":"这张卡片已经处理过了","No Google sign-in is waiting":"当前没有等待中的 Google 登录",
-"The sign-in answer is not for this attempt":"登录回调不是针对本次请求的","Google did not say which account this is":"Google 没有返回这是哪个账户","This plat\
-form is not available yet":"这个平台暂不可用","Choose a Bot first":"请先选择一个 Bot","This platform signs in by scanning a code; not available yet":"这个平台需要扫码登录，暂不可用",
-"No such IM bot":"找不到这个 IM 机器人","No such platform":"找不到这个平台","No such chat":"找不到这个聊天","Choose a Bot or a group":"请选择一个 Bot 或群聊",
-"This platform has no QR login":"这个平台不支持扫码登录","Paste the bot token first":"请先粘贴机器人令牌","Telegram did not say who this token belongs to":"Tele\
-gram 没有返回这个令牌属于哪个机器人","A webhook or another program uses this bot":"已有 Webhook 或其他程序在使用这个机器人","This token does not belon\
-g to a Discord bot":"这个令牌不属于 Discord 机器人","Discord gave no usable gateway URL":"Discord 没有返回可用的网关地址","These credentials do not belong to a\
- Slack bot":"这些凭据不属于 Slack 机器人","WeChat answered an unreadable response":"微信返回了无法解析的响应","WeChat rate limited the request":"微信限制了请求频率",
-"WeChat refused the token":"微信拒绝了这个令牌","Use a capability name with lowercase letters, digits, and single hyphens; connector names are reserved.":"能力名称只能用小写字母、数字和单\
-个连字符，不能使用连接器保留名称。","Arguments must be a list of text values.":"参数必须是文本列表。","Choose an MCP server, skill, or pack.":"请选择 MCP 服务\
-、技能或套件。","A capability cannot change its kind. Delete it and save a new one.":"能力不能更改类型，请删除后新建。","Enter a command for the MCP server.":"\
-请输入 MCP 服务的命令。","Enter a valid HTTP or HTTPS URL.":"请输入有效的 HTTP 或 HTTPS 地址。","Only Bots on the team can change capabilities.":"只有团队里的 Bot 可以修改\
-能力。","Only a Main Bot can change another Bot’s capabilities.":"只有主 Bot 可以修改其他 Bot 的能力。","This DSH cannot load MCP servers.":"这个 DSH 不能加载 MCP 服务。",
-"Unknown capability operation.":"未知的能力操作。","The secrets file is not encrypted.":"密钥文件还没有加密。","Secrets are already encrypted.":"密钥已经加密了。",
+内或外层，不能作为总工作区"],[/^The DeepSeek API key \((.+)\) is not set$/,"DeepSeek API key（$1）还没设置"],[/^This DSH has no speech-to-text service \(voice input is not mounted\)$/,
+"这个 DSH 没有语音识别服务（语音输入插件未挂载）"],[/^The speech provider is registering$/,"语音识别提供方正在注册"],[/^This DSH has no credential store\.$/,
+"这个 DSH 没有凭据存储"],[/^DS Bot cannot tell the DeepSeek key from another server's: [\s\S]*$/,"DS Bot 无法区分 DeepSeek key 和其它服务器的 key，这些服务保持关闭。"],
+[/^This looks like a key, token, or password[\s\S]*$/,"看起来像密钥、令牌或密码，记忆不会保存这类内容"],[/^An entry holds at most (\d+) characters; this one has (\d+)\.[\s\S]*$/,
+"一条记忆最多 $1 个字符，这条有 $2 个"],[/^[\s\S]*'s MEMORY\.md would have (\d+) of its (\d+) characters\.[\s\S]*$/,"主记忆会超过 $2 个字符的上限，请先删掉一些"],
+[/^The topic \[\[(.+?)\]\] in [\s\S]* would have (\d+) of its (\d+) characters\.[\s\S]*$/,"主题 $1 会超过 $3 个字符的上限"],[/^[\s\S]* already has (\d+) topics, the most it holds\.[\s\S]*$/,
+"主题已经有 $1 个，不能再加新主题"],[/^There is no entry (.+)\.$/,"没有第 $1 条"],[/^No entry in [\s\S]* matches "([\s\S]*)"\.[\s\S]*$/,"找不到「$1」这条记忆"],
+[/^"([\s\S]*)" matches (\d+) entries in [\s\S]*$/,"「$1」对应了 $2 条记忆，请说得更具体"],[/^Memory cannot change now: [\s\S]*$/,"现在不能修改记忆：另一个 dsh 正在使用这个 Bot 团队"],
+[/^Keep a to-do under (\d+) characters\.$/,"待办事项不能超过 $1 个字符。"],[/^The shared to-do list is full \((\d+)\)\. Remove one or clear the completed items\.$/,"共享待\
+办列表已满（$1 条），请先移除一项或清理已完成项。"],[/^The goal of "(.+)" is ([^;]+); ([^ ]+) needs it to be (.+)\.$/,"「$1」的目标当前处于 $2 状态；$3 需要先处于 $4 状态。"],
+[/^WeChat answered (.+)$/,"微信返回了错误（$1）"],[/^WeChat refused the reply \((.+)\)$/,"微信拒绝了这条回复（$1）"],[/^(Feishu|Slack|QQ|DingTalk|Discord|WeCom) could not open a socket: (.+)$/,
+"$1 无法建立连接：$2"],[/^WeCom socket failed: (.+)$/,"企业微信连接失败：$1"],[/^The password for (.+) is not saved$/,"还没有保存 $1 的密码"],[/^No capability named (.+)\.$/,
+"没有叫 $1 的能力。"],[/^(.+) changed since this was proposed$/,"$1 在提出建议后已经改过了"],[/^A skill named (.+) exists now$/,"已经有叫 $1 的技能了"],[/^(.+) is required$/,
+"请填写 $1"],[/^(.+) must be text$/,"$1 必须是文本"]],HOST_ZH={"The Server address must start with ws:// or wss://":"服务器地址必须以 ws:// 或 wss:// 开头","Turn\
+ on phone access first":"请先打开手机访问","This phone is not paired":"这台手机没有配对","Another dsh has this Bot team open, so phones connect to that one":"另一个 ds\
+h 打开了这个 Bot 团队，手机会连到那一个","This dsh runs on a Node without WebSocket":"这个 dsh 用的 Node 不支持 WebSocket","Phones are paired and removed on \
+the computer":"配对和删除手机只能在电脑上做","Request failed":"请求失败","Permissions are not available in this DeepSeek Harness":"这个 DeepSeek Harness 不支持权限设置",
+"Avatar image is too large":"头像图片太大了","A Bot needs a name":"Bot 需要一个名字","A Bot name cannot contain @, ` or a line break":"Bot 名字里不能有 @、` 或换行",
+"Unknown Bot":"找不到这个 Bot","Unknown conversation":"找不到这个对话","A group chat needs at least two Bots":"群聊至少要两个 Bot","The admin must be a member of\
+ the group":"管理员必须是群成员","Unknown group chat":"找不到这个群聊","No Bot is left in this group chat":"这个群聊里已经没有 Bot 了","That group chat ha\
+s been deleted":"这个群聊已经删除了","Hand the admin role to another member instead of leaving the group without one":"请把管理员交给其他成员，不要让群聊没有管理员",
+"Hand the admin role to another member before leaving the group":"离开群聊前，请先把管理员交给其他成员","The team needs at least one Main Bot":"团队至少要有一个主 Bot",
+"Only a Main Bot can be replaced":"只能替换主 Bot","A Main Bot cannot be deleted; remove its Main Bot role first":"主 Bot 不能删除，请先取消它的主 Bot 身份","Un\
+known theme":"未知主题","Accent must be a #rrggbb color":"强调色必须是 #rrggbb 格式","Type the key first":"请先输入密钥","Choose every Bot or a list of Bots":"请选择\
+所有 Bot 或指定的 Bot","This request is gone":"这个请求已经不存在了","This request was already answered":"这个请求已经处理过了","A name uses capitals, dig\
+its, and underscores, and starts with a letter":"名字只能用大写字母、数字和下划线，并以字母开头","No such key":"没有这个密钥","Type a question or a cha\
+nge first":"请先输入问题或要改的内容","No model is available. Add one in Settings > Models.":"没有可用的模型，请先在 设置 → 模型 里添加。","Memory \
+is turned off on this host":"这台主机关闭了记忆功能","The model wrote nothing":"模型没有输出内容","Write the entry to save.":"请写下要保存的内容。","Th\
+is DeepSeek Harness has no folder chooser":"这个 DeepSeek Harness 没有文件夹选择窗口","This DeepSeek Harness cannot list folders":"这个 DeepSeek Harness 不能列出文件夹",
+"Side chat is only available in a Bot's private chat.":"侧边对话只在 Bot 的私聊里可用。","Write a question.":"写上问题。","Write a question after /side.":"在 /side\
+ 后面写上问题。","/side does not take attachments.":"/side 不能带附件。","Wait for the answer, or cancel it.":"等它答完，或者先取消。","This side chat is no\
+ longer here.":"这个侧边对话已经不在了。","This side question is no longer here.":"这个侧边提问已经不在了。","This Bot has not called a model yet. Send a no\
+rmal message first.":"这个 Bot 还没有调用过模型，请先正常发一条消息。","DS Bot restarted before this answer finished.":"DS Bot 在回答完成前重启了。",
+"The model called a tool again after being told not to, so this aside was not answered.":"模型在被要求不要调用工具之后又调用了工具，所以这次没有回答。",
+"The model wrote nothing.":"模型没有写任何内容。","Nothing to ask":"没有要问的内容","Nothing to open":"没有要打开的内容","Nothing to cancel":"没有要取消的内容",
+"Nothing to close":"没有要关闭的内容","DS Bot is still loading this chat.":"DS Bot 还在加载这个对话。","This message is no longer kept":"这条消息已经不再保留",
+"No file named":"没有指定文件","This file cannot be read here":"这个文件在这里读不了","That wait is no longer open":"这个等待已经结束了","Nothing to send":"\
+没有要发送的内容","This view is no longer open":"这个视图已经关闭了","This is not a photo DS Bot can send":"这不是 DS Bot 能发送的照片","A photo did not a\
+rrive. Send it again.":"有张照片没传到，请重新发送。","Nothing to delete":"没有要删除的内容","Bot browsers are off on this host":"这台主机关闭了 Bot 浏览器",
+"This Bot has no open browser":"这个 Bot 没有打开的浏览器","A browser poll needs a clientId":"浏览器轮询缺少 clientId","This browser is not held":"这个浏览器当前没有在交接中",
+"This handoff is no longer open":"这次浏览器交接已经结束了","Avatar images must be PNG, JPEG, WebP, GIF, or SVG":"头像图片必须是 PNG、JPEG、WebP、GIF 或 SVG",
+"Pick a model before choosing a thinking level":"请先选择模型，再选择思考强度","Unknown section":"找不到这个分组","Unknown section color":"未知分组颜色",
+"Write the to-do first.":"请先写下待办内容。","That to-do is no longer on the list.":"这条待办已经不在列表里了。","Write what this group should achieve, in at\
+ most 2000 characters.":"请写下这个群要达成的目标，最多 2000 个字符。","This group has no admin. Set one in the group settings first.":"这个群没有管理员，请先在群设置里指定一位管理员。",
+"This group already has a goal. Stop it first.":"这个群已经有一个目标了，请先停止它。","The goal has changed. Look again.":"目标已经变化，请刷新后再试。",
+"Nothing to do":"没有要做的操作","Write a note first.":"请先写下备注。","That task is already finished.":"这个任务已经结束了。","No such group.":"找不到这个群聊。",
+"No such task.":"找不到这个任务。","No open task to cancel.":"没有可取消的进行中任务。","Sign-in timed out":"登录超时","The sign-in answer did not match thi\
+s attempt (state mismatch). Try again.":"登录回调与本次请求不匹配（状态不一致），请重试。","This connector does not sign in":"这个连接器不需要登录",
+"This connector has no server address":"这个连接器没有服务器地址","Connector addresses must start with https://":"连接器地址必须以 https:// 开头","This servic\
+e does not publish OAuth sign-in metadata":"这个服务没有公开 OAuth 登录元数据","Paste a key first":"请先粘贴密钥","No sign-in is waiting":"当前没有等待中的登录",
+"Paste the address or the code":"请粘贴回调地址或授权码","This address is not from this sign-in attempt (state mismatch). Copy the whole address again.":"这个地址不是本次登录返回的（状\
+态不一致），请重新复制完整地址。","The address has no code":"这个地址里没有授权码","Enter the client ID":"请输入客户端 ID","Name the connector":"请填写\
+连接器名称","Enter an address or a command":"请输入地址或命令","Only added connectors can be removed":"只能移除自己添加的连接器","The mail connection close\
+d during verification":"验证期间邮件连接已断开","Google sign-in is not available in this build":"当前版本不支持 Google 登录","Enter an email address":"请输入邮箱地址",
+"Enter the IMAP and SMTP hosts":"请输入 IMAP 和 SMTP 服务器","No such account":"找不到这个账户","This card was already answered":"这张卡片已经处理过了","No \
+Google sign-in is waiting":"当前没有等待中的 Google 登录","The sign-in answer is not for this attempt":"登录回调不是针对本次请求的","Google did not say which\
+ account this is":"Google 没有返回这是哪个账户","This platform is not available yet":"这个平台暂不可用","Choose a Bot first":"请先选择一个 Bot","This platfo\
+rm signs in by scanning a code; not available yet":"这个平台需要扫码登录，暂不可用","No such IM bot":"找不到这个 IM 机器人","No such platform":"找不到这个平台",
+"No such chat":"找不到这个聊天","Choose a Bot or a group":"请选择一个 Bot 或群聊","This platform has no QR login":"这个平台不支持扫码登录","Paste the bot \
+token first":"请先粘贴机器人令牌","Telegram did not say who this token belongs to":"Telegram 没有返回这个令牌属于哪个机器人","A webhook or another program u\
+ses this bot":"已有 Webhook 或其他程序在使用这个机器人","This token does not belong to a Discord bot":"这个令牌不属于 Discord 机器人","Discord gave no usab\
+le gateway URL":"Discord 没有返回可用的网关地址","These credentials do not belong to a Slack bot":"这些凭据不属于 Slack 机器人","WeChat answered an unreadable \
+response":"微信返回了无法解析的响应","WeChat rate limited the request":"微信限制了请求频率","WeChat refused the token":"微信拒绝了这个令牌","Use a cap\
+ability name with lowercase letters, digits, and single hyphens; connector names are reserved.":"能力名称只能用小写字母、数字和单个连字符，不能使用连接器保留名称。",
+"Arguments must be a list of text values.":"参数必须是文本列表。","Choose an MCP server, skill, or pack.":"请选择 MCP 服务、技能或套件。","A capability cannot\
+ change its kind. Delete it and save a new one.":"能力不能更改类型，请删除后新建。","Enter a command for the MCP server.":"请输入 MCP 服务的命令。","Enter \
+a valid HTTP or HTTPS URL.":"请输入有效的 HTTP 或 HTTPS 地址。","Only Bots on the team can change capabilities.":"只有团队里的 Bot 可以修改能力。","Only a Ma\
+in Bot can change another Bot’s capabilities.":"只有主 Bot 可以修改其他 Bot 的能力。","This DSH cannot load MCP servers.":"这个 DSH 不能加载 MCP 服务。","Un\
+known capability operation.":"未知的能力操作。","The secrets file is not encrypted.":"密钥文件还没有加密。","Secrets are already encrypted.":"密钥已经加密了。",
 "Secrets are not encrypted.":"密钥还没有加密。","Learning is turned off on this host":"这台主机关闭了学习功能","AGENTS.md changed since this was proposed":"提出建议后\
  AGENTS.md 已经改动过了","The Bot that learned this skill is gone":"学到这个技能的 Bot 已经不在了","System permissions are not available here":"当前环境不支持系统权限设置",
 "This host keeps no Bot data folder, so it has no avatar library.":"这台主机没有保存 Bot 数据文件夹，因此没有头像库。","DS Bot is shutting down":"DS Bot 正在关闭",
@@ -5457,32 +5565,33 @@ call2("connector-cancel",{id})),connectorClient:(id,clientId,clientSecret)=>afte
 tor-set",{id,...patch})),connectorAdd:spec=>after(call2("connector-add",spec)),connectorRemove:id=>after(call2("connector-remove",{id})),connectorImportScan:()=>call2("connector-im\
 port-scan",{}),connectorImport:items=>after(call2("connector-import",{items})),connectorRequestCancel:requestId=>after(call2("connector-request-cancel",{requestId})),mailAccountAdd:payload=>after(
 call2("mail-account-add",payload)),mailAccountRemove:id=>after(call2("mail-account-remove",{id})),mailRuleSet:payload=>after(call2("mail-rule-set",payload)),mailSendAnswer:(requestId,choice,extra={})=>after(
-call2("mail-send-answer",{requestId,choice,...extra})),mailSignInCode:payload=>after(call2("mail-sign-in-code",payload)),phoneSet:settings=>after(call2("phone-set",settings)),phonePair:()=>after(
+call2("mail-send-answer",{requestId,choice,...extra})),mailSignInCode:payload=>after(call2("mail-sign-in-code",payload)),deepseekServices:()=>call2("deepseek-services"),setDeepseekServices:patch=>after(
+call2("deepseek-services-config",patch)),synthesizeSpeech:(body,signal)=>call2("deepseek-synthesize",body,signal),phoneSet:settings=>after(call2("phone-set",settings)),phonePair:()=>after(
 call2("phone-pair")),phonePairCancel:()=>after(call2("phone-pair-cancel")),phoneRemove:id=>after(call2("phone-remove",{id})),imAdd:payload=>after(call2("im-add",payload)),imUpdate:(id,patch)=>after(
 call2("im-update",{id,...patch})),imRemove:id=>after(call2("im-remove",{id})),imPair:(id,senderId,allow)=>after(call2("im-pair",{id,senderId,allow})),imUnpair:(id,senderId)=>after(
 call2("im-unpair",{id,senderId})),imChat:(id,body)=>after(call2("im-chat",{id,...body})),imRetry:id=>after(call2("im-retry",{id})),imLoginStart:payload=>call2("im-login-start",payload),
-imLoginWait:payload=>call2("im-login-wait",payload),saveCapability:capability=>after(call2("capability-save",capability)),deepseekServices:()=>call2("deepseek-services"),setDeepseekServices:patch=>after(
-call2("deepseek-services-config",patch)),deleteCapability:name=>after(call2("capability-delete",{name})),approveCapability:name=>after(call2("capability-approve",{name})),setBotCapability:(botId,name,attached)=>after(
-call2("bot-capability",{botId,name,attached})),schedules:()=>call2("schedules"),scheduleCreate:task=>call2("schedule-create",task),scheduleDelete:(sessionId,id)=>call2("schedule-de\
-lete",{sessionId,id}),exchange:(a,b)=>call2("exchange",{a,b}).catch(()=>[]),exchangeText:(id,a,b)=>call2("exchange-text",{id,...a!==void 0&&b!==void 0?{a,b}:{}}).catch(()=>{}),fileText:file=>call2(
-"file-text",{file}).catch(()=>{}),roomProgress:roomId=>call2("room-progress",{roomId}).catch(()=>[]),groupRows:(roomId,from,to,anchor)=>call2("group-rows",{roomId,from,...to===void 0?
-{}:{to},...anchor===void 0?{}:{anchor}}).catch(()=>null),groupRelayReplies:(sessionId,preview)=>call2("group-relay-replies",{sessionId,preview}).catch(()=>null),earlier:(sessionId,cursor)=>call2(
-"earlier",{sessionId,cursor:cursor??null}),usage:()=>call2("usage",{timeZone:Intl.DateTimeFormat().resolvedOptions().timeZone}),runStats:botId=>call2("run-stats",{botId}),memoryView:(id,flags={})=>call2(
-"memory-view",{...memoryOf(id),...flags}),memoryAsk:(id,text)=>call2("memory-ask",{...memoryOf(id),text}),memoryLayer:(id,entry,always)=>call2("memory-layer",{...memoryOf(id),topic:entry.
-topic,text:entry.text,always}),memoryMove:(id,entry,to)=>call2("memory-move",{...memoryOf(id),scope:entry.scope,topic:entry.topic,text:entry.text,to}),memoryTidyUndo:(id,scope,batch)=>call2(
-"memory-tidy-undo",{...memoryOf(id),scope,batch}),memoryPin:(id,entry,pin)=>call2("memory-pin",{...memoryOf(id),scope:entry.scope,topic:entry.topic,text:entry.text,pin}),memoryForget:(id,entry)=>call2(
-"memory-forget",{...memoryOf(id),scope:entry.scope,topic:entry.topic,text:entry.text}),memoryHistory:(id,before)=>call2("memory-history",{...memoryOf(id),...before===void 0?{}:{before}}),
-memoryRestore:(id,rowId)=>call2("memory-restore",{...memoryOf(id),id:rowId}),diagnostics:payload=>call2("diagnostics",payload),diagnosticsLog:()=>call2("diagnostics-log"),diagnosticsClear:()=>call2(
-"diagnostics-clear"),repoStars:()=>call2("repo-stars"),reportError:(error,where="action")=>{noteClientError(where,error),ui2.set(state=>({...state,toast:{text:error?.message??String(
-error),token:Date.now()}}))},notice:text=>ui2.set(state=>({...state,toast:{text,token:Date.now()}})),dismissToast:token=>ui2.set(state=>state.toast&&(token===void 0||state.toast.token===
-token)?{...state,toast:null}:state),noteTurnTime:(sessionId,turn,key,time)=>{sessionId===void 0||!Number.isFinite(turn)||!Number.isFinite(time)||turnClock.set(state=>{let turns=state[sessionId]??
-{},entry=turns[turn]??{},next=key==="first"&&entry.first!==void 0?Math.min(entry.first,time):time;return entry[key]===next?state:{...state,[sessionId]:{...turns,[turn]:{...entry,[key]:next}}}})},
-noteTurnPeer:(sessionId,turn,peerId)=>{sessionId===void 0||!Number.isFinite(turn)||turnClock.set(state=>{let turns=state[sessionId]??{},entry=turns[turn]??{};return entry.peer===peerId?
-state:{...state,[sessionId]:{...turns,[turn]:{...entry,peer:peerId}}}})},noteLive:(sessionId,id,entry)=>{sessionId!==void 0&&live.set(state=>{let own=state[sessionId]??{},prev=own[id];
-if(entry===null?prev===void 0:prev!==void 0&&JSON.stringify({...prev,at:0})===JSON.stringify({...entry,at:0}))return state;let next={...own};return entry===null?delete next[id]:next[id]=
-{...entry,at:prev?.at??Date.now()},{...state,[sessionId]:next}})},noteCards:(sessionId,callIds,delta)=>{sessionId!==void 0&&cards.set(state=>countCards(state,sessionId,callIds,delta))},
-noteHeldCard:(sessionId,kind,requestId,delta)=>{sessionId!==void 0&&heldCards.set(state=>countCards(state,sessionId,[heldCardKey(kind,requestId)],delta))},clearLive:sessionId=>live.
-set(state=>{if(!state[sessionId])return state;let next={...state};return delete next[sessionId],next})}}var THEME_KEYS=["bg","sidebar","bubble","card","text","user","userText","accent"],THEMES={deepseek:{label:"DeepSeek",light:{bg:"#fcfcfc",sidebar:"#f7f7f7",bubble:"#eeeeee",card:"#f\
+imLoginWait:payload=>call2("im-login-wait",payload),saveCapability:capability=>after(call2("capability-save",capability)),deleteCapability:name=>after(call2("capability-delete",{name})),
+approveCapability:name=>after(call2("capability-approve",{name})),setBotCapability:(botId,name,attached)=>after(call2("bot-capability",{botId,name,attached})),schedules:()=>call2("\
+schedules"),scheduleCreate:task=>call2("schedule-create",task),scheduleDelete:(sessionId,id)=>call2("schedule-delete",{sessionId,id}),exchange:(a,b)=>call2("exchange",{a,b}).catch(
+()=>[]),exchangeText:(id,a,b)=>call2("exchange-text",{id,...a!==void 0&&b!==void 0?{a,b}:{}}).catch(()=>{}),fileText:file=>call2("file-text",{file}).catch(()=>{}),roomProgress:roomId=>call2(
+"room-progress",{roomId}).catch(()=>[]),groupRows:(roomId,from,to,anchor)=>call2("group-rows",{roomId,from,...to===void 0?{}:{to},...anchor===void 0?{}:{anchor}}).catch(()=>null),groupRelayReplies:(sessionId,preview)=>call2(
+"group-relay-replies",{sessionId,preview}).catch(()=>null),earlier:(sessionId,cursor)=>call2("earlier",{sessionId,cursor:cursor??null}),usage:()=>call2("usage",{timeZone:Intl.DateTimeFormat().
+resolvedOptions().timeZone}),runStats:botId=>call2("run-stats",{botId}),memoryView:(id,flags={})=>call2("memory-view",{...memoryOf(id),...flags}),memoryAsk:(id,text)=>call2("memory\
+-ask",{...memoryOf(id),text}),memoryLayer:(id,entry,always)=>call2("memory-layer",{...memoryOf(id),topic:entry.topic,text:entry.text,always}),memoryMove:(id,entry,to)=>call2("memor\
+y-move",{...memoryOf(id),scope:entry.scope,topic:entry.topic,text:entry.text,to}),memoryTidyUndo:(id,scope,batch)=>call2("memory-tidy-undo",{...memoryOf(id),scope,batch}),memoryPin:(id,entry,pin)=>call2(
+"memory-pin",{...memoryOf(id),scope:entry.scope,topic:entry.topic,text:entry.text,pin}),memoryForget:(id,entry)=>call2("memory-forget",{...memoryOf(id),scope:entry.scope,topic:entry.
+topic,text:entry.text}),memoryHistory:(id,before)=>call2("memory-history",{...memoryOf(id),...before===void 0?{}:{before}}),memoryRestore:(id,rowId)=>call2("memory-restore",{...memoryOf(
+id),id:rowId}),diagnostics:payload=>call2("diagnostics",payload),diagnosticsLog:()=>call2("diagnostics-log"),diagnosticsClear:()=>call2("diagnostics-clear"),repoStars:()=>call2("re\
+po-stars"),reportError:(error,where="action")=>{noteClientError(where,error),ui2.set(state=>({...state,toast:{text:error?.message??String(error),token:Date.now()}}))},notice:text=>ui2.
+set(state=>({...state,toast:{text,token:Date.now()}})),dismissToast:token=>ui2.set(state=>state.toast&&(token===void 0||state.toast.token===token)?{...state,toast:null}:state),noteTurnTime:(sessionId,turn,key,time)=>{
+sessionId===void 0||!Number.isFinite(turn)||!Number.isFinite(time)||turnClock.set(state=>{let turns=state[sessionId]??{},entry=turns[turn]??{},next=key==="first"&&entry.first!==void 0?
+Math.min(entry.first,time):time;return entry[key]===next?state:{...state,[sessionId]:{...turns,[turn]:{...entry,[key]:next}}}})},noteTurnPeer:(sessionId,turn,peerId)=>{sessionId===
+void 0||!Number.isFinite(turn)||turnClock.set(state=>{let turns=state[sessionId]??{},entry=turns[turn]??{};return entry.peer===peerId?state:{...state,[sessionId]:{...turns,[turn]:{
+...entry,peer:peerId}}}})},noteLive:(sessionId,id,entry)=>{sessionId!==void 0&&live.set(state=>{let own=state[sessionId]??{},prev=own[id];if(entry===null?prev===void 0:prev!==void 0&&
+JSON.stringify({...prev,at:0})===JSON.stringify({...entry,at:0}))return state;let next={...own};return entry===null?delete next[id]:next[id]={...entry,at:prev?.at??Date.now()},{...state,
+[sessionId]:next}})},noteCards:(sessionId,callIds,delta)=>{sessionId!==void 0&&cards.set(state=>countCards(state,sessionId,callIds,delta))},noteHeldCard:(sessionId,kind,requestId,delta)=>{
+sessionId!==void 0&&heldCards.set(state=>countCards(state,sessionId,[heldCardKey(kind,requestId)],delta))},clearLive:sessionId=>live.set(state=>{if(!state[sessionId])return state;let next={
+...state};return delete next[sessionId],next})}}var THEME_KEYS=["bg","sidebar","bubble","card","text","user","userText","accent"],THEMES={deepseek:{label:"DeepSeek",light:{bg:"#fcfcfc",sidebar:"#f7f7f7",bubble:"#eeeeee",card:"#f\
 fffff",text:"#141414",user:"#070707",userText:"#fcfcfc",accent:"#4d6bfe"},dark:{bg:"#141414",sidebar:"#1b1b1b",bubble:"#262626",card:"#1f1f1f",text:"#f2f2f2",user:"#f2f2f2",userText:"\
 #141414",accent:"#5b7bff"}},mono:{label:"Mono",light:{bg:"#ffffff",sidebar:"#f9f9f9",bubble:"#f0f0f0",card:"#ffffff",text:"#0d0d0d",user:"#0d0d0d",userText:"#ffffff",accent:"#0d0d0\
 d"},dark:{bg:"#0f0f0f",sidebar:"#171717",bubble:"#242424",card:"#1c1c1c",text:"#f4f4f4",user:"#f4f4f4",userText:"#0f0f0f",accent:"#f4f4f4"}},paper:{label:"Paper",light:{bg:"#faf9f5",
@@ -5658,12 +5767,12 @@ return()=>clearTimeout(timer)},[value]),[value||kept,!value&&!!kept]}function st
 return!1;let items=Array.from(menu.querySelectorAll('button[role^="menuitem"]:not(:disabled)'));if(items.length===0)return!1;let target=document.activeElement,current2=items.indexOf(
 target);if(current2===-1&&target!==menu&&target!==trigger)return!1;event.preventDefault(),event.stopPropagation();let next=event.key==="Home"?0:event.key==="End"?items.length-1:event.
 key==="ArrowDown"?(current2+1)%items.length:current2<=0?items.length-1:current2-1;return items[next]?.focus(),!0}var STORAGE={unread:"ds-bot:unread",reactions:"ds-bot:reactions",seen:"ds-bot:seen",prefs:"ds-bot:prefs",surface:"ds-bot:surface",agentSessions:"ds-bot:agent-sessions",agentForks:"\
-ds-bot:pending-agent-forks",browserWidth:"ds-bot:browser-width",sidebar:"ds-bot:sidebar",browsers:"ds-bot.browser.v2"},LEGACY_PREFIXES=["dsh-bot:","dsh-bot-team:"],LEGACY_BROWSER_KEYS=[
-"ds-bot.browser.v1","dsh-bot.browser.v1"],LEGACY_THEMES={grok:"mono"};function legacyKeys(key){if(key===STORAGE.browsers)return LEGACY_BROWSER_KEYS;let name=key.slice(key.indexOf("\
-:")+1);return LEGACY_PREFIXES.map(prefix=>`${prefix}${name}`)}var migrateBrowsers=storage=>{if(storage.getItem(STORAGE.browsers)!==null){for(let key of LEGACY_BROWSER_KEYS)storage.
-removeItem(key);return}for(let key of LEGACY_BROWSER_KEYS)try{let value=storage.getItem(key);if(value===null)continue;let previous=JSON.parse(value)??{},tabs=Object.fromEntries(Object.
-entries(previous).filter(([,page])=>page&&typeof page=="object").map(([botId,page])=>{let tab={id:`v1-${botId}`,url:page.url??"",title:page.title??""};return[botId,{tabs:[tab],active:tab.
-id}]}));storage.setItem(STORAGE.browsers,JSON.stringify(tabs));for(let earlier of LEGACY_BROWSER_KEYS)storage.removeItem(earlier);return}catch{}};function migrateStorage(storage=globalThis.
+ds-bot:pending-agent-forks",browserWidth:"ds-bot:browser-width",browserImportSource:"ds-bot:browser-import-source",sidebar:"ds-bot:sidebar",browsers:"ds-bot.browser.v2"},LEGACY_PREFIXES=[
+"dsh-bot:","dsh-bot-team:"],LEGACY_BROWSER_KEYS=["ds-bot.browser.v1","dsh-bot.browser.v1"],LEGACY_THEMES={grok:"mono"};function legacyKeys(key){if(key===STORAGE.browsers)return LEGACY_BROWSER_KEYS;
+let name=key.slice(key.indexOf(":")+1);return LEGACY_PREFIXES.map(prefix=>`${prefix}${name}`)}var migrateBrowsers=storage=>{if(storage.getItem(STORAGE.browsers)!==null){for(let key of LEGACY_BROWSER_KEYS)
+storage.removeItem(key);return}for(let key of LEGACY_BROWSER_KEYS)try{let value=storage.getItem(key);if(value===null)continue;let previous=JSON.parse(value)??{},tabs=Object.fromEntries(
+Object.entries(previous).filter(([,page])=>page&&typeof page=="object").map(([botId,page])=>{let tab={id:`v1-${botId}`,url:page.url??"",title:page.title??""};return[botId,{tabs:[tab],
+active:tab.id}]}));storage.setItem(STORAGE.browsers,JSON.stringify(tabs));for(let earlier of LEGACY_BROWSER_KEYS)storage.removeItem(earlier);return}catch{}};function migrateStorage(storage=globalThis.
 localStorage){for(let key of Object.values(STORAGE))if(key!==STORAGE.browsers)for(let legacy of legacyKeys(key))try{let value=storage.getItem(legacy);value!==null&&storage.getItem(
 key)===null&&storage.setItem(key,value),storage.removeItem(legacy)}catch{}try{migrateBrowsers(storage)}catch{}try{let prefs=JSON.parse(storage.getItem(STORAGE.prefs)??"null");prefs&&
 Object.hasOwn(LEGACY_THEMES,prefs.theme??"")&&storage.setItem(STORAGE.prefs,JSON.stringify({...prefs,theme:LEGACY_THEMES[prefs.theme]}))}catch{}}var MIN_CHAT=420,RAIL_WIDTH=88,PANEL_MIN={details:320,browser:360,side:320},DSH_NARROW=1024,trackRoom=({width,right})=>Math.max(0,Math.min(width,right)),SIDEBAR_MIN=264,SIDEBAR_MAX=420,
@@ -12661,30 +12770,53 @@ color:var(--bt-green)}
 .bt-svc-note{font-size:12px;line-height:16px;color:var(--bt-ink-2)}
 .bt-svc .bt-svc-seg button{white-space:nowrap}
 .bt-svc :focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
-`,DEFAULTS={ocr:!1};function capabilityState(cap){if(!cap)return{state:"off",text:t("Off")};let usable=cap.supported!==!1&&cap.configured!==!1,reason=cap.reason?hostText(String(cap.
-reason)):"";return usable?cap.enabled?{state:"ready",text:t("Ready")}:{state:"off",text:reason||t("Off")}:{state:"missing",text:reason||t("Not ready")}}function StateLine({view}){return(0,import_react45.createElement)(
-"div",{className:"bt-svc-line"},(0,import_react45.createElement)("div",{className:"bt-svc-state","data-state":view.state,role:"status"},(0,import_react45.createElement)("span",{className:"\
-bt-svc-dot","aria-hidden":!0}),(0,import_react45.createElement)("span",null,view.text)))}function Pill({state,text}){return(0,import_react45.createElement)("span",{className:"bt-sv\
-c-state","data-state":state},(0,import_react45.createElement)("span",{className:"bt-svc-dot","aria-hidden":!0}),(0,import_react45.createElement)("span",null,text))}function ServicesForm({
-status,busy,saved,pluginsAvailable,save,onOpenModels,onOpenPlugins,Section:Section2,Row:Row4,Switch:Switch2}){let prefs={...DEFAULTS,...status?.preferences},key=status?.key??{},ready=status!==
-null,ocrView=capabilityState(status?.ocr);return(0,import_react45.createElement)("div",{className:"bt-svc"},(0,import_react45.createElement)("style",{"data-ds-bot":"deepseek-servic\
-es"},SERVICES_CSS),(0,import_react45.createElement)(Section2,{key:"key",title:t("DeepSeek API")},(0,import_react45.createElement)(Row4,{label:t("API key")},(0,import_react45.createElement)(
-"div",{className:"bt-svc-actions"},(0,import_react45.createElement)(Pill,{state:key.configured?"ready":"missing",text:key.configured?t("Key set"):t("Needs an API key")}),(0,import_react45.createElement)(
-"button",{type:"button",className:"bt-soft bt-soft-sm",onClick:onOpenModels},t("Manage models")))),status?.endpoint?(0,import_react45.createElement)("div",{className:"bt-svc-line"},
-(0,import_react45.createElement)("span",{className:"bt-svc-key"},status.endpoint)):null,(0,import_react45.createElement)(Row4,{label:t("DeepSeek Web Search API"),hint:t("Find it in\
- Plugins → Web search.")},pluginsAvailable?(0,import_react45.createElement)("button",{type:"button",className:"bt-soft bt-soft-sm",onClick:onOpenPlugins},t("Open Plugins")):null),
-(0,import_react45.createElement)("div",{className:"bt-svc-line"},(0,import_react45.createElement)("span",{className:"bt-svc-note",role:"status"},saved?t("Saved."):busy?t("Saving…"):
-""))),(0,import_react45.createElement)(Section2,{key:"ocr",title:t("Image and document reading")},(0,import_react45.createElement)(Row4,{label:t("Use DeepSeek to read images and do\
-cuments"),hint:t("Bots upload selected files to DeepSeek for text recognition; local Office editing is unchanged.")},(0,import_react45.createElement)(Switch2,{label:t("Use DeepSeek\
- to read images and documents"),on:prefs.ocr===!0,disabled:busy||!ready,onChange:on=>save({ocr:on})})),(0,import_react45.createElement)(StateLine,{view:ocrView})))}function DeepSeekServicesPage({
-actions,run:run2,Section:Section2,Row:Row4,Switch:Switch2}){let[status,setStatus]=(0,import_react45.useState)(null),[busy,setBusy]=(0,import_react45.useState)(!1),[saved,setSaved]=(0,import_react45.useState)(
-!1),[loadError,setLoadError]=(0,import_react45.useState)(""),alive=(0,import_react45.useRef)(!0);(0,import_react45.useEffect)(()=>()=>{alive.current=!1},[]),(0,import_react45.useEffect)(
-()=>{Promise.resolve().then(()=>actions.deepseekServices()).then(value=>{alive.current&&value&&setStatus(value)}).catch(failure=>{alive.current&&setLoadError(hostText(failure?.message??
-String(failure)))})},[]),(0,import_react45.useEffect)(()=>{if(!saved)return;let timer=setTimeout(()=>{alive.current&&setSaved(!1)},2600);return()=>clearTimeout(timer)},[saved]);let save=patch=>{
-if(busy||status===null)return;setBusy(!0),setSaved(!1);let next=null;run2(Promise.resolve().then(()=>actions.setDeepseekServices(patch)).then(value=>{next=value})).then(ok=>{alive.
-current&&ok&&next&&(setStatus(next),setSaved(!0))}).finally(()=>{alive.current&&setBusy(!1)})},pluginsAvailable=typeof actions.hasPlugins!="function"||actions.hasPlugins()!==!1;return(0,import_react45.createElement)(
+`,DEFAULTS={ocr:!1,tts:"system",voice:"stella"},ASR_PROVIDER="deepseek-asr",voiceName=id=>String(id).charAt(0).toUpperCase()+String(id).slice(1);function capabilityState(cap){if(!cap)
+return{state:"off",text:t("Off")};let usable=cap.supported!==!1&&cap.configured!==!1,reason=cap.reason?hostText(String(cap.reason)):"";return usable?cap.enabled?{state:"ready",text:t(
+"Ready")}:{state:"off",text:reason||t("Off")}:{state:"missing",text:reason||t("Not ready")}}function asrState(asr,selection,speechAvailable){if(!asr)return{state:"off",text:t("Off")};
+let reason=asr.reason?hostText(String(asr.reason)):"",notReady=reason||(speechAvailable===!1?t("Set up voice input"):t("Not ready"));return asr.registered===!0&&asr.configured!==!1&&
+speechAvailable!==!1&&asr.ready!==!1?selection?.providerId===ASR_PROVIDER?{state:"ready",text:t("In use")}:{state:"off",text:reason||t("Off")}:{state:"missing",text:notReady}}function StateLine({
+view}){return(0,import_react45.createElement)("div",{className:"bt-svc-line"},(0,import_react45.createElement)("div",{className:"bt-svc-state","data-state":view.state,role:"status"},
+(0,import_react45.createElement)("span",{className:"bt-svc-dot","aria-hidden":"true"}),(0,import_react45.createElement)("span",null,view.text)))}function Pill({state,text}){return(0,import_react45.createElement)(
+"span",{className:"bt-svc-state","data-state":state},(0,import_react45.createElement)("span",{className:"bt-svc-dot","aria-hidden":"true"}),(0,import_react45.createElement)("span",
+null,text))}function Choice({label,value,options,disabled,pick:pick2,Segmented:Segmented3}){return(0,import_react45.createElement)(Segmented3,{label,value,className:"bt-svc-seg"},options.
+map(([id,text])=>(0,import_react45.createElement)("button",{key:id,type:"button","aria-pressed":value===id,disabled,onClick:()=>{value!==id&&pick2(id)}},text)))}function ServicesForm({
+status,selection,busy,saved,asrBusy,speechAvailable,pluginsAvailable,save,selectAsr,onOpenModels,onOpenPlugins,Section:Section2,Row:Row4,Switch:Switch2,Segmented:Segmented3}){let prefs={
+...DEFAULTS,...status?.preferences},key=status?.key??{},asr=status?.speech??null,selected=selection?.providerId===ASR_PROVIDER,ready=status!==null,ocrView=capabilityState(status?.ocr),
+ttsView=capabilityState(status?.tts),asrView=asrState(asr,selection,speechAvailable),voices=[...new Set([...status?.tts?.voices??[],prefs.voice])],asrUsable=asr!==null&&asr.registered===
+!0&&asr.configured!==!1&&asr.ready!==!1&&speechAvailable!==!1,asrButton=asr===null?null:asr.registered?asr.configured?selected&&asrUsable?(0,import_react45.createElement)(Pill,{state:"\
+ready",text:t("In use")}):(0,import_react45.createElement)("button",{type:"button",className:"bt-send bt-soft-sm",disabled:asrBusy||!asrUsable,onClick:selectAsr},asrBusy?t("Saving…"):
+t("Use DeepSeek for dictation")):(0,import_react45.createElement)("button",{type:"button",className:"bt-soft bt-soft-sm",onClick:onOpenModels},t("Manage models")):pluginsAvailable?
+(0,import_react45.createElement)("button",{type:"button",className:"bt-soft bt-soft-sm",onClick:onOpenPlugins},t("Set up voice input")):null;return(0,import_react45.createElement)(
+"div",{className:"bt-svc"},(0,import_react45.createElement)("style",{"data-ds-bot":"deepseek-services"},SERVICES_CSS),(0,import_react45.createElement)(Section2,{key:"key",title:t("\
+DeepSeek API")},(0,import_react45.createElement)(Row4,{label:t("API key")},(0,import_react45.createElement)("div",{className:"bt-svc-actions"},(0,import_react45.createElement)(Pill,
+{state:key.configured?"ready":"missing",text:key.configured?t("Key set"):t("Needs an API key")}),(0,import_react45.createElement)("button",{type:"button",className:"bt-soft bt-soft\
+-sm",onClick:onOpenModels},t("Manage models")))),status?.endpoint?(0,import_react45.createElement)("div",{className:"bt-svc-line"},(0,import_react45.createElement)("span",{className:"\
+bt-svc-key"},status.endpoint)):null,(0,import_react45.createElement)(Row4,{label:t("DeepSeek Web Search API"),hint:t("Find it in Plugins → Web search.")},pluginsAvailable?(0,import_react45.createElement)(
+"button",{type:"button",className:"bt-soft bt-soft-sm",onClick:onOpenPlugins},t("Open Plugins")):null),(0,import_react45.createElement)("div",{className:"bt-svc-line"},(0,import_react45.createElement)(
+"span",{className:"bt-svc-note",role:"status"},saved?t("Saved."):busy?t("Saving…"):""))),(0,import_react45.createElement)(Section2,{key:"ocr",title:t("Image and document reading")},
+(0,import_react45.createElement)(Row4,{label:t("Use DeepSeek to read images and documents"),hint:t("Bots upload selected files to DeepSeek for text recognition; local Office editin\
+g is unchanged.")},(0,import_react45.createElement)(Switch2,{label:t("Use DeepSeek to read images and documents"),on:prefs.ocr===!0,disabled:busy||!ready,onChange:on=>save({ocr:on})})),
+(0,import_react45.createElement)(StateLine,{view:ocrView})),(0,import_react45.createElement)(Section2,{key:"tts",title:t("Text to speech")},(0,import_react45.createElement)(Row4,{label:t(
+"Read replies aloud")},(0,import_react45.createElement)(Choice,{label:t("Read replies aloud"),value:prefs.tts,disabled:busy||!ready,Segmented:Segmented3,options:[["system",t("Syste\
+m")],["deepseek",t("DeepSeek")]],pick:id=>save({tts:id})})),prefs.tts==="deepseek"?(0,import_react45.createElement)(Row4,{label:t("Voice")},(0,import_react45.createElement)(Choice,
+{label:t("Voice"),value:prefs.voice,disabled:busy||!ready,Segmented:Segmented3,options:voices.map(id=>[id,voiceName(id)]),pick:id=>save({voice:id})})):null,(0,import_react45.createElement)(
+StateLine,{view:ttsView})),(0,import_react45.createElement)(Section2,{key:"asr",title:t("Speech recognition")},(0,import_react45.createElement)(Row4,{label:t("Dictation provider")},
+(0,import_react45.createElement)("div",{className:"bt-svc-actions"},asrButton,asr?.registered&&pluginsAvailable?(0,import_react45.createElement)("button",{type:"button",className:"\
+bt-soft bt-soft-sm",onClick:onOpenPlugins},t("Open Plugins")):null)),(0,import_react45.createElement)(StateLine,{view:asrView})))}function DeepSeekServicesPage({actions,run:run2,Section:Section2,
+Row:Row4,Switch:Switch2,Segmented:Segmented3}){let[status,setStatus]=(0,import_react45.useState)(null),[selection,setSelection]=(0,import_react45.useState)(null),[busy,setBusy]=(0,import_react45.useState)(
+!1),[saved,setSaved]=(0,import_react45.useState)(!1),[asrBusy,setAsrBusy]=(0,import_react45.useState)(!1),[loadError,setLoadError]=(0,import_react45.useState)(""),alive=(0,import_react45.useRef)(
+!0);(0,import_react45.useEffect)(()=>()=>{alive.current=!1},[]),(0,import_react45.useEffect)(()=>{Promise.resolve().then(()=>actions.deepseekServices()).then(value=>{alive.current&&
+value&&setStatus(value)}).catch(failure=>{alive.current&&setLoadError(hostText(failure?.message??String(failure)))});let speech=typeof actions.speech=="function"?actions.speech():void 0;
+speech&&Promise.resolve().then(()=>speech.catalog()).then(result=>{alive.current&&result?.ok!==!1&&setSelection(result.value?.selection??null)}).catch(()=>{})},[]),(0,import_react45.useEffect)(
+()=>{if(!saved)return;let timer=setTimeout(()=>{alive.current&&setSaved(!1)},2600);return()=>clearTimeout(timer)},[saved]);let save=patch=>{if(busy||status===null)return;setBusy(!0),
+setSaved(!1);let next=null;run2(Promise.resolve().then(()=>actions.setDeepseekServices(patch)).then(value=>{next=value})).then(ok=>{alive.current&&ok&&next&&(setStatus(next),setSaved(
+!0))}).finally(()=>{alive.current&&setBusy(!1)})},selectAsr=()=>{let speech=typeof actions.speech=="function"?actions.speech():void 0;!speech||asrBusy||(setAsrBusy(!0),run2(Promise.
+resolve().then(()=>speech.configure({providerId:ASR_PROVIDER,language:"auto"})).then(result=>{if(result?.ok===!1)throw new Error(hostText(result?.error?.message??t("Could not save.\
+ Try again.")));return speech.catalog()}).then(result=>{alive.current&&result?.ok!==!1&&setSelection(result.value?.selection??null)})).finally(()=>{alive.current&&setAsrBusy(!1)}))},
+speechAvailable=typeof actions.speech=="function"&&actions.speech()!==void 0,pluginsAvailable=typeof actions.hasPlugins!="function"||actions.hasPlugins()!==!1;return(0,import_react45.createElement)(
 import_react45.Fragment,null,loadError?(0,import_react45.createElement)("div",{className:"bt-error",role:"alert"},loadError):null,(0,import_react45.createElement)(ServicesForm,{status,
-busy,saved,pluginsAvailable,save,onOpenModels:()=>actions.openModels?.(),onOpenPlugins:()=>{actions.closeSettings?.(),actions.openPlugins?.()},Section:Section2,Row:Row4,Switch:Switch2}))}var import_react46=require("react"),ACTIONS=[["post","Post"],["upload","Upload"],["download","Download"],["delete","Delete"]],DURATIONS=[["hour","1 hour"],["today","Today"],["week",
+selection,busy,saved,asrBusy,speechAvailable,pluginsAvailable,save,selectAsr,onOpenModels:()=>actions.openModels?.(),onOpenPlugins:()=>{actions.closeSettings?.(),actions.openPlugins?.()},
+Section:Section2,Row:Row4,Switch:Switch2,Segmented:Segmented3}))}var import_react46=require("react"),ACTIONS=[["post","Post"],["upload","Upload"],["download","Download"],["delete","Delete"]],DURATIONS=[["hour","1 hour"],["today","Today"],["week",
 "7 days"],["permanent","Permanent"]],expired=grant=>Number.isFinite(grant.until)&&grant.until<=Date.now();function siteValue(value){return value.trim().toLowerCase().replace(/^[a-z][a-z\d+.-]*:\/\//,
 "").split(/[/?#]/,1)[0].replace(/:\d+$/,"")||"*"}function grantTime(grant){if(!Number.isFinite(grant.until))return t("Permanent");if(grant.until<=Date.now())return t("Expired");let time=new Date(
 grant.until).toLocaleString(dateLocale(),{dateStyle:"medium",timeStyle:"short"});return t("Until {time}",{time})}function grantKinds(grant){return grant.kinds.includes("*")?[t("All\
@@ -13175,8 +13307,8 @@ title,action=null,className="",children}){return(0,import_react53.createElement)
 "div",{className:"bt-set-card"},children))}function SetRow({label,hint,children,className=""}){return(0,import_react53.createElement)("div",{className:`bt-set-row ${className}`.trim()},
 (0,import_react53.createElement)("div",{className:"bt-set-copy"},(0,import_react53.createElement)("span",null,label),hint?(0,import_react53.createElement)("span",{className:"bt-set\
 -hint"},hint):null),children?(0,import_react53.createElement)("div",{className:"bt-set-control"},children):null)}var LAYOUTS=[["bubble","Bubble"],["flat","Flat"]],EFFECTS=[["full",
-"Full"],["reduced","Reduced"],["off","None"]];function Choice({label,value,options,pick:pick2}){return(0,import_react53.createElement)(Segmented,{label,value,className:"bt-look-seg"},
-options.map(([id,text])=>(0,import_react53.createElement)("button",{key:id,type:"button","aria-pressed":value===id,onClick:()=>{value!==id&&pick2(id)}},t(text))))}function WidthSlider({
+"Full"],["reduced","Reduced"],["off","None"]];function Choice2({label,value,options,pick:pick2}){return(0,import_react53.createElement)(Segmented,{label,value,className:"bt-look-se\
+g"},options.map(([id,text])=>(0,import_react53.createElement)("button",{key:id,type:"button","aria-pressed":value===id,onClick:()=>{value!==id&&pick2(id)}},t(text))))}function WidthSlider({
 label,value,save}){let[width,setWidth]=(0,import_react53.useState)(value),pending=(0,import_react53.useRef)(null),timer=(0,import_react53.useRef)(0),saveRef=(0,import_react53.useRef)(
 save);saveRef.current=save,(0,import_react53.useEffect)(()=>{pending.current===null&&setWidth(value)},[value]);let flush=()=>{let next=pending.current;pending.current=null,next!==null&&
 saveRef.current(next)};(0,import_react53.useEffect)(()=>()=>{clearTimeout(timer.current),flush()},[]);let pick2=next=>{setWidth(next),pending.current=next,clearTimeout(timer.current),
@@ -13196,11 +13328,11 @@ tton",{type:"button",className:"bt-swatch bt-swatch-default",title:t("Theme acce
 map(ink=>(0,import_react53.createElement)("button",{key:ink,type:"button",className:"bt-swatch",title:t(capitalize2(ink)),"aria-label":t(capitalize2(ink)),"aria-pressed":prefs.accent===
 INKS[ink][0],style:{background:`var(--bt-ink-${ink})`},onClick:()=>pickPreset(INKS[ink][0])})),(0,import_react53.createElement)("label",{className:"bt-swatch bt-swatch-custom",title:t(
 "Custom accent"),"data-on":!!prefs.accent&&!ACCENT_INKS.some(ink=>INKS[ink][0]===prefs.accent)},(0,import_react53.createElement)("input",{type:"color",value:custom,"aria-label":t("\
-Custom accent"),onChange:event=>pickCustom(event.target.value)})))),(0,import_react53.createElement)(SetRow,{label:t("Message layout")},(0,import_react53.createElement)(Choice,{label:t(
+Custom accent"),onChange:event=>pickCustom(event.target.value)})))),(0,import_react53.createElement)(SetRow,{label:t("Message layout")},(0,import_react53.createElement)(Choice2,{label:t(
 "Message layout"),value:layoutOf(prefs),options:LAYOUTS,pick:id=>run2(actions.setPrefs({layout:id}))})),layoutOf(prefs)==="flat"?(0,import_react53.createElement)(SetRow,{label:t("T\
 ext width")},(0,import_react53.createElement)(WidthSlider,{label:t("Text width"),value:flatWidthOf(prefs),save:flatWidth=>run2(actions.setPrefs({flatWidth}))})):null,(0,import_react53.createElement)(
 SetRow,{label:t("Bubble width")},(0,import_react53.createElement)(WidthSlider,{label:t("Bubble width"),value:widthOf(prefs),save:width=>run2(actions.setPrefs({width}))})),(0,import_react53.createElement)(
-SetRow,{label:t("Interface motion")},(0,import_react53.createElement)(Choice,{label:t("Interface motion"),value:effectsOf(prefs),options:EFFECTS,pick:id=>run2(actions.setPrefs({effects:id}))})),
+SetRow,{label:t("Interface motion")},(0,import_react53.createElement)(Choice2,{label:t("Interface motion"),value:effectsOf(prefs),options:EFFECTS,pick:id=>run2(actions.setPrefs({effects:id}))})),
 (0,import_react53.createElement)(SetRow,{label:t("Show thinking")},(0,import_react53.createElement)(Switch,{label:t("Show thinking"),on:thinkingShown(prefs),onChange:thinking=>run2(
 actions.setPrefs({thinking}))})),look.map(id=>dshItem(dsh,id))),(0,import_react53.createElement)(SetSection,{key:"new",title:t("New Bots")},(0,import_react53.createElement)(SetRow,
 {label:t("Default model"),className:"bt-set-model"},(0,import_react53.createElement)(ModelMenu,{bot:{id:"new-bots",name:t("New Bots"),model:isLocalRoute(prefs.defaultBotModel)?void 0:
@@ -13295,14 +13427,14 @@ bots"&&!bot?(0,import_react53.createElement)(BotsPage,{roster,actions,run:run2})
 null,room2?(0,import_react53.createElement)("div",{className:"bt-settings-form"},(0,import_react53.createElement)(GroupSettingsForm,{key:room2.id,room:room2,roster,actions,run:run2})):
 null,shown==="groups"&&!room2?(0,import_react53.createElement)(GroupsPage,{roster,actions,run:run2}):null,shown==="connectors"?(0,import_react53.createElement)(ConnectorsPage,{roster,
 actions}):null,shown==="im"?(0,import_react53.createElement)(ImPage,{roster,actions}):null,shown==="capabilities"?(0,import_react53.createElement)(CapabilitiesPage,{roster,actions,
-run:run2}):null,shown==="deepseek-services"?(0,import_react53.createElement)(DeepSeekServicesPage,{actions,run:run2,Section:SetSection,Row:SetRow,Switch}):null,shown==="phone"?(0,import_react53.createElement)(
-PhonePage,{roster,actions,Section:SetSection,Row:SetRow}):null,shown==="browser"?(0,import_react53.createElement)(BrowserPage,{roster,actions,run:run2,Section:SetSection,Row:SetRow}):
-null,shown==="schedules"?(0,import_react53.createElement)(SchedulesPage,{roster,actions,start:id??void 0}):null,shown==="secrets"?(0,import_react53.createElement)(SecretsPage,{roster,
-actions,run:run2,Section:SetSection}):null,shown==="feedback"?(0,import_react53.createElement)(FeedbackPage,{actions,run:run2,Section:SetSection,Row:SetRow}):null,shown==="about"?(0,import_react53.createElement)(
-AboutPage,{useUpdate,actions,run:run2,Section:SetSection,Row:SetRow}):null)),usageOpened?(0,import_react53.createElement)("div",{key:"usage",className:"bt-settings-scroll bt-settin\
-gs-usage","data-off":shown==="usage"?void 0:"","aria-hidden":shown==="usage"?void 0:!0},shown==="usage"?errorLine:null,(0,import_react53.createElement)(PageBoundary,{reset:shown},(0,import_react53.createElement)(
-UsagePage,{roster,actions,focusId:usageFocus}))):null),(0,import_react53.createElement)("button",{type:"button",className:"bt-settings-close","aria-label":t("Close settings"),onClick:close},
-(0,import_react53.createElement)(CloseIcon))))}var NOTIFY_KEY="ds-bot:notify";function notifyKind({before,after,viewing,focused,enabled,muted,group}){if(before===void 0||enabled!==!0||muted===!0||viewing===!0&&focused===!0)return;
+run:run2}):null,shown==="deepseek-services"?(0,import_react53.createElement)(DeepSeekServicesPage,{actions,run:run2,Section:SetSection,Row:SetRow,Switch,Segmented}):null,shown==="p\
+hone"?(0,import_react53.createElement)(PhonePage,{roster,actions,Section:SetSection,Row:SetRow}):null,shown==="browser"?(0,import_react53.createElement)(BrowserPage,{roster,actions,
+run:run2,Section:SetSection,Row:SetRow}):null,shown==="schedules"?(0,import_react53.createElement)(SchedulesPage,{roster,actions,start:id??void 0}):null,shown==="secrets"?(0,import_react53.createElement)(
+SecretsPage,{roster,actions,run:run2,Section:SetSection}):null,shown==="feedback"?(0,import_react53.createElement)(FeedbackPage,{actions,run:run2,Section:SetSection,Row:SetRow}):null,
+shown==="about"?(0,import_react53.createElement)(AboutPage,{useUpdate,actions,run:run2,Section:SetSection,Row:SetRow}):null)),usageOpened?(0,import_react53.createElement)("div",{key:"\
+usage",className:"bt-settings-scroll bt-settings-usage","data-off":shown==="usage"?void 0:"","aria-hidden":shown==="usage"?void 0:!0},shown==="usage"?errorLine:null,(0,import_react53.createElement)(
+PageBoundary,{reset:shown},(0,import_react53.createElement)(UsagePage,{roster,actions,focusId:usageFocus}))):null),(0,import_react53.createElement)("button",{type:"button",className:"\
+bt-settings-close","aria-label":t("Close settings"),onClick:close},(0,import_react53.createElement)(CloseIcon))))}var NOTIFY_KEY="ds-bot:notify";function notifyKind({before,after,viewing,focused,enabled,muted,group}){if(before===void 0||enabled!==!0||muted===!0||viewing===!0&&focused===!0)return;
 let wasPending=before?.pendingInteraction!==void 0;if(after?.pendingInteraction!==void 0&&(!wasPending||after.pendingInteraction!==before.pendingInteraction))return"question";if(group!==
 !0&&after?.completionUnread===!0&&before?.completionUnread!==!0)return"reply"}function noticeText({title,kind}){let name=String(title??"").trim().slice(0,60),body=t(kind==="questio\
 n"?"Waiting for your answer":"A new reply is waiting");return{title:name===""?"DS Bot":name,body}}function readNotifyPrefs(raw){try{let value=JSON.parse(raw??"null");if(value===null||
@@ -13819,24 +13951,25 @@ form-origin:top right;animation:bt-pop-drop .18s cubic-bezier(.16,1,.3,1),bt-fad
 .bt-pmenu-sep{height:.5px;flex:none;margin:4px 8px;background:var(--bt-line-2)}
 `;var VOICE_BUNDLE="@deepseek-ai/dsh-experimental-voice-input-bundle",USABLE=new Set(["ready","standby","waking"]);async function speechCatalog(speech){let result=await speech.catalog();
 if(!result?.ok)throw new Error(result?.error?.message??"Speech catalog failed");let catalog=result.value,provider=catalog.providers.find(item=>item.id===catalog.selection.providerId);
-return{catalog,usable:USABLE.has(provider?.preparation?.phase)}}async function requestPreparation(speech,providerId){try{return(await speech.prepare(providerId))?.ok!==!1}catch{return!1}}
-function preparationStep(catalog){let preparation=catalog.providers.find(item=>item.id===catalog.selection.providerId)?.preparation;return preparation===void 0?{state:"done",failed:!1}:
-USABLE.has(preparation.phase)?{state:"usable"}:preparation.phase==="failed"||preparation.phase==="cancelled"||preparation.phase==="unprepared"?{state:"done",failed:preparation.phase===
-"failed"}:{state:"waiting",pct:preparation.phase==="downloading"&&preparation.totalBytes?Math.floor(preparation.completedBytes/preparation.totalBytes*100):void 0}}function waveBytes(samples,rate=16e3){
-let bytes=new Uint8Array(44+samples.length*2),view=new DataView(bytes.buffer),ascii=(at,text)=>{for(let index=0;index<text.length;index+=1)bytes[at+index]=text.charCodeAt(index)};return ascii(
-0,"RIFF"),view.setUint32(4,36+samples.length*2,!0),ascii(8,"WAVEfmt "),view.setUint32(16,16,!0),view.setUint16(20,1,!0),view.setUint16(22,1,!0),view.setUint32(24,rate,!0),view.setUint32(
-28,rate*2,!0),view.setUint16(32,2,!0),view.setUint16(34,16,!0),ascii(36,"data"),view.setUint32(40,samples.length*2,!0),samples.forEach((sample,index)=>{let value=Math.max(-1,Math.min(
-1,sample));view.setInt16(44+index*2,value<0?Math.round(value*32768):Math.round(value*32767),!0)}),bytes}function base64Of(bytes){let text="";for(let index=0;index<bytes.length;index+=
-32768)text+=String.fromCharCode(...bytes.subarray(index,index+32768));return btoa(text)}var captureError=(kind,cause)=>Object.assign(new Error(kind),{kind,cause});async function openCapture(){
-let devices=navigator.mediaDevices;if(!devices?.getUserMedia||typeof MediaRecorder>"u")throw captureError("unavailable");let stream;try{stream=await devices.getUserMedia({audio:{echoCancellation:!0,
-noiseSuppression:!0},video:!1})}catch(error){throw captureError(error?.name==="NotAllowedError"?"blocked":"failed",error)}let audio=new AudioContext,analyser=audio.createAnalyser();
-analyser.fftSize=512,audio.createMediaStreamSource(stream).connect(analyser);let frame2=new Float32Array(analyser.fftSize),recorder=new MediaRecorder(stream),chunks=[];recorder.ondataavailable=
-event=>{event.data.size>0&&chunks.push(event.data)},recorder.start();let closed=!1,close=()=>{closed||(closed=!0,recorder.state!=="inactive"&&recorder.stop(),stream.getTracks().forEach(
-track=>track.stop()),audio.close().catch(()=>{}))};return{level(){if(closed)return 0;analyser.getFloatTimeDomainData(frame2);let sum=0;for(let sample of frame2)sum+=sample*sample;return Math.
-min(1,Math.sqrt(sum/frame2.length)*4)},cancel:close,async finish(maxSeconds){if(closed||recorder.state==="inactive")return close(),null;try{await new Promise(resolve2=>{recorder.onstop=
-resolve2,recorder.stop()}),stream.getTracks().forEach(track=>track.stop());let blob=new Blob(chunks,{type:recorder.mimeType});if(blob.size===0)return null;let decoded=await audio.decodeAudioData(
-await blob.arrayBuffer()),length=Math.max(1,Math.floor(Math.min(decoded.duration,maxSeconds)*16e3)),offline=new OfflineAudioContext(1,length,16e3),source=offline.createBufferSource();
-return source.buffer=decoded,source.connect(offline.destination),source.start(),waveBytes((await offline.startRendering()).getChannelData(0))}finally{close()}}}}async function transcribeWave(speech,catalog,wave,signal){
+return{catalog,usable:provider!==void 0&&(provider.preparation===void 0||USABLE.has(provider.preparation.phase))}}async function requestPreparation(speech,providerId){try{return(await speech.
+prepare(providerId))?.ok!==!1}catch{return!1}}function preparationStep(catalog){let provider=catalog.providers.find(item=>item.id===catalog.selection.providerId);if(provider===void 0)
+return{state:"done",failed:!1};let{preparation}=provider;return preparation===void 0?{state:"usable"}:USABLE.has(preparation.phase)?{state:"usable"}:preparation.phase==="failed"||preparation.
+phase==="cancelled"||preparation.phase==="unprepared"?{state:"done",failed:preparation.phase==="failed"}:{state:"waiting",pct:preparation.phase==="downloading"&&preparation.totalBytes?
+Math.floor(preparation.completedBytes/preparation.totalBytes*100):void 0}}function waveBytes(samples,rate=16e3){let bytes=new Uint8Array(44+samples.length*2),view=new DataView(bytes.
+buffer),ascii=(at,text)=>{for(let index=0;index<text.length;index+=1)bytes[at+index]=text.charCodeAt(index)};return ascii(0,"RIFF"),view.setUint32(4,36+samples.length*2,!0),ascii(8,
+"WAVEfmt "),view.setUint32(16,16,!0),view.setUint16(20,1,!0),view.setUint16(22,1,!0),view.setUint32(24,rate,!0),view.setUint32(28,rate*2,!0),view.setUint16(32,2,!0),view.setUint16(
+34,16,!0),ascii(36,"data"),view.setUint32(40,samples.length*2,!0),samples.forEach((sample,index)=>{let value=Math.max(-1,Math.min(1,sample));view.setInt16(44+index*2,value<0?Math.round(
+value*32768):Math.round(value*32767),!0)}),bytes}function base64Of(bytes){let text="";for(let index=0;index<bytes.length;index+=32768)text+=String.fromCharCode(...bytes.subarray(index,
+index+32768));return btoa(text)}var captureError=(kind,cause)=>Object.assign(new Error(kind),{kind,cause});async function openCapture(){let devices=navigator.mediaDevices;if(!devices?.
+getUserMedia||typeof MediaRecorder>"u")throw captureError("unavailable");let stream;try{stream=await devices.getUserMedia({audio:{echoCancellation:!0,noiseSuppression:!0},video:!1})}catch(error){
+throw captureError(error?.name==="NotAllowedError"?"blocked":"failed",error)}let audio=new AudioContext,analyser=audio.createAnalyser();analyser.fftSize=512,audio.createMediaStreamSource(
+stream).connect(analyser);let frame2=new Float32Array(analyser.fftSize),recorder=new MediaRecorder(stream),chunks=[];recorder.ondataavailable=event=>{event.data.size>0&&chunks.push(
+event.data)},recorder.start();let closed=!1,close=()=>{closed||(closed=!0,recorder.state!=="inactive"&&recorder.stop(),stream.getTracks().forEach(track=>track.stop()),audio.close().
+catch(()=>{}))};return{level(){if(closed)return 0;analyser.getFloatTimeDomainData(frame2);let sum=0;for(let sample of frame2)sum+=sample*sample;return Math.min(1,Math.sqrt(sum/frame2.
+length)*4)},cancel:close,async finish(maxSeconds){if(closed||recorder.state==="inactive")return close(),null;try{await new Promise(resolve2=>{recorder.onstop=resolve2,recorder.stop()}),
+stream.getTracks().forEach(track=>track.stop());let blob=new Blob(chunks,{type:recorder.mimeType});if(blob.size===0)return null;let decoded=await audio.decodeAudioData(await blob.arrayBuffer()),
+length=Math.max(1,Math.floor(Math.min(decoded.duration,maxSeconds)*16e3)),offline=new OfflineAudioContext(1,length,16e3),source=offline.createBufferSource();return source.buffer=decoded,
+source.connect(offline.destination),source.start(),waveBytes((await offline.startRendering()).getChannelData(0))}finally{close()}}}}async function transcribeWave(speech,catalog,wave,signal){
 if(wave.byteLength>catalog.maxAudioBytes)throw captureError("too-long");let result=await speech.transcribe({audioBase64:base64Of(wave),...catalog.selection},signal);if(!result?.ok)
 throw Object.assign(new Error(result?.error?.message??"Transcription failed"),{kind:"service"});return String(result.value?.text??"").trim()}function closingReplyText(chat,turn){let location2=chat?.
 timeline?.turns?.get(turn);if(location2===void 0)return;let closing=location2.data?.get("turn-tail")?.closing;if(closing!==void 0)return closing===null?"":(closing.blocks??[]).filter(
@@ -14150,59 +14283,85 @@ let whole=entry.length===void 0?void 0:{length:entry.length,load:()=>actions.exc
 "time",{className:"bt-time"},dayLabel(entry.time)):null,(0,import_react66.createElement)("div",{className:"bt-group-msg"},(0,import_react66.createElement)("span",{className:"bt-gro\
 up-name",style:flat?void 0:{color:inkText(colorOf(bot))}},flat?lead:null,bot.name),(0,import_react66.createElement)(Bubbles,{texts:[stripLongNote(entry.text)],roster,selfId:bot.id,
 actions,whole,lead:flat?null:lead})))})),(0,import_react66.createElement)("div",{className:"bt-dialog-foot"},(0,import_react66.createElement)("button",{type:"button",className:"bt-\
-soft",onClick:close},t("Close Chat")))))}var import_react67=require("react"),plainSpeech=text=>stripHeader(text).replace(/```[\s\S]*?```/g," ").replace(/\[([^\]]*)\]\([^)]*\)/g,"$1").replace(/[*_`#>|~-]+/g," ").replace(/\s+/g,
+soft",onClick:close},t("Close Chat")))))}var CJK=/\p{Script=Han}/u,EDGE=/^\s+|\s+$/g,ALWAYS_END=/^[!?。！？…；;]/,CLOSER=/^['"”’」』）)\]]/,ABBREV=/(?:^|[\s(["'“‘])(?:Mr|Mrs|Ms|Dr|Prof|Sr|Jr|St|vs|etc|e\.g|i\.e)$/i,
+LIST_NUM=/(?:^|\s)\d{1,3}$/;function splitSentences(paragraph){let out=[],start=0,at=0,len=paragraph.length;for(;at<len;){let ch=paragraph[at];if(ALWAYS_END.test(ch)){for(at+=1;at<
+len&&(ALWAYS_END.test(paragraph[at])||paragraph[at]==="."||CLOSER.test(paragraph[at]));)at+=1;out.push(paragraph.slice(start,at)),start=at;continue}if(ch==="."){let end=at+1;for(;end<
+len&&paragraph[end]===".";)end+=1;let singleDot=end===at+1,after=end;for(;after<len&&CLOSER.test(paragraph[after]);)after+=1;let atBoundary=after===len||/\s/.test(paragraph[after]),
+before=paragraph.slice(start,at),isAbbrev=singleDot&&(ABBREV.test(before)||after<len&&LIST_NUM.test(before));if(atBoundary&&!isAbbrev){out.push(paragraph.slice(start,after)),start=
+after,at=after;continue}at=end;continue}at+=1}return start<len&&out.push(paragraph.slice(start)),out}var SOFT=/[\s,，、：:—–-][^,，、：:—–-\s]*$/,billedLength=text=>{
+let count=0;for(let char of text)count+=CJK.test(char)?2:1;return count},billedSlice=(text,limit)=>{let count=0,end=0;for(let char of text){if(count+=CJK.test(char)?2:1,count>limit)
+break;end+=char.length}if(end===0)return[...text][0];let soft=SOFT.exec(text.slice(0,end));return soft!==null&&soft.index>=Math.floor(end/2)?text.slice(0,soft.index+1):text.slice(0,
+end)},splitSpeech=(text,limit=800)=>{let chunks=[],push=piece=>{let rest=piece.replace(EDGE,"");for(;rest!=="";){let part=billedLength(rest)<=limit?rest:billedSlice(rest,limit);chunks.
+push(part.replace(EDGE,"")),rest=rest.slice(part.length).replace(EDGE,"")}};for(let paragraph of text.split(/\n\s*\n/))for(let sentence of splitSentences(paragraph))push(sentence);
+return chunks},bytesOf=base64=>{let text=atob(base64),bytes=new Uint8Array(text.length);for(let index=0;index<text.length;index+=1)bytes[index]=text.charCodeAt(index);return bytes},
+playClip=(clip2,signal)=>new Promise(resolve2=>{if(signal?.aborted||typeof Audio!="function"){resolve2(signal?.aborted?"aborted":"failed");return}if(typeof clip2?.audioBase64!="str\
+ing"||clip2.audioBase64===""){resolve2("failed");return}let url;try{url=URL.createObjectURL(new Blob([bytesOf(clip2.audioBase64)],{type:clip2.mediaType||"audio/wav"}))}catch{resolve2(
+"failed");return}let audio=new Audio,settled=!1,finish=outcome=>{settled||(settled=!0,signal?.removeEventListener("abort",onAbort),audio.onended=audio.onerror=null,audio.pause(),audio.
+removeAttribute("src"),URL.revokeObjectURL(url),resolve2(outcome))},onAbort=()=>finish("aborted");audio.onended=()=>finish("done"),audio.onerror=()=>finish("failed"),signal?.addEventListener(
+"abort",onAbort,{once:!0}),audio.src=url,Promise.resolve().then(()=>audio.play()).catch(()=>finish("failed"))}),replyVoice=prefs=>prefs?.deepseekServices?.tts==="deepseek"?prefs.deepseekServices?.
+voice==="tide"?"tide":"stella":null,settleSpeech=async(said,current2,{failed,done}={})=>{let outcome=await said;return current2()&&outcome!=="aborted"&&(outcome==="failed"&&failed?.(),
+done?.()),outcome},createSpeechPlayer=synthesize=>{let generation=0,active=null,playing=Promise.resolve("done"),run2=async(text,voice,own)=>{for(let chunk of splitSpeech(text)){if(own!==
+generation)return"aborted";let abort=new AbortController;active=abort;let clip2;try{clip2=await synthesize(chunk,voice,abort.signal)}catch{return active===abort&&(active=null),own===
+generation?"failed":"aborted"}if(own!==generation)return active===abort&&(active=null),"aborted";let outcome=await playClip(clip2,abort.signal);if(active===abort&&(active=null),own!==
+generation||outcome==="aborted")return"aborted";if(outcome==="failed")return"failed"}return"done"};return{say(text,voice){return generation+=1,active?.abort(),active=null,playing=run2(
+text,voice,generation),playing},stop(){generation+=1,active?.abort(),active=null},wait(){return playing}}};var import_react67=require("react"),plainSpeech=text=>stripHeader(text).replace(/```[\s\S]*?```/g," ").replace(/\[([^\]]*)\]\([^)]*\)/g,"$1").replace(/[*_`#>|~-]+/g," ").replace(/\s+/g,
 " ").trim(),VOICE_LABELS={listening:"Listening",thinking:"Thinking",speaking:"Speaking",paused:"Paused",setup:"Voice input needs its speech model",preparing:"Preparing voice input…",
 unsupported:"Voice chat is not available in this browser"},CAPTURE_NOTES={blocked:"Microphone access is blocked",unavailable:"Voice chat is not available in this browser","too-long":"\
-That was too long to recognize"};function watchReply(read,watch,consume){let off=()=>{},consumed=!1,attempt=()=>{if(consumed)return;let text=read();text!==void 0&&(consumed=!0,off(),
-consume(text))};return off=watch(attempt),attempt(),()=>{consumed=!0,off()}}function useMicLevel(enabled,targetRef){(0,import_react67.useEffect)(()=>{if(!enabled||!navigator.mediaDevices?.
-getUserMedia)return;let stream=null,audio=null,frame2=0,stopped=!1,write=value=>{targetRef.current?.style.setProperty("--bt-level",String(value))};return navigator.mediaDevices.getUserMedia(
-{audio:!0}).then(media=>{if(stopped){media.getTracks().forEach(track=>track.stop());return}stream=media,audio=new AudioContext;let analyser=audio.createAnalyser();analyser.fftSize=
-256,audio.createMediaStreamSource(media).connect(analyser);let data=new Uint8Array(analyser.frequencyBinCount),smooth=0,tick=()=>{analyser.getByteTimeDomainData(data);let sum=0;for(let value of data)
-sum+=((value-128)/128)**2;smooth=smooth*.8+Math.min(1,Math.sqrt(sum/data.length)*4)*.2,write(Math.round(smooth*100)/100),frame2=requestAnimationFrame(tick)};tick()}).catch(()=>{}),
-()=>{stopped=!0,cancelAnimationFrame(frame2),stream?.getTracks().forEach(track=>track.stop()),audio?.close().catch(()=>{}),write(0)}},[enabled])}function VoiceMode({sessionId,paneLeft,
-roster,actions,useSessions,useSessionStatus}){let bot=roster.byId[sessionId],room2=roster.roomsById[sessionId],name=bot?.name??room2?.name??t("Bot"),running=useSessionStatus(map=>map.
-get(sessionId)?.running===!0),lastReply=useSessions(list=>{let outline=list.projectionsBySession?.[sessionId]?.values?.turnOutline??list.byId[sessionId]?.projectionValues?.turnOutline,
-entry=Array.isArray(outline)?outline[outline.length-1]:void 0;return entry?`${outline.length}|${entry.turn}`:"0|"}),[speech]=(0,import_react67.useState)(()=>actions.speech()),[phase,
-setPhase]=(0,import_react67.useState)(speech?"starting":speechApi()?"listening":"unsupported"),[catalog,setCatalog]=(0,import_react67.useState)(null),[heard,setHeard]=(0,import_react67.useState)(
+That was too long to recognize",service:"Couldn't reach the speech service"};async function transcribeUtterance({speech,catalog,capture,isCurrent,ctl,submit,resume,fail:fail2}){let controller=new AbortController;
+try{let wave=await capture.finish(catalog.maxDurationSeconds);if(!wave||!isCurrent()||controller.signal.aborted){isCurrent()&&resume();return}ctl.current=controller;let text=await transcribeWave(
+speech,catalog,wave,controller.signal);if(!isCurrent()||controller.signal.aborted)return;text?submit(text):resume()}catch(error){if(!isCurrent()||controller.signal.aborted)return;fail2(
+error)}finally{ctl.current===controller&&(ctl.current=null)}}function watchReply(read,watch,consume){let off=()=>{},consumed=!1,attempt=()=>{if(consumed)return;let text=read();text!==
+void 0&&(consumed=!0,off(),consume(text))};return off=watch(attempt),attempt(),()=>{consumed=!0,off()}}function useMicLevel(enabled,targetRef){(0,import_react67.useEffect)(()=>{if(!enabled||
+!navigator.mediaDevices?.getUserMedia)return;let stream=null,audio=null,frame2=0,stopped=!1,write=value=>{targetRef.current?.style.setProperty("--bt-level",String(value))};return navigator.
+mediaDevices.getUserMedia({audio:!0}).then(media=>{if(stopped){media.getTracks().forEach(track=>track.stop());return}stream=media,audio=new AudioContext;let analyser=audio.createAnalyser();
+analyser.fftSize=256,audio.createMediaStreamSource(media).connect(analyser);let data=new Uint8Array(analyser.frequencyBinCount),smooth=0,tick=()=>{analyser.getByteTimeDomainData(data);
+let sum=0;for(let value of data)sum+=((value-128)/128)**2;smooth=smooth*.8+Math.min(1,Math.sqrt(sum/data.length)*4)*.2,write(Math.round(smooth*100)/100),frame2=requestAnimationFrame(
+tick)};tick()}).catch(()=>{}),()=>{stopped=!0,cancelAnimationFrame(frame2),stream?.getTracks().forEach(track=>track.stop()),audio?.close().catch(()=>{}),write(0)}},[enabled])}function VoiceMode({
+sessionId,paneLeft,roster,actions,useSessions,useSessionStatus}){let bot=roster.byId[sessionId],room2=roster.roomsById[sessionId],name=bot?.name??room2?.name??t("Bot"),running=useSessionStatus(
+map=>map.get(sessionId)?.running===!0),lastReply=useSessions(list=>{let outline=list.projectionsBySession?.[sessionId]?.values?.turnOutline??list.byId[sessionId]?.projectionValues?.
+turnOutline,entry=Array.isArray(outline)?outline[outline.length-1]:void 0;return entry?`${outline.length}|${entry.turn}`:"0|"}),[speech]=(0,import_react67.useState)(()=>actions.speech()),
+[phase,setPhase]=(0,import_react67.useState)(speech?"starting":speechApi()?"listening":"unsupported"),[catalog,setCatalog]=(0,import_react67.useState)(null),[heard,setHeard]=(0,import_react67.useState)(
 ""),[said,setSaid]=(0,import_react67.useState)(""),[note,setNote]=(0,import_react67.useState)(""),[cycle,setCycle]=(0,import_react67.useState)(0),orbRef=(0,import_react67.useRef)(null),
-transcribeAbort=(0,import_react67.useRef)(null),waiting=(0,import_react67.useRef)(null),reply=(0,import_react67.useRef)(lastReply);reply.current=lastReply;let turn=(0,import_react67.useRef)(
-0),cancelTranscribe=()=>{transcribeAbort.current?.abort(),transcribeAbort.current=null},close=()=>{turn.current+=1,cancelTranscribe(),window.speechSynthesis?.cancel(),actions.closeVoice()};
-useEscape(close);let submit=text=>{setHeard(text),setPhase("thinking"),waiting.current=reply.current.split("|")[0],actions.send(sessionId,text.trim()).catch(()=>setPhase("listening"))},
-dictation=useDictation((text,final)=>{setHeard(text),final&&(dictation.stop(),submit(text))});(0,import_react67.useEffect)(()=>{if(!note)return;let timer=setTimeout(()=>setNote(""),
-2600);return()=>clearTimeout(timer)},[note]),(0,import_react67.useEffect)(()=>{if(!speech)return;let live=!0;return speechCatalog(speech).then(({catalog:next,usable})=>{live&&(setCatalog(
-next),setPhase(usable?"listening":"setup"))},()=>{live&&setPhase("setup")}),()=>{live=!1}},[speech]);let listen=phase==="listening";(0,import_react67.useEffect)(()=>{if(speech||!listen||
-dictation.listening)return;let timer=setTimeout(()=>{dictation.start({continuous:!1,onEnd:()=>{},onError:code=>{(code==="not-allowed"||code==="service-not-allowed"||code==="audio-c\
-apture")&&(setNote(t(CAPTURE_NOTES.blocked)),setPhase("paused"))}})||setPhase("paused")},250);return()=>clearTimeout(timer)},[listen,dictation.listening]),(0,import_react67.useEffect)(
-()=>{phase!=="listening"&&dictation.stop()},[phase]),(0,import_react67.useEffect)(()=>{if(!speech||!catalog||!listen)return;let own=turn.current,capture=null,frame2=0,stopped=!1,smooth=0,
-detect=turnDetector(),limit=Math.max(1,catalog.maxDurationSeconds-1)*1e3,writeLevel=value=>{orbRef.current?.style.setProperty("--bt-level",String(value))},finish=async current2=>{cancelTranscribe();
-let controller=new AbortController;transcribeAbort.current=controller,setPhase("transcribing");try{let wave=await current2.finish(catalog.maxDurationSeconds),text=wave?await transcribeWave(
-speech,catalog,wave,controller.signal):"";if(turn.current!==own)return;text?submit(text):setPhase("listening")}catch(error){if(turn.current!==own||error?.name==="AbortError")return;
-setNote(t(CAPTURE_NOTES[error?.kind]??"Couldn't hear that")),setPhase("listening")}finally{transcribeAbort.current===controller&&(transcribeAbort.current=null)}};return openCapture().
-then(opened=>{if(stopped){opened.cancel();return}capture=opened;let began=performance.now(),tick=()=>{let now=performance.now(),level=capture.level();smooth=smooth*.8+level*.2,writeLevel(
-Math.round(smooth*100)/100);let state=detect(level,now);if(state==="done"||state==="speech"&&now-began>=limit){let current2=capture;capture=null,writeLevel(0),finish(current2);return}
-if(state==="waiting"&&now-began>=limit){setCycle(value=>value+1);return}frame2=requestAnimationFrame(tick)};tick()},error=>{stopped||(setNote(t(CAPTURE_NOTES[error?.kind]??"Couldn'\
-t hear that")),setPhase("paused"))}),()=>{stopped=!0,cancelAnimationFrame(frame2),capture?.cancel(),writeLevel(0)}},[speech,catalog,listen,cycle]),(0,import_react67.useEffect)(()=>{
-if(phase!=="thinking"||running||waiting.current===null)return;let count=lastReply.slice(0,lastReply.indexOf("|")),turn2=Number(lastReply.slice(lastReply.indexOf("|")+1));if(count===
-waiting.current)return;let speak=text=>{waiting.current=null;let spoken=plainSpeech(text);if(setSaid(spoken),setHeard(""),!window.speechSynthesis||!spoken){setPhase("listening");return}
-let utterance=new SpeechSynthesisUtterance(spoken);utterance.lang=/[\u3400-\u9fff]/.test(spoken)?"zh-CN":"en-US",utterance.onend=()=>setPhase(current2=>current2==="speaking"?"liste\
-ning":current2),utterance.onerror=utterance.onend,setPhase("speaking"),window.speechSynthesis.cancel(),window.speechSynthesis.speak(utterance)};return watchReply(()=>actions.closingReply(
-sessionId,turn2),listener=>actions.watchTurns(sessionId,listener),text=>{if(text===null){waiting.current=null,setPhase("listening");return}speak(text)})},[phase,running,lastReply]),
-(0,import_react67.useEffect)(()=>()=>{cancelTranscribe(),window.speechSynthesis?.cancel()},[]),useMicLevel(!speech&&phase==="listening"&&dictation.listening,orbRef);let markState=phase===
-"thinking"||phase==="transcribing"?"thinking":phase==="speaking"?"sending":"idle",blocked=phase==="unsupported"||phase==="setup"||phase==="starting"||phase==="preparing",togglePause=()=>{
-if(phase==="paused"){setPhase("listening");return}turn.current+=1,cancelTranscribe(),window.speechSynthesis?.cancel(),setPhase("paused")};(0,import_react67.useEffect)(()=>{if(phase!==
-"preparing"||!speech)return;let stopped=!1,timer,tick=async()=>{try{let{catalog:next}=await speechCatalog(speech);if(stopped)return;setCatalog(next);let step=preparationStep(next);
-if(step.state==="usable"){setPhase("listening");return}if(step.state==="done"){setPhase("setup"),step.failed&&setNote(t("Couldn't prepare voice input"));return}setNote(step.pct===void 0?
-"":t("Downloading the speech model… {pct}%",{pct:step.pct}))}catch{if(!stopped){setPhase("setup");return}}timer=setTimeout(tick,1500)};return timer=setTimeout(tick,800),()=>{stopped=
-!0,clearTimeout(timer)}},[phase,speech]);let openSetup=phase==="setup"?actions.voiceSetup(catalog?.selection?.providerId):null,startSetup=()=>{if(openSetup?.navigate){close(),openSetup.
-navigate();return}turn.current+=1,cancelTranscribe(),setPhase("preparing"),Promise.resolve(openSetup.prepare()).then(started=>{started===!1&&(setPhase("setup"),setNote(t("Couldn't \
-prepare voice input")))})},caption=phase==="speaking"?said:heard,shownNote=note||dictation.note;return(0,import_react67.createElement)("div",{className:"bt-pane bt-voice-pane",style:{
-left:paneLeft}},(0,import_react67.createElement)("div",{className:"bt-voice-stage",role:"dialog","aria-label":t("Voice chat with {name}",{name}),"data-phase":phase==="transcribing"?
-"thinking":phase},(0,import_react67.createElement)("div",{ref:orbRef,className:"bt-voice-orb"},(0,import_react67.createElement)("span",{className:"bt-voice-ring","aria-hidden":!0}),
-(0,import_react67.createElement)("span",{className:"bt-voice-ring bt-voice-ring-2","aria-hidden":!0}),bot?(0,import_react67.createElement)(BotMark,{bot,size:112,state:markState,live:!0,
-gaze:phase==="listening"}):room2?(0,import_react67.createElement)(RoomAvatar,{room:room2,roster,size:112}):null),(0,import_react67.createElement)("div",{className:"bt-voice-name"},
-name),(0,import_react67.createElement)("div",{className:"bt-voice-status",role:"status"},phase==="thinking"?(0,import_react67.createElement)(Shimmer,null,t("Thinking…")):phase===
-"transcribing"?(0,import_react67.createElement)(Shimmer,null,t("Recognizing…")):VOICE_LABELS[phase]?t(VOICE_LABELS[phase]):""),(0,import_react67.createElement)("div",{className:"\
-bt-voice-caption",key:`${phase}:${caption.slice(0,12)}`},caption),openSetup?(0,import_react67.createElement)("button",{type:"button",className:"bt-voice-setup",onClick:startSetup},
+waiting=(0,import_react67.useRef)(null),reply=(0,import_react67.useRef)(lastReply);reply.current=lastReply;let prefs=(0,import_react67.useRef)(roster.prefs);prefs.current=roster.prefs;
+let turn=(0,import_react67.useRef)(0),player=(0,import_react67.useRef)(null),transcribeCtl=(0,import_react67.useRef)(null),speechSeq=(0,import_react67.useRef)(0),stopSpeech=()=>{speechSeq.
+current+=1,window.speechSynthesis?.cancel(),player.current?.stop()},close=()=>{turn.current+=1,transcribeCtl.current?.abort(),stopSpeech(),actions.closeVoice()};useEscape(close);let submit=text=>{
+setHeard(text),setPhase("thinking"),waiting.current=reply.current.split("|")[0],actions.send(sessionId,text.trim()).catch(()=>setPhase("listening"))},dictation=useDictation((text,final)=>{
+setHeard(text),final&&(dictation.stop(),submit(text))});(0,import_react67.useEffect)(()=>{if(!note)return;let timer=setTimeout(()=>setNote(""),2600);return()=>clearTimeout(timer)},
+[note]),(0,import_react67.useEffect)(()=>{if(!speech)return;let live=!0;return speechCatalog(speech).then(({catalog:next,usable})=>{live&&(setCatalog(next),setPhase(usable?"listeni\
+ng":"setup"))},()=>{live&&setPhase("setup")}),()=>{live=!1}},[speech]);let listen=phase==="listening";(0,import_react67.useEffect)(()=>{if(speech||!listen||dictation.listening)return;
+let timer=setTimeout(()=>{dictation.start({continuous:!1,onEnd:()=>{},onError:code=>{(code==="not-allowed"||code==="service-not-allowed"||code==="audio-capture")&&(setNote(t(CAPTURE_NOTES.
+blocked)),setPhase("paused"))}})||setPhase("paused")},250);return()=>clearTimeout(timer)},[listen,dictation.listening]),(0,import_react67.useEffect)(()=>{phase!=="listening"&&dictation.
+stop()},[phase]),(0,import_react67.useEffect)(()=>{if(!speech||!catalog||!listen)return;let own=turn.current,capture=null,frame2=0,stopped=!1,smooth=0,detect=turnDetector(),limit=Math.
+max(1,catalog.maxDurationSeconds-1)*1e3,writeLevel=value=>{orbRef.current?.style.setProperty("--bt-level",String(value))},finish=current2=>{setPhase("transcribing"),transcribeUtterance(
+{speech,catalog,capture:current2,isCurrent:()=>turn.current===own,ctl:transcribeCtl,submit,resume:()=>setPhase("listening"),fail:error=>{setNote(t(CAPTURE_NOTES[error?.kind]??"Coul\
+dn't hear that")),setPhase("listening")}})};return openCapture().then(opened=>{if(stopped){opened.cancel();return}capture=opened;let began=performance.now(),tick=()=>{let now=performance.
+now(),level=capture.level();smooth=smooth*.8+level*.2,writeLevel(Math.round(smooth*100)/100);let state=detect(level,now);if(state==="done"||state==="speech"&&now-began>=limit){let current2=capture;
+capture=null,writeLevel(0),finish(current2);return}if(state==="waiting"&&now-began>=limit){setCycle(value=>value+1);return}frame2=requestAnimationFrame(tick)};tick()},error=>{stopped||
+(setNote(t(CAPTURE_NOTES[error?.kind]??"Couldn't hear that")),setPhase("paused"))}),()=>{stopped=!0,cancelAnimationFrame(frame2),capture?.cancel(),writeLevel(0)}},[speech,catalog,listen,
+cycle]),(0,import_react67.useEffect)(()=>{if(phase!=="thinking"||running||waiting.current===null)return;let count=lastReply.slice(0,lastReply.indexOf("|")),turn2=Number(lastReply.slice(
+lastReply.indexOf("|")+1));if(count===waiting.current)return;let speak=text=>{waiting.current=null;let spoken=plainSpeech(text);if(setSaid(spoken),setHeard(""),!spoken){setPhase("l\
+istening");return}let cloud=typeof actions.synthesizeSpeech=="function"?replyVoice(prefs.current):null;if(cloud){window.speechSynthesis?.cancel(),player.current??=createSpeechPlayer(
+(text2,voice,signal)=>actions.synthesizeSpeech({text:text2,voice},signal));let own=++speechSeq.current;setPhase("speaking"),settleSpeech(player.current.say(spoken,cloud),()=>speechSeq.
+current===own,{failed:()=>setNote(t("Couldn't read the reply")),done:()=>setPhase(current2=>current2==="speaking"?"listening":current2)});return}if(!window.speechSynthesis){setPhase(
+"listening");return}speechSeq.current+=1,player.current?.stop();let utterance=new SpeechSynthesisUtterance(spoken);utterance.lang=/[\u3400-\u9fff]/.test(spoken)?"zh-CN":"en-US",utterance.
+onend=()=>setPhase(current2=>current2==="speaking"?"listening":current2),utterance.onerror=utterance.onend,setPhase("speaking"),window.speechSynthesis.cancel(),window.speechSynthesis.
+speak(utterance)};return watchReply(()=>actions.closingReply(sessionId,turn2),listener=>actions.watchTurns(sessionId,listener),text=>{if(text===null){waiting.current=null,setPhase(
+"listening");return}speak(text)})},[phase,running,lastReply]),(0,import_react67.useEffect)(()=>()=>{turn.current+=1,transcribeCtl.current?.abort(),stopSpeech()},[]),useMicLevel(!speech&&
+phase==="listening"&&dictation.listening,orbRef);let markState=phase==="thinking"||phase==="transcribing"?"thinking":phase==="speaking"?"sending":"idle",blocked=phase==="unsupporte\
+d"||phase==="setup"||phase==="starting"||phase==="preparing",togglePause=()=>{if(phase==="paused"){setPhase("listening");return}turn.current+=1,transcribeCtl.current?.abort(),stopSpeech(),
+setPhase("paused")};(0,import_react67.useEffect)(()=>{if(phase!=="preparing"||!speech)return;let stopped=!1,timer,tick=async()=>{try{let{catalog:next}=await speechCatalog(speech);if(stopped)
+return;setCatalog(next);let step=preparationStep(next);if(step.state==="usable"){setPhase("listening");return}if(step.state==="done"){setPhase("setup"),step.failed&&setNote(t("Coul\
+dn't prepare voice input"));return}setNote(step.pct===void 0?"":t("Downloading the speech model… {pct}%",{pct:step.pct}))}catch{if(!stopped){setPhase("setup");return}}timer=setTimeout(
+tick,1500)};return timer=setTimeout(tick,800),()=>{stopped=!0,clearTimeout(timer)}},[phase,speech]);let openSetup=phase==="setup"?actions.voiceSetup(catalog?.selection?.providerId):
+null,startSetup=()=>{if(openSetup?.navigate){close(),openSetup.navigate();return}turn.current+=1,transcribeCtl.current?.abort(),stopSpeech(),setPhase("preparing"),Promise.resolve(openSetup.
+prepare()).then(started=>{started===!1&&(setPhase("setup"),setNote(t("Couldn't prepare voice input")))})},caption=phase==="speaking"?said:heard,shownNote=note||dictation.note;return(0,import_react67.createElement)(
+"div",{className:"bt-pane bt-voice-pane",style:{left:paneLeft}},(0,import_react67.createElement)("div",{className:"bt-voice-stage",role:"dialog","aria-label":t("Voice chat with {na\
+me}",{name}),"data-phase":phase==="transcribing"?"thinking":phase},(0,import_react67.createElement)("div",{ref:orbRef,className:"bt-voice-orb"},(0,import_react67.createElement)("sp\
+an",{className:"bt-voice-ring","aria-hidden":!0}),(0,import_react67.createElement)("span",{className:"bt-voice-ring bt-voice-ring-2","aria-hidden":!0}),bot?(0,import_react67.createElement)(
+BotMark,{bot,size:112,state:markState,live:!0,gaze:phase==="listening"}):room2?(0,import_react67.createElement)(RoomAvatar,{room:room2,roster,size:112}):null),(0,import_react67.createElement)(
+"div",{className:"bt-voice-name"},name),(0,import_react67.createElement)("div",{className:"bt-voice-status",role:"status"},phase==="thinking"?(0,import_react67.createElement)(Shimmer,
+null,t("Thinking…")):phase==="transcribing"?(0,import_react67.createElement)(Shimmer,null,t("Recognizing…")):VOICE_LABELS[phase]?t(VOICE_LABELS[phase]):""),(0,import_react67.createElement)(
+"div",{className:"bt-voice-caption",key:`${phase}:${caption.slice(0,12)}`},caption),openSetup?(0,import_react67.createElement)("button",{type:"button",className:"bt-voice-setup",onClick:startSetup},
 t("Set up voice input")):null,shownNote?(0,import_react67.createElement)("div",{className:"bt-voice-note"},shownNote):null),(0,import_react67.createElement)("div",{className:"bt-vo\
 ice-bar"},(0,import_react67.createElement)("button",{type:"button",className:"bt-voice-btn","aria-pressed":phase==="paused",disabled:blocked,"aria-label":phase==="paused"?t("Resume\
  listening"):t("Pause"),onClick:togglePause},(0,import_react67.createElement)(MicIcon,{size:20}),phase==="paused"?(0,import_react67.createElement)("span",{className:"bt-voice-slash",
@@ -14487,20 +14646,25 @@ READ_FLASH_MS=2400,EMPTY_PAGE={url:"",title:"",favicon:null,loading:!1,canGoBack
 ["M12.5 4.5L7 10l5.5 5.5"]),ForwardIcon=icon(["M7.5 4.5L13 10l-5.5 5.5"]),ReloadIcon=icon(["M15.5 10a5.5 5.5 0 1 1-1.6-3.9","M15.5 3.5v3.5H12"]),StopIcon=icon(["M5.5 5.5l9 9M14.5 5\
 .5l-9 9"]),CloseIcon3=icon(["M5.5 5.5l9 9M14.5 5.5l-9 9"]),PlusTabIcon=icon(["M10 5v10M5 10h10"]),LockIcon2=icon(["M6.5 9V7a3.5 3.5 0 0 1 7 0v2","M5.5 9h9v7h-9z"]),ImportIcon=icon(
 ["M10 3.5v8.5","M6 8.5l4 4 4-4","M4.5 14v1.5a1.5 1.5 0 0 0 1.5 1.5h8a1.5 1.5 0 0 0 1.5-1.5V14"]),FileIcon=icon(["M6 3.5h5.5L14.5 6.5v10H6z","M11 3.5v3.5h3.5"]),WindowIcon=icon(["M4\
- 5h12v9.5H4z","M4 7.5h12"]);function Favicon({src,className}){let[failed,setFailed]=(0,import_react71.useState)(null);return!src||failed===src?(0,import_react71.createElement)("spa\
-n",{className:`${className} bt-ptab-globe`},(0,import_react71.createElement)(GlobeIcon2)):(0,import_react71.createElement)("img",{className,src,alt:"","aria-hidden":!0,onError:()=>setFailed(
-src)})}var savedWidth=()=>{try{let value=Number(localStorage.getItem(WIDTH_KEY));return Number.isFinite(value)&&value>=DETAILS_WIDTH?value:null}catch{return null}},widthRange=(view,room2)=>view===
-"browser"?[MIN_WIDTH,room2-MIN_CHAT]:[DETAILS_WIDTH,Math.min(DETAILS_MAX,room2-MIN_CHAT)],fitWidth=(width,[low,high])=>Math.round(Math.max(low,Math.min(width,high))),shortAddress=url=>String(
-url??"").replace(/^https?:\/\//i,"").replace(/^www\./i,"").replace(/\/$/,""),tabLabel=page=>page.title||shortAddress(page.url)||t("New tab");function PanelMenu({items,className,"ar\
-ia-label":label}){let[open,setOpen]=(0,import_react71.useState)(!1),[shown,leaving]=useLinger(open,120),wrap=(0,import_react71.useRef)(null),button=(0,import_react71.useRef)(null);
-return useEscape(()=>{setOpen(!1),button.current?.focus()},open),(0,import_react71.useEffect)(()=>{if(!open)return;let onDown=event=>{wrap.current&&!wrap.current.contains(event.target)&&
-setOpen(!1)},onKey=event=>{stepMenuFocus(wrap.current,event,button.current)};return window.addEventListener("pointerdown",onDown),window.addEventListener("keydown",onKey),()=>{window.
-removeEventListener("pointerdown",onDown),window.removeEventListener("keydown",onKey)}},[open]),items.length===0?null:(0,import_react71.createElement)("span",{className:"bt-pmenu",
-ref:wrap},(0,import_react71.createElement)("button",{ref:button,type:"button",className,"aria-label":label,title:label,"aria-haspopup":"menu","aria-expanded":open,onClick:()=>setOpen(
-value=>!value)},(0,import_react71.createElement)(DotsIcon)),shown?(0,import_react71.createElement)("div",{className:"bt-pmenu-pop",role:"menu","data-leaving":leaving||void 0},items.
-map((item,index)=>item.sep?(0,import_react71.createElement)("span",{key:`sep-${index}`,className:"bt-pmenu-sep",role:"separator"}):(0,import_react71.createElement)("button",{key:item.
-key,type:"button",role:"menuitem",className:"bt-pmenu-item",onClick:()=>{setOpen(!1),item.onPick()}},(0,import_react71.createElement)(item.icon),(0,import_react71.createElement)("s\
-pan",null,item.label)))):null)}function menuItemFor(key,actions,subject){let report=run2=>()=>{Promise.resolve(run2()).catch(error=>actions.reportError(error,"panel-menu"))};switch(key){case"\
+ 5h12v9.5H4z","M4 7.5h12"]),PasteIcon=icon(["M7.5 4.5h5v2h-5z","M6 5.5H5a1 1 0 0 0-1 1v9a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1v-9a1 1 0 0 0-1-1h-1"]);function siteMatchesHost(site,host){let s=String(
+site??"").replace(/^\.+/,"").toLowerCase(),h75=String(host??"").replace(/^\.+/,"").toLowerCase();return!s||!h75?!1:!!(s===h75||s.includes(".")&&h75.endsWith(`.${s}`)||h75.includes(
+".")&&s.endsWith(`.${h75}`))}var hostOfUrl=url=>{if(typeof url!="string"||!/^https?:\/\//i.test(url))return null;try{return new URL(url).hostname.toLowerCase()}catch{return null}},
+lastImportSource=()=>{try{return localStorage.getItem(STORAGE.browserImportSource)||null}catch{return null}},saveLastImportSource=id=>{if(id)try{localStorage.setItem(STORAGE.browserImportSource,
+String(id))}catch{}};function orderImportSources(sources,lastId){if(!Array.isArray(sources)||!lastId)return sources??[];let index=sources.findIndex(s=>s.id===lastId);return index<=
+0?sources:[sources[index],...sources.slice(0,index),...sources.slice(index+1)]}function Favicon({src,className}){let[failed,setFailed]=(0,import_react71.useState)(null);return!src||
+failed===src?(0,import_react71.createElement)("span",{className:`${className} bt-ptab-globe`},(0,import_react71.createElement)(GlobeIcon2)):(0,import_react71.createElement)("img",{
+className,src,alt:"","aria-hidden":!0,onError:()=>setFailed(src)})}var savedWidth=()=>{try{let value=Number(localStorage.getItem(WIDTH_KEY));return Number.isFinite(value)&&value>=DETAILS_WIDTH?
+value:null}catch{return null}},widthRange=(view,room2)=>view==="browser"?[MIN_WIDTH,room2-MIN_CHAT]:[DETAILS_WIDTH,Math.min(DETAILS_MAX,room2-MIN_CHAT)],fitWidth=(width,[low,high])=>Math.
+round(Math.max(low,Math.min(width,high))),shortAddress=url=>String(url??"").replace(/^https?:\/\//i,"").replace(/^www\./i,"").replace(/\/$/,""),tabLabel=page=>page.title||shortAddress(
+page.url)||t("New tab");function PanelMenu({items,className,"aria-label":label}){let[open,setOpen]=(0,import_react71.useState)(!1),[shown,leaving]=useLinger(open,120),wrap=(0,import_react71.useRef)(
+null),button=(0,import_react71.useRef)(null);return useEscape(()=>{setOpen(!1),button.current?.focus()},open),(0,import_react71.useEffect)(()=>{if(!open)return;let onDown=event=>{wrap.
+current&&!wrap.current.contains(event.target)&&setOpen(!1)},onKey=event=>{stepMenuFocus(wrap.current,event,button.current)};return window.addEventListener("pointerdown",onDown),window.
+addEventListener("keydown",onKey),()=>{window.removeEventListener("pointerdown",onDown),window.removeEventListener("keydown",onKey)}},[open]),items.length===0?null:(0,import_react71.createElement)(
+"span",{className:"bt-pmenu",ref:wrap},(0,import_react71.createElement)("button",{ref:button,type:"button",className,"aria-label":label,title:label,"aria-haspopup":"menu","aria-exp\
+anded":open,onClick:()=>setOpen(value=>!value)},(0,import_react71.createElement)(DotsIcon)),shown?(0,import_react71.createElement)("div",{className:"bt-pmenu-pop",role:"menu","data\
+-leaving":leaving||void 0},items.map((item,index)=>item.sep?(0,import_react71.createElement)("span",{key:`sep-${index}`,className:"bt-pmenu-sep",role:"separator"}):(0,import_react71.createElement)(
+"button",{key:item.key,type:"button",role:"menuitem",className:"bt-pmenu-item",onClick:()=>{setOpen(!1),item.onPick()}},(0,import_react71.createElement)(item.icon),(0,import_react71.createElement)(
+"span",null,item.label)))):null)}function menuItemFor(key,actions,subject){let report=run2=>()=>{Promise.resolve(run2()).catch(error=>actions.reportError(error,"panel-menu"))};switch(key){case"\
 browser":return{key,icon:GlobeIcon2,label:t("Browser"),onPick:report(()=>actions.openBrowser(subject))};case"new-tab":return{key,icon:PlusTabIcon,label:t("New browser tab"),onPick:report(
 ()=>actions.browserNewTab(subject))};case"side":return{key,icon:SideIcon,label:t("Side chat"),onPick:report(()=>actions.newSideChat(subject))};case"terminal":return{key,icon:TerminalIcon,
 label:t("Terminal"),onPick:report(()=>actions.newTerminal())};case"files":return{key,icon:FolderIcon,label:t("Files"),onPick:report(()=>actions.openFiles())};default:return{sep:!0}}}
@@ -14540,141 +14704,209 @@ querySelector?.(OVERLAY_SELECTOR)!=null))return!0;return!1}function shouldCheckB
 !record.target.closest?.("[data-chat-flow]")||record.target.closest?.(OVERLAY_SELECTOR)?!0:hasOverlayNode(record.addedNodes)||hasOverlayNode(record.removedNodes))}function BrowserView({
 bot,tabId,leaving,landed,actions,useBrowserPages,hold}){let page=useBrowserPages(pages=>pages[tabId??""])??EMPTY_PAGE,frame2=(0,import_react71.useRef)(null),input=(0,import_react71.useRef)(
 null),[draft,setDraft]=(0,import_react71.useState)(null),[covered,setCovered]=(0,import_react71.useState)(!1),imports=actions.browserImport,[flow,setFlow]=(0,import_react71.useState)(
-null),flowRef=(0,import_react71.useRef)(null),[sources,setSources]=(0,import_react71.useState)(null),[busy,setBusy]=(0,import_react71.useState)(!1),setFlowTracked=next=>{flowRef.current=
-typeof next=="function"?next(flowRef.current):next,setFlow(flowRef.current)},showGuest=landed&&!leaving&&!covered&&!!page.url&&!page.error&&flow===null;(0,import_react71.useEffect)(
-()=>{let raf=0,update=()=>{raf=0;let panel=frame2.current?.getBoundingClientRect(),overlaps2=panel&&[...document.querySelectorAll(OVERLAY_SELECTOR)].some(element=>rectsOverlap(panel,
-element.getBoundingClientRect()));setCovered(!!overlaps2)},schedule=()=>{raf||(raf=requestAnimationFrame(update))},observer=new MutationObserver(records=>{shouldCheckBrowserCover(records)&&
-schedule()});return observer.observe(document.body,{subtree:!0,childList:!0,attributes:!0,attributeFilter:["role","data-leaving"]}),window.addEventListener("resize",schedule),update(),
-()=>{cancelAnimationFrame(raf),observer.disconnect(),window.removeEventListener("resize",schedule)}},[]),(0,import_react71.useEffect)(()=>(setFlowTracked(null),()=>{let id=typeof flowRef.
-current=="object"&&flowRef.current!==null?flowRef.current.id:null;id&&imports?.cancel(id).catch(()=>{})}),[tabId]);let openImport=()=>{setFlowTracked("menu"),sources===null&&imports.
-sources().then(setSources,()=>setSources([]))},showPicked=r=>{r?.id?setFlowTracked({stage:"preview",id:r.id,preview:r.preview,restarted:r.restarted===!0}):r?.error?setFlowTracked({
-stage:"error",message:importError(r.error)}):setFlowTracked(null)},job=async work=>{setBusy(!0);try{await work()}catch(error){setFlowTracked({stage:"error",message:String(error?.message??
-error)})}finally{setBusy(!1)}},pickFile=()=>job(async()=>showPicked(await imports.pick())),pickSource=source=>job(async()=>{let r=await imports.live(source.id);r?.running?setFlowTracked(
-{stage:"running",source}):showPicked(r)}),closeAndImport=()=>job(async()=>showPicked(await imports.live(flowRef.current?.source?.id,!0))),applyImport=()=>job(async()=>{let report=await imports.
-apply(bot.id,flowRef.current?.id);setFlowTracked(current2=>({stage:"result",report,label:current2?.preview?.source?.label??null}))}),cancelImport=()=>{let id=typeof flow=="object"&&
-flow!==null?flow.id:null;setFlowTracked(null),id&&imports?.cancel(id).catch(()=>{})};(0,import_react71.useLayoutEffect)(()=>{let element=frame2.current;if(!element||leaving||!tabId){
-actions.browserShow(null);return}let raf=0,measure=()=>{cancelAnimationFrame(raf),raf=0;let box=element.getBoundingClientRect();actions.browserShow(tabId,showGuest?{left:box.left,top:box.
-top,width:box.width,height:box.height}:null)},schedule=()=>{raf||(raf=requestAnimationFrame(measure))};measure();let observer=new ResizeObserver(measure);return observer.observe(element),
-window.addEventListener("resize",schedule),()=>{cancelAnimationFrame(raf),observer.disconnect(),window.removeEventListener("resize",schedule)}},[tabId,showGuest,leaving]),(0,import_react71.useEffect)(
-()=>{setDraft(null),landed&&!page.url&&input.current?.focus()},[tabId,landed]);let go=event=>{event.preventDefault();let text=draft??"";text.trim()!==""&&(setDraft(null),input.current?.
-blur(),actions.browserNavigate(tabId,text).then(opened=>{opened&&actions.browserFocus(tabId)}))},editing=draft!==null;useEscape(()=>{setDraft(null),input.current?.blur()},editing);
-let secure=/^https:/i.test(page.url);return(0,import_react71.createElement)("div",{className:"bt-panel-view bt-panel-browser","aria-label":t("{name}'s browser",{name:bot.name})},actions.
-browserTakeover?(0,import_react71.createElement)("div",{className:"bt-browser-takeover","data-held":hold?.by==="user"||void 0},(0,import_react71.createElement)("span",null,hold?.by===
-"user"?t("You control this browser"):hold?.by==="bot"?t("The Bot handed this browser to you: {reason}",{reason:hold.reason}):t("The Bot controls this browser")),hold?.by?(0,import_react71.createElement)(
-"button",{type:"button",onClick:()=>{actions.browserGiveBack(bot.id)}},t("Give back")):(0,import_react71.createElement)("span",{className:"bt-browser-takeover-actions"},(0,import_react71.createElement)(
-"button",{type:"button",onClick:()=>{actions.browserTakeover(bot.id)}},t("Take over")),(0,import_react71.createElement)("button",{type:"button",onClick:()=>{actions.browserStop(bot.
-id)}},t("Stop")))):null,(0,import_react71.createElement)("div",{className:"bt-browser-bar"},(0,import_react71.createElement)("button",{type:"button",className:"bt-icon-btn","aria-l\
-abel":t("Back"),title:t("Back"),disabled:!page.canGoBack,onClick:()=>actions.browserCommand(tabId,"back")},(0,import_react71.createElement)(BackIcon)),(0,import_react71.createElement)(
-"button",{type:"button",className:"bt-icon-btn","aria-label":t("Forward"),title:t("Forward"),disabled:!page.canGoForward,onClick:()=>actions.browserCommand(tabId,"forward")},(0,import_react71.createElement)(
-ForwardIcon)),(0,import_react71.createElement)("button",{type:"button",className:"bt-icon-btn",disabled:!page.url,"aria-label":page.loading?t("Stop"):t("Reload"),title:page.loading?
-t("Stop"):t("Reload"),onClick:()=>actions.browserCommand(tabId,page.loading?"stop":"reload")},(0,import_react71.createElement)(page.loading?StopIcon:ReloadIcon)),(0,import_react71.createElement)(
-"form",{className:"bt-browser-address",onSubmit:go,"data-editing":editing||void 0},(0,import_react71.createElement)("span",{className:"bt-browser-scheme","aria-hidden":!0},(0,import_react71.createElement)(
-secure&&!editing?LockIcon2:GlobeIcon2)),(0,import_react71.createElement)("input",{ref:input,type:"text",spellCheck:!1,autoComplete:"off","aria-label":t("Address"),placeholder:t("Se\
-arch or enter address"),value:editing?draft:shortAddress(page.url),onFocus:event=>{setDraft(page.url);let target=event.target;requestAnimationFrame(()=>target.select())},onBlur:()=>setDraft(
-null),onChange:event=>setDraft(event.target.value),onKeyDown:event=>{event.key==="Escape"&&!event.nativeEvent?.isComposing&&event.keyCode!==229&&(event.preventDefault?.(),event.stopPropagation?.(),
-event.nativeEvent?.stopPropagation?.(),setDraft(null),event.currentTarget.blur())}})),(0,import_react71.createElement)("button",{type:"button",className:"bt-icon-btn","aria-label":t(
-"New browser tab"),title:t("New browser tab"),onClick:()=>actions.browserNewTab(bot.id)},(0,import_react71.createElement)(PlusTabIcon)),imports?(0,import_react71.createElement)("bu\
-tton",{type:"button",className:"bt-icon-btn bt-import-btn","aria-label":t("Import cookies"),title:t("Import cookies"),"aria-expanded":flow==="menu",disabled:busy,onClick:()=>{flow===
-"menu"?setFlowTracked(null):openImport()}},(0,import_react71.createElement)(ImportIcon)):null,page.loading?(0,import_react71.createElement)("span",{className:"bt-browser-progress",
-"aria-hidden":!0}):null),(0,import_react71.createElement)("div",{ref:frame2,className:"bt-browser-frame","data-guest":showGuest||void 0},flow==="menu"?(0,import_react71.createElement)(
-ImportMenu,{sources,busy,onFile:pickFile,onSource:pickSource,onClose:()=>setFlowTracked(null)}):null,typeof flow=="object"&&flow!==null?(0,import_react71.createElement)(ImportCard,
-{flow,page,busy,onApply:applyImport,onCancel:cancelImport,onCloseAndImport:closeAndImport,onDone:()=>setFlowTracked(null),onReload:()=>actions.browserCommand(tabId,"reload")}):null,
-flow===null&&page.error?(0,import_react71.createElement)("div",{className:"bt-browser-empty"},(0,import_react71.createElement)("div",{className:"bt-browser-empty-title"},t("This pa\
-ge didn’t load")),(0,import_react71.createElement)("div",{className:"bt-browser-empty-text"},t(page.error)),page.url?(0,import_react71.createElement)("button",{type:"button",className:"\
-bt-browser-retry",onClick:()=>{actions.browserNavigate(tabId,page.url)}},t("Try again")):null):flow===null&&!page.url?(0,import_react71.createElement)("div",{className:"bt-browser-\
-empty"},(0,import_react71.createElement)(BotMark,{bot,size:48,state:"idle",live:!0}),(0,import_react71.createElement)("div",{className:"bt-browser-empty-title"},t("{name}'s browser",
-{name:bot.name})),(0,import_react71.createElement)("div",{className:"bt-browser-empty-text"},t("Open a page here and {name} can read it with you. Logins and cookies stay with {name\
-}; other Bots never see them.",{name:bot.name})),imports?(0,import_react71.createElement)("button",{type:"button",className:"bt-browser-retry",onClick:openImport},t("Import cookies")):
-null):null))}function importError(error){return error==="too-large"?t("That file is too large to be a cookie export."):error==="unreadable"?t("That file could not be read."):error===
-"app-bound"?t("This browser encrypts its cookies so only it can read them. Export them to a file first, then import that file."):String(error)}function ImportMenu({sources,busy,onFile,
-onSource,onClose}){return useEscape(onClose),(0,import_react71.createElement)("div",{className:"bt-import-menu",role:"menu","aria-label":t("Import cookies")},(0,import_react71.createElement)(
-"div",{className:"bt-import-menu-title"},t("Import cookies")),(0,import_react71.createElement)("button",{type:"button",className:"bt-import-item",role:"menuitem",disabled:busy,onClick:onFile},
-(0,import_react71.createElement)(FileIcon,{className:"bt-import-item-icon"}),(0,import_react71.createElement)("span",{className:"bt-import-item-name"},t("From a file…")),(0,import_react71.createElement)(
-"span",{className:"bt-import-item-sub"},t("cookies.txt, JSON, storageState"))),sources===null?(0,import_react71.createElement)("div",{className:"bt-import-menu-note"},t("Loading…")):
-sources.length===0?(0,import_react71.createElement)("div",{className:"bt-import-menu-note"},t("No browsers found")):sources.map(source=>(0,import_react71.createElement)("button",{key:source.
-id,type:"button",className:"bt-import-item",role:"menuitem",disabled:busy,onClick:()=>onSource(source)},(0,import_react71.createElement)(WindowIcon,{className:"bt-import-item-icon"}),
-(0,import_react71.createElement)("span",{className:"bt-import-item-name"},source.label),(0,import_react71.createElement)("span",{className:"bt-import-item-sub"},t("Copy of its cook\
-ies")))))}function ImportCard({flow,page,busy,onApply,onCancel,onCloseAndImport,onDone,onReload}){let{stage}=flow;if(stage==="running")return(0,import_react71.createElement)("div",
-{className:"bt-import-card"},(0,import_react71.createElement)("div",{className:"bt-import-box"},(0,import_react71.createElement)("div",{className:"bt-import-title"},t("{name} is ru\
-nning",{name:flow.source.name})),(0,import_react71.createElement)("div",{className:"bt-import-text"},t("It must close for a moment so its cookies can be copied. It will reopen with\
- your tabs.")),(0,import_react71.createElement)("div",{className:"bt-import-actions"},(0,import_react71.createElement)("button",{type:"button",className:"bt-import-primary",disabled:busy,
-onClick:onCloseAndImport},busy?t("Closing…"):t("Close {name} and import",{name:flow.source.name})),(0,import_react71.createElement)("button",{type:"button",className:"bt-import-p\
-lain",disabled:busy,onClick:onCancel},t("Cancel")))));if(stage==="error")return(0,import_react71.createElement)("div",{className:"bt-import-card"},(0,import_react71.createElement)(
-"div",{className:"bt-import-box"},(0,import_react71.createElement)("div",{className:"bt-import-title"},t("Import failed")),(0,import_react71.createElement)("div",{className:"bt-imp\
-ort-text"},flow.message),(0,import_react71.createElement)("div",{className:"bt-import-actions"},(0,import_react71.createElement)("button",{type:"button",className:"bt-import-plain",
-onClick:onCancel},t("Close")))));if(stage==="result"){let{report}=flow,problems=[...report.dropped??[],...report.failed??[]];return(0,import_react71.createElement)("div",{className:"\
-bt-import-card"},(0,import_react71.createElement)("div",{className:"bt-import-box"},(0,import_react71.createElement)("div",{className:"bt-import-title"},report.stored>0?t("Imported\
- {count} cookies",{count:report.stored}):t("No cookies were stored")),flow.label?(0,import_react71.createElement)("div",{className:"bt-import-sub"},flow.label):null,problems.length?
-(0,import_react71.createElement)("div",{className:"bt-import-list"},problems.slice(0,8).map((item,index)=>(0,import_react71.createElement)("div",{key:index,className:"bt-import-lin\
-e"},(0,import_react71.createElement)("span",{className:"bt-import-line-name"},item.name??"—"),(0,import_react71.createElement)("span",{className:"bt-import-line-reason"},item.reason))),
-problems.length>8?(0,import_react71.createElement)("div",{className:"bt-import-line"},(0,import_react71.createElement)("span",{className:"bt-import-line-reason"},t("and {count} mor\
-e",{count:problems.length-8}))):null):null,(0,import_react71.createElement)("div",{className:"bt-import-actions"},page.url?(0,import_react71.createElement)("button",{type:"button",
-className:"bt-import-plain",onClick:onReload},t("Reload the page")):null,(0,import_react71.createElement)("button",{type:"button",className:"bt-import-primary",onClick:onDone},t("D\
-one")))))}let{preview}=flow;return(0,import_react71.createElement)("div",{className:"bt-import-card"},(0,import_react71.createElement)("div",{className:"bt-import-box"},(0,import_react71.createElement)(
-"div",{className:"bt-import-title"},t("Import {count} cookies",{count:preview.cookies})),(0,import_react71.createElement)("div",{className:"bt-import-sub"},preview.source?.label??"",
-flow.restarted?` · ${t("the browser was restarted")}`:""),preview.sites.length?(0,import_react71.createElement)("div",{className:"bt-import-list"},preview.sites.map(site=>(0,import_react71.createElement)(
-"div",{key:site.site,className:"bt-import-line"},(0,import_react71.createElement)("span",{className:"bt-import-line-name"},site.site),(0,import_react71.createElement)("span",{className:"\
-bt-import-line-count"},t("{count}",{count:site.cookies}),site.session>0?` · ${t("{count} session",{count:site.session})}`:"")))):null,preview.skipped.length?(0,import_react71.createElement)(
+null),flowRef=(0,import_react71.useRef)(null),reqRef=(0,import_react71.useRef)(0),liveReqIdRef=(0,import_react71.useRef)(null),[sources,setSources]=(0,import_react71.useState)(null),
+[lastSourceId,setLastSourceId]=(0,import_react71.useState)(lastImportSource),[busy,setBusy]=(0,import_react71.useState)(!1),setFlowTracked=next=>{flowRef.current=typeof next=="func\
+tion"?next(flowRef.current):next,setFlow(flowRef.current)},cancelPendingImport=()=>{let liveId=liveReqIdRef.current;liveReqIdRef.current=null,liveId&&imports?.cancel(liveId).catch(
+()=>{});let id=typeof flowRef.current=="object"&&flowRef.current!==null?flowRef.current.id:null;id&&imports?.cancel(id).catch(()=>{})},showGuest=landed&&!leaving&&!covered&&!!page.
+url&&!page.error&&flow===null;(0,import_react71.useEffect)(()=>{let raf=0,update=()=>{raf=0;let panel=frame2.current?.getBoundingClientRect(),overlaps2=panel&&[...document.querySelectorAll(
+OVERLAY_SELECTOR)].some(element=>rectsOverlap(panel,element.getBoundingClientRect()));setCovered(!!overlaps2)},schedule=()=>{raf||(raf=requestAnimationFrame(update))},observer=new MutationObserver(
+records=>{shouldCheckBrowserCover(records)&&schedule()});return observer.observe(document.body,{subtree:!0,childList:!0,attributes:!0,attributeFilter:["role","data-leaving"]}),window.
+addEventListener("resize",schedule),update(),()=>{cancelAnimationFrame(raf),observer.disconnect(),window.removeEventListener("resize",schedule)}},[]),(0,import_react71.useEffect)(()=>(reqRef.
+current+=1,cancelPendingImport(),setFlowTracked(null),()=>{reqRef.current+=1,cancelPendingImport()}),[tabId]);let refreshSources=()=>{imports&&imports.sources().then(list=>setSources(
+Array.isArray(list)?list:[]),()=>setSources(prev=>prev??[]))},openImport=()=>{reqRef.current+=1,setBusy(!1),cancelPendingImport(),setFlowTracked("menu"),setLastSourceId(lastImportSource()),
+refreshSources()},showPicked=(r,token)=>{if(token!==void 0&&token!==reqRef.current){r?.id&&imports?.cancel(r.id).catch(()=>{});return}r?.canceled||(r?.id?setFlowTracked({stage:"pre\
+view",id:r.id,preview:r.preview,restarted:r.restarted===!0,method:r.method??null}):r?.error?setFlowTracked({stage:"error",message:importError(r.error)}):setFlowTracked(null))},job=async work=>{
+let token=++reqRef.current;setBusy(!0);try{await work(token)}catch(error){token===reqRef.current&&setFlowTracked({stage:"error",message:String(error?.message??error)})}finally{token===
+reqRef.current&&setBusy(!1)}},pickFile=()=>job(async token=>showPicked(await imports.pick(),token)),openPaste=()=>{reqRef.current+=1,setBusy(!1),cancelPendingImport(),setFlowTracked(
+{stage:"paste",siteUrl:hostOfUrl(page.url)?page.url:""})},submitPaste=(text,siteUrl)=>job(async token=>{imports?.paste&&showPicked(await imports.paste(text,siteUrl||void 0),token)}),
+runLiveImport=async(source,close,token)=>{let prevLive=liveReqIdRef.current;prevLive&&imports?.cancel(prevLive).catch(()=>{});let requestId=`live-${Date.now()}-${token}`;liveReqIdRef.
+current=requestId;try{return await imports.live(source.id,close,requestId)}finally{liveReqIdRef.current===requestId&&(liveReqIdRef.current=null)}},pickSource=source=>job(async token=>{
+setFlowTracked({stage:"connecting",source});let r=await runLiveImport(source,!1,token);if(token!==reqRef.current){r?.id&&imports?.cancel(r.id).catch(()=>{});return}r?.canceled||(r?.
+needsRemoteDebugging?setFlowTracked({stage:"remote-debug",source,info:r}):r?.running?setFlowTracked({stage:"running",source}):showPicked(r,token))}),closeAndImport=()=>job(async token=>{
+let source=flowRef.current?.source;if(!source)return;let r=await runLiveImport(source,!0,token);if(token!==reqRef.current){r?.id&&imports?.cancel(r.id).catch(()=>{});return}r?.canceled||
+(r?.needsRemoteDebugging?setFlowTracked({stage:"remote-debug",source,info:r}):showPicked(r,token))}),applyImport=options=>job(async token=>{let current2=flowRef.current;if(!current2?.
+id)return;let report=await imports.apply(bot.id,current2.id,options);if(token!==reqRef.current)return;let sourceId=current2.preview?.source?.id;sourceId&&(saveLastImportSource(sourceId),
+setLastSourceId(sourceId));let shouldReload=!!page.url&&((report?.stored??0)>0||(report?.originsStored??0)>0);shouldReload&&actions.browserCommand(tabId,"reload"),setFlowTracked({stage:"\
+result",report,label:current2.preview?.source?.label??null,reloaded:shouldReload})}),cancelImport=()=>{reqRef.current+=1,setBusy(!1),cancelPendingImport(),setFlowTracked(null)};(0,import_react71.useLayoutEffect)(
+()=>{let element=frame2.current;if(!element||leaving||!tabId){actions.browserShow(null);return}let raf=0,measure=()=>{cancelAnimationFrame(raf),raf=0;let box=element.getBoundingClientRect();
+actions.browserShow(tabId,showGuest?{left:box.left,top:box.top,width:box.width,height:box.height}:null)},schedule=()=>{raf||(raf=requestAnimationFrame(measure))};measure();let observer=new ResizeObserver(
+measure);return observer.observe(element),window.addEventListener("resize",schedule),()=>{cancelAnimationFrame(raf),observer.disconnect(),window.removeEventListener("resize",schedule)}},
+[tabId,showGuest,leaving]),(0,import_react71.useEffect)(()=>{setDraft(null),landed&&!page.url&&input.current?.focus()},[tabId,landed]);let go=event=>{event.preventDefault();let text=draft??
+"";text.trim()!==""&&(setDraft(null),input.current?.blur(),actions.browserNavigate(tabId,text).then(opened=>{opened&&actions.browserFocus(tabId)}))},editing=draft!==null;useEscape(
+()=>{setDraft(null),input.current?.blur()},editing);let secure=/^https:/i.test(page.url);return(0,import_react71.createElement)("div",{className:"bt-panel-view bt-panel-browser","a\
+ria-label":t("{name}'s browser",{name:bot.name})},actions.browserTakeover?(0,import_react71.createElement)("div",{className:"bt-browser-takeover","data-held":hold?.by==="user"||void 0},
+(0,import_react71.createElement)("span",null,hold?.by==="user"?t("You control this browser"):hold?.by==="bot"?t("The Bot handed this browser to you: {reason}",{reason:hold.reason}):
+t("The Bot controls this browser")),hold?.by?(0,import_react71.createElement)("button",{type:"button",onClick:()=>{actions.browserGiveBack(bot.id)}},t("Give back")):(0,import_react71.createElement)(
+"span",{className:"bt-browser-takeover-actions"},(0,import_react71.createElement)("button",{type:"button",onClick:()=>{actions.browserTakeover(bot.id)}},t("Take over")),(0,import_react71.createElement)(
+"button",{type:"button",onClick:()=>{actions.browserStop(bot.id)}},t("Stop")))):null,(0,import_react71.createElement)("div",{className:"bt-browser-bar"},(0,import_react71.createElement)(
+"button",{type:"button",className:"bt-icon-btn","aria-label":t("Back"),title:t("Back"),disabled:!page.canGoBack,onClick:()=>actions.browserCommand(tabId,"back")},(0,import_react71.createElement)(
+BackIcon)),(0,import_react71.createElement)("button",{type:"button",className:"bt-icon-btn","aria-label":t("Forward"),title:t("Forward"),disabled:!page.canGoForward,onClick:()=>actions.
+browserCommand(tabId,"forward")},(0,import_react71.createElement)(ForwardIcon)),(0,import_react71.createElement)("button",{type:"button",className:"bt-icon-btn",disabled:!page.url,
+"aria-label":page.loading?t("Stop"):t("Reload"),title:page.loading?t("Stop"):t("Reload"),onClick:()=>actions.browserCommand(tabId,page.loading?"stop":"reload")},(0,import_react71.createElement)(
+page.loading?StopIcon:ReloadIcon)),(0,import_react71.createElement)("form",{className:"bt-browser-address",onSubmit:go,"data-editing":editing||void 0},(0,import_react71.createElement)(
+"span",{className:"bt-browser-scheme","aria-hidden":!0},(0,import_react71.createElement)(secure&&!editing?LockIcon2:GlobeIcon2)),(0,import_react71.createElement)("input",{ref:input,
+type:"text",spellCheck:!1,autoComplete:"off","aria-label":t("Address"),placeholder:t("Search or enter address"),value:editing?draft:shortAddress(page.url),onFocus:event=>{setDraft(
+page.url);let target=event.target;requestAnimationFrame(()=>target.select())},onBlur:()=>setDraft(null),onChange:event=>setDraft(event.target.value),onKeyDown:event=>{event.key==="\
+Escape"&&!event.nativeEvent?.isComposing&&event.keyCode!==229&&(event.preventDefault?.(),event.stopPropagation?.(),event.nativeEvent?.stopPropagation?.(),setDraft(null),event.currentTarget.
+blur())}})),(0,import_react71.createElement)("button",{type:"button",className:"bt-icon-btn","aria-label":t("New browser tab"),title:t("New browser tab"),onClick:()=>actions.browserNewTab(
+bot.id)},(0,import_react71.createElement)(PlusTabIcon)),imports?(0,import_react71.createElement)("button",{type:"button",className:"bt-icon-btn bt-import-btn","aria-label":t("Impor\
+t cookies"),title:t("Import cookies"),"aria-expanded":flow==="menu",disabled:busy,onClick:()=>{flow==="menu"?setFlowTracked(null):openImport()}},(0,import_react71.createElement)(ImportIcon)):
+null,page.loading?(0,import_react71.createElement)("span",{className:"bt-browser-progress","aria-hidden":!0}):null),(0,import_react71.createElement)("div",{ref:frame2,className:"bt\
+-browser-frame","data-guest":showGuest||void 0},flow==="menu"?(0,import_react71.createElement)(ImportMenu,{sources:orderImportSources(sources,lastSourceId),lastSourceId,loading:sources===
+null,busy,canPaste:!!imports?.paste,onFile:pickFile,onPaste:openPaste,onSource:pickSource,onClose:()=>setFlowTracked(null)}):null,typeof flow=="object"&&flow!==null?(0,import_react71.createElement)(
+ImportCard,{flow,page,busy,imports,onApply:applyImport,onCancel:cancelImport,onCloseAndImport:closeAndImport,onRetrySource:()=>{flow.source&&pickSource(flow.source)},onLaunchSource:()=>{
+flow.source&&imports?.launch&&imports.launch(flow.source.id)},onFile:pickFile,onSubmitPaste:submitPaste,onDone:()=>setFlowTracked(null),onReload:()=>actions.browserCommand(tabId,"r\
+eload")}):null,flow===null&&page.error?(0,import_react71.createElement)("div",{className:"bt-browser-empty"},(0,import_react71.createElement)("div",{className:"bt-browser-empty-tit\
+le"},t("This page didn’t load")),(0,import_react71.createElement)("div",{className:"bt-browser-empty-text"},t(page.error)),page.url?(0,import_react71.createElement)("button",{type:"\
+button",className:"bt-browser-retry",onClick:()=>{actions.browserNavigate(tabId,page.url)}},t("Try again")):null):flow===null&&!page.url?(0,import_react71.createElement)("div",{className:"\
+bt-browser-empty"},(0,import_react71.createElement)(BotMark,{bot,size:48,state:"idle",live:!0}),(0,import_react71.createElement)("div",{className:"bt-browser-empty-title"},t("{name\
+}'s browser",{name:bot.name})),(0,import_react71.createElement)("div",{className:"bt-browser-empty-text"},t("Open a page here and {name} can read it with you. Logins and cookies st\
+ay with {name}; other Bots never see them.",{name:bot.name})),imports?(0,import_react71.createElement)("button",{type:"button",className:"bt-browser-retry",onClick:openImport},t("I\
+mport cookies")):null):null))}function importError(error){return error==="too-large"?t("That file is too large to be a cookie export."):error==="unreadable"?t("That file could not \
+be read."):error==="app-bound"?t("This browser encrypts its cookies so only it can read them. Export them to a file first, then import that file."):error==="keychain-denied"?t("Key\
+chain access was cancelled. Click Allow when macOS asks to read your browser cookies."):error==="devtools-denied"?t("Remote debugging permission was declined in the browser. Try ag\
+ain and click Allow."):error==="devtools-timeout"?t("Timed out waiting for you to click Allow in the browser."):error==="devtools-wrong-profile"?t("Another browser profile is activ\
+e. Switch to the chosen profile window in your browser, then try again."):String(error)}function ImportMenu({sources,lastSourceId,loading,busy,canPaste,onFile,onPaste,onSource,onClose}){
+return useEscape(onClose),(0,import_react71.createElement)("div",{className:"bt-import-menu",role:"menu","aria-label":t("Import cookies")},(0,import_react71.createElement)("div",{className:"\
+bt-import-menu-title"},t("Import from browser")),loading?(0,import_react71.createElement)("div",{className:"bt-import-menu-note"},t("Loading…")):sources.length===0?(0,import_react71.createElement)(
+"div",{className:"bt-import-menu-note"},t("No browsers found")):sources.map(source=>{let isLast=source.id===lastSourceId,isReady=!!source.liveDebugReady,showFallback=!isLast&&!isReady&&
+!source.email;return(0,import_react71.createElement)("button",{key:source.id,type:"button",className:"bt-import-item",role:"menuitem",disabled:busy,title:source.email?`${source.label}\
+ (${source.email})`:source.label,onClick:()=>onSource(source)},(0,import_react71.createElement)(WindowIcon,{className:"bt-import-item-icon"}),(0,import_react71.createElement)("span",
+{className:"bt-import-item-main"},(0,import_react71.createElement)("span",{className:"bt-import-item-name"},source.label),source.email?(0,import_react71.createElement)("span",{className:"\
+bt-import-item-email"},source.email):null),isLast||isReady||showFallback?(0,import_react71.createElement)("span",{className:"bt-import-item-meta"},isLast?(0,import_react71.createElement)(
+"span",{className:"bt-import-item-tag"},t("Last used")):null,isReady?(0,import_react71.createElement)("span",{className:"bt-import-item-sub","data-ready":!0},t("Ready")):null,showFallback?
+(0,import_react71.createElement)("span",{className:"bt-import-item-sub"},t("Browser profile")):null):null)}),(0,import_react71.createElement)("div",{className:"bt-import-sep",role:"\
+separator"}),(0,import_react71.createElement)("button",{type:"button",className:"bt-import-item",role:"menuitem",disabled:busy,onClick:onFile},(0,import_react71.createElement)(FileIcon,
+{className:"bt-import-item-icon"}),(0,import_react71.createElement)("span",{className:"bt-import-item-name"},t("From a file…")),(0,import_react71.createElement)("span",{className:"\
+bt-import-item-sub"},t("cookies.txt, JSON, storageState"))),canPaste?(0,import_react71.createElement)("button",{type:"button",className:"bt-import-item",role:"menuitem",disabled:busy,
+onClick:onPaste},(0,import_react71.createElement)(PasteIcon,{className:"bt-import-item-icon"}),(0,import_react71.createElement)("span",{className:"bt-import-item-name"},t("Paste co\
+okies or cURL…")),(0,import_react71.createElement)("span",{className:"bt-import-item-sub"},t("JSON, cURL, header"))):null)}function RemoteDebugCard({flow,busy,imports,onRetrySource,
+onLaunchSource,onFile,onCancel}){let{source,info}=flow,inspectUrl=info?.inspectUrl||"chrome://inspect/#remote-debugging",browserName=info?.browserName||source.name,[copied,setCopied]=(0,import_react71.useState)(
+!1),[detected,setDetected]=(0,import_react71.useState)(!1),copyTimerRef=(0,import_react71.useRef)(null),mountedRef=(0,import_react71.useRef)(!0);(0,import_react71.useEffect)(()=>(mountedRef.
+current=!0,()=>{mountedRef.current=!1,clearTimeout(copyTimerRef.current)}),[]),(0,import_react71.useEffect)(()=>{let canProbe=typeof imports?.probe=="function",canList=typeof imports?.
+sources=="function";if(!canProbe&&!canList)return;let active=!0,timer=null,schedule=()=>{active&&(timer=setTimeout(poll,2e3))},poll=()=>{(canProbe?imports.probe(source.id).then(res=>!!res?.
+liveDebugReady):imports.sources().then(list=>Array.isArray(list)&&!!list.find(s=>s.id===source.id)?.liveDebugReady)).then(ready=>{active&&setDetected(ready)},()=>{}).finally(schedule)};
+return schedule(),()=>{active=!1,clearTimeout(timer)}},[imports,source.id]);let copyAddress=()=>{Promise.resolve((0,import_dsh_client_ui_primitives.writeClipboard)(inspectUrl)).then(
+ok=>{!ok||!mountedRef.current||(setCopied(!0),clearTimeout(copyTimerRef.current),copyTimerRef.current=setTimeout(()=>{mountedRef.current&&setCopied(!1)},1800))},()=>{})};return(0,import_react71.createElement)(
+"div",{className:"bt-import-card"},(0,import_react71.createElement)("div",{className:"bt-import-box"},(0,import_react71.createElement)("div",{className:"bt-import-title"},t("Connec\
+t to {name}",{name:browserName})),(0,import_react71.createElement)("div",{className:"bt-import-text"},t("{name} protects its cookies on Windows. Enable its built-in remote debuggin\
+g switch once — no extension needed.",{name:browserName})),(0,import_react71.createElement)("div",{className:"bt-import-steps"},(0,import_react71.createElement)("div",{className:"\
+bt-import-step"},t("1. Open this address in {name}:",{name:browserName})),(0,import_react71.createElement)("div",{className:"bt-import-copy-row"},(0,import_react71.createElement)("\
+code",{className:"bt-import-code"},inspectUrl),(0,import_react71.createElement)("button",{type:"button",className:"bt-import-mini",onClick:copyAddress},copied?t("Copied"):t("Copy"))),
+(0,import_react71.createElement)("div",{className:"bt-import-step"},t("2. Turn on “Allow remote debugging for this browser instance”, then click Allow when {name} prompts.",{name:browserName}))),
+detected?(0,import_react71.createElement)("div",{className:"bt-import-ready-note"},t("Remote debugging detected — ready to import.")):null,(0,import_react71.createElement)("div",
+{className:"bt-import-actions"},!info?.running&&info?.hasExe?(0,import_react71.createElement)("button",{type:"button",className:"bt-import-plain",disabled:busy,onClick:onLaunchSource},
+t("Open {name}",{name:browserName})):(0,import_react71.createElement)("button",{type:"button",className:"bt-import-plain",disabled:busy,onClick:onFile},t("From a file…")),(0,import_react71.createElement)(
+"button",{type:"button",className:"bt-import-plain",disabled:busy,onClick:onCancel},t("Cancel")),(0,import_react71.createElement)("button",{type:"button",className:"bt-import-prima\
+ry",disabled:busy,onClick:onRetrySource},busy?t("Connecting…"):t("Connect and import")))))}function PasteCard2({flow,busy,onSubmitPaste,onCancel}){let[text,setText]=(0,import_react71.useState)(
+""),[siteUrl,setSiteUrl]=(0,import_react71.useState)(flow.siteUrl||"");return(0,import_react71.createElement)("div",{className:"bt-import-card"},(0,import_react71.createElement)("d\
+iv",{className:"bt-import-box"},(0,import_react71.createElement)("div",{className:"bt-import-title"},t("Paste cookies or cURL")),(0,import_react71.createElement)("textarea",{className:"\
+bt-import-textarea",rows:5,spellCheck:!1,placeholder:t("Paste Cookie-Editor JSON, Netscape cookies.txt, Copy as cURL, or a Cookie header…"),value:text,onChange:event=>setText(event.
+target.value)}),(0,import_react71.createElement)("input",{type:"text",className:"bt-import-input",spellCheck:!1,placeholder:t("Site URL (only needed for plain Cookie headers)"),value:siteUrl,
+onChange:event=>setSiteUrl(event.target.value)}),(0,import_react71.createElement)("div",{className:"bt-import-actions"},(0,import_react71.createElement)("button",{type:"button",className:"\
+bt-import-plain",disabled:busy,onClick:onCancel},t("Cancel")),(0,import_react71.createElement)("button",{type:"button",className:"bt-import-primary",disabled:busy||!text.trim(),onClick:()=>onSubmitPaste(
+text,siteUrl.trim())},busy?t("Reading…"):t("Continue")))))}function PreviewCard({flow,page,busy,onApply,onCancel}){let{preview}=flow,sites=(preview.sites??[]).filter(s=>(s.cookies??
+0)>0||(s.localStorage??0)>0),currentHost=hostOfUrl(page.url),matchingCurrent=currentHost?sites.filter(s=>siteMatchesHost(s.site,currentHost)).map(s=>s.site):[],[selected,setSelected]=(0,import_react71.useState)(
+()=>new Set(sites.map(s=>s.site))),[query,setQuery]=(0,import_react71.useState)(""),[persistSession,setPersistSession]=(0,import_react71.useState)(!0),hasSession=preview.notes.includes(
+"session-cookies"),allSelected=selected.size===sites.length,currentOnlySelected=matchingCurrent.length>0&&selected.size===matchingCurrent.length&&matchingCurrent.every(s=>selected.
+has(s)),visibleSites=query.trim()?sites.filter(s=>s.site.toLowerCase().includes(query.trim().toLowerCase())):sites,selectedCookies=sites.reduce((sum,s)=>sum+(selected.has(s.site)?s.
+cookies:0),0),selectedStorage=sites.reduce((sum,s)=>sum+(selected.has(s.site)?s.localStorage??0:0),0),toggleSite=site=>{setSelected(prev=>{let next=new Set(prev);return next.has(site)?
+next.delete(site):next.add(site),next})},selectAll=()=>setSelected(new Set(sites.map(s=>s.site))),clearAll=()=>setSelected(new Set),selectCurrent=()=>setSelected(new Set(matchingCurrent)),
+submit=()=>{let chosen=allSelected?void 0:[...selected];onApply({sites:chosen,persistSession:hasSession?persistSession:!1})};return(0,import_react71.createElement)("div",{className:"\
+bt-import-card"},(0,import_react71.createElement)("div",{className:"bt-import-box"},(0,import_react71.createElement)("div",{className:"bt-import-title"},t("Import {count} cookies",
+{count:selectedCookies})),(0,import_react71.createElement)("div",{className:"bt-import-sub"},preview.source?.label??"",flow.restarted?` · ${t("the browser was restarted")}`:"",selectedStorage>
+0?` · ${t("{count} storage entries",{count:selectedStorage})}`:""),matchingCurrent.length>0&&sites.length>1?(0,import_react71.createElement)("div",{className:"bt-import-scope"},(0,import_react71.createElement)(
+"button",{type:"button",className:"bt-import-pill","aria-pressed":allSelected,onClick:selectAll},t("All sites ({count})",{count:sites.length})),(0,import_react71.createElement)("bu\
+tton",{type:"button",className:"bt-import-pill","aria-pressed":currentOnlySelected,onClick:selectCurrent},t("This site ({host})",{host:currentHost}))):null,sites.length>6?(0,import_react71.createElement)(
+"div",{className:"bt-import-filter-row"},(0,import_react71.createElement)("input",{type:"text",className:"bt-import-input",spellCheck:!1,placeholder:t("Filter sites…"),value:query,
+onChange:event=>setQuery(event.target.value)}),(0,import_react71.createElement)("button",{type:"button",className:"bt-import-mini",onClick:allSelected?clearAll:selectAll},allSelected?
+t("Clear"):t("All"))):null,sites.length?(0,import_react71.createElement)("div",{className:"bt-import-list"},visibleSites.map(site=>(0,import_react71.createElement)("label",{key:site.
+site,className:"bt-import-line bt-import-check-row"},(0,import_react71.createElement)("input",{type:"checkbox",checked:selected.has(site.site),onChange:()=>toggleSite(site.site)}),
+(0,import_react71.createElement)("span",{className:"bt-import-line-name"},site.site),(0,import_react71.createElement)("span",{className:"bt-import-line-count"},t("{count}",{count:site.
+cookies}),site.localStorage>0?` · ${t("storage")}`:site.session>0?` · ${t("{count} session",{count:site.session})}`:"")))):null,preview.skipped.length?(0,import_react71.createElement)(
 "div",{className:"bt-import-list"},(0,import_react71.createElement)("div",{className:"bt-import-note"},t("{count} skipped",{count:preview.skipped.length})),preview.skipped.slice(0,
 5).map((item,index)=>(0,import_react71.createElement)("div",{key:index,className:"bt-import-line"},(0,import_react71.createElement)("span",{className:"bt-import-line-name"},item.name??
 item.where),(0,import_react71.createElement)("span",{className:"bt-import-line-reason"},item.reason))),preview.skipped.length>5?(0,import_react71.createElement)("div",{className:"b\
 t-import-line"},(0,import_react71.createElement)("span",{className:"bt-import-line-reason"},t("and {count} more",{count:preview.skipped.length-5}))):null):null,preview.warnings.length?
 (0,import_react71.createElement)("details",{className:"bt-import-warns"},(0,import_react71.createElement)("summary",null,t("{count} adjusted",{count:preview.warnings.reduce((n,w)=>n+
 w.count,0)})),preview.warnings.map((w,index)=>(0,import_react71.createElement)("div",{key:index,className:"bt-import-line"},(0,import_react71.createElement)("span",{className:"bt-i\
-mport-line-reason"},`${w.count} × ${w.message}`)))):null,preview.notes.includes("session-cookies")?(0,import_react71.createElement)("div",{className:"bt-import-note"},t("Cookies w\
-ithout an expiry stay until the app closes.")):null,preview.notes.includes("local-storage-left")?(0,import_react71.createElement)("div",{className:"bt-import-note"},t("Some sites a\
-lso keep sign-in outside cookies; you may need to sign in again there.")):null,(0,import_react71.createElement)("div",{className:"bt-import-actions"},(0,import_react71.createElement)(
-"button",{type:"button",className:"bt-import-primary",disabled:busy,onClick:onApply},busy?t("Importing…"):t("Import")),(0,import_react71.createElement)("button",{type:"button",className:"\
-bt-import-plain",disabled:busy,onClick:onCancel},t("Cancel")))))}function BotPanel({pane,leaving,room:room2,overlay,roster,actions,useSessions,useSessionStatus,useActivity,useWork,
-useBrowserTabs,useBrowserPages,useBrowserHolds,useComputer}){let bot=roster.byId[pane.id],canBrowse=!!(bot&&roster.browser===!0&&actions.browserShow),sideChats=bot?sideChatsOf(roster,
-bot.id):[],sideChat=sideChats.find(chat=>chat?.id===pane.side),view=pane.view==="browser"&&canBrowse?"browser":pane.view==="side"&&sideChat!==void 0?"side":"details",tabState=useBrowserTabs(
-map=>bot?map[bot.id]??EMPTY_TABS2:EMPTY_TABS2),active=tabState.active,page=useBrowserPages(pages=>(active?pages[active]:null)??EMPTY_PAGE),hold=useBrowserHolds?.(map=>bot?map[bot.id]??
-null:null)??null,root=(0,import_react71.useRef)(null),[flight]=(0,import_react71.useState)(()=>createFlight({shape:SPRING_SHAPE})),intent=(0,import_react71.useRef)(null),[landed,setLanded]=(0,import_react71.useState)(
-!1),[settling,setSettling]=(0,import_react71.useState)(!1),[width,setWidth]=(0,import_react71.useState)(savedWidth),[dragging,setDragging]=(0,import_react71.useState)(!1),[resizing,
-setResizing]=(0,import_react71.useState)(!1),instant=dragging||resizing,[reading,setReading]=(0,import_react71.useState)(!1),panelWidth=fitWidth(width??(view==="browser"?DEFAULT_WIDTH:
-DETAILS_WIDTH),widthRange(view,room2));(0,import_react71.useLayoutEffect)(()=>{view==="browser"&&width===null&&setWidth(DEFAULT_WIDTH)},[view,width]),(0,import_react71.useLayoutEffect)(
-()=>{chatRoom.hold(instant)},[instant]);let[last,setLast]=(0,import_react71.useState)({view,width:panelWidth});(last.view!==view||last.width!==panelWidth)&&(setLast({view,width:panelWidth}),
-last.view!==view&&setSettling(last.width!==panelWidth&&!instant&&!overlay));let shownView=(0,import_react71.useRef)(view);(0,import_react71.useLayoutEffect)(()=>{let switched=settling&&
-shownView.current!==view;shownView.current=view,switched&&chatRoom.hold(!0),chatRoom.setRight(leaving||overlay?null:panelWidth),switched&&chatRoom.hold(!1)},[view,panelWidth,leaving,
-overlay]);let dragCleanup=(0,import_react71.useRef)(null);useEscape(()=>actions.closeOverlay(),!leaving,{priority:-1}),(0,import_react71.useEffect)(()=>()=>{dragCleanup.current?.(),
-chatRoom.setRight(null),chatRoom.hold(!1)},[]);let mounted=(0,import_react71.useRef)(!1);(0,import_react71.useEffect)(()=>{if(!mounted.current){mounted.current=!0;return}setResizing(
-!0);let timer=setTimeout(()=>setResizing(!1),160);return()=>clearTimeout(timer)},[room2]),(0,import_react71.useEffect)(()=>{if(!settling)return;let timer=setTimeout(()=>setSettling(
-!1),SPRING_SHAPE.duration+40);return()=>clearTimeout(timer)},[settling,view]),(0,import_react71.useEffect)(()=>{let timer=setTimeout(()=>setLanded(!0),360);return()=>clearTimeout(timer)},
-[]),(0,import_react71.useEffect)(()=>{canBrowse&&actions.browserEnsure(bot.id)},[bot?.id,canBrowse]),(0,import_react71.useEffect)(()=>{view==="browser"&&(active===null||!tabState.ids.
-includes(active))&&actions.setPanelView("details")},[view,active,tabState.ids.length]),(0,import_react71.useEffect)(()=>{pane.view==="side"&&sideChat===void 0&&actions.setPanelView(
-"details")},[pane.view,sideChat]),(0,import_react71.useEffect)(()=>{(view!=="browser"||leaving)&&actions.browserShow?.(null)},[view,leaving]),(0,import_react71.useEffect)(()=>()=>{
-actions.browserShow?.(null)},[]),(0,import_react71.useEffect)(()=>{if(!page.readAt||Date.now()-page.readAt>READ_FLASH_MS)return;setReading(!0);let timer=setTimeout(()=>setReading(!1),
-READ_FLASH_MS);return()=>clearTimeout(timer)},[page.readAt]);let beginSwitch=next=>{let panel=root.current;if(intent.current=null,reducedMotion()){flight.finish();return}if(!panel)
-return;let plan=planFlight(flight.active(),next),source=plan==="start"?panel.querySelector(FLIGHT_ENDS[flightStart(next)]):null,flies=plan!=="keep"&&(plan==="reverse"||source!==null),
-outgoing=panel.querySelector(":scope > .bt-panel-view");if(outgoing){let ghostEl=document.createElement("div");if(ghostEl.className="bt-panel-ghost",Object.assign(ghostEl.style,{top:`${outgoing.
-offsetTop}px`,width:`${outgoing.offsetWidth}px`,height:`${outgoing.offsetHeight}px`}),ghostEl.append(uniqueIds(outgoing.cloneNode(!0))),flies&&next!=="details")for(let mark2 of ghostEl.
-querySelectorAll(".bt-drawer-id .bt-mark"))mark2.style.visibility="hidden";panel.append(ghostEl),ghostEl.animate([{opacity:1,transform:"scale(1)"},{opacity:0,transform:"scale(0.985\
-)"}],{duration:160,easing:"ease-out",fill:"forwards"}).finished.catch(()=>{}).finally(()=>ghostEl.remove())}plan==="start"&&source===null||(intent.current={plan,next,id:pane.id,at:performance.
-now(),end:flightEnd(next),node:source?uniqueIds(source.cloneNode(!0)):null,from:source?source.getBoundingClientRect():null})},switchView=next=>{next===view||leaving||(beginSwitch(next),
-actions.setPanelView(next))},panelActions={...actions};for(let name of["openBrowser","browserNewTab","browserPick"])actions[name]&&(panelActions[name]=(...args)=>(view!=="browser"&&
-beginSwitch("browser"),actions[name](...args)));for(let name of["openSideChat","newSideChat"])actions[name]&&(panelActions[name]=(...args)=>(view!=="side"&&beginSwitch("side"),actions[name](
-...args)));(0,import_react71.useLayoutEffect)(()=>{let note=intent.current;if(intent.current=null,!(note!==null&&note.next===view&&note.id===pane.id&&performance.now()-note.at<INTENT_MS&&
-!instant&&!leaving&&!reducedMotion())){flight.finish();return}if(note.plan!=="keep"){if(note.plan==="reverse"){flight.retarget(note.end)||flight.finish();return}flight.begin({panel:root.
-current,end:note.end,node:note.node,from:note.from})}},[view,pane.id]),(0,import_react71.useLayoutEffect)(()=>{(instant||leaving)&&flight.finish()},[instant,leaving]),(0,import_react71.useEffect)(
-()=>flight.finish,[]);let startResize=event=>{if(event.button!==0||leaving||overlay)return;event.preventDefault();let panel=root.current,grip=event.currentTarget;grip.setPointerCapture?.(
-event.pointerId);let range=widthRange(view,room2),from={x:event.clientX,width:panelWidth},next=panelWidth;setDragging(!0),setSettling(!1),chatRoom.hold(!0);let columns2=chatRoom.columns();
-for(let column of columns2)column.style.setProperty("transition","none","important");let onMove=move=>{next=fitWidth(from.width+from.x-move.clientX,range),panel.style.width=`${next}\
-px`,columns2.length===0&&chatRoom.setRight(next);for(let column of columns2)column.style.setProperty("margin-right",`${next}px`,"important")},ends=["pointerup","pointercancel","los\
-tpointercapture"],cleanup=()=>{dragCleanup.current=null,grip.removeEventListener("pointermove",onMove);for(let name of ends)grip.removeEventListener(name,onEnd);for(let column of columns2)
-column.style.removeProperty("margin-right"),column.style.removeProperty("transition");panel?.style.removeProperty("width")},onEnd=end=>{if(end.type==="pointerup"&&onMove(end),cleanup(),
-chatRoom.setRight(next),panel?.style.setProperty("--bt-panel-w",`${next}px`),setDragging(!1),next!==from.width){setWidth(next);try{localStorage.setItem(WIDTH_KEY,String(next))}catch{}}};
-dragCleanup.current=cleanup,grip.addEventListener("pointermove",onMove);for(let name of ends)grip.addEventListener(name,onEnd)},hasStrip=panelHasStrip(canBrowse,tabState.ids.length,
-sideChats.length);return(0,import_react71.createElement)("aside",{ref:root,className:"bt-panel","data-view":view,"aria-label":view==="browser"&&bot?t("{name}'s browser",{name:bot.name}):
-view==="side"?t("Side chat"):t("Conversation details"),"data-leaving":leaving||void 0,"aria-hidden":leaving||void 0,"data-settling":settling||void 0,"data-instant":instant||void 0,
-"data-dragging":dragging||void 0,"data-overlay":overlay||void 0,style:{"--bt-panel-w":`${panelWidth}px`},onAnimationEnd:event=>{event.target===event.currentTarget&&setLanded(!0)}},
-leaving||overlay?null:(0,import_react71.createElement)("div",{className:"bt-panel-grip",role:"separator","aria-orientation":"vertical","aria-label":t("Resize panel"),onPointerDown:startResize}),
-dragging?(0,import_react_dom12.createPortal)((0,import_react71.createElement)("div",{className:"bt-drag-shield","aria-hidden":!0}),document.body):null,hasStrip?(0,import_react71.createElement)(
-PanelStrip,{bot,subject:pane.id,view,ids:tabState.ids,active,sides:sideChats,side:pane.side,canBrowse,reading,onView:switchView,actions:panelActions,useBrowserPages}):null,view==="\
-browser"&&bot?(0,import_react71.createElement)(BrowserView,{key:`browser:${active}`,bot,tabId:active,leaving,landed:landed&&!settling,actions,useBrowserPages,hold}):view==="side"&&
-sideChat?(0,import_react71.createElement)("div",{key:`side:${sideChat.id}`,className:"bt-panel-view"},(0,import_react71.createElement)(SideChatView,{subject:pane.id,chat:sideChat,roster,
-actions:panelActions})):(0,import_react71.createElement)("div",{key:`details:${pane.id}:${pane.renaming?"rename":""}:${pane.tab??""}`,className:"bt-panel-view"},(0,import_react71.createElement)(
-DetailsDrawer,{sessionId:pane.id,startRenaming:pane.renaming,startTab:pane.tab,hasStrip,roster,actions:panelActions,useSessions,useSessionStatus,useActivity,useWork,useBrowserTabs,
-useBrowserPages,useComputer})))}var BROWSER_CSS=`
+mport-line-reason"},`${w.count} × ${w.message}`)))):null,hasSession?(0,import_react71.createElement)("label",{className:"bt-import-toggle"},(0,import_react71.createElement)("input",
+{type:"checkbox",checked:persistSession,onChange:event=>setPersistSession(event.target.checked)}),(0,import_react71.createElement)("span",null,t("Keep session logins after app rest\
+art"))):null,preview.notes.includes("local-storage-left")?(0,import_react71.createElement)("div",{className:"bt-import-note"},t("Some sites also keep sign-in outside cookies; you m\
+ay need to sign in again there.")):null,(0,import_react71.createElement)("div",{className:"bt-import-actions"},(0,import_react71.createElement)("button",{type:"button",className:"b\
+t-import-plain",disabled:busy,onClick:onCancel},t("Cancel")),(0,import_react71.createElement)("button",{type:"button",className:"bt-import-primary",disabled:busy||selectedCookies===
+0&&selectedStorage===0,onClick:submit},busy?t("Importing…"):t("Import")))))}function ImportCard({flow,page,busy,imports,onApply,onCancel,onCloseAndImport,onRetrySource,onLaunchSource,
+onFile,onSubmitPaste,onDone,onReload}){let{stage}=flow;if(stage==="connecting")return(0,import_react71.createElement)("div",{className:"bt-import-card"},(0,import_react71.createElement)(
+"div",{className:"bt-import-box"},(0,import_react71.createElement)("div",{className:"bt-import-title"},t("Reading {name}…",{name:flow.source.name})),(0,import_react71.createElement)(
+"div",{className:"bt-import-sub"},flow.source.label),(0,import_react71.createElement)("div",{className:"bt-import-text"},t("If {name} or your system asks for permission, click Allo\
+w.",{name:flow.source.name})),(0,import_react71.createElement)("div",{className:"bt-import-actions"},(0,import_react71.createElement)("button",{type:"button",className:"bt-import-p\
+lain",onClick:onCancel},t("Cancel")))));if(stage==="remote-debug")return(0,import_react71.createElement)(RemoteDebugCard,{flow,busy,imports,onRetrySource,onLaunchSource,onFile,onCancel});
+if(stage==="paste")return(0,import_react71.createElement)(PasteCard2,{flow,busy,onSubmitPaste,onCancel});if(stage==="running")return(0,import_react71.createElement)("div",{className:"\
+bt-import-card"},(0,import_react71.createElement)("div",{className:"bt-import-box"},(0,import_react71.createElement)("div",{className:"bt-import-title"},t("{name} is running",{name:flow.
+source.name})),(0,import_react71.createElement)("div",{className:"bt-import-text"},t("It must close for a moment so its cookies can be copied. It will reopen with your tabs.")),(0,import_react71.createElement)(
+"div",{className:"bt-import-actions"},(0,import_react71.createElement)("button",{type:"button",className:"bt-import-plain",disabled:busy,onClick:onCancel},t("Cancel")),(0,import_react71.createElement)(
+"button",{type:"button",className:"bt-import-primary",disabled:busy,onClick:onCloseAndImport},busy?t("Closing…"):t("Close {name} and import",{name:flow.source.name})))));if(stage===
+"error")return(0,import_react71.createElement)("div",{className:"bt-import-card"},(0,import_react71.createElement)("div",{className:"bt-import-box"},(0,import_react71.createElement)(
+"div",{className:"bt-import-title"},t("Import failed")),(0,import_react71.createElement)("div",{className:"bt-import-text"},flow.message),(0,import_react71.createElement)("div",{className:"\
+bt-import-actions"},(0,import_react71.createElement)("button",{type:"button",className:"bt-import-plain",onClick:onCancel},t("Close")))));if(stage==="result"){let{report}=flow,problems=[
+...report.dropped??[],...report.failed??[]],title=report.stored>0?t("Imported {count} cookies",{count:report.stored}):(report.originsStored??0)>0?t("Imported storage for {count} si\
+tes",{count:report.originsStored}):t("No cookies were stored");return(0,import_react71.createElement)("div",{className:"bt-import-card"},(0,import_react71.createElement)("div",{className:"\
+bt-import-box"},(0,import_react71.createElement)("div",{className:"bt-import-title"},title),(0,import_react71.createElement)("div",{className:"bt-import-sub"},[flow.label,(report.originsStored??
+0)>0?t("{count} sites storage",{count:report.originsStored}):null,flow.reloaded?t("page reloaded"):null].filter(Boolean).join(" · ")),problems.length?(0,import_react71.createElement)(
+"div",{className:"bt-import-list"},problems.slice(0,8).map((item,index)=>(0,import_react71.createElement)("div",{key:index,className:"bt-import-line"},(0,import_react71.createElement)(
+"span",{className:"bt-import-line-name"},item.name??"—"),(0,import_react71.createElement)("span",{className:"bt-import-line-reason"},item.reason))),problems.length>8?(0,import_react71.createElement)(
+"div",{className:"bt-import-line"},(0,import_react71.createElement)("span",{className:"bt-import-line-reason"},t("and {count} more",{count:problems.length-8}))):null):null,(0,import_react71.createElement)(
+"div",{className:"bt-import-actions"},page.url&&!flow.reloaded?(0,import_react71.createElement)("button",{type:"button",className:"bt-import-plain",onClick:onReload},t("Reload the \
+page")):null,(0,import_react71.createElement)("button",{type:"button",className:"bt-import-primary",onClick:onDone},t("Done")))))}return(0,import_react71.createElement)(PreviewCard,
+{key:flow.id,flow,page,busy,onApply,onCancel})}function BotPanel({pane,leaving,room:room2,overlay,roster,actions,useSessions,useSessionStatus,useActivity,useWork,useBrowserTabs,useBrowserPages,
+useBrowserHolds,useComputer}){let bot=roster.byId[pane.id],canBrowse=!!(bot&&roster.browser===!0&&actions.browserShow),sideChats=bot?sideChatsOf(roster,bot.id):[],sideChat=sideChats.
+find(chat=>chat?.id===pane.side),view=pane.view==="browser"&&canBrowse?"browser":pane.view==="side"&&sideChat!==void 0?"side":"details",tabState=useBrowserTabs(map=>bot?map[bot.id]??
+EMPTY_TABS2:EMPTY_TABS2),active=tabState.active,page=useBrowserPages(pages=>(active?pages[active]:null)??EMPTY_PAGE),hold=useBrowserHolds?.(map=>bot?map[bot.id]??null:null)??null,root=(0,import_react71.useRef)(
+null),[flight]=(0,import_react71.useState)(()=>createFlight({shape:SPRING_SHAPE})),intent=(0,import_react71.useRef)(null),[landed,setLanded]=(0,import_react71.useState)(!1),[settling,
+setSettling]=(0,import_react71.useState)(!1),[width,setWidth]=(0,import_react71.useState)(savedWidth),[dragging,setDragging]=(0,import_react71.useState)(!1),[resizing,setResizing]=(0,import_react71.useState)(
+!1),instant=dragging||resizing,[reading,setReading]=(0,import_react71.useState)(!1),panelWidth=fitWidth(width??(view==="browser"?DEFAULT_WIDTH:DETAILS_WIDTH),widthRange(view,room2));
+(0,import_react71.useLayoutEffect)(()=>{view==="browser"&&width===null&&setWidth(DEFAULT_WIDTH)},[view,width]),(0,import_react71.useLayoutEffect)(()=>{chatRoom.hold(instant)},[instant]);
+let[last,setLast]=(0,import_react71.useState)({view,width:panelWidth});(last.view!==view||last.width!==panelWidth)&&(setLast({view,width:panelWidth}),last.view!==view&&setSettling(
+last.width!==panelWidth&&!instant&&!overlay));let shownView=(0,import_react71.useRef)(view);(0,import_react71.useLayoutEffect)(()=>{let switched=settling&&shownView.current!==view;
+shownView.current=view,switched&&chatRoom.hold(!0),chatRoom.setRight(leaving||overlay?null:panelWidth),switched&&chatRoom.hold(!1)},[view,panelWidth,leaving,overlay]);let dragCleanup=(0,import_react71.useRef)(
+null);useEscape(()=>actions.closeOverlay(),!leaving,{priority:-1}),(0,import_react71.useEffect)(()=>()=>{dragCleanup.current?.(),chatRoom.setRight(null),chatRoom.hold(!1)},[]);let mounted=(0,import_react71.useRef)(
+!1);(0,import_react71.useEffect)(()=>{if(!mounted.current){mounted.current=!0;return}setResizing(!0);let timer=setTimeout(()=>setResizing(!1),160);return()=>clearTimeout(timer)},[room2]),
+(0,import_react71.useEffect)(()=>{if(!settling)return;let timer=setTimeout(()=>setSettling(!1),SPRING_SHAPE.duration+40);return()=>clearTimeout(timer)},[settling,view]),(0,import_react71.useEffect)(
+()=>{let timer=setTimeout(()=>setLanded(!0),360);return()=>clearTimeout(timer)},[]),(0,import_react71.useEffect)(()=>{canBrowse&&actions.browserEnsure(bot.id)},[bot?.id,canBrowse]),
+(0,import_react71.useEffect)(()=>{view==="browser"&&(active===null||!tabState.ids.includes(active))&&actions.setPanelView("details")},[view,active,tabState.ids.length]),(0,import_react71.useEffect)(
+()=>{pane.view==="side"&&sideChat===void 0&&actions.setPanelView("details")},[pane.view,sideChat]),(0,import_react71.useEffect)(()=>{(view!=="browser"||leaving)&&actions.browserShow?.(
+null)},[view,leaving]),(0,import_react71.useEffect)(()=>()=>{actions.browserShow?.(null)},[]),(0,import_react71.useEffect)(()=>{if(!page.readAt||Date.now()-page.readAt>READ_FLASH_MS)
+return;setReading(!0);let timer=setTimeout(()=>setReading(!1),READ_FLASH_MS);return()=>clearTimeout(timer)},[page.readAt]);let beginSwitch=next=>{let panel=root.current;if(intent.current=
+null,reducedMotion()){flight.finish();return}if(!panel)return;let plan=planFlight(flight.active(),next),source=plan==="start"?panel.querySelector(FLIGHT_ENDS[flightStart(next)]):null,
+flies=plan!=="keep"&&(plan==="reverse"||source!==null),outgoing=panel.querySelector(":scope > .bt-panel-view");if(outgoing){let ghostEl=document.createElement("div");if(ghostEl.className=
+"bt-panel-ghost",Object.assign(ghostEl.style,{top:`${outgoing.offsetTop}px`,width:`${outgoing.offsetWidth}px`,height:`${outgoing.offsetHeight}px`}),ghostEl.append(uniqueIds(outgoing.
+cloneNode(!0))),flies&&next!=="details")for(let mark2 of ghostEl.querySelectorAll(".bt-drawer-id .bt-mark"))mark2.style.visibility="hidden";panel.append(ghostEl),ghostEl.animate([{
+opacity:1,transform:"scale(1)"},{opacity:0,transform:"scale(0.985)"}],{duration:160,easing:"ease-out",fill:"forwards"}).finished.catch(()=>{}).finally(()=>ghostEl.remove())}plan===
+"start"&&source===null||(intent.current={plan,next,id:pane.id,at:performance.now(),end:flightEnd(next),node:source?uniqueIds(source.cloneNode(!0)):null,from:source?source.getBoundingClientRect():
+null})},switchView=next=>{next===view||leaving||(beginSwitch(next),actions.setPanelView(next))},panelActions={...actions};for(let name of["openBrowser","browserNewTab","browserPick"])
+actions[name]&&(panelActions[name]=(...args)=>(view!=="browser"&&beginSwitch("browser"),actions[name](...args)));for(let name of["openSideChat","newSideChat"])actions[name]&&(panelActions[name]=
+(...args)=>(view!=="side"&&beginSwitch("side"),actions[name](...args)));(0,import_react71.useLayoutEffect)(()=>{let note=intent.current;if(intent.current=null,!(note!==null&&note.next===
+view&&note.id===pane.id&&performance.now()-note.at<INTENT_MS&&!instant&&!leaving&&!reducedMotion())){flight.finish();return}if(note.plan!=="keep"){if(note.plan==="reverse"){flight.
+retarget(note.end)||flight.finish();return}flight.begin({panel:root.current,end:note.end,node:note.node,from:note.from})}},[view,pane.id]),(0,import_react71.useLayoutEffect)(()=>{(instant||
+leaving)&&flight.finish()},[instant,leaving]),(0,import_react71.useEffect)(()=>flight.finish,[]);let startResize=event=>{if(event.button!==0||leaving||overlay)return;event.preventDefault();
+let panel=root.current,grip=event.currentTarget;grip.setPointerCapture?.(event.pointerId);let range=widthRange(view,room2),from={x:event.clientX,width:panelWidth},next=panelWidth;setDragging(
+!0),setSettling(!1),chatRoom.hold(!0);let columns2=chatRoom.columns();for(let column of columns2)column.style.setProperty("transition","none","important");let onMove=move=>{next=fitWidth(
+from.width+from.x-move.clientX,range),panel.style.width=`${next}px`,columns2.length===0&&chatRoom.setRight(next);for(let column of columns2)column.style.setProperty("margin-right",
+`${next}px`,"important")},ends=["pointerup","pointercancel","lostpointercapture"],cleanup=()=>{dragCleanup.current=null,grip.removeEventListener("pointermove",onMove);for(let name of ends)
+grip.removeEventListener(name,onEnd);for(let column of columns2)column.style.removeProperty("margin-right"),column.style.removeProperty("transition");panel?.style.removeProperty("w\
+idth")},onEnd=end=>{if(end.type==="pointerup"&&onMove(end),cleanup(),chatRoom.setRight(next),panel?.style.setProperty("--bt-panel-w",`${next}px`),setDragging(!1),next!==from.width){
+setWidth(next);try{localStorage.setItem(WIDTH_KEY,String(next))}catch{}}};dragCleanup.current=cleanup,grip.addEventListener("pointermove",onMove);for(let name of ends)grip.addEventListener(
+name,onEnd)},hasStrip=panelHasStrip(canBrowse,tabState.ids.length,sideChats.length);return(0,import_react71.createElement)("aside",{ref:root,className:"bt-panel","data-view":view,"\
+aria-label":view==="browser"&&bot?t("{name}'s browser",{name:bot.name}):view==="side"?t("Side chat"):t("Conversation details"),"data-leaving":leaving||void 0,"aria-hidden":leaving||
+void 0,"data-settling":settling||void 0,"data-instant":instant||void 0,"data-dragging":dragging||void 0,"data-overlay":overlay||void 0,style:{"--bt-panel-w":`${panelWidth}px`},onAnimationEnd:event=>{
+event.target===event.currentTarget&&setLanded(!0)}},leaving||overlay?null:(0,import_react71.createElement)("div",{className:"bt-panel-grip",role:"separator","aria-orientation":"ver\
+tical","aria-label":t("Resize panel"),onPointerDown:startResize}),dragging?(0,import_react_dom12.createPortal)((0,import_react71.createElement)("div",{className:"bt-drag-shield","a\
+ria-hidden":!0}),document.body):null,hasStrip?(0,import_react71.createElement)(PanelStrip,{bot,subject:pane.id,view,ids:tabState.ids,active,sides:sideChats,side:pane.side,canBrowse,
+reading,onView:switchView,actions:panelActions,useBrowserPages}):null,view==="browser"&&bot?(0,import_react71.createElement)(BrowserView,{key:`browser:${active}`,bot,tabId:active,leaving,
+landed:landed&&!settling,actions,useBrowserPages,hold}):view==="side"&&sideChat?(0,import_react71.createElement)("div",{key:`side:${sideChat.id}`,className:"bt-panel-view"},(0,import_react71.createElement)(
+SideChatView,{subject:pane.id,chat:sideChat,roster,actions:panelActions})):(0,import_react71.createElement)("div",{key:`details:${pane.id}:${pane.renaming?"rename":""}:${pane.tab??
+""}`,className:"bt-panel-view"},(0,import_react71.createElement)(DetailsDrawer,{sessionId:pane.id,startRenaming:pane.renaming,startTab:pane.tab,hasStrip,roster,actions:panelActions,
+useSessions,useSessionStatus,useActivity,useWork,useBrowserTabs,useBrowserPages,useComputer})))}var BROWSER_CSS=`
 .bt-panel{--bt-panel-view-fade:${SPRING_SHAPE.duration}ms}
 .bt-ptabs{position:relative;display:flex;align-items:center;height:44px;flex:none;border-bottom:.5px solid var(--bt-line);padding:0 6px;gap:0;animation:bt-strip-in ${SPRING_SHAPE.duration}\
 ms ${SPRING_SHAPE.easing}}
@@ -14777,31 +15009,65 @@ t-hover));overflow:hidden}
 .bt-bcard-new svg{width:14px;height:14px}
 .bt-browser-empty-mark{display:flex;flex-direction:column;align-items:center;gap:10px;text-align:center}
 /* Cookie imports */
-.bt-import-menu{position:absolute;top:6px;right:6px;z-index:6;width:236px;padding:6px;border-radius:16px;background:var(--bt-glass-bg);-webkit-backdrop-filter:blur(24px) saturate(1\
-80%);backdrop-filter:blur(24px) saturate(180%);border:.5px solid var(--bt-glass-rim);box-shadow:var(--bt-glass-shadow);transform-origin:top right;animation:bt-pop-drop .18s cubic-b\
-ezier(.16,1,.3,1),bt-fade .14s ease-out}
+.bt-import-menu{position:absolute;top:6px;right:6px;z-index:6;width:312px;max-width:calc(100% - 12px);max-height:min(360px,calc(100% - 12px));overflow:auto;padding:6px;border-radiu\
+s:16px;background:var(--bt-glass-bg);-webkit-backdrop-filter:blur(24px) saturate(180%);backdrop-filter:blur(24px) saturate(180%);border:.5px solid var(--bt-glass-rim);box-shadow:va\
+r(--bt-glass-shadow);transform-origin:top right;animation:bt-pop-drop .18s cubic-bezier(.16,1,.3,1),bt-fade .14s ease-out}
 .bt-import-menu-title{padding:6px 10px 8px;font-size:11px;font-weight:500;letter-spacing:.02em;color:var(--bt-ink-3)}
+.bt-import-sep{height:.5px;margin:4px 8px;background:var(--bt-line)}
 .bt-import-item{display:flex;align-items:center;gap:9px;width:100%;min-width:0;padding:8px 10px;border:0;border-radius:8px;background:none;color:var(--bt-ink);font:inherit;font-siz\
 e:12px;text-align:left;cursor:pointer}
 .bt-import-item:hover{background:var(--bt-hover)}
 .bt-import-item:disabled{opacity:.5;cursor:default}
-.bt-import-item-icon{flex:none;color:var(--bt-ink-3)}
+.bt-import-item-icon,.bt-import-item svg{flex:none;color:var(--bt-ink-3)}
 .bt-import-item-icon svg,.bt-import-item svg{width:15px;height:15px}
-.bt-import-item-name{flex:none;max-width:55%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bt-import-item-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px}
+.bt-import-item-name{flex:none;max-width:62%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bt-import-item-main .bt-import-item-name{max-width:none}
+.bt-import-item-email{font-size:11px;line-height:15px;color:var(--bt-ink-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bt-import-item-meta{flex:none;display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+.bt-import-item-tag{font-size:11px;color:var(--bt-ink-3)}
 .bt-import-item-sub{flex:1;min-width:0;text-align:right;font-size:11px;color:var(--bt-ink-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bt-import-item-meta .bt-import-item-sub{flex:none}
+.bt-import-item-sub[data-ready]{color:var(--bt-green);font-weight:500}
 .bt-import-menu-note{padding:8px 10px 10px;font-size:12px;color:var(--bt-ink-3)}
 .bt-import-card{position:absolute;inset:0;z-index:5;display:flex;align-items:center;justify-content:center;padding:20px;background:var(--bt-main);overflow:auto;animation:bt-foot-in\
  .2s ease}
-.bt-import-box{width:100%;max-width:340px;max-height:100%;display:flex;flex-direction:column;gap:10px;padding:20px;border:.5px solid var(--bt-line-2);border-radius:16px;background:\
+.bt-import-box{width:100%;max-width:380px;max-height:100%;display:flex;flex-direction:column;gap:10px;padding:20px;border:.5px solid var(--bt-line-2);border-radius:16px;background:\
 var(--bt-main);box-shadow:0 12px 36px -12px rgba(0,0,0,.14);overflow:auto}
 .bt-import-title{font-size:15px;line-height:21px;font-weight:600}
 .bt-import-sub{font-size:12px;line-height:17px;color:var(--bt-ink-3);margin-top:-6px}
 .bt-import-text{font-size:13px;line-height:19px;color:var(--bt-ink-2);overflow-wrap:anywhere}
+.bt-import-steps{display:flex;flex-direction:column;gap:8px;padding:10px 12px;border-radius:10px;background:var(--bt-hover)}
+.bt-import-step{font-size:12px;line-height:17px;color:var(--bt-ink-2)}
+.bt-import-copy-row{display:flex;align-items:center;gap:6px;min-width:0}
+.bt-import-code{flex:1;min-width:0;padding:5px 8px;border-radius:6px;border:.5px solid var(--bt-line);background:var(--bt-main);color:var(--bt-ink);font-family:ui-monospace,SFMono-\
+Regular,Menlo,monospace;font-size:11px;line-height:16px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;user-select:all}
+.bt-import-mini{flex:none;height:28px;padding:0 10px;border:.5px solid var(--bt-line-2);border-radius:8px;background:var(--bt-main);color:var(--bt-ink);font:inherit;font-size:12px;\
+cursor:pointer}
+.bt-import-mini:hover{background:var(--bt-hover)}
+.bt-import-ready-note{font-size:12px;line-height:17px;font-weight:500;color:var(--bt-green)}
+.bt-import-textarea{width:100%;box-sizing:border-box;min-height:96px;max-height:200px;resize:vertical;padding:8px 10px;border:.5px solid var(--bt-line-2);border-radius:10px;backgro\
+und:var(--bt-main);color:var(--bt-ink);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;line-height:16px;outline:none}
+.bt-import-input{width:100%;box-sizing:border-box;height:30px;padding:0 10px;border:.5px solid var(--bt-line-2);border-radius:8px;background:var(--bt-main);color:var(--bt-ink);font\
+:inherit;font-size:12px;outline:none}
+.bt-import-textarea:focus,.bt-import-input:focus{border-color:var(--bt-accent)}
+.bt-import-input::placeholder,.bt-import-textarea::placeholder{color:var(--bt-ink-3)}
+.bt-import-scope{display:flex;gap:6px;flex-wrap:wrap}
+.bt-import-pill{height:26px;max-width:100%;padding:0 10px;border:.5px solid var(--bt-line-2);border-radius:999px;background:var(--bt-main);color:var(--bt-ink-2);font:inherit;font-s\
+ize:12px;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bt-import-pill:hover{background:var(--bt-hover);color:var(--bt-ink)}
+.bt-import-pill[aria-pressed=true]{border-color:var(--bt-accent);background:var(--bt-accent-soft);color:var(--bt-ink);font-weight:500}
+.bt-import-filter-row{display:flex;align-items:center;gap:6px}
+.bt-import-filter-row .bt-import-input{flex:1;min-width:0;height:28px}
 .bt-import-list{max-height:180px;overflow:auto;border:.5px solid var(--bt-line);border-radius:10px;padding:4px 10px}
 .bt-import-line{display:flex;align-items:baseline;gap:8px;padding:4px 0;min-width:0}
+.bt-import-check-row{align-items:center;cursor:pointer}
+.bt-import-check-row input[type=checkbox]{flex:none;margin:0;accent-color:var(--bt-accent);cursor:pointer}
 .bt-import-line-name{flex:none;max-width:60%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:var(--bt-ink)}
 .bt-import-line-count{flex:1;min-width:0;text-align:right;font-size:11px;color:var(--bt-ink-3);white-space:nowrap}
 .bt-import-line-reason{flex:1;min-width:0;font-size:11px;line-height:16px;color:var(--bt-ink-3);overflow-wrap:anywhere}
+.bt-import-toggle{display:flex;align-items:center;gap:8px;font-size:12px;line-height:17px;color:var(--bt-ink-2);cursor:pointer;user-select:none}
+.bt-import-toggle input[type=checkbox]{flex:none;margin:0;accent-color:var(--bt-accent);cursor:pointer}
 .bt-import-note{font-size:12px;line-height:17px;color:var(--bt-ink-3)}
 .bt-import-warns{font-size:12px;color:var(--bt-ink-3)}
 .bt-import-warns summary{cursor:pointer;padding:2px 0}
@@ -15556,123 +15822,125 @@ browserActivate:(botId,tabId)=>browsers.activate(botId,tabId),browserShow:(tabId
 command(tabId,name),browserFocus:tabId=>browsers.focus(tabId),browserTakeover:bridge2.views?async botId=>{let result=await call("browser-takeover",{botId});return await bridge2.views.
 hold(botId,!0),result}:void 0,browserStop:bridge2.views?async botId=>{let result=await call("browser-stop",{botId});return await bridge2.views.hold(botId,!0),result}:void 0,browserGiveBack:bridge2.
 views?async(botId,answer={})=>{let result=await call("browser-give-back",{botId,...answer});return await bridge2.views.hold(botId,!1),result}:void 0,browserImport:typeof bridge2.importSources==
-"function"?{sources:()=>bridge2.importSources(),pick:()=>bridge2.importPick(),live:(source,close)=>bridge2.importLive(source,close),apply:(botId,pending)=>bridge2.importApply(`bot:${botId}`,
-pending),cancel:pending=>bridge2.importCancel(pending)}:null}),actions.signInEntry=()=>ctx.slots.entries?.("settings.models.sign-in")?.[0]??null,actions.canSignIn=()=>!!actions.signInEntry(),
-actions.signIn=()=>ui2.set(state=>({...state,signIn:(state.signIn??0)+1})),actions.closeSignIn=()=>ui2.set(state=>({...state,signIn:null})),actions.accountT=()=>ctx.get("locale").bind(
-"settings.account"),actions.hasPlugins=()=>ctx.get("pluginNavigation")!==void 0,actions.openPlugins=()=>ctx.get("pluginNavigation")?.openList(),actions.speech=()=>ctx.get("remote.s\
-peech")??void 0,actions.openHarnessOnboarding=id=>settingsShell?.openOnboarding(id),actions.voiceSetup=providerId=>{let navigation=ctx.get("pluginNavigation");if(navigation!==void 0)
-return{navigate:()=>navigation.openBundle(VOICE_BUNDLE)};let speech=ctx.get("remote.speech");return speech===void 0||providerId===void 0?null:{prepare:()=>requestPreparation(speech,
-providerId)}},actions.closingReply=(sessionId,turn)=>{try{let binding=ctx.sessions.binding(sessionId);return binding===void 0?null:closingReplyText(ctx.uiConversation.binding(binding).
-target("chat").getSnapshot(),turn)}catch{return null}},actions.seatAccount=on=>ui2.set(state=>state.accountSeated===on?state:{...state,accountSeated:on}),actions.installUpdate=async()=>{
-let value=await call("update-install");update.set(previous=>({...previous,...value})),wakeUpdate()},actions.installDshUpdate=async()=>{let dsh=await call("dsh-update-install");update.
-set(previous=>({...previous,dsh})),wakeUpdate()},actions.openAppUpdates=async verified=>{let app=await appUpdates?.status?.();app&&update.set(previous=>({...previous,app})),sameVersion(
-app?.version,verified)&&await appUpdates.open()},actions.checkUpdate=async()=>{let value=await call("update-check",{fresh:!0});update.set(previous=>({...value,app:previous.app,ownApp:previous.
-ownApp})),wakeUpdate()},actions.checkOwnApp=async()=>{await ownAppUpdates?.check?.()},actions.installOwnApp=async()=>{await ownAppUpdates?.install?.()},actions.openOwnApp=async()=>{
-await ownAppUpdates?.open?.()};let browserPages=browsers?.pages??createSource({}),browserTabs=browsers?.tabs??createSource({}),browserHolds=browsers?.holds??createSource({}),appComputer=globalThis.
-dsBotApp;typeof appComputer?.computer=="function"&&ctx.effect(()=>{let nameOf2=id=>roster.getSnapshot().byId[id]?.name??"a Bot",sync=()=>{let live2=computer.getSnapshot(),name=id=>nameOf2(
-id),look=id=>lookOf(roster.getSnapshot().byId[id]),rows2=(live2.leases??[]).map(entry=>({botId:entry.botId,name:name(entry.botId),app:entry.kind==="foreground"?t("In the foreground"):
-entry.appName,label:entry.kind==="foreground"?t("{name} · foreground",{name:name(entry.botId)}):`${name(entry.botId)} · ${entry.appName}`,color:look(entry.botId).color,avatar:look(
-entry.botId).image}));for(let[botId,entry]of Object.entries(live2.bots??{}))entry.waitingFor==="user-idle"&&rows2.push({botId,waiting:!0,name:name(botId),app:t("waits for the compu\
-ter"),label:t("{name} waits for the computer",{name:name(botId)}),color:look(botId).color,avatar:look(botId).image});appComputer.computer({rows:rows2,labels:{stop:t("Stop"),stopAll:t(
-"Stop all"),letGo:t("Let it continue")}})};return sync(),computer.subscribe(sync)},"ds-bot: computer indicator"),typeof appComputer?.computerCursor=="function"&&ctx.effect(()=>{let dead=!1,
-pause=ms=>new Promise(resolve2=>setTimeout(resolve2,ms));return(async()=>{let after2=0;for(;!dead;){if(roster.getSnapshot().computer?.enabled!==!0){await pause(2e3);continue}try{let reply=await call(
-"computer-cursor-wait",{after:after2});for(let event of reply?.events??[])Number.isFinite(event.seq)&&event.seq>after2&&(after2=event.seq),!(Number.isFinite(event.t)&&Number.isFinite(
-reply?.now)&&reply.now-event.t>3e3)&&appComputer.computerCursor({...event,color:lookOf(roster.getSnapshot().byId[event.botId]).color,avatar:lookOf(roster.getSnapshot().byId[event.botId]).
-image})}catch{await pause(2e3)}}})(),()=>{dead=!0}},"ds-bot: computer cursor"),typeof appComputer?.idleSeconds=="function"&&ctx.effect(()=>{let timer=setInterval(()=>{let current2=roster.
-getSnapshot();current2.computer?.enabled===!0&&needsIdleSample(computer.getSnapshot(),current2.computer)&&Promise.resolve(appComputer.idleSeconds()).then(idle=>{Number.isFinite(idle)&&
-call("computer-user-active",{idleSeconds:idle}).catch(()=>{})}).catch(()=>{})},2e3);return()=>{clearInterval(timer)}},"ds-bot: computer user active"),typeof appComputer?.onComputerAction==
-"function"&&appComputer.onComputerAction(({kind,botId})=>{kind==="stop"?actions.computerStop(botId):kind==="stopall"?actions.computerStop(null,!0):kind==="letgo"&&actions.computerAllowForeground(
-botId)});let face=()=>({actions,hooks:{roster,ui:ui2,activity,work,memoryNews,registry,turnClock,live,computer,cards,heldCards,browserPages,browserTabs,browserHolds,surface,update,
-frame:frame2,sidebarPref,settingsShellHeld}}),hostDrawsUserText=typeof ctx.uiConversation.userText?.register=="function";ctx.effect(()=>installCommandActions(ctx,{roster,actions}),
-"ds-bot: bot command actions"),ctx.effect(()=>{let offStyles=installCompiledStyles(SETTINGS_SHELL_CSS,"settings-shell");return settingsShell=installSettingsShell(ctx,{face,actions,
-ui:ui2,held:settingsShellHeld}),()=>{settingsShell?.dispose(),settingsShell=null,offStyles()}},"ds-bot: settings shell");let queueFace=sessionId=>({...face(),updateQueue:async(itemId,action)=>await ctx.
-sessions.binding(sessionId)?.session?.updateQueue(itemId,action)??{ok:!1},loadImage:attachment=>ctx.uiConversation.imageUrl(sessionId,attachment)});ctx.effect(()=>noticeApprovals({
-work,roster,shownSession:()=>Object.values(ctx.sessions.list.getSnapshot().byId??{}).find(session=>(session?.retainedBy?.mainView??0)>0)?.id,openSession:id=>actions.openSession(id)}),
-"ds-bot: approval notifications");let assistantFace=sessionId=>{let binding=ctx.sessions.binding(sessionId);if(binding===void 0)throw new Error(`ds-bot: unknown session "${sessionId}\
-"`);let chat=ctx.uiConversation.binding(binding).target("chat");return{...face(),fileMentions:fileMentionSource(ctx,sessionId),keyedHooks:{turnSteps:turn=>{let snapshot=chat.getSnapshot();
-if(snapshot===void 0)throw new Error("ds-bot: Chat target is unavailable");return snapshot.nodes.turnDataSource(Number(turn),"assistant-step")},turnContext:turn=>{let snapshot=chat.
-getSnapshot();if(snapshot===void 0)throw new Error("ds-bot: Chat target is unavailable");return snapshot.nodes.turnDataSource(Number(turn),"context")}}}};actions.turnFacts=sessionId=>{
-try{let binding=ctx.sessions.binding(sessionId);if(binding===void 0)return{turns:void 0,openTurn:void 0};let conversation=ctx.uiConversation.binding(binding);return{turns:conversation.
-target("chat").getSnapshot()?.timeline?.turns,openTurn:conversation.openTurn.getSnapshot()}}catch{return{turns:void 0,openTurn:void 0}}},actions.watchTurns=(sessionId,listener)=>{try{
-let binding=ctx.sessions.binding(sessionId);if(binding===void 0)return()=>{};let conversation=ctx.uiConversation.binding(binding),offChat=conversation.target("chat").subscribe(listener),
-offOpen=conversation.openTurn.subscribe(listener);return()=>{offChat(),offOpen()}}catch{return()=>{}}},actions.steerQueued=async sessionId=>{let session=ctx.sessions.binding(sessionId)?.
-session;session!==void 0&&await steerQueued(session)==="failed"&&actions.reportError(new Error(t("Couldn’t steer the queued messages. Try again.")),"steer-queue")},actions.canOpenTerminal=
-()=>ctx.get("sidebarRight")!==void 0&&ctx.get("sidebarRightTabs")?.get("terminal")!==void 0,actions.newTerminal=()=>{actions.closePanel();try{ctx.get("sidebarRight")?.openTab("term\
-inal")}catch(error){actions.reportError(error,"right-sidebar")}},actions.canOpenFiles=()=>ctx.get("sidebarRight")!==void 0&&ctx.get("sidebarRightTabs")?.get("files")!==void 0,actions.
-openFiles=()=>{actions.closePanel();try{ctx.get("sidebarRight")?.openTab("files")}catch(error){actions.reportError(error,"right-sidebar")}},ctx.effect(()=>{let sidebar=ctx.get("sid\
-ebarRight");if(!sidebar)return;let open=rightColumnOpen(document),switchWindow=createSwitchWindow(done=>setTimeout(done,400)),collapseColumn=()=>{try{sidebar.isExpanded()&&sidebar.
-toggleExpanded()}catch(error){actions.reportError(error,"right-sidebar")}},observer=new MutationObserver(()=>{let next=rightColumnOpen(document),opening=next&&!open;open=next;let verdict=opening?
-columnOpened(ui2.getSnapshot().details!==null,switchWindow.pending):null;verdict==="close-drawer"?actions.closePanel():verdict==="collapse-column"&&collapseColumn()});observer.observe(
-document.documentElement,{subtree:!0,attributes:!0,attributeFilter:RIGHTBAR_ATTRIBUTES});let offMounted=sidebar.mounted.subscribe(()=>switchWindow.moved()),drawer=ui2.getSnapshot().
-details!==null,offUi=ui2.subscribe(()=>{let next=ui2.getSnapshot().details!==null;next&&!drawer&&drawerOpened(rightColumnOpen(document))==="collapse-column"&&collapseColumn(),drawer=
-next});return()=>{observer.disconnect(),offMounted(),offUi()}},"ds-bot: one right panel");let BOT_PRIORITY=-100,shadow=(name,options,component)=>ctx.slots.inject(name,()=>ctx.slots.
-register({name,...options,...options.priority===void 0?{}:{priority:freePriority(ctx.slots.entries(name),options)}},component)),installHeader=()=>ctx.slots.inject("conversation.ses\
-sion.header",()=>installHeaderNavigation(ctx.slots,face,HeaderPill,BOT_PRIORITY)),atMenu=null,installAtMenu=()=>{let fiber=ctx.inject(["inputTriggers"],scope=>{scope.effect(()=>{let triggers=scope.
-inputTriggers,controllerOf=sessionId=>{let binding=ctx.sessions.binding(sessionId);return binding===void 0?void 0:triggers.sessionOf(binding.ctx)},launched=sessionId=>controllerOf(
-sessionId)?.launcher.getSnapshot()===CHATS_SOURCE,offs=[...atSources({roster,sessions:ctx.sessions,launched,iconFor:menuIcons(roster)}).map(source=>triggers.registerSource(source)),
-triggers.registerSource(sideSource({roster,actions}))];return atMenu={controllerOf},()=>{atMenu=null;for(let off of offs)off()}},"ds-bot: @ menu")});return()=>fiber.dispose()};actions.
-canReferenceChat=()=>atMenu!==null,actions.referenceChat=(sessionId,span)=>{let controller=atMenu?.controllerOf(sessionId);controller===void 0||span===void 0||controller.toggleSource(
-CHATS_SOURCE,{trigger:"@",query:"",quoted:!1,position:"inline",span})};let installFrameSync=()=>{let lastDetails=ui2.getSnapshot().details,sync=()=>{let s=ui2.getSnapshot(),f=frame2.
-getSnapshot(),opened=s.details!==null&&lastDetails===null;lastDetails=s.details;let layout=frameLayout({viewport:f.viewport,sidebarWidth:f.sidebarWidth,pref:sidebarPref.getSnapshot(),
-drawer:s.leftDrawer===!0,panel:s.details===null?null:{view:s.view,yielded:!1}});s.details===null?s.panelYield&&actions.setPanelYield(!1):!s.panelYield&&opened&&layout.panel==="fold\
-ed"?actions.setPanelYield(!0):s.panelYield&&layout.panel==="shown"&&actions.setPanelYield(!1),s.leftDrawer===!0&&layout.left!=="drawer"&&actions.setLeftDrawer(!1)},offs=[ui2.subscribe(
-sync),frame2.subscribe(sync),sidebarPref.subscribe(sync)];return()=>{for(let off of offs)off()}},SHELL_SHEETS=[[SHELL_CSS,"shell"],[SIDEBAR_CSS,"sidebar"],[SECRET_CSS+CONNECTOR_CSS+
-CONNECTORS_PAGE_CSS+PROVIDERS_CSS,"secrets"],[LEARNING_CSS,"learning"],[MODEL_CSS+FOLDER_CSS+BOT_SETTINGS_CSS+BOT_MODELS_CSS+AGENT_CARDS_CSS+GROUP_SETTINGS_CSS+AVATAR_LIBRARY_CSS,"\
-models"],[USAGE_CSS,"usage"],[SCHEDULE_CSS,"schedules"],[FEEDBACK_CSS,"feedback"],[ABOUT_CSS,"about"],[MEMBER_CSS,"members"],[TASK_CSS,"tasks"],[PASTE_CSS,"paste"],[OPENING_CSS,"op\
-ening"],[IM_CSS,"im"],[GOAL_CSS,"goal"],[USER_MESSAGE_CSS,"user-messages"],[WIDGET_CSS2,"widgets"],[CHANGES_CSS,"changes"],[HANDOFF_CSS,"handoff"],[SIDE_CSS,"side"],[BROWSER_CSS,"b\
-rowser"]],shellSheets=0;actions.holdSettingsLook=()=>{if(shellSheets>0)return()=>{};let syncEffects=()=>{let current2=roster.getSnapshot();document.body.dataset.btEffects=effectsOf(
-current2.ready?current2.prefs??{}:savedPrefs)};syncEffects();let snapshot=roster.getSnapshot(),prefs=snapshot.ready?snapshot.prefs??{}:savedPrefs,themes=allThemes(),theme=themes[prefs.
-theme]??themes.deepseek,offs=[roster.subscribe(syncEffects),...SHELL_SHEETS.map(([text,tag])=>installCompiledStyles(botOwnCss(text),`settings-${tag}`)),installCompiledStyles(botOwnCss(
-themeCss(theme,isHex(prefs.accent)?prefs.accent:void 0)),"settings-theme")];return()=>{delete document.body.dataset.btEffects;for(let off of offs)off()}};let installShell=()=>[()=>(shellSheets+=
-1,()=>{shellSheets-=1}),...SHELL_SHEETS.map(([text,tag])=>()=>installCompiledStyles(text,tag)),()=>installFrameWatch(frame2),()=>installFrameSync(),()=>installTheme(),()=>shadow("s\
-idebar.workspaces",{priority:BOT_PRIORITY,inject:face},TeamSidebar),()=>shadow("sidebar.brand.mark",{priority:BOT_PRIORITY},BrandMark),()=>shadow("sidebar.brand.name",{priority:BOT_PRIORITY},
-BrandName),()=>shadow("sidebar.footer.action",{id:"bot-account",order:-200,inject:face},FooterAccount),()=>shadow("settings.trigger",{priority:BOT_PRIORITY},YouAvatar),()=>shadow("\
-settings.launcher",{priority:BOT_PRIORITY,inject:face},AccountLauncher),()=>shadow("shell.overlay",{id:"bot-computer",order:40,inject:face},ComputerIndicator),()=>shadow("shell.ove\
-rlay",{id:"bot",order:50,inject:face},Overlays),()=>shadow("shell.overlay",{id:"bot-signin",order:55,inject:face},DeepSeekSignIn),()=>shadow("shell.overlay",{id:"bot-toast",order:60,
-inject:face},ErrorToast)],installConversation=()=>[()=>installCompiledStyles(CONVERSATION_CSS+READ_ONLY_CSS,"conversation"),()=>installCompiledStyles(TURN_ERROR_CSS,"turn-errors"),
-()=>installCompiledStyles(QUEUE_CSS,"queue"),()=>installCompiledStyles(ANNOTATION_CSS,"text-annotation"),()=>installMentions(),()=>installAtMenu(),installHeader,()=>shadow("convers\
-ation.chat.text-interaction",{key:"quote",priority:BOT_PRIORITY,locale:"messageQuotes",inject:face},TextSelectionAction),()=>shadow("conversation.chat.node",{key:"assistant-step",priority:BOT_PRIORITY,
-locale:"chat",inject:assistantFace},AssistantCell),()=>shadow("conversation.chat.node",{key:"turn-trigger",priority:BOT_PRIORITY,locale:"chat",inject:face},TriggerCell),()=>shadow(
-"conversation.chat.node",{key:"tool-call",priority:BOT_PRIORITY,locale:"chat",inject:face},ToolCell),()=>shadow("conversation.chat.node",{key:"turn-process",priority:BOT_PRIORITY,locale:"\
-chat",inject:face},TurnProcessCell),()=>shadow("conversation.chat.node",{key:"turn-error",priority:BOT_PRIORITY,locale:"chat",inject:face},FailureCell),()=>shadow("conversation.cha\
-t.turnTail",{id:"bot-turn-separators",order:1e3,inject:face},TurnTailCell),()=>shadow("conversation.chat.turnTail",{id:"bot-btw",order:800,priority:BOT_PRIORITY,inject:face},BtwTurnTail),
-()=>shadow("conversation.chat.turnTail",{id:"bot-learning",order:850,priority:BOT_PRIORITY,inject:face},LearningTurnTail),()=>ctx.slots.inject("deliverables.file.actions",()=>ctx.slots.
-register({name:"deliverables.file.actions",id:"bot-file-save",locale:"chat"},SaveFileAction)),()=>shadow("conversation.chat.node",{key:"question-reply",priority:BOT_PRIORITY,locale:"\
-chat"},AnsweredReply),()=>shadow("conversation.chat.node",{key:"compaction",priority:BOT_PRIORITY,locale:"chat"},CellEmpty),()=>shadow("conversation.chat.node",{key:"context",priority:BOT_PRIORITY,
-locale:"chat"},CellEmpty),...canDrawUserMessages(hostDrawsUserText)?[()=>installUserBubble(ctx.slots,()=>{let offs=["user","steering"].map(key=>shadow("conversation.chat.node",{key,
-priority:BOT_PRIORITY,locale:"chat",inject:face},UserMessageCell));return()=>{for(let off of offs)off()}})]:[],...typeof ctx.uiConversation.userText?.register=="function"?[()=>installBotMentionRule(
-ctx.uiConversation.userText,roster),()=>shadow("conversation.user.text.node",{key:BOT_MENTION_ID,inject:face},BotMention)]:[],()=>shadow("conversation.input.permission",{priority:BOT_PRIORITY},
-Nothing),()=>shadow("conversation.input.plan",{priority:BOT_PRIORITY},Nothing),()=>shadow("conversation.input.model",{priority:BOT_PRIORITY},Nothing),()=>shadow("conversation.compo\
-ser.dock",{id:"activity",order:0,priority:BOT_PRIORITY},Nothing),()=>shadow("conversation.composer.dock",{id:"usage",order:1,priority:BOT_PRIORITY},Nothing),()=>shadow("conversatio\
-n.composer.dock",{id:"btw",order:2,priority:BOT_PRIORITY,inject:face},BtwDock),()=>shadow("conversation.input.left",{id:"bot-paste",order:-110,inject:face},PasteGuard),()=>shadow("\
-conversation.input.left",{id:"bot-plus",order:-100,inject:face},ComposerPlus),()=>shadow("conversation.input.right",{id:"bot-voice",order:100,inject:face},ComposerVoice),()=>shadow(
-"conversation.composer",{priority:BOT_PRIORITY,select:owner=>owner.pendingInteraction?.kind==="question"?owner.pendingInteraction:null},QuestionCard),()=>shadow("conversation.input\
-.dock",{id:"bot-paste",order:-130,inject:face},PasteDock),()=>shadow("conversation.input.dock",{id:"bot-members",order:-120,inject:face},MemberDock),()=>shadow("conversation.input.\
-dock",{id:"bot-model",order:-110,inject:face},ModelChoiceDock),()=>shadow("conversation.input.dock",{id:"bot-readonly",order:-105,inject:face},ReadOnlyDock),()=>shadow("conversatio\
-n.input.dock",{id:"bot-question",order:-100,inject:face},QuestionDock),()=>shadow("conversation.input.dock",{id:"bot-view",order:-95,inject:face},WidgetDock),()=>shadow("conversati\
-on.input.dock",{id:"bot-secret",order:-90,inject:face},SecretDock),()=>shadow("conversation.input.dock",{id:"bot-connector",order:-89,inject:face},ConnectorDock),()=>shadow("conver\
-sation.input.dock",{id:"bot-mail",order:-88,inject:face},MailDock),()=>shadow("conversation.input.dock",{id:"bot-handoff",order:-85,inject:face},HandoffDock),()=>shadow("conversati\
-on.input.dock",{id:"bot-computer-handoff",order:-84,inject:face},ComputerHandoffDock),()=>shadow("conversation.input.dock",{id:"bot-computer-app",order:-83,inject:face},AppAccessDock),
-()=>shadow("conversation.input.dock",{id:"bot-learning",order:850,priority:BOT_PRIORITY,inject:face},LearningDock),()=>shadow("conversation.input.dock",{id:"queue",order:20,priority:BOT_PRIORITY,
-inject:queueFace},QueueDock)];ctx.effect(()=>installCompiledStyles(RETURN_TOKENS+RETURN_CSS,"return"),"ds-bot: return styles"),ctx.effect(()=>installCompiledStyles(COMPUTER_CSS,"co\
-mputer"),"ds-bot: computer styles"),shadow("sidebar.footer.action",{id:"bot-return",order:-300,inject:face},BotReturn),ctx.effect(()=>{let forks=installAgentForks({sessions:ctx.sessions,
-ownerOf:id=>roster.getSnapshot().agentOf[id],hasAgent:id=>roster.getSnapshot().agentsById[id]!==void 0,pending:pendingAdopt,ready:async()=>{roster.getSnapshot().ready||await pull()},
-adopt:(agentId,sessionId)=>call("agent-adopt",{agentId,sessionId}),refresh:pull,report:(error,source)=>actions.reportError(error,source),storage:globalThis.localStorage}),reconcile=()=>{
-forks.reconcile().catch(error=>actions.reportError(error,"agent-fork-reconcile"))},offRoster=roster.subscribe(reconcile),offList=ctx.sessions.list.subscribe(reconcile),timer=setInterval(
-reconcile,5e3);return reconcile(),()=>(offRoster(),offList(),clearInterval(timer),forks.dispose())},"ds-bot: Agent forks"),ctx.effect(()=>{let previous,sync=()=>{let list=ctx.sessions.
-list.getSnapshot(),main=Object.values(list.byId??{}).find(session=>(session?.retainedBy?.mainView??0)>0)?.id,plain=isAgentSessionId(main);if(setPlain(plain),plain&&dropPanels(),main===
-previous)return;let before=previous;previous=main;let ours=expected2!==null&&main===expected2;if(expected2=null,ours||main===void 0||surface.getSnapshot().mode!=="bot")return;let agentId=before!==
-void 0?agentOfSession(before):void 0;if(agentId===void 0)return;let snapshot=roster.getSnapshot();if(snapshot.byId[main]!==void 0||snapshot.roomsById[main]!==void 0||agentOfSession(
-main)!==void 0)return;let row=list.byId[main];if(row?.origin==="subagent"||row?.blank!==!0)return;pendingAdopt.set(main,agentId),setPlain(!0),call("agent-adopt",{agentId,sessionId:main}).
-then(()=>pull()).catch(error=>{pendingAdopt.delete(main),console.warn("[ds-bot] agent-adopt",error),sync(),actions.reportError(error,"agent-adopt")});let next=workspaceOf(main);list.
-byId[before]?.blank===!0&&next!==void 0&&workspaceOf(before)!==next&&call("agent-archive",{agentId,sessionId:before}).then(()=>pull()).catch(()=>{})},offList=ctx.sessions.list.subscribe(
-sync),offRoster=roster.subscribe(sync);return sync(),()=>{offList(),offRoster()}},"ds-bot: agent surface"),ctx.effect(()=>{let groups=surfaceGroups({shell:installShell,conversation:installConversation},
-{onError:(_group,error)=>actions.reportError(new Error(t("Bot mode could not be set up here: {error}",{error:error?.message??String(error)})),"surface")}),verifyTimer=0,verifyAttempts=0,
-verifySidebar=()=>{if(!groupsFor(surface.getSnapshot()).shell)return;let landed=!1,declared=!0;try{landed=ctx.slots.entries("sidebar.workspaces").some(entry=>entry.component===TeamSidebar),
-declared=ctx.slots.spec?.("sidebar.workspaces")!==void 0}catch{declared=!1}if(!landed){if(!declared){verifyAttempts<20&&(verifyAttempts+=1,verifyTimer=setTimeout(verifySidebar,250));
-return}verifyAttempts>=3||(verifyAttempts+=1,console.warn("[ds-bot] sidebar entry missing after shell mount; remounting"),groups.remount("shell"),verifyTimer=setTimeout(verifySidebar,
-250))}},reconcile=()=>{groups.reconcile(groupsFor(surface.getSnapshot())),clearTimeout(verifyTimer),verifyAttempts=0,verifyTimer=setTimeout(verifySidebar,250)};reconcile(),surface.
-getSnapshot().mode==="bot"&&ensureBotHome();let unsub=surface.subscribe(reconcile);return()=>{unsub(),clearTimeout(verifyTimer),groups.dispose()}},"ds-bot: surface")}
+"function"?{sources:()=>bridge2.importSources(),probe:typeof bridge2.importProbe=="function"?source=>bridge2.importProbe(source):null,pick:()=>bridge2.importPick(),paste:typeof bridge2.
+importPaste=="function"?(text,defaultUrl)=>bridge2.importPaste(text,defaultUrl):null,launch:typeof bridge2.importLaunch=="function"?source=>bridge2.importLaunch(source):null,live:(source,close,requestId)=>bridge2.
+importLive(source,close,requestId),apply:(botId,pending,options)=>bridge2.importApply(`bot:${botId}`,pending,options),cancel:pending=>bridge2.importCancel(pending)}:null}),actions.
+signInEntry=()=>ctx.slots.entries?.("settings.models.sign-in")?.[0]??null,actions.canSignIn=()=>!!actions.signInEntry(),actions.signIn=()=>ui2.set(state=>({...state,signIn:(state.signIn??
+0)+1})),actions.closeSignIn=()=>ui2.set(state=>({...state,signIn:null})),actions.accountT=()=>ctx.get("locale").bind("settings.account"),actions.hasPlugins=()=>ctx.get("pluginNavig\
+ation")!==void 0,actions.openPlugins=()=>ctx.get("pluginNavigation")?.openList(),actions.speech=()=>ctx.get("remote.speech")??void 0,actions.openHarnessOnboarding=id=>settingsShell?.
+openOnboarding(id),actions.voiceSetup=providerId=>{let navigation=ctx.get("pluginNavigation");if(navigation!==void 0)return{navigate:()=>navigation.openBundle(VOICE_BUNDLE)};let speech=ctx.
+get("remote.speech");return speech===void 0||providerId===void 0?null:{prepare:()=>requestPreparation(speech,providerId)}},actions.closingReply=(sessionId,turn)=>{try{let binding=ctx.
+sessions.binding(sessionId);return binding===void 0?null:closingReplyText(ctx.uiConversation.binding(binding).target("chat").getSnapshot(),turn)}catch{return null}},actions.seatAccount=
+on=>ui2.set(state=>state.accountSeated===on?state:{...state,accountSeated:on}),actions.installUpdate=async()=>{let value=await call("update-install");update.set(previous=>({...previous,
+...value})),wakeUpdate()},actions.installDshUpdate=async()=>{let dsh=await call("dsh-update-install");update.set(previous=>({...previous,dsh})),wakeUpdate()},actions.openAppUpdates=
+async verified=>{let app=await appUpdates?.status?.();app&&update.set(previous=>({...previous,app})),sameVersion(app?.version,verified)&&await appUpdates.open()},actions.checkUpdate=
+async()=>{let value=await call("update-check",{fresh:!0});update.set(previous=>({...value,app:previous.app,ownApp:previous.ownApp})),wakeUpdate()},actions.checkOwnApp=async()=>{await ownAppUpdates?.
+check?.()},actions.installOwnApp=async()=>{await ownAppUpdates?.install?.()},actions.openOwnApp=async()=>{await ownAppUpdates?.open?.()};let browserPages=browsers?.pages??createSource(
+{}),browserTabs=browsers?.tabs??createSource({}),browserHolds=browsers?.holds??createSource({}),appComputer=globalThis.dsBotApp;typeof appComputer?.computer=="function"&&ctx.effect(
+()=>{let nameOf2=id=>roster.getSnapshot().byId[id]?.name??"a Bot",sync=()=>{let live2=computer.getSnapshot(),name=id=>nameOf2(id),look=id=>lookOf(roster.getSnapshot().byId[id]),rows2=(live2.
+leases??[]).map(entry=>({botId:entry.botId,name:name(entry.botId),app:entry.kind==="foreground"?t("In the foreground"):entry.appName,label:entry.kind==="foreground"?t("{name} · for\
+eground",{name:name(entry.botId)}):`${name(entry.botId)} · ${entry.appName}`,color:look(entry.botId).color,avatar:look(entry.botId).image}));for(let[botId,entry]of Object.entries(
+live2.bots??{}))entry.waitingFor==="user-idle"&&rows2.push({botId,waiting:!0,name:name(botId),app:t("waits for the computer"),label:t("{name} waits for the computer",{name:name(botId)}),
+color:look(botId).color,avatar:look(botId).image});appComputer.computer({rows:rows2,labels:{stop:t("Stop"),stopAll:t("Stop all"),letGo:t("Let it continue")}})};return sync(),computer.
+subscribe(sync)},"ds-bot: computer indicator"),typeof appComputer?.computerCursor=="function"&&ctx.effect(()=>{let dead=!1,pause=ms=>new Promise(resolve2=>setTimeout(resolve2,ms));
+return(async()=>{let after2=0;for(;!dead;){if(roster.getSnapshot().computer?.enabled!==!0){await pause(2e3);continue}try{let reply=await call("computer-cursor-wait",{after:after2});
+for(let event of reply?.events??[])Number.isFinite(event.seq)&&event.seq>after2&&(after2=event.seq),!(Number.isFinite(event.t)&&Number.isFinite(reply?.now)&&reply.now-event.t>3e3)&&
+appComputer.computerCursor({...event,color:lookOf(roster.getSnapshot().byId[event.botId]).color,avatar:lookOf(roster.getSnapshot().byId[event.botId]).image})}catch{await pause(2e3)}}})(),
+()=>{dead=!0}},"ds-bot: computer cursor"),typeof appComputer?.idleSeconds=="function"&&ctx.effect(()=>{let timer=setInterval(()=>{let current2=roster.getSnapshot();current2.computer?.
+enabled===!0&&needsIdleSample(computer.getSnapshot(),current2.computer)&&Promise.resolve(appComputer.idleSeconds()).then(idle=>{Number.isFinite(idle)&&call("computer-user-active",{
+idleSeconds:idle}).catch(()=>{})}).catch(()=>{})},2e3);return()=>{clearInterval(timer)}},"ds-bot: computer user active"),typeof appComputer?.onComputerAction=="function"&&appComputer.
+onComputerAction(({kind,botId})=>{kind==="stop"?actions.computerStop(botId):kind==="stopall"?actions.computerStop(null,!0):kind==="letgo"&&actions.computerAllowForeground(botId)});
+let face=()=>({actions,hooks:{roster,ui:ui2,activity,work,memoryNews,registry,turnClock,live,computer,cards,heldCards,browserPages,browserTabs,browserHolds,surface,update,frame:frame2,
+sidebarPref,settingsShellHeld}}),hostDrawsUserText=typeof ctx.uiConversation.userText?.register=="function";ctx.effect(()=>installCommandActions(ctx,{roster,actions}),"ds-bot: bot \
+command actions"),ctx.effect(()=>{let offStyles=installCompiledStyles(SETTINGS_SHELL_CSS,"settings-shell");return settingsShell=installSettingsShell(ctx,{face,actions,ui:ui2,held:settingsShellHeld}),
+()=>{settingsShell?.dispose(),settingsShell=null,offStyles()}},"ds-bot: settings shell");let queueFace=sessionId=>({...face(),updateQueue:async(itemId,action)=>await ctx.sessions.binding(
+sessionId)?.session?.updateQueue(itemId,action)??{ok:!1},loadImage:attachment=>ctx.uiConversation.imageUrl(sessionId,attachment)});ctx.effect(()=>noticeApprovals({work,roster,shownSession:()=>Object.
+values(ctx.sessions.list.getSnapshot().byId??{}).find(session=>(session?.retainedBy?.mainView??0)>0)?.id,openSession:id=>actions.openSession(id)}),"ds-bot: approval notifications");
+let assistantFace=sessionId=>{let binding=ctx.sessions.binding(sessionId);if(binding===void 0)throw new Error(`ds-bot: unknown session "${sessionId}"`);let chat=ctx.uiConversation.
+binding(binding).target("chat");return{...face(),fileMentions:fileMentionSource(ctx,sessionId),keyedHooks:{turnSteps:turn=>{let snapshot=chat.getSnapshot();if(snapshot===void 0)throw new Error(
+"ds-bot: Chat target is unavailable");return snapshot.nodes.turnDataSource(Number(turn),"assistant-step")},turnContext:turn=>{let snapshot=chat.getSnapshot();if(snapshot===void 0)throw new Error(
+"ds-bot: Chat target is unavailable");return snapshot.nodes.turnDataSource(Number(turn),"context")}}}};actions.turnFacts=sessionId=>{try{let binding=ctx.sessions.binding(sessionId);
+if(binding===void 0)return{turns:void 0,openTurn:void 0};let conversation=ctx.uiConversation.binding(binding);return{turns:conversation.target("chat").getSnapshot()?.timeline?.turns,
+openTurn:conversation.openTurn.getSnapshot()}}catch{return{turns:void 0,openTurn:void 0}}},actions.watchTurns=(sessionId,listener)=>{try{let binding=ctx.sessions.binding(sessionId);
+if(binding===void 0)return()=>{};let conversation=ctx.uiConversation.binding(binding),offChat=conversation.target("chat").subscribe(listener),offOpen=conversation.openTurn.subscribe(
+listener);return()=>{offChat(),offOpen()}}catch{return()=>{}}},actions.steerQueued=async sessionId=>{let session=ctx.sessions.binding(sessionId)?.session;session!==void 0&&await steerQueued(
+session)==="failed"&&actions.reportError(new Error(t("Couldn’t steer the queued messages. Try again.")),"steer-queue")},actions.canOpenTerminal=()=>ctx.get("sidebarRight")!==void 0&&
+ctx.get("sidebarRightTabs")?.get("terminal")!==void 0,actions.newTerminal=()=>{actions.closePanel();try{ctx.get("sidebarRight")?.openTab("terminal")}catch(error){actions.reportError(
+error,"right-sidebar")}},actions.canOpenFiles=()=>ctx.get("sidebarRight")!==void 0&&ctx.get("sidebarRightTabs")?.get("files")!==void 0,actions.openFiles=()=>{actions.closePanel();try{
+ctx.get("sidebarRight")?.openTab("files")}catch(error){actions.reportError(error,"right-sidebar")}},ctx.effect(()=>{let sidebar=ctx.get("sidebarRight");if(!sidebar)return;let open=rightColumnOpen(
+document),switchWindow=createSwitchWindow(done=>setTimeout(done,400)),collapseColumn=()=>{try{sidebar.isExpanded()&&sidebar.toggleExpanded()}catch(error){actions.reportError(error,
+"right-sidebar")}},observer=new MutationObserver(()=>{let next=rightColumnOpen(document),opening=next&&!open;open=next;let verdict=opening?columnOpened(ui2.getSnapshot().details!==
+null,switchWindow.pending):null;verdict==="close-drawer"?actions.closePanel():verdict==="collapse-column"&&collapseColumn()});observer.observe(document.documentElement,{subtree:!0,
+attributes:!0,attributeFilter:RIGHTBAR_ATTRIBUTES});let offMounted=sidebar.mounted.subscribe(()=>switchWindow.moved()),drawer=ui2.getSnapshot().details!==null,offUi=ui2.subscribe(()=>{
+let next=ui2.getSnapshot().details!==null;next&&!drawer&&drawerOpened(rightColumnOpen(document))==="collapse-column"&&collapseColumn(),drawer=next});return()=>{observer.disconnect(),
+offMounted(),offUi()}},"ds-bot: one right panel");let BOT_PRIORITY=-100,shadow=(name,options,component)=>ctx.slots.inject(name,()=>ctx.slots.register({name,...options,...options.priority===
+void 0?{}:{priority:freePriority(ctx.slots.entries(name),options)}},component)),installHeader=()=>ctx.slots.inject("conversation.session.header",()=>installHeaderNavigation(ctx.slots,
+face,HeaderPill,BOT_PRIORITY)),atMenu=null,installAtMenu=()=>{let fiber=ctx.inject(["inputTriggers"],scope=>{scope.effect(()=>{let triggers=scope.inputTriggers,controllerOf=sessionId=>{
+let binding=ctx.sessions.binding(sessionId);return binding===void 0?void 0:triggers.sessionOf(binding.ctx)},launched=sessionId=>controllerOf(sessionId)?.launcher.getSnapshot()===CHATS_SOURCE,
+offs=[...atSources({roster,sessions:ctx.sessions,launched,iconFor:menuIcons(roster)}).map(source=>triggers.registerSource(source)),triggers.registerSource(sideSource({roster,actions}))];
+return atMenu={controllerOf},()=>{atMenu=null;for(let off of offs)off()}},"ds-bot: @ menu")});return()=>fiber.dispose()};actions.canReferenceChat=()=>atMenu!==null,actions.referenceChat=
+(sessionId,span)=>{let controller=atMenu?.controllerOf(sessionId);controller===void 0||span===void 0||controller.toggleSource(CHATS_SOURCE,{trigger:"@",query:"",quoted:!1,position:"\
+inline",span})};let installFrameSync=()=>{let lastDetails=ui2.getSnapshot().details,sync=()=>{let s=ui2.getSnapshot(),f=frame2.getSnapshot(),opened=s.details!==null&&lastDetails===
+null;lastDetails=s.details;let layout=frameLayout({viewport:f.viewport,sidebarWidth:f.sidebarWidth,pref:sidebarPref.getSnapshot(),drawer:s.leftDrawer===!0,panel:s.details===null?null:
+{view:s.view,yielded:!1}});s.details===null?s.panelYield&&actions.setPanelYield(!1):!s.panelYield&&opened&&layout.panel==="folded"?actions.setPanelYield(!0):s.panelYield&&layout.panel===
+"shown"&&actions.setPanelYield(!1),s.leftDrawer===!0&&layout.left!=="drawer"&&actions.setLeftDrawer(!1)},offs=[ui2.subscribe(sync),frame2.subscribe(sync),sidebarPref.subscribe(sync)];
+return()=>{for(let off of offs)off()}},SHELL_SHEETS=[[SHELL_CSS,"shell"],[SIDEBAR_CSS,"sidebar"],[SECRET_CSS+CONNECTOR_CSS+CONNECTORS_PAGE_CSS+PROVIDERS_CSS,"secrets"],[LEARNING_CSS,
+"learning"],[MODEL_CSS+FOLDER_CSS+BOT_SETTINGS_CSS+BOT_MODELS_CSS+AGENT_CARDS_CSS+GROUP_SETTINGS_CSS+AVATAR_LIBRARY_CSS,"models"],[USAGE_CSS,"usage"],[SCHEDULE_CSS,"schedules"],[FEEDBACK_CSS,
+"feedback"],[ABOUT_CSS,"about"],[MEMBER_CSS,"members"],[TASK_CSS,"tasks"],[PASTE_CSS,"paste"],[OPENING_CSS,"opening"],[IM_CSS,"im"],[GOAL_CSS,"goal"],[USER_MESSAGE_CSS,"user-messag\
+es"],[WIDGET_CSS2,"widgets"],[CHANGES_CSS,"changes"],[HANDOFF_CSS,"handoff"],[SIDE_CSS,"side"],[BROWSER_CSS,"browser"]],shellSheets=0;actions.holdSettingsLook=()=>{if(shellSheets>0)
+return()=>{};let syncEffects=()=>{let current2=roster.getSnapshot();document.body.dataset.btEffects=effectsOf(current2.ready?current2.prefs??{}:savedPrefs)};syncEffects();let snapshot=roster.
+getSnapshot(),prefs=snapshot.ready?snapshot.prefs??{}:savedPrefs,themes=allThemes(),theme=themes[prefs.theme]??themes.deepseek,offs=[roster.subscribe(syncEffects),...SHELL_SHEETS.map(
+([text,tag])=>installCompiledStyles(botOwnCss(text),`settings-${tag}`)),installCompiledStyles(botOwnCss(themeCss(theme,isHex(prefs.accent)?prefs.accent:void 0)),"settings-theme")];
+return()=>{delete document.body.dataset.btEffects;for(let off of offs)off()}};let installShell=()=>[()=>(shellSheets+=1,()=>{shellSheets-=1}),...SHELL_SHEETS.map(([text,tag])=>()=>installCompiledStyles(
+text,tag)),()=>installFrameWatch(frame2),()=>installFrameSync(),()=>installTheme(),()=>shadow("sidebar.workspaces",{priority:BOT_PRIORITY,inject:face},TeamSidebar),()=>shadow("side\
+bar.brand.mark",{priority:BOT_PRIORITY},BrandMark),()=>shadow("sidebar.brand.name",{priority:BOT_PRIORITY},BrandName),()=>shadow("sidebar.footer.action",{id:"bot-account",order:-200,
+inject:face},FooterAccount),()=>shadow("settings.trigger",{priority:BOT_PRIORITY},YouAvatar),()=>shadow("settings.launcher",{priority:BOT_PRIORITY,inject:face},AccountLauncher),()=>shadow(
+"shell.overlay",{id:"bot-computer",order:40,inject:face},ComputerIndicator),()=>shadow("shell.overlay",{id:"bot",order:50,inject:face},Overlays),()=>shadow("shell.overlay",{id:"bot\
+-signin",order:55,inject:face},DeepSeekSignIn),()=>shadow("shell.overlay",{id:"bot-toast",order:60,inject:face},ErrorToast)],installConversation=()=>[()=>installCompiledStyles(CONVERSATION_CSS+
+READ_ONLY_CSS,"conversation"),()=>installCompiledStyles(TURN_ERROR_CSS,"turn-errors"),()=>installCompiledStyles(QUEUE_CSS,"queue"),()=>installCompiledStyles(ANNOTATION_CSS,"text-an\
+notation"),()=>installMentions(),()=>installAtMenu(),installHeader,()=>shadow("conversation.chat.text-interaction",{key:"quote",priority:BOT_PRIORITY,locale:"messageQuotes",inject:face},
+TextSelectionAction),()=>shadow("conversation.chat.node",{key:"assistant-step",priority:BOT_PRIORITY,locale:"chat",inject:assistantFace},AssistantCell),()=>shadow("conversation.cha\
+t.node",{key:"turn-trigger",priority:BOT_PRIORITY,locale:"chat",inject:face},TriggerCell),()=>shadow("conversation.chat.node",{key:"tool-call",priority:BOT_PRIORITY,locale:"chat",inject:face},
+ToolCell),()=>shadow("conversation.chat.node",{key:"turn-process",priority:BOT_PRIORITY,locale:"chat",inject:face},TurnProcessCell),()=>shadow("conversation.chat.node",{key:"turn-e\
+rror",priority:BOT_PRIORITY,locale:"chat",inject:face},FailureCell),()=>shadow("conversation.chat.turnTail",{id:"bot-turn-separators",order:1e3,inject:face},TurnTailCell),()=>shadow(
+"conversation.chat.turnTail",{id:"bot-btw",order:800,priority:BOT_PRIORITY,inject:face},BtwTurnTail),()=>shadow("conversation.chat.turnTail",{id:"bot-learning",order:850,priority:BOT_PRIORITY,
+inject:face},LearningTurnTail),()=>ctx.slots.inject("deliverables.file.actions",()=>ctx.slots.register({name:"deliverables.file.actions",id:"bot-file-save",locale:"chat"},SaveFileAction)),
+()=>shadow("conversation.chat.node",{key:"question-reply",priority:BOT_PRIORITY,locale:"chat"},AnsweredReply),()=>shadow("conversation.chat.node",{key:"compaction",priority:BOT_PRIORITY,
+locale:"chat"},CellEmpty),()=>shadow("conversation.chat.node",{key:"context",priority:BOT_PRIORITY,locale:"chat"},CellEmpty),...canDrawUserMessages(hostDrawsUserText)?[()=>installUserBubble(
+ctx.slots,()=>{let offs=["user","steering"].map(key=>shadow("conversation.chat.node",{key,priority:BOT_PRIORITY,locale:"chat",inject:face},UserMessageCell));return()=>{for(let off of offs)
+off()}})]:[],...typeof ctx.uiConversation.userText?.register=="function"?[()=>installBotMentionRule(ctx.uiConversation.userText,roster),()=>shadow("conversation.user.text.node",{key:BOT_MENTION_ID,
+inject:face},BotMention)]:[],()=>shadow("conversation.input.permission",{priority:BOT_PRIORITY},Nothing),()=>shadow("conversation.input.plan",{priority:BOT_PRIORITY},Nothing),()=>shadow(
+"conversation.input.model",{priority:BOT_PRIORITY},Nothing),()=>shadow("conversation.composer.dock",{id:"activity",order:0,priority:BOT_PRIORITY},Nothing),()=>shadow("conversation.\
+composer.dock",{id:"usage",order:1,priority:BOT_PRIORITY},Nothing),()=>shadow("conversation.composer.dock",{id:"btw",order:2,priority:BOT_PRIORITY,inject:face},BtwDock),()=>shadow(
+"conversation.input.left",{id:"bot-paste",order:-110,inject:face},PasteGuard),()=>shadow("conversation.input.left",{id:"bot-plus",order:-100,inject:face},ComposerPlus),()=>shadow("\
+conversation.input.right",{id:"bot-voice",order:100,inject:face},ComposerVoice),()=>shadow("conversation.composer",{priority:BOT_PRIORITY,select:owner=>owner.pendingInteraction?.kind===
+"question"?owner.pendingInteraction:null},QuestionCard),()=>shadow("conversation.input.dock",{id:"bot-paste",order:-130,inject:face},PasteDock),()=>shadow("conversation.input.dock",
+{id:"bot-members",order:-120,inject:face},MemberDock),()=>shadow("conversation.input.dock",{id:"bot-model",order:-110,inject:face},ModelChoiceDock),()=>shadow("conversation.input.d\
+ock",{id:"bot-readonly",order:-105,inject:face},ReadOnlyDock),()=>shadow("conversation.input.dock",{id:"bot-question",order:-100,inject:face},QuestionDock),()=>shadow("conversation\
+.input.dock",{id:"bot-view",order:-95,inject:face},WidgetDock),()=>shadow("conversation.input.dock",{id:"bot-secret",order:-90,inject:face},SecretDock),()=>shadow("conversation.inp\
+ut.dock",{id:"bot-connector",order:-89,inject:face},ConnectorDock),()=>shadow("conversation.input.dock",{id:"bot-mail",order:-88,inject:face},MailDock),()=>shadow("conversation.inp\
+ut.dock",{id:"bot-handoff",order:-85,inject:face},HandoffDock),()=>shadow("conversation.input.dock",{id:"bot-computer-handoff",order:-84,inject:face},ComputerHandoffDock),()=>shadow(
+"conversation.input.dock",{id:"bot-computer-app",order:-83,inject:face},AppAccessDock),()=>shadow("conversation.input.dock",{id:"bot-learning",order:850,priority:BOT_PRIORITY,inject:face},
+LearningDock),()=>shadow("conversation.input.dock",{id:"queue",order:20,priority:BOT_PRIORITY,inject:queueFace},QueueDock)];ctx.effect(()=>installCompiledStyles(RETURN_TOKENS+RETURN_CSS,
+"return"),"ds-bot: return styles"),ctx.effect(()=>installCompiledStyles(COMPUTER_CSS,"computer"),"ds-bot: computer styles"),shadow("sidebar.footer.action",{id:"bot-return",order:-300,
+inject:face},BotReturn),ctx.effect(()=>{let forks=installAgentForks({sessions:ctx.sessions,ownerOf:id=>roster.getSnapshot().agentOf[id],hasAgent:id=>roster.getSnapshot().agentsById[id]!==
+void 0,pending:pendingAdopt,ready:async()=>{roster.getSnapshot().ready||await pull()},adopt:(agentId,sessionId)=>call("agent-adopt",{agentId,sessionId}),refresh:pull,report:(error,source)=>actions.
+reportError(error,source),storage:globalThis.localStorage}),reconcile=()=>{forks.reconcile().catch(error=>actions.reportError(error,"agent-fork-reconcile"))},offRoster=roster.subscribe(
+reconcile),offList=ctx.sessions.list.subscribe(reconcile),timer=setInterval(reconcile,5e3);return reconcile(),()=>(offRoster(),offList(),clearInterval(timer),forks.dispose())},"ds-\
+bot: Agent forks"),ctx.effect(()=>{let previous,sync=()=>{let list=ctx.sessions.list.getSnapshot(),main=Object.values(list.byId??{}).find(session=>(session?.retainedBy?.mainView??0)>
+0)?.id,plain=isAgentSessionId(main);if(setPlain(plain),plain&&dropPanels(),main===previous)return;let before=previous;previous=main;let ours=expected2!==null&&main===expected2;if(expected2=
+null,ours||main===void 0||surface.getSnapshot().mode!=="bot")return;let agentId=before!==void 0?agentOfSession(before):void 0;if(agentId===void 0)return;let snapshot=roster.getSnapshot();
+if(snapshot.byId[main]!==void 0||snapshot.roomsById[main]!==void 0||agentOfSession(main)!==void 0)return;let row=list.byId[main];if(row?.origin==="subagent"||row?.blank!==!0)return;
+pendingAdopt.set(main,agentId),setPlain(!0),call("agent-adopt",{agentId,sessionId:main}).then(()=>pull()).catch(error=>{pendingAdopt.delete(main),console.warn("[ds-bot] agent-adopt",
+error),sync(),actions.reportError(error,"agent-adopt")});let next=workspaceOf(main);list.byId[before]?.blank===!0&&next!==void 0&&workspaceOf(before)!==next&&call("agent-archive",{
+agentId,sessionId:before}).then(()=>pull()).catch(()=>{})},offList=ctx.sessions.list.subscribe(sync),offRoster=roster.subscribe(sync);return sync(),()=>{offList(),offRoster()}},"ds\
+-bot: agent surface"),ctx.effect(()=>{let groups=surfaceGroups({shell:installShell,conversation:installConversation},{onError:(_group,error)=>actions.reportError(new Error(t("Bot m\
+ode could not be set up here: {error}",{error:error?.message??String(error)})),"surface")}),verifyTimer=0,verifyAttempts=0,verifySidebar=()=>{if(!groupsFor(surface.getSnapshot()).shell)
+return;let landed=!1,declared=!0;try{landed=ctx.slots.entries("sidebar.workspaces").some(entry=>entry.component===TeamSidebar),declared=ctx.slots.spec?.("sidebar.workspaces")!==void 0}catch{
+declared=!1}if(!landed){if(!declared){verifyAttempts<20&&(verifyAttempts+=1,verifyTimer=setTimeout(verifySidebar,250));return}verifyAttempts>=3||(verifyAttempts+=1,console.warn("[d\
+s-bot] sidebar entry missing after shell mount; remounting"),groups.remount("shell"),verifyTimer=setTimeout(verifySidebar,250))}},reconcile=()=>{groups.reconcile(groupsFor(surface.
+getSnapshot())),clearTimeout(verifyTimer),verifyAttempts=0,verifyTimer=setTimeout(verifySidebar,250)};reconcile(),surface.getSnapshot().mode==="bot"&&ensureBotHome();let unsub=surface.
+subscribe(reconcile);return()=>{unsub(),clearTimeout(verifyTimer),groups.dispose()}},"ds-bot: surface")}
 return Object.defineProperty({ ...module.exports }, Symbol.toStringTag, { value: 'Module' })
   },
 })
