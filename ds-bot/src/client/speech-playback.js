@@ -6,7 +6,49 @@
 // Han script, supplementary planes included — the same rule the host bills by.
 const CJK = /\p{Script=Han}/u
 const EDGE = /^\s+|\s+$/g
-const SENTENCE = /[^.!?。！？…；;]+[.!?。！？…；;"'"''」』）)]*/g
+const ALWAYS_END = /^[!?。！？…；;]/
+const CLOSER = /^['"”’」』）)\]]/
+const ABBREV = /(?:^|[\s(["'“‘])(?:Mr|Mrs|Ms|Dr|Prof|Sr|Jr|St|vs|etc|e\.g|i\.e)$/i
+
+// Split a paragraph at sentence boundaries without tearing apart decimals
+// (`3.14`), version numbers (`v0.3.9`), hostnames (`api.deepseek.com`) or
+// common abbreviations (`Dr.`).
+function splitSentences(paragraph) {
+  const out = []
+  let start = 0
+  let at = 0
+  const len = paragraph.length
+  while (at < len) {
+    const ch = paragraph[at]
+    if (ALWAYS_END.test(ch)) {
+      at += 1
+      while (at < len && (ALWAYS_END.test(paragraph[at]) || paragraph[at] === '.' || CLOSER.test(paragraph[at]))) at += 1
+      out.push(paragraph.slice(start, at))
+      start = at
+      continue
+    }
+    if (ch === '.') {
+      let end = at + 1
+      while (end < len && paragraph[end] === '.') end += 1
+      const singleDot = end === at + 1
+      let after = end
+      while (after < len && CLOSER.test(paragraph[after])) after += 1
+      const atBoundary = after === len || /\s/.test(paragraph[after])
+      const isAbbrev = singleDot && ABBREV.test(paragraph.slice(start, at))
+      if (atBoundary && !isAbbrev) {
+        out.push(paragraph.slice(start, after))
+        start = after
+        at = after
+        continue
+      }
+      at = end
+      continue
+    }
+    at += 1
+  }
+  if (start < len) out.push(paragraph.slice(start))
+  return out
+}
 // A cut inside a long run steps back to the last pause in its tail when one is
 // near the end, so chunks break at clause bounds instead of mid-word.
 const SOFT = /[\s,，、：:—–-][^,，、：:—–-\s]*$/
@@ -46,9 +88,7 @@ export const splitSpeech = (text, limit = 800) => {
     }
   }
   for (const paragraph of text.split(/\n\s*\n/)) {
-    const sentences = paragraph.match(SENTENCE)
-    if (sentences === null) { push(paragraph); continue }
-    for (const sentence of sentences) push(sentence)
+    for (const sentence of splitSentences(paragraph)) push(sentence)
   }
   return chunks
 }

@@ -50,6 +50,14 @@ test('splitSpeech keeps short text whole and splits on sentence ends', () => {
   assert.deepEqual(splitSpeech('  \n \n'), [])
 })
 
+test('splitSpeech preserves decimals, version strings, hostnames and abbreviations', () => {
+  assert.deepEqual(splitSpeech('The value is 3.14. Next is v0.3.9.'), ['The value is 3.14.', 'Next is v0.3.9.'])
+  assert.deepEqual(splitSpeech('Check api.deepseek.com/v1/tools/tts now. Done.'), ['Check api.deepseek.com/v1/tools/tts now.', 'Done.'])
+  assert.deepEqual(splitSpeech('Dr. Smith paid 3.50 today. Really?'), ['Dr. Smith paid 3.50 today.', 'Really?'])
+  assert.deepEqual(splitSpeech('版本是 0.3.9。下一句。'), ['版本是 0.3.9。', '下一句。'])
+  assert.deepEqual(splitSpeech('Wait... really? Yes!'), ['Wait...', 'really?', 'Yes!'])
+})
+
 test('splitSpeech never exceeds the billed limit, Chinese included', () => {
   const limit = 20
   const long = 'word '.repeat(30)
