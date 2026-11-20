@@ -413,6 +413,8 @@ function decide(body) {
   }
   // Secret cards: ask for a key, and use it once the card says it is saved or allowed.
   if (userText.startsWith('[Secret card]')) return secretNote(userText, tools)
+  if (userText.startsWith('[Background task ·')) return [text(`后台任务已完成，共继承 ${messages.length} 条消息。`)]
+  if (userText.startsWith('[Background task report ·')) return [text(`已收到后台任务汇报：${userText.split('\n').slice(1).join(' ').slice(0, 120)}`)]
   // Multiline: a runtime-context or policy notice can share the user's message.
   const secretAsk = /^要密钥(?:[ \t]+([A-Za-z][\w]*))?/m.exec(userText)
   if (secretAsk && tools.has('request_secret')) {

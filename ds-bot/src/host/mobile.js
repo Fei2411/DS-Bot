@@ -231,7 +231,7 @@ export function install(rt) {
     }
     if (event.type !== 'assistant/message') return
     const botId = rt.chatOwners.get(id)
-    if (botId === undefined || (state.exchangeTurns[id] ?? []).includes(event.data?.turn)) return
+    if (botId === undefined || rt.taskOwners?.has(id) || (state.exchangeTurns[id] ?? []).includes(event.data?.turn)) return
     const text = textOf(event.data?.message?.content)
     // The fixed reply that opens a fresh part is not the Bot speaking.
     if (text !== '' && text !== HANDOFF_ACK) botNotice(botId, { kind: 'message', sessionId: id, text })

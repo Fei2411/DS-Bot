@@ -1006,6 +1006,7 @@ export function install(rt) {
       const bot = rt.botOf(rt.selfOf(sessionId))
       if (bot === undefined || !rt.isBotSession(sessionId)) return 'Only Bots on the team can hand the computer to the user.'
       if (!enabled() || levelOf(bot) === 'off') return 'Computer use is off for you.'
+      if (rt.taskOwners?.has(sessionId)) return 'Background tasks cannot hand the computer to the user. Report back to your own chat so it can ask the user to take over.'
       const callId = rt.chatOwners.get(sessionId) === bot.id && typeof exec.callId === 'string' ? exec.callId : undefined
       holds.set(bot.id, {
         id: randomUUID(),
