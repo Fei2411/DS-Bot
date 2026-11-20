@@ -70,7 +70,8 @@ export const AGENT_NAME = 'DSH Agent'
 export const AGENT_SESSION_TITLE_MAX = 80
 // Every tool this plugin defines for Bot Sessions; tools.js registers them in
 // each Bot session's own scope. `read_browser` only exists in the Desktop
-// profile, so the list served to one session can be shorter.
+// profile, and `read_document` only while DeepSeek OCR is on, so the list
+// served to one session can be shorter.
 export const TEAM_TOOLS = [
   'list_bots', 'message_bot', 'stop_bot', 'create_bot', 'update_bot', 'list_bot_models',
   'create_group', 'update_group', 'delete_group', 'group_todo', 'post_to_group', 'ask_user', 'show_view',
@@ -78,6 +79,7 @@ export const TEAM_TOOLS = [
   'read_group_chat', 'bot_remember', 'bot_forget', 'bot_recall', 'read_browser', 'read_document',
   'list_capabilities', 'save_capability', 'delete_capability',
   'attach_capability', 'detach_capability', 'group_goal', 'group_task', 'list_connectors', 'request_connector',
+  'task_start', 'task_send', 'task_stop', 'task_list', 'task_read',
 ]
 // Consecutive automatic admin wakes with no goal progress before the goal waits
 // for the user instead of waking the admin again.

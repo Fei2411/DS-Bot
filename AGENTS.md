@@ -41,7 +41,7 @@ CONTEXT_WINDOW=100000 CHECK_RATIO=0.45 dev/bench.sh smoke 3096 8796 reset && nod
 dev/bench.sh smoke 3096 8796 stop
 ```
 
-A change is done when `npm test`, the `--check` and `npm run lint` pass; CI runs them on every pull request. Run the smoke test as well for changes to `index.js` or `src/host/`, and `npm run test:browser` for changes to `src/host/browser/` (it drives a real Chromium; install it once with `npx playwright-core install --only-shell chromium`). Use a free port for each bench, and stop every bench and process that you started.
+A change is done when `npm test`, the `--check` and `npm run lint` pass; CI runs them for changes affecting `ds-bot/` (and always on `dev`/`main`). Run the smoke test as well for changes to `index.js` or `src/host/`, and `npm run test:browser` for changes to `src/host/browser/` (it drives a real Chromium; install it once with `npx playwright-core install --only-shell chromium`). Use a free port for each bench, and stop every bench and process that you started.
 
 ## Branches, pull requests and issues
 

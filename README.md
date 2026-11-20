@@ -117,7 +117,7 @@ In Settings → Capabilities, you can manage shared MCP servers, skills and pack
 
 ### DeepSeek services
 
-A DeepSeek API key can add independent image and document reading, DeepSeek text-to-speech (with a choice of voice) and DeepSeek dictation to any model, in **Settings → DeepSeek services**. Each capability is off until you turn it on; setting the key never uploads files or switches speech by itself. The key is set in **Settings → Models**, and the page shows whether each service is ready and why not. Dictation uses the existing Voice Input provider picker; when that plugin is off, your current dictation keeps working. Document reading is read-only: `read_document` takes a workspace path or a file or image attached to the current chat, and keeps the whole recognized text even when the result is long.
+A DeepSeek API key can add independent image and document reading, DeepSeek text-to-speech (with a choice of voice) and DeepSeek dictation to any model, in **Settings → DeepSeek services**. Each capability is off until you turn it on; setting the key never uploads files or switches speech by itself. The key is set in **Settings → Models**, and the page shows whether each service is ready and why not. Dictation uses the existing Voice Input provider picker; when that plugin is off, your current dictation keeps working. Document reading is read-only: `read_document` takes a workspace path or a file or image attached to the current chat, and keeps the whole recognized text even when the result is long. These calls are billed to your own API key by usage.
 
 ### Office files
 

@@ -4,7 +4,9 @@
 // official endpoint only, billed on the user's DeepSeek API key — never the account
 // sign-in — and each is off until the user turns it on or selects it.
 // https://api-docs.deepseek.com/guides/ocr.md /asr.md /tts.md
-import { basename } from 'node:path'
+import { randomUUID } from 'node:crypto'
+import { mkdir, writeFile } from 'node:fs/promises'
+import { basename, join } from 'node:path'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { own } from './store.js'
 
@@ -70,7 +72,8 @@ export function install(rt) {
     let ref = DEFAULT_REF
     const entry = ctx.llm?.listConfigurableProviders?.().find(candidate => candidate.provider === PROVIDER)
     if (entry === undefined) {
-      const envURL = ctx.get?.('launchEnvironment')?.get?.(BASE_URL_ENV)?.value
+      const rawEnvURL = ctx.get?.('launchEnvironment')?.get?.(BASE_URL_ENV)?.value
+      const envURL = typeof rawEnvURL === 'string' && rawEnvURL.trim() !== '' ? rawEnvURL : undefined
       let envOrigin
       try { envOrigin = envURL === undefined ? undefined : new URL(envURL).origin } catch { envOrigin = 'unparseable' }
       // Without a route there is no profile to name another ref, so DEEPSEEK_API_KEY
@@ -152,7 +155,7 @@ export function install(rt) {
   // are refused outright — the key must never leave api.deepseek.com.
   const lifetime = new AbortController()
   ctx.effect(() => () => { lifetime.abort(new Error('ds-bot stopped')) }, 'ds-bot: deepseek services')
-  async function requestService(path, init, { timeoutMs, signal } = {}) {
+  async function requestService(path, init = {}, { timeoutMs, signal } = {}) {
     const key = await resolveKey()
     const deadline = new AbortController()
     const timer = timeoutMs === undefined ? undefined : setTimeout(() => deadline.abort(new Error('DeepSeek did not answer in time')), timeoutMs)
@@ -214,7 +217,7 @@ export function install(rt) {
       // A 200 with an error body gets the same fixed phrase as its status; the
       // upstream type and message can quote the request, so neither comes back.
       if (body?.error !== undefined) throw refused(`${what} failed — the service reported an error`)
-      if (body === undefined || typeof body !== 'object') throw refused(`${what} failed: DeepSeek returned no usable answer (HTTP ${status.status})`)
+      if (body === null || typeof body !== 'object' || Array.isArray(body)) throw refused(`${what} failed: DeepSeek returned no usable answer (HTTP ${status.status})`)
       return body
     } finally {
       call.done()
@@ -482,20 +485,56 @@ export function install(rt) {
     return out
   }
 
-  // A long result's whole text goes to the session's spill store — DSH's own
-  // retention seam — and the model reads it back through the saved locator. The
-  // hint is backend guidance only: it does not carry the locator, so the answer
-  // must name the locator itself. Without the service the paid result stays
-  // inline; the output policy bounds it.
-  async function spillResult(exec, text, name) {
-    const store = ctx.get?.('spillStore')
+  // Trim without splitting a UTF-16 surrogate pair.
+  const sliceSafe = (text, max) => {
+    if (text.length <= max) return text
+    const code = text.charCodeAt(max - 1)
+    return text.slice(0, code >= 0xd800 && code <= 0xdbff ? max - 1 : max)
+  }
+
+  // A long result's whole text is filed so the model can read it back. Non-private
+  // Sessions use DSH's spill store. A private Bot's text must stay inside a path
+  // that names the Bot's own Session id: the default spill backend hashes that id
+  // into the directory name, which ownerOfPath does not see, so another Bot could
+  // glob and read it. Those results go under the Bot's own folder instead, and
+  // never fall back to the shared spill store or an oversized inline reply that
+  // DSH could re-spill into a shared temp directory.
+  async function spillPrivate(bot, sessionId, text, suggestedName) {
+    if (rt.readOnly?.() !== undefined) return { privateTruncated: true }
+    const base = typeof bot?.workDir === 'string' && bot.workDir !== '' ? bot.workDir : undefined
+    if (base === undefined) return { privateTruncated: true }
+    const dir = join(base, '.ocr', bot.id, sessionId)
+    // One file per recognition: two long results with the same basename in one
+    // Session would otherwise share a path, and earlier locators would then
+    // read the later text. The directory still names the literal Bot and Session.
+    const locator = join(dir, `${randomUUID()}-${suggestedName}`)
+    try {
+      await mkdir(dir, { recursive: true, mode: 0o700 })
+      await writeFile(locator, text, { encoding: 'utf8', mode: 0o600, flag: 'wx' })
+      return {
+        locator,
+        bytes: Buffer.byteLength(text, 'utf8'),
+        retrievalHint: 'Use read with offset/limit, or grep this path to search within it.',
+      }
+    } catch (error) {
+      rt.warn('ds-bot: OCR result spill failed: %s', error)
+      return { privateTruncated: true }
+    }
+  }
+
+  async function spillResult(exec, text, name, { isPrivateBot = false, privateBot } = {}) {
     const sessionId = exec.agent?.session?.id
-    if (store === undefined || sessionId === undefined) return undefined
+    if (sessionId === undefined) return isPrivateBot ? { privateTruncated: true } : undefined
+    const safeStem = name.replace(/\.[^.]*$/, '').replace(/[^A-Za-z0-9._-]+/g, '_').replace(/^[._-]+|[._-]+$/g, '').slice(0, 64) || 'document'
+    const suggestedName = `${safeStem}.ocr.txt`
+    if (isPrivateBot) return spillPrivate(privateBot, sessionId, text, suggestedName)
+    const store = ctx.get?.('spillStore')
+    if (store === undefined) return undefined
     try {
       return await store.saveText({
         owner: { sessionId },
         source: { kind: 'tool', toolName: 'read_document', callId: exec.callId ?? 'read_document', label: name },
-        suggestedName: `${name.replace(/\.[^.]*$/, '')}.ocr.txt`,
+        suggestedName,
         content: text,
       })
     } catch (error) {
@@ -509,6 +548,11 @@ export function install(rt) {
     if (prefs.ocr !== true) throw unavailable('DeepSeek document recognition is off. Ask the user to turn it on in DS Bot settings.')
     const purpose = args.purpose === undefined ? 'text_recognition' : String(args.purpose)
     if (!PURPOSES.includes(purpose)) throw invalid(`purpose must be ${PURPOSES.join(' or ')}`)
+    // Snapshot privacy ownership before the long OCR network request, so deleting
+    // a private Bot while recognition is in flight cannot downgrade spill isolation.
+    const callerBotId = rt.selfOf(exec.agent?.id)
+    const callerBot = callerBotId !== undefined && typeof rt.botOf === 'function' ? rt.botOf(callerBotId) : undefined
+    const isPrivateBot = callerBot?.private === true
     const input = await inputBytes(exec, args)
     const form = new FormData()
     form.append('purpose', purpose)
@@ -526,15 +570,23 @@ export function install(rt) {
     const head = [`Recognized ${input.name} on api.deepseek.com: ${count} page${count === 1 ? '' : 's'}, ${pages.reduce((total, page) => total + String(page?.text ?? '').length, 0)} characters.`]
     if (pages.some(page => page?.finish_reason === 'length')) head.push('Pages marked "possibly incomplete" were cut at the service\'s per-page output limit.')
     if (whole.length <= OCR_INLINE_MAX) return `${head.join(' ')}\n\n${whole}`
-    const spilled = await spillResult(exec, whole, input.name)
+    const spilled = await spillResult(exec, whole, input.name, { isPrivateBot, privateBot: callerBot })
+    if (spilled?.privateTruncated === true) {
+      const preview = sliceSafe(whole, OCR_INLINE_MAX)
+      return `${head.join(' ')} Showing the first ${preview.length} characters; the rest was omitted because this private Bot could not save a private copy.\n\n${preview}\n\n[... ${whole.length - preview.length} more characters omitted]`
+    }
     if (spilled === undefined) return `${head.join(' ')} The full result is below; this DSH could not file a copy for later.\n\n${whole}`
     // The locator is the model-facing handle (an absolute path for the local
     // backend); retrievalHint is generic guidance that never names it, so the
     // answer quotes the locator literally for a copyable read/grep target.
-    return `${head.join(' ')} The full result was saved to ${JSON.stringify(String(spilled.locator))} (${spilled.bytes} bytes). ${spilled.retrievalHint}\n\n${whole.slice(0, OCR_INLINE_MAX)}\n\n[... ${whole.length - OCR_INLINE_MAX} more characters in the saved result]`
+    const preview = sliceSafe(whole, OCR_INLINE_MAX)
+    return `${head.join(' ')} The full result was saved to ${JSON.stringify(String(spilled.locator))} (${spilled.bytes} bytes). ${spilled.retrievalHint}\n\n${preview}\n\n[... ${whole.length - preview.length} more characters in the saved result]`
   }
 
-  rt.teamTools.push(defineTool({
+  // Off until Settings turns OCR on: a registered schema still costs context tokens
+  // and invites the model to call it. addTeamTool/removeTeamTool also update live
+  // Agent scopes; unit tests that only install this module fall back to push/splice.
+  const readDocument = defineTool({
     name: 'read_document',
     description: 'Read the text of a document or scanned file — PDF, Word, PowerPoint, or an image of a page — with DeepSeek\'s document recognition (a paid call on your DeepSeek API key, enabled in DS Bot settings). Give exactly one of path or attachment_id. The text comes back page by page; a long result is also written to a file you can read.',
     parameters: {
@@ -548,7 +600,22 @@ export function install(rt) {
       if (rt.selfOf(exec.agent?.id) === undefined) return 'Only Bots on the team can use read_document.'
       return ocrDocument(args, exec)
     },
-  }))
+  })
+
+  function syncOcrTool() {
+    const want = servicePrefs(rt).ocr === true
+    const have = rt.teamTools.some(tool => tool.name === 'read_document')
+    if (want && !have) {
+      if (typeof rt.addTeamTool === 'function') rt.addTeamTool(readDocument)
+      else rt.teamTools.push(readDocument)
+    } else if (!want && have) {
+      if (typeof rt.removeTeamTool === 'function') rt.removeTeamTool('read_document')
+      else {
+        const at = rt.teamTools.findIndex(tool => tool.name === 'read_document')
+        if (at !== -1) rt.teamTools.splice(at, 1)
+      }
+    }
+  }
 
   // ---- channel endpoints ----------------------------------------------------------
   async function servicesStatus() {
@@ -575,7 +642,7 @@ export function install(rt) {
         registered: asrRegistration === 'registered',
         providerId: ASR_PROVIDER_ID,
         configured: key.configured,
-        ready: asrReady === true,
+        ready: asrRegistration === 'registered' && asrReady === true,
         reason: speechService === false ? 'This DSH has no speech-to-text service (voice input is not mounted)'
           : asrRegistration === 'pending' ? 'The speech provider is registering'
             : asrRegistration === 'registered'
@@ -587,19 +654,23 @@ export function install(rt) {
   }
 
   async function updateServices(body) {
-    const current = own(rt.state.prefs, 'deepseekServices') ?? {}
+    if (body === null || typeof body !== 'object' || Array.isArray(body)) {
+      throw invalid('DeepSeek services config must be an object')
+    }
+    const previous = own(rt.state.prefs, 'deepseekServices')
+    const current = previous ?? {}
     const next = { ...current }
-    if ('ocr' in body) {
+    if (Object.hasOwn(body, 'ocr')) {
       if (body.ocr === null) delete next.ocr
       else if (body.ocr === true || body.ocr === false) next.ocr = body.ocr
       else throw invalid('ocr must be true, false or null')
     }
-    if ('tts' in body) {
+    if (Object.hasOwn(body, 'tts')) {
       if (body.tts === null) delete next.tts
       else if (body.tts === 'deepseek' || body.tts === 'system') next.tts = body.tts
       else throw invalid('tts must be "deepseek", "system" or null')
     }
-    if ('voice' in body) {
+    if (Object.hasOwn(body, 'voice')) {
       if (body.voice === null) delete next.voice
       else if (TTS_VOICES.includes(body.voice)) next.voice = body.voice
       else throw invalid(`voice must be ${TTS_VOICES.join(' or ')} or null`)
@@ -607,25 +678,36 @@ export function install(rt) {
     const cleaned = normalizeServices(next)
     if (Object.keys(cleaned).length === 0) delete rt.state.prefs.deepseekServices
     else rt.state.prefs.deepseekServices = cleaned
-    await rt.save()
+    try {
+      await rt.save()
+    } catch (error) {
+      if (previous === undefined) delete rt.state.prefs.deepseekServices
+      else rt.state.prefs.deepseekServices = previous
+      throw error
+    }
+    syncOcrTool()
     return servicesStatus()
   }
 
   async function deepseekEndpoint(endpoint, body, signal) {
+    await rt.load()
+    syncOcrTool()
     switch (endpoint) {
       case 'deepseek-services': return servicesStatus()
-      case 'deepseek-services-config': {
-        await rt.load()
-        return updateServices(body ?? {})
-      }
-      case 'deepseek-synthesize': {
-        await rt.load()
-        return synthesize(body, signal)
-      }
+      case 'deepseek-services-config': return updateServices(body ?? {})
+      case 'deepseek-synthesize': return synthesize(body, signal)
       default:
         throw invalid(`Unknown endpoint ${endpoint}`)
     }
   }
 
-  Object.assign(rt, { servicesStatus, deepseekEndpoint, servicePrefs: () => servicePrefs(rt) })
+  syncOcrTool()
+  // Load after the rest of the plugin has installed: store.adopt needs groups'
+  // keepGroupLine, which this module precedes in MODULES. A microtask waits
+  // until createRuntime's loop (and its post-loop sync) has finished.
+  queueMicrotask(() => {
+    void Promise.resolve(rt.load?.()).then(() => { syncOcrTool() }).catch(() => {})
+  })
+
+  Object.assign(rt, { servicesStatus, deepseekEndpoint, servicePrefs: () => servicePrefs(rt), syncDeepseekTools: syncOcrTool })
 }

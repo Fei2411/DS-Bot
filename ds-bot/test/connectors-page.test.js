@@ -354,6 +354,7 @@ test('the client form says where to allow the redirect URL before the client is 
   drawRow(slack, { connectorClient: (id, clientId, clientSecret) => { sent.push({ id, clientId, clientSecret }); return Promise.resolve({ connectors: [] }) } })
   const setup = collect(node => node.props?.className === 'bt-connector-setup')[0]
   assert.ok(setup, 'setup hint')
+  assert.equal(collect(node => node.props?.className === 'bt-connector-actions').length, 0, 'no duplicate Connect button while ClientPanel is open')
   const text = flatten(setup).join(' ')
   // Slack names the place to configure, the address to allow, and what to turn on.
   assert.match(text, /OAuth & Permissions at api\.slack\.com\/apps/)

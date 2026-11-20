@@ -185,6 +185,7 @@ const ZH = {
   Edit: '编辑',
   'Click again to delete.': '再点一次删除。',
   Ready: '就绪',
+  'Not ready': '未就绪',
   'Needs approval': '需要批准',
   'No items': '没有项目',
   'Save an MCP server or skill first.': '请先保存 MCP 服务或技能。',
@@ -618,6 +619,9 @@ const ZH = {
   'Model for {name}': '{name} 的模型',
   'No models are set up in DeepSeek Harness yet.': 'DeepSeek Harness 里还没有设置模型。',
   'Models and providers…': '模型和服务商…',
+  'Search models': '搜索模型',
+  'Search models…': '搜索模型…',
+  'No matching models.': '没有匹配的模型。',
   Models: '模型',
   'Harness default': 'Harness 默认',
   Saving: '保存中',
@@ -733,7 +737,6 @@ const ZH = {
   'Dictation provider': '听写提供方',
   'Use DeepSeek for dictation': '用 DeepSeek 听写',
   'In use': '使用中',
-  'Not ready': '未就绪',
 
   // Phone
   Phone: '手机',
