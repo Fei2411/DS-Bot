@@ -177,36 +177,103 @@ test('a failed initial folder listing cannot submit an unresolved path', async (
   assert.ok(nodes(tree).find(node => node.props.label === "Each Bot's own folder"))
 })
 
-test('native-picker hosts can select saved and recent folders even when listing is unavailable', async () => {
-  for (const onPick of ['room', 'bot', 'team']) {
+test('hosts that cannot list folders never ask to list and take a typed or known path', async () => {
+  for (const picker of ['native', null]) for (const onPick of ['room', 'bot', 'team']) {
     const writes: unknown[] = []
+    const asked: string[] = []
     const { render } = screen({}, async (name, body) => {
-      if (name === 'folders') return { picker: 'native', folders: [{ title: 'Recent project', path: '/work/recent' }] }
-      if (name === 'folder-list') throw new Error('This DeepSeek Harness cannot list folders')
+      asked.push(name)
+      if (name === 'folders') return { picker, folders: [{ title: 'Recent project', path: '/work/recent' }] }
       writes.push([name, body]); return {}
     }, true)
     const props = { route: { params: { current: '/work/saved', onPick, roomId: 'room-1', botId: 'bot-1' } }, navigation: { goBack: () => {} } }
     render('Folder', props)
     await new Promise(setImmediate)
-    const saved = nodes(render('Folder', props)).find(node => node.props.accessibilityRole === 'button')!
-    const failed = nodes(render('Folder', props))
-    assert.ok(failed.some(node => node.props.children === 'This DeepSeek Harness cannot list folders'))
-    assert.ok(failed.some(node => node.props.children === 'Pick a folder from Folders.'))
-    assert.equal(saved.props.disabled, false)
-    saved.props.onPress()
-    await new Promise(setImmediate)
-    nodes(render('Folder', props)).find(node => node.props.label === 'Recent project')!.props.onPress()
-    await new Promise(setImmediate)
-    const tree = render('Folder', props)
-    assert.ok(nodes(tree).some(node => node.props.label === '/work/recent'))
-    const recent = nodes(tree).find(node => node.props.accessibilityRole === 'button')!
-    assert.equal(recent.props.disabled, false)
-    recent.props.onPress()
-    await new Promise(setImmediate)
+    const first = nodes(render('Folder', props))
+    // No listing is asked for, so there is no error, and nothing points at a missing list.
+    assert.deepEqual(asked, ['folders'])
+    assert.equal(first.some(node => node.props.children === 'This DeepSeek Harness cannot list folders'), false)
+    const input = first.find(node => node.props.placeholder === 'Full path of a folder')!
+    assert.ok(input)
+    assert.equal(input.props.value, '/work/saved')
     const endpoint = onPick === 'room' ? 'update-room' : onPick === 'bot' ? 'update-bot' : 'team-workspace'
-    const expected = ['/work/saved', '/work/recent'].map(path => [endpoint,
-      onPick === 'team' ? { path } : { id: onPick === 'room' ? 'room-1' : 'bot-1', workDir: path }])
-    assert.deepEqual(JSON.parse(JSON.stringify(writes)), expected)
+    const body = (path: string) => [endpoint, onPick === 'team' ? { path } : { id: onPick === 'room' ? 'room-1' : 'bot-1', workDir: path }]
+    // A known folder fills the path; a new one is typed, and spaces around it are dropped.
+    nodes(render('Folder', props)).find(node => node.props.label === 'Recent project')!.props.onPress()
+    assert.equal(nodes(render('Folder', props)).find(node => node.props.placeholder === 'Full path of a folder')!.props.value, '/work/recent')
+    nodes(render('Folder', props)).find(node => node.props.placeholder === 'Full path of a folder')!.props.onChangeText('  /work/brand-new ')
+    nodes(render('Folder', props)).find(node => node.props.accessibilityRole === 'button')!.props.onPress()
+    await new Promise(setImmediate)
+    assert.deepEqual(JSON.parse(JSON.stringify(writes)), [body('/work/brand-new')])
+    assert.deepEqual(asked, ['folders', endpoint])
+  }
+})
+
+test('a host that cannot list folders and knows none offers only the path field', async () => {
+  const { render } = screen({}, async name => name === 'folders' ? { picker: 'native', folders: [] } : {}, true)
+  const props = { route: { params: { onPick: 'room', roomId: 'room-1' } }, navigation: {} }
+  render('Folder', props)
+  await new Promise(setImmediate)
+  const tree = nodes(render('Folder', props))
+  assert.equal(tree.some(node => node.props.children === 'Pick a folder from Folders.' || node.props.label === 'Folders'), false)
+  assert.equal(tree.find(node => node.props.accessibilityRole === 'button')!.props.disabled, true)
+  assert.ok(tree.some(node => node.props.placeholder === 'Full path of a folder'))
+})
+
+test('a failed listing only points at the known folders when there are some', async () => {
+  for (const known of [[], [{ title: 'Project', path: '/project' }]]) {
+    const { render } = screen({}, async name => {
+      if (name === 'folders') return { picker: 'browse', folders: known }
+      throw new Error('Unavailable')
+    }, true)
+    const props = { route: { params: {} }, navigation: {} }
+    render('Folder', props)
+    await new Promise(setImmediate)
+    const tree = nodes(render('Folder', props))
+    assert.ok(tree.some(node => node.props.children === 'Unavailable'))
+    assert.equal(tree.some(node => node.props.children === 'Pick a folder from Folders.'), known.length > 0)
+  }
+})
+
+test('a second tap while a folder write is in flight is ignored, and a failure frees it', async () => {
+  for (const clear of [false, true]) {
+    const writes: unknown[] = []
+    let back = 0
+    let release: (value: unknown) => void = () => {}
+    let failNext = true
+    const { render } = screen({}, async (name, body) => {
+      if (name === 'folders') return { picker: 'browse', folders: [] }
+      if (name === 'folder-list') return { path: '/work/project', crumbs: [], entries: [] }
+      writes.push([name, body])
+      if (failNext) { failNext = false; throw new Error('Not accessible') }
+      return new Promise(resolve => { release = resolve })
+    }, true)
+    const props = { route: { params: { current: '/work/project', onPick: 'room', roomId: 'room-1' } }, navigation: { goBack: () => { back++ } } }
+    render('Folder', props)
+    await new Promise(setImmediate)
+    const tap = () => {
+      const tree = nodes(render('Folder', props))
+      tree.find(node => clear ? node.props.label === "Each Bot's own folder" : node.props.accessibilityRole === 'button')!.props.onPress()
+    }
+    tap()
+    await new Promise(setImmediate)
+    assert.equal(back, 0)
+    tap()
+    tap()
+    tap()
+    await new Promise(setImmediate)
+    assert.equal(writes.length, 2)
+    release({})
+    await new Promise(setImmediate)
+    assert.equal(back, 1)
+  }
+})
+
+test('group settings shows a root folder by its own name rather than blank', () => {
+  for (const [workDir, shown] of [['/', '/'], ['C:\\', 'C:'], ['/work/project/', 'project']]) {
+    const { render } = screen({ id: 'room-1', name: 'Project', workDir })
+    const tree = render('GroupSettings', { route: { params: { roomId: 'room-1' } }, navigation: {} })
+    assert.equal(nodes(tree).find(node => node.props.label === 'Folder')!.props.value, shown)
   }
 })
 
@@ -242,6 +309,7 @@ test('folder listing errors clear on retry and stale failures are ignored', asyn
   }, true)
   const props = { route: { params: {} }, navigation: {} }
   render('Folder', props)
+  await new Promise(setImmediate)
   replies[0].reject(new Error('Unavailable'))
   await new Promise(setImmediate)
   assert.ok(nodes(render('Folder', props)).some(node => node.props.children === 'Unavailable'))
