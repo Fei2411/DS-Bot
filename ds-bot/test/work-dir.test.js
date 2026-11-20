@@ -1361,6 +1361,32 @@ test('compressed pre-ledger group replies are recovered from the migrated group 
   assert.equal((await call('group-relay-replies', { sessionId: 'r1', preview: crossedPrompt })).value, null)
 })
 
+test('compressed replies are recovered from a legacy group that was never versioned', async (t) => {
+  const replies = [
+    { botId: 'b', name: 'Writer', text: 'First "reply".\n'.repeat(32), time: 1000 },
+    { botId: 'a', name: 'Chief', text: 'Middle reply. '.repeat(35), time: 2000 },
+    { botId: 'b', name: 'Writer', text: 'Final "reply".\n'.repeat(32), time: 3000 },
+  ]
+  const saved = structuredClone(TEAM)
+  // The oldest saved groups have neither `room.seq` nor a `seq` on their log lines.
+  delete saved.rooms.r1.seq
+  saved.rooms.r1.log = [
+    { who: 'User', text: 'Original prompt' },
+    ...replies.map(reply => ({ who: reply.name, botId: reply.botId, text: reply.text })),
+    { who: 'User', text: 'Next prompt' },
+  ]
+  const { call, stop } = await start({ team: saved })
+  t.after(stop)
+  const original = JSON.stringify({ replies, passed: [] })
+  const head = original.indexOf('First') + 'First \\"reply\\".\\n'.repeat(8).length
+  const tail = original.lastIndexOf('Final') - 'Final \\"reply\\".\\n'.length * 6
+  const preview = `${original.slice(0, head)} ...[+${tail - head} chars]... ${original.slice(tail)}`
+  const expected = replies.map(reply => [reply.botId, reply.text])
+  // The first thing asked of the group is the recovery, before any message or page read.
+  const recovered = (await call('group-relay-replies', { sessionId: 'r1', preview })).value
+  assert.deepEqual(recovered?.map(reply => [reply.botId, reply.text]), expected)
+})
+
 test('compressed group replies do not restore a shortened legacy log line as complete', async (t) => {
   const replies = [
     { botId: 'b', text: 'Start of the original reply. '.repeat(4) },

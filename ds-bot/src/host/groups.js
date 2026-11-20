@@ -722,6 +722,9 @@ export function install(rt) {
     if (marker === null) return null
     const room = rt.roomOf(sessionId) ?? rt.roomOf(rt.pastOwners.get(sessionId)?.roomId)
     if (room === undefined) return null
+    // A room from before logs were versioned has no `seq` yet: open its book through the
+    // migration first, or the importer would cache an empty book for this process.
+    ensureRoomLog(room)
     const book = rt.ledger.records(bookOf(room.id))
     const anchor = book.findIndex(record => record.event === 'anchor')
     const records = anchor === -1 ? book : book.slice(0, anchor)
