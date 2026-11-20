@@ -52,6 +52,8 @@ export const isLocalRoute = ref => badgeOf(String(ref ?? '').split('/')[0]) !== 
 
 export const routeOf = ref => String(ref ?? '').split('/')[0]
 
+export const localModel = agent => `${agent.route}/${agent.models?.[0] ?? 'default'}`
+
 // The models a pick can go to from `ref`: a local agent lists only its own, and
 // everything else lists DS Bot's models. What a Bot runs on changes in its settings.
 export function modelsFor(models, ref) {

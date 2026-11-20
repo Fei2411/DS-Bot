@@ -423,6 +423,7 @@ var JA = {
   "Could not copy the sign-in command. Run this in a terminal: {command}": "サインインコマンドをコピーできませんでした。ターミナルで実行してください: {command}",
   "Found": "検出済み",
   "Arguments": "引数",
+  "Kind": "種類",
   "Agent": "エージェント",
   "Sessions": "セッション",
   "Open this earlier session": "この過去のセッションを開く",
@@ -2932,6 +2933,7 @@ var KO = {
   "Could not copy the sign-in command. Run this in a terminal: {command}": "로그인 명령어를 복사하지 못했습니다. 터미널에서 직접 실행하세요: {command}",
   Found: "감지됨",
   Arguments: "인수",
+  Kind: "종류",
   Agent: "Agent",
   Sessions: "세션",
   "Open this earlier session": "이 이전 세션 열기",
@@ -5481,6 +5483,7 @@ var ES = {
   "Could not copy the sign-in command. Run this in a terminal: {command}": "No se pudo copiar el comando de inicio de sesión. Ejecuta esto en una terminal: {command}",
   Found: "Encontrado",
   Arguments: "Argumentos",
+  Kind: "Tipo",
   Agent: "Agente",
   Sessions: "Sesiones",
   "Open this earlier session": "Abrir esta sesión anterior",
@@ -8025,6 +8028,7 @@ var FR = {
   "Could not copy the sign-in command. Run this in a terminal: {command}": "Impossible de copier la commande de connexion. Exécutez-la dans un terminal : {command}",
   "Found": "Trouvé",
   "Arguments": "Arguments",
+  "Kind": "Type",
   "Agent": "Agent",
   "Sessions": "Sessions",
   "Open this earlier session": "Ouvrir cette session précédente",
@@ -10534,6 +10538,7 @@ var DE = {
   "Could not copy the sign-in command. Run this in a terminal: {command}": "Anmeldebefehl konnte nicht kopiert werden. Führe ihn im Terminal aus: {command}",
   Found: "Gefunden",
   Arguments: "Argumente",
+  Kind: "Art",
   Agent: "Agent",
   Sessions: "Sitzungen",
   "Open this earlier session": "Diese frühere Sitzung öffnen",
@@ -13056,6 +13061,7 @@ var ZH = {
   "Could not copy the sign-in command. Run this in a terminal: {command}": "没能复制登录命令。请在终端手动运行：{command}",
   Found: "已找到",
   Arguments: "参数",
+  Kind: "类型",
   Agent: "Agent",
   Sessions: "会话",
   "Open this earlier session": "打开这个较早的会话",
@@ -18520,6 +18526,7 @@ var badgeOf = (engine) => {
 };
 var isLocalRoute = (ref) => badgeOf(String(ref ?? "").split("/")[0]) !== void 0;
 var routeOf = (ref) => String(ref ?? "").split("/")[0];
+var localModel = (agent) => `${agent.route}/${agent.models?.[0] ?? "default"}`;
 function modelsFor(models, ref) {
   const list = models ?? [];
   return isLocalRoute(ref) ? list.filter((model) => routeOf(model.ref) === routeOf(ref)) : list.filter((model) => !isLocalRoute(model.ref));
@@ -24452,7 +24459,7 @@ function useLocalAgents(wanted) {
   (0, import_react21.useEffect)(() => {
     if (wanted && view === null) void load("local-agents");
   }, [wanted]);
-  const agents = view === null ? [] : [...view.detected, ...view.custom.filter((agent) => agent.available !== false).map((agent) => ({ route: agent.route, name: agent.name, command: agent.command, args: agent.args, signedIn: null }))];
+  const agents = view === null ? [] : [...view.detected, ...view.custom.filter((agent) => agent.available !== false).map((agent) => ({ route: agent.route, name: agent.name, command: agent.command, args: agent.args, models: agent.models, signedIn: null }))];
   return { agents, known: view !== null, scanning, refresh: () => load("local-agent-refresh") };
 }
 var shortVersion = (version) => {
@@ -24581,7 +24588,7 @@ function RunModeCard({ bot, roster, actions, run: run2, Card: Card3 }) {
       "div",
       { className: "bt-runmode" },
       (0, import_react21.createElement)(RunModeSwitch, { mode, setMode: switchMode }),
-      mode === "local" ? (0, import_react21.createElement)(CliList, { agents: others, known, scanning, refresh, selected: routeOf(target), onPick: (entry) => setTarget(`${entry.route}/default`), actions }) : (0, import_react21.createElement)(ModelMenu, { bot: { id: bot.id, name: bot.name, model: target || void 0 }, roster, actions, wide: true, withEfforts: false, onPick: setTarget }),
+      mode === "local" ? (0, import_react21.createElement)(CliList, { agents: others, known, scanning, refresh, selected: routeOf(target), onPick: (entry) => setTarget(localModel(entry)), actions }) : (0, import_react21.createElement)(ModelMenu, { bot: { id: bot.id, name: bot.name, model: target || void 0 }, roster, actions, wide: true, withEfforts: false, onPick: setTarget }),
       changing ? (0, import_react21.createElement)(
         "div",
         { className: "bt-runmode-confirm", role: "group", "aria-label": t("Change what {name} runs on?", { name: bot.name }) },
@@ -32127,7 +32134,7 @@ function CreateBot({ roster, actions, start, brief = "", onBack, canGoBack, onCr
     avatarImage(file).then(setImage, (failure) => setError(failure?.message ?? String(failure)));
   };
   const pickAgent = (agent) => {
-    setAgentModel(`${agent.route}/default`);
+    setAgentModel(localModel(agent));
     readModels(agent.route);
   };
   const worn = local && chosen !== "" && !ownLook ? agentAvatar(routeOf(chosen))?.image : void 0;
@@ -36958,13 +36965,26 @@ var PROVIDERS_CSS = `
 
 // src/client/local-agents-page.js
 var import_react49 = require("react");
+var KINDS2 = [
+  { id: "acp", label: "ACP" },
+  { id: "claude", label: "Claude Code" },
+  { id: "codex", label: "Codex" }
+];
 function AgentForm({ initial, submit, close }) {
   const [name, setName] = (0, import_react49.useState)(initial?.name ?? "");
   const [command, setCommand] = (0, import_react49.useState)(initial?.command ?? "");
   const [args, setArgs] = (0, import_react49.useState)((initial?.args ?? []).join(" "));
+  const [kind, setKind] = (0, import_react49.useState)(initial?.kind ?? "acp");
+  const [models, setModels] = (0, import_react49.useState)((initial?.models ?? []).join("\n"));
   const [error, setError] = (0, import_react49.useState)("");
   const save = () => {
-    const payload = { name, command, args: args.split(/\s+/).filter(Boolean) };
+    const payload = {
+      name,
+      command,
+      args: args.split(/\s+/).filter(Boolean),
+      kind,
+      models: models.split("\n").map((model) => model.trim()).filter(Boolean)
+    };
     submit(payload).then(() => close()).catch((failure) => setError(failure?.message ?? String(failure)));
   };
   return (0, import_react49.createElement)(
@@ -36976,6 +36996,12 @@ function AgentForm({ initial, submit, close }) {
       { className: "bt-set-form-row" },
       (0, import_react49.createElement)("label", { className: "bt-set-field" }, (0, import_react49.createElement)("span", null, t("Command")), (0, import_react49.createElement)("input", { className: "bt-input bt-la-code-input", value: command, placeholder: "my-agent", spellCheck: false, onChange: (event) => setCommand(event.target.value) })),
       (0, import_react49.createElement)("label", { className: "bt-set-field" }, (0, import_react49.createElement)("span", null, t("Arguments")), (0, import_react49.createElement)("input", { className: "bt-input bt-la-code-input", value: args, placeholder: "acp", spellCheck: false, onChange: (event) => setArgs(event.target.value) }))
+    ),
+    (0, import_react49.createElement)(
+      "div",
+      { className: "bt-set-form-row" },
+      (0, import_react49.createElement)("label", { className: "bt-set-field" }, (0, import_react49.createElement)("span", null, t("Kind")), (0, import_react49.createElement)("select", { className: "bt-input", value: kind, onChange: (event) => setKind(event.target.value) }, KINDS2.map((option) => (0, import_react49.createElement)("option", { key: option.id, value: option.id }, option.label)))),
+      (0, import_react49.createElement)("label", { className: "bt-set-field" }, (0, import_react49.createElement)("span", null, t("Models")), (0, import_react49.createElement)("textarea", { className: "bt-input bt-la-code-input", value: models, rows: 4, placeholder: "One model per line", spellCheck: false, onChange: (event) => setModels(event.target.value) }))
     ),
     error ? (0, import_react49.createElement)("div", { className: "bt-error", role: "alert" }, error) : null,
     (0, import_react49.createElement)(

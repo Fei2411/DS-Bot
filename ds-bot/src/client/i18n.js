@@ -288,6 +288,7 @@ const ZH = {
   'Could not copy the sign-in command. Run this in a terminal: {command}': '没能复制登录命令。请在终端手动运行：{command}',
   Found: '已找到',
   Arguments: '参数',
+  Kind: '类型',
   Agent: 'Agent',
   Sessions: '会话',
   'Open this earlier session': '打开这个较早的会话',

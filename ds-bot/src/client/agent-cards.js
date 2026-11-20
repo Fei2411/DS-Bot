@@ -2,7 +2,7 @@
 // form and the Runs on card of a Bot's settings. Changing it starts a new part of every
 // conversation of the Bot, so it asks first.
 import { createElement as h, useEffect, useState } from 'react'
-import { agentAvatar, isLocalRoute, routeOf } from './agent-routes.js'
+import { agentAvatar, isLocalRoute, localModel, routeOf } from './agent-routes.js'
 import { AgentBadge } from './agent-badge.js'
 import { call } from './api.js'
 import { avatarAfter, runModeNotes, startModel } from './bot-draft.js'
@@ -20,7 +20,7 @@ export function useLocalAgents(wanted) {
     return call(endpoint).then(setView).catch(() => setView({ detected: [], custom: [] })).finally(() => setScanning(false))
   }
   useEffect(() => { if (wanted && view === null) void load('local-agents') }, [wanted])
-  const agents = view === null ? [] : [...view.detected, ...view.custom.filter(agent => agent.available !== false).map(agent => ({ route: agent.route, name: agent.name, command: agent.command, args: agent.args, signedIn: null }))]
+  const agents = view === null ? [] : [...view.detected, ...view.custom.filter(agent => agent.available !== false).map(agent => ({ route: agent.route, name: agent.name, command: agent.command, args: agent.args, models: agent.models, signedIn: null }))]
   return { agents, known: view !== null, scanning, refresh: () => load('local-agent-refresh') }
 }
 
@@ -123,7 +123,7 @@ export function RunModeCard({ bot, roster, actions, run, Card }) {
     open ? h('div', { className: 'bt-runmode' },
       h(RunModeSwitch, { mode, setMode: switchMode }),
       mode === 'local'
-        ? h(CliList, { agents: others, known, scanning, refresh, selected: routeOf(target), onPick: entry => setTarget(`${entry.route}/default`), actions })
+        ? h(CliList, { agents: others, known, scanning, refresh, selected: routeOf(target), onPick: entry => setTarget(localModel(entry)), actions })
         : h(ModelMenu, { bot: { id: bot.id, name: bot.name, model: target || undefined }, roster, actions, wide: true, withEfforts: false, onPick: setTarget }),
       changing ? h('div', { className: 'bt-runmode-confirm', role: 'group', 'aria-label': t('Change what {name} runs on?', { name: bot.name }) },
         h('div', { className: 'bt-runmode-title' }, t('Change what {name} runs on?', { name: bot.name })),

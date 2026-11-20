@@ -300,6 +300,7 @@ export const FR = {
   "Could not copy the sign-in command. Run this in a terminal: {command}": "Impossible de copier la commande de connexion. Exécutez-la dans un terminal : {command}",
   "Found": "Trouvé",
   "Arguments": "Arguments",
+  "Kind": "Type",
   "Agent": "Agent",
   "Sessions": "Sessions",
   "Open this earlier session": "Ouvrir cette session précédente",
