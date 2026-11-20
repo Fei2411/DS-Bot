@@ -1176,18 +1176,47 @@ async function renderReplay(messages, system, resolveImage) {
 // Bot's repair card can act on them.
 function toLlmError(error, live) {
   if (error instanceof LlmError) return error
-  const text = errorText(error)
+  const upstream = [error?.data?.error, error?.data].filter(value => value !== null && typeof value === 'object' && !Array.isArray(value))
+  const text = [...new Set([errorText(error), ...upstream.flatMap(value => [value.message, value.detail]).filter(nonEmptyString)])].join('\n')
+  const upstreamCode = upstream.map(value => value?.code).find(nonEmptyString)
   // A CLI whose context is past its window: the part moves on the way an overflow does.
   const overflow = /prompt is too long|context.?(window|length).?(exceeded|is full)|context_length_exceeded|exceeds the (model's )?(maximum )?context|too many tokens/i
   const code = error?.code === 'NO_ADAPTER' ? 'LOCAL_AGENT_MISSING'
-    : overflow.test(text) ? 'CONTEXT_WINDOW_EXCEEDED'
-      : /not signed in|not logged in|login required|unauthorized|authentication/i.test(text) ? 'LOCAL_AGENT_SIGNIN'
-        : /quota|rate.?limit|usage limit|exceeded/i.test(text) ? 'LOCAL_AGENT_QUOTA'
-          : /exited|spawn|ENOENT/i.test(text) ? 'LOCAL_AGENT_EXIT'
-            : typeof error?.code === 'string' && error.code !== '' ? error.code : 'LOCAL_AGENT_ERROR'
+    : upstreamCode !== undefined ? repairCode(upstreamCode) ?? upstreamCode
+      : repairCode(error?.code) ?? (
+        overflow.test(text) ? 'CONTEXT_WINDOW_EXCEEDED'
+          : /not signed in|not logged in|login required|unauthorized|authentication|auth failed/i.test(text) ? 'LOCAL_AGENT_SIGNIN'
+            : /quota|rate.?limit|usage limit|exceeded/i.test(text) ? 'LOCAL_AGENT_QUOTA'
+              : /exited|spawn|ENOENT/i.test(text) ? 'LOCAL_AGENT_EXIT'
+                : nonEmptyString(error?.code) ? error.code : 'LOCAL_AGENT_ERROR')
   const hint = code === 'LOCAL_AGENT_SIGNIN' ? ` Sign in with: ${live?.spec?.signIn ?? `${live?.spec?.command ?? 'the CLI'} login`}.` : ''
   const rpcCode = code === 'LOCAL_AGENT_ERROR' && typeof error?.code === 'number' ? ` (JSON-RPC ${error.code})` : ''
-  return new LlmError(`${text}${rpcCode}${hint}`, code, error?.status === undefined ? {} : { status: error.status })
+  const status = [...upstream, error].map(value => value?.status).find(value => Number.isInteger(value) && value >= 100 && value <= 599)
+  return new LlmError(`${text}${rpcCode}${hint}`, code, status === undefined ? {} : { status })
+}
+
+function repairCode(code) {
+  switch (typeof code === 'string' ? code.toLowerCase().replace(/-/g, '_') : undefined) {
+    case 'auth_failed':
+    case 'unauthorized':
+    case 'unauthenticated':
+    case 'authentication_failed':
+    case 'not_logged_in':
+      return 'LOCAL_AGENT_SIGNIN'
+    case 'rate_limit_exceeded':
+    case 'quota_exceeded':
+    case 'insufficient_quota':
+    case 'usage_limit_exceeded':
+      return 'LOCAL_AGENT_QUOTA'
+    case 'context_length_exceeded':
+      return 'CONTEXT_WINDOW_EXCEEDED'
+    default:
+      return undefined
+  }
+}
+
+function nonEmptyString(value) {
+  return typeof value === 'string' && value.trim() !== ''
 }
 
 // JSON-RPC errors carry numeric codes and may arrive as plain objects; LlmError

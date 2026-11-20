@@ -437,6 +437,41 @@ export function install(rt) {
   const mimeOf = value => FILE_MIMES[(nameOf(value).split('.').pop() ?? '').toLowerCase()] ?? 'application/octet-stream'
   const tooLarge = () => Object.assign(new Error('This file is too large to save here (over 16 MB)'), { code: 'bot/refused' })
   const unavailable = () => Object.assign(new Error('This file is no longer available'), { code: 'bot/not-found' })
+  const fileLocators = new Map()
+  const FILE_LOCATOR_TTL = 60_000
+  const FILE_LOCATORS_KEPT = 200
+
+  async function attachmentChunk(attachments, ref, offset) {
+    const path = attachments.fileHostPath?.(ref)
+    if (path !== undefined) {
+      const handle = await open(path, 'r').catch(error => {
+        if (error.code === 'ENOENT') throw unavailable()
+        throw error
+      })
+      try {
+        const info = await handle.stat()
+        if (!info.isFile() || info.size !== ref.bytes || offset > info.size) throw unavailable()
+        const bytes = Buffer.alloc(Math.min(FILE_CHUNK_BYTES, info.size - offset))
+        const { bytesRead } = await handle.read(bytes, 0, bytes.length, offset)
+        if (bytesRead !== bytes.length) throw unavailable()
+        return { name: nameOf(ref.name), mime: mediaOf(ref) ?? mimeOf(ref.name), bytes: bytes.toString('base64'), size: info.size, version: ref.attachmentId, nextOffset: offset + bytesRead, done: offset + bytesRead === info.size }
+      } finally { await handle.close() }
+    }
+    const chunks = []
+    let seen = 0
+    let length = 0
+    for await (const chunk of attachments.readFileStream(ref, AbortSignal.timeout(HISTORY_TIMEOUT_MS))) {
+      const start = Math.max(0, offset - seen)
+      seen += chunk.length
+      const data = Buffer.from(chunk).subarray(start, start + FILE_CHUNK_BYTES - length)
+      if (data.length > 0) { chunks.push(data); length += data.length }
+      if (length === FILE_CHUNK_BYTES) break
+    }
+    const size = ref.bytes
+    if (offset > size || (length === 0 && offset < size)) throw unavailable()
+    const nextOffset = offset + length
+    return { name: nameOf(ref.name), mime: mediaOf(ref) ?? mimeOf(ref.name), bytes: Buffer.concat(chunks).toString('base64'), size, version: ref.attachmentId, nextOffset, done: nextOffset >= size }
+  }
 
   async function fileDownload(body) {
     const chunked = body.offset !== undefined
@@ -466,6 +501,11 @@ export function install(rt) {
     // Presented files keep their own part's sessionId, because seq is local to one Session.
     if (presentedSeq !== undefined && !owned.has(sessionId)) throw unavailable()
     const sessions = presentedSeq !== undefined ? [sessionId] : [...owned].reverse()
+    const locatorKey = chunked && attachmentId !== undefined && presentedSeq === undefined ? `${sessionId}\n${attachmentId}` : undefined
+    const locator = fileLocators.get(locatorKey)
+    if (locator !== undefined && locator.expires > Date.now() && sessions.includes(locator.targetId)) {
+      return attachmentChunk(attachments, locator.ref, offset)
+    }
     for (const targetId of sessions) {
       let beforeSeq
       for (;;) {
@@ -504,21 +544,12 @@ export function install(rt) {
           for (const block of content) {
             if (block?.type !== 'file' || String(block.attachment?.attachmentId) !== attachmentId) continue
             if (chunked) {
-              // Attachment ids are content hashes. Stream only as far as this chunk needs.
-              const chunks = []
-              let seen = 0
-              let length = 0
-              for await (const chunk of attachments.readFileStream(block.attachment, AbortSignal.timeout(HISTORY_TIMEOUT_MS))) {
-                const start = Math.max(0, offset - seen)
-                seen += chunk.length
-                const data = Buffer.from(chunk).subarray(start, start + FILE_CHUNK_BYTES - length)
-                if (data.length > 0) { chunks.push(data); length += data.length }
-                if (length === FILE_CHUNK_BYTES) break
+              if (locatorKey !== undefined) {
+                fileLocators.delete(locatorKey)
+                fileLocators.set(locatorKey, { targetId, ref: block.attachment, expires: Date.now() + FILE_LOCATOR_TTL })
+                if (fileLocators.size > FILE_LOCATORS_KEPT) fileLocators.delete(fileLocators.keys().next().value)
               }
-              const size = block.attachment.bytes
-              if (offset > size || (length === 0 && offset < size)) throw unavailable()
-              const nextOffset = offset + length
-              return { name: nameOf(block.attachment.name), mime: mediaOf(block.attachment) ?? mimeOf(block.attachment.name), bytes: Buffer.concat(chunks).toString('base64'), size, version: attachmentId, nextOffset, done: nextOffset >= size }
+              return attachmentChunk(attachments, block.attachment, offset)
             }
             const chunks = []
             let size = 0

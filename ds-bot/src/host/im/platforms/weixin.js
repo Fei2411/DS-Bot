@@ -7,7 +7,10 @@
 // that user's context_token, ~1800-char text chunks. Typing uses the
 // getconfig ticket. Voice items arrive with a transcript; images download
 // from the CDN and decrypt with their AES key. A refused send is permanent
-// with the platform's reason. Protocol ported from dsh-im (MIT, see NOTICE).
+// with the platform's reason. A quoted reply names the message it answers and
+// usually repeats its text; both are passed on as `quote`, and the ids a send
+// comes back with are kept so a later quote can name that message.
+// Protocol ported from dsh-im (MIT, see NOTICE).
 import { createDecipheriv, randomBytes } from 'node:crypto'
 import {
   detectImageMediaType, discardBody, FILE_LIMIT, IMAGE_LIMIT,
@@ -57,6 +60,12 @@ const fail = (reason, opts = {}) => Object.assign(new Error(String(reason)), opt
 
 export default {
   id: 'weixin',
+
+  // This platform hands back a quoted reply's message, so the host keeps what
+  // it sent here (by platform id) for a quote to name. Platforms without it do
+  // not need their replies written to the runtime file — they would never be
+  // read back.
+  quote: true,
 
   // ---- QR login (im-login-start / im-login-wait drive these) --------------
   async loginStart(env) {
@@ -172,6 +181,7 @@ export default {
         sender: { id: userId, name: userId },
         text: texts.join('\n').trim(), images, files,
         mentioned: false, messageId: String(msg.client_id ?? msg.message_id ?? ''),
+        quote: quotedOf(msg),
       })
     }
 
@@ -237,6 +247,11 @@ export default {
     // the network is up must still connect once it is. After the quick retries
     // the failure is on screen until a start succeeds.
     const startSession = async () => {
+      const configuredDelays = env.config?.startRetryDelaysMs
+      const delays = Array.isArray(configuredDelays) && configuredDelays.length > 0
+        && configuredDelays.every(ms => Number.isFinite(ms) && ms >= 0)
+        ? configuredDelays
+        : START_RETRY_DELAYS_MS
       let shown = false
       for (let attempt = 0; ; attempt += 1) {
         if (stopped) return
@@ -251,7 +266,7 @@ export default {
             handlers.onStatus({ state: 'error', error: reason })
             return
           }
-          const wait = START_RETRY_DELAYS_MS[attempt]
+          const wait = delays[attempt]
           if (wait === undefined && !shown) {
             shown = true
             env.log?.warn?.('ds-bot im: weixin could not start the session, still retrying: %s', reason)
@@ -259,7 +274,7 @@ export default {
           } else if (wait !== undefined) {
             env.log?.warn?.('ds-bot im: weixin session start failed, retrying: %s', reason)
           }
-          await sleep(wait ?? START_RETRY_DELAYS_MS.at(-1))
+          await sleep(wait ?? delays.at(-1))
         }
       }
       if (!stopped) void poll()
@@ -273,6 +288,10 @@ export default {
         const chunks = chunk(String(text ?? ''), TEXT_LIMIT)
         const contextToken = contextTokens()[chat.key]
         let messageId
+        const ids = []
+        // A long reply goes out as several WeChat messages with an id each, so a
+        // quote names one chunk: keep every chunk's ids next to its own text.
+        const parts = []
         for (const chunkText of chunks) {
           const clientId = `ds-bot-${randomBytes(8).toString('hex')}`
           const answer = await call('sendmessage', {
@@ -284,11 +303,21 @@ export default {
             },
           })
           if (Number(answer.ret) !== 0 && answer.ret !== undefined) {
-            throw fail(`WeChat refused the reply (${answer.errmsg ?? answer.ret})`, { permanent: true })
+            // WeChat may already have accepted earlier chunks. Hand them back on
+            // the error so the host can still remember them for quoted replies:
+            // a later failure must not lose the ids of delivered messages.
+            throw fail(`WeChat refused the reply (${answer.errmsg ?? answer.ret})`, { permanent: true, parts })
           }
           messageId = clientId
+          addId(ids, clientId)
+          const partIds = [clientId]
+          for (const id of answerIds(answer)) {
+            addId(ids, id)
+            addId(partIds, id)
+          }
+          parts.push({ ids: partIds, text: chunkText })
         }
-        return { messageId }
+        return { messageId, ids, parts }
       },
       typing: async (chat) => {
         const answer = await call('getconfig', { ilink_user_id: chat.key }, 8_000).catch(() => undefined)
@@ -324,6 +353,50 @@ const chunk = (text, limit) => {
     rest = rest.slice(at).replace(/^\s+/, '')
   }
   return chunks
+}
+
+// iLink has sent the same id as a string and as a number, and fills the field
+// with 0 when a message quotes nothing: every form has to end up comparable.
+const addId = (ids, value) => {
+  if (value === undefined || value === null) return
+  const id = String(value).trim()
+  if (id === '' || id === '0') return
+  if (!ids.includes(id)) ids.push(id)
+}
+
+// A reply quotes one earlier message. iLink names it at the top level and again
+// inside a ref_msg item, under several fields, and repeats its text when it has
+// it. The ids go in the protocol's order: the first one is the message itself,
+// the rest only ever name the same message, and a caller matches them in turn.
+const quotedOf = (msg) => {
+  const ids = []
+  let text = ''
+  addId(ids, msg.referenced_msg_id)
+  for (const item of msg.item_list ?? []) {
+    const ref = item?.ref_msg
+    if (ref === undefined || ref === null) continue
+    addId(ids, ref.message_item?.msg_id)
+    addId(ids, ref.msg_id)
+    addId(ids, ref.referenced_msg_id)
+    if (text === '') text = String(ref.message_item?.text_item?.text ?? '').trim()
+  }
+  if (ids.length === 0 && text === '') return undefined
+  return { ids, text }
+}
+
+// The platform names the message it accepted in one of several places, and a
+// quoted reply can use any of them: keep every name it gives. A malformed shape
+// is ignored rather than thrown: the message has already been delivered, and a
+// throw from here would read as a failed send and be retried.
+const answerIds = (answer) => {
+  const ids = []
+  for (const holder of [answer, answer?.msg, answer?.data]) {
+    if (holder === null || typeof holder !== 'object') continue
+    for (const value of [holder.message_id, holder.msg_id, holder.msgid, holder.client_id]) addId(ids, value)
+    const items = Array.isArray(holder) ? holder : Array.isArray(holder.item_list) ? holder.item_list : []
+    for (const item of items) addId(ids, item?.msg_id)
+  }
+  return ids
 }
 
 // iLink only carries getupdates for an opened session: before msg/notifystart
