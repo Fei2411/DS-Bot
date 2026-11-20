@@ -858,14 +858,6 @@ var JA = {
   "Advanced settings": "詳細設定",
   "Back to models": "モデルに戻る",
   "Open Plugins": "プラグインを開く",
-  "DeepSeek services": "DeepSeek サービス",
-  "DeepSeek API": "DeepSeek API",
-  "DeepSeek Web Search API": "DeepSeek Web 検索 API",
-  "Find it in Plugins → Web search.": "プラグイン → Web 検索にあります。",
-  "Image and document reading": "画像と文書の読み取り",
-  "Use DeepSeek to read images and documents": "DeepSeek で画像と文書を読み取る",
-  "Bots upload selected files to DeepSeek for text recognition; local Office editing is unchanged.": "Bot は選択したファイルを DeepSeek にアップロードして文字認識します。ローカルの Office 編集は変わりません。",
-  "Not ready": "準備できていません",
   "Open settings": "設定を開く",
   "Open settings file": "設定ファイルを開く",
   "Could not open the settings file": "設定ファイルを開けませんでした",
@@ -1933,6 +1925,25 @@ var JA = {
   "You control the computer": "あなたがコンピュータを操作中",
   "{name} · foreground": "{name} · フォアグラウンド",
   "{name} waits for the computer": "{name} があなたの操作完了を待っています",
+  // DeepSeek services
+  "DeepSeek services": "DeepSeek サービス",
+  "DeepSeek API": "DeepSeek API",
+  "DeepSeek Web Search API": "DeepSeek ウェブ検索 API",
+  "Find it in Plugins → Web search.": "プラグイン → ウェブ検索 にあります。",
+  "Image and document reading": "画像と文書の読み取り",
+  "Use DeepSeek to read images and documents": "DeepSeek で画像と文書を読み取る",
+  "Bots upload selected files to DeepSeek for text recognition; local Office editing is unchanged.": "選択したファイルはテキスト認識のため DeepSeek にアップロードされます。ローカルの Office 編集は変わりません。",
+  "Text to speech": "テキスト読み上げ",
+  "Read replies aloud": "返信を読み上げる",
+  "System": "システム",
+  "Voice": "音声",
+  "Speech recognition": "音声認識",
+  "Dictation provider": "音声入力プロバイダー",
+  "Use DeepSeek for dictation": "音声入力に DeepSeek を使う",
+  "In use": "使用中",
+  "Not ready": "準備未完了",
+  "Couldn't read the reply": "返信を読み上げられませんでした",
+  "Couldn't reach the speech service": "音声認識サービスに接続できません",
   "Bot models": "Bot モデル",
   "Change several Bots": "複数の Bot をまとめて変更",
   "{selected} of {total} selected": "{total} 件中 {selected} 件を選択",
@@ -3423,14 +3434,6 @@ var KO = {
   "Advanced settings": "고급 설정",
   "Back to models": "모델로 돌아가기",
   "Open Plugins": "플러그인 열기",
-  "DeepSeek services": "DeepSeek 서비스",
-  "DeepSeek API": "DeepSeek API",
-  "DeepSeek Web Search API": "DeepSeek 웹 검색 API",
-  "Find it in Plugins → Web search.": "플러그인 → 웹 검색에서 찾을 수 있습니다.",
-  "Image and document reading": "이미지 및 문서 읽기",
-  "Use DeepSeek to read images and documents": "DeepSeek로 이미지와 문서를 읽기",
-  "Bots upload selected files to DeepSeek for text recognition; local Office editing is unchanged.": "Bot이 선택한 파일을 DeepSeek에 업로드해 문자 인식합니다. 로컬 Office 편집은 그대로입니다.",
-  "Not ready": "준비되지 않음",
   "Open settings": "설정 열기",
   "Open settings file": "설정 파일 열기",
   "Could not open the settings file": "설정 파일을 열 수 없습니다",
@@ -4523,6 +4526,25 @@ var KO = {
   "You control the computer": "사용자가 컴퓨터를 제어 중입니다",
   "{name} · foreground": "{name} · 포그라운드",
   "{name} waits for the computer": "{name}이(가) 사용자 조작을 기다리는 중",
+  // DeepSeek services
+  "DeepSeek services": "DeepSeek 서비스",
+  "DeepSeek API": "DeepSeek API",
+  "DeepSeek Web Search API": "DeepSeek 웹 검색 API",
+  "Find it in Plugins → Web search.": "플러그인 → 웹 검색에서 찾을 수 있습니다.",
+  "Image and document reading": "이미지 및 문서 읽기",
+  "Use DeepSeek to read images and documents": "DeepSeek으로 이미지와 문서 읽기",
+  "Bots upload selected files to DeepSeek for text recognition; local Office editing is unchanged.": "선택한 파일은 텍스트 인식을 위해 DeepSeek에 업로드됩니다. 로컬 Office 편집은 그대로입니다.",
+  "Text to speech": "텍스트 음성 변환",
+  "Read replies aloud": "답변 소리 내어 읽기",
+  "System": "시스템",
+  "Voice": "음성",
+  "Speech recognition": "음성 인식",
+  "Dictation provider": "받아쓰기 제공자",
+  "Use DeepSeek for dictation": "받아쓰기에 DeepSeek 사용",
+  "In use": "사용 중",
+  "Not ready": "준비되지 않음",
+  "Couldn't read the reply": "답변을 읽지 못했습니다",
+  "Couldn't reach the speech service": "음성 인식 서비스에 연결할 수 없습니다",
   "Bot models": "Bot 모델",
   "Change several Bots": "여러 Bot 모델 한 번에 변경",
   "{selected} of {total} selected": "{total}개 중 {selected}개 선택됨",
@@ -6014,14 +6036,6 @@ var ES = {
   "Advanced settings": "Ajustes avanzados",
   "Back to models": "Volver a modelos",
   "Open Plugins": "Abrir Plugins",
-  "DeepSeek services": "Servicios DeepSeek",
-  "DeepSeek API": "API de DeepSeek",
-  "DeepSeek Web Search API": "API de búsqueda web de DeepSeek",
-  "Find it in Plugins → Web search.": "Está en Plugins → Búsqueda web.",
-  "Image and document reading": "Lectura de imágenes y documentos",
-  "Use DeepSeek to read images and documents": "Usar DeepSeek para leer imágenes y documentos",
-  "Bots upload selected files to DeepSeek for text recognition; local Office editing is unchanged.": "Los Bots suben los archivos seleccionados a DeepSeek para reconocer el texto; la edición local de Office no cambia.",
-  "Not ready": "No listo",
   "Open settings": "Abrir ajustes",
   "Open settings file": "Abrir archivo de ajustes",
   "Could not open the settings file": "No se pudo abrir el archivo de ajustes",
@@ -7114,6 +7128,25 @@ var ES = {
   "You control the computer": "Tú controlas el ordenador",
   "{name} · foreground": "{name} · primer plano",
   "{name} waits for the computer": "{name} espera el ordenador",
+  // DeepSeek services
+  "DeepSeek services": "Servicios de DeepSeek",
+  "DeepSeek API": "API de DeepSeek",
+  "DeepSeek Web Search API": "API de búsqueda web de DeepSeek",
+  "Find it in Plugins → Web search.": "Está en Plugins → Búsqueda web.",
+  "Image and document reading": "Lectura de imágenes y documentos",
+  "Use DeepSeek to read images and documents": "Usar DeepSeek para leer imágenes y documentos",
+  "Bots upload selected files to DeepSeek for text recognition; local Office editing is unchanged.": "Los Bots suben los archivos seleccionados a DeepSeek para reconocer el texto; la edición local de Office no cambia.",
+  "Text to speech": "Texto a voz",
+  "Read replies aloud": "Leer las respuestas en voz alta",
+  "System": "Sistema",
+  "Voice": "Voz",
+  "Speech recognition": "Reconocimiento de voz",
+  "Dictation provider": "Proveedor de dictado",
+  "Use DeepSeek for dictation": "Usar DeepSeek para el dictado",
+  "In use": "En uso",
+  "Not ready": "No listo",
+  "Couldn't read the reply": "No se pudo leer la respuesta",
+  "Couldn't reach the speech service": "No se pudo conectar con el servicio de voz",
   "Bot models": "Modelos de los Bots",
   "Change several Bots": "Cambiar varios Bots",
   "{selected} of {total} selected": "{selected} de {total} seleccionados",
@@ -8586,14 +8619,6 @@ var FR = {
   "Advanced settings": "Paramètres avancés",
   "Back to models": "Retour aux modèles",
   "Open Plugins": "Ouvrir les extensions",
-  "DeepSeek services": "Services DeepSeek",
-  "DeepSeek API": "API DeepSeek",
-  "DeepSeek Web Search API": "API de recherche web DeepSeek",
-  "Find it in Plugins → Web search.": "À trouver dans Extensions → Recherche web.",
-  "Image and document reading": "Lecture d’images et de documents",
-  "Use DeepSeek to read images and documents": "Utiliser DeepSeek pour lire les images et documents",
-  "Bots upload selected files to DeepSeek for text recognition; local Office editing is unchanged.": "Les Bots envoient les fichiers choisis à DeepSeek pour la reconnaissance de texte ; l’édition Office locale ne change pas.",
-  "Not ready": "Pas prêt",
   "Open settings": "Ouvrir les paramètres",
   "Open settings file": "Ouvrir le fichier de configuration",
   "Could not open the settings file": "Impossible d’ouvrir le fichier de configuration",
@@ -9661,6 +9686,25 @@ var FR = {
   "You control the computer": "Vous contrôlez l’ordinateur",
   "{name} · foreground": "{name} · premier plan",
   "{name} waits for the computer": "{name} attend que l’ordinateur soit libre",
+  // DeepSeek services
+  "DeepSeek services": "Services DeepSeek",
+  "DeepSeek API": "API DeepSeek",
+  "DeepSeek Web Search API": "API de recherche web DeepSeek",
+  "Find it in Plugins → Web search.": "Dans Plugins → Recherche web.",
+  "Image and document reading": "Lecture des images et des documents",
+  "Use DeepSeek to read images and documents": "Utiliser DeepSeek pour lire les images et les documents",
+  "Bots upload selected files to DeepSeek for text recognition; local Office editing is unchanged.": "Les Bots envoient les fichiers sélectionnés à DeepSeek pour la reconnaissance du texte ; l’édition locale d’Office reste inchangée.",
+  "Text to speech": "Synthèse vocale",
+  "Read replies aloud": "Lire les réponses à voix haute",
+  "System": "Système",
+  "Voice": "Voix",
+  "Speech recognition": "Reconnaissance vocale",
+  "Dictation provider": "Fournisseur de dictée",
+  "Use DeepSeek for dictation": "Utiliser DeepSeek pour la dictée",
+  "In use": "En cours d’utilisation",
+  "Not ready": "Pas prêt",
+  "Couldn't read the reply": "Impossible de lire la réponse",
+  "Couldn't reach the speech service": "Impossible de joindre le service vocal",
   "Bot models": "Modèles des Bots",
   "Change several Bots": "Changer plusieurs Bots",
   "{selected} of {total} selected": "{selected} sur {total} sélectionnés",
@@ -11151,14 +11195,6 @@ var DE = {
   "Advanced settings": "Erweiterte Einstellungen",
   "Back to models": "Zurück zu den Modellen",
   "Open Plugins": "Plugins öffnen",
-  "DeepSeek services": "DeepSeek-Dienste",
-  "DeepSeek API": "DeepSeek-API",
-  "DeepSeek Web Search API": "DeepSeek-Websuche-API",
-  "Find it in Plugins → Web search.": "Zu finden unter Plugins → Websuche.",
-  "Image and document reading": "Bilder und Dokumente lesen",
-  "Use DeepSeek to read images and documents": "DeepSeek zum Lesen von Bildern und Dokumenten nutzen",
-  "Bots upload selected files to DeepSeek for text recognition; local Office editing is unchanged.": "Bots laden ausgewählte Dateien zu DeepSeek hoch, um Text zu erkennen; die lokale Office-Bearbeitung bleibt unverändert.",
-  "Not ready": "Nicht bereit",
   "Open settings": "Einstellungen öffnen",
   "Open settings file": "Konfigurationsdatei öffnen",
   "Could not open the settings file": "Konfigurationsdatei konnte nicht geöffnet werden",
@@ -12251,6 +12287,25 @@ var DE = {
   "You control the computer": "Du steuerst den Computer",
   "{name} · foreground": "{name} · Vordergrund",
   "{name} waits for the computer": "{name} wartet, bis du fertig bist",
+  // DeepSeek services
+  "DeepSeek services": "DeepSeek-Dienste",
+  "DeepSeek API": "DeepSeek-API",
+  "DeepSeek Web Search API": "DeepSeek-Websuche-API",
+  "Find it in Plugins → Web search.": "Zu finden unter Plugins → Websuche.",
+  "Image and document reading": "Bilder und Dokumente lesen",
+  "Use DeepSeek to read images and documents": "DeepSeek zum Lesen von Bildern und Dokumenten verwenden",
+  "Bots upload selected files to DeepSeek for text recognition; local Office editing is unchanged.": "Bots laden ausgewählte Dateien zur Texterkennung zu DeepSeek hoch; die lokale Office-Bearbeitung bleibt unverändert.",
+  "Text to speech": "Text-zu-Sprache",
+  "Read replies aloud": "Antworten vorlesen",
+  "System": "System",
+  "Voice": "Stimme",
+  "Speech recognition": "Spracherkennung",
+  "Dictation provider": "Diktatanbieter",
+  "Use DeepSeek for dictation": "DeepSeek für das Diktat verwenden",
+  "In use": "In Verwendung",
+  "Not ready": "Nicht bereit",
+  "Couldn't read the reply": "Antwort konnte nicht vorgelesen werden",
+  "Couldn't reach the speech service": "Sprachdienst nicht erreichbar",
   "Bot models": "Bot-Modelle",
   "Change several Bots": "Mehrere Bots ändern",
   "{selected} of {total} selected": "{selected} von {total} ausgewählt",
@@ -13718,13 +13773,6 @@ var ZH = {
   "Advanced settings": "高级设置",
   "Back to models": "返回模型",
   "Open Plugins": "打开插件页",
-  "DeepSeek services": "DeepSeek 服务",
-  "DeepSeek API": "DeepSeek API",
-  "DeepSeek Web Search API": "DeepSeek 网页搜索 API",
-  "Find it in Plugins → Web search.": "在插件 → 网页搜索里打开。",
-  "Image and document reading": "图片与文档识别",
-  "Use DeepSeek to read images and documents": "用 DeepSeek 识别图片和文档",
-  "Bots upload selected files to DeepSeek for text recognition; local Office editing is unchanged.": "Bot 会把选中的文件上传给 DeepSeek 做文字识别；本地 Office 编辑不变。",
   "Open settings": "打开设置",
   "Open settings file": "打开配置文件",
   "Could not open the settings file": "无法打开配置文件",
@@ -13763,6 +13811,22 @@ var ZH = {
   Unknown: "未解析",
   "Back to Bots": "返回 Bot 列表",
   "Close settings": "关闭设置",
+  // DeepSeek services
+  "DeepSeek services": "DeepSeek 服务",
+  "DeepSeek API": "DeepSeek API",
+  "DeepSeek Web Search API": "DeepSeek 联网搜索 API",
+  "Find it in Plugins → Web search.": "在 插件 → 网页搜索 里设置。",
+  "Image and document reading": "图片与文档识别",
+  "Use DeepSeek to read images and documents": "用 DeepSeek 识别图片和文档",
+  "Bots upload selected files to DeepSeek for text recognition; local Office editing is unchanged.": "Bot 会把选中的文件上传给 DeepSeek 做文字识别；本地 Office 编辑流程不变。",
+  "Text to speech": "文字转语音",
+  "Read replies aloud": "朗读回复",
+  System: "系统",
+  Voice: "声音",
+  "Speech recognition": "语音识别",
+  "Dictation provider": "听写提供方",
+  "Use DeepSeek for dictation": "用 DeepSeek 听写",
+  "In use": "使用中",
   // Phone
   Phone: "手机",
   "Off. Phones cannot reach this computer.": "已关闭。手机连不上这台电脑。",
@@ -14245,6 +14309,8 @@ var ZH = {
   "Downloading the speech model… {pct}%": "正在下载语音模型… {pct}%",
   "Couldn't prepare voice input": "语音输入准备失败",
   "That was too long to recognize": "这段太长了，识别不了",
+  "Couldn't read the reply": "回复朗读失败",
+  "Couldn't reach the speech service": "语音识别服务不可用",
   // Usage page
   "24 hours": "24 小时",
   "7 days": "7 天",
@@ -14733,6 +14799,8 @@ var HOST_ERRORS = [
   [/^(.+) is in or around the folder of (.+), a private Bot, so it cannot be the team workspace$/, "$1 在隐私 Bot「$2」的文件夹内或外层，不能作为总工作区"],
   // DeepSeek services: host status reasons, shown where the capability is not ready.
   [/^The DeepSeek API key \((.+)\) is not set$/, "DeepSeek API key（$1）还没设置"],
+  [/^This DSH has no speech-to-text service \(voice input is not mounted\)$/, "这个 DSH 没有语音识别服务（语音输入插件未挂载）"],
+  [/^The speech provider is registering$/, "语音识别提供方正在注册"],
   [/^This DSH has no credential store\.$/, "这个 DSH 没有凭据存储"],
   [/^DS Bot cannot tell the DeepSeek key from another server's: [\s\S]*$/, "DS Bot 无法区分 DeepSeek key 和其它服务器的 key，这些服务保持关闭。"],
   // Memory changes the memory panel asked for; the whole message is matched.
@@ -15696,6 +15764,13 @@ function teamActions({ call: call2, after, partFor, roster, ui: ui2, live, cards
     mailRuleSet: (payload) => after(call2("mail-rule-set", payload)),
     mailSendAnswer: (requestId, choice, extra = {}) => after(call2("mail-send-answer", { requestId, choice, ...extra })),
     mailSignInCode: (payload) => after(call2("mail-sign-in-code", payload)),
+    // DeepSeek's own document and speech services (api.deepseek.com/v1/tools/*), each
+    // off until enabled. The status answer names the credential ref, never its value.
+    deepseekServices: () => call2("deepseek-services"),
+    // absent keeps a field, null resets it; the full status comes back with the roster.
+    setDeepseekServices: (patch) => after(call2("deepseek-services-config", patch)),
+    // One short piece of speech; the caller queues and plays the WAV it gets back.
+    synthesizeSpeech: (body, signal) => call2("deepseek-synthesize", body, signal),
     phoneSet: (settings) => after(call2("phone-set", settings)),
     phonePair: () => after(call2("phone-pair")),
     phonePairCancel: () => after(call2("phone-pair-cancel")),
@@ -15710,8 +15785,6 @@ function teamActions({ call: call2, after, partFor, roster, ui: ui2, live, cards
     imLoginStart: (payload) => call2("im-login-start", payload),
     imLoginWait: (payload) => call2("im-login-wait", payload),
     saveCapability: (capability) => after(call2("capability-save", capability)),
-    deepseekServices: () => call2("deepseek-services"),
-    setDeepseekServices: (patch) => after(call2("deepseek-services-config", patch)),
     deleteCapability: (name) => after(call2("capability-delete", { name })),
     approveCapability: (name) => after(call2("capability-approve", { name })),
     setBotCapability: (botId, name, attached) => after(call2("bot-capability", { botId, name, attached })),
@@ -36633,13 +36706,24 @@ var SERVICES_CSS = `
 .bt-svc .bt-svc-seg button{white-space:nowrap}
 .bt-svc :focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
 `;
-var DEFAULTS = { ocr: false };
+var DEFAULTS = { ocr: false, tts: "system", voice: "stella" };
+var ASR_PROVIDER = "deepseek-asr";
+var voiceName = (id) => String(id).charAt(0).toUpperCase() + String(id).slice(1);
 function capabilityState(cap) {
   if (!cap) return { state: "off", text: t("Off") };
   const usable = cap.supported !== false && cap.configured !== false;
   const reason = cap.reason ? hostText(String(cap.reason)) : "";
   if (!usable) return { state: "missing", text: reason || t("Not ready") };
   if (cap.enabled) return { state: "ready", text: t("Ready") };
+  return { state: "off", text: reason || t("Off") };
+}
+function asrState(asr, selection, speechAvailable) {
+  if (!asr) return { state: "off", text: t("Off") };
+  const reason = asr.reason ? hostText(String(asr.reason)) : "";
+  const notReady = reason || (speechAvailable === false ? t("Set up voice input") : t("Not ready"));
+  const usable = asr.registered === true && asr.configured !== false && speechAvailable !== false && asr.ready !== false;
+  if (!usable) return { state: "missing", text: notReady };
+  if (selection?.providerId === ASR_PROVIDER) return { state: "ready", text: t("In use") };
   return { state: "off", text: reason || t("Off") };
 }
 function StateLine({ view }) {
@@ -36649,7 +36733,7 @@ function StateLine({ view }) {
     (0, import_react45.createElement)(
       "div",
       { className: "bt-svc-state", "data-state": view.state, role: "status" },
-      (0, import_react45.createElement)("span", { className: "bt-svc-dot", "aria-hidden": true }),
+      (0, import_react45.createElement)("span", { className: "bt-svc-dot", "aria-hidden": "true" }),
       (0, import_react45.createElement)("span", null, view.text)
     )
   );
@@ -36658,26 +36742,49 @@ function Pill({ state, text }) {
   return (0, import_react45.createElement)(
     "span",
     { className: "bt-svc-state", "data-state": state },
-    (0, import_react45.createElement)("span", { className: "bt-svc-dot", "aria-hidden": true }),
+    (0, import_react45.createElement)("span", { className: "bt-svc-dot", "aria-hidden": "true" }),
     (0, import_react45.createElement)("span", null, text)
   );
 }
+function Choice({ label, value, options, disabled, pick: pick2, Segmented: Segmented3 }) {
+  return (0, import_react45.createElement)(Segmented3, { label, value, className: "bt-svc-seg" }, options.map(([id, text]) => (0, import_react45.createElement)("button", {
+    key: id,
+    type: "button",
+    "aria-pressed": value === id,
+    disabled,
+    onClick: () => {
+      if (value !== id) pick2(id);
+    }
+  }, text)));
+}
 function ServicesForm({
   status,
+  selection,
   busy,
   saved,
+  asrBusy,
+  speechAvailable,
   pluginsAvailable,
   save,
+  selectAsr,
   onOpenModels,
   onOpenPlugins,
   Section: Section2,
   Row: Row4,
-  Switch: Switch2
+  Switch: Switch2,
+  Segmented: Segmented3
 }) {
   const prefs = { ...DEFAULTS, ...status?.preferences };
   const key = status?.key ?? {};
+  const asr = status?.speech ?? null;
+  const selected = selection?.providerId === ASR_PROVIDER;
   const ready = status !== null;
   const ocrView = capabilityState(status?.ocr);
+  const ttsView = capabilityState(status?.tts);
+  const asrView = asrState(asr, selection, speechAvailable);
+  const voices = [.../* @__PURE__ */ new Set([...status?.tts?.voices ?? [], prefs.voice])];
+  const asrUsable = asr !== null && asr.registered === true && asr.configured !== false && asr.ready !== false && speechAvailable !== false;
+  const asrButton = asr === null ? null : !asr.registered ? pluginsAvailable ? (0, import_react45.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: onOpenPlugins }, t("Set up voice input")) : null : !asr.configured ? (0, import_react45.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: onOpenModels }, t("Manage models")) : selected && asrUsable ? (0, import_react45.createElement)(Pill, { state: "ready", text: t("In use") }) : (0, import_react45.createElement)("button", { type: "button", className: "bt-send bt-soft-sm", disabled: asrBusy || !asrUsable, onClick: selectAsr }, asrBusy ? t("Saving…") : t("Use DeepSeek for dictation"));
   return (0, import_react45.createElement)(
     "div",
     { className: "bt-svc" },
@@ -36722,13 +36829,59 @@ function ServicesForm({
         onChange: (on) => save({ ocr: on })
       })),
       (0, import_react45.createElement)(StateLine, { view: ocrView })
+    ),
+    (0, import_react45.createElement)(
+      Section2,
+      { key: "tts", title: t("Text to speech") },
+      (0, import_react45.createElement)(
+        Row4,
+        { label: t("Read replies aloud") },
+        (0, import_react45.createElement)(Choice, {
+          label: t("Read replies aloud"),
+          value: prefs.tts,
+          disabled: busy || !ready,
+          Segmented: Segmented3,
+          options: [["system", t("System")], ["deepseek", t("DeepSeek")]],
+          pick: (id) => save({ tts: id })
+        })
+      ),
+      prefs.tts === "deepseek" ? (0, import_react45.createElement)(
+        Row4,
+        { label: t("Voice") },
+        (0, import_react45.createElement)(Choice, {
+          label: t("Voice"),
+          value: prefs.voice,
+          disabled: busy || !ready,
+          Segmented: Segmented3,
+          options: voices.map((id) => [id, voiceName(id)]),
+          pick: (id) => save({ voice: id })
+        })
+      ) : null,
+      (0, import_react45.createElement)(StateLine, { view: ttsView })
+    ),
+    (0, import_react45.createElement)(
+      Section2,
+      { key: "asr", title: t("Speech recognition") },
+      (0, import_react45.createElement)(
+        Row4,
+        { label: t("Dictation provider") },
+        (0, import_react45.createElement)(
+          "div",
+          { className: "bt-svc-actions" },
+          asrButton,
+          asr?.registered && pluginsAvailable ? (0, import_react45.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: onOpenPlugins }, t("Open Plugins")) : null
+        )
+      ),
+      (0, import_react45.createElement)(StateLine, { view: asrView })
     )
   );
 }
-function DeepSeekServicesPage({ actions, run: run2, Section: Section2, Row: Row4, Switch: Switch2 }) {
+function DeepSeekServicesPage({ actions, run: run2, Section: Section2, Row: Row4, Switch: Switch2, Segmented: Segmented3 }) {
   const [status, setStatus] = (0, import_react45.useState)(null);
+  const [selection, setSelection] = (0, import_react45.useState)(null);
   const [busy, setBusy] = (0, import_react45.useState)(false);
   const [saved, setSaved] = (0, import_react45.useState)(false);
+  const [asrBusy, setAsrBusy] = (0, import_react45.useState)(false);
   const [loadError, setLoadError] = (0, import_react45.useState)("");
   const alive = (0, import_react45.useRef)(true);
   (0, import_react45.useEffect)(() => () => {
@@ -36739,6 +36892,11 @@ function DeepSeekServicesPage({ actions, run: run2, Section: Section2, Row: Row4
       if (alive.current && value) setStatus(value);
     }).catch((failure) => {
       if (alive.current) setLoadError(hostText(failure?.message ?? String(failure)));
+    });
+    const speech = typeof actions.speech === "function" ? actions.speech() : void 0;
+    if (speech) void Promise.resolve().then(() => speech.catalog()).then((result) => {
+      if (alive.current && result?.ok !== false) setSelection(result.value?.selection ?? null);
+    }).catch(() => {
     });
   }, []);
   (0, import_react45.useEffect)(() => {
@@ -36765,6 +36923,20 @@ function DeepSeekServicesPage({ actions, run: run2, Section: Section2, Row: Row4
       if (alive.current) setBusy(false);
     });
   };
+  const selectAsr = () => {
+    const speech = typeof actions.speech === "function" ? actions.speech() : void 0;
+    if (!speech || asrBusy) return;
+    setAsrBusy(true);
+    void run2(Promise.resolve().then(() => speech.configure({ providerId: ASR_PROVIDER, language: "auto" })).then((result) => {
+      if (result?.ok === false) throw new Error(hostText(result?.error?.message ?? t("Could not save. Try again.")));
+      return speech.catalog();
+    }).then((result) => {
+      if (alive.current && result?.ok !== false) setSelection(result.value?.selection ?? null);
+    })).finally(() => {
+      if (alive.current) setAsrBusy(false);
+    });
+  };
+  const speechAvailable = typeof actions.speech === "function" && actions.speech() !== void 0;
   const pluginsAvailable = typeof actions.hasPlugins !== "function" || actions.hasPlugins() !== false;
   return (0, import_react45.createElement)(
     import_react45.Fragment,
@@ -36772,20 +36944,26 @@ function DeepSeekServicesPage({ actions, run: run2, Section: Section2, Row: Row4
     loadError ? (0, import_react45.createElement)("div", { className: "bt-error", role: "alert" }, loadError) : null,
     (0, import_react45.createElement)(ServicesForm, {
       status,
+      selection,
       busy,
       saved,
+      asrBusy,
+      speechAvailable,
       pluginsAvailable,
       save,
+      selectAsr,
       onOpenModels: () => actions.openModels?.(),
       // DSH's Plugins page opens behind this dialog; close it first or the user
-      // cannot see or reach what openPlugins() navigated to.
+      // cannot see or reach what openPlugins() navigated to. The setup button
+      // for voice input shares this callback.
       onOpenPlugins: () => {
         actions.closeSettings?.();
         actions.openPlugins?.();
       },
       Section: Section2,
       Row: Row4,
-      Switch: Switch2
+      Switch: Switch2,
+      Segmented: Segmented3
     })
   );
 }
@@ -38570,7 +38748,7 @@ function SetRow({ label, hint, children, className = "" }) {
 }
 var LAYOUTS = [["bubble", "Bubble"], ["flat", "Flat"]];
 var EFFECTS = [["full", "Full"], ["reduced", "Reduced"], ["off", "None"]];
-function Choice({ label, value, options, pick: pick2 }) {
+function Choice2({ label, value, options, pick: pick2 }) {
   return (0, import_react53.createElement)(Segmented, { label, value, className: "bt-look-seg" }, options.map(([id, text]) => (0, import_react53.createElement)("button", {
     key: id,
     type: "button",
@@ -38680,11 +38858,11 @@ function GeneralPage({ roster, actions, run: run2, dsh }) {
           )
         )
       ),
-      (0, import_react53.createElement)(SetRow, { label: t("Message layout") }, (0, import_react53.createElement)(Choice, { label: t("Message layout"), value: layoutOf(prefs), options: LAYOUTS, pick: (id) => run2(actions.setPrefs({ layout: id })) })),
+      (0, import_react53.createElement)(SetRow, { label: t("Message layout") }, (0, import_react53.createElement)(Choice2, { label: t("Message layout"), value: layoutOf(prefs), options: LAYOUTS, pick: (id) => run2(actions.setPrefs({ layout: id })) })),
       // The flat layout's text has a width of its own; the bubble width stays for the user's messages.
       layoutOf(prefs) === "flat" ? (0, import_react53.createElement)(SetRow, { label: t("Text width") }, (0, import_react53.createElement)(WidthSlider, { label: t("Text width"), value: flatWidthOf(prefs), save: (flatWidth) => run2(actions.setPrefs({ flatWidth })) })) : null,
       (0, import_react53.createElement)(SetRow, { label: t("Bubble width") }, (0, import_react53.createElement)(WidthSlider, { label: t("Bubble width"), value: widthOf(prefs), save: (width) => run2(actions.setPrefs({ width })) })),
-      (0, import_react53.createElement)(SetRow, { label: t("Interface motion") }, (0, import_react53.createElement)(Choice, { label: t("Interface motion"), value: effectsOf(prefs), options: EFFECTS, pick: (id) => run2(actions.setPrefs({ effects: id })) })),
+      (0, import_react53.createElement)(SetRow, { label: t("Interface motion") }, (0, import_react53.createElement)(Choice2, { label: t("Interface motion"), value: effectsOf(prefs), options: EFFECTS, pick: (id) => run2(actions.setPrefs({ effects: id })) })),
       (0, import_react53.createElement)(SetRow, { label: t("Show thinking") }, (0, import_react53.createElement)(Switch, { label: t("Show thinking"), on: thinkingShown(prefs), onChange: (thinking) => run2(actions.setPrefs({ thinking })) })),
       look.map((id) => dshItem(dsh, id))
     ),
@@ -39027,7 +39205,7 @@ function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false,
             shown === "connectors" ? (0, import_react53.createElement)(ConnectorsPage, { roster, actions }) : null,
             shown === "im" ? (0, import_react53.createElement)(ImPage, { roster, actions }) : null,
             shown === "capabilities" ? (0, import_react53.createElement)(CapabilitiesPage, { roster, actions, run: run2 }) : null,
-            shown === "deepseek-services" ? (0, import_react53.createElement)(DeepSeekServicesPage, { actions, run: run2, Section: SetSection, Row: SetRow, Switch }) : null,
+            shown === "deepseek-services" ? (0, import_react53.createElement)(DeepSeekServicesPage, { actions, run: run2, Section: SetSection, Row: SetRow, Switch, Segmented }) : null,
             shown === "phone" ? (0, import_react53.createElement)(PhonePage, { roster, actions, Section: SetSection, Row: SetRow }) : null,
             shown === "browser" ? (0, import_react53.createElement)(BrowserPage, { roster, actions, run: run2, Section: SetSection, Row: SetRow }) : null,
             shown === "schedules" ? (0, import_react53.createElement)(SchedulesPage, { roster, actions, start: id ?? void 0 }) : null,
@@ -41232,7 +41410,7 @@ async function speechCatalog(speech) {
   if (!result?.ok) throw new Error(result?.error?.message ?? "Speech catalog failed");
   const catalog = result.value;
   const provider = catalog.providers.find((item) => item.id === catalog.selection.providerId);
-  return { catalog, usable: USABLE.has(provider?.preparation?.phase) };
+  return { catalog, usable: provider !== void 0 && (provider.preparation === void 0 || USABLE.has(provider.preparation.phase)) };
 }
 async function requestPreparation(speech, providerId) {
   try {
@@ -41243,8 +41421,10 @@ async function requestPreparation(speech, providerId) {
   }
 }
 function preparationStep(catalog) {
-  const preparation = catalog.providers.find((item) => item.id === catalog.selection.providerId)?.preparation;
-  if (preparation === void 0) return { state: "done", failed: false };
+  const provider = catalog.providers.find((item) => item.id === catalog.selection.providerId);
+  if (provider === void 0) return { state: "done", failed: false };
+  const { preparation } = provider;
+  if (preparation === void 0) return { state: "usable" };
   if (USABLE.has(preparation.phase)) return { state: "usable" };
   if (preparation.phase === "failed" || preparation.phase === "cancelled" || preparation.phase === "unprepared") {
     return { state: "done", failed: preparation.phase === "failed" };
@@ -42797,6 +42977,180 @@ function ExchangeDialog({ pair, paneLeft, roster, actions }) {
   );
 }
 
+// src/client/speech-playback.js
+var CJK = /\p{Script=Han}/u;
+var EDGE = /^\s+|\s+$/g;
+var ALWAYS_END = /^[!?。！？…；;]/;
+var CLOSER = /^['"”’」』）)\]]/;
+var ABBREV = /(?:^|[\s(["'“‘])(?:Mr|Mrs|Ms|Dr|Prof|Sr|Jr|St|vs|etc|e\.g|i\.e)$/i;
+var LIST_NUM = /(?:^|\s)\d{1,3}$/;
+function splitSentences(paragraph) {
+  const out = [];
+  let start = 0;
+  let at = 0;
+  const len = paragraph.length;
+  while (at < len) {
+    const ch = paragraph[at];
+    if (ALWAYS_END.test(ch)) {
+      at += 1;
+      while (at < len && (ALWAYS_END.test(paragraph[at]) || paragraph[at] === "." || CLOSER.test(paragraph[at]))) at += 1;
+      out.push(paragraph.slice(start, at));
+      start = at;
+      continue;
+    }
+    if (ch === ".") {
+      let end = at + 1;
+      while (end < len && paragraph[end] === ".") end += 1;
+      const singleDot = end === at + 1;
+      let after = end;
+      while (after < len && CLOSER.test(paragraph[after])) after += 1;
+      const atBoundary = after === len || /\s/.test(paragraph[after]);
+      const before = paragraph.slice(start, at);
+      const isAbbrev = singleDot && (ABBREV.test(before) || after < len && LIST_NUM.test(before));
+      if (atBoundary && !isAbbrev) {
+        out.push(paragraph.slice(start, after));
+        start = after;
+        at = after;
+        continue;
+      }
+      at = end;
+      continue;
+    }
+    at += 1;
+  }
+  if (start < len) out.push(paragraph.slice(start));
+  return out;
+}
+var SOFT = /[\s,，、：:—–-][^,，、：:—–-\s]*$/;
+var billedLength = (text) => {
+  let count = 0;
+  for (const char of text) count += CJK.test(char) ? 2 : 1;
+  return count;
+};
+var billedSlice = (text, limit) => {
+  let count = 0;
+  let end = 0;
+  for (const char of text) {
+    count += CJK.test(char) ? 2 : 1;
+    if (count > limit) break;
+    end += char.length;
+  }
+  if (end === 0) return [...text][0];
+  const soft = SOFT.exec(text.slice(0, end));
+  return soft !== null && soft.index >= Math.floor(end / 2) ? text.slice(0, soft.index + 1) : text.slice(0, end);
+};
+var splitSpeech = (text, limit = 800) => {
+  const chunks = [];
+  const push = (piece) => {
+    let rest = piece.replace(EDGE, "");
+    while (rest !== "") {
+      const part = billedLength(rest) <= limit ? rest : billedSlice(rest, limit);
+      chunks.push(part.replace(EDGE, ""));
+      rest = rest.slice(part.length).replace(EDGE, "");
+    }
+  };
+  for (const paragraph of text.split(/\n\s*\n/)) {
+    for (const sentence of splitSentences(paragraph)) push(sentence);
+  }
+  return chunks;
+};
+var bytesOf = (base64) => {
+  const text = atob(base64);
+  const bytes = new Uint8Array(text.length);
+  for (let index = 0; index < text.length; index += 1) bytes[index] = text.charCodeAt(index);
+  return bytes;
+};
+var playClip = (clip2, signal) => new Promise((resolve2) => {
+  if (signal?.aborted || typeof Audio !== "function") {
+    resolve2(signal?.aborted ? "aborted" : "failed");
+    return;
+  }
+  if (typeof clip2?.audioBase64 !== "string" || clip2.audioBase64 === "") {
+    resolve2("failed");
+    return;
+  }
+  let url;
+  try {
+    url = URL.createObjectURL(new Blob([bytesOf(clip2.audioBase64)], { type: clip2.mediaType || "audio/wav" }));
+  } catch {
+    resolve2("failed");
+    return;
+  }
+  const audio = new Audio();
+  let settled = false;
+  const finish = (outcome) => {
+    if (settled) return;
+    settled = true;
+    signal?.removeEventListener("abort", onAbort);
+    audio.onended = audio.onerror = null;
+    audio.pause();
+    audio.removeAttribute("src");
+    URL.revokeObjectURL(url);
+    resolve2(outcome);
+  };
+  const onAbort = () => finish("aborted");
+  audio.onended = () => finish("done");
+  audio.onerror = () => finish("failed");
+  signal?.addEventListener("abort", onAbort, { once: true });
+  audio.src = url;
+  Promise.resolve().then(() => audio.play()).catch(() => finish("failed"));
+});
+var replyVoice = (prefs) => prefs?.deepseekServices?.tts === "deepseek" ? prefs.deepseekServices?.voice === "tide" ? "tide" : "stella" : null;
+var settleSpeech = async (said, current2, { failed, done } = {}) => {
+  const outcome = await said;
+  if (current2() && outcome !== "aborted") {
+    if (outcome === "failed") failed?.();
+    done?.();
+  }
+  return outcome;
+};
+var createSpeechPlayer = (synthesize) => {
+  let generation = 0;
+  let active = null;
+  let playing = Promise.resolve("done");
+  const run2 = async (text, voice, own) => {
+    for (const chunk of splitSpeech(text)) {
+      if (own !== generation) return "aborted";
+      const abort = new AbortController();
+      active = abort;
+      let clip2;
+      try {
+        clip2 = await synthesize(chunk, voice, abort.signal);
+      } catch {
+        if (active === abort) active = null;
+        return own === generation ? "failed" : "aborted";
+      }
+      if (own !== generation) {
+        if (active === abort) active = null;
+        return "aborted";
+      }
+      const outcome = await playClip(clip2, abort.signal);
+      if (active === abort) active = null;
+      if (own !== generation || outcome === "aborted") return "aborted";
+      if (outcome === "failed") return "failed";
+    }
+    return "done";
+  };
+  return {
+    say(text, voice) {
+      generation += 1;
+      active?.abort();
+      active = null;
+      const own = generation;
+      playing = run2(text, voice, own);
+      return playing;
+    },
+    stop() {
+      generation += 1;
+      active?.abort();
+      active = null;
+    },
+    wait() {
+      return playing;
+    }
+  };
+};
+
 // src/client/voice.js
 var import_react67 = require("react");
 var plainSpeech = (text) => stripHeader(text).replace(/```[\s\S]*?```/g, " ").replace(/\[([^\]]*)\]\([^)]*\)/g, "$1").replace(/[*_`#>|~-]+/g, " ").replace(/\s+/g, " ").trim();
@@ -42809,7 +43163,27 @@ var VOICE_LABELS = {
   preparing: "Preparing voice input…",
   unsupported: "Voice chat is not available in this browser"
 };
-var CAPTURE_NOTES = { blocked: "Microphone access is blocked", unavailable: "Voice chat is not available in this browser", "too-long": "That was too long to recognize" };
+var CAPTURE_NOTES = { blocked: "Microphone access is blocked", unavailable: "Voice chat is not available in this browser", "too-long": "That was too long to recognize", service: "Couldn't reach the speech service" };
+async function transcribeUtterance({ speech, catalog, capture, isCurrent, ctl, submit, resume, fail: fail2 }) {
+  const controller = new AbortController();
+  try {
+    const wave = await capture.finish(catalog.maxDurationSeconds);
+    if (!wave || !isCurrent() || controller.signal.aborted) {
+      if (isCurrent()) resume();
+      return;
+    }
+    ctl.current = controller;
+    const text = await transcribeWave(speech, catalog, wave, controller.signal);
+    if (!isCurrent() || controller.signal.aborted) return;
+    if (text) submit(text);
+    else resume();
+  } catch (error) {
+    if (!isCurrent() || controller.signal.aborted) return;
+    fail2(error);
+  } finally {
+    if (ctl.current === controller) ctl.current = null;
+  }
+}
 function watchReply(read, watch, consume) {
   let off = () => {
   };
@@ -42890,19 +43264,24 @@ function VoiceMode({ sessionId, paneLeft, roster, actions, useSessions, useSessi
   const [note, setNote] = (0, import_react67.useState)("");
   const [cycle, setCycle] = (0, import_react67.useState)(0);
   const orbRef = (0, import_react67.useRef)(null);
-  const transcribeAbort = (0, import_react67.useRef)(null);
   const waiting = (0, import_react67.useRef)(null);
   const reply = (0, import_react67.useRef)(lastReply);
   reply.current = lastReply;
+  const prefs = (0, import_react67.useRef)(roster.prefs);
+  prefs.current = roster.prefs;
   const turn = (0, import_react67.useRef)(0);
-  const cancelTranscribe = () => {
-    transcribeAbort.current?.abort();
-    transcribeAbort.current = null;
+  const player = (0, import_react67.useRef)(null);
+  const transcribeCtl = (0, import_react67.useRef)(null);
+  const speechSeq = (0, import_react67.useRef)(0);
+  const stopSpeech = () => {
+    speechSeq.current += 1;
+    window.speechSynthesis?.cancel();
+    player.current?.stop();
   };
   const close = () => {
     turn.current += 1;
-    cancelTranscribe();
-    window.speechSynthesis?.cancel();
+    transcribeCtl.current?.abort();
+    stopSpeech();
     actions.closeVoice();
   };
   useEscape(close);
@@ -42971,24 +43350,21 @@ function VoiceMode({ sessionId, paneLeft, roster, actions, useSessions, useSessi
     const writeLevel = (value) => {
       orbRef.current?.style.setProperty("--bt-level", String(value));
     };
-    const finish = async (current2) => {
-      cancelTranscribe();
-      const controller = new AbortController();
-      transcribeAbort.current = controller;
+    const finish = (current2) => {
       setPhase("transcribing");
-      try {
-        const wave = await current2.finish(catalog.maxDurationSeconds);
-        const text = wave ? await transcribeWave(speech, catalog, wave, controller.signal) : "";
-        if (turn.current !== own) return;
-        if (text) submit(text);
-        else setPhase("listening");
-      } catch (error) {
-        if (turn.current !== own || error?.name === "AbortError") return;
-        setNote(t(CAPTURE_NOTES[error?.kind] ?? "Couldn't hear that"));
-        setPhase("listening");
-      } finally {
-        if (transcribeAbort.current === controller) transcribeAbort.current = null;
-      }
+      void transcribeUtterance({
+        speech,
+        catalog,
+        capture: current2,
+        isCurrent: () => turn.current === own,
+        ctl: transcribeCtl,
+        submit,
+        resume: () => setPhase("listening"),
+        fail: (error) => {
+          setNote(t(CAPTURE_NOTES[error?.kind] ?? "Couldn't hear that"));
+          setPhase("listening");
+        }
+      });
     };
     openCapture().then((opened) => {
       if (stopped) {
@@ -43039,10 +43415,28 @@ function VoiceMode({ sessionId, paneLeft, roster, actions, useSessions, useSessi
       const spoken = plainSpeech(text);
       setSaid(spoken);
       setHeard("");
-      if (!window.speechSynthesis || !spoken) {
+      if (!spoken) {
         setPhase("listening");
         return;
       }
+      const cloud = typeof actions.synthesizeSpeech === "function" ? replyVoice(prefs.current) : null;
+      if (cloud) {
+        window.speechSynthesis?.cancel();
+        player.current ??= createSpeechPlayer((text2, voice, signal) => actions.synthesizeSpeech({ text: text2, voice }, signal));
+        const own = ++speechSeq.current;
+        setPhase("speaking");
+        void settleSpeech(player.current.say(spoken, cloud), () => speechSeq.current === own, {
+          failed: () => setNote(t("Couldn't read the reply")),
+          done: () => setPhase((current2) => current2 === "speaking" ? "listening" : current2)
+        });
+        return;
+      }
+      if (!window.speechSynthesis) {
+        setPhase("listening");
+        return;
+      }
+      speechSeq.current += 1;
+      player.current?.stop();
       const utterance = new SpeechSynthesisUtterance(spoken);
       utterance.lang = /[\u3400-\u9fff]/.test(spoken) ? "zh-CN" : "en-US";
       utterance.onend = () => setPhase((current2) => current2 === "speaking" ? "listening" : current2);
@@ -43065,8 +43459,9 @@ function VoiceMode({ sessionId, paneLeft, roster, actions, useSessions, useSessi
     );
   }, [phase, running, lastReply]);
   (0, import_react67.useEffect)(() => () => {
-    cancelTranscribe();
-    window.speechSynthesis?.cancel();
+    turn.current += 1;
+    transcribeCtl.current?.abort();
+    stopSpeech();
   }, []);
   useMicLevel(!speech && phase === "listening" && dictation.listening, orbRef);
   const markState = phase === "thinking" || phase === "transcribing" ? "thinking" : phase === "speaking" ? "sending" : "idle";
@@ -43077,8 +43472,8 @@ function VoiceMode({ sessionId, paneLeft, roster, actions, useSessions, useSessi
       return;
     }
     turn.current += 1;
-    cancelTranscribe();
-    window.speechSynthesis?.cancel();
+    transcribeCtl.current?.abort();
+    stopSpeech();
     setPhase("paused");
   };
   (0, import_react67.useEffect)(() => {
@@ -43123,7 +43518,8 @@ function VoiceMode({ sessionId, paneLeft, roster, actions, useSessions, useSessi
       return;
     }
     turn.current += 1;
-    cancelTranscribe();
+    transcribeCtl.current?.abort();
+    stopSpeech();
     setPhase("preparing");
     void Promise.resolve(openSetup.prepare()).then((started) => {
       if (started === false) {

@@ -713,13 +713,6 @@ const ZH = {
   'Advanced settings': '高级设置',
   'Back to models': '返回模型',
   'Open Plugins': '打开插件页',
-  'DeepSeek services': 'DeepSeek 服务',
-  'DeepSeek API': 'DeepSeek API',
-  'DeepSeek Web Search API': 'DeepSeek 网页搜索 API',
-  'Find it in Plugins → Web search.': '在插件 → 网页搜索里打开。',
-  'Image and document reading': '图片与文档识别',
-  'Use DeepSeek to read images and documents': '用 DeepSeek 识别图片和文档',
-  'Bots upload selected files to DeepSeek for text recognition; local Office editing is unchanged.': 'Bot 会把选中的文件上传给 DeepSeek 做文字识别；本地 Office 编辑不变。',
   'Open settings': '打开设置',
   'Open settings file': '打开配置文件',
   'Could not open the settings file': '无法打开配置文件',
@@ -758,6 +751,23 @@ const ZH = {
   Unknown: '未解析',
   'Back to Bots': '返回 Bot 列表',
   'Close settings': '关闭设置',
+
+  // DeepSeek services
+  'DeepSeek services': 'DeepSeek 服务',
+  'DeepSeek API': 'DeepSeek API',
+  'DeepSeek Web Search API': 'DeepSeek 联网搜索 API',
+  'Find it in Plugins → Web search.': '在 插件 → 网页搜索 里设置。',
+  'Image and document reading': '图片与文档识别',
+  'Use DeepSeek to read images and documents': '用 DeepSeek 识别图片和文档',
+  'Bots upload selected files to DeepSeek for text recognition; local Office editing is unchanged.': 'Bot 会把选中的文件上传给 DeepSeek 做文字识别；本地 Office 编辑流程不变。',
+  'Text to speech': '文字转语音',
+  'Read replies aloud': '朗读回复',
+  System: '系统',
+  Voice: '声音',
+  'Speech recognition': '语音识别',
+  'Dictation provider': '听写提供方',
+  'Use DeepSeek for dictation': '用 DeepSeek 听写',
+  'In use': '使用中',
 
   // Phone
   Phone: '手机',
@@ -1254,6 +1264,8 @@ const ZH = {
   'Downloading the speech model… {pct}%': '正在下载语音模型… {pct}%',
   "Couldn't prepare voice input": '语音输入准备失败',
   'That was too long to recognize': '这段太长了，识别不了',
+  "Couldn't read the reply": '回复朗读失败',
+  "Couldn't reach the speech service": '语音识别服务不可用',
 
   // Usage page
   '24 hours': '24 小时',
@@ -1747,6 +1759,8 @@ const HOST_ERRORS = [
   [/^(.+) is in or around the folder of (.+), a private Bot, so it cannot be the team workspace$/, '$1 在隐私 Bot「$2」的文件夹内或外层，不能作为总工作区'],
   // DeepSeek services: host status reasons, shown where the capability is not ready.
   [/^The DeepSeek API key \((.+)\) is not set$/, 'DeepSeek API key（$1）还没设置'],
+  [/^This DSH has no speech-to-text service \(voice input is not mounted\)$/, '这个 DSH 没有语音识别服务（语音输入插件未挂载）'],
+  [/^The speech provider is registering$/, '语音识别提供方正在注册'],
   [/^This DSH has no credential store\.$/, '这个 DSH 没有凭据存储'],
   [/^DS Bot cannot tell the DeepSeek key from another server's: [\s\S]*$/, 'DS Bot 无法区分 DeepSeek key 和其它服务器的 key，这些服务保持关闭。'],
   // Memory changes the memory panel asked for; the whole message is matched.
