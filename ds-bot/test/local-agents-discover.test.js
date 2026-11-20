@@ -202,7 +202,7 @@ test('cleanEnv strips DEEPSEEK_ variables along with agent tokens', () => {
 // only that build had no Qoder entry in Settings at all.
 test('the Qoder CN entry point counts as an installed Qoder CLI (#1849)', () => {
   const spec = ENGINES['local-qoder']
-  const cn = '/Users/me/.qoder-cn/entry/qodercn'
+  const cn = '/opt/qoder-cn/entry/qodercn'
   assert.equal(findEngineExecutable(spec, name => (name === 'qodercn' ? cn : undefined)), cn)
 
   // A globally named CLI keeps priority when both builds are installed.
