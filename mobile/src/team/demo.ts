@@ -2,7 +2,7 @@ import { useMemo, useRef, useState } from 'react'
 import type { TeamState } from '../connection.ts'
 import { demoData } from './demo-team.ts'
 import { demoFolderListing, demoUpdateRoom } from './demo-folders.ts'
-import { ensureUnlock } from './gate.ts'
+import { ensureUnlock } from './gate'
 import { validateViewAnswer } from 'deep-view/core'
 import type { ChatItem } from '../screens/chat/items.tsx'
 

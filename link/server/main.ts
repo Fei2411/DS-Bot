@@ -9,6 +9,7 @@ const server = await startRelayServer({
   port: Number(env.PORT ?? 8787),
   host: env.HOST ?? '0.0.0.0',
   dataFile: env.DSBOT_LINK_DATA,
+  webDir: env.DSBOT_LINK_WEB_DIR,
   trustProxy: env.DSBOT_LINK_TRUST_PROXY === '1',
   maxSockets: number('DSBOT_LINK_MAX_SOCKETS'),
   maxLinks: number('DSBOT_LINK_MAX_LINKS'),

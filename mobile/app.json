@@ -2,6 +2,15 @@
   "expo": {
     "name": "DS Bot",
     "slug": "dsbot",
+    "web": {
+      "bundler": "metro",
+      "output": "single",
+      "name": "DS Bot",
+      "shortName": "DS Bot",
+      "themeColor": "#fcfcfc",
+      "favicon": "./assets/icon.png"
+    },
+    "experiments": { "baseUrl": "/web" },
     "orientation": "default",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",

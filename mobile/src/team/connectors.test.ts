@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
 import { connectorActionOf, connectorCanConnectOnMobile, connectorRows } from './connectors.ts'
+import { GATED } from './gated.ts'
 
 // Recorded from a running computer: `state.connectors` of a `state` answer, cut to three of
 // its rows (one per auth kind) and with the mailbox as it comes. The rest of the answer is
@@ -75,7 +75,6 @@ test('connectorActionOf picks the right auth flow for none, key, oauth-signin, a
 })
 
 test('gate.ts gates connector OAuth client and callback completion endpoints', () => {
-  const gateSource = readFileSync(new URL('./gate.ts', import.meta.url), 'utf8')
-  assert.match(gateSource, /'connector-client'/)
-  assert.match(gateSource, /'connector-sign-in-code'/)
+  assert.equal(GATED.has('connector-client'), true)
+  assert.equal(GATED.has('connector-sign-in-code'), true)
 })
