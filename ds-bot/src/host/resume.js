@@ -485,19 +485,21 @@ export function install(rt) {
       })
       if (resumed === true) keepTaskSessions.add(sessionId)
     }
+    // Reconcile orphaned background tasks before settling room batches so a zombie
+    // group task does not keep `hasRoomTasks` true and mask a stuck batch.
+    await rt.reconcileTasksAfterRestart?.(keepTaskSessions).catch(error => rt.warn('ds-bot: reconciling background tasks failed: %s', error))
     // What a group's members were asked for and will not pick up is settled now.
     await rt.settleRoomBatches?.()
-    await rt.reconcileTasksAfterRestart?.(keepTaskSessions).catch(error => rt.warn('ds-bot: reconciling background tasks failed: %s', error))
   }
 
   ctx.effect(() => {
     const pending = Object.keys(interrupted.turns).length > 0 || Object.keys(interrupted.queued).length > 0
-    // With nothing to pick up, the group batches a restart left are settled at once.
+    // With nothing to pick up, orphaned tasks and group batches a restart left are settled at once.
     const timer = pending
       ? setTimeout(() => void resumeAll().catch(error => rt.warn('ds-bot: picking up interrupted work failed: %s', error)), RESUME_DELAY_MS)
       : setTimeout(() => void rt.load()
-        .then(() => rt.settleRoomBatches?.())
         .then(() => rt.reconcileTasksAfterRestart?.(new Set()))
+        .then(() => rt.settleRoomBatches?.())
         .catch(error => rt.warn('ds-bot: settling group batches failed: %s', error)), 0)
     timer?.unref?.()
     // What the turns stopped by this shutdown left stays as last noted.

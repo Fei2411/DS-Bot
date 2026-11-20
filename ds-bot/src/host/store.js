@@ -570,15 +570,16 @@ export function install(rt) {
       // so folder/engine/model sweeps do not wake them again.
       for (const task of bot.tasks ?? []) {
         const taskSid = sessionIdOf(task?.sessionId)
+        const roomMeta = typeof task?.roomId === 'string' && task.roomId !== '' ? { roomId: task.roomId } : {}
         if (taskSid !== undefined) {
           if (isActiveTask(task)) {
             chatOwners.set(taskSid, botId)
-            taskOwners.set(taskSid, { botId, taskId: task.id })
+            taskOwners.set(taskSid, { botId, taskId: task.id, ...roomMeta })
           } else {
-            pastOwners.set(taskSid, { botId })
+            pastOwners.set(taskSid, { botId, ...roomMeta })
           }
         }
-        indexPast(task?.segments, { botId })
+        indexPast(task?.segments, { botId, ...roomMeta })
       }
     }
     for (const [id, room] of Object.entries(state.rooms)) {
