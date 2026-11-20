@@ -55,7 +55,7 @@ npx @deepseek-ai/dsh@0.2.2-rc.1 web
 
 ### 网页搜索
 
-DS Bot 会把 `auto` 搜索 provider 选为整个 profile 的后端。禁用 `web-search-auto` 时，也要为该 profile 选择另一个已注册的搜索 provider。详见[网页搜索说明](ds-bot/README.md#web-search)和[恢复步骤](docs/known-issues.zh.md#关掉-web-search-auto-后所有会话的网页搜索都失败)。
+DS Bot 会把 `auto` 搜索 provider 选为整个 profile 的后端。禁用 `web-search-auto` 时，也要为该 profile 选择另一个已注册的搜索 provider。详见[网页搜索说明](ds-bot/README.md#web-search)和[恢复步骤](docs/known-issues.zh.md#关掉web-search-auto后所有会话的网页搜索都失败)。
 
 ## 功能
 
@@ -118,6 +118,14 @@ ds bot 拥有群聊功能。群聊是非常好的多 bot 协作方式，但它�
 在 设置 → 连接器 里，可以登录 GitHub、Gmail、QQ 邮箱、163 等邮箱和远程 MCP 服务，也能从 Claude Desktop、Cursor、VS Code 导入已有配置。凭据保存在 ds bot 的密钥里，bot 看不到明文，写的邮件默认也要你确认后才发。
 
 在 设置 → 能力 里，可以管理团队共享的 MCP 服务、技能和能力包，并在每个 bot 的设置里按需开启；bot 自己添加的本地命令需要先经你批准才能运行。
+
+### 联网搜索
+
+`auto` 联网搜索仍走发起检索会话自己的路由和 key（绝不借用别的路由的 key）与无 key 回退，现在还会在该路由自己的 origin 上尝试 DeepSeek 官方 Search API。想让所有模型都用官方 Search / Fetch API，在插件页找到 插件 → 网页搜索 下的「Use the new Web Search API」开关，打开后会同时选择 Search 与 Fetch。DeepSeek 账号登录目前只验证了 Search / Fetch。这些调用按你自己的 API key 用量计费。
+
+### DeepSeek 文档识别
+
+在 设置 → DeepSeek 服务 里，可以用一个 DeepSeek API key 给任意模型单独开启图片与文档识别，默认关闭、必须手动打开；配置 key 不会自动上传文件。key 在 设置 → 模型 里设置。文档识别是只读的：`read_document` 接受工作区路径或本会话上传的文件 / 图片附件，结果再长也会保留全文，不丢内容。这些调用按你自己的 API key 用量计费。
 
 ### Office 文件
 

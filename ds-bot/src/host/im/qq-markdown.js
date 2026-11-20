@@ -102,10 +102,14 @@ function restore(text, token, values) {
 
 // GFM lets a cell hold a literal pipe when it is escaped. Splitting on every
 // pipe would move the rest of the row into the next column.
+//
+// The outer pipes are optional in GFM ("if a pipe is present, the leading and
+// trailing pipes are optional"), so `a | b` over `--- | ---` is a table too.
+// Requiring them left such a table unconverted, and QQ drew the delimiter row
+// as literal text.
 function tableCells(line) {
   const trimmed = line.trim()
   if (!trimmed.includes('|')) return null
-  if (!trimmed.startsWith('|') && !trimmed.endsWith('|')) return null
   const cells = []
   let cell = ''
   for (let at = 0; at < trimmed.length; at += 1) {
@@ -133,12 +137,29 @@ function isSeparatorRow(line) {
   return cells !== null && cells.length > 0 && cells.every(cell => /^:?-{1,}:?$/.test(cell))
 }
 
+// GFM ends a table at a blank line or at another block. `# Notes | next` after
+// `| 1 | 2 |` is a heading, not a row, and a delimiter row outside a table is
+// prose: consuming either one swallowed the rest of the message.
+const startsBlock = (line) =>
+  line === ''
+  || line.startsWith(FENCE)
+  || /^ {0,3}(?:#{1,6}(?:[ \t]|$)|>|(?:[-*+]|\d{1,9}[.)])[ \t]|(?:[-*_])(?:[ \t]*[-*_]){2,}[ \t]*$)/.test(line)
+
+// A list item is a single line, so a cell cannot keep a hard break: folding it
+// to a space keeps the row on one item and every column under its own name.
+// Left alone, the tag would be turned into a newline afterwards, after the row
+// had already been joined, and the rest of the row would fall outside the item.
+function flattenCell(text) {
+  return text.replace(/<br\s*\/?>/gi, ' ').trim()
+}
+
 // QQ has no table: one list item per row, each cell named by its column, keeps
 // the pairing readable without the pipes.
 function tableToList(header, rows) {
+  const labels = header.map(flattenCell)
   return rows.map((row) => {
     const parts = row
-      .map((cell, index) => (header[index] === undefined || header[index] === '' ? cell : `${header[index]}：${cell}`))
+      .map((cell, index) => (labels[index] === undefined || labels[index] === '' ? flattenCell(cell) : `${labels[index]}：${flattenCell(cell)}`))
       .filter(part => part !== '')
     return `- ${parts.join('；')}`
   }).join('\n')
@@ -153,15 +174,14 @@ export function toQqMarkdown(markdown) {
   const lines = fenced.map(line => (line.startsWith(FENCE) ? line : protectCodeSpans(line, spans)))
   const out = []
   for (let at = 0; at < lines.length;) {
-    if (isSeparatorRow(lines[at])) {
-      at += 1
-      continue
-    }
     const header = tableCells(lines[at])
     if (header !== null && isSeparatorRow(lines[at + 1] ?? '')) {
       const rows = []
       let end = at + 2
       while (end < lines.length) {
+        // The delimiter is part of the table already read; a block that starts
+        // here belongs to the message, not to the table.
+        if (startsBlock(lines[end])) break
         const cells = tableCells(lines[end])
         if (cells === null || cells.length === 0) break
         rows.push(cells)

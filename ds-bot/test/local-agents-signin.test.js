@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { spawn } from 'node:child_process'
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { test } from 'node:test'
@@ -212,7 +213,6 @@ test('OpenCode has no sign-in check or Sign in button', () => {
 })
 
 test('Antigravity with unknown sign-in renders its logo, Sign in button, no state label, and copies agy acp --login', async () => {
-  assert.equal(ENGINES['local-antigravity'].signedIn, undefined)
   assert.equal(ENGINES['local-antigravity'].signIn, 'agy acp --login')
   const written = []
   nav.clipboard = { writeText: async (value) => { written.push(value) } }
@@ -230,6 +230,52 @@ test('Antigravity with unknown sign-in renders its logo, Sign in button, no stat
   click('Sign in')
   await flush()
   assert.deepEqual(written, ['agy acp --login'])
+})
+
+test('Antigravity uses only a positive macOS Keychain lookup as sign-in evidence', async (t) => {
+  const { signedIn } = ENGINES['local-antigravity']
+  const agy = '/bench/bin/agy'
+  const fromExit = code => t.mock.fn((_file, _args, options) => spawn(process.execPath, ['-e', `process.exit(${code})`], options))
+  const hit = fromExit(0)
+  const miss = fromExit(44) // security returns 44 for an item not found.
+  assert.equal(await probeSignIn(agy, signedIn, { platform: 'darwin', spawnKeychain: hit }), true)
+  const [file, args, options] = hit.mock.calls[0].arguments
+  assert.equal(file, '/usr/bin/security')
+  assert.deepEqual(args, ['find-generic-password', '-s', 'gemini', '-a', 'antigravity'])
+  assert.equal(options.stdio, 'ignore')
+  assert.equal(await probeSignIn(agy, signedIn, { platform: 'darwin', spawnKeychain: miss }), null)
+
+  const unavailable = t.mock.fn((_file, _args, options) => spawn(join(process.execPath, 'missing'), [], options))
+  assert.equal(await probeSignIn(agy, signedIn, { platform: 'darwin', spawnKeychain: unavailable }), null)
+
+  for (const platform of ['linux', 'win32']) {
+    assert.equal(await probeSignIn(agy, signedIn, { platform, spawnKeychain: hit }), null)
+  }
+  assert.equal(hit.mock.callCount(), 1)
+})
+
+test('CodeBuddy Code is signed in while its session file holds a login and it has not logged out (#1835)', async (t) => {
+  const { signedIn, signIn } = ENGINES['local-codebuddy']
+  assert.equal(signIn, 'codebuddy', 'codebuddy has no login subcommand; it signs in on first start')
+  const root = mkdtempSync(join(tmpdir(), 'dsb-codebuddy-'))
+  t.after(() => rmSync(root, { recursive: true, force: true }))
+  const cli = '/bench/bin/codebuddy'
+  const dataDirs = { darwin: ['Library', 'Application Support'], win32: ['AppData', 'Local'], linux: ['.local', 'share'] }
+  for (const [platform, dataDir] of Object.entries(dataDirs)) {
+    const home = join(root, platform)
+    const auth = join(home, ...dataDir, 'CodeBuddyExtension', 'Data', 'Public', 'auth')
+    const session = join(auth, 'Tencent-Cloud.coding-copilot.info')
+    assert.equal(await probeSignIn(cli, signedIn, { home, platform }), null, `${platform}: no session file says nothing`)
+    mkdirSync(auth, { recursive: true })
+    for (const unreadable of ['', 'not json', '{}', '{"auth":{},"account":{}}', '{"auth":{"accessToken":"enc:token"}}']) {
+      writeFileSync(session, unreadable)
+      assert.equal(await probeSignIn(cli, signedIn, { home, platform }), null, `${platform}: CodeBuddy rejects ${JSON.stringify(unreadable)}`)
+    }
+    writeFileSync(session, JSON.stringify({ auth: { accessToken: 'enc:token', domain: 'example.test' }, account: { uid: 'u1' } }))
+    assert.equal(await probeSignIn(cli, signedIn, { home, platform }), true, `${platform}: a session with a token and an account is signed in`)
+    writeFileSync(`${session}.logged-out`, '')
+    assert.equal(await probeSignIn(cli, signedIn, { home, platform }), null, `${platform}: a logout marker wins over the file`)
+  }
 })
 
 test('AgentBadge adapts dark monochrome SVG logos to theme ink and preserves brand colors', () => {

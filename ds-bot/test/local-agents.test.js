@@ -199,7 +199,27 @@ test('env sanitization drops agent and key variables', () => {
   assert.equal(env.OPENAI_API_KEY, undefined)
   assert.equal(env.DS_BOT_HOME, undefined)
   assert.equal(env.EXTRA, '1')
-  assert.ok(env.PATH.startsWith(process.env.PATH))
+  const pathKey = Object.keys(env).find(key => key.toUpperCase() === 'PATH')
+  assert.ok(pathKey)
+  assert.ok(env[pathKey].startsWith(process.env[pathKey]))
+})
+
+test('env sanitization matches the explicit denylist and host prefixes case-insensitively', () => {
+  const keys = ['openai_api_key', 'anthropic_auth_token', 'acp_backend', 'ds_bot_fixture_variable', 'dsh_fixture_variable', 'antigravity_fixture_variable', 'agy_fixture_variable', 'deepseek_fixture_variable']
+  const before = keys.map(key => [key, process.env[key]])
+  try {
+    for (const key of keys) process.env[key] = 'fake-env-value'
+    const env = cleanEnv({ OPENAI_API_KEY: 'fake-explicit-value', DSH_FIXTURE_VARIABLE: 'fake-explicit-host-value' })
+    for (const key of keys) assert.equal(Object.hasOwn(env, key), false, key)
+    // An engine's explicit environment is passed in, not inherited, so it stays.
+    assert.equal(env.OPENAI_API_KEY, 'fake-explicit-value')
+    assert.equal(env.DSH_FIXTURE_VARIABLE, 'fake-explicit-host-value')
+  } finally {
+    for (const [key, value] of before) {
+      if (value === undefined) delete process.env[key]
+      else process.env[key] = value
+    }
+  }
 })
 
 // A Dock-launched app has PATH=/usr/bin:/bin:…; a CLI found in ~/.local/bin or
@@ -1605,6 +1625,48 @@ test('claude receives Anthropic base64 image blocks for text+image and image-onl
   assert.match(second.text, new RegExp(`"data":"${pngBytes.toString('base64')}"`))
 })
 
+test('ClaudeEngine.steer unwraps block arrays and strings without double-wrapping', async (t) => {
+  const pngBytes = Buffer.from([137, 80, 78, 71, 9, 8, 7, 6])
+  const pngRef = { attachmentId: 'att-c-steer', mediaType: 'image/png', bytes: pngBytes.length, width: 1, height: 1 }
+  const adapter = makeAdapter({
+    attachments: makeMemoryAttachments({ 'att-c-steer': { mediaType: 'image/png', data: pngBytes } }),
+  })
+  t.after(() => adapter.dispose())
+
+  // Put Claude into a running/suspended turn (`session.running === true`) via permission wait,
+  // then send a text+image follow-up so sendInput steers via ClaudeEngine.steer(session, blocks).
+  const first = await collect(adapter.stream(options('c-steer-img', [user('m1', 'ask-claude-perm')], { provider: 'local-claude-code', model: 'sonnet' })))
+  assert.equal(first.finish?.kind, 'tool-calls')
+  const steeredImg = await collect(adapter.stream(options('c-steer-img', [
+    user('m1', 'ask-claude-perm'),
+    imageMsg('m2', 'steer with image', pngRef),
+  ], { provider: 'local-claude-code', model: 'sonnet' })))
+  assert.equal(steeredImg.finish?.kind, 'stop')
+  assert.match(steeredImg.text, /^ok: steer with image/)
+  assert.match(steeredImg.text, new RegExp(`"mediaType":"image/png".*"data":"${pngBytes.toString('base64')}"`))
+
+  // Plain-text follow-up while suspended/running also passes blocks through sendInput.
+  const askText = await collect(adapter.stream(options('c-steer-txt', [user('m1', 'ask-claude-perm')], { provider: 'local-claude-code', model: 'sonnet' })))
+  assert.equal(askText.finish?.kind, 'tool-calls')
+  const steeredText = await collect(adapter.stream(options('c-steer-txt', [
+    user('m1', 'ask-claude-perm'),
+    user('m2', 'steer text only'),
+  ], { provider: 'local-claude-code', model: 'sonnet' })))
+  assert.equal(steeredText.finish?.kind, 'stop')
+  assert.equal(steeredText.text, 'ok: steer text only')
+
+  // Direct string steer via ClaudeEngine.steer keeps working as well.
+  const live = adapter.live.get('c-steer-txt')
+  await live.engine.steer(live.engineSession, 'direct string steer')
+  const evs = []
+  while (true) {
+    const ev = await live.next()
+    evs.push(ev)
+    if (ev.type === 'done' || ev.type === 'error') break
+  }
+  assert.equal(evs.filter(ev => ev.type === 'text').map(ev => ev.text).join(''), 'ok: direct string steer')
+})
+
 test('acp receives {type:"image", mimeType, data} when promptCapabilities.image is true', async (t) => {
   const webpBytes = Buffer.from([82, 73, 70, 70, 1, 2, 3])
   const ref = { attachmentId: 'att-a1', mediaType: 'image/webp', bytes: webpBytes.length, width: 1, height: 1 }
@@ -1696,4 +1758,85 @@ test('replay drops images outside the replay window without reading their attach
   const out = await collect(adapter.stream(options('s1', msgs, { provider: 'local-codex-cli', model: 'gpt-5.1-codex' })))
   assert.equal(out.finish?.kind, 'stop')
   assert.deepEqual(readIds, ['att-recent'])
+})
+
+test('ACP upstream error data preserves code, detail and status (#1806)', async (t) => {
+  const detail = "This request was blocked by Factory's usage policy check."
+  const cases = [
+    { data: { status: 403, code: 'content_policy_rejected', detail }, code: 'content_policy_rejected', text: detail, status: 403 },
+    { data: { status: 403, error: { code: 'content_policy_rejected', message: detail } }, code: 'content_policy_rejected', text: detail, status: 403 },
+    { data: { error: { status: 403, code: 'content_policy_rejected', message: 'Request rejected', detail } }, code: 'content_policy_rejected', text: detail, status: 403 },
+    { data: { message: 'Login required', code: 'auth_failed', status: 401 }, code: 'LOCAL_AGENT_SIGNIN', text: 'Login required', status: 401 },
+    { data: { detail: 'Rate limit reached', code: 'rate_limit_exceeded', status: 429 }, code: 'LOCAL_AGENT_QUOTA', text: 'Rate limit reached', status: 429 },
+    ...['This request exceeded the allowed usage policy limits.', 'This request contains too many tokens prohibited by policy.', 'Unauthorized content was rejected.'].flatMap(text => ['detail', 'message'].map(field => ({
+      data: { status: 403, code: 'content_policy_rejected', [field]: text }, code: 'content_policy_rejected', text, status: 403,
+    }))),
+    { data: { code: 'context_length_exceeded', detail: 'Request rejected' }, code: 'CONTEXT_WINDOW_EXCEEDED', text: 'Request rejected' },
+    { outerCode: 'auth_failed', code: 'LOCAL_AGENT_SIGNIN', text: 'Internal error' },
+    { outerCode: 'rate_limit_exceeded', code: 'LOCAL_AGENT_QUOTA', text: 'Internal error' },
+    { outerCode: 'NO_ADAPTER', code: 'LOCAL_AGENT_MISSING', text: 'Internal error' },
+    { outerCode: 'auth_failed', data: { code: 'upstream_failure', detail }, code: 'upstream_failure', text: detail },
+    { outerCode: 'rate_limit_exceeded', data: { code: 'upstream_failure', detail }, code: 'upstream_failure', text: detail },
+    { message: 'Unauthorized content was rejected.', data: { status: 403, code: 'content_policy_rejected' }, code: 'content_policy_rejected', text: 'Unauthorized content was rejected.', status: 403 },
+    { data: { status: 504, code: 'deadline_exceeded', detail: 'The upstream service timed out.' }, code: 'deadline_exceeded', text: 'The upstream service timed out.', status: 504 },
+    { outerCode: 'deadline_exceeded', code: 'deadline_exceeded', text: 'Internal error' },
+    ...['auth_failed', 'unauthorized', 'unauthenticated', 'authentication_failed', 'not_logged_in'].map(code => ({
+      data: { code }, code: 'LOCAL_AGENT_SIGNIN', text: 'Internal error',
+    })),
+    ...['rate_limit_exceeded', 'quota_exceeded', 'insufficient_quota', 'usage_limit_exceeded'].map(code => ({
+      data: { code }, code: 'LOCAL_AGENT_QUOTA', text: 'Internal error',
+    })),
+    ...[
+      ['Too many tokens', 'CONTEXT_WINDOW_EXCEEDED'],
+      ['Login required', 'LOCAL_AGENT_SIGNIN'],
+      ['Rate limit reached', 'LOCAL_AGENT_QUOTA'],
+    ].flatMap(([text, code]) => [
+      { data: { detail: text }, code, text },
+      { data: { error: { message: text } }, code, text },
+    ]),
+    ...[
+      ['Login required', 'LOCAL_AGENT_SIGNIN'],
+      ['Rate limit reached', 'LOCAL_AGENT_QUOTA'],
+      ['Too many tokens', 'CONTEXT_WINDOW_EXCEEDED'],
+    ].map(([message, code]) => ({ message, data: { detail }, code, text: detail })),
+    { data: { code: '', detail }, code: 'LOCAL_AGENT_ERROR', text: detail },
+    { data: { code: 403, detail }, code: 'LOCAL_AGENT_ERROR', text: detail },
+    { data: { code: '  ', detail, status: 999 }, code: 'LOCAL_AGENT_ERROR', text: detail },
+    { data: null, code: 'LOCAL_AGENT_ERROR', text: 'Internal error (JSON-RPC -32603)' },
+    { data: {}, code: 'LOCAL_AGENT_ERROR', text: 'Internal error (JSON-RPC -32603)' },
+  ]
+  for (const [index, entry] of cases.entries()) {
+    await t.test(`upstream data case ${index + 1}`, async (t) => {
+      const adapter = makeAdapter()
+      t.after(() => adapter.dispose())
+      const peer = new JsonRpcPeer(request => peer.handleLine(JSON.stringify({
+        jsonrpc: '2.0', id: request.id,
+        error: { code: entry.outerCode ?? -32603, message: entry.message ?? 'Internal error', data: entry.data },
+      })))
+      adapter.engine('local-acp-fake').prompt = () => peer.request('session/prompt', {})
+      await assert.rejects(collect(adapter.stream(options('s1', [user('m1', 'hello')]))), err => {
+        assert.equal(err.code, entry.code)
+        assert.ok(err.message.includes(entry.text), err.message)
+        assert.equal(err.failure.status, entry.status)
+        return true
+      })
+    })
+  }
+})
+
+test('ACP errors with numeric, empty or object codes keep their message and get a string code (#1777)', async (t) => {
+  const adapter = makeAdapter()
+  t.after(() => adapter.dispose())
+  await assert.rejects(
+    collect(adapter.stream(options('s1', [user('m1', 'rpc-error-number')]))),
+    err => err.code === 'LOCAL_AGENT_ERROR' && /approval was cancelled \(JSON-RPC -32603\)/.test(err.message),
+  )
+  await assert.rejects(
+    collect(adapter.stream(options('s2', [user('m1', 'rpc-error-empty')]))),
+    err => err.code === 'LOCAL_AGENT_ERROR' && /empty code/.test(err.message),
+  )
+  await assert.rejects(
+    collect(adapter.stream(options('s3', [user('m1', 'rpc-error-object')]))),
+    err => err.code === 'LOCAL_AGENT_ERROR' && /"reason":"stopped"/.test(err.message) && !/\[object Object\]/.test(err.message),
+  )
 })

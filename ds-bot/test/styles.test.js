@@ -17,7 +17,7 @@ const { JSDOM } = requireHarness('jsdom')
 // motion.js; they run in each test's jsdom document through the vm context.
 const { outputFiles } = await build({
   stdin: {
-    contents: "export { installStyles, installCompiledStyles } from './src/client/styles.js'",
+    contents: "export { installStyles, installCompiledStyles, CONVERSATION_CSS } from './src/client/styles.js'",
     resolveDir: PLUGIN,
   },
   bundle: true, format: 'cjs', platform: 'browser', write: false, logLevel: 'silent',
@@ -54,6 +54,28 @@ const clientModules = await (async () => {
   return registration.factory((spec) => { throw new Error(`no seed module ${spec}`) })
 })()
 const { createClientModuleSystem, parseBootManifest } = clientModules
+
+test('message bodies skip offscreen content without containing overflowing tools', () => {
+  const { window, module } = bench([])
+  const style = window.document.createElement('style')
+  style.textContent = module.exports.CONVERSATION_CSS
+  window.document.head.appendChild(style)
+  const rule = [...style.sheet.cssRules].find(rule => rule.selectorText === '.bt-bubble,.bt-ububble')
+  assert.ok(rule)
+  assert.equal(rule.style.getPropertyValue('content-visibility'), 'auto')
+  assert.equal(rule.style.getPropertyValue('contain-intrinsic-size'), 'auto 160px')
+  const row = window.document.createElement('div')
+  row.dataset.chatFlowKind = 'assistant-step'
+  row.innerHTML = '<div class="bt-msg"><div class="bt-msg-line"><div class="bt-lead"></div><div class="bt-bubble"></div><div class="bt-tools"><button></button></div></div><div class="bt-reacts"></div></div>'
+  assert.ok(row.querySelector('.bt-bubble').matches(rule.selectorText))
+  for (const node of [row, ...row.querySelectorAll(':not(.bt-bubble)')]) {
+    assert.equal(node.matches(rule.selectorText), false)
+  }
+  const user = window.document.createElement('div')
+  user.className = 'bt-ububble'
+  assert.ok(user.matches(rule.selectorText))
+  assert.equal([...style.sheet.cssRules].some(rule => rule.selectorText === '[data-chat-flow-kind]'), false)
+})
 
 // A fresh jsdom document, the bundled style helpers bound to it, and a real
 // ClientModuleSystem that materializes the pretend modules named in `rows`.
@@ -216,4 +238,25 @@ test('an active message toolbar stacks above the next message', () => {
   // Later .bt-msg siblings are position:relative in the flat layout and on touch,
   // so without a z-index they paint over a toolbar that hangs below this message.
   assert.match(css, /\.bt-msg:hover,\.bt-msg:focus-within,\.bt-msg:has\(>\.bt-msg-line>\.bt-tools\[data-open\]\)\{z-index:2\}/)
+})
+
+test('trigger menu descriptions stay beside their row labels', () => {
+  const css = readFileSync(new URL('../src/client/styles.js', import.meta.url), 'utf8')
+  assert.match(css, /\[data-trigger-menu\] \[role=option\]>span\{text-align:left\}/)
+})
+
+test('send and voice buttons tint background-color on hover, matching their transition', () => {
+  const css = readFileSync(new URL('../src/client/styles.js', import.meta.url), 'utf8')
+  const send = '[data-composer-card] button[class*="_primary"]'
+  for (const selector of [`${send}:hover:not(:disabled)`, '.bt-voice:hover']) {
+    const start = css.indexOf(`${selector}{`)
+    assert.ok(start >= 0, `${selector} rule exists`)
+    const body = css.slice(start + selector.length + 1, css.indexOf('}', start))
+    assert.match(body, /(^|;)background-color:color-mix\(in srgb,var\(--bt-accent\) 90%,transparent\)/)
+    assert.doesNotMatch(body, /(^|;)background:/)
+    assert.doesNotMatch(body, /opacity/)
+  }
+  // The transition lists the property the hover changes, so the tint animates.
+  assert.match(css, /_primary"\]\{[^}]*transition:background-color \.15s ease/)
+  assert.match(css, /\.bt-voice\{[^}]*;transition:background-color \.15s ease|\.bt-mic,\.bt-voice\{[^}]*transition:background-color \.15s ease/)
 })
