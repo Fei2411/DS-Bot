@@ -19,6 +19,7 @@ import { PermissionPicker, presetDanger, presetName } from './permission-picker.
 import { TaskBoard } from './task-board.js'
 import { BotConnectors } from './connectors.js'
 import { ComputerView } from './computer.js'
+import { useEscape } from './overlay-hooks.js'
 import { t } from './i18n.js'
 
 function transcriptOf(list, id, name, hiddenTurns = []) {
@@ -295,6 +296,9 @@ export function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, ro
   const [view, setView] = useState(startTab === 'settings' && (owner || room) ? 'settings' : 'overview')
   const [editing, setEditing] = useState(Boolean(startRenaming && (roster.byId[sessionId] || roster.roomsById[sessionId])))
   const [draftName, setDraftName] = useState(roster.byId[sessionId]?.name ?? (roster.roomsById[sessionId]?.named ? roster.roomsById[sessionId].name : ''))
+  const cancellingRename = useRef(false)
+  const cancelRename = () => { cancellingRename.current = true; setEditing(false) }
+  useEscape(cancelRename, editing)
   const [copied, setCopied] = useState(false)
   const [error, setError] = useState('')
   const glide = useGlide(tab)
@@ -351,6 +355,7 @@ export function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, ro
   }
   const current = bot?.name ?? room.name
   const saveName = async () => {
+    if (cancellingRename.current) { cancellingRename.current = false; return }
     setEditing(false)
     const next = draftName.trim()
     if (next === current || (room && !room.named && next === '')) return
@@ -370,9 +375,17 @@ export function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, ro
             className: 'bt-drawer-name-input', autoFocus: true, value: draftName, 'aria-label': bot ? t('Bot name') : t('Group name'),
             placeholder: room ? t('Name after members') : undefined,
             onChange: event => setDraftName(event.target.value), onBlur: saveName,
-            onKeyDown: (event) => { if (event.key === 'Enter') void saveName(); if (event.key === 'Escape') { event.stopPropagation(); setEditing(false) } },
+            onKeyDown: (event) => {
+              if (event.key === 'Enter' && !event.nativeEvent?.isComposing && event.keyCode !== 229) void saveName()
+              if (event.key === 'Escape' && !event.nativeEvent?.isComposing && event.keyCode !== 229) {
+                event.preventDefault?.()
+                event.stopPropagation?.()
+                event.nativeEvent?.stopPropagation?.()
+                cancelRename()
+              }
+            },
           })
-        : h('button', { type: 'button', className: 'bt-drawer-name', 'aria-label': t('Rename {name}', { name: current }), title: t('Rename'), onClick: () => { setDraftName(room && !room.named ? '' : current); setEditing(true) } }, current),
+        : h('button', { type: 'button', className: 'bt-drawer-name', 'aria-label': t('Rename {name}', { name: current }), title: t('Rename'), onClick: () => { cancellingRename.current = false; setDraftName(room && !room.named ? '' : current); setEditing(true) } }, current),
       bot
         ? (roster.readOnly
             ? (bot.role ? h('span', { className: 'bt-drawer-role' }, bot.role) : null)

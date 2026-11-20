@@ -12,6 +12,7 @@ import { heldCardKey } from './sources.js'
 import { CellEmpty } from './cell-empty.js'
 import { hostText, t } from './i18n.js'
 import { CheckIcon, ChevronDownIcon } from './icons.js'
+import { useEscape } from './overlay-hooks.js'
 import { ViewCard } from './widget-cell.js'
 
 export { GitHubMark } from './connector-marks.js'
@@ -521,13 +522,12 @@ const RULE_LABELS = {
 function MailApprovalMenu({ bot, request, rule, onPick, actions, disabled = false }) {
   const [open, setOpen] = useState(false)
   const root = useRef(null)
+  useEscape(() => setOpen(false), open)
   useEffect(() => {
     if (!open) return undefined
     const away = (event) => { if (!root.current?.contains(event.target)) setOpen(false) }
-    const key = (event) => { if (event.key === 'Escape') setOpen(false) }
     document.addEventListener('pointerdown', away, true)
-    document.addEventListener('keydown', key)
-    return () => { document.removeEventListener('pointerdown', away, true); document.removeEventListener('keydown', key) }
+    return () => { document.removeEventListener('pointerdown', away, true) }
   }, [open])
   const choose = (mode) => {
     setOpen(false)

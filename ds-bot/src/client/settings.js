@@ -154,6 +154,11 @@ function GeneralPage({ roster, actions, run, dsh }) {
     clearTimeout(timer.current)
     timer.current = setTimeout(flushAccent, 350)
   }
+  const pickPreset = (value) => {
+    clearTimeout(timer.current)
+    pendingAccent.current = null
+    return run(actions.setPrefs({ accent: value }))
+  }
   return [
     h(SetSection, { key: 'look', title: t('Appearance') },
       h(SetRow, { label: t('Theme'), hint: t('Colors for the whole team, on every device.') },
@@ -161,10 +166,10 @@ function GeneralPage({ roster, actions, run, dsh }) {
           Object.entries(themes).map(([id, theme]) => h('option', { key: id, value: id }, t(theme.label))))),
       h(SetRow, { label: t('Accent'), hint: t('Unread marks, badges, and the brand mark.') },
         h('div', { className: 'bt-swatches' },
-          h('button', { type: 'button', className: 'bt-swatch bt-swatch-default', title: t('Theme accent'), 'aria-label': t('Theme accent'), 'aria-pressed': !prefs.accent, onClick: () => run(actions.setPrefs({ accent: null })) }),
+          h('button', { type: 'button', className: 'bt-swatch bt-swatch-default', title: t('Theme accent'), 'aria-label': t('Theme accent'), 'aria-pressed': !prefs.accent, onClick: () => pickPreset(null) }),
           ACCENT_INKS.map(ink => h('button', {
             key: ink, type: 'button', className: 'bt-swatch', title: t(capitalize(ink)), 'aria-label': t(capitalize(ink)), 'aria-pressed': prefs.accent === INKS[ink][0],
-            style: { background: `var(--bt-ink-${ink})` }, onClick: () => run(actions.setPrefs({ accent: INKS[ink][0] })),
+            style: { background: `var(--bt-ink-${ink})` }, onClick: () => pickPreset(INKS[ink][0]),
           })),
           h('label', { className: 'bt-swatch bt-swatch-custom', title: t('Custom accent'), 'data-on': Boolean(prefs.accent) && !ACCENT_INKS.some(ink => INKS[ink][0] === prefs.accent) },
             h('input', { type: 'color', value: custom, 'aria-label': t('Custom accent'), onChange: event => pickCustom(event.target.value) })))),

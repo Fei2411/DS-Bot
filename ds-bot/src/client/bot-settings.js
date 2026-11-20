@@ -56,8 +56,14 @@ export function InlineText({ label, value, placeholder, required = false, maxLen
     onChange: event => setDraft(event.target.value),
     onBlur: commit,
     onKeyDown: (event) => {
-      if (event.key === 'Escape') { event.stopPropagation(); reverting.current = true; event.currentTarget.blur() }
-      if (event.key === 'Enter' && !multiline && !event.nativeEvent.isComposing) event.currentTarget.blur()
+      if (event.key === 'Escape' && !event.nativeEvent?.isComposing && event.keyCode !== 229) {
+        event.preventDefault?.()
+        event.stopPropagation?.()
+        event.nativeEvent?.stopPropagation?.()
+        reverting.current = true
+        event.currentTarget.blur()
+      }
+      if (event.key === 'Enter' && !multiline && !event.nativeEvent?.isComposing && event.keyCode !== 229) event.currentTarget.blur()
     },
   })
 }

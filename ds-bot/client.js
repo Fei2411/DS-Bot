@@ -18707,23 +18707,31 @@ var CHANGES_CSS = `
 // src/client/overlay-hooks.js
 var import_react6 = require("react");
 var escapeLayers = [];
-var onEscapeKey = (event) => {
-  if (event.key !== "Escape" || event.isComposing || event.keyCode === 229) return;
-  escapeLayers.at(-1)?.current();
+var topEscapeLayer = () => {
+  let top = null;
+  for (const layer of escapeLayers) {
+    if (top === null || layer.priority >= top.priority) top = layer;
+  }
+  return top;
 };
-function useEscape(onClose, active = true) {
+var onEscapeKey = (event) => {
+  if (event.defaultPrevented || event.key !== "Escape" || event.isComposing || event.keyCode === 229) return;
+  topEscapeLayer()?.ref.current();
+};
+function useEscape(onClose, active = true, { priority = 0 } = {}) {
   const ref = (0, import_react6.useRef)(onClose);
   ref.current = onClose;
   (0, import_react6.useEffect)(() => {
     if (!active) return void 0;
+    const layer = { ref, priority };
     if (escapeLayers.length === 0) window.addEventListener("keydown", onEscapeKey);
-    escapeLayers.push(ref);
+    escapeLayers.push(layer);
     return () => {
-      const index = escapeLayers.indexOf(ref);
+      const index = escapeLayers.indexOf(layer);
       if (index !== -1) escapeLayers.splice(index, 1);
       if (escapeLayers.length === 0) window.removeEventListener("keydown", onEscapeKey);
     };
-  }, [active]);
+  }, [active, priority]);
 }
 
 // src/client/goal.js
@@ -26303,12 +26311,14 @@ function InlineText({ label, value, placeholder, required = false, maxLength, mu
     onChange: (event) => setDraft(event.target.value),
     onBlur: commit,
     onKeyDown: (event) => {
-      if (event.key === "Escape") {
-        event.stopPropagation();
+      if (event.key === "Escape" && !event.nativeEvent?.isComposing && event.keyCode !== 229) {
+        event.preventDefault?.();
+        event.stopPropagation?.();
+        event.nativeEvent?.stopPropagation?.();
         reverting.current = true;
         event.currentTarget.blur();
       }
-      if (event.key === "Enter" && !multiline && !event.nativeEvent.isComposing) event.currentTarget.blur();
+      if (event.key === "Enter" && !multiline && !event.nativeEvent?.isComposing && event.keyCode !== 229) event.currentTarget.blur();
     }
   });
 }
@@ -27502,19 +27512,15 @@ var RULE_LABELS = {
 function MailApprovalMenu({ bot, request, rule, onPick, actions, disabled = false }) {
   const [open, setOpen] = (0, import_react29.useState)(false);
   const root = (0, import_react29.useRef)(null);
+  useEscape(() => setOpen(false), open);
   (0, import_react29.useEffect)(() => {
     if (!open) return void 0;
     const away = (event) => {
       if (!root.current?.contains(event.target)) setOpen(false);
     };
-    const key = (event) => {
-      if (event.key === "Escape") setOpen(false);
-    };
     document.addEventListener("pointerdown", away, true);
-    document.addEventListener("keydown", key);
     return () => {
       document.removeEventListener("pointerdown", away, true);
-      document.removeEventListener("keydown", key);
     };
   }, [open]);
   const choose = (mode) => {
@@ -29393,7 +29399,7 @@ function chatRow(row, key, { sessionId, selfId, roster, actions, useUi, onBtwDel
     case "btw":
       return (0, import_react34.createElement)(BtwCardView, { key, card: row.card, sessionId, actions, onDeleted: onBtwDelete });
     case "post": {
-      const poster = roster.byId[row.botId] ?? { id: row.botId, name: row.name ?? t("a Bot"), color: "gray" };
+      const poster = roster.byId[row.botId] ?? { id: row.botId, name: row.name ?? t("a Bot"), color: row.color ?? "gray" };
       return (0, import_react34.createElement)(GroupMessage, {
         key,
         bot: poster,
@@ -29408,6 +29414,7 @@ function chatRow(row, key, { sessionId, selfId, roster, actions, useUi, onBtwDel
         duration: row.duration,
         claims: row.claims,
         changes: row.changes,
+        useUi,
         whole: row.file ? { length: row.length, load: () => actions.fileText(row.file) } : void 0
       });
     }
@@ -29757,6 +29764,9 @@ function RelayEvent({ reply, bot, sessionId, actions }) {
   }
   if (reply.kind === "folder") {
     return (0, import_react34.createElement)("div", { className: "bt-event" }, reply.text);
+  }
+  if (reply.kind === "schedule") {
+    return (0, import_react34.createElement)("div", { className: "bt-event" }, reply.text ? t("Scheduled task: {text}", { text: reply.text.slice(0, 80) }) : t("Routine started"));
   }
   if (reply.kind === "stopped") {
     return (0, import_react34.createElement)("div", { className: "bt-event" }, t("You stopped {name}'s work", { name: bot.name }));
@@ -37609,6 +37619,11 @@ function GeneralPage({ roster, actions, run: run2, dsh }) {
     clearTimeout(timer.current);
     timer.current = setTimeout(flushAccent, 350);
   };
+  const pickPreset = (value) => {
+    clearTimeout(timer.current);
+    pendingAccent.current = null;
+    return run2(actions.setPrefs({ accent: value }));
+  };
   return [
     (0, import_react51.createElement)(
       SetSection,
@@ -37628,7 +37643,7 @@ function GeneralPage({ roster, actions, run: run2, dsh }) {
         (0, import_react51.createElement)(
           "div",
           { className: "bt-swatches" },
-          (0, import_react51.createElement)("button", { type: "button", className: "bt-swatch bt-swatch-default", title: t("Theme accent"), "aria-label": t("Theme accent"), "aria-pressed": !prefs.accent, onClick: () => run2(actions.setPrefs({ accent: null })) }),
+          (0, import_react51.createElement)("button", { type: "button", className: "bt-swatch bt-swatch-default", title: t("Theme accent"), "aria-label": t("Theme accent"), "aria-pressed": !prefs.accent, onClick: () => pickPreset(null) }),
           ACCENT_INKS.map((ink) => (0, import_react51.createElement)("button", {
             key: ink,
             type: "button",
@@ -37637,7 +37652,7 @@ function GeneralPage({ roster, actions, run: run2, dsh }) {
             "aria-label": t(capitalize2(ink)),
             "aria-pressed": prefs.accent === INKS[ink][0],
             style: { background: `var(--bt-ink-${ink})` },
-            onClick: () => run2(actions.setPrefs({ accent: INKS[ink][0] }))
+            onClick: () => pickPreset(INKS[ink][0])
           })),
           (0, import_react51.createElement)(
             "label",
@@ -43079,6 +43094,12 @@ function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, roster, a
   const [view, setView] = (0, import_react68.useState)(startTab === "settings" && (owner || room2) ? "settings" : "overview");
   const [editing, setEditing] = (0, import_react68.useState)(Boolean(startRenaming && (roster.byId[sessionId] || roster.roomsById[sessionId])));
   const [draftName, setDraftName] = (0, import_react68.useState)(roster.byId[sessionId]?.name ?? (roster.roomsById[sessionId]?.named ? roster.roomsById[sessionId].name : ""));
+  const cancellingRename = (0, import_react68.useRef)(false);
+  const cancelRename = () => {
+    cancellingRename.current = true;
+    setEditing(false);
+  };
+  useEscape(cancelRename, editing);
   const [copied, setCopied] = (0, import_react68.useState)(false);
   const [error, setError] = (0, import_react68.useState)("");
   const glide2 = useGlide(tab);
@@ -43147,6 +43168,10 @@ function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, roster, a
   }
   const current2 = bot?.name ?? room2.name;
   const saveName = async () => {
+    if (cancellingRename.current) {
+      cancellingRename.current = false;
+      return;
+    }
     setEditing(false);
     const next = draftName.trim();
     if (next === current2 || room2 && !room2.named && next === "") return;
@@ -43170,13 +43195,16 @@ function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, roster, a
         onChange: (event) => setDraftName(event.target.value),
         onBlur: saveName,
         onKeyDown: (event) => {
-          if (event.key === "Enter") void saveName();
-          if (event.key === "Escape") {
-            event.stopPropagation();
-            setEditing(false);
+          if (event.key === "Enter" && !event.nativeEvent?.isComposing && event.keyCode !== 229) void saveName();
+          if (event.key === "Escape" && !event.nativeEvent?.isComposing && event.keyCode !== 229) {
+            event.preventDefault?.();
+            event.stopPropagation?.();
+            event.nativeEvent?.stopPropagation?.();
+            cancelRename();
           }
         }
       }) : (0, import_react68.createElement)("button", { type: "button", className: "bt-drawer-name", "aria-label": t("Rename {name}", { name: current2 }), title: t("Rename"), onClick: () => {
+        cancellingRename.current = false;
         setDraftName(room2 && !room2.named ? "" : current2);
         setEditing(true);
       } }, current2),
@@ -43290,16 +43318,17 @@ function PanelMenu({ items, className, "aria-label": label }) {
   const [shown, leaving] = useLinger(open, 120);
   const wrap = (0, import_react69.useRef)(null);
   const button = (0, import_react69.useRef)(null);
+  useEscape(() => {
+    setOpen(false);
+    button.current?.focus();
+  }, open);
   (0, import_react69.useEffect)(() => {
     if (!open) return void 0;
     const onDown = (event) => {
       if (wrap.current && !wrap.current.contains(event.target)) setOpen(false);
     };
     const onKey = (event) => {
-      if (stepMenuFocus(wrap.current, event, button.current)) return;
-      if (event.key !== "Escape") return;
-      event.stopPropagation();
-      setOpen(false);
+      stepMenuFocus(wrap.current, event, button.current);
     };
     window.addEventListener("pointerdown", onDown);
     window.addEventListener("keydown", onKey);
@@ -43365,16 +43394,37 @@ function PanelStrip({ bot, subject, view, ids, active, sides, side, canBrowse, r
   const spot = (0, import_react69.useRef)(null);
   const under = (0, import_react69.useRef)(null);
   const watcher = (0, import_react69.useRef)(null);
+  const observed = (0, import_react69.useRef)(/* @__PURE__ */ new Set());
+  const stripKey = [
+    bot.name,
+    ids.map((tabId) => `${tabId}:${tabLabel(pages[tabId] ?? EMPTY_PAGE)}`).join("\0"),
+    sides.map((chat) => `${chat.id}:${sideTitle(chat)}`).join("\0")
+  ].join("");
+  const syncObserved = () => {
+    const observer = watcher.current;
+    const box = wrap.current;
+    if (!observer || !box) return;
+    const next = new Set(box.querySelectorAll(".bt-ptab-bot, .bt-ptab-wrap"));
+    for (const el of observed.current) {
+      if (!next.has(el)) {
+        observer.unobserve(el);
+        observed.current.delete(el);
+      }
+    }
+    for (const el of next) {
+      if (!observed.current.has(el)) {
+        observer.observe(el);
+        observed.current.add(el);
+      }
+    }
+  };
   (0, import_react69.useLayoutEffect)(() => {
     const box = wrap.current;
     const capsule = ind.current;
     if (!box || !capsule) return void 0;
     const node = view === "details" ? box.querySelector(".bt-ptab-bot") : view === "side" ? box.querySelector(`[data-side="${side}"]`) : box.querySelector(`[data-tab="${active}"]`);
-    if (under.current !== node) {
-      if (under.current) watcher.current?.unobserve(under.current);
-      under.current = node;
-      if (node) watcher.current?.observe(node);
-    }
+    under.current = node;
+    syncObserved();
     if (!node) {
       capsule.style.opacity = "0";
       spot.current = null;
@@ -43397,7 +43447,7 @@ function PanelStrip({ bot, subject, view, ids, active, sides, side, canBrowse, r
       lead.cancel();
       trail.cancel();
     };
-  }, [view, active, side, ids.length, sides.length]);
+  }, [view, active, side, stripKey]);
   (0, import_react69.useEffect)(() => {
     const box = wrap.current;
     if (!box) return void 0;
@@ -43411,9 +43461,10 @@ function PanelStrip({ bot, subject, view, ids, active, sides, side, canBrowse, r
     });
     watcher.current = observer;
     observer.observe(box);
-    if (under.current) observer.observe(under.current);
+    syncObserved();
     return () => {
       watcher.current = null;
+      observed.current.clear();
       observer.disconnect();
     };
   }, []);
@@ -43534,6 +43585,25 @@ function PanelStrip({ bot, subject, view, ids, active, sides, side, canBrowse, r
     (0, import_react69.createElement)("button", { type: "button", className: "bt-icon-btn bt-ptab-close", "aria-label": t("Close panel"), title: t("Close panel"), onClick: () => actions.closePanel() }, (0, import_react69.createElement)(CloseIcon3))
   );
 }
+var OVERLAY_SELECTOR = '[role="dialog"],[role="menu"],[role="listbox"]';
+var isElementNode = (node) => node !== null && typeof node === "object" && node.nodeType === 1;
+function hasOverlayNode(nodes) {
+  if (!nodes) return false;
+  for (const node of nodes) {
+    if (isElementNode(node) && (node.matches?.(OVERLAY_SELECTOR) || node.querySelector?.(OVERLAY_SELECTOR) != null)) {
+      return true;
+    }
+  }
+  return false;
+}
+function shouldCheckBrowserCover(records) {
+  return records.some((record) => {
+    if (record.type === "attributes") return true;
+    if (!isElementNode(record.target) || !record.target.closest?.("[data-chat-flow]")) return true;
+    if (record.target.closest?.(OVERLAY_SELECTOR)) return true;
+    return hasOverlayNode(record.addedNodes) || hasOverlayNode(record.removedNodes);
+  });
+}
 function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPages, hold }) {
   const page = useBrowserPages((pages) => pages[tabId ?? ""]) ?? EMPTY_PAGE;
   const frame2 = (0, import_react69.useRef)(null);
@@ -43555,16 +43625,14 @@ function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPages, ho
     const update = () => {
       raf = 0;
       const panel = frame2.current?.getBoundingClientRect();
-      const overlaps2 = panel && [...document.querySelectorAll('[role="dialog"],[role="menu"],[role="listbox"]')].some((element) => rectsOverlap(panel, element.getBoundingClientRect()));
+      const overlaps2 = panel && [...document.querySelectorAll(OVERLAY_SELECTOR)].some((element) => rectsOverlap(panel, element.getBoundingClientRect()));
       setCovered(Boolean(overlaps2));
     };
     const schedule = () => {
       if (!raf) raf = requestAnimationFrame(update);
     };
     const observer = new MutationObserver((records) => {
-      if (records.some((record) => record.type === "attributes" || !(record.target instanceof Element) || !record.target.closest("[data-chat-flow]"))) {
-        schedule();
-      }
+      if (shouldCheckBrowserCover(records)) schedule();
     });
     observer.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ["role", "data-leaving"] });
     window.addEventListener("resize", schedule);
@@ -43660,6 +43728,10 @@ function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPages, ho
     });
   };
   const editing = draft !== null;
+  useEscape(() => {
+    setDraft(null);
+    input.current?.blur();
+  }, editing);
   const secure = /^https:/i.test(page.url);
   return (0, import_react69.createElement)(
     "div",
@@ -43708,8 +43780,10 @@ function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPages, ho
           onBlur: () => setDraft(null),
           onChange: (event) => setDraft(event.target.value),
           onKeyDown: (event) => {
-            if (event.key === "Escape") {
-              event.stopPropagation();
+            if (event.key === "Escape" && !event.nativeEvent?.isComposing && event.keyCode !== 229) {
+              event.preventDefault?.();
+              event.stopPropagation?.();
+              event.nativeEvent?.stopPropagation?.();
               setDraft(null);
               event.currentTarget.blur();
             }
@@ -43768,13 +43842,7 @@ function importError(error) {
   return String(error);
 }
 function ImportMenu({ sources, busy, onFile, onSource, onClose }) {
-  (0, import_react69.useEffect)(() => {
-    const close = (event) => {
-      if (event.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", close);
-    return () => window.removeEventListener("keydown", close);
-  }, [onClose]);
+  useEscape(onClose);
   return (0, import_react69.createElement)(
     "div",
     { className: "bt-import-menu", role: "menu", "aria-label": t("Import cookies") },
@@ -43953,7 +44021,7 @@ function BotPanel({ pane, leaving, room: room2, overlay, roster, actions, useSes
     if (switched) chatRoom.hold(false);
   }, [view, panelWidth, leaving, overlay]);
   const dragCleanup = (0, import_react69.useRef)(null);
-  useEscape(() => actions.closeOverlay(), !leaving);
+  useEscape(() => actions.closeOverlay(), !leaving, { priority: -1 });
   (0, import_react69.useEffect)(() => () => {
     dragCleanup.current?.();
     chatRoom.setRight(null);

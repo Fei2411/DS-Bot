@@ -85,15 +85,11 @@ export function PanelMenu({ items, className, 'aria-label': label }) {
   const [shown, leaving] = useLinger(open, 120)
   const wrap = useRef(null)
   const button = useRef(null)
+  useEscape(() => { setOpen(false); button.current?.focus() }, open)
   useEffect(() => {
     if (!open) return undefined
     const onDown = (event) => { if (wrap.current && !wrap.current.contains(event.target)) setOpen(false) }
-    const onKey = (event) => {
-      if (stepMenuFocus(wrap.current, event, button.current)) return
-      if (event.key !== 'Escape') return
-      event.stopPropagation()
-      setOpen(false)
-    }
+    const onKey = (event) => { stepMenuFocus(wrap.current, event, button.current) }
     window.addEventListener('pointerdown', onDown)
     window.addEventListener('keydown', onKey)
     return () => { window.removeEventListener('pointerdown', onDown); window.removeEventListener('keydown', onKey) }
@@ -133,13 +129,31 @@ const sideTitle = chat => chat?.entries?.[0]?.question?.trim() || t('Side chat')
 // The strip across the panel's top: the Bot's own tab first (the details view,
 // collapsed), then one tab per browser page, one per side chat, then `···` and
 // close.
-function PanelStrip({ bot, subject, view, ids, active, sides, side, canBrowse, reading, onView, actions, useBrowserPages }) {
+export function PanelStrip({ bot, subject, view, ids, active, sides, side, canBrowse, reading, onView, actions, useBrowserPages }) {
   const pages = useBrowserPages(map => map)
   const wrap = useRef(null)
   const ind = useRef(null)
   const spot = useRef(null)
   const under = useRef(null)
   const watcher = useRef(null)
+  const observed = useRef(new Set())
+  const stripKey = [
+    bot.name,
+    ids.map(tabId => `${tabId}:${tabLabel(pages[tabId] ?? EMPTY_PAGE)}`).join('\0'),
+    sides.map(chat => `${chat.id}:${sideTitle(chat)}`).join('\0'),
+  ].join('\u0001')
+  const syncObserved = () => {
+    const observer = watcher.current
+    const box = wrap.current
+    if (!observer || !box) return
+    const next = new Set(box.querySelectorAll('.bt-ptab-bot, .bt-ptab-wrap'))
+    for (const el of observed.current) {
+      if (!next.has(el)) { observer.unobserve(el); observed.current.delete(el) }
+    }
+    for (const el of next) {
+      if (!observed.current.has(el)) { observer.observe(el); observed.current.add(el) }
+    }
+  }
   // The capsule sits under the active tab; its two edges move on different springs.
   useLayoutEffect(() => {
     const box = wrap.current
@@ -150,11 +164,8 @@ function PanelStrip({ bot, subject, view, ids, active, sides, side, canBrowse, r
       : view === 'side'
         ? box.querySelector(`[data-side="${side}"]`)
         : box.querySelector(`[data-tab="${active}"]`)
-    if (under.current !== node) {
-      if (under.current) watcher.current?.unobserve(under.current)
-      under.current = node
-      if (node) watcher.current?.observe(node)
-    }
+    under.current = node
+    syncObserved()
     if (!node) { capsule.style.opacity = '0'; spot.current = null; return undefined }
     // The Bot tab is pinned at the strip's start; showing it scrolls the pages back
     // so the capsule and the pinned tab line up.
@@ -172,9 +183,9 @@ function PanelStrip({ bot, subject, view, ids, active, sides, side, canBrowse, r
     const lead = capsule.animate([{ [ahead]: `${from[ahead]}px` }, { [ahead]: `${to[ahead]}px` }], { duration: SPRING_LEAD.duration, easing: SPRING_LEAD.easing })
     const trail = capsule.animate([{ [behind]: `${from[behind]}px` }, { [behind]: `${to[behind]}px` }], { duration: SPRING_TRAIL.duration, easing: SPRING_TRAIL.easing })
     return () => { lead.cancel(); trail.cancel() }
-  }, [view, active, side, ids.length, sides.length])
-  // A drag resizes the strip without a render; the capsule's right edge keeps to its tab.
-  // The tab itself is watched too — its width can still change after the measure.
+  }, [view, active, side, stripKey])
+  // A drag resizes the strip without a render; sibling tab widths can change too
+  // (e.g. a title or font loading), shifting the active tab's offsetLeft.
   useEffect(() => {
     const box = wrap.current
     if (!box) return undefined
@@ -188,8 +199,8 @@ function PanelStrip({ bot, subject, view, ids, active, sides, side, canBrowse, r
     })
     watcher.current = observer
     observer.observe(box)
-    if (under.current) observer.observe(under.current)
-    return () => { watcher.current = null; observer.disconnect() }
+    syncObserved()
+    return () => { watcher.current = null; observed.current.clear(); observer.disconnect() }
   }, [])
   const items = stripMenuKeys({
     canBrowse,
@@ -247,9 +258,29 @@ function PanelStrip({ bot, subject, view, ids, active, sides, side, canBrowse, r
     h('button', { type: 'button', className: 'bt-icon-btn bt-ptab-close', 'aria-label': t('Close panel'), title: t('Close panel'), onClick: () => actions.closePanel() }, h(CloseIcon)))
 }
 
+const OVERLAY_SELECTOR = '[role="dialog"],[role="menu"],[role="listbox"]'
+const isElementNode = node => node !== null && typeof node === 'object' && node.nodeType === 1
+function hasOverlayNode(nodes) {
+  if (!nodes) return false
+  for (const node of nodes) {
+    if (isElementNode(node) && (node.matches?.(OVERLAY_SELECTOR) || node.querySelector?.(OVERLAY_SELECTOR) != null)) {
+      return true
+    }
+  }
+  return false
+}
+export function shouldCheckBrowserCover(records) {
+  return records.some((record) => {
+    if (record.type === 'attributes') return true
+    if (!isElementNode(record.target) || !record.target.closest?.('[data-chat-flow]')) return true
+    if (record.target.closest?.(OVERLAY_SELECTOR)) return true
+    return hasOverlayNode(record.addedNodes) || hasOverlayNode(record.removedNodes)
+  })
+}
+
 // The browser view: toolbar (back, forward, reload/stop, address) over the frame
 // the guest webview covers.
-function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPages, hold }) {
+export function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPages, hold }) {
   const page = useBrowserPages(pages => pages[tabId ?? '']) ?? EMPTY_PAGE
   const frame = useRef(null)
   const input = useRef(null)
@@ -279,15 +310,13 @@ function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPages, ho
     const update = () => {
       raf = 0
       const panel = frame.current?.getBoundingClientRect()
-      const overlaps = panel && [...document.querySelectorAll('[role="dialog"],[role="menu"],[role="listbox"]')]
+      const overlaps = panel && [...document.querySelectorAll(OVERLAY_SELECTOR)]
         .some(element => rectsOverlap(panel, element.getBoundingClientRect()))
       setCovered(Boolean(overlaps))
     }
     const schedule = () => { if (!raf) raf = requestAnimationFrame(update) }
     const observer = new MutationObserver((records) => {
-      if (records.some(record => record.type === 'attributes' || !(record.target instanceof Element) || !record.target.closest('[data-chat-flow]'))) {
-        schedule()
-      }
+      if (shouldCheckBrowserCover(records)) schedule()
     })
     observer.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['role', 'data-leaving'] })
     window.addEventListener('resize', schedule)
@@ -375,6 +404,7 @@ function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPages, ho
   }
 
   const editing = draft !== null
+  useEscape(() => { setDraft(null); input.current?.blur() }, editing)
   const secure = /^https:/i.test(page.url)
   return h('div', { className: 'bt-panel-view bt-panel-browser', 'aria-label': t("{name}'s browser", { name: bot.name }) },
     actions.browserTakeover ? h('div', { className: 'bt-browser-takeover', 'data-held': hold?.by === 'user' || undefined },
@@ -401,7 +431,15 @@ function BrowserView({ bot, tabId, leaving, landed, actions, useBrowserPages, ho
           onFocus: (event) => { setDraft(page.url); const target = event.target; requestAnimationFrame(() => target.select()) },
           onBlur: () => setDraft(null),
           onChange: event => setDraft(event.target.value),
-          onKeyDown: (event) => { if (event.key === 'Escape') { event.stopPropagation(); setDraft(null); event.currentTarget.blur() } },
+          onKeyDown: (event) => {
+            if (event.key === 'Escape' && !event.nativeEvent?.isComposing && event.keyCode !== 229) {
+              event.preventDefault?.()
+              event.stopPropagation?.()
+              event.nativeEvent?.stopPropagation?.()
+              setDraft(null)
+              event.currentTarget.blur()
+            }
+          },
         })),
       h('button', {
         type: 'button', className: 'bt-icon-btn', 'aria-label': t('New browser tab'), title: t('New browser tab'),
@@ -441,12 +479,8 @@ function importError(error) {
 }
 
 // The sources popover: a cookie file, then every importable browser profile.
-function ImportMenu({ sources, busy, onFile, onSource, onClose }) {
-  useEffect(() => {
-    const close = (event) => { if (event.key === 'Escape') onClose() }
-    window.addEventListener('keydown', close)
-    return () => window.removeEventListener('keydown', close)
-  }, [onClose])
+export function ImportMenu({ sources, busy, onFile, onSource, onClose }) {
+  useEscape(onClose)
   return h('div', { className: 'bt-import-menu', role: 'menu', 'aria-label': t('Import cookies') },
     h('div', { className: 'bt-import-menu-title' }, t('Import cookies')),
     h('button', { type: 'button', className: 'bt-import-item', role: 'menuitem', disabled: busy, onClick: onFile },
@@ -583,7 +617,7 @@ export function BotPanel({ pane, leaving, room, overlay, roster, actions, useSes
     if (switched) chatRoom.hold(false)
   }, [view, panelWidth, leaving, overlay])
   const dragCleanup = useRef(null)
-  useEscape(() => actions.closeOverlay(), !leaving)
+  useEscape(() => actions.closeOverlay(), !leaving, { priority: -1 })
   useEffect(() => () => { dragCleanup.current?.(); chatRoom.setRight(null); chatRoom.hold(false) }, [])
   // A `room` change (window resize, the left column moving) lands at once.
   const mounted = useRef(false)
