@@ -128,8 +128,9 @@ test('the script stops when a package is missing, so the release is not marked L
   assert.match(run.stderr, /has no DS-Bot-0\.2\.3-win-x64\.exe$/mu)
 })
 
-// A releases/latest link must never reach a release whose files are still being attached.
-test('the release becomes Latest last, after every job that attaches files', () => {
+// A releases/latest link must never reach a release whose files are still being attached,
+// and no installer asset may be uploaded to the release before publish and all builds succeed.
+test('the release becomes Latest last, after every build and publish job', () => {
   const workflow = YAML.parse(read('../../.github/workflows/release.yml'))
   const runs = job => (job.steps ?? []).map(step => step.run ?? '').join('\n')
   const latest = Object.entries(workflow.jobs).filter(([, job]) => /gh release edit "\$TAG" --latest/u.test(runs(job)))
@@ -139,9 +140,19 @@ test('the release becomes Latest last, after every job that attaches files', () 
     for (const need of [workflow.jobs[jobName].needs ?? []].flat()) if (!seen.has(need)) before(need, seen.add(need))
     return seen
   }
-  const uploaders = Object.keys(workflow.jobs).filter(other => other !== name && /gh release upload/u.test(runs(workflow.jobs[other])))
-  assert.ok(uploaders.length >= 4)
-  for (const uploader of uploaders) assert.ok(before(name).has(uploader), `${name} must come after ${uploader}`)
+  const producers = Object.keys(workflow.jobs).filter((other) => {
+    if (other === name) return false
+    const steps = workflow.jobs[other].steps ?? []
+    return /gh release upload/u.test(runs(workflow.jobs[other]))
+      || steps.some(step => typeof step.uses === 'string' && step.uses.startsWith('actions/upload-artifact@'))
+  })
+  assert.ok(producers.length >= 5, `expected at least 5 build/publish jobs before ${name}, found ${producers.join(', ')}`)
+  for (const producer of producers) assert.ok(before(name).has(producer), `${name} must come after ${producer}`)
+  // No app build job may attach assets directly to the GitHub release before publish succeeds.
+  for (const [other, cfg] of Object.entries(workflow.jobs)) {
+    if (other === name || other === 'publish') continue
+    assert.doesNotMatch(runs(cfg), /gh release upload/u, `${other} must not upload directly to the release before publish passes`)
+  }
   assert.match(job.steps.at(-1).run, /^gh release edit "\$TAG" --latest$/u)
   assert.match(runs(job), /node scripts\/release-notes\.mjs /u)
 })
