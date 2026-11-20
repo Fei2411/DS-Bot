@@ -20,6 +20,14 @@ const isRemoteTarget = (target) => {
   return /^[a-z][a-z0-9+.-]*:/i.test(value)
 }
 
+// Decodes CommonMark backslash escapes before ASCII punctuation (e.g. `./plot\(1\).png`
+// → `./plot(1).png`) while leaving Windows drive paths (`C:\dir\_file.png`) verbatim.
+const decodeMarkdownDestination = (raw) => {
+  const trimmed = String(raw ?? '').trim()
+  if (/^[a-z]:\\/i.test(trimmed)) return trimmed
+  return trimmed.replace(/\\([!"#$%&'()*+,\-./:;<=>?@[\\\]^_`{|}~])/g, '$1')
+}
+
 const parseDestination = (text, openIdx) => {
   let i = openIdx + 1
   while (i < text.length && (text[i] === ' ' || text[i] === '\t')) i += 1
@@ -68,7 +76,7 @@ const parseDestination = (text, openIdx) => {
     while (i < text.length && /\s/.test(text[i])) i += 1
   }
   if (i >= text.length || text[i] !== ')') return undefined
-  return { path: path.trim(), end: i + 1 }
+  return { path: decodeMarkdownDestination(path), end: i + 1 }
 }
 
 // Finds the matching closing backtick run of exact length `ticks` (CommonMark
@@ -88,33 +96,74 @@ const findInlineCodeClose = (text, start, ticks) => {
   return -1
 }
 
-// Walks Markdown skipping fenced code blocks (``` / ~~~, including CRLF) and
-// inline code spans (`...`), returning all local `![alt](target)` references.
+// Strips leading blockquote markers (`> `) and returns the remaining content + depth.
+const stripBlockquotePrefix = (line) => {
+  let rest = line
+  let depth = 0
+  for (;;) {
+    const match = /^[ ]{0,3}>[ ]?/.exec(rest)
+    if (!match) break
+    depth += 1
+    rest = rest.slice(match[0].length)
+  }
+  return { depth, rest }
+}
+
+// Walks Markdown skipping fenced code blocks (``` / ~~~, including CRLF and
+// blockquote-prefixed fences), 4-space/tab indented code blocks, and inline code
+// spans (`...`), returning all local `![alt](target)` references.
 export function extractLocalMarkdownImages(markdown) {
   const text = String(markdown ?? '')
   const links = []
   let i = 0
   let fence = null
   let atLineStart = true
+  let prevBlank = true
+  let inIndentedCode = false
   while (i < text.length) {
     if (atLineStart) {
       const lineEnd = text.indexOf('\n', i)
       const end = lineEnd === -1 ? text.length : lineEnd
       const line = text.slice(i, end).replace(/\r$/, '')
+      const nextLine = lineEnd === -1 ? text.length : lineEnd + 1
+      const { depth: quoteDepth, rest } = stripBlockquotePrefix(line)
       if (fence !== null) {
-        const close = new RegExp(`^[ ]{0,3}${fence.ch}{${fence.len},}[ \\t]*$`)
-        if (close.test(line)) fence = null
-        i = lineEnd === -1 ? text.length : lineEnd + 1
+        if (quoteDepth < fence.quoteDepth) {
+          // Blockquote container ended before an explicit closing fence.
+          fence = null
+        } else {
+          const close = new RegExp(`^[ ]{0,3}${fence.ch}{${fence.len},}[ \\t]*$`)
+          if (close.test(rest)) fence = null
+          i = nextLine
+          prevBlank = false
+          inIndentedCode = false
+          continue
+        }
+      }
+      const isBlank = /^[ \t]*$/.test(rest)
+      if (isBlank) {
+        prevBlank = true
+        i = nextLine
         continue
       }
-      const match = /^[ ]{0,3}(`{3,}|~{3,})(.*)$/.exec(line)
+      const isIndented = /^(?: {4}|\t)/.test(rest)
+      if (isIndented && (prevBlank || inIndentedCode)) {
+        inIndentedCode = true
+        prevBlank = false
+        i = nextLine
+        continue
+      }
+      inIndentedCode = false
+      const match = /^[ ]{0,3}(`{3,}|~{3,})(.*)$/.exec(rest)
       // CommonMark: backtick fence info strings cannot contain backticks, so a
       // line like ```` ```code``` ![a](./a.png) ```` is an inline code span, not a fence.
       if (match && (match[1][0] === '~' || !match[2].includes('`'))) {
-        fence = { ch: match[1][0], len: match[1].length }
-        i = lineEnd === -1 ? text.length : lineEnd + 1
+        fence = { ch: match[1][0], len: match[1].length, quoteDepth }
+        prevBlank = false
+        i = nextLine
         continue
       }
+      prevBlank = false
       atLineStart = false
     }
     const ch = text[i]

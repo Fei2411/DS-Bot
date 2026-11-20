@@ -214,12 +214,20 @@ export default {
         const form = new FormData()
         form.append('payload_json', JSON.stringify({ content: '' }))
         form.append('files[0]', new Blob([bytes], { type: image.mediaType || 'image/png' }), image.name || 'image.png')
-        const response = await env.fetch(`${apiBase(env)}/channels/${chat.key}/messages`, {
-          method: 'POST',
-          headers: { authorization: `Bot ${token}` },
-          body: form,
-          signal: AbortSignal.timeout(30_000),
-        })
+        let response
+        try {
+          response = await env.fetch(`${apiBase(env)}/channels/${chat.key}/messages`, {
+            method: 'POST',
+            headers: { authorization: `Bot ${token}` },
+            body: form,
+            signal: AbortSignal.timeout(30_000),
+          })
+        } catch (error) {
+          if (error?.name === 'TimeoutError' || error?.name === 'AbortError') {
+            throw Object.assign(new Error('Discord did not answer the image send in time'), { unknown: true })
+          }
+          throw error
+        }
         const body = await response.json().catch(() => ({}))
         if (!response.ok) throw errorOf(body, response.status)
         return { messageId: String(body?.id ?? '') }

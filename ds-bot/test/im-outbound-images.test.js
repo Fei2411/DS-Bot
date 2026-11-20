@@ -29,17 +29,27 @@ const until = async (fn, tries = 80) => {
   return undefined
 }
 
-test('extractLocalMarkdownImages handles CRLF fences, exact inline code spans, parenthesized titles, and skips remote URLs (#1761)', () => {
+test('extractLocalMarkdownImages handles CRLF fences, indented code, quoted fences, escaped destinations, and skips remote URLs (#1761)', () => {
   const md = [
     'Here is the shot:',
     '![Shot 1](./output/shot.png "title")',
     '![Paren](./output/paren.png (my caption))',
+    '![Escaped](./output/plot\\(1\\).png)',
+    '![Win](C:\\Users\\_team\\chart.png)',
     '![With spaces](<./my charts/plot (1).png>)',
     '![Remote](https://example.com/a.png)',
     '![Data](data:image/png;base64,AAAA)',
     '```code``` ![AfterInline](./inline-ok.png)',
     '``a ``` b`` ![AfterDouble](./double-ok.png)',
     'Inline example: `![Code](./ignored.png)`',
+    '',
+    '    ![IndentedCode](./indented-ignored.png)',
+    '\t![TabCode](./tab-ignored.png)',
+    '',
+    '> ~~~md',
+    '> ![QuotedFence](./quoted-ignored.png)',
+    '> ~~~',
+    '> ![AfterQuotedFence](./after-quoted.png)',
     '```md',
     '![Fence](./also-ignored.png)',
     '```',
@@ -50,9 +60,12 @@ test('extractLocalMarkdownImages handles CRLF fences, exact inline code spans, p
   assert.deepEqual(links.map(item => [item.alt, item.path]), [
     ['Shot 1', './output/shot.png'],
     ['Paren', './output/paren.png'],
+    ['Escaped', './output/plot(1).png'],
+    ['Win', 'C:\\Users\\_team\\chart.png'],
     ['With spaces', './my charts/plot (1).png'],
     ['AfterInline', './inline-ok.png'],
     ['AfterDouble', './double-ok.png'],
+    ['AfterQuotedFence', './after-quoted.png'],
     ['AfterCrlfFence', './after-crlf.png'],
     ['FileUrl', 'file:///tmp/demo.jpg'],
   ])
@@ -93,6 +106,9 @@ test('IM outbound delivers private and group workspace images, blocks traversal/
   mkdirSync(outside, { recursive: true })
   writeFileSync(join(workspace, 'output', 'a.png'), PNG)
   writeFileSync(join(workspace, 'output', 'b.png'), PNG_B)
+  // Put an older same-named plot.png in the team workspace to verify group member
+  // Writer's own workDir takes precedence over the team folder on filename collision.
+  writeFileSync(join(workspace, 'plot.png'), PNG_B)
   writeFileSync(join(writerDir, 'plot.png'), PNG)
   writeFileSync(join(outside, 'secret.png'), PNG)
   writeFileSync(join(home, 'internal.png'), PNG)
@@ -475,4 +491,40 @@ test('WeChat and Slack reject untrusted upload URLs and Telegram falls back to s
   const fallback = await tg.sendImage({ key: '100', kind: 'direct' }, img)
   assert.equal(fallback.messageId, 88)
   assert.ok(calls.some(c => c.path === '/bott1/sendDocument' && c.buf.includes(PNG)))
+})
+
+test('Discord and Slack final image-delivery timeouts mark errors unknown so retries do not duplicate images (#1761)', async (t) => {
+  const wss = await fakeWsServer({ onSocket() {} })
+  const timeoutErr = () => Object.assign(new Error('The operation was aborted due to timeout'), { name: 'TimeoutError' })
+  const http = createServer((req, res) => {
+    req.resume()
+    req.on('end', () => {
+      if (req.url === '/gateway/bot') { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ url: wss.url })); return }
+      if (req.url === '/auth.test') { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ ok: true, user_id: 'U1' })); return }
+      if (req.url === '/apps.connections.open') { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ ok: true, url: wss.url })); return }
+      if (req.url === '/files.getUploadURLExternal') {
+        res.writeHead(200, { 'content-type': 'application/json' })
+        res.end(JSON.stringify({ ok: true, upload_url: `${base}/slack-up`, file_id: 'F77' }))
+        return
+      }
+      res.writeHead(200)
+      res.end('ok')
+    })
+  })
+  await new Promise(resolve => http.listen(0, '127.0.0.1', resolve))
+  const base = `http://127.0.0.1:${http.address().port}`
+  const fetchWithTimeout = async (url, init) => {
+    if (String(url).endsWith('/channels/ch1/messages') || String(url).endsWith('/files.completeUploadExternal')) {
+      throw timeoutErr()
+    }
+    return globalThis.fetch(url, init)
+  }
+  const common = { fetch: fetchWithTimeout, WebSocket: globalThis.WebSocket, runtime: { get: () => ({}), set: () => {} }, log: { warn: () => {} } }
+  const noop = { onMessage: () => {}, onAction: () => {}, onStatus: () => {} }
+  const dc = discord.connect({ token: 'd1' }, { ...common, config: { api: base, gateway: wss.url } }, noop)
+  const sl = slack.connect({ botToken: 'xoxb-1', appToken: 'xapp-1' }, { ...common, config: { api: `${base}/` } }, noop)
+  t.after(() => { dc.stop(); sl.stop(); wss.close(); http.closeAllConnections?.(); http.close() })
+  const img = { data: PNG, mediaType: 'image/png', name: 'shot.png' }
+  await assert.rejects(() => dc.sendImage({ key: 'ch1', kind: 'group' }, img), err => err.unknown === true)
+  await assert.rejects(() => sl.sendImage({ key: 'C1', kind: 'group' }, img), err => err.unknown === true)
 })

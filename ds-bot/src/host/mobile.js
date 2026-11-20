@@ -592,16 +592,19 @@ export function install(rt) {
     const candidate = resolve(realBase, cleanPath)
     let realPath = await (rt.realBeyond?.(candidate) ?? rt.real(candidate))
     let allowed = within(realPath, realBase)
-    if (allowed && !isAbsolute(cleanPath) && authorId !== undefined) {
-      const existsInBase = await stat(realPath).then(info => info.isFile(), () => false)
-      if (!existsInBase) {
-        const authorDir = rt.workDirOf?.({ botId: authorId, roomId: room?.id })
-        if (authorDir) {
-          const realAuthorBase = await (rt.realBeyond?.(authorDir) ?? rt.real(authorDir))
+    // When a group member has its own working folder distinct from the group's
+    // session folder, check the validated author's folder first for relative paths
+    // so a same-named file in the team workspace never shadows the author's image.
+    if (!isAbsolute(cleanPath) && authorId !== undefined) {
+      const authorDir = rt.workDirOf?.({ botId: authorId, roomId: room?.id })
+      if (authorDir) {
+        const realAuthorBase = await (rt.realBeyond?.(authorDir) ?? rt.real(authorDir))
+        if (realAuthorBase !== realBase) {
           const authorCandidate = resolve(realAuthorBase, cleanPath)
           const realAuthorPath = await (rt.realBeyond?.(authorCandidate) ?? rt.real(authorCandidate))
           if (within(realAuthorPath, realAuthorBase) && await stat(realAuthorPath).then(info => info.isFile(), () => false)) {
             realPath = realAuthorPath
+            allowed = true
           }
         }
       }

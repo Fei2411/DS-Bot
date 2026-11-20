@@ -221,12 +221,20 @@ export default {
           error.permanent = upResp.status >= 400 && upResp.status < 500 && upResp.status !== 429
           throw error
         }
-        const doneResp = await env.fetch(`${apiBase(env)}files.completeUploadExternal`, {
-          method: 'POST',
-          headers: { authorization: `Bearer ${botToken}`, 'content-type': 'application/json; charset=utf-8' },
-          body: JSON.stringify({ files: [{ id: meta.file_id, title: image.alt || name }], channel_id: chat.key }),
-          signal: AbortSignal.timeout(30_000),
-        })
+        let doneResp
+        try {
+          doneResp = await env.fetch(`${apiBase(env)}files.completeUploadExternal`, {
+            method: 'POST',
+            headers: { authorization: `Bearer ${botToken}`, 'content-type': 'application/json; charset=utf-8' },
+            body: JSON.stringify({ files: [{ id: meta.file_id, title: image.alt || name }], channel_id: chat.key }),
+            signal: AbortSignal.timeout(30_000),
+          })
+        } catch (error) {
+          if (error?.name === 'TimeoutError' || error?.name === 'AbortError') {
+            throw Object.assign(new Error('Slack did not answer the image send in time'), { unknown: true })
+          }
+          throw error
+        }
         const done = await doneResp.json().catch(() => ({}))
         if (doneResp.status === 429) throw Object.assign(new Error('Slack rate limited the send'), { retryAfter: Number(doneResp.headers.get('retry-after')) })
         if (!doneResp.ok || !done?.ok) {

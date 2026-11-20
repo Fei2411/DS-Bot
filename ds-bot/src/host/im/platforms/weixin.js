@@ -348,24 +348,30 @@ export default {
         if (!downloadParam) throw fail('WeChat upload returned no download parameter', { permanent: true })
         const clientId = `ds-bot-${randomBytes(8).toString('hex')}`
         const contextToken = contextTokens()[chat.key]
-        const answer = await call('sendmessage', {
-          msg: {
-            from_user_id: '', to_user_id: chat.key, client_id: clientId,
-            message_type: 2, message_state: 2,
-            item_list: [{
-              type: 2,
-              image_item: {
-                media: {
-                  encrypt_query_param: downloadParam,
-                  aes_key: Buffer.from(aesKey.toString('hex')).toString('base64'),
-                  encrypt_type: 1,
+        let answer
+        try {
+          answer = await call('sendmessage', {
+            msg: {
+              from_user_id: '', to_user_id: chat.key, client_id: clientId,
+              message_type: 2, message_state: 2,
+              item_list: [{
+                type: 2,
+                image_item: {
+                  media: {
+                    encrypt_query_param: downloadParam,
+                    aes_key: Buffer.from(aesKey.toString('hex')).toString('base64'),
+                    encrypt_type: 1,
+                  },
+                  mid_size: encrypted.byteLength,
                 },
-                mid_size: encrypted.byteLength,
-              },
-            }],
-            ...(contextToken ? { context_token: contextToken } : {}),
-          },
-        })
+              }],
+              ...(contextToken ? { context_token: contextToken } : {}),
+            },
+          })
+        } catch (error) {
+          if (error?.timeout === true) error.unknown = true
+          throw error
+        }
         const sendCode = answer?.ret ?? answer?.errcode
         if (sendCode !== undefined && Number(sendCode) !== 0) {
           throw fail(`WeChat refused the image (${answer.errmsg ?? sendCode})`, { permanent: true })
