@@ -47,7 +47,9 @@
 | [群聊里的改动](2026-11-12-group-changes.md) | 群里每个 Bot 的一轮下面有一行改动：改了几个文件、增删行数、前几个文件名；点开是 DSH 自己的改动审查（英文文档） |
 | [群聊共享待办](2026-11-10-group-todos.md) | 每个群一份清单：成员用 `group_todo` 加、勾、删、清空已完成、看，用户在群详情里看、勾、删；随群保存和删除；上限 100 条，满了删一条或清空已完成后再加 |
 | [浏览器、搜索、密钥和连接器](2026-10-08-browser-and-secrets.md) | 每个 Bot 的浏览器和 `read_browser`、`auto` 联网搜索、密钥卡和替换规则、GitHub 连接器(已被 2026-11-04 通用连接器取代) |
+| [搜索来源摘要](2026-11-14-search-summaries.md) | `auto` 联网搜索的新增官方 Search API 候选：同源 key、空结果不计费、声明式 API 仅 https、来源 summary 透传；跨模型 Search/Fetch 在 DSH Plugins → Web search |
 | [密钥的静态加密](2026-11-12-encrypted-secrets.md) | 可选的 `secrets.json` 口令加密：同一文件原子切换成 scrypt + AES-256-GCM 信封；无人值守用环境变量或口令文件解锁；锁定时的行为和回滚 |
+| [DeepSeek 文档识别](2026-11-14-read-document.md) | 官方 API key 给任意主模型独立 OCR：`read_document` 会话归属 / 只读 / 长文留存；凭据网关隔离、缺 key / 费用与验收 |
 | [浏览器插件](2026-10-21-browser-plugins.md) | 全团队一个浏览器后端，每个 Bot 一份 profile；`refs` / `script` / `task` |
 | [电脑操控](2026-11-04-computer-use.md) | 设置里的总开关和 DSH 提供方；每个 Bot 四档（关 / 只看 / 后台操作 / 可以动前台）；按 Bot 记的应用授权；不能碰的应用；应用租约和前台租约；指示器、停止、「电脑」页；接管和交接卡与浏览器共用 |
 | [上下文与记忆](2026-10-09-context-and-memory.md) | 对话分段、上下文管家（压缩还是换段）、交接包、`read_own_chat`；记忆的存放、格式、权限、整理和冻结 |
