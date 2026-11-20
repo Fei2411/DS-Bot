@@ -12,6 +12,7 @@ import { heldCardKey } from './sources.js'
 import { CellEmpty } from './cell-empty.js'
 import { hostText, t } from './i18n.js'
 import { CheckIcon, ChevronDownIcon } from './icons.js'
+import { useEscape } from './overlay-hooks.js'
 import { ViewCard } from './widget-cell.js'
 
 export { GitHubMark } from './connector-marks.js'
@@ -103,20 +104,24 @@ function ClientPanel({ connector, actions, run }) {
     // The app on the service side has to know the address the browser comes back
     // to, and its own MCP features, before the pasted client can sign in.
     h('div', { className: 'bt-connector-setup' },
-      h('p', null, setup?.kind === 'slack'
-        ? t('In OAuth & Permissions at {app}, add this redirect URL:', { app })
-        : t('In the app settings, add this redirect URL:')),
-      uri ? h('div', { className: 'bt-connector-setup-uri' },
-        h('code', { className: 'bt-connector-uri' }, uri),
-        h('button', { type: 'button', className: 'bt-connector-link', onClick: () => void copyCode(uri) }, t('Copy')),
-        copies > 0 ? h('span', { className: 'bt-connector-copied', role: 'status' },
-          h('span', { key: copies, className: 'bt-connector-copied-text' }, h(CheckIcon), t('Copied to clipboard'))) : null) : null,
-      setup?.kind === 'slack' ? h('p', null, t('Turn on the MCP features and scopes the app needs.')) : null,
-      h('p', null, t('Copy the Client ID and Client Secret here.')),
-      setup?.appUrl ? h('button', { type: 'button', className: 'bt-connector-link', onClick: () => openPage(setup.appUrl) }, t('Open app settings')) : null),
+      h('ol', { className: 'bt-connector-steps' },
+        h('li', null,
+          h('span', null, setup?.kind === 'slack'
+            ? t('In OAuth & Permissions at {app}, add this redirect URL:', { app })
+            : t('In the app settings, add this redirect URL:')),
+          uri ? h('div', { className: 'bt-connector-setup-uri' },
+            h('code', { className: 'bt-connector-uri' }, uri),
+            h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => void copyCode(uri) }, t('Copy')),
+            copies > 0 ? h('span', { className: 'bt-connector-copied', role: 'status' },
+              h('span', { key: copies, className: 'bt-connector-copied-text' }, h(CheckIcon), t('Copied to clipboard'))) : null) : null),
+        setup?.kind === 'slack' ? h('li', null, t('Turn on the MCP features and scopes the app needs.')) : null,
+        h('li', null, t('Copy the Client ID and Client Secret here.')))),
     h('input', { className: 'bt-input', 'aria-label': t('Client ID'), placeholder: t('Client ID'), value: clientId, spellCheck: false, autoComplete: 'off', onChange: e => setClientId(e.target.value) }),
     h('label', { className: 'bt-q-field bt-secret-field' }, h(MaskedInput, { value: clientSecret, onChange: setClientSecret, label: t('Client secret (optional)') })),
     h('div', { className: 'bt-connector-form-row' },
+      setup?.appUrl
+        ? h('button', { type: 'button', className: 'bt-connector-link', onClick: () => openPage(setup.appUrl) }, t('Open app settings'))
+        : h('span', { className: 'bt-connector-wait' }),
       h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => void run(actions.connectorCancel(connector.id)) }, t('Cancel')),
       h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: clientId.trim() === '', onClick: () => void run(actions.connectorClient(connector.id, clientId.trim(), clientSecret.trim() || undefined)) }, t('Continue'))))
 }
@@ -173,7 +178,7 @@ export function ConnectorRow({ connector, actions }) {
   }
   const button = (label, onClick) => h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: busy, onClick }, label)
   let actionsNode = null
-  if (pending || form) actionsNode = null
+  if (pending || form || connector.state === 'needs-client') actionsNode = null
   else if (connector.state === 'needs-sign-in') actionsNode = [button(t('Sign in again'), signIn), button(t('Disconnect'), () => void run(actions.connectorDisconnect(connector.id)))]
   else if (connector.state === 'error') actionsNode = [button(t('Try again'), () => void run(actions.connectorRetry(connector.id))), button(connector.custom ? t('Remove') : t('Disconnect'), () => void run(actions.connectorDisconnect(connector.id)))]
   else if (on) actionsNode = button(connector.custom ? t('Remove') : t('Disconnect'), () => void run(actions.connectorDisconnect(connector.id)))
@@ -521,13 +526,12 @@ const RULE_LABELS = {
 function MailApprovalMenu({ bot, request, rule, onPick, actions, disabled = false }) {
   const [open, setOpen] = useState(false)
   const root = useRef(null)
+  useEscape(() => setOpen(false), open)
   useEffect(() => {
     if (!open) return undefined
     const away = (event) => { if (!root.current?.contains(event.target)) setOpen(false) }
-    const key = (event) => { if (event.key === 'Escape') setOpen(false) }
     document.addEventListener('pointerdown', away, true)
-    document.addEventListener('keydown', key)
-    return () => { document.removeEventListener('pointerdown', away, true); document.removeEventListener('keydown', key) }
+    return () => { document.removeEventListener('pointerdown', away, true) }
   }, [open])
   const choose = (mode) => {
     setOpen(false)
@@ -544,12 +548,12 @@ function MailApprovalMenu({ bot, request, rule, onPick, actions, disabled = fals
       'aria-haspopup': 'menu', 'aria-expanded': open,
       onClick: () => setOpen(v => !v),
     }, t(RULE_LABELS[rule] ?? 'Needs approval'), h(ChevronDownIcon)),
-    open ? h('div', { className: 'dv-menu bt-mail-rule-menu', role: 'menu' },
+    open ? h('div', { className: 'bt-menu bt-menu-up bt-mail-rule-menu', role: 'menu' },
       ['allow-recipient', 'require-approval', 'no-draft'].map(mode => h('button', {
         key: mode, type: 'button', role: 'menuitemradio', 'aria-checked': rule === mode,
         onClick: () => choose(mode),
       }, h('span', { className: 'bt-mail-rule-item-text' }, t(RULE_LABELS[mode])), rule === mode ? h(CheckIcon) : null)),
-      h('div', { className: 'dv-menu-sep', role: 'separator' }),
+      h('div', { className: 'bt-menu-sep', role: 'separator' }),
       h('button', {
         type: 'button', role: 'menuitem',
         onClick: () => { setOpen(false); actions.openConnectors?.() },
@@ -674,8 +678,8 @@ export const CONNECTOR_CSS = `
 .bt-mail-rule-btn:hover:not(:disabled){background:var(--bt-hover);color:var(--bt-ink)}
 .bt-mail-rule-btn:disabled{opacity:.4;cursor:default}
 .bt-mail-rule-btn svg{width:13px;height:13px;color:var(--bt-ink-2)}
-.dv-menu.bt-mail-rule-menu{position:absolute;left:0;bottom:calc(100% + 6px);z-index:20;min-width:190px;--dv-origin:bottom left}
-.dv-menu.bt-mail-rule-menu button{justify-content:space-between;gap:12px}
+.bt-menu.bt-mail-rule-menu{position:absolute;left:0;bottom:calc(100% + 6px);z-index:20;min-width:190px;--bt-origin:bottom left}
+.bt-menu.bt-mail-rule-menu button{justify-content:space-between;gap:12px}
 .bt-mail-rule-item-text{flex:1 1 auto;min-width:0}
 .dv-widget-stack:has(>.dv-widget-form){gap:8px}
 .dv-widget-stack>.dv-widget-form{display:contents}

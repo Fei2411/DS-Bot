@@ -811,6 +811,13 @@ export function install(rt) {
       }
     }
     await rt.save()
+    for (const member of removed) {
+      await rt.stopMemberRoomTasks?.(room.id, member, 'removed from group')
+        .catch(error => rt.warn('ds-bot: stopping group tasks for removed member %s in %s failed: %s', member, room.name, error))
+      await rt.reconcileStoppedRoomTask?.(room.id, member)
+        .catch(error => rt.warn('ds-bot: reconciling group batch for removed member %s in %s failed: %s', member, room.name, error))
+    }
+    if (added.length > 0 || removed.length > 0) await rt.selectRoomSession?.(rt.sessionOfRoom(room), room)
     return { room, changes }
   }
 
@@ -819,6 +826,8 @@ export function install(rt) {
     if (room === undefined) throw new Error('Unknown group chat')
     // Before the group's Sessions leave the state, which the archive reads.
     const archived = rt.archiveGroupMemory(room)
+    await rt.stopRoomTasks?.(room.id, 'group deleted')
+      .catch(error => rt.warn('ds-bot: stopping tasks of deleted group %s failed: %s', room.name, error))
     for (const botId of Object.keys(room.sessions ?? {})) rt.dropGroupSession(room, botId)
     for (const segment of room.parts ?? []) delete state.switching[segment.sessionId]
     delete state.switching[rt.sessionOfRoom(room)]
@@ -939,6 +948,7 @@ export function install(rt) {
     deleting.add(id)
     try {
       for (const hook of botDeleteHooks) await hook(id)
+      rt.forgetBotTasks?.(bot)
       // Before the Bot and its group Sessions leave the state, which the archive reads.
       const archived = rt.archiveBotMemory(id)
       const current = rt.chatOf(id)
@@ -983,6 +993,7 @@ export function install(rt) {
         delete closedArchive.archiving
       }
       const failed = await saveForDelete()
+      for (const room of touched) await rt.selectRoomSession?.(rt.sessionOfRoom(room), room)
       // Same as deleteRoom: stopActivity removes the Session's armed scheduled tasks.
       // Past parts are archived too: a part move can leave tasks on the old Session,
       // which otherwise stays armed and invisible. Already-archived ids are a no-op.

@@ -28,6 +28,7 @@ import { explainOf, StartWindow } from './start-window.mjs'
 import { langOf } from './start/text.mjs'
 import { createDeferredPrompt } from './update-prompt.mjs'
 import { CAPTION_HEIGHT, cssColor, frameOptions, framelessOn, keepVibrancy, materialOf, nativeThemeSource } from './window-frame.mjs'
+import { zoomKey, zoomLevel } from './zoom-keys.mjs'
 
 const { rm } = disk.promises
 
@@ -69,6 +70,10 @@ const here = dirname(fileURLToPath(import.meta.url))
 const assets = join(here, '..', 'assets')
 // Drawn by scripts/icon.mjs. Windows takes the .ico for its several sizes.
 const iconFile = join(assets, process.platform === 'win32' ? 'icon.ico' : 'icon.png')
+// Linux (X11) drops _NET_WM_ICON when the image is too big for one X property: a
+// 1024x1024 RGBA image is about 4 MB, the property limit is about 256 KB. The 128 px
+// hicolor file is small enough, but on Windows and macOS the full size stays.
+const windowIcon = process.platform === 'linux' ? join(assets, 'icons', '128x128.png') : iconFile
 // The tray icon of this platform: Windows takes the .ico, macOS the template and its @2x,
 // Linux the plain png.
 const trayIconFile = () => join(assets, process.platform === 'win32' ? 'tray.ico' : process.platform === 'darwin' ? 'trayTemplate.png' : 'tray.png')
@@ -205,7 +210,7 @@ if (canonical !== undefined) {
     electron: { BrowserWindow, ipcMain, screen, shell: electronShell, clipboard, nativeTheme, systemPreferences },
     // 〔保存日志…〕 on the start window's failure cards.
     saveAs: (win, name) => askPicker(win, { mode: 'save', title: tx('dialog.saveLog'), start: knownFolder('desktop'), name }),
-    page: join(here, 'start', 'start.html'), preload: join(here, 'preload.cjs'), icon: iconFile, material, devTools: !app.isPackaged,
+    page: join(here, 'start', 'start.html'), preload: join(here, 'preload.cjs'), icon: windowIcon, material, devTools: !app.isPackaged,
     css: readFileSync(join(here, 'page-card.css'), 'utf8'),
     // On Windows the locale is known only once the app is ready.
     lang: () => langOf(app.getLocale()), motion: readStartFrame(frameFile).motion, effects: readStartFrame(frameFile).effects,
@@ -1420,7 +1425,7 @@ function createWindow() {
     // The window never squeezes the chat: RAIL_WIDTH + MIN_CHAT from ds-bot's
     // src/client/frame-layout.js is the avatar rail plus the smallest chat column.
     ...startWindow.mainBounds(), minWidth: 508, minHeight: 480,
-    title: 'DS Bot', show: false, icon: iconFile,
+    title: 'DS Bot', show: false, icon: windowIcon,
     backgroundColor: material ? '#00000000' : dark ? '#1b1b1c' : '#ffffff',
     // Frameless as in DSH Desktop: the window controls overlay the page's band. On Windows the
     // caption buttons keep the sidebar's colors until the page sends the colors of the surface
@@ -1497,6 +1502,14 @@ function createWindow() {
     event.preventDefault()
     openOutside(url)
   })
+  if (process.platform !== 'darwin') {
+    contents.on('before-input-event', (event, input) => {
+      const action = zoomKey(input, process.platform)
+      if (action === null) return
+      event.preventDefault()
+      contents.setZoomLevel(zoomLevel(contents.getZoomLevel(), action))
+    })
+  }
   if (!app.isPackaged) {
     contents.on('before-input-event', (_event, input) => {
       if (input.type === 'keyDown' && (input.key === 'F12' || (input.control && input.shift && input.key.toLowerCase() === 'i'))) contents.toggleDevTools()
