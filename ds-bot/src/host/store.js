@@ -121,6 +121,9 @@ export function install(rt) {
     if (state.agents === null || typeof state.agents !== 'object' || Array.isArray(state.agents)) state.agents = {}
     // `computer` is the computer-use switch; absent or corrupt means off.
     if (state.computer === null || typeof state.computer !== 'object' || Array.isArray(state.computer)) state.computer = {}
+    // `browser` holds the team's selected browser backend and custom external backends.
+    if (state.browser === null || typeof state.browser !== 'object' || Array.isArray(state.browser)) state.browser = {}
+    if (state.browser.custom !== undefined && !Array.isArray(state.browser.custom)) delete state.browser.custom
     let migrated = !hadCapabilities
     if (state.capabilities === null || typeof state.capabilities !== 'object' || Array.isArray(state.capabilities)) {
       state.capabilities = { items: {} }

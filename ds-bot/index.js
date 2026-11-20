@@ -55,6 +55,7 @@ import * as goalSkills from './src/host/goal-skills.js'
 import * as localAgents from './src/host/local-agents/index.js'
 
 export { COLORS } from './src/host/constants.js'
+export { defineBrowserProvider } from './src/host/browser/provider.js'
 
 export { name, inject } from './src/host/entry.js'
 
