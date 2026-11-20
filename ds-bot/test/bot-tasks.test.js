@@ -616,8 +616,18 @@ test('task_start workdir validates existence, data folder, private clashes, and 
   outcome = 'allowed-once'
   const okRes = await env.tool('task_start').execute({ title: 'Approved wt', brief: 'Check worktree', workdir: extDir }, execOf(dmA))
   assert.match(okRes, /Started background task "Approved wt"/)
-  assert.equal(env.rt.botOf('a').tasks[0].workDir, realpathSync(extDir))
-  assert.equal(env.createdSessions.at(-1).cwd, realpathSync(extDir))
+  const expectedDir = realpathSync.native(extDir)
+  assert.equal(env.rt.botOf('a').tasks[0].workDir, expectedDir)
+  assert.equal(env.createdSessions.at(-1).cwd, expectedDir)
+
+  // 7. Relative links in task replies resolve against task.workDir, not the foreground folder.
+  const wtTask = env.rt.botOf('a').tasks[0]
+  await env.emit(wtTask.sessionId, 'turn/start', { turn: 1 })
+  await env.emit(wtTask.sessionId, 'assistant/message', { turn: 1, message: { role: 'assistant', content: [{ type: 'text', text: 'See [Report](report.md).' }] } })
+  await env.emit(wtTask.sessionId, 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  await waitFor(() => env.deliveries.some(d => d.role === 'task-report' && d.taskId === wtTask.id))
+  const wtReport = env.deliveries.find(d => d.role === 'task-report' && d.taskId === wtTask.id)
+  assert.ok(wtReport.text.includes(join(expectedDir, 'report.md').replaceAll('\\', '/')), `expected absolute link in ${expectedDir}, got: ${wtReport.text}`)
 })
 
 test('partsOfThread, settled task pastOwners routing, post_to_group(report_back), card guards, and setPermission work end-to-end', async (t) => {
@@ -675,4 +685,45 @@ test('partsOfThread, settled task pastOwners routing, post_to_group(report_back)
   await runNext()
   assert.equal(dmA.followups.some(m => m.source?.exchangeId === 'late-ex-1'), true, 'late input to settled task must forward to foreground dm-a')
   assert.equal(taskAgent.followups.some(m => m.source?.exchangeId === 'late-ex-1'), false, 'settled task must never self-forward into itself')
+})
+
+test('stopTask cancels approvals, kills jobs, and cancels agent even when rt.save throws', async (t) => {
+  let activeJobs = []
+  const env = await startEnv({ jobsList: (sid) => activeJobs.filter(j => j.owner === sid) })
+  t.after(env.stop)
+  const dmA = env.agentMap.get('dm-a')
+  await env.tool('task_start').execute({ title: 'Disk full stop', brief: 'Long command' }, execOf(dmA))
+  const task = env.rt.botOf('a').tasks[0]
+  const taskAgent = env.agentMap.get(task.sessionId)
+  activeJobs = [{ id: 'j-disk-full', owner: task.sessionId, status: 'running' }]
+
+  env.rt.save = async () => { throw new Error('ENOSPC: no space left on device') }
+  await assert.rejects(env.rt.stopTask('a', task.id), /ENOSPC/)
+  assert.equal(env.killedJobs.some(j => j.jobId === 'j-disk-full'), true, 'jobs must still be killed when save fails')
+  assert.equal(taskAgent.cancelled.length > 0, true, 'agent must still be cancelled when save fails')
+})
+
+test('task_read resolves unloaded cold task sessions and bot-task-read works on read-only hosts', async (t) => {
+  const env = await startEnv()
+  t.after(env.stop)
+  const dmA = env.agentMap.get('dm-a')
+  await env.tool('task_start').execute({ title: 'Medium report', brief: 'Produce medium output' }, execOf(dmA))
+  const task = env.rt.botOf('a').tasks[0]
+  const mediumText = 'PARAGRAPH-A\n\n'.repeat(40) // >300 chars, <4000 chars (no reportFile)
+  await env.emit(task.sessionId, 'turn/start', { turn: 1 })
+  await env.emit(task.sessionId, 'assistant/message', { turn: 1, message: { role: 'assistant', content: [{ type: 'text', text: mediumText }] } })
+  await env.emit(task.sessionId, 'turn/end', { turn: 1, reason: { kind: 'completed' } })
+  await waitFor(() => task.status === 'completed')
+
+  // Simulate post-restart cold session: removed from in-memory agents map, still resolvable via resolveAgent.
+  const coldAgent = env.agentMap.get(task.sessionId)
+  env.agentMap.delete(task.sessionId)
+  env.ctx.sessionController.resolveAgent = async (sid) => ({ agent: sid === task.sessionId ? coldAgent : env.agentMap.get(sid) })
+  const readBack = await env.tool('task_read').execute({ task: task.id }, execOf(dmA))
+  assert.ok(readBack.includes(mediumText.trim()), 'cold task_read must recover full output beyond 300-char summary')
+
+  // Read-only host must allow bot-task-read.
+  env.rt.readOnly = () => 'Another host holds the team.'
+  const roRes = await env.callApi('bot-task-read', { botId: 'a', taskId: task.id })
+  assert.equal(roRes.ok, true, 'bot-task-read must be allowed in READS for read-only hosts')
 })

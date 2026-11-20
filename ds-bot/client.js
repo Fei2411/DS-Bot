@@ -38839,16 +38839,17 @@ function ApprovalCard({ approval, bot, actions, showBot = false }) {
     setBusy(true);
     void Promise.resolve(actions.answerApproval(approval.id, choice)).catch((error) => actions.reportError(error, "approval")).finally(() => setBusy(false));
   };
+  const label = approval.taskTitle ? `${approval.taskTitle} · ${approval.tool}` : approval.tool;
   return (0, import_react54.createElement)(
     "div",
     { className: "bt-mw-card", role: "group", "aria-label": t("{name} is waiting for your approval", { name: bot.name }) },
-    showBot ? cardHead(bot, approval.at, approval.tool) : (0, import_react54.createElement)("div", { className: "bt-mw-tool" }, approval.tool),
+    showBot ? cardHead(bot, approval.at, label) : (0, import_react54.createElement)("div", { className: "bt-mw-tool" }, label),
     approval.detail?.text ? (0, import_react54.createElement)("div", { className: "bt-mw-text" }, approval.detail.text) : null,
     approval.reason ? (0, import_react54.createElement)("div", { className: "bt-mw-reason" }, approval.reason) : null,
     approval.detail?.code ? (0, import_react54.createElement)("code", { className: "bt-mw-code", title: approval.detail.code }, approval.detail.code) : null,
-    // Own-chat approvals are answerable for IM and the phone app; here the Bot's
-    // own DSH card stays the place to answer, so the row still opens that chat.
-    approval.answerable && approval.roomId !== void 0 ? (0, import_react54.createElement)(
+    // Group and background-task approvals are answered directly through DS Bot;
+    // foreground own-chat approvals still use DSH's own inline card.
+    approval.answerable && (approval.roomId !== void 0 || approval.taskId !== void 0) ? (0, import_react54.createElement)(
       "div",
       { className: "bt-mw-actions" },
       (0, import_react54.createElement)("button", { type: "button", className: "bt-q-btn", disabled: busy, onClick: () => answer("reject") }, t("Reject")),
@@ -38928,7 +38929,7 @@ function approvalSummary(approvals) {
   const label = bots.length === 0 ? t("Waiting for your approval") : bots.length === 1 ? t("{name} is waiting for your approval", { name: bots[0].name }) : bots.length === 2 ? t("{first} and {second} are waiting for your approval", { first: bots[0].name, second: bots[1].name }) : t("{first}, {second} and {count} more are waiting for your approval", { first: bots[0].name, second: bots[1].name, count: bots.length - 2, total: bots.length });
   return { bots, label };
 }
-function ApprovalIslandPod({ approvals, open, room: room2, actions }) {
+function ApprovalIslandPod({ approvals, open, room: room2, targetId = room2?.id, actions }) {
   if (!approvals || approvals.length === 0) return null;
   const { bots, label } = approvalSummary(approvals);
   return (0, import_react54.createElement)(
@@ -38940,7 +38941,7 @@ function ApprovalIslandPod({ approvals, open, room: room2, actions }) {
         type: "button",
         className: "bt-apv-bar",
         "aria-expanded": open,
-        onClick: () => actions.toggleApproval?.(room2.id)
+        onClick: () => actions.toggleApproval?.(targetId)
       },
       (0, import_react54.createElement)("span", { className: "bt-apv-dot", "aria-hidden": true }),
       (0, import_react54.createElement)("span", { className: "bt-apv-label" }, label),
@@ -39088,12 +39089,13 @@ function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus, useSe
   const goal = room2?.goal;
   const goalCompose = useUi((state) => room2 !== void 0 && state.goalCompose === room2.id);
   const goalOpen = useUi((state) => room2 !== void 0 && state.goalOpen === room2.id);
-  const approvalOpen = useUi((state) => room2 !== void 0 && state.approvalOpen === room2.id);
+  const approvalTargetId = room2?.id ?? bot?.id;
+  const approvalOpen = useUi((state) => approvalTargetId !== void 0 && state.approvalOpen === approvalTargetId);
   const roomWorkKey = useWork?.((work) => room2 ? JSON.stringify(work.rooms?.[room2.id] ?? []) : "") ?? "[]";
   const roomWork = room2 ? JSON.parse(roomWorkKey || "[]") : [];
-  const workApprovalsKey = useWork?.((work) => room2 ? JSON.stringify((work.approvals ?? []).filter((entry) => entry.roomId === room2.id)) : "") ?? "[]";
+  const workApprovalsKey = useWork?.((work) => room2 ? JSON.stringify((work.approvals ?? []).filter((entry) => entry.roomId === room2.id)) : bot ? JSON.stringify((work.approvals ?? []).filter((entry) => entry.botId === bot.id && entry.taskId !== void 0 && entry.answerable !== false)) : "") ?? "[]";
   const computerAsksKey = useComputer?.((comp) => room2 ? JSON.stringify(Object.values(comp?.asks ?? {}).filter((ask) => ask.roomId === room2.id)) : "") ?? "[]";
-  const approvals = room2 ? roomApprovals(room2, { approvals: JSON.parse(workApprovalsKey || "[]") }, { asks: JSON.parse(computerAsksKey || "[]") }, roster) : [];
+  const approvals = room2 ? roomApprovals(room2, { approvals: JSON.parse(workApprovalsKey || "[]") }, { asks: JSON.parse(computerAsksKey || "[]") }, roster) : bot ? JSON.parse(workApprovalsKey || "[]").map((entry) => ({ kind: "tool", id: entry.id, bot, approval: entry, at: entry.at ?? 0 })) : [];
   const view = goal ? goalView(goal, { roster, roomWork }) : null;
   const goalShown = room2 !== void 0 && !away && goal !== void 0;
   const detailsOpen = useUi((state) => state.details === sessionId);
@@ -39121,7 +39123,7 @@ function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus, useSe
   }, [Boolean(room2)]);
   const memoryNotice = !away && notice && changed !== null && roster.memory !== false;
   const showGoal = room2 !== void 0 && !away && (goal !== void 0 || goalCompose);
-  const showApprovals = room2 !== void 0 && !away && approvals.length > 0;
+  const showApprovals = approvalTargetId !== void 0 && !away && approvals.length > 0;
   const showIsland = showGoal || showApprovals;
   (0, import_react55.useEffect)(() => {
     if (approvalOpen && !showApprovals) actions.closeApproval?.();
@@ -39156,7 +39158,7 @@ function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus, useSe
     (0, import_react55.createElement)(MemoryNotice, { shown: memoryNotice }),
     (0, import_react55.createElement)("span", { className: "bt-pill-go", "aria-hidden": true }, (0, import_react55.createElement)(GoArrow))
   );
-  const approvalPod = showApprovals ? (0, import_react55.createElement)(ApprovalIslandPod, { approvals, open: approvalOpen, room: room2, actions }) : null;
+  const approvalPod = showApprovals ? (0, import_react55.createElement)(ApprovalIslandPod, { approvals, open: approvalOpen, room: room2, targetId: approvalTargetId, actions }) : null;
   return (0, import_react55.createElement)(
     "div",
     { className: "bt-head" },

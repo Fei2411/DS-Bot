@@ -940,8 +940,10 @@ export function install(rt) {
       for (const entry of rt.approvalsView?.() ?? []) {
         const cardKey = `a:${entry.id}`
         const bot = rt.botOf(entry.botId)
-        const taskOrigin = entry.taskId !== undefined ? originFromSaved(rt.taskById?.(entry.taskId)?.task?.imOrigin) : undefined
-        const origin = taskOrigin ?? originOf(entry.roomId !== undefined ? (rt.roomOf(entry.roomId)?.sessionId ?? entry.roomId) : chatOfBot(entry.botId))
+        // A task approval belongs strictly to the IM chat that started that task (never fall back to an unrelated foreground IM chat).
+        const origin = entry.taskId !== undefined
+          ? originFromSaved(rt.taskById?.(entry.taskId)?.task?.imOrigin)
+          : originOf(entry.roomId !== undefined ? (rt.roomOf(entry.roomId)?.sessionId ?? entry.roomId) : chatOfBot(entry.botId))
         if (origin === undefined || origin.conn.id !== conn.id) continue
         const targets = [{ chatKey: origin.chatKey, chat: origin.chat }]
         const buttons = imPlatform(conn.platform)?.buttons === true ? cardButtons.approval(entry.id) : undefined
@@ -1534,8 +1536,9 @@ export function install(rt) {
     if (kind === 'open') {
       void (async () => {
         const sessionId = data.roomId !== undefined ? (rt.roomOf(data.roomId)?.sessionId ?? data.roomId) : chatOfBot(data.botId)
-        const taskOrigin = data.taskId !== undefined ? originFromSaved(rt.taskById?.(data.taskId)?.task?.imOrigin) : undefined
-        const origin = taskOrigin ?? originOf(sessionId)
+        const origin = data.taskId !== undefined
+          ? originFromSaved(rt.taskById?.(data.taskId)?.task?.imOrigin)
+          : originOf(sessionId)
         if (origin === undefined) return
         const bot = rt.botOf(data.botId)
         const buttons = imPlatform(origin.conn.platform)?.buttons === true ? cardButtons.approval(data.id) : undefined

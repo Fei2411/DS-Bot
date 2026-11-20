@@ -11,6 +11,7 @@ import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node
 import { join, resolve, sep } from 'node:path'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { HANDOFF_ACK, HISTORY_TIMEOUT_MS, STEER_CUT } from './constants.js'
+import { absoluteLinks } from './links.js'
 import { textOf } from './text.js'
 import { activeTasksOf, isActiveTask, threadCurrentOfPart, threadOfPart } from './threads.js'
 import { output } from './tools.js'
@@ -148,17 +149,18 @@ export function install(rt) {
     return `\n\n[Recent context from your own chat]\n${clipped}`
   }
 
-  const lastReplyOf = (session) => {
+  const lastReplyOf = (session, workDir) => {
     const all = session?.snapshotEvents?.() ?? []
     const inherited = Number.isInteger(session?.inheritedEventCount) && session.inheritedEventCount > 0 ? session.inheritedEventCount : 0
     const events = inherited > 0 ? all.slice(inherited) : all
     const lastTurnStart = events.findLastIndex(event => event.type === 'turn/start')
     const slice = lastTurnStart === -1 ? events : events.slice(lastTurnStart)
+    const folder = workDir ?? rt.sessionFolder?.(session)
     const replies = []
     for (const event of slice) {
       if (event.type !== 'assistant/message') continue
       const text = textOf(event.data?.message?.content ?? []).trim()
-      if (text !== '') replies.push(text)
+      if (text !== '') replies.push(folder ? absoluteLinks(text, folder) : text)
     }
     return replies.join('\n\n').trim()
   }
@@ -364,17 +366,22 @@ export function install(rt) {
     if (bot === undefined || task === undefined) return false
     const wasActive = isActiveTask(task)
     const sessionId = task.sessionId
-    if (wasActive) {
-      // Mark stopped and save before cancelling so the ensuing turn/end never
-      // misclassifies the cancellation as a completed task.
-      await settleTask(bot, task, 'stopped', { error: reason, notifyForeground })
+    try {
+      if (wasActive) {
+        // Mark stopped and save before cancelling so the ensuing turn/end never
+        // misclassifies the cancellation as a completed task.
+        await settleTask(bot, task, 'stopped', { error: reason, notifyForeground })
+      }
+    } finally {
+      // Always cancel approvals, shell jobs, and the running agent even if saving or
+      // foreground delivery failed (e.g. disk full).
+      rt.cancelApprovals?.(sessionId)
+      const jobs = ctx.get?.('jobs')
+      for (const job of rt.runningJobs?.(sessionId) ?? []) {
+        try { jobs?.kill(job.id, sessionId, reason) } catch { /* already ended */ }
+      }
+      ctx.get('agents')?.get(sessionId)?.cancel({ kind: 'hook', reason: 'ds-bot: task stopped' })
     }
-    rt.cancelApprovals?.(sessionId)
-    const jobs = ctx.get?.('jobs')
-    for (const job of rt.runningJobs?.(sessionId) ?? []) {
-      try { jobs?.kill(job.id, sessionId, reason) } catch { /* already ended */ }
-    }
-    ctx.get('agents')?.get(sessionId)?.cancel({ kind: 'hook', reason: 'ds-bot: task stopped' })
     return wasActive
   }
 
@@ -438,10 +445,12 @@ export function install(rt) {
     const events = Array.isArray(seen?.events) ? seen.events : []
     const lastStart = events.findLastIndex(event => event?.type === 'turn/start')
     const slice = lastStart === -1 ? events : events.slice(lastStart)
+    const folder = task.workDir ?? rt.workDirOf?.({ botId: bot.id })
     const said = slice
       .filter(event => event?.type === 'assistant/message')
       .map(event => textOf(event.data?.message?.content ?? []).trim())
       .filter(Boolean)
+      .map(text => (folder ? absoluteLinks(text, folder) : text))
       .join('\n\n')
       .trim()
     const failure = reason?.kind === 'error' ? turnFailure(reason.error) : undefined
@@ -518,7 +527,7 @@ export function install(rt) {
     if (rt.isSwitchingPart?.(id) || liveEntry?.switched === true || liveEntry?.lastSwitched === true || reason?.kind === 'blocked') return
 
     const failure = reason?.kind === 'error' ? turnFailure(reason.error) : undefined
-    const said = lastReplyOf(session)
+    const said = lastReplyOf(session, task.workDir)
     queueMicrotask(() => void handleTurnEnd(bot, task, reason, failure, said)
       .catch(error => rt.warn('ds-bot: settling task %s failed: %s', task.id, error)))
   })
@@ -670,8 +679,8 @@ export function install(rt) {
       const header = `${task.id} · ${task.title} · ${statusOf(task)}`
       const saved = readReportFile(task.reportFile)
       if (saved !== undefined) return `${header}\n\n${saved}`
-      const agent = ctx.get('agents')?.get(task.sessionId)
-      const latest = agent !== undefined ? lastReplyOf(agent.session) : ''
+      const agent = ctx.get('agents')?.get(task.sessionId) ?? await rt.resolveAgent(task.sessionId).catch(() => undefined)
+      const latest = agent !== undefined ? lastReplyOf(agent.session, task.workDir) : ''
       if (latest !== '') return `${header}\n\n${latest}`
       if (task.summary) return `${header}\n\n${task.summary}`
       if (task.error) return `${header}\n\nError: ${task.error}`
