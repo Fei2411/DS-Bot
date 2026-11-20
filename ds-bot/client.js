@@ -546,6 +546,31 @@ var JA = {
   "A Bot can read the page you have open: its title, address and visible text. By default it cannot click, type, scroll or open pages.": "Bot は開いているページのタイトル、アドレス、表示テキストを読めます。既定ではクリック、入力、スクロール、ページを開くことはできません。",
   "How to enable interactive browsing": "インタラクティブ閲覧を有効にする方法",
   "In this DSH profile, set browserPlugin to refs, script or task, then restart DS Bot.": "この DSH プロファイルで browserPlugin を refs、script、task のいずれかに設定し、DS Bot を再起動してください。",
+  "Not installed": "未インストール",
+  "Restart required": "再起動が必要",
+  "Error": "エラー",
+  "DSH plugin": "DSH プラグイン",
+  "Active": "使用中",
+  "Use": "使用",
+  "Browser backend": "ブラウザバックエンド",
+  "Choose which browser engine the whole team uses. Switching takes effect right away without restarting DS Bot.": "チーム全体で使用するブラウザエンジンを選択します。切り替えは DS Bot を再起動せずにすぐ反映されます。",
+  "Bots only read the page open in their browser panel.": "Bot はブラウザパネルで開いているページを読むだけです。",
+  "DSH browser plugins": "DSH ブラウザプラグイン",
+  "Replace the built-in browser with a DSH browser plugin such as ego lite. While an external plugin is active, built-in browser tools are hidden so Bots use only that plugin.": "ego lite などの DSH ブラウザプラグインで内蔵ブラウザを置き換えます。外部プラグイン有効中は内蔵ブラウザツールが非表示になります。",
+  "No DSH browser plugins listed yet.": "DSH ブラウザプラグインはまだありません。",
+  "Installed": "インストール済み",
+  "Install": "インストール",
+  "MCP browser servers": "MCP ブラウザサーバー",
+  "Run a browser automation MCP server in place of the built-in browser.": "内蔵ブラウザの代わりにブラウザ操作 MCP サーバーを実行します。",
+  "Registered providers": "登録済みプロバイダー",
+  "Add custom browser plugin": "カスタムブラウザプラグインを追加",
+  "Plugin type": "プラグイン種別",
+  "Package or GitHub spec": "パッケージ名または GitHub 指定",
+  "Tool prefixes": "ツール接頭辞",
+  "Optional, comma-separated, used to hide inactive plugin tools.": "任意（カンマ区切り）。非アクティブ時にツールを隠すために使います。",
+  "Transport": "トランスポート",
+  "Register another DSH browser plugin package or a custom MCP browser server.": "別の DSH ブラウザプラグインパッケージやカスタム MCP ブラウザサーバーを登録します。",
+  "These grants apply to DS Bot’s built-in Playwright backend. The active external browser plugin handles its own permissions.": "これらの許可は DS Bot 内蔵の Playwright バックエンドにのみ適用されます。現在有効な外部ブラウザプラグインは独自の権限管理を行います。",
   "With an interactive plugin, Bots browse, click and fill in forms. Posting, uploading, downloading and deleting ask you first unless you allow them here. Payments are always yours: the Bot hands the page to you.": "インタラクティブプラグインを有効にすると、Bot は閲覧、クリック、フォーム入力ができます。投稿、アップロード、ダウンロード、削除は、ここで許可しない限り事前に確認を求めます。決済は常にあなた自身が行うため、Bot がページを引き継ぎます。",
   "These grants apply only after an interactive browser plugin is enabled.": "これらの許可は、インタラクティブブラウザープラグインを有効にした場合にのみ適用されます。",
   "Allowed actions": "許可済みの操作",
@@ -3059,6 +3084,31 @@ var KO = {
   "A Bot can read the page you have open: its title, address and visible text. By default it cannot click, type, scroll or open pages.": "Bot은 열려 있는 페이지의 제목, 주소, 표시되는 텍스트를 읽을 수 있습니다. 기본적으로 클릭, 입력, 스크롤, 페이지 열기는 할 수 없습니다.",
   "How to enable interactive browsing": "대화형 브라우징을 켜는 방법",
   "In this DSH profile, set browserPlugin to refs, script or task, then restart DS Bot.": "이 DSH 프로필에서 browserPlugin을 refs, script, task 중 하나로 설정한 뒤 DS Bot을 다시 시작하세요.",
+  "Not installed": "설치되지 않음",
+  "Restart required": "재시작 필요",
+  "Error": "오류",
+  "DSH plugin": "DSH 플러그인",
+  "Active": "사용 중",
+  "Use": "사용",
+  "Browser backend": "브라우저 백엔드",
+  "Choose which browser engine the whole team uses. Switching takes effect right away without restarting DS Bot.": "팀 전체가 사용할 브라우저 엔진을 선택합니다. DS Bot을 재시작하지 않고 바로 전환됩니다.",
+  "Bots only read the page open in their browser panel.": "Bot은 브라우저 패널에 열려 있는 페이지만 읽습니다.",
+  "DSH browser plugins": "DSH 브라우저 플러그인",
+  "Replace the built-in browser with a DSH browser plugin such as ego lite. While an external plugin is active, built-in browser tools are hidden so Bots use only that plugin.": "ego lite 같은 DSH 브라우저 플러그인으로 내장 브라우저를 대체합니다. 외부 플러그인이 활성화되면 내장 브라우저 도구는 숨겨집니다.",
+  "No DSH browser plugins listed yet.": "등록된 DSH 브라우저 플러그인이 아직 없습니다.",
+  "Installed": "설치됨",
+  "Install": "설치",
+  "MCP browser servers": "MCP 브라우저 서버",
+  "Run a browser automation MCP server in place of the built-in browser.": "내장 브라우저 대신 브라우저 자동화 MCP 서버를 실행합니다.",
+  "Registered providers": "등록된 제공자",
+  "Add custom browser plugin": "사용자 지정 브라우저 플러그인 추가",
+  "Plugin type": "플러그인 유형",
+  "Package or GitHub spec": "패키지 또는 GitHub 경로",
+  "Tool prefixes": "도구 접두사",
+  "Optional, comma-separated, used to hide inactive plugin tools.": "선택 사항(쉼표로 구분). 비활성 플러그인의 도구를 숨기는 데 사용됩니다.",
+  "Transport": "전송 방식",
+  "Register another DSH browser plugin package or a custom MCP browser server.": "다른 DSH 브라우저 플러그인 패키지나 사용자 지정 MCP 브라우저 서버를 등록합니다.",
+  "These grants apply to DS Bot’s built-in Playwright backend. The active external browser plugin handles its own permissions.": "이 권한은 DS Bot 내장 Playwright 백엔드에만 적용됩니다. 현재 활성 외부 브라우저 플러그인은 자체 권한을 관리합니다.",
   "With an interactive plugin, Bots browse, click and fill in forms. Posting, uploading, downloading and deleting ask you first unless you allow them here. Payments are always yours: the Bot hands the page to you.": "대화형 플러그인을 켜면 Bot이 웹을 탐색하고 클릭하며 양식을 작성할 수 있습니다. 게시, 업로드, 다운로드, 삭제는 여기서 미리 허용하지 않는 한 먼저 확인을 요청합니다. 결제는 항상 사용자가 직접 진행하도록 Bot이 페이지를 넘겨줍니다.",
   "These grants apply only after an interactive browser plugin is enabled.": "이 권한은 대화형 브라우저 플러그인을 켠 뒤에만 적용됩니다.",
   "Allowed actions": "허용된 작업",
@@ -5608,6 +5658,31 @@ var ES = {
   "A Bot can read the page you have open: its title, address and visible text. By default it cannot click, type, scroll or open pages.": "El Bot puede leer la página que tienes abierta: su título, dirección y texto visible. Por defecto no puede hacer clic, escribir, desplazarse ni abrir páginas.",
   "How to enable interactive browsing": "Cómo activar la navegación interactiva",
   "In this DSH profile, set browserPlugin to refs, script or task, then restart DS Bot.": "En este perfil de DSH, pon browserPlugin en refs, script o task y reinicia DS Bot.",
+  "Not installed": "No instalado",
+  "Restart required": "Requiere reinicio",
+  "Error": "Error",
+  "DSH plugin": "Plugin de DSH",
+  "Active": "Activo",
+  "Use": "Usar",
+  "Browser backend": "Motor del navegador",
+  "Choose which browser engine the whole team uses. Switching takes effect right away without restarting DS Bot.": "Elige qué motor de navegador usa todo el equipo. El cambio surte efecto al instante sin reiniciar DS Bot.",
+  "Bots only read the page open in their browser panel.": "Los Bots solo leen la página abierta en su panel de navegador.",
+  "DSH browser plugins": "Plugins de navegador de DSH",
+  "Replace the built-in browser with a DSH browser plugin such as ego lite. While an external plugin is active, built-in browser tools are hidden so Bots use only that plugin.": "Sustituye el navegador integrado por un plugin de DSH como ego lite. Mientras un plugin externo esté activo, las herramientas integradas se ocultan para que los Bots usen solo ese plugin.",
+  "No DSH browser plugins listed yet.": "Todavía no hay plugins de navegador de DSH.",
+  "Installed": "Instalado",
+  "Install": "Instalar",
+  "MCP browser servers": "Servidores MCP de navegador",
+  "Run a browser automation MCP server in place of the built-in browser.": "Ejecuta un servidor MCP de automatización de navegador en lugar del navegador integrado.",
+  "Registered providers": "Proveedores registrados",
+  "Add custom browser plugin": "Añadir plugin de navegador personalizado",
+  "Plugin type": "Tipo de plugin",
+  "Package or GitHub spec": "Paquete o especificación de GitHub",
+  "Tool prefixes": "Prefijos de herramientas",
+  "Optional, comma-separated, used to hide inactive plugin tools.": "Opcional, separados por comas, para ocultar herramientas de plugins inactivos.",
+  "Transport": "Transporte",
+  "Register another DSH browser plugin package or a custom MCP browser server.": "Registra otro paquete de plugin de navegador de DSH o un servidor MCP personalizado.",
+  "These grants apply to DS Bot’s built-in Playwright backend. The active external browser plugin handles its own permissions.": "Estos permisos se aplican al motor Playwright integrado de DS Bot. El plugin externo activo gestiona sus propios permisos.",
   "With an interactive plugin, Bots browse, click and fill in forms. Posting, uploading, downloading and deleting ask you first unless you allow them here. Payments are always yours: the Bot hands the page to you.": "Con un plugin interactivo, los Bots navegan, hacen clic y rellenan formularios. Publicar, subir, descargar y eliminar te pedirán confirmación a menos que lo permitas aquí. Los pagos siempre son cosa tuya: el Bot te cede la página.",
   "These grants apply only after an interactive browser plugin is enabled.": "Estos permisos solo se aplican después de activar un plugin de navegador interactivo.",
   "Allowed actions": "Acciones permitidas",
@@ -8148,6 +8223,31 @@ var FR = {
   "A Bot can read the page you have open: its title, address and visible text. By default it cannot click, type, scroll or open pages.": "Le Bot peut lire la page que vous avez ouverte : son titre, son adresse et le texte visible. Par défaut, il ne peut ni cliquer, ni saisir, ni faire défiler, ni ouvrir des pages.",
   "How to enable interactive browsing": "Comment activer la navigation interactive",
   "In this DSH profile, set browserPlugin to refs, script or task, then restart DS Bot.": "Dans ce profil DSH, réglez browserPlugin sur refs, script ou task, puis redémarrez DS Bot.",
+  "Not installed": "Non installé",
+  "Restart required": "Redémarrage requis",
+  "Error": "Erreur",
+  "DSH plugin": "Plugin DSH",
+  "Active": "Actif",
+  "Use": "Utiliser",
+  "Browser backend": "Moteur de navigateur",
+  "Choose which browser engine the whole team uses. Switching takes effect right away without restarting DS Bot.": "Choisissez le moteur de navigateur utilisé par toute l'équipe. Le changement s'applique immédiatement sans redémarrer DS Bot.",
+  "Bots only read the page open in their browser panel.": "Les Bots lisent uniquement la page ouverte dans leur panneau navigateur.",
+  "DSH browser plugins": "Plugins navigateur DSH",
+  "Replace the built-in browser with a DSH browser plugin such as ego lite. While an external plugin is active, built-in browser tools are hidden so Bots use only that plugin.": "Remplacez le navigateur intégré par un plugin DSH tel qu'ego lite. Lorsqu'un plugin externe est actif, les outils intégrés sont masqués pour que les Bots n'utilisent que ce plugin.",
+  "No DSH browser plugins listed yet.": "Aucun plugin navigateur DSH répertorié pour l'instant.",
+  "Installed": "Installé",
+  "Install": "Installer",
+  "MCP browser servers": "Serveurs MCP de navigateur",
+  "Run a browser automation MCP server in place of the built-in browser.": "Exécutez un serveur MCP d'automatisation de navigateur à la place du navigateur intégré.",
+  "Registered providers": "Fournisseurs enregistrés",
+  "Add custom browser plugin": "Ajouter un plugin navigateur personnalisé",
+  "Plugin type": "Type de plugin",
+  "Package or GitHub spec": "Paquet ou adresse GitHub",
+  "Tool prefixes": "Préfixes d'outils",
+  "Optional, comma-separated, used to hide inactive plugin tools.": "Optionnel, séparés par des virgules, pour masquer les outils des plugins inactifs.",
+  "Transport": "Transport",
+  "Register another DSH browser plugin package or a custom MCP browser server.": "Enregistrez un autre paquet de plugin navigateur DSH ou un serveur MCP personnalisé.",
+  "These grants apply to DS Bot’s built-in Playwright backend. The active external browser plugin handles its own permissions.": "Ces autorisations s'appliquent au moteur Playwright intégré de DS Bot. Le plugin externe actif gère ses propres permissions.",
   "With an interactive plugin, Bots browse, click and fill in forms. Posting, uploading, downloading and deleting ask you first unless you allow them here. Payments are always yours: the Bot hands the page to you.": "Avec un plugin interactif, les Bots naviguent, cliquent et remplissent les formulaires. La publication, le téléversement, le téléchargement et la suppression vous demandent d’abord confirmation, sauf si vous les autorisez ici. Les paiements restent toujours sous votre contrôle : le Bot vous passe la main sur la page.",
   "These grants apply only after an interactive browser plugin is enabled.": "Ces autorisations ne s’appliquent qu’après l’activation d’un plugin de navigateur interactif.",
   "Allowed actions": "Actions autorisées",
@@ -10661,6 +10761,31 @@ var DE = {
   "A Bot can read the page you have open: its title, address and visible text. By default it cannot click, type, scroll or open pages.": "Ein Bot kann die Seite lesen, die du geöffnet hast: Titel, Adresse und sichtbarer Text. Standardmäßig kann er nicht klicken, tippen, scrollen oder Seiten öffnen.",
   "How to enable interactive browsing": "Interaktives Browsen aktivieren",
   "In this DSH profile, set browserPlugin to refs, script or task, then restart DS Bot.": "Setze in diesem DSH-Profil browserPlugin auf refs, script oder task und starte DS Bot neu.",
+  "Not installed": "Nicht installiert",
+  "Restart required": "Neustart erforderlich",
+  "Error": "Fehler",
+  "DSH plugin": "DSH-Plugin",
+  "Active": "Aktiv",
+  "Use": "Verwenden",
+  "Browser backend": "Browser-Backend",
+  "Choose which browser engine the whole team uses. Switching takes effect right away without restarting DS Bot.": "Wähle, welche Browser-Engine das gesamte Team nutzt. Der Wechsel wirkt sofort ohne Neustart von DS Bot.",
+  "Bots only read the page open in their browser panel.": "Bots lesen nur die Seite, die im Browser-Panel geöffnet ist.",
+  "DSH browser plugins": "DSH-Browser-Plugins",
+  "Replace the built-in browser with a DSH browser plugin such as ego lite. While an external plugin is active, built-in browser tools are hidden so Bots use only that plugin.": "Ersetze den integrierten Browser durch ein DSH-Browser-Plugin wie ego lite. Solange ein externes Plugin aktiv ist, werden die integrierten Browser-Tools ausgeblendet.",
+  "No DSH browser plugins listed yet.": "Noch keine DSH-Browser-Plugins aufgeführt.",
+  "Installed": "Installiert",
+  "Install": "Installieren",
+  "MCP browser servers": "MCP-Browser-Server",
+  "Run a browser automation MCP server in place of the built-in browser.": "Führe einen MCP-Server für Browser-Automatisierung statt des integrierten Browsers aus.",
+  "Registered providers": "Registrierte Anbieter",
+  "Add custom browser plugin": "Eigenes Browser-Plugin hinzufügen",
+  "Plugin type": "Plugintyp",
+  "Package or GitHub spec": "Paketname oder GitHub-Angabe",
+  "Tool prefixes": "Tool-Präfixe",
+  "Optional, comma-separated, used to hide inactive plugin tools.": "Optional, durch Komma getrennt, um Tools inaktiver Plugins auszublenden.",
+  "Transport": "Transport",
+  "Register another DSH browser plugin package or a custom MCP browser server.": "Registriere ein weiteres DSH-Browser-Plugin-Paket oder einen eigenen MCP-Browser-Server.",
+  "These grants apply to DS Bot’s built-in Playwright backend. The active external browser plugin handles its own permissions.": "Diese Freigaben gelten für das integrierte Playwright-Backend von DS Bot. Das aktive externe Browser-Plugin verwaltet seine eigenen Berechtigungen.",
   "With an interactive plugin, Bots browse, click and fill in forms. Posting, uploading, downloading and deleting ask you first unless you allow them here. Payments are always yours: the Bot hands the page to you.": "Mit einem interaktiven Plugin können Bots surfen, klicken und Formulare ausfüllen. Vor dem Veröffentlichen, Hochladen, Herunterladen und Löschen wirst du gefragt, sofern du es hier nicht vorab erlaubst. Zahlungen tätigst immer du selbst: Der Bot übergibt dir dafür die Seite.",
   "These grants apply only after an interactive browser plugin is enabled.": "Diese Berechtigungen gelten erst, nachdem ein interaktives Browser-Plugin aktiviert wurde.",
   "Allowed actions": "Erlaubte Aktionen",
@@ -13183,6 +13308,31 @@ var ZH = {
   "A Bot can read the page you have open: its title, address and visible text. By default it cannot click, type, scroll or open pages.": "Bot 可以读取你打开的页面：标题、地址和可见文字。默认不能点击、输入、滚动或打开页面。",
   "How to enable interactive browsing": "如何开启交互式浏览",
   "In this DSH profile, set browserPlugin to refs, script or task, then restart DS Bot.": "在这个 DSH profile 里把 browserPlugin 设为 refs、script 或 task，然后重启 DS Bot。",
+  "Not installed": "未安装",
+  "Restart required": "需要重启",
+  "Error": "出错",
+  "DSH plugin": "DSH 插件",
+  "Active": "使用中",
+  "Use": "使用",
+  "Browser backend": "浏览器后端",
+  "Choose which browser engine the whole team uses. Switching takes effect right away without restarting DS Bot.": "选择全团队共用的浏览器引擎。切换立即生效，无需重启 DS Bot。",
+  "Bots only read the page open in their browser panel.": "Bot 只能读取浏览器面板里打开的页面。",
+  "DSH browser plugins": "DSH 浏览器插件",
+  "Replace the built-in browser with a DSH browser plugin such as ego lite. While an external plugin is active, built-in browser tools are hidden so Bots use only that plugin.": "用 DSH 浏览器插件（如 ego lite）替换内置浏览器。启用外部插件时，内置浏览器工具会自动隐藏，让 Bot 只使用该插件。",
+  "No DSH browser plugins listed yet.": "暂无可用的 DSH 浏览器插件。",
+  "Installed": "已安装",
+  "Install": "安装",
+  "MCP browser servers": "MCP 浏览器服务",
+  "Run a browser automation MCP server in place of the built-in browser.": "用浏览器操控 MCP 服务替换内置浏览器。",
+  "Registered providers": "已注册的原生提供方",
+  "Add custom browser plugin": "添加自定义浏览器插件",
+  "Plugin type": "插件类型",
+  "Package or GitHub spec": "包名或 GitHub 地址",
+  "Tool prefixes": "工具前缀",
+  "Optional, comma-separated, used to hide inactive plugin tools.": "可选，用逗号分隔，用于在不启用时隐藏该插件的工具。",
+  "Transport": "传输方式",
+  "Register another DSH browser plugin package or a custom MCP browser server.": "添加其他 DSH 浏览器插件包或自定义 MCP 浏览器服务。",
+  "These grants apply to DS Bot’s built-in Playwright backend. The active external browser plugin handles its own permissions.": "这些预授权仅适用于 DS Bot 内置的 Playwright 后端。当前启用的外部浏览器插件由其自身管理权限。",
   "With an interactive plugin, Bots browse, click and fill in forms. Posting, uploading, downloading and deleting ask you first unless you allow them here. Payments are always yours: the Bot hands the page to you.": "启用交互插件后，Bot 可以浏览、点击和填写表单。发布、上传、下载和删除会先征求你的同意，除非你在这里预先允许。付款始终由你自己完成：Bot 会把页面交给你。",
   "These grants apply only after an interactive browser plugin is enabled.": "这些授权只在启用交互式浏览器插件后生效。",
   "Allowed actions": "已允许的操作",
@@ -15359,6 +15509,12 @@ function teamActions({ call: call2, after, partFor, roster, ui: ui2, live, cards
     dismissView: (sessionId) => after(call2("dismiss-view", { sessionId: partFor(sessionId) })),
     deleteBtw: (sessionId, cardId) => after(call2("btw-delete", { sessionId, cardId })),
     answerApproval: (id, choice) => after(call2("approval-answer", { id, choice })),
+    browserBackends: () => call2("browser-backends", {}),
+    browserSetBackend: (id) => after(call2("browser-set-backend", { id })),
+    browserInstallPlugin: (payload) => after(call2("browser-install-plugin", payload)),
+    browserRetry: () => after(call2("browser-retry", {})),
+    browserCustomSave: (payload) => after(call2("browser-custom-save", payload)),
+    browserCustomRemove: (id) => after(call2("browser-custom-remove", { id })),
     computerSetEnabled: (enabled) => after(call2("computer-set-enabled", { enabled })),
     computerSetLevel: (botId, level) => after(call2("computer-set-level", { botId, level })),
     computerRevokeApp: (botId, appKey) => after(call2("computer-revoke-app", { botId, appKey })),
@@ -17059,6 +17215,10 @@ button.bt-set-row:hover .bt-chevron{transform:translateX(2px);color:var(--bt-ink
 .bt-set-hint.bt-danger{color:var(--bt-danger)}
 .bt-set-bot{flex:1;display:flex;align-items:center;gap:10px;min-width:0}
 .bt-browser-note{margin:0;padding:12px 16px;color:var(--bt-ink-2);font-size:12px;line-height:18px}
+.bt-browser-item-title{display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap}
+.bt-browser-active-chip{background:var(--bt-accent-soft);color:var(--bt-accent)}
+.bt-browser-status-chip[data-state=ready]{color:var(--bt-green)}
+.bt-browser-status-chip[data-state=error]{color:var(--bt-danger)}
 .bt-browser-grant{display:flex;align-items:center;gap:12px;padding:12px 16px}
 .bt-browser-grant+.bt-browser-grant{border-top:.5px solid var(--bt-line)}
 .bt-browser-grant-who{display:flex;align-items:center;gap:8px;flex:0 0 150px;min-width:0;font-size:13px}
@@ -35861,6 +36021,35 @@ var import_react45 = require("react");
 var ACTIONS = [["post", "Post"], ["upload", "Upload"], ["download", "Download"], ["delete", "Delete"]];
 var DURATIONS = [["hour", "1 hour"], ["today", "Today"], ["week", "7 days"], ["permanent", "Permanent"]];
 var expired = (grant) => Number.isFinite(grant.until) && grant.until <= Date.now();
+var FALLBACK_BACKEND = {
+  active: "readonly",
+  status: {
+    id: "readonly",
+    kind: "readonly",
+    name: "Read-only (Built-in panel)",
+    mode: "readonly",
+    state: "ready",
+    supportsGrants: true,
+    message: null,
+    installCommand: null
+  },
+  canInstall: false,
+  builtins: [
+    { id: "builtin:refs", name: "DS Bot Playwright · ARIA refs", description: "Step-by-step snapshots and numbered refs in each Bot’s isolated browser panel." },
+    { id: "builtin:script", name: "DS Bot Playwright · Script", description: "Batch multiple actions into one JavaScript step in each Bot’s browser." },
+    { id: "builtin:task", name: "DS Bot Playwright · Whole task", description: "Hand a web goal to a browser loop and return the answer and steps." }
+  ],
+  dshPlugins: [],
+  mcpServers: [],
+  providers: []
+};
+var STATUS_LABELS = {
+  ready: "Ready",
+  loading: "Loading…",
+  "not-installed": "Not installed",
+  "restart-needed": "Restart required",
+  error: "Error"
+};
 function siteValue(value) {
   return value.trim().toLowerCase().replace(/^[a-z][a-z\d+.-]*:\/\//, "").split(/[/?#]/, 1)[0].replace(/:\d+$/, "") || "*";
 }
@@ -35874,8 +36063,35 @@ function grantKinds(grant) {
   if (grant.kinds.includes("*")) return [t("All four")];
   return ACTIONS.filter(([kind]) => grant.kinds.includes(kind)).map(([, label]) => t(label));
 }
+function CopyButton2({ text }) {
+  const [copied, setCopied] = (0, import_react45.useState)(false);
+  const copy2 = () => {
+    void navigator.clipboard?.writeText(text).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1600);
+    }, () => {
+    });
+  };
+  return (0, import_react45.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: copy2 }, copied ? t("Copied") : t("Copy command"));
+}
+function StatusChip({ state }) {
+  const label = STATUS_LABELS[state] ?? "Error";
+  return (0, import_react45.createElement)("span", { className: "bt-chip bt-browser-status-chip", "data-state": state }, t(label));
+}
 function BrowserPage({ roster, actions, run: run2, Section: Section2, Row: Row4 }) {
   const bots = roster.bots ?? [];
+  const [fresh, setFresh] = (0, import_react45.useState)(null);
+  const [switching, setSwitching] = (0, import_react45.useState)(null);
+  const [installing, setInstalling] = (0, import_react45.useState)(null);
+  const [addingCustom, setAddingCustom] = (0, import_react45.useState)(false);
+  const [customKind, setCustomKind] = (0, import_react45.useState)("dsh-plugin");
+  const [customName, setCustomName] = (0, import_react45.useState)("");
+  const [customSpec, setCustomSpec] = (0, import_react45.useState)("");
+  const [customPrefixes, setCustomPrefixes] = (0, import_react45.useState)("");
+  const [customTransport, setCustomTransport] = (0, import_react45.useState)("stdio");
+  const [customCommand, setCustomCommand] = (0, import_react45.useState)("");
+  const [customArgs, setCustomArgs] = (0, import_react45.useState)("");
+  const [customUrl, setCustomUrl] = (0, import_react45.useState)("");
   const [botId, setBotId] = (0, import_react45.useState)(bots[0]?.id ?? "");
   const [site, setSite] = (0, import_react45.useState)("");
   const [kinds, setKinds] = (0, import_react45.useState)(["post"]);
@@ -35885,6 +36101,74 @@ function BrowserPage({ roster, actions, run: run2, Section: Section2, Row: Row4 
   (0, import_react45.useEffect)(() => {
     if (!bots.some((bot) => bot.id === botId)) setBotId(bots[0]?.id ?? "");
   }, [bots, botId]);
+  const refreshBackends = () => {
+    if (!actions.browserBackends) return;
+    void Promise.resolve(actions.browserBackends()).then((view) => {
+      if (view) setFresh(view);
+    }, () => {
+    });
+  };
+  (0, import_react45.useEffect)(() => {
+    refreshBackends();
+  }, []);
+  const backend = fresh ?? roster.browserBackend ?? FALLBACK_BACKEND;
+  const status = backend.status ?? FALLBACK_BACKEND.status;
+  const activeId = backend.active ?? "readonly";
+  const supportsGrants = status.supportsGrants !== false;
+  const pickBackend = (id) => {
+    if (!actions.browserSetBackend || switching !== null) return;
+    setSwitching(id);
+    void run2(Promise.resolve(actions.browserSetBackend(id)).then((view) => {
+      if (view) setFresh(view);
+    })).finally(() => setSwitching(null));
+  };
+  const installPlugin = (item) => {
+    if (!actions.browserInstallPlugin || installing !== null) return;
+    setInstalling(item.id);
+    void run2(Promise.resolve(actions.browserInstallPlugin({ id: item.id, spec: item.installSpec || item.packageName })).then((view) => {
+      if (view) setFresh(view);
+    })).finally(() => setInstalling(null));
+  };
+  const retryBackend = () => {
+    if (!actions.browserRetry || switching !== null) return;
+    setSwitching("retry");
+    void run2(Promise.resolve(actions.browserRetry()).then((view) => {
+      if (view) setFresh(view);
+    })).finally(() => setSwitching(null));
+  };
+  const removeCustom = (id) => {
+    if (!actions.browserCustomRemove || switching !== null) return;
+    setSwitching(id);
+    void run2(Promise.resolve(actions.browserCustomRemove(id)).then((view) => {
+      if (view) setFresh(view);
+    })).finally(() => setSwitching(null));
+  };
+  const saveCustom = (event) => {
+    event.preventDefault();
+    if (!actions.browserCustomSave || switching !== null) return;
+    const payload = customKind === "dsh-plugin" ? {
+      kind: "dsh-plugin",
+      name: customName,
+      installSpec: customSpec,
+      toolPrefixes: customPrefixes
+    } : {
+      kind: "mcp",
+      name: customName,
+      transport: customTransport,
+      ...customTransport === "stdio" ? { command: customCommand, args: customArgs } : { url: customUrl }
+    };
+    setSwitching("custom");
+    void run2(Promise.resolve(actions.browserCustomSave(payload)).then((view) => {
+      if (view) setFresh(view);
+      setCustomName("");
+      setCustomSpec("");
+      setCustomPrefixes("");
+      setCustomCommand("");
+      setCustomArgs("");
+      setCustomUrl("");
+      setAddingCustom(false);
+    })).finally(() => setSwitching(null));
+  };
   const grants = bots.flatMap((bot) => (bot.browserGrants ?? []).map((grant, index) => ({
     bot,
     grant,
@@ -35915,23 +36199,233 @@ function BrowserPage({ roster, actions, run: run2, Section: Section2, Row: Row4 
   const toggleKind = (kind, checked) => {
     setKinds((current2) => checked ? current2.includes(kind) ? current2 : [...current2, kind] : current2.filter((value) => value !== kind));
   };
+  const actionButton = (id, disabled = false) => activeId === id ? (0, import_react45.createElement)("span", { className: "bt-chip bt-browser-active-chip" }, t("Active")) : (0, import_react45.createElement)("button", {
+    type: "button",
+    className: "bt-soft bt-soft-sm",
+    disabled: disabled || switching !== null || !actions.browserSetBackend,
+    onClick: () => pickBackend(id)
+  }, switching === id ? t("Loading…") : t("Use"));
+  const dshPlugins = backend.dshPlugins ?? [];
+  const mcpServers = backend.mcpServers ?? [];
+  const providers = backend.providers ?? [];
   return (0, import_react45.createElement)(
     "div",
     { className: "bt-browser-settings" },
     (0, import_react45.createElement)(
       Section2,
-      { title: t("Browser access") },
-      (0, import_react45.createElement)("p", { className: "bt-browser-note" }, t("A Bot can read the page you have open: its title, address and visible text. By default it cannot click, type, scroll or open pages.")),
+      {
+        title: t("Browser backend"),
+        action: actions.browserBackends ? (0, import_react45.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: refreshBackends }, t("Refresh")) : null
+      },
+      (0, import_react45.createElement)("p", { className: "bt-browser-note" }, t("Choose which browser engine the whole team uses. Switching takes effect right away without restarting DS Bot.")),
+      (0, import_react45.createElement)(
+        Row4,
+        {
+          label: status.id === "readonly" ? t("Read-only") : status.name,
+          hint: status.message || (status.id === "readonly" ? t("A Bot can read the page you have open: its title, address and visible text. By default it cannot click, type, scroll or open pages.") : void 0)
+        },
+        (0, import_react45.createElement)(StatusChip, { state: status.state }),
+        status.installCommand ? (0, import_react45.createElement)(CopyButton2, { text: status.installCommand }) : null,
+        ["error", "not-installed", "restart-needed"].includes(status.state) && actions.browserRetry ? (0, import_react45.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: switching !== null, onClick: retryBackend }, t("Retry")) : null
+      ),
       (0, import_react45.createElement)(Row4, {
-        label: t("How to enable interactive browsing"),
-        hint: t("In this DSH profile, set browserPlugin to refs, script or task, then restart DS Bot.")
-      }),
-      (0, import_react45.createElement)("p", { className: "bt-browser-note" }, t("With an interactive plugin, Bots browse, click and fill in forms. Posting, uploading, downloading and deleting ask you first unless you allow them here. Payments are always yours: the Bot hands the page to you."))
+        label: t("Read-only"),
+        hint: t("Bots only read the page open in their browser panel.")
+      }, actionButton("readonly")),
+      (backend.builtins ?? []).map((item) => (0, import_react45.createElement)(Row4, {
+        key: item.id,
+        label: item.name,
+        hint: item.description
+      }, actionButton(item.id)))
     ),
     (0, import_react45.createElement)(
       Section2,
+      { title: t("DSH browser plugins") },
+      (0, import_react45.createElement)("p", { className: "bt-browser-note" }, t("Replace the built-in browser with a DSH browser plugin such as ego lite. While an external plugin is active, built-in browser tools are hidden so Bots use only that plugin.")),
+      dshPlugins.length === 0 ? (0, import_react45.createElement)(Row4, { label: t("No DSH browser plugins listed yet.") }) : dshPlugins.map((item) => (0, import_react45.createElement)(
+        Row4,
+        {
+          key: item.id,
+          label: (0, import_react45.createElement)(
+            "span",
+            { className: "bt-browser-item-title" },
+            (0, import_react45.createElement)("span", null, item.name),
+            item.installed ? (0, import_react45.createElement)("span", { className: "bt-chip" }, item.version ? `${t("Installed")} · ${item.version}` : t("Installed")) : (0, import_react45.createElement)("span", { className: "bt-chip" }, t("Not installed"))
+          ),
+          hint: item.installed ? item.description : `${item.description}${item.installCommand ? ` (${item.installCommand})` : ""}`
+        },
+        item.installed ? actionButton(item.id) : backend.canInstall ? (0, import_react45.createElement)("button", {
+          type: "button",
+          className: "bt-send bt-soft-sm",
+          disabled: installing !== null || !actions.browserInstallPlugin,
+          onClick: () => installPlugin(item)
+        }, installing === item.id ? t("Loading…") : t("Install")) : [
+          item.installCommand ? (0, import_react45.createElement)(CopyButton2, { key: "copy", text: item.installCommand }) : null,
+          actionButton(item.id)
+        ],
+        item.custom && actions.browserCustomRemove ? (0, import_react45.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: switching !== null, onClick: () => removeCustom(item.id) }, t("Remove")) : null
+      ))
+    ),
+    (0, import_react45.createElement)(
+      Section2,
+      { title: t("MCP browser servers") },
+      (0, import_react45.createElement)("p", { className: "bt-browser-note" }, t("Run a browser automation MCP server in place of the built-in browser.")),
+      mcpServers.map((item) => (0, import_react45.createElement)(
+        Row4,
+        {
+          key: item.id,
+          label: (0, import_react45.createElement)(
+            "span",
+            { className: "bt-browser-item-title" },
+            (0, import_react45.createElement)("span", null, item.name),
+            (0, import_react45.createElement)("span", { className: "bt-chip" }, item.transport === "streamable-http" ? "HTTP" : "stdio")
+          ),
+          hint: item.description || (item.transport === "streamable-http" ? item.url : [item.command, ...item.args ?? []].join(" "))
+        },
+        actionButton(item.id),
+        item.custom && actions.browserCustomRemove ? (0, import_react45.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: switching !== null, onClick: () => removeCustom(item.id) }, t("Remove")) : null
+      ))
+    ),
+    providers.length > 0 ? (0, import_react45.createElement)(
+      Section2,
+      { title: t("Registered providers") },
+      providers.map((item) => (0, import_react45.createElement)(Row4, {
+        key: item.id,
+        label: item.name,
+        hint: item.description || item.packageName || item.id
+      }, actionButton(item.id)))
+    ) : null,
+    actions.browserCustomSave ? (0, import_react45.createElement)(
+      Section2,
+      {
+        title: t("Add custom browser plugin"),
+        action: (0, import_react45.createElement)("button", {
+          type: "button",
+          className: "bt-soft bt-soft-sm",
+          onClick: () => setAddingCustom((open) => !open)
+        }, addingCustom ? t("Cancel") : t("Add"))
+      },
+      addingCustom ? (0, import_react45.createElement)(
+        "form",
+        { className: "bt-browser-form", onSubmit: saveCustom },
+        (0, import_react45.createElement)(
+          Row4,
+          { label: t("Plugin type") },
+          (0, import_react45.createElement)(
+            "div",
+            { className: "bt-browser-duration", role: "group", "aria-label": t("Plugin type") },
+            [["dsh-plugin", "DSH plugin"], ["mcp", "MCP server"]].map(([key, label]) => (0, import_react45.createElement)("button", {
+              key,
+              type: "button",
+              className: "bt-browser-duration-choice",
+              "aria-pressed": customKind === key,
+              onClick: () => setCustomKind(key)
+            }, t(label)))
+          )
+        ),
+        (0, import_react45.createElement)(
+          Row4,
+          { label: t("Name") },
+          (0, import_react45.createElement)("input", {
+            className: "bt-input bt-browser-site",
+            type: "text",
+            required: true,
+            value: customName,
+            placeholder: customKind === "dsh-plugin" ? "Ego Browser" : "My Browser MCP",
+            onChange: (event) => setCustomName(event.target.value)
+          })
+        ),
+        customKind === "dsh-plugin" ? [
+          (0, import_react45.createElement)(
+            Row4,
+            { key: "spec", label: t("Package or GitHub spec") },
+            (0, import_react45.createElement)("input", {
+              className: "bt-input bt-browser-site",
+              type: "text",
+              required: true,
+              value: customSpec,
+              placeholder: "dsh-ego-browser or github:owner/repo",
+              onChange: (event) => setCustomSpec(event.target.value)
+            })
+          ),
+          (0, import_react45.createElement)(
+            Row4,
+            { key: "prefixes", label: t("Tool prefixes"), hint: t("Optional, comma-separated, used to hide inactive plugin tools.") },
+            (0, import_react45.createElement)("input", {
+              className: "bt-input bt-browser-site",
+              type: "text",
+              value: customPrefixes,
+              placeholder: "ego_",
+              onChange: (event) => setCustomPrefixes(event.target.value)
+            })
+          )
+        ] : [
+          (0, import_react45.createElement)(
+            Row4,
+            { key: "transport", label: t("Transport") },
+            (0, import_react45.createElement)(
+              "select",
+              {
+                className: "bt-select",
+                value: customTransport,
+                onChange: (event) => setCustomTransport(event.target.value)
+              },
+              (0, import_react45.createElement)("option", { value: "stdio" }, "stdio"),
+              (0, import_react45.createElement)("option", { value: "streamable-http" }, "Streamable HTTP")
+            )
+          ),
+          customTransport === "stdio" ? [
+            (0, import_react45.createElement)(
+              Row4,
+              { key: "cmd", label: t("Command") },
+              (0, import_react45.createElement)("input", {
+                className: "bt-input bt-browser-site",
+                type: "text",
+                required: true,
+                value: customCommand,
+                placeholder: "npx",
+                onChange: (event) => setCustomCommand(event.target.value)
+              })
+            ),
+            (0, import_react45.createElement)(
+              Row4,
+              { key: "args", label: t("Arguments") },
+              (0, import_react45.createElement)("input", {
+                className: "bt-input bt-browser-site",
+                type: "text",
+                value: customArgs,
+                placeholder: "-y @playwright/mcp@latest",
+                onChange: (event) => setCustomArgs(event.target.value)
+              })
+            )
+          ] : (0, import_react45.createElement)(
+            Row4,
+            { key: "url", label: t("URL") },
+            (0, import_react45.createElement)("input", {
+              className: "bt-input bt-browser-site",
+              type: "url",
+              required: true,
+              value: customUrl,
+              placeholder: "http://127.0.0.1:8931/mcp",
+              onChange: (event) => setCustomUrl(event.target.value)
+            })
+          )
+        ],
+        (0, import_react45.createElement)(
+          "div",
+          { className: "bt-browser-form-foot" },
+          (0, import_react45.createElement)("button", {
+            type: "submit",
+            className: "bt-send bt-soft-sm",
+            disabled: switching !== null || customName.trim() === ""
+          }, switching === "custom" ? t("Saving…") : t("Add"))
+        )
+      ) : (0, import_react45.createElement)("p", { className: "bt-browser-note" }, t("Register another DSH browser plugin package or a custom MCP browser server."))
+    ) : null,
+    (0, import_react45.createElement)(
+      Section2,
       { title: t("Allowed actions") },
-      (0, import_react45.createElement)("p", { className: "bt-browser-note" }, t("These grants apply only after an interactive browser plugin is enabled.")),
+      (0, import_react45.createElement)("p", { className: "bt-browser-note" }, supportsGrants ? t("With an interactive plugin, Bots browse, click and fill in forms. Posting, uploading, downloading and deleting ask you first unless you allow them here. Payments are always yours: the Bot hands the page to you.") : t("These grants apply to DS Bot’s built-in Playwright backend. The active external browser plugin handles its own permissions.")),
       grants.length === 0 ? (0, import_react45.createElement)(Row4, { label: t("Nothing allowed yet.") }) : grants.map(({ bot, grant, index, expired: expired2 }) => (0, import_react45.createElement)(
         "div",
         {

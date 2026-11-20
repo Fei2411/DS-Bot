@@ -29,7 +29,7 @@ runInNewContext(outputFiles[0].text, {
 })
 const { BrowserPage } = module.exports
 const h = react.createElement
-const Section = ({ title, children }) => h('section', null, h('h3', null, title), ...(children ?? []))
+const Section = ({ title, action, children }) => h('section', null, h('h3', null, title), action ?? null, ...(children ?? []))
 const Row = ({ label, hint, children }) => h('div', null, h('span', null, label), hint ? h('span', null, hint) : null, ...(children ?? []))
 const expand = (node) => {
   if (Array.isArray(node)) return node.flatMap(expand)
@@ -45,18 +45,83 @@ const textOf = (node) => {
   return ''
 }
 
-test('the Browser page says default browsing is read-only and names browserPlugin', () => {
+test('the Browser page renders hot-swappable backend choices and read-only default copy', () => {
   hook = 0
   cells.length = 0
   const text = textOf(expand(BrowserPage({ roster: { bots: [] }, actions: {}, run: () => {}, Section, Row })))
+  assert.match(text, /Browser backend/)
   assert.match(text, /A Bot can read the page you have open/)
   assert.match(text, /cannot click, type, scroll or open pages/)
-  assert.match(text, /How to enable interactive browsing/)
-  assert.match(text, /browserPlugin/)
-  assert.match(text, /refs, script or task/)
-  assert.match(text, /restart DS Bot/)
+  assert.match(text, /DS Bot Playwright · ARIA refs/)
+  assert.match(text, /DS Bot Playwright · Script/)
+  assert.match(text, /DS Bot Playwright · Whole task/)
+  assert.match(text, /DSH browser plugins/)
+  assert.match(text, /MCP browser servers/)
   assert.match(text, /With an interactive plugin, Bots browse, click and fill in forms/)
-  assert.match(text, /These grants apply only after an interactive browser plugin is enabled/)
-  assert.doesNotMatch(text, /Bots browse, click and fill in forms freely\./)
   assert.doesNotMatch(text, /freely/)
+})
+
+test('the Browser page lists ego lite DSH plugins, MCP servers, native providers, and external permission notice', () => {
+  hook = 0
+  cells.length = 0
+  const roster = {
+    bots: [],
+    browserBackend: {
+      active: 'dsh:dsh-ego-browser',
+      status: {
+        id: 'dsh:dsh-ego-browser',
+        kind: 'dsh-plugin',
+        name: 'Ego Browser (ego lite)',
+        mode: 'external',
+        state: 'ready',
+        supportsGrants: false,
+        message: null,
+        installCommand: null,
+      },
+      canInstall: true,
+      builtins: [
+        { id: 'builtin:refs', name: 'DS Bot Playwright · ARIA refs', description: 'Built-in refs' },
+      ],
+      dshPlugins: [
+        {
+          id: 'dsh:dsh-ego-browser',
+          name: 'Ego Browser (ego lite)',
+          description: 'Drive ego lite',
+          packageName: 'dsh-ego-browser',
+          installed: true,
+          version: '0.14.1',
+          installCommand: 'dsh plugin add dsh-ego-browser',
+        },
+        {
+          id: 'dsh:@dshworks/dsh-ego-browser',
+          name: 'Ego Browser Memory (ego lite)',
+          description: 'Site skill memory',
+          packageName: '@dshworks/dsh-ego-browser',
+          installed: false,
+          installCommand: 'dsh plugin add @dshworks/dsh-ego-browser',
+        },
+      ],
+      mcpServers: [
+        { id: 'mcp:playwright-mcp', name: 'Playwright MCP', transport: 'stdio', command: 'npx', args: ['-y', '@playwright/mcp@latest'] },
+      ],
+      providers: [
+        { id: 'provider:custom-cdp', name: 'Custom CDP Driver', description: 'Third-party native provider' },
+      ],
+    },
+  }
+  const text = textOf(expand(BrowserPage({
+    roster,
+    actions: { browserSetBackend: () => {}, browserInstallPlugin: () => {}, browserCustomSave: () => {} },
+    run: () => {},
+    Section,
+    Row,
+  })))
+  assert.match(text, /Ego Browser \(ego lite\)/)
+  assert.match(text, /0\.14\.1/)
+  assert.match(text, /Ego Browser Memory \(ego lite\)/)
+  assert.match(text, /Playwright MCP/)
+  assert.match(text, /Registered providers/)
+  assert.match(text, /Custom CDP Driver/)
+  assert.match(text, /Add custom browser plugin/)
+  assert.match(text, /The active external browser plugin handles its own permissions/)
 })
