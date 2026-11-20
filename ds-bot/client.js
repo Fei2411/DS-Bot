@@ -33482,7 +33482,11 @@ function ConnectorsPage({ roster, actions }) {
     const featured = FEATURED.map((id) => apps.find((app) => app.id === id)).filter(Boolean);
     body = [
       (0, import_react42.createElement)(Section, { key: "featured", place: "featured", signInPlaces, title: t("Recommended"), apps: featured, actions, open }),
-      ...CATEGORIES.map(([id, label]) => (0, import_react42.createElement)(Section, { key: id, place: id, signInPlaces, title: t(label), apps: inCategory(id), actions, open, onAll: () => setCategory(id) }))
+      ...CATEGORIES.map(([id, label]) => (0, import_react42.createElement)(Section, { key: id, place: id, signInPlaces, title: t(label), apps: inCategory(id), actions, open, onAll: () => setCategory(id) })),
+      // An added server has no catalog category. Without its own section a new OAuth
+      // entry, which stays off until its sign-in finishes, would be on neither the
+      // default page nor Connected, leaving Connect and Remove reachable by search only.
+      (0, import_react42.createElement)(Section, { key: "custom", place: "custom", signInPlaces, title: t("Other MCP server"), apps: inCategory("custom"), actions, open, onAll: () => setCategory("custom") })
     ];
   }
   return (0, import_react42.createElement)(

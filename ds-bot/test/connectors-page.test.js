@@ -345,6 +345,22 @@ test('an unconnected added server still offers Remove', async () => {
   assert.equal(collect(n => n.type === 'button' && flatten(n).join('') === 'Remove').length, 0, 'catalog rows never say Remove')
 })
 
+// An added server has no catalog category, and an OAuth one stays off until its
+// sign-in finishes: without a section of its own it is on neither the default page
+// nor Connected, and Connect and Remove are reachable by search only.
+test('an added OAuth server that has not signed in is listed on the default page', async () => {
+  slots.length = 0
+  const connects = []
+  const added = { id: 'example-mcp', name: 'Example MCP', category: 'custom', about: 'https://mcp.example.com/mcp', auth: { kind: 'oauth' }, custom: true, offFor: [], tools: 0, state: 'off' }
+  const actions = { connectorConnect: (id) => { connects.push(id); return Promise.resolve({ connectors: [added] }) } }
+  renderPage(pageWith(added, actions))
+  const connect = sectionButton('Other MCP server', 'Connect')
+  assert.ok(connect, 'the added server offers Connect under its own heading')
+  connect.props.onClick()
+  await flush()
+  assert.deepEqual(connects, ['example-mcp'])
+})
+
 // The rows the host sends (`pending` is the row built in connectors/index.js).
 const githubAuth = { kind: 'oauth', client: { id: 'client' }, token: true }
 const github = extra => ({ id: 'github', name: 'GitHub', category: 'dev', auth: githubAuth, state: 'off', ...extra })
