@@ -17978,8 +17978,9 @@ body[data-bt-goal="2"] [class*="_scroll"]:has(> [class*="_column"]){padding-top:
 [data-composer-card] [class*="_trailing"]{gap:8px!important}
 /* No display here: DSH hides these controls with [hidden] while the Bot works. */
 [data-composer-card] [class*="_standardControls"]{align-items:center!important;gap:8px!important}
-[data-composer-card] button[class*="_primary"]{width:28px!important;height:28px!important;background:var(--bt-accent)!important;color:var(--bt-accent-ink,#fff)!important;border-radius:50%!important;transition:opacity .15s ease,${spring(SPRING_TAP, "scale")};animation:bt-icon-swap ${SPRING_POP.duration}ms ${SPRING_POP.easing}}
-[data-composer-card] button[class*="_primary"]:hover:not(:disabled){opacity:.9}
+[data-composer-card] button[class*="_primary"]{width:28px!important;height:28px!important;background:var(--bt-accent)!important;color:var(--bt-accent-ink,#fff)!important;border-radius:50%!important;transition:background-color .15s ease,${spring(SPRING_TAP, "scale")};animation:bt-icon-swap ${SPRING_POP.duration}ms ${SPRING_POP.easing}}
+/* Hover tints the background instead of lowering opacity: an opacity change inside the blurred composer is suspected of making Windows repaint the whole window, so the UI flickers (#901). */
+[data-composer-card] button[class*="_primary"]:hover:not(:disabled){background-color:color-mix(in srgb,var(--bt-accent) 90%,transparent)!important}
 [data-composer-card] button[class*="_primary"]:active:not(:disabled){scale:.9}
 @keyframes bt-icon-swap{from{opacity:0;transform:scale(.5) rotate(-30deg)}}
 [data-composer-card] button[class*="_primary"] svg{width:14px;height:14px}
@@ -17991,7 +17992,7 @@ body[data-bt-goal="2"] [class*="_scroll"]:has(> [class*="_column"]){padding-top:
 .bt-mic[aria-pressed=true]{background:#ff3e51;color:#fff;animation:bt-mic-pulse 1.4s ease-in-out infinite}
 @keyframes bt-mic-pulse{0%,100%{box-shadow:0 0 0 0 rgba(255,62,81,.35)}50%{box-shadow:0 0 0 5px rgba(255,62,81,0)}}
 .bt-voice{display:none;background:var(--bt-accent);color:var(--bt-accent-ink,#fff);animation:bt-icon-swap ${SPRING_POP.duration}ms ${SPRING_POP.easing}}
-.bt-voice:hover{opacity:.9}
+.bt-voice:hover{background-color:color-mix(in srgb,var(--bt-accent) 90%,transparent)}
 .bt-mic:active,.bt-voice:active{scale:.9}
 /* Touch devices never hover: tap-open toolbars (data-open on the message), always
    visible icon buttons and 44px targets replace the hover affordances. The message

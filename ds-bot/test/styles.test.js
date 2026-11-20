@@ -244,3 +244,19 @@ test('trigger menu descriptions stay beside their row labels', () => {
   const css = readFileSync(new URL('../src/client/styles.js', import.meta.url), 'utf8')
   assert.match(css, /\[data-trigger-menu\] \[role=option\]>span\{text-align:left\}/)
 })
+
+test('send and voice buttons tint background-color on hover, matching their transition', () => {
+  const css = readFileSync(new URL('../src/client/styles.js', import.meta.url), 'utf8')
+  const send = '[data-composer-card] button[class*="_primary"]'
+  for (const selector of [`${send}:hover:not(:disabled)`, '.bt-voice:hover']) {
+    const start = css.indexOf(`${selector}{`)
+    assert.ok(start >= 0, `${selector} rule exists`)
+    const body = css.slice(start + selector.length + 1, css.indexOf('}', start))
+    assert.match(body, /(^|;)background-color:color-mix\(in srgb,var\(--bt-accent\) 90%,transparent\)/)
+    assert.doesNotMatch(body, /(^|;)background:/)
+    assert.doesNotMatch(body, /opacity/)
+  }
+  // The transition lists the property the hover changes, so the tint animates.
+  assert.match(css, /_primary"\]\{[^}]*transition:background-color \.15s ease/)
+  assert.match(css, /\.bt-voice\{[^}]*;transition:background-color \.15s ease|\.bt-mic,\.bt-voice\{[^}]*transition:background-color \.15s ease/)
+})
